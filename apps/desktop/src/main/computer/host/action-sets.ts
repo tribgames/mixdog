@@ -24,17 +24,20 @@ export function isComputerLifecycleControl(command: ComputerCommand): boolean {
 export function requiresForegroundLane(command: ComputerCommand): boolean {
   const action = String(command.action || '');
   const guardsFocus = (step: Partial<ComputerCommand>) =>
-    computerActionHas(String(step.action || ''), 'focusGuard')
-      || (step.action === 'click' && Boolean(step.ref) && !step.modifiers);
-  return command.delivery === 'foreground' || computerActionHas(action, 'foreground')
-    || guardsFocus(command)
-    || (action === 'sequence' && Array.isArray(command.steps)
-      && command.steps.some(guardsFocus));
+    computerActionHas(String(step.action || ''), 'focusGuard') ||
+    (step.action === 'click' && Boolean(step.ref) && !step.modifiers);
+  return (
+    command.delivery === 'foreground' ||
+    computerActionHas(action, 'foreground') ||
+    guardsFocus(command) ||
+    (action === 'sequence' && Array.isArray(command.steps) && command.steps.some(guardsFocus))
+  );
 }
 
 /** Resource serialization does not change the chosen input delivery. */
 export function computerDeliveryMode(command: ComputerCommand): 'background' | 'foreground' {
-  return command.delivery === 'foreground'
-    || (command.delivery !== 'background' && computerActionHas(String(command.action || ''), 'foreground'))
-    ? 'foreground' : 'background';
+  return command.delivery === 'foreground' ||
+    (command.delivery !== 'background' && computerActionHas(String(command.action || ''), 'foreground'))
+    ? 'foreground'
+    : 'background';
 }

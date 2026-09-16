@@ -46,8 +46,13 @@ export function reviewTextFragmentation(boxes = [], { minimumRun = 3 } = {}) {
       let last = start;
       for (const candidate of lines) {
         if (candidate === start || used.has(candidate) || run.includes(candidate)) continue;
-        const sameColumn = near(candidate.box.left, last.box.left, 4) && near(candidate.box.width, last.box.width, Math.max(12, last.box.width * 0.15));
-        const sameRole = candidate.line.size === last.line.size && candidate.line.bold === last.line.bold && candidate.line.font === last.line.font;
+        const sameColumn =
+          near(candidate.box.left, last.box.left, 4) &&
+          near(candidate.box.width, last.box.width, Math.max(12, last.box.width * 0.15));
+        const sameRole =
+          candidate.line.size === last.line.size &&
+          candidate.line.bold === last.line.bold &&
+          candidate.line.font === last.line.font;
         const step = candidate.box.top - last.box.top;
         const lineStep = last.line.size * 1.2;
         const consecutive = step > 0 && step <= Math.max(lineStep * 2.2, last.box.height + lineStep * 0.9);
@@ -80,12 +85,19 @@ export function reviewDeadVectorChart(content = [], boxes = [], { minimumBars = 
   const textShapes = new Set(boxes.map((box) => `${box.slide}:${box.shape}`));
   for (const [slide, entries] of bySlide(content)) {
     if (entries.some((entry) => entry.kind === 'p:graphicFrame')) continue;
-    const solids = entries.filter((entry) => entry.kind === 'p:sp' && !textShapes.has(`${entry.slide}:${entry.shape}`) && entry.width > 4 && entry.height > 4);
+    const solids = entries.filter(
+      (entry) =>
+        entry.kind === 'p:sp' && !textShapes.has(`${entry.slide}:${entry.shape}`) && entry.width > 4 && entry.height > 4
+    );
     if (solids.length < minimumBars) continue;
     const series = (axisOf, thicknessOf, lengthOf) => {
       const groups = [];
       for (const shape of solids) {
-        const group = groups.find((entry) => near(axisOf(shape), entry.axis, 3) && near(thicknessOf(shape), entry.thickness, Math.max(3, entry.thickness * 0.2)));
+        const group = groups.find(
+          (entry) =>
+            near(axisOf(shape), entry.axis, 3) &&
+            near(thicknessOf(shape), entry.thickness, Math.max(3, entry.thickness * 0.2))
+        );
         if (group) group.shapes.push(shape);
         else groups.push({ axis: axisOf(shape), thickness: thicknessOf(shape), shapes: [shape] });
       }
@@ -96,8 +108,18 @@ export function reviewDeadVectorChart(content = [], boxes = [], { minimumBars = 
         return distinct >= 3 && Math.max(...lengths) / Math.max(1, Math.min(...lengths)) >= 1.3;
       });
     };
-    const columns = series((shape) => shape.top + shape.height, (shape) => shape.width, (shape) => shape.height);
-    const bars = columns ? null : series((shape) => shape.left, (shape) => shape.height, (shape) => shape.width);
+    const columns = series(
+      (shape) => shape.top + shape.height,
+      (shape) => shape.width,
+      (shape) => shape.height
+    );
+    const bars = columns
+      ? null
+      : series(
+          (shape) => shape.left,
+          (shape) => shape.height,
+          (shape) => shape.width
+        );
     const found = columns || bars;
     if (!found) continue;
     issues.push({

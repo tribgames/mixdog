@@ -1,13 +1,13 @@
-import { type TranscriptItem } from "./desktop-types";
-import { normalizeApplyPatch } from "./renderer-logic.mjs";
-import { asRecord, oneLine } from "./text-format";
+import type { TranscriptItem } from './desktop-types';
+import { normalizeApplyPatch } from './renderer-logic.mjs';
+import { asRecord, oneLine } from './text-format';
 import {
   desktopToolActivityCategory,
   desktopToolActivityModeledName,
   toolActivityItemTone,
   toolItemDone,
   type ToolCardModel,
-} from "./transcript-tool-core";
+} from './transcript-tool-core';
 import {
   TOOL_ACTIVITY_BULK_ARGS,
   TOOL_ACTIVITY_INTERNAL_ARGS,
@@ -24,7 +24,7 @@ import {
   toolActivityRepresentedKeys,
   toolActivitySubject,
   toolActivityTitle,
-} from "./transcript-tool-format";
+} from './transcript-tool-format';
 import {
   toolActivityBackgroundTask,
   toolActivityCleanOutput,
@@ -35,15 +35,15 @@ import {
   toolActivityStructuredRows,
   type ToolActivityStructuredKind,
   type ToolActivityStructuredRow,
-} from "./transcript-tool-result";
+} from './transcript-tool-result';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { formatToolSurface } from "../../../../src/runtime/shared/tool-surface.mjs";
+import { formatToolSurface } from '../../../../src/runtime/shared/tool-surface.mjs';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { deriveToolCardModel } from "../../../../src/runtime/shared/tool-card-model.mjs";
+import { deriveToolCardModel } from '../../../../src/runtime/shared/tool-card-model.mjs';
 
-export * from "./transcript-tool-core";
-export * from "./transcript-tool-format";
-export * from "./transcript-tool-result";
+export * from './transcript-tool-core';
+export * from './transcript-tool-format';
+export * from './transcript-tool-result';
 
 export interface DesktopToolActivityItemPresentation {
   category: string;
@@ -76,9 +76,9 @@ export interface DesktopToolActivityItemPresentation {
 
 export function desktopToolActivityItemPresentation(
   item: TranscriptItem,
-  nowMs = Date.now(),
+  nowMs = Date.now()
 ): DesktopToolActivityItemPresentation {
-  const name = String(item.name || "tool");
+  const name = String(item.name || 'tool');
   const originalSurface = formatToolSurface(name, item.args);
   const originalName = originalSurface.normalizedName;
   const modeledName = desktopToolActivityModeledName(name, item.args);
@@ -107,38 +107,40 @@ export function desktopToolActivityItemPresentation(
     terminalStatus?: string;
   };
   const baseTone = toolActivityItemTone(item);
-  const tone = baseTone !== "neutral"
-    ? baseTone
-    : item.isError || Number(item.errorCount || 0) > 0 || /fail|error|timeout|denied/i.test(String(model.terminalStatus || ""))
-      ? "error"
-      : "neutral";
+  const tone =
+    baseTone !== 'neutral'
+      ? baseTone
+      : item.isError ||
+          Number(item.errorCount || 0) > 0 ||
+          /fail|error|timeout|denied/i.test(String(model.terminalStatus || ''))
+        ? 'error'
+        : 'neutral';
   const resultValue = toolActivityResultValue(item);
   const structured = toolActivityStructuredRows(normalizedName, args, resultValue);
   const title = toolActivityTitle(normalizedName, originalName, surface.label, args);
-  const subject = toolActivityRedactInlineSecrets(toolActivitySubject(
-    normalizedName,
-    args,
-    oneLine(String(model.summaryText || "")),
-  ), args);
+  const subject = toolActivityRedactInlineSecrets(
+    toolActivitySubject(normalizedName, args, oneLine(String(model.summaryText || ''))),
+    args
+  );
   const command = /^(?:shell|bash|bash_session|shell_command|job_wait|git)$/.test(normalizedName)
     ? toolActivityCommand(args)
-    : "";
+    : '';
   const represented = toolActivityRepresentedKeys(normalizedName);
-  if (desktopToolActivityCategory(name, item.args) === "MCP") {
-    ["query", "q", "text", "prompt", "path", "uri", "name", "id", "action"]
-      .forEach((key) => represented.add(key));
+  if (desktopToolActivityCategory(name, item.args) === 'MCP') {
+    ['query', 'q', 'text', 'prompt', 'path', 'uri', 'name', 'id', 'action'].forEach((key) => represented.add(key));
   }
   const fields = Object.entries(args)
-    .filter(([key, value]) => (
-      value !== undefined
-      && value !== null
-      && value !== ""
-      && !represented.has(key)
-      && !TOOL_ACTIVITY_INTERNAL_ARGS.has(key)
-      && !TOOL_ACTIVITY_BULK_ARGS.has(key)
-      && value !== false
-      && !(typeof value === "number" && value === 0)
-    ))
+    .filter(
+      ([key, value]) =>
+        value !== undefined &&
+        value !== null &&
+        value !== '' &&
+        !represented.has(key) &&
+        !TOOL_ACTIVITY_INTERNAL_ARGS.has(key) &&
+        !TOOL_ACTIVITY_BULK_ARGS.has(key) &&
+        value !== false &&
+        !(typeof value === 'number' && value === 0)
+    )
     .map(([key, value]) => ({
       key,
       label: toolActivityFieldLabel(key),
@@ -147,89 +149,87 @@ export function desktopToolActivityItemPresentation(
   // The argument fallback is the raw apply_patch envelope (`*** Begin Patch`),
   // which parseUnifiedDiff reads as one nameless "after" file with bogus
   // hunks; normalize it into a unified diff so the card names each file.
-  const argumentPatch = typeof args.patch === "string"
-    ? normalizeApplyPatch(args.patch).trim()
-    : "";
-  const diffPatch = typeof item.uiDiff === "string" && item.uiDiff.trim()
-    ? item.uiDiff.trim()
-    : normalizedName === "apply_patch" ? argumentPatch : "";
-  const previewText = originalName === "write" && typeof args.content === "string"
-    ? args.content
-    : "";
-  const beforeText = !diffPatch && normalizedName === "edit"
-    ? toolActivityFirstText(args, "old_string", "oldString", "old_str")
-    : "";
-  const afterText = !diffPatch && normalizedName === "edit"
-    ? toolActivityFirstText(args, "new_string", "newString", "new_str")
-    : "";
-  const targetPath = toolActivityFirstText(
-    args, "file_path", "filePath", "path", "file", "target",
+  const argumentPatch = typeof args.patch === 'string' ? normalizeApplyPatch(args.patch).trim() : '';
+  const diffPatch =
+    typeof item.uiDiff === 'string' && item.uiDiff.trim()
+      ? item.uiDiff.trim()
+      : normalizedName === 'apply_patch'
+        ? argumentPatch
+        : '';
+  const previewText = originalName === 'write' && typeof args.content === 'string' ? args.content : '';
+  const beforeText =
+    !diffPatch && normalizedName === 'edit' ? toolActivityFirstText(args, 'old_string', 'oldString', 'old_str') : '';
+  const afterText =
+    !diffPatch && normalizedName === 'edit' ? toolActivityFirstText(args, 'new_string', 'newString', 'new_str') : '';
+  const targetPath = toolActivityFirstText(args, 'file_path', 'filePath', 'path', 'file', 'target');
+  const previewLanguage = previewText ? toolActivityCodeLanguage(targetPath) : '';
+  const replacementLanguage = beforeText || afterText ? toolActivityCodeLanguage(targetPath) : '';
+  let outputText = toolActivityCleanOutput(
+    toolActivityOutputText(item.rawResult ?? model.displayedResultBodyText ?? item.result)
   );
-  const previewLanguage = previewText ? toolActivityCodeLanguage(targetPath) : "";
-  const replacementLanguage = beforeText || afterText
-    ? toolActivityCodeLanguage(targetPath)
-    : "";
-  let outputText = toolActivityCleanOutput(toolActivityOutputText(
-    item.rawResult ?? model.displayedResultBodyText ?? item.result,
-  ));
   const backgroundTask = toolActivityBackgroundTask(outputText);
-  const metaText = backgroundTask ? backgroundTask.meta : "";
+  const metaText = backgroundTask ? backgroundTask.meta : '';
   if (backgroundTask) outputText = backgroundTask.body;
-  const mutation = normalizedName === "edit" || normalizedName === "apply_patch";
-  const routineSurface = mutation
-    || normalizedName === "load_tool"
-    || /^(?:skill|skill_execute|skill_view|skills_list|use_skill)$/.test(normalizedName)
-    || normalizedName === "agent"
-    || normalizedName === "bridge"
-    || normalizedName === "task";
-  const quietSuccessSurface = normalizedName === "load_tool"
-    || /^(?:skill|skill_execute|skill_view|skills_list|use_skill)$/.test(normalizedName);
-  if (structured.kind || (tone === "neutral" && routineSurface
-    && TOOL_ACTIVITY_ROUTINE_RESULT.test(outputText.trim()))) {
-    outputText = "";
+  const mutation = normalizedName === 'edit' || normalizedName === 'apply_patch';
+  const routineSurface =
+    mutation ||
+    normalizedName === 'load_tool' ||
+    /^(?:skill|skill_execute|skill_view|skills_list|use_skill)$/.test(normalizedName) ||
+    normalizedName === 'agent' ||
+    normalizedName === 'bridge' ||
+    normalizedName === 'task';
+  const quietSuccessSurface =
+    normalizedName === 'load_tool' || /^(?:skill|skill_execute|skill_view|skills_list|use_skill)$/.test(normalizedName);
+  if (
+    structured.kind ||
+    (tone === 'neutral' && routineSurface && TOOL_ACTIVITY_ROUTINE_RESULT.test(outputText.trim()))
+  ) {
+    outputText = '';
   }
-  if (tone === "neutral" && quietSuccessSurface) outputText = "";
-  if (normalizedName === "view_image" && /^\[image:/i.test(outputText.trim())) outputText = "";
-  if (tone === "neutral" && diffPatch && outputText.split("\n").length === 1
-    && /(?:applied|updated|changed|created|deleted|success|done)/i.test(outputText)) {
-    outputText = "";
+  if (tone === 'neutral' && quietSuccessSurface) outputText = '';
+  if (normalizedName === 'view_image' && /^\[image:/i.test(outputText.trim())) outputText = '';
+  if (
+    tone === 'neutral' &&
+    diffPatch &&
+    outputText.split('\n').length === 1 &&
+    /(?:applied|updated|changed|created|deleted|success|done)/i.test(outputText)
+  ) {
+    outputText = '';
   }
-  let resultLabel = "";
+  let resultLabel = '';
   if (!model.pending) {
-    const semantic = oneLine(String(model.resultSummary || ""));
+    const semantic = oneLine(String(model.resultSummary || ''));
     if (semantic && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(semantic)) resultLabel = semantic;
-    if (tone === "neutral" && quietSuccessSurface) resultLabel = "";
-    if (!resultLabel && tone === "error") {
-      const failure = oneLine(String(model.headerFailureText || model.detailLine || ""));
-      resultLabel = toolActivityErrorSummary(outputText)
-        || (failure && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(failure) ? failure : "Failed");
+    if (tone === 'neutral' && quietSuccessSurface) resultLabel = '';
+    if (!resultLabel && tone === 'error') {
+      const failure = oneLine(String(model.headerFailureText || model.detailLine || ''));
+      resultLabel =
+        toolActivityErrorSummary(outputText) ||
+        (failure && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(failure) ? failure : 'Failed');
     }
   }
   if (structured.rows.length) {
     const completed = structured.rows.filter((row) => toolActivityIsCompleted(row.status)).length;
     resultLabel = `${completed}/${structured.rows.length}`;
   }
-  if (!resultLabel && normalizedName === "git_stage" && /^staged\b/i.test(outputText.trim())) {
-    resultLabel = "Staged";
+  if (!resultLabel && normalizedName === 'git_stage' && /^staged\b/i.test(outputText.trim())) {
+    resultLabel = 'Staged';
   }
-  if (resultLabel && outputText
-    && oneLine(outputText).toLocaleLowerCase() === resultLabel.toLocaleLowerCase()) {
-    outputText = "";
+  if (resultLabel && outputText && oneLine(outputText).toLocaleLowerCase() === resultLabel.toLocaleLowerCase()) {
+    outputText = '';
   }
-  resultLabel = resultLabel ? toolActivityLocalizedResult(resultLabel) : "";
-  const outputLanguage = outputText && !command && /^[{[]/.test(outputText.trimStart())
-    ? "json"
-    : "";
+  resultLabel = resultLabel ? toolActivityLocalizedResult(resultLabel) : '';
+  const outputLanguage = outputText && !command && /^[{[]/.test(outputText.trimStart()) ? 'json' : '';
   const hasDetails = Boolean(
-    command
-    || fields.length
-    || diffPatch
-    || outputText
-    || metaText
-    || previewText
-    || beforeText
-    || afterText
-    || structured.rows.length,
+    command ||
+      fields.length ||
+      diffPatch ||
+      outputText ||
+      metaText ||
+      previewText ||
+      beforeText ||
+      afterText ||
+      structured.rows.length
   );
   return {
     category: desktopToolActivityCategory(name, item.args),
@@ -244,7 +244,7 @@ export function desktopToolActivityItemPresentation(
     outputText,
     metaText,
     outputLanguage,
-    previewLabel: previewText ? TOOL_DETAIL_LABELS.content : "",
+    previewLabel: previewText ? TOOL_DETAIL_LABELS.content : '',
     previewText,
     previewLanguage,
     beforeText,
@@ -255,7 +255,6 @@ export function desktopToolActivityItemPresentation(
     hasDetails,
     hideSubjectWhenOpen: Boolean(command),
     targetPath,
-    ...(normalizedName === "read" && Number(args.offset) > 0
-      ? { targetLine: Math.floor(Number(args.offset)) } : {}),
+    ...(normalizedName === 'read' && Number(args.offset) > 0 ? { targetLine: Math.floor(Number(args.offset)) } : {}),
   };
 }

@@ -9,12 +9,27 @@ export function estimateRetainedChars(value: unknown, limit: number): number {
   let chars = 0;
   const visit = (current: unknown, depth: number): void => {
     if (chars > limit || current == null) return;
-    if (typeof current === "string") { chars += current.length + 8; return; }
-    if (typeof current === "number" || typeof current === "bigint") { chars += 4; return; }
-    if (typeof current === "boolean") { chars += 2; return; }
-    if (typeof current !== "object") { chars = overflow; return; }
+    if (typeof current === 'string') {
+      chars += current.length + 8;
+      return;
+    }
+    if (typeof current === 'number' || typeof current === 'bigint') {
+      chars += 4;
+      return;
+    }
+    if (typeof current === 'boolean') {
+      chars += 2;
+      return;
+    }
+    if (typeof current !== 'object') {
+      chars = overflow;
+      return;
+    }
     if (seen.has(current)) return;
-    if (depth >= 64) { chars = overflow; return; }
+    if (depth >= 64) {
+      chars = overflow;
+      return;
+    }
     seen.add(current);
     if (Array.isArray(current)) {
       chars += 16;
@@ -25,7 +40,10 @@ export function estimateRetainedChars(value: unknown, limit: number): number {
       return;
     }
     const prototype = Object.getPrototypeOf(current);
-    if (prototype !== null && prototype !== Object.prototype) { chars = overflow; return; }
+    if (prototype !== null && prototype !== Object.prototype) {
+      chars = overflow;
+      return;
+    }
     chars += 32;
     const record = current as Record<string, unknown>;
     for (const key in record) {
@@ -35,6 +53,10 @@ export function estimateRetainedChars(value: unknown, limit: number): number {
       visit(record[key], depth + 1);
     }
   };
-  try { visit(value, 0); } catch { return overflow; }
+  try {
+    visit(value, 0);
+  } catch {
+    return overflow;
+  }
   return Math.min(overflow, chars);
 }

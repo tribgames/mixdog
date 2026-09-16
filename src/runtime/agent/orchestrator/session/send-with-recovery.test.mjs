@@ -12,279 +12,309 @@ import test from 'node:test';
 const root = mkdtempSync(join(tmpdir(), 'mixdog-send-recovery-'));
 process.env.MIXDOG_DATA_DIR = root;
 process.env.MIXDOG_TRANSPORT_RETRY_BACKOFF_MS = '0,0,0';
-process.on('exit', () => { try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort */ } });
+process.on('exit', () => {
+  try {
+    rmSync(root, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
+});
 
 const { sendWithRecovery, TRANSPORT_RETRY_MAX } = await import('./send-with-recovery.mjs');
 
 function recordingOpts(extra = {}) {
-    const stages = [];
-    return {
-        stages,
-        opts: {
-            onStageChange: (stage, detail) => {
-                stages.push({ stage, attempt: detail?.attempt ?? null, message: detail?.message ?? null });
-            },
-            ...extra,
-        },
-    };
+  const stages = [];
+  return {
+    stages,
+    opts: {
+      onStageChange: (stage, detail) => {
+        stages.push({ stage, attempt: detail?.attempt ?? null, message: detail?.message ?? null });
+      },
+      ...extra,
+    },
+  };
 }
 
 function providerEmitting(script) {
-    return {
-        send: async (_messages, _model, _tools, sendOpts) => {
-            await script(sendOpts);
-            return { content: 'ok' };
-        },
-    };
+  return {
+    send: async (_messages, _model, _tools, sendOpts) => {
+      await script(sendOpts);
+      return { content: 'ok' };
+    },
+  };
 }
 
 function cursorStreamAbort() {
-    const error = new Error('Cursor stream was aborted');
-    error.code = 'stream_aborted';
-    error.cursorCode = 'stream_aborted';
-    return error;
+  const error = new Error('Cursor stream was aborted');
+  error.code = 'stream_aborted';
+  error.cursorCode = 'stream_aborted';
+  return error;
 }
 
 function committedToolHistory() {
-    return [
+  return [
+    {
+      role: 'assistant',
+      tool_calls: [
         {
-            role: 'assistant',
-            tool_calls: [{
-                id: 'call-complete',
-                type: 'function',
-                function: { name: 'read', arguments: '{"file_path":"done.txt"}' },
-            }],
+          id: 'call-complete',
+          type: 'function',
+          function: { name: 'read', arguments: '{"file_path":"done.txt"}' },
         },
-        { role: 'tool', tool_call_id: 'call-complete', content: 'done' },
-    ];
+      ],
+    },
+    { role: 'tool', tool_call_id: 'call-complete', content: 'done' },
+  ];
 }
 
 const baseCtx = {
-    messages: [],
-    model: 'test-model',
-    sendTools: [],
-    tools: [],
-    sessionId: 'sess-retry-visibility',
-    nextIteration: 1,
+  messages: [],
+  model: 'test-model',
+  sendTools: [],
+  tools: [],
+  sessionId: 'sess-retry-visibility',
+  nextIteration: 1,
 };
 
 test('a replayed send reports reconnect progress instead of a plain request', async () => {
-    const { stages, opts } = recordingOpts();
-    const provider = providerEmitting((sendOpts) => sendOpts.onStageChange('requesting'));
+  const { stages, opts } = recordingOpts();
+  const provider = providerEmitting((sendOpts) => sendOpts.onStageChange('requesting'));
 
-    const result = await sendWithRecovery({ ...baseCtx, provider, opts, transportRetriesUsed: 2 });
+  const result = await sendWithRecovery({ ...baseCtx, provider, opts, transportRetriesUsed: 2 });
 
-    assert.equal(result.action, 'proceed');
-    assert.deepEqual(stages.map((entry) => entry.stage), ['reconnecting']);
-    assert.equal(stages[0].attempt, 2);
-    assert.equal(stages[0].message, `Reconnecting... 2/${TRANSPORT_RETRY_MAX}`);
+  assert.equal(result.action, 'proceed');
+  assert.deepEqual(
+    stages.map((entry) => entry.stage),
+    ['reconnecting']
+  );
+  assert.equal(stages[0].attempt, 2);
+  assert.equal(stages[0].message, `Reconnecting... 2/${TRANSPORT_RETRY_MAX}`);
 });
 
 test('the replacement stream ends the reconnect display on its first visible delta', async () => {
-    const deltas = [];
-    const { stages, opts } = recordingOpts({ onStreamDelta: (kind) => { deltas.push(kind); } });
-    const provider = providerEmitting((sendOpts) => {
-        sendOpts.onStageChange('requesting');
-        sendOpts.onStreamDelta('text');
-        sendOpts.onStageChange('streaming');
-    });
+  const deltas = [];
+  const { stages, opts } = recordingOpts({
+    onStreamDelta: (kind) => {
+      deltas.push(kind);
+    },
+  });
+  const provider = providerEmitting((sendOpts) => {
+    sendOpts.onStageChange('requesting');
+    sendOpts.onStreamDelta('text');
+    sendOpts.onStageChange('streaming');
+  });
 
-    await sendWithRecovery({ ...baseCtx, provider, opts, transportRetriesUsed: 1 });
+  await sendWithRecovery({ ...baseCtx, provider, opts, transportRetriesUsed: 1 });
 
-    assert.deepEqual(stages.map((entry) => entry.stage), ['reconnecting', 'streaming', 'streaming']);
-    // The caller's own delta observer still runs underneath the wrapper.
-    assert.deepEqual(deltas, ['text']);
+  assert.deepEqual(
+    stages.map((entry) => entry.stage),
+    ['reconnecting', 'streaming', 'streaming']
+  );
+  // The caller's own delta observer still runs underneath the wrapper.
+  assert.deepEqual(deltas, ['text']);
 });
 
 test('transport-level acknowledgements alone do not end the reconnect display', async () => {
-    const { stages, opts } = recordingOpts();
-    const provider = providerEmitting((sendOpts) => {
-        sendOpts.onStageChange('requesting');
-        // Connection/ack progress is not visible model output.
-        sendOpts.onStreamDelta('transport');
-        sendOpts.onStageChange('streaming');
-    });
+  const { stages, opts } = recordingOpts();
+  const provider = providerEmitting((sendOpts) => {
+    sendOpts.onStageChange('requesting');
+    // Connection/ack progress is not visible model output.
+    sendOpts.onStreamDelta('transport');
+    sendOpts.onStageChange('streaming');
+  });
 
-    await sendWithRecovery({ ...baseCtx, provider, opts, transportRetriesUsed: 3 });
+  await sendWithRecovery({ ...baseCtx, provider, opts, transportRetriesUsed: 3 });
 
-    assert.deepEqual(stages.map((entry) => entry.stage), ['reconnecting', 'reconnecting']);
+  assert.deepEqual(
+    stages.map((entry) => entry.stage),
+    ['reconnecting', 'reconnecting']
+  );
 });
 
 test('a first attempt keeps its own stages and restores the caller callbacks', async () => {
-    const { stages, opts } = recordingOpts({ onStreamDelta: () => {} });
-    const originalStage = opts.onStageChange;
-    const originalDelta = opts.onStreamDelta;
-    const provider = providerEmitting((sendOpts) => {
-        sendOpts.onStageChange('requesting');
-        sendOpts.onStreamDelta('text');
-        sendOpts.onStageChange('streaming');
-    });
+  const { stages, opts } = recordingOpts({ onStreamDelta: () => {} });
+  const originalStage = opts.onStageChange;
+  const originalDelta = opts.onStreamDelta;
+  const provider = providerEmitting((sendOpts) => {
+    sendOpts.onStageChange('requesting');
+    sendOpts.onStreamDelta('text');
+    sendOpts.onStageChange('streaming');
+  });
 
-    await sendWithRecovery({ ...baseCtx, provider, opts, transportRetriesUsed: 0 });
+  await sendWithRecovery({ ...baseCtx, provider, opts, transportRetriesUsed: 0 });
 
-    assert.deepEqual(stages.map((entry) => entry.stage), ['requesting', 'streaming']);
-    assert.equal(opts.onStageChange, originalStage);
-    assert.equal(opts.onStreamDelta, originalDelta);
+  assert.deepEqual(
+    stages.map((entry) => entry.stage),
+    ['requesting', 'streaming']
+  );
+  assert.equal(opts.onStageChange, originalStage);
+  assert.equal(opts.onStreamDelta, originalDelta);
 });
 
 test('a Cursor abort after committed tool history retries the empty continuation', async () => {
-    const messages = committedToolHistory();
-    const attempts = [];
-    const { opts } = recordingOpts();
-    const provider = {
-        send: async (attemptMessages) => {
-            attempts.push(attemptMessages);
-            throw cursorStreamAbort();
-        },
-    };
+  const messages = committedToolHistory();
+  const attempts = [];
+  const { opts } = recordingOpts();
+  const provider = {
+    send: async (attemptMessages) => {
+      attempts.push(attemptMessages);
+      throw cursorStreamAbort();
+    },
+  };
 
-    const result = await sendWithRecovery({
-        ...baseCtx,
-        provider,
-        opts,
-        messages,
-        recoveryMessages: messages,
-        transportRetriesUsed: 0,
-    });
+  const result = await sendWithRecovery({
+    ...baseCtx,
+    provider,
+    opts,
+    messages,
+    recoveryMessages: messages,
+    transportRetriesUsed: 0,
+  });
 
-    assert.equal(result.action, 'retry_transport');
-    assert.equal(attempts.length, 1);
-    assert.equal(attempts[0], messages);
+  assert.equal(result.action, 'retry_transport');
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0], messages);
 });
 
 test('a Cursor abort retries a reasoning-only continuation after committed tool history', async () => {
-    const messages = committedToolHistory();
-    const abort = cursorStreamAbort();
-    abort.emittedReasoning = true;
-    const { opts } = recordingOpts();
-    const provider = {
-        send: async () => {
-            throw abort;
-        },
-    };
+  const messages = committedToolHistory();
+  const abort = cursorStreamAbort();
+  abort.emittedReasoning = true;
+  const { opts } = recordingOpts();
+  const provider = {
+    send: async () => {
+      throw abort;
+    },
+  };
 
-    const result = await sendWithRecovery({
-        ...baseCtx,
-        provider,
-        opts,
-        messages,
-        recoveryMessages: messages,
-        transportRetriesUsed: 0,
-    });
+  const result = await sendWithRecovery({
+    ...baseCtx,
+    provider,
+    opts,
+    messages,
+    recoveryMessages: messages,
+    transportRetriesUsed: 0,
+  });
 
-    assert.equal(result.action, 'retry_transport');
+  assert.equal(result.action, 'retry_transport');
 });
 
 test('loop retry diagnostics retain the WebSocket close code and current HTTP status', async (t) => {
-    const writes = [];
-    t.mock.method(process.stderr, 'write', (chunk) => {
-        writes.push(String(chunk));
-        return true;
-    });
-    const details = [];
-    const opts = {
-        onStageChange: (stage, detail) => {
-            if (stage === 'reconnecting') details.push(detail);
-        },
-    };
-    const failure = Object.assign(new Error('transport failure'), {
-        wsCloseCode: 1006,
-        httpStatus: 503,
-    });
-    const result = await sendWithRecovery({
-        ...baseCtx,
-        opts,
-        provider: { send: async () => { throw failure; } },
-    });
-    assert.equal(result.action, 'retry_transport');
-    assert.equal(details.length, 1);
-    assert.equal(details[0].wsCloseCode, 1006);
-    assert.equal(details[0].httpStatus, 503);
-    assert.ok(writes.some((line) => line.includes('wsCloseCode=1006') && line.includes('httpStatus=503')));
+  const writes = [];
+  t.mock.method(process.stderr, 'write', (chunk) => {
+    writes.push(String(chunk));
+    return true;
+  });
+  const details = [];
+  const opts = {
+    onStageChange: (stage, detail) => {
+      if (stage === 'reconnecting') details.push(detail);
+    },
+  };
+  const failure = Object.assign(new Error('transport failure'), {
+    wsCloseCode: 1006,
+    httpStatus: 503,
+  });
+  const result = await sendWithRecovery({
+    ...baseCtx,
+    opts,
+    provider: {
+      send: async () => {
+        throw failure;
+      },
+    },
+  });
+  assert.equal(result.action, 'retry_transport');
+  assert.equal(details.length, 1);
+  assert.equal(details[0].wsCloseCode, 1006);
+  assert.equal(details[0].httpStatus, 503);
+  assert.ok(writes.some((line) => line.includes('wsCloseCode=1006') && line.includes('httpStatus=503')));
 });
 
 test('a Cursor abort retries visible text only after the owner retracts it', async () => {
-    const abort = cursorStreamAbort();
-    abort.partialContent = 'partial answer';
-    abort.liveTextEmitted = true;
-    const resets = [];
-    const { opts } = recordingOpts({
-        onTextDelta: () => {},
-        onTextReset: async (detail) => {
-            resets.push(detail);
-            return true;
-        },
-    });
-    const provider = {
-        send: async (_messages, _model, _tools, sendOpts) => {
-            sendOpts.onTextDelta(abort.partialContent);
-            throw abort;
-        },
-    };
+  const abort = cursorStreamAbort();
+  abort.partialContent = 'partial answer';
+  abort.liveTextEmitted = true;
+  const resets = [];
+  const { opts } = recordingOpts({
+    onTextDelta: () => {},
+    onTextReset: async (detail) => {
+      resets.push(detail);
+      return true;
+    },
+  });
+  const provider = {
+    send: async (_messages, _model, _tools, sendOpts) => {
+      sendOpts.onTextDelta(abort.partialContent);
+      throw abort;
+    },
+  };
 
-    const result = await sendWithRecovery({
-        ...baseCtx,
-        provider,
-        opts,
-        transportRetriesUsed: 0,
-    });
+  const result = await sendWithRecovery({
+    ...baseCtx,
+    provider,
+    opts,
+    transportRetriesUsed: 0,
+  });
 
-    assert.equal(result.action, 'retry_transport');
-    assert.deepEqual(resets, [{
-        chars: abort.partialContent.length,
-        reasoning: false,
-        reason: 'loop-transport-retraction',
-    }]);
+  assert.equal(result.action, 'retry_transport');
+  assert.deepEqual(resets, [
+    {
+      chars: abort.partialContent.length,
+      reasoning: false,
+      reason: 'loop-transport-retraction',
+    },
+  ]);
 });
 
 test('a Cursor abort does not retry visible text when the owner rejects retraction', async () => {
-    const abort = cursorStreamAbort();
-    abort.partialContent = 'partial answer';
-    abort.liveTextEmitted = true;
-    let resetAttempts = 0;
-    const { opts } = recordingOpts({
-        onTextDelta: () => {},
-        onTextReset: async () => {
-            resetAttempts += 1;
-            return false;
-        },
-    });
-    const provider = {
-        send: async (_messages, _model, _tools, sendOpts) => {
-            sendOpts.onTextDelta(abort.partialContent);
-            throw abort;
-        },
-    };
+  const abort = cursorStreamAbort();
+  abort.partialContent = 'partial answer';
+  abort.liveTextEmitted = true;
+  let resetAttempts = 0;
+  const { opts } = recordingOpts({
+    onTextDelta: () => {},
+    onTextReset: async () => {
+      resetAttempts += 1;
+      return false;
+    },
+  });
+  const provider = {
+    send: async (_messages, _model, _tools, sendOpts) => {
+      sendOpts.onTextDelta(abort.partialContent);
+      throw abort;
+    },
+  };
 
-    await assert.rejects(
-        sendWithRecovery({
-            ...baseCtx,
-            provider,
-            opts,
-            transportRetriesUsed: 0,
-        }),
-        (error) => error === abort,
-    );
-    assert.equal(resetAttempts, 1);
+  await assert.rejects(
+    sendWithRecovery({
+      ...baseCtx,
+      provider,
+      opts,
+      transportRetriesUsed: 0,
+    }),
+    (error) => error === abort
+  );
+  assert.equal(resetAttempts, 1);
 });
 
 test('a Cursor abort does not replay a tool dispatched by the failing send', async () => {
-    const abort = cursorStreamAbort();
-    const { opts } = recordingOpts({ onToolCall: () => {} });
-    const provider = {
-        send: async (_messages, _model, _tools, sendOpts) => {
-            sendOpts.onToolCall({ id: 'call-side-effect', name: 'shell', arguments: '{}' });
-            throw abort;
-        },
-    };
+  const abort = cursorStreamAbort();
+  const { opts } = recordingOpts({ onToolCall: () => {} });
+  const provider = {
+    send: async (_messages, _model, _tools, sendOpts) => {
+      sendOpts.onToolCall({ id: 'call-side-effect', name: 'shell', arguments: '{}' });
+      throw abort;
+    },
+  };
 
-    await assert.rejects(
-        sendWithRecovery({
-            ...baseCtx,
-            provider,
-            opts,
-            transportRetriesUsed: 0,
-        }),
-        (error) => error === abort,
-    );
+  await assert.rejects(
+    sendWithRecovery({
+      ...baseCtx,
+      provider,
+      opts,
+      transportRetriesUsed: 0,
+    }),
+    (error) => error === abort
+  );
 });

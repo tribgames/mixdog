@@ -14,40 +14,46 @@ test('agent pool lists living idle workers and drops dead ones', () => {
   process.env.MIXDOG_DATA_DIR = root;
   try {
     mkdirSync(join(root, 'sessions'));
-    writeFileSync(join(root, 'sessions', 'child-a.json'), JSON.stringify({
-      id: 'child-a',
-      title: 'Review dependency update',
-      ownerSessionId: 'lead-a',
-      agent: 'reviewer',
-    }));
-    writeFileSync(join(root, 'agent-workers.json'), JSON.stringify({
-      workers: {
-        a: {
-          tag: 'review',
-          sessionId: 'child-a',
-          ownerSessionId: 'lead-a',
-          agent: 'reviewer',
-          status: 'idle',
-          stage: 'idle',
+    writeFileSync(
+      join(root, 'sessions', 'child-a.json'),
+      JSON.stringify({
+        id: 'child-a',
+        title: 'Review dependency update',
+        ownerSessionId: 'lead-a',
+        agent: 'reviewer',
+      })
+    );
+    writeFileSync(
+      join(root, 'agent-workers.json'),
+      JSON.stringify({
+        workers: {
+          a: {
+            tag: 'review',
+            sessionId: 'child-a',
+            ownerSessionId: 'lead-a',
+            agent: 'reviewer',
+            status: 'idle',
+            stage: 'idle',
+          },
+          b: {
+            tag: 'work',
+            sessionId: 'child-b',
+            ownerSessionId: 'lead-b',
+            agent: 'worker',
+            status: 'running',
+            stage: 'running',
+          },
+          c: {
+            tag: 'done',
+            sessionId: 'child-c',
+            ownerSessionId: 'lead-c',
+            agent: 'worker',
+            status: 'closed',
+            stage: 'closed',
+          },
         },
-        b: {
-          tag: 'work',
-          sessionId: 'child-b',
-          ownerSessionId: 'lead-b',
-          agent: 'worker',
-          status: 'running',
-          stage: 'running',
-        },
-        c: {
-          tag: 'done',
-          sessionId: 'child-c',
-          ownerSessionId: 'lead-c',
-          agent: 'worker',
-          status: 'closed',
-          stage: 'closed',
-        },
-      },
-    }));
+      })
+    );
     const rows = listStoredAgentWorkers();
     assert.deepEqual(rows.map((row) => row.sessionId).sort(), ['child-a', 'child-b']);
     assert.equal(rows.find((row) => row.sessionId === 'child-a')?.status, 'idle');
@@ -65,44 +71,53 @@ test('agent pool joins a resident Lead lease without projecting session history'
   process.env.MIXDOG_DATA_DIR = root;
   try {
     mkdirSync(join(root, 'sessions'));
-    writeFileSync(join(root, 'sessions', 'leada.json'), JSON.stringify({
-      id: 'leada',
-      owner: 'user',
-      agent: 'lead',
-      sourceType: 'lead',
-      status: 'idle',
-      provider: 'xai',
-      model: 'grok',
-      messages: [{ role: 'user', content: 'hello' }],
-    }));
-    writeFileSync(join(root, 'agent-workers.json'), JSON.stringify({
-      workers: {
-        child: {
-          tag: 'review',
-          sessionId: 'childa',
-          ownerSessionId: 'leada',
-          agent: 'reviewer',
-          status: 'idle',
-          stage: 'idle',
+    writeFileSync(
+      join(root, 'sessions', 'leada.json'),
+      JSON.stringify({
+        id: 'leada',
+        owner: 'user',
+        agent: 'lead',
+        sourceType: 'lead',
+        status: 'idle',
+        provider: 'xai',
+        model: 'grok',
+        messages: [{ role: 'user', content: 'hello' }],
+      })
+    );
+    writeFileSync(
+      join(root, 'agent-workers.json'),
+      JSON.stringify({
+        workers: {
+          child: {
+            tag: 'review',
+            sessionId: 'childa',
+            ownerSessionId: 'leada',
+            agent: 'reviewer',
+            status: 'idle',
+            stage: 'idle',
+          },
         },
-      },
-    }));
-    writeFileSync(join(root, 'lead-workers.json'), JSON.stringify({
-      workers: {
-        leada: {
-          tag: 'lead:leada',
-          sessionId: 'leada',
-          ownerSessionId: 'leada',
-          agent: 'lead',
-          status: 'idle',
-          stage: 'idle',
-          provider: 'xai',
-          model: 'grok',
-          updatedAt: new Date().toISOString(),
-          reapAt: new Date(Date.now() + 60_000).toISOString(),
+      })
+    );
+    writeFileSync(
+      join(root, 'lead-workers.json'),
+      JSON.stringify({
+        workers: {
+          leada: {
+            tag: 'lead:leada',
+            sessionId: 'leada',
+            ownerSessionId: 'leada',
+            agent: 'lead',
+            status: 'idle',
+            stage: 'idle',
+            provider: 'xai',
+            model: 'grok',
+            updatedAt: new Date().toISOString(),
+            reapAt: new Date(Date.now() + 60_000).toISOString(),
+          },
         },
-      },
-    }));
+      })
+    );
     const rows = listStoredAgentWorkers();
     assert.deepEqual(rows.map((row) => row.sessionId).sort(), ['childa', 'leada']);
     const lead = rows.find((row) => row.sessionId === 'leada');
@@ -122,25 +137,31 @@ test('agent pool drops reaped Leads and does not revive historical Lead sessions
   process.env.MIXDOG_DATA_DIR = root;
   try {
     mkdirSync(join(root, 'sessions'));
-    writeFileSync(join(root, 'sessions', 'history.json'), JSON.stringify({
-      id: 'history',
-      owner: 'user',
-      agent: 'lead',
-      status: 'idle',
-      messages: [{ role: 'user', content: 'old task' }],
-    }));
-    writeFileSync(join(root, 'lead-workers.json'), JSON.stringify({
-      workers: {
-        history: {
-          sessionId: 'history',
-          agent: 'lead',
-          status: 'idle',
-          stage: 'idle',
-          updatedAt: new Date(Date.now() - 120_000).toISOString(),
-          reapAt: new Date(Date.now() - 60_000).toISOString(),
+    writeFileSync(
+      join(root, 'sessions', 'history.json'),
+      JSON.stringify({
+        id: 'history',
+        owner: 'user',
+        agent: 'lead',
+        status: 'idle',
+        messages: [{ role: 'user', content: 'old task' }],
+      })
+    );
+    writeFileSync(
+      join(root, 'lead-workers.json'),
+      JSON.stringify({
+        workers: {
+          history: {
+            sessionId: 'history',
+            agent: 'lead',
+            status: 'idle',
+            stage: 'idle',
+            updatedAt: new Date(Date.now() - 120_000).toISOString(),
+            reapAt: new Date(Date.now() - 60_000).toISOString(),
+          },
         },
-      },
-    }));
+      })
+    );
     assert.deepEqual(listStoredAgentWorkers(), []);
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
@@ -153,13 +174,16 @@ test('an expired Lead takes its idle children out of the pool, and a live lease 
   withAgentPoolRoot('mixdog-lead-orphan-', (root) => {
     // The Lead conversation is still open, but its pool row was reaped: the
     // Agent window has no Lead row left to hang these children under.
-    writeFileSync(join(root, 'sessions', 'lead-open.json'), JSON.stringify({
-      id: 'lead-open',
-      owner: 'cli',
-      agent: 'lead',
-      sourceType: 'lead',
-      status: 'idle',
-    }));
+    writeFileSync(
+      join(root, 'sessions', 'lead-open.json'),
+      JSON.stringify({
+        id: 'lead-open',
+        owner: 'cli',
+        agent: 'lead',
+        sourceType: 'lead',
+        status: 'idle',
+      })
+    );
     writeAgentChild(root, 'child-idle', { ownerSessionId: 'lead-open' });
     writeAgentWorkerIndex(root, {
       idle: {
@@ -171,37 +195,48 @@ test('an expired Lead takes its idle children out of the pool, and a live lease 
         stage: 'idle',
       },
     });
-    assert.deepEqual(listStoredAgentWorkers().map((row) => row.sessionId), []);
-
-    writeFileSync(join(root, 'lead-workers.json'), JSON.stringify({
-      workers: {
-        'lead-open': {
-          tag: 'lead:lead-open',
-          sessionId: 'lead-open',
-          ownerSessionId: 'lead-open',
-          agent: 'lead',
-          status: 'idle',
-          stage: 'idle',
-          updatedAt: new Date().toISOString(),
-          reapAt: new Date(Date.now() + 60_000).toISOString(),
-        },
-      },
-    }));
     assert.deepEqual(
-      listStoredAgentWorkers().map((row) => row.sessionId).sort(),
-      ['child-idle', 'lead-open'],
+      listStoredAgentWorkers().map((row) => row.sessionId),
+      []
+    );
+
+    writeFileSync(
+      join(root, 'lead-workers.json'),
+      JSON.stringify({
+        workers: {
+          'lead-open': {
+            tag: 'lead:lead-open',
+            sessionId: 'lead-open',
+            ownerSessionId: 'lead-open',
+            agent: 'lead',
+            status: 'idle',
+            stage: 'idle',
+            updatedAt: new Date().toISOString(),
+            reapAt: new Date(Date.now() + 60_000).toISOString(),
+          },
+        },
+      })
+    );
+    assert.deepEqual(
+      listStoredAgentWorkers()
+        .map((row) => row.sessionId)
+        .sort(),
+      ['child-idle', 'lead-open']
     );
   });
 });
 
 test('a working child outlives its Lead row so live work stays visible', () => {
   withAgentPoolRoot('mixdog-lead-orphan-working-', (root) => {
-    writeFileSync(join(root, 'sessions', 'lead-open.json'), JSON.stringify({
-      id: 'lead-open',
-      owner: 'cli',
-      agent: 'lead',
-      status: 'idle',
-    }));
+    writeFileSync(
+      join(root, 'sessions', 'lead-open.json'),
+      JSON.stringify({
+        id: 'lead-open',
+        owner: 'cli',
+        agent: 'lead',
+        status: 'idle',
+      })
+    );
     writeAgentChild(root, 'child-working', {
       ownerSessionId: 'lead-open',
       status: 'running',
@@ -226,20 +261,26 @@ test('a working child outlives its Lead row so live work stays visible', () => {
 test('child terminal leases persist provider deadlines across registry recreation', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-child-reap-persist-'));
   const sessions = new Map([
-    ['openai-child', {
-      id: 'openai-child',
-      agentTag: 'openai-review',
-      ownerSessionId: 'lead-a',
-      agent: 'reviewer',
-      provider: 'openai-oauth',
-    }],
-    ['anthropic-child', {
-      id: 'anthropic-child',
-      agentTag: 'anthropic-review',
-      ownerSessionId: 'lead-a',
-      agent: 'reviewer',
-      provider: 'anthropic-oauth',
-    }],
+    [
+      'openai-child',
+      {
+        id: 'openai-child',
+        agentTag: 'openai-review',
+        ownerSessionId: 'lead-a',
+        agent: 'reviewer',
+        provider: 'openai-oauth',
+      },
+    ],
+    [
+      'anthropic-child',
+      {
+        id: 'anthropic-child',
+        agentTag: 'anthropic-review',
+        ownerSessionId: 'lead-a',
+        agent: 'reviewer',
+        provider: 'anthropic-oauth',
+      },
+    ],
   ]);
   const manager = {
     getSession: (sessionId) => sessions.get(sessionId) || null,
@@ -282,11 +323,11 @@ test('child terminal leases persist provider deadlines across registry recreatio
     const restartedRows = Object.values(stored.workers);
     assert.equal(
       restartedRows.find((row) => row.sessionId === 'openai-child').reapAt,
-      new Date(openaiDeadline).toISOString(),
+      new Date(openaiDeadline).toISOString()
     );
     assert.equal(
       restartedRows.find((row) => row.sessionId === 'anthropic-child').reapAt,
-      new Date(anthropicDeadline).toISOString(),
+      new Date(anthropicDeadline).toISOString()
     );
     assert.equal(restarted.reapTimers.has('openai-child'), true);
     assert.equal(restarted.reapTimers.has('anthropic-child'), true);
@@ -301,31 +342,34 @@ test('child boot recovery reaps expired legacy idle rows and preserves remaining
   const root = mkdtempSync(join(tmpdir(), 'mixdog-child-reap-recover-'));
   const now = Date.now();
   try {
-    writeFileSync(join(root, 'agent-workers.json'), JSON.stringify({
-      version: 2,
-      workers: {
-        expired: {
-          tag: 'old-review',
-          sessionId: 'expired-child',
-          ownerSessionId: 'lead-a',
-          agent: 'reviewer',
-          provider: 'anthropic-oauth',
-          status: 'idle',
-          stage: 'idle',
-          updatedAt: new Date(now - 2 * 60 * 60_000).toISOString(),
+    writeFileSync(
+      join(root, 'agent-workers.json'),
+      JSON.stringify({
+        version: 2,
+        workers: {
+          expired: {
+            tag: 'old-review',
+            sessionId: 'expired-child',
+            ownerSessionId: 'lead-a',
+            agent: 'reviewer',
+            provider: 'anthropic-oauth',
+            status: 'idle',
+            stage: 'idle',
+            updatedAt: new Date(now - 2 * 60 * 60_000).toISOString(),
+          },
+          remaining: {
+            tag: 'recent-review',
+            sessionId: 'remaining-child',
+            ownerSessionId: 'lead-a',
+            agent: 'reviewer',
+            provider: 'openai-oauth',
+            status: 'idle',
+            stage: 'idle',
+            updatedAt: new Date(now - 10 * 60_000).toISOString(),
+          },
         },
-        remaining: {
-          tag: 'recent-review',
-          sessionId: 'remaining-child',
-          ownerSessionId: 'lead-a',
-          agent: 'reviewer',
-          provider: 'openai-oauth',
-          status: 'idle',
-          stage: 'idle',
-          updatedAt: new Date(now - 10 * 60_000).toISOString(),
-        },
-      },
-    }));
+      })
+    );
     const registry = createTagRegistry({
       dataDir: root,
       cfgMod: { loadConfig: () => ({}) },
@@ -334,15 +378,17 @@ test('child boot recovery reaps expired legacy idle rows and preserves remaining
     });
     const stored = JSON.parse(readFileSync(join(root, 'agent-workers.json'), 'utf8'));
     const rows = Object.values(stored.workers);
-    assert.equal(rows.some((row) => row.sessionId === 'expired-child'), false);
+    assert.equal(
+      rows.some((row) => row.sessionId === 'expired-child'),
+      false
+    );
     const remaining = rows.find((row) => row.sessionId === 'remaining-child');
     assert.ok(remaining);
     const remainingDeadline = Date.parse(remaining.reapAt);
     assert.ok(remainingDeadline - now >= 19 * 60_000);
     assert.ok(remainingDeadline - now <= 21 * 60_000);
     assert.equal(registry.reapTimers.has('remaining-child'), true);
-    assert.ok(Object.values(stored.tombstones)
-      .some((row) => row.tag === 'old-review' && row.reapedAt));
+    assert.ok(Object.values(stored.tombstones).some((row) => row.tag === 'old-review' && row.reapedAt));
     registry.cancelReap('remaining-child');
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -373,13 +419,19 @@ test('Lead lifecycle uses only lead-workers.json and removes the idle lease on r
       createdAt: new Date().toISOString(),
     };
     assert.equal(index.upsertLeadSession(lead, { status: 'running', stage: 'running' }), true);
-    assert.equal(index.upsertLeadSession({
-      ...lead,
-      id: 'worker-runtime',
-      owner: 'agent',
-      agent: 'worker',
-      ownerSessionId: lead.id,
-    }, { status: 'running', stage: 'running' }), false);
+    assert.equal(
+      index.upsertLeadSession(
+        {
+          ...lead,
+          id: 'worker-runtime',
+          owner: 'agent',
+          agent: 'worker',
+          ownerSessionId: lead.id,
+        },
+        { status: 'running', stage: 'running' }
+      ),
+      false
+    );
     assert.equal(existsSync(join(root, 'agent-workers.json')), false);
     let stored = JSON.parse(readFileSync(join(root, 'lead-workers.json'), 'utf8'));
     assert.equal(stored.workers['lead-runtime'].status, 'running');
@@ -405,31 +457,34 @@ test('Lead boot recovery settles a running row whose runtime died, and keeps a l
   try {
     mkdirSync(join(root, 'sessions'));
     const now = Date.now();
-    writeFileSync(join(root, 'lead-workers.json'), JSON.stringify({
-      workers: {
-        crashed: {
-          sessionId: 'crashed',
-          agent: 'lead',
-          status: 'running',
-          stage: 'running',
-          // Inside the freshness window: only the dead runtime proves it stopped.
-          runtimePid: 0x7fffffff,
-          turnStartedAt: new Date(now - 5_000).toISOString(),
-          updatedAt: new Date(now - 5_000).toISOString(),
-          reapAt: new Date(now + 600_000).toISOString(),
+    writeFileSync(
+      join(root, 'lead-workers.json'),
+      JSON.stringify({
+        workers: {
+          crashed: {
+            sessionId: 'crashed',
+            agent: 'lead',
+            status: 'running',
+            stage: 'running',
+            // Inside the freshness window: only the dead runtime proves it stopped.
+            runtimePid: 0x7fffffff,
+            turnStartedAt: new Date(now - 5_000).toISOString(),
+            updatedAt: new Date(now - 5_000).toISOString(),
+            reapAt: new Date(now + 600_000).toISOString(),
+          },
+          live: {
+            sessionId: 'live',
+            agent: 'lead',
+            status: 'running',
+            stage: 'running',
+            runtimePid: process.pid,
+            turnStartedAt: new Date(now - 5_000).toISOString(),
+            updatedAt: new Date(now - 5_000).toISOString(),
+            reapAt: new Date(now + 600_000).toISOString(),
+          },
         },
-        live: {
-          sessionId: 'live',
-          agent: 'lead',
-          status: 'running',
-          stage: 'running',
-          runtimePid: process.pid,
-          turnStartedAt: new Date(now - 5_000).toISOString(),
-          updatedAt: new Date(now - 5_000).toISOString(),
-          reapAt: new Date(now + 600_000).toISOString(),
-        },
-      },
-    }));
+      })
+    );
     createLeadWorkerIndex({
       dataDir: root,
       cfgMod: { loadConfig: () => ({}) },
@@ -475,17 +530,20 @@ function writeAgentChild(root, sessionId, extra = {}) {
     stage,
     ...rest
   } = extra;
-  writeFileSync(join(root, 'sessions', `${sessionId}.json`), JSON.stringify({
-    id: sessionId,
-    owner: 'agent',
-    ownerSessionId,
-    agent,
-    agentTag: tag,
-    title,
-    status: status || stage || 'idle',
-    stage: stage || status || 'idle',
-    ...rest,
-  }));
+  writeFileSync(
+    join(root, 'sessions', `${sessionId}.json`),
+    JSON.stringify({
+      id: sessionId,
+      owner: 'agent',
+      ownerSessionId,
+      agent,
+      agentTag: tag,
+      title,
+      status: status || stage || 'idle',
+      stage: stage || status || 'idle',
+      ...rest,
+    })
+  );
 }
 
 function writeAgentWorkerIndex(root, workers) {
@@ -542,10 +600,7 @@ test('cancel that removes the worker row does not publish the session as running
       },
     });
     writeFreshHeartbeat(root, 'child-forget');
-    assert.equal(
-      listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-forget')?.status,
-      'running',
-    );
+    assert.equal(listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-forget')?.status, 'running');
 
     createTagRegistry({
       dataDir: root,
@@ -567,9 +622,7 @@ test('cancel that removes the worker row does not publish the session as running
     writeFreshHeartbeat(root, 'child-forget');
 
     const stored = JSON.parse(readFileSync(join(root, 'agent-workers.json'), 'utf8'));
-    const remaining = Array.isArray(stored.workers)
-      ? stored.workers
-      : Object.values(stored.workers || {});
+    const remaining = Array.isArray(stored.workers) ? stored.workers : Object.values(stored.workers || {});
     assert.equal(remaining.filter((row) => row?.sessionId === 'child-forget').length, 0);
 
     const row = listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-forget');
@@ -594,10 +647,7 @@ test('genuinely new work on a previously cancelled session still reports running
       },
     });
     writeFreshHeartbeat(root, 'child-reuse');
-    assert.equal(
-      listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-reuse')?.status,
-      'cancelled',
-    );
+    assert.equal(listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-reuse')?.status, 'cancelled');
 
     writeAgentChild(root, 'child-reuse', {
       status: 'running',
@@ -671,14 +721,17 @@ test('stored Agent pool preserves root ownership and immediate nested parent lin
       status: 'closed',
       stage: 'closed',
     });
-    writeFileSync(join(root, 'sessions', 'root-lead.json'), JSON.stringify({
-      id: 'root-lead',
-      owner: 'user',
-      ownerSessionId: 'root-lead',
-      agent: 'lead',
-      status: 'idle',
-      messages: [{ role: 'user', content: 'root task' }],
-    }));
+    writeFileSync(
+      join(root, 'sessions', 'root-lead.json'),
+      JSON.stringify({
+        id: 'root-lead',
+        owner: 'user',
+        ownerSessionId: 'root-lead',
+        agent: 'lead',
+        status: 'idle',
+        messages: [{ role: 'user', content: 'root task' }],
+      })
+    );
     writeAgentWorkerIndex(root, {
       direct: {
         tag: 'direct',
@@ -690,19 +743,22 @@ test('stored Agent pool preserves root ownership and immediate nested parent lin
         stage: 'idle',
       },
     });
-    writeFileSync(join(root, 'lead-workers.json'), JSON.stringify({
-      workers: {
-        root: {
-          sessionId: 'root-lead',
-          ownerSessionId: 'root-lead',
-          agent: 'lead',
-          status: 'idle',
-          stage: 'idle',
-          updatedAt: new Date().toISOString(),
-          reapAt: new Date(Date.now() + 60_000).toISOString(),
+    writeFileSync(
+      join(root, 'lead-workers.json'),
+      JSON.stringify({
+        workers: {
+          root: {
+            sessionId: 'root-lead',
+            ownerSessionId: 'root-lead',
+            agent: 'lead',
+            status: 'idle',
+            stage: 'idle',
+            updatedAt: new Date().toISOString(),
+            reapAt: new Date(Date.now() + 60_000).toISOString(),
+          },
         },
-      },
-    }));
+      })
+    );
     // No worker-index row: the heartbeat/session fallback must carry the same
     // production ancestry shape for a live nested descendant.
     writeFreshHeartbeat(root, 'grandchild');

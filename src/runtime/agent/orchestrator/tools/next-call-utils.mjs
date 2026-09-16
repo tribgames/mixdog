@@ -39,8 +39,11 @@ function parseNextCallArgs(text, start) {
         let j = i + 1;
         while (j < text.length && /\s/.test(text[j])) j++;
         if (text[j] !== ')') return null;
-        try { return { args: JSON.parse(raw), end: j + 1 }; }
-        catch { return null; }
+        try {
+          return { args: JSON.parse(raw), end: j + 1 };
+        } catch {
+          return null;
+        }
       }
     }
   }

@@ -5,15 +5,8 @@
 import { readFileSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { dirname as pathDirname } from 'node:path';
-import {
-  normalizeOutputPath,
-  invalidateBuiltinResultCache,
-  clearReadSnapshotForPath,
-} from '../builtin.mjs';
-import {
-  rawContentCacheGet,
-  rawContentCacheSet,
-} from '../builtin/cache-layers.mjs';
+import { normalizeOutputPath, invalidateBuiltinResultCache, clearReadSnapshotForPath } from '../builtin.mjs';
+import { rawContentCacheGet, rawContentCacheSet } from '../builtin/cache-layers.mjs';
 import { atomicWrite } from '../builtin/atomic-write.mjs';
 import { assertPathReachable, assertPathsReachable } from '../builtin/fs-reachability.mjs';
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
@@ -131,13 +124,7 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
     oldStartIdx = eofInsertionIndex(sourceLines);
   } else {
     const searchFrom = Math.max(0, anchorLine - 1);
-    oldStartIdx = findLineSequence(
-      sourceLines,
-      oldLinesPattern,
-      searchFrom,
-      searchFrom,
-      { fuzzy, eof },
-    );
+    oldStartIdx = findLineSequence(sourceLines, oldLinesPattern, searchFrom, searchFrom, { fuzzy, eof });
     // V4A parity (compute_replacements): when the first seek fails and the
     // pattern's last line is the empty string that stands in for the region's
     // terminating newline, retry without it. The retry runs for EVERY
@@ -155,15 +142,10 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
         newLinesPattern = newLinesPattern.slice(0, -1);
         trimmedTrailingNew = 1;
       }
-      oldStartIdx = oldLinesPattern.length === 0
-        ? anchorLine
-        : findLineSequence(
-          sourceLines,
-          oldLinesPattern,
-          searchFrom,
-          searchFrom,
-          { fuzzy, eof },
-        );
+      oldStartIdx =
+        oldLinesPattern.length === 0
+          ? anchorLine
+          : findLineSequence(sourceLines, oldLinesPattern, searchFrom, searchFrom, { fuzzy, eof });
     }
   }
   // Escape-equivalence fallback (fuzzy, non-EOF only): accept a window where each old
@@ -225,8 +207,8 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
   // to drag the hunk to that other place and silently no-op the edit.
   if (fuzzy) {
     const plusRestored = restorePlusAsContext(sourceLines, hunk);
-    const plusCoversMatch = plusRestored
-      && plusWindowCoversMatch(plusRestored.start, plusRestored.oldLines.length, oldStartIdx);
+    const plusCoversMatch =
+      plusRestored && plusWindowCoversMatch(plusRestored.start, plusRestored.oldLines.length, oldStartIdx);
     if (plusRestored && plusCoversMatch) {
       oldStartIdx = plusRestored.start;
       oldLinesPattern = plusRestored.oldLines;
@@ -242,7 +224,10 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
       for (let k = 0; k < oldLinesPattern.length; k++) {
         const pat = oldLinesPattern[k];
         const src = sourceLines[indent.start + k];
-        if (remapped.has(pat) && remapped.get(pat) !== src) { ambiguous = true; break; }
+        if (remapped.has(pat) && remapped.get(pat) !== src) {
+          ambiguous = true;
+          break;
+        }
         remapped.set(pat, src);
       }
       if (!ambiguous) {
@@ -263,7 +248,10 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
       for (let k = 0; k < oldLinesPattern.length; k++) {
         const pat = oldLinesPattern[k];
         const src = sourceLines[alt + k];
-        if (remapped.has(pat) && remapped.get(pat) !== src) { ambiguous = true; break; }
+        if (remapped.has(pat) && remapped.get(pat) !== src) {
+          ambiguous = true;
+          break;
+        }
         remapped.set(pat, src);
       }
       if (!ambiguous) {
@@ -287,10 +275,10 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
         const pat = oldLinesPattern[k];
         const src = sourceLines[tol.start + k];
         if (src === pat) continue;
-        if (
-          oldLinesPattern.filter((l) => l === pat).length > 1
-          || (remapped.has(pat) && remapped.get(pat) !== src)
-        ) { ambiguous = true; break; }
+        if (oldLinesPattern.filter((l) => l === pat).length > 1 || (remapped.has(pat) && remapped.get(pat) !== src)) {
+          ambiguous = true;
+          break;
+        }
         remapped.set(pat, src);
       }
       if (!ambiguous) {
@@ -326,10 +314,10 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
         const pat = oldLinesPattern[k];
         const src = sourceLines[near.start + k];
         if (src === pat) continue;
-        if (
-          oldLinesPattern.filter((l) => l === pat).length > 1
-          || (remapped.has(pat) && remapped.get(pat) !== src)
-        ) { ambiguous = true; break; }
+        if (oldLinesPattern.filter((l) => l === pat).length > 1 || (remapped.has(pat) && remapped.get(pat) !== src)) {
+          ambiguous = true;
+          break;
+        }
         remapped.set(pat, src);
       }
       if (!ambiguous) {
@@ -350,7 +338,10 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
       const pat = oldLinesPattern[k];
       const src = sourceLines[oldStartIdx + k];
       if (pat === src) continue;
-      if (remapped.has(pat) && remapped.get(pat) !== src) { ambiguous = true; break; }
+      if (remapped.has(pat) && remapped.get(pat) !== src) {
+        ambiguous = true;
+        break;
+      }
       remapped.set(pat, src);
     }
     if (!ambiguous && remapped.size > 0) {
@@ -440,11 +431,7 @@ function applyV4AHunksToLines(sourceLines, hunks, options = {}) {
       ? lines.terminators.slice(rep.oldStartIdx, rep.oldStartIdx + rep.oldLen)
       : [];
     const newTerms = rep.ops
-      ? terminatorsForUnifiedOps(
-        rep.ops,
-        oldTerms,
-        localTerminatorForWindow(lines, rep.oldStartIdx, rep.oldLen),
-      )
+      ? terminatorsForUnifiedOps(rep.ops, oldTerms, localTerminatorForWindow(lines, rep.oldStartIdx, rep.oldLen))
       : null;
     spliceTextLinesForPatch(lines, rep.oldStartIdx, rep.oldLen, rep.newLines, newTerms);
   }
@@ -462,8 +449,11 @@ function orderV4AHunksByFilePosition(sourceLines, hunks, fuzzy) {
     const stats = v4AHunkLineStats(hunk);
     if (stats.oldCount === 0 && stats.newCount === 0) continue;
     let loc;
-    try { loc = resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, { fuzzy }); }
-    catch { loc = { error: true }; }
+    try {
+      loc = resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, { fuzzy });
+    } catch {
+      loc = { error: true };
+    }
     if (!loc || loc.error || loc.skip || typeof loc.nextSearchLine !== 'number') {
       inputOrderValid = false;
       break;
@@ -491,7 +481,10 @@ function orderV4AHunksByFilePosition(sourceLines, hunks, fuzzy) {
     for (let i = 0; i + seq.length <= sourceLines.length; i++) {
       let match = true;
       for (let j = 0; j < seq.length; j++) {
-        if (sourceLines[i + j] !== seq[j]) { match = false; break; }
+        if (sourceLines[i + j] !== seq[j]) {
+          match = false;
+          break;
+        }
       }
       if (match) {
         if (pos < 0) pos = i;
@@ -502,7 +495,7 @@ function orderV4AHunksByFilePosition(sourceLines, hunks, fuzzy) {
     if (count !== 1) return list;
     keyed.push({ hunk, key: pos, idx });
   }
-  keyed.sort((a, b) => (a.key - b.key) || (a.idx - b.idx));
+  keyed.sort((a, b) => a.key - b.key || a.idx - b.idx);
   return keyed.map((e) => e.hunk);
 }
 
@@ -611,15 +604,17 @@ export async function applyV4ARenameSection(section, basePath, options = {}) {
   // physical file. atomicWrite(destFull) rewrites (and re-cases) it; the
   // source unlink below would then delete the just-written file, so skip it.
   const caseOnlySameFile =
-    (v4aRenamePathKey(srcFull) === v4aRenamePathKey(destFull) && srcFull !== destFull)
-    || renameTargetsSamePhysicalFile(srcFull, destFull);
+    (v4aRenamePathKey(srcFull) === v4aRenamePathKey(destFull) && srcFull !== destFull) ||
+    renameTargetsSamePhysicalFile(srcFull, destFull);
   const displaySrc = normalizeOutputPath(section.path);
   const displayDest = normalizeOutputPath(section.movePath);
   let sourceLines;
   try {
     sourceLines = v4aConversionSourceLines(srcFull, options.linesCache || new Map());
   } catch (err) {
-    throw new Error(`apply_patch: V4A rename source unreadable: ${displaySrc} (${err?.code || err?.message || String(err)})`);
+    throw new Error(
+      `apply_patch: V4A rename source unreadable: ${displaySrc} (${err?.code || err?.message || String(err)})`
+    );
   }
   let updatedLines;
   try {
@@ -627,10 +622,7 @@ export async function applyV4ARenameSection(section, basePath, options = {}) {
   } catch (err) {
     throw err;
   }
-  const newContent = encodePatchTargetContent(
-    joinTextLinesForPatch(updatedLines),
-    sourceLines.encoding,
-  );
+  const newContent = encodePatchTargetContent(joinTextLinesForPatch(updatedLines), sourceLines.encoding);
   if (options.dryRun) {
     return {
       ok: true,
@@ -655,7 +647,9 @@ export async function applyV4ARenameSection(section, basePath, options = {}) {
   } catch (err) {
     try {
       if (destBefore === null) {
-        try { await unlink(destFull); } catch {}
+        try {
+          await unlink(destFull);
+        } catch {}
       } else {
         await atomicWrite(destFull, destBefore, { sessionId: options.readStateScope });
       }
@@ -665,7 +659,9 @@ export async function applyV4ARenameSection(section, basePath, options = {}) {
         await atomicWrite(srcFull, originalContent, { sessionId: options.readStateScope });
       } catch {}
     }
-    throw new Error(`apply_patch: V4A rename failed for ${displaySrc} → ${displayDest} (${err?.message || String(err)})`);
+    throw new Error(
+      `apply_patch: V4A rename failed for ${displaySrc} → ${displayDest} (${err?.message || String(err)})`
+    );
   }
   invalidateBuiltinResultCache([srcFull, destFull]);
   markCodeGraphDirtyPaths([srcFull, destFull]);
@@ -684,7 +680,9 @@ export async function applyV4ARenameSection(section, basePath, options = {}) {
 export function formatV4ARenameSuccessLines(results) {
   return (results || [])
     .filter((r) => r?.ok && !r.skipped)
-    .map((r) => `OK ${r.displayPath} (renamed from ${r.fromPath}, ~${r.linesChanged} lines touched, engine=v4a-rename)`);
+    .map(
+      (r) => `OK ${r.displayPath} (renamed from ${r.fromPath}, ~${r.linesChanged} lines touched, engine=v4a-rename)`
+    );
 }
 
 export async function planV4ARenameSections(sections, basePath) {
@@ -703,9 +701,9 @@ export async function planV4ARenameSections(sections, basePath) {
   // never on overlapping paths: renames apply BEFORE the non-rename waves, so
   // a shared target would silently reorder operations. Refuse overlaps and
   // duplicate sources up front.
-  const remainingKeys = new Set(remainingSections.map(
-    (section) => v4aRenamePathKey(resolveV4AEntryPath(basePath, section.path)),
-  ));
+  const remainingKeys = new Set(
+    remainingSections.map((section) => v4aRenamePathKey(resolveV4AEntryPath(basePath, section.path)))
+  );
   const seenDestKeys = new Set();
   const seenSrcKeys = new Set();
   for (const section of renameSections) {
@@ -716,7 +714,9 @@ export async function planV4ARenameSections(sections, basePath) {
     }
     seenSrcKeys.add(srcKey);
     if (remainingKeys.has(srcKey) || remainingKeys.has(destKey)) {
-      throw new Error(`apply_patch: V4A rename ${normalizeOutputPath(section.path)} → ${normalizeOutputPath(section.movePath)} touches a path another section edits; split into separate patches.`);
+      throw new Error(
+        `apply_patch: V4A rename ${normalizeOutputPath(section.path)} → ${normalizeOutputPath(section.movePath)} touches a path another section edits; split into separate patches.`
+      );
     }
     const errText = validateV4ARenameSection(section, basePath, seenDestKeys);
     if (errText) throw new Error(errText);
@@ -771,7 +771,7 @@ export async function convertV4ASectionsToUnifiedPatch(sections, basePath, optio
   {
     const reachPaths = [];
     const _seenReach = new Set();
-    for (const s of (sections || [])) {
+    for (const s of sections || []) {
       if (!s || s.kind === 'add' || typeof s.path !== 'string' || !s.path) continue;
       const fp = resolveV4AEntryPath(basePath, s.path);
       if (_seenReach.has(fp)) continue;
@@ -796,7 +796,8 @@ export async function convertV4ASectionsToUnifiedPatch(sections, basePath, optio
       if (!s || s.kind === 'add' || s.kind === 'delete' || typeof s.path !== 'string' || !s.path) continue;
       const fp = resolveV4AEntryPath(basePath, s.path);
       const key = v4aLinesCacheKey(fp);
-      if (seenUpd.has(key)) dupUpdatePaths.add(key); else seenUpd.add(key);
+      if (seenUpd.has(key)) dupUpdatePaths.add(key);
+      else seenUpd.add(key);
     }
   }
   for (const section of sections) {
@@ -859,7 +860,7 @@ export async function convertV4ASectionsToUnifiedPatch(sections, basePath, optio
       // Emit from the remapped old/new window, not the original hunk tags.
       // Recovery tiers (opcode-prefix restore, indent, outer-trim) may keep a
       // parsed '-' line as context; walking hunk.lines would still delete it.
-      const oldLines = loc.matchLen === 0 ? [] : (loc.pattern || []);
+      const oldLines = loc.matchLen === 0 ? [] : loc.pattern || [];
       const newLines = loc.newLines || [];
       const bodyLines = emitUnifiedReplacement(oldLines, newLines);
       const emittedOld = oldLines.length;
@@ -871,16 +872,13 @@ export async function convertV4ASectionsToUnifiedPatch(sections, basePath, optio
       sectionHunkEntries.push({
         start: loc.oldStartIdx,
         order: sectionHunkEntries.length,
-        lines: [
-          `@@ -${oldStart},${emittedOld} +${oldStart},${emittedNew} @@${tail ? ` ${tail}` : ''}`,
-          ...bodyLines,
-        ],
+        lines: [`@@ -${oldStart},${emittedOld} +${oldStart},${emittedNew} @@${tail ? ` ${tail}` : ''}`, ...bodyLines],
       });
       noteV4AHunkAmbiguity(displayPath, sourceLines, loc);
       noteV4AEofSignalIgnored(displayPath, loc);
       nextSearchLine = loc.nextSearchLine;
     }
-    sectionHunkEntries.sort((a, b) => (a.start - b.start) || (a.order - b.order));
+    sectionHunkEntries.sort((a, b) => a.start - b.start || a.order - b.order);
     for (const entry of sectionHunkEntries) sectionHunks.push(...entry.lines);
     if (sectionHunks.length > 0) {
       out.push(`--- a/${displayPath}`);
@@ -895,7 +893,9 @@ export async function convertV4ASectionsToUnifiedPatch(sections, basePath, optio
     if (dupUpdatePaths.has(v4aLinesCacheKey(fullPath))) {
       try {
         v4aLinesCache.set(v4aLinesCacheKey(fullPath), applyV4AHunksToLines(sourceLines, section.hunks, { fuzzy }));
-      } catch { /* leave original cached lines */ }
+      } catch {
+        /* leave original cached lines */
+      }
     }
   }
   return out.length > 0 ? `${out.join('\n')}\n` : '';

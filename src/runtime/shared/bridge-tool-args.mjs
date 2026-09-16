@@ -29,9 +29,7 @@ export function splitBridgeToolArgs(args, rootFields = ['action']) {
     return {
       hasNestedInput: true,
       input: parseJsonObjectArg(args.input),
-      strayRootFields: Object.keys(args).filter(
-        (name) => name !== 'input' && !rootFields.includes(name),
-      ),
+      strayRootFields: Object.keys(args).filter((name) => name !== 'input' && !rootFields.includes(name)),
     };
   }
   const input = {};

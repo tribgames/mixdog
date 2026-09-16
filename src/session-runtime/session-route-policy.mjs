@@ -3,18 +3,19 @@ import { hasUserConversationMessage } from '../runtime/agent/orchestrator/sessio
 
 function hasRouteHistoryMessage(messages) {
   const list = Array.isArray(messages) ? messages : [];
-  return hasUserConversationMessage(list) || list.some((message) => (
-    message?.role === 'user'
-    && typeof message.content === 'string'
-    && message.content.startsWith(SUMMARY_PREFIX)
-  ));
+  return (
+    hasUserConversationMessage(list) ||
+    list.some(
+      (message) =>
+        message?.role === 'user' && typeof message.content === 'string' && message.content.startsWith(SUMMARY_PREFIX)
+    )
+  );
 }
 
 // A first turn owns its model before its working transcript is committed.
 // Compacted conversations still own their route through the summary anchor.
 export function sessionHasRouteHistory(session) {
-  return hasRouteHistoryMessage(session?.messages)
-    || hasRouteHistoryMessage(session?.liveTurnMessages);
+  return hasRouteHistoryMessage(session?.messages) || hasRouteHistoryMessage(session?.liveTurnMessages);
 }
 
 export function sessionUsesRoute(session, route) {

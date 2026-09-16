@@ -6,11 +6,21 @@
    below read as one list. The rail picker reuses the list without chrome. */
 /* Each provider is its own card; cards stack on the group's 16px rhythm and
    the header row stays tinted so it reads as the card's title band. */
-.settings-provider-cards { gap: 16px; }
-.settings-provider-cards > header { margin-bottom: -4px; }
-.settings-provider-cards > .settings-group-body { padding: 0 20px; }
-.provider-accounts { min-width: 0; }
-.provider-accounts-list > li:first-child { border-top: .5px solid var(--mx-border); }
+.settings-provider-cards {
+  gap: 16px;
+}
+.settings-provider-cards > header {
+  margin-bottom: -4px;
+}
+.settings-provider-cards > .settings-group-body {
+  padding: 0 20px;
+}
+.provider-accounts {
+  min-width: 0;
+}
+.provider-accounts-list > li:first-child {
+  border-top: 0.5px solid var(--mx-border);
+}
 .provider-accounts-heading {
   min-height: 52px;
   display: flex;
@@ -26,7 +36,10 @@
   place-items: center;
   color: var(--mx-text);
 }
-.provider-accounts-icon svg { width: var(--mx-icon-md); height: var(--mx-icon-md); }
+.provider-accounts-icon svg {
+  width: var(--mx-icon-md);
+  height: var(--mx-icon-md);
+}
 .provider-accounts-heading > b {
   min-width: 0;
   overflow: hidden;
@@ -43,7 +56,12 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-.provider-accounts-heading-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.provider-accounts-heading-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .provider-accounts-auto {
   display: inline-flex;
   align-items: center;
@@ -54,7 +72,9 @@
   cursor: pointer;
   user-select: none;
 }
-.provider-accounts-auto:hover { color: var(--mx-text); }
+.provider-accounts-auto:hover {
+  color: var(--mx-text);
+}
 .provider-account-add-button {
   width: 28px;
   height: 28px;
@@ -69,16 +89,34 @@
   box-shadow: var(--mx-button);
   cursor: pointer;
 }
-.provider-account-add-button:hover:not(:disabled) { background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base); }
-.provider-account-add-button:active:not(:disabled) { background: var(--mx-flat-press); }
-.provider-account-add-button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.provider-account-add-button:hover:not(:disabled) {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+}
+.provider-account-add-button:active:not(:disabled) {
+  background: var(--mx-flat-press);
+}
+.provider-account-add-button:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
 
-.provider-accounts-list { list-style: none; margin: 0; padding: 0; }
-.provider-accounts-list > li { position: relative; background: var(--mx-bg-layer-1); }
-.provider-accounts-list > li + li { border-top: .5px solid var(--mx-border-muted); }
+.provider-accounts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.provider-accounts-list > li {
+  position: relative;
+  background: var(--mx-bg-layer-1);
+}
+.provider-accounts-list > li + li {
+  border-top: 0.5px solid var(--mx-border-muted);
+}
 /* Pointer reorder: displaced rows glide; the lifted row rides above them with
    a raised plate and no transition so it tracks the pointer 1:1. */
-.provider-accounts.is-dragging .provider-accounts-list > li { transition: transform var(--mx-motion-base) var(--mx-ease-emphasized); }
+.provider-accounts.is-dragging .provider-accounts-list > li {
+  transition: transform var(--mx-motion-base) var(--mx-ease-emphasized);
+}
 .provider-accounts.is-dragging .provider-accounts-list > li.is-lifted {
   z-index: 2;
   transition: none;
@@ -87,15 +125,29 @@
   will-change: transform;
   border-top-color: transparent;
   border-radius: var(--mx-radius-md);
-  box-shadow: var(--mx-popup-shadow), inset 0 0 0 .5px var(--mx-border);
+  box-shadow:
+    var(--mx-popup-shadow),
+    inset 0 0 0 0.5px var(--mx-border);
   cursor: grabbing;
 }
-.provider-accounts.is-dragging .provider-accounts-list > li.is-lifted + li { border-top-color: transparent; }
-.provider-accounts.is-dragging, .provider-accounts.is-dragging * { user-select: none; }
+.provider-accounts.is-dragging .provider-accounts-list > li.is-lifted + li {
+  border-top-color: transparent;
+}
+.provider-accounts.is-dragging,
+.provider-accounts.is-dragging * {
+  user-select: none;
+}
 .provider-accounts.is-dragging .provider-account-select,
 .provider-accounts.is-dragging .provider-account-name,
-.provider-accounts.is-dragging .settings-resource-actions { pointer-events: none; }
-.provider-account-copy { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.provider-accounts.is-dragging .settings-resource-actions {
+  pointer-events: none;
+}
+.provider-account-copy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
 .provider-account-meta {
   overflow: hidden;
   color: var(--mx-text-muted);
@@ -125,9 +177,21 @@
   background: transparent;
   cursor: grab;
 }
-.provider-account-grip:hover:not(:disabled) { color: var(--mx-text-muted); background: var(--mx-hover); }
-.provider-account-grip:active { cursor: grabbing; }
-.provider-account-identity { position: relative; min-width: 0; flex: 1; display: flex; align-items: center; min-height: 28px; }
+.provider-account-grip:hover:not(:disabled) {
+  color: var(--mx-text-muted);
+  background: var(--mx-hover);
+}
+.provider-account-grip:active {
+  cursor: grabbing;
+}
+.provider-account-identity {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
 /* Full-row switch target behind the name; the name button and pills sit
    above it so rename stays reachable. */
 .provider-account-select {
@@ -140,10 +204,23 @@
   background: transparent;
   cursor: pointer;
 }
-.provider-accounts-list > li:has(.provider-account-select:hover) { background: var(--mx-hover); }
-.provider-account-select:focus-visible { outline: 2px solid var(--mx-focus); outline-offset: -2px; }
-.provider-account-title { position: relative; min-width: 0; display: flex; align-items: center; gap: 8px; }
-.provider-account-title > .settings-status { flex: none; }
+.provider-accounts-list > li:has(.provider-account-select:hover) {
+  background: var(--mx-hover);
+}
+.provider-account-select:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: -2px;
+}
+.provider-account-title {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.provider-account-title > .settings-status {
+  flex: none;
+}
 .provider-account-name {
   min-width: 0;
   max-width: 100%;
@@ -169,10 +246,23 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.provider-account-name > svg { flex: none; color: var(--mx-text-faint); opacity: 0; transition: opacity var(--mx-motion-ink); }
-.provider-account-name:hover > svg, .provider-account-name:focus-visible > svg { opacity: 1; }
-.provider-account-name:hover:not(:disabled) { background: var(--mx-hover); }
-.provider-account-title form { min-width: 0; width: min(280px, 100%); }
+.provider-account-name > svg {
+  flex: none;
+  color: var(--mx-text-faint);
+  opacity: 0;
+  transition: opacity var(--mx-motion-ink);
+}
+.provider-account-name:hover > svg,
+.provider-account-name:focus-visible > svg {
+  opacity: 1;
+}
+.provider-account-name:hover:not(:disabled) {
+  background: var(--mx-hover);
+}
+.provider-account-title form {
+  min-width: 0;
+  width: min(280px, 100%);
+}
 .provider-account-title input {
   box-sizing: border-box;
   width: 100%;
@@ -194,15 +284,23 @@
   gap: 8px;
   margin-left: auto;
 }
-.provider-accounts-notice, .provider-accounts-error {
+.provider-accounts-notice,
+.provider-accounts-error {
   padding: 0 0 12px 32px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-.provider-accounts-error { color: var(--mx-danger); }
-.provider-accounts button:focus-visible { outline: 2px solid var(--mx-focus); outline-offset: -2px; }
-.provider-accounts button:disabled { cursor: default; }
+.provider-accounts-error {
+  color: var(--mx-danger);
+}
+.provider-accounts button:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: -2px;
+}
+.provider-accounts button:disabled {
+  cursor: default;
+}
 
 /* Rail picker: the > beside a provider name opens ONLY the account list. */
 /* The "…" trigger is the header's 28px action box (icon-muted, 16px glyph),
@@ -224,10 +322,15 @@
   color: var(--mx-icon-muted);
   background: transparent;
   cursor: pointer;
-  transition: color var(--mx-motion-ink), background-color var(--mx-motion-ink);
+  transition:
+    color var(--mx-motion-ink),
+    background-color var(--mx-motion-ink);
 }
 .provider-account-picker-trigger:hover,
-.provider-account-picker-trigger[aria-expanded="true"] { color: var(--mx-text); background: var(--mx-hover); }
+.provider-account-picker-trigger[aria-expanded="true"] {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
 .provider-account-picker {
   position: fixed;
   z-index: 1200;
@@ -241,19 +344,31 @@
   box-shadow: var(--mx-popup-shadow);
   animation: mx-menu-in var(--mx-motion-chrome);
 }
-.provider-accounts.is-list-only { border: 0; }
-.provider-accounts.is-list-only .provider-accounts-list > li { border: 0; }
+.provider-accounts.is-list-only {
+  border: 0;
+}
+.provider-accounts.is-list-only .provider-accounts-list > li {
+  border: 0;
+}
 .provider-accounts.is-list-only .provider-account-row {
   min-height: 32px;
   gap: 4px;
   padding: 0;
   border-radius: var(--mx-radius-md);
 }
-.provider-accounts.is-list-only .provider-account-row:hover { background: var(--mx-hover); }
-.provider-accounts.is-list-only .provider-account-grip { height: 32px; }
-.provider-accounts.is-list-only .provider-account-grip:hover:not(:disabled) { background: transparent; }
+.provider-accounts.is-list-only .provider-account-row:hover {
+  background: var(--mx-hover);
+}
+.provider-accounts.is-list-only .provider-account-grip {
+  height: 32px;
+}
+.provider-accounts.is-list-only .provider-account-grip:hover:not(:disabled) {
+  background: transparent;
+}
 .provider-accounts.is-list-only .provider-accounts-notice,
-.provider-accounts.is-list-only .provider-accounts-error { padding: 8px 10px; }
+.provider-accounts.is-list-only .provider-accounts-error {
+  padding: 8px 10px;
+}
 .provider-account-choice {
   min-width: 0;
   flex: 1;
@@ -270,7 +385,22 @@
   text-align: left;
   cursor: pointer;
 }
-.provider-account-choice > span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.provider-account-choice > small { flex: none; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
-.provider-account-choice > svg { flex: none; color: var(--mx-text-accent); }
-.provider-account-choice:disabled { color: var(--mx-text-muted); }
+.provider-account-choice > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.provider-account-choice > small {
+  flex: none;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.provider-account-choice > svg {
+  flex: none;
+  color: var(--mx-text-accent);
+}
+.provider-account-choice:disabled {
+  color: var(--mx-text-muted);
+}

@@ -3,11 +3,7 @@
 
 import { existsSync, realpathSync } from 'node:fs';
 import { resolve as pathResolve, relative as pathRelative, isAbsolute, dirname as pathDirname } from 'node:path';
-import {
-  normalizeInputPath,
-  normalizeOutputPath,
-  resolveAgainstCwd,
-} from '../builtin.mjs';
+import { normalizeInputPath, normalizeOutputPath, resolveAgainstCwd } from '../builtin.mjs';
 import { assertPathReachable, assertPathsReachable } from '../builtin/fs-reachability.mjs';
 import { nativePatchEnabled, nativePatchBinPath } from './native-server.mjs';
 import { DEV_NULL } from './constants.mjs';
@@ -29,9 +25,9 @@ export function resolveEntryPath(basePath, rawName) {
   // raw `The "path" argument must be of type string` TypeError from node:path.
   if (rawName == null || rawName === '') {
     throw new Error(
-      'apply_patch: a file section header could not be parsed (no target path) — the patch body is not a valid diff. '
-      + 'Each section must start with `*** Update File: <path>` / `*** Add File: <path>` / `*** Delete File: <path>` '
-      + '(V4A, wrapped in `*** Begin Patch` / `*** End Patch`), or a `--- a/<path>` + `+++ b/<path>` pair (unified).',
+      'apply_patch: a file section header could not be parsed (no target path) — the patch body is not a valid diff. ' +
+        'Each section must start with `*** Update File: <path>` / `*** Add File: <path>` / `*** Delete File: <path>` ' +
+        '(V4A, wrapped in `*** Begin Patch` / `*** End Patch`), or a `--- a/<path>` + `+++ b/<path>` pair (unified).'
     );
   }
   const stripped = stripDiffPrefix(rawName);
@@ -82,7 +78,6 @@ export function classifyEntry(entry) {
   if (!oldIsNull && newIsNull) return 'delete';
   return 'modify';
 }
-
 
 export function parsedEntryResolvedPath(entry, basePath) {
   const kind = classifyEntry(entry);
@@ -145,7 +140,9 @@ export function renderParsedUnifiedPatch(parsed) {
     out.push(`+++ ${entry.newFileName || '/dev/null'}`);
     for (const hunk of entry.hunks || []) {
       const section = hunk.section ? ` ${hunk.section}` : '';
-      out.push(`@@ -${unifiedRangeFromParsed(hunk.oldStart, hunk.oldLines)} +${unifiedRangeFromParsed(hunk.newStart, hunk.newLines)} @@${section}`);
+      out.push(
+        `@@ -${unifiedRangeFromParsed(hunk.oldStart, hunk.oldLines)} +${unifiedRangeFromParsed(hunk.newStart, hunk.newLines)} @@${section}`
+      );
       for (const line of hunk.lines || []) out.push(line);
     }
   }
@@ -201,11 +198,15 @@ function realpathNearestExistingAncestor(absPath) {
 // output, plus the header-rewrite map for absolute-path normalization.
 export async function preValidateNativeBatch(parsed, basePath) {
   if (!nativePatchEnabled()) {
-    throw new Error('apply_patch: native engine disabled via MIXDOG_PATCH_NATIVE; set it to "auto" or "1" to apply patches.');
+    throw new Error(
+      'apply_patch: native engine disabled via MIXDOG_PATCH_NATIVE; set it to "auto" or "1" to apply patches.'
+    );
   }
   const binPath = nativePatchBinPath();
   if (!existsSync(binPath)) {
-    throw new Error(`apply_patch: native patch binary not found at ${binPath}; build native/mixdog-patch or fetch the prebuilt before invoking apply_patch.`);
+    throw new Error(
+      `apply_patch: native patch binary not found at ${binPath}; build native/mixdog-patch or fetch the prebuilt before invoking apply_patch.`
+    );
   }
   if (!Array.isArray(parsed) || parsed.length === 0) {
     throw new Error('apply_patch: patch contained no file sections');
@@ -228,16 +229,18 @@ export async function preValidateNativeBatch(parsed, basePath) {
     const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
     if (!nativeHeaderSupported(entry)) {
       throw new Error(
-        'apply_patch: a file section header could not be parsed (no target path). '
-        + 'Each section must start with a valid header: `*** Update File: <path>` / '
-        + '`*** Add File: <path>` / `*** Delete File: <path>` (V4A), or a '
-        + '`--- a/<path>` + `+++ b/<path>` pair (unified). Wrap multi-hunk V4A '
-        + 'edits in a `*** Begin Patch` / `*** End Patch` envelope and pass format:"v4a".',
+        'apply_patch: a file section header could not be parsed (no target path). ' +
+          'Each section must start with a valid header: `*** Update File: <path>` / ' +
+          '`*** Add File: <path>` / `*** Delete File: <path>` (V4A), or a ' +
+          '`--- a/<path>` + `+++ b/<path>` pair (unified). Wrap multi-hunk V4A ' +
+          'edits in a `*** Begin Patch` / `*** End Patch` envelope and pass format:"v4a".'
       );
     }
     if (kind !== 'delete' && !(entry.hunks?.length > 0)) {
       const display = headerName ? normalizeOutputPath(stripDiffPrefix(headerName)) : '(unknown)';
-      throw new Error(`apply_patch: entry ${display} has no hunks — patch header malformed (use \`@@ -A,B +C,D @@\` per hunk).`);
+      throw new Error(
+        `apply_patch: entry ${display} has no hunks — patch header malformed (use \`@@ -A,B +C,D @@\` per hunk).`
+      );
     }
     const fullPath = resolveEntryPath(basePath, headerName);
     const pathKey = process.platform === 'win32' ? fullPath.toLowerCase() : fullPath;
@@ -296,11 +299,16 @@ export function rewriteHeaderPaths(patchStr, headerRewrites) {
       while (i < lines.length && (oldRem > 0 || newRem > 0)) {
         const body = lines[i];
         const c = body.charAt(0);
-        if (c === ' ') { oldRem--; newRem--; }
-        else if (c === '-') { oldRem--; }
-        else if (c === '+') { newRem--; }
-        else if (c === '\\') { /* "\ No newline at end of file" marker */ }
-        else break;
+        if (c === ' ') {
+          oldRem--;
+          newRem--;
+        } else if (c === '-') {
+          oldRem--;
+        } else if (c === '+') {
+          newRem--;
+        } else if (c === '\\') {
+          /* "\ No newline at end of file" marker */
+        } else break;
         i++;
       }
       continue;

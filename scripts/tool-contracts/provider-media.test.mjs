@@ -30,11 +30,11 @@ test('logical response replay matches by call_id/name across compaction', () => 
   };
   assert(
     _logicalResponseItemMatch(compactedReplayFunctionCall, originalFunctionCall),
-    'function_call replay should match by call_id/name even when history compacts arguments',
+    'function_call replay should match by call_id/name even when history compacts arguments'
   );
   assert(
     !_logicalResponseItemMatch({ ...compactedReplayFunctionCall, call_id: 'call_tool_2' }, originalFunctionCall),
-    'function_call replay must not match a different call_id',
+    'function_call replay must not match a different call_id'
   );
   const originalCustomCall = {
     type: 'custom_tool_call',
@@ -44,11 +44,11 @@ test('logical response replay matches by call_id/name across compaction', () => 
   };
   assert(
     _logicalResponseItemMatch({ ...originalCustomCall, input: '[mixdog compacted patch]' }, originalCustomCall),
-    'custom_tool_call replay should match by call_id/name even when history compacts patch input',
+    'custom_tool_call replay should match by call_id/name even when history compacts patch input'
   );
   assert(
     !_logicalResponseItemMatch({ ...originalCustomCall, call_id: 'call_patch_2' }, originalCustomCall),
-    'custom_tool_call replay must not match a different call_id',
+    'custom_tool_call replay must not match a different call_id'
   );
 });
 
@@ -83,14 +83,16 @@ test('image turns keep the pinned WS transport healthy', async () => {
       ],
       'gpt-5.5',
       [],
-      { _sendViaWebSocketFn: fakeWs, _sendViaHttpSseFn: fakeHttp, sessionId: 'tool-contracts-image-ws' },
+      { _sendViaWebSocketFn: fakeWs, _sendViaHttpSseFn: fakeHttp, sessionId: 'tool-contracts-image-ws' }
     );
     if (provider._forceHttpFallback) {
       throw new Error('image WS send must not poison future OpenAI OAuth sends');
     }
     const storedImageTurnContent = sanitizeContentForStoredHistory(imageTurnContent);
     if (contentHasImage(storedImageTurnContent)) {
-      throw new Error(`stored image history must not retain provider-visible image parts: ${JSON.stringify(storedImageTurnContent)}`);
+      throw new Error(
+        `stored image history must not retain provider-visible image parts: ${JSON.stringify(storedImageTurnContent)}`
+      );
     }
     await provider.send(
       [
@@ -101,7 +103,7 @@ test('image turns keep the pinned WS transport healthy', async () => {
       ],
       'gpt-5.5',
       [],
-      { _sendViaWebSocketFn: fakeWs, _sendViaHttpSseFn: fakeHttp, sessionId: 'tool-contracts-plain-after-image' },
+      { _sendViaWebSocketFn: fakeWs, _sendViaHttpSseFn: fakeHttp, sessionId: 'tool-contracts-plain-after-image' }
     );
     await provider.send(
       [
@@ -110,10 +112,17 @@ test('image turns keep the pinned WS transport healthy', async () => {
       ],
       'gpt-5.5',
       [],
-      { _sendViaWebSocketFn: fakeWs, _sendViaHttpSseFn: fakeHttp, forceHttpFallback: true, sessionId: 'tool-contracts-forced-http-fallback' },
+      {
+        _sendViaWebSocketFn: fakeWs,
+        _sendViaHttpSseFn: fakeHttp,
+        forceHttpFallback: true,
+        sessionId: 'tool-contracts-forced-http-fallback',
+      }
     );
     if (calls.join(',') !== 'ws,ws,ws') {
-      throw new Error(`image and forced-fallback probes should keep WS under the pinned transport policy: ${calls.join(',')}`);
+      throw new Error(
+        `image and forced-fallback probes should keep WS under the pinned transport policy: ${calls.join(',')}`
+      );
     }
   } finally {
     if (prevTraceDisable == null) delete process.env.MIXDOG_AGENT_TRACE_DISABLE;
@@ -131,26 +140,29 @@ test('Anthropic image normalization covers data-url, URL, and file ids', () => {
     { type: 'input_text', text: 'look' },
   ]);
   assert(
-    anthropicImages[0]?.type === 'image'
-      && anthropicImages[0]?.source?.type === 'base64'
-      && anthropicImages[0]?.source?.media_type === 'image/png'
-      && anthropicImages[0]?.source?.data === 'abc',
-    `Anthropic data-url image normalization failed: ${JSON.stringify(anthropicImages[0])}`,
+    anthropicImages[0]?.type === 'image' &&
+      anthropicImages[0]?.source?.type === 'base64' &&
+      anthropicImages[0]?.source?.media_type === 'image/png' &&
+      anthropicImages[0]?.source?.data === 'abc',
+    `Anthropic data-url image normalization failed: ${JSON.stringify(anthropicImages[0])}`
   );
   assert(
-    anthropicImages[1]?.type === 'image'
-      && anthropicImages[1]?.source?.type === 'url'
-      && anthropicImages[1]?.source?.url === 'https://example.com/a.png',
-    `Anthropic URL image normalization failed: ${JSON.stringify(anthropicImages[1])}`,
+    anthropicImages[1]?.type === 'image' &&
+      anthropicImages[1]?.source?.type === 'url' &&
+      anthropicImages[1]?.source?.url === 'https://example.com/a.png',
+    `Anthropic URL image normalization failed: ${JSON.stringify(anthropicImages[1])}`
   );
   assert(
-    anthropicImages[2]?.type === 'image'
-      && anthropicImages[2]?.source?.type === 'file'
-      && anthropicImages[2]?.source?.file_id === 'file_123',
-    `Anthropic file image normalization failed: ${JSON.stringify(anthropicImages[2])}`,
+    anthropicImages[2]?.type === 'image' &&
+      anthropicImages[2]?.source?.type === 'file' &&
+      anthropicImages[2]?.source?.file_id === 'file_123',
+    `Anthropic file image normalization failed: ${JSON.stringify(anthropicImages[2])}`
   );
   const storedFileImage = sanitizeContentForStoredHistory([{ type: 'input_image', file_id: 'file_123' }]);
-  assert(!contentHasImage(storedFileImage), `stored file image history must be sanitized: ${JSON.stringify(storedFileImage)}`);
+  assert(
+    !contentHasImage(storedFileImage),
+    `stored file image history must be sanitized: ${JSON.stringify(storedFileImage)}`
+  );
 });
 
 test('Gemini image normalization keeps inline data and flags foreign file ids', () => {
@@ -161,22 +173,21 @@ test('Gemini image normalization keeps inline data and flags foreign file ids', 
     { type: 'input_image', file_id: 'file_123' },
   ]);
   assert(
-    geminiImages[0]?.inlineData?.mimeType === 'image/png'
-      && geminiImages[0]?.inlineData?.data === 'abc',
-    `Gemini data-url image normalization failed: ${JSON.stringify(geminiImages[0])}`,
+    geminiImages[0]?.inlineData?.mimeType === 'image/png' && geminiImages[0]?.inlineData?.data === 'abc',
+    `Gemini data-url image normalization failed: ${JSON.stringify(geminiImages[0])}`
   );
   assert(
     geminiImages[1]?.fileData?.fileUri === 'https://example.com/a.png',
-    `Gemini URL image normalization failed: ${JSON.stringify(geminiImages[1])}`,
+    `Gemini URL image normalization failed: ${JSON.stringify(geminiImages[1])}`
   );
   assert(
-    geminiImages[2]?.fileData?.mimeType === 'image/jpeg'
-      && geminiImages[2]?.fileData?.fileUri === 'https://generativelanguage.googleapis.com/v1beta/files/abc',
-    `Gemini fileData image normalization failed: ${JSON.stringify(geminiImages[2])}`,
+    geminiImages[2]?.fileData?.mimeType === 'image/jpeg' &&
+      geminiImages[2]?.fileData?.fileUri === 'https://generativelanguage.googleapis.com/v1beta/files/abc',
+    `Gemini fileData image normalization failed: ${JSON.stringify(geminiImages[2])}`
   );
   assert(
     /unsupported image file_id for Gemini/.test(geminiImages[3]?.text || ''),
-    `Gemini incompatible file_id must be explicit text, got: ${JSON.stringify(geminiImages[3])}`,
+    `Gemini incompatible file_id must be explicit text, got: ${JSON.stringify(geminiImages[3])}`
   );
 });
 
@@ -186,20 +197,17 @@ test('OpenAI-compatible chat/Responses image normalization', () => {
     { type: 'input_image', file_id: 'file_123' },
   ]);
   assert(
-    grokChatImages[0]?.type === 'image_url'
-      && grokChatImages[0]?.image_url?.url === 'https://example.com/a.png',
-    `OpenAI-compatible URL image normalization failed: ${JSON.stringify(grokChatImages[0])}`,
+    grokChatImages[0]?.type === 'image_url' && grokChatImages[0]?.image_url?.url === 'https://example.com/a.png',
+    `OpenAI-compatible URL image normalization failed: ${JSON.stringify(grokChatImages[0])}`
   );
   assert(
     /unsupported image file_id for OpenAI Chat-compatible/.test(grokChatImages[1]?.text || ''),
-    `OpenAI-compatible chat file_id must be explicit text, got: ${JSON.stringify(grokChatImages[1])}`,
+    `OpenAI-compatible chat file_id must be explicit text, got: ${JSON.stringify(grokChatImages[1])}`
   );
-  const grokResponsesImages = normalizeContentForOpenAIResponses([
-    { type: 'input_image', file_id: 'file_123' },
-  ]);
+  const grokResponsesImages = normalizeContentForOpenAIResponses([{ type: 'input_image', file_id: 'file_123' }]);
   assert(
     grokResponsesImages[0]?.type === 'input_image' && grokResponsesImages[0]?.file_id === 'file_123',
-    `OpenAI-compatible Responses file_id normalization failed: ${JSON.stringify(grokResponsesImages[0])}`,
+    `OpenAI-compatible Responses file_id normalization failed: ${JSON.stringify(grokResponsesImages[0])}`
   );
 });
 
@@ -213,7 +221,9 @@ test('Anthropic max output tokens resolve through catalog, fallback, and env ove
   try {
     const sonnet5MaxTokens = _anthropicOAuthTest.resolveMaxTokens('claude-sonnet-5');
     if (sonnet5MaxTokens !== 65536) {
-      throw new Error(`resolveMaxTokens('claude-sonnet-5') must be 65536 (catalog-capped or sonnet-5+ fallback), got ${sonnet5MaxTokens}`);
+      throw new Error(
+        `resolveMaxTokens('claude-sonnet-5') must be 65536 (catalog-capped or sonnet-5+ fallback), got ${sonnet5MaxTokens}`
+      );
     }
     const sonnet46MaxTokens = _anthropicOAuthTest.resolveMaxTokens('claude-sonnet-4-6');
     if (!(sonnet46MaxTokens >= 16384)) {
@@ -222,7 +232,9 @@ test('Anthropic max output tokens resolve through catalog, fallback, and env ove
     process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS = 'garbage';
     const garbageOverride = _anthropicOAuthTest.resolveMaxTokens('claude-sonnet-5');
     if (garbageOverride !== 65536) {
-      throw new Error(`invalid MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS must be ignored (catalog/fallback path), got ${garbageOverride}`);
+      throw new Error(
+        `invalid MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS must be ignored (catalog/fallback path), got ${garbageOverride}`
+      );
     }
     process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS = '32768';
     const validOverride = _anthropicOAuthTest.resolveMaxTokens('claude-sonnet-5');

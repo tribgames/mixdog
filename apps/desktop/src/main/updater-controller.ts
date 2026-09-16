@@ -28,9 +28,11 @@ export function createUpdaterController(input: {
   let state: UpdaterState = input.enabled ? { status: 'idle' } : { status: 'disabled' };
   let pending: Promise<UpdaterState> | undefined;
   const listeners = new Set<(state: UpdaterState) => void>();
-  const scheduleInstall = input.scheduleInstall ?? ((install: () => void) => {
-    setImmediate(install);
-  });
+  const scheduleInstall =
+    input.scheduleInstall ??
+    ((install: () => void) => {
+      setImmediate(install);
+    });
 
   const transition = (next: UpdaterState): UpdaterState => {
     input.log?.('updater state changed', { from: state.status, to: next.status });

@@ -1,10 +1,7 @@
 import { createFairCallScheduler } from './fair-call-scheduler.mjs';
 import { hashStructuredValue } from '../runtime/shared/json-metrics.mjs';
 
-const MEMORY_AGENTS = Object.freeze([
-  'cycle1-agent',
-  'cycle2-agent',
-]);
+const MEMORY_AGENTS = Object.freeze(['cycle1-agent', 'cycle2-agent']);
 const MEMORY_AGENT_SET = new Set(MEMORY_AGENTS);
 
 function abortError(signal) {
@@ -24,7 +21,9 @@ function dispatchSignature(agent, params) {
       cwd: typeof params?.cwd === 'string' ? params.cwd : null,
       timeout: Number.isFinite(Number(params?.timeout)) ? Number(params.timeout) : null,
     });
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -77,10 +76,11 @@ export function createAgentDispatchBroker({
       // overwrite slot: answering a different payload from an unrelated
       // in-flight run is silent data loss.
       if (!signature || !existing.signature || existing.signature !== signature) {
-        return Promise.reject(Object.assign(
-          new Error(`agent dispatch callId '${id}' was reused with a different payload`),
-          { code: 'ECALLIDCONFLICT' },
-        ));
+        return Promise.reject(
+          Object.assign(new Error(`agent dispatch callId '${id}' was reused with a different payload`), {
+            code: 'ECALLIDCONFLICT',
+          })
+        );
       }
       return existing.promise;
     }
@@ -98,17 +98,20 @@ export function createAgentDispatchBroker({
       const timeout = Number(params.timeout);
       // The host owns whether execution is in-process or isolated; the broker
       // keeps scheduling, cancellation, and call identity transport-neutral.
-      return dispatchAgent({
-        dispatchId: id,
-        agent,
-        options: { taskType: 'maintenance', sourceType: 'memory-cycle', brief: false },
-        params: {
-          prompt,
-          preset: params.preset || undefined,
-          cwd: typeof params.cwd === 'string' && params.cwd ? params.cwd : undefined,
-          ...(Number.isFinite(timeout) && timeout > 0 ? { idleTimeoutMs: timeout } : {}),
+      return dispatchAgent(
+        {
+          dispatchId: id,
+          agent,
+          options: { taskType: 'maintenance', sourceType: 'memory-cycle', brief: false },
+          params: {
+            prompt,
+            preset: params.preset || undefined,
+            cwd: typeof params.cwd === 'string' && params.cwd ? params.cwd : undefined,
+            ...(Number.isFinite(timeout) && timeout > 0 ? { idleTimeoutMs: timeout } : {}),
+          },
         },
-      }, { signal: controller.signal });
+        { signal: controller.signal }
+      );
     };
     const promise = scheduler.enqueue(`memory:${agent}`, run, {
       signal: controller.signal,
@@ -117,11 +120,15 @@ export function createAgentDispatchBroker({
     const tracked = promise.finally(() => {
       signal?.removeEventListener('abort', abortFromCaller);
       if (inFlight.get(id) === record) inFlight.delete(id);
-      try { onActivityChanged?.(snapshot()); } catch {}
+      try {
+        onActivityChanged?.(snapshot());
+      } catch {}
     });
     record = { controller, promise: tracked, signature };
     inFlight.set(id, record);
-    try { onActivityChanged?.(snapshot()); } catch {}
+    try {
+      onActivityChanged?.(snapshot());
+    } catch {}
     return tracked;
   }
 
@@ -138,7 +145,9 @@ export function createAgentDispatchBroker({
     const record = inFlight.get(id);
     if (!record) return false;
     cancel(id, reason);
-    try { await record.promise; } catch {}
+    try {
+      await record.promise;
+    } catch {}
     return true;
   }
 

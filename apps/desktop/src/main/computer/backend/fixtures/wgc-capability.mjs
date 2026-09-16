@@ -155,9 +155,10 @@ async function runProbe() {
   const path = join(directory, 'probe.ps1');
   try {
     await writeFile(path, PROBE_PROGRAM);
-    const { stdout } = await promisify(execFile)('powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-File', path],
-      { windowsHide: true, timeout: PROBE_BUDGET_MS });
+    const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', path], {
+      windowsHide: true,
+      timeout: PROBE_BUDGET_MS,
+    });
     const result = JSON.parse(stdout.trim());
     return { available: result.available === true, reason: result.reason || '' };
   } catch (error) {

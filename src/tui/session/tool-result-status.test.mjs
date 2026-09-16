@@ -87,14 +87,18 @@ test('read-only navigation misses stay neutral even with an error envelope', () 
     isExitError: false,
     exitCode: null,
   });
-  assert.equal(toolCallOutcome(
-    { isError: true, toolName: 'read' },
-    'Error: EACCES: permission denied, open C:\\private.txt',
-  ).isCallError, true);
+  assert.equal(
+    toolCallOutcome({ isError: true, toolName: 'read' }, 'Error: EACCES: permission denied, open C:\\private.txt')
+      .isCallError,
+    true
+  );
 });
 
 test('failure detail keeps Ok / Failed / command-failure buckets distinct', () => {
-  assert.equal(failureDetailText({ succeeded: 1, realErrors: 1, exitErrors: 1, exitCode: 3 }), '1 Ok · 1 Failed · 1 Exited non-zero');
+  assert.equal(
+    failureDetailText({ succeeded: 1, realErrors: 1, exitErrors: 1, exitCode: 3 }),
+    '1 Ok · 1 Failed · 1 Exited non-zero'
+  );
   assert.equal(failureDetailText({ succeeded: 0, realErrors: 0, exitErrors: 1, exitCode: 3 }), 'Exited 3');
   // Exit 0 no longer feeds exitErrors, so an all-success group is pure Ok.
   assert.equal(failureDetailText({ succeeded: 2, realErrors: 0, exitErrors: 0 }), '2 Ok');
@@ -173,12 +177,34 @@ test('aggregate members preserve atomic tool identity, inputs, outputs, and orde
       uiDiff: 'diff --git a b',
     },
   ]);
-  assert.deepEqual(members.map(({ id, name, args, result, rawResult, exitErrorCount }) => ({
-    id, name, args, result, rawResult, exitErrorCount,
-  })), [
-    { id: 'call-read', name: 'read', args: { file_path: 'a.ts' }, result: 'source', rawResult: 'source', exitErrorCount: 0 },
-    { id: 'call-shell', name: 'shell', args: { command: 'exit 2' }, result: 'boom', rawResult: '[exit code: 2]\nboom', exitErrorCount: 1 },
-  ]);
+  assert.deepEqual(
+    members.map(({ id, name, args, result, rawResult, exitErrorCount }) => ({
+      id,
+      name,
+      args,
+      result,
+      rawResult,
+      exitErrorCount,
+    })),
+    [
+      {
+        id: 'call-read',
+        name: 'read',
+        args: { file_path: 'a.ts' },
+        result: 'source',
+        rawResult: 'source',
+        exitErrorCount: 0,
+      },
+      {
+        id: 'call-shell',
+        name: 'shell',
+        args: { command: 'exit 2' },
+        result: 'boom',
+        rawResult: '[exit code: 2]\nboom',
+        exitErrorCount: 1,
+      },
+    ]
+  );
   assert.equal(Object.hasOwn(members[0], 'uiDiff'), false);
   assert.equal(members[1].uiDiff, 'diff --git a b');
 });

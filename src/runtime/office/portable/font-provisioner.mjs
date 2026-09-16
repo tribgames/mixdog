@@ -193,18 +193,20 @@ export async function prepareOfficeFonts(options = {}) {
   const results = {};
   const targets = options.coreOnly
     ? NOTO_FONT_DEFINITIONS.filter((def) => def.id === 'noto-sans-latin' || def.id === 'noto-sans-kr')
-    : (options.targets || NOTO_FONT_DEFINITIONS);
+    : options.targets || NOTO_FONT_DEFINITIONS;
 
   const BATCH_SIZE = 3;
   for (let i = 0; i < targets.length; i += BATCH_SIZE) {
     const batch = targets.slice(i, i + BATCH_SIZE);
-    await Promise.all(batch.map(async (fontDef) => {
-      try {
-        results[fontDef.id] = await installFont(fontDef, options);
-      } catch (error) {
-        results[fontDef.id] = { installed: false, error: error?.message || String(error) };
-      }
-    }));
+    await Promise.all(
+      batch.map(async (fontDef) => {
+        try {
+          results[fontDef.id] = await installFont(fontDef, options);
+        } catch (error) {
+          results[fontDef.id] = { installed: false, error: error?.message || String(error) };
+        }
+      })
+    );
   }
   return results;
 }

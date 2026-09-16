@@ -31,11 +31,7 @@ export function singleTrailingLineBreakPrefix(text) {
 }
 
 export function draftStateEqual(a, b) {
-  return (
-    a.value === b.value
-    && a.cursor === b.cursor
-    && a.selectionAnchor === b.selectionAnchor
-  );
+  return a.value === b.value && a.cursor === b.cursor && a.selectionAnchor === b.selectionAnchor;
 }
 
 // Recognize a MODIFIED Enter delivered via the kitty keyboard protocol
@@ -53,7 +49,7 @@ export function isModifiedEnterSequence(input) {
   const kitty = /^13;(\d+)(?::\d+)?(?:;[\d:]+)?u$/.exec(body);
   if (kitty) return ((Number(kitty[1]) - 1) & MODIFIED_ENTER_NEWLINE) !== 0;
   const modifyOtherKeys = /^27;(\d+);13~$/.exec(body);
-  return Boolean(modifyOtherKeys && (((Number(modifyOtherKeys[1]) - 1) & MODIFIED_ENTER_NEWLINE) !== 0));
+  return Boolean(modifyOtherKeys && ((Number(modifyOtherKeys[1]) - 1) & MODIFIED_ENTER_NEWLINE) !== 0);
 }
 
 // Recognize ANY modified Enter. Used to consume uncommon modifier combinations
@@ -64,7 +60,7 @@ export function isAnyModifiedEnterSequence(input) {
   const body = text.startsWith('\x1b[') ? text.slice(2) : text.startsWith('[') ? text.slice(1) : '';
   if (!body) return false;
   const kitty = /^13;(\d+)(?::\d+)?(?:;[\d:]+)?u$/.exec(body);
-  if (kitty) return (Number(kitty[1]) - 1) !== 0;
+  if (kitty) return Number(kitty[1]) - 1 !== 0;
   const modifyOtherKeys = /^27;(\d+);13~$/.exec(body);
-  return Boolean(modifyOtherKeys && ((Number(modifyOtherKeys[1]) - 1) !== 0));
+  return Boolean(modifyOtherKeys && Number(modifyOtherKeys[1]) - 1 !== 0);
 }

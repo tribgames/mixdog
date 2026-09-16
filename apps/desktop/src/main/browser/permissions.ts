@@ -2,9 +2,7 @@ import type { Session } from 'electron';
 
 type BrowserPermissionSession = Pick<
   Session,
-  | 'setDevicePermissionHandler'
-  | 'setPermissionCheckHandler'
-  | 'setPermissionRequestHandler'
+  'setDevicePermissionHandler' | 'setPermissionCheckHandler' | 'setPermissionRequestHandler'
 >;
 
 /**

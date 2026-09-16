@@ -7,9 +7,8 @@
 import { readFile } from 'node:fs/promises';
 
 const argumentsList = process.argv.slice(2);
-const valueFor = (prefix) => argumentsList
-  .find((argument) => argument.startsWith(`${prefix}=`))
-  ?.slice(prefix.length + 1);
+const valueFor = (prefix) =>
+  argumentsList.find((argument) => argument.startsWith(`${prefix}=`))?.slice(prefix.length + 1);
 const port = Number(valueFor('--port') || 9342);
 const file = argumentsList.find((argument) => !argument.startsWith('--'));
 if (!file) throw new Error('Usage: dom-eval.mjs [--port=9342] <expression-file>');
@@ -30,11 +29,13 @@ const result = await new Promise((resolve, reject) => {
     if (message.error) reject(new Error(message.error.message));
     else resolve(message.result);
   });
-  socket.send(JSON.stringify({
-    id: 1,
-    method: 'Runtime.evaluate',
-    params: { expression, awaitPromise: true, returnByValue: true },
-  }));
+  socket.send(
+    JSON.stringify({
+      id: 1,
+      method: 'Runtime.evaluate',
+      params: { expression, awaitPromise: true, returnByValue: true },
+    })
+  );
 });
 if (result.exceptionDetails) {
   console.error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);

@@ -35,8 +35,6 @@ export function parseSelectedFileGrants(text: string): {
 
 export function serializeSelectedFileGrants(grants: Map<string, string>): string {
   return JSON.stringify(
-    [...grants.entries()]
-      .slice(-MAX_SELECTED_FILE_GRANTS)
-      .map(([tokenHash, file]) => ({ tokenHash, file })),
+    [...grants.entries()].slice(-MAX_SELECTED_FILE_GRANTS).map(([tokenHash, file]) => ({ tokenHash, file }))
   );
 }

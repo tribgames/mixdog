@@ -15,8 +15,8 @@
 // or slow connection, where the dynamic subset's on-demand behavior is the
 // better trade. The service worker keeps the fetched slices, so a phone pays
 // for this once rather than on every visit.
-import { connectionQuality, isRemoteSurface } from "./network-conditions";
-import { resolveUiLanguage } from "./i18n";
+import { connectionQuality, isRemoteSurface } from './network-conditions';
+import { resolveUiLanguage } from './i18n';
 
 const REMOTE_WARMUP_BATCH = 6;
 // Local faces are disk reads, but each still parses on the main thread: one
@@ -38,11 +38,11 @@ function loadFace(face: FontFace): Promise<unknown> {
 
 export function scheduleFontWarmup(): void {
   try {
-    if (!document.fonts || typeof document.fonts.forEach !== "function") return;
+    if (!document.fonts || typeof document.fonts.forEach !== 'function') return;
     const remote = isRemoteSurface();
-    if (remote && connectionQuality() !== "normal") return;
+    if (remote && connectionQuality() !== 'normal') return;
     const idle: (callback: () => void) => unknown =
-      typeof window.requestIdleCallback === "function"
+      typeof window.requestIdleCallback === 'function'
         ? (callback) => window.requestIdleCallback(callback, { timeout: 2_000 })
         : (callback) => window.setTimeout(callback, 250);
     // Hangul is 2.8MB of the 3.4MB font inventory. A remote surface whose UI
@@ -50,10 +50,10 @@ export function scheduleFontWarmup(): void {
     // subset's own on-demand loading — the behaviour they would have had
     // anyway, for text they are unlikely to type. Korean UI and the local
     // desktop (disk reads) keep the full warmup.
-    const warmHangul = !remote || resolveUiLanguage() === "ko";
+    const warmHangul = !remote || resolveUiLanguage() === 'ko';
     const pending: FontFace[] = [];
     document.fonts.forEach((face) => {
-      if (face.status !== "unloaded") return;
+      if (face.status !== 'unloaded') return;
       if (!warmHangul && /pretendard/i.test(face.family)) return;
       pending.push(face);
     });
@@ -70,9 +70,13 @@ export function scheduleFontWarmup(): void {
         void Promise.allSettled(slice.map(loadFace)).then(() => {
           if (index < pending.length) idle(step);
         });
-      } catch { /* warmup is a cosmetic guard */ }
+      } catch {
+        /* warmup is a cosmetic guard */
+      }
     };
     if (remote) window.setTimeout(() => idle(step), REMOTE_WARMUP_DELAY_MS);
     else idle(step);
-  } catch { /* warmup is a cosmetic guard */ }
+  } catch {
+    /* warmup is a cosmetic guard */
+  }
 }

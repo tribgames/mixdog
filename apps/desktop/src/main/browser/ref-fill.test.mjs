@@ -6,7 +6,8 @@ import { createBrowserRefActions } from './ref-actions.ts';
 
 function editorFixture(ax) {
   const dom = new JSDOM('<div id="editor" contenteditable="true"><p>old draft</p></div>', {
-    runScripts: 'outside-only', url: 'https://fixture.example/',
+    runScripts: 'outside-only',
+    url: 'https://fixture.example/',
   });
   const { window } = dom;
   const editor = window.document.querySelector('#editor');
@@ -17,9 +18,8 @@ function editorFixture(ax) {
   const keys = [];
   let dropInsertedText = false;
   const actions = createBrowserRefActions({
-    callAccessibilityRef: async (_guest, _ref, source, args) => (ax
-      ? { handled: true, value: await window.eval(`(${source})`).apply(editor, args) }
-      : { handled: false }),
+    callAccessibilityRef: async (_guest, _ref, source, args) =>
+      ax ? { handled: true, value: await window.eval(`(${source})`).apply(editor, args) } : { handled: false },
     evaluate: async (_guest, source) => window.eval(source),
     cdp: {
       guestDebugger: async () => ({}),
@@ -38,11 +38,18 @@ function editorFixture(ax) {
       },
     },
     pause: async () => {},
-    dropdownTimeoutMs: 10, dropdownPollMs: 1,
+    dropdownTimeoutMs: 10,
+    dropdownPollMs: 1,
   });
   return {
-    dom, editor, actions, inserted, keys,
-    dropInsertedText: () => { dropInsertedText = true; },
+    dom,
+    editor,
+    actions,
+    inserted,
+    keys,
+    dropInsertedText: () => {
+      dropInsertedText = true;
+    },
   };
 }
 

@@ -17,15 +17,23 @@ test('view recovery replays unchanged host content and keeps lanes independent',
     f.put('agent', 'agent finished');
     await f.host.setVisibleSessionsForSource('phone', ['lead', 'agent']);
     let recovered;
-    await synchronizeViewSnapshot(f.host, ['lead', 'agent'], (value) => { recovered = value; });
-    assert.deepEqual(recovered.sessionStates.map((row) => row.snapshot.items[0].text),
-      ['completed answer', 'agent finished']);
+    await synchronizeViewSnapshot(f.host, ['lead', 'agent'], (value) => {
+      recovered = value;
+    });
+    assert.deepEqual(
+      recovered.sessionStates.map((row) => row.snapshot.items[0].text),
+      ['completed answer', 'agent finished']
+    );
     assert.equal(recovered.sessions.length, 2);
-    await synchronizeViewSnapshot(f.host, ['deleted-session', 'lead'], (value) => { recovered = value; });
+    await synchronizeViewSnapshot(f.host, ['deleted-session', 'lead'], (value) => {
+      recovered = value;
+    });
     assert.equal(recovered.sessionStates[0].snapshot, null);
     assert.equal(recovered.sessionStates[0].laneEnd, 'gone');
     assert.equal(recovered.sessionStates[1].snapshot.items[0].text, 'completed answer');
-  } finally { await f.close(); }
+  } finally {
+    await f.close();
+  }
 });
 
 test('new task receipts coalesce retries and survive a host replacement without resubmitting', async () => {
@@ -33,9 +41,7 @@ test('new task receipts coalesce retries and survive a host replacement without 
   let replacement;
   try {
     const options = { id: 'same-logical-submit', displayText: 'once' };
-    const [a, b] = await Promise.all([
-      f.host.submitNewTask('once', options), f.host.submitNewTask('once', options),
-    ]);
+    const [a, b] = await Promise.all([f.host.submitNewTask('once', options), f.host.submitNewTask('once', options)]);
     assert.equal(a.sessionId, b.sessionId);
     assert.equal(f.state.creates, 1);
     assert.equal(f.state.submits, 1);
@@ -46,7 +52,10 @@ test('new task receipts coalesce retries and survive a host replacement without 
     assert.equal(f.state.creates, 1);
     assert.equal(f.state.submits, 1);
     await assert.rejects(replacement.submitNewTask('different', options), /different content/);
-  } finally { await replacement?.dispose(); await f.close(); }
+  } finally {
+    await replacement?.dispose();
+    await f.close();
+  }
 });
 
 test('subscription union serializes a departed consumer against a new consumer', async () => {
@@ -54,7 +63,10 @@ test('subscription union serializes a departed consumer against a new consumer',
   const released = Promise.withResolvers();
   const started = Promise.withResolvers();
   const attached = new Set();
-  const ensure = async (id) => { attached.add(id); return true; };
+  const ensure = async (id) => {
+    attached.add(id);
+    return true;
+  };
   await registry.set('old', ['session'], ensure, async () => {});
   const closing = registry.set('old', [], ensure, async (id) => {
     started.resolve();
@@ -85,7 +97,9 @@ test('a slow retired session does not block the new tab and cannot rejoin the vi
     if (id === 'current') attachedCurrent.resolve();
     return true;
   };
-  const release = async (id) => { attached.delete(id); };
+  const release = async (id) => {
+    attached.delete(id);
+  };
   const old = registry.set('desktop', ['slow'], ensure, release);
   await started.promise;
   const next = registry.set('desktop', ['current'], ensure, release);
@@ -112,7 +126,9 @@ test('failed session hydration preserves independent viewers and remains retryab
     attached.add(id);
     return true;
   };
-  const release = async (id) => { attached.delete(id); };
+  const release = async (id) => {
+    attached.delete(id);
+  };
   await assert.rejects(registry.set('desktop', ['ready', 'failed'], ensure, release), /read unavailable/);
   assert.deepEqual([...attached], ['ready']);
   fail = false;
@@ -127,19 +143,31 @@ test('failed session hydration preserves independent viewers and remains retryab
 
 test('an unavailable record is excluded without removing another visible session', async () => {
   const registry = new SessionViewRegistry();
-  await registry.set('desktop', ['ready', 'missing'], async id => id !== 'missing', async () => {});
+  await registry.set(
+    'desktop',
+    ['ready', 'missing'],
+    async (id) => id !== 'missing',
+    async () => {}
+  );
   assert.deepEqual([...registry.visible], ['ready']);
   assert.deepEqual([...registry.sources.get('desktop')], ['ready']);
   registry.close();
 });
 
 test('a failed catalog watcher rearms and reconciles without remounting consumers', async () => {
-  let current, creations = 0, reconciles = 0, warnings = 0;
+  let current,
+    creations = 0,
+    reconciles = 0,
+    warnings = 0;
   const watcher = new RecoveringStoreWatcher({
     directory: () => 'test-only',
     relevant: () => true,
-    changed: () => { reconciles++; },
-    error: () => { warnings++; },
+    changed: () => {
+      reconciles++;
+    },
+    error: () => {
+      warnings++;
+    },
     watch: () => {
       creations++;
       current = new EventEmitter();
@@ -154,7 +182,9 @@ test('a failed catalog watcher rearms and reconciles without remounting consumer
     assert.equal(creations, 2);
     assert.equal(reconciles, 1);
     assert.equal(warnings, 1);
-  } finally { watcher.close(); }
+  } finally {
+    watcher.close();
+  }
 });
 
 test('desktop stream recovery restores every visible lane and catalogs before its completion marker', async () => {
@@ -176,13 +206,17 @@ test('desktop stream recovery restores every visible lane and catalogs before it
     messages.length = 0; // The visual client missed the preceding publications.
     await service.control({ kind: 'state-resync' });
     const states = messages.filter((message) => message.kind === 'session-state');
-    assert.deepEqual(states.map((message) =>
-      createSnapshotDeltaDecoder().decode(message.wire).snapshot.items[0].text),
-    ['lead completed', 'agent completed']);
+    assert.deepEqual(
+      states.map((message) => createSnapshotDeltaDecoder().decode(message.wire).snapshot.items[0].text),
+      ['lead completed', 'agent completed']
+    );
     assert.equal(messages.find((message) => message.kind === 'sessions').sessions.length, 2);
     assert.equal(messages.find((message) => message.kind === 'agent-pool').agents[0].status, 'completed');
     assert.equal(messages.at(-1).kind, 'view-sync-complete');
-  } finally { await service?.dispose(); await f.close(); }
+  } finally {
+    await service?.dispose();
+    await f.close();
+  }
 });
 
 test('out-of-order desktop registrations cannot replace the current delivery filter', async () => {
@@ -195,17 +229,22 @@ test('out-of-order desktop registrations cannot replace the current delivery fil
     service = await createDesktopService({
       options: f.options,
       runtime: { ...f.runtime, loadConfig: async () => ({}) },
-      emit: message => messages.push(message),
+      emit: (message) => messages.push(message),
     });
     await service.invoke('setVisibleSessions', [['current'], 2]);
     messages.length = 0;
     await service.invoke('setVisibleSessions', [['old'], 1]);
     f.put('old', 'hidden update');
     f.put('current', 'visible update');
-    assert.deepEqual(messages.filter(message => message.kind === 'session-state').map(message => message.sessionId),
-      ['current']);
+    assert.deepEqual(
+      messages.filter((message) => message.kind === 'session-state').map((message) => message.sessionId),
+      ['current']
+    );
     await assert.rejects(service.invoke('setVisibleSessions', [['old'], 'invalid']), /version/);
-  } finally { await service?.dispose(); await f.close(); }
+  } finally {
+    await service?.dispose();
+    await f.close();
+  }
 });
 
 test('service visible-session updates still reject a malformed id after updating the delivery filter', async () => {
@@ -218,9 +257,9 @@ test('service visible-session updates still reject a malformed id after updating
       runtime: { ...f.runtime, loadConfig: async () => ({}) },
       emit: () => {},
     });
-    await assert.rejects(
-      service.invoke('setVisibleSessions', [['lead', 'bad id'], 1]),
-      /session id is invalid/,
-    );
-  } finally { await service?.dispose(); await f.close(); }
+    await assert.rejects(service.invoke('setVisibleSessions', [['lead', 'bad id'], 1]), /session id is invalid/);
+  } finally {
+    await service?.dispose();
+    await f.close();
+  }
 });

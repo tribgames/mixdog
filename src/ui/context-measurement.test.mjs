@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  sessionContextMeasurement, contextMeasurementStats, measuredContextUsage,
-} from './context-measurement.mjs';
+import { sessionContextMeasurement, contextMeasurementStats, measuredContextUsage } from './context-measurement.mjs';
 import { applyAskTerminalUsageTotals } from '../runtime/agent/orchestrator/session/manager/usage-metrics.mjs';
 import { resolveContextUsedPct } from './statusline.mjs';
 
@@ -11,8 +9,10 @@ test('provider prompt normalization includes cache once for hosted and local rou
     const excludesCache = provider === 'anthropic-oauth';
     const session = { provider, model: 'test-model', totalInputTokens: 999_999 };
     const usage = {
-      inputTokens: excludesCache ? 4700 : 8300, outputTokens: 800,
-      cachedTokens: 3500, cacheWriteTokens: 100,
+      inputTokens: excludesCache ? 4700 : 8300,
+      outputTokens: 800,
+      cachedTokens: 3500,
+      cacheWriteTokens: 100,
     };
     applyAskTerminalUsageTotals(session, { usage, lastTurnUsage: usage });
     const measurement = sessionContextMeasurement(session);

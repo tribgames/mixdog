@@ -28,7 +28,10 @@ export function isBuiltInSkill(skill: { source?: unknown; owner?: unknown }): bo
 }
 
 export function skillDisplayDescription(skill: {
-  name?: unknown; description?: unknown; source?: unknown; owner?: unknown;
+  name?: unknown;
+  description?: unknown;
+  source?: unknown;
+  owner?: unknown;
 }): string {
   const name = String(skill.name || '');
   return isBuiltInSkill(skill) && Object.hasOwn(DESCRIPTIONS, name)

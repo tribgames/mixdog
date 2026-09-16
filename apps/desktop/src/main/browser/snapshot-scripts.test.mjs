@@ -6,12 +6,12 @@ import { browserRefPointExpression, browserSnapshotExpression } from './snapshot
 
 function refPointHarness() {
   const dom = new JSDOM(
-    '<!doctype html><button id="target"><span id="child">Run</span></button>'
-      + '<div id="ancestor"><span id="nested">Nested target</span></div>'
-      + '<a id="link" href="/destination">Destination</a>'
-      + '<a id="equivalent" href="/destination">Destination duplicate</a>'
-      + '<div id="overlay">Blocking dialog</div>',
-    { runScripts: 'outside-only', url: 'https://example.test/' },
+    '<!doctype html><button id="target"><span id="child">Run</span></button>' +
+      '<div id="ancestor"><span id="nested">Nested target</span></div>' +
+      '<a id="link" href="/destination">Destination</a>' +
+      '<a id="equivalent" href="/destination">Destination duplicate</a>' +
+      '<div id="overlay">Blocking dialog</div>',
+    { runScripts: 'outside-only', url: 'https://example.test/' }
   );
   const { window } = dom;
   window.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
@@ -33,7 +33,9 @@ function refPointHarness() {
     bottom: 60,
     width: 100,
     height: 40,
-    toJSON() { return this; },
+    toJSON() {
+      return this;
+    },
   });
   window.__mixdogAgentSnapshot = {
     id: 'p1-s1',
@@ -92,18 +94,23 @@ test('browser ref clicks accept the target tree, reject overlays, and never alia
 });
 
 test('DOM fallback semantic query ignores URL search parameters and reports the matched field', () => {
-  const dom = new JSDOM(`<!doctype html>
+  const dom = new JSDOM(
+    `<!doctype html>
     <a id="signin" href="/login?return_to=%2Fissues%3Fq%3Ddownload">Sign in</a>
     <button id="named">Download report</button>
     <a id="path" href="/downloads/latest?token=tracking">Release asset</a>
     <input id="search-value" type="search" aria-label="Issue search" value="download">
     <div id="focusable-wrapper" role="listitem" tabindex="0">Download report</div>
-    <a id="named-link" href="/downloads/report">Download report</a>`, {
-    url: 'https://example.test/issues?q=download',
-    runScripts: 'outside-only',
-  });
+    <a id="named-link" href="/downloads/report">Download report</a>`,
+    {
+      url: 'https://example.test/issues?q=download',
+      runScripts: 'outside-only',
+    }
+  );
   try {
-    for (const [index, element] of [...dom.window.document.querySelectorAll('a,button,input,[role="listitem"]')].entries()) {
+    for (const [index, element] of [
+      ...dom.window.document.querySelectorAll('a,button,input,[role="listitem"]'),
+    ].entries()) {
       element.getBoundingClientRect = () => ({
         left: 10,
         top: 10 + index * 30,
@@ -113,14 +120,18 @@ test('DOM fallback semantic query ignores URL search parameters and reports the 
         height: 20,
         x: 10,
         y: 10 + index * 30,
-        toJSON() { return this; },
+        toJSON() {
+          return this;
+        },
       });
     }
-    const payload = dom.window.eval(browserSnapshotExpression({
-      snapshotId: 'p3-s1',
-      query: 'download',
-      maxElements: 20,
-    }));
+    const payload = dom.window.eval(
+      browserSnapshotExpression({
+        snapshotId: 'p3-s1',
+        query: 'download',
+        maxElements: 20,
+      })
+    );
     assert.deepEqual(
       Array.from(payload.elements, (entry) => [entry.role, entry.name, entry.matchField]),
       [
@@ -129,7 +140,7 @@ test('DOM fallback semantic query ignores URL search parameters and reports the 
         ['listitem', 'Download report', 'name'],
         ['link', 'Release asset', 'href'],
         ['searchbox', 'Issue search', 'value'],
-      ],
+      ]
     );
   } finally {
     dom.window.close();
@@ -138,10 +149,10 @@ test('DOM fallback semantic query ignores URL search parameters and reports the 
 
 test('semantic snapshots include shadow controls, omit password values, and bind generated refs', () => {
   const dom = new JSDOM(
-    '<!doctype html><title>Demo</title><button id="plain">Run</button>'
-      + '<label for="secret">Password</label><input id="secret" type="password" value="do-not-leak">'
-      + `<div id="custom" role="button" aria-expanded="${'expanded '.repeat(100)}">Custom</div><div id="host"></div>`,
-    { runScripts: 'outside-only', pretendToBeVisual: true, url: 'https://example.com/app' },
+    '<!doctype html><title>Demo</title><button id="plain">Run</button>' +
+      '<label for="secret">Password</label><input id="secret" type="password" value="do-not-leak">' +
+      `<div id="custom" role="button" aria-expanded="${'expanded '.repeat(100)}">Custom</div><div id="host"></div>`,
+    { runScripts: 'outside-only', pretendToBeVisual: true, url: 'https://example.com/app' }
   );
   const { window } = dom;
   try {
@@ -158,7 +169,9 @@ test('semantic snapshots include shadow controls, omit password values, and bind
           height: 20,
           x: 10,
           y: Math.max(0, index * 20),
-          toJSON() { return this; },
+          toJSON() {
+            return this;
+          },
         };
       },
     });
@@ -168,11 +181,13 @@ test('semantic snapshots include shadow controls, omit password values, and bind
     shadowButton.textContent = 'Shadow action';
     shadow.append(shadowButton);
 
-    const payload = window.eval(browserSnapshotExpression({
-      snapshotId: 'p7-s3',
-      maxElements: 10,
-      textChars: 500,
-    }));
+    const payload = window.eval(
+      browserSnapshotExpression({
+        snapshotId: 'p7-s3',
+        maxElements: 10,
+        textChars: 500,
+      })
+    );
     assert.equal(payload.snapshotId, 'p7-s3');
     assert.ok(payload.elements.some((entry) => entry.name === 'Shadow action'));
     assert.ok(payload.elements.every((entry) => entry.ref.startsWith('p7-s3-e')));
@@ -191,19 +206,29 @@ test('semantic snapshots include shadow controls, omit password values, and bind
 
 test('DOM fallback queries match keywords with OR or a regex, count the unfiltered page, and mark file inputs', () => {
   const dom = new JSDOM(
-    '<!doctype html><button id="draft">Save draft</button><button id="publish">Publish</button>'
-    + '<a id="save" href="/save">Save</a>'
-    + '<input id="photos" type="file" accept="image/png, image/jpeg" multiple aria-label="Photos">',
-    { runScripts: 'outside-only', url: 'https://example.test/' },
+    '<!doctype html><button id="draft">Save draft</button><button id="publish">Publish</button>' +
+      '<a id="save" href="/save">Save</a>' +
+      '<input id="photos" type="file" accept="image/png, image/jpeg" multiple aria-label="Photos">',
+    { runScripts: 'outside-only', url: 'https://example.test/' }
   );
   try {
     for (const [index, element] of [...dom.window.document.querySelectorAll('button,a,input')].entries()) {
       element.getBoundingClientRect = () => ({
-        left: 10, top: 10 + index * 30, right: 110, bottom: 30 + index * 30, width: 100, height: 20,
-        x: 10, y: 10 + index * 30, toJSON() { return this; },
+        left: 10,
+        top: 10 + index * 30,
+        right: 110,
+        bottom: 30 + index * 30,
+        width: 100,
+        height: 20,
+        x: 10,
+        y: 10 + index * 30,
+        toJSON() {
+          return this;
+        },
       });
     }
-    const snapshot = (query) => dom.window.eval(browserSnapshotExpression({ snapshotId: 'p5-s1', query, maxElements: 20 }));
+    const snapshot = (query) =>
+      dom.window.eval(browserSnapshotExpression({ snapshotId: 'p5-s1', query, maxElements: 20 }));
     // Page-realm arrays are spread into this realm before strict comparison.
     const names = (payload) => [...payload.elements.map((entry) => entry.name)];
     const keywords = snapshot('publish save');
@@ -222,16 +247,26 @@ test('DOM fallback queries match keywords with OR or a regex, count the unfilter
 
 test('a hidden checkbox resolves through its label, and the label can still be covered', async () => {
   const dom = new JSDOM(
-    '<!doctype html><label for="agree" id="agree-label"><span id="box"></span> I agree</label>'
-    + '<input id="agree" type="checkbox"><input id="lonely" type="checkbox"><div id="overlay">Modal</div>',
-    { runScripts: 'outside-only', url: 'https://example.test/' },
+    '<!doctype html><label for="agree" id="agree-label"><span id="box"></span> I agree</label>' +
+      '<input id="agree" type="checkbox"><input id="lonely" type="checkbox"><div id="overlay">Modal</div>',
+    { runScripts: 'outside-only', url: 'https://example.test/' }
   );
   try {
     const { window } = dom;
     window.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
     window.cancelAnimationFrame = (timer) => clearTimeout(timer);
     const rect = (left, top, width, height) => () => ({
-      left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON() { return this; },
+      left,
+      top,
+      width,
+      height,
+      right: left + width,
+      bottom: top + height,
+      x: left,
+      y: top,
+      toJSON() {
+        return this;
+      },
     });
     const input = window.document.querySelector('#agree');
     const lonely = window.document.querySelector('#lonely');
@@ -251,10 +286,10 @@ test('a hidden checkbox resolves through its label, and the label can still be c
     };
     // The invisible control has no box of its own; its label is the landing spot.
     window.document.elementFromPoint = () => box;
-    assert.deepEqual({ ...await window.eval(browserRefPointExpression('p6-s1-e1')) }, { x: 60, y: 40 });
+    assert.deepEqual({ ...(await window.eval(browserRefPointExpression('p6-s1-e1'))) }, { x: 60, y: 40 });
     // A 1px control that a label's text sits over is clicked where it is.
     input.getBoundingClientRect = rect(5, 5, 1, 1);
-    assert.deepEqual({ ...await window.eval(browserRefPointExpression('p6-s1-e1')) }, { x: 6, y: 6 });
+    assert.deepEqual({ ...(await window.eval(browserRefPointExpression('p6-s1-e1'))) }, { x: 6, y: 6 });
     // Something over the label is still an overlay.
     input.getBoundingClientRect = rect(0, 0, 0, 0);
     window.document.elementFromPoint = () => overlay;

@@ -21,9 +21,20 @@ import { renderPortableOoxml } from '../portable/portable-soffice.mjs';
 // What LibreOffice converts faithfully enough to READ. PDF is absent on
 // purpose: it is already viewable and never needs the conversion pass.
 const PREVIEW_FORMATS = new Set([
-  'docx', 'doc', 'docm', 'dotx', 'rtf', 'odt',
-  'xlsx', 'xls', 'xlsm', 'ods',
-  'pptx', 'ppt', 'pptm', 'odp',
+  'docx',
+  'doc',
+  'docm',
+  'dotx',
+  'rtf',
+  'odt',
+  'xlsx',
+  'xls',
+  'xlsm',
+  'ods',
+  'pptx',
+  'ppt',
+  'pptm',
+  'odp',
 ]);
 
 const CACHE_DIR_NAME = 'document-previews';
@@ -35,7 +46,10 @@ const PREVIEW_PDF_NAME = 'preview.pdf';
 
 /** The convertible format for this filename, or '' when there is none. */
 export function documentPreviewFormat(path) {
-  const name = String(path || '').split(/[\\/]/).at(-1) || '';
+  const name =
+    String(path || '')
+      .split(/[\\/]/)
+      .at(-1) || '';
   const dot = name.lastIndexOf('.');
   if (dot < 0 || dot === name.length - 1) return '';
   const extension = name.slice(dot + 1).toLocaleLowerCase();
@@ -43,10 +57,7 @@ export function documentPreviewFormat(path) {
 }
 
 function cacheKey(path, info) {
-  return createHash('sha256')
-    .update(`${path}\0${info.mtimeMs}\0${info.size}`)
-    .digest('hex')
-    .slice(0, 32);
+  return createHash('sha256').update(`${path}\0${info.mtimeMs}\0${info.size}`).digest('hex').slice(0, 32);
 }
 
 async function pruneCache(root) {
@@ -58,14 +69,17 @@ async function pruneCache(root) {
   }
   const directories = entries.filter((entry) => entry.isDirectory());
   if (directories.length <= MAX_CACHED_DOCUMENTS) return;
-  const dated = await Promise.all(directories.map(async (entry) => {
-    const target = join(root, entry.name);
-    const info = await stat(target).catch(() => null);
-    return { path: target, usedAt: info?.mtimeMs ?? 0 };
-  }));
+  const dated = await Promise.all(
+    directories.map(async (entry) => {
+      const target = join(root, entry.name);
+      const info = await stat(target).catch(() => null);
+      return { path: target, usedAt: info?.mtimeMs ?? 0 };
+    })
+  );
   dated.sort((left, right) => right.usedAt - left.usedAt);
-  await Promise.all(dated.slice(MAX_CACHED_DOCUMENTS).map((entry) =>
-    rm(entry.path, { recursive: true, force: true }).catch(() => {})));
+  await Promise.all(
+    dated.slice(MAX_CACHED_DOCUMENTS).map((entry) => rm(entry.path, { recursive: true, force: true }).catch(() => {}))
+  );
 }
 
 // Two panes can open the same document in the same breath. Without this the
@@ -116,11 +130,7 @@ export async function documentPreviewPdf(path, { cacheRoot, signal = null } = {}
  * show, and the answer carries the page COUNT so it can ask for the rest.
  * @returns {Promise<{ pageCount: number; pages: Array<{ page: number; width: number; height: number; mime: string; base64: string }> }>}
  */
-export async function documentPreviewPages(pdfPath, {
-  pages = [1],
-  maxWidth = 1200,
-  signal = null,
-} = {}) {
+export async function documentPreviewPages(pdfPath, { pages = [1], maxWidth = 1200, signal = null } = {}) {
   const rendered = await renderPdfPages(pdfPath, {
     pages: Array.isArray(pages) && pages.length ? pages : [1],
     maxWidth,

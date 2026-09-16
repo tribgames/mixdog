@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
-  executeComputerTool, deferComputerSessionRelease, releaseComputerSession, releaseAllComputerSessions,
+  executeComputerTool,
+  deferComputerSessionRelease,
+  releaseComputerSession,
+  releaseAllComputerSessions,
 } from './client.mjs';
 
 for (const outcome of ['released', 'cancelled', 'unconfirmed', 'cancelled_unconfirmed', 'shutdown']) {
@@ -19,21 +22,29 @@ for (const outcome of ['released', 'cancelled', 'unconfirmed', 'cancelled_unconf
     const calls = [];
     let acknowledge;
     let holdRelease = true;
-    const reply = (ok = true) => new Response(JSON.stringify({ ok, value: { text: 'ok' } }), {
-      headers: { 'content-type': 'application/json' },
-    });
+    const reply = (ok = true) =>
+      new Response(JSON.stringify({ ok, value: { text: 'ok' } }), {
+        headers: { 'content-type': 'application/json' },
+      });
     globalThis.fetch = async (_url, options) => {
       const command = JSON.parse(options.body);
       calls.push(command.action);
       if (command.action === 'session_release' && holdRelease) {
-        return await new Promise(resolve => { acknowledge = resolve; });
+        return await new Promise((resolve) => {
+          acknowledge = resolve;
+        });
       }
       return reply();
     };
     try {
-      await writeFile(join(directory, 'computer-bridge.json'), JSON.stringify({
-        version: 1, port: 12345, token: 'fixture-token',
-      }));
+      await writeFile(
+        join(directory, 'computer-bridge.json'),
+        JSON.stringify({
+          version: 1,
+          port: 12345,
+          token: 'fixture-token',
+        })
+      );
       const args = { action: 'list', input: { kind: 'windows' } };
       const sessionId = `release-${outcome}`;
       await executeComputerTool(args, { sessionId });
@@ -46,8 +57,11 @@ for (const outcome of ['released', 'cancelled', 'unconfirmed', 'cancelled_unconf
       assert.deepEqual(calls, ['list_windows', 'session_release']);
       if (outcome === 'shutdown') {
         const keepAlive = setTimeout(() => {}, 1_000);
-        try { assert.equal(await releaseAllComputerSessions(10), 0); }
-        finally { clearTimeout(keepAlive); }
+        try {
+          assert.equal(await releaseAllComputerSessions(10), 0);
+        } finally {
+          clearTimeout(keepAlive);
+        }
         assert.deepEqual(calls, ['list_windows', 'session_release']);
       }
       if (cancelled) {
@@ -61,13 +75,19 @@ for (const outcome of ['released', 'cancelled', 'unconfirmed', 'cancelled_unconf
       assert.equal(await second, confirmed);
       const result = await next;
       assert.equal(result.isError === true, !continued);
-      assert.equal(calls.filter(action => action === 'list_windows').length, continued ? 2 : 1);
+      assert.equal(calls.filter((action) => action === 'list_windows').length, continued ? 2 : 1);
       if (continued) {
-        assert.equal(deferComputerSessionRelease(sessionId, 60_000), true,
-          'the old release acknowledgment must not erase the new host binding');
+        assert.equal(
+          deferComputerSessionRelease(sessionId, 60_000),
+          true,
+          'the old release acknowledgment must not erase the new host binding'
+        );
       } else if (cancelled) {
-        assert.equal(deferComputerSessionRelease(sessionId, 20), false,
-          'a late failed release must not resurrect a successfully aborted session');
+        assert.equal(
+          deferComputerSessionRelease(sessionId, 20),
+          false,
+          'a late failed release must not resurrect a successfully aborted session'
+        );
       }
     } finally {
       holdRelease = false;

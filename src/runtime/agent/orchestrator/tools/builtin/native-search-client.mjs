@@ -9,10 +9,7 @@
 // MIXDOG_SEARCH_SERVER=0 disables; MIXDOG_SEARCH_SERVER_BIN overrides the
 // executable.
 import { existsSync } from 'node:fs';
-import {
-  bindChildLifecycle,
-  createNativeSearchTransport,
-} from './native-search-transport.mjs';
+import { bindChildLifecycle, createNativeSearchTransport } from './native-search-transport.mjs';
 import { reportRuntimeWorkerUnhealthy } from '../../../../shared/session-runtime-health.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { getPluginData } from '../../config.mjs';
@@ -39,7 +36,7 @@ const FUZZY_INVENTORY_LEASE_MS = (() => {
 })();
 
 let _server = null; // { transport, exited, pending: Map, sequence }
-let _binaryPath = undefined; // undefined = unresolved, null = unavailable
+let _binaryPath; // undefined = unresolved, null = unavailable
 let _lastFailureAt = 0;
 let _lastFailure = null;
 let _consecutiveProcessFailures = 0;
@@ -68,13 +65,11 @@ function timeoutError(request, deadlineMs) {
   // The remedy must name arguments this tool actually publishes. "Set max
   // depth" named none: `find` exposes query/path/limit/include_noise only, so
   // the one measured timeout left the caller with no actionable next step.
-  const detail = kind === 'fuzzy'
-    ? ' Fuzzy ranking requires a complete file inventory; narrow the search to a subdirectory via path, or use glob for a wildcard path match.'
-    : '';
-  return codedError(
-    'NATIVE_SEARCH_TIMEOUT',
-    `native ${kind} search timed out after ${deadlineMs}ms.${detail}`,
-  );
+  const detail =
+    kind === 'fuzzy'
+      ? ' Fuzzy ranking requires a complete file inventory; narrow the search to a subdirectory via path, or use glob for a wildcard path match.'
+      : '';
+  return codedError('NATIVE_SEARCH_TIMEOUT', `native ${kind} search timed out after ${deadlineMs}ms.${detail}`);
 }
 
 function softDeadlineMs(hardDeadlineMs) {
@@ -88,14 +83,12 @@ function softDeadlineMs(hardDeadlineMs) {
 function processFailure(error, server, detail = '') {
   if (error?.code === 'NATIVE_SEARCH_PROCESS_EXIT') return error;
   const stderr = String(server?.stderrTail || '').trim();
-  const cause = error instanceof Error
-    ? `${error.code ? `${error.code}: ` : ''}${error.message}`
-    : '';
+  const cause = error instanceof Error ? `${error.code ? `${error.code}: ` : ''}${error.message}` : '';
   const suffix = [detail, cause, stderr ? `stderr: ${stderr}` : ''].filter(Boolean).join('; ');
   return codedError(
     'NATIVE_SEARCH_PROCESS_EXIT',
     `native search server exited${suffix ? ` (${suffix})` : ''}`,
-    error instanceof Error ? error : null,
+    error instanceof Error ? error : null
   );
 }
 
@@ -136,7 +129,9 @@ function subscribeAbortSignal(signal, callback) {
       const pending = [...callbacks];
       callbacks.clear();
       for (const fn of pending) {
-        try { fn(); } catch {}
+        try {
+          fn();
+        } catch {}
       }
     };
     state = { callbacks, listener };
@@ -148,7 +143,9 @@ function subscribeAbortSignal(signal, callback) {
     if (!state.callbacks.delete(callback) || state.callbacks.size > 0) return;
     if (_abortSignalSubscribers.get(signal) === state) {
       _abortSignalSubscribers.delete(signal);
-      try { signal.removeEventListener('abort', state.listener); } catch {}
+      try {
+        signal.removeEventListener('abort', state.listener);
+      } catch {}
     }
   };
 }
@@ -159,7 +156,9 @@ function unavailableError() {
 }
 
 function _setServerReferenced(server, referenced) {
-  try { server?.transport?.[referenced ? 'ref' : 'unref']?.(); } catch {}
+  try {
+    server?.transport?.[referenced ? 'ref' : 'unref']?.();
+  } catch {}
 }
 
 function _resolveBinary() {
@@ -167,11 +166,7 @@ function _resolveBinary() {
   // The graph and resident-search protocols ship in the same executable.
   // Honor either override synchronously so a first grep never races the lazy
   // graph module import while an explicitly injected binary already exists.
-  const explicit = String(
-    process.env.MIXDOG_SEARCH_SERVER_BIN
-    || process.env.MIXDOG_GRAPH_BIN
-    || '',
-  ).trim();
+  const explicit = String(process.env.MIXDOG_SEARCH_SERVER_BIN || process.env.MIXDOG_GRAPH_BIN || '').trim();
   if (explicit && existsSync(explicit)) {
     _binaryPath = explicit;
     return _binaryPath;
@@ -180,16 +175,18 @@ function _resolveBinary() {
     _binaryResolveStarted = true;
     // Reuse the code-graph binary resolution lazily; resolver shape is duck-
     // typed so a refactor there degrades to "server unavailable", never throws.
-    void import('../code-graph/graph-binary.mjs').then((mod) => {
-      try {
-        const candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
-        _binaryPath = (candidate && existsSync(candidate)) ? candidate : null;
-      } catch {
+    void import('../code-graph/graph-binary.mjs')
+      .then((mod) => {
+        try {
+          const candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
+          _binaryPath = candidate && existsSync(candidate) ? candidate : null;
+        } catch {
+          _binaryPath = null;
+        }
+      })
+      .catch(() => {
         _binaryPath = null;
-      }
-    }).catch(() => {
-      _binaryPath = null;
-    });
+      });
   }
   return _binaryPath;
 }
@@ -201,13 +198,19 @@ function _teardown(error, { countFailure = true, detail = '' } = {}) {
   const failure = processFailure(error, server, detail);
   if (countFailure) noteProcessFailure(failure);
   for (const pending of server.pending.values()) {
-    try { pending.reject(failure); } catch {}
+    try {
+      pending.reject(failure);
+    } catch {}
   }
   server.pending.clear();
   for (const timer of server.cancelWatchdogs?.values?.() || []) clearTimeout(timer);
   server.cancelWatchdogs?.clear?.();
-  try { server.resolveReady?.(false); } catch {}
-  try { server.transport.kill(); } catch {}
+  try {
+    server.resolveReady?.(false);
+  } catch {}
+  try {
+    server.transport.kill();
+  } catch {}
 }
 
 export async function shutdownNativeSearchServer(reason = 'process-exit', timeoutMs = 1_000) {
@@ -218,7 +221,9 @@ export async function shutdownNativeSearchServer(reason = 'process-exit', timeou
   // routes each event to exactly one handler, so a second listener registered
   // now would displace the teardown wiring.
   const exited = server.exited;
-  try { transport.end(); } catch {}
+  try {
+    transport.end();
+  } catch {}
   _teardown(new Error(`native search server shutdown (${reason})`), { countFailure: false });
   _warmPromise = null;
   let timer;
@@ -230,7 +235,9 @@ export async function shutdownNativeSearchServer(reason = 'process-exit', timeou
   ]);
   if (timer) clearTimeout(timer);
   if (!stopped) {
-    try { transport.kill('SIGKILL'); } catch {}
+    try {
+      transport.kill('SIGKILL');
+    } catch {}
   }
   return stopped;
 }
@@ -240,9 +247,10 @@ export { bindChildLifecycle as _bindNativeSearchServerLifecycle };
 function _ensureServer() {
   if (_server) return _server;
   if (
-    _consecutiveProcessFailures >= PROCESS_FAILURES_BEFORE_BACKOFF
-    && Date.now() - _lastFailureAt < RESTART_BACKOFF_MS
-  ) return null;
+    _consecutiveProcessFailures >= PROCESS_FAILURES_BEFORE_BACKOFF &&
+    Date.now() - _lastFailureAt < RESTART_BACKOFF_MS
+  )
+    return null;
   let transport;
   try {
     transport = createNativeSearchTransport({
@@ -255,11 +263,15 @@ function _ensureServer() {
   }
   if (!transport) return null;
   let resolveReady;
-  const ready = new Promise((resolve) => { resolveReady = resolve; });
+  const ready = new Promise((resolve) => {
+    resolveReady = resolve;
+  });
   // Armed here, not at shutdown: the transport routes each event to exactly
   // one handler, so a listener added later would displace the teardown wiring.
   let markExited;
-  const exited = new Promise((resolve) => { markExited = resolve; });
+  const exited = new Promise((resolve) => {
+    markExited = resolve;
+  });
   const server = {
     transport,
     exited,
@@ -277,7 +289,11 @@ function _ensureServer() {
   });
   transport.on('line', (line) => {
     let message;
-    try { message = JSON.parse(line); } catch { return; }
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
     if (message?.ready === true) {
       server.readyState = true;
       server.resolveReady?.(true);
@@ -331,13 +347,15 @@ async function _waitServerReady(server, timeoutMs = 5_000) {
   _setServerReferenced(server, true);
   let timer;
   try {
-    return await Promise.race([
-      server.ready,
-      new Promise((resolve) => {
-        timer = setTimeout(() => resolve(false), timeoutMs);
-        timer.unref?.();
-      }),
-    ]) === true;
+    return (
+      (await Promise.race([
+        server.ready,
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(false), timeoutMs);
+          timer.unref?.();
+        }),
+      ])) === true
+    );
   } finally {
     if (timer) clearTimeout(timer);
     server.readyWaiters = Math.max(0, server.readyWaiters - 1);
@@ -364,9 +382,7 @@ async function _awaitWithin(promise, timeoutMs) {
 
 function cancelGraceMs() {
   const configured = Number(process.env.MIXDOG_SEARCH_CANCEL_GRACE_MS);
-  return Number.isFinite(configured) && configured > 0
-    ? Math.max(1, Math.floor(configured))
-    : CANCEL_GRACE_MS;
+  return Number.isFinite(configured) && configured > 0 ? Math.max(1, Math.floor(configured)) : CANCEL_GRACE_MS;
 }
 
 function completeNativeCancellation(server, id) {
@@ -383,12 +399,14 @@ function armNativeCancellationWatchdog(server, request) {
     server.cancelWatchdogs.delete(request.id);
     const error = codedError(
       'NATIVE_SEARCH_CANCEL_STALLED',
-      `native ${requestKind(request)} search did not stop within ${graceMs}ms after cancellation`,
+      `native ${requestKind(request)} search did not stop within ${graceMs}ms after cancellation`
     );
     if (_server === server) {
       _teardown(error, { countFailure: false, detail: 'cancellation grace expired' });
     } else {
-      try { server.transport.kill(); } catch {}
+      try {
+        server.transport.kill();
+      } catch {}
     }
   }, graceMs);
   timer.unref?.();
@@ -433,10 +451,10 @@ async function _readyServer(timeoutMs = SERVER_READY_TIMEOUT_MS) {
   const startedAt = Date.now();
   const remaining = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
   let server = _ensureServer();
-  if (server && await _waitServerReady(server, remaining())) return server;
+  if (server && (await _waitServerReady(server, remaining()))) return server;
   if (await warmNativeSearchServer(remaining())) {
     server = _ensureServer();
-    if (server && await _waitServerReady(server, remaining())) return server;
+    if (server && (await _waitServerReady(server, remaining()))) return server;
   }
   return null;
 }
@@ -448,14 +466,18 @@ async function requestNative(server, request, execOptions, deadlineMs) {
     let onAbort = null;
     let unsubscribeAbort = null;
     const cancelServerWork = () => {
-      try { server.transport.write(`${JSON.stringify({ cancel: request.id })}\n`); } catch {}
+      try {
+        server.transport.write(`${JSON.stringify({ cancel: request.id })}\n`);
+      } catch {}
       armNativeCancellationWatchdog(server, request);
     };
     const settle = (value, cancel = false, error = null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      try { unsubscribeAbort?.(); } catch {}
+      try {
+        unsubscribeAbort?.();
+      } catch {}
       unsubscribeAbort = null;
       onAbort = null;
       if (cancel) cancelServerWork();
@@ -464,9 +486,7 @@ async function requestNative(server, request, execOptions, deadlineMs) {
       if (server.pending.size === 0) _setServerReferenced(server, false);
     };
     const settleTimeout = (error) => {
-      const action = requestKind(request) === 'process snapshot'
-        ? 'none'
-        : noteSearchTimeout(server);
+      const action = requestKind(request) === 'process snapshot' ? 'none' : noteSearchTimeout(server);
       settle(null, true, error);
       if (action === 'none') return;
       // A single timeout no longer recycles the server: `settle(cancel=true)`
@@ -500,11 +520,7 @@ async function requestNative(server, request, execOptions, deadlineMs) {
       if (reason?.code === 'READ_ONLY_IO_TIMEOUT') {
         settleTimeout(timeoutError(request, deadlineMs));
       } else {
-        settle(
-          null,
-          true,
-          codedError('NATIVE_SEARCH_ABORTED', `native ${requestKind(request)} search aborted`),
-        );
+        settle(null, true, codedError('NATIVE_SEARCH_ABORTED', `native ${requestKind(request)} search aborted`));
       }
     };
     if (execOptions.signal?.aborted) {
@@ -575,7 +591,7 @@ async function requestNativeWithRestart(buildRequest, execOptions, deadlineMs) {
           }
           return await requestNative(server, request, execOptions, admittedRemaining);
         },
-        { waitTimeoutMs: remaining },
+        { waitTimeoutMs: remaining }
       );
     } catch (error) {
       if (error?.code !== 'NATIVE_SEARCH_PROCESS_EXIT' || attempt > 0) throw error;
@@ -589,17 +605,16 @@ async function requestNativeWithRestart(buildRequest, execOptions, deadlineMs) {
 export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   if (process.env.MIXDOG_SEARCH_SERVER === '0') return null;
   const callerTimeoutMs = Number(execOptions.timeout);
-  const deadlineMs = Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
-    ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
-    : REQUEST_TIMEOUT_MS;
+  const deadlineMs =
+    Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
+      ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
+      : REQUEST_TIMEOUT_MS;
   const buildRequest = (server, remaining) => ({
     id: ++server.sequence,
     cwd: String(execOptions.cwd || process.cwd()),
     args: argsList.map(String),
     offset: Math.max(0, Math.floor(Number(opts.offset) || 0)),
-    limit: Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0
-      ? Math.floor(Number(opts.limit))
-      : 0,
+    limit: Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0 ? Math.floor(Number(opts.limit)) : 0,
     deadlineMs: softDeadlineMs(remaining),
     keepWarm: opts.keepWarm === true,
     ...(opts.bulkHint === true ? { bulkHint: true } : {}),
@@ -614,27 +629,26 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   // queue+handler time consumed its deadline budget, re-ask ONCE; the retry
   // (served from a now-warm server) returns either the real matches or a
   // fast, trustworthy empty.
-  const legacySuspectEmpty = (
-    Array.isArray(response.lines) && response.lines.length === 0
-    && response.complete === true && response.partial !== true
-    && response.inventoryChecked !== true
-    && (
-      (Number(response.queueMs) || 0) + (Number(response.handlerMs) || 0)
-        >= Math.max(500, softDeadlineMs(deadlineMs) - 250)
+  const legacySuspectEmpty =
+    Array.isArray(response.lines) &&
+    response.lines.length === 0 &&
+    response.complete === true &&
+    response.partial !== true &&
+    response.inventoryChecked !== true &&
+    ((Number(response.queueMs) || 0) + (Number(response.handlerMs) || 0) >=
+      Math.max(500, softDeadlineMs(deadlineMs) - 250) ||
       // filesScanned===0 on an empty "complete" answer: the scan loops never
       // opened a single file. Either the scope truly has no eligible files
       // (retry returns the same answer in ~ms) or the server's file list was
       // transiently wrong (observed once: a file-scope grep answered empty in
       // 0ms while the file demonstrably matched). One re-ask disambiguates.
-      || Number(response.filesScanned) === 0
-    )
-  );
+      Number(response.filesScanned) === 0);
   if (legacySuspectEmpty) {
     if (_server) {
-      _teardown(
-        codedError('NATIVE_SEARCH_INTEGRITY', 'native search returned an unverified empty result'),
-        { countFailure: false, detail: 'unverified empty response' },
-      );
+      _teardown(codedError('NATIVE_SEARCH_INTEGRITY', 'native search returned an unverified empty result'), {
+        countFailure: false,
+        detail: 'unverified empty response',
+      });
     }
     try {
       response = await requestNativeWithRestart(buildRequest, execOptions, deadlineMs);
@@ -642,20 +656,21 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
       throw codedError(
         'NATIVE_SEARCH_INTEGRITY',
         'native search could not verify an empty result with a fresh server',
-        error,
+        error
       );
     }
-    const retryConsumedDeadline = Array.isArray(response.lines)
-      && response.lines.length === 0
-      && response.complete === true
-      && response.partial !== true
-      && response.inventoryChecked !== true
-      && (Number(response.queueMs) || 0) + (Number(response.handlerMs) || 0)
-        >= Math.max(500, softDeadlineMs(deadlineMs) - 250);
+    const retryConsumedDeadline =
+      Array.isArray(response.lines) &&
+      response.lines.length === 0 &&
+      response.complete === true &&
+      response.partial !== true &&
+      response.inventoryChecked !== true &&
+      (Number(response.queueMs) || 0) + (Number(response.handlerMs) || 0) >=
+        Math.max(500, softDeadlineMs(deadlineMs) - 250);
     if (retryConsumedDeadline) {
       throw codedError(
         'NATIVE_SEARCH_INTEGRITY',
-        'native search returned an unverified empty result after a fresh-server retry',
+        'native search returned an unverified empty result after a fresh-server retry'
       );
     }
   }
@@ -681,8 +696,9 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
     // the model sees WHY the result may be missing matches.
     ...(scanErrors > 0
       ? {
-          rgStderr: `${scanErrors} file(s) could not be read (permission or I/O error); matches from those files are missing`
-            + (walkErrorDetails.length > 0 ? `; ${walkErrorDetails.join('; ')}` : ''),
+          rgStderr:
+            `${scanErrors} file(s) could not be read (permission or I/O error); matches from those files are missing` +
+            (walkErrorDetails.length > 0 ? `; ${walkErrorDetails.join('; ')}` : ''),
         }
       : {}),
     queueMs: Math.max(0, Number(response.queueMs) || 0),
@@ -698,9 +714,10 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
 export async function tryServeFuzzySearch(args, execOptions = {}) {
   if (process.env.MIXDOG_SEARCH_SERVER === '0') return null;
   const callerTimeoutMs = Number(execOptions.timeout);
-  const deadlineMs = Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
-    ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
-    : REQUEST_TIMEOUT_MS;
+  const deadlineMs =
+    Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
+      ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
+      : REQUEST_TIMEOUT_MS;
   const response = await requestNativeWithRestart(
     (server, remaining) => ({
       id: ++server.sequence,
@@ -711,9 +728,7 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
       includeNoise: args?.includeNoise === true,
       // Background inventory continuation is explicit opt-in, not a
       // prerequisite for a normal find response.
-      ...(FUZZY_INVENTORY_LEASE_MS > 0
-        ? { keepInventoryMs: FUZZY_INVENTORY_LEASE_MS }
-        : {}),
+      ...(FUZZY_INVENTORY_LEASE_MS > 0 ? { keepInventoryMs: FUZZY_INVENTORY_LEASE_MS } : {}),
       ...(Number.isFinite(Number(args?.maxDepth)) && Number(args.maxDepth) > 0
         ? { maxDepth: Math.floor(Number(args.maxDepth)) }
         : {}),
@@ -721,7 +736,7 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
       deadlineMs: softDeadlineMs(remaining),
     }),
     execOptions,
-    deadlineMs,
+    deadlineMs
   );
   if (response?.unsupported) {
     throw codedError('NATIVE_SEARCH_UNSUPPORTED', String(response.unsupported));
@@ -739,9 +754,7 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
     partial: response.partial === true,
     timeout: response.timeout === true,
     scanErrors: Math.max(0, Math.floor(Number(response.scanErrors) || 0)),
-    walkErrorDetails: Array.isArray(response.walkErrorDetails)
-      ? response.walkErrorDetails.map(String).slice(0, 8)
-      : [],
+    walkErrorDetails: Array.isArray(response.walkErrorDetails) ? response.walkErrorDetails.map(String).slice(0, 8) : [],
     inventoryChecked: response.inventoryChecked === true,
     cacheSafe: response.cacheSafe !== false,
     queueMs: Math.max(0, Number(response.queueMs) || 0),
@@ -763,9 +776,10 @@ export async function tryServeListMetadata(paths, execOptions = {}) {
     throw codedError('NATIVE_SEARCH_UNSUPPORTED', 'list metadata request exceeds 50000 paths');
   }
   const callerTimeoutMs = Number(execOptions.timeout);
-  const deadlineMs = Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
-    ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
-    : Math.min(5_000, REQUEST_TIMEOUT_MS);
+  const deadlineMs =
+    Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
+      ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
+      : Math.min(5_000, REQUEST_TIMEOUT_MS);
   const response = await requestNativeWithRestart(
     (server) => ({
       id: ++server.sequence,
@@ -773,7 +787,7 @@ export async function tryServeListMetadata(paths, execOptions = {}) {
       listMetadata: list,
     }),
     execOptions,
-    deadlineMs,
+    deadlineMs
   );
   if (response?.error) {
     throw codedError('NATIVE_SEARCH_ERROR', String(response.error));

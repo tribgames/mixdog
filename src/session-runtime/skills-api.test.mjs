@@ -1,12 +1,5 @@
 import assert from 'node:assert/strict';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -23,20 +16,23 @@ test('edits existing skills without dropping optional metadata or sibling resour
     const cwd = join(root, 'project');
     const originalDir = join(process.env.MIXDOG_DATA_DIR, 'skills', 'existing-skill');
     mkdirSync(join(originalDir, 'scripts'), { recursive: true });
-    writeFileSync(join(originalDir, 'SKILL.md'), [
-      '---',
-      'name: existing-skill',
-      'description: Use when editing an existing skill.',
-      'license: MIT',
-      'metadata:',
-      '  author: example',
-      'allowed-tools:',
-      '  - shell',
-      '---',
-      '',
-      '# Original instructions',
-      '',
-    ].join('\n'));
+    writeFileSync(
+      join(originalDir, 'SKILL.md'),
+      [
+        '---',
+        'name: existing-skill',
+        'description: Use when editing an existing skill.',
+        'license: MIT',
+        'metadata:',
+        '  author: example',
+        'allowed-tools:',
+        '  - shell',
+        '---',
+        '',
+        '# Original instructions',
+        '',
+      ].join('\n')
+    );
     writeFileSync(join(originalDir, 'scripts', 'check.py'), 'print("ok")\n');
 
     const api = createSkillsApi({ contextMod, getCwd: () => cwd });
@@ -76,7 +72,10 @@ test('skillsStatus attributes each skill to the owner that installs and toggles 
   const cwd = join(root, 'project');
   const skill = (dir, name, extra = []) => {
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'SKILL.md'), ['---', `name: ${name}`, `description: Use ${name}.`, ...extra, '---', '', '# x', ''].join('\n'));
+    writeFileSync(
+      join(dir, 'SKILL.md'),
+      ['---', `name: ${name}`, `description: Use ${name}.`, ...extra, '---', '', '# x', ''].join('\n')
+    );
   };
   try {
     skill(join(process.env.MIXDOG_DATA_DIR, 'skills', 'mine'), 'mine');
@@ -84,13 +83,19 @@ test('skillsStatus attributes each skill to the owner that installs and toggles 
     const pluginRoot = join(root, 'plugin-a');
     skill(join(pluginRoot, 'skills', 'from-plugin'), 'from-plugin');
     mkdirSync(join(process.env.MIXDOG_DATA_DIR, 'plugins'), { recursive: true });
-    writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'plugins', 'registry.json'), JSON.stringify({
-      plugins: [{ id: 'plugin-a', name: 'Plugin A', root: pluginRoot, enabled: true }],
-    }));
+    writeFileSync(
+      join(process.env.MIXDOG_DATA_DIR, 'plugins', 'registry.json'),
+      JSON.stringify({
+        plugins: [{ id: 'plugin-a', name: 'Plugin A', root: pluginRoot, enabled: true }],
+      })
+    );
     contextMod.invalidateSkillsCache(cwd);
 
-    const byName = Object.fromEntries(createSkillsApi({ contextMod, getCwd: () => cwd })
-      .skillsStatus().skills.map((entry) => [entry.name, entry]));
+    const byName = Object.fromEntries(
+      createSkillsApi({ contextMod, getCwd: () => cwd })
+        .skillsStatus()
+        .skills.map((entry) => [entry.name, entry])
+    );
     assert.deepEqual(byName.mine.owner, { kind: 'user' });
     assert.equal(byName.mine.editable, true);
     assert.deepEqual(byName.pptx.owner, { kind: 'builtin', feature: 'office' });
@@ -126,14 +131,20 @@ test('creates new global skills with all three standard fields', () => {
     assert.equal(parsed.description, 'Use when creating a standard skill.');
     assert.equal(parsed.whenToUse, '"새 스킬", "new skill"; not for editing one.');
     assert.equal(parsed.body, '# Instructions\n\nDo the work.\n');
-    assert.equal(api.skillsStatus().skills.find((skill) => skill.name === 'new-skill')?.whenToUse,
-      '"새 스킬", "new skill"; not for editing one.');
+    assert.equal(
+      api.skillsStatus().skills.find((skill) => skill.name === 'new-skill')?.whenToUse,
+      '"새 스킬", "new skill"; not for editing one.'
+    );
     assert.equal(created.filePath, join(process.env.MIXDOG_DATA_DIR, 'skills', 'new-skill', 'SKILL.md'));
-    assert.throws(() => api.addGlobalSkill({
-      name: 'Invalid_Name',
-      description: 'Use when invalid.',
-      instructions: '# Instructions',
-    }), /lowercase letters/);
+    assert.throws(
+      () =>
+        api.addGlobalSkill({
+          name: 'Invalid_Name',
+          description: 'Use when invalid.',
+          instructions: '# Instructions',
+        }),
+      /lowercase letters/
+    );
   } finally {
     contextMod.invalidateSkillsCache(join(root, 'project'));
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
@@ -149,20 +160,28 @@ test('tool-link edits preserve imported source bytes, survive renames, and can b
   const cwd = join(root, 'project');
   const dir = join(process.env.MIXDOG_DATA_DIR, 'skills', 'imported-guide');
   mkdirSync(join(dir, 'agents'), { recursive: true });
-  const source = '---\n# preserve formatting\nname: imported-guide\ndescription: Original guide.\nallowed-tools: shell\n---\n\n# Instructions\n';
+  const source =
+    '---\n# preserve formatting\nname: imported-guide\ndescription: Original guide.\nallowed-tools: shell\n---\n\n# Instructions\n';
   writeFileSync(join(dir, 'SKILL.md'), source);
   const metadata = 'dependencies:\n  tools:\n    - type: mcp\n      value: design-server\n';
   writeFileSync(join(dir, 'agents', 'openai.yaml'), metadata);
   try {
     contextMod.invalidateSkillsCache(cwd);
     const api = createSkillsApi({ contextMod, getCwd: () => cwd });
-    api.saveSkillDocument({ originalName: 'imported-guide', dependenciesOnly: true,
-      toolDependencies: [{ type: 'tool', value: 'office' }] });
+    api.saveSkillDocument({
+      originalName: 'imported-guide',
+      dependenciesOnly: true,
+      toolDependencies: [{ type: 'tool', value: 'office' }],
+    });
     assert.equal(readFileSync(join(dir, 'SKILL.md'), 'utf8'), source);
     assert.equal(readFileSync(join(dir, 'agents', 'openai.yaml'), 'utf8'), metadata);
     assert.deepEqual(api.skillContent('imported-guide').toolDependencies, [{ type: 'tool', value: 'office' }]);
-    api.saveSkillDocument({ originalName: 'imported-guide', name: 'renamed-guide',
-      description: 'Original guide.', instructions: '# Instructions' });
+    api.saveSkillDocument({
+      originalName: 'imported-guide',
+      name: 'renamed-guide',
+      description: 'Original guide.',
+      instructions: '# Instructions',
+    });
     assert.deepEqual(api.skillContent('renamed-guide').toolDependencies, [{ type: 'tool', value: 'office' }]);
     api.saveSkillDocument({ originalName: 'renamed-guide', dependenciesOnly: true, toolDependencies: [] });
     assert.deepEqual(api.skillContent('renamed-guide').toolDependencies, []);
@@ -189,16 +208,32 @@ test('read-only packaged skills permit local dependency edits but not source edi
   try {
     contextMod.invalidateSkillsCache(root);
     const api = createSkillsApi({ contextMod, getCwd: () => root });
-    api.saveSkillDocument({ originalName: 'packaged-guide', dependenciesOnly: true,
-      toolDependencies: [{ type: 'tool', value: 'office' }] });
+    api.saveSkillDocument({
+      originalName: 'packaged-guide',
+      dependenciesOnly: true,
+      toolDependencies: [{ type: 'tool', value: 'office' }],
+    });
     assert.equal(readFileSync(join(dir, 'SKILL.md'), 'utf8'), source);
-    assert.equal(api.skillsStatus().skills.find((entry) => entry.name === 'packaged-guide').dependencySource, 'override');
-    assert.throws(() => api.saveSkillDocument({ originalName: 'packaged-guide', name: 'packaged-guide',
-      description: 'Changed source', instructions: 'New body' }), /read-only/);
+    assert.equal(
+      api.skillsStatus().skills.find((entry) => entry.name === 'packaged-guide').dependencySource,
+      'override'
+    );
+    assert.throws(
+      () =>
+        api.saveSkillDocument({
+          originalName: 'packaged-guide',
+          name: 'packaged-guide',
+          description: 'Changed source',
+          instructions: 'New body',
+        }),
+      /read-only/
+    );
   } finally {
     contextMod.invalidateSkillsCache(root);
-    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR; else process.env.MIXDOG_DATA_DIR = previousDataDir;
-    if (previousRoot === undefined) delete process.env.MIXDOG_ROOT; else process.env.MIXDOG_ROOT = previousRoot;
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    if (previousRoot === undefined) delete process.env.MIXDOG_ROOT;
+    else process.env.MIXDOG_ROOT = previousRoot;
     rmSync(root, { recursive: true, force: true });
   }
 });

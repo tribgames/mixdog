@@ -1,6 +1,15 @@
 import { dirname, extname, join, posix } from 'node:path';
 import { createHash } from 'node:crypto';
-import { contrastRatio, measureTextBlock, reviewCjkTracking, reviewShapeSpacing, reviewStatLabelProximity, reviewTextBoxFit, reviewTextContrast, reviewVerticalBalance } from './text-metrics.mjs';
+import {
+  contrastRatio,
+  measureTextBlock,
+  reviewCjkTracking,
+  reviewShapeSpacing,
+  reviewStatLabelProximity,
+  reviewTextBoxFit,
+  reviewTextContrast,
+  reviewVerticalBalance,
+} from './text-metrics.mjs';
 import { resolveSlideBackground } from './portable-pptx-core.mjs';
 import {
   columnLabel,
@@ -11,7 +20,16 @@ import {
   sharedStrings,
   workbookSheets,
 } from './portable-cells.mjs';
-import { imagePixelSize, loadPackage, partRelationshipPath, relationshipMap, relationshipOwner, relationshipTarget, removeContentTypeOverride, zipText } from './portable-opc.mjs';
+import {
+  imagePixelSize,
+  loadPackage,
+  partRelationshipPath,
+  relationshipMap,
+  relationshipOwner,
+  relationshipTarget,
+  removeContentTypeOverride,
+  zipText,
+} from './portable-opc.mjs';
 import { chartFaultIssues } from './portable-chart-faults.mjs';
 import { reviewDeadVectorChart, reviewTextFragmentation } from './review-editability.mjs';
 import { docxTables } from './portable-docx-xml.mjs';
@@ -21,9 +39,22 @@ import { slidePath } from './portable-pptx-package.mjs';
 import { FULL_READ_CELL_LIMIT, snapshotDocx, snapshotPptx, snapshotXlsx } from './portable-snapshot.mjs';
 import { reviewOfficeStructure } from '../quality/assurance-structure.mjs';
 import { auditXlsxFormulas } from './xlsx-formula-audit.mjs';
-import { displayWidth, formattedNumberWidth, hiddenSheetAreas, mergedRanges, worksheetSection } from './portable-sheet-xml.mjs';
+import {
+  displayWidth,
+  formattedNumberWidth,
+  hiddenSheetAreas,
+  mergedRanges,
+  worksheetSection,
+} from './portable-sheet-xml.mjs';
 import { resolveCellStyles } from './portable-sheet-styles.mjs';
-import { OOXML_REQUIRED, TEMPLATE_TOKEN_SOURCE, paragraphTexts, topLevelElements, xmlAttribute, xmlDecode } from './portable-xml.mjs';
+import {
+  OOXML_REQUIRED,
+  TEMPLATE_TOKEN_SOURCE,
+  paragraphTexts,
+  topLevelElements,
+  xmlAttribute,
+  xmlDecode,
+} from './portable-xml.mjs';
 
 async function inspectXmlParts(zip, entries) {
   const malformedXml = [];
@@ -41,7 +72,6 @@ async function inspectXmlParts(zip, entries) {
   return malformedXml;
 }
 
-
 function contentTypeCoverage(entries, xml, format) {
   const defaults = new Map();
   const overrides = new Map();
@@ -54,9 +84,7 @@ function contentTypeCoverage(entries, xml, format) {
   const missingContentTypes = entries.filter((name) => {
     if (name === '[Content_Types].xml') return false;
     if (overrides.has(name)) return false;
-    const extension = name.toLowerCase().endsWith('.rels')
-      ? 'rels'
-      : posix.extname(name).slice(1).toLowerCase();
+    const extension = name.toLowerCase().endsWith('.rels') ? 'rels' : posix.extname(name).slice(1).toLowerCase();
     return !extension || !defaults.has(extension);
   });
   const mainPart = OOXML_REQUIRED[format]?.[1] || '';
@@ -68,7 +96,6 @@ function contentTypeCoverage(entries, xml, format) {
     mainContentTypeMissing: Boolean(mainPart && !mainContentType),
   };
 }
-
 
 /** The chart data workbooks a package's chart relationships point at (native chart evidence, not activatable objects). */
 async function chartWorkbooksOf(zip, entries) {
@@ -89,7 +116,8 @@ async function chartWorkbooksOf(zip, entries) {
 // renumbered (Microsoft_Excel_Worksheet2.xlsx → Microsoft_Excel_Worksheet.xlsx): those are the application's own
 // serialisation, not damage, and are reported as normalised instead. Macros, signatures, ribbon customisation,
 // external links, connections and embedded objects stay protected under every backend.
-const PROTECTED_ALWAYS = /(?:^|\/)(?:vbaProject\.bin|vbaData\.xml|_xmlsignatures\/|origin\.sigs$|signatures?\.xml$|customUI\/|embeddings\/|externalLinks\/|connections\.xml$)/i;
+const PROTECTED_ALWAYS =
+  /(?:^|\/)(?:vbaProject\.bin|vbaData\.xml|_xmlsignatures\/|origin\.sigs$|signatures?\.xml$|customUI\/|embeddings\/|externalLinks\/|connections\.xml$)/i;
 const PROTECTED_UNLESS_APPLICATION_SAVED = /(?:^|\/)(?:slideMasters\/|slideLayouts\/|theme\/)/i;
 const APPLICATION_BACKENDS = new Set(['microsoft-office-com']);
 
@@ -97,29 +125,47 @@ async function baselinePackage(zip, original, { savedBy = '', chartWorkbooks = n
   if (!original) return { compared: false };
   const originalZip = await loadPackage(original);
   const applicationSaved = APPLICATION_BACKENDS.has(savedBy);
-  const currentEntries = new Set(Object.entries(zip.files).filter(([, entry]) => !entry.dir).map(([name]) => name));
-  const originalEntries = Object.entries(originalZip.files).filter(([, entry]) => !entry.dir).map(([name]) => name);
+  const currentEntries = new Set(
+    Object.entries(zip.files)
+      .filter(([, entry]) => !entry.dir)
+      .map(([name]) => name)
+  );
+  const originalEntries = Object.entries(originalZip.files)
+    .filter(([, entry]) => !entry.dir)
+    .map(([name]) => name);
   const originalChartWorkbooks = applicationSaved ? await chartWorkbooksOf(originalZip, originalEntries) : new Set();
   // A chart workbook the application renumbered is not lost while the saved package still carries one per chart.
-  const renumberedWorkbook = (name) => applicationSaved && originalChartWorkbooks.has(name) && chartWorkbooks.size >= originalChartWorkbooks.size;
-  const isProtected = (name) => PROTECTED_ALWAYS.test(name) || (!applicationSaved && PROTECTED_UNLESS_APPLICATION_SAVED.test(name));
+  const renumberedWorkbook = (name) =>
+    applicationSaved && originalChartWorkbooks.has(name) && chartWorkbooks.size >= originalChartWorkbooks.size;
+  const isProtected = (name) =>
+    PROTECTED_ALWAYS.test(name) || (!applicationSaved && PROTECTED_UNLESS_APPLICATION_SAVED.test(name));
   const protectedParts = originalEntries.filter((name) => isProtected(name) && !renumberedWorkbook(name));
   const lostProtectedParts = protectedParts.filter((name) => !currentEntries.has(name));
-  const hash = async (entry) => createHash('sha256').update(await entry.async('nodebuffer')).digest('hex');
+  const hash = async (entry) =>
+    createHash('sha256')
+      .update(await entry.async('nodebuffer'))
+      .digest('hex');
   const changedProtectedParts = [];
   const applicationNormalizedParts = [];
   const changedParts = [];
   for (const name of originalEntries) {
     const current = zip.file(name);
-    if (!current) { if (applicationSaved && (PROTECTED_UNLESS_APPLICATION_SAVED.test(name) || renumberedWorkbook(name))) applicationNormalizedParts.push(name); continue; }
+    if (!current) {
+      if (applicationSaved && (PROTECTED_UNLESS_APPLICATION_SAVED.test(name) || renumberedWorkbook(name)))
+        applicationNormalizedParts.push(name);
+      continue;
+    }
     const [before, after] = await Promise.all([hash(originalZip.file(name)), hash(current)]);
     if (before !== after) {
       changedParts.push(name);
       if (isProtected(name) && !renumberedWorkbook(name)) changedProtectedParts.push({ part: name, before, after });
-      else if (applicationSaved && (PROTECTED_UNLESS_APPLICATION_SAVED.test(name) || renumberedWorkbook(name))) applicationNormalizedParts.push(name);
+      else if (applicationSaved && (PROTECTED_UNLESS_APPLICATION_SAVED.test(name) || renumberedWorkbook(name)))
+        applicationNormalizedParts.push(name);
     }
   }
-  const signatureParts = originalEntries.filter((name) => /(?:^|\/)(?:_xmlsignatures\/|origin\.sigs$|signatures?\.xml$)/i.test(name));
+  const signatureParts = originalEntries.filter((name) =>
+    /(?:^|\/)(?:_xmlsignatures\/|origin\.sigs$|signatures?\.xml$)/i.test(name)
+  );
   return {
     compared: true,
     original,
@@ -135,16 +181,15 @@ async function baselinePackage(zip, original, { savedBy = '', chartWorkbooks = n
   };
 }
 
-
-
-
 const DOCX_STORY_PART = /^word\/(document|header\d+|footer\d+|footnotes|endnotes)\.xml$/i;
 
 /** Every story part by name: the audit compares each one with its source
  *  counterpart, so a header edited untracked is caught like the body. */
 async function docxStoryParts(zip) {
   const parts = new Map();
-  for (const name of Object.keys(zip.files).filter((entry) => DOCX_STORY_PART.test(entry)).sort()) {
+  for (const name of Object.keys(zip.files)
+    .filter((entry) => DOCX_STORY_PART.test(entry))
+    .sort()) {
     parts.set(name, await zipText(zip, name));
   }
   return parts;
@@ -170,14 +215,19 @@ async function validateDocxRedlining(zip, originalPath, author = '') {
   }
 }
 
-
 export async function validatePortableOoxml(path, format, options = {}) {
   const zip = await loadPackage(path);
-  const entries = Object.entries(zip.files).filter(([, entry]) => !entry.dir).map(([name]) => name);
+  const entries = Object.entries(zip.files)
+    .filter(([, entry]) => !entry.dir)
+    .map(([name]) => name);
   const missing = (OOXML_REQUIRED[format] || []).filter((name) => !zip.file(name));
-  const unsafeEntries = entries.filter((name) => name.includes('..') || name.startsWith('/') || /^[A-Za-z]:/.test(name));
+  const unsafeEntries = entries.filter(
+    (name) => name.includes('..') || name.startsWith('/') || /^[A-Za-z]:/.test(name)
+  );
   const macros = entries.filter((name) => /vbaProject\.bin$/i.test(name));
-  const signatures = entries.filter((name) => /(?:^|\/)(?:_xmlsignatures\/|origin\.sigs$|signatures?\.xml$)/i.test(name));
+  const signatures = entries.filter((name) =>
+    /(?:^|\/)(?:_xmlsignatures\/|origin\.sigs$|signatures?\.xml$)/i.test(name)
+  );
   const externalLinks = entries.filter((name) => /(?:^|\/)externalLinks\//i.test(name));
   const dataConnections = entries.filter((name) => /(?:^|\/)connections\.xml$/i.test(name));
   // A chart's data workbook is native chart evidence, not an activatable
@@ -209,30 +259,35 @@ export async function validatePortableOoxml(path, format, options = {}) {
     }
   }
   const baseline = await baselinePackage(zip, options.original, { savedBy: options.savedBy, chartWorkbooks });
-  const documentLint = format === 'docx'
-    ? lintDocxRevisions(
-      await Promise.all(entries
-        .filter((name) => /^word\/(?:document|header\d+|footer\d+|footnotes|endnotes)\.xml$/i.test(name))
-        .sort()
-        .map(async (name) => ({ part: name, xml: await zipText(zip, name) }))),
-      await zipText(zip, 'word/comments.xml'),
-    )
-    : [];
-  const redlining = format === 'docx' && options.auditProfile === 'redlining'
-    ? await validateDocxRedlining(zip, options.original, options.author)
-    : null;
-  const ok = missing.length === 0
-    && !documentLint.some((finding) => finding.severity === 'error')
-    && unsafeEntries.length === 0
-    && malformedXml.length === 0
-    && contentTypes.missingContentTypes.length === 0
-    && !contentTypes.mainContentTypeMissing
-    && missingRelationships.length === 0
-    && duplicateRelationshipIds.length === 0
-    && !(baseline.lostProtectedParts?.length)
-    && !(baseline.changedProtectedParts?.length)
-    && baseline.digitalSignatureInvalidated !== true
-    && (!redlining || redlining.ok);
+  const documentLint =
+    format === 'docx'
+      ? lintDocxRevisions(
+          await Promise.all(
+            entries
+              .filter((name) => /^word\/(?:document|header\d+|footer\d+|footnotes|endnotes)\.xml$/i.test(name))
+              .sort()
+              .map(async (name) => ({ part: name, xml: await zipText(zip, name) }))
+          ),
+          await zipText(zip, 'word/comments.xml')
+        )
+      : [];
+  const redlining =
+    format === 'docx' && options.auditProfile === 'redlining'
+      ? await validateDocxRedlining(zip, options.original, options.author)
+      : null;
+  const ok =
+    missing.length === 0 &&
+    !documentLint.some((finding) => finding.severity === 'error') &&
+    unsafeEntries.length === 0 &&
+    malformedXml.length === 0 &&
+    contentTypes.missingContentTypes.length === 0 &&
+    !contentTypes.mainContentTypeMissing &&
+    missingRelationships.length === 0 &&
+    duplicateRelationshipIds.length === 0 &&
+    !baseline.lostProtectedParts?.length &&
+    !baseline.changedProtectedParts?.length &&
+    baseline.digitalSignatureInvalidated !== true &&
+    (!redlining || redlining.ok);
   return {
     ok,
     format,
@@ -261,13 +316,11 @@ export async function validatePortableOoxml(path, format, options = {}) {
   };
 }
 
-
 // Number formats as the cell-style table resolves them (custom codes and the
 // implicit built-ins alike), indexed by cellXfs position.
 async function workbookNumberFormats(zip) {
   return resolveCellStyles(await zipText(zip, 'xl/styles.xml')).map((style) => style.numberFormat || '');
 }
-
 
 async function percentScaleIssues(zip, sheets) {
   const formats = await workbookNumberFormats(zip);
@@ -303,11 +356,7 @@ async function percentScaleIssues(zip, sheets) {
   return issues;
 }
 
-
 const DEFAULT_COLUMN_WIDTH = 8.43;
-
-
-
 
 function cellText(cell, strings) {
   const type = /\bt="([^"]+)"/.exec(cell.attributes)?.[1] || '';
@@ -316,7 +365,6 @@ function cellText(cell, strings) {
   if (type === 's') return strings[Number(raw)] ?? '';
   return type === 'str' ? raw : '';
 }
-
 
 // A protected sheet locks every cell unless one is marked unlocked, so a form
 // whose entry cells stay locked cannot be filled in at all — the dropdown is
@@ -329,14 +377,20 @@ async function protectedInputIssues(zip, sheets) {
     if (!xml || !/<sheetProtection\b/.test(xml)) continue;
     const entryCells = new Set();
     for (const match of xml.matchAll(/<dataValidation\b([^>]*)/g)) {
-      const references = xmlDecode(xmlAttribute(match[1], 'sqref') || '').split(/\s+/).filter(Boolean);
+      const references = xmlDecode(xmlAttribute(match[1], 'sqref') || '')
+        .split(/\s+/)
+        .filter(Boolean);
       for (const reference of references) {
         const [start, end] = reference.split(':');
         const from = parseCellRef(start);
         const to = parseCellRef(end || start);
         if (!from || !to) continue;
         for (let row = from.row; row <= to.row && row - from.row < 512; row += 1) {
-          for (let column = columnNumber(from.col); column <= columnNumber(to.col) && column - columnNumber(from.col) < 64; column += 1) {
+          for (
+            let column = columnNumber(from.col);
+            column <= columnNumber(to.col) && column - columnNumber(from.col) < 64;
+            column += 1
+          ) {
             entryCells.add(`${columnLabel(column)}${row}`);
           }
         }
@@ -356,16 +410,16 @@ async function protectedInputIssues(zip, sheets) {
       severity: 'warning',
       code: 'protected_input_locked',
       path: `/sheet[${sheet.name}]/cell[${locked[0]}]`,
-      message: `Sheet protection is on and ${locked.length === 1 ? 'the entry cell' : `all ${locked.length} entry cells`} `
-        + `(${locked.slice(0, 4).join(', ')}${locked.length > 4 ? ', …' : ''}) stay locked, so nobody can type the value the validation asks for. `
-        + 'Run set_style with properties { locked: false } on the entry range before protect_sheet.',
+      message:
+        `Sheet protection is on and ${locked.length === 1 ? 'the entry cell' : `all ${locked.length} entry cells`} ` +
+        `(${locked.slice(0, 4).join(', ')}${locked.length > 4 ? ', …' : ''}) stay locked, so nobody can type the value the validation asks for. ` +
+        'Run set_style with properties { locked: false } on the entry range before protect_sheet.',
       source: 'sheet-protection',
     });
     if (issues.length >= 50) return issues;
   }
   return issues;
 }
-
 
 async function columnFitIssues(zip, sheets) {
   const strings = await sharedStrings(zip);
@@ -426,8 +480,9 @@ async function columnFitIssues(zip, sheets) {
         severity: 'warning',
         code: 'column_too_narrow',
         path: `/sheet[${sheet.name}]/cell[${entry.reference}]`,
-        message: `Number needs about ${entry.needed} characters but column ${columnLabel(column)} is ${entry.width.toFixed(1)} wide; Excel shows ###.`
-          + `${entry.count > 1 ? ` ${entry.count} cells in this column are cut.` : ''} Run autofit_range.`,
+        message:
+          `Number needs about ${entry.needed} characters but column ${columnLabel(column)} is ${entry.width.toFixed(1)} wide; Excel shows ###.` +
+          `${entry.count > 1 ? ` ${entry.count} cells in this column are cut.` : ''} Run autofit_range.`,
         source: 'number-format',
       });
       if (issues.length >= 50) return issues;
@@ -459,15 +514,26 @@ async function columnFitIssues(zip, sheets) {
         // The label runs until the first column to its right that holds
         // something: the empty columns before it lend their width, and a hidden
         // column lends none, because the sheet gives it no room on the page.
-        const neighbour = cells.slice(index + 1).find((candidate) => cellText(candidate, strings).trim()
-          || /<v(?:\s[^>]*)?>[\s\S]*?<\/v>/.test(candidate.body));
+        const neighbour = cells
+          .slice(index + 1)
+          .find(
+            (candidate) => cellText(candidate, strings).trim() || /<v(?:\s[^>]*)?>[\s\S]*?<\/v>/.test(candidate.body)
+          );
         if (!neighbour) continue;
         const styleIndex = Number(/\bs="(\d+)"/.exec(cell.attributes)?.[1] ?? 0);
         if (styles[styleIndex]?.wrapText === true) continue;
         const rowNumber = parseCellRef(cell.ref).row;
         if (withheld.rows.has(rowNumber)) continue;
-        if (merged.some((area) => area.startCol <= cell.column && area.endCol > cell.column
-          && area.startRow <= rowNumber && area.endRow >= rowNumber)) continue;
+        if (
+          merged.some(
+            (area) =>
+              area.startCol <= cell.column &&
+              area.endCol > cell.column &&
+              area.startRow <= rowNumber &&
+              area.endRow >= rowNumber
+          )
+        )
+          continue;
         const width = widths.get(cell.column) ?? DEFAULT_COLUMN_WIDTH;
         let available = width;
         for (let column = cell.column + 1; column < neighbour.column; column += 1) {
@@ -478,11 +544,23 @@ async function columnFitIssues(zip, sheets) {
         if (needed <= available + 0.5) continue;
         const found = cutLabels.get(cell.column);
         if (!found) {
-          cutLabels.set(cell.column, { reference: cell.ref, text, needed, width, neighbour: `${columnLabel(neighbour.column)}${rowNumber}`, count: 1 });
+          cutLabels.set(cell.column, {
+            reference: cell.ref,
+            text,
+            needed,
+            width,
+            neighbour: `${columnLabel(neighbour.column)}${rowNumber}`,
+            count: 1,
+          });
         } else {
           found.count += 1;
           if (needed > found.needed) {
-            Object.assign(found, { reference: cell.ref, text, needed, neighbour: `${columnLabel(neighbour.column)}${rowNumber}` });
+            Object.assign(found, {
+              reference: cell.ref,
+              text,
+              needed,
+              neighbour: `${columnLabel(neighbour.column)}${rowNumber}`,
+            });
           }
         }
       }
@@ -493,8 +571,9 @@ async function columnFitIssues(zip, sheets) {
         severity: 'warning',
         code: 'label_truncated',
         path: `/sheet[${sheet.name}]/cell[${entry.reference}]`,
-        message: `"${shown}" needs about ${entry.needed} characters but column ${columnLabel(column)} is ${entry.width.toFixed(1)} wide and ${entry.neighbour} has content, so the label is cut.`
-          + `${entry.count > 1 ? ` ${entry.count} labels in this column are cut.` : ''} Run autofit_range or widen the column.`,
+        message:
+          `"${shown}" needs about ${entry.needed} characters but column ${columnLabel(column)} is ${entry.width.toFixed(1)} wide and ${entry.neighbour} has content, so the label is cut.` +
+          `${entry.count > 1 ? ` ${entry.count} labels in this column are cut.` : ''} Run autofit_range or widen the column.`,
         source: 'column-fit',
       });
       if (issues.length >= 50) return issues;
@@ -502,7 +581,6 @@ async function columnFitIssues(zip, sheets) {
   }
   return issues;
 }
-
 
 // The ranges Excel tables own: inside one, the table style paints the header
 // and banding, so a cell there carries a fill this scan cannot read from the
@@ -519,14 +597,17 @@ async function tableRanges(zip, sheet, xml) {
     const id = xmlAttribute(attributes, 'Id');
     const target = xmlAttribute(attributes, 'Target');
     if (id && target) {
-      targets.set(id, target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join(posix.dirname(sheet.path), target)));
+      targets.set(
+        id,
+        target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join(posix.dirname(sheet.path), target))
+      );
     }
   }
   const ranges = [];
   for (const match of parts[0].matchAll(/<tablePart\b[^>]*\br:id="([^"]+)"/g)) {
     const part = targets.get(match[1]);
     if (!part) continue;
-    const reference = /<table\b[^>]*\bref="([^"]+)"/.exec(await zipText(zip, part) || '')?.[1] || '';
+    const reference = /<table\b[^>]*\bref="([^"]+)"/.exec((await zipText(zip, part)) || '')?.[1] || '';
     const [start, end] = reference.split(':');
     if (!start) continue;
     const from = parseCellRef(start);
@@ -540,7 +621,6 @@ async function tableRanges(zip, sheet, xml) {
   }
   return ranges;
 }
-
 
 // Ink a reader cannot see: a header that keeps the body's dark colour on its
 // dark fill, or text so pale it disappears into the sheet. The readable
@@ -562,14 +642,18 @@ async function cellInkIssues(zip, sheets) {
       const styleIndex = Number(/\bs="(\d+)"/.exec(cell.attributes)?.[1] ?? 0);
       const style = styleIndex > 0 ? styles[styleIndex] : null;
       if (!style?.color || !cell.ref) continue;
-      const hasContent = Boolean(cellText(cell, strings).trim())
-        || /<v(?:\s[^>]*)?>[\s\S]*?<\/v>/.test(cell.body);
+      const hasContent = Boolean(cellText(cell, strings).trim()) || /<v(?:\s[^>]*)?>[\s\S]*?<\/v>/.test(cell.body);
       if (!hasContent) continue;
       const position = parseCellRef(cell.ref);
       const column = columnNumber(position.col);
       if (withheld.columns.has(column) || withheld.rows.has(position.row)) continue;
-      const inTable = tables.some((range) => column >= range.startCol && column <= range.endCol
-        && position.row >= range.startRow && position.row <= range.endRow);
+      const inTable = tables.some(
+        (range) =>
+          column >= range.startCol &&
+          column <= range.endCol &&
+          position.row >= range.startRow &&
+          position.row <= range.endRow
+      );
       if (!style.fillColor && inTable) continue;
       const size = Number(style.fontSize) || 11;
       const minimum = size >= 18 || (size >= 14 && style.bold === true) ? 3 : 4.5;
@@ -579,8 +663,9 @@ async function cellInkIssues(zip, sheets) {
         severity: 'warning',
         code: 'low_contrast',
         path: `/sheet[${sheet.name}]/cell[${cell.ref}]`,
-        message: `Cell text contrast is ${ratio.toFixed(2)}:1 against ${style.fillColor ? `its fill ${style.fillColor}` : 'the sheet'};`
-          + ` ${minimum}:1 is the readable minimum at ${Math.round(size)}pt.`,
+        message:
+          `Cell text contrast is ${ratio.toFixed(2)}:1 against ${style.fillColor ? `its fill ${style.fillColor}` : 'the sheet'};` +
+          ` ${minimum}:1 is the readable minimum at ${Math.round(size)}pt.`,
         source: 'text-metrics',
       });
       if (issues.length >= 20) return issues;
@@ -588,7 +673,6 @@ async function cellInkIssues(zip, sheets) {
   }
   return issues;
 }
-
 
 // The worst readable ratio among a block's runs, with the size and weight that
 // decide the minimum. Word keeps sizes in half-points.
@@ -600,7 +684,8 @@ function runInkReading(xml, fill) {
     const properties = /<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>/.exec(run[0])?.[0] || '';
     // Hidden text is not on the printed page: measuring its ink reports a
     // defect about a working note no reader sees.
-    if (/<w:vanish(?:\s[^>]*)?\/>/.test(properties) || /<w:vanish\b[^>]*\bw:val="(?:1|true|on)"/.test(properties)) continue;
+    if (/<w:vanish(?:\s[^>]*)?\/>/.test(properties) || /<w:vanish\b[^>]*\bw:val="(?:1|true|on)"/.test(properties))
+      continue;
     const color = /<w:color\b[^>]*\bw:val="([0-9A-Fa-f]{6})"/.exec(properties)?.[1] || '';
     if (!color) continue;
     const size = Number(/<w:sz\b[^>]*\bw:val="(\d+)"/.exec(properties)?.[1] || 0) / 2 || 11;
@@ -676,7 +761,6 @@ function documentInkIssues(document) {
   return issues;
 }
 
-
 async function formulaConsistencyIssues(zip, sheets) {
   const issues = [];
   for (const sheet of sheets) {
@@ -686,8 +770,9 @@ async function formulaConsistencyIssues(zip, sheets) {
       const cells = [...iterateSheetCells(row.body)].map((cell) => ({
         reference: cell.ref,
         formula: /<f[\s>]/.test(cell.body),
-        numeric: !/\bt="(?:s|inlineStr|str|b)"/.test(cell.attributes)
-          && Number.isFinite(Number(/<v>([\s\S]*?)<\/v>/.exec(cell.body)?.[1])),
+        numeric:
+          !/\bt="(?:s|inlineStr|str|b)"/.test(cell.attributes) &&
+          Number.isFinite(Number(/<v>([\s\S]*?)<\/v>/.exec(cell.body)?.[1])),
       }));
       if (cells.filter((cell) => cell.formula).length < 3) continue;
       for (const cell of cells) {
@@ -696,7 +781,8 @@ async function formulaConsistencyIssues(zip, sheets) {
           severity: 'warning',
           code: 'formula_inconsistency',
           path: `/sheet[${sheet.name}]/cell[${cell.reference}]`,
-          message: 'A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.',
+          message:
+            'A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.',
           source: 'formula-audit',
         });
         if (issues.length >= 50) return issues;
@@ -706,25 +792,30 @@ async function formulaConsistencyIssues(zip, sheets) {
   return issues;
 }
 
-
 const PLACEHOLDER_RULES = Object.freeze([
   { code: 'placeholder_text', label: 'lorem ipsum filler', pattern: /\b(?:lorem|ipsum)\b/i },
   { code: 'placeholder_text', label: 'repeated X placeholder', pattern: /\bx{3,}\b/i },
   { code: 'placeholder_text', label: 'TODO marker', pattern: /\bTODO\b/ },
   { code: 'placeholder_text', label: 'insert marker', pattern: /\[\s*insert\b/i },
-  { code: 'placeholder_text', label: 'layout instruction', pattern: /this[^.]{0,40}\b(?:page|slide)\b[^.]{0,40}layout/i },
+  {
+    code: 'placeholder_text',
+    label: 'layout instruction',
+    pattern: /this[^.]{0,40}\b(?:page|slide)\b[^.]{0,40}layout/i,
+  },
   { code: 'placeholder_text', label: 'click-to-edit prompt', pattern: /click to (?:edit|add)/i },
   { code: 'placeholder_text', label: 'Korean input prompt', pattern: /(?:여기에|내용을|제목을)\s*입력/ },
   { code: 'unfilled_token', label: 'unresolved template token', pattern: new RegExp(TEMPLATE_TOKEN_SOURCE, 'u') },
 ]);
 
-
 async function placeholderIssues(zip, format) {
-  const parts = format === 'pptx'
-    ? Object.keys(zip.files).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name)).sort()
-    : format === 'docx'
-      ? ['word/document.xml']
-      : [];
+  const parts =
+    format === 'pptx'
+      ? Object.keys(zip.files)
+          .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+          .sort()
+      : format === 'docx'
+        ? ['word/document.xml']
+        : [];
   if (!parts.length) return [];
   const tag = format === 'pptx' ? 'a:t' : 'w:t';
   const issues = [];
@@ -749,7 +840,6 @@ async function placeholderIssues(zip, format) {
   return issues;
 }
 
-
 const EMU_PER_POINT = 12700;
 const DEFAULT_CELL_INSETS = Object.freeze({ left: 91440, right: 91440, top: 45720, bottom: 45720 });
 
@@ -761,7 +851,8 @@ async function tableCellOverflowIssues(zip) {
   // A row grows to its tallest cell when the text needs more than the declared height, so a table whose rows
   // are declared to fit can still run off the canvas once drawn. The predicted height (each row at the larger of
   // its declared height and its tallest cell) is compared with the room under the frame's top.
-  const slideHeight = Number(/<p:sldSz\b[^>]*\bcy="(\d+)"/.exec(await zipText(zip, 'ppt/presentation.xml') || '')?.[1]) || 0;
+  const slideHeight =
+    Number(/<p:sldSz\b[^>]*\bcy="(\d+)"/.exec((await zipText(zip, 'ppt/presentation.xml')) || '')?.[1]) || 0;
   for (const part of parts) {
     const xml = await zipText(zip, part);
     if (!xml) continue;
@@ -819,19 +910,26 @@ async function tableCellOverflowIssues(zip) {
           // A merged label cell (rowSpan) owns the rows it spans: its room is theirs together, not one row's.
           const rowSpan = Math.max(1, Number(/<a:tc\b[^>]*\browSpan="(\d+)"/.exec(cell[0])?.[1]) || 1);
           const gridSpan = Math.max(1, Number(/<a:tc\b[^>]*\bgridSpan="(\d+)"/.exec(cell[0])?.[1]) || 1);
-          const spannedWidth = widths.slice(columnOrdinal - 1, columnOrdinal - 1 + gridSpan).reduce((sum, value) => sum + value, 0) || width;
+          const spannedWidth =
+            widths.slice(columnOrdinal - 1, columnOrdinal - 1 + gridSpan).reduce((sum, value) => sum + value, 0) ||
+            width;
           const usable = (spannedWidth - DEFAULT_CELL_INSETS.left - DEFAULT_CELL_INSETS.right) / EMU_PER_POINT;
           const available = (declared * rowSpan - DEFAULT_CELL_INSETS.top - DEFAULT_CELL_INSETS.bottom) / EMU_PER_POINT;
           if (usable <= 0 || available <= 0) continue;
           const measured = measureTextBlock([{ text, fontSize: size, bold }], { width: usable });
-          if (rowSpan === 1) tallest = Math.max(tallest, measured.height * EMU_PER_POINT + DEFAULT_CELL_INSETS.top + DEFAULT_CELL_INSETS.bottom);
+          if (rowSpan === 1)
+            tallest = Math.max(
+              tallest,
+              measured.height * EMU_PER_POINT + DEFAULT_CELL_INSETS.top + DEFAULT_CELL_INSETS.bottom
+            );
           if (measured.height <= available * 1.08 || issues.length >= 20) continue;
           issues.push({
             severity: 'warning',
             code: 'table_cell_overflow',
             path: cellPath,
-            message: `Cell text needs about ${Math.round(measured.height)}pt across ${measured.lines} line(s)`
-              + ` but the row offers ${Math.round(available)}pt; shorten the text or widen the column.`,
+            message:
+              `Cell text needs about ${Math.round(measured.height)}pt across ${measured.lines} line(s)` +
+              ` but the row offers ${Math.round(available)}pt; shorten the text or widen the column.`,
             source: 'text-metrics',
           });
         }
@@ -853,13 +951,15 @@ async function tableCellOverflowIssues(zip) {
   return issues;
 }
 
-
 async function imageDistortionIssues(zip, format) {
-  const parts = format === 'pptx'
-    ? Object.keys(zip.files).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name)).sort()
-    : format === 'docx'
-      ? ['word/document.xml']
-      : [];
+  const parts =
+    format === 'pptx'
+      ? Object.keys(zip.files)
+          .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+          .sort()
+      : format === 'docx'
+        ? ['word/document.xml']
+        : [];
   if (!parts.length) return [];
   const issues = [];
   for (const part of parts) {
@@ -867,16 +967,18 @@ async function imageDistortionIssues(zip, format) {
     if (!xml) continue;
     const relationships = relationshipMap(await zipText(zip, partRelationshipPath(part)));
     const slide = Number(/slide(\d+)\.xml$/.exec(part)?.[1]) || 0;
-    const pictures = format === 'pptx'
-      ? [...xml.matchAll(/<p:pic>[\s\S]*?<\/p:pic>/g)]
-      : [...xml.matchAll(/<w:drawing>[\s\S]*?<\/w:drawing>/g)];
+    const pictures =
+      format === 'pptx'
+        ? [...xml.matchAll(/<p:pic>[\s\S]*?<\/p:pic>/g)]
+        : [...xml.matchAll(/<w:drawing>[\s\S]*?<\/w:drawing>/g)];
     let ordinal = 0;
     for (const picture of pictures) {
       ordinal += 1;
       const embed = /<a:blip\b[^>]*\br:embed="([^"]+)"/.exec(picture[0])?.[1];
-      const extent = format === 'pptx'
-        ? /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(picture[0])
-        : /<wp:extent\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(picture[0]);
+      const extent =
+        format === 'pptx'
+          ? /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(picture[0])
+          : /<wp:extent\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(picture[0]);
       if (!embed || !extent) continue;
       const target = relationships.get(embed);
       if (!target) continue;
@@ -887,16 +989,14 @@ async function imageDistortionIssues(zip, format) {
       if (!source?.width || !source?.height) continue;
       const placed = Number(extent[1]) / Number(extent[2]);
       const original = source.width / source.height;
-      const sourceRect = format === 'pptx'
-        ? /<a:srcRect\b([^>]*)\/?>/.exec(picture[0])?.[1]
-        : '';
+      const sourceRect = format === 'pptx' ? /<a:srcRect\b([^>]*)\/?>/.exec(picture[0])?.[1] : '';
       const visibleWidth = sourceRect
         ? 1 - ((Number(xmlAttribute(sourceRect, 'l')) || 0) + (Number(xmlAttribute(sourceRect, 'r')) || 0)) / 100000
         : 1;
       const visibleHeight = sourceRect
         ? 1 - ((Number(xmlAttribute(sourceRect, 't')) || 0) + (Number(xmlAttribute(sourceRect, 'b')) || 0)) / 100000
         : 1;
-      const visibleAspect = original * visibleWidth / visibleHeight;
+      const visibleAspect = (original * visibleWidth) / visibleHeight;
       if (!Number.isFinite(placed) || !Number.isFinite(visibleAspect) || visibleAspect <= 0) continue;
       const drift = Math.abs(placed - visibleAspect) / visibleAspect;
       if (drift <= 0.1) continue;
@@ -904,8 +1004,9 @@ async function imageDistortionIssues(zip, format) {
         severity: 'warning',
         code: 'image_aspect_distorted',
         path: slide ? `/slide[${slide}]/picture[${ordinal}]` : `/body/picture[${ordinal}]`,
-        message: `Image is stretched ${Math.round(drift * 100)}% off its visible ${source.width}x${source.height} aspect ratio;`
-          + ' set only width or height to keep the original proportions.',
+        message:
+          `Image is stretched ${Math.round(drift * 100)}% off its visible ${source.width}x${source.height} aspect ratio;` +
+          ' set only width or height to keep the original proportions.',
         source: 'image-audit',
       });
       if (issues.length >= 20) return issues;
@@ -914,9 +1015,7 @@ async function imageDistortionIssues(zip, format) {
   return issues;
 }
 
-
 const CLEANABLE_PARTS = /^(?:ppt|xl|word)\/(?:media|embeddings|charts|drawings|diagrams|ink|notesSlides)\//i;
-
 
 async function referencedParts(zip) {
   const referenced = new Set();
@@ -928,14 +1027,13 @@ async function referencedParts(zip) {
       if (/\bTargetMode="External"/i.test(match[0])) continue;
       const target = xmlDecode(xmlAttribute(match[0], 'Target'));
       if (!target) continue;
-      referenced.add(target.startsWith('/')
-        ? target.slice(1)
-        : posix.normalize(posix.join(posix.dirname(owner || ''), target)));
+      referenced.add(
+        target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join(posix.dirname(owner || ''), target))
+      );
     }
   }
   return referenced;
 }
-
 
 export async function removeOrphanPackageParts(zip) {
   const removed = [];
@@ -947,12 +1045,9 @@ export async function removeOrphanPackageParts(zip) {
     if (!referenced.size) {
       throw new Error('Refusing to clean the package: no relationship resolves to a part');
     }
-    const orphans = Object.keys(zip.files).filter((name) => (
-      !zip.files[name].dir
-      && CLEANABLE_PARTS.test(name)
-      && !name.includes('/_rels/')
-      && !referenced.has(name)
-    ));
+    const orphans = Object.keys(zip.files).filter(
+      (name) => !zip.files[name].dir && CLEANABLE_PARTS.test(name) && !name.includes('/_rels/') && !referenced.has(name)
+    );
     if (!orphans.length) break;
     for (const orphan of orphans) {
       zip.remove(orphan);
@@ -968,31 +1063,60 @@ export async function removeOrphanPackageParts(zip) {
   return { removed };
 }
 
-
 export async function issuesPortableOoxml(path, format, options = {}) {
   const zip = await loadPackage(path);
   const issues = [];
   const validation = await validatePortableOoxml(path, format);
   for (const missing of validation.missing) {
-    issues.push({ severity: 'error', code: 'missing_part', path: `/${missing}`, message: `Required package part is missing: ${missing}` });
+    issues.push({
+      severity: 'error',
+      code: 'missing_part',
+      path: `/${missing}`,
+      message: `Required package part is missing: ${missing}`,
+    });
   }
   for (const unsafe of validation.unsafeEntries) {
-    issues.push({ severity: 'error', code: 'unsafe_zip_entry', path: `/${unsafe}`, message: `Unsafe ZIP entry path: ${unsafe}` });
+    issues.push({
+      severity: 'error',
+      code: 'unsafe_zip_entry',
+      path: `/${unsafe}`,
+      message: `Unsafe ZIP entry path: ${unsafe}`,
+    });
   }
   for (const malformed of validation.malformedXml) {
     issues.push({ severity: 'error', code: 'malformed_xml', path: `/${malformed.part}`, message: malformed.error });
   }
   for (const relationship of validation.missingRelationships) {
-    issues.push({ severity: 'error', code: 'missing_relationship_target', path: `/${relationship.relationship}`, message: `Relationship ${relationship.id || '(unnamed)'} targets missing part ${relationship.resolved || relationship.target}` });
+    issues.push({
+      severity: 'error',
+      code: 'missing_relationship_target',
+      path: `/${relationship.relationship}`,
+      message: `Relationship ${relationship.id || '(unnamed)'} targets missing part ${relationship.resolved || relationship.target}`,
+    });
   }
   for (const relationship of validation.duplicateRelationshipIds) {
-    issues.push({ severity: 'error', code: 'duplicate_relationship_id', path: `/${relationship.relationship}`, message: `Relationship id is duplicated: ${relationship.id}` });
+    issues.push({
+      severity: 'error',
+      code: 'duplicate_relationship_id',
+      path: `/${relationship.relationship}`,
+      message: `Relationship id is duplicated: ${relationship.id}`,
+    });
   }
   for (const part of validation.missingContentTypes) {
-    issues.push({ severity: 'error', code: 'missing_content_type', path: `/${part}`, message: 'Package part has no matching content type declaration.' });
+    issues.push({
+      severity: 'error',
+      code: 'missing_content_type',
+      path: `/${part}`,
+      message: 'Package part has no matching content type declaration.',
+    });
   }
   if (validation.mainContentTypeMissing) {
-    issues.push({ severity: 'error', code: 'missing_main_content_type', path: `/${validation.mainPart}`, message: 'The main Office document part needs an explicit content type override.' });
+    issues.push({
+      severity: 'error',
+      code: 'missing_main_content_type',
+      path: `/${validation.mainPart}`,
+      message: 'The main Office document part needs an explicit content type override.',
+    });
   }
   for (const finding of await placeholderIssues(zip, format)) issues.push(finding);
   for (const finding of await imageDistortionIssues(zip, format)) issues.push(finding);
@@ -1051,25 +1175,61 @@ export async function issuesPortableOoxml(path, format, options = {}) {
     }
   }
   for (const part of validation.baseline.lostProtectedParts || []) {
-    issues.push({ severity: 'error', code: 'lost_protected_part', path: `/${part}`, message: 'A macro, master, layout, or theme part from the source package was removed.' });
+    issues.push({
+      severity: 'error',
+      code: 'lost_protected_part',
+      path: `/${part}`,
+      message: 'A macro, master, layout, or theme part from the source package was removed.',
+    });
   }
   for (const part of validation.baseline.changedProtectedParts || []) {
-    issues.push({ severity: 'error', code: 'changed_protected_part', path: `/${part.part}`, message: 'A macro, signature, embedded object, external link, connection, master, layout, or theme part changed unexpectedly.' });
+    issues.push({
+      severity: 'error',
+      code: 'changed_protected_part',
+      path: `/${part.part}`,
+      message:
+        'A macro, signature, embedded object, external link, connection, master, layout, or theme part changed unexpectedly.',
+    });
   }
   if (validation.security?.digitalSignatureInvalidated) {
-    issues.push({ severity: 'error', code: 'digital_signature_invalidated', path: '/', message: 'The source package was digitally signed and document changes invalidate that signature.' });
+    issues.push({
+      severity: 'error',
+      code: 'digital_signature_invalidated',
+      path: '/',
+      message: 'The source package was digitally signed and document changes invalidate that signature.',
+    });
   }
   for (const macro of validation.macros) {
-    issues.push({ severity: 'warning', code: 'macro_present', path: `/${macro}`, message: 'VBA macro payload is present and is never executed by the portable backend.' });
+    issues.push({
+      severity: 'warning',
+      code: 'macro_present',
+      path: `/${macro}`,
+      message: 'VBA macro payload is present and is never executed by the portable backend.',
+    });
   }
   for (const connection of validation.security?.dataConnections || []) {
-    issues.push({ severity: 'warning', code: 'data_connection_present', path: `/${connection}`, message: 'Workbook data connection is preserved but never refreshed automatically.' });
+    issues.push({
+      severity: 'warning',
+      code: 'data_connection_present',
+      path: `/${connection}`,
+      message: 'Workbook data connection is preserved but never refreshed automatically.',
+    });
   }
   for (const embedded of validation.security?.embeddedObjects || []) {
-    issues.push({ severity: 'warning', code: 'embedded_object_present', path: `/${embedded}`, message: 'Embedded object is preserved but never activated by Mixdog.' });
+    issues.push({
+      severity: 'warning',
+      code: 'embedded_object_present',
+      path: `/${embedded}`,
+      message: 'Embedded object is preserved but never activated by Mixdog.',
+    });
   }
   for (const relationship of validation.externalRelationships) {
-    issues.push({ severity: 'warning', code: 'external_relationship', path: `/${relationship.relationship}`, message: `External relationship: ${relationship.target}` });
+    issues.push({
+      severity: 'warning',
+      code: 'external_relationship',
+      path: `/${relationship.relationship}`,
+      message: `External relationship: ${relationship.target}`,
+    });
   }
   if (format === 'docx') {
     const snapshot = await snapshotDocx(zip);
@@ -1103,9 +1263,7 @@ export async function issuesPortableOoxml(path, format, options = {}) {
     }
     const document = await zipText(zip, 'word/document.xml');
     const body = /<w:body\b[^>]*>([\s\S]*)<\/w:body>/.exec(document)?.[1] || '';
-    const printable = body
-      .replace(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g, '')
-      .replace(/<w:sectPr\b[^>]*\/>/g, '');
+    const printable = body.replace(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g, '').replace(/<w:sectPr\b[^>]*\/>/g, '');
     if (!/<w:t[\s>]/.test(printable) && !/<w:tbl>/.test(printable) && !/<w:drawing>/.test(printable)) {
       issues.push({
         severity: 'error',
@@ -1116,10 +1274,10 @@ export async function issuesPortableOoxml(path, format, options = {}) {
     }
     const section = /<w:sectPr\b[\s\S]*?<\/w:sectPr>/.exec(document)?.[0] || '';
     const page = /<w:pgSz\b[^>]*\bw:w="(\d+)"/.exec(section);
-    const margins = /<w:pgMar\b[^>]*\bw:left="(\d+)"[^>]*\bw:right="(\d+)"/.exec(section)
-      || /<w:pgMar\b[^>]*\bw:right="(\d+)"[^>]*\bw:left="(\d+)"/.exec(section);
-    const usable = (page ? Number(page[1]) : 12240)
-      - (margins ? Number(margins[1]) + Number(margins[2]) : 2880);
+    const margins =
+      /<w:pgMar\b[^>]*\bw:left="(\d+)"[^>]*\bw:right="(\d+)"/.exec(section) ||
+      /<w:pgMar\b[^>]*\bw:right="(\d+)"[^>]*\bw:left="(\d+)"/.exec(section);
+    const usable = (page ? Number(page[1]) : 12240) - (margins ? Number(margins[1]) + Number(margins[2]) : 2880);
     let ordinal = 0;
     for (const table of docxTables(document)) {
       ordinal += 1;
@@ -1151,13 +1309,18 @@ export async function issuesPortableOoxml(path, format, options = {}) {
     }
   } else if (format === 'xlsx') {
     const selective = Boolean(options.sheet || options.range);
-    const snapshot = await snapshotXlsx(zip, selective ? {
-      paged: true,
-      sheet: options.sheet,
-      range: options.range,
-      offset: 0,
-      limit: Number.MAX_SAFE_INTEGER,
-    } : { full: true });
+    const snapshot = await snapshotXlsx(
+      zip,
+      selective
+        ? {
+            paged: true,
+            sheet: options.sheet,
+            range: options.range,
+            offset: 0,
+            limit: Number.MAX_SAFE_INTEGER,
+          }
+        : { full: true }
+    );
     const errorPattern = /^(?:#REF!|#DIV\/0!|#VALUE!|#NAME\?|#N\/A|#NUM!|#NULL!)$/i;
     for (const sheet of snapshot.sheets) {
       // Past the audit's own ceiling the answer says how far it read, so a
@@ -1179,17 +1342,27 @@ export async function issuesPortableOoxml(path, format, options = {}) {
       for (const cell of sheet.cells) {
         if (cell.formula && cell.cacheState === 'missing') uncached.push(cell);
         if (errorPattern.test(String(cell.value || ''))) {
-          issues.push({ severity: 'error', code: 'formula_error', path: cell.path, message: `Cell contains formula error ${cell.value}` });
+          issues.push({
+            severity: 'error',
+            code: 'formula_error',
+            path: cell.path,
+            message: `Cell contains formula error ${cell.value}`,
+          });
         }
       }
       if (uncached.length) {
-        const shown = uncached.slice(0, 3).map((cell) => cell.ref).join(', ');
+        const shown = uncached
+          .slice(0, 3)
+          .map((cell) => cell.ref)
+          .join(', ');
         issues.push({
           severity: 'warning',
           code: 'formula_cache_missing',
           path: uncached.length === 1 ? uncached[0].path : `/sheet[${sheet.name}]`,
           message: `${uncached.length} formula${uncached.length === 1 ? ' on this sheet has' : 's on this sheet have'} no cached value (${shown}${uncached.length > 3 ? ', …' : ''}); the workbook is marked for full recalculation on open.`,
-          ...(uncached.length > 1 ? { cells: uncached.slice(0, 20).map((cell) => cell.ref), cellCount: uncached.length } : {}),
+          ...(uncached.length > 1
+            ? { cells: uncached.slice(0, 20).map((cell) => cell.ref), cellCount: uncached.length }
+            : {}),
         });
       }
     }
@@ -1198,7 +1371,12 @@ export async function issuesPortableOoxml(path, format, options = {}) {
     const sheetNames = (await workbookSheets(zip)).map((sheet) => sheet.name);
     if (options.auditProfile === 'financial-model') {
       if (!sheetNames.some((name) => name.toLowerCase() === 'checks')) {
-        issues.push({ severity: 'warning', code: 'missing_checks_sheet', path: '/', message: 'Financial-model audit expects a Checks sheet with explicit tie-out formulas.' });
+        issues.push({
+          severity: 'warning',
+          code: 'missing_checks_sheet',
+          path: '/',
+          message: 'Financial-model audit expects a Checks sheet with explicit tie-out formulas.',
+        });
       }
     }
     for (const sheet of snapshot.sheets) {

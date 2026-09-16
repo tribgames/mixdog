@@ -49,10 +49,20 @@ export class RealMouse {
     const dir = mkdtempSync(join(tmpdir(), 'mixdog-probe-mouse-'));
     const script = join(dir, 'mouse.ps1');
     writeFileSync(script, DRIVER_SCRIPT, 'utf8');
-    this.child = spawn('powershell', [
-      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-      '-File', script, String(screenWidth), String(screenHeight),
-    ], { stdio: 'pipe', windowsHide: true });
+    this.child = spawn(
+      'powershell',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        script,
+        String(screenWidth),
+        String(screenHeight),
+      ],
+      { stdio: 'pipe', windowsHide: true }
+    );
     this.child.stdout.setEncoding('utf8');
     this.child.stdout.on('data', (chunk: string) => {
       this.buffer += chunk;

@@ -15,9 +15,12 @@ function layoutLines(page) {
     if (!item.text) continue;
     const vertical = item.vertical === true;
     const key = vertical ? item.x : item.top;
-    let line = lines.find((entry) => entry.vertical === vertical
-      && entry.reversed === (item.reversed === true)
-      && Math.abs(entry.key - key) <= SEARCH_LINE_TOLERANCE);
+    let line = lines.find(
+      (entry) =>
+        entry.vertical === vertical &&
+        entry.reversed === (item.reversed === true) &&
+        Math.abs(entry.key - key) <= SEARCH_LINE_TOLERANCE
+    );
     if (!line) {
       line = { key, vertical, reversed: item.reversed === true, items: [] };
       lines.push(line);
@@ -30,9 +33,7 @@ function layoutLines(page) {
   }
   // Row order follows the normal to the reading direction, not display y:
   // rotating a page must not turn its last row into the first match.
-  const rowPosition = (line) => line.key * (line.vertical
-    ? (line.reversed ? 1 : -1)
-    : (line.reversed ? -1 : 1));
+  const rowPosition = (line) => line.key * (line.vertical ? (line.reversed ? 1 : -1) : line.reversed ? -1 : 1);
   return lines.sort((left, right) => rowPosition(left) - rowPosition(right));
 }
 
@@ -53,23 +54,23 @@ function glyphHeight(item, line) {
 // width its characters take; equal shares put a mark a letter off in
 // proportional type, and these metrics are close to any Latin body face.
 const HELVETICA_WIDTHS = [
-  278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278,
-  556, 556, 556, 556, 556, 556, 556, 556, 556, 556,
-  278, 278, 584, 584, 584, 556, 1015,
-  667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611,
-  278, 278, 278, 469, 556, 333,
-  556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500,
-  334, 260, 334, 584,
+  278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556,
+  556, 556, 556, 278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833,
+  722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556, 333, 556, 556, 500, 556,
+  556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334,
+  260, 334, 584,
 ];
 
 // Hangul, CJK, and fullwidth forms take a full em; other scripts about a Latin letter.
 function isWideCode(code) {
-  return (code >= 0x1100 && code <= 0x11ff)
-    || (code >= 0x2e80 && code <= 0x9fff)
-    || (code >= 0xac00 && code <= 0xd7af)
-    || (code >= 0xf900 && code <= 0xfaff)
-    || (code >= 0xff00 && code <= 0xff60)
-    || code >= 0x20000;
+  return (
+    (code >= 0x1100 && code <= 0x11ff) ||
+    (code >= 0x2e80 && code <= 0x9fff) ||
+    (code >= 0xac00 && code <= 0xd7af) ||
+    (code >= 0xf900 && code <= 0xfaff) ||
+    (code >= 0xff00 && code <= 0xff60) ||
+    code >= 0x20000
+  );
 }
 
 function glyphWeight(code) {
@@ -99,7 +100,8 @@ function matchBox(spans, start, end, line) {
     const shares = [runWeight(text, 0, from - span.start) / total, runWeight(text, 0, to - span.start) / total];
     // The match's share of the run, measured along the reading direction
     // (from the far end when the run is reversed); the other axis is the run's.
-    const along = (origin, length) => shares.map((share) => (line.reversed ? origin + length - (length * share) : origin + (length * share)));
+    const along = (origin, length) =>
+      shares.map((share) => (line.reversed ? origin + length - length * share : origin + length * share));
     if (line.vertical) {
       const [first, second] = along(item.top, item.height);
       top = Math.min(top, first, second);
@@ -172,7 +174,8 @@ function wrapTolerantPattern(needle) {
       previous = ' ';
       continue;
     }
-    if (previous && previous !== ' ' && isWideCode(previous.codePointAt(0)) && isWideCode(char.codePointAt(0))) source += '\\n?';
+    if (previous && previous !== ' ' && isWideCode(previous.codePointAt(0)) && isWideCode(char.codePointAt(0)))
+      source += '\\n?';
     source += char.replace(REGEXP_SPECIAL, '\\$&');
     previous = char;
   }
@@ -229,8 +232,9 @@ export function findPdfText(layout, query, { limit = 200, wholeWord = false, reg
     }
   }
   const wordChar = /[\p{L}\p{N}]/u;
-  const bounded = (text, start, end) => !wholeWord
-    || ((start === 0 || !wordChar.test(text[start - 1])) && (end >= text.length || !wordChar.test(text[end])));
+  const bounded = (text, start, end) =>
+    !wholeWord ||
+    ((start === 0 || !wordChar.test(text[start - 1])) && (end >= text.length || !wordChar.test(text[end])));
   const matches = [];
   let truncated = false;
   for (const page of layout.pages || []) {
@@ -247,7 +251,12 @@ export function findPdfText(layout, query, { limit = 200, wholeWord = false, reg
           break;
         }
         if (bounded(text, start, end)) {
-          matches.push({ page: page.page, text: text.slice(start, end), line: text.trim().slice(0, 200), ...matchBox(spans, start, end, line) });
+          matches.push({
+            page: page.page,
+            text: text.slice(start, end),
+            line: text.trim().slice(0, 200),
+            ...matchBox(spans, start, end, line),
+          });
         }
       }
       if (truncated) break;

@@ -19,7 +19,9 @@ const OUTPUT_STYLE_ORDER = ['detailed', 'simple', 'minimal', 'extreme-minimal'];
 
 /** Slug form of a style id. Aliases live in frontmatter, never in code. */
 function normalizeOutputStyleId(value) {
-  const slug = String(value ?? '').trim().toLowerCase()
+  const slug = String(value ?? '')
+    .trim()
+    .toLowerCase()
     .replace(/[_\s]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return /^[a-z0-9.-]+$/.test(slug) ? slug : '';
@@ -31,11 +33,13 @@ function outputStyleCompactKey(value) {
 }
 
 function titleCaseOutputStyle(id) {
-  return String(id || '')
-    .split(/[_.-]+/)
-    .filter(Boolean)
-    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-    .join(' ') || 'Default';
+  return (
+    String(id || '')
+      .split(/[_.-]+/)
+      .filter(Boolean)
+      .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+      .join(' ') || 'Default'
+  );
 }
 
 function parseOutputStyleFrontmatter(markdown) {
@@ -51,7 +55,9 @@ function parseOutputStyleFrontmatter(markdown) {
 }
 
 function outputStyleFlag(value, fallback) {
-  const raw = String(value ?? '').trim().toLowerCase();
+  const raw = String(value ?? '')
+    .trim()
+    .toLowerCase();
   if (!raw) return fallback;
   if (/^(?:true|1|yes|on)$/.test(raw)) return true;
   if (/^(?:false|0|no|off)$/.test(raw)) return false;
@@ -74,7 +80,8 @@ function outputStyleMetaFromMarkdown(markdown, fileName) {
     id,
     label: String(meta.title || meta.label || '').trim() || titleCaseOutputStyle(id),
     description: String(meta.description || '').trim(),
-    aliases: String(meta.aliases || '').split(',')
+    aliases: String(meta.aliases || '')
+      .split(',')
       .map((alias) => normalizeOutputStyleId(alias))
       .filter(Boolean),
     // Built-in and custom styles both inherit the shared format partial; a
@@ -97,11 +104,13 @@ function matchOutputStyle(value, styles) {
   const id = normalizeOutputStyleId(value);
   const compact = outputStyleCompactKey(value);
   if (!id && !compact) return null;
-  return (styles || []).find((style) => {
-    if (style.id === id || outputStyleCompactKey(style.id) === compact) return true;
-    if (outputStyleCompactKey(style.label) === compact) return true;
-    return (style.aliases || []).some((alias) => alias === id || outputStyleCompactKey(alias) === compact);
-  }) || null;
+  return (
+    (styles || []).find((style) => {
+      if (style.id === id || outputStyleCompactKey(style.id) === compact) return true;
+      if (outputStyleCompactKey(style.label) === compact) return true;
+      return (style.aliases || []).some((alias) => alias === id || outputStyleCompactKey(alias) === compact);
+    }) || null
+  );
 }
 
 module.exports = {

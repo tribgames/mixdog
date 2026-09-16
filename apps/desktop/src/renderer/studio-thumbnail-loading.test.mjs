@@ -10,25 +10,42 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', {
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
-for (const key of ['Element', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement',
-  'HTMLSelectElement', 'HTMLVideoElement', 'Image', 'FileReader']) {
+for (const key of [
+  'Element',
+  'HTMLElement',
+  'HTMLInputElement',
+  'HTMLTextAreaElement',
+  'HTMLSelectElement',
+  'HTMLVideoElement',
+  'Image',
+  'FileReader',
+]) {
   globalThis[key] = dom.window[key];
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 window.requestAnimationFrame = (callback) => window.setTimeout(callback, 0);
 window.cancelAnimationFrame = (handle) => window.clearTimeout(handle);
-globalThis.ResizeObserver = class { observe() {} disconnect() {} };
+globalThis.ResizeObserver = class {
+  observe() {}
+  disconnect() {}
+};
 dom.window.HTMLElement.prototype.attachEvent = () => {};
 dom.window.HTMLElement.prototype.detachEvent = () => {};
 
 const { StudioPane } = await import('./StudioView.tsx');
-const { STUDIO_THUMBNAIL_TIMEOUT_MS, runStudioThumbnailTask } =
-  await import('./studio-thumbnail-task.ts');
+const { STUDIO_THUMBNAIL_TIMEOUT_MS, runStudioThumbnailTask } = await import('./studio-thumbnail-task.ts');
 const payload = { base64: 'dGh1bWI=', mime: 'image/png', variant: 'thumb' };
 const assets = ['first', 'second'].map((id, index) => ({
-  id, kind: 'image', lane: 'gemini', model: 'image-model', prompt: id,
-  options: { aspectRatio: '1:1' }, mime: 'image/png', bytes: 10, createdAt: 2 - index,
+  id,
+  kind: 'image',
+  lane: 'gemini',
+  model: 'image-model',
+  prompt: id,
+  options: { aspectRatio: '1:1' },
+  mime: 'image/png',
+  bytes: 10,
+  createdAt: 2 - index,
 }));
 
 for (const failure of ['rejected read', 'empty read', 'stalled read', 'failed decode', 'stalled decode']) {
@@ -60,7 +77,9 @@ for (const failure of ['rejected read', 'empty read', 'stalled read', 'failed de
           if (args[0] === 'second') value = payload;
           else if (failure === 'rejected read') throw new Error('read failed');
           else if (failure === 'stalled read') {
-            value = await new Promise((resolve) => { finishRead = resolve; });
+            value = await new Promise((resolve) => {
+              finishRead = resolve;
+            });
           } else if (failure.includes('decode')) value = { ...payload, variant: 'original' };
         }
         return { value, snapshot: null };
@@ -70,8 +89,12 @@ for (const failure of ['rejected read', 'empty read', 'stalled read', 'failed de
     document.body.append(host);
     const root = createRoot(host);
     try {
-      await act(async () => { root.render(React.createElement(StudioPane, { api })); });
-      await act(async () => { await new Promise((resolve) => originalTimeout(resolve, 60)); });
+      await act(async () => {
+        root.render(React.createElement(StudioPane, { api }));
+      });
+      await act(async () => {
+        await new Promise((resolve) => originalTimeout(resolve, 60));
+      });
       const first = host.querySelector('[data-studio-asset-id="first"]');
       const second = host.querySelector('[data-studio-asset-id="second"]');
       assert.ok(first);
@@ -84,7 +107,9 @@ for (const failure of ['rejected read', 'empty read', 'stalled read', 'failed de
       assert.equal(second.querySelector('.studio-thumbnail-loading'), null);
       assert.deepEqual(reads, ['first', 'second']);
       if (finishRead) {
-        await act(async () => { finishRead(payload); });
+        await act(async () => {
+          finishRead(payload);
+        });
         assert.ok(first.querySelector('.studio-tile-glyph'), 'late results must not revive expired work');
       }
     } finally {
@@ -107,8 +132,11 @@ test('thumbnail hydration cancels active work on unmount and skips already-cance
   await assert.rejects(request, /cancelled/);
   assert.equal(signal.aborted, true);
   let started = false;
-  await assert.rejects(runStudioThumbnailTask(async () => {
-    started = true;
-  }, parent.signal), /cancelled/);
+  await assert.rejects(
+    runStudioThumbnailTask(async () => {
+      started = true;
+    }, parent.signal),
+    /cancelled/
+  );
   assert.equal(started, false);
 });

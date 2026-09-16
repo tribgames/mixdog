@@ -5,18 +5,18 @@
 let _codeGraphRuntimePromise = null;
 let _agentLoopPromise = null;
 export async function _executeCodeGraphToolLazy(name, args, cwd, signal = null, options = {}) {
-    _codeGraphRuntimePromise ??= import('../../tools/code-graph.mjs');
-    const mod = await _codeGraphRuntimePromise;
-    if (typeof mod.executeCodeGraphTool !== 'function') throw new Error('code_graph runtime is not available');
-    return mod.executeCodeGraphTool(name, args, cwd, signal, options);
+  _codeGraphRuntimePromise ??= import('../../tools/code-graph.mjs');
+  const mod = await _codeGraphRuntimePromise;
+  if (typeof mod.executeCodeGraphTool !== 'function') throw new Error('code_graph runtime is not available');
+  return mod.executeCodeGraphTool(name, args, cwd, signal, options);
 }
 export async function _getAgentLoop() {
-    _agentLoopPromise ??= import('../loop.mjs');
-    const mod = await _agentLoopPromise;
-    if (typeof mod.agentLoop !== 'function') throw new Error('agent loop runtime is not available');
-    return mod.agentLoop;
+  _agentLoopPromise ??= import('../loop.mjs');
+  const mod = await _agentLoopPromise;
+  if (typeof mod.agentLoop !== 'function') throw new Error('agent loop runtime is not available');
+  return mod.agentLoop;
 }
 export async function prewarmAgentLoop() {
-    await _getAgentLoop();
-    return true;
+  await _getAgentLoop();
+  return true;
 }

@@ -1,19 +1,19 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
-import React, { act } from "react";
-import { createRoot } from "react-dom/client";
-import { JSDOM } from "jsdom";
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM("<!doctype html><html><body></body></html>", {
-  url: "https://mixdog.test/",
+const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+  url: 'https://mixdog.test/',
 });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 dom.window.HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
-  const visible = this.classList.contains("session-terminal-slot");
+  const visible = this.classList.contains('session-terminal-slot');
   return {
     x: visible ? 40 : 0,
     y: visible ? 20 : 0,
@@ -23,27 +23,24 @@ dom.window.HTMLElement.prototype.getBoundingClientRect = function getBoundingCli
     bottom: visible ? 500 : 0,
     width: visible ? 720 : 0,
     height: visible ? 480 : 0,
-    toJSON() { return this; },
+    toJSON() {
+      return this;
+    },
   };
 };
 
-const {
-  SessionTerminalParkingHost,
-  SessionTerminalSlot,
-  sessionTerminalId,
-  useSessionTerminalSurfaces,
-} = await import("./session-terminal-surfaces.tsx");
-const {
-  applyTerminalActivity,
-  StableTerminalFitScheduler,
-} = await import("./terminal-fit.ts");
+const { SessionTerminalParkingHost, SessionTerminalSlot, sessionTerminalId, useSessionTerminalSurfaces } = await import(
+  './session-terminal-surfaces.tsx'
+);
+const { applyTerminalActivity, StableTerminalFitScheduler } = await import('./terminal-fit.ts');
 
-const renderFixture = (props) => React.createElement("div", {
-  className: "terminal-surface-fixture",
-  "data-cwd": props.cwd,
-  "data-active": props.active ? "true" : "false",
-  "data-parked": props.parked ? "true" : "false",
-});
+const renderFixture = (props) =>
+  React.createElement('div', {
+    className: 'terminal-surface-fixture',
+    'data-cwd': props.cwd,
+    'data-active': props.active ? 'true' : 'false',
+    'data-parked': props.parked ? 'true' : 'false',
+  });
 
 function Harness({ sessionId, active, cwd, disposeTerminal, onController }) {
   const controller = useSessionTerminalSurfaces(renderFixture, disposeTerminal);
@@ -60,95 +57,113 @@ function Harness({ sessionId, active, cwd, disposeTerminal, onController }) {
       active,
       foreground: active,
       cwd,
-    }),
+    })
   );
 }
 
-test("one session terminal root parks and restores at Browser Use width", async () => {
-  const host = document.createElement("main");
+test('one session terminal root parks and restores at Browser Use width', async () => {
+  const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(React.createElement(Harness, {
-      sessionId: "alpha",
-      active: true,
-      cwd: "C:/alpha",
-    })));
-    const container = document.querySelector(".session-terminal-surface-container");
+    await act(async () =>
+      root.render(
+        React.createElement(Harness, {
+          sessionId: 'alpha',
+          active: true,
+          cwd: 'C:/alpha',
+        })
+      )
+    );
+    const container = document.querySelector('.session-terminal-surface-container');
     assert.ok(container);
-    assert.equal(container.style.width, "720px");
-    assert.equal(container.style.height, "480px");
-    assert.equal(container.querySelector(".terminal-surface-fixture").dataset.cwd, "C:/alpha");
-    assert.equal(container.querySelector(".terminal-surface-fixture").dataset.active, "true");
+    assert.equal(container.style.width, '720px');
+    assert.equal(container.style.height, '480px');
+    assert.equal(container.querySelector('.terminal-surface-fixture').dataset.cwd, 'C:/alpha');
+    assert.equal(container.querySelector('.terminal-surface-fixture').dataset.active, 'true');
 
-    await act(async () => root.render(React.createElement(Harness, {
-      sessionId: "alpha",
-      active: false,
-      cwd: "C:/alpha",
-    })));
-    assert.equal(document.querySelector(".session-terminal-surface-container"), container);
-    assert.equal(container.dataset.parked, "true");
-    assert.equal(container.style.width, "720px");
-    assert.equal(container.style.height, "480px");
-    assert.equal(container.querySelector(".terminal-surface-fixture").dataset.parked, "true");
+    await act(async () =>
+      root.render(
+        React.createElement(Harness, {
+          sessionId: 'alpha',
+          active: false,
+          cwd: 'C:/alpha',
+        })
+      )
+    );
+    assert.equal(document.querySelector('.session-terminal-surface-container'), container);
+    assert.equal(container.dataset.parked, 'true');
+    assert.equal(container.style.width, '720px');
+    assert.equal(container.style.height, '480px');
+    assert.equal(container.querySelector('.terminal-surface-fixture').dataset.parked, 'true');
 
-    await act(async () => root.render(React.createElement(Harness, {
-      sessionId: "alpha",
-      active: true,
-      cwd: "C:/alpha",
-    })));
-    assert.equal(document.querySelector(".session-terminal-surface-container"), container);
-    assert.equal(container.dataset.parked, "false");
+    await act(async () =>
+      root.render(
+        React.createElement(Harness, {
+          sessionId: 'alpha',
+          active: true,
+          cwd: 'C:/alpha',
+        })
+      )
+    );
+    assert.equal(document.querySelector('.session-terminal-surface-container'), container);
+    assert.equal(container.dataset.parked, 'false');
   } finally {
     await act(async () => root.unmount());
     host.remove();
   }
 });
 
-test("releasing a session removes its surface and disposes its terminal identity", async () => {
-  const host = document.createElement("main");
+test('releasing a session removes its surface and disposes its terminal identity', async () => {
+  const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
   const disposed = [];
   let controller = null;
   try {
-    await act(async () => root.render(React.createElement(Harness, {
-      sessionId: "alpha",
-      active: true,
-      cwd: "C:/alpha",
-      disposeTerminal: (terminalId) => disposed.push(terminalId),
-      onController: (value) => { controller = value; },
-    })));
-    assert.ok(document.querySelector(".session-terminal-surface-container"));
+    await act(async () =>
+      root.render(
+        React.createElement(Harness, {
+          sessionId: 'alpha',
+          active: true,
+          cwd: 'C:/alpha',
+          disposeTerminal: (terminalId) => disposed.push(terminalId),
+          onController: (value) => {
+            controller = value;
+          },
+        })
+      )
+    );
+    assert.ok(document.querySelector('.session-terminal-surface-container'));
     assert.ok(controller);
 
-    await act(async () => controller.release("alpha"));
+    await act(async () => controller.release('alpha'));
 
-    assert.equal(document.querySelector(".session-terminal-surface-container"), null);
-    assert.deepEqual(disposed, [sessionTerminalId("alpha")]);
+    assert.equal(document.querySelector('.session-terminal-surface-container'), null);
+    assert.deepEqual(disposed, [sessionTerminalId('alpha')]);
   } finally {
     await act(async () => root.unmount());
     host.remove();
   }
 });
 
-test("parked terminal activity releases its renderer and pauses fitting", () => {
+test('parked terminal activity releases its renderer and pauses fitting', () => {
   const calls = [];
   const handlers = {
-    enableRenderer: () => calls.push("enable"),
-    releaseRenderer: () => calls.push("release"),
-    scheduleFit: () => calls.push("schedule"),
-    pauseFit: () => calls.push("pause"),
-    focus: () => calls.push("focus"),
+    enableRenderer: () => calls.push('enable'),
+    releaseRenderer: () => calls.push('release'),
+    scheduleFit: () => calls.push('schedule'),
+    pauseFit: () => calls.push('pause'),
+    focus: () => calls.push('focus'),
   };
 
   applyTerminalActivity(false, handlers);
   applyTerminalActivity(true, handlers);
 
-  assert.deepEqual(calls, ["pause", "release", "enable", "schedule", "focus"]);
+  assert.deepEqual(calls, ['pause', 'release', 'enable', 'schedule', 'focus']);
 });
 
-test("stable fitting coalesces changing grids and suppresses duplicate PTY resizes", () => {
+test('stable fitting coalesces changing grids and suppresses duplicate PTY resizes', () => {
   const frames = [];
   const emitted = [];
   const fitCalls = [];

@@ -136,7 +136,10 @@ export function wordRangeAt(text, offset) {
   if (idx === -1) {
     idx = units.length - 1;
     for (let i = 0; i < units.length; i += 1) {
-      if (units[i].start >= off) { idx = i > 0 ? i - 1 : 0; break; }
+      if (units[i].start >= off) {
+        idx = i > 0 ? i - 1 : 0;
+        break;
+      }
     }
   }
   const targetIsWord = wordLike(units[idx].segment);
@@ -160,9 +163,7 @@ export function caretPosition(text, offset, width, hasTrailingContent = undefine
   const value = String(text || '');
   const before = value.slice(0, offset);
   const w = safeWidth(width);
-  const followsInFullText = hasTrailingContent === undefined
-    ? offset < value.length
-    : hasTrailingContent === true;
+  const followsInFullText = hasTrailingContent === undefined ? offset < value.length : hasTrailingContent === true;
   let row = 0;
   let col = 0;
   const segments = [...graphemeSegmenter.segment(before)];
@@ -325,9 +326,7 @@ export function deleteToLineStart(draft) {
 export function deleteToLineEnd(draft) {
   if (selectionRange(draft)) return replaceSelection(draft, '');
   const end = lineEnd(draft.value, draft.cursor);
-  const deleteEnd = end > draft.cursor
-    ? end
-    : (draft.value[draft.cursor] === '\n' ? draft.cursor + 1 : draft.cursor);
+  const deleteEnd = end > draft.cursor ? end : draft.value[draft.cursor] === '\n' ? draft.cursor + 1 : draft.cursor;
   if (deleteEnd === draft.cursor) return draft;
   return {
     value: draft.value.slice(0, draft.cursor) + draft.value.slice(deleteEnd),

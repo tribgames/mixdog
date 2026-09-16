@@ -58,9 +58,7 @@ export function createSettingsPicker({
     settingsRequestRef.current = (Number(settingsRequestRef.current) || 0) + 1;
     return settingsRequestRef.current;
   };
-  const isCurrentSettingsRequest = (requestId) => (
-    !settingsRequestRef || settingsRequestRef.current === requestId
-  );
+  const isCurrentSettingsRequest = (requestId) => !settingsRequestRef || settingsRequestRef.current === requestId;
   const buildSettingsPicker = async (opts = {}, requestId = 0) => {
     // Surface claim (panel-surface.mjs), taken before the snapshot await. The
     // request ticket above only invalidates builds that Settings' own Esc
@@ -87,15 +85,16 @@ export function createSettingsPicker({
     const systemShell = snapshot.systemShell || { source: 'auto', command: '', effective: '' };
     const outputStyle = snapshot.outputStyle || {};
     const workflow = state.workflow || {};
-    const mcp = heavyCache ? heavyCache.mcp : (snapshot.mcp || { connectedCount: 0, configuredCount: 0, failedCount: 0 });
-    const plugins = heavyCache ? heavyCache.plugins : (snapshot.plugins || { count: 0 });
-    const skills = heavyCache ? heavyCache.skills : (snapshot.skills || { count: 0 });
+    const mcp = heavyCache ? heavyCache.mcp : snapshot.mcp || { connectedCount: 0, configuredCount: 0, failedCount: 0 };
+    const plugins = heavyCache ? heavyCache.plugins : snapshot.plugins || { count: 0 };
+    const skills = heavyCache ? heavyCache.skills : snapshot.skills || { count: 0 };
     // Refresh the cache every build (light or full) so the next light
     // refresh reuses whatever was most recently known.
     settingsHeavyCacheRef.current = { mcp, plugins, skills };
-    const outputStyleLabel = outputStyle?.current?.label || outputStyle?.current?.id || outputStyle?.configured || 'Default';
+    const outputStyleLabel =
+      outputStyle?.current?.label || outputStyle?.current?.id || outputStyle?.configured || 'Default';
     const workflowLabel = workflowDisplayName(workflow);
-    const boolLabel = (enabled) => enabled ? 'On' : 'Off';
+    const boolLabel = (enabled) => (enabled ? 'On' : 'Off');
     // Post-write refresh, bound to the claim AT ACTION TIME. Esc only
     // invalidates builds that already exist, so a write settling afterwards
     // would otherwise take a fresh generation and re-open the panel the user
@@ -106,7 +105,11 @@ export function createSettingsPicker({
       void Promise.resolve(store.setAutoClear?.(patch))
         .then((next) => {
           if (!next) store.pushNotice('autoclear unavailable', 'warn');
-          else store.pushNotice(next.enabled ? `Auto-clear on · idle ${formatDuration(next.idleMs)}` : 'Auto-clear off', 'info');
+          else
+            store.pushNotice(
+              next.enabled ? `Auto-clear on · idle ${formatDuration(next.idleMs)}` : 'Auto-clear off',
+              'info'
+            );
         })
         .catch((e) => store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error'))
         .finally(deferredSettingsRefresh());
@@ -127,9 +130,9 @@ export function createSettingsPicker({
         .catch((e) => store.pushNotice(`compaction failed: ${e?.message || e}`, 'error'))
         .finally(deferredSettingsRefresh());
     };
-    // Voice toggle (moved from the retired Channels cluster): enabling
-    // installs the managed whisper/ffmpeg runtime first time, then flips
-    // voice.enabled. toggleVoice owns all notices/progress.
+
+    // Voice toggle: enabling installs the managed whisper/ffmpeg runtime first
+    // time, then flips voice.enabled. toggleVoice owns all notices/progress.
     const applyVoice = () => {
       if (isVoiceInstallBusy()) {
         store.pushNotice('Voice install is already running', 'warn');
@@ -156,7 +159,9 @@ export function createSettingsPicker({
       // moved to meanwhile, and the refresh would re-open Settings over it.
       const settled = deferredSettingsRefresh();
       let status = null;
-      try { status = (await store.listOutputStyles?.()) || null; } catch (e) {
+      try {
+        status = (await store.listOutputStyles?.()) || null;
+      } catch (e) {
         store.pushNotice(`could not list output styles: ${e?.message || e}`, 'error');
         return;
       }
@@ -166,9 +171,13 @@ export function createSettingsPicker({
         return;
       }
       const currentId = status?.current?.id || 'default';
-      const currentIndex = Math.max(0, styles.findIndex((style) => style.id === currentId));
+      const currentIndex = Math.max(
+        0,
+        styles.findIndex((style) => style.id === currentId)
+      );
       const next = styles[(currentIndex + direction + styles.length) % styles.length];
-      void store.setOutputStyle?.(next.id)
+      void store
+        .setOutputStyle?.(next.id)
         .then((result) => {
           if (!result) {
             store.pushNotice('Output style switch is already running.', 'warn');
@@ -184,7 +193,9 @@ export function createSettingsPicker({
       // listWorkflows ack that lands after the user may have closed Settings.
       const settled = deferredSettingsRefresh();
       let workflows = [];
-      try { workflows = (await store.listWorkflows?.()) || []; } catch (e) {
+      try {
+        workflows = (await store.listWorkflows?.()) || [];
+      } catch (e) {
         store.pushNotice(`could not list workflows: ${e?.message || e}`, 'error');
         return;
       }
@@ -193,9 +204,16 @@ export function createSettingsPicker({
         return;
       }
       const activeIndex = workflows.findIndex((item) => item.active);
-      const currentIndex = activeIndex >= 0 ? activeIndex : Math.max(0, workflows.findIndex((item) => item.id === workflow.id));
+      const currentIndex =
+        activeIndex >= 0
+          ? activeIndex
+          : Math.max(
+              0,
+              workflows.findIndex((item) => item.id === workflow.id)
+            );
       const next = workflows[(currentIndex + direction + workflows.length) % workflows.length];
-      void store.setWorkflow?.(next.id)
+      void store
+        .setWorkflow?.(next.id)
         .then((result) => {
           if (!result) {
             store.pushNotice('Workflow switch is already running.', 'warn');
@@ -208,7 +226,9 @@ export function createSettingsPicker({
     };
     const cycleTheme = (direction = 1) => {
       let themes = [];
-      try { themes = store.listThemes?.() || []; } catch (e) {
+      try {
+        themes = store.listThemes?.() || [];
+      } catch (e) {
         store.pushNotice(`could not list themes: ${e?.message || e}`, 'error');
         return;
       }
@@ -217,7 +237,10 @@ export function createSettingsPicker({
         return;
       }
       const currentId = store.getTheme?.() || themes.find((t) => t.current)?.id || themes[0]?.id;
-      const currentIndex = Math.max(0, themes.findIndex((t) => t.id === currentId));
+      const currentIndex = Math.max(
+        0,
+        themes.findIndex((t) => t.id === currentId)
+      );
       const next = themes[(currentIndex + direction + themes.length) % themes.length];
       try {
         const applied = store.setTheme?.(next.id, { persist: true });
@@ -284,7 +307,9 @@ export function createSettingsPicker({
             const id = store.getTheme?.();
             const entry = (store.listThemes?.() || []).find((t) => t.id === id);
             return entry?.label || id || 'Default';
-          } catch { return 'Default'; }
+          } catch {
+            return 'Default';
+          }
         })(),
         description: 'TUI color theme.',
         _action: 'theme',
@@ -393,7 +418,12 @@ export function createSettingsPicker({
       labelWidth: 18,
       metaWidth: 18,
       items,
-      initialIndex: opts.focus ? Math.max(0, items.findIndex((item) => item.value === opts.focus)) : undefined,
+      initialIndex: opts.focus
+        ? Math.max(
+            0,
+            items.findIndex((item) => item.value === opts.focus)
+          )
+        : undefined,
       onLeft: (item) => {
         if (item?._action === 'autoclear') toggleAutoClear();
         else if (item?._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
@@ -421,36 +451,42 @@ export function createSettingsPicker({
         else if (item._action === 'web-search-enabled') toggleWebSearch();
         else if (item._action === 'memory-enabled') toggleMemory();
         else if (item._action === 'voice') applyVoice();
-        else if (item._action === 'output-style') openOutputStylePicker({
-          returnTo: openSettingsPicker,
-          handoffPanel: settingsHandoffPanel('Applying output style...'),
-        });
-        else if (item._action === 'theme') openThemePicker({
-          returnTo: openSettingsPicker,
-          handoffPanel: settingsHandoffPanel('Applying theme...'),
-        });
-        else if (item._action === 'workflow') openWorkflowPicker({
-          returnTo: openSettingsPicker,
-          handoffPanel: settingsHandoffPanel('Switching workflow...'),
-        });
-        else if (item._action === 'model') openModelPicker({
-          returnTo: openSettingsPicker,
-          returnLabel: 'Settings',
-          returnOnNestedCancel: true,
-          onAfterSelect: openSettingsPicker,
-          handoffPanel: settingsHandoffPanel('Switching model...'),
-        });
-        else if (item._action === 'websearch') openWebSearchPicker({
-          returnTo: openSettingsPicker,
-          returnLabel: 'Settings',
-          returnOnNestedCancel: true,
-        });
-        else if (item._action === 'providers') void openProviderSetupPicker({
-          returnTo: openSettingsPicker,
-          onCancel: openSettingsPicker,
-          continueLabel: 'Back to settings',
-          continueDescription: 'return to settings',
-        });
+        else if (item._action === 'output-style')
+          openOutputStylePicker({
+            returnTo: openSettingsPicker,
+            handoffPanel: settingsHandoffPanel('Applying output style...'),
+          });
+        else if (item._action === 'theme')
+          openThemePicker({
+            returnTo: openSettingsPicker,
+            handoffPanel: settingsHandoffPanel('Applying theme...'),
+          });
+        else if (item._action === 'workflow')
+          openWorkflowPicker({
+            returnTo: openSettingsPicker,
+            handoffPanel: settingsHandoffPanel('Switching workflow...'),
+          });
+        else if (item._action === 'model')
+          openModelPicker({
+            returnTo: openSettingsPicker,
+            returnLabel: 'Settings',
+            returnOnNestedCancel: true,
+            onAfterSelect: openSettingsPicker,
+            handoffPanel: settingsHandoffPanel('Switching model...'),
+          });
+        else if (item._action === 'websearch')
+          openWebSearchPicker({
+            returnTo: openSettingsPicker,
+            returnLabel: 'Settings',
+            returnOnNestedCancel: true,
+          });
+        else if (item._action === 'providers')
+          void openProviderSetupPicker({
+            returnTo: openSettingsPicker,
+            onCancel: openSettingsPicker,
+            continueLabel: 'Back to settings',
+            continueDescription: 'return to settings',
+          });
         else if (item._action === 'mcp') openMcpPicker();
         else if (item._action === 'plugins') openPluginsPicker();
         else if (item._action === 'skills') openSkillsPicker();
@@ -463,8 +499,7 @@ export function createSettingsPicker({
             hint: 'Enter a shell command, or leave empty for automatic selection. Windows accepts powershell.exe or pwsh.',
             initialValue: systemShell.command || '',
           });
-        }
-        else if (item._action === 'update') openUpdatePicker({ returnTo: openSettingsPicker });
+        } else if (item._action === 'update') openUpdatePicker({ returnTo: openSettingsPicker });
       },
       onCancel: () => {
         // Invalidate in-flight builds: Esc must win over a slow snapshot.
@@ -486,7 +521,9 @@ export function createSettingsPicker({
       store.pushNotice(`settings unavailable: ${error?.message || error}`, 'error');
     }
   };
-  const refreshSettings = () => { void openSettingsPicker({ light: true }); };
+  const refreshSettings = () => {
+    void openSettingsPicker({ light: true });
+  };
 
   return { openSettingsPicker };
 }

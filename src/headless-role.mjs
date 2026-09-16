@@ -4,10 +4,7 @@ import {
   formatPristineExecutionAudit,
   validateExplicitPristineRoute,
 } from './runtime/shared/pristine-execution.mjs';
-import {
-  installProcessSignalCleanup,
-  waitWithTimeout,
-} from './runtime/shared/process-shutdown.mjs';
+import { installProcessSignalCleanup, waitWithTimeout } from './runtime/shared/process-shutdown.mjs';
 import { sleep } from './runtime/shared/sleep.mjs';
 import { clean } from './runtime/shared/clean.mjs';
 
@@ -19,9 +16,7 @@ function taskIdFromOutput(text) {
 }
 
 function makeTag(agent) {
-  return `headless-${agent}-${process.pid}-${Date.now()}`
-    .replace(/[^A-Za-z0-9_.-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+  return `headless-${agent}-${process.pid}-${Date.now()}`.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
 function buildHeadlessSpawnArgs({ agent, tag, cwd, message, provider, model, effort, fast } = {}) {
@@ -46,12 +41,7 @@ const HEADLESS_CLEANUP_RESERVE_MS = 500;
 async function buildAgentRunner(cwd, boundary) {
   // Import runtime/config modules only after MIXDOG_DATA_DIR and all behavioral
   // guards point at the ephemeral pristine boundary.
-  const [
-    { createStandaloneAgent },
-    cfgMod,
-    reg,
-    mgr,
-  ] = await Promise.all([
+  const [{ createStandaloneAgent }, cfgMod, reg, mgr] = await Promise.all([
     import('./standalone/agent-tool.mjs'),
     import('./runtime/agent/orchestrator/config.mjs'),
     import('./runtime/agent/orchestrator/providers/registry.mjs'),
@@ -137,9 +127,7 @@ export async function runHeadlessRole({
   const cleanup = (reason = 'headless-exit') => {
     if (cleanupPromise) return cleanupPromise;
     cleanupPromise = (async () => {
-      const deadline = Date.now()
-        + HEADLESS_SHUTDOWN_TIMEOUT_MS
-        - HEADLESS_CLEANUP_RESERVE_MS;
+      const deadline = Date.now() + HEADLESS_SHUTDOWN_TIMEOUT_MS - HEADLESS_CLEANUP_RESERVE_MS;
       const runCleanupStep = async (start, maxMs, label) => {
         const remaining = deadline - Date.now();
         if (remaining <= 0) return;
@@ -159,7 +147,7 @@ export async function runHeadlessRole({
           await runCleanupStep(
             () => agentRunner.execute({ type: 'close', tag }, context),
             HEADLESS_CLOSE_TIMEOUT_MS,
-            'headless agent close',
+            'headless agent close'
           );
         }
       } catch {
@@ -167,22 +155,22 @@ export async function runHeadlessRole({
       }
       try {
         if (drainTrace) {
-          await runCleanupStep(
-            drainTrace,
-            HEADLESS_SHUTDOWN_TIMEOUT_MS,
-            'headless trace drain',
-          );
+          await runCleanupStep(drainTrace, HEADLESS_SHUTDOWN_TIMEOUT_MS, 'headless trace drain');
         }
       } catch {
         // Telemetry must never block cleanup of the pristine boundary.
       } finally {
         try {
-          await runCleanupStep(async () => {
-            const closeNativePatchServers = globalThis.__mixdogCloseNativePatchServers;
-            if (typeof closeNativePatchServers === 'function') {
-              await closeNativePatchServers();
-            }
-          }, HEADLESS_CLOSE_TIMEOUT_MS, 'headless native patch close');
+          await runCleanupStep(
+            async () => {
+              const closeNativePatchServers = globalThis.__mixdogCloseNativePatchServers;
+              if (typeof closeNativePatchServers === 'function') {
+                await closeNativePatchServers();
+              }
+            },
+            HEADLESS_CLOSE_TIMEOUT_MS,
+            'headless native patch close'
+          );
         } catch {
           // The boundary cleanup below remains mandatory if native shutdown hangs.
         } finally {
@@ -207,9 +195,7 @@ export async function runHeadlessRole({
     });
     agentRunner = await agentRunnerFactory(cwd, boundary);
     try {
-      ({ drainAgentTrace: drainTrace } = await import(
-        './runtime/agent/orchestrator/agent-trace.mjs'
-      ));
+      ({ drainAgentTrace: drainTrace } = await import('./runtime/agent/orchestrator/agent-trace.mjs'));
     } catch {
       drainTrace = null;
     }

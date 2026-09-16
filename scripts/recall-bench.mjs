@@ -38,22 +38,49 @@ function argValue(name, fallback = null) {
   const hit = process.argv.find((a) => a.startsWith(pref));
   return hit ? hit.slice(pref.length) : fallback;
 }
-function hasFlag(name) { return process.argv.includes(`--${name}`); }
+function hasFlag(name) {
+  return process.argv.includes(`--${name}`);
+}
 
 const DEFAULT_CASES = [
   { id: 'kw-ko', label: 'keyword query (ko)', args: { query: '\uBA54\uBAA8\uB9AC \uC7AC\uD604' }, expect: 'results' },
   { id: 'kw-en', label: 'keyword query (en)', args: { query: 'memory recall pipeline' }, expect: 'results' },
   { id: 'short-1tok', label: 'short 1-token query', args: { query: 'recall' }, expect: 'results' },
   { id: 'short-2tok', label: 'short 2-token query', args: { query: 'cycle1 drain' }, expect: 'results' },
-  { id: 'browse-last', label: 'query-less recent browse (period=last)', args: { period: 'last', limit: 10 }, expect: 'browse' },
+  {
+    id: 'browse-last',
+    label: 'query-less recent browse (period=last)',
+    args: { period: 'last', limit: 10 },
+    expect: 'browse',
+  },
   { id: 'period-24h', label: 'period window 24h', args: { period: '24h', limit: 10 }, expect: 'browse' },
   { id: 'period-7d', label: 'period window 7d', args: { period: '7d', limit: 10 }, expect: 'browse' },
-  { id: 'category-filter', label: 'category filter (decision)', args: { period: '30d', category: 'decision', limit: 10 }, expect: 'browse' },
+  {
+    id: 'category-filter',
+    label: 'category filter (decision)',
+    args: { period: '30d', category: 'decision', limit: 10 },
+    expect: 'browse',
+  },
   { id: 'id-lookup', label: 'id lookup', args: { id: 1 }, expect: 'idlookup' },
-  { id: 'scope-project', label: 'project-scoped query', args: { query: 'recall', cwd: ROOT, limit: 10 }, expect: 'results' },
-  { id: 'scope-all', label: 'all-scope query', args: { query: 'recall', projectScope: 'all', limit: 10 }, expect: 'results' },
+  {
+    id: 'scope-project',
+    label: 'project-scoped query',
+    args: { query: 'recall', cwd: ROOT, limit: 10 },
+    expect: 'results',
+  },
+  {
+    id: 'scope-all',
+    label: 'all-scope query',
+    args: { query: 'recall', projectScope: 'all', limit: 10 },
+    expect: 'results',
+  },
   { id: 'raw-on', label: 'includeRaw on', args: { query: 'recall', includeRaw: true, limit: 10 }, expect: 'results' },
-  { id: 'raw-off', label: 'includeRaw off', args: { query: 'recall', includeRaw: false, limit: 10 }, expect: 'results' },
+  {
+    id: 'raw-off',
+    label: 'includeRaw off',
+    args: { query: 'recall', includeRaw: false, limit: 10 },
+    expect: 'results',
+  },
 ];
 
 function loadCases(path) {
@@ -101,7 +128,9 @@ async function runCase(memoryModule, kase, priorRows = new Map()) {
   const recency = expectObj && expectObj.recencyOrdered ? scoreRecencyOrdered(parsed.items) : null;
   const allContainNeedles = expectObj && Array.isArray(expectObj.allContain) ? expectObj.allContain : null;
   const allContain = allContainNeedles ? scoreAllContain(parsed.items, allContainNeedles) : null;
-  const temporal = expectObj?.withinPeriod ? parsePeriod(String(kase.args?.period || ''), Boolean(kase.args?.query)) : null;
+  const temporal = expectObj?.withinPeriod
+    ? parsePeriod(String(kase.args?.period || ''), Boolean(kase.args?.query))
+    : null;
   const withinPeriod = temporal?.startMs != null ? scoreWithinPeriod(parsed.items, temporal) : null;
   const prior = expectObj?.pageAfter ? priorRows.get(expectObj.pageAfter) : null;
   const pageOrder = prior ? scorePageAfter(prior.parsed, parsed) : null;
@@ -112,7 +141,7 @@ async function runCase(memoryModule, kase, priorRows = new Map()) {
     recency,
     allContain,
     withinPeriod,
-    pageOrder,
+    pageOrder
   );
   return {
     id: kase.id,
@@ -140,16 +169,22 @@ function printCase(row) {
   process.stdout.write(`  params: ${JSON.stringify(row.args)}\n`);
   process.stdout.write(`  results: ${row.count}  latency: ${row.ms}ms${row.isError ? `  ERROR: ${row.errMsg}` : ''}\n`);
   if (row.quality) {
-    process.stdout.write(`  hit@${row.quality.n}: ${row.quality.hitAtN.toFixed(2)}  MRR: ${row.quality.mrr.toFixed(2)}\n`);
+    process.stdout.write(
+      `  hit@${row.quality.n}: ${row.quality.hitAtN.toFixed(2)}  MRR: ${row.quality.mrr.toFixed(2)}\n`
+    );
     for (const p of row.quality.perSubstring) {
       process.stdout.write(`    substr "${p.needle}" -> rank ${p.rank ?? 'none'}${p.hit ? '' : '  (miss)'}\n`);
     }
   }
   if (row.recency) {
-    process.stdout.write(`  recency: ${row.recency.ordered ? 'ordered' : 'OUT-OF-ORDER'} (${row.recency.parsed} timestamped lines)\n`);
+    process.stdout.write(
+      `  recency: ${row.recency.ordered ? 'ordered' : 'OUT-OF-ORDER'} (${row.recency.parsed} timestamped lines)\n`
+    );
   }
   if (row.withinPeriod) {
-    process.stdout.write(`  period: ${row.withinPeriod.ok ? 'in-range' : 'OUT-OF-RANGE'} (${row.withinPeriod.checked} timestamped items)\n`);
+    process.stdout.write(
+      `  period: ${row.withinPeriod.ok ? 'in-range' : 'OUT-OF-RANGE'} (${row.withinPeriod.checked} timestamped items)\n`
+    );
   }
   if (row.pageOrder) {
     process.stdout.write(`  page order: ${row.pageOrder.ok ? 'ordered, distinct' : 'INVALID'}\n`);
@@ -166,13 +201,13 @@ function printSummary(rows) {
   process.stdout.write('\n=== recall-bench summary ===\n');
   const widths = { id: 18, results: 8, ms: 8, status: 6, hit: 9, mrr: 7 };
   process.stdout.write(
-    `${'case'.padEnd(widths.id)}${'results'.padEnd(widths.results)}${'ms'.padEnd(widths.ms)}${'status'.padEnd(widths.status)}${'hit@N'.padEnd(widths.hit)}${'MRR'.padEnd(widths.mrr)}notes\n`,
+    `${'case'.padEnd(widths.id)}${'results'.padEnd(widths.results)}${'ms'.padEnd(widths.ms)}${'status'.padEnd(widths.status)}${'hit@N'.padEnd(widths.hit)}${'MRR'.padEnd(widths.mrr)}notes\n`
   );
   for (const r of rows) {
     const hitStr = r.quality ? r.quality.hitAtN.toFixed(2) : '-';
     const mrrStr = r.quality ? r.quality.mrr.toFixed(2) : '-';
     process.stdout.write(
-      `${String(r.id).padEnd(widths.id)}${String(r.count).padEnd(widths.results)}${String(r.ms).padEnd(widths.ms)}${String(r.status).padEnd(widths.status)}${hitStr.padEnd(widths.hit)}${mrrStr.padEnd(widths.mrr)}${r.warnings.join('; ')}\n`,
+      `${String(r.id).padEnd(widths.id)}${String(r.count).padEnd(widths.results)}${String(r.ms).padEnd(widths.ms)}${String(r.status).padEnd(widths.status)}${hitStr.padEnd(widths.hit)}${mrrStr.padEnd(widths.mrr)}${r.warnings.join('; ')}\n`
     );
   }
   const warnCount = rows.filter((r) => r.status === 'WARN').length;
@@ -184,7 +219,9 @@ function printSummary(rows) {
     const aggMrr = qualityRows.reduce((s, r) => s + r.quality.mrr, 0) / qualityRows.length;
     aggLine = `  agg_hit@N=${aggHit.toFixed(3)} agg_MRR=${aggMrr.toFixed(3)} (${qualityRows.length} scored cases)`;
   }
-  process.stdout.write(`\ncases=${rows.length} pass=${rows.length - warnCount} warn=${warnCount} total_latency=${totalMs}ms${aggLine}\n`);
+  process.stdout.write(
+    `\ncases=${rows.length} pass=${rows.length - warnCount} warn=${warnCount} total_latency=${totalMs}ms${aggLine}\n`
+  );
 }
 
 async function main() {
@@ -221,12 +258,16 @@ async function main() {
       if (!jsonMode) printCase(row);
     }
   } finally {
-    try { await memoryModule.stop?.(); } catch {}
+    try {
+      await memoryModule.stop?.();
+    } catch {}
   }
 
   const allZero = rows.length > 0 && rows.every((r) => r.count === 0 && !r.isError);
   if (allZero) {
-    process.stdout.write('\nNOTE: every case returned 0 results — DB is likely empty (or unreachable pool). Treat WARNs below as expected-empty, not a recall bug, until data is present.\n');
+    process.stdout.write(
+      '\nNOTE: every case returned 0 results — DB is likely empty (or unreachable pool). Treat WARNs below as expected-empty, not a recall bug, until data is present.\n'
+    );
   }
 
   if (jsonMode) {

@@ -33,9 +33,11 @@ function looksLikeZeroResultText(text) {
   // Only trust short, single-line-ish payloads — a real listing that merely
   // CONTAINS the words "no matches" somewhere must not be zeroed.
   if (trimmed.length > 200 || trimmed.includes('\n')) return false;
-  return /^\(?\s*(?:no|0)\s+(?:fuzzy\s+)?(?:match(?:es)?|results?|files?|entries|candidates?|hits?)\b/i.test(trimmed)
-    || /^\(?\s*(?:empty|none)\s*\)?$/i.test(trimmed)
-    || /^no\s+\S+\s+(?:found|matched)\b/i.test(trimmed);
+  return (
+    /^\(?\s*(?:no|0)\s+(?:fuzzy\s+)?(?:match(?:es)?|results?|files?|entries|candidates?|hits?)\b/i.test(trimmed) ||
+    /^\(?\s*(?:empty|none)\s*\)?$/i.test(trimmed) ||
+    /^no\s+\S+\s+(?:found|matched)\b/i.test(trimmed)
+  );
 }
 
 function splitPathAndDelta(value, explicitDelta = '') {
@@ -97,7 +99,9 @@ export function parseUpdateSummary(text) {
 
 /** Heuristic: does the text look like a line-oriented listing rather than prose? */
 function looksLineOriented(text) {
-  const lines = String(text ?? '').split('\n').filter((line) => line.trim());
+  const lines = String(text ?? '')
+    .split('\n')
+    .filter((line) => line.trim());
   if (lines.length === 0) return false;
   // Prose tends to be a few long sentences; listings are many shorter rows.
   const longLines = lines.filter((line) => line.trim().length > 200).length;
@@ -127,17 +131,24 @@ function summarizeUpdateResult(text, args) {
     const item = changed[0];
     const action = isDryRun
       ? 'Checked'
-      : item.action === 'delete' ? 'Deleted' : item.action === 'add' || item.action === 'create' || item.action === 'created' ? 'Created' : 'Updated';
+      : item.action === 'delete'
+        ? 'Deleted'
+        : item.action === 'add' || item.action === 'create' || item.action === 'created'
+          ? 'Created'
+          : 'Updated';
     return compactParts([`${action} ${displayToolPath(item.path)}`, formatLineDelta(parseLineDelta(item.delta))]);
   }
   if (changed.length > 1) {
-    const totals = changed.reduce((acc, item) => {
-      const delta = parseLineDelta(item.delta);
-      acc.added += delta.added;
-      acc.removed += delta.removed;
-      acc.seen = acc.seen || delta.seen;
-      return acc;
-    }, { added: 0, removed: 0, seen: false });
+    const totals = changed.reduce(
+      (acc, item) => {
+        const delta = parseLineDelta(item.delta);
+        acc.added += delta.added;
+        acc.removed += delta.removed;
+        acc.seen = acc.seen || delta.seen;
+        return acc;
+      },
+      { added: 0, removed: 0, seen: false }
+    );
     return compactParts([`${isDryRun ? 'Checked' : 'Updated'} ${changed.length} Files`, formatLineDelta(totals)]);
   }
 
@@ -174,8 +185,18 @@ function firstAgentResultLine(text) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     if (/^agent result\b/i.test(trimmed)) continue;
-    if (/^<\/?(?:final-answer|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
-        if (/^(?:agent task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|notification|queueDepth|worker|worker_stage|last_progress|silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused):\s*/i.test(trimmed)) continue;
+    if (
+      /^<\/?(?:final-answer|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(
+        trimmed
+      )
+    )
+      continue;
+    if (
+      /^(?:agent task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|notification|queueDepth|worker|worker_stage|last_progress|silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused):\s*/i.test(
+        trimmed
+      )
+    )
+      continue;
     if (/^\[[a-z-]+:\s*[^\]]*\]$/i.test(trimmed)) continue;
     return truncateSingleLine(trimmed, AGENT_SURFACE_BRIEF_MAX);
   }
@@ -187,7 +208,7 @@ function summarizeGenericResult(text) {
   if (!trimmed) return null;
   if (/^(?:undefined|null)$/i.test(trimmed)) return null;
 
-  if (/^[\[{]/.test(trimmed)) {
+  if (/^[[{]/.test(trimmed)) {
     try {
       const parsed = JSON.parse(trimmed);
       if (Array.isArray(parsed)) return `${parsed.length} ${pluralize(parsed.length, 'item')}`;
@@ -196,8 +217,18 @@ function summarizeGenericResult(text) {
         if (status) return truncateSingleLine(titleStatus(status), AGENT_SURFACE_BRIEF_MAX);
         if (parsed.cwd) return truncateSingleLine(parsed.cwd, AGENT_SURFACE_BRIEF_MAX);
         if (typeof parsed.ok === 'boolean') return parsed.ok ? 'Ok' : 'Failed';
-        for (const key of ['items', 'results', 'resources', 'templates', 'providers', 'schedules', 'channels', 'tools']) {
-          if (Array.isArray(parsed[key])) return `${parsed[key].length} ${pluralize(parsed[key].length, (key.slice(0, -1) || 'item').toLowerCase())}`;
+        for (const key of [
+          'items',
+          'results',
+          'resources',
+          'templates',
+          'providers',
+          'schedules',
+          'channels',
+          'tools',
+        ]) {
+          if (Array.isArray(parsed[key]))
+            return `${parsed[key].length} ${pluralize(parsed[key].length, (key.slice(0, -1) || 'item').toLowerCase())}`;
         }
       }
     } catch {
@@ -205,7 +236,13 @@ function summarizeGenericResult(text) {
     }
   }
 
-  const line = firstAgentResultLine(text) || trimmed.split('\n').map((item) => item.trim()).find(Boolean) || '';
+  const line =
+    firstAgentResultLine(text) ||
+    trimmed
+      .split('\n')
+      .map((item) => item.trim())
+      .find(Boolean) ||
+    '';
   if (!line || line === '{' || line === '[') return null;
   if (/^(ok|done|success|saved|sent|updated|reloaded|connected|enabled|disabled|active|inactive)$/i.test(line)) {
     return titleStatus(line);
@@ -229,15 +266,28 @@ export function extractErrorCause(resultText) {
       if (obj && typeof obj === 'object') {
         const cause = firstText(
           typeof obj.error === 'string' ? obj.error : obj.error?.message,
-          obj.message, obj.cause, obj.detail, obj.reason, obj.status,
+          obj.message,
+          obj.cause,
+          obj.detail,
+          obj.reason,
+          obj.status
         );
         if (cause) return truncateSingleLine(String(cause), AGENT_SURFACE_BRIEF_MAX);
       }
-    } catch { /* fall through to text scan */ }
+    } catch {
+      /* fall through to text scan */
+    }
   }
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
   // Prefer the first line that looks like an error statement.
-  const errorish = lines.find((l) => /\b(error|failed|failure|denied|refused|timed?\s*out|timeout|not\s+found|missing|invalid|cannot|can't|exception|exit\s+(?:code\s+)?[1-9])\b/i.test(l));
+  const errorish = lines.find((l) =>
+    /\b(error|failed|failure|denied|refused|timed?\s*out|timeout|not\s+found|missing|invalid|cannot|can't|exception|exit\s+(?:code\s+)?[1-9])\b/i.test(
+      l
+    )
+  );
   const picked = errorish || lines[0] || '';
   return truncateSingleLine(stripInlineMarkdown(picked), AGENT_SURFACE_BRIEF_MAX);
 }
@@ -327,17 +377,17 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     case 'shell_command':
     case 'job_wait': {
       if (!trimmed) return '(No Output)';
-      const job = /^\[(?:task_id|job):\s*([^\]]+)\]/mi.exec(text);
-      const status = /^\[status:\s*([^\]]+)\]/mi.exec(text);
-      const exit = /^\[exit:\s*([^\]]+)\]/mi.exec(text);
+      const job = /^\[(?:task_id|job):\s*([^\]]+)\]/im.exec(text);
+      const status = /^\[status:\s*([^\]]+)\]/im.exec(text);
+      const exit = /^\[exit:\s*([^\]]+)\]/im.exec(text);
       if (job || status || exit) {
-        return compactParts([
-          job ? job[1] : '',
-          status ? titleStatus(status[1]) : '',
-          exit ? `Exit ${exit[1]}` : '',
-        ]);
+        return compactParts([job ? job[1] : '', status ? titleStatus(status[1]) : '', exit ? `Exit ${exit[1]}` : '']);
       }
-      const firstLine = trimmed.split('\n').map((line) => line.trim()).find(Boolean) || trimmed;
+      const firstLine =
+        trimmed
+          .split('\n')
+          .map((line) => line.trim())
+          .find(Boolean) || trimmed;
       return truncateSingleLine(firstLine, AGENT_SURFACE_BRIEF_MAX);
     }
     case 'code_graph': {
@@ -354,8 +404,9 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       // Route it to the generic JSON/text summarizer instead.
       if (normalized === 'fetch') {
         const a = parseToolArgs(args);
-        const isChannelFetch = !firstText(a.url, a.uri)
-          && Boolean(firstText(a.channel, a.channelId, a.chatId, a.messageId) || a.limit != null);
+        const isChannelFetch =
+          !firstText(a.url, a.uri) &&
+          Boolean(firstText(a.channel, a.channelId, a.chatId, a.messageId) || a.limit != null);
         if (isChannelFetch) {
           const n = countNonEmptyLines(text);
           if (trimmed && looksLineOriented(text) && n > 0) return `${n} ${pluralize(n, 'message')}`;
@@ -364,8 +415,11 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       }
       // Status: require a status-like context (HTTP NNN, "Status: NNN",
       // or "NNN OK"/"NNN Not Found") rather than any bare 3-digit number.
-      const status = /(?:HTTP[\s/]*\d?\.?\d?\s*|status[:\s]+)([1-5]\d{2})\b/i.exec(text)
-        || /\b([1-5]\d{2})\s+(?:OK|Not\s+Found|Forbidden|Moved|Found|Created|No\s+Content|Bad\s+Request|Unauthorized|Internal)/.exec(text);
+      const status =
+        /(?:HTTP[\s/]*\d?\.?\d?\s*|status[:\s]+)([1-5]\d{2})\b/i.exec(text) ||
+        /\b([1-5]\d{2})\s+(?:OK|Not\s+Found|Forbidden|Moved|Found|Created|No\s+Content|Bad\s+Request|Unauthorized|Internal)/.exec(
+          text
+        );
       const size = /\b(\d+(?:\.\d+)?\s?(?:[KMGT]?B|bytes))\b/i.exec(text);
       if (size && status) return `${size[1]} · HTTP ${status[1]}`;
       if (size) return size[1];
@@ -441,15 +495,15 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       const answerLine = firstAgentResultLine(text);
       // Agent/task result cards show only a one-liner; full report via ctrl+o.
       if (answerLine) return truncateSingleLine(stripInlineMarkdown(answerLine), AGENT_SURFACE_BRIEF_MAX);
-      const task = /^agent task:\s*(\S+)/mi.exec(text);
-      const statusMatch = /^status:\s*([^\s(]+)/mi.exec(text);
+      const task = /^agent task:\s*(\S+)/im.exec(text);
+      const statusMatch = /^status:\s*([^\s(]+)/im.exec(text);
       // Defensive twin of the render-side guard: an envelope that still says
       // "status: undefined"/"null" must not surface a titleized "Undefined".
       const status = statusMatch && !/^(?:undefined|null)$/i.test(statusMatch[1]) ? statusMatch : null;
-      const agent = /^agent:\s*(.+)$/mi.exec(text);
-      const preset = /^preset:\s*(.+)$/mi.exec(text);
-      const model = /^model:\s*(.+)$/mi.exec(text);
-      const limits = /^limits:\s*(.+)$/mi.exec(text);
+      const agent = /^agent:\s*(.+)$/im.exec(text);
+      const preset = /^preset:\s*(.+)$/im.exec(text);
+      const model = /^model:\s*(.+)$/im.exec(text);
+      const limits = /^limits:\s*(.+)$/im.exec(text);
       const agentModel = compactParts([
         displayAgentName(agent ? agent[1] : ''),
         displayModelName(model ? model[1] : ''),
@@ -473,7 +527,9 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
 }
 
 function truncateAgentSurfaceBrief(value, max = AGENT_SURFACE_BRIEF_MAX) {
-  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  const text = String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!text) return '';
   if (text.length <= max) return text;
   return `${text.slice(0, Math.max(1, max - 1))}\u2026`;

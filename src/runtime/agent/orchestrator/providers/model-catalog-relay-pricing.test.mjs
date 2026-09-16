@@ -8,27 +8,30 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-relay-pricing-'));
-writeFileSync(join(dataDir, 'litellm-catalog.json'), JSON.stringify({
-  fetchedAt: Date.now(),
-  data: {
-    'claude-relay-test-1': {
-      litellm_provider: 'anthropic',
-      input_cost_per_token: 3e-6,
-      output_cost_per_token: 15e-6,
-      cache_read_input_token_cost: 3e-7,
-      max_input_tokens: 200000,
-      mode: 'chat',
+writeFileSync(
+  join(dataDir, 'litellm-catalog.json'),
+  JSON.stringify({
+    fetchedAt: Date.now(),
+    data: {
+      'claude-relay-test-1': {
+        litellm_provider: 'anthropic',
+        input_cost_per_token: 3e-6,
+        output_cost_per_token: 15e-6,
+        cache_read_input_token_cost: 3e-7,
+        max_input_tokens: 200000,
+        mode: 'chat',
+      },
+      'gemini/gemini-relay-test-1': {
+        litellm_provider: 'gemini',
+        input_cost_per_token: 1e-6,
+        output_cost_per_token: 4e-6,
+        max_input_tokens: 1000000,
+        max_output_tokens: 65536,
+        mode: 'chat',
+      },
     },
-    'gemini/gemini-relay-test-1': {
-      litellm_provider: 'gemini',
-      input_cost_per_token: 1e-6,
-      output_cost_per_token: 4e-6,
-      max_input_tokens: 1000000,
-      max_output_tokens: 65536,
-      mode: 'chat',
-    },
-  },
-}));
+  })
+);
 process.env.MIXDOG_DATA_DIR = dataDir;
 
 const { getModelMetadataSync } = await import('./model-catalog.mjs');
@@ -66,8 +69,12 @@ test('a relayed turn costs what the same turn costs on the vendor directly', () 
   const turn = { inputTokens: 1_000_000, outputTokens: 100_000, cacheReadTokens: 500_000 };
   const onVendor = computeCostUsd({ ...turn, provider: 'anthropic-oauth', model: 'claude-relay-test-1' });
   // Cursor reports inclusive prompt tokens, Anthropic reports uncached input.
-  const onRelay = computeCostUsd({ ...turn, inputTokens: 1_500_000,
-    provider: 'cursor-oauth', model: 'claude-relay-test-1' });
+  const onRelay = computeCostUsd({
+    ...turn,
+    inputTokens: 1_500_000,
+    provider: 'cursor-oauth',
+    model: 'claude-relay-test-1',
+  });
 
   assert.equal(onVendor > 0, true);
   assert.equal(onRelay, onVendor);
@@ -75,20 +82,26 @@ test('a relayed turn costs what the same turn costs on the vendor directly', () 
 
 test('a model no vendor claims is left unpriced rather than guessed at', () => {
   assert.equal(getModelMetadataSync('kimi-relay-test-1', 'cursor-oauth'), null);
-  assert.equal(computeCostUsd({
-    provider: 'cursor-oauth',
-    model: 'kimi-relay-test-1',
-    inputTokens: 1_000_000,
-  }), 0);
+  assert.equal(
+    computeCostUsd({
+      provider: 'cursor-oauth',
+      model: 'kimi-relay-test-1',
+      inputTokens: 1_000_000,
+    }),
+    0
+  );
 });
 
 test('a local model stays free: nothing is relayed and nothing is priced', () => {
   assert.equal(getModelMetadataSync('claude-relay-test-1', 'mixdog-local'), null);
-  assert.equal(computeCostUsd({
-    provider: 'mixdog-local',
-    model: 'claude-relay-test-1',
-    inputTokens: 1_000_000,
-  }), 0);
+  assert.equal(
+    computeCostUsd({
+      provider: 'mixdog-local',
+      model: 'claude-relay-test-1',
+      inputTokens: 1_000_000,
+    }),
+    0
+  );
 });
 
 test('an ordinary provider is never repriced by a name that merely resembles one', () => {

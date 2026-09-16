@@ -1,8 +1,8 @@
 const SNAPSHOT_RE = /(?:^|\n)Snapshot:\s+(p\d+)-s\d+\b/i;
 
 export const BROWSER_SNAPSHOT_SUPERSEDED =
-  '[Browser snapshot superseded — a newer snapshot for this page exists later in the conversation. '
-  + 'Use refs from the latest snapshot or call browser snapshot/observe again.]';
+  '[Browser snapshot superseded — a newer snapshot for this page exists later in the conversation. ' +
+  'Use refs from the latest snapshot or call browser snapshot/observe again.]';
 
 function contentText(content) {
   if (typeof content === 'string') return content;

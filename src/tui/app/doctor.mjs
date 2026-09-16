@@ -168,7 +168,11 @@ export async function buildDoctorReport(runtime = {}, getState = () => ({})) {
     const disabled = skills.filter((x) => x && x.disabled);
     let detail = `${s.count ?? skills.length} available`;
     if (disabled.length) detail += ` · ${disabled.length} disabled`;
-    if (broken.length) detail += ` · broken: ${broken.map((x) => x.name || x.id).filter(Boolean).join(', ')}`;
+    if (broken.length)
+      detail += ` · broken: ${broken
+        .map((x) => x.name || x.id)
+        .filter(Boolean)
+        .join(', ')}`;
     row(broken.length ? 'warn' : 'ok', detail);
   });
   await check('plugins', async (row) => {
@@ -178,7 +182,11 @@ export async function buildDoctorReport(runtime = {}, getState = () => ({})) {
     const disabled = plugins.filter((x) => x && x.disabled);
     let detail = `${p.count ?? plugins.length} detected`;
     if (disabled.length) detail += ` · ${disabled.length} disabled`;
-    if (broken.length) detail += ` · broken: ${broken.map((x) => x.title || x.name || x.id).filter(Boolean).join(', ')}`;
+    if (broken.length)
+      detail += ` · broken: ${broken
+        .map((x) => x.title || x.name || x.id)
+        .filter(Boolean)
+        .join(', ')}`;
     row(broken.length ? 'warn' : 'ok', detail);
   });
   await check('hooks', async (row) => {
@@ -213,7 +221,10 @@ export async function buildDoctorReport(runtime = {}, getState = () => ({})) {
         return;
       }
       const fix = `Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile','-Command',"Add-MpPreference -ExclusionPath '${pgdata}'"`;
-      row('warn', `slow checkpoints (median ${med.toFixed(1)}s · max ${max.toFixed(1)}s) suggest Defender real-time scan of ${pgdata}. Fix (run in PowerShell): ${fix}`);
+      row(
+        'warn',
+        `slow checkpoints (median ${med.toFixed(1)}s · max ${max.toFixed(1)}s) suggest Defender real-time scan of ${pgdata}. Fix (run in PowerShell): ${fix}`
+      );
     });
   }
 

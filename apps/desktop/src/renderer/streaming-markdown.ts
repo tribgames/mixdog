@@ -1,7 +1,7 @@
-import remarkParse from "remark-parse";
-import { unified } from "unified";
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
 // @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
-import { healStreamingMarkdownTail } from "../../../../src/ui/streaming-markdown-heal.mjs";
+import { healStreamingMarkdownTail } from '../../../../src/ui/streaming-markdown-heal.mjs';
 export { healStreamingMarkdownTail };
 
 export interface StreamingMarkdownCache {
@@ -44,12 +44,12 @@ const streamingBlockParser = unified().use(remarkParse);
 
 export function createStreamingMarkdownCache(): StreamingMarkdownCache {
   return {
-    stableText: "",
+    stableText: '',
     stableChunks: [],
     stableChunkKeys: [],
-    sourceText: "",
+    sourceText: '',
     scanOffset: 0,
-    fenceMarker: "",
+    fenceMarker: '',
     fenceLength: 0,
     boundaries: [],
     scannedCharacters: 0,
@@ -57,12 +57,12 @@ export function createStreamingMarkdownCache(): StreamingMarkdownCache {
 }
 
 function resetCache(cache: StreamingMarkdownCache): void {
-  cache.stableText = "";
+  cache.stableText = '';
   cache.stableChunks = [];
   cache.stableChunkKeys = [];
-  cache.sourceText = "";
+  cache.sourceText = '';
   cache.scanOffset = 0;
-  cache.fenceMarker = "";
+  cache.fenceMarker = '';
   cache.fenceLength = 0;
   cache.boundaries = [];
   cache.scannedCharacters = 0;
@@ -74,13 +74,15 @@ function markdownChunkKey(offset: number): string {
 
 /** One literal line needs no GFM parser. */
 export function isPlainTextMarkdown(text: string): boolean {
-  const value = String(text ?? "");
-  return Boolean(value)
-    && !value.includes("\n")
-    && !nonPlainTextMarkdownSyntax.test(value)
-    && !gfmAutolink.test(value)
-    && !gfmStrikethrough.test(value)
-    && !blockMarkdownSyntax.test(value);
+  const value = String(text ?? '');
+  return (
+    Boolean(value) &&
+    !value.includes('\n') &&
+    !nonPlainTextMarkdownSyntax.test(value) &&
+    !gfmAutolink.test(value) &&
+    !gfmStrikethrough.test(value) &&
+    !blockMarkdownSyntax.test(value)
+  );
 }
 
 // Engine streaming tails are append-only in normal operation. Bounded probes
@@ -101,21 +103,17 @@ function continuesStreamingText(previous: string, next: string): boolean {
 function scanStreamingMarkdownLines(text: string, cache: StreamingMarkdownCache): void {
   let lineStart = cache.scanOffset;
   while (lineStart < text.length) {
-    const newline = text.indexOf("\n", lineStart);
+    const newline = text.indexOf('\n', lineStart);
     if (newline < 0) break;
-    const rawLine = text.slice(lineStart, newline).replace(/\r$/, "");
+    const rawLine = text.slice(lineStart, newline).replace(/\r$/, '');
     const fence = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(rawLine);
     if (fence) {
       const marker = fence[1][0];
       if (!cache.fenceMarker) {
         cache.fenceMarker = marker;
         cache.fenceLength = fence[1].length;
-      } else if (
-        marker === cache.fenceMarker
-        && fence[1].length >= cache.fenceLength
-        && !fence[2].trim()
-      ) {
-        cache.fenceMarker = "";
+      } else if (marker === cache.fenceMarker && fence[1].length >= cache.fenceLength && !fence[2].trim()) {
+        cache.fenceMarker = '';
         cache.fenceLength = 0;
       }
     } else if (!cache.fenceMarker && !rawLine.trim()) {
@@ -158,9 +156,9 @@ function stableMarkdownBoundaries(text: string, cache: StreamingMarkdownCache): 
 export function resolveStreamingMarkdownChunks(
   text: string,
   streaming: boolean,
-  cache: StreamingMarkdownCache,
+  cache: StreamingMarkdownCache
 ): StreamingMarkdownParts {
-  const value = String(text ?? "");
+  const value = String(text ?? '');
   if (!continuesStreamingText(cache.sourceText, value)) resetCache(cache);
   if (!streaming) {
     // Keep already-parsed blocks mounted when the stream settles. Resetting

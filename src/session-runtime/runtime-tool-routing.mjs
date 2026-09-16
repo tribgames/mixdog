@@ -21,13 +21,12 @@ export function shouldMirrorCompletionToPendingQueue({
   return shouldPersistModelVisibleToolCompletion(text, meta);
 }
 
-export async function dispatchWebSearchRuntimeTool(name, args, callerCtx = {}, {
-  getWebSearchModule,
-  getCurrentCwd,
-  getSession,
-  notifyFnForSession,
-  runNativeWebSearch,
-} = {}) {
+export async function dispatchWebSearchRuntimeTool(
+  name,
+  args,
+  callerCtx = {},
+  { getWebSearchModule, getCurrentCwd, getSession, notifyFnForSession, runNativeWebSearch } = {}
+) {
   const currentSession = typeof getSession === 'function' ? getSession() : null;
   const callerCwd = callerCtx?.callerCwd || (typeof getCurrentCwd === 'function' ? getCurrentCwd() : process.cwd());
   const callerSessionId = callerCtx?.callerSessionId || currentSession?.id || null;
@@ -41,15 +40,14 @@ export async function dispatchWebSearchRuntimeTool(name, args, callerCtx = {}, {
     clientHostPid: callerCtx?.clientHostPid || currentSession?.clientHostPid || process.pid,
     notifyFn: notifyFnForSession(callerSessionId),
     signal: callerSignal,
-    nativeWebSearch: name === 'web_search'
-      ? async (webSearchArgs) => runNativeWebSearch(webSearchArgs, { signal: callerSignal })
-      : undefined,
+    nativeWebSearch:
+      name === 'web_search'
+        ? async (webSearchArgs) => runNativeWebSearch(webSearchArgs, { signal: callerSignal })
+        : undefined,
   });
 }
 
 export function memoryToolArgsForCaller(args, callerCwd) {
   const input = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
-  return typeof input.cwd === 'string' && input.cwd.trim()
-    ? input
-    : { ...input, cwd: callerCwd };
+  return typeof input.cwd === 'string' && input.cwd.trim() ? input : { ...input, cwd: callerCwd };
 }

@@ -1,11 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  createSnapshotDeltaDecoder,
-  createSnapshotDeltaEncoder,
-  isNoDelta,
-  markCompactWire,
-} from './state-delta.ts';
+import { createSnapshotDeltaDecoder, createSnapshotDeltaEncoder, isNoDelta, markCompactWire } from './state-delta.ts';
 
 for (const compact of [false, true]) {
   for (const changeBusy of [false, true]) {

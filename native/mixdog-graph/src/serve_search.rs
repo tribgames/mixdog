@@ -205,10 +205,16 @@ fn relative_inventory_path(file: &Path, root: &Path) -> Option<String> {
         }
         let file = wire_path(file).replace('\\', "/");
         let root = wire_path(root).replace('\\', "/");
-        return Some(file[root.trim_end_matches('/').len()..].trim_start_matches('/').to_string());
+        return Some(
+            file[root.trim_end_matches('/').len()..]
+                .trim_start_matches('/')
+                .to_string(),
+        );
     }
     #[cfg(not(windows))]
-    file.strip_prefix(root).ok().map(|path| path.to_string_lossy().into_owned())
+    file.strip_prefix(root)
+        .ok()
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 fn is_filesystem_root(path: &Path) -> bool {
@@ -438,7 +444,9 @@ fn load_file_list_snapshot() -> (
             }
             let mut files = Vec::with_capacity(file_count);
             for _ in 0..file_count {
-                files.push(PathBuf::from(wire_path(Path::new(&read_snapshot_string(&mut reader)?))));
+                files.push(PathBuf::from(wire_path(Path::new(&read_snapshot_string(
+                    &mut reader,
+                )?))));
             }
             files.par_sort_unstable();
             files.dedup();
@@ -670,20 +678,32 @@ impl InventoryChanges {
         self.sequence += 1;
         // A bounded journal is only an optimization. A gap or an unknown
         // change boundary forces a fresh walk, never a guessed repair.
-        self.records.push_back((self.sequence, roots.to_vec(),
-            paths.filter(|paths| paths.len() <= 256).map(<[PathBuf]>::to_vec)));
+        self.records.push_back((
+            self.sequence,
+            roots.to_vec(),
+            paths
+                .filter(|paths| paths.len() <= 256)
+                .map(<[PathBuf]>::to_vec),
+        ));
         while self.records.len() > 1024 {
             self.records.pop_front();
         }
     }
 
     fn since(&self, sequence: u64, root: &Path) -> Option<Vec<PathBuf>> {
-        if self.records.front().is_some_and(|(first, _, _)| *first > sequence + 1) {
+        if self
+            .records
+            .front()
+            .is_some_and(|(first, _, _)| *first > sequence + 1)
+        {
             return None;
         }
         let mut changed = HashSet::new();
         for (_, roots, paths) in self.records.iter().filter(|(id, _, _)| *id > sequence) {
-            if !roots.iter().any(|path| FileListStore::paths_overlap(path, root)) {
+            if !roots
+                .iter()
+                .any(|path| FileListStore::paths_overlap(path, root))
+            {
                 continue;
             }
             for path in paths.as_ref()? {
@@ -1755,8 +1775,13 @@ impl FileListStore {
                     .iter()
                     .any(|root| Self::paths_overlap(&key.operand, root))
             })
-            .map(|(key, entry)| (key.clone(), Arc::clone(&entry.files),
-                Arc::clone(&entry.directory_failures)))
+            .map(|(key, entry)| {
+                (
+                    key.clone(),
+                    Arc::clone(&entry.files),
+                    Arc::clone(&entry.directory_failures),
+                )
+            })
             .collect::<Vec<_>>();
         {
             let mut pending = self
@@ -1902,8 +1927,13 @@ impl FileListStore {
         token: &Arc<()>,
         repaired: Result<Arc<Vec<PathBuf>>, String>,
     ) {
-        let mut pending = self.pending_repairs.lock().unwrap_or_else(|error| error.into_inner());
-        let Some(entry) = pending.get_mut(key) else { return };
+        let mut pending = self
+            .pending_repairs
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(entry) = pending.get_mut(key) else {
+            return;
+        };
         // A rescan can replace a job while its old worker is still running.
         // Key equality alone must not let that old result overwrite the new job.
         if !Arc::ptr_eq(token, &entry.token) {
@@ -1914,8 +1944,12 @@ impl FileListStore {
                 entry.base = files;
                 entry.processing = false;
                 if entry.paths.is_empty() {
-                    self.remember_inventory(key.clone(), Arc::clone(&entry.base),
-                        self.generation(&key.operand), Arc::clone(&entry.directory_failures));
+                    self.remember_inventory(
+                        key.clone(),
+                        Arc::clone(&entry.base),
+                        self.generation(&key.operand),
+                        Arc::clone(&entry.directory_failures),
+                    );
                     pending.remove(key);
                     self.repair_changed.notify_all();
                 }
@@ -1932,8 +1966,14 @@ impl FileListStore {
             return;
         }
         if paths.is_none() {
-            self.pending_repairs.lock().unwrap_or_else(|e| e.into_inner())
-                .retain(|key, _| !roots.iter().any(|root| Self::paths_overlap(&key.operand, root)));
+            self.pending_repairs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|key, _| {
+                    !roots
+                        .iter()
+                        .any(|root| Self::paths_overlap(&key.operand, root))
+                });
             self.repair_changed.notify_all();
         }
         {
@@ -2057,8 +2097,7 @@ impl FileListStore {
                     let Some(store) = weak.upgrade() else { return };
                     let (paths, inventory_changed) = match event {
                         Ok(event) => {
-                            let Some(change) = inventory_event_change(event)
-                            else {
+                            let Some(change) = inventory_event_change(event) else {
                                 return;
                             };
                             // Folder names do not establish exclusion from
@@ -2200,9 +2239,9 @@ impl FileListStore {
                 .unwrap_or_else(|e| e.into_inner())
                 .retain(|fuzzy, _| &fuzzy.walk != key);
         }
-        let entry = ready
-            .get_mut(key)
-            .filter(|entry| entry.generation == generation && entry.directory_failures.is_empty())?;
+        let entry = ready.get_mut(key).filter(|entry| {
+            entry.generation == generation && entry.directory_failures.is_empty()
+        })?;
         entry.touched_at = now;
         Some(Arc::clone(&entry.files))
     }
@@ -2220,10 +2259,14 @@ impl FileListStore {
         }
         let root_identity = crate::serve_search_usn::path_identity(&key.operand);
         let estimated_bytes = paths_storage_bytes(&files).saturating_add(
-            directory_failures.iter().map(|failure| {
-                std::mem::size_of::<DirectoryFailure>()
-                    + failure.path.as_os_str().len() * 2 + failure.detail.len()
-            }).sum::<usize>(),
+            directory_failures
+                .iter()
+                .map(|failure| {
+                    std::mem::size_of::<DirectoryFailure>()
+                        + failure.path.as_os_str().len() * 2
+                        + failure.detail.len()
+                })
+                .sum::<usize>(),
         );
         let bytes_limit = file_list_cache_bytes();
         if estimated_bytes > bytes_limit {
@@ -2300,7 +2343,8 @@ impl FileListStore {
                 .iter()
                 .filter(|file| filter.allows(file))
                 .map(|file| {
-                    let path = relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file));
+                    let path =
+                        relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file));
                     let ascii_mask = fuzzy_ascii_presence(&path);
                     FuzzyIndexedPath { path, ascii_mask }
                 })
@@ -2367,7 +2411,11 @@ impl FileListStore {
         // Read the generation before taking the live-map lock; generation()
         // locks the generations mutex and nesting it under `live` invites
         // lock-order inversions with invalidation.
-        let change_sequence = self.changes.lock().unwrap_or_else(|e| e.into_inner()).sequence;
+        let change_sequence = self
+            .changes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sequence;
         let generation = self.generation(&key.operand);
         let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = live.get(&key).cloned() {
@@ -2375,7 +2423,8 @@ impl FileListStore {
                 .state
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
-            if matches!(&*state, LiveState::Running) && existing.generation == generation
+            if matches!(&*state, LiveState::Running)
+                && existing.generation == generation
                 && !existing.cancelled.load(Ordering::Acquire)
             {
                 if keep_warm {
@@ -2457,8 +2506,12 @@ impl FileListStore {
         // live-map lock. remember() re-checks the current generation, so a
         // racing invalidation still prevents caching a stale inventory.
         let current_generation = self.generation(&key.operand);
-        let failures = Arc::new(live.directory_failures
-            .lock().unwrap_or_else(|e| e.into_inner()).clone());
+        let failures = Arc::new(
+            live.directory_failures
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
+        );
         let cacheable = {
             let mut live_map = self.live.lock().unwrap_or_else(|e| e.into_inner());
             let same = live_map
@@ -2492,15 +2545,20 @@ impl FileListStore {
                     // Notifications queued during repair invalidate it after
                     // this guard is released, just like a fresh inventory.
                     let changes = self.changes.lock().unwrap_or_else(|e| e.into_inner());
-                    if let Some(paths) = changes.since(live.change_sequence, &key.operand)
+                    if let Some(paths) = changes
+                        .since(live.change_sequence, &key.operand)
                         .filter(|paths| !paths.is_empty())
                     {
                         if let Ok(repaired) = repair_inventory(&key, &files, &paths) {
                             if !live.cancelled.load(Ordering::Acquire)
                                 && self.watcher_healthy.load(Ordering::Acquire)
                             {
-                                self.remember_inventory(key.clone(), repaired,
-                                    self.generation(&key.operand), failures);
+                                self.remember_inventory(
+                                    key.clone(),
+                                    repaired,
+                                    self.generation(&key.operand),
+                                    failures,
+                                );
                             }
                         }
                     }
@@ -2522,10 +2580,18 @@ impl FileListStore {
 }
 
 fn is_ignore_rule_path(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(|name| name.to_str()) else { return false };
-    [".gitignore", ".ignore", "exclude"].iter().any(|candidate| {
-        if cfg!(windows) { name.eq_ignore_ascii_case(candidate) } else { name == *candidate }
-    })
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    [".gitignore", ".ignore", "exclude"]
+        .iter()
+        .any(|candidate| {
+            if cfg!(windows) {
+                name.eq_ignore_ascii_case(candidate)
+            } else {
+                name == *candidate
+            }
+        })
 }
 
 fn inventory_event_change(event: notify::Event) -> Option<(Vec<PathBuf>, bool)> {
@@ -2540,7 +2606,9 @@ fn inventory_changed_by_event(kind: &EventKind, paths: &[PathBuf]) -> Option<boo
         EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(_)) | EventKind::Remove(_) => {
             Some(true)
         }
-        EventKind::Modify(ModifyKind::Data(_)) => Some(paths.iter().any(|path| is_ignore_rule_path(path))),
+        EventKind::Modify(ModifyKind::Data(_)) => {
+            Some(paths.iter().any(|path| is_ignore_rule_path(path)))
+        }
         // Windows reports attributes and security changes as Modify(Any).
         // Only an explicitly data-only notification can retain membership.
         EventKind::Modify(_) => Some(true),
@@ -2727,7 +2795,9 @@ impl PathFilter {
         for glob in &parsed.globs {
             globs.add(glob).map_err(|error| format!("glob: {error}"))?;
         }
-        globs.case_insensitive(true).map_err(|error| format!("iglob: {error}"))?;
+        globs
+            .case_insensitive(true)
+            .map_err(|error| format!("iglob: {error}"))?;
         for glob in &parsed.iglobs {
             globs.add(glob).map_err(|error| format!("iglob: {error}"))?;
         }
@@ -2742,10 +2812,7 @@ impl PathFilter {
             }
             Some(builder.build().map_err(|error| format!("type: {error}"))?)
         };
-        Ok(Self {
-            globs,
-            types,
-        })
+        Ok(Self { globs, types })
     }
 
     fn allows(&self, path: &Path) -> bool {
@@ -3407,9 +3474,15 @@ impl DirectoryFailure {
         // With link following disabled, the parallel walker attaches both
         // depth and path to read_dir failures. Do not cache parse errors,
         // iterator errors without paths, or arbitrary metadata failures.
-        let ignore::Error::WithDepth { err, .. } = error else { return None };
-        let ignore::Error::WithPath { path, err } = err.as_ref() else { return None };
-        let ignore::Error::Io(io_error) = err.as_ref() else { return None };
+        let ignore::Error::WithDepth { err, .. } = error else {
+            return None;
+        };
+        let ignore::Error::WithPath { path, err } = err.as_ref() else {
+            return None;
+        };
+        let ignore::Error::Io(io_error) = err.as_ref() else {
+            return None;
+        };
         Some(Self {
             path: path.clone(),
             raw_os_error: io_error.raw_os_error()?,
@@ -3418,7 +3491,8 @@ impl DirectoryFailure {
     }
 
     fn unchanged(&self) -> bool {
-        std::fs::read_dir(&self.path).err()
+        std::fs::read_dir(&self.path)
+            .err()
             .is_some_and(|error| error.raw_os_error() == Some(self.raw_os_error))
     }
 }
@@ -3426,7 +3500,10 @@ impl DirectoryFailure {
 fn record_directory_error(live: &LiveWalk, error: &ignore::Error) {
     record_walk_error(live, error);
     if let Some(failure) = DirectoryFailure::from_walk_error(error) {
-        let mut failures = live.directory_failures.lock().unwrap_or_else(|e| e.into_inner());
+        let mut failures = live
+            .directory_failures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if failures.len() < 1024 {
             failures.push(failure);
         }
@@ -3492,7 +3569,9 @@ impl<'a> WorkerWalkBatch<'a> {
 
     fn flush_due(&mut self) {
         if !self.files.is_empty()
-            && self.last_flush.is_some_and(|last| last.elapsed() >= Duration::from_millis(10))
+            && self
+                .last_flush
+                .is_some_and(|last| last.elapsed() >= Duration::from_millis(10))
         {
             self.flush();
         }
@@ -3585,9 +3664,12 @@ fn scan_inventory_anchors(key: &WalkKey, anchors: &[PathBuf]) -> Result<Vec<Path
     // are identical to a full walk. Only descend into changed branches.
     let branches = anchors.to_vec();
     let mut walk = WalkBuilder::new(&key.operand);
-    walk.hidden(!key.hidden).threads(inventory_walk_threads(&key.operand));
+    walk.hidden(!key.hidden)
+        .threads(inventory_walk_threads(&key.operand));
     walk.filter_entry(move |entry| {
-        branches.iter().any(|anchor| FileListStore::paths_overlap(entry.path(), anchor))
+        branches
+            .iter()
+            .any(|anchor| FileListStore::paths_overlap(entry.path(), anchor))
     });
     if key.no_ignore {
         walk.ignore(false)
@@ -3607,22 +3689,21 @@ fn scan_inventory_anchors(key: &WalkKey, anchors: &[PathBuf]) -> Result<Vec<Path
     for entry in walk.build() {
         let entry = entry.map_err(|error| error.to_string())?;
         if !path_starts_with(entry.path(), &key.operand)
-            || !anchors.iter().any(|anchor| path_starts_with(entry.path(), anchor))
+            || !anchors
+                .iter()
+                .any(|anchor| path_starts_with(entry.path(), anchor))
         {
             continue;
         }
         let (is_file, is_dir, is_symlink) = if let Some(kind) = entry.file_type() {
             (kind.is_file(), kind.is_dir(), kind.is_symlink())
         } else {
-            let metadata = std::fs::symlink_metadata(entry.path())
-                .map_err(|error| error.to_string())?;
+            let metadata =
+                std::fs::symlink_metadata(entry.path()).map_err(|error| error.to_string())?;
             let kind = metadata.file_type();
             (kind.is_file(), kind.is_dir(), kind.is_symlink())
         };
-        if is_file
-            || key.directories
-                && ((is_dir && entry.path() != key.operand) || is_symlink)
-        {
+        if is_file || key.directories && ((is_dir && entry.path() != key.operand) || is_symlink) {
             files.push(PathBuf::from(wire_path(entry.path())));
         }
     }
@@ -3657,9 +3738,7 @@ fn reuse_failed_inventory(
     key: &WalkKey,
     live: &LiveWalk,
 ) -> Option<Arc<Vec<PathBuf>>> {
-    if !live.cacheable.load(Ordering::Acquire)
-        || !store.watcher_healthy.load(Ordering::Acquire)
-    {
+    if !live.cacheable.load(Ordering::Acquire) || !store.watcher_healthy.load(Ordering::Acquire) {
         return None;
     }
     let (files, failures) = {
@@ -3667,7 +3746,10 @@ fn reuse_failed_inventory(
         let entry = ready.get(key).filter(|entry| {
             entry.generation == live.generation && !entry.directory_failures.is_empty()
         })?;
-        (Arc::clone(&entry.files), Arc::clone(&entry.directory_failures))
+        (
+            Arc::clone(&entry.files),
+            Arc::clone(&entry.directory_failures),
+        )
     };
     // Never serve the saved errors without retrying their actual I/O in this
     // request. Any recovery or different error needs a fresh complete walk.
@@ -3680,7 +3762,10 @@ fn reuse_failed_inventory(
                 eprintln!("inventory-recheck-changed {}", failure.path.display());
             }
             let mut ready = store.ready.lock().unwrap_or_else(|e| e.into_inner());
-            if ready.get(key).is_some_and(|entry| Arc::ptr_eq(&entry.files, &files)) {
+            if ready
+                .get(key)
+                .is_some_and(|entry| Arc::ptr_eq(&entry.files, &files))
+            {
                 ready.remove(key);
             }
             return None;
@@ -3696,7 +3781,10 @@ fn reuse_failed_inventory(
     for failure in failures.iter() {
         record_walk_error(live, &failure.detail);
     }
-    *live.directory_failures.lock().unwrap_or_else(|e| e.into_inner()) = (*failures).clone();
+    *live
+        .directory_failures
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = (*failures).clone();
     Some(files)
 }
 
@@ -4353,7 +4441,9 @@ fn handle_fuzzy(
                 let batch: Vec<String> = files[cursor..]
                     .iter()
                     .filter(|file| filter.allows(file))
-                    .map(|file| relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file)))
+                    .map(|file| {
+                        relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file))
+                    })
                     .collect::<Vec<_>>();
                 cursor = files.len();
                 batch
@@ -4509,7 +4599,10 @@ fn collect_mtime_candidates(
     if cancelled.load(Ordering::Relaxed) {
         return Err(CANCELLED.to_string());
     }
-    Ok((candidates, deadline_at.is_some_and(|deadline| Instant::now() >= deadline)))
+    Ok((
+        candidates,
+        deadline_at.is_some_and(|deadline| Instant::now() >= deadline),
+    ))
 }
 
 fn handle_mtime_inventory(
@@ -4552,7 +4645,14 @@ fn handle_mtime_inventory(
         let walk_key = walk_key(&operand_path, parsed);
         if let Some(files) = store.take_ready(&walk_key) {
             let (candidates, expired) = collect_mtime_candidates(
-                &files, 0, operand, &operand_path, &filter, &trust, cancelled, deadline_at,
+                &files,
+                0,
+                operand,
+                &operand_path,
+                &filter,
+                &trust,
+                cancelled,
+                deadline_at,
             )?;
             total_seen = total_seen.saturating_add(candidates.len());
             for (index, path, mtime_ms) in candidates {
@@ -6134,9 +6234,8 @@ fn run_engine(
                     }));
                 }
             }
-            Err(error) => sink.write(
-                &serde_json::json!({ "id": 0, "error": format!("bad request: {error}") }),
-            ),
+            Err(error) => sink
+                .write(&serde_json::json!({ "id": 0, "error": format!("bad request: {error}") })),
         }
     }
     scheduler.shutdown();
@@ -6372,7 +6471,10 @@ mod tests {
 
     #[test]
     fn overrides_preserve_ignore_precedence_and_rule_order() {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("mg-overrides-{nonce}"));
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         std::fs::create_dir_all(dir.join(".cache")).unwrap();
@@ -6382,12 +6484,30 @@ mod tests {
         }
         let store = Arc::new(FileListStore::new());
         for (flags, expected) in [
-            (vec!["--glob", "*.mjs"], vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"]),
-            (vec!["--glob", "*.mjs", "--glob", "!drop.mjs"], vec![".cache/hit.mjs", "keep.mjs"]),
-            (vec!["--glob", "!drop.mjs", "--glob", "*.mjs"], vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"]),
-            (vec!["--glob", "!**/.cache/**", "--glob", "*.mjs"], vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"]),
-            (vec!["--glob", "*.mjs", "--glob", "!**/.cache/**"], vec!["drop.mjs", "keep.mjs"]),
-            (vec!["--glob", "keep.mjs", "--iglob", "*.rs"], vec!["keep.mjs", "other.RS"]),
+            (
+                vec!["--glob", "*.mjs"],
+                vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"],
+            ),
+            (
+                vec!["--glob", "*.mjs", "--glob", "!drop.mjs"],
+                vec![".cache/hit.mjs", "keep.mjs"],
+            ),
+            (
+                vec!["--glob", "!drop.mjs", "--glob", "*.mjs"],
+                vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"],
+            ),
+            (
+                vec!["--glob", "!**/.cache/**", "--glob", "*.mjs"],
+                vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"],
+            ),
+            (
+                vec!["--glob", "*.mjs", "--glob", "!**/.cache/**"],
+                vec!["drop.mjs", "keep.mjs"],
+            ),
+            (
+                vec!["--glob", "keep.mjs", "--iglob", "*.rs"],
+                vec!["keep.mjs", "other.RS"],
+            ),
         ] {
             for mode in ["--files", "-l"] {
                 let mut args = vec!["--hidden", mode];
@@ -6400,8 +6520,17 @@ mod tests {
                 req.cwd = dir.to_string_lossy().into_owned();
                 let response = handle(&req, &AtomicBool::new(false), &store, None).unwrap();
                 assert_eq!(response["complete"], true, "{response}");
-                let mut actual = response["lines"].as_array().unwrap().iter()
-                    .map(|line| line.as_str().unwrap().replace('\\', "/").trim_start_matches("./").to_string())
+                let mut actual = response["lines"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|line| {
+                        line.as_str()
+                            .unwrap()
+                            .replace('\\', "/")
+                            .trim_start_matches("./")
+                            .to_string()
+                    })
                     .collect::<Vec<_>>();
                 actual.sort();
                 assert_eq!(actual, expected, "{args:?}");
@@ -6413,7 +6542,10 @@ mod tests {
 
     #[test]
     fn unlimited_grep_scans_before_inventory_completion() {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("mg-stream-grep-{nonce}"));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("early.txt");
@@ -6427,8 +6559,13 @@ mod tests {
         let (live, _) = store.begin_live(key.clone(), true);
         let mut batch = WorkerWalkBatch::new(&live, inventory_publish_batch());
         batch.push(path.clone());
-        let response = handle(&req, &AtomicBool::new(false), &store,
-            Some(Instant::now() + Duration::from_millis(250))).unwrap();
+        let response = handle(
+            &req,
+            &AtomicBool::new(false),
+            &store,
+            Some(Instant::now() + Duration::from_millis(250)),
+        )
+        .unwrap();
         assert_eq!(response["filesScanned"], 1, "{response}");
         assert_eq!(response["lines"].as_array().unwrap().len(), 1);
         assert_eq!(response["timeout"], true);
@@ -6624,15 +6761,17 @@ mod tests {
     #[test]
     fn watcher_preserves_inventory_for_content_changes_only() {
         assert_eq!(
-            inventory_changed_by_event(&EventKind::Modify(ModifyKind::Data(
-                notify::event::DataChange::Any,
-            )), &[]),
+            inventory_changed_by_event(
+                &EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any,)),
+                &[]
+            ),
             Some(false)
         );
         assert_eq!(
-            inventory_changed_by_event(&EventKind::Modify(ModifyKind::Name(
-                notify::event::RenameMode::Any,
-            )), &[]),
+            inventory_changed_by_event(
+                &EventKind::Modify(ModifyKind::Name(notify::event::RenameMode::Any,)),
+                &[]
+            ),
             Some(true)
         );
         assert_eq!(
@@ -6649,7 +6788,11 @@ mod tests {
     #[test]
     fn inventory_walk_parallelism_stays_bounded() {
         assert!((2..=4).contains(&inventory_walk_threads(Path::new("."))));
-        let root = if cfg!(windows) { Path::new(r"C:\") } else { Path::new("/") };
+        let root = if cfg!(windows) {
+            Path::new(r"C:\")
+        } else {
+            Path::new("/")
+        };
         assert!((2..=12).contains(&inventory_walk_threads(root)));
     }
 
@@ -6825,7 +6968,10 @@ mod tests {
 
     #[test]
     fn broad_search_mtime_deadline_and_cancellation_are_not_complete_results() {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("mg-mtime-deadline-{nonce}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("needle.txt"), "needle\n").unwrap();
@@ -6843,7 +6989,10 @@ mod tests {
         assert_eq!(response["partial"], true);
         assert_eq!(response["timeout"], true);
         cancelled.store(true, Ordering::Relaxed);
-        assert_eq!(handle(&req, &cancelled, &store, None).unwrap_err(), CANCELLED);
+        assert_eq!(
+            handle(&req, &cancelled, &store, None).unwrap_err(),
+            CANCELLED
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -6853,21 +7002,37 @@ mod tests {
         let normal = Path::new(r"C:\Project\mixdog\한글.mjs");
         let verbatim = Path::new(r"\\?\C:\Project\mixdog\한글.mjs");
         let root = Path::new(r"c:\project\mixdog");
-        assert_eq!(relative_inventory_path(normal, root), Some("한글.mjs".to_string()));
-        assert_eq!(relative_inventory_path(verbatim, root), Some("한글.mjs".to_string()));
+        assert_eq!(
+            relative_inventory_path(normal, root),
+            Some("한글.mjs".to_string())
+        );
+        assert_eq!(
+            relative_inventory_path(verbatim, root),
+            Some("한글.mjs".to_string())
+        );
         assert_eq!(display_path(".", root, verbatim), ".\\한글.mjs");
         assert!(path_starts_with(verbatim, Path::new(r"C:\")));
         assert!(!path_starts_with(normal, Path::new(r"C:\Project\mix")));
         assert_eq!(
-            relative_inventory_path(Path::new(r"\\?\UNC\server\share\leaf"), Path::new(r"\\server\share")),
+            relative_inventory_path(
+                Path::new(r"\\?\UNC\server\share\leaf"),
+                Path::new(r"\\server\share")
+            ),
             Some("leaf".to_string()),
         );
     }
 
     #[test]
     fn root_search_waits_for_completion_in_the_same_call_past_three_seconds() {
-        let root = if cfg!(windows) { Path::new(r"C:\") } else { Path::new("/") };
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = if cfg!(windows) {
+            Path::new(r"C:\")
+        } else {
+            Path::new("/")
+        };
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let scope = std::env::temp_dir().join(format!("mg-same-call-{nonce}"));
         std::fs::create_dir_all(&scope).unwrap();
         let path = scope.join("same-call-result.txt");
@@ -6888,35 +7053,55 @@ mod tests {
             std::thread::sleep(Duration::from_millis(3200));
             let files = Arc::new(vec![path]);
             publish_live_files(&producer_live, &files);
-            producer_live.enumeration_done.store(true, Ordering::Release);
+            producer_live
+                .enumeration_done
+                .store(true, Ordering::Release);
             producer_store.finish_live(producer_key.clone(), &producer_live, Ok(files));
             producer_store.release_live(&producer_key, &producer_live);
         });
-        let result = handle(&req, &AtomicBool::new(false), &store,
-            Some(Instant::now() + Duration::from_secs(8))).unwrap();
+        let result = handle(
+            &req,
+            &AtomicBool::new(false),
+            &store,
+            Some(Instant::now() + Duration::from_secs(8)),
+        )
+        .unwrap();
         producer.join().unwrap();
         assert_eq!(result["complete"], true);
         assert_eq!(result["partial"], false);
-        assert!(result["lines"][0].as_str().unwrap().ends_with("same-call-result.txt"));
+        assert!(result["lines"][0]
+            .as_str()
+            .unwrap()
+            .ends_with("same-call-result.txt"));
         std::fs::remove_dir_all(scope).unwrap();
     }
 
     #[test]
     fn root_search_globs_filter_inventory_without_changing_the_match_set() {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("mg-root-filter-{nonce}"));
         std::fs::create_dir_all(dir.join("nested")).unwrap();
         std::fs::write(dir.join("target.mjs"), "one").unwrap();
         std::fs::write(dir.join("nested/target.mjs"), "two").unwrap();
         std::fs::write(dir.join("other.rs"), "other").unwrap();
-        let drive = if cfg!(windows) { Path::new(r"C:\") } else { Path::new("/") };
-        let parsed = parse_args(&request(&["--files", "--glob", "**/target.mjs", "."], 25).args).unwrap();
+        let drive = if cfg!(windows) {
+            Path::new(r"C:\")
+        } else {
+            Path::new("/")
+        };
+        let parsed =
+            parse_args(&request(&["--files", "--glob", "**/target.mjs", "."], 25).args).unwrap();
         let mut key = walk_key(&dir, &parsed);
         // Exercise the drive-root enumeration policy on a controlled tree.
         key.prune = prune_globs(drive, &parsed);
         let paths = scan_inventory_subtree(&key, &dir).unwrap();
         assert_eq!(paths.len(), 2);
-        assert!(paths.iter().all(|path| path.file_name().unwrap() == "target.mjs"));
+        assert!(paths
+            .iter()
+            .all(|path| path.file_name().unwrap() == "target.mjs"));
         let other = parse_args(&request(&["--files", "--glob", "**/*.rs", "."], 25).args).unwrap();
         key.prune = prune_globs(drive, &other);
         let paths = scan_inventory_subtree(&key, &dir).unwrap();
@@ -6926,24 +7111,39 @@ mod tests {
 
     #[test]
     fn broad_search_mtime_order_tracks_updates_without_content_reads() {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("mg-mtime-order-{nonce}"));
         std::fs::create_dir_all(&dir).unwrap();
         let older = dir.join("older.txt");
         let newer = dir.join("newer.txt");
         std::fs::write(&older, "old").unwrap();
         std::fs::write(&newer, "new").unwrap();
-        File::options().write(true).open(&older).unwrap()
-            .set_modified(UNIX_EPOCH + Duration::from_secs(1000)).unwrap();
-        File::options().write(true).open(&newer).unwrap()
-            .set_modified(UNIX_EPOCH + Duration::from_secs(2000)).unwrap();
+        File::options()
+            .write(true)
+            .open(&older)
+            .unwrap()
+            .set_modified(UNIX_EPOCH + Duration::from_secs(1000))
+            .unwrap();
+        File::options()
+            .write(true)
+            .open(&newer)
+            .unwrap()
+            .set_modified(UNIX_EPOCH + Duration::from_secs(2000))
+            .unwrap();
         let trust = TrustSnapshot {
             usn_volumes: Arc::new(HashSet::new()),
             watch_roots: Arc::new(Vec::new()),
         };
         assert!(file_mtime_ms(&older, &trust).unwrap() < file_mtime_ms(&newer, &trust).unwrap());
-        File::options().write(true).open(&older).unwrap()
-            .set_modified(UNIX_EPOCH + Duration::from_secs(3000)).unwrap();
+        File::options()
+            .write(true)
+            .open(&older)
+            .unwrap()
+            .set_modified(UNIX_EPOCH + Duration::from_secs(3000))
+            .unwrap();
         assert!(file_mtime_ms(&older, &trust).unwrap() > file_mtime_ms(&newer, &trust).unwrap());
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -7035,7 +7235,10 @@ mod tests {
 
     #[test]
     fn inventory_repair_during_walk_preserves_ignore_and_hidden_rules() {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("mg-live-repair-{nonce}"));
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         std::fs::write(dir.join(".gitignore"), "ignored/\n").unwrap();
@@ -7081,7 +7284,10 @@ mod tests {
     #[test]
     fn failed_directory_inventory_preserves_results_and_rechecks_recovery() {
         use std::os::windows::fs::OpenOptionsExt;
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("mg-retry-directory-{nonce}"));
         let blocked = dir.join("blocked");
         std::fs::create_dir_all(&blocked).unwrap();
@@ -7093,8 +7299,12 @@ mod tests {
         assert!(store.watch_root(&dir));
         // A private fixture handle prevents directory enumeration without
         // changing ACLs or requiring administrator privileges.
-        let lock = std::fs::OpenOptions::new().read(true).share_mode(0)
-            .custom_flags(0x02000000).open(&blocked).unwrap();
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .custom_flags(0x02000000)
+            .open(&blocked)
+            .unwrap();
         assert!(std::fs::read_dir(&blocked).is_err());
         let cancelled = AtomicBool::new(false);
         let first = handle(&req, &cancelled, &store, None).unwrap();
@@ -7124,7 +7334,10 @@ mod tests {
 
     #[test]
     fn lost_notifications_cannot_republish_an_obsolete_repair() {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("mg-rescan-repair-{nonce}"));
         std::fs::create_dir_all(&dir).unwrap();
         let actual = dir.join("actual.txt");
@@ -7135,8 +7348,11 @@ mod tests {
         let key = walk_key(&dir, &parsed);
         let store = Arc::new(FileListStore::new());
         let events = [
-            notify::Event::new(EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any)))
-                .add_path(actual.clone()).set_flag(notify::event::Flag::Rescan),
+            notify::Event::new(EventKind::Modify(ModifyKind::Data(
+                notify::event::DataChange::Any,
+            )))
+            .add_path(actual.clone())
+            .set_flag(notify::event::Flag::Rescan),
             notify::Event::new(EventKind::Any).add_path(actual.clone()),
             notify::Event::new(EventKind::Other).add_path(actual.clone()),
         ];
@@ -7151,14 +7367,22 @@ mod tests {
                 processing: true,
                 token,
             };
-            store.pending_repairs.lock().unwrap().insert(key.clone(), make_job(Arc::clone(&old)));
+            store
+                .pending_repairs
+                .lock()
+                .unwrap()
+                .insert(key.clone(), make_job(Arc::clone(&old)));
             let (paths, inventory_changed) = inventory_event_change(event).unwrap();
             assert!(inventory_changed);
             store.invalidate_paths(&paths);
             // Old work must be harmless both before and after a replacement
             // job reuses the same key.
             store.finish_inventory_repair(&key, &old, Ok(Arc::new(vec![dir.join("obsolete.txt")])));
-            store.pending_repairs.lock().unwrap().insert(key.clone(), make_job(Arc::clone(&replacement)));
+            store
+                .pending_repairs
+                .lock()
+                .unwrap()
+                .insert(key.clone(), make_job(Arc::clone(&replacement)));
             store.finish_inventory_repair(&key, &old, Ok(Arc::new(vec![dir.join("obsolete.txt")])));
             store.finish_inventory_repair(&key, &replacement, Ok(Arc::new(vec![actual.clone()])));
             let after = handle(&req, &AtomicBool::new(false), &store, None).unwrap();

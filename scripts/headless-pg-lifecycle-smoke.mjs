@@ -47,6 +47,8 @@ try {
     } catch {}
   }
   if (existsSync(boundary.rootDir)) {
-    try { boundary.cleanup({ tolerateRootRemovalFailure: true }); } catch {}
+    try {
+      boundary.cleanup({ tolerateRootRemovalFailure: true });
+    } catch {}
   }
 }

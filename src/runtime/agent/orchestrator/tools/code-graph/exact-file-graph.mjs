@@ -21,9 +21,10 @@ export function _pruneExactFileGraphCache() {
   let totalRetainedBytes = rows.reduce((sum, row) => sum + row.retainedBytes, 0);
   for (const row of rows) {
     if (
-      _exactFileGraphCache.size <= EXACT_FILE_GRAPH_CACHE_MAX
-      && totalRetainedBytes <= EXACT_FILE_GRAPH_CACHE_MAX_BYTES
-    ) break;
+      _exactFileGraphCache.size <= EXACT_FILE_GRAPH_CACHE_MAX &&
+      totalRetainedBytes <= EXACT_FILE_GRAPH_CACHE_MAX_BYTES
+    )
+      break;
     _exactFileGraphCache.delete(row.key);
     totalRetainedBytes -= row.retainedBytes;
   }

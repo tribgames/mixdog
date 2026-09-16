@@ -4,5 +4,9 @@ import { readFileSync } from 'node:fs';
 export { readJsonSafe } from '../runtime/shared/json-file.mjs';
 
 export function readTextSafe(path) {
-  try { return readFileSync(path, 'utf8').trim(); } catch { return ''; }
+  try {
+    return readFileSync(path, 'utf8').trim();
+  } catch {
+    return '';
+  }
 }

@@ -1,21 +1,16 @@
 import type { IpcMainInvokeEvent } from 'electron';
-import {
-  DESKTOP_IPC,
-  type DesktopBrowserViewportConfig,
-} from '../shared/contract';
+import { DESKTOP_IPC, type DesktopBrowserViewportConfig } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
 import type { BrowserHost } from './browser/host';
 import { normalizeBrowserPageControl } from '../shared/browser-page-control';
 
-type Handle = (
-  channel: string,
-  listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown,
-) => void;
+type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
 
 interface BrowserIpcOptions {
   handle: Handle;
-  browserHost?: Pick<BrowserHost,
-    'browserImportSources'
+  browserHost?: Pick<
+    BrowserHost,
+    | 'browserImportSources'
     | 'browserImport'
     | 'browserHistorySearch'
     | 'setGuestActive'
@@ -23,7 +18,8 @@ interface BrowserIpcOptions {
     | 'browserCredentialSuggestions'
     | 'browserCredentialFill'
     | 'browserPageFrame'
-    | 'browserPageControl'>;
+    | 'browserPageControl'
+  >;
 }
 
 export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): void {
@@ -33,7 +29,11 @@ export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): 
       throw new TypeError('Browser frame id is invalid.');
     }
     if (texture !== undefined && typeof texture !== 'boolean') throw new TypeError('Browser texture mode is invalid.');
-    return browserHost.browserPageFrame(requiredSessionId(sessionId), previousId as string | undefined, texture === true);
+    return browserHost.browserPageFrame(
+      requiredSessionId(sessionId),
+      previousId as string | undefined,
+      texture === true
+    );
   });
   handle(DESKTOP_IPC.browserPageControl, (_event, sessionId, input) => {
     if (!browserHost) throw new Error('Browser Use is unavailable.');
@@ -48,12 +48,7 @@ export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): 
     if (typeof active !== 'boolean') throw new TypeError('Browser guest activity is invalid.');
     browserHost.setGuestActive(ownerSessionId, Number(webContentsId), active);
   });
-  handle(DESKTOP_IPC.browserConfigureGuestViewport, (
-    _event,
-    sessionId,
-    webContentsId,
-    value,
-  ) => {
+  handle(DESKTOP_IPC.browserConfigureGuestViewport, (_event, sessionId, webContentsId, value) => {
     if (!browserHost) throw new Error('Browser Use is unavailable in this app surface.');
     const ownerSessionId = requiredSessionId(sessionId);
     if (!Number.isSafeInteger(webContentsId) || Number(webContentsId) <= 0) {
@@ -65,31 +60,30 @@ export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): 
     const input = value as Record<string, unknown>;
     const { width, height } = input;
     const fixedViewport = width !== null && height !== null;
-    if ((width === null) !== (height === null)
-      || (fixedViewport && (
-        !Number.isSafeInteger(width)
-        || !Number.isSafeInteger(height)
-        || Number(width) < 200
-        || Number(width) > 3840
-        || Number(height) < 200
-        || Number(height) > 3840
-      ))) {
+    if (
+      (width === null) !== (height === null) ||
+      (fixedViewport &&
+        (!Number.isSafeInteger(width) ||
+          !Number.isSafeInteger(height) ||
+          Number(width) < 200 ||
+          Number(width) > 3840 ||
+          Number(height) < 200 ||
+          Number(height) > 3840))
+    ) {
       throw new TypeError('Browser viewport dimensions are invalid.');
     }
     const deviceScaleFactor = Number(input.deviceScaleFactor);
-    if (!Number.isFinite(deviceScaleFactor)
-      || deviceScaleFactor < 0.5
-      || deviceScaleFactor > 4
-      || typeof input.mobile !== 'boolean'
-      || typeof input.touch !== 'boolean') {
+    if (
+      !Number.isFinite(deviceScaleFactor) ||
+      deviceScaleFactor < 0.5 ||
+      deviceScaleFactor > 4 ||
+      typeof input.mobile !== 'boolean' ||
+      typeof input.touch !== 'boolean'
+    ) {
       throw new TypeError('Browser viewport emulation is invalid.');
     }
     const userAgent = input.userAgent;
-    if (userAgent !== null && (
-      typeof userAgent !== 'string'
-      || userAgent.length > 2048
-      || /[\r\n]/.test(userAgent)
-    )) {
+    if (userAgent !== null && (typeof userAgent !== 'string' || userAgent.length > 2048 || /[\r\n]/.test(userAgent))) {
       throw new TypeError('Browser viewport user agent is invalid.');
     }
     const config: DesktopBrowserViewportConfig = {
@@ -115,16 +109,14 @@ export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): 
     const jobId = String(request.jobId || '');
     const sourceId = String(request.sourceId || '');
     const profileId = String(request.profileId || '');
-    const items = Array.isArray(request.items)
-      ? request.items.map((item) => String(item))
-      : [];
+    const items = Array.isArray(request.items) ? request.items.map((item) => String(item)) : [];
     if (!/^[a-zA-Z0-9_-]{8,120}$/.test(jobId)) throw new TypeError('Browser import job id is invalid.');
     if (!sourceId || sourceId.length > 100) throw new TypeError('Browser import source id is invalid.');
     if (!profileId || profileId.length > 200) throw new TypeError('Browser import profile id is invalid.');
     if (
-      !items.length
-      || items.length > 3
-      || items.some((item) => !['passwords', 'cookies', 'history'].includes(item))
+      !items.length ||
+      items.length > 3 ||
+      items.some((item) => !['passwords', 'cookies', 'history'].includes(item))
     ) {
       throw new TypeError('Browser import items are invalid.');
     }

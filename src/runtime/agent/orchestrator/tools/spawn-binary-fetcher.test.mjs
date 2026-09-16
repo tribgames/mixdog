@@ -44,7 +44,7 @@ test('spawn bootstrap has no local-build or environment fallback', async () => {
           assets: {},
         },
       }),
-      /No local-build or Node shell fallback is permitted/,
+      /No local-build or Node shell fallback is permitted/
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

@@ -66,11 +66,11 @@ export const LIFECYCLE_SCAN_CONFLICT = Object.freeze({ conflict: 'unreadable' })
 
 /** True for the rejection marker (and for anything that isn't a record). */
 export function isLifecycleUnreadable(result) {
-    return !result || typeof result !== 'object' || result.conflict !== undefined;
+  return !result || typeof result !== 'object' || result.conflict !== undefined;
 }
 
 function isWs(ch) {
-    return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
+  return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
 }
 
 // Advances past a JSON string literal starting at raw[i] === '"'.
@@ -78,38 +78,44 @@ function isWs(ch) {
 // for `\u0041`-style escapes the trailing hex digits can never be `"` or `\`,
 // so a naive 2-char skip never misses the real closing quote.
 function skipString(raw, i) {
-    const len = raw.length;
-    i++; // opening quote
-    while (i < len) {
-        const ch = raw[i];
-        if (ch === '\\') { i += 2; continue; }
-        if (ch === '"') return i + 1;
-        i++;
+  const len = raw.length;
+  i++; // opening quote
+  while (i < len) {
+    const ch = raw[i];
+    if (ch === '\\') {
+      i += 2;
+      continue;
     }
-    return i;
+    if (ch === '"') return i + 1;
+    i++;
+  }
+  return i;
 }
 
 // Advances past one JSON value. Objects/arrays are skipped by string-aware
 // bracket-depth counting — never descended into, never allocated.
 function skipValue(raw, i) {
-    const len = raw.length;
-    const c = raw[i];
-    if (c === '"') return skipString(raw, i);
-    if (c === '{' || c === '[') {
-        let depth = 1;
-        i++;
-        while (i < len && depth > 0) {
-            const ch = raw[i];
-            if (ch === '"') { i = skipString(raw, i); continue; }
-            if (ch === '{' || ch === '[') depth++;
-            else if (ch === '}' || ch === ']') depth--;
-            i++;
-        }
-        return i;
+  const len = raw.length;
+  const c = raw[i];
+  if (c === '"') return skipString(raw, i);
+  if (c === '{' || c === '[') {
+    let depth = 1;
+    i++;
+    while (i < len && depth > 0) {
+      const ch = raw[i];
+      if (ch === '"') {
+        i = skipString(raw, i);
+        continue;
+      }
+      if (ch === '{' || ch === '[') depth++;
+      else if (ch === '}' || ch === ']') depth--;
+      i++;
     }
-    // number / true / false / null — run to the next structural delimiter.
-    while (i < len && raw[i] !== ',' && raw[i] !== '}' && raw[i] !== ']' && !isWs(raw[i])) i++;
     return i;
+  }
+  // number / true / false / null — run to the next structural delimiter.
+  while (i < len && raw[i] !== ',' && raw[i] !== '}' && raw[i] !== ']' && !isWs(raw[i])) i++;
+  return i;
 }
 
 /**
@@ -123,36 +129,43 @@ function skipValue(raw, i) {
  * as unreadable rather than assumed unique).
  */
 function hasUniqueTopLevelKeys(raw) {
-    // A Set (not an object) so a document key named `constructor`/`__proto__`
-    // is counted as data, never as an inherited property.
-    const seen = new Set();
-    const len = raw.length;
-    let i = 0;
+  // A Set (not an object) so a document key named `constructor`/`__proto__`
+  // is counted as data, never as an inherited property.
+  const seen = new Set();
+  const len = raw.length;
+  let i = 0;
+  while (i < len && isWs(raw[i])) i++;
+  if (raw[i] !== '{') return false;
+  i++;
+  while (i < len) {
     while (i < len && isWs(raw[i])) i++;
-    if (raw[i] !== '{') return false;
-    i++;
-    while (i < len) {
-        while (i < len && isWs(raw[i])) i++;
-        if (i >= len) return false;
-        if (raw[i] === '}') return true;
-        if (raw[i] === ',') { i++; continue; }
-        if (raw[i] !== '"') return false;
-        const keyStart = i;
-        i = skipString(raw, i);
-        let key;
-        try { key = JSON.parse(raw.slice(keyStart, i)); } catch { return false; }
-        while (i < len && isWs(raw[i])) i++;
-        if (raw[i] !== ':') return false;
-        i++;
-        while (i < len && isWs(raw[i])) i++;
-        if (i >= len) return false;
-        // Recorded BEFORE the value is looked at, so a duplicate is detected
-        // regardless of the value types or which copy comes first.
-        if (seen.has(key)) return false;
-        seen.add(key);
-        i = skipValue(raw, i);
+    if (i >= len) return false;
+    if (raw[i] === '}') return true;
+    if (raw[i] === ',') {
+      i++;
+      continue;
     }
-    return false;
+    if (raw[i] !== '"') return false;
+    const keyStart = i;
+    i = skipString(raw, i);
+    let key;
+    try {
+      key = JSON.parse(raw.slice(keyStart, i));
+    } catch {
+      return false;
+    }
+    while (i < len && isWs(raw[i])) i++;
+    if (raw[i] !== ':') return false;
+    i++;
+    while (i < len && isWs(raw[i])) i++;
+    if (i >= len) return false;
+    // Recorded BEFORE the value is looked at, so a duplicate is detected
+    // regardless of the value types or which copy comes first.
+    if (seen.has(key)) return false;
+    seen.add(key);
+    i = skipValue(raw, i);
+  }
+  return false;
 }
 
 /**
@@ -162,33 +175,37 @@ function hasUniqueTopLevelKeys(raw) {
  * when the document simply does not carry it (legacy records predate them).
  */
 export function readTopLevelLifecycleRecord(raw) {
-    if (typeof raw !== 'string') return LIFECYCLE_SCAN_CONFLICT;
-    let doc;
-    // Strict and complete: trailing bytes, truncation, missing/trailing
-    // commas and every other separator fault are rejected here.
-    try { doc = JSON.parse(raw); } catch { return LIFECYCLE_SCAN_CONFLICT; }
-    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return LIFECYCLE_SCAN_CONFLICT;
-    // JSON.parse is last-wins for duplicate keys; this is where that is caught
-    // — for EVERY top-level key, since consumers reserialize and act on the
-    // whole record, not only on the lifecycle three.
-    if (!hasUniqueTopLevelKeys(raw)) return LIFECYCLE_SCAN_CONFLICT;
-    const has = (key) => Object.prototype.hasOwnProperty.call(doc, key);
-    const record = { doc, id: undefined, closed: undefined, generation: undefined };
-    if (has('id')) {
-        // Identity we cannot positively confirm is worse than no identity: a
-        // consumer must not read an empty/non-string id as "probably ours".
-        if (typeof doc.id !== 'string' || !doc.id) return LIFECYCLE_SCAN_CONFLICT;
-        record.id = doc.id;
-    }
-    if (has('closed')) {
-        if (typeof doc.closed !== 'boolean') return LIFECYCLE_SCAN_CONFLICT;
-        record.closed = doc.closed;
-    }
-    if (has('generation')) {
-        if (typeof doc.generation !== 'number' || !Number.isFinite(doc.generation)) return LIFECYCLE_SCAN_CONFLICT;
-        record.generation = doc.generation;
-    }
-    return record;
+  if (typeof raw !== 'string') return LIFECYCLE_SCAN_CONFLICT;
+  let doc;
+  // Strict and complete: trailing bytes, truncation, missing/trailing
+  // commas and every other separator fault are rejected here.
+  try {
+    doc = JSON.parse(raw);
+  } catch {
+    return LIFECYCLE_SCAN_CONFLICT;
+  }
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return LIFECYCLE_SCAN_CONFLICT;
+  // JSON.parse is last-wins for duplicate keys; this is where that is caught
+  // — for EVERY top-level key, since consumers reserialize and act on the
+  // whole record, not only on the lifecycle three.
+  if (!hasUniqueTopLevelKeys(raw)) return LIFECYCLE_SCAN_CONFLICT;
+  const has = (key) => Object.hasOwn(doc, key);
+  const record = { doc, id: undefined, closed: undefined, generation: undefined };
+  if (has('id')) {
+    // Identity we cannot positively confirm is worse than no identity: a
+    // consumer must not read an empty/non-string id as "probably ours".
+    if (typeof doc.id !== 'string' || !doc.id) return LIFECYCLE_SCAN_CONFLICT;
+    record.id = doc.id;
+  }
+  if (has('closed')) {
+    if (typeof doc.closed !== 'boolean') return LIFECYCLE_SCAN_CONFLICT;
+    record.closed = doc.closed;
+  }
+  if (has('generation')) {
+    if (typeof doc.generation !== 'number' || !Number.isFinite(doc.generation)) return LIFECYCLE_SCAN_CONFLICT;
+    record.generation = doc.generation;
+  }
+  return record;
 }
 
 /**
@@ -197,11 +214,11 @@ export function readTopLevelLifecycleRecord(raw) {
  * LIFECYCLE_SCAN_CONFLICT.
  */
 export function scanTopLevelLifecycle(raw) {
-    const record = readTopLevelLifecycleRecord(raw);
-    if (isLifecycleUnreadable(record)) return LIFECYCLE_SCAN_CONFLICT;
-    const out = {};
-    if (record.id !== undefined) out.id = record.id;
-    if (record.closed !== undefined) out.closed = record.closed;
-    if (record.generation !== undefined) out.generation = record.generation;
-    return out;
+  const record = readTopLevelLifecycleRecord(raw);
+  if (isLifecycleUnreadable(record)) return LIFECYCLE_SCAN_CONFLICT;
+  const out = {};
+  if (record.id !== undefined) out.id = record.id;
+  if (record.closed !== undefined) out.closed = record.closed;
+  if (record.generation !== undefined) out.generation = record.generation;
+  return out;
 }

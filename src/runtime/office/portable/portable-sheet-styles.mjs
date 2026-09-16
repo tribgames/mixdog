@@ -1,8 +1,17 @@
 import { xmlEncode } from './portable-xml.mjs';
 
 const SECTION_ORDER = Object.freeze([
-  'numFmts', 'fonts', 'fills', 'borders', 'cellStyleXfs', 'cellXfs',
-  'cellStyles', 'dxfs', 'tableStyles', 'colors', 'extLst',
+  'numFmts',
+  'fonts',
+  'fills',
+  'borders',
+  'cellStyleXfs',
+  'cellXfs',
+  'cellStyles',
+  'dxfs',
+  'tableStyles',
+  'colors',
+  'extLst',
 ]);
 const EDITED_SECTIONS = Object.freeze(['numFmts', 'fonts', 'fills', 'borders', 'cellXfs']);
 const FIRST_CUSTOM_NUMBER_FORMAT = 164;
@@ -70,10 +79,17 @@ function flag(xml, tag) {
 }
 
 export function normalizeColor(value) {
-  const raw = String(value || '').trim().replace(/^#/, '').toUpperCase();
+  const raw = String(value || '')
+    .trim()
+    .replace(/^#/, '')
+    .toUpperCase();
   if (/^[0-9A-F]{8}$/.test(raw)) return raw;
   if (/^[0-9A-F]{6}$/.test(raw)) return `FF${raw}`;
-  if (/^[0-9A-F]{3}$/.test(raw)) return `FF${raw.split('').map((digit) => `${digit}${digit}`).join('')}`;
+  if (/^[0-9A-F]{3}$/.test(raw))
+    return `FF${raw
+      .split('')
+      .map((digit) => `${digit}${digit}`)
+      .join('')}`;
   return '';
 }
 
@@ -88,13 +104,15 @@ function parseFont(xml) {
 }
 
 function buildFont(font) {
-  return '<font>'
-    + (font.bold ? '<b/>' : '')
-    + (font.italic ? '<i/>' : '')
-    + `<sz val="${font.size}"/>`
-    + (font.color ? `<color rgb="${font.color}"/>` : '')
-    + `<name val="${xmlEncode(font.name)}"/><family val="2"/>`
-    + '</font>';
+  return (
+    '<font>' +
+    (font.bold ? '<b/>' : '') +
+    (font.italic ? '<i/>' : '') +
+    `<sz val="${font.size}"/>` +
+    (font.color ? `<color rgb="${font.color}"/>` : '') +
+    `<name val="${xmlEncode(font.name)}"/><family val="2"/>` +
+    '</font>'
+  );
 }
 
 function parseFill(xml) {
@@ -119,9 +137,10 @@ function parseBorder(xml) {
   for (const side of BORDER_SIDES) {
     const element = new RegExp(`<${side}\\b([^>]*?)(?:\\/>|>([\\s\\S]*?)<\\/${side}>)`).exec(xml || '');
     const style = element ? attribute(element[1], 'style') : '';
-    border[side] = style && style !== 'none'
-      ? { style, color: normalizeColor(attribute(/<color\b([^>]*?)\/>/.exec(element[2] || '')?.[1], 'rgb')) }
-      : null;
+    border[side] =
+      style && style !== 'none'
+        ? { style, color: normalizeColor(attribute(/<color\b([^>]*?)\/>/.exec(element[2] || '')?.[1], 'rgb')) }
+        : null;
   }
   return border;
 }
@@ -143,9 +162,13 @@ function mergeBorders(base, requested) {
   for (const name of BORDER_SIDES) {
     const spec = uniform ? sides : sides[name];
     if (spec === undefined) continue;
-    if (spec === null || spec === false || spec === 'none' || spec?.style === 'none' || spec?.enabled === false) { next[name] = null; continue; }
+    if (spec === null || spec === false || spec === 'none' || spec?.style === 'none' || spec?.enabled === false) {
+      next[name] = null;
+      continue;
+    }
     const style = String(spec?.style || 'thin').toLowerCase();
-    if (!BORDER_STYLES.includes(style)) throw new Error(`set_style borders.${name}.style "${style}" is not one of ${BORDER_STYLES.join(', ')}`);
+    if (!BORDER_STYLES.includes(style))
+      throw new Error(`set_style borders.${name}.style "${style}" is not one of ${BORDER_STYLES.join(', ')}`);
     next[name] = { style, color: normalizeColor(spec?.color) };
   }
   return next;
@@ -173,20 +196,21 @@ function parseXf(xml) {
 function buildXf(xf) {
   const aligned = Boolean(xf.horizontal || xf.vertical || xf.wrapText);
   const alignment = aligned
-    ? `<alignment${xf.horizontal ? ` horizontal="${xf.horizontal}"` : ''}`
-      + `${xf.vertical ? ` vertical="${xf.vertical}"` : ''}`
-      + `${xf.wrapText ? ' wrapText="1"' : ''}/>`
+    ? `<alignment${xf.horizontal ? ` horizontal="${xf.horizontal}"` : ''}` +
+      `${xf.vertical ? ` vertical="${xf.vertical}"` : ''}` +
+      `${xf.wrapText ? ' wrapText="1"' : ''}/>`
     : '';
   // An unlocked cell is how a protected sheet keeps its entry fields typable.
   const protection = xf.locked === false ? '<protection locked="0"/>' : '';
-  const head = `<xf numFmtId="${xf.numFmtId}" fontId="${xf.fontId}" fillId="${xf.fillId}"`
-    + ` borderId="${xf.borderId}" xfId="${xf.xfId}"`
-    + `${xf.numFmtId ? ' applyNumberFormat="1"' : ''}`
-    + `${xf.fontId ? ' applyFont="1"' : ''}`
-    + `${xf.fillId ? ' applyFill="1"' : ''}`
-    + `${xf.borderId ? ' applyBorder="1"' : ''}`
-    + `${aligned ? ' applyAlignment="1"' : ''}`
-    + `${protection ? ' applyProtection="1"' : ''}`;
+  const head =
+    `<xf numFmtId="${xf.numFmtId}" fontId="${xf.fontId}" fillId="${xf.fillId}"` +
+    ` borderId="${xf.borderId}" xfId="${xf.xfId}"` +
+    `${xf.numFmtId ? ' applyNumberFormat="1"' : ''}` +
+    `${xf.fontId ? ' applyFont="1"' : ''}` +
+    `${xf.fillId ? ' applyFill="1"' : ''}` +
+    `${xf.borderId ? ' applyBorder="1"' : ''}` +
+    `${aligned ? ' applyAlignment="1"' : ''}` +
+    `${protection ? ' applyProtection="1"' : ''}`;
   const body = `${alignment}${protection}`;
   return body ? `${head}>${body}</xf>` : `${head}/>`;
 }
@@ -292,12 +316,34 @@ export function applyCellStyle(stylesXml, baseIndex, properties = {}) {
 // Implicit number formats (ECMA-376 §18.8.30); a workbook never writes these
 // into numFmts, so a cell carrying one reads back as its id alone.
 const BUILT_IN_NUMBER_FORMATS = Object.freeze({
-  0: 'General', 1: '0', 2: '0.00', 3: '#,##0', 4: '#,##0.00',
-  9: '0%', 10: '0.00%', 11: '0.00E+00', 12: '# ?/?', 13: '# ??/??',
-  14: 'mm-dd-yy', 15: 'd-mmm-yy', 16: 'd-mmm', 17: 'mmm-yy', 18: 'h:mm AM/PM',
-  19: 'h:mm:ss AM/PM', 20: 'h:mm', 21: 'h:mm:ss', 22: 'm/d/yy h:mm',
-  37: '#,##0 ;(#,##0)', 38: '#,##0 ;[Red](#,##0)', 39: '#,##0.00;(#,##0.00)', 40: '#,##0.00;[Red](#,##0.00)',
-  45: 'mm:ss', 46: '[h]:mm:ss', 47: 'mmss.0', 48: '##0.0E+0', 49: '@',
+  0: 'General',
+  1: '0',
+  2: '0.00',
+  3: '#,##0',
+  4: '#,##0.00',
+  9: '0%',
+  10: '0.00%',
+  11: '0.00E+00',
+  12: '# ?/?',
+  13: '# ??/??',
+  14: 'mm-dd-yy',
+  15: 'd-mmm-yy',
+  16: 'd-mmm',
+  17: 'mmm-yy',
+  18: 'h:mm AM/PM',
+  19: 'h:mm:ss AM/PM',
+  20: 'h:mm',
+  21: 'h:mm:ss',
+  22: 'm/d/yy h:mm',
+  37: '#,##0 ;(#,##0)',
+  38: '#,##0 ;[Red](#,##0)',
+  39: '#,##0.00;(#,##0.00)',
+  40: '#,##0.00;[Red](#,##0.00)',
+  45: 'mm:ss',
+  46: '[h]:mm:ss',
+  47: 'mmss.0',
+  48: '##0.0E+0',
+  49: '@',
 });
 
 // Excel reports a cell's colors as BGR integers (black font 0, no fill
@@ -319,7 +365,10 @@ export function normalizeExcelCellStyle(style) {
   const numberFormat = String(style.numberFormat || '').trim();
   // A localized Excel reports the General format in its own language
   // (Korean G/표준, Japanese G/標準, German Standard); none is a format.
-  const general = /^(?:general|g\/표준|g\/標準|standard|standaard|général|generale|estándar|padrão|общий|常规|通用格式)$/i.test(numberFormat);
+  const general =
+    /^(?:general|g\/표준|g\/標準|standard|standaard|général|generale|estándar|padrão|общий|常规|通用格式)$/i.test(
+      numberFormat
+    );
   const { color: _color, fillColor: _fill, numberFormat: _format, bold, italic, ...rest } = style;
   return {
     ...rest,

@@ -18,7 +18,9 @@ export const sequenceActions = defineBrowserActions({
     const performed: string[] = [];
     for (let index = 0; index < steps.length; index += 1) {
       const step = steps[index] || {};
-      const stepAction = String(step.action || '').trim().toLowerCase();
+      const stepAction = String(step.action || '')
+        .trim()
+        .toLowerCase();
       try {
         if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
         // A SPA URL transition can keep the same document generation.
@@ -31,29 +33,35 @@ export const sequenceActions = defineBrowserActions({
         }
         if (pinnedRefs) state.for(guest).refSet = pinnedRefs;
         if (pinnedAccessibilityRefs) state.for(guest).accessibilityRefs = pinnedAccessibilityRefs;
-        const result = await measureBrowserStep(index + 1, () => runCommand({
-          ...step,
-          action: stepAction,
-          tab: command.tab,
-          background: command.background,
-          internalStep: true,
-          session_id: command.session_id,
-          turn_id: command.turn_id,
-        }, signal));
+        const result = await measureBrowserStep(index + 1, () =>
+          runCommand(
+            {
+              ...step,
+              action: stepAction,
+              tab: command.tab,
+              background: command.background,
+              internalStep: true,
+              session_id: command.session_id,
+              turn_id: command.turn_id,
+            },
+            signal
+          )
+        );
         if (result.outcome === 'blocked' || result.outcome === 'inconclusive') {
           throw new Error(result.text);
         }
       } catch (error) {
         const failure = (error as Error).message;
-        const stopped = await reply.snapshotResult(guest, command, signal, { targetIsBackground })
+        const stopped = await reply
+          .snapshotResult(guest, command, signal, { targetIsBackground })
           .catch((snapshotError) => {
             if (signal?.aborted) throw signal.reason || snapshotError;
             return { text: '' };
           });
         throw new Error(
-          `Sequence stopped at step ${index + 1} (${stepAction}); `
-          + `${performed.length ? `completed ${performed.join(', ')}` : 'no step completed'}. `
-          + `${failure}\n\n${stopped.text}`,
+          `Sequence stopped at step ${index + 1} (${stepAction}); ` +
+            `${performed.length ? `completed ${performed.join(', ')}` : 'no step completed'}. ` +
+            `${failure}\n\n${stopped.text}`
         );
       }
       performed.push(`${index + 1}:${stepAction}`);

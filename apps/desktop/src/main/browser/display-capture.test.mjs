@@ -18,7 +18,7 @@ function image(text, width = 600, height = 400, scaleFactor = 1) {
 
 function firstRed(frame) {
   const bytes = Buffer.from(frame.data, 'base64');
-  for (let offset = 8; offset < bytes.length;) {
+  for (let offset = 8; offset < bytes.length; ) {
     const length = bytes.readUInt32BE(offset);
     if (bytes.toString('ascii', offset + 4, offset + 8) === 'IDAT') {
       return inflateSync(bytes.subarray(offset + 8, offset + 8 + length))[1];
@@ -35,7 +35,9 @@ test('display sampling keeps pages hidden and bounds pending native captures', a
     capturePage(_rect, options) {
       assert.equal(options.stayHidden, true);
       starts += 1;
-      return new Promise(resolve => { finish = resolve; });
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
     },
   };
   const capture = createBrowserDisplayCapture();
@@ -54,7 +56,9 @@ test('display sampling keeps pages hidden and bounds pending native captures', a
 test('navigation never reuses an outstanding native sample from the previous document', async () => {
   const pending = [];
   const guest = {
-    capturePage() { return new Promise(resolve => pending.push(resolve)); },
+    capturePage() {
+      return new Promise((resolve) => pending.push(resolve));
+    },
   };
   const capture = createBrowserDisplayCapture();
   const old = capture(guest, '1');
@@ -62,7 +66,7 @@ test('navigation never reuses an outstanding native sample from the previous doc
   assert.equal(pending.length, 1, 'navigation must not start parallel native captures');
   pending[0](image('old'));
   await old;
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(pending.length, 2);
   pending[1](image('new'));
   assert.equal(firstRed(await next), 'new'.charCodeAt(0));
@@ -70,13 +74,13 @@ test('navigation never reuses an outstanding native sample from the previous doc
 
 test('resizing never relabels an old compositor image, even when its document is unchanged', async () => {
   const pending = [];
-  const guest = { capturePage: () => new Promise(resolve => pending.push(resolve)) };
+  const guest = { capturePage: () => new Promise((resolve) => pending.push(resolve)) };
   const capture = createBrowserDisplayCapture();
   const previous = capture(guest, 'same-document', { width: 600, height: 400 });
   const resized = capture(guest, 'same-document', { width: 390, height: 844 });
   pending[0](image('old'));
   await previous;
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(pending.length, 2);
   pending[1](image('still-old'));
   await assert.rejects(resized, /Browser page changed during capture/);
@@ -94,10 +98,15 @@ test('offscreen presentation compresses losslessly without blocking input or sta
   let captures = 0;
   guest.invalidate = () => {
     captures++;
-    guest.emit('paint', {}, {}, {
-      ...image('pixels'),
-      toPNG: () => assert.fail('full display compression must not block the main thread'),
-    });
+    guest.emit(
+      'paint',
+      {},
+      {},
+      {
+        ...image('pixels'),
+        toPNG: () => assert.fail('full display compression must not block the main thread'),
+      }
+    );
   };
   try {
     const capture = createBrowserDisplayCapture();
@@ -110,5 +119,7 @@ test('offscreen presentation compresses losslessly without blocking input or sta
     assert.equal(firstRed(a), 'pixels'.charCodeAt(0));
     await capture(guest, 'document', { width: 600, height: 400 });
     assert.equal(captures, 1, 'unchanged paint reuses the encoded frame');
-  } finally { guest.emit('destroyed'); }
+  } finally {
+    guest.emit('destroyed');
+  }
 });

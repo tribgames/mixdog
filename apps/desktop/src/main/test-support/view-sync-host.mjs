@@ -11,30 +11,43 @@ export async function viewSyncHost({ runTurns = false } = {}) {
   const sinks = new Set();
   const state = { creates: 0, submits: 0, agents: [], reads: 0 };
   const full = (record) => ({
-    sessionId: record.id, revision: record.revision, full: record.snapshot,
+    sessionId: record.id,
+    revision: record.revision,
+    full: record.snapshot,
   });
   const putSnapshot = (id, snapshot) => {
     const old = records.get(id);
     const record = {
-      id, revision: (old?.revision ?? 0) + 1, submissions: old?.submissions ?? new Set(),
+      id,
+      revision: (old?.revision ?? 0) + 1,
+      submissions: old?.submissions ?? new Set(),
       snapshot: { ...snapshot, sessionId: id },
     };
     records.set(id, record);
     for (const sink of sinks) sink({ type: 'session-state', ...full(record) });
     return record;
   };
-  const put = (id, text) => putSnapshot(id, {
-    busy: false, items: [{ id: 'answer', kind: 'assistant', text }], queued: [],
-  });
+  const put = (id, text) =>
+    putSnapshot(id, {
+      busy: false,
+      items: [{ id: 'answer', kind: 'assistant', text }],
+      queued: [],
+    });
   const runtime = {
     async attachSessionClient({ onFrame }) {
       sinks.add(onFrame);
       return {
         async list() {
-          return { sessions: [...records.values()].map((row) => ({
-            id: row.id, title: row.id, preview: row.id, cwd: directory,
-            updatedAt: Date.now(), messageCount: row.snapshot.items.length,
-          })) };
+          return {
+            sessions: [...records.values()].map((row) => ({
+              id: row.id,
+              title: row.id,
+              preview: row.id,
+              cwd: directory,
+              updatedAt: Date.now(),
+              messageCount: row.snapshot.items.length,
+            })),
+          };
         },
         async create({ sessionId }) {
           state.creates++;
@@ -45,14 +58,17 @@ export async function viewSyncHost({ runTurns = false } = {}) {
           const record = records.get(sessionId);
           if (!record) throw new Error(`session ${sessionId} is not available`);
           return baseRevision === record.revision
-            ? { sessionId, revision: record.revision, unchanged: true } : full(record);
+            ? { sessionId, revision: record.revision, unchanged: true }
+            : full(record);
         },
         async subscribe({ sessionId }) {
           const record = records.get(sessionId);
           if (!record) throw new Error(`session ${sessionId} is not available`);
           return full(record);
         },
-        async unsubscribe() { return {}; },
+        async unsubscribe() {
+          return {};
+        },
         async submit({ sessionId, prompt, options }) {
           const record = records.get(sessionId);
           if (!record.submissions.has(options.id)) {
@@ -75,26 +91,49 @@ export async function viewSyncHost({ runTurns = false } = {}) {
           const prompt = record.snapshot.items.at(-1);
           if (!runTurns || prompt?.kind !== 'user') return { ...full(record), aborted: false };
           putSnapshot(sessionId, {
-            ...record.snapshot, busy: false, items: record.snapshot.items.slice(0, -1),
+            ...record.snapshot,
+            busy: false,
+            items: record.snapshot.items.slice(0, -1),
           });
           return {
-            ...full(records.get(sessionId)), aborted: true, restoreText: prompt.text,
+            ...full(records.get(sessionId)),
+            aborted: true,
+            restoreText: prompt.text,
             restoredSubmissionIds: [prompt.id],
           };
         },
-        async configure() { throw new Error('Unexpected configuration'); },
-        async close() { sinks.delete(onFrame); },
+        async configure() {
+          throw new Error('Unexpected configuration');
+        },
+        async close() {
+          sinks.delete(onFrame);
+        },
       };
     },
-    async loadProjects() { return {}; },
-    async loadSessionStore() { return { listStoredAgentWorkers: () => state.agents }; },
-    async loadStatuslineSegments() { return {}; },
-    async executeCodeGraphTool() { return {}; },
+    async loadProjects() {
+      return {};
+    },
+    async loadSessionStore() {
+      return { listStoredAgentWorkers: () => state.agents };
+    },
+    async loadStatuslineSegments() {
+      return {};
+    },
+    async executeCodeGraphTool() {
+      return {};
+    },
   };
   const options = { userDataPath: directory, resourcesPath: directory, appPath: directory, packaged: false };
   const host = await SessionHost.create(options, runtime);
   return {
-    host, runtime, options, directory, records, state, put, putSnapshot,
+    host,
+    runtime,
+    options,
+    directory,
+    records,
+    state,
+    put,
+    putSnapshot,
     async close() {
       await host.dispose();
       if (previousDataDirectory === undefined) delete process.env.MIXDOG_DATA_DIR;

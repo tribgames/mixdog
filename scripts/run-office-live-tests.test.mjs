@@ -30,15 +30,11 @@ test('Office live test wrapper propagates TAP failures through its exit code', a
   t.after(() => rm(directory, { recursive: true, force: true }));
   const passing = join(directory, 'passing.mjs');
   const failing = join(directory, 'failing.mjs');
-  await writeFile(
-    passing,
-    'import test from "node:test"; test("synthetic pass", () => {});\n',
-    'utf8',
-  );
+  await writeFile(passing, 'import test from "node:test"; test("synthetic pass", () => {});\n', 'utf8');
   await writeFile(
     failing,
     'import assert from "node:assert/strict"; import test from "node:test"; test("synthetic fail", () => assert.fail("expected"));\n',
-    'utf8',
+    'utf8'
   );
 
   const passed = runRunner([passing]);
@@ -55,7 +51,9 @@ test('live profiles execute only their feature and retain all nine compatibility
   const fixture = join(directory, 'profiles.mjs');
   const profiles = liveProfiles.filter((profile) => profile !== 'all');
   const kinds = ['docm', 'dotm', 'dotx', 'xltx', 'xltm', 'xlsm', 'pptm', 'potx', 'potm'];
-  await writeFile(fixture, `
+  await writeFile(
+    fixture,
+    `
 import test from 'node:test';
 for (const feature of ${JSON.stringify(profiles)}) {
   test('[' + feature + '] fixture', async (t) => {
@@ -67,11 +65,14 @@ for (const feature of ${JSON.stringify(profiles)}) {
     }
   });
 }
-`);
+`
+  );
   for (const profile of liveProfiles) {
     const plan = buildLiveTestPlan([profile], fixture);
     const result = spawnSync(process.execPath, plan.args, {
-      env: childEnv(), encoding: 'utf8', windowsHide: true,
+      env: childEnv(),
+      encoding: 'utf8',
+      windowsHide: true,
     });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     const executed = [...result.stdout.matchAll(/EXECUTED:(\w+)/gu)].map((match) => match[1]);
@@ -108,7 +109,9 @@ test('live runner forwards stdout and stderr before the test completes', { timeo
   t.after(() => rm(directory, { recursive: true, force: true }));
   const fixture = join(directory, 'stream.mjs');
   const acknowledgement = join(directory, 'continue');
-  await writeFile(fixture, `
+  await writeFile(
+    fixture,
+    `
 import test from 'node:test';
 import { watch } from 'node:fs';
 import { dirname } from 'node:path';
@@ -123,14 +126,17 @@ test('streaming fixture', async () => {
     console.log('ACKNOWLEDGED');
   } finally { watcher.close(); }
 });
-`);
+`
+  );
   const child = spawn(process.execPath, [runner, fixture], {
     cwd: projectRoot,
     env: childEnv({ OFFICE_TEST_ACK: acknowledgement }),
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });
-  t.after(() => { if (child.exitCode === null) child.kill(); });
+  t.after(() => {
+    if (child.exitCode === null) child.kill();
+  });
   let output = '';
   let acknowledged = false;
   let writeError;

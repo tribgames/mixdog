@@ -1,8 +1,8 @@
-import type { DesktopModelSelection } from "../shared/contract";
+import type { DesktopModelSelection } from '../shared/contract';
 
 export function mergeRoutePreference(
   current: DesktopModelSelection | null | undefined,
-  next: DesktopModelSelection,
+  next: DesktopModelSelection
 ): DesktopModelSelection {
   const sameModel = current?.provider === next.provider && current.model === next.model;
   return {

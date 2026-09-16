@@ -1,7 +1,7 @@
-import type { TranscriptItem } from "./desktop-types";
-import { completionTone, isVisibleTranscriptItem } from "./TranscriptView";
+import type { TranscriptItem } from './desktop-types';
+import { completionTone, isVisibleTranscriptItem } from './TranscriptView';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { isTranscriptCancelledStatusText } from "../../../../src/runtime/shared/tool-execution-contract.mjs";
+import { isTranscriptCancelledStatusText } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
 
 /**
  * Transcript projection: turn semantics are preserved as explicit row tags,
@@ -13,19 +13,19 @@ import { isTranscriptCancelledStatusText } from "../../../../src/runtime/shared/
  */
 export type TranscriptRowModel =
   | {
-      _tag: "TurnGap";
+      _tag: 'TurnGap';
       key: string;
       turnKey: string;
     }
   | {
-      _tag: "UserMessage";
+      _tag: 'UserMessage';
       key: string;
       turnKey: string;
       item: TranscriptItem;
       attachedUser: boolean;
     }
   | {
-      _tag: "AssistantPart";
+      _tag: 'AssistantPart';
       key: string;
       turnKey: string;
       item: TranscriptItem;
@@ -34,19 +34,19 @@ export type TranscriptRowModel =
       live?: boolean;
     }
   | {
-      _tag: "ToolActivity";
+      _tag: 'ToolActivity';
       key: string;
       turnKey: string;
       items: readonly TranscriptItem[];
     }
   | {
-      _tag: "Thinking";
+      _tag: 'Thinking';
       key: string;
       turnKey: string;
       active: true;
     }
   | {
-      _tag: "Error";
+      _tag: 'Error';
       key: string;
       turnKey: string;
       item?: TranscriptItem;
@@ -54,18 +54,14 @@ export type TranscriptRowModel =
     };
 
 export function isCompletionTranscriptItem(item: TranscriptItem | undefined): boolean {
-  return item?.kind === "statusdone" || item?.kind === "turndone";
+  return item?.kind === 'statusdone' || item?.kind === 'turndone';
 }
 
-export function transcriptRowKey(
-  sessionKey: string,
-  item: TranscriptItem | undefined,
-  index: number,
-): string {
+export function transcriptRowKey(sessionKey: string, item: TranscriptItem | undefined, index: number): string {
   const id = item?.id;
   return id !== undefined && id !== null
     ? `${sessionKey}:${String(id)}`
-    : `${sessionKey}:${item?.kind || "row"}-${index}`;
+    : `${sessionKey}:${item?.kind || 'row'}-${index}`;
 }
 
 interface TranscriptRowBuilder {
@@ -74,14 +70,10 @@ interface TranscriptRowBuilder {
   previousRowWasUser: boolean;
 }
 
-function beginBuilderTurn(
-  builder: TranscriptRowBuilder,
-  sessionKey: string,
-  turnKey: string,
-): void {
+function beginBuilderTurn(builder: TranscriptRowBuilder, sessionKey: string, turnKey: string): void {
   if (builder.rows.length > 0 && builder.currentTurnKey && turnKey !== builder.currentTurnKey) {
     builder.rows.push({
-      _tag: "TurnGap",
+      _tag: 'TurnGap',
       key: `${sessionKey}:gap:${turnKey}`,
       turnKey,
     });
@@ -96,12 +88,12 @@ function pushBuilderItem(
   item: TranscriptItem,
   index: number,
   turnKey: string,
-  completion?: TranscriptItem,
+  completion?: TranscriptItem
 ): void {
   beginBuilderTurn(builder, sessionKey, turnKey);
-  if (item.kind === "user") {
+  if (item.kind === 'user') {
     builder.rows.push({
-      _tag: "UserMessage",
+      _tag: 'UserMessage',
       key: transcriptRowKey(sessionKey, item, index),
       turnKey,
       item,
@@ -111,7 +103,7 @@ function pushBuilderItem(
     return;
   }
   builder.rows.push({
-    _tag: "AssistantPart",
+    _tag: 'AssistantPart',
     key: transcriptRowKey(sessionKey, item, index),
     turnKey,
     item,
@@ -129,13 +121,13 @@ interface PendingToolActivityItem {
 function pushToolActivity(
   builder: TranscriptRowBuilder,
   sessionKey: string,
-  pending: readonly PendingToolActivityItem[],
+  pending: readonly PendingToolActivityItem[]
 ): void {
   const first = pending[0];
   if (!first) return;
   beginBuilderTurn(builder, sessionKey, first.turnKey);
   builder.rows.push({
-    _tag: "ToolActivity",
+    _tag: 'ToolActivity',
     key: `${transcriptRowKey(sessionKey, first.item, first.index)}:tool-activity`,
     turnKey: first.turnKey,
     items: pending.map(({ item }) => item),
@@ -177,16 +169,16 @@ export function projectSettledTranscriptRows({
   const hasSettledItem = (id: unknown): boolean => {
     if (id === undefined || id === null) return false;
     if (!settledItemIds) {
-      settledItemIds = new Set(items
-        .map((item) => item?.id)
-        .filter((itemId) => itemId !== undefined && itemId !== null));
+      settledItemIds = new Set(
+        items.map((item) => item?.id).filter((itemId) => itemId !== undefined && itemId !== null)
+      );
     }
     return settledItemIds.has(id);
   };
   items.forEach((item, index) => {
-    const turnKey = turnKeys[index] || "";
+    const turnKey = turnKeys[index] || '';
     lastItemByTurn.set(turnKey, index);
-    if (item?.kind === "assistant") lastAssistantByTurn.set(turnKey, index);
+    if (item?.kind === 'assistant') lastAssistantByTurn.set(turnKey, index);
     if (isCompletionTranscriptItem(item)) lastCompletionByTurn.set(turnKey, index);
   });
   // A successful turn's "Thought for …" completion belongs to the assistant
@@ -194,9 +186,9 @@ export function projectSettledTranscriptRows({
   const completionByIndex = new Map<number, TranscriptItem>();
   const foldedCompletions = new Set<number>();
   items.forEach((item, index) => {
-    if (item?.kind !== "turndone") return;
-    const turnKey = turnKeys[index] || "";
-    if (failedTurns.has(turnKey) || completionTone(item) !== "complete") return;
+    if (item?.kind !== 'turndone') return;
+    const turnKey = turnKeys[index] || '';
+    if (failedTurns.has(turnKey) || completionTone(item) !== 'complete') return;
     const assistantIndex = lastAssistantByTurn.get(turnKey);
     if (assistantIndex === undefined) return;
     completionByIndex.set(assistantIndex, item);
@@ -204,7 +196,7 @@ export function projectSettledTranscriptRows({
   });
   const builder: TranscriptRowBuilder = {
     rows: [],
-    currentTurnKey: "",
+    currentTurnKey: '',
     previousRowWasUser: false,
   };
   let pendingToolActivity: PendingToolActivityItem[] = [];
@@ -216,10 +208,12 @@ export function projectSettledTranscriptRows({
     // Hidden continuation/recovery turns do not create another visible error
     // surface. Any visible prompt, output or tool activity seals this run.
     const previous = builder.rows.at(-1);
-    if (previous?._tag === "Error") {
+    if (previous?._tag === 'Error') {
       previous.failures.push({ turnKey, item });
       builder.rows[builder.rows.length - 1] = {
-        ...previous, turnKey, item,
+        ...previous,
+        turnKey,
+        item,
       };
       builder.currentTurnKey = turnKey;
       builder.previousRowWasUser = false;
@@ -227,13 +221,16 @@ export function projectSettledTranscriptRows({
     }
     beginBuilderTurn(builder, sessionKey, turnKey);
     builder.rows.push({
-      _tag: "Error", key: `${sessionKey}:failed:${turnKey}`, turnKey, item,
+      _tag: 'Error',
+      key: `${sessionKey}:failed:${turnKey}`,
+      turnKey,
+      item,
       failures: [{ turnKey, item }],
     });
     builder.previousRowWasUser = false;
   };
   items.forEach((item, index) => {
-    const turnKey = turnKeys[index] || "";
+    const turnKey = turnKeys[index] || '';
     const failed = failedTurns.has(turnKey);
     if (failed && isCompletionTranscriptItem(item)) {
       // One status row per failed turn, at its last completion marker.
@@ -247,17 +244,17 @@ export function projectSettledTranscriptRows({
       flushToolActivity();
       return;
     }
-    if (item?.kind === "user" && isTranscriptCancelledStatusText(item.text)) {
+    if (item?.kind === 'user' && isTranscriptCancelledStatusText(item.text)) {
       flushToolActivity();
       beginBuilderTurn(builder, sessionKey, turnKey);
       builder.rows.push({
-        _tag: "AssistantPart",
+        _tag: 'AssistantPart',
         key: transcriptRowKey(sessionKey, item, index),
         turnKey,
         item: {
           ...item,
-          kind: "turndone",
-          status: "cancelled",
+          kind: 'turndone',
+          status: 'cancelled',
           elapsedMs: 0,
         } as TranscriptItem,
       });
@@ -265,7 +262,7 @@ export function projectSettledTranscriptRows({
       return;
     }
     if (!isVisibleTranscriptItem(item)) return;
-    if (item.kind === "tool") {
+    if (item.kind === 'tool') {
       if (pendingToolActivity.length > 0 && pendingToolActivity[0]?.turnKey !== turnKey) {
         flushToolActivity();
       }
@@ -324,12 +321,11 @@ export function appendLiveTranscriptRows({
   const activeTurnKey = builder.currentTurnKey || `${sessionKey}:active`;
   // A delayed lane can briefly publish a tail whose id has already settled.
   // Never create a second stable-key row for that stale publication.
-  const liveItemAlreadySettled = liveItem?.id != null
-    && settled.hasSettledItem(liveItem.id);
+  const liveItemAlreadySettled = liveItem?.id != null && settled.hasSettledItem(liveItem.id);
   if (liveItem && !liveItemAlreadySettled) {
     beginBuilderTurn(builder, sessionKey, activeTurnKey);
     builder.rows.push({
-      _tag: "AssistantPart",
+      _tag: 'AssistantPart',
       key: transcriptRowKey(sessionKey, liveItem, itemCount),
       turnKey: activeTurnKey,
       item: liveItem,
@@ -341,7 +337,7 @@ export function appendLiveTranscriptRows({
   if (thinking) {
     beginBuilderTurn(builder, sessionKey, activeTurnKey);
     builder.rows.push({
-      _tag: "Thinking",
+      _tag: 'Thinking',
       key: `${sessionKey}:thinking:${activeTurnKey}`,
       turnKey: activeTurnKey,
       active: true,
@@ -355,7 +351,7 @@ export function appendLiveTranscriptRows({
       sessionKey,
       item,
       itemCount + activePrompts.length + index,
-      `pending:${String(item.id ?? index)}`,
+      `pending:${String(item.id ?? index)}`
     );
   });
   return builder.rows;
@@ -388,17 +384,13 @@ export function projectTranscriptRows({
 }
 
 /** The user prompt that opened a turn — the retry action resubmits it. */
-export function turnPromptText(
-  items: readonly TranscriptItem[],
-  turnKeys: readonly string[],
-  turnKey: string,
-): string {
+export function turnPromptText(items: readonly TranscriptItem[], turnKeys: readonly string[], turnKey: string): string {
   for (let index = 0; index < items.length; index += 1) {
-    if ((turnKeys[index] || "") !== turnKey) continue;
+    if ((turnKeys[index] || '') !== turnKey) continue;
     const item = items[index];
-    if (item?.kind !== "user") continue;
-    const text = String(item.text ?? "").trim();
+    if (item?.kind !== 'user') continue;
+    const text = String(item.text ?? '').trim();
     if (text) return text;
   }
-  return "";
+  return '';
 }

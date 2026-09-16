@@ -2,9 +2,13 @@
 // Resolve outside the installed-app branch: browser tabs and Electron need the
 // same preference when the main application bundle cannot boot.
 var mixdogStoredLanguage;
-try { mixdogStoredLanguage = localStorage.getItem(UI_LANGUAGE_STORAGE_KEY); } catch (error) {}
-var mixdogUiLanguage = selectUiLanguage(mixdogStoredLanguage,
-  navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language]);
+try {
+  mixdogStoredLanguage = localStorage.getItem(UI_LANGUAGE_STORAGE_KEY);
+} catch (error) {}
+var mixdogUiLanguage = selectUiLanguage(
+  mixdogStoredLanguage,
+  navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language]
+);
 document.documentElement.lang = mixdogUiLanguage;
 function bootT(key) {
   return (BOOT_UI_CATALOGS[mixdogUiLanguage] || {})[key] || key;
@@ -14,17 +18,18 @@ function bootT(key) {
 // paint uses native CSS pixels. Desktop browsers still project 1040px.
 if (!/Electron/i.test(navigator.userAgent)) {
   var mixdogViewport = document.querySelector('meta[name="viewport"]');
-  var mixdogIos = /iPad|iPhone|iPod/i.test(navigator.userAgent)
-    || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
-  var mixdogPhone = mixdogIos
-    || (/Android/i.test(navigator.userAgent) && /Mobile/i.test(navigator.userAgent))
-    || ((navigator.maxTouchPoints || 0) > 0
-      && Math.min(screen.width, screen.height) < 768);
+  var mixdogIos =
+    /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
+  var mixdogPhone =
+    mixdogIos ||
+    (/Android/i.test(navigator.userAgent) && /Mobile/i.test(navigator.userAgent)) ||
+    ((navigator.maxTouchPoints || 0) > 0 && Math.min(screen.width, screen.height) < 768);
   if (mixdogPhone) {
     if (mixdogViewport) {
       mixdogViewport.setAttribute(
         'content',
-        'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content',
+        'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content'
       );
     }
     document.documentElement.dataset.mixdogMobileTabs = '';
@@ -33,7 +38,7 @@ if (!/Electron/i.test(navigator.userAgent)) {
   } else if (mixdogViewport) {
     mixdogViewport.setAttribute(
       'content',
-      'width=1040, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content',
+      'width=1040, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content'
     );
     document.documentElement.dataset.mixdogProjection = 'desktop';
   }
@@ -42,17 +47,18 @@ if (!/Electron/i.test(navigator.userAgent)) {
 // First-paint theme: resolve the stored preference before any CSS evaluates.
 try {
   var mixdogThemePref = localStorage.getItem('mixdog.desktop-theme-preference');
-  var mixdogLight = mixdogThemePref === 'white'
-    || (mixdogThemePref === 'system'
-      && window.matchMedia
-      && window.matchMedia('(prefers-color-scheme: light)').matches);
+  var mixdogLight =
+    mixdogThemePref === 'white' ||
+    (mixdogThemePref === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
   // Match App's default: only an explicit System choice follows the OS.
   // Fresh profiles and the retired Gray preference both start dark.
   if (mixdogLight) {
     document.documentElement.dataset.mixdogTheme = 'light';
     document.documentElement.style.colorScheme = 'light';
   }
-} catch (error) { /* default dark */ }
+} catch (error) {
+  /* default dark */
+}
 
 // The installed web app has no equivalent of the desktop's hidden window:
 // rendererReady is a no-op over the relay, so the browser painted every step of
@@ -65,15 +71,17 @@ try {
 // A browser TAB only ever renders the install guide, so it pays for neither.
 var mixdogInstalledApp = false;
 try {
-  mixdogInstalledApp = mixdogPhone === true
-    && Boolean((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
-      || navigator.standalone === true);
-} catch (error) { /* an unreadable display mode is treated as a browser tab */ }
+  mixdogInstalledApp =
+    mixdogPhone === true &&
+    Boolean(
+      (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true
+    );
+} catch (error) {
+  /* an unreadable display mode is treated as a browser tab */
+}
 if (mixdogInstalledApp) {
   var mixdogHintHost = document.getElementById('mixdog-first-screen');
-  var mixdogHints = mixdogHintHost && mixdogHintHost.content
-    ? mixdogHintHost.content.querySelectorAll('link')
-    : [];
+  var mixdogHints = mixdogHintHost && mixdogHintHost.content ? mixdogHintHost.content.querySelectorAll('link') : [];
   // Locale chunks stay inert in the template; only this device's catalog
   // joins the first network fan-out.
   for (var mixdogHintIndex = 0; mixdogHintIndex < mixdogHints.length; mixdogHintIndex += 1) {
@@ -97,14 +105,16 @@ if (mixdogInstalledApp) {
   mixdogGate.id = 'mixdog-boot-gate';
   // --mx-window-band of each theme (desktop/01-tokens.css) — the gate paints
   // the color the settled app keeps, so releasing it never changes the backdrop.
-  mixdogGate.textContent = 'html[data-mixdog-booting]{background:'
-    + (mixdogLight ? '#f0f0f0' : '#151518') + '}'
-    + 'html[data-mixdog-booting] #root{opacity:0}'
-    + '#root{transition:opacity 160ms ease-out}';
+  mixdogGate.textContent =
+    'html[data-mixdog-booting]{background:' +
+    (mixdogLight ? '#f0f0f0' : '#151518') +
+    '}' +
+    'html[data-mixdog-booting] #root{opacity:0}' +
+    '#root{transition:opacity 160ms ease-out}';
   document.documentElement.dataset.mixdogBooting = '';
   document.head.appendChild(mixdogGate);
   var mixdogGateTimer = 0;
-  window.mixdogRevealApp = function () {
+  window.mixdogRevealApp = () => {
     if (mixdogGateTimer) {
       clearTimeout(mixdogGateTimer);
       mixdogGateTimer = 0;
@@ -113,16 +123,18 @@ if (mixdogInstalledApp) {
     document.documentElement.removeAttribute('data-mixdog-booting');
     // Drop the gate once the fade has run: nothing below it needs a permanent
     // transition on #root.
-    setTimeout(function () {
+    setTimeout(() => {
       if (mixdogGate.parentNode) mixdogGate.parentNode.removeChild(mixdogGate);
     }, 400);
   };
   // A bundle that never boots must not leave a blank band on screen.
-  mixdogGateTimer = setTimeout(function () { window.mixdogRevealApp(); }, 30000);
+  mixdogGateTimer = setTimeout(() => {
+    window.mixdogRevealApp();
+  }, 30000);
 }
 
 // Surface bundle failures on remote browsers where devtools may be unavailable.
-(function () {
+(() => {
   var errors = [];
   var settled = false;
   var deadlineReached = false;
@@ -139,7 +151,7 @@ if (mixdogInstalledApp) {
     var root = document.getElementById('root');
     return Boolean(root && root.childElementCount > 0);
   }
-  var observer = new MutationObserver(function () {
+  var observer = new MutationObserver(() => {
     if (hasStarted()) {
       settled = true;
       clearOverlay();
@@ -167,16 +179,18 @@ if (mixdogInstalledApp) {
     if (!div) {
       div = document.createElement('div');
       div.id = 'mixdog-boot-error';
-      div.style.cssText = 'position:fixed;inset:0;z-index:99999;padding:24px;overflow:auto;'
-        + 'display:grid;place-items:center;background:rgba(0,0,0,.45);'
-        + 'color:#e9e9e9;font:400 14px/22px system-ui,sans-serif;';
+      div.style.cssText =
+        'position:fixed;inset:0;z-index:99999;padding:24px;overflow:auto;' +
+        'display:grid;place-items:center;background:rgba(0,0,0,.45);' +
+        'color:#e9e9e9;font:400 14px/22px system-ui,sans-serif;';
       var card = document.createElement('div');
       card.setAttribute('role', 'alertdialog');
       card.setAttribute('aria-modal', 'true');
       card.setAttribute('aria-labelledby', 'mixdog-boot-title');
       card.setAttribute('aria-describedby', 'mixdog-boot-description');
-      card.style.cssText = 'box-sizing:border-box;width:100%;max-width:400px;'
-        + 'padding:24px;border:1px solid #444;border-radius:16px;background:#202024;';
+      card.style.cssText =
+        'box-sizing:border-box;width:100%;max-width:400px;' +
+        'padding:24px;border:1px solid #444;border-radius:16px;background:#202024;';
       var title = document.createElement('h2');
       title.id = 'mixdog-boot-title';
       title.style.cssText = 'margin:0 0 12px;font-size:18px;';
@@ -195,15 +209,18 @@ if (mixdogInstalledApp) {
       var retry = document.createElement('button');
       retry.type = 'button';
       retry.textContent = bootT('Try again');
-      retry.style.cssText = 'width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;'
-        + 'background:#e9e9e9;color:#171719;font:inherit;cursor:pointer;';
-      retry.addEventListener('click', function () { window.location.reload(); });
+      retry.style.cssText =
+        'width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;' +
+        'background:#e9e9e9;color:#171719;font:inherit;cursor:pointer;';
+      retry.addEventListener('click', () => {
+        window.location.reload();
+      });
       card.appendChild(title);
       card.appendChild(description);
       card.appendChild(details);
       card.appendChild(retry);
       // Keep keyboard focus inside the modal while recovery remains pending.
-      card.addEventListener('keydown', function (event) {
+      card.addEventListener('keydown', (event) => {
         if (event.key !== 'Tab') return;
         if (details.hidden) {
           event.preventDefault();
@@ -225,38 +242,47 @@ if (mixdogInstalledApp) {
     detailPanel.hidden = errors.length === 0;
     div.querySelector('pre').textContent = errors.join('\n\n');
   }
-  window.addEventListener('error', function (event) {
-    var target = event.target;
-    if (target && target !== window && (target.src || target.href)) {
-      errors.push('failed to load: ' + (target.src || target.href));
-      // The worker answers this document from its last copy, so a launch that
-      // follows a deploy can name chunks that deploy removed. Drop the cached
-      // shell and reload ONCE per missing chunk — the network copy names live
-      // chunks. The record is keyed by the URL that failed, not by the tab:
-      // Safari keeps a tab's sessionStorage for weeks, and a tab-wide flag
-      // from one earlier recovery skipped every later deploy straight to this
-      // overlay (user: qr로 연동하려고하니 저게뜸). A genuinely broken build
-      // fails on the SAME url twice and still stops here.
-      try {
-        var failedUrl = String(target.src || target.href);
-        if (sessionStorage.getItem('mixdog.shell-recovered') !== failedUrl && window.caches) {
-          sessionStorage.setItem('mixdog.shell-recovered', failedUrl);
-          caches.delete('mixdog-shell-v1').then(function () { location.reload(); });
-          return;
+  window.addEventListener(
+    'error',
+    (event) => {
+      var target = event.target;
+      if (target && target !== window && (target.src || target.href)) {
+        errors.push('failed to load: ' + (target.src || target.href));
+        // The worker answers this document from its last copy, so a launch that
+        // follows a deploy can name chunks that deploy removed. Drop the cached
+        // shell and reload ONCE per missing chunk — the network copy names live
+        // chunks. The record is keyed by the URL that failed, not by the tab:
+        // Safari keeps a tab's sessionStorage for weeks, and a tab-wide flag
+        // from one earlier recovery skipped every later deploy straight to this
+        // overlay (user: qr로 연동하려고하니 저게뜸). A genuinely broken build
+        // fails on the SAME url twice and still stops here.
+        try {
+          var failedUrl = String(target.src || target.href);
+          if (sessionStorage.getItem('mixdog.shell-recovered') !== failedUrl && window.caches) {
+            sessionStorage.setItem('mixdog.shell-recovered', failedUrl);
+            caches.delete('mixdog-shell-v1').then(() => {
+              location.reload();
+            });
+            return;
+          }
+        } catch (recoveryError) {
+          /* fall through to the overlay */
         }
-      } catch (recoveryError) { /* fall through to the overlay */ }
-    } else {
-      errors.push(String(event.message || event.type)
-        + ' @ ' + String(event.filename || '') + ':' + String(event.lineno || 0));
-    }
-    setTimeout(overlay, 400);
-  }, true);
-  window.addEventListener('unhandledrejection', function (event) {
+      } else {
+        errors.push(
+          String(event.message || event.type) + ' @ ' + String(event.filename || '') + ':' + String(event.lineno || 0)
+        );
+      }
+      setTimeout(overlay, 400);
+    },
+    true
+  );
+  window.addEventListener('unhandledrejection', (event) => {
     var reason = event.reason;
     errors.push('unhandledrejection: ' + String((reason && (reason.stack || reason.message)) || reason));
     setTimeout(overlay, 400);
   });
-  setTimeout(function () {
+  setTimeout(() => {
     deadlineReached = true;
     overlay();
   }, 30000);

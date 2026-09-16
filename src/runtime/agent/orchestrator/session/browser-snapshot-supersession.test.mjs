@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  BROWSER_SNAPSHOT_SUPERSEDED,
-  supersedeBrowserSnapshots,
-} from './browser-snapshot-supersession.mjs';
+import { BROWSER_SNAPSHOT_SUPERSEDED, supersedeBrowserSnapshots } from './browser-snapshot-supersession.mjs';
 
 const snapshot = (page, generation, suffix = '') => ({
   role: 'tool',

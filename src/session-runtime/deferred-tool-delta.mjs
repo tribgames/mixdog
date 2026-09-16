@@ -18,7 +18,7 @@ function normalizedDelta(value) {
   const removed = new Set(
     (Array.isArray(source.removed) ? source.removed : [])
       .map((entry) => clean(typeof entry === 'string' ? entry : entry?.name))
-      .filter(Boolean),
+      .filter(Boolean)
   );
   for (const name of addedByName.keys()) removed.delete(name);
   return {
@@ -31,10 +31,7 @@ function normalizedDelta(value) {
 export function mergePendingDeferredToolDelta(session, change = {}) {
   if (!session || typeof session !== 'object') return null;
   const current = normalizedDelta(session.pendingDeferredToolDelta);
-  const nextRevision = Math.max(
-    current.revision,
-    Math.max(0, Number(session.deferredToolDeltaRevision) || 0),
-  ) + 1;
+  const nextRevision = Math.max(current.revision, Math.max(0, Number(session.deferredToolDeltaRevision) || 0)) + 1;
   for (const entry of Array.isArray(change.added) ? change.added : []) {
     const name = clean(entry?.name);
     if (!name) continue;

@@ -10,11 +10,7 @@
  * invalidation thread directly.
  */
 import { theme } from '../theme.mjs';
-import {
-  providerStatusLabel,
-  providerDetailText,
-  providerKindLabel,
-} from './app-format.mjs';
+import { providerStatusLabel, providerDetailText, providerKindLabel } from './app-format.mjs';
 import { providerDisplayRank } from './model-options.mjs';
 import { openInBrowser } from '../../runtime/shared/open-url.mjs';
 
@@ -58,9 +54,7 @@ export function createProviderSetupPicker({
     // still ours, so clear-and-continue instead of going stale. Esc paths use
     // own.close() — leaving IS the handover.
     const releaseSurface = () => own.paint(null);
-    let setup = options.preloadedSetup && typeof options.preloadedSetup === 'object'
-      ? options.preloadedSetup
-      : null;
+    let setup = options.preloadedSetup && typeof options.preloadedSetup === 'object' ? options.preloadedSetup : null;
     options.preloadedSetup = null;
     if (!setup) {
       paintProviders({
@@ -70,13 +64,15 @@ export function createProviderSetupPicker({
         metaWidth: 10,
         pickerKey: 'providers-loading',
         initialIndex: 0,
-        items: [{
-          value: 'checking',
-          label: 'Checking Providers',
-          meta: '',
-          description: 'please wait',
-          _type: 'loading',
-        }],
+        items: [
+          {
+            value: 'checking',
+            label: 'Checking Providers',
+            meta: '',
+            description: 'please wait',
+            _type: 'loading',
+          },
+        ],
         onSelect: () => {},
         onCancel: () => {
           own.close();
@@ -101,23 +97,23 @@ export function createProviderSetupPicker({
         _type: 'continue',
       });
     }
-    const providerIsActive = (provider) => provider?.reauthRequired !== true && (
-      provider?.usable === true
-      || (provider?.usable == null && (
-        provider?.enabled
-        || provider?.authenticated
-        || provider?.detected
-      ))
-    );
+    const providerIsActive = (provider) =>
+      provider?.reauthRequired !== true &&
+      (provider?.usable === true ||
+        (provider?.usable == null && (provider?.enabled || provider?.authenticated || provider?.detected)));
     const providerFooter = (item) => {
       const provider = item?._provider;
       if (!provider) return '';
       const active = providerIsActive(provider);
-      return [{
-        glyph: active ? '●' : '○',
-        color: active ? theme.success : theme.inactive,
-        text: [providerKindLabel(provider), providerStatusLabel(provider), providerDetailText(provider)].filter(Boolean).join(' · '),
-      }];
+      return [
+        {
+          glyph: active ? '●' : '○',
+          color: active ? theme.success : theme.inactive,
+          text: [providerKindLabel(provider), providerStatusLabel(provider), providerDetailText(provider)]
+            .filter(Boolean)
+            .join(' · '),
+        },
+      ];
     };
     const providerItemRank = (item) => providerDisplayRank(item._providerId || item.value);
     const providerItems = [];
@@ -170,14 +166,22 @@ export function createProviderSetupPicker({
       // Reached from acks as well as key presses: a stale ack must not restart
       // the whole cluster over the user's surface.
       if (!ownsSurface()) return;
-      void Promise.resolve(openProviderSetupPicker(options))
-        .catch((e) => store.pushNotice(`providers failed: ${e?.message || e}`, 'error'));
+      void Promise.resolve(openProviderSetupPicker(options)).catch((e) =>
+        store.pushNotice(`providers failed: ${e?.message || e}`, 'error')
+      );
     };
-    const providerActionFooter = (provider) => provider ? [{
-      glyph: providerIsActive(provider) ? '●' : '○',
-      color: providerIsActive(provider) ? theme.success : theme.inactive,
-      text: [providerKindLabel(provider), providerStatusLabel(provider), providerDetailText(provider)].filter(Boolean).join(' · '),
-    }] : '';
+    const providerActionFooter = (provider) =>
+      provider
+        ? [
+            {
+              glyph: providerIsActive(provider) ? '●' : '○',
+              color: providerIsActive(provider) ? theme.success : theme.inactive,
+              text: [providerKindLabel(provider), providerStatusLabel(provider), providerDetailText(provider)]
+                .filter(Boolean)
+                .join(' · '),
+            },
+          ]
+        : '';
     const setApiKeyPrompt = (providerItem) => {
       if (!ownsSurface()) return;
       setProviderPrompt({
@@ -219,7 +223,9 @@ export function createProviderSetupPicker({
         apiActions.push({
           value: 'forget-key',
           label: 'Delete API key',
-          description: provider.env ? 'remove keychain key; env key remains active' : 'remove stored key for this provider',
+          description: provider.env
+            ? 'remove keychain key; env key remains active'
+            : 'remove stored key for this provider',
           _action: 'forget-key',
         });
       }
@@ -308,7 +314,8 @@ export function createProviderSetupPicker({
                 openApiProviderActions(providerItem);
               },
             });
-            void store.loginOpenCodeGoUsage()
+            void store
+              .loginOpenCodeGoUsage()
               .then(() => {
                 store.pushNotice('OpenCode Go usage auth captured', 'info');
                 if (!backedOut) reopenProviders();
@@ -326,7 +333,10 @@ export function createProviderSetupPicker({
 
     const startOAuthLogin = (providerItem) => {
       const provider = providerItem._provider || {};
-      const showOAuthProgress = (message = 'Opening login flow. Complete it in the browser if prompted.', opts = {}) => {
+      const showOAuthProgress = (
+        message = 'Opening login flow. Complete it in the browser if prompted.',
+        opts = {}
+      ) => {
         const onBack = typeof opts.onBack === 'function' ? opts.onBack : () => openOAuthProviderActions(providerItem);
         const actions = [
           {
@@ -373,13 +383,15 @@ export function createProviderSetupPicker({
           metaWidth: 12,
           pickerKey: `providers-oauth-result:${providerItem.value}:${ok ? 'ok' : 'fail'}`,
           initialIndex: 0,
-          items: [{
-            value: ok ? 'success' : 'back',
-            label: ok ? 'Success' : 'Back',
-            meta: ok ? 'Done' : 'Ready',
-            description: ok ? 'refresh provider status' : 'return to provider actions',
-            _action: ok ? 'success' : 'back',
-          }],
+          items: [
+            {
+              value: ok ? 'success' : 'back',
+              label: ok ? 'Success' : 'Back',
+              meta: ok ? 'Done' : 'Ready',
+              description: ok ? 'refresh provider status' : 'return to provider actions',
+              _action: ok ? 'success' : 'back',
+            },
+          ],
           onSelect: () => {
             if (ok) reopenProviders();
             else openOAuthProviderActions(providerItem);
@@ -410,7 +422,8 @@ export function createProviderSetupPicker({
           }
           showOAuthResult(ok, message || (ok ? `${providerName} login complete.` : `${providerName} login failed.`));
         };
-        void store.beginOAuthProviderLogin(providerItem._providerId)
+        void store
+          .beginOAuthProviderLogin(providerItem._providerId)
           .then((login) => {
             if (typeof login?.completeCode === 'function') {
               // Post-await handover to the OAuth code prompt: only if this flow
@@ -441,7 +454,10 @@ export function createProviderSetupPicker({
                   openOAuthProviderActions(providerItem);
                 },
               });
-              store.pushNotice(`browser opened for ${providerName}; paste code/redirect here if callback does not finish`, 'info');
+              store.pushNotice(
+                `browser opened for ${providerName}; paste code/redirect here if callback does not finish`,
+                'info'
+              );
             } else {
               store.pushNotice(`browser opened for ${providerName}; finish signing in there`, 'info');
             }
@@ -457,7 +473,8 @@ export function createProviderSetupPicker({
           });
         return;
       }
-      void store.loginOAuthProvider(providerItem._providerId)
+      void store
+        .loginOAuthProvider(providerItem._providerId)
         .then(() => {
           clearModelCaches('all');
           if (backedOut) {

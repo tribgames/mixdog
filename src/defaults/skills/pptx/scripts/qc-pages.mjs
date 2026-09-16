@@ -15,9 +15,14 @@ import { parseArgs } from 'node:util';
 export const QC_MAX_PAGES = 20;
 export const QC_MAX_ROUNDS = 2;
 
-const CHILD_FEATURES = { MIXDOG_FEATURE_OFFICE: '1', MIXDOG_FEATURE_GIT: '0', MIXDOG_FEATURE_BROWSER: '0', MIXDOG_FEATURE_COMPUTER: '0' };
-const text = (value) => typeof value === 'string' ? value.trim() : '';
-const number = (value) => Number.isFinite(value) ? Number(value.toFixed(2)) : null;
+const CHILD_FEATURES = {
+  MIXDOG_FEATURE_OFFICE: '1',
+  MIXDOG_FEATURE_GIT: '0',
+  MIXDOG_FEATURE_BROWSER: '0',
+  MIXDOG_FEATURE_COMPUTER: '0',
+};
+const text = (value) => (typeof value === 'string' ? value.trim() : '');
+const number = (value) => (Number.isFinite(value) ? Number(value.toFixed(2)) : null);
 
 // Portable sessions edit an output copy, never the source, so the fixer is
 // pointed at a per-page working copy beside the deck.
@@ -43,7 +48,8 @@ export function parsePages(spec, total) {
     if (!range) throw new Error(`invalid page selection: ${part.trim()}`);
     const from = Number(range[1]);
     const to = range[2] ? Number(range[2]) : from;
-    if (from < 1 || to < from || to > total) throw new Error(`page selection out of range: ${part.trim()} (the deck has ${total} slides)`);
+    if (from < 1 || to < from || to > total)
+      throw new Error(`page selection out of range: ${part.trim()} (the deck has ${total} slides)`);
     for (let page = from; page <= to; page += 1) pages.add(page);
   }
   return [...pages].sort((left, right) => left - right);
@@ -56,14 +62,24 @@ export function slideInventory(document, page) {
   const slide = (document?.slides || []).find((entry) => Number(entry.index) === page);
   if (!slide) return [];
   return (slide.shapes || []).map((shape) => {
-    const content = String(shape.text || '').replace(/\s+/g, ' ').trim();
-    const kind = shape.chart ? 'chart'
-      : shape.table ? `table ${shape.table.rows}×${shape.table.columns}`
-        : shape.group ? 'group'
-          : shape.type === 'p:pic' ? 'picture'
-            : content ? 'text' : (shape.geometry || 'shape');
+    const content = String(shape.text || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const kind = shape.chart
+      ? 'chart'
+      : shape.table
+        ? `table ${shape.table.rows}×${shape.table.columns}`
+        : shape.group
+          ? 'group'
+          : shape.type === 'p:pic'
+            ? 'picture'
+            : content
+              ? 'text'
+              : shape.geometry || 'shape';
     const box = [shape.left, shape.top, shape.width, shape.height].map(number);
-    const geometry = box.every((value) => value !== null) ? ` left ${box[0]} top ${box[1]} width ${box[2]} height ${box[3]}` : '';
+    const geometry = box.every((value) => value !== null)
+      ? ` left ${box[0]} top ${box[1]} width ${box[2]} height ${box[3]}`
+      : '';
     const font = shape.font?.size ? ` font ${shape.font.size}${shape.font.bold ? ' bold' : ''}` : '';
     const fill = shape.fill?.color ? ` fill ${shape.fill.color}` : '';
     const preview = content ? ` "${content.length > 120 ? `${content.slice(0, 117)}…` : content}"` : '';
@@ -89,12 +105,21 @@ export function pageDefects(issues, page) {
 export function slideFingerprints(document) {
   const fingerprints = new Map();
   for (const slide of document?.slides || []) {
-    fingerprints.set(Number(slide.index), JSON.stringify({
-      text: slide.text,
-      shapes: (slide.shapes || []).map((shape) => [
-        shape.type, shape.text, number(shape.left), number(shape.top), number(shape.width), number(shape.height), shape.font?.size ?? null,
-      ]),
-    }));
+    fingerprints.set(
+      Number(slide.index),
+      JSON.stringify({
+        text: slide.text,
+        shapes: (slide.shapes || []).map((shape) => [
+          shape.type,
+          shape.text,
+          number(shape.left),
+          number(shape.top),
+          number(shape.width),
+          number(shape.height),
+          shape.font?.size ?? null,
+        ]),
+      })
+    );
   }
   return fingerprints;
 }
@@ -145,7 +170,9 @@ Final reply: one line under 15 words naming what you fixed, or exactly "OK".`;
 }
 
 async function sha256(path) {
-  return createHash('sha256').update(await readFile(path)).digest('hex');
+  return createHash('sha256')
+    .update(await readFile(path))
+    .digest('hex');
 }
 
 async function defaultOffice() {
@@ -159,7 +186,9 @@ async function defaultOffice() {
 }
 
 async function defaultMeasure() {
-  const { issuesPortableOoxml, snapshotPortableOoxml } = await import('../../../../runtime/office/portable/portable-ooxml.mjs');
+  const { issuesPortableOoxml, snapshotPortableOoxml } = await import(
+    '../../../../runtime/office/portable/portable-ooxml.mjs'
+  );
   return async (deck) => {
     const [measured, document] = await Promise.all([
       issuesPortableOoxml(deck, 'pptx', {}),
@@ -174,7 +203,10 @@ async function defaultMeasure() {
 async function renderPage(office, deck, page) {
   const cwd = dirname(deck);
   const scratch = join(dirname(deck), `.${basename(deck, extname(deck))}.qc-render${extname(deck)}`);
-  const opened = await office({ action: 'open', path: deck, mode: 'portable', output: scratch, snapshotAfter: false }, cwd);
+  const opened = await office(
+    { action: 'open', path: deck, mode: 'portable', output: scratch, snapshotAfter: false },
+    cwd
+  );
   try {
     const rendered = await office({ action: 'render', session: opened.session, pages: [page] }, cwd);
     const image = (rendered.images || []).find((entry) => Number(entry.page) === page) || rendered.images?.[0];
@@ -196,25 +228,23 @@ function withChildFeatures(fn) {
   });
 }
 
-export async function runPageQc({
-  deck: deckPath,
-  pages: pageSpec = 'all',
-  provider,
-  model,
-  effort = 'medium',
-  output = '',
-  vision = true,
-  maxPages = QC_MAX_PAGES,
-}, {
-  execute,
-  office,
-  measure,
-  createRuntime,
-} = {}) {
+export async function runPageQc(
+  {
+    deck: deckPath,
+    pages: pageSpec = 'all',
+    provider,
+    model,
+    effort = 'medium',
+    output = '',
+    vision = true,
+    maxPages = QC_MAX_PAGES,
+  },
+  { execute, office, measure, createRuntime } = {}
+) {
   if (!text(provider) || !text(model)) throw new Error('explicit --provider and --model are required');
   const deck = resolve(deckPath);
-  const callOffice = office || await defaultOffice();
-  const measureDeck = measure || await defaultMeasure();
+  const callOffice = office || (await defaultOffice());
+  const measureDeck = measure || (await defaultMeasure());
   const target = text(output) ? resolve(output) : '';
   if (target) await mkdir(dirname(target), { recursive: true });
   const { runHeadlessExec } = execute ? {} : await import('../../../../headless-exec.mjs');
@@ -270,29 +300,48 @@ export async function runPageQc({
         let code = 1;
         try {
           code = await run({
-            message: qcInstruction({ deck, copy, page, total, inventory: slideInventory(start.document, page), defects, imagePath }),
+            message: qcInstruction({
+              deck,
+              copy,
+              page,
+              total,
+              inventory: slideInventory(start.document, page),
+              defects,
+              imagePath,
+            }),
             provider,
             model,
             effort,
             cwd: dirname(deck),
             webSearch: false,
             ...(target ? { usageLogPath: `${target}.page-${page}.usage.json` } : {}),
-            ...(createRuntime ? { runtimeFactory: async (options) => createRuntime({ ...options, toolMode: 'full' }) } : {}),
-            write: (chunk) => { raw += chunk; },
-            writeErr: (chunk) => { errors.push(String(chunk)); process.stderr.write(chunk); },
+            ...(createRuntime
+              ? { runtimeFactory: async (options) => createRuntime({ ...options, toolMode: 'full' }) }
+              : {}),
+            write: (chunk) => {
+              raw += chunk;
+            },
+            writeErr: (chunk) => {
+              errors.push(String(chunk));
+              process.stderr.write(chunk);
+            },
           });
         } catch (error) {
           errors.push(error?.message || String(error));
         }
         entry.reply = raw.trim().slice(0, 400);
         if (errors.length) entry.errors = errors.slice(-5);
-        entry.edited = await fileExists(copy) && (await sha256(copy)) !== hashBefore;
+        entry.edited = (await fileExists(copy)) && (await sha256(copy)) !== hashBefore;
         let decision;
         if (!entry.edited) {
           decision = { keep: true, reason: code === 0 ? 'unchanged' : 'execution_failed' };
         } else {
           let end = null;
-          try { end = await measureDeck(copy); } catch { end = null; }
+          try {
+            end = await measureDeck(copy);
+          } catch {
+            end = null;
+          }
           entry.after = end ? pageDefects(end.issues, page).length : entry.before;
           decision = decidePage({
             before: entry.before,
@@ -339,7 +388,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       },
     });
     if (positionals.length !== 1 || !values.output) {
-      throw new Error('Usage: qc-pages.mjs deck.pptx --provider <provider> --model <model> --output qc-report.json [--pages 1-12] [--no-vision]');
+      throw new Error(
+        'Usage: qc-pages.mjs deck.pptx --provider <provider> --model <model> --output qc-report.json [--pages 1-12] [--no-vision]'
+      );
     }
     const report = await runPageQc({
       deck: positionals[0],
@@ -350,16 +401,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       output: values.output,
       vision: values['no-vision'] !== true,
     });
-    console.log(JSON.stringify({
-      ok: report.ok,
-      output: resolve(values.output),
-      fixed: report.fixed,
-      polished: report.polished,
-      discarded: report.discarded,
-      skipped: report.skipped,
-      skippedPages: report.skippedPages,
-      pages: report.pages.map((entry) => `${entry.page}:${entry.reason}`),
-    }));
+    console.log(
+      JSON.stringify({
+        ok: report.ok,
+        output: resolve(values.output),
+        fixed: report.fixed,
+        polished: report.polished,
+        discarded: report.discarded,
+        skipped: report.skipped,
+        skippedPages: report.skippedPages,
+        pages: report.pages.map((entry) => `${entry.page}:${entry.reason}`),
+      })
+    );
     if (!report.ok) process.exitCode = 1;
   } catch (error) {
     console.error(error.message);

@@ -1,15 +1,15 @@
-import { lazy } from "react";
+import { lazy } from 'react';
 
-import type { WorkspaceSelection } from "./nav-types";
-import { loadMonacoLocale } from "./monaco-locale";
+import type { WorkspaceSelection } from './nav-types';
+import { loadMonacoLocale } from './monaco-locale';
 
-const importDiffView = () => import("./DiffView.lazy");
-const importTerminalPane = () => import("./TerminalPane");
+const importDiffView = () => import('./DiffView.lazy');
+const importTerminalPane = () => import('./TerminalPane');
 const importEditorPane = async () => {
   await loadMonacoLocale();
-  return import("./EditorPane.lazy");
+  return import('./EditorPane.lazy');
 };
-const importBrowserPane = () => import("./BrowserPane.lazy");
+const importBrowserPane = () => import('./BrowserPane.lazy');
 
 export const DiffView = lazy(importDiffView);
 export const TerminalPane = lazy(importTerminalPane);
@@ -71,13 +71,14 @@ export function prefetchEditorPane(): Promise<unknown> {
  * real open awaits, an unfinished one simply merges into that load.
  */
 export function prefetchSurfaceForSelection(selection: WorkspaceSelection): void {
-  const promise = selection.kind === "file"
-    ? prefetchEditorPane()
-    : selection.kind === "diff"
-      ? prefetchDiffView()
-      : selection.kind === "terminal"
-        ? prefetchTerminalPane()
-        : null;
+  const promise =
+    selection.kind === 'file'
+      ? prefetchEditorPane()
+      : selection.kind === 'diff'
+        ? prefetchDiffView()
+        : selection.kind === 'terminal'
+          ? prefetchTerminalPane()
+          : null;
   void promise?.catch(() => undefined);
 }
 
@@ -100,7 +101,7 @@ const EDITOR_INTENT_QUIET_MS = 150;
  * merges into the normal load.
  */
 export function scheduleEditorPanePrefetch(): void {
-  if (editorIntentScheduled || editorPrefetch || typeof window === "undefined") return;
+  if (editorIntentScheduled || editorPrefetch || typeof window === 'undefined') return;
   const host = window as EditorIntentHost;
   // Only the Electron main process emits the window-shown handshake, so
   // requiring it here excluded every relay-served browser and phone from this
@@ -111,10 +112,12 @@ export function scheduleEditorPanePrefetch(): void {
   if (nativeWindow && host.__mixdogWindowShown !== true) return;
   editorIntentScheduled = true;
   const start = () => {
-    void prefetchEditorPane().catch(() => { editorIntentScheduled = false; });
+    void prefetchEditorPane().catch(() => {
+      editorIntentScheduled = false;
+    });
   };
   window.setTimeout(() => {
-    if (typeof host.requestIdleCallback === "function") {
+    if (typeof host.requestIdleCallback === 'function') {
       host.requestIdleCallback(start, { timeout: 1_000 });
     } else window.setTimeout(start, 0);
   }, EDITOR_INTENT_QUIET_MS);

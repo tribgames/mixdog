@@ -8,11 +8,15 @@ test('concurrent answers dispatch once and completion cannot erase a replacement
   let sent = 0;
   const service = createBrowserDialogReport({
     diagnostics: () => record,
-    cdp: { call: async (_guest, _method, _params, _signal, options) => {
-      options.beforeDispatch();
-      sent++;
-      await new Promise(resolve => { finish = resolve; });
-    } },
+    cdp: {
+      call: async (_guest, _method, _params, _signal, options) => {
+        options.beforeDispatch();
+        sent++;
+        await new Promise((resolve) => {
+          finish = resolve;
+        });
+      },
+    },
   });
   const first = service.handleDialog({}, true, '');
   await assert.rejects(service.handleDialog({}, false, ''), /already being answered/);

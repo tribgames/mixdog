@@ -15,7 +15,9 @@ const sha = 'a'.repeat(40);
 const repo = 'owner/project';
 const deferred = () => {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 };
 const responseFor = (command) => {
@@ -25,21 +27,39 @@ const responseFor = (command) => {
 
 test('every supported operation executes through a bounded, non-interactive request', async () => {
   const examples = {
-    'repo.list': {}, 'repo.view': {}, 'repo.create': { visibility: 'private' },
-    'repo.fork': {}, 'issue.list': {}, 'issue.view': { number: 7 },
-    'issue.comments': { number: 7 }, 'issue.create': { title: '새 이슈', body: '설명' },
+    'repo.list': {},
+    'repo.view': {},
+    'repo.create': { visibility: 'private' },
+    'repo.fork': {},
+    'issue.list': {},
+    'issue.view': { number: 7 },
+    'issue.comments': { number: 7 },
+    'issue.create': { title: '새 이슈', body: '설명' },
     'issue.edit': { number: 7, labels: ['bug'], assignees: ['owner'] },
-    'issue.close': { number: 7 }, 'issue.reopen': { number: 7 }, 'issue.comment': { number: 7, body: '댓글' },
-    'pr.list': {}, 'pr.view': { number: 7 }, 'pr.create': { title: 'PR', head: 'topic', base: 'main', draft: true },
-    'pr.checkout': { number: 7 }, 'pr.merge': { number: 7, sha },
+    'issue.close': { number: 7 },
+    'issue.reopen': { number: 7 },
+    'issue.comment': { number: 7, body: '댓글' },
+    'pr.list': {},
+    'pr.view': { number: 7 },
+    'pr.create': { title: 'PR', head: 'topic', base: 'main', draft: true },
+    'pr.checkout': { number: 7 },
+    'pr.merge': { number: 7, sha },
     'pr.review': { number: 7, sha, event: 'REQUEST_CHANGES', body: '수정 요청' },
-    'pr.comment': { number: 7, body: '설명' }, 'pr.comments': { number: 7 },
-    'workflow.list': {}, 'workflow.run': { workflow: 'test.yml', ref: 'main', inputs: { version: '1' } },
-    'run.list': {}, 'run.view': { id: 42 }, 'run.logs': { id: 42, failed: true },
-    'run.rerun': { id: 42, failed: true }, 'run.cancel': { id: 42 },
-    'release.list': {}, 'release.view': { id: 42 },
+    'pr.comment': { number: 7, body: '설명' },
+    'pr.comments': { number: 7 },
+    'workflow.list': {},
+    'workflow.run': { workflow: 'test.yml', ref: 'main', inputs: { version: '1' } },
+    'run.list': {},
+    'run.view': { id: 42 },
+    'run.logs': { id: 42, failed: true },
+    'run.rerun': { id: 42, failed: true },
+    'run.cancel': { id: 42 },
+    'release.list': {},
+    'release.view': { id: 42 },
     'release.create': { tag: 'v1.0', title: 'Version 1', draft: true },
-    'release.edit': { id: 42, draft: false }, 'notification.list': {}, 'notification.read': { id: 42 },
+    'release.edit': { id: 42, draft: false },
+    'notification.list': {},
+    'notification.read': { id: 42 },
   };
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-github-'));
   examples['repo.clone'] = { destination: join(directory, 'new-repo') };
@@ -48,7 +68,10 @@ test('every supported operation executes through a bounded, non-interactive requ
     for (const [action, fields] of Object.entries(examples)) {
       const calls = [];
       const result = await executeGithubRequest({ action, repo, ...fields }, cwd, {
-        run: async (command) => { calls.push(command); return responseFor(command); },
+        run: async (command) => {
+          calls.push(command);
+          return responseFor(command);
+        },
       });
       assert.equal(result.action, action);
       assert.equal(calls.length, 1, action);
@@ -58,7 +81,9 @@ test('every supported operation executes through a bounded, non-interactive requ
       }
       assert.equal(_isMutationTool('github', { action }), githubRequestMutates({ action }), action);
     }
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('invalid requests cannot launch a process or smuggle API/CLI flags', async () => {
@@ -81,9 +106,17 @@ test('invalid requests cannot launch a process or smuggle API/CLI flags', async 
     { action: 'repo.create', visibility: 'private' },
     { action: 'repo.clone', repo, destination: '.' },
   ]) {
-    await assert.rejects(() => executeGithubRequest(input, cwd, {
-      run: async () => { calls++; return '{}'; },
-    }), undefined, JSON.stringify(input));
+    await assert.rejects(
+      () =>
+        executeGithubRequest(input, cwd, {
+          run: async () => {
+            calls++;
+            return '{}';
+          },
+        }),
+      undefined,
+      JSON.stringify(input)
+    );
   }
   assert.equal(calls, 0);
   assert.equal(githubRequestMutates({ action: 'unknown' }), true);
@@ -113,7 +146,10 @@ test('workflow-filtered run lists execute once without a failed unfiltered reque
     assert.deepEqual(result.data, [{ id: 42 }]);
     assert.equal(result.page, 2);
   }
-  assert.equal(buildGithubCommand({ action: 'run.list', repo }).args[1], `repos/${repo}/actions/runs?per_page=30&page=1`);
+  assert.equal(
+    buildGithubCommand({ action: 'run.list', repo }).args[1],
+    `repos/${repo}/actions/runs?per_page=30&page=1`
+  );
   assert.throws(() => validateGithubRequest({ action: 'run.list', repo, state: 'all' }), /Unsupported field/);
 });
 
@@ -132,7 +168,11 @@ test('repo inference binds the write to the resolved Project repository', async 
 
 test('issues paginate on the original page even when it only contains pull requests', async () => {
   const result = await executeGithubRequest({ action: 'issue.list', repo, page: 3, limit: 2 }, cwd, {
-    run: async () => JSON.stringify([{ id: 1, pull_request: {} }, { id: 2, pull_request: {} }]),
+    run: async () =>
+      JSON.stringify([
+        { id: 1, pull_request: {} },
+        { id: 2, pull_request: {} },
+      ]),
   });
   assert.deepEqual(result.data, []);
   assert.equal(result.page, 3);
@@ -146,7 +186,11 @@ test('writes serialize; a failed write is never replayed and does not poison the
   const run = async (command) => {
     const title = JSON.parse(command.input).title;
     order.push(title);
-    if (title === 'first') { started.resolve(); await first.promise; throw new Error('connection lost'); }
+    if (title === 'first') {
+      started.resolve();
+      await first.promise;
+      throw new Error('connection lost');
+    }
     return '{"number":8}';
   };
   const a = executeGithubRequest({ action: 'issue.create', repo, title: 'first' }, cwd, { run });
@@ -163,23 +207,40 @@ test('writes serialize; a failed write is never replayed and does not poison the
 test('cancelled and existing-destination requests leave files and remote state untouched', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-github-protected-'));
   let calls = 0;
-  const run = async () => { calls++; return ''; };
+  const run = async () => {
+    calls++;
+    return '';
+  };
   try {
-    await assert.rejects(executeGithubRequest({ action: 'repo.clone', repo, destination: directory }, cwd, { run }), /already exists/);
+    await assert.rejects(
+      executeGithubRequest({ action: 'repo.clone', repo, destination: directory }, cwd, { run }),
+      /already exists/
+    );
     const controller = new AbortController();
     controller.abort();
-    await assert.rejects(executeGithubRequest({ action: 'issue.list', repo }, cwd, { run, abortSignal: controller.signal }), /cancelled/);
+    await assert.rejects(
+      executeGithubRequest({ action: 'issue.list', repo }, cwd, { run, abortSignal: controller.signal }),
+      /cancelled/
+    );
     assert.equal(calls, 0);
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('merge refusal and unreadable write responses are errors, not successful actions', async () => {
-  await assert.rejects(executeGithubRequest({ action: 'pr.merge', repo, number: 7, sha }, cwd, {
-    run: async () => '{"merged":false,"message":"Head changed"}',
-  }), /Head changed/);
-  await assert.rejects(executeGithubRequest({ action: 'issue.create', repo, title: 'X' }, cwd, {
-    run: async () => 'not-json',
-  }), /do not replay/);
+  await assert.rejects(
+    executeGithubRequest({ action: 'pr.merge', repo, number: 7, sha }, cwd, {
+      run: async () => '{"merged":false,"message":"Head changed"}',
+    }),
+    /Head changed/
+  );
+  await assert.rejects(
+    executeGithubRequest({ action: 'issue.create', repo, title: 'X' }, cwd, {
+      run: async () => 'not-json',
+    }),
+    /do not replay/
+  );
 });
 
 test('the agent tool is registered and returns the ordinary builtin text/error contract', async () => {
@@ -208,12 +269,20 @@ test('two clones cannot claim the same new destination, even for different repos
   let executions = 0;
   const destination = join(directory, 'clone');
   try {
-    const results = await Promise.allSettled(['owner/one', 'owner/two'].map((source) =>
-      executeGithubRequest({ action: 'repo.clone', repo: source, destination }, cwd, {
-        run: async () => { executions++; return 'cloned'; },
-      })));
+    const results = await Promise.allSettled(
+      ['owner/one', 'owner/two'].map((source) =>
+        executeGithubRequest({ action: 'repo.clone', repo: source, destination }, cwd, {
+          run: async () => {
+            executions++;
+            return 'cloned';
+          },
+        })
+      )
+    );
     assert.equal(executions, 1);
     assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
     assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

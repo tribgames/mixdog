@@ -12,12 +12,19 @@ export function createSessionJobs(waitMs = 6_000) {
     },
     assertClear(): void {
       if (unconfirmed.size) {
-        throw new Error('privileged_worker_cleanup_unconfirmed: new input is blocked until the elevated worker is stopped and the desktop host is restarted');
+        throw new Error(
+          'privileged_worker_cleanup_unconfirmed: new input is blocked until the elevated worker is stopped and the desktop host is restarted'
+        );
       }
     },
     begin(sessionId: string, cancel: () => void) {
       let resolve!: (confirmed: boolean) => void;
-      const job: Job = { cancel, settled: new Promise((done) => { resolve = done; }) };
+      const job: Job = {
+        cancel,
+        settled: new Promise((done) => {
+          resolve = done;
+        }),
+      };
       const jobs = sessions.get(sessionId) || new Set<Job>();
       jobs.add(job);
       sessions.set(sessionId, jobs);
@@ -38,7 +45,11 @@ export function createSessionJobs(waitMs = 6_000) {
       const jobs = [...(sessions.get(sessionId) || [])];
       let signalled = true;
       for (const job of jobs) {
-        try { job.cancel(); } catch { signalled = false; }
+        try {
+          job.cancel();
+        } catch {
+          signalled = false;
+        }
       }
       if (!signalled) return false;
       if (!jobs.length) return true;
@@ -46,7 +57,9 @@ export function createSessionJobs(waitMs = 6_000) {
       try {
         return await Promise.race([
           Promise.all(jobs.map((job) => job.settled)).then((results) => results.every(Boolean)),
-          new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), waitMs); }),
+          new Promise<boolean>((resolve) => {
+            timer = setTimeout(() => resolve(false), waitMs);
+          }),
         ]);
       } finally {
         if (timer) clearTimeout(timer);

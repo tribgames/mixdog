@@ -1,7 +1,4 @@
-import {
-  formatRemoteByteReport,
-  type RemoteByteReport,
-} from '../shared/remote-performance';
+import { formatRemoteByteReport, type RemoteByteReport } from '../shared/remote-performance';
 
 export type RemotePerformanceInfoWriter = (message: string) => void;
 
@@ -11,7 +8,7 @@ export function writeRemotePerformanceInfo(message: string): void {
 
 export function reportRemoteByteWindow(
   report: RemoteByteReport,
-  write: RemotePerformanceInfoWriter = writeRemotePerformanceInfo,
+  write: RemotePerformanceInfoWriter = writeRemotePerformanceInfo
 ): void {
   write(formatRemoteByteReport(report));
 }
@@ -19,11 +16,13 @@ export function reportRemoteByteWindow(
 export function reportRemoteFirstTranscript(
   elapsedMs: number,
   bytes: number,
-  write: RemotePerformanceInfoWriter = writeRemotePerformanceInfo,
+  write: RemotePerformanceInfoWriter = writeRemotePerformanceInfo
 ): void {
-  write('[mixdog-remote-first-transcript]'
-    + ` ms=${Math.max(0, Math.round(elapsedMs))}`
-    + ` payload=${Math.round(Math.max(0, bytes) / 1024)}KB`);
+  write(
+    '[mixdog-remote-first-transcript]' +
+      ` ms=${Math.max(0, Math.round(elapsedMs))}` +
+      ` payload=${Math.round(Math.max(0, bytes) / 1024)}KB`
+  );
 }
 
 export function createRemoteCallStats({
@@ -56,17 +55,20 @@ export function createRemoteCallStats({
       const windowMs = current - since;
       if (windowMs < reportWindowMs) return;
       const busiest = [...stats.entries()]
-        .sort((left, right) => (right[1].rx + right[1].tx) - (left[1].rx + left[1].tx)
-          || right[1].calls - left[1].calls)
+        .sort((left, right) => right[1].rx + right[1].tx - (left[1].rx + left[1].tx) || right[1].calls - left[1].calls)
         .slice(0, 8)
-        .map(([entryName, entry]) => `${entryName}=${entry.calls}x/${Math.round(entry.ms)}ms`
-          + `/rx-box=${entry.rx}B/tx-routed=${entry.tx}B`);
+        .map(
+          ([entryName, entry]) =>
+            `${entryName}=${entry.calls}x/${Math.round(entry.ms)}ms` + `/rx-box=${entry.rx}B/tx-routed=${entry.tx}B`
+        );
       const calls = [...stats.values()].reduce((total, entry) => total + entry.calls, 0);
-      write(`[mixdog-remote-calls] ${Math.round(windowMs / 1000)}s calls=${calls}`
-        + ` | ${busiest.join(' ')}`);
+      write(`[mixdog-remote-calls] ${Math.round(windowMs / 1000)}s calls=${calls}` + ` | ${busiest.join(' ')}`);
       stats.clear();
       since = null;
     },
-    clear(): void { stats.clear(); since = null; },
+    clear(): void {
+      stats.clear();
+      since = null;
+    },
   };
 }

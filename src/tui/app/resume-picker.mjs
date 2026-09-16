@@ -7,12 +7,7 @@
  * verbatim, with closure identifiers (store, surface, and the two session
  * formatters from projects.mjs) threaded in through the factory argument.
  */
-export function createResumePicker({
-  store,
-  surface,
-  formatSessionUpdatedAt,
-  formatSessionMessageCount,
-}) {
+export function createResumePicker({ store, surface, formatSessionUpdatedAt, formatSessionMessageCount }) {
   const openResumePicker = async () => {
     // Surface claim (panel-surface.mjs): the storage rescan below is slow, so
     // Esc can easily land before this panel ever paints.
@@ -33,8 +28,12 @@ export function createResumePicker({
       return;
     }
     const items = sessions.map((s) => {
-      const preview = String(s.preview || '').replace(/\n/g, ' ').trim();
-      const title = String(s.title || '').replace(/\s+/g, ' ').trim();
+      const preview = String(s.preview || '')
+        .replace(/\n/g, ' ')
+        .trim();
+      const title = String(s.title || '')
+        .replace(/\s+/g, ' ')
+        .trim();
       const count = formatSessionMessageCount(s.messageCount);
       return {
         value: s.id,
@@ -53,8 +52,11 @@ export function createResumePicker({
         const resumedName = String(selected?.title || selected?.preview || value)
           .replace(/\s+/g, ' ')
           .trim();
-        void store.resume(value)
-          .then(ok => store.pushNotice(ok ? `Resumed ${resumedName || value}` : 'Couldn’t resume chat.', ok ? 'info' : 'warn'))
+        void store
+          .resume(value)
+          .then((ok) =>
+            store.pushNotice(ok ? `Resumed ${resumedName || value}` : 'Couldn’t resume chat.', ok ? 'info' : 'warn')
+          )
           .catch((e) => store.pushNotice(`Couldn’t resume chat: ${e?.message || e}`, 'error'));
       },
       onCancel: () => {

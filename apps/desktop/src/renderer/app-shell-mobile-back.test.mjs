@@ -1,41 +1,46 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import React, { act } from "react";
-import { createRoot } from "react-dom/client";
-import { JSDOM } from "jsdom";
-import { useAppMobileBack } from "./app-shell-mobile-back.ts";
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { JSDOM } from 'jsdom';
+import { useAppMobileBack } from './app-shell-mobile-back.ts';
 
 function afterPopState(dom, trigger) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      dom.window.removeEventListener("popstate", once);
-      reject(new Error("popstate never arrived"));
+      dom.window.removeEventListener('popstate', once);
+      reject(new Error('popstate never arrived'));
     }, 2_000);
     function once() {
       clearTimeout(timer);
-      dom.window.removeEventListener("popstate", once);
+      dom.window.removeEventListener('popstate', once);
       setTimeout(resolve, 0);
     }
-    dom.window.addEventListener("popstate", once);
+    dom.window.addEventListener('popstate', once);
     trigger();
   });
 }
 
-test("useAppMobileBack opens each layer, re-renders with fresh callbacks without extra pop/push, and preserves quickAccessMode transitions", async () => {
-  const dom = new JSDOM("<!doctype html><div id=\"root\"></div>", {
-    url: "https://mixdog.test/",
+test('useAppMobileBack opens each layer, re-renders with fresh callbacks without extra pop/push, and preserves quickAccessMode transitions', async () => {
+  const dom = new JSDOM('<!doctype html><div id="root"></div>', {
+    url: 'https://mixdog.test/',
   });
-  dom.window.document.documentElement.setAttribute("data-mixdog-mobile-tabs", "");
+  dom.window.document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
 
-  const prior = new Map(["window", "document", "history", "IS_REACT_ACT_ENVIRONMENT"].map((key) =>
-    [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  const prior = new Map(
+    ['window', 'document', 'history', 'IS_REACT_ACT_ENVIRONMENT'].map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(globalThis, key),
+    ])
+  );
 
   for (const [key, value] of Object.entries({
     window: dom.window,
     document: dom.window.document,
     history: dom.window.history,
     IS_REACT_ACT_ENVIRONMENT: true,
-  })) Object.defineProperty(globalThis, key, { configurable: true, value });
+  }))
+    Object.defineProperty(globalThis, key, { configurable: true, value });
 
   let pushStateCount = 0;
   let backCount = 0;
@@ -69,7 +74,7 @@ test("useAppMobileBack opens each layer, re-renders with fresh callbacks without
     pendingUnsavedClose: false,
     cancelPendingTabClose: () => {},
     updateDialogOpen: false,
-    updaterState: { status: "idle" },
+    updaterState: { status: 'idle' },
     closeDesktopUpdate: () => {},
   };
 
@@ -78,7 +83,7 @@ test("useAppMobileBack opens each layer, re-renders with fresh callbacks without
     return null;
   }
 
-  const root = createRoot(dom.window.document.getElementById("root"));
+  const root = createRoot(dom.window.document.getElementById('root'));
   try {
     // 1. Initial mount with everything closed: no pushes
     await act(async () => {
@@ -93,11 +98,11 @@ test("useAppMobileBack opens each layer, re-renders with fresh callbacks without
       { bottomPanelOpen: true },
       { focusedPaneDockOpen: true },
       { settingsOpen: true },
-      { commandSurface: "context" },
+      { commandSurface: 'context' },
       { onboardingOpen: true },
-      { quickAccessMode: "commands" },
+      { quickAccessMode: 'commands' },
       { pendingUnsavedClose: true },
-      { updateDialogOpen: true, updaterState: { status: "ready" } },
+      { updateDialogOpen: true, updaterState: { status: 'ready' } },
     ];
 
     let currentOpenProps = { ...defaultProps };
@@ -118,22 +123,24 @@ test("useAppMobileBack opens each layer, re-renders with fresh callbacks without
     const backBeforeRerender = backCount;
 
     await act(async () => {
-      root.render(React.createElement(TestHarness, {
-        ...currentOpenProps,
-        applySidebarOpen: () => {},
-        setBottomPanelOpen: () => {},
-        closeFocusedPaneDock: () => {},
-        setSettingsOpen: () => {},
-        closeCommandSurface: () => {},
-        setOnboardingOpen: () => {},
-        closeQuickAccess: () => {},
-        cancelPendingTabClose: () => {},
-        closeDesktopUpdate: () => {},
-      }));
+      root.render(
+        React.createElement(TestHarness, {
+          ...currentOpenProps,
+          applySidebarOpen: () => {},
+          setBottomPanelOpen: () => {},
+          closeFocusedPaneDock: () => {},
+          setSettingsOpen: () => {},
+          closeCommandSurface: () => {},
+          setOnboardingOpen: () => {},
+          closeQuickAccess: () => {},
+          cancelPendingTabClose: () => {},
+          closeDesktopUpdate: () => {},
+        })
+      );
     });
 
-    assert.equal(pushStateCount, pushesBeforeRerender, "Re-render with fresh closures must not re-push history");
-    assert.equal(backCount, backBeforeRerender, "Re-render with fresh closures must not trigger history.back");
+    assert.equal(pushStateCount, pushesBeforeRerender, 'Re-render with fresh closures must not re-push history');
+    assert.equal(backCount, backBeforeRerender, 'Re-render with fresh closures must not trigger history.back');
 
     // 4. Test quickAccessMode transition (e.g. from "commands" to "files")
     // Changing quickAccessMode unregisters the previous mode (invoking history.back())
@@ -141,17 +148,24 @@ test("useAppMobileBack opens each layer, re-renders with fresh callbacks without
     // Register listener before the transition to avoid racing the popstate event.
     await afterPopState(dom, () => {
       act(() => {
-        root.render(React.createElement(TestHarness, {
-          ...currentOpenProps,
-          quickAccessMode: "files",
-        }));
+        root.render(
+          React.createElement(TestHarness, {
+            ...currentOpenProps,
+            quickAccessMode: 'files',
+          })
+        );
       });
     });
 
-    assert.ok(backCount > backBeforeRerender, "quickAccessMode transition should pop previous mode sentinel");
-    assert.ok(pushStateCount > pushesBeforeRerender, "quickAccessMode transition should push new mode sentinel after popstate echo");
+    assert.ok(backCount > backBeforeRerender, 'quickAccessMode transition should pop previous mode sentinel');
+    assert.ok(
+      pushStateCount > pushesBeforeRerender,
+      'quickAccessMode transition should push new mode sentinel after popstate echo'
+    );
   } finally {
-    await act(async () => { root.unmount(); });
+    await act(async () => {
+      root.unmount();
+    });
     dom.window.close();
     for (const [key, descriptor] of prior) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
@@ -159,5 +173,3 @@ test("useAppMobileBack opens each layer, re-renders with fresh callbacks without
     }
   }
 });
-
-

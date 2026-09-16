@@ -67,10 +67,7 @@ export const desktopUpdater = {
   },
 };
 
-export function startAutoUpdater(
-  stop: () => Promise<void> = async () => {},
-  report?: UpdaterLog,
-): void {
+export function startAutoUpdater(stop: () => Promise<void> = async () => {}, report?: UpdaterLog): void {
   if (controller || checkInterval || startPromise) return;
   if (!app.isPackaged || process.env.ELECTRON_RENDERER_URL) {
     // Dev/unpackaged builds silently disable updates; the state is already

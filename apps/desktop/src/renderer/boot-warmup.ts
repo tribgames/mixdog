@@ -54,11 +54,13 @@ const INPUT_QUIET_MS = 300;
 let lastInputAt = 0;
 let inputListening = false;
 function listenForInput(): void {
-  if (inputListening || typeof window === "undefined") return;
+  if (inputListening || typeof window === 'undefined') return;
   inputListening = true;
-  const note = () => { lastInputAt = Date.now(); };
-  window.addEventListener("keydown", note, { capture: true, passive: true });
-  window.addEventListener("pointerdown", note, { capture: true, passive: true });
+  const note = () => {
+    lastInputAt = Date.now();
+  };
+  window.addEventListener('keydown', note, { capture: true, passive: true });
+  window.addEventListener('pointerdown', note, { capture: true, passive: true });
 }
 
 const pending: BootWarmupTask[] = [];
@@ -66,9 +68,8 @@ let armed = false;
 let running = false;
 let idleHandle: number | null = null;
 let gapHandle: number | null = null;
-let host: IdleHost = typeof window === "undefined"
-  ? { setTimeout: () => 0, clearTimeout: () => {} }
-  : window as unknown as IdleHost;
+let host: IdleHost =
+  typeof window === 'undefined' ? { setTimeout: () => 0, clearTimeout: () => {} } : (window as unknown as IdleHost);
 
 function nextTask(): BootWarmupTask | undefined {
   if (pending.length === 0) return undefined;
@@ -82,9 +83,9 @@ function nextTask(): BootWarmupTask | undefined {
 function publishDrained(): void {
   // Probe hook: the boot-scenario harness waits for a drained lane before it
   // measures menu entry, so it times a WARM app rather than the warm-up.
-  if (typeof window === "undefined") return;
-  (window as unknown as { __mixdogBootWarmupDrained?: boolean })
-    .__mixdogBootWarmupDrained = armed && !running && pending.length === 0;
+  if (typeof window === 'undefined') return;
+  (window as unknown as { __mixdogBootWarmupDrained?: boolean }).__mixdogBootWarmupDrained =
+    armed && !running && pending.length === 0;
 }
 
 function pump(): void {
@@ -117,13 +118,13 @@ function pump(): void {
         pump();
       }, TASK_GAP_MS);
     };
-    if (outcome && typeof (outcome as Promise<unknown>).then === "function") {
+    if (outcome && typeof (outcome as Promise<unknown>).then === 'function') {
       (outcome as Promise<unknown>).then(settle, settle);
     } else {
       settle();
     }
   };
-  if (typeof host.requestIdleCallback === "function") {
+  if (typeof host.requestIdleCallback === 'function') {
     idleHandle = host.requestIdleCallback(onIdle, { timeout: IDLE_TIMEOUT_MS });
   } else {
     idleHandle = host.setTimeout(onIdle, 50);

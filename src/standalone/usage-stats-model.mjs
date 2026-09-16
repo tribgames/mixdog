@@ -241,11 +241,13 @@ function foldRollupDay(state, key, day, conversationOnly) {
       cacheRead: num(route.cacheRead),
       cacheWrite: num(route.cacheWrite),
       costUsd: num(route.costUsd),
-      costKnownTurns: route.costKnownTurns == null
-        ? (num(route.costUsd) > 0 ? num(route.turns) : 0) : num(route.costKnownTurns),
+      costKnownTurns:
+        route.costKnownTurns == null ? (num(route.costUsd) > 0 ? num(route.turns) : 0) : num(route.costKnownTurns),
       costBilled: num(route.costBilled),
-      costEstimated: route.costEstimated == null
-        ? Math.max(0, num(route.costUsd) - num(route.costBilled)) : num(route.costEstimated),
+      costEstimated:
+        route.costEstimated == null
+          ? Math.max(0, num(route.costUsd) - num(route.costBilled))
+          : num(route.costEstimated),
       sessions: route.sessions,
       sessionsComplete: route.sessionsComplete,
       unmeasuredTurns: num(route.unmeasuredTurns),
@@ -283,8 +285,8 @@ function foldEvent(state, key, event, conversationOnly) {
   const cacheWrite = num(event?.cacheWriteTokens);
   const sessionId = conversation ? text(event?.sessionId) : '';
   const costSource = text(event?.costSource);
-  const priced = event?.costUsd != null && Number.isFinite(Number(event.costUsd))
-    && !['', 'none', 'unpriced'].includes(costSource);
+  const priced =
+    event?.costUsd != null && Number.isFinite(Number(event.costUsd)) && !['', 'none', 'unpriced'].includes(costSource);
   const usage = {
     turns: 1,
     // Same normalization the rollup applies: a provider that reports the whole
@@ -332,9 +334,7 @@ function collect({ events, rollupDays, historyDays, window, conversationOnly }) 
   // first, so its earliest day is the one arriving half-eaten. Every later day
   // is whole. Naming it here lets the rebuild step below take that one day back
   // without second-guessing the days the store really does cover.
-  const truncatedEventDay = eventsByDay.size
-    ? [...eventsByDay.keys()].sort()[0]
-    : '';
+  const truncatedEventDay = eventsByDay.size ? [...eventsByDay.keys()].sort()[0] : '';
 
   // The rollup owns every day it holds, because it outlives the event cap.
   // firstTs/lastTs say which turns it already contains, so only the events
@@ -354,9 +354,9 @@ function collect({ events, rollupDays, historyDays, window, conversationOnly }) 
     if (firstTs > 0 && lastTs > 0) {
       const extra = group
         ? group.filter((event) => {
-          const ts = Number(event?.ts);
-          return Number.isFinite(ts) && (ts < firstTs || ts > lastTs);
-        })
+            const ts = Number(event?.ts);
+            return Number.isFinite(ts) && (ts < firstTs || ts > lastTs);
+          })
         : [];
       if (extra.length) eventsByDay.set(key, extra);
       else eventsByDay.delete(key);
@@ -416,9 +416,7 @@ function median(values) {
   if (!values.length) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? (sorted[middle - 1] + sorted[middle]) / 2
-    : sorted[middle];
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 }
 
 // "tokens" is everything a turn moved: fresh input, output, and the cached
@@ -491,13 +489,14 @@ export function usageStatsSnapshot({
   source = 'conversation',
 } = {}) {
   const conversationOnly = source !== 'all';
-  const window = period
-    ? { days: period.days, fromMs: period.fromMs, toMs: period.toMs }
-    : resolveWindow(days, now);
+  const window = period ? { days: period.days, fromMs: period.fromMs, toMs: period.toMs } : resolveWindow(days, now);
   const rollupDays = rollup?.days && typeof rollup.days === 'object' ? rollup.days : {};
-  const historyDays = history?.days && typeof history.days === 'object'
-    ? history.days
-    : history && typeof history === 'object' ? history : {};
+  const historyDays =
+    history?.days && typeof history.days === 'object'
+      ? history.days
+      : history && typeof history === 'object'
+        ? history
+        : {};
   const eventList = Array.isArray(events) ? events : [];
   const state = collect({ events: eventList, rollupDays, historyDays, window, conversationOnly });
 
@@ -510,12 +509,8 @@ export function usageStatsSnapshot({
   // Cost per day is read against the calendar span, not the days that happened
   // to have traffic — an idle day still spends nothing and must dilute it.
   const endDay = usageRollupDayKey(window.toMs);
-  const spanDays = firstDay
-    ? calendarDays(firstDay, endDay).length
-    : 0;
-  const effectiveDays = window.days === null
-    ? spanDays
-    : Math.max(1, window.days || 1);
+  const spanDays = firstDay ? calendarDays(firstDay, endDay).length : 0;
+  const effectiveDays = window.days === null ? spanDays : Math.max(1, window.days || 1);
 
   const providers = [...state.providers.values()]
     .map((bucket) => {
@@ -536,7 +531,10 @@ export function usageStatsSnapshot({
   // collected above, so an idle stretch would otherwise vanish and pull the
   // surrounding days together — a fortnight off would read as continuous work.
   // Filling the calendar keeps a quiet day visible as a quiet day.
-  const daily = calendarDays(window.days === null ? firstDay : usageRollupDayKey(window.fromMs), period?.endDay || endDay).map((day) => {
+  const daily = calendarDays(
+    window.days === null ? firstDay : usageRollupDayKey(window.fromMs),
+    period?.endDay || endDay
+  ).map((day) => {
     const bucket = state.daily.get(day);
     const future = period ? { future: day > endDay } : {};
     if (!bucket) {
@@ -597,9 +595,12 @@ export function usageStatsSnapshot({
       cacheTokens,
       totalTokens,
       // How much of the prompt arrived from cache instead of being read again.
-      cacheHitRate: state.unmeasuredTurns > 0 ? null : state.input + state.cacheRead + state.cacheWrite > 0
-        ? round(state.cacheRead / (state.input + state.cacheRead + state.cacheWrite), 4)
-        : 0,
+      cacheHitRate:
+        state.unmeasuredTurns > 0
+          ? null
+          : state.input + state.cacheRead + state.cacheWrite > 0
+            ? round(state.cacheRead / (state.input + state.cacheRead + state.cacheWrite), 4)
+            : 0,
       costUsd: round(state.costUsd, 6),
       costKnownTurns: state.costKnownTurns,
       costUnpricedTurns: Math.max(0, state.turns - state.costKnownTurns),
@@ -608,22 +609,18 @@ export function usageStatsSnapshot({
       costBilled: round(state.costBilled, 6),
       costEstimated: round(state.costEstimated, 6),
       costPerDay: effectiveDays > 0 ? round(state.costUsd / effectiveDays, 6) : 0,
-      tokensPerSession: sessionTotals.length
-        ? Math.round(totalTokens / sessionTotals.length)
-        : 0,
+      tokensPerSession: sessionTotals.length ? Math.round(totalTokens / sessionTotals.length) : 0,
       medianTokensPerSession: Math.round(median(sessionTotals)),
-      avgDurationMs: state.durationTurns > 0
-        ? Math.round(state.durationMs / state.durationTurns)
-        : 0,
+      avgDurationMs: state.durationTurns > 0 ? Math.round(state.durationMs / state.durationTurns) : 0,
       // 1 = every turn carries a real price; below that some rows are unpriced.
       costCoverage: state.turns > 0 ? round(state.costKnownTurns / state.turns, 4) : 0,
     },
     previous: prior
       ? {
-        turns: prior.turns,
-        tokens: tokensOf(prior),
-        costUsd: round(prior.costUsd, 6),
-      }
+          turns: prior.turns,
+          tokens: tokensOf(prior),
+          costUsd: round(prior.costUsd, 6),
+        }
       : null,
     daily,
     providers,

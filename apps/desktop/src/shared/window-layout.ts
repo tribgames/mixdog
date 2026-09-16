@@ -6,10 +6,7 @@ export const DESKTOP_SIDEBAR_DEFAULT_WIDTH = DESKTOP_SIDEBAR_MIN_WIDTH;
 export const DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH = DESKTOP_UTILITY_DOCK_MIN_WIDTH;
 
 export function clampDesktopPanelWidth(value: number, minWidth: number, maxWidth: number): number {
-  return Math.min(maxWidth, Math.max(
-    minWidth,
-    Math.round(Number.isFinite(value) ? value : minWidth),
-  ));
+  return Math.min(maxWidth, Math.max(minWidth, Math.round(Number.isFinite(value) ? value : minWidth)));
 }
 
 /* The native desktop remains fully responsive when its real window narrows.

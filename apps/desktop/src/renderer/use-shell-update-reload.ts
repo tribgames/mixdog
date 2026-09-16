@@ -9,10 +9,10 @@
 // A reload throws the DOM away, so it waits for a moment where that costs
 // nothing: no turn in flight, nothing half-typed, and either an app that is
 // off screen or a short pause in use.
-import { useEffect, useRef } from "react";
-import { subscribeShellUpdate } from "./shell-update-state";
+import { useEffect, useRef } from 'react';
+import { subscribeShellUpdate } from './shell-update-state';
 
-export { SHELL_UPDATE_MESSAGE } from "./shell-update-state";
+export { SHELL_UPDATE_MESSAGE } from './shell-update-state';
 
 /** How long the app has to sit untouched before a reload interrupts a VISIBLE
  *  screen. Off screen there is nothing to interrupt. */
@@ -54,18 +54,21 @@ export function shellReloadDelay({
 /** Unsent text, not merely focus: a phone leaves focus parked in the composer
  *  when the app goes to the background, and an empty composer loses nothing. */
 function editingUnsentText(): boolean {
-  const active = typeof document === "undefined" ? null : document.activeElement;
+  const active = typeof document === 'undefined' ? null : document.activeElement;
   if (!active) return false;
   if (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) {
     return active.value.trim().length > 0;
   }
   if (active instanceof HTMLElement && active.isContentEditable) {
-    return (active.textContent ?? "").trim().length > 0;
+    return (active.textContent ?? '').trim().length > 0;
   }
   return false;
 }
 
-export function useShellUpdateReload({ busy, reload }: {
+export function useShellUpdateReload({
+  busy,
+  reload,
+}: {
   busy: boolean;
   /** Test seam; defaults to reloading this window. */
   reload?: () => void;
@@ -79,8 +82,8 @@ export function useShellUpdateReload({ busy, reload }: {
 
   useEffect(() => {
     // Electron has no worker, so nothing here ever fires there.
-    if (typeof window === "undefined" || typeof navigator === "undefined") return undefined;
-    if (!("serviceWorker" in navigator)) return undefined;
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return undefined;
+    if (!('serviceWorker' in navigator)) return undefined;
     let timer = 0;
     let settled = false;
 
@@ -90,14 +93,19 @@ export function useShellUpdateReload({ busy, reload }: {
       const delay = shellReloadDelay({
         pending: pending.current,
         busy,
-        hidden: document.visibilityState === "hidden",
+        hidden: document.visibilityState === 'hidden',
         editing: editingUnsentText(),
         idleFor: Date.now() - lastInteraction.current,
       });
       if (delay === null) return;
       if (delay === 0) {
         settled = true;
-        (reloadRef.current ?? (() => { window.location.reload(); }))();
+        (
+          reloadRef.current ??
+          (() => {
+            window.location.reload();
+          })
+        )();
         return;
       }
       timer = window.setTimeout(decide, delay);
@@ -113,11 +121,11 @@ export function useShellUpdateReload({ busy, reload }: {
     };
 
     const unsubscribe = subscribeShellUpdate(onUpdate);
-    document.addEventListener("visibilitychange", decide);
+    document.addEventListener('visibilitychange', decide);
     // Capture: a pause in use is a pause anywhere, including inside surfaces
     // that stop their own events from bubbling.
-    window.addEventListener("pointerdown", onInteraction, true);
-    window.addEventListener("keydown", onInteraction, true);
+    window.addEventListener('pointerdown', onInteraction, true);
+    window.addEventListener('keydown', onInteraction, true);
     // A busy turn that just ended, or a re-mount with an update already
     // pending, decides immediately rather than waiting for the next event.
     decide();
@@ -125,9 +133,9 @@ export function useShellUpdateReload({ busy, reload }: {
       settled = true;
       window.clearTimeout(timer);
       unsubscribe();
-      document.removeEventListener("visibilitychange", decide);
-      window.removeEventListener("pointerdown", onInteraction, true);
-      window.removeEventListener("keydown", onInteraction, true);
+      document.removeEventListener('visibilitychange', decide);
+      window.removeEventListener('pointerdown', onInteraction, true);
+      window.removeEventListener('keydown', onInteraction, true);
     };
   }, [busy]);
 }

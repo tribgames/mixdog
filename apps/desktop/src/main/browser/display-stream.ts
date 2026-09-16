@@ -4,7 +4,7 @@ import type { NativeImage, WebContents } from 'electron';
 import type { BrowserScreenshotCapture } from './screenshot';
 
 export function createBrowserDisplayStream(
-  encode: (image: NativeImage) => BrowserScreenshotCapture | Promise<BrowserScreenshotCapture>,
+  encode: (image: NativeImage) => BrowserScreenshotCapture | Promise<BrowserScreenshotCapture>
 ) {
   type Stream = {
     key: string;
@@ -17,12 +17,15 @@ export function createBrowserDisplayStream(
   };
   const streams = new WeakMap<WebContents, Stream>();
   return async function sample(
-    guest: WebContents, key: string, viewport?: { width: number; height: number },
+    guest: WebContents,
+    key: string,
+    viewport?: { width: number; height: number }
   ): Promise<BrowserScreenshotCapture> {
     let stream = streams.get(guest);
     if (!stream) {
       const entry: Stream = {
-        key, viewport,
+        key,
+        viewport,
         close() {
           clearTimeout(entry.idle);
           guest.removeListener('paint', paint);

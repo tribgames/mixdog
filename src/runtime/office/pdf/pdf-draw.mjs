@@ -24,7 +24,7 @@ export function color(value = '') {
   return rgb(
     Number.parseInt(hex.slice(0, 2), 16) / 255,
     Number.parseInt(hex.slice(2, 4), 16) / 255,
-    Number.parseInt(hex.slice(4, 6), 16) / 255,
+    Number.parseInt(hex.slice(4, 6), 16) / 255
   );
 }
 
@@ -35,11 +35,14 @@ export function pageSize(properties = {}) {
   } else {
     const named = String(properties.pageSize || 'a4').toLowerCase();
     if (!PAGE_SIZES[named]) {
-      throw new Error(`Unknown PDF page size: ${properties.pageSize}; use ${Object.keys(PAGE_SIZES).join(', ')} or [width, height] in points`);
+      throw new Error(
+        `Unknown PDF page size: ${properties.pageSize}; use ${Object.keys(PAGE_SIZES).join(', ')} or [width, height] in points`
+      );
     }
     size = [...PAGE_SIZES[named]];
   }
-  if (!size.every((value) => Number.isFinite(value) && value > 0)) throw new Error('PDF pageSize must be two positive numbers in points');
+  if (!size.every((value) => Number.isFinite(value) && value > 0))
+    throw new Error('PDF pageSize must be two positive numbers in points');
   const landscape = String(properties.orientation || '').toLowerCase() === 'landscape';
   return landscape && size[0] < size[1] ? [size[1], size[0]] : size;
 }
@@ -65,9 +68,12 @@ async function rasterizeSvg(data, imagePath) {
   }
   const width = Number(natural?.width) || 0;
   const height = Number(natural?.height) || 0;
-  if (!width || !height) throw new Error(`PDF needs the SVG to declare its size (width/height or viewBox): ${imagePath}`);
+  if (!width || !height)
+    throw new Error(`PDF needs the SVG to declare its size (width/height or viewBox): ${imagePath}`);
   const scale = Math.max(1, Math.min(SVG_RASTER_SCALE, SVG_RASTER_MAX_PX / width, SVG_RASTER_MAX_PX / height));
-  const png = await sharp(data, { density: Math.round(72 * scale) }).png().toBuffer();
+  const png = await sharp(data, { density: Math.round(72 * scale) })
+    .png()
+    .toBuffer();
   return { png, width, height };
 }
 

@@ -39,39 +39,39 @@ configureRuntimeLiveness({ loadSession, saveSessionAsync });
 // External importers (loop.mjs, loop/tool-exec.mjs, agent-dispatch.mjs,
 // abort-lookup.mjs, statusline-agents.mjs) resolve these through manager.mjs.
 export {
-    updateSessionStage,
-    markSessionAskStart,
-    markSessionStreamDelta,
-    markSessionToolCall,
-    markSessionToolOutputTail,
-    markSessionDone,
-    markSessionEmptyFinal,
-    markSessionError,
-    markSessionCancelled,
-    getSessionRuntime,
-    isSessionCompactionBlocked,
-    getSessionProgressSnapshot,
-    forEachSessionRuntime,
-    hideSessionFromList,
-    getSessionAbortSignal,
-    getSessionLastProgressAt,
-    linkParentSignalToSession,
+  updateSessionStage,
+  markSessionAskStart,
+  markSessionStreamDelta,
+  markSessionToolCall,
+  markSessionToolOutputTail,
+  markSessionDone,
+  markSessionEmptyFinal,
+  markSessionError,
+  markSessionCancelled,
+  getSessionRuntime,
+  isSessionCompactionBlocked,
+  getSessionProgressSnapshot,
+  forEachSessionRuntime,
+  hideSessionFromList,
+  getSessionAbortSignal,
+  getSessionLastProgressAt,
+  linkParentSignalToSession,
 } from './manager/runtime-liveness.mjs';
 
 // ── Tool resolution / pending messages / prompt utils ─────────────────────
 export { previewSessionTools } from './manager/tool-resolution.mjs';
 export {
-    _mergePendingMessageEntries,
-    enqueuePendingMessage,
-    enqueueRemotePendingMessage,
-    drainForeignUserInjections,
-    drainPendingMessages,
-    // Shutdown drain for runtime hosts (session-runtime-worker calls this
-    // before exit so buffered/in-flight spool writes are never abandoned).
-    settlePendingMessageWrites,
-    markCompletionEntry,
-    COMPLETION_NOTIFICATION_KIND,
-    pendingMessagesSpoolPath,
+  _mergePendingMessageEntries,
+  enqueuePendingMessage,
+  enqueueRemotePendingMessage,
+  drainForeignUserInjections,
+  drainPendingMessages,
+  // Shutdown drain for runtime hosts (session-runtime-worker calls this
+  // before exit so buffered/in-flight spool writes are never abandoned).
+  settlePendingMessageWrites,
+  markCompletionEntry,
+  COMPLETION_NOTIFICATION_KIND,
+  pendingMessagesSpoolPath,
 } from './manager/pending-messages.mjs';
 // Interactive-presence sidecar (idle-open ownership signal for the
 // attach-on-resume guard) — resolved through the manager facade so the
@@ -82,23 +82,23 @@ export { isInternalRuntimeNotificationText as _isInternalRuntimeNotificationText
 // ── Usage-metrics surface — re-exported unchanged so loop.mjs / smoke scripts
 //    keep resolving these through the facade. ────────────────────────────────
 export {
-    bumpUsageMetricsTurnId,
-    resolveUsageMetricsTurnId,
-    bumpUsageMetricsEpoch,
-    resolveUsageMetricsEpoch,
-    usageMetricsSourceKey,
-    usageMetricsIdempotencyKey,
-    applyAskTerminalUsageTotals,
-    persistIterationMetrics,
+  bumpUsageMetricsTurnId,
+  resolveUsageMetricsTurnId,
+  bumpUsageMetricsEpoch,
+  resolveUsageMetricsEpoch,
+  usageMetricsSourceKey,
+  usageMetricsIdempotencyKey,
+  applyAskTerminalUsageTotals,
+  persistIterationMetrics,
 } from './manager/usage-metrics.mjs';
 
 // ── Rules builders — deep importers of the old symbol names resolve here. ──
 export {
-    _buildSharedRules,
-    _buildAgentRules,
-    _buildLeadRules,
-    _buildLeadMetaContext,
-    _buildLeadLanguageContext,
+  _buildSharedRules,
+  _buildAgentRules,
+  _buildLeadRules,
+  _buildLeadMetaContext,
+  _buildLeadLanguageContext,
 } from './manager/rules-cache.mjs';
 
 // ── Session lifecycle / ask / crud / close / cleanup ──────────────────────
@@ -106,30 +106,30 @@ export { SessionClosedError } from './manager/session-errors.mjs';
 export { setAgentRuntime } from './manager/agent-runtime-singleton.mjs';
 export { prewarmAgentLoop } from './manager/runtime-loaders.mjs';
 export {
-    createSession,
-    updateSessionRoute,
-    prefetchSession,
-    prepareSessionProjection,
-    resumeSession,
-    isSessionOwnerGone,
-    recoverSessionAfterProcessRestart,
+  createSession,
+  updateSessionRoute,
+  prefetchSession,
+  prepareSessionProjection,
+  resumeSession,
+  isSessionOwnerGone,
+  recoverSessionAfterProcessRestart,
 } from './manager/session-lifecycle.mjs';
 export { askSession, _api_call_with_interrupt } from './manager/ask-session.mjs';
 export {
-    _sessionMessagesAdvancedBeyondCompactedOutgoing,
-    _applyCompactFailurePersistToSession,
+  _sessionMessagesAdvancedBeyondCompactedOutgoing,
+  _applyCompactFailurePersistToSession,
 } from './manager/message-sanitize.mjs';
 export {
-    getSession,
-    listSessions,
-    findSessionByScopeKey,
-    clearSessionMessages,
-    rewindSessionMessagesTo,
-    compactSessionMessages,
-    updateSessionStatus,
-    updateSessionGeneratedTitle,
-    updateSessionManualTitle,
-    flushSessionMetrics,
+  getSession,
+  listSessions,
+  findSessionByScopeKey,
+  clearSessionMessages,
+  rewindSessionMessagesTo,
+  compactSessionMessages,
+  updateSessionStatus,
+  updateSessionGeneratedTitle,
+  updateSessionManualTitle,
+  flushSessionMetrics,
 } from './manager/session-crud.mjs';
 export { deleteSession, listOwnedAgentSessionIds } from './store.mjs';
 // Read-only parsed-session access (desktop pane peek): no resume, no

@@ -13,9 +13,7 @@ export function validateScheduleCron(value) {
 }
 
 export function resolveScheduleTimezone(value) {
-  const timezone = String(
-    value || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-  ).trim();
+  const timezone = String(value || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC').trim();
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
   } catch {

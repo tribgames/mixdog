@@ -21,10 +21,12 @@ export function fieldWidgets(field, document) {
 }
 
 export function rectanglesOverlap(left, right) {
-  return left.x < right.x + right.width
-    && left.x + left.width > right.x
-    && left.y < right.y + right.height
-    && left.y + left.height > right.y;
+  return (
+    left.x < right.x + right.width &&
+    left.x + left.width > right.x &&
+    left.y < right.y + right.height &&
+    left.y + left.height > right.y
+  );
 }
 
 // A caller places a field the way a PDF reader reports one — a rectangle and a
@@ -62,10 +64,26 @@ export function lintPdfFormFields(fields = [], pages = []) {
   const names = new Set();
   for (const field of normalized) {
     const size = pages[field.page - 1] || [595.28, 841.89];
-    if (!field.name) issues.push({ severity: 'error', code: 'missing_field_name', path: `/field[${field.index}]`, message: 'Form field name is required.' });
-    if (names.has(field.name)) issues.push({ severity: 'error', code: 'duplicate_field_name', path: `/field[${field.index}]`, message: `Duplicate form field name: ${field.name}` });
+    if (!field.name)
+      issues.push({
+        severity: 'error',
+        code: 'missing_field_name',
+        path: `/field[${field.index}]`,
+        message: 'Form field name is required.',
+      });
+    if (names.has(field.name))
+      issues.push({
+        severity: 'error',
+        code: 'duplicate_field_name',
+        path: `/field[${field.index}]`,
+        message: `Duplicate form field name: ${field.name}`,
+      });
     names.add(field.name);
-    if (![field.x, field.y, field.width, field.height].every(Number.isFinite) || field.width <= 0 || field.height <= 0) {
+    if (
+      ![field.x, field.y, field.width, field.height].every(Number.isFinite) ||
+      field.width <= 0 ||
+      field.height <= 0
+    ) {
       issues.push({
         severity: 'error',
         code: 'invalid_field_box',
@@ -75,7 +93,12 @@ export function lintPdfFormFields(fields = [], pages = []) {
         message: `Form field ${field.name || field.index} has no usable box: give x, y, width and height in points from the page's bottom-left corner (or rect: [x, y, width, height]).`,
       });
     } else if (field.x < 0 || field.y < 0 || field.x + field.width > size[0] || field.y + field.height > size[1]) {
-      issues.push({ severity: 'error', code: 'field_outside_page', path: `/field[${field.index}]`, message: `Form field is outside page ${field.page}.` });
+      issues.push({
+        severity: 'error',
+        code: 'field_outside_page',
+        path: `/field[${field.index}]`,
+        message: `Form field is outside page ${field.page}.`,
+      });
     } else {
       // A box a person cannot hit or read: 8 pt squares for marks, 24 x 12 pt for anything typed.
       const mark = ['checkbox', 'radio'].includes(field.type);
@@ -102,7 +125,12 @@ export function lintPdfFormFields(fields = [], pages = []) {
       }
     }
   }
-  return { ok: !issues.some((issue) => issue.severity === 'error'), fields: normalized, issueCount: issues.length, issues };
+  return {
+    ok: !issues.some((issue) => issue.severity === 'error'),
+    fields: normalized,
+    issueCount: issues.length,
+    issues,
+  };
 }
 
 /**
@@ -329,8 +357,8 @@ export function clippedFormValues(document, form, values, font) {
     if (!size) continue;
     // pdf-lib insets a text widget by 2 pt on each side, inside its border.
     const inset = 2 + Number(widget.getBorderStyle?.()?.getWidth?.() ?? 1);
-    const usableWidth = Math.max(1, Number(rectangle.width) - (inset * 2));
-    const usableHeight = Math.max(1, Number(rectangle.height) - (inset * 2));
+    const usableWidth = Math.max(1, Number(rectangle.width) - inset * 2);
+    const usableHeight = Math.max(1, Number(rectangle.height) - inset * 2);
     const multiline = field.isMultiline?.() === true;
     if (!multiline) {
       const needed = font.widthOfTextAtSize(text, size);
@@ -364,7 +392,9 @@ export function fillFormValues(form, values) {
   const entries = Object.entries(values || {});
   const missing = entries.map(([name]) => name).filter((name) => !byName.has(name));
   if (missing.length) {
-    throw new Error(`PDF form has no field named ${missing.join(', ')}; fields: ${[...byName.keys()].join(', ') || '(none)'}`);
+    throw new Error(
+      `PDF form has no field named ${missing.join(', ')}; fields: ${[...byName.keys()].join(', ') || '(none)'}`
+    );
   }
   const filled = [];
   for (const [name, value] of entries) {
@@ -378,7 +408,9 @@ export function fillFormValues(form, values) {
       const wanted = choiceValues(value);
       const unknown = wanted.filter((entry) => !options.includes(entry));
       if (unknown.length && !(kind === 'dropdown' && field.isEditable())) {
-        throw new Error(`Field ${name} has no option ${unknown.join(', ')}; options: ${options.join(', ') || '(none)'}`);
+        throw new Error(
+          `Field ${name} has no option ${unknown.join(', ')}; options: ${options.join(', ') || '(none)'}`
+        );
       }
       if (kind === 'radio') field.select(wanted[0]);
       else if (wanted.length > 1 || kind === 'optionlist') field.select(wanted);

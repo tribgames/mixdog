@@ -12,10 +12,13 @@ const PPTX_CRITIQUE_AXES = Object.freeze(['hierarchy', 'balance', 'legibility', 
 const MIN_CHECKS = 3;
 
 function parseChecks(raw) {
-  return (Array.isArray(raw) ? raw : []).filter(plainObject).map((check) => ({
-    item: String(check.item || check.question || '').trim(),
-    pass: check.pass === true || String(check.answer || '').toLowerCase() === 'yes',
-  })).filter((check) => check.item);
+  return (Array.isArray(raw) ? raw : [])
+    .filter(plainObject)
+    .map((check) => ({
+      item: String(check.item || check.question || '').trim(),
+      pass: check.pass === true || String(check.answer || '').toLowerCase() === 'yes',
+    }))
+    .filter((check) => check.item);
 }
 
 export function reviewPptxVisualCritique({ critique = [], pageCount = 0, requireChecks = false } = {}) {
@@ -40,14 +43,26 @@ export function reviewPptxVisualCritique({ critique = [], pageCount = 0, require
     const note = String(raw.note || '').trim();
     const fixes = strings(raw.fixes);
     const verdict = String(raw.verdict || '').toLowerCase();
-    const validScores = PPTX_CRITIQUE_AXES.every((axis) => Number.isInteger(scores[axis]) && scores[axis] >= 1 && scores[axis] <= 5);
+    const validScores = PPTX_CRITIQUE_AXES.every(
+      (axis) => Number.isInteger(scores[axis]) && scores[axis] >= 1 && scores[axis] <= 5
+    );
     const checks = parseChecks(raw.checks);
     // An anchor (cover, section, closing) carries a statement or a picture, not
     // evidence; its evidence score is recorded but never gates finalize.
-    const role = String(raw.role || '').trim().toLowerCase();
+    const role = String(raw.role || '')
+      .trim()
+      .toLowerCase();
     const anchor = ['anchor', 'cover', 'section', 'closing'].includes(role);
     const gatedAxes = anchor ? PPTX_CRITIQUE_AXES.filter((axis) => axis !== 'evidence') : PPTX_CRITIQUE_AXES;
-    const entry = { slide, verdict, ...scores, note, fixes, ...(role ? { role } : {}), ...(checks.length ? { checks } : {}) };
+    const entry = {
+      slide,
+      verdict,
+      ...scores,
+      note,
+      fixes,
+      ...(role ? { role } : {}),
+      ...(checks.length ? { checks } : {}),
+    };
     entries.push(entry);
     bySlide.set(slide, entry);
     if (!validScores || note.length < 40 || (requireChecks && checks.length < MIN_CHECKS)) {
@@ -60,7 +75,12 @@ export function reviewPptxVisualCritique({ critique = [], pageCount = 0, require
           : 'Visual critique requires five integer scores from 1-5 and a slide-specific note of at least 40 characters.',
         source: 'visual-critique',
       });
-    } else if (verdict !== 'pass' || fixes.length || gatedAxes.some((axis) => scores[axis] < 4) || checks.some((check) => !check.pass)) {
+    } else if (
+      verdict !== 'pass' ||
+      fixes.length ||
+      gatedAxes.some((axis) => scores[axis] < 4) ||
+      checks.some((check) => !check.pass)
+    ) {
       issues.push({
         severity: 'warning',
         code: 'visual_critique_needs_polish',
@@ -84,19 +104,30 @@ export function reviewPptxVisualCritique({ critique = [], pageCount = 0, require
   // A template answer is not a review: one sentence with the slide number swapped
   // in, or the same three questions asked of every slide, says nothing about the
   // page it judges. Both are read past the index so the formula cannot hide.
-  const asTemplate = (value) => String(value || '').toLowerCase().replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
+  const asTemplate = (value) =>
+    String(value || '')
+      .toLowerCase()
+      .replace(/\d+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   const notes = entries.map((entry) => asTemplate(entry.note)).filter(Boolean);
   const repeatedNotes = total > 1 && notes.length === total && new Set(notes).size !== total;
   const checkSets = entries
-    .map((entry) => (entry.checks || []).map((check) => asTemplate(check.item)).sort().join(' | '))
+    .map((entry) =>
+      (entry.checks || [])
+        .map((check) => asTemplate(check.item))
+        .sort()
+        .join(' | ')
+    )
     .filter(Boolean);
   const repeatedChecks = total > 1 && checkSets.length === total && new Set(checkSets).size === 1;
   if (repeatedNotes || repeatedChecks) {
-    const message = repeatedNotes && repeatedChecks
-      ? 'Each slide needs its own critique note and its own checks; this critique repeats one note and one set of questions across the deck.'
-      : repeatedNotes
-        ? 'Each slide needs a distinct visual critique note; changing only the slide number is the same note.'
-        : "Each slide's checks come from its own plan line; every slide here asks the same questions.";
+    const message =
+      repeatedNotes && repeatedChecks
+        ? 'Each slide needs its own critique note and its own checks; this critique repeats one note and one set of questions across the deck.'
+        : repeatedNotes
+          ? 'Each slide needs a distinct visual critique note; changing only the slide number is the same note.'
+          : "Each slide's checks come from its own plan line; every slide here asks the same questions.";
     issues.push({
       severity: 'warning',
       code: 'visual_critique_repeated_note',
@@ -124,11 +155,13 @@ export function pptxVisualReviewAcknowledged({
   coverageComplete = true,
   critiqueOk = false,
 } = {}) {
-  return reviewed === true
-    && Boolean(expectedToken)
-    && String(providedToken || '') === String(expectedToken)
-    && renderedVersion != null
-    && Number(renderedVersion) === Number(snapshotVersion || 0)
-    && coverageComplete === true
-    && critiqueOk === true;
+  return (
+    reviewed === true &&
+    Boolean(expectedToken) &&
+    String(providedToken || '') === String(expectedToken) &&
+    renderedVersion != null &&
+    Number(renderedVersion) === Number(snapshotVersion || 0) &&
+    coverageComplete === true &&
+    critiqueOk === true
+  );
 }

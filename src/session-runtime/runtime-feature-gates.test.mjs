@@ -6,8 +6,11 @@ import { createRuntimeFeatureGates } from './runtime-feature-gates.mjs';
 // MIXDOG_FEATURE_* overrides win over every stored toggle, so a developer
 // environment that sets one must not decide what these gates report.
 const OVERRIDES = [
-  'MIXDOG_FEATURE_WEB_SEARCH', 'MIXDOG_FEATURE_MEMORY', 'MIXDOG_FEATURE_GIT',
-  'MIXDOG_FEATURE_OFFICE', 'MIXDOG_FEATURE_MEDIA',
+  'MIXDOG_FEATURE_WEB_SEARCH',
+  'MIXDOG_FEATURE_MEMORY',
+  'MIXDOG_FEATURE_GIT',
+  'MIXDOG_FEATURE_OFFICE',
+  'MIXDOG_FEATURE_MEDIA',
 ];
 
 function withoutFeatureOverrides(t) {

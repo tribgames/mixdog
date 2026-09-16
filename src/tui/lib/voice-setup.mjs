@@ -99,9 +99,7 @@ function makeThrottledProgressNotice({ pushNotice, setProgressHint } = {}, inter
     const total = Number(progress.total) || 0;
     const downloaded = Number(progress.downloaded) || 0;
     const text = renderProgressBarText(progress.phase, downloaded, total);
-    const percent = total > 0
-      ? Math.max(0, Math.min(100, Math.round((downloaded / total) * 100)))
-      : undefined;
+    const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((downloaded / total) * 100))) : undefined;
     if (typeof setProgressHint === 'function') {
       setProgressHint(text, 'info', percent);
       return;

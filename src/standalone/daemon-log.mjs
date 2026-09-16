@@ -29,8 +29,11 @@ export function createDaemonLog({
 
   async function rotateIfNeeded(incomingBytes) {
     if (fileBytes === null) {
-      try { fileBytes = (await fileSystem.stat(logPath)).size; }
-      catch { fileBytes = 0; }
+      try {
+        fileBytes = (await fileSystem.stat(logPath)).size;
+      } catch {
+        fileBytes = 0;
+      }
     }
     if (fileBytes + incomingBytes <= PLUGIN_LOG_MAX_BYTES) return;
     const keep = Math.min(fileBytes, PLUGIN_LOG_KEEP_BYTES);
@@ -124,7 +127,9 @@ export function createDaemonLog({
     // The spawner mirrors stderr before ready; after ready the daemon owns the
     // file. Each line has exactly one sink across that handoff.
     if (!fileLogging) {
-      try { stderr.write(`${text}\n`); } catch {}
+      try {
+        stderr.write(`${text}\n`);
+      } catch {}
       return;
     }
     append(text);
@@ -140,21 +145,33 @@ export function createDaemonLog({
       stream.write = (chunk, encoding, callback) => {
         const done = typeof encoding === 'function' ? encoding : callback;
         file(chunk);
-        if (typeof done === 'function') { try { done(); } catch {} }
+        if (typeof done === 'function') {
+          try {
+            done();
+          } catch {}
+        }
         return true;
       };
     }
     for (const method of ['log', 'info', 'warn', 'error', 'debug', 'trace']) {
-      consoleTarget[method] = (...args) => file(`[console.${method}] ${args.map((value) =>
-        typeof value === 'string'
-          ? boundedText(value)
-          : boundedText(inspect(value, {
-            depth: 4,
-            maxArrayLength: 50,
-            maxStringLength: 4_096,
-            breakLength: Infinity,
-            compact: true,
-          }))).join(' ')}`);
+      consoleTarget[method] = (...args) =>
+        file(
+          `[console.${method}] ${args
+            .map((value) =>
+              typeof value === 'string'
+                ? boundedText(value)
+                : boundedText(
+                    inspect(value, {
+                      depth: 4,
+                      maxArrayLength: 50,
+                      maxStringLength: 4_096,
+                      breakLength: Infinity,
+                      compact: true,
+                    })
+                  )
+            )
+            .join(' ')}`
+        );
     }
   }
 
@@ -162,6 +179,8 @@ export function createDaemonLog({
     log,
     flush,
     installRedirect,
-    enableFileLogging: () => { fileLogging = true; },
+    enableFileLogging: () => {
+      fileLogging = true;
+    },
   };
 }

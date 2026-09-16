@@ -12,9 +12,30 @@ import { applyBatch, closeSession, finalize, issues, qa, render, save, validate 
 import { openCreateOrAttachOffice } from './core/office-actions-open.mjs';
 import { getOfficeElement, queryOfficeDocument } from './core/office-actions-read.mjs';
 import { authorPptx } from './authoring/pptx-author-action.mjs';
-import { FILE_KIND_TO_FORMAT, OfficeConflictError, documentFormat, documentSessionKey, documentSessions, ensureOfficeSessionDesign, finalizeOfficeResult, isMicrosoftOfficeSession, normalizeOfficeFormat, sessions, toolResult } from './core/office-core.mjs';
+import {
+  FILE_KIND_TO_FORMAT,
+  OfficeConflictError,
+  documentFormat,
+  documentSessionKey,
+  documentSessions,
+  ensureOfficeSessionDesign,
+  finalizeOfficeResult,
+  isMicrosoftOfficeSession,
+  normalizeOfficeFormat,
+  sessions,
+  toolResult,
+} from './core/office-core.mjs';
 import { fullPath, resolveSession, selectMode, snapshot } from './core/office-sessions.mjs';
-import { assertTransactionUnchanged, beginTransaction, commitTransaction, pendingOfficeTransactions, recoverOfficeTransaction, rollbackTransaction, transactionDocumentDiff, transactionView } from './core/office-transactions.mjs';
+import {
+  assertTransactionUnchanged,
+  beginTransaction,
+  commitTransaction,
+  pendingOfficeTransactions,
+  recoverOfficeTransaction,
+  rollbackTransaction,
+  transactionDocumentDiff,
+  transactionView,
+} from './core/office-transactions.mjs';
 
 export { initializeOfficeTransactions } from './core/office-transactions.mjs';
 
@@ -37,15 +58,14 @@ export async function executeOfficeTool(args = {}, context = {}) {
   } finally {
     const line = `${String(args.action || '?')}\t${Math.round(performance.now() - startedAt)}\t${args.path || args.session || ''}\n`;
     if (OFFICE_TRACE === '1') process.stderr.write(`[office-trace] ${line}`);
-    else try { appendFileSync(OFFICE_TRACE, line); } catch {}
+    else
+      try {
+        appendFileSync(OFFICE_TRACE, line);
+      } catch {}
   }
 }
 
-async function runOfficeTool(args = {}, {
-  cwd = process.cwd(),
-  dataDir = defaultOfficeDataDir(),
-  signal = null,
-} = {}) {
+async function runOfficeTool(args = {}, { cwd = process.cwd(), dataDir = defaultOfficeDataDir(), signal = null } = {}) {
   const startedAt = performance.now();
   let activeSession = null;
   try {
@@ -84,27 +104,34 @@ async function runOfficeTool(args = {}, {
       const mode = String(args.security || '').toLowerCase();
       if (!['encrypt', 'decrypt'].includes(mode)) throw new Error('secure requires security: encrypt or decrypt');
       await mkdir(dirname(output), { recursive: true });
-      return toolResult(finalizeOfficeResult(await securePdf({
-        input,
-        output,
-        mode,
-        password: String(args.password || ''),
-        ownerPassword: String(args.ownerPassword || ''),
-      }), { action, startedAt }));
+      return toolResult(
+        finalizeOfficeResult(
+          await securePdf({
+            input,
+            output,
+            mode,
+            password: String(args.password || ''),
+            ownerPassword: String(args.ownerPassword || ''),
+          }),
+          { action, startedAt }
+        )
+      );
     }
     if (action === 'describe' && !args.session) {
-      const format = args.path ? documentFormat(args.path) : (args.format ? normalizeOfficeFormat(args.format) : '');
+      const format = args.path ? documentFormat(args.path) : args.format ? normalizeOfficeFormat(args.format) : '';
       let backend = '';
       if (format && args.path) {
         const selected = await selectMode(args.mode, format, fullPath(args.path, cwd));
         backend = selected.backend;
       }
-      return toolResult(describeOfficeCapabilities({
-        format,
-        backend: backend || String(args.backend || ''),
-        target: args.target,
-        operation: args.operation,
-      }));
+      return toolResult(
+        describeOfficeCapabilities({
+          format,
+          backend: backend || String(args.backend || ''),
+          target: args.target,
+          operation: args.operation,
+        })
+      );
     }
     if (action === 'author') {
       const authored = await authorPptx(args, { cwd, dataDir, signal });
@@ -116,12 +143,9 @@ async function runOfficeTool(args = {}, {
     if (action === 'open' || action === 'attach' || action === 'create') {
       return await openCreateOrAttachOffice({ action, args, cwd, dataDir, signal, startedAt });
     }
-    const { session, implicit } = await resolveSession(
-      signal ? { ...args, __signal: signal } : args,
-      cwd,
-      dataDir,
-      { readOnly: READ_ONLY_ACTIONS.has(action) && args.autoFix !== true },
-    );
+    const { session, implicit } = await resolveSession(signal ? { ...args, __signal: signal } : args, cwd, dataDir, {
+      readOnly: READ_ONLY_ACTIONS.has(action) && args.autoFix !== true,
+    });
     await ensureOfficeSessionDesign(session, args, dataDir, {
       created: session.created === true,
       allowLibraryUpgrade: true,
@@ -137,8 +161,7 @@ async function runOfficeTool(args = {}, {
         target: args.target,
         operation: args.operation,
       });
-    }
-    else if (action === 'begin') value = await beginTransaction(session);
+    } else if (action === 'begin') value = await beginTransaction(session);
     else if (action === 'diff') {
       if (!session.transaction) throw new Error('No active Office transaction to diff');
       const current = await assertTransactionUnchanged(session);
@@ -163,17 +186,22 @@ async function runOfficeTool(args = {}, {
         __cwd: cwd,
         ...(args.finalize === true ? { save: true } : {}),
       });
-      value = args.finalize === true
-        ? {
-            ...await finalize(session, {
-              ...args,
-              __alreadySaved: batch.saved === true,
-            }, cwd, signal),
-            batch,
-          }
-        : batch;
-    }
-    else if (action === 'issues') value = await issues(session, args);
+      value =
+        args.finalize === true
+          ? {
+              ...(await finalize(
+                session,
+                {
+                  ...args,
+                  __alreadySaved: batch.saved === true,
+                },
+                cwd,
+                signal
+              )),
+              batch,
+            }
+          : batch;
+    } else if (action === 'issues') value = await issues(session, args);
     else if (action === 'qa') value = await qa(session, args, cwd);
     else if (action === 'validate') value = await validate(session, args);
     else if (action === 'render') value = await render(session, args, cwd);
@@ -181,7 +209,9 @@ async function runOfficeTool(args = {}, {
     else if (action === 'finalize') value = await finalize(session, args, cwd, signal);
     else if (action === 'close') value = await closeSession(session, { save: args.save === true, signal });
     else {
-      throw new Error(`Unsupported Office Use action "${action || '(missing)'}". Use action:"describe" to inspect capabilities.`);
+      throw new Error(
+        `Unsupported Office Use action "${action || '(missing)'}". Use action:"describe" to inspect capabilities.`
+      );
     }
     if (implicit && action !== 'close') value.implicitSession = true;
     const images = Array.isArray(value?._images) ? value._images : [];
@@ -199,15 +229,19 @@ async function runOfficeTool(args = {}, {
           documentSessions.delete(documentSessionKey(activeSession.target));
         }
       }
-      return toolResult({
-        ok: false, code: 'cancelled', message: 'Office Use operation was cancelled',
-        detail: error?.message || String(error),
-      }, true);
+      return toolResult(
+        {
+          ok: false,
+          code: 'cancelled',
+          message: 'Office Use operation was cancelled',
+          detail: error?.message || String(error),
+        },
+        true
+      );
     }
     return toolResult(`Error: ${error?.message || String(error)}`, true);
   }
 }
-
 
 export function resetOfficeSessionsForTest() {
   resetMicrosoftOfficeSessionsForTest();

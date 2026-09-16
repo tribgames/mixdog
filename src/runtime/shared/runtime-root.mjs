@@ -1,9 +1,4 @@
-import {
-  chmodSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-} from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { isPidAlive } from './pid-liveness.mjs';
@@ -34,11 +29,7 @@ function safeLiveLegacyRoot(root, uid) {
   }
 }
 
-export function isolatedRuntimeRoot({
-  platform = process.platform,
-  tempDir = tmpdir(),
-  uid = currentUid(),
-} = {}) {
+export function isolatedRuntimeRoot({ platform = process.platform, tempDir = tmpdir(), uid = currentUid() } = {}) {
   if (platform === 'win32' || uid === null) return join(tempDir, 'mixdog');
   return join(tempDir, `mixdog-${uid}`);
 }
@@ -51,9 +42,7 @@ export function resolveRuntimeRoot() {
   const uid = currentUid();
   const isolated = isolatedRuntimeRoot({ uid });
   const legacy = join(tmpdir(), 'mixdog');
-  cachedDefaultRoot = uid !== null && safeLiveLegacyRoot(legacy, uid)
-    ? legacy
-    : isolated;
+  cachedDefaultRoot = uid !== null && safeLiveLegacyRoot(legacy, uid) ? legacy : isolated;
   return cachedDefaultRoot;
 }
 

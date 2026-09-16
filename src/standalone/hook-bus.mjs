@@ -1,11 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { throwIfAborted } from '../runtime/shared/abort-race.mjs';
-import {
-  applyHookRulePatches,
-  hookFileStamp,
-  readHookDocument,
-  updateHookRules,
-} from './hook-bus/rule-file.mjs';
+import { applyHookRulePatches, hookFileStamp, readHookDocument, updateHookRules } from './hook-bus/rule-file.mjs';
 import {
   DEFAULT_EVENTS,
   NO_MATCHER_EVENTS,
@@ -32,17 +27,8 @@ import {
   runMcpToolHandler,
   runPromptHandler,
 } from './hook-bus/handlers.mjs';
-import {
-  compactValue,
-  summarizePayload,
-} from './hook-bus/payload.mjs';
-import {
-  decisionFromRule,
-  handlerDedupeKey,
-  ruleMatches,
-  shellCountFor,
-  summarizeRule,
-} from './hook-bus/rules.mjs';
+import { compactValue, summarizePayload } from './hook-bus/payload.mjs';
+import { decisionFromRule, handlerDedupeKey, ruleMatches, shellCountFor, summarizeRule } from './hook-bus/rules.mjs';
 
 // Re-export extracted helpers so existing deep importers keep resolving.
 export {
@@ -83,7 +69,12 @@ export {
   summarizeRule,
 } from './hook-bus/rules.mjs';
 
-export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, promptRunner = null, mcpToolRunner = null } = {}) {
+export function createStandaloneHookBus({
+  maxEvents = 80,
+  dataDir = null,
+  promptRunner = null,
+  mcpToolRunner = null,
+} = {}) {
   const recent = [];
   const counts = new Map(DEFAULT_EVENTS.map((name) => [name, 0]));
   const rulesPath = hookRulesPath(dataDir);
@@ -129,7 +120,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
       rules: applyHookRulePatches(
         normalizeRules(parsed).filter((rule) => rule && typeof rule === 'object'),
         pendingRulePatches,
-        { strict: false },
+        { strict: false }
       ),
     };
     return rulesCache.rules;
@@ -147,10 +138,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
         cacheable = false;
         stamp = 'error';
       }
-      parts.push([
-        entry.path, stamp, entry.sourceType, entry.pluginRoot,
-        entry.pluginData, entry.untrusted === true,
-      ]);
+      parts.push([entry.path, stamp, entry.sourceType, entry.pluginRoot, entry.pluginData, entry.untrusted === true]);
     }
     const key = JSON.stringify(parts);
     if (cacheable && configCache.key === key) return configCache;
@@ -182,7 +170,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
         sourceType: entry.sourceType || 'data',
         pluginRoot: entry.pluginRoot || null,
       });
-      if (Object.prototype.hasOwnProperty.call(parsed || {}, 'disableAllHooks')) {
+      if (Object.hasOwn(parsed || {}, 'disableAllHooks')) {
         disabled = parsed.disableAllHooks === true;
         disableSeen = true;
       }
@@ -255,7 +243,10 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     if (!ifConditionPasses(handler.if, eventName, payload.tool_name, payload.tool_input)) return null;
     const type = String(handler.type || '').trim();
     if (!SUPPORTED_HANDLER_TYPES.has(type)) {
-      emit('hook:error', { name: payload.tool_name || eventName, error: `unsupported hook type: ${type || '(missing)'}` });
+      emit('hook:error', {
+        name: payload.tool_name || eventName,
+        error: `unsupported hook type: ${type || '(missing)'}`,
+      });
       return null;
     }
     // Untrusted project hooks (project .mixdog/hooks.json without a user-level
@@ -329,22 +320,32 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
       }
       if (!run) continue;
       if (run.timedOut) {
-        emit('hook:error', { name: payload.tool_name || eventName, error: `hook ${shellCountFor(handler)} timed out: ${handler.command || handler.url || handler.type}` });
+        emit('hook:error', {
+          name: payload.tool_name || eventName,
+          error: `hook ${shellCountFor(handler)} timed out: ${handler.command || handler.url || handler.type}`,
+        });
         continue;
       }
       if (run.spawnError) {
-        emit('hook:error', { name: payload.tool_name || eventName, error: `hook spawn failed: ${run.spawnError.message || run.spawnError}` });
+        emit('hook:error', {
+          name: payload.tool_name || eventName,
+          error: `hook spawn failed: ${run.spawnError.message || run.spawnError}`,
+        });
         continue;
       }
       if (run.exitCode && run.exitCode !== 0 && run.exitCode !== 2) {
-        emit('hook:error', { name: payload.tool_name || eventName, error: (run.stderr || '').trim() || `hook exited ${run.exitCode}` });
+        emit('hook:error', {
+          name: payload.tool_name || eventName,
+          error: (run.stderr || '').trim() || `hook exited ${run.exitCode}`,
+        });
         continue;
       }
       const parsed = parseHandlerOutput(run, eventName);
       if (parsed.additionalContext) agg.additionalContext.push(parsed.additionalContext);
       if (parsed.updatedInput && !agg.updatedInput) agg.updatedInput = parsed.updatedInput;
       if (parsed.updatedToolName && !agg.updatedToolName) agg.updatedToolName = parsed.updatedToolName;
-      if (parsed.updatedToolOutput != null && agg.updatedToolOutput == null) agg.updatedToolOutput = parsed.updatedToolOutput;
+      if (parsed.updatedToolOutput != null && agg.updatedToolOutput == null)
+        agg.updatedToolOutput = parsed.updatedToolOutput;
       if (parsed.askReason && !agg.ask && !agg.blocked) {
         agg.ask = true;
         agg.askReason = parsed.askReason;
@@ -372,7 +373,9 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
   function addRule(rule = {}) {
     // Same index-safety rule as deleteRule: settle debounced toggles first.
     flushRules();
-    const action = String(rule.action || rule.decision || '').trim().toLowerCase();
+    const action = String(rule.action || rule.decision || '')
+      .trim()
+      .toLowerCase();
     if (!action || !['allow', 'deny', 'block', 'modify', 'rewrite', 'ask'].includes(action)) {
       throw new Error('hook rule action must be allow, deny, block, modify, rewrite, or ask');
     }
@@ -418,14 +421,17 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     rulesSaveTimer = setTimeout(() => {
       // The error is recorded by flushRules; retain the patch for an explicit
       // retry rather than crashing a timer callback or silently dropping it.
-      try { flushRules(); } catch {}
+      try {
+        flushRules();
+      } catch {}
     }, RULES_SAVE_DEBOUNCE_MS);
     rulesSaveTimer.unref?.();
   }
 
   function setRuleEnabled(index, enabled) {
     const rules = [...loadRules()];
-    if (!Number.isInteger(index) || index < 0 || index >= rules.length) throw new Error(`hook rule not found: ${index}`);
+    if (!Number.isInteger(index) || index < 0 || index >= rules.length)
+      throw new Error(`hook rule not found: ${index}`);
     const nextEnabled = enabled !== false;
     const baseRule = rules[index];
     rules[index] = { ...rules[index], enabled: nextEnabled };
@@ -443,7 +449,8 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     // shifted into that slot after the delete.
     flushRules();
     return saveRules((rules) => {
-      if (!Number.isInteger(index) || index < 0 || index >= rules.length) throw new Error(`hook rule not found: ${index}`);
+      if (!Number.isInteger(index) || index < 0 || index >= rules.length)
+        throw new Error(`hook rule not found: ${index}`);
       return rules.filter((_, current) => current !== index);
     });
   }
@@ -464,13 +471,21 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
       const agg = await runEventHandlers('PreToolUse', payload, { signal });
       throwIfAborted(signal);
       if (agg.blocked) {
-        emit('tool:deny', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: agg.reason });
+        emit('tool:deny', {
+          sessionId: input.sessionId || input.session_id || null,
+          name: input.name || input.tool_name || 'tool',
+          reason: agg.reason,
+        });
         return { action: 'deny', reason: agg.reason };
       }
       if (agg.ask || agg.updatedInput || agg.updatedToolName) {
         const action = agg.ask ? 'ask' : 'modify';
         const reason = agg.ask ? agg.askReason : agg.reason;
-        emit(`tool:${action}`, { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason });
+        emit(`tool:${action}`, {
+          sessionId: input.sessionId || input.session_id || null,
+          name: input.name || input.tool_name || 'tool',
+          reason,
+        });
         return {
           action,
           ...(agg.updatedInput ? { args: agg.updatedInput } : {}),
@@ -479,14 +494,14 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
         };
       }
 
-      const rules = Array.isArray(cfg.legacyRules) && cfg.legacyRules.length
-        ? cfg.legacyRules
-        : loadRules();
-      const rule = rules.find((candidate) => ruleMatches(candidate, {
-        name: input.name || input.tool_name,
-        args: input.args || input.tool_input,
-        cwd: input.cwd,
-      }));
+      const rules = Array.isArray(cfg.legacyRules) && cfg.legacyRules.length ? cfg.legacyRules : loadRules();
+      const rule = rules.find((candidate) =>
+        ruleMatches(candidate, {
+          name: input.name || input.tool_name,
+          args: input.args || input.tool_input,
+          cwd: input.cwd,
+        })
+      );
       if (!rule) return null;
       const decision = decisionFromRule(rule, {
         name: input.name || input.tool_name,
@@ -494,11 +509,23 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
         cwd: input.cwd,
       });
       if (decision.action === 'deny') {
-        emit('tool:deny', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: decision.reason });
+        emit('tool:deny', {
+          sessionId: input.sessionId || input.session_id || null,
+          name: input.name || input.tool_name || 'tool',
+          reason: decision.reason,
+        });
       } else if (decision.action === 'modify') {
-        emit('tool:modify', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: decision.reason });
+        emit('tool:modify', {
+          sessionId: input.sessionId || input.session_id || null,
+          name: input.name || input.tool_name || 'tool',
+          reason: decision.reason,
+        });
       } else if (decision.action === 'ask') {
-        emit('tool:ask', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: decision.reason });
+        emit('tool:ask', {
+          sessionId: input.sessionId || input.session_id || null,
+          name: input.name || input.tool_name || 'tool',
+          reason: decision.reason,
+        });
       }
       return decision;
     } catch (error) {
@@ -570,11 +597,11 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
       errors: cfg.errors || [],
       note: cfg.disabled
         ? 'Hooks are disabled by disableAllHooks.'
-        : (cfg.standard
+        : cfg.standard
           ? `Standard Mixdog hooks active for events: ${configuredEvents.join(', ') || '(none)'}.`
-          : (ruleCount > 0
+          : ruleCount > 0
             ? 'Legacy before-tool hook rules are active. Rules may allow, deny, or modify tool arguments.'
-            : 'No hook rules configured; lifecycle and tool events are recorded in observer mode.')),
+            : 'No hook rules configured; lifecycle and tool events are recorded in observer mode.',
     };
   }
 

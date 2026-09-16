@@ -33,18 +33,29 @@ const { default: ansiEscapes } = await import('ansi-escapes');
 // absolute cursorTo(0,y) addressing (not a relative cursorUp walk) is emitted.
 function assertWindowsBranchEngaged() {
   const chunks = [];
-  const fs = { write: (s) => { chunks.push(s); return true; }, isTTY: true, columns: 20, rows: 4 };
+  const fs = {
+    write: (s) => {
+      chunks.push(s);
+      return true;
+    },
+    isTTY: true,
+    columns: 20,
+    rows: 4,
+  };
   const log = logUpdate.create(fs, { incremental: true });
-  log.sync('a\nb\nc\nd');            // 4 lines, fullscreen, no trailing nl
+  log.sync('a\nb\nc\nd'); // 4 lines, fullscreen, no trailing nl
   chunks.length = 0;
-  log('a\nX\nc\nd');                 // change one middle row, still fullscreen
+  log('a\nX\nc\nd'); // change one middle row, still fullscreen
   const emitted = chunks.join('');
   // Windows-safe branch uses absolute cursorTo(0, i) => CSI <row>;1H. The POSIX
   // relative branch uses cursorUp / cursorNextLine (CSI A / E) with no ;1H rows.
   const hasAbsolute = /\x1b\[\d+;1H/.test(emitted);
   if (!hasAbsolute) {
-    console.error('tui-frame-harness: FAIL — log-update Windows-safe branch NOT engaged '
-      + '(WT_SESSION/platform did not force it at import). Emitted:', JSON.stringify(emitted));
+    console.error(
+      'tui-frame-harness: FAIL — log-update Windows-safe branch NOT engaged ' +
+        '(WT_SESSION/platform did not force it at import). Emitted:',
+      JSON.stringify(emitted)
+    );
     process.exit(1);
   }
 }
@@ -62,7 +73,10 @@ class VT {
     this.cx = 0;
     this.cy = 0;
   }
-  _clampRow() { if (this.cy < 0) this.cy = 0; if (this.cy >= this.rows) this.cy = this.rows - 1; }
+  _clampRow() {
+    if (this.cy < 0) this.cy = 0;
+    if (this.cy >= this.rows) this.cy = this.rows - 1;
+  }
   write(data) {
     let i = 0;
     while (i < data.length) {
@@ -72,7 +86,10 @@ class VT {
         if (data[i + 1] === '[') {
           let j = i + 2;
           let params = '';
-          while (j < data.length && /[0-9;]/.test(data[j])) { params += data[j]; j++; }
+          while (j < data.length && /[0-9;]/.test(data[j])) {
+            params += data[j];
+            j++;
+          }
           const cmd = data[j];
           const nums = params.split(';').map((p) => (p === '' ? undefined : Number(p)));
           this._csi(cmd, nums, params);
@@ -83,8 +100,18 @@ class VT {
         i += 1;
         continue;
       }
-      if (ch === '\n') { this.cy += 1; this.cx = 0; this._clampRow(); i++; continue; }
-      if (ch === '\r') { this.cx = 0; i++; continue; }
+      if (ch === '\n') {
+        this.cy += 1;
+        this.cx = 0;
+        this._clampRow();
+        i++;
+        continue;
+      }
+      if (ch === '\r') {
+        this.cx = 0;
+        i++;
+        continue;
+      }
       // printable
       this._clampRow();
       const row = this.grid[this.cy];
@@ -97,28 +124,63 @@ class VT {
   _csi(cmd, nums, params) {
     const n = nums[0];
     switch (cmd) {
-      case 'H': case 'f': { // cursor position (1-based row;col)
-        this.cy = (nums[0] ?? 1) - 1; this.cx = (nums[1] ?? 1) - 1; this._clampRow(); break;
-      }
-      case 'A': this.cy -= (n ?? 1); this._clampRow(); break; // up
-      case 'B': this.cy += (n ?? 1); this._clampRow(); break; // down
-      case 'C': this.cx += (n ?? 1); break; // forward
-      case 'D': this.cx -= (n ?? 1); if (this.cx < 0) this.cx = 0; break; // back
-      case 'E': this.cy += (n ?? 1); this.cx = 0; this._clampRow(); break; // next line
-      case 'F': this.cy -= (n ?? 1); this.cx = 0; this._clampRow(); break; // prev line
-      case 'G': this.cx = (n ?? 1) - 1; break; // column (cursorTo(x) → \u001B[(x+1)G)
-      case 'J': { // erase display; 2 = whole screen (clearTerminal uses 2J + H)
-        if (n === 2 || n === 3) { this.grid = Array.from({ length: this.rows }, () => ''); }
+      case 'H':
+      case 'f': {
+        // cursor position (1-based row;col)
+        this.cy = (nums[0] ?? 1) - 1;
+        this.cx = (nums[1] ?? 1) - 1;
+        this._clampRow();
         break;
       }
-      case 'K': { // erase line (eraseEndLine=0/none; eraseLine full = 2K)
-        if (n === undefined || n === 0) { this.grid[this.cy] = this.grid[this.cy].slice(0, this.cx); }
-        else if (n === 1) { this.grid[this.cy] = ' '.repeat(this.cx) + this.grid[this.cy].slice(this.cx); }
-        else if (n === 2) { this.grid[this.cy] = ''; }
+      case 'A':
+        this.cy -= n ?? 1;
+        this._clampRow();
+        break; // up
+      case 'B':
+        this.cy += n ?? 1;
+        this._clampRow();
+        break; // down
+      case 'C':
+        this.cx += n ?? 1;
+        break; // forward
+      case 'D':
+        this.cx -= n ?? 1;
+        if (this.cx < 0) this.cx = 0;
+        break; // back
+      case 'E':
+        this.cy += n ?? 1;
+        this.cx = 0;
+        this._clampRow();
+        break; // next line
+      case 'F':
+        this.cy -= n ?? 1;
+        this.cx = 0;
+        this._clampRow();
+        break; // prev line
+      case 'G':
+        this.cx = (n ?? 1) - 1;
+        break; // column (cursorTo(x) → \u001B[(x+1)G)
+      case 'J': {
+        // erase display; 2 = whole screen (clearTerminal uses 2J + H)
+        if (n === 2 || n === 3) {
+          this.grid = Array.from({ length: this.rows }, () => '');
+        }
+        break;
+      }
+      case 'K': {
+        // erase line (eraseEndLine=0/none; eraseLine full = 2K)
+        if (n === undefined || n === 0) {
+          this.grid[this.cy] = this.grid[this.cy].slice(0, this.cx);
+        } else if (n === 1) {
+          this.grid[this.cy] = ' '.repeat(this.cx) + this.grid[this.cy].slice(this.cx);
+        } else if (n === 2) {
+          this.grid[this.cy] = '';
+        }
         break;
       }
       // SGR (m), hide/show cursor (h/l), etc. — no geometry effect
-      default: break;
+      default:
+        break;
     }
   }
   markerRow(marker) {
@@ -135,7 +197,15 @@ class VT {
 // ---- Wrapper mirroring ink.js renderInteractiveFrame ----------------------
 function makeDriver({ rows, cols, isWindows }) {
   const chunks = [];
-  const fakeStream = { write: (s) => { chunks.push(s); return true; }, isTTY: true, columns: cols, rows };
+  const fakeStream = {
+    write: (s) => {
+      chunks.push(s);
+      return true;
+    },
+    isTTY: true,
+    columns: cols,
+    rows,
+  };
   // Force the incremental renderer's Windows branch by faking env/platform is
   // out of scope here; log-update reads process.platform/WT_SESSION at import.
   const log = logUpdate.create(fakeStream, { incremental: true });
@@ -162,8 +232,7 @@ function makeDriver({ rows, cols, isWindows }) {
     // cluster stays at its steady rows and the fullscreen path stays engaged.
     const wasFullscreenFrame = lastOutputHeight >= lastViewportRows && lastOutputHeight > 0;
     // Mirror ink.js guard exactly: Windows-like only + one-commit transient.
-    const isExactlyOneRowShort = isWindows && outputHeight === rows - 1
-      && wasFullscreenFrame && !lastOneShortPadded;
+    const isExactlyOneRowShort = isWindows && outputHeight === rows - 1 && wasFullscreenFrame && !lastOneShortPadded;
     if (isExactlyOneRowShort) {
       output = '\n' + output;
       outputHeight = rows;
@@ -175,9 +244,13 @@ function makeDriver({ rows, cols, isWindows }) {
     let outputToRender = isFullscreen ? output : output + '\n';
     if (isFullscreen && outputToRender.endsWith('\n')) outputToRender += '\u001B[0m';
     const clearDecision = shouldClearTerminalForFrameProbe({
-      isTty: true, viewportRows: rows, previousViewportRows: lastViewportRows,
-      previousOutputHeight: lastOutputHeight, nextOutputHeight: outputHeight,
-      isUnmounting: false, isWindows,
+      isTty: true,
+      viewportRows: rows,
+      previousViewportRows: lastViewportRows,
+      previousOutputHeight: lastOutputHeight,
+      nextOutputHeight: outputHeight,
+      isUnmounting: false,
+      isWindows,
     });
     if (clearDecision) {
       fakeStream.write('\u001B[0m' + ansiEscapes.clearTerminal + outputToRender);
@@ -219,14 +292,23 @@ function frame({ rows, cols, palette, shortByOne, heightRows }) {
   // heightRows (explicit) overrides shortByOne — lets a caller drive an
   // arbitrary frame height (e.g. rows-3) to exercise the real leave-fullscreen
   // shrink chain, which the boolean shortByOne cannot express.
-  const height = heightRows != null ? heightRows : (shortByOne ? rows - 1 : rows);
+  const height = heightRows != null ? heightRows : shortByOne ? rows - 1 : rows;
   const statusRow = height - 1;
   const promptRow = statusRow - 1;
   const lines = [];
   for (let r = 0; r < height; r++) {
-    if (r === statusRow) { lines.push('STATUSLINE'); continue; }
-    if (r === promptRow) { lines.push('PROMPT>'); continue; }
-    if (palette && r === promptRow - 1) { lines.push('SLASHPALETTE'); continue; }
+    if (r === statusRow) {
+      lines.push('STATUSLINE');
+      continue;
+    }
+    if (r === promptRow) {
+      lines.push('PROMPT>');
+      continue;
+    }
+    if (palette && r === promptRow - 1) {
+      lines.push('SLASHPALETTE');
+      continue;
+    }
     lines.push(`t${r}`);
   }
   // Serialized string carries exactly `height` lines (no trailing newline).
@@ -234,7 +316,8 @@ function frame({ rows, cols, palette, shortByOne, heightRows }) {
 }
 
 function run() {
-  const rows = 40, cols = 120;
+  const rows = 40,
+    cols = 120;
   const isWindows = true;
   console.log(`# renderer harness rows=${rows} cols=${cols} isWindows(assumed)=${isWindows}`);
   console.log(`# NOTE: log-update Windows branch active iff process.platform===win32||WT_SESSION at import`);
@@ -244,40 +327,55 @@ function run() {
   // commit where the App's row accounting leaves the laid-out tree one row
   // short of the viewport (reclaimed panel/hint row not yet refilled).
   const scenarios = [
-    { name: 'palette close, always viewport-filling (correct accounting)', seq: [
-      { palette: true,  shortByOne: false },
-      { palette: false, shortByOne: false },
-      { palette: false, shortByOne: false },
-    ]},
-    { name: 'palette close, close commit ONE ROW SHORT (deviant accounting)', seq: [
-      { palette: true,  shortByOne: false },
-      { palette: false, shortByOne: true  },  // reclaimed row unaccounted
-      { palette: false, shortByOne: false },
-    ]},
-    { name: 'prompt newline remove, transitional ONE ROW SHORT', seq: [
-      { palette: false, shortByOne: false },
-      { palette: false, shortByOne: true  },
-      { palette: false, shortByOne: false },
-    ]},
+    {
+      name: 'palette close, always viewport-filling (correct accounting)',
+      seq: [
+        { palette: true, shortByOne: false },
+        { palette: false, shortByOne: false },
+        { palette: false, shortByOne: false },
+      ],
+    },
+    {
+      name: 'palette close, close commit ONE ROW SHORT (deviant accounting)',
+      seq: [
+        { palette: true, shortByOne: false },
+        { palette: false, shortByOne: true }, // reclaimed row unaccounted
+        { palette: false, shortByOne: false },
+      ],
+    },
+    {
+      name: 'prompt newline remove, transitional ONE ROW SHORT',
+      seq: [
+        { palette: false, shortByOne: false },
+        { palette: false, shortByOne: true },
+        { palette: false, shortByOne: false },
+      ],
+    },
     // Steady one-short: repeated rows-1 frames. The pad must fire ONCE then
     // stop (lastOneShortPadded), so f2/f3 are NOT re-padded and settle at the
     // rows-1 layout (prompt rows-3 / status rows-2) with correct clear
     // decisions — no infinite downward shift.
-    { name: 'steady ONE ROW SHORT (repeated rows-1) — pad once, then stop', seq: [
-      { palette: false, shortByOne: false },
-      { palette: false, shortByOne: true  },
-      { palette: false, shortByOne: true  },
-      { palette: false, shortByOne: true  },
-    ]},
+    {
+      name: 'steady ONE ROW SHORT (repeated rows-1) — pad once, then stop',
+      seq: [
+        { palette: false, shortByOne: false },
+        { palette: false, shortByOne: true },
+        { palette: false, shortByOne: true },
+        { palette: false, shortByOne: true },
+      ],
+    },
     // Real leave-fullscreen shrink chain rows→rows-1→rows-3: after the padded
     // rows-1 frame, a further shrink to rows-3 must reach the shrink/clear path
     // (not be masked by a stale pad) and settle cleanly.
-    { name: 'real shrink chain fullscreen→rows-1→rows-3', seq: [
-      { palette: false, heightRows: 40 },
-      { palette: false, heightRows: 39 },
-      { palette: false, heightRows: 37 },
-      { palette: false, heightRows: 37 },
-    ]},
+    {
+      name: 'real shrink chain fullscreen→rows-1→rows-3',
+      seq: [
+        { palette: false, heightRows: 40 },
+        { palette: false, heightRows: 39 },
+        { palette: false, heightRows: 37 },
+        { palette: false, heightRows: 37 },
+      ],
+    },
   ];
 
   let anyDeviant = false;
@@ -291,17 +389,22 @@ function run() {
       const pRow = vt.markerRow('PROMPT>');
       const sRow = vt.markerRow('STATUSLINE');
       promptRows.push(pRow);
-      console.log(`  f${idx} short1=${f.shortByOne?1:0} h=${info.outputHeight} fs=${info.isFullscreen?1:0} trailNL=${info.trailingNL?1:0} clear=${info.clearDecision?1:0} promptRow=${pRow} statusRow=${sRow}`);
+      console.log(
+        `  f${idx} short1=${f.shortByOne ? 1 : 0} h=${info.outputHeight} fs=${info.isFullscreen ? 1 : 0} trailNL=${info.trailingNL ? 1 : 0} clear=${info.clearDecision ? 1 : 0} promptRow=${pRow} statusRow=${sRow}`
+      );
     });
     // Deviant = the prompt row BOUNCES (differs from the settled row for a
     // transient frame then returns). A monotone shift to a new steady row
     // (steady-one-short, real shrink) is NOT a bounce — check the LAST row is
     // reached and held, and no interior frame differs from BOTH neighbors.
     const settled = promptRows[promptRows.length - 1];
-    const bounce = promptRows.some((r, i) =>
-      i > 0 && i < promptRows.length - 1 &&
-      r >= 0 && r !== promptRows[i - 1] && r !== promptRows[i + 1]);
-    if (bounce) { anyDeviant = true; console.log(`  >> DEVIANT(bounce): prompt rows ${JSON.stringify(promptRows)} vs settled ${settled}`); }
+    const bounce = promptRows.some(
+      (r, i) => i > 0 && i < promptRows.length - 1 && r >= 0 && r !== promptRows[i - 1] && r !== promptRows[i + 1]
+    );
+    if (bounce) {
+      anyDeviant = true;
+      console.log(`  >> DEVIANT(bounce): prompt rows ${JSON.stringify(promptRows)} vs settled ${settled}`);
+    }
     console.log('');
   }
   if (!anyDeviant) console.log('# no deviant frame reproduced at renderer level for these scenarios');

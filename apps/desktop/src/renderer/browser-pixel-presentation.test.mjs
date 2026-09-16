@@ -8,7 +8,7 @@ function fixture(t) {
   for (const name of ['document', 'Image', 'HTMLCanvasElement', 'Event']) {
     const old = Object.getOwnPropertyDescriptor(globalThis, name);
     Object.defineProperty(globalThis, name, { configurable: true, value: dom.window[name] });
-    t.after(() => old ? Object.defineProperty(globalThis, name, old) : delete globalThis[name]);
+    t.after(() => (old ? Object.defineProperty(globalThis, name, old) : delete globalThis[name]));
   }
   dom.window.Image.prototype.decode = async () => {};
   t.after(() => dom.window.close());
@@ -17,19 +17,29 @@ function fixture(t) {
   const metadata = [];
   const textures = [];
   const presentation = createBrowserPixelPresentation({
-    container: () => container, image, canvasId: 'gpu',
-    metadata: frame => metadata.push(frame),
-    texture: id => textures.push(id),
+    container: () => container,
+    image,
+    canvasId: 'gpu',
+    metadata: (frame) => metadata.push(frame),
+    texture: (id) => textures.push(id),
   });
   const frame = (id, extra = {}) => ({
-    documentId: 'p1:1', frameId: id, title: 'Page', width: 600, height: 400,
-    viewportWidth: 600, viewportHeight: 400, surfaceWidth: 600, surfaceHeight: 400,
-    image: { mimeType: 'image/png', data: id }, ...extra,
+    documentId: 'p1:1',
+    frameId: id,
+    title: 'Page',
+    width: 600,
+    height: 400,
+    viewportWidth: 600,
+    viewportHeight: 400,
+    surfaceWidth: 600,
+    surfaceHeight: 400,
+    image: { mimeType: 'image/png', data: id },
+    ...extra,
   });
   return { container, image, metadata, textures, presentation, frame };
 }
 
-test('decoded pixels update without re-publishing unchanged pane metadata', async t => {
+test('decoded pixels update without re-publishing unchanged pane metadata', async (t) => {
   const f = fixture(t);
   f.presentation.resize(600, 400);
   for (const id of ['one', 'two', 'three']) {
@@ -50,7 +60,7 @@ test('decoded pixels update without re-publishing unchanged pane metadata', asyn
   assert.equal(f.metadata.length, 2);
 });
 
-test('GPU frames are painted once and a replacement document cannot retain old pixels', t => {
+test('GPU frames are painted once and a replacement document cannot retain old pixels', (t) => {
   const f = fixture(t);
   f.presentation.resize(600, 400);
   const frame = f.frame('gpu1', { image: undefined, textureId: 'gpu1' });

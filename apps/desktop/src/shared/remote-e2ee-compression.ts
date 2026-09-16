@@ -30,10 +30,7 @@ function requirePlaintextSize(size: number, limit: number): void {
   if (size > limit) throw new RangeError(`Relay plaintext exceeds ${limit} bytes.`);
 }
 
-async function collectStream(
-  stream: ReadableStream<Uint8Array>,
-  maxOutputBytes: number,
-): Promise<Uint8Array> {
+async function collectStream(stream: ReadableStream<Uint8Array>, maxOutputBytes: number): Promise<Uint8Array> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -67,7 +64,7 @@ async function collectStream(
 export function runBoundedByteTransform(
   bytes: Uint8Array,
   stream: ByteTransformStream,
-  maxOutputBytes = MAX_E2EE_PLAINTEXT_BYTES,
+  maxOutputBytes = MAX_E2EE_PLAINTEXT_BYTES
 ): Promise<Uint8Array> {
   const source = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -86,7 +83,7 @@ export async function packPlaintext(body: Uint8Array, compress: boolean): Promis
   try {
     deflated = await runBoundedByteTransform(
       body,
-      new CompressionStream('deflate-raw') as unknown as ByteTransformStream,
+      new CompressionStream('deflate-raw') as unknown as ByteTransformStream
     );
   } catch {
     return body;
@@ -103,6 +100,6 @@ export async function unpackPlaintext(bytes: Uint8Array): Promise<Uint8Array> {
   if (bytes.byteLength === 0 || bytes[0] !== E2EE_PLAINTEXT_DEFLATED) return bytes;
   return runBoundedByteTransform(
     bytes.subarray(1),
-    new DecompressionStream('deflate-raw') as unknown as ByteTransformStream,
+    new DecompressionStream('deflate-raw') as unknown as ByteTransformStream
   );
 }

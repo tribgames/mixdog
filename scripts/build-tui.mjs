@@ -73,10 +73,7 @@ await build({
     '../../runtime/channels/lib/voice-runtime-fetcher.mjs',
     '../../runtime/channels/lib/whisper-server.mjs',
   ],
-  plugins: [
-    sharedRuntimeExternalPlugin,
-    sessionClientExternalPlugin,
-  ],
+  plugins: [sharedRuntimeExternalPlugin, sessionClientExternalPlugin],
   logLevel: 'info',
 });
 

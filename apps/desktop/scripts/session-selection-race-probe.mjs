@@ -9,9 +9,8 @@
 // also samples the sidebar row order continuously, so a list re-sort that
 // moves rows under the cursor is attributed instead of guessed.
 const argumentsList = process.argv.slice(2);
-const valueFor = (prefix) => argumentsList
-  .find((argument) => argument.startsWith(`${prefix}=`))
-  ?.slice(prefix.length + 1);
+const valueFor = (prefix) =>
+  argumentsList.find((argument) => argument.startsWith(`${prefix}=`))?.slice(prefix.length + 1);
 const port = Number(valueFor('--port') || 9342);
 const clicks = Number(valueFor('--clicks') || 5);
 const gapMs = Number(valueFor('--gap') || 1200);
@@ -36,11 +35,12 @@ socket.addEventListener('message', (event) => {
   if (message.error) entry.reject(new Error(message.error.message));
   else entry.resolve(message.result);
 });
-const request = (method, params = {}) => new Promise((resolve, reject) => {
-  const id = nextId++;
-  pending.set(id, { resolve, reject });
-  socket.send(JSON.stringify({ id, method, params }));
-});
+const request = (method, params = {}) =>
+  new Promise((resolve, reject) => {
+    const id = nextId++;
+    pending.set(id, { resolve, reject });
+    socket.send(JSON.stringify({ id, method, params }));
+  });
 const evaluate = async (expression) => {
   const result = await request('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
   if (result.exceptionDetails) {
@@ -125,10 +125,13 @@ if (watchMs > 0) {
   for (const sample of samples) {
     const order = sample.key.split(',');
     const moved = previous
-      ? order.map((id, index) => {
-        const was = previous.indexOf(id);
-        return was >= 0 && was !== index ? `${id}:${was}->${index}` : '';
-      }).filter(Boolean).join(' ')
+      ? order
+          .map((id, index) => {
+            const was = previous.indexOf(id);
+            return was >= 0 && was !== index ? `${id}:${was}->${index}` : '';
+          })
+          .filter(Boolean)
+          .join(' ')
       : '(first)';
     console.log(`${sample.t}\tactive=${sample.activeId || '-'}\tn=${order.length}\t${moved || '(no move)'}`);
     previous = order;
@@ -141,10 +144,14 @@ const rowHeight = (preflight[1]?.y ?? firstY + 32) - firstY || 32;
 const steps = [];
 // Fixed screen positions, walked like a hand moving down the list.
 const positions = Array.from({ length: clicks }, (unused, index) =>
-  Math.round(firstY + rowHeight * (index + 1) + rowHeight / 2));
+  Math.round(firstY + rowHeight * (index + 1) + rowHeight / 2)
+);
 for (const y of positions) {
   const before = await evaluate(rowAtExpression(y));
-  if (!before) { steps.push({ y, before: null }); continue; }
+  if (!before) {
+    steps.push({ y, before: null });
+    continue;
+  }
   const x = before.x || 150;
   await request('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
   await request('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
@@ -163,12 +170,22 @@ const watch = await evaluate(`(() => {
 
 console.log('step\ty\tclicked\t\tselected\tmatch\tnow-at-y\ttab');
 for (const step of steps) {
-  if (!step.before) { console.log(`-\t${step.y}\t(no row)`); continue; }
+  if (!step.before) {
+    console.log(`-\t${step.y}\t(no row)`);
+    continue;
+  }
   const match = step.before.id === step.after.active ? 'OK' : 'MISMATCH';
-  console.log([
-    '', step.y, `${step.before.id} ${step.before.title}`, step.after.active, match,
-    step.nowAt ? step.nowAt.id : '-', step.after.tab,
-  ].join('\t'));
+  console.log(
+    [
+      '',
+      step.y,
+      `${step.before.id} ${step.before.title}`,
+      step.after.active,
+      match,
+      step.nowAt ? step.nowAt.id : '-',
+      step.after.tab,
+    ].join('\t')
+  );
 }
 console.log('--- sidebar order / active changes ---');
 for (const sample of watch) {

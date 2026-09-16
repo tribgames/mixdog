@@ -25,12 +25,7 @@ export function createProjectPicker({
     return Promise.resolve(target.apply(store, args));
   };
 
-  const buildProjectPickerState = ({
-    initialEntry = false,
-    projects = [],
-    loading = false,
-    requestId = null,
-  } = {}) => {
+  const buildProjectPickerState = ({ initialEntry = false, projects = [], loading = false, requestId = null } = {}) => {
     const currentPath = String(state.cwd || process.cwd() || '');
     const items = [];
     if (!loading) {
@@ -61,8 +56,8 @@ export function createProjectPicker({
       help: loading
         ? 'Waiting for the project service…'
         : initialEntry
-        ? '↑/↓ Select · Enter Open · c Create · r Rename'
-        : '↑/↓ Select · Enter Open · c Create · r Rename · Esc Back',
+          ? '↑/↓ Select · Enter Open · c Create · r Rename'
+          : '↑/↓ Select · Enter Open · c Create · r Rename · Esc Back',
       indexMode: 'always',
       labelWidth: 18,
       metaWidth: 40,
@@ -237,25 +232,31 @@ export function createProjectPicker({
     own.context(null);
     closeUsagePanel();
     const requestId = Symbol('project-picker-request');
-    own.paint(buildProjectPickerState({
-      initialEntry,
-      loading: true,
-      requestId,
-    }));
+    own.paint(
+      buildProjectPickerState({
+        initialEntry,
+        loading: true,
+        requestId,
+      })
+    );
     try {
       const projects = await serviceCall('listProjects');
-      own.paint((current) => current?._projectRequestId === requestId
-        ? buildProjectPickerState({
-          initialEntry,
-          projects: Array.isArray(projects) ? projects : [],
-          requestId,
-        })
-        : current);
+      own.paint((current) =>
+        current?._projectRequestId === requestId
+          ? buildProjectPickerState({
+              initialEntry,
+              projects: Array.isArray(projects) ? projects : [],
+              requestId,
+            })
+          : current
+      );
       return projects;
     } catch (error) {
-      own.paint((current) => current?._projectRequestId === requestId
-        ? buildProjectPickerState({ initialEntry, projects: [], requestId })
-        : current);
+      own.paint((current) =>
+        current?._projectRequestId === requestId
+          ? buildProjectPickerState({ initialEntry, projects: [], requestId })
+          : current
+      );
       store.pushNotice(`project list failed: ${error?.message || error}`, 'error');
       return [];
     }

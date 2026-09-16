@@ -17,14 +17,16 @@ await build({
   treeShaking: true,
   sourcemap: false,
   external: ['@homebridge/node-pty-prebuilt-multiarch'],
-  plugins: [{
-    name: 'plain-node-desktop-service',
-    setup(builder) {
-      builder.onResolve({ filter: /^electron(?:\/|$)/ }, () => ({
-        errors: [{ text: 'daemon service bundle must not import Electron' }],
-      }));
+  plugins: [
+    {
+      name: 'plain-node-desktop-service',
+      setup(builder) {
+        builder.onResolve({ filter: /^electron(?:\/|$)/ }, () => ({
+          errors: [{ text: 'daemon service bundle must not import Electron' }],
+        }));
+      },
     },
-  }],
+  ],
 });
 
 // A CJS bundle has no ES export table. Load its real entry under plain Node

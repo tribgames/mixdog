@@ -18,17 +18,21 @@ const server = createServer((req, res) => {
   }
   res.setHeader('Content-Type', 'text/html');
   const port = (server.address() as { port: number }).port;
-  res.end(req.url === '/frame'
-    ? `<iframe src="http://127.0.0.1:${port}/slow"></iframe>`
-    : `<h1>navigation</h1><iframe src="http://localhost:${port}/frame"></iframe>`);
+  res.end(
+    req.url === '/frame'
+      ? `<iframe src="http://127.0.0.1:${port}/slow"></iframe>`
+      : `<h1>navigation</h1><iframe src="http://localhost:${port}/frame"></iframe>`
+  );
 });
 async function run() {
   await app.whenReady();
-  await new Promise<void>(resolve => server.listen(0, resolve));
+  await new Promise<void>((resolve) => server.listen(0, resolve));
   const port = (server.address() as { port: number }).port;
   const state = new BrowserGuestStateStore();
   const cdp = createBrowserGuestCdp({
-    state, interceptFetchPatterns: () => [], matchInterceptRule: () => undefined,
+    state,
+    interceptFetchPatterns: () => [],
+    matchInterceptRule: () => undefined,
   });
   let observedFrame = false;
   for (let iteration = 0; iteration < 12; iteration++) {
@@ -37,7 +41,7 @@ async function run() {
     await cdp.guestDebugger(guest);
     await guest.loadURL(`http://127.0.0.1:${port}/?iteration=${iteration}`);
     for (let tries = 0; tries < 40 && state.for(guest).cdpSessions.size === 0; tries++) {
-      await new Promise(resolve => setTimeout(resolve, 25));
+      await new Promise((resolve) => setTimeout(resolve, 25));
     }
     observedFrame ||= state.for(guest).cdpSessions.size > 0;
     assert.equal(await cdp.evaluate(guest, 'document.querySelector("h1").textContent'), 'navigation');
@@ -60,12 +64,17 @@ async function run() {
   if (process.env.MIXDOG_BROWSER_INTEGRATION_LOG) appendFileSync(process.env.MIXDOG_BROWSER_INTEGRATION_LOG, message);
   console.log(message);
 }
-app.on('window-all-closed', () => { /* Keep the isolated test process alive between cycles. */ });
-run().then(() => {
-  server.close();
-  app.exit(0);
-}, error => {
-  console.error(error);
-  server.close();
-  app.exit(1);
+app.on('window-all-closed', () => {
+  /* Keep the isolated test process alive between cycles. */
 });
+run().then(
+  () => {
+    server.close();
+    app.exit(0);
+  },
+  (error) => {
+    console.error(error);
+    server.close();
+    app.exit(1);
+  }
+);

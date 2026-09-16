@@ -57,7 +57,11 @@ export function createCwdPlugins({
   function manifestMtimeKey(root) {
     let key = '';
     for (const rel of ['.codex-plugin/plugin.json', 'plugin.json']) {
-      try { key += `${statSync(resolve(root, rel)).mtimeMs}:`; } catch { key += '0:'; }
+      try {
+        key += `${statSync(resolve(root, rel)).mtimeMs}:`;
+      } catch {
+        key += '0:';
+      }
     }
     return key;
   }
@@ -75,7 +79,7 @@ export function createCwdPlugins({
   function cachedMcpDiscovery(root) {
     const now = Date.now();
     const hit = mcpDiscoveryCache.get(root);
-    if (hit && (now - hit.at) < 5000) return hit.mcp;
+    if (hit && now - hit.at < 5000) return hit.mcp;
     const mcp = discoverPluginMcp(root);
     mcpDiscoveryCache.set(root, { at: now, mcp });
     return mcp;
@@ -83,7 +87,7 @@ export function createCwdPlugins({
   function cachedSkillCount(root) {
     const now = Date.now();
     const hit = skillCountCache.get(root);
-    if (hit && (now - hit.at) < 5000) return hit.count;
+    if (hit && now - hit.at < 5000) return hit.count;
     const count = countSkillFiles(root);
     skillCountCache.set(root, { at: now, count });
     return count;
@@ -138,7 +142,9 @@ export function createCwdPlugins({
     // CwdChanged: bridge an effective cwd switch to the standard hook bus.
     // No matcher event — payload is minimal { cwd }. Fire-and-forget.
     if (changed) {
-      try { void hooks.dispatch('CwdChanged', hookCommonPayload({ cwd: currentCwd })); } catch {}
+      try {
+        void hooks.dispatch('CwdChanged', hookCommonPayload({ cwd: currentCwd }));
+      } catch {}
     }
     return currentCwd;
   }
@@ -146,9 +152,7 @@ export function createCwdPlugins({
   function pluginsStatus() {
     const config = getConfig();
     const dataDir = cfgMod.getPluginData?.();
-    const configuredMcp = config?.mcpServers && typeof config.mcpServers === 'object'
-      ? config.mcpServers
-      : {};
+    const configuredMcp = config?.mcpServers && typeof config.mcpServers === 'object' ? config.mcpServers : {};
     const plugins = [];
     const addRegisteredPlugin = (entry) => {
       const root = clean(entry.root);
@@ -179,8 +183,9 @@ export function createCwdPlugins({
         })(),
       };
       plugin.mcpServerName = pluginMcpServerName(plugin);
-      plugin.mcpEnabled = Object.prototype.hasOwnProperty.call(configuredMcp, plugin.mcpServerName)
-        || Object.keys(configuredMcp).some((k) => k.startsWith(`${plugin.mcpServerName}--`));
+      plugin.mcpEnabled =
+        Object.hasOwn(configuredMcp, plugin.mcpServerName) ||
+        Object.keys(configuredMcp).some((k) => k.startsWith(`${plugin.mcpServerName}--`));
       plugins.push(plugin);
     };
 
@@ -204,9 +209,7 @@ export function createCwdPlugins({
   function formatCoreMemoryLines(payload = {}) {
     const seen = new Set();
     const lines = [];
-    for (const value of [
-      ...(Array.isArray(payload.userLines) ? payload.userLines : []),
-    ]) {
+    for (const value of [...(Array.isArray(payload.userLines) ? payload.userLines : [])]) {
       const text = clean(value).replace(/\s+/g, ' ');
       if (!text) continue;
       const key = text.toLowerCase();
@@ -230,7 +233,9 @@ export function createCwdPlugins({
     }
     // Explicit opt-out (MIXDOG_BOOT_CORE_MEMORY=0/false/no/off) skips this
     // file-backed prompt block. Recall and memory tools remain available.
-    const bootFlag = String(process.env.MIXDOG_BOOT_CORE_MEMORY ?? '').trim().toLowerCase();
+    const bootFlag = String(process.env.MIXDOG_BOOT_CORE_MEMORY ?? '')
+      .trim()
+      .toLowerCase();
     if (bootFlag === '0' || bootFlag === 'false' || bootFlag === 'no' || bootFlag === 'off') {
       bootProfile('core-memory:skipped');
       return '';

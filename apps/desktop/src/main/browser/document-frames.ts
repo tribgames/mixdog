@@ -15,14 +15,22 @@ export interface BrowserFrameHost {
 export function createBrowserFrameCollector(host: BrowserFrameHost) {
   const cacheFor = createBrowserFrameCacheStore();
   async function collect<T>(
-    guest: WebContents, expression: string, signal?: AbortSignal, recoverTopology = true,
+    guest: WebContents,
+    expression: string,
+    signal?: AbortSignal,
+    recoverTopology = true
   ): Promise<T[]> {
     const debuggerPort = await host.cdp.guestDebugger(guest);
     signal?.throwIfAborted();
     const cache = cacheFor(guest, debuggerPort);
     const targets = [
-      { sessionId: undefined as string | undefined, frameId: undefined as string | undefined, ready: undefined as Promise<unknown> | undefined },
-      ...[...host.sessions(guest)].filter(([, target]) => target.type === 'iframe')
+      {
+        sessionId: undefined as string | undefined,
+        frameId: undefined as string | undefined,
+        ready: undefined as Promise<unknown> | undefined,
+      },
+      ...[...host.sessions(guest)]
+        .filter(([, target]) => target.type === 'iframe')
         .map(([sessionId, target]) => ({ sessionId, frameId: target.frameId, ready: target.ready })),
     ];
     if (targets.length > 32) throw new Error('too many frame targets for a complete observation');
@@ -40,13 +48,17 @@ export function createBrowserFrameCollector(host: BrowserFrameHost) {
       const read = createBrowserReadPool();
       let frames = cache.frames;
       if (!frames) {
-        const trees = await settleBrowserReads(targets.map(async (target) => {
-          await target.ready;
-          signal?.throwIfAborted();
-          return read(() => host.cdp.call<{ frameTree: FrameTree }>(
-            guest, 'Page.getFrameTree', {}, signal, { sessionId: target.sessionId },
-          ));
-        }));
+        const trees = await settleBrowserReads(
+          targets.map(async (target) => {
+            await target.ready;
+            signal?.throwIfAborted();
+            return read(() =>
+              host.cdp.call<{ frameTree: FrameTree }>(guest, 'Page.getFrameTree', {}, signal, {
+                sessionId: target.sessionId,
+              })
+            );
+          })
+        );
         frames = new Map<string, string | undefined>();
         const discovered = frames;
         targets.forEach((target, index) => {
@@ -62,28 +74,48 @@ export function createBrowserFrameCollector(host: BrowserFrameHost) {
         assertCurrent();
         cache.frames = frames;
       }
-      const values = await settleBrowserReads([...frames].map(([frameId, sessionId]) => read(async () => {
-        assertCurrent();
-        const key = JSON.stringify([sessionId, frameId]);
-        let executionContextId = cache.contexts.get(key);
-        if (executionContextId === undefined) {
-          const created = await host.cdp.call<{ executionContextId: number }>(
-            guest, 'Page.createIsolatedWorld', { frameId, worldName: 'mixdog-observation' }, signal, { sessionId },
-          );
-          assertCurrent();
-          executionContextId = created.executionContextId;
-          cache.contexts.set(key, executionContextId);
-        }
-        const result = await host.cdp.call<{
-          result?: { value?: T }; exceptionDetails?: { text?: string; exception?: { description?: string } };
-        }>(guest, 'Runtime.evaluate', {
-          expression, contextId: executionContextId, returnByValue: true, awaitPromise: true,
-        }, signal, { sessionId });
-        if (result.exceptionDetails || result.result?.value === undefined) {
-          throw new Error(`frame observation failed: ${result.exceptionDetails?.exception?.description || result.exceptionDetails?.text || 'missing result'}`);
-        }
-        return result.result.value;
-      })));
+      const values = await settleBrowserReads(
+        [...frames].map(([frameId, sessionId]) =>
+          read(async () => {
+            assertCurrent();
+            const key = JSON.stringify([sessionId, frameId]);
+            let executionContextId = cache.contexts.get(key);
+            if (executionContextId === undefined) {
+              const created = await host.cdp.call<{ executionContextId: number }>(
+                guest,
+                'Page.createIsolatedWorld',
+                { frameId, worldName: 'mixdog-observation' },
+                signal,
+                { sessionId }
+              );
+              assertCurrent();
+              executionContextId = created.executionContextId;
+              cache.contexts.set(key, executionContextId);
+            }
+            const result = await host.cdp.call<{
+              result?: { value?: T };
+              exceptionDetails?: { text?: string; exception?: { description?: string } };
+            }>(
+              guest,
+              'Runtime.evaluate',
+              {
+                expression,
+                contextId: executionContextId,
+                returnByValue: true,
+                awaitPromise: true,
+              },
+              signal,
+              { sessionId }
+            );
+            if (result.exceptionDetails || result.result?.value === undefined) {
+              throw new Error(
+                `frame observation failed: ${result.exceptionDetails?.exception?.description || result.exceptionDetails?.text || 'missing result'}`
+              );
+            }
+            return result.result.value;
+          })
+        )
+      );
       assertCurrent();
       return values;
     } catch (error) {
@@ -97,6 +129,5 @@ export function createBrowserFrameCollector(host: BrowserFrameHost) {
       throw error;
     }
   }
-  return <T>(guest: WebContents, expression: string, signal?: AbortSignal) =>
-    collect<T>(guest, expression, signal);
+  return <T>(guest: WebContents, expression: string, signal?: AbortSignal) => collect<T>(guest, expression, signal);
 }

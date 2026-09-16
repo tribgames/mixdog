@@ -5,7 +5,7 @@
 // 지금은 그냥 닫히는데). With no layer open, back falls through to the
 // browser default. Desktop/Electron surfaces never register: the helper
 // no-ops unless the mobile-tabs marker is present.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef } from 'react';
 
 type BackEntry = { close: () => void; armed: boolean };
 
@@ -20,7 +20,7 @@ function armPendingEntries(): void {
   for (const entry of stack) {
     if (entry.armed) continue;
     entry.armed = true;
-    history.pushState({ mixdogBack: stack.indexOf(entry) + 1 }, "");
+    history.pushState({ mixdogBack: stack.indexOf(entry) + 1 }, '');
   }
 }
 
@@ -38,9 +38,11 @@ function onPopState(): void {
 }
 
 function mobileBackSurface(): boolean {
-  return typeof document !== "undefined"
-    && document.documentElement.hasAttribute("data-mixdog-mobile-tabs")
-    && typeof history !== "undefined";
+  return (
+    typeof document !== 'undefined' &&
+    document.documentElement.hasAttribute('data-mixdog-mobile-tabs') &&
+    typeof history !== 'undefined'
+  );
 }
 
 /** Register an open transient layer; returns its unregister cleanup. */
@@ -48,7 +50,7 @@ export function registerMobileBack(close: () => void): () => void {
   if (!mobileBackSurface()) return () => {};
   if (!armed) {
     armed = true;
-    window.addEventListener("popstate", onPopState);
+    window.addEventListener('popstate', onPopState);
   }
   const entry: BackEntry = { close, armed: false };
   stack.push(entry);

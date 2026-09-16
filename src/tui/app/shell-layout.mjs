@@ -64,7 +64,14 @@ export function computeShellLayout({
   // the total tree height exceeds the terminal and the input box gets pushed.
   const textEntryPrompt = providerPrompt || settingsPrompt;
   const hasTextEntryPrompt = !!textEntryPrompt;
-  const hasFloatingPanel = !!(toolApproval || picker || contextPanel || usagePanel || slashPaletteOpen || hasTextEntryPrompt);
+  const hasFloatingPanel = !!(
+    toolApproval ||
+    picker ||
+    contextPanel ||
+    usagePanel ||
+    slashPaletteOpen ||
+    hasTextEntryPrompt
+  );
   const expandedOptionPanel = !!(toolApproval || picker || contextPanel || usagePanel || hasTextEntryPrompt);
   const panelTransitionForBoot = panelTransitionRef.current;
   if (panelTransitionForBoot.signature.includes('picker:project') && !picker) {
@@ -73,14 +80,15 @@ export function computeShellLayout({
   const bootSettling = !tuiReady && state.items.length === 0 && !hasFloatingPanel && !projectBootInputLatchRef.current;
   // Project selection (initial-entry experience) keeps the welcome banner
   // visible above the picker / path-entry prompt, unlike other floating panels.
-  const projectSelectionActive = picker?.kind === 'project'
-    || settingsPrompt?.kind === 'project-new'
-    || settingsPrompt?.kind === 'project-create-confirm'
-    || settingsPrompt?.kind === 'project-rename';
+  const projectSelectionActive =
+    picker?.kind === 'project' ||
+    settingsPrompt?.kind === 'project-new' ||
+    settingsPrompt?.kind === 'project-create-confirm' ||
+    settingsPrompt?.kind === 'project-rename';
   // Slash search floats above the normal prompt. Actual option panels own the
   // prompt/status area, so they hide those rows and expand into that space.
   const inputBoxHidden = expandedOptionPanel || bootSettling;
-  const liveSpinner = state.spinner?.active ? state.spinner : (state.commandStatus?.active ? state.commandStatus : null);
+  const liveSpinner = state.spinner?.active ? state.spinner : state.commandStatus?.active ? state.commandStatus : null;
   // Command-status spinner (auto-clear/compact/etc.) is NOT part of the
   // spinner → TurnDone handoff: it typically starts while the transcript tail
   // is already a done row (idle session), so the done-at-tail suppression
@@ -89,10 +97,8 @@ export function computeShellLayout({
   const latestToast = state.toasts?.length ? state.toasts[state.toasts.length - 1] : null;
   const toastHint = latestToast ? latestToast.text : '';
   const progressHint = state.progressHint || null;
-  const inputHint = promptHint || toastHint || (progressHint?.text || '');
-  const inputHintTone = promptHint
-    ? promptHintTone
-    : (latestToast?.tone || progressHint?.tone || 'info');
+  const inputHint = promptHint || toastHint || progressHint?.text || '';
+  const inputHintTone = promptHint ? promptHintTone : latestToast?.tone || progressHint?.tone || 'info';
   const latestTranscriptItem = state.items[state.items.length - 1] || null;
   // Bottom meta band ownership is LIVE-SPINNER ONLY. A finished turn's done row
   // (turndone/statusdone) is a normal transcript item and flows into scrollback
@@ -178,9 +184,9 @@ export function computeShellLayout({
   // compact 1-row-per-entry truncation so the input box never leaves screen.
   const queuedFullRows = queuedVisible
     ? state.queued.reduce(
-      (sum, item) => sum + queuedBandRows(String(item.displayText || item.text || ''), Math.max(1, frameColumns - 4)),
-      0,
-    )
+        (sum, item) => sum + queuedBandRows(String(item.displayText || item.text || ''), Math.max(1, frameColumns - 4)),
+        0
+      )
     : 0;
   const queuedRowBudget = Math.max(3, Math.floor(resizeState.rows / 3));
   const queuedCompact = queuedFullRows > queuedRowBudget;
@@ -196,37 +202,39 @@ export function computeShellLayout({
   // chrome never clips (the floating container clips from the top).
   const WELCOME_BANNER_ROWS = 11;
   const SLASH_PALETTE_ROWS = PANEL_MAX_VISIBLE + PANEL_CHROME_ROWS;
-  const slashKeepsWelcomeBanner = slashPaletteOpen
-    && resizeState.rows >= WELCOME_BANNER_ROWS + SLASH_PALETTE_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + 1;
-  const showWelcomeBanner = (state.items.length === 0 && (!hasFloatingPanel || slashKeepsWelcomeBanner))
-    || projectSelectionActive || onboardingActive;
+  const slashKeepsWelcomeBanner =
+    slashPaletteOpen &&
+    resizeState.rows >= WELCOME_BANNER_ROWS + SLASH_PALETTE_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + 1;
+  const showWelcomeBanner =
+    (state.items.length === 0 && (!hasFloatingPanel || slashKeepsWelcomeBanner)) ||
+    projectSelectionActive ||
+    onboardingActive;
   const WELCOME_ROWS = showWelcomeBanner ? WELCOME_BANNER_ROWS : 0;
-  const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
+  const baseReserve =
+    WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const maxFloatingPanelRows = Math.max(0, resizeState.rows - baseReserve - 1);
   const desiredFloatingPanelRows = toolApproval
     ? PANEL_CHROME_ROWS + 2 + OPTION_PANEL_EXTRA_ROWS
     : picker
-      ? (picker.fillAvailable ? maxFloatingPanelRows : PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS)
+      ? picker.fillAvailable
+        ? maxFloatingPanelRows
+        : PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS
       : contextPanel
-      ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS + 3
-      : usagePanel
-        ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS
-        : slashPaletteOpen
-          ? PANEL_MAX_VISIBLE + PANEL_CHROME_ROWS
-          : hasTextEntryPrompt
-            ? TEXT_ENTRY_ROWS
-            : 0;
-  const floatingPanelRows = desiredFloatingPanelRows > 0
-    ? Math.min(desiredFloatingPanelRows, maxFloatingPanelRows)
-    : 0;
+        ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS + 3
+        : usagePanel
+          ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS
+          : slashPaletteOpen
+            ? PANEL_MAX_VISIBLE + PANEL_CHROME_ROWS
+            : hasTextEntryPrompt
+              ? TEXT_ENTRY_ROWS
+              : 0;
+  const floatingPanelRows = desiredFloatingPanelRows > 0 ? Math.min(desiredFloatingPanelRows, maxFloatingPanelRows) : 0;
   // Give the list every content row the panel exposes. The panel already grew
   // by OPTION_PANEL_EXTRA_ROWS; previously that growth was subtracted back out
   // here, so the rows leaked into an empty flexGrow gap instead of the list.
   // Reserving only PICKER_CHROME_ROWS lets the list occupy the full interior
   // (the footer's own reservation is handled inside Picker).
-  const pickerVisibleRows = picker
-    ? Math.max(1, floatingPanelRows - PICKER_CHROME_ROWS)
-    : PANEL_MAX_VISIBLE;
+  const pickerVisibleRows = picker ? Math.max(1, floatingPanelRows - PICKER_CHROME_ROWS) : PANEL_MAX_VISIBLE;
   const rawBottomReserve = baseReserve + floatingPanelRows;
   const bottomClusterRows = INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows + floatingPanelRows;
   const panelLayoutSignature = [
@@ -258,8 +266,8 @@ export function computeShellLayout({
     // shrink here through the same one-commit ink-mask path as an instant panel
     // close so the stale row is masked in the very commit it disappears; growth
     // already needs no clearance (panelShrinkRows is 0 in that case).
-    const promptRowsOnlyChange = panelShrinkRows > 0
-      && panelKindSignature(panelTransition.signature) === panelKindSignature(panelLayoutSignature);
+    const promptRowsOnlyChange =
+      panelShrinkRows > 0 && panelKindSignature(panelTransition.signature) === panelKindSignature(panelLayoutSignature);
     // Turn-end spinner meta collapse: the 2-row live-spinner band disappears in
     // the SAME commit the engine appends the turndone/statusdone tail (see
     // engine.mjs runTurn — turndone + spinner:null land in one set()). That new
@@ -279,11 +287,9 @@ export function computeShellLayout({
     // must stay on for that path or the vacated rows overpaint the stale row.
     const doneTailAppendedThisCommit = isCompletedTranscriptTailAppendedThisCommit(
       latestTranscriptItem,
-      panelTransition.tailId,
+      panelTransition.tailId
     );
-    const spinnerMetaCollapseRows = doneTailAppendedThisCommit
-      ? Math.max(0, prevMetaRows - nextMetaRows)
-      : 0;
+    const spinnerMetaCollapseRows = doneTailAppendedThisCommit ? Math.max(0, prevMetaRows - nextMetaRows) : 0;
     // Queued-band promotion: drain() removes the queued band and appends the
     // promoted user transcript row in the SAME commit (session-flow.mjs drain
     // → pushUserOrSyntheticItem → runTurn spinner, one microtask flush). The
@@ -295,14 +301,15 @@ export function computeShellLayout({
     // id unchanged, or non-user tail) keep the mask.
     const prevQueuedSigRows = Number(String(panelTransition.signature).split('|')[PANEL_LAYOUT_SIG.QUEUED]) || 0;
     const nextQueuedSigRows = Number(String(panelLayoutSignature).split('|')[PANEL_LAYOUT_SIG.QUEUED]) || 0;
-    const userTailAppendedThisCommit = latestTranscriptItem?.kind === 'user'
-      && (latestTranscriptItem?.id ?? null) !== panelTransition.tailId;
+    const userTailAppendedThisCommit =
+      latestTranscriptItem?.kind === 'user' && (latestTranscriptItem?.id ?? null) !== panelTransition.tailId;
     const queuedPromoteCollapseRows = userTailAppendedThisCommit
       ? Math.max(0, prevQueuedSigRows - nextQueuedSigRows)
       : 0;
-    const instantPanelClose = panelShrinkRows > 0
-      && (promptRowsOnlyChange
-        || isInstantPanelCloseTransition(panelTransition.signature, panelLayoutSignature, initialProjectEntryClose));
+    const instantPanelClose =
+      panelShrinkRows > 0 &&
+      (promptRowsOnlyChange ||
+        isInstantPanelCloseTransition(panelTransition.signature, panelLayoutSignature, initialProjectEntryClose));
     // Slash palette opening on the empty welcome screen: bottomReserve already
     // grows to its final size in this same commit (floatingPanelRows reflects
     // slashPaletteOpen immediately, no clearRows needed), but the renderer can
@@ -311,9 +318,10 @@ export function computeShellLayout({
     // closes below) for exactly one commit on the open transition itself —
     // this only carves an extra blank row out of transcriptContentHeight, it
     // does not touch bottomReserve/floatingPanelRows/palette height.
-    const slashOpenOnEmptyTranscript = initialProjectEntryClose
-      && !panelSignatureFlags(panelTransition.signature).slash
-      && panelSignatureFlags(panelLayoutSignature).slash;
+    const slashOpenOnEmptyTranscript =
+      initialProjectEntryClose &&
+      !panelSignatureFlags(panelTransition.signature).slash &&
+      panelSignatureFlags(panelLayoutSignature).slash;
     if (instantPanelClose) {
       // Slash palette and initial project-entry closes land on the final bottom
       // reserve in one commit. Paint reclaimed rows as a blank mask band below
@@ -322,7 +330,10 @@ export function computeShellLayout({
       // commit done tail already backfills (spinnerMetaCollapseRows) so that
       // transition masks nothing and does not bounce; same for queued-band
       // rows backfilled by a just-promoted user row (queuedPromoteCollapseRows).
-      panelCloseInkMaskRowsRef.current = Math.max(0, panelShrinkRows - spinnerMetaCollapseRows - queuedPromoteCollapseRows);
+      panelCloseInkMaskRowsRef.current = Math.max(
+        0,
+        panelShrinkRows - spinnerMetaCollapseRows - queuedPromoteCollapseRows
+      );
       panelTransition.clearRows = 0;
       panelTransition.guardRows = 0;
       panelTransition.epoch = panelTransitionEpoch;
@@ -396,22 +407,21 @@ export function computeShellLayout({
   // mask-clear commit.
   const welcomePromptHintText = conditionalWelcomePromptHint || welcomePromptHintRef.current || '';
   const welcomePromptHintVisible = Boolean(
-    welcomePromptHintText
-    && !welcomePromptHintDismissed
-    && state.items.length === 0
-    && !hasFloatingPanel
-    && !inputBoxHidden
-    && !queuedVisible
-    && !liveSpinner
-    && !inputHint
+    welcomePromptHintText &&
+      !welcomePromptHintDismissed &&
+      state.items.length === 0 &&
+      !hasFloatingPanel &&
+      !inputBoxHidden &&
+      !queuedVisible &&
+      !liveSpinner &&
+      !inputHint
   );
   // Tiny terminals: guard rows can already consume all but one viewport row
   // (guardCapacityRows = viewportHeight - 1). transcriptContentHeight clamps
   // to >= 1, so an unconditional hint row would paint viewportHeight + 1 rows
   // and push the prompt/statusline down. The hint yields unless at least one
   // content row remains beside it.
-  const welcomePromptHintRows = welcomePromptHintVisible
-    && (viewportHeight - transcriptGuardRows) >= 2 ? 1 : 0;
+  const welcomePromptHintRows = welcomePromptHintVisible && viewportHeight - transcriptGuardRows >= 2 ? 1 : 0;
   welcomePromptHintVisibleRef.current = welcomePromptHintRows > 0;
   // Transient hint/error on the EMPTY transcript: the guard row sits directly
   // above the prompt box, so painting the hint there hugs the textbox one row
@@ -421,9 +431,12 @@ export function computeShellLayout({
   // in-viewport carve like welcomePromptHintRows — bottomReserve is untouched,
   // so the prompt box and statusline never move. Non-empty transcripts keep the
   // existing attach-to-last-item / guard-row fallback placements.
-  const overlayHintBandRows = overlayHintRequested
-    && state.items.length === 0
-    && (viewportHeight - transcriptGuardRows - welcomePromptHintRows) >= 2 ? 1 : 0;
+  const overlayHintBandRows =
+    overlayHintRequested &&
+    state.items.length === 0 &&
+    viewportHeight - transcriptGuardRows - welcomePromptHintRows >= 2
+      ? 1
+      : 0;
   // Instant panel close (slash palette): the reclaimed rows stay blank for
   // exactly one commit via panelCloseMaskRows. The mask MUST be part of this
   // frame's row accounting — subtract it from the transcript content height
@@ -434,11 +447,11 @@ export function computeShellLayout({
   // commit (the "textbox dips when the slash palette closes" bug).
   const panelCloseMaskRows = Math.min(
     panelCloseInkMaskRows,
-    Math.max(0, viewportHeight - transcriptGuardRows - welcomePromptHintRows - overlayHintBandRows - 1),
+    Math.max(0, viewportHeight - transcriptGuardRows - welcomePromptHintRows - overlayHintBandRows - 1)
   );
   const transcriptContentHeight = Math.max(
     1,
-    viewportHeight - transcriptGuardRows - panelCloseMaskRows - welcomePromptHintRows - overlayHintBandRows,
+    viewportHeight - transcriptGuardRows - panelCloseMaskRows - welcomePromptHintRows - overlayHintBandRows
   );
   // Keep the keyboard-selection edge step anchored to the base guard. This is
   // not a follow threshold: any positive wheel target is a reading position;
@@ -475,9 +488,8 @@ export function computeShellLayout({
     ? Math.max(1, Math.min(Math.max(1, frameColumns - 4), Math.max(12, Math.floor(frameColumns * 0.42))))
     : 0;
   const transientStatusWidth = liveSpinner ? spinnerHintWidth : guardHintWidth;
-  const promptSpinnerColumns = liveSpinner && inputHint
-    ? Math.max(1, frameColumns - spinnerHintWidth - 1)
-    : frameColumns;
+  const promptSpinnerColumns =
+    liveSpinner && inputHint ? Math.max(1, frameColumns - spinnerHintWidth - 1) : frameColumns;
 
   return {
     textEntryPrompt,

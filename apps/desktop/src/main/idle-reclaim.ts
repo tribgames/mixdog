@@ -43,7 +43,11 @@ export function createIdleReclaim(hooks: IdleReclaimHooks): IdleReclaim {
   // A destroyed or unreadable window counts as focused: the reclaim is an
   // optimization, and skipping it is always the safe answer.
   const focused = () => {
-    try { return hooks.isFocused(); } catch { return true; }
+    try {
+      return hooks.isFocused();
+    } catch {
+      return true;
+    }
   };
   const arm = () => {
     if (disposed || released || busy || timer || focused()) return;
@@ -51,7 +55,9 @@ export function createIdleReclaim(hooks: IdleReclaimHooks): IdleReclaim {
       timer = null;
       if (disposed || busy || focused()) return;
       released = true;
-      void Promise.resolve(hooks.reclaim()).catch(() => { /* best effort */ });
+      void Promise.resolve(hooks.reclaim()).catch(() => {
+        /* best effort */
+      });
     }, delayMs);
     timer.unref?.();
   };
@@ -63,7 +69,9 @@ export function createIdleReclaim(hooks: IdleReclaimHooks): IdleReclaim {
       released = false;
       cancel();
     },
-    onBlur() { arm(); },
+    onBlur() {
+      arm();
+    },
     onSnapshot(snapshot) {
       const next = turnInProgress(snapshot);
       if (next === busy) return;
@@ -103,7 +111,9 @@ export interface IdleReclaimTarget {
  *  major GCs rather than sitting on a gigabyte because the host has RAM free. */
 export async function purgeRendererMemory(contents: IdleReclaimTarget): Promise<void> {
   if (contents.isDestroyed()) return;
-  await contents.executeJavaScript(
-    `window.dispatchEvent(new Event(${JSON.stringify(IDLE_RECLAIM_EVENT)}));true`,
-  ).catch(() => { /* the document is gone or mid-navigation */ });
+  await contents
+    .executeJavaScript(`window.dispatchEvent(new Event(${JSON.stringify(IDLE_RECLAIM_EVENT)}));true`)
+    .catch(() => {
+      /* the document is gone or mid-navigation */
+    });
 }

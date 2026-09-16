@@ -36,14 +36,45 @@ action('zoom', { ...hostRead, ...replay, policy: 'capture' });
 action('verify', { ...hostRead, ...replay });
 action('diagnose', { observeOnly: true, ...replay });
 action('wait_for_user', { ...hostRead, ...replay });
-for (const name of ['invoke', 'set_value', 'toggle', 'click', 'double_click', 'right_click',
-  'middle_click', 'triple_click', 'mouse_move', 'drag', 'type', 'key', 'scroll']) {
+for (const name of [
+  'invoke',
+  'set_value',
+  'toggle',
+  'click',
+  'double_click',
+  'right_click',
+  'middle_click',
+  'triple_click',
+  'mouse_move',
+  'drag',
+  'type',
+  'key',
+  'scroll',
+]) {
   action(name, {
     observationBound: true,
     autoCapture: true,
-    backgroundPressRelease: ['click', 'double_click', 'right_click', 'middle_click', 'triple_click', 'drag', 'key'].includes(name),
+    backgroundPressRelease: [
+      'click',
+      'double_click',
+      'right_click',
+      'middle_click',
+      'triple_click',
+      'drag',
+      'key',
+    ].includes(name),
     focusGuard: ['invoke', 'set_value', 'toggle'].includes(name),
-    focusContinuation: ['invoke', 'click', 'double_click', 'right_click', 'middle_click', 'triple_click', 'mouse_move', 'drag', 'scroll'].includes(name),
+    focusContinuation: [
+      'invoke',
+      'click',
+      'double_click',
+      'right_click',
+      'middle_click',
+      'triple_click',
+      'mouse_move',
+      'drag',
+      'scroll',
+    ].includes(name),
     policy: 'act',
   });
 }
@@ -61,8 +92,16 @@ for (const name of ['execution_end', 'session_release', 'session_abort']) {
 }
 export const COMPUTER_ACTIONS = Object.freeze(catalogue);
 export const COMPUTER_POLICY_ACTIONS = Object.freeze([
-  'list', 'capture', 'diagnose', 'act', 'window', 'menu', 'verify', 'launch',
-  'clipboard_read', 'clipboard_write',
+  'list',
+  'capture',
+  'diagnose',
+  'act',
+  'window',
+  'menu',
+  'verify',
+  'launch',
+  'clipboard_read',
+  'clipboard_write',
 ]);
 export function computerActionsWith(capability) {
   return Object.keys(COMPUTER_ACTIONS).filter((name) => COMPUTER_ACTIONS[name][capability] === true);
@@ -74,5 +113,7 @@ export function computerActionHas(name, capability) {
   return COMPUTER_ACTIONS[name]?.[capability] === true;
 }
 export function computerPowerShellActionArray(capability) {
-  return `@(${computerActionsWith(capability).map((name) => `'${name}'`).join(',')})`;
+  return `@(${computerActionsWith(capability)
+    .map((name) => `'${name}'`)
+    .join(',')})`;
 }

@@ -1,27 +1,11 @@
-import {
-  Archive,
-  ArchiveRestore,
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  Check,
-  Minus,
-  Undo2,
-} from "lucide-react";
-import React, {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import { ProgressSpinner } from "./ProgressSpinner";
-import { InitialSurface } from "./InitialSurface";
-import {
-  describeSourceControlError,
-  sourceControlErrorToastText,
-} from "./SourceControlErrorNotice";
-import { useErrorToast } from "./notifications";
-import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, ArrowUpDown, Check, Minus, Undo2 } from 'lucide-react';
+import type React from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ProgressSpinner } from './ProgressSpinner';
+import { InitialSurface } from './InitialSurface';
+import { describeSourceControlError, sourceControlErrorToastText } from './SourceControlErrorNotice';
+import { useErrorToast } from './notifications';
+import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import type {
   DesktopGitBranch,
   DesktopGitCommitDetails,
@@ -29,10 +13,10 @@ import type {
   DesktopGitFile,
   DesktopGitLogEntry,
   DesktopGitStatus,
-} from "../shared/contract";
-import { t } from "./i18n";
-import type { PullRequestOpenHandler } from "./PullRequestsPane";
-import { GithubDock as PullRequestsPane } from "./github/GithubDock";
+} from '../shared/contract';
+import { t } from './i18n';
+import type { PullRequestOpenHandler } from './PullRequestsPane';
+import { GithubDock as PullRequestsPane } from './github/GithubDock';
 import {
   ScmContextMenu,
   elementMenuPoint,
@@ -40,24 +24,18 @@ import {
   pointerMenuPoint,
   type ScmContextMenuItem,
   type ScmContextMenuState,
-} from "./ScmContextMenu";
-import {
-  changedFileMenuItems,
-  SourceControlFileRow,
-} from "./source-control-file-row";
-import { sourceControlRemoteActions } from "./source-control-remote-actions";
-import { SourceControlBranchPicker } from "./source-control-branch-picker";
-import { SourceControlCommitDetail } from "./source-control-commit-detail";
-import { SourceControlCommitForm } from "./SourceControlCommitForm";
-import { partialStagingWarning, resetModePrompt } from "./source-control-confirmations";
-import {
-  SourceControlViewControls,
-  type SourceControlView,
-} from "./SourceControlViewControls";
-import { buildSourceControlCommitMenu } from "./source-control-history-menu";
-import { sourceControlCommitSelection } from "./source-control-commit-selection";
-import { useSourceControlFiles } from "./use-source-control-files";
-import { useSurfaceActive, useSurfaceNavigationReset } from "./surface-activity";
+} from './ScmContextMenu';
+import { changedFileMenuItems, SourceControlFileRow } from './source-control-file-row';
+import { sourceControlRemoteActions } from './source-control-remote-actions';
+import { SourceControlBranchPicker } from './source-control-branch-picker';
+import { SourceControlCommitDetail } from './source-control-commit-detail';
+import { SourceControlCommitForm } from './SourceControlCommitForm';
+import { partialStagingWarning, resetModePrompt } from './source-control-confirmations';
+import { SourceControlViewControls, type SourceControlView } from './SourceControlViewControls';
+import { buildSourceControlCommitMenu } from './source-control-history-menu';
+import { sourceControlCommitSelection } from './source-control-commit-selection';
+import { useSourceControlFiles } from './use-source-control-files';
+import { useSurfaceActive, useSurfaceNavigationReset } from './surface-activity';
 import {
   DEFAULT_BRANCH_NAMES,
   EMPTY_SUMMARY,
@@ -75,7 +53,7 @@ import {
   useAnchoredPanel,
   useRowWindow,
   type SourceControlDiffRequest,
-} from "./source-control-support";
+} from './source-control-support';
 export {
   changedFilesLabel,
   gitRemoteWebUrl,
@@ -83,7 +61,7 @@ export {
   pullRequestUrl,
   type ScmRowWindow,
   type SourceControlDiffRequest,
-} from "./source-control-support";
+} from './source-control-support';
 
 export function SourceControlDock({
   projectPath,
@@ -100,7 +78,7 @@ export function SourceControlDock({
   onOpenDiff,
   onOpenPullRequest,
   projectSelect,
-  surface = "changes",
+  surface = 'changes',
 }: {
   projectPath: string;
   status: DesktopGitStatus | null;
@@ -118,38 +96,38 @@ export function SourceControlDock({
   /** Project picker hosted in its own row above the fixed Git toolbar. */
   projectSelect?: React.ReactNode;
   /** `changes` is the Git panel; `prs` is the separate pull-request panel. */
-  surface?: "changes" | "prs";
+  surface?: 'changes' | 'prs';
 }) {
   const api = window.mixdogDesktop;
-  const prOnly = surface === "prs";
+  const prOnly = surface === 'prs';
   const [history, setHistory] = useState<DesktopGitLogEntry[]>([]);
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
   // ONE error surface: a failed Git action reports where every other failure
   // in the app reports — the workspace toast region — instead of a panel-local
   // banner that pushed the changed-file list down. State-owned, so the next
   // success (or leaving the project) clears it.
-  useErrorToast(error ? sourceControlErrorToastText(error) : "", `scm:${projectPath}`);
+  useErrorToast(error ? sourceControlErrorToastText(error) : '', `scm:${projectPath}`);
   // Commit messages keep summary and description as separate fields.
-  const [summary, setSummary] = useState("");
-  const [description, setDescription] = useState("");
+  const [summary, setSummary] = useState('');
+  const [description, setDescription] = useState('');
   /** ONE right-click / Menu-key menu shared by every row grammar in the dock
    *  (changed file, history commit, branch) and by the file list's View & Sort
    *  button. The per-row "…" trigger buttons are gone. */
   const [contextMenu, setContextMenu] = useState<ScmContextMenuState | null>(null);
   const viewSortMenuPoint = useRef<{ x: number; y: number } | null>(null);
   const viewSortClickGuard = useImmediateOverlayClickGuard();
-  const [view, setView] = useState<SourceControlView>("changes");
-  const [selectedCommit, setSelectedCommit] = useState("");
+  const [view, setView] = useState<SourceControlView>('changes');
+  const [selectedCommit, setSelectedCommit] = useState('');
   const [commitDetail, setCommitDetail] = useState<DesktopGitCommitDetails | null>(null);
   /** Outcome of the last SHA copy — the copy affordance's confirmation
    *  `ok: false` means the clipboard
    *  was unavailable or refused, which must NOT read as "Copied". */
   const [shaCopy, setShaCopy] = useState<{ hash: string; ok: boolean } | null>(null);
-  const [openCommitFile, setOpenCommitFile] = useState("");
+  const [openCommitFile, setOpenCommitFile] = useState('');
   const [commitDiffs, setCommitDiffs] = useState<Record<string, string | null>>({});
   const historyRef = useRef<DesktopGitLogEntry[]>([]);
-  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyQuery, setHistoryQuery] = useState('');
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyHasMore, setHistoryHasMore] = useState(false);
   /** The commit count the scroll pager last requested a page FOR. A page that
@@ -158,10 +136,10 @@ export function SourceControlDock({
   const autoPagedSkip = useRef(-1);
   const [branches, setBranches] = useState<DesktopGitBranch[]>([]);
   /** Real default branch, resolved from the remote HEAD (see loadBranches). */
-  const [defaultBranchName, setDefaultBranchName] = useState("");
+  const [defaultBranchName, setDefaultBranchName] = useState('');
   const [branchPickerOpen, setBranchPickerOpen] = useState(false);
   const branchPickerClickGuard = useImmediateOverlayClickGuard();
-  const [branchQuery, setBranchQuery] = useState("");
+  const [branchQuery, setBranchQuery] = useState('');
   const [branchLoading, setBranchLoading] = useState(false);
   const [mergeMode, setMergeMode] = useState(false);
   const branchPickerRef = useRef<HTMLDivElement>(null);
@@ -180,9 +158,9 @@ export function SourceControlDock({
   // mounts, tests) the default is active, so nothing changes.
   const surfaceActive = useSurfaceActive();
   useSurfaceNavigationReset(active && surfaceActive, () => {
-    setView("changes");
-    setSelectedCommit("");
-    setOpenCommitFile("");
+    setView('changes');
+    setSelectedCommit('');
+    setOpenCommitFile('');
     setContextMenu(null);
     setBranchPickerOpen(false);
     setMergeMode(false);
@@ -199,8 +177,8 @@ export function SourceControlDock({
   const branchPanelStyle = useAnchoredPanel(branchPickerVisible, branchTriggerRef, branchPanelRef, {
     preferredWidth: 300,
     minWidth: 220,
-    align: "start",
-    placement: "below",
+    align: 'start',
+    placement: 'below',
   });
   const {
     files,
@@ -228,36 +206,39 @@ export function SourceControlDock({
   } = useSourceControlFiles({
     projectPath,
     status,
-    active: !prOnly && view === "changes",
+    active: !prOnly && view === 'changes',
   });
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
   /** The guards are also read at EXECUTION time. An open context menu holds
    *  the `busy` / `status.operation` SNAPSHOT of the render that built it, so
    *  an action started while it is open would otherwise slip past the
    *  disabled-at-render check inside those item closures. */
-  const busyRef = useRef("");
+  const busyRef = useRef('');
   const statusRef = useRef<DesktopGitStatus | null>(status);
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
   const guardReason = useCallback((): string => {
-    if (busyRef.current) return "Another Git action is running";
+    if (busyRef.current) return 'Another Git action is running';
     const operation = statusRef.current?.operation;
-    return operation ? `Finish the in-progress ${operation.replace("-", " ")} first` : "";
+    return operation ? `Finish the in-progress ${operation.replace('-', ' ')} first` : '';
   }, []);
   /** Runs a menu action only if the guards STILL allow it; a stale entry
    *  reports the reason instead of acting on a repository that moved. */
-  const guarded = useCallback((action: () => void) => {
-    const reason = guardReason();
-    if (reason) {
-      setError(reason);
-      return;
-    }
-    action();
-  }, [guardReason]);
+  const guarded = useCallback(
+    (action: () => void) => {
+      const reason = guardReason();
+      if (reason) {
+        setError(reason);
+        return;
+      }
+      action();
+    },
+    [guardReason]
+  );
   /** …and an open menu STOPS OFFERING what it can no longer do: the guard
    *  state changing (an action starts, an operation appears) closes it. */
-  const guardState = `${busy}\u0000${status?.operation ?? ""}`;
+  const guardState = `${busy}\u0000${status?.operation ?? ''}`;
   const guardStateRef = useRef(guardState);
   useEffect(() => {
     if (guardStateRef.current === guardState) return;
@@ -270,30 +251,37 @@ export function SourceControlDock({
     onContextMenu: (event: React.MouseEvent<HTMLElement>) => {
       event.preventDefault();
       event.stopPropagation();
-      commitImmediateOverlay(() =>
-        setContextMenu({ label, items: items(), ...pointerMenuPoint(event) }));
+      commitImmediateOverlay(() => setContextMenu({ label, items: items(), ...pointerMenuPoint(event) }));
     },
     onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
       if (!isContextMenuKey(event)) return;
       event.preventDefault();
-      commitImmediateOverlay(() =>
-        setContextMenu({ label, items: items(), ...elementMenuPoint(event.currentTarget) }));
+      commitImmediateOverlay(() => setContextMenu({ label, items: items(), ...elementMenuPoint(event.currentTarget) }));
     },
   });
-  const refresh = useCallback(async (showLoading = false) => {
-    if (!projectPath) return;
-    await onRefreshStatus(showLoading);
-  }, [onRefreshStatus, projectPath]);
+  const refresh = useCallback(
+    async (showLoading = false) => {
+      if (!projectPath) return;
+      await onRefreshStatus(showLoading);
+    },
+    [onRefreshStatus, projectPath]
+  );
 
   const loadBranches = useCallback(async () => {
     if (!projectPath) return;
     if (!api?.gitBranches) {
-      setBranches(status?.branch ? [{
-        name: status.branch,
-        current: true,
-        remote: false,
-        upstream: status.upstreamName,
-      }] : []);
+      setBranches(
+        status?.branch
+          ? [
+              {
+                name: status.branch,
+                current: true,
+                remote: false,
+                upstream: status.upstreamName,
+              },
+            ]
+          : []
+      );
       return;
     }
     setBranchLoading(true);
@@ -315,10 +303,12 @@ export function SourceControlDock({
     if (!projectPath || !api?.gitReview) return;
     try {
       const review = await api.gitReview(projectPath);
-      const base = review?.base || "";
-      if (!base || base === "HEAD") return;
-      setDefaultBranchName(base.includes("/") ? base.slice(base.indexOf("/") + 1) : base);
-    } catch { /* no remote HEAD — the conventional guess stands in */ }
+      const base = review?.base || '';
+      if (!base || base === 'HEAD') return;
+      setDefaultBranchName(base.includes('/') ? base.slice(base.indexOf('/') + 1) : base);
+    } catch {
+      /* no remote HEAD — the conventional guess stands in */
+    }
   }, [api, projectPath]);
 
   useEffect(() => {
@@ -329,128 +319,139 @@ export function SourceControlDock({
       // panel that row lives in.
       if (event.button === 2) return;
       // The panel is portaled out of the dock, so both boxes count as "inside".
-      if (branchPickerRef.current?.contains(target)
-        || branchPanelRef.current?.contains(target)
-        || visibleContextMenu) return;
+      if (branchPickerRef.current?.contains(target) || branchPanelRef.current?.contains(target) || visibleContextMenu)
+        return;
       setBranchPickerOpen(false);
     };
     const keydown = (event: KeyboardEvent) => {
       // An open context menu owns Escape until it closes.
       if (visibleContextMenu) return;
-      if (event.key === "Escape") setBranchPickerOpen(false);
+      if (event.key === 'Escape') setBranchPickerOpen(false);
     };
-    document.addEventListener("pointerdown", dismiss, true);
-    document.addEventListener("keydown", keydown, true);
+    document.addEventListener('pointerdown', dismiss, true);
+    document.addEventListener('keydown', keydown, true);
     return () => {
-      document.removeEventListener("pointerdown", dismiss, true);
-      document.removeEventListener("keydown", keydown, true);
+      document.removeEventListener('pointerdown', dismiss, true);
+      document.removeEventListener('keydown', keydown, true);
     };
   }, [branchPickerVisible, visibleContextMenu]);
 
-  const loadHistory = useCallback(async (reset = true) => {
-    if (!active || !projectPath || !api?.gitLog) return;
-    const skip = reset ? 0 : historyRef.current.length;
-    if (reset) autoPagedSkip.current = -1;
-    setHistoryLoading(true);
-    try {
-      const page = await api.gitLog(projectPath, historyQuery, skip, HISTORY_PAGE_SIZE);
-      const next = reset
-        ? page
-        : [...historyRef.current, ...page.filter((entry) =>
-          !historyRef.current.some((existing) => existing.hash === entry.hash))];
-      historyRef.current = next;
-      setHistory(next);
-      setHistoryHasMore(page.length === HISTORY_PAGE_SIZE);
-      setError("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, [active, api, historyQuery, projectPath]);
+  const loadHistory = useCallback(
+    async (reset = true) => {
+      if (!active || !projectPath || !api?.gitLog) return;
+      const skip = reset ? 0 : historyRef.current.length;
+      if (reset) autoPagedSkip.current = -1;
+      setHistoryLoading(true);
+      try {
+        const page = await api.gitLog(projectPath, historyQuery, skip, HISTORY_PAGE_SIZE);
+        const next = reset
+          ? page
+          : [
+              ...historyRef.current,
+              ...page.filter((entry) => !historyRef.current.some((existing) => existing.hash === entry.hash)),
+            ];
+        historyRef.current = next;
+        setHistory(next);
+        setHistoryHasMore(page.length === HISTORY_PAGE_SIZE);
+        setError('');
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      } finally {
+        setHistoryLoading(false);
+      }
+    },
+    [active, api, historyQuery, projectPath]
+  );
 
   useEffect(() => {
     setHistory([]);
     historyRef.current = [];
-    setSelectedCommit("");
+    setSelectedCommit('');
     setCommitDetail(null);
-    setOpenCommitFile("");
+    setOpenCommitFile('');
     setCommitDiffs({});
-    setHistoryQuery("");
+    setHistoryQuery('');
     setHistoryHasMore(false);
     setBranches([]);
-    setDefaultBranchName("");
+    setDefaultBranchName('');
     setBranchPickerOpen(false);
-    setBranchQuery("");
+    setBranchQuery('');
     setMergeMode(false);
-    setView("changes");
+    setView('changes');
   }, [projectPath]);
   useEffect(() => {
     onReadyChange(readinessKey, !projectPath || statusReady);
   }, [onReadyChange, projectPath, readinessKey, statusReady]);
   // (Exclusion reconciliation lives below, next to the file list it depends on.)
   useEffect(() => {
-    if (!active || view !== "history") return undefined;
-    const timer = window.setTimeout(
-      () => void loadHistory(true),
-      historyRef.current.length ? 180 : 0,
-    );
+    if (!active || view !== 'history') return undefined;
+    const timer = window.setTimeout(() => void loadHistory(true), historyRef.current.length ? 180 : 0);
     return () => window.clearTimeout(timer);
   }, [active, historyQuery, loadHistory, view]);
 
   /** Everything a landed action has to re-read: the status, the branch list
    *  for branch actions, and the history for the surfaces that rewrite it. */
-  const reload = useCallback(async (key: string) => {
-    await refresh();
-    if (key.startsWith("branch-")) await loadBranches();
-    if (view === "history" || key === "commit" || key === "push"
-      || key === "pull" || key === "sync" || key === "amend"
-      || key === "undo-commit") {
-      await loadHistory(true);
-    }
-  }, [loadBranches, loadHistory, refresh, view]);
-
-  const run = useCallback(async (
-    key: string,
-    action: () => Promise<unknown> | undefined,
-    after?: () => void,
-  ) => {
-    // Read from the REF, not from this closure's `busy`: a context-menu item
-    // built before the running action started still carries the old snapshot.
-    if (busyRef.current) return;
-    busyRef.current = key;
-    setBusy(key);
-    setError("");
-    try {
-      await action();
-      after?.();
-      await reload(key);
-    } catch (reason) {
-      const message = reason instanceof Error ? reason.message : String(reason);
-      setError(message);
-      // A rejected action can have changed the repository FIRST (a conflicted
-      // revert/cherry-pick, an interrupted merge), so the surface is re-read
-      // instead of waiting for the poll.
-      if (leavesStateBehind(key)) {
-        try {
-          await reload(key);
-        } catch { /* the refusal above is the message that matters */ }
-        // loadHistory clears the banner on a successful page, so the refusal
-        // is restored after the refresh it triggered.
-        setError(message);
+  const reload = useCallback(
+    async (key: string) => {
+      await refresh();
+      if (key.startsWith('branch-')) await loadBranches();
+      if (
+        view === 'history' ||
+        key === 'commit' ||
+        key === 'push' ||
+        key === 'pull' ||
+        key === 'sync' ||
+        key === 'amend' ||
+        key === 'undo-commit'
+      ) {
+        await loadHistory(true);
       }
-    } finally {
-      busyRef.current = "";
-      setBusy("");
-    }
-  }, [reload]);
+    },
+    [loadBranches, loadHistory, refresh, view]
+  );
+
+  const run = useCallback(
+    async (key: string, action: () => Promise<unknown> | undefined, after?: () => void) => {
+      // Read from the REF, not from this closure's `busy`: a context-menu item
+      // built before the running action started still carries the old snapshot.
+      if (busyRef.current) return;
+      busyRef.current = key;
+      setBusy(key);
+      setError('');
+      try {
+        await action();
+        after?.();
+        await reload(key);
+      } catch (reason) {
+        const message = reason instanceof Error ? reason.message : String(reason);
+        setError(message);
+        // A rejected action can have changed the repository FIRST (a conflicted
+        // revert/cherry-pick, an interrupted merge), so the surface is re-read
+        // instead of waiting for the poll.
+        if (leavesStateBehind(key)) {
+          try {
+            await reload(key);
+          } catch {
+            /* the refusal above is the message that matters */
+          }
+          // loadHistory clears the banner on a successful page, so the refusal
+          // is restored after the refresh it triggered.
+          setError(message);
+        }
+      } finally {
+        busyRef.current = '';
+        setBusy('');
+      }
+    },
+    [reload]
+  );
 
   const historyWindow = useRowWindow(
     historyScrollRef,
     SCM_COMMIT_ROW_HEIGHT,
     history.length,
-    !prOnly && view === "history" && !selectedCommit,
-    `${projectPath}\u0000${historyQuery}`,
+    !prOnly && view === 'history' && !selectedCommit,
+    `${projectPath}\u0000${historyQuery}`
   );
   const visibleHistory = history.slice(historyWindow.start, historyWindow.end);
   /** Scrolling IS the history pager now: the next `gitLog` page is fetched as
@@ -464,46 +465,45 @@ export function SourceControlDock({
     void loadHistory(false);
   }, [history.length, historyHasMore, historyLoading, historyWindow, loadHistory]);
   // Commit message = summary, blank line, description.
-  const commitMessage = description.trim()
-    ? `${summary.trim()}\n\n${description.trim()}`
-    : summary.trim();
+  const commitMessage = description.trim() ? `${summary.trim()}\n\n${description.trim()}` : summary.trim();
   // PR eligibility, shared by the review tab's Pull Request pane. The button
   // itself lives ONLY there now (user: PR은 완전히 분리).
   const prAhead = status?.ahead ?? 0;
-  const prUrl = status && status.upstream && prAhead === 0 && !status.operation && !status.detached
-    ? pullRequestUrl(status.remoteUrl || "", status.branch)
-    : "";
-  const visibleBranches = branches.filter((branch) =>
-    !branchQuery.trim() || branch.name.toLocaleLowerCase()
-      .includes(branchQuery.trim().toLocaleLowerCase()));
+  const prUrl =
+    status && status.upstream && prAhead === 0 && !status.operation && !status.detached
+      ? pullRequestUrl(status.remoteUrl || '', status.branch)
+      : '';
+  const visibleBranches = branches.filter(
+    (branch) => !branchQuery.trim() || branch.name.toLocaleLowerCase().includes(branchQuery.trim().toLocaleLowerCase())
+  );
   // Put the resolved default branch first; only guess from conventional names
   // when the repository exposes no remote HEAD.
-  const defaultBranch = (defaultBranchName
-    ? visibleBranches.find((branch) => !branch.remote && branch.name === defaultBranchName)
-      ?? visibleBranches.find((branch) => branch.name.endsWith(`/${defaultBranchName}`))
-    : undefined)
-    ?? (defaultBranchName
+  const defaultBranch =
+    (defaultBranchName
+      ? (visibleBranches.find((branch) => !branch.remote && branch.name === defaultBranchName) ??
+        visibleBranches.find((branch) => branch.name.endsWith(`/${defaultBranchName}`)))
+      : undefined) ??
+    (defaultBranchName
       ? undefined
-      : visibleBranches.find((branch) =>
-        !branch.remote && DEFAULT_BRANCH_NAMES.includes(branch.name)));
+      : visibleBranches.find((branch) => !branch.remote && DEFAULT_BRANCH_NAMES.includes(branch.name)));
   const otherBranches = visibleBranches.filter((branch) => branch !== defaultBranch);
   const clearCommitDraft = () => {
-    setSummary("");
-    setDescription("");
+    setSummary('');
+    setDescription('');
   };
   // Re-read Git status immediately before committing; the rendered status is
   // polled and may no longer describe the index.
   const prepareCommitPaths = async (): Promise<string[] | null> => {
     if (!api?.gitStatus || !api.gitCommitPaths) {
-      throw new Error("This build cannot commit selected files.");
+      throw new Error('This build cannot commit selected files.');
     }
     const fresh = await api.gitStatus(projectPath);
     if (fresh.operation) {
-      throw new Error(`Finish the in-progress ${fresh.operation.replace("-", " ")} before committing.`);
+      throw new Error(`Finish the in-progress ${fresh.operation.replace('-', ' ')} before committing.`);
     }
     const selection = sourceControlCommitSelection(files, fresh.files, isIncluded);
-    if (selection.partiallyStaged.length
-      && !window.confirm(partialStagingWarning(selection.partiallyStaged))) return null;
+    if (selection.partiallyStaged.length && !window.confirm(partialStagingWarning(selection.partiallyStaged)))
+      return null;
     return selection.paths;
   };
   /** ONE commit entry point for the button, the split menu and the title menu:
@@ -511,12 +511,12 @@ export function SourceControlDock({
    *  (push/sync) is reported without aborting run()'s refresh. */
   const runCommitFlow = (key: string, followUp?: () => Promise<unknown> | undefined) => {
     void run(key, async () => {
-      if (!summary.trim()) throw new Error("A commit summary is required to commit.");
+      if (!summary.trim()) throw new Error('A commit summary is required to commit.');
       const prepared = await prepareCommitPaths();
       if (!prepared) return;
       // A rejected commit must never clear the draft: it throws out of run(),
       // which reports it and leaves the composer untouched.
-      if (!api?.gitCommitPaths) throw new Error("This build cannot commit selected files.");
+      if (!api?.gitCommitPaths) throw new Error('This build cannot commit selected files.');
       await api.gitCommitPaths(projectPath, commitMessage, prepared);
       clearCommitDraft();
       if (!followUp) return;
@@ -529,11 +529,15 @@ export function SourceControlDock({
   };
   /** Commit is refused while git is mid-operation or conflicts are unresolved,
    *  at EVERY entry point (the operation banner's Continue owns that path). */
-  const commitBlocked = Boolean(busy) || !summary.trim()
-    || includedFiles.length === 0 || Boolean(status?.operation) || conflicts.length > 0;
+  const commitBlocked =
+    Boolean(busy) ||
+    !summary.trim() ||
+    includedFiles.length === 0 ||
+    Boolean(status?.operation) ||
+    conflicts.length > 0;
   const discardFiles = async (files: DesktopGitFile[]) => {
     for (const file of files) {
-      await api?.gitRevert?.(projectPath, file.path, file.untracked, "worktree");
+      await api?.gitRevert?.(projectPath, file.path, file.untracked, 'worktree');
     }
   };
   /** Clipboard for the row context menus. A clipboard that is absent (insecure
@@ -546,39 +550,36 @@ export function SourceControlDock({
     }
     try {
       await clipboard.writeText(text);
-      setError("");
+      setError('');
     } catch (reason) {
-      setError(`Could not copy the ${what}: ${
-        reason instanceof Error ? reason.message : String(reason)}`);
+      setError(`Could not copy the ${what}: ${reason instanceof Error ? reason.message : String(reason)}`);
     }
   };
   /** `Copy file path` copies the ABSOLUTE path (the reference's file context
    *  menu); `Copy relative file path` copies the repository-relative one. */
   const absoluteFilePath = (rel: string): string => {
-    const base = projectPath.replace(/[\\/]+$/, "");
-    const windows = base.includes("\\") || /^[A-Za-z]:/.test(base);
-    return windows ? `${base}\\${rel.replace(/\//g, "\\")}` : `${base}/${rel}`;
+    const base = projectPath.replace(/[\\/]+$/, '');
+    const windows = base.includes('\\') || /^[A-Za-z]:/.test(base);
+    return windows ? `${base}\\${rel.replace(/\//g, '\\')}` : `${base}/${rel}`;
   };
   /** `View on GitHub` for one commit, derived from the remote's web URL. */
   const commitWebUrl = (hash: string): string => {
-    const base = gitRemoteWebUrl(status?.remoteUrl || "");
-    if (!base || !hash) return "";
+    const base = gitRemoteWebUrl(status?.remoteUrl || '');
+    if (!base || !hash) return '';
     return /gitlab/i.test(base) ? `${base}/-/commit/${hash}` : `${base}/commit/${hash}`;
   };
   /** Channels this build does not carry yet: the item stays VISIBLE (nothing
    *  becomes unreachable) but says why it cannot run. */
-  const missingChannel = (what: string) =>
-    `${what} is not available yet: this build has no Git channel for it.`;
+  const missingChannel = (what: string) => `${what} is not available yet: this build has no Git channel for it.`;
   /** Every history action is refused while another Git action runs or while
    *  the repository is mid-operation — the same rule the branch actions keep,
    *  and the reason the disabled item carries. */
   const historyBusyReason = busy
-    ? "Another Git action is running"
+    ? 'Another Git action is running'
     : status?.operation
-      ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
-      : "";
-  const commitTitle = (entry: DesktopGitLogEntry) =>
-    (entry.subject ?? "").trim() || EMPTY_SUMMARY;
+      ? `Finish the in-progress ${status.operation.replace('-', ' ')} first`
+      : '';
+  const commitTitle = (entry: DesktopGitLogEntry) => (entry.subject ?? '').trim() || EMPTY_SUMMARY;
   /** Every destructive history action confirms first, and the prompt NAMES the
    *  commit it is about to touch (short SHA + subject). */
   const confirmCommit = (entry: DesktopGitLogEntry, question: string) =>
@@ -586,20 +587,27 @@ export function SourceControlDock({
   /** Ask for the reset mode before confirmation; `hard` states what it
    *  destroys. */
   const resetToCommit = (entry: DesktopGitLogEntry) => {
-    const answer = window.prompt(resetModePrompt(entry.shortHash), "mixed");
+    const answer = window.prompt(resetModePrompt(entry.shortHash), 'mixed');
     if (answer === null) return;
-    const modes = ["soft", "mixed", "hard"] as const;
+    const modes = ['soft', 'mixed', 'hard'] as const;
     const mode = modes.find((candidate) => candidate === answer.trim().toLowerCase());
     if (!mode) {
       setError(`"${answer.trim()}" is not a reset mode — choose soft, mixed or hard.`);
       return;
     }
-    if (!confirmCommit(entry, mode === "hard"
-      ? t("Reset the branch to this commit with --hard? Every change after it, staged or not, is destroyed and cannot be recovered.")
-      : t("Reset the branch to this commit with --{{mode}}?", { mode }))) return;
+    if (
+      !confirmCommit(
+        entry,
+        mode === 'hard'
+          ? t(
+              'Reset the branch to this commit with --hard? Every change after it, staged or not, is destroyed and cannot be recovered.'
+            )
+          : t('Reset the branch to this commit with --{{mode}}?', { mode })
+      )
+    )
+      return;
     void run(`reset:${entry.hash}`, async () => {
-      const reset = (confirmedDirty: boolean) =>
-        api?.gitResetToCommit?.(projectPath, entry.hash, mode, confirmedDirty);
+      const reset = (confirmedDirty: boolean) => api?.gitResetToCommit?.(projectPath, entry.hash, mode, confirmedDirty);
       try {
         return await reset(false);
       } catch (reason) {
@@ -611,36 +619,48 @@ export function SourceControlDock({
         // Git failure and keeps travelling to the error banner.
         if (!isDirtyResetRefusal(reason)) throw reason;
         const warning = reason instanceof Error ? reason.message : String(reason);
-        if (!window.confirm(
-          `${warning}\n\n${entry.shortHash}  ${commitTitle(entry)}`)) return undefined;
+        if (!window.confirm(`${warning}\n\n${entry.shortHash}  ${commitTitle(entry)}`)) return undefined;
         return await reset(true);
       }
     });
   };
   const revertCommit = (entry: DesktopGitLogEntry) => {
-    if (!confirmCommit(entry, t("Revert the changes in this commit? A new commit that undoes them is created on the current branch."))) return;
-    void run(`revert-commit:${entry.hash}`,
-      () => api?.gitRevertCommit?.(projectPath, entry.hash));
+    if (
+      !confirmCommit(
+        entry,
+        t('Revert the changes in this commit? A new commit that undoes them is created on the current branch.')
+      )
+    )
+      return;
+    void run(`revert-commit:${entry.hash}`, () => api?.gitRevertCommit?.(projectPath, entry.hash));
   };
   const cherryPickCommit = (entry: DesktopGitLogEntry) => {
-    if (!confirmCommit(entry, t("Cherry-pick this commit onto the current branch?"))) return;
-    void run(`cherry-pick:${entry.hash}`,
-      () => api?.gitCherryPickCommit?.(projectPath, entry.hash));
+    if (!confirmCommit(entry, t('Cherry-pick this commit onto the current branch?'))) return;
+    void run(`cherry-pick:${entry.hash}`, () => api?.gitCherryPickCommit?.(projectPath, entry.hash));
   };
   const checkoutCommit = (entry: DesktopGitLogEntry) => {
-    if (!confirmCommit(entry, t("Check this commit out? HEAD becomes DETACHED: new commits belong to no branch until one is created from them."))) return;
-    void run(`checkout-commit:${entry.hash}`,
-      () => api?.gitCheckoutCommit?.(projectPath, entry.hash));
+    if (
+      !confirmCommit(
+        entry,
+        t(
+          'Check this commit out? HEAD becomes DETACHED: new commits belong to no branch until one is created from them.'
+        )
+      )
+    )
+      return;
+    void run(`checkout-commit:${entry.hash}`, () => api?.gitCheckoutCommit?.(projectPath, entry.hash));
   };
   const createTagAt = (entry: DesktopGitLogEntry) => {
-    const name = window.prompt(t("Create a tag at {{hash}} ({{subject}})", { hash: entry.shortHash, subject: commitTitle(entry) }), "");
+    const name = window.prompt(
+      t('Create a tag at {{hash}} ({{subject}})', { hash: entry.shortHash, subject: commitTitle(entry) }),
+      ''
+    );
     if (name === null) return;
     if (!name.trim()) {
-      setError("A tag name is required to create a tag.");
+      setError('A tag name is required to create a tag.');
       return;
     }
-    void run(`tag:${entry.hash}`,
-      () => api?.gitCreateTag?.(projectPath, name.trim(), entry.hash));
+    void run(`tag:${entry.hash}`, () => api?.gitCreateTag?.(projectPath, name.trim(), entry.hash));
   };
   /** `Delete tag <name>` — the reference names the tag in the item itself
    *  and one item per tag replaces its submenu. */
@@ -653,28 +673,35 @@ export function SourceControlDock({
    *  moved here from the deleted commit split menu, which is where the
    *  reference has kept them all along. */
   const amendCommitAt = (entry: DesktopGitLogEntry) => {
-    if (!confirmCommit(entry, commitMessage.trim()
-      ? t("Amend this commit with the message in the commit form?")
-      : t("Amend this commit with the currently included changes?"))) return;
-    void run("amend", () => api?.gitAmend?.(projectPath, commitMessage.trim() || undefined),
-      clearCommitDraft);
+    if (
+      !confirmCommit(
+        entry,
+        commitMessage.trim()
+          ? t('Amend this commit with the message in the commit form?')
+          : t('Amend this commit with the currently included changes?')
+      )
+    )
+      return;
+    void run('amend', () => api?.gitAmend?.(projectPath, commitMessage.trim() || undefined), clearCommitDraft);
   };
   const undoCommitAt = (entry: DesktopGitLogEntry) => {
-    if (!confirmCommit(entry,
-      t("Undo this commit and keep all of its changes staged?"))) return;
-    void run("undo-commit", () => api?.gitUndoLastCommit?.(projectPath));
+    if (!confirmCommit(entry, t('Undo this commit and keep all of its changes staged?'))) return;
+    void run('undo-commit', () => api?.gitUndoLastCommit?.(projectPath));
   };
   /** `branch-` prefix so run() reloads the branch list too. */
   const createBranchAtCommit = (entry: DesktopGitLogEntry) => {
     const name = window.prompt(
-      t("Create a branch at {{hash}} ({{subject}})", { hash: entry.shortHash, subject: commitTitle(entry) }), "");
+      t('Create a branch at {{hash}} ({{subject}})', { hash: entry.shortHash, subject: commitTitle(entry) }),
+      ''
+    );
     if (name === null) return;
     if (!name.trim()) {
-      setError("A branch name is required to create a branch.");
+      setError('A branch name is required to create a branch.');
       return;
     }
-    void run(`branch-create-at:${entry.hash}`,
-      () => api?.gitCreateBranchAtCommit?.(projectPath, name.trim(), entry.hash));
+    void run(`branch-create-at:${entry.hash}`, () =>
+      api?.gitCreateBranchAtCommit?.(projectPath, name.trim(), entry.hash)
+    );
   };
 
   const openCommit = async (entry: DesktopGitLogEntry) => {
@@ -682,23 +709,23 @@ export function SourceControlDock({
     setBusy(`show:${entry.hash}`);
     setSelectedCommit(entry.hash);
     setCommitDetail(null);
-    setOpenCommitFile("");
+    setOpenCommitFile('');
     setCommitDiffs({});
     setShaCopy(null);
     try {
       setCommitDetail(await api.gitShow(projectPath, entry.hash));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
-      setSelectedCommit("");
+      setSelectedCommit('');
     } finally {
-      setBusy("");
+      setBusy('');
     }
   };
 
   const closeCommit = () => {
-    setSelectedCommit("");
+    setSelectedCommit('');
     setCommitDetail(null);
-    setOpenCommitFile("");
+    setOpenCommitFile('');
     setCommitDiffs({});
     setShaCopy(null);
   };
@@ -711,7 +738,7 @@ export function SourceControlDock({
     const clipboard = window.navigator?.clipboard;
     if (!clipboard?.writeText) {
       setShaCopy({ hash, ok: false });
-      setError("Could not copy the SHA: this environment has no clipboard access.");
+      setError('Could not copy the SHA: this environment has no clipboard access.');
       return;
     }
     try {
@@ -719,13 +746,12 @@ export function SourceControlDock({
       setShaCopy({ hash, ok: true });
     } catch (reason) {
       setShaCopy({ hash, ok: false });
-      setError(`Could not copy the SHA: ${
-        reason instanceof Error ? reason.message : String(reason)}`);
+      setError(`Could not copy the SHA: ${reason instanceof Error ? reason.message : String(reason)}`);
     }
   };
   const toggleCommitFile = async (file: DesktopGitCommitFile) => {
     if (openCommitFile === file.path) {
-      setOpenCommitFile("");
+      setOpenCommitFile('');
       return;
     }
     setOpenCommitFile(file.path);
@@ -733,7 +759,7 @@ export function SourceControlDock({
     setCommitDiffs((current) => ({ ...current, [file.path]: null }));
     try {
       const patch = await api.gitShowDiff(projectPath, selectedCommit, file.path);
-      setCommitDiffs((current) => ({ ...current, [file.path]: patch || "" }));
+      setCommitDiffs((current) => ({ ...current, [file.path]: patch || '' }));
     } catch (reason) {
       setCommitDiffs((current) => ({
         ...current,
@@ -746,149 +772,162 @@ export function SourceControlDock({
     const included = isIncluded(file);
     const rowSelected = selected.has(file.path);
     const actionFiles = selectedActionFiles(file);
-    const openChange = () => onOpenDiff
-      ? onOpenDiff(projectPath, file.path, {
-        source: indexOnly(file) ? "staged" : "unstaged",
-        ...(file.untracked ? { untracked: true } : {}),
-      })
-      : onOpenFile?.(projectPath, file.path);
+    const openChange = () =>
+      onOpenDiff
+        ? onOpenDiff(projectPath, file.path, {
+            source: indexOnly(file) ? 'staged' : 'unstaged',
+            ...(file.untracked ? { untracked: true } : {}),
+          })
+        : onOpenFile?.(projectPath, file.path);
     const discardActionFiles = () => {
-      const message = actionFiles.length === 1
-        ? file.untracked
-          ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: file.path })
-          : t('Discard changes to "{{file}}"? This cannot be undone.', { file: file.path })
-        : t("Discard {{count}} selected working tree changes? This cannot be undone.", { count: actionFiles.length });
+      const message =
+        actionFiles.length === 1
+          ? file.untracked
+            ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: file.path })
+            : t('Discard changes to "{{file}}"? This cannot be undone.', { file: file.path })
+          : t('Discard {{count}} selected working tree changes? This cannot be undone.', { count: actionFiles.length });
       if (!window.confirm(message)) return;
-      void run(`revert:${file.path}`, () => discardFiles(actionFiles),
-        clearSelected);
+      void run(`revert:${file.path}`, () => discardFiles(actionFiles), clearSelected);
     };
-    const fileMenuItems = () => changedFileMenuItems({
-      file,
-      busy: Boolean(busy),
-      canRevert: Boolean(api?.gitRevert),
-      canIgnore: Boolean(api?.gitIgnore),
-      canReveal: Boolean(api?.revealFile),
-      canOpenDefault: Boolean(api?.openFilePath),
-      missingChannel,
-      guarded,
-      onDiscard: discardActionFiles,
-      onIgnore: (path, scope) => {
-        const extension = scope ? path.slice(path.lastIndexOf(".")) : "";
-        void run(
-          scope ? `ignore-extension:${extension}` : `ignore:${path}`,
-          () => api?.gitIgnore?.(projectPath, path, scope),
-        );
-      },
-      onCopyFilePath: () => { void copyText(absoluteFilePath(file.path), "file path"); },
-      onCopyRelativePath: () => { void copyText(file.path, "relative file path"); },
-      onReveal: () => { void api?.revealFile?.(projectPath, file.path); },
-      onOpenDefault: () => { void api?.openFilePath?.(projectPath, file.path); },
-    });
-    return <SourceControlFileRow key={file.path}
-      file={file}
-      included={included}
-      selected={rowSelected}
-      busy={Boolean(busy)}
-      contextMenuProps={rowContextMenu(`Actions for ${file.path}`, fileMenuItems)}
-      onSetIncluded={(next) => setIncluded(file, next)}
-      onToggleSelected={(additive) => toggleSelected(file, additive)}
-      onOpenChange={openChange}
-      onOpenFile={() => onOpenFile?.(projectPath, file.path)}
-      onResolve={() => {
-        void run(`resolve:${file.path}`,
-          () => api?.gitStage?.(projectPath, pathsFor(file)));
-      }}
-      onDiscard={discardActionFiles} />;
+    const fileMenuItems = () =>
+      changedFileMenuItems({
+        file,
+        busy: Boolean(busy),
+        canRevert: Boolean(api?.gitRevert),
+        canIgnore: Boolean(api?.gitIgnore),
+        canReveal: Boolean(api?.revealFile),
+        canOpenDefault: Boolean(api?.openFilePath),
+        missingChannel,
+        guarded,
+        onDiscard: discardActionFiles,
+        onIgnore: (path, scope) => {
+          const extension = scope ? path.slice(path.lastIndexOf('.')) : '';
+          void run(scope ? `ignore-extension:${extension}` : `ignore:${path}`, () =>
+            api?.gitIgnore?.(projectPath, path, scope)
+          );
+        },
+        onCopyFilePath: () => {
+          void copyText(absoluteFilePath(file.path), 'file path');
+        },
+        onCopyRelativePath: () => {
+          void copyText(file.path, 'relative file path');
+        },
+        onReveal: () => {
+          void api?.revealFile?.(projectPath, file.path);
+        },
+        onOpenDefault: () => {
+          void api?.openFilePath?.(projectPath, file.path);
+        },
+      });
+    return (
+      <SourceControlFileRow
+        key={file.path}
+        file={file}
+        included={included}
+        selected={rowSelected}
+        busy={Boolean(busy)}
+        contextMenuProps={rowContextMenu(`Actions for ${file.path}`, fileMenuItems)}
+        onSetIncluded={(next) => setIncluded(file, next)}
+        onToggleSelected={(additive) => toggleSelected(file, additive)}
+        onOpenChange={openChange}
+        onOpenFile={() => onOpenFile?.(projectPath, file.path)}
+        onResolve={() => {
+          void run(`resolve:${file.path}`, () => api?.gitStage?.(projectPath, pathsFor(file)));
+        }}
+        onDiscard={discardActionFiles}
+      />
+    );
   };
 
   const discardAllChanges = () => {
     const targets = files.filter((file) => !file.conflicted);
-    if (!targets.length
-      || !window.confirm(t("Discard all {{count}} working tree changes? This cannot be undone.", { count: targets.length }))) return;
-    void run("discard-all", () => discardFiles(targets), clearSelected);
+    if (
+      !targets.length ||
+      !window.confirm(
+        t('Discard all {{count}} working tree changes? This cannot be undone.', { count: targets.length })
+      )
+    )
+      return;
+    void run('discard-all', () => discardFiles(targets), clearSelected);
   };
   // ONE implementation per branch action, shared by the branch row's inline
   // buttons and by its right-click menu.
-  const checkoutBranch = (branch: DesktopGitBranch) => void run(
-    `branch-checkout:${branch.name}`,
-    () => api?.gitCheckoutBranch?.(projectPath, branch.name, branch.remote),
-    () => setBranchPickerOpen(false),
-  );
+  const checkoutBranch = (branch: DesktopGitBranch) =>
+    void run(
+      `branch-checkout:${branch.name}`,
+      () => api?.gitCheckoutBranch?.(projectPath, branch.name, branch.remote),
+      () => setBranchPickerOpen(false)
+    );
   const renameBranch = (branch: DesktopGitBranch) => {
-    const nextName = window.prompt(t("Rename branch"), branch.name);
+    const nextName = window.prompt(t('Rename branch'), branch.name);
     if (!nextName?.trim() || nextName.trim() === branch.name) return;
-    void run(`branch-rename:${branch.name}`, () =>
-      api?.gitRenameBranch?.(projectPath, branch.name, nextName.trim()));
+    void run(`branch-rename:${branch.name}`, () => api?.gitRenameBranch?.(projectPath, branch.name, nextName.trim()));
   };
   const deleteBranch = (branch: DesktopGitBranch) => {
     if (!window.confirm(t('Delete local branch "{{branch}}"?', { branch: branch.name }))) return;
-    void run(`branch-delete:${branch.name}`, () =>
-      api?.gitDeleteBranch?.(projectPath, branch.name));
+    void run(`branch-delete:${branch.name}`, () => api?.gitDeleteBranch?.(projectPath, branch.name));
   };
   const openBranchPicker = () => {
     setBranchPickerOpen(true);
-    setBranchQuery("");
+    setBranchQuery('');
     setMergeMode(false);
     void loadBranches();
     if (!defaultBranchName) void loadDefaultBranch();
   };
   const createBranchFromFilter = () => {
     // Seed the create-branch flow with the current filter text.
-    const name = branchQuery.trim() || window.prompt(t("New branch name")) || "";
+    const name = branchQuery.trim() || window.prompt(t('New branch name')) || '';
     if (!name.trim()) return;
-    void run("branch-create", () => api?.gitCreateBranch?.(projectPath, name.trim()),
-      () => setBranchPickerOpen(false));
+    void run(
+      'branch-create',
+      () => api?.gitCreateBranch?.(projectPath, name.trim()),
+      () => setBranchPickerOpen(false)
+    );
   };
-  const mergeIntoCurrent = (branch: DesktopGitBranch) => void run(
-    `branch-merge:${branch.name}`,
-    () => api?.gitMergeBranch?.(projectPath, branch.name),
-    () => {
-      setBranchPickerOpen(false);
-      setMergeMode(false);
-    },
-  );
-  const {
-    remoteName,
-    aheadCount,
-    behindCount,
-    fetchEntry,
-    pushEntry,
-    rowPushReason,
-    rowPushBlocked,
-  } = sourceControlRemoteActions({
-    status,
-    busy,
-    canFetch: Boolean(api?.gitFetch),
-    canPush: Boolean(api?.gitPush),
-    missingChannel,
-    onFetch: () => void run("fetch", () => api?.gitFetch?.(projectPath)),
-    onPush: () => void run("push", () => api?.gitPush?.(projectPath)),
-  });
+  const mergeIntoCurrent = (branch: DesktopGitBranch) =>
+    void run(
+      `branch-merge:${branch.name}`,
+      () => api?.gitMergeBranch?.(projectPath, branch.name),
+      () => {
+        setBranchPickerOpen(false);
+        setMergeMode(false);
+      }
+    );
+  const { remoteName, aheadCount, behindCount, fetchEntry, pushEntry, rowPushReason, rowPushBlocked } =
+    sourceControlRemoteActions({
+      status,
+      busy,
+      canFetch: Boolean(api?.gitFetch),
+      canPush: Boolean(api?.gitPush),
+      missingChannel,
+      onFetch: () => void run('fetch', () => api?.gitFetch?.(projectPath)),
+      onPush: () => void run('push', () => api?.gitPush?.(projectPath)),
+    });
   /** Stash grammar (`Stash all changes`): the
    *  changed-files header owns it, refused with a reason while another action
    *  or an in-progress operation holds the repository. */
   const stashReason = busy
-    ? "Another Git action is running"
+    ? 'Another Git action is running'
     : status?.operation
-      ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
+      ? `Finish the in-progress ${status.operation.replace('-', ' ')} first`
       : !api?.gitStash
-        ? missingChannel("Stashing changes")
+        ? missingChannel('Stashing changes')
         : files.length === 0
-          ? "There are no changes to stash"
-          : "";
+          ? 'There are no changes to stash'
+          : '';
   const popStashReason = busy
-    ? "Another Git action is running"
+    ? 'Another Git action is running'
     : status?.operation
-      ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
+      ? `Finish the in-progress ${status.operation.replace('-', ' ')} first`
       : !api?.gitStashPop
-        ? missingChannel("Popping a stash")
-        : "";
+        ? missingChannel('Popping a stash')
+        : '';
   const stashChanges = () => {
-    const message = window.prompt(t("Stash message (optional)"), "");
+    const message = window.prompt(t('Stash message (optional)'), '');
     if (message === null) return;
-    void run("stash", () => api?.gitStash?.(projectPath, message));
+    void run('stash', () => api?.gitStash?.(projectPath, message));
   };
-  const popStash = () => void run("stash-pop", () => api?.gitStashPop?.(projectPath));
+  const popStash = () => void run('stash-pop', () => api?.gitStashPop?.(projectPath));
 
   if (!projectPath) {
     return <p className="utility-dock-empty">Open a project to use Source Control.</p>;
@@ -900,436 +939,557 @@ export function SourceControlDock({
     // Git status is a background read. A cold host/repository can miss the
     // first pass, so keep that failure in the panel's neutral empty-state
     // grammar instead of flashing the red action-error bar.
-    return <p className="utility-dock-empty" role="status">
-      {t("Source Control is temporarily unavailable.")}
-    </p>;
+    return (
+      <p className="utility-dock-empty" role="status">
+        {t('Source Control is temporarily unavailable.')}
+      </p>
+    );
   }
   if (status && !status.repository && !prOnly) {
-    return <p className="utility-dock-empty">
-      The selected project is not a Git repository.
-    </p>;
+    return <p className="utility-dock-empty">The selected project is not a Git repository.</p>;
   }
 
-  return <div className="dock-source-control" ref={dockRootRef}>
-    {/* ONE portaled context menu for every row grammar in the dock. */}
-    <ScmContextMenu state={visibleContextMenu} onClose={closeContextMenu} />
-    {status && !prOnly && projectSelect &&
-      <div className="utility-dock-project-row">{projectSelect}</div>}
-    {/* Fixed toolbar: current branch, Push, and Fetch. Git action names and
+  return (
+    <div className="dock-source-control" ref={dockRootRef}>
+      {/* ONE portaled context menu for every row grammar in the dock. */}
+      <ScmContextMenu state={visibleContextMenu} onClose={closeContextMenu} />
+      {status && !prOnly && projectSelect && <div className="utility-dock-project-row">{projectSelect}</div>}
+      {/* Fixed toolbar: current branch, Push, and Fetch. Git action names and
         their supporting labels intentionally stay in English. */}
-    {status && !prOnly && <div className="dock-scm-toolbar" data-i18n-skip>
-      <SourceControlBranchPicker
-        status={status}
-        busy={busy}
-        open={branchPickerVisible}
-        query={branchQuery}
-        loading={branchLoading}
-        visibleBranches={visibleBranches}
-        defaultBranch={defaultBranch}
-        otherBranches={otherBranches}
-        mergeMode={mergeMode}
-        capabilities={{
-          list: Boolean(api?.gitBranches),
-          create: Boolean(api?.gitCreateBranch),
-          checkout: Boolean(api?.gitCheckoutBranch),
-          rename: Boolean(api?.gitRenameBranch),
-          delete: Boolean(api?.gitDeleteBranch),
-          merge: Boolean(api?.gitMergeBranch),
-        }}
-        rootRef={branchPickerRef}
-        triggerRef={branchTriggerRef}
-        panelRef={branchPanelRef}
-        panelStyle={branchPanelStyle}
-        clickGuard={branchPickerClickGuard}
-        rowContextMenu={rowContextMenu}
-        missingChannel={missingChannel}
-        guarded={guarded}
-        onOpen={openBranchPicker}
-        onClose={() => setBranchPickerOpen(false)}
-        onQueryChange={setBranchQuery}
-        onCreate={createBranchFromFilter}
-        onCheckout={checkoutBranch}
-        onRename={renameBranch}
-        onDelete={deleteBranch}
-        onMerge={mergeIntoCurrent}
-        onToggleMergeMode={() => setMergeMode((current) => !current)}
-      />
-      {[pushEntry, fetchEntry].map((entry) => {
-        /* Each count rides the action that CLEARS it: ahead on Push (user:
+      {status && !prOnly && (
+        <div className="dock-scm-toolbar" data-i18n-skip>
+          <SourceControlBranchPicker
+            status={status}
+            busy={busy}
+            open={branchPickerVisible}
+            query={branchQuery}
+            loading={branchLoading}
+            visibleBranches={visibleBranches}
+            defaultBranch={defaultBranch}
+            otherBranches={otherBranches}
+            mergeMode={mergeMode}
+            capabilities={{
+              list: Boolean(api?.gitBranches),
+              create: Boolean(api?.gitCreateBranch),
+              checkout: Boolean(api?.gitCheckoutBranch),
+              rename: Boolean(api?.gitRenameBranch),
+              delete: Boolean(api?.gitDeleteBranch),
+              merge: Boolean(api?.gitMergeBranch),
+            }}
+            rootRef={branchPickerRef}
+            triggerRef={branchTriggerRef}
+            panelRef={branchPanelRef}
+            panelStyle={branchPanelStyle}
+            clickGuard={branchPickerClickGuard}
+            rowContextMenu={rowContextMenu}
+            missingChannel={missingChannel}
+            guarded={guarded}
+            onOpen={openBranchPicker}
+            onClose={() => setBranchPickerOpen(false)}
+            onQueryChange={setBranchQuery}
+            onCreate={createBranchFromFilter}
+            onCheckout={checkoutBranch}
+            onRename={renameBranch}
+            onDelete={deleteBranch}
+            onMerge={mergeIntoCurrent}
+            onToggleMergeMode={() => setMergeMode((current) => !current)}
+          />
+          {[pushEntry, fetchEntry].map((entry) => {
+            /* Each count rides the action that CLEARS it: ahead on Push (user:
            푸쉬 우상단에 태그), behind on Fetch. Split that way every corner
            carries ONE count, so a diverged branch (↑11 ↓32) never has to fit a
            pair into a section that is a THIRD of a 252px/300px dock. */
-        const count = entry.key === "push" ? aheadCount : behindCount;
-        const direction = entry.key === "push" ? "ahead" : "behind";
-        const badged = Boolean(status.upstream) && count > 0;
-        return <div key={entry.key}
-          className={`dock-scm-toolbar-section dock-scm-toolbar-${entry.key}`}>
-          <button type="button" className="dock-scm-remote-button"
-            data-remote-action={entry.key}
-            title={badged
-              ? `${entry.reason || entry.label} (${count} ${direction})`
-              : entry.reason || entry.label}
-            aria-label={entry.label}
-            disabled={Boolean(busy) || Boolean(status.operation) || entry.blocked}
-            onClick={entry.perform}>
-            {busy === entry.runKey
-              ? <ProgressSpinner size={14} aria-hidden="true" />
-              : entry.icon}
-            <span className="dock-scm-remote-label">
-              <span className="dock-scm-remote-verb">{entry.verb}</span>
-              {entry.target
-                ? <span className="dock-scm-remote-target">{` ${entry.target}`}</span>
-                : null}
-            </span>
-          </button>
-          {/* The button clips its own content, so the badge is the SECTION's
+            const count = entry.key === 'push' ? aheadCount : behindCount;
+            const direction = entry.key === 'push' ? 'ahead' : 'behind';
+            const badged = Boolean(status.upstream) && count > 0;
+            return (
+              <div key={entry.key} className={`dock-scm-toolbar-section dock-scm-toolbar-${entry.key}`}>
+                <button
+                  type="button"
+                  className="dock-scm-remote-button"
+                  data-remote-action={entry.key}
+                  title={
+                    badged ? `${entry.reason || entry.label} (${count} ${direction})` : entry.reason || entry.label
+                  }
+                  aria-label={entry.label}
+                  disabled={Boolean(busy) || Boolean(status.operation) || entry.blocked}
+                  onClick={entry.perform}
+                >
+                  {busy === entry.runKey ? <ProgressSpinner size={14} aria-hidden="true" /> : entry.icon}
+                  <span className="dock-scm-remote-label">
+                    <span className="dock-scm-remote-verb">{entry.verb}</span>
+                    {entry.target ? <span className="dock-scm-remote-target">{` ${entry.target}`}</span> : null}
+                  </span>
+                </button>
+                {/* The button clips its own content, so the badge is the SECTION's
               child and overlaps the corner from OUTSIDE that clip. It keeps
               its direction arrow even though it sits on the matching button:
               a bare number on a hovered button would read as part of it. */}
-          {badged && <span className="dock-scm-ahead-behind" data-i18n-skip
-            data-direction={direction} aria-hidden="true">
-            {entry.key === "push"
-              ? <ArrowUp size={8} aria-hidden="true" />
-              : <ArrowDown size={8} aria-hidden="true" />}
-            {/* A three-digit count would stretch the badge across its own
+                {badged && (
+                  <span className="dock-scm-ahead-behind" data-i18n-skip data-direction={direction} aria-hidden="true">
+                    {entry.key === 'push' ? (
+                      <ArrowUp size={8} aria-hidden="true" />
+                    ) : (
+                      <ArrowDown size={8} aria-hidden="true" />
+                    )}
+                    {/* A three-digit count would stretch the badge across its own
                 button's label, so it caps instead. */}
-            {count > 99 ? "99+" : count}
-          </span>}
-        </div>;
-      })}
-    </div>}
-    <div className="dock-scm-view-stage">
-    {!prOnly && <SourceControlViewControls
-      fileCount={files.length}
-      fileFilter={fileFilter}
-      historyQuery={historyQuery}
-      view={view}
-      onFileFilterChange={setFileFilter}
-      onHistoryQueryChange={setHistoryQuery}
-      onViewChange={(next) => {
-        if (next === view) return;
-        if (next === "history") setHistoryLoading(true);
-        setView(next);
-        clearSelected();
-      }}
-    />}
-    {!prOnly && status?.operation && <div className="dock-scm-operation" role="status">
-      <div>
-        <b>{status.operation.replace("-", " ")} in progress</b>
-        <small>{conflicts.length
-          ? `${conflicts.length} unresolved conflict${conflicts.length === 1 ? "" : "s"}`
-          : "All conflicts resolved"}</small>
-      </div>
-      <button type="button" disabled={Boolean(busy) || conflicts.length > 0}
-        onClick={() => void run("continue", () => api?.gitContinue?.(projectPath))}>Continue</button>
-      <button type="button" disabled={Boolean(busy)} onClick={() => {
-        if (!window.confirm(t("Abort the {{operation}} operation?", { operation: status.operation.replace("-", " ") }))) return;
-        void run("abort-operation", () => api?.gitAbortOperation?.(projectPath));
-      }}>Abort</button>
-    </div>}
-    <>
-    {prOnly ? <PullRequestsPane projectPath={projectPath} prUrl={prUrl}
-      repositoryUrl={gitRemoteWebUrl(status?.remoteUrl || "")}
-      headerSlot={headerSlot}
-      onOpenPullRequest={onOpenPullRequest}
-      currentBranch={status?.branch ?? ""}
-      createHint={!status?.upstream
-        ? "Publish the branch to a remote before opening a pull request."
-        : prAhead > 0
-          ? `Push ${prAhead} local commit${prAhead === 1 ? "" : "s"} before opening a pull request.`
-          : status?.operation
-            ? "Finish the in-progress Git operation first."
-            : "Pull requests need a pushed upstream branch."} />
-    : view === "changes" ? <>
-      {/* Tri-state select-all row; the shared filter box lives in the view
+                    {count > 99 ? '99+' : count}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="dock-scm-view-stage">
+        {!prOnly && (
+          <SourceControlViewControls
+            fileCount={files.length}
+            fileFilter={fileFilter}
+            historyQuery={historyQuery}
+            view={view}
+            onFileFilterChange={setFileFilter}
+            onHistoryQueryChange={setHistoryQuery}
+            onViewChange={(next) => {
+              if (next === view) return;
+              if (next === 'history') setHistoryLoading(true);
+              setView(next);
+              clearSelected();
+            }}
+          />
+        )}
+        {!prOnly && status?.operation && (
+          <div className="dock-scm-operation" role="status">
+            <div>
+              <b>{status.operation.replace('-', ' ')} in progress</b>
+              <small>
+                {conflicts.length
+                  ? `${conflicts.length} unresolved conflict${conflicts.length === 1 ? '' : 's'}`
+                  : 'All conflicts resolved'}
+              </small>
+            </div>
+            <button
+              type="button"
+              disabled={Boolean(busy) || conflicts.length > 0}
+              onClick={() => void run('continue', () => api?.gitContinue?.(projectPath))}
+            >
+              Continue
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    t('Abort the {{operation}} operation?', { operation: status.operation.replace('-', ' ') })
+                  )
+                )
+                  return;
+                void run('abort-operation', () => api?.gitAbortOperation?.(projectPath));
+              }}
+            >
+              Abort
+            </button>
+          </div>
+        )}
+        <>
+          {prOnly ? (
+            <PullRequestsPane
+              projectPath={projectPath}
+              prUrl={prUrl}
+              repositoryUrl={gitRemoteWebUrl(status?.remoteUrl || '')}
+              headerSlot={headerSlot}
+              onOpenPullRequest={onOpenPullRequest}
+              currentBranch={status?.branch ?? ''}
+              createHint={
+                !status?.upstream
+                  ? 'Publish the branch to a remote before opening a pull request.'
+                  : prAhead > 0
+                    ? `Push ${prAhead} local commit${prAhead === 1 ? '' : 's'} before opening a pull request.`
+                    : status?.operation
+                      ? 'Finish the in-progress Git operation first.'
+                      : 'Pull requests need a pushed upstream branch.'
+              }
+            />
+          ) : view === 'changes' ? (
+            <>
+              {/* Tri-state select-all row; the shared filter box lives in the view
           controls above Changes | History. */}
-      <div className="dock-scm-list-header">
-        {/* The select-all row is also the list's ACTION header now: Stage All,
+              <div className="dock-scm-list-header">
+                {/* The select-all row is also the list's ACTION header now: Stage All,
             Unstage All and Discard All moved here from the deleted "…" menu,
             with View & Sort beside them. It is a plain row (not a <label>) so
             those buttons cannot toggle the checkbox by label activation; the
             checkbox keeps the same accessible name it always had. */}
-        <div className="dock-scm-check-all">
-          <input type="checkbox"
-            checked={includableVisible > 0 && includedVisible === includableVisible}
-            disabled={files.length === 0 || Boolean(busy)}
-            // Tri-state: partially included lists render mixed, exactly like
-            // the reference's CheckboxValue.Mixed.
-            ref={(node) => {
-              if (node) node.indeterminate = includedVisible > 0
-                && includedVisible < includableVisible;
-            }}
-            aria-label={checkAllLabel}
-            title={checkAllLabel}
-            onChange={(event) => setAllIncluded(event.currentTarget.checked)} />
-          {/* No visible count line: the Changes tab above already carries
+                <div className="dock-scm-check-all">
+                  <input
+                    type="checkbox"
+                    checked={includableVisible > 0 && includedVisible === includableVisible}
+                    disabled={files.length === 0 || Boolean(busy)}
+                    // Tri-state: partially included lists render mixed, exactly like
+                    // the reference's CheckboxValue.Mixed.
+                    ref={(node) => {
+                      if (node) node.indeterminate = includedVisible > 0 && includedVisible < includableVisible;
+                    }}
+                    aria-label={checkAllLabel}
+                    title={checkAllLabel}
+                    onChange={(event) => setAllIncluded(event.currentTarget.checked)}
+                  />
+                  {/* No visible count line: the Changes tab above already carries
               the counter (user: 변경 사항 태그가 위에 있어서 문자 굳이 필요
               없어). The checkbox keeps the count as its accessible name. */}
-          <span className="dock-scm-list-actions">
-            <button type="button" aria-label="Stage All" title="Stage All"
-              data-tooltip="Stage All"
-              disabled={Boolean(busy) || files.length === 0}
-              onClick={() => setAllIncluded(true, files)}>
-              <Check size={14} aria-hidden="true" />
-            </button>
-            <button type="button" aria-label="Unstage All" title="Unstage All"
-              data-tooltip="Unstage All"
-              disabled={Boolean(busy) || files.length === 0}
-              onClick={() => setAllIncluded(false, files)}>
-              <Minus size={14} aria-hidden="true" />
-            </button>
-            <button type="button" className="danger" aria-label="Discard All"
-              title="Discard All" data-tooltip="Discard All"
-              disabled={Boolean(busy) || files.length === 0}
-              onClick={discardAllChanges}>
-              <Undo2 size={14} aria-hidden="true" />
-            </button>
-            {/* Stash all changes / Pop stash hang off the
+                  <span className="dock-scm-list-actions">
+                    <button
+                      type="button"
+                      aria-label="Stage All"
+                      title="Stage All"
+                      data-tooltip="Stage All"
+                      disabled={Boolean(busy) || files.length === 0}
+                      onClick={() => setAllIncluded(true, files)}
+                    >
+                      <Check size={14} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Unstage All"
+                      title="Unstage All"
+                      data-tooltip="Unstage All"
+                      disabled={Boolean(busy) || files.length === 0}
+                      onClick={() => setAllIncluded(false, files)}
+                    >
+                      <Minus size={14} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      aria-label="Discard All"
+                      title="Discard All"
+                      data-tooltip="Discard All"
+                      disabled={Boolean(busy) || files.length === 0}
+                      onClick={discardAllChanges}
+                    >
+                      <Undo2 size={14} aria-hidden="true" />
+                    </button>
+                    {/* Stash all changes / Pop stash hang off the
                 changed-files list, which is
                 where they landed when the commit split menu was deleted. */}
-            <button type="button" aria-label="Stash Changes"
-              title={stashReason || "Stash Changes"}
-              data-tooltip={stashReason || "Stash Changes"}
-              disabled={Boolean(stashReason)}
-              onClick={stashChanges}>
-              <Archive size={14} aria-hidden="true" />
-            </button>
-            <button type="button" aria-label="Pop Stash"
-              title={popStashReason || "Pop Stash"}
-              data-tooltip={popStashReason || "Pop Stash"}
-              disabled={Boolean(popStashReason)}
-              onClick={popStash}>
-              <ArchiveRestore size={14} aria-hidden="true" />
-            </button>
-            {/* ONE flat changed-files list leaves ordering as the only view
+                    <button
+                      type="button"
+                      aria-label="Stash Changes"
+                      title={stashReason || 'Stash Changes'}
+                      data-tooltip={stashReason || 'Stash Changes'}
+                      disabled={Boolean(stashReason)}
+                      onClick={stashChanges}
+                    >
+                      <Archive size={14} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Pop Stash"
+                      title={popStashReason || 'Pop Stash'}
+                      data-tooltip={popStashReason || 'Pop Stash'}
+                      disabled={Boolean(popStashReason)}
+                      onClick={popStash}
+                    >
+                      <ArchiveRestore size={14} aria-hidden="true" />
+                    </button>
+                    {/* ONE flat changed-files list leaves ordering as the only view
                 choice (the deleted menu's View & Sort group). */}
-            <button type="button" className="dock-scm-sort"
-              aria-label="View & Sort" title="View & Sort"
-              data-tooltip="View & Sort" aria-haspopup="menu"
-              aria-expanded={visibleContextMenu?.label === "View & Sort"}
-              onPointerEnter={(event) => {
-                viewSortMenuPoint.current = elementMenuPoint(event.currentTarget);
-              }}
-              onFocus={(event) => {
-                viewSortMenuPoint.current = elementMenuPoint(event.currentTarget);
-              }}
-              onPointerDown={(event) => {
-                if (event.button !== 0) return;
-                viewSortClickGuard.markPointerActivation();
-                const point = viewSortMenuPoint.current ?? elementMenuPoint(event.currentTarget);
-                commitImmediateOverlay(() => setContextMenu(
-                  visibleContextMenu?.label === "View & Sort" ? null : {
-                    label: "View & Sort",
-                    items: [
-                      { id: "sort-path", label: "Sort by Path", checked: sortKey === "path",
-                        onSelect: () => chooseSortKey("path") },
-                      { id: "sort-name", label: "Sort by Name", checked: sortKey === "name",
-                        onSelect: () => chooseSortKey("name") },
-                      { id: "sort-status", label: "Sort by Status", checked: sortKey === "status",
-                        onSelect: () => chooseSortKey("status") },
-                    ],
-                    ...point,
-                  },
-                ));
-              }}
-              onClick={(event) => {
-                if (viewSortClickGuard.consumePointerClick()) return;
-                if (event.detail !== 0) return;
-                const point = viewSortMenuPoint.current ?? elementMenuPoint(event.currentTarget);
-                commitImmediateOverlay(() => setContextMenu(
-                  visibleContextMenu?.label === "View & Sort" ? null : {
-                    label: "View & Sort",
-                    items: [
-                      { id: "sort-path", label: "Sort by Path", checked: sortKey === "path",
-                        onSelect: () => chooseSortKey("path") },
-                      { id: "sort-name", label: "Sort by Name", checked: sortKey === "name",
-                        onSelect: () => chooseSortKey("name") },
-                      { id: "sort-status", label: "Sort by Status", checked: sortKey === "status",
-                        onSelect: () => chooseSortKey("status") },
-                    ],
-                    ...point,
-                  },
-                ));
-              }}
-              onPointerCancel={viewSortClickGuard.clearPointerActivation}>
-              <ArrowUpDown size={14} aria-hidden="true" />
-            </button>
-          </span>
-        </div>
-      </div>
-      <div className="dock-scm-scroll" ref={filesScrollRef}
-      onKeyDown={(event) => {
-        // Esc anywhere in the list clears the checkbox selection (user: 셀렉트
-        // 하면 어떻게 언셀렉함) — the toolbar Clear button is the mouse path.
-        if (event.key !== "Escape" || selectedCount === 0) return;
-        event.stopPropagation();
-        clearSelected();
-      }}>
-      {/* Windowed rows: the spacers carry the height of every row that is not
+                    <button
+                      type="button"
+                      className="dock-scm-sort"
+                      aria-label="View & Sort"
+                      title="View & Sort"
+                      data-tooltip="View & Sort"
+                      aria-haspopup="menu"
+                      aria-expanded={visibleContextMenu?.label === 'View & Sort'}
+                      onPointerEnter={(event) => {
+                        viewSortMenuPoint.current = elementMenuPoint(event.currentTarget);
+                      }}
+                      onFocus={(event) => {
+                        viewSortMenuPoint.current = elementMenuPoint(event.currentTarget);
+                      }}
+                      onPointerDown={(event) => {
+                        if (event.button !== 0) return;
+                        viewSortClickGuard.markPointerActivation();
+                        const point = viewSortMenuPoint.current ?? elementMenuPoint(event.currentTarget);
+                        commitImmediateOverlay(() =>
+                          setContextMenu(
+                            visibleContextMenu?.label === 'View & Sort'
+                              ? null
+                              : {
+                                  label: 'View & Sort',
+                                  items: [
+                                    {
+                                      id: 'sort-path',
+                                      label: 'Sort by Path',
+                                      checked: sortKey === 'path',
+                                      onSelect: () => chooseSortKey('path'),
+                                    },
+                                    {
+                                      id: 'sort-name',
+                                      label: 'Sort by Name',
+                                      checked: sortKey === 'name',
+                                      onSelect: () => chooseSortKey('name'),
+                                    },
+                                    {
+                                      id: 'sort-status',
+                                      label: 'Sort by Status',
+                                      checked: sortKey === 'status',
+                                      onSelect: () => chooseSortKey('status'),
+                                    },
+                                  ],
+                                  ...point,
+                                }
+                          )
+                        );
+                      }}
+                      onClick={(event) => {
+                        if (viewSortClickGuard.consumePointerClick()) return;
+                        if (event.detail !== 0) return;
+                        const point = viewSortMenuPoint.current ?? elementMenuPoint(event.currentTarget);
+                        commitImmediateOverlay(() =>
+                          setContextMenu(
+                            visibleContextMenu?.label === 'View & Sort'
+                              ? null
+                              : {
+                                  label: 'View & Sort',
+                                  items: [
+                                    {
+                                      id: 'sort-path',
+                                      label: 'Sort by Path',
+                                      checked: sortKey === 'path',
+                                      onSelect: () => chooseSortKey('path'),
+                                    },
+                                    {
+                                      id: 'sort-name',
+                                      label: 'Sort by Name',
+                                      checked: sortKey === 'name',
+                                      onSelect: () => chooseSortKey('name'),
+                                    },
+                                    {
+                                      id: 'sort-status',
+                                      label: 'Sort by Status',
+                                      checked: sortKey === 'status',
+                                      onSelect: () => chooseSortKey('status'),
+                                    },
+                                  ],
+                                  ...point,
+                                }
+                          )
+                        );
+                      }}
+                      onPointerCancel={viewSortClickGuard.clearPointerActivation}
+                    >
+                      <ArrowUpDown size={14} aria-hidden="true" />
+                    </button>
+                  </span>
+                </div>
+              </div>
+              <div
+                className="dock-scm-scroll"
+                ref={filesScrollRef}
+                onKeyDown={(event) => {
+                  // Esc anywhere in the list clears the checkbox selection (user: 셀렉트
+                  // 하면 어떻게 언셀렉함) — the toolbar Clear button is the mouse path.
+                  if (event.key !== 'Escape' || selectedCount === 0) return;
+                  event.stopPropagation();
+                  clearSelected();
+                }}
+              >
+                {/* Windowed rows: the spacers carry the height of every row that is not
           mounted, so the scrollbar measures the WHOLE changed-file set and
           scrolling — not a button — is what reaches the end of it. */}
-      <RowSpacer edge="leading" height={fileWindow.leading} />
-      {visibleFiles.map((file) => fileRow(file))}
-      <RowSpacer edge="trailing" height={fileWindow.trailing} />
-      {files.length === 0 && <p className="dock-scm-clean">No changes in this project.</p>}
-      {files.length > 0 && filteredFiles.length === 0 &&
-        <p className="dock-scm-clean">No changed files match the filter.</p>}
-      </div>
-      <SourceControlCommitForm
-        branch={status?.branch || ""}
-        busy={busy}
-        commitBlocked={commitBlocked}
-        conflictCount={conflicts.length}
-        description={description}
-        detached={Boolean(status?.detached)}
-        fileCount={files.length}
-        operation={status?.operation}
-        selectedFileCount={includedFiles.length}
-        summary={summary}
-        onCommit={() => runCommitFlow("commit")}
-        onDescriptionChange={setDescription}
-        onSummaryChange={setSummary}
-      />
-    </> : selectedCommit ? <SourceControlCommitDetail
-      detail={commitDetail}
-      selectedCommit={selectedCommit}
-      shaCopy={shaCopy}
-      openCommitFile={openCommitFile}
-      commitDiffs={commitDiffs}
-      projectPath={projectPath}
-      onOpenDiff={onOpenDiff}
-      onBack={closeCommit}
-      onCopySha={copyCommitSha}
-      onToggleFile={toggleCommitFile}
-    /> : <div className="dock-scm-history" ref={historyScrollRef}>
-      {/* History row without the avatar stack (the dock has
+                <RowSpacer edge="leading" height={fileWindow.leading} />
+                {visibleFiles.map((file) => fileRow(file))}
+                <RowSpacer edge="trailing" height={fileWindow.trailing} />
+                {files.length === 0 && <p className="dock-scm-clean">No changes in this project.</p>}
+                {files.length > 0 && filteredFiles.length === 0 && (
+                  <p className="dock-scm-clean">No changed files match the filter.</p>
+                )}
+              </div>
+              <SourceControlCommitForm
+                branch={status?.branch || ''}
+                busy={busy}
+                commitBlocked={commitBlocked}
+                conflictCount={conflicts.length}
+                description={description}
+                detached={Boolean(status?.detached)}
+                fileCount={files.length}
+                operation={status?.operation}
+                selectedFileCount={includedFiles.length}
+                summary={summary}
+                onCommit={() => runCommitFlow('commit')}
+                onDescriptionChange={setDescription}
+                onSummaryChange={setSummary}
+              />
+            </>
+          ) : selectedCommit ? (
+            <SourceControlCommitDetail
+              detail={commitDetail}
+              selectedCommit={selectedCommit}
+              shaCopy={shaCopy}
+              openCommitFile={openCommitFile}
+              commitDiffs={commitDiffs}
+              projectPath={projectPath}
+              onOpenDiff={onOpenDiff}
+              onBack={closeCommit}
+              onCopySha={copyCommitSha}
+              onToggleFile={toggleCommitFile}
+            />
+          ) : (
+            <div className="dock-scm-history" ref={historyScrollRef}>
+              {/* History row without the avatar stack (the dock has
           no avatar service, and a monogram only ate width): a one-line
           summary, the byline (`author • relative age`), then the tag and the
           unpushed push button as compact TRAILING affordances so neither can
           grow the row. */}
-      {/* Windowed exactly like the changed-file list, and the next page is
+              {/* Windowed exactly like the changed-file list, and the next page is
           fetched from the scroll position instead of a `Load more` button. */}
-      <RowSpacer edge="leading" height={historyWindow.leading} />
-      {visibleHistory.map((entry, windowIndex) => {
-        const entryIndex = historyWindow.start + windowIndex;
-        const refs = entry.refs ?? [];
-        const summary = (entry.subject ?? "").trim();
-        const author = (entry.author ?? "").trim();
-        // The row is the focusable element, so the truncated title, the hidden
-        // refs and the unpushed glyph all live in ITS accessible name.
-        const rowLabel = [
-          summary || EMPTY_SUMMARY,
-          `${author || UNKNOWN_AUTHOR}, ${entry.when}`,
-          refs.length ? `refs: ${refs.join(", ")}` : "",
-          entry.pushed ? "" : "unpushed",
-        ].filter(Boolean).join(" · ");
-        const hostedCommitUrl = commitWebUrl(entry.hash);
-        const commitMenuItems = () => buildSourceControlCommitMenu({
-          entry,
-          entryIndex,
-          historyBusyReason,
-          statusUnborn: Boolean(status?.unborn),
-          conflictCount: conflicts.length,
-          commitUrl: hostedCommitUrl,
-          missingChannel,
-          capabilities: {
-            amend: Boolean(api?.gitAmend),
-            checkout: Boolean(api?.gitCheckoutCommit),
-            cherryPick: Boolean(api?.gitCherryPickCommit),
-            createBranch: Boolean(api?.gitCreateBranchAtCommit),
-            createTag: Boolean(api?.gitCreateTag),
-            deleteTag: Boolean(api?.gitDeleteTag),
-            openExternal: Boolean(api?.openExternal),
-            reset: Boolean(api?.gitResetToCommit),
-            revert: Boolean(api?.gitRevertCommit),
-            undo: Boolean(api?.gitUndoLastCommit),
-          },
-          actions: {
-            amend: () => guarded(() => amendCommitAt(entry)),
-            checkout: () => guarded(() => checkoutCommit(entry)),
-            cherryPick: () => guarded(() => cherryPickCommit(entry)),
-            copySha: () => void copyText(entry.hash, "SHA"),
-            copyTags: (values) => void copyText(values.join(" "),
-              values.length > 1 ? "tags" : "tag"),
-            createBranch: () => guarded(() => createBranchAtCommit(entry)),
-            createTag: () => guarded(() => createTagAt(entry)),
-            deleteTag: (tag) => guarded(() => deleteTagAt(entry, tag)),
-            openHostedCommit: () => void api?.openExternal?.(hostedCommitUrl),
-            reset: () => guarded(() => resetToCommit(entry)),
-            revert: () => guarded(() => revertCommit(entry)),
-            undo: () => guarded(() => undoCommitAt(entry)),
-          },
-        });
-        // The row hosts its own push BUTTON now, so it cannot be a <button>
-        // itself (nested interactive content); it keeps the button role, the
-        // single tab stop and Enter/Space activation instead.
-        return <div role="button" tabIndex={0} className="dock-scm-commit-row" key={entry.hash}
-          title={summary || EMPTY_SUMMARY}
-          aria-label={rowLabel}
-          onClick={() => void openCommit(entry)}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            setContextMenu({
-              label: `Actions for commit ${entry.shortHash}`,
-              items: commitMenuItems(),
-              ...pointerMenuPoint(event),
-            });
-          }}
-          onKeyDown={(event) => {
-            if (isContextMenuKey(event)) {
-              event.preventDefault();
-              setContextMenu({
-                label: `Actions for commit ${entry.shortHash}`,
-                items: commitMenuItems(),
-                ...elementMenuPoint(event.currentTarget),
-              });
-              return;
-            }
-            if (event.key !== "Enter" && event.key !== " ") return;
-            if (event.target !== event.currentTarget) return;
-            event.preventDefault();
-            void openCommit(entry);
-          }}>
-          <span className="dock-scm-commit-info">
-            <b data-empty={summary ? undefined : true}>{summary || EMPTY_SUMMARY}</b>
-            <small>{author || UNKNOWN_AUTHOR} · {entry.when}</small>
-          </span>
-          <span className="dock-scm-commit-indicators">
-            {/* renderCommitListItemTags (:251-266): the FIRST ref only. The
+              <RowSpacer edge="leading" height={historyWindow.leading} />
+              {visibleHistory.map((entry, windowIndex) => {
+                const entryIndex = historyWindow.start + windowIndex;
+                const refs = entry.refs ?? [];
+                const summary = (entry.subject ?? '').trim();
+                const author = (entry.author ?? '').trim();
+                // The row is the focusable element, so the truncated title, the hidden
+                // refs and the unpushed glyph all live in ITS accessible name.
+                const rowLabel = [
+                  summary || EMPTY_SUMMARY,
+                  `${author || UNKNOWN_AUTHOR}, ${entry.when}`,
+                  refs.length ? `refs: ${refs.join(', ')}` : '',
+                  entry.pushed ? '' : 'unpushed',
+                ]
+                  .filter(Boolean)
+                  .join(' · ');
+                const hostedCommitUrl = commitWebUrl(entry.hash);
+                const commitMenuItems = () =>
+                  buildSourceControlCommitMenu({
+                    entry,
+                    entryIndex,
+                    historyBusyReason,
+                    statusUnborn: Boolean(status?.unborn),
+                    conflictCount: conflicts.length,
+                    commitUrl: hostedCommitUrl,
+                    missingChannel,
+                    capabilities: {
+                      amend: Boolean(api?.gitAmend),
+                      checkout: Boolean(api?.gitCheckoutCommit),
+                      cherryPick: Boolean(api?.gitCherryPickCommit),
+                      createBranch: Boolean(api?.gitCreateBranchAtCommit),
+                      createTag: Boolean(api?.gitCreateTag),
+                      deleteTag: Boolean(api?.gitDeleteTag),
+                      openExternal: Boolean(api?.openExternal),
+                      reset: Boolean(api?.gitResetToCommit),
+                      revert: Boolean(api?.gitRevertCommit),
+                      undo: Boolean(api?.gitUndoLastCommit),
+                    },
+                    actions: {
+                      amend: () => guarded(() => amendCommitAt(entry)),
+                      checkout: () => guarded(() => checkoutCommit(entry)),
+                      cherryPick: () => guarded(() => cherryPickCommit(entry)),
+                      copySha: () => void copyText(entry.hash, 'SHA'),
+                      copyTags: (values) => void copyText(values.join(' '), values.length > 1 ? 'tags' : 'tag'),
+                      createBranch: () => guarded(() => createBranchAtCommit(entry)),
+                      createTag: () => guarded(() => createTagAt(entry)),
+                      deleteTag: (tag) => guarded(() => deleteTagAt(entry, tag)),
+                      openHostedCommit: () => void api?.openExternal?.(hostedCommitUrl),
+                      reset: () => guarded(() => resetToCommit(entry)),
+                      revert: () => guarded(() => revertCommit(entry)),
+                      undo: () => guarded(() => undoCommitAt(entry)),
+                    },
+                  });
+                // The row hosts its own push BUTTON now, so it cannot be a <button>
+                // itself (nested interactive content); it keeps the button role, the
+                // single tab stop and Enter/Space activation instead.
+                return (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className="dock-scm-commit-row"
+                    key={entry.hash}
+                    title={summary || EMPTY_SUMMARY}
+                    aria-label={rowLabel}
+                    onClick={() => void openCommit(entry)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setContextMenu({
+                        label: `Actions for commit ${entry.shortHash}`,
+                        items: commitMenuItems(),
+                        ...pointerMenuPoint(event),
+                      });
+                    }}
+                    onKeyDown={(event) => {
+                      if (isContextMenuKey(event)) {
+                        event.preventDefault();
+                        setContextMenu({
+                          label: `Actions for commit ${entry.shortHash}`,
+                          items: commitMenuItems(),
+                          ...elementMenuPoint(event.currentTarget),
+                        });
+                        return;
+                      }
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      if (event.target !== event.currentTarget) return;
+                      event.preventDefault();
+                      void openCommit(entry);
+                    }}
+                  >
+                    <span className="dock-scm-commit-info">
+                      <b data-empty={summary ? undefined : true}>{summary || EMPTY_SUMMARY}</b>
+                      <small>
+                        {author || UNKNOWN_AUTHOR} · {entry.when}
+                      </small>
+                    </span>
+                    <span className="dock-scm-commit-indicators">
+                      {/* renderCommitListItemTags (:251-266): the FIRST ref only. The
                 rest stay reachable — counted VISIBLY as `+N` for pointer and
                 touch, spelled out in the row's accessible name for AT, and
                 listed in the tooltip for the mouse. */}
-            {refs.length > 0 && <i className="dock-scm-refs" title={refs.join(", ")}>
-              <em>{refs[0]}</em>
-              {refs.length > 1 && <span className="dock-scm-refs-more"
-                aria-hidden="true">+{refs.length - 1}</span>}
-            </i>}
-            {/* renderUnpushedIndicator (:196-211) promoted to an ACTION: a
+                      {refs.length > 0 && (
+                        <i className="dock-scm-refs" title={refs.join(', ')}>
+                          <em>{refs[0]}</em>
+                          {refs.length > 1 && (
+                            <span className="dock-scm-refs-more" aria-hidden="true">
+                              +{refs.length - 1}
+                            </span>
+                          )}
+                        </i>
+                      )}
+                      {/* renderUnpushedIndicator (:196-211) promoted to an ACTION: a
                 round push button that runs the toolbar's push, under the
                 toolbar's own rules. */}
-            {/* A download-style accent action, smaller than the composer's
+                      {/* A download-style accent action, smaller than the composer's
                 28px send button but immediately visible at the row edge. */}
-            {!entry.pushed && <button type="button" className="dock-scm-unpushed"
-              aria-label={`Push unpushed commits to ${remoteName}`}
-              disabled={rowPushBlocked}
-              title={rowPushReason
-                || `This commit has not been pushed — push to ${remoteName}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                if (rowPushBlocked) return;
-                void run("push", () => api?.gitPush?.(projectPath));
-              }}>
-              <ArrowUp size={12} aria-hidden="true" />
-            </button>}
-          </span>
-        </div>;
-      })}
-      <RowSpacer edge="trailing" height={historyWindow.trailing} />
-      {historyLoading && <p className="utility-dock-empty">Loading history…</p>}
-      {!historyLoading && history.length === 0 && <p className="utility-dock-empty">No commits found.</p>}
-    </div>}
-    </>
+                      {!entry.pushed && (
+                        <button
+                          type="button"
+                          className="dock-scm-unpushed"
+                          aria-label={`Push unpushed commits to ${remoteName}`}
+                          disabled={rowPushBlocked}
+                          title={rowPushReason || `This commit has not been pushed — push to ${remoteName}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (rowPushBlocked) return;
+                            void run('push', () => api?.gitPush?.(projectPath));
+                          }}
+                        >
+                          <ArrowUp size={12} aria-hidden="true" />
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+              <RowSpacer edge="trailing" height={historyWindow.trailing} />
+              {historyLoading && <p className="utility-dock-empty">Loading history…</p>}
+              {!historyLoading && history.length === 0 && <p className="utility-dock-empty">No commits found.</p>}
+            </div>
+          )}
+        </>
+      </div>
     </div>
-  </div>;
+  );
 }

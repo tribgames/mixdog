@@ -13,13 +13,17 @@ import {
 
 function normalizedPageRole(page, pageCount, pageRoles = {}) {
   const explicit = pageRoles?.[page] || pageRoles?.[String(page)] || '';
-  const value = typeof explicit === 'string'
-    ? explicit
-    : explicit?.visualType || explicit?.slideRole || explicit?.role || '';
+  const value =
+    typeof explicit === 'string' ? explicit : explicit?.visualType || explicit?.slideRole || explicit?.role || '';
   const normalized = String(value).trim().toLowerCase();
   // The deck role decides beats before the visual type does: a statement
   // slide carrying one metric is still a beat, not a scorecard.
-  const slideRole = typeof explicit === 'string' ? '' : String(explicit?.slideRole || '').trim().toLowerCase();
+  const slideRole =
+    typeof explicit === 'string'
+      ? ''
+      : String(explicit?.slideRole || '')
+          .trim()
+          .toLowerCase();
   if (/cover|opening/.test(normalized) || page === 1) return 'opening';
   if (/closing|decision-close/.test(normalized) || page === pageCount) return 'closing';
   if (/section|statement/.test(slideRole) || /section|statement/.test(normalized)) return 'section';
@@ -69,19 +73,14 @@ function paletteDiscipline(metric, role) {
   // all (a text page in Sequoia or Coatue) is a normal frontier page, and a
   // single hue owning the whole page (dominance 1.0) is the common case.
   const accentRange = ['opening', 'closing', 'section'].includes(role) ? [0.05, 0.8] : [0.03, 0.7];
-  const hueScore = metric.paletteHueCount === 0
-    ? 0.8
-    : metric.paletteHueCount <= 3
-      ? 1
-      : clamp(1 - ((metric.paletteHueCount - 3) * 0.14));
-  const dominantScore = metric.paletteHueCount === 0
-    ? 0.8
-    : rangeFit(metric.paletteDominance, [0.4, 1]);
-  return clamp(
-    (rangeFit(metric.accentCoverage, accentRange) * 0.4)
-    + (hueScore * 0.35)
-    + (dominantScore * 0.25),
-  );
+  const hueScore =
+    metric.paletteHueCount === 0
+      ? 0.8
+      : metric.paletteHueCount <= 3
+        ? 1
+        : clamp(1 - (metric.paletteHueCount - 3) * 0.14);
+  const dominantScore = metric.paletteHueCount === 0 ? 0.8 : rangeFit(metric.paletteDominance, [0.4, 1]);
+  return clamp(rangeFit(metric.accentCoverage, accentRange) * 0.4 + hueScore * 0.35 + dominantScore * 0.25);
 }
 
 function roleAwareComposition(metric, role) {
@@ -96,7 +95,7 @@ function roleAwareComposition(metric, role) {
   const presence = Math.sqrt(clamp(densityFit));
   return {
     densityFit,
-    score: clamp((densityFit * 0.45) + (presence * ((metric.spatialBalance * 0.35) + (quadrantFit * 0.2)))),
+    score: clamp(densityFit * 0.45 + presence * (metric.spatialBalance * 0.35 + quadrantFit * 0.2)),
   };
 }
 
@@ -114,10 +113,7 @@ function contentPages(pages) {
   return pages.length >= 3 ? pages.slice(1, -1) : pages.slice(1);
 }
 
-export async function reviewRenderedOfficeAesthetics(images = [], {
-  format = '',
-  pageRoles = {},
-} = {}) {
+export async function reviewRenderedOfficeAesthetics(images = [], { format = '', pageRoles = {} } = {}) {
   const normalized = String(format || '').toLowerCase();
   const measured = (await Promise.all((images || []).map(renderedAestheticMetric))).filter(Boolean);
   const issues = [];
@@ -133,62 +129,66 @@ export async function reviewRenderedOfficeAesthetics(images = [], {
     const densityGated = !beatPage && role !== 'diagram';
     // The mean foreground delta drops when tinted fields (planes, lanes, cards)
     // make up most of the foreground; the marks are judged by the ink decile.
-    if (
-      metric.foregroundCoverage >= 0.008
-      && metric.foregroundContrast < 0.15
-      && (metric.inkContrast || 0) < 0.35
-    ) {
-      issues.push(aestheticIssue(
-        'low_visual_contrast',
-        `/${normalized === 'pptx' ? 'slide' : 'page'}[${metric.page}]`,
-        `Rendered foreground contrast is ${metric.foregroundContrast.toFixed(2)}; foreground and background are too similar.`,
-      ));
+    if (metric.foregroundCoverage >= 0.008 && metric.foregroundContrast < 0.15 && (metric.inkContrast || 0) < 0.35) {
+      issues.push(
+        aestheticIssue(
+          'low_visual_contrast',
+          `/${normalized === 'pptx' ? 'slide' : 'page'}[${metric.page}]`,
+          `Rendered foreground contrast is ${metric.foregroundContrast.toFixed(2)}; foreground and background are too similar.`
+        )
+      );
     }
     if (
-      normalized === 'pptx'
-      && densityGated
-      && metric.page > 1
-      && metric.page < measured.length
+      normalized === 'pptx' &&
+      densityGated &&
+      metric.page > 1 &&
+      metric.page < measured.length &&
       // Under the frontier tenth percentile on both reads (foreground 0.024,
       // entropy 0.06-0.12 on Naver, Kakao, and Evans pages that are authored).
-      && metric.foregroundCoverage < 0.012
-      && metric.entropy < 0.1
+      metric.foregroundCoverage < 0.012 &&
+      metric.entropy < 0.1
     ) {
-      issues.push(aestheticIssue(
-        'slide_visual_density_low',
-        `/slide[${metric.page}]`,
-        'The content slide has too little visual evidence or hierarchy for a presentation canvas.',
-      ));
+      issues.push(
+        aestheticIssue(
+          'slide_visual_density_low',
+          `/slide[${metric.page}]`,
+          'The content slide has too little visual evidence or hierarchy for a presentation canvas.'
+        )
+      );
     }
     if (
-      normalized === 'pptx'
-      && !beatPage
-      && metric.page > 1
-      && metric.page < measured.length
+      normalized === 'pptx' &&
+      !beatPage &&
+      metric.page > 1 &&
+      metric.page < measured.length &&
       // The earlier floors (0.06 / 0.3) flagged 15 of 48 Evans pages, 5 of 52
       // Sequoia pages, and 3 of 30 Coatue pages; these sit under every
       // reference deck's tenth percentile (foreground 0.024, spatial 0.07-0.18).
-      && densityGated
-      && metric.foregroundCoverage < 0.025
-      && metric.spatialCoverage < 0.15
+      densityGated &&
+      metric.foregroundCoverage < 0.025 &&
+      metric.spatialCoverage < 0.15
     ) {
-      issues.push(aestheticIssue(
-        'under_composed_slide',
-        `/slide[${metric.page}]`,
-        'The rendered content slide leaves too much of the canvas visually inactive for its evidence load.',
-      ));
+      issues.push(
+        aestheticIssue(
+          'under_composed_slide',
+          `/slide[${metric.page}]`,
+          'The rendered content slide leaves too much of the canvas visually inactive for its evidence load.'
+        )
+      );
     }
     if (
-      normalized === 'xlsx'
-      && metric.foregroundCoverage > 0.62
-      && metric.entropy > 0.45
-      && metric.edgeDensity > 0.28
+      normalized === 'xlsx' &&
+      metric.foregroundCoverage > 0.62 &&
+      metric.entropy > 0.45 &&
+      metric.edgeDensity > 0.28
     ) {
-      issues.push(aestheticIssue(
-        'worksheet_visual_clutter',
-        `/page[${metric.page}]`,
-        'The worksheet render is visually saturated; separate the dashboard from supporting detail.',
-      ));
+      issues.push(
+        aestheticIssue(
+          'worksheet_visual_clutter',
+          `/page[${metric.page}]`,
+          'The worksheet render is visually saturated; separate the dashboard from supporting detail.'
+        )
+      );
     }
   }
   let rhythm = {
@@ -225,26 +225,27 @@ export async function reviewRenderedOfficeAesthetics(images = [], {
       maximumSimilarity: rounded(maximumSimilarity),
     };
     if (
-      content.length >= 4
-      && rhythm.featureSpread < 0.06
-      && rhythm.adjacentChange < 0.065
-      && rhythm.maximumSimilarity >= 0.9
+      content.length >= 4 &&
+      rhythm.featureSpread < 0.06 &&
+      rhythm.adjacentChange < 0.065 &&
+      rhythm.maximumSimilarity >= 0.9
     ) {
-      issues.push(aestheticIssue(
-        'flat_visual_rhythm',
-        '/',
-        'Rendered content slides keep nearly the same background, density, color, and complexity; introduce deliberate deck rhythm.',
-      ));
+      issues.push(
+        aestheticIssue(
+          'flat_visual_rhythm',
+          '/',
+          'Rendered content slides keep nearly the same background, density, color, and complexity; introduce deliberate deck rhythm.'
+        )
+      );
     }
-    if (
-      content.length >= 4
-      && repeatedPairs >= Math.max(2, Math.ceil(content.length / 2))
-    ) {
-      issues.push(aestheticIssue(
-        'repeated_render_composition',
-        '/',
-        `${repeatedPairs} content-slide pairs share a near-identical rendered structure.`,
-      ));
+    if (content.length >= 4 && repeatedPairs >= Math.max(2, Math.ceil(content.length / 2))) {
+      issues.push(
+        aestheticIssue(
+          'repeated_render_composition',
+          '/',
+          `${repeatedPairs} content-slide pairs share a near-identical rendered structure.`
+        )
+      );
     }
   }
   const evaluated = measured.map((metric) => {
@@ -259,28 +260,26 @@ export async function reviewRenderedOfficeAesthetics(images = [], {
     };
   });
   const pages = evaluated.map(({ _structure, ...metric }) => metric);
-  const contrastScore = mean(pages.map((metric) => clamp(
-    (Math.max(metric.contrastSpan, metric.foregroundContrast, metric.inkContrast || 0) - 0.1) / 0.65,
-  )));
+  const contrastScore = mean(
+    pages.map((metric) =>
+      clamp((Math.max(metric.contrastSpan, metric.foregroundContrast, metric.inkContrast || 0) - 0.1) / 0.65)
+    )
+  );
   const paletteScore = mean(pages.map((metric) => metric.paletteDiscipline));
   const compositionScore = mean(pages.map((metric) => metric.compositionScore));
-  const rhythmScore = normalized === 'pptx'
-    ? clamp(
-      (rhythm.featureSpread * 3.5)
-      + (rhythm.adjacentChange * 3)
-      + ((1 - rhythm.maximumSimilarity) * 0.25),
-    )
-    : 1;
-  const overallScore = (contrastScore * 0.32)
-    + (paletteScore * 0.18)
-    + (rhythmScore * 0.2)
-    + (compositionScore * 0.3);
+  const rhythmScore =
+    normalized === 'pptx'
+      ? clamp(rhythm.featureSpread * 3.5 + rhythm.adjacentChange * 3 + (1 - rhythm.maximumSimilarity) * 0.25)
+      : 1;
+  const overallScore = contrastScore * 0.32 + paletteScore * 0.18 + rhythmScore * 0.2 + compositionScore * 0.3;
   if (normalized === 'pptx' && measured.length >= 5 && overallScore < 0.62) {
-    issues.push(aestheticIssue(
-      'frontier_aesthetic_score_low',
-      '/',
-      `Rendered aesthetics v2 score is ${overallScore.toFixed(2)}; frontier decks require at least 0.62.`,
-    ));
+    issues.push(
+      aestheticIssue(
+        'frontier_aesthetic_score_low',
+        '/',
+        `Rendered aesthetics v2 score is ${overallScore.toFixed(2)}; frontier decks require at least 0.62.`
+      )
+    );
   }
   return {
     ok: issues.length === 0,

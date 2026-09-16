@@ -67,15 +67,24 @@
   --mx-avatar-shadow: #00000066;
   /* Project-avatar palette (dark set: muted fill, vivid border). */
   --mx-avatar-fg: #ffffff;
-  --mx-avatar-bg-orange: #6b4331; --mx-avatar-border-orange: #ff8648;
-  --mx-avatar-bg-yellow: #625338; --mx-avatar-border-yellow: #e7af36;
-  --mx-avatar-bg-cyan: #005a6e; --mx-avatar-border-cyan: #0096b8;
-  --mx-avatar-bg-green: #196130; --mx-avatar-border-green: #49c970;
-  --mx-avatar-bg-red: #7a1f23; --mx-avatar-border-red: #d92e3c;
-  --mx-avatar-bg-pink: #8c2d61; --mx-avatar-border-pink: #e4429e;
-  --mx-avatar-bg-blue: #263fa9; --mx-avatar-border-blue: #7698fd;
-  --mx-avatar-bg-purple: #361f83; --mx-avatar-border-purple: #7152f4;
-  --mx-avatar-bg-gray: #5c5c5c; --mx-avatar-border-gray: #aeaeae;
+  --mx-avatar-bg-orange: #6b4331;
+  --mx-avatar-border-orange: #ff8648;
+  --mx-avatar-bg-yellow: #625338;
+  --mx-avatar-border-yellow: #e7af36;
+  --mx-avatar-bg-cyan: #005a6e;
+  --mx-avatar-border-cyan: #0096b8;
+  --mx-avatar-bg-green: #196130;
+  --mx-avatar-border-green: #49c970;
+  --mx-avatar-bg-red: #7a1f23;
+  --mx-avatar-border-red: #d92e3c;
+  --mx-avatar-bg-pink: #8c2d61;
+  --mx-avatar-border-pink: #e4429e;
+  --mx-avatar-bg-blue: #263fa9;
+  --mx-avatar-border-blue: #7698fd;
+  --mx-avatar-bg-purple: #361f83;
+  --mx-avatar-border-purple: #7152f4;
+  --mx-avatar-bg-gray: #5c5c5c;
+  --mx-avatar-border-gray: #aeaeae;
 
   /* ── 2. Surfaces (back → front) ──
      ONE dark ramp — the ORIGINAL Mixdog grey ramp, restored as THE default
@@ -95,7 +104,7 @@
   --mx-bg-layer-3: #3d3d41;
   --mx-bg-contrast: #5c5c61;
   /* Surface-base: translucent plate used by chat bubbles. */
-  --mx-surface-plate: rgba(255, 255, 255, .035);
+  --mx-surface-plate: rgba(255, 255, 255, 0.035);
   /* Terminal canvas stays dark in every theme (xterm palette parity). */
   --mx-terminal-bg: #121215;
 
@@ -139,8 +148,8 @@
      wide for uppercase micro labels/badges. Sub-.015em strays dropped to
      0; content strays (onboarding hero -.45px, PR title -.015em,
      masked-input 2px) stay literal. */
-  --mx-tracking-tight: -.01em;
-  --mx-tracking-wide: .04em;
+  --mx-tracking-tight: -0.01em;
+  --mx-tracking-wide: 0.04em;
   /* TWO-step chrome weight ramp (a modern UI ramp:
      Body/Label = 400, Strong = 600 — no middle step). The old ramp kept a
      500 tier that 121 rules used as their DEFAULT, so a 600 heading only
@@ -170,11 +179,11 @@
      .72 (companion glyphs) < soft .85 (near-full rest states). Strays
      (.25/.3, .4-.5, .58/.6, .65/.7, .8/.9) converged to the nearest
      tier; the .999 compositing hack stays literal. */
-  --mx-op-ghost: .35;
-  --mx-op-disabled: .45;
-  --mx-op-dim: .55;
-  --mx-op-secondary: .72;
-  --mx-op-soft: .85;
+  --mx-op-ghost: 0.35;
+  --mx-op-disabled: 0.45;
+  --mx-op-dim: 0.55;
+  --mx-op-secondary: 0.72;
+  --mx-op-soft: 0.85;
 
   /* ── 3. Ink: text, icons, borders ── */
   --mx-text: #e9e9e9;
@@ -206,17 +215,17 @@
   --mx-icon-muted: var(--mx-text-muted);
   /* Neutral hairlines, one step stronger than the old warm set so the
      sidebar/dock/tab-strip seams read crisply (#2b2b2b-class). */
-  --mx-border-muted: rgba(255, 255, 255, .09);
-  --mx-border: rgba(255, 255, 255, .125);
-  --mx-border-structure: rgba(255, 255, 255, .16);
-  --mx-border-strong: rgba(255, 255, 255, .24);
+  --mx-border-muted: rgba(255, 255, 255, 0.09);
+  --mx-border: rgba(255, 255, 255, 0.125);
+  --mx-border-structure: rgba(255, 255, 255, 0.16);
+  --mx-border-strong: rgba(255, 255, 255, 0.24);
 
   /* ── 4. Interaction ── */
   /* Focus ring tracks the brand accent: Google's dark-UI blue here, and the
      light block overrides to blue-600 so the ring stays legible on paper. */
   --mx-focus: #8ab4f8;
-  --mx-hover: rgba(255, 255, 255, .06);
-  --mx-pressed: rgba(255, 255, 255, .10);
+  --mx-hover: rgba(255, 255, 255, 0.06);
+  --mx-pressed: rgba(255, 255, 255, 0.1);
   --mx-selected: var(--mx-pressed);
   /* Opaque hover/pressed equivalents for rows that stack OPAQUE action
      gradients on top (a translucent wash under them renders a visible
@@ -230,12 +239,12 @@
   /* The v2 token sheet says alpha-light-30 for the dark scrim, but the
      the desktop shell dims dialogs DARK; a white haze over a dark
      shell reads as washed out. Dim with black in both themes. */
-  --mx-scrim: rgba(0, 0, 0, .5);
+  --mx-scrim: rgba(0, 0, 0, 0.5);
   /* Over-media plates (badges/actions on thumbnails and stages) and the
      ink on top of them — theme-invariant by design. */
-  --mx-media-scrim: rgba(0, 0, 0, .55);
-  --mx-media-scrim-hover: rgba(0, 0, 0, .72);
-  --mx-media-danger: rgba(200, 40, 40, .55);
+  --mx-media-scrim: rgba(0, 0, 0, 0.55);
+  --mx-media-scrim-hover: rgba(0, 0, 0, 0.72);
+  --mx-media-danger: rgba(200, 40, 40, 0.55);
   --mx-on-media: #fff;
   /* Accent SURFACE, one rung deeper than the accent ink: Google blue 700
      carries white button text at 5:1, where the 600 used for text/links
@@ -266,28 +275,24 @@
   --mx-merged: #a371f7;
 
   /* ── 6. Elevation (dark values) ── */
-  --mx-switch-off:
-    inset 0 -.5px 0 var(--mx-alpha-light-10),
-    inset 0 0 0 .5px var(--mx-alpha-light-16);
-  --mx-switch-on:
-    inset 0 -.5px 0 var(--mx-alpha-light-10),
-    inset 0 0 0 .5px var(--mx-alpha-light-16);
-  --mx-switch-thumb-shadow: 0 .5px .5px var(--mx-alpha-dark-40);
+  --mx-switch-off: inset 0 -0.5px 0 var(--mx-alpha-light-10), inset 0 0 0 0.5px var(--mx-alpha-light-16);
+  --mx-switch-on: inset 0 -0.5px 0 var(--mx-alpha-light-10), inset 0 0 0 0.5px var(--mx-alpha-light-16);
+  --mx-switch-thumb-shadow: 0 0.5px 0.5px var(--mx-alpha-dark-40);
   /* Switch thumb outline: invisible-on-purpose in dark (white on white
      thumb), a soft ink line in light so the off thumb reads on the track. */
   --mx-switch-thumb-border: var(--mx-grey-50);
   --mx-raised:
-    0 2px 4px var(--mx-alpha-dark-30), 0 1px 2px var(--mx-alpha-dark-30),
-    0 0 0 .5px var(--mx-alpha-light-16), 0 -.5px 0 var(--mx-alpha-light-6);
+    0 2px 4px var(--mx-alpha-dark-30), 0 1px 2px var(--mx-alpha-dark-30), 0 0 0 0.5px var(--mx-alpha-light-16),
+    0 -0.5px 0 var(--mx-alpha-light-6);
   --mx-floating:
-    0 8px 16px var(--mx-alpha-dark-30), 0 4px 8px var(--mx-alpha-dark-30),
-    0 0 0 .5px var(--mx-alpha-light-16), 0 -.5px 0 var(--mx-alpha-light-6);
+    0 8px 16px var(--mx-alpha-dark-30), 0 4px 8px var(--mx-alpha-dark-30), 0 0 0 0.5px var(--mx-alpha-light-16),
+    0 -0.5px 0 var(--mx-alpha-light-6);
   --mx-overlay:
-    0 16px 32px var(--mx-alpha-dark-30), 0 8px 16px var(--mx-alpha-dark-30),
-    0 0 0 .5px var(--mx-alpha-light-16), 0 -.5px 0 var(--mx-alpha-light-6);
+    0 16px 32px var(--mx-alpha-dark-30), 0 8px 16px var(--mx-alpha-dark-30), 0 0 0 0.5px var(--mx-alpha-light-16),
+    0 -0.5px 0 var(--mx-alpha-light-6);
   /* Buttons are flat (user): one hairline boundary, no drop or bevel. */
-  --mx-button: 0 0 0 .5px var(--mx-alpha-light-20);
-  --mx-button-contrast: 0 0 0 .5px var(--mx-alpha-light-40);
+  --mx-button: 0 0 0 0.5px var(--mx-alpha-light-20);
+  --mx-button-contrast: 0 0 0 0.5px var(--mx-alpha-light-40);
 
   /* ── Popup surface ──
      ONE skin for everything that floats or modals over the shell — menus,
@@ -298,7 +303,7 @@
      token. Dialog cards take the one-notch-larger card radius; everything
      that hangs off a control keeps the compact radius. */
   --mx-popup-bg: var(--mx-bg-base);
-  --mx-popup-border: .5px solid var(--mx-border-strong);
+  --mx-popup-border: 0.5px solid var(--mx-border-strong);
   /* The border owns the edge; elevation must not draw a second bright ring. */
   --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 18%), 0 2px 6px rgb(0 0 0 / 12%);
   --mx-popup-radius: var(--mx-radius-lg);
@@ -312,8 +317,8 @@
      a 4% ink tint under a muted hairline, so it reads as a button on the same
      base plate without a filled block. */
   --mx-popup-action-bg: color-mix(in srgb, var(--mx-text) 4%, transparent);
-  --mx-popup-action-ring: inset 0 0 0 .5px var(--mx-border-muted);
-  --mx-popup-action-ring-hover: inset 0 0 0 .5px var(--mx-border-strong);
+  --mx-popup-action-ring: inset 0 0 0 0.5px var(--mx-border-muted);
+  --mx-popup-action-ring-hover: inset 0 0 0 0.5px var(--mx-border-strong);
   /* Hover bridge geometry — the transparent frame that JOINS a card to the
      control it hangs off (user: 투명으로 중간에 이어주는 프레임). Reach clears
      the card's 6px offset and still overlaps the control, so no hairline of
@@ -332,7 +337,9 @@
      one 12px label (the exact defect .message-body fixed for prose, left
      unfixed for chrome). Pretendard's Latin is Inter-metric-compatible, so
      the rhythm the Geist stack set is preserved. Mono is the TUI stack. */
-  --mx-font-prose: "Pretendard Variable", Pretendard, "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  --mx-font-prose:
+    "Pretendard Variable", Pretendard, "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI",
+    sans-serif;
   --mx-font-sans: var(--mx-font-prose);
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-ui);
@@ -359,8 +366,8 @@
      sheets and studio — so two surfaces entering side by side settled on
      different frames. */
   --mx-ease-standard: ease-out;
-  --mx-ease-emphasized: cubic-bezier(.2, .8, .2, 1);
-  --mx-ease-exit: cubic-bezier(.4, 0, 1, 1);
+  --mx-ease-emphasized: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --mx-ease-exit: cubic-bezier(0.4, 0, 1, 1);
   /* Ready-made pairs for the two cases the shell repeats most. */
   --mx-motion-ink: var(--mx-motion-fast) var(--mx-ease-standard);
   --mx-motion-chrome: var(--mx-motion-base) var(--mx-ease-standard);
@@ -436,7 +443,7 @@
   --mx-bg-layer-2: #f0f0f0;
   --mx-bg-layer-3: #e8e8e8;
   --mx-bg-contrast: #242424;
-  --mx-surface-plate: rgba(23, 24, 26, .045);
+  --mx-surface-plate: rgba(23, 24, 26, 0.045);
 
   /* ── 3. Ink ── */
   /* Deep ink: main prose reads a step deeper than Grok's; softness stays in
@@ -451,17 +458,17 @@
   --mx-icon: var(--mx-text);
   --mx-icon-muted: var(--mx-text-muted);
   /* Neutral hairlines: the warm alpha set pulled every seam brown. */
-  --mx-border-muted: rgba(23, 24, 26, .10);
-  --mx-border: rgba(23, 24, 26, .14);
-  --mx-border-structure: rgba(23, 24, 26, .20);
-  --mx-border-strong: rgba(23, 24, 26, .26);
+  --mx-border-muted: rgba(23, 24, 26, 0.1);
+  --mx-border: rgba(23, 24, 26, 0.14);
+  --mx-border-structure: rgba(23, 24, 26, 0.2);
+  --mx-border-strong: rgba(23, 24, 26, 0.26);
 
   /* ── 4. Interaction ── */
   /* blue-500 sat ~2:1 against the paper surfaces (user-flagged as washed
      out); blue-600 keeps the same hue with a legible ring. */
   --mx-focus: #1a73e8;
-  --mx-hover: rgba(0, 0, 0, .05);
-  --mx-pressed: rgba(0, 0, 0, .09);
+  --mx-hover: rgba(0, 0, 0, 0.05);
+  --mx-pressed: rgba(0, 0, 0, 0.09);
   /* Opaque sidebar-row tones (hover/selected under opaque action gradients). */
   --mx-hover-opaque: #e9e9e9;
   --mx-pressed-opaque: #e2e2e2;
@@ -469,21 +476,30 @@
      stays visible — an alpha pill stacked with the close-button gradient into
      blotchy double-darkening. */
   --mx-tab-pill: #e6e6e6;
-  --mx-scrim: rgba(20, 20, 22, .38);
+  --mx-scrim: rgba(20, 20, 22, 0.38);
   --mx-accent-bg: #1967d2;
-  --mx-contrast-hover: rgba(255, 255, 255, .122);
+  --mx-contrast-hover: rgba(255, 255, 255, 0.122);
   --mx-approval-ring: color-mix(in srgb, var(--mx-amber-600) 45%, transparent);
   /* Project-avatar palette (light set: vivid fill, darker border). */
   --mx-avatar-fg: #ffffff;
-  --mx-avatar-bg-orange: #ee7330; --mx-avatar-border-orange: #d16427;
-  --mx-avatar-bg-yellow: #e7af36; --mx-avatar-border-yellow: #cb9f34;
-  --mx-avatar-bg-cyan: #0096b8; --mx-avatar-border-cyan: #007d9b;
-  --mx-avatar-bg-green: #2eaf5a; --mx-avatar-border-green: #198b43;
-  --mx-avatar-bg-red: #d92e3c; --mx-avatar-border-red: #b82d35;
-  --mx-avatar-bg-pink: #e4429e; --mx-avatar-border-pink: #c83d8b;
-  --mx-avatar-bg-blue: #3250df; --mx-avatar-border-blue: #2c47c8;
-  --mx-avatar-bg-purple: #623be2; --mx-avatar-border-purple: #5230c2;
-  --mx-avatar-bg-gray: #5c5c5c; --mx-avatar-border-gray: #3a3a3a;
+  --mx-avatar-bg-orange: #ee7330;
+  --mx-avatar-border-orange: #d16427;
+  --mx-avatar-bg-yellow: #e7af36;
+  --mx-avatar-border-yellow: #cb9f34;
+  --mx-avatar-bg-cyan: #0096b8;
+  --mx-avatar-border-cyan: #007d9b;
+  --mx-avatar-bg-green: #2eaf5a;
+  --mx-avatar-border-green: #198b43;
+  --mx-avatar-bg-red: #d92e3c;
+  --mx-avatar-border-red: #b82d35;
+  --mx-avatar-bg-pink: #e4429e;
+  --mx-avatar-border-pink: #c83d8b;
+  --mx-avatar-bg-blue: #3250df;
+  --mx-avatar-border-blue: #2c47c8;
+  --mx-avatar-bg-purple: #623be2;
+  --mx-avatar-border-purple: #5230c2;
+  --mx-avatar-bg-gray: #5c5c5c;
+  --mx-avatar-border-gray: #3a3a3a;
 
   /* ── 5. Status ── */
   --mx-danger-bg: #fceceb;
@@ -499,24 +515,17 @@
 
   /* ── 6. Elevation (light values) ── */
   --mx-switch-off:
-    inset 0 1px 1px rgba(0, 0, 0, .078), inset 0 .5px .5px rgba(0, 0, 0, .078),
-    inset 0 0 0 .5px rgba(0, 0, 0, .102);
+    inset 0 1px 1px rgba(0, 0, 0, 0.078), inset 0 0.5px 0.5px rgba(0, 0, 0, 0.078),
+    inset 0 0 0 0.5px rgba(0, 0, 0, 0.102);
   --mx-switch-on:
-    inset 0 2px 2px rgba(0, 0, 0, .102), inset 0 1px 1px rgba(0, 0, 0, .102),
-    inset 0 0 0 .5px rgba(0, 0, 0, .20);
-  --mx-switch-thumb-shadow: 0 .5px .5px rgba(0, 0, 0, .40);
-  --mx-switch-thumb-border: rgba(23, 24, 26, .25);
-  --mx-raised:
-    0 2px 4px rgba(0, 0, 0, .039), 0 1px 2px -1px rgba(0, 0, 0, .078),
-    0 0 0 .5px rgba(0, 0, 0, .122);
-  --mx-floating:
-    0 8px 16px rgba(0, 0, 0, .039), 0 4px 8px rgba(0, 0, 0, .078),
-    0 0 0 .5px rgba(0, 0, 0, .122);
-  --mx-overlay:
-    0 16px 32px rgba(0, 0, 0, .039), 0 8px 16px rgba(0, 0, 0, .078),
-    0 0 0 .5px rgba(0, 0, 0, .122);
-  --mx-button: 0 0 0 .5px rgba(0, 0, 0, .141);
-  --mx-button-contrast: 0 0 0 .5px #3a3a3a;
+    inset 0 2px 2px rgba(0, 0, 0, 0.102), inset 0 1px 1px rgba(0, 0, 0, 0.102), inset 0 0 0 0.5px rgba(0, 0, 0, 0.2);
+  --mx-switch-thumb-shadow: 0 0.5px 0.5px rgba(0, 0, 0, 0.4);
+  --mx-switch-thumb-border: rgba(23, 24, 26, 0.25);
+  --mx-raised: 0 2px 4px rgba(0, 0, 0, 0.039), 0 1px 2px -1px rgba(0, 0, 0, 0.078), 0 0 0 0.5px rgba(0, 0, 0, 0.122);
+  --mx-floating: 0 8px 16px rgba(0, 0, 0, 0.039), 0 4px 8px rgba(0, 0, 0, 0.078), 0 0 0 0.5px rgba(0, 0, 0, 0.122);
+  --mx-overlay: 0 16px 32px rgba(0, 0, 0, 0.039), 0 8px 16px rgba(0, 0, 0, 0.078), 0 0 0 0.5px rgba(0, 0, 0, 0.122);
+  --mx-button: 0 0 0 0.5px rgba(0, 0, 0, 0.141);
+  --mx-button-contrast: 0 0 0 0.5px #3a3a3a;
 }
 
 /* Per-theme semantic tokens are injected from the canonical TUI registry. */
@@ -532,7 +541,9 @@
   transition: none !important;
 }
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   /* Hinting stays ON shell-wide: geometricPrecision drops Windows hinting
@@ -541,4 +552,7 @@
      on the 15px+ reading surfaces, so the flag is scoped to those below. */
   text-rendering: auto;
 }
-.message-body, .markdown { text-rendering: geometricPrecision; }
+.message-body,
+.markdown {
+  text-rendering: geometricPrecision;
+}

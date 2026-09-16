@@ -3,10 +3,7 @@
  * the app's own Computer Use surfaces never appear as targets.
  */
 import type { ComputerCommand, PowerShellResponse } from '../shared/types';
-import {
-  normalizeComputerWindowRecords,
-  type ComputerWindowRecord,
-} from '../shared/window-transition';
+import { normalizeComputerWindowRecords, type ComputerWindowRecord } from '../shared/window-transition';
 import { filterComputerUseInternalWindows } from '../overlay/internal-windows';
 
 export interface WindowReadsHost {
@@ -24,10 +21,7 @@ export interface WindowIntegrity {
 export function createWindowReads(host: WindowReadsHost) {
   const { callPowerShell, sessionIdFor } = host;
 
-  async function readWindowIntegrity(
-    windowId: string | undefined,
-    sessionId: string,
-  ): Promise<WindowIntegrity> {
+  async function readWindowIntegrity(windowId: string | undefined, sessionId: string): Promise<WindowIntegrity> {
     if (!windowId) return { known: false, higher: false, ownName: 'Unknown', targetName: 'Unknown' };
     const response = await callPowerShell({
       action: 'window_integrity',
@@ -46,7 +40,7 @@ export function createWindowReads(host: WindowReadsHost) {
 
   async function readComputerWindows(
     command: ComputerCommand,
-    includeApp = false,
+    includeApp = false
   ): Promise<ComputerWindowRecord[] | null> {
     try {
       const response = await callPowerShell({
@@ -55,9 +49,7 @@ export function createWindowReads(host: WindowReadsHost) {
         read_only: true,
       });
       if (!response.ok) return null;
-      return filterComputerUseInternalWindows(
-        normalizeComputerWindowRecords(response.result?.windows),
-      );
+      return filterComputerUseInternalWindows(normalizeComputerWindowRecords(response.result?.windows));
     } catch {
       return null;
     }

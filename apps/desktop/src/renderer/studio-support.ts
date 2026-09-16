@@ -8,10 +8,12 @@ import { readGlobalCapabilities } from './global-capability-reads';
 
 export type MediaKind = 'image' | 'video';
 export const MEDIA_KINDS: MediaKind[] = ['image', 'video'];
-export type StudioApi = Partial<Pick<
-  DesktopApi,
-  'invokeCapability' | 'readCapabilities' | 'mediaUrl' | 'openAttachmentImage' | 'openMediaAsset' | 'openMediaFolder'
->>;
+export type StudioApi = Partial<
+  Pick<
+    DesktopApi,
+    'invokeCapability' | 'readCapabilities' | 'mediaUrl' | 'openAttachmentImage' | 'openMediaAsset' | 'openMediaFolder'
+  >
+>;
 export type RecordValue = Record<string, unknown>;
 
 export interface MediaModel {
@@ -165,9 +167,10 @@ export const DEFAULT_STUDIO_OPTIONS: StudioOptions = {
  * Generated assets carry their requested aspect in metadata. Falling back by
  * media kind keeps a new tile from painting square and resizing a frame later.
  */
-export function mediaFrameRatio(media: Pick<MediaAsset, 'kind' | 'options'> | Pick<MediaJob, 'kind' | 'options'>): number {
-  return parseAspect(String(media.options?.aspectRatio || ''))
-    || (media.kind === 'video' ? 16 / 9 : 1);
+export function mediaFrameRatio(
+  media: Pick<MediaAsset, 'kind' | 'options'> | Pick<MediaJob, 'kind' | 'options'>
+): number {
+  return parseAspect(String(media.options?.aspectRatio || '')) || (media.kind === 'video' ? 16 / 9 : 1);
 }
 
 /** Keep the generation slot until its indexed asset can replace it in place. */
@@ -187,9 +190,7 @@ export function requestOptions(controls: MediaControls, kind: MediaKind, options
   if (kind === 'video' && (controls.durationRange || controls.durations?.length)) {
     // Clamp at the boundary: the UI may still hold a value from another model.
     if (controls.durations?.length) {
-      payload.duration = controls.durations.includes(options.duration)
-        ? options.duration
-        : controls.durations[0];
+      payload.duration = controls.durations.includes(options.duration) ? options.duration : controls.durations[0];
     } else if (controls.durationRange) {
       const [min, max] = controls.durationRange;
       payload.duration = Math.min(max, Math.max(min, options.duration));
@@ -236,13 +237,17 @@ const STUDIO_READ_CAPABILITIES = new Set<DesktopCapability>(DESKTOP_READ_CAPABIL
 export async function callCapability(
   api: StudioApi | undefined,
   capability: DesktopCapability,
-  args: unknown[] = [],
+  args: unknown[] = []
 ): Promise<unknown> {
   if (STUDIO_READ_CAPABILITIES.has(capability)) {
-    return (await readGlobalCapabilities(api, [{
-      capability: capability as DesktopReadCapability,
-      args,
-    }]))[0];
+    return (
+      await readGlobalCapabilities(api, [
+        {
+          capability: capability as DesktopReadCapability,
+          args,
+        },
+      ])
+    )[0];
   }
   if (!api?.invokeCapability) return undefined;
   const result = await api.invokeCapability({ capability, args });
@@ -277,11 +282,7 @@ export const STUDIO_GRID_GAP = 12;
 /** Exact target height for a gallery density step. Keeping the fractional
  *  pixel is important: rounding 3-up down by one third made three square
  *  tiles total 735px, so the row solver incorrectly admitted a fourth tile. */
-export function studioTargetRowHeight(
-  columns: number,
-  width = STUDIO_GRID_MAX_WIDTH,
-  gap = STUDIO_GRID_GAP,
-): number {
+export function studioTargetRowHeight(columns: number, width = STUDIO_GRID_MAX_WIDTH, gap = STUDIO_GRID_GAP): number {
   const count = Math.max(1, Math.trunc(columns) || 1);
   return Math.max(1, (Math.max(1, width) - gap * (count - 1)) / count);
 }
@@ -300,7 +301,7 @@ export function justifiedRows(
   containerWidth: number,
   targetHeight: number,
   gap = 12,
-  packingWidth = containerWidth,
+  packingWidth = containerWidth
 ): JustifiedTile[][] {
   const width = Math.max(1, containerWidth);
   const packWidth = Math.max(1, packingWidth);
@@ -321,11 +322,13 @@ export function justifiedRows(
     } else {
       solvedHeight = height;
     }
-    rows.push(current.map((asset) => ({
-      asset,
-      width: (ratios[asset.id] || 1) * height,
-      height,
-    })));
+    rows.push(
+      current.map((asset) => ({
+        asset,
+        width: (ratios[asset.id] || 1) * height,
+        height,
+      }))
+    );
     current = [];
     ratioSum = 0;
   };

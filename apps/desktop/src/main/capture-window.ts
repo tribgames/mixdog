@@ -1,14 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-import {
-  app,
-  BrowserWindow,
-  dialog,
-  ipcMain,
-  shell,
-  type NativeImage,
-} from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, type NativeImage } from 'electron';
 import { SETTINGS_CATEGORIES } from '../renderer/settings/settings-items';
 import { DESKTOP_IPC, type SessionSnapshot } from '../shared/contract';
 import { registerDesktopIpc } from './ipc';
@@ -36,8 +29,26 @@ if (process.env.MIXDOG_CAPTURE_USER_DATA) {
 app.commandLine.appendSwitch('use-fake-device-for-media-stream');
 app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
 
-import { captureTitle, destroyCaptureWindow, imageReader, measureShellTopEdge, readDesktopAssertions, readLightThemeAssertions, readMobileClosedAssertions, readMobileOpenAssertions, readModalStackAssertions, readPhoneSettingsAssertions, readSettingsPlacement, schemaVersion, targetSize, validateAndDestroyRenderer, waitForRenderer, withCaptureTimeout, type LiveCaptureAssertions } from "./capture-assertions";
-import { CaptureService } from "./capture-host";
+import {
+  captureTitle,
+  destroyCaptureWindow,
+  imageReader,
+  measureShellTopEdge,
+  readDesktopAssertions,
+  readLightThemeAssertions,
+  readMobileClosedAssertions,
+  readMobileOpenAssertions,
+  readModalStackAssertions,
+  readPhoneSettingsAssertions,
+  readSettingsPlacement,
+  schemaVersion,
+  targetSize,
+  validateAndDestroyRenderer,
+  waitForRenderer,
+  withCaptureTimeout,
+  type LiveCaptureAssertions,
+} from './capture-assertions';
+import { CaptureService } from './capture-host';
 
 async function captureWindow(): Promise<void> {
   if (!requestedOutputPath) throw new Error('Capture output path is required and must end in .png.');
@@ -86,7 +97,7 @@ async function captureWindow(): Promise<void> {
     },
   });
   try {
-    const captureRendererUrl = String(process.env.MIXDOG_CAPTURE_RENDERER_URL || "").trim();
+    const captureRendererUrl = String(process.env.MIXDOG_CAPTURE_RENDERER_URL || '').trim();
     if (captureRendererUrl) await window.loadURL(captureRendererUrl);
     else await window.loadFile(join(__dirname, '../renderer/index.html'));
     const reloadedWithDarkTheme = new Promise<void>((resolveReload) => {
@@ -108,12 +119,14 @@ async function captureWindow(): Promise<void> {
     window.webContents.setBackgroundThrottling(false);
     // Jitter probe mode: measure streaming follow, warm compositor handoff,
     // and session/panel transition stability, then exit — no capture passes.
-    if (process.env.MIXDOG_JITTER_PROBE === '1'
-      || process.env.MIXDOG_JITTER_PROBE === 'entry'
-      || process.env.MIXDOG_JITTER_PROBE === 'keys'
-      || process.env.MIXDOG_JITTER_PROBE === 'switch'
-      || process.env.MIXDOG_JITTER_PROBE === 'width'
-      || process.env.MIXDOG_JITTER_PROBE === 'select') {
+    if (
+      process.env.MIXDOG_JITTER_PROBE === '1' ||
+      process.env.MIXDOG_JITTER_PROBE === 'entry' ||
+      process.env.MIXDOG_JITTER_PROBE === 'keys' ||
+      process.env.MIXDOG_JITTER_PROBE === 'switch' ||
+      process.env.MIXDOG_JITTER_PROBE === 'width' ||
+      process.env.MIXDOG_JITTER_PROBE === 'select'
+    ) {
       const { runJitterProbe, jitterProbeOutPath } = await import('./jitter-probe');
       await runJitterProbe({
         window,
@@ -133,9 +146,9 @@ async function captureWindow(): Promise<void> {
     // Normal capture assertions exercise the task UI, so materialize a draft
     // through the product's real Ctrl+N contract instead of reaching for the
     // retired Activity Bar button.
-    const captureTaskAlreadyActive = await window.webContents.executeJavaScript(
-      "Boolean(document.querySelector('.composer'))",
-    ) as boolean;
+    const captureTaskAlreadyActive = (await window.webContents.executeJavaScript(
+      "Boolean(document.querySelector('.composer'))"
+    )) as boolean;
     if (!captureTaskAlreadyActive) {
       window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['control'] });
       window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'N', modifiers: ['control'] });
@@ -143,7 +156,7 @@ async function captureWindow(): Promise<void> {
     await waitForRenderer(
       window,
       "document.querySelector('.composer') && document.querySelector('.workspace-tab')",
-      'capture task workspace',
+      'capture task workspace'
     );
     // Startup-geometry stability: sample the chrome rects right after show and
     // again after the settle window. Any delta is the "tab pops once at
@@ -164,23 +177,34 @@ async function captureWindow(): Promise<void> {
         composer: rect('.composer'),
       };
     })()`;
-    const startupGeometryEarly = await window.webContents.executeJavaScript(sampleStartupGeometry) as Record<string, { left: number; top: number; width: number; height: number } | null>;
+    const startupGeometryEarly = (await window.webContents.executeJavaScript(sampleStartupGeometry)) as Record<
+      string,
+      { left: number; top: number; width: number; height: number } | null
+    >;
     await new Promise((resolve) => setTimeout(resolve, 500));
-    const startupGeometrydSettled = await window.webContents.executeJavaScript(sampleStartupGeometry) as Record<string, { left: number; top: number; width: number; height: number } | null>;
+    const startupGeometrydSettled = (await window.webContents.executeJavaScript(sampleStartupGeometry)) as Record<
+      string,
+      { left: number; top: number; width: number; height: number } | null
+    >;
     const startupGeometry = {
       early: startupGeometryEarly,
       settled: startupGeometrydSettled,
-      deltas: Object.fromEntries(Object.keys(startupGeometrydSettled).map((key) => {
-        const before = startupGeometryEarly[key];
-        const after = startupGeometrydSettled[key];
-        if (!before || !after) return [key, before === after ? 0 : -1];
-        return [key, Math.max(
-          Math.abs(before.left - after.left),
-          Math.abs(before.top - after.top),
-          Math.abs(before.width - after.width),
-          Math.abs(before.height - after.height),
-        )];
-      })),
+      deltas: Object.fromEntries(
+        Object.keys(startupGeometrydSettled).map((key) => {
+          const before = startupGeometryEarly[key];
+          const after = startupGeometrydSettled[key];
+          if (!before || !after) return [key, before === after ? 0 : -1];
+          return [
+            key,
+            Math.max(
+              Math.abs(before.left - after.left),
+              Math.abs(before.top - after.top),
+              Math.abs(before.width - after.width),
+              Math.abs(before.height - after.height)
+            ),
+          ];
+        })
+      ),
     };
     // Panels default MINIMIZED; the capture contract measures the EXPANDED
     // rail, so open the session sidebar before any geometry pass.
@@ -194,7 +218,7 @@ async function captureWindow(): Promise<void> {
     await waitForRenderer(
       window,
       "!document.querySelector('.app-shell.sidebar-collapsed')",
-      'expanded session sidebar',
+      'expanded session sidebar'
     );
     window.setSize(1_000, 650);
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -210,13 +234,11 @@ async function captureWindow(): Promise<void> {
       return true;
     })()`);
     await new Promise((resolve) => setTimeout(resolve, 250));
-    const mobileViewport = await window.webContents.executeJavaScript(
-      '({ width: innerWidth, height: innerHeight })',
-    ) as { width: number; height: number };
+    const mobileViewport = (await window.webContents.executeJavaScript(
+      '({ width: innerWidth, height: innerHeight })'
+    )) as { width: number; height: number };
     const mobileOpen = await readMobileOpenAssertions(window);
-    await window.webContents.executeJavaScript(
-      "document.querySelector('.sidebar-backdrop')?.click()",
-    );
+    await window.webContents.executeJavaScript("document.querySelector('.sidebar-backdrop')?.click()");
     await new Promise((resolve) => setTimeout(resolve, 250));
     const mobileClosed = await readMobileClosedAssertions(window);
     const liveMobile = {
@@ -225,23 +247,34 @@ async function captureWindow(): Promise<void> {
       open: mobileOpen,
       closed: mobileClosed,
     };
-    if (!liveMobile.breakpointActive || !mobileOpen.sidebarVisible || !mobileOpen.backdropVisible
-      || !mobileOpen.sidebarComputedVisible || !mobileOpen.backdropComputedVisible
-      || !mobileOpen.sidebarIntersectsViewport || !mobileOpen.backdropIntersectsViewport
-      || !mobileClosed.sidebarHidden || !mobileClosed.mainVisible || !mobileClosed.mainMatchesViewport
-      || !mobileClosed.composerVisible || !mobileClosed.composerContained
-      || !mobileClosed.modelTriggerVisible || !mobileClosed.sendVisible
-      || !mobileClosed.sendContained || !mobileClosed.controlsNonOverlapping) {
+    if (
+      !liveMobile.breakpointActive ||
+      !mobileOpen.sidebarVisible ||
+      !mobileOpen.backdropVisible ||
+      !mobileOpen.sidebarComputedVisible ||
+      !mobileOpen.backdropComputedVisible ||
+      !mobileOpen.sidebarIntersectsViewport ||
+      !mobileOpen.backdropIntersectsViewport ||
+      !mobileClosed.sidebarHidden ||
+      !mobileClosed.mainVisible ||
+      !mobileClosed.mainMatchesViewport ||
+      !mobileClosed.composerVisible ||
+      !mobileClosed.composerContained ||
+      !mobileClosed.modelTriggerVisible ||
+      !mobileClosed.sendVisible ||
+      !mobileClosed.sendContained ||
+      !mobileClosed.controlsNonOverlapping
+    ) {
       throw new Error(`Mobile live assertions failed: ${JSON.stringify(liveMobile)}`);
     }
     window.setSize(1_280, 820);
     await new Promise((resolve) => setTimeout(resolve, 250));
-    const settingsAlreadyOpen = await withCaptureTimeout(
+    const settingsAlreadyOpen = (await withCaptureTimeout(
       window.webContents.executeJavaScript(
-        "Boolean(document.querySelector('.mixdog-settings-layer[data-surface-active=\"true\"]'))",
+        'Boolean(document.querySelector(\'.mixdog-settings-layer[data-surface-active="true"]\'))'
       ),
-      'read settings state',
-    ) as boolean;
+      'read settings state'
+    )) as boolean;
     if (!settingsAlreadyOpen) {
       window.webContents.sendInputEvent({ type: 'keyDown', keyCode: ',', modifiers: ['control'] });
       window.webContents.sendInputEvent({ type: 'keyUp', keyCode: ',', modifiers: ['control'] });
@@ -250,7 +283,7 @@ async function captureWindow(): Promise<void> {
       window,
       `document.querySelector('.mixdog-settings__body .settings-group')
         && !document.querySelector('.mixdog-settings__body .settings-loading')`,
-      'populated General settings pane',
+      'populated General settings pane'
     );
     const largeSettings = await readSettingsPlacement(window);
     const modalStack = await readModalStackAssertions(window);
@@ -263,7 +296,7 @@ async function captureWindow(): Promise<void> {
     const openThemeMenuUntilOption = async (optionText: string): Promise<void> => {
       const deadline = Date.now() + 30_000;
       for (;;) {
-        const state = await window.webContents.executeJavaScript(`(() => {
+        const state = (await window.webContents.executeJavaScript(`(() => {
           const option = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))
             .find((entry) => (entry.textContent || '').trim() === ${JSON.stringify(optionText)});
           if (option instanceof HTMLButtonElement) return 'open';
@@ -272,11 +305,11 @@ async function captureWindow(): Promise<void> {
           if (trigger.disabled) return 'disabled';
           if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
           return 'clicked';
-        })()`) as string;
+        })()`)) as string;
         if (state === 'open') return;
-      if (Date.now() >= deadline) {
-        throw new Error(`Theme option "${optionText}" did not appear within 30000ms (last state: ${state}).`);
-      }
+        if (Date.now() >= deadline) {
+          throw new Error(`Theme option "${optionText}" did not appear within 30000ms (last state: ${state}).`);
+        }
         await new Promise((resolve) => setTimeout(resolve, 400));
       }
     };
@@ -289,11 +322,7 @@ async function captureWindow(): Promise<void> {
       return true;
     })()`);
     if (!selectedWhite) throw new Error('White theme option is missing.');
-    await waitForRenderer(
-      window,
-      `document.documentElement.dataset.mixdogTheme === 'light'`,
-      'Light theme',
-    );
+    await waitForRenderer(window, `document.documentElement.dataset.mixdogTheme === 'light'`, 'Light theme');
     await waitForRenderer(
       window,
       `(() => {
@@ -306,7 +335,7 @@ async function captureWindow(): Promise<void> {
         probe.remove();
         return settled;
       })()`,
-      'Light titlebar icon transition',
+      'Light titlebar icon transition'
     );
     const lightTheme = await readLightThemeAssertions(window);
     await window.webContents.executeJavaScript(`(() => {
@@ -331,7 +360,7 @@ async function captureWindow(): Promise<void> {
     const lightShellTopEdge = measureShellTopEdge(lightImage, 'light');
     const lightPng = lightImage.toPNG();
     await window.webContents.executeJavaScript(
-      "document.querySelector('.mixdog-settings-layer')?.style.removeProperty('display')",
+      "document.querySelector('.mixdog-settings-layer')?.style.removeProperty('display')"
     );
     await openThemeMenuUntilOption('Dark');
     const restoredBasic = await window.webContents.executeJavaScript(`(() => {
@@ -342,11 +371,7 @@ async function captureWindow(): Promise<void> {
       return true;
     })()`);
     if (!restoredBasic) throw new Error('Dark theme option is missing.');
-    await waitForRenderer(
-      window,
-      `document.documentElement.dataset.mixdogTheme === 'basic'`,
-      'restored Basic theme',
-    );
+    await waitForRenderer(window, `document.documentElement.dataset.mixdogTheme === 'basic'`, 'restored Basic theme');
     window.setSize(720, 650);
     await new Promise((resolve) => setTimeout(resolve, 250));
     const compactSettings = await readSettingsPlacement(window);
@@ -359,61 +384,101 @@ async function captureWindow(): Promise<void> {
       compact: compactSettings,
       narrow: narrowSettings,
     };
-    if (largeSettings.viewport.width !== 1_280 || largeSettings.viewport.height !== 820
-      || !largeSettings.centered || !largeSettings.layerCoversViewport
-      || !largeSettings.dialogClearsWindowControls
-      || largeSettings.fullBleed || !largeSettings.contentClearsWindowControls
-      || !largeSettings.dialogFitsViewport || !largeSettings.backdropVisible || !largeSettings.twoPane
-      || largeSettings.dialog.width !== 980 || largeSettings.rail.width !== 240 || largeSettings.populatedRowCount < 1
-      || !compactSettings.centered || !compactSettings.layerCoversViewport
-      || !compactSettings.fullBleed || !compactSettings.contentClearsWindowControls
-      || !compactSettings.dialogFitsViewport || !compactSettings.backdropVisible || !compactSettings.twoPane
-      || compactSettings.viewport.width !== 720 || compactSettings.viewport.height !== 650
-      || compactSettings.dialog.width !== 720 || compactSettings.dialog.height !== 650
-      || compactSettings.rail.width !== 200
-      || narrowSettings.viewport.width !== 360 || narrowSettings.viewport.height !== 600
-      || !narrowSettings.fullScreen || !narrowSettings.railConnected || narrowSettings.rail.width !== 48
-      || narrowSettings.railButtonCount !== expectedNarrowSettingsCategoryLabels.length
-      || narrowSettings.categories.some((category, index) =>
-        category.label !== expectedNarrowSettingsCategoryLabels[index])
-      || !narrowSettings.railButtonsAccessible
-      || !narrowSettings.closeTouchTarget || narrowSettings.rowCount < 1
-      || narrowSettings.filledValueControlCount < 1 || !narrowSettings.sharedValueAxis
-      || !narrowSettings.controlsContained || !narrowSettings.controlsRightAligned
-      || !narrowSettings.labelsSeparated || !narrowSettings.valuesFillColumn
-      || !narrowSettings.overflowFree || narrowSettings.categories.some((category) =>
-        !category.overflowFree || !category.controlsContained
-        || !category.controlsRightAligned || !category.labelsSeparated)
-      || lightTheme.theme !== 'light' || lightTheme.colorScheme !== 'light'
-      || !lightTheme.titlebarIconMatchesToken || !lightTheme.activeTabMatchesToken
-      || !modalStack.toastParentIsBody || !modalStack.toastVisible
-      || !modalStack.toastOutsideInertTree || !modalStack.toastAboveModal) {
-      throw new Error(`Settings placement assertions failed: ${JSON.stringify({
-        settings: liveSettings,
-        lightTheme,
-        modalStack,
-      })}`);
+    if (
+      largeSettings.viewport.width !== 1_280 ||
+      largeSettings.viewport.height !== 820 ||
+      !largeSettings.centered ||
+      !largeSettings.layerCoversViewport ||
+      !largeSettings.dialogClearsWindowControls ||
+      largeSettings.fullBleed ||
+      !largeSettings.contentClearsWindowControls ||
+      !largeSettings.dialogFitsViewport ||
+      !largeSettings.backdropVisible ||
+      !largeSettings.twoPane ||
+      largeSettings.dialog.width !== 980 ||
+      largeSettings.rail.width !== 240 ||
+      largeSettings.populatedRowCount < 1 ||
+      !compactSettings.centered ||
+      !compactSettings.layerCoversViewport ||
+      !compactSettings.fullBleed ||
+      !compactSettings.contentClearsWindowControls ||
+      !compactSettings.dialogFitsViewport ||
+      !compactSettings.backdropVisible ||
+      !compactSettings.twoPane ||
+      compactSettings.viewport.width !== 720 ||
+      compactSettings.viewport.height !== 650 ||
+      compactSettings.dialog.width !== 720 ||
+      compactSettings.dialog.height !== 650 ||
+      compactSettings.rail.width !== 200 ||
+      narrowSettings.viewport.width !== 360 ||
+      narrowSettings.viewport.height !== 600 ||
+      !narrowSettings.fullScreen ||
+      !narrowSettings.railConnected ||
+      narrowSettings.rail.width !== 48 ||
+      narrowSettings.railButtonCount !== expectedNarrowSettingsCategoryLabels.length ||
+      narrowSettings.categories.some(
+        (category, index) => category.label !== expectedNarrowSettingsCategoryLabels[index]
+      ) ||
+      !narrowSettings.railButtonsAccessible ||
+      !narrowSettings.closeTouchTarget ||
+      narrowSettings.rowCount < 1 ||
+      narrowSettings.filledValueControlCount < 1 ||
+      !narrowSettings.sharedValueAxis ||
+      !narrowSettings.controlsContained ||
+      !narrowSettings.controlsRightAligned ||
+      !narrowSettings.labelsSeparated ||
+      !narrowSettings.valuesFillColumn ||
+      !narrowSettings.overflowFree ||
+      narrowSettings.categories.some(
+        (category) =>
+          !category.overflowFree ||
+          !category.controlsContained ||
+          !category.controlsRightAligned ||
+          !category.labelsSeparated
+      ) ||
+      lightTheme.theme !== 'light' ||
+      lightTheme.colorScheme !== 'light' ||
+      !lightTheme.titlebarIconMatchesToken ||
+      !lightTheme.activeTabMatchesToken ||
+      !modalStack.toastParentIsBody ||
+      !modalStack.toastVisible ||
+      !modalStack.toastOutsideInertTree ||
+      !modalStack.toastAboveModal
+    ) {
+      throw new Error(
+        `Settings placement assertions failed: ${JSON.stringify({
+          settings: liveSettings,
+          lightTheme,
+          modalStack,
+        })}`
+      );
     }
-    await window.webContents.executeJavaScript(
-      "document.querySelector('.mixdog-settings__close')?.click()",
-    );
+    await window.webContents.executeJavaScript("document.querySelector('.mixdog-settings__close')?.click()");
     await new Promise((resolve) => setTimeout(resolve, 150));
     window.setMinimumSize(DESKTOP_WINDOW_OPTIONS.minWidth, DESKTOP_WINDOW_OPTIONS.minHeight);
     window.setSize(targetSize.width, targetSize.height);
     await window.webContents.executeJavaScript(
-      "document.querySelector('.sessions-link[aria-expanded=\"false\"]')?.click()",
+      'document.querySelector(\'.sessions-link[aria-expanded="false"]\')?.click()'
     );
     await new Promise((resolve) => setTimeout(resolve, 500));
     const finalBounds = window.getBounds();
     const liveDesktop = await readDesktopAssertions(window);
-    if (!liveDesktop.labelsAbsent || !liveDesktop.hiddenLabelsAbsent
-      || liveDesktop.removedLabelMatches.length !== 0 || liveDesktop.contextChipCount !== 0
-      || !liveDesktop.visible.modelTrigger || !liveDesktop.visible.textarea || !liveDesktop.visible.send
-      || !liveDesktop.controlsNonOverlapping || liveDesktop.sidebarGap !== 0
-      || liveDesktop.rects.sidebar.left !== 0 || liveDesktop.rects.sidebar.top !== 41
-      || liveDesktop.rects.sidebar.width !== 260
-      || liveDesktop.viewport.height - liveDesktop.rects.sidebar.bottom !== 0
-      || liveDesktop.rects.main.left !== 260) {
+    if (
+      !liveDesktop.labelsAbsent ||
+      !liveDesktop.hiddenLabelsAbsent ||
+      liveDesktop.removedLabelMatches.length !== 0 ||
+      liveDesktop.contextChipCount !== 0 ||
+      !liveDesktop.visible.modelTrigger ||
+      !liveDesktop.visible.textarea ||
+      !liveDesktop.visible.send ||
+      !liveDesktop.controlsNonOverlapping ||
+      liveDesktop.sidebarGap !== 0 ||
+      liveDesktop.rects.sidebar.left !== 0 ||
+      liveDesktop.rects.sidebar.top !== 41 ||
+      liveDesktop.rects.sidebar.width !== 260 ||
+      liveDesktop.viewport.height - liveDesktop.rects.sidebar.bottom !== 0 ||
+      liveDesktop.rects.main.left !== 260
+    ) {
       throw new Error(`Desktop live assertions failed: ${JSON.stringify(liveDesktop)}`);
     }
     const liveAssertions: LiveCaptureAssertions = {
@@ -424,21 +489,21 @@ async function captureWindow(): Promise<void> {
       modalStack,
     };
     const captureMethod = 'webContents.capturePage';
-    const image: NativeImage = await withCaptureTimeout(
-      window.webContents.capturePage(),
-      'capturePage',
-    );
+    const image: NativeImage = await withCaptureTimeout(window.webContents.capturePage(), 'capturePage');
     const sourceSize = image.getSize();
     if (finalBounds.width !== targetSize.width || finalBounds.height !== targetSize.height) {
       throw new Error(`BrowserWindow bounds are ${finalBounds.width}x${finalBounds.height}, expected 1113x687.`);
     }
     if (sourceSize.width !== targetSize.width || sourceSize.height !== targetSize.height) {
-      throw new Error(`Desktop capture source is ${sourceSize.width}x${sourceSize.height}, expected 1113x687; refusing to resize evidence.`);
+      throw new Error(
+        `Desktop capture source is ${sourceSize.width}x${sourceSize.height}, expected 1113x687; refusing to resize evidence.`
+      );
     }
     // Dictation smoke (post-PNG so the evidence stays clean): drives the FULL
     // renderer chain — install prompt → fake setup → fake mic → MediaRecorder
     // → base64 → IPC → stubbed transcription → draft append.
-    const dictationSmoke = await withCaptureTimeout(window.webContents.executeJavaScript(`(async () => {
+    const dictationSmoke = (await withCaptureTimeout(
+      window.webContents.executeJavaScript(`(async () => {
       const mic = document.querySelector('.composer-mic');
       if (!(mic instanceof HTMLElement)) throw new Error('Missing capture element: .composer-mic');
       mic.click();
@@ -466,7 +531,10 @@ async function captureWindow(): Promise<void> {
         micIdle: !mic.className.includes('is-recording') && !mic.className.includes('is-transcribing'),
         notice: (document.querySelector('.composer-notice')?.textContent || '').trim(),
       };
-    })()`), 'Dictation smoke', 10_000) as {
+    })()`),
+      'Dictation smoke',
+      10_000
+    )) as {
       installPromptShown: boolean;
       transcriptApplied: boolean;
       micIdle: boolean;
@@ -491,13 +559,17 @@ async function captureWindow(): Promise<void> {
       '',
     ].join('\n');
     const baseSnapshot = host.getSnapshot();
-    await withCaptureTimeout(window.webContents.executeJavaScript(`(async () => {
+    await withCaptureTimeout(
+      window.webContents.executeJavaScript(`(async () => {
       const link = document.querySelector('button[aria-label="New task"]');
       if (!(link instanceof HTMLElement)) throw new Error('Missing capture element: .task-link');
       link.click();
       await new Promise((resolve) => setTimeout(resolve, 250));
       return true;
-    })()`), 'New-task activation', 8_000);
+    })()`),
+      'New-task activation',
+      8_000
+    );
     window.webContents.send(DESKTOP_IPC.state, {
       ...baseSnapshot,
       toasts: [],
@@ -534,13 +606,18 @@ async function captureWindow(): Promise<void> {
         },
         { id: 'sc-assistant', kind: 'assistant', text: 'Retry count fixed — rerunning the suite now.' },
         {
-          id: 'sc-shell-running', kind: 'tool', name: 'shell',
-          args: { command: 'npm test' }, startedAt: Date.now() - 12_000,
-          liveOutput: '> vitest run\n\u2713 retry configuration (3 tests)\n\u2713 boot sequence (5 tests)\nrunning suite: integration \u2026',
+          id: 'sc-shell-running',
+          kind: 'tool',
+          name: 'shell',
+          args: { command: 'npm test' },
+          startedAt: Date.now() - 12_000,
+          liveOutput:
+            '> vitest run\n\u2713 retry configuration (3 tests)\n\u2713 boot sequence (5 tests)\nrunning suite: integration \u2026',
         },
       ],
     });
-    const toolShowcase = await withCaptureTimeout(window.webContents.executeJavaScript(`(async () => {
+    const toolShowcase = (await withCaptureTimeout(
+      window.webContents.executeJavaScript(`(async () => {
       const started = Date.now();
       while (Date.now() - started < 5000) {
         const cardsReady = document.querySelectorAll('.tool-card').length >= 4;
@@ -565,7 +642,10 @@ async function captureWindow(): Promise<void> {
           '.tool-card .shell-output, .tool-card .diff-file, .tool-card .tool-content',
         ).length,
       };
-    })()`), 'Tool showcase render', 8_000) as {
+    })()`),
+      'Tool showcase render',
+      8_000
+    )) as {
       toolCards: number;
       collapsedCards: number;
       detailRows: number;
@@ -585,43 +665,47 @@ async function captureWindow(): Promise<void> {
     // Top frame first: the completed shell cards (success + failure) sit at
     // the transcript top and fall outside the bottom-anchored viewport.
     await window.webContents.executeJavaScript(
-      "(() => { const scroller = document.querySelector('.thread')?.parentElement; "
-      + 'if (scroller) scroller.scrollTop = 0; return true; })()',
+      "(() => { const scroller = document.querySelector('.thread')?.parentElement; " +
+        'if (scroller) scroller.scrollTop = 0; return true; })()'
     );
     await window.webContents.executeJavaScript(
-      'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))',
+      'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))'
     );
     await new Promise((resolve) => setTimeout(resolve, 250));
     const toolsTopImage: NativeImage = await withCaptureTimeout(
       window.webContents.capturePage(),
-      'toolShowcase top capturePage',
+      'toolShowcase top capturePage'
     );
     const toolsTopPng = toolsTopImage.toPNG();
     await window.webContents.executeJavaScript(
-      "(() => { const scroller = document.querySelector('.thread')?.parentElement; "
-      + 'if (scroller) scroller.scrollTop = scroller.scrollHeight; return true; })()',
+      "(() => { const scroller = document.querySelector('.thread')?.parentElement; " +
+        'if (scroller) scroller.scrollTop = scroller.scrollHeight; return true; })()'
     );
     await window.webContents.executeJavaScript(
-      'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))',
+      'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))'
     );
     await new Promise((resolve) => setTimeout(resolve, 150));
     const toolsImage: NativeImage = await withCaptureTimeout(
       window.webContents.capturePage(),
-      'toolShowcase capturePage',
+      'toolShowcase capturePage'
     );
     const toolsPng = toolsImage.toPNG();
     const toolShowcaseDimensions = toolsImage.getSize();
     // Restore the empty-session state so the trailing renderer validation
     // (inline errors, welcome view) still checks the shipped default screen.
     window.webContents.send(DESKTOP_IPC.state, { ...baseSnapshot, toasts: [], items: [] });
-    await withCaptureTimeout(window.webContents.executeJavaScript(`(async () => {
+    await withCaptureTimeout(
+      window.webContents.executeJavaScript(`(async () => {
       const started = Date.now();
       while (Date.now() - started < 5000) {
         if (document.querySelectorAll('.tool-card').length === 0) return true;
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
       throw new Error('Tool showcase did not restore the empty session.');
-    })()`), 'Tool showcase restore', 8_000);
+    })()`),
+      'Tool showcase restore',
+      8_000
+    );
     const outputSize = image.getSize();
     const nativeWindow = {
       resizable: window.isResizable(),
@@ -632,14 +716,14 @@ async function captureWindow(): Promise<void> {
       resizedBounds,
       finalBounds,
     };
-    const rendererState = await window.webContents.executeJavaScript(`(() => ({
+    const rendererState = (await window.webContents.executeJavaScript(`(() => ({
       bridgePresent: typeof window.mixdogDesktop === 'object'
         && typeof window.mixdogDesktop.getSnapshot === 'function',
       inlineErrors: Array.from(document.querySelectorAll('.inline-error, [role="alert"]'))
         .filter((node) => !node.closest('.mx-toast-region'))
         .map((node) => (node.textContent || '').trim())
         .filter(Boolean),
-    }))()`) as { bridgePresent: boolean; inlineErrors: string[] };
+    }))()`)) as { bridgePresent: boolean; inlineErrors: string[] };
     const rendererValidation = validateAndDestroyRenderer(window, rendererState, rendererConsoleErrors);
     const pixel = imageReader(image);
     const domSidebarGeometry = {
@@ -673,16 +757,20 @@ async function captureWindow(): Promise<void> {
         rightGap: pixel(domSidebarGeometry.mainLeft, 600),
       },
     };
-    if (imageMeasuredSidebar.left !== domSidebarGeometry.left
-      || imageMeasuredSidebar.right !== domSidebarGeometry.right - 1
-      || imageMeasuredSidebar.width !== domSidebarGeometry.width
-      || imageMeasuredSidebar.rightGap.left !== domSidebarGeometry.right
-      || imageMeasuredSidebar.rightGap.right !== domSidebarGeometry.mainLeft - 1
-      || imageMeasuredSidebar.rightGap.width !== domSidebarGeometry.gap) {
-      throw new Error(`Desktop DOM/pixel geometry mismatch: ${JSON.stringify({
-        domSidebarGeometry,
-        imageMeasuredSidebar,
-      })}`);
+    if (
+      imageMeasuredSidebar.left !== domSidebarGeometry.left ||
+      imageMeasuredSidebar.right !== domSidebarGeometry.right - 1 ||
+      imageMeasuredSidebar.width !== domSidebarGeometry.width ||
+      imageMeasuredSidebar.rightGap.left !== domSidebarGeometry.right ||
+      imageMeasuredSidebar.rightGap.right !== domSidebarGeometry.mainLeft - 1 ||
+      imageMeasuredSidebar.rightGap.width !== domSidebarGeometry.gap
+    ) {
+      throw new Error(
+        `Desktop DOM/pixel geometry mismatch: ${JSON.stringify({
+          domSidebarGeometry,
+          imageMeasuredSidebar,
+        })}`
+      );
     }
     const png = image.toPNG();
     const metadata = {
@@ -739,10 +827,7 @@ async function captureWindow(): Promise<void> {
       // Engine teardown can hang for 30s+ (session dispose). The capture
       // artifacts/error are already decided at this point — never let dispose
       // block the exit path past a short grace.
-      await Promise.race([
-        host.dispose(),
-        new Promise((resolve) => setTimeout(resolve, 5_000)),
-      ]);
+      await Promise.race([host.dispose(), new Promise((resolve) => setTimeout(resolve, 5_000))]);
     }
   }
 }
@@ -765,5 +850,5 @@ void captureWindow().then(
     // app.exit can stall behind lingering engine/GPU teardown; guarantee the
     // process dies so the calling harness never waits out its full timeout.
     setTimeout(() => process.exit(1), 1_500);
-  },
+  }
 );

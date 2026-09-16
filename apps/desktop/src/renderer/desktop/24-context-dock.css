@@ -1,14 +1,17 @@
 /* Desktop layer 24 — Context surface and utility dock chrome.
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
-.context-surface-view { min-width: 0; }
+.context-surface-view {
+  min-width: 0;
+}
 .context-card {
   min-width: 0;
   display: grid;
   overflow: hidden;
   border-radius: var(--mx-radius-xl);
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
+  box-shadow:
+    inset 0 0 0 0.5px var(--mx-border-muted),
     0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 45%, transparent);
 }
 .context-usage-overview,
@@ -17,10 +20,12 @@
   gap: 12px;
   min-width: 0;
 }
-.context-usage-overview { padding: 22px 22px 20px; }
+.context-usage-overview {
+  padding: 22px 22px 20px;
+}
 .context-mix {
   padding: 18px 20px 20px;
-  border-top: .5px solid var(--mx-border-muted);
+  border-top: 0.5px solid var(--mx-border-muted);
 }
 /* The caption between the two sections owned no rule, so it ran to the card
    edge while the sections stayed on their 22px column (user: 설명문 패딩만
@@ -55,7 +60,12 @@
   border-radius: var(--mx-radius-pill);
   background: var(--mx-hover);
 }
-.context-main-bar span { height: 100%; display: block; border-radius: inherit; background: var(--mx-text-accent); }
+.context-main-bar span {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: var(--mx-text-accent);
+}
 .context-runtime-lines > div {
   min-width: 0;
   display: grid;
@@ -63,11 +73,20 @@
   gap: 12px;
 }
 .context-runtime-lines span,
-.context-mix-row > span { color: var(--mx-text-muted); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); }
+.context-mix-row > span {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-minor);
+}
 /* Section heading matches the settings group-heading tier (user: unify the
    type scale — 12px/400 read as a third, weaker grammar). */
-.context-surface-view h3 { color: var(--mx-text); font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-body); }
-
+.context-surface-view h3 {
+  color: var(--mx-text);
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-body);
+}
 
 .context-runtime-lines strong {
   min-width: 0;
@@ -77,7 +96,9 @@
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-minor);
 }
-.context-surface-view h3 { margin: 0; }
+.context-surface-view h3 {
+  margin: 0;
+}
 /* Cursor-style composition: one stacked bar + color-chip legend. */
 .context-stack-bar {
   display: flex;
@@ -87,7 +108,11 @@
   border-radius: var(--mx-radius-pill);
   background: var(--mx-hover);
 }
-.context-stack-bar b { height: 100%; min-width: 2px; background: var(--ctx-color, var(--mx-text-accent)); }
+.context-stack-bar b {
+  height: 100%;
+  min-width: 2px;
+  background: var(--ctx-color, var(--mx-text-accent));
+}
 .context-mix-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -102,7 +127,7 @@
   padding: 6px 10px;
   border-radius: var(--mx-radius-md);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
 .context-mix-row i {
   width: 10px;
@@ -119,18 +144,42 @@
   font-variant-numeric: tabular-nums;
 }
 /* Category palette (muted mid-tones that hold up on both themes). */
-.context-mix [data-context-key="messages"] { --ctx-color: #a091d6; }
-.context-mix [data-context-key="tools"] { --ctx-color: #7fae7f; }
-.context-mix [data-context-key="mcp"] { --ctx-color: #c493b8; }
-.context-mix [data-context-key="agents"] { --ctx-color: #b58bc3; }
-.context-mix [data-context-key="skills"] { --ctx-color: #cfa963; }
-.context-mix [data-context-key="memory"] { --ctx-color: #74a6bd; }
-.context-mix [data-context-key="system"] { --ctx-color: #8f8a81; }
-.context-mix [data-context-key="free"] { --ctx-color: #6f777d; }
-.context-mix [data-context-key="autocompact"] { --ctx-color: #7a756c; }
+.context-mix [data-context-key="messages"] {
+  --ctx-color: #a091d6;
+}
+.context-mix [data-context-key="tools"] {
+  --ctx-color: #7fae7f;
+}
+.context-mix [data-context-key="mcp"] {
+  --ctx-color: #c493b8;
+}
+.context-mix [data-context-key="agents"] {
+  --ctx-color: #b58bc3;
+}
+.context-mix [data-context-key="skills"] {
+  --ctx-color: #cfa963;
+}
+.context-mix [data-context-key="memory"] {
+  --ctx-color: #74a6bd;
+}
+.context-mix [data-context-key="system"] {
+  --ctx-color: #8f8a81;
+}
+.context-mix [data-context-key="free"] {
+  --ctx-color: #6f777d;
+}
+.context-mix [data-context-key="autocompact"] {
+  --ctx-color: #7a756c;
+}
 @media (max-width: 640px) {
-  .context-mix-grid { grid-template-columns: 1fr; }
-  .context-usage-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .context-mix-grid {
+    grid-template-columns: 1fr;
+  }
+  .context-usage-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
 }
 
 /* Round-2 polish: review bar, queue remove, popover, compact action. */
@@ -198,25 +247,112 @@
   border-bottom: 1px solid var(--mx-border-muted);
   background: var(--mx-window-band);
 }
-.dock-project-select { min-width: 0; width: 100%; }
-.dock-project-select .mx-select-trigger { width: 100%; height: 28px; max-width: none; justify-content: flex-start; align-items: center; padding: 0 7px; border: 0; border-radius: var(--mx-radius-md); color: var(--mx-text); background: transparent; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); }
-.dock-project-select .mx-select-trigger:hover { color: var(--mx-text); background: var(--mx-hover); }
-.dock-project-select .mx-select-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: var(--mx-line-minor); }
-.dock-git-context-row { height: 32px; flex-basis: 32px; gap: 6px; padding: 2px 12px; border-bottom: 0; }
+.dock-project-select {
+  min-width: 0;
+  width: 100%;
+}
+.dock-project-select .mx-select-trigger {
+  width: 100%;
+  height: 28px;
+  max-width: none;
+  justify-content: flex-start;
+  align-items: center;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-minor);
+}
+.dock-project-select .mx-select-trigger:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.dock-project-select .mx-select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: var(--mx-line-minor);
+}
+.dock-git-context-row {
+  height: 32px;
+  flex-basis: 32px;
+  gap: 6px;
+  padding: 2px 12px;
+  border-bottom: 0;
+}
 /* Pull Requests context row: SCM toolbar grammar with a REAL branch
    switcher in the branch slot (user: 저기서도 브랜치 바꿀 수 있어야) — the
    select borrows the project trigger's quiet chrome, the ⑂ glyph leads. */
-.dock-pr-branch-section { gap: 0; }
-.dock-pr-branch-glyph { flex: 0 0 auto; margin-left: 7px; color: var(--mx-text-muted); }
-.dock-pr-branch-select { min-width: 0; flex: 1 1 auto; }
-.dock-pr-branch-select .mx-select-trigger { width: 100% !important; height: 28px; padding: 0 7px 0 5px; border: 0 !important; border-radius: var(--mx-radius-md); outline: 0; background: transparent !important; box-shadow: none !important; }
-.dock-pr-branch-select .mx-select-trigger:hover { background: var(--mx-hover) !important; }
-.dock-git-context-row .dock-project-select { width: auto; max-width: 62%; flex: 0 1 auto; }
-.dock-git-context-row .dock-project-select .mx-select-trigger { width: auto !important; max-width: 100%; height: 28px; padding: 0 7px; border: 0 !important; border-radius: var(--mx-radius-md); outline: 0; background: transparent !important; box-shadow: none !important; }
-.dock-git-context-row .dock-project-select .mx-select-trigger:hover { background: var(--mx-hover) !important; }
-.dock-git-branch-context { min-width: 0; max-width: 38%; margin-left: auto; display: flex; align-items: center; gap: 4px; padding: 0 5px; overflow: hidden; color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: 26px; }
-.dock-git-branch-context > svg { flex: 0 0 auto; }
-.dock-git-branch-context > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-pr-branch-section {
+  gap: 0;
+}
+.dock-pr-branch-glyph {
+  flex: 0 0 auto;
+  margin-left: 7px;
+  color: var(--mx-text-muted);
+}
+.dock-pr-branch-select {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.dock-pr-branch-select .mx-select-trigger {
+  width: 100% !important;
+  height: 28px;
+  padding: 0 7px 0 5px;
+  border: 0 !important;
+  border-radius: var(--mx-radius-md);
+  outline: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.dock-pr-branch-select .mx-select-trigger:hover {
+  background: var(--mx-hover) !important;
+}
+.dock-git-context-row .dock-project-select {
+  width: auto;
+  max-width: 62%;
+  flex: 0 1 auto;
+}
+.dock-git-context-row .dock-project-select .mx-select-trigger {
+  width: auto !important;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 7px;
+  border: 0 !important;
+  border-radius: var(--mx-radius-md);
+  outline: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.dock-git-context-row .dock-project-select .mx-select-trigger:hover {
+  background: var(--mx-hover) !important;
+}
+.dock-git-branch-context {
+  min-width: 0;
+  max-width: 38%;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 5px;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: 26px;
+}
+.dock-git-branch-context > svg {
+  flex: 0 0 auto;
+}
+.dock-git-branch-context > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .utility-dock-body {
   position: relative;
   min-width: 0;
@@ -228,7 +364,9 @@
 }
 /* Retained view layers: only the active one participates in layout, and it
    is transparent to it so the pane box below fills the body directly. */
-.utility-dock-view-section[data-active="false"] { display: none; }
+.utility-dock-view-section[data-active="false"] {
+  display: none;
+}
 .utility-dock-view-section[data-active="true"],
 .utility-dock-view-section[data-active="true"] > .utility-dock-view-section-body {
   display: contents;
@@ -273,18 +411,31 @@
 /* pointer-events must gate with opacity: an invisible pane stacked above the
    active tab otherwise swallows every click and keeps the commit box
    untypeable (user: 입력이 안 써지네). */
-.utility-dock-pane[data-surface-active="false"] { opacity: 0; pointer-events: none; }
-.utility-dock-pane[data-surface-active="true"] { opacity: 1; pointer-events: auto; }
+.utility-dock-pane[data-surface-active="false"] {
+  opacity: 0;
+  pointer-events: none;
+}
+.utility-dock-pane[data-surface-active="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
 /* Nothing inside a pane may impose a width: flex items default to
    min-width:auto, which lets one long unbreakable name inflate the column. */
-.utility-dock-pane > * { min-width: 0; }
+.utility-dock-pane > * {
+  min-width: 0;
+}
 /* Panel-specific headers and their bodies stay in one stable layer, so a tab
    commit can never pair a Search toolbar with Source Control content. */
 .utility-dock-pane[data-tab="agents"],
 .utility-dock-pane[data-tab="search"],
 .utility-dock-pane[data-tab="source-control"],
-.utility-dock-pane[data-tab="pull-requests"] { overflow: hidden; padding: 0; }
-.dock-change { border-bottom: .5px solid var(--mx-border-muted); }
+.utility-dock-pane[data-tab="pull-requests"] {
+  overflow: hidden;
+  padding: 0;
+}
+.dock-change {
+  border-bottom: 0.5px solid var(--mx-border-muted);
+}
 .dock-change summary {
   min-height: 32px;
   display: flex;
@@ -297,8 +448,13 @@
   list-style: none;
   color: var(--mx-text);
 }
-.dock-change summary::-webkit-details-marker { display: none; }
-.dock-change summary svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
+.dock-change summary::-webkit-details-marker {
+  display: none;
+}
+.dock-change summary svg {
+  flex: 0 0 auto;
+  color: var(--mx-icon-muted);
+}
 .dock-change summary b {
   min-width: 0;
   overflow: hidden;
@@ -308,9 +464,19 @@
   direction: rtl;
   text-align: left;
 }
-.dock-change summary .diff-stats { margin-left: auto; }
-.dock-change[open] { padding-bottom: 10px; }
+.dock-change summary .diff-stats {
+  margin-left: auto;
+}
+.dock-change[open] {
+  padding-bottom: 10px;
+}
 /* Tasks tab: status dot, type+detail, right
    elapsed/status. */
-.dock-task-list { min-height: 0; flex: 1; display: grid; align-content: start; overflow: auto; padding: 4px 8px 8px; }
-
+.dock-task-list {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  align-content: start;
+  overflow: auto;
+  padding: 4px 8px 8px;
+}

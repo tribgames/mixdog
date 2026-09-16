@@ -1,15 +1,15 @@
 // One loader for the service worker under test. public/sw.js is a standalone
 // script that cannot be imported, so every worker test evaluates the REAL
 // source in a VM holding the globals a worker would have.
-import { readFileSync } from "node:fs";
-import vm from "node:vm";
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 
-const source = readFileSync(new URL("./public/sw.js", import.meta.url), "utf8");
+const source = readFileSync(new URL('./public/sw.js', import.meta.url), 'utf8');
 
-export const WORKER_ORIGIN = "https://relay.mixdog.test";
+export const WORKER_ORIGIN = 'https://relay.mixdog.test';
 
 function cacheKeyUrl(request) {
-  const raw = typeof request === "string" ? request : request.url;
+  const raw = typeof request === 'string' ? request : request.url;
   return new URL(raw, WORKER_ORIGIN).toString();
 }
 
@@ -67,10 +67,10 @@ export function loadWorker({
   /** Open app windows the worker may post to. */
   windows = [],
   /** What this device's browser reports when the app has published nothing. */
-  systemLanguage = "en",
+  systemLanguage = 'en',
   fetchAsset = async () => {
-    const response = new Response("asset");
-    Object.defineProperty(response, "type", { value: "basic" });
+    const response = new Response('asset');
+    Object.defineProperty(response, 'type', { value: 'basic' });
     return response;
   },
 } = {}) {
@@ -104,31 +104,34 @@ export function loadWorker({
         claim: async () => undefined,
         matchAll: async () => windows,
         get: async (id) => windows.find((client) => client.id === id),
-        openWindow: async (url) => { opened.push(url); },
+        openWindow: async (url) => {
+          opened.push(url);
+        },
       },
       location: { origin },
       navigator: { language: systemLanguage },
       registration: {
-        showNotification: async (title, options) => { shown.push({ title, options }); },
+        showNotification: async (title, options) => {
+          shown.push({ title, options });
+        },
       },
       skipWaiting() {},
     },
   };
   context.globalThis = context;
   vm.createContext(context);
-  context.importScripts = (path) => vm.runInContext(
-    readFileSync(new URL(`./public${path}`, import.meta.url), "utf8"), context,
-  );
+  context.importScripts = (path) =>
+    vm.runInContext(readFileSync(new URL(`./public${path}`, import.meta.url), 'utf8'), context);
   vm.runInContext(
-    `${source}\n;globalThis.__swTest = {`
-    + " cacheFirst, pruneSharedPayloads, receiveSharedPayload, scheduleAssetCacheTrim,"
-    + " shellFirst, storableCopy, SHELL_UPDATE_MESSAGE,"
-    + " appScopePath, notificationLanguage, uiLanguageForLocale,"
-    + " APP_STATE_CACHE, APP_SCOPE_ENTRY, NOTIFICATION_CLICK_ENTRY,"
-    + " NOTIFICATION_CLICK_TTL_MS, OPEN_SESSION_MESSAGE, UI_LANGUAGE_ENTRY,"
-    + " SHARE_CACHE, SHARE_ENTRY_PREFIX, SHARE_ENTRY_TTL_MS, SHARE_INDEX_NAME,"
-    + " SHARE_TARGET_PATH };",
-    context,
+    `${source}\n;globalThis.__swTest = {` +
+      ' cacheFirst, pruneSharedPayloads, receiveSharedPayload, scheduleAssetCacheTrim,' +
+      ' shellFirst, storableCopy, SHELL_UPDATE_MESSAGE,' +
+      ' appScopePath, notificationLanguage, uiLanguageForLocale,' +
+      ' APP_STATE_CACHE, APP_SCOPE_ENTRY, NOTIFICATION_CLICK_ENTRY,' +
+      ' NOTIFICATION_CLICK_TTL_MS, OPEN_SESSION_MESSAGE, UI_LANGUAGE_ENTRY,' +
+      ' SHARE_CACHE, SHARE_ENTRY_PREFIX, SHARE_ENTRY_TTL_MS, SHARE_INDEX_NAME,' +
+      ' SHARE_TARGET_PATH };',
+    context
   );
   return { ...context.__swTest, listeners, opened, shown };
 }

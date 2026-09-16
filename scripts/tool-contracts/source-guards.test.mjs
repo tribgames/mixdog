@@ -18,7 +18,9 @@ test('tool loop sources carry no behavior-steering injected instructions', () =>
     'src/runtime/agent/orchestrator/session/eager-dispatch.mjs',
     'src/runtime/agent/orchestrator/session/loop/stored-tool-args.mjs',
     'src/runtime/agent/orchestrator/tools/patch/orchestrator.mjs',
-  ].map((file) => readFileSync(join(root, file), 'utf8')).join('\n');
+  ]
+    .map((file) => readFileSync(join(root, file), 'utf8'))
+    .join('\n');
   for (const banned of [
     're-read those files and write a fresh patch',
     'Re-run the fixed action (or a verifying tool)',
@@ -35,14 +37,22 @@ test('bench runners refuse to save incomplete rounds', () => {
   if (!/task_complete:\s*results\.length > 0 && completed === results\.length/.test(benchRunSrc)) {
     throw new Error('bench-run must require every task to complete before saving a round');
   }
-  if (!/score_complete:\s*results\.length > 0 && taskErrors\.length === 0 && scoreErrors\.length === 0 && \(score\?\.cards\?\.length \|\| 0\) === results\.length/.test(benchRunSrc)) {
+  if (
+    !/score_complete:\s*results\.length\s*>\s*0\s*&&\s*taskErrors\.length\s*===\s*0\s*&&\s*scoreErrors\.length\s*===\s*0\s*&&\s*\(score\?\.cards\?\.length\s*\|\|\s*0\)\s*===\s*results\.length/.test(
+      benchRunSrc
+    )
+  ) {
     throw new Error('bench-run must require a scorecard for every task before saving a round');
   }
   if (!/not saving incomplete round/.test(benchRunSrc) || !/process\.exit\(1\)/.test(benchRunSrc)) {
     throw new Error('bench-run must not save incomplete rounds and must exit non-zero');
   }
   const taskBenchSrc = readFileSync(resolve(root, 'scripts/task-bench.mjs'), 'utf8');
-  if (!/const allowPartial = hasFlag\('--allow-partial'\)/.test(taskBenchSrc) || !/skipped\.length && !allowPartial/.test(taskBenchSrc) || !/process\.exit\(1\)/.test(taskBenchSrc)) {
+  if (
+    !/const allowPartial = hasFlag\('--allow-partial'\)/.test(taskBenchSrc) ||
+    !/skipped\.length && !allowPartial/.test(taskBenchSrc) ||
+    !/process\.exit\(1\)/.test(taskBenchSrc)
+  ) {
     throw new Error('task-bench must fail partial scoring unless --allow-partial is explicit');
   }
 });
@@ -63,43 +73,66 @@ test('setRoute stays next-session-only and refreshes cache fields on live-apply'
       .map((f) => readFileSync(resolve(abs, String(f)), 'utf8'))
       .join('\n');
   };
-  const runtimeSrc = [readMjsSources('src/mixdog-session-runtime.mjs'), readMjsSources('src/session-runtime')].join('\n');
-  const setRouteBlock = runtimeSrc.match(/async setRoute\(next, options = \{\}\) \{[\s\S]*?\n    \},\n/)?.[0] || '';
+  const runtimeSrc = [readMjsSources('src/mixdog-session-runtime.mjs'), readMjsSources('src/session-runtime')].join(
+    '\n'
+  );
+  const setRouteBlock = runtimeSrc.match(/async setRoute\(next, options = \{\}\) \{[\s\S]*?\n {4}\},\n/)?.[0] || '';
   if (!/applyToCurrentSession = options\?\.applyToCurrentSession === true/.test(setRouteBlock)) {
-    throw new Error('setRoute must default applyToCurrentSession to false (model changes apply to the next session only)');
+    throw new Error(
+      'setRoute must default applyToCurrentSession to false (model changes apply to the next session only)'
+    );
   }
   // A live session that already owns route history is never rewritten in
   // place, whatever applyToCurrentSession says: only effort/Fast tuning may
   // reach it, from its next turn.
-  if (!/const currentSessionEmpty = !!session && !sessionHasRouteHistory\(session\)/.test(setRouteBlock)
-    || !/if \(!currentSessionEmpty\) \{/.test(setRouteBlock)
-    || !/return getRoute\(\);/.test(setRouteBlock)) {
-    throw new Error('setRoute must early-return before touching a live session that owns route history (model changes apply to the next session only)');
+  if (
+    !/const currentSessionEmpty = !!session && !sessionHasRouteHistory\(session\)/.test(setRouteBlock) ||
+    !/if \(!currentSessionEmpty\) \{/.test(setRouteBlock) ||
+    !/return getRoute\(\);/.test(setRouteBlock)
+  ) {
+    throw new Error(
+      'setRoute must early-return before touching a live session that owns route history (model changes apply to the next session only)'
+    );
   }
   // Empty current session must apply live so /model before the first chat
   // updates route + statusline at once, but compact summary anchors are route
   // history and must keep a compacted session next-session-only. Seeded system
   // or synthetic assistant/tool rows alone must NOT make the session non-empty.
-  if (!/hasRouteHistoryMessage\(session\?\.messages\)/.test(runtimeSrc)
-    || !/hasRouteHistoryMessage\(session\?\.liveTurnMessages\)/.test(runtimeSrc)
-    || !/SUMMARY_PREFIX/.test(runtimeSrc)
-    || !/hasUserConversationMessage\(list\) \|\| list\.some\(/.test(runtimeSrc)
-    || !/startsWith\(SUMMARY_PREFIX\)/.test(runtimeSrc)
-    || !/function hasRouteHistoryMessage/.test(runtimeSrc)) {
-    throw new Error('setRoute must apply live only to route-empty sessions and must treat compact summary anchors as non-empty route history');
+  if (
+    !/hasRouteHistoryMessage\(session\?\.messages\)/.test(runtimeSrc) ||
+    !/hasRouteHistoryMessage\(session\?\.liveTurnMessages\)/.test(runtimeSrc) ||
+    !/SUMMARY_PREFIX/.test(runtimeSrc) ||
+    !/hasUserConversationMessage\(list\)\s+\|\|\s+list\.some\(\s*/.test(runtimeSrc) ||
+    !/startsWith\(SUMMARY_PREFIX\)/.test(runtimeSrc) ||
+    !/function hasRouteHistoryMessage/.test(runtimeSrc)
+  ) {
+    throw new Error(
+      'setRoute must apply live only to route-empty sessions and must treat compact summary anchors as non-empty route history'
+    );
   }
-  if (!/createCurrentSession\('model-switch-empty'\)/.test(setRouteBlock)
-    || !/createCurrentSession\('model-switch-empty-drain'\)/.test(setRouteBlock)
-    || !/const emptySession = getSession\(\)/.test(setRouteBlock)
-    || !/cli-model-switch-empty/.test(setRouteBlock)
-    || !/invalidatePreSessionToolSurface\?\.\(\)/.test(setRouteBlock)) {
-    throw new Error('setRoute must drain in-flight create then recreate empty live sessions so the provider-specific tool surface is rebuilt for /model before first chat');
+  if (
+    !/createCurrentSession\('model-switch-empty'\)/.test(setRouteBlock) ||
+    !/createCurrentSession\('model-switch-empty-drain'\)/.test(setRouteBlock) ||
+    !/const emptySession = getSession\(\)/.test(setRouteBlock) ||
+    !/cli-model-switch-empty/.test(setRouteBlock) ||
+    !/invalidatePreSessionToolSurface\?\.\(\)/.test(setRouteBlock)
+  ) {
+    throw new Error(
+      'setRoute must drain in-flight create then recreate empty live sessions so the provider-specific tool surface is rebuilt for /model before first chat'
+    );
   }
   const sessionLifecycleSrc = readMjsSources('src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs');
-  const updateSessionRouteBlock = sessionLifecycleSrc.match(/export function updateSessionRoute\(id, route = \{\}\) \{[\s\S]*?\n\}/)?.[0] || '';
-  if (!/session\.promptCacheKey = providerCacheKey\(session\.provider\)/.test(updateSessionRouteBlock)
-    || !/session\.providerCacheOpts = buildSessionProviderCacheOpts\(session\.provider, session\.id, session\.agent\) \|\| null/.test(updateSessionRouteBlock)) {
-    throw new Error('updateSessionRoute must refresh provider-scoped prompt cache fields when an empty live session changes provider/model');
+  const updateSessionRouteBlock =
+    sessionLifecycleSrc.match(/export function updateSessionRoute\(id, route = \{\}\) \{[\s\S]*?\n\}/)?.[0] || '';
+  if (
+    !/session\.promptCacheKey = providerCacheKey\(session\.provider\)/.test(updateSessionRouteBlock) ||
+    !/session\.providerCacheOpts = buildSessionProviderCacheOpts\(session\.provider, session\.id, session\.agent\) \|\| null/.test(
+      updateSessionRouteBlock
+    )
+  ) {
+    throw new Error(
+      'updateSessionRoute must refresh provider-scoped prompt cache fields when an empty live session changes provider/model'
+    );
   }
   const sessionSrc = [
     readMjsSources('src/tui/session.mjs'),
@@ -107,7 +140,9 @@ test('setRoute stays next-session-only and refreshes cache fields on live-apply'
     readMjsSources('src/tui/session'),
   ].join('\n');
   if (/setRoute\(\{ model: m \}, \{ applyToCurrentSession: true \}\)/.test(sessionSrc)) {
-    throw new Error('TUI setModel must not force applyToCurrentSession:true (model changes must apply to the next session only)');
+    throw new Error(
+      'TUI setModel must not force applyToCurrentSession:true (model changes must apply to the next session only)'
+    );
   }
   if (!/routeOpts\.applyToCurrentSession === true/.test(sessionSrc)) {
     throw new Error('TUI setRoute wrapper must default applyToCurrentSession to false');

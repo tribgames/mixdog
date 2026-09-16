@@ -16,10 +16,13 @@ process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 test('design tokens replace unsafe typefaces and keep palettes readable', () => {
   const typography = normalizeTypographyTokens(
     { display: 'Aptos Display', body: 'Segoe UI', data: 'Courier New' },
-    { display: 'Cambria', body: 'Calibri', data: 'Arial' },
+    { display: 'Cambria', body: 'Calibri', data: 'Arial' }
   );
   assert.deepEqual(typography.typography, { display: 'Cambria', body: 'Calibri', data: 'Courier New' });
-  assert.deepEqual(typography.replaced.map((entry) => entry.requested), ['Aptos Display', 'Segoe UI']);
+  assert.deepEqual(
+    typography.replaced.map((entry) => entry.requested),
+    ['Aptos Display', 'Segoe UI']
+  );
   assert.equal(isSafeFontFamily('Consolas'), false);
   assert.equal(isSafeFontFamily('맑은 고딕'), true);
   assert.equal(isSafeFontFamily('Noto Sans KR'), true);
@@ -53,21 +56,37 @@ test('design tokens replace unsafe typefaces and keep palettes readable', () => 
     assert.ok(contrastRatio(palette.colors[role], 'FFFFFF') >= 3, `${role} mark on the canvas`);
   }
   const accents = saturatedHueFamilies([palette.colors.accent, palette.colors.accent2]).length;
-  const withStates = saturatedHueFamilies([palette.colors.accent, palette.colors.accent2,
-    ...['positive', 'warning', 'critical', 'informative'].flatMap((role) => [palette.colors[`${role}Text`], palette.colors[`${role}Weak`]])]).length;
+  const withStates = saturatedHueFamilies([
+    palette.colors.accent,
+    palette.colors.accent2,
+    ...['positive', 'warning', 'critical', 'informative'].flatMap((role) => [
+      palette.colors[`${role}Text`],
+      palette.colors[`${role}Weak`],
+    ]),
+  ]).length;
   assert.equal(withStates, accents, 'state words and fields stay under the saturated band');
-  assert.equal(normalizePaletteTokens({ canvas: 'FFFFFF', ink: '111111', critical: 'B00020' }).colors.critical, 'B00020', 'a pack-set state color is kept');
+  assert.equal(
+    normalizePaletteTokens({ canvas: 'FFFFFF', ink: '111111', critical: 'B00020' }).colors.critical,
+    'B00020',
+    'a pack-set state color is kept'
+  );
 
   // onAccent carries 10pt table values in the composers, so it clears the
   // readable minimum. A mid-toned accent cannot be answered by lightening
   // white any further: the repair has to reach for dark ink instead.
   for (const accent of ['73A527', '27A56A', 'D89224', '1F7A55']) {
     const repaired = normalizePaletteTokens({
-      canvas: 'F8F9F6', ink: '17221C', muted: '66716B', accent, inverse: '132C24', onAccent: 'FFFFFF', onInverse: 'FFFFFF',
+      canvas: 'F8F9F6',
+      ink: '17221C',
+      muted: '66716B',
+      accent,
+      inverse: '132C24',
+      onAccent: 'FFFFFF',
+      onInverse: 'FFFFFF',
     }).colors;
     assert.ok(
       contrastRatio(repaired.onAccent, repaired.accent) >= 4.5,
-      `${repaired.onAccent} on ${accent} measured ${contrastRatio(repaired.onAccent, repaired.accent)}`,
+      `${repaired.onAccent} on ${accent} measured ${contrastRatio(repaired.onAccent, repaired.accent)}`
     );
   }
 
@@ -89,8 +108,8 @@ test('deck review blocks mixed typefaces, unsafe fonts, and rainbow accents from
     shapes: shapes.map((shape, shapeIndex) => ({
       index: shapeIndex + 1,
       type: 'p:sp',
-      left: 40 + (shapeIndex * 20),
-      top: 40 + (shapeIndex * 60),
+      left: 40 + shapeIndex * 20,
+      top: 40 + shapeIndex * 60,
       width: 300,
       height: 40,
       font: { size: 18 },

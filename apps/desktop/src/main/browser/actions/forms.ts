@@ -11,7 +11,7 @@ import { type BrowserActionContext, defineBrowserActions } from './types';
  *  reply with the settled snapshot plus any recovery notes. */
 async function afterEdit(
   { guest, signal, refRecovery, actionSnapshot, services }: BrowserActionContext,
-  submit: boolean,
+  submit: boolean
 ) {
   signal?.throwIfAborted();
   services.state.invalidateInteraction(guest);
@@ -31,9 +31,11 @@ export const formActions = defineBrowserActions({
       const filled = await services.credentials.fillStored(guest, command.savedAccount, signal);
       signal?.throwIfAborted();
       if (!filled.passwordFilled) {
-        throw new Error(filled.reason === 'no-password-field'
-          ? 'no visible password field on this page; open the sign-in form (or its password step) first'
-          : 'the password field did not accept the stored login');
+        throw new Error(
+          filled.reason === 'no-password-field'
+            ? 'no visible password field on this page; open the sign-in form (or its password step) first'
+            : 'the password field did not accept the stored login'
+        );
       }
       return afterEdit(context, Boolean(command.submit));
     }
@@ -46,10 +48,15 @@ export const formActions = defineBrowserActions({
       const hasText = typeof command.text === 'string';
       const hasChecked = typeof command.checked === 'boolean';
       if (hasText === hasChecked) throw new Error('fill requires text or checked');
-      await mutateRef(context, ref, async (recovered) => {
-        if (hasChecked) await refActions.setCheckedRef(guest, recovered, command.checked as boolean, signal);
-        else await refActions.fillRef(guest, recovered, command.text as string, signal);
-      }, hasText);
+      await mutateRef(
+        context,
+        ref,
+        async (recovered) => {
+          if (hasChecked) await refActions.setCheckedRef(guest, recovered, command.checked as boolean, signal);
+          else await refActions.fillRef(guest, recovered, command.text as string, signal);
+        },
+        hasText
+      );
       return afterEdit(context, Boolean(command.submit));
     }
     if (fields.length > 30) throw new Error('fill requires at most 30 fields');
@@ -65,7 +72,7 @@ export const formActions = defineBrowserActions({
       const resolved = await services.targets.resolveTargetRefs(
         guest,
         fields.map((field) => field.target),
-        signal,
+        signal
       );
       adoptResolvedTargets(context, resolved);
       fieldRefs = resolved.map((entry) => entry.ref);
@@ -76,9 +83,10 @@ export const formActions = defineBrowserActions({
         const fieldRef = fieldRefs[index];
         const hasText = typeof field?.text === 'string';
         const hasValue = typeof field?.value === 'string';
-        const hasValues = Array.isArray(field?.values)
-          && field.values.length > 0
-          && field.values.every((value) => typeof value === 'string');
+        const hasValues =
+          Array.isArray(field?.values) &&
+          field.values.length > 0 &&
+          field.values.every((value) => typeof value === 'string');
         const hasChecked = typeof field?.checked === 'boolean';
         const payloadCount = Number(hasText || hasValue) + Number(hasValues) + Number(hasChecked);
         if (!fieldRef || payloadCount !== 1 || (hasText && hasValue)) {
@@ -108,7 +116,7 @@ export const formActions = defineBrowserActions({
       context,
       ref,
       (recovered) => services.refActions.typeRef(guest, recovered, command.text as string, signal),
-      true,
+      true
     );
     return afterEdit(context, Boolean(command.submit));
   },
@@ -127,19 +135,18 @@ export const formActions = defineBrowserActions({
         refRecovery,
         ref,
         (recovered) => refActions.listSelectOptions(guest, recovered, signal),
-        signal,
+        signal
       );
-      return reply.decorateRecovery({
-        text: options.length
-          ? `Options for ${ref} (${options.length}):\n${options.map((option) => `- ${redactBrowserText(option)}`).join('\n')}`
-          : `${ref} has no options.`,
-      }, refRecovery);
+      return reply.decorateRecovery(
+        {
+          text: options.length
+            ? `Options for ${ref} (${options.length}):\n${options.map((option) => `- ${redactBrowserText(option)}`).join('\n')}`
+            : `${ref} has no options.`,
+        },
+        refRecovery
+      );
     }
-    await mutateRef(
-      context,
-      ref,
-      (recovered) => refActions.selectRef(guest, recovered, values, signal),
-    );
+    await mutateRef(context, ref, (recovered) => refActions.selectRef(guest, recovered, values, signal));
     return afterEdit(context, false);
   },
 
@@ -153,7 +160,7 @@ export const formActions = defineBrowserActions({
       guest,
       ref,
       Array.isArray(command.paths) ? command.paths.map(String) : [],
-      signal,
+      signal
     );
     services.state.invalidateInteraction(guest);
     return actionSnapshot();

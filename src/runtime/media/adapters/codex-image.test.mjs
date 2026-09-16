@@ -13,11 +13,13 @@ for (const model of ['gpt-5.6-sol', 'gpt-5.4-mini', 'gpt-6-astra']) {
 
     assert.equal(body.model, model);
     assert.deepEqual(body.tool_choice, { type: 'image_generation' });
-    assert.deepEqual(body.tools, [{
-      type: 'image_generation',
-      size: '1024x1024',
-      quality: 'low',
-    }]);
+    assert.deepEqual(body.tools, [
+      {
+        type: 'image_generation',
+        size: '1024x1024',
+        quality: 'low',
+      },
+    ]);
     assert.equal(body.input[0].content.at(-1)?.text, 'Draw a blue square.');
   });
 }
@@ -31,17 +33,22 @@ test('image requests carry the same client identity as the Codex catalog transpo
 
 test('OAuth parses image SSE without a content type and reports the actual engine', async () => {
   let request;
-  const result = await generateImage({ model: 'gpt-6-astra', prompt: 'Draw a circle.' }, {
-    resolveAuth: async () => ({ access_token: 'token', account_id: 'account' }),
-    warmVersion: async () => {},
-    fetchFn: async (_url, init) => {
-      request = init;
-      return new Response(`data: ${JSON.stringify({
-        type: 'response.output_item.done',
-        item: { type: 'image_generation_call', model: 'gpt-image-2-codex', result: 'aW1hZ2U=' },
-      })}\n\ndata: [DONE]\n\n`);
-    },
-  });
+  const result = await generateImage(
+    { model: 'gpt-6-astra', prompt: 'Draw a circle.' },
+    {
+      resolveAuth: async () => ({ access_token: 'token', account_id: 'account' }),
+      warmVersion: async () => {},
+      fetchFn: async (_url, init) => {
+        request = init;
+        return new Response(
+          `data: ${JSON.stringify({
+            type: 'response.output_item.done',
+            item: { type: 'image_generation_call', model: 'gpt-image-2-codex', result: 'aW1hZ2U=' },
+          })}\n\ndata: [DONE]\n\n`
+        );
+      },
+    }
+  );
   assert.equal(result.bytes.toString(), 'image');
   assert.equal(result.actualModel, 'gpt-image-2-codex');
   assert.deepEqual(JSON.parse(request.body).tools, [{ type: 'image_generation' }]);
@@ -49,9 +56,19 @@ test('OAuth parses image SSE without a content type and reports the actual engin
 });
 
 test('OAuth refuses output settings that the server does not honor before authenticating', async () => {
-  await assert.rejects(generateImage({
-    model: 'gpt-6-astra', prompt: 'Draw a circle.', options: { size: '1536x1024' },
-  }, {
-    resolveAuth: () => { throw new Error('must not authenticate'); },
-  }), { code: 'MEDIA_OPTION_UNSUPPORTED' });
+  await assert.rejects(
+    generateImage(
+      {
+        model: 'gpt-6-astra',
+        prompt: 'Draw a circle.',
+        options: { size: '1536x1024' },
+      },
+      {
+        resolveAuth: () => {
+          throw new Error('must not authenticate');
+        },
+      }
+    ),
+    { code: 'MEDIA_OPTION_UNSUPPORTED' }
+  );
 });

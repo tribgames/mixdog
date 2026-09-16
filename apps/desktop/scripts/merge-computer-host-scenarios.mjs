@@ -8,23 +8,23 @@ const argument = optionValue;
 const label = argument('label') || 'merged';
 const output = resolve(argument('output') || `scenario-${label}.json`);
 const passOverrides = new Set(
-  argument('pass-overrides').split(',').map((value) => value.trim()).filter(Boolean),
+  argument('pass-overrides')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
 );
-const sources = process.argv.slice(2)
+const sources = process.argv
+  .slice(2)
   .filter((value) => !value.startsWith('--'))
   .map((value) => resolve(value));
 if (!sources.length) throw new Error('at least one scenario report is required');
 
-const reports = await Promise.all(
-  sources.map(async (source) => JSON.parse(await readFile(source, 'utf8'))),
-);
+const reports = await Promise.all(sources.map(async (source) => JSON.parse(await readFile(source, 'utf8'))));
 const byId = new Map();
 for (const [reportIndex, report] of reports.entries()) {
   for (const result of report.results || []) {
     if (byId.has(result.id)) {
-      throw new Error(
-        `duplicate scenario ${result.id} in ${sources[reportIndex]}; shard inputs must be disjoint`,
-      );
+      throw new Error(`duplicate scenario ${result.id} in ${sources[reportIndex]}; shard inputs must be disjoint`);
     }
     byId.set(result.id, { ...result });
   }
@@ -40,9 +40,7 @@ for (const id of passOverrides) {
     delete result.failure;
   }
 }
-const results = [...byId.values()].sort(
-  (left, right) => Number(left.id.slice(1)) - Number(right.id.slice(1)),
-);
+const results = [...byId.values()].sort((left, right) => Number(left.id.slice(1)) - Number(right.id.slice(1)));
 const passed = results.filter((result) => result.status === 'pass').length;
 const failed = results.filter((result) => result.status === 'fail').length;
 const skipped = results.filter((result) => result.status === 'skip').length;
@@ -85,6 +83,6 @@ const merged = {
 await mkdir(dirname(output), { recursive: true });
 await writeFile(output, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
 console.log(
-  `Merged Computer Use scenarios ${passed}/${results.length} passed`
-    + ` (${failed} failed, ${skipped} skipped); ${output}`,
+  `Merged Computer Use scenarios ${passed}/${results.length} passed` +
+    ` (${failed} failed, ${skipped} skipped); ${output}`
 );

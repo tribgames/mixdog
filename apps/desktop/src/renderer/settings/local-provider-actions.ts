@@ -5,9 +5,15 @@ export function useLocalProviderActions(run: PanelContext['run'], pending: Panel
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
   const invoke = async (
-    capability: 'cancelLocalProviderInstallation' | 'startLocalProviderInstallation' | 'setLocalProviderIdleTtl'
-      | 'getLocalProviderModelDetails' | 'startLocalProviderModelMaintenance' | 'deleteLocalProviderModel' | 'setLocalProviderContext',
-    args: unknown[],
+    capability:
+      | 'cancelLocalProviderInstallation'
+      | 'startLocalProviderInstallation'
+      | 'setLocalProviderIdleTtl'
+      | 'getLocalProviderModelDetails'
+      | 'startLocalProviderModelMaintenance'
+      | 'deleteLocalProviderModel'
+      | 'setLocalProviderContext',
+    args: unknown[]
   ) => {
     if (working || pending) return;
     setWorking(true);
@@ -26,13 +32,15 @@ export function useLocalProviderActions(run: PanelContext['run'], pending: Panel
     busy: working || Boolean(pending),
     error,
     cancel: (jobId: string) => void invoke('cancelLocalProviderInstallation', [jobId]),
-    resume: (phase: string, modelId?: string) => void (phase === 'verify' || phase === 'repair'
-      ? invoke('startLocalProviderModelMaintenance', [modelId, phase])
-      : invoke('startLocalProviderInstallation', phase === 'model' ? [phase, modelId] : [phase])),
+    resume: (phase: string, modelId?: string) =>
+      void (phase === 'verify' || phase === 'repair'
+        ? invoke('startLocalProviderModelMaintenance', [modelId, phase])
+        : invoke('startLocalProviderInstallation', phase === 'model' ? [phase, modelId] : [phase])),
     setIdleTtl: (seconds: number) => void invoke('setLocalProviderIdleTtl', [seconds]),
     setContext: (modelId: string, tokens: number | null) => invoke('setLocalProviderContext', [modelId, tokens]),
     details: (modelId: string) => invoke('getLocalProviderModelDetails', [modelId]),
-    maintain: (modelId: string, operation: 'verify' | 'repair') => void invoke('startLocalProviderModelMaintenance', [modelId, operation]),
+    maintain: (modelId: string, operation: 'verify' | 'repair') =>
+      void invoke('startLocalProviderModelMaintenance', [modelId, operation]),
     deleteModel: (confirmationToken: string) => void invoke('deleteLocalProviderModel', [confirmationToken]),
   };
 }

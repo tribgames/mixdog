@@ -1,12 +1,12 @@
-import type { DesktopEditorSettings } from "./contract";
+import type { DesktopEditorSettings } from './contract';
 
 export const DEFAULT_DESKTOP_EDITOR_SETTINGS: DesktopEditorSettings = Object.freeze({
   fontFamily: '"JetBrains Mono Variable", "Cascadia Code", Consolas, monospace',
   fontSize: 14,
   lineHeight: 21,
-  wordWrap: "off",
+  wordWrap: 'off',
   wordWrapColumn: 80,
-  renderWhitespace: "selection",
+  renderWhitespace: 'selection',
   minimapEnabled: true,
   // Sticky scroll defaults on and bracket-pair guides default off; the
   // "active" default drew a line box around the cursor's block (user: 선이
@@ -14,7 +14,7 @@ export const DEFAULT_DESKTOP_EDITOR_SETTINGS: DesktopEditorSettings = Object.fre
   stickyScrollEnabled: true,
   bracketPairColorization: true,
   bracketPairGuides: false,
-  inlayHintsEnabled: "on",
+  inlayHintsEnabled: 'on',
   formatOnSave: false,
   formatOnPaste: false,
   formatOnType: false,

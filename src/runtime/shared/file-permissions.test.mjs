@@ -6,19 +6,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import {
-  enforceOwnerOnlyAclWin32,
-  enforceOwnerOnlyAclWin32Async,
-} from './file-permissions.mjs';
+import { enforceOwnerOnlyAclWin32, enforceOwnerOnlyAclWin32Async } from './file-permissions.mjs';
 
 const execute = promisify(childProcess.execFile);
 
 async function aclSids(path, directory = false) {
   const quoted = path.replaceAll("'", "''");
-  const { stdout } = await execute('powershell.exe', [
-    '-NoProfile', '-NonInteractive', '-Command',
-    `[System.IO.${directory ? 'Directory' : 'File'}]::GetAccessControl('${quoted}').Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value }`,
-  ], { windowsHide: true });
+  const { stdout } = await execute(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `[System.IO.${directory ? 'Directory' : 'File'}]::GetAccessControl('${quoted}').Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value }`,
+    ],
+    { windowsHide: true }
+  );
   return stdout.trim().split(/\r?\n/).filter(Boolean).sort();
 }
 

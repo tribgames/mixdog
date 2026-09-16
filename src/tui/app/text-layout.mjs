@@ -1,6 +1,6 @@
 /**
- * text-layout.mjs — prompt-box row-reservation helpers extracted verbatim from
- * App.jsx. Pure grapheme wrap math (displayWidth policy); no React, no App state.
+ * text-layout.mjs — prompt-box row-reservation helpers.
+ * Pure grapheme wrap math (displayWidth policy); no React, no App state.
  */
 import { displayWidth } from '../display-width.mjs';
 import wrapAnsi from 'wrap-ansi';

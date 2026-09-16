@@ -76,7 +76,9 @@ function drainDispatchPersist() {
       // failure it guards), so we skip the synchronous disk-flush stall. KEEP
       // lock:true: the exit-drain window can still race other processes.
       writeJsonAtomicSync(p, payload, { compact: true, lock: true, mode: PERSIST_FILE_MODE, fsync: false });
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
 }
 
@@ -89,8 +91,8 @@ process.once('exit', drainDispatchPersist);
 // Wait briefly with jittered polling; stale lock files are cleared so a crashed
 // writer cannot make every later dispatch persist best-effort-only.
 const LOCK_FILE_NAME = 'pending-dispatches.json.lock';
-const LOCK_WAIT_MS  = 8_000;
-const LOCK_POLL_MS  = 50;
+const LOCK_WAIT_MS = 8_000;
+const LOCK_POLL_MS = 50;
 const LOCK_STALE_MS = 30_000;
 const LOCK_WAIT_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
 
@@ -111,7 +113,11 @@ async function acquireFileLock(dataDir) {
     try {
       // O_EXCL guarantees atomic create; fails with EEXIST if lock is held.
       const fd = fs.openSync(lp, 'wx');
-      try { fs.writeSync(fd, `${process.pid} ${Date.now()}\n`, 0, 'utf8'); } catch { /* best-effort */ }
+      try {
+        fs.writeSync(fd, `${process.pid} ${Date.now()}\n`, 0, 'utf8');
+      } catch {
+        /* best-effort */
+      }
       fs.closeSync(fd);
       return lp;
     } catch (err) {
@@ -122,22 +128,34 @@ async function acquireFileLock(dataDir) {
       try {
         const st = fs.statSync(lp);
         if (Date.now() - st.mtimeMs > LOCK_STALE_MS) {
-          try { fs.unlinkSync(lp); } catch { /* another process won */ }
+          try {
+            fs.unlinkSync(lp);
+          } catch {
+            /* another process won */
+          }
           continue;
         }
-      } catch { /* stat race; retry */ }
+      } catch {
+        /* stat race; retry */
+      }
       if (Date.now() >= deadline) {
-        process.stderr.write(`[dispatch-persist] lock timeout after ${LOCK_WAIT_MS}ms — skipping this best-effort persist\n`);
+        process.stderr.write(
+          `[dispatch-persist] lock timeout after ${LOCK_WAIT_MS}ms — skipping this best-effort persist\n`
+        );
         return null;
       }
-      await new Promise(r => setTimeout(r, LOCK_POLL_MS + Math.floor(Math.random() * LOCK_POLL_MS)));
+      await new Promise((r) => setTimeout(r, LOCK_POLL_MS + Math.floor(Math.random() * LOCK_POLL_MS)));
     }
   }
 }
 
 function releaseFileLock(lp) {
   if (!lp) return;
-  try { fs.unlinkSync(lp); } catch { /* best-effort */ }
+  try {
+    fs.unlinkSync(lp);
+  } catch {
+    /* best-effort */
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -157,7 +175,7 @@ async function readAll(dataDir) {
     const raw = await fs.promises.readFile(p, 'utf8');
     if (!raw.trim()) return {};
     const parsed = JSON.parse(raw);
-    return (parsed && typeof parsed === 'object') ? parsed : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     return {};
   }
@@ -174,7 +192,7 @@ function readAllSync(dataDir) {
     const raw = fs.readFileSync(p, 'utf8');
     if (!raw.trim()) return {};
     const parsed = JSON.parse(raw);
-    return (parsed && typeof parsed === 'object') ? parsed : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     return {};
   }
@@ -199,7 +217,9 @@ async function writeAll(dataDir, map) {
     // Write completed — promote to last-written and clear pending (redundant now).
     _lastPayload.set(dataDir, map);
     _pendingPayload.delete(dataDir);
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
 }
 
 /**
@@ -215,7 +235,7 @@ function gc(map) {
   const now = Date.now();
   let changed = false;
   for (const [k, v] of Object.entries(map)) {
-    if (!v || (now - (v.createdAt || 0)) > TTL_MS) {
+    if (!v || now - (v.createdAt || 0) > TTL_MS) {
       delete map[k];
       changed = true;
     }
@@ -239,9 +259,8 @@ export function addPending(dataDir, handle, tool, queries, callerSessionId, clie
         // Preserve any prior fields (createdAt / caller scoping) so a re-add
         // for the same handle does not reset its recovery metadata.
         const prior = map[handle] && typeof map[handle] === 'object' ? map[handle] : {};
-        const sid = callerSessionId != null && String(callerSessionId)
-          ? String(callerSessionId)
-          : prior.callerSessionId;
+        const sid =
+          callerSessionId != null && String(callerSessionId) ? String(callerSessionId) : prior.callerSessionId;
         const hostPid = normalizeClientHostPid(clientHostPid) ?? normalizeClientHostPid(prior.clientHostPid);
         map[handle] = {
           ...prior,
@@ -253,12 +272,18 @@ export function addPending(dataDir, handle, tool, queries, callerSessionId, clie
         };
         await writeAll(dataDir, map);
         try {
-          process.stderr.write(`[dispatch-persist] persist handle=${handle} tool=${tool} entries=${Object.keys(map).length}\n`);
-        } catch { /* best-effort */ }
+          process.stderr.write(
+            `[dispatch-persist] persist handle=${handle} tool=${tool} entries=${Object.keys(map).length}\n`
+          );
+        } catch {
+          /* best-effort */
+        }
       } finally {
         releaseFileLock(lp);
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   });
   setTail(dataDir, tail);
 }
@@ -277,16 +302,28 @@ export function hasPending(dataDir) {
     // via per-dataDir tail so the write is still cross-process serialized.
     const p = pathFor(dataDir);
     let raw = '';
-    try { raw = fs.readFileSync(p, 'utf8'); } catch { /* missing = empty */ }
+    try {
+      raw = fs.readFileSync(p, 'utf8');
+    } catch {
+      /* missing = empty */
+    }
     let parsed = {};
-    try { if (raw.trim()) parsed = JSON.parse(raw); } catch { /* best-effort */ }
+    try {
+      if (raw.trim()) parsed = JSON.parse(raw);
+    } catch {
+      /* best-effort */
+    }
     if (!parsed || typeof parsed !== 'object') parsed = {};
     const { map, changed } = gc(parsed);
     if (changed) {
       const tail = getTail(dataDir).then(async () => {
         const lp = await acquireFileLock(dataDir);
         if (!lp) return;
-        try { await writeAll(dataDir, map); } finally { releaseFileLock(lp); }
+        try {
+          await writeAll(dataDir, map);
+        } finally {
+          releaseFileLock(lp);
+        }
       });
       setTail(dataDir, tail);
     }
@@ -310,13 +347,17 @@ function removePending(dataDir, handle) {
           mutated = true;
           try {
             process.stderr.write(`[dispatch-persist] ack-pop handle=${handle} entries=${Object.keys(map).length}\n`);
-          } catch { /* best-effort */ }
+          } catch {
+            /* best-effort */
+          }
         }
         if (mutated) await writeAll(dataDir, map);
       } finally {
         releaseFileLock(lp);
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   });
   setTail(dataDir, tail);
 }
@@ -378,9 +419,8 @@ function recoverPending(dataDir, notifyFn, { sessionId, priorSessionId, clientHo
         // id onto another session's abort — that injects an old-session abort
         // into the wrong resumed session. Deliver to the true owner session, or
         // leave the entry persisted when it carries no owner session to target.
-        const cid = entry.callerSessionId != null && String(entry.callerSessionId)
-          ? String(entry.callerSessionId)
-          : null;
+        const cid =
+          entry.callerSessionId != null && String(entry.callerSessionId) ? String(entry.callerSessionId) : null;
         const ownerMatch = cid != null && (cid === filterSid || (priorSid != null && cid === priorSid));
         if (scoped && !ownerMatch && cid == null) {
           // hostPid-only match with no owner session id — cannot target a
@@ -392,7 +432,7 @@ function recoverPending(dataDir, notifyFn, { sessionId, priorSessionId, clientHo
         // sessionId was supplied, filterSid is null — keep the entry's known
         // owner `cid` for stamping/ack scoping rather than dropping it.
         // Non-owner matches (hostPid-only) always stamp the entry's true owner.
-        const stampSid = (ownerMatch && filterSid) ? filterSid : cid;
+        const stampSid = ownerMatch && filterSid ? filterSid : cid;
         // Single recovery mode: the worker was in flight at restart. Emit the
         // Aborted boilerplate so the Lead can retry. Completed result bodies are
         // never persisted, so there is nothing to replay here.
@@ -407,10 +447,16 @@ function recoverPending(dataDir, notifyFn, { sessionId, priorSessionId, clientHo
           ...(stampSid ? { caller_session_id: stampSid } : {}),
           ...(filterHostPid > 0
             ? { client_host_pid: String(filterHostPid) }
-            : (entry.clientHostPid > 0 ? { client_host_pid: String(entry.clientHostPid) } : {})),
+            : entry.clientHostPid > 0
+              ? { client_host_pid: String(entry.clientHostPid) }
+              : {}),
           instruction: `Earlier ${tool} dispatch (${handle}) was aborted by a plugin restart. Retry if the answer is still needed.`,
         };
-        try { process.stderr.write(`[dispatch-persist] recover handle=${handle} tool=${tool} kind=abort\n`); } catch { /* best-effort */ }
+        try {
+          process.stderr.write(`[dispatch-persist] recover handle=${handle} tool=${tool} kind=abort\n`);
+        } catch {
+          /* best-effort */
+        }
         // Entry remains on disk until notifyFn settles as DELIVERED. Matching
         // notifyToolCompletion settlement semantics (tool-execution-contract),
         // only an explicit `false`/`0` resolve counts as undelivered and keeps
@@ -419,10 +465,16 @@ function recoverPending(dataDir, notifyFn, { sessionId, priorSessionId, clientHo
         // TTL. A crash between fire and ack is likewise safe: the entry survives
         // and recoverPending re-fires it on the next restart.
         try {
-          Promise.resolve(notifyFn(content, meta)).then((ok) => {
-            if (ok !== false && ok !== 0) removePending(dataDir, handle);
-          }).catch(() => { /* best-effort — entry stays for next recoverPending */ });
-        } catch { /* best-effort */ }
+          Promise.resolve(notifyFn(content, meta))
+            .then((ok) => {
+              if (ok !== false && ok !== 0) removePending(dataDir, handle);
+            })
+            .catch(() => {
+              /* best-effort — entry stays for next recoverPending */
+            });
+        } catch {
+          /* best-effort */
+        }
       }
       // Do NOT bulk-clear here.  Each handle is removed individually above,
       // only after its notifyFn acks.  If gc() pruned expired entries, write
@@ -431,9 +483,14 @@ function recoverPending(dataDir, notifyFn, { sessionId, priorSessionId, clientHo
       if (changed) await writeAll(dataDir, map);
       try {
         process.stderr.write(`[dispatch-persist] recoverPending recovered=${handles.length} entries queued\n`);
-      } catch { /* best-effort */ }
-    } catch { /* best-effort */ }
-    finally { releaseFileLock(lp); }
+      } catch {
+        /* best-effort */
+      }
+    } catch {
+      /* best-effort */
+    } finally {
+      releaseFileLock(lp);
+    }
   });
   setTail(dataDir, tail);
   return queued;

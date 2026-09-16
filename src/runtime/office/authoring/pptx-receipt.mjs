@@ -10,7 +10,7 @@ import { rectangleGap } from '../portable/pptx-relations.mjs';
 // Rectangles and lines are furniture; every other preset is a contour the
 // author reached for on purpose (a chevron, a brace, an arc, a trapezoid).
 const FURNITURE = new Set(['rect', 'line', 'straightConnector1']);
-const CANVAS_AREA = 960 * 540;   // 13.33 × 7.5 in, in points
+const CANVAS_AREA = 960 * 540; // 13.33 × 7.5 in, in points
 
 function luminance(hex) {
   const value = String(hex || '').replace('#', '');
@@ -69,24 +69,34 @@ const CANVAS_H = 540;
 const CELL = 5;
 
 function footprint(shape) {
-  const left = Number(shape?.left), top = Number(shape?.top), width = Number(shape?.width), height = Number(shape?.height);
+  const left = Number(shape?.left),
+    top = Number(shape?.top),
+    width = Number(shape?.width),
+    height = Number(shape?.height);
   if (![left, top, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return null;
   return { left, top, width, height };
 }
 
 // A hairline or a rule has no area (cx or cy = 0) and still bounds the labels beside it.
 function extent(shape) {
-  const left = Number(shape?.left), top = Number(shape?.top), width = Number(shape?.width), height = Number(shape?.height);
-  if (![left, top, width, height].every(Number.isFinite) || width < 0 || height < 0 || (width === 0 && height === 0)) return null;
+  const left = Number(shape?.left),
+    top = Number(shape?.top),
+    width = Number(shape?.width),
+    height = Number(shape?.height);
+  if (![left, top, width, height].every(Number.isFinite) || width < 0 || height < 0 || (width === 0 && height === 0))
+    return null;
   return { left, top, width, height };
 }
 
 function raster(shapes) {
-  const cols = Math.ceil(CANVAS_W / CELL), rows = Math.ceil(CANVAS_H / CELL);
+  const cols = Math.ceil(CANVAS_W / CELL),
+    rows = Math.ceil(CANVAS_H / CELL);
   const cells = new Uint8Array(cols * rows);
   for (const box of shapes) {
-    const x0 = Math.max(0, Math.floor(box.left / CELL)), x1 = Math.min(cols, Math.ceil((box.left + box.width) / CELL));
-    const y0 = Math.max(0, Math.floor(box.top / CELL)), y1 = Math.min(rows, Math.ceil((box.top + box.height) / CELL));
+    const x0 = Math.max(0, Math.floor(box.left / CELL)),
+      x1 = Math.min(cols, Math.ceil((box.left + box.width) / CELL));
+    const y0 = Math.max(0, Math.floor(box.top / CELL)),
+      y1 = Math.min(rows, Math.ceil((box.top + box.height) / CELL));
     for (let y = y0; y < y1; y += 1) for (let x = x0; x < x1; x += 1) cells[y * cols + x] = 1;
   }
   return { cells, cols, rows };
@@ -156,7 +166,9 @@ const asList = (value) => (value == null ? [] : [].concat(value));
 // or the COM run colors (BGR longs; a mixed range reports a negative sentinel, which is skipped).
 function textColorsOf(shape) {
   const surface = surfaceColor(shape);
-  const listed = asList(shape?.colors).map((c) => String(c).toUpperCase()).filter((c) => /^[0-9A-F]{6}$/.test(c) && c !== surface);
+  const listed = asList(shape?.colors)
+    .map((c) => String(c).toUpperCase())
+    .filter((c) => /^[0-9A-F]{6}$/.test(c) && c !== surface);
   if (listed.length) return listed;
   const longs = asList(shape?.runs?.colors).map(Number);
   const source = longs.length ? longs : [Number(shape?.font?.color)];
@@ -186,7 +198,9 @@ function specOf(shape) {
   return spec ? { spec, variant } : null;
 }
 function anatomyOf(shape) {
-  const sizes = typeSizesOf(shape).sort((a, b) => a - b).join('/');
+  const sizes = typeSizesOf(shape)
+    .sort((a, b) => a - b)
+    .join('/');
   const face = Array.isArray(shape?.fonts) ? shape.fonts[0] : shape?.font?.name;
   return [sizes, face].filter(Boolean).join('|');
 }
@@ -205,7 +219,9 @@ function noteSpec(specs, shape) {
 // a horizontal tolerance of 0.05 and a vertical one of 0.15 (a sideways drift reads first, as in
 // AeSlides' imbalance metric). Both are numbers the author weighs; a breathing slide may sit off center on purpose.
 function centroidOf(boxes) {
-  let area = 0, sx = 0, sy = 0;
+  let area = 0,
+    sx = 0,
+    sy = 0;
   for (const box of boxes) {
     const a = box.width * box.height;
     if (a >= CANVAS_W * CANVAS_H * 0.9) continue;
@@ -214,7 +230,8 @@ function centroidOf(boxes) {
     sy += a * (box.top + box.height / 2);
   }
   if (!area) return null;
-  const x = sx / area / CANVAS_W, y = sy / area / CANVAS_H;
+  const x = sx / area / CANVAS_W,
+    y = sy / area / CANVAS_H;
   const offset = Math.sqrt(((x - 0.5) / 0.05) ** 2 + ((y - 0.5) / 0.15) ** 2);
   return { centroid: [Number(x.toFixed(2)), Number(y.toFixed(2))], centroidOffset: Number(offset.toFixed(1)) };
 }
@@ -226,11 +243,17 @@ function centroidOf(boxes) {
 function bodyTopOf(boxes, titleBox) {
   if (!titleBox) return { bodyTop: null, bodyFill: null };
   const titleBottom = titleBox.top + titleBox.height;
-  const below = boxes.filter((box) => box !== titleBox && box.top >= titleBottom - 2 && box.width * box.height < CANVAS_W * CANVAS_H * 0.9);
+  const below = boxes.filter(
+    (box) => box !== titleBox && box.top >= titleBottom - 2 && box.width * box.height < CANVAS_W * CANVAS_H * 0.9
+  );
   if (!below.length) return { bodyTop: null, bodyFill: null };
-  const top = Math.min(...below.map((box) => box.top)), bottom = Math.max(...below.map((box) => box.top + box.height));
+  const top = Math.min(...below.map((box) => box.top)),
+    bottom = Math.max(...below.map((box) => box.top + box.height));
   const zone = CANVAS_H - 0.5 * 72 - top;
-  return { bodyTop: Number((top / 72).toFixed(2)), bodyFill: zone > 0 ? Number(Math.min(1, (bottom - top) / zone).toFixed(2)) : null };
+  return {
+    bodyTop: Number((top / 72).toFixed(2)),
+    bodyFill: zone > 0 ? Number(Math.min(1, (bottom - top) / zone).toFixed(2)) : null,
+  };
 }
 
 // A surface field is a promise: the reader takes a tinted plane as a zone that holds something.
@@ -241,44 +264,76 @@ function fieldFillOf(surfaces, grid) {
   const canvas = CANVAS_W * CANVAS_H;
   return surfaces
     .filter((box) => box.width * box.height >= canvas * 0.06 && box.width * box.height < canvas * 0.9)
-    .map((box) => 1 - airOf(grid,
-      Math.max(0, Math.floor(box.left / CELL)), Math.max(0, Math.floor(box.top / CELL)),
-      Math.min(grid.cols, Math.ceil((box.left + box.width) / CELL)), Math.min(grid.rows, Math.ceil((box.top + box.height) / CELL))))
+    .map(
+      (box) =>
+        1 -
+        airOf(
+          grid,
+          Math.max(0, Math.floor(box.left / CELL)),
+          Math.max(0, Math.floor(box.top / CELL)),
+          Math.min(grid.cols, Math.ceil((box.left + box.width) / CELL)),
+          Math.min(grid.rows, Math.ceil((box.top + box.height) / CELL))
+        )
+    )
     .map((share) => Number(share.toFixed(2)))
     .sort((a, b) => a - b)
     .slice(0, 3);
 }
 
-function observe(shapes, { textBoxes, visuals, content, blocks, surfaces = [], constructs = [], labels = [], fills, titleBox }) {
+function observe(
+  shapes,
+  { textBoxes, visuals, content, blocks, surfaces = [], constructs = [], labels = [], fills, titleBox }
+) {
   const boxes = shapes.map(footprint).filter(Boolean);
   if (!boxes.length) return null;
   const authored = shapes.filter((shape) => !isChrome(shape));
   const typeSet = [...new Set(authored.flatMap(typeSizesOf))].sort((a, b) => a - b);
   const textColors = [...new Set(authored.filter((shape) => String(shape.text || '').trim()).flatMap(textColorsOf))];
   const all = raster(boxes);
-  const inner = raster(content);   // the same canvas read from content alone: where a surface is carrying nothing
+  const inner = raster(content); // the same canvas read from content alone: where a surface is carrying nothing
   const centroid = centroidOf(boxes);
   // Body top and gaps read the content (text, charts, tables, pictures, contours), never a surface field or a rule.
-  const { bodyTop, bodyFill } = bodyTopOf(content, titleBox ? content.find((box) => box.left === titleBox.left && box.top === titleBox.top && box.width === titleBox.width) || titleBox : null);
-  const midX = Math.floor(all.cols / 2), midY = Math.floor(all.rows / 2);
+  const { bodyTop, bodyFill } = bodyTopOf(
+    content,
+    titleBox
+      ? content.find((box) => box.left === titleBox.left && box.top === titleBox.top && box.width === titleBox.width) ||
+          titleBox
+      : null
+  );
+  const midX = Math.floor(all.cols / 2),
+    midY = Math.floor(all.rows / 2);
   const canvas = CANVAS_W * CANVAS_H;
-  const fillShares = [...fills.entries()].map(([color, area]) => ({ color, share: Number((area / canvas).toFixed(2)) }))
-    .filter((entry) => entry.share > 0).sort((a, b) => b.share - a.share).slice(0, 3);
+  const fillShares = [...fills.entries()]
+    .map(([color, area]) => ({ color, share: Number((area / canvas).toFixed(2)) }))
+    .filter((entry) => entry.share > 0)
+    .sort((a, b) => b.share - a.share)
+    .slice(0, 3);
   // Presence: the share of the canvas the largest carrier takes — a chart, table, picture, group, or a drawn
   // construction (three or more contours and connectors read as one object by their extent), never a text
   // box or a tinted plane. Under a quarter of the canvas is what the reader sees as "a small chart beside a
   // lot of copy"; 0 means the page carries type alone.
   const carriers = content.filter((box) => !textBoxes.includes(box));
   const largest = carriers.length ? Math.max(...carriers.map((box) => box.width * box.height)) : 0;
-  const extent = constructs.length >= 3
-    ? (Math.max(...constructs.map((b) => b.left + b.width)) - Math.min(...constructs.map((b) => b.left)))
-      * (Math.max(...constructs.map((b) => b.top + b.height)) - Math.min(...constructs.map((b) => b.top)))
-    : 0;
-  const presence = Number((Math.min(1, Math.max(largest, extent) / canvas)).toFixed(2));
+  const extent =
+    constructs.length >= 3
+      ? (Math.max(...constructs.map((b) => b.left + b.width)) - Math.min(...constructs.map((b) => b.left))) *
+        (Math.max(...constructs.map((b) => b.top + b.height)) - Math.min(...constructs.map((b) => b.top)))
+      : 0;
+  const presence = Number(Math.min(1, Math.max(largest, extent) / canvas).toFixed(2));
   return {
     air: airOf(all),
-    quadrantAir: [airOf(all, 0, 0, midX, midY), airOf(all, midX, 0, all.cols, midY), airOf(all, 0, midY, midX, all.rows), airOf(all, midX, midY, all.cols, all.rows)],
-    contentAir: [airOf(inner, 0, 0, midX, midY), airOf(inner, midX, 0, inner.cols, midY), airOf(inner, 0, midY, midX, inner.rows), airOf(inner, midX, midY, inner.cols, inner.rows)],
+    quadrantAir: [
+      airOf(all, 0, 0, midX, midY),
+      airOf(all, midX, 0, all.cols, midY),
+      airOf(all, 0, midY, midX, all.rows),
+      airOf(all, midX, midY, all.cols, all.rows),
+    ],
+    contentAir: [
+      airOf(inner, 0, 0, midX, midY),
+      airOf(inner, midX, 0, inner.cols, midY),
+      airOf(inner, 0, midY, midX, inner.rows),
+      airOf(inner, midX, midY, inner.cols, inner.rows),
+    ],
     fieldFill: fieldFillOf(surfaces, inner),
     largestShare: Number((Math.max(...boxes.map((box) => box.width * box.height)) / canvas).toFixed(2)),
     visualShare: visuals.length ? Number((1 - airOf(raster(visuals))).toFixed(2)) : 0,
@@ -300,8 +355,14 @@ export function slideReceipt(slide) {
   const receipt = {
     slide: Number(slide?.index) || 0,
     background: backgroundRole(slide),
-    charts: 0, tables: 0, pictures: 0, groups: 0,
-    textBoxes: 0, drawn: 0, fields: 0, lines: 0,
+    charts: 0,
+    tables: 0,
+    pictures: 0,
+    groups: 0,
+    textBoxes: 0,
+    drawn: 0,
+    fields: 0,
+    lines: 0,
     presets: [],
     largestText: 0,
     chars: 0,
@@ -313,10 +374,10 @@ export function slideReceipt(slide) {
   const presets = new Set();
   const textBoxes = [];
   const visuals = [];
-  const content = [];   // what the reader reads as content: text, data, pictures, contours — not fields, lines, or chrome
-  const blocks = [];    // the spacing vocabulary's units: text and data blocks (a contour is part of a device, not a block)
-  const surfaces = [];  // tinted planes and cards: the zones a reader expects to hold something
-  const constructs = [];   // contours and connectors: the parts of a drawn construction (a diagram reads by its extent)
+  const content = []; // what the reader reads as content: text, data, pictures, contours — not fields, lines, or chrome
+  const blocks = []; // the spacing vocabulary's units: text and data blocks (a contour is part of a device, not a block)
+  const surfaces = []; // tinted planes and cards: the zones a reader expects to hold something
+  const constructs = []; // contours and connectors: the parts of a drawn construction (a diagram reads by its extent)
   const fills = new Map();
   let titleBox = null;
   const seen = [];
@@ -328,22 +389,73 @@ export function slideReceipt(slide) {
     const box = footprint(shape);
     const fill = surfaceColor(shape);
     if (fill && box) fills.set(fill, (fills.get(fill) || 0) + area);
-    if (shape.chart) { receipt.charts += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
-    if (shape.table) { receipt.tables += 1; covered += area; noteSpec(specs, shape); if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
+    if (shape.chart) {
+      receipt.charts += 1;
+      covered += area;
+      if (box) {
+        visuals.push(box);
+        content.push(box);
+        blocks.push(box);
+      }
+      continue;
+    }
+    if (shape.table) {
+      receipt.tables += 1;
+      covered += area;
+      noteSpec(specs, shape);
+      if (box) {
+        visuals.push(box);
+        content.push(box);
+        blocks.push(box);
+      }
+      continue;
+    }
     // A vector the kit drew (an icon, a motif) is a device the page carries, not a picture the page shows: the writer
     // names it `mixdog-svg:<svg>` and the normalizer renames it "Icon" once the SVG is attached (pptx-script-normalize.mjs).
     // A raster the kit drew as a device with no vector source (the beat's sphere, `orb()`) is named `mixdog-device:<kind>`
     // and reads the same way, so a cover with its object stays a beat.
-    if (isPicture(shape) && /^(?:mixdog-svg:|mixdog-device:|Icon$)/.test(String(shape.name || ''))) { receipt.drawn += 1; covered += area; if (box) visuals.push(box); continue; }
-    if (isPicture(shape)) { receipt.pictures += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
-    if (shape.group) { receipt.groups += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
+    if (isPicture(shape) && /^(?:mixdog-svg:|mixdog-device:|Icon$)/.test(String(shape.name || ''))) {
+      receipt.drawn += 1;
+      covered += area;
+      if (box) visuals.push(box);
+      continue;
+    }
+    if (isPicture(shape)) {
+      receipt.pictures += 1;
+      covered += area;
+      if (box) {
+        visuals.push(box);
+        content.push(box);
+        blocks.push(box);
+      }
+      continue;
+    }
+    if (shape.group) {
+      receipt.groups += 1;
+      covered += area;
+      if (box) {
+        visuals.push(box);
+        content.push(box);
+        blocks.push(box);
+      }
+      continue;
+    }
     const hasText = Boolean(String(shape.text || '').trim());
     if (hasText) {
       receipt.textBoxes += 1;
       noteSpec(specs, shape);
       const size = Number(shape.font?.size) || 0;
-      if (size > receipt.largestText) { receipt.largestText = size; titleBox = box; }
-      if (box) { textBoxes.push(box); if (!isChrome(shape)) { content.push(box); blocks.push(box); } }
+      if (size > receipt.largestText) {
+        receipt.largestText = size;
+        titleBox = box;
+      }
+      if (box) {
+        textBoxes.push(box);
+        if (!isChrome(shape)) {
+          content.push(box);
+          blocks.push(box);
+        }
+      }
       if (!isChrome(shape)) receipt.chars += String(shape.text).replace(/\s+/g, ' ').trim().length;
       covered += area;
       continue;
@@ -351,9 +463,23 @@ export function slideReceipt(slide) {
     receipt.drawn += 1;
     if (box) visuals.push(box);
     const geometry = String(shape.geometry || '');
-    if (geometry === 'line' || geometry.includes('Connector')) { receipt.lines += 1; const span = box || extent(shape); if (span) constructs.push(span); }
-    else if (geometry === 'rect' || geometry === 'roundRect') { receipt.fields += 1; covered += area; if (box && fill) surfaces.push(box); if (isBeatField(fill, area)) beatField = true; }
-    else if (geometry) { presets.add(geometry); covered += area; if (box) { content.push(box); constructs.push(box); } }
+    if (geometry === 'line' || geometry.includes('Connector')) {
+      receipt.lines += 1;
+      const span = box || extent(shape);
+      if (span) constructs.push(span);
+    } else if (geometry === 'rect' || geometry === 'roundRect') {
+      receipt.fields += 1;
+      covered += area;
+      if (box && fill) surfaces.push(box);
+      if (isBeatField(fill, area)) beatField = true;
+    } else if (geometry) {
+      presets.add(geometry);
+      covered += area;
+      if (box) {
+        content.push(box);
+        constructs.push(box);
+      }
+    }
   }
   receipt.presets = [...presets];
   if (Object.keys(specs).length) receipt.specs = specs;
@@ -363,17 +489,36 @@ export function slideReceipt(slide) {
   // connectors); the rest is a text page. The reference decks (thirteen, 400 pages) run beats on one page in eight
   // and evidence on two of three; the deck's shares sit in deck.shape and the sequence in deck.rhythm.grammar.
   // Evidence first: a chart on a dark page is an evidence page of a dark deck (Krafton), not a beat.
-  receipt.grammar = receipt.charts + receipt.tables + receipt.pictures + receipt.groups > 0 || constructs.length >= 3 || specs.stat || specs.structure || specs.chevrons
-    ? 'evidence'
-    : receipt.background === 'dark' || beatField
-      ? 'beat'
-      : 'text';
+  receipt.grammar =
+    receipt.charts + receipt.tables + receipt.pictures + receipt.groups > 0 ||
+    constructs.length >= 3 ||
+    specs.stat ||
+    specs.structure ||
+    specs.chevrons
+      ? 'evidence'
+      : receipt.background === 'dark' || beatField
+        ? 'beat'
+        : 'text';
   // Diagram labels — small text bound to a contour or connector (a node's name, an axis tick, a dumbbell value,
   // a legend entry) — belong to their device, not to the page's columns and spacing steps: they leave the
   // alignment and gap readings and are counted instead.
-  const labels = textBoxes.filter((box) => box.width <= 2.5 * 72 && box.height <= 0.4 * 72
-    && constructs.some((construct) => rectangleGap(box, construct) <= 0.3 * 72));
-  const observed = observe(seen, { textBoxes, visuals, content, blocks, surfaces, constructs, labels, fills, titleBox });
+  const labels = textBoxes.filter(
+    (box) =>
+      box.width <= 2.5 * 72 &&
+      box.height <= 0.4 * 72 &&
+      constructs.some((construct) => rectangleGap(box, construct) <= 0.3 * 72)
+  );
+  const observed = observe(seen, {
+    textBoxes,
+    visuals,
+    content,
+    blocks,
+    surfaces,
+    constructs,
+    labels,
+    fills,
+    titleBox,
+  });
   if (observed) receipt.observe = observed;
   return receipt;
 }
@@ -384,13 +529,24 @@ export function compositionReceipt(document, brief = null) {
   const slides = (Array.isArray(document?.slides) ? document.slides : []).map(slideReceipt);
   const deck = {
     slides: slides.length,
-    charts: 0, tables: 0, pictures: 0, presets: 0, fields: 0, lines: 0, groups: 0,
+    charts: 0,
+    tables: 0,
+    pictures: 0,
+    presets: 0,
+    fields: 0,
+    lines: 0,
+    groups: 0,
     backgrounds: [...new Set(slides.map((s) => s.background).filter(Boolean))],
     textOnly: 0,
   };
   for (const s of slides) {
-    deck.charts += s.charts; deck.tables += s.tables; deck.pictures += s.pictures;
-    deck.presets += s.presets.length; deck.fields += s.fields; deck.lines += s.lines; deck.groups += s.groups;
+    deck.charts += s.charts;
+    deck.tables += s.tables;
+    deck.pictures += s.pictures;
+    deck.presets += s.presets.length;
+    deck.fields += s.fields;
+    deck.lines += s.lines;
+    deck.groups += s.groups;
     if (s.textBoxes && !s.charts && !s.tables && !s.pictures && !s.drawn && !s.groups) deck.textOnly += 1;
   }
   // Spec carriers across the deck: how many, on how many slides, in which variants, and the distinct anatomies they show.
@@ -411,8 +567,7 @@ export function compositionReceipt(document, brief = null) {
     const share = (grammar) => Number((slides.filter((s) => s.grammar === grammar).length / slides.length).toFixed(2));
     deck.shape = { beat: share('beat'), evidence: share('evidence'), text: share('text') };
   }
-  const absent = ['charts', 'tables', 'pictures', 'presets', 'fields', 'lines']
-    .filter((family) => deck[family] === 0);
+  const absent = ['charts', 'tables', 'pictures', 'presets', 'fields', 'lines'].filter((family) => deck[family] === 0);
   // The deck read as a sequence: air per slide is the density rhythm, title tops the composition variety.
   const observed = slides.filter((s) => s.observe);
   if (observed.length) {
@@ -444,18 +599,19 @@ export function compositionReceipt(document, brief = null) {
     slides,
     deck,
     absent,
-    note: 'Observations, not design targets. absent lists unused families, not required objects. Inspect any inferred missing carrier against the intended message; a faithful alternative may already carry it.'
-      + ' air = canvas share without shape footprints; quadrantAir = [top-left, top-right, bottom-left, bottom-right]; contentAir = those quadrants using content only; fieldFill = content coverage inside fields occupying at least 6% of the canvas, lowest first.'
-      + ' largestShare = largest object share; visualShare = non-text footprint; presence = the largest carrier\'s share (chart, table, picture, group, or contour; 0 = type alone); fills = surface colors by area; textColumns = alignment groups and unmatched edges (labels = small text bound to a contour or connector, read as part of its device and left out of the columns and the gaps).'
-      + ' largestTextTop and bodyTop are positions in inches, not mandatory shared baselines; bodyFill = the vertical span of content below the largest type relative to the lower safe margin.'
-      + ' centroid = area-weighted [x, y] in canvas fractions; centroidOffset normalizes distance from center by 0.05 horizontally and 0.15 vertically.'
-      + ' renderAir = pixels without local variation; renderBalance reports centered, leftRight, topBottom and their mean score (higher means more centered or even, not necessarily better design).'
-      + ' gaps = vertical gaps in 0.05-inch steps; typeSet and textColors = observed sizes and colors; deck.rhythm sequences these observations.'
-      + ' chars = characters of authored text per slide (the reference decks carry 330-900 on a body page; a page under 120 with no carrier is a claim or a hollow); grammar = beat | evidence | text per slide and deck.shape their shares.'
-      + ' renderLargest = the share of the page the biggest connected object covers after a render (the reference decks: 0.21-0.71, median 0.4).'
-      + ' After a render, deck.rhythm.colour is each page\'s colourfulness and deck.pacing reads the sequence: colourSpread (the frontier decks run 16-36, one template 5-8), longestQuiet (consecutive pages under the deck median with no beat), quietAnchors (plan lines that promised an anchor on a page that rendered quiet).'
-      + ' specs = the kit\'s spec carriers (badge, callout, chevrons, stat, table) read from their signatures: count, slides, variants, and the distinct anatomies (type sizes|face) they show — one anatomy per carrier is the spec kept, two is a per-call override to explain.'
-      + ' Relevance, legibility, grouping, and visual emphasis must be judged from the rendered pages, not from balanced ratios or short token sets.',
+    note:
+      'Observations, not design targets. absent lists unused families, not required objects. Inspect any inferred missing carrier against the intended message; a faithful alternative may already carry it.' +
+      ' air = canvas share without shape footprints; quadrantAir = [top-left, top-right, bottom-left, bottom-right]; contentAir = those quadrants using content only; fieldFill = content coverage inside fields occupying at least 6% of the canvas, lowest first.' +
+      " largestShare = largest object share; visualShare = non-text footprint; presence = the largest carrier's share (chart, table, picture, group, or contour; 0 = type alone); fills = surface colors by area; textColumns = alignment groups and unmatched edges (labels = small text bound to a contour or connector, read as part of its device and left out of the columns and the gaps)." +
+      ' largestTextTop and bodyTop are positions in inches, not mandatory shared baselines; bodyFill = the vertical span of content below the largest type relative to the lower safe margin.' +
+      ' centroid = area-weighted [x, y] in canvas fractions; centroidOffset normalizes distance from center by 0.05 horizontally and 0.15 vertically.' +
+      ' renderAir = pixels without local variation; renderBalance reports centered, leftRight, topBottom and their mean score (higher means more centered or even, not necessarily better design).' +
+      ' gaps = vertical gaps in 0.05-inch steps; typeSet and textColors = observed sizes and colors; deck.rhythm sequences these observations.' +
+      ' chars = characters of authored text per slide (the reference decks carry 330-900 on a body page; a page under 120 with no carrier is a claim or a hollow); grammar = beat | evidence | text per slide and deck.shape their shares.' +
+      ' renderLargest = the share of the page the biggest connected object covers after a render (the reference decks: 0.21-0.71, median 0.4).' +
+      " After a render, deck.rhythm.colour is each page's colourfulness and deck.pacing reads the sequence: colourSpread (the frontier decks run 16-36, one template 5-8), longestQuiet (consecutive pages under the deck median with no beat), quietAnchors (plan lines that promised an anchor on a page that rendered quiet)." +
+      " specs = the kit's spec carriers (badge, callout, chevrons, stat, table) read from their signatures: count, slides, variants, and the distinct anatomies (type sizes|face) they show — one anatomy per carrier is the spec kept, two is a per-call override to explain." +
+      ' Relevance, legibility, grouping, and visual emphasis must be judged from the rendered pages, not from balanced ratios or short token sets.',
   };
 }
 
@@ -469,9 +625,15 @@ function colourPacing(receipt, colours) {
   const mean = measured.reduce((a, b) => a + b, 0) / measured.length;
   const spread = Math.sqrt(measured.reduce((sum, value) => sum + (value - mean) ** 2, 0) / measured.length);
   const median = [...measured].sort((a, b) => a - b)[Math.floor(measured.length / 2)];
-  const quiet = receipt.slides.map((slide, index) => typeof colours[index] === 'number' && colours[index] < median && slide.grammar !== 'beat');
-  let longestQuiet = 0, run = 0;
-  for (const isQuiet of quiet) { run = isQuiet ? run + 1 : 0; if (run > longestQuiet) longestQuiet = run; }
+  const quiet = receipt.slides.map(
+    (slide, index) => typeof colours[index] === 'number' && colours[index] < median && slide.grammar !== 'beat'
+  );
+  let longestQuiet = 0,
+    run = 0;
+  for (const isQuiet of quiet) {
+    run = isQuiet ? run + 1 : 0;
+    if (run > longestQuiet) longestQuiet = run;
+  }
   const planned = receipt.deck?.rhythm?.planned || [];
   const quietAnchors = receipt.slides
     .filter((slide, index) => /^anchor/i.test(String(planned[index] || '')) && quiet[index])
@@ -485,22 +647,43 @@ function colourPacing(receipt, colours) {
 // with topBottom the number for "the top of the page is empty".
 export function attachRenderedAir(receipt, airByPage) {
   if (!receipt?.slides?.length || !airByPage?.size) return receipt;
-  const sequence = [], balance = [], colours = [], largest = [];
+  const sequence = [],
+    balance = [],
+    colours = [],
+    largest = [];
   for (const slide of receipt.slides) {
     const read = airByPage.get(slide.slide);
     const air = typeof read === 'number' ? read : read?.air;
     const colour = typeof read?.colour === 'number' ? read.colour : null;
     const object = typeof read?.largest === 'number' ? read.largest : null;
     if (typeof air === 'number') {
-      slide.observe = { ...(slide.observe || {}), renderAir: air, ...(read?.balance ? { renderBalance: read.balance } : {}), ...(colour !== null ? { renderColour: colour } : {}), ...(object !== null ? { renderLargest: object } : {}) };
+      slide.observe = {
+        ...(slide.observe || {}),
+        renderAir: air,
+        ...(read?.balance ? { renderBalance: read.balance } : {}),
+        ...(colour !== null ? { renderColour: colour } : {}),
+        ...(object !== null ? { renderLargest: object } : {}),
+      };
       sequence.push(air);
       balance.push(read?.balance?.topBottom ?? null);
-    } else { sequence.push(null); balance.push(null); }
+    } else {
+      sequence.push(null);
+      balance.push(null);
+    }
     colours.push(colour);
     largest.push(object);
   }
-  if (receipt.deck) receipt.deck.rhythm = { ...(receipt.deck.rhythm || {}), renderAir: sequence, topBottom: balance, ...(largest.some((v) => v !== null) ? { renderLargest: largest } : {}) };
+  if (receipt.deck)
+    receipt.deck.rhythm = {
+      ...(receipt.deck.rhythm || {}),
+      renderAir: sequence,
+      topBottom: balance,
+      ...(largest.some((v) => v !== null) ? { renderLargest: largest } : {}),
+    };
   const pacing = colourPacing(receipt, colours);
-  if (receipt.deck && pacing) { receipt.deck.rhythm.colour = colours; receipt.deck.pacing = pacing; }
+  if (receipt.deck && pacing) {
+    receipt.deck.rhythm.colour = colours;
+    receipt.deck.pacing = pacing;
+  }
   return receipt;
 }

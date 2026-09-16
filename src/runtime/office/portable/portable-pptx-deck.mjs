@@ -2,11 +2,48 @@ import { dirname, join, posix } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { textBodyXml, toEmu } from './portable-slide-shapes.mjs';
 import { readFile } from 'node:fs/promises';
-import { addPackageRelationship, cloneOwnedSlideParts, ensureContentTypeOverride, fillTemplateParts, nextRelationshipId, partRelationshipPath, provenanceCitation, zipText } from './portable-opc.mjs';
-import { OFFICE_RELATIONSHIP_BASE, containerInner, replaceAcrossRuns, topLevelElements, xmlAttribute, xmlEncode } from './portable-xml.mjs';
-import { SLIDE_CONTENT_TYPE, addPresentationSlide, deletePresentationSlide, ensureCommentAuthor, ensureSlideComments, importSlidesIntoPresentation, movePresentationSlide, presentationSlides, readSlideNotes, selectSlideLayout, setSlideNotes, slideIdEntries, slideLayoutParts, slidePath, writeSlideIdList } from './portable-pptx-package.mjs';
+import {
+  addPackageRelationship,
+  cloneOwnedSlideParts,
+  ensureContentTypeOverride,
+  fillTemplateParts,
+  nextRelationshipId,
+  partRelationshipPath,
+  provenanceCitation,
+  zipText,
+} from './portable-opc.mjs';
+import {
+  OFFICE_RELATIONSHIP_BASE,
+  containerInner,
+  replaceAcrossRuns,
+  topLevelElements,
+  xmlAttribute,
+  xmlEncode,
+} from './portable-xml.mjs';
+import {
+  SLIDE_CONTENT_TYPE,
+  addPresentationSlide,
+  deletePresentationSlide,
+  ensureCommentAuthor,
+  ensureSlideComments,
+  importSlidesIntoPresentation,
+  movePresentationSlide,
+  presentationSlides,
+  readSlideNotes,
+  selectSlideLayout,
+  setSlideNotes,
+  slideIdEntries,
+  slideLayoutParts,
+  slidePath,
+  writeSlideIdList,
+} from './portable-pptx-package.mjs';
 import JSZip from 'jszip';
-import { nextShapeId, presentationSlideSize, resolveSlideBackground, setSlideBackground } from './portable-pptx-core.mjs';
+import {
+  nextShapeId,
+  presentationSlideSize,
+  resolveSlideBackground,
+  setSlideBackground,
+} from './portable-pptx-core.mjs';
 import { contrastRatio, relativeLuminance } from './text-metrics.mjs';
 
 export async function handleAddSlide(context, op) {
@@ -17,7 +54,6 @@ export async function handleAddSlide(context, op) {
   return { op: op.op, changed: true, slide: created.position, layout: created.layout };
 }
 
-
 export async function handleDeleteSlide(context, op) {
   const { zip } = context;
   let slides = context.slides;
@@ -26,7 +62,6 @@ export async function handleDeleteSlide(context, op) {
   return { op: op.op, changed: true, slide: Number(op.slide) };
 }
 
-
 export async function handleMoveSlide(context, op) {
   const { zip } = context;
   let slides = context.slides;
@@ -34,7 +69,6 @@ export async function handleMoveSlide(context, op) {
   slides = context.slides = await presentationSlides(zip);
   return { op: op.op, changed: true, slide: Number(op.slide), index: Number(op.index) };
 }
-
 
 export async function handleKeepSlides(context, op) {
   const { zip } = context;
@@ -51,15 +85,15 @@ export async function handleKeepSlides(context, op) {
   return { op: op.op, changed: removed > 0, removed, remaining: slides.length };
 }
 
-
 export async function handleAddCommentOrDeleteComment(context, op) {
   const { zip } = context;
   const slides = context.slides;
   const slide = slides[Number(op.slide) - 1];
   if (!slide) throw new Error(`PPTX slide ${op.slide} not found`);
   if (op.op === 'delete_comment') {
-    const target = /<Relationship\b[^>]*\bType="[^"]*\/comments"[^>]*\bTarget="([^"]+)"/
-      .exec(await zipText(zip, partRelationshipPath(slide.path)))?.[1];
+    const target = /<Relationship\b[^>]*\bType="[^"]*\/comments"[^>]*\bTarget="([^"]+)"/.exec(
+      await zipText(zip, partRelationshipPath(slide.path))
+    )?.[1];
     if (!target) throw new Error(`PPTX slide ${op.slide} has no comments`);
     const part = posix.normalize(posix.join(posix.dirname(slide.path), target));
     const xml = await zipText(zip, part);
@@ -75,13 +109,13 @@ export async function handleAddCommentOrDeleteComment(context, op) {
   const xml = await zipText(zip, part);
   const indices = [...xml.matchAll(/<p:cm\b[^>]*\bidx="(\d+)"/g)].map((match) => Number(match[1]));
   const index = Math.max(0, ...indices) + 1;
-  const entry = `<p:cm authorId="${authorId}" dt="${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}" idx="${index}">`
-    + `<p:pos x="${Math.max(0, toEmu(op.left ?? 12))}" y="${Math.max(0, toEmu(op.top ?? 12))}"/>`
-    + `<p:text>${xmlEncode(text)}</p:text></p:cm>`;
+  const entry =
+    `<p:cm authorId="${authorId}" dt="${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}" idx="${index}">` +
+    `<p:pos x="${Math.max(0, toEmu(op.left ?? 12))}" y="${Math.max(0, toEmu(op.top ?? 12))}"/>` +
+    `<p:text>${xmlEncode(text)}</p:text></p:cm>`;
   zip.file(part, xml.replace('</p:cmLst>', `${entry}</p:cmLst>`));
   return { op: op.op, changed: true, slide: Number(op.slide), comment: index };
 }
-
 
 export async function handleAddProvenance(context, op) {
   const { zip } = context;
@@ -104,7 +138,6 @@ export async function handleAddProvenance(context, op) {
   };
 }
 
-
 export async function handleDuplicateSlide(context, op) {
   const { zip } = context;
   let slides = context.slides;
@@ -119,7 +152,7 @@ export async function handleDuplicateSlide(context, op) {
   if (sourceRelationships) {
     zip.file(
       partRelationshipPath(duplicated),
-      sourceRelationships.replace(/<Relationship\b[^>]*\bType="[^"]*\/notesSlide"[^>]*\/>/g, ''),
+      sourceRelationships.replace(/<Relationship\b[^>]*\bType="[^"]*\/notesSlide"[^>]*\/>/g, '')
     );
     // A copy that still pointed at the source's chart or diagram turned one
     // edit into two changed pages, with nothing in the result saying so.
@@ -130,14 +163,12 @@ export async function handleDuplicateSlide(context, op) {
     zip,
     'ppt/_rels/presentation.xml.rels',
     `${OFFICE_RELATIONSHIP_BASE}/slide`,
-    `slides/slide${ordinal}.xml`,
+    `slides/slide${ordinal}.xml`
   );
   const presentation = await zipText(zip, 'ppt/presentation.xml');
   const entries = slideIdEntries(presentation);
   const ids = entries.map((entry) => Number(xmlAttribute(entry, 'id')) || 0);
-  const position = Number(op.index) > 0
-    ? Math.min(Number(op.index) - 1, entries.length)
-    : Number(op.slide);
+  const position = Number(op.index) > 0 ? Math.min(Number(op.index) - 1, entries.length) : Number(op.slide);
   entries.splice(position, 0, `<p:sldId id="${Math.max(255, ...ids) + 1}" r:id="${relationshipId}"/>`);
   zip.file('ppt/presentation.xml', writeSlideIdList(presentation, entries));
   slides = context.slides = await presentationSlides(zip);
@@ -149,7 +180,6 @@ export async function handleDuplicateSlide(context, op) {
   };
 }
 
-
 export async function handleSetNotes(context, op) {
   const { zip } = context;
   const slides = context.slides;
@@ -157,20 +187,22 @@ export async function handleSetNotes(context, op) {
   return { op: op.op, changed: true, slide: Number(op.slide) };
 }
 
-
 export async function handleFillTemplate(context, op) {
   const { zip } = context;
   const slides = context.slides;
-  const paths = Object.keys(zip.files).filter((name) => /^ppt\/(slides\/slide\d+|notesSlides\/notesSlide\d+)\.xml$/.test(name));
+  const paths = Object.keys(zip.files).filter((name) =>
+    /^ppt\/(slides\/slide\d+|notesSlides\/notesSlide\d+)\.xml$/.test(name)
+  );
   return await fillTemplateParts(zip, paths, 'a:t', op);
 }
-
 
 export async function handleReplaceText(context, op) {
   const { zip } = context;
   const slides = context.slides;
   let count = 0;
-  const paths = Object.keys(zip.files).filter((name) => /^ppt\/(slides\/slide\d+|notesSlides\/notesSlide\d+)\.xml$/.test(name));
+  const paths = Object.keys(zip.files).filter((name) =>
+    /^ppt\/(slides\/slide\d+|notesSlides\/notesSlide\d+)\.xml$/.test(name)
+  );
   for (const path of paths) {
     const current = await zipText(zip, path);
     const replaced = replaceAcrossRuns(current, 'a:t', String(op.find || ''), String(op.replace ?? ''));
@@ -180,7 +212,6 @@ export async function handleReplaceText(context, op) {
   return { op: op.op, changed: count > 0, count };
 }
 
-
 export async function handleImportSlides(context, op) {
   const { zip } = context;
   let slides = context.slides;
@@ -188,7 +219,6 @@ export async function handleImportSlides(context, op) {
   slides = context.slides = await presentationSlides(zip);
   return { op: op.op, changed: merged.count > 0, count: merged.count, source: op.path };
 }
-
 
 export async function handleSetSlideBackground(context, op) {
   const { zip } = context;
@@ -199,7 +229,6 @@ export async function handleSetSlideBackground(context, op) {
   return { op: op.op, changed: true, slide: Number(op.slide) };
 }
 
-
 // Secondary ink for a footer or page number: grey enough to recede, dark (or
 // light) enough against its own field to clear the 4.5:1 the audit asks of any
 // text. A field we cannot read leaves the neutral that suits a white slide.
@@ -207,12 +236,14 @@ const QUIET_INK_ON_LIGHT = Object.freeze(['6A7179', '5A616A', '474D55']);
 const QUIET_INK_ON_DARK = Object.freeze(['A9B1B9', 'C2C9D0', 'D9DEE3']);
 
 export function quietInk(background) {
-  const field = String(background || '').replace(/^#/, '').slice(-6).toUpperCase();
+  const field = String(background || '')
+    .replace(/^#/, '')
+    .slice(-6)
+    .toUpperCase();
   if (!/^[0-9A-F]{6}$/.test(field)) return QUIET_INK_ON_LIGHT[0];
   const light = (relativeLuminance(field) ?? 1) >= 0.4;
   const ladder = light ? QUIET_INK_ON_LIGHT : QUIET_INK_ON_DARK;
-  return ladder.find((candidate) => (contrastRatio(candidate, field) ?? 0) >= 4.5)
-    || (light ? '1F2429' : 'FFFFFF');
+  return ladder.find((candidate) => (contrastRatio(candidate, field) ?? 0) >= 4.5) || (light ? '1F2429' : 'FFFFFF');
 }
 
 export async function handleSetFooterOrSetSlideNumber(context, op) {
@@ -239,42 +270,41 @@ export async function handleSetFooterOrSetSlideNumber(context, op) {
     const ink = quietInk(await resolveSlideBackground(zip, path, current));
     const body = footer
       ? textBodyXml({
-        paragraphs: [{ text: String(op.text || '') }],
-        defaults: { fontSize: 10, color: ink },
-        anchor: 'center',
-      })
-      : '<a:bodyPr wrap="square"><a:noAutofit/></a:bodyPr><a:lstStyle/>'
-        + `<a:p><a:pPr algn="r"/><a:fld id="{${randomUUID().toUpperCase()}}" type="slidenum">`
-        + `<a:rPr lang="en-US" sz="1000"><a:solidFill><a:srgbClr val="${ink}"/></a:solidFill></a:rPr>`
-        + `<a:t>${Number(op.slide)}</a:t></a:fld></a:p>`;
-    const shape = `<p:sp><p:nvSpPr>`
-      + `<p:cNvPr id="${id}" name="${footer ? 'Footer Placeholder' : 'Slide Number Placeholder'} ${id}"/>`
-      + '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>'
-      + `<p:nvPr><p:ph type="${placeholder}" sz="quarter" idx="${footer ? 10 : 12}"/></p:nvPr></p:nvSpPr>`
-      + `<p:spPr><a:xfrm><a:off x="${toEmu(footer ? 58 : size.width - 158)}" y="${toEmu(size.height - 40)}"/>`
-      + `<a:ext cx="${toEmu(footer ? size.width - 240 : 100)}" cy="${toEmu(24)}"/></a:xfrm>`
-      + '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>'
-      + `<p:txBody>${body}</p:txBody></p:sp>`;
+          paragraphs: [{ text: String(op.text || '') }],
+          defaults: { fontSize: 10, color: ink },
+          anchor: 'center',
+        })
+      : '<a:bodyPr wrap="square"><a:noAutofit/></a:bodyPr><a:lstStyle/>' +
+        `<a:p><a:pPr algn="r"/><a:fld id="{${randomUUID().toUpperCase()}}" type="slidenum">` +
+        `<a:rPr lang="en-US" sz="1000"><a:solidFill><a:srgbClr val="${ink}"/></a:solidFill></a:rPr>` +
+        `<a:t>${Number(op.slide)}</a:t></a:fld></a:p>`;
+    const shape =
+      `<p:sp><p:nvSpPr>` +
+      `<p:cNvPr id="${id}" name="${footer ? 'Footer Placeholder' : 'Slide Number Placeholder'} ${id}"/>` +
+      '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>' +
+      `<p:nvPr><p:ph type="${placeholder}" sz="quarter" idx="${footer ? 10 : 12}"/></p:nvPr></p:nvSpPr>` +
+      `<p:spPr><a:xfrm><a:off x="${toEmu(footer ? 58 : size.width - 158)}" y="${toEmu(size.height - 40)}"/>` +
+      `<a:ext cx="${toEmu(footer ? size.width - 240 : 100)}" cy="${toEmu(24)}"/></a:xfrm>` +
+      '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>' +
+      `<p:txBody>${body}</p:txBody></p:sp>`;
     inner = `${inner}${shape}`;
   }
   zip.file(path, `${current.slice(0, tree.start)}${inner}${current.slice(tree.end)}`);
   return { op: op.op, changed: true, slide: Number(op.slide), ...(hidden ? { visible: false } : {}) };
 }
 
-
 export async function handleApplyTheme(context, op) {
   const { zip } = context;
   const source = await JSZip.loadAsync(await readFile(op.path));
-  const themePart = Object.keys(source.files)
-    .find((name) => /^(?:ppt\/)?theme\/theme\d+\.xml$/i.test(name));
+  const themePart = Object.keys(source.files).find((name) => /^(?:ppt\/)?theme\/theme\d+\.xml$/i.test(name));
   if (!themePart) throw new Error(`apply_theme source has no theme part: ${op.path}`);
   const theme = await zipText(source, themePart);
-  const masters = Object.keys(zip.files)
-    .filter((name) => /^ppt\/slideMasters\/slideMaster\d+\.xml$/.test(name));
+  const masters = Object.keys(zip.files).filter((name) => /^ppt\/slideMasters\/slideMaster\d+\.xml$/.test(name));
   const targets = new Set();
   for (const master of masters) {
-    const target = /<Relationship\b[^>]*\bType="[^"]*\/theme"[^>]*\bTarget="([^"]+)"/
-      .exec(await zipText(zip, partRelationshipPath(master)))?.[1];
+    const target = /<Relationship\b[^>]*\bType="[^"]*\/theme"[^>]*\bTarget="([^"]+)"/.exec(
+      await zipText(zip, partRelationshipPath(master))
+    )?.[1];
     if (target) targets.add(posix.normalize(posix.join(posix.dirname(master), target)));
   }
   if (!targets.size) targets.add('ppt/theme/theme1.xml');
@@ -283,7 +313,7 @@ export async function handleApplyTheme(context, op) {
   // looking for a difference the file does not carry.
   const applied = [];
   for (const part of targets) {
-    if (await zipText(zip, part) === theme) continue;
+    if ((await zipText(zip, part)) === theme) continue;
     zip.file(part, theme);
     applied.push(part);
   }
@@ -296,7 +326,6 @@ export async function handleApplyTheme(context, op) {
   };
 }
 
-
 export async function handleSetLayout(context, op) {
   const { zip } = context;
   const slides = context.slides;
@@ -308,11 +337,13 @@ export async function handleSetLayout(context, op) {
   const pattern = /<Relationship\b[^>]*\bType="[^"]*\/slideLayout"[^>]*\/>/;
   const next = pattern.test(rels)
     ? rels.replace(pattern, (block) => block.replace(/\bTarget="[^"]*"/, `Target="${xmlEncode(target)}"`))
-    : rels.replace('</Relationships>', `<Relationship Id="${nextRelationshipId(rels)}" Type="${OFFICE_RELATIONSHIP_BASE}/slideLayout" Target="${xmlEncode(target)}"/></Relationships>`);
+    : rels.replace(
+        '</Relationships>',
+        `<Relationship Id="${nextRelationshipId(rels)}" Type="${OFFICE_RELATIONSHIP_BASE}/slideLayout" Target="${xmlEncode(target)}"/></Relationships>`
+      );
   zip.file(relationships, next);
   return { op: op.op, changed: true, slide: Number(op.slide), layout: layout.name || layout.type };
 }
-
 
 // PowerPoint keeps a hidden slide in the file and skips it when presenting, which
 // is how an appendix rides along with the deck it belongs to. The state lives on
@@ -329,7 +360,6 @@ export async function handleSetSlideVisibility(context, op) {
   zip.file(path, `${current.slice(0, open.index)}${attributes}${current.slice(open.index + open[0].length)}`);
   return { op: op.op, changed: true, slide: Number(op.slide), visible: op.visible };
 }
-
 
 export async function handleSetTransition(context, op) {
   const { zip } = context;
@@ -352,21 +382,18 @@ export async function handleSetTransition(context, op) {
     throw new Error(`set_transition effect must be one of: ${Object.keys(effects).join(', ')}`);
   }
   const duration = Number(op.duration);
-  const speed = Number.isFinite(duration) && duration > 0
-    ? (duration >= 1500 ? 'slow' : duration <= 500 ? 'fast' : 'med')
-    : 'med';
-  const advance = op.advanceOnTime === true && Number(op.advanceTime) > 0
-    ? ` advTm="${Math.round(Number(op.advanceTime))}"`
-    : '';
-  const element = requested === 'none'
-    ? ''
-    : `<p:transition spd="${speed}"${advance}>${effects[requested]}</p:transition>`;
+  const speed =
+    Number.isFinite(duration) && duration > 0 ? (duration >= 1500 ? 'slow' : duration <= 500 ? 'fast' : 'med') : 'med';
+  const advance =
+    op.advanceOnTime === true && Number(op.advanceTime) > 0 ? ` advTm="${Math.round(Number(op.advanceTime))}"` : '';
+  const element =
+    requested === 'none' ? '' : `<p:transition spd="${speed}"${advance}>${effects[requested]}</p:transition>`;
   const stripped = current.replace(/<p:transition\b[^>]*?(?:\/>|>[\s\S]*?<\/p:transition>)/, '');
   const anchor = /<p:clrMapOvr\b[^>]*?(?:\/>|>[\s\S]*?<\/p:clrMapOvr>)/.exec(stripped);
   const next = element
-    ? (anchor
+    ? anchor
       ? `${stripped.slice(0, anchor.index + anchor[0].length)}${element}${stripped.slice(anchor.index + anchor[0].length)}`
-      : stripped.replace('</p:sld>', `${element}</p:sld>`))
+      : stripped.replace('</p:sld>', `${element}</p:sld>`)
     : stripped;
   zip.file(path, next);
   return { op: op.op, changed: true, slide: Number(op.slide), effect: requested };

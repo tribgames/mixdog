@@ -15,16 +15,21 @@ export function createBrowserPresentationLoop(host: {
   let timer: unknown;
   function schedule(delay: number) {
     if (timer !== undefined) host.cancel(timer);
-    timer = host.schedule(() => { timer = undefined; void poll(); }, delay);
+    timer = host.schedule(() => {
+      timer = undefined;
+      void poll();
+    }, delay);
   }
   async function poll() {
     if (stopped || running || !host.visible()) return;
     running = true;
     const started = host.now();
     let delay: number | undefined;
-    try { await host.read(); }
-    catch (error) { if (!stopped) delay = host.failed(error); }
-    finally {
+    try {
+      await host.read();
+    } catch (error) {
+      if (!stopped) delay = host.failed(error);
+    } finally {
       running = false;
       if (!stopped && host.visible()) schedule(delay ?? Math.max(0, interval - (host.now() - started)));
     }
@@ -32,7 +37,10 @@ export function createBrowserPresentationLoop(host: {
   return {
     wake() {
       if (stopped) return;
-      if (timer !== undefined) { host.cancel(timer); timer = undefined; }
+      if (timer !== undefined) {
+        host.cancel(timer);
+        timer = undefined;
+      }
       if (!running) void poll();
     },
     stop() {

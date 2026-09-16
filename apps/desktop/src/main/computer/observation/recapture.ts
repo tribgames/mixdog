@@ -18,32 +18,24 @@ const FAILED_RECAPTURE_OBSERVATION_FIELDS = new Set([
   'accessibility_error',
 ]);
 
-function failedRecaptureObservation(
-  observation: Record<string, unknown>,
-): Record<string, unknown> {
+function failedRecaptureObservation(observation: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(observation)
-      .filter(([field]) => FAILED_RECAPTURE_OBSERVATION_FIELDS.has(field)),
+    Object.entries(observation).filter(([field]) => FAILED_RECAPTURE_OBSERVATION_FIELDS.has(field))
   );
 }
 
 export function recaptureRequirementCode(value: unknown): string | undefined {
   const message = value instanceof Error ? value.message : String(value || '');
   const normalized = message.startsWith('Error: ') ? message.slice(7) : message;
-  return RECAPTURE_REQUIRED_CODES.find((code) =>
-    normalized === code || normalized.startsWith(`${code}:`));
+  return RECAPTURE_REQUIRED_CODES.find((code) => normalized === code || normalized.startsWith(`${code}:`));
 }
 
 export function isFreshRecaptureObservation(
   observation: Record<string, unknown> | undefined,
-  expectedWindowId = '',
+  expectedWindowId = ''
 ): boolean {
   if (observation?.ok !== true || observation.action !== 'capture') return false;
-  const targetWindowId = String(
-    observation.requested_window_id
-    || observation.window_id
-    || '',
-  );
+  const targetWindowId = String(observation.requested_window_id || observation.window_id || '');
   if (!targetWindowId) return false;
   return !expectedWindowId || targetWindowId === expectedWindowId;
 }
@@ -52,7 +44,7 @@ export function buildRecaptureRequiredPayload(
   action: string,
   error: unknown,
   observation?: Record<string, unknown>,
-  expectedWindowId = '',
+  expectedWindowId = ''
 ): Record<string, unknown> | undefined {
   const message = error instanceof Error ? error.message : String(error || '');
   const code = recaptureRequirementCode(message);

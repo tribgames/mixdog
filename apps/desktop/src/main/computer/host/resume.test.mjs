@@ -15,13 +15,29 @@ function fixture(runOverride) {
   const workers = new Map();
   const nativeCalls = [];
   const lifecycle = createSessionLifecycle({
-    coordinator, execution, powerShellBySession: workers, workerLastUsedAt: new Map(),
-    retirePowerShell() {}, callPowerShell: async (request) => { nativeCalls.push(request.action); return { ok: true }; },
-    cancelElevatedSession: async () => true, elevatedSessionIds: () => [],
+    coordinator,
+    execution,
+    powerShellBySession: workers,
+    workerLastUsedAt: new Map(),
+    retirePowerShell() {},
+    callPowerShell: async (request) => {
+      nativeCalls.push(request.action);
+      return { ok: true };
+    },
+    cancelElevatedSession: async () => true,
+    elevatedSessionIds: () => [],
     sessionIdFor: (command) => command.session_id,
-    releaseSessionState: (id) => { released.push(id); observations.delete(id); }, invalidateWorkerGeneration() {},
-    releaseCaptureSession() {}, cleanupInput: async () => true,
-    runCommand: async (command) => { commands.push(command.action); return runOverride ? runOverride(command) : { text: '{"ok":true}' }; },
+    releaseSessionState: (id) => {
+      released.push(id);
+      observations.delete(id);
+    },
+    invalidateWorkerGeneration() {},
+    releaseCaptureSession() {},
+    cleanupInput: async () => true,
+    runCommand: async (command) => {
+      commands.push(command.action);
+      return runOverride ? runOverride(command) : { text: '{"ok":true}' };
+    },
     recaptureRequiredReply: async () => null,
   });
   coordinator.beginCommand({ sessionId: 'a', action: 'click', mode: 'foreground' });
@@ -31,7 +47,9 @@ function fixture(runOverride) {
 
 async function drainingFixture() {
   let finish;
-  const gate = new Promise((resolve) => { finish = () => resolve({ text: '{"ok":true}' }); });
+  const gate = new Promise((resolve) => {
+    finish = () => resolve({ text: '{"ok":true}' });
+  });
   const f = fixture(() => gate);
   f.coordinator.resumeAfterUserTakeover();
   const running = f.lifecycle.executeSerialized({ action: 'capture', session_id: 'a' });
@@ -55,8 +73,9 @@ test('paused UI survives session cleanup; only safe probes work, and explicit re
     await lifecycle.executeSerialized({ action, session_id: 'a' });
   }
   let completed = false;
-  const queued = lifecycle.executeSerialized({ action: 'capture', session_id: 'a' })
-    .then(() => { completed = true; });
+  const queued = lifecycle.executeSerialized({ action: 'capture', session_id: 'a' }).then(() => {
+    completed = true;
+  });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(completed, false);
   observations.set('a', 'late-old-ref');
@@ -98,16 +117,28 @@ test('UI coalesces duplicate requests and retains actionable errors without raw 
   let finish;
   let resumed = 0;
   let stopped = 0;
-  const gate = new Promise((resolve) => { finish = resolve; });
-  const control = createComputerOverlayController({
-    resume: async () => { resumed++; await gate; throw new Error('computer_resume_stale: private payload'); },
-    stop: async () => { stopped++; },
-  }, () => {});
+  const gate = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const control = createComputerOverlayController(
+    {
+      resume: async () => {
+        resumed++;
+        await gate;
+        throw new Error('computer_resume_stale: private payload');
+      },
+      stop: async () => {
+        stopped++;
+      },
+    },
+    () => {}
+  );
   const pending = control.invoke('resume', 2, ['a']);
   await control.invoke('resume', 2, ['a']);
   assert.equal(resumed, 1);
   assert.equal(control.state(2).busy, true);
-  finish(); await pending;
+  finish();
+  await pending;
   assert.equal(control.state(2).error, 'stale');
   assert.equal(control.state(3).error, '');
   await control.invoke('stop', 3, ['a']);
@@ -135,11 +166,18 @@ test('native interruption stops the active input but retains a queued read throu
   let calls = 0;
   const lifecycle = createSessionLifecycle({
     pauseWaitMs: 15,
-    coordinator, execution, powerShellBySession: new Map(), workerLastUsedAt: new Map(),
-    retirePowerShell() {}, callPowerShell: async () => ({ ok: true }),
-    cancelElevatedSession: async () => true, elevatedSessionIds: () => [],
+    coordinator,
+    execution,
+    powerShellBySession: new Map(),
+    workerLastUsedAt: new Map(),
+    retirePowerShell() {},
+    callPowerShell: async () => ({ ok: true }),
+    cancelElevatedSession: async () => true,
+    elevatedSessionIds: () => [],
     sessionIdFor: (command) => command.session_id,
-    releaseSessionState() {}, invalidateWorkerGeneration() {}, releaseCaptureSession() {},
+    releaseSessionState() {},
+    invalidateWorkerGeneration() {},
+    releaseCaptureSession() {},
     cleanupInput: async () => true,
     runCommand: async (command) => {
       calls++;
@@ -154,8 +192,12 @@ test('native interruption stops the active input but retains a queued read throu
   assert.equal(paused.input_replayed, false);
   assert.equal(paused.pending_work.uncertain_step, 1);
   let completed = false;
-  const queued = lifecycle.executeSerialized({ action: 'capture', session_id: 'a', delivery: 'background' })
-    .then((value) => { completed = true; return value; });
+  const queued = lifecycle
+    .executeSerialized({ action: 'capture', session_id: 'a', delivery: 'background' })
+    .then((value) => {
+      completed = true;
+      return value;
+    });
   await lifecycle.waitForCleanup();
   assert.equal(calls, 1);
   assert.equal(completed, false);
@@ -193,31 +235,56 @@ test('Stop cancels a pending resume without waiting for it', async () => {
   let signal;
   let finish;
   let stopped = false;
-  const control = createComputerOverlayController({
-    resume: async (_, cancellation) => { signal = cancellation; await new Promise((resolve) => { finish = resolve; }); },
-    stop: async () => { stopped = true; },
-  }, () => {});
+  const control = createComputerOverlayController(
+    {
+      resume: async (_, cancellation) => {
+        signal = cancellation;
+        await new Promise((resolve) => {
+          finish = resolve;
+        });
+      },
+      stop: async () => {
+        stopped = true;
+      },
+    },
+    () => {}
+  );
   const pending = control.invoke('resume', 1, ['a']);
   await control.invoke('stop', 1, ['a']);
   assert.equal(signal.aborted, true);
   assert.equal(stopped, true);
-  finish(); await pending;
+  finish();
+  await pending;
   assert.equal(control.state(1).busy, false);
 });
 
 test('pause cancels a pending resume without calling the task-ending stop control', async () => {
   let signal, finish;
-  let pauses = 0, stops = 0;
-  const control = createComputerOverlayController({
-    resume: async (_, cancellation) => { signal = cancellation; await new Promise((resolve) => { finish = resolve; }); },
-    pause: async () => { pauses++; },
-    stop: async () => { stops++; },
-  }, () => {});
+  let pauses = 0,
+    stops = 0;
+  const control = createComputerOverlayController(
+    {
+      resume: async (_, cancellation) => {
+        signal = cancellation;
+        await new Promise((resolve) => {
+          finish = resolve;
+        });
+      },
+      pause: async () => {
+        pauses++;
+      },
+      stop: async () => {
+        stops++;
+      },
+    },
+    () => {}
+  );
   const pending = control.invoke('resume', 2, ['a']);
   await control.invoke('pause', 2, ['a']);
   assert.equal(signal.aborted, true);
   assert.equal(pauses, 1);
   assert.equal(stops, 0);
-  finish(); await pending;
+  finish();
+  await pending;
   assert.equal(control.state(2).busy, false);
 });

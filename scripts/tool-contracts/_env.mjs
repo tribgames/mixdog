@@ -20,7 +20,7 @@ const localGraphBin = join(
   'mixdog-graph',
   'target',
   'debug',
-  process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph',
+  process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph'
 );
 if (!process.env.MIXDOG_GRAPH_BIN && existsSync(localGraphBin)) {
   process.env.MIXDOG_GRAPH_BIN = localGraphBin;

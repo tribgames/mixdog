@@ -19,24 +19,27 @@ import {
 
 test('native spawn rejects binaries without the required lifecycle protocol', () => {
   assert.throws(
-    () => _assertNativeSpawnCapabilitiesForTest({
+    () =>
+      _assertNativeSpawnCapabilitiesForTest({
+        trackedForeground: true,
+        promoteTask: true,
+      }),
+    (error) => error?.code === 'NATIVE_SPAWN_INCOMPATIBLE' && error.missingCaps?.includes('cancelOwner')
+  );
+  assert.equal(
+    _assertNativeSpawnCapabilitiesForTest({
       trackedForeground: true,
       promoteTask: true,
+      cancelOwner: true,
     }),
-    (error) => error?.code === 'NATIVE_SPAWN_INCOMPATIBLE'
-      && error.missingCaps?.includes('cancelOwner'),
+    true
   );
-  assert.equal(_assertNativeSpawnCapabilitiesForTest({
-    trackedForeground: true,
-    promoteTask: true,
-    cancelOwner: true,
-  }), true);
 });
 
 test('foreground shell has stable owner identity before promotion', { timeout: 15_000 }, async (t) => {
   const binary = resolve(
     'native/mixdog-spawn/target/debug',
-    process.platform === 'win32' ? 'mixdog-spawn.exe' : 'mixdog-spawn',
+    process.platform === 'win32' ? 'mixdog-spawn.exe' : 'mixdog-spawn'
   );
   if (!existsSync(binary)) {
     t.skip(`native spawn test binary not found: ${binary}`);
@@ -77,8 +80,9 @@ test('foreground shell has stable owner identity before promotion', { timeout: 1
 
     let foreground = null;
     for (let attempt = 0; attempt < 100; attempt += 1) {
-      foreground = listNativeTasks().find((task) =>
-        task.status === 'running' && task.ownerSessionId === ownerSessionId);
+      foreground = listNativeTasks().find(
+        (task) => task.status === 'running' && task.ownerSessionId === ownerSessionId
+      );
       if (foreground) break;
       await delay(10);
     }

@@ -1,18 +1,11 @@
 // Lead tool surface: which tools the model sees before a session exists, and
 // how that pre-session selection is replayed once one does. Extracted from
 // runtime-core, which keeps the mutable session/route/mode it injects here.
-import {
-  applyDeferredToolSurface,
-  filterDisallowedTools,
-  selectDeferredTools,
-} from './tool-catalog.mjs';
+import { applyDeferredToolSurface, filterDisallowedTools, selectDeferredTools } from './tool-catalog.mjs';
 import { LEAD_DISALLOWED_TOOLS } from './tool-defs.mjs';
 import { deferredSurfaceModeForLead, toolSpecForMode } from './effort.mjs';
 import { loadSkillToolDependencies } from './skill-tool-loading.mjs';
-import {
-  disallowedModelToolNamesForProfile,
-  filterModelToolsForProfile,
-} from './tool-profile.mjs';
+import { disallowedModelToolNamesForProfile, filterModelToolsForProfile } from './tool-profile.mjs';
 
 export function createToolSurface({
   mgr,
@@ -67,9 +60,7 @@ export function createToolSurface({
       ? profileTools.filter((tool) => !agentToolNames.has(String(tool?.name || '')))
       : profileTools;
     const denied = new Set(getFeatureDisallowedTools().map((name) => String(name || '')));
-    return denied.size
-      ? workflowTools.filter((tool) => !denied.has(String(tool?.name || '')))
-      : workflowTools;
+    return denied.size ? workflowTools.filter((tool) => !denied.has(String(tool?.name || ''))) : workflowTools;
   }
 
   function disallowedTools() {
@@ -88,18 +79,16 @@ export function createToolSurface({
   }
 
   function buildPreSessionSurface() {
-    const previewTools = typeof mgr.previewSessionTools === 'function'
-      ? mgr.previewSessionTools(toolSpecForMode(mode), [], {
-        mcpScopeId: getMcpScopeId(),
-        modelName: getRoute().model,
-        cwd: getCurrentCwd?.() || null,
-      })
-      : [];
+    const previewTools =
+      typeof mgr.previewSessionTools === 'function'
+        ? mgr.previewSessionTools(toolSpecForMode(mode), [], {
+            mcpScopeId: getMcpScopeId(),
+            modelName: getRoute().model,
+            cwd: getCurrentCwd?.() || null,
+          })
+        : [];
     const denied = disallowedTools();
-    const tools = filterDisallowedTools(
-      filterModelToolsForProfile(previewTools, getToolProfile()),
-      denied,
-    );
+    const tools = filterDisallowedTools(filterModelToolsForProfile(previewTools, getToolProfile()), denied);
     const surface = {
       tools: Array.isArray(tools) ? tools.slice() : [],
       mcpScopeId: getMcpScopeId(),
@@ -151,11 +140,15 @@ export function createToolSurface({
       const replay = [...new Set([...selected, ...discovered])];
       if (replay.length) selectDeferredTools(session, replay, deferredSurfaceModeForLead(mode));
       if (preSessionSurface.skillLoadedTools?.length) {
-        loadSkillToolDependencies({
-          __toolEnvelope: true,
-          result: '',
-          skillToolDependencies: preSessionSurface.skillLoadedTools.map((value) => ({ type: 'tool', value })),
-        }, session, deferredSurfaceModeForLead(mode));
+        loadSkillToolDependencies(
+          {
+            __toolEnvelope: true,
+            result: '',
+            skillToolDependencies: preSessionSurface.skillLoadedTools.map((value) => ({ type: 'tool', value })),
+          },
+          session,
+          deferredSurfaceModeForLead(mode)
+        );
       }
     },
   };

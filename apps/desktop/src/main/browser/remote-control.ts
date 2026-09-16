@@ -6,10 +6,7 @@
  */
 import type { WebContents } from 'electron';
 
-import type {
-  DesktopRemoteBrowserControl,
-  DesktopRemoteBrowserFrame,
-} from '../../shared/contract';
+import type { DesktopRemoteBrowserControl, DesktopRemoteBrowserFrame } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
 import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
 import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';
@@ -30,22 +27,14 @@ export interface BrowserRemoteControlHost {
   captureScreenshot(
     guest: WebContents,
     background: boolean,
-    options: { format?: unknown; quality?: unknown },
+    options: { format?: unknown; quality?: unknown }
   ): Promise<BrowserScreenshotCapture>;
   assertResolvedUrlAllowed(url: string, pageGenerated: boolean): Promise<void>;
   revision?(guest: WebContents): Promise<string>;
 }
 
 export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
-  const {
-    state,
-    cdp,
-    input,
-    urlPolicy,
-    ensureGuest,
-    captureScreenshot,
-    assertResolvedUrlAllowed,
-  } = host;
+  const { state, cdp, input, urlPolicy, ensureGuest, captureScreenshot, assertResolvedUrlAllowed } = host;
 
   // A phone polls frames every 350–900ms while its Browser Use sheet is open.
   // The desktop parks an unshown guest OFF-window, where Chromium composes no
@@ -76,10 +65,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     viewerTimers.delete(sessionId);
   }
 
-  async function remoteBrowserFrame(
-    sessionId: string,
-    previousFrameId = '',
-  ): Promise<DesktopRemoteBrowserFrame> {
+  async function remoteBrowserFrame(sessionId: string, previousFrameId = ''): Promise<DesktopRemoteBrowserFrame> {
     noteViewer(sessionId);
     const guest = await ensureGuest(sessionId, { reveal: false });
     await cdp.waitForInitialDocument(guest);
@@ -90,28 +76,28 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       quality: 58,
     });
     const record = state.for(guest);
-    if (revision !== await host.revision?.(guest)
-      || documentId !== browserDocumentId(state, guest)) {
+    if (revision !== (await host.revision?.(guest)) || documentId !== browserDocumentId(state, guest)) {
       throw new Error('Remote Browser Use page changed during capture; wait for a fresh frame.');
     }
     const previous = record.remoteFrame;
     const url = guest.getURL() || 'about:blank';
-    const current = previous
-      && previous.image.data === capture.data
-      && previous.width === capture.width
-      && previous.height === capture.height
-      && previous.url === url
-      && previous.revision === revision
-      ? previous
-      : {
-        frameId: `rbf_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
-        image: { mimeType: capture.mimeType, data: capture.data },
-        width: capture.width,
-        height: capture.height,
-        url,
-        capturedAt: Date.now(),
-        revision,
-      };
+    const current =
+      previous &&
+      previous.image.data === capture.data &&
+      previous.width === capture.width &&
+      previous.height === capture.height &&
+      previous.url === url &&
+      previous.revision === revision
+        ? previous
+        : {
+            frameId: `rbf_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+            image: { mimeType: capture.mimeType, data: capture.data },
+            width: capture.width,
+            height: capture.height,
+            url,
+            capturedAt: Date.now(),
+            revision,
+          };
     current.capturedAt = Date.now();
     if (current !== previous) record.remoteFrame = current;
     const history = guest.navigationHistory;
@@ -129,10 +115,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     };
   }
 
-  async function remoteBrowserControl(
-    sessionId: string,
-    control: DesktopRemoteBrowserControl,
-  ): Promise<void> {
+  async function remoteBrowserControl(sessionId: string, control: DesktopRemoteBrowserControl): Promise<void> {
     noteViewer(sessionId);
     const guest = await ensureGuest(sessionId, { reveal: false });
     host.onUserControl?.(guest);
@@ -145,8 +128,12 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       if (!frame || !('frameId' in control) || control.frameId !== frame.frameId) {
         throw new Error('Remote Browser Use frame is stale; wait for the latest frame and retry.');
       }
-      if (frame.url !== guest.getURL() || !frame.capturedAt || Date.now() - frame.capturedAt > 10_000
-        || frame.revision !== await host.revision?.(guest)) {
+      if (
+        frame.url !== guest.getURL() ||
+        !frame.capturedAt ||
+        Date.now() - frame.capturedAt > 10_000 ||
+        frame.revision !== (await host.revision?.(guest))
+      ) {
         state.invalidateInteraction(guest);
         throw new Error('Remote Browser Use page changed; wait for the latest frame and retry.');
       }
@@ -184,7 +171,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
         await input.swipeAt(
           guest,
           browserImagePointToCss(control.from, guest.getZoomFactor()),
-          browserImagePointToCss(control.to, guest.getZoomFactor()),
+          browserImagePointToCss(control.to, guest.getZoomFactor())
         );
         return;
       case 'scroll': {
@@ -194,12 +181,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
         return;
       }
       case 'text':
-        await cdp.sendCdpInput(
-          guest,
-          await cdp.guestDebugger(guest),
-          'Input.insertText',
-          { text: control.text },
-        );
+        await cdp.sendCdpInput(guest, await cdp.guestDebugger(guest), 'Input.insertText', { text: control.text });
         return;
       case 'key':
         await input.pressKey(guest, control.key);

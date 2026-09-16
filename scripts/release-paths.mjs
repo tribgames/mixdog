@@ -31,21 +31,11 @@ export const DESKTOP_GATE_SCRIPT_BASES = [
 // Prefixes whose changes require the runtime gate. The gate runs the
 // discovered default lane (scripts/test.mjs: every test file under src/ and
 // scripts/), so any change under those roots is a candidate.
-export const RUNTIME_GATE_PREFIXES = [
-  '.github/workflows/',
-  'native/',
-  'scripts/',
-  'src/',
-];
+export const RUNTIME_GATE_PREFIXES = ['.github/workflows/', 'native/', 'scripts/', 'src/'];
 
 // deploy.yml plan: paths whose change since the published release tag marks
 // the default lane as unverified.
-export const RELEASE_CRITICAL_PATHS = [
-  'native',
-  'scripts',
-  'src',
-  ...PACKAGE_MANIFESTS,
-];
+export const RELEASE_CRITICAL_PATHS = ['native', 'scripts', 'src', ...PACKAGE_MANIFESTS];
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 

@@ -83,7 +83,9 @@ use ast_grep_outline::extractor::{
     parse_outline_rules, ItemExtractor, MemberExtractor, SerializableOutlineRule,
 };
 use ast_grep_outline::model::{OutlineItem, SymbolType};
-use ast_grep_outline::options::{OutlineEntryDetail, OutlineExtractorOptions, OutlineMemberOptions};
+use ast_grep_outline::options::{
+    OutlineEntryDetail, OutlineExtractorOptions, OutlineMemberOptions,
+};
 use ast_grep_outline::DEFAULT_OUTLINE_RULES;
 use serde::Serialize;
 
@@ -254,7 +256,10 @@ fn parse_rule_document(
     match parse_outline_rules::<ScanLang>(doc) {
         Ok(parsed) => {
             if parsed.len() > 1 {
-                let ids: Vec<&str> = parsed.iter().map(|rule| rule.common().id.as_str()).collect();
+                let ids: Vec<&str> = parsed
+                    .iter()
+                    .map(|rule| rule.common().id.as_str())
+                    .collect();
                 errors.push(format!(
                     "{origin}: document {number}: {} rules in one YAML document ({}); \
                      split them with `---` so `# mixdog-kind:` binds to one rule",
@@ -304,7 +309,14 @@ fn parse_parity_stream(
     for (index, doc) in split_yaml_documents(source).into_iter().enumerate() {
         parse_rule_document(doc, "parity.yml", index + 1, rules, kinds, errors);
         if let Some(tsx) = tsx_variant(doc) {
-            parse_rule_document(&tsx, "parity.yml (tsx copy)", index + 1, rules, kinds, errors);
+            parse_rule_document(
+                &tsx,
+                "parity.yml (tsx copy)",
+                index + 1,
+                rules,
+                kinds,
+                errors,
+            );
         }
     }
 }
@@ -522,9 +534,9 @@ impl LangExtractors {
                             items.push(extractor);
                             item_kinds.push(kind);
                         }
-                        Err(error) => {
-                            errors.push(format!("{lang}: item rule `{id}` does not compile: {error}"))
-                        }
+                        Err(error) => errors.push(format!(
+                            "{lang}: item rule `{id}` does not compile: {error}"
+                        )),
                     }
                 }
                 SerializableOutlineRule::Member(member) => {
@@ -535,8 +547,9 @@ impl LangExtractors {
                             member_kinds.push(kind);
                             member_parents.push(parents);
                         }
-                        Err(error) => errors
-                            .push(format!("{lang}: member rule `{id}` does not compile: {error}")),
+                        Err(error) => errors.push(format!(
+                            "{lang}: member rule `{id}` does not compile: {error}"
+                        )),
                     }
                 }
             }
@@ -598,11 +611,7 @@ impl LangExtractors {
         }
         let item_scope = items
             .iter()
-            .map(|item| {
-                scope_by_parent
-                    .get(item.common.rule.id.as_str())
-                    .copied()
-            })
+            .map(|item| scope_by_parent.get(item.common.rule.id.as_str()).copied())
             .collect();
 
         Self {
@@ -665,7 +674,8 @@ impl LangExtractors {
                                 declared: self.item_kinds[index],
                                 member_declared: Vec::new(),
                             });
-                            next_scope = self.item_scope[index].map(|scope| (scope, items.len() - 1));
+                            next_scope =
+                                self.item_scope[index].map(|scope| (scope, items.len() - 1));
                             break;
                         }
                     }
@@ -1008,7 +1018,14 @@ fn map_items(walked: Walked<'_>, text: &str, graph_lang: &str) -> Extraction {
         }
         if let Some(kind) = entry_kind(graph_lang, walked.declared, entry) {
             push_candidate(
-                candidate_for(text, &entry.name, kind, &entry.range, item.is_exported, false),
+                candidate_for(
+                    text,
+                    &entry.name,
+                    kind,
+                    &entry.range,
+                    item.is_exported,
+                    false,
+                ),
                 &mut candidates,
                 &mut by_key,
             );
@@ -1018,7 +1035,14 @@ fn map_items(walked: Walked<'_>, text: &str, graph_lang: &str) -> Extraction {
             let declared = walked.member_declared.get(index).copied().flatten();
             if let Some(kind) = entry_kind(graph_lang, declared, entry) {
                 push_candidate(
-                    candidate_for(text, &entry.name, kind, &entry.range, member.is_public, true),
+                    candidate_for(
+                        text,
+                        &entry.name,
+                        kind,
+                        &entry.range,
+                        member.is_public,
+                        true,
+                    ),
                     &mut candidates,
                     &mut by_key,
                 );
@@ -1029,7 +1053,12 @@ fn map_items(walked: Walked<'_>, text: &str, graph_lang: &str) -> Extraction {
     imports.sort_by_key(|(offset, _)| *offset);
     let imports = imports.into_iter().map(|(_, spec)| spec).collect();
     candidates.sort_by(|a, b| {
-        (a.start_line, a.start_col, a.line, &a.name).cmp(&(b.start_line, b.start_col, b.line, &b.name))
+        (a.start_line, a.start_col, a.line, &a.name).cmp(&(
+            b.start_line,
+            b.start_col,
+            b.line,
+            &b.name,
+        ))
     });
 
     // Containment order: nesting is a byte-span relation, not a line one, so
@@ -1117,7 +1146,11 @@ fn map_items(walked: Walked<'_>, text: &str, graph_lang: &str) -> Extraction {
                 ),
                 // A head that is just the name again (a bare enum member, a
                 // binding with neither type nor initializer) is no signature.
-                sig: if head == candidate.name { String::new() } else { head },
+                sig: if head == candidate.name {
+                    String::new()
+                } else {
+                    head
+                },
                 parent,
                 name: candidate.name,
                 end_line: candidate.end_line,
@@ -1163,13 +1196,22 @@ fn candidate_for(
     Candidate {
         name: name.to_string(),
         kind,
-        line: name_line(text, range.byte_offset.start, range.byte_offset.end, start_line, name),
+        line: name_line(
+            text,
+            range.byte_offset.start,
+            range.byte_offset.end,
+            start_line,
+            name,
+        ),
         start_line,
         start_col: range.start.column as u32 + 1,
         end_line: range.end.line as u32 + 1,
         end_col: range.end.column as u32,
         start_byte: range.byte_offset.start,
-        span: range.byte_offset.end.saturating_sub(range.byte_offset.start),
+        span: range
+            .byte_offset
+            .end
+            .saturating_sub(range.byte_offset.start),
         rule_exported,
         member,
     }
@@ -1216,13 +1258,30 @@ pub fn symbol_kind(lang: &str, ast_kind: &str, symbol_type: SymbolType) -> Optio
 fn kind_by_ast_kind(lang: &str, ast_kind: &str) -> Option<Option<&'static str>> {
     // Import/dependency statements are never symbols in any language.
     match ast_kind {
-        "import_statement" | "import_from_statement" | "import_declaration" | "import_header"
-        | "import_list" | "dotted_name" | "aliased_import" | "using_directive"
-        | "use_declaration" | "namespace_use_declaration" | "preproc_include" | "preproc_import"
-        | "module_import" | "require_expression" | "require_once_expression"
-        | "include_expression" | "include_once_expression" | "import_or_export"
-        | "part_directive" | "import_specification" | "builtin_function" | "function_call"
-        | "command" | "call_expression" => return Some(None),
+        "import_statement"
+        | "import_from_statement"
+        | "import_declaration"
+        | "import_header"
+        | "import_list"
+        | "dotted_name"
+        | "aliased_import"
+        | "using_directive"
+        | "use_declaration"
+        | "namespace_use_declaration"
+        | "preproc_include"
+        | "preproc_import"
+        | "module_import"
+        | "require_expression"
+        | "require_once_expression"
+        | "include_expression"
+        | "include_once_expression"
+        | "import_or_export"
+        | "part_directive"
+        | "import_specification"
+        | "builtin_function"
+        | "function_call"
+        | "command"
+        | "call_expression" => return Some(None),
         _ => {}
     }
     let kind = match (lang, ast_kind) {
@@ -1239,7 +1298,9 @@ fn kind_by_ast_kind(lang: &str, ast_kind: &str) -> Option<Option<&'static str>> 
         ("typescript", "enum_declaration") => Some("enum"),
         (
             "typescript" | "javascript",
-            "function_declaration" | "function_expression" | "generator_function"
+            "function_declaration"
+            | "function_expression"
+            | "generator_function"
             | "function_signature",
         ) => Some("function"),
         // A METHOD SIGNATURE — of an interface, of a type literal, or the
@@ -1259,8 +1320,12 @@ fn kind_by_ast_kind(lang: &str, ast_kind: &str) -> Option<Option<&'static str>> 
         // owns, so an arrow-valued field stays what it is — a field.
         (
             "typescript" | "javascript",
-            "public_field_definition" | "field_definition" | "property_signature"
-            | "method_signature" | "property_identifier" | "enum_assignment",
+            "public_field_definition"
+            | "field_definition"
+            | "property_signature"
+            | "method_signature"
+            | "property_identifier"
+            | "enum_assignment",
         ) => None,
         ("python", "assignment") => None,
         ("go", "type_spec") => Some("type"),
@@ -1288,8 +1353,11 @@ fn kind_by_ast_kind(lang: &str, ast_kind: &str) -> Option<Option<&'static str>> 
         ("csharp", "local_function_statement") => Some("local-function"),
         (
             "csharp",
-            "delegate_declaration" | "property_declaration" | "field_declaration"
-            | "enum_member_declaration" | "variable_declarator",
+            "delegate_declaration"
+            | "property_declaration"
+            | "field_declaration"
+            | "enum_member_declaration"
+            | "variable_declarator",
         ) => None,
         ("c", "union_specifier" | "declaration" | "field_declaration" | "enumerator") => None,
         (
@@ -1924,7 +1992,11 @@ fn skip_spaces(bytes: &[u8], from: usize) -> usize {
 fn starts_word_at(text: &str, at: usize, word: &str) -> bool {
     text.get(at..).is_some_and(|rest| {
         rest.starts_with(word)
-            && !rest.as_bytes().get(word.len()).copied().is_some_and(is_word_byte)
+            && !rest
+                .as_bytes()
+                .get(word.len())
+                .copied()
+                .is_some_and(is_word_byte)
     })
 }
 
@@ -2116,15 +2188,12 @@ fn is_exported(
         "go" => name.starts_with(|ch: char| ch.is_uppercase()),
         "python" => top_level && !name.starts_with('_'),
         "java" | "csharp" => has_modifier(head, "public"),
-        "kotlin" | "scala" | "swift" => !has_any_modifier(
-            head,
-            &["private", "protected", "internal", "fileprivate"],
-        ),
+        "kotlin" | "scala" | "swift" => {
+            !has_any_modifier(head, &["private", "protected", "internal", "fileprivate"])
+        }
         "php" => !has_any_modifier(head, &["private", "protected"]),
         "ruby" => match visibility {
-            FileVisibility::Ruby(sections) => {
-                ruby_exported(text, sections, candidate.start_byte)
-            }
+            FileVisibility::Ruby(sections) => ruby_exported(text, sections, candidate.start_byte),
             _ => true,
         },
         // Elixir marks a private definition with a trailing `p` on the
@@ -2641,7 +2710,13 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), crate::scan::ScanError> {
             let text = crate::scan::read_rule_text(spec).map_err(ScanError::Usage)?;
             let mut parsed = Vec::new();
             let mut parse_errors = Vec::new();
-            parse_rule_stream(&text, spec, &mut parsed, &mut extra_kinds, &mut parse_errors);
+            parse_rule_stream(
+                &text,
+                spec,
+                &mut parsed,
+                &mut extra_kinds,
+                &mut parse_errors,
+            );
             if !parse_errors.is_empty() {
                 return Err(ScanError::Usage(parse_errors.join("\n")));
             }
@@ -2706,9 +2781,17 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), crate::scan::ScanError> {
                         .unwrap_or_default();
                     (json, calls, None)
                 }
-                Err(error) => (Vec::new(), Vec::new(), Some(format!("parse failed: {error}"))),
+                Err(error) => (
+                    Vec::new(),
+                    Vec::new(),
+                    Some(format!("parse failed: {error}")),
+                ),
             },
-            Err(error) => (Vec::new(), Vec::new(), Some(format!("read failed: {error}"))),
+            Err(error) => (
+                Vec::new(),
+                Vec::new(),
+                Some(format!("read failed: {error}")),
+            ),
         };
         if let Some(error) = &error {
             errors.push(format!("{}: {error}", file.rel));
@@ -2923,7 +3006,8 @@ macro_rules! shout { () => {} }
             ])
         );
 
-        let kotlin = "class C {\n  fun m() {}\n}\ninterface I\nenum class E { A }\nobject O\nfun top() {}\n";
+        let kotlin =
+            "class C {\n  fun m() {}\n}\ninterface I\nenum class E { A }\nobject O\nfun top() {}\n";
         assert_eq!(
             kinds("kotlin", "kt", kotlin),
             named(&[
@@ -3035,7 +3119,11 @@ macro_rules! shout { () => {} }
         );
 
         assert_eq!(
-            kinds("scala", "scala", "trait T\nclass C { def m(): Int = 1 }\nobject O { def o(): Int = 2 }\n"),
+            kinds(
+                "scala",
+                "scala",
+                "trait T\nclass C { def m(): Int = 1 }\nobject O { def o(): Int = 2 }\n"
+            ),
             named(&[
                 ("trait", "T"),
                 ("class", "C"),
@@ -3051,12 +3139,12 @@ macro_rules! shout { () => {} }
         );
 
         assert_eq!(
-            kinds("lua", "lua", "function f() end\nfunction M.g() end\nfunction M:h() end\n"),
-            named(&[
-                ("function", "f"),
-                ("function", "g"),
-                ("function", "h"),
-            ])
+            kinds(
+                "lua",
+                "lua",
+                "function f() end\nfunction M.g() end\nfunction M:h() end\n"
+            ),
+            named(&[("function", "f"), ("function", "g"), ("function", "h"),])
         );
 
         assert_eq!(
@@ -3102,10 +3190,18 @@ macro_rules! shout { () => {} }
 
     #[test]
     fn symbol_spans_are_the_declaration_node() {
-        let symbols = symbols("typescript", "ts", "export function run() {\n  return 1;\n}\n");
+        let symbols = symbols(
+            "typescript",
+            "ts",
+            "export function run() {\n  return 1;\n}\n",
+        );
         assert_eq!(symbols.len(), 1);
         let lang = scan_lang_for_ext("ts").unwrap();
-        let extracted = extract("export function run() {\n  return 1;\n}\n", "typescript", lang);
+        let extracted = extract(
+            "export function run() {\n  return 1;\n}\n",
+            "typescript",
+            lang,
+        );
         let symbol = &extracted.symbols[0];
         // `function`, not `export`, and the span covers the body.
         assert_eq!(
@@ -3145,15 +3241,27 @@ macro_rules! shout { () => {} }
             vec!["__future__", "os", "sys", "a.b.c", "pkg.sub", ".rel"]
         );
         assert_eq!(
-            imports("go", "go", "package p\nimport \"fmt\"\nimport (\n\t\"errors\"\n)\n"),
+            imports(
+                "go",
+                "go",
+                "package p\nimport \"fmt\"\nimport (\n\t\"errors\"\n)\n"
+            ),
             vec!["fmt", "errors"]
         );
         assert_eq!(
-            imports("rust", "rs", "use std::fmt;\npub use crate::api::X;\nmod helpers;\nmod inline { }\n"),
+            imports(
+                "rust",
+                "rs",
+                "use std::fmt;\npub use crate::api::X;\nmod helpers;\nmod inline { }\n"
+            ),
             vec!["std::fmt", "mod::helpers"]
         );
         assert_eq!(
-            imports("java", "java", "import static java.util.Collections.emptyList;\nimport java.util.List;\n"),
+            imports(
+                "java",
+                "java",
+                "import static java.util.Collections.emptyList;\nimport java.util.List;\n"
+            ),
             vec!["static java.util.Collections.emptyList", "java.util.List"]
         );
         assert_eq!(
@@ -3165,7 +3273,11 @@ macro_rules! shout { () => {} }
             vec!["System", "static System.Math", "Alias = System.Text.StringBuilder"]
         );
         assert_eq!(
-            imports("c", "c", "#include <stdio.h>\n#include \"local.h\"\n#include MACRO\n"),
+            imports(
+                "c",
+                "c",
+                "#include <stdio.h>\n#include \"local.h\"\n#include MACRO\n"
+            ),
             vec!["stdio.h", "local.h"]
         );
         assert_eq!(
@@ -3173,15 +3285,27 @@ macro_rules! shout { () => {} }
             vec!["json", "helper"]
         );
         assert_eq!(
-            imports("php", "php", "<?php\nuse App\\User;\nuse App\\{Post, Comment};\nrequire 'helpers.php';\n"),
+            imports(
+                "php",
+                "php",
+                "<?php\nuse App\\User;\nuse App\\{Post, Comment};\nrequire 'helpers.php';\n"
+            ),
             vec!["App\\User", "App\\Post", "App\\Comment", "helpers.php"]
         );
         assert_eq!(
-            imports("swift", "swift", "import Foundation\nimport class UIKit.UIView\n"),
+            imports(
+                "swift",
+                "swift",
+                "import Foundation\nimport class UIKit.UIView\n"
+            ),
             vec!["Foundation", "UIKit.UIView"]
         );
         assert_eq!(
-            imports("scala", "scala", "import a.b.C\nimport a.b.{D, E}\nimport a.b._\n"),
+            imports(
+                "scala",
+                "scala",
+                "import a.b.C\nimport a.b.{D, E}\nimport a.b._\n"
+            ),
             vec!["a.b.C", "a.b"]
         );
         assert_eq!(
@@ -3189,27 +3313,51 @@ macro_rules! shout { () => {} }
             vec!["./lib/a.sh", "./lib/b.sh"]
         );
         assert_eq!(
-            imports("lua", "lua", "local a = require('x.y')\nlocal b = require \"z\"\n"),
+            imports(
+                "lua",
+                "lua",
+                "local a = require('x.y')\nlocal b = require \"z\"\n"
+            ),
             vec!["x.y", "z"]
         );
         assert_eq!(
-            imports("dart", "dart", "import 'package:m/a.dart';\nexport 'b.dart';\npart 'c.dart';\n"),
+            imports(
+                "dart",
+                "dart",
+                "import 'package:m/a.dart';\nexport 'b.dart';\npart 'c.dart';\n"
+            ),
             vec!["package:m/a.dart", "b.dart", "c.dart"]
         );
         assert_eq!(
-            imports("objc", "m", "#import <Foundation/Foundation.h>\n#import \"Store.h\"\n@import UIKit;\n"),
+            imports(
+                "objc",
+                "m",
+                "#import <Foundation/Foundation.h>\n#import \"Store.h\"\n@import UIKit;\n"
+            ),
             vec!["Foundation/Foundation.h", "Store.h", "UIKit"]
         );
         assert_eq!(
-            imports("elixir", "ex", "defmodule M do\n  alias A.B\n  alias A.{C, D}\n  import E\nend\n"),
+            imports(
+                "elixir",
+                "ex",
+                "defmodule M do\n  alias A.B\n  alias A.{C, D}\n  import E\nend\n"
+            ),
             vec!["A.B", "A.C", "A.D", "E"]
         );
         assert_eq!(
-            imports("zig", "zig", "const std = @import(\"std\");\nconst h = @import(\"./h.zig\");\n"),
+            imports(
+                "zig",
+                "zig",
+                "const std = @import(\"std\");\nconst h = @import(\"./h.zig\");\n"
+            ),
             vec!["std", "./h.zig"]
         );
         assert_eq!(
-            imports("r", "r", "library(dplyr)\nrequire(\"stringr\")\nsource(\"./h.R\")\n"),
+            imports(
+                "r",
+                "r",
+                "library(dplyr)\nrequire(\"stringr\")\nsource(\"./h.R\")\n"
+            ),
             vec!["dplyr", "stringr", "./h.R"]
         );
     }
@@ -3224,7 +3372,11 @@ macro_rules! shout { () => {} }
     #[test]
     fn private_class_members_are_not_symbols() {
         assert_eq!(
-            kinds("typescript", "ts", "class C {\n  #secret() {}\n  visible() {}\n}\n"),
+            kinds(
+                "typescript",
+                "ts",
+                "class C {\n  #secret() {}\n  visible() {}\n}\n"
+            ),
             named(&[("class", "C"), ("method", "visible")])
         );
     }
@@ -3352,11 +3504,18 @@ macro_rules! shout { () => {} }
                 .iter()
                 .filter(|rule| rule.common().language == lang)
                 .map(|rule| rule.common().id.clone())
-                .filter(|id| id.starts_with("mixdog-ts-") || matches!(id.as_str(), "ts-class" | "ts-interface" | "ts-enum"))
+                .filter(|id| {
+                    id.starts_with("mixdog-ts-")
+                        || matches!(id.as_str(), "ts-class" | "ts-interface" | "ts-enum")
+                })
                 .collect::<Vec<_>>()
         };
         assert!(!ours(ts).is_empty());
-        assert_eq!(ours(ts), ours(tsx), "every parity rule exists for both grammars");
+        assert_eq!(
+            ours(ts),
+            ours(tsx),
+            "every parity rule exists for both grammars"
+        );
         // And the mirrored rules actually run against a .tsx file.
         assert_eq!(
             kinds(
@@ -3575,8 +3734,14 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
         // an ordinary token, while the version pragma's `solidity` is an
         // anonymous keyword of the grammar and is not.
         let tokens = tokens("solidity", "sol", source);
-        assert!(tokens.iter().any(|token| token == "experimental"), "{tokens:?}");
-        assert!(!tokens.iter().any(|token| token == "solidity"), "{tokens:?}");
+        assert!(
+            tokens.iter().any(|token| token == "experimental"),
+            "{tokens:?}"
+        );
+        assert!(
+            !tokens.iter().any(|token| token == "solidity"),
+            "{tokens:?}"
+        );
     }
 
     /// No language may report a symbol name with whitespace in it: the name is
@@ -3584,11 +3749,19 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
     #[test]
     fn no_fixture_symbol_name_carries_whitespace() {
         let cases: &[(&str, &str, &str)] = &[
-            ("solidity", "sol", "pragma solidity ^0.8.19;\ncontract A { function b() public {} }\n"),
+            (
+                "solidity",
+                "sol",
+                "pragma solidity ^0.8.19;\ncontract A { function b() public {} }\n",
+            ),
             ("typescript", "ts", "export class A { run(): void {} }\n"),
             ("rust", "rs", "pub fn run() {}\npub struct A;\n"),
             ("haskell", "hs", "module M where\nrun :: Int\nrun = 1\n"),
-            ("hcl", "tf", "resource \"aws_instance\" \"web\" {\n  ami = \"x\"\n}\n"),
+            (
+                "hcl",
+                "tf",
+                "resource \"aws_instance\" \"web\" {\n  ami = \"x\"\n}\n",
+            ),
         ];
         for (lang, ext, source) in cases {
             for symbol in records(lang, ext, source) {
@@ -3621,7 +3794,10 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
             "class Holder {\n  fun nested(value: String) = value.trim()\n  data class Pair2(val expect: Int, val actual: Int)\n}\n",
         );
         for name in ["value", "expect", "actual", "Pair2", "nested"] {
-            assert!(has(&kotlin, name), "kotlin tokens miss `{name}`: {kotlin:?}");
+            assert!(
+                has(&kotlin, name),
+                "kotlin tokens miss `{name}`: {kotlin:?}"
+            );
         }
 
         // A ruby symbol literal NAMES a declaration (`attr_accessor :label`,
@@ -3642,7 +3818,10 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
             "defmodule Holder do\n  def run(arg), do: apply(Mod, :callable, [arg, :tagged])\nend\n",
         );
         for name in ["callable", "tagged"] {
-            assert!(has(&elixir, name), "elixir tokens miss `{name}`: {elixir:?}");
+            assert!(
+                has(&elixir, name),
+                "elixir tokens miss `{name}`: {elixir:?}"
+            );
         }
 
         // PHP spells the sigil form as a parent of the bare `name`, and a PHP
@@ -3736,11 +3915,19 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
         assert!(record(&haskell, "Demo").exported);
         assert!(record(&haskell, "shown").exported);
         assert!(!record(&haskell, "hidden").exported);
-        let open = records("haskell", "hs", "module Demo where\n\nshown :: Int\nshown = 1\n");
+        let open = records(
+            "haskell",
+            "hs",
+            "module Demo where\n\nshown :: Int\nshown = 1\n",
+        );
         assert!(record(&open, "shown").exported);
 
         // C: a `static` function is file-local.
-        let c = records("c", "c", "int shared(void) { return 0; }\nstatic int local(void) { return 0; }\n");
+        let c = records(
+            "c",
+            "c",
+            "int shared(void) { return 0; }\nstatic int local(void) { return 0; }\n",
+        );
         assert!(record(&c, "shared").exported);
         assert!(!record(&c, "local").exported);
 
@@ -3776,9 +3963,15 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
             "const alpha = 1;\nfunction beta() {}\nclass Panel {}\ntype Shape = { a: number };\nconst hidden = 2;\nexport { alpha, beta as bee, type Shape };\nexport default Panel;\nexport { elsewhere } from \"./other.js\";\n",
         );
         assert!(record(&clause, "alpha").exported);
-        assert!(record(&clause, "beta").exported, "`beta as bee` exports beta");
+        assert!(
+            record(&clause, "beta").exported,
+            "`beta as bee` exports beta"
+        );
         assert!(record(&clause, "Shape").exported);
-        assert!(record(&clause, "Panel").exported, "`export default X` exports X");
+        assert!(
+            record(&clause, "Panel").exported,
+            "`export default X` exports X"
+        );
         assert!(!record(&clause, "hidden").exported);
 
         // A declaration inside a function body is local, whatever it says.
@@ -3795,7 +3988,10 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
             "pub fn outer() {\n    pub fn nested() {}\n}\n#[macro_export]\nmacro_rules! shout { () => {}; }\nmacro_rules! quiet { () => {}; }\n",
         );
         assert!(record(&rust, "outer").exported);
-        assert!(!record(&rust, "nested").exported, "a `pub fn` in a body is unreachable");
+        assert!(
+            !record(&rust, "nested").exported,
+            "a `pub fn` in a body is unreachable"
+        );
         assert!(record(&rust, "shout").exported, "#[macro_export]");
         assert!(!record(&rust, "quiet").exported);
 
@@ -3854,8 +4050,15 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
         // leaves the bare name, i.e. no signature at all.
         assert_eq!(record(&ts, "value").sig, "");
 
-        let rust = records("rust", "rs", "pub struct Wrapper<T = String> { inner: T }\n");
-        assert_eq!(record(&rust, "Wrapper").sig, "pub struct Wrapper<T = String>");
+        let rust = records(
+            "rust",
+            "rs",
+            "pub struct Wrapper<T = String> { inner: T }\n",
+        );
+        assert_eq!(
+            record(&rust, "Wrapper").sig,
+            "pub struct Wrapper<T = String>"
+        );
 
         // The `=` of a Ruby setter is part of the NAME, so it cannot cut …
         let ruby = records(
@@ -3870,7 +4073,11 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
         assert_eq!(record(&ruby_super, "Child").sig, "class Child < Parent");
 
         // Kotlin's `=` opens an expression BODY: cutting there is right.
-        let kotlin = records("kotlin", "kt", "fun expressionBody(a: Int, b: Int) = a + b\n");
+        let kotlin = records(
+            "kotlin",
+            "kt",
+            "fun expressionBody(a: Int, b: Int) = a + b\n",
+        );
         assert_eq!(
             record(&kotlin, "expressionBody").sig,
             "fun expressionBody(a: Int, b: Int)"
@@ -3921,7 +4128,10 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
                 }
             }
         }
-        assert!(symbols > 200, "fixture corpus carried only {symbols} symbols");
+        assert!(
+            symbols > 200,
+            "fixture corpus carried only {symbols} symbols"
+        );
     }
 
     #[test]
@@ -3942,7 +4152,11 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
         assert_eq!(record(&ts, "plain").sig, "");
 
         // Python cuts at the `:` that opens the block, not at an annotation.
-        let python = records("python", "py", "def read(path: str) -> bytes:\n    return b''\n\nclass Store:\n    pass\n");
+        let python = records(
+            "python",
+            "py",
+            "def read(path: str) -> bytes:\n    return b''\n\nclass Store:\n    pass\n",
+        );
         assert_eq!(record(&python, "read").sig, "def read(path: str) -> bytes");
         assert_eq!(record(&python, "Store").sig, "class Store");
 
@@ -3959,7 +4173,11 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
         assert_eq!(record(&lua, "greet").sig, "function greet(name)");
 
         // Go's type spec head is the spec, not the body.
-        let go = records("go", "go", "package p\n\ntype Store struct {\n\tname string\n}\n");
+        let go = records(
+            "go",
+            "go",
+            "package p\n\ntype Store struct {\n\tname string\n}\n",
+        );
         assert_eq!(record(&go, "Store").sig, "Store struct");
     }
 
@@ -4021,7 +4239,10 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
         assert_eq!(record(&extracted.symbols, "helper").parent, "run");
         assert_eq!(record(&extracted.symbols, "run").parent, "Service");
         let calls = extracted.calls.expect("python is an extraction language");
-        let load = calls.iter().find(|call| call.name == "load").expect("load()");
+        let load = calls
+            .iter()
+            .find(|call| call.name == "load")
+            .expect("load()");
         assert_eq!(load.in_symbol, "helper");
     }
 
@@ -4077,7 +4298,16 @@ export function createHost() {
         // A call is only a factory when a NAMED function takes a
         // configuration object; `new Date().toISOString()`,
         // `resolve(dir, 'x')` and `Math.round(n)` compute VALUES.
-        for data in ["label", "count", "items", "made", "alias", "generatedAt", "index", "atMs"] {
+        for data in [
+            "label",
+            "count",
+            "items",
+            "made",
+            "alias",
+            "generatedAt",
+            "index",
+            "atMs",
+        ] {
             assert!(
                 !ts.iter().any(|symbol| symbol.name == data),
                 "`{data}` is a data property: {ts:?}"
@@ -4163,18 +4393,90 @@ export function createHost() {
         // for methods: go/dart/objc/java/csharp/php `method`, rust/scala/
         // swift/kotlin/haskell/solidity `function`.
         let cases: &[(&str, &str, &str, &str, &str)] = &[
-            ("go", "go", "package p\ntype Reader interface {\n\tRead(p []byte) (int, error)\n}\n", "method", "Read"),
-            ("rust", "rs", "pub trait Handler {\n    fn handle(&self) -> bool;\n}\n", "function", "handle"),
-            ("swift", "swift", "protocol Service {\n    func start()\n}\n", "function", "start"),
-            ("dart", "dart", "abstract class Service {\n  void start();\n}\n", "method", "start"),
-            ("scala", "scala", "trait Service {\n  def start(): Unit\n}\n", "function", "start"),
-            ("java", "java", "public interface Service {\n  void start();\n}\n", "method", "start"),
-            ("csharp", "cs", "public interface IService {\n  void Start();\n}\n", "method", "Start"),
-            ("kotlin", "kt", "interface Service {\n    fun start()\n}\n", "function", "start"),
-            ("php", "php", "<?php\ninterface Service {\n  public function start();\n}\n", "method", "start"),
-            ("objc", "m", "@protocol Service <NSObject>\n- (void)start;\n@end\n", "method", "start"),
-            ("solidity", "sol", "interface IService {\n    function start() external;\n}\n", "function", "start"),
-            ("haskell", "hs", "module M where\nclass Service a where\n  start :: a -> IO ()\n", "function", "start"),
+            (
+                "go",
+                "go",
+                "package p\ntype Reader interface {\n\tRead(p []byte) (int, error)\n}\n",
+                "method",
+                "Read",
+            ),
+            (
+                "rust",
+                "rs",
+                "pub trait Handler {\n    fn handle(&self) -> bool;\n}\n",
+                "function",
+                "handle",
+            ),
+            (
+                "swift",
+                "swift",
+                "protocol Service {\n    func start()\n}\n",
+                "function",
+                "start",
+            ),
+            (
+                "dart",
+                "dart",
+                "abstract class Service {\n  void start();\n}\n",
+                "method",
+                "start",
+            ),
+            (
+                "scala",
+                "scala",
+                "trait Service {\n  def start(): Unit\n}\n",
+                "function",
+                "start",
+            ),
+            (
+                "java",
+                "java",
+                "public interface Service {\n  void start();\n}\n",
+                "method",
+                "start",
+            ),
+            (
+                "csharp",
+                "cs",
+                "public interface IService {\n  void Start();\n}\n",
+                "method",
+                "Start",
+            ),
+            (
+                "kotlin",
+                "kt",
+                "interface Service {\n    fun start()\n}\n",
+                "function",
+                "start",
+            ),
+            (
+                "php",
+                "php",
+                "<?php\ninterface Service {\n  public function start();\n}\n",
+                "method",
+                "start",
+            ),
+            (
+                "objc",
+                "m",
+                "@protocol Service <NSObject>\n- (void)start;\n@end\n",
+                "method",
+                "start",
+            ),
+            (
+                "solidity",
+                "sol",
+                "interface IService {\n    function start() external;\n}\n",
+                "function",
+                "start",
+            ),
+            (
+                "haskell",
+                "hs",
+                "module M where\nclass Service a where\n  start :: a -> IO ()\n",
+                "function",
+                "start",
+            ),
         ];
         for (graph_lang, ext, source, kind, name) in cases {
             let symbols = records(graph_lang, ext, source);
@@ -4192,7 +4494,10 @@ export function createHost() {
             "abstract class Service {\n  void start();\n  void stop() {}\n}\n",
         );
         let stop = record(&dart, "stop");
-        assert_eq!((stop.kind, stop.start_line, stop.end_line), ("method", 3, 3));
+        assert_eq!(
+            (stop.kind, stop.start_line, stop.end_line),
+            ("method", 3, 3)
+        );
     }
 
     #[test]

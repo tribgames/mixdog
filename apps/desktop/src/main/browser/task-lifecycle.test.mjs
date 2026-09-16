@@ -5,13 +5,26 @@ import { createBrowserTaskLifecycle } from './task-lifecycle.ts';
 function fixture({ close } = {}) {
   const selected = new Map();
   const surfaces = [];
-  const page = (name, blocked = false) => ({ name, blocked, dead: false, isDestroyed() { return this.dead; } });
+  const page = (name, blocked = false) => ({
+    name,
+    blocked,
+    dead: false,
+    isDestroyed() {
+      return this.dead;
+    },
+  });
   const owner = createBrowserTaskLifecycle({
-    current: session => selected.get(session) ?? null,
+    current: (session) => selected.get(session) ?? null,
     select: (session, value) => selected.set(session, value),
-    close: close ?? (value => { value.dead = true; }),
-    canClose: value => !value.blocked,
-    preserve: value => { value.preserved = true; },
+    close:
+      close ??
+      ((value) => {
+        value.dead = true;
+      }),
+    canClose: (value) => !value.blocked,
+    preserve: (value) => {
+      value.preserved = true;
+    },
     surface: (session, request) => surfaces.push({ session, ...request }),
   });
   return { owner, selected, surfaces, page };
@@ -46,7 +59,8 @@ test('temporary foreground work restores the previous selected page and panel', 
   owner.finish('a', 2);
   assert.equal(selected.get('a'), user);
   assert.deepEqual(surfaces, [
-    { session: 'a', temporaryTurnId: 2 }, { session: 'a', restoreTurnId: 2 },
+    { session: 'a', temporaryTurnId: 2 },
+    { session: 'a', restoreTurnId: 2 },
   ]);
 });
 
@@ -61,7 +75,8 @@ test('user interaction and explicit handoff preserve pages and their visible pan
   assert.equal(owner.finish('a', 1), 0);
   assert.equal(scratch.dead, false);
   assert.deepEqual(surfaces, [
-    { session: 'a', temporaryTurnId: 1 }, { session: 'a', retainTurnId: 1 },
+    { session: 'a', temporaryTurnId: 1 },
+    { session: 'a', retainTurnId: 1 },
   ]);
 });
 
@@ -75,7 +90,10 @@ test('late old-turn cleanup cannot close a page reused by newer work or restore 
   owner.reveal('a', 2, scratch);
   assert.equal(owner.finish('a', 1), 0);
   assert.equal(scratch.dead, false);
-  assert.equal(surfaces.some(value => value.restoreTurnId === 1), false);
+  assert.equal(
+    surfaces.some((value) => value.restoreTurnId === 1),
+    false
+  );
   assert.equal(owner.finish('a', 2), 1);
 });
 
@@ -99,11 +117,13 @@ test('popups inherit task ownership; blocked dialogs survive cleanup without aff
 test('a failed page close remains owned and retry never closes an already released page twice', () => {
   const attempts = [];
   let fail = true;
-  const { owner, page } = fixture({ close: value => {
-    attempts.push(value.name);
-    if (value.name === 'second' && fail) throw new Error('window close failed');
-    value.dead = true;
-  } });
+  const { owner, page } = fixture({
+    close: (value) => {
+      attempts.push(value.name);
+      if (value.name === 'second' && fail) throw new Error('window close failed');
+      value.dead = true;
+    },
+  });
   const first = page('first');
   const second = page('second');
   const third = page('third');
@@ -121,10 +141,12 @@ test('a failed page close remains owned and retry never closes an already releas
 test('failed-close recovery preserves newer ownership and handles a page destroyed while close threw', () => {
   for (const outcome of ['reused', 'destroyed']) {
     let fail = true;
-    const { owner, page } = fixture({ close: value => {
-      if (outcome === 'destroyed' || !fail) value.dead = true;
-      if (fail) throw new Error('close interrupted');
-    } });
+    const { owner, page } = fixture({
+      close: (value) => {
+        if (outcome === 'destroyed' || !fail) value.dead = true;
+        if (fail) throw new Error('close interrupted');
+      },
+    });
     const scratch = page('scratch');
     owner.use('s', 1, scratch, true);
     assert.throws(() => owner.finish('s', 1), /close interrupted/);

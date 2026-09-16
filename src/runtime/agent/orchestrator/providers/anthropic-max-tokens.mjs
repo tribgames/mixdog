@@ -21,11 +21,11 @@ const ENV_VAR = 'MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS';
 // family-based heuristic below. Conservative defaults — model may support
 // more but we'd rather stay within safe bounds.
 const MAX_TOKENS = {
-    'claude-opus-4-8': 65536,
-    'claude-opus-4-7': 65536,
-    'claude-opus-4-6': 65536,
-    'claude-sonnet-4-6': 16384,
-    'claude-haiku-4-5-20251001': 8192,
+  'claude-opus-4-8': 65536,
+  'claude-opus-4-7': 65536,
+  'claude-opus-4-6': 65536,
+  'claude-sonnet-4-6': 16384,
+  'claude-haiku-4-5-20251001': 8192,
 };
 
 // Strict-positive env override parsing. Invalid values ("0", negatives,
@@ -33,11 +33,11 @@ const MAX_TOKENS = {
 // outright" — so catalog/fallback still decide for low-cap models. Raw env
 // truthiness must never bypass resolution.
 function envAnthropicMaxOutputOverride() {
-    const raw = process.env[ENV_VAR];
-    if (raw == null || String(raw).trim() === '') return null;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return null;
-    return Math.floor(n);
+  const raw = process.env[ENV_VAR];
+  if (raw == null || String(raw).trim() === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n);
 }
 
 // Static per-model table + family heuristic, used when the catalog has no
@@ -46,34 +46,34 @@ function envAnthropicMaxOutputOverride() {
 // visible output once extended thinking ate into the same hard cap). Keep
 // sonnet-4-x conservative at 16384; only bump 5+.
 function fallbackAnthropicMaxTokens(model) {
-    if (MAX_TOKENS[model]) return MAX_TOKENS[model];
-    const id = String(model || '').toLowerCase();
-    if (id.includes('opus')) return 65536;
-    if (id.includes('fable')) return 65536;
-    const sonnetVersion = id.match(/^claude-sonnet-(\d+)/);
-    if (sonnetVersion) return Number(sonnetVersion[1]) >= 5 ? 65536 : 16384;
-    if (id.includes('sonnet')) return 16384;
-    if (id.includes('haiku')) return 8192;
-    return 8192;
+  if (MAX_TOKENS[model]) return MAX_TOKENS[model];
+  const id = String(model || '').toLowerCase();
+  if (id.includes('opus')) return 65536;
+  if (id.includes('fable')) return 65536;
+  const sonnetVersion = id.match(/^claude-sonnet-(\d+)/);
+  if (sonnetVersion) return Number(sonnetVersion[1]) >= 5 ? 65536 : 16384;
+  if (id.includes('sonnet')) return 16384;
+  if (id.includes('haiku')) return 8192;
+  return 8192;
 }
 
 // catalogLookup(model) -> number|null. Providers supply their own strategy
 // for sourcing the catalog array (in-memory mirror + disk fallback for OAuth,
 // plain disk read for the API-key twin — see anthropic.mjs).
 export function resolveAnthropicMaxTokens(model, { catalogLookup } = {}) {
-    const envOverride = envAnthropicMaxOutputOverride();
-    if (envOverride != null) return envOverride;
-    const safetyCap = DEFAULT_SAFETY_CAP;
-    let catalogValue = null;
-    if (typeof catalogLookup === 'function') {
-        try {
-            catalogValue = catalogLookup(model);
-        } catch {
-            catalogValue = null;
-        }
+  const envOverride = envAnthropicMaxOutputOverride();
+  if (envOverride != null) return envOverride;
+  const safetyCap = DEFAULT_SAFETY_CAP;
+  let catalogValue = null;
+  if (typeof catalogLookup === 'function') {
+    try {
+      catalogValue = catalogLookup(model);
+    } catch {
+      catalogValue = null;
     }
-    if (Number.isFinite(catalogValue) && catalogValue > 0) {
-        return Math.max(MAX_TOKENS_FLOOR, Math.min(catalogValue, safetyCap));
-    }
-    return Math.min(fallbackAnthropicMaxTokens(model), safetyCap);
+  }
+  if (Number.isFinite(catalogValue) && catalogValue > 0) {
+    return Math.max(MAX_TOKENS_FLOOR, Math.min(catalogValue, safetyCap));
+  }
+  return Math.min(fallbackAnthropicMaxTokens(model), safetyCap);
 }

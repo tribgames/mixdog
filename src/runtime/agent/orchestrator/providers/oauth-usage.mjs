@@ -1,7 +1,4 @@
-import {
-  existsSync,
-  readFileSync,
-} from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { createHash } from 'crypto';
 import { join } from 'path';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
@@ -87,18 +84,22 @@ function flushSnapshotCache() {
   const updates = pendingDiskSnapshots;
   pendingDiskSnapshots = new Map();
   try {
-    updateJsonAtomicSync(cachePath(), (curRaw) => {
-      const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
-      const routes = cur.routes && typeof cur.routes === 'object' ? cur.routes : {};
-      return {
-        version: 1,
-        updatedAt: Date.now(),
-        routes: {
-          ...routes,
-          ...Object.fromEntries(updates),
-        },
-      };
-    }, { compact: true, fsync: false, fsyncDir: false });
+    updateJsonAtomicSync(
+      cachePath(),
+      (curRaw) => {
+        const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
+        const routes = cur.routes && typeof cur.routes === 'object' ? cur.routes : {};
+        return {
+          version: 1,
+          updatedAt: Date.now(),
+          routes: {
+            ...routes,
+            ...Object.fromEntries(updates),
+          },
+        };
+      },
+      { compact: true, fsync: false, fsyncDir: false }
+    );
   } catch {
     // Usage display must never affect the gateway request path.
   }
@@ -119,8 +120,8 @@ function invalidateOAuthUsageSnapshots(provider) {
   const providerOnly = String(provider || '').toLowerCase();
   if (!providerOnly) return;
   const routePrefix = `${providerOnly}\u0001`;
-  const owned = (key) => key === providerOnly || String(key).startsWith(routePrefix)
-    || String(key).startsWith(`${providerOnly}\u0002`);
+  const owned = (key) =>
+    key === providerOnly || String(key).startsWith(routePrefix) || String(key).startsWith(`${providerOnly}\u0002`);
   for (const key of [...memoryCache.keys()]) {
     if (owned(key)) memoryCache.delete(key);
   }
@@ -128,36 +129,38 @@ function invalidateOAuthUsageSnapshots(provider) {
     if (owned(key)) pendingDiskSnapshots.delete(key);
   }
   try {
-    updateJsonAtomicSync(cachePath(), (curRaw) => {
-      const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
-      const routes = cur.routes && typeof cur.routes === 'object' ? cur.routes : {};
-      return {
-        version: 1,
-        updatedAt: Date.now(),
-        routes: Object.fromEntries(
-          Object.entries(routes).filter(([key]) => !owned(key)),
-        ),
-      };
-    }, { compact: true, fsync: false, fsyncDir: false });
+    updateJsonAtomicSync(
+      cachePath(),
+      (curRaw) => {
+        const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
+        const routes = cur.routes && typeof cur.routes === 'object' ? cur.routes : {};
+        return {
+          version: 1,
+          updatedAt: Date.now(),
+          routes: Object.fromEntries(Object.entries(routes).filter(([key]) => !owned(key))),
+        };
+      },
+      { compact: true, fsync: false, fsyncDir: false }
+    );
   } catch {
     // Usage display must never break the reset path.
   }
 }
 
 function isContentfulSnapshot(snapshot) {
-  return !!snapshot
-    && typeof snapshot === 'object'
-    && (
-      Array.isArray(snapshot.quotaWindows) && snapshot.quotaWindows.length > 0
-      || snapshot.balance && typeof snapshot.balance === 'object'
-    );
+  return (
+    !!snapshot &&
+    typeof snapshot === 'object' &&
+    ((Array.isArray(snapshot.quotaWindows) && snapshot.quotaWindows.length > 0) ||
+      (snapshot.balance && typeof snapshot.balance === 'object'))
+  );
 }
 
 function hasFutureWindow(snapshot) {
   const windows = Array.isArray(snapshot?.quotaWindows) ? snapshot.quotaWindows : [];
   if (!windows.length) return true;
   const now = Date.now();
-  return windows.some(w => !w?.resetAt || num(w.resetAt, 0) > now);
+  return windows.some((w) => !w?.resetAt || num(w.resetAt, 0) > now);
 }
 
 function freshSnapshot(snapshot, ttlMs) {
@@ -190,20 +193,21 @@ function newestProviderSnapshot(entries, provider, ttlMs) {
 export function readCachedOAuthUsageSnapshot(routeInfo, options = {}) {
   const key = routeKey(routeInfo);
   const providerOnlyKey = cacheProviderKey(routeInfo);
-  const diskTtlMs = options?.allowStale === true
-    ? STALE_DISK_CACHE_TTL_MS
-    : DISK_CACHE_TTL_MS;
-  const mem = freshSnapshot(memoryCache.get(key), LIVE_CACHE_TTL_MS)
-    || freshSnapshot(memoryCache.get(providerOnlyKey), LIVE_CACHE_TTL_MS)
-    || newestProviderSnapshot(memoryCache, providerOnlyKey, LIVE_CACHE_TTL_MS);
+  const diskTtlMs = options?.allowStale === true ? STALE_DISK_CACHE_TTL_MS : DISK_CACHE_TTL_MS;
+  const mem =
+    freshSnapshot(memoryCache.get(key), LIVE_CACHE_TTL_MS) ||
+    freshSnapshot(memoryCache.get(providerOnlyKey), LIVE_CACHE_TTL_MS) ||
+    newestProviderSnapshot(memoryCache, providerOnlyKey, LIVE_CACHE_TTL_MS);
   if (mem) return mem;
 
   const raw = readJsonFile(cachePath());
   const routes = raw?.routes && typeof raw.routes === 'object' ? raw.routes : {};
-  return freshSnapshot(routes[key], diskTtlMs)
-    || freshSnapshot(routes[providerOnlyKey], diskTtlMs)
-    || newestProviderSnapshot(routes, providerOnlyKey, diskTtlMs)
-    || null;
+  return (
+    freshSnapshot(routes[key], diskTtlMs) ||
+    freshSnapshot(routes[providerOnlyKey], diskTtlMs) ||
+    newestProviderSnapshot(routes, providerOnlyKey, diskTtlMs) ||
+    null
+  );
 }
 
 function cacheNegative(key, source = 'none') {
@@ -221,12 +225,16 @@ function warnThrottled(log, key, message) {
   const last = num(lastWarnAt.get(key), 0);
   if (last && now - last < WARN_TTL_MS) return;
   lastWarnAt.set(key, now);
-  try { log(message); } catch {}
+  try {
+    log(message);
+  } catch {}
 }
 
 function fetchOptions(headers, timeoutMs = FETCH_TIMEOUT_MS) {
   let dispatcher = null;
-  try { dispatcher = getLlmDispatcher(); } catch {}
+  try {
+    dispatcher = getLlmDispatcher();
+  } catch {}
   return {
     method: 'GET',
     headers,
@@ -283,31 +291,32 @@ function normalizeOpenAICodexResetCredits(data, accountId = '') {
   const availableCount = Math.max(0, Math.floor(explicitCount ?? availableRows.length));
   const availableCredits = availableRows
     .map((credit) => ({
-      ...(Number.isFinite(credit.expiresAt) && credit.expiresAt > 0
-        ? { expiresAt: credit.expiresAt }
-        : {}),
-      ...(Number.isFinite(credit.grantedAt) && credit.grantedAt > 0
-        ? { grantedAt: credit.grantedAt }
-        : {}),
+      ...(Number.isFinite(credit.expiresAt) && credit.expiresAt > 0 ? { expiresAt: credit.expiresAt } : {}),
+      ...(Number.isFinite(credit.grantedAt) && credit.grantedAt > 0 ? { grantedAt: credit.grantedAt } : {}),
     }))
-    .sort((left, right) =>
-      (left.expiresAt ?? Number.POSITIVE_INFINITY)
-      - (right.expiresAt ?? Number.POSITIVE_INFINITY));
+    .sort(
+      (left, right) => (left.expiresAt ?? Number.POSITIVE_INFINITY) - (right.expiresAt ?? Number.POSITIVE_INFINITY)
+    );
   const expiryCandidates = availableRows
     .map((credit) => credit.expiresAt)
     .filter((value) => Number.isFinite(value) && value > 0);
-  const nextExpiresAt = resetAtMs(data.next_expires_at ?? data.nextExpiresAt)
-    || (expiryCandidates.length ? Math.min(...expiryCandidates) : null);
+  const nextExpiresAt =
+    resetAtMs(data.next_expires_at ?? data.nextExpiresAt) ||
+    (expiryCandidates.length ? Math.min(...expiryCandidates) : null);
   // Identity of the OFFER, not of one payload shape: the detail endpoint and
   // the counts embedded in /wham/usage describe the same credits with
   // different fields, so hashing the raw rows made the same offer produce two
   // revisions — and the desktop scopes its durable idempotency key by
   // revision. Count + soonest expiry is what a user is offered.
-  const offerRevision = `v1:${createHash('sha256').update(JSON.stringify({
-    accountId,
-    availableCount,
-    nextExpiresAt,
-  })).digest('hex')}`;
+  const offerRevision = `v1:${createHash('sha256')
+    .update(
+      JSON.stringify({
+        accountId,
+        availableCount,
+        nextExpiresAt,
+      })
+    )
+    .digest('hex')}`;
   return {
     availableCount,
     availableCredits,
@@ -341,10 +350,13 @@ function codexResetOutcome(code) {
 
 async function postOpenAICodexResetConsume(auth, idempotencyKey) {
   return await fetch(CODEX_RESET_CONSUME_URL, {
-    ...fetchOptions({
-      ...codexHeaders(auth),
-      'Content-Type': 'application/json',
-    }, CODEX_REDEEM_TIMEOUT_MS),
+    ...fetchOptions(
+      {
+        ...codexHeaders(auth),
+        'Content-Type': 'application/json',
+      },
+      CODEX_REDEEM_TIMEOUT_MS
+    ),
     method: 'POST',
     body: JSON.stringify({ redeem_request_id: idempotencyKey }),
   });
@@ -404,19 +416,15 @@ function windowFromPercent(label, value, source) {
   const windowSeconds = num(entry.limit_window_seconds ?? entry.window_seconds ?? entry.windowSeconds, 0);
   const windowMinutes = num(entry.window_minutes ?? entry.windowMinutes, 0);
   const usedPct = num(
-    entry.usedPct
-      ?? entry.used_percent
-      ?? entry.used_percentage
-      ?? entry.utilization
-      ?? entry.percent,
-    null,
+    entry.usedPct ?? entry.used_percent ?? entry.used_percentage ?? entry.utilization ?? entry.percent,
+    null
   );
   const limitUsd = num(entry.limitUsd ?? entry.limit_usd ?? entry.limit_dollars ?? entry.monthly_limit, null);
   const usedUsd = num(entry.usedUsd ?? entry.used_usd ?? entry.used_dollars ?? entry.used_credits, null);
   const remainingUsd = num(entry.remainingUsd ?? entry.remaining_usd ?? entry.remaining_dollars, null);
   const resetAt = resetAtMs(
     entry.resetAt ?? entry.resetsAt ?? entry.reset_at ?? entry.resets_at,
-    entry.reset_after_seconds,
+    entry.reset_after_seconds
   );
   const out = {
     label: labelForDuration(windowSeconds || windowMinutes * 60, label),
@@ -445,7 +453,7 @@ function grokBillingCadence(config) {
   }
   const start = resetAtMs(config?.billingPeriodStart ?? config?.billing_period_start);
   const end = resetAtMs(config?.billingPeriodEnd ?? config?.billing_period_end);
-  if (start && end && end > start && (end - start) <= 10 * 24 * 60 * 60_000) {
+  if (start && end && end > start && end - start <= 10 * 24 * 60 * 60_000) {
     return { label: 'W', period: 'weekly' };
   }
   return { label: 'M', period: 'monthly' };
@@ -455,28 +463,27 @@ function creditWindowFromBilling(config) {
   if (!config || typeof config !== 'object') return null;
   const cadence = grokBillingCadence(config);
   const resetAt = resetAtMs(
-    config.currentPeriod?.end ?? config.current_period?.end
-      ?? config.billingPeriodEnd ?? config.billing_period_end,
+    config.currentPeriod?.end ?? config.current_period?.end ?? config.billingPeriodEnd ?? config.billing_period_end
   );
   const limit = num(
-    config.weeklyLimit?.val ?? config.weeklyLimit
-      ?? config.monthlyLimit?.val ?? config.monthlyLimit
-      ?? config.includedLimit?.val,
-    null,
+    config.weeklyLimit?.val ??
+      config.weeklyLimit ??
+      config.monthlyLimit?.val ??
+      config.monthlyLimit ??
+      config.includedLimit?.val,
+    null
   );
   const used = num(config.used?.val ?? config.includedUsed?.val ?? config.used, null);
   if (limit === null || used === null || !(limit > 0)) {
     // Unified-billing accounts (shared weekly pool) report utilization as a
     // percentage instead of credit totals; absent means 0% used.
-    const unified = config.isUnifiedBillingUser === true
-      || config.is_unified_billing_user === true
-      || config.currentPeriod || config.current_period;
+    const unified =
+      config.isUnifiedBillingUser === true ||
+      config.is_unified_billing_user === true ||
+      config.currentPeriod ||
+      config.current_period;
     if (!unified) return null;
-    const usedPct = num(
-      config.creditUsagePercent?.val ?? config.creditUsagePercent
-        ?? config.credit_usage_percent,
-      0,
-    );
+    const usedPct = num(config.creditUsagePercent?.val ?? config.creditUsagePercent ?? config.credit_usage_percent, 0);
     return {
       label: cadence.label,
       source: 'grok-build-billing',
@@ -487,7 +494,7 @@ function creditWindowFromBilling(config) {
   return {
     label: cadence.label,
     source: 'grok-build-billing',
-    usedPct: round(Math.min(100, used * 100 / limit), 2),
+    usedPct: round(Math.min(100, (used * 100) / limit), 2),
     usedCredits: round(used, 2),
     limitCredits: round(limit, 2),
     remainingCredits: round(Math.max(0, limit - used), 2),
@@ -540,29 +547,30 @@ function balanceFromAnthropicSpend(spend) {
   const currency = cleanString(spend.used?.currency ?? spend.limit?.currency) || 'USD';
   // spend.balance may be a plain number or a {amount_minor, exponent} money
   // object like used/limit; support both shapes.
-  const directBalance = spend.balance && typeof spend.balance === 'object'
-    ? (() => {
-      const minor = num(spend.balance.amount_minor, null);
-      return minor === null ? null : minor / (10 ** num(spend.balance.exponent, 2));
-    })()
-    : num(spend.balance, null);
+  const directBalance =
+    spend.balance && typeof spend.balance === 'object'
+      ? (() => {
+          const minor = num(spend.balance.amount_minor, null);
+          return minor === null ? null : minor / 10 ** num(spend.balance.exponent, 2);
+        })()
+      : num(spend.balance, null);
   if (directBalance !== null) {
     return {
       source: 'anthropic-oauth-spend',
       remainingUsd: round(directBalance, 4),
-      spentUsd: round(num(spend.used?.amount_minor, 0) / (10 ** num(spend.used?.exponent, 2)), 4),
+      spentUsd: round(num(spend.used?.amount_minor, 0) / 10 ** num(spend.used?.exponent, 2), 4),
       currency,
     };
   }
 
   const usedMinor = num(spend.used?.amount_minor, null);
   const usedExponent = num(spend.used?.exponent, 2);
-  const usedUsd = usedMinor === null ? null : usedMinor / (10 ** usedExponent);
+  const usedUsd = usedMinor === null ? null : usedMinor / 10 ** usedExponent;
 
   const capMinor = num(spend.cap?.credits?.amount_minor, null);
   if (capMinor !== null && usedUsd !== null) {
     const capExponent = num(spend.cap?.credits?.exponent, 2);
-    const capUsd = capMinor / (10 ** capExponent);
+    const capUsd = capMinor / 10 ** capExponent;
     return {
       source: 'anthropic-oauth-spend',
       remainingUsd: round(Math.max(0, capUsd - usedUsd), 4),
@@ -574,7 +582,7 @@ function balanceFromAnthropicSpend(spend) {
   const limitMinor = num(spend.limit?.amount_minor, null);
   if (limitMinor !== null && limitMinor > 0 && usedUsd !== null) {
     const limitExponent = num(spend.limit?.exponent, 2);
-    const limitUsd = limitMinor / (10 ** limitExponent);
+    const limitUsd = limitMinor / 10 ** limitExponent;
     return {
       source: 'anthropic-oauth-spend',
       remainingUsd: round(Math.max(0, limitUsd - usedUsd), 4),
@@ -626,7 +634,9 @@ function normalizeCodexRateLimits(rateLimits, source = 'openai-codex-local') {
 const SCOPED_WEEKLY_KEY = /^seven_day_(.+)$/;
 
 function scopedWindowLabel(name) {
-  const text = String(name || '').replace(/_/g, ' ').trim();
+  const text = String(name || '')
+    .replace(/_/g, ' ')
+    .trim();
   return text ? `7D ${text.charAt(0).toUpperCase()}${text.slice(1)}` : '';
 }
 
@@ -659,30 +669,43 @@ export function normalizeAnthropicUsage(data, source = 'anthropic-oauth') {
 
   if (!windows.length && Array.isArray(data.limits)) {
     windows = data.limits
-      .filter(x => x && x.is_active !== false && !x.scope?.model && !x.scope?.surface)
+      .filter((x) => x && x.is_active !== false && !x.scope?.model && !x.scope?.surface)
       .map((x) => {
-        const label = x.kind === 'session' || x.group === 'session'
-          ? '5H'
-          : x.kind === 'weekly_all' || x.group === 'weekly'
-            ? '7D'
-            : String(x.kind || x.group || 'USE').toUpperCase();
-        return windowFromPercent(label, {
-          percent: x.percent,
-          resets_at: x.resets_at,
-        }, source);
+        const label =
+          x.kind === 'session' || x.group === 'session'
+            ? '5H'
+            : x.kind === 'weekly_all' || x.group === 'weekly'
+              ? '7D'
+              : String(x.kind || x.group || 'USE').toUpperCase();
+        return windowFromPercent(
+          label,
+          {
+            percent: x.percent,
+            resets_at: x.resets_at,
+          },
+          source
+        );
       })
       .filter(Boolean);
   }
   windows.push(...scopedAnthropicWindows(data, source));
 
-  const extra = data.extra_usage && data.extra_usage.is_enabled === true
-    ? windowFromPercent('EXTRA', {
-      utilization: data.extra_usage.utilization,
-      limit_dollars: data.extra_usage.monthly_limit,
-      used_dollars: data.extra_usage.used_credits,
-      remaining_dollars: Math.max(0, num(data.extra_usage.monthly_limit, 0) - num(data.extra_usage.used_credits, 0)),
-    }, 'anthropic-oauth-extra')
-    : null;
+  const extra =
+    data.extra_usage && data.extra_usage.is_enabled === true
+      ? windowFromPercent(
+          'EXTRA',
+          {
+            utilization: data.extra_usage.utilization,
+            limit_dollars: data.extra_usage.monthly_limit,
+            used_dollars: data.extra_usage.used_credits,
+            remaining_dollars: Math.max(
+              0,
+              num(data.extra_usage.monthly_limit, 0) - num(data.extra_usage.used_credits, 0)
+            ),
+          },
+          'anthropic-oauth-extra'
+        )
+      : null;
   if (extra) windows.push(extra);
 
   if (!windows.length && !data.extra_usage) return null;
@@ -705,9 +728,7 @@ async function fetchOpenAICodexUsage(providerObj) {
   const auth = await resolveOpenAICodexAuth(providerObj);
   if (!auth) return null;
   const [res, resetCredits] = await Promise.all([
-    fetch('https://chatgpt.com/backend-api/wham/usage', fetchOptions(
-      codexHeaders(auth, 'responses=experimental'),
-    )),
+    fetch('https://chatgpt.com/backend-api/wham/usage', fetchOptions(codexHeaders(auth, 'responses=experimental'))),
     fetchOpenAICodexResetCreditsWithAuth(auth).catch(() => null),
   ]);
   if (!res.ok) throw new Error(`openai-oauth usage ${res.status}`);
@@ -717,10 +738,7 @@ async function fetchOpenAICodexUsage(providerObj) {
   // in /wham/usage while the detail endpoint is unavailable. Keep that count
   // usable (including a scoped offer revision), then let the dedicated endpoint
   // replace it when richer expiry details arrive.
-  const embeddedResetCredits = normalizeOpenAICodexResetCredits(
-    data?.rate_limit_reset_credits,
-    auth.accountId,
-  );
+  const embeddedResetCredits = normalizeOpenAICodexResetCredits(data?.rate_limit_reset_credits, auth.accountId);
   const resolvedResetCredits = resetCredits || embeddedResetCredits;
   return usage && resolvedResetCredits ? { ...usage, resetCredits: resolvedResetCredits } : usage;
 }
@@ -729,13 +747,16 @@ async function fetchAnthropicUsage(providerObj) {
   const auth = await providerObj?.ensureAuth?.({ reason: 'usage' });
   const token = auth?.accessToken || auth?.access_token;
   if (!token) return latestClaudeStatuslineUsage();
-  const res = await fetch('https://api.anthropic.com/api/oauth/usage', fetchOptions({
-    Authorization: `Bearer ${token}`,
-    'anthropic-beta': 'oauth-2025-04-20',
-    'User-Agent': 'claude-code/2.0.0',
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-  }));
+  const res = await fetch(
+    'https://api.anthropic.com/api/oauth/usage',
+    fetchOptions({
+      Authorization: `Bearer ${token}`,
+      'anthropic-beta': 'oauth-2025-04-20',
+      'User-Agent': 'claude-code/2.0.0',
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    })
+  );
   if (!res.ok) throw new Error(`anthropic oauth usage ${res.status}`);
   const data = await res.json();
   return normalizeAnthropicUsage(data) || latestClaudeStatuslineUsage();
@@ -808,9 +829,10 @@ async function fetchGrokUsage(providerObj, routeInfo) {
       const res = await fetch(url, fetchOptions(headers, 2500));
       if (!res.ok) continue;
       const data = await res.json();
-      const parsed = normalizeCodexRateLimits(data?.rate_limits || data?.rateLimits, 'grok-oauth')
-        || normalizeAnthropicUsage(data, 'grok-oauth')
-        || null;
+      const parsed =
+        normalizeCodexRateLimits(data?.rate_limits || data?.rateLimits, 'grok-oauth') ||
+        normalizeAnthropicUsage(data, 'grok-oauth') ||
+        null;
       if (parsed) return { ...parsed, provider: routeInfo?.provider || 'grok-oauth' };
     } catch {}
   }
@@ -827,8 +849,9 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
   const providerOnly = cacheProviderKey(routeInfo);
   const force = options?.force === true;
   if (!force) {
-    const cached = freshSnapshot(memoryCache.get(key), LIVE_CACHE_TTL_MS)
-      || freshSnapshot(memoryCache.get(providerOnly), LIVE_CACHE_TTL_MS);
+    const cached =
+      freshSnapshot(memoryCache.get(key), LIVE_CACHE_TTL_MS) ||
+      freshSnapshot(memoryCache.get(providerOnly), LIVE_CACHE_TTL_MS);
     if (cached) return cached;
     if (negativeFresh(key) || negativeFresh(providerOnly)) return null;
   }
@@ -843,14 +866,20 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
         snapshot = await fetchAnthropicUsage(providerObj);
       } else if (provider === 'grok-oauth') {
         snapshot = await fetchGrokUsage(providerObj, routeInfo);
-      } else if ((provider === 'cursor-oauth' || provider === 'cursor-api' || provider === 'antigravity-oauth')
-        && typeof providerObj?.getUsageSnapshot === 'function') {
+      } else if (
+        (provider === 'cursor-oauth' || provider === 'cursor-api' || provider === 'antigravity-oauth') &&
+        typeof providerObj?.getUsageSnapshot === 'function'
+      ) {
         snapshot = await providerObj.getUsageSnapshot();
       }
     } catch (err) {
       if (provider === 'anthropic-oauth' && accountId === 'default') snapshot = latestClaudeStatuslineUsage();
       if (!snapshot) {
-        warnThrottled(log, `oauth-usage:${provider}`, `gateway ${provider} usage fetch unavailable: ${err?.message || err}`);
+        warnThrottled(
+          log,
+          `oauth-usage:${provider}`,
+          `gateway ${provider} usage fetch unavailable: ${err?.message || err}`
+        );
       }
     }
 
@@ -861,8 +890,11 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
     }
 
     if (ACCOUNT_PROVIDERS.includes(provider)) {
-      try { recordProviderAccountUsage(provider, accountId, snapshot); }
-      catch (error) { log(`Account usage could not be saved: ${error.message}`); }
+      try {
+        recordProviderAccountUsage(provider, accountId, snapshot);
+      } catch (error) {
+        log(`Account usage could not be saved: ${error.message}`);
+      }
     }
 
     const model = cacheModelId(routeInfo?.model) || cacheModelId(snapshot.model);
@@ -874,9 +906,7 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
     };
     delete providerSnapshot.model;
 
-    const routeSnapshot = model
-      ? { ...providerSnapshot, model }
-      : providerSnapshot;
+    const routeSnapshot = model ? { ...providerSnapshot, model } : providerSnapshot;
 
     if (model) {
       const normalizedKey = `${providerOnly}\u0001${model}`;

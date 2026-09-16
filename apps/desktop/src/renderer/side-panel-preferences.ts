@@ -8,8 +8,7 @@ const DEFAULT_MODE: SidePanelMode = 'close-both';
 let fallbackMode: SidePanelMode = DEFAULT_MODE;
 
 function isSidePanelMode(value: string | null): value is SidePanelMode {
-  return value === 'close-left' || value === 'close-right' ||
-    value === 'close-both' || value === 'keep-open';
+  return value === 'close-left' || value === 'close-right' || value === 'close-both' || value === 'keep-open';
 }
 
 export function getSidePanelMode(): SidePanelMode {

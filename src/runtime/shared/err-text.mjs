@@ -15,17 +15,22 @@ export function errText(e) {
   if (e.error != null && e.error !== e) return errText(e.error);
   if (e.reason != null && e.reason !== e) return errText(e.reason);
   if (typeof e.type === 'string' && e.type) return `${e.type} event`;
-  try { const j = JSON.stringify(e); if (j && j !== '{}' && j !== 'null') return j; } catch {}
+  try {
+    const j = JSON.stringify(e);
+    if (j && j !== '{}' && j !== 'null') return j;
+  } catch {}
   return String(e);
 }
 
 function oneLine(value) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim();
+  return String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function stripErrorPrefix(value) {
   return String(value ?? '')
-    .replace(/^\s*(?:\[[^\]]*error[^\]]*\]|error)\s*[:\-]\s*/i, '')
+    .replace(/^\s*(?:\[[^\]]*error[^\]]*\]|error)\s*[:-]\s*/i, '')
     .trim();
 }
 
@@ -70,7 +75,9 @@ function compactDurationForStatus(value, { preferMinutes = false } = {}) {
 }
 
 function parseDurationTokenToMs(token) {
-  const t = String(token || '').trim().toLowerCase();
+  const t = String(token || '')
+    .trim()
+    .toLowerCase();
   const minutes = /^(\d+)m$/.exec(t);
   if (minutes) return Number(minutes[1]) * 60_000;
   const seconds = /^(\d+)s$/.exec(t);
@@ -109,9 +116,7 @@ function compactReasonFromNormalizedTimeout(presented) {
   const match = /no first response from (?:the )?[\w\s]*within (\d+m|\d+s|\d+ms)/i.exec(String(presented || ''));
   if (!match) return '';
   const ms = parseDurationTokenToMs(match[1]);
-  return Number.isFinite(ms)
-    ? `No first response ${compactDurationForStatus(ms)}`
-    : `No first response ${match[1]}`;
+  return Number.isFinite(ms) ? `No first response ${compactDurationForStatus(ms)}` : `No first response ${match[1]}`;
 }
 
 function compactReasonFromNormalizedStale(presented) {
@@ -127,18 +132,23 @@ export function isBackgroundErrorOnlyBody(body, error = '') {
   const trimmed = String(body ?? '').trim();
   if (!trimmed) return false;
   const err = String(error ?? '').trim();
-  const lines = trimmed.split('\n').map((line) => line.trim()).filter(Boolean);
+  const lines = trimmed
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
   if (lines.length !== 1) return false;
   const line = lines[0];
   if (/^error:\s*/i.test(line)) return true;
   if (!err) return /^error:\s*/i.test(line);
   const stripped = stripErrorPrefix(line);
   const presented = presentErrorText(err, { max: 500 });
-  return line === err
-    || line === `Error: ${err}`
-    || stripped === err
-    || line === `Error: ${presented}`
-    || stripped === presented;
+  return (
+    line === err ||
+    line === `Error: ${err}` ||
+    stripped === err ||
+    line === `Error: ${presented}` ||
+    stripped === presented
+  );
 }
 
 function subjectForSurface(surface) {
@@ -163,9 +173,11 @@ export function isCancelLikeError(error) {
     if (name === 'SessionClosedError' || name === 'AbortError' || name === 'APIUserAbortError') return true;
   }
   const text = errText(error);
-  return /aborted by session close/i.test(text)
-    || /withRetry:\s*(?:sleep )?aborted/i.test(text)
-    || /^sleep aborted$/i.test(text);
+  return (
+    /aborted by session close/i.test(text) ||
+    /withRetry:\s*(?:sleep )?aborted/i.test(text) ||
+    /^sleep aborted$/i.test(text)
+  );
 }
 
 export function presentErrorText(error, options = {}) {
@@ -191,14 +203,20 @@ export function presentErrorText(error, options = {}) {
   if (/currently at capacity|at capacity due to high demand|provider overloaded|server overloaded/i.test(text)) {
     return 'Provider is busy at capacity.';
   }
-  if (status === 401 || status === 403 || /\b(?:invalid|expired)\s+(?:api[ _-]?key|access token|credentials?)\b/i.test(text)) {
+  if (
+    status === 401 ||
+    status === 403 ||
+    /\b(?:invalid|expired)\s+(?:api[ _-]?key|access token|credentials?)\b/i.test(text)
+  ) {
     return 'Provider authentication failed.';
   }
   // Connection-level failures (errno / undici cause chain / bare fetch
   // messages / gateway 5xx) collapse to one sentence with the code kept.
   const transport = transportErrorText(error);
   if (transport) return transport;
-  if (/\bAGENT_CONTEXT_OVERFLOW\b|agent context overflow|latest turn cannot fit|context budget|context window/i.test(text)) {
+  if (
+    /\bAGENT_CONTEXT_OVERFLOW\b|agent context overflow|latest turn cannot fit|context budget|context window/i.test(text)
+  ) {
     return 'Context too large.';
   }
   if (/\bcompact(?:ion)?\b.*\b(?:failed|error|overflow)\b|\b(?:failed|error)\b.*\bcompact(?:ion)?\b/i.test(text)) {
@@ -207,7 +225,9 @@ export function presentErrorText(error, options = {}) {
   }
 
   const quotaRetry = /retryAfter=([^\s:]+)/i.exec(text);
-  if (/\b429\b|rate[_ -]?limit|quota|too many requests|resource exhausted|insufficient_quota|quota_exceeded/i.test(text)) {
+  if (
+    /\b429\b|rate[_ -]?limit|quota|too many requests|resource exhausted|insufficient_quota|quota_exceeded/i.test(text)
+  ) {
     const provider = /Anthropic OAuth/i.test(text) ? 'Anthropic' : 'Provider';
     // Cooldown refusals are recoverable right now by switching accounts —
     // surface that path instead of leaving only the wait option.
@@ -241,9 +261,10 @@ export function presentErrorText(error, options = {}) {
     return `No first response from the ${subject} within ${formatDurationMs(firstResponse[1])}.`;
   }
 
-  const stale = /agent (?:task|tool running) stale\s*\((\d+)ms[^)]*\)/i.exec(text)
-    || /tool running stale\s*\((\d+)ms[^)]*\)/i.exec(text)
-    || /task stale\s*\((\d+)ms[^)]*\)/i.exec(text);
+  const stale =
+    /agent (?:task|tool running) stale\s*\((\d+)ms[^)]*\)/i.exec(text) ||
+    /tool running stale\s*\((\d+)ms[^)]*\)/i.exec(text) ||
+    /task stale\s*\((\d+)ms[^)]*\)/i.exec(text);
   if (stale) {
     return `The ${subject} went stale after ${formatDurationMs(stale[1])} without new stream/tool progress.`;
   }
@@ -291,7 +312,9 @@ export function providerRetryStatusText(error, options = {}) {
 export function backgroundTaskFailureStatusLabel(status, error, options = {}) {
   const surface = options.surface || options.tool || '';
   const raw = String(error ?? '').trim();
-  const statusNorm = String(status || '').trim().toLowerCase();
+  const statusNorm = String(status || '')
+    .trim()
+    .toLowerCase();
   const terminal = /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(statusNorm);
   if (!raw && !terminal) return '';
 
@@ -301,16 +324,18 @@ export function backgroundTaskFailureStatusLabel(status, error, options = {}) {
   let head = 'Failed';
   if (/^(cancelled|canceled)$/i.test(statusNorm)) head = 'Cancelled';
   else if (
-    /^timeout$/i.test(statusNorm)
-    || watchdog?.kind === 'timeout'
-    || /first response stale/i.test(raw)
-    || /no first response from/i.test(presented)
-  ) head = 'Timeout';
+    /^timeout$/i.test(statusNorm) ||
+    watchdog?.kind === 'timeout' ||
+    /first response stale/i.test(raw) ||
+    /no first response from/i.test(presented)
+  )
+    head = 'Timeout';
   else if (
-    watchdog?.kind === 'stale'
-    || /(?:agent )?(?:task|tool running) stale|went stale without/i.test(raw)
-    || /went stale after/i.test(presented)
-  ) head = 'Stale';
+    watchdog?.kind === 'stale' ||
+    /(?:agent )?(?:task|tool running) stale|went stale without/i.test(raw) ||
+    /went stale after/i.test(presented)
+  )
+    head = 'Stale';
 
   let reason = '';
   if (/\bcontext too large\b/i.test(presented)) {

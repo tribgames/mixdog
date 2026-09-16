@@ -17,7 +17,10 @@ export const TOOL_SEARCH_TOOL = {
   inputSchema: {
     type: 'object',
     properties: {
-      names: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Exact name(s)/aliases.' },
+      names: {
+        anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+        description: 'Exact name(s)/aliases.',
+      },
     },
     required: ['names'],
     additionalProperties: false,
@@ -35,11 +38,17 @@ export const CWD_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Show or switch the working directory (active Project). action=list returns the registered projects (name, path); when the user gives a project name instead of a path, list first, then set with the matching path and ask only if several candidates match. path must be an existing directory. A shell-local cd does not change the Project.',
+  description:
+    'Show or switch the working directory (active Project). action=list returns the registered projects (name, path); when the user gives a project name instead of a path, list first, then set with the matching path and ask only if several candidates match. path must be an existing directory. A shell-local cd does not change the Project.',
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['get', 'set', 'list'], description: 'get shows the active Project (default without path), set switches to path, list returns registered projects.' },
+      action: {
+        type: 'string',
+        enum: ['get', 'set', 'list'],
+        description:
+          'get shows the active Project (default without path), set switches to path, list returns registered projects.',
+      },
       path: { type: 'string', description: 'Existing directory to switch to (implies action=set).' },
     },
     additionalProperties: false,
@@ -57,7 +66,8 @@ export const SKILL_TOOL = {
     openWorldHint: false,
     agentHidden: false,
   },
-  description: 'Load or refresh an available skill’s SKILL.md before task actions when its body is missing or needs an update. Reuse a body already in context for matching requests; a later turn or repeated mention is not a reason to call Skill again.',
+  description:
+    'Load or refresh an available skill’s SKILL.md before task actions when its body is missing or needs an update. Reuse a body already in context for matching requests; a later turn or repeated mention is not a reason to call Skill again.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -68,12 +78,7 @@ export const SKILL_TOOL = {
   },
 };
 
-export const LEAD_DISALLOWED_TOOLS = Object.freeze([
-  'get_goal',
-  'create_goal',
-  'set_goal_tasks',
-  'update_goal',
-]);
+export const LEAD_DISALLOWED_TOOLS = Object.freeze(['get_goal', 'create_goal', 'set_goal_tasks', 'update_goal']);
 
 // The runtime surfaces named tools from each optional tool-def module, never
 // "whatever the module exports": a module that grows a tool must be admitted
@@ -134,10 +139,7 @@ export function collectStandaloneToolDefs({
   ];
   return {
     standaloneTools,
-    internalToolDefs: [
-      ...standaloneTools,
-      ...webSearchRuntimeTools.filter((tool) => tool?.public === false),
-    ],
+    internalToolDefs: [...standaloneTools, ...webSearchRuntimeTools.filter((tool) => tool?.public === false)],
     // Workflow-aware model surface: a pack that declares an EMPTY agents list
     // (Solo) must not advertise the agent tool at all — the model calling a
     // schema-visible tool that policy always rejects is a guaranteed error turn

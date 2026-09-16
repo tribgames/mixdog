@@ -1,20 +1,10 @@
 #!/usr/bin/env node
 
-import {
-  chmod,
-  copyFile,
-  mkdir,
-  mkdtemp,
-  rename,
-  rm,
-} from 'node:fs/promises';
+import { chmod, copyFile, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import {
-  NATIVE_TOOL_FILENAMES,
-  packageNativeToolsDir,
-} from '../src/runtime/shared/native-tool-paths.mjs';
+import { NATIVE_TOOL_FILENAMES, packageNativeToolsDir } from '../src/runtime/shared/native-tool-paths.mjs';
 import { ensureGraphBinary } from '../src/runtime/agent/orchestrator/tools/graph-binary-fetcher.mjs';
 import { ensurePatchBinary } from '../src/runtime/agent/orchestrator/tools/patch-binary-fetcher.mjs';
 import { ensureSpawnBinary } from '../src/runtime/agent/orchestrator/tools/spawn-binary-fetcher.mjs';
@@ -42,11 +32,12 @@ export async function prepareRequiredNativeAssets({
 } = {}) {
   const platformKey = nativeAssetPlatformKey(platform, arch);
   if (!NATIVE_ASSET_PLATFORMS.includes(platformKey)) {
-    const guidance = platformKey === 'win32-arm64'
-      ? ' Windows ARM64 Node.js is not supported; use x64 Node.js under Windows x64 emulation.'
-      : '';
+    const guidance =
+      platformKey === 'win32-arm64'
+        ? ' Windows ARM64 Node.js is not supported; use x64 Node.js under Windows x64 emulation.'
+        : '';
     throw new Error(
-      `native assets are not published for ${platformKey}; supported: ${NATIVE_ASSET_PLATFORMS.join(', ')}.${guidance}`,
+      `native assets are not published for ${platformKey}; supported: ${NATIVE_ASSET_PLATFORMS.join(', ')}.${guidance}`
     );
   }
   const root = resolve(String(packageRoot || ''));
@@ -73,9 +64,7 @@ export async function prepareRequiredNativeAssets({
       return [name, join(target, fileName)];
     };
     const requiredEntries = await Promise.all(
-      Object.keys(REQUIRED_NATIVE_INSTALLERS).map((name) => (
-        installOne(name, NATIVE_TOOL_FILENAMES[name])
-      )),
+      Object.keys(REQUIRED_NATIVE_INSTALLERS).map((name) => installOne(name, NATIVE_TOOL_FILENAMES[name]))
     );
     await rm(target, {
       recursive: true,

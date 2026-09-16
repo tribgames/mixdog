@@ -4,15 +4,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import {
-  cookieSetDetails,
-  createBrowserSessionStore,
-  serializeSessionCookies,
-} from './browser-session-store.ts';
+import { cookieSetDetails, createBrowserSessionStore, serializeSessionCookies } from './browser-session-store.ts';
 
 const sessionCookie = (overrides = {}) => ({
-  name: 'sid', value: 'secret-session', domain: '.example.test', path: '/', secure: true,
-  httpOnly: true, hostOnly: false, session: true, sameSite: 'lax', ...overrides,
+  name: 'sid',
+  value: 'secret-session',
+  domain: '.example.test',
+  path: '/',
+  secure: true,
+  httpOnly: true,
+  hostOnly: false,
+  session: true,
+  sameSite: 'lax',
+  ...overrides,
 });
 
 test('only session cookies are kept and a stored cookie is recreated without an expiry', () => {
@@ -21,7 +25,10 @@ test('only session cookies are kept and a stored cookie is recreated without an 
     sessionCookie({ name: 'persistent', session: false, expirationDate: 9_999_999_999 }),
     sessionCookie({ name: '', session: true }),
   ]);
-  assert.deepEqual(records.map((record) => record.name), ['sid']);
+  assert.deepEqual(
+    records.map((record) => record.name),
+    ['sid']
+  );
   const details = cookieSetDetails(records[0]);
   assert.equal(details.url, 'https://example.test/');
   assert.equal(details.domain, '.example.test');
@@ -39,7 +46,9 @@ test('the store round-trips session cookies through the sealed file and discards
     const store = createBrowserSessionStore({
       cookies: {
         get: async () => jar,
-        set: async (details) => { set.push(details); },
+        set: async (details) => {
+          set.push(details);
+        },
       },
       directory,
       encrypt: async (text) => Buffer.from(text, 'utf8').reverse(),

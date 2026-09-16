@@ -1,9 +1,73 @@
 import { join } from 'node:path';
-import { PIXELS_TO_POINTS, addPackageRelationship, ensureContentTypeOverride, fillTemplateParts, partRelationshipPath, provenanceCitation, zipText } from './portable-opc.mjs';
+import {
+  PIXELS_TO_POINTS,
+  addPackageRelationship,
+  ensureContentTypeOverride,
+  fillTemplateParts,
+  partRelationshipPath,
+  provenanceCitation,
+  zipText,
+} from './portable-opc.mjs';
 import { appendDocxBlock, docxBodyModel } from './portable-snapshot.mjs';
-import { OFFICE_RELATIONSHIP_BASE, XML_HEADER, paragraphTexts, rebuildTextNodes, replaceAcrossRuns, textNodes, upsertOrderedChild, xmlDecode, xmlEncode } from './portable-xml.mjs';
-import { SETTINGS_CONTENT_TYPE, SETTINGS_ORDER, WORD_2010_NS, WORD_MAIN_NS, addDocumentImage, anchorDocxComment, commentParagraphId, documentTracksChanges, ensureCommentsPart, ensureNotePart, ensureNumbering, forgetCommentIdentity, markRunsDeleted, nextRevisionId, registerCommentIdentity, registerCommentThread, revisionAttributes, documentSectionSpans, trailingSectionProperties, upsertSectionChild, upsertSectionReference, wordDrawingXml, writeHeaderFooterPart, writeSectionProperties, writeSectionPropertiesAt } from './portable-docx-parts.mjs';
-import { alignWordTableColumns, applyWordRunFormat, blankTableCells, docxStyleId, docxTable, insertDocxBlockAt, justifyWordParagraphs, mergeWordCellProperties, paragraphFormatXml, replaceDocxTable, replaceWordProperties, rewriteTableColumns, rowCellMatches, tableRowMatches, wordJustification, wordParagraph, wordRunProperties, wordTableProperties, wordTableXml } from './portable-docx-xml.mjs';
+import {
+  OFFICE_RELATIONSHIP_BASE,
+  XML_HEADER,
+  paragraphTexts,
+  rebuildTextNodes,
+  replaceAcrossRuns,
+  textNodes,
+  upsertOrderedChild,
+  xmlDecode,
+  xmlEncode,
+} from './portable-xml.mjs';
+import {
+  SETTINGS_CONTENT_TYPE,
+  SETTINGS_ORDER,
+  WORD_2010_NS,
+  WORD_MAIN_NS,
+  addDocumentImage,
+  anchorDocxComment,
+  commentParagraphId,
+  documentTracksChanges,
+  ensureCommentsPart,
+  ensureNotePart,
+  ensureNumbering,
+  forgetCommentIdentity,
+  markRunsDeleted,
+  nextRevisionId,
+  registerCommentIdentity,
+  registerCommentThread,
+  revisionAttributes,
+  documentSectionSpans,
+  trailingSectionProperties,
+  upsertSectionChild,
+  upsertSectionReference,
+  wordDrawingXml,
+  writeHeaderFooterPart,
+  writeSectionProperties,
+  writeSectionPropertiesAt,
+} from './portable-docx-parts.mjs';
+import {
+  alignWordTableColumns,
+  applyWordRunFormat,
+  blankTableCells,
+  docxStyleId,
+  docxTable,
+  insertDocxBlockAt,
+  justifyWordParagraphs,
+  mergeWordCellProperties,
+  paragraphFormatXml,
+  replaceDocxTable,
+  replaceWordProperties,
+  rewriteTableColumns,
+  rowCellMatches,
+  tableRowMatches,
+  wordJustification,
+  wordParagraph,
+  wordRunProperties,
+  wordTableProperties,
+  wordTableXml,
+} from './portable-docx-xml.mjs';
 import { docxRevisionTree, flattenDocxRevisions } from './docx-revisions.mjs';
 import { normalizeDocxRuns, settleDocxStory } from './docx-runs.mjs';
 import { anchorPhraseInParagraph, trackedParagraphReplace, trackedParagraphRewrite } from './docx-tracked-edits.mjs';
@@ -24,9 +88,8 @@ async function docxHeadingLevels(zip) {
     const name = /<w:name\b[^>]*\bw:val="([^"]*)"/.exec(match[0])?.[1] || '';
     const outline = Number(/<w:outlineLvl\b[^>]*\bw:val="(\d+)"/.exec(match[0])?.[1]);
     const named = /^(?:heading|제목|표제)\s*([1-9])/i.exec(name.trim());
-    const level = Number.isInteger(outline) && outline >= 0 && outline <= 8
-      ? outline + 1
-      : (named ? Number(named[1]) : 0);
+    const level =
+      Number.isInteger(outline) && outline >= 0 && outline <= 8 ? outline + 1 : named ? Number(named[1]) : 0;
     if (level) levels.set(match[1], level);
   }
   return levels;
@@ -47,8 +110,11 @@ function docxTocEntries(documentXml, lower, upper, headingLevels = new Map()) {
 function docxTocCacheRuns(entries, lower) {
   return entries.length
     ? entries
-      .map((entry) => `<w:r><w:t xml:space="preserve">${xmlEncode(`${'    '.repeat(entry.level - lower)}${entry.text}`)}</w:t></w:r>`)
-      .join('<w:r><w:br/></w:r>')
+        .map(
+          (entry) =>
+            `<w:r><w:t xml:space="preserve">${xmlEncode(`${'    '.repeat(entry.level - lower)}${entry.text}`)}</w:t></w:r>`
+        )
+        .join('<w:r><w:br/></w:r>')
     : '<w:r><w:t>Update this field in Word to build the table of contents.</w:t></w:r>';
 }
 
@@ -66,7 +132,7 @@ export async function refreshDocxTableOfContents(zip) {
       const lower = Math.max(1, Number(range?.[1]) || 1);
       const upper = Math.max(lower, Number(range?.[2]) || 3);
       return `<w:fldSimple${attributes}>${docxTocCacheRuns(docxTocEntries(current, lower, upper, headingLevels), lower)}</w:fldSimple>`;
-    },
+    }
   );
   if (next === current) return false;
   zip.file('word/document.xml', next);
@@ -84,7 +150,9 @@ function replaceTrackedParagraphs(xml, find, replacement, author) {
   let count = 0;
   let paragraphRewrites = 0;
   const next = xml.replace(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g, (paragraph) => {
-    const joined = textNodes(paragraph, 'w:t').map((node) => node.text).join('');
+    const joined = textNodes(paragraph, 'w:t')
+      .map((node) => node.text)
+      .join('');
     if (!joined.includes(find)) return paragraph;
     const cut = trackedParagraphReplace(paragraph, find, replacement, id, author);
     if (cut.count) {
@@ -127,17 +195,26 @@ async function pruneOrphanComments(zip, parts) {
   // without their comment they would read as a marker mismatch.
   for (const part of parts.filter((name) => !/\/comments\.xml$/i.test(name))) {
     const xml = await zipText(zip, part);
-    const stripped = removedIds.reduce((value, id) => value.replace(
-      new RegExp(`<w:commentRange(?:Start|End)\\b[^>]*\\bw:id="${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*\\/>`, 'g'),
-      '',
-    ), xml);
+    const stripped = removedIds.reduce(
+      (value, id) =>
+        value.replace(
+          new RegExp(
+            `<w:commentRange(?:Start|End)\\b[^>]*\\bw:id="${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*\\/>`,
+            'g'
+          ),
+          ''
+        ),
+      xml
+    );
     if (stripped !== xml) zip.file(part, stripped);
   }
   return removedIds.length;
 }
 
 export async function applyDocx(zip, operations) {
-  const parts = Object.keys(zip.files).filter((name) => /^word\/(document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml$/i.test(name));
+  const parts = Object.keys(zip.files).filter((name) =>
+    /^word\/(document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml$/i.test(name)
+  );
   const results = [];
   let tracking = await documentTracksChanges(zip);
   for (const op of operations) {
@@ -152,15 +229,13 @@ export async function applyDocx(zip, operations) {
           zip,
           partRelationshipPath('word/document.xml'),
           `${OFFICE_RELATIONSHIP_BASE}/settings`,
-          'settings.xml',
+          'settings.xml'
         );
       }
-      zip.file(part, upsertOrderedChild(
-        settings,
-        SETTINGS_ORDER,
-        'w:trackRevisions',
-        enabled ? '<w:trackRevisions/>' : '',
-      ));
+      zip.file(
+        part,
+        upsertOrderedChild(settings, SETTINGS_ORDER, 'w:trackRevisions', enabled ? '<w:trackRevisions/>' : '')
+      );
       tracking = enabled;
       results.push({ op: op.op, changed: true, enabled });
       continue;
@@ -168,9 +243,15 @@ export async function applyDocx(zip, operations) {
     if (op.op === 'fill_template') {
       // Under track changes each token becomes a tracked deletion plus the
       // inserted value, so a filled template still passes the redlining audit.
-      const filled = await fillTemplateParts(zip, parts, 'w:t', op, tracking
-        ? { replace: (xml, _tag, find, replacement) => replaceTrackedParagraphs(xml, find, replacement, op.author) }
-        : {});
+      const filled = await fillTemplateParts(
+        zip,
+        parts,
+        'w:t',
+        op,
+        tracking
+          ? { replace: (xml, _tag, find, replacement) => replaceTrackedParagraphs(xml, find, replacement, op.author) }
+          : {}
+      );
       results.push(tracking ? { ...filled, tracked: true } : filled);
       continue;
     }
@@ -190,14 +271,18 @@ export async function applyDocx(zip, operations) {
         op: op.op,
         changed: count > 0,
         count,
-        ...(tracking ? {
-          tracked: true,
-          granularity: paragraphRewrites ? 'paragraph' : 'run',
-          ...(paragraphRewrites ? {
-            paragraphRewrites,
-            note: `${paragraphRewrites} paragraph(s) held the match across a tab, break, field, or drawing and were rewritten whole: their runs are marked deleted and one inserted run carries the new text.`,
-          } : {}),
-        } : {}),
+        ...(tracking
+          ? {
+              tracked: true,
+              granularity: paragraphRewrites ? 'paragraph' : 'run',
+              ...(paragraphRewrites
+                ? {
+                    paragraphRewrites,
+                    note: `${paragraphRewrites} paragraph(s) held the match across a tab, break, field, or drawing and were rewritten whole: their runs are marked deleted and one inserted run carries the new text.`,
+                  }
+                : {}),
+            }
+          : {}),
       });
       continue;
     }
@@ -205,20 +290,18 @@ export async function applyDocx(zip, operations) {
       const current = await zipText(zip, 'word/document.xml');
       const properties = op.properties || {};
       const listKind = String(properties.listKind || '').toLowerCase();
-      const numbering = listKind
-        ? await ensureNumbering(zip, listKind === 'number' ? 'number' : 'bullet')
-        : null;
+      const numbering = listKind ? await ensureNumbering(zip, listKind === 'number' ? 'number' : 'bullet') : null;
       const style = docxStyleId(op.style || properties.style || (numbering ? 'List Paragraph' : ''));
       const format = paragraphFormatXml(
         properties,
-        numbering ? { numId: numbering.numId, level: properties.listLevel } : null,
+        numbering ? { numId: numbering.numId, level: properties.listLevel } : null
       );
-      const paragraphProperties = style || format
-        ? `<w:pPr>${style ? `<w:pStyle w:val="${xmlEncode(style)}"/>` : ''}${format}</w:pPr>`
-        : '';
+      const paragraphProperties =
+        style || format ? `<w:pPr>${style ? `<w:pStyle w:val="${xmlEncode(style)}"/>` : ''}${format}</w:pPr>` : '';
       const runProperties = wordRunProperties(properties);
-      const run = `<w:r>${runProperties ? `<w:rPr>${runProperties}</w:rPr>` : ''}`
-        + `<w:t${/^\s|\s$/.test(String(op.text || '')) ? ' xml:space="preserve"' : ''}>${xmlEncode(op.text || '')}</w:t></w:r>`;
+      const run =
+        `<w:r>${runProperties ? `<w:rPr>${runProperties}</w:rPr>` : ''}` +
+        `<w:t${/^\s|\s$/.test(String(op.text || '')) ? ' xml:space="preserve"' : ''}>${xmlEncode(op.text || '')}</w:t></w:r>`;
       const content = tracking
         ? `<w:ins ${revisionAttributes(nextRevisionId(current), properties.author)}>${run}</w:ins>`
         : run;
@@ -241,10 +324,19 @@ export async function applyDocx(zip, operations) {
         current = appendDocxBlock(current, table);
       }
       zip.file('word/document.xml', current);
-      results.push({ op: op.op, changed: true, table: docxBodyModel(current).blocks.filter((block) => block.name === 'w:tbl').length });
+      results.push({
+        op: op.op,
+        changed: true,
+        table: docxBodyModel(current).blocks.filter((block) => block.name === 'w:tbl').length,
+      });
       continue;
     }
-    if (op.op === 'set_paragraph_text' || op.op === 'set_run_text' || op.op === 'remove_paragraph' || op.op === 'move_paragraph') {
+    if (
+      op.op === 'set_paragraph_text' ||
+      op.op === 'set_run_text' ||
+      op.op === 'remove_paragraph' ||
+      op.op === 'move_paragraph'
+    ) {
       let current = await zipText(zip, 'word/document.xml');
       const model = docxBodyModel(current);
       const paragraph = model.blocks.filter((block) => block.name === 'w:p')[Number(op.paragraph) - 1];
@@ -255,9 +347,9 @@ export async function applyDocx(zip, operations) {
         const marked = markRunsDeleted(paragraph.xml, id, op.author);
         const mark = `<w:del ${revisionAttributes(id + 900, op.author)}/>`;
         const withMark = /<w:pPr(?:\s[^>]*)?>/.test(marked)
-          ? (/<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>\s*<\/w:pPr>/.test(marked)
+          ? /<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>\s*<\/w:pPr>/.test(marked)
             ? marked.replace(/(<w:rPr(?:\s[^>]*)?>)/, `$1${mark}`)
-            : marked.replace(/<\/w:pPr>/, `<w:rPr>${mark}</w:rPr></w:pPr>`))
+            : marked.replace(/<\/w:pPr>/, `<w:rPr>${mark}</w:rPr></w:pPr>`)
           : marked.replace(/^(<w:p(?:\s[^>]*)?>)/, `$1<w:pPr><w:rPr>${mark}</w:rPr></w:pPr>`);
         nextInner = `${nextInner.slice(0, paragraph.start)}${withMark}${nextInner.slice(paragraph.end)}`;
       } else if (op.op === 'remove_paragraph') {
@@ -275,7 +367,12 @@ export async function applyDocx(zip, operations) {
           nextInner = `${without.slice(0, adjustedStart)}${paragraph.xml}${without.slice(adjustedStart)}`;
         }
       } else if (tracking && op.op === 'set_paragraph_text') {
-        const nextParagraph = trackedParagraphRewrite(paragraph.xml, String(op.text ?? ''), nextRevisionId(current), op.author);
+        const nextParagraph = trackedParagraphRewrite(
+          paragraph.xml,
+          String(op.text ?? ''),
+          nextRevisionId(current),
+          op.author
+        );
         nextInner = `${nextInner.slice(0, paragraph.start)}${nextParagraph}${nextInner.slice(paragraph.end)}`;
       } else {
         const nodes = textNodes(paragraph.xml, 'w:t');
@@ -325,7 +422,10 @@ export async function applyDocx(zip, operations) {
           nextParagraph = nextParagraph.replace(/<w:pPr(?:\s[^>]*)?>/, (open) => `${open}<w:pStyle w:val="${style}"/>`);
         }
       } else {
-        nextParagraph = nextParagraph.replace(/<w:p(?:\s[^>]*)?>/, (open) => `${open}<w:pPr><w:pStyle w:val="${style}"/></w:pPr>`);
+        nextParagraph = nextParagraph.replace(
+          /<w:p(?:\s[^>]*)?>/,
+          (open) => `${open}<w:pPr><w:pStyle w:val="${style}"/></w:pPr>`
+        );
       }
       const nextInner = `${model.body.inner.slice(0, paragraph.start)}${nextParagraph}${model.body.inner.slice(paragraph.end)}`;
       current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
@@ -362,8 +462,11 @@ export async function applyDocx(zip, operations) {
           return deleted;
         });
         if (first) {
-          nextCell = cell[0].replace('</w:tc>', `<w:p><w:ins ${revisionAttributes(id, op.author)}><w:r>`
-            + `<w:t xml:space="preserve">${xmlEncode(op.text ?? '')}</w:t></w:r></w:ins></w:p></w:tc>`);
+          nextCell = cell[0].replace(
+            '</w:tc>',
+            `<w:p><w:ins ${revisionAttributes(id, op.author)}><w:r>` +
+              `<w:t xml:space="preserve">${xmlEncode(op.text ?? '')}</w:t></w:r></w:ins></w:p></w:tc>`
+          );
         }
       } else if (nodes.length) {
         nodes[0].text = String(op.text ?? '');
@@ -385,12 +488,15 @@ export async function applyDocx(zip, operations) {
       // Restyling a table must not undo its width: the declared width is part
       // of the layout, not of the style being replaced.
       const declaredWidth = /<w:tblW\b[^>]*\bw:w="(\d+)"[^>]*\bw:type="dxa"/.exec(table[0])?.[1];
-      const nextTable = alignWordTableColumns(replaceWordProperties(
-        table[0],
-        'tbl',
-        'tblPr',
-        wordTableProperties(op.properties, { totalWidth: Number(declaredWidth) || 0 }),
-      ), Array.isArray(op.properties?.columnAlignments) ? op.properties.columnAlignments : []);
+      const nextTable = alignWordTableColumns(
+        replaceWordProperties(
+          table[0],
+          'tbl',
+          'tblPr',
+          wordTableProperties(op.properties, { totalWidth: Number(declaredWidth) || 0 })
+        ),
+        Array.isArray(op.properties?.columnAlignments) ? op.properties.columnAlignments : []
+      );
       current = replaceDocxTable(current, table, nextTable);
       zip.file('word/document.xml', current);
       results.push({ op: op.op, changed: nextTable !== table[0], table: Number(op.table) });
@@ -421,28 +527,43 @@ export async function applyDocx(zip, operations) {
           op.properties?.bold ? '<w:b/>' : '',
           op.properties?.italic ? '<w:i/>' : '',
           op.properties?.color ? `<w:color w:val="${xmlEncode(String(op.properties.color).replace(/^#/, ''))}"/>` : '',
-          Number.isFinite(cellSize) && cellSize > 0 ? `<w:sz w:val="${Math.round(cellSize * 2)}"/><w:szCs w:val="${Math.round(cellSize * 2)}"/>` : '',
+          Number.isFinite(cellSize) && cellSize > 0
+            ? `<w:sz w:val="${Math.round(cellSize * 2)}"/><w:szCs w:val="${Math.round(cellSize * 2)}"/>`
+            : '',
         ].join('');
         nextCell = applyWordRunFormat(nextCell, runFormat);
         // The cell's line pitch follows its new size (the table convention, 1.3× the size, at least): a 9 pt
         // label row under a 22 pt value row otherwise keeps the value row's 29 pt lines and floats the labels.
         if (Number.isFinite(cellSize) && cellSize > 0) {
-          nextCell = nextCell.replace(/(<w:spacing\b[^>]*\bw:line=")(\d+)("[^>]*\bw:lineRule="atLeast")/g, (_, open, __, close) => `${open}${Math.round(cellSize * 1.3 * 20)}${close}`);
+          nextCell = nextCell.replace(
+            /(<w:spacing\b[^>]*\bw:line=")(\d+)("[^>]*\bw:lineRule="atLeast")/g,
+            (_, open, __, close) => `${open}${Math.round(cellSize * 1.3 * 20)}${close}`
+          );
         }
         // A cell's horizontal alignment is its paragraphs' justification: a
         // centred metric that stays left-aligned reads as a different number
         // column from the header above it.
-        const alignment = String(op.properties?.horizontalAlignment || '').trim().toLowerCase();
+        const alignment = String(op.properties?.horizontalAlignment || '')
+          .trim()
+          .toLowerCase();
         if (alignment) {
           const justification = wordJustification(alignment);
-          if (!justification) throw new Error(`set_table_cell_style horizontalAlignment must be left, center, right, or justify, not ${alignment}`);
+          if (!justification)
+            throw new Error(
+              `set_table_cell_style horizontalAlignment must be left, center, right, or justify, not ${alignment}`
+            );
           nextCell = justifyWordParagraphs(nextCell, justification);
         }
         nextTable = table[0].replace(cell[0], nextCell);
       } else {
         const colSpan = Math.max(1, Number(op.colSpan) || 1);
         const rowSpan = Math.max(1, Number(op.rowSpan) || 1);
-        let merged = replaceWordProperties(cell[0], 'tc', 'tcPr', `${colSpan > 1 ? `<w:gridSpan w:val="${colSpan}"/>` : ''}${rowSpan > 1 ? '<w:vMerge w:val="restart"/>' : ''}`);
+        const merged = replaceWordProperties(
+          cell[0],
+          'tc',
+          'tcPr',
+          `${colSpan > 1 ? `<w:gridSpan w:val="${colSpan}"/>` : ''}${rowSpan > 1 ? '<w:vMerge w:val="restart"/>' : ''}`
+        );
         let nextRow = row[0].replace(cell[0], merged);
         for (let index = Number(op.col); index < Number(op.col) + colSpan - 1; index += 1) {
           const remove = cells[index];
@@ -456,22 +577,31 @@ export async function applyDocx(zip, operations) {
             const continuationCells = rowCellMatches(continuationRow[0]);
             const continuation = continuationCells[Number(op.col) - 1];
             if (!continuation) continue;
-            const nextCell = replaceWordProperties(continuation[0], 'tc', 'tcPr', `${colSpan > 1 ? `<w:gridSpan w:val="${colSpan}"/>` : ''}<w:vMerge/>`);
+            const nextCell = replaceWordProperties(
+              continuation[0],
+              'tc',
+              'tcPr',
+              `${colSpan > 1 ? `<w:gridSpan w:val="${colSpan}"/>` : ''}<w:vMerge/>`
+            );
             nextTable = nextTable.replace(continuation[0], nextCell);
           }
         }
       }
       current = replaceDocxTable(current, table, nextTable);
       zip.file('word/document.xml', current);
-      results.push({ op: op.op, changed: nextTable !== table[0], table: Number(op.table), row: Number(op.row), col: Number(op.col) });
+      results.push({
+        op: op.op,
+        changed: nextTable !== table[0],
+        table: Number(op.table),
+        row: Number(op.row),
+        col: Number(op.col),
+      });
       continue;
     }
     if (op.op === 'set_paragraph_format') {
       const properties = op.properties || {};
       const listKind = String(properties.listKind || '').toLowerCase();
-      const numbering = listKind
-        ? await ensureNumbering(zip, listKind === 'number' ? 'number' : 'bullet')
-        : null;
+      const numbering = listKind ? await ensureNumbering(zip, listKind === 'number' ? 'number' : 'bullet') : null;
       let current = await zipText(zip, 'word/document.xml');
       const model = docxBodyModel(current);
       const paragraph = model.blocks.filter((block) => block.name === 'w:p')[Number(op.paragraph) - 1];
@@ -479,7 +609,7 @@ export async function applyDocx(zip, operations) {
       const nextParagraph = patchParagraphFormat(
         paragraph.xml,
         properties,
-        numbering ? { numId: numbering.numId, level: properties.listLevel } : null,
+        numbering ? { numId: numbering.numId, level: properties.listLevel } : null
       );
       const nextInner = `${model.body.inner.slice(0, paragraph.start)}${nextParagraph}${model.body.inner.slice(paragraph.end)}`;
       current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
@@ -491,14 +621,20 @@ export async function applyDocx(zip, operations) {
       const current = await zipText(zip, 'word/document.xml');
       const media = await addDocumentImage(zip, op.path);
       const pixels = media.pixels;
-      const width = Number(op.width) > 0
-        ? Number(op.width)
-        : (pixels ? pixels.width * PIXELS_TO_POINTS : 240);
-      const height = Number(op.height) > 0
-        ? Number(op.height)
-        : (pixels ? pixels.height * PIXELS_TO_POINTS * (Number(op.width) > 0 ? Number(op.width) / (pixels.width * PIXELS_TO_POINTS) : 1) : 180);
-      const id = [...current.matchAll(/<wp:docPr\b[^>]*\bid="(\d+)"/g)]
-        .reduce((max, match) => Math.max(max, Number(match[1])), 0) + 1;
+      const width = Number(op.width) > 0 ? Number(op.width) : pixels ? pixels.width * PIXELS_TO_POINTS : 240;
+      const height =
+        Number(op.height) > 0
+          ? Number(op.height)
+          : pixels
+            ? pixels.height *
+              PIXELS_TO_POINTS *
+              (Number(op.width) > 0 ? Number(op.width) / (pixels.width * PIXELS_TO_POINTS) : 1)
+            : 180;
+      const id =
+        [...current.matchAll(/<wp:docPr\b[^>]*\bid="(\d+)"/g)].reduce(
+          (max, match) => Math.max(max, Number(match[1])),
+          0
+        ) + 1;
       const block = `<w:p><w:r>${wordDrawingXml({
         id,
         embedId: media.relationshipId,
@@ -546,15 +682,15 @@ export async function applyDocx(zip, operations) {
           section,
           'pgSz',
           `<w:pgSz w:w="${pageWidth}" w:h="${pageHeight}"${orientation === 'landscape' ? ' w:orient="landscape"' : ''}/>`,
-          ['type'],
+          ['type']
         );
         return upsertSectionChild(
           withSize,
           'pgMar',
-          `<w:pgMar w:top="${margin('top', 'topMargin', 1418)}" w:right="${margin('right', 'rightMargin', 1418)}"`
-          + ` w:bottom="${margin('bottom', 'bottomMargin', 1418)}" w:left="${margin('left', 'leftMargin', 1418)}"`
-          + ` w:header="${margin('header', 'headerMargin', 709)}" w:footer="${margin('footer', 'footerMargin', 709)}" w:gutter="0"/>`,
-          ['pgSz'],
+          `<w:pgMar w:top="${margin('top', 'topMargin', 1418)}" w:right="${margin('right', 'rightMargin', 1418)}"` +
+            ` w:bottom="${margin('bottom', 'bottomMargin', 1418)}" w:left="${margin('left', 'leftMargin', 1418)}"` +
+            ` w:header="${margin('header', 'headerMargin', 709)}" w:footer="${margin('footer', 'footerMargin', 709)}" w:gutter="0"/>`,
+          ['pgSz']
         );
       });
       zip.file('word/document.xml', next);
@@ -577,17 +713,14 @@ export async function applyDocx(zip, operations) {
           const position = Math.max(1, Math.min(Number(op.row) || rows.length + 1, rows.length + 1));
           const template = rows[Math.min(position, rows.length) - 1];
           const blank = blankTableCells(template[0]);
-          nextTable = position > rows.length
-            ? table[0].replace(/<\/w:tbl>$/, `${blank}</w:tbl>`)
-            : `${table[0].slice(0, template.index)}${blank}${table[0].slice(template.index)}`;
+          nextTable =
+            position > rows.length
+              ? table[0].replace(/<\/w:tbl>$/, `${blank}</w:tbl>`)
+              : `${table[0].slice(0, template.index)}${blank}${table[0].slice(template.index)}`;
         }
       } else {
         const columnIndex = Math.max(1, Number(op.column) || 1);
-        nextTable = rewriteTableColumns(
-          table[0],
-          columnIndex,
-          op.op === 'delete_table_column' ? 'delete' : 'insert',
-        );
+        nextTable = rewriteTableColumns(table[0], columnIndex, op.op === 'delete_table_column' ? 'delete' : 'insert');
       }
       current = replaceDocxTable(current, table, nextTable);
       zip.file('word/document.xml', current);
@@ -606,9 +739,10 @@ export async function applyDocx(zip, operations) {
       const cleaned = existing
         .replace(/<w:numPr\b[^>]*?(?:\/>|>[\s\S]*?<\/w:numPr>)/, '')
         .replace(/<w:pStyle\b[^>]*\/>/, '');
-      const properties = '<w:pStyle w:val="ListParagraph"/>'
-        + `<w:numPr><w:ilvl w:val="${level}"/><w:numId w:val="${numbering.numId}"/></w:numPr>`
-        + cleaned;
+      const properties =
+        '<w:pStyle w:val="ListParagraph"/>' +
+        `<w:numPr><w:ilvl w:val="${level}"/><w:numId w:val="${numbering.numId}"/></w:numPr>` +
+        cleaned;
       const nextParagraph = replaceWordProperties(paragraph.xml, 'p', 'pPr', properties);
       const nextInner = `${model.body.inner.slice(0, paragraph.start)}${nextParagraph}${model.body.inner.slice(paragraph.end)}`;
       current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
@@ -627,17 +761,19 @@ export async function applyDocx(zip, operations) {
       let current = await zipText(zip, 'word/document.xml');
       const relationshipId = address
         ? await addPackageRelationship(
-          zip,
-          partRelationshipPath('word/document.xml'),
-          `${OFFICE_RELATIONSHIP_BASE}/hyperlink`,
-          address,
-          'External',
-        )
+            zip,
+            partRelationshipPath('word/document.xml'),
+            `${OFFICE_RELATIONSHIP_BASE}/hyperlink`,
+            address,
+            'External'
+          )
         : '';
-      const run = '<w:r><w:rPr><w:color w:val="0563C1"/><w:u w:val="single"/></w:rPr>'
-        + `<w:t${/^\s|\s$/.test(display) ? ' xml:space="preserve"' : ''}>${xmlEncode(display)}</w:t></w:r>`;
-      const link = `<w:hyperlink${relationshipId ? ` r:id="${relationshipId}"` : ''}`
-        + `${op.subAddress ? ` w:anchor="${xmlEncode(op.subAddress)}"` : ''}>${run}</w:hyperlink>`;
+      const run =
+        '<w:r><w:rPr><w:color w:val="0563C1"/><w:u w:val="single"/></w:rPr>' +
+        `<w:t${/^\s|\s$/.test(display) ? ' xml:space="preserve"' : ''}>${xmlEncode(display)}</w:t></w:r>`;
+      const link =
+        `<w:hyperlink${relationshipId ? ` r:id="${relationshipId}"` : ''}` +
+        `${op.subAddress ? ` w:anchor="${xmlEncode(op.subAddress)}"` : ''}>${run}</w:hyperlink>`;
       // A link asked for by phrase replaces that phrase, the way Word does it.
       // Appending it to the end of the document instead put the link somewhere
       // the caller never named and still reported success.
@@ -682,30 +818,36 @@ export async function applyDocx(zip, operations) {
       let current = await zipText(zip, 'word/document.xml');
       const model = docxBodyModel(current);
       const paragraphs = model.blocks.filter((block) => block.name === 'w:p');
-      const paragraph = op.op === 'add_provenance'
-        ? paragraphs[Number(op.paragraph) - 1]
-        : paragraphs.find((entry) => paragraphTexts(entry.xml, 'w:t').join('').includes(String(op.find || '')));
+      const paragraph =
+        op.op === 'add_provenance'
+          ? paragraphs[Number(op.paragraph) - 1]
+          : paragraphs.find((entry) =>
+              paragraphTexts(entry.xml, 'w:t')
+                .join('')
+                .includes(String(op.find || ''))
+            );
       if (!paragraph) {
-        throw new Error(op.op === 'add_provenance'
-          ? `DOCX paragraph ${op.paragraph} not found`
-          : `DOCX text not found for comment anchor: ${op.find}`);
+        throw new Error(
+          op.op === 'add_provenance'
+            ? `DOCX paragraph ${op.paragraph} not found`
+            : `DOCX text not found for comment anchor: ${op.find}`
+        );
       }
       const comments = await ensureCommentsPart(zip);
       const ids = [...comments.xml.matchAll(/<w:comment\b[^>]*\bw:id="(\d+)"/g)].map((match) => Number(match[1]));
       const id = Math.max(0, ...ids) + 1;
       const stamp = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-      const entry = `<w:comment w:id="${id}" w:author="${xmlEncode(op.author || 'Mixdog')}"`
-        + ` w:date="${stamp}" w:initials="${xmlEncode(op.initials || 'MD')}">`
-        + `<w:p xmlns:w14="${WORD_2010_NS}" w14:paraId="${commentParagraphId(id)}">`
-        + `<w:r><w:t${/^\s|\s$/.test(text) ? ' xml:space="preserve"' : ''}>${xmlEncode(text)}</w:t></w:r></w:p></w:comment>`;
+      const entry =
+        `<w:comment w:id="${id}" w:author="${xmlEncode(op.author || 'Mixdog')}"` +
+        ` w:date="${stamp}" w:initials="${xmlEncode(op.initials || 'MD')}">` +
+        `<w:p xmlns:w14="${WORD_2010_NS}" w14:paraId="${commentParagraphId(id)}">` +
+        `<w:r><w:t${/^\s|\s$/.test(text) ? ' xml:space="preserve"' : ''}>${xmlEncode(text)}</w:t></w:r></w:p></w:comment>`;
       zip.file(comments.part, comments.xml.replace('</w:comments>', `${entry}</w:comments>`));
       await registerCommentThread(zip, { commentId: id });
       await registerCommentIdentity(zip, { commentId: id, date: stamp });
       // A comment marks the phrase it was asked about; the paragraph only when
       // the phrase cannot be cut out of its runs.
-      const phrase = op.op === 'add_comment'
-        ? anchorPhraseInParagraph(paragraph.xml, String(op.find || ''), id)
-        : null;
+      const phrase = op.op === 'add_comment' ? anchorPhraseInParagraph(paragraph.xml, String(op.find || ''), id) : null;
       const anchored = phrase || anchorDocxComment(paragraph.xml, id);
       const nextInner = `${model.body.inner.slice(0, paragraph.start)}${anchored}${model.body.inner.slice(paragraph.end)}`;
       current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
@@ -736,10 +878,11 @@ export async function applyDocx(zip, operations) {
       const ids = [...comments.xml.matchAll(/<w:comment\b[^>]*\bw:id="(\d+)"/g)].map((match) => Number(match[1]));
       const id = Math.max(0, ...ids) + 1;
       const stamp = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-      const reply = `<w:comment w:id="${id}" w:author="${xmlEncode(op.author || 'Mixdog')}"`
-        + ` w:date="${stamp}" w:initials="${xmlEncode(op.initials || 'MD')}">`
-        + `<w:p xmlns:w14="${WORD_2010_NS}" w14:paraId="${commentParagraphId(id)}">`
-        + `<w:r><w:t${/^\s|\s$/.test(text) ? ' xml:space="preserve"' : ''}>${xmlEncode(text)}</w:t></w:r></w:p></w:comment>`;
+      const reply =
+        `<w:comment w:id="${id}" w:author="${xmlEncode(op.author || 'Mixdog')}"` +
+        ` w:date="${stamp}" w:initials="${xmlEncode(op.initials || 'MD')}">` +
+        `<w:p xmlns:w14="${WORD_2010_NS}" w14:paraId="${commentParagraphId(id)}">` +
+        `<w:r><w:t${/^\s|\s$/.test(text) ? ' xml:space="preserve"' : ''}>${xmlEncode(text)}</w:t></w:r></w:p></w:comment>`;
       zip.file(comments.part, comments.xml.replace('</w:comments>', `${reply}</w:comments>`));
       await registerCommentThread(zip, { commentId: id, parentId: parent });
       await registerCommentIdentity(zip, { commentId: id, date: stamp });
@@ -747,8 +890,9 @@ export async function applyDocx(zip, operations) {
       const anchor = new RegExp(`<w:commentRangeEnd\\b[^>]*\\bw:id="${parent}"[^>]*\\/>`).exec(current);
       if (anchor) {
         const position = anchor.index;
-        const marks = `<w:commentRangeStart w:id="${id}"/><w:commentRangeEnd w:id="${id}"/>`
-          + `<w:r><w:commentReference w:id="${id}"/></w:r>`;
+        const marks =
+          `<w:commentRangeStart w:id="${id}"/><w:commentRangeEnd w:id="${id}"/>` +
+          `<w:r><w:commentReference w:id="${id}"/></w:r>`;
         zip.file('word/document.xml', `${current.slice(0, position)}${marks}${current.slice(position)}`);
       }
       results.push({ op: op.op, changed: true, comment: id, parent });
@@ -767,7 +911,13 @@ export async function applyDocx(zip, operations) {
       const next = current
         .replace(new RegExp(`<w:commentRangeStart\\b[^>]*\\bw:id="${id}"[^>]*\\/>`, 'g'), '')
         .replace(new RegExp(`<w:commentRangeEnd\\b[^>]*\\bw:id="${id}"[^>]*\\/>`, 'g'), '')
-        .replace(new RegExp(`<w:r>(?:(?!<\\/w:r>)[\\s\\S])*?<w:commentReference\\b[^>]*\\bw:id="${id}"[^>]*\\/>[\\s\\S]*?<\\/w:r>`, 'g'), '');
+        .replace(
+          new RegExp(
+            `<w:r>(?:(?!<\\/w:r>)[\\s\\S])*?<w:commentReference\\b[^>]*\\bw:id="${id}"[^>]*\\/>[\\s\\S]*?<\\/w:r>`,
+            'g'
+          ),
+          ''
+        );
       zip.file('word/document.xml', next);
       results.push({ op: op.op, changed: true, comment: id });
       continue;
@@ -790,7 +940,15 @@ export async function applyDocx(zip, operations) {
       // Word's accept-all settles them too. Snapshot ordinals run through the
       // story parts in name order, which is the order walked here.
       const stories = parts.filter((name) => !/\/comments\.xml$/i.test(name)).sort();
-      const totals = { resolved: 0, merged: 0, cleared: 0, unmerged: 0, rowsRemoved: 0, rowsCleared: 0, propertyChanges: 0 };
+      const totals = {
+        resolved: 0,
+        merged: 0,
+        cleared: 0,
+        unmerged: 0,
+        rowsRemoved: 0,
+        rowsCleared: 0,
+        propertyChanges: 0,
+      };
       const reviewers = new Set();
       let ordinalOffset = 0;
       let settled = false;
@@ -820,7 +978,8 @@ export async function applyDocx(zip, operations) {
       const commentsRemoved = single ? 0 : await pruneOrphanComments(zip, parts);
       const paragraphMarks = totals.merged + totals.cleared + totals.unmerged;
       const tableRows = totals.rowsRemoved + totals.rowsCleared;
-      const changed = totals.resolved > 0 || paragraphMarks > 0 || tableRows > 0 || totals.propertyChanges > 0 || commentsRemoved > 0;
+      const changed =
+        totals.resolved > 0 || paragraphMarks > 0 || tableRows > 0 || totals.propertyChanges > 0 || commentsRemoved > 0;
       results.push({
         op: op.op,
         changed,
@@ -830,18 +989,22 @@ export async function applyDocx(zip, operations) {
         ...(author ? { author } : {}),
         // A label that matches nobody is most often a misspelt reviewer; the
         // names actually present let the caller correct it.
-        ...(author && !changed ? {
-          note: reviewers.size
-            ? `No revision by "${author}"; the tracked changes are by ${[...reviewers].map((name) => `"${name}"`).join(', ')}.`
-            : `No revision by "${author}"; the document carries no tracked change.`,
-        } : {}),
+        ...(author && !changed
+          ? {
+              note: reviewers.size
+                ? `No revision by "${author}"; the tracked changes are by ${[...reviewers].map((name) => `"${name}"`).join(', ')}.`
+                : `No revision by "${author}"; the document carries no tracked change.`,
+            }
+          : {}),
         ...(paragraphMarks ? { paragraphMarks, mergedParagraphs: totals.merged } : {}),
         ...(tableRows ? { tableRows: { removed: totals.rowsRemoved, cleared: totals.rowsCleared } } : {}),
         ...(totals.propertyChanges ? { propertyChanges: totals.propertyChanges } : {}),
         ...(commentsRemoved ? { commentsRemoved } : {}),
-        ...(totals.unmerged ? {
-          note: `${totals.unmerged} paragraph mark(s) could not join the next block (a table or the end of the body); the mark was cleared instead.`,
-        } : {}),
+        ...(totals.unmerged
+          ? {
+              note: `${totals.unmerged} paragraph mark(s) could not join the next block (a table or the end of the body); the mark was cleared instead.`,
+            }
+          : {}),
       });
       continue;
     }
@@ -860,11 +1023,15 @@ export async function applyDocx(zip, operations) {
       const count = Math.max(1, columns.length);
       const current_widths = columns.map((column) => Number(/\bw:w="(\d+)"/.exec(column[1])?.[1]) || 0);
       const total = current_widths.reduce((sum, width) => sum + width, 0);
-      const widths = total > 0
-        ? current_widths.map((width) => Math.max(240, Math.round((width / total) * usable)))
-        : Array.from({ length: count }, () => Math.round(usable / count));
+      const widths =
+        total > 0
+          ? current_widths.map((width) => Math.max(240, Math.round((width / total) * usable)))
+          : Array.from({ length: count }, () => Math.round(usable / count));
       let nextTable = grid
-        ? table[0].replace(grid[0], `<w:tblGrid>${widths.map((width) => `<w:gridCol w:w="${width}"/>`).join('')}</w:tblGrid>`)
+        ? table[0].replace(
+            grid[0],
+            `<w:tblGrid>${widths.map((width) => `<w:gridCol w:w="${width}"/>`).join('')}</w:tblGrid>`
+          )
         : table[0];
       const declared = `<w:tblW w:w="${usable}" w:type="dxa"/>`;
       let tableProperties = op.properties
@@ -877,32 +1044,27 @@ export async function applyDocx(zip, operations) {
       } else {
         tableProperties = `${declared}${tableProperties}`;
       }
-      nextTable = replaceWordProperties(
-        nextTable,
-        'tbl',
-        'tblPr',
-        tableProperties,
-      );
+      nextTable = replaceWordProperties(nextTable, 'tbl', 'tblPr', tableProperties);
       nextTable = nextTable.replace(/<w:tr(?:\s[^>]*)?>[\s\S]*?<\/w:tr>/g, (row) => {
         let index = 0;
         return row.replace(/<w:tc(?:\s[^>]*)?>[\s\S]*?<\/w:tc>/g, (cell) => {
           const existing = /<w:tcPr>([\s\S]*?)<\/w:tcPr>/.exec(cell)?.[1] || '';
           const keep = (pattern) => pattern.exec(existing)?.[0] || '';
           const span = Math.max(1, Number(/<w:gridSpan\b[^>]*\bw:val="(\d+)"/.exec(existing)?.[1]) || 1);
-          const width = widths.slice(index, index + span).reduce((sum, column) => sum + (column || 0), 0)
-            || widths.at(-1);
+          const width =
+            widths.slice(index, index + span).reduce((sum, column) => sum + (column || 0), 0) || widths.at(-1);
           index += span;
           return replaceWordProperties(
             cell,
             'tc',
             'tcPr',
-            `<w:tcW w:w="${width}" w:type="dxa"/>`
-            + keep(/<w:gridSpan\b[^>]*\/>/)
-            + keep(/<w:hMerge\b[^>]*\/>/)
-            + keep(/<w:vMerge\b[^>]*\/>/)
-            + keep(/<w:tcBorders>[\s\S]*?<\/w:tcBorders>/)
-            + keep(/<w:shd\b[^>]*\/>/)
-            + keep(/<w:vAlign\b[^>]*\/>/),
+            `<w:tcW w:w="${width}" w:type="dxa"/>` +
+              keep(/<w:gridSpan\b[^>]*\/>/) +
+              keep(/<w:hMerge\b[^>]*\/>/) +
+              keep(/<w:vMerge\b[^>]*\/>/) +
+              keep(/<w:tcBorders>[\s\S]*?<\/w:tcBorders>/) +
+              keep(/<w:shd\b[^>]*\/>/) +
+              keep(/<w:vAlign\b[^>]*\/>/)
           );
         });
       });
@@ -929,7 +1091,9 @@ export async function applyDocx(zip, operations) {
       if (!tag && !Number.isInteger(wanted)) throw new Error('set_content_control requires tag or control');
       const parts = Object.keys(zip.files)
         .filter((name) => /^word\/(document|header\d+|footer\d+)\.xml$/i.test(name))
-        .sort((left, right) => (left === 'word/document.xml' ? -1 : right === 'word/document.xml' ? 1 : left.localeCompare(right)));
+        .sort((left, right) =>
+          left === 'word/document.xml' ? -1 : right === 'word/document.xml' ? 1 : left.localeCompare(right)
+        );
       let ordinal = 0;
       let filled = null;
       for (const part of parts) {
@@ -961,7 +1125,10 @@ export async function applyDocx(zip, operations) {
           filled = { part, ordinal, tag: controlTag };
           // A placeholder control shows grey prompt text until the flag goes.
           const cleaned = control.replace(/<w:showingPlcHdr\b[^>]*\/>/g, '');
-          return cleaned.replace(/<w:sdtContent\b[^>]*>[\s\S]*?<\/w:sdtContent>/, `<w:sdtContent>${paragraph}</w:sdtContent>`);
+          return cleaned.replace(
+            /<w:sdtContent\b[^>]*>[\s\S]*?<\/w:sdtContent>/,
+            `<w:sdtContent>${paragraph}</w:sdtContent>`
+          );
         });
         if (changed) {
           zip.file(part, next);
@@ -969,9 +1136,9 @@ export async function applyDocx(zip, operations) {
         }
       }
       if (!filled) {
-        throw new Error(tag
-          ? `DOCX content control not found for tag: ${tag}`
-          : `DOCX content control ${wanted} not found`);
+        throw new Error(
+          tag ? `DOCX content control not found for tag: ${tag}` : `DOCX content control ${wanted} not found`
+        );
       }
       results.push({
         op: op.op,
@@ -994,23 +1161,26 @@ export async function applyDocx(zip, operations) {
         ? paragraphs[Number(op.paragraph) - 1]
         : paragraphs.find((entry) => paragraphTexts(entry.xml, 'w:t').join('').includes(find));
       if (!paragraph) {
-        throw new Error(op.paragraph
-          ? `DOCX paragraph ${op.paragraph} not found`
-          : `DOCX text not found for note anchor: ${find}`);
+        throw new Error(
+          op.paragraph ? `DOCX paragraph ${op.paragraph} not found` : `DOCX text not found for note anchor: ${find}`
+        );
       }
-      const ids = [...definition.xml.matchAll(new RegExp(`<${definition.tag}\\b[^>]*\\bw:id="(-?\\d+)"`, 'g'))]
-        .map((match) => Number(match[1]));
+      const ids = [...definition.xml.matchAll(new RegExp(`<${definition.tag}\\b[^>]*\\bw:id="(-?\\d+)"`, 'g'))].map(
+        (match) => Number(match[1])
+      );
       const id = Math.max(0, ...ids) + 1;
-      const entry = `<${definition.tag} w:id="${id}">`
-        + `<w:p><w:pPr><w:pStyle w:val="${definition.textStyle}"/></w:pPr>`
-        + `<w:r><w:rPr><w:rStyle w:val="${definition.style}"/><w:vertAlign w:val="superscript"/></w:rPr>`
-        + `<w:${definition.reference === 'w:footnoteReference' ? 'footnoteRef' : 'endnoteRef'}/></w:r>`
-        + `<w:r><w:t xml:space="preserve"> ${xmlEncode(text)}</w:t></w:r></w:p></${definition.tag}>`;
+      const entry =
+        `<${definition.tag} w:id="${id}">` +
+        `<w:p><w:pPr><w:pStyle w:val="${definition.textStyle}"/></w:pPr>` +
+        `<w:r><w:rPr><w:rStyle w:val="${definition.style}"/><w:vertAlign w:val="superscript"/></w:rPr>` +
+        `<w:${definition.reference === 'w:footnoteReference' ? 'footnoteRef' : 'endnoteRef'}/></w:r>` +
+        `<w:r><w:t xml:space="preserve"> ${xmlEncode(text)}</w:t></w:r></w:p></${definition.tag}>`;
       zip.file(definition.part, definition.xml.replace(`</${definition.root}>`, `${entry}</${definition.root}>`));
       // The mark belongs right after the phrase it cites; a phrase split across
       // a tab, field, or drawing falls back to the end of its paragraph.
-      const mark = `<w:r><w:rPr><w:rStyle w:val="${definition.style}"/><w:vertAlign w:val="superscript"/></w:rPr>`
-        + `<${definition.reference} w:id="${id}"/></w:r>`;
+      const mark =
+        `<w:r><w:rPr><w:rStyle w:val="${definition.style}"/><w:vertAlign w:val="superscript"/></w:rPr>` +
+        `<${definition.reference} w:id="${id}"/></w:r>`;
       const phrase = find ? anchorPhraseInParagraph(paragraph.xml, find, id, { start: '', end: mark }) : null;
       const anchored = phrase || paragraph.xml.replace(/<\/w:p>$/, `${mark}</w:p>`);
       const nextInner = `${model.body.inner.slice(0, paragraph.start)}${anchored}${model.body.inner.slice(paragraph.end)}`;
@@ -1035,11 +1205,16 @@ export async function applyDocx(zip, operations) {
       const paragraphs = model.blocks.filter((block) => block.name === 'w:p');
       const paragraph = op.paragraph
         ? paragraphs[Number(op.paragraph) - 1]
-        : paragraphs.find((entry) => paragraphTexts(entry.xml, 'w:t').join('').includes(String(op.find || '')));
+        : paragraphs.find((entry) =>
+            paragraphTexts(entry.xml, 'w:t')
+              .join('')
+              .includes(String(op.find || ''))
+          );
       if (!paragraph) throw new Error('add_bookmark could not resolve a target paragraph');
       const opening = /^<w:p(?:\s[^>]*)?>(?:<w:pPr(?:\s[^>]*)?>[\s\S]*?<\/w:pPr>)?/.exec(paragraph.xml)?.[0] || '<w:p>';
-      const marked = `${opening}<w:bookmarkStart w:id="${id}" w:name="${xmlEncode(name)}"/>`
-        + `${paragraph.xml.slice(opening.length)}`.replace(/<\/w:p>$/, `<w:bookmarkEnd w:id="${id}"/></w:p>`);
+      const marked =
+        `${opening}<w:bookmarkStart w:id="${id}" w:name="${xmlEncode(name)}"/>` +
+        `${paragraph.xml.slice(opening.length)}`.replace(/<\/w:p>$/, `<w:bookmarkEnd w:id="${id}"/></w:p>`);
       const nextInner = `${model.body.inner.slice(0, paragraph.start)}${marked}${model.body.inner.slice(paragraph.end)}`;
       current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
       zip.file('word/document.xml', current);
@@ -1074,7 +1249,7 @@ export async function applyDocx(zip, operations) {
           section,
           header ? 'headerReference' : 'footerReference',
           kind,
-          written.relationshipId,
+          written.relationshipId
         );
         return kind === 'first' && !/<w:titlePg\b/.test(referenced)
           ? upsertSectionChild(referenced, 'titlePg', '<w:titlePg/>', ['pgMar', 'pgSz'])
@@ -1083,7 +1258,14 @@ export async function applyDocx(zip, operations) {
       zip.file('word/document.xml', next);
       // replaced says the section already had this story: whatever stood there
       // — a page number, an earlier line — is gone, not beside the new text.
-      results.push({ op: op.op, changed: true, part: written.part, header, kind, ...(written.replaced ? { replaced: true } : {}) });
+      results.push({
+        op: op.op,
+        changed: true,
+        part: written.part,
+        header,
+        kind,
+        ...(written.replaced ? { replaced: true } : {}),
+      });
       continue;
     }
     if (op.op === 'add_page_numbers') {
@@ -1105,22 +1287,28 @@ export async function applyDocx(zip, operations) {
         ? String(op.alignment).toLowerCase()
         : 'center';
       const prefix = op.prefix ? `<w:r><w:t xml:space="preserve">${xmlEncode(op.prefix)} </w:t></w:r>` : '';
-      const separator = op.includeTotal === true
-        ? `<w:r><w:t xml:space="preserve"> ${xmlEncode(op.separator || '/')} </w:t></w:r>`
-        + '<w:fldSimple w:instr=" NUMPAGES "><w:r><w:t>1</w:t></w:r></w:fldSimple>'
-        : '';
-      const body = `<w:p><w:pPr><w:jc w:val="${alignment}"/></w:pPr>${prefix}`
-        + '<w:fldSimple w:instr=" PAGE "><w:r><w:t>1</w:t></w:r></w:fldSimple>'
-        + `${separator}</w:p>`;
+      const separator =
+        op.includeTotal === true
+          ? `<w:r><w:t xml:space="preserve"> ${xmlEncode(op.separator || '/')} </w:t></w:r>` +
+            '<w:fldSimple w:instr=" NUMPAGES "><w:r><w:t>1</w:t></w:r></w:fldSimple>'
+          : '';
+      const body =
+        `<w:p><w:pPr><w:jc w:val="${alignment}"/></w:pPr>${prefix}` +
+        '<w:fldSimple w:instr=" PAGE "><w:r><w:t>1</w:t></w:r></w:fldSimple>' +
+        `${separator}</w:p>`;
       const written = await writeHeaderFooterPart(zip, { header, body, documentXml: current, kind });
-      const next = writeSectionPropertiesAt(current, op.section, (section) => upsertSectionReference(
-        section,
-        header ? 'headerReference' : 'footerReference',
-        kind,
-        written.relationshipId,
-      ));
+      const next = writeSectionPropertiesAt(current, op.section, (section) =>
+        upsertSectionReference(section, header ? 'headerReference' : 'footerReference', kind, written.relationshipId)
+      );
       zip.file('word/document.xml', next);
-      results.push({ op: op.op, changed: true, part: written.part, header, includeTotal: op.includeTotal === true, ...(written.replaced ? { replaced: true } : {}) });
+      results.push({
+        op: op.op,
+        changed: true,
+        part: written.part,
+        header,
+        includeTotal: op.includeTotal === true,
+        ...(written.replaced ? { replaced: true } : {}),
+      });
       continue;
     }
     if (op.op === 'insert_break') {
@@ -1137,7 +1325,7 @@ export async function applyDocx(zip, operations) {
         const closing = upsertSectionChild(
           match ? match[0] : '<w:sectPr></w:sectPr>',
           'type',
-          `<w:type w:val="${kind === 'section_continuous' ? 'continuous' : 'nextPage'}"/>`,
+          `<w:type w:val="${kind === 'section_continuous' ? 'continuous' : 'nextPage'}"/>`
         );
         const block = `<w:p><w:pPr>${closing}</w:pPr></w:p>`;
         const next = insertDocxBlockAt(current, block, op.paragraph);

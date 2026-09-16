@@ -15,8 +15,14 @@ function budget() {
   let bytes = 0;
   const releases = [];
   return {
-    reserve: (size) => { bytes += size; return true; },
-    release: (size) => { bytes -= size; releases.push(size); },
+    reserve: (size) => {
+      bytes += size;
+      return true;
+    },
+    release: (size) => {
+      bytes -= size;
+      releases.push(size);
+    },
     bytes: () => bytes,
     releases,
   };
@@ -47,7 +53,10 @@ test('stream errors retain their identity while releasing body reservations', as
   const req = request();
   const tracking = budget();
   const failure = new Error('socket failed');
-  const rejected = assert.rejects(readJsonRequestBody(req, { maxBytes: 100, ...tracking }), (error) => error === failure);
+  const rejected = assert.rejects(
+    readJsonRequestBody(req, { maxBytes: 100, ...tracking }),
+    (error) => error === failure
+  );
   req.write('{"partial":');
   req.destroy(failure);
   await rejected;
@@ -57,10 +66,9 @@ test('stream errors retain their identity while releasing body reservations', as
 test('premature close settles the body promise and releases its process-wide budget', async () => {
   const req = request();
   const tracking = budget();
-  const rejected = assert.rejects(
-    readJsonRequestBody(req, { maxBytes: 100, ...tracking }),
-    { code: 'ERR_STREAM_PREMATURE_CLOSE' },
-  );
+  const rejected = assert.rejects(readJsonRequestBody(req, { maxBytes: 100, ...tracking }), {
+    code: 'ERR_STREAM_PREMATURE_CLOSE',
+  });
   req.write('{"partial":');
   req.destroy();
   await rejected;
@@ -84,20 +92,28 @@ test('an already-destroyed request preserves and observes its pending stream err
 
 test('session-style declared overflow retains its message and closes the request', async () => {
   const req = request({ 'content-length': '101' });
-  await assert.rejects(readJsonRequestBody(req, {
-    maxBytes: 100,
-    tooLargeMessage: 'request body too large',
-    destroyOnLimit: true,
-  }), (error) => error.statusCode === 413 && error.message === 'request body too large');
+  await assert.rejects(
+    readJsonRequestBody(req, {
+      maxBytes: 100,
+      tooLargeMessage: 'request body too large',
+      destroyOnLimit: true,
+    }),
+    (error) => error.statusCode === 413 && error.message === 'request body too large'
+  );
   assert.equal(req.destroyed, true);
 });
 
 test('streamed overflow releases only previously reserved chunks', async () => {
   const req = request();
   const tracking = budget();
-  const rejected = assert.rejects(readJsonRequestBody(req, {
-    maxBytes: 4, destroyOnLimit: true, ...tracking,
-  }), (error) => error.statusCode === 413);
+  const rejected = assert.rejects(
+    readJsonRequestBody(req, {
+      maxBytes: 4,
+      destroyOnLimit: true,
+      ...tracking,
+    }),
+    (error) => error.statusCode === 413
+  );
   req.write('123');
   req.write('45');
   await rejected;
@@ -108,12 +124,15 @@ test('streamed overflow releases only previously reserved chunks', async () => {
 test('process-wide admission failure releases earlier chunks and reports 503', async () => {
   const req = request();
   const tracking = budget();
-  const rejected = assert.rejects(readJsonRequestBody(req, {
-    maxBytes: 100,
-    destroyOnLimit: true,
-    release: tracking.release,
-    reserve: (size) => tracking.bytes() === 0 && tracking.reserve(size),
-  }), (error) => error.statusCode === 503 && error.message === 'daemon request memory budget is busy');
+  const rejected = assert.rejects(
+    readJsonRequestBody(req, {
+      maxBytes: 100,
+      destroyOnLimit: true,
+      release: tracking.release,
+      reserve: (size) => tracking.bytes() === 0 && tracking.reserve(size),
+    }),
+    (error) => error.statusCode === 503 && error.message === 'daemon request memory budget is busy'
+  );
   req.write('123');
   req.write('45');
   await rejected;
@@ -123,8 +142,10 @@ test('process-wide admission failure releases earlier chunks and reports 503', a
 
 test('memory body limits retain draining behavior and the byte-limit error', async () => {
   const req = request({ 'content-length': '9' });
-  const rejected = assert.rejects(readBody(req, { maxBytes: 8 }), (error) =>
-    error.statusCode === 413 && error.message === 'request body exceeds the 8 byte limit');
+  const rejected = assert.rejects(
+    readBody(req, { maxBytes: 8 }),
+    (error) => error.statusCode === 413 && error.message === 'request body exceeds the 8 byte limit'
+  );
   assert.equal(req.destroyed, false);
   req.end('123456789');
   await rejected;

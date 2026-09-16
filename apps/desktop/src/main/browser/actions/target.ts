@@ -6,10 +6,7 @@
 import type { ResolvedBrowserTarget } from '../target-resolve';
 import type { BrowserActionContext } from './types';
 
-export function adoptResolvedTargets(
-  context: BrowserActionContext,
-  resolved: ResolvedBrowserTarget[],
-): void {
+export function adoptResolvedTargets(context: BrowserActionContext, resolved: ResolvedBrowserTarget[]): void {
   const fresh = context.services.state.peek(context.guest)?.refSet;
   context.refRecovery.source = fresh;
   context.effectBaseline.current = fresh;

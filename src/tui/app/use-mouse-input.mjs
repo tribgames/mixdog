@@ -1,11 +1,10 @@
 /**
  * use-mouse-input.mjs — SGR mouse handling hook for the App shell.
  *
- * Extracted verbatim from App.jsx: the ctrl+wheel zoom passthrough and the
- * big SGR input effect (wheel scroll routing, prompt/transcript/status text
- * selection with word/line multi-click, drag auto-scroll). All shared state
- * stays owned by App and is injected via refs/callbacks so behavior is
- * unchanged; only the zoom-passthrough timer is owned here.
+ * Covers the ctrl+wheel zoom passthrough and the SGR input effect (wheel
+ * scroll routing, prompt/transcript/status text selection with word/line
+ * multi-click, drag auto-scroll). All shared state stays owned by App and is
+ * injected via refs/callbacks; only the zoom-passthrough timer is owned here.
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { overlayBlocksGlobalTranscriptScroll } from './slash-commands.mjs';
@@ -75,10 +74,10 @@ export function cancelPendingMouseTrackingRestores() {
   }
 }
 
-export function createMouseTrackingRestoreScheduler(stdout, {
-  setTimeoutFn = setTimeout,
-  clearTimeoutFn = clearTimeout,
-} = {}) {
+export function createMouseTrackingRestoreScheduler(
+  stdout,
+  { setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout } = {}
+) {
   let timer = null;
   let generation = 0;
   let disabled = false;
@@ -338,7 +337,10 @@ export function useMouseInput({
     const EDGE_AUTOSCROLL_INTERVAL_MS = 50;
     const stopEdgeAutoscroll = () => {
       const st = edgeAutoscrollRef.current;
-      if (st.timer) { clearInterval(st.timer); st.timer = null; }
+      if (st.timer) {
+        clearInterval(st.timer);
+        st.timer = null;
+      }
       st.dir = 0;
       st.noMove = 0;
     };
@@ -400,9 +402,8 @@ export function useMouseInput({
         const rect = buildSpanRect(span, finalX, finalY, region, drag.anchorScroll);
         applySelectionRect(rect);
       } else {
-        const anchor = region === 'status'
-          ? drag.anchor
-          : selectionPointAtCurrentScroll(drag.anchor, drag.anchorScroll);
+        const anchor =
+          region === 'status' ? drag.anchor : selectionPointAtCurrentScroll(drag.anchor, drag.anchorScroll);
         const rect = linearSelection(anchor, { x: finalX, y: finalY });
         const empty = rect.x1 === rect.x2 && rect.y1 === rect.y2;
         if (empty) applySelectionRect(null);
@@ -426,7 +427,7 @@ export function useMouseInput({
         if (name !== 'wheelup' && name !== 'wheeldown') return;
         const seq = typeof event.sequence === 'string' ? event.sequence : '';
         const wm = WHEEL_SGR.exec(seq);
-        const ctrl = wm ? ((Number(wm[1]) & MOUSE_CTRL_MASK) !== 0) : false;
+        const ctrl = wm ? (Number(wm[1]) & MOUSE_CTRL_MASK) !== 0 : false;
         if (ctrl) {
           // Zoom passthrough disables mouse tracking for ~700ms, during which
           // the button-release event may never arrive — leaving the drag stuck
@@ -467,9 +468,7 @@ export function useMouseInput({
           const wheelDir = up - down;
           const nowWheel = Date.now();
           const accel = wheelAccelRef.current;
-          if (!WHEEL_ACCEL_ENABLED
-            || accel.dir !== wheelDir
-            || (nowWheel - accel.t) > WHEEL_ACCEL_IDLE_MS) {
+          if (!WHEEL_ACCEL_ENABLED || accel.dir !== wheelDir || nowWheel - accel.t > WHEEL_ACCEL_IDLE_MS) {
             accel.step = WHEEL_STEP_ROWS;
           } else {
             accel.step = Math.min(WHEEL_STEP_MAX_ROWS, accel.step + WHEEL_STEP_ROWS);
@@ -521,7 +520,15 @@ export function useMouseInput({
               // Right-click extend is a one-shot: apply immediately and leave the
               // drag INACTIVE so the right-button release can't finalize (the
               // generic !press branch is left-button-only anyway).
-              dragRef.current = { anchor: { x, y }, anchorScroll: 0, last: { x, y }, active: false, rect: null, region: 'prompt', anchorSpan: null };
+              dragRef.current = {
+                anchor: { x, y },
+                anchorScroll: 0,
+                last: { x, y },
+                active: false,
+                rect: null,
+                region: 'prompt',
+                anchorSpan: null,
+              };
               if (offset != null) ctl.extendTo?.(offset, true);
               lastClickRef.current = { x: -1, y: -1, t: 0 };
               finishWindowsMouseGesture();
@@ -546,17 +553,20 @@ export function useMouseInput({
             return;
           }
           if (
-            dragRef.current.region === regionR
-            && !dragRef.current.anchorSpan
-            && dragRef.current.anchor
-            && dragRef.current.rect
-            && !(dragRef.current.rect.x1 === dragRef.current.rect.x2 && dragRef.current.rect.y1 === dragRef.current.rect.y2)
+            dragRef.current.region === regionR &&
+            !dragRef.current.anchorSpan &&
+            dragRef.current.anchor &&
+            dragRef.current.rect &&
+            !(
+              dragRef.current.rect.x1 === dragRef.current.rect.x2 && dragRef.current.rect.y1 === dragRef.current.rect.y2
+            )
           ) {
             promptMouseSelectionRef.current?.clear?.();
             const selectionY = regionR === 'status' ? clampToStatusBand(y) : clampToTranscriptViewport(y);
-            const anchor = regionR === 'status'
-              ? dragRef.current.anchor
-              : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
+            const anchor =
+              regionR === 'status'
+                ? dragRef.current.anchor
+                : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
             const rect = linearSelection(anchor, { x, y: selectionY });
             stopSmoothScroll();
             dragRef.current = { ...dragRef.current, last: { x, y: selectionY }, active: false, region: regionR };
@@ -579,7 +589,15 @@ export function useMouseInput({
             applySelectionRect(null);
             const offset = promptOffsetAt(x, y);
             stopSmoothScroll();
-            dragRef.current = { anchor: { x, y }, anchorScroll: 0, last: { x, y }, active: true, rect: null, region: 'prompt', anchorSpan: null };
+            dragRef.current = {
+              anchor: { x, y },
+              anchorScroll: 0,
+              last: { x, y },
+              active: true,
+              rect: null,
+              region: 'prompt',
+              anchorSpan: null,
+            };
             const ctl = promptMouseSelectionRef.current;
             // Shift+click extends the EXISTING prompt selection (anchor stays
             // put, cursor jumps to the click) instead of starting a fresh
@@ -598,9 +616,8 @@ export function useMouseInput({
             // a fresh single-click anchor.
             const nowPrompt = Date.now();
             const lcPrompt = lastClickRef.current;
-            const qualifiesPrompt = (nowPrompt - lcPrompt.t) < 500
-              && Math.abs(lcPrompt.y - y) <= 1
-              && Math.abs(lcPrompt.x - x) <= 2;
+            const qualifiesPrompt =
+              nowPrompt - lcPrompt.t < 500 && Math.abs(lcPrompt.y - y) <= 1 && Math.abs(lcPrompt.x - x) <= 2;
             let promptClickCount = qualifiesPrompt ? (lcPrompt.count || 1) + 1 : 1;
             if (promptClickCount > 3) promptClickCount = 1;
             if ((promptClickCount === 2 || promptClickCount === 3) && offset != null) {
@@ -639,11 +656,7 @@ export function useMouseInput({
           // Shift+click on an existing word/line (anchorSpan) selection extends
           // that selection by whole words/lines to the click point, preserving
           // the original anchor span.
-          if (
-            extendHeld
-            && dragRef.current.region === region
-            && dragRef.current.anchorSpan
-          ) {
+          if (extendHeld && dragRef.current.region === region && dragRef.current.anchorSpan) {
             const selectionY = region === 'status' ? clampToStatusBand(y) : clampToTranscriptViewport(y);
             const span = dragRef.current.anchorSpan;
             const rect = buildSpanRect(span, x, selectionY, region, dragRef.current.anchorScroll);
@@ -665,17 +678,20 @@ export function useMouseInput({
           // anchorSpan or an empty/absent selection falls through to a normal
           // fresh press below.
           if (
-            extendHeld
-            && dragRef.current.region === region
-            && !dragRef.current.anchorSpan
-            && dragRef.current.anchor
-            && dragRef.current.rect
-            && !(dragRef.current.rect.x1 === dragRef.current.rect.x2 && dragRef.current.rect.y1 === dragRef.current.rect.y2)
+            extendHeld &&
+            dragRef.current.region === region &&
+            !dragRef.current.anchorSpan &&
+            dragRef.current.anchor &&
+            dragRef.current.rect &&
+            !(
+              dragRef.current.rect.x1 === dragRef.current.rect.x2 && dragRef.current.rect.y1 === dragRef.current.rect.y2
+            )
           ) {
             const selectionY = region === 'status' ? clampToStatusBand(y) : clampToTranscriptViewport(y);
-            const anchor = region === 'status'
-              ? dragRef.current.anchor
-              : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
+            const anchor =
+              region === 'status'
+                ? dragRef.current.anchor
+                : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
             const rect = linearSelection(anchor, { x, y: selectionY });
             stopSmoothScroll();
             dragRef.current = {
@@ -697,9 +713,7 @@ export function useMouseInput({
           // transcript AND status rows since getWordRectAt/getLineRectAt are
           // grid-based. Copy still happens on Ctrl+C, never here.
           const lc = lastClickRef.current;
-          const qualifies = (now - lc.t) < 500
-            && Math.abs(lc.y - y) <= 1
-            && Math.abs(lc.x - x) <= 2;
+          const qualifies = now - lc.t < 500 && Math.abs(lc.y - y) <= 1 && Math.abs(lc.x - x) <= 2;
           let clickCount = qualifies ? (lc.count || 1) + 1 : 1;
           if (clickCount > 3) clickCount = 1;
           if (clickCount === 2 || clickCount === 3) {
@@ -780,9 +794,10 @@ export function useMouseInput({
             const rect = buildSpanRect(span, selectionX, selectionY, region, dragRef.current.anchorScroll);
             applySelectionRectThrottled(rect);
           } else {
-            const anchor = region === 'status'
-              ? dragRef.current.anchor
-              : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
+            const anchor =
+              region === 'status'
+                ? dragRef.current.anchor
+                : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
             const rect = linearSelection(anchor, { x: selectionX, y: selectionY });
             applySelectionRectThrottled(rect);
           }
@@ -840,7 +855,19 @@ export function useMouseInput({
       finalizeDragRef.current = null;
       stopEdgeAutoscroll();
     };
-  }, [inkInput, isRawModeSupported, store, passthroughCtrlWheelZoom, frameColumns, scrollTranscriptRows, queueScrollCoalesced, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll, buildSpanRect]);
+  }, [
+    inkInput,
+    isRawModeSupported,
+    store,
+    passthroughCtrlWheelZoom,
+    frameColumns,
+    scrollTranscriptRows,
+    queueScrollCoalesced,
+    applySelectionRect,
+    applySelectionRectThrottled,
+    selectionPointAtCurrentScroll,
+    buildSpanRect,
+  ]);
 
   return { settleStuckDrag };
 }

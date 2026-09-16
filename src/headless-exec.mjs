@@ -1,9 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import {
-  mkdirSync,
-  renameSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { stderr, stdout } from 'node:process';
 
@@ -18,9 +14,10 @@ import { shutdownDaemonForRuntimeRoot } from './standalone/session-client.mjs';
 import { applyUsageDelta, createSessionStats } from './ui/session-stats.mjs';
 import { clean } from './runtime/shared/clean.mjs';
 
-export async function prewarmHeadlessSearch(cwd, {
-  loadNativeSearch = () => import('./runtime/agent/orchestrator/tools/builtin/native-search-client.mjs'),
-} = {}) {
+export async function prewarmHeadlessSearch(
+  cwd,
+  { loadNativeSearch = () => import('./runtime/agent/orchestrator/tools/builtin/native-search-client.mjs') } = {}
+) {
   void cwd;
   const nativeSearch = await loadNativeSearch();
   await nativeSearch.warmNativeSearchServer();
@@ -41,21 +38,11 @@ function jsonValue(value) {
 }
 
 function toolCallName(call) {
-  return clean(
-    call?.name
-    ?? call?.toolName
-    ?? call?.function?.name
-    ?? call?.tool?.name,
-  ) || 'tool';
+  return clean(call?.name ?? call?.toolName ?? call?.function?.name ?? call?.tool?.name) || 'tool';
 }
 
 function toolCallArguments(call) {
-  const raw = call?.arguments
-    ?? call?.input
-    ?? call?.function?.arguments
-    ?? call?.tool?.arguments
-    ?? call?.args
-    ?? {};
+  const raw = call?.arguments ?? call?.input ?? call?.function?.arguments ?? call?.tool?.arguments ?? call?.args ?? {};
   if (typeof raw !== 'string') return jsonValue(raw);
   const text = raw.trim();
   if (!text) return {};
@@ -85,16 +72,7 @@ function usageDeltaSummary(delta = {}) {
   };
 }
 
-function createJsonLifecycle({
-  write,
-  stats,
-  provider,
-  model,
-  effort,
-  fast,
-  cwd,
-  webSearch = false,
-}) {
+function createJsonLifecycle({ write, stats, provider, model, effort, fast, cwd, webSearch = false }) {
   let threadId = `exec_${randomUUID().replace(/-/g, '')}`;
   const turnId = 'turn_1';
   let resolvedProvider = clean(provider);
@@ -117,11 +95,13 @@ function createJsonLifecycle({
 
   const nowIso = (value = Date.now()) => new Date(value).toISOString();
   const emit = (event, at = Date.now()) => {
-    write(`${JSON.stringify({
-      schema_version: 1,
-      timestamp: nowIso(at),
-      ...event,
-    })}\n`);
+    write(
+      `${JSON.stringify({
+        schema_version: 1,
+        timestamp: nowIso(at),
+        ...event,
+      })}\n`
+    );
   };
   const nextItemId = (prefix = 'item') => `${prefix}_${++itemSequence}`;
 
@@ -135,26 +115,32 @@ function createJsonLifecycle({
     resolvedCwd = clean(runtime?.cwd) || resolvedCwd;
     turnStartedAt = Date.now();
     started = true;
-    emit({
-      type: 'thread.started',
-      thread_id: threadId,
-      session: {
-        provider: resolvedProvider,
-        model: resolvedModel,
-        effort: resolvedEffort,
-        fast: resolvedFast,
-        cwd: resolvedCwd,
-        tool_mode: 'full',
-        approval_mode: 'implicit',
-        delegation: false,
-        web_search: webSearch === true,
+    emit(
+      {
+        type: 'thread.started',
+        thread_id: threadId,
+        session: {
+          provider: resolvedProvider,
+          model: resolvedModel,
+          effort: resolvedEffort,
+          fast: resolvedFast,
+          cwd: resolvedCwd,
+          tool_mode: 'full',
+          approval_mode: 'implicit',
+          delegation: false,
+          web_search: webSearch === true,
+        },
       },
-    }, turnStartedAt);
-    emit({
-      type: 'turn.started',
-      thread_id: threadId,
-      turn_id: turnId,
-    }, turnStartedAt);
+      turnStartedAt
+    );
+    emit(
+      {
+        type: 'turn.started',
+        thread_id: threadId,
+        turn_id: turnId,
+      },
+      turnStartedAt
+    );
   }
 
   function completeProviderRequest(status, delta = null, at = Date.now()) {
@@ -163,32 +149,38 @@ function createJsonLifecycle({
     activeProviderRequest = null;
     const durationMs = Math.max(0, at - request.startedAt);
     providerDurationMs += durationMs;
-    emit({
-      type: `model.request.${status}`,
-      thread_id: threadId,
-      turn_id: turnId,
-      request_id: request.id,
-      request_index: request.index,
-      duration_ms: durationMs,
-      ...(delta ? { usage: usageDeltaSummary(delta) } : {}),
-    }, at);
+    emit(
+      {
+        type: `model.request.${status}`,
+        thread_id: threadId,
+        turn_id: turnId,
+        request_id: request.id,
+        request_index: request.index,
+        duration_ms: durationMs,
+        ...(delta ? { usage: usageDeltaSummary(delta) } : {}),
+      },
+      at
+    );
   }
 
   function flushReasoning(at = Date.now()) {
     const text = reasoningText;
     reasoningText = '';
     if (!text.trim()) return;
-    emit({
-      type: 'item.completed',
-      thread_id: threadId,
-      turn_id: turnId,
-      item: {
-        id: nextItemId('reasoning'),
-        type: 'reasoning',
-        text,
-        status: 'completed',
+    emit(
+      {
+        type: 'item.completed',
+        thread_id: threadId,
+        turn_id: turnId,
+        item: {
+          id: nextItemId('reasoning'),
+          type: 'reasoning',
+          text,
+          status: 'completed',
+        },
       },
-    }, at);
+      at
+    );
   }
 
   function emitAssistant(text, at = Date.now()) {
@@ -196,17 +188,20 @@ function createJsonLifecycle({
     if (!value.trim()) return;
     flushReasoning(at);
     lastAssistantText = value;
-    emit({
-      type: 'item.completed',
-      thread_id: threadId,
-      turn_id: turnId,
-      item: {
-        id: nextItemId('message'),
-        type: 'agent_message',
-        text: value,
-        status: 'completed',
+    emit(
+      {
+        type: 'item.completed',
+        thread_id: threadId,
+        turn_id: turnId,
+        item: {
+          id: nextItemId('message'),
+          type: 'agent_message',
+          text: value,
+          status: 'completed',
+        },
       },
-    }, at);
+      at
+    );
   }
 
   function startTool(call, at = Date.now()) {
@@ -221,19 +216,22 @@ function createJsonLifecycle({
     };
     pendingTools.set(callId, entry);
     toolCallCount += 1;
-    emit({
-      type: 'item.started',
-      thread_id: threadId,
-      turn_id: turnId,
-      item: {
-        id: entry.id,
-        type: 'tool_call',
-        name: entry.name,
-        arguments: entry.arguments,
-        status: 'in_progress',
-        started_at: entry.startedAtIso,
+    emit(
+      {
+        type: 'item.started',
+        thread_id: threadId,
+        turn_id: turnId,
+        item: {
+          id: entry.id,
+          type: 'tool_call',
+          name: entry.name,
+          arguments: entry.arguments,
+          status: 'in_progress',
+          started_at: entry.startedAtIso,
+        },
       },
-    }, at);
+      at
+    );
   }
 
   function completeTool(message, at = Date.now()) {
@@ -256,15 +254,9 @@ function createJsonLifecycle({
     const skipped = message?.toolKind === 'skipped';
     const rawTiming = message?.toolTiming || entry.earlyTiming || {};
     const dispatchStartedAt = nonNegativeNumber(rawTiming.dispatchStartedAt || entry.startedAt);
-    const executionStartedAt = nonNegativeNumber(
-      rawTiming.executionStartedAt || dispatchStartedAt,
-    );
-    const executionCompletedAt = nonNegativeNumber(
-      rawTiming.executionCompletedAt || entry.earlyCompletedAt || at,
-    );
-    const postprocessStartedAt = nonNegativeNumber(
-      rawTiming.postprocessStartedAt || executionCompletedAt,
-    );
+    const executionStartedAt = nonNegativeNumber(rawTiming.executionStartedAt || dispatchStartedAt);
+    const executionCompletedAt = nonNegativeNumber(rawTiming.executionCompletedAt || entry.earlyCompletedAt || at);
+    const postprocessStartedAt = nonNegativeNumber(rawTiming.postprocessStartedAt || executionCompletedAt);
     const resultCompletedAt = nonNegativeNumber(rawTiming.resultCompletedAt || at);
     const timing = {
       queue_ms: Math.max(0, dispatchStartedAt - entry.startedAt),
@@ -274,29 +266,8 @@ function createJsonLifecycle({
       postprocess_ms: Math.max(0, resultCompletedAt - postprocessStartedAt),
       total_ms: Math.max(0, resultCompletedAt - entry.startedAt),
     };
-    emit({
-      type: 'item.completed',
-      thread_id: threadId,
-      turn_id: turnId,
-      item: {
-        id: entry.id,
-        type: 'tool_call',
-        name: entry.name,
-        arguments: entry.arguments,
-        output: jsonValue(message?.content),
-        status: failed ? 'failed' : (skipped ? 'skipped' : 'completed'),
-        started_at: entry.startedAtIso,
-        completed_at: nowIso(at),
-        duration_ms: timing.total_ms,
-        timing,
-      },
-    }, at);
-  }
-
-  function closePendingTools(status, output, at = Date.now()) {
-    for (const entry of pendingTools.values()) {
-      completedTools.add(entry.id);
-      emit({
+    emit(
+      {
         type: 'item.completed',
         thread_id: threadId,
         turn_id: turnId,
@@ -305,13 +276,40 @@ function createJsonLifecycle({
           type: 'tool_call',
           name: entry.name,
           arguments: entry.arguments,
-          output,
-          status,
+          output: jsonValue(message?.content),
+          status: failed ? 'failed' : skipped ? 'skipped' : 'completed',
           started_at: entry.startedAtIso,
           completed_at: nowIso(at),
-          duration_ms: Math.max(0, at - entry.startedAt),
+          duration_ms: timing.total_ms,
+          timing,
         },
-      }, at);
+      },
+      at
+    );
+  }
+
+  function closePendingTools(status, output, at = Date.now()) {
+    for (const entry of pendingTools.values()) {
+      completedTools.add(entry.id);
+      emit(
+        {
+          type: 'item.completed',
+          thread_id: threadId,
+          turn_id: turnId,
+          item: {
+            id: entry.id,
+            type: 'tool_call',
+            name: entry.name,
+            arguments: entry.arguments,
+            output,
+            status,
+            started_at: entry.startedAtIso,
+            completed_at: nowIso(at),
+            duration_ms: Math.max(0, at - entry.startedAt),
+          },
+        },
+        at
+      );
     }
     pendingTools.clear();
   }
@@ -334,13 +332,16 @@ function createJsonLifecycle({
         index: providerRequestCount,
         startedAt,
       };
-      emit({
-        type: 'model.request.started',
-        thread_id: threadId,
-        turn_id: turnId,
-        request_id: activeProviderRequest.id,
-        request_index: activeProviderRequest.index,
-      }, startedAt);
+      emit(
+        {
+          type: 'model.request.started',
+          thread_id: threadId,
+          turn_id: turnId,
+          request_id: activeProviderRequest.id,
+          request_index: activeProviderRequest.index,
+        },
+        startedAt
+      );
     },
     onUsageDelta(delta) {
       completeProviderRequest('completed', delta);
@@ -370,12 +371,15 @@ function createJsonLifecycle({
         id: `tool_batch_${providerRequestCount || 1}`,
         startedAt,
       };
-      emit({
-        type: 'tool.batch.started',
-        thread_id: threadId,
-        turn_id: turnId,
-        batch_id: activeToolBatch.id,
-      }, startedAt);
+      emit(
+        {
+          type: 'tool.batch.started',
+          thread_id: threadId,
+          turn_id: turnId,
+          batch_id: activeToolBatch.id,
+        },
+        startedAt
+      );
     },
     onToolBatchCompleted(detail = {}) {
       const completedAt = Date.now();
@@ -384,17 +388,18 @@ function createJsonLifecycle({
         startedAt: completedAt,
       };
       activeToolBatch = null;
-      emit({
-        type: 'tool.batch.completed',
-        thread_id: threadId,
-        turn_id: turnId,
-        batch_id: batch.id,
-        iteration: nonNegativeNumber(detail.iteration),
-        calls: nonNegativeNumber(detail.calls),
-        duration_ms: nonNegativeNumber(
-          detail.elapsedMs ?? (completedAt - batch.startedAt),
-        ),
-      }, completedAt);
+      emit(
+        {
+          type: 'tool.batch.completed',
+          thread_id: threadId,
+          turn_id: turnId,
+          batch_id: batch.id,
+          iteration: nonNegativeNumber(detail.iteration),
+          calls: nonNegativeNumber(detail.calls),
+          duration_ms: nonNegativeNumber(detail.elapsedMs ?? completedAt - batch.startedAt),
+        },
+        completedAt
+      );
     },
     onStageChange(stage, detail = null) {
       emit({
@@ -429,34 +434,40 @@ function createJsonLifecycle({
       const usage = usageSummary(stats, toolCallCount);
       const terminationReason = clean(result?.terminationReason) || null;
       const isApiError = terminationReason === 'refusal';
-      emit({
-        type: 'turn.completed',
-        thread_id: threadId,
-        turn_id: turnId,
-        duration_ms: durationMs,
-        duration_api_ms: providerDurationMs,
-        provider_requests: providerRequestCount,
-        tool_calls: toolCallCount,
-        usage,
-      }, completedAt);
-      emit({
-        type: 'result',
-        subtype: 'success',
-        thread_id: threadId,
-        turn_id: turnId,
-        session_id: threadId,
-        model: resolvedModel,
-        is_error: isApiError,
-        duration_ms: durationMs,
-        duration_api_ms: providerDurationMs,
-        num_turns: 1,
-        provider_requests: providerRequestCount,
-        tool_calls: toolCallCount,
-        result: finalText,
-        stop_reason: result?.stopReason ?? result?.stop_reason ?? null,
-        termination_reason: terminationReason,
-        usage,
-      }, completedAt);
+      emit(
+        {
+          type: 'turn.completed',
+          thread_id: threadId,
+          turn_id: turnId,
+          duration_ms: durationMs,
+          duration_api_ms: providerDurationMs,
+          provider_requests: providerRequestCount,
+          tool_calls: toolCallCount,
+          usage,
+        },
+        completedAt
+      );
+      emit(
+        {
+          type: 'result',
+          subtype: 'success',
+          thread_id: threadId,
+          turn_id: turnId,
+          session_id: threadId,
+          model: resolvedModel,
+          is_error: isApiError,
+          duration_ms: durationMs,
+          duration_api_ms: providerDurationMs,
+          num_turns: 1,
+          provider_requests: providerRequestCount,
+          tool_calls: toolCallCount,
+          result: finalText,
+          stop_reason: result?.stopReason ?? result?.stop_reason ?? null,
+          termination_reason: terminationReason,
+          usage,
+        },
+        completedAt
+      );
     },
     fail(error) {
       start();
@@ -467,32 +478,38 @@ function createJsonLifecycle({
       closePendingTools('failed', message, completedAt);
       const durationMs = Math.max(0, completedAt - turnStartedAt);
       const usage = usageSummary(stats, toolCallCount);
-      emit({
-        type: 'turn.failed',
-        thread_id: threadId,
-        turn_id: turnId,
-        duration_ms: durationMs,
-        duration_api_ms: providerDurationMs,
-        error: { message },
-        usage,
-      }, completedAt);
-      emit({
-        type: 'result',
-        subtype: 'error_during_execution',
-        thread_id: threadId,
-        turn_id: turnId,
-        session_id: threadId,
-        model: resolvedModel,
-        is_error: true,
-        duration_ms: durationMs,
-        duration_api_ms: providerDurationMs,
-        num_turns: 1,
-        provider_requests: providerRequestCount,
-        tool_calls: toolCallCount,
-        stop_reason: null,
-        errors: [message],
-        usage,
-      }, completedAt);
+      emit(
+        {
+          type: 'turn.failed',
+          thread_id: threadId,
+          turn_id: turnId,
+          duration_ms: durationMs,
+          duration_api_ms: providerDurationMs,
+          error: { message },
+          usage,
+        },
+        completedAt
+      );
+      emit(
+        {
+          type: 'result',
+          subtype: 'error_during_execution',
+          thread_id: threadId,
+          turn_id: turnId,
+          session_id: threadId,
+          model: resolvedModel,
+          is_error: true,
+          duration_ms: durationMs,
+          duration_api_ms: providerDurationMs,
+          num_turns: 1,
+          provider_requests: providerRequestCount,
+          tool_calls: toolCallCount,
+          stop_reason: null,
+          errors: [message],
+          usage,
+        },
+        completedAt
+      );
     },
   };
 }
@@ -500,10 +517,9 @@ function createJsonLifecycle({
 function writeUsageDocument(path, stats, runtime, toolCallCount = 0, observedModels = []) {
   const target = clean(path);
   if (!target) return;
-  const models = [
-    clean(runtime?.model),
-    ...Array.from(observedModels || [], clean),
-  ].filter((value, index, values) => value && values.indexOf(value) === index);
+  const models = [clean(runtime?.model), ...Array.from(observedModels || [], clean)].filter(
+    (value, index, values) => value && values.indexOf(value) === index
+  );
   const session = {
     sessionId: clean(runtime?.id),
     agentRole: 'primary',
@@ -563,16 +579,18 @@ export async function runHeadlessExec({
 
   const stats = createSessionStats();
   const observedModels = new Set();
-  const lifecycle = json ? createJsonLifecycle({
-    write,
-    stats,
-    provider,
-    model,
-    effort,
-    fast,
-    cwd,
-    webSearch,
-  }) : null;
+  const lifecycle = json
+    ? createJsonLifecycle({
+        write,
+        stats,
+        provider,
+        model,
+        effort,
+        fast,
+        cwd,
+        webSearch,
+      })
+    : null;
   let boundary = null;
   let runtime = null;
   let signalCleanup = null;
@@ -596,10 +614,7 @@ export async function runHeadlessExec({
         // very artifact the caller asked for. Detach instead of reap. cli.mjs
         // exits explicitly, so surviving children cannot hold the process open.
         if (runtime) {
-          await runtime.close(
-            reason,
-            hasActiveTasks(taskScopeFor(runtime)) ? { keepBackgroundWork: true } : {},
-          );
+          await runtime.close(reason, hasActiveTasks(taskScopeFor(runtime)) ? { keepBackgroundWork: true } : {});
         }
       } catch (error) {
         errors.push(error);
@@ -635,11 +650,13 @@ export async function runHeadlessExec({
         }
       }
       try {
-        const cleanupResult = boundary?.cleanup(resourceCleanupFailed
-          ? { preserveRoot: true }
-          : { tolerateRootRemovalFailure: true });
+        const cleanupResult = boundary?.cleanup(
+          resourceCleanupFailed ? { preserveRoot: true } : { tolerateRootRemovalFailure: true }
+        );
         if (cleanupResult?.rootRemovalError) {
-          writeErr(`mixdog: shutdown cleanup failed (result unaffected): ${cleanupResult.rootRemovalError?.message || cleanupResult.rootRemovalError}\n`);
+          writeErr(
+            `mixdog: shutdown cleanup failed (result unaffected): ${cleanupResult.rootRemovalError?.message || cleanupResult.rootRemovalError}\n`
+          );
         }
       } catch (error) {
         errors.push(error);
@@ -664,9 +681,7 @@ export async function runHeadlessExec({
       timeoutMs: 20_000,
       cleanup,
     });
-    const createRuntime = runtimeFactory || (
-      await import('./mixdog-session-runtime.mjs')
-    ).createMixdogSessionRuntime;
+    const createRuntime = runtimeFactory || (await import('./mixdog-session-runtime.mjs')).createMixdogSessionRuntime;
     // Headless defaults: web research and memory tools stay OFF unless the
     // caller opts in via --web-search / --memory. Delegation is already
     // disallowed below, completing the solo surface. The per-process
@@ -692,15 +707,13 @@ export async function runHeadlessExec({
     }
     lifecycle?.start(runtime);
     if (typeof runtime?.onNotification === 'function') {
-      unsubscribeNotification = runtime.onNotification(
-        (event) => {
-          lifecycle?.onNotification(event);
-          const status = clean(event?.meta?.status).toLowerCase();
-          if (['completed', 'failed', 'cancelled', 'canceled', 'timed_out'].includes(status)) {
-            completionPending = true;
-          }
-        },
-      );
+      unsubscribeNotification = runtime.onNotification((event) => {
+        lifecycle?.onNotification(event);
+        const status = clean(event?.meta?.status).toLowerCase();
+        if (['completed', 'failed', 'cancelled', 'canceled', 'timed_out'].includes(status)) {
+          completionPending = true;
+        }
+      });
     }
     // Rewrite the usage snapshot after every model response, not only on the
     // way out. A session killed mid-run — agent timeout, SIGKILL — never
@@ -710,13 +723,7 @@ export async function runHeadlessExec({
     // readable from outside.
     const flushUsageDocument = () => {
       try {
-        writeUsageDocument(
-          usageLogPath,
-          stats,
-          runtime,
-          lifecycle?.toolCallCount || 0,
-          observedModels,
-        );
+        writeUsageDocument(usageLogPath, stats, runtime, lifecycle?.toolCallCount || 0, observedModels);
       } catch {
         // Telemetry must never break the session; the exit path reports.
       }
@@ -730,17 +737,19 @@ export async function runHeadlessExec({
         lifecycle?.onUsageDelta(delta);
         flushUsageDocument();
       },
-      ...(lifecycle ? {
-        onProviderSendStarted: () => lifecycle.onProviderSendStarted(),
-        onReasoningDelta: (chunk) => lifecycle.onReasoningDelta(chunk),
-        onAssistantText: (text) => lifecycle.onAssistantText(text),
-        onAssistantToolCallObserved: (call) => lifecycle.onAssistantToolCallObserved(call),
-        onToolCall: (iteration, calls) => lifecycle.onToolCall(iteration, calls),
-        onToolResult: (message) => lifecycle.onToolResult(message),
-        onToolPhaseStarted: () => lifecycle.onToolBatchStarted(),
-        onToolPhaseCompleted: (detail) => lifecycle.onToolBatchCompleted(detail),
-        onStageChange: (stage, detail) => lifecycle.onStageChange(stage, detail),
-      } : {}),
+      ...(lifecycle
+        ? {
+            onProviderSendStarted: () => lifecycle.onProviderSendStarted(),
+            onReasoningDelta: (chunk) => lifecycle.onReasoningDelta(chunk),
+            onAssistantText: (text) => lifecycle.onAssistantText(text),
+            onAssistantToolCallObserved: (call) => lifecycle.onAssistantToolCallObserved(call),
+            onToolCall: (iteration, calls) => lifecycle.onToolCall(iteration, calls),
+            onToolResult: (message) => lifecycle.onToolResult(message),
+            onToolPhaseStarted: () => lifecycle.onToolBatchStarted(),
+            onToolPhaseCompleted: (detail) => lifecycle.onToolBatchCompleted(detail),
+            onStageChange: (stage, detail) => lifecycle.onStageChange(stage, detail),
+          }
+        : {}),
     };
     ({ result } = await runtime.ask(prompt, askOptions));
     // Exit NEVER waits on running background work. A job the model left
@@ -769,13 +778,7 @@ export async function runHeadlessExec({
       // Listener cleanup is best-effort.
     }
     try {
-      writeUsageDocument(
-        usageLogPath,
-        stats,
-        runtime,
-        lifecycle?.toolCallCount || 0,
-        observedModels,
-      );
+      writeUsageDocument(usageLogPath, stats, runtime, lifecycle?.toolCallCount || 0, observedModels);
     } catch (error) {
       writeErr(`mixdog: usage log write failed: ${error?.message || error}\n`);
     }

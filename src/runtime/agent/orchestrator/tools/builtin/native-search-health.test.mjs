@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  _noteSearchTimeoutForTest,
-  _resetNativeSearchClientForTest,
-} from './native-search-client.mjs';
+import { _noteSearchTimeoutForTest, _resetNativeSearchClientForTest } from './native-search-client.mjs';
 
 // `noteSearchTimeout` returns 'runtime' for a recurrence inside the window;
 // that is the only branch the caller acts on (settleTimeout →

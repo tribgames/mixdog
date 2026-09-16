@@ -13,10 +13,7 @@ import type { GuestSlot } from './guest-state';
 import { browserRefElementSource } from './ref-access';
 import type { BrowserRefSet } from './ref-recovery';
 import type { AccessibilityRefSnapshot } from './snapshot-capture';
-import {
-  formatSnapshot,
-  type SnapshotDiagnosticsView,
-} from './snapshot-format';
+import { formatSnapshot, type SnapshotDiagnosticsView } from './snapshot-format';
 import { browserRefPointExpression } from './snapshot-scripts';
 import { createBrowserHitTarget } from './hit-target';
 import { BROWSER_STABLE_RECT } from './stable-rect';
@@ -40,7 +37,7 @@ export interface BrowserRefPointHost {
     ref: string,
     functionDeclaration: string,
     args: unknown[],
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<{ handled: false } | { handled: true; value: T }>;
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
   cdp: BrowserCdpPort;
@@ -49,12 +46,12 @@ export interface BrowserRefPointHost {
     guest: WebContents,
     sessionId: string | undefined,
     signal?: AbortSignal,
-    localPoint?: { x: number; y: number },
+    localPoint?: { x: number; y: number }
   ): Promise<{ x: number; y: number }>;
   captureSnapshotPayload(
     guest: WebContents,
     command: BrowserCommand,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<Parameters<typeof formatSnapshot>[0]>;
   diagnostics(guest: WebContents): SnapshotDiagnosticsView;
   /** The ref table a covered-element report re-reads before it gives up. */
@@ -85,20 +82,25 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
     const target = accessibilityRefsByGuest.get(guest)?.refs.get(ref);
     if (target) return hitTarget.guard(guest, target, signal);
     const resolved = await cdp.call<{ result?: { objectId?: string }; exceptionDetails?: unknown }>(
-      guest, 'Runtime.evaluate', {
+      guest,
+      'Runtime.evaluate',
+      {
         expression: `(() => {
           ${browserRefElementSource(ref)}
           return element;
-        })()`, returnByValue: false,
-      }, signal,
+        })()`,
+        returnByValue: false,
+      },
+      signal
     );
-    if (!resolved.result?.objectId || resolved.exceptionDetails) throw new Error('input target is stale; take a fresh snapshot');
+    if (!resolved.result?.objectId || resolved.exceptionDetails)
+      throw new Error('input target is stale; take a fresh snapshot');
     return hitTarget.guard(guest, { objectId: resolved.result.objectId }, signal);
   }
   async function resolveRefPoint(
     guest: WebContents,
     ref: string,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<{ x: number; y: number }> {
     try {
       return await waitForBrowserActionable(() => probeRefPoint(guest, ref, signal), signal);
@@ -114,8 +116,8 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
         fresh = null;
       }
       throw new Error(
-        `${error.message} Dismiss the blocker using a ref from the fresh snapshot below.\n\n`
-        + (fresh ? formatSnapshot(fresh, diagnosticsFor(guest)) : 'A fresh snapshot could not be captured.'),
+        `${error.message} Dismiss the blocker using a ref from the fresh snapshot below.\n\n` +
+          (fresh ? formatSnapshot(fresh, diagnosticsFor(guest)) : 'A fresh snapshot could not be captured.')
       );
     }
   }
@@ -123,7 +125,7 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
   async function probeRefPoint(
     guest: WebContents,
     ref: string,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<{ x: number; y: number }> {
     const accessibility = await callAccessibilityRef<{
       error?: string;
@@ -133,7 +135,10 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
       x?: number;
       y?: number;
       via?: string;
-    }>(guest, ref, `async function() {
+    }>(
+      guest,
+      ref,
+      `async function() {
       const target = this;
       if (!target || !target.isConnected) return { error: 'stale' };
       if (target.disabled || target.getAttribute?.('aria-disabled') === 'true') return { error: 'disabled' };
@@ -220,7 +225,10 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
             .replace(/\\s+/g, ' ').trim().slice(0, 60) + '"')
         : 'another element';
       return { error: 'covered', covering: label };
-    }`, [], signal);
+    }`,
+      [],
+      signal
+    );
     let point: { error?: string; covering?: string; x?: number; y?: number };
     if (accessibility.handled) {
       const target = accessibilityRefsByGuest.get(guest)?.refs.get(ref);
@@ -236,13 +244,7 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
       } else {
         const box = await cdp.call<{
           model?: { content?: number[]; border?: number[] };
-        }>(
-          guest,
-          'DOM.getBoxModel',
-          { backendNodeId: target.backendNodeId },
-          signal,
-          { sessionId: target.sessionId },
-        );
+        }>(guest, 'DOM.getBoxModel', { backendNodeId: target.backendNodeId }, signal, { sessionId: target.sessionId });
         const quad = box.model?.content || box.model?.border || [];
         if (quad.length < 8) {
           point = { error: 'not-visible' };
@@ -253,12 +255,10 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
           const topY = quad[1] + (quad[3] - quad[1]) * rx;
           const bottomX = quad[6] + (quad[4] - quad[6]) * rx;
           const bottomY = quad[7] + (quad[5] - quad[7]) * rx;
-          const frameOffset = await frameOffsetForSession(
-            guest,
-            target.sessionId,
-            signal,
-            { x: topX + (bottomX - topX) * ry, y: topY + (bottomY - topY) * ry },
-          );
+          const frameOffset = await frameOffsetForSession(guest, target.sessionId, signal, {
+            x: topX + (bottomX - topX) * ry,
+            y: topY + (bottomY - topY) * ry,
+          });
           point = {
             x: frameOffset.x + topX + (bottomX - topX) * ry,
             y: frameOffset.y + topY + (bottomY - topY) * ry,
@@ -277,7 +277,7 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
       if (point?.error === 'covered') {
         throw new BrowserActionabilityError(
           `ref ${ref} is covered by ${point.covering || 'another element'}; input was not dispatched.`,
-          'covered',
+          'covered'
         );
       }
       if (point?.error === 'not-visible') {
@@ -287,10 +287,16 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
         throw new BrowserActionabilityError(`ref ${ref} is disabled`, 'disabled');
       }
       if (point?.error === 'moving') {
-        throw new BrowserActionabilityError(`ref ${ref} is still moving; wait briefly and take a fresh snapshot`, 'moving');
+        throw new BrowserActionabilityError(
+          `ref ${ref} is still moving; wait briefly and take a fresh snapshot`,
+          'moving'
+        );
       }
       if (point?.error === 'not-actionable') {
-        throw new BrowserActionabilityError(`ref ${ref} is not actionable (hidden, transparent, or pointer events disabled)`, 'hidden');
+        throw new BrowserActionabilityError(
+          `ref ${ref} is not actionable (hidden, transparent, or pointer events disabled)`,
+          'hidden'
+        );
       }
       throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
     }
@@ -300,7 +306,7 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
   function bindVisualGrounding(
     guest: WebContents,
     refSet: BrowserRefSet,
-    capture: { width: number; height: number },
+    capture: { width: number; height: number }
   ): void {
     visualGroundingByGuest.set(guest, {
       snapshotId: refSet.snapshotId,
@@ -320,14 +326,17 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
     xValue: unknown,
     yValue: unknown,
     label: string,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<{ x: number; y: number }> {
     const grounding = visualGroundingByGuest.get(guest);
     if (!grounding || !command.snapshotId || command.snapshotId !== grounding.snapshotId) {
       throw new Error(`${label} requires snapshotId from the latest snapshot(mode=both) or locate result`);
     }
-    if (!grounding.capturedAt || Date.now() - grounding.capturedAt > 30_000
-      || (host.revision && grounding.revision !== await host.revision(guest, signal))) {
+    if (
+      !grounding.capturedAt ||
+      Date.now() - grounding.capturedAt > 30_000 ||
+      (host.revision && grounding.revision !== (await host.revision(guest, signal)))
+    ) {
       visualGroundingByGuest.delete(guest);
       throw new Error(`${label} visual grounding is stale; take a fresh snapshot(mode=both)`);
     }
@@ -338,23 +347,31 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
     }
     if (x < 0 || y < 0 || x >= grounding.imageWidth || y >= grounding.imageHeight) {
       throw new Error(
-        `${label} coordinates must be inside the ${grounding.imageWidth}x${grounding.imageHeight} screenshot`,
+        `${label} coordinates must be inside the ${grounding.imageWidth}x${grounding.imageHeight} screenshot`
       );
     }
-    const current = await evaluate<{ url: string; width: number; height: number }>(guest, `(() => ({
+    const current = await evaluate<{ url: string; width: number; height: number }>(
+      guest,
+      `(() => ({
       url: String(location.href),
       width: Math.round(window.innerWidth),
       height: Math.round(window.innerHeight),
-    }))()`, signal);
-    if (current.url !== grounding.url
-      || current.width !== grounding.viewportWidth
-      || current.height !== grounding.viewportHeight) {
+    }))()`,
+      signal
+    );
+    if (
+      current.url !== grounding.url ||
+      current.width !== grounding.viewportWidth ||
+      current.height !== grounding.viewportHeight
+    ) {
       visualGroundingByGuest.delete(guest);
-      throw new Error(`${label} visual grounding is stale because the page or viewport changed; call snapshot with mode=both again`);
+      throw new Error(
+        `${label} visual grounding is stale because the page or viewport changed; call snapshot with mode=both again`
+      );
     }
     return {
-      x: x * grounding.viewportWidth / grounding.imageWidth,
-      y: y * grounding.viewportHeight / grounding.imageHeight,
+      x: (x * grounding.viewportWidth) / grounding.imageWidth,
+      y: (y * grounding.viewportHeight) / grounding.imageHeight,
     };
   }
 

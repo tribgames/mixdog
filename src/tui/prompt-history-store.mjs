@@ -9,13 +9,12 @@ import { dirname, join, resolve } from 'node:path';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 
 export const PROMPT_HISTORY_LIMIT = 50;
-export const PROMPT_HISTORY_CACHE_LIMIT = Math.max(
-  8,
-  Number(process.env.MIXDOG_PROMPT_HISTORY_CACHE_LIMIT) || 128,
-);
+export const PROMPT_HISTORY_CACHE_LIMIT = Math.max(8, Number(process.env.MIXDOG_PROMPT_HISTORY_CACHE_LIMIT) || 128);
 
 export function promptHistoryKey(value) {
-  return String(value || '').trim().replace(/\s+/g, ' ');
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
 /** Stable map key for cwd-scoped prompt history buckets. */
@@ -23,9 +22,7 @@ function promptHistoryCwdKey(rawPath) {
   const text = String(rawPath || '').trim();
   if (!text) return '';
   const abs = resolve(text);
-  return process.platform === 'win32'
-    ? abs.replace(/[\\/]+$/, '').toLowerCase()
-    : abs.replace(/\/+$/, '');
+  return process.platform === 'win32' ? abs.replace(/[\\/]+$/, '').toLowerCase() : abs.replace(/\/+$/, '');
 }
 
 function historyFilePath(cwd) {
@@ -40,9 +37,7 @@ function readEntries(filePath) {
   try {
     const parsed = JSON.parse(readFileSync(filePath, 'utf8'));
     const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
-    return entries
-      .map((entry) => String(entry || '').trim())
-      .filter((entry) => promptHistoryKey(entry));
+    return entries.map((entry) => String(entry || '').trim()).filter((entry) => promptHistoryKey(entry));
   } catch {
     return [];
   }
@@ -164,14 +159,19 @@ function reconcileWithDisk(filePath, pend) {
 function scheduleWriteBehind(filePath) {
   if (!filePath) return;
   if (pendingTimers.has(filePath)) clearTimeout(pendingTimers.get(filePath));
-  const timer = setTimeout(() => { void writeBehindFlush(filePath); }, WRITE_BEHIND_MS);
+  const timer = setTimeout(() => {
+    void writeBehindFlush(filePath);
+  }, WRITE_BEHIND_MS);
   if (typeof timer.unref === 'function') timer.unref();
   pendingTimers.set(filePath, timer);
 }
 
 async function writeBehindFlush(filePath) {
   const timer = pendingTimers.get(filePath);
-  if (timer) { clearTimeout(timer); pendingTimers.delete(filePath); }
+  if (timer) {
+    clearTimeout(timer);
+    pendingTimers.delete(filePath);
+  }
   const pend = pendingAppends.get(filePath);
   if (!pend || !pend.length) return;
   // Claim this window; appends arriving during the async write accumulate fresh
@@ -185,7 +185,7 @@ async function writeBehindFlush(filePath) {
     const cur = pendingAppends.get(filePath) || [];
     pendingAppends.set(filePath, pend.concat(cur));
     scheduleWriteBehind(filePath);
-  } else if (!(pendingAppends.get(filePath)?.length)) {
+  } else if (!pendingAppends.get(filePath)?.length) {
     pendingAppends.delete(filePath);
   }
 }
@@ -238,9 +238,7 @@ export function loadPromptHistory(cwd) {
   const entries = cachedEntries(filePath);
   // Return a copy: the cache array is authoritative and must not be mutated by
   // callers (appendPromptHistory rebuilds it via filter/push).
-  return entries.length <= PROMPT_HISTORY_LIMIT
-    ? entries.slice()
-    : entries.slice(-PROMPT_HISTORY_LIMIT);
+  return entries.length <= PROMPT_HISTORY_LIMIT ? entries.slice() : entries.slice(-PROMPT_HISTORY_LIMIT);
 }
 
 /**
@@ -274,4 +272,3 @@ export function promptHistoryStoreStatsForTest() {
     cacheLimit: PROMPT_HISTORY_CACHE_LIMIT,
   };
 }
-

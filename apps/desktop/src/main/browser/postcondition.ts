@@ -45,12 +45,7 @@ export function normalizeBrowserPostcondition(raw: unknown): BrowserPostconditio
   }
   const timeoutMs = Math.min(
     MAX_POSTCONDITION_TIMEOUT_MS,
-    Math.max(
-      500,
-      input.timeoutMs === undefined
-        ? DEFAULT_POSTCONDITION_TIMEOUT_MS
-        : Math.trunc(input.timeoutMs),
-    ),
+    Math.max(500, input.timeoutMs === undefined ? DEFAULT_POSTCONDITION_TIMEOUT_MS : Math.trunc(input.timeoutMs))
   );
   return { text, textGone, url, timeoutMs };
 }
@@ -63,21 +58,25 @@ export function normalizeBrowserSettleMs(raw: unknown): number {
 
 export function browserPostconditionMatches(
   expected: Pick<BrowserPostconditionInput, 'text' | 'textGone' | 'url'>,
-  state: BrowserPostconditionState,
+  state: BrowserPostconditionState
 ): boolean {
   const text = state.text?.toLowerCase();
   const url = state.url.toLowerCase();
-  return (!expected.text || (text !== undefined && text.includes(expected.text.toLowerCase())))
-    && (!expected.textGone || (text !== undefined && !text.includes(expected.textGone.toLowerCase())))
-    && (!expected.url || url.includes(expected.url.toLowerCase()));
+  return (
+    (!expected.text || (text !== undefined && text.includes(expected.text.toLowerCase()))) &&
+    (!expected.textGone || (text !== undefined && !text.includes(expected.textGone.toLowerCase()))) &&
+    (!expected.url || url.includes(expected.url.toLowerCase()))
+  );
 }
 
 export function describeBrowserPostcondition(
-  expected: Pick<BrowserPostconditionInput, 'text' | 'textGone' | 'url'>,
+  expected: Pick<BrowserPostconditionInput, 'text' | 'textGone' | 'url'>
 ): string {
   return [
     expected.text && `text ${JSON.stringify(expected.text)}`,
     expected.textGone && `textGone ${JSON.stringify(expected.textGone)}`,
     expected.url && `url ${JSON.stringify(expected.url)}`,
-  ].filter(Boolean).join(' and ');
+  ]
+    .filter(Boolean)
+    .join(' and ');
 }

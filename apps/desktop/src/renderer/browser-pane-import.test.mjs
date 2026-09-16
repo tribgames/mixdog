@@ -23,10 +23,9 @@ window.HTMLElement.prototype.attachEvent = () => {};
 window.HTMLElement.prototype.detachEvent = () => {};
 
 const { BrowserImportDialog } = await import('./BrowserImportDialog.tsx');
-const {
-  scheduleBrowserForegroundRepaint,
-  watchBrowserForegroundReturns,
-} = await import('./browser-foreground-lifecycle.ts');
+const { scheduleBrowserForegroundRepaint, watchBrowserForegroundReturns } = await import(
+  './browser-foreground-lifecycle.ts'
+);
 const {
   browserAutoFitZoom,
   browserViewportZoom,
@@ -49,17 +48,20 @@ test('Browser viewport presets expose responsive fill and exact device frames', 
     userAgent: null,
   });
   const iphone = resolveBrowserViewportPreset('phone-390');
-  assert.deepEqual({
-    id: iphone.id,
-    label: iphone.label,
-    width: iphone.width,
-    height: iphone.height,
-  }, {
-    id: 'phone-390',
-    label: 'Phone · 390×844',
-    width: 390,
-    height: 844,
-  });
+  assert.deepEqual(
+    {
+      id: iphone.id,
+      label: iphone.label,
+      width: iphone.width,
+      height: iphone.height,
+    },
+    {
+      id: 'phone-390',
+      label: 'Phone · 390×844',
+      width: 390,
+      height: 844,
+    }
+  );
   // Retired device-named ids keep their size class.
   assert.equal(resolveBrowserViewportPreset('iphone-14').id, 'phone-390');
   assert.equal(resolveBrowserViewportPreset('pixel-7').id, 'phone-412');
@@ -75,7 +77,10 @@ test('Browser viewport presets expose responsive fill and exact device frames', 
   assert.equal(browserAutoFitZoom(720), 0.5);
   assert.equal(browserAutoFitZoom(1440), 1);
   const normal = resolveBrowserViewportPreset('responsive');
-  assert.deepEqual([360, 720, 1440].map(width => browserViewportZoom(normal, width)), [1, 1, 1]);
+  assert.deepEqual(
+    [360, 720, 1440].map((width) => browserViewportZoom(normal, width)),
+    [1, 1, 1]
+  );
   assert.equal(browserViewportZoom(normal, 720, 1.25), 1.25);
   assert.equal(browserViewportZoom(resolveBrowserViewportPreset('fit'), 720), 0.5);
   assert.equal(browserViewportZoom(iphone, 720), 1);
@@ -103,11 +108,9 @@ test('Browser Use refreshes on visible foreground returns and detaches cleanly',
     get: () => visibilityState,
   });
   let reports = 0;
-  const dispose = watchBrowserForegroundReturns(
-    returnWindow,
-    returnDocument,
-    () => { reports += 1; },
-  );
+  const dispose = watchBrowserForegroundReturns(returnWindow, returnDocument, () => {
+    reports += 1;
+  });
 
   returnWindow.dispatchEvent(new dom.window.Event('focus'));
   returnWindow.dispatchEvent(new dom.window.Event('pageshow'));
@@ -156,11 +159,7 @@ test('Browser Use repaints after the foreground dock layout settles', () => {
   assert.equal(frames.size, 0);
 });
 
-function chromeSource({
-  passwords = false,
-  cookies = true,
-  history = false,
-} = {}) {
+function chromeSource({ passwords = false, cookies = true, history = false } = {}) {
   return {
     id: 'chrome',
     name: 'Google Chrome',
@@ -181,9 +180,10 @@ function renderDialog(api) {
   return {
     host,
     root,
-    render: (open = true, onClose = () => {}) => act(async () => {
-      root.render(React.createElement(BrowserImportDialog, { open, onClose }));
-    }),
+    render: (open = true, onClose = () => {}) =>
+      act(async () => {
+        root.render(React.createElement(BrowserImportDialog, { open, onClose }));
+      }),
   };
 }
 
@@ -260,11 +260,12 @@ test('import dialog starts only one job when submit is activated twice', async (
     browserProfileImportStart: async (input) => {
       starts += 1;
       return await new Promise((resolve) => {
-        finish = () => resolve({
-          jobId: input.jobId,
-          counts: { passwords: 0, cookies: 0, history: 1 },
-          errors: {},
-        });
+        finish = () =>
+          resolve({
+            jobId: input.jobId,
+            counts: { passwords: 0, cookies: 0, history: 1 },
+            errors: {},
+          });
       });
     },
   });
@@ -296,16 +297,22 @@ test('import dialog closes with Escape and restores the trigger focus', async ()
 
   function Harness() {
     const [open, setOpen] = useState(false);
-    return React.createElement(React.Fragment, null,
-      React.createElement('button', {
-        id: 'import-trigger',
-        type: 'button',
-        onClick: () => setOpen(true),
-      }, '열기'),
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(
+        'button',
+        {
+          id: 'import-trigger',
+          type: 'button',
+          onClick: () => setOpen(true),
+        },
+        '열기'
+      ),
       React.createElement(BrowserImportDialog, {
         open,
         onClose: () => setOpen(false),
-      }),
+      })
     );
   }
 
@@ -315,17 +322,16 @@ test('import dialog closes with Escape and restores the trigger focus', async ()
     trigger.focus();
     await act(async () => trigger.click());
     assert.ok(document.querySelector('[role="dialog"]'));
-    assert.match(
-      document.querySelector('[role="dialog"]').textContent,
-      /Cookie import unavailable in this build/,
-    );
+    assert.match(document.querySelector('[role="dialog"]').textContent, /Cookie import unavailable in this build/);
 
     await act(async () => {
-      document.dispatchEvent(new window.KeyboardEvent('keydown', {
-        key: 'Escape',
-        bubbles: true,
-        cancelable: true,
-      }));
+      document.dispatchEvent(
+        new window.KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true,
+        })
+      );
     });
     assert.equal(document.querySelector('[role="dialog"]'), null);
     assert.equal(document.activeElement, trigger);
@@ -341,16 +347,16 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
     remoteBrowserFrame: async (sessionId) => {
       assert.equal(sessionId, 'browser-remote-session');
       return {
-      frameId: 'rbf_a1',
-      documentId: 'p1:0',
-      url: 'https://example.test/',
-      title: 'Remote fixture',
-      loading: false,
-      canGoBack: false,
-      canGoForward: false,
-      width: 100,
-      height: 50,
-      image: { mimeType: 'image/jpeg', data: 'AA==' },
+        frameId: 'rbf_a1',
+        documentId: 'p1:0',
+        url: 'https://example.test/',
+        title: 'Remote fixture',
+        loading: false,
+        canGoBack: false,
+        canGoForward: false,
+        width: 100,
+        height: 50,
+        image: { mimeType: 'image/jpeg', data: 'AA==' },
       };
     },
     remoteBrowserControl: async (sessionId, input) => {
@@ -364,11 +370,13 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
 
   try {
     await act(async () => {
-      root.render(React.createElement(RemoteBrowserPane, {
-        sessionId: 'browser-remote-session',
-        active: true,
-        foreground: true,
-      }));
+      root.render(
+        React.createElement(RemoteBrowserPane, {
+          sessionId: 'browser-remote-session',
+          active: true,
+          foreground: true,
+        })
+      );
     });
     const image = document.querySelector('.browser-remote-content img');
     assert.ok(image);
@@ -393,7 +401,9 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
     });
     // A submitted gesture consumes its frame; the next tap must carry the
     // frame the follow-up poll delivered, so let that poll land first.
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
 
     const content = document.querySelector('.browser-remote-content');
     content.setPointerCapture = () => {};
@@ -446,16 +456,26 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
         pageInput.value = text;
         pageInput.dispatchEvent(new window.Event('input', { bubbles: true }));
       }
-      pageInput.dispatchEvent(new window.KeyboardEvent('keydown', {
-        key: 'Backspace', bubbles: true, cancelable: true,
-      }));
+      pageInput.dispatchEvent(
+        new window.KeyboardEvent('keydown', {
+          key: 'Backspace',
+          bubbles: true,
+          cancelable: true,
+        })
+      );
     });
-    assert.deepEqual(controls.slice(-4).map(({ input }) => input), [
-      ...['b', '@', '한'].map((text) => ({
-        type: 'text', frameId: 'rbf_a1', documentId: 'p1:0', text,
-      })),
-      { type: 'key', frameId: 'rbf_a1', documentId: 'p1:0', key: 'Backspace' },
-    ]);
+    assert.deepEqual(
+      controls.slice(-4).map(({ input }) => input),
+      [
+        ...['b', '@', '한'].map((text) => ({
+          type: 'text',
+          frameId: 'rbf_a1',
+          documentId: 'p1:0',
+          text,
+        })),
+        { type: 'key', frameId: 'rbf_a1', documentId: 'p1:0', key: 'Backspace' },
+      ]
+    );
   } finally {
     await act(async () => root.unmount());
     host.remove();

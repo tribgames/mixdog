@@ -14,24 +14,35 @@ test('local installation workflow inspects before install, returns installed mod
   const preparations = [];
   const api = createSettingsApi({
     getConfig: () => config,
-    saveConfigAndAdopt: (next) => { config = next; },
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
     setModuleEnabledInConfig,
-    webSearchEnabled: () => true, memoryToolsEnabledFn: () => true,
-    gitToolsEnabledFn: () => true, officeToolsEnabledFn: () => true,
+    webSearchEnabled: () => true,
+    memoryToolsEnabledFn: () => true,
+    gitToolsEnabledFn: () => true,
+    officeToolsEnabledFn: () => true,
     localProviderEnabledFn: () => config.providers?.['mixdog-local']?.enabled === true,
     getLocalProviderStatus: () => ({
-      available: true, runtime: { installed: runtimeInstalled },
-      hardware: { gpu: { name: 'RTX 3090' } }, disk: { availableBytes: 30e9 },
+      available: true,
+      runtime: { installed: runtimeInstalled },
+      hardware: { gpu: { name: 'RTX 3090' } },
+      disk: { availableBytes: 30e9 },
       models: [{ id: 'approved-model', compatible: true, installed: modelInstalled }],
     }),
-    prepareBuiltinFeature: async (name) => { preparations.push(name); runtimeInstalled = true; },
+    prepareBuiltinFeature: async (name) => {
+      preparations.push(name);
+      runtimeInstalled = true;
+    },
     prepareLocalProviderModel: async (id) => {
       if (id !== 'approved-model') throw new Error('unknown model');
       if (!runtimeInstalled) throw new Error('install runtime first');
       preparations.push(id);
       modelInstalled = true;
     },
-    refreshLocalProviderCatalog: async () => { refreshes++; },
+    refreshLocalProviderCatalog: async () => {
+      refreshes++;
+    },
   });
   const executor = createSetupToolExecutor({ getApi: () => api });
   const initial = await run(executor, { action: 'status', domain: 'local-provider' });
@@ -40,7 +51,10 @@ test('local installation workflow inspects before install, returns installed mod
   assert.equal(initial.disk.availableBytes, 30e9);
   assert.deepEqual(preparations, []);
   await assert.rejects(run(executor, { action: 'install_local_model' }), /modelId is required/);
-  await assert.rejects(run(executor, { action: 'install_local_model', modelId: 'approved-model' }), /install runtime first/);
+  await assert.rejects(
+    run(executor, { action: 'install_local_model', modelId: 'approved-model' }),
+    /install runtime first/
+  );
   await run(executor, { action: 'install_builtin', name: 'localProvider' });
   await assert.rejects(run(executor, { action: 'install_local_model', modelId: 'unknown' }), /unknown model/);
   const receipt = await run(executor, { action: 'install_local_model', modelId: 'approved-model' });

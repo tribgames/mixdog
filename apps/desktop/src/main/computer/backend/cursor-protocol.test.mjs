@@ -9,11 +9,16 @@ import { loadComputerSource } from './native-assets.ts';
 import { MIXDOG_INPUT_TRANSPORT_CSHARP } from './native-source.ts';
 
 test('watchdog protocol preserves late restoration evidence without concurrent reads or input replay', {
-  skip: process.platform !== 'win32', timeout: 30000,
+  skip: process.platform !== 'win32',
+  timeout: 30000,
 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-cursor-protocol-'));
   try {
-    await writeFile(join(directory, 'protocol.cs'), MIXDOG_INPUT_TRANSPORT_CSHARP + loadComputerSource('CursorTheme.cs') + String.raw`
+    await writeFile(
+      join(directory, 'protocol.cs'),
+      MIXDOG_INPUT_TRANSPORT_CSHARP +
+        loadComputerSource('CursorTheme.cs') +
+        String.raw`
 public class FakeSnapshot { public bool Ready = true; public long Sequence; }
 public static class MixInputObservation {
   public static System.IntPtr Marker = new System.IntPtr(1);
@@ -75,8 +80,11 @@ public static class CursorProtocolFixture {
     }
   }
 }
-`);
-    await writeFile(join(directory, 'test.ps1'), String.raw`
+`
+    );
+    await writeFile(
+      join(directory, 'test.ps1'),
+      String.raw`
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll') -TypeDefinition (
@@ -84,12 +92,21 @@ Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.
 foreach($scenario in @('normal','late','early','lost','user')) {
   [Console]::WriteLine([CursorProtocolFixture]::Run($scenario))
 }
-`);
-    const { stdout } = await promisify(execFile)('powershell.exe',
+`
+    );
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
-      { timeout: 20000, windowsHide: true, env: { ...process.env, FIXTURE_DIRECTORY: directory } });
+      { timeout: 20000, windowsHide: true, env: { ...process.env, FIXTURE_DIRECTORY: directory } }
+    );
     assert.deepEqual(stdout.trim().split(/\r?\n/), [
-      'normal:True:True', 'late:False:True', 'early:False:True', 'lost:False:False', 'user:False:True',
+      'normal:True:True',
+      'late:False:True',
+      'early:False:True',
+      'lost:False:False',
+      'user:False:True',
     ]);
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

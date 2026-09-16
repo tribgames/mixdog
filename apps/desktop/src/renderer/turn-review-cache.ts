@@ -1,5 +1,5 @@
-import { registerBudgetedCache, enforceRendererCacheBudget } from "./renderer-cache-budget";
-import { registerIdleReclaim } from "./idle-reclaim";
+import { registerBudgetedCache, enforceRendererCacheBudget } from './renderer-cache-budget';
+import { registerIdleReclaim } from './idle-reclaim';
 
 export type TurnReviewFile = {
   path: string;
@@ -45,7 +45,7 @@ function trim(target: number): void {
   }
 }
 
-registerBudgetedCache({ name: "turn-review", chars: () => retainedChars, trim });
+registerBudgetedCache({ name: 'turn-review', chars: () => retainedChars, trim });
 registerIdleReclaim(() => {
   for (const scope of agentReviewCache.keys()) drop(scope);
 });
@@ -56,7 +56,7 @@ export function rememberAgentReviews(
   leadPatch: string | null,
   files: TurnReviewFile[],
   snapshotKind: string,
-  checkpointId: string,
+  checkpointId: string
 ): void {
   drop(scopeKey);
   const chars = JSON.stringify([scopeKey, reviews, leadPatch, files, snapshotKind, checkpointId]).length;

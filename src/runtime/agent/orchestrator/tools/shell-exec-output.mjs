@@ -1,6 +1,6 @@
 // Shell exec output plumbing: inline/disk caps, ANSI strip, tree-kill, bounded capture, results.
 // Extracted from shell-command.mjs.
-'use strict';
+
 // Output capture for the native shell process manager.
 import {
   mkdirSync,
@@ -48,8 +48,7 @@ const MIXDOG_SHELL_FSYNC_THROTTLE_MS = positiveIntEnv('MIXDOG_SHELL_FSYNC_THROTT
 
 // ANSI / VT control sequence stripper. Falls back to a regex sweep when
 // node:util's stripVTControlCharacters isn't available (older Node).
-const _ANSI_REGEX =
-  /(?:\[[0-?]*[ -/]*[@-~]|\][\s\S]*?(?:|\\|))/g;
+const _ANSI_REGEX = /(?:\[[0-?]*[ -/]*[@-~]|\][\s\S]*?(?:|\\|))/g;
 const _stripAnsiImpl =
   typeof nodeUtil.stripVTControlCharacters === 'function'
     ? (s) => nodeUtil.stripVTControlCharacters(s)
@@ -69,9 +68,10 @@ function inspectShellTextChunk(value, channel = 'stdout') {
   const nulCount = (text.match(/\u0000/g) || []).length;
   const unsafeCount = (text.match(UNSAFE_TEXT_CONTROL_RE) || []).length;
   const replacementCount = (text.match(/\uFFFD/g) || []).length;
-  const binary = nulCount > 0
-    || unsafeCount > Math.max(8, Math.floor(text.length * 0.1))
-    || replacementCount > Math.max(4, Math.floor(text.length * 0.02));
+  const binary =
+    nulCount > 0 ||
+    unsafeCount > Math.max(8, Math.floor(text.length * 0.1)) ||
+    replacementCount > Math.max(4, Math.floor(text.length * 0.02));
   if (binary) {
     // Sanitize, never stop: the printable remainder is often the answer the
     // caller needs (a git protocol banner, a VM boot log, a PDF text run).
@@ -108,11 +108,7 @@ function detectShellTextEncoding(buffer, final = false) {
     }
     const dominantNuls = Math.max(evenNuls, oddNuls);
     const minorityNuls = Math.min(evenNuls, oddNuls);
-    if (
-      dominantNuls / pairs >= 0.6
-      && minorityNuls / pairs <= 0.1
-      && printablePartners / pairs >= 0.75
-    ) {
+    if (dominantNuls / pairs >= 0.6 && minorityNuls / pairs <= 0.1 && printablePartners / pairs >= 0.75) {
       return { encoding: oddNuls > evenNuls ? 'utf16le' : 'utf16be', bom: 0 };
     }
   }
@@ -130,9 +126,7 @@ export class ShellTextDecoder {
 
   _decode(buffer) {
     if (this.encoding !== 'utf16be') return this.decoder.write(buffer);
-    const joined = this.byteRemainder.length > 0
-      ? Buffer.concat([this.byteRemainder, buffer])
-      : buffer;
+    const joined = this.byteRemainder.length > 0 ? Buffer.concat([this.byteRemainder, buffer]) : buffer;
     const evenLength = joined.length - (joined.length % 2);
     this.byteRemainder = evenLength < joined.length ? joined.subarray(evenLength) : Buffer.alloc(0);
     if (evenLength === 0) return '';
@@ -177,7 +171,11 @@ export class ShellTextDecoder {
 // Delegate process-tree termination to the native manager.
 export function treeKill(child) {
   if (!child?.__nativeSpawn || typeof child.kill !== 'function') return false;
-  try { return child.kill() !== false; } catch { return false; }
+  try {
+    return child.kill() !== false;
+  } catch {
+    return false;
+  }
 }
 
 // Head+tail read helper: avoid pulling a large spill back into memory, but
@@ -201,7 +199,7 @@ function _readHeadTail(filePath, fileSize) {
     const headBuf = Buffer.allocUnsafe(headBudget + padding);
     const hn = readSync(fd, headBuf, 0, headBudget + padding, 0);
     let hEnd = Math.min(headBudget, hn);
-    while (hEnd > 0 && hEnd < hn && (headBuf[hEnd] & 0xC0) === 0x80) hEnd--;
+    while (hEnd > 0 && hEnd < hn && (headBuf[hEnd] & 0xc0) === 0x80) hEnd--;
     const head = headBuf.slice(0, hEnd).toString('utf-8');
     // Tail: last tailBudget bytes, advancing past a leading split codepoint.
     const tailReadSize = tailBudget + padding;
@@ -210,13 +208,15 @@ function _readHeadTail(filePath, fileSize) {
     const tn = readSync(fd, tailBuf, 0, tailReadSize, tailStart);
     let tOff = 0;
     if (tailStart > 0) {
-      while (tOff < tn && tOff < padding && (tailBuf[tOff] & 0xC0) === 0x80) tOff++;
+      while (tOff < tn && tOff < padding && (tailBuf[tOff] & 0xc0) === 0x80) tOff++;
     }
     const tail = tailBuf.slice(tOff, tn).toString('utf-8');
-    const elided = Math.max(0, (tailStart + tOff) - hEnd);
+    const elided = Math.max(0, tailStart + tOff - hEnd);
     return `${head}\n... [${elided} bytes elided of ${fileSize} total — head+tail shown; full output at ${filePath}] ...\n${tail}`;
   } finally {
-    try { closeSync(fd); } catch {}
+    try {
+      closeSync(fd);
+    } catch {}
   }
 }
 
@@ -273,7 +273,9 @@ export class TaskOutput {
     } catch (err) {
       this._recordWriteError('spill-open', err);
       if (this.stdoutFd != null) {
-        try { closeSync(this.stdoutFd); } catch {}
+        try {
+          closeSync(this.stdoutFd);
+        } catch {}
         this.stdoutFd = null;
       }
       this.stderrFd = null;
@@ -341,13 +343,17 @@ export class TaskOutput {
   // filesystem (a "poll the file tail" approach).
   _refreshDirectSizes() {
     if (!this.direct) return;
-    try { this.stdoutFileSize = statSync(this.stdoutPath).size; } catch {}
-    try { this.stderrFileSize = statSync(this.stderrPath).size; } catch {}
+    try {
+      this.stdoutFileSize = statSync(this.stdoutPath).size;
+    } catch {}
+    try {
+      this.stderrFileSize = statSync(this.stderrPath).size;
+    } catch {}
   }
 
   _recordWriteError(stage, err) {
     if (this.writeError) return;
-    const msg = (err && err.message) ? err.message : String(err);
+    const msg = err && err.message ? err.message : String(err);
     this.writeError = `[output-capture-error: ${stage}] ${msg}`;
   }
 
@@ -423,12 +429,14 @@ export class TaskOutput {
           const read = readSync(fd, buffer, 0, bytes, Math.max(0, size - bytes));
           return buffer.toString('utf-8', 0, read);
         } finally {
-          try { closeSync(fd); } catch {}
+          try {
+            closeSync(fd);
+          } catch {}
         }
       };
       const merged = merge(
         readTail(this.stdoutPath, this.stdoutFileSize),
-        readTail(this.stderrPath, this.stderrFileSize),
+        readTail(this.stderrPath, this.stderrFileSize)
       );
       // Display-only path: scrub escape codes in direct mode, but never record
       // a binary verdict from an arbitrary tail slice.
@@ -456,7 +464,9 @@ export class TaskOutput {
       this._refreshDirectSizes();
       const now = Date.now();
       if (!this.direct && now - this._lastStdoutFsyncMs >= MIXDOG_SHELL_FSYNC_THROTTLE_MS) {
-        try { fsyncSync(this.stdoutFd); } catch {}
+        try {
+          fsyncSync(this.stdoutFd);
+        } catch {}
         this._lastStdoutFsyncMs = now;
       }
       try {
@@ -474,7 +484,9 @@ export class TaskOutput {
       this._refreshDirectSizes();
       const now = Date.now();
       if (!this.direct && now - this._lastStderrFsyncMs >= MIXDOG_SHELL_FSYNC_THROTTLE_MS) {
-        try { fsyncSync(this.stderrFd); } catch {}
+        try {
+          fsyncSync(this.stderrFd);
+        } catch {}
         this._lastStderrFsyncMs = now;
       }
       try {
@@ -524,7 +536,6 @@ export class TaskOutput {
     this.direct = false;
   }
 }
-
 
 // Result envelope. Status markers ([exit code: N], [signal: SIGTERM]) are
 // the caller's responsibility — shell execution owns that

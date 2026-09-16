@@ -4,7 +4,12 @@ import {
   measureStreamingMarkdownRenderedRows,
 } from '../markdown/measure-rendered-rows.mjs';
 import { displayWidth } from '../display-width.mjs';
-import { formatToolSurface, normalizeToolName, parseToolArgs, summarizeAgentSurfaceBrief } from '../../runtime/shared/tool-surface.mjs';
+import {
+  formatToolSurface,
+  normalizeToolName,
+  parseToolArgs,
+  summarizeAgentSurfaceBrief,
+} from '../../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
 import { isBackgroundTaskResponseArgs } from '../../runtime/shared/tool-card-model.mjs';
 import { formatExpandedResult, wrapExpandedResultLines } from '../components/tool-output-format.mjs';
@@ -31,13 +36,20 @@ export function wrappedLineRows(line, width) {
     if (tw === 0) continue;
     if (tw > width) {
       // Over-long unbreakable token: ink hard-splits it across rows.
-      if (col > 0) { rows++; col = 0; }
+      if (col > 0) {
+        rows++;
+        col = 0;
+      }
       rows += Math.ceil(tw / width) - 1;
       col = tw % width || width;
       continue;
     }
-    if (col + tw > width) { rows++; col = tw; }
-    else { col += tw; }
+    if (col + tw > width) {
+      rows++;
+      col = tw;
+    } else {
+      col += tw;
+    }
   }
   return Math.max(1, rows);
 }
@@ -45,17 +57,21 @@ export function wrappedLineRows(line, width) {
 function estimateWrappedRows(text, columns, reserve = 4) {
   const width = Math.max(8, Number(columns || 80) - reserve);
   const lines = String(text ?? '').split('\n');
-  return Math.max(1, lines.reduce((sum, line) => sum + wrappedLineRows(line, width), 0));
+  return Math.max(
+    1,
+    lines.reduce((sum, line) => sum + wrappedLineRows(line, width), 0)
+  );
 }
 
-export const SKILL_SURFACE_NAMES = new Set([
-  'skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill',
-]);
+export const SKILL_SURFACE_NAMES = new Set(['skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill']);
 
 function isAgentResponseResultText(text) {
   const value = String(text || '').trim();
   if (!value) return false;
-  if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)) return false;
+  if (
+    /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)
+  )
+    return false;
   if (/^(?:background task\b|agent task:|task_id:)/i.test(value) && !/\n\s*\n[\s\S]*\S/.test(value)) return false;
   return true;
 }
@@ -75,7 +91,13 @@ function parseBackgroundTaskResultForRows(value) {
   const rest = allLines.slice(start + 1);
   const blank = rest.findIndex((line) => !line.trim());
   const headLines = blank >= 0 ? rest.slice(0, blank) : rest;
-  const body = blank >= 0 ? rest.slice(blank + 1).join('\n').trim() : '';
+  const body =
+    blank >= 0
+      ? rest
+          .slice(blank + 1)
+          .join('\n')
+          .trim()
+      : '';
   const fields = {};
   for (const line of headLines) {
     const match = /^([a-zA-Z][\w-]*):\s*(.*)$/.exec(line.trim());
@@ -146,7 +168,7 @@ function toolDisplayedResultTextForRows(item) {
       return stripLeadingStatusMarkerFromTextForRows(String(meta.body));
     }
   }
-  return stripLeadingStatusMarkerFromTextForRows(errorOnlyResult ? '' : (rt || ''));
+  return stripLeadingStatusMarkerFromTextForRows(errorOnlyResult ? '' : rt || '');
 }
 
 function toolHasDisplayResultForRows(item) {
@@ -223,8 +245,9 @@ function agentCardKeepsCollapsedDetailForRows(item, normalizedName) {
   });
   const brief = String(briefRaw || '').trim();
   const status = String(bgArgs.status || '').toLowerCase();
-  const failureText = /\b(cancelled|canceled|failed)\b/i.test(brief)
-    || /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status);
+  const failureText =
+    /\b(cancelled|canceled|failed)\b/i.test(brief) ||
+    /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status);
   const agentHeaderFailure = isError && String(bgArgs.error || '').trim() && !hasDisplayResult;
   if (agentHeaderFailure && !brief) return false;
   return isError || failureText;
@@ -233,8 +256,9 @@ function agentCardKeepsCollapsedDetailForRows(item, normalizedName) {
 function isShellSurfaceForRows(normalizedName, label = '') {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
-  return n === 'shell' || n === 'bash' || n === 'bash_session'
-    || n === 'shell_command' || n === 'job_wait' || l === 'run';
+  return (
+    n === 'shell' || n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait' || l === 'run'
+  );
 }
 
 function isShellSurfaceForToolItem(item, normalizedName) {
@@ -263,9 +287,12 @@ export function estimateTranscriptItemRows(item, columns, toolOutputExpanded, at
       return 1 + estimateWrappedRows(item.text, columns, 4);
     case 'assistant':
       // marginTop={1} (AssistantMessage <Box>) + rendered body height.
-      return 1 + (item.streaming
-        ? measureStreamingMarkdownRenderedRows(item.text, columns, item.id)
-        : measureMarkdownRenderedRows(item.text, columns, { trimPartialFences: true }));
+      return (
+        1 +
+        (item.streaming
+          ? measureStreamingMarkdownRenderedRows(item.text, columns, item.id)
+          : measureMarkdownRenderedRows(item.text, columns, { trimPartialFences: true }))
+      );
     case 'tool': {
       // Consecutive tool cards render attached (marginTop 0) — see
       // TranscriptItem's attached={prevKind === 'tool'}.
@@ -319,12 +346,13 @@ export function estimateTranscriptItemRows(item, columns, toolOutputExpanded, at
         }
         return TOOL_MARGIN_TOP + 1 + 1;
       } else {
-        const backgroundMeta = hasResult && isBackgroundTaskToolName(normalizedName)
-          ? parseBackgroundTaskResultForRows(rt)
-          : null;
+        const backgroundMeta =
+          hasResult && isBackgroundTaskToolName(normalizedName) ? parseBackgroundTaskResultForRows(rt) : null;
         const isBackgroundResult = hasResult && isBackgroundTaskToolName(normalizedName);
-        const isBackgroundResponse = isBackgroundResult
-          && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgs(normalizedName, backgroundArgsForRows(item.args)));
+        const isBackgroundResponse =
+          isBackgroundResult &&
+          (backgroundMeta?.hasResponse ||
+            isBackgroundTaskResponseArgs(normalizedName, backgroundArgsForRows(item.args)));
         const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
         if (isBackgroundMetadataResult) {
           const hasDisplayResult = toolHasDisplayResultForRows(item);

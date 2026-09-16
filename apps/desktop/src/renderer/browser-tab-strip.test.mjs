@@ -21,20 +21,40 @@ test('tab chrome selects and closes exact pages, creates a tab, and exposes rest
     { id: 'p1', title: 'Original', url: 'https://a.test', active: true, loading: false, kind: 'page' },
     { id: 'p2', title: 'Login', url: 'https://a.test/login', active: false, loading: false, kind: 'popup' },
   ];
-  const render = () => root.render(React.createElement(BrowserTabStrip, {
-    tabs, expanded,
-    async onSelect(id) { calls.push(['select', id]); tabs = tabs.map(tab => ({ ...tab, active: tab.id === id })); render(); },
-    async onClose(id) { calls.push(['close', id]); },
-    async onCreate() { calls.push(['create']); },
-    onToggleExpanded() { expanded = !expanded; render(); },
-  }));
+  const render = () =>
+    root.render(
+      React.createElement(BrowserTabStrip, {
+        tabs,
+        expanded,
+        async onSelect(id) {
+          calls.push(['select', id]);
+          tabs = tabs.map((tab) => ({ ...tab, active: tab.id === id }));
+          render();
+        },
+        async onClose(id) {
+          calls.push(['close', id]);
+        },
+        async onCreate() {
+          calls.push(['create']);
+        },
+        onToggleExpanded() {
+          expanded = !expanded;
+          render();
+        },
+      })
+    );
   try {
     await act(async () => render());
     await act(async () => host.querySelectorAll('[role="tab"]')[1].click());
     assert.equal(host.querySelectorAll('[role="tab"]')[1].getAttribute('aria-selected'), 'true');
-    await act(async () => host.querySelector('[role="tablist"]').dispatchEvent(new dom.window.KeyboardEvent('keydown', {
-      key: 'Home', bubbles: true,
-    })));
+    await act(async () =>
+      host.querySelector('[role="tablist"]').dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', {
+          key: 'Home',
+          bubbles: true,
+        })
+      )
+    );
     assert.equal(host.querySelector('[role="tab"]').getAttribute('aria-selected'), 'true');
     await act(async () => host.querySelector('[aria-label="Close tab: Login"]').click());
     await act(async () => host.querySelector('[aria-label="New tab"]').click());

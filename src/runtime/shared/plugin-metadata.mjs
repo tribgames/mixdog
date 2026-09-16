@@ -14,11 +14,7 @@ function authorText(value) {
   if (typeof value === 'string') return value.trim();
   const author = object(value);
   const email = text(author.email);
-  return [
-    text(author.name),
-    email ? `<${email}>` : '',
-    text(author.url),
-  ].filter(Boolean).join(' ');
+  return [text(author.name), email ? `<${email}>` : '', text(author.url)].filter(Boolean).join(' ');
 }
 
 export function pluginMetadata(value) {

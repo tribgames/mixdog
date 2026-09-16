@@ -10,7 +10,7 @@ export function nextTranscriptHistoryLimit(
   {
     pageItems = TRANSCRIPT_HISTORY_PAGE_ITEMS,
     maxItems = TRANSCRIPT_HISTORY_MAX_ITEMS,
-  }: { pageItems?: number; maxItems?: number } = {},
+  }: { pageItems?: number; maxItems?: number } = {}
 ): number | null {
   const count = Math.max(0, Math.floor(Number(itemCount) || 0));
   const page = Math.max(1, Math.floor(Number(pageItems) || TRANSCRIPT_HISTORY_PAGE_ITEMS));

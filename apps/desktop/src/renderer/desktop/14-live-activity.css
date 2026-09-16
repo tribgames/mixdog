@@ -5,7 +5,9 @@
    thread's flex/gap grammar identical to the band being a direct child), but
    a reserved 24px box for the WHOLE busy turn — the band flickering null
    during a snapshot source swap must not shift the thread (진입/전환 튐). */
-.live-activity-slot { display: contents; }
+.live-activity-slot {
+  display: contents;
+}
 .live-activity-slot[data-busy="true"] {
   position: relative;
   display: flex;
@@ -87,17 +89,34 @@
   fill: currentColor;
   transform-box: fill-box;
   transform-origin: 50% 50%;
-  animation: live-activity-glyph-core 1300ms cubic-bezier(.4, 0, .6, 1) infinite;
+  animation: live-activity-glyph-core 1300ms cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
-@keyframes live-activity-glyph-spin { to { transform: rotate(90deg); } }
+@keyframes live-activity-glyph-spin {
+  to {
+    transform: rotate(90deg);
+  }
+}
 @keyframes live-activity-glyph-core {
   /* The TUI plays ◇ ◆ ◈ — three states, not two. Naming the middle rung on
      both sides restores that beat: the ring-in-ring frame is a real step
      instead of a value the interpolator merely passes through. */
-  0%, 100% { transform: scale(.12); opacity: var(--mx-op-ghost); }
-  32% { transform: scale(.58); opacity: var(--mx-op-secondary); }
-  50% { transform: scale(1); opacity: 1; }
-  68% { transform: scale(.58); opacity: var(--mx-op-secondary); }
+  0%,
+  100% {
+    transform: scale(0.12);
+    opacity: var(--mx-op-ghost);
+  }
+  32% {
+    transform: scale(0.58);
+    opacity: var(--mx-op-secondary);
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  68% {
+    transform: scale(0.58);
+    opacity: var(--mx-op-secondary);
+  }
 }
 .live-activity [data-component="text-shimmer"] {
   /* TUI contract (src/tui/index.mjs, GLIMMER_SPEED_MS/GLIMMER_TRAIL): the head
@@ -135,8 +154,14 @@
   -webkit-background-clip: text;
   animation: live-activity-sweep var(--text-shimmer-duration) linear infinite;
 }
-@keyframes live-activity-sweep { to { background-position: var(--live-shimmer-span) 0; } }
-.live-activity [data-slot="text-shimmer-char"] { font-variant-numeric: tabular-nums; }
+@keyframes live-activity-sweep {
+  to {
+    background-position: var(--live-shimmer-span) 0;
+  }
+}
+.live-activity [data-slot="text-shimmer-char"] {
+  font-variant-numeric: tabular-nums;
+}
 /* The byline is STATIC and one tier down: it reports numbers, the verb
    reports the work. Keeping it out of the shimmer is what lets the sweep run
    to completion (see TranscriptView), and the smaller muted type stops the
@@ -173,7 +198,12 @@
   margin-right: 7px;
   color: var(--mx-text-faint);
 }
-.thinking-disclosure { max-width: 100%; color: var(--mx-text-muted); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-medium); }
+.thinking-disclosure {
+  max-width: 100%;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-medium);
+}
 .thinking-disclosure summary {
   width: max-content;
   border-radius: var(--mx-radius-sm);
@@ -182,7 +212,10 @@
   line-height: var(--mx-line-ui);
 }
 .thinking-disclosure summary:hover,
-.thinking-disclosure summary:focus-visible { color: var(--mx-text); background: var(--mx-hover); }
+.thinking-disclosure summary:focus-visible {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
 .thinking-disclosure pre {
   max-width: 100%;
   max-height: 280px;
@@ -200,8 +233,10 @@
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
 }
-.turn-status.complete, .turn-status.success,
-.turn-status.failed, .turn-status.interrupted {
+.turn-status.complete,
+.turn-status.success,
+.turn-status.failed,
+.turn-status.interrupted {
   width: max-content;
   max-width: 100%;
   /* ONE 24px row for every state of the turn — settled status, live band and
@@ -223,9 +258,10 @@
   font-weight: var(--mx-weight-medium);
 }
 .turn-status[data-animate="true"] {
-  animation: transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1);
+  animation: transcript-milestone-enter 320ms cubic-bezier(0.2, 0.9, 0.2, 1);
 }
-.turn-status.complete, .turn-status.success {
+.turn-status.complete,
+.turn-status.success {
   color: var(--mx-text-soft);
   /* The settled row and running band are the same 13px operational line;
      12px metadata remains the one quiet rung beneath them. */
@@ -239,7 +275,7 @@
 .turn-status.complete[data-animate="true"],
 .turn-status.success[data-animate="true"] {
   animation:
-    transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1),
+    transcript-milestone-enter 320ms cubic-bezier(0.2, 0.9, 0.2, 1),
     turn-status-settle 1100ms var(--mx-ease-emphasized) 120ms both;
 }
 .turn-status.complete[data-animate="true"] .turn-status-icon,
@@ -247,12 +283,22 @@
   animation: turn-status-mark-settle 1100ms var(--mx-ease-emphasized) 120ms both;
 }
 @keyframes turn-status-settle {
-  from { color: var(--mx-text); }
-  to { color: var(--mx-text-soft); }
+  from {
+    color: var(--mx-text);
+  }
+  to {
+    color: var(--mx-text-soft);
+  }
 }
 @keyframes turn-status-mark-settle {
-  from { color: var(--mx-text); transform: scale(1.12); }
-  to { color: var(--mx-text-soft); transform: scale(1); }
+  from {
+    color: var(--mx-text);
+    transform: scale(1.12);
+  }
+  to {
+    color: var(--mx-text-soft);
+    transform: scale(1);
+  }
 }
 .turn-status.failed {
   width: 100%;
@@ -284,9 +330,10 @@
   stroke-width: 1.5px;
 }
 .turn-status[data-animate="true"] .turn-status-icon {
-  animation: transcript-milestone-icon-pop 420ms cubic-bezier(.2, 1.4, .4, 1);
+  animation: transcript-milestone-icon-pop 420ms cubic-bezier(0.2, 1.4, 0.4, 1);
 }
-.turn-status.complete small, .turn-status.success small {
+.turn-status.complete small,
+.turn-status.success small {
   /* The clock is the settled twin of the live band's `4m 36s · 12.7k tokens`
      readout, so it takes that exact spec — 12px muted behind a quiet middot —
      instead of floating at the phrase's own size with no separator
@@ -333,8 +380,13 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.turn-retry svg { color: var(--mx-accent); }
-.turn-retry:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.turn-retry svg {
+  color: var(--mx-accent);
+}
+.turn-retry:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
 .compaction-divider {
   min-height: 28px;
   display: flex;
@@ -353,7 +405,7 @@
   line-height: var(--mx-line-body);
 }
 .compaction-divider[data-animate="true"] {
-  animation: transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1);
+  animation: transcript-milestone-enter 320ms cubic-bezier(0.2, 0.9, 0.2, 1);
 }
 .compaction-divider::before {
   content: none;
@@ -384,10 +436,12 @@
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--mx-accent) 45%, transparent));
 }
 .compaction-divider[data-animate="true"] .compaction-icon {
-  animation: transcript-milestone-icon-pop 420ms cubic-bezier(.2, 1.4, .4, 1);
+  animation: transcript-milestone-icon-pop 420ms cubic-bezier(0.2, 1.4, 0.4, 1);
 }
 .compaction-divider > span,
-.compaction-divider > small { white-space: nowrap; }
+.compaction-divider > small {
+  white-space: nowrap;
+}
 .compaction-divider > small {
   min-width: 0;
   max-width: min(52%, 440px);
@@ -400,16 +454,33 @@
   font-weight: var(--mx-weight-regular);
 }
 @keyframes transcript-milestone-enter {
-  from { opacity: 0; transform: translateY(4px) scale(.985); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 @keyframes transcript-milestone-icon-pop {
-  0% { opacity: 0; transform: scale(.55); }
-  65% { opacity: 1; transform: scale(1.18); }
-  100% { opacity: 1; transform: scale(1); }
+  0% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  65% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 @keyframes transcript-live-pulse {
-  50% { opacity: var(--mx-op-dim); }
+  50% {
+    opacity: var(--mx-op-dim);
+  }
 }
 /* Reduced motion: this layer is the shell's most animated surface — entrance
    slides, two looping glyph animations, the verb sweep and the milestone
@@ -429,7 +500,9 @@
 }
 /* Prompt-dock rule: approval belongs to the composer stack, never
    outside the virtual timeline's declared height. */
-.composer-approval-row { margin-bottom: 8px; }
+.composer-approval-row {
+  margin-bottom: 8px;
+}
 .approval-card {
   width: 100%;
   padding: 16px;
@@ -439,9 +512,21 @@
   background: var(--mx-bg-layer-1);
   box-shadow: 0 0 0 1px var(--mx-approval-ring);
 }
-.approval-heading b { font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); }
-.approval-heading small, .approval-card p { color: var(--mx-text-muted); font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
-.approval-card dl { border-top-color: var(--mx-border-muted); color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.approval-heading b {
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-semibold);
+}
+.approval-heading small,
+.approval-card p {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
+.approval-card dl {
+  border-top-color: var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
 .office-approval-preview {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -454,7 +539,7 @@
   overflow: hidden;
   border-radius: var(--mx-radius-sm);
   background: var(--mx-bg-base);
-  box-shadow: 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: 0 0 0 0.5px var(--mx-border-muted);
 }
 .office-approval-preview img {
   display: block;
@@ -468,7 +553,8 @@
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
 }
-.approval-actions button, .diff-toggle {
+.approval-actions button,
+.diff-toggle {
   min-height: 28px;
   padding: 0 11px;
   border: 0;
@@ -479,9 +565,19 @@
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
 }
-.approval-actions button:hover:not(:disabled), .diff-toggle:hover:not(:disabled) { background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-alpha-light-6); }
-.approval-actions button:active:not(:disabled), .diff-toggle:active:not(:disabled) { background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-alpha-light-6); }
-.approval-actions button:disabled, .diff-toggle:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.approval-actions button:hover:not(:disabled),
+.diff-toggle:hover:not(:disabled) {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-alpha-light-6);
+}
+.approval-actions button:active:not(:disabled),
+.diff-toggle:active:not(:disabled) {
+  background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-alpha-light-6);
+}
+.approval-actions button:disabled,
+.diff-toggle:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
 /* A transcript diff is the same class of object as a fenced code card, so it
    wears that card's chrome: the muted hairline and the shared card surface.
    --mx-border plus a --mx-bg-layer-1 header band made it the brightest box in
@@ -492,17 +588,18 @@
 .code-diff {
   border-radius: var(--mx-radius-md);
   background: var(--mx-bg-base);
-  box-shadow: 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: 0 0 0 0.5px var(--mx-border-muted);
 }
 .diff-file > header {
   gap: 6px;
   min-height: 28px;
   padding: 0 12px;
-  border-bottom: .5px solid var(--mx-border-muted);
+  border-bottom: 0.5px solid var(--mx-border-muted);
   color: var(--mx-text-faint);
   background: transparent;
   font-size: var(--mx-font-meta);
 }
 /* Multi-file patches: the removed band used to separate stacked files. */
-.diff-file + .diff-file > header { border-top: .5px solid var(--mx-border-muted); }
-
+.diff-file + .diff-file > header {
+  border-top: 0.5px solid var(--mx-border-muted);
+}

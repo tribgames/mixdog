@@ -10,7 +10,9 @@ function createFakeLocalModule(events) {
       const listeners = new Set();
       const state = { sessionId: options.sessionId || null };
       return {
-        get id() { return state.sessionId; },
+        get id() {
+          return state.sessionId;
+        },
         getState: () => state,
         subscribe(listener) {
           listeners.add(listener);
@@ -51,7 +53,9 @@ function createFakeLocalModule(events) {
 
 function deferred() {
   let resolve;
-  const promise = new Promise((accept) => { resolve = accept; });
+  const promise = new Promise((accept) => {
+    resolve = accept;
+  });
   return { promise, resolve };
 }
 
@@ -61,7 +65,10 @@ test('runtime creation cannot start after a pending module import outlives the h
   const events = [];
   const host = createInlineSessionRuntimeHost({
     warmKeychain: async () => {},
-    loadLocalModule: () => { entered.resolve(); return loaded.promise; },
+    loadLocalModule: () => {
+      entered.resolve();
+      return loaded.promise;
+    },
   });
   const rejected = assert.rejects(host.create(), /session runtime host is closed/);
   await entered.promise;
@@ -79,13 +86,20 @@ test('a runtime acquired after host closure is disposed rather than retained', a
   const host = createInlineSessionRuntimeHost({
     warmKeychain: async () => {},
     loadLocalModule: async () => ({
-      createLocalSessionRuntime: () => { entered.resolve(); return created.promise; },
+      createLocalSessionRuntime: () => {
+        entered.resolve();
+        return created.promise;
+      },
     }),
   });
   const rejected = assert.rejects(host.create(), /session runtime host is closed/);
   await entered.promise;
   await host.close();
-  created.resolve({ async dispose(reason) { disposed.push(reason); } });
+  created.resolve({
+    async dispose(reason) {
+      disposed.push(reason);
+    },
+  });
   await rejected;
   assert.equal(disposed.length, 1);
   assert.equal(host.status.worker.runtimes, 0);
@@ -99,7 +113,10 @@ test('concurrent host close calls join disposal of already-owned runtimes', asyn
     loadLocalModule: async () => ({
       createLocalSessionRuntime: async () => ({
         deliverToolCompletion: () => true,
-        async dispose() { entered.resolve(); await disposed.promise; },
+        async dispose() {
+          entered.resolve();
+          await disposed.promise;
+        },
       }),
     }),
   });
@@ -107,7 +124,9 @@ test('concurrent host close calls join disposal of already-owned runtimes', asyn
   const first = host.close();
   await entered.promise;
   let secondReturned = false;
-  const second = host.close().then(() => { secondReturned = true; });
+  const second = host.close().then(() => {
+    secondReturned = true;
+  });
   await new Promise((resolve) => setImmediate(resolve));
   try {
     assert.equal(secondReturned, false);
@@ -124,19 +143,26 @@ test('an agent dispatch canceled during graph loading cannot prepare providers a
   let initialized = 0;
   const host = createInlineSessionRuntimeHost({
     warmKeychain: async () => {},
-    loadAgentGraph: () => { entered.resolve(); return loaded.promise; },
+    loadAgentGraph: () => {
+      entered.resolve();
+      return loaded.promise;
+    },
   });
   const controller = new AbortController();
   const reason = new Error('dispatch canceled during import');
   const rejected = assert.rejects(
     host.agentDispatch({ dispatchId: 'canceled-import', agent: 'cycle1-agent' }, { signal: controller.signal }),
-    (error) => error === reason,
+    (error) => error === reason
   );
   await entered.promise;
   controller.abort(reason);
   loaded.resolve({
     config: { loadConfig: () => ({ providers: {} }) },
-    registry: { initProviders: async () => { initialized += 1; } },
+    registry: {
+      initProviders: async () => {
+        initialized += 1;
+      },
+    },
     dispatch: {},
   });
   await rejected;
@@ -149,7 +175,10 @@ test('cold session creation waits asynchronously for shared credentials and resp
   const events = [];
   let warmCalls = 0;
   const host = createInlineSessionRuntimeHost({
-    warmKeychain: async () => { warmCalls += 1; await warm.promise; },
+    warmKeychain: async () => {
+      warmCalls += 1;
+      await warm.promise;
+    },
     loadLocalModule: async () => createFakeLocalModule(events),
   });
   const first = host.create({ sessionId: 'cold-a' });
@@ -159,13 +188,18 @@ test('cold session creation waits asynchronously for shared credentials and resp
   assert.deepEqual(events, []);
   warm.resolve();
   await Promise.all([first, second]);
-  assert.deepEqual(events.map((event) => event[1].sessionId), ['cold-a', 'cold-b']);
+  assert.deepEqual(
+    events.map((event) => event[1].sessionId),
+    ['cold-a', 'cold-b']
+  );
   await host.close('done');
 
   const pendingWarm = deferred();
   const closingHost = createInlineSessionRuntimeHost({
     warmKeychain: () => pendingWarm.promise,
-    loadLocalModule: async () => { throw new Error('must not load after close'); },
+    loadLocalModule: async () => {
+      throw new Error('must not load after close');
+    },
   });
   const pending = closingHost.create();
   const rejected = assert.rejects(pending, /session runtime host is closed/);
@@ -190,19 +224,12 @@ test('inline host keeps session actors in the daemon process and releases them',
   assert.equal(host.status.worker.runtimes, 2);
   assert.equal(events[0][1].cwd, 'C:\\project');
   assert.equal(events[1][1].cwd, 'D:\\other');
-  assert.equal(
-    await host.agentControl({ type: 'list' }, { callerSessionId: 'session-a' }),
-    '{"type":"list"}',
-  );
+  assert.equal(await host.agentControl({ type: 'list' }, { callerSessionId: 'session-a' }), '{"type":"list"}');
   const completionMeta = { type: 'agent_task_result', execution_id: 'task-agent-1' };
-  assert.equal(host.notifySessionCompletion(
-    'session-a',
-    'Agent handoff',
-    completionMeta,
-  ), true);
+  assert.equal(host.notifySessionCompletion('session-a', 'Agent handoff', completionMeta), true);
   assert.deepEqual(
     events.find(([type]) => type === 'completion'),
-    ['completion', 'session-a', 'Agent handoff', completionMeta],
+    ['completion', 'session-a', 'Agent handoff', completionMeta]
   );
 
   await first.dispose('idle');
@@ -210,7 +237,10 @@ test('inline host keeps session actors in the daemon process and releases them',
   await host.close('done');
   assert.equal(host.status.active, false);
   assert.equal(host.status.worker.runtimes, 0);
-  assert.equal(events.some(([type, reason]) => type === 'dispose' && reason === 'done'), true);
+  assert.equal(
+    events.some(([type, reason]) => type === 'dispose' && reason === 'done'),
+    true
+  );
   void second;
 });
 
@@ -226,7 +256,9 @@ test('inline host prewarms only keychain without loading session or agent graphs
       events.push(['load', 'agent']);
       return {};
     },
-    warmKeychain: async () => { events.push(['prewarm', 'keychain']); },
+    warmKeychain: async () => {
+      events.push(['prewarm', 'keychain']);
+    },
     measureBootPhase: async (phase, task) => {
       phases.push(phase);
       return await task();

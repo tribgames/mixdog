@@ -11,7 +11,7 @@ export function projectSessionState(entry, raw) {
     entry.itemCache = null;
     return sanitizeForWire(raw);
   }
-  const fields = entry.fieldCache ??= new Map();
+  const fields = (entry.fieldCache ??= new Map());
   for (const key of fields.keys()) {
     if (!Object.hasOwn(raw, key)) fields.delete(key);
   }

@@ -13,24 +13,25 @@ import {
 import { createBrowserIntercept } from './intercept.ts';
 import { createBrowserInitScripts } from './init-scripts.ts';
 import { validateBrowserToolArgs } from '../../../../../src/runtime/browser-bridge/action-schema.mjs';
-import {
-  browserStorageKeyIsSensitive,
-  createBrowserPageState,
-} from './page-state.ts';
+import { browserStorageKeyIsSensitive, createBrowserPageState } from './page-state.ts';
 
 test('browser network ledger records request, response, timing, and filters', () => {
   const ledger = new BrowserNetworkLedger();
-  const request = ledger.requestWillBeSent({
-    requestId: '10.1',
-    type: 'Fetch',
-    request: {
-      method: 'POST',
-      url: 'https://example.test/api/items',
-      headers: { 'content-type': 'application/json' },
-      postData: '{"name":"demo"}',
-      hasPostData: true,
+  const request = ledger.requestWillBeSent(
+    {
+      requestId: '10.1',
+      type: 'Fetch',
+      request: {
+        method: 'POST',
+        url: 'https://example.test/api/items',
+        headers: { 'content-type': 'application/json' },
+        postData: '{"name":"demo"}',
+        hasPostData: true,
+      },
     },
-  }, undefined, 1_000);
+    undefined,
+    1_000
+  );
   assert.equal(request.id, 'r1');
   ledger.responseReceived({
     requestId: '10.1',
@@ -50,21 +51,20 @@ test('browser network ledger records request, response, timing, and filters', ()
   assert.equal(ledger.get('r1').finishedAt, 1_075);
   assert.deepEqual(
     ledger.list({ query: 'items', resourceTypes: ['fetch'] }).requests.map((entry) => entry.id),
-    ['r1'],
+    ['r1']
   );
   assert.equal(ledger.list({ resourceTypes: ['image'] }).total, 0);
 });
 
 test('browser network reports redact custom credential headers', () => {
-  assert.deepEqual(formatNetworkHeaders({
-    'X-Auth-Token': 'opaque-value',
-    'X-Amz-Security-Token': 'another-secret',
-    Accept: 'application/json',
-  }), [
-    '- X-Auth-Token: [REDACTED]',
-    '- X-Amz-Security-Token: [REDACTED]',
-    '- Accept: application/json',
-  ]);
+  assert.deepEqual(
+    formatNetworkHeaders({
+      'X-Auth-Token': 'opaque-value',
+      'X-Amz-Security-Token': 'another-secret',
+      Accept: 'application/json',
+    }),
+    ['- X-Auth-Token: [REDACTED]', '- X-Amz-Security-Token: [REDACTED]', '- Accept: application/json']
+  );
 });
 
 test('browser storage diagnostics classify opaque credential keys', () => {
@@ -75,39 +75,58 @@ test('browser storage diagnostics classify opaque credential keys', () => {
 
 test('browser network ledger keeps redirect hops distinct and records failures', () => {
   const ledger = new BrowserNetworkLedger();
-  ledger.requestWillBeSent({
-    requestId: '20.1',
-    type: 'Document',
-    request: { method: 'GET', url: 'https://example.test/old', headers: {} },
-  }, 'frame', 2_000);
-  ledger.requestWillBeSent({
-    requestId: '20.1',
-    type: 'Document',
-    redirectResponse: {
-      status: 302,
-      statusText: 'Found',
-      headers: { location: '/new' },
+  ledger.requestWillBeSent(
+    {
+      requestId: '20.1',
+      type: 'Document',
+      request: { method: 'GET', url: 'https://example.test/old', headers: {} },
     },
-    request: { method: 'GET', url: 'https://example.test/new', headers: {} },
-  }, 'frame', 2_010);
-  ledger.loadingFailed({
-    requestId: '20.1',
-    errorText: 'net::ERR_FAILED',
-  }, 'frame', 2_020);
+    'frame',
+    2_000
+  );
+  ledger.requestWillBeSent(
+    {
+      requestId: '20.1',
+      type: 'Document',
+      redirectResponse: {
+        status: 302,
+        statusText: 'Found',
+        headers: { location: '/new' },
+      },
+      request: { method: 'GET', url: 'https://example.test/new', headers: {} },
+    },
+    'frame',
+    2_010
+  );
+  ledger.loadingFailed(
+    {
+      requestId: '20.1',
+      errorText: 'net::ERR_FAILED',
+    },
+    'frame',
+    2_020
+  );
 
   assert.equal(ledger.get('r1').status, 302);
   assert.equal(ledger.get('r1').redirectedTo, 'https://example.test/new');
   assert.equal(ledger.get('r2').failure, 'net::ERR_FAILED');
-  assert.deepEqual(ledger.list().requests.map((entry) => entry.id), ['r2', 'r1']);
+  assert.deepEqual(
+    ledger.list().requests.map((entry) => entry.id),
+    ['r2', 'r1']
+  );
 });
 
 test('browser network ledger reconciles a completed main document when CDP omits loadingFinished', () => {
   const ledger = new BrowserNetworkLedger();
-  ledger.requestWillBeSent({
-    requestId: '25.1',
-    type: 'Document',
-    request: { method: 'GET', url: 'https://example.test/page#old', headers: {} },
-  }, undefined, 2_500);
+  ledger.requestWillBeSent(
+    {
+      requestId: '25.1',
+      type: 'Document',
+      request: { method: 'GET', url: 'https://example.test/page#old', headers: {} },
+    },
+    undefined,
+    2_500
+  );
   ledger.responseReceived({
     requestId: '25.1',
     type: 'Document',
@@ -122,21 +141,29 @@ test('browser network ledger reconciles a completed main document when CDP omits
 
 test('browser network ledger reports the newest document status for a URL', () => {
   const ledger = new BrowserNetworkLedger();
-  ledger.requestWillBeSent({
-    requestId: '26.1',
-    type: 'Document',
-    request: { method: 'GET', url: 'https://example.test/missing', headers: {} },
-  }, undefined, 2_600);
+  ledger.requestWillBeSent(
+    {
+      requestId: '26.1',
+      type: 'Document',
+      request: { method: 'GET', url: 'https://example.test/missing', headers: {} },
+    },
+    undefined,
+    2_600
+  );
   ledger.responseReceived({
     requestId: '26.1',
     type: 'Document',
     response: { status: 404, statusText: 'Not Found', mimeType: 'text/html', headers: {} },
   });
-  ledger.requestWillBeSent({
-    requestId: '26.2',
-    type: 'Fetch',
-    request: { method: 'GET', url: 'https://example.test/missing', headers: {} },
-  }, undefined, 2_610);
+  ledger.requestWillBeSent(
+    {
+      requestId: '26.2',
+      type: 'Fetch',
+      request: { method: 'GET', url: 'https://example.test/missing', headers: {} },
+    },
+    undefined,
+    2_610
+  );
   ledger.responseReceived({
     requestId: '26.2',
     type: 'Fetch',
@@ -153,27 +180,44 @@ test('browser network ledger reports the newest document status for a URL', () =
 
 test('browser network ledger records WebSocket handshakes and frames', () => {
   const ledger = new BrowserNetworkLedger();
-  const socket = ledger.webSocketCreated({
-    requestId: '30.1',
-    url: 'wss://example.test/socket',
-  }, undefined, 3_000);
+  const socket = ledger.webSocketCreated(
+    {
+      requestId: '30.1',
+      url: 'wss://example.test/socket',
+    },
+    undefined,
+    3_000
+  );
   ledger.webSocketHandshakeResponse({
     requestId: '30.1',
     response: { status: 101, statusText: 'Switching Protocols', headers: {} },
   });
-  ledger.webSocketFrame({
-    requestId: '30.1',
-    response: { opcode: 1, payloadData: 'hello server' },
-  }, 'sent', undefined, 3_010);
-  ledger.webSocketFrame({
-    requestId: '30.1',
-    response: { opcode: 1, payloadData: 'hello client' },
-  }, 'received', undefined, 3_020);
+  ledger.webSocketFrame(
+    {
+      requestId: '30.1',
+      response: { opcode: 1, payloadData: 'hello server' },
+    },
+    'sent',
+    undefined,
+    3_010
+  );
+  ledger.webSocketFrame(
+    {
+      requestId: '30.1',
+      response: { opcode: 1, payloadData: 'hello client' },
+    },
+    'received',
+    undefined,
+    3_020
+  );
   ledger.webSocketClosed({ requestId: '30.1' }, undefined, 3_030);
 
   assert.equal(socket.resourceType, 'websocket');
   assert.equal(socket.status, 101);
-  assert.deepEqual(socket.webSocketFrames.map((frame) => frame.direction), ['sent', 'received']);
+  assert.deepEqual(
+    socket.webSocketFrames.map((frame) => frame.direction),
+    ['sent', 'received']
+  );
   assert.equal(socket.finishedAt, 3_030);
 });
 
@@ -187,9 +231,7 @@ test('browser network ledger bounds pending requests and untrusted payload memor
       request: {
         method: 'POST',
         url: `https://example.test/${index}${oversized}`,
-        headers: Object.fromEntries(
-          Array.from({ length: 140 }, (_, header) => [`x-${header}`, oversized]),
-        ),
+        headers: Object.fromEntries(Array.from({ length: 140 }, (_, header) => [`x-${header}`, oversized])),
         postData: oversized,
       },
     });
@@ -207,15 +249,16 @@ test('browser network ledger bounds pending requests and untrusted payload memor
     url: 'wss://example.test/socket',
   });
   for (let index = 0; index < 120; index += 1) {
-    ledger.webSocketFrame({
-      requestId: 'socket',
-      response: { opcode: 1, payloadData: oversized },
-    }, 'received');
+    ledger.webSocketFrame(
+      {
+        requestId: 'socket',
+        response: { opcode: 1, payloadData: oversized },
+      },
+      'received'
+    );
   }
   assert.ok(socket.webSocketFrames.length <= 100);
-  assert.ok(
-    socket.webSocketFrames.reduce((total, frame) => total + frame.data.length, 0) <= 256_000,
-  );
+  assert.ok(socket.webSocketFrames.reduce((total, frame) => total + frame.data.length, 0) <= 256_000);
 });
 
 test('browser console ledger bounds untrusted entries and its formatted report', () => {
@@ -234,36 +277,32 @@ test('browser intercept mutations roll back when Chromium rejects the new patter
   const guest = {};
   const intercept = createBrowserIntercept();
   await assert.rejects(
-    intercept.interceptResult(
-      guest,
-      { operation: 'add', url: '*/api/*', body: 'fixture' },
-      async () => { throw new Error('CDP unavailable'); },
-    ),
-    /CDP unavailable/,
+    intercept.interceptResult(guest, { operation: 'add', url: '*/api/*', body: 'fixture' }, async () => {
+      throw new Error('CDP unavailable');
+    }),
+    /CDP unavailable/
   );
   assert.match(
     (await intercept.interceptResult(guest, { operation: 'list' }, async () => {})).text,
-    /No intercept rules are active/,
+    /No intercept rules are active/
   );
 
   const added = await intercept.interceptResult(
     guest,
     { operation: 'add', url: '*/api/*', body: 'fixture' },
-    async () => {},
+    async () => {}
   );
   const id = added.text.match(/\[(i\d+)\]/)?.[1];
   assert.ok(id);
   await assert.rejects(
-    intercept.interceptResult(
-      guest,
-      { operation: 'remove', ruleId: id },
-      async () => { throw new Error('CDP unavailable'); },
-    ),
-    /CDP unavailable/,
+    intercept.interceptResult(guest, { operation: 'remove', ruleId: id }, async () => {
+      throw new Error('CDP unavailable');
+    }),
+    /CDP unavailable/
   );
   assert.match(
     (await intercept.interceptResult(guest, { operation: 'list' }, async () => {})).text,
-    new RegExp(`\\[${id}\\]`),
+    new RegExp(`\\[${id}\\]`)
   );
 });
 
@@ -271,10 +310,18 @@ test('blank intercept patterns fail before normalization or rule application; ex
   const guest = {};
   const intercept = createBrowserIntercept();
   let applications = 0;
-  const apply = async () => { applications++; };
+  const apply = async () => {
+    applications++;
+  };
   for (const url of ['', ' \t\n']) {
-    assert.equal(validateBrowserToolArgs({ action: 'intercept', input: { operation: 'add', url, abort: true } }).ok, false);
-    await assert.rejects(intercept.interceptResult(guest, { operation: 'add', url, abort: true }, apply), /requires url/);
+    assert.equal(
+      validateBrowserToolArgs({ action: 'intercept', input: { operation: 'add', url, abort: true } }).ok,
+      false
+    );
+    await assert.rejects(
+      intercept.interceptResult(guest, { operation: 'add', url, abort: true }, apply),
+      /requires url/
+    );
   }
   assert.equal(applications, 0);
   assert.equal(intercept.hasInterceptRules(guest), false);
@@ -289,10 +336,7 @@ test('browser downloads stay inside the download directory with stable collision
   assert.equal(safeBrowserDownloadName('bad:name?.json'), 'bad_name_.json');
 
   const directory = join('safe', 'downloads');
-  const occupied = new Set([
-    join(directory, 'report.pdf'),
-    join(directory, 'rs-report.pdf'),
-  ]);
+  const occupied = new Set([join(directory, 'report.pdf'), join(directory, 'rs-report.pdf')]);
   const destination = browserDownloadSavePath(directory, '../report.pdf', {
     exists: (path) => occupied.has(path),
     now: () => 1_000,
@@ -328,10 +372,7 @@ test('clearing init scripts preserves untouched entries when cancellation lands 
   await scripts.initScriptResult(guest, { operation: 'add', script: 'window.one = 1' });
   await scripts.initScriptResult(guest, { operation: 'add', script: 'window.two = 2' });
 
-  await assert.rejects(
-    scripts.initScriptResult(guest, { operation: 'clear' }, controller.signal),
-    /fixture cancelled/,
-  );
+  await assert.rejects(scripts.initScriptResult(guest, { operation: 'clear' }, controller.signal), /fixture cancelled/);
   const listed = await scripts.initScriptResult(guest, { operation: 'list' });
   assert.doesNotMatch(listed.text, /\[is1\]/);
   assert.match(listed.text, /\[is2\]/);
@@ -362,9 +403,12 @@ test('cookie observations redact common tokens and cap oversized profiles', asyn
     invalidateInteractionState() {},
     formatEvaluationValue: () => '',
   });
-  const result = await pageState.cookiesResult({
-    getURL: () => 'https://example.test/',
-  }, { operation: 'list' });
+  const result = await pageState.cookiesResult(
+    {
+      getURL: () => 'https://example.test/',
+    },
+    { operation: 'list' }
+  );
   assert.match(result.text, /UNTRUSTED PAGE DATA/);
   assert.match(result.text, /Cookies \(205; showing 200\)/);
   assert.doesNotMatch(result.text, new RegExp(secret));

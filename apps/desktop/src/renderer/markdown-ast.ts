@@ -1,11 +1,11 @@
-import { unified } from "unified";
-import rehypeHighlight from "rehype-highlight";
-import rehypeKatex from "rehype-katex";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import remarkParse from "remark-parse";
-import remarkRehype from "remark-rehype";
-import { safeMarkdownUrl } from "./markdown-url";
+import { unified } from 'unified';
+import rehypeHighlight from 'rehype-highlight';
+import rehypeKatex from 'rehype-katex';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import remarkParse from 'remark-parse';
+import remarkRehype from 'remark-rehype';
+import { safeMarkdownUrl } from './markdown-url';
 
 import {
   htmlLineBreaksToBreaks,
@@ -13,10 +13,10 @@ import {
   repairAdjacentStrongPunctuation,
   stripHtmlComments,
   trimTrailingCodeNewline,
-} from "./markdown-plugins";
+} from './markdown-plugins';
 
 export interface MarkdownAstNode {
-  type: "root" | "element" | "text";
+  type: 'root' | 'element' | 'text';
   tagName?: string;
   value?: string;
   properties?: Record<string, unknown>;
@@ -24,7 +24,7 @@ export interface MarkdownAstNode {
 }
 
 export interface MarkdownAstRoot extends MarkdownAstNode {
-  type: "root";
+  type: 'root';
   children: MarkdownAstNode[];
 }
 
@@ -44,8 +44,8 @@ function preserveRawHtmlAsText() {
     const visit = (parent: SyntaxNode) => {
       if (!Array.isArray(parent.children)) return;
       parent.children = parent.children.map((child) => {
-        if (child.type === "html") {
-          return { type: "text", value: String(child.value ?? "") };
+        if (child.type === 'html') {
+          return { type: 'text', value: String(child.value ?? '') };
         }
         visit(child);
         return child;
@@ -56,10 +56,10 @@ function preserveRawHtmlAsText() {
 }
 
 function normalizedProperties(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const properties = { ...(value as Record<string, unknown>) };
-  for (const name of ["href", "src"]) {
-    if (typeof properties[name] === "string") {
+  for (const name of ['href', 'src']) {
+    if (typeof properties[name] === 'string') {
       properties[name] = safeMarkdownUrl(properties[name], name);
     }
   }
@@ -67,21 +67,19 @@ function normalizedProperties(value: unknown): Record<string, unknown> | undefin
 }
 
 function normalizeAstNode(node: SyntaxNode): MarkdownAstNode {
-  if (node.type === "text") {
-    return { type: "text", value: String(node.value ?? "") };
+  if (node.type === 'text') {
+    return { type: 'text', value: String(node.value ?? '') };
   }
-  if (node.type === "element") {
+  if (node.type === 'element') {
     return {
-      type: "element",
-      tagName: String(node.tagName || "span"),
-      ...(normalizedProperties(node.properties)
-        ? { properties: normalizedProperties(node.properties) }
-        : {}),
+      type: 'element',
+      tagName: String(node.tagName || 'span'),
+      ...(normalizedProperties(node.properties) ? { properties: normalizedProperties(node.properties) } : {}),
       children: Array.isArray(node.children) ? node.children.map(normalizeAstNode) : [],
     };
   }
   return {
-    type: "root",
+    type: 'root',
     children: Array.isArray(node.children) ? node.children.map(normalizeAstNode) : [],
   };
 }
@@ -107,7 +105,7 @@ const markdownProcessor = unified()
   .use(linkifyLocalPaths);
 
 export function parseMarkdownToHast(text: string): MarkdownAstRoot {
-  const parsed = markdownProcessor.parse(String(text ?? ""));
+  const parsed = markdownProcessor.parse(String(text ?? ''));
   const transformed = markdownProcessor.runSync(parsed) as SyntaxNode;
   return normalizeAstNode(transformed) as MarkdownAstRoot;
 }

@@ -17,7 +17,7 @@ export interface RemotePaintProbeTracker {
 
 export function isRemotePaintProbe(value: unknown): value is RemotePaintProbe {
   const probe = value as Partial<RemotePaintProbe> | null;
-  return Boolean(probe && typeof probe.id === "string" && probe.id.length > 0);
+  return Boolean(probe && typeof probe.id === 'string' && probe.id.length > 0);
 }
 
 export function createRemotePaintProbeTracker({
@@ -52,10 +52,10 @@ export function createRemotePaintProbeTracker({
       return { id };
     },
     acknowledgeFrame(frame): RemotePaintMeasurement | null {
-      if (!enabled || !frame || typeof frame !== "object") return null;
+      if (!enabled || !frame || typeof frame !== 'object') return null;
       const record = frame as { method?: unknown; params?: unknown };
-      if (record.method !== "remotePerfPaint" || !Array.isArray(record.params)) return null;
-      const id = String(record.params[0] || "");
+      if (record.method !== 'remotePerfPaint' || !Array.isArray(record.params)) return null;
+      const id = String(record.params[0] || '');
       const receiveToPaintMs = Number(record.params[1]);
       const entry = pending.get(id);
       if (!entry || !Number.isFinite(receiveToPaintMs) || receiveToPaintMs < 0) return null;
@@ -101,47 +101,46 @@ export interface RemoteByteMeter {
  *  shape separates them, and only the field names say which block keeps
  *  moving while the screen does not. */
 function compactFrameShape(wire: unknown): string {
-  if (!wire || typeof wire !== "object") return "";
+  if (!wire || typeof wire !== 'object') return '';
   const record = wire as Record<string, unknown>;
   const parts: string[] = [];
-  for (const key of ["ip", "ta", "tt", "sd", "streamingTail"]) {
+  for (const key of ['ip', 'ta', 'tt', 'sd', 'streamingTail']) {
     if (Object.hasOwn(record, key)) parts.push(key);
   }
   const changed = record.sc;
-  if (changed && typeof changed === "object") {
+  if (changed && typeof changed === 'object') {
     const fields = Object.keys(changed as Record<string, unknown>).sort();
-    parts.push(fields.length > 0 ? `sc(${fields.slice(0, 4).join(",")})` : "sc");
+    parts.push(fields.length > 0 ? `sc(${fields.slice(0, 4).join(',')})` : 'sc');
   }
-  return parts.length > 0 ? `:${parts.join("+")}` : ":idle";
+  return parts.length > 0 ? `:${parts.join('+')}` : ':idle';
 }
 
 export function remoteFrameLane(payload: unknown): string {
-  if (!payload || typeof payload !== "object") return "other";
+  if (!payload || typeof payload !== 'object') return 'other';
   const record = payload as { event?: unknown; e?: unknown; id?: unknown; w?: unknown };
-  if (typeof record.event === "string" && record.event) return record.event;
-  if (typeof record.e === "string" && record.e) {
+  if (typeof record.event === 'string' && record.event) return record.event;
+  if (typeof record.e === 'string' && record.e) {
     return `compact:${record.e}${compactFrameShape(record.w)}`;
   }
-  if (record.id !== undefined) return "rpc";
-  return "other";
+  if (record.id !== undefined) return 'rpc';
+  return 'other';
 }
 
 export function formatRemoteByteReport(report: RemoteByteReport): string {
-  const size = (bytes: number): string => (bytes >= 1_048_576
-    ? `${(bytes / 1_048_576).toFixed(2)}MB`
-    : `${Math.round(bytes / 1024)}KB`);
-  const share = (bytes: number): string => (report.bytes > 0
-    ? `${Math.round((bytes / report.bytes) * 100)}%`
-    : "0%");
+  const size = (bytes: number): string =>
+    bytes >= 1_048_576 ? `${(bytes / 1_048_576).toFixed(2)}MB` : `${Math.round(bytes / 1024)}KB`;
+  const share = (bytes: number): string => (report.bytes > 0 ? `${Math.round((bytes / report.bytes) * 100)}%` : '0%');
   const seconds = Math.max(1, report.windowMs / 1000);
   const lanes = report.lanes
     .map((lane) => `${lane.lane}=${size(lane.bytes)}(${share(lane.bytes)},${lane.frames}f)`)
-    .join(" ");
-  return `[mixdog-remote-meter] ${Math.round(seconds)}s`
-    + ` frames=${report.frames} total=${size(report.bytes)}`
-    + ` rate=${(report.bytes / seconds / 1024).toFixed(1)}KB/s`
-    + ' direction=desktop-to-relay unit=ws-message'
-    + (lanes ? ` | ${lanes}` : "");
+    .join(' ');
+  return (
+    `[mixdog-remote-meter] ${Math.round(seconds)}s` +
+    ` frames=${report.frames} total=${size(report.bytes)}` +
+    ` rate=${(report.bytes / seconds / 1024).toFixed(1)}KB/s` +
+    ' direction=desktop-to-relay unit=ws-message' +
+    (lanes ? ` | ${lanes}` : '')
+  );
 }
 
 /** Measures application message bytes, including encryption and relay routing,

@@ -27,13 +27,25 @@ function localLinkPath(href: unknown): string {
   }
   target = target.replace(/\\/g, '/');
   const drivePath = /^[a-z]:\//i.test(target);
-  if (!target || target.startsWith('//') || /[\u0000-\u001f\u007f<>|*"]/.test(target)
-    || (drivePath && !isAbsolute(target)) || (drivePath ? target.slice(2) : target).includes(':')) {
+  if (
+    !target ||
+    target.startsWith('//') ||
+    /[\u0000-\u001f\u007f<>|*"]/.test(target) ||
+    (drivePath && !isAbsolute(target)) ||
+    (drivePath ? target.slice(2) : target).includes(':')
+  ) {
     throw new TypeError('Invalid local file path.');
   }
-  if (process.platform === 'win32' && target.split('/').some((part) =>
-    (part !== '.' && part !== '..' && /[. ]$/.test(part))
-    || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part))) {
+  if (
+    process.platform === 'win32' &&
+    target
+      .split('/')
+      .some(
+        (part) =>
+          (part !== '.' && part !== '..' && /[. ]$/.test(part)) ||
+          /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)
+      )
+  ) {
     throw new TypeError('Invalid local file path.');
   }
   return target;
@@ -47,7 +59,7 @@ function localLinkPath(href: unknown): string {
 export async function openLocalFileLink(
   projectPath: unknown,
   href: unknown,
-  openPath: (path: string) => Promise<string>,
+  openPath: (path: string) => Promise<string>
 ): Promise<LocalLinkOpened> {
   const root = resolve(requiredRepositoryCwd(projectPath));
   const absolute = resolve(root, localLinkPath(href));

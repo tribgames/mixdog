@@ -26,17 +26,25 @@ test('one read array preserves separate windows of the same file and other files
   };
   const original = structuredClone(args);
   const result = String(await executeBuiltinTool('read', args, cwd));
-  const lines = result.split('\n').filter(line => /^\d+→/.test(line));
+  const lines = result.split('\n').filter((line) => /^\d+→/.test(line));
   assert.deepEqual(lines, ['2→ALPHA_2', '3→ALPHA_3', '7→ALPHA_7', '8→ALPHA_8', '2→BETA_2']);
   assert.deepEqual(args, original);
 });
 
 test('grep arrays search every pattern in every path, while separate calls preserve requested pairs', async () => {
   const cwd = fixture({ 'alpha.txt': 'X_A\nY_A\n', 'beta.txt': 'X_B\nY_B\n' });
-  const combined = String(await executeBuiltinTool('grep', {
-    pattern: ['X_', 'Y_'], path: ['alpha.txt', 'beta.txt'], context: 0,
-  }, cwd));
-  const markers = text => [...new Set(String(text).match(/\b[XY]_[AB]\b/g) || [])].sort();
+  const combined = String(
+    await executeBuiltinTool(
+      'grep',
+      {
+        pattern: ['X_', 'Y_'],
+        path: ['alpha.txt', 'beta.txt'],
+        context: 0,
+      },
+      cwd
+    )
+  );
+  const markers = (text) => [...new Set(String(text).match(/\b[XY]_[AB]\b/g) || [])].sort();
   assert.deepEqual(markers(combined), ['X_A', 'X_B', 'Y_A', 'Y_B']);
 
   const paired = await Promise.all([

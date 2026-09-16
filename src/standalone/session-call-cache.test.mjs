@@ -20,7 +20,13 @@ function fixture(overrides = {}) {
     clearTimer: (timer) => timers.delete(timer),
     ...overrides,
   });
-  return { cache, timers, advance: (ms) => { time += ms; } };
+  return {
+    cache,
+    timers,
+    advance: (ms) => {
+      time += ms;
+    },
+  };
 }
 
 test('expiry begins at settlement, never while a mutation is still running', async () => {
@@ -91,7 +97,12 @@ test('byte and entry pressure retain mutation identity instead of authorizing an
 test('retained-size accounting preserves primitive, container, and cyclic result costs', async () => {
   const cycle = {};
   cycle.self = cycle;
-  const values = [['string', 'hello', 26], ['array', [true, 3, 'x'], 86], ['object', { a: 'b' }, 100], ['cycle', cycle, 88]];
+  const values = [
+    ['string', 'hello', 26],
+    ['array', [true, 3, 'x'], 86],
+    ['object', { a: 'b' }, 100],
+    ['cycle', cycle, 88],
+  ];
   const f = fixture();
   for (const [key, value] of values) f.cache.track(key, Promise.resolve(value), key);
   await setImmediate();
@@ -125,7 +136,11 @@ test('failed mutations keep their original rejection available during the retry 
 
 test('unreadable result properties retire only the cached result, never its mutation identity', async () => {
   const f = fixture();
-  const value = { get unreadable() { throw new Error('result cannot be inspected'); } };
+  const value = {
+    get unreadable() {
+      throw new Error('result cannot be inspected');
+    },
+  };
   const outcome = Promise.resolve(value);
   f.cache.track('unreadable', outcome, 'signature');
   assert.equal(await outcome, value);

@@ -39,9 +39,9 @@ for (const code of ['EACCES', 'EIO']) {
 test('concurrent autosaves retain the last accepted complete draft', async (t) => {
   const { root, source } = await fixture(t);
   t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
-  await Promise.all(['first', 'second', 'third'].map(
-    (content) => writeEditorBackup(root, source, content, 'disk contents'),
-  ));
+  await Promise.all(
+    ['first', 'second', 'third'].map((content) => writeEditorBackup(root, source, content, 'disk contents'))
+  );
   assert.equal((await readEditorBackup(root, source)).content, 'third');
 });
 

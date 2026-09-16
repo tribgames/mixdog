@@ -2,10 +2,7 @@
 // Monaco pane model: this is what a surface with no code editor at all — the
 // phone — needs to show a document, and it must stay loadable without pulling
 // the editor in behind it.
-import type {
-  DesktopDocumentPreviewPage,
-  DesktopDocumentPreviewPages,
-} from "../shared/contract";
+import type { DesktopDocumentPreviewPage, DesktopDocumentPreviewPages } from '../shared/contract';
 
 /** An Office document shown as page images. Pages arrive as the viewer
  *  scrolls, so `pages` is sparse and `pageCount` is what the scroller lays
@@ -20,7 +17,7 @@ export interface DocumentPreview {
 
 export function mergeDocumentPreviewPages(
   current: DocumentPreview,
-  incoming: DesktopDocumentPreviewPages,
+  incoming: DesktopDocumentPreviewPages
 ): DocumentPreview {
   const byPage = new Map(current.pages.map((page) => [page.page, page]));
   for (const page of incoming.pages) byPage.set(page.page, page);

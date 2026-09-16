@@ -77,13 +77,10 @@ export function inheritanceCompactionPlan(target) {
   const policy = target ? resolveWorkerCompactPolicy(target, tools) : null;
   if (!policy?.boundaryTokens) return null;
   const calibration = Number(policy.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
-  const rawBudget = compactTargetBudget({ ...policy, force: true })
-    || Math.max(1, Math.floor(policy.boundaryTokens / calibration));
+  const rawBudget =
+    compactTargetBudget({ ...policy, force: true }) || Math.max(1, Math.floor(policy.boundaryTokens / calibration));
   return {
-    budgetTokens: Math.max(
-      INHERITANCE_COMPACT_MIN_BUDGET_TOKENS,
-      rawBudget,
-    ),
+    budgetTokens: Math.max(INHERITANCE_COMPACT_MIN_BUDGET_TOKENS, rawBudget),
     boundaryTokens: policy.boundaryTokens,
     reserveTokens: Math.max(0, Number(policy.reserveTokens) || 0),
     contextWindow: Math.max(0, Number(policy.contextWindow) || 0) || policy.boundaryTokens,
@@ -93,17 +90,16 @@ export function inheritanceCompactionPlan(target) {
 /** The heir's measurable shape for a route that has no session yet. Windows
  *  come from the same resolver session creation uses, so a preflight and the
  *  session it predicts share one boundary. */
-export function inheritanceRouteTarget({
-  provider,
-  model,
-  selectedContextWindow = null,
-  tools = [],
-} = {}) {
+export function inheritanceRouteTarget({ provider, model, selectedContextWindow = null, tools = [] } = {}) {
   const name = String(provider || '').trim();
   const modelId = String(model || '').trim();
   if (!name || !modelId) return null;
   let providerImpl = null;
-  try { providerImpl = getProvider(name); } catch { providerImpl = null; }
+  try {
+    providerImpl = getProvider(name);
+  } catch {
+    providerImpl = null;
+  }
   const window = Number(selectedContextWindow);
   const meta = resolveSessionContextMeta(providerImpl, modelId, {
     ...(Number.isFinite(window) && window > 0 ? { selectedContextWindow: window } : {}),
@@ -127,6 +123,8 @@ export function inheritanceRouteTarget({
  *  the fallback for CLI/TUI and for any caller that skipped the preflight. */
 export function inheritanceFitMessage(fit) {
   const route = [fit?.provider, fit?.model].filter(Boolean).join('/') || 'the selected model';
-  return `inheritFrom: the full conversation needs ${Math.ceil(Number(fit?.used) || 0)} tokens `
-    + `but ${route} allows ${Math.floor(Number(fit?.limit) || 0)} before compaction`;
+  return (
+    `inheritFrom: the full conversation needs ${Math.ceil(Number(fit?.used) || 0)} tokens ` +
+    `but ${route} allows ${Math.floor(Number(fit?.limit) || 0)} before compaction`
+  );
 }

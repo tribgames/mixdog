@@ -2,14 +2,14 @@
 // pill, the attachment budget model, prompt-history persistence, and the
 // queued-follow-up list. Extracted from Composer.tsx so that file holds the
 // editor and its interaction handlers.
-import { Folder, X } from "lucide-react";
+import { Folder, X } from 'lucide-react';
 
-import type { DesktopProjectSummary } from "../shared/contract";
-import { MIXDOG_PROJECT_PATHS_MIME } from "./file-drag";
-import { t } from "./i18n";
-import { MxIcon } from "./MxIcon";
-import { OpenSelect } from "./OpenSelect";
-import { asRecord, displayProject, queueText } from "./text-format";
+import type { DesktopProjectSummary } from '../shared/contract';
+import { MIXDOG_PROJECT_PATHS_MIME } from './file-drag';
+import { t } from './i18n';
+import { MxIcon } from './MxIcon';
+import { OpenSelect } from './OpenSelect';
+import { asRecord, displayProject, queueText } from './text-format';
 
 export type ComposerAttachment = {
   id: number;
@@ -47,7 +47,7 @@ const MAX_PERSISTED_PROMPT_HISTORY_CHARS = 2_000_000;
 // One quiet line (user decision): no rotating tips, no syntax lecture.
 export const COMPOSER_PLACEHOLDERS = ['Ask anything…'] as const;
 
-export const PROJECT_CONTEXT_LOCAL = "__mixdog_local__";
+export const PROJECT_CONTEXT_LOCAL = '__mixdog_local__';
 
 export function promptHistoryStorageKey(scope: string) {
   return `${PROMPT_HISTORY_STORAGE_PREFIX}${encodeURIComponent(scope || 'new-task')}`;
@@ -55,8 +55,14 @@ export function promptHistoryStorageKey(scope: string) {
 
 function normalizedHistoryAttachment(value: unknown): ComposerAttachment | null {
   const entry = asRecord(value);
-  if (!entry || entry.kind !== 'text' || typeof entry.data !== 'string' ||
-    typeof entry.token !== 'string' || !entry.token) return null;
+  if (
+    !entry ||
+    entry.kind !== 'text' ||
+    typeof entry.data !== 'string' ||
+    typeof entry.token !== 'string' ||
+    !entry.token
+  )
+    return null;
   return {
     id: Number(entry.id) || 0,
     name: String(entry.name || 'Pasted text'),
@@ -86,7 +92,9 @@ export function readPromptHistory(scope: string) {
   try {
     const value = JSON.parse(window.localStorage.getItem(promptHistoryStorageKey(scope)) || '[]');
     if (!Array.isArray(value)) return [];
-    return value.map(normalizedHistoryEntry).filter((entry): entry is ComposerHistoryEntry => Boolean(entry))
+    return value
+      .map(normalizedHistoryEntry)
+      .filter((entry): entry is ComposerHistoryEntry => Boolean(entry))
       .slice(0, MAX_PERSISTED_PROMPT_HISTORY);
   } catch {
     return [];
@@ -110,20 +118,30 @@ export function writePromptHistory(scope: string, entries: ComposerHistoryEntry[
 }
 
 export function queuedFollowupPreview(entry: unknown) {
-  return queueText(entry).split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "[Attachment]";
+  return (
+    queueText(entry)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) || '[Attachment]'
+  );
 }
 
 export function queuedImageCount(entry: unknown) {
   const record = asRecord(entry);
-  const images = Array.isArray(record?.images)
-    ? record.images.filter(Boolean).length
-    : 0;
+  const images = Array.isArray(record?.images) ? record.images.filter(Boolean).length : 0;
   if (images > 0) return images;
   const pastedImages = asRecord(record?.pastedImages);
   return pastedImages ? Object.values(pastedImages).filter(Boolean).length : 0;
 }
 
-export function ProjectContextSelector({ projects, activePath, activeLabel, disabled, onClear, onSelect }: {
+export function ProjectContextSelector({
+  projects,
+  activePath,
+  activeLabel,
+  disabled,
+  onClear,
+  onSelect,
+}: {
   projects: DesktopProjectSummary[];
   activePath: string;
   activeLabel: string;
@@ -131,37 +149,47 @@ export function ProjectContextSelector({ projects, activePath, activeLabel, disa
   onClear(): void;
   onSelect(path: string): void;
 }) {
-  const normalized = activePath.replace(/[\\/]+/g, "/").toLocaleLowerCase();
-  const activeProject = projects.find((project) =>
-    project.path.replace(/[\\/]+/g, "/").toLocaleLowerCase() === normalized);
-  const fallbackActiveLabel = activePath
-    ? activeLabel.trim() || displayProject(activePath).name || "Project"
-    : "";
+  const normalized = activePath.replace(/[\\/]+/g, '/').toLocaleLowerCase();
+  const activeProject = projects.find(
+    (project) => project.path.replace(/[\\/]+/g, '/').toLocaleLowerCase() === normalized
+  );
+  const fallbackActiveLabel = activePath ? activeLabel.trim() || displayProject(activePath).name || 'Project' : '';
   const options = [
-    { value: PROJECT_CONTEXT_LOCAL, label: "No project" },
-    ...(activePath && !activeProject
-      ? [{ value: activePath, label: fallbackActiveLabel }]
-      : []),
+    { value: PROJECT_CONTEXT_LOCAL, label: 'No project' },
+    ...(activePath && !activeProject ? [{ value: activePath, label: fallbackActiveLabel }] : []),
     ...projects.map((project) => ({
       value: project.path,
-      label: project.alias?.trim() || project.name?.trim() || displayProject(project.path).name || "Project",
+      label: project.alias?.trim() || project.name?.trim() || displayProject(project.path).name || 'Project',
     })),
   ];
   const value = activeProject?.path || activePath || PROJECT_CONTEXT_LOCAL;
-  return <div className="composer-project-context">
-    <Folder size={14} />
-    <OpenSelect className="context-pill-select project-context-select" ariaLabel="Project context"
-      value={value} displayValue={activeProject ? activeLabel || "Project" : fallbackActiveLabel || "Project"}
-      disabled={disabled}
-      options={options} onChange={(next) => {
-        if (next === PROJECT_CONTEXT_LOCAL) {
-          if (activePath) onClear();
-        } else if (next !== activeProject?.path) onSelect(next);
-      }} />
-  </div>;
+  return (
+    <div className="composer-project-context">
+      <Folder size={14} />
+      <OpenSelect
+        className="context-pill-select project-context-select"
+        ariaLabel="Project context"
+        value={value}
+        displayValue={activeProject ? activeLabel || 'Project' : fallbackActiveLabel || 'Project'}
+        disabled={disabled}
+        options={options}
+        onChange={(next) => {
+          if (next === PROJECT_CONTEXT_LOCAL) {
+            if (activePath) onClear();
+          } else if (next !== activeProject?.path) onSelect(next);
+        }}
+      />
+    </div>
+  );
 }
 
-export function QueueList({ queued, restoring, onEdit, onSteer, onRemove }: {
+export function QueueList({
+  queued,
+  restoring,
+  onEdit,
+  onSteer,
+  onRemove,
+}: {
   queued?: unknown[];
   restoring: boolean;
   onEdit: (id: string) => void;
@@ -169,39 +197,63 @@ export function QueueList({ queued, restoring, onEdit, onSteer, onRemove }: {
   onRemove: (id: string) => void;
 }) {
   if (!Array.isArray(queued) || queued.length === 0) return null;
-  const label = queued.length === 1
-    ? t("1 queued follow-up") : t("{{count}} queued follow-ups", { count: queued.length });
+  const label =
+    queued.length === 1 ? t('1 queued follow-up') : t('{{count}} queued follow-ups', { count: queued.length });
   return (
     <section className="queue-list" aria-label={label}>
       <div className="queue-items" role="list">
         {queued.map((entry, index) => {
-          const id = String(asRecord(entry)?.id || "");
+          const id = String(asRecord(entry)?.id || '');
           const text = queuedFollowupPreview(entry);
           const imageCount = queuedImageCount(entry);
-          return <div className="queue-item" role="listitem" key={id || index}>
-            <span className="queue-item-text" data-i18n-skip title={text}>{text}</span>
-            {imageCount > 0 && <span className="queue-item-attachments"
-              aria-label={imageCount === 1 ? t("1 attached image") : t("{{count}} attached images", { count: imageCount })}>
-              <MxIcon name="photo" size={14} />
-              <span>{imageCount}</span>
-            </span>}
-            <button type="button" className="queue-edit" disabled={restoring || !id}
-              onClick={() => onEdit(id)} aria-label={t("Edit queued follow-up: {{text}}", { text })}>
-              {restoring ? "Editing…" : "Edit"}
-            </button>
-            <button type="button" className="queue-steer"
-              disabled={restoring || !id || text.trim().startsWith("/")}
-              onClick={() => onSteer(id)} aria-label={t('Steer queued follow-up now: {{text}}', { text })}
-              data-tooltip={t('Interrupt and steer now')}>
-              <MxIcon name="zap" size={13} />
-              <span>{t('Steer now')}</span>
-            </button>
-            <button type="button" className="queue-remove" disabled={restoring || !id}
-              onClick={() => onRemove(id)} aria-label={t("Remove queued follow-up: {{text}}", { text })}
-              data-tooltip="Remove">
-              <X size={14} />
-            </button>
-          </div>;
+          return (
+            <div className="queue-item" role="listitem" key={id || index}>
+              <span className="queue-item-text" data-i18n-skip title={text}>
+                {text}
+              </span>
+              {imageCount > 0 && (
+                <span
+                  className="queue-item-attachments"
+                  aria-label={
+                    imageCount === 1 ? t('1 attached image') : t('{{count}} attached images', { count: imageCount })
+                  }
+                >
+                  <MxIcon name="photo" size={14} />
+                  <span>{imageCount}</span>
+                </span>
+              )}
+              <button
+                type="button"
+                className="queue-edit"
+                disabled={restoring || !id}
+                onClick={() => onEdit(id)}
+                aria-label={t('Edit queued follow-up: {{text}}', { text })}
+              >
+                {restoring ? 'Editing…' : 'Edit'}
+              </button>
+              <button
+                type="button"
+                className="queue-steer"
+                disabled={restoring || !id || text.trim().startsWith('/')}
+                onClick={() => onSteer(id)}
+                aria-label={t('Steer queued follow-up now: {{text}}', { text })}
+                data-tooltip={t('Interrupt and steer now')}
+              >
+                <MxIcon name="zap" size={13} />
+                <span>{t('Steer now')}</span>
+              </button>
+              <button
+                type="button"
+                className="queue-remove"
+                disabled={restoring || !id}
+                onClick={() => onRemove(id)}
+                aria-label={t('Remove queued follow-up: {{text}}', { text })}
+                data-tooltip="Remove"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          );
         })}
       </div>
     </section>

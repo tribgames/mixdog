@@ -65,7 +65,8 @@ function uniqueHookEntries(entries) {
 }
 
 function cleanHookId(value) {
-  return String(value ?? '').trim()
+  return String(value ?? '')
+    .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_.-]+/g, '-')
     .replace(/^-+|-+$/g, '');
@@ -109,8 +110,12 @@ export function hookConfigEntries(dataDir, cwd) {
   const projectDir = cwd ? resolve(cwd) : process.cwd();
   const projectTrusted = isProjectTrusted(dataDir, projectDir);
   return uniqueHookEntries([
-    projectDir ? { path: join(projectDir, '.mixdog', 'hooks.json'), sourceType: 'project', untrusted: !projectTrusted } : null,
-    projectDir ? { path: join(projectDir, '.mixdog', 'hooks', 'hooks.json'), sourceType: 'project', untrusted: !projectTrusted } : null,
+    projectDir
+      ? { path: join(projectDir, '.mixdog', 'hooks.json'), sourceType: 'project', untrusted: !projectTrusted }
+      : null,
+    projectDir
+      ? { path: join(projectDir, '.mixdog', 'hooks', 'hooks.json'), sourceType: 'project', untrusted: !projectTrusted }
+      : null,
     dataDir ? { path: join(dataDir, 'hooks.json'), sourceType: 'data' } : null,
     dataDir ? { path: join(dataDir, 'hooks', 'hooks.json'), sourceType: 'data' } : null,
     ...pluginHookConfigEntries(dataDir),
@@ -133,8 +138,8 @@ export function standardConfigReport(parsed) {
   const validEvents = [];
   const invalidEvents = [];
   for (const [eventName, groups] of entries) {
-    const wellFormed = Array.isArray(groups)
-      && groups.every((g) => g && typeof g === 'object' && Array.isArray(g.hooks));
+    const wellFormed =
+      Array.isArray(groups) && groups.every((g) => g && typeof g === 'object' && Array.isArray(g.hooks));
     if (wellFormed) validEvents.push(eventName);
     else invalidEvents.push(eventName);
   }
@@ -152,7 +157,10 @@ export function matcherFires(matcher, field) {
   if (text === '' || text === '*') return true;
   const value = String(field ?? '');
   if (SIMPLE_MATCHER_RE.test(text)) {
-    const items = text.split(/[|,]/).map((s) => s.trim()).filter(Boolean);
+    const items = text
+      .split(/[|,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
     if (items.length === 0) return true;
     return items.includes(value);
   }
@@ -173,14 +181,14 @@ export function parseStandardConfig(parsed, source, meta = {}) {
       if (!group || typeof group !== 'object') continue;
       const handlers = Array.isArray(group.hooks)
         ? group.hooks
-          .filter((h) => h && typeof h === 'object' && h.type)
-          .map((h) => ({
-            ...h,
-            _source: source,
-            ...(meta.pluginRoot ? { _pluginRoot: meta.pluginRoot } : {}),
-            ...(meta.pluginData ? { _pluginData: meta.pluginData } : {}),
-            ...(meta.untrusted ? { _untrusted: true } : {}),
-          }))
+            .filter((h) => h && typeof h === 'object' && h.type)
+            .map((h) => ({
+              ...h,
+              _source: source,
+              ...(meta.pluginRoot ? { _pluginRoot: meta.pluginRoot } : {}),
+              ...(meta.pluginData ? { _pluginData: meta.pluginData } : {}),
+              ...(meta.untrusted ? { _untrusted: true } : {}),
+            }))
         : [];
       if (handlers.length === 0) continue;
       cleanGroups.push({ matcher: group.matcher, hooks: handlers, _source: source });

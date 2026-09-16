@@ -42,9 +42,7 @@ function contextLabel(value) {
   if (!v) return '-';
   if (v >= 1_000_000) {
     const m = v / 1_000_000;
-    const label = Number.isInteger(m)
-      ? m.toFixed(0)
-      : m.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+    const label = Number.isInteger(m) ? m.toFixed(0) : m.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
     return `${label}M`;
   }
   return `${Math.round(v / 1000)}k`;
@@ -57,7 +55,7 @@ function isInteresting(id) {
 
 function litellmRow(litellm, provider, id) {
   const p = PROVIDER_ALIAS[provider] || provider;
-  const keys = [id, ...(LIT_PREFIXES[p] || []).map(prefix => prefix + id)];
+  const keys = [id, ...(LIT_PREFIXES[p] || []).map((prefix) => prefix + id)];
   if (p === 'anthropic') keys.push(`anthropic.${id}-v1:0`, `bedrock/anthropic.${id}-v1:0`);
   for (const key of keys) {
     if (litellm?.[key]) return { key, row: litellm[key] };
@@ -122,8 +120,8 @@ for (const [name, provider] of getAllProviders()) {
   if (typeof provider?.listModels !== 'function') continue;
   const listed = await listProviderModels(name, provider);
   const rows = listed.models
-    .filter(row => row?.id && (allRows || isInteresting(row.id)))
-    .map(row => {
+    .filter((row) => row?.id && (allRows || isInteresting(row.id)))
+    .map((row) => {
       const liveContext = n(row.contextWindow ?? row.maxContextWindow);
       const liveOutput = n(row.outputTokens);
       const external = externalMeta(modelsDev, litellm, name, row.id);
@@ -172,13 +170,15 @@ for (const [provider, models] of Object.entries(QUICK_WEB_SEARCH_MODELS)) {
   }
 }
 
-const mismatches = providerResults.flatMap(p => p.rows.filter(r => r.contextMismatch || r.outputMismatch));
-const exactOneM = providerResults.flatMap(p => p.rows.filter(r => r.liveContext === 1_000_000));
-const nearOneM = providerResults.flatMap(p => p.rows.filter(r => r.contextVerdict === 'near-1M-not-exact'));
+const mismatches = providerResults.flatMap((p) => p.rows.filter((r) => r.contextMismatch || r.outputMismatch));
+const exactOneM = providerResults.flatMap((p) => p.rows.filter((r) => r.liveContext === 1_000_000));
+const nearOneM = providerResults.flatMap((p) => p.rows.filter((r) => r.contextVerdict === 'near-1M-not-exact'));
 
 const report = {
   generatedAt: new Date().toISOString(),
-  enabledProviders: Object.entries(cfg.providers || {}).filter(([, v]) => v?.enabled).map(([k]) => k),
+  enabledProviders: Object.entries(cfg.providers || {})
+    .filter(([, v]) => v?.enabled)
+    .map(([k]) => k),
   providerResults,
   unpricedRoutes: providerResults.flatMap((p) => p.pricing.filter((row) => !row.priced)),
   mismatches,
@@ -198,18 +198,26 @@ if (json) {
       const flags = [
         r.contextMismatch ? `context ${r.liveContextLabel} != external ${r.externalContextLabel}` : '',
         r.outputMismatch ? `output ${r.liveOutput} != external ${r.externalOutput}` : '',
-      ].filter(Boolean).join('; ');
+      ]
+        .filter(Boolean)
+        .join('; ');
       console.log(`  ${r.id}: ${r.liveContextLabel} ctx, out=${r.liveOutput ?? '-'}${flags ? `  [${flags}]` : ''}`);
     }
     for (const row of p.pricing.filter((r) => !r.priced)) {
-      console.log(`  UNPRICED ${row.model} -> ${row.pricingProvider}/${row.pricingModel}: ${row.missingRates.join(', ')}`);
+      console.log(
+        `  UNPRICED ${row.model} -> ${row.pricingProvider}/${row.pricingModel}: ${row.missingRates.join(', ')}`
+      );
     }
   }
-  console.log(`\nsummary: mismatches=${mismatches.length}, exact1M=${exactOneM.length}, near1MNotExact=${nearOneM.length}, staticContextRows=${quickRows.length}`);
+  console.log(
+    `\nsummary: mismatches=${mismatches.length}, exact1M=${exactOneM.length}, near1MNotExact=${nearOneM.length}, staticContextRows=${quickRows.length}`
+  );
   if (mismatches.length) {
     console.log('mismatches:');
     for (const r of mismatches.slice(0, 50)) {
-      console.log(`  ${r.provider}/${r.id}: live=${r.liveContextLabel}/${r.liveOutput ?? '-'} external=${r.externalContextLabel}/${r.externalOutput ?? '-'}`);
+      console.log(
+        `  ${r.provider}/${r.id}: live=${r.liveContextLabel}/${r.liveOutput ?? '-'} external=${r.externalContextLabel}/${r.externalOutput ?? '-'}`
+      );
     }
   }
 }

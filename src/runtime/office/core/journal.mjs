@@ -1,12 +1,4 @@
-import {
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -14,10 +6,7 @@ import { randomUUID } from 'node:crypto';
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export function defaultOfficeDataDir() {
-  return resolve(
-    process.env.MIXDOG_DATA_DIR
-      || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data'),
-  );
+  return resolve(process.env.MIXDOG_DATA_DIR || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data'));
 }
 
 function officeJournalDirectory(dataDir = '') {

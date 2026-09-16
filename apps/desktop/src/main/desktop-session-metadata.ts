@@ -3,19 +3,9 @@
 // in-flight request so post-submit title work cannot race foreground listings.
 // Writes drain immutable snapshots; a failed write retains the newest maps
 // for an explicit retry instead of reporting an unsaved mutation as success.
-import {
-  createDebouncedWriter,
-  type DebouncedWriter,
-} from '../../../../src/runtime/shared/debounced-writer.mjs';
-import {
-  generatedSessionTitle,
-  isMediaSessionTitlePlaceholder,
-} from '../shared/session-title.mjs';
-import {
-  readSessionMetadata,
-  writeSessionMetadata,
-  type SessionReadCursor,
-} from './session-metadata-file';
+import { createDebouncedWriter, type DebouncedWriter } from '../../../../src/runtime/shared/debounced-writer.mjs';
+import { generatedSessionTitle, isMediaSessionTitlePlaceholder } from '../shared/session-title.mjs';
+import { readSessionMetadata, writeSessionMetadata, type SessionReadCursor } from './session-metadata-file';
 import { isSessionId } from './desktop-state';
 
 export class DesktopSessionMetadata {
@@ -33,8 +23,7 @@ export class DesktopSessionMetadata {
     this.userDataRoot = userDataRoot;
     this.writer = createDebouncedWriter({
       delayMs: 0,
-      write: (maps: Parameters<typeof writeSessionMetadata>[1]) =>
-        writeSessionMetadata(this.userDataRoot(), maps),
+      write: (maps: Parameters<typeof writeSessionMetadata>[1]) => writeSessionMetadata(this.userDataRoot(), maps),
       onError: (error: unknown) => {
         this.writeError = error;
         console.error('Failed to persist desktop session metadata:', error);
@@ -71,10 +60,7 @@ export class DesktopSessionMetadata {
    *  desktop's pre-generation fallback. */
   displayTitle(sessionId: string, sharedTitle = ''): string {
     if (!sessionId) return '';
-    return this.nameMap?.[sessionId]
-      || generatedSessionTitle(sharedTitle, '')
-      || this.titleMap?.[sessionId]
-      || '';
+    return this.nameMap?.[sessionId] || generatedSessionTitle(sharedTitle, '') || this.titleMap?.[sessionId] || '';
   }
 
   async load(): Promise<void> {
@@ -108,8 +94,8 @@ export class DesktopSessionMetadata {
   /** True when the archive state actually changed (and was persisted). */
   async setArchived(sessionId: string, archived: boolean): Promise<boolean> {
     await this.load();
-    const map = this.archivedMap ??= Object.create(null) as Record<string, number>;
-    const has = Object.prototype.hasOwnProperty.call(map, sessionId);
+    const map = (this.archivedMap ??= Object.create(null) as Record<string, number>);
+    const has = Object.hasOwn(map, sessionId);
     if (archived === has) {
       await this.flush();
       return false;
@@ -122,17 +108,12 @@ export class DesktopSessionMetadata {
 
   /** Advance the shared read cursor. `consumedUnread` also records a
    * completion-only read when the message count did not move. */
-  async markRead(
-    sessionId: string,
-    messageCount: number,
-    consumedUnread: boolean,
-  ): Promise<boolean> {
-    if (!isSessionId(sessionId)
-      || !Number.isInteger(messageCount) || messageCount < 0 || messageCount > 10_000_000) {
+  async markRead(sessionId: string, messageCount: number, consumedUnread: boolean): Promise<boolean> {
+    if (!isSessionId(sessionId) || !Number.isInteger(messageCount) || messageCount < 0 || messageCount > 10_000_000) {
       throw new TypeError('Session read cursor is invalid.');
     }
     await this.load();
-    const map = this.readMap ??= Object.create(null) as Record<string, SessionReadCursor>;
+    const map = (this.readMap ??= Object.create(null) as Record<string, SessionReadCursor>);
     const current = map[sessionId];
     const nextCount = Math.max(current?.messageCount || 0, messageCount);
     if (current && nextCount === current.messageCount && !consumedUnread) {
@@ -150,10 +131,11 @@ export class DesktopSessionMetadata {
   /** Drop every record for a deleted session. */
   async forget(sessionId: string): Promise<void> {
     await this.load();
-    const had = Object.prototype.hasOwnProperty.call(this.titles, sessionId)
-      || Object.prototype.hasOwnProperty.call(this.names, sessionId)
-      || Object.prototype.hasOwnProperty.call(this.archivedMap || {}, sessionId)
-      || Object.prototype.hasOwnProperty.call(this.readMap || {}, sessionId);
+    const had =
+      Object.hasOwn(this.titles, sessionId) ||
+      Object.hasOwn(this.names, sessionId) ||
+      Object.hasOwn(this.archivedMap || {}, sessionId) ||
+      Object.hasOwn(this.readMap || {}, sessionId);
     delete this.titleMap?.[sessionId];
     delete this.nameMap?.[sessionId];
     if (this.archivedMap) delete this.archivedMap[sessionId];
@@ -169,10 +151,12 @@ export class DesktopSessionMetadata {
     const normalized = generatedSessionTitle(title, '');
     if (!normalized) return false;
     const existing = this.titleMap[sessionId] || '';
-    if (existing && (!isMediaSessionTitlePlaceholder(existing)
-      || isMediaSessionTitlePlaceholder(normalized))) return false;
+    if (existing && (!isMediaSessionTitlePlaceholder(existing) || isMediaSessionTitlePlaceholder(normalized)))
+      return false;
     this.titleMap[sessionId] = normalized;
-    void this.queueWrite().catch(() => { /* writer retains and reports the pending save */ });
+    void this.queueWrite().catch(() => {
+      /* writer retains and reports the pending save */
+    });
     return true;
   }
 
@@ -186,7 +170,9 @@ export class DesktopSessionMetadata {
     if (this.titleMap[sessionId] === normalized) return false;
     this.titleMap[sessionId] = normalized;
     this.rewrittenGeneratedTitleIds.delete(sessionId);
-    void this.queueWrite().catch(() => { /* writer retains and reports the pending save */ });
+    void this.queueWrite().catch(() => {
+      /* writer retains and reports the pending save */
+    });
     return true;
   }
 
@@ -194,14 +180,21 @@ export class DesktopSessionMetadata {
    *  generated value from the full durable preview; manual names and all
    *  already-stable generated titles remain immutable. */
   repairRewrittenGeneratedTitle(sessionId: string, title: string): boolean {
-    if (!this.titleMap || !isSessionId(sessionId)
-      || this.nameMap?.[sessionId] || !this.rewrittenGeneratedTitleIds.has(sessionId)) return false;
+    if (
+      !this.titleMap ||
+      !isSessionId(sessionId) ||
+      this.nameMap?.[sessionId] ||
+      !this.rewrittenGeneratedTitleIds.has(sessionId)
+    )
+      return false;
     const normalized = generatedSessionTitle(title, '');
     if (!normalized) return false;
     this.rewrittenGeneratedTitleIds.delete(sessionId);
     if (this.titleMap[sessionId] === normalized) return false;
     this.titleMap[sessionId] = normalized;
-    void this.queueWrite().catch(() => { /* writer retains and reports the pending save */ });
+    void this.queueWrite().catch(() => {
+      /* writer retains and reports the pending save */
+    });
     return true;
   }
 
@@ -209,22 +202,18 @@ export class DesktopSessionMetadata {
   withArchiveFlags<T extends { id: string }>(summaries: T[]): T[] {
     const archived = this.archivedMap;
     if (!archived) return summaries;
-    return summaries.map((row) => (
-      Object.prototype.hasOwnProperty.call(archived, row.id) ? { ...row, archived: true } : row
-    ));
+    return summaries.map((row) => (Object.hasOwn(archived, row.id) ? { ...row, archived: true } : row));
   }
 
   /** Project shared read cursors into the catalog pushed to every surface. */
   withReadCursors<T extends { id: string }>(
-    summaries: T[],
+    summaries: T[]
   ): Array<T & { readMessageCount?: number; readRevision?: number }> {
     const reads = this.readMap;
     if (!reads) return summaries;
     return summaries.map((row) => {
       const cursor = reads[row.id];
-      return cursor
-        ? { ...row, readMessageCount: cursor.messageCount, readRevision: cursor.revision }
-        : row;
+      return cursor ? { ...row, readMessageCount: cursor.messageCount, readRevision: cursor.revision } : row;
     });
   }
 

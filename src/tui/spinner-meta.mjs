@@ -24,7 +24,9 @@ export function formatSpinnerTokens(value) {
 // `auto` is the absence of a choice, so it never becomes a visible suffix —
 // only an explicitly picked level earns "thinking (high)".
 function effortSuffix(effort) {
-  const level = String(effort || '').trim().toLowerCase();
+  const level = String(effort || '')
+    .trim()
+    .toLowerCase();
   if (!level || level === 'auto' || level === 'default' || level === 'off' || level === 'none') return '';
   return ` (${level})`;
 }
@@ -75,6 +77,8 @@ export function buildSpinnerMeta({
  */
 export function isReducedMotion(env) {
   const source = env || (typeof process !== 'undefined' && process?.env) || {};
-  const value = String(source.MIXDOG_REDUCED_MOTION ?? '').trim().toLowerCase();
+  const value = String(source.MIXDOG_REDUCED_MOTION ?? '')
+    .trim()
+    .toLowerCase();
   return value === '1' || value === 'true' || value === 'on' || value === 'yes';
 }

@@ -28,8 +28,14 @@ function shiftDays(date, count) {
 
 function calendarBounds(start, end, now, days) {
   const toMs = Math.min(now, shiftDays(end, 1).getTime() - 1);
-  return { fromMs: start.getTime(), toMs, endMs: toMs,
-    startDay: usageRollupDayKey(start.getTime()), endDay: usageRollupDayKey(end.getTime()), days };
+  return {
+    fromMs: start.getTime(),
+    toMs,
+    endMs: toMs,
+    startDay: usageRollupDayKey(start.getTime()),
+    endDay: usageRollupDayKey(end.getTime()),
+    days,
+  };
 }
 
 /**
@@ -44,14 +50,34 @@ export function resolveUsageStatsPeriod({ view = 'hour', anchor, startDay, endDa
   if (!Number.isFinite(now) || now <= 0) throw new TypeError('Usage period requires a valid current time');
   const today = usageRollupDayKey(now);
   if (view === 'year' || view === 'all') {
-    return { view, anchor: null, fromMs: 0, toMs: now, startDay: null, endDay: today,
-      days: null, previousAnchor: null, nextAnchor: null, isCurrent: true };
+    return {
+      view,
+      anchor: null,
+      fromMs: 0,
+      toMs: now,
+      startDay: null,
+      endDay: today,
+      days: null,
+      previousAnchor: null,
+      nextAnchor: null,
+      isCurrent: true,
+    };
   }
   if (view === 'hour') {
     const fromMs = now - 24 * 60 * 60 * 1000;
-    return { view, anchor: null, fromMs, toMs: now, endMs: now,
-      startDay: usageRollupDayKey(fromMs), endDay: today,
-      days: 1, previousAnchor: null, nextAnchor: null, isCurrent: true };
+    return {
+      view,
+      anchor: null,
+      fromMs,
+      toMs: now,
+      endMs: now,
+      startDay: usageRollupDayKey(fromMs),
+      endDay: today,
+      days: 1,
+      previousAnchor: null,
+      nextAnchor: null,
+      isCurrent: true,
+    };
   }
   if (view === 'custom') {
     if (startDay == null || endDay == null) throw new TypeError('Usage range requires a start and end date');
@@ -59,10 +85,19 @@ export function resolveUsageStatsPeriod({ view = 'hour', anchor, startDay, endDa
     const end = anchorDate(endDay, now);
     if (start > end) throw new RangeError('Usage range start must not follow its end');
     if (end > midnight(now)) throw new RangeError('Usage range cannot include future dates');
-    const days = (Date.UTC(end.getFullYear(), end.getMonth(), end.getDate())
-      - Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) / 86400000 + 1;
-    return { view, anchor: null, ...calendarBounds(start, end, now, days),
-      previousAnchor: null, nextAnchor: null, isCurrent: endDay === today };
+    const days =
+      (Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()) -
+        Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) /
+        86400000 +
+      1;
+    return {
+      view,
+      anchor: null,
+      ...calendarBounds(start, end, now, days),
+      previousAnchor: null,
+      nextAnchor: null,
+      isCurrent: endDay === today,
+    };
   }
   const current = midnight(now);
   const requested = anchorDate(anchor, now);

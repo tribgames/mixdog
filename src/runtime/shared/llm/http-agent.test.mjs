@@ -6,13 +6,23 @@ import { Agent, getGlobalDispatcher, setGlobalDispatcher } from 'undici';
 import { getLlmDispatcher, recycleLlmDispatcher } from './http-agent.mjs';
 
 test('pool replacement permits SDK retries and drains another active request', async () => {
-  const proxyKeys = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'NODE_USE_ENV_PROXY'];
+  const proxyKeys = [
+    'HTTP_PROXY',
+    'HTTPS_PROXY',
+    'ALL_PROXY',
+    'http_proxy',
+    'https_proxy',
+    'all_proxy',
+    'NODE_USE_ENV_PROXY',
+  ];
   const saved = proxyKeys.map((key) => [key, process.env[key]]);
   for (const key of proxyKeys) delete process.env[key];
   const previous = getGlobalDispatcher();
   let pendingResponse;
   let markPending;
-  const pending = new Promise((resolve) => { markPending = resolve; });
+  const pending = new Promise((resolve) => {
+    markPending = resolve;
+  });
   const server = createServer((req, res) => {
     if (req.url === '/pending') {
       pendingResponse = res;

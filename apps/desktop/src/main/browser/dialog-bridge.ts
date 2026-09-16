@@ -72,7 +72,7 @@ export function parseDialogBridgeRequest(rawUrl: string): {
 export function dialogBridgeFulfillParams(
   requestId: string,
   accept: boolean,
-  promptText: string,
+  promptText: string
 ): Record<string, unknown> {
   const body = Buffer.from(JSON.stringify({ accept, promptText }));
   return {

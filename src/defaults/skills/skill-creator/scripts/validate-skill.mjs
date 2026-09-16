@@ -1,16 +1,7 @@
 #!/usr/bin/env node
 
-import {
-  existsSync,
-  readFileSync,
-  statSync,
-} from 'node:fs';
-import {
-  basename,
-  isAbsolute,
-  relative,
-  resolve,
-} from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { basename, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSkillDocument } from '../../../../runtime/shared/skill-document.mjs';
 import { normalizeSkillToolDependencies } from '../../../../runtime/shared/skill-tool-dependencies.mjs';
@@ -80,13 +71,7 @@ export function validateSkillDirectory(inputPath) {
     };
   }
 
-  const {
-    name,
-    description,
-    whenToUse,
-    body,
-    frontmatter,
-  } = parsed;
+  const { name, description, whenToUse, body, frontmatter } = parsed;
   for (const key of Object.keys(frontmatter)) {
     if (!ALLOWED_FIELDS.has(key)) errors.push(`Unsupported frontmatter field: ${key}.`);
   }
@@ -94,8 +79,11 @@ export function validateSkillDirectory(inputPath) {
     if (typeof frontmatter.dependencies !== 'object' || Array.isArray(frontmatter.dependencies)) {
       errors.push('dependencies must be a mapping.');
     } else {
-      try { normalizeSkillToolDependencies(frontmatter.dependencies.tools); }
-      catch (error) { errors.push(error.message); }
+      try {
+        normalizeSkillToolDependencies(frontmatter.dependencies.tools);
+      } catch (error) {
+        errors.push(error.message);
+      }
     }
   }
 
@@ -107,13 +95,19 @@ export function validateSkillDirectory(inputPath) {
     errors.push('description and when_to_use cannot contain angle brackets.');
   }
   if (description.length > DESCRIPTION_MAX) {
-    warnings.push(`description is ${description.length} characters; keep this UI summary within ${DESCRIPTION_MAX} and put operating details in the instructions.`);
+    warnings.push(
+      `description is ${description.length} characters; keep this UI summary within ${DESCRIPTION_MAX} and put operating details in the instructions.`
+    );
   }
   if (whenToUse.length > LISTING_MAX) {
-    warnings.push(`when_to_use is ${whenToUse.length} characters; the model's trigger cuts at ${LISTING_MAX}, so text past that never routes the skill.`);
+    warnings.push(
+      `when_to_use is ${whenToUse.length} characters; the model's trigger cuts at ${LISTING_MAX}, so text past that never routes the skill.`
+    );
   }
   if (!whenToUse) {
-    warnings.push('when_to_use is empty; the model sees only the name, not the UI description. Add selection conditions and relevant boundaries.');
+    warnings.push(
+      'when_to_use is empty; the model sees only the name, not the UI description. Add selection conditions and relevant boundaries.'
+    );
   }
   if (frontmatter.compatibility != null) {
     if (typeof frontmatter.compatibility !== 'string') {
@@ -122,8 +116,10 @@ export function validateSkillDirectory(inputPath) {
       errors.push('compatibility must be 500 characters or fewer.');
     }
   }
-  if (frontmatter.metadata != null
-    && (typeof frontmatter.metadata !== 'object' || Array.isArray(frontmatter.metadata))) {
+  if (
+    frontmatter.metadata != null &&
+    (typeof frontmatter.metadata !== 'object' || Array.isArray(frontmatter.metadata))
+  ) {
     errors.push('metadata must be a mapping.');
   }
   if (!body) errors.push('SKILL.md must contain non-empty instructions after frontmatter.');
@@ -145,7 +141,10 @@ export function validateSkillDirectory(inputPath) {
       // a broken link.
       const bundledKind = existsSync(resolve(skillDir, resource.split('/')[0]));
       if (bundledKind) errors.push(`Referenced resource does not exist: ${resource}.`);
-      else warnings.push(`${resource} is not bundled with the skill; if it is a repository path, prefer a repo-relative form the reader can resolve, or bundle it.`);
+      else
+        warnings.push(
+          `${resource} is not bundled with the skill; if it is a repository path, prefer a repo-relative form the reader can resolve, or bundle it.`
+        );
     }
   }
 
@@ -170,4 +169,3 @@ function runCli() {
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : '';
 if (invokedPath && invokedPath === resolve(fileURLToPath(import.meta.url))) runCli();
-

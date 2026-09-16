@@ -42,15 +42,15 @@ function unique(values) {
 
 function defaultTraceFiles() {
   if (pathArg) return [resolve(pathArg)];
-  const dirs = dataDir
-    ? [resolve(dataDir)]
-    : [resolve(process.cwd(), '.mixdog', 'data'), mixdogDataDir];
-  return unique(dirs.flatMap((dir) => [
-    resolve(dir, 'history', 'agent-trace.jsonl.1'),
-    resolve(dir, 'history', 'agent-trace.jsonl'),
-    resolve(dir, 'history', 'agent-trace.jsonl.1'),
-    resolve(dir, 'history', 'agent-trace.jsonl'),
-  ]));
+  const dirs = dataDir ? [resolve(dataDir)] : [resolve(process.cwd(), '.mixdog', 'data'), mixdogDataDir];
+  return unique(
+    dirs.flatMap((dir) => [
+      resolve(dir, 'history', 'agent-trace.jsonl.1'),
+      resolve(dir, 'history', 'agent-trace.jsonl'),
+      resolve(dir, 'history', 'agent-trace.jsonl.1'),
+      resolve(dir, 'history', 'agent-trace.jsonl'),
+    ])
+  );
 }
 
 function parseSince(value) {
@@ -65,7 +65,8 @@ function parseSince(value) {
   if (rel) {
     const n = Number(rel[1]);
     const unit = rel[2].toLowerCase();
-    const mult = unit === 'ms' ? 1 : unit === 's' ? 1000 : unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : 86_400_000;
+    const mult =
+      unit === 'ms' ? 1 : unit === 's' ? 1000 : unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : 86_400_000;
     return Date.now() - n * mult;
   }
   const parsed = Date.parse(raw);
@@ -141,7 +142,9 @@ function formatStats(s) {
 }
 
 function short(value, max = 140) {
-  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  const text = String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return text.length > max ? `${text.slice(0, max - 3)}...` : text;
 }
 
@@ -171,18 +174,22 @@ function topStatsBy(rows, groupName, valueName, minValue = null) {
 }
 
 function topStatsByTotal(rows, groupName, valueName, minValue = null) {
-  return topStatsBy(rows, groupName, valueName, minValue)
-    .sort((a, b) => b.sum - a.sum || b.max - a.max || b.p90 - a.p90 || b.n - a.n);
+  return topStatsBy(rows, groupName, valueName, minValue).sort(
+    (a, b) => b.sum - a.sum || b.max - a.max || b.p90 - a.p90 || b.n - a.n
+  );
 }
 
 function printCounts(label, obj, max = 12) {
-  const parts = Object.entries(obj).slice(0, max).map(([k, v]) => `${k}:${v}`);
+  const parts = Object.entries(obj)
+    .slice(0, max)
+    .map(([k, v]) => `${k}:${v}`);
   console.log(`${label}: ${parts.join(', ') || '(none)'}`);
 }
 
 const files = defaultTraceFiles();
 const sinceTs = parseSince(sinceArg);
-const allRows = files.flatMap(readRows)
+const allRows = files
+  .flatMap(readRows)
   .filter((row) => sinceTs == null || Number(row.ts || 0) >= sinceTs)
   .filter((row) => !kindFilter || String(row.kind || '') === kindFilter)
   .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
@@ -193,12 +200,20 @@ const transportRows = rows.filter((row) => row.kind === 'transport');
 const sseRows = rows.filter((row) => row.kind === 'sse');
 const fetchRows = rows.filter((row) => row.kind === 'fetch');
 const toolRows = rows.filter((row) => row.kind === 'tool');
-const toolSlowRows = rows.filter((row) => row.kind === 'tool_slow' || (row.kind === 'tool' && (numberField(row, 'tool_ms') || 0) >= slowMs));
+const toolSlowRows = rows.filter(
+  (row) => row.kind === 'tool_slow' || (row.kind === 'tool' && (numberField(row, 'tool_ms') || 0) >= slowMs)
+);
 const cacheSlowRows = rows.filter((row) => row.kind === 'cache_lane_slow');
 const explicitCacheBreakRows = rows.filter((row) => row.kind === 'cache_break');
-const explicitCacheBreakKeys = new Set(explicitCacheBreakRows.map((row) => `${row.session_id || ''}:${row.iteration ?? ''}`));
-const cacheBreakRows = explicitCacheBreakRows
-  .concat(transportRows.filter((row) => field(row, 'chain_delta_reason') && !explicitCacheBreakKeys.has(`${row.session_id || ''}:${row.iteration ?? ''}`)));
+const explicitCacheBreakKeys = new Set(
+  explicitCacheBreakRows.map((row) => `${row.session_id || ''}:${row.iteration ?? ''}`)
+);
+const cacheBreakRows = explicitCacheBreakRows.concat(
+  transportRows.filter(
+    (row) =>
+      field(row, 'chain_delta_reason') && !explicitCacheBreakKeys.has(`${row.session_id || ''}:${row.iteration ?? ''}`)
+  )
+);
 const fallbackRows = rows.filter((row) => row.kind === 'transport_fallback');
 
 const report = {
@@ -214,8 +229,14 @@ const report = {
   kinds: kindCounts,
   transport: {
     modes: countBy(transportRows, (row) => field(row, 'ws_mode') || field(row, 'transport') || '(unknown)'),
-    rate_policies: countBy(transportRows.filter((row) => field(row, 'cache_lane_rate_policy')), (row) => field(row, 'cache_lane_rate_policy')),
-    delta_reasons: countBy(transportRows.filter((row) => field(row, 'chain_delta_reason')), (row) => field(row, 'chain_delta_reason')),
+    rate_policies: countBy(
+      transportRows.filter((row) => field(row, 'cache_lane_rate_policy')),
+      (row) => field(row, 'cache_lane_rate_policy')
+    ),
+    delta_reasons: countBy(
+      transportRows.filter((row) => field(row, 'chain_delta_reason')),
+      (row) => field(row, 'chain_delta_reason')
+    ),
     cache_lane_rate_wait_ms: stats(values(transportRows, 'cache_lane_rate_wait_ms')),
     cache_lane_rate_reacquire_wait_ms: stats(values(transportRows, 'cache_lane_rate_reacquire_wait_ms')),
     cache_lane_wait_ms: stats(values(transportRows, 'cache_lane_wait_ms')),
@@ -300,7 +321,9 @@ console.log(`cache breaks: ${report.cache_breaks.count}`);
 printCounts('cache break reasons', report.cache_breaks.reasons);
 console.log('tools by total time:');
 for (const row of report.tools.by_tool_total.slice(0, 12)) {
-  console.log(`- ${row.key}: n=${row.n} total=${Math.round(row.sum)}ms avg=${row.avg}ms p90=${row.p90}ms max=${row.max}ms`);
+  console.log(
+    `- ${row.key}: n=${row.n} total=${Math.round(row.sum)}ms avg=${row.avg}ms p90=${row.p90}ms max=${row.max}ms`
+  );
 }
 if (report.tools.by_tool_total.length === 0) console.log('- (none)');
 console.log('slow tools:');
@@ -310,6 +333,8 @@ for (const row of report.tools.slow_by_tool.slice(0, 12)) {
 if (report.tools.slow_by_tool.length === 0) console.log('- (none)');
 console.log('slow tool samples:');
 for (const row of report.samples.slow_tools) {
-  console.log(`- ${row.ts} ${row.tool_name} ${row.tool_ms}ms role=${row.role || '-'} args=${short(JSON.stringify(row.args || {}), 180)}`);
+  console.log(
+    `- ${row.ts} ${row.tool_name} ${row.tool_ms}ms role=${row.role || '-'} args=${short(JSON.stringify(row.args || {}), 180)}`
+  );
 }
 if (report.samples.slow_tools.length === 0) console.log('- (none)');

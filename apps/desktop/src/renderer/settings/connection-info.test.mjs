@@ -1,10 +1,7 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
-import {
-  getCachedConnectionInfo,
-  preloadConnectionInfo,
-} from "./connection-info.ts";
+import { getCachedConnectionInfo, preloadConnectionInfo } from './connection-info.ts';
 
 const readyInfo = (url) => ({
   relayBrowserUrl: url,
@@ -12,9 +9,9 @@ const readyInfo = (url) => ({
   clients: [],
 });
 
-test("a timed-out connection read releases the cache for a successful retry", async () => {
+test('a timed-out connection read releases the cache for a successful retry', async () => {
   let calls = 0;
-  const expected = readyInfo("https://relay.example/device");
+  const expected = readyInfo('https://relay.example/device');
   const api = {
     getRemoteAccessInfo() {
       calls += 1;
@@ -28,10 +25,10 @@ test("a timed-out connection read releases the cache for a successful retry", as
   assert.equal(calls, 2);
 });
 
-test("a late successful read survives retries that also exceed the deadline", async () => {
+test('a late successful read survives retries that also exceed the deadline', async () => {
   let resolveFirst;
   let calls = 0;
-  const expected = readyInfo("https://relay.example/late");
+  const expected = readyInfo('https://relay.example/late');
   const api = {
     getRemoteAccessInfo() {
       calls += 1;
@@ -55,11 +52,11 @@ test("a late successful read survives retries that also exceed the deadline", as
   assert.equal(calls, 2);
 });
 
-test("a late timed-out response cannot replace a newer connection result", async () => {
+test('a late timed-out response cannot replace a newer connection result', async () => {
   let resolveFirst;
   let calls = 0;
-  const stale = readyInfo("https://relay.example/stale");
-  const current = readyInfo("https://relay.example/current");
+  const stale = readyInfo('https://relay.example/stale');
+  const current = readyInfo('https://relay.example/current');
   const api = {
     getRemoteAccessInfo() {
       calls += 1;

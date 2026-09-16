@@ -19,7 +19,6 @@ export const OOXML_REQUIRED = {
   pptx: ['[Content_Types].xml', 'ppt/presentation.xml'],
 };
 
-
 export const SPREADSHEET_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 
 export const SPREADSHEET_DRAWING_NS = 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing';
@@ -27,7 +26,6 @@ export const SPREADSHEET_DRAWING_NS = 'http://schemas.openxmlformats.org/drawing
 export const DRAWING_MAIN_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 
 export const OFFICE_RELATIONSHIP_BASE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-
 
 export function xmlDecode(value = '') {
   return String(value)
@@ -40,7 +38,6 @@ export function xmlDecode(value = '') {
     .replace(/&amp;/g, '&');
 }
 
-
 export function xmlEncode(value = '') {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -50,11 +47,9 @@ export function xmlEncode(value = '') {
     .replace(/'/g, '&apos;');
 }
 
-
 export function tagPattern(tag) {
   return tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-
 
 export function textNodes(xml, tag) {
   const regex = new RegExp(`<${tagPattern(tag)}(\\s[^>]*)?>([\\s\\S]*?)</${tagPattern(tag)}>`, 'g');
@@ -71,7 +66,6 @@ export function textNodes(xml, tag) {
   return nodes;
 }
 
-
 export function rebuildTextNodes(xml, tag, nodes) {
   let cursor = 0;
   const chunks = [];
@@ -86,7 +80,6 @@ export function rebuildTextNodes(xml, tag, nodes) {
   return chunks.join('');
 }
 
-
 function nodeAtOffset(nodes, offset, usePreviousAtBoundary = false) {
   let current = 0;
   for (let index = 0; index < nodes.length; index += 1) {
@@ -98,7 +91,6 @@ function nodeAtOffset(nodes, offset, usePreviousAtBoundary = false) {
   }
   return nodes.length ? { index: nodes.length - 1, offset: nodes.at(-1).text.length } : null;
 }
-
 
 export function replaceAcrossRuns(xml, tag, find, replacement) {
   if (!find) throw new Error('replace_text requires non-empty find');
@@ -131,9 +123,10 @@ export function replaceAcrossRuns(xml, tag, find, replacement) {
   return { xml: rebuildTextNodes(xml, tag, nodes), count: occurrences.length };
 }
 
-
 export function paragraphTexts(xml, tag) {
-  return textNodes(xml, tag).map((node) => node.text).filter(Boolean);
+  return textNodes(xml, tag)
+    .map((node) => node.text)
+    .filter(Boolean);
 }
 
 // Text of a block as a reader sees it: runs joined as written (a bold run mid-sentence carries no
@@ -146,16 +139,15 @@ export function blockText(xml, tag) {
   const prefix = tagPattern(String(tag).split(':')[0]);
   const run = tagPattern(tag);
   const token = new RegExp(
-    `<${run}(?:\\s[^>]*)?>([\\s\\S]*?)</${run}>`
-    + `|<${prefix}:br\\b(?:[^>]*?/>|[^>]*>[\\s\\S]*?</${prefix}:br>)`
-    + `|</${prefix}:p>|<${prefix}:p\\b[^>]*/>`,
-    'g',
+    `<${run}(?:\\s[^>]*)?>([\\s\\S]*?)</${run}>` +
+      `|<${prefix}:br\\b(?:[^>]*?/>|[^>]*>[\\s\\S]*?</${prefix}:br>)` +
+      `|</${prefix}:p>|<${prefix}:p\\b[^>]*/>`,
+    'g'
   );
   let text = '';
   for (const match of String(xml || '').matchAll(token)) text += match[1] === undefined ? '\n' : xmlDecode(match[1]);
   return text.replace(/\n+$/, '');
 }
-
 
 export function topLevelElements(fragment, acceptedTags) {
   const accepted = new Set(acceptedTags);
@@ -193,7 +185,6 @@ export function topLevelElements(fragment, acceptedTags) {
   return elements;
 }
 
-
 export function containerInner(xml, tag, from = 0) {
   const opener = new RegExp(`<${tagPattern(tag)}(?:\\s[^>]*?)?(/?)>`, 'g');
   opener.lastIndex = from;
@@ -216,14 +207,12 @@ export function containerInner(xml, tag, from = 0) {
   return null;
 }
 
-
 export function setXmlAttribute(attributes, name, value) {
   const pattern = new RegExp(`\\b${name}="[^"]*"`, 'i');
   return pattern.test(attributes)
     ? attributes.replace(pattern, `${name}="${value}"`)
     : `${attributes} ${name}="${value}"`;
 }
-
 
 export function elementSpans(fragment, tag) {
   const spans = [];
@@ -240,32 +229,29 @@ export function elementSpans(fragment, tag) {
   return spans;
 }
 
-
 export function containerBody(xml, tag) {
   if (xml.endsWith('/>')) return '';
   return xml.slice(xml.indexOf('>') + 1, xml.lastIndexOf(`</${tag}>`));
 }
 
-
 export const XML_HEADER = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n';
-
 
 export function upsertOrderedChild(xml, order, tag, element) {
   const pattern = new RegExp(`<${tagPattern(tag)}\\b[^>]*?(?:\\/>|>[\\s\\S]*?<\\/${tagPattern(tag)}>)`);
   const stripped = xml.replace(pattern, '');
   if (!element) return stripped;
   for (const candidate of order.slice(order.indexOf(tag) + 1)) {
-    const found = new RegExp(`<${tagPattern(candidate)}\\b[^>]*?(?:\\/>|>[\\s\\S]*?<\\/${tagPattern(candidate)}>)`).exec(stripped);
+    const found = new RegExp(
+      `<${tagPattern(candidate)}\\b[^>]*?(?:\\/>|>[\\s\\S]*?<\\/${tagPattern(candidate)}>)`
+    ).exec(stripped);
     if (found) return `${stripped.slice(0, found.index)}${element}${stripped.slice(found.index)}`;
   }
   return stripped.replace(/<\/[A-Za-z:]+>\s*$/, (close) => `${element}${close}`);
 }
 
-
 export function xmlAttribute(attributes, name) {
   return new RegExp(`\\b${name}="([^"]*)"`, 'i').exec(attributes)?.[1] || '';
 }
-
 
 // Whether word/settings.xml says new edits are recorded as revisions. Word
 // drops the element when the author turns tracking off, but a converted or

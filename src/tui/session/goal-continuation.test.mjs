@@ -61,14 +61,19 @@ test('a fresh deadline warning steers the running turn and parks on an idle one'
       markGoalReminder: (reason) => reminders.push(reason),
       onGoalStatusChange: (next) => {
         listener = next;
-        return () => { listener = null; };
+        return () => {
+          listener = null;
+        };
       },
     },
     flags: { disposed: false, pendingSessionReset: false },
     getState: () => state,
     set: (patch) => Object.assign(state, patch),
     getPending: () => pending,
-    enqueue: (text, options) => { pending.push({ content: text, ...options }); return true; },
+    enqueue: (text, options) => {
+      pending.push({ content: text, ...options });
+      return true;
+    },
   });
   try {
     // Watching from the Goal's own start is what makes the first crossing
@@ -114,7 +119,9 @@ test('route publications read the completed Goal through the archive mask', asyn
   const state = { busy: false, commandBusy: false, sessionId: 'sess_goal_route', goal };
   let runtimeGoal = goal;
   let resolveArchive;
-  const archive = new Promise((resolve) => { resolveArchive = resolve; });
+  const archive = new Promise((resolve) => {
+    resolveArchive = resolve;
+  });
   const controller = createGoalContinuation({
     runtime: {
       id: state.sessionId,
@@ -158,7 +165,9 @@ test('completed Goal stays hidden while its user-input archive is in flight', as
   let runtimeGoal = goal;
   let listener = null;
   let resolveArchive;
-  const archive = new Promise((resolve) => { resolveArchive = resolve; });
+  const archive = new Promise((resolve) => {
+    resolveArchive = resolve;
+  });
   const controller = createGoalContinuation({
     runtime: {
       id: state.sessionId,
@@ -166,7 +175,9 @@ test('completed Goal stays hidden while its user-input archive is in flight', as
       archiveCompletedGoalOnUserInput: () => archive,
       onGoalStatusChange: (next) => {
         listener = next;
-        return () => { listener = null; };
+        return () => {
+          listener = null;
+        };
       },
     },
     flags: { disposed: false, pendingSessionReset: false },
@@ -201,7 +212,9 @@ test('failed completed Goal archive restores the persisted Goal snapshot', async
     goal,
   };
   let rejectArchive;
-  const archive = new Promise((_resolve, reject) => { rejectArchive = reject; });
+  const archive = new Promise((_resolve, reject) => {
+    rejectArchive = reject;
+  });
   const controller = createGoalContinuation({
     runtime: {
       id: state.sessionId,
@@ -242,7 +255,9 @@ test('idle Goal schedules one hidden continuation and user input cancels it', as
       goalTurnSettled: async () => goal,
       onGoalStatusChange: (next) => {
         listener = next;
-        return () => { listener = null; };
+        return () => {
+          listener = null;
+        };
       },
     },
     flags: { disposed: false, pendingSessionReset: false },

@@ -29,7 +29,8 @@ const DIRECTION_BLUEPRINTS = Object.freeze([
       corners: 'sharp',
       boundaries: 'rules-and-planes',
       elevation: 'flat',
-      composition: 'one oversized geometric plane zoning the page; content flush to one axis; hero numeral at architectural scale',
+      composition:
+        'one oversized geometric plane zoning the page; content flush to one axis; hero numeral at architectural scale',
       pageRhythm: ['anchor', 'dense', 'dense', 'breathing', 'anchor'],
     }),
   }),
@@ -59,7 +60,8 @@ const DIRECTION_BLUEPRINTS = Object.freeze([
       corners: 'minimal',
       boundaries: 'hairlines-and-columns',
       elevation: 'flat',
-      composition: 'oversized numeral anchoring the page; asymmetric column split; a figure crossing a column edge; kicker → headline → standfirst hierarchy',
+      composition:
+        'oversized numeral anchoring the page; asymmetric column split; a figure crossing a column edge; kicker → headline → standfirst hierarchy',
       pageRhythm: ['anchor', 'dense', 'breathing', 'dense', 'anchor'],
     }),
   }),
@@ -77,7 +79,11 @@ const DIRECTION_BLUEPRINTS = Object.freeze([
     shapeLanguage: 'deep fields, oversized type, sharp signal chips',
     chartTreatment: 'minimal native chart with luminous signal series and direct callouts',
     densityPattern: ['immersive opening', 'high-contrast proof', 'compressed decision close'],
-    motifRules: ['one sharp signal per slide', 'alternate immersive and analytical fields', 'never decorate without evidence'],
+    motifRules: [
+      'one sharp signal per slide',
+      'alternate immersive and analytical fields',
+      'never decorate without evidence',
+    ],
     typography: Object.freeze({
       display: 'Arial',
       body: 'Calibri',
@@ -89,14 +95,17 @@ const DIRECTION_BLUEPRINTS = Object.freeze([
       corners: 'slight',
       boundaries: 'glow-and-layering',
       elevation: 'glow',
-      composition: 'concentric halo staging one central metric; oversized type floating on dark negative space; monospace labels with wide tracking',
+      composition:
+        'concentric halo staging one central metric; oversized type floating on dark negative space; monospace labels with wide tracking',
       pageRhythm: ['anchor', 'dense', 'breathing', 'dense', 'anchor'],
     }),
   }),
 ]);
 
 function hash(value) {
-  return createHash('sha256').update(String(value || '')).digest('hex');
+  return createHash('sha256')
+    .update(String(value || ''))
+    .digest('hex');
 }
 
 function stableHue(value) {
@@ -128,16 +137,21 @@ function directionPalette(hue, blueprint) {
 function subjectSeed(input, profile) {
   const artDirection = plainObject(input.artDirection) ? input.artDirection : {};
   const content = plainObject(input.content) ? input.content : {};
-  return [
-    artDirection.seed,
-    input.signature,
-    input.intent,
-    content.objective,
-    content.decision,
-    content.packageId,
-    input.audience,
-    input.tone,
-  ].map((entry) => String(entry || '').trim()).filter(Boolean).join('|') || String(profile || '');
+  return (
+    [
+      artDirection.seed,
+      input.signature,
+      input.intent,
+      content.objective,
+      content.decision,
+      content.packageId,
+      input.audience,
+      input.tone,
+    ]
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean)
+      .join('|') || String(profile || '')
+  );
 }
 
 function subjectDomain(input) {
@@ -150,7 +164,9 @@ function subjectDomain(input) {
     content.objective,
     content.decision,
     ...(Array.isArray(content.claims) ? content.claims.map((entry) => entry?.text) : []),
-  ].map((entry) => String(entry || '')).join(' ');
+  ]
+    .map((entry) => String(entry || ''))
+    .join(' ');
   if (/(revenue|profit|investment|finance|growth|margin|매출|이익|투자|성장|재무)/i.test(value)) {
     return { id: 'financial-decision', hue: 158 };
   }
@@ -168,13 +184,10 @@ function subjectDomain(input) {
 
 function subjectLabel(input) {
   const content = plainObject(input.content) ? input.content : {};
-  return String(
-    input.signature
-      || input.intent
-      || content.decision
-      || content.objective
-      || '',
-  ).trim().replace(/\s+/g, ' ').slice(0, 72);
+  return String(input.signature || input.intent || content.decision || content.objective || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 72);
 }
 
 function requestedDirection(input) {
@@ -182,13 +195,7 @@ function requestedDirection(input) {
   return plainObject(input.artDirection) ? input.artDirection : {};
 }
 
-function directionScore(blueprint, {
-  purpose,
-  expressionMode,
-  tone,
-  requestedId,
-  seed,
-}) {
+function directionScore(blueprint, { purpose, expressionMode, tone, requestedId, seed }) {
   let score = 0;
   if (blueprint.purposes.includes(purpose)) score += 20;
   if (blueprint.modes.includes(expressionMode)) score += 6;
@@ -201,11 +208,11 @@ function directionScore(blueprint, {
   return score;
 }
 
-export function resolveOfficeArtDirection(format, input = {}, {
-  profile = '',
-  purpose = 'explain',
-  expressionMode = 'strong-fit',
-} = {}) {
+export function resolveOfficeArtDirection(
+  format,
+  input = {},
+  { profile = '', purpose = 'explain', expressionMode = 'strong-fit' } = {}
+) {
   const request = plainObject(input) ? input : {};
   const requested = requestedDirection(request);
   const rawSubject = subjectLabel(request);
@@ -260,9 +267,7 @@ export function resolveOfficeArtDirection(format, input = {}, {
     applyTokens: !disabled && hasSubject,
     selected: {
       ...selected,
-      selectionReason: requested.id
-        ? 'explicit direction'
-        : `${purpose}/${expressionMode} fit`,
+      selectionReason: requested.id ? 'explicit direction' : `${purpose}/${expressionMode} fit`,
     },
     candidates,
   };

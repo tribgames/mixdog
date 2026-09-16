@@ -1,5 +1,3 @@
-'use strict';
-
 // Runtime-shard client for distributed Agent control.
 //
 // A Lead runtime and every Subagent it creates used to share one worker
@@ -44,9 +42,7 @@ function ensureListener() {
 }
 
 export function remoteAgentControlEnabled(env = process.env) {
-  return isSessionRuntimeWorkerProcess(env)
-    && typeof process.send === 'function'
-    && process.connected === true;
+  return isSessionRuntimeWorkerProcess(env) && typeof process.send === 'function' && process.connected === true;
 }
 
 export function executeRemoteAgentControl(args = {}, context = {}) {
@@ -57,9 +53,9 @@ export function executeRemoteAgentControl(args = {}, context = {}) {
   const controlId = `agent-control-${process.pid}-${++sequence}`;
   const signal = context?.signal || null;
   if (signal?.aborted) {
-    return Promise.reject(signal.reason instanceof Error
-      ? signal.reason
-      : new Error(String(signal.reason || 'agent control canceled')));
+    return Promise.reject(
+      signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason || 'agent control canceled'))
+    );
   }
   return new Promise((resolve, reject) => {
     let timer = null;
@@ -68,25 +64,31 @@ export function executeRemoteAgentControl(args = {}, context = {}) {
       if (timer) clearTimeout(timer);
       timer = null;
       if (onAbort && signal) {
-        try { signal.removeEventListener('abort', onAbort); } catch {}
+        try {
+          signal.removeEventListener('abort', onAbort);
+        } catch {}
       }
       onAbort = null;
     };
     pending.set(controlId, { resolve, reject, cleanup });
     if (signal) {
       onAbort = () => {
-        safeIpcSend(process, {
-          type: 'agent-control-cancel',
-          controlId,
-          reason: String(signal.reason?.message || signal.reason || 'agent control canceled'),
-        }, { onError: () => {} });
+        safeIpcSend(
+          process,
+          {
+            type: 'agent-control-cancel',
+            controlId,
+            reason: String(signal.reason?.message || signal.reason || 'agent control canceled'),
+          },
+          { onError: () => {} }
+        );
         const request = pending.get(controlId);
         if (!request) return;
         pending.delete(controlId);
         cleanup();
-        reject(signal.reason instanceof Error
-          ? signal.reason
-          : new Error(String(signal.reason || 'agent control canceled')));
+        reject(
+          signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason || 'agent control canceled'))
+        );
       };
       signal.addEventListener('abort', onAbort, { once: true });
     }
@@ -98,29 +100,29 @@ export function executeRemoteAgentControl(args = {}, context = {}) {
       reject(new Error('remote agent control timed out'));
     }, 180_000);
     timer.unref?.();
-    const sent = safeIpcSend(process, {
-      type: 'agent-control',
-      controlId,
-      args: args && typeof args === 'object' ? args : {},
-      context: {
-        callerCwd: typeof context?.callerCwd === 'string' ? context.callerCwd : null,
-        invocationSource: typeof context?.invocationSource === 'string'
-          ? context.invocationSource
-          : null,
-        callerSessionId: typeof context?.callerSessionId === 'string'
-          ? context.callerSessionId
-          : null,
-        clientHostPid: Number(context?.clientHostPid) || null,
+    const sent = safeIpcSend(
+      process,
+      {
+        type: 'agent-control',
+        controlId,
+        args: args && typeof args === 'object' ? args : {},
+        context: {
+          callerCwd: typeof context?.callerCwd === 'string' ? context.callerCwd : null,
+          invocationSource: typeof context?.invocationSource === 'string' ? context.invocationSource : null,
+          callerSessionId: typeof context?.callerSessionId === 'string' ? context.callerSessionId : null,
+          clientHostPid: Number(context?.clientHostPid) || null,
+        },
       },
-    }, {
-      onError: (error) => {
-        const request = pending.get(controlId);
-        if (!request) return;
-        pending.delete(controlId);
-        cleanup();
-        reject(error);
-      },
-    });
+      {
+        onError: (error) => {
+          const request = pending.get(controlId);
+          if (!request) return;
+          pending.delete(controlId);
+          cleanup();
+          reject(error);
+        },
+      }
+    );
     if (!sent) {
       const request = pending.get(controlId);
       if (request) {

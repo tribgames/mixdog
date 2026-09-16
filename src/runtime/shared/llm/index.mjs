@@ -11,15 +11,15 @@
  * preset id.
  */
 
-import { DEFAULT_MAINTENANCE } from '../../agent/orchestrator/config.mjs'
-import { readSection } from '../config.mjs'
+import { DEFAULT_MAINTENANCE } from '../../agent/orchestrator/config.mjs';
+import { readSection } from '../config.mjs';
 
 function loadAgentConfig() {
   try {
-    return readSection('agent')
+    return readSection('agent');
   } catch (e) {
-    console.error(`[llm] agent-config load error: ${e.message}`)
-    return {}
+    console.error(`[llm] agent-config load error: ${e.message}`);
+    return {};
   }
 }
 
@@ -35,15 +35,14 @@ function loadAgentConfig() {
  * makeAgentDispatch (resolveMaintenanceRoute()/maintenanceRouteToPreset()).
  */
 export function resolveMaintenancePreset(task, agentConfig) {
-  const cfg = agentConfig || loadAgentConfig()
-  const maint = cfg?.maintenance || {}
-  const slot = maint[task]
-  if (slot && typeof slot === 'object' && !Array.isArray(slot)
-      && slot.provider && slot.model) {
-    return { ...slot }
+  const cfg = agentConfig || loadAgentConfig();
+  const maint = cfg?.maintenance || {};
+  const slot = maint[task];
+  if (slot && typeof slot === 'object' && !Array.isArray(slot) && slot.provider && slot.model) {
+    return { ...slot };
   }
   // Canonical default route (DEFAULT_MAINTENANCE is now route-shaped).
-  const def = DEFAULT_MAINTENANCE[task]
-  if (def && def.provider && def.model) return { ...def }
-  return null
+  const def = DEFAULT_MAINTENANCE[task];
+  if (def && def.provider && def.model) return { ...def };
+  return null;
 }

@@ -1,25 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import test from 'node:test';
 
-import {
-  _publishManagedPluginRoot,
-  addPlugin,
-  listRegisteredPlugins,
-  setPluginEnabled,
-} from './plugin-admin.mjs';
+import { _publishManagedPluginRoot, addPlugin, listRegisteredPlugins, setPluginEnabled } from './plugin-admin.mjs';
 import { hookConfigEntries } from './hook-bus/config.mjs';
 
 test('plugin registry persists atomically with owner-only permissions', () => {
@@ -36,10 +23,16 @@ test('plugin registry persists atomically with owner-only permissions', () => {
     assert.equal(registry.plugins.length, 1);
     assert.equal(listRegisteredPlugins({ dataDir })[0].name, 'local-test');
     assert.equal(listRegisteredPlugins({ dataDir })[0].enabled, true);
-    assert.equal(hookConfigEntries(dataDir, root).some((entry) => entry.sourceType === 'plugin'), true);
+    assert.equal(
+      hookConfigEntries(dataDir, root).some((entry) => entry.sourceType === 'plugin'),
+      true
+    );
     setPluginEnabled('local-test', false, { dataDir });
     assert.equal(listRegisteredPlugins({ dataDir })[0].enabled, false);
-    assert.equal(hookConfigEntries(dataDir, root).some((entry) => entry.sourceType === 'plugin'), false);
+    assert.equal(
+      hookConfigEntries(dataDir, root).some((entry) => entry.sourceType === 'plugin'),
+      false
+    );
     if (process.platform !== 'win32') {
       assert.equal(statSync(registryPath).mode & 0o777, 0o600);
     }
@@ -49,14 +42,8 @@ test('plugin registry persists atomically with owner-only permissions', () => {
 });
 
 test('plugin Git sources reject insecure transport and embedded credentials', () => {
-  assert.throws(
-    () => addPlugin('http://plugins.example.test/example.git'),
-    /must use HTTPS or SSH/,
-  );
-  assert.throws(
-    () => addPlugin('https://token@plugins.example.test/example.git'),
-    /must not contain credentials/,
-  );
+  assert.throws(() => addPlugin('http://plugins.example.test/example.git'), /must use HTTPS or SSH/);
+  assert.throws(() => addPlugin('https://token@plugins.example.test/example.git'), /must not contain credentials/);
 });
 
 test('managed plugin publish rolls back the previous install on replacement failure', () => {
@@ -129,7 +116,9 @@ test('plugin registry mutation re-reads under the cross-process lock', async () 
   });
   let stderr = '';
   child.stderr.setEncoding('utf8');
-  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
   const exited = new Promise((resolve, reject) => {
     child.on('error', reject);
     child.on('exit', (code) => {
@@ -145,8 +134,10 @@ test('plugin registry mutation re-reads under the cross-process lock', async () 
     addPlugin(parentSource, { dataDir });
     await exited;
     assert.deepEqual(
-      listRegisteredPlugins({ dataDir }).map((plugin) => plugin.name).sort(),
-      ['child-plugin', 'parent-plugin'],
+      listRegisteredPlugins({ dataDir })
+        .map((plugin) => plugin.name)
+        .sort(),
+      ['child-plugin', 'parent-plugin']
     );
   } finally {
     if (child.exitCode === null) child.kill();

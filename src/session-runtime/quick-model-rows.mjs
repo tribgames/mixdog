@@ -27,7 +27,10 @@ function hydratedModel(provider, model = {}) {
     supportsFunctionCalling: base?.supportsFunctionCalling === true || meta.supportsFunctionCalling === true,
     supportsPromptCaching: base?.supportsPromptCaching === true || meta.supportsPromptCaching === true,
     supportsReasoning: base?.supportsReasoning === true || meta.supportsReasoning === true,
-    reasoningOptions: Array.isArray(base?.reasoningOptions) && base.reasoningOptions.length ? base.reasoningOptions : (meta.reasoningOptions || []),
+    reasoningOptions:
+      Array.isArray(base?.reasoningOptions) && base.reasoningOptions.length
+        ? base.reasoningOptions
+        : meta.reasoningOptions || [],
     reasoningContentField: base?.reasoningContentField || meta.reasoningContentField || null,
   };
 }
@@ -53,9 +56,7 @@ export function createQuickModelRows({
     const rows = [];
     const seen = new Set();
     const addModel = (provider, modelLike = {}) => {
-      const model = modelLike && typeof modelLike === 'object'
-        ? modelLike
-        : { id: clean(modelLike) };
+      const model = modelLike && typeof modelLike === 'object' ? modelLike : { id: clean(modelLike) };
       const modelId = clean(model.id || model.name);
       if (!provider || !modelId) return;
       const key = `${provider}:${modelId}`;
@@ -72,7 +73,7 @@ export function createQuickModelRows({
         supportsReasoning: model.supportsReasoning === true || meta.supportsReasoning === true,
         supportsFunctionCalling: model.supportsFunctionCalling === true || meta.supportsFunctionCalling === true,
         supportsPromptCaching: model.supportsPromptCaching === true || meta.supportsPromptCaching === true,
-        reasoningOptions: model.reasoningOptions?.length ? model.reasoningOptions : (meta.reasoningOptions || []),
+        reasoningOptions: model.reasoningOptions?.length ? model.reasoningOptions : meta.reasoningOptions || [],
         reasoningContentField: model.reasoningContentField || meta.reasoningContentField || null,
         mode: model.mode || meta.mode || 'chat',
       });
@@ -174,14 +175,13 @@ export function createQuickModelRows({
       const providerName = normalizeWebSearchProviderId(name);
       if (!providerConfig?.enabled || !isWebSearchCapableProvider(providerName)) continue;
       const cachedModels = providerCachedModelsSync(providerName);
-      const quickModels = cachedModels.length
-        ? cachedModels
-        : (QUICK_WEB_SEARCH_MODELS[providerName] || []);
+      const quickModels = cachedModels.length ? cachedModels : QUICK_WEB_SEARCH_MODELS[providerName] || [];
       for (const model of quickModels) {
         addQuickWebSearchModel(rows, seen, providerName, model);
       }
     }
-    const configuredWebSearch = normalizeWebSearchRouteConfig(pickerConfig.webSearchRoute) || normalizeWebSearchRouteConfig(getWebSearchRoute());
+    const configuredWebSearch =
+      normalizeWebSearchRouteConfig(pickerConfig.webSearchRoute) || normalizeWebSearchRouteConfig(getWebSearchRoute());
     if (configuredWebSearch?.provider && configuredWebSearch?.model) {
       addQuickWebSearchModel(rows, seen, configuredWebSearch.provider, {
         id: configuredWebSearch.model,
@@ -199,14 +199,16 @@ export function createQuickModelRows({
   }
 
   function webSearchModelsFromRows(rows) {
-    return sortProviderModels((rows || [])
-      .filter((row) => row.supportsWebSearch === true)
-      .map((row) => ({
-        ...row,
-        provider: normalizeWebSearchProviderId(row.provider),
-        webSearchCapable: true,
-        webSearchToolType: row.webSearchToolType || 'web_search',
-      })));
+    return sortProviderModels(
+      (rows || [])
+        .filter((row) => row.supportsWebSearch === true)
+        .map((row) => ({
+          ...row,
+          provider: normalizeWebSearchProviderId(row.provider),
+          webSearchCapable: true,
+          webSearchToolType: row.webSearchToolType || 'web_search',
+        }))
+    );
   }
 
   function webSearchRowsWithDefault(rows = []) {

@@ -29,18 +29,21 @@ export function createSessionProjection({
   let revision = revisionEpoch;
   const nextRevision = () => ++revision;
 
-  function projectionResult(sessionId, projection, {
-    baseRevision = null,
-    baseProjectionStamp = null,
-    allowUnchanged = false,
-  } = {}) {
-    const stamp = typeof projection?.projectionStamp === 'string'
-      ? projection.projectionStamp : '';
+  function projectionResult(
+    sessionId,
+    projection,
+    { baseRevision = null, baseProjectionStamp = null, allowUnchanged = false } = {}
+  ) {
+    const stamp = typeof projection?.projectionStamp === 'string' ? projection.projectionStamp : '';
     // A stamp alone identifies content, not the caller's wire baseline.
     // Preserve a known baseline; otherwise return a full, freshly ordered body.
-    const unchanged = allowUnchanged && stamp && stamp === baseProjectionStamp
-      && Number.isSafeInteger(baseRevision)
-      && baseRevision > revisionEpoch && baseRevision <= revision;
+    const unchanged =
+      allowUnchanged &&
+      stamp &&
+      stamp === baseProjectionStamp &&
+      Number.isSafeInteger(baseRevision) &&
+      baseRevision > revisionEpoch &&
+      baseRevision <= revision;
     return {
       sessionId,
       reservedOnly: false,
@@ -71,12 +74,8 @@ export function createSessionProjection({
     const snapshot = snapshotOf(entry);
     const projectedSessionId = String(snapshot?.sessionId || '');
     const addressedSessionId = String(entry.addressedSessionId || '');
-    if (addressedSessionId
-      && projectedSessionId
-      && projectedSessionId !== addressedSessionId) {
-      throw new Error(
-        `session ${addressedSessionId} changed its durable address to ${projectedSessionId}`,
-      );
+    if (addressedSessionId && projectedSessionId && projectedSessionId !== addressedSessionId) {
+      throw new Error(`session ${addressedSessionId} changed its durable address to ${projectedSessionId}`);
     }
     if (!addressedSessionId && projectedSessionId) {
       entry.addressedSessionId = projectedSessionId;
@@ -151,17 +150,19 @@ export function createSessionProjection({
     // a materialized session during newSession/resume). A session subscriber
     // has no copy of that session runtime-only base, so the first frame for each session
     // address must be FULL; only later frames may use session runtime revision deltas.
-    const body = entry.publishedSessionId === sessionId
-      ? frameBody(step)
-      : { revision: step.revision, full: step.snapshot };
+    const body =
+      entry.publishedSessionId === sessionId ? frameBody(step) : { revision: step.revision, full: step.snapshot };
     entry.publishedSessionId = sessionId;
     entry.lastPublishedAt = Date.now();
-    onFrame({
-      type: 'session-state',
-      key: `session-state:${sessionId}`,
-      sessionId,
-      ...body,
-    }, entry.subscribers);
+    onFrame(
+      {
+        type: 'session-state',
+        key: `session-state:${sessionId}`,
+        sessionId,
+        ...body,
+      },
+      entry.subscribers
+    );
   }
 
   function externalEntryForView(sessionId) {
@@ -185,7 +186,9 @@ export function createSessionProjection({
         isWireSafe: true,
         externalAction: typeof invokeExternalSessionAction === 'function',
         getState: () => state,
-        setState: (next) => { state = next; },
+        setState: (next) => {
+          state = next;
+        },
       };
       Object.defineProperties(runtime, {
         id: { get: () => sessionId },
@@ -275,10 +278,13 @@ export function createSessionProjection({
   function schedulePublish(entry) {
     if (entry.timer || entry.disposed || isClosed()) return;
     const elapsed = Date.now() - (entry.lastPublishedAt || 0);
-    entry.timer = setTimeout(() => {
-      entry.timer = null;
-      publish(entry);
-    }, Math.max(0, publishIntervalMs - elapsed));
+    entry.timer = setTimeout(
+      () => {
+        entry.timer = null;
+        publish(entry);
+      },
+      Math.max(0, publishIntervalMs - elapsed)
+    );
     entry.timer.unref?.();
   }
 

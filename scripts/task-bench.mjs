@@ -28,8 +28,13 @@ function argValue(name, fallback = null) {
   const hit = process.argv.find((a) => a.startsWith(pref));
   return hit ? hit.slice(pref.length) : fallback;
 }
-function hasFlag(name) { return process.argv.includes(name); }
-function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+function hasFlag(name) {
+  return process.argv.includes(name);
+}
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
 function uniq(items) {
   return [...new Set((items || []).filter(Boolean))];
 }
@@ -37,7 +42,8 @@ function uniq(items) {
 function runSessionBench(sessionId) {
   // Returns the parsed session-bench JSON for one session id (BOM-safe).
   const raw = execFileSync('node', [SESSION_BENCH, '--session', sessionId, '--json'], {
-    encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
   });
   const s = raw.replace(/^\uFEFF/, '');
   const i = s.indexOf('{');
@@ -62,12 +68,11 @@ function scorecard(report) {
   const toolCalls = num(sum.tool_calls);
   const promptTokens = num(cache.prompt_tokens);
   const cachedTokens = num(cache.cached_tokens);
-  const uncachedTokens = tokenSession?.uncached_tokens != null
-    ? num(tokenSession.uncached_tokens)
-    : Math.max(0, promptTokens - cachedTokens);
-  const outputTokens = tokenSession
-    ? num(tokenSession.total_output) + num(tokenSession.total_thinking)
-    : 0;
+  const uncachedTokens =
+    tokenSession?.uncached_tokens != null
+      ? num(tokenSession.uncached_tokens)
+      : Math.max(0, promptTokens - cachedTokens);
+  const outputTokens = tokenSession ? num(tokenSession.total_output) + num(tokenSession.total_thinking) : 0;
   // prompt growth = chronological last-first prompt from the per-session token
   // summary. (growth_turns is sorted by prompt_delta desc — NOT chronological —
   // so deriving growth from it produced garbage/negative values.)
@@ -98,7 +103,9 @@ function scorecard(report) {
 
 function averageCards(cards) {
   if (!cards.length) return null;
-  const keys = Object.keys(cards[0]).filter((k) => cards.some((c) => typeof c[k] === 'number' && Number.isFinite(c[k])));
+  const keys = Object.keys(cards[0]).filter((k) =>
+    cards.some((c) => typeof c[k] === 'number' && Number.isFinite(c[k]))
+  );
   const out = { n: cards.length };
   for (const k of keys) {
     const vals = cards.map((c) => num(c[k]));
@@ -107,11 +114,29 @@ function averageCards(cards) {
   return out;
 }
 
-function fmtMs(ms) { const n = num(ms); return n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${Math.round(n)}ms`; }
-function fmtTok(n) { const v = num(n); return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v)); }
-function fmtPct(n) { return `${Math.round(num(n) * 100)}%`; }
+function fmtMs(ms) {
+  const n = num(ms);
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${Math.round(n)}ms`;
+}
+function fmtTok(n) {
+  const v = num(n);
+  return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v));
+}
+function fmtPct(n) {
+  return `${Math.round(num(n) * 100)}%`;
+}
 
-const CARD_ORDER = ['wall_ms', 'turns', 'tool_calls', 'tools_per_turn', 'cache_ratio', 'cache_weighted_input_10', 'prompt_growth', 'antipatterns', 'issues'];
+const CARD_ORDER = [
+  'wall_ms',
+  'turns',
+  'tool_calls',
+  'tools_per_turn',
+  'cache_ratio',
+  'cache_weighted_input_10',
+  'prompt_growth',
+  'antipatterns',
+  'issues',
+];
 function fmtCardVal(k, v) {
   if (v == null) return '-';
   if (k === 'wall_ms' || k === 'total_tool_ms' || k === 'llm_stream_ms') return fmtMs(v);
@@ -125,26 +150,42 @@ function renderCard(label, card) {
 }
 
 function pctDelta(before, after) {
-  const b = num(before); const a = num(after);
+  const b = num(before);
+  const a = num(after);
   if (b === 0) return a === 0 ? '0%' : 'n/a';
   const d = Math.round(((a - b) / Math.abs(b)) * 100);
   return `${d > 0 ? '+' : ''}${d}%`;
 }
 // For these metrics LOWER is better (efficiency); cache_ratio higher is better.
-const LOWER_BETTER = new Set(['wall_ms', 'turns', 'tool_calls', 'tools_per_turn', 'total_tool_ms', 'llm_stream_ms', 'prompt_growth', 'cache_weighted_input_10', 'cache_weighted_input_25', 'antipatterns', 'issues']);
+const LOWER_BETTER = new Set([
+  'wall_ms',
+  'turns',
+  'tool_calls',
+  'tools_per_turn',
+  'total_tool_ms',
+  'llm_stream_ms',
+  'prompt_growth',
+  'cache_weighted_input_10',
+  'cache_weighted_input_25',
+  'antipatterns',
+  'issues',
+]);
 
 function renderDiff(before, after) {
   const L = [];
   L.push(`A/B compare  (before n=${before.n || 1}  after n=${after.n || 1})`);
   for (const k of CARD_ORDER) {
-    const b = before[k]; const a = after[k];
+    const b = before[k];
+    const a = after[k];
     const delta = pctDelta(b, a);
     let verdict = '';
     if (delta !== 'n/a' && delta !== '0%') {
       const improved = LOWER_BETTER.has(k) ? num(a) < num(b) : num(a) > num(b);
       verdict = improved ? ' ✓' : ' ✗';
     }
-    L.push(`- ${k.padEnd(16)} ${fmtCardVal(k, b).padStart(9)} → ${fmtCardVal(k, a).padStart(9)}  ${delta.padStart(6)}${verdict}`);
+    L.push(
+      `- ${k.padEnd(16)} ${fmtCardVal(k, b).padStart(9)} → ${fmtCardVal(k, a).padStart(9)}  ${delta.padStart(6)}${verdict}`
+    );
   }
   return L.join('\n');
 }
@@ -159,7 +200,10 @@ if (vs) {
   const idx = process.argv.indexOf('--vs');
   const beforePath = process.argv[idx + 1];
   const afterPath = process.argv[idx + 2];
-  if (!beforePath || !afterPath) { console.error('usage: --vs <before.json> <after.json>'); process.exit(1); }
+  if (!beforePath || !afterPath) {
+    console.error('usage: --vs <before.json> <after.json>');
+    process.exit(1);
+  }
   const before = JSON.parse(readFileSync(resolve(beforePath), 'utf8'));
   const after = JSON.parse(readFileSync(resolve(afterPath), 'utf8'));
   const b = before.group || before;
@@ -170,20 +214,38 @@ if (vs) {
 }
 
 const sessionArg = argValue('--session', null);
-if (!sessionArg) { console.error('usage: --session <id[,id2,...]> [--group] [--save file.json] [--json] [--allow-partial]  |  --vs before.json after.json'); process.exit(1); }
-const ids = sessionArg.split(',').map((s) => s.trim()).filter(Boolean);
+if (!sessionArg) {
+  console.error(
+    'usage: --session <id[,id2,...]> [--group] [--save file.json] [--json] [--allow-partial]  |  --vs before.json after.json'
+  );
+  process.exit(1);
+}
+const ids = sessionArg
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 const cards = [];
 const skipped = [];
 for (const id of ids) {
-  try { cards.push({ session: id, ...scorecard(runSessionBench(id)) }); }
-  catch (e) {
+  try {
+    cards.push({ session: id, ...scorecard(runSessionBench(id)) });
+  } catch (e) {
     skipped.push({ session: id, error: e.message || String(e) });
     console.error(`skip ${id}: ${e.message}`);
   }
 }
-if (!cards.length) { console.error('no sessions scored'); process.exit(1); }
+if (!cards.length) {
+  console.error('no sessions scored');
+  process.exit(1);
+}
 if (skipped.length && !allowPartial) {
-  const partial = { error: `only scored ${cards.length}/${ids.length} sessions`, sessions: ids, skipped, cards, group: averageCards(cards.map(({ session, ...c }) => c)) };
+  const partial = {
+    error: `only scored ${cards.length}/${ids.length} sessions`,
+    sessions: ids,
+    skipped,
+    cards,
+    group: averageCards(cards.map(({ session, ...c }) => c)),
+  };
   if (jsonMode) console.log(JSON.stringify(partial, null, 2));
   else console.error(partial.error);
   process.exit(1);

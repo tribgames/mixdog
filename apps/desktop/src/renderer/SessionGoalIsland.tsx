@@ -5,12 +5,22 @@ import type { GoalTask, Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { GoalSubmissionContext, useGoalAfterSubmission } from './session-goal-submission';
-import { goalDisplayStatus, goalElapsedLabel, goalHasBackgroundWork, type GoalDisplayStatus } from './session-goal-presentation';
+import {
+  goalDisplayStatus,
+  goalElapsedLabel,
+  goalHasBackgroundWork,
+  type GoalDisplayStatus,
+} from './session-goal-presentation';
 import { goalTimeLabel, goalStatusLabel } from './session-goal-presentation';
 import { ComposerGoalDialog } from './ComposerGoalDialog';
 import type { GoalSnapshot } from './desktop-types';
 
-export { formatGoalDuration, goalCompletedTimeLabel, goalElapsedLabel, goalTimeLabel } from './session-goal-presentation';
+export {
+  formatGoalDuration,
+  goalCompletedTimeLabel,
+  goalElapsedLabel,
+  goalTimeLabel,
+} from './session-goal-presentation';
 
 function useGoalClock(active: boolean): number {
   const [clock, setClock] = useState(() => Date.now());
@@ -41,13 +51,19 @@ function GoalGlyph({ status, working }: { status: GoalDisplayStatus; working: bo
 }
 
 function GoalTaskGlyph({ status }: { status?: GoalTask['status'] }) {
-  const name = status === 'completed' ? 'check'
-    : status === 'in_progress' ? 'in-progress'
-      // Dropped work is retired, not finished: an X separates it from a check
-      // so a scoped-out row never reads as an accomplishment.
-      : status === 'dropped' ? 'close-small'
-        // Parked on the user, not stalled by us.
-        : status === 'awaiting_approval' ? 'paused' : 'pending';
+  const name =
+    status === 'completed'
+      ? 'check'
+      : status === 'in_progress'
+        ? 'in-progress'
+        : // Dropped work is retired, not finished: an X separates it from a check
+          // so a scoped-out row never reads as an accomplishment.
+          status === 'dropped'
+          ? 'close-small'
+          : // Parked on the user, not stalled by us.
+            status === 'awaiting_approval'
+            ? 'paused'
+            : 'pending';
   return <MxIcon name={name} size={14} />;
 }
 
@@ -60,10 +76,13 @@ export function SessionGoalHost({
   children?: ReactNode;
   submissionId?: string;
 }) {
-  return <GoalSubmissionContext.Provider value={submissionId}>
-    <div className="session-goal-host"
-      data-goal-placement={placement}>{children}</div>
-  </GoalSubmissionContext.Provider>;
+  return (
+    <GoalSubmissionContext.Provider value={submissionId}>
+      <div className="session-goal-host" data-goal-placement={placement}>
+        {children}
+      </div>
+    </GoalSubmissionContext.Provider>
+  );
 }
 
 export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
@@ -81,15 +100,24 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const agentWorking = liveAgentRows(snapshot).some((agent) => !agent.queued);
   const backgroundWorking = goalHasBackgroundWork(snapshot, agentWorking);
   const displayStatus = goal ? goalDisplayStatus(goal, snapshot, agentWorking) : 'active';
-  const waiting = displayStatus === 'responding'
-    || (displayStatus === 'active' && (backgroundWorking
-      || Boolean((snapshot.busy || snapshot.commandBusy) && !snapshot.toolApproval)));
-  const activityLabel = displayStatus === 'responding' ? t('Responding')
-    : displayStatus === 'paused' ? t('Paused')
-      : displayStatus === 'active' ? t('Working') : undefined;
+  const waiting =
+    displayStatus === 'responding' ||
+    (displayStatus === 'active' &&
+      (backgroundWorking || Boolean((snapshot.busy || snapshot.commandBusy) && !snapshot.toolApproval)));
+  const activityLabel =
+    displayStatus === 'responding'
+      ? t('Responding')
+      : displayStatus === 'paused'
+        ? t('Paused')
+        : displayStatus === 'active'
+          ? t('Working')
+          : undefined;
 
   useEffect(() => {
-    setOpen(false); setEditing(null); setConfirmStop(false); setError('');
+    setOpen(false);
+    setEditing(null);
+    setConfirmStop(false);
+    setError('');
   }, [sessionId, goal?.id]);
 
   // Presence diagnostics (MIXDOG_DESKTOP_PERF=1): the capsule sits in the
@@ -107,11 +135,13 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
     if (!previous.startsWith(`${sessionId}\u0000`)) return;
     try {
       window.mixdogDesktop?.perfLog?.(
-        `goal-island ${visible ? 'shown' : 'hidden'} session=${sessionId}`
-        + ` frame=${rawGoal ? `${String(rawGoal.id || '')}:${String(rawGoal.status || '')}` : 'null'}`
-        + ` masked=${rawGoal && !visible ? 1 : 0}`,
+        `goal-island ${visible ? 'shown' : 'hidden'} session=${sessionId}` +
+          ` frame=${rawGoal ? `${String(rawGoal.id || '')}:${String(rawGoal.status || '')}` : 'null'}` +
+          ` masked=${rawGoal && !visible ? 1 : 0}`
       );
-    } catch { /* diagnostics only */ }
+    } catch {
+      /* diagnostics only */
+    }
   }, [rawGoal, sessionId, visible]);
 
   // Dismiss on any interaction outside the island (or Escape) so the drawer
@@ -137,10 +167,12 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const elapsedLabel = goal ? goalElapsedLabel(goal, clock) : '';
   const control = async (action: string, values: Record<string, unknown> = {}): Promise<boolean> => {
     if (pending || !sessionId || !goal?.id) return false;
-    setPending(true); setError('');
+    setPending(true);
+    setError('');
     try {
       const result = await window.mixdogDesktop.invokeCapability<{ ok?: boolean }>({
-        sessionId, capability: 'goalControl',
+        sessionId,
+        capability: 'goalControl',
         args: [{ action, expectedGoalId: goal.id, ...values }],
       });
       if (result?.value?.ok !== true) throw new Error(t('Goal could not be updated.'));
@@ -149,100 +181,181 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
       setError(reason instanceof Error ? reason.message : String(reason));
       setOpen(true);
       return false;
-    } finally { setPending(false); }
+    } finally {
+      setPending(false);
+    }
   };
   if (!goal) return null;
   const tasks = Array.isArray(goal.tasks) ? goal.tasks : [];
   const tasksTotal = Math.max(tasks.length, Number(goal.tasksTotal) || 0);
-  const tasksCompleted = Math.min(tasksTotal, Math.max(
-    tasks.filter((task) => task.status === 'completed').length,
-    Number(goal.tasksCompleted) || 0,
-  ));
+  const tasksCompleted = Math.min(
+    tasksTotal,
+    Math.max(tasks.filter((task) => task.status === 'completed').length, Number(goal.tasksCompleted) || 0)
+  );
   const progressLabel = `${tasksCompleted}/${tasksTotal}`;
   const title = String(goal.title || goal.objective || t('Goal'));
   const objective = String(goal.objective || '');
   const terminal = goal.status === 'complete' || goal.status === 'stopped';
   const exhausted = Number(goal.timeLimitMs) > 0 && Number(goal.remainingMs) === 0;
 
-  return <div ref={rootRef} className="session-goal-island"
-    data-status={displayStatus} data-waiting={waiting ? 'true' : 'false'}
-    data-open={open ? 'true' : 'false'}>
-    <div className="session-goal-stack">
-      <div className="session-goal-summary">
-        <button type="button" className="session-goal-trigger"
-          aria-expanded={open} aria-controls={drawerId}
-          aria-label={t('Goal: {{objective}}', { objective })}
-          onClick={() => setOpen((value) => !value)}>
-          <span className="session-goal-title-region">
-            <span className="session-goal-glyph" role={activityLabel ? 'img' : undefined}
-              aria-label={activityLabel} title={activityLabel}><GoalGlyph status={displayStatus} working={waiting} /></span>
-            <span className="session-goal-objective" title={objective}>{title}</span>
-          </span>
-          <span className="session-goal-meta">
-            <span className="session-goal-progress">{progressLabel}</span>
-            <span aria-hidden="true">·</span>
-            <span className="session-goal-time">{elapsedLabel}</span>
-          </span>
-        </button>
-        {!terminal && <div className="session-goal-controls">
-          <button type="button" className="session-goal-control" disabled={pending}
-            aria-label={t(active ? 'Pause' : 'Resume')} title={t(active ? 'Pause' : 'Resume')}
-            onClick={() => {
-              if (!active && exhausted) setEditing({ ...goal });
-              else void control(active ? 'pause' : 'resume');
-            }}><MxIcon name={active ? 'paused' : 'play'} size={16} /></button>
-          <button type="button" className="session-goal-control" disabled={pending}
-            aria-label={t('Edit goal')} title={t('Edit goal')}
-            onClick={() => setEditing({ ...goal })}><MxIcon name="edit" size={16} /></button>
-          <button type="button" className="session-goal-control" disabled={pending}
-            aria-label={t('Stop goal')} title={t('Stop goal')}
-            onClick={() => { setConfirmStop(true); setOpen(true); }}><MxIcon name="stop" size={16} /></button>
-        </div>}
-      </div>
-      <div className="session-goal-drawer" aria-hidden={open ? 'false' : 'true'} inert={!open}>
-        <div className="session-goal-drawer-clip">
-          <section id={drawerId} className="session-goal-panel"
-            role="region" aria-label={t('Goal tasks')}>
-            <div className="session-goal-content">
-              <div className="session-goal-details" role="status">
-                {/* The header shows the objective on one ellipsized line; the
-                    open drawer is where the full text reads, wrapped. */}
-                {objective && <p className="session-goal-objective-full">{objective}</p>}
-                <span>{goalStatusLabel(goal)}</span>
-                <span>{goalTimeLabel(goal, clock)}</span>
-              </div>
-              <div className="session-goal-tasks">
-                {tasks.length > 0 ? <ul className="session-goal-task-list" aria-label={t('Goal tasks')}>
-                  {tasks.map((task, index) => {
-                    const taskStatus = task.status || 'pending';
-                    return <li key={String(task.id || index)} data-status={taskStatus}>
-                      <span><GoalTaskGlyph status={taskStatus} /></span>
-                      <div>
-                        <span>{String(task.text || '')}</span>
-                      </div>
-                    </li>;
-                  })}
-                </ul> : <p className="session-goal-empty">{t('No tasks yet.')}</p>}
-              </div>
-              {goal.blocker ? <p className="session-goal-blocker">{String(goal.blocker)}</p> : null}
-              {error && <p role="alert" className="session-goal-blocker">{error}</p>}
-              {confirmStop && !terminal && <div className="session-goal-confirm" role="group" aria-label={t('Stop goal')}>
-                <p className="session-goal-blocker">{t('Stop this goal? Progress is kept, but it will not resume automatically.')}</p>
-                <div className="session-goal-actions">
-                  <button type="button" className="composer-tool" disabled={pending}
-                    onClick={() => setConfirmStop(false)}>{t('Cancel')}</button>
-                  <button type="button" className="composer-tool" disabled={pending}
-                    onClick={async () => { if (await control('stop')) setConfirmStop(false); }}>{t('Confirm stop')}</button>
-                </div>
-              </div>}
+  return (
+    <div
+      ref={rootRef}
+      className="session-goal-island"
+      data-status={displayStatus}
+      data-waiting={waiting ? 'true' : 'false'}
+      data-open={open ? 'true' : 'false'}
+    >
+      <div className="session-goal-stack">
+        <div className="session-goal-summary">
+          <button
+            type="button"
+            className="session-goal-trigger"
+            aria-expanded={open}
+            aria-controls={drawerId}
+            aria-label={t('Goal: {{objective}}', { objective })}
+            onClick={() => setOpen((value) => !value)}
+          >
+            <span className="session-goal-title-region">
+              <span
+                className="session-goal-glyph"
+                role={activityLabel ? 'img' : undefined}
+                aria-label={activityLabel}
+                title={activityLabel}
+              >
+                <GoalGlyph status={displayStatus} working={waiting} />
+              </span>
+              <span className="session-goal-objective" title={objective}>
+                {title}
+              </span>
+            </span>
+            <span className="session-goal-meta">
+              <span className="session-goal-progress">{progressLabel}</span>
+              <span aria-hidden="true">·</span>
+              <span className="session-goal-time">{elapsedLabel}</span>
+            </span>
+          </button>
+          {!terminal && (
+            <div className="session-goal-controls">
+              <button
+                type="button"
+                className="session-goal-control"
+                disabled={pending}
+                aria-label={t(active ? 'Pause' : 'Resume')}
+                title={t(active ? 'Pause' : 'Resume')}
+                onClick={() => {
+                  if (!active && exhausted) setEditing({ ...goal });
+                  else void control(active ? 'pause' : 'resume');
+                }}
+              >
+                <MxIcon name={active ? 'paused' : 'play'} size={16} />
+              </button>
+              <button
+                type="button"
+                className="session-goal-control"
+                disabled={pending}
+                aria-label={t('Edit goal')}
+                title={t('Edit goal')}
+                onClick={() => setEditing({ ...goal })}
+              >
+                <MxIcon name="edit" size={16} />
+              </button>
+              <button
+                type="button"
+                className="session-goal-control"
+                disabled={pending}
+                aria-label={t('Stop goal')}
+                title={t('Stop goal')}
+                onClick={() => {
+                  setConfirmStop(true);
+                  setOpen(true);
+                }}
+              >
+                <MxIcon name="stop" size={16} />
+              </button>
             </div>
-          </section>
+          )}
+        </div>
+        <div className="session-goal-drawer" aria-hidden={open ? 'false' : 'true'} inert={!open}>
+          <div className="session-goal-drawer-clip">
+            <section id={drawerId} className="session-goal-panel" role="region" aria-label={t('Goal tasks')}>
+              <div className="session-goal-content">
+                <div className="session-goal-details" role="status">
+                  {/* The header shows the objective on one ellipsized line; the
+                    open drawer is where the full text reads, wrapped. */}
+                  {objective && <p className="session-goal-objective-full">{objective}</p>}
+                  <span>{goalStatusLabel(goal)}</span>
+                  <span>{goalTimeLabel(goal, clock)}</span>
+                </div>
+                <div className="session-goal-tasks">
+                  {tasks.length > 0 ? (
+                    <ul className="session-goal-task-list" aria-label={t('Goal tasks')}>
+                      {tasks.map((task, index) => {
+                        const taskStatus = task.status || 'pending';
+                        return (
+                          <li key={String(task.id || index)} data-status={taskStatus}>
+                            <span>
+                              <GoalTaskGlyph status={taskStatus} />
+                            </span>
+                            <div>
+                              <span>{String(task.text || '')}</span>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="session-goal-empty">{t('No tasks yet.')}</p>
+                  )}
+                </div>
+                {goal.blocker ? <p className="session-goal-blocker">{String(goal.blocker)}</p> : null}
+                {error && (
+                  <p role="alert" className="session-goal-blocker">
+                    {error}
+                  </p>
+                )}
+                {confirmStop && !terminal && (
+                  <div className="session-goal-confirm" role="group" aria-label={t('Stop goal')}>
+                    <p className="session-goal-blocker">
+                      {t('Stop this goal? Progress is kept, but it will not resume automatically.')}
+                    </p>
+                    <div className="session-goal-actions">
+                      <button
+                        type="button"
+                        className="composer-tool"
+                        disabled={pending}
+                        onClick={() => setConfirmStop(false)}
+                      >
+                        {t('Cancel')}
+                      </button>
+                      <button
+                        type="button"
+                        className="composer-tool"
+                        disabled={pending}
+                        onClick={async () => {
+                          if (await control('stop')) setConfirmStop(false);
+                        }}
+                      >
+                        {t('Confirm stop')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
         </div>
       </div>
+      {editing && (
+        <ComposerGoalDialog
+          anchor={rootRef}
+          disabled={pending}
+          initialGoal={editing}
+          onSave={(value) => control('edit', { ...value, revision: editing.revision })}
+          onClose={() => setEditing(null)}
+          returnFocus={() => rootRef.current?.querySelector<HTMLButtonElement>('.session-goal-trigger')?.focus()}
+        />
+      )}
     </div>
-    {editing && <ComposerGoalDialog anchor={rootRef} disabled={pending} initialGoal={editing}
-      onSave={value => control('edit', { ...value, revision: editing.revision })}
-      onClose={() => setEditing(null)}
-      returnFocus={() => rootRef.current?.querySelector<HTMLButtonElement>('.session-goal-trigger')?.focus()} />}
-  </div>;
+  );
 }

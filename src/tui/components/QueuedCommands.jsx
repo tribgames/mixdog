@@ -41,12 +41,21 @@ export function QueuedCommands({ queued, columns, compact = false }) {
           // Compact fallback: exactly 1 row per entry (queued.length reserve).
           // Collapse newlines first — a raw '\n' would still break the row.
           const oneLine = sourceText.replace(/\r?\n/g, ' ');
-          displayText = oneLine.length > contentWidth
-            ? (contentWidth <= 1 ? '…'.repeat(contentWidth) : oneLine.slice(0, Math.max(1, contentWidth - 1)) + '…')
-            : oneLine;
+          displayText =
+            oneLine.length > contentWidth
+              ? contentWidth <= 1
+                ? '…'.repeat(contentWidth)
+                : oneLine.slice(0, Math.max(1, contentWidth - 1)) + '…'
+              : oneLine;
         }
         return (
-          <Box key={item.id} width={bandColumns} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>
+          <Box
+            key={item.id}
+            width={bandColumns}
+            backgroundColor={theme.userMessageBackground}
+            paddingLeft={2}
+            paddingRight={1}
+          >
             <Text wrap="wrap">
               <Text color={theme.mixdogIvory}>{displayText}</Text>
             </Text>

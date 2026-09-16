@@ -9,23 +9,13 @@ import { Check, ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
-import {
-  beginBootSurface,
-  reportBootSurfaceStage,
-} from './boot-metrics';
+import { beginBootSurface, reportBootSurfaceStage } from './boot-metrics';
 import { reportRendererFailure } from './RendererRecovery';
 import { errorSummary } from './ErrorNotice';
 import { TerminalLocalEcho } from './terminal-local-echo';
 import { TerminalWritePump } from './terminal-write-pump';
-import {
-  applyTerminalActivity,
-  StableTerminalFitScheduler,
-} from './terminal-fit';
-import {
-  dataTransferHasLocalFiles,
-  droppedLocalPaths,
-  terminalPathText,
-} from './file-drag';
+import { applyTerminalActivity, StableTerminalFitScheduler } from './terminal-fit';
+import { dataTransferHasLocalFiles, droppedLocalPaths, terminalPathText } from './file-drag';
 
 type ShellProfile = { id: string; label: string; path: string; default?: boolean };
 
@@ -59,8 +49,10 @@ const TERMINAL_SHELL_DEFAULT_SLOT = '__default__';
  *  NEW terminal (user: 터미널 변경 — 간단하게). */
 function readShellChoice(key: string): string {
   try {
-    const stored = JSON.parse(window.localStorage.getItem(TERMINAL_SHELL_CHOICE_KEY) || '{}') as
-      Record<string, unknown>;
+    const stored = JSON.parse(window.localStorage.getItem(TERMINAL_SHELL_CHOICE_KEY) || '{}') as Record<
+      string,
+      unknown
+    >;
     return String(stored[key] || stored[TERMINAL_SHELL_DEFAULT_SLOT] || '');
   } catch {
     return '';
@@ -69,8 +61,10 @@ function readShellChoice(key: string): string {
 
 function writeShellChoice(key: string, id: string): void {
   try {
-    const stored = JSON.parse(window.localStorage.getItem(TERMINAL_SHELL_CHOICE_KEY) || '{}') as
-      Record<string, unknown>;
+    const stored = JSON.parse(window.localStorage.getItem(TERMINAL_SHELL_CHOICE_KEY) || '{}') as Record<
+      string,
+      unknown
+    >;
     stored[key] = id;
     stored[TERMINAL_SHELL_DEFAULT_SLOT] = id;
     window.localStorage.setItem(TERMINAL_SHELL_CHOICE_KEY, JSON.stringify(stored));
@@ -107,11 +101,13 @@ function loadShellProfiles(): Promise<ShellProfile[]> {
 
 function readTerminalViewState(key: string): TerminalViewState | null {
   try {
-    const stored = JSON.parse(window.localStorage.getItem(TERMINAL_VIEW_STATE_KEY) || '{}') as
-      Record<string, Partial<TerminalViewState>>;
+    const stored = JSON.parse(window.localStorage.getItem(TERMINAL_VIEW_STATE_KEY) || '{}') as Record<
+      string,
+      Partial<TerminalViewState>
+    >;
     const state = stored[key];
-    if (!state || !Number.isFinite(state.cols) || !Number.isFinite(state.rows)
-      || !Number.isFinite(state.scrollY)) return null;
+    if (!state || !Number.isFinite(state.cols) || !Number.isFinite(state.rows) || !Number.isFinite(state.scrollY))
+      return null;
     return {
       cols: Math.max(2, Math.round(state.cols as number)),
       rows: Math.max(1, Math.round(state.rows as number)),
@@ -126,8 +122,10 @@ function readTerminalViewState(key: string): TerminalViewState | null {
 function writeTerminalViewState(key: string, view: TerminalView): void {
   try {
     const buffer = view.term.buffer.active;
-    const stored = JSON.parse(window.localStorage.getItem(TERMINAL_VIEW_STATE_KEY) || '{}') as
-      Record<string, TerminalViewState>;
+    const stored = JSON.parse(window.localStorage.getItem(TERMINAL_VIEW_STATE_KEY) || '{}') as Record<
+      string,
+      TerminalViewState
+    >;
     stored[key] = {
       cols: view.term.cols,
       rows: view.term.rows,
@@ -142,8 +140,10 @@ function writeTerminalViewState(key: string, view: TerminalView): void {
 
 function clearTerminalViewState(key: string): void {
   try {
-    const stored = JSON.parse(window.localStorage.getItem(TERMINAL_VIEW_STATE_KEY) || '{}') as
-      Record<string, TerminalViewState>;
+    const stored = JSON.parse(window.localStorage.getItem(TERMINAL_VIEW_STATE_KEY) || '{}') as Record<
+      string,
+      TerminalViewState
+    >;
     if (!(key in stored)) return;
     delete stored[key];
     window.localStorage.setItem(TERMINAL_VIEW_STATE_KEY, JSON.stringify(stored));
@@ -153,15 +153,17 @@ function clearTerminalViewState(key: string): void {
 }
 
 function fitTerminalView(view: TerminalView, restore?: TerminalViewState | null): void {
-  const current = restore ?? (() => {
-    const buffer = view.term.buffer.active;
-    return {
-      cols: view.term.cols,
-      rows: view.term.rows,
-      scrollY: buffer.viewportY,
-      atBottom: buffer.viewportY >= buffer.baseY,
-    };
-  })();
+  const current =
+    restore ??
+    (() => {
+      const buffer = view.term.buffer.active;
+      return {
+        cols: view.term.cols,
+        rows: view.term.rows,
+        scrollY: buffer.viewportY,
+        atBottom: buffer.viewportY >= buffer.baseY,
+      };
+    })();
   view.fit.fit();
   if (current.atBottom) view.term.scrollToBottom();
   else view.term.scrollToLine(Math.min(current.scrollY, view.term.buffer.active.baseY));
@@ -175,7 +177,11 @@ function tryEnableWebglRenderer(view: TerminalView): void {
     contextLossDisposable = addon.onContextLoss(() => {
       contextLossDisposable?.dispose();
       if (view.webglContextLoss === contextLossDisposable) view.webglContextLoss = null;
-      try { addon.dispose(); } catch { /* already released by xterm */ }
+      try {
+        addon.dispose();
+      } catch {
+        /* already released by xterm */
+      }
       if (view.webgl === addon) view.webgl = null;
       // A lost context normally means this window cannot sustain the WebGL
       // renderer. Keep xterm's built-in DOM renderer for the rest of the view
@@ -187,7 +193,11 @@ function tryEnableWebglRenderer(view: TerminalView): void {
     view.webglContextLoss = contextLossDisposable;
   } catch {
     contextLossDisposable?.dispose();
-    try { addon.dispose(); } catch { /* constructor/load failure */ }
+    try {
+      addon.dispose();
+    } catch {
+      /* constructor/load failure */
+    }
     // WebGL2 can be unavailable under remote desktop, VM, safe-mode, or a
     // blacklisted driver. xterm remains fully functional on its DOM renderer.
     view.webglUnavailable = true;
@@ -208,7 +218,11 @@ function releaseWebglRenderer(view: TerminalView): void {
   view.webglContextLoss?.dispose();
   view.webglContextLoss = null;
   view.webgl = null;
-  try { addon.dispose(); } catch { /* context already lost */ }
+  try {
+    addon.dispose();
+  } catch {
+    /* context already lost */
+  }
 }
 
 function terminalView(key: string): TerminalView {
@@ -228,17 +242,17 @@ function terminalView(key: string): TerminalView {
   term.loadAddon(fit);
   const writer = new TerminalWritePump(
     (data, complete) => term.write(data, complete),
-    (id, charCount) => window.mixdogDesktop.termAcknowledge?.(id, charCount),
+    (id, charCount) => window.mixdogDesktop.termAcknowledge?.(id, charCount)
   );
   // Relay-served browsers pay a full round trip per echoed keystroke; the
   // predictor paints validated keystrokes immediately (user: RTT 때문에
   // 터미널 타이핑이 답답함). Electron's local PTY needs none of it.
-  const remoteSurface = Boolean(
-    (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer,
-  );
+  const remoteSurface = Boolean((window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer);
   const localEcho = remoteSurface
     ? new TerminalLocalEcho({
-        write: (data) => { void writer.writeReplay(data); },
+        write: (data) => {
+          void writer.writeReplay(data);
+        },
         renderAnchor: () => {
           if (writer.hasQueuedOutput) return null;
           const buffer = term.buffer.active;
@@ -282,16 +296,27 @@ function armTerminalMonoRefresh() {
   if (terminalMonoRefreshArmed) return;
   terminalMonoRefreshArmed = true;
   try {
-    void document.fonts.load('400 13px "JetBrains Mono Variable"').then(() => {
-      for (const view of terminalViews.values()) {
-        try { view.webgl?.clearTextureAtlas(); } catch { /* atlas rebuilds lazily */ }
-        try {
-          view.fit.fit();
-          view.term.refresh(0, Math.max(0, view.term.rows - 1));
-        } catch { /* a detached terminal refits on its next mount */ }
-      }
-    }).catch(() => undefined);
-  } catch { /* font readiness stays cosmetic */ }
+    void document.fonts
+      .load('400 13px "JetBrains Mono Variable"')
+      .then(() => {
+        for (const view of terminalViews.values()) {
+          try {
+            view.webgl?.clearTextureAtlas();
+          } catch {
+            /* atlas rebuilds lazily */
+          }
+          try {
+            view.fit.fit();
+            view.term.refresh(0, Math.max(0, view.term.rows - 1));
+          } catch {
+            /* a detached terminal refits on its next mount */
+          }
+        }
+      })
+      .catch(() => undefined);
+  } catch {
+    /* font readiness stays cosmetic */
+  }
 }
 
 export async function disposeTerminalPane(id: string): Promise<void> {
@@ -301,7 +326,11 @@ export async function disposeTerminalPane(id: string): Promise<void> {
   const ptyId = view?.id || id;
   view?.localEcho?.reset();
   view?.writer.dispose();
-  try { view?.term.dispose(); } catch { /* already detached */ }
+  try {
+    view?.term.dispose();
+  } catch {
+    /* already detached */
+  }
   await window.mixdogDesktop.termDispose?.(ptyId);
 }
 
@@ -313,35 +342,35 @@ export async function disposeTerminalPane(id: string): Promise<void> {
 // this canvas and made paths/prompts hard to read. Background stays in sync
 // with --mx-terminal-bg (desktop.css).
 function cssVar(name: string, fallback: string): string {
-  if (typeof document === "undefined") return fallback;
+  if (typeof document === 'undefined') return fallback;
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 }
 
 function terminalTheme() {
-  const background = cssVar("--mx-terminal-bg", "#121215");
-  const foreground = cssVar("--mx-text", "#e9e9e9");
+  const background = cssVar('--mx-terminal-bg', '#121215');
+  const foreground = cssVar('--mx-text', '#e9e9e9');
   return {
-  background,
-  foreground,
-  cursor: foreground,
-  cursorAccent: background,
-  selectionBackground: 'rgba(255, 255, 255, .28)',
-  black: '#000000',
-  red: '#cd3131',
-  green: '#0dbc79',
-  yellow: '#e5e510',
-  blue: '#2472c8',
-  magenta: '#bc3fbc',
-  cyan: '#11a8cd',
-  white: '#e5e5e5',
-  brightBlack: '#666666',
-  brightRed: '#f14c4c',
-  brightGreen: '#23d18b',
-  brightYellow: '#f5f543',
-  brightBlue: '#3b8eea',
-  brightMagenta: '#d670d6',
-  brightCyan: '#29b8db',
-  brightWhite: '#e5e5e5',
+    background,
+    foreground,
+    cursor: foreground,
+    cursorAccent: background,
+    selectionBackground: 'rgba(255, 255, 255, .28)',
+    black: '#000000',
+    red: '#cd3131',
+    green: '#0dbc79',
+    yellow: '#e5e510',
+    blue: '#2472c8',
+    magenta: '#bc3fbc',
+    cyan: '#11a8cd',
+    white: '#e5e5e5',
+    brightBlack: '#666666',
+    brightRed: '#f14c4c',
+    brightGreen: '#23d18b',
+    brightYellow: '#f5f543',
+    brightBlue: '#3b8eea',
+    brightMagenta: '#d670d6',
+    brightCyan: '#29b8db',
+    brightWhite: '#e5e5e5',
   };
 }
 
@@ -383,7 +412,9 @@ export default function TerminalPane({
     void loadShellProfiles().then((list) => {
       if (live) setProfiles(list);
     });
-    return () => { live = false; };
+    return () => {
+      live = false;
+    };
   }, [profiles, shellMenuOpen]);
   useEffect(() => {
     if (!shellMenuOpen) return undefined;
@@ -440,7 +471,7 @@ export default function TerminalPane({
       },
       onSettled: () => {
         writeTerminalViewState(key, view);
-        if (view.id && term.element?.querySelector(".xterm-screen")) {
+        if (view.id && term.element?.querySelector('.xterm-screen')) {
           onReadyRef.current?.();
         }
       },
@@ -458,7 +489,11 @@ export default function TerminalPane({
     // (user: 터미널 열리고 키패드가 늦게 올라온다). The post-ensure and
     // activation focus calls stay as fallbacks for a cold or failed attach.
     if (activeRef.current) {
-      try { term.focus(); } catch { /* element not measurable yet */ }
+      try {
+        term.focus();
+      } catch {
+        /* element not measurable yet */
+      }
     }
     // PTY ensure/replay can be slow. Revealing xterm's empty shell first let
     // the replayed scrollback visibly dump into an already-open terminal
@@ -468,7 +503,7 @@ export default function TerminalPane({
     // a stalled PTY host so the gate can never hang on a blank pane.
     revealTimer = window.setTimeout(() => {
       revealTimer = 0;
-      if (!disposed && term.element?.querySelector(".xterm-screen")) {
+      if (!disposed && term.element?.querySelector('.xterm-screen')) {
         onReadyRef.current?.();
       }
     }, 1_500);
@@ -482,14 +517,14 @@ export default function TerminalPane({
         view.id = null;
         clearTerminalViewState(key);
         view.localEcho?.reset();
-        try { term.reset(); } catch { /* fresh spawn repaints anyway */ }
+        try {
+          term.reset();
+        } catch {
+          /* fresh spawn repaints anyway */
+        }
         await window.mixdogDesktop.termDispose?.(previous);
       }
-      const ensured = await window.mixdogDesktop.termEnsure?.(
-        view.id ?? terminalId ?? null,
-        cwd,
-        shell || null,
-      );
+      const ensured = await window.mixdogDesktop.termEnsure?.(view.id ?? terminalId ?? null, cwd, shell || null);
       reportBootSurfaceStage('terminal', key, 'data', ensured ? 'pty-ready' : 'shell-only');
       if (!ensured) {
         if (!disposed) onReadyRef.current?.();
@@ -522,9 +557,7 @@ export default function TerminalPane({
       // or key handler onto the same view.
       unsubscribe ??= window.mixdogDesktop.subscribeTermData?.((event) => {
         if (event.id !== view.id) return;
-        const data = view.localEcho
-          ? view.localEcho.onIncoming(event.data)
-          : event.data;
+        const data = view.localEcho ? view.localEcho.onIncoming(event.data) : event.data;
         if (data) view.writer.push(event.id, data);
       });
       dataDisposable ??= term.onData((data) => {
@@ -548,9 +581,7 @@ export default function TerminalPane({
         observer.observe(container);
         const surface = container.parentElement;
         if (surface) observer.observe(surface);
-        const persistentRoot = container.closest<HTMLElement>(
-          ".session-terminal-surface-container",
-        );
+        const persistentRoot = container.closest<HTMLElement>('.session-terminal-surface-container');
         if (persistentRoot && persistentRoot !== surface) {
           observer.observe(persistentRoot);
         }
@@ -574,19 +605,24 @@ export default function TerminalPane({
             // native PTY binding behind an endless retry loop.
             const detail = errorSummary(error);
             try {
-              term.write(`\r\n\x1b[31mterminal service unavailable${
-                detail ? ` — ${detail}` : ""} — retrying…\x1b[0m\r\n`);
-            } catch { /* xterm disposed mid-failure */ }
+              term.write(
+                `\r\n\x1b[31mterminal service unavailable${detail ? ` — ${detail}` : ''} — retrying…\x1b[0m\r\n`
+              );
+            } catch {
+              /* xterm disposed mid-failure */
+            }
             // A dead PTY host left NO trace in the desktop diagnostics log, so
             // a terminal that never opened could only be diagnosed live.
-            reportRendererFailure("unhandled-rejection", error, {
-              components: ["TerminalPane"],
-              failureCode: "terminal-pty-unavailable",
+            reportRendererFailure('unhandled-rejection', error, {
+              components: ['TerminalPane'],
+              failureCode: 'terminal-pty-unavailable',
             });
           }
           try {
             onReadyRef.current?.();
-          } catch { /* gate consumer threw */ }
+          } catch {
+            /* gate consumer threw */
+          }
           retryTimer = window.setTimeout(() => {
             retryTimer = 0;
             if (!disposed) attemptEnsure();
@@ -639,7 +675,11 @@ export default function TerminalPane({
       scheduleFit: () => fitSchedulerRef.current?.schedule(),
       pauseFit: () => fitSchedulerRef.current?.pause(),
       focus: () => {
-        try { view?.term.focus(); } catch { /* disposed mid-activation */ }
+        try {
+          view?.term.focus();
+        } catch {
+          /* disposed mid-activation */
+        }
       },
     });
     return undefined;
@@ -649,85 +689,103 @@ export default function TerminalPane({
   const defaultShellLabel = defaultProfile
     ? t('Default ({{label}})', { label: defaultProfile.label })
     : t('Default shell');
-  const shellLabel = shell
-    ? profiles?.find((profile) => profile.id === shell)?.label || shell
-    : defaultShellLabel;
-  return <div className="dock-terminal-surface"
-    data-dropping={droppingPaths ? "true" : undefined}
-    onDragEnter={(event) => {
-      if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setDroppingPaths(true);
-    }}
-    onDragOver={(event) => {
-      if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.dataTransfer.dropEffect = "copy";
-      setDroppingPaths(true);
-    }}
-    onDragLeave={(event) => {
-      if (event.currentTarget.contains(event.relatedTarget as Node)) return;
-      setDroppingPaths(false);
-    }}
-    onDrop={(event) => {
-      if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setDroppingPaths(false);
-      const paths = droppedLocalPaths(event.dataTransfer);
-      const text = terminalPathText(paths);
-      if (!text) return;
-      const view = terminalView(key);
-      view.term.paste(text);
-      view.term.focus();
-    }}>
-    {/* File-breadcrumb strip grammar (user: TASK나 파일처럼 띠 하나): a 30px
+  const shellLabel = shell ? profiles?.find((profile) => profile.id === shell)?.label || shell : defaultShellLabel;
+  return (
+    <div
+      className="dock-terminal-surface"
+      data-dropping={droppingPaths ? 'true' : undefined}
+      onDragEnter={(event) => {
+        if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setDroppingPaths(true);
+      }}
+      onDragOver={(event) => {
+        if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = 'copy';
+        setDroppingPaths(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+        setDroppingPaths(false);
+      }}
+      onDrop={(event) => {
+        if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setDroppingPaths(false);
+        const paths = droppedLocalPaths(event.dataTransfer);
+        const text = terminalPathText(paths);
+        if (!text) return;
+        const view = terminalView(key);
+        view.term.paste(text);
+        view.term.focus();
+      }}
+    >
+      {/* File-breadcrumb strip grammar (user: TASK나 파일처럼 띠 하나): a 30px
         band above the terminal with the shell switcher on the right edge.
         NO title text — every host (workspace tab, bottom panel) already
         labels the surface "Terminal" one row above (user: 터미널 아래
         터미널이 왜 또 있어야 하는지 모르겠다). */}
-    <header className="dock-terminal-strip">
-      <div className="dock-terminal-shell">
-        <button type="button" className="dock-terminal-shell-trigger"
-          aria-haspopup="menu" aria-expanded={shellMenuOpen}
-          title={t('Change terminal shell')}
-          onClick={() => setShellMenuOpen((open) => !open)}>
-          <span>{shellLabel}</span>
-          <ChevronDown size={14} aria-hidden="true" />
-        </button>
-        {shellMenuOpen && <div className="dock-terminal-shell-menu" role="menu"
-          aria-label={t('Terminal shells')}>
-          {profiles === null
-            && <span className="dock-terminal-shell-note">{t('Detecting shells…')}</span>}
-          {profiles?.length === 0
-            && <span className="dock-terminal-shell-note">{t('No shells detected')}</span>}
-          {(profiles?.length ?? 0) > 0 && <button type="button" role="menuitemradio"
-            aria-checked={!shell} title={defaultProfile?.path || t('OS default shell')}
-            onClick={() => {
-              setShellMenuOpen(false);
-              if (!shell) return;
-              writeShellChoice(key, '');
-              setShell('');
-            }}>
-            <span>{defaultShellLabel}</span>
-            {!shell && <Check size={14} aria-hidden="true" />}
-          </button>}
-          {(profiles ?? []).map((profile) => <button type="button" role="menuitemradio"
-            key={profile.id} aria-checked={profile.id === shell} title={profile.path}
-            onClick={() => {
-              setShellMenuOpen(false);
-              if (profile.id === shell) return;
-              writeShellChoice(key, profile.id);
-              setShell(profile.id);
-            }}>
-            <span>{profile.label}</span>
-            {profile.id === shell && <Check size={14} aria-hidden="true" />}
-          </button>)}
-        </div>}
-      </div>
-    </header>
-    <div className="dock-terminal" ref={host} />
-  </div>;
+      <header className="dock-terminal-strip">
+        <div className="dock-terminal-shell">
+          <button
+            type="button"
+            className="dock-terminal-shell-trigger"
+            aria-haspopup="menu"
+            aria-expanded={shellMenuOpen}
+            title={t('Change terminal shell')}
+            onClick={() => setShellMenuOpen((open) => !open)}
+          >
+            <span>{shellLabel}</span>
+            <ChevronDown size={14} aria-hidden="true" />
+          </button>
+          {shellMenuOpen && (
+            <div className="dock-terminal-shell-menu" role="menu" aria-label={t('Terminal shells')}>
+              {profiles === null && <span className="dock-terminal-shell-note">{t('Detecting shells…')}</span>}
+              {profiles?.length === 0 && <span className="dock-terminal-shell-note">{t('No shells detected')}</span>}
+              {(profiles?.length ?? 0) > 0 && (
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={!shell}
+                  title={defaultProfile?.path || t('OS default shell')}
+                  onClick={() => {
+                    setShellMenuOpen(false);
+                    if (!shell) return;
+                    writeShellChoice(key, '');
+                    setShell('');
+                  }}
+                >
+                  <span>{defaultShellLabel}</span>
+                  {!shell && <Check size={14} aria-hidden="true" />}
+                </button>
+              )}
+              {(profiles ?? []).map((profile) => (
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  key={profile.id}
+                  aria-checked={profile.id === shell}
+                  title={profile.path}
+                  onClick={() => {
+                    setShellMenuOpen(false);
+                    if (profile.id === shell) return;
+                    writeShellChoice(key, profile.id);
+                    setShell(profile.id);
+                  }}
+                >
+                  <span>{profile.label}</span>
+                  {profile.id === shell && <Check size={14} aria-hidden="true" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </header>
+      <div className="dock-terminal" ref={host} />
+    </div>
+  );
 }

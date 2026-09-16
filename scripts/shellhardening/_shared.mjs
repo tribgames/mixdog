@@ -23,8 +23,8 @@ import {
 } from '../../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
 import { BUILTIN_TOOLS } from '../../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 import {
-    appendGitStartupState,
-    describeGitStartupState,
+  appendGitStartupState,
+  describeGitStartupState,
 } from '../../src/runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
 import { checkExecPolicyMessage } from '../../src/runtime/agent/orchestrator/tools/bash-policy-scan.mjs';
 import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -59,8 +59,14 @@ import {
   _backgroundResultLines,
 } from '../../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
 import { TaskOutput } from '../../src/runtime/agent/orchestrator/tools/shell-exec-output.mjs';
-import { _composeShellFailure, _shellFailureStatus } from '../../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
-import { classifyResultKind, isShellFailureResult } from '../../src/runtime/agent/orchestrator/session/result-classification.mjs';
+import {
+  _composeShellFailure,
+  _shellFailureStatus,
+} from '../../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
+import {
+  classifyResultKind,
+  isShellFailureResult,
+} from '../../src/runtime/agent/orchestrator/session/result-classification.mjs';
 import { normalizeToolEnvelope } from '../../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
 import { shellCommandExitCode } from '../../src/tui/session/tool-result-status.mjs';
 import { stripShellExitHeader } from '../../src/tui/session/tool-result-text.mjs';
@@ -115,20 +121,20 @@ import { executeGlobTool } from '../../src/runtime/agent/orchestrator/tools/buil
 // A) _isBenignSearchExitOne — unit
 // ---------------------------------------------------------------------------
 const BENIGN = [
-    'grep x | sls',
-    'Select-String foo',
-    'git diff --quiet',
-    'git -C . diff --exit-code',
-    'grep -n foo file',
-    'findstr foo file.txt',
-    'git diff --check',
+  'grep x | sls',
+  'Select-String foo',
+  'git diff --quiet',
+  'git -C . diff --exit-code',
+  'grep -n foo file',
+  'findstr foo file.txt',
+  'git diff --check',
 ];
 const NOT_BENIGN = [
-    'grep x file && echo done',        // multi-segment chain → ambiguous
-    '... < <(printf x | grep y)',       // process substitution → ambiguous
-    'echo hi `| Select-String x`',      // backtick → ambiguous
-    'git diff-index --quiet',           // not the `diff` subcommand
-    'git diff',                         // no --exit-code/--quiet/--check
+  'grep x file && echo done', // multi-segment chain → ambiguous
+  '... < <(printf x | grep y)', // process substitution → ambiguous
+  'echo hi `| Select-String x`', // backtick → ambiguous
+  'git diff-index --quiet', // not the `diff` subcommand
+  'git diff', // no --exit-code/--quiet/--check
 ];
 
 // ---------------------------------------------------------------------------
@@ -143,10 +149,12 @@ const PWSH = { shellType: 'powershell', shellName: 'pwsh' };
 // missing. Temp repo/files under os.tmpdir, cleaned up in finally.
 // ---------------------------------------------------------------------------
 function hasCmd(cmd, args) {
-    try {
-        const r = spawnSync(cmd, args, { encoding: 'utf8' });
-        return !r.error;
-    } catch { return false; }
+  try {
+    const r = spawnSync(cmd, args, { encoding: 'utf8' });
+    return !r.error;
+  } catch {
+    return false;
+  }
 }
 
 async function withoutUnhandledProcessFailure(run) {
@@ -173,12 +181,7 @@ function assertSpawnToolFailure(result) {
   assert.equal(result.failureReason, 'spawn failed');
   const status = _shellFailureStatus(result, 1000);
   assert.equal(status.shellToolFailed, true);
-  const rendered = _composeShellFailure(
-    `[shell-tool-failed] ${status.statusDetail}`,
-    'Error: ',
-    '',
-    result.stderr,
-  );
+  const rendered = _composeShellFailure(`[shell-tool-failed] ${status.statusDetail}`, 'Error: ', '', result.stderr);
   assert.match(rendered, /^Error: \[shell-tool-failed\] \[spawn failed\]/);
   assert.equal(classifyToolFailure(rendered, 'shell'), 'tool-call/failure');
 }
@@ -222,7 +225,9 @@ function killIdleNode(child) {
     if (process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL');
     else child.kill('SIGKILL');
   } catch {
-    try { child.kill('SIGKILL'); } catch {}
+    try {
+      child.kill('SIGKILL');
+    } catch {}
   }
 }
 
@@ -232,50 +237,50 @@ function killIdleNode(child) {
 // in the shell path looks at its text — and the outcome is read from the
 // processes it left behind.
 // ---------------------------------------------------------------------------
-const DETACHING_SHELL_CASES = (process.platform === 'win32'
-  ? [
-    {
-      name: 'git-bash',
-      shell: 'C:\\Program Files\\Git\\bin\\bash.exe',
-      shellArg: '-lc',
-      detaching: 'sleep 30 &',
-      finishing: 'sleep 1 & wait',
-    },
-    {
-      name: 'pwsh',
-      shell: 'pwsh.exe',
-      shellArg: '-Command',
-      // PowerShell's own `&` job dies with its host, so the detaching idiom
-      // that really survives a pwsh -Command run is Start-Process.
-      detaching: 'Start-Process -NoNewWindow ping -ArgumentList "-n","30","127.0.0.1"',
-      finishing: 'Start-Sleep -Milliseconds 200',
-    },
-    {
-      name: 'cmd',
-      shell: process.env.ComSpec || 'cmd.exe',
-      shellArg: '/c',
-      detaching: 'start /b ping -n 30 127.0.0.1',
-      finishing: 'echo done',
-    },
-  ]
-  : [
-    {
-      name: 'sh',
-      shell: '/bin/sh',
-      shellArg: '-c',
-      detaching: 'sleep 30 &',
-      finishing: 'sleep 1 & wait',
-    },
-    {
-      name: 'bash',
-      shell: '/bin/bash',
-      shellArg: '-lc',
-      detaching: 'sleep 30 &',
-      finishing: 'sleep 1 & wait',
-    },
-  ]).filter((entry) => entry.shell.includes('/') || entry.shell.includes('\\')
-    ? fs.existsSync(entry.shell)
-    : true);
+const DETACHING_SHELL_CASES = (
+  process.platform === 'win32'
+    ? [
+        {
+          name: 'git-bash',
+          shell: 'C:\\Program Files\\Git\\bin\\bash.exe',
+          shellArg: '-lc',
+          detaching: 'sleep 30 &',
+          finishing: 'sleep 1 & wait',
+        },
+        {
+          name: 'pwsh',
+          shell: 'pwsh.exe',
+          shellArg: '-Command',
+          // PowerShell's own `&` job dies with its host, so the detaching idiom
+          // that really survives a pwsh -Command run is Start-Process.
+          detaching: 'Start-Process -NoNewWindow ping -ArgumentList "-n","30","127.0.0.1"',
+          finishing: 'Start-Sleep -Milliseconds 200',
+        },
+        {
+          name: 'cmd',
+          shell: process.env.ComSpec || 'cmd.exe',
+          shellArg: '/c',
+          detaching: 'start /b ping -n 30 127.0.0.1',
+          finishing: 'echo done',
+        },
+      ]
+    : [
+        {
+          name: 'sh',
+          shell: '/bin/sh',
+          shellArg: '-c',
+          detaching: 'sleep 30 &',
+          finishing: 'sleep 1 & wait',
+        },
+        {
+          name: 'bash',
+          shell: '/bin/bash',
+          shellArg: '-lc',
+          detaching: 'sleep 30 &',
+          finishing: 'sleep 1 & wait',
+        },
+      ]
+).filter((entry) => (entry.shell.includes('/') || entry.shell.includes('\\') ? fs.existsSync(entry.shell) : true));
 
 async function runShellCase(entry, command) {
   return execShellCommand({

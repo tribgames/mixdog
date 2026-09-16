@@ -1,8 +1,5 @@
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
-import type {
-  DesktopServiceMethod,
-  SerializableDesktopServiceOptions,
-} from './desktop-service-contract';
+import type { DesktopServiceMethod, SerializableDesktopServiceOptions } from './desktop-service-contract';
 
 export type DesktopServiceInbound =
   | { kind: 'init'; options: SerializableDesktopServiceOptions }
@@ -33,14 +30,14 @@ export type DesktopServiceOutbound =
   | { kind: 'response'; id: number; ok: false; error: DesktopServiceError }
   | { kind: 'state'; sequence: number; wire: unknown }
   | {
-    kind: 'session-state';
-    sessionId: string;
-    wire: unknown;
-    readTraceId?: string;
-    frameSource: 'live' | 'replay';
-    contentRevision?: number;
-    laneEnd?: 'gone' | 'unloaded' | 'disconnected';
-  }
+      kind: 'session-state';
+      sessionId: string;
+      wire: unknown;
+      readTraceId?: string;
+      frameSource: 'live' | 'replay';
+      contentRevision?: number;
+      laneEnd?: 'gone' | 'unloaded' | 'disconnected';
+    }
   | { kind: 'sessions'; sessions: DesktopSessionSummary[] }
   | { kind: 'agent-pool'; agents: DesktopAgentPoolRow[] }
   | { kind: 'desktop-event'; name: string; value: unknown };
@@ -56,9 +53,7 @@ export interface LatestStateMailbox<T> {
  * flight, publications collapse to the newest value; skipped snapshots are
  * never encoded, so revisions stay contiguous and the connection cannot build
  * an unbounded serialization backlog. */
-export function createLatestStateMailbox<T>(
-  send: (sequence: number, value: T) => void,
-): LatestStateMailbox<T> {
+export function createLatestStateMailbox<T>(send: (sequence: number, value: T) => void): LatestStateMailbox<T> {
   let latest: T | undefined;
   let inFlight: number | null = null;
   let nextSequence = 1;

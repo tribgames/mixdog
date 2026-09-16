@@ -26,7 +26,9 @@ function commandExists(command) {
     };
     const child = spawn(command, ['--version'], { windowsHide: true, stdio: 'ignore' });
     timer = setTimeout(() => {
-      try { child.kill(); } catch {}
+      try {
+        child.kill();
+      } catch {}
       finish(false);
     }, SOFFICE_PROBE_TIMEOUT_MS);
     child.once('error', () => finish(false));
@@ -34,31 +36,25 @@ function commandExists(command) {
   });
 }
 
-
 // Headless conversion must never attach to the user's own running LibreOffice:
 // a shared profile makes the second invocation either fail or block until the
 // desktop window closes. Every run gets a throwaway profile of its own.
 function sofficeArgs(profileDir, args) {
-  return [
-    `-env:UserInstallation=${pathToFileURL(profileDir).href}`,
-    '--headless',
-    '--norestore',
-    ...args,
-  ];
+  return [`-env:UserInstallation=${pathToFileURL(profileDir).href}`, '--headless', '--norestore', ...args];
 }
 
-
 async function libreOfficeProgram() {
-  const candidates = process.platform === 'win32'
-    ? [
-        // soffice.com is the console front-end: it reports through stdio and
-        // exits once the conversion finishes. soffice.exe returns early or never,
-        // so a caller awaiting its exit cannot tell when output is ready.
-        'soffice.com',
-        'C:\\Program Files\\LibreOffice\\program\\soffice.com',
-        'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.com',
-      ]
-    : ['soffice', 'libreoffice'];
+  const candidates =
+    process.platform === 'win32'
+      ? [
+          // soffice.com is the console front-end: it reports through stdio and
+          // exits once the conversion finishes. soffice.exe returns early or never,
+          // so a caller awaiting its exit cannot tell when output is ready.
+          'soffice.com',
+          'C:\\Program Files\\LibreOffice\\program\\soffice.com',
+          'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.com',
+        ]
+      : ['soffice', 'libreoffice'];
   for (const candidate of candidates) {
     if (await commandExists(candidate)) return candidate;
   }
@@ -69,7 +65,6 @@ async function libreOfficeProgram() {
 export async function libreOfficeAvailable() {
   return Boolean(await libreOfficeProgram());
 }
-
 
 const MAX_ERROR_LOCATIONS = 100;
 
@@ -101,10 +96,7 @@ export async function workbookFormulaErrors(zip) {
   return { total, byType, unparsed };
 }
 
-export async function recalculateLibreOfficeWorkbook(path, {
-  force = false,
-  signal = null,
-} = {}) {
+export async function recalculateLibreOfficeWorkbook(path, { force = false, signal = null } = {}) {
   const source = await readFile(path);
   const zip = await JSZip.loadAsync(source);
   let formulaCount = 0;
@@ -133,7 +125,8 @@ export async function recalculateLibreOfficeWorkbook(path, {
       recalculated: false,
       formulaCount,
       missingCachedValues,
-      reason: 'Portable formula recalculation currently supports .xlsx only; use Microsoft Office background mode for macro-enabled or template workbooks.',
+      reason:
+        'Portable formula recalculation currently supports .xlsx only; use Microsoft Office background mode for macro-enabled or template workbooks.',
     };
   }
   if (Object.keys(zip.files).some((entry) => /^xl\/externalLinks\//i.test(entry))) {
@@ -168,10 +161,14 @@ export async function recalculateLibreOfficeWorkbook(path, {
   try {
     const result = await new Promise((resolve) => {
       let settled = false;
-      const child = spawn(program, sofficeArgs(join(root, 'profile'), ['--convert-to', 'xlsx', '--outdir', outputDir, input]), {
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
+      const child = spawn(
+        program,
+        sofficeArgs(join(root, 'profile'), ['--convert-to', 'xlsx', '--outdir', outputDir, input]),
+        {
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }
+      );
       let stderr = '';
       const finish = (value) => {
         if (settled) return;
@@ -181,17 +178,27 @@ export async function recalculateLibreOfficeWorkbook(path, {
         resolve(value);
       };
       const onAbort = () => {
-        try { child.kill(); } catch {}
+        try {
+          child.kill();
+        } catch {}
         finish({ recalculated: false, error: 'Portable XLSX recalculation was cancelled' });
       };
       child.stderr.setEncoding('utf8');
-      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk;
+      });
       child.once('error', (error) => finish({ recalculated: false, error: error?.message || String(error) }));
-      child.once('close', (code) => finish(code === 0
-        ? { recalculated: true }
-        : { recalculated: false, error: stderr.trim() || `LibreOffice exited with code ${code}` }));
+      child.once('close', (code) =>
+        finish(
+          code === 0
+            ? { recalculated: true }
+            : { recalculated: false, error: stderr.trim() || `LibreOffice exited with code ${code}` }
+        )
+      );
       timeout = setTimeout(() => {
-        try { child.kill(); } catch {}
+        try {
+          child.kill();
+        } catch {}
         finish({ recalculated: false, error: 'Portable XLSX recalculation timed out after 60 seconds' });
       }, 60_000);
       if (signal?.aborted) onAbort();
@@ -242,7 +249,6 @@ export async function recalculateLibreOfficeWorkbook(path, {
   }
 }
 
-
 export async function validateLibreOfficeReopen(path) {
   const program = await libreOfficeProgram();
   if (!program) return { available: false, opened: false, backend: 'libreoffice' };
@@ -250,30 +256,43 @@ export async function validateLibreOfficeReopen(path) {
   let timeout;
   try {
     const result = await new Promise((resolve) => {
-      const child = spawn(program, sofficeArgs(join(outputDir, 'profile'), ['--convert-to', 'pdf', '--outdir', outputDir, path]), {
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
+      const child = spawn(
+        program,
+        sofficeArgs(join(outputDir, 'profile'), ['--convert-to', 'pdf', '--outdir', outputDir, path]),
+        {
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }
+      );
       let stderr = '';
       child.stderr.setEncoding('utf8');
-      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk;
+      });
       const finish = (value) => {
         clearTimeout(timeout);
         resolve(value);
       };
       timeout = setTimeout(() => {
-        try { child.kill(); } catch {}
+        try {
+          child.kill();
+        } catch {}
         finish({ opened: false, error: 'LibreOffice reopen timed out after 60 seconds' });
       }, 60_000);
       child.once('error', (error) => finish({ opened: false, error: error?.message || String(error) }));
-      child.once('close', (code) => finish(code === 0
-        ? { opened: true }
-        : { opened: false, error: stderr.trim() || `LibreOffice exited with code ${code}` }));
+      child.once('close', (code) =>
+        finish(
+          code === 0
+            ? { opened: true }
+            : { opened: false, error: stderr.trim() || `LibreOffice exited with code ${code}` }
+        )
+      );
     });
     const output = join(outputDir, `${basename(path, extname(path))}.pdf`);
     if (result.opened) {
       const details = await stat(output).catch(() => null);
-      if (!details?.isFile() || details.size <= 0) return { available: true, opened: false, backend: 'libreoffice', error: 'LibreOffice produced no review PDF' };
+      if (!details?.isFile() || details.size <= 0)
+        return { available: true, opened: false, backend: 'libreoffice', error: 'LibreOffice produced no review PDF' };
       return { available: true, opened: true, backend: 'libreoffice', outputBytes: details.size };
     }
     return { available: true, backend: 'libreoffice', ...result };
@@ -283,11 +302,12 @@ export async function validateLibreOfficeReopen(path) {
   }
 }
 
-
 export async function renderPortableOoxml(path, output, { signal = null } = {}) {
   const program = await libreOfficeProgram();
   if (!program) {
-    throw new Error('Portable Office rendering requires LibreOffice; install LibreOffice or open the document in background mode to render through Microsoft Office');
+    throw new Error(
+      'Portable Office rendering requires LibreOffice; install LibreOffice or open the document in background mode to render through Microsoft Office'
+    );
   }
   const outputDir = dirname(output);
   const profileDir = await mkdtemp(join(tmpdir(), 'mixdog-office-render-'));
@@ -308,18 +328,28 @@ export async function renderPortableOoxml(path, output, { signal = null } = {}) 
         operation();
       };
       const onAbort = () => {
-        try { child.kill(); } catch {}
+        try {
+          child.kill();
+        } catch {}
         finish(() => reject(new Error('Office rendering was cancelled')));
       };
       child.stderr.setEncoding('utf8');
-      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk;
+      });
       child.on('error', (error) => finish(() => reject(error)));
-      child.on('close', (code) => finish(() => (
-        code === 0 ? resolve() : reject(new Error(stderr.trim() || `LibreOffice exited with code ${code}`))
-      )));
+      child.on('close', (code) =>
+        finish(() =>
+          code === 0 ? resolve() : reject(new Error(stderr.trim() || `LibreOffice exited with code ${code}`))
+        )
+      );
       timeout = setTimeout(() => {
-        try { child.kill(); } catch {}
-        finish(() => reject(new Error(`LibreOffice rendering timed out after ${SOFFICE_RENDER_TIMEOUT_MS / 1000} seconds`)));
+        try {
+          child.kill();
+        } catch {}
+        finish(() =>
+          reject(new Error(`LibreOffice rendering timed out after ${SOFFICE_RENDER_TIMEOUT_MS / 1000} seconds`))
+        );
       }, SOFFICE_RENDER_TIMEOUT_MS);
       if (signal?.aborted) return onAbort();
       signal?.addEventListener?.('abort', onAbort, { once: true });

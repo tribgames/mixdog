@@ -11,36 +11,70 @@ import { LocalProviderContext } from './local-provider-context';
 /** One installed model as a plain list item: name, size facts, state,
  *  context controls and deletion. Repair and verification stay chat-driven via the
  *  local-provider skill so the card carries no maintenance clutter. */
-export function LocalProviderModelRow({ model, status, actions, details }: {
-  model: RecordValue; status: RecordValue; actions: LocalProviderActions; details: string;
+export function LocalProviderModelRow({
+  model,
+  status,
+  actions,
+  details,
+}: {
+  model: RecordValue;
+  status: RecordValue;
+  actions: LocalProviderActions;
+  details: string;
 }) {
   const [confirmation, setConfirmation] = useState<Parameters<typeof SettingsConfirmDialog>[0]['options'] | null>(null);
-  const id = String(model.id), name = String(model.name || id);
+  const id = String(model.id),
+    name = String(model.name || id);
   const inUse = status.activeModel === id && (status.running === true || status.starting === true);
-  const jobActive = Array.isArray(status.installations) && status.installations.map(record)
-    .some((job) => job.modelId === id && ['running', 'cancelling'].includes(String(job.state)));
+  const jobActive =
+    Array.isArray(status.installations) &&
+    status.installations
+      .map(record)
+      .some((job) => job.modelId === id && ['running', 'cancelling'].includes(String(job.state)));
   const broken = model.installed !== true || record(model.verification).valid === false;
-  const label = model.installed !== true ? t('Needs repair')
-    : record(model.verification).valid === false ? t('Integrity check failed')
-    : inUse && status.starting ? t('Loading model…') : inUse ? t('Running') : t('Installed');
+  const label =
+    model.installed !== true
+      ? t('Needs repair')
+      : record(model.verification).valid === false
+        ? t('Integrity check failed')
+        : inUse && status.starting
+          ? t('Loading model…')
+          : inUse
+            ? t('Running')
+            : t('Installed');
   const requestDelete = async () => {
     const receipt = record(await actions.details(id));
     if (!receipt.confirmationToken || !Array.isArray(receipt.files)) return;
-    const paths = receipt.files.map(record).map((file) => String(file.path)).join('\n');
+    const paths = receipt.files
+      .map(record)
+      .map((file) => String(file.path))
+      .join('\n');
     setConfirmation({
-      title: 'Delete model?', danger: true, confirmLabel: 'Delete',
+      title: 'Delete model?',
+      danger: true,
+      confirmLabel: 'Delete',
       description: `${name}\n${paths}\n${t('Permanently deletes these files. Recovery requires downloading the model again.')}`,
       onConfirm: () => actions.deleteModel(String(receipt.confirmationToken)),
     });
   };
-  return <>
-    <ExtensionItemRow icon={<Cpu size={15} aria-hidden="true" />} title={name} description={details}
-      tone={broken ? 'warn' : inUse ? 'ok' : 'muted'} status={label}
-      control={<div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-        {!broken && <LocalProviderContext model={model} status={status} actions={actions} />}
-        <ExtensionAction danger disabled={actions.busy || jobActive || inUse}
-          onClick={() => void requestDelete()}>{t('Delete')}</ExtensionAction>
-      </div>} />
-    {confirmation && <SettingsConfirmDialog options={confirmation} onClose={() => setConfirmation(null)} />}
-  </>;
+  return (
+    <>
+      <ExtensionItemRow
+        icon={<Cpu size={15} aria-hidden="true" />}
+        title={name}
+        description={details}
+        tone={broken ? 'warn' : inUse ? 'ok' : 'muted'}
+        status={label}
+        control={
+          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+            {!broken && <LocalProviderContext model={model} status={status} actions={actions} />}
+            <ExtensionAction danger disabled={actions.busy || jobActive || inUse} onClick={() => void requestDelete()}>
+              {t('Delete')}
+            </ExtensionAction>
+          </div>
+        }
+      />
+      {confirmation && <SettingsConfirmDialog options={confirmation} onClose={() => setConfirmation(null)} />}
+    </>
+  );
 }

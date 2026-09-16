@@ -4,10 +4,16 @@ import { createBrowserPageClient } from './browser-page-client.ts';
 import { BROWSER_INPUT_BUSY, BROWSER_INPUT_WAIT_MS } from '../shared/browser-input-policy.ts';
 import { normalizeBrowserPageControl } from '../shared/browser-page-control.ts';
 
-const tick = () => new Promise(resolve => setImmediate(resolve));
+const tick = () => new Promise((resolve) => setImmediate(resolve));
 const pointer = (phase, x, buttons = 0) => ({
-  type: 'pointer', phase, x, y: 10, buttons, button: buttons ? 'left' : 'none',
-  modifiers: 0, clickCount: 1,
+  type: 'pointer',
+  phase,
+  x,
+  y: 10,
+  buttons,
+  button: buttons ? 'left' : 'none',
+  modifiers: 0,
+  clickCount: 1,
 });
 const wheel = (deltaY = 10, x = 10) => ({ type: 'wheel', x, y: 10, deltaX: 0, deltaY });
 
@@ -22,16 +28,22 @@ test('interleaved passive motion and scrolling retain distance without overflowi
     f.release();
     await f.held;
     await f.client.control({ type: 'key', key: 'Tab' });
-    const wheels = f.sent.filter(a => a.type === 'wheel');
-    const moves = f.sent.filter(a => a.phase === 'mouseMoved');
-    assert.equal(wheels.reduce((sum, a) => sum + a.deltaY, 0), 2000);
+    const wheels = f.sent.filter((a) => a.type === 'wheel');
+    const moves = f.sent.filter((a) => a.phase === 'mouseMoved');
+    assert.equal(
+      wheels.reduce((sum, a) => sum + a.deltaY, 0),
+      2000
+    );
     assert.ok(wheels.length < 128);
     assert.equal(moves.at(-1).x, 10);
     assert.deepEqual(f.failures, []);
-  } finally { f.release(); f.client.dispose(); }
+  } finally {
+    f.release();
+    f.client.dispose();
+  }
 });
 
-test('latest geometry survives the input deadline and applies while an edit is still blocked', async t => {
+test('latest geometry survives the input deadline and applies while an edit is still blocked', async (t) => {
   let now = 0;
   t.mock.method(performance, 'now', () => now);
   const f = await fixture();
@@ -42,9 +54,16 @@ test('latest geometry survives the input deadline and applies while an edit is s
     now += BROWSER_INPUT_WAIT_MS + 1;
     // A native control behind resize drains only the independent chrome lane.
     await f.client.control({ type: 'stop' });
-    assert.deepEqual(f.sent.filter(a => a.type === 'resize').map(a => [a.width, a.height]), [[1100, 700]]);
+    assert.deepEqual(
+      f.sent.filter((a) => a.type === 'resize').map((a) => [a.width, a.height]),
+      [[1100, 700]]
+    );
     assert.deepEqual(f.failures, []);
-  } finally { f.release(); await f.held; f.client.dispose(); }
+  } finally {
+    f.release();
+    await f.held;
+    f.client.dispose();
+  }
 });
 
 test('tab controls escape stalled edits and invalidate unstarted input even after switching back', async () => {
@@ -55,30 +74,53 @@ test('tab controls escape stalled edits and invalidate unstarted input even afte
     await f.client.control({ type: 'select-tab', tabId: 'p1' });
     await f.client.control({ type: 'new-tab' });
     await f.client.control({ type: 'close-tab', tabId: 'p2' });
-    assert.deepEqual(f.sent.slice(1).map(a => a.type), ['select-tab', 'select-tab', 'new-tab', 'close-tab']);
+    assert.deepEqual(
+      f.sent.slice(1).map((a) => a.type),
+      ['select-tab', 'select-tab', 'new-tab', 'close-tab']
+    );
     f.release();
     await Promise.all([f.held, oldEdit]);
     await f.client.control({ type: 'text', text: 'fresh' });
-    assert.equal(f.sent.some(a => a.text === 'do not revive'), false);
+    assert.equal(
+      f.sent.some((a) => a.text === 'do not revive'),
+      false
+    );
     assert.equal(f.sent.at(-1).text, 'fresh');
-  } finally { f.release(); f.client.dispose(); }
+  } finally {
+    f.release();
+    f.client.dispose();
+  }
 });
 
 async function fixture() {
   let release;
-  const gate = new Promise(resolve => { release = resolve; });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
   const sent = [];
   const failures = [];
   let unconfirmed = '';
   let recoveries = 0;
   const client = createBrowserPageClient({
-    sessionId: 's', update() {}, failure: error => failures.push(error),
-    recovered: () => { recoveries++; },
-    unconfirmedText: value => { unconfirmed = value; },
+    sessionId: 's',
+    update() {},
+    failure: (error) => failures.push(error),
+    recovered: () => {
+      recoveries++;
+    },
+    unconfirmedText: (value) => {
+      unconfirmed = value;
+    },
     api: {
       browserPageFrame: async () => ({
-        documentId: 'p1:1', frameId: 'f1', webContentsId: 1, url: 'https://example.test',
-        width: 800, height: 600, viewportWidth: 800, viewportHeight: 600,
+        documentId: 'p1:1',
+        frameId: 'f1',
+        webContentsId: 1,
+        url: 'https://example.test',
+        width: 800,
+        height: 600,
+        viewportWidth: 800,
+        viewportHeight: 600,
       }),
       browserPageControl: async (_session, action) => {
         normalizeBrowserPageControl(action);
@@ -101,11 +143,17 @@ test('wheel bursts preserve distance within transport limits without overflowing
     f.release();
     await f.held;
     await f.client.control({ type: 'key', key: 'Tab' });
-    const wheels = f.sent.filter(action => action.type === 'wheel');
-    assert.equal(wheels.reduce((total, action) => total + action.deltaY, 0), 120_000);
+    const wheels = f.sent.filter((action) => action.type === 'wheel');
+    assert.equal(
+      wheels.reduce((total, action) => total + action.deltaY, 0),
+      120_000
+    );
     assert.ok(wheels.length < 128);
     assert.deepEqual(f.failures, []);
-  } finally { f.release(); f.client.dispose(); }
+  } finally {
+    f.release();
+    f.client.dispose();
+  }
 });
 
 test('wheel merging preserves target, direction, and intervening input order', async () => {
@@ -119,11 +167,20 @@ test('wheel merging preserves target, direction, and intervening input order', a
     f.release();
     await f.held;
     await f.client.control({ type: 'text', text: 'barrier' });
-    assert.deepEqual(f.sent.slice(1, -1).map(a => [a.type, a.x, a.deltaY]), [
-      ['wheel', 10, 10], ['wheel', 10, -10], ['wheel', 20, -10],
-      ['key', undefined, undefined], ['wheel', 20, -10],
-    ]);
-  } finally { f.release(); f.client.dispose(); }
+    assert.deepEqual(
+      f.sent.slice(1, -1).map((a) => [a.type, a.x, a.deltaY]),
+      [
+        ['wheel', 10, 10],
+        ['wheel', 10, -10],
+        ['wheel', 20, -10],
+        ['key', undefined, undefined],
+        ['wheel', 20, -10],
+      ]
+    );
+  } finally {
+    f.release();
+    f.client.dispose();
+  }
 });
 
 test('rejected motion can be sent again after congestion clears and successful input signals recovery', async () => {
@@ -138,9 +195,15 @@ test('rejected motion can be sent again after congestion clears and successful i
     await tick();
     f.client.fire(pointer('mouseMoved', 9));
     await f.client.control({ type: 'key', key: 'Tab' });
-    assert.deepEqual(f.sent.filter(a => a.phase === 'mouseMoved').map(a => a.x), [9]);
+    assert.deepEqual(
+      f.sent.filter((a) => a.phase === 'mouseMoved').map((a) => a.x),
+      [9]
+    );
     assert.ok(f.recoveries() > 0);
-  } finally { f.release(); f.client.dispose(); }
+  } finally {
+    f.release();
+    f.client.dispose();
+  }
 });
 
 test('coalescing never moves drag motion across a press, release, or direct control call', async () => {
@@ -155,14 +218,23 @@ test('coalescing never moves drag motion across a press, release, or direct cont
     f.release();
     await Promise.all([f.held, down]);
     await f.client.control({ type: 'text', text: 'barrier' });
-    assert.deepEqual(f.sent.filter(a => a.type === 'pointer').map(a => [a.phase, a.x, a.buttons]), [
-      ['mouseMoved', 10, 0], ['mousePressed', 10, 1], ['mouseMoved', 30, 1],
-      ['mouseReleased', 30, 0], ['mouseMoved', 40, 0],
-    ]);
-  } finally { f.release(); f.client.dispose(); }
+    assert.deepEqual(
+      f.sent.filter((a) => a.type === 'pointer').map((a) => [a.phase, a.x, a.buttons]),
+      [
+        ['mouseMoved', 10, 0],
+        ['mousePressed', 10, 1],
+        ['mouseMoved', 30, 1],
+        ['mouseReleased', 30, 0],
+        ['mouseMoved', 40, 0],
+      ]
+    );
+  } finally {
+    f.release();
+    f.client.dispose();
+  }
 });
 
-test('expired pointer gestures are not replayed, while an already-sent press is released', async t => {
+test('expired pointer gestures are not replayed, while an already-sent press is released', async (t) => {
   let now = 0;
   t.mock.method(performance, 'now', () => now);
   const f = await fixture();
@@ -176,14 +248,20 @@ test('expired pointer gestures are not replayed, while an already-sent press is 
     now += BROWSER_INPUT_WAIT_MS + 1;
     await assert.rejects(edit, /input expired; input was not sent/);
     await release;
-    assert.equal(f.sent.some(a => a.phase === 'mousePressed' && a.x === 20), false);
+    assert.equal(
+      f.sent.some((a) => a.phase === 'mousePressed' && a.x === 20),
+      false
+    );
     assert.equal(f.sent.at(-1).phase, 'mouseReleased');
     await f.client.control({ type: 'text', text: 'fresh' });
     assert.equal(f.sent.at(-1).text, 'fresh');
-  } finally { f.release(); f.client.dispose(); }
+  } finally {
+    f.release();
+    f.client.dispose();
+  }
 });
 
-test('a rejected focus gesture preserves subsequent unsent text without replaying it on the wrong field', async t => {
+test('a rejected focus gesture preserves subsequent unsent text without replaying it on the wrong field', async (t) => {
   let now = 0;
   t.mock.method(performance, 'now', () => now);
   const f = await fixture();
@@ -197,39 +275,63 @@ test('a rejected focus gesture preserves subsequent unsent text without replayin
     await Promise.all([f.held, batch]);
     assert.equal(f.failures.length, 1);
     assert.match(f.failures[0], /input expired/);
-    assert.equal(f.sent.some(action => action.text?.startsWith('old-')), false);
+    assert.equal(
+      f.sent.some((action) => action.text?.startsWith('old-')),
+      false
+    );
     assert.equal(f.unconfirmed(), Array.from({ length: 8 }, (_, index) => `old-${index}`).join(''));
     await f.client.control({ type: 'text', text: 'fresh' });
     assert.equal(f.sent.at(-1).text, 'fresh');
     assert.equal(f.failures.length, 1);
-  } finally { f.release(); f.client.dispose(); }
+  } finally {
+    f.release();
+    f.client.dispose();
+  }
 });
 
-test('slow preceding input does not expire Korean/English typing or reorder editing keys', async t => {
+test('slow preceding input does not expire Korean/English typing or reorder editing keys', async (t) => {
   let now = 0;
   t.mock.method(performance, 'now', () => now);
   const f = await fixture();
   try {
-    for (const text of ['ㅎ', '하', '한']) f.client.fire({
-      type: 'composition', text, selectionStart: 1, selectionEnd: 1,
-    });
+    for (const text of ['ㅎ', '하', '한'])
+      f.client.fire({
+        type: 'composition',
+        text,
+        selectionStart: 1,
+        selectionEnd: 1,
+      });
     f.client.fire({ type: 'composition-end', text: '한' });
-    for (const text of ['ㄱ', '그', '글']) f.client.fire({
-      type: 'composition', text, selectionStart: 1, selectionEnd: 1,
-    });
+    for (const text of ['ㄱ', '그', '글'])
+      f.client.fire({
+        type: 'composition',
+        text,
+        selectionStart: 1,
+        selectionEnd: 1,
+      });
     f.client.fire({ type: 'composition-end', text: '글' });
     for (const text of ' abc') f.client.fire({ type: 'text', text });
     const end = f.client.control({ type: 'key', key: 'Backspace' });
     now = BROWSER_INPUT_WAIT_MS + 1000;
     f.release();
     await Promise.all([f.held, end]);
-    assert.deepEqual(f.sent.slice(1).map(({ type, text, key }) => [type, text ?? key]), [
-      ['composition', '한'], ['composition-end', '한'],
-      ['composition', '글'], ['composition-end', '글'], ['text', ' abc'], ['key', 'Backspace'],
-    ]);
+    assert.deepEqual(
+      f.sent.slice(1).map(({ type, text, key }) => [type, text ?? key]),
+      [
+        ['composition', '한'],
+        ['composition-end', '한'],
+        ['composition', '글'],
+        ['composition-end', '글'],
+        ['text', ' abc'],
+        ['key', 'Backspace'],
+      ]
+    );
     assert.deepEqual(f.failures, []);
     assert.equal(f.unconfirmed(), '');
-  } finally { f.release(); f.client.dispose(); }
+  } finally {
+    f.release();
+    f.client.dispose();
+  }
 });
 
 test('unconfirmed text remains recoverable in input order and is never automatically resent', async () => {
@@ -242,10 +344,16 @@ test('unconfirmed text remains recoverable in input order and is never automatic
     f.release();
     await Promise.all([f.held, ...pending]);
     assert.equal(f.unconfirmed(), Array.from({ length: 127 }, (_, i) => String(i)).join('') + '한글 복구');
-    assert.equal(f.sent.some(row => row.text === '한글 복구'), false);
+    assert.equal(
+      f.sent.some((row) => row.text === '한글 복구'),
+      false
+    );
     f.client.clearUnconfirmedText();
     assert.equal(f.unconfirmed(), '');
-  } finally { f.release(); f.client.dispose(); }
+  } finally {
+    f.release();
+    f.client.dispose();
+  }
 });
 
 test('stop and reload bypass a blocked client without releasing the fence for ordinary input', async () => {
@@ -254,9 +362,18 @@ test('stop and reload bypass a blocked client without releasing the fence for or
     const queued = f.client.control({ type: 'text', text: 'queued' });
     await f.client.control({ type: 'stop' });
     await f.client.control({ type: 'reload' });
-    assert.deepEqual(f.sent.map(a => a.type), ['text', 'stop', 'reload']);
-    assert.equal(f.sent.some(a => a.text === 'queued'), false);
+    assert.deepEqual(
+      f.sent.map((a) => a.type),
+      ['text', 'stop', 'reload']
+    );
+    assert.equal(
+      f.sent.some((a) => a.text === 'queued'),
+      false
+    );
     f.release();
     await Promise.all([f.held, queued]);
-  } finally { f.release(); f.client.dispose(); }
+  } finally {
+    f.release();
+    f.client.dispose();
+  }
 });

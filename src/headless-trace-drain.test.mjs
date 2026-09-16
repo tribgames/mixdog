@@ -10,7 +10,12 @@ for (const failure of ['none', 'ask', 'close']) {
     const root = mkdtempSync(join(tmpdir(), 'mixdog-headless-trace-'));
     const tracePath = join(root, 'agent-trace.jsonl');
     try {
-      const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      const child = spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `
         import fsPromises from 'node:fs/promises';
         import { existsSync, readFileSync } from 'node:fs';
         import { syncBuiltinESMExports } from 'node:module';
@@ -68,26 +73,32 @@ for (const failure of ['none', 'ask', 'close']) {
           beforeBoundaryCleanup, beforeExit: readSequences(),
         }));
         process.exit(code);
-      `], {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          MIXDOG_RUNTIME_ROOT: join(root, 'runtime'),
-          MIXDOG_AGENT_TRACE_PATH: tracePath,
-          MIXDOG_AGENT_TRACE_DISABLE: '',
-          MIXDOG_AGENT_TRACE_LOCAL_DISABLE: '',
-          MIXDOG_DISABLE_TOOL_PREWARM: '1',
-        },
-      });
+      `,
+        ],
+        {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            MIXDOG_RUNTIME_ROOT: join(root, 'runtime'),
+            MIXDOG_AGENT_TRACE_PATH: tracePath,
+            MIXDOG_AGENT_TRACE_DISABLE: '',
+            MIXDOG_AGENT_TRACE_LOCAL_DISABLE: '',
+            MIXDOG_DISABLE_TOOL_PREWARM: '1',
+          },
+        }
+      );
       assert.equal(child.status, failure === 'none' ? 0 : 1, child.stderr);
       const expected = Array.from({ length: 101 }, (_, i) => i);
       const observed = JSON.parse(child.stdout);
       assert.deepEqual(observed.beforeBoundaryCleanup, expected);
       assert.deepEqual(observed.beforeExit, expected);
-      const persisted = readFileSync(tracePath, 'utf8').split(/\r?\n/)
-        .filter(Boolean).map(JSON.parse)
-        .filter(row => row.kind === 'exit-test').map(row => row.sequence);
+      const persisted = readFileSync(tracePath, 'utf8')
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map(JSON.parse)
+        .filter((row) => row.kind === 'exit-test')
+        .map((row) => row.sequence);
       assert.deepEqual(persisted, expected);
     } finally {
       rmSync(root, { recursive: true, force: true });

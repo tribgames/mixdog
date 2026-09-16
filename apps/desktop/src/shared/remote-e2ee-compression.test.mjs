@@ -19,13 +19,18 @@ test('bounded transforms stop reading and cancel on cumulative overflow', async 
   let pulls = 0;
   let cancelled;
   const stream = {
-    readable: new ReadableStream({
-      pull(controller) {
-        pulls += 1;
-        controller.enqueue(new Uint8Array(3));
+    readable: new ReadableStream(
+      {
+        pull(controller) {
+          pulls += 1;
+          controller.enqueue(new Uint8Array(3));
+        },
+        cancel(reason) {
+          cancelled = reason;
+        },
       },
-      cancel(reason) { cancelled = reason; },
-    }, { highWaterMark: 0 }),
+      { highWaterMark: 0 }
+    ),
     writable: new WritableStream(),
   };
   await assert.rejects(runBoundedByteTransform(new Uint8Array(), stream, 5), /exceeds 5 bytes/);
@@ -48,11 +53,15 @@ test('authenticated expansion overflow rejects without poisoning the channel que
   async function frame(plaintext) {
     const nonce = crypto.getRandomValues(new Uint8Array(12));
     const current = ++sequence;
-    const ciphertext = await crypto.subtle.encrypt({
-      name: 'AES-GCM',
-      iv: nonce,
-      additionalData: new TextEncoder().encode(`mixdog-relay-e2ee-v1\0client-to-server\0${current}`),
-    }, key, plaintext);
+    const ciphertext = await crypto.subtle.encrypt(
+      {
+        name: 'AES-GCM',
+        iv: nonce,
+        additionalData: new TextEncoder().encode(`mixdog-relay-e2ee-v1\0client-to-server\0${current}`),
+      },
+      key,
+      plaintext
+    );
     return JSON.stringify({
       type: 'e2ee-box',
       version: 1,

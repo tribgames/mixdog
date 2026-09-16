@@ -14,7 +14,9 @@ type PushApi = Partial<DesktopApi>;
  *  BufferSource; the buffer is allocated at the exact length so passing it
  *  whole stays equivalent to the view. */
 function bufferFromBase64Url(value: string): ArrayBuffer {
-  const normalized = String(value || '').replace(/-/gu, '+').replace(/_/gu, '/');
+  const normalized = String(value || '')
+    .replace(/-/gu, '+')
+    .replace(/_/gu, '/');
   const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
   const raw = window.atob(padded);
   const buffer = new ArrayBuffer(raw.length);
@@ -24,12 +26,14 @@ function bufferFromBase64Url(value: string): ArrayBuffer {
 }
 
 function pushSupported(api: PushApi): boolean {
-  return typeof window !== 'undefined'
-    && window.isSecureContext
-    && 'Notification' in window
-    && 'serviceWorker' in navigator
-    && 'PushManager' in window
-    && typeof api.pushPublicKey === 'function';
+  return (
+    typeof window !== 'undefined' &&
+    window.isSecureContext &&
+    'Notification' in window &&
+    'serviceWorker' in navigator &&
+    'PushManager' in window &&
+    typeof api.pushPublicKey === 'function'
+  );
 }
 
 export function PushNotificationToggle({ api }: { api: PushApi }) {
@@ -48,62 +52,80 @@ export function PushNotificationToggle({ api }: { api: PushApi }) {
       .then((subscription) => {
         if (live) setEnabled(Boolean(subscription));
       })
-      .catch(() => { /* worker not ready yet; the toggle stays off */ });
-    return () => { live = false; };
+      .catch(() => {
+        /* worker not ready yet; the toggle stays off */
+      });
+    return () => {
+      live = false;
+    };
   }, [supported]);
 
-  const change = useCallback((next: boolean) => {
-    if (busy) return;
-    setBusy(true);
-    setNote('');
-    void (async () => {
-      const registration = await navigator.serviceWorker.ready;
-      if (!next) {
-        const subscription = await registration.pushManager.getSubscription();
-        if (subscription) {
-          // Server first: a browser-side unsubscribe that outlives a failed
-          // call would leave this desktop pushing at a dead endpoint for days.
-          await api.removePushSubscription?.(subscription.endpoint).catch(() => false);
-          await subscription.unsubscribe().catch(() => false);
+  const change = useCallback(
+    (next: boolean) => {
+      if (busy) return;
+      setBusy(true);
+      setNote('');
+      void (async () => {
+        const registration = await navigator.serviceWorker.ready;
+        if (!next) {
+          const subscription = await registration.pushManager.getSubscription();
+          if (subscription) {
+            // Server first: a browser-side unsubscribe that outlives a failed
+            // call would leave this desktop pushing at a dead endpoint for days.
+            await api.removePushSubscription?.(subscription.endpoint).catch(() => false);
+            await subscription.unsubscribe().catch(() => false);
+          }
+          setEnabled(false);
+          return;
         }
-        setEnabled(false);
-        return;
-      }
-      // Must run inside the click: iOS only grants permission on a gesture.
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
-        setEnabled(false);
-        setNote(permission === 'denied'
-          ? 'Notifications are blocked for this app. Allow them in your browser or system settings first.'
-          : 'Notification permission was dismissed.');
-        return;
-      }
-      const publicKey = await api.pushPublicKey?.();
-      if (!publicKey) throw new Error('missing key');
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: bufferFromBase64Url(publicKey),
-      });
-      const keys = subscription.toJSON().keys ?? {};
-      await api.registerPushSubscription?.({
-        endpoint: subscription.endpoint,
-        p256dh: String(keys.p256dh || ''),
-        auth: String(keys.auth || ''),
-      });
-      setEnabled(true);
-    })()
-      .catch(() => {
-        setEnabled(false);
-        setNote('Could not turn notifications on. Check the connection to your desktop and try again.');
-      })
-      .finally(() => setBusy(false));
-  }, [api, busy]);
+        // Must run inside the click: iOS only grants permission on a gesture.
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          setEnabled(false);
+          setNote(
+            permission === 'denied'
+              ? 'Notifications are blocked for this app. Allow them in your browser or system settings first.'
+              : 'Notification permission was dismissed.'
+          );
+          return;
+        }
+        const publicKey = await api.pushPublicKey?.();
+        if (!publicKey) throw new Error('missing key');
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: bufferFromBase64Url(publicKey),
+        });
+        const keys = subscription.toJSON().keys ?? {};
+        await api.registerPushSubscription?.({
+          endpoint: subscription.endpoint,
+          p256dh: String(keys.p256dh || ''),
+          auth: String(keys.auth || ''),
+        });
+        setEnabled(true);
+      })()
+        .catch(() => {
+          setEnabled(false);
+          setNote('Could not turn notifications on. Check the connection to your desktop and try again.');
+        })
+        .finally(() => setBusy(false));
+    },
+    [api, busy]
+  );
 
   if (!supported) return null;
-  return <Group title={t('Notifications')}
-    description={t('Get a notification on this device when a task finishes, even while the app is closed.')}>
-    <ToggleRow title={t('Notify me when a task finishes')} checked={enabled} disabled={busy}
-      optimistic={false} onChange={change} />
-    {note && <p className="settings-connection-note">{t(note)}</p>}
-  </Group>;
+  return (
+    <Group
+      title={t('Notifications')}
+      description={t('Get a notification on this device when a task finishes, even while the app is closed.')}
+    >
+      <ToggleRow
+        title={t('Notify me when a task finishes')}
+        checked={enabled}
+        disabled={busy}
+        optimistic={false}
+        onChange={change}
+      />
+      {note && <p className="settings-connection-note">{t(note)}</p>}
+    </Group>
+  );
 }

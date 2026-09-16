@@ -12,8 +12,12 @@ test('routine remote performance reports use the info channel, never the error c
   let errors = 0;
   const originalInfo = console.info;
   const originalError = console.error;
-  console.info = (message) => { info.push(String(message)); };
-  console.error = () => { errors += 1; };
+  console.info = (message) => {
+    info.push(String(message));
+  };
+  console.error = () => {
+    errors += 1;
+  };
   try {
     reportRemoteByteWindow({
       windowMs: 60_000,

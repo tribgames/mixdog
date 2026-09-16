@@ -61,10 +61,7 @@ import {
 } from './command';
 import { createBrowserCommandQueue } from './command-queue';
 import { createBrowserPresentationReads } from './presentation-reads';
-import {
-  type BrowserCredentialFillResult,
-  createBrowserCredentialFill,
-} from './credential-autofill';
+import { type BrowserCredentialFillResult, createBrowserCredentialFill } from './credential-autofill';
 import { DIALOG_BRIDGE_UNINSTALL_SCRIPT } from './dialog-bridge';
 import { createBrowserDialogReport } from './dialog-report';
 import { createBrowserDocuments } from './documents';
@@ -84,10 +81,7 @@ import { createBrowserDisplayCapture } from './display-capture';
 import { createBrowserDisplayTextures } from './display-textures';
 import { createBrowserPartition } from './partition';
 import { createBrowserPerformanceCommands } from './performance';
-import {
-  normalizeBrowserPostcondition,
-  normalizeBrowserSettleMs,
-} from './postcondition';
+import { normalizeBrowserPostcondition, normalizeBrowserSettleMs } from './postcondition';
 import {
   BrowserProfileImportService,
   defaultNativeBrowserImporterPath,
@@ -103,11 +97,7 @@ import { createBrowserRefPoints } from './ref-points';
 import { createBrowserRemoteControl } from './remote-control';
 import { createBrowserReply } from './reply';
 import { createBrowserScreenshotService } from './screenshot';
-import {
-  BrowserSessionRegistry,
-  DEFAULT_BROWSER_SESSION_ID,
-  browserSessionId,
-} from './session-registry';
+import { BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID, browserSessionId } from './session-registry';
 import { createBrowserSettle, pause } from './settle';
 import { createBrowserSessionStore } from './browser-session-store';
 import { createBrowserSnapshotCapture } from './snapshot-capture';
@@ -132,27 +122,14 @@ export interface BrowserHost {
   setBridgeEnabled(enabled: boolean): void;
   releaseSession(sessionId: string, options?: { restore?: boolean }): void;
   setGuestActive(sessionId: string, webContentsId: number, active: boolean): void;
-  configureGuestViewport(
-    sessionId: string,
-    webContentsId: number,
-    config: DesktopBrowserViewportConfig,
-  ): Promise<void>;
+  configureGuestViewport(sessionId: string, webContentsId: number, config: DesktopBrowserViewportConfig): Promise<void>;
   browserImportSources(): Promise<BrowserImportSource[]>;
   browserImport(request: BrowserImportRequest): Promise<BrowserImportResult>;
   browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]>;
   browserCredentialSuggestions(sessionId: string): Promise<BrowserCredentialSuggestion[]>;
-  browserCredentialFill(
-    sessionId: string,
-    credentialId: string,
-  ): Promise<BrowserCredentialFillResult>;
-  remoteBrowserFrame(
-    sessionId: string,
-    previousFrameId?: string,
-  ): Promise<DesktopRemoteBrowserFrame>;
-  remoteBrowserControl(
-    sessionId: string,
-    input: DesktopRemoteBrowserControl,
-  ): Promise<void>;
+  browserCredentialFill(sessionId: string, credentialId: string): Promise<BrowserCredentialFillResult>;
+  remoteBrowserFrame(sessionId: string, previousFrameId?: string): Promise<DesktopRemoteBrowserFrame>;
+  remoteBrowserControl(sessionId: string, input: DesktopRemoteBrowserControl): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -172,7 +149,7 @@ export function createBrowserHost(
     onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
     requestApproval?: (request: BrowserApprovalRequest, signal?: AbortSignal) => Promise<boolean>;
     chooseBrowserFiles?: (multiple: boolean) => Promise<{ canceled: boolean; filePaths: string[] }>;
-  } = {},
+  } = {}
 ): BrowserHost {
   const state = new BrowserGuestStateStore();
   const approvals = createBrowserActionApproval({
@@ -253,13 +230,21 @@ export function createBrowserHost(
     loadTimeoutMs: ACTION_SETTLE_LOAD_TIMEOUT_MS,
   });
   const displayTextures = createBrowserDisplayTextures({
-    document: guest => browserDocumentId(state, guest),
-    importTexture: (texture, released) => sharedTexture.importSharedTexture({
-      textureInfo: texture.textureInfo, allReferencesReleased: released,
-    }),
-    send: (texture, sessionId, id) => sharedTexture.sendSharedTexture({
-      frame: window.webContents.mainFrame, importedSharedTexture: texture,
-    }, sessionId, id),
+    document: (guest) => browserDocumentId(state, guest),
+    importTexture: (texture, released) =>
+      sharedTexture.importSharedTexture({
+        textureInfo: texture.textureInfo,
+        allReferencesReleased: released,
+      }),
+    send: (texture, sessionId, id) =>
+      sharedTexture.sendSharedTexture(
+        {
+          frame: window.webContents.mainFrame,
+          importedSharedTexture: texture,
+        },
+        sessionId,
+        id
+      ),
   });
   const lifecycle = createBrowserGuestLifecycle({
     window,
@@ -272,35 +257,29 @@ export function createBrowserHost(
     isBackgroundBusy: (sessionId, name) => commandChains.has(`session:${sessionId}:background:${name}`),
     waitForLoadSettle: settle.waitForLoadSettle,
     onPopup: (opener, popup) => taskLifecycle.inherit(opener, popup),
-    onGuest: guest => displayTextures.attach(guest),
+    onGuest: (guest) => displayTextures.attach(guest),
   });
   const taskLifecycle = createBrowserTaskLifecycle<WebContents>({
-    current: sessionId => browserSessions.currentGuest(sessionId),
+    current: (sessionId) => browserSessions.currentGuest(sessionId),
     select: (sessionId, guest) => browserSessions.selectGuest(sessionId, guest),
-    close: guest => BrowserWindow.fromWebContents(guest)?.destroy(),
-    canClose: guest => !state.for(guest).pendingDialog,
-    preserve: guest => {
+    close: (guest) => BrowserWindow.fromWebContents(guest)?.destroy(),
+    canClose: (guest) => !state.for(guest).pendingDialog,
+    preserve: (guest) => {
       const owner = browserSessions.sessionIdForGuest(guest);
       const page = owner ? browserSessions.backgroundPageForGuest(owner, guest) : undefined;
       if (page) page.keepAlive = true;
     },
-    surface: (sessionId, request) => sendToRenderer(
-      DESKTOP_IPC.browserOpenRequested, { sessionId, ...request },
-    ),
+    surface: (sessionId, request) => sendToRenderer(DESKTOP_IPC.browserOpenRequested, { sessionId, ...request }),
   });
   const retainGuest = taskLifecycle.retain;
   const dispatchInput = createBrowserInputDispatch({
     cdp,
-    documentId: guest => browserDocumentId(state, guest),
+    documentId: (guest) => browserDocumentId(state, guest),
     frames: (guest) => state.for(guest).cdpSessions,
     frameOffset: (guest, sessionId, signal) => snapshots.frameOffsetForSession(guest, sessionId, signal),
   });
   const input = createBrowserInputDriver(dispatchInput);
-  const screenshots = createBrowserScreenshotService(
-    cdp,
-    SCREENSHOT_TIMEOUT_MS,
-    SCREENSHOT_FALLBACK_TIMEOUT_MS,
-  );
+  const screenshots = createBrowserScreenshotService(cdp, SCREENSHOT_TIMEOUT_MS, SCREENSHOT_FALLBACK_TIMEOUT_MS);
   const snapshots = createBrowserSnapshotCapture({
     evaluate: cdp.evaluate,
     cdp,
@@ -333,12 +312,13 @@ export function createBrowserHost(
     captureSnapshotPayload: snapshots.captureSnapshotPayload,
     captureScreenshot: screenshots.capture,
     bindVisualGrounding: refPoints.bindVisualGrounding,
-    downloadsForGuest: (guest) => downloadLedger.downloadsForSession(
-      browserSessions.sessionIdForGuest(guest) ?? DEFAULT_BROWSER_SESSION_ID,
-    ),
+    downloadsForGuest: (guest) =>
+      downloadLedger.downloadsForSession(browserSessions.sessionIdForGuest(guest) ?? DEFAULT_BROWSER_SESSION_ID),
   });
   const refActions = createBrowserRefActions({
-    rememberSecret: (guest, value) => { state.rememberSecret(guest, value); },
+    rememberSecret: (guest, value) => {
+      state.rememberSecret(guest, value);
+    },
     accessibilityRefs: (guest) => state.peek(guest)?.accessibilityRefs,
     callAccessibilityRef: snapshots.callAccessibilityRef,
     evaluate: cdp.evaluate,
@@ -390,10 +370,12 @@ export function createBrowserHost(
       // Only the selected page may reframe the pane, including a selected popup.
       if (!sessionId || browserSessions.currentGuest(sessionId) !== guest) return;
       sendToRenderer(DESKTOP_IPC.browserGuestViewportChanged, {
-        sessionId, webContentsId: guest.id, viewport,
+        sessionId,
+        webContentsId: guest.id,
+        viewport,
       });
     },
-    beginViewportChange: guest => pageSurface.beginViewportChange(guest),
+    beginViewportChange: (guest) => pageSurface.beginViewportChange(guest),
   });
   const pageState = createBrowserPageState({
     partitionSession,
@@ -414,9 +396,7 @@ export function createBrowserHost(
     input,
     urlPolicy: browserUrlPolicy,
     ensureGuest: lifecycle.ensureGuest,
-    viewerChanged: (sessionId, active) => sendToRenderer(
-      DESKTOP_IPC.browserRemoteViewerChanged, { sessionId, active },
-    ),
+    viewerChanged: (sessionId, active) => sendToRenderer(DESKTOP_IPC.browserRemoteViewerChanged, { sessionId, active }),
     onUserControl: retainGuest,
     captureScreenshot: screenshots.capture,
     assertResolvedUrlAllowed: urls.assertResolvedUrlAllowed,
@@ -425,23 +405,31 @@ export function createBrowserHost(
   const displayCapture = createBrowserDisplayCapture(browserSharedTextureRendering());
   const pageSurface = createBrowserPageSurface({
     ensureGuest: lifecycle.ensureGuest,
-    currentGuest: sessionId => browserSessions.currentGuest(sessionId),
+    currentGuest: (sessionId) => browserSessions.currentGuest(sessionId),
     tabs: {
-      list: sessionId => tabs.displayTabs(sessionId),
+      list: (sessionId) => tabs.displayTabs(sessionId),
       select: (sessionId, tabId) => {
         tabs.selectDisplayTab(sessionId, tabId);
         const guest = browserSessions.currentGuest(sessionId);
         if (guest) retainGuest(guest);
       },
-      create: sessionId => tabs.createDisplayTab(sessionId),
+      create: (sessionId) => tabs.createDisplayTab(sessionId),
       close: (sessionId, tabId) => tabs.closeDisplayTab(sessionId, tabId),
     },
-    state, cdp, dispatchInput, urlPolicy: browserUrlPolicy,
+    state,
+    cdp,
+    dispatchInput,
+    urlPolicy: browserUrlPolicy,
     prompts: createBrowserLocalPrompts({
-      state, dialogs, uploads: refActions,
-      chooseFiles: options.chooseBrowserFiles ?? (multiple => dialog.showOpenDialog(window, {
-        properties: multiple ? ['openFile', 'multiSelections'] : ['openFile'],
-      })),
+      state,
+      dialogs,
+      uploads: refActions,
+      chooseFiles:
+        options.chooseBrowserFiles ??
+        ((multiple) =>
+          dialog.showOpenDialog(window, {
+            properties: multiple ? ['openFile', 'multiSelections'] : ['openFile'],
+          })),
     }),
     assertUrl: urls.assertResolvedUrlAllowed,
     capture: (guest, geometryKey, viewport, signal) =>
@@ -449,7 +437,7 @@ export function createBrowserHost(
     captureTexture: (guest, documentId, viewport) =>
       displayTextures.acquire(guest, documentId, viewport.width, viewport.height),
     resize: (guest, width, height) => BrowserWindow.fromWebContents(guest)?.setContentSize(width, height),
-    viewport: guest => {
+    viewport: (guest) => {
       const owner = BrowserWindow.fromWebContents(guest);
       if (!owner || owner.isDestroyed() || guest.isDestroyed()) {
         throw new Error('Browser page changed during capture.');
@@ -477,7 +465,7 @@ export function createBrowserHost(
     pageId: (guest) => state.pageId(guest),
     currentGuest: (sessionId) => browserSessions.currentGuest(sessionId),
     selectGuest: (sessionId, guest) => browserSessions.selectGuest(sessionId, guest),
-    closeGuest: guest => BrowserWindow.fromWebContents(guest)?.close(),
+    closeGuest: (guest) => BrowserWindow.fromWebContents(guest)?.close(),
   });
 
   const services: BrowserActionServices = {
@@ -504,13 +492,18 @@ export function createBrowserHost(
       fillStored: (guest, account, signal) => {
         signal?.throwIfAborted();
         const url = guest.getURL();
-        return profileImporter.useCredentialByAccount(url, account, (credential) => {
-          signal?.throwIfAborted();
-          if (guest.isDestroyed() || guest.getURL() !== url) {
-            throw new Error('The page changed before stored credential input; input was not sent.');
-          }
-          return credentialFill.fillCredentialInGuest(guest, credential, signal);
-        }, signal);
+        return profileImporter.useCredentialByAccount(
+          url,
+          account,
+          (credential) => {
+            signal?.throwIfAborted();
+            if (guest.isDestroyed() || guest.getURL() !== url) {
+              throw new Error('The page changed before stored credential input; input was not sent.');
+            }
+            return credentialFill.fillCredentialInGuest(guest, credential, signal);
+          },
+          signal
+        );
       },
     },
     downloadsForSession: downloadLedger.downloadsForSession,
@@ -518,16 +511,11 @@ export function createBrowserHost(
   };
 
   // ---- Dispatch -------------------------------------------------------------
-  async function runCommand(
-    command: BrowserCommand,
-    signal?: AbortSignal,
-  ): Promise<BrowserCommandResult> {
+  async function runCommand(command: BrowserCommand, signal?: AbortSignal): Promise<BrowserCommandResult> {
     const action = normalizeBrowserAction(command);
     if (!action) throw new Error('browser command requires action');
     const ownerSessionId = browserSessionId(command.session_id);
-    const hasScreenshotOptions = ['fullPage', 'format', 'quality'].some(
-      (name) => Object.hasOwn(command, name),
-    );
+    const hasScreenshotOptions = ['fullPage', 'format', 'quality'].some((name) => Object.hasOwn(command, name));
     if (action !== 'snapshot' && hasScreenshotOptions && command.includeScreenshot !== true) {
       throw new Error(`${action} screenshot options require includeScreenshot=true`);
     }
@@ -562,15 +550,22 @@ export function createBrowserHost(
     if (!target && !previousGuest && action !== 'navigate' && action !== 'open') {
       throw new Error('No browser page is open; navigate or use background:true.');
     }
-    const guest = target?.guest ?? await lifecycle.ensureGuest(ownerSessionId, { reveal: false });
+    const guest = target?.guest ?? (await lifecycle.ensureGuest(ownerSessionId, { reveal: false }));
     const backgroundPage = browserSessions.backgroundPageForGuest(ownerSessionId, guest);
-    taskLifecycle.use(ownerSessionId, turnId, guest,
-      backgroundPage ? backgroundPage.kind === 'agent' && !backgroundPage.keepAlive : !previousGuest);
+    taskLifecycle.use(
+      ownerSessionId,
+      turnId,
+      guest,
+      backgroundPage ? backgroundPage.kind === 'agent' && !backgroundPage.keepAlive : !previousGuest
+    );
     if (action === 'open' && !targetIsBackground) {
       retainGuest(guest);
       lifecycle.requestBrowserSurface(ownerSessionId, true);
-    } else if (!targetIsBackground && (action === 'navigate' || command.background === false)
-      && !taskLifecycle.reveal(ownerSessionId, turnId, guest)) {
+    } else if (
+      !targetIsBackground &&
+      (action === 'navigate' || command.background === false) &&
+      !taskLifecycle.reveal(ownerSessionId, turnId, guest)
+    ) {
       lifecycle.requestBrowserSurface(ownerSessionId, true);
     }
     await lifecycle.recoverCrashedGuest(guest, signal);
@@ -592,42 +587,47 @@ export function createBrowserHost(
     // target resolution inside the handler moves it to the fresher one.
     const effectBaseline = { current: state.peek(guest)?.refSet };
     const preexistingPostcondition = Boolean(
-      expected
-      && action !== 'navigate'
-      && !state.for(guest).pendingDialog
-      && await settle.postconditionMatchesGuest(guest, expected, signal),
+      expected &&
+        action !== 'navigate' &&
+        !state.for(guest).pendingDialog &&
+        (await settle.postconditionMatchesGuest(guest, expected, signal))
     );
-    const actionSnapshot = () => (command.internalStep === true
-      ? settle.stepSettleResult(guest, signal, targetIsBackground)
-      : reply.snapshotResult(guest, command, signal, {
-        expected,
-        preexistingPostcondition,
-        settleAction: true,
-        targetIsBackground,
-        baseline: effectBaseline.current,
-        reportBaseline,
-      }));
+    const actionSnapshot = () =>
+      command.internalStep === true
+        ? settle.stepSettleResult(guest, signal, targetIsBackground)
+        : reply.snapshotResult(guest, command, signal, {
+            expected,
+            preexistingPostcondition,
+            settleAction: true,
+            targetIsBackground,
+            baseline: effectBaseline.current,
+            reportBaseline,
+          });
     try {
       if (!command.internalStep) {
-        await approvals.approve(command, () => ({
-          url: guest.getURL(),
-          identity: browserDocumentId(state, guest),
-        }), signal);
+        await approvals.approve(
+          command,
+          () => ({
+            url: guest.getURL(),
+            identity: browserDocumentId(state, guest),
+          }),
+          signal
+        );
       }
       const result = await handler({
-      guest,
-      command,
-      action,
-      signal,
-      ownerSessionId,
-      targetIsBackground,
-      expected,
-      preexistingPostcondition,
-      hasScreenshotOptions,
-      refRecovery,
-      effectBaseline,
-      actionSnapshot,
-      services,
+        guest,
+        command,
+        action,
+        signal,
+        ownerSessionId,
+        targetIsBackground,
+        expected,
+        preexistingPostcondition,
+        hasScreenshotOptions,
+        refRecovery,
+        effectBaseline,
+        actionSnapshot,
+        services,
       });
       return { ...result, text: state.redactText(guest, result.text) };
     } catch (error) {
@@ -639,7 +639,7 @@ export function createBrowserHost(
     chains: commandChains,
     pendingReads,
     sessionId: (command) => browserSessionId(command.session_id),
-    currentPageId: sessionId => {
+    currentPageId: (sessionId) => {
       const guest = browserSessions.currentGuest(sessionId);
       return guest && !guest.isDestroyed() ? state.pageId(guest) : undefined;
     },
@@ -662,8 +662,12 @@ export function createBrowserHost(
       // Runtime-only lifecycle message: deliberately absent from tool schemas.
       if (command.action === 'finish_turn') {
         const owner = browserSessionId(session_id);
-        if (!session_id || !Number.isSafeInteger(turn_id) || Number(turn_id) <= 0
-          || Object.keys(input).some(key => key !== 'action')) {
+        if (
+          !session_id ||
+          !Number.isSafeInteger(turn_id) ||
+          Number(turn_id) <= 0 ||
+          Object.keys(input).some((key) => key !== 'action')
+        ) {
           throw new Error('Invalid browser task cleanup context.');
         }
         const prefix = `session:${owner}:`;
@@ -686,7 +690,7 @@ export function createBrowserHost(
       });
       backgroundReclaimTimer = setInterval(
         () => lifecycle.reclaimIdleBackgroundPages(),
-        BACKGROUND_RECLAIM_INTERVAL_MS,
+        BACKGROUND_RECLAIM_INTERVAL_MS
       );
       backgroundReclaimTimer.unref?.();
     },
@@ -728,16 +732,19 @@ export function createBrowserHost(
       // Validate ownership before allowing an input to cancel this session's
       // automation. A stale frame must not take over a different document.
       const guest = browserSessions.currentGuest(owner);
-      if (!guest || guest.isDestroyed()
-        || (!['new-tab', 'select-tab', 'close-tab'].includes(input.type)
-          && input.documentId !== browserDocumentId(state, guest))) {
+      if (
+        !guest ||
+        guest.isDestroyed() ||
+        (!['new-tab', 'select-tab', 'close-tab'].includes(input.type) &&
+          input.documentId !== browserDocumentId(state, guest))
+      ) {
         return Promise.reject(new Error('Browser page changed; input was not sent.'));
       }
       // A selected support tab keeps its own queue. Local takeover must
       // cancel the agent using that page, not the session's primary page.
       const command = { action: 'remote_control', session_id: owner, tab: state.pageId(guest) };
-      if (input.type !== 'resize'
-        && !(input.type === 'pointer' && input.phase === 'mouseMoved' && input.buttons === 0)) retainGuest(guest);
+      if (input.type !== 'resize' && !(input.type === 'pointer' && input.phase === 'mouseMoved' && input.buttons === 0))
+        retainGuest(guest);
       if (browserInputImmediate(input)) {
         if (input.type === 'answer-dialog' || input.type === 'choose-files') {
           const release = holdLocal(command);
@@ -747,8 +754,12 @@ export function createBrowserHost(
         }
         if (input.type !== 'resize') interruptForLocal(command);
         const signal = AbortSignal.timeout(COMMAND_TIMEOUT_MS);
-        return cdp.bounded(pageSurface.control(owner, input, signal),
-          COMMAND_TIMEOUT_MS, 'Browser recovery control', signal);
+        return cdp.bounded(
+          pageSurface.control(owner, input, signal),
+          COMMAND_TIMEOUT_MS,
+          'Browser recovery control',
+          signal
+        );
       }
       // Releases must still finish an already-sent press, even after a slow
       // command. Typing retains its order behind that input; only pointer
@@ -758,8 +769,7 @@ export function createBrowserHost(
       return executeLocal(command, (signal) => pageSurface.control(owner, input, signal), {
         takeover: !hover && input.type !== 'zoom',
         dropIfBusy: hover,
-        ...(input.type === 'pointer' && input.phase !== 'mouseMoved'
-          ? { held: !release } : {}),
+        ...(input.type === 'pointer' && input.phase !== 'mouseMoved' ? { held: !release } : {}),
         maxWaitMs: release || browserTypingInput(input) ? undefined : BROWSER_INPUT_WAIT_MS,
       });
     },
@@ -778,8 +788,11 @@ export function createBrowserHost(
       lifecycle.releaseSession(ownerSessionId, options.restore === true);
       taskLifecycle.forget(ownerSessionId);
       downloadLedger.release(ownerSessionId);
-      sendToRenderer(DESKTOP_IPC.browserSessionReleased, ownerSessionId,
-        options.restore === true ? 'unloaded' : 'gone');
+      sendToRenderer(
+        DESKTOP_IPC.browserSessionReleased,
+        ownerSessionId,
+        options.restore === true ? 'unloaded' : 'gone'
+      );
     },
     setGuestActive(sessionId: string, webContentsId: number, active: boolean): void {
       const owner = browserSessionId(sessionId);
@@ -794,7 +807,7 @@ export function createBrowserHost(
     async configureGuestViewport(
       sessionId: string,
       webContentsId: number,
-      config: DesktopBrowserViewportConfig,
+      config: DesktopBrowserViewportConfig
     ): Promise<void> {
       const owner = browserSessionId(sessionId);
       const guest = browserSessions.guestForSession(owner, webContentsId);
@@ -805,15 +818,17 @@ export function createBrowserHost(
       await emulation.configureEmulation(guest, {
         action: 'emulate',
         reset: true,
-        ...(fixedViewport ? {
-          width: config.width!,
-          height: config.height!,
-          deviceScaleFactor: config.deviceScaleFactor,
-          mobile: config.mobile,
-          touch: config.touch,
-          userAgent: config.userAgent ?? '',
-          orientation: config.width! > config.height! ? 'landscape' : 'portrait',
-        } : {}),
+        ...(fixedViewport
+          ? {
+              width: config.width!,
+              height: config.height!,
+              deviceScaleFactor: config.deviceScaleFactor,
+              mobile: config.mobile,
+              touch: config.touch,
+              userAgent: config.userAgent ?? '',
+              orientation: config.width! > config.height! ? 'landscape' : 'portrait',
+            }
+          : {}),
       });
     },
     async browserImportSources(): Promise<BrowserImportSource[]> {
@@ -827,37 +842,26 @@ export function createBrowserHost(
     async browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]> {
       return await profileImporter.searchHistory(query);
     },
-    async browserCredentialSuggestions(
-      sessionId: string,
-    ): Promise<BrowserCredentialSuggestion[]> {
+    async browserCredentialSuggestions(sessionId: string): Promise<BrowserCredentialSuggestion[]> {
       const guest = browserSessions.liveGuest(browserSessionId(sessionId));
       if (!guest) return [];
       return await profileImporter.credentialSuggestions(guest.getURL());
     },
-    async browserCredentialFill(
-      sessionId: string,
-      credentialId: string,
-    ): Promise<BrowserCredentialFillResult> {
+    async browserCredentialFill(sessionId: string, credentialId: string): Promise<BrowserCredentialFillResult> {
       const guest = browserSessions.liveGuest(browserSessionId(sessionId));
       if (!guest) throw new Error('Open a Browser Use page before filling a stored credential.');
-      return await profileImporter.useCredential(
-        guest.getURL(),
-        credentialId,
-        (credential) => credentialFill.fillCredentialInGuest(guest, credential),
+      return await profileImporter.useCredential(guest.getURL(), credentialId, (credential) =>
+        credentialFill.fillCredentialInGuest(guest, credential)
       );
     },
     remoteBrowserFrame(sessionId: string, previousFrameId = ''): Promise<DesktopRemoteBrowserFrame> {
-      return executeSerialized(
-        { action: 'remote_frame', session_id: browserSessionId(sessionId) },
-        undefined,
-        () => remote.remoteBrowserFrame(browserSessionId(sessionId), previousFrameId),
+      return executeSerialized({ action: 'remote_frame', session_id: browserSessionId(sessionId) }, undefined, () =>
+        remote.remoteBrowserFrame(browserSessionId(sessionId), previousFrameId)
       );
     },
     remoteBrowserControl(sessionId: string, control: DesktopRemoteBrowserControl): Promise<void> {
-      return executeSerialized(
-        { action: 'remote_control', session_id: browserSessionId(sessionId) },
-        undefined,
-        () => remote.remoteBrowserControl(browserSessionId(sessionId), control),
+      return executeSerialized({ action: 'remote_control', session_id: browserSessionId(sessionId) }, undefined, () =>
+        remote.remoteBrowserControl(browserSessionId(sessionId), control)
       );
     },
     async dispose(): Promise<void> {

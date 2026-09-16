@@ -19,8 +19,7 @@ import { join } from 'node:path';
 
 // Same resolution as session-runtime/runtime-paths.mjs. Shared runtime code
 // cannot import the session layer, so the rule is repeated instead of inverted.
-const DATA_DIR = process.env.MIXDOG_DATA_DIR
-  || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
+const DATA_DIR = process.env.MIXDOG_DATA_DIR || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
 const RECORD_VERSION = 1;
 // Matches the shadow repository's own `gc --prune` window: once the tree object
 // is collected the record cannot restore anything anyway.
@@ -57,9 +56,7 @@ function sessionScopes(record) {
     if (!root || !baselineTree) return;
     const key = rootKey(root);
     const existing = scopes.find((scope) => rootKey(scope.root) === key);
-    const files = (Array.isArray(entry?.toolFiles) ? entry.toolFiles : [])
-      .map((value) => clean(value))
-      .filter(Boolean);
+    const files = (Array.isArray(entry?.toolFiles) ? entry.toolFiles : []).map((value) => clean(value)).filter(Boolean);
     if (existing) {
       for (const file of files) existing.toolFiles.add(file);
       existing.updatedAt = Math.max(existing.updatedAt, Number(entry?.updatedAt) || 0);
@@ -91,7 +88,13 @@ function recordPath(sessionId) {
 function chain(sessionId, task) {
   const previous = writeChains.get(sessionId) || Promise.resolve();
   const next = previous.then(task, task);
-  writeChains.set(sessionId, next.then(() => undefined, () => undefined));
+  writeChains.set(
+    sessionId,
+    next.then(
+      () => undefined,
+      () => undefined
+    )
+  );
   return next;
 }
 
@@ -124,13 +127,17 @@ async function sweepRecords() {
           continue;
         }
         kept.push({ path, mtimeMs: info.mtimeMs });
-      } catch { /* a record that cannot be read is not worth keeping */ }
+      } catch {
+        /* a record that cannot be read is not worth keeping */
+      }
     }
     kept.sort((left, right) => left.mtimeMs - right.mtimeMs);
     for (const entry of kept.slice(0, Math.max(0, kept.length - MAX_RECORD_FILES))) {
       await rm(entry.path, { force: true });
     }
-  } catch { /* the store is best-effort: a revert falls back to memory */ }
+  } catch {
+    /* the store is best-effort: a revert falls back to memory */
+  }
 }
 
 /**
@@ -156,9 +163,11 @@ export async function saveTurnSnapshotRecord(sessionId, turn) {
         root,
         baselineTree,
         // Relative, forward-slashed paths this session's own tools mutated.
-        toolFiles: [...new Set((Array.isArray(turn?.toolFiles) ? turn.toolFiles : [])
-          .map((value) => clean(value))
-          .filter(Boolean))],
+        toolFiles: [
+          ...new Set(
+            (Array.isArray(turn?.toolFiles) ? turn.toolFiles : []).map((value) => clean(value)).filter(Boolean)
+          ),
+        ],
         sealed: turn?.sealed === true,
         updatedAt: Date.now(),
       };

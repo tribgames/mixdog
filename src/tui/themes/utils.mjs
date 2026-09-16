@@ -34,18 +34,12 @@ const SOFTEN_KEYS = [
 // Inline codespan (`emphasis`). Kept only lightly muted with a FIXED small
 // amount instead of the saturation-scaled soften, so accented inline code reads
 // a touch brighter/livelier instead of graying out on long sessions.
-const ACCENT_SOFTEN_KEYS = [
-  'mdCode',
-];
+const ACCENT_SOFTEN_KEYS = ['mdCode'];
 const ACCENT_SOFTEN_AMOUNT = 0.14;
 
-const SUBTLE_SOFTEN_KEYS = [
-  'mdListBullet',
-];
+const SUBTLE_SOFTEN_KEYS = ['mdListBullet'];
 
-const UI_SOFTEN_KEYS = [
-  'panelTitle',
-];
+const UI_SOFTEN_KEYS = ['panelTitle'];
 
 function parseRgb(value) {
   const m = RGB_RE.exec(String(value || ''));
@@ -61,7 +55,9 @@ function mix(a, b, amount) {
 }
 
 function saturation([r, g, b]) {
-  r /= 255; g /= 255; b /= 255;
+  r /= 255;
+  g /= 255;
+  b /= 255;
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
   const l = (max + min) / 2;
@@ -72,9 +68,9 @@ function saturation([r, g, b]) {
 
 function softenAmount(rgb, base = 0.05) {
   const s = saturation(rgb);
-  if (s >= 0.85) return base + 0.20;
+  if (s >= 0.85) return base + 0.2;
   if (s >= 0.65) return base + 0.15;
-  if (s >= 0.45) return base + 0.10;
+  if (s >= 0.45) return base + 0.1;
   if (s >= 0.25) return base + 0.06;
   return base + 0.02;
 }

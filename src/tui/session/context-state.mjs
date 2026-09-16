@@ -8,7 +8,16 @@
 import { contextMeasurementStats } from '../../ui/context-measurement.mjs';
 
 export function createContextState({ runtime, getState, updateState, getPendingSessionReset, getVisibleGoal }) {
-  const autoClearState = () => runtime.getAutoClear?.() || runtime.autoClear || { enabled: true, idleMs: 60 * 60 * 1000, custom: false, providerDefault: 60 * 60 * 1000, provider: null, minContextPercent: 10 };
+  const autoClearState = () =>
+    runtime.getAutoClear?.() ||
+    runtime.autoClear || {
+      enabled: true,
+      idleMs: 60 * 60 * 1000,
+      custom: false,
+      providerDefault: 60 * 60 * 1000,
+      provider: null,
+      minContextPercent: 10,
+    };
   const AGENT_STATUS_CACHE_MS = 250;
   let agentStatusCache = null;
   let agentStatusCacheAt = 0;
@@ -56,23 +65,22 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     // completed Goal while its user-input archive is being written, so the
     // retired capsule popped back for one frame and vanished again (user:
     // 안 보이던 골이 생성되었다 바로 사라짐).
-    goal: typeof getVisibleGoal === 'function'
-      ? getVisibleGoal()
-      : (runtime.goalStatus?.() || null),
+    goal: typeof getVisibleGoal === 'function' ? getVisibleGoal() : runtime.goalStatus?.() || null,
   });
 
   const routeState = () => {
     const state = getState();
     const base = baseRouteState();
-    const sameContextRoute = state.sessionId === base.sessionId
-      && state.clientHostPid === base.clientHostPid
-      && state.contextWindow === base.contextWindow
-      && state.rawContextWindow === base.rawContextWindow;
+    const sameContextRoute =
+      state.sessionId === base.sessionId &&
+      state.clientHostPid === base.clientHostPid &&
+      state.contextWindow === base.contextWindow &&
+      state.rawContextWindow === base.rawContextWindow;
     return {
       ...base,
-      displayContextWindow: sameContextRoute ? (state.displayContextWindow || 0) : 0,
-      compactBoundaryTokens: sameContextRoute ? (state.compactBoundaryTokens || 0) : 0,
-      autoCompactTokenLimit: sameContextRoute ? (state.autoCompactTokenLimit || 0) : 0,
+      displayContextWindow: sameContextRoute ? state.displayContextWindow || 0 : 0,
+      compactBoundaryTokens: sameContextRoute ? state.compactBoundaryTokens || 0 : 0,
+      autoCompactTokenLimit: sameContextRoute ? state.autoCompactTokenLimit || 0 : 0,
     };
   };
 
@@ -85,10 +93,10 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     // as the display denominator so context % reads 100% exactly when
     // auto-compact fires, instead of stalling at ~90% of the boundary.
     const autoCompact = Number(
-      status.compaction?.triggerTokens
-      || status.compaction?.autoCompactTokenLimit
-      || runtime.session?.autoCompactTokenLimit
-      || 0,
+      status.compaction?.triggerTokens ||
+        status.compaction?.autoCompactTokenLimit ||
+        runtime.session?.autoCompactTokenLimit ||
+        0
     );
     const patch = {};
     if (displayWindow > 0) patch.displayContextWindow = displayWindow;
@@ -97,10 +105,7 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     if (Object.keys(patch).length > 0) updateState(patch);
   }
 
-  const syncContextStats = ({
-    allowEstimated = false,
-    invalidateExact = false,
-  } = {}) => {
+  const syncContextStats = ({ allowEstimated = false, invalidateExact = false } = {}) => {
     if (getPendingSessionReset()) return null;
     const ctx = runtime.contextStatus?.() || null;
     if (!ctx) return null;

@@ -47,12 +47,14 @@ test('policy is immutable, invalid configuration fails closed, and no policy pre
 
 test('bridge callers cannot impersonate internal sessions or supply input authority', () => {
   for (const value of [
-    null, [],
+    null,
+    [],
     { action: 'key', session_id: '__mixdog_browser_chrome_setup__' },
     { action: 'wait', session_id: '__computer_host_warmup__' },
     { action: 'key', known_injection_tick: 123 },
     { action: 'restore_input_state' },
-  ]) assert.throws(() => assertPublicComputerRequest(value));
+  ])
+    assert.throws(() => assertPublicComputerRequest(value));
   assertPublicComputerRequest({ action: 'sequence', session_id: 'user-session', steps: [] });
   assertPublicComputerRequest({ action: 'session_abort', session_id: 'user-session' });
 });

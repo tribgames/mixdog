@@ -1,7 +1,6 @@
 import { parseDocument } from 'yaml';
 
-const SKILL_FRONTMATTER_RE =
-  /^(?:\uFEFF)?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+const SKILL_FRONTMATTER_RE = /^(?:\uFEFF)?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
 const scalarText = (value, field) => {
   if (typeof value !== 'string') {
@@ -72,12 +71,8 @@ function parseFrontmatterDocument(markdown) {
 export function parseSkillDocument(markdown) {
   const parsed = parseFrontmatterDocument(markdown);
   const name = validateSkillName(scalarText(parsed.frontmatter.name, 'name'));
-  const description = validateSkillDescription(
-    scalarText(parsed.frontmatter.description, 'description'),
-  );
-  const whenToUse = validateSkillWhenToUse(
-    optionalScalarText(parsed.frontmatter.when_to_use, 'when_to_use'),
-  );
+  const description = validateSkillDescription(scalarText(parsed.frontmatter.description, 'description'));
+  const whenToUse = validateSkillWhenToUse(optionalScalarText(parsed.frontmatter.when_to_use, 'when_to_use'));
   return {
     name,
     description,
@@ -96,7 +91,9 @@ function setSkillFields(document, { name, description, whenToUse }) {
 }
 
 function renderSkillDocument(document, body) {
-  const instructions = String(body || '').replace(/\r\n/g, '\n').trim();
+  const instructions = String(body || '')
+    .replace(/\r\n/g, '\n')
+    .trim();
   if (!instructions) throw new Error('Skill instructions are required.');
   return `---\n${String(document).trimEnd()}\n---\n\n${instructions}\n`;
 }

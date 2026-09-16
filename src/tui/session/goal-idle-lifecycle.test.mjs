@@ -20,12 +20,12 @@ function fixture(t) {
       goalStatus: () => runtime.snapshot(sessionId),
       goalContinuation: () => runtime.continuation(sessionId),
       goalTurnStarted: () => runtime.startTurn(sessionId),
-      goalTurnSettled: detail => runtime.settleTurn(sessionId, detail),
-      onGoalStatusChange: listener => runtime.subscribe(listener),
+      goalTurnSettled: (detail) => runtime.settleTurn(sessionId, detail),
+      onGoalStatusChange: (listener) => runtime.subscribe(listener),
     },
     flags: {},
     getState: () => state,
-    set: patch => Object.assign(state, patch),
+    set: (patch) => Object.assign(state, patch),
     getPending: () => pending,
     enqueue: (content, options) => pending.push({ content, ...options }),
   });
@@ -34,16 +34,18 @@ function fixture(t) {
     await runtime.close();
     rmSync(dataDir, { recursive: true, force: true });
   });
-  const call = async args => JSON.parse(await runtime.executeTool('goal', args, { sessionId }));
+  const call = async (args) => JSON.parse(await runtime.executeTool('goal', args, { sessionId }));
   return { runtime, controller, dataDir, sessionId, state, pending, call };
 }
 
-test('completed duration work waits on the deadline timer without generating more Goal turns', async t => {
+test('completed duration work waits on the deadline timer without generating more Goal turns', async (t) => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 2_000_000_000_000 });
   const f = fixture(t);
   await f.call({
-    action: 'create', objective: 'Finish the approved duration',
-    time_limit_minutes: 1, time_mode: 'duration',
+    action: 'create',
+    objective: 'Finish the approved duration',
+    time_limit_minutes: 1,
+    time_mode: 'duration',
     tasks: [{ text: 'Verified deliverable', status: 'completed', kind: 'verification' }],
   });
   await f.controller.onGoalTurnStarted();
@@ -61,7 +63,7 @@ test('completed duration work waits on the deadline timer without generating mor
   assert.equal(f.state.goal.status, 'active');
   assert.equal(f.runtime.snapshot(f.sessionId).remainingMs, 1_000);
 
-  const reached = new Promise(resolve => {
+  const reached = new Promise((resolve) => {
     const unsubscribe = f.runtime.subscribe(({ goal }) => {
       if (goal?.status !== 'duration_reached') return;
       unsubscribe();
@@ -78,13 +80,17 @@ test('completed duration work waits on the deadline timer without generating mor
   assert.equal((await f.call({ action: 'complete', revision: f.state.goal.revision })).goal.status, 'complete');
 });
 
-test('new work wakes a duration wait without extending the approved budget', async t => {
+test('new work wakes a duration wait without extending the approved budget', async (t) => {
   const f = fixture(t);
-  const created = (await f.call({
-    action: 'create', objective: 'Finish the approved duration',
-    time_limit_minutes: 60, time_mode: 'duration',
-    tasks: [{ text: 'Verified deliverable', status: 'completed', kind: 'work' }],
-  })).goal;
+  const created = (
+    await f.call({
+      action: 'create',
+      objective: 'Finish the approved duration',
+      time_limit_minutes: 60,
+      time_mode: 'duration',
+      tasks: [{ text: 'Verified deliverable', status: 'completed', kind: 'work' }],
+    })
+  ).goal;
   f.state.busy = false;
   await tick();
   assert.deepEqual(f.pending, []);
@@ -99,25 +105,32 @@ test('new work wakes a duration wait without extending the approved budget', asy
   assert.equal(f.controller.shouldRunGoalContinuation(f.pending[0]), true);
 });
 
-test('duration waiting cannot suppress unfinished work, objective review, or maximum-budget closeout', async t => {
+test('duration waiting cannot suppress unfinished work, objective review, or maximum-budget closeout', async (t) => {
   for (const scenario of ['unfinished', 'unrecorded', 'objective-review', 'max', 'block-audit']) {
-    await t.test(scenario, async t => {
+    await t.test(scenario, async (t) => {
       const f = fixture(t);
       await f.call({
-        action: 'create', objective: 'Original approved objective',
-        time_limit_minutes: 60, time_mode: scenario === 'max' ? 'max' : 'duration',
-        ...(scenario === 'unrecorded' ? {} : {
-          tasks: [{
-            text: 'Required verification',
-            status: scenario === 'unfinished' ? 'pending' : 'completed',
-            kind: 'verification',
-          }],
-        }),
+        action: 'create',
+        objective: 'Original approved objective',
+        time_limit_minutes: 60,
+        time_mode: scenario === 'max' ? 'max' : 'duration',
+        ...(scenario === 'unrecorded'
+          ? {}
+          : {
+              tasks: [
+                {
+                  text: 'Required verification',
+                  status: scenario === 'unfinished' ? 'pending' : 'completed',
+                  kind: 'verification',
+                },
+              ],
+            }),
       });
       if (scenario === 'objective-review') {
         await f.runtime.control(f.sessionId, { action: 'edit', objective: 'Expanded approved objective' });
       }
-      if (scenario === 'block-audit') await f.call({ action: 'block', blocker: 'External approval service unavailable' });
+      if (scenario === 'block-audit')
+        await f.call({ action: 'block', blocker: 'External approval service unavailable' });
       f.state.busy = false;
       f.controller.scheduleGoalContinuation();
       await tick();
@@ -127,10 +140,11 @@ test('duration waiting cannot suppress unfinished work, objective review, or max
   }
 });
 
-test('a terminal compact error clears queued Goal work and remains blocked after restart', async t => {
+test('a terminal compact error clears queued Goal work and remains blocked after restart', async (t) => {
   const f = fixture(t);
   await f.call({
-    action: 'create', objective: 'Keep unfinished work honest',
+    action: 'create',
+    objective: 'Keep unfinished work honest',
     tasks: [{ text: 'Unfinished deliverable', status: 'in_progress', kind: 'work' }],
   });
   await f.controller.onGoalTurnStarted();

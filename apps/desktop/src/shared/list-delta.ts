@@ -8,7 +8,7 @@ export interface KeyedListDeltaDecoder<T> {
   reset(): void;
 }
 
-const NO_LIST_DELTA = Symbol("mixdog.no-list-delta");
+const NO_LIST_DELTA = Symbol('mixdog.no-list-delta');
 export function isNoListDelta(value: unknown): boolean {
   return value === NO_LIST_DELTA;
 }
@@ -18,10 +18,7 @@ export function isNoListDelta(value: unknown): boolean {
  *  row no longer has. Older decoders require length 2 and answer `ok: false` to
  *  anything else, so they resync instead of mis-applying a shape they cannot
  *  read — the version skew is safe by construction. */
-type ListUpsert<T> =
-  | [string, T]
-  | [string, Partial<T>, 1]
-  | [string, Partial<T>, 1, string[]];
+type ListUpsert<T> = [string, T] | [string, Partial<T>, 1] | [string, Partial<T>, 1, string[]];
 
 type ListPatch<T> = {
   base: number;
@@ -36,9 +33,9 @@ type ListPatch<T> = {
  *  whole-row replacement means anything then. */
 function rowFieldDelta(
   before: unknown,
-  after: unknown,
+  after: unknown
 ): { changed: Record<string, unknown>; dropped: string[] } | null {
-  if (!before || !after || typeof before !== "object" || typeof after !== "object") return null;
+  if (!before || !after || typeof before !== 'object' || typeof after !== 'object') return null;
   if (Array.isArray(before) || Array.isArray(after)) return null;
   const from = before as Record<string, unknown>;
   const to = after as Record<string, unknown>;
@@ -52,9 +49,7 @@ function rowFieldDelta(
   return { changed, dropped };
 }
 
-export function createKeyedListDeltaEncoder<T>(
-  keyOf: (item: T, index: number) => string,
-): KeyedListDeltaEncoder<T> {
+export function createKeyedListDeltaEncoder<T>(keyOf: (item: T, index: number) => string): KeyedListDeltaEncoder<T> {
   let revision = 0;
   let order: string[] | null = null;
   let previous = new Map<string, { signature: string }>();
@@ -89,9 +84,10 @@ export function createKeyedListDeltaEncoder<T>(
         // the last transmitted value even if that object changed in place.
         const delta = before ? rowFieldDelta(JSON.parse(before.signature), item) : null;
         if (delta) {
-          const entry: ListUpsert<T> = delta.dropped.length > 0
-            ? [key, delta.changed as Partial<T>, 1, delta.dropped]
-            : [key, delta.changed as Partial<T>, 1];
+          const entry: ListUpsert<T> =
+            delta.dropped.length > 0
+              ? [key, delta.changed as Partial<T>, 1, delta.dropped]
+              : [key, delta.changed as Partial<T>, 1];
           if (JSON.stringify(entry).length < JSON.stringify([key, item]).length) {
             upsert.push(entry);
             continue;
@@ -100,8 +96,7 @@ export function createKeyedListDeltaEncoder<T>(
         upsert.push([key, item]);
       }
       const removed = order.filter((key) => !next.has(key));
-      const orderChanged = order.length !== nextOrder.length
-        || order.some((key, index) => key !== nextOrder[index]);
+      const orderChanged = order.length !== nextOrder.length || order.some((key, index) => key !== nextOrder[index]);
       if (upsert.length === 0 && removed.length === 0 && !orderChanged) {
         revision -= 1;
         previous = next;
@@ -134,7 +129,7 @@ export function createKeyedListDeltaDecoder<T>(): KeyedListDeltaDecoder<T> {
       rows = new Map();
     },
     decode(wire): { ok: boolean; items?: T[] } {
-      if (!wire || typeof wire !== "object") return { ok: false };
+      if (!wire || typeof wire !== 'object') return { ok: false };
       const record = wire as {
         __listRevision?: unknown;
         rows?: unknown;
@@ -147,7 +142,7 @@ export function createKeyedListDeltaDecoder<T>(): KeyedListDeltaDecoder<T> {
         const nextRows = new Map<string, T>();
         const nextOrder: string[] = [];
         for (const entry of record.rows) {
-          if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== "string") {
+          if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== 'string') {
             return { ok: false };
           }
           nextOrder.push(entry[0]);
@@ -160,20 +155,21 @@ export function createKeyedListDeltaDecoder<T>(): KeyedListDeltaDecoder<T> {
       }
       const patch = record.__listPatch;
       if (
-        revision === null
-        || patch.base !== revision
-        || !Number.isSafeInteger(patch.revision)
-        || !Array.isArray(patch.upsert)
-        || !Array.isArray(patch.removed)
-        || (patch.order !== undefined && !Array.isArray(patch.order))
-      ) return { ok: false };
+        revision === null ||
+        patch.base !== revision ||
+        !Number.isSafeInteger(patch.revision) ||
+        !Array.isArray(patch.upsert) ||
+        !Array.isArray(patch.removed) ||
+        (patch.order !== undefined && !Array.isArray(patch.order))
+      )
+        return { ok: false };
       const nextRows = new Map(rows);
       for (const key of patch.removed) {
-        if (typeof key !== "string") return { ok: false };
+        if (typeof key !== 'string') return { ok: false };
         nextRows.delete(key);
       }
       for (const raw of patch.upsert) {
-        if (!Array.isArray(raw) || typeof raw[0] !== "string") return { ok: false };
+        if (!Array.isArray(raw) || typeof raw[0] !== 'string') return { ok: false };
         const parts = raw as unknown[];
         const key = parts[0] as string;
         if (parts.length === 2) {
@@ -184,9 +180,9 @@ export function createKeyedListDeltaDecoder<T>(): KeyedListDeltaDecoder<T> {
         // already holds: a missing base is a broken chain, never a new row.
         if ((parts.length !== 3 && parts.length !== 4) || parts[2] !== 1) return { ok: false };
         const base = nextRows.get(key);
-        if (!base || typeof base !== "object") return { ok: false };
+        if (!base || typeof base !== 'object') return { ok: false };
         const fields = parts[1];
-        if (!fields || typeof fields !== "object" || Array.isArray(fields)) return { ok: false };
+        if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return { ok: false };
         const merged: Record<string, unknown> = {
           ...(base as Record<string, unknown>),
           ...(fields as Record<string, unknown>),
@@ -194,14 +190,14 @@ export function createKeyedListDeltaDecoder<T>(): KeyedListDeltaDecoder<T> {
         if (parts.length === 4) {
           if (!Array.isArray(parts[3])) return { ok: false };
           for (const dropped of parts[3]) {
-            if (typeof dropped !== "string") return { ok: false };
+            if (typeof dropped !== 'string') return { ok: false };
             delete merged[dropped];
           }
         }
         nextRows.set(key, merged as T);
       }
       const nextOrder = patch.order ?? order.filter((key) => nextRows.has(key));
-      if (nextOrder.some((key) => typeof key !== "string" || !nextRows.has(key))) {
+      if (nextOrder.some((key) => typeof key !== 'string' || !nextRows.has(key))) {
         return { ok: false };
       }
       revision = patch.revision as number;

@@ -1,5 +1,3 @@
-'use strict';
-
 // Cross-shard provider cooldown encoding.
 //
 // Fast-mode capacity cooldown is an ACCOUNT-wide fact kept in process-local
@@ -23,7 +21,9 @@ export function readProviderCooldown(policy, now = Date.now()) {
   try {
     remaining = policy.fastModeCooldownRemainingMs(now);
     disabledReason = policy.fastModeDisabledReason();
-  } catch { return null; }
+  } catch {
+    return null;
+  }
   return {
     untilMs: Number.isFinite(remaining) && remaining > 0 ? now + remaining : 0,
     disabledReason: disabledReason || null,
@@ -37,15 +37,15 @@ export function providerCooldownAdvanced(previous, next) {
   const nextUntil = Number(next?.untilMs) || 0;
   const nextReason = next?.disabledReason ? String(next.disabledReason) : null;
   const priorReason = previous?.disabledReason ? String(previous.disabledReason) : null;
-  return nextUntil > priorUntil + ECHO_TOLERANCE_MS
-    || (Boolean(nextReason) && nextReason !== priorReason);
+  return nextUntil > priorUntil + ECHO_TOLERANCE_MS || (Boolean(nextReason) && nextReason !== priorReason);
 }
 
 export function mergeKnownProviderCooldown(previous, next) {
   return {
     untilMs: Math.max(Number(previous?.untilMs) || 0, Number(next?.untilMs) || 0),
-    disabledReason: (next?.disabledReason ? String(next.disabledReason) : null)
-      || (previous?.disabledReason ? String(previous.disabledReason) : null),
+    disabledReason:
+      (next?.disabledReason ? String(next.disabledReason) : null) ||
+      (previous?.disabledReason ? String(previous.disabledReason) : null),
   };
 }
 
@@ -57,10 +57,13 @@ export function applyProviderCooldown(policy, cooldown, now = Date.now()) {
   const policyLimits = policy._FAST_MODE_POLICY || {};
   let applied = false;
   if (disabledReason && policyLimits.OVERAGE_DISABLED_HEADER) {
-    policy.noteFastModeCapacityError({
-      httpStatus: 429,
-      headers: { [policyLimits.OVERAGE_DISABLED_HEADER]: disabledReason },
-    }, { fast: true, now });
+    policy.noteFastModeCapacityError(
+      {
+        httpStatus: 429,
+        headers: { [policyLimits.OVERAGE_DISABLED_HEADER]: disabledReason },
+      },
+      { fast: true, now }
+    );
     applied = true;
   }
   const remainingMs = untilMs - now;
@@ -68,10 +71,7 @@ export function applyProviderCooldown(policy, cooldown, now = Date.now()) {
   // fast mode, so there is nothing to replicate.
   const shortRetryMs = Number(policyLimits.SHORT_RETRY_THRESHOLD_MS) || 0;
   if (remainingMs >= shortRetryMs && remainingMs > 0) {
-    policy.noteFastModeCapacityError(
-      { httpStatus: 429, retryAfterMs: remainingMs },
-      { fast: true, now },
-    );
+    policy.noteFastModeCapacityError({ httpStatus: 429, retryAfterMs: remainingMs }, { fast: true, now });
     applied = true;
   }
   return applied;

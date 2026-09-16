@@ -4,24 +4,40 @@ import { buildActionReply } from './action-reply.ts';
 
 function context(overrides = {}) {
   return {
-    command: { action: 'key' }, action: 'key',
+    command: { action: 'key' },
+    action: 'key',
     result: { action: 'key', verified: true, goal_verified: true },
-    isMutation: true, targetWindowId: 'hwnd:0x1', logicalTargetWindowId: 'hwnd:0x1',
-    windowTransition: null, settleDelayMs: 0, commandStartedAt: performance.now(), actionTimings: {},
+    isMutation: true,
+    targetWindowId: 'hwnd:0x1',
+    logicalTargetWindowId: 'hwnd:0x1',
+    windowTransition: null,
+    settleDelayMs: 0,
+    commandStartedAt: performance.now(),
+    actionTimings: {},
     ...overrides,
   };
 }
 
 test('a native browser refusal preserves the selected browser session', async () => {
-  const reply = await buildActionReply(async () => ({ metadata: { ok: true } }), context({
-    command: { action: 'key', delivery: 'background' },
-    result: { action: 'key', code: 'background_unsupported', delivery_accepted: false,
-      effect: 'suspected_noop', verified: false },
-    windowTransition: {
-      observed: true, opened_windows: [], closed_windows: [],
-      changed_windows: [{ id: 'hwnd:0x1', app: 'chrome', className: 'Chrome_WidgetWin_1' }],
-    },
-  }));
+  const reply = await buildActionReply(
+    async () => ({ metadata: { ok: true } }),
+    context({
+      command: { action: 'key', delivery: 'background' },
+      result: {
+        action: 'key',
+        code: 'background_unsupported',
+        delivery_accepted: false,
+        effect: 'suspected_noop',
+        verified: false,
+      },
+      windowTransition: {
+        observed: true,
+        opened_windows: [],
+        closed_windows: [],
+        changed_windows: [{ id: 'hwnd:0x1', app: 'chrome', className: 'Chrome_WidgetWin_1' }],
+      },
+    })
+  );
   const payload = JSON.parse(reply.text);
   assert.equal(payload.window_id, 'hwnd:0x1');
   assert.equal(payload.verdict.recommended, 'recapture');
@@ -29,9 +45,14 @@ test('a native browser refusal preserves the selected browser session', async ()
 });
 
 test('input recovery failure takes precedence over a successful native action', async () => {
-  const result = await buildActionReply(async () => { throw new Error('unexpected capture'); }, context({
-    inputRecoveryVerification: { ok: false },
-  }));
+  const result = await buildActionReply(
+    async () => {
+      throw new Error('unexpected capture');
+    },
+    context({
+      inputRecoveryVerification: { ok: false },
+    })
+  );
   const payload = JSON.parse(result.text);
   assert.equal(payload.ok, false);
   assert.equal(payload.code, 'input_recovery_unconfirmed');
@@ -39,13 +60,27 @@ test('input recovery failure takes precedence over a successful native action', 
 });
 
 test('partial background delivery remains unknown in the tool reply rather than becoming a no-input refusal', async () => {
-  const response = await buildActionReply(async () => { throw new Error('unexpected capture'); }, {
-    command: { action: 'key', delivery: 'background' }, action: 'key',
-    result: { action: 'key', code: 'background_target_hung', effect: 'unverifiable',
-      delivery_accepted: null, input_may_have_executed: true },
-    isMutation: true, windowTransition: null, settleDelayMs: 0,
-    commandStartedAt: performance.now(), actionTimings: {},
-  });
+  const response = await buildActionReply(
+    async () => {
+      throw new Error('unexpected capture');
+    },
+    {
+      command: { action: 'key', delivery: 'background' },
+      action: 'key',
+      result: {
+        action: 'key',
+        code: 'background_target_hung',
+        effect: 'unverifiable',
+        delivery_accepted: null,
+        input_may_have_executed: true,
+      },
+      isMutation: true,
+      windowTransition: null,
+      settleDelayMs: 0,
+      commandStartedAt: performance.now(),
+      actionTimings: {},
+    }
+  );
   const payload = JSON.parse(response.text);
   assert.equal(payload.ok, false);
   assert.equal(payload.delivery_accepted, null);
@@ -54,11 +89,17 @@ test('partial background delivery remains unknown in the tool reply rather than 
 });
 
 test('confirmed close does not capture a different window after its target disappeared', async () => {
-  const result = await buildActionReply(async () => { throw new Error('unexpected capture'); }, context({
-    command: { action: 'close_window', capture_after: true }, action: 'close_window',
-    result: { action: 'close_window', verified: true },
-    windowTransition: { closed_windows: [{ id: 'hwnd:0x1' }], opened_windows: [] },
-  }));
+  const result = await buildActionReply(
+    async () => {
+      throw new Error('unexpected capture');
+    },
+    context({
+      command: { action: 'close_window', capture_after: true },
+      action: 'close_window',
+      result: { action: 'close_window', verified: true },
+      windowTransition: { closed_windows: [{ id: 'hwnd:0x1' }], opened_windows: [] },
+    })
+  );
   const payload = JSON.parse(result.text);
   assert.equal(payload.capture_after.skipped, true);
   assert.equal(payload.capture_after.target_reason, 'target_closed');
@@ -66,12 +107,15 @@ test('confirmed close does not capture a different window after its target disap
 
 for (const structured of [true, false]) {
   test(`failed requested observation cannot finish a ${structured ? 'structured' : 'text'} action reply`, async () => {
-    const result = await buildActionReply(async () => ({
-      metadata: { ok: false, error: 'fixture observation failure' },
-    }), context({
-      command: { action: 'key', capture_after: true },
-      result: structured ? { action: 'key', verified: true, delivery_accepted: true } : { text: 'delivered' },
-    }));
+    const result = await buildActionReply(
+      async () => ({
+        metadata: { ok: false, error: 'fixture observation failure' },
+      }),
+      context({
+        command: { action: 'key', capture_after: true },
+        result: structured ? { action: 'key', verified: true, delivery_accepted: true } : { text: 'delivered' },
+      })
+    );
     const payload = JSON.parse(result.text);
     assert.equal(payload.ok, false);
     assert.equal(payload.code, 'observation_unavailable');

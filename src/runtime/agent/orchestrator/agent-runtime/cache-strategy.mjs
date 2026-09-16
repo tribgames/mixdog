@@ -54,13 +54,9 @@ import { nonNegativeInt, positiveInt } from '../../../shared/numbers.mjs';
  * hardcoded names, so new roles sharing the pattern are covered for free.
  */
 function isOneShotMaintenanceAgent(agent) {
-    const hidden = getHiddenAgent(agent);
-    // Shipped one-shot maintenance roles declare toolSchemaProfile:'none'.
-    return Boolean(
-        hidden
-        && hidden.kind === 'maintenance'
-        && hidden.toolSchemaProfile === 'none',
-    );
+  const hidden = getHiddenAgent(agent);
+  // Shipped one-shot maintenance roles declare toolSchemaProfile:'none'.
+  return Boolean(hidden && hidden.kind === 'maintenance' && hidden.toolSchemaProfile === 'none');
 }
 
 /**
@@ -110,41 +106,41 @@ function isOneShotMaintenanceAgent(agent) {
  *     write would ever be re-read; cheaper 5m write wins)
  */
 export function resolveLeadMessagesTtl(autoClear) {
-    if (autoClear && autoClear.enabled === false) return '1h';
-    const idleMs = Number(autoClear?.idleMs);
-    if (Number.isFinite(idleMs) && idleMs >= 3_600_000) return '1h';
-    return '5m';
+  if (autoClear && autoClear.enabled === false) return '1h';
+  const idleMs = Number(autoClear?.idleMs);
+  if (Number.isFinite(idleMs) && idleMs >= 3_600_000) return '1h';
+  return '5m';
 }
 
 export function resolveCacheStrategy(agent, { autoClear } = {}) {
-    if (isOneShotMaintenanceAgent(agent)) {
-        return { tools: 'none', system: 'none', tier3: 'none', messages: 'none' };
+  if (isOneShotMaintenanceAgent(agent)) {
+    return { tools: 'none', system: 'none', tier3: 'none', messages: 'none' };
+  }
+  // Operator override for the BP4 (messages-tail) TTL. Short-lived
+  // rapid-turn deployments (bench-style: session dies in <15min) never
+  // benefit from a 1h tail across its premium window, so '5m' trades the
+  // 2x write premium (1h, $10/M) down to 1.25x ($6.25/M) and deactivates
+  // the 1h volatile-content anchor guard. Product defaults below stay
+  // untouched when the env is unset.
+  const envMessagesTtl = (process.env.MIXDOG_CACHE_MESSAGES_TTL || '').trim();
+  const applyEnv = (strategy) => {
+    if (envMessagesTtl === '1h' || envMessagesTtl === '5m' || envMessagesTtl === 'none') {
+      return { ...strategy, messages: envMessagesTtl };
     }
-    // Operator override for the BP4 (messages-tail) TTL. Short-lived
-    // rapid-turn deployments (bench-style: session dies in <15min) never
-    // benefit from a 1h tail across its premium window, so '5m' trades the
-    // 2x write premium (1h, $10/M) down to 1.25x ($6.25/M) and deactivates
-    // the 1h volatile-content anchor guard. Product defaults below stay
-    // untouched when the env is unset.
-    const envMessagesTtl = (process.env.MIXDOG_CACHE_MESSAGES_TTL || '').trim();
-    const applyEnv = (strategy) => {
-        if (envMessagesTtl === '1h' || envMessagesTtl === '5m' || envMessagesTtl === 'none') {
-            return { ...strategy, messages: envMessagesTtl };
-        }
-        return strategy;
-    };
-    if (getHiddenAgent(agent)) {
-        return applyEnv({ tools: 'none', system: '1h', tier3: '1h', messages: '1h' });
-    }
-    if (agent && agent !== 'lead') {
-        // Public (non-hidden, non-lead) agents keep the flat 1h tail — only
-        // the Lead session's tail is linked to autoClear.
-        return applyEnv({ tools: 'none', system: '1h', tier3: '1h', messages: '1h' });
-    }
-    // Lead session (agent === 'lead', or no agent — raw/CLI callers default
-    // to Lead behavior): message tail TTL is linked to autoClear (see
-    // resolveLeadMessagesTtl).
-    return applyEnv({ tools: 'none', system: '1h', tier3: '1h', messages: resolveLeadMessagesTtl(autoClear) });
+    return strategy;
+  };
+  if (getHiddenAgent(agent)) {
+    return applyEnv({ tools: 'none', system: '1h', tier3: '1h', messages: '1h' });
+  }
+  if (agent && agent !== 'lead') {
+    // Public (non-hidden, non-lead) agents keep the flat 1h tail — only
+    // the Lead session's tail is linked to autoClear.
+    return applyEnv({ tools: 'none', system: '1h', tier3: '1h', messages: '1h' });
+  }
+  // Lead session (agent === 'lead', or no agent — raw/CLI callers default
+  // to Lead behavior): message tail TTL is linked to autoClear (see
+  // resolveLeadMessagesTtl).
+  return applyEnv({ tools: 'none', system: '1h', tier3: '1h', messages: resolveLeadMessagesTtl(autoClear) });
 }
 
 /**
@@ -163,30 +159,28 @@ export function resolveCacheStrategy(agent, { autoClear } = {}) {
 //   'implicit-observed'   — cache hits are observable but not guaranteed warm
 //   'none'                — no API-level cache knob/metric
 const PROVIDER_CACHE_CAPABILITY = Object.freeze({
-    'anthropic':       'explicit-breakpoint',
-    'anthropic-oauth': 'explicit-breakpoint',
-    'openai':          'key-prefix',
-    'openai-oauth':    'key-prefix',
-    'xai':             'key-prefix',
-    'grok-oauth':      'key-prefix',
-    'gemini':          'managed-explicit',
-    'deepseek':        'implicit-observed',
-    'opencode-go':     'implicit-observed',
+  anthropic: 'explicit-breakpoint',
+  'anthropic-oauth': 'explicit-breakpoint',
+  openai: 'key-prefix',
+  'openai-oauth': 'key-prefix',
+  xai: 'key-prefix',
+  'grok-oauth': 'key-prefix',
+  gemini: 'managed-explicit',
+  deepseek: 'implicit-observed',
+  'opencode-go': 'implicit-observed',
 });
 
 export function cacheCapabilityForProvider(provider) {
-    return PROVIDER_CACHE_CAPABILITY[provider] || 'none';
+  return PROVIDER_CACHE_CAPABILITY[provider] || 'none';
 }
 
 export function shouldMarkWarmForProvider(provider) {
-    const capability = cacheCapabilityForProvider(provider);
-    return capability === 'explicit-breakpoint'
-        || capability === 'key-prefix'
-        || capability === 'managed-explicit';
+  const capability = cacheCapabilityForProvider(provider);
+  return capability === 'explicit-breakpoint' || capability === 'key-prefix' || capability === 'managed-explicit';
 }
 
 export function shouldRecordObservedForProvider(provider) {
-    return cacheCapabilityForProvider(provider) === 'implicit-observed';
+  return cacheCapabilityForProvider(provider) === 'implicit-observed';
 }
 
 // Stable per-provider shared prompt-cache key. key-prefix providers MUST land on
@@ -196,10 +190,10 @@ export function shouldRecordObservedForProvider(provider) {
 // key. Anthropic/Gemini use content-keyed cache_control / explicit CachedContent
 // and do not consult this map.
 const PROVIDER_CACHE_KEY_DEFAULT = Object.freeze({
-    'openai':       'mixdog-openai',
-    'openai-oauth': 'mixdog-codex',
-    'xai':          'mixdog-xai',
-    'grok-oauth':   'mixdog-xai',
+  openai: 'mixdog-openai',
+  'openai-oauth': 'mixdog-codex',
+  xai: 'mixdog-xai',
+  'grok-oauth': 'mixdog-xai',
 });
 
 /**
@@ -213,64 +207,68 @@ const PROVIDER_CACHE_KEY_DEFAULT = Object.freeze({
  * call site to avoid cross-session socket/delta-state reuse.
  */
 export function resolveProviderCacheKey(opts, provider) {
-    return opts?.providerCacheKey
-        || opts?.promptCacheKey
-        || opts?.session?.promptCacheKey
-        || PROVIDER_CACHE_KEY_DEFAULT[provider]
-        || 'mixdog-shared';
+  return (
+    opts?.providerCacheKey ||
+    opts?.promptCacheKey ||
+    opts?.session?.promptCacheKey ||
+    PROVIDER_CACHE_KEY_DEFAULT[provider] ||
+    'mixdog-shared'
+  );
 }
 
 function stableStringify(value) {
-    if (value === null || typeof value !== 'object') return JSON.stringify(value);
-    if (Array.isArray(value)) return '[' + value.map(v => stableStringify(v)).join(',') + ']';
-    const keys = Object.keys(value).sort();
-    return '{' + keys.map(k => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(',') + '}';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map((v) => stableStringify(v)).join(',') + ']';
+  const keys = Object.keys(value).sort();
+  return '{' + keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(',') + '}';
 }
 
 function shortHash(value, chars = 18) {
-    return createHash('sha256').update(stableStringify(value)).digest('hex').slice(0, chars);
+  return createHash('sha256').update(stableStringify(value)).digest('hex').slice(0, chars);
 }
 
 function cleanString(value) {
-    return typeof value === 'string' ? value.trim() : '';
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 function normalizePromptCacheNamespace(value) {
-    const s = String(value || '').trim() || 'mixdog-shared';
-    // Keep the key boring for OpenAI OAuth's 64-char prompt_cache_key cap while
-    // preserving user overrides as much as possible.
-    return s.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'mixdog-shared';
+  const s = String(value || '').trim() || 'mixdog-shared';
+  // Keep the key boring for OpenAI OAuth's 64-char prompt_cache_key cap while
+  // preserving user overrides as much as possible.
+  return s.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'mixdog-shared';
 }
 
 function fitPromptCacheKey(value, fallback = 'mixdog-shared') {
-    const s = normalizePromptCacheNamespace(value || fallback);
-    if (s.length <= 64) return s;
-    const hash = shortHash(s, 12);
-    const head = s.slice(0, Math.max(1, 64 - hash.length - 1));
-    return `${head}-${hash}`;
+  const s = normalizePromptCacheNamespace(value || fallback);
+  if (s.length <= 64) return s;
+  const hash = shortHash(s, 12);
+  const head = s.slice(0, Math.max(1, 64 - hash.length - 1));
+  return `${head}-${hash}`;
 }
 
 function codexThreadPromptCacheKey(opts, namespace) {
-    const explicit = cleanString(opts?.providerCacheKey)
-        || cleanString(opts?.promptCacheKey)
-        || cleanString(opts?.session?.promptCacheKey);
-    if (process.env.MIXDOG_OAI_CACHE_KEY_SHARED === '1') {
-        return fitPromptCacheKey(explicit || namespace, 'mixdog-codex');
-    }
-    const codexIdentity = cleanString(opts?.codexSessionId)
-        || cleanString(opts?.codexThreadId)
-        || cleanString(opts?.session?.codexWireSessionId);
-    const sessionKey = codexIdentity || cleanString(opts?.sessionId || opts?.session?.id);
-    return fitPromptCacheKey(sessionKey || explicit || namespace, namespace);
+  const explicit =
+    cleanString(opts?.providerCacheKey) ||
+    cleanString(opts?.promptCacheKey) ||
+    cleanString(opts?.session?.promptCacheKey);
+  if (process.env.MIXDOG_OAI_CACHE_KEY_SHARED === '1') {
+    return fitPromptCacheKey(explicit || namespace, 'mixdog-codex');
+  }
+  const codexIdentity =
+    cleanString(opts?.codexSessionId) ||
+    cleanString(opts?.codexThreadId) ||
+    cleanString(opts?.session?.codexWireSessionId);
+  const sessionKey = codexIdentity || cleanString(opts?.sessionId || opts?.session?.id);
+  return fitPromptCacheKey(sessionKey || explicit || namespace, namespace);
 }
 
 function summarizePromptCacheTools(tools) {
-    return (tools || []).map(t => ({
-        type: cleanString(t?.type) || 'function',
-        name: cleanString(t?.name || t?.function?.name),
-        description: cleanString(t?.description || t?.function?.description),
-        parameters: t?.parameters || t?.inputSchema || t?.function?.parameters || null,
-    }));
+  return (tools || []).map((t) => ({
+    type: cleanString(t?.type) || 'function',
+    name: cleanString(t?.name || t?.function?.name),
+    description: cleanString(t?.description || t?.function?.description),
+    parameters: t?.parameters || t?.inputSchema || t?.function?.parameters || null,
+  }));
 }
 
 /**
@@ -282,54 +280,61 @@ function summarizePromptCacheTools(tools) {
  * explicit cache-lane override opts into it.
  */
 export function buildStableProviderPromptCacheKey(provider, opts, prefix = {}) {
-    const namespace = normalizePromptCacheNamespace(resolveProviderCacheKey(opts, provider));
-    if (provider === 'openai-oauth'
-        && process.env.MIXDOG_OAI_CODEX_THREAD_CACHE_KEY !== '0'
-        && String(process.env.MIXDOG_OAI_CODEX_THREAD_CACHE_KEY || '').toLowerCase() !== 'false') {
-        return codexThreadPromptCacheKey(opts, namespace);
-    }
-    const rawShards = prefix.cacheLaneShards ?? opts?.promptCacheLane?.shards ?? opts?.cacheLaneShards;
-    const rawShardMode = String(rawShards ?? '').trim().toLowerCase();
-    const autoLane = prefix.cacheLaneAuto === true
-        || opts?.promptCacheLane?.auto === true
-        || rawShards === 0
-        || ['auto', 'unbounded', 'unlimited', 'none', 'off'].includes(rawShardMode);
-    const shardCount = autoLane ? 0 : positiveInt(rawShards, 1);
-    const rawSlot = nonNegativeInt(prefix.cacheLaneSlot ?? opts?.promptCacheLane?.slot ?? opts?.cacheLaneSlot, 0);
-    const shardSlot = autoLane
-        ? rawSlot
-        : Math.max(0, Math.min(rawSlot, Math.max(0, shardCount - 1)));
-    const laneEnabled = autoLane || shardCount > 1;
-    const laneSuffix = laneEnabled ? `-s${shardSlot.toString(36).padStart(2, '0')}` : '';
-    const seed = {
-        provider: cleanString(provider),
-        model: cleanString(prefix.model),
-        instructions: cleanString(prefix.instructions),
-        tools: summarizePromptCacheTools(prefix.tools),
-        effort: cleanString(prefix.effort ?? opts?.effort),
-        fast: prefix.fast === true || opts?.fast === true,
-        serviceTier: cleanString(prefix.serviceTier),
-        parallelToolCalls: prefix.parallelToolCalls === false ? false : true,
-        cacheLaneSlot: laneEnabled ? shardSlot : null,
-        cacheLaneShards: autoLane ? 'auto' : shardCount > 1 ? shardCount : null,
-        // Per-session cache-key isolation. R8 A/B (2026-07-03) showed parallel
-        // sessions sharing one prompt_cache_key evict each other's transcript
-        // body on the server cache node (same key -> same node; bodies differ),
-        // producing 8-23% genuine mid-session misses at tens of thousands of
-        // uncached tokens each. Mixing sessionId in costs only the small static
-        // prefix hit (~2-4k tokens) on a session's FIRST call — every later
-        // call's body cache is protected. Opt out: MIXDOG_OAI_CACHE_KEY_SHARED=1.
-        session: process.env.MIXDOG_OAI_CACHE_KEY_SHARED === '1'
-            ? null
-            : cleanString(opts?.sessionId || opts?.session?.id || '') || null,
-    };
-    const hash = shortHash(seed);
-    const head = namespace.slice(0, Math.max(1, 64 - hash.length - laneSuffix.length - 1));
-    return `${head}-${hash}${laneSuffix}`;
+  const namespace = normalizePromptCacheNamespace(resolveProviderCacheKey(opts, provider));
+  if (
+    provider === 'openai-oauth' &&
+    process.env.MIXDOG_OAI_CODEX_THREAD_CACHE_KEY !== '0' &&
+    String(process.env.MIXDOG_OAI_CODEX_THREAD_CACHE_KEY || '').toLowerCase() !== 'false'
+  ) {
+    return codexThreadPromptCacheKey(opts, namespace);
+  }
+  const rawShards = prefix.cacheLaneShards ?? opts?.promptCacheLane?.shards ?? opts?.cacheLaneShards;
+  const rawShardMode = String(rawShards ?? '')
+    .trim()
+    .toLowerCase();
+  const autoLane =
+    prefix.cacheLaneAuto === true ||
+    opts?.promptCacheLane?.auto === true ||
+    rawShards === 0 ||
+    ['auto', 'unbounded', 'unlimited', 'none', 'off'].includes(rawShardMode);
+  const shardCount = autoLane ? 0 : positiveInt(rawShards, 1);
+  const rawSlot = nonNegativeInt(prefix.cacheLaneSlot ?? opts?.promptCacheLane?.slot ?? opts?.cacheLaneSlot, 0);
+  const shardSlot = autoLane ? rawSlot : Math.max(0, Math.min(rawSlot, Math.max(0, shardCount - 1)));
+  const laneEnabled = autoLane || shardCount > 1;
+  const laneSuffix = laneEnabled ? `-s${shardSlot.toString(36).padStart(2, '0')}` : '';
+  const seed = {
+    provider: cleanString(provider),
+    model: cleanString(prefix.model),
+    instructions: cleanString(prefix.instructions),
+    tools: summarizePromptCacheTools(prefix.tools),
+    effort: cleanString(prefix.effort ?? opts?.effort),
+    fast: prefix.fast === true || opts?.fast === true,
+    serviceTier: cleanString(prefix.serviceTier),
+    parallelToolCalls: prefix.parallelToolCalls === false ? false : true,
+    cacheLaneSlot: laneEnabled ? shardSlot : null,
+    cacheLaneShards: autoLane ? 'auto' : shardCount > 1 ? shardCount : null,
+    // Per-session cache-key isolation. R8 A/B (2026-07-03) showed parallel
+    // sessions sharing one prompt_cache_key evict each other's transcript
+    // body on the server cache node (same key -> same node; bodies differ),
+    // producing 8-23% genuine mid-session misses at tens of thousands of
+    // uncached tokens each. Mixing sessionId in costs only the small static
+    // prefix hit (~2-4k tokens) on a session's FIRST call — every later
+    // call's body cache is protected. Opt out: MIXDOG_OAI_CACHE_KEY_SHARED=1.
+    session:
+      process.env.MIXDOG_OAI_CACHE_KEY_SHARED === '1'
+        ? null
+        : cleanString(opts?.sessionId || opts?.session?.id || '') || null,
+  };
+  const hash = shortHash(seed);
+  const head = namespace.slice(0, Math.max(1, 64 - hash.length - laneSuffix.length - 1));
+  return `${head}-${hash}${laneSuffix}`;
 }
 
 function providerEnvKey(provider) {
-    return String(provider || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+  return String(provider || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_');
 }
 
 const providerPromptCacheLaneAssignments = new Map();
@@ -337,57 +342,54 @@ const PROVIDER_PROMPT_CACHE_LANE_MAX_ASSIGNMENTS = 4096;
 const DEFAULT_PROVIDER_PROMPT_CACHE_LANE_SHARDS = 1;
 
 function promptCacheLaneGroupKey(provider, opts) {
-    return [
-        cleanString(provider),
-        normalizePromptCacheNamespace(resolveProviderCacheKey(opts, provider)),
-    ].join('\0');
+  return [cleanString(provider), normalizePromptCacheNamespace(resolveProviderCacheKey(opts, provider))].join('\0');
 }
 
 function promptCacheLaneAutoRequested(value) {
-    if (value === true) return true;
-    if (value === 0) return true;
-    if (typeof value === 'string') {
-        const s = value.trim().toLowerCase();
-        return ['0', 'auto', 'unbounded', 'unlimited', 'none', 'off'].includes(s);
-    }
-    return false;
+  if (value === true) return true;
+  if (value === 0) return true;
+  if (typeof value === 'string') {
+    const s = value.trim().toLowerCase();
+    return ['0', 'auto', 'unbounded', 'unlimited', 'none', 'off'].includes(s);
+  }
+  return false;
 }
 
 function parsePromptCacheLaneLimit(raw, fallback = DEFAULT_PROVIDER_PROMPT_CACHE_LANE_SHARDS) {
-    if (raw === null || raw === undefined || raw === '') return fallback;
-    if (promptCacheLaneAutoRequested(raw)) return 0;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return 0;
-    return Math.floor(n);
+  if (raw === null || raw === undefined || raw === '') return fallback;
+  if (promptCacheLaneAutoRequested(raw)) return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.floor(n);
 }
 
 function defaultPromptCacheLaneShards(_provider) {
-    return DEFAULT_PROVIDER_PROMPT_CACHE_LANE_SHARDS;
+  return DEFAULT_PROVIDER_PROMPT_CACHE_LANE_SHARDS;
 }
 
 function assignPromptCacheLaneSlot(provider, opts, shards, seed, { auto = false } = {}) {
-    const explicit = opts?.promptCacheLaneSlot ?? opts?.cacheLaneSlot;
-    const explicitSlot = Number(explicit);
-    if (Number.isFinite(explicitSlot) && explicitSlot >= 0) {
-        return auto ? Math.floor(explicitSlot) : Math.floor(explicitSlot) % Math.max(1, shards);
-    }
-    if (!auto && shards <= 1) return 0;
-    const groupKey = promptCacheLaneGroupKey(provider, opts);
-    let state = providerPromptCacheLaneAssignments.get(groupKey);
-    if (!state) {
-        state = { nextSlot: 0, bySeed: new Map() };
-        providerPromptCacheLaneAssignments.set(groupKey, state);
-    }
-    const seedKey = cleanString(seed) || 'mixdog';
-    if (state.bySeed.has(seedKey)) return state.bySeed.get(seedKey);
-    const slot = auto ? state.nextSlot : state.nextSlot % shards;
-    state.nextSlot = auto ? state.nextSlot + 1 : (state.nextSlot + 1) % shards;
-    state.bySeed.set(seedKey, slot);
-    if (state.bySeed.size > PROVIDER_PROMPT_CACHE_LANE_MAX_ASSIGNMENTS) {
-        const oldest = state.bySeed.keys().next().value;
-        if (oldest !== undefined) state.bySeed.delete(oldest);
-    }
-    return slot;
+  const explicit = opts?.promptCacheLaneSlot ?? opts?.cacheLaneSlot;
+  const explicitSlot = Number(explicit);
+  if (Number.isFinite(explicitSlot) && explicitSlot >= 0) {
+    return auto ? Math.floor(explicitSlot) : Math.floor(explicitSlot) % Math.max(1, shards);
+  }
+  if (!auto && shards <= 1) return 0;
+  const groupKey = promptCacheLaneGroupKey(provider, opts);
+  let state = providerPromptCacheLaneAssignments.get(groupKey);
+  if (!state) {
+    state = { nextSlot: 0, bySeed: new Map() };
+    providerPromptCacheLaneAssignments.set(groupKey, state);
+  }
+  const seedKey = cleanString(seed) || 'mixdog';
+  if (state.bySeed.has(seedKey)) return state.bySeed.get(seedKey);
+  const slot = auto ? state.nextSlot : state.nextSlot % shards;
+  state.nextSlot = auto ? state.nextSlot + 1 : (state.nextSlot + 1) % shards;
+  state.bySeed.set(seedKey, slot);
+  if (state.bySeed.size > PROVIDER_PROMPT_CACHE_LANE_MAX_ASSIGNMENTS) {
+    const oldest = state.bySeed.keys().next().value;
+    if (oldest !== undefined) state.bySeed.delete(oldest);
+  }
+  return slot;
 }
 
 /**
@@ -396,85 +398,84 @@ function assignPromptCacheLaneSlot(provider, opts, shards, seed, { auto = false 
  * one un-suffixed key unless an env/config override opts into shards.
  */
 export function resolveProviderPromptCacheLane(provider, opts = {}, config = {}) {
-    const envKey = providerEnvKey(provider);
-    const env = process.env;
-    const requestedAuto = promptCacheLaneAutoRequested(opts?.promptCacheLaneAuto)
-            || promptCacheLaneAutoRequested(opts?.openaiCacheLaneAuto)
-            || promptCacheLaneAutoRequested(opts?.promptCacheLane?.auto)
-            || promptCacheLaneAutoRequested(config?.promptCacheLaneAuto)
-            || promptCacheLaneAutoRequested(config?.openaiCacheLaneAuto);
-    // Lane SHARDS, requested either by their own name (`*CacheLaneShards`) or
-    // through the legacy `*CacheMaxParallel` / MIXDOG_*_CACHE_MAX_PARALLEL
-    // aliases. Those knobs also bounded in-flight admission for the removed
-    // compat cache lane — that half is gone for good, admission now belongs
-    // solely to the provider/account scheduler — but on OpenAI direct/OAuth
-    // they have always selected the prompt-cache shard count as well, and
-    // existing configurations depend on it. They stay accepted here at LOWER
-    // precedence than the explicitly named shard settings.
-    // Exception: xAI compatibility routing passes promptCacheLaneIgnoreAliases
-    // so the alias keeps meaning nothing there (openai-compat-xai.mjs), where
-    // it never selected shards and would silently fan out cache keys.
-    const ignoreAliases = opts?.promptCacheLaneIgnoreAliases === true
-        || config?.promptCacheLaneIgnoreAliases === true;
-    const rawShards = opts?.promptCacheLaneShards
-        ?? opts?.promptCacheLane?.shards
-        ?? opts?.openaiCacheLaneShards
-        ?? config?.promptCacheLaneShards
-        ?? config?.openaiCacheLaneShards
-        ?? env[`MIXDOG_${envKey}_CACHE_LANE_SHARDS`]
-        ?? env.MIXDOG_OPENAI_CACHE_LANE_SHARDS;
-    const rawAlias = ignoreAliases
-        ? undefined
-        : (opts?.promptCacheLaneMaxParallel
-            ?? opts?.promptCacheLane?.maxParallel
-            ?? opts?.openaiCacheMaxParallel
-            ?? config?.promptCacheLaneMaxParallel
-            ?? config?.openaiCacheMaxParallel
-            ?? env[`MIXDOG_${envKey}_CACHE_MAX_PARALLEL`]
-            ?? env.MIXDOG_OPENAI_CACHE_MAX_PARALLEL);
-    const rawLimit = requestedAuto
-        ? 'auto'
-        : (rawShards ?? rawAlias);
-    const shards = parsePromptCacheLaneLimit(rawLimit, defaultPromptCacheLaneShards(provider));
-    const auto = shards <= 0;
-    const seed = cleanString(
-        opts?.promptCacheLaneSeed
-            ?? opts?.sessionId
-            ?? opts?.session?.id
-            ?? opts?.providerCacheKey
-            ?? opts?.promptCacheKey
-            ?? provider
-            ?? 'mixdog',
-    );
-    const slot = assignPromptCacheLaneSlot(provider, opts, shards, seed, { auto });
-    return {
-        enabled: auto || shards > 1,
-        auto,
-        shards: auto ? 0 : shards,
-        slot,
-        seedHash: shortHash(seed || 'mixdog', 12),
-    };
+  const envKey = providerEnvKey(provider);
+  const env = process.env;
+  const requestedAuto =
+    promptCacheLaneAutoRequested(opts?.promptCacheLaneAuto) ||
+    promptCacheLaneAutoRequested(opts?.openaiCacheLaneAuto) ||
+    promptCacheLaneAutoRequested(opts?.promptCacheLane?.auto) ||
+    promptCacheLaneAutoRequested(config?.promptCacheLaneAuto) ||
+    promptCacheLaneAutoRequested(config?.openaiCacheLaneAuto);
+  // Lane SHARDS, requested either by their own name (`*CacheLaneShards`) or
+  // through the legacy `*CacheMaxParallel` / MIXDOG_*_CACHE_MAX_PARALLEL
+  // aliases. Those knobs also bounded in-flight admission for the removed
+  // compat cache lane — that half is gone for good, admission now belongs
+  // solely to the provider/account scheduler — but on OpenAI direct/OAuth
+  // they have always selected the prompt-cache shard count as well, and
+  // existing configurations depend on it. They stay accepted here at LOWER
+  // precedence than the explicitly named shard settings.
+  // Exception: xAI compatibility routing passes promptCacheLaneIgnoreAliases
+  // so the alias keeps meaning nothing there (openai-compat-xai.mjs), where
+  // it never selected shards and would silently fan out cache keys.
+  const ignoreAliases = opts?.promptCacheLaneIgnoreAliases === true || config?.promptCacheLaneIgnoreAliases === true;
+  const rawShards =
+    opts?.promptCacheLaneShards ??
+    opts?.promptCacheLane?.shards ??
+    opts?.openaiCacheLaneShards ??
+    config?.promptCacheLaneShards ??
+    config?.openaiCacheLaneShards ??
+    env[`MIXDOG_${envKey}_CACHE_LANE_SHARDS`] ??
+    env.MIXDOG_OPENAI_CACHE_LANE_SHARDS;
+  const rawAlias = ignoreAliases
+    ? undefined
+    : (opts?.promptCacheLaneMaxParallel ??
+      opts?.promptCacheLane?.maxParallel ??
+      opts?.openaiCacheMaxParallel ??
+      config?.promptCacheLaneMaxParallel ??
+      config?.openaiCacheMaxParallel ??
+      env[`MIXDOG_${envKey}_CACHE_MAX_PARALLEL`] ??
+      env.MIXDOG_OPENAI_CACHE_MAX_PARALLEL);
+  const rawLimit = requestedAuto ? 'auto' : (rawShards ?? rawAlias);
+  const shards = parsePromptCacheLaneLimit(rawLimit, defaultPromptCacheLaneShards(provider));
+  const auto = shards <= 0;
+  const seed = cleanString(
+    opts?.promptCacheLaneSeed ??
+      opts?.sessionId ??
+      opts?.session?.id ??
+      opts?.providerCacheKey ??
+      opts?.promptCacheKey ??
+      provider ??
+      'mixdog'
+  );
+  const slot = assignPromptCacheLaneSlot(provider, opts, shards, seed, { auto });
+  return {
+    enabled: auto || shards > 1,
+    auto,
+    shards: auto ? 0 : shards,
+    slot,
+    seedHash: shortHash(seed || 'mixdog', 12),
+  };
 }
 
 export function buildProviderCacheOpts(provider, sessionId, agent, options = {}) {
-    const ttls = resolveCacheStrategy(agent, options);
-    const capability = cacheCapabilityForProvider(provider);
-    if (capability === 'explicit-breakpoint') {
-        // 2026-03-06 Anthropic dropped default TTL 1h→5m. We send
-        // extended-cache-ttl-2025-04-11 header to retain 1h.
-        // Verified 2026-04-17 (ephemeral_1h_input_tokens=4722).
-        return { cacheStrategy: ttls };
-    }
-    // NOTE: createSession's direct-call site (manager.mjs) only invokes this
-    // for explicit-breakpoint (Anthropic-family) providers, so this branch
-    // stays reachable only from other callers (none in-tree today) — keeping
-    // it here preserves the documented public API/behavior of this function.
-    if (provider === 'openai') {
-        // Public OpenAI API: prompt_cache_retention extends prefix retention.
-        // openai-oauth rejects the header — falls through to default.
-        return { cacheRetention: '24h' };
-    }
-    return {};
+  const ttls = resolveCacheStrategy(agent, options);
+  const capability = cacheCapabilityForProvider(provider);
+  if (capability === 'explicit-breakpoint') {
+    // 2026-03-06 Anthropic dropped default TTL 1h→5m. We send
+    // extended-cache-ttl-2025-04-11 header to retain 1h.
+    // Verified 2026-04-17 (ephemeral_1h_input_tokens=4722).
+    return { cacheStrategy: ttls };
+  }
+  // NOTE: createSession's direct-call site (manager.mjs) only invokes this
+  // for explicit-breakpoint (Anthropic-family) providers, so this branch
+  // stays reachable only from other callers (none in-tree today) — keeping
+  // it here preserves the documented public API/behavior of this function.
+  if (provider === 'openai') {
+    // Public OpenAI API: prompt_cache_retention extends prefix retention.
+    // openai-oauth rejects the header — falls through to default.
+    return { cacheRetention: '24h' };
+  }
+  return {};
 }
 
 // --- Helpers ---

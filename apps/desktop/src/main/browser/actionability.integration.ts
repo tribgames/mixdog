@@ -8,12 +8,15 @@ import { pause } from './settle';
 export async function runBrowserActionabilityScenarios(
   host: BrowserHost,
   origin: string,
-  send: (input: Record<string, unknown>) => Promise<{ text: string }>,
+  send: (input: Record<string, unknown>) => Promise<{ text: string }>
 ): Promise<void> {
   const sessionId = 'browser-actionability-integration';
-  const command = (input: BrowserCommand) => send({
-    ...input, session_id: sessionId, turn_id: 1,
-  });
+  const command = (input: BrowserCommand) =>
+    send({
+      ...input,
+      session_id: sessionId,
+      turn_id: 1,
+    });
   try {
     await command({ action: 'navigate', url: `${origin}/root`, background: true, tab: 'stability' });
     await command({ action: 'open', tab: 'stability' });
@@ -64,7 +67,9 @@ export async function runBrowserActionabilityScenarios(
       })()`);
       let settled = false;
       const agent = command({ action: 'click', target: { role: 'button', name: 'Absent target' }, ...target });
-      const cancelled = assert.rejects(agent, /interrupted by local user input/).then(() => { settled = true; });
+      const cancelled = assert.rejects(agent, /interrupted by local user input/).then(() => {
+        settled = true;
+      });
       await pause(100);
       assert.equal(settled, false, 'the agent must be waiting, not already rejected');
       await host.browserPageControl(sessionId, { type: 'text', text: 'human', documentId: frame.documentId });

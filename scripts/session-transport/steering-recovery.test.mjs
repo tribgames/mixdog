@@ -12,7 +12,6 @@ import {
   waitFor,
 } from './_shared.mjs';
 
-
 test('session submit ACK does not wait for auto-clear and remains reclaimable', async () => {
   const clearGate = Promise.withResolvers();
   let enqueued = 0;
@@ -26,7 +25,9 @@ test('session submit ACK does not wait for auto-clear and remains reclaimable', 
     listeners: new Set(),
     getState: () => state,
     getPublishedState: () => state,
-    set: (patch) => { state = { ...state, ...patch }; },
+    set: (patch) => {
+      state = { ...state, ...patch };
+    },
     routeState: () => ({}),
     autoClearBeforeSubmit: () => clearGate.promise,
     enqueue: (text, options) => {
@@ -36,9 +37,14 @@ test('session submit ACK does not wait for auto-clear and remains reclaimable', 
     },
     restoreQueued: (_current, selectedId) => {
       const index = queued.findIndex((entry) => entry.id === selectedId);
-      if (index < 0) return {
-        count: 0, ids: [], text: '', pastedImages: null, pastedTexts: null,
-      };
+      if (index < 0)
+        return {
+          count: 0,
+          ids: [],
+          text: '',
+          pastedImages: null,
+          pastedTexts: null,
+        };
       const [entry] = queued.splice(index, 1);
       return {
         count: 1,
@@ -109,7 +115,9 @@ test('process-restart resume restores queued steering before releasing commandBu
     resetStatsAndSyncContext: () => state.stats,
     restoreLeadSteeringFromDisk: () => {
       restoreStarted.resolve();
-      return restoreGate.promise.then(() => { restored = true; });
+      return restoreGate.promise.then(() => {
+        restored = true;
+      });
     },
   });
 
@@ -134,59 +142,70 @@ test('abort starts immediately while ordinary session calls remain in flight', a
   let startedWork = 0;
   let abortCalls = 0;
   let abortOptions = null;
-  const workGate = new Promise((resolve) => { releaseWork = resolve; });
-  await withDaemon(async ({ discovery }) => {
-    const client = await attachSession({ discovery, cwd: process.cwd() });
-    const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
-    const work = Array.from({ length: 64 }, (_, index) =>
-      client.call('session.read', {
-        sessionId,
-        action: 'getSettingsSnapshot',
-        args: [index],
-      }, { callId: `reserved-capacity-work:${index}` }));
-    try {
-      await waitFor(
-        () => startedWork === work.length,
-        'ordinary calls start without a hidden concurrency gate',
-      );
-      const started = performance.now();
-      const result = await client.call('session.abort', {
-        sessionId,
-        options: { restorePrompt: false, submissionId: 'desktop-submit-1' },
-      }, {
-        callId: 'reserved-capacity-abort',
-      });
-      const elapsed = performance.now() - started;
-      assert.equal(result.aborted, true);
-      assert.equal(result.restoreText, 'queued prompt');
-      assert.deepEqual(result.pastedTexts, { text_1: { text: 'restored text' } });
-      assert.deepEqual(abortOptions, {
-        restorePrompt: false,
-        submissionId: 'desktop-submit-1',
-      });
-      assert.equal(abortCalls, 1);
-      assert.ok(elapsed < 100, `abort waited ${elapsed.toFixed(1)}ms behind ordinary calls`);
-    } finally {
-      releaseWork();
-      await Promise.all(work);
-      await client.close('reserved capacity test');
-    }
-  }, {
-    sessionFactory: async () => ({
-      ...createStubSessionRuntime(),
-      getSettingsSnapshot() {
-        startedWork += 1;
-        return workGate;
-      },
-      abort(options) {
-        abortCalls += 1;
-        abortOptions = options;
-        return {
-          aborted: true,
-          restoreText: 'queued prompt',
-          pastedTexts: { text_1: { text: 'restored text' } },
-        };
-      },
-    }),
+  const workGate = new Promise((resolve) => {
+    releaseWork = resolve;
   });
+  await withDaemon(
+    async ({ discovery }) => {
+      const client = await attachSession({ discovery, cwd: process.cwd() });
+      const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
+      const work = Array.from({ length: 64 }, (_, index) =>
+        client.call(
+          'session.read',
+          {
+            sessionId,
+            action: 'getSettingsSnapshot',
+            args: [index],
+          },
+          { callId: `reserved-capacity-work:${index}` }
+        )
+      );
+      try {
+        await waitFor(() => startedWork === work.length, 'ordinary calls start without a hidden concurrency gate');
+        const started = performance.now();
+        const result = await client.call(
+          'session.abort',
+          {
+            sessionId,
+            options: { restorePrompt: false, submissionId: 'desktop-submit-1' },
+          },
+          {
+            callId: 'reserved-capacity-abort',
+          }
+        );
+        const elapsed = performance.now() - started;
+        assert.equal(result.aborted, true);
+        assert.equal(result.restoreText, 'queued prompt');
+        assert.deepEqual(result.pastedTexts, { text_1: { text: 'restored text' } });
+        assert.deepEqual(abortOptions, {
+          restorePrompt: false,
+          submissionId: 'desktop-submit-1',
+        });
+        assert.equal(abortCalls, 1);
+        assert.ok(elapsed < 100, `abort waited ${elapsed.toFixed(1)}ms behind ordinary calls`);
+      } finally {
+        releaseWork();
+        await Promise.all(work);
+        await client.close('reserved capacity test');
+      }
+    },
+    {
+      sessionFactory: async () => ({
+        ...createStubSessionRuntime(),
+        getSettingsSnapshot() {
+          startedWork += 1;
+          return workGate;
+        },
+        abort(options) {
+          abortCalls += 1;
+          abortOptions = options;
+          return {
+            aborted: true,
+            restoreText: 'queued prompt',
+            pastedTexts: { text_1: { text: 'restored text' } },
+          };
+        },
+      }),
+    }
+  );
 });

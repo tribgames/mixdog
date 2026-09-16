@@ -2,11 +2,7 @@
 // distance, outer-context trimming, indent normalization, and opcode-prefix /
 // plus-as-context restoration. Moved verbatim from v4a-convert.mjs; every
 // tier keeps its uniqueness guard so a rescue can never mis-anchor.
-import {
-  longestCommonSubstringLen,
-  boundedEditDistance,
-  EDIT_DISTANCE_ALLOWANCE_PER_LINE,
-} from './matcher.mjs';
+import { longestCommonSubstringLen, boundedEditDistance, EDIT_DISTANCE_ALLOWANCE_PER_LINE } from './matcher.mjs';
 import { isV4AEndOfFileMarker } from './parsing.mjs';
 import { v4AHunkLineStats } from './v4a-anchors.mjs';
 
@@ -24,7 +20,10 @@ import { v4AHunkLineStats } from './v4a-anchors.mjs';
 export function findContextTolerantWindow(sourceLines, oldLines, oldTags) {
   const n = oldLines.length;
   if (n < 3 || !Array.isArray(oldTags) || oldTags.length !== n) return null;
-  const collapse = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+  const collapse = (s) =>
+    String(s ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
   const similar = (a, b) => {
     const ca = collapse(a);
     const cb = collapse(b);
@@ -43,7 +42,10 @@ export function findContextTolerantWindow(sourceLines, oldLines, oldTags) {
         if (collapse(pat)) exactNonBlank++;
         continue;
       }
-      if (oldTags[k] !== ' ' || ++mismatches > 2 || !similar(pat, src)) { ok = false; break; }
+      if (oldTags[k] !== ' ' || ++mismatches > 2 || !similar(pat, src)) {
+        ok = false;
+        break;
+      }
     }
     if (ok && mismatches > 0 && exactNonBlank >= 2) windows.push(i);
   }
@@ -77,7 +79,10 @@ export function findEditDistanceWindow(sourceLines, oldLines) {
         continue;
       }
       total += boundedEditDistance(src.trim(), pat.trim(), maxDistance - total);
-      if (total > maxDistance) { ok = false; break; }
+      if (total > maxDistance) {
+        ok = false;
+        break;
+      }
     }
     if (ok && total > 0 && exact >= 2) windows.push(i);
   }
@@ -96,20 +101,19 @@ export function findEditDistanceWindow(sourceLines, oldLines) {
 // competing trim plan or duplicate occurrence stays a hard context miss.
 export function findOuterContextTrimmedWindow(sourceLines, hunk, stats) {
   const body = (hunk?.lines || []).filter(
-    (line) => typeof line === 'string'
-      && line.length > 0
-      && !isV4AEndOfFileMarker(line)
-      && (line[0] === ' ' || line[0] === '-' || line[0] === '+'),
+    (line) =>
+      typeof line === 'string' &&
+      line.length > 0 &&
+      !isV4AEndOfFileMarker(line) &&
+      (line[0] === ' ' || line[0] === '-' || line[0] === '+')
   );
   if (!body.some((line) => line[0] === '-')) return null;
 
   let leadingAvailable = 0;
   while (leadingAvailable < body.length && body[leadingAvailable][0] === ' ') leadingAvailable++;
   let trailingAvailable = 0;
-  while (
-    trailingAvailable < body.length - leadingAvailable
-    && body[body.length - 1 - trailingAvailable][0] === ' '
-  ) trailingAvailable++;
+  while (trailingAvailable < body.length - leadingAvailable && body[body.length - 1 - trailingAvailable][0] === ' ')
+    trailingAvailable++;
   if (leadingAvailable === 0 && trailingAvailable === 0) return null;
 
   const maxTrimmed = leadingAvailable + trailingAvailable;
@@ -268,7 +272,7 @@ export function restorePlusAsContext(sourceLines, hunk) {
   const stats = v4AHunkLineStats(hunk);
   if (!stats.oldCount) return null;
   const body = (hunk.lines || []).filter(
-    (line) => typeof line === 'string' && line.length > 0 && !isV4AEndOfFileMarker(line),
+    (line) => typeof line === 'string' && line.length > 0 && !isV4AEndOfFileMarker(line)
   );
   const windowOld = [];
   const windowNew = [];

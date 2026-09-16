@@ -22,25 +22,27 @@ export const HEADLESS_MODEL_TOOL_NAMES = Object.freeze([
   'tidy',
 ]);
 
-const HEADLESS_MODEL_TOOL_SET = new Set(
-  HEADLESS_MODEL_TOOL_NAMES.map((name) => name.toLowerCase()),
-);
+const HEADLESS_MODEL_TOOL_SET = new Set(HEADLESS_MODEL_TOOL_NAMES.map((name) => name.toLowerCase()));
 
 export function normalizeToolProfile(value) {
-  return String(value || '').trim().toLowerCase() === HEADLESS_TOOL_PROFILE
+  return String(value || '')
+    .trim()
+    .toLowerCase() === HEADLESS_TOOL_PROFILE
     ? HEADLESS_TOOL_PROFILE
     : INTERACTIVE_TOOL_PROFILE;
 }
 
 export function modelToolSchemaAllowlist(profile) {
-  return normalizeToolProfile(profile) === HEADLESS_TOOL_PROFILE
-    ? [...HEADLESS_MODEL_TOOL_NAMES]
-    : null;
+  return normalizeToolProfile(profile) === HEADLESS_TOOL_PROFILE ? [...HEADLESS_MODEL_TOOL_NAMES] : null;
 }
 
 export function modelToolAllowedForProfile(name, profile) {
   if (normalizeToolProfile(profile) !== HEADLESS_TOOL_PROFILE) return true;
-  return HEADLESS_MODEL_TOOL_SET.has(String(name || '').trim().toLowerCase());
+  return HEADLESS_MODEL_TOOL_SET.has(
+    String(name || '')
+      .trim()
+      .toLowerCase()
+  );
 }
 
 export function filterModelToolsForProfile(tools, profile) {
@@ -51,9 +53,11 @@ export function filterModelToolsForProfile(tools, profile) {
 
 export function disallowedModelToolNamesForProfile(tools, profile) {
   if (normalizeToolProfile(profile) !== HEADLESS_TOOL_PROFILE) return [];
-  return [...new Set(
-    (Array.isArray(tools) ? tools : [])
-      .map((tool) => String(tool?.name || '').trim())
-      .filter((name) => name && !modelToolAllowedForProfile(name, profile)),
-  )];
+  return [
+    ...new Set(
+      (Array.isArray(tools) ? tools : [])
+        .map((tool) => String(tool?.name || '').trim())
+        .filter((name) => name && !modelToolAllowedForProfile(name, profile))
+    ),
+  ];
 }

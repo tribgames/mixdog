@@ -19,7 +19,13 @@ import { promisify } from 'node:util';
 // setting it before the first disk-cache call is enough.
 const DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-calls-cache-'));
 process.env.MIXDOG_DATA_DIR = DATA_DIR;
-process.on('exit', () => { try { rmSync(DATA_DIR, { recursive: true, force: true }); } catch { /* best effort */ } });
+process.on('exit', () => {
+  try {
+    rmSync(DATA_DIR, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
+});
 
 const { codeGraph } = await import('./dispatch.mjs');
 const { _attachGraphRuntimeCaches, _serializeGraph, _deserializeGraph } = await import('./graph-model.mjs');
@@ -33,16 +39,15 @@ const {
   callsWireSignatureToken,
 } = await import('./graph-binary.mjs');
 const { _astCalls } = await import('./ast-calls.mjs');
-const {
-  _setDiskCodeGraphEntry,
-  drainCodeGraphCacheStrict,
-  getDiskCodeGraphEntry,
-  hydrateGraphCallsFromSidecar,
-} = await import('./disk-cache.mjs');
+const { _setDiskCodeGraphEntry, drainCodeGraphCacheStrict, getDiskCodeGraphEntry, hydrateGraphCallsFromSidecar } =
+  await import('./disk-cache.mjs');
 const { canonicalGraphCwd } = await import('../code-graph-state.mjs');
 
 const runNode = promisify(execFile);
-const graphBinary = resolve('native/mixdog-graph/target/release', process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph');
+const graphBinary = resolve(
+  'native/mixdog-graph/target/release',
+  process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph'
+);
 
 const CWD = process.cwd();
 
@@ -77,7 +82,12 @@ function call(name, line, col, kind = 'call', inSymbol = '', recv = '') {
   return [name, line, col, KIND_INDEX[kind], recv, inSymbol];
 }
 
-function makeNode(rel, lang, text, { symbols = [], calls = null, imports = [], tokenSymbols = fixtureTokens(text), rawImports = imports } = {}) {
+function makeNode(
+  rel,
+  lang,
+  text,
+  { symbols = [], calls = null, imports = [], tokenSymbols = fixtureTokens(text), rawImports = imports } = {}
+) {
   return {
     node: {
       abs: resolve(CWD, rel),
@@ -122,24 +132,24 @@ const dispatch = async (graph, args) => String(await codeGraph(args, CWD, null, 
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 const SVC_TEXT = [
-  'export function runTask(input) {',        // 1
-  '  return helper(input);',                 // 2
-  '}',                                       // 3
-  '',                                        // 4
-  'export class Worker {',                   // 5
-  '  start() {',                             // 6
-  "    return runTask('x');",                // 7
-  '  }',                                     // 8
-  '  stop() {',                              // 9
-  '    return this.cleanup();',              // 10
-  '  }',                                     // 11
-  '  cleanup() {',                           // 12
-  '    return new Timer(5);',                // 13
-  '  }',                                     // 14
-  '}',                                       // 15
-  '',                                        // 16
-  'function helper(v) { return v; }',        // 17
-  'function Timer(n) { return n; }',         // 18
+  'export function runTask(input) {', // 1
+  '  return helper(input);', // 2
+  '}', // 3
+  '', // 4
+  'export class Worker {', // 5
+  '  start() {', // 6
+  "    return runTask('x');", // 7
+  '  }', // 8
+  '  stop() {', // 9
+  '    return this.cleanup();', // 10
+  '  }', // 11
+  '  cleanup() {', // 12
+  '    return new Timer(5);', // 13
+  '  }', // 14
+  '}', // 15
+  '', // 16
+  'function helper(v) { return v; }', // 17
+  'function Timer(n) { return n; }', // 18
   '',
 ].join('\n');
 
@@ -161,17 +171,17 @@ const SVC_CALLS = [
 ];
 
 const APP_TEXT = [
-  "import { runTask } from './svc.js';",     // 1
-  '',                                        // 2
-  'export function boot() {',                // 3
-  "  return runTask('boot');",               // 4
-  '}',                                       // 5
-  '',                                        // 6
-  'export function reboot() {',              // 7
-  "  return runTask('again');",              // 8
-  '}',                                       // 9
-  '',                                        // 10
-  'export const handler = runTask;',         // 11
+  "import { runTask } from './svc.js';", // 1
+  '', // 2
+  'export function boot() {', // 3
+  "  return runTask('boot');", // 4
+  '}', // 5
+  '', // 6
+  'export function reboot() {', // 7
+  "  return runTask('again');", // 8
+  '}', // 9
+  '', // 10
+  'export const handler = runTask;', // 11
   '',
 ].join('\n');
 
@@ -185,24 +195,25 @@ const APP_CALLS = [call('runTask', 4, 9, 'call', 'boot'), call('runTask', 8, 9, 
 // Calls `runTask` while neither declaring nor importing any declaration of it
 // — the text heuristic's classic false positive.
 const STRAY_TEXT = [
-  'export function strayEntry(runner) {',    // 1
-  "  return runTask('stray');",              // 2
-  '}',                                       // 3
+  'export function strayEntry(runner) {', // 1
+  "  return runTask('stray');", // 2
+  '}', // 3
   '',
 ].join('\n');
 
-const strayNode = (calls = [call('runTask', 2, 9, 'call', 'strayEntry')]) => makeNode('src/other/stray.js', 'javascript', STRAY_TEXT, {
-  symbols: [sym('strayEntry', 'function', 1, 3, 16)],
-  calls,
-});
+const strayNode = (calls = [call('runTask', 2, 9, 'call', 'strayEntry')]) =>
+  makeNode('src/other/stray.js', 'javascript', STRAY_TEXT, {
+    symbols: [sym('strayEntry', 'function', 1, 3, 16)],
+    calls,
+  });
 
 // Same NAME, second declaration in an unrelated file.
 const UNRELATED_TEXT = [
-  'function runTask(x) { return x; }',       // 1
-  '',                                        // 2
-  'export function localOnly() {',           // 3
-  '  return runTask(1);',                    // 4
-  '}',                                       // 5
+  'function runTask(x) { return x; }', // 1
+  '', // 2
+  'export function localOnly() {', // 3
+  '  return runTask(1);', // 4
+  '}', // 5
   '',
 ].join('\n');
 
@@ -210,100 +221,117 @@ const UNRELATED_SYMBOLS = [sym('runTask', 'function', 1, 1, 9), sym('localOnly',
 const UNRELATED_CALLS = [call('runTask', 4, 9, 'call', 'localOnly')];
 
 const LEGACY_TEXT = [
-  "import { runTask } from './svc.js';",     // 1
-  '',                                        // 2
-  'export function legacyBoot() {',          // 3
-  "  return runTask('legacy');",             // 4
-  '}',                                       // 5
+  "import { runTask } from './svc.js';", // 1
+  '', // 2
+  'export function legacyBoot() {', // 3
+  "  return runTask('legacy');", // 4
+  '}', // 5
   '',
 ].join('\n');
 
 const LEGACY_SYMBOLS = [sym('legacyBoot', 'function', 3, 5, 16)];
 
 const svcNode = (calls = SVC_CALLS) => makeNode('src/svc.js', 'javascript', SVC_TEXT, { symbols: SVC_SYMBOLS, calls });
-const appNode = (calls = APP_CALLS) => makeNode('src/app.js', 'javascript', APP_TEXT, {
-  symbols: APP_SYMBOLS,
-  calls,
-  imports: ['src/svc.js'],
-});
-const unrelatedNode = (calls = UNRELATED_CALLS) => makeNode('src/other/unrelated.js', 'javascript', UNRELATED_TEXT, {
-  symbols: UNRELATED_SYMBOLS,
-  calls,
-});
-const legacyNode = () => makeNode('src/legacy.js', 'javascript', LEGACY_TEXT, {
-  symbols: LEGACY_SYMBOLS,
-  calls: null, // older binary: no AST call data for this file
-  imports: ['src/svc.js'],
-});
+const appNode = (calls = APP_CALLS) =>
+  makeNode('src/app.js', 'javascript', APP_TEXT, {
+    symbols: APP_SYMBOLS,
+    calls,
+    imports: ['src/svc.js'],
+  });
+const unrelatedNode = (calls = UNRELATED_CALLS) =>
+  makeNode('src/other/unrelated.js', 'javascript', UNRELATED_TEXT, {
+    symbols: UNRELATED_SYMBOLS,
+    calls,
+  });
+const legacyNode = () =>
+  makeNode('src/legacy.js', 'javascript', LEGACY_TEXT, {
+    symbols: LEGACY_SYMBOLS,
+    calls: null, // older binary: no AST call data for this file
+    imports: ['src/svc.js'],
+  });
 
 // Method-receiver fixtures.
 const STORE_TEXT = [
-  'export class Store {',                                 // 1
-  '  save(v) {',                                          // 2
-  '    return v;',                                        // 3
-  '  }',                                                  // 4
-  '  saveAll(items) {',                                   // 5
-  '    return items.map((v) => this.save(v));',           // 6
-  '  }',                                                  // 7
-  '}',                                                    // 8
-  '',                                                     // 9
-  'export function copy(other) {',                        // 10
-  '  return other.save(3);',                              // 11
-  '}',                                                    // 12
+  'export class Store {', // 1
+  '  save(v) {', // 2
+  '    return v;', // 3
+  '  }', // 4
+  '  saveAll(items) {', // 5
+  '    return items.map((v) => this.save(v));', // 6
+  '  }', // 7
+  '}', // 8
+  '', // 9
+  'export function copy(other) {', // 10
+  '  return other.save(3);', // 11
+  '}', // 12
   '',
 ].join('\n');
 
-const storeNode = () => makeNode('src/store.js', 'javascript', STORE_TEXT, {
-  symbols: [
-    sym('Store', 'class', 1, 8, 13, { exported: true, sig: 'class Store' }),
-    sym('save', 'method', 2, 4, 2, { sig: 'save(v)', parent: 'Store' }),
-    sym('saveAll', 'method', 5, 7, 2, { sig: 'saveAll(items)', parent: 'Store' }),
-    sym('copy', 'function', 10, 12, 16, { exported: true, sig: 'function copy(other)' }),
-  ],
-  calls: [
-    call('map', 6, 17, 'method', 'saveAll', 'items'),
-    call('save', 6, 33, 'method', 'saveAll', 'this'),
-    call('save', 11, 15, 'method', 'copy', 'other'),
-  ],
-});
+const storeNode = () =>
+  makeNode('src/store.js', 'javascript', STORE_TEXT, {
+    symbols: [
+      sym('Store', 'class', 1, 8, 13, { exported: true, sig: 'class Store' }),
+      sym('save', 'method', 2, 4, 2, { sig: 'save(v)', parent: 'Store' }),
+      sym('saveAll', 'method', 5, 7, 2, { sig: 'saveAll(items)', parent: 'Store' }),
+      sym('copy', 'function', 10, 12, 16, { exported: true, sig: 'function copy(other)' }),
+    ],
+    calls: [
+      call('map', 6, 17, 'method', 'saveAll', 'items'),
+      call('save', 6, 33, 'method', 'saveAll', 'this'),
+      call('save', 11, 15, 'method', 'copy', 'other'),
+    ],
+  });
 
-const useStoreNode = () => makeNode('src/use-store.js', 'javascript', [
-  "import { Store } from './store.js';",     // 1
-  '',                                        // 2
-  'export function persist(store) {',        // 3
-  '  return store.save(1);',                 // 4
-  '}',                                       // 5
-  '',
-].join('\n'), {
-  symbols: [sym('persist', 'function', 3, 5, 16)],
-  calls: [call('save', 4, 15, 'method', 'persist', 'store')],
-  imports: ['src/store.js'],
-});
+const useStoreNode = () =>
+  makeNode(
+    'src/use-store.js',
+    'javascript',
+    [
+      "import { Store } from './store.js';", // 1
+      '', // 2
+      'export function persist(store) {', // 3
+      '  return store.save(1);', // 4
+      '}', // 5
+      '',
+    ].join('\n'),
+    {
+      symbols: [sym('persist', 'function', 3, 5, 16)],
+      calls: [call('save', 4, 15, 'method', 'persist', 'store')],
+      imports: ['src/store.js'],
+    }
+  );
 
-const noStoreNode = () => makeNode('src/other/nostore.js', 'javascript', [
-  'export function keep(cache) {',           // 1
-  '  return cache.save(2);',                 // 2
-  '}',                                       // 3
-  '',
-].join('\n'), {
-  symbols: [sym('keep', 'function', 1, 3, 16)],
-  calls: [call('save', 2, 15, 'method', 'keep', 'cache')],
-});
+const noStoreNode = () =>
+  makeNode(
+    'src/other/nostore.js',
+    'javascript',
+    [
+      'export function keep(cache) {', // 1
+      '  return cache.save(2);', // 2
+      '}', // 3
+      '',
+    ].join('\n'),
+    {
+      symbols: [sym('keep', 'function', 1, 3, 16)],
+      calls: [call('save', 2, 15, 'method', 'keep', 'cache')],
+    }
+  );
 
 const PY_TEXT = [
-  'def run_task(value):',                    // 1
-  '    return helper(value)',                // 2
-  '',                                        // 3
-  '',                                        // 4
-  'def helper(value):',                      // 5
-  '    return value',                        // 6
+  'def run_task(value):', // 1
+  '    return helper(value)', // 2
+  '', // 3
+  '', // 4
+  'def helper(value):', // 5
+  '    return value', // 6
   '',
 ].join('\n');
 
-const pyNode = (calls) => makeNode('py/service.py', 'python', PY_TEXT, {
-  symbols: [sym('run_task', 'function', 1, 2, 4), sym('helper', 'function', 5, 6, 4)],
-  calls,
-});
+const pyNode = (calls) =>
+  makeNode('py/service.py', 'python', PY_TEXT, {
+    symbols: [sym('run_task', 'function', 1, 2, 4), sym('helper', 'function', 5, 6, 4)],
+    calls,
+  });
 
 // ── byte parity for non-call modes ──────────────────────────────────────────
 // A fixed 62-query matrix over every mode that does NOT read call sites.
@@ -313,12 +341,7 @@ const pyNode = (calls) => makeNode('py/service.py', 'python', PY_TEXT, {
 // once, for symbol record v2: rows now carry the unified kind, the declaration
 // head and the export marker, and members nest under `parent`.
 function parityGraph() {
-  return makeGraph([
-    svcNode(),
-    appNode(),
-    storeNode(),
-    pyNode([call('helper', 2, 11, 'call', 'run_task')]),
-  ]);
+  return makeGraph([svcNode(), appNode(), storeNode(), pyNode([call('helper', 2, 11, 'call', 'run_task')])]);
 }
 
 const PARITY_FILES = ['src/svc.js', 'src/app.js', 'src/store.js', 'py/service.py'];
@@ -350,10 +373,11 @@ function parityQueries() {
 }
 
 // Absolute roots differ per machine; everything else is compared byte-exact.
-const parityDigest = (text) => createHash('sha256')
-  .update(String(text).split(CWD).join('<ROOT>').split(CWD.replace(/\\/g, '/')).join('<ROOT>'))
-  .digest('hex')
-  .slice(0, 16);
+const parityDigest = (text) =>
+  createHash('sha256')
+    .update(String(text).split(CWD).join('<ROOT>').split(CWD.replace(/\\/g, '/')).join('<ROOT>'))
+    .digest('hex')
+    .slice(0, 16);
 
 const PARITY_DIGESTS = {
   '{"mode":"overview"}': '355d548df10da7ea',
@@ -448,7 +472,10 @@ test('AST callees: a container symbol also reports the calls of its members', as
   const out = await dispatch(graph, { mode: 'callees', symbol: 'Worker' });
   // start/stop/cleanup are nested in class Worker's line span (5..15).
   assert.match(out, /^runTask\tcallsite src\/svc\.js:7:12\tdecl src\/svc\.js:1\t\(in start\)\tkind=call$/m);
-  assert.match(out, /^cleanup\tcallsite src\/svc\.js:10:17\tdecl src\/svc\.js:12\t\(in stop\)\tkind=method recv=this$/m);
+  assert.match(
+    out,
+    /^cleanup\tcallsite src\/svc\.js:10:17\tdecl src\/svc\.js:12\t\(in stop\)\tkind=method recv=this$/m
+  );
   assert.match(out, /^Timer\tcallsite src\/svc\.js:13:16\tdecl src\/svc\.js:18\t\(in cleanup\)\tkind=new$/m);
   // helper() belongs to runTask, which is NOT a member of Worker.
   assert.doesNotMatch(out, /^helper\t/m);
@@ -460,16 +487,16 @@ test('container membership is the unified kind vocabulary plus `parent`, not a l
   // impl's line span but is NOT nested under `Engine`, so a span-derived rule
   // would wrongly hand its calls to the struct.
   const rustText = [
-    'pub struct Engine {',                       // 1
-    '    pub name: String,',                     // 2
-    '}',                                         // 3
-    'impl Engine {',                             // 4
-    '    pub fn start(&self) -> u8 {',           // 5
-    '        boot(self)',                        // 6
-    '    }',                                     // 7
-    '}',                                         // 8
-    'fn mem() -> u8 { detach() }',               // 9
-    'trait Sink { fn flush(&self); }',           // 10
+    'pub struct Engine {', // 1
+    '    pub name: String,', // 2
+    '}', // 3
+    'impl Engine {', // 4
+    '    pub fn start(&self) -> u8 {', // 5
+    '        boot(self)', // 6
+    '    }', // 7
+    '}', // 8
+    'fn mem() -> u8 { detach() }', // 9
+    'trait Sink { fn flush(&self); }', // 10
     '',
   ].join('\n');
   const rustNode = makeNode('src/engine.rs', 'rust', rustText, {
@@ -500,15 +527,18 @@ test('container membership is the unified kind vocabulary plus `parent`, not a l
 
   // The outline nests by parent across both containers of the same name.
   const outline = await dispatch(graph, { mode: 'symbols', file: 'src/engine.rs' });
-  assert.equal(outline, [
-    'export struct Engine (L1-3)  pub struct Engine',
-    '  field name (L2)',
-    'impl Engine (L4-8)',
-    '  export function start (L5-7)  pub fn start(&self) -> u8',
-    'function mem (L9)  fn mem() -> u8',
-    'trait Sink (L10)',
-    '  function flush (L10)  fn flush(&self)',
-  ].join('\n'));
+  assert.equal(
+    outline,
+    [
+      'export struct Engine (L1-3)  pub struct Engine',
+      '  field name (L2)',
+      'impl Engine (L4-8)',
+      '  export function start (L5-7)  pub fn start(&self) -> u8',
+      'function mem (L9)  fn mem() -> u8',
+      'trait Sink (L10)',
+      '  function flush (L10)  fn flush(&self)',
+    ].join('\n')
+  );
 });
 
 test('retired kind tokens are not container kinds any more', async () => {
@@ -517,16 +547,13 @@ test('retired kind tokens are not container kinds any more', async () => {
   // member that claims one as `parent` still nests only because the record
   // says so.
   const text = [
-    'const Legacy = {',                          // 1
-    '  run() { return work(); },',               // 2
-    '};',                                        // 3
+    'const Legacy = {', // 1
+    '  run() { return work(); },', // 2
+    '};', // 3
     '',
   ].join('\n');
   const node = makeNode('src/legacy-kind.js', 'javascript', text, {
-    symbols: [
-      sym('Legacy', 'object', 1, 3, 7),
-      sym('run', 'method', 2, 2, 3, { sig: 'run()', parent: 'Legacy' }),
-    ],
+    symbols: [sym('Legacy', 'object', 1, 3, 7), sym('run', 'method', 2, 2, 3, { sig: 'run()', parent: 'Legacy' })],
     calls: [call('work', 2, 17, 'call', 'run')],
   });
   const graph = makeGraph([node]);
@@ -538,7 +565,7 @@ test('retired kind tokens are not container kinds any more', async () => {
   // Rendering never invents a vocabulary: the kind is printed as shipped.
   assert.match(
     await dispatch(graph, { mode: 'symbols', file: 'src/legacy-kind.js' }),
-    /^object Legacy \(L1-3\)\n {2}method run \(L2\) {2}run\(\)$/m,
+    /^object Legacy \(L1-3\)\n {2}method run \(L2\) {2}run\(\)$/m
   );
 });
 
@@ -558,12 +585,15 @@ test('AST callers: same file plus direct importers, grouped by (file, inSymbol)'
   const graph = makeGraph([svcNode(), appNode(), strayNode()]);
   const out = await dispatch(graph, { mode: 'callers', symbol: 'runTask' });
   const rows = out.split('\n').filter((line) => line.includes('\tcall\t'));
-  assert.deepEqual(rows.map((line) => line.split('\t').slice(0, 3).join('\t')), [
-    'src/app.js:4:10\tcall\tcaller=boot',
-    'src/app.js:8:10\tcall\tcaller=reboot',
-    // the wire carries `start`; the outline's spans restore the chain
-    'src/svc.js:7:12\tcall\tcaller=Worker/start',
-  ]);
+  assert.deepEqual(
+    rows.map((line) => line.split('\t').slice(0, 3).join('\t')),
+    [
+      'src/app.js:4:10\tcall\tcaller=boot',
+      'src/app.js:8:10\tcall\tcaller=reboot',
+      // the wire carries `start`; the outline's spans restore the chain
+      'src/svc.js:7:12\tcall\tcaller=Worker/start',
+    ]
+  );
 });
 
 test('caller= renders the containment chain when the outline has spans, else the innermost name', async () => {
@@ -588,11 +618,14 @@ test('AST callers: method calls need a self receiver or an importing caller file
   const graph = makeGraph([storeNode(), useStoreNode(), noStoreNode()]);
   const out = await dispatch(graph, { mode: 'callers', symbol: 'save' });
   const rows = out.split('\n').filter((line) => line.includes('\tcall\t'));
-  assert.deepEqual(rows.map((line) => line.split('\t').slice(0, 3).join('\t')), [
-    // this.save(...) inside the declaring file, and store.save(...) in the importer
-    'src/store.js:6:34\tcall\tcaller=Store/saveAll',
-    'src/use-store.js:4:16\tcall\tcaller=persist',
-  ]);
+  assert.deepEqual(
+    rows.map((line) => line.split('\t').slice(0, 3).join('\t')),
+    [
+      // this.save(...) inside the declaring file, and store.save(...) in the importer
+      'src/store.js:6:34\tcall\tcaller=Store/saveAll',
+      'src/use-store.js:4:16\tcall\tcaller=persist',
+    ]
+  );
   // other.save(3) in the declaring file is somebody else's method …
   assert.doesNotMatch(out, /src\/store\.js:11/);
   // … and cache.save(2) lives in a file that never imports src/store.js.
@@ -641,12 +674,17 @@ test('references still answer for a file the extractor produced no calls for', a
   // names it in its import on line 1. The call row is gone — call rows exist
   // only in `calls` — but the file is still reachable through references, and
   // a non-call usage in it is still reported.
-  const aliasLegacy = makeNode('src/legacy.js', 'javascript', [
-    "import { runTask } from './svc.js';",   // 1
-    '',                                      // 2
-    'export const legacyAlias = runTask;',   // 3
-    '',
-  ].join('\n'), { symbols: [], calls: null, imports: ['src/svc.js'] });
+  const aliasLegacy = makeNode(
+    'src/legacy.js',
+    'javascript',
+    [
+      "import { runTask } from './svc.js';", // 1
+      '', // 2
+      'export const legacyAlias = runTask;', // 3
+      '',
+    ].join('\n'),
+    { symbols: [], calls: null, imports: ['src/svc.js'] }
+  );
   const graph = makeGraph([svcNode(), aliasLegacy]);
   const refs = (await dispatch(graph, { mode: 'references', symbol: 'runTask' })).split('# references')[1] || '';
   assert.match(refs, /^src\/legacy\.js:3:28\treference\t/m);
@@ -656,15 +694,20 @@ test('references still answer for a file the extractor produced no calls for', a
 test('a call-shaped string literal is never a call row, and `calls: []` files still answer references', async () => {
   // The extractor parsed this file and found NO call site ([]), while the raw
   // text contains `runTask(` inside a string literal and a real non-call usage.
-  const literal = makeNode('src/literal.js', 'javascript', [
-    "import { runTask } from './svc.js';",     // 1
-    '',                                        // 2
-    'export function shout() {',               // 3
-    '  const pattern = "runTask(";',           // 4  ← call-shaped text only
-    '  return [pattern, runTask];',            // 5  ← real non-call usage
-    '}',                                       // 6
-    '',
-  ].join('\n'), { symbols: [sym('shout', 'function', 3, 6, 16)], calls: [], imports: ['src/svc.js'] });
+  const literal = makeNode(
+    'src/literal.js',
+    'javascript',
+    [
+      "import { runTask } from './svc.js';", // 1
+      '', // 2
+      'export function shout() {', // 3
+      '  const pattern = "runTask(";', // 4  ← call-shaped text only
+      '  return [pattern, runTask];', // 5  ← real non-call usage
+      '}', // 6
+      '',
+    ].join('\n'),
+    { symbols: [sym('shout', 'function', 3, 6, 16)], calls: [], imports: ['src/svc.js'] }
+  );
 
   const graph = makeGraph([svcNode(), literal]);
   const refs = (await dispatch(graph, { mode: 'references', symbol: 'runTask' })).split('# references')[1] || '';
@@ -686,17 +729,17 @@ test('malformed wire-v2 tuples are rejected per FILE and never become a location
   assert.equal(_astCalls({ calls: 'nope' }), null);
   assert.equal(_astCalls({ calls: { name: 'x' } }), null);
   assert.equal(_astCalls({ calls: [null] }), null);
-  assert.equal(_astCalls({ calls: [['runTask', 4, 9]] }), null);                      // short tuple
-  assert.equal(_astCalls({ calls: [['runTask', 4, 9, 0, '', 'boot', 16]] }), null);   // long tuple
-  assert.equal(_astCalls({ calls: [['', 4, 9, 0, '', '']] }), null);                  // empty name
-  assert.equal(_astCalls({ calls: [['x', 0, 9, 0, '', '']] }), null);                 // line < 1
-  assert.equal(_astCalls({ calls: [['x', 4.5, 9, 0, '', '']] }), null);               // non-integer line
-  assert.equal(_astCalls({ calls: [['x', '4', 9, 0, '', '']] }), null);               // stringly line
-  assert.equal(_astCalls({ calls: [['x', 4, -1, 0, '', '']] }), null);                // col < 0
-  assert.equal(_astCalls({ calls: [['x', 4, 9, 3, '', '']] }), null);                 // unknown kind index
-  assert.equal(_astCalls({ calls: [['x', 4, 9, 'call', '', '']] }), null);            // kind must be an index
-  assert.equal(_astCalls({ calls: [['x', 4, 9, 0, null, '']] }), null);               // recv must be a string
-  assert.equal(_astCalls({ calls: [['x', 4, 9, 0, '', null]] }), null);               // inSymbol must be a string
+  assert.equal(_astCalls({ calls: [['runTask', 4, 9]] }), null); // short tuple
+  assert.equal(_astCalls({ calls: [['runTask', 4, 9, 0, '', 'boot', 16]] }), null); // long tuple
+  assert.equal(_astCalls({ calls: [['', 4, 9, 0, '', '']] }), null); // empty name
+  assert.equal(_astCalls({ calls: [['x', 0, 9, 0, '', '']] }), null); // line < 1
+  assert.equal(_astCalls({ calls: [['x', 4.5, 9, 0, '', '']] }), null); // non-integer line
+  assert.equal(_astCalls({ calls: [['x', '4', 9, 0, '', '']] }), null); // stringly line
+  assert.equal(_astCalls({ calls: [['x', 4, -1, 0, '', '']] }), null); // col < 0
+  assert.equal(_astCalls({ calls: [['x', 4, 9, 3, '', '']] }), null); // unknown kind index
+  assert.equal(_astCalls({ calls: [['x', 4, 9, 'call', '', '']] }), null); // kind must be an index
+  assert.equal(_astCalls({ calls: [['x', 4, 9, 0, null, '']] }), null); // recv must be a string
+  assert.equal(_astCalls({ calls: [['x', 4, 9, 0, '', null]] }), null); // inSymbol must be a string
   // The v1 OBJECT wire is gone: a binary still emitting it reads as malformed.
   assert.equal(_astCalls({ calls: [{ name: 'x', line: 4, col: 9, kind: 'call', inSymbol: '' }] }), null);
   // One bad tuple poisons the file: a partially decoded payload would report
@@ -754,7 +797,7 @@ test('an old binary (no callsFormat: 2) makes callers/callees fail with the reme
           assert.match(err.message, /does not advertise callsFormat: 2/);
           assert.match(err.message, /cargo build --release in native\/mixdog-graph|packaged/);
           return true;
-        },
+        }
       );
     }
   } finally {
@@ -768,7 +811,7 @@ test('a v2 binary with no call data in the whole graph fails as a stale-cache er
   try {
     await assert.rejects(
       () => dispatch(graph, { mode: 'callers', symbol: 'runTask' }),
-      /advertises callsFormat: 2, but no indexed file of this project carries call data/,
+      /advertises callsFormat: 2, but no indexed file of this project carries call data/
     );
   } finally {
     _setCallsWireV2ForTest(false);
@@ -784,51 +827,70 @@ test('references still answer when the graph has no call data at all', async () 
 });
 
 // ── caller rule edge cases ──────────────────────────────────────────────────
-const barrelNode = () => makeNode('src/index.js', 'javascript', "export { runTask } from './svc.js';\n", {
-  symbols: [], // a re-export barrel declares nothing of its own
-  calls: [],
-  imports: ['src/svc.js'],
-});
+const barrelNode = () =>
+  makeNode('src/index.js', 'javascript', "export { runTask } from './svc.js';\n", {
+    symbols: [], // a re-export barrel declares nothing of its own
+    calls: [],
+    imports: ['src/svc.js'],
+  });
 
-const viaBarrelNode = () => makeNode('src/via-barrel.js', 'javascript', [
-  "import { runTask } from './index.js';",   // 1
-  '',                                        // 2
-  'export function viaBarrel() {',           // 3
-  "  return runTask('barrel');",             // 4
-  '}',                                       // 5
-  '',
-].join('\n'), {
-  symbols: [sym('viaBarrel', 'function', 3, 5, 16)],
-  calls: [call('runTask', 4, 9, 'call', 'viaBarrel')],
-  imports: ['src/index.js'],
-});
+const viaBarrelNode = () =>
+  makeNode(
+    'src/via-barrel.js',
+    'javascript',
+    [
+      "import { runTask } from './index.js';", // 1
+      '', // 2
+      'export function viaBarrel() {', // 3
+      "  return runTask('barrel');", // 4
+      '}', // 5
+      '',
+    ].join('\n'),
+    {
+      symbols: [sym('viaBarrel', 'function', 3, 5, 16)],
+      calls: [call('runTask', 4, 9, 'call', 'viaBarrel')],
+      imports: ['src/index.js'],
+    }
+  );
 
-const facadeNode = () => makeNode('src/facade.js', 'javascript', [
-  "import { runTask } from './svc.js';",     // 1
-  '',                                        // 2
-  'export function reexport(v) {',           // 3
-  '  return runTask(v);',                    // 4
-  '}',                                       // 5
-  '',
-].join('\n'), {
-  // NOT a barrel: it declares a symbol of its own.
-  symbols: [sym('reexport', 'function', 3, 5, 16)],
-  calls: [call('runTask', 4, 9, 'call', 'reexport')],
-  imports: ['src/svc.js'],
-});
+const facadeNode = () =>
+  makeNode(
+    'src/facade.js',
+    'javascript',
+    [
+      "import { runTask } from './svc.js';", // 1
+      '', // 2
+      'export function reexport(v) {', // 3
+      '  return runTask(v);', // 4
+      '}', // 5
+      '',
+    ].join('\n'),
+    {
+      // NOT a barrel: it declares a symbol of its own.
+      symbols: [sym('reexport', 'function', 3, 5, 16)],
+      calls: [call('runTask', 4, 9, 'call', 'reexport')],
+      imports: ['src/svc.js'],
+    }
+  );
 
-const viaFacadeNode = () => makeNode('src/via-facade.js', 'javascript', [
-  "import { reexport } from './facade.js';", // 1
-  '',                                        // 2
-  'export function viaFacade() {',           // 3
-  "  return runTask('facade');",             // 4
-  '}',                                       // 5
-  '',
-].join('\n'), {
-  symbols: [sym('viaFacade', 'function', 3, 5, 16)],
-  calls: [call('runTask', 4, 9, 'call', 'viaFacade')],
-  imports: ['src/facade.js'],
-});
+const viaFacadeNode = () =>
+  makeNode(
+    'src/via-facade.js',
+    'javascript',
+    [
+      "import { reexport } from './facade.js';", // 1
+      '', // 2
+      'export function viaFacade() {', // 3
+      "  return runTask('facade');", // 4
+      '}', // 5
+      '',
+    ].join('\n'),
+    {
+      symbols: [sym('viaFacade', 'function', 3, 5, 16)],
+      calls: [call('runTask', 4, 9, 'call', 'viaFacade')],
+      imports: ['src/facade.js'],
+    }
+  );
 
 test('callers reach through a re-export forwarder, but not through a file that calls the symbol', async () => {
   const graph = makeGraph([svcNode(), barrelNode(), viaBarrelNode(), facadeNode(), viaFacadeNode()]);
@@ -849,18 +911,23 @@ test('a file that never mentions the symbol is not a forwarder', async () => {
     imports: ['src/svc.js'],
     tokenSymbols: ['export', 'other', 'svc'], // no `runTask` token
   });
-  const viaOpaque = makeNode('src/via-opaque.js', 'javascript', [
-    "import { other } from './opaque.js';",  // 1
-    '',                                      // 2
-    'export function viaOpaque() {',         // 3
-    "  return runTask('opaque');",           // 4
-    '}',                                     // 5
-    '',
-  ].join('\n'), {
-    symbols: [sym('viaOpaque', 'function', 3, 5, 16)],
-    calls: [call('runTask', 4, 9, 'call', 'viaOpaque')],
-    imports: ['src/opaque.js'],
-  });
+  const viaOpaque = makeNode(
+    'src/via-opaque.js',
+    'javascript',
+    [
+      "import { other } from './opaque.js';", // 1
+      '', // 2
+      'export function viaOpaque() {', // 3
+      "  return runTask('opaque');", // 4
+      '}', // 5
+      '',
+    ].join('\n'),
+    {
+      symbols: [sym('viaOpaque', 'function', 3, 5, 16)],
+      calls: [call('runTask', 4, 9, 'call', 'viaOpaque')],
+      imports: ['src/opaque.js'],
+    }
+  );
   const graph = makeGraph([svcNode(), opaque, viaOpaque]);
   const out = await dispatch(graph, { mode: 'callers', symbol: 'runTask' });
   assert.doesNotMatch(out, /src\/via-opaque\.js/);
@@ -880,43 +947,60 @@ test('two same-name declarations: both are anchors, a file scope picks one', asy
   assert.doesNotMatch(scoped, /src\/app\.js|src\/svc\.js/);
 });
 
-const dynNode = () => makeNode('src/dyn.js', 'javascript', [
-  "import { Store } from './store.js';",     // 1
-  'export function persistAll(reg, key) {',  // 2
-  '  return reg[key].save(7);',              // 3
-  '}',                                       // 4
-  '',
-].join('\n'), {
-  symbols: [sym('persistAll', 'function', 2, 4, 16)],
-  calls: [call('save', 3, 18, 'method', 'persistAll', 'reg[key]')],
-  imports: ['src/store.js'],
-});
+const dynNode = () =>
+  makeNode(
+    'src/dyn.js',
+    'javascript',
+    [
+      "import { Store } from './store.js';", // 1
+      'export function persistAll(reg, key) {', // 2
+      '  return reg[key].save(7);', // 3
+      '}', // 4
+      '',
+    ].join('\n'),
+    {
+      symbols: [sym('persistAll', 'function', 2, 4, 16)],
+      calls: [call('save', 3, 18, 'method', 'persistAll', 'reg[key]')],
+      imports: ['src/store.js'],
+    }
+  );
 
-const dynOutsideNode = () => makeNode('src/other/dyn-outside.js', 'javascript', [
-  'export function touch(reg, key) {',       // 1
-  '  return reg[key].save(9);',              // 2
-  '}',                                       // 3
-  '',
-].join('\n'), {
-  symbols: [sym('touch', 'function', 1, 3, 16)],
-  calls: [call('save', 2, 18, 'method', 'touch', 'reg[key]')],
-});
+const dynOutsideNode = () =>
+  makeNode(
+    'src/other/dyn-outside.js',
+    'javascript',
+    [
+      'export function touch(reg, key) {', // 1
+      '  return reg[key].save(9);', // 2
+      '}', // 3
+      '',
+    ].join('\n'),
+    {
+      symbols: [sym('touch', 'function', 1, 3, 16)],
+      calls: [call('save', 2, 18, 'method', 'touch', 'reg[key]')],
+    }
+  );
 
 test('a file whose imports resolved to nothing is still judged reachable', async () => {
   // Python-shaped: `from harness.provenance import runTask` never resolves to
   // a repo file, so the import rule cannot see the edge at all.
-  const pyCaller = makeNode('py/test_svc.py', 'python', [
-    'from harness.svc import runTask',       // 1
-    '',                                      // 2
-    'def test_runs():',                      // 3
-    "    return runTask('py')",              // 4
-    '',
-  ].join('\n'), {
-    symbols: [sym('test_runs', 'function', 3, 4, 4)],
-    calls: [call('runTask', 4, 11, 'call', 'test_runs')],
-    imports: [],                              // resolution failed …
-    rawImports: ['harness.svc'],              // … although the file does import
-  });
+  const pyCaller = makeNode(
+    'py/test_svc.py',
+    'python',
+    [
+      'from harness.svc import runTask', // 1
+      '', // 2
+      'def test_runs():', // 3
+      "    return runTask('py')", // 4
+      '',
+    ].join('\n'),
+    {
+      symbols: [sym('test_runs', 'function', 3, 4, 4)],
+      calls: [call('runTask', 4, 11, 'call', 'test_runs')],
+      imports: [], // resolution failed …
+      rawImports: ['harness.svc'], // … although the file does import
+    }
+  );
   const graph = makeGraph([svcNode(), pyCaller, strayNode()]);
   const out = await dispatch(graph, { mode: 'callers', symbol: 'runTask' });
   assert.match(out, /^py\/test_svc\.py:4:12\tcall\tcaller=test_runs\t/m);
@@ -931,16 +1015,22 @@ test('computed receivers follow the import rule instead of the receiver text', a
   assert.doesNotMatch(out, /src\/other\/dyn-outside\.js/);
 });
 
-const recurNode = () => makeNode('src/recur.js', 'javascript', [
-  'export function walk(node) {',            // 1
-  '  if (!node) return 0;',                  // 2
-  '  return walk(node.next) + 1;',           // 3
-  '}',                                       // 4
-  '',
-].join('\n'), {
-  symbols: [sym('walk', 'function', 1, 4, 16)],
-  calls: [call('walk', 3, 9, 'call', 'walk')],
-});
+const recurNode = () =>
+  makeNode(
+    'src/recur.js',
+    'javascript',
+    [
+      'export function walk(node) {', // 1
+      '  if (!node) return 0;', // 2
+      '  return walk(node.next) + 1;', // 3
+      '}', // 4
+      '',
+    ].join('\n'),
+    {
+      symbols: [sym('walk', 'function', 1, 4, 16)],
+      calls: [call('walk', 3, 9, 'call', 'walk')],
+    }
+  );
 
 test('recursion is a real call site for callers, callees and the transitive walk', async () => {
   const graph = makeGraph([recurNode()]);
@@ -953,16 +1043,22 @@ test('recursion is a real call site for callers, callees and the transitive walk
   assert.ok(typeof transitive === 'string' && transitive.length > 0);
 });
 
-const topLevelNode = () => makeNode('src/top.js', 'javascript', [
-  "import { runTask } from './svc.js';",     // 1
-  '',                                        // 2
-  "runTask('top');",                         // 3
-  '',
-].join('\n'), {
-  symbols: [],
-  calls: [call('runTask', 3, 0, 'call', '')],
-  imports: ['src/svc.js'],
-});
+const topLevelNode = () =>
+  makeNode(
+    'src/top.js',
+    'javascript',
+    [
+      "import { runTask } from './svc.js';", // 1
+      '', // 2
+      "runTask('top');", // 3
+      '',
+    ].join('\n'),
+    {
+      symbols: [],
+      calls: [call('runTask', 3, 0, 'call', '')],
+      imports: ['src/svc.js'],
+    }
+  );
 
 test('a top-level call site (inSymbol "") groups first and carries no caller', async () => {
   const graph = makeGraph([svcNode(), appNode(), topLevelNode()]);
@@ -997,7 +1093,11 @@ test('the record decides: a shipped array is kept, an absent field stays unknown
   }
 
   // Node reuse is wire-agnostic: an unchanged file keeps whatever it had.
-  const reused = _reuseFileInfo({ rel: 'src/svc.js', lang: 'javascript', fingerprint: 'fp', calls: SVC_CALLS }, null, CWD);
+  const reused = _reuseFileInfo(
+    { rel: 'src/svc.js', lang: 'javascript', fingerprint: 'fp', calls: SVC_CALLS },
+    null,
+    CWD
+  );
   assert.deepEqual(reused.calls, SVC_CALLS);
   assert.equal(_reuseFileInfo({ rel: 'a.js', lang: 'javascript' }, null, CWD).calls, null);
 });
@@ -1007,28 +1107,34 @@ test('the record decides: a shipped array is kept, an absent field stays unknown
 // call-free) and null (unknown) files.
 test('call rows are AST-only: a string literal that reads like a call is never one', async () => {
   const literalText = [
-    'export function shout() {',                 // 1
-    "  return 'runTask(now)';",                  // 2  ← literal text, not a call
-    '}',                                         // 3
-    'export const label = "runTask(x)";',        // 4  ← ditto
-    'export const alias = runTask;',             // 5  ← a real, non-call usage
+    'export function shout() {', // 1
+    "  return 'runTask(now)';", // 2  ← literal text, not a call
+    '}', // 3
+    'export const label = "runTask(x)";', // 4  ← ditto
+    'export const alias = runTask;', // 5  ← a real, non-call usage
     '',
   ].join('\n');
   const literalNode = makeNode('src/literal.js', 'javascript', literalText, {
-    symbols: [sym('shout', 'function', 1, 3, 16, { exported: true }), sym('label', 'variable', 4, 4, 13, { exported: true })],
-    calls: [],                 // the extractor parsed it and found no call site
-    imports: ['src/svc.js'],   // …and it even imports the declaration
+    symbols: [
+      sym('shout', 'function', 1, 3, 16, { exported: true }),
+      sym('label', 'variable', 4, 4, 13, { exported: true }),
+    ],
+    calls: [], // the extractor parsed it and found no call site
+    imports: ['src/svc.js'], // …and it even imports the declaration
   });
   const blindText = [
-    'export function blindBoot() {',             // 1
-    "  return runTask('blind');",                // 2  ← a real call, unknown to us
-    '}',                                         // 3
-    'export const blindAlias = runTask;',        // 4  ← non-call usage
+    'export function blindBoot() {', // 1
+    "  return runTask('blind');", // 2  ← a real call, unknown to us
+    '}', // 3
+    'export const blindAlias = runTask;', // 4  ← non-call usage
     '',
   ].join('\n');
   const blindNode = makeNode('src/blind.js', 'javascript', blindText, {
-    symbols: [sym('blindBoot', 'function', 1, 3, 16, { exported: true }), sym('blindAlias', 'variable', 4, 4, 13, { exported: true })],
-    calls: null,               // older binary / un-hydrated entry: unknown
+    symbols: [
+      sym('blindBoot', 'function', 1, 3, 16, { exported: true }),
+      sym('blindAlias', 'variable', 4, 4, 13, { exported: true }),
+    ],
+    calls: null, // older binary / un-hydrated entry: unknown
     imports: ['src/svc.js'],
   });
   const graph = makeGraph([svcNode(), appNode(), literalNode, blindNode, legacyNode()]);
@@ -1081,10 +1187,13 @@ test('a run that shipped call tuples proves the wire even when the probe never a
     const probe = _ensureCallsWireProbe(CWD);
     assert.equal(_callsWireV2Enabled(), false, 'unknown until something proves it');
     // Records of that same run carry tuples → only a callsFormat-2 binary does.
-    assert.equal(_noteCallsWireFromRecords([
-      { rel: 'a.js', lang: 'javascript' },
-      { rel: 'src/svc.js', lang: 'javascript', calls: SVC_CALLS },
-    ]), true);
+    assert.equal(
+      _noteCallsWireFromRecords([
+        { rel: 'a.js', lang: 'javascript' },
+        { rel: 'src/svc.js', lang: 'javascript', calls: SVC_CALLS },
+      ]),
+      true
+    );
     assert.equal(_callsWireV2Enabled(), true);
     // …which is what keeps the cache signature (#calls2) and the capability
     // diagnosis of THIS process honest about the binary it actually ran.
@@ -1248,9 +1357,15 @@ test('a sidecar written for another root is ignored file by file', () => {
   const other = join(tmpdir(), 'mixdog-calls-root-other');
   persistGraph(mine, [svcNode(), appNode()]);
   // Same rels, different bytes (fingerprints) and different call sites.
-  const foreignSvc = makeNode('src/svc.js', 'javascript', SVC_TEXT, { symbols: SVC_SYMBOLS, calls: [call('FOREIGN', 1, 0, 'call', 'x')] });
+  const foreignSvc = makeNode('src/svc.js', 'javascript', SVC_TEXT, {
+    symbols: SVC_SYMBOLS,
+    calls: [call('FOREIGN', 1, 0, 'call', 'x')],
+  });
   foreignSvc.node.fingerprint = 'fp-other';
-  const foreignApp = makeNode('src/app.js', 'javascript', APP_TEXT, { symbols: APP_SYMBOLS, calls: [call('FOREIGN', 1, 0, 'call', 'x')] });
+  const foreignApp = makeNode('src/app.js', 'javascript', APP_TEXT, {
+    symbols: APP_SYMBOLS,
+    calls: [call('FOREIGN', 1, 0, 'call', 'x')],
+  });
   foreignApp.node.fingerprint = 'fp-other';
   persistGraph(other, [foreignSvc, foreignApp]);
 
@@ -1265,17 +1380,22 @@ test('a sidecar written for another root is ignored file by file', () => {
 test('a corrupt sidecar leaves calls unknown instead of throwing', () => {
   const root = join(tmpdir(), 'mixdog-calls-root-corrupt');
   for (const body of [
-    '{"v":1,"files":{"src/svc.js":["fp",[',   // truncated
+    '{"v":1,"files":{"src/svc.js":["fp",[', // truncated
     '{"v":99,"files":{"src/svc.js":["fp",[]]}}', // unknown version
-    '{"v":1,"files":[]}',                     // files is not a map
+    '{"v":1,"files":[]}', // files is not a map
     '{"v":1,"files":{"src/svc.js":"nope","src/app.js":["fp",{"0":1}]}}', // junk entries
-    '',                                       // empty file
+    '', // empty file
   ]) {
     persistGraph(root, [svcNode(), appNode()]);
     writeFileSync(cacheFiles(cacheHashFor(root)).sidecar, body);
     const graph = reloadGraph(root);
     let applied = -1;
-    assert.doesNotThrow(() => { applied = hydrateGraphCallsFromSidecar(graph); }, `payload ${JSON.stringify(body.slice(0, 24))}`);
+    assert.doesNotThrow(
+      () => {
+        applied = hydrateGraphCallsFromSidecar(graph);
+      },
+      `payload ${JSON.stringify(body.slice(0, 24))}`
+    );
     assert.equal(applied, 0);
     assert.equal(graph.nodes.get('src/svc.js').calls, null);
     assert.equal(graph._callsHydration, 'done', 'a miss must not re-read on every query');
@@ -1341,7 +1461,8 @@ test('non-call modes never open the sidecar; the first call mode opens it once',
     assert.equal(sidecarReads().length, 1, 'later queries on the same graph must not re-read');
   `;
   await runNode(process.execPath, ['--input-type=module', '-e', script, root, DATA_DIR], {
-    cwd: process.cwd(), maxBuffer: 2 * 1024 * 1024,
+    cwd: process.cwd(),
+    maxBuffer: 2 * 1024 * 1024,
   });
 });
 
@@ -1390,7 +1511,8 @@ test('byte-budget eviction drops the entry and its sidecar together, never an or
   const evictDir = mkdtempSync(join(tmpdir(), 'mixdog-calls-evict-'));
   try {
     await runNode(process.execPath, ['--input-type=module', '-e', script, evictDir], {
-      cwd: process.cwd(), maxBuffer: 4 * 1024 * 1024,
+      cwd: process.cwd(),
+      maxBuffer: 4 * 1024 * 1024,
     });
   } finally {
     rmSync(evictDir, { recursive: true, force: true });
@@ -1427,11 +1549,14 @@ test('concurrent persists of one root leave a self-consistent entry/sidecar pair
     }
   `;
   try {
-    await Promise.all(['A', 'B'].map((tag) => runNode(
-      process.execPath,
-      ['--input-type=module', '-e', script, concurrentDir, tag],
-      { cwd: process.cwd(), maxBuffer: 2 * 1024 * 1024 },
-    )));
+    await Promise.all(
+      ['A', 'B'].map((tag) =>
+        runNode(process.execPath, ['--input-type=module', '-e', script, concurrentDir, tag], {
+          cwd: process.cwd(),
+          maxBuffer: 2 * 1024 * 1024,
+        })
+      )
+    );
     const dir = join(concurrentDir, 'code-graph-cache');
     const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
     const hash = Object.values(manifest)[0]?.hash;
@@ -1446,7 +1571,10 @@ test('concurrent persists of one root leave a self-consistent entry/sidecar pair
       // the writer's own generation, never a neighbour's half-write.
       assert.equal(persisted[0], node.fingerprint, `${node.rel} pairs a foreign fingerprint`);
       const [tuple] = persisted[1];
-      assert.ok(String(tuple[0]).startsWith(node.fingerprint.split('-')[1]), `${node.rel} pairs tuples of another writer`);
+      assert.ok(
+        String(tuple[0]).startsWith(node.fingerprint.split('-')[1]),
+        `${node.rel} pairs tuples of another writer`
+      );
     }
   } finally {
     rmSync(concurrentDir, { recursive: true, force: true });
@@ -1509,8 +1637,14 @@ test('real binary: an incremental rebuild from an un-hydrated cache answers from
   const dataDir = join(root, 'data');
   try {
     await writeFile(join(root, 'package.json'), '{}');
-    await writeFile(join(root, 'keep.mjs'), 'export function keptSymbol() { return helper(); }\nfunction helper() { return 1; }\n');
-    await writeFile(join(root, 'touch.mjs'), "import { keptSymbol } from './keep.mjs';\nexport function touched() { return keptSymbol(); }\n");
+    await writeFile(
+      join(root, 'keep.mjs'),
+      'export function keptSymbol() { return helper(); }\nfunction helper() { return 1; }\n'
+    );
+    await writeFile(
+      join(root, 'touch.mjs'),
+      "import { keptSymbol } from './keep.mjs';\nexport function touched() { return keptSymbol(); }\n"
+    );
 
     // Process 1: full build → main entry + sidecar on disk.
     const build = `
@@ -1524,12 +1658,16 @@ test('real binary: an incremental rebuild from an un-hydrated cache answers from
       drainCodeGraphCacheStrict();
     `;
     await runNode(process.execPath, ['--input-type=module', '-e', build, root, dataDir, graphBinary], {
-      cwd: process.cwd(), maxBuffer: 2 * 1024 * 1024,
+      cwd: process.cwd(),
+      maxBuffer: 2 * 1024 * 1024,
     });
 
     // A changed file only: keep.mjs is reused from a cache entry that this
     // process never hydrated, so its call sites live only in the sidecar.
-    await writeFile(join(root, 'touch.mjs'), "import { keptSymbol } from './keep.mjs';\nexport function touched() { return keptSymbol(); }\nexport function extra() { return 2; }\n");
+    await writeFile(
+      join(root, 'touch.mjs'),
+      "import { keptSymbol } from './keep.mjs';\nexport function touched() { return keptSymbol(); }\nexport function extra() { return 2; }\n"
+    );
 
     const verify = `
       import assert from 'node:assert/strict';
@@ -1544,11 +1682,12 @@ test('real binary: an incremental rebuild from an un-hydrated cache answers from
       assert.equal(graph.nodes.get('keep.mjs').calls, null, 'reused node starts unknown');
       assert.ok(Array.isArray(graph.nodes.get('touch.mjs').calls), 'the changed file was re-parsed');
       const callers = await executeCodeGraphTool('code_graph', { mode: 'callers', symbols: ['helper'] }, root);
-      assert.match(callers, /keep\\.mjs:1:\\d+\\tcall\\tcaller=keptSymbol\/, callers);
+      assert.match(callers, /keep\\.mjs:1:\\d+\\tcall\\tcaller=keptSymbol/, callers);
       assert.ok(Array.isArray(graph.nodes.get('keep.mjs').calls), 'the query hydrated the reused node');
     `;
     await runNode(process.execPath, ['--input-type=module', '-e', verify, root, dataDir, graphBinary], {
-      cwd: process.cwd(), maxBuffer: 2 * 1024 * 1024,
+      cwd: process.cwd(),
+      maxBuffer: 2 * 1024 * 1024,
     });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -1568,8 +1707,14 @@ test('a cache indexed by a pre-v2 binary re-indexes under a v2 binary instead of
   const dataDir = join(root, 'data');
   try {
     await writeFile(join(root, 'package.json'), '{}');
-    await writeFile(join(root, 'svc.mjs'), 'export function runTask(v) { return helper(v); }\nfunction helper(v) { return v; }\n');
-    await writeFile(join(root, 'app.mjs'), "import { runTask } from './svc.mjs';\nexport function boot() { return runTask(1); }\n");
+    await writeFile(
+      join(root, 'svc.mjs'),
+      'export function runTask(v) { return helper(v); }\nfunction helper(v) { return v; }\n'
+    );
+    await writeFile(
+      join(root, 'app.mjs'),
+      "import { runTask } from './svc.mjs';\nexport function boot() { return runTask(1); }\n"
+    );
 
     const script = `
       import assert from 'node:assert/strict';
@@ -1594,14 +1739,14 @@ test('a cache indexed by a pre-v2 binary re-indexes under a v2 binary instead of
         assert.match(result, /app\\.mjs:2:\\d+\\tcall\\tcaller=boot/, result);
       }
     `;
-    const run = (bin, expectation) => runNode(
-      process.execPath,
-      ['--input-type=module', '-e', script, root, dataDir, bin, expectation],
-      { cwd: process.cwd(), maxBuffer: 4 * 1024 * 1024 },
-    );
-    await run(legacyGraphBinary, 'capability-error');   // seeds a call-free cache
-    await run(graphBinary, 'reindexed');                // must re-index, not serve it
-    await run(legacyGraphBinary, 'capability-error');   // and downgrade cleanly again
+    const run = (bin, expectation) =>
+      runNode(process.execPath, ['--input-type=module', '-e', script, root, dataDir, bin, expectation], {
+        cwd: process.cwd(),
+        maxBuffer: 4 * 1024 * 1024,
+      });
+    await run(legacyGraphBinary, 'capability-error'); // seeds a call-free cache
+    await run(graphBinary, 'reindexed'); // must re-index, not serve it
+    await run(legacyGraphBinary, 'capability-error'); // and downgrade cleanly again
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1610,14 +1755,19 @@ test('a cache indexed by a pre-v2 binary re-indexes under a v2 binary instead of
 test('real binary: --langs advertises wire v2 and --files reuse keeps calls on unchanged nodes', async (t) => {
   const format = await localBinaryCallsFormat();
   if (format !== 2) {
-    t.skip(`pending: local mixdog-graph advertises callsFormat=${format === null ? 'no --langs' : format} — rerun once the Rust v2 build lands`);
+    t.skip(
+      `pending: local mixdog-graph advertises callsFormat=${format === null ? 'no --langs' : format} — rerun once the Rust v2 build lands`
+    );
     return;
   }
   const root = await mkdtemp(join(tmpdir(), 'mixdog-graph-calls-'));
   try {
     await writeFile(join(root, 'package.json'), '{}');
     await writeFile(join(root, 'keep.mjs'), 'export function keptSymbol() { return 1; }\n');
-    await writeFile(join(root, 'touch.mjs'), "import { keptSymbol } from './keep.mjs';\nexport function touched() { return keptSymbol(); }\n");
+    await writeFile(
+      join(root, 'touch.mjs'),
+      "import { keptSymbol } from './keep.mjs';\nexport function touched() { return keptSymbol(); }\n"
+    );
     const script = `
       import assert from 'node:assert/strict';
       import { writeFile } from 'node:fs/promises';
@@ -1661,7 +1811,8 @@ test('real binary: --langs advertises wire v2 and --files reuse keeps calls on u
       assert.deepEqual(restored.nodes.get('touch.mjs').calls, touched);
     `;
     await runNode(process.execPath, ['--input-type=module', '-e', script, root, graphBinary], {
-      cwd: process.cwd(), maxBuffer: 2 * 1024 * 1024,
+      cwd: process.cwd(),
+      maxBuffer: 2 * 1024 * 1024,
     });
   } finally {
     await rm(root, { recursive: true, force: true });

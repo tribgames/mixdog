@@ -1,12 +1,24 @@
-// Project-root sentinel resolution + empty-arg stripping. Extracted verbatim
-// from code-graph.mjs. Used by the dispatcher to re-root file/dir queries.
+// Project-root sentinel resolution + empty-arg stripping. Used by the
+// dispatcher to re-root file/dir queries.
 import { resolve as pathResolve, dirname, join } from 'node:path';
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 
 // P1: project-root sentinels. A directory containing any of these (or with one
 // at an ancestor) is treated as a real project we may index.
-export const _PROJECT_ROOT_SENTINELS = ['package.json', '.git', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'setup.py', 'pom.xml', 'build.gradle', 'build.gradle.kts', 'build.sbt', 'Package.swift'];
+export const _PROJECT_ROOT_SENTINELS = [
+  'package.json',
+  '.git',
+  'Cargo.toml',
+  'go.mod',
+  'pyproject.toml',
+  'setup.py',
+  'pom.xml',
+  'build.gradle',
+  'build.gradle.kts',
+  'build.sbt',
+  'Package.swift',
+];
 
 // Directories an IMPLICIT ancestor walk must never cross. A stray npm
 // `package.json` in the home directory (or in the temp root) would otherwise
@@ -16,8 +28,16 @@ export const _PROJECT_ROOT_SENTINELS = ['package.json', '.git', 'Cargo.toml', 'g
 // that guesses a root for the caller stops here.
 function _userBoundaryDirs() {
   const dirs = [];
-  try { dirs.push(homedir()); } catch { /* no home — nothing to guard */ }
-  try { dirs.push(tmpdir()); } catch { /* no temp — nothing to guard */ }
+  try {
+    dirs.push(homedir());
+  } catch {
+    /* no home — nothing to guard */
+  }
+  try {
+    dirs.push(tmpdir());
+  } catch {
+    /* no temp — nothing to guard */
+  }
   return dirs.filter(Boolean);
 }
 
@@ -45,9 +65,7 @@ export function _resolveFileProjectRoot(file, opts = {}) {
 // there. `boundaries` is injectable so the boundary rule stays testable.
 export function _findDirProjectRoot(dir, { stopAtUserBoundary = false, boundaries = null } = {}) {
   if (!dir) return null;
-  const stops = stopAtUserBoundary
-    ? new Set((boundaries || _userBoundaryDirs()).map(_dirKey))
-    : null;
+  const stops = stopAtUserBoundary ? new Set((boundaries || _userBoundaryDirs()).map(_dirKey)) : null;
   let d = pathResolve(dir);
   while (d && d !== dirname(d)) {
     if (stops && stops.has(_dirKey(d))) return null;
@@ -64,8 +82,11 @@ export function _findDirProjectRoot(dir, { stopAtUserBoundary = false, boundarie
 export function _childProjectRoots(dir, { cap = 32 } = {}) {
   if (!dir) return [];
   let entries;
-  try { entries = readdirSync(pathResolve(dir), { withFileTypes: true }); }
-  catch { return []; }
+  try {
+    entries = readdirSync(pathResolve(dir), { withFileTypes: true });
+  } catch {
+    return [];
+  }
   const roots = [];
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith('.')) continue;

@@ -2,15 +2,8 @@
 // next version. Extracted from runtime-core so the runtime facade owns wiring
 // only. State is per-runtime and in-memory; the 24h TTL lives in the shared
 // update-checker cache.
-import {
-  checkLatestVersion,
-  isDevInstall,
-} from '../runtime/shared/update-checker.mjs';
-import {
-  spawnStagedInstall,
-  runStagedInstall,
-  isStagedComplete,
-} from '../runtime/shared/staged-update.mjs';
+import { checkLatestVersion, isDevInstall } from '../runtime/shared/update-checker.mjs';
+import { spawnStagedInstall, runStagedInstall, isStagedComplete } from '../runtime/shared/staged-update.mjs';
 
 const STAGE_POLL_MS = 3_000;
 const STAGE_POLL_MAX_MS = 10 * 60 * 1000;
@@ -120,8 +113,15 @@ export function createSelfUpdateController({ getConfig, getDataDir, emitNotifica
         const announceReady = () => {
           emitNotification('update ready', { kind: 'update-notice', version: ver, tone: 'info' });
         };
-        if (isStagedComplete(ver)) { announceReady(); return; }
-        try { spawnStagedInstall(ver); } catch { /* best-effort background stage */ }
+        if (isStagedComplete(ver)) {
+          announceReady();
+          return;
+        }
+        try {
+          spawnStagedInstall(ver);
+        } catch {
+          /* best-effort background stage */
+        }
         // Poll for completion, then announce once. Unref'd so it never holds the
         // process open; gives up silently after the cap (next launch retries).
         const startedAt = Date.now();

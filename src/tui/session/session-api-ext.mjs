@@ -5,11 +5,21 @@ import { listThemes, getThemeSetting, setThemeSetting } from '../theme.mjs';
 import { contextMeasurementStats } from '../../ui/context-measurement.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-markdown.mjs';
 import { toolResultText } from './tool-result-text.mjs';
-import { completionCardFromExecution, parseModelVisibleCompletionWrapper, parseSyntheticAgentMessage } from './agent-envelope.mjs';
+import {
+  completionCardFromExecution,
+  parseModelVisibleCompletionWrapper,
+  parseSyntheticAgentMessage,
+} from './agent-envelope.mjs';
 import { flushTuiSteeringPersist } from './tui-steering-persist.mjs';
 import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 import { createSessionOAuthFlowRegistry } from './oauth-flows.mjs';
-import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, isTaskWaitToolCall, summarizeToolResult } from '../../runtime/shared/tool-surface.mjs';
+import {
+  aggregateToolCategoryEntries,
+  aggregateDoneCategories,
+  classifyToolCategory,
+  isTaskWaitToolCall,
+  summarizeToolResult,
+} from '../../runtime/shared/tool-surface.mjs';
 import {
   aggregateBucketForCategory,
   aggregateLoadingTargets,
@@ -31,22 +41,17 @@ import { transcriptRouteMetadataFields } from '../../runtime/shared/transcript-m
 export function restoredTranscriptMetadata(message) {
   const value = message?.meta?.transcript;
   if (!value || typeof value !== 'object') return {};
-  const completionValue = value.completion && typeof value.completion === 'object'
-    ? value.completion
-    : null;
-  const completionStatus = typeof completionValue?.status === 'string'
-    ? completionValue.status
-    : '';
+  const completionValue = value.completion && typeof value.completion === 'object' ? value.completion : null;
+  const completionStatus = typeof completionValue?.status === 'string' ? completionValue.status : '';
   const completionElapsedMs = Number(completionValue?.elapsedMs);
-  const completion = completionValue && completionStatus && Number.isFinite(completionElapsedMs)
-    ? {
-        status: completionStatus,
-        elapsedMs: Math.max(0, completionElapsedMs),
-        ...(typeof completionValue.verb === 'string' && completionValue.verb
-          ? { verb: completionValue.verb }
-          : {}),
-      }
-    : null;
+  const completion =
+    completionValue && completionStatus && Number.isFinite(completionElapsedMs)
+      ? {
+          status: completionStatus,
+          elapsedMs: Math.max(0, completionElapsedMs),
+          ...(typeof completionValue.verb === 'string' && completionValue.verb ? { verb: completionValue.verb } : {}),
+        }
+      : null;
   return {
     ...(Number.isFinite(Number(value.at)) ? { at: Number(value.at) } : {}),
     ...transcriptRouteMetadataFields(value),
@@ -90,7 +95,11 @@ function restoredToolCallItems(message, nextId, pendingByCallId) {
     if (isTranscriptHiddenControlToolName(name)) continue;
     let args = call?.function?.arguments ?? call?.arguments;
     if (typeof args === 'string') {
-      try { args = JSON.parse(args); } catch { /* keep the raw string args */ }
+      try {
+        args = JSON.parse(args);
+      } catch {
+        /* keep the raw string args */
+      }
     }
     if (isTaskWaitToolCall(name, args)) continue;
     const item = {
@@ -157,10 +166,13 @@ function buildRestoredAggregateItem(members) {
     const resultText = String(item.result ?? '');
     // Mirror live outcome semantics, including explicit no-match/no-change
     // markers and offloaded shell previews.
-    const { exitCode, isExitError, isCallError } = toolCallOutcome({
-      isError: item.isError === true,
-      toolName: item.name,
-    }, resultText);
+    const { exitCode, isExitError, isCallError } = toolCallOutcome(
+      {
+        isError: item.isError === true,
+        toolName: item.name,
+      },
+      resultText
+    );
     calls.push({
       callId: item.id,
       name: item.name,
@@ -176,13 +188,12 @@ function buildRestoredAggregateItem(members) {
       resolved: true,
       startedAt: item.startedAt,
       completedAt: item.completedAt,
-      summary: !isCallError && resultText.trim()
-        ? summarizeToolResult(item.name, item.args, resultText, false)
-        : null,
+      summary: !isCallError && resultText.trim() ? summarizeToolResult(item.name, item.args, resultText, false) : null,
     });
   }
   const outcomePatch = aggregateResultPatch({ calls }, calls, calls.length);
-  const latestUiDiff = [...members].reverse()
+  const latestUiDiff = [...members]
+    .reverse()
     .map(({ item }) => item)
     .find((item) => Object.hasOwn(item || {}, 'uiDiff'));
   const first = members[0].item;
@@ -234,11 +245,22 @@ function mergeRestoredToolItems(items) {
     // every role:'tool' result has been attached to its restored call.
     if (item?.kind === 'tool' && isTranscriptHiddenToolItem(item)) continue;
     const mergeable = item?.kind === 'tool' && item.aggregate !== true;
-    if (!mergeable) { flushRun(); merged.push(item); continue; }
+    if (!mergeable) {
+      flushRun();
+      merged.push(item);
+      continue;
+    }
     const category = classifyToolCategory(item.name, item.args);
     const bucket = category === 'Agent' ? '' : aggregateBucketForCategory(category);
-    if (!bucket) { flushRun(); merged.push(item); continue; }
-    if (run && run.bucket === bucket) { run.members.push({ item, category }); continue; }
+    if (!bucket) {
+      flushRun();
+      merged.push(item);
+      continue;
+    }
+    if (run && run.bucket === bucket) {
+      run.members.push({ item, category });
+      continue;
+    }
     flushRun();
     run = { bucket, members: [{ item, category }] };
   }
@@ -247,15 +269,12 @@ function mergeRestoredToolItems(items) {
 }
 
 function restoredMessageItemUpperBound(message) {
-  const boundaries = Array.isArray(message?.meta?.sessionInheritances)
-    ? message.meta.sessionInheritances.length : 0;
+  const boundaries = Array.isArray(message?.meta?.sessionInheritances) ? message.meta.sessionInheritances.length : 0;
   if (message?.role === 'user') return 1 + boundaries;
   if (message?.role !== 'assistant') return boundaries;
   const calls = restoredMessageToolCalls(message);
   const content = message?.content;
-  const hasContent = typeof content === 'string'
-    ? content.length > 0
-    : Array.isArray(content) && content.length > 0;
+  const hasContent = typeof content === 'string' ? content.length > 0 : Array.isArray(content) && content.length > 0;
   const hasCompletion = Boolean(message?.meta?.transcript?.completion);
   return Number(hasContent) + Number(hasCompletion) + calls.length + boundaries;
 }
@@ -265,9 +284,7 @@ function restoredUserTranscriptItems(message, nextId) {
   // skill bodies (meta:'skill'), hook/system reminders, and tag-wrapped context
   // blocks must not restore as user bubbles in any client.
   if (message?.meta === 'skill' || message?.meta === 'hook') return [];
-  const text = (typeof message?.content === 'string'
-    ? message.content
-    : toolResultText(message?.content)).trim();
+  const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)).trim();
   // Persisted async-completion wrappers ("Async shell task ... finished. Result:
   // > ...") are the only durable record of a background completion — the live
   // Response card is an event-time push that does not survive a transcript
@@ -285,25 +302,27 @@ function restoredUserTranscriptItems(message, nextId) {
   if (completion) {
     const completionLabel = completion.label || 'notification';
     const completionAt = Number(message?.meta?.transcript?.at);
-    return [{
-      kind: 'tool',
-      id: nextId(),
-      name: completion.name || 'agent',
-      args: completion.args || {
-        type: completionLabel,
-        task_id: completion.taskId || undefined,
-        description: completion.summary || 'agent notification',
+    return [
+      {
+        kind: 'tool',
+        id: nextId(),
+        name: completion.name || 'agent',
+        args: completion.args || {
+          type: completionLabel,
+          task_id: completion.taskId || undefined,
+          description: completion.summary || 'agent notification',
+        },
+        result: completion.result,
+        rawResult: completion.rawResult ?? text,
+        isError: completion.isError ?? /^(failed|error|timeout|killed|cancelled)$/i.test(completionLabel),
+        expanded: false,
+        count: 1,
+        completedCount: 1,
+        ...(Number.isFinite(completionAt)
+          ? { at: completionAt, startedAt: completionAt, completedAt: completionAt }
+          : {}),
       },
-      result: completion.result,
-      rawResult: completion.rawResult ?? text,
-      isError: completion.isError ?? /^(failed|error|timeout|killed|cancelled)$/i.test(completionLabel),
-      expanded: false,
-      count: 1,
-      completedCount: 1,
-      ...(Number.isFinite(completionAt)
-        ? { at: completionAt, startedAt: completionAt, completedAt: completionAt }
-        : {}),
-    }];
+    ];
   }
   if (isInternalTranscriptDisplayText(text)) return [];
   if (!text) return [];
@@ -319,25 +338,25 @@ function restoredUserTranscriptItems(message, nextId) {
   }
   const label = synthetic.label || 'notification';
   const syntheticAt = Number(message?.meta?.transcript?.at);
-  return [{
-    kind: 'tool',
-    id: nextId(),
-    name: synthetic.name || 'agent',
-    args: synthetic.args || {
-      type: label,
-      task_id: synthetic.taskId || undefined,
-      description: synthetic.summary || 'agent notification',
+  return [
+    {
+      kind: 'tool',
+      id: nextId(),
+      name: synthetic.name || 'agent',
+      args: synthetic.args || {
+        type: label,
+        task_id: synthetic.taskId || undefined,
+        description: synthetic.summary || 'agent notification',
+      },
+      result: synthetic.result,
+      rawResult: synthetic.rawResult ?? text,
+      isError: synthetic.isError ?? /^(failed|error|killed|cancelled)$/i.test(label),
+      expanded: false,
+      count: 1,
+      completedCount: 1,
+      ...(Number.isFinite(syntheticAt) ? { at: syntheticAt, startedAt: syntheticAt, completedAt: syntheticAt } : {}),
     },
-    result: synthetic.result,
-    rawResult: synthetic.rawResult ?? text,
-    isError: synthetic.isError ?? /^(failed|error|killed|cancelled)$/i.test(label),
-    expanded: false,
-    count: 1,
-    completedCount: 1,
-    ...(Number.isFinite(syntheticAt)
-      ? { at: syntheticAt, startedAt: syntheticAt, completedAt: syntheticAt }
-      : {}),
-  }];
+  ];
 }
 
 function restoreTranscriptRange(messages, start, sessionId) {
@@ -358,8 +377,7 @@ function restoreTranscriptRange(messages, start, sessionId) {
     } else if (message?.role === 'tool') {
       attachRestoredToolResult(message, pendingToolCalls);
     }
-    for (const boundary of Array.isArray(message?.meta?.sessionInheritances)
-      ? message.meta.sessionInheritances : []) {
+    for (const boundary of Array.isArray(message?.meta?.sessionInheritances) ? message.meta.sessionInheritances : []) {
       if (!boundary?.sessionId || !boundary?.provider || !boundary?.modelId) continue;
       items.push({
         kind: 'statusdone',
@@ -376,10 +394,7 @@ function restoreTranscriptRange(messages, start, sessionId) {
   return mergeRestoredToolItems(items);
 }
 
-export function restoreTranscriptItems(messages, {
-  sessionId = 'session',
-  itemLimit = Number.POSITIVE_INFINITY,
-} = {}) {
+export function restoreTranscriptItems(messages, { sessionId = 'session', itemLimit = Number.POSITIVE_INFINITY } = {}) {
   const source = Array.isArray(messages) ? messages : [];
   const numericLimit = Number(itemLimit);
   const limited = Number.isFinite(numericLimit) && numericLimit > 0;
@@ -417,28 +432,14 @@ export function sessionContextSnapshotProjection(session, contextStatus) {
   if (!contextStatus) return {};
   return {
     stats: contextMeasurementStats(contextStatus),
-    contextWindow: Math.max(
-      0,
-      Number(session?.contextWindow || contextStatus.effectiveContextWindow || 0),
-    ),
-    rawContextWindow: Math.max(
-      0,
-      Number(session?.rawContextWindow || contextStatus.rawContextWindow || 0),
-    ),
+    contextWindow: Math.max(0, Number(session?.contextWindow || contextStatus.effectiveContextWindow || 0)),
+    rawContextWindow: Math.max(0, Number(session?.rawContextWindow || contextStatus.rawContextWindow || 0)),
     effectiveContextWindowPercent: Number(
-      session?.effectiveContextWindowPercent
-      ?? contextStatus.effectiveContextWindowPercent
-      ?? 0,
+      session?.effectiveContextWindowPercent ?? contextStatus.effectiveContextWindowPercent ?? 0
     ),
     displayContextWindow: Math.max(0, Number(contextStatus.contextWindow || 0)),
-    compactBoundaryTokens: Math.max(
-      0,
-      Number(contextStatus.compaction?.boundaryTokens || 0),
-    ),
-    autoCompactTokenLimit: Math.max(
-      0,
-      Number(contextStatus.compaction?.triggerTokens || 0),
-    ),
+    compactBoundaryTokens: Math.max(0, Number(contextStatus.compaction?.boundaryTokens || 0)),
+    autoCompactTokenLimit: Math.max(0, Number(contextStatus.compaction?.triggerTokens || 0)),
   };
 }
 
@@ -453,7 +454,7 @@ const ROUTE_PREVIEW_KEYS = ['provider', 'model', 'effort', 'fast', 'modelParamet
  */
 export function optimisticRoutePatch(requested = {}, current = {}) {
   const route = requested && typeof requested === 'object' ? requested : {};
-  const has = (key) => Object.prototype.hasOwnProperty.call(route, key);
+  const has = (key) => Object.hasOwn(route, key);
   const patch = {};
   for (const key of ROUTE_PREVIEW_KEYS) {
     if (has(key)) patch[key] = route[key];
@@ -461,8 +462,9 @@ export function optimisticRoutePatch(requested = {}, current = {}) {
   if (!has('provider') && !has('model')) {
     return Object.keys(patch).length > 0 ? patch : null;
   }
-  const sameModel = String(patch.provider ?? current.provider ?? '') === String(current.provider ?? '')
-    && String(patch.model ?? current.model ?? '') === String(current.model ?? '');
+  const sameModel =
+    String(patch.provider ?? current.provider ?? '') === String(current.provider ?? '') &&
+    String(patch.model ?? current.model ?? '') === String(current.model ?? '');
   // A different model carries none of the previous model's tuning: an omitted
   // key means "this model has no such control", not "keep the old value".
   if (!sameModel) {
@@ -475,7 +477,34 @@ export function optimisticRoutePatch(requested = {}, current = {}) {
 
 export function createSessionApiB(bag) {
   const {
-    runtime, nextId, flags, lifecycle, listeners, getState, set, flushEmitImmediate, disposeEmit, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, disposeTranscriptSpill, disposeGoalContinuation, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext,
+    runtime,
+    nextId,
+    flags,
+    lifecycle,
+    listeners,
+    getState,
+    set,
+    flushEmitImmediate,
+    disposeEmit,
+    replaceItems,
+    pushNotice,
+    removeNotice,
+    setProgressHint,
+    clearToastTimers,
+    disposeTranscriptSpill,
+    disposeGoalContinuation,
+    routeState,
+    syncContextStats,
+    finishToolApproval,
+    denyAllToolApprovals,
+    restoreLeadSteeringFromDisk,
+    resetStats,
+    clearUiActivityBeforeContextSync,
+    resetTuiForPendingSessionReset,
+    snapshotTuiBeforeSessionReset,
+    restoreTuiAfterFailedSessionReset,
+    commitTuiSessionReset,
+    resetStatsAndSyncContext,
   } = bag;
   const oauthFlows = createSessionOAuthFlowRegistry();
   let routeWrite = null;
@@ -534,16 +563,17 @@ export function createSessionApiB(bag) {
     setWebSearchRoute: async (opts) => {
       if (getState().commandBusy) return null;
       const beforeRouteState = routeState();
-      const optimisticWebSearchRoute = opts?.provider && opts?.model
-        ? {
-            provider: String(opts.provider).trim(),
-            model: String(opts.model).trim(),
-            ...(opts.effort ? { effort: opts.effort } : {}),
-            ...(opts.fast === true ? { fast: true } : {}),
-            ...(opts.modelParameters ? { modelParameters: { ...opts.modelParameters } } : {}),
-            ...(opts.toolType ? { toolType: opts.toolType } : {}),
-          }
-        : null;
+      const optimisticWebSearchRoute =
+        opts?.provider && opts?.model
+          ? {
+              provider: String(opts.provider).trim(),
+              model: String(opts.model).trim(),
+              ...(opts.effort ? { effort: opts.effort } : {}),
+              ...(opts.fast === true ? { fast: true } : {}),
+              ...(opts.modelParameters ? { modelParameters: { ...opts.modelParameters } } : {}),
+              ...(opts.toolType ? { toolType: opts.toolType } : {}),
+            }
+          : null;
       set({ commandBusy: true });
       try {
         if (optimisticWebSearchRoute?.provider && optimisticWebSearchRoute.model) {
@@ -578,7 +608,10 @@ export function createSessionApiB(bag) {
       return runtime.getOutputStyle?.() || runtime.listOutputStyles?.() || null;
     },
     listOutputStyles: () => {
-      return runtime.listOutputStyles?.() || runtime.getOutputStyle?.() || { styles: [], current: null, configured: 'default' };
+      return (
+        runtime.listOutputStyles?.() ||
+        runtime.getOutputStyle?.() || { styles: [], current: null, configured: 'default' }
+      );
     },
     setOutputStyle: async (styleId) => {
       if (getState().commandBusy) return null;
@@ -619,16 +652,23 @@ export function createSessionApiB(bag) {
       const base64 = String(data || '');
       if (!base64) throw new Error('transcribeAudio: audio payload is required');
       if (base64.length > 40_000_000) throw new Error('transcribeAudio: recording too large');
-      const [{ createVoiceTranscription }, { resolvePluginData }, { readSection }, os, path, fsp, crypto] = await Promise.all([
-        import('../../runtime/channels/lib/voice-transcription.mjs'),
-        import('../../runtime/shared/plugin-paths.mjs'),
-        import('../../runtime/shared/config.mjs'),
-        import('node:os'),
-        import('node:path'),
-        import('node:fs/promises'),
-        import('node:crypto'),
-      ]);
-      const extension = /ogg/i.test(mimeType) ? 'ogg' : /wav/i.test(mimeType) ? 'wav' : /mp4|m4a/i.test(mimeType) ? 'm4a' : 'webm';
+      const [{ createVoiceTranscription }, { resolvePluginData }, { readSection }, os, path, fsp, crypto] =
+        await Promise.all([
+          import('../../runtime/channels/lib/voice-transcription.mjs'),
+          import('../../runtime/shared/plugin-paths.mjs'),
+          import('../../runtime/shared/config.mjs'),
+          import('node:os'),
+          import('node:path'),
+          import('node:fs/promises'),
+          import('node:crypto'),
+        ]);
+      const extension = /ogg/i.test(mimeType)
+        ? 'ogg'
+        : /wav/i.test(mimeType)
+          ? 'wav'
+          : /mp4|m4a/i.test(mimeType)
+            ? 'm4a'
+            : 'webm';
       const audioPath = path.join(os.tmpdir(), `mixdog-dictation-${process.pid}-${Date.now()}.${extension}`);
       await fsp.writeFile(audioPath, Buffer.from(base64, 'base64'));
       try {
@@ -658,7 +698,7 @@ export function createSessionApiB(bag) {
         {
           filename: String(filename || 'Pasted image'),
           provider: routeState().provider || '',
-        },
+        }
       );
       return {
         data: attachment.content,
@@ -674,9 +714,12 @@ export function createSessionApiB(bag) {
       });
       return {
         ...(await getVoiceStatus()),
-        result: typeof result === 'boolean'
-          ? { ok: true, enabled: result }
-          : (result && typeof result === 'object' ? result : { ok: false }),
+        result:
+          typeof result === 'boolean'
+            ? { ok: true, enabled: result }
+            : result && typeof result === 'object'
+              ? result
+              : { ok: false },
       };
     },
     // Theme is a TUI-local concern (no runtime round-trip). listThemes returns
@@ -953,7 +996,16 @@ export function createSessionApiB(bag) {
         clearUiActivityBeforeContextSync();
         flags.pendingSessionReset = false;
         resetStatsAndSyncContext();
-        set({ items: replaceItems([]), toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...getState().stats } });
+        set({
+          items: replaceItems([]),
+          toasts: [],
+          queued: [],
+          thinking: null,
+          spinner: null,
+          lastTurn: null,
+          ...routeState(),
+          stats: { ...getState().stats },
+        });
         commitTuiSessionReset(rollbackSnapshot);
         flags.lastUserActivityAt = Date.now();
         return true;
@@ -976,7 +1028,11 @@ export function createSessionApiB(bag) {
     // Without it the watcher silently no-ops and the sidebar falls back to
     // the 60s safety poll (user: spinner kept spinning after the turn ended).
     sessionStoreDir: () => {
-      try { return runtime.sessionStoreDir?.() || null; } catch { return null; }
+      try {
+        return runtime.sessionStoreDir?.() || null;
+      } catch {
+        return null;
+      }
     },
     deleteSession: async (id) => {
       if (getState().commandBusy) return false;
@@ -987,7 +1043,7 @@ export function createSessionApiB(bag) {
       const rollbackSnapshot = deletingCurrent ? snapshotTuiBeforeSessionReset() : null;
       if (deletingCurrent) resetTuiForPendingSessionReset();
       try {
-        if (await runtime.deleteSession(id) !== true) {
+        if ((await runtime.deleteSession(id)) !== true) {
           if (rollbackSnapshot) restoreTuiAfterFailedSessionReset(rollbackSnapshot);
           return false;
         }
@@ -1026,11 +1082,10 @@ export function createSessionApiB(bag) {
     inheritFrom,
     /** Read-only verdict for the heir this session would open, on the route it
      *  would open with. Every surface asks this before offering the carry. */
-    inheritancePreflight: (sourceSessionId = null, selection = null) => (
+    inheritancePreflight: (sourceSessionId = null, selection = null) =>
       typeof runtime.inheritancePreflight === 'function'
         ? runtime.inheritancePreflight(sourceSessionId || getState().sessionId || null, selection)
-        : null
-    ),
+        : null,
     inheritSession: async () => {
       if (getState().commandBusy) return false;
       const sourceId = getState().sessionId || null;
@@ -1110,7 +1165,16 @@ export function createSessionApiB(bag) {
         clearUiActivityBeforeContextSync();
         flags.pendingSessionReset = false;
         resetStatsAndSyncContext();
-        set({ items: replaceItems([]), toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...getState().stats } });
+        set({
+          items: replaceItems([]),
+          toasts: [],
+          queued: [],
+          thinking: null,
+          spinner: null,
+          lastTurn: null,
+          ...routeState(),
+          stats: { ...getState().stats },
+        });
         commitTuiSessionReset(rollbackSnapshot);
         return true;
       } catch (error) {
@@ -1132,7 +1196,9 @@ export function createSessionApiB(bag) {
         commandBusy: true,
         ...(options.quiet === true
           ? {}
-          : { commandStatus: { active: true, verb: 'Resuming conversation', startedAt: Date.now(), mode: 'resuming' } }),
+          : {
+              commandStatus: { active: true, verb: 'Resuming conversation', startedAt: Date.now(), mode: 'resuming' },
+            }),
       });
       clearToastTimers();
       try {
@@ -1146,9 +1212,7 @@ export function createSessionApiB(bag) {
         const itemLimit = Number(flags.resumeTranscriptItemLimit);
         const items = restoreTranscriptItems(r.messages, {
           sessionId: String(r.id || id),
-          itemLimit: Number.isFinite(itemLimit) && itemLimit > 0
-            ? itemLimit
-            : Number.POSITIVE_INFINITY,
+          itemLimit: Number.isFinite(itemLimit) && itemLimit > 0 ? itemLimit : Number.POSITIVE_INFINITY,
         });
         set({
           items: replaceItems(items),
@@ -1185,8 +1249,7 @@ export function createSessionApiB(bag) {
     deliverToolCompletion: (sessionId, text, meta = {}) =>
       runtime.deliverToolCompletion?.(sessionId, text, meta) === true,
 
-    closeCanonicalSession: (reason = 'canonical-session-close') =>
-      runtime.closeCanonicalSession?.(reason) === true,
+    closeCanonicalSession: (reason = 'canonical-session-close') => runtime.closeCanonicalSession?.(reason) === true,
 
     dispose: async (reason = 'cli-react-exit', options = {}) => {
       if (flags.disposed) return;
@@ -1195,16 +1258,28 @@ export function createSessionApiB(bag) {
       // Release the interactive-presence beacon so a cross-open after this
       // surface exits takes normal ownership instead of viewer-attaching to a
       // dead owner (crash paths fall back to the 2min staleness window).
-      try { runtime.clearSessionPresence?.(); } catch { /* best-effort */ }
+      try {
+        runtime.clearSessionPresence?.();
+      } catch {
+        /* best-effort */
+      }
       clearToastTimers();
       disposeTranscriptSpill?.();
       disposeGoalContinuation?.();
-      try { clearInterval(lifecycle.runtimePulseTimer); } catch {}
-      try { lifecycle.unsubscribeRuntimeNotifications?.(); } catch {}
+      try {
+        clearInterval(lifecycle.runtimePulseTimer);
+      } catch {}
+      try {
+        lifecycle.unsubscribeRuntimeNotifications?.();
+      } catch {}
       lifecycle.unsubscribeRuntimeNotifications = null;
-      try { lifecycle.unsubscribeAgentStatus?.(); } catch {}
+      try {
+        lifecycle.unsubscribeAgentStatus?.();
+      } catch {}
       lifecycle.unsubscribeAgentStatus = null;
-      try { lifecycle.unsubscribeRemoteState?.(); } catch {}
+      try {
+        lifecycle.unsubscribeRemoteState?.();
+      } catch {}
       lifecycle.unsubscribeRemoteState = null;
       denyAllToolApprovals('runtime closing');
       oauthFlows.cancelAll();

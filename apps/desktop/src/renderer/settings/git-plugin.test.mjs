@@ -25,17 +25,29 @@ test('Git & GitHub detail retains the saved account without commit-message setti
     githubCliStatus: async () => ({ installed: true, authenticated: true, login: 'owner', version: '2.81' }),
     githubCliAccount: async () => ({ login: 'owner', name: 'Saved Owner', email: 'saved@example.com' }),
     gitGlobalConfig: async () => ({ name: 'Manual identity', email: 'manual@example.com' }),
-    setGitGlobalConfig: async (...args) => { changes.push(args); },
-    githubCliLoginStart: async () => { changes.push('login'); },
+    setGitGlobalConfig: async (...args) => {
+      changes.push(args);
+    },
+    githubCliLoginStart: async () => {
+      changes.push('login');
+    },
   };
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(React.createElement(BuiltInFeaturesPanel, {
-      api, data: { toolModules: { git: { installed: true, enabled: true } }, skills: { skills: [] } },
-      snapshot: null, pending: '', run: async () => ({}), initialFeature: 'git',
-    })));
+    await act(async () =>
+      root.render(
+        React.createElement(BuiltInFeaturesPanel, {
+          api,
+          data: { toolModules: { git: { installed: true, enabled: true } }, skills: { skills: [] } },
+          snapshot: null,
+          pending: '',
+          run: async () => ({}),
+          initialFeature: 'git',
+        })
+      )
+    );
     const dialog = document.querySelector('[data-feature-id="git"]');
     assert.ok(dialog);
     assert.match(dialog.textContent, /Git & GitHub/);

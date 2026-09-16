@@ -1,106 +1,113 @@
-import { buildRecallScopeFilter } from './memory-recall-scope-filter.mjs'
-import { recallReadQuery } from './memory-recall-read-query.mjs'
-const EVENT_TAIL_ROWS = 1
+import { buildRecallScopeFilter } from './memory-recall-scope-filter.mjs';
+import { recallReadQuery } from './memory-recall-read-query.mjs';
+const EVENT_TAIL_ROWS = 1;
 
 function sessionKey(row) {
-  const value = String(row?.session_id ?? '').trim()
-  return value || null
+  const value = String(row?.session_id ?? '').trim();
+  return value || null;
 }
 
 function anchorPoint(row) {
-  const members = Array.isArray(row?.members) ? row.members : []
-  const candidates = members.length > 0 ? members : [row]
-  let best = null
+  const members = Array.isArray(row?.members) ? row.members : [];
+  const candidates = members.length > 0 ? members : [row];
+  let best = null;
   for (const candidate of candidates) {
-    const turn = Number(candidate?.source_turn)
-    const ts = Number(candidate?.ts)
-    if (!best
-      || (Number.isFinite(turn) && (!Number.isFinite(best.turn) || turn > best.turn))
-      || (turn === best.turn && Number.isFinite(ts) && ts > best.ts)) {
+    const turn = Number(candidate?.source_turn);
+    const ts = Number(candidate?.ts);
+    if (
+      !best ||
+      (Number.isFinite(turn) && (!Number.isFinite(best.turn) || turn > best.turn)) ||
+      (turn === best.turn && Number.isFinite(ts) && ts > best.ts)
+    ) {
       best = {
         turn: Number.isFinite(turn) ? turn : null,
         ts: Number.isFinite(ts) ? ts : Number(row?.ts) || 0,
-      }
+      };
     }
   }
-  return best ?? { turn: null, ts: Number(row?.ts) || 0 }
+  return best ?? { turn: null, ts: Number(row?.ts) || 0 };
 }
 
 export function mergeRecallEventRows(rankedRows, tailRows, { dedupeEvents = false } = {}) {
-  if (!Array.isArray(rankedRows) || rankedRows.length === 0) return []
-  const tailsByAnchor = new Map()
+  if (!Array.isArray(rankedRows) || rankedRows.length === 0) return [];
+  const tailsByAnchor = new Map();
   for (const row of Array.isArray(tailRows) ? tailRows : []) {
-    const key = Number(row?._anchor_order)
-    if (!Number.isInteger(key) || key < 0) continue
-    if (!tailsByAnchor.has(key)) tailsByAnchor.set(key, [])
-    tailsByAnchor.get(key).push(row)
+    const key = Number(row?._anchor_order);
+    if (!Number.isInteger(key) || key < 0) continue;
+    if (!tailsByAnchor.has(key)) tailsByAnchor.set(key, []);
+    tailsByAnchor.get(key).push(row);
   }
-  const emittedIds = new Set()
-  const emittedEventKeys = new Set()
-  const out = []
+  const emittedIds = new Set();
+  const emittedEventKeys = new Set();
+  const out = [];
   const emit = (row) => {
-    const id = String(row?.id ?? '')
-    if (id && emittedIds.has(id)) return
-    if (id) emittedIds.add(id)
-    out.push(row)
-  }
+    const id = String(row?.id ?? '');
+    if (id && emittedIds.has(id)) return;
+    if (id) emittedIds.add(id);
+    out.push(row);
+  };
 
   for (let index = 0; index < rankedRows.length; index += 1) {
-    const tails = (tailsByAnchor.get(index) ?? []).slice(0, EVENT_TAIL_ROWS)
-    const eventKey = String(tails[0]?._event_key ?? '')
-    if (dedupeEvents && eventKey && emittedEventKeys.has(eventKey)) continue
-    if (dedupeEvents && eventKey) emittedEventKeys.add(eventKey)
-    const anchor = rankedRows[index]
+    const tails = (tailsByAnchor.get(index) ?? []).slice(0, EVENT_TAIL_ROWS);
+    const eventKey = String(tails[0]?._event_key ?? '');
+    if (dedupeEvents && eventKey && emittedEventKeys.has(eventKey)) continue;
+    if (dedupeEvents && eventKey) emittedEventKeys.add(eventKey);
+    const anchor = rankedRows[index];
     for (const [tailIndex, tail] of tails.entries()) {
-      emit(tailIndex === 0 && Number(anchor?.is_root) === 1
-        ? {
-            ...tail,
-            _historicalRootElement: anchor.element,
-            _historicalRootSummary: anchor.summary,
-          }
-        : tail)
+      emit(
+        tailIndex === 0 && Number(anchor?.is_root) === 1
+          ? {
+              ...tail,
+              _historicalRootElement: anchor.element,
+              _historicalRootSummary: anchor.summary,
+            }
+          : tail
+      );
     }
-    emit(anchor)
+    emit(anchor);
   }
-  return out
+  return out;
 }
 
-export async function expandRecallEventContext(db, rankedRows, {
-  query,
-  limit,
-  tsFrom,
-  tsTo,
-  excludeStatuses,
-  category,
-  projectScope,
-  dedupeEvents = false,
-} = {}) {
-  const anchors = []
-  const anchorLimit = Math.max(1, Math.floor(Number(limit) || 10))
+export async function expandRecallEventContext(
+  db,
+  rankedRows,
+  { query, limit, tsFrom, tsTo, excludeStatuses, category, projectScope, dedupeEvents = false } = {}
+) {
+  const anchors = [];
+  const anchorLimit = Math.max(1, Math.floor(Number(limit) || 10));
   for (let index = 0; index < (Array.isArray(rankedRows) ? rankedRows.length : 0); index += 1) {
-    const row = rankedRows[index]
-    const sessionId = sessionKey(row)
-    if (!sessionId) continue
-    const point = anchorPoint(row)
+    const row = rankedRows[index];
+    const sessionId = sessionKey(row);
+    if (!sessionId) continue;
+    const point = anchorPoint(row);
     anchors.push({
       anchor_order: index,
       anchor_id: Number(row?.id) || null,
       session_id: sessionId,
       anchor_turn: point.turn,
       anchor_ts: point.ts,
-    })
-    if (anchors.length >= anchorLimit) break
+    });
+    if (anchors.length >= anchorLimit) break;
   }
-  if (anchors.length === 0) return rankedRows
+  if (anchors.length === 0) return rankedRows;
 
-  const normalizedQuery = String(query ?? '').trim().toLowerCase()
-  const { clause, params } = buildRecallScopeFilter(3, {
-    ts_from: tsFrom,
-    ts_to: tsTo,
-    excludeStatuses,
-    projectScope,
-  }, 'e')
-  const { rows } = await recallReadQuery(db, `
+  const normalizedQuery = String(query ?? '')
+    .trim()
+    .toLowerCase();
+  const { clause, params } = buildRecallScopeFilter(
+    3,
+    {
+      ts_from: tsFrom,
+      ts_to: tsTo,
+      excludeStatuses,
+      projectScope,
+    },
+    'e'
+  );
+  const { rows } = await recallReadQuery(
+    db,
+    `
     WITH anchors AS (
       SELECT *
       FROM jsonb_to_recordset($1::jsonb) AS a(
@@ -172,6 +179,8 @@ export async function expandRecallEventContext(db, rankedRows, {
     FROM ranked_event_rows
     WHERE event_rank <= ${EVENT_TAIL_ROWS}
     ORDER BY _anchor_order ASC, event_rank ASC
-  `, [JSON.stringify(anchors), normalizedQuery, ...params])
-  return mergeRecallEventRows(rankedRows, rows, { dedupeEvents })
+  `,
+    [JSON.stringify(anchors), normalizedQuery, ...params]
+  );
+  return mergeRecallEventRows(rankedRows, rows, { dedupeEvents });
 }

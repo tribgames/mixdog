@@ -1,15 +1,25 @@
 const VALUE_OPTIONS = new Set(['--provider', '--model', '--effort', '--workflow']);
 const FLAG_OPTIONS = new Set([
-  '--readonly', '--help', '-h', '--plain', '--react', '--remote', '--onboarding', '--fast',
-  '--web-search', '--memory', '--json',
+  '--readonly',
+  '--help',
+  '-h',
+  '--plain',
+  '--react',
+  '--remote',
+  '--onboarding',
+  '--fast',
+  '--web-search',
+  '--memory',
+  '--json',
 ]);
-const EXEC_UNSUPPORTED_FLAGS = new Set([
-  '--readonly', '--remote', '--onboarding', '--memory',
-]);
+const EXEC_UNSUPPORTED_FLAGS = new Set(['--readonly', '--remote', '--onboarding', '--memory']);
 const HEADLESS_WORKFLOW_ERROR = 'option --workflow is not supported for mixdog exec';
 
 function roleKey(value) {
-  return String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-');
 }
 
 function argvIndicatesExec(argv) {
@@ -50,9 +60,11 @@ function parseTokens(argv, { strictValues = true } = {}) {
           skipHostPrelude: true,
         };
       }
-      if (allowHeadlessIntent
-        && (arg === '--provider' || arg === '--model' || arg === '--effort')
-        && valueKey === 'exec') {
+      if (
+        allowHeadlessIntent &&
+        (arg === '--provider' || arg === '--model' || arg === '--effort') &&
+        valueKey === 'exec'
+      ) {
         return {
           error: `option ${arg} requires a route value before ${JSON.stringify(String(value))}`,
           skipHostPrelude: true,
@@ -70,10 +82,7 @@ function parseTokens(argv, { strictValues = true } = {}) {
     if (arg.startsWith('-')) {
       return {
         error: `unknown option ${arg}`,
-        ...(allowHeadlessIntent
-          && argvIndicatesExec(argv)
-          ? { skipHostPrelude: true }
-          : {}),
+        ...(allowHeadlessIntent && argvIndicatesExec(argv) ? { skipHostPrelude: true } : {}),
       };
     }
     positional.push(arg);

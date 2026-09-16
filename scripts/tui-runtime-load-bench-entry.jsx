@@ -10,11 +10,7 @@ import { Box, render } from 'ink';
 import { Item } from '../src/tui/components/TranscriptItem.jsx';
 import { useTranscriptWindow } from '../src/tui/app/use-transcript-window.mjs';
 import { createTranscriptWriter } from '../src/runtime/shared/transcript-writer.mjs';
-import {
-  drainPathSync,
-  getBufferedAppenderStats,
-  hasInFlightWrite,
-} from '../src/runtime/shared/buffered-appender.mjs';
+import { drainPathSync, getBufferedAppenderStats, hasInFlightWrite } from '../src/runtime/shared/buffered-appender.mjs';
 
 /**
  * Headless TUI/runtime load-regression bench.
@@ -147,12 +143,14 @@ function makeProducer({ writer, lane, burst }) {
       chunks.push(text);
       recordCount += 1;
     }
-    const stateItems = [{
-      id: `producer-${lane}-frame-${frame}`,
-      kind: 'assistant',
-      text: chunks.join(''),
-      streaming: false,
-    }];
+    const stateItems = [
+      {
+        id: `producer-${lane}-frame-${frame}`,
+        kind: 'assistant',
+        text: chunks.join(''),
+        streaming: false,
+      },
+    ];
     if (frame % 6 === lane % 6) {
       const command = `producer-${lane}-frame-${frame}`;
       const result = `producer ${lane} frame ${frame} complete`;
@@ -206,50 +204,42 @@ function TranscriptHarness({ settledItems, streamingTail, structureRevision, col
   const transcriptViewportRef = React.useRef({ top: 0 });
   const selectionLayoutRef = React.useRef(null);
 
-  const {
-    transcriptWindow,
-    renderedTranscriptItems,
-    transcriptTailPinned,
-    transcriptMeasureRef,
-  } = useTranscriptWindow({
-    items: settledItems,
-    structureRevision,
-    streamingTail,
-    themeEpoch: 0,
-    frameColumns: columns,
-    toolOutputExpanded: false,
-    transcriptContentHeight: viewportRows,
-    transcriptBottomSlackRows: 1,
-    transcriptGuardRows: 1,
-    floatingPanelRows: 0,
-    overlayHintRequested: false,
-    scrollOffset,
-    setScrollOffset,
-    transcriptAnchorRef,
-    transcriptAnchorDirtyRef,
-    scrollTargetRef,
-    scrollPositionRef,
-    maxScrollRowsRef,
-    transcriptGeomRef,
-    followingRef,
-    dragRef,
-    transcriptViewportRef,
-    selectionLayoutRef,
-    withSelectionClip: identity,
-    paintSelectionRect: noop,
-    stopSmoothScroll: noop,
-    measuredRowsVersion,
-    setMeasuredRowsVersion,
-  });
+  const { transcriptWindow, renderedTranscriptItems, transcriptTailPinned, transcriptMeasureRef } = useTranscriptWindow(
+    {
+      items: settledItems,
+      structureRevision,
+      streamingTail,
+      themeEpoch: 0,
+      frameColumns: columns,
+      toolOutputExpanded: false,
+      transcriptContentHeight: viewportRows,
+      transcriptBottomSlackRows: 1,
+      transcriptGuardRows: 1,
+      floatingPanelRows: 0,
+      overlayHintRequested: false,
+      scrollOffset,
+      setScrollOffset,
+      transcriptAnchorRef,
+      transcriptAnchorDirtyRef,
+      scrollTargetRef,
+      scrollPositionRef,
+      maxScrollRowsRef,
+      transcriptGeomRef,
+      followingRef,
+      dragRef,
+      transcriptViewportRef,
+      selectionLayoutRef,
+      withSelectionClip: identity,
+      paintSelectionRect: noop,
+      stopSmoothScroll: noop,
+      measuredRowsVersion,
+      setMeasuredRowsVersion,
+    }
+  );
 
   return (
     <Box flexDirection="column" width={columns} height={viewportRows} overflow="hidden" justifyContent="flex-end">
-      <Box
-        flexDirection="column"
-        width="100%"
-        flexShrink={0}
-        marginBottom={-transcriptWindow.effectiveScrollOffset}
-      >
+      <Box flexDirection="column" width="100%" flexShrink={0} marginBottom={-transcriptWindow.effectiveScrollOffset}>
         {renderedTranscriptItems.map((item, index, all) => {
           const measureRef = transcriptMeasureRef(item);
           const itemNode = (
@@ -258,20 +248,20 @@ function TranscriptHarness({ settledItems, streamingTail, structureRevision, col
               prevKind={index > 0 ? all[index - 1].kind : null}
               columns={columns}
               toolOutputExpanded={false}
-              streamingWindowRows={transcriptTailPinned && item.id === streamingTail?.id
-                ? viewportRows + 4
-                : 0}
+              streamingWindowRows={transcriptTailPinned && item.id === streamingTail?.id ? viewportRows + 4 : 0}
             />
           );
           return measureRef ? (
             <Box key={item.id} ref={measureRef} flexDirection="column" flexShrink={0}>
               {itemNode}
             </Box>
-          ) : <React.Fragment key={item.id}>{itemNode}</React.Fragment>;
+          ) : (
+            <React.Fragment key={item.id}>{itemNode}</React.Fragment>
+          );
         })}
-        {transcriptWindow.bottomSpacerRows > 0
-          ? <Box height={transcriptWindow.bottomSpacerRows} flexShrink={0} />
-          : null}
+        {transcriptWindow.bottomSpacerRows > 0 ? (
+          <Box height={transcriptWindow.bottomSpacerRows} flexShrink={0} />
+        ) : null}
       </Box>
     </Box>
   );
@@ -422,8 +412,10 @@ try {
       exitOnCtrlC: false,
       incrementalRendering: true,
       maxFps: 1000,
-      onRender: () => { inkRenderCalls += 1; },
-    },
+      onRender: () => {
+        inkRenderCalls += 1;
+      },
+    }
   );
   await flushFrame(instance);
 
@@ -438,18 +430,21 @@ try {
         structureRevision={structureRevision}
         columns={config.columns}
         viewportRows={config.viewportRows}
-      />,
+      />
     );
     await flushFrame(instance);
     calibrationTimes.push(performance.now() - begin);
   }
-  const rawCalibrationP95 = percentile([...calibrationTimes].sort((a, b) => a - b), 0.95);
-  const effectiveThresholdMs = thresholdOverride?.value
-    ?? (pinnedBaselineP95 != null
-      ? pinnedBaselineP95 * config.baselineRegressionMargin
-      : config.thresholdFloorMs);
-  const thresholdSource = thresholdOverride?.source
-    || (pinnedBaselineP95 != null
+  const rawCalibrationP95 = percentile(
+    [...calibrationTimes].sort((a, b) => a - b),
+    0.95
+  );
+  const effectiveThresholdMs =
+    thresholdOverride?.value ??
+    (pinnedBaselineP95 != null ? pinnedBaselineP95 * config.baselineRegressionMargin : config.thresholdFloorMs);
+  const thresholdSource =
+    thresholdOverride?.source ||
+    (pinnedBaselineP95 != null
       ? `checked-in baseline p95 * ${config.baselineRegressionMargin}`
       : 'absolute fallback (checked-in baseline unavailable)');
 
@@ -479,7 +474,7 @@ try {
         structureRevision={structureRevision}
         columns={config.columns}
         viewportRows={config.viewportRows}
-      />,
+      />
     );
     await flushFrame(instance);
     const elapsed = performance.now() - frameStarted;
@@ -502,7 +497,7 @@ try {
   sampleRss();
 
   const sorted = [...frameTimes].sort((a, b) => a - b);
-  const rawP50 = percentile(sorted, 0.50);
+  const rawP50 = percentile(sorted, 0.5);
   const rawP95 = percentile(sorted, 0.95);
   const rawMax = sorted.at(-1) || 0;
   const stats = {
@@ -573,11 +568,17 @@ try {
 } finally {
   if (rssTimer) clearInterval(rssTimer);
   if (instance) {
-    try { instance.unmount(); } catch {}
-    try { instance.cleanup(); } catch {}
+    try {
+      instance.unmount();
+    } catch {}
+    try {
+      instance.cleanup();
+    } catch {}
   }
   for (const path of pathsToDrain) {
-    try { drainPathSync(path); } catch {}
+    try {
+      drainPathSync(path);
+    } catch {}
   }
   rmSync(root, { recursive: true, force: true });
 }
@@ -595,13 +596,13 @@ if (jsonOnly) {
 } else {
   const frame = result.frame_time || {};
   process.stdout.write(
-    `tui-runtime-load: ${result.status} items=${result.load?.transcript_items ?? config.items} `
-    + `frames=${config.frames} producers=${config.producers}\n`
-    + `frame ms: p50=${frame.p50_ms ?? '-'} p95=${frame.p95_ms ?? '-'} max=${frame.max_ms ?? '-'} `
-    + `(p95 threshold=${result.threshold?.max_ms ?? '-'}ms, over=${frame.over_threshold_frames ?? '-'})\n`
-    + `peak RSS=${result.peak_rss_mb ?? '-'} MB records=${result.load?.persisted_records ?? 0}/`
-    + `${result.load?.expected_records ?? 0} dropped=${result.load?.dropped_buffer_bytes ?? '-'} `
-    + `wall=${result.wall_ms}ms\n`,
+    `tui-runtime-load: ${result.status} items=${result.load?.transcript_items ?? config.items} ` +
+      `frames=${config.frames} producers=${config.producers}\n` +
+      `frame ms: p50=${frame.p50_ms ?? '-'} p95=${frame.p95_ms ?? '-'} max=${frame.max_ms ?? '-'} ` +
+      `(p95 threshold=${result.threshold?.max_ms ?? '-'}ms, over=${frame.over_threshold_frames ?? '-'})\n` +
+      `peak RSS=${result.peak_rss_mb ?? '-'} MB records=${result.load?.persisted_records ?? 0}/` +
+      `${result.load?.expected_records ?? 0} dropped=${result.load?.dropped_buffer_bytes ?? '-'} ` +
+      `wall=${result.wall_ms}ms\n`
   );
   for (const failure of result.failures || []) process.stderr.write(`FAIL: ${failure}\n`);
 }

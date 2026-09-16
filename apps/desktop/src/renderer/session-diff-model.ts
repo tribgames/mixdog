@@ -1,4 +1,4 @@
-import { parseUnifiedDiff } from "./renderer-logic.mjs";
+import { parseUnifiedDiff } from './renderer-logic.mjs';
 
 export type SessionDiffFile = {
   path?: unknown;
@@ -31,23 +31,23 @@ export type SessionDiffRow = {
 };
 
 function cleanPath(value: unknown): string {
-  const path = String(value || "").replace(/\\/g, "/");
-  return path.replace(/^(?:a|b)\//, "");
+  const path = String(value || '').replace(/\\/g, '/');
+  return path.replace(/^(?:a|b)\//, '');
 }
 
 function partPath(part: SessionDiffPart): string {
   const next = cleanPath(part.newFile?.fileName);
-  if (next && next !== "/dev/null") return next;
+  if (next && next !== '/dev/null') return next;
   const previous = cleanPath(part.oldFile?.fileName);
-  return previous === "/dev/null" ? "" : previous;
+  return previous === '/dev/null' ? '' : previous;
 }
 
 function partStats(part: SessionDiffPart): { additions: number; deletions: number } {
   let additions = 0;
   let deletions = 0;
-  for (const line of part.hunks.join("\n").split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
-    else if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
+  for (const line of part.hunks.join('\n').split('\n')) {
+    if (line.startsWith('+') && !line.startsWith('+++')) additions += 1;
+    else if (line.startsWith('-') && !line.startsWith('---')) deletions += 1;
   }
   return { additions, deletions };
 }
@@ -56,23 +56,25 @@ function partStats(part: SessionDiffPart): { additions: number; deletions: numbe
  *  re-joined as a unified diff), or "" when the patch has no part for it. */
 export function sessionDiffFilePatch(patch: string, rel: string): string {
   const target = cleanPath(rel);
-  if (!patch || !target) return "";
+  if (!patch || !target) return '';
   let parsed: SessionDiffPart[] = [];
   try {
     parsed = parseUnifiedDiff(patch);
   } catch {
-    return "";
+    return '';
   }
   return parsed
-    .filter((part) => partPath(part) === target
-      || (cleanPath(part.oldFile?.fileName) === target
-        && cleanPath(part.newFile?.fileName) === "/dev/null"))
+    .filter(
+      (part) =>
+        partPath(part) === target ||
+        (cleanPath(part.oldFile?.fileName) === target && cleanPath(part.newFile?.fileName) === '/dev/null')
+    )
     .map((part) => part.patch)
-    .join("\n");
+    .join('\n');
 }
 
 export function buildSessionDiffRows(result: SessionDiffResult | null): SessionDiffRow[] {
-  const patch = typeof result?.patch === "string" ? result.patch : "";
+  const patch = typeof result?.patch === 'string' ? result.patch : '';
   let parsed: SessionDiffPart[] = [];
   try {
     parsed = patch ? parseUnifiedDiff(patch) : [];
@@ -102,15 +104,15 @@ export function buildSessionDiffRows(result: SessionDiffResult | null): SessionD
         total.deletions += stats.deletions;
         return total;
       },
-      { additions: 0, deletions: 0 },
+      { additions: 0, deletions: 0 }
     );
     rows.push({
       path,
       oldPath,
-      status: String(file?.status || parts[0]?.status || "M").toUpperCase(),
-      additions: typeof file?.additions === "number" ? file.additions : measured.additions,
-      deletions: typeof file?.deletions === "number" ? file.deletions : measured.deletions,
-      binary: file?.binary === true || parts.some((part) => part.status === "binary"),
+      status: String(file?.status || parts[0]?.status || 'M').toUpperCase(),
+      additions: typeof file?.additions === 'number' ? file.additions : measured.additions,
+      deletions: typeof file?.deletions === 'number' ? file.deletions : measured.deletions,
+      binary: file?.binary === true || parts.some((part) => part.status === 'binary'),
       parts,
     });
   }
@@ -123,18 +125,17 @@ export function buildSessionDiffRows(result: SessionDiffResult | null): SessionD
         total.deletions += stats.deletions;
         return total;
       },
-      { additions: 0, deletions: 0 },
+      { additions: 0, deletions: 0 }
     );
     rows.push({
       path,
-      oldPath: "",
-      status: String(parts[0]?.status || "M").toUpperCase(),
+      oldPath: '',
+      status: String(parts[0]?.status || 'M').toUpperCase(),
       additions: measured.additions,
       deletions: measured.deletions,
-      binary: parts.some((part) => part.status === "binary"),
+      binary: parts.some((part) => part.status === 'binary'),
       parts,
     });
   }
   return rows;
 }
-

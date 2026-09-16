@@ -52,7 +52,9 @@ export function renderResult(value) {
       const workers = Array.isArray(value.workers) ? value.workers : [];
       lines.push(`agents: ${workers.length}`);
       for (const worker of workers) {
-        const tokens = worker.windowTokens ? ` ctx=${worker.windowTokens}${worker.windowCap ? `/${worker.windowCap}` : ''}` : '';
+        const tokens = worker.windowTokens
+          ? ` ctx=${worker.windowTokens}${worker.windowCap ? `/${worker.windowCap}` : ''}`
+          : '';
         const terminal = worker.clientHostPid ? ` term=${worker.clientHostPid}` : '';
         const base = `- ${worker.tag} ${worker.agent || 'agent'} ${worker.status || 'idle'}/${worker.worker_stage || worker.stage || 'idle'} ${worker.provider}/${worker.model}${terminal}${tokens}`;
         lines.push(appendAgentProgressKv(base, worker));
@@ -76,8 +78,7 @@ export function renderResult(value) {
       // cost for the model. Keep the ack minimal (existing surface rule:
       // minimum characters, maximum information); full diagnostics remain
       // on explicit status/read recovery calls.
-      const isStartAck = value.status === 'running'
-        && (value.type === 'spawn' || value.type === 'send');
+      const isStartAck = value.status === 'running' && (value.type === 'spawn' || value.type === 'send');
       lines.push(`agent task: ${value.task_id}`);
       // Cancel/close acks can carry no status; never serialize a literal
       // "status: undefined" into the envelope (the TUI card would titleize it).
@@ -94,7 +95,8 @@ export function renderResult(value) {
       if (value.effort) lines.push(`effort: ${value.effort}`);
       if (value.fast === true || value.fast === false) lines.push(`fast: ${value.fast ? 'on' : 'off'}`);
       if (!isStartAck) {
-        if (value.stage || value.workerStatus) lines.push(`worker: ${value.workerStatus || 'unknown'}/${value.stage || 'unknown'}`);
+        if (value.stage || value.workerStatus)
+          lines.push(`worker: ${value.workerStatus || 'unknown'}/${value.stage || 'unknown'}`);
         if (value.worker_stage) lines.push(`worker_stage: ${value.worker_stage}`);
         if (value.last_progress) lines.push(`last_progress: ${value.last_progress}`);
         if (Number.isFinite(value.silent_for)) lines.push(`silent_for: ${value.silent_for}s`);
@@ -126,7 +128,9 @@ export function renderResult(value) {
         `target: ${value.tag || '-'} ${value.sessionId || ''}`.trim(),
         value.agent ? `agent: ${value.agent}` : null,
         `queueDepth: ${value.queueDepth ?? 1}`,
-      ].filter(Boolean).join('\n');
+      ]
+        .filter(Boolean)
+        .join('\n');
     }
 
     if (value.closed !== undefined) {
@@ -136,7 +140,9 @@ export function renderResult(value) {
         value.sessionId ? `sessionId: ${value.sessionId}` : null,
         value.task_id ? `task_id: ${value.task_id}` : null,
         value.forgotten ? 'forgotten: true' : null,
-      ].filter(Boolean).join('\n');
+      ]
+        .filter(Boolean)
+        .join('\n');
     }
 
     if (value.content !== undefined) {
@@ -148,7 +154,9 @@ export function renderResult(value) {
         value.tag ? `tag=${value.tag}` : null,
         value.agent ? `agent=${value.agent}` : null,
         value.provider && value.model ? `${value.provider}/${value.model}` : null,
-      ].filter(Boolean).join(' ');
+      ]
+        .filter(Boolean)
+        .join(' ');
       return `${header}\n${stripFinalAnswerWrapper(value.content)}`;
     }
   }

@@ -5,11 +5,17 @@ import { stampRendererShell } from './renderer-shell.ts';
 test('a release identifies all bootstrap imports, not unused lazy feature chunks', () => {
   const bundle = {
     'assets/main-12345678.js': {
-      type: 'chunk', fileName: 'assets/main-12345678.js', isEntry: true, imports: ['assets/react-12345678.js'],
+      type: 'chunk',
+      fileName: 'assets/main-12345678.js',
+      isEntry: true,
+      imports: ['assets/react-12345678.js'],
     },
     'assets/react-12345678.js': { type: 'chunk', fileName: 'assets/react-12345678.js', imports: [] },
     'assets/bootstrap-12345678.js': {
-      type: 'chunk', fileName: 'assets/bootstrap-12345678.js', name: 'bootstrap', imports: ['assets/react-12345678.js'],
+      type: 'chunk',
+      fileName: 'assets/bootstrap-12345678.js',
+      name: 'bootstrap',
+      imports: ['assets/react-12345678.js'],
     },
     'assets/unused-12345678.js': { type: 'chunk', fileName: 'assets/unused-12345678.js', name: 'unused', imports: [] },
   };

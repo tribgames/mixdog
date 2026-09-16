@@ -5,13 +5,7 @@ import { resolve } from 'node:path';
 import { clean } from './session-text.mjs';
 import { envFlag } from '../runtime/shared/env.mjs';
 
-export function createMcpGlue({
-  mcpClient,
-  getConfig,
-  getCurrentCwd,
-  getMcpScopeId = () => null,
-  state,
-}) {
+export function createMcpGlue({ mcpClient, getConfig, getCurrentCwd, getMcpScopeId = () => null, state }) {
   const scopeOptions = () => ({ scopeId: getMcpScopeId() });
   function mcpTransportLabel(cfg = {}) {
     if (cfg.autoDetect) return `autoDetect:${cfg.autoDetect}`;
@@ -31,9 +25,7 @@ export function createMcpGlue({
     // overrides are intentionally outside the runtime resolution chain.
     if (envFlag('MIXDOG_DISABLE_MCP')) return { servers: {}, sources: {} };
     const config = getConfig();
-    const configured = config?.mcpServers && typeof config.mcpServers === 'object'
-      ? config.mcpServers
-      : {};
+    const configured = config?.mcpServers && typeof config.mcpServers === 'object' ? config.mcpServers : {};
     const servers = {};
     for (const [name, cfg] of Object.entries(configured)) {
       servers[name] = {
@@ -165,7 +157,13 @@ export function createMcpGlue({
       const gen = state.mcpConnectGeneration;
       const prev = state.mcpConnectInFlight;
       const run = (async () => {
-        if (prev) { try { await prev; } catch { /* prior run's failures already captured */ } }
+        if (prev) {
+          try {
+            await prev;
+          } catch {
+            /* prior run's failures already captured */
+          }
+        }
         if (gen !== state.mcpConnectGeneration) return;
         await applyMcpServerConnection(only, enabled);
       })();
@@ -186,7 +184,11 @@ export function createMcpGlue({
     // latest requested effective-server-set in the registry.
     const gen = ++state.mcpConnectGeneration;
     if (state.mcpConnectInFlight) {
-      try { await state.mcpConnectInFlight; } catch { /* prior run's failures already captured */ }
+      try {
+        await state.mcpConnectInFlight;
+      } catch {
+        /* prior run's failures already captured */
+      }
     }
     if (gen !== state.mcpConnectGeneration) return mcpStatus();
     const run = (async () => {
@@ -213,7 +215,10 @@ export function createMcpGlue({
 
   function normalizeMcpServerInput(input = {}) {
     const currentCwd = getCurrentCwd();
-    const name = clean(input.name).toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '');
+    const name = clean(input.name)
+      .toLowerCase()
+      .replace(/[^a-z0-9_.-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
     if (!name) throw new Error('MCP server name is required');
     const coerceStringRecord = (value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -224,9 +229,8 @@ export function createMcpGlue({
       }
       return Object.keys(out).length > 0 ? out : null;
     };
-    const coerceStringArray = (value) => Array.isArray(value)
-      ? value.map((entry) => clean(entry)).filter(Boolean)
-      : [];
+    const coerceStringArray = (value) =>
+      Array.isArray(value) ? value.map((entry) => clean(entry)).filter(Boolean) : [];
     const withOptionalHeaders = (config) => {
       const headers = coerceStringRecord(input.headers);
       if (headers) config.headers = headers;
@@ -239,9 +243,8 @@ export function createMcpGlue({
     const url = clean(input.url);
     const type = clean(input.type).toLowerCase();
     if (url) {
-      const secureUrl = (kind) => typeof mcpClient.normalizeMcpTransportUrl === 'function'
-        ? mcpClient.normalizeMcpTransportUrl(url, kind)
-        : url;
+      const secureUrl = (kind) =>
+        typeof mcpClient.normalizeMcpTransportUrl === 'function' ? mcpClient.normalizeMcpTransportUrl(url, kind) : url;
       if (type === 'sse') {
         return { name, config: withOptionalHeaders({ type: 'sse', url: secureUrl('sse') }) };
       }
@@ -288,7 +291,9 @@ export function createMcpGlue({
     try {
       const resolved = mcpClient.resolveMcpStartupTimeoutMs?.({});
       if (Number.isFinite(resolved)) budgetMs = resolved;
-    } catch { /* fall back to default budget */ }
+    } catch {
+      /* fall back to default budget */
+    }
     if (maxWaitMs !== null && maxWaitMs !== undefined) {
       const requestedMaxWaitMs = Number(maxWaitMs);
       if (Number.isFinite(requestedMaxWaitMs) && requestedMaxWaitMs >= 0) {
@@ -303,7 +308,9 @@ export function createMcpGlue({
     // legacy fire-and-forget behavior (late servers use the deferred path).
     if (!(budgetMs > 0)) return;
     let timer = null;
-    const budget = new Promise((resolveBudget) => { timer = setTimeout(resolveBudget, budgetMs); });
+    const budget = new Promise((resolveBudget) => {
+      timer = setTimeout(resolveBudget, budgetMs);
+    });
     try {
       await Promise.race([settled, budget]);
     } finally {

@@ -1,58 +1,58 @@
-import { type SVGProps } from "react";
+import type { SVGProps } from 'react';
 
-import type { DesktopModelOption } from "../shared/contract";
+import type { DesktopModelOption } from '../shared/contract';
 
-import { t } from "./i18n";
+import { t } from './i18n';
 // @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
-import { canonicalModelDisplay } from "../../../../src/ui/model-display.mjs";
+import { canonicalModelDisplay } from '../../../../src/ui/model-display.mjs';
 
 const PROVIDER_LABELS: Readonly<Record<string, string>> = {
-  anthropic: "Anthropic API",
-  "anthropic-api": "Anthropic API",
-  "anthropic-oauth": "Anthropic OAuth",
-  deepseek: "DeepSeek API",
-  "deepseek-api": "DeepSeek API",
-  default: "Default",
-  gemini: "Gemini API",
-  "gemini-api": "Gemini API",
-  "grok-oauth": "Grok OAuth",
-  "antigravity-oauth": "Antigravity OAuth",
-  "cursor-oauth": "Cursor OAuth",
-  "mixdog-local": "Local Provider",
-  openai: "OpenAI API",
-  "openai-api": "OpenAI API",
-  "openai-oauth": "OpenAI OAuth",
-  "opencode-go": "OpenCode Go API",
-  openrouter: "OpenRouter",
-  xai: "xAI API",
-  "xai-api": "xAI API",
+  anthropic: 'Anthropic API',
+  'anthropic-api': 'Anthropic API',
+  'anthropic-oauth': 'Anthropic OAuth',
+  deepseek: 'DeepSeek API',
+  'deepseek-api': 'DeepSeek API',
+  default: 'Default',
+  gemini: 'Gemini API',
+  'gemini-api': 'Gemini API',
+  'grok-oauth': 'Grok OAuth',
+  'antigravity-oauth': 'Antigravity OAuth',
+  'cursor-oauth': 'Cursor OAuth',
+  'mixdog-local': 'Local Provider',
+  openai: 'OpenAI API',
+  'openai-api': 'OpenAI API',
+  'openai-oauth': 'OpenAI OAuth',
+  'opencode-go': 'OpenCode Go API',
+  openrouter: 'OpenRouter',
+  xai: 'xAI API',
+  'xai-api': 'xAI API',
 };
 
 const PROVIDER_RANKS: Readonly<Record<string, number>> = {
   default: 0,
-  "openai-oauth": 10,
-  "anthropic-oauth": 20,
-  "grok-oauth": 30,
-  "antigravity-oauth": 31,
-  "cursor-oauth": 32,
-  "opencode-go": 35,
+  'openai-oauth': 10,
+  'anthropic-oauth': 20,
+  'grok-oauth': 30,
+  'antigravity-oauth': 31,
+  'cursor-oauth': 32,
+  'opencode-go': 35,
   openrouter: 36,
   openai: 40,
-  "openai-api": 40,
+  'openai-api': 40,
   anthropic: 50,
-  "anthropic-api": 50,
+  'anthropic-api': 50,
   gemini: 60,
-  "gemini-api": 60,
+  'gemini-api': 60,
   xai: 70,
-  "xai-api": 70,
+  'xai-api': 70,
   deepseek: 90,
-  "deepseek-api": 90,
-  "mixdog-local": 100,
+  'deepseek-api': 90,
+  'mixdog-local': 100,
 };
 
 export function providerDisplayName(provider: string | null | undefined) {
-  const id = String(provider || "").trim();
-  if (!id) return t("Unknown provider");
+  const id = String(provider || '').trim();
+  if (!id) return t('Unknown provider');
   const normalized = id.toLowerCase();
   const known = PROVIDER_LABELS[normalized];
   if (known) return known;
@@ -60,18 +60,33 @@ export function providerDisplayName(provider: string | null | undefined) {
 }
 
 export function providerDisplayRank(provider: string | null | undefined) {
-  return PROVIDER_RANKS[String(provider || "").trim().toLowerCase()] ?? 900;
+  return (
+    PROVIDER_RANKS[
+      String(provider || '')
+        .trim()
+        .toLowerCase()
+    ] ?? 900
+  );
 }
 
 function parsedModelVersion(id: string | null | undefined): number[] {
-  const text = String(id || "").toLowerCase();
+  const text = String(id || '').toLowerCase();
   const claude = text.match(/^claude-[a-z]+-(\d+)(?:[-.](\d+))?/);
   if (claude) return [Number(claude[1]) || 0, Number(claude[2]) || 0];
-  const compact = text.match(/(?:^|[-_])(?:o|gpt|grok|qwen|llama|mistral|gemma|phi|glm)(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/);
-  if (compact) return compact.slice(1).filter((value): value is string => value != null).map((value) => Number(value) || 0);
+  const compact = text.match(
+    /(?:^|[-_])(?:o|gpt|grok|qwen|llama|mistral|gemma|phi|glm)(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/
+  );
+  if (compact)
+    return compact
+      .slice(1)
+      .filter((value): value is string => value != null)
+      .map((value) => Number(value) || 0);
   const generic = text.match(/(?:^|[-_v])(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/);
   return generic
-    ? generic.slice(1).filter((value): value is string => value != null).map((value) => Number(value) || 0)
+    ? generic
+        .slice(1)
+        .filter((value): value is string => value != null)
+        .map((value) => Number(value) || 0)
     : [];
 }
 
@@ -87,7 +102,7 @@ function releaseTime(model: DesktopModelOption): number {
 }
 
 function isClaudeModel(model: DesktopModelOption): boolean {
-  return model.provider.toLowerCase().includes("anthropic") && /^claude-[a-z]+-/.test(model.model.toLowerCase());
+  return model.provider.toLowerCase().includes('anthropic') && /^claude-[a-z]+-/.test(model.model.toLowerCase());
 }
 
 function modelVersion(model: DesktopModelOption): number[] {
@@ -130,16 +145,16 @@ export function compareModelRecency(left: DesktopModelOption, right: DesktopMode
 }
 
 function modelFamily(model: DesktopModelOption): string {
-  const text = String(model.model || model.display || "").toLowerCase();
+  const text = String(model.model || model.display || '').toLowerCase();
   const claude = text.match(/^claude-([a-z]+)/);
   if (claude) return claude[1];
   if (model.family) return model.family.toLowerCase();
-  return text.match(/^[a-z]+(?:-[a-z]+)?/)?.[0] || "model";
+  return text.match(/^[a-z]+(?:-[a-z]+)?/)?.[0] || 'model';
 }
 
 function modelFamilyLimit(provider: string, family: string): number {
-  if (!provider.toLowerCase().includes("anthropic")) return 8;
-  return family === "opus" ? 3 : 1;
+  if (!provider.toLowerCase().includes('anthropic')) return 8;
+  return family === 'opus' ? 3 : 1;
 }
 
 /** Mirrors the model set and ordering presented by the TUI /model picker. */
@@ -159,7 +174,9 @@ export function normalizeModelOptions(models: readonly DesktopModelOption[]): De
   for (const [provider, families] of providers) {
     const providerModels: DesktopModelOption[] = [];
     for (const [family, familyModels] of families) {
-      providerModels.push(...familyModels.slice().sort(compareModelRecency).slice(0, modelFamilyLimit(provider, family)));
+      providerModels.push(
+        ...familyModels.slice().sort(compareModelRecency).slice(0, modelFamilyLimit(provider, family))
+      );
     }
     normalized.push(...providerModels.sort(compareModelRecency));
   }
@@ -169,17 +186,23 @@ export function normalizeModelOptions(models: readonly DesktopModelOption[]): De
 export function modelFastAvailable(
   model: DesktopModelOption | undefined,
   effort?: string,
-  modelParameters: Record<string, string> = {},
+  modelParameters: Record<string, string> = {}
 ): boolean {
   if (!model?.fastCapable) return false;
   if (Array.isArray(model.parameterVariants) && model.parameterVariants.length) {
-    return model.parameterVariants.some((variant) =>
-      variant.fast === 'true'
-      && (!effort || !variant.effort || variant.effort === effort)
-      && Object.entries(modelParameters).every(([key, value]) => !variant[key] || variant[key] === value));
+    return model.parameterVariants.some(
+      (variant) =>
+        variant.fast === 'true' &&
+        (!effort || !variant.effort || variant.effort === effort) &&
+        Object.entries(modelParameters).every(([key, value]) => !variant[key] || variant[key] === value)
+    );
   }
   if (!Array.isArray(model.fastEfforts) || model.fastEfforts.length === 0) return true;
-  return model.fastEfforts.includes(String(effort || '').trim().toLowerCase());
+  return model.fastEfforts.includes(
+    String(effort || '')
+      .trim()
+      .toLowerCase()
+  );
 }
 
 export function modelContextWindow(model: DesktopModelOption): number {
@@ -193,7 +216,7 @@ export function modelContextWindow(model: DesktopModelOption): number {
   const provider = model.provider.toLowerCase();
   const id = model.model.toLowerCase();
   const version = parsedModelVersion(id);
-  if (provider.includes("anthropic") && /^claude-[a-z]+-/.test(id)) {
+  if (provider.includes('anthropic') && /^claude-[a-z]+-/.test(id)) {
     if ((version[0] || 0) >= 5) return 1_000_000;
     if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/.test(id)) return 1_000_000;
   }
@@ -208,14 +231,14 @@ export function modelMaxContextWindow(model: DesktopModelOption): number {
 
 export function formatContextWindow(tokens: number): string {
   const value = Number(tokens);
-  if (!Number.isFinite(value) || value <= 0) return "";
+  if (!Number.isFinite(value) || value <= 0) return '';
   const unit = value >= 1024 && (value & (value - 1)) === 0 ? 1024 : 1000;
   const mega = unit * unit;
   if (value >= mega) {
     const millions = value / mega;
     const label = Number.isInteger(millions)
       ? millions.toFixed(0)
-      : millions.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+      : millions.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
     return `${label}M Context`;
   }
   return `${Math.round(value / unit)}k Context`;
@@ -223,69 +246,70 @@ export function formatContextWindow(tokens: number): string {
 
 export function modelOptionDescription(model: DesktopModelOption): string {
   // Context belongs in the model's internal tuning menu, not the model list.
-  const description = String(model.description || "")
-    .replace(/<br\s*\/?>/gi, " · ")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[*_`]+/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, "\"")
-    .replace(/\s*·\s*/g, " · ")
-    .replace(/\s+/g, " ")
+  const description = String(model.description || '')
+    .replace(/<br\s*\/?>/gi, ' · ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[*_`]+/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/\s*·\s*/g, ' · ')
+    .replace(/\s+/g, ' ')
     .trim()
-    .split(" · ")
+    .split(' · ')
     .filter((part) => !/^\d+(?:\.\d+)?\s*[km]\s+context window$/i.test(part))
-    .join(" · ");
-  return [description, model.fastCapable ? t("Fast Available") : ""]
-    .filter(Boolean).join(" · ");
+    .join(' · ');
+  return [description, model.fastCapable ? t('Fast Available') : ''].filter(Boolean).join(' · ');
 }
 
 // A hint is curated when it is not merely the id re-spaced/re-cased; curated
 // hints (user aliases, catalog names with extra meaning) win over the rule.
 function displayKey(text: string) {
-  return String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
 }
 
-export function modelDisplayName(model: string | null | undefined, provider = "", displayHint = "") {
-  const raw = String(model || "").trim();
-  const id = raw.includes("/") ? raw.split("/").filter(Boolean).at(-1) || raw : raw;
-  const hint = String(displayHint || "").trim();
-  if (String(provider || "").toLowerCase() === "cursor-oauth" && hint) return hint;
+export function modelDisplayName(model: string | null | undefined, provider = '', displayHint = '') {
+  const raw = String(model || '').trim();
+  const id = raw.includes('/') ? raw.split('/').filter(Boolean).at(-1) || raw : raw;
+  const hint = String(displayHint || '').trim();
+  if (String(provider || '').toLowerCase() === 'cursor-oauth' && hint) return hint;
   if (hint && id && displayKey(hint) !== displayKey(id)) return hint;
   if (id) {
     const canonical = canonicalModelDisplay(id);
     if (canonical && canonical !== id) return canonical;
   }
   if (hint) return hint;
-  return id ? canonicalModelDisplay(id) || id : "";
+  return id ? canonicalModelDisplay(id) || id : '';
 }
 
 export function modelRouteDisplayParts(
   model: string | null | undefined,
-  effort: string | null | undefined = "",
+  effort: string | null | undefined = '',
   fast = false,
-  effortLabel = "",
+  effortLabel = ''
 ) {
-  const effortValue = String(effort || "").trim();
+  const effortValue = String(effort || '').trim();
   const rawEffortLabel = String(effortLabel || effortValue).trim();
-  const compactEffort = effortValue.toLowerCase() === "xhigh"
-    || /^(?:extra[\s-]*high|xhigh)$/i.test(rawEffortLabel)
-    ? "XHigh"
-    : rawEffortLabel
-      ? `${rawEffortLabel.slice(0, 1).toLocaleUpperCase()}${rawEffortLabel.slice(1)}`
-      : "";
+  const compactEffort =
+    effortValue.toLowerCase() === 'xhigh' || /^(?:extra[\s-]*high|xhigh)$/i.test(rawEffortLabel)
+      ? 'XHigh'
+      : rawEffortLabel
+        ? `${rawEffortLabel.slice(0, 1).toLocaleUpperCase()}${rawEffortLabel.slice(1)}`
+        : '';
   return {
-    model: String(model || "").trim(),
+    model: String(model || '').trim(),
     effort: compactEffort,
-    fast: fast ? "Fast" : "",
+    fast: fast ? 'Fast' : '',
   };
 }
 
 export function ModelRouteLabel({
   model,
-  effort = "",
+  effort = '',
   fast = false,
-  effortLabel = "",
+  effortLabel = '',
 }: {
   model: string | null | undefined;
   effort?: string | null | undefined;
@@ -293,57 +317,99 @@ export function ModelRouteLabel({
   effortLabel?: string;
 }) {
   const parts = modelRouteDisplayParts(model, effort, fast, effortLabel);
-  return <span className="model-route-label">
-    {parts.model && <span className="model-route-label-model">{parts.model}</span>}
-    {parts.effort && <>
-      {parts.model && " "}
-      <span className="model-route-label-effort">{parts.effort}</span>
-    </>}
-    {parts.fast && <>
-      {(parts.model || parts.effort) && " "}
-      <span className="model-route-label-fast">{parts.fast}</span>
-    </>}
-  </span>;
+  return (
+    <span className="model-route-label">
+      {parts.model && <span className="model-route-label-model">{parts.model}</span>}
+      {parts.effort && (
+        <>
+          {parts.model && ' '}
+          <span className="model-route-label-effort">{parts.effort}</span>
+        </>
+      )}
+      {parts.fast && (
+        <>
+          {(parts.model || parts.effort) && ' '}
+          <span className="model-route-label-fast">{parts.fast}</span>
+        </>
+      )}
+    </span>
+  );
 }
 
 export function modelOptionLabel(model: { provider: string; model: string; display: string }) {
-  const display = modelDisplayName(model.model, model.provider, model.display) || t("Unnamed model");
+  const display = modelDisplayName(model.model, model.provider, model.display) || t('Unnamed model');
   return `${display} · ${providerDisplayName(model.provider)}`;
 }
 
-type ProviderIconKind = "openai" | "anthropic" | "xai" | "google" | "cursor" | "opencode" | "synthetic";
+type ProviderIconKind = 'openai' | 'anthropic' | 'xai' | 'google' | 'cursor' | 'opencode' | 'synthetic';
 
 function providerIconKind(provider: string): ProviderIconKind {
   const normalized = provider.toLowerCase();
-  if (normalized === "cursor-oauth") return "cursor";
-  if (normalized === "antigravity-oauth") return "google";
-  if (normalized === "opencode-go") return "opencode";
-  if (normalized.includes("openai") || normalized.includes("codex")) return "openai";
-  if (normalized.includes("anthropic") || normalized.includes("claude")) return "anthropic";
-  if (normalized.includes("xai") || normalized.includes("grok")) return "xai";
-  if (normalized.includes("google") || normalized.includes("gemini")) return "google";
-  return "synthetic";
+  if (normalized === 'cursor-oauth') return 'cursor';
+  if (normalized === 'antigravity-oauth') return 'google';
+  if (normalized === 'opencode-go') return 'opencode';
+  if (normalized.includes('openai') || normalized.includes('codex')) return 'openai';
+  if (normalized.includes('anthropic') || normalized.includes('claude')) return 'anthropic';
+  if (normalized.includes('xai') || normalized.includes('grok')) return 'xai';
+  if (normalized.includes('google') || normalized.includes('gemini')) return 'google';
+  return 'synthetic';
 }
 
 export function ProviderIcon({ provider, ...props }: SVGProps<SVGSVGElement> & { provider: string }) {
   const kind = providerIconKind(provider);
   return (
-    <svg {...props} viewBox="0 0 40 40" fill="none" aria-hidden="true" focusable="false"
-      data-provider-icon={kind}>
-      {kind === "openai" && <path fill="currentColor" d="M32.84 17.28a8 8 0 0 0-8.72-9.75A8 8 0 0 0 11.28 10.16a8 8 0 0 0-4.13 12.56 8 8 0 0 0 8.72 9.75 8 8 0 0 0 12.84-2.63 8 8 0 0 0 4.13-12.56Zm-11.25 15.75a5.58 5.58 0 0 1-3.66-1.31l6.19-3.57a.8.8 0 0 0 .47-.84v-8.44l2.53 1.5v6.94a5.53 5.53 0 0 1-5.53 5.72ZM9.5 27.87a5.58 5.58 0 0 1-.66-3.75l6.19 3.57c.29.14.63.14.94 0l7.31-4.22v2.91l-6.09 3.56a5.53 5.53 0 0 1-7.69-2.07ZM7.9 14.84a5.58 5.58 0 0 1 2.91-2.44v7.13c0 .37.1.66.47.84l7.31 4.22-2.53 1.5-6-3.47a5.53 5.53 0 0 1-2.16-7.78Zm20.72 4.78-7.31-4.22 2.53-1.5 6 3.47a5.53 5.53 0 0 1-.84 10.13v-7.13c0-.37-.1-.66-.38-.75Zm2.53-3.75-6.19-3.56a.95.95 0 0 0-.94 0l-7.31 4.22v-2.91l6.09-3.56a5.53 5.53 0 0 1 8.35 5.81ZM15.4 21.12l-2.53-1.5v-7.03a5.53 5.53 0 0 1 9.19-4.31l-6.19 3.56a.95.95 0 0 0-.47.84v8.44Zm1.31-3 3.28-1.87 3.28 1.87v3.75l-3.28 1.88-3.28-1.88v-3.75Z" />}
-      {kind === "anthropic" && <path fill="currentColor" d="M26.96 9.88h-4.83l8.65 21.9h4.71l-8.53-21.9Zm-13.93 0L4.49 31.78h4.83l1.91-4.6h8.99l1.79 4.49h4.83L18.08 9.88h-5.05Zm-.45 13.26 2.92-7.75 3.03 7.75h-5.95Z" />}
-      {kind === "xai" && <path fill="currentColor" d="m12.46 15.6 13.69 19.4h-6.08L6.37 15.6h6.09Zm-.01 10.78 3.05 4.31L12.46 35H6.36l6.09-8.62ZM33.64 7.16V35h-4.99V14.22l4.99-7.06Zm0-2.16L20.07 24.22l-3.05-4.31L27.55 5h6.09Z" />}
-      {kind === "google" && <path fill="currentColor" d="M37 20.03C27.88 20.58 20.58 27.88 20.03 37h-.06C19.42 27.88 12.12 20.58 3 20.03v-.06C12.12 19.42 19.42 12.12 19.97 3h.06C20.58 12.12 27.88 19.42 37 19.97v.06Z" />}
-      {kind === "cursor" && <g transform="translate(3.8 3.8) scale(1.35)">
-        <path fill="currentColor" opacity=".45" d="m11.925 24 10.425-6-10.425-6L1.5 18l10.425 6Z" />
-        <path fill="currentColor" opacity=".7" d="M22.35 18V6L11.925 0v12l10.425 6Z" />
-        <path fill="currentColor" d="M11.925 0 1.5 6v12l10.425-6V0Zm10.425 6L11.925 24V12L22.35 6Zm0 0-10.425 6L1.5 6h20.85Z" />
-      </g>}
-      {kind === "opencode" && <g transform="scale(.078125)">
-        <path fill="currentColor" opacity=".45" d="M320 224v128H192V224h128Z" />
-        <path fill="currentColor" fillRule="evenodd" d="M384 416H128V96h256v320Zm-64-256H192v192h128V160Z" clipRule="evenodd" />
-      </g>}
-      {kind === "synthetic" && <path fill="currentColor" d="m20 4 2.24 7.76L30 14l-7.76 2.24L20 24l-2.24-7.76L10 14l7.76-2.24L20 4Zm10 18 1.12 3.88L35 27l-3.88 1.12L30 32l-1.12-3.88L25 27l3.88-1.12L30 22ZM11 24l1.4 4.6L17 30l-4.6 1.4L11 36l-1.4-4.6L5 30l4.6-1.4L11 24Z" />}
+    <svg {...props} viewBox="0 0 40 40" fill="none" aria-hidden="true" focusable="false" data-provider-icon={kind}>
+      {kind === 'openai' && (
+        <path
+          fill="currentColor"
+          d="M32.84 17.28a8 8 0 0 0-8.72-9.75A8 8 0 0 0 11.28 10.16a8 8 0 0 0-4.13 12.56 8 8 0 0 0 8.72 9.75 8 8 0 0 0 12.84-2.63 8 8 0 0 0 4.13-12.56Zm-11.25 15.75a5.58 5.58 0 0 1-3.66-1.31l6.19-3.57a.8.8 0 0 0 .47-.84v-8.44l2.53 1.5v6.94a5.53 5.53 0 0 1-5.53 5.72ZM9.5 27.87a5.58 5.58 0 0 1-.66-3.75l6.19 3.57c.29.14.63.14.94 0l7.31-4.22v2.91l-6.09 3.56a5.53 5.53 0 0 1-7.69-2.07ZM7.9 14.84a5.58 5.58 0 0 1 2.91-2.44v7.13c0 .37.1.66.47.84l7.31 4.22-2.53 1.5-6-3.47a5.53 5.53 0 0 1-2.16-7.78Zm20.72 4.78-7.31-4.22 2.53-1.5 6 3.47a5.53 5.53 0 0 1-.84 10.13v-7.13c0-.37-.1-.66-.38-.75Zm2.53-3.75-6.19-3.56a.95.95 0 0 0-.94 0l-7.31 4.22v-2.91l6.09-3.56a5.53 5.53 0 0 1 8.35 5.81ZM15.4 21.12l-2.53-1.5v-7.03a5.53 5.53 0 0 1 9.19-4.31l-6.19 3.56a.95.95 0 0 0-.47.84v8.44Zm1.31-3 3.28-1.87 3.28 1.87v3.75l-3.28 1.88-3.28-1.88v-3.75Z"
+        />
+      )}
+      {kind === 'anthropic' && (
+        <path
+          fill="currentColor"
+          d="M26.96 9.88h-4.83l8.65 21.9h4.71l-8.53-21.9Zm-13.93 0L4.49 31.78h4.83l1.91-4.6h8.99l1.79 4.49h4.83L18.08 9.88h-5.05Zm-.45 13.26 2.92-7.75 3.03 7.75h-5.95Z"
+        />
+      )}
+      {kind === 'xai' && (
+        <path
+          fill="currentColor"
+          d="m12.46 15.6 13.69 19.4h-6.08L6.37 15.6h6.09Zm-.01 10.78 3.05 4.31L12.46 35H6.36l6.09-8.62ZM33.64 7.16V35h-4.99V14.22l4.99-7.06Zm0-2.16L20.07 24.22l-3.05-4.31L27.55 5h6.09Z"
+        />
+      )}
+      {kind === 'google' && (
+        <path
+          fill="currentColor"
+          d="M37 20.03C27.88 20.58 20.58 27.88 20.03 37h-.06C19.42 27.88 12.12 20.58 3 20.03v-.06C12.12 19.42 19.42 12.12 19.97 3h.06C20.58 12.12 27.88 19.42 37 19.97v.06Z"
+        />
+      )}
+      {kind === 'cursor' && (
+        <g transform="translate(3.8 3.8) scale(1.35)">
+          <path fill="currentColor" opacity=".45" d="m11.925 24 10.425-6-10.425-6L1.5 18l10.425 6Z" />
+          <path fill="currentColor" opacity=".7" d="M22.35 18V6L11.925 0v12l10.425 6Z" />
+          <path
+            fill="currentColor"
+            d="M11.925 0 1.5 6v12l10.425-6V0Zm10.425 6L11.925 24V12L22.35 6Zm0 0-10.425 6L1.5 6h20.85Z"
+          />
+        </g>
+      )}
+      {kind === 'opencode' && (
+        <g transform="scale(.078125)">
+          <path fill="currentColor" opacity=".45" d="M320 224v128H192V224h128Z" />
+          <path
+            fill="currentColor"
+            fillRule="evenodd"
+            d="M384 416H128V96h256v320Zm-64-256H192v192h128V160Z"
+            clipRule="evenodd"
+          />
+        </g>
+      )}
+      {kind === 'synthetic' && (
+        <path
+          fill="currentColor"
+          d="m20 4 2.24 7.76L30 14l-7.76 2.24L20 24l-2.24-7.76L10 14l7.76-2.24L20 4Zm10 18 1.12 3.88L35 27l-3.88 1.12L30 32l-1.12-3.88L25 27l3.88-1.12L30 22ZM11 24l1.4 4.6L17 30l-4.6 1.4L11 36l-1.4-4.6L5 30l4.6-1.4L11 24Z"
+        />
+      )}
     </svg>
   );
 }

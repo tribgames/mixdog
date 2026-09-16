@@ -4,10 +4,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
-import {
-  appendLiveTranscriptRows,
-  projectSettledTranscriptRows,
-} from './transcript-rows.ts';
+import { appendLiveTranscriptRows, projectSettledTranscriptRows } from './transcript-rows.ts';
 import {
   desktopToolActivityCategory,
   desktopToolActivityCategoryGroups,
@@ -38,8 +35,12 @@ function installToolActivityDom(userAgent) {
     configurable: true,
     value: /Mobile/.test(userAgent) ? 844 : 900,
   });
-  const previous = new Map(['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']
-    .map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  const previous = new Map(
+    ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT'].map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(globalThis, key),
+    ])
+  );
   Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
   Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
@@ -81,16 +82,20 @@ test('desktop and mobile tool groups share details and a static task icon', asyn
     const dom = installToolActivityDom(userAgent);
     try {
       await act(async () => {
-        dom.root.render(React.createElement(ToolActivityGroup, {
-          disclosureScope: userAgent,
-          items: [{
-            kind: 'tool',
-            id: 'read',
-            name: 'read',
-            args: { file_path: 'src/a.ts' },
-            startedAt: Date.now(),
-          }],
-        }));
+        dom.root.render(
+          React.createElement(ToolActivityGroup, {
+            disclosureScope: userAgent,
+            items: [
+              {
+                kind: 'tool',
+                id: 'read',
+                name: 'read',
+                args: { file_path: 'src/a.ts' },
+                startedAt: Date.now(),
+              },
+            ],
+          })
+        );
       });
       const group = document.querySelector('.tool-activity');
       assert.equal(group?.dataset.surface, 'desktop');
@@ -98,14 +103,16 @@ test('desktop and mobile tool groups share details and a static task icon', asyn
       assert.equal(group?.querySelector('.live-activity-glyph'), null);
 
       await act(async () => {
-        group?.querySelector('.tool-activity-header')
+        group
+          ?.querySelector('.tool-activity-header')
           ?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
       });
       assert.equal(group?.querySelectorAll('.tool-activity-details').length, 1);
       assert.equal(group?.querySelectorAll('.tool-activity-category').length, 1);
       assert.equal(group?.querySelectorAll('.tool-activity-item').length, 0);
       await act(async () => {
-        group?.querySelector('.tool-activity-category-header')
+        group
+          ?.querySelector('.tool-activity-category-header')
           ?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
       });
       assert.equal(group?.querySelectorAll('.tool-activity-item').length, 1);
@@ -121,13 +128,15 @@ test('desktop activity shows repeated tool counts as bare trailing numbers', asy
   const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
   try {
     await act(async () => {
-      dom.root.render(React.createElement(ToolActivityGroup, {
-        items: [
-          { kind: 'tool', id: 'read', name: 'read', args: { file_path: 'src/a.ts' }, result: 'ok' },
-          { kind: 'tool', id: 'grep-1', name: 'grep', args: { pattern: 'first' }, result: 'ok' },
-          { kind: 'tool', id: 'grep-2', name: 'grep', args: { pattern: 'second' }, result: 'ok' },
-        ],
-      }));
+      dom.root.render(
+        React.createElement(ToolActivityGroup, {
+          items: [
+            { kind: 'tool', id: 'read', name: 'read', args: { file_path: 'src/a.ts' }, result: 'ok' },
+            { kind: 'tool', id: 'grep-1', name: 'grep', args: { pattern: 'first' }, result: 'ok' },
+            { kind: 'tool', id: 'grep-2', name: 'grep', args: { pattern: 'second' }, result: 'ok' },
+          ],
+        })
+      );
     });
 
     const title = document.querySelector('.tool-activity-title')?.textContent?.trim() || '';
@@ -158,15 +167,7 @@ test('groups consecutive mixed-category tools into one activity row', () => {
 
 test('Goal and load control tools stay hidden while ordinary tools remain visible', () => {
   const visible = { kind: 'tool', id: 'read', name: 'read', result: 'ok' };
-  const hiddenNames = [
-    'goal',
-    'create_goal',
-    'get_goal',
-    'set_goal_tasks',
-    'update_goal',
-    'load_tool',
-    'tool_search',
-  ];
+  const hiddenNames = ['goal', 'create_goal', 'get_goal', 'set_goal_tasks', 'update_goal', 'load_tool', 'tool_search'];
   const hidden = hiddenNames.map((name, index) => ({
     kind: 'tool',
     id: `hidden-${index}`,
@@ -174,8 +175,20 @@ test('Goal and load control tools stay hidden while ordinary tools remain visibl
     result: 'ok',
   }));
   // Built-in skill loads hide by their result stub; user/plugin skills show.
-  const builtinSkill = { kind: 'tool', id: 'skill-builtin', name: 'Skill', args: { name: 'docx' }, result: 'Loaded built-in skill: docx' };
-  const userSkill = { kind: 'tool', id: 'skill-user', name: 'Skill', args: { name: 'mixdog-refs' }, result: 'Loaded skill: mixdog-refs' };
+  const builtinSkill = {
+    kind: 'tool',
+    id: 'skill-builtin',
+    name: 'Skill',
+    args: { name: 'docx' },
+    result: 'Loaded built-in skill: docx',
+  };
+  const userSkill = {
+    kind: 'tool',
+    id: 'skill-user',
+    name: 'Skill',
+    args: { name: 'mixdog-refs' },
+    result: 'Loaded skill: mixdog-refs',
+  };
   const rows = project([...hidden, builtinSkill, userSkill, visible]).rows;
 
   assert.equal(rows.length, 1);
@@ -190,26 +203,26 @@ test('a visible assistant message seals the current tool activity run', () => {
   const second = { kind: 'tool', id: 'second', name: 'shell', result: 'ok' };
   const rows = project([first, message, second]).rows;
 
-  assert.deepEqual(rows.map((row) => row._tag), [
-    'ToolActivity',
-    'AssistantPart',
-    'ToolActivity',
-  ]);
+  assert.deepEqual(
+    rows.map((row) => row._tag),
+    ['ToolActivity', 'AssistantPart', 'ToolActivity']
+  );
   assert.deepEqual(rows[0].items, [first]);
   assert.deepEqual(rows[2].items, [second]);
 });
 
 test('thinking remains a separate row after grouped tool activity', () => {
-  const settled = project([
-    { kind: 'tool', id: 'tool', name: 'shell', result: 'ok' },
-  ]);
+  const settled = project([{ kind: 'tool', id: 'tool', name: 'shell', result: 'ok' }]);
   const rows = appendLiveTranscriptRows({
     sessionKey: 'session',
     settled,
     thinking: true,
   });
 
-  assert.deepEqual(rows.map((row) => row._tag), ['ToolActivity', 'Thinking']);
+  assert.deepEqual(
+    rows.map((row) => row._tag),
+    ['ToolActivity', 'Thinking']
+  );
 });
 
 test('desktop activity expansion flattens aggregate members in call order', () => {
@@ -233,14 +246,17 @@ test('desktop activity drills through repeated categories but keeps singleton to
     { kind: 'tool', id: 'git-2', name: 'git', args: { command: 'git diff' }, result: 'diff' },
   ]);
 
-  assert.deepEqual(groups.map(({ category, count, items }) => ({
-    category,
-    count,
-    ids: items.map((item) => item.id),
-  })), [
-    { category: 'Git', count: 2, ids: ['git-1', 'git-2'] },
-    { category: 'Shell', count: 1, ids: ['shell-1'] },
-  ]);
+  assert.deepEqual(
+    groups.map(({ category, count, items }) => ({
+      category,
+      count,
+      ids: items.map((item) => item.id),
+    })),
+    [
+      { category: 'Git', count: 2, ids: ['git-1', 'git-2'] },
+      { category: 'Shell', count: 1, ids: ['shell-1'] },
+    ]
+  );
 });
 
 test('desktop activity groups by work unit, not by shared category', () => {
@@ -254,14 +270,17 @@ test('desktop activity groups by work unit, not by shared category', () => {
     { kind: 'tool', id: 'mcp-2', name: 'mcp__other__b', args: { q: 'y' }, result: 'ok' },
   ]);
 
-  assert.deepEqual(groups.map(({ unitKey, category, label, count }) => ({ unitKey, category, label, count })), [
-    { unitKey: 'Git|Ran|Git command', category: 'Git', label: 'Git commands', count: 1 },
-    { unitKey: 'Git|Staged|change', category: 'Git', label: 'Git staging', count: 1 },
-    { unitKey: 'Read|Read|code map', category: 'Read', label: 'Code structure', count: 1 },
-    { unitKey: 'Read|Read|file', category: 'Read', label: 'File reading', count: 1 },
-    { unitKey: 'MCP|srv', category: 'MCP', label: 'MCP Srv', count: 1 },
-    { unitKey: 'MCP|other', category: 'MCP', label: 'MCP Other', count: 1 },
-  ]);
+  assert.deepEqual(
+    groups.map(({ unitKey, category, label, count }) => ({ unitKey, category, label, count })),
+    [
+      { unitKey: 'Git|Ran|Git command', category: 'Git', label: 'Git commands', count: 1 },
+      { unitKey: 'Git|Staged|change', category: 'Git', label: 'Git staging', count: 1 },
+      { unitKey: 'Read|Read|code map', category: 'Read', label: 'Code structure', count: 1 },
+      { unitKey: 'Read|Read|file', category: 'Read', label: 'File reading', count: 1 },
+      { unitKey: 'MCP|srv', category: 'MCP', label: 'MCP Srv', count: 1 },
+      { unitKey: 'MCP|other', category: 'MCP', label: 'MCP Other', count: 1 },
+    ]
+  );
 });
 
 test('desktop activity uses concrete control, MCP server, and skill names', () => {
@@ -271,34 +290,55 @@ test('desktop activity uses concrete control, MCP server, and skill names', () =
     { kind: 'tool', id: 'office', name: 'office', args: { action: 'inspect' }, result: 'ok' },
     { kind: 'tool', id: 'unity', name: 'mcp__UnityMCP__manage_scene', args: { action: 'get' }, result: 'ok' },
     { kind: 'tool', id: 'skill', name: 'Skill', args: { name: 'gamerscroll-article' }, result: 'ok' },
-    { kind: 'tool', id: 'media-image', name: 'media', args: { action: 'generate', kind: 'image', prompt: 'x', path: 'a.png' }, result: 'ok' },
-    { kind: 'tool', id: 'media-video', name: 'media', args: { action: 'generate', kind: 'video', prompt: 'x', path: 'a.mp4' }, result: 'ok' },
+    {
+      kind: 'tool',
+      id: 'media-image',
+      name: 'media',
+      args: { action: 'generate', kind: 'image', prompt: 'x', path: 'a.png' },
+      result: 'ok',
+    },
+    {
+      kind: 'tool',
+      id: 'media-video',
+      name: 'media',
+      args: { action: 'generate', kind: 'video', prompt: 'x', path: 'a.mp4' },
+      result: 'ok',
+    },
     { kind: 'tool', id: 'media-list', name: 'media', args: { action: 'list', kind: 'image' }, result: 'ok' },
   ]);
 
-  assert.deepEqual(groups.map(({ unitKey, category, label, count }) => ({ unitKey, category, label, count })), [
-    { unitKey: 'Browser', category: 'Browser', label: 'Browser Use', count: 1 },
-    { unitKey: 'Computer', category: 'Computer', label: 'Computer Use', count: 1 },
-    { unitKey: 'Office', category: 'Office', label: 'Document work', count: 1 },
-    { unitKey: 'MCP|UnityMCP', category: 'MCP', label: 'MCP UnityMCP', count: 1 },
-    { unitKey: 'Skill|gamerscroll-article', category: 'Skill', label: 'Skill gamerscroll-article', count: 1 },
-    { unitKey: 'Media', category: 'Media', label: 'Media generation', count: 3 },
-  ]);
+  assert.deepEqual(
+    groups.map(({ unitKey, category, label, count }) => ({ unitKey, category, label, count })),
+    [
+      { unitKey: 'Browser', category: 'Browser', label: 'Browser Use', count: 1 },
+      { unitKey: 'Computer', category: 'Computer', label: 'Computer Use', count: 1 },
+      { unitKey: 'Office', category: 'Office', label: 'Document work', count: 1 },
+      { unitKey: 'MCP|UnityMCP', category: 'MCP', label: 'MCP UnityMCP', count: 1 },
+      { unitKey: 'Skill|gamerscroll-article', category: 'Skill', label: 'Skill gamerscroll-article', count: 1 },
+      { unitKey: 'Media', category: 'Media', label: 'Media generation', count: 3 },
+    ]
+  );
 
-  assert.equal(desktopToolActivityItemPresentation({
-    kind: 'tool',
-    id: 'browser-item',
-    name: 'browser',
-    args: { action: 'open' },
-    result: 'ok',
-  }).title, 'Browser Use');
-  assert.equal(desktopToolActivityItemPresentation({
-    kind: 'tool',
-    id: 'skill-item',
-    name: 'Skill',
-    args: { name: 'gamerscroll-article' },
-    result: 'ok',
-  }).title, 'gamerscroll-article');
+  assert.equal(
+    desktopToolActivityItemPresentation({
+      kind: 'tool',
+      id: 'browser-item',
+      name: 'browser',
+      args: { action: 'open' },
+      result: 'ok',
+    }).title,
+    'Browser Use'
+  );
+  assert.equal(
+    desktopToolActivityItemPresentation({
+      kind: 'tool',
+      id: 'skill-item',
+      name: 'Skill',
+      args: { name: 'gamerscroll-article' },
+      result: 'ok',
+    }).title,
+    'gamerscroll-article'
+  );
 });
 
 test('desktop activity normalizes common provider tool aliases', () => {
@@ -362,10 +402,13 @@ test('desktop activity renders plans, todos, and questions as structured rows', 
   });
   assert.equal(plan.structuredKind, 'plan');
   assert.equal(plan.resultLabel, '1/2');
-  assert.deepEqual(plan.structuredRows.map(({ text, status }) => ({ text, status })), [
-    { text: 'Check', status: 'completed' },
-    { text: 'Ship', status: 'in_progress' },
-  ]);
+  assert.deepEqual(
+    plan.structuredRows.map(({ text, status }) => ({ text, status })),
+    [
+      { text: 'Check', status: 'completed' },
+      { text: 'Ship', status: 'in_progress' },
+    ]
+  );
 
   const question = desktopToolActivityItemPresentation({
     kind: 'tool',

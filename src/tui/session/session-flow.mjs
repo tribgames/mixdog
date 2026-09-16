@@ -4,15 +4,53 @@
 import { presentErrorText } from '../../runtime/shared/err-text.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-markdown.mjs';
 import { createSessionStats } from './session-stats.mjs';
-import { queuePriorityValue, defaultQueuePriority, isGoalQueuedEntry, isQueuedEntryEditable, isQueuedEntryVisible, isSlashQueuedEntry, notificationDisplayText, sessionActivityTimestamp, promptDisplayText, promptContentImageMeta, mergePromptContents, mergePastedImages, mergePastedTexts, callCommitCallbacks, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
+import {
+  queuePriorityValue,
+  defaultQueuePriority,
+  isGoalQueuedEntry,
+  isQueuedEntryEditable,
+  isQueuedEntryVisible,
+  isSlashQueuedEntry,
+  notificationDisplayText,
+  sessionActivityTimestamp,
+  promptDisplayText,
+  promptContentImageMeta,
+  mergePromptContents,
+  mergePastedImages,
+  mergePastedTexts,
+  callCommitCallbacks,
+  STEERING_SUPPRESSED_DISPLAY,
+} from './queue-helpers.mjs';
 import { appendTuiSteeringPersist, dropTuiSteeringPersist, drainTuiSteeringPersist } from './tui-steering-persist.mjs';
 import { parseModelVisibleCompletionWrapper } from './agent-envelope.mjs';
 import { hydratePastedAttachments } from '../../runtime/attachments/store.mjs';
 
 export function createSessionFlow(bag) {
   const {
-    runtime, nextId, tuiDebug, flags, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, clearExecutionDedupState, clearToastTimers, getState, set, flushEmitImmediate, pushItem, replaceItems, pushNotice, pushUserOrSyntheticItem, autoClearState, agentStatusState, routeState, syncContextStats, flushDeferredExecutionPendingResumeKick,
-    snapshotTranscriptSpill, restoreTranscriptSpill, releaseTranscriptSpill,
+    runtime,
+    nextId,
+    tuiDebug,
+    flags,
+    pending,
+    pendingNotificationKeys,
+    displayedExecutionNotificationKeys,
+    clearExecutionDedupState,
+    clearToastTimers,
+    getState,
+    set,
+    flushEmitImmediate,
+    pushItem,
+    replaceItems,
+    pushNotice,
+    pushUserOrSyntheticItem,
+    autoClearState,
+    agentStatusState,
+    routeState,
+    syncContextStats,
+    flushDeferredExecutionPendingResumeKick,
+    snapshotTranscriptSpill,
+    restoreTranscriptSpill,
+    releaseTranscriptSpill,
   } = bag;
 
   // Upper bound on the awaited idle compaction. Without a bound a stalled
@@ -41,7 +79,7 @@ export function createSessionFlow(bag) {
     }
   }
 
-    const leadSessionId = () => runtime.id;
+  const leadSessionId = () => runtime.id;
 
   function shouldMirrorSteeringEntry(entry) {
     return isQueuedEntryEditable(entry) && !isSlashQueuedEntry(entry);
@@ -50,7 +88,7 @@ export function createSessionFlow(bag) {
   function commitSteeringQueueEntries(entries) {
     callCommitCallbacks(entries);
     const mirrored = (Array.isArray(entries) ? entries : []).filter(
-      (entry) => shouldMirrorSteeringEntry(entry) && !entry.steeringPersistRestored,
+      (entry) => shouldMirrorSteeringEntry(entry) && !entry.steeringPersistRestored
     );
     if (mirrored.length > 0) dropTuiSteeringPersist(leadSessionId(), mirrored);
   }
@@ -62,9 +100,7 @@ export function createSessionFlow(bag) {
     const submittedAt = Number(options.submittedAt);
     return {
       id: options.id || nextId(),
-      submittedAt: Number.isFinite(submittedAt) && submittedAt > 0
-        ? Math.round(submittedAt)
-        : Date.now(),
+      submittedAt: Number.isFinite(submittedAt) && submittedAt > 0 ? Math.round(submittedAt) : Date.now(),
       text: displayText,
       content: text,
       pastedImages: options.pastedImages && typeof options.pastedImages === 'object' ? options.pastedImages : null,
@@ -73,9 +109,8 @@ export function createSessionFlow(bag) {
       onCommitted: typeof options.onCommitted === 'function' ? options.onCommitted : null,
       onSettled: typeof options.onSettled === 'function' ? options.onSettled : null,
       onToolResult: typeof options.onToolResult === 'function' ? options.onToolResult : null,
-      transcriptMeta: options.transcriptMeta && typeof options.transcriptMeta === 'object'
-        ? { ...options.transcriptMeta }
-        : null,
+      transcriptMeta:
+        options.transcriptMeta && typeof options.transcriptMeta === 'object' ? { ...options.transcriptMeta } : null,
       context: options.context || null,
       mode,
       priority,
@@ -108,7 +143,9 @@ export function createSessionFlow(bag) {
       if (!entry || !String(entry.text || '').trim()) continue;
       const next = {
         ...entry,
-        displayText: entry.displayText || (entry.mode === 'task-notification' ? notificationDisplayText(entry.text) : String(entry.text || '')),
+        displayText:
+          entry.displayText ||
+          (entry.mode === 'task-notification' ? notificationDisplayText(entry.text) : String(entry.text || '')),
       };
       if (next.mode === 'task-notification' && next.key) {
         const duplicateQueued = pending.some((entry) => entry?.mode === 'task-notification' && entry?.key === next.key);
@@ -142,9 +179,13 @@ export function createSessionFlow(bag) {
     }
     if (!targetMode) return [];
     const batch = [];
-    for (let i = 0; i < pending.length;) {
+    for (let i = 0; i < pending.length; ) {
       const entry = pending[i];
-      if (predicate(entry) && (entry.mode || 'prompt') === targetMode && queuePriorityValue(entry.priority) === bestPriority) {
+      if (
+        predicate(entry) &&
+        (entry.mode || 'prompt') === targetMode &&
+        queuePriorityValue(entry.priority) === bestPriority
+      ) {
         batch.push(entry);
         pending.splice(i, 1);
         if (entry.mode === 'task-notification' && entry.key) pendingNotificationKeys.delete(entry.key);
@@ -220,8 +261,7 @@ export function createSessionFlow(bag) {
         });
         firstBatch = false;
         if (batch.length === 0) break;
-        if (isGoalQueuedEntry(batch[0])
-          && bag.shouldRunGoalContinuation?.(batch[0]) !== true) {
+        if (isGoalQueuedEntry(batch[0]) && bag.shouldRunGoalContinuation?.(batch[0]) !== true) {
           continue;
         }
         tuiDebug(`busy-queue drain batch=${batch.length} remaining=${pending.length}`);
@@ -245,14 +285,18 @@ export function createSessionFlow(bag) {
             }
             continue;
           }
-          const sender = String(entry.transcriptMeta?.sender || '').trim().toLowerCase();
+          const sender = String(entry.transcriptMeta?.sender || '')
+            .trim()
+            .toLowerCase();
           pushUserOrSyntheticItem(
             entry.text,
             entry.id,
             isQueuedEntryEditable(entry) ? 'user' : 'injected',
             Array.isArray(entry.images) && entry.images.length
               ? { images: entry.images, ...(sender ? { sender } : {}) }
-              : sender ? { sender } : null,
+              : sender
+                ? { sender }
+                : null
           );
         }
         const nonEditable = batch.filter((entry) => !isQueuedEntryEditable(entry));
@@ -261,11 +305,11 @@ export function createSessionFlow(bag) {
         // be requeued from an uncommitted turn. Keep normal task notifications
         // recoverable exactly as before.
         const discardOnAbort = nonEditable.filter(
-          (entry) => entry?.abortDiscardOnAbort === true || entry?.mode === 'pending-resume',
+          (entry) => entry?.abortDiscardOnAbort === true || entry?.mode === 'pending-resume'
         );
         const requeueOnAbort = nonEditable.filter((entry) => !discardOnAbort.includes(entry));
-        const discardExecutionPendingResumeKeys = discardOnAbort.flatMap(
-          (entry) => Array.isArray(entry?.resumeCompletionKeys) ? entry.resumeCompletionKeys : [],
+        const discardExecutionPendingResumeKeys = discardOnAbort.flatMap((entry) =>
+          Array.isArray(entry?.resumeCompletionKeys) ? entry.resumeCompletionKeys : []
         );
         const batchPastedImages = mergePastedImages(batch);
         const batchPastedTexts = mergePastedTexts(batch);
@@ -275,7 +319,10 @@ export function createSessionFlow(bag) {
         }, Infinity);
         const turnStatus = await bag.runTurn(merged, {
           promptSource: isGoalQueuedEntry(batch[0]) ? batch[0].mode : undefined,
-          displayText: batch.map((entry) => entry.text).filter((text) => String(text || '').trim()).join('\n'),
+          displayText: batch
+            .map((entry) => entry.text)
+            .filter((text) => String(text || '').trim())
+            .join('\n'),
           pastedImages: batchPastedImages,
           pastedTexts: batchPastedTexts,
           submittedAt: Number.isFinite(batchSubmittedAt) ? batchSubmittedAt : Date.now(),
@@ -285,15 +332,23 @@ export function createSessionFlow(bag) {
           requeueOnAbort,
           discardExecutionPendingResumeKeys,
           transcriptMeta: batch[0]?.transcriptMeta || null,
-          context: batch.map((entry) => String(entry.context || '').trim()).filter(Boolean).join('\n\n') || null,
+          context:
+            batch
+              .map((entry) => String(entry.context || '').trim())
+              .filter(Boolean)
+              .join('\n\n') || null,
           onToolResult: (message) => {
             for (const entry of batch) {
-              try { entry.onToolResult?.(message); } catch {}
+              try {
+                entry.onToolResult?.(message);
+              } catch {}
             }
           },
           onSettled: (detail) => {
             for (const entry of batch) {
-              try { entry.onSettled?.(detail); } catch {}
+              try {
+                entry.onSettled?.(detail);
+              } catch {}
             }
           },
         });
@@ -333,11 +388,9 @@ export function createSessionFlow(bag) {
     }
     rememberSubmissionId(submissionId);
     pending.push(entry);
-    const needsDurableSteering = (getState().busy || getState().commandBusy || flags.autoClearRunning)
-      && shouldMirrorSteeringEntry(entry);
-    const persistence = needsDurableSteering
-      ? appendTuiSteeringPersist(leadSessionId(), entry)
-      : null;
+    const needsDurableSteering =
+      (getState().busy || getState().commandBusy || flags.autoClearRunning) && shouldMirrorSteeringEntry(entry);
+    const persistence = needsDurableSteering ? appendTuiSteeringPersist(leadSessionId(), entry) : null;
     if (isQueuedEntryVisible(entry)) {
       set({ queued: [...getState().queued, entry] });
       if (isQueuedEntryEditable(entry)) flushEmitImmediate?.();
@@ -360,9 +413,12 @@ export function createSessionFlow(bag) {
   }
 
   function drainPendingSteering(_sessionIdOrOptions = null, maybeOptions = null) {
-    const options = maybeOptions && typeof maybeOptions === 'object'
-      ? maybeOptions
-      : (_sessionIdOrOptions && typeof _sessionIdOrOptions === 'object' ? _sessionIdOrOptions : {});
+    const options =
+      maybeOptions && typeof maybeOptions === 'object'
+        ? maybeOptions
+        : _sessionIdOrOptions && typeof _sessionIdOrOptions === 'object'
+          ? _sessionIdOrOptions
+          : {};
     const maxPriority = options.maxPriority || 'next';
     // Mid-chain drain converts queued prompt/task
     // notification entries into model-visible "queued_command" style steering
@@ -379,7 +435,7 @@ export function createSessionFlow(bag) {
       const batch = dequeueQueueBatch(maxPriority, { predicate });
       if (batch.length === 0) break;
       const accepted = batch.filter(
-        (entry) => !isGoalQueuedEntry(entry) || bag.shouldRunGoalContinuation?.(entry) === true,
+        (entry) => !isGoalQueuedEntry(entry) || bag.shouldRunGoalContinuation?.(entry) === true
       );
       for (const entry of accepted) {
         const content = entry.content;
@@ -418,9 +474,7 @@ export function createSessionFlow(bag) {
   async function restoreLeadSteeringFromDisk() {
     const rows = await drainTuiSteeringPersist(leadSessionId());
     if (!rows.length) return;
-    const livePersistIds = new Set(
-      pending.map((entry) => entry?.steeringPersistId).filter(Boolean),
-    );
+    const livePersistIds = new Set(pending.map((entry) => entry?.steeringPersistId).filter(Boolean));
     // Crash-consumed dedup: a row whose text already landed in the session
     // transcript was consumed before the restart — only its disk drop was
     // lost (drop is an async fire-and-forget write). Re-queuing it silently
@@ -435,11 +489,12 @@ export function createSessionFlow(bag) {
         const m = messages[i];
         if (m?.role !== 'user') continue;
         seen += 1;
-        const text = typeof m.content === 'string'
-          ? m.content
-          : Array.isArray(m.content)
-            ? m.content.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('\n')
-            : '';
+        const text =
+          typeof m.content === 'string'
+            ? m.content
+            : Array.isArray(m.content)
+              ? m.content.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('\n')
+              : '';
         if (text.trim()) recentUserTexts.push(text);
       }
     }
@@ -469,7 +524,11 @@ export function createSessionFlow(bag) {
     }
     if (restored.length > 0) set({ queued: [...getState().queued, ...restored] });
     if (droppedDelivered > 0) {
-      try { process.stderr.write(`[tui] skipped ${droppedDelivered} already-delivered steering row(s) on restore\n`); } catch { /* best effort */ }
+      try {
+        process.stderr.write(`[tui] skipped ${droppedDelivered} already-delivered steering row(s) on restore\n`);
+      } catch {
+        /* best effort */
+      }
     }
     // Recovery must not create a user turn by itself. An idle reconnect leaves
     // the restored rows visible/editable in the queue; a real active-turn
@@ -482,7 +541,14 @@ export function createSessionFlow(bag) {
     const now = Date.now();
     const activityAt = sessionActivityTimestamp(runtime.session, flags.lastUserActivityAt);
     const idleMs = activityAt ? now - activityAt : 0;
-    if (!cfg.enabled || getState().busy || pending.length > 0 || flags.autoClearRunning || flags.autoClearInFlight || idleMs < cfg.idleMs) {
+    if (
+      !cfg.enabled ||
+      getState().busy ||
+      pending.length > 0 ||
+      flags.autoClearRunning ||
+      flags.autoClearInFlight ||
+      idleMs < cfg.idleMs
+    ) {
       if (!activityAt) flags.lastUserActivityAt = now;
       return false;
     }
@@ -495,16 +561,15 @@ export function createSessionFlow(bag) {
         0,
         Number(status?.usedTokens) || 0,
         Number(status?.currentEstimatedTokens) || 0,
-        Number(status?.compaction?.currentEstimatedTokens) || 0,
+        Number(status?.compaction?.currentEstimatedTokens) || 0
       );
       const triggerTokens = Number(
-        status?.compaction?.triggerTokens
-        || status?.compaction?.autoCompactTokenLimit
-        || runtime.session?.autoCompactTokenLimit
-        || 0,
+        status?.compaction?.triggerTokens ||
+          status?.compaction?.autoCompactTokenLimit ||
+          runtime.session?.autoCompactTokenLimit ||
+          0
       );
-      if (!Number.isFinite(usedTokens) || !Number.isFinite(triggerTokens)
-        || !(usedTokens > 0 && triggerTokens > 0)) {
+      if (!Number.isFinite(usedTokens) || !Number.isFinite(triggerTokens) || !(usedTokens > 0 && triggerTokens > 0)) {
         if (!activityAt) flags.lastUserActivityAt = now;
         return false;
       }
@@ -519,16 +584,17 @@ export function createSessionFlow(bag) {
 
   // Idle cleanup retains the compactor's complete result, including rules-only
   // results without a summary. Plain /clear remains a separate explicit wipe.
-  async function performAutoClear({
-    compactTimeoutMs = AUTO_CLEAR_COMPACT_TIMEOUT_MS,
-  } = {}) {
+  async function performAutoClear({ compactTimeoutMs = AUTO_CLEAR_COMPACT_TIMEOUT_MS } = {}) {
     flags.autoClearRunning = true;
     const startedAt = Date.now();
     // commandBusy blocks concurrent session commands (resume/newSession/
     // setModel) AND new submits for the duration of the async clear — the
     // compact swaps the live session object, so racing commands could act on
     // the wrong session.
-    set({ commandBusy: true, commandStatus: { active: true, verb: 'Auto-clearing idle conversation', startedAt, mode: 'auto-clear' } });
+    set({
+      commandBusy: true,
+      commandStatus: { active: true, verb: 'Auto-clearing idle conversation', startedAt, mode: 'auto-clear' },
+    });
     try {
       // Give Ink one event-loop turn to paint the auto-clear status before the
       // compact path starts doing synchronous session/transcript work.
@@ -547,7 +613,7 @@ export function createSessionFlow(bag) {
       const timeout = new Promise((_, reject) => {
         timer = setTimeout(
           () => reject(new Error(`compaction timed out after ${compactTimeoutMs}ms; auto-clear deferred to next idle`)),
-          compactTimeoutMs,
+          compactTimeoutMs
         );
       });
       let result;
@@ -555,20 +621,22 @@ export function createSessionFlow(bag) {
         result = await Promise.race([compactPromise, timeout]);
       } catch (raceError) {
         flags.autoClearInFlight = true;
-        compactPromise.then(
-          (lateResult) => {
-            if (getState().busy) {
-              // Do not wipe items/queued or force busy=false mid-turn.
-              flags.pendingClearedSessionUi = { result: lateResult };
-            } else {
-              applyAutoClearUi(lateResult);
-              pushNotice('auto-clear completed late; compacted conversation retained', 'info');
-            }
-          },
-          () => {},
-        ).finally(() => {
-          if (!flags.pendingClearedSessionUi) flags.autoClearInFlight = false;
-        });
+        compactPromise
+          .then(
+            (lateResult) => {
+              if (getState().busy) {
+                // Do not wipe items/queued or force busy=false mid-turn.
+                flags.pendingClearedSessionUi = { result: lateResult };
+              } else {
+                applyAutoClearUi(lateResult);
+                pushNotice('auto-clear completed late; compacted conversation retained', 'info');
+              }
+            },
+            () => {}
+          )
+          .finally(() => {
+            if (!flags.pendingClearedSessionUi) flags.autoClearInFlight = false;
+          });
         throw raceError;
       } finally {
         if (timer) clearTimeout(timer);
@@ -596,7 +664,7 @@ export function createSessionFlow(bag) {
   function restoreQueued(currentText = '', selectedId = '') {
     const targetId = String(selectedId || '').trim();
     const queued = [];
-    for (let i = 0; i < pending.length;) {
+    for (let i = 0; i < pending.length; ) {
       const entry = pending[i];
       if (isQueuedEntryEditable(entry) && (!targetId || String(entry.id) === targetId)) {
         queued.push(entry);
@@ -606,7 +674,10 @@ export function createSessionFlow(bag) {
       }
     }
     removeQueuedEntries(queued);
-    const queuedText = queued.map((item) => item.text).filter((text) => String(text || '').trim()).join('\n');
+    const queuedText = queued
+      .map((item) => item.text)
+      .filter((text) => String(text || '').trim())
+      .join('\n');
     const combinedText = [queuedText, String(currentText || '')].filter((text) => text.trim()).join('\n');
     const hydrated = hydratePastedAttachments(mergePastedImages(queued), mergePastedTexts(queued));
     return {
@@ -624,18 +695,16 @@ export function createSessionFlow(bag) {
   function prioritizeQueued(selectedId = '') {
     const targetId = String(selectedId || '').trim();
     if (!targetId) return { count: 0, ids: [], priority: 'now' };
-    const index = pending.findIndex((entry) =>
-      isQueuedEntryEditable(entry)
-      && !isSlashQueuedEntry(entry)
-      && String(entry.id || '') === targetId);
+    const index = pending.findIndex(
+      (entry) => isQueuedEntryEditable(entry) && !isSlashQueuedEntry(entry) && String(entry.id || '') === targetId
+    );
     if (index < 0) return { count: 0, ids: [], priority: 'now' };
     const [entry] = pending.splice(index, 1);
     entry.priority = 'now';
     pending.unshift(entry);
     const visible = getState().queued.map((queuedEntry) =>
-      String(queuedEntry?.id || '') === targetId
-        ? { ...queuedEntry, priority: 'now' }
-        : queuedEntry);
+      String(queuedEntry?.id || '') === targetId ? { ...queuedEntry, priority: 'now' } : queuedEntry
+    );
     set({ queued: visible });
     flushEmitImmediate?.();
     void drain();
@@ -708,9 +777,7 @@ export function createSessionFlow(bag) {
   };
   const snapshotTuiBeforeSessionReset = () => ({
     items: getState().items.slice(),
-    transcriptViewItems: Array.isArray(getState().transcriptViewItems)
-      ? getState().transcriptViewItems.slice()
-      : null,
+    transcriptViewItems: Array.isArray(getState().transcriptViewItems) ? getState().transcriptViewItems.slice() : null,
     transcriptViewRevision: getState().transcriptViewRevision,
     transcriptSpill: snapshotTranscriptSpill?.() || null,
     toasts: getState().toasts.slice(),
@@ -762,5 +829,28 @@ export function createSessionFlow(bag) {
     return getState().stats;
   };
 
-  return { leadSessionId, shouldMirrorSteeringEntry, commitSteeringQueueEntries, makeQueueEntry, removeQueuedEntries, requeueEntriesFront, dequeueQueueBatch, drain, enqueue, drainPendingSteering, restoreLeadSteeringFromDisk, autoClearBeforeSubmit, performAutoClear, restoreQueued, prioritizeQueued, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext };
+  return {
+    leadSessionId,
+    shouldMirrorSteeringEntry,
+    commitSteeringQueueEntries,
+    makeQueueEntry,
+    removeQueuedEntries,
+    requeueEntriesFront,
+    dequeueQueueBatch,
+    drain,
+    enqueue,
+    drainPendingSteering,
+    restoreLeadSteeringFromDisk,
+    autoClearBeforeSubmit,
+    performAutoClear,
+    restoreQueued,
+    prioritizeQueued,
+    resetStats,
+    clearUiActivityBeforeContextSync,
+    resetTuiForPendingSessionReset,
+    snapshotTuiBeforeSessionReset,
+    restoreTuiAfterFailedSessionReset,
+    commitTuiSessionReset,
+    resetStatsAndSyncContext,
+  };
 }

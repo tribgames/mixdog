@@ -49,10 +49,7 @@ import {
   isModifiedEnterSequence,
   isAnyModifiedEnterSequence,
 } from './prompt-input/edit-helpers.mjs';
-import {
-  cancelPromptImmediateFlush,
-  schedulePromptImmediateFlush,
-} from './prompt-input/immediate-render.mjs';
+import { cancelPromptImmediateFlush, schedulePromptImmediateFlush } from './prompt-input/immediate-render.mjs';
 import { classifyPromptEscape } from './prompt-input/escape-policy.mjs';
 import { paletteOwnsPromptVerticalArrow } from './prompt-input/restore-policy.mjs';
 
@@ -73,7 +70,9 @@ function renderSelectedText(displayValue, range, trailingSpace = false) {
     <>
       {start > 0 ? displayValue.slice(0, start) : null}
       {end > start ? (
-        <Text color={theme.selectionText} backgroundColor={theme.selectionBackground}>{displayValue.slice(start, end)}</Text>
+        <Text color={theme.selectionText} backgroundColor={theme.selectionBackground}>
+          {displayValue.slice(start, end)}
+        </Text>
       ) : null}
       {displayValue.slice(end)}
       {trailingSpace ? ' ' : ''}
@@ -149,9 +148,7 @@ export function PromptInput({
   draftRef.current = draft;
   if (selectionRef) {
     const range = selectionRange(draft);
-    selectionRef.current = range
-      ? { range, text: mask ? '' : draft.value.slice(range.start, range.end) }
-      : null;
+    selectionRef.current = range ? { range, text: mask ? '' : draft.value.slice(range.start, range.end) } : null;
   }
 
   // Bypass ink's render throttle for keystroke echo. ink coalesces renders to
@@ -189,9 +186,12 @@ export function PromptInput({
     });
   };
 
-  useEffect(() => () => {
-    cancelPromptImmediateFlush(flushThrottleRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      cancelPromptImmediateFlush(flushThrottleRef.current);
+    },
+    []
+  );
 
   const commitDraft = (next, options = {}) => {
     escapeClearAtRef.current = 0;
@@ -252,16 +252,15 @@ export function PromptInput({
       const guardColumns = w > IME_LEFT_GUARD_COLUMNS ? IME_LEFT_GUARD_COLUMNS : 0;
       const contentWidth = Math.max(1, (w ? w - guardColumns : contentWidthRef.current) || 80);
       contentWidthRef.current = contentWidth;
-      const caret = w > 0
-        // PromptInput renders a trailing space cell when the cursor is at
-        // end-of-input, so a caret flush on the last column there still has a
-        // following cell — pass hasTrailingContent=true so it rolls to row N+1
-        // exactly as ink wraps the trailing space.
-        ? caretPosition(d.value, d.cursor, contentWidth, d.cursor >= d.value.length ? true : undefined)
-        : { row: 0, col: displayWidth(d.value.slice(0, d.cursor)) };
-      return w > 0
-        ? { ...caret, col: caret.col + guardColumns }
-        : caret;
+      const caret =
+        w > 0
+          ? // PromptInput renders a trailing space cell when the cursor is at
+            // end-of-input, so a caret flush on the last column there still has a
+            // following cell — pass hasTrailingContent=true so it rolls to row N+1
+            // exactly as ink wraps the trailing space.
+            caretPosition(d.value, d.cursor, contentWidth, d.cursor >= d.value.length ? true : undefined)
+          : { row: 0, col: displayWidth(d.value.slice(0, d.cursor)) };
+      return w > 0 ? { ...caret, col: caret.col + guardColumns } : caret;
     };
     return true;
   };
@@ -297,10 +296,11 @@ export function PromptInput({
       return;
     }
     const now = Date.now();
-    const coalesce = !options.undoBreak
-      && stack.past.length > 0
-      && (now - stack.lastPushAt) < UNDO_COALESCE_MS
-      && stack.lastValue === prev.value;
+    const coalesce =
+      !options.undoBreak &&
+      stack.past.length > 0 &&
+      now - stack.lastPushAt < UNDO_COALESCE_MS &&
+      stack.lastValue === prev.value;
     if (!coalesce) {
       stack.past.push(snapshotOf(prev));
       if (stack.past.length > UNDO_MAX) stack.past.shift();
@@ -366,14 +366,17 @@ export function PromptInput({
       return;
     }
     if (state.timer) return;
-    state.timer = setTimeout(() => {
-      const current = mouseExtendCoalesceRef.current;
-      const pending = current.pendingNext;
-      current.timer = null;
-      current.pendingNext = null;
-      current.t = Date.now();
-      if (pending) commitDraft(pending, { throttledRender: true });
-    }, Math.max(1, MOUSE_EXTEND_COALESCE_MS - elapsed));
+    state.timer = setTimeout(
+      () => {
+        const current = mouseExtendCoalesceRef.current;
+        const pending = current.pendingNext;
+        current.timer = null;
+        current.pendingNext = null;
+        current.t = Date.now();
+        if (pending) commitDraft(pending, { throttledRender: true });
+      },
+      Math.max(1, MOUSE_EXTEND_COALESCE_MS - elapsed)
+    );
     state.timer.unref?.();
   };
 
@@ -431,12 +434,15 @@ export function PromptInput({
     };
   }
 
-  useEffect(() => () => {
-    const state = mouseExtendCoalesceRef.current;
-    if (state.timer) clearTimeout(state.timer);
-    state.timer = null;
-    state.pendingNext = null;
-  }, []);
+  useEffect(
+    () => () => {
+      const state = mouseExtendCoalesceRef.current;
+      if (state.timer) clearTimeout(state.timer);
+      state.timer = null;
+      state.pendingNext = null;
+    },
+    []
+  );
 
   const moveDraftVertically = (direction, { extend = false } = {}) => {
     const current = draftRef.current;
@@ -445,7 +451,7 @@ export function PromptInput({
       current.cursor,
       contentWidthRef.current,
       direction,
-      preferredColumnRef.current,
+      preferredColumnRef.current
     );
     preferredColumnRef.current = moved.preferredColumn;
     if (moved.cursor === current.cursor) return false;
@@ -454,12 +460,14 @@ export function PromptInput({
   };
 
   const restoreQueuedToDraft = ({ showHint = false } = {}) => {
-    return onRestoreQueued?.({
-      restoreDraft: true,
-      showHint,
-      currentText: draftRef.current.value,
-      getCurrentDraft: () => draftRef.current,
-    }) === true;
+    return (
+      onRestoreQueued?.({
+        restoreDraft: true,
+        showHint,
+        currentText: draftRef.current.value,
+        getCurrentDraft: () => draftRef.current,
+      }) === true
+    );
   };
 
   const applyHistoryNavigation = (direction, meta = {}) => {
@@ -479,7 +487,9 @@ export function PromptInput({
     const pasted = normalizePastedText(text);
     const pasteGeneration = pasteGenerationRef.current;
     const isStale = () => pasteGenerationRef.current !== pasteGeneration;
-    const fallback = () => { if (pasted && !isStale()) insertAtDraft(pasted); };
+    const fallback = () => {
+      if (pasted && !isStale()) insertAtDraft(pasted);
+    };
     let handled;
     try {
       handled = onPasteText?.(pasted, meta);
@@ -517,10 +527,13 @@ export function PromptInput({
     resetUndo();
   }, [draftOverride?.id]);
 
-  useEffect(() => () => {
-    pasteGenerationRef.current += 1;
-    if (selectionRef) selectionRef.current = null;
-  }, [selectionRef]);
+  useEffect(
+    () => () => {
+      pasteGenerationRef.current += 1;
+      if (selectionRef) selectionRef.current = null;
+    },
+    [selectionRef]
+  );
 
   const submitDraft = (next) => {
     if (submitGateRef.current) return;
@@ -538,7 +551,9 @@ export function PromptInput({
     resetUndo();
     // Unlock after this input batch drains so a second return event in the
     // same chord cannot re-submit the pre-clear draft.
-    queueMicrotask(() => { submitGateRef.current = false; });
+    queueMicrotask(() => {
+      submitGateRef.current = false;
+    });
   };
 
   const submitEnterChunk = (prefix = '') => {
@@ -558,488 +573,517 @@ export function PromptInput({
 
   // Input capture is only active on a real TTY (raw mode). In pipes/CI the input
   // is inert — useInput with isActive:false won't throw.
-  usePaste((text) => {
-    if (disabled) return;
-    handleExternalPaste(text, { source: 'paste' });
-  }, { isActive: isRawModeSupported && !disabled });
+  usePaste(
+    (text) => {
+      if (disabled) return;
+      handleExternalPaste(text, { source: 'paste' });
+    },
+    { isActive: isRawModeSupported && !disabled }
+  );
 
-  useInput((input, key) => {
-    if (disabled) return;
+  useInput(
+    (input, key) => {
+      if (disabled) return;
 
-    const rawInput = String(input ?? '');
-    const inputKey = rawInput.toLowerCase();
-    if (!key.escape) escapeClearAtRef.current = 0;
-    const rawShiftArrowForGrid =
-      rawInput === '\x1b[1;2A' || rawInput === '\x1b[a' || rawInput === '[1;2A'
-      || rawInput === '\x1b[1;2B' || rawInput === '\x1b[b' || rawInput === '[1;2B'
-      || rawInput === '\x1b[1;2C' || rawInput === '\x1b[c' || rawInput === '[1;2C'
-      || rawInput === '\x1b[1;2D' || rawInput === '\x1b[d' || rawInput === '[1;2D'
-      || rawInput === '\x1b[1;6A' || rawInput === '[1;6A'
-      || rawInput === '\x1b[1;6B' || rawInput === '[1;6B'
-      || rawInput === '\x1b[1;6C' || rawInput === '[1;6C'
-      || rawInput === '\x1b[1;6D' || rawInput === '[1;6D';
+      const rawInput = String(input ?? '');
+      const inputKey = rawInput.toLowerCase();
+      if (!key.escape) escapeClearAtRef.current = 0;
+      const rawShiftArrowForGrid =
+        rawInput === '\x1b[1;2A' ||
+        rawInput === '\x1b[a' ||
+        rawInput === '[1;2A' ||
+        rawInput === '\x1b[1;2B' ||
+        rawInput === '\x1b[b' ||
+        rawInput === '[1;2B' ||
+        rawInput === '\x1b[1;2C' ||
+        rawInput === '\x1b[c' ||
+        rawInput === '[1;2C' ||
+        rawInput === '\x1b[1;2D' ||
+        rawInput === '\x1b[d' ||
+        rawInput === '[1;2D' ||
+        rawInput === '\x1b[1;6A' ||
+        rawInput === '[1;6A' ||
+        rawInput === '\x1b[1;6B' ||
+        rawInput === '[1;6B' ||
+        rawInput === '\x1b[1;6C' ||
+        rawInput === '[1;6C' ||
+        rawInput === '\x1b[1;6D' ||
+        rawInput === '[1;6D';
 
-    // App owns Shift+Arrow when a transcript/status ink-grid selection is live.
-    // Because the parent (App) useInput handler fires AFTER this child handler
-    // for the same event, a flag SET in App's handler is always one event stale.
-    // Instead call a synchronous predicate derived from dragRef at event time.
-    const gridSelectionActive = typeof suppressShiftNavRef === 'function'
-      ? suppressShiftNavRef()
-      : (typeof suppressShiftNavRef?.current === 'function'
-        ? suppressShiftNavRef.current()
-        : Boolean(suppressShiftNavRef?.current));
-    if (gridSelectionActive) {
-      const isShiftArrow = key.shift
-        && (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow || key.home || key.end);
-      if (isShiftArrow || rawShiftArrowForGrid) return;
-    }
+      // App owns Shift+Arrow when a transcript/status ink-grid selection is live.
+      // Because the parent (App) useInput handler fires AFTER this child handler
+      // for the same event, a flag SET in App's handler is always one event stale.
+      // Instead call a synchronous predicate derived from dragRef at event time.
+      const gridSelectionActive =
+        typeof suppressShiftNavRef === 'function'
+          ? suppressShiftNavRef()
+          : typeof suppressShiftNavRef?.current === 'function'
+            ? suppressShiftNavRef.current()
+            : Boolean(suppressShiftNavRef?.current);
+      if (gridSelectionActive) {
+        const isShiftArrow =
+          key.shift && (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow || key.home || key.end);
+        if (isShiftArrow || rawShiftArrowForGrid) return;
+      }
 
-    // Drop SGR mouse-tracking sequences (wheel/click). When app mouse tracking
-    // is explicitly enabled, App parses these off raw stdin itself;
-    // ink still forwards the bytes here as "input", which would otherwise type
-    // garbage like `[<64;55;22M` into the prompt. Match with or without the
-    // leading ESC (terminals/ink may strip it): CSI '<' … final 'M'/'m'.
-    if (/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/.test(rawInput) || /^\[?<\d+;\d+;\d+[Mm]?$/.test(rawInput)) {
-      return;
-    }
-
-    // Safety net: drop CSI-private replies/fragments like \x1b[?<n>u / \x1b[?...c
-    // (escape may be stripped → `[?7u` / `[?1;0c`). We no longer query the
-    // terminal (enables are written unconditionally at raw-mode-on), so these
-    // should not normally appear — but a terminal that volunteers such a report
-    // must never type it into the prompt. The required `?` after `[` means this
-    // never matches a real kitty KEY event (those are \x1b[<codepoint>;<mods>u,
-    // no `?`); the optional final byte also discards any partial fragment.
-    if (/^(?:\x1b)?\[\?[\d;]*[uc]?$/.test(rawInput)) {
-      return;
-    }
-
-    const rawUpArrow = rawInput === '\x1b[A' || rawInput === '\x1bOA' || rawInput === '[A' || rawInput === 'OA';
-    const rawDownArrow = rawInput === '\x1b[B' || rawInput === '\x1bOB' || rawInput === '[B' || rawInput === 'OB';
-    // Shift+Arrow modifier sequences (xterm `\x1b[1;2<dir>`, rxvt `\x1b[<dir>`
-    // lowercase). Ink's useInput does not decode the `;2` (shift) modifier into
-    // key.shift for arrows, so the bytes arrive as raw input and the plain-arrow
-    // matchers above miss them — selection-extend never fires. Detect them here
-    // and fold into a single `shiftHeld` signal used by every arrow/home/end
-    // branch below (alongside ink's key.shift for terminals that DO decode it).
-    const rawShiftUp = rawInput === '\x1b[1;2A' || rawInput === '\x1b[a' || rawInput === '[1;2A';
-    const rawShiftDown = rawInput === '\x1b[1;2B' || rawInput === '\x1b[b' || rawInput === '[1;2B';
-    const rawShiftRight = rawInput === '\x1b[1;2C' || rawInput === '\x1b[c' || rawInput === '[1;2C';
-    const rawShiftLeft = rawInput === '\x1b[1;2D' || rawInput === '\x1b[d' || rawInput === '[1;2D';
-    // Ctrl+Shift+Arrow modifier sequences: xterm mod=6 (1 + shift(1) + ctrl(4))
-    // arrives as `\x1b[1;6<dir>`; kitty keyboard protocol reports the same chord
-    // as `\x1b[<code>;6<dir>` (also mod=6). Ink decodes neither the `;6` for
-    // arrows, so the bytes arrive raw. Fold into a ctrlShiftHeld signal used to
-    // drive whole-word selection-extend below. `\x1b[1;6<dir>` covers both the
-    // classic xterm form and kitty's default (which emits the legacy arrow form
-    // with the CSI-u modifier param for arrow keys).
-    const rawCtrlShiftUp = rawInput === '\x1b[1;6A' || rawInput === '[1;6A';
-    const rawCtrlShiftDown = rawInput === '\x1b[1;6B' || rawInput === '[1;6B';
-    const rawCtrlShiftRight = rawInput === '\x1b[1;6C' || rawInput === '[1;6C';
-    const rawCtrlShiftLeft = rawInput === '\x1b[1;6D' || rawInput === '[1;6D';
-    const ctrlShiftHeld =
-      rawCtrlShiftUp || rawCtrlShiftDown || rawCtrlShiftLeft || rawCtrlShiftRight
-      || (key.shift && key.ctrl && (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow));
-    const shiftHeld = key.shift || rawShiftUp || rawShiftDown || rawShiftLeft || rawShiftRight
-      || rawCtrlShiftUp || rawCtrlShiftDown || rawCtrlShiftLeft || rawCtrlShiftRight;
-    const lineBreakIndex = rawInput.search(/[\r\n]/);
-    const rawEnter = rawInput === '\r' || rawInput === '\n' || rawInput === '\r\n';
-    const trailingEnterPrefix = singleTrailingLineBreakPrefix(rawInput);
-    const rawModifiedEnter = isModifiedEnterSequence(rawInput);
-    const modifiedLineBreak = key.shift || key.meta || key.ctrl || rawModifiedEnter;
-
-    // Ctrl+J is the protocol-INDEPENDENT newline that works on every terminal.
-    //  • Legacy / modifyOtherKeys terminals: Ctrl+J is a lone '\n' (0x0A). A real
-    //    Enter is CR, which ink marks key.return (name 'return'); a lone '\n'
-    //    arrives as name 'enter' with key.return false. A multi-char paste that
-    //    contains '\n' is length > 1 (handled by the paste paths below).
-    //  • Kitty protocol active: Ctrl+J arrives as \x1b[106;5u, which ink decodes
-    //    to input 'j' with key.ctrl set.
-    // Either way → insert a newline. This MUST run before the trailing-newline/
-    // submit paths, since singleTrailingLineBreakPrefix('\n') returns '' (not
-    // null) and would otherwise route a bare Ctrl+J to submit.
-    if ((rawInput === '\n' && !key.return) || (key.ctrl && inputKey === 'j')) {
-      updateDraft((d) => replaceSelection(d, '\n'));
-      return;
-    }
-
-    // Consume uncommon modified-Enter combinations outside the normal
-    // Shift/Alt/Ctrl newline set so raw CSI bytes never enter the prompt.
-    if (!rawModifiedEnter && isAnyModifiedEnterSequence(rawInput)) {
-      return;
-    }
-
-    // Legacy guard only. Bracketed paste is now buffered by the termio parser
-    // and routed on the 'paste' channel (handleExternalPaste via usePaste), so
-    // multi-line paste never reaches useInput here. This newline-sniffing branch
-    // remains a defensive fallback for terminals/paths that somehow deliver a
-    // multi-char newline chunk through 'input'; under normal bracketed paste it
-    // does not trigger (paste never reaches useInput).
-    const pasteFallback = lineBreakIndex !== -1 && trailingEnterPrefix === null && !rawEnter && (rawInput.length > 1 || !key.return);
-    if (pasteFallback) {
-      handleExternalPaste(rawInput, { source: 'paste-fallback' });
-      return;
-    }
-
-    if (trailingEnterPrefix !== null) {
-      if (modifiedLineBreak) {
-        updateDraft((d) => insertText(d, `${trailingEnterPrefix}\n`));
+      // Drop SGR mouse-tracking sequences (wheel/click). When app mouse tracking
+      // is explicitly enabled, App parses these off raw stdin itself;
+      // ink still forwards the bytes here as "input", which would otherwise type
+      // garbage like `[<64;55;22M` into the prompt. Match with or without the
+      // leading ESC (terminals/ink may strip it): CSI '<' … final 'M'/'m'.
+      if (/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/.test(rawInput) || /^\[?<\d+;\d+;\d+[Mm]?$/.test(rawInput)) {
         return;
       }
-      submitEnterChunk(trailingEnterPrefix);
-      return;
-    }
 
-    if (rawModifiedEnter) {
-      updateDraft((d) => replaceSelection(d, '\n'));
-      return;
-    }
+      // Safety net: drop CSI-private replies/fragments like \x1b[?<n>u / \x1b[?...c
+      // (escape may be stripped → `[?7u` / `[?1;0c`). We no longer query the
+      // terminal (enables are written unconditionally at raw-mode-on), so these
+      // should not normally appear — but a terminal that volunteers such a report
+      // must never type it into the prompt. The required `?` after `[` means this
+      // never matches a real kitty KEY event (those are \x1b[<codepoint>;<mods>u,
+      // no `?`); the optional final byte also discards any partial fragment.
+      if (/^(?:\x1b)?\[\?[\d;]*[uc]?$/.test(rawInput)) {
+        return;
+      }
 
-    if (!commandPaletteActive && ((key.ctrl && inputKey === 'v') || (key.meta && inputKey === 'v'))) {
-      // Ctrl+V / Meta+V: read OS clipboard (text first, image fallback) — the
-      // empty text arg tags the shortcut path in handlePromptPaste.
-      handleExternalPaste('', { source: 'clipboard-shortcut' });
-      return;
-    }
+      const rawUpArrow = rawInput === '\x1b[A' || rawInput === '\x1bOA' || rawInput === '[A' || rawInput === 'OA';
+      const rawDownArrow = rawInput === '\x1b[B' || rawInput === '\x1bOB' || rawInput === '[B' || rawInput === 'OB';
+      // Shift+Arrow modifier sequences (xterm `\x1b[1;2<dir>`, rxvt `\x1b[<dir>`
+      // lowercase). Ink's useInput does not decode the `;2` (shift) modifier into
+      // key.shift for arrows, so the bytes arrive as raw input and the plain-arrow
+      // matchers above miss them — selection-extend never fires. Detect them here
+      // and fold into a single `shiftHeld` signal used by every arrow/home/end
+      // branch below (alongside ink's key.shift for terminals that DO decode it).
+      const rawShiftUp = rawInput === '\x1b[1;2A' || rawInput === '\x1b[a' || rawInput === '[1;2A';
+      const rawShiftDown = rawInput === '\x1b[1;2B' || rawInput === '\x1b[b' || rawInput === '[1;2B';
+      const rawShiftRight = rawInput === '\x1b[1;2C' || rawInput === '\x1b[c' || rawInput === '[1;2C';
+      const rawShiftLeft = rawInput === '\x1b[1;2D' || rawInput === '\x1b[d' || rawInput === '[1;2D';
+      // Ctrl+Shift+Arrow modifier sequences: xterm mod=6 (1 + shift(1) + ctrl(4))
+      // arrives as `\x1b[1;6<dir>`; kitty keyboard protocol reports the same chord
+      // as `\x1b[<code>;6<dir>` (also mod=6). Ink decodes neither the `;6` for
+      // arrows, so the bytes arrive raw. Fold into a ctrlShiftHeld signal used to
+      // drive whole-word selection-extend below. `\x1b[1;6<dir>` covers both the
+      // classic xterm form and kitty's default (which emits the legacy arrow form
+      // with the CSI-u modifier param for arrow keys).
+      const rawCtrlShiftUp = rawInput === '\x1b[1;6A' || rawInput === '[1;6A';
+      const rawCtrlShiftDown = rawInput === '\x1b[1;6B' || rawInput === '[1;6B';
+      const rawCtrlShiftRight = rawInput === '\x1b[1;6C' || rawInput === '[1;6C';
+      const rawCtrlShiftLeft = rawInput === '\x1b[1;6D' || rawInput === '[1;6D';
+      const ctrlShiftHeld =
+        rawCtrlShiftUp ||
+        rawCtrlShiftDown ||
+        rawCtrlShiftLeft ||
+        rawCtrlShiftRight ||
+        (key.shift && key.ctrl && (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow));
+      const shiftHeld =
+        key.shift ||
+        rawShiftUp ||
+        rawShiftDown ||
+        rawShiftLeft ||
+        rawShiftRight ||
+        rawCtrlShiftUp ||
+        rawCtrlShiftDown ||
+        rawCtrlShiftLeft ||
+        rawCtrlShiftRight;
+      const lineBreakIndex = rawInput.search(/[\r\n]/);
+      const rawEnter = rawInput === '\r' || rawInput === '\n' || rawInput === '\r\n';
+      const trailingEnterPrefix = singleTrailingLineBreakPrefix(rawInput);
+      const rawModifiedEnter = isModifiedEnterSequence(rawInput);
+      const modifiedLineBreak = key.shift || key.meta || key.ctrl || rawModifiedEnter;
 
-    if (key.return) {
-      if (modifiedLineBreak) {
+      // Ctrl+J is the protocol-INDEPENDENT newline that works on every terminal.
+      //  • Legacy / modifyOtherKeys terminals: Ctrl+J is a lone '\n' (0x0A). A real
+      //    Enter is CR, which ink marks key.return (name 'return'); a lone '\n'
+      //    arrives as name 'enter' with key.return false. A multi-char paste that
+      //    contains '\n' is length > 1 (handled by the paste paths below).
+      //  • Kitty protocol active: Ctrl+J arrives as \x1b[106;5u, which ink decodes
+      //    to input 'j' with key.ctrl set.
+      // Either way → insert a newline. This MUST run before the trailing-newline/
+      // submit paths, since singleTrailingLineBreakPrefix('\n') returns '' (not
+      // null) and would otherwise route a bare Ctrl+J to submit.
+      if ((rawInput === '\n' && !key.return) || (key.ctrl && inputKey === 'j')) {
         updateDraft((d) => replaceSelection(d, '\n'));
         return;
       }
 
-      if (commandPaletteActive) {
-        const accepted = onCommandPaletteAccept?.(draftRef.current.value);
-        if (accepted !== false) {
-          commitDraft({ value: '', cursor: 0, selectionAnchor: null });
-        }
+      // Consume uncommon modified-Enter combinations outside the normal
+      // Shift/Alt/Ctrl newline set so raw CSI bytes never enter the prompt.
+      if (!rawModifiedEnter && isAnyModifiedEnterSequence(rawInput)) {
         return;
       }
 
-      const current = draftRef.current;
-      if (current.value[current.cursor - 1] === '\\') {
-        updateDraft((d) => ({
-          value: `${d.value.slice(0, d.cursor - 1)}\n${d.value.slice(d.cursor)}`,
-          cursor: d.cursor,
-          selectionAnchor: null,
-        }));
+      // Legacy guard only. Bracketed paste is now buffered by the termio parser
+      // and routed on the 'paste' channel (handleExternalPaste via usePaste), so
+      // multi-line paste never reaches useInput here. This newline-sniffing branch
+      // remains a defensive fallback for terminals/paths that somehow deliver a
+      // multi-char newline chunk through 'input'; under normal bracketed paste it
+      // does not trigger (paste never reaches useInput).
+      const pasteFallback =
+        lineBreakIndex !== -1 && trailingEnterPrefix === null && !rawEnter && (rawInput.length > 1 || !key.return);
+      if (pasteFallback) {
+        handleExternalPaste(rawInput, { source: 'paste-fallback' });
         return;
       }
 
-      submitDraft(current);
-      return;
-    }
-
-    // Ctrl+Shift+Left/Right → extend selection whole-word. Kept before the plain
-    // shift-arrow branches so the ctrl+shift chord never falls through to a
-    // char-wise extend. (Up/Down ctrl+shift extend to line-relative vertical
-    // move with extend — same as shift alone; handled in the vertical branch.)
-    if (ctrlShiftHeld && (rawCtrlShiftLeft || (key.ctrl && key.shift && key.leftArrow))) {
-      if (!commandPaletteActive) {
-        updateDraft((d) => moveCursor(d, previousWordOffset(d.value, d.cursor), { extend: true }));
-      }
-      return;
-    }
-    if (ctrlShiftHeld && (rawCtrlShiftRight || (key.ctrl && key.shift && key.rightArrow))) {
-      if (!commandPaletteActive) {
-        updateDraft((d) => moveCursor(d, nextWordOffset(d.value, d.cursor), { extend: true }));
-      }
-      return;
-    }
-
-    if (key.upArrow || rawUpArrow || rawShiftUp || rawCtrlShiftUp) {
-      if (commandPaletteActive && paletteOwnsPromptVerticalArrow(commandPaletteOptionCount)) {
-        onCommandPaletteNavigate?.(-1);
-      } else {
-        // A Shift-held Up is a SELECTION gesture, never history navigation:
-        // extend the selection up one visual line, and if already on the first
-        // line extend all the way to document start (offset 0). History
-        // navigation (restoreQueued / applyHistoryNavigation) MUST NOT fire.
-        if (shiftHeld) {
-          if (!moveDraftVertically(-1, { extend: true })) {
-            updateDraft((d) => moveCursor(d, 0, { extend: true }));
-          }
-        } else if (!moveDraftVertically(-1, { extend: false })) {
-          const emptyDraft = String(draftRef.current.value || '').length === 0;
-          if (!hasQueuedMessages || !restoreQueuedToDraft()) {
-            applyHistoryNavigation('up', { emptyDraft });
-          }
-        }
-      }
-      return;
-    }
-
-    if (key.downArrow || rawDownArrow || rawShiftDown || rawCtrlShiftDown) {
-      if (commandPaletteActive && paletteOwnsPromptVerticalArrow(commandPaletteOptionCount)) {
-        onCommandPaletteNavigate?.(1);
-      } else {
-        // Shift-held Down: extend selection down one line, or to document end
-        // (value.length) when already on the last line. Never history nav.
-        if (shiftHeld) {
-          if (!moveDraftVertically(1, { extend: true })) {
-            updateDraft((d) => moveCursor(d, d.value.length, { extend: true }));
-          }
-        } else if (!moveDraftVertically(1, { extend: false })) {
-          applyHistoryNavigation('down', { emptyDraft: String(draftRef.current.value || '').length === 0 });
-        }
-      }
-      return;
-    }
-
-    if (commandPaletteActive && key.pageUp) {
-      onCommandPaletteNavigate?.(-8);
-      return;
-    }
-
-    if (commandPaletteActive && key.pageDown) {
-      onCommandPaletteNavigate?.(8);
-      return;
-    }
-
-    if (commandPaletteActive && key.home) {
-      onCommandPaletteNavigate?.('home');
-      return;
-    }
-
-    if (commandPaletteActive && key.end) {
-      onCommandPaletteNavigate?.('end');
-      return;
-    }
-
-    if (key.tab) {
-      if (commandPaletteActive) {
-        const completed = onCommandPaletteComplete?.(draftRef.current.value);
-        if (typeof completed === 'string') {
-          commitDraft({ value: completed, cursor: completed.length, selectionAnchor: null });
-        }
-        return;
-      }
-      if (onTab?.(draftRef.current.value) === true) return;
-    }
-
-    if (key.escape) {
-      if (commandPaletteOpen) {
-        onCommandPaletteCancel?.(draftRef.current.value);
-        return;
-      }
-      if (selectionRange(draftRef.current)) {
-        commitDraft(clearSelection(draftRef.current));
-        return;
-      }
-      const currentValue = draftRef.current.value;
-      if (onEscape?.(currentValue, { phase: 'before' }) === true) {
-        return;
-      }
-      let escape = classifyPromptEscape({
-        interruptActive,
-        hasQueuedMessages,
-        hasMessages,
-        value: currentValue,
-        lastClearPressAt: escapeClearAtRef.current,
-      });
-      if (escape.action === 'restore-queue') {
-        if (restoreQueuedToDraft()) {
-          escapeClearAtRef.current = 0;
+      if (trailingEnterPrefix !== null) {
+        if (modifiedLineBreak) {
+          updateDraft((d) => insertText(d, `${trailingEnterPrefix}\n`));
           return;
         }
-        // A stale projected queue can empty between render and key handling.
-        // Fall through to the normal draft/idle action in that case.
-        escape = classifyPromptEscape({
+        submitEnterChunk(trailingEnterPrefix);
+        return;
+      }
+
+      if (rawModifiedEnter) {
+        updateDraft((d) => replaceSelection(d, '\n'));
+        return;
+      }
+
+      if (!commandPaletteActive && ((key.ctrl && inputKey === 'v') || (key.meta && inputKey === 'v'))) {
+        // Ctrl+V / Meta+V: read OS clipboard (text first, image fallback) — the
+        // empty text arg tags the shortcut path in handlePromptPaste.
+        handleExternalPaste('', { source: 'clipboard-shortcut' });
+        return;
+      }
+
+      if (key.return) {
+        if (modifiedLineBreak) {
+          updateDraft((d) => replaceSelection(d, '\n'));
+          return;
+        }
+
+        if (commandPaletteActive) {
+          const accepted = onCommandPaletteAccept?.(draftRef.current.value);
+          if (accepted !== false) {
+            commitDraft({ value: '', cursor: 0, selectionAnchor: null });
+          }
+          return;
+        }
+
+        const current = draftRef.current;
+        if (current.value[current.cursor - 1] === '\\') {
+          updateDraft((d) => ({
+            value: `${d.value.slice(0, d.cursor - 1)}\n${d.value.slice(d.cursor)}`,
+            cursor: d.cursor,
+            selectionAnchor: null,
+          }));
+          return;
+        }
+
+        submitDraft(current);
+        return;
+      }
+
+      // Ctrl+Shift+Left/Right → extend selection whole-word. Kept before the plain
+      // shift-arrow branches so the ctrl+shift chord never falls through to a
+      // char-wise extend. (Up/Down ctrl+shift extend to line-relative vertical
+      // move with extend — same as shift alone; handled in the vertical branch.)
+      if (ctrlShiftHeld && (rawCtrlShiftLeft || (key.ctrl && key.shift && key.leftArrow))) {
+        if (!commandPaletteActive) {
+          updateDraft((d) => moveCursor(d, previousWordOffset(d.value, d.cursor), { extend: true }));
+        }
+        return;
+      }
+      if (ctrlShiftHeld && (rawCtrlShiftRight || (key.ctrl && key.shift && key.rightArrow))) {
+        if (!commandPaletteActive) {
+          updateDraft((d) => moveCursor(d, nextWordOffset(d.value, d.cursor), { extend: true }));
+        }
+        return;
+      }
+
+      if (key.upArrow || rawUpArrow || rawShiftUp || rawCtrlShiftUp) {
+        if (commandPaletteActive && paletteOwnsPromptVerticalArrow(commandPaletteOptionCount)) {
+          onCommandPaletteNavigate?.(-1);
+        } else {
+          // A Shift-held Up is a SELECTION gesture, never history navigation:
+          // extend the selection up one visual line, and if already on the first
+          // line extend all the way to document start (offset 0). History
+          // navigation (restoreQueued / applyHistoryNavigation) MUST NOT fire.
+          if (shiftHeld) {
+            if (!moveDraftVertically(-1, { extend: true })) {
+              updateDraft((d) => moveCursor(d, 0, { extend: true }));
+            }
+          } else if (!moveDraftVertically(-1, { extend: false })) {
+            const emptyDraft = String(draftRef.current.value || '').length === 0;
+            if (!hasQueuedMessages || !restoreQueuedToDraft()) {
+              applyHistoryNavigation('up', { emptyDraft });
+            }
+          }
+        }
+        return;
+      }
+
+      if (key.downArrow || rawDownArrow || rawShiftDown || rawCtrlShiftDown) {
+        if (commandPaletteActive && paletteOwnsPromptVerticalArrow(commandPaletteOptionCount)) {
+          onCommandPaletteNavigate?.(1);
+        } else {
+          // Shift-held Down: extend selection down one line, or to document end
+          // (value.length) when already on the last line. Never history nav.
+          if (shiftHeld) {
+            if (!moveDraftVertically(1, { extend: true })) {
+              updateDraft((d) => moveCursor(d, d.value.length, { extend: true }));
+            }
+          } else if (!moveDraftVertically(1, { extend: false })) {
+            applyHistoryNavigation('down', { emptyDraft: String(draftRef.current.value || '').length === 0 });
+          }
+        }
+        return;
+      }
+
+      if (commandPaletteActive && key.pageUp) {
+        onCommandPaletteNavigate?.(-8);
+        return;
+      }
+
+      if (commandPaletteActive && key.pageDown) {
+        onCommandPaletteNavigate?.(8);
+        return;
+      }
+
+      if (commandPaletteActive && key.home) {
+        onCommandPaletteNavigate?.('home');
+        return;
+      }
+
+      if (commandPaletteActive && key.end) {
+        onCommandPaletteNavigate?.('end');
+        return;
+      }
+
+      if (key.tab) {
+        if (commandPaletteActive) {
+          const completed = onCommandPaletteComplete?.(draftRef.current.value);
+          if (typeof completed === 'string') {
+            commitDraft({ value: completed, cursor: completed.length, selectionAnchor: null });
+          }
+          return;
+        }
+        if (onTab?.(draftRef.current.value) === true) return;
+      }
+
+      if (key.escape) {
+        if (commandPaletteOpen) {
+          onCommandPaletteCancel?.(draftRef.current.value);
+          return;
+        }
+        if (selectionRange(draftRef.current)) {
+          commitDraft(clearSelection(draftRef.current));
+          return;
+        }
+        const currentValue = draftRef.current.value;
+        if (onEscape?.(currentValue, { phase: 'before' }) === true) {
+          return;
+        }
+        let escape = classifyPromptEscape({
           interruptActive,
+          hasQueuedMessages,
           hasMessages,
           value: currentValue,
           lastClearPressAt: escapeClearAtRef.current,
         });
-      }
-      escapeClearAtRef.current = escape.nextClearPressAt;
-      // Active work always wins, even if the user has already typed a steering
-      // draft. The draft is preserved; the old submitted prompt is restored only
-      // when this box is still empty after cancellation.
-      if (escape.action === 'interrupt') {
-        const restoredText = onInterrupt?.(currentValue);
-        if (!currentValue && typeof restoredText === 'string') {
-          commitDraft({ value: restoredText, cursor: restoredText.length, selectionAnchor: null });
+        if (escape.action === 'restore-queue') {
+          if (restoreQueuedToDraft()) {
+            escapeClearAtRef.current = 0;
+            return;
+          }
+          // A stale projected queue can empty between render and key handling.
+          // Fall through to the normal draft/idle action in that case.
+          escape = classifyPromptEscape({
+            interruptActive,
+            hasMessages,
+            value: currentValue,
+            lastClearPressAt: escapeClearAtRef.current,
+          });
         }
+        escapeClearAtRef.current = escape.nextClearPressAt;
+        // Active work always wins, even if the user has already typed a steering
+        // draft. The draft is preserved; the old submitted prompt is restored only
+        // when this box is still empty after cancellation.
+        if (escape.action === 'interrupt') {
+          const restoredText = onInterrupt?.(currentValue);
+          if (!currentValue && typeof restoredText === 'string') {
+            commitDraft({ value: restoredText, cursor: restoredText.length, selectionAnchor: null });
+          }
+          return;
+        }
+        if (escape.action === 'arm-clear') {
+          onEscape?.(currentValue, { phase: 'clear-arm' });
+          return;
+        }
+        if (escape.action === 'clear') {
+          onEscape?.(currentValue, { phase: 'clear' });
+          commitDraft({ value: '', cursor: 0, selectionAnchor: null });
+          return;
+        }
+        // Empty draft + conversation history: first press arms, the second
+        // opens the message selector.
+        if (escape.action === 'arm-select') {
+          onEscape?.('', { phase: 'select-arm' });
+          return;
+        }
+        if (escape.action === 'message-selector') {
+          onEscape?.('', { phase: 'select' });
+          return;
+        }
+        onEscape?.('', { phase: 'empty' });
         return;
       }
-      if (escape.action === 'arm-clear') {
-        onEscape?.(currentValue, { phase: 'clear-arm' });
+
+      if (key.leftArrow || rawShiftLeft) {
+        if (commandPaletteActive) {
+          onCommandPaletteNavigate?.('left');
+          return;
+        }
+        updateDraft((d) => {
+          const range = !shiftHeld && !key.ctrl && !key.meta ? selectionRange(d) : null;
+          const cursor = range
+            ? range.start
+            : key.ctrl || key.meta
+              ? previousWordOffset(d.value, d.cursor)
+              : previousOffset(d.value, d.cursor);
+          return moveCursor(d, cursor, { extend: shiftHeld });
+        });
         return;
       }
-      if (escape.action === 'clear') {
-        onEscape?.(currentValue, { phase: 'clear' });
-        commitDraft({ value: '', cursor: 0, selectionAnchor: null });
+      if (key.rightArrow || rawShiftRight) {
+        if (commandPaletteActive) {
+          onCommandPaletteNavigate?.('right');
+          return;
+        }
+        updateDraft((d) => {
+          const range = !shiftHeld && !key.ctrl && !key.meta ? selectionRange(d) : null;
+          const cursor = range
+            ? range.end
+            : key.ctrl || key.meta
+              ? nextWordOffset(d.value, d.cursor)
+              : nextOffset(d.value, d.cursor);
+          return moveCursor(d, cursor, { extend: shiftHeld });
+        });
         return;
       }
-      // Empty draft + conversation history: first press arms, the second
-      // opens the message selector.
-      if (escape.action === 'arm-select') {
-        onEscape?.('', { phase: 'select-arm' });
+      if (key.home) {
+        updateDraft((d) => moveCursor(d, lineStart(d.value, d.cursor), { extend: shiftHeld }));
         return;
       }
-      if (escape.action === 'message-selector') {
-        onEscape?.('', { phase: 'select' });
+      if (key.end) {
+        updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: shiftHeld }));
         return;
       }
-      onEscape?.('', { phase: 'empty' });
-      return;
-    }
 
-    if (key.leftArrow || rawShiftLeft) {
-      if (commandPaletteActive) {
-        onCommandPaletteNavigate?.('left');
+      const editingKey = String(input || '').toLowerCase();
+
+      // Undo / redo. Covered encodings:
+      //  • kitty protocol: ctrl+z → input 'z' + key.ctrl; ctrl+y → 'y' + key.ctrl;
+      //    ctrl+shift+z → 'z' + key.ctrl + key.shift (redo).
+      //  • legacy control bytes: Ctrl+Z is \x1a (SUB, 0x1A), Ctrl+Y is \x19 (EM,
+      //    0x19). ink may deliver these as raw input without key.ctrl on some
+      //    terminals, so match the byte directly too.
+      const isCtrlZ = (key.ctrl && editingKey === 'z') || rawInput === '\x1a';
+      const isCtrlY = (key.ctrl && editingKey === 'y') || rawInput === '\x19';
+      if (isCtrlZ && (key.shift || shiftHeld)) {
+        performRedo();
         return;
       }
-      updateDraft((d) => {
-        const range = !shiftHeld && !key.ctrl && !key.meta ? selectionRange(d) : null;
-        const cursor = range
-          ? range.start
-          : key.ctrl || key.meta
-            ? previousWordOffset(d.value, d.cursor)
-            : previousOffset(d.value, d.cursor);
-        return moveCursor(d, cursor, { extend: shiftHeld });
-      });
-      return;
-    }
-    if (key.rightArrow || rawShiftRight) {
-      if (commandPaletteActive) {
-        onCommandPaletteNavigate?.('right');
+      if (isCtrlZ) {
+        performUndo();
         return;
       }
-      updateDraft((d) => {
-        const range = !shiftHeld && !key.ctrl && !key.meta ? selectionRange(d) : null;
-        const cursor = range
-          ? range.end
-          : key.ctrl || key.meta
-            ? nextWordOffset(d.value, d.cursor)
-            : nextOffset(d.value, d.cursor);
-        return moveCursor(d, cursor, { extend: shiftHeld });
-      });
-      return;
-    }
-    if (key.home) {
-      updateDraft((d) => moveCursor(d, lineStart(d.value, d.cursor), { extend: shiftHeld }));
-      return;
-    }
-    if (key.end) {
-      updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: shiftHeld }));
-      return;
-    }
+      if (isCtrlY) {
+        performRedo();
+        return;
+      }
 
-    const editingKey = String(input || '').toLowerCase();
+      // ctrl+a selects all like a normal text box; ctrl+e keeps readline line-end.
+      if (key.ctrl && editingKey === 'a') {
+        updateDraft((d) => (d.value ? { ...d, cursor: d.value.length, selectionAnchor: 0 } : clearSelection(d)));
+        return;
+      }
+      if (key.ctrl && editingKey === 'e') {
+        updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: key.shift }));
+        return;
+      }
+      // ctrl+b / ctrl+f — character left / right.
+      if (key.ctrl && editingKey === 'b') {
+        updateDraft((d) => moveCursor(d, previousOffset(d.value, d.cursor), { extend: key.shift }));
+        return;
+      }
+      if (key.ctrl && editingKey === 'f') {
+        updateDraft((d) => moveCursor(d, nextOffset(d.value, d.cursor), { extend: key.shift }));
+        return;
+      }
+      // alt/option+b / alt/option+f — word left / right.
+      if (key.meta && editingKey === 'b') {
+        updateDraft((d) => moveCursor(d, previousWordOffset(d.value, d.cursor), { extend: key.shift }));
+        return;
+      }
+      if (key.meta && editingKey === 'f') {
+        updateDraft((d) => moveCursor(d, nextWordOffset(d.value, d.cursor), { extend: key.shift }));
+        return;
+      }
+      // ctrl+u / ctrl+k — delete to line start / end.
+      if (key.ctrl && editingKey === 'u') {
+        updateDraft(deleteToLineStart);
+        return;
+      }
+      if (key.ctrl && editingKey === 'k') {
+        updateDraft(deleteToLineEnd);
+        return;
+      }
+      // ctrl+w / alt+backspace — delete previous word.
+      if ((key.ctrl && editingKey === 'w') || ((key.ctrl || key.meta) && key.backspace)) {
+        updateDraft(deleteBackwardWord);
+        return;
+      }
+      // alt+d / ctrl+delete — delete next word.
+      if ((key.meta && editingKey === 'd') || (key.ctrl && key.delete)) {
+        updateDraft(deleteForwardWord);
+        return;
+      }
 
-    // Undo / redo. Covered encodings:
-    //  • kitty protocol: ctrl+z → input 'z' + key.ctrl; ctrl+y → 'y' + key.ctrl;
-    //    ctrl+shift+z → 'z' + key.ctrl + key.shift (redo).
-    //  • legacy control bytes: Ctrl+Z is \x1a (SUB, 0x1A), Ctrl+Y is \x19 (EM,
-    //    0x19). ink may deliver these as raw input without key.ctrl on some
-    //    terminals, so match the byte directly too.
-    const isCtrlZ = (key.ctrl && editingKey === 'z') || rawInput === '\x1a';
-    const isCtrlY = (key.ctrl && editingKey === 'y') || rawInput === '\x19';
-    if (isCtrlZ && (key.shift || shiftHeld)) {
-      performRedo();
-      return;
-    }
-    if (isCtrlZ) {
-      performUndo();
-      return;
-    }
-    if (isCtrlY) {
-      performRedo();
-      return;
-    }
+      if (key.backspace) {
+        updateDraft((d) => {
+          if (selectionRange(d)) return deleteSelectedText(d);
+          if (d.cursor <= 0) return d;
+          const start = previousOffset(d.value, d.cursor);
+          return {
+            value: d.value.slice(0, start) + d.value.slice(d.cursor),
+            cursor: start,
+            selectionAnchor: null,
+          };
+        });
+        return;
+      }
 
-    // ctrl+a selects all like a normal text box; ctrl+e keeps readline line-end.
-    if (key.ctrl && editingKey === 'a') {
-      updateDraft((d) => (d.value ? { ...d, cursor: d.value.length, selectionAnchor: 0 } : clearSelection(d)));
-      return;
-    }
-    if (key.ctrl && editingKey === 'e') {
-      updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: key.shift }));
-      return;
-    }
-    // ctrl+b / ctrl+f — character left / right.
-    if (key.ctrl && editingKey === 'b') {
-      updateDraft((d) => moveCursor(d, previousOffset(d.value, d.cursor), { extend: key.shift }));
-      return;
-    }
-    if (key.ctrl && editingKey === 'f') {
-      updateDraft((d) => moveCursor(d, nextOffset(d.value, d.cursor), { extend: key.shift }));
-      return;
-    }
-    // alt/option+b / alt/option+f — word left / right.
-    if (key.meta && editingKey === 'b') {
-      updateDraft((d) => moveCursor(d, previousWordOffset(d.value, d.cursor), { extend: key.shift }));
-      return;
-    }
-    if (key.meta && editingKey === 'f') {
-      updateDraft((d) => moveCursor(d, nextWordOffset(d.value, d.cursor), { extend: key.shift }));
-      return;
-    }
-    // ctrl+u / ctrl+k — delete to line start / end.
-    if (key.ctrl && editingKey === 'u') {
-      updateDraft(deleteToLineStart);
-      return;
-    }
-    if (key.ctrl && editingKey === 'k') {
-      updateDraft(deleteToLineEnd);
-      return;
-    }
-    // ctrl+w / alt+backspace — delete previous word.
-    if ((key.ctrl && editingKey === 'w') || ((key.ctrl || key.meta) && key.backspace)) {
-      updateDraft(deleteBackwardWord);
-      return;
-    }
-    // alt+d / ctrl+delete — delete next word.
-    if ((key.meta && editingKey === 'd') || (key.ctrl && key.delete)) {
-      updateDraft(deleteForwardWord);
-      return;
-    }
+      if (key.delete) {
+        updateDraft((d) => {
+          if (selectionRange(d)) return deleteSelectedText(d);
+          if (d.cursor >= d.value.length) return d;
+          const end = nextOffset(d.value, d.cursor);
+          return {
+            value: d.value.slice(0, d.cursor) + d.value.slice(end),
+            cursor: d.cursor,
+            selectionAnchor: null,
+          };
+        });
+        return;
+      }
 
-    if (key.backspace) {
-      updateDraft((d) => {
-        if (selectionRange(d)) return deleteSelectedText(d);
-        if (d.cursor <= 0) return d;
-        const start = previousOffset(d.value, d.cursor);
-        return {
-          value: d.value.slice(0, start) + d.value.slice(d.cursor),
-          cursor: start,
-          selectionAnchor: null,
-        };
-      });
-      return;
-    }
-
-    if (key.delete) {
-      updateDraft((d) => {
-        if (selectionRange(d)) return deleteSelectedText(d);
-        if (d.cursor >= d.value.length) return d;
-        const end = nextOffset(d.value, d.cursor);
-        return {
-          value: d.value.slice(0, d.cursor) + d.value.slice(end),
-          cursor: d.cursor,
-          selectionAnchor: null,
-        };
-      });
-      return;
-    }
-
-    // Printable input (ignore other control keys). Strip any embedded SGR mouse
-    // sequences as a belt-and-suspenders guard (the early return above catches
-    // whole-sequence inputs; this removes partials that rode in with real text).
-    // Swallow Ctrl+Space raw encodings (lone NUL, or the kitty CSI-u form
-    // \x1b[32;5u) as a no-op so they never fall through into the prompt as
-    // garbage. No voice behavior — just discarded.
-    if (rawInput === '\x00' || /^(?:\x1b)?\[32;5u$/.test(rawInput)) {
-      return;
-    }
-    const printable = rawInput
-      .replace(/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/g, '')
-      .replace(/[\r\n]/g, '');
-    if (printable && !key.ctrl && !key.meta) {
-      updateDraft((d) => insertText(d, printable));
-    }
-  }, { isActive: isRawModeSupported && !disabled });
+      // Printable input (ignore other control keys). Strip any embedded SGR mouse
+      // sequences as a belt-and-suspenders guard (the early return above catches
+      // whole-sequence inputs; this removes partials that rode in with real text).
+      // Swallow Ctrl+Space raw encodings (lone NUL, or the kitty CSI-u form
+      // \x1b[32;5u) as a no-op so they never fall through into the prompt as
+      // garbage. No voice behavior — just discarded.
+      if (rawInput === '\x00' || /^(?:\x1b)?\[32;5u$/.test(rawInput)) {
+        return;
+      }
+      const printable = rawInput.replace(/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/g, '').replace(/[\r\n]/g, '');
+      if (printable && !key.ctrl && !key.meta) {
+        updateDraft((d) => insertText(d, printable));
+      }
+    },
+    { isActive: isRawModeSupported && !disabled }
+  );
 
   // Mark the text-box node with a cursor-anchor FUNCTION. Patched Ink calls it
   // during renderNodeToOutput — AFTER yoga layout is final and (crucially)
@@ -1077,9 +1121,18 @@ export function PromptInput({
   const hintMeta = hintStyle(hintTone);
 
   return (
-    <Box ref={boxRef} flexDirection="row" width="100%" flexGrow={1} flexShrink={1} backgroundColor={surfaceBackground()}>
+    <Box
+      ref={boxRef}
+      flexDirection="row"
+      width="100%"
+      flexGrow={1}
+      flexShrink={1}
+      backgroundColor={surfaceBackground()}
+    >
       <Box width={IME_LEFT_GUARD_COLUMNS} flexShrink={0} backgroundColor={surfaceBackground()} />
-      <Text color={theme.text} wrap="hard">{renderedValue}</Text>
+      <Text color={theme.text} wrap="hard">
+        {renderedValue}
+      </Text>
       {!value && hint ? (
         <Box marginLeft={-1}>
           <Text color={hintMeta.textColor}>{hint}</Text>

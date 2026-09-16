@@ -4,17 +4,8 @@ import { isAbsolute, resolve } from 'node:path';
 
 import type { DesktopProjectSummary } from '../shared/contract';
 import { readProjectPreferences, writeProjectPreferences } from './project-preferences-file';
-import type {
-  DesktopProjectPreferences,
-  MixdogProject,
-  MixdogProjectsModule,
-} from './desktop-support';
-import {
-  matchingProjectPath,
-  normalizedProjectKey,
-  projectAlias,
-  withoutMatchingProject,
-} from './desktop-support';
+import type { DesktopProjectPreferences, MixdogProject, MixdogProjectsModule } from './desktop-support';
+import { matchingProjectPath, normalizedProjectKey, projectAlias, withoutMatchingProject } from './desktop-support';
 
 /** Recent-project list length shown in the snapshot. */
 const RECENT_PROJECT_LIMIT = 12;
@@ -116,7 +107,9 @@ export class DesktopProjectRegistry {
   }
 
   private recentsOf(store: MixdogProjectsModule): string[] {
-    return this.registered(store).map((project) => project.path).slice(0, RECENT_PROJECT_LIMIT);
+    return this.registered(store)
+      .map((project) => project.path)
+      .slice(0, RECENT_PROJECT_LIMIT);
   }
 
   private async loadPreferences(): Promise<DesktopProjectPreferences> {
@@ -130,8 +123,9 @@ export class DesktopProjectRegistry {
       const registeredPaths = this.registered(store).map((project) => project.path);
       // `hidden` is retained only as a legacy desktop tombstone. A path the
       // shared core store currently registers must always be visible.
-      this.preferences.hidden = this.preferences.hidden.filter((candidate) =>
-        matchingProjectPath(registeredPaths, candidate) === null);
+      this.preferences.hidden = this.preferences.hidden.filter(
+        (candidate) => matchingProjectPath(registeredPaths, candidate) === null
+      );
     }
     await writeProjectPreferences(this.userDataRoot(), this.preferences);
   }
@@ -145,12 +139,14 @@ export class DesktopProjectRegistry {
       const path = typeof entry.path === 'string' ? entry.path.trim() : '';
       if (!path || !isAbsolute(path)) return [];
       const name = typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : path;
-      return [{
-        name,
-        path,
-        addedAt: Number(entry.addedAt) || 0,
-        ...(Number(entry.lastSelectedAt) > 0 ? { lastSelectedAt: Number(entry.lastSelectedAt) } : {}),
-      }];
+      return [
+        {
+          name,
+          path,
+          addedAt: Number(entry.addedAt) || 0,
+          ...(Number(entry.lastSelectedAt) > 0 ? { lastSelectedAt: Number(entry.lastSelectedAt) } : {}),
+        },
+      ];
     });
   }
 

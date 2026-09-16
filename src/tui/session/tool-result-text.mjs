@@ -10,18 +10,27 @@ export function toolResultText(content) {
   if (content == null) return '';
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
-    return content.map((c) => toolResultPartText(c)).filter((t) => t !== '').join('\n');
+    return content
+      .map((c) => toolResultPartText(c))
+      .filter((t) => t !== '')
+      .join('\n');
   }
   if (typeof content === 'object') {
     if (Array.isArray(content.content)) {
-      const nested = content.content.map((c) => toolResultPartText(c)).filter((t) => t !== '').join('\n');
+      const nested = content.content
+        .map((c) => toolResultPartText(c))
+        .filter((t) => t !== '')
+        .join('\n');
       if (nested) return nested;
     } else if (content.content != null && typeof content.content === 'object') {
       const nested = toolResultPartText(content.content);
       if (nested) return nested;
     }
     if (Array.isArray(content.parts)) {
-      const nested = content.parts.map((c) => toolResultPartText(c)).filter((t) => t !== '').join('\n');
+      const nested = content.parts
+        .map((c) => toolResultPartText(c))
+        .filter((t) => t !== '')
+        .join('\n');
       if (nested) return nested;
     }
     const fromPart = toolResultPartText(content);
@@ -30,7 +39,11 @@ export function toolResultText(content) {
     if (typeof content.text === 'string') return content.text;
     if (typeof content.content === 'string') return content.content;
   }
-  try { return JSON.stringify(content); } catch { return String(content); }
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content);
+  }
 }
 
 const TOOL_RESULT_PART_MAX_DEPTH = 12;
@@ -63,7 +76,10 @@ function toolResultPartText(part, depth = 0) {
     const inner = part.content;
     if (typeof inner === 'string') return inner;
     if (Array.isArray(inner)) {
-      return inner.map((c) => toolResultPartText(c, depth + 1)).filter((t) => t !== '').join('\n');
+      return inner
+        .map((c) => toolResultPartText(c, depth + 1))
+        .filter((t) => t !== '')
+        .join('\n');
     }
     if (inner != null && typeof inner === 'object') {
       return toolResultPartText(inner, depth + 1);
@@ -74,11 +90,17 @@ function toolResultPartText(part, depth = 0) {
     return part.text ?? '';
   }
   if (Array.isArray(part)) {
-    return part.map((c) => toolResultPartText(c, depth + 1)).filter((t) => t !== '').join('\n');
+    return part
+      .map((c) => toolResultPartText(c, depth + 1))
+      .filter((t) => t !== '')
+      .join('\n');
   }
   if (typeof part === 'object') {
     if (Array.isArray(part.content)) {
-      const nested = part.content.map((c) => toolResultPartText(c, depth + 1)).filter((t) => t !== '').join('\n');
+      const nested = part.content
+        .map((c) => toolResultPartText(c, depth + 1))
+        .filter((t) => t !== '')
+        .join('\n');
       if (nested) return nested;
     }
     if (part.content != null && typeof part.content === 'object') {
@@ -86,7 +108,10 @@ function toolResultPartText(part, depth = 0) {
       if (nested) return nested;
     }
     if (Array.isArray(part.parts)) {
-      const nested = part.parts.map((c) => toolResultPartText(c, depth + 1)).filter((t) => t !== '').join('\n');
+      const nested = part.parts
+        .map((c) => toolResultPartText(c, depth + 1))
+        .filter((t) => t !== '')
+        .join('\n');
       if (nested) return nested;
     }
     if (typeof part.text === 'string' && part.text) return part.text;
@@ -103,9 +128,15 @@ function toolResultPartText(part, depth = 0) {
 
 export function toolAggregateDetailFallback(detailText, rawResult) {
   if (String(detailText || '').trim()) return detailText;
-  const raw = String(rawResult || '').replace(/\s+$/, '').trim();
+  const raw = String(rawResult || '')
+    .replace(/\s+$/, '')
+    .trim();
   if (!raw) return detailText;
-  const line = raw.split('\n').map((l) => l.trim()).find(Boolean) || '';
+  const line =
+    raw
+      .split('\n')
+      .map((l) => l.trim())
+      .find(Boolean) || '';
   if (!line) return detailText;
   return line.length > TOOL_DETAIL_LINE_MAX ? `${line.slice(0, TOOL_DETAIL_LINE_MAX - 3)}…` : line;
 }
@@ -119,7 +150,11 @@ export function toolGroupedDisplayFallback(resultText, text, rawText) {
 
 export function toolErrorDisplay(value, surface = 'tool') {
   const text = presentErrorText(value, { surface });
-  if (/^(?:Search failed|Fetch failed|No first response|No progress|Cancelled|The .+ went stale|(?:Web search agent|Agent|Tool|Request) (?:stopped|was cancelled))/i.test(text)) {
+  if (
+    /^(?:Search failed|Fetch failed|No first response|No progress|Cancelled|The .+ went stale|(?:Web search agent|Agent|Tool|Request) (?:stopped|was cancelled))/i.test(
+      text
+    )
+  ) {
     return text;
   }
   return /^error\s*:/i.test(text) ? text : `Error: ${text}`;
@@ -133,6 +168,6 @@ export function stripShellExitHeader(text) {
   const body = String(text ?? '');
   return body.replace(
     /(^|\n)(?:(?:Error:\s*)?\[shell-run-failed\]\s*)?\[exit code:\s*\d+\][^\n]*\n{0,2}(?:\[outcome:\s*(?:no-match|no-change)\]\n{0,2})?(?:\[completed:[^\n]*\]\n{0,2})?/i,
-    '$1',
+    '$1'
   );
 }

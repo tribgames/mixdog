@@ -8,22 +8,34 @@ function fixture(t, now) {
   const errors = [];
   let reads = 0;
   const goal = {
-    id: 'goal-1', status: 'active', timeLimitMs: 60_000,
-    timeUsedMs: 0, lastStartedAt: 1_000, warningRevision: 0,
+    id: 'goal-1',
+    status: 'active',
+    timeLimitMs: 60_000,
+    timeUsedMs: 0,
+    lastStartedAt: 1_000,
+    warningRevision: 0,
   };
   const controller = createGoalDeadlines({
     now: () => now,
     deadlineWarningMs: [30_000],
-    readRecord() { reads += 1; return { goal: structuredClone(goal) }; },
+    readRecord() {
+      reads += 1;
+      return { goal: structuredClone(goal) };
+    },
     withMutation(_id, operation) {
       const deferred = Promise.withResolvers();
       queued.push(async () => {
-        try { deferred.resolve(await operation()); }
-        catch (error) { deferred.reject(error); }
+        try {
+          deferred.resolve(await operation());
+        } catch (error) {
+          deferred.reject(error);
+        }
       });
       return deferred.promise;
     },
-    commit: async (id, next) => { commits.push({ id, goal: next }); },
+    commit: async (id, next) => {
+      commits.push({ id, goal: next });
+    },
     onStorageError: (error) => errors.push(error),
   });
   t.after(() => controller.close());

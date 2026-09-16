@@ -8,16 +8,23 @@ import type {
   DesktopWorkspaceTextSearchOptions,
   DesktopWorkspaceTextSearchResult,
 } from '../shared/contract';
-import {
-  decodeProjectText,
-  projectEntryPathIn,
-  writeProjectTextFilesIn,
-} from './project-files';
+import { decodeProjectText, projectEntryPathIn, writeProjectTextFilesIn } from './project-files';
 import { ignoreRules, ignoredPath, type IgnoreRule } from './project-file-search';
 
 const SKIPPED_DIRECTORIES = new Set([
-  '.git', '.hg', '.svn', '.mixdog', 'node_modules', '.venv', 'venv',
-  'dist', 'build', 'out', 'coverage', 'target', '__pycache__',
+  '.git',
+  '.hg',
+  '.svn',
+  '.mixdog',
+  'node_modules',
+  '.venv',
+  'venv',
+  'dist',
+  'build',
+  'out',
+  'coverage',
+  'target',
+  '__pycache__',
 ]);
 const MAX_FILES = 20_000;
 const MAX_FILE_BYTES = 2_097_152;
@@ -50,7 +57,11 @@ function globExpression(pattern: string): RegExp {
 }
 
 function globList(value = ''): RegExp[] {
-  return value.split(',').map((entry) => entry.trim()).filter(Boolean).map(globExpression);
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map(globExpression);
 }
 
 function acceptsPath(path: string, include: RegExp[], exclude: RegExp[]): boolean {
@@ -76,7 +87,9 @@ async function workspaceFiles(root: string, options: DesktopWorkspaceTextSearchO
     try {
       const nested = ignoreRules(await readFile(join(root, relDir, '.gitignore'), 'utf8'), relDir);
       if (nested.length) rules = [...parentRules, ...nested];
-    } catch { /* no .gitignore here — inherit ancestor rules */ }
+    } catch {
+      /* no .gitignore here — inherit ancestor rules */
+    }
     let entries;
     try {
       entries = await readdir(join(root, relDir), { withFileTypes: true });
@@ -87,9 +100,7 @@ async function workspaceFiles(root: string, options: DesktopWorkspaceTextSearchO
       if (files.length >= MAX_FILES) break;
       const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        if (depth < 24
-          && !SKIPPED_DIRECTORIES.has(entry.name)
-          && !ignoredPath(relPath, true, rules)) {
+        if (depth < 24 && !SKIPPED_DIRECTORIES.has(entry.name) && !ignoredPath(relPath, true, rules)) {
           queue.push({ relative: relPath, depth: depth + 1, rules });
         }
         continue;
@@ -103,9 +114,7 @@ async function workspaceFiles(root: string, options: DesktopWorkspaceTextSearchO
 }
 
 function searchRegex(options: DesktopWorkspaceTextSearchOptions): RegExp {
-  const source = options.regex
-    ? options.query
-    : options.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const source = options.regex ? options.query : options.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   try {
     return new RegExp(source, `gu${options.matchCase ? '' : 'i'}`);
   } catch (error) {
@@ -123,7 +132,7 @@ function lineMatches(
   line: string,
   lineNumber: number,
   options: DesktopWorkspaceTextSearchOptions,
-  remaining: number,
+  remaining: number
 ): DesktopWorkspaceTextMatch[] {
   const regex = searchRegex(options);
   const matches: DesktopWorkspaceTextMatch[] = [];
@@ -155,7 +164,7 @@ async function readSearchableFile(root: string, relPath: string): Promise<string
 
 export async function searchWorkspaceTextIn(
   root: string,
-  options: DesktopWorkspaceTextSearchOptions,
+  options: DesktopWorkspaceTextSearchOptions
 ): Promise<DesktopWorkspaceTextSearchResult> {
   const maximum = Math.min(5_000, Math.max(1, options.maxResults ?? 2_000));
   const files = await workspaceFiles(root, options);
@@ -192,16 +201,14 @@ function replacementText(template: string, match: RegExpExecArray, input: string
     if (key === '`') return input.slice(0, match.index);
     if (key === "'") return input.slice(match.index + match[0].length);
     const index = Number(key);
-    return Number.isInteger(index) && index > 0 && index < match.length
-      ? String(match[index] ?? '')
-      : token;
+    return Number.isInteger(index) && index > 0 && index < match.length ? String(match[index] ?? '') : token;
   });
 }
 
 function replaceContent(
   content: string,
   options: DesktopWorkspaceTextSearchOptions,
-  replacement: string,
+  replacement: string
 ): { content: string; replacements: number } {
   const regex = searchRegex(options);
   const parts: string[] = [];
@@ -228,14 +235,12 @@ export async function replaceWorkspaceTextIn(
   options: DesktopWorkspaceTextSearchOptions,
   replacement: string,
   relPaths: readonly string[] | undefined,
-  beforeWrite?: (write: WorkspaceWrite) => Promise<void>,
+  beforeWrite?: (write: WorkspaceWrite) => Promise<void>
 ): Promise<DesktopWorkspaceTextReplaceResult> {
   const search = await searchWorkspaceTextIn(root, options);
   if (search.limitHit) throw new Error('Search result limit reached. Narrow the search before replacing.');
   const requested = relPaths?.length ? new Set(relPaths.map(normalizePath)) : null;
-  const matchedPaths = search.files
-    .map((entry) => entry.relPath)
-    .filter((path) => !requested || requested.has(path));
+  const matchedPaths = search.files.map((entry) => entry.relPath).filter((path) => !requested || requested.has(path));
   const writes: WorkspaceWrite[] = [];
   let replacements = 0;
   for (const relPath of matchedPaths) {
@@ -247,7 +252,9 @@ export async function replaceWorkspaceTextIn(
     replacements += next.replacements;
   }
   if (writes.length > MAX_REPLACE_FILES) {
-    throw new Error(`Replace affects ${writes.length} files. Narrow the search to ${MAX_REPLACE_FILES} files or fewer.`);
+    throw new Error(
+      `Replace affects ${writes.length} files. Narrow the search to ${MAX_REPLACE_FILES} files or fewer.`
+    );
   }
   if (!writes.length) return { filesChanged: 0, replacements: 0, paths: [] };
   if (beforeWrite) await Promise.all(writes.map(beforeWrite));

@@ -1,5 +1,5 @@
-import { execFile, spawn } from "node:child_process";
-import { childEnvironment, hookEnvironment } from "./child-environment";
+import { execFile, spawn } from 'node:child_process';
+import { childEnvironment, hookEnvironment } from './child-environment';
 
 /**
  * The environment every git child runs with. `GIT_INDEX_FILE` is decided here
@@ -39,22 +39,22 @@ export function publicGitRemoteUrl(value: unknown): string {
   }
 }
 
-export function run(
-  cwd: string,
-  args: string[],
-  indexFile?: string,
-  protectHook = false,
-): Promise<string> {
+export function run(cwd: string, args: string[], indexFile?: string, protectHook = false): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, {
-      cwd,
-      windowsHide: true,
-      maxBuffer: 16_000_000,
-      env: gitEnvironment(indexFile, protectHook),
-    }, (error, stdout, stderr) => {
-      if (error) reject(new Error(scrubGitCredentials(stderr || error.message).trim()));
-      else resolve(String(stdout));
-    });
+    execFile(
+      'git',
+      args,
+      {
+        cwd,
+        windowsHide: true,
+        maxBuffer: 16_000_000,
+        env: gitEnvironment(indexFile, protectHook),
+      },
+      (error, stdout, stderr) => {
+        if (error) reject(new Error(scrubGitCredentials(stderr || error.message).trim()));
+        else resolve(String(stdout));
+      }
+    );
   });
 }
 
@@ -72,28 +72,28 @@ export interface GitOutcome {
 
 export function runWithStatus(cwd: string, args: string[]): Promise<GitOutcome> {
   return new Promise((settle) => {
-    execFile('git', args, {
-      cwd,
-      windowsHide: true,
-      maxBuffer: 16_000_000,
-      env: gitEnvironment(),
-    }, (error, stdout, stderr) => {
-      const raw = (error as (NodeJS.ErrnoException & { code?: number | string }) | null)?.code;
-      settle({
-        code: error ? (typeof raw === 'number' ? raw : -1) : 0,
-        stdout: String(stdout),
-        stderr: scrubGitCredentials(stderr || error?.message || '').trim(),
-      });
-    });
+    execFile(
+      'git',
+      args,
+      {
+        cwd,
+        windowsHide: true,
+        maxBuffer: 16_000_000,
+        env: gitEnvironment(),
+      },
+      (error, stdout, stderr) => {
+        const raw = (error as (NodeJS.ErrnoException & { code?: number | string }) | null)?.code;
+        settle({
+          code: error ? (typeof raw === 'number' ? raw : -1) : 0,
+          stdout: String(stdout),
+          stderr: scrubGitCredentials(stderr || error?.message || '').trim(),
+        });
+      }
+    );
   });
 }
 
-export function runWithInput(
-  cwd: string,
-  args: string[],
-  input: string,
-  indexFile?: string,
-): Promise<string> {
+export function runWithInput(cwd: string, args: string[], input: string, indexFile?: string): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn('git', args, {
       cwd,
@@ -134,11 +134,7 @@ export function runWithInput(
   });
 }
 
-export function streamNulRecords(
-  cwd: string,
-  args: string[],
-  onRecord: (record: string) => void,
-): Promise<void> {
+export function streamNulRecords(cwd: string, args: string[], onRecord: (record: string) => void): Promise<void> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn('git', args, {
       cwd,

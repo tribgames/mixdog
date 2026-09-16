@@ -5,7 +5,9 @@ import { createLocalServerProcess } from './server-process.mjs';
 
 function deferred() {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 
@@ -33,8 +35,11 @@ function fixture(options = {}) {
     ...options,
   });
   const spec = {
-    key: 'test-model-path', modelId: 'test-model', executable: 'not-executed',
-    cwd: '.', args: (port, key) => ['--port', String(port), '--api-key', key],
+    key: 'test-model-path',
+    modelId: 'test-model',
+    executable: 'not-executed',
+    cwd: '.',
+    args: (port, key) => ['--port', String(port), '--api-key', key],
   };
   return { manager, children, spec };
 }
@@ -152,7 +157,10 @@ test('launch preparation chooses one GPU and a failed resource check never spawn
     spawnFn(_file, _args, options) {
       environment = options.env;
       const child = new EventEmitter();
-      child.kill = () => { queueMicrotask(() => child.emit('exit', 0, null)); return true; };
+      child.kill = () => {
+        queueMicrotask(() => child.emit('exit', 0, null));
+        return true;
+      };
       return child;
     },
   });
@@ -162,7 +170,15 @@ test('launch preparation chooses one GPU and a failed resource check never spawn
   assert.equal(manager.status().gpu.uuid, gpu.uuid);
   await manager.stop();
   const failed = fixture();
-  await assert.rejects(failed.manager.ensure({ ...failed.spec, prepare: async () => { throw new Error('insufficient VRAM'); } }), /insufficient VRAM/);
+  await assert.rejects(
+    failed.manager.ensure({
+      ...failed.spec,
+      prepare: async () => {
+        throw new Error('insufficient VRAM');
+      },
+    }),
+    /insufficient VRAM/
+  );
   assert.equal(failed.children.length, 0);
   assert.match(failed.manager.status().lastError, /insufficient VRAM/);
 });

@@ -4,8 +4,8 @@ export function captureRowMenuAnchor(element: HTMLElement) {
   const style = element.ownerDocument.defaultView!.getComputedStyle(element);
   return {
     bounds: element.getBoundingClientRect(),
-    rowHeight: Number.parseFloat(style.getPropertyValue("--mx-menu-row-height")) || 32,
-    inset: Number.parseFloat(style.getPropertyValue("--mx-menu-inset")) || 6,
+    rowHeight: Number.parseFloat(style.getPropertyValue('--mx-menu-row-height')) || 32,
+    inset: Number.parseFloat(style.getPropertyValue('--mx-menu-inset')) || 6,
   };
 }
 
@@ -21,17 +21,16 @@ export function positionRowMenu(
   rowCount: number,
   separatorCount: number,
   viewportWidth: number,
-  viewportHeight: number,
+  viewportHeight: number
 ) {
   const height = Math.min(
     (anchor?.rowHeight || 32) * rowCount + 2 * (anchor?.inset || 6) + 2 + separatorCount * 4,
-    Math.max(0, viewportHeight - 16),
+    Math.max(0, viewportHeight - 16)
   );
   const right = Math.max(8, viewportWidth - (anchor?.bounds.right ?? viewportWidth - 8));
   const maxWidth = Math.max(0, Math.min(ROW_MENU_MAX_WIDTH, viewportWidth - right - 8));
   const below = (anchor?.bounds.bottom || 8) + 4;
-  const top = below + height <= viewportHeight - 8
-    ? below
-    : Math.max(8, (anchor?.bounds.top || height + 12) - height - 4);
+  const top =
+    below + height <= viewportHeight - 8 ? below : Math.max(8, (anchor?.bounds.top || height + 12) - height - 4);
   return { right, top, maxWidth };
 }

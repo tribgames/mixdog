@@ -27,13 +27,24 @@ test('click timings follow dispatched events and stop at a dialog without replay
 
 test('the command ceiling returns timing even while cancelled work is still pending', async () => {
   let finish;
-  const pending = new Promise((resolve) => { finish = resolve; });
+  const pending = new Promise((resolve) => {
+    finish = resolve;
+  });
   const error = new Error('command timed out');
   const queue = createBrowserCommandQueue({
-    chains: new Map(), pendingReads: new Map(), backgroundEntryByPageId: () => null,
-    run: async () => { await pending; return { text: 'late' }; },
-    bounded: async (_promise, _ms, _label, _signal, onTimeout) => { onTimeout(); throw error; },
-    readOnlyActions: new Set(), commandTimeoutMs: 1,
+    chains: new Map(),
+    pendingReads: new Map(),
+    backgroundEntryByPageId: () => null,
+    run: async () => {
+      await pending;
+      return { text: 'late' };
+    },
+    bounded: async (_promise, _ms, _label, _signal, onTimeout) => {
+      onTimeout();
+      throw error;
+    },
+    readOnlyActions: new Set(),
+    commandTimeoutMs: 1,
   });
   await assert.rejects(queue.executeSerialized({ action: 'click' }), (caught) => caught === error);
   const timing = browserFailureTiming(error);

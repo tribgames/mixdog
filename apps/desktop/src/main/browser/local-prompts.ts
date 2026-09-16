@@ -19,14 +19,26 @@ export function createBrowserLocalPrompts(host: {
   let serial = 0;
   const id = (pending: object) => {
     let value = ids.get(pending);
-    if (!value) { value = `prompt_${++serial}`; ids.set(pending, value); }
+    if (!value) {
+      value = `prompt_${++serial}`;
+      ids.set(pending, value);
+    }
     return value;
   };
   return {
     describe(guest: WebContents): Pick<DesktopBrowserPageFrame, 'dialog' | 'fileChooser'> {
       const { pendingDialog: dialog, pendingFileChooser: chooser } = host.state.for(guest);
       return {
-        ...(dialog ? { dialog: { id: id(dialog), type: dialog.type, message: dialog.message, defaultPrompt: dialog.defaultPrompt } } : {}),
+        ...(dialog
+          ? {
+              dialog: {
+                id: id(dialog),
+                type: dialog.type,
+                message: dialog.message,
+                defaultPrompt: dialog.defaultPrompt,
+              },
+            }
+          : {}),
         ...(chooser ? { fileChooser: { id: id(chooser), multiple: chooser.mode === 'selectMultiple' } } : {}),
       };
     },
@@ -49,7 +61,8 @@ export function createBrowserLocalPrompts(host: {
       if (picking.has(pending!)) throw new Error('Browser file selection is already open.');
       picking.add(pending!);
       try {
-        const result = input.cancel ? { canceled: true, filePaths: [] }
+        const result = input.cancel
+          ? { canceled: true, filePaths: [] }
           : await host.chooseFiles(record.pendingFileChooser!.mode === 'selectMultiple');
         guard();
         if (result.canceled) {
@@ -57,7 +70,9 @@ export function createBrowserLocalPrompts(host: {
           return;
         }
         await host.uploads.uploadRef(guest, undefined, result.filePaths, signal, guard);
-      } finally { picking.delete(pending!); }
+      } finally {
+        picking.delete(pending!);
+      }
     },
   };
 }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createBrowserPresentationLoop } from './browser-presentation-loop.ts';
 
-const tick = () => new Promise(resolve => setImmediate(resolve));
+const tick = () => new Promise((resolve) => setImmediate(resolve));
 test('visible display follows 60 Hz without overlapping reads, and input wakes a scheduled frame immediately', async () => {
   let now = 0;
   let reads = 0;
@@ -10,11 +10,22 @@ test('visible display follows 60 Hz without overlapping reads, and input wakes a
   let timer;
   let visible = true;
   const loop = createBrowserPresentationLoop({
-    read: () => { reads++; return new Promise(resolve => { finish = resolve; }); },
-    visible: () => visible, now: () => now,
-    schedule: (callback, delay) => { timer = { callback, delay }; return timer; },
-    cancel: () => { timer = undefined; },
-    failed: error => assert.fail(error),
+    read: () => {
+      reads++;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+    visible: () => visible,
+    now: () => now,
+    schedule: (callback, delay) => {
+      timer = { callback, delay };
+      return timer;
+    },
+    cancel: () => {
+      timer = undefined;
+    },
+    failed: (error) => assert.fail(error),
   });
   loop.wake();
   loop.wake();
@@ -45,9 +56,16 @@ test('capture failure backs off without replaying input and a stopped display ca
   const callbacks = [];
   let reads = 0;
   const loop = createBrowserPresentationLoop({
-    read: async () => { reads++; throw new Error('capture failed'); },
-    visible: () => true, now: () => 0,
-    schedule: (callback, delay) => { callbacks.push({ callback, delay }); return 1; },
+    read: async () => {
+      reads++;
+      throw new Error('capture failed');
+    },
+    visible: () => true,
+    now: () => 0,
+    schedule: (callback, delay) => {
+      callbacks.push({ callback, delay });
+      return 1;
+    },
     cancel() {},
     failed: () => 1000,
   });

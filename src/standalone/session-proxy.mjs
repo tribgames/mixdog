@@ -24,11 +24,7 @@ function applyStatePatch(state, patch) {
   return next;
 }
 
-export function createSessionProxyFactory({
-  attachSession,
-  ensureDaemon,
-  closeIdleConnections = () => {},
-}) {
+export function createSessionProxyFactory({ attachSession, ensureDaemon, closeIdleConnections = () => {} }) {
   const sessionAttachments = new SessionAttachmentPool({
     attachSession,
     createProtocolClient: createSessionProtocolClient,
@@ -64,7 +60,11 @@ export function createSessionProxyFactory({
 
     function emit() {
       for (const listener of [...listeners]) {
-        try { listener(); } catch (error) { log(`session listener threw: ${error?.message || error}`); }
+        try {
+          listener();
+        } catch (error) {
+          log(`session listener threw: ${error?.message || error}`);
+        }
       }
     }
 
@@ -90,8 +90,7 @@ export function createSessionProxyFactory({
         return true;
       }
       if (body.patch) {
-        if (Number(body.revision) === revision
-          && Number(body.baseRevision) === revision - 1) return true;
+        if (Number(body.revision) === revision && Number(body.baseRevision) === revision - 1) return true;
         if (Number(body.baseRevision) !== revision) return false;
         state = applyStatePatch(state, body.patch);
         revision = Number(body.revision) || revision;
@@ -105,13 +104,8 @@ export function createSessionProxyFactory({
       return false;
     }
 
-    function baseRevisionFor(
-      sourceAttachment = attachment,
-      targetSessionId = sessionId,
-    ) {
-      return revisionAttachment === sourceAttachment && revisionSessionId === targetSessionId
-        ? revision
-        : null;
+    function baseRevisionFor(sourceAttachment = attachment, targetSessionId = sessionId) {
+      return revisionAttachment === sourceAttachment && revisionSessionId === targetSessionId ? revision : null;
     }
 
     let resyncing = false;
@@ -127,38 +121,44 @@ export function createSessionProxyFactory({
       }
       resyncing = true;
       const requestAttachment = attachment;
-      void requestAttachment.client.read({
-        sessionId,
-        open: openParams,
-        baseRevision: baseRevisionFor(requestAttachment),
-      }).then((result) => {
-        if (disposed || requestAttachment !== attachment) return;
-        if (result && typeof result === 'object') resultAttachments.set(result, requestAttachment);
-        if (!applyBody(result, requestAttachment) && result?.revision !== undefined) {
-          log(`session ${sessionId} resync returned an unusable body`);
+      void requestAttachment.client
+        .read({
+          sessionId,
+          open: openParams,
+          baseRevision: baseRevisionFor(requestAttachment),
+        })
+        .then((result) => {
+          if (disposed || requestAttachment !== attachment) return;
+          if (result && typeof result === 'object') resultAttachments.set(result, requestAttachment);
+          if (!applyBody(result, requestAttachment) && result?.revision !== undefined) {
+            log(`session ${sessionId} resync returned an unusable body`);
+            resyncDirty = true;
+            resyncFailed = true;
+            resyncDirtyReason = 'unusable resync body';
+          }
+        })
+        .catch((error) => {
+          log(`session ${sessionId} resync after ${reason} failed: ${error?.message || error}`);
           resyncDirty = true;
           resyncFailed = true;
-          resyncDirtyReason = 'unusable resync body';
-        }
-      }).catch((error) => {
-        log(`session ${sessionId} resync after ${reason} failed: ${error?.message || error}`);
-        resyncDirty = true;
-        resyncFailed = true;
-        resyncDirtyReason = `retry after failed resync (${reason})`;
-      }).finally(() => {
-        resyncing = false;
-        if (!resyncDirty || disposed) return;
-        resyncDirty = false;
-        const retryReason = resyncDirtyReason || 'revision gap';
-        resyncDirtyReason = '';
-        if (!resyncFailed) {
-          resync(retryReason);
-          return;
-        }
-        resyncFailed = false;
-        const timer = setTimeout(() => { if (!disposed) resync(retryReason); }, 250);
-        timer.unref?.();
-      });
+          resyncDirtyReason = `retry after failed resync (${reason})`;
+        })
+        .finally(() => {
+          resyncing = false;
+          if (!resyncDirty || disposed) return;
+          resyncDirty = false;
+          const retryReason = resyncDirtyReason || 'revision gap';
+          resyncDirtyReason = '';
+          if (!resyncFailed) {
+            resync(retryReason);
+            return;
+          }
+          resyncFailed = false;
+          const timer = setTimeout(() => {
+            if (!disposed) resync(retryReason);
+          }, 250);
+          timer.unref?.();
+        });
     }
 
     let recoveryPromise = null;
@@ -179,24 +179,31 @@ export function createSessionProxyFactory({
         let result;
         try {
           result = await recoveryAttachment.client.subscribe({
-            sessionId, open: openParams, baseRevision: null,
+            sessionId,
+            open: openParams,
+            baseRevision: null,
           });
         } catch (error) {
           if (!reservedOnly || !/session .* is not available/i.test(String(error?.message || error))) {
             throw error;
           }
-          result = await recoveryAttachment.client.create({
-            ...openParams,
-            sessionId,
-          }, {
-            callId: `session-recover-reservation:${sessionId}`,
-          });
+          result = await recoveryAttachment.client.create(
+            {
+              ...openParams,
+              sessionId,
+            },
+            {
+              callId: `session-recover-reservation:${sessionId}`,
+            }
+          );
         }
         if (disposed || recoveryAttachment !== attachment) return;
         if (result && typeof result === 'object') resultAttachments.set(result, recoveryAttachment);
         if (!applyBody(result, recoveryAttachment)) {
           const baseline = await recoveryAttachment.client.read({
-            sessionId, open: openParams, baseRevision: null,
+            sessionId,
+            open: openParams,
+            baseRevision: null,
           });
           if (disposed || recoveryAttachment !== attachment) return;
           if (baseline && typeof baseline === 'object') {
@@ -246,7 +253,8 @@ export function createSessionProxyFactory({
         else if (route === 'session.approve') result = await sourceAttachment.client.approve(payload, { callId });
         else if (route === 'session.configure') result = await sourceAttachment.client.configure(payload, { callId });
         else if (route === 'project.list') result = await sourceAttachment.client.projectList(payload, { callId });
-        else if (route === 'project.inspect') result = await sourceAttachment.client.projectInspect(payload, { callId });
+        else if (route === 'project.inspect')
+          result = await sourceAttachment.client.projectInspect(payload, { callId });
         else if (route === 'project.add') result = await sourceAttachment.client.projectAdd(payload, { callId });
         else if (route === 'project.touch') result = await sourceAttachment.client.projectTouch(payload, { callId });
         else if (route === 'project.rename') result = await sourceAttachment.client.projectRename(payload, { callId });
@@ -263,11 +271,13 @@ export function createSessionProxyFactory({
         try {
           return await send();
         } catch (error) {
-          const recoverable = error?.daemonTransportError
-            || /unknown client token/i.test(String(error?.message || ''));
+          const recoverable = error?.daemonTransportError || /unknown client token/i.test(String(error?.message || ''));
           if (!recoverable || disposed || attempt >= CALL_RECOVERY_BACKOFF_MS.length) throw error;
           const waitMs = CALL_RECOVERY_BACKOFF_MS[attempt];
-          if (waitMs > 0) await new Promise((resolve) => { setTimeout(resolve, waitMs); });
+          if (waitMs > 0)
+            await new Promise((resolve) => {
+              setTimeout(resolve, waitMs);
+            });
           if (disposed) throw error;
           sessionAttachments.invalidate(attachment);
           const next = await sessionAttachments.ensure({ cwd, log });
@@ -297,7 +307,10 @@ export function createSessionProxyFactory({
     let transitionChain = Promise.resolve();
     function serializeTransition(task) {
       const run = transitionChain.then(task);
-      transitionChain = run.then(() => {}, () => {});
+      transitionChain = run.then(
+        () => {},
+        () => {}
+      );
       return run;
     }
 
@@ -313,26 +326,27 @@ export function createSessionProxyFactory({
           ? 'session.configure'
           : null;
       if (!route) return Promise.reject(new TypeError(`session action ${method} is unavailable`));
-      const stableCallId = typeof callOptions.callId === 'string' && callOptions.callId.trim()
-        ? callOptions.callId.trim()
-        : randomUUID();
+      const stableCallId =
+        typeof callOptions.callId === 'string' && callOptions.callId.trim() ? callOptions.callId.trim() : randomUUID();
       const dispatch = async () => {
         if (disposed) throw new Error('This session view is disposed.');
         const targetSessionId = sessionId;
         const baseRevision = baseRevisionFor(attachment, targetSessionId);
-        const result = await sendCall(route, {
-          sessionId: targetSessionId,
-          action: method,
-          args,
-          open: openParams,
-          baseRevision,
-        }, stableCallId);
+        const result = await sendCall(
+          route,
+          {
+            sessionId: targetSessionId,
+            action: method,
+            args,
+            open: openParams,
+            baseRevision,
+          },
+          stableCallId
+        );
         if (!disposed && sessionId === targetSessionId) await applyResult(result, method);
         return result?.value ?? null;
       };
-      return route === 'session.configure'
-        ? afterPendingTransition().then(dispatch)
-        : dispatch();
+      return route === 'session.configure' ? afterPendingTransition().then(dispatch) : dispatch();
     }
 
     async function rebindTo(result, previousSessionId) {
@@ -357,8 +371,7 @@ export function createSessionProxyFactory({
       return serializeTransition(async () => {
         if (disposed) throw new Error('This session view is disposed.');
         const previousSessionId = sessionId;
-        const result = await sendCall('session.create', openParams,
-          `session-create:${process.pid}:${randomUUID()}`);
+        const result = await sendCall('session.create', openParams, `session-create:${process.pid}:${randomUUID()}`);
         return rebindTo(result, previousSessionId);
       });
     }
@@ -369,20 +382,28 @@ export function createSessionProxyFactory({
       return serializeTransition(async () => {
         if (disposed) throw new Error('This session view is disposed.');
         if (target === sessionId) {
-          const result = await sendCall('session.read', {
-            sessionId,
-            open: openParams,
-            baseRevision: baseRevisionFor(),
-          }, randomUUID());
+          const result = await sendCall(
+            'session.read',
+            {
+              sessionId,
+              open: openParams,
+              baseRevision: baseRevisionFor(),
+            },
+            randomUUID()
+          );
           await applyResult(result, 'resume');
           return true;
         }
         const previousSessionId = sessionId;
-        const result = await sendCall('session.subscribe', {
-          sessionId: target,
-          open: { ...openParams, resumeOptions: resumeOptions || undefined },
-          baseRevision: null,
-        }, randomUUID());
+        const result = await sendCall(
+          'session.subscribe',
+          {
+            sessionId: target,
+            open: { ...openParams, resumeOptions: resumeOptions || undefined },
+            baseRevision: null,
+          },
+          randomUUID()
+        );
         await rebindTo(result, previousSessionId);
         return true;
       });
@@ -391,19 +412,23 @@ export function createSessionProxyFactory({
     let submitSeq = 0;
     async function submitAsync(prompt, options = {}) {
       if (disposed) throw new Error('This session view is disposed.');
-      const submissionId = String(options?.id || '').trim()
-        || `session-submit-${process.pid}-${Date.now()}-${(submitSeq += 1)}`;
+      const submissionId =
+        String(options?.id || '').trim() || `session-submit-${process.pid}-${Date.now()}-${(submitSeq += 1)}`;
       await afterPendingTransition();
       if (disposed) throw new Error('This session view is disposed.');
       const targetSessionId = sessionId;
       const baseRevision = baseRevisionFor(attachment, targetSessionId);
-      const result = await sendCall('session.submit', {
-        sessionId: targetSessionId,
-        prompt,
-        options: { ...(options || {}), id: submissionId },
-        open: openParams,
-        baseRevision,
-      }, `session-submit:${targetSessionId}:${submissionId}`);
+      const result = await sendCall(
+        'session.submit',
+        {
+          sessionId: targetSessionId,
+          prompt,
+          options: { ...(options || {}), id: submissionId },
+          open: openParams,
+          baseRevision,
+        },
+        `session-submit:${targetSessionId}:${submissionId}`
+      );
       if (!disposed && sessionId === targetSessionId) await applyResult(result, 'submit');
       return result?.accepted === true;
     }
@@ -412,16 +437,24 @@ export function createSessionProxyFactory({
       if (disposed) return { aborted: false };
       await afterPendingTransition();
       if (disposed) return { aborted: false };
-      const result = await sendCall('session.abort', {
-        sessionId, open: openParams, options,
-        baseRevision: baseRevisionFor(),
-      }, randomUUID());
+      const result = await sendCall(
+        'session.abort',
+        {
+          sessionId,
+          open: openParams,
+          options,
+          baseRevision: baseRevisionFor(),
+        },
+        randomUUID()
+      );
       return applyResult(result, 'abort');
     }
 
     const base = {
       isRemoteSession: true,
-      get disposedView() { return disposed; },
+      get disposedView() {
+        return disposed;
+      },
       getState: () => state,
       subscribe(listener) {
         listeners.add(listener);
@@ -455,9 +488,13 @@ export function createSessionProxyFactory({
         return result?.removed === true;
       },
       async ensureProjectDirectory(projectPath) {
-        const result = await sendCall('project.ensureDirectory', {
-          path: projectPath,
-        }, randomUUID());
+        const result = await sendCall(
+          'project.ensureDirectory',
+          {
+            path: projectPath,
+          },
+          randomUUID()
+        );
         return String(result?.path || '');
       },
       async newSession(options = {}) {
@@ -486,20 +523,23 @@ export function createSessionProxyFactory({
       },
       abortAsync,
       abort(options = {}) {
-        void abortAsync(options).catch((error) =>
-          log(`session abort failed: ${error?.message || error}`));
+        void abortAsync(options).catch((error) => log(`session abort failed: ${error?.message || error}`));
         return true;
       },
       resolveToolApproval(id, decision) {
         void (async () => {
           if (disposed) return;
-          const result = await sendCall('session.approve', {
-            sessionId,
-            approvalId: id,
-            decision,
-            open: openParams,
-            baseRevision: baseRevisionFor(),
-          }, randomUUID());
+          const result = await sendCall(
+            'session.approve',
+            {
+              sessionId,
+              approvalId: id,
+              decision,
+              open: openParams,
+              baseRevision: baseRevisionFor(),
+            },
+            randomUUID()
+          );
           await applyResult(result, 'approval');
         })().catch((error) => log(`session approval failed: ${error?.message || error}`));
         return true;
@@ -521,7 +561,9 @@ export function createSessionProxyFactory({
         listeners.clear();
         attachment.refs = Math.max(0, attachment.refs - 1);
         if (sessionAttachments.idle(attachment)) {
-          try { await attachment.client.close(reason); } catch {}
+          try {
+            await attachment.client.close(reason);
+          } catch {}
           sessionAttachments.releaseIdle(attachment);
         }
       },

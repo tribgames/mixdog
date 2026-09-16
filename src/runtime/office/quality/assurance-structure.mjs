@@ -14,22 +14,23 @@ function headingLevel(paragraph) {
 }
 
 function wordBlockOrder(document) {
-  const blocks = Array.isArray(document?.blockOrder) && document.blockOrder.length
-    ? document.blockOrder.map((entry) => ({ ...entry, start: Number(entry.start) }))
-    : [
-      ...(document?.paragraphs || []).map((entry) => ({
-        type: 'paragraph',
-        index: entry.index,
-        path: entry.path,
-        start: Number(entry.start),
-      })),
-      ...(document?.tables || []).map((entry) => ({
-        type: 'table',
-        index: entry.index,
-        path: entry.path,
-        start: Number(entry.start),
-      })),
-    ];
+  const blocks =
+    Array.isArray(document?.blockOrder) && document.blockOrder.length
+      ? document.blockOrder.map((entry) => ({ ...entry, start: Number(entry.start) }))
+      : [
+          ...(document?.paragraphs || []).map((entry) => ({
+            type: 'paragraph',
+            index: entry.index,
+            path: entry.path,
+            start: Number(entry.start),
+          })),
+          ...(document?.tables || []).map((entry) => ({
+            type: 'table',
+            index: entry.index,
+            path: entry.path,
+            start: Number(entry.start),
+          })),
+        ];
   if (blocks.every((entry) => Number.isFinite(entry.start))) {
     blocks.sort((left, right) => left.start - right.start);
   }
@@ -40,27 +41,29 @@ function reviewDocxStructure(document) {
   const issues = [];
   const paragraphs = Array.isArray(document?.paragraphs) ? document.paragraphs : [];
   const tables = Array.isArray(document?.tables) ? document.tables : [];
-  const content = paragraphs.filter((paragraph) => (
-    paragraph?.inTable !== true && String(paragraph.text || '').trim()
-  ));
+  const content = paragraphs.filter((paragraph) => paragraph?.inTable !== true && String(paragraph.text || '').trim());
   const headings = content
     .map((paragraph) => ({ paragraph, level: headingLevel(paragraph) }))
     .filter((entry) => entry.level !== null);
   if (content.length >= 8 && headings.length === 0) {
-    issues.push(issue(
-      'heading_hierarchy_missing',
-      '/body',
-      'Document has substantial content but no visible title or heading hierarchy.',
-    ));
+    issues.push(
+      issue(
+        'heading_hierarchy_missing',
+        '/body',
+        'Document has substantial content but no visible title or heading hierarchy.'
+      )
+    );
   }
   let priorLevel = null;
   for (const { paragraph, level } of headings) {
     if (priorLevel !== null && level > priorLevel + 1) {
-      issues.push(issue(
-        'heading_hierarchy_jump',
-        paragraph.path || '/body',
-        `Heading level jumps from ${priorLevel} to ${level}.`,
-      ));
+      issues.push(
+        issue(
+          'heading_hierarchy_jump',
+          paragraph.path || '/body',
+          `Heading level jumps from ${priorLevel} to ${level}.`
+        )
+      );
     }
     priorLevel = level;
   }
@@ -71,35 +74,29 @@ function reviewDocxStructure(document) {
     const block = order[index];
     if (block.type !== 'paragraph') continue;
     const paragraph = paragraphsByIndex.get(Number(block.index));
-    if (
-      paragraph?.inTable === true
-      || headingLevel(paragraph) === null
-      || !String(paragraph?.text || '').trim()
-    ) continue;
+    if (paragraph?.inTable === true || headingLevel(paragraph) === null || !String(paragraph?.text || '').trim())
+      continue;
     const nextBlock = order.slice(index + 1).find((entry) => {
       if (entry.type === 'table') return true;
       return String(paragraphsByIndex.get(Number(entry.index))?.text || '').trim();
     });
-    const next = nextBlock?.type === 'table'
-      ? tablesByIndex.get(Number(nextBlock.index))
-      : paragraphsByIndex.get(Number(nextBlock?.index));
+    const next =
+      nextBlock?.type === 'table'
+        ? tablesByIndex.get(Number(nextBlock.index))
+        : paragraphsByIndex.get(Number(nextBlock?.index));
     const headingPage = Number(paragraph?.pageStart || paragraph?.page);
     const nextPage = Number(next?.pageStart || next?.page);
     if (!nextBlock || (headingPage > 0 && nextPage > 0 && headingPage !== nextPage)) {
-      issues.push(issue(
-        'orphan_heading',
-        paragraph.path || '/body',
-        'Heading is separated from the content it introduces.',
-      ));
+      issues.push(
+        issue('orphan_heading', paragraph.path || '/body', 'Heading is separated from the content it introduces.')
+      );
     }
   }
   for (const paragraph of content) {
     if (String(paragraph.text || '').length > 900) {
-      issues.push(issue(
-        'dense_paragraph',
-        paragraph.path || '/body',
-        'Paragraph is too dense for fast document scanning.',
-      ));
+      issues.push(
+        issue('dense_paragraph', paragraph.path || '/body', 'Paragraph is too dense for fast document scanning.')
+      );
     }
   }
   // Machine tells: a bullet typed as text and a newline inside a paragraph
@@ -107,22 +104,26 @@ function reviewDocxStructure(document) {
   for (const paragraph of content) {
     const text = String(paragraph.text || '');
     if (/^[•·●▪◦■*-]\s/.test(text)) {
-      issues.push(issue(
-        'literal_bullet',
-        paragraph.path || '/body',
-        'Paragraph starts with a typed bullet character; a list marker comes from list formatting (listKind, set_list), never from text.',
-      ));
+      issues.push(
+        issue(
+          'literal_bullet',
+          paragraph.path || '/body',
+          'Paragraph starts with a typed bullet character; a list marker comes from list formatting (listKind, set_list), never from text.'
+        )
+      );
     }
     // A soft break reads back as a newline too, and Word draws that one as a
     // line break; only the newlines beyond the paragraph's breaks are the typed
     // ones that collapse to a space.
     const newlines = (text.match(/\n/g) || []).length;
     if (newlines > (Number(paragraph.softBreaks) || 0)) {
-      issues.push(issue(
-        'newline_in_text',
-        paragraph.path || '/body',
-        'Paragraph text carries a newline character, which Word renders as a space; split it into separate paragraphs.',
-      ));
+      issues.push(
+        issue(
+          'newline_in_text',
+          paragraph.path || '/body',
+          'Paragraph text carries a newline character, which Word renders as a space; split it into separate paragraphs.'
+        )
+      );
     }
   }
   for (const table of tables) {
@@ -130,11 +131,13 @@ function reviewDocxStructure(document) {
     const pageEnd = Number(table.pageEnd);
     const rows = Array.isArray(table.rows) ? table.rows.length : 0;
     if (rows > 0 && rows <= 6 && pageStart > 0 && pageEnd > 0 && pageStart !== pageEnd) {
-      issues.push(issue(
-        'short_table_split',
-        table.path || '/body',
-        `A ${rows}-row table is split across pages ${pageStart}-${pageEnd}.`,
-      ));
+      issues.push(
+        issue(
+          'short_table_split',
+          table.path || '/body',
+          `A ${rows}-row table is split across pages ${pageStart}-${pageEnd}.`
+        )
+      );
     }
   }
   return issues;
@@ -160,16 +163,19 @@ function columnIndex(label) {
 
 // A print area is one or more A1 ranges; Excel prints each as its own page set.
 function printAreas(reference) {
-  return String(reference || '').split(',').map((part) => {
-    const match = /^([A-Za-z]+)(\d+)(?::([A-Za-z]+)(\d+))?$/.exec(part.trim());
-    if (!match) return null;
-    return {
-      startColumn: columnIndex(match[1]),
-      startRow: Number(match[2]),
-      endColumn: columnIndex(match[3] || match[1]),
-      endRow: Number(match[4] || match[2]),
-    };
-  }).filter(Boolean);
+  return String(reference || '')
+    .split(',')
+    .map((part) => {
+      const match = /^([A-Za-z]+)(\d+)(?::([A-Za-z]+)(\d+))?$/.exec(part.trim());
+      if (!match) return null;
+      return {
+        startColumn: columnIndex(match[1]),
+        startRow: Number(match[2]),
+        endColumn: columnIndex(match[3] || match[1]),
+        endRow: Number(match[4] || match[2]),
+      };
+    })
+    .filter(Boolean);
 }
 
 function reviewXlsxStructure(document, auditProfile = '') {
@@ -180,58 +186,64 @@ function reviewXlsxStructure(document, auditProfile = '') {
     if (cells.length >= 8) {
       const styled = cells.filter((cell) => cell.style && Object.keys(cell.style).length);
       if (styled.length === 0) {
-        issues.push(issue(
-          'worksheet_hierarchy_missing',
-          sheet.path || `/sheet[${sheet.name || ''}]`,
-          'Data sheet has no styled title, header, table, or visual hierarchy.',
-        ));
+        issues.push(
+          issue(
+            'worksheet_hierarchy_missing',
+            sheet.path || `/sheet[${sheet.name || ''}]`,
+            'Data sheet has no styled title, header, table, or visual hierarchy.'
+          )
+        );
       }
     }
-    const totalRows = new Set(cells
-      .filter((cell) => /^(?:(?:grand\s+total|sub\s*total|total)\b|(?:합계|총계|소계)(?:\s|$))/i.test(String(cell.value || '').trim()))
-      .map((cell) => cellRow(cell.ref))
-      .filter(Boolean));
+    const totalRows = new Set(
+      cells
+        .filter((cell) =>
+          /^(?:(?:grand\s+total|sub\s*total|total)\b|(?:합계|총계|소계)(?:\s|$))/i.test(String(cell.value || '').trim())
+        )
+        .map((cell) => cellRow(cell.ref))
+        .filter(Boolean)
+    );
     for (const cell of cells) {
       if (/^#(?:DIV\/0|VALUE|REF|NAME|N\/A|NUM|NULL|SPILL|CALC|FIELD)\??!?$/i.test(String(cell.value || '').trim())) {
-        issues.push(issue(
-          'formula_error',
-          cell.path || `${sheet.path || `/sheet[${sheet.name || ''}]`}/cell[${cell.ref || ''}]`,
-          `Formula evaluates to ${cell.value}.`,
-          'format-review',
-          'error',
-        ));
+        issues.push(
+          issue(
+            'formula_error',
+            cell.path || `${sheet.path || `/sheet[${sheet.name || ''}]`}/cell[${cell.ref || ''}]`,
+            `Formula evaluates to ${cell.value}.`,
+            'format-review',
+            'error'
+          )
+        );
       }
     }
     for (const chart of sheet.charts || []) {
-      const formulas = (chart.series || []).flatMap((series) => [
-        series.formula,
-        series.categoryFormula,
-        series.valueFormula,
-      ]).filter(Boolean);
-      const included = [...totalRows].find((row) => formulas.some((formula) => (
-        formulaRanges(formula).some((range) => row >= range.start && row <= range.end)
-      )));
+      const formulas = (chart.series || [])
+        .flatMap((series) => [series.formula, series.categoryFormula, series.valueFormula])
+        .filter(Boolean);
+      const included = [...totalRows].find((row) =>
+        formulas.some((formula) => formulaRanges(formula).some((range) => row >= range.start && row <= range.end))
+      );
       if (included) {
-        issues.push(issue(
-          'chart_includes_total_row',
-          chart.path || `${sheet.path || `/sheet[${sheet.name || ''}]`}/chart`,
-          `Chart source includes total or subtotal row ${included}; separate summary rows from comparison series.`,
-        ));
+        issues.push(
+          issue(
+            'chart_includes_total_row',
+            chart.path || `${sheet.path || `/sheet[${sheet.name || ''}]`}/chart`,
+            `Chart source includes total or subtotal row ${included}; separate summary rows from comparison series.`
+          )
+        );
       }
     }
     const rows = Number(sheet.rows) || 0;
     const columns = Number(sheet.columns) || 0;
     const pageSetup = sheet.pageSetup || {};
-    if (
-      (rows >= 40 || columns >= 12)
-      && Number(pageSetup.fitToPagesWide) !== 1
-      && Number(pageSetup.zoom) > 100
-    ) {
-      issues.push(issue(
-        'worksheet_print_fit_missing',
-        sheet.path || `/sheet[${sheet.name || ''}]`,
-        'Large worksheet has no one-page-wide print fit and uses an enlarged print zoom.',
-      ));
+    if ((rows >= 40 || columns >= 12) && Number(pageSetup.fitToPagesWide) !== 1 && Number(pageSetup.zoom) > 100) {
+      issues.push(
+        issue(
+          'worksheet_print_fit_missing',
+          sheet.path || `/sheet[${sheet.name || ''}]`,
+          'Large worksheet has no one-page-wide print fit and uses an enlarged print zoom.'
+        )
+      );
     }
     // A chart or picture the print area leaves out is cut in half by the page
     // break, and a sheet with no print area at all paginates around it.
@@ -242,23 +254,28 @@ function reviewXlsxStructure(document, auditProfile = '') {
     ].filter((item) => Number(item.entry?.anchor?.endColumn) > 0);
     for (const { kind, entry } of drawings.slice(0, 3)) {
       const anchor = entry.anchor;
-      const inside = areas.some((area) => (
-        Number(anchor.startColumn) >= area.startColumn && Number(anchor.startRow) >= area.startRow
-        && Number(anchor.endColumn) <= area.endColumn && Number(anchor.endRow) <= area.endRow
-      ));
+      const inside = areas.some(
+        (area) =>
+          Number(anchor.startColumn) >= area.startColumn &&
+          Number(anchor.startRow) >= area.startRow &&
+          Number(anchor.endColumn) <= area.endColumn &&
+          Number(anchor.endRow) <= area.endRow
+      );
       if (inside) continue;
       // A sheet fitted to one page wide exports whole with or without a print
       // area; a declared print area that leaves the drawing out cuts it.
       if (!areas.length && Number(pageSetup.fitToPagesWide) === 1) continue;
-      issues.push(issue(
-        'drawing_outside_print_area',
-        entry.path || sheet.path || `/sheet[${sheet.name || ''}]`,
-        areas.length
-          ? `${kind} spans ${anchor.from}:${anchor.to}, past the print area ${pageSetup.printArea}; a print or PDF export cuts it.`
-          : `${kind} spans ${anchor.from}:${anchor.to} and the sheet declares no print area or one-page-wide fit, so an export may paginate through it.`,
-        'format-review',
-        areas.length ? 'warning' : 'info',
-      ));
+      issues.push(
+        issue(
+          'drawing_outside_print_area',
+          entry.path || sheet.path || `/sheet[${sheet.name || ''}]`,
+          areas.length
+            ? `${kind} spans ${anchor.from}:${anchor.to}, past the print area ${pageSetup.printArea}; a print or PDF export cuts it.`
+            : `${kind} spans ${anchor.from}:${anchor.to} and the sheet declares no print area or one-page-wide fit, so an export may paginate through it.`,
+          'format-review',
+          areas.length ? 'warning' : 'info'
+        )
+      );
     }
     // Two drawings on one cell block hide each other: a second chart anchored
     // inside the first one's rows prints as one chart drawn over another.
@@ -266,16 +283,21 @@ function reviewXlsxStructure(document, auditProfile = '') {
       for (let second = first + 1; second < drawings.length; second += 1) {
         const left = drawings[first].entry.anchor;
         const right = drawings[second].entry.anchor;
-        const columns = Math.min(Number(left.endColumn), Number(right.endColumn)) - Math.max(Number(left.startColumn), Number(right.startColumn));
-        const rows = Math.min(Number(left.endRow), Number(right.endRow)) - Math.max(Number(left.startRow), Number(right.startRow));
+        const columns =
+          Math.min(Number(left.endColumn), Number(right.endColumn)) -
+          Math.max(Number(left.startColumn), Number(right.startColumn));
+        const rows =
+          Math.min(Number(left.endRow), Number(right.endRow)) - Math.max(Number(left.startRow), Number(right.startRow));
         if (columns < 1 || rows < 1) continue;
-        issues.push(issue(
-          'drawing_overlap',
-          drawings[second].entry.path || sheet.path || `/sheet[${sheet.name || ''}]`,
-          `${drawings[second].kind} spans ${right.from}:${right.to}, over the ${drawings[first].kind.toLowerCase()} at ${left.from}:${left.to}; place it below or beside it.`,
-          'format-review',
-          'warning',
-        ));
+        issues.push(
+          issue(
+            'drawing_overlap',
+            drawings[second].entry.path || sheet.path || `/sheet[${sheet.name || ''}]`,
+            `${drawings[second].kind} spans ${right.from}:${right.to}, over the ${drawings[first].kind.toLowerCase()} at ${left.from}:${left.to}; place it below or beside it.`,
+            'format-review',
+            'warning'
+          )
+        );
       }
     }
   }
@@ -286,8 +308,14 @@ function reviewXlsxStructure(document, auditProfile = '') {
 }
 
 function overlapRatio(left, right) {
-  const width = Math.max(0, Math.min(left.left + left.width, right.left + right.width) - Math.max(left.left, right.left));
-  const height = Math.max(0, Math.min(left.top + left.height, right.top + right.height) - Math.max(left.top, right.top));
+  const width = Math.max(
+    0,
+    Math.min(left.left + left.width, right.left + right.width) - Math.max(left.left, right.left)
+  );
+  const height = Math.max(
+    0,
+    Math.min(left.top + left.height, right.top + right.height) - Math.max(left.top, right.top)
+  );
   const smallest = Math.min(left.width * left.height, right.width * right.height);
   return smallest > 0 ? (width * height) / smallest : 0;
 }
@@ -304,12 +332,8 @@ function officeColorRgb(value) {
     }
   }
   const color = Number(value);
-  if (!Number.isFinite(color) || color < 0 || color > 0xFFFFFF) return null;
-  return [
-    color & 255,
-    (color >> 8) & 255,
-    (color >> 16) & 255,
-  ];
+  if (!Number.isFinite(color) || color < 0 || color > 0xffffff) return null;
+  return [color & 255, (color >> 8) & 255, (color >> 16) & 255];
 }
 
 function relativeLuminance(rgb) {
@@ -318,7 +342,7 @@ function relativeLuminance(rgb) {
     const channel = entry / 255;
     return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
   });
-  return (0.2126 * channels[0]) + (0.7152 * channels[1]) + (0.0722 * channels[2]);
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
 }
 
 function colorContrastRatio(left, right) {
@@ -343,21 +367,24 @@ function solidShapeFill(shape) {
 }
 
 function containingSurface(textShape, shapes) {
-  const centerX = textShape.left + (textShape.width / 2);
-  const centerY = textShape.top + (textShape.height / 2);
-  return (shapes || [])
-    .filter((shape) => (
-      Number(shape?.index) < Number(textShape.index)
-      && !String(shape?.text || '').trim()
-      && solidShapeFill(shape) != null
-      && Number(shape.left) <= centerX
-      && Number(shape.top) <= centerY
-      && Number(shape.left) + Number(shape.width) >= centerX
-      && Number(shape.top) + Number(shape.height) >= centerY
-    ))
-    .sort((left, right) => (
-      (Number(left.width) * Number(left.height)) - (Number(right.width) * Number(right.height))
-    ))[0] || null;
+  const centerX = textShape.left + textShape.width / 2;
+  const centerY = textShape.top + textShape.height / 2;
+  return (
+    (shapes || [])
+      .filter(
+        (shape) =>
+          Number(shape?.index) < Number(textShape.index) &&
+          !String(shape?.text || '').trim() &&
+          solidShapeFill(shape) != null &&
+          Number(shape.left) <= centerX &&
+          Number(shape.top) <= centerY &&
+          Number(shape.left) + Number(shape.width) >= centerX &&
+          Number(shape.top) + Number(shape.height) >= centerY
+      )
+      .sort(
+        (left, right) => Number(left.width) * Number(left.height) - Number(right.width) * Number(right.height)
+      )[0] || null
+  );
 }
 
 // Presentation body copy stays at 12 pt or more, but page chrome (kickers,
@@ -378,10 +405,7 @@ function isPptxChromeText(shape) {
   const text = String(shape.text || '').trim();
   const fontSize = Number(shape.font?.size) || 0;
   if (shape.placeholder && PPTX_PAGE_NUMBER.test(text)) return true;
-  return fontSize > 0
-    && fontSize <= PPTX_BODY_MIN_PT
-    && text.length <= PPTX_CHROME_MAX_CHARS
-    && !/[\r\n]/.test(text);
+  return fontSize > 0 && fontSize <= PPTX_BODY_MIN_PT && text.length <= PPTX_CHROME_MAX_CHARS && !/[\r\n]/.test(text);
 }
 
 // A numeral or short lead directly above its own description is one unit
@@ -398,8 +422,9 @@ const PPTX_AXIS_DRIFT_PT = 6;
 const PPTX_INLINE_ICON_PT = 36;
 // A picture is `p:pic` in the portable snapshot and msoPicture (13) in the COM one (pptx-receipt.mjs isPicture);
 // PowerPoint reports a picture that carries an SVG source (the kit's icons) as msoGraphic (28).
-const isPptxInlineIcon = (shape) => (shape.picture || shape.image || shape.type === 'p:pic' || Number(shape.type) === 13 || Number(shape.type) === 28)
-  && Math.max(Number(shape.width) || 0, Number(shape.height) || 0) <= PPTX_INLINE_ICON_PT;
+const isPptxInlineIcon = (shape) =>
+  (shape.picture || shape.image || shape.type === 'p:pic' || Number(shape.type) === 13 || Number(shape.type) === 28) &&
+  Math.max(Number(shape.width) || 0, Number(shape.height) || 0) <= PPTX_INLINE_ICON_PT;
 const PPTX_AXIS_MEMBERS = 2;
 const PPTX_AXIS_REPORTS_PER_SLIDE = 3;
 
@@ -415,9 +440,19 @@ const PPTX_AXIS_KINDS = Object.freeze(['left edge', 'centre', 'right edge', 'top
 function pptxShapeAxes(shape) {
   const flat = { x: shape.width === 0, y: shape.height === 0 };
   return [
-    ...(flat.x ? [] : [['left edge', shape.left], ['right edge', shape.left + shape.width]]),
+    ...(flat.x
+      ? []
+      : [
+          ['left edge', shape.left],
+          ['right edge', shape.left + shape.width],
+        ]),
     ['centre', shape.left + shape.width / 2],
-    ...(flat.y ? [] : [['top edge', shape.top], ['bottom edge', shape.top + shape.height]]),
+    ...(flat.y
+      ? []
+      : [
+          ['top edge', shape.top],
+          ['bottom edge', shape.top + shape.height],
+        ]),
     ['middle', shape.top + shape.height / 2],
   ];
 }
@@ -471,9 +506,12 @@ function pptxPeerRows(shapes) {
   const rows = [];
   for (const shape of shapes) {
     if (!(shape.width > 0 && shape.height > 0)) continue;
-    const row = rows.find(([first]) => Math.abs(first.top - shape.top) <= PPTX_ROW_BAND_PT
-      && Math.abs(first.height - shape.height) <= Math.max(1, first.height * PPTX_ROW_SIZE_RATIO)
-      && Math.abs(first.width - shape.width) <= Math.max(1, first.width * PPTX_ROW_SIZE_RATIO));
+    const row = rows.find(
+      ([first]) =>
+        Math.abs(first.top - shape.top) <= PPTX_ROW_BAND_PT &&
+        Math.abs(first.height - shape.height) <= Math.max(1, first.height * PPTX_ROW_SIZE_RATIO) &&
+        Math.abs(first.width - shape.width) <= Math.max(1, first.width * PPTX_ROW_SIZE_RATIO)
+    );
     if (row) row.push(shape);
     else rows.push([shape]);
   }
@@ -525,26 +563,31 @@ function reviewPptxStructure(document, auditProfile = '') {
       : source;
     for (const shape of slide.shapes || []) {
       if (shape.chart && Number(shape.chart.seriesCount) === 0) {
-        issues.push(issue(
-          'empty_chart',
-          shape.chart.path || `${shape.path || slide.path}/chart`,
-          'Chart has no persisted data series.',
-          'format-review',
-          'error',
-        ));
+        issues.push(
+          issue(
+            'empty_chart',
+            shape.chart.path || `${shape.path || slide.path}/chart`,
+            'Chart has no persisted data series.',
+            'format-review',
+            'error'
+          )
+        );
       }
     }
-    const textShapes = (slide.shapes || []).filter((shape) => (
-      String(shape.text || '').trim()
-      && !isMotifShape(shape)
-      && [shape.left, shape.top, shape.width, shape.height].every((entry) => Number.isFinite(Number(entry)))
-    )).map((shape) => ({
-      ...shape,
-      left: Number(shape.left),
-      top: Number(shape.top),
-      width: Number(shape.width),
-      height: Number(shape.height),
-    }));
+    const textShapes = (slide.shapes || [])
+      .filter(
+        (shape) =>
+          String(shape.text || '').trim() &&
+          !isMotifShape(shape) &&
+          [shape.left, shape.top, shape.width, shape.height].every((entry) => Number.isFinite(Number(entry)))
+      )
+      .map((shape) => ({
+        ...shape,
+        left: Number(shape.left),
+        top: Number(shape.top),
+        width: Number(shape.width),
+        height: Number(shape.height),
+      }));
     for (const shape of textShapes) {
       const fontSize = Number(shape.font?.size) || 0;
       const chrome = isPptxChromeText(shape);
@@ -554,64 +597,68 @@ function reviewPptxStructure(document, auditProfile = '') {
         issues.push(issue('small_font', shape.path || slide.path, `Body text is smaller than ${PPTX_BODY_MIN_PT} pt.`));
       }
       const surface = containingSurface(shape, slide.shapes || []);
-      const backgroundColor = solidShapeFill(shape)
-        ?? solidShapeFill(surface)
-        ?? slide.background?.color;
+      const backgroundColor = solidShapeFill(shape) ?? solidShapeFill(surface) ?? slide.background?.color;
       const contrast = colorContrastRatio(shape.font?.color, backgroundColor);
       if (Number.isFinite(contrast) && contrast < 1.8) {
-        issues.push(issue(
-          'low_contrast',
-          shape.path || slide.path,
-          `Text contrast is ${contrast.toFixed(2)}:1 against ${surface?.path || 'the slide background'}; the text is visually indistinguishable from its surface.`,
-        ));
+        issues.push(
+          issue(
+            'low_contrast',
+            shape.path || slide.path,
+            `Text contrast is ${contrast.toFixed(2)}:1 against ${surface?.path || 'the slide background'}; the text is visually indistinguishable from its surface.`
+          )
+        );
       }
       const margin = chrome ? PPTX_CHROME_EDGE_PT : PPTX_EDGE_PT;
-      if (width > 0 && height > 0 && (
-        shape.left < margin
-        || shape.top < margin
-        || shape.left + shape.width > width - margin
-        || shape.top + shape.height > height - margin
-      )) {
+      if (
+        width > 0 &&
+        height > 0 &&
+        (shape.left < margin ||
+          shape.top < margin ||
+          shape.left + shape.width > width - margin ||
+          shape.top + shape.height > height - margin)
+      ) {
         issues.push(issue('edge_margin', shape.path || slide.path, `Text is within ${margin} pt of a slide edge.`));
       }
     }
     // Page-number fields live on the master; their distance to content is chrome, not spacing — but a body block
     // drawn over the page number is still an overlap (PowerPoint's own read reports it; the portable read used to
     // leave the field out of both checks and pass a column that ran into the foot).
-    const isPageNumber = (shape) => Boolean(shape.placeholder) && PPTX_PAGE_NUMBER.test(String(shape.text || '').trim());
+    const isPageNumber = (shape) =>
+      Boolean(shape.placeholder) && PPTX_PAGE_NUMBER.test(String(shape.text || '').trim());
     const pairShapes = textShapes;
     for (let leftIndex = 0; leftIndex < pairShapes.length; leftIndex += 1) {
       for (let rightIndex = leftIndex + 1; rightIndex < pairShapes.length; rightIndex += 1) {
         const left = pairShapes[leftIndex];
         const right = pairShapes[rightIndex];
         if (overlapRatio(left, right) >= 0.25) {
-          issues.push(issue(
-            'shape_overlap',
-            slide.path || `/slide[${slide.index}]`,
-            `Text shapes ${left.index || leftIndex + 1} and ${right.index || rightIndex + 1} overlap by at least 25%.`,
-          ));
+          issues.push(
+            issue(
+              'shape_overlap',
+              slide.path || `/slide[${slide.index}]`,
+              `Text shapes ${left.index || leftIndex + 1} and ${right.index || rightIndex + 1} overlap by at least 25%.`
+            )
+          );
           continue;
         }
         if (isPageNumber(left) || isPageNumber(right)) continue;
         const horizontalOverlap = Math.max(
           0,
-          Math.min(left.left + left.width, right.left + right.width) - Math.max(left.left, right.left),
+          Math.min(left.left + left.width, right.left + right.width) - Math.max(left.left, right.left)
         );
-        const verticalGap = Math.max(
-          right.top - (left.top + left.height),
-          left.top - (right.top + right.height),
-        );
+        const verticalGap = Math.max(right.top - (left.top + left.height), left.top - (right.top + right.height));
         if (
-          horizontalOverlap >= Math.min(left.width, right.width) * 0.3
-          && verticalGap >= 0
-          && verticalGap < 6
-          && !isPptxLabelledUnit(left, right)
+          horizontalOverlap >= Math.min(left.width, right.width) * 0.3 &&
+          verticalGap >= 0 &&
+          verticalGap < 6 &&
+          !isPptxLabelledUnit(left, right)
         ) {
-          issues.push(issue(
-            'text_spacing_tight',
-            slide.path || `/slide[${slide.index}]`,
-            `Text shapes ${left.index || leftIndex + 1} and ${right.index || rightIndex + 1} have less than 6 pt vertical spacing.`,
-          ));
+          issues.push(
+            issue(
+              'text_spacing_tight',
+              slide.path || `/slide[${slide.index}]`,
+              `Text shapes ${left.index || leftIndex + 1} and ${right.index || rightIndex + 1} have less than 6 pt vertical spacing.`
+            )
+          );
         }
       }
     }
@@ -619,27 +666,39 @@ function reviewPptxStructure(document, auditProfile = '') {
     // band laid across the foot of a chart hides the category axis, so the page
     // shows three bars with no names and the audit used to pass: only text boxes
     // were ever compared with each other.
-    const evidenceFrames = (slide.shapes || []).filter((shape) => (
-      (shape.chart || shape.table || shape.picture || shape.image)
-      && [shape.left, shape.top, shape.width, shape.height].every((entry) => Number.isFinite(Number(entry)))
-    ));
+    const evidenceFrames = (slide.shapes || []).filter(
+      (shape) =>
+        (shape.chart || shape.table || shape.picture || shape.image) &&
+        [shape.left, shape.top, shape.width, shape.height].every((entry) => Number.isFinite(Number(entry)))
+    );
     for (const frame of evidenceFrames) {
       const area = Number(frame.width) * Number(frame.height);
       if (!(area > 0)) continue;
       for (const cover of slide.shapes || []) {
         if (cover === frame || !solidShapeFill(cover)) continue;
         if (!(Number(cover.index) > Number(frame.index))) continue;
-        if (![cover.left, cover.top, cover.width, cover.height].every((entry) => Number.isFinite(Number(entry)))) continue;
-        const width = Math.max(0, Math.min(Number(frame.left) + Number(frame.width), Number(cover.left) + Number(cover.width)) - Math.max(Number(frame.left), Number(cover.left)));
-        const height = Math.max(0, Math.min(Number(frame.top) + Number(frame.height), Number(cover.top) + Number(cover.height)) - Math.max(Number(frame.top), Number(cover.top)));
+        if (![cover.left, cover.top, cover.width, cover.height].every((entry) => Number.isFinite(Number(entry))))
+          continue;
+        const width = Math.max(
+          0,
+          Math.min(Number(frame.left) + Number(frame.width), Number(cover.left) + Number(cover.width)) -
+            Math.max(Number(frame.left), Number(cover.left))
+        );
+        const height = Math.max(
+          0,
+          Math.min(Number(frame.top) + Number(frame.height), Number(cover.top) + Number(cover.height)) -
+            Math.max(Number(frame.top), Number(cover.top))
+        );
         if ((width * height) / area < 0.05) continue;
         const kind = frame.chart ? 'chart' : frame.table ? 'table' : 'picture';
-        issues.push(issue(
-          'shape_overlap',
-          frame.path || slide.path || `/slide[${slide.index}]`,
-          `Shape ${cover.index} is drawn over the ${kind}, covering ${Math.round(((width * height) / area) * 100)}% of it;`
-            + ' a band across the foot of a chart hides its category axis.',
-        ));
+        issues.push(
+          issue(
+            'shape_overlap',
+            frame.path || slide.path || `/slide[${slide.index}]`,
+            `Shape ${cover.index} is drawn over the ${kind}, covering ${Math.round(((width * height) / area) * 100)}% of it;` +
+              ' a band across the foot of a chart hides its category axis.'
+          )
+        );
         break;
       }
       // A text box over a table is never an annotation (a chart or a picture may carry one): a source line whose
@@ -651,15 +710,25 @@ function reviewPptxStructure(document, auditProfile = '') {
         if (textShape === frame || textShape.table || textShape.chart || textShape.index === frame.index) continue;
         const textArea = Number(textShape.width) * Number(textShape.height);
         if (!(textArea > 0)) continue;
-        const width = Math.max(0, Math.min(Number(frame.left) + Number(frame.width), Number(textShape.left) + Number(textShape.width)) - Math.max(Number(frame.left), Number(textShape.left)));
-        const height = Math.max(0, Math.min(Number(frame.top) + Number(frame.height), Number(textShape.top) + Number(textShape.height)) - Math.max(Number(frame.top), Number(textShape.top)));
+        const width = Math.max(
+          0,
+          Math.min(Number(frame.left) + Number(frame.width), Number(textShape.left) + Number(textShape.width)) -
+            Math.max(Number(frame.left), Number(textShape.left))
+        );
+        const height = Math.max(
+          0,
+          Math.min(Number(frame.top) + Number(frame.height), Number(textShape.top) + Number(textShape.height)) -
+            Math.max(Number(frame.top), Number(textShape.top))
+        );
         const share = (width * height) / textArea;
         if (share < 0.2) continue;
-        issues.push(issue(
-          'shape_overlap',
-          frame.path || slide.path || `/slide[${slide.index}]`,
-          `Text shape ${textShape.index} runs into the table (${Math.round(share * 100)}% of the text box lies over it); move the text or give the table fewer rows.`,
-        ));
+        issues.push(
+          issue(
+            'shape_overlap',
+            frame.path || slide.path || `/slide[${slide.index}]`,
+            `Text shape ${textShape.index} runs into the table (${Math.round(share * 100)}% of the text box lies over it); move the text or give the table fewer rows.`
+          )
+        );
         break;
       }
     }
@@ -670,10 +739,13 @@ function reviewPptxStructure(document, auditProfile = '') {
     // marks, not to the page: a hub's satellites stand on a circle, so their icons' edges land wherever the angle
     // puts them, and reading those as axes flagged every radial structure.
     const placedShapes = (slide.shapes || [])
-      .filter((shape) => !isMotifShape(shape)
-        && !isPptxInlineIcon(shape)
-        && !String(shape.text || '').trim()
-        && [shape.left, shape.top, shape.width, shape.height].every((entry) => Number.isFinite(Number(entry))))
+      .filter(
+        (shape) =>
+          !isMotifShape(shape) &&
+          !isPptxInlineIcon(shape) &&
+          !String(shape.text || '').trim() &&
+          [shape.left, shape.top, shape.width, shape.height].every((entry) => Number.isFinite(Number(entry)))
+      )
       .map((shape) => ({
         ...shape,
         left: Number(shape.left),
@@ -688,40 +760,45 @@ function reviewPptxStructure(document, auditProfile = '') {
       const drift = pptxAxisDrift(shape, slideAxes);
       if (!drift) continue;
       drifts += 1;
-      issues.push(issue(
-        'axis_drift',
-        shape.path || slide.path,
-        `The ${drift.name} sits ${drift.offset.toFixed(1)} pt off the axis the slide shares at ${drift.axis.toFixed(1)} pt.`,
-      ));
+      issues.push(
+        issue(
+          'axis_drift',
+          shape.path || slide.path,
+          `The ${drift.name} sits ${drift.offset.toFixed(1)} pt off the axis the slide shares at ${drift.axis.toFixed(1)} pt.`
+        )
+      );
     }
     for (const row of pptxPeerRows(placedShapes)) {
       const spread = pptxRowGapSpread(row);
       if (!spread) continue;
-      issues.push(issue(
-        'peer_gap_uneven',
-        slide.path || `/slide[${slide.index}]`,
-        `A row of ${spread.count} equal shapes is spaced from ${spread.smallest.toFixed(1)} to ${spread.largest.toFixed(1)} pt; the gaps read as a wobble rather than one rhythm.`,
-      ));
+      issues.push(
+        issue(
+          'peer_gap_uneven',
+          slide.path || `/slide[${slide.index}]`,
+          `A row of ${spread.count} equal shapes is spaced from ${spread.smallest.toFixed(1)} to ${spread.largest.toFixed(1)} pt; the gaps read as a wobble rather than one rhythm.`
+        )
+      );
     }
     if (auditProfile === 'model-backed-deck') {
       const allText = textShapes.map((shape) => shape.text).join(' ');
-      if (/\d/.test(allText) && !/(?:source\s*:|[\w .-]+!\$?[A-Z]{1,3}\$?\d+|출처\s*:)/i.test(String(slide.notes || ''))) {
-        issues.push(issue(
-          'number_without_source',
-          slide.path || `/slide[${slide.index}]`,
-          'Slide contains numbers but its notes do not cite a workbook cell or source.',
-        ));
+      if (
+        /\d/.test(allText) &&
+        !/(?:source\s*:|[\w .-]+!\$?[A-Z]{1,3}\$?\d+|출처\s*:)/i.test(String(slide.notes || ''))
+      ) {
+        issues.push(
+          issue(
+            'number_without_source',
+            slide.path || `/slide[${slide.index}]`,
+            'Slide contains numbers but its notes do not cite a workbook cell or source.'
+          )
+        );
       }
     }
   }
   return issues;
 }
 
-export function reviewOfficeStructure({
-  format,
-  document,
-  auditProfile = '',
-} = {}) {
+export function reviewOfficeStructure({ format, document, auditProfile = '' } = {}) {
   const normalized = String(format || document?.format || '').toLowerCase();
   if (normalized === 'docx') return reviewDocxStructure(document);
   if (normalized === 'xlsx') return reviewXlsxStructure(document, auditProfile);

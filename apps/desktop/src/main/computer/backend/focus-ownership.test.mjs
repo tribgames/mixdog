@@ -9,13 +9,16 @@ import { PS_RUNTIME } from './ps-runtime.ts';
 import { PS_INPUT } from './ps-input.ts';
 
 test('session release restores focus only while the original input observation still owns it', {
-  skip: process.platform !== 'win32', timeout: 20000,
+  skip: process.platform !== 'win32',
+  timeout: 20000,
 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-focus-ownership-'));
   try {
     await writeFile(join(directory, 'runtime.ps1'), PS_RUNTIME);
     await writeFile(join(directory, 'input.ps1'), PS_INPUT);
-    await writeFile(join(directory, 'test.ps1'), String.raw`
+    await writeFile(
+      join(directory, 'test.ps1'),
+      String.raw`
 $ErrorActionPreference = 'Stop'
 Add-Type @'
 using System;
@@ -81,12 +84,23 @@ foreach($scenario in @('background_unchanged','background_user_input','backgroun
   $results+=@{scenario=$scenario; restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls}
 }
 [Console]::WriteLine(($results | ConvertTo-Json -Compress))
-`);
-    const result = await promisify(execFile)('powershell.exe',
+`
+    );
+    const result = await promisify(execFile)(
+      'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
-      { timeout: 15000, windowsHide: true, env: { ...process.env, FIXTURE_DIRECTORY: directory } });
+      { timeout: 15000, windowsHide: true, env: { ...process.env, FIXTURE_DIRECTORY: directory } }
+    );
     const rows = JSON.parse(result.stdout.trim());
-    assert.deepEqual(rows.map(row => row.calls), [1, 0, 0, 0, 0, 1, 0, 0, 0]);
-    assert.deepEqual(rows.map(row => row.restored), [true, false, false, false, false, true, false, false, false]);
-  } finally { await rm(directory, { recursive: true, force: true }); }
+    assert.deepEqual(
+      rows.map((row) => row.calls),
+      [1, 0, 0, 0, 0, 1, 0, 0, 0]
+    );
+    assert.deepEqual(
+      rows.map((row) => row.restored),
+      [true, false, false, false, false, true, false, false, false]
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

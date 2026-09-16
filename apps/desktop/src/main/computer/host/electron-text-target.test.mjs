@@ -5,10 +5,12 @@ import test from 'node:test';
 
 registerHooks({
   resolve(specifier, context, next) {
-    return specifier === 'electron' ? {
-      url: 'data:text/javascript,export const screen = { screenToDipPoint: p => ({ x: p.x / 2, y: p.y / 2 }) }; export const BrowserWindow = { getAllWindows: () => globalThis.typingWindows || [] };',
-      shortCircuit: true,
-    } : next(specifier, context);
+    return specifier === 'electron'
+      ? {
+          url: 'data:text/javascript,export const screen = { screenToDipPoint: p => ({ x: p.x / 2, y: p.y / 2 }) }; export const BrowserWindow = { getAllWindows: () => globalThis.typingWindows || [] };',
+          shortCircuit: true,
+        }
+      : next(specifier, context);
   },
 });
 const { typingTargetProbe, waitForElectronTypingTarget } = await import('./electron-text-target.ts');
@@ -39,31 +41,40 @@ test('typing readiness converts physical coordinates and zoom and stops on cance
   let checks = 0;
   const field = { tagName: 'TEXTAREA' };
   const window = {
-    isDestroyed: () => false, getContentBounds: () => ({ x: 100, y: 50 }),
+    isDestroyed: () => false,
+    getContentBounds: () => ({ x: 100, y: 50 }),
     webContents: {
-      isDestroyed: () => false, getZoomFactor: () => 2,
+      isDestroyed: () => false,
+      getZoomFactor: () => 2,
       executeJavaScript: async (script) => {
         checks++;
-        return runInNewContext(script, { document: {
-          activeElement: field,
-          elementFromPoint: (x, y) => x === 25 && y === 10 ? field : null,
-        } });
+        return runInNewContext(script, {
+          document: {
+            activeElement: field,
+            elementFromPoint: (x, y) => (x === 25 && y === 10 ? field : null),
+          },
+        });
       },
     },
   };
   assert.equal(await waitForElectronTypingTarget(window, { x: 300, y: 140 }, async () => {}), true);
   assert.equal(checks, 1);
-  await assert.rejects(waitForElectronTypingTarget(window, undefined, async () => {
-    throw new Error('cancelled');
-  }), /cancelled/);
+  await assert.rejects(
+    waitForElectronTypingTarget(window, undefined, async () => {
+      throw new Error('cancelled');
+    }),
+    /cancelled/
+  );
   assert.equal(checks, 1);
 });
 
 test('an unresponsive renderer cannot hold the typing readiness check indefinitely', async () => {
   const window = {
-    isDestroyed: () => false, getContentBounds: () => ({ x: 0, y: 0 }),
+    isDestroyed: () => false,
+    getContentBounds: () => ({ x: 0, y: 0 }),
     webContents: {
-      isDestroyed: () => false, getZoomFactor: () => 1,
+      isDestroyed: () => false,
+      getZoomFactor: () => 1,
       executeJavaScript: () => new Promise(() => {}),
     },
   };
@@ -72,51 +83,104 @@ test('an unresponsive renderer cannot hold the typing readiness check indefinite
 
 test('observation-only enabled during focus confirmation prevents text after the preparatory click', async () => {
   const { createInputDispatch } = await import('./input-dispatch.ts');
-  let observeOnly = false, clicks = 0, textWrites = 0;
-  globalThis.typingWindows = [{
-    isDestroyed: () => false, getNativeWindowHandle: () => Buffer.from([1, 0, 0, 0]),
-    getContentBounds: () => ({ x: 0, y: 0 }),
-    webContents: {
-      isDestroyed: () => false, getZoomFactor: () => 1,
-      executeJavaScript: async () => { observeOnly = true; return true; },
-      insertText: async () => { textWrites++; },
+  let observeOnly = false,
+    clicks = 0,
+    textWrites = 0;
+  globalThis.typingWindows = [
+    {
+      isDestroyed: () => false,
+      getNativeWindowHandle: () => Buffer.from([1, 0, 0, 0]),
+      getContentBounds: () => ({ x: 0, y: 0 }),
+      webContents: {
+        isDestroyed: () => false,
+        getZoomFactor: () => 1,
+        executeJavaScript: async () => {
+          observeOnly = true;
+          return true;
+        },
+        insertText: async () => {
+          textWrites++;
+        },
+      },
     },
-  }];
-  const dispatch = createInputDispatch({
-    assertExecutionNotAborted() {}, isObserveOnly: () => observeOnly, sessionIdFor: () => 'typing-fixture',
-    callPowerShell: async () => { clicks++; return { ok: true, result: { delivery_accepted: true } }; },
-  }, { assertAction() {}, dispatchAuthority: () => ({}) });
+  ];
+  const dispatch = createInputDispatch(
+    {
+      assertExecutionNotAborted() {},
+      isObserveOnly: () => observeOnly,
+      sessionIdFor: () => 'typing-fixture',
+      callPowerShell: async () => {
+        clicks++;
+        return { ok: true, result: { delivery_accepted: true } };
+      },
+    },
+    { assertAction() {}, dispatchAuthority: () => ({}) }
+  );
   try {
-    await assert.rejects(dispatch({ action: 'type', text: 'fixture' }, 'type',
-      { targetWindowId: 'hwnd:0x1', physicalX: 2, physicalY: 2, allowedWindowIds: ['hwnd:0x1'] }), /observation_only/);
+    await assert.rejects(
+      dispatch({ action: 'type', text: 'fixture' }, 'type', {
+        targetWindowId: 'hwnd:0x1',
+        physicalX: 2,
+        physicalY: 2,
+        allowedWindowIds: ['hwnd:0x1'],
+      }),
+      /observation_only/
+    );
     assert.equal(clicks, 1);
     assert.equal(textWrites, 0);
-  } finally { delete globalThis.typingWindows; }
+  } finally {
+    delete globalThis.typingWindows;
+  }
 });
 
 test('a failed preparatory click retains uncertainty and never sends app-owned text', async () => {
   const { createInputDispatch } = await import('./input-dispatch.ts');
   for (const uncertain of [true, false]) {
     let textWrites = 0;
-    globalThis.typingWindows = [{
-      isDestroyed: () => false, getNativeWindowHandle: () => Buffer.from([1, 0, 0, 0]),
-      webContents: { isDestroyed: () => false, insertText: async () => { textWrites++; } },
-    }];
-    const dispatch = createInputDispatch({
-      assertExecutionNotAborted() {}, isObserveOnly: () => false, sessionIdFor: () => 'typing-fixture',
-      callPowerShell: async () => ({ ok: true, result: {
-        action: 'click', code: 'background_unsupported', text: 'fixture refusal',
-        delivery_accepted: uncertain ? null : false, input_may_have_executed: uncertain,
-      } }),
-    }, { assertAction() {}, dispatchAuthority: () => ({}) });
+    globalThis.typingWindows = [
+      {
+        isDestroyed: () => false,
+        getNativeWindowHandle: () => Buffer.from([1, 0, 0, 0]),
+        webContents: {
+          isDestroyed: () => false,
+          insertText: async () => {
+            textWrites++;
+          },
+        },
+      },
+    ];
+    const dispatch = createInputDispatch(
+      {
+        assertExecutionNotAborted() {},
+        isObserveOnly: () => false,
+        sessionIdFor: () => 'typing-fixture',
+        callPowerShell: async () => ({
+          ok: true,
+          result: {
+            action: 'click',
+            code: 'background_unsupported',
+            text: 'fixture refusal',
+            delivery_accepted: uncertain ? null : false,
+            input_may_have_executed: uncertain,
+          },
+        }),
+      },
+      { assertAction() {}, dispatchAuthority: () => ({}) }
+    );
     try {
-      const response = await dispatch({ action: 'type', text: 'must not be typed' }, 'type',
-        { targetWindowId: 'hwnd:0x1', physicalX: 2, physicalY: 2, allowedWindowIds: ['hwnd:0x1'] });
+      const response = await dispatch({ action: 'type', text: 'must not be typed' }, 'type', {
+        targetWindowId: 'hwnd:0x1',
+        physicalX: 2,
+        physicalY: 2,
+        allowedWindowIds: ['hwnd:0x1'],
+      });
       assert.equal(response.result.action, 'type');
       assert.equal(response.result.code, 'background_unsupported');
       assert.equal(response.result.input_may_have_executed, uncertain);
       assert.equal(response.result.delivery_accepted, uncertain ? null : false);
       assert.equal(textWrites, 0);
-    } finally { delete globalThis.typingWindows; }
+    } finally {
+      delete globalThis.typingWindows;
+    }
   }
 });

@@ -84,16 +84,25 @@ function StatsValue({ value, loading = false }: { value: string; loading?: boole
   return loading ? <span className="usage-skeleton stats-value-skeleton" aria-hidden="true" /> : value;
 }
 
-function StatCard({ label, value, detail, loading }: {
+function StatCard({
+  label,
+  value,
+  detail,
+  loading,
+}: {
   label: string;
   value: string;
   detail?: string;
   loading?: boolean;
 }) {
-  return <div className="stats-card">
-    <small title={detail}>{label}</small>
-    <b title={detail}><StatsValue value={value} loading={loading} /></b>
-  </div>;
+  return (
+    <div className="stats-card">
+      <small title={detail}>{label}</small>
+      <b title={detail}>
+        <StatsValue value={value} loading={loading} />
+      </b>
+    </div>
+  );
 }
 
 /** Input as sent: fresh input plus the prompt written to cache. Cached providers
@@ -119,27 +128,47 @@ function TokenMix({ totals, loading }: { totals: Row; loading: boolean }) {
   ];
   const cache = statsNumber(totals.cacheRead);
   const total = parts.reduce((sum, part) => sum + part.value, 0);
-  return <section className="stats-mix">
-    <header>
-      <h4>{t('Token mix')}</h4>
-      {(cache > 0 || loading) && <span>{t('Cache hit rate')} <StatsValue value={statsPercent(totals.cacheHitRate)} loading={loading} /></span>}
-    </header>
-    <div className={`stats-mix-bar${loading ? ' usage-skeleton' : ''}`} role="img" aria-label={t('Token mix')}>
-      {total > 0
-        ? parts.filter((part) => part.value > 0).map((part) => <i key={part.key}
-          data-part={part.key} style={{ width: `${(part.value / total) * 100}%` }} />)
-        : <i data-part="empty" style={{ width: '100%' }} />}
-    </div>
-    <ul>
-      {parts.map((part) => <li key={part.key} title={part.title}>
-        <i data-part={part.key} aria-hidden="true" />{part.label}<b><StatsValue
-          value={statsTokens(part.value, incomplete && part.key === 'input')} loading={loading} /></b>
-      </li>)}
-      <li>
-        <i data-part="cache" aria-hidden="true" />{t('Cache hits')}<b><StatsValue value={statsTokens(cache, incomplete)} loading={loading} /></b>
-      </li>
-    </ul>
-  </section>;
+  return (
+    <section className="stats-mix">
+      <header>
+        <h4>{t('Token mix')}</h4>
+        {(cache > 0 || loading) && (
+          <span>
+            {t('Cache hit rate')} <StatsValue value={statsPercent(totals.cacheHitRate)} loading={loading} />
+          </span>
+        )}
+      </header>
+      <div className={`stats-mix-bar${loading ? ' usage-skeleton' : ''}`} role="img" aria-label={t('Token mix')}>
+        {total > 0 ? (
+          parts
+            .filter((part) => part.value > 0)
+            .map((part) => (
+              <i key={part.key} data-part={part.key} style={{ width: `${(part.value / total) * 100}%` }} />
+            ))
+        ) : (
+          <i data-part="empty" style={{ width: '100%' }} />
+        )}
+      </div>
+      <ul>
+        {parts.map((part) => (
+          <li key={part.key} title={part.title}>
+            <i data-part={part.key} aria-hidden="true" />
+            {part.label}
+            <b>
+              <StatsValue value={statsTokens(part.value, incomplete && part.key === 'input')} loading={loading} />
+            </b>
+          </li>
+        ))}
+        <li>
+          <i data-part="cache" aria-hidden="true" />
+          {t('Cache hits')}
+          <b>
+            <StatsValue value={statsTokens(cache, incomplete)} loading={loading} />
+          </b>
+        </li>
+      </ul>
+    </section>
+  );
 }
 
 function pad2(value: number): string {
@@ -173,8 +202,12 @@ export function resolveUsageTrendGrouping(startDay: string, endDay: string): Tre
     ['year', lastYear - firstYear + 1],
   ];
   const grain = counts.find(([, count]) => count <= MAX_TREND_BARS)?.[0] || 'year';
-  return { grain, step: grain === 'year' ? Math.ceil((lastYear - firstYear + 1) / MAX_TREND_BARS) : 1,
-    firstYear, lastYear };
+  return {
+    grain,
+    step: grain === 'year' ? Math.ceil((lastYear - firstYear + 1) / MAX_TREND_BARS) : 1,
+    firstYear,
+    lastYear,
+  };
 }
 
 type TrendTotals = {
@@ -214,23 +247,41 @@ function groupTrend(daily: Row[], grouping: TrendGrouping): TrendBucket[] {
   for (const entry of daily) {
     const day = String(grain === 'hour' ? entry.key || '' : entry.day || '');
     if (!day) continue;
-    let key = grain === 'year' ? day.slice(0, 4)
-      : grain === 'month' ? day.slice(0, 7) : grain === 'week' ? weekBucketKey(day) : day;
+    let key =
+      grain === 'year'
+        ? day.slice(0, 4)
+        : grain === 'month'
+          ? day.slice(0, 7)
+          : grain === 'week'
+            ? weekBucketKey(day)
+            : day;
     if (grain === 'year' && step > 1) {
       key = String(firstYear + Math.floor((Number(key) - firstYear) / step) * step);
     }
     const finalYear = Math.min(Number(key) + step - 1, lastYear);
     const calendarLabel = grain === 'year' && step > 1 && finalYear > Number(key) ? `${key}–${finalYear}` : key;
-    const bucket = buckets.get(key)
-      || { key, label: grain === 'hour'
-        ? entry.unknown ? t('Unknown time') : String(entry.label || key) : grain === 'week' ? day : calendarLabel,
-      ...emptyTrendTotals(), future: true, fromMs: usageNumber(entry.fromMs), toMs: usageNumber(entry.toMs),
-      startDay: grain === 'hour' ? '' : day, endDay: grain === 'hour' ? '' : day,
-      providers: new Map<string, TrendTotals>() };
+    const bucket = buckets.get(key) || {
+      key,
+      label:
+        grain === 'hour'
+          ? entry.unknown
+            ? t('Unknown time')
+            : String(entry.label || key)
+          : grain === 'week'
+            ? day
+            : calendarLabel,
+      ...emptyTrendTotals(),
+      future: true,
+      fromMs: usageNumber(entry.fromMs),
+      toMs: usageNumber(entry.toMs),
+      startDay: grain === 'hour' ? '' : day,
+      endDay: grain === 'hour' ? '' : day,
+      providers: new Map<string, TrendTotals>(),
+    };
     bucket.future = bucket.future && entry.future === true;
     if (grain !== 'hour') bucket.endDay = day;
     addTrendTotals(bucket, entry);
-    for (const raw of (Array.isArray(entry.providers) ? entry.providers as unknown[] : [])) {
+    for (const raw of Array.isArray(entry.providers) ? (entry.providers as unknown[]) : []) {
       const slice = record(raw);
       const id = String(slice.provider || '');
       if (!id) continue;
@@ -240,8 +291,7 @@ function groupTrend(daily: Row[], grouping: TrendGrouping): TrendBucket[] {
     }
     buckets.set(key, bucket);
   }
-  return [...buckets.values()]
-    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return [...buckets.values()].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 }
 
 function metricValue(bucket: TrendTotals, metric: Metric): number {
@@ -262,17 +312,30 @@ function trendMetricText(totals: TrendTotals, metric: Metric): string {
 function trendPeriodLabel(bucket: TrendBucket): string {
   if (bucket.fromMs !== null && bucket.toMs !== null) {
     return new Intl.DateTimeFormat(uiFormatLocale(), {
-      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     }).formatRange(new Date(bucket.fromMs), new Date(bucket.toMs));
   }
   if (!bucket.startDay) return bucket.label;
   return new Intl.DateTimeFormat(uiFormatLocale(), {
-    year: 'numeric', month: 'short', day: 'numeric',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
   }).formatRange(new Date(`${bucket.startDay}T00:00:00`), new Date(`${bucket.endDay}T00:00:00`));
 }
 
 /** Provider identity, not rank or metric, owns the colour of every band. */
-function TrendBar({ bucket, metric, peak, order, interaction, expanded, controls }: {
+function TrendBar({
+  bucket,
+  metric,
+  peak,
+  order,
+  interaction,
+  expanded,
+  controls,
+}: {
   bucket: TrendBucket;
   metric: Metric;
   peak: number;
@@ -287,32 +350,64 @@ function TrendBar({ bucket, metric, peak, order, interaction, expanded, controls
     .map((id) => ({ id, value: statsNumber(bucket.providers.get(id)?.[metric]) }))
     .filter((part) => part.value > 0);
   const summed = parts.reduce((sum, part) => sum + part.value, 0);
-  const title = bucket.future ? bucket.label
-    : `${bucket.label} · ${metric === 'costUsd' ? statsMoney(bucket as unknown as Row)
-      : metricText(total, metric, bucket.unmeasuredTurns > 0)}`;
-  return <button type="button" className="stats-trend-bar" {...interaction}
-    aria-label={title} aria-expanded={expanded} aria-controls={expanded ? controls : undefined}>
-    <i className="stats-trend-fill" style={{ height: `${height}%` }} aria-hidden="true"
-      data-empty={total > 0 ? undefined : 'true'} data-future={bucket.future ? 'true' : undefined}>
-    {/* A bar with no split to draw stays a plain block rather than an empty
+  const title = bucket.future
+    ? bucket.label
+    : `${bucket.label} · ${
+        metric === 'costUsd'
+          ? statsMoney(bucket as unknown as Row)
+          : metricText(total, metric, bucket.unmeasuredTurns > 0)
+      }`;
+  return (
+    <button
+      type="button"
+      className="stats-trend-bar"
+      {...interaction}
+      aria-label={title}
+      aria-expanded={expanded}
+      aria-controls={expanded ? controls : undefined}
+    >
+      <i
+        className="stats-trend-fill"
+        style={{ height: `${height}%` }}
+        aria-hidden="true"
+        data-empty={total > 0 ? undefined : 'true'}
+        data-future={bucket.future ? 'true' : undefined}
+      >
+        {/* A bar with no split to draw stays a plain block rather than an empty
         outline: an unattributed day must not read as a different colour. */}
-    {summed > 0 && parts.map((part) => <b key={part.id}
-      data-usage-provider={part.id}
-      style={{ height: `${(part.value / summed) * 100}%` }} />)}
-    </i>
-  </button>;
+        {summed > 0 &&
+          parts.map((part) => (
+            <b key={part.id} data-usage-provider={part.id} style={{ height: `${(part.value / summed) * 100}%` }} />
+          ))}
+      </i>
+    </button>
+  );
 }
 
-function UsageTrend({ daily, hourly, view, providerOrder, providers, period, loading }: {
-  daily: Row[]; hourly: Row[]; view: StatsView; providerOrder: string[]; providers: Row[];
-  period: Row; loading: boolean;
+function UsageTrend({
+  daily,
+  hourly,
+  view,
+  providerOrder,
+  providers,
+  period,
+  loading,
+}: {
+  daily: Row[];
+  hourly: Row[];
+  view: StatsView;
+  providerOrder: string[];
+  providers: Row[];
+  period: Row;
+  loading: boolean;
 }) {
   const [metric, setMetric] = useState<Metric>('tokens');
   const startDay = String(period.startDay || daily[0]?.day || '');
   const endDay = String(period.endDay || daily.at(-1)?.day || '');
-  const calendarGrouping = startDay && endDay && (view === 'custom' || view === 'year')
-    ? resolveUsageTrendGrouping(startDay, endDay)
-    : { grain: 'day' as Grain, step: 1, firstYear: 0, lastYear: 0 };
+  const calendarGrouping =
+    startDay && endDay && (view === 'custom' || view === 'year')
+      ? resolveUsageTrendGrouping(startDay, endDay)
+      : { grain: 'day' as Grain, step: 1, firstYear: 0, lastYear: 0 };
   // Presets retain their advertised units. Custom ranges choose the finest
   // calendar unit that fits; all-history also caps very long yearly series.
   const grouping: TrendGrouping = {
@@ -335,8 +430,12 @@ function UsageTrend({ daily, hourly, view, providerOrder, providers, period, loa
     if (!popover.open || !host || !card || !anchor) return;
     const layer = acquireModalLayer([]);
     layer.attachSurface(card);
-    const bounds = host.closest('.mixdog-settings__body')?.getBoundingClientRect()
-      || { top: 0, left: 0, bottom: window.innerHeight, right: window.innerWidth };
+    const bounds = host.closest('.mixdog-settings__body')?.getBoundingClientRect() || {
+      top: 0,
+      left: 0,
+      bottom: window.innerHeight,
+      right: window.innerWidth,
+    };
     const top = Math.max(0, bounds.top) + 8;
     const bottom = Math.min(window.innerHeight, bounds.bottom) - 8;
     const left = Math.max(0, bounds.left) + 8;
@@ -377,7 +476,9 @@ function UsageTrend({ daily, hourly, view, providerOrder, providers, period, loa
   const axisEnd = view === 'hour' ? series.at(-1)?.label : String(period.endDay || daily.at(-1)?.day || '');
   const peak = series.reduce((max, entry) => Math.max(max, metricValue(entry, metric)), 0);
   const peakLabel = t('Peak per {{interval}}', {
-    interval: new Intl.NumberFormat(uiFormatLocale(), { style: 'unit', unit: grain, unitDisplay: 'long' }).format(grouping.step),
+    interval: new Intl.NumberFormat(uiFormatLocale(), { style: 'unit', unit: grain, unitDisplay: 'long' }).format(
+      grouping.step
+    ),
   });
   // Tokens and cost diverge by several times: a provider can be a small share
   // of the traffic and most of the spend. The chart draws whichever question
@@ -387,101 +488,194 @@ function UsageTrend({ daily, hourly, view, providerOrder, providers, period, loa
     { key: 'costUsd', label: t('Cost') },
     { key: 'turns', label: t('Usage records') },
   ];
-  return <section className="stats-trend">
-    <header>
-      <h4>{t('Trend')}</h4>
-      <div className="stats-ranges stats-grains" role="group" aria-label={t('Metric')}>
-        {metrics.map((option) => <button key={option.key} type="button"
-          className={`stats-range ${option.key === metric ? 'is-active' : ''}`}
-          aria-pressed={option.key === metric} disabled={loading}
-          onClick={() => { popover.close(); setMetric(option.key); }}>{option.label}</button>)}
-      </div>
-      {(peak > 0 || loading) && <span>{peakLabel} <StatsValue loading={loading}
-        value={metricText(peak, metric, series.some((entry) =>
-          metric === 'costUsd' ? entry.costUnpricedTurns > 0 : entry.unmeasuredTurns > 0))} /></span>}
-    </header>
-    {/* A period with nothing in it says so. A row of hairlines under
+  return (
+    <section className="stats-trend">
+      <header>
+        <h4>{t('Trend')}</h4>
+        <div className="stats-ranges stats-grains" role="group" aria-label={t('Metric')}>
+          {metrics.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className={`stats-range ${option.key === metric ? 'is-active' : ''}`}
+              aria-pressed={option.key === metric}
+              disabled={loading}
+              onClick={() => {
+                popover.close();
+                setMetric(option.key);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        {(peak > 0 || loading) && (
+          <span>
+            {peakLabel}{' '}
+            <StatsValue
+              loading={loading}
+              value={metricText(
+                peak,
+                metric,
+                series.some((entry) => (metric === 'costUsd' ? entry.costUnpricedTurns > 0 : entry.unmeasuredTurns > 0))
+              )}
+            />
+          </span>
+        )}
+      </header>
+      {/* A period with nothing in it says so. A row of hairlines under
         "Peak 0" read as a chart that failed to draw. */}
-    {loading ? <div className="stats-trend-bars stats-trend-skeleton usage-skeleton" aria-hidden="true" />
-      : peak > 0
-      ? <div className="stats-trend-bars" {...popover.hostProps}
-        onKeyDownCapture={(event) => {
-          if (popover.open && event.key === 'Escape') { event.stopPropagation(); popover.close(); }
-        }} data-single={series.length === 1 ? 'true' : undefined}>
-        {series.map((entry) => <TrendBar key={entry.key}
-          bucket={entry} metric={metric} peak={peak} order={providerOrder}
-          expanded={popover.open && activeKey === entry.key} controls={detailId}
-          interaction={{
-            onMouseEnter: (event) => activate(entry.key, event.currentTarget, 'hover'),
-            onFocus: (event) => activate(entry.key, event.currentTarget, 'focus'),
-            onClick: (event) => activate(entry.key, event.currentTarget, 'click'),
-            onBlur: popover.triggerProps.onBlur,
-          }} />)}
-        {popover.open && active && <div className="stats-trend-detail" ref={detailRef} id={detailId}
-          role="dialog" aria-modal="false" aria-labelledby={`${detailId}-period`} style={position}
-          data-pinned={popover.pinned ? 'true' : undefined}>
-          <div className="stats-trend-detail-heading">
-            <b id={`${detailId}-period`}>{trendPeriodLabel(active)}</b>
-            <button type="button" aria-label={t('Close')} onClick={popover.close}><X aria-hidden="true" /></button>
-          </div>
-          <dl className="stats-trend-detail-totals">
-            {metrics.map((option) => <div key={option.key}>
-              <dt>{option.label}</dt>
-              <dd title={option.key === 'tokens' ? t('Cache excluded')
-                : option.key === 'costUsd' && active.costUnpricedTurns > 0
-                  ? t('Some usage has no known price; the displayed cost is incomplete.') : undefined}>
-                {trendMetricText(active, option.key)}
-              </dd>
-            </div>)}
-          </dl>
-          <ul aria-label={t('Provider')}>
-            {providerOrder.filter((id) => active.providers.has(id)).map((id) => {
-              const usage = active.providers.get(id)!;
-              const provider = providers.find((row) => row.provider === id);
-              const plan = statsPlan(id, String(provider?.providerKind || ''));
-              return <li key={id}><span><i data-usage-provider={id} aria-hidden="true" />
-                {usageProviderLabel(providerDisplayName(id))}{plan ? ` · ${statsPlanLabel(plan)}` : ''}</span>
-                <b>{trendMetricText(usage, metric)}</b></li>;
-            })}
-          </ul>
-        </div>}
-      </div>
-      : <p className="stats-trend-empty">{metric === 'costUsd' && series.some((entry) => entry.costUnpricedTurns > 0)
-        ? t('Price unavailable') : metric === 'costUsd' && series.some((entry) => entry.turns > 0)
-          ? `${t('Cost')} ${usageMoney(0)}` : series.some((entry) => entry.unmeasuredTurns > 0)
-          ? t('Unknown usage') : t('No usage in this period.')}</p>}
-    <footer data-single={axisStart === axisEnd ? 'true' : undefined}>
-      <span>{axisStart}</span>
-      {axisStart !== axisEnd && <span>{axisEnd}</span>}
-    </footer>
-    <ul className="stats-trend-legend">
-      {providerOrder.map((id) => {
-        const provider = providers.find((row) => row.provider === id);
-        const plan = statsPlan(id, String(provider?.providerKind || ''));
-        return <li key={id}>
-          <i data-usage-provider={id} aria-hidden="true" />
-          {usageProviderLabel(providerDisplayName(id))}{plan ? ` · ${statsPlanLabel(plan)}` : ''}
-        </li>;
-      })}
-    </ul>
-  </section>;
+      {loading ? (
+        <div className="stats-trend-bars stats-trend-skeleton usage-skeleton" aria-hidden="true" />
+      ) : peak > 0 ? (
+        <div
+          className="stats-trend-bars"
+          {...popover.hostProps}
+          onKeyDownCapture={(event) => {
+            if (popover.open && event.key === 'Escape') {
+              event.stopPropagation();
+              popover.close();
+            }
+          }}
+          data-single={series.length === 1 ? 'true' : undefined}
+        >
+          {series.map((entry) => (
+            <TrendBar
+              key={entry.key}
+              bucket={entry}
+              metric={metric}
+              peak={peak}
+              order={providerOrder}
+              expanded={popover.open && activeKey === entry.key}
+              controls={detailId}
+              interaction={{
+                onMouseEnter: (event) => activate(entry.key, event.currentTarget, 'hover'),
+                onFocus: (event) => activate(entry.key, event.currentTarget, 'focus'),
+                onClick: (event) => activate(entry.key, event.currentTarget, 'click'),
+                onBlur: popover.triggerProps.onBlur,
+              }}
+            />
+          ))}
+          {popover.open && active && (
+            <div
+              className="stats-trend-detail"
+              ref={detailRef}
+              id={detailId}
+              role="dialog"
+              aria-modal="false"
+              aria-labelledby={`${detailId}-period`}
+              style={position}
+              data-pinned={popover.pinned ? 'true' : undefined}
+            >
+              <div className="stats-trend-detail-heading">
+                <b id={`${detailId}-period`}>{trendPeriodLabel(active)}</b>
+                <button type="button" aria-label={t('Close')} onClick={popover.close}>
+                  <X aria-hidden="true" />
+                </button>
+              </div>
+              <dl className="stats-trend-detail-totals">
+                {metrics.map((option) => (
+                  <div key={option.key}>
+                    <dt>{option.label}</dt>
+                    <dd
+                      title={
+                        option.key === 'tokens'
+                          ? t('Cache excluded')
+                          : option.key === 'costUsd' && active.costUnpricedTurns > 0
+                            ? t('Some usage has no known price; the displayed cost is incomplete.')
+                            : undefined
+                      }
+                    >
+                      {trendMetricText(active, option.key)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <ul aria-label={t('Provider')}>
+                {providerOrder
+                  .filter((id) => active.providers.has(id))
+                  .map((id) => {
+                    const usage = active.providers.get(id)!;
+                    const provider = providers.find((row) => row.provider === id);
+                    const plan = statsPlan(id, String(provider?.providerKind || ''));
+                    return (
+                      <li key={id}>
+                        <span>
+                          <i data-usage-provider={id} aria-hidden="true" />
+                          {usageProviderLabel(providerDisplayName(id))}
+                          {plan ? ` · ${statsPlanLabel(plan)}` : ''}
+                        </span>
+                        <b>{trendMetricText(usage, metric)}</b>
+                      </li>
+                    );
+                  })}
+              </ul>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="stats-trend-empty">
+          {metric === 'costUsd' && series.some((entry) => entry.costUnpricedTurns > 0)
+            ? t('Price unavailable')
+            : metric === 'costUsd' && series.some((entry) => entry.turns > 0)
+              ? `${t('Cost')} ${usageMoney(0)}`
+              : series.some((entry) => entry.unmeasuredTurns > 0)
+                ? t('Unknown usage')
+                : t('No usage in this period.')}
+        </p>
+      )}
+      <footer data-single={axisStart === axisEnd ? 'true' : undefined}>
+        <span>{axisStart}</span>
+        {axisStart !== axisEnd && <span>{axisEnd}</span>}
+      </footer>
+      <ul className="stats-trend-legend">
+        {providerOrder.map((id) => {
+          const provider = providers.find((row) => row.provider === id);
+          const plan = statsPlan(id, String(provider?.providerKind || ''));
+          return (
+            <li key={id}>
+              <i data-usage-provider={id} aria-hidden="true" />
+              {usageProviderLabel(providerDisplayName(id))}
+              {plan ? ` · ${statsPlanLabel(plan)}` : ''}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
 }
 
 function RouteCells({ route }: { route: Row }) {
   const incomplete = statsNumber(route.unmeasuredTurns) > 0;
-  return <>
-    <td>{statsCount(route.turns)}</td>
-    <td className="stats-breakdown" title={promptDetail(route, incomplete)}>{statsTokens(promptTokens(route), incomplete)}</td>
-    <td className="stats-breakdown">{statsTokens(route.output)}</td>
-    <td className="stats-breakdown">{statsTokens(route.cacheRead, incomplete)}</td>
-    <td className="stats-optional">{statsPercent(route.cacheHitRate)}</td>
-    <td className="stats-total-cell">{statsTokens(route.tokens, incomplete)}</td>
-    <td className="stats-cost-cell" title={unpricedTurns(route) > 0
-      ? t('Some usage has no known price; the displayed cost is incomplete.') : undefined}>{statsMoney(route)}</td>
-  </>;
+  return (
+    <>
+      <td>{statsCount(route.turns)}</td>
+      <td className="stats-breakdown" title={promptDetail(route, incomplete)}>
+        {statsTokens(promptTokens(route), incomplete)}
+      </td>
+      <td className="stats-breakdown">{statsTokens(route.output)}</td>
+      <td className="stats-breakdown">{statsTokens(route.cacheRead, incomplete)}</td>
+      <td className="stats-optional">{statsPercent(route.cacheHitRate)}</td>
+      <td className="stats-total-cell">{statsTokens(route.tokens, incomplete)}</td>
+      <td
+        className="stats-cost-cell"
+        title={
+          unpricedTurns(route) > 0 ? t('Some usage has no known price; the displayed cost is incomplete.') : undefined
+        }
+      >
+        {statsMoney(route)}
+      </td>
+    </>
+  );
 }
 
-function SortHeader({ label, column, sort, onSort, className }: {
+function SortHeader({
+  label,
+  column,
+  sort,
+  onSort,
+  className,
+}: {
   label: string;
   column: SortKey;
   sort: SortKey;
@@ -489,27 +683,44 @@ function SortHeader({ label, column, sort, onSort, className }: {
   className?: string;
 }) {
   const active = sort === column;
-  return <th scope="col" className={className} aria-sort={active ? 'descending' : 'none'}>
-    <button type="button" className="stats-sort" data-active={active ? 'true' : 'false'}
-      onClick={() => onSort(column)}>{label}</button>
-  </th>;
+  return (
+    <th scope="col" className={className} aria-sort={active ? 'descending' : 'none'}>
+      <button
+        type="button"
+        className="stats-sort"
+        data-active={active ? 'true' : 'false'}
+        onClick={() => onSort(column)}
+      >
+        {label}
+      </button>
+    </th>
+  );
 }
 
 function periodLabel(view: StatsView, period: Row, firstDay?: string): string {
   if (view === 'hour') {
     if (!period.fromMs || !period.toMs) return t('Last 24 hours');
     return new Intl.DateTimeFormat(uiFormatLocale(), {
-      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     }).formatRange(new Date(Number(period.fromMs)), new Date(Number(period.toMs)));
   }
   const startDay = view === 'year' ? firstDay : period.startDay;
   if (!startDay || !period.endDay) return view === 'year' ? t('All') : '—';
   return new Intl.DateTimeFormat(uiFormatLocale(), {
-    year: 'numeric', month: 'short', day: 'numeric',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
   }).formatRange(new Date(`${String(startDay)}T00:00:00`), new Date(`${String(period.endDay)}T00:00:00`));
 }
 
-export function UsageStatsBody({ data, request, loading = false }: {
+export function UsageStatsBody({
+  data,
+  request,
+  loading = false,
+}: {
   data: Record<string, unknown>;
   request: StatsRequest;
   loading?: boolean;
@@ -533,11 +744,12 @@ export function UsageStatsBody({ data, request, loading = false }: {
   // Models start visible, including providers arriving with a new period.
   // Only explicit collapses are retained.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set<string>());
-  const toggleExpanded = (id: string) => setCollapsed((current) => {
-    const next = new Set(current);
-    if (!next.delete(id)) next.add(id);
-    return next;
-  });
+  const toggleExpanded = (id: string) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   // Only the newest request may publish: clicking through the chips must not
@@ -564,24 +776,28 @@ export function UsageStatsBody({ data, request, loading = false }: {
   const totals = record(stats.totals);
   const period: Row = loading ? initialPeriod : record(stats.period);
   const coverage = record(stats.coverage);
-  const daily = (Array.isArray(stats.daily) ? stats.daily as unknown[] : []).map(record);
-  const hourly = (Array.isArray(stats.hourly) ? stats.hourly as unknown[] : []).map(record);
-  const providerRows = (Array.isArray(stats.providers) ? stats.providers as unknown[] : []).map(record);
+  const daily = (Array.isArray(stats.daily) ? (stats.daily as unknown[]) : []).map(record);
+  const hourly = (Array.isArray(stats.hourly) ? (stats.hourly as unknown[]) : []).map(record);
+  const providerRows = (Array.isArray(stats.providers) ? (stats.providers as unknown[]) : []).map(record);
   const providers = [...providerRows].sort((a, b) => statsNumber(b[sort]) - statsNumber(a[sort]));
   // Traffic determines band order. Provider identity owns its fixed colour.
   const providerOrder = [...providerRows]
     .sort((a, b) => statsNumber(b.tokens) - statsNumber(a.tokens))
     .map((row) => String(row.provider || ''));
-  const subscriptionRows = providers.filter((row) =>
-    statsPlan(String(row.provider || ''), String(row.providerKind || '')) === 'subscription');
-  const apiRows = providers.filter((row) =>
-    statsPlan(String(row.provider || ''), String(row.providerKind || '')) === 'api');
+  const subscriptionRows = providers.filter(
+    (row) => statsPlan(String(row.provider || ''), String(row.providerKind || '')) === 'subscription'
+  );
+  const apiRows = providers.filter(
+    (row) => statsPlan(String(row.provider || ''), String(row.providerKind || '')) === 'api'
+  );
   const subscriptionCost = subscriptionRows.reduce((sum, row) => sum + statsNumber(row.costUsd), 0);
   const apiCost = apiRows.reduce((sum, row) => sum + statsNumber(row.costUsd), 0);
-  const moneyFor = (rows: Row[], amount: number) => statsMoney({
-    costUsd: amount, turns: rows.reduce((sum, row) => sum + statsNumber(row.turns), 0),
-    costUnpricedTurns: rows.reduce((sum, row) => sum + unpricedTurns(row), 0),
-  });
+  const moneyFor = (rows: Row[], amount: number) =>
+    statsMoney({
+      costUsd: amount,
+      turns: rows.reduce((sum, row) => sum + statsNumber(row.turns), 0),
+      costUnpricedTurns: rows.reduce((sum, row) => sum + unpricedTurns(row), 0),
+    });
   const tokens = statsNumber(totals.tokens);
   const turns = statsNumber(totals.turns);
   const historyDays = statsNumber(coverage.historyDays);
@@ -589,9 +805,14 @@ export function UsageStatsBody({ data, request, loading = false }: {
   const incomplete = statsNumber(totals.unmeasuredTurns) > 0;
   const tokenInfo = [
     t('Input, output and cache hits combined.'),
-    historyDays > 0 ? t('Some historical days use estimated token counts, dates and costs.')
-      : partialDays > 0 ? t('Historical records may be incomplete; only surviving usage is counted.') : '',
-  ].filter(Boolean).join('\n');
+    historyDays > 0
+      ? t('Some historical days use estimated token counts, dates and costs.')
+      : partialDays > 0
+        ? t('Historical records may be incomplete; only surviving usage is counted.')
+        : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
   const waiting = busy || loading;
   const views: ReadonlyArray<{ key: StatsView; label: string }> = [
     { key: 'hour', label: t('Last 24 hours') },
@@ -602,125 +823,249 @@ export function UsageStatsBody({ data, request, loading = false }: {
     { key: 'year', label: t('All') },
     { key: 'custom', label: t('Custom') },
   ];
-  return <div className="stats-surface" aria-busy={waiting ? 'true' : undefined}
-    data-loading={loading ? 'true' : undefined}
-    data-empty={!loading && turns === 0 && !providers.length ? 'true' : undefined}>
-    {loading && <p className="sr-only" role="status">{t('Loading…')}</p>}
-    <div className="stats-controls">
-      <div className="stats-ranges" role="group" aria-label={t('Period')}>
-        {views.map((option) => <button key={option.key} type="button"
-          className={`stats-range ${option.key === activeView ? 'is-active' : ''}`}
-          aria-pressed={option.key === activeView} disabled={waiting}
-          aria-expanded={option.key === 'custom' ? customOpen : undefined}
-          onClick={() => {
-            if (option.key === 'custom') {
-              setCustomStart(String(period.startDay || record(stats.range).firstDay || localDayKey(initialPeriod.fromMs)));
-              setCustomEnd(String(period.endDay || localDayKey(initialPeriod.toMs)));
-              setCustomOpen(true);
-            } else {
-              setCustomOpen(false);
-              if (option.key !== view) reload(option.key);
-            }
-          }}>{option.label}</button>)}
+  return (
+    <div
+      className="stats-surface"
+      aria-busy={waiting ? 'true' : undefined}
+      data-loading={loading ? 'true' : undefined}
+      data-empty={!loading && turns === 0 && !providers.length ? 'true' : undefined}
+    >
+      {loading && (
+        <p className="sr-only" role="status">
+          {t('Loading…')}
+        </p>
+      )}
+      <div className="stats-controls">
+        <div className="stats-ranges" role="group" aria-label={t('Period')}>
+          {views.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className={`stats-range ${option.key === activeView ? 'is-active' : ''}`}
+              aria-pressed={option.key === activeView}
+              disabled={waiting}
+              aria-expanded={option.key === 'custom' ? customOpen : undefined}
+              onClick={() => {
+                if (option.key === 'custom') {
+                  setCustomStart(
+                    String(period.startDay || record(stats.range).firstDay || localDayKey(initialPeriod.fromMs))
+                  );
+                  setCustomEnd(String(period.endDay || localDayKey(initialPeriod.toMs)));
+                  setCustomOpen(true);
+                } else {
+                  setCustomOpen(false);
+                  if (option.key !== view) reload(option.key);
+                }
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <div className="stats-period">
+          {view !== 'hour' && view !== 'year' && view !== 'custom' && (
+            <button
+              type="button"
+              className="stats-period-arrow"
+              aria-label={t('Previous period')}
+              title={t('Previous period')}
+              disabled={waiting || !period.previousAnchor}
+              onClick={() => reload(view, String(period.previousAnchor))}
+            >
+              <ChevronLeft aria-hidden="true" />
+            </button>
+          )}
+          <span className="stats-period-label">
+            {periodLabel(view, period, String(record(stats.range).firstDay || ''))}
+          </span>
+          {view !== 'hour' && view !== 'year' && view !== 'custom' && (
+            <button
+              type="button"
+              className="stats-period-arrow"
+              aria-label={t('Next period')}
+              title={t('Next period')}
+              disabled={waiting || !period.nextAnchor}
+              onClick={() => reload(view, String(period.nextAnchor))}
+            >
+              <ChevronRight aria-hidden="true" />
+            </button>
+          )}
+        </div>
       </div>
-      <div className="stats-period">
-        {view !== 'hour' && view !== 'year' && view !== 'custom' && <button type="button" className="stats-period-arrow"
-          aria-label={t('Previous period')} title={t('Previous period')}
-          disabled={waiting || !period.previousAnchor}
-          onClick={() => reload(view, String(period.previousAnchor))}><ChevronLeft aria-hidden="true" /></button>}
-        <span className="stats-period-label">{periodLabel(view, period, String(record(stats.range).firstDay || ''))}</span>
-        {view !== 'hour' && view !== 'year' && view !== 'custom' && <button type="button" className="stats-period-arrow"
-          aria-label={t('Next period')} title={t('Next period')}
-          disabled={waiting || !period.nextAnchor}
-          onClick={() => reload(view, String(period.nextAnchor))}><ChevronRight aria-hidden="true" /></button>}
+      {customOpen && (
+        <form
+          className="stats-custom-range"
+          onSubmit={(event) => {
+            event.preventDefault();
+            reload('custom', undefined, { startDay: customStart, endDay: customEnd });
+          }}
+        >
+          <label>
+            {t('Start date')}
+            <input
+              type="date"
+              required
+              disabled={waiting}
+              min="1970-01-01"
+              max={customEnd || localDayKey(Date.now())}
+              value={customStart}
+              onChange={(event) => setCustomStart(event.target.value)}
+            />
+          </label>
+          <label>
+            {t('End date')}
+            <input
+              type="date"
+              required
+              disabled={waiting}
+              min={customStart || '1970-01-01'}
+              max={localDayKey(Date.now())}
+              value={customEnd}
+              onChange={(event) => setCustomEnd(event.target.value)}
+            />
+          </label>
+          <button
+            className="stats-range"
+            type="submit"
+            disabled={waiting || !customStart || !customEnd || customStart > customEnd}
+          >
+            {t('Apply')}
+          </button>
+        </form>
+      )}
+      <div className="stats-cards">
+        <StatCard
+          label={t('Subscription list-price value')}
+          value={moneyFor(subscriptionRows, subscriptionCost)}
+          detail={t('Subscription values use list prices. API costs may be estimates; neither is an invoice.')}
+          loading={loading}
+        />
+        <StatCard
+          label={t('API cost')}
+          value={moneyFor(apiRows, apiCost)}
+          detail={t('Subscription values use list prices. API costs may be estimates; neither is an invoice.')}
+          loading={loading}
+        />
+        <StatCard label={t('Tokens')} value={statsTokens(tokens, incomplete)} detail={tokenInfo} loading={loading} />
+        <StatCard label={t('Usage records')} value={statsCount(turns)} loading={loading} />
       </div>
-    </div>
-    {customOpen && <form className="stats-custom-range" onSubmit={(event) => {
-      event.preventDefault();
-      reload('custom', undefined, { startDay: customStart, endDay: customEnd });
-    }}>
-      <label>{t('Start date')}<input type="date" required disabled={waiting}
-        min="1970-01-01" max={customEnd || localDayKey(Date.now())} value={customStart}
-        onChange={(event) => setCustomStart(event.target.value)} /></label>
-      <label>{t('End date')}<input type="date" required disabled={waiting}
-        min={customStart || '1970-01-01'} max={localDayKey(Date.now())} value={customEnd}
-        onChange={(event) => setCustomEnd(event.target.value)} /></label>
-      <button className="stats-range" type="submit"
-        disabled={waiting || !customStart || !customEnd || customStart > customEnd}>{t('Apply')}</button>
-    </form>}
-    <div className="stats-cards">
-      <StatCard label={t('Subscription list-price value')} value={moneyFor(subscriptionRows, subscriptionCost)}
-        detail={t('Subscription values use list prices. API costs may be estimates; neither is an invoice.')} loading={loading} />
-      <StatCard label={t('API cost')} value={moneyFor(apiRows, apiCost)}
-        detail={t('Subscription values use list prices. API costs may be estimates; neither is an invoice.')} loading={loading} />
-      <StatCard label={t('Tokens')} value={statsTokens(tokens, incomplete)}
-        detail={tokenInfo} loading={loading} />
-      <StatCard label={t('Usage records')} value={statsCount(turns)} loading={loading} />
-    </div>
-    <TokenMix totals={totals} loading={loading} />
-    {/* The legend and every bar band read from one order, so a provider keeps
+      <TokenMix totals={totals} loading={loading} />
+      {/* The legend and every bar band read from one order, so a provider keeps
         its colour no matter which metric or grain is showing. */}
-    <UsageTrend daily={daily} hourly={hourly} view={view} providerOrder={providerOrder} providers={providers}
-      period={period} loading={loading} />
-    {error && <p className="stats-error" role="alert">{error}</p>}
-    <div className="usage-table-shell">
-      <table className="usage-table stats-table" aria-label={t('Token usage')} inert={loading ? true : undefined}>
-        <thead><tr>
-          <th scope="col">{t('Provider')}</th>
-          <SortHeader label={t('Usage records')} column="turns" sort={sort} onSort={setSort} />
-          <th scope="col" className="stats-breakdown" title={t('Fresh input plus cache writes')}>{t('Input')}</th>
-          <th scope="col" className="stats-breakdown">{t('Output')}</th>
-          <th scope="col" className="stats-breakdown">{t('Cache hits')}</th>
-          <th scope="col" className="stats-optional">{t('Hit rate')}</th>
-          <SortHeader label={t('Tokens')} column="tokens" sort={sort} onSort={setSort}
-            className="stats-total-cell" />
-          <SortHeader label={t('Cost')} column="costUsd" sort={sort} onSort={setSort}
-            className="stats-cost-cell" />
-        </tr></thead>
-        {providers.map((provider) => {
-          const id = String(provider.provider || '');
-          const models = (Array.isArray(provider.models) ? provider.models as unknown[] : []).map(record);
-          const open = !collapsed.has(id);
-          const plan = statsPlan(id, String(provider.providerKind || ''));
-          const share = Math.round(statsNumber(provider.share) * 100);
-          return <tbody key={id} className="stats-provider" data-usage-provider={id} data-open={open ? 'true' : 'false'}>
-            <tr className="stats-provider-row">
-              <td className="stats-provider-cell">
-                <button type="button" className="stats-provider-toggle"
-                  aria-expanded={open} disabled={!models.length}
-                  onClick={() => toggleExpanded(id)}>
-                  <ChevronDown className="stats-provider-chevron" aria-hidden="true" />
-                  <ProviderIcon provider={id} />
-                  <b>{usageProviderLabel(providerDisplayName(id))}</b>
-                  {plan && <span className="usage-plan" data-plan={plan}>
-                    {statsPlanLabel(plan)}
-                  </span>}
-                </button>
-                <div className="stats-provider-share">
-                  <i className="stats-share"><i style={{ width: `${incomplete ? 0 : share}%` }} /></i>
-                  <small>{incomplete ? '—' : `${share}%`}</small>
-                </div>
-              </td>
-              <RouteCells route={provider} />
+      <UsageTrend
+        daily={daily}
+        hourly={hourly}
+        view={view}
+        providerOrder={providerOrder}
+        providers={providers}
+        period={period}
+        loading={loading}
+      />
+      {error && (
+        <p className="stats-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="usage-table-shell">
+        <table className="usage-table stats-table" aria-label={t('Token usage')} inert={loading ? true : undefined}>
+          <thead>
+            <tr>
+              <th scope="col">{t('Provider')}</th>
+              <SortHeader label={t('Usage records')} column="turns" sort={sort} onSort={setSort} />
+              <th scope="col" className="stats-breakdown" title={t('Fresh input plus cache writes')}>
+                {t('Input')}
+              </th>
+              <th scope="col" className="stats-breakdown">
+                {t('Output')}
+              </th>
+              <th scope="col" className="stats-breakdown">
+                {t('Cache hits')}
+              </th>
+              <th scope="col" className="stats-optional">
+                {t('Hit rate')}
+              </th>
+              <SortHeader
+                label={t('Tokens')}
+                column="tokens"
+                sort={sort}
+                onSort={setSort}
+                className="stats-total-cell"
+              />
+              <SortHeader label={t('Cost')} column="costUsd" sort={sort} onSort={setSort} className="stats-cost-cell" />
             </tr>
-            {open && models.map((model) => {
-              const name = String(model.model || '');
-              return <tr className="stats-model-row" key={name}>
-                <td className="stats-model-cell" title={modelDisplayName(name, id)}>{modelDisplayName(name, id)}</td>
-                <RouteCells route={model} />
-              </tr>;
-            })}
-          </tbody>;
-        })}
-        {loading && <tbody aria-hidden="true">
-          {[0, 1, 2].map((row) => <tr className="usage-skeleton-row" key={row}><td colSpan={8}>
-            <span className="usage-skeleton" style={{ width: '35%' }} />
-          </td></tr>)}
-        </tbody>}
-        {!loading && !providers.length && <tbody><tr>
-          <td className="usage-empty" colSpan={8}>{t('No usage recorded yet.')}</td>
-        </tr></tbody>}
-      </table>
+          </thead>
+          {providers.map((provider) => {
+            const id = String(provider.provider || '');
+            const models = (Array.isArray(provider.models) ? (provider.models as unknown[]) : []).map(record);
+            const open = !collapsed.has(id);
+            const plan = statsPlan(id, String(provider.providerKind || ''));
+            const share = Math.round(statsNumber(provider.share) * 100);
+            return (
+              <tbody key={id} className="stats-provider" data-usage-provider={id} data-open={open ? 'true' : 'false'}>
+                <tr className="stats-provider-row">
+                  <td className="stats-provider-cell">
+                    <button
+                      type="button"
+                      className="stats-provider-toggle"
+                      aria-expanded={open}
+                      disabled={!models.length}
+                      onClick={() => toggleExpanded(id)}
+                    >
+                      <ChevronDown className="stats-provider-chevron" aria-hidden="true" />
+                      <ProviderIcon provider={id} />
+                      <b>{usageProviderLabel(providerDisplayName(id))}</b>
+                      {plan && (
+                        <span className="usage-plan" data-plan={plan}>
+                          {statsPlanLabel(plan)}
+                        </span>
+                      )}
+                    </button>
+                    <div className="stats-provider-share">
+                      <i className="stats-share">
+                        <i style={{ width: `${incomplete ? 0 : share}%` }} />
+                      </i>
+                      <small>{incomplete ? '—' : `${share}%`}</small>
+                    </div>
+                  </td>
+                  <RouteCells route={provider} />
+                </tr>
+                {open &&
+                  models.map((model) => {
+                    const name = String(model.model || '');
+                    return (
+                      <tr className="stats-model-row" key={name}>
+                        <td className="stats-model-cell" title={modelDisplayName(name, id)}>
+                          {modelDisplayName(name, id)}
+                        </td>
+                        <RouteCells route={model} />
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            );
+          })}
+          {loading && (
+            <tbody aria-hidden="true">
+              {[0, 1, 2].map((row) => (
+                <tr className="usage-skeleton-row" key={row}>
+                  <td colSpan={8}>
+                    <span className="usage-skeleton" style={{ width: '35%' }} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          )}
+          {!loading && !providers.length && (
+            <tbody>
+              <tr>
+                <td className="usage-empty" colSpan={8}>
+                  {t('No usage recorded yet.')}
+                </td>
+              </tr>
+            </tbody>
+          )}
+        </table>
+      </div>
     </div>
-  </div>;
+  );
 }

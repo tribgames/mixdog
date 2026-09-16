@@ -71,35 +71,36 @@ const getDb = createPgSchemaDb({
 function rowToDef(row) {
   if (!row) return null;
   return {
-    name:          row.name,
-    description:   row.description,
-    whenAt:        row.when_at,
-    whenCron:      row.when_cron,
-    timezone:      row.timezone,
-    target:        row.target,
-    channelId:     row.channel_id,
-    model:         row.model,
-    cwd:           row.cwd,
-    workflow:      row.workflow,
-    attachments:   row.attachments || null,
-    delivery:      row.delivery || null,
-    prompt:        row.prompt,
-    enabled:       row.enabled,
-    status:        row.status,
-    lastFiredAt:   row.last_fired_at,
+    name: row.name,
+    description: row.description,
+    whenAt: row.when_at,
+    whenCron: row.when_cron,
+    timezone: row.timezone,
+    target: row.target,
+    channelId: row.channel_id,
+    model: row.model,
+    cwd: row.cwd,
+    workflow: row.workflow,
+    attachments: row.attachments || null,
+    delivery: row.delivery || null,
+    prompt: row.prompt,
+    enabled: row.enabled,
+    status: row.status,
+    lastFiredAt: row.last_fired_at,
     lastScheduledAt: row.last_scheduled_at,
     lastStartedAt: row.last_started_at,
     lastSuccessAt: row.last_success_at,
     lastFailedAt: row.last_failed_at,
-    nextFireAt:    row.next_fire_at,
+    nextFireAt: row.next_fire_at,
     deferredUntil: row.deferred_until,
-    skippedUntil:  row.skipped_until,
-    createdAt:     row.created_at,
-    updatedAt:     row.updated_at,
+    skippedUntil: row.skipped_until,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
-const COLS = 'name, description, when_at, when_cron, timezone, target, channel_id, model, cwd, workflow, attachments, delivery, prompt, enabled, status, last_fired_at, last_scheduled_at, last_started_at, last_success_at, last_failed_at, next_fire_at, deferred_until, skipped_until, created_at, updated_at';
+const COLS =
+  'name, description, when_at, when_cron, timezone, target, channel_id, model, cwd, workflow, attachments, delivery, prompt, enabled, status, last_fired_at, last_scheduled_at, last_started_at, last_success_at, last_failed_at, next_fire_at, deferred_until, skipped_until, created_at, updated_at';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -174,7 +175,7 @@ export async function upsertSchedule(def, { dataDir } = {}) {
        last_failed_at = NULL,
        updated_at   = now()
      RETURNING ${COLS}`,
-    params,
+    params
   );
   return rowToDef(rows[0]);
 }
@@ -189,7 +190,7 @@ export async function setEnabled(name, enabled, { dataDir } = {}) {
   const db = await getDb(dataDir);
   const { rows } = await db.query(
     `UPDATE scheduler.schedules SET enabled = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, !!enabled],
+    [name, !!enabled]
   );
   return rowToDef(rows[0]);
 }
@@ -198,7 +199,7 @@ export async function markFired(name, ts = new Date(), { dataDir } = {}) {
   const db = await getDb(dataDir);
   const { rows } = await db.query(
     `UPDATE scheduler.schedules SET last_fired_at = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, ts],
+    [name, ts]
   );
   return rowToDef(rows[0]);
 }
@@ -207,7 +208,7 @@ export async function setNextFire(name, ts, { dataDir } = {}) {
   const db = await getDb(dataDir);
   const { rows } = await db.query(
     `UPDATE scheduler.schedules SET next_fire_at = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, ts ?? null],
+    [name, ts ?? null]
   );
   return rowToDef(rows[0]);
 }
@@ -221,7 +222,7 @@ export async function advanceScheduleCursor(name, scheduledAt, nextFireAt, { dat
        AND status = 'active' AND enabled = true
        AND (last_scheduled_at IS NULL OR last_scheduled_at < $2)
      RETURNING ${COLS}`,
-    [name, scheduledAt, nextFireAt ?? null],
+    [name, scheduledAt, nextFireAt ?? null]
   );
   return rowToDef(rows[0]);
 }
@@ -236,7 +237,7 @@ export async function claimScheduleRun(name, scheduledAt, startedAt, nextFireAt,
        AND status = 'active' AND enabled = true
        AND (last_scheduled_at IS NULL OR last_scheduled_at < $2)
      RETURNING ${COLS}`,
-    [name, scheduledAt, startedAt, nextFireAt ?? null],
+    [name, scheduledAt, startedAt, nextFireAt ?? null]
   );
   return rowToDef(rows[0]);
 }
@@ -245,7 +246,7 @@ export async function markScheduleSuccess(name, ts = new Date(), { dataDir } = {
   const db = await getDb(dataDir);
   const { rows } = await db.query(
     `UPDATE scheduler.schedules SET last_success_at = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, ts],
+    [name, ts]
   );
   return rowToDef(rows[0]);
 }
@@ -254,7 +255,7 @@ export async function markScheduleFailure(name, ts = new Date(), { dataDir } = {
   const db = await getDb(dataDir);
   const { rows } = await db.query(
     `UPDATE scheduler.schedules SET last_failed_at = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, ts],
+    [name, ts]
   );
   return rowToDef(rows[0]);
 }
@@ -263,7 +264,7 @@ export async function markDone(name, { dataDir } = {}) {
   const db = await getDb(dataDir);
   const { rows } = await db.query(
     `UPDATE scheduler.schedules SET status = 'done', next_fire_at = NULL, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name],
+    [name]
   );
   return rowToDef(rows[0]);
 }
@@ -272,7 +273,7 @@ export async function setDeferred(name, untilTs, { dataDir } = {}) {
   const db = await getDb(dataDir);
   const { rows } = await db.query(
     `UPDATE scheduler.schedules SET deferred_until = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, untilTs ?? null],
+    [name, untilTs ?? null]
   );
   return rowToDef(rows[0]);
 }
@@ -281,7 +282,7 @@ export async function setSkippedUntil(name, ts, { dataDir } = {}) {
   const db = await getDb(dataDir);
   const { rows } = await db.query(
     `UPDATE scheduler.schedules SET skipped_until = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, ts ?? null],
+    [name, ts ?? null]
   );
   return rowToDef(rows[0]);
 }
@@ -302,7 +303,7 @@ async function listDue(now = new Date(), { dataDir } = {}) {
         AND (deferred_until IS NULL OR deferred_until <= $1)
         AND (skipped_until  IS NULL OR skipped_until  <= $1)
       ORDER BY next_fire_at`,
-    [now],
+    [now]
   );
   return rows.map(rowToDef);
 }

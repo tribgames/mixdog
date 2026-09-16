@@ -2,10 +2,7 @@ import assert from 'node:assert/strict';
 import { getEventListeners } from 'node:events';
 import test from 'node:test';
 
-import {
-  createPassthroughSignal,
-  createTimeoutSignal,
-} from '../agent/orchestrator/stall-policy.mjs';
+import { createPassthroughSignal, createTimeoutSignal } from '../agent/orchestrator/stall-policy.mjs';
 import { createAbortController } from './abort-controller.mjs';
 import {
   createRuntimeLagTracker,
@@ -74,9 +71,8 @@ test('sequential and parallel session scopes release every parent abort listener
     assert.equal(getEventListeners(parent.signal, 'abort').length, 0);
   }
 
-  const scopes = Array.from(
-    { length: 64 },
-    (_, index) => createTimeoutSignal(parent.signal, 60_000, `parallel scope ${index}`),
+  const scopes = Array.from({ length: 64 }, (_, index) =>
+    createTimeoutSignal(parent.signal, 60_000, `parallel scope ${index}`)
   );
   assert.equal(getEventListeners(parent.signal, 'abort').length, scopes.length);
   for (const scope of scopes) scope.cleanup();
@@ -86,19 +82,18 @@ test('sequential and parallel session scopes release every parent abort listener
 test('repeated AbortSignal listener pressure marks only the session runtime worker unhealthy', () => {
   const originalRuntimeWorkerPid = process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID;
   let detail = null;
-  const onUnhealthy = (value) => { detail = value; };
+  const onUnhealthy = (value) => {
+    detail = value;
+  };
   process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID = String(process.pid);
   process.on('mixdog:session-runtime-worker-unhealthy', onUnhealthy);
   recordRuntimeDirectoryReadSuccess();
   try {
-    const warning = Object.assign(
-      new Error('51 abort listeners added to [AbortSignal]'),
-      {
-        count: 51,
-        target: createAbortController().signal,
-        type: 'abort',
-      },
-    );
+    const warning = Object.assign(new Error('51 abort listeners added to [AbortSignal]'), {
+      count: 51,
+      target: createAbortController().signal,
+      type: 'abort',
+    });
     const context = {
       shard: 2,
       runtimesAtWarning: 4,

@@ -19,8 +19,8 @@
 // virtualizer measurement keys, image-preview keys), so adopting an id never
 // changes what any host API is called with.
 
-import type { Snapshot, TranscriptItem } from "./desktop-types";
-import { alignedRow, findTranscriptAlignment, hasOwnId, sameRowId } from "./transcript-alignment";
+import type { Snapshot, TranscriptItem } from './desktop-types';
+import { alignedRow, findTranscriptAlignment, hasOwnId, sameRowId } from './transcript-alignment';
 
 // Must cover every concurrently visible pane lane (8) plus the focused
 // pipeline with headroom: evicting a still-visible session's baseline would
@@ -35,7 +35,7 @@ export interface SessionTranscriptIdentity {
 export function adoptTranscriptIdentity(
   previous: SessionTranscriptIdentity | undefined,
   incomingItems: readonly TranscriptItem[] | undefined,
-  incomingTail: TranscriptItem | null,
+  incomingTail: TranscriptItem | null
 ): { items?: TranscriptItem[]; tail?: TranscriptItem; offset?: number } {
   const prevItems = previous?.items;
   let adoptedItems: TranscriptItem[] | undefined;
@@ -47,8 +47,7 @@ export function adoptTranscriptIdentity(
   // Index in `previous.items` the incoming window aligned at. > 0 means the
   // frame is a tail WINDOW of the transcript already displayed.
   let alignedOffset = 0;
-  if (incomingItems && prevItems && incomingItems.length > 0 && prevItems.length > 0
-    && incomingItems !== prevItems) {
+  if (incomingItems && prevItems && incomingItems.length > 0 && prevItems.length > 0 && incomingItems !== prevItems) {
     const best = findTranscriptAlignment(prevItems, incomingItems);
     acceptedAlignment = best !== null;
     // No candidate at all: the incoming transcript is a different history.
@@ -88,12 +87,16 @@ export function adoptTranscriptIdentity(
   }
   let adoptedTail: TranscriptItem | undefined;
   if (incomingTail) {
-    const leftover = acceptedAlignment && prevItems && consumed < prevItems.length
-      ? prevItems[consumed] as TranscriptItem
-      : undefined;
-    const donor = previous?.tail && alignedRow(previous.tail, incomingTail)
-      ? previous.tail
-      : leftover && alignedRow(leftover, incomingTail) ? leftover : undefined;
+    const leftover =
+      acceptedAlignment && prevItems && consumed < prevItems.length
+        ? (prevItems[consumed] as TranscriptItem)
+        : undefined;
+    const donor =
+      previous?.tail && alignedRow(previous.tail, incomingTail)
+        ? previous.tail
+        : leftover && alignedRow(leftover, incomingTail)
+          ? leftover
+          : undefined;
     if (donor && hasOwnId(donor) && !sameRowId(donor, incomingTail)) {
       adoptedTail = { ...incomingTail, id: donor.id };
     }
@@ -113,12 +116,13 @@ export function createTranscriptIdentityReconciler(): TranscriptIdentityReconcil
   const sessions = new Map<string, SessionTranscriptIdentity>();
   return {
     reconcile(snapshot: Snapshot): Snapshot {
-      const sessionId = String(snapshot?.sessionId || "");
+      const sessionId = String(snapshot?.sessionId || '');
       const items = Array.isArray(snapshot?.items) ? snapshot.items : undefined;
       if (!sessionId || !items) return snapshot;
-      const tail = snapshot.streamingTail && typeof snapshot.streamingTail === "object"
-        ? snapshot.streamingTail as TranscriptItem
-        : null;
+      const tail =
+        snapshot.streamingTail && typeof snapshot.streamingTail === 'object'
+          ? (snapshot.streamingTail as TranscriptItem)
+          : null;
       const previous = sessions.get(sessionId);
       const adopted = adoptTranscriptIdentity(previous, items, tail);
       const nextItems = adopted.items ?? items;
@@ -133,13 +137,14 @@ export function createTranscriptIdentityReconciler(): TranscriptIdentityReconcil
       // baseline therefore keeps the aligned SUPERSET; a genuine rewrite
       // (clear, compaction, branch/fork resume) fails alignment on content
       // and replaces it untouched.
-      const baselineItems = previous && previous.items.length > 0
-        ? nextItems.length === 0
-          ? previous.items
-          : (adopted.offset || 0) > 0
-            ? [...previous.items.slice(0, adopted.offset), ...nextItems]
-            : nextItems
-        : nextItems;
+      const baselineItems =
+        previous && previous.items.length > 0
+          ? nextItems.length === 0
+            ? previous.items
+            : (adopted.offset || 0) > 0
+              ? [...previous.items.slice(0, adopted.offset), ...nextItems]
+              : nextItems
+          : nextItems;
       sessions.set(sessionId, { items: baselineItems, tail: nextTail });
       while (sessions.size > IDENTITY_SESSION_LIMIT) {
         const oldest = sessions.keys().next().value;

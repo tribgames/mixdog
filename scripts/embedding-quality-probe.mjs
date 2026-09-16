@@ -5,7 +5,7 @@ import {
   getEmbeddingModelId,
   shutdownEmbeddingProvider,
   warmupEmbeddingProvider,
-} from '../src/runtime/memory/lib/embedding-provider.mjs'
+} from '../src/runtime/memory/lib/embedding-provider.mjs';
 
 const cases = [
   {
@@ -40,57 +40,65 @@ const cases = [
       'selectVoiceModelId chooses the bundled speech recognition model.',
     ],
   },
-]
+];
 
 function cosine(a, b) {
-  let dot = 0
-  let aa = 0
-  let bb = 0
+  let dot = 0;
+  let aa = 0;
+  let bb = 0;
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
-    aa += a[i] * a[i]
-    bb += b[i] * b[i]
+    dot += a[i] * b[i];
+    aa += a[i] * a[i];
+    bb += b[i] * b[i];
   }
-  return dot / Math.sqrt(aa * bb)
+  return dot / Math.sqrt(aa * bb);
 }
 
-const startedAt = performance.now()
+const startedAt = performance.now();
 try {
-  await warmupEmbeddingProvider()
-  let hits = 0
-  const margins = []
-  const rows = []
+  await warmupEmbeddingProvider();
+  let hits = 0;
+  const margins = [];
+  const rows = [];
 
   for (const item of cases) {
-    const documents = [item.relevant, ...item.distractors]
+    const documents = [item.relevant, ...item.distractors];
     const [queryVector, documentVectors] = await Promise.all([
       embedText(item.query, { inputType: 'query', priority: true }),
       embedTexts(documents, { inputType: 'document' }),
-    ])
-    const scores = documentVectors.map((vector, index) => ({
-      index,
-      score: cosine(queryVector, vector),
-    })).sort((a, b) => b.score - a.score)
-    const hit = scores[0].index === 0
-    if (hit) hits++
-    margins.push(scores.find((row) => row.index === 0).score - scores.find((row) => row.index !== 0).score)
+    ]);
+    const scores = documentVectors
+      .map((vector, index) => ({
+        index,
+        score: cosine(queryVector, vector),
+      }))
+      .sort((a, b) => b.score - a.score);
+    const hit = scores[0].index === 0;
+    if (hit) hits++;
+    margins.push(scores.find((row) => row.index === 0).score - scores.find((row) => row.index !== 0).score);
     rows.push({
       query: item.query,
       hit,
       relevant: Number(scores.find((row) => row.index === 0).score.toFixed(4)),
       bestDistractor: Number(scores.find((row) => row.index !== 0).score.toFixed(4)),
-    })
+    });
   }
 
-  console.log(JSON.stringify({
-    model: getEmbeddingModelId(),
-    dtype: getEmbeddingDtype(),
-    hitAt1: `${hits}/${cases.length}`,
-    meanMargin: Number((margins.reduce((sum, value) => sum + value, 0) / margins.length).toFixed(4)),
-    wallMs: Math.round(performance.now() - startedAt),
-    rssMiB: Number((process.memoryUsage().rss / 1024 / 1024).toFixed(1)),
-    rows,
-  }, null, 2))
+  console.log(
+    JSON.stringify(
+      {
+        model: getEmbeddingModelId(),
+        dtype: getEmbeddingDtype(),
+        hitAt1: `${hits}/${cases.length}`,
+        meanMargin: Number((margins.reduce((sum, value) => sum + value, 0) / margins.length).toFixed(4)),
+        wallMs: Math.round(performance.now() - startedAt),
+        rssMiB: Number((process.memoryUsage().rss / 1024 / 1024).toFixed(1)),
+        rows,
+      },
+      null,
+      2
+    )
+  );
 } finally {
-  await shutdownEmbeddingProvider()
+  await shutdownEmbeddingProvider();
 }

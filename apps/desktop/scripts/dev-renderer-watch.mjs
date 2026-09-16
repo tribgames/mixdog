@@ -8,10 +8,12 @@ import { resolveRendererWatchIdleMs } from './dev-renderer-watch-config.mjs';
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const configPath = join(desktopDir, 'electron.vite.config.ts');
-const args = Object.fromEntries(process.argv.slice(2).map((entry) => {
-  const match = /^--([^=]+)=(.*)$/s.exec(entry);
-  return match ? [match[1], match[2]] : [entry.replace(/^--/, ''), true];
-}));
+const args = Object.fromEntries(
+  process.argv.slice(2).map((entry) => {
+    const match = /^--([^=]+)=(.*)$/s.exec(entry);
+    return match ? [match[1], match[2]] : [entry.replace(/^--/, ''), true];
+  })
+);
 const statePath = resolve(args.state || join(desktopDir, '.cache', 'dev-renderer-watch.json'));
 // Keep the warm incremental compiler briefly for rapid consecutive deploys,
 // then release its large module graph instead of retaining ~1.8 GB for 30 min.
@@ -34,12 +36,14 @@ function publish(status, detail = '') {
     configMtimeMs,
     at: new Date().toISOString(),
   };
-  stateWrites = stateWrites.then(async () => {
-    await mkdir(dirname(statePath), { recursive: true });
-    const temporary = `${statePath}.${process.pid}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`);
-    await rename(temporary, statePath);
-  }).catch(() => {});
+  stateWrites = stateWrites
+    .then(async () => {
+      await mkdir(dirname(statePath), { recursive: true });
+      const temporary = `${statePath}.${process.pid}.tmp`;
+      await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`);
+      await rename(temporary, statePath);
+    })
+    .catch(() => {});
   return stateWrites;
 }
 
@@ -68,7 +72,7 @@ try {
   const resolved = await resolveConfig(
     { root: desktopDir, mode: 'production', logLevel: 'info', clearScreen: false },
     'build',
-    'production',
+    'production'
   );
   const renderer = resolved.config?.renderer;
   if (!renderer) throw new Error('electron-vite did not resolve a renderer build config');

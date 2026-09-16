@@ -44,8 +44,7 @@ export function githubRequestMutates(input) {
 }
 
 export function githubText(value, name, maximum = 1000, empty = false) {
-  if (typeof value !== 'string' || (!empty && !value.trim())
-    || value.length > maximum || value.includes('\0')) {
+  if (typeof value !== 'string' || (!empty && !value.trim()) || value.length > maximum || value.includes('\0')) {
     throw new TypeError(`${name} must be ${empty ? 'a' : 'a non-empty'} string of at most ${maximum} characters.`);
   }
   return value;
@@ -59,17 +58,24 @@ export function githubNumber(value, name = 'number', maximum = Number.MAX_SAFE_I
 }
 
 export function githubRepository(value) {
-  if (typeof value !== 'string' || value.length > 250
-    || !/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(value)
-    || value.split('/').some((part) => part === '.' || part === '..')) {
+  if (
+    typeof value !== 'string' ||
+    value.length > 250 ||
+    !/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(value) ||
+    value.split('/').some((part) => part === '.' || part === '..')
+  ) {
     throw new TypeError('repo must be an explicit owner/name, not a URL or command.');
   }
   return value;
 }
 
 export function validateGithubRequest(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)
-    || !Object.hasOwn(GITHUB_ACTIONS, input.action ?? '')) {
+  if (
+    !input ||
+    typeof input !== 'object' ||
+    Array.isArray(input) ||
+    !Object.hasOwn(GITHUB_ACTIONS, input.action ?? '')
+  ) {
     throw new TypeError('A supported GitHub action is required.');
   }
   const definition = GITHUB_ACTIONS[input.action];
@@ -78,17 +84,35 @@ export function validateGithubRequest(input) {
     throw new TypeError(`Unsupported field for GitHub ${input.action}.`);
   }
   const out = { ...input };
-  const required = {
-    'repo.create': ['repo', 'visibility'], 'repo.clone': ['repo', 'destination'], 'repo.fork': ['repo'],
-    'issue.view': ['number'], 'issue.comments': ['number'], 'issue.create': ['title'],
-    'issue.edit': ['number'], 'issue.close': ['number'], 'issue.reopen': ['number'],
-    'issue.comment': ['number', 'body'], 'pr.view': ['number'], 'pr.comments': ['number'],
-    'pr.create': ['title', 'base', 'head'], 'pr.checkout': ['number'],
-    'pr.merge': ['number', 'sha'], 'pr.review': ['number', 'sha', 'event'], 'pr.comment': ['number', 'body'],
-    'workflow.run': ['workflow', 'ref'], 'run.view': ['id'], 'run.logs': ['id'],
-    'run.rerun': ['id'], 'run.cancel': ['id'], 'release.view': ['id'],
-    'release.create': ['tag', 'title'], 'release.edit': ['id'], 'notification.read': ['id'],
-  }[out.action] || [];
+  const required =
+    {
+      'repo.create': ['repo', 'visibility'],
+      'repo.clone': ['repo', 'destination'],
+      'repo.fork': ['repo'],
+      'issue.view': ['number'],
+      'issue.comments': ['number'],
+      'issue.create': ['title'],
+      'issue.edit': ['number'],
+      'issue.close': ['number'],
+      'issue.reopen': ['number'],
+      'issue.comment': ['number', 'body'],
+      'pr.view': ['number'],
+      'pr.comments': ['number'],
+      'pr.create': ['title', 'base', 'head'],
+      'pr.checkout': ['number'],
+      'pr.merge': ['number', 'sha'],
+      'pr.review': ['number', 'sha', 'event'],
+      'pr.comment': ['number', 'body'],
+      'workflow.run': ['workflow', 'ref'],
+      'run.view': ['id'],
+      'run.logs': ['id'],
+      'run.rerun': ['id'],
+      'run.cancel': ['id'],
+      'release.view': ['id'],
+      'release.create': ['tag', 'title'],
+      'release.edit': ['id'],
+      'notification.read': ['id'],
+    }[out.action] || [];
   for (const key of required) {
     if (out[key] === undefined || out[key] === null || out[key] === '') {
       throw new TypeError(`${key} is required for ${out.action}.`);
@@ -96,9 +120,12 @@ export function validateGithubRequest(input) {
   }
   if (out.destination !== undefined) githubText(out.destination, 'destination', 1000);
   if (out.repo !== undefined) githubRepository(out.repo);
-  if (out.hostname !== undefined && (typeof out.hostname !== 'string'
-    || out.hostname.length > 253
-    || !/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/i.test(out.hostname))) {
+  if (
+    out.hostname !== undefined &&
+    (typeof out.hostname !== 'string' ||
+      out.hostname.length > 253 ||
+      !/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/i.test(out.hostname))
+  ) {
     throw new TypeError('hostname must be a GitHub or GitHub Enterprise DNS name.');
   }
   for (const key of ['number', 'id', 'page', 'limit']) {
@@ -120,9 +147,12 @@ export function validateGithubRequest(input) {
     out[key]?.forEach((value) => githubText(value, key, 100));
   }
   if (out.state !== undefined && !['open', 'closed', 'all'].includes(out.state)) throw new TypeError('Invalid state.');
-  if (out.visibility !== undefined && !['private', 'public'].includes(out.visibility)) throw new TypeError('Invalid visibility.');
-  if (out.method !== undefined && !['merge', 'squash', 'rebase'].includes(out.method)) throw new TypeError('Invalid merge method.');
-  if (out.event !== undefined && !['COMMENT', 'APPROVE', 'REQUEST_CHANGES'].includes(out.event)) throw new TypeError('Invalid review event.');
+  if (out.visibility !== undefined && !['private', 'public'].includes(out.visibility))
+    throw new TypeError('Invalid visibility.');
+  if (out.method !== undefined && !['merge', 'squash', 'rebase'].includes(out.method))
+    throw new TypeError('Invalid merge method.');
+  if (out.event !== undefined && !['COMMENT', 'APPROVE', 'REQUEST_CHANGES'].includes(out.event))
+    throw new TypeError('Invalid review event.');
   if (out.sha !== undefined && !/^[a-f0-9]{40}$/i.test(out.sha)) throw new TypeError('sha must be a full commit hash.');
   for (const key of ['owner', 'organization']) {
     if (out[key] !== undefined && (typeof out[key] !== 'string' || !/^[a-z0-9][a-z0-9-]{0,99}$/i.test(out[key]))) {
@@ -132,12 +162,17 @@ export function validateGithubRequest(input) {
   for (const key of ['base', 'head', 'ref', 'tag', 'target', 'workflow']) {
     if (out[key] !== undefined) {
       githubText(out[key], key, 512);
-      if (/^[\-]|[\r\n]/.test(out[key])) throw new TypeError(`Invalid ${key}.`);
+      if (/^[-]|[\r\n]/.test(out[key])) throw new TypeError(`Invalid ${key}.`);
     }
   }
   if (out.inputs !== undefined) {
-    if (!out.inputs || typeof out.inputs !== 'object' || Array.isArray(out.inputs)
-      || Object.keys(out.inputs).length > 25) throw new TypeError('inputs must contain at most 25 named values.');
+    if (
+      !out.inputs ||
+      typeof out.inputs !== 'object' ||
+      Array.isArray(out.inputs) ||
+      Object.keys(out.inputs).length > 25
+    )
+      throw new TypeError('inputs must contain at most 25 named values.');
     for (const [key, value] of Object.entries(out.inputs)) {
       if (!/^[a-zA-Z_][a-zA-Z0-9_-]{0,99}$/.test(key)) throw new TypeError('Invalid workflow input name.');
       githubText(value, 'workflow input', 10000, true);

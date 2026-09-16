@@ -22,7 +22,9 @@ function createHarness(compact) {
   let clearCalls = 0;
   const clearOptions = [];
   let sequence = 0;
-  const set = (patch) => { state = { ...state, ...patch }; };
+  const set = (patch) => {
+    state = { ...state, ...patch };
+  };
   const bag = {
     runtime: {
       id: session.id,
@@ -58,10 +60,25 @@ function createHarness(compact) {
   };
   const flow = createSessionFlow(bag);
   return {
-    flow, bag, session, messages, originalItem, flags, notices, syncs, clearOptions, set,
-    get state() { return state; },
-    get compactCalls() { return compactCalls; },
-    get clearCalls() { return clearCalls; },
+    flow,
+    bag,
+    session,
+    messages,
+    originalItem,
+    flags,
+    notices,
+    syncs,
+    clearOptions,
+    set,
+    get state() {
+      return state;
+    },
+    get compactCalls() {
+      return compactCalls;
+    },
+    get clearCalls() {
+      return clearCalls;
+    },
   };
 }
 
@@ -71,7 +88,9 @@ for (const mode of ['rules', 'summary']) {
     let compacted;
     const h = createHarness((session) => {
       compacted = freshContextCompactMessages(session.messages, 10_000, {
-        force: true, contextWindow: 40_000, handoffText,
+        force: true,
+        contextWindow: 40_000,
+        handoffText,
       }).messages;
       session.messages = compacted;
       return { changed: true, handoffSource: mode === 'rules' ? 'rules' : 'session-local' };
@@ -82,7 +101,10 @@ for (const mode of ['rules', 'summary']) {
     assert.equal(h.clearCalls, 0);
     assert.equal(h.session.messages, compacted);
     assert.ok(h.session.messages.some((m) => m.role === 'user' && m.content === h.messages.at(-1).content));
-    assert.equal(h.session.messages.some((m) => m.role === 'user' && m.content.startsWith(SUMMARY_PREFIX)), mode === 'summary');
+    assert.equal(
+      h.session.messages.some((m) => m.role === 'user' && m.content.startsWith(SUMMARY_PREFIX)),
+      mode === 'summary'
+    );
     if (mode === 'rules') {
       assert.ok(h.session.messages.some((m) => m.content === h.messages[1].content));
       assert.ok(h.session.messages.some((m) => m.content === h.messages[2].content));
@@ -158,7 +180,9 @@ for (const outcome of ['success', 'error-result', 'throw']) {
 
 test('late auto-clear completion defers UI reset until an active turn settles', async () => {
   let resolveCompact;
-  const deferred = new Promise((resolve) => { resolveCompact = resolve; });
+  const deferred = new Promise((resolve) => {
+    resolveCompact = resolve;
+  });
   const h = createHarness(() => deferred);
   assert.equal(await h.flow.performAutoClear({ compactTimeoutMs: 5 }), false);
   h.set({ busy: true });
@@ -180,7 +204,9 @@ test('late auto-clear completion defers UI reset until an active turn settles', 
 });
 
 test('explicit manual clear still clears the session instead of compacting it', async () => {
-  const h = createHarness(() => { throw new Error('manual clear must not compact'); });
+  const h = createHarness(() => {
+    throw new Error('manual clear must not compact');
+  });
   const api = createSessionApiB({
     ...h.bag,
     ...h.flow,

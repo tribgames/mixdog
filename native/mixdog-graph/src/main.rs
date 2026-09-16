@@ -31,8 +31,8 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use mixdog_graph::lang::{lang_for, lang_static};
 use mixdog_graph::calls::CallInfo;
+use mixdog_graph::lang::{lang_for, lang_static};
 use mixdog_graph::outline::{self, SymbolInfo};
 use mixdog_graph::scan;
 use mixdog_graph::scan_lang::scan_lang_for_path;

@@ -23,15 +23,24 @@ test('cleanup recovery requires user Stop and verified cleanup, not an unconditi
 });
 
 test('only a definite no-input refusal permits choosing delivery without mandatory recapture', () => {
-  assert.equal(computerResultRecovery({
-    code: 'background_unsupported', delivery_accepted: false,
-  }).next, 'select_delivery');
+  assert.equal(
+    computerResultRecovery({
+      code: 'background_unsupported',
+      delivery_accepted: false,
+    }).next,
+    'select_delivery'
+  );
   for (const delivery_accepted of [true, null, undefined]) {
     assert.equal(computerResultRecovery({ code: 'background_unsupported', delivery_accepted }).next, 'capture');
   }
-  assert.equal(computerResultRecovery({
-    code: 'background_unsupported', delivery_accepted: false, input_may_have_executed: true,
-  }).next, 'capture');
+  assert.equal(
+    computerResultRecovery({
+      code: 'background_unsupported',
+      delivery_accepted: false,
+      input_may_have_executed: true,
+    }).next,
+    'capture'
+  );
 });
 
 test('observation and target-local cleanup failures never authorize repeating completed input', () => {
@@ -58,15 +67,20 @@ test('window, lease and user-yield codes keep their next actions', () => {
   const input = { input: { app: 'Notepad' } };
   assert.equal(computerResultRecovery({ code: 'window_stale' }, input).next, 'list');
   assert.equal(computerResultRecovery({ code: 'stale_frame' }, input).next, 'capture');
-  assert.match(computerResultRecovery({ code: 'computer_target_in_use' }, input).guidance, /Another session owns app "Notepad"/);
+  assert.match(
+    computerResultRecovery({ code: 'computer_target_in_use' }, input).guidance,
+    /Another session owns app "Notepad"/
+  );
   assert.equal(computerResultRecovery({ code: 'computer_user_control_active' }, input).next, 'wait_for_user');
   assert.equal(computerResultRecovery({ code: 'pixel_unavailable' }, input).next, 'capture');
   assert.equal(computerResultRecovery({ code: 'unknown_code' }, input), undefined);
 });
 
 test('a native timeout requires diagnosis and preserves possible execution instead of suggesting replacement input', () => {
-  const recovery = computerToolErrorRecovery('computer_command_timeout: input host restarted',
-    { action: 'menu', input: { window_id: 'hwnd:0x1' } });
+  const recovery = computerToolErrorRecovery('computer_command_timeout: input host restarted', {
+    action: 'menu',
+    input: { window_id: 'hwnd:0x1' },
+  });
   assert.equal(recovery.next, 'diagnose');
   assert.match(recovery.guidance, /may have executed/);
   assert.match(recovery.guidance, /Do not repeat it or switch delivery modes/);

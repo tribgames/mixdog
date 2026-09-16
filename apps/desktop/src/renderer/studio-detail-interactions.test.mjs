@@ -37,8 +37,9 @@ globalThis.ResizeObserver = class {
   disconnect() {}
 };
 
-const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
-  + 'AAAADUlEQVR42mNk+M/wHwAEAQH/2kGLWQAAAABJRU5ErkJggg==';
+const PIXEL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ' +
+  'AAAADUlEQVR42mNk+M/wHwAEAQH/2kGLWQAAAABJRU5ErkJggg==';
 const assets = [
   {
     id: 'asset-newer',
@@ -78,10 +79,7 @@ const lane = {
   video: null,
 };
 
-const {
-  writeStudioAssetReferences,
-  writeStudioDraftReferences,
-} = await import('./studio-draft-cache.ts');
+const { writeStudioAssetReferences, writeStudioDraftReferences } = await import('./studio-draft-cache.ts');
 const { StudioPane } = await import('./StudioView.tsx');
 
 test('Studio detail opens media, reveals its folder, and navigates with plain arrow keys', async () => {
@@ -93,22 +91,35 @@ test('Studio detail opens media, reveals its folder, and navigates with plain ar
   const rememberedDefaults = [];
   const referenceValues = new Map();
   const referenceStore = {
-    async read(key) { return referenceValues.get(key); },
-    async write(key, value) { referenceValues.set(key, structuredClone(value)); },
-    async remove(key) { referenceValues.delete(key); },
+    async read(key) {
+      return referenceValues.get(key);
+    },
+    async write(key, value) {
+      referenceValues.set(key, structuredClone(value));
+    },
+    async remove(key) {
+      referenceValues.delete(key);
+    },
   };
-  await writeStudioAssetReferences('asset-older', [
-    { base64: 'cmVmZXJlbmNl', mime: 'image/png' },
-  ], referenceStore);
-  await writeStudioDraftReferences([
-    { base64: 'Zmlyc3Q=', mime: 'image/png' },
-    { base64: 'c2Vjb25k', mime: 'image/jpeg' },
-  ], referenceStore);
+  await writeStudioAssetReferences('asset-older', [{ base64: 'cmVmZXJlbmNl', mime: 'image/png' }], referenceStore);
+  await writeStudioDraftReferences(
+    [
+      { base64: 'Zmlyc3Q=', mime: 'image/png' },
+      { base64: 'c2Vjb25k', mime: 'image/jpeg' },
+    ],
+    referenceStore
+  );
   const api = {
     mediaUrl: () => PIXEL,
-    openAttachmentImage: async (url, name) => { openedReferences.push({ url, name }); },
-    openMediaAsset: async (id) => { opened.push(id); },
-    openMediaFolder: async (id) => { revealed.push(id); },
+    openAttachmentImage: async (url, name) => {
+      openedReferences.push({ url, name });
+    },
+    openMediaAsset: async (id) => {
+      opened.push(id);
+    },
+    openMediaFolder: async (id) => {
+      revealed.push(id);
+    },
     invokeCapability: async ({ capability, args = [] }) => {
       if (capability === 'listMediaLanes') return { value: [lane], snapshot: null };
       if (capability === 'listMediaAssets') {
@@ -155,23 +166,32 @@ test('Studio detail opens media, reveals its folder, and navigates with plain ar
     });
     const tiles = [...host.querySelectorAll('.studio-tile-open')];
     assert.equal(tiles.length, 2);
-    assert.deepEqual(rememberedDefaults, [{ kind: 'image', lane: 'gemini', model: 'image-model' }],
-      'the settled Studio selection is pushed to the runtime once as the media default');
+    assert.deepEqual(
+      rememberedDefaults,
+      [{ kind: 'image', lane: 'gemini', model: 'image-model' }],
+      'the settled Studio selection is pushed to the runtime once as the media default'
+    );
     const referenceButtons = [...host.querySelectorAll('.studio-ref-open')];
     assert.equal(referenceButtons.length, 2);
     await act(async () => referenceButtons[0].click());
-    assert.deepEqual(openedReferences, [{
-      url: 'data:image/png;base64,Zmlyc3Q=',
-      name: 'reference-1.png',
-    }]);
+    assert.deepEqual(openedReferences, [
+      {
+        url: 'data:image/png;base64,Zmlyc3Q=',
+        name: 'reference-1.png',
+      },
+    ]);
 
     const referenceTiles = [...host.querySelectorAll('.studio-ref')];
     const dataTransfer = {
       effectAllowed: '',
       dropEffect: '',
       value: '',
-      setData(_type, value) { this.value = value; },
-      getData() { return this.value; },
+      setData(_type, value) {
+        this.value = value;
+      },
+      getData() {
+        return this.value;
+      },
     };
     referenceTiles[1].getBoundingClientRect = () => ({
       left: 0,
@@ -195,61 +215,71 @@ test('Studio detail opens media, reveals its folder, and navigates with plain ar
       drag('dragover', referenceTiles[1], 40);
       drag('drop', referenceTiles[1], 40);
     });
-    assert.equal(host.querySelector('.studio-ref-open img')?.src,
-      'data:image/jpeg;base64,c2Vjb25k');
+    assert.equal(host.querySelector('.studio-ref-open img')?.src, 'data:image/jpeg;base64,c2Vjb25k');
 
     await act(async () => host.querySelectorAll('.studio-tile-open')[0].click());
     assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Newer image');
 
     await act(async () => {
-      window.dispatchEvent(new window.KeyboardEvent('keydown', {
-        key: 'ArrowRight',
-        bubbles: true,
-      }));
+      window.dispatchEvent(
+        new window.KeyboardEvent('keydown', {
+          key: 'ArrowRight',
+          bubbles: true,
+        })
+      );
     });
     assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Older image');
 
     await act(async () => host.querySelector('.studio-detail-media-open').click());
     assert.deepEqual(opened, ['asset-older']);
 
-    const folder = [...host.querySelectorAll('.studio-detail-actions button')]
-      .find((button) => button.textContent.includes('Open Folder'));
+    const folder = [...host.querySelectorAll('.studio-detail-actions button')].find((button) =>
+      button.textContent.includes('Open Folder')
+    );
     assert.ok(folder);
     await act(async () => folder.click());
     assert.deepEqual(revealed, ['asset-older']);
 
     const prompt = host.querySelector('textarea[aria-label="Generation prompt"]');
     await act(async () => {
-      prompt.dispatchEvent(new window.KeyboardEvent('keydown', {
-        key: 'ArrowLeft',
-        bubbles: true,
-      }));
+      prompt.dispatchEvent(
+        new window.KeyboardEvent('keydown', {
+          key: 'ArrowLeft',
+          bubbles: true,
+        })
+      );
     });
-    assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Older image',
-      'typing controls must retain their own arrow-key behavior');
+    assert.equal(
+      host.querySelector('.studio-detail-prompt')?.textContent,
+      'Older image',
+      'typing controls must retain their own arrow-key behavior'
+    );
 
     await act(async () => {
-      window.dispatchEvent(new window.KeyboardEvent('keydown', {
-        key: 'ArrowLeft',
-        bubbles: true,
-      }));
+      window.dispatchEvent(
+        new window.KeyboardEvent('keydown', {
+          key: 'ArrowLeft',
+          bubbles: true,
+        })
+      );
     });
     assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Newer image');
     await act(async () => {
-      window.dispatchEvent(new window.KeyboardEvent('keydown', {
-        key: 'ArrowRight',
-        bubbles: true,
-      }));
+      window.dispatchEvent(
+        new window.KeyboardEvent('keydown', {
+          key: 'ArrowRight',
+          bubbles: true,
+        })
+      );
     });
     assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Older image');
 
-    const regenerate = [...host.querySelectorAll('.studio-detail-actions button')]
-      .find((button) => button.textContent.includes('Regenerate'));
+    const regenerate = [...host.querySelectorAll('.studio-detail-actions button')].find((button) =>
+      button.textContent.includes('Regenerate')
+    );
     assert.ok(regenerate);
     await act(async () => regenerate.click());
-    assert.deepEqual(generations[0].references, [
-      { base64: 'cmVmZXJlbmNl', mime: 'image/png' },
-    ]);
+    assert.deepEqual(generations[0].references, [{ base64: 'cmVmZXJlbmNl', mime: 'image/png' }]);
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -261,9 +291,15 @@ test('Studio becomes ready while its first thumbnail is still loading', async ()
   let readyCount = 0;
   const referenceValues = new Map();
   const referenceStore = {
-    async read(key) { return referenceValues.get(key); },
-    async write(key, value) { referenceValues.set(key, structuredClone(value)); },
-    async remove(key) { referenceValues.delete(key); },
+    async read(key) {
+      return referenceValues.get(key);
+    },
+    async write(key, value) {
+      referenceValues.set(key, structuredClone(value));
+    },
+    async remove(key) {
+      referenceValues.delete(key);
+    },
   };
   const api = {
     mediaUrl: () => '',
@@ -284,11 +320,15 @@ test('Studio becomes ready while its first thumbnail is still loading', async ()
 
   try {
     await act(async () => {
-      root.render(React.createElement(StudioPane, {
-        api,
-        referenceStore,
-        onReady: () => { readyCount += 1; },
-      }));
+      root.render(
+        React.createElement(StudioPane, {
+          api,
+          referenceStore,
+          onReady: () => {
+            readyCount += 1;
+          },
+        })
+      );
     });
     for (let attempt = 0; attempt < 10 && readyCount === 0; attempt += 1) {
       await act(async () => {
@@ -296,8 +336,10 @@ test('Studio becomes ready while its first thumbnail is still loading', async ()
       });
     }
     assert.equal(readyCount, 1);
-    assert.ok(host.querySelector('.studio-thumbnail-loading'),
-      'the pane should reveal independently while the tile keeps its own loader');
+    assert.ok(
+      host.querySelector('.studio-thumbnail-loading'),
+      'the pane should reveal independently while the tile keeps its own loader'
+    );
   } finally {
     await act(async () => root.unmount());
     host.remove();

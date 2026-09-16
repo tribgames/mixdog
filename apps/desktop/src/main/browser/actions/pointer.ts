@@ -12,7 +12,9 @@ import { actionRef } from './target';
 import { type BrowserActionContext, defineBrowserActions } from './types';
 
 function pointerKind(command: BrowserActionContext['command'], action: string): 'mouse' | 'touch' {
-  const pointer = String(command.pointer || 'mouse').trim().toLowerCase();
+  const pointer = String(command.pointer || 'mouse')
+    .trim()
+    .toLowerCase();
   if (pointer !== 'mouse' && pointer !== 'touch') {
     throw new Error(`${action} pointer must be mouse or touch`);
   }
@@ -25,7 +27,7 @@ async function targetPoint(
   ref: string | undefined,
   x: unknown,
   y: unknown,
-  label: string,
+  label: string
 ): Promise<{ x: number; y: number }> {
   if (ref) {
     return services.reply.withRefRecovery(
@@ -33,7 +35,7 @@ async function targetPoint(
       refRecovery,
       ref,
       (recovered) => services.refPoints.resolveRefPoint(guest, recovered, signal),
-      signal,
+      signal
     );
   }
   return services.refPoints.visualPoint(guest, command, x, y, label, signal);
@@ -54,27 +56,17 @@ export const pointerActions = defineBrowserActions({
     const button = normalizeMouseButton(command.button);
     const modifiers = normalizeModifierMask(command.modifiers);
     const effectiveRef = ref && (context.refRecovery.replacements.get(ref) || ref);
-    const finishGuard = effectiveRef
-      ? await services.refPoints.guardRef(guest, effectiveRef, signal)
-      : undefined;
+    const finishGuard = effectiveRef ? await services.refPoints.guardRef(guest, effectiveRef, signal) : undefined;
     services.state.invalidateInteraction(guest);
     try {
-    if (pointer === 'touch') {
-      if (command.doubleClick || command.button !== undefined || command.modifiers !== undefined) {
-        throw new Error('click pointer=touch does not accept button, modifiers, or doubleClick');
+      if (pointer === 'touch') {
+        if (command.doubleClick || command.button !== undefined || command.modifiers !== undefined) {
+          throw new Error('click pointer=touch does not accept button, modifiers, or doubleClick');
+        }
+        await services.input.tapAt(guest, point, signal);
+      } else {
+        await services.input.clickAt(guest, point.x, point.y, command.doubleClick ? 2 : 1, button, modifiers, signal);
       }
-      await services.input.tapAt(guest, point, signal);
-    } else {
-      await services.input.clickAt(
-        guest,
-        point.x,
-        point.y,
-        command.doubleClick ? 2 : 1,
-        button,
-        modifiers,
-        signal,
-      );
-    }
     } finally {
       await finishGuard?.();
     }
@@ -98,12 +90,12 @@ export const pointerActions = defineBrowserActions({
     const source = await targetPoint(context, command.ref, command.x, command.y, 'drag');
     const destination = semantic
       ? await services.reply.withRefRecovery(
-        guest,
-        context.refRecovery,
-        command.targetRef as string,
-        (ref) => services.refPoints.resolveRefPoint(guest, ref, signal),
-        signal,
-      )
+          guest,
+          context.refRecovery,
+          command.targetRef as string,
+          (ref) => services.refPoints.resolveRefPoint(guest, ref, signal),
+          signal
+        )
       : await targetPoint(context, undefined, command.targetX, command.targetY, 'drag target');
     services.state.invalidateInteraction(guest);
     if (pointer === 'touch') {
@@ -127,9 +119,7 @@ export const pointerActions = defineBrowserActions({
     const dy = Number.isFinite(command.dy) ? Math.trunc(command.dy as number) : null;
     const effectiveDy = dy === null && command.dx !== undefined ? 0 : dy;
     const semantic = Boolean(command.ref) || (command.target !== undefined && command.target !== null);
-    const coordinate = command.snapshotId !== undefined
-      || command.x !== undefined
-      || command.y !== undefined;
+    const coordinate = command.snapshotId !== undefined || command.x !== undefined || command.y !== undefined;
     const wantedText = String(command.text || '').trim();
     if ([semantic, coordinate, Boolean(wantedText)].filter(Boolean).length > 1) {
       throw new Error('scroll accepts only one target form');
@@ -144,22 +134,12 @@ export const pointerActions = defineBrowserActions({
       state.invalidateInteraction(guest);
       return reply.decorateRecovery(await actionSnapshot(), refRecovery);
     }
-    if (coordinate && (!command.snapshotId
-      || !Number.isFinite(command.x)
-      || !Number.isFinite(command.y))) {
+    if (coordinate && (!command.snapshotId || !Number.isFinite(command.x) || !Number.isFinite(command.y))) {
       throw new Error('scroll coordinate target requires snapshotId, x, and y');
     }
     if (semantic) {
-      await mutateRef(
-        context,
-        (await actionRef(context)) as string,
-        (ref) => snapshots.evaluateRefScript(
-          guest,
-          ref,
-          scrollWithinRefScript(dx, effectiveDy),
-          signal,
-          5_000,
-        ),
+      await mutateRef(context, (await actionRef(context)) as string, (ref) =>
+        snapshots.evaluateRefScript(guest, ref, scrollWithinRefScript(dx, effectiveDy), signal, 5_000)
       );
       state.invalidateInteraction(guest);
       return reply.decorateRecovery(await actionSnapshot(), refRecovery);
@@ -172,7 +152,7 @@ export const pointerActions = defineBrowserActions({
         point,
         dx,
         effectiveDy === null ? Math.round(OFFSCREEN_VIEWPORT.height * 0.8) : effectiveDy,
-        signal,
+        signal
       );
       return actionSnapshot();
     }
@@ -191,7 +171,7 @@ export const pointerActions = defineBrowserActions({
           viewportHeight: Math.round(window.innerHeight),
         };
       })()`,
-      signal,
+      signal
     );
     return actionSnapshot();
   },
@@ -201,9 +181,11 @@ async function scrollTextIntoView(
   cdp: BrowserActionContext['services']['cdp'],
   guest: WebContents,
   wantedText: string,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<boolean> {
-  const found = await cdp.evaluate<{ found: boolean; text?: string }>(guest, `(() => {
+  const found = await cdp.evaluate<{ found: boolean; text?: string }>(
+    guest,
+    `(() => {
     const wanted = ${JSON.stringify(wantedText.toLowerCase())};
     const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -217,7 +199,9 @@ async function scrollTextIntoView(
       return { found: true, text: value.replace(/\\s+/g, ' ').trim().slice(0, 120) };
     }
     return { found: false };
-  })()`, signal);
+  })()`,
+    signal
+  );
   return Boolean(found?.found);
 }
 

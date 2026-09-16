@@ -14,8 +14,12 @@ test('broad search admission serializes walks while point content bypasses the g
   });
   let releaseFirst;
   let markFirstStarted;
-  const firstStarted = new Promise((resolve) => { markFirstStarted = resolve; });
-  const holdFirst = new Promise((resolve) => { releaseFirst = resolve; });
+  const firstStarted = new Promise((resolve) => {
+    markFirstStarted = resolve;
+  });
+  const holdFirst = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
   let secondStarted = false;
 
   const first = runWithSearchIoAdmission(
@@ -26,7 +30,7 @@ test('broad search admission serializes walks while point content bypasses the g
       await holdFirst;
       return 'first';
     },
-    { gate, waitTimeoutMs: 1_000 },
+    { gate, waitTimeoutMs: 1_000 }
   );
   await firstStarted;
   const second = runWithSearchIoAdmission(
@@ -36,14 +40,14 @@ test('broad search admission serializes walks while point content bypasses the g
       secondStarted = true;
       return 'second';
     },
-    { gate, waitTimeoutMs: 1_000 },
+    { gate, waitTimeoutMs: 1_000 }
   );
 
   const point = await runWithSearchIoAdmission(
     { args: ['--line-number', '-e', 'needle', 'known.txt'] },
     { ownerKey: 'owner-c' },
     async () => 'point',
-    { gate, waitTimeoutMs: 1_000 },
+    { gate, waitTimeoutMs: 1_000 }
   );
   assert.equal(point, 'point');
   assert.equal(secondStarted, false);

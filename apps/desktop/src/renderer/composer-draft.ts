@@ -1,4 +1,4 @@
-import type { ComposerAttachment } from "./composer-support";
+import type { ComposerAttachment } from './composer-support';
 
 let submissionSequence = 0;
 let recoverySequence = 0;
@@ -17,9 +17,7 @@ type StoredComposerSubmissionRecovery = ComposerSubmissionRecovery & {
 
 const composerSubmissionRecoveries = new Map<string, StoredComposerSubmissionRecovery>();
 
-export function retainComposerSubmissionRecovery(
-  recovery: ComposerSubmissionRecovery,
-): void {
+export function retainComposerSubmissionRecovery(recovery: ComposerSubmissionRecovery): void {
   composerSubmissionRecoveries.set(recovery.id, {
     ...recovery,
     attachments: [...recovery.attachments],
@@ -37,9 +35,7 @@ export function resolveComposerSubmissionRecovery(id: string): void {
   composerSubmissionRecoveries.delete(id);
 }
 
-export function takeRejectedComposerSubmissionRecoveries(
-  scope: string,
-): ComposerSubmissionRecovery[] {
+export function takeRejectedComposerSubmissionRecoveries(scope: string): ComposerSubmissionRecovery[] {
   const recoveries = [...composerSubmissionRecoveries.values()]
     .filter((recovery) => recovery.rejected && recovery.scope === scope)
     .sort((left, right) => left.sequence - right.sequence);
@@ -57,7 +53,7 @@ export function takeRejectedComposerSubmissionRecoveries(
  *  ALWAYS opens clean — carrying the previous pane's text and attachments
  *  into it was a reported bug. */
 export function composerScopeOpensFreshDraft(nextScope: string): boolean {
-  return nextScope.startsWith("draft:");
+  return nextScope.startsWith('draft:');
 }
 
 /** In-flight text per composer identity. Switching tabs swaps the identity
@@ -72,7 +68,7 @@ export function stashComposerDraft(scope: string, text: string): void {
 }
 
 export function stashedComposerDraft(scope: string): string {
-  return composerDraftsByScope.get(scope) ?? "";
+  return composerDraftsByScope.get(scope) ?? '';
 }
 
 export function composerDraftAfterScopeChange({
@@ -80,7 +76,7 @@ export function composerDraftAfterScopeChange({
   liveDomDraft,
   freshDraft,
   typingLive,
-  stashedDraft = "",
+  stashedDraft = '',
 }: {
   currentDraft: string;
   liveDomDraft: string;
@@ -91,9 +87,9 @@ export function composerDraftAfterScopeChange({
   stashedDraft?: string;
 }): string {
   if (stashedDraft.trim()) return stashedDraft;
-  if (freshDraft) return "";
+  if (freshDraft) return '';
   const candidate = typingLive ? liveDomDraft : currentDraft;
-  return typingLive && candidate.trim() ? candidate : "";
+  return typingLive && candidate.trim() ? candidate : '';
 }
 
 export function nextComposerSubmissionId(): string {
@@ -101,28 +97,22 @@ export function nextComposerSubmissionId(): string {
   return `desktop-submit-${uuid || `${Date.now()}-${++submissionSequence}`}`;
 }
 
-export function submissionRetryKey(
-  text: string,
-  attachments: readonly ComposerAttachment[],
-): string {
-  return JSON.stringify([
-    text,
-    attachments.map((attachment) => String(attachment.id)),
-  ]);
+export function submissionRetryKey(text: string, attachments: readonly ComposerAttachment[]): string {
+  return JSON.stringify([text, attachments.map((attachment) => String(attachment.id))]);
 }
 
 export function insertComposerToken(
   current: string,
   rawStart: number | undefined,
   rawEnd: number | undefined,
-  token: string,
+  token: string
 ): { next: string; caret: number } {
   const start = Math.max(0, Math.min(rawStart ?? current.length, current.length));
   const end = Math.max(start, Math.min(rawEnd ?? start, current.length));
   const before = current.slice(0, start);
   const after = current.slice(end);
-  const leading = before && !/\s$/.test(before) ? " " : "";
-  const trailing = " ";
+  const leading = before && !/\s$/.test(before) ? ' ' : '';
+  const trailing = ' ';
   const inserted = `${leading}${token}${trailing}`;
   return {
     next: `${before}${inserted}${after}`,

@@ -1,12 +1,16 @@
-import { useEffect, useRef } from "react";
-import type { Snapshot } from "./desktop-types";
-import { resolveDesktopSlashCommand, type CommandSurface as CommandSurfaceName, type SettingsSection as SlashSettingsSection } from "./slash-commands";
+import { useEffect, useRef } from 'react';
+import type { Snapshot } from './desktop-types';
+import {
+  resolveDesktopSlashCommand,
+  type CommandSurface as CommandSurfaceName,
+  type SettingsSection as SlashSettingsSection,
+} from './slash-commands';
 
 const UI_OPEN_REQUEST_TTL_MS = 15_000;
 
 export interface UiOpenRequestProps {
-  uiOpenRequest: Snapshot["uiOpenRequest"];
-  sessionId: Snapshot["sessionId"];
+  uiOpenRequest: Snapshot['uiOpenRequest'];
+  sessionId: Snapshot['sessionId'];
   openConversationCommandSurface: (surface: CommandSurfaceName, sessionId?: string) => void;
   openSettings: (section?: SlashSettingsSection | null) => void;
 }
@@ -33,12 +37,10 @@ export function useAppUiOpenRequest({
     const command = resolveDesktopSlashCommand(request.command);
     if (!command) return;
     if (command.surface) {
-      openConversationCommandSurface(command.surface, sessionId || "");
+      openConversationCommandSurface(command.surface, sessionId || '');
       return;
     }
     if (command.settingsRow) openSettings(command.settingsRow);
-    else if (command.action === "settings") openSettings(null);
+    else if (command.action === 'settings') openSettings(null);
   }, [openConversationCommandSurface, openSettings, sessionId, uiOpenRequest]);
 }
-
-

@@ -151,17 +151,24 @@ test('statistics warmup follows usage in host and session lanes, not streaming t
     subscribeState(listener) {
       stateListener = listener;
       subscriptions++;
-      return () => { releases++; };
+      return () => {
+        releases++;
+      };
     },
     subscribeSessionState(listener) {
       sessionListener = listener;
       subscriptions++;
-      return () => { releases++; };
+      return () => {
+        releases++;
+      };
     },
   };
   const release = holdStatsDataCache(api);
   const releaseSecond = holdStatsDataCache(api);
-  context.after(() => { release(); releaseSecond(); });
+  context.after(() => {
+    release();
+    releaseSecond();
+  });
   await refreshStatsDataCache(api);
   assert.equal(reads.length, 1);
   assert.equal(subscriptions, 2, 'holders share the host and session subscriptions');
@@ -173,7 +180,11 @@ test('statistics warmup follows usage in host and session lanes, not streaming t
   assert.equal(getStatsDataCache(api, true).getUsageStats.totals.tokens, 1000);
   await refreshStatsDataCache(api);
   assert.equal(getStatsDataCache(api).getUsageStats.totals.tokens, 2000);
-  stateListener({ ...snapshot, items: [{ text: 'streaming' }], stats: { ...snapshot.stats, currentContextTokens: 900 } });
+  stateListener({
+    ...snapshot,
+    items: [{ text: 'streaming' }],
+    stats: { ...snapshot.stats, currentContextTokens: 900 },
+  });
   sessionListener({ sessionId: 'one', snapshot });
   assert.equal(reads.length, 2, 'duplicate lane publications and non-usage changes do not read statistics');
 
@@ -192,7 +203,10 @@ test('statistics changes during a shared read publish only the newest complete r
   const resolvers = [];
   const api = {
     invokeCapability: () => new Promise((resolve) => resolvers.push(resolve)),
-    subscribeState(listener) { update = listener; return () => {}; },
+    subscribeState(listener) {
+      update = listener;
+      return () => {};
+    },
   };
   const release = holdStatsDataCache(api);
   context.after(release);
@@ -220,7 +234,10 @@ test('a failed statistics warmup keeps a stale fallback and can be retried on en
       if (fail) throw new Error('usage offline');
       return { value: { totals: { tokens: 1000 } } };
     },
-    subscribeState(listener) { update = listener; return () => {}; },
+    subscribeState(listener) {
+      update = listener;
+      return () => {};
+    },
   };
   const release = holdStatsDataCache(api);
   context.after(release);
@@ -250,7 +267,9 @@ test('desktop state warms statistics before the dialog mounts without blocking b
   const sessionListeners = new Set();
   const resolvers = [];
   const api = {
-    async getSnapshot() { return { sessionId: '' }; },
+    async getSnapshot() {
+      return { sessionId: '' };
+    },
     invokeCapability: () => new Promise((resolve) => resolvers.push(resolve)),
     subscribeState(listener) {
       stateListeners.add(listener);
@@ -268,9 +287,12 @@ test('desktop state warms statistics before the dialog mounts without blocking b
   assert.equal(document.querySelector('[role="dialog"]'), null);
   await act(async () => resolvers[0]({ value: { totals: { tokens: 1000 } } }));
   assert.equal(getStatsDataCache(api).getUsageStats.totals.tokens, 1000);
-  sessionListeners.forEach((listener) => listener({
-    sessionId: 'background-session', snapshot: { stats: { inputTokens: 2000 } },
-  }));
+  sessionListeners.forEach((listener) =>
+    listener({
+      sessionId: 'background-session',
+      snapshot: { stats: { inputTokens: 2000 } },
+    })
+  );
   await act(async () => resolvers[1]({ value: { totals: { tokens: 2000 } } }));
   assert.equal(getStatsDataCache(api).getUsageStats.totals.tokens, 2000);
   await render({ mounted: false });
@@ -289,7 +311,7 @@ test('inherit blocked reasons evaluate conditions in deterministic sequence', ()
       hasRoute: true,
       fit: null,
     }),
-    t('This task has not started a session yet.'),
+    t('This task has not started a session yet.')
   );
 
   // 2. Busy turn
@@ -302,7 +324,7 @@ test('inherit blocked reasons evaluate conditions in deterministic sequence', ()
       hasRoute: true,
       fit: null,
     }),
-    t('Wait for the current turn to finish.'),
+    t('Wait for the current turn to finish.')
   );
 
   // 3. Spoken messages = 0
@@ -315,7 +337,7 @@ test('inherit blocked reasons evaluate conditions in deterministic sequence', ()
       hasRoute: true,
       fit: null,
     }),
-    t('There is no conversation to carry over yet.'),
+    t('There is no conversation to carry over yet.')
   );
 
   // 4. OnInherit unavailable
@@ -328,7 +350,7 @@ test('inherit blocked reasons evaluate conditions in deterministic sequence', ()
       hasRoute: true,
       fit: null,
     }),
-    t('Inheritance is unavailable on this surface.'),
+    t('Inheritance is unavailable on this surface.')
   );
 
   // 5. Unknown route
@@ -341,7 +363,7 @@ test('inherit blocked reasons evaluate conditions in deterministic sequence', ()
       hasRoute: false,
       fit: null,
     }),
-    t('Unknown'),
+    t('Unknown')
   );
 
   // 6. Model context overflow without compaction
@@ -352,9 +374,19 @@ test('inherit blocked reasons evaluate conditions in deterministic sequence', ()
       spoken: 5,
       onInheritAvailable: true,
       hasRoute: true,
-      fit: { known: true, fits: false, willCompact: false, used: 1000, limit: 500, percent: 200, provider: 'openai', model: 'gpt-4o', reason: 'exceeded' },
+      fit: {
+        known: true,
+        fits: false,
+        willCompact: false,
+        used: 1000,
+        limit: 500,
+        percent: 200,
+        provider: 'openai',
+        model: 'gpt-4o',
+        reason: 'exceeded',
+      },
     }),
-    t('This conversation no longer fits the model context. Run /compact first.'),
+    t('This conversation no longer fits the model context. Run /compact first.')
   );
 
   // 7. Ready
@@ -365,9 +397,19 @@ test('inherit blocked reasons evaluate conditions in deterministic sequence', ()
       spoken: 5,
       onInheritAvailable: true,
       hasRoute: true,
-      fit: { known: true, fits: true, willCompact: false, used: 100, limit: 500, percent: 20, provider: 'openai', model: 'gpt-4o', reason: 'ok' },
+      fit: {
+        known: true,
+        fits: true,
+        willCompact: false,
+        used: 100,
+        limit: 500,
+        percent: 20,
+        provider: 'openai',
+        model: 'gpt-4o',
+        reason: 'ok',
+      },
     }),
-    '',
+    ''
   );
 });
 
@@ -403,7 +445,10 @@ test('usage presentation helpers compute clocks, tones and formats', () => {
   assert.equal(usageProviderLabel({ id: 'anthropic' }), 'anthropic');
 
   // Billing urls
-  assert.equal(billingUrl({ group: 'api', id: 'openai' }), 'https://platform.openai.com/settings/organization/billing/overview');
+  assert.equal(
+    billingUrl({ group: 'api', id: 'openai' }),
+    'https://platform.openai.com/settings/organization/billing/overview'
+  );
   assert.equal(billingUrl({ group: 'oauth', id: 'openai' }), '');
 
   // Window values
@@ -425,9 +470,10 @@ test('command surface renders usage skeleton while loading then paints table', a
   const render = setupDomHarness(context, CommandSurface);
   let resolveCapability;
   const api = {
-    invokeCapability: () => new Promise((resolve) => {
-      resolveCapability = resolve;
-    }),
+    invokeCapability: () =>
+      new Promise((resolve) => {
+        resolveCapability = resolve;
+      }),
   };
 
   await render({ surface: 'usage', open: true, onClose() {}, api });
@@ -540,9 +586,10 @@ test('stale asynchronous response cannot overwrite newer request state', async (
   const render = setupDomHarness(context, LifecycleTestComponent);
   const resolvers = [];
   const api = {
-    invokeCapability: ({ capability }) => new Promise((resolve) => {
-      resolvers.push({ capability, resolve });
-    }),
+    invokeCapability: ({ capability }) =>
+      new Promise((resolve) => {
+        resolvers.push({ capability, resolve });
+      }),
   };
 
   // 1. Initial surface: 'doctor' -> triggers request 1 (runDoctor)

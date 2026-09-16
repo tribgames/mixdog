@@ -39,30 +39,23 @@ export function scoreOfficeReleaseQuality({
   structuralAvailable = false,
   planCoverage = 0,
 } = {}) {
-  const renderScore = Number.isFinite(Number(aesthetics?.score))
-    ? clamp(Number(aesthetics.score))
-    : 0;
+  const renderScore = Number.isFinite(Number(aesthetics?.score)) ? clamp(Number(aesthetics.score)) : 0;
   const issueList = Array.isArray(issues) ? issues : [];
-  const structuralPenalty = Math.min(0.85, issueList.reduce(
-    (total, issue) => total + issuePenalty(issue),
-    0,
-  ));
+  const structuralPenalty = Math.min(
+    0.85,
+    issueList.reduce((total, issue) => total + issuePenalty(issue), 0)
+  );
   const structuralScore = clamp(1 - structuralPenalty);
-  const score = aesthetics
-    ? (renderScore * 0.72) + (structuralScore * 0.28)
-    : structuralScore * 0.55;
-  const pageCoverage = expectedPages > 0
-    ? clamp(Number(renderedPages) / Number(expectedPages))
-    : renderedPages > 0 ? 1 : 0;
+  const score = aesthetics ? renderScore * 0.72 + structuralScore * 0.28 : structuralScore * 0.55;
+  const pageCoverage =
+    expectedPages > 0 ? clamp(Number(renderedPages) / Number(expectedPages)) : renderedPages > 0 ? 1 : 0;
   const normalizedFormat = String(format || '').toLowerCase();
   const normalizedPlanCoverage = normalizedFormat === 'pptx' ? clamp(planCoverage) : 1;
-  const confidence = (aesthetics ? 0.45 : 0)
-    + (structuralAvailable ? 0.3 : 0)
-    + (pageCoverage * 0.15)
-    + (normalizedPlanCoverage * 0.1);
-  const blocking = issueList.filter((issue) => ['error', 'warning'].includes(
-    String(issue?.severity || '').toLowerCase(),
-  ));
+  const confidence =
+    (aesthetics ? 0.45 : 0) + (structuralAvailable ? 0.3 : 0) + pageCoverage * 0.15 + normalizedPlanCoverage * 0.1;
+  const blocking = issueList.filter((issue) =>
+    ['error', 'warning'].includes(String(issue?.severity || '').toLowerCase())
+  );
   const quality = {
     version: normalizedFormat === 'pptx' ? 3 : 2,
     score: rounded(score),

@@ -14,7 +14,13 @@ import { initProviders } from '../../src/runtime/agent/orchestrator/providers/re
 
 test('headless exec parser accepts exec form and rejects legacy shapes', () => {
   const command = parseHeadlessExecCommand([
-    'exec', '--provider', 'openai-oauth', '--model', 'gpt-test', 'check', 'this',
+    'exec',
+    '--provider',
+    'openai-oauth',
+    '--model',
+    'gpt-test',
+    'check',
+    'this',
   ]);
   if (command?.message !== 'check this') {
     throw new Error(`headless exec command parse failed: ${JSON.stringify(command)}`);
@@ -34,9 +40,11 @@ test('headless exec parser accepts exec form and rejects legacy shapes', () => {
 });
 
 test('agent tool keeps its async tagged delegation description', () => {
-  if (!/background tasks/i.test(AGENT_TOOL.description || '')
-    || !/same-tag spawn respawns/i.test(AGENT_TOOL.description || '')
-    || !/spawn\/send return task_id immediately/i.test(AGENT_TOOL.description || '')) {
+  if (
+    !/background tasks/i.test(AGENT_TOOL.description || '') ||
+    !/same-tag spawn respawns/i.test(AGENT_TOOL.description || '') ||
+    !/spawn\/send return task_id immediately/i.test(AGENT_TOOL.description || '')
+  ) {
     throw new Error('agent description must preserve async tagged delegation contract');
   }
 });
@@ -45,7 +53,9 @@ test('agent read/list errors surface as Error results without runtime resolve', 
   const agentSmoke = createStandaloneAgent({
     cfgMod: {
       loadConfig: () => ({ providers: {}, presets: [] }),
-      resolveRuntimeSpec: () => { throw new Error('agent smoke should not resolve runtime for read/list errors'); },
+      resolveRuntimeSpec: () => {
+        throw new Error('agent smoke should not resolve runtime for read/list errors');
+      },
     },
     reg: { initProviders: async () => {} },
     mgr: {
@@ -57,11 +67,17 @@ test('agent read/list errors surface as Error results without runtime resolve', 
     cwd: root,
     defaultMode: 'async',
   });
-  const agentMissingJob = await agentSmoke.execute({ type: 'read', task_id: 'task_missing_smoke' }, { invocationSource: 'model-tool', cwd: root });
+  const agentMissingJob = await agentSmoke.execute(
+    { type: 'read', task_id: 'task_missing_smoke' },
+    { invocationSource: 'model-tool', cwd: root }
+  );
   if (!/^Error[\s:[]/.test(String(agentMissingJob)) || !/task_missing_smoke/.test(String(agentMissingJob))) {
     throw new Error(`agent missing task must return Error result:\n${agentMissingJob}`);
   }
-  const agentBadType = await agentSmoke.execute({ type: 'definitely_bad_type' }, { invocationSource: 'model-tool', cwd: root });
+  const agentBadType = await agentSmoke.execute(
+    { type: 'definitely_bad_type' },
+    { invocationSource: 'model-tool', cwd: root }
+  );
   if (!/^Error[\s:[]/.test(String(agentBadType)) || !/unknown type/i.test(String(agentBadType))) {
     throw new Error(`agent unknown type must return Error result:\n${agentBadType}`);
   }
@@ -106,14 +122,18 @@ test('channel worker daemon spawn env advertises host identity', async () => {
       throw new Error(`channel service must advertise owner HTTP (MIXDOG_CLI_OWNED=0), got ${childEnv.cliOwned}`);
     }
     if (Number(childEnv.supervisorPid) !== process.pid) {
-      throw new Error(`channel service must replace a stale inherited supervisor PID with its live runtime PID, got ${childEnv.supervisorPid}`);
+      throw new Error(
+        `channel service must replace a stale inherited supervisor PID with its live runtime PID, got ${childEnv.supervisorPid}`
+      );
     }
     const identityProbe = await channelEnvWorker.execute('reload_config', {});
     if (Number(identityProbe?.leadPid) !== process.pid) {
       throw new Error(`channel client must register its live runtime PID, got ${identityProbe?.leadPid}`);
     }
   } finally {
-    try { await channelEnvWorker?.stop?.('channel-worker-env-smoke', { force: true }); } catch {}
+    try {
+      await channelEnvWorker?.stop?.('channel-worker-env-smoke', { force: true });
+    } catch {}
     if (prevDaemonHost == null) delete process.env.MIXDOG_DAEMON_HOST;
     else process.env.MIXDOG_DAEMON_HOST = prevDaemonHost;
     if (prevRuntimeRoot == null) delete process.env.MIXDOG_RUNTIME_ROOT;
@@ -143,8 +163,22 @@ test('agent completion notifications route to the owner exactly once', async () 
           default: 'sonnet-high',
           providers: { 'openai-oauth': { enabled: true } },
           presets: [
-            { id: 'sonnet-high', name: 'sonnet-high', provider: 'openai-oauth', model: 'smoke-model', type: 'agent', tools: 'full' },
-            { id: 'haiku', name: 'HAIKU', provider: 'openai-oauth', model: 'smoke-haiku', type: 'agent', tools: 'full' },
+            {
+              id: 'sonnet-high',
+              name: 'sonnet-high',
+              provider: 'openai-oauth',
+              model: 'smoke-model',
+              type: 'agent',
+              tools: 'full',
+            },
+            {
+              id: 'haiku',
+              name: 'HAIKU',
+              provider: 'openai-oauth',
+              model: 'smoke-haiku',
+              type: 'agent',
+              tools: 'full',
+            },
           ],
         }),
         resolveRuntimeSpec: () => ({ scopeKey: 'smoke-notify', lane: 'agent' }),
@@ -185,29 +219,40 @@ test('agent completion notifications route to the owner exactly once', async () 
       callerSessionId: 'sess_owner_notify_smoke',
       clientHostPid: 424242,
     };
-    const notifyStart = await agentNotifySmoke.execute({ type: 'spawn', agent: 'worker', tag: 'notify-smoke', prompt: 'notify smoke' }, notifyContext);
+    const notifyStart = await agentNotifySmoke.execute(
+      { type: 'spawn', agent: 'worker', tag: 'notify-smoke', prompt: 'notify smoke' },
+      notifyContext
+    );
     if (!/agent task:/i.test(String(notifyStart)) || !/status: running/i.test(String(notifyStart))) {
       throw new Error(`agent async notify smoke did not start task:\n${notifyStart}`);
     }
     await waitFor(
-      () => workerQueued.some((event) =>
-        /task_shell_notify_smoke/.test(String(event.message?.text || event.message?.content || event.message))),
-      'agent child background completion routing',
+      () =>
+        workerQueued.some((event) =>
+          /task_shell_notify_smoke/.test(String(event.message?.text || event.message?.content || event.message))
+        ),
+      'agent child background completion routing'
     );
     if (ownerNotifications.some((event) => /task_shell_notify_smoke/.test(event.text))) {
-      throw new Error(`agent child shell completion must stay in the worker session: ${JSON.stringify(ownerNotifications)}`);
+      throw new Error(
+        `agent child shell completion must stay in the worker session: ${JSON.stringify(ownerNotifications)}`
+      );
     }
     await waitFor(
       () => ownerNotifications.some((event) => /worker completed/.test(event.text)),
-      'agent early completion routing',
+      'agent early completion routing'
     );
     const agentCompletionCount = ownerNotifications.filter((event) => /worker completed/.test(event.text)).length;
     if (agentCompletionCount !== 1) {
-      throw new Error(`agent early completion should suppress duplicate final notify, got ${agentCompletionCount}: ${JSON.stringify(ownerNotifications)}`);
+      throw new Error(
+        `agent early completion should suppress duplicate final notify, got ${agentCompletionCount}: ${JSON.stringify(ownerNotifications)}`
+      );
     }
     await agentNotifySmoke.execute({ type: 'cleanup', force: true }, notifyContext);
   } finally {
-    try { agentNotifySmoke?.closeAll('tool-contracts-agent-notify-complete'); } catch {}
+    try {
+      agentNotifySmoke?.closeAll('tool-contracts-agent-notify-complete');
+    } catch {}
     rmSync(agentNotifyTmp, { recursive: true, force: true });
   }
 });

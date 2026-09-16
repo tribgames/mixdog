@@ -1,7 +1,8 @@
 export function repeatRequiresPass(argv = process.argv, env = process.env) {
-  return argv.some((value) =>
-    value === '--require-pass' || value === '--require-pass=true')
-    || String(env.npm_config_require_pass || '').toLowerCase() === 'true';
+  return (
+    argv.some((value) => value === '--require-pass' || value === '--require-pass=true') ||
+    String(env.npm_config_require_pass || '').toLowerCase() === 'true'
+  );
 }
 
 export function assertRepeatedScenariosPassed(summary, required) {

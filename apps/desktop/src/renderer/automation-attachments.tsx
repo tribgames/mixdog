@@ -31,16 +31,18 @@ function attachmentDomKey(attachment: AutomationAttachment): string {
 export function attachmentsFromRecords(value: unknown): AutomationAttachment[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry) => {
-    const row = entry && typeof entry === 'object' ? entry as Record<string, unknown> : null;
+    const row = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : null;
     const kind = String(row?.kind || '');
     const data = typeof row?.data === 'string' ? row.data : '';
     if (!data || (kind !== 'image' && kind !== 'text' && kind !== 'pdf')) return [];
-    return [{
-      kind: kind as AutomationAttachment['kind'],
-      name: String(row?.name || 'attachment'),
-      mimeType: String(row?.mimeType || ''),
-      data,
-    }];
+    return [
+      {
+        kind: kind as AutomationAttachment['kind'],
+        name: String(row?.name || 'attachment'),
+        mimeType: String(row?.mimeType || ''),
+        data,
+      },
+    ];
   });
 }
 
@@ -55,7 +57,10 @@ async function fileBase64(file: File): Promise<string> {
 }
 
 /** Read picked files into attachments, enforcing count/size caps against `existing`. */
-async function readAutomationFiles(files: FileList | File[], existing: AutomationAttachment[]): Promise<{
+async function readAutomationFiles(
+  files: FileList | File[],
+  existing: AutomationAttachment[]
+): Promise<{
   attachments: AutomationAttachment[];
   error: string;
 }> {
@@ -69,21 +74,24 @@ async function readAutomationFiles(files: FileList | File[], existing: Automatio
     if (file.type.startsWith('image/')) {
       const data = await fileBase64(file);
       binaryTotal += data.length;
-      if (binaryTotal > MAX_BINARY_TOTAL) return { attachments: next, error: 'Image/PDF attachments are too large together (8 MB max).' };
+      if (binaryTotal > MAX_BINARY_TOTAL)
+        return { attachments: next, error: 'Image/PDF attachments are too large together (8 MB max).' };
       next.push({ kind: 'image', name: file.name || 'image', mimeType: file.type || 'image/png', data });
       continue;
     }
     if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')) {
       const data = await fileBase64(file);
       binaryTotal += data.length;
-      if (binaryTotal > MAX_BINARY_TOTAL) return { attachments: next, error: 'Image/PDF attachments are too large together (8 MB max).' };
+      if (binaryTotal > MAX_BINARY_TOTAL)
+        return { attachments: next, error: 'Image/PDF attachments are too large together (8 MB max).' };
       next.push({ kind: 'pdf', name: file.name || 'document.pdf', mimeType: 'application/pdf', data });
       continue;
     }
     if (await fileLooksLikeText(file)) {
       const data = await file.text();
       textTotal += data.length;
-      if (textTotal > MAX_TEXT_TOTAL) return { attachments: next, error: 'Text attachments are too large together (200 KB max).' };
+      if (textTotal > MAX_TEXT_TOTAL)
+        return { attachments: next, error: 'Text attachments are too large together (200 KB max).' };
       next.push({ kind: 'text', name: file.name || 'file.txt', mimeType: file.type || 'text/plain', data });
       continue;
     }
@@ -93,10 +101,17 @@ async function readAutomationFiles(files: FileList | File[], existing: Automatio
 }
 
 // Same accept surface as the chat composer's attach button.
-const ATTACH_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql';
+const ATTACH_ACCEPT =
+  'image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql';
 
 /** Composer-style "+" attach tool + hidden input; reports the merged list via onChange. */
-export function AutomationAttachButton({ attachments, disabled, ariaLabel, onChange, onError }: {
+export function AutomationAttachButton({
+  attachments,
+  disabled,
+  ariaLabel,
+  onChange,
+  onError,
+}: {
   attachments: AutomationAttachment[];
   disabled: boolean;
   ariaLabel: string;
@@ -104,44 +119,76 @@ export function AutomationAttachButton({ attachments, disabled, ariaLabel, onCha
   onError(message: string): void;
 }) {
   const input = useRef<HTMLInputElement>(null);
-  return <>
-    <button type="button" className="composer-tool" disabled={disabled}
-      aria-label={ariaLabel} data-tooltip="Attach images, PDFs, or text files" data-tooltip-side="top"
-      onClick={() => input.current?.click()}>
-      <MxIcon name="plus" size={16} />
-    </button>
-    <input ref={input} type="file" multiple hidden aria-hidden="true" tabIndex={-1} accept={ATTACH_ACCEPT}
-      onChange={(event) => {
-        const files = event.currentTarget.files;
-        event.currentTarget.value = '';
-        if (!files || files.length === 0) return;
-        void readAutomationFiles(files, attachments).then(({ attachments: next, error }) => {
-          onError(error);
-          onChange(next);
-        });
-      }} />
-  </>;
+  return (
+    <>
+      <button
+        type="button"
+        className="composer-tool"
+        disabled={disabled}
+        aria-label={ariaLabel}
+        data-tooltip="Attach images, PDFs, or text files"
+        data-tooltip-side="top"
+        onClick={() => input.current?.click()}
+      >
+        <MxIcon name="plus" size={16} />
+      </button>
+      <input
+        ref={input}
+        type="file"
+        multiple
+        hidden
+        aria-hidden="true"
+        tabIndex={-1}
+        accept={ATTACH_ACCEPT}
+        onChange={(event) => {
+          const files = event.currentTarget.files;
+          event.currentTarget.value = '';
+          if (!files || files.length === 0) return;
+          void readAutomationFiles(files, attachments).then(({ attachments: next, error }) => {
+            onError(error);
+            onChange(next);
+          });
+        }}
+      />
+    </>
+  );
 }
 
 /** Composer-style chips row with per-item remove. */
-export function AutomationAttachmentChips({ attachments, disabled, onChange }: {
+export function AutomationAttachmentChips({
+  attachments,
+  disabled,
+  onChange,
+}: {
   attachments: AutomationAttachment[];
   disabled: boolean;
   onChange(next: AutomationAttachment[]): void;
 }) {
   if (attachments.length === 0) return null;
-  return <div className="composer-attachments schedules-attachments" aria-label="Attachments">
-    {attachments.map((attachment, index) => <div className={`attachment-chip ${attachment.kind}`}
-      key={attachmentDomKey(attachment)}>
-      {attachment.kind === 'image'
-        ? <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
-        : <span aria-hidden="true"><Paperclip size={14} /></span>}
-      <span data-tooltip={attachment.name}>{attachment.name}</span>
-      <button type="button" className="attachment-remove" aria-label={`Remove ${attachment.name}`}
-        data-tooltip="Remove" disabled={disabled}
-        onClick={() => onChange(attachments.filter((_, itemIndex) => itemIndex !== index))}>
-        <X size={14} aria-hidden="true" />
-      </button>
-    </div>)}
-  </div>;
+  return (
+    <div className="composer-attachments schedules-attachments" aria-label="Attachments">
+      {attachments.map((attachment, index) => (
+        <div className={`attachment-chip ${attachment.kind}`} key={attachmentDomKey(attachment)}>
+          {attachment.kind === 'image' ? (
+            <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
+          ) : (
+            <span aria-hidden="true">
+              <Paperclip size={14} />
+            </span>
+          )}
+          <span data-tooltip={attachment.name}>{attachment.name}</span>
+          <button
+            type="button"
+            className="attachment-remove"
+            aria-label={`Remove ${attachment.name}`}
+            data-tooltip="Remove"
+            disabled={disabled}
+            onClick={() => onChange(attachments.filter((_, itemIndex) => itemIndex !== index))}
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 }

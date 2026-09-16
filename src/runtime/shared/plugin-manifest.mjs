@@ -10,9 +10,7 @@ import { readJsonSafe } from './json-file.mjs';
 /** `.codex-plugin/plugin.json` wins over a root-level `plugin.json`; a plugin
  *  without either is an empty manifest, never an error. */
 export function pluginManifest(root) {
-  return readJsonSafe(join(root, '.codex-plugin', 'plugin.json'))
-    || readJsonSafe(join(root, 'plugin.json'))
-    || {};
+  return readJsonSafe(join(root, '.codex-plugin', 'plugin.json')) || readJsonSafe(join(root, 'plugin.json')) || {};
 }
 
 /** Resolve a manifest-relative path, refusing absolute paths and anything

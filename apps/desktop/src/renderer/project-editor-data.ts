@@ -15,12 +15,15 @@ export class ProjectEditorCache<T> {
     if (!refresh && entry.value !== undefined) return Promise.resolve(entry.value);
     if (entry.pending) return entry.pending;
     const target = entry;
-    const pending = Promise.resolve().then(load).then((value) => {
-      if (target.pending === pending) target.value = value;
-      return value;
-    }).finally(() => {
-      if (target.pending === pending) target.pending = undefined;
-    });
+    const pending = Promise.resolve()
+      .then(load)
+      .then((value) => {
+        if (target.pending === pending) target.value = value;
+        return value;
+      })
+      .finally(() => {
+        if (target.pending === pending) target.pending = undefined;
+      });
     target.pending = pending;
     return pending;
   }
@@ -49,15 +52,33 @@ export function parseCoreMemoryEntries(value: unknown): CoreMemoryEntry[] {
     structured = JSON.parse(value);
   }
   if (structured && typeof structured === 'object' && 'entries' in structured) {
-    const rows = (structured as { entries: Array<{ id: number | null; element?: string; summary?: string; source?: string; index_revision?: string }> }).entries;
-    return rows.filter(row => row.source !== 'generated' && row.id !== null).map(row => ({
-      id: row.id!, element: row.element || '', summary: row.summary || row.element || '',
-      singleSentence: !row.element || row.element === row.summary,
-      indexRevision: row.index_revision,
-    })).sort((a, b) => a.id - b.id);
+    const rows = (
+      structured as {
+        entries: Array<{
+          id: number | null;
+          element?: string;
+          summary?: string;
+          source?: string;
+          index_revision?: string;
+        }>;
+      }
+    ).entries;
+    return rows
+      .filter((row) => row.source !== 'generated' && row.id !== null)
+      .map((row) => ({
+        id: row.id!,
+        element: row.element || '',
+        summary: row.summary || row.element || '',
+        singleSentence: !row.element || row.element === row.summary,
+        indexRevision: row.index_revision,
+      }))
+      .sort((a, b) => a.id - b.id);
   }
   const entries: CoreMemoryEntry[] = [];
-  for (const line of String(value || '').split('\n').map((entry) => entry.trim()).filter(Boolean)) {
+  for (const line of String(value || '')
+    .split('\n')
+    .map((entry) => entry.trim())
+    .filter(Boolean)) {
     const match = line.match(/^id=(\d+)\s+(.+?)(?:\s+—\s+(.+))?$/);
     if (!match) continue;
     const element = match[2];
@@ -74,8 +95,9 @@ export function parseCoreMemoryEntries(value: unknown): CoreMemoryEntry[] {
 
 export function memoryResultError(value: unknown): string {
   const text = String(value || '').trim();
-  return /^(?:core (?:add|edit|delete)(?::| failed)|core:.*(?:not initialized|failed|error)|(?:error|failed)\b)/i.test(text)
+  return /^(?:core (?:add|edit|delete)(?::| failed)|core:.*(?:not initialized|failed|error)|(?:error|failed)\b)/i.test(
+    text
+  )
     ? text
     : '';
 }
-

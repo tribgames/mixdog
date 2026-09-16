@@ -8,7 +8,8 @@ import test from 'node:test';
 import { MIXDOG_HOST_CSHARP } from './native-source.ts';
 
 test('drag completion and interrupted movement both end with release feedback', {
-  skip: process.platform !== 'win32', timeout: 30000,
+  skip: process.platform !== 'win32',
+  timeout: 30000,
 }, async () => {
   // Execute the actual gesture with an isolated input transport, never user32.
   const start = MIXDOG_HOST_CSHARP.indexOf('  public static void Drag(');
@@ -54,14 +55,21 @@ foreach ($interrupt in @($false, $true)) {
   [Console]::WriteLine(([GestureFixture]::Events -join ','))
 }
 `;
-    const { stdout } = await promisify(execFile)('powershell.exe',
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', program],
-      { windowsHide: true, timeout: 20000, env: { ...process.env, DRAG_FIXTURE: directory } });
-    const rows = stdout.trim().split(/\r?\n/).map(row => row.split(','));
+      { windowsHide: true, timeout: 20000, env: { ...process.env, DRAG_FIXTURE: directory } }
+    );
+    const rows = stdout
+      .trim()
+      .split(/\r?\n/)
+      .map((row) => row.split(','));
     assert.equal(rows.length, 2);
     for (const events of rows) {
       assert.equal(events.at(-1), 'release');
-      assert.equal(events.filter(event => event === 'release').length, 1);
+      assert.equal(events.filter((event) => event === 'release').length, 1);
     }
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

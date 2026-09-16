@@ -9,12 +9,11 @@ import { compactToolCallsForHistory } from './stored-tool-args.mjs';
 // ask-session supplies a one-shot metadata taker per committed assistant turn;
 // absence (direct adapter callers, tests) leaves the message untouched.
 export function attachAssistantTranscriptMetadata(message, opts = {}) {
-    const transcript = typeof opts.takeAssistantTranscriptMetadata === 'function'
-        ? opts.takeAssistantTranscriptMetadata()
-        : null;
-    if (!transcript) return message;
-    const meta = message?.meta && typeof message.meta === 'object' ? message.meta : {};
-    return { ...message, meta: { ...meta, transcript } };
+  const transcript =
+    typeof opts.takeAssistantTranscriptMetadata === 'function' ? opts.takeAssistantTranscriptMetadata() : null;
+  if (!transcript) return message;
+  const meta = message?.meta && typeof message.meta === 'object' ? message.meta : {};
+  return { ...message, meta: { ...meta, transcript } };
 }
 
 // Verbatim provider payloads carried by an assistant history message, in
@@ -36,37 +35,31 @@ export function attachAssistantTranscriptMetadata(message, opts = {}) {
 // (native blocks + client tool_use) belongs to the tool-call committer, which
 // keeps both the blocks and the compacted toolCalls.
 function assistantEchoPayloads(resp, { keepAssistantBlocks }) {
-    return {
-        providerReplay: cloneProviderReplay(resp.providerReplay),
-        assistantBlocks: keepAssistantBlocks
-            && Array.isArray(resp.assistantBlocks) && resp.assistantBlocks.length
-            ? resp.assistantBlocks
-            : null,
-        thinkingBlocks: Array.isArray(resp.thinkingBlocks) && resp.thinkingBlocks.length
-            ? resp.thinkingBlocks
-            : null,
-        reasoningItems: Array.isArray(resp.reasoningItems) && resp.reasoningItems.length
-            ? resp.reasoningItems
-            : null,
-        reasoningContent: typeof resp.reasoningContent === 'string' ? resp.reasoningContent : undefined,
-        providerMetadata: resp.providerMetadata && typeof resp.providerMetadata === 'object'
-            ? resp.providerMetadata
-            : null,
-    };
+  return {
+    providerReplay: cloneProviderReplay(resp.providerReplay),
+    assistantBlocks:
+      keepAssistantBlocks && Array.isArray(resp.assistantBlocks) && resp.assistantBlocks.length
+        ? resp.assistantBlocks
+        : null,
+    thinkingBlocks: Array.isArray(resp.thinkingBlocks) && resp.thinkingBlocks.length ? resp.thinkingBlocks : null,
+    reasoningItems: Array.isArray(resp.reasoningItems) && resp.reasoningItems.length ? resp.reasoningItems : null,
+    reasoningContent: typeof resp.reasoningContent === 'string' ? resp.reasoningContent : undefined,
+    providerMetadata: resp.providerMetadata && typeof resp.providerMetadata === 'object' ? resp.providerMetadata : null,
+  };
 }
 
 // Providers that do not understand a field simply drop it, so the same spread
 // is safe for every adapter.
 function assistantEchoFields(payloads) {
-    const { providerReplay, assistantBlocks, thinkingBlocks, reasoningItems } = payloads;
-    return {
-        ...(providerReplay ? { providerReplay } : {}),
-        ...(assistantBlocks && !providerReplay ? { assistantBlocks } : {}),
-        ...(thinkingBlocks && !assistantBlocks && !providerReplay ? { thinkingBlocks } : {}),
-        ...(reasoningItems && !providerReplay ? { reasoningItems } : {}),
-        ...(payloads.reasoningContent !== undefined ? { reasoningContent: payloads.reasoningContent } : {}),
-        ...(payloads.providerMetadata ? { providerMetadata: payloads.providerMetadata } : {}),
-    };
+  const { providerReplay, assistantBlocks, thinkingBlocks, reasoningItems } = payloads;
+  return {
+    ...(providerReplay ? { providerReplay } : {}),
+    ...(assistantBlocks && !providerReplay ? { assistantBlocks } : {}),
+    ...(thinkingBlocks && !assistantBlocks && !providerReplay ? { thinkingBlocks } : {}),
+    ...(reasoningItems && !providerReplay ? { reasoningItems } : {}),
+    ...(payloads.reasoningContent !== undefined ? { reasoningContent: payloads.reasoningContent } : {}),
+    ...(payloads.providerMetadata ? { providerMetadata: payloads.providerMetadata } : {}),
+  };
 }
 
 // Intermediate (non-tool) assistant turn: max-output partials, refusal
@@ -75,26 +68,30 @@ function assistantEchoFields(payloads) {
 // native-only turn (server tool blocks, no flattened text) is real output and
 // stays committable.
 export function buildIntermediateAssistantMessage(resp, opts) {
-    if (!resp) return null;
-    const content = typeof resp.content === 'string'
-        ? resp.content
-        : (resp.content == null ? '' : String(resp.content));
-    const payloads = assistantEchoPayloads(resp, { keepAssistantBlocks: !resp.toolCalls?.length });
-    if (!content
-        && !payloads.reasoningContent
-        && !payloads.reasoningItems
-        && !payloads.thinkingBlocks
-        && !payloads.assistantBlocks
-        && !payloads.providerReplay) return null;
-    const stopReason = resp.stopReason ?? resp.stop_reason ?? null;
-    const terminationReason = resp.terminationReason ?? null;
-    return attachAssistantTranscriptMetadata({
-        role: 'assistant',
-        content,
-        ...assistantEchoFields(payloads),
-        ...(stopReason ? { stopReason } : {}),
-        ...(terminationReason ? { terminationReason } : {}),
-    }, opts);
+  if (!resp) return null;
+  const content = typeof resp.content === 'string' ? resp.content : resp.content == null ? '' : String(resp.content);
+  const payloads = assistantEchoPayloads(resp, { keepAssistantBlocks: !resp.toolCalls?.length });
+  if (
+    !content &&
+    !payloads.reasoningContent &&
+    !payloads.reasoningItems &&
+    !payloads.thinkingBlocks &&
+    !payloads.assistantBlocks &&
+    !payloads.providerReplay
+  )
+    return null;
+  const stopReason = resp.stopReason ?? resp.stop_reason ?? null;
+  const terminationReason = resp.terminationReason ?? null;
+  return attachAssistantTranscriptMetadata(
+    {
+      role: 'assistant',
+      content,
+      ...assistantEchoFields(payloads),
+      ...(stopReason ? { stopReason } : {}),
+      ...(terminationReason ? { terminationReason } : {}),
+    },
+    opts
+  );
 }
 
 // Tool-call assistant turn. `toolCalls` stays authoritative for execution,
@@ -102,20 +99,27 @@ export function buildIntermediateAssistantMessage(resp, opts) {
 // the rest of the session (collapsing them later rewrote an already-cached
 // prefix and re-billed the request uncached).
 export function buildToolCallAssistantMessage(response, { calls, suppressMidTurnText, opts }) {
-    return attachAssistantTranscriptMetadata({
-        role: 'assistant',
-        createdAt: Date.now(),
-        // Sub-agent tool-call turns carry only mid-turn preamble in
-        // response.content (the real result rides the later final-answer
-        // turn). Blank it so it never accumulates as input tokens.
-        content: suppressMidTurnText ? '' : (response.content || ''),
-        toolCalls: compactToolCallsForHistory(calls, { deferBodies: true }),
-        ...assistantEchoFields(assistantEchoPayloads(response, { keepAssistantBlocks: true })),
-    }, opts);
+  return attachAssistantTranscriptMetadata(
+    {
+      role: 'assistant',
+      createdAt: Date.now(),
+      // Sub-agent tool-call turns carry only mid-turn preamble in
+      // response.content (the real result rides the later final-answer
+      // turn). Blank it so it never accumulates as input tokens.
+      content: suppressMidTurnText ? '' : response.content || '',
+      toolCalls: compactToolCallsForHistory(calls, { deferBodies: true }),
+      ...assistantEchoFields(assistantEchoPayloads(response, { keepAssistantBlocks: true })),
+    },
+    opts
+  );
 }
 
 export function commitAssistantMessage(messages, message, opts) {
-    messages.push(message);
-    try { opts?.onAssistantMessageCommitted?.(message); } catch { /* best-effort host hook */ }
-    return message;
+  messages.push(message);
+  try {
+    opts?.onAssistantMessageCommitted?.(message);
+  } catch {
+    /* best-effort host hook */
+  }
+  return message;
 }

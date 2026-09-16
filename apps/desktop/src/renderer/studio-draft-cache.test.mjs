@@ -22,9 +22,15 @@ function memoryReferenceStore() {
   const values = new Map();
   return {
     values,
-    async read(key) { return values.get(key); },
-    async write(key, value) { values.set(key, structuredClone(value)); },
-    async remove(key) { values.delete(key); },
+    async read(key) {
+      return values.get(key);
+    },
+    async write(key, value) {
+      values.set(key, structuredClone(value));
+    },
+    async remove(key) {
+      values.delete(key);
+    },
   };
 }
 
@@ -85,7 +91,5 @@ test('invalid cached image payloads are ignored instead of breaking Studio', asy
     ],
   });
 
-  assert.deepEqual(await readStudioDraftReferences(store), [
-    { base64: 'valid', mime: 'image/webp' },
-  ]);
+  assert.deepEqual(await readStudioDraftReferences(store), [{ base64: 'valid', mime: 'image/webp' }]);
 });

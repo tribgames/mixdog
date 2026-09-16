@@ -16,8 +16,7 @@ export function callSignature(name, args) {
 }
 
 export function callIdConflict(callId) {
-  return Object.assign(
-    new Error(`callId '${callId}' was reused with a different payload`),
-    { code: 'ECALLIDCONFLICT' },
-  );
+  return Object.assign(new Error(`callId '${callId}' was reused with a different payload`), {
+    code: 'ECALLIDCONFLICT',
+  });
 }

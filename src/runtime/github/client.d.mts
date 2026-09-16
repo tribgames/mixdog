@@ -14,4 +14,8 @@ export interface GithubExecutionOptions {
   run?: (command: GithubCommand, options: GithubExecutionOptions) => Promise<string>;
 }
 export function runGithubProcess(command: GithubCommand, options?: GithubExecutionOptions): Promise<string>;
-export function executeGithubRequest(input: GithubRequest | unknown, cwd: string, options?: GithubExecutionOptions): Promise<GithubResult>;
+export function executeGithubRequest(
+  input: GithubRequest | unknown,
+  cwd: string,
+  options?: GithubExecutionOptions
+): Promise<GithubResult>;

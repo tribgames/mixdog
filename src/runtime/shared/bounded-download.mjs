@@ -36,10 +36,7 @@ class DownloadHttpError extends Error {
   }
 }
 
-export async function readResponseBuffer(
-  response,
-  { maxBytes, label = 'download' } = {},
-) {
+export async function readResponseBuffer(response, { maxBytes, label = 'download' } = {}) {
   const { maximum } = downloadBounds(maxBytes, 0, label);
   responseByteLength(response, maximum, label);
   const chunks = [];
@@ -58,12 +55,7 @@ export async function readResponseBuffer(
 export async function streamResponseToFile(
   response,
   destPath,
-  {
-    maxBytes,
-    expectedBytes = 0,
-    label = 'download',
-    onProgress = null,
-  } = {},
+  { maxBytes, expectedBytes = 0, label = 'download', onProgress = null } = {}
 ) {
   const { maximum, expected } = downloadBounds(maxBytes, expectedBytes, label);
   const advertised = responseByteLength(response, maximum, label);
@@ -105,7 +97,9 @@ export async function streamResponseToFile(
     await pipeline(response.body, guard, createWriteStream(destPath));
     return downloaded;
   } catch (error) {
-    try { rmSync(destPath, { force: true }); } catch {}
+    try {
+      rmSync(destPath, { force: true });
+    } catch {}
     throw error;
   }
 }
@@ -122,7 +116,7 @@ export async function downloadToFileWithRetry(
     timeoutMs = 180_000,
     retryDelaysMs = DEFAULT_RETRY_DELAYS_MS,
     onRetry = null,
-  } = {},
+  } = {}
 ) {
   const { maximum, expected } = downloadBounds(maxBytes, expectedBytes, label);
   let lastError;
@@ -140,7 +134,9 @@ export async function downloadToFileWithRetry(
         if (!response.bodyUsed) {
           // This attempt owns the response. Dispose an unread body before any
           // retry, without letting cleanup delay or replace the download outcome.
-          try { void Promise.resolve(response.body?.cancel?.()).catch(() => {}); } catch {}
+          try {
+            void Promise.resolve(response.body?.cancel?.()).catch(() => {});
+          } catch {}
         }
       }
     } catch (error) {

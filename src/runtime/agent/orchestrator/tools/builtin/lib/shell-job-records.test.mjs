@@ -31,13 +31,16 @@ test('a running shell job publishes a record the statusline reader counts', asyn
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
   try {
-    publishShellJobRecord({
-      jobId: 'job_probe_1',
-      pid: process.pid,
-      command: 'sleep 30',
-      cwd: root,
-      startedAt: new Date().toISOString(),
-    }, { ownerSessionId: 'sess-probe', clientHostPid: process.pid });
+    publishShellJobRecord(
+      {
+        jobId: 'job_probe_1',
+        pid: process.pid,
+        command: 'sleep 30',
+        cwd: root,
+        startedAt: new Date().toISOString(),
+      },
+      { ownerSessionId: 'sess-probe', clientHostPid: process.pid }
+    );
 
     const running = await readStatus((value) => value.count > 0);
     assert.equal(running.count, 1);
@@ -63,36 +66,42 @@ test('a completed shell job remains owner-scoped and recoverable after memory lo
   process.env.MIXDOG_DATA_DIR = root;
   const jobId = `job_terminal_${process.pid}`;
   try {
-    publishShellJobRecord({
-      jobId,
-      pid: process.pid,
-      command: 'node --version',
-      cwd: root,
-      startedAt: new Date(Date.now() - 100).toISOString(),
-    }, { ownerSessionId: 'sess-owner', clientHostPid: process.pid });
-    assert.equal(await completeShellJobRecord(jobId, {
-      status: 'failed',
-      exitCode: 2,
-      command: 'node --version',
-      cwd: root,
-      ownerSessionId: 'sess-owner',
-      stdoutPreview: 'version output',
-      finishedAt: new Date().toISOString(),
-    }), true);
+    publishShellJobRecord(
+      {
+        jobId,
+        pid: process.pid,
+        command: 'node --version',
+        cwd: root,
+        startedAt: new Date(Date.now() - 100).toISOString(),
+      },
+      { ownerSessionId: 'sess-owner', clientHostPid: process.pid }
+    );
+    assert.equal(
+      await completeShellJobRecord(jobId, {
+        status: 'failed',
+        exitCode: 2,
+        command: 'node --version',
+        cwd: root,
+        ownerSessionId: 'sess-owner',
+        stdoutPreview: 'version output',
+        finishedAt: new Date().toISOString(),
+      }),
+      true
+    );
     const record = await readShellJobRecord(jobId);
     assert.equal(record.status, 'failed');
     assert.equal(record.exitCode, 2);
     assert.equal(record.ownerSessionId, 'sess-owner');
     assert.equal(record.terminal, true);
     assert.ok((await listShellJobRecords()).some((item) => item.jobId === jobId));
-    assert.match(await executeTaskTool(
-      { action: 'read', task_id: jobId },
-      { sessionId: 'sess-owner' },
-    ), /recovered: true/);
-    assert.match(await executeTaskTool(
-      { action: 'read', task_id: jobId },
-      { sessionId: 'sess-other' },
-    ), /task not found/);
+    assert.match(
+      await executeTaskTool({ action: 'read', task_id: jobId }, { sessionId: 'sess-owner' }),
+      /recovered: true/
+    );
+    assert.match(
+      await executeTaskTool({ action: 'read', task_id: jobId }, { sessionId: 'sess-other' }),
+      /task not found/
+    );
   } finally {
     retireShellJobRecord(jobId);
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;

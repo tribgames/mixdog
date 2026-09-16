@@ -2,7 +2,18 @@
 // deferral, admission control), the progress-idle watchdogs, spawn prep
 // (provider/session preparation), and the full runSpawn
 // execution with turn-review collection and terminal accounting.
-import { agentDefinitionExists, clean, clearAgentStatuslineRoute, nonNegativeInt, normalizeAgentName, presetKey, readAgentFrontmatterPermission, resolvePrompt, terminalPidForContext, writeAgentStatuslineRoute } from './helpers.mjs';
+import {
+  agentDefinitionExists,
+  clean,
+  clearAgentStatuslineRoute,
+  nonNegativeInt,
+  normalizeAgentName,
+  presetKey,
+  readAgentFrontmatterPermission,
+  resolvePrompt,
+  terminalPidForContext,
+  writeAgentStatuslineRoute,
+} from './helpers.mjs';
 import { createNotify } from './notify.mjs';
 import { sanitizeTaskMeta, startBackgroundTask } from '../../runtime/shared/background-tasks.mjs';
 import {
@@ -18,7 +29,11 @@ import { createProgressWatchdogRegistry } from '../agent-watchdog-registry.mjs';
 import { resolve } from 'node:path';
 import { normalizeAgentPermission } from '../../runtime/shared/markdown-frontmatter.mjs';
 import { resolveAgentSpawnPreset } from './spawn-preset.mjs';
-import { resolveAgentWatchdogPolicy, resolveHandoffMessageStartIndex, watchdogPartialHandoffFromError } from '../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
+import {
+  resolveAgentWatchdogPolicy,
+  resolveHandoffMessageStartIndex,
+  watchdogPartialHandoffFromError,
+} from '../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { prepareAgentSession } from '../../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 import { saveSessionAsync } from '../../runtime/agent/orchestrator/session/store.mjs';
 import { AGENT_OWNER } from '../../runtime/agent/orchestrator/agent-owner.mjs';
@@ -57,8 +72,12 @@ export function createSpawnFlow({
 }) {
   function closePreparedSpawn(prepared, reason = 'agent-task-cancel') {
     if (!prepared?.session?.id) return;
-    try { Promise.resolve(mgr.closeSession(prepared.session.id, reason)).catch(() => {}); } catch {}
-    try { clearAgentStatuslineRoute(prepared.session.id); } catch {}
+    try {
+      Promise.resolve(mgr.closeSession(prepared.session.id, reason)).catch(() => {});
+    } catch {}
+    try {
+      clearAgentStatuslineRoute(prepared.session.id);
+    } catch {}
     forgetTerminalSession(prepared.tag, prepared.session.id);
   }
 
@@ -76,12 +95,14 @@ export function createSpawnFlow({
       callerSessionId: callerSessionId || null,
       ownerSessionId: ownerSessionId || null,
       clientHostPid: clientHostPid || null,
-      notifyFn: handoffSessionId && typeof notifySessionCompletion === 'function'
-        ? (text, completionMeta = {}) => notifySessionCompletion(handoffSessionId, text, {
-            ...(completionMeta && typeof completionMeta === 'object' ? completionMeta : {}),
-            caller_session_id: handoffSessionId,
-          })
-        : null,
+      notifyFn:
+        handoffSessionId && typeof notifySessionCompletion === 'function'
+          ? (text, completionMeta = {}) =>
+              notifySessionCompletion(handoffSessionId, text, {
+                ...(completionMeta && typeof completionMeta === 'object' ? completionMeta : {}),
+                caller_session_id: handoffSessionId,
+              })
+          : null,
     };
     const jobMeta = sanitizeTaskMeta({
       ...(meta || {}),
@@ -99,7 +120,9 @@ export function createSpawnFlow({
       resultType: 'agent_task_result',
       renderResult: (result) => renderResult(result),
       cancel: () => {
-        try { admissionController.abort(new Error('agent task cancelled before resource admission')); } catch {}
+        try {
+          admissionController.abort(new Error('agent task cancelled before resource admission'));
+        } catch {}
         const currentMeta = task?.meta || jobMeta;
         if (currentMeta?.sessionId) {
           try {
@@ -134,59 +157,67 @@ export function createSpawnFlow({
   }
 
   function startDeferredSpawnJob(args, callerCwd, context, notifyContext, extras = {}) {
-    return startJob('spawn', pendingSpawnMeta(args, extras), async (job, ownerNotifyContext) => {
-      if (job?.status === 'cancelled') return null;
-      // prepareSpawn (ensureProvider/prepareAgentSession) runs before runSpawn
-      // installs its progress watchdog, so guard prep with an internal env-
-      // backed cap rather than exposing per-call timeout knobs on the agent
-      // tool surface.
-      const prepDeadlineMs = nonNegativeInt(args.spawnPrepTimeoutMs ?? args.prepTimeoutMs)
-        ?? DEFAULT_SPAWN_PREP_TIMEOUT_MS;
-      let prepared;
-      const prepState = { timedOut: false };
-      if (prepDeadlineMs > 0) {
-        let prepTimer = null;
-        let timedOut = false;
-        // If prep wins the race we use its result. If the timeout wins, the
-        // prepareSpawn promise may still resolve later with a fully-built
-        // session/tag/route — attach a cleanup so the late-arriving prepared is
-        // torn down, otherwise the orphaned tag would collide on re-spawn.
-        const prepPromise = prepareSpawn(args, callerCwd, context, prepState);
-        prepPromise.then((late) => {
-          if (timedOut) closePreparedSpawn(late, 'agent-spawn-prep-timeout');
-        }, () => {});
-        const timeout = new Promise((_resolve, reject) => {
-          prepTimer = setTimeout(() => {
-            timedOut = true;
-            prepState.timedOut = true;
-            reject(new Error(`agent spawn prep timed out (${prepDeadlineMs}ms) before model request`));
-          }, prepDeadlineMs);
-          prepTimer.unref?.();
-        });
-        try {
-          prepared = await Promise.race([prepPromise, timeout]);
-        } finally {
-          if (prepTimer) clearTimeout(prepTimer);
+    return startJob(
+      'spawn',
+      pendingSpawnMeta(args, extras),
+      async (job, ownerNotifyContext) => {
+        if (job?.status === 'cancelled') return null;
+        // prepareSpawn (ensureProvider/prepareAgentSession) runs before runSpawn
+        // installs its progress watchdog, so guard prep with an internal env-
+        // backed cap rather than exposing per-call timeout knobs on the agent
+        // tool surface.
+        const prepDeadlineMs =
+          nonNegativeInt(args.spawnPrepTimeoutMs ?? args.prepTimeoutMs) ?? DEFAULT_SPAWN_PREP_TIMEOUT_MS;
+        let prepared;
+        const prepState = { timedOut: false };
+        if (prepDeadlineMs > 0) {
+          let prepTimer = null;
+          let timedOut = false;
+          // If prep wins the race we use its result. If the timeout wins, the
+          // prepareSpawn promise may still resolve later with a fully-built
+          // session/tag/route — attach a cleanup so the late-arriving prepared is
+          // torn down, otherwise the orphaned tag would collide on re-spawn.
+          const prepPromise = prepareSpawn(args, callerCwd, context, prepState);
+          prepPromise.then(
+            (late) => {
+              if (timedOut) closePreparedSpawn(late, 'agent-spawn-prep-timeout');
+            },
+            () => {}
+          );
+          const timeout = new Promise((_resolve, reject) => {
+            prepTimer = setTimeout(() => {
+              timedOut = true;
+              prepState.timedOut = true;
+              reject(new Error(`agent spawn prep timed out (${prepDeadlineMs}ms) before model request`));
+            }, prepDeadlineMs);
+            prepTimer.unref?.();
+          });
+          try {
+            prepared = await Promise.race([prepPromise, timeout]);
+          } finally {
+            if (prepTimer) clearTimeout(prepTimer);
+          }
+        } else {
+          prepared = await prepareSpawn(args, callerCwd, context, prepState);
         }
-      } else {
-        prepared = await prepareSpawn(args, callerCwd, context, prepState);
-      }
-      mergeJobMeta(job, preparedSpawnMeta(prepared, extras));
-      upsertWorkerSessionDeferred(prepared.session, prepared.tag, {
-        ...preparedSpawnMeta(prepared, extras),
-        status: 'running',
-        stage: 'running',
-        task_id: job.taskId,
-        startedAt: job.startedAt,
-        turnStartedAt: new Date().toISOString(),
-      });
-      notifyStatusChange();
-      if (job?.status === 'cancelled') {
-        closePreparedSpawn(prepared);
-        return null;
-      }
-      return await runSpawn(prepared, ownerNotifyContext, job);
-    }, notifyContext);
+        mergeJobMeta(job, preparedSpawnMeta(prepared, extras));
+        upsertWorkerSessionDeferred(prepared.session, prepared.tag, {
+          ...preparedSpawnMeta(prepared, extras),
+          status: 'running',
+          stage: 'running',
+          task_id: job.taskId,
+          startedAt: job.startedAt,
+          turnStartedAt: new Date().toISOString(),
+        });
+        notifyStatusChange();
+        if (job?.status === 'cancelled') {
+          closePreparedSpawn(prepared);
+          return null;
+        }
+        return await runSpawn(prepared, ownerNotifyContext, job);
+      },
+      notifyContext
+    );
   }
 
   // Idle-progress watchdogs (shared sweep timer) live in
@@ -232,7 +263,9 @@ export function createSpawnFlow({
       lastSavedAt = now;
       try {
         Promise.resolve(saveSessionAsync(session)).catch(() => {});
-      } catch { /* progress persistence is best-effort */ }
+      } catch {
+        /* progress persistence is best-effort */
+      }
     };
   };
 
@@ -287,9 +320,7 @@ export function createSpawnFlow({
       sourceType: 'cli',
       sourceName: agent,
       parentSessionId: clean(context?.callerSessionId || context?.sessionId) || null,
-      ownerSessionId: clean(context?.ownerSessionId)
-        || clean(context?.callerSessionId || context?.sessionId)
-        || null,
+      ownerSessionId: clean(context?.ownerSessionId) || clean(context?.callerSessionId || context?.sessionId) || null,
       visibility: 'agent-only',
       clientHostPid: terminalPidForContext(context) || null,
       agentTag: tag,
@@ -339,8 +370,7 @@ export function createSpawnFlow({
     const plan = await resolveSpawnPlan(args, callerCwd, context, prepState);
     const spec = spawnSessionSpec(plan, args, context);
     let created;
-    if (sessionSurface?.canonical === true
-      && typeof sessionSurface.createChild === 'function') {
+    if (sessionSurface?.canonical === true && typeof sessionSurface.createChild === 'function') {
       created = await sessionSurface.createChild({
         spec,
         prompt: plan.prompt,
@@ -362,12 +392,7 @@ export function createSpawnFlow({
     if (sessionSurface?.canonical !== true) {
       maybePrewarmSpawnTransport(plan, session);
     }
-    return preparedSpawnResult(
-      { ...plan, workerCwd: effectiveCwd || plan.workerCwd },
-      args,
-      session,
-      spec,
-    );
+    return preparedSpawnResult({ ...plan, workerCwd: effectiveCwd || plan.workerCwd }, args, session, spec);
   }
 
   function maybePrewarmSpawnTransport(plan, session) {
@@ -375,11 +400,15 @@ export function createSpawnFlow({
     try {
       const provider = getProvider(plan?.preset?.provider);
       if (typeof provider?.prewarmWsTransportForSession !== 'function') return;
-      void Promise.resolve(provider.prewarmWsTransportForSession({
-        sessionId: session?.id || null,
-        session,
-      })).catch(() => {});
-    } catch { /* best-effort — the first send owns the lazy handshake */ }
+      void Promise.resolve(
+        provider.prewarmWsTransportForSession({
+          sessionId: session?.id || null,
+          session,
+        })
+      ).catch(() => {});
+    } catch {
+      /* best-effort — the first send owns the lazy handshake */
+    }
   }
 
   async function runSpawn(prepared, notifyContext = null, job = null) {
@@ -431,34 +460,28 @@ export function createSpawnFlow({
       const turnHooks = {
         notifyFn: workerNotifyFn(session.id, notifyContext || {}),
         onToolResult: (message) => turnReview.onToolResult(message),
-        ...(job ? {
-          onTerminalResult: (terminalResult) => {
-            turnReview.complete();
-            const value = completionValue(terminalResult);
-            if (job) job._terminalResultValue = value;
-            notifyOwnerAgentCompletionEarly(job, value, notifyContext || {});
-            reconcileJobTerminalResult(job, value);
-          },
-        } : {}),
+        ...(job
+          ? {
+              onTerminalResult: (terminalResult) => {
+                turnReview.complete();
+                const value = completionValue(terminalResult);
+                if (job) job._terminalResultValue = value;
+                notifyOwnerAgentCompletionEarly(job, value, notifyContext || {});
+                reconcileJobTerminalResult(job, value);
+              },
+            }
+          : {}),
       };
-      const result = typeof sessionSurface?.runTurn === 'function'
-        && sessionSurface.canRun?.(session) !== false
-        ? await sessionSurface.runTurn({
-            session,
-            prompt,
-            context: args.context || null,
-            cwd: workerCwd,
-            ...turnHooks,
-          })
-        : await mgr.askSession(
-            session.id,
-            prompt,
-            args.context || null,
-            null,
-            workerCwd,
-            null,
-            turnHooks,
-          );
+      const result =
+        typeof sessionSurface?.runTurn === 'function' && sessionSurface.canRun?.(session) !== false
+          ? await sessionSurface.runTurn({
+              session,
+              prompt,
+              context: args.context || null,
+              cwd: workerCwd,
+              ...turnHooks,
+            })
+          : await mgr.askSession(session.id, prompt, args.context || null, null, workerCwd, null, turnHooks);
       // The early preview no longer promises body suppression, so the canonical
       // notifyTaskCompletion is left to fire exactly once with output via the
       // resolve/reconcile/finally path.
@@ -521,7 +544,9 @@ export function createSpawnFlow({
       emitSubagentEvent('stop', agent, { session_id: session.id, tag, status: finalStatus });
       // Keep the durable session/tag for same-tag follow-ups, but release every
       // process-local provider, shell, watchdog and tool cache immediately.
-      try { mgr.unloadSessionRuntime?.(session.id, 'agent-turn-complete'); } catch {}
+      try {
+        mgr.unloadSessionRuntime?.(session.id, 'agent-turn-complete');
+      } catch {}
     }
   }
 

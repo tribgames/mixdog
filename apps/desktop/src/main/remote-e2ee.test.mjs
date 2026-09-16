@@ -16,38 +16,32 @@ import {
   relayE2EEPairingMaterial,
   sealRelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
-import {
-  loadOrCreateRelayE2EEIdentity,
-  rotateRelayE2EEIdentity,
-} from './remote-e2ee';
+import { loadOrCreateRelayE2EEIdentity, rotateRelayE2EEIdentity } from './remote-e2ee';
 import { buildRemoteAccessInfo } from './remote-access-window';
-import {
-  loadOrCreatePairingToken,
-  rotatePairingToken,
-} from './remote-pairing-token';
+import { loadOrCreatePairingToken, rotatePairingToken } from './remote-pairing-token';
 
 test('authenticates, encrypts both directions, and rejects replay', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-'));
   const identity = await loadOrCreateRelayE2EEIdentity(dir);
   const challenge = createRelayE2EEChallenge();
-  const client = await createRelayE2EEClientHandshake(
-    relayE2EEPairingMaterial(identity),
-    challenge,
-  );
+  const client = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), challenge);
   const server = await acceptRelayE2EEClientHello(identity, challenge, client.hello);
 
   const request = await client.channel.encryptJson({ method: 'listProjects', params: [] });
   assert.deepEqual(await server.decryptJson(request), { method: 'listProjects', params: [] });
   await assert.rejects(() => server.decryptJson(request), /replayed/);
   await assert.rejects(
-    () => server.decryptJson(JSON.stringify({
-      type: 'e2ee-box',
-      version: 1,
-      sequence: 2,
-      nonce: 'A'.repeat(17),
-      ciphertext: 'A'.repeat(22),
-    })),
-    /Expected an encrypted relay frame/,
+    () =>
+      server.decryptJson(
+        JSON.stringify({
+          type: 'e2ee-box',
+          version: 1,
+          sequence: 2,
+          nonce: 'A'.repeat(17),
+          ciphertext: 'A'.repeat(22),
+        })
+      ),
+    /Expected an encrypted relay frame/
   );
 
   const response = await server.encryptJson({ id: 1, ok: true });
@@ -63,9 +57,9 @@ test('authenticates, encrypts both directions, and rejects replay', async () => 
     method: 'submitToSession',
     params: ['session', 'hello'],
   });
-  assert.ok(binary.byteLength < (
-    await server.encryptJson({ method: 'submitToSession', params: ['session', 'hello'] })
-  ).length);
+  assert.ok(
+    binary.byteLength < (await server.encryptJson({ method: 'submitToSession', params: ['session', 'hello'] })).length
+  );
 });
 
 test('compresses large payloads inside the envelope and stays readable without it', async () => {
@@ -104,7 +98,7 @@ test('compresses large payloads inside the envelope and stays readable without i
 
   assert.ok(
     compressedFrame.byteLength * 3 < plainFrame.byteLength,
-    `expected a large saving, got ${compressedFrame.byteLength} vs ${plainFrame.byteLength}`,
+    `expected a large saving, got ${compressedFrame.byteLength} vs ${plainFrame.byteLength}`
   );
 
   // Small live frames skip compression entirely: the streaming path must not
@@ -120,21 +114,14 @@ test('rejects oversized handshake fields before cryptographic work', async () =>
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-shape-'));
   const identity = await loadOrCreateRelayE2EEIdentity(dir);
   const challenge = createRelayE2EEChallenge();
-  const client = await createRelayE2EEClientHandshake(
-    relayE2EEPairingMaterial(identity),
-    challenge,
-  );
+  const client = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), challenge);
   assert.equal(isRelayE2EEHello(client.hello), true);
   assert.equal(isRelayE2EEHello({ ...client.hello, challenge: `${client.hello.challenge}A` }), false);
   assert.equal(isRelayE2EEHello({ ...client.hello, clientPublicKey: `${client.hello.clientPublicKey}A` }), false);
   assert.equal(isRelayE2EEHello({ ...client.hello, proof: `${client.hello.proof}A` }), false);
   await assert.rejects(
-    () => acceptRelayE2EEClientHello(
-      identity,
-      challenge,
-      { ...client.hello, proof: `${client.hello.proof}A` },
-    ),
-    /authentication failed/,
+    () => acceptRelayE2EEClientHello(identity, challenge, { ...client.hello, proof: `${client.hello.proof}A` }),
+    /authentication failed/
   );
 });
 
@@ -144,14 +131,14 @@ test('rejects a client that does not possess the fragment secret', async () => {
   const identity = await loadOrCreateRelayE2EEIdentity(firstDir);
   const wrong = await loadOrCreateRelayE2EEIdentity(secondDir);
   const challenge = createRelayE2EEChallenge();
-  const client = await createRelayE2EEClientHandshake({
-    ...relayE2EEPairingMaterial(identity),
-    pairingSecret: wrong.pairingSecret,
-  }, challenge);
-  await assert.rejects(
-    () => acceptRelayE2EEClientHello(identity, challenge, client.hello),
-    /authentication failed/,
+  const client = await createRelayE2EEClientHandshake(
+    {
+      ...relayE2EEPairingMaterial(identity),
+      pairingSecret: wrong.pairingSecret,
+    },
+    challenge
   );
+  await assert.rejects(() => acceptRelayE2EEClientHello(identity, challenge, client.hello), /authentication failed/);
 });
 
 test('persists and rotates identity, keeping every secret out of the entry link', async () => {
@@ -195,11 +182,8 @@ test('an approval seals the pairing to one container and to nobody else', async 
   const other = await generateRelayClaimKeyPair();
   assert.equal(await openSealedRelayE2EEPairingMaterial(sealed, other), null);
   assert.equal(
-    await openSealedRelayE2EEPairingMaterial(
-      { ...sealed, ephemeralPublicKey: other.publicKey },
-      asking,
-    ),
-    null,
+    await openSealedRelayE2EEPairingMaterial({ ...sealed, ephemeralPublicKey: other.publicKey }, asking),
+    null
   );
   assert.equal(await openSealedRelayE2EEPairingMaterial(null, asking), null);
 

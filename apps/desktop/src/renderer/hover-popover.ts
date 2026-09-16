@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { FocusEvent, RefObject } from "react";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { FocusEvent, RefObject } from 'react';
 
-import { useMobileBack } from "./mobile-back";
-import { touchPrimaryPointer } from "./surface-input-focus";
+import { useMobileBack } from './mobile-back';
+import { touchPrimaryPointer } from './surface-input-focus';
 
 /** A detail card hangs a few px off the control that owns it, so a pointer on
  *  its way there leaves the control BEFORE it arrives. Closing on that first
@@ -68,11 +68,14 @@ export function useHoverPopover({
     closeTimer.current = null;
   }, []);
 
-  const setOpen = useCallback((next: boolean) => {
-    cancelClose();
-    if (controlledOpen === undefined) setLocalOpen(next);
-    onOpenChange?.(next);
-  }, [cancelClose, controlledOpen, onOpenChange]);
+  const setOpen = useCallback(
+    (next: boolean) => {
+      cancelClose();
+      if (controlledOpen === undefined) setLocalOpen(next);
+      onOpenChange?.(next);
+    },
+    [cancelClose, controlledOpen, onOpenChange]
+  );
 
   const setPinned = useCallback((next: boolean) => {
     pinnedRef.current = next;
@@ -86,14 +89,17 @@ export function useHoverPopover({
 
   const scheduleClose = useCallback(() => {
     cancelClose();
-    closeTimer.current = window.setTimeout(() => {
-      closeTimer.current = null;
-      // The pointer can finish its trip on the CARD, which never re-enters the
-      // host through mouseenter, so the live hover state is what decides.
-      if (pinnedRef.current || host.current?.matches(":hover")) return;
-      if (controlledOpen === undefined) setLocalOpen(false);
-      onOpenChange?.(false);
-    }, Math.max(0, closeDelayMs));
+    closeTimer.current = window.setTimeout(
+      () => {
+        closeTimer.current = null;
+        // The pointer can finish its trip on the CARD, which never re-enters the
+        // host through mouseenter, so the live hover state is what decides.
+        if (pinnedRef.current || host.current?.matches(':hover')) return;
+        if (controlledOpen === undefined) setLocalOpen(false);
+        onOpenChange?.(false);
+      },
+      Math.max(0, closeDelayMs)
+    );
   }, [cancelClose, closeDelayMs, controlledOpen, onOpenChange]);
 
   useEffect(() => cancelClose, [cancelClose]);
@@ -106,13 +112,13 @@ export function useHoverPopover({
       close();
     };
     const keydown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") close();
+      if (event.key === 'Escape') close();
     };
-    document.addEventListener("pointerdown", dismiss, true);
-    document.addEventListener("keydown", keydown, true);
+    document.addEventListener('pointerdown', dismiss, true);
+    document.addEventListener('keydown', keydown, true);
     return () => {
-      document.removeEventListener("pointerdown", dismiss, true);
-      document.removeEventListener("keydown", keydown, true);
+      document.removeEventListener('pointerdown', dismiss, true);
+      document.removeEventListener('keydown', keydown, true);
     };
   }, [close, open]);
 
@@ -129,7 +135,7 @@ export function useHoverPopover({
   const toggle = useCallback(() => {
     const next = !pinnedRef.current;
     setPinned(next);
-    setOpen(next || (!touch && host.current?.matches(":hover") === true));
+    setOpen(next || (!touch && host.current?.matches(':hover') === true));
   }, [setOpen, setPinned, touch]);
 
   return {
@@ -138,10 +144,14 @@ export function useHoverPopover({
     host,
     hostProps: {
       ref: host,
-      onMouseEnter: () => { if (!touch) setOpen(true); },
+      onMouseEnter: () => {
+        if (!touch) setOpen(true);
+      },
       // A pinned card ignores the pointer leaving; an unpinned one only starts
       // the grace timer.
-      onMouseLeave: () => { if (!touch && !pinnedRef.current) scheduleClose(); },
+      onMouseLeave: () => {
+        if (!touch && !pinnedRef.current) scheduleClose();
+      },
     },
     triggerProps: {
       onClick: toggle,

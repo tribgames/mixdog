@@ -24,7 +24,9 @@ const PATTERNS = ['**/*.test.mjs', '**/*-test.mjs'];
 const EXCLUDED_DIRS = new Set(['node_modules', '.runtime', 'out', 'dist', 'target']);
 // A file URL: node resolves reporter specifiers through the ESM loader, which
 // rejects a bare Windows drive path as an unknown "c:" scheme.
-const REPORTER = pathToFileURL(resolve(dirname(fileURLToPath(import.meta.url)), 'lib', 'test-timing-reporter.mjs')).href;
+const REPORTER = pathToFileURL(
+  resolve(dirname(fileURLToPath(import.meta.url)), 'lib', 'test-timing-reporter.mjs')
+).href;
 
 export function laneOf(file) {
   if (/\.live\.test\.mjs$/.test(file)) return 'live';
@@ -55,8 +57,12 @@ export async function discoverTestFiles(cwd = process.cwd()) {
     for (const pattern of PATTERNS) {
       for await (const entry of glob(`${root}/${pattern}`, {
         cwd,
-        exclude: (path) => String(path).split(/[\\/]/).some((segment) => EXCLUDED_DIRS.has(segment)),
-      })) files.add(entry.replaceAll('\\', '/'));
+        exclude: (path) =>
+          String(path)
+            .split(/[\\/]/)
+            .some((segment) => EXCLUDED_DIRS.has(segment)),
+      }))
+        files.add(entry.replaceAll('\\', '/'));
     }
   }
   return [...files].sort();
@@ -89,8 +95,10 @@ async function main() {
     // A suite that leaves a handle open (a session runtime closed without
     // waiting for its children) must not hang the whole run.
     '--test-force-exit',
-    '--test-reporter=spec', '--test-reporter-destination=stdout',
-    `--test-reporter=${REPORTER}`, '--test-reporter-destination=stderr',
+    '--test-reporter=spec',
+    '--test-reporter-destination=stdout',
+    `--test-reporter=${REPORTER}`,
+    '--test-reporter-destination=stderr',
     ...files,
   ];
   const child = spawn(process.execPath, args, { stdio: 'inherit' });

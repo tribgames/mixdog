@@ -8,7 +8,10 @@ test('session cancellation waits for the correct elevated worker termination rec
   const first = jobs.begin('a', () => cancelled.push('a'));
   const second = jobs.begin('b', () => cancelled.push('b'));
   let settled = false;
-  const pending = jobs.cancel('a').then((value) => { settled = true; return value; });
+  const pending = jobs.cancel('a').then((value) => {
+    settled = true;
+    return value;
+  });
   await Promise.resolve();
   assert.deepEqual(cancelled, ['a']);
   assert.equal(settled, false);

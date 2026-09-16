@@ -46,52 +46,72 @@ test('a session spanning two days is split across them without losing tokens', (
 });
 
 test('a transcript without timestamps lands on the day it was last used', () => {
-  const summary = summarizeSessionUsage(session({
-    messages: [{ role: 'user', content: 'one' }, { role: 'assistant', content: 'a' }],
-  }));
+  const summary = summarizeSessionUsage(
+    session({
+      messages: [
+        { role: 'user', content: 'one' },
+        { role: 'assistant', content: 'a' },
+      ],
+    })
+  );
 
   assert.deepEqual(Object.keys(summary.days), [KEY_TWO]);
   assert.equal(summary.days[KEY_TWO].input, 900);
 });
 
 test('a provider that reports the cache inside input has it unpacked once', () => {
-  const summary = summarizeSessionUsage(session({
-    provider: 'openai-oauth',
-    model: 'gpt-5.6',
-    totalUncachedInputTokens: 0,
-    totalInputTokens: 10_000,
-    totalCachedReadTokens: 8000,
-    messages: [{ role: 'user', content: 'one' }, { role: 'assistant', content: 'a', createdAt: DAY_ONE }],
-  }));
+  const summary = summarizeSessionUsage(
+    session({
+      provider: 'openai-oauth',
+      model: 'gpt-5.6',
+      totalUncachedInputTokens: 0,
+      totalInputTokens: 10_000,
+      totalCachedReadTokens: 8000,
+      messages: [
+        { role: 'user', content: 'one' },
+        { role: 'assistant', content: 'a', createdAt: DAY_ONE },
+      ],
+    })
+  );
 
   assert.equal(summary.days[KEY_ONE].input, 2000);
   assert.equal(summary.days[KEY_ONE].cacheRead, 8000);
 });
 
 test('a session that never spent a token contributes nothing', () => {
-  assert.equal(summarizeSessionUsage(session({
-    totalUncachedInputTokens: 0,
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    totalCachedReadTokens: 0,
-    totalCacheWriteTokens: 0,
-  })), null);
+  assert.equal(
+    summarizeSessionUsage(
+      session({
+        totalUncachedInputTokens: 0,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCachedReadTokens: 0,
+        totalCacheWriteTokens: 0,
+      })
+    ),
+    null
+  );
   assert.equal(summarizeSessionUsage({ id: 'no-route', totalOutputTokens: 10 }), null);
 });
 
 test('days fold per route, and background sessions keep out of the conversation split', () => {
   const days = buildUsageHistoryDays([
     summarizeSessionUsage(session()),
-    summarizeSessionUsage(session({
-      id: 'session-cycle',
-      sourceType: 'memory-cycle',
-      provider: 'openai-oauth',
-      model: 'gpt-5.6',
-      totalUncachedInputTokens: 400,
-      totalOutputTokens: 100,
-      totalCachedReadTokens: 0,
-      messages: [{ role: 'user', content: 'cycle' }, { role: 'assistant', content: 'x', createdAt: DAY_ONE }],
-    })),
+    summarizeSessionUsage(
+      session({
+        id: 'session-cycle',
+        sourceType: 'memory-cycle',
+        provider: 'openai-oauth',
+        model: 'gpt-5.6',
+        totalUncachedInputTokens: 400,
+        totalOutputTokens: 100,
+        totalCachedReadTokens: 0,
+        messages: [
+          { role: 'user', content: 'cycle' },
+          { role: 'assistant', content: 'x', createdAt: DAY_ONE },
+        ],
+      })
+    ),
   ]);
 
   const day = days[KEY_ONE];

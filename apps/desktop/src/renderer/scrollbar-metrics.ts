@@ -13,22 +13,23 @@
 //
 // So the reserve is measured instead of assumed, once before the first paint
 // and again whenever zoom/rotation could change it.
-const SCROLLBAR_GUTTER_VAR = "--mx-scrollbar-gutter";
+const SCROLLBAR_GUTTER_VAR = '--mx-scrollbar-gutter';
 
 /** What the engine actually takes from a scroll container's content box.
  *  0 means overlay scrollbars: nothing is reserved and nothing must be paid. */
 export function measureScrollbarGutter(): number {
-  if (typeof document === "undefined") return 0;
+  if (typeof document === 'undefined') return 0;
   const host = document.body ?? document.documentElement;
   if (!host) return 0;
-  const probe = document.createElement("div");
+  const probe = document.createElement('div');
   // `overflow: scroll` (not auto) forces the decision even with no content:
   // a classic bar takes its column, an overlay bar leaves clientWidth alone.
   // The probe inherits the shared ::-webkit-scrollbar sizing, so it measures
   // OUR bar, not the platform default.
-  probe.style.cssText = "position:absolute;top:-9999px;left:-9999px;"
-    + "width:100px;height:100px;overflow:scroll;visibility:hidden;pointer-events:none";
-  probe.setAttribute("aria-hidden", "true");
+  probe.style.cssText =
+    'position:absolute;top:-9999px;left:-9999px;' +
+    'width:100px;height:100px;overflow:scroll;visibility:hidden;pointer-events:none';
+  probe.setAttribute('aria-hidden', 'true');
   try {
     host.appendChild(probe);
     const gutter = probe.offsetWidth - probe.clientWidth;
@@ -45,11 +46,11 @@ export function measureScrollbarGutter(): number {
 
 /** Publishes the measured reserve on the root and keeps it current. */
 export function installScrollbarMetrics(): () => void {
-  if (typeof document === "undefined" || typeof window === "undefined") {
+  if (typeof document === 'undefined' || typeof window === 'undefined') {
     return () => {};
   }
   let frame = 0;
-  let applied = "";
+  let applied = '';
   const apply = (): void => {
     const next = `${measureScrollbarGutter()}px`;
     // Writing the variable invalidates layout document-wide, so only a real
@@ -60,7 +61,7 @@ export function installScrollbarMetrics(): () => void {
   };
   const sync = (): void => {
     if (frame !== 0) return;
-    if (typeof window.requestAnimationFrame !== "function") {
+    if (typeof window.requestAnimationFrame !== 'function') {
       apply();
       return;
     }
@@ -72,14 +73,14 @@ export function installScrollbarMetrics(): () => void {
   apply();
   // Browser zoom, phone rotation, and OS scrollbar-preference changes all
   // surface as a resize; a restored PWA page fires pageshow instead.
-  window.addEventListener("resize", sync);
-  window.addEventListener("orientationchange", sync);
-  window.addEventListener("pageshow", sync);
+  window.addEventListener('resize', sync);
+  window.addEventListener('orientationchange', sync);
+  window.addEventListener('pageshow', sync);
   return () => {
     if (frame !== 0) window.cancelAnimationFrame?.(frame);
     frame = 0;
-    window.removeEventListener("resize", sync);
-    window.removeEventListener("orientationchange", sync);
-    window.removeEventListener("pageshow", sync);
+    window.removeEventListener('resize', sync);
+    window.removeEventListener('orientationchange', sync);
+    window.removeEventListener('pageshow', sync);
   };
 }

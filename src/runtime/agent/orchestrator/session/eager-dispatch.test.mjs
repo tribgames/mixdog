@@ -3,232 +3,237 @@ import test from 'node:test';
 import { createEagerDispatcher } from './eager-dispatch.mjs';
 import { processToolBatch } from './tool-batch.mjs';
 import { makeToolEnvelope } from './tool-envelope.mjs';
-import {
-    _repeatFailurePatternWouldContinue,
-    _repeatFailureSig,
-} from './loop/tool-classify.mjs';
+import { _repeatFailurePatternWouldContinue, _repeatFailureSig } from './loop/tool-classify.mjs';
 
 function gate() {
-    let release;
-    return { promise: new Promise((resolve) => { release = resolve; }), release };
+  let release;
+  return {
+    promise: new Promise((resolve) => {
+      release = resolve;
+    }),
+    release,
+  };
 }
 
 test('eager dispatch serializes Git mutations, file edits, and shell verification', async () => {
-    const gitGate = gate();
-    const patchGate = gate();
-    const events = [];
-    const executeToolFn = async (name) => {
-        events.push(`${name}:start`);
-        if (name === 'git') await gitGate.promise;
-        if (name === 'apply_patch') await patchGate.promise;
-        events.push(`${name}:end`);
-        return { result: 'ok', explicitSuccess: true };
-    };
-    const dispatcher = createEagerDispatcher({
-        tools: [],
-        cwd: process.cwd(),
-        sessionId: null,
-        sessionRef: {},
-        signal: null,
-        opts: {},
-        crossTurnCalls: new Map(),
-        getIterations: () => 1,
-        getNextIteration: () => 1,
-        repeatFailLimit: 3,
-        executeToolFn,
-    });
-    const calls = [
-        { id: 'git', name: 'git', arguments: { command: 'git add --all' } },
-        { id: 'patch', name: 'apply_patch', arguments: { patch: 'test' } },
-        { id: 'shell', name: 'shell', arguments: { command: 'git status' } },
-    ];
+  const gitGate = gate();
+  const patchGate = gate();
+  const events = [];
+  const executeToolFn = async (name) => {
+    events.push(`${name}:start`);
+    if (name === 'git') await gitGate.promise;
+    if (name === 'apply_patch') await patchGate.promise;
+    events.push(`${name}:end`);
+    return { result: 'ok', explicitSuccess: true };
+  };
+  const dispatcher = createEagerDispatcher({
+    tools: [],
+    cwd: process.cwd(),
+    sessionId: null,
+    sessionRef: {},
+    signal: null,
+    opts: {},
+    crossTurnCalls: new Map(),
+    getIterations: () => 1,
+    getNextIteration: () => 1,
+    repeatFailLimit: 3,
+    executeToolFn,
+  });
+  const calls = [
+    { id: 'git', name: 'git', arguments: { command: 'git add --all' } },
+    { id: 'patch', name: 'apply_patch', arguments: { patch: 'test' } },
+    { id: 'shell', name: 'shell', arguments: { command: 'git status' } },
+  ];
 
-    dispatcher.startEagerRun(calls, 0, new Set());
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(events, ['git:start']);
+  dispatcher.startEagerRun(calls, 0, new Set());
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['git:start']);
 
-    gitGate.release();
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(events, ['git:start', 'git:end', 'apply_patch:start']);
+  gitGate.release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['git:start', 'git:end', 'apply_patch:start']);
 
-    patchGate.release();
-    await Promise.all([...dispatcher.pending.values()].map((entry) => entry.promise));
-    assert.deepEqual(events, [
-        'git:start', 'git:end',
-        'apply_patch:start', 'apply_patch:end',
-        'shell:start', 'shell:end',
-    ]);
+  patchGate.release();
+  await Promise.all([...dispatcher.pending.values()].map((entry) => entry.promise));
+  assert.deepEqual(events, [
+    'git:start',
+    'git:end',
+    'apply_patch:start',
+    'apply_patch:end',
+    'shell:start',
+    'shell:end',
+  ]);
 });
 
 test('same-file edits serialize while different-file edits stay parallel', async () => {
-    const firstEditGate = gate();
-    const events = [];
-    const executeToolFn = async (name, args) => {
-        events.push(`start:${args.file_path}#${args.old_string}`);
-        if (args.old_string === 'a1') await firstEditGate.promise;
-        events.push(`end:${args.file_path}#${args.old_string}`);
-        return { result: 'ok', explicitSuccess: true };
-    };
-    const dispatcher = createEagerDispatcher({
-        tools: [],
-        cwd: process.cwd(),
-        sessionId: null,
-        sessionRef: {},
-        signal: null,
-        opts: {},
-        crossTurnCalls: new Map(),
-        getIterations: () => 1,
-        getNextIteration: () => 1,
-        repeatFailLimit: 3,
-        executeToolFn,
-    });
-    const calls = [
-        { id: 'e1', name: 'edit', arguments: { file_path: 'a.txt', old_string: 'a1', new_string: 'x' } },
-        { id: 'e2', name: 'edit', arguments: { file_path: 'A.TXT', old_string: 'a2', new_string: 'y' } },
-        { id: 'e3', name: 'edit', arguments: { file_path: 'b.txt', old_string: 'b1', new_string: 'z' } },
-    ];
+  const firstEditGate = gate();
+  const events = [];
+  const executeToolFn = async (name, args) => {
+    events.push(`start:${args.file_path}#${args.old_string}`);
+    if (args.old_string === 'a1') await firstEditGate.promise;
+    events.push(`end:${args.file_path}#${args.old_string}`);
+    return { result: 'ok', explicitSuccess: true };
+  };
+  const dispatcher = createEagerDispatcher({
+    tools: [],
+    cwd: process.cwd(),
+    sessionId: null,
+    sessionRef: {},
+    signal: null,
+    opts: {},
+    crossTurnCalls: new Map(),
+    getIterations: () => 1,
+    getNextIteration: () => 1,
+    repeatFailLimit: 3,
+    executeToolFn,
+  });
+  const calls = [
+    { id: 'e1', name: 'edit', arguments: { file_path: 'a.txt', old_string: 'a1', new_string: 'x' } },
+    { id: 'e2', name: 'edit', arguments: { file_path: 'A.TXT', old_string: 'a2', new_string: 'y' } },
+    { id: 'e3', name: 'edit', arguments: { file_path: 'b.txt', old_string: 'b1', new_string: 'z' } },
+  ];
 
-    dispatcher.startEagerRun(calls, 0, new Set());
-    await new Promise((resolve) => setImmediate(resolve));
-    // e1 runs and blocks. e2 targets the same file (case variant) and must
-    // wait. e3 targets an independent file and must run to completion in
-    // parallel with the blocked e1.
-    assert.ok(events.includes('start:a.txt#a1'));
-    assert.ok(!events.includes('start:A.TXT#a2'));
-    assert.ok(events.includes('end:b.txt#b1'));
+  dispatcher.startEagerRun(calls, 0, new Set());
+  await new Promise((resolve) => setImmediate(resolve));
+  // e1 runs and blocks. e2 targets the same file (case variant) and must
+  // wait. e3 targets an independent file and must run to completion in
+  // parallel with the blocked e1.
+  assert.ok(events.includes('start:a.txt#a1'));
+  assert.ok(!events.includes('start:A.TXT#a2'));
+  assert.ok(events.includes('end:b.txt#b1'));
 
-    firstEditGate.release();
-    await Promise.all([...dispatcher.pending.values()].map((entry) => entry.promise));
-    assert.ok(events.indexOf('start:A.TXT#a2') > events.indexOf('end:a.txt#a1'));
+  firstEditGate.release();
+  await Promise.all([...dispatcher.pending.values()].map((entry) => entry.promise));
+  assert.ok(events.indexOf('start:A.TXT#a2') > events.indexOf('end:a.txt#a1'));
 });
 
 test('repeat failure signatures normalize paths and detect alternating cycles', () => {
-    const cwd = process.cwd();
-    const relative = _repeatFailureSig('read', { file_path: 'missing/file.txt' }, cwd);
-    const absolute = _repeatFailureSig('read', {
-        file_path: `${cwd}/missing/file.txt`,
-    }, cwd);
-    assert.equal(relative, absolute);
+  const cwd = process.cwd();
+  const relative = _repeatFailureSig('read', { file_path: 'missing/file.txt' }, cwd);
+  const absolute = _repeatFailureSig(
+    'read',
+    {
+      file_path: `${cwd}/missing/file.txt`,
+    },
+    cwd
+  );
+  assert.equal(relative, absolute);
 
-    const other = _repeatFailureSig('read', { file_path: 'missing/other.txt' }, cwd);
-    const history = [relative, other, relative, other, relative, other];
-    assert.equal(_repeatFailurePatternWouldContinue(history, relative, 3), 2);
-    assert.equal(_repeatFailurePatternWouldContinue(history, other, 3), 0);
+  const other = _repeatFailureSig('read', { file_path: 'missing/other.txt' }, cwd);
+  const history = [relative, other, relative, other, relative, other];
+  assert.equal(_repeatFailurePatternWouldContinue(history, relative, 3), 2);
+  assert.equal(_repeatFailurePatternWouldContinue(history, other, 3), 0);
 });
 
 test('Computer Use dispatches only the first call in one assistant turn', async () => {
-    const executed = [];
-    const executeToolFn = async (name, args) => {
-        executed.push(`${name}:${args.value}`);
-        return 'ok';
-    };
-    const dispatcher = createEagerDispatcher({
-        tools: [],
-        cwd: process.cwd(),
-        sessionId: null,
-        sessionRef: {},
-        signal: null,
-        opts: {},
-        crossTurnCalls: new Map(),
-        getIterations: () => 1,
-        getNextIteration: () => 1,
-        repeatFailLimit: 3,
-        executeToolFn,
-    });
-    const calls = [
-        { id: 'computer-1', name: 'computer', arguments: { value: 1 } },
-        { id: 'computer-2', name: 'computer', arguments: { value: 2 } },
-        { id: 'shell-1', name: 'shell', arguments: { value: 3 } },
-    ];
+  const executed = [];
+  const executeToolFn = async (name, args) => {
+    executed.push(`${name}:${args.value}`);
+    return 'ok';
+  };
+  const dispatcher = createEagerDispatcher({
+    tools: [],
+    cwd: process.cwd(),
+    sessionId: null,
+    sessionRef: {},
+    signal: null,
+    opts: {},
+    crossTurnCalls: new Map(),
+    getIterations: () => 1,
+    getNextIteration: () => 1,
+    repeatFailLimit: 3,
+    executeToolFn,
+  });
+  const calls = [
+    { id: 'computer-1', name: 'computer', arguments: { value: 1 } },
+    { id: 'computer-2', name: 'computer', arguments: { value: 2 } },
+    { id: 'shell-1', name: 'shell', arguments: { value: 3 } },
+  ];
 
-    dispatcher.startEagerRun(calls, 0, new Set());
-    await Promise.all([...dispatcher.pending.values()].map((entry) => entry.promise));
-    assert.deepEqual(executed.sort(), ['computer:1', 'shell:3']);
-    assert.equal(dispatcher.pending.has('computer-2'), false);
+  dispatcher.startEagerRun(calls, 0, new Set());
+  await Promise.all([...dispatcher.pending.values()].map((entry) => entry.promise));
+  assert.deepEqual(executed.sort(), ['computer:1', 'shell:3']);
+  assert.equal(dispatcher.pending.has('computer-2'), false);
 });
 
 test('Computer Use batch returns an error result for every blocked extra call', async () => {
-    const executed = [];
-    const results = [];
-    const calls = [
-        { id: 'computer-1', name: 'computer', arguments: { value: 1 } },
-        { id: 'computer-2', name: 'computer', arguments: { value: 2 } },
-    ];
-    await processToolBatch({
-        calls,
-        messages: [],
-        tools: [],
-        cwd: process.cwd(),
-        sessionId: null,
-        sessionRef: {},
-        signal: null,
-        opts: {},
-        iterations: 1,
-        assistantTurnMsg: { role: 'assistant', content: '', toolCalls: calls },
-        pending: new Map(),
-        epoch: { mutation: 0 },
-        startEagerRun: () => {},
-        crossTurnCalls: new Map(),
-        crossTurnCap: 100,
-        sessionAgent: null,
-        pushToolResultMessage: (message) => results.push(message),
-        throwIfAborted: () => {},
-        repeatFailLimit: 3,
-        dedupStubTotal: 0,
-        editCount: 0,
-        executeToolFn: async (name, args) => {
-            executed.push(`${name}:${args.value}`);
-            return 'ok';
-        },
-    });
+  const executed = [];
+  const results = [];
+  const calls = [
+    { id: 'computer-1', name: 'computer', arguments: { value: 1 } },
+    { id: 'computer-2', name: 'computer', arguments: { value: 2 } },
+  ];
+  await processToolBatch({
+    calls,
+    messages: [],
+    tools: [],
+    cwd: process.cwd(),
+    sessionId: null,
+    sessionRef: {},
+    signal: null,
+    opts: {},
+    iterations: 1,
+    assistantTurnMsg: { role: 'assistant', content: '', toolCalls: calls },
+    pending: new Map(),
+    epoch: { mutation: 0 },
+    startEagerRun: () => {},
+    crossTurnCalls: new Map(),
+    crossTurnCap: 100,
+    sessionAgent: null,
+    pushToolResultMessage: (message) => results.push(message),
+    throwIfAborted: () => {},
+    repeatFailLimit: 3,
+    dedupStubTotal: 0,
+    editCount: 0,
+    executeToolFn: async (name, args) => {
+      executed.push(`${name}:${args.value}`);
+      return 'ok';
+    },
+  });
 
-    assert.deepEqual(executed, ['computer:1']);
-    assert.equal(results.length, 2);
-    assert.equal(results[0].toolKind, 'normal');
-    assert.equal(results[1].toolKind, 'error');
-    assert.match(results[1].content, /computer-call-cardinality/);
+  assert.deepEqual(executed, ['computer:1']);
+  assert.equal(results.length, 2);
+  assert.equal(results[0].toolKind, 'normal');
+  assert.equal(results[1].toolKind, 'error');
+  assert.match(results[1].content, /computer-call-cardinality/);
 });
 
 test('structured explicit failure reaches the transcript as an error with media intact', async () => {
-    const calls = [{ id: 'computer-1', name: 'computer', arguments: { value: 1 } }];
-    const results = [];
-    const structured = {
-        content: [
-            { type: 'text', text: '{"ok":false,"action":"act"}' },
-            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } },
-        ],
-    };
-    await processToolBatch({
-        calls,
-        messages: [],
-        tools: [],
-        cwd: process.cwd(),
-        sessionId: null,
-        sessionRef: {},
-        signal: null,
-        opts: {},
-        iterations: 1,
-        assistantTurnMsg: { role: 'assistant', content: '', toolCalls: calls },
-        pending: new Map(),
-        epoch: { mutation: 0 },
-        startEagerRun: () => {},
-        crossTurnCalls: new Map(),
-        crossTurnCap: 100,
-        sessionAgent: null,
-        pushToolResultMessage: (message) => results.push(message),
-        throwIfAborted: () => {},
-        repeatFailLimit: 3,
-        dedupStubTotal: 0,
-        editCount: 0,
-        executeToolFn: async () => makeToolEnvelope(
-            structured,
-            [],
-            { explicitFailure: true },
-        ),
-    });
+  const calls = [{ id: 'computer-1', name: 'computer', arguments: { value: 1 } }];
+  const results = [];
+  const structured = {
+    content: [
+      { type: 'text', text: '{"ok":false,"action":"act"}' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } },
+    ],
+  };
+  await processToolBatch({
+    calls,
+    messages: [],
+    tools: [],
+    cwd: process.cwd(),
+    sessionId: null,
+    sessionRef: {},
+    signal: null,
+    opts: {},
+    iterations: 1,
+    assistantTurnMsg: { role: 'assistant', content: '', toolCalls: calls },
+    pending: new Map(),
+    epoch: { mutation: 0 },
+    startEagerRun: () => {},
+    crossTurnCalls: new Map(),
+    crossTurnCap: 100,
+    sessionAgent: null,
+    pushToolResultMessage: (message) => results.push(message),
+    throwIfAborted: () => {},
+    repeatFailLimit: 3,
+    dedupStubTotal: 0,
+    editCount: 0,
+    executeToolFn: async () => makeToolEnvelope(structured, [], { explicitFailure: true }),
+  });
 
-    assert.equal(results.length, 1);
-    assert.equal(results[0].toolKind, 'error');
-    assert.equal(results[0].content, structured);
-    assert.equal(results[0].content.content[1].type, 'image');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].toolKind, 'error');
+  assert.equal(results[0].content, structured);
+  assert.equal(results[0].content.content[1].type, 'image');
 });

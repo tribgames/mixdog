@@ -5,10 +5,10 @@ const scope = resolve(process.argv[2] || '.');
 const selected = new Set((process.argv[3] || 'find,glob,grep,code_graph').split(','));
 const attempts = Math.max(1, Math.min(10, Number(process.argv[4]) || 3));
 const cases = [
-    ['find', { query: 'mixdog read range index', limit: 25 }],
-    ['glob', { pattern: '**/read-range-index.mjs', sort: 'natural', limit: 25 }],
-    ['grep', { pattern: 'executeGrepTool', mode: 'files', glob: '**/search-grep-tool.mjs', limit: 25 }],
-    ['code_graph', { mode: 'find_symbol', symbols: ['executeGrepTool'], body: false, limit: 10 }],
+  ['find', { query: 'mixdog read range index', limit: 25 }],
+  ['glob', { pattern: '**/read-range-index.mjs', sort: 'natural', limit: 25 }],
+  ['grep', { pattern: 'executeGrepTool', mode: 'files', glob: '**/search-grep-tool.mjs', limit: 25 }],
+  ['code_graph', { mode: 'find_symbol', symbols: ['executeGrepTool'], body: false, limit: 10 }],
 ];
 const child = `
     import fs from 'node:fs/promises';
@@ -52,15 +52,23 @@ const child = `
         await fs.rm(data, { recursive: true, force: true });
     }
 `;
-console.log(`Root benchmark: ${scope}; fresh process/cache directory per tool; OS caches retained; native startup excluded.`);
+console.log(
+  `Root benchmark: ${scope}; fresh process/cache directory per tool; OS caches retained; native startup excluded.`
+);
 for (const [tool, args] of cases) {
-    if (!selected.has(tool)) continue;
-    const result = spawnSync(process.execPath, ['--input-type=module', '-e', child, JSON.stringify([tool, args, scope, attempts])], {
-        cwd: process.cwd(), encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
-    });
-    process.stdout.write(result.stdout || '');
-    if (result.status !== 0) {
-        process.stderr.write(result.stderr || '');
-        process.exitCode = 1;
+  if (!selected.has(tool)) continue;
+  const result = spawnSync(
+    process.execPath,
+    ['--input-type=module', '-e', child, JSON.stringify([tool, args, scope, attempts])],
+    {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      maxBuffer: 4 * 1024 * 1024,
     }
+  );
+  process.stdout.write(result.stdout || '');
+  if (result.status !== 0) {
+    process.stderr.write(result.stderr || '');
+    process.exitCode = 1;
+  }
 }

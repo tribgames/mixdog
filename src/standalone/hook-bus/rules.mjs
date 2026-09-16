@@ -32,9 +32,8 @@ export function decisionFromRule(rule, input) {
     return { action: 'deny', reason: rule.reason || rule.message || `blocked by hook rule for ${input.name}` };
   }
   if (action === 'modify' || action === 'rewrite') {
-    const nextArgs = rule.args && typeof rule.args === 'object'
-      ? rule.args
-      : { ...(input.args || {}), ...(rule.patch || {}) };
+    const nextArgs =
+      rule.args && typeof rule.args === 'object' ? rule.args : { ...(input.args || {}), ...(rule.patch || {}) };
     const nextName = rule.updatedToolName ?? rule.replaceTool ?? rule.targetTool;
     return {
       action: 'modify',
@@ -44,7 +43,10 @@ export function decisionFromRule(rule, input) {
     };
   }
   if (action === 'ask') {
-    return { action: 'ask', reason: rule.reason || rule.message || `approval requested by hook rule for ${input.name}` };
+    return {
+      action: 'ask',
+      reason: rule.reason || rule.message || `approval requested by hook rule for ${input.name}`,
+    };
   }
   return { action: 'allow', reason: rule.reason || rule.message || null };
 }

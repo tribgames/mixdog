@@ -2,13 +2,18 @@ import { readFileSync } from 'node:fs';
 import type { ComputerCommand } from '../shared/types';
 import type { ComputerWindowRecord } from '../shared/window-transition';
 import { isComputerLifecycleControl } from './action-sets';
-import { COMPUTER_POLICY_ACTIONS, computerActionPolicy } from '../../../../../../src/runtime/computer-bridge/actions.mjs';
+import {
+  COMPUTER_POLICY_ACTIONS,
+  computerActionPolicy,
+} from '../../../../../../src/runtime/computer-bridge/actions.mjs';
 
 const ACTIONS = new Set(COMPUTER_POLICY_ACTIONS);
 const FIELDS = new Set(['version', 'actions', 'windows', 'launchTargets', 'allowElevatedInput', 'expiresAt']);
 
 function invalid(): never {
-  throw new Error('computer_policy_invalid: expected a version 1 policy with exact actions, windows and launch targets');
+  throw new Error(
+    'computer_policy_invalid: expected a version 1 policy with exact actions, windows and launch targets'
+  );
 }
 
 export function createComputerExecutionPolicy(raw?: unknown, now = Date.now) {
@@ -23,8 +28,14 @@ export function createComputerExecutionPolicy(raw?: unknown, now = Date.now) {
     if (Object.keys(value).some((key) => !FIELDS.has(key)) || value.version !== 1) invalid();
     const strings = (field: string): string[] => {
       const list = value[field] ?? [];
-      if (!Array.isArray(list) || list.length > 128
-        || list.some((entry) => typeof entry !== 'string' || !entry.trim() || entry !== entry.trim() || entry.length > 4096)) invalid();
+      if (
+        !Array.isArray(list) ||
+        list.length > 128 ||
+        list.some(
+          (entry) => typeof entry !== 'string' || !entry.trim() || entry !== entry.trim() || entry.length > 4096
+        )
+      )
+        invalid();
       return list as string[];
     };
     actions = new Set(strings('actions'));
@@ -33,10 +44,18 @@ export function createComputerExecutionPolicy(raw?: unknown, now = Date.now) {
     const targets = value.windows ?? [];
     if (!Array.isArray(targets) || targets.length > 128) invalid();
     for (const target of targets) {
-      if (!target || typeof target !== 'object' || Array.isArray(target)
-        || Object.keys(target).some((key) => !['id', 'pid'].includes(key))
-        || typeof target.id !== 'string' || !/^hwnd:0x[0-9a-f]+$/i.test(target.id)
-        || !Number.isSafeInteger(target.pid) || target.pid < 1 || windows.has(target.id)) invalid();
+      if (
+        !target ||
+        typeof target !== 'object' ||
+        Array.isArray(target) ||
+        Object.keys(target).some((key) => !['id', 'pid'].includes(key)) ||
+        typeof target.id !== 'string' ||
+        !/^hwnd:0x[0-9a-f]+$/i.test(target.id) ||
+        !Number.isSafeInteger(target.pid) ||
+        target.pid < 1 ||
+        windows.has(target.id)
+      )
+        invalid();
       windows.set(target.id, target.pid);
     }
     if (value.allowElevatedInput !== undefined && typeof value.allowElevatedInput !== 'boolean') invalid();
@@ -56,10 +75,12 @@ export function createComputerExecutionPolicy(raw?: unknown, now = Date.now) {
       assertCurrent();
       return {
         authorization_expires_at: Number.isFinite(expiresAt) ? expiresAt : null,
-        ...(actions && windowId ? {
-          authorization_window_id: windowId,
-          authorization_pid: windows.get(windowId),
-        } : {}),
+        ...(actions && windowId
+          ? {
+              authorization_window_id: windowId,
+              authorization_pid: windows.get(windowId),
+            }
+          : {}),
       };
     },
     assertAction(command: ComputerCommand): void {
@@ -67,12 +88,15 @@ export function createComputerExecutionPolicy(raw?: unknown, now = Date.now) {
       assertCurrent();
       const action = command.action;
       const publicAction = computerActionPolicy(action);
-      if (!actions.has(publicAction)) throw new Error('computer_policy_denied: this action is outside the configured authorization');
+      if (!actions.has(publicAction))
+        throw new Error('computer_policy_denied: this action is outside the configured authorization');
       if (action === 'launch' && !launches.has(String(command.app || ''))) {
         throw new Error('computer_policy_denied: launch target is not explicitly authorized');
       }
-      if (['act', 'capture', 'window', 'menu', 'verify'].includes(publicAction)
-        && !windows.has(String(command.window_id || ''))) {
+      if (
+        ['act', 'capture', 'window', 'menu', 'verify'].includes(publicAction) &&
+        !windows.has(String(command.window_id || ''))
+      ) {
         throw new Error('computer_policy_denied: an explicitly authorized exact window_id is required');
       }
     },
@@ -80,8 +104,13 @@ export function createComputerExecutionPolicy(raw?: unknown, now = Date.now) {
       if (!actions || !command.window_id || isComputerLifecycleControl(command)) return;
       assertCurrent();
       const expectedPid = windows.get(command.window_id);
-      if (expectedPid && records && command.action === 'verify'
-        && !records.some((record) => record.id === command.window_id)) return;
+      if (
+        expectedPid &&
+        records &&
+        command.action === 'verify' &&
+        !records.some((record) => record.id === command.window_id)
+      )
+        return;
       if (!expectedPid || !records?.some((record) => record.id === command.window_id && record.pid === expectedPid)) {
         throw new Error('computer_policy_denied: target process identity no longer matches the authorization');
       }

@@ -11,10 +11,10 @@ const WINDOWS_INVALID_FILE_CHARS = /[\\/:*?"<>|]/;
 const UNIX_INVALID_FILE_CHARS = /[/]/;
 const WINDOWS_FORBIDDEN_NAMES = /^(con|prn|aux|clock\$|nul|lpt[0-9]|com[0-9])(\.(.*?))?$/i;
 
-const runtimeIsWindows: boolean = typeof navigator === 'object'
-  && Boolean((navigator as { platform?: string }).platform)
-  ? /win/i.test(String((navigator as { platform?: string }).platform))
-  : (globalThis as { process?: { platform?: string } }).process?.platform === 'win32';
+const runtimeIsWindows: boolean =
+  typeof navigator === 'object' && (navigator as { platform?: string }).platform
+    ? /win/i.test(String((navigator as { platform?: string }).platform))
+    : (globalThis as { process?: { platform?: string } }).process?.platform === 'win32';
 
 /** Well-formed name: trim tabs, drop trailing slashes. */
 export function wellFormedExplorerName(name: string): string {
@@ -46,12 +46,7 @@ export function validateExplorerName(input: {
   allowSegments?: boolean;
   windows?: boolean;
 }): ExplorerNameProblem | null {
-  const {
-    originalName = '',
-    siblings = [],
-    allowSegments = false,
-    windows = runtimeIsWindows,
-  } = input;
+  const { originalName = '', siblings = [], allowSegments = false, windows = runtimeIsWindows } = input;
   const name = wellFormedExplorerName(input.name);
   if (!name || name.length === 0 || /^\s+$/.test(name)) {
     return { content: 'A file or folder name must be provided.', severity: 'error' };
@@ -106,21 +101,15 @@ export interface ExplorerSortableEntry {
 
 /** Default sort: directories first, then names. */
 export function sortExplorerEntries<T extends ExplorerSortableEntry>(entries: readonly T[]): T[] {
-  return [...entries].sort((a, b) => a.dir === b.dir
-    ? compareExplorerNames(a.name, b.name)
-    : a.dir ? -1 : 1);
+  return [...entries].sort((a, b) => (a.dir === b.dir ? compareExplorerNames(a.name, b.name) : a.dir ? -1 : 1));
 }
 
 /** List type-ahead: next row whose name starts with the buffer, wrapping. */
-export function explorerTypeAheadIndex(
-  names: readonly string[],
-  fromIndex: number,
-  query: string,
-): number {
+export function explorerTypeAheadIndex(names: readonly string[], fromIndex: number, query: string): number {
   const lowered = query.toLowerCase();
   if (!lowered || names.length === 0) return -1;
   for (let step = 0; step <= names.length; step += 1) {
-    const index = ((fromIndex + step) % names.length + names.length) % names.length;
+    const index = (((fromIndex + step) % names.length) + names.length) % names.length;
     if (step === 0 && index === fromIndex && query.length > 1) {
       // Multi-char buffers may match the focused row itself.
       if (names[index].toLowerCase().startsWith(lowered)) return index;
@@ -133,11 +122,7 @@ export function explorerTypeAheadIndex(
 }
 
 /** Paste naming: "name copy", then "name copy 2", ... */
-export function explorerPasteName(
-  name: string,
-  dir: boolean,
-  takenLowercase: ReadonlySet<string>,
-): string {
+export function explorerPasteName(name: string, dir: boolean, takenLowercase: ReadonlySet<string>): string {
   if (!takenLowercase.has(name.toLowerCase())) return name;
   const dot = dir ? -1 : name.lastIndexOf('.');
   const stem = dot > 0 ? name.slice(0, dot) : name;

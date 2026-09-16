@@ -1,11 +1,11 @@
-import type { DesktopPromptContent, DesktopSubmitOptions } from "../shared/contract";
-import type { Snapshot, TranscriptItem } from "./desktop-types";
-import { t } from "./i18n";
-import { asRecord } from "./text-format";
+import type { DesktopPromptContent, DesktopSubmitOptions } from '../shared/contract';
+import type { Snapshot, TranscriptItem } from './desktop-types';
+import { t } from './i18n';
+import { asRecord } from './text-format';
 
 export type PendingPromptItem = TranscriptItem & {
   id: string | number;
-  kind: "user";
+  kind: 'user';
   text: string;
   pending: boolean;
   accepted: boolean;
@@ -19,7 +19,7 @@ export type PendingPromptItem = TranscriptItem & {
 
 export function settledUserRowCount(items: readonly TranscriptItem[]): number {
   let count = 0;
-  for (const item of items) if (item?.kind === "user") count += 1;
+  for (const item of items) if (item?.kind === 'user') count += 1;
   return count;
 }
 
@@ -30,41 +30,46 @@ export function nextDesktopSubmissionId(): string {
   return `desktop-submit-${uuid || `${Date.now()}-${++desktopSubmissionSequence}`}`;
 }
 
-export function desktopPromptDisplayText(
-  content: DesktopPromptContent,
-  options?: DesktopSubmitOptions,
-): string {
-  const explicit = String(options?.displayText || "").trim();
+export function desktopPromptDisplayText(content: DesktopPromptContent, options?: DesktopSubmitOptions): string {
+  const explicit = String(options?.displayText || '').trim();
   if (explicit) return explicit;
-  if (typeof content === "string") return content.trim();
-  return content.map((part) => {
-    if (part.type === "text") return part.text;
-    if (part.type === "image") return "[Image]";
-    return `[File: ${part.filename || "attachment"}]`;
-  }).filter(Boolean).join("\n").trim() || t("Attached prompt");
+  if (typeof content === 'string') return content.trim();
+  return (
+    content
+      .map((part) => {
+        if (part.type === 'text') return part.text;
+        if (part.type === 'image') return '[Image]';
+        return `[File: ${part.filename || 'attachment'}]`;
+      })
+      .filter(Boolean)
+      .join('\n')
+      .trim() || t('Attached prompt')
+  );
 }
 
-export function pendingPromptImages(options?: DesktopSubmitOptions): NonNullable<TranscriptItem["images"]> {
+export function pendingPromptImages(options?: DesktopSubmitOptions): NonNullable<TranscriptItem['images']> {
   return Object.values(options?.pastedImages || {}).map((image) => ({
     id: image.id,
-    name: image.filename || "Image",
+    name: image.filename || 'Image',
     mimeType: image.mediaType,
-    bytes: Number(image.sizeBytes) || String(image.content || "").length,
+    bytes: Number(image.sizeBytes) || String(image.content || '').length,
   }));
 }
 
 export function pendingPromptTranscriptItems(
   optimistic: PendingPromptItem[],
-  settled: TranscriptItem[],
+  settled: TranscriptItem[]
 ): PendingPromptItem[] {
-  const settledIds = new Set(settled
-    .map((item) => item?.id)
-    .filter((id) => id !== undefined && id !== null)
-    .map(String));
+  const settledIds = new Set(
+    settled
+      .map((item) => item?.id)
+      .filter((id) => id !== undefined && id !== null)
+      .map(String)
+  );
   const settledUsers = settledUserRowCount(settled);
   const byId = new Map<string, PendingPromptItem>();
   for (const item of optimistic) {
-    if (item?.id === undefined || item.id === null || !String(item.text || "").trim()) continue;
+    if (item?.id === undefined || item.id === null || !String(item.text || '').trim()) continue;
     byId.set(String(item.id), item);
   }
   // Host acknowledgement is NOT settlement. Releasing on the RPC result took
@@ -97,25 +102,20 @@ export function pendingPromptTranscriptItems(
   return rows;
 }
 
-export function promptWaitsBehindActiveTurn(
-  draftMode: boolean,
-  snapshot: Pick<Snapshot, "busy" | "queued">,
-): boolean {
+export function promptWaitsBehindActiveTurn(draftMode: boolean, snapshot: Pick<Snapshot, 'busy' | 'queued'>): boolean {
   // A new thread's first prompt belongs to the new thread, never to the
   // active or queued state of the previously viewed
   // session. Existing sessions still expose follow-ups through the queue.
-  return !draftMode && (Boolean(snapshot.busy)
-    || (Array.isArray(snapshot.queued) && snapshot.queued.length > 0));
+  return !draftMode && (Boolean(snapshot.busy) || (Array.isArray(snapshot.queued) && snapshot.queued.length > 0));
 }
 
-export function unsettledQueueEntries(
-  queued: unknown,
-  settled: readonly TranscriptItem[],
-): unknown[] {
+export function unsettledQueueEntries(queued: unknown, settled: readonly TranscriptItem[]): unknown[] {
   if (!Array.isArray(queued) || queued.length === 0) return [];
-  const settledUserIds = new Set(settled
-    .filter((item) => item?.kind === "user" && item.id !== undefined && item.id !== null)
-    .map((item) => String(item.id)));
+  const settledUserIds = new Set(
+    settled
+      .filter((item) => item?.kind === 'user' && item.id !== undefined && item.id !== null)
+      .map((item) => String(item.id))
+  );
   if (settledUserIds.size === 0) return queued;
   // One owner per submission: once the durable user row exists, it wins over
   // a delayed queue projection carrying the same id. Text is deliberately not

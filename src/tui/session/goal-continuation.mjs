@@ -2,14 +2,7 @@ import { clean } from '../../runtime/shared/clean.mjs';
 import { goalDeadlineReached, goalDeadlineWarning } from '../../session-runtime/goal-text.mjs';
 import { isGoalQueuedEntry } from './queue-helpers.mjs';
 
-export function createGoalContinuation({
-  runtime,
-  flags,
-  getState,
-  set,
-  getPending,
-  enqueue,
-} = {}) {
+export function createGoalContinuation({ runtime, flags, getState, set, getPending, enqueue } = {}) {
   let scheduled = null;
   let disposed = false;
   let suppressedCompletedGoalId = '';
@@ -24,9 +17,11 @@ export function createGoalContinuation({
     for (let index = pending.length - 1; index >= 0; index -= 1) {
       const entry = pending[index];
       if (!isGoalQueuedEntry(entry)) continue;
-      if (entry.mode === 'goal-closeout'
-        && keepCloseoutFor?.status === 'duration_reached'
-        && clean(entry.goalId) === clean(keepCloseoutFor.id)) {
+      if (
+        entry.mode === 'goal-closeout' &&
+        keepCloseoutFor?.status === 'duration_reached' &&
+        clean(entry.goalId) === clean(keepCloseoutFor.id)
+      ) {
         entry.content = goalDeadlineReached(keepCloseoutFor);
         continue;
       }
@@ -36,11 +31,8 @@ export function createGoalContinuation({
     return removed;
   };
 
-  const visibleGoal = (goal) => (
-    goal?.status === 'complete' && clean(goal.id) === suppressedCompletedGoalId
-      ? null
-      : goal || null
-  );
+  const visibleGoal = (goal) =>
+    goal?.status === 'complete' && clean(goal.id) === suppressedCompletedGoalId ? null : goal || null;
 
   const refreshGoalState = () => {
     const goal = visibleGoal(runtime.goalStatus?.() || null);
@@ -130,7 +122,11 @@ export function createGoalContinuation({
       });
       return;
     }
-    try { runtime.markGoalReminder?.('deadline-soon'); } catch { /* best-effort: a reminder must never break the session */ }
+    try {
+      runtime.markGoalReminder?.('deadline-soon');
+    } catch {
+      /* best-effort: a reminder must never break the session */
+    }
   };
 
   const deliverGoalCloseout = (goal) => {
@@ -158,8 +154,8 @@ export function createGoalContinuation({
     const currentSessionId = clean(getState().sessionId || runtime.id);
     if (clean(event.sessionId) && clean(event.sessionId) !== currentSessionId) return;
     const goal = visibleGoal(event.goal || runtime.goalStatus?.() || null);
-    const reached = goal?.status === 'duration_reached'
-      && clean(goal.id) === observedGoalId && observedGoalStatus === 'active';
+    const reached =
+      goal?.status === 'duration_reached' && clean(goal.id) === observedGoalId && observedGoalStatus === 'active';
     observedGoalId = clean(goal?.id);
     observedGoalStatus = clean(goal?.status);
     cancelQueuedGoalContinuations({ keepCloseoutFor: goal });
@@ -190,9 +186,7 @@ export function createGoalContinuation({
     },
     async onGoalTurnSettled(detail = {}) {
       const status = clean(typeof detail === 'string' ? detail : detail.status).toLowerCase();
-      const goal = await Promise.resolve(runtime.goalTurnSettled?.(
-        typeof detail === 'string' ? { status } : detail,
-      ));
+      const goal = await Promise.resolve(runtime.goalTurnSettled?.(typeof detail === 'string' ? { status } : detail));
       if (goal !== undefined && getState().goal !== goal) set({ goal: goal || null });
       if (goal?.status === 'active') scheduleGoalContinuation();
       return goal;
@@ -203,8 +197,7 @@ export function createGoalContinuation({
       if (removed && currentGoal?.status === 'duration_reached') {
         runtime.markGoalReminder?.('deadline-reached');
       }
-      const archivedGoalId = ['complete', 'stopped'].includes(currentGoal?.status)
-        ? clean(currentGoal.id) : '';
+      const archivedGoalId = ['complete', 'stopped'].includes(currentGoal?.status) ? clean(currentGoal.id) : '';
       if (archivedGoalId) {
         suppressedCompletedGoalId = archivedGoalId;
         set({ goal: null });
@@ -223,7 +216,9 @@ export function createGoalContinuation({
       disposed = true;
       if (scheduled) clearImmediate(scheduled);
       scheduled = null;
-      try { unsubscribe(); } catch {}
+      try {
+        unsubscribe();
+      } catch {}
     },
   };
 }

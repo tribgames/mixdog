@@ -1,22 +1,16 @@
 /**
- * transcript-window.mjs — the transcript row-estimate + virtual-window engine,
- * extracted verbatim from App.jsx. Owns ALL module-level caches for this
- * cluster (variant-key, estimated-rows, measured-rows, sig-part). Pure module:
- * no React, no App closures. The App imports the functions and (for the
- * measured-height cache it writes from a layout effect) the shared cache +
- * variant-key helper by name.
+ * transcript-window.mjs — the transcript row-estimate + virtual-window engine.
+ * Owns ALL module-level caches for this cluster (variant-key, estimated-rows,
+ * measured-rows, sig-part). Pure module: no React, no App closures. The App
+ * imports the functions and (for the measured-height cache it writes from a
+ * layout effect) the shared cache + variant-key helper by name.
  *
- * Behavior is byte-for-byte the same as when these lived in App.jsx; only the
- * home moved. The env-tunable constants and their comments are preserved.
+ * The env-tunable constants and their comments are preserved.
  */
-import {
-  measureStreamingMarkdownRenderedRows,
-} from '../markdown/measure-rendered-rows.mjs';
+import { measureStreamingMarkdownRenderedRows } from '../markdown/measure-rendered-rows.mjs';
 import { streamingLayoutText } from '../markdown/streaming-markdown.mjs';
 import { normalizeToolName } from '../../runtime/shared/tool-surface.mjs';
-import {
-  shouldSuppressFullyFailedToolItem,
-} from '../transcript-tool-failures.mjs';
+import { shouldSuppressFullyFailedToolItem } from '../transcript-tool-failures.mjs';
 import { backgroundArgsForRows, estimateTranscriptItemRows } from './transcript-row-estimate.mjs';
 import { envPositiveInt as positiveIntEnv } from '../../runtime/shared/env.mjs';
 
@@ -101,21 +95,23 @@ export const WHEEL_STEP_ROWS = positiveIntEnv('MIXDOG_TUI_SCROLL_SPEED', 3);
 export const WHEEL_ACCEL_ENABLED = boolEnvDefaultTrue('MIXDOG_TUI_SCROLL_ACCELERATION');
 export const WHEEL_STEP_MAX_ROWS = Math.max(
   WHEEL_STEP_ROWS,
-  positiveIntEnv('MIXDOG_TUI_SCROLL_SPEED_MAX', WHEEL_STEP_ROWS * 3),
+  positiveIntEnv('MIXDOG_TUI_SCROLL_SPEED_MAX', WHEEL_STEP_ROWS * 3)
 );
 export const WHEEL_ACCEL_IDLE_MS = positiveIntEnv('MIXDOG_TUI_SCROLL_ACCEL_IDLE_MS', 150);
 
 export function selectionRectsEqual(a, b) {
   if (a === b) return true;
   if (!a || !b) return false;
-  return a.mode === b.mode
-    && a.x1 === b.x1
-    && a.y1 === b.y1
-    && a.x2 === b.x2
-    && a.y2 === b.y2
-    && a.clipY1 === b.clipY1
-    && a.clipY2 === b.clipY2
-    && a.captureText === b.captureText;
+  return (
+    a.mode === b.mode &&
+    a.x1 === b.x1 &&
+    a.y1 === b.y1 &&
+    a.x2 === b.x2 &&
+    a.y2 === b.y2 &&
+    a.clipY1 === b.clipY1 &&
+    a.clipY2 === b.clipY2 &&
+    a.captureText === b.captureText
+  );
 }
 
 export function shiftSelectionRectY(rect, deltaY) {
@@ -129,7 +125,6 @@ export function shiftSelectionRectY(rect, deltaY) {
 export function compareCellOrder(a, b) {
   return a.y === b.y ? Math.sign(a.x - b.x) : Math.sign(a.y - b.y);
 }
-
 
 function lowerBound(values, target) {
   let lo = 0;
@@ -162,7 +157,10 @@ export function resolveAnchorScrollOffset({ anchor, items, curPrefix, totalRows,
   const list = Array.isArray(items) ? items : [];
   let idx = -1;
   for (let i = list.length - 1; i >= 0; i--) {
-    if (list[i] && list[i].id === anchor.id) { idx = i; break; }
+    if (list[i] && list[i].id === anchor.id) {
+      idx = i;
+      break;
+    }
   }
   if (idx < 0 || idx > curPrefix.length - 2) return null;
   const anchorRowCur = transcriptRowAt(curPrefix, idx) + (Number(anchor.offset) || 0);
@@ -319,25 +317,28 @@ export function streamingRowEstimateStateForId(id) {
  * item that never got a Yoga measurement but reached an estimate high-water,
  * then was bulk-replaced, must still be pruned). */
 export function hasStreamingRowStateToPrune() {
-  return streamingMeasuredRowsById.size > 0
-    || streamingEstimateHighWaterById.size > 0
-    || streamingTailEstimateById.size > 0;
+  return (
+    streamingMeasuredRowsById.size > 0 || streamingEstimateHighWaterById.size > 0 || streamingTailEstimateById.size > 0
+  );
 }
 
 export function transcriptHarvestInputsEqual(left, right) {
-  return !!left && !!right
-    && left.revision === right.revision
-    && left.settledItems === right.settledItems
-    && left.streamingTailItem === right.streamingTailItem
-    && left.startIndex === right.startIndex
-    && left.endIndex === right.endIndex
-    && left.frameColumns === right.frameColumns
-    && left.toolOutputExpanded === right.toolOutputExpanded
-    && left.transcriptContentHeight === right.transcriptContentHeight
-    && left.floatingPanelRows === right.floatingPanelRows
-    && left.overlayHintRequested === right.overlayHintRequested
-    && left.transcriptGuardRows === right.transcriptGuardRows
-    && left.themeEpoch === right.themeEpoch;
+  return (
+    !!left &&
+    !!right &&
+    left.revision === right.revision &&
+    left.settledItems === right.settledItems &&
+    left.streamingTailItem === right.streamingTailItem &&
+    left.startIndex === right.startIndex &&
+    left.endIndex === right.endIndex &&
+    left.frameColumns === right.frameColumns &&
+    left.toolOutputExpanded === right.toolOutputExpanded &&
+    left.transcriptContentHeight === right.transcriptContentHeight &&
+    left.floatingPanelRows === right.floatingPanelRows &&
+    left.overlayHintRequested === right.overlayHintRequested &&
+    left.transcriptGuardRows === right.transcriptGuardRows &&
+    left.themeEpoch === right.themeEpoch
+  );
 }
 
 /** Drop streamingMeasuredRowsById entries for ids no longer mounted, so the
@@ -400,15 +401,15 @@ export function streamingEstimateRows(item, columns, toolOutputExpanded) {
   const id = item?.id;
   const exactText = String(item?.text ?? '');
   const toolExpanded = toolOutputExpanded ? 1 : 0;
-  const renderMode = item?.kind === 'assistant' && item?.streaming
-    ? 'assistant-streaming-markdown'
-    : 'other';
+  const renderMode = item?.kind === 'assistant' && item?.streaming ? 'assistant-streaming-markdown' : 'other';
   const cached = id == null ? null : streamingTailEstimateById.get(id);
-  if (cached
-    && cached.text === exactText
-    && cached.columns === columns
-    && cached.toolExpanded === toolExpanded
-    && cached.renderMode === renderMode) {
+  if (
+    cached &&
+    cached.text === exactText &&
+    cached.columns === columns &&
+    cached.toolExpanded === toolExpanded &&
+    cached.renderMode === renderMode
+  ) {
     cacheStreamingTailEstimate(id, cached);
     return cached.rows;
   }
@@ -423,10 +424,7 @@ export function streamingEstimateRows(item, columns, toolOutputExpanded) {
   if (id == null) return quantized;
   const prev = streamingEstimateHighWaterById.get(id);
   let rows;
-  if (!prev
-    || prev.columns !== columns
-    || prev.toolExpanded !== toolExpanded
-    || prev.renderMode !== renderMode) {
+  if (!prev || prev.columns !== columns || prev.toolExpanded !== toolExpanded || prev.renderMode !== renderMode) {
     streamingEstimateHighWaterById.set(id, {
       rows: quantized,
       columns,
@@ -488,13 +486,15 @@ export function estimateTranscriptItemRowsCached(item, columns, toolOutputExpand
   const toolExpanded = toolOutputExpanded ? 1 : 0;
   const attached = attachedTool ? 1 : 0;
   const cached = transcriptRowsCache.get(item);
-  if (cached
-    && cached.columns === columns
-    && cached.toolExpanded === toolExpanded
-    && cached.attached === attached
-    && cached.variantKey === variantKey
-    && cached.id === item.id
-    && cached.kind === item.kind) {
+  if (
+    cached &&
+    cached.columns === columns &&
+    cached.toolExpanded === toolExpanded &&
+    cached.attached === attached &&
+    cached.variantKey === variantKey &&
+    cached.id === item.id &&
+    cached.kind === item.kind
+  ) {
     return cached.rows;
   }
   const rows = Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded, attachedTool)));
@@ -502,27 +502,20 @@ export function estimateTranscriptItemRowsCached(item, columns, toolOutputExpand
   return rows;
 }
 
-export function buildTranscriptRowIndex(items, {
-  columns = 80,
-  toolOutputExpanded = false,
-  suppressMeasuredRowHeights = false,
-  streamingTailItem = null,
-} = {}) {
+export function buildTranscriptRowIndex(
+  items,
+  { columns = 80, toolOutputExpanded = false, suppressMeasuredRowHeights = false, streamingTailItem = null } = {}
+) {
   const allItems = Array.isArray(items) ? items : [];
   const rows = new Array(allItems.length);
   const prefixRows = new Array(allItems.length + 1);
   prefixRows[0] = 0;
   for (let i = 0; i < allItems.length; i++) {
-    const item = streamingTailItem && i === allItems.length - 1
-      ? streamingTailItem
-      : allItems[i];
+    const item = streamingTailItem && i === allItems.length - 1 ? streamingTailItem : allItems[i];
     const attachedTool = false; // gap restored: every tool card keeps marginTop 1 (see TranscriptItem)
-    const measured = suppressMeasuredRowHeights
-      ? null
-      : measuredTranscriptRows(item, columns, toolOutputExpanded);
-    const rowCount = measured != null
-      ? measured
-      : estimateTranscriptItemRowsCached(item, columns, toolOutputExpanded, attachedTool);
+    const measured = suppressMeasuredRowHeights ? null : measuredTranscriptRows(item, columns, toolOutputExpanded);
+    const rowCount =
+      measured != null ? measured : estimateTranscriptItemRowsCached(item, columns, toolOutputExpanded, attachedTool);
     rows[i] = rowCount;
     prefixRows[i + 1] = prefixRows[i] + rowCount;
   }
@@ -550,15 +543,18 @@ function trailingStreamingItem(allItems) {
   return last && last.kind === 'assistant' && last.streaming ? last : null;
 }
 
-export function buildTranscriptRowIndexIncremental(items, {
-  columns = 80,
-  toolOutputExpanded = false,
-  suppressMeasuredRowHeights = false,
-  measuredRowsVersion = 0,
-  cacheRef = null,
-  prefixRevision = null,
-  streamingTailItem = null,
-} = {}) {
+export function buildTranscriptRowIndexIncremental(
+  items,
+  {
+    columns = 80,
+    toolOutputExpanded = false,
+    suppressMeasuredRowHeights = false,
+    measuredRowsVersion = 0,
+    cacheRef = null,
+    prefixRevision = null,
+    streamingTailItem = null,
+  } = {}
+) {
   const allItems = Array.isArray(items) ? items : [];
   const tail = streamingTailItem || trailingStreamingItem(allItems);
   // Per-hook-instance cache holder (useRef object). Fall back to a throwaway
@@ -570,7 +566,10 @@ export function buildTranscriptRowIndexIncremental(items, {
   if (!tail) {
     holder.current = null;
     return buildTranscriptRowIndex(allItems, {
-      columns, toolOutputExpanded, suppressMeasuredRowHeights, streamingTailItem,
+      columns,
+      toolOutputExpanded,
+      suppressMeasuredRowHeights,
+      streamingTailItem,
     });
   }
   const prefixLen = allItems.length - 1;
@@ -580,24 +579,25 @@ export function buildTranscriptRowIndexIncremental(items, {
   // bumps it without requiring a render-time walk over the transcript.
   // Fast path: same prefix length + tail id + revision, and columns/expanded/
   // suppress/version all match. Only the tail row can differ → recompute + append.
-  if (cache
-    && cache.columns === columns
-    && cache.toolExpanded === (toolOutputExpanded ? 1 : 0)
-    && cache.suppress === suppressMeasuredRowHeights
-    && cache.version === measuredRowsVersion
-    && cache.prefixLen === prefixLen
-    && prefixRevision != null
-    && cache.prefixRevision === prefixRevision
-    && cache.tailId === tail.id) {
+  if (
+    cache &&
+    cache.columns === columns &&
+    cache.toolExpanded === (toolOutputExpanded ? 1 : 0) &&
+    cache.suppress === suppressMeasuredRowHeights &&
+    cache.version === measuredRowsVersion &&
+    cache.prefixLen === prefixLen &&
+    prefixRevision != null &&
+    cache.prefixRevision === prefixRevision &&
+    cache.tailId === tail.id
+  ) {
     // revision matches → prefix rows provably unchanged; NO prefix walk / no
     // re-estimation. Only the tail row can differ, recompute it.
     {
       const tailMeasured = suppressMeasuredRowHeights
         ? null
         : measuredTranscriptRows(tail, columns, toolOutputExpanded);
-      const tailRows = tailMeasured != null
-        ? tailMeasured
-        : estimateTranscriptItemRowsCached(tail, columns, toolOutputExpanded);
+      const tailRows =
+        tailMeasured != null ? tailMeasured : estimateTranscriptItemRowsCached(tail, columns, toolOutputExpanded);
       // Immutable segmented views append one virtual tail slot to the cached
       // settled prefix. No committed array is mutated and no prefix is copied.
       const totalRows = cache.prefixTotal + tailRows;
@@ -613,7 +613,10 @@ export function buildTranscriptRowIndexIncremental(items, {
   // full-build outputs truncated before the tail row — byte-identical to a
   // full rebuild's prefix by construction.
   const full = buildTranscriptRowIndex(allItems, {
-    columns, toolOutputExpanded, suppressMeasuredRowHeights, streamingTailItem,
+    columns,
+    toolOutputExpanded,
+    suppressMeasuredRowHeights,
+    streamingTailItem,
   });
   holder.current = {
     columns,
@@ -633,20 +636,22 @@ export function buildTranscriptRowIndexIncremental(items, {
 // Stable O(1) signature for transcript row-index/window memos. The engine's
 // monotonic prefixRevision proves settled-prefix identity; only the live tail
 // needs resolving at render time.
-export function transcriptStructureSignature(items, columns, toolOutputExpanded, prefixRevision = 0, streamingTailItem = null) {
+export function transcriptStructureSignature(
+  items,
+  columns,
+  toolOutputExpanded,
+  prefixRevision = 0,
+  streamingTailItem = null
+) {
   const list = Array.isArray(items) ? items : [];
   const tail = streamingTailItem || trailingStreamingItem(list);
-  const tailRows = tail
-    ? estimateTranscriptItemRowsCached(tail, columns, toolOutputExpanded)
-    : 0;
+  const tailRows = tail ? estimateTranscriptItemRowsCached(tail, columns, toolOutputExpanded) : 0;
   return `${Math.max(0, Number(prefixRevision) || 0)}|${list.length}|${columns}|${toolOutputExpanded ? 1 : 0}|${tail?.id ?? '_'}:${tailRows}`;
 }
 
 export function transcriptRowAt(values, index) {
   if (!values || index < 0 || index >= values.length) return 0;
-  return typeof values.atIndex === 'function'
-    ? values.atIndex(index)
-    : (Number(values[index]) || 0);
+  return typeof values.atIndex === 'function' ? values.atIndex(index) : Number(values[index]) || 0;
 }
 
 /** True when a transcript items swap destroyed the reader's position and the
@@ -674,9 +679,7 @@ export function transcriptSwapReturnsToTail({
 function appendTranscriptRow(prefix, tailValue) {
   return Object.freeze({
     length: prefix.length + 1,
-    atIndex: (index) => index === prefix.length
-      ? tailValue
-      : (Number(prefix[index]) || 0),
+    atIndex: (index) => (index === prefix.length ? tailValue : Number(prefix[index]) || 0),
     at: (index) => {
       const resolved = index < 0 ? prefix.length + 1 + index : index;
       if (resolved < 0 || resolved > prefix.length) return undefined;
@@ -698,9 +701,7 @@ export function transcriptItemsWithStableTail(settledItems, streamingTailItem, c
   const settled = Array.isArray(settledItems) ? settledItems : [];
   if (!streamingTailItem) return settled;
   const previous = cacheRef?.current;
-  if (previous
-    && previous.settled === settled
-    && previous.tailId === streamingTailItem.id) {
+  if (previous && previous.settled === settled && previous.tailId === streamingTailItem.id) {
     return previous.items;
   }
   const items = [...settled, streamingTailItem];
@@ -708,23 +709,32 @@ export function transcriptItemsWithStableTail(settledItems, streamingTailItem, c
   return items;
 }
 
-export function transcriptRenderWindow(items, { scrollOffset = 0, viewportHeight = 24, columns = 80, toolOutputExpanded = false, rowIndex = null } = {}) {
+export function transcriptRenderWindow(
+  items,
+  { scrollOffset = 0, viewportHeight = 24, columns = 80, toolOutputExpanded = false, rowIndex = null } = {}
+) {
   const allItems = Array.isArray(items) ? items : [];
   const itemCount = allItems.length;
-  const fallbackIndex = rowIndex?.prefixRows?.length === itemCount + 1
-    ? rowIndex
-    : buildTranscriptRowIndex(allItems, { columns, toolOutputExpanded });
+  const fallbackIndex =
+    rowIndex?.prefixRows?.length === itemCount + 1
+      ? rowIndex
+      : buildTranscriptRowIndex(allItems, { columns, toolOutputExpanded });
   const totalRows = Math.max(0, fallbackIndex.totalRows || 0);
   const viewRows = Math.max(1, Number(viewportHeight) || 24);
   const maxScrollRows = Math.max(0, totalRows - viewRows);
-  const effectiveScrollOffset = Math.min(
-    maxScrollRows,
-    Math.max(0, Math.ceil(Number(scrollOffset) || 0)),
-  );
+  const effectiveScrollOffset = Math.min(maxScrollRows, Math.max(0, Math.ceil(Number(scrollOffset) || 0)));
 
   const bypassRowBudget = viewRows + TRANSCRIPT_WINDOW_OVERSCAN_ROWS * 2;
   if (itemCount <= TRANSCRIPT_WINDOW_MIN_ITEMS || totalRows <= bypassRowBudget) {
-    return { startIndex: 0, endIndex: itemCount, items: allItems, bottomSpacerRows: 0, totalRows, maxScrollRows, effectiveScrollOffset };
+    return {
+      startIndex: 0,
+      endIndex: itemCount,
+      items: allItems,
+      bottomSpacerRows: 0,
+      totalRows,
+      maxScrollRows,
+      effectiveScrollOffset,
+    };
   }
 
   const minItems = Math.min(TRANSCRIPT_WINDOW_MIN_ITEMS, itemCount);
@@ -740,14 +750,20 @@ export function transcriptRenderWindow(items, { scrollOffset = 0, viewportHeight
   const desiredBottom = Math.min(totalRows, visibleBottom + overscanRows);
 
   let startIndex = Math.max(0, upperBound(prefixRows, desiredTop) - 1);
-  let endIndex = Math.min(itemCount, Math.max(startIndex + 1, lowerBound(prefixRows, Math.max(desiredBottom, desiredTop + 1))));
+  let endIndex = Math.min(
+    itemCount,
+    Math.max(startIndex + 1, lowerBound(prefixRows, Math.max(desiredBottom, desiredTop + 1)))
+  );
 
   while (endIndex - startIndex < minItems && startIndex > 0) startIndex--;
   while (endIndex - startIndex < minItems && endIndex < itemCount) endIndex++;
 
   if (endIndex - startIndex > maxItems) {
     const visibleStartIndex = Math.max(0, upperBound(prefixRows, visibleTop) - 1);
-    const visibleEndIndex = Math.min(itemCount, Math.max(visibleStartIndex + 1, lowerBound(prefixRows, Math.max(visibleBottom, visibleTop + 1))));
+    const visibleEndIndex = Math.min(
+      itemCount,
+      Math.max(visibleStartIndex + 1, lowerBound(prefixRows, Math.max(visibleBottom, visibleTop + 1)))
+    );
     // The cap must never cut into rows needed to fill the viewport: floor it at
     // the item span the visible viewport actually covers, so a run of many short
     // (e.g. one-line) items can't leave the top of the viewport unmounted under

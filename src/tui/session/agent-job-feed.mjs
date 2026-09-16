@@ -13,17 +13,9 @@
  * the factory argument (getters/callbacks) — never stale snapshots. Every body
  * is the original session-local.mjs logic verbatim.
  */
-import {
-  parseAgentJob,
-  agentJobResultText,
-  agentArgsWithResultMetadata,
-} from './agent-envelope.mjs';
+import { parseAgentJob, agentJobResultText, agentArgsWithResultMetadata } from './agent-envelope.mjs';
 import { toolErrorDisplay } from './tool-result-text.mjs';
-import {
-  notificationQueueKey,
-  executionCardKey,
-  resolveTuiRuntimeNotificationDelivery,
-} from './notification-plan.mjs';
+import { notificationQueueKey, executionCardKey, resolveTuiRuntimeNotificationDelivery } from './notification-plan.mjs';
 import { shortTextFingerprint } from './queue-helpers.mjs';
 import { notifyTrace } from '../../runtime/shared/notify-trace.mjs';
 import { readImageAttachmentFromPath } from '../paste-attachments.mjs';
@@ -98,25 +90,44 @@ export function createAgentJobFeed({
     const slot = { abandoned: false };
     pendingNotificationEnqueues += 1;
     notificationEnqueueChain = notificationEnqueueChain
-      .then(() => new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          slot.abandoned = true;
-          reject(new Error(`notification task timed out after ${NOTIFICATION_TASK_TIMEOUT_MS}ms`));
-        }, NOTIFICATION_TASK_TIMEOUT_MS);
-        timer.unref?.();
-        Promise.resolve().then(() => task(slot)).then(
-          (value) => { clearTimeout(timer); resolve(value); },
-          (error) => { clearTimeout(timer); reject(error); },
-        );
-      }))
+      .then(
+        () =>
+          new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+              slot.abandoned = true;
+              reject(new Error(`notification task timed out after ${NOTIFICATION_TASK_TIMEOUT_MS}ms`));
+            }, NOTIFICATION_TASK_TIMEOUT_MS);
+            timer.unref?.();
+            Promise.resolve()
+              .then(() => task(slot))
+              .then(
+                (value) => {
+                  clearTimeout(timer);
+                  resolve(value);
+                },
+                (error) => {
+                  clearTimeout(timer);
+                  reject(error);
+                }
+              );
+          })
+      )
       .catch((error) => {
         slot.abandoned = true;
         // A thrown/timed-out task must not silently DROP its notification:
         // the fallback delivers what it can and the user is told either way.
-        try { onFailure?.(error); } catch { /* fallback delivery is best-effort */ }
-        try { pushNotice?.(`notification delivery failed: ${error?.message || error}`, 'warn'); } catch {}
+        try {
+          onFailure?.(error);
+        } catch {
+          /* fallback delivery is best-effort */
+        }
+        try {
+          pushNotice?.(`notification delivery failed: ${error?.message || error}`, 'warn');
+        } catch {}
       })
-      .then(() => { pendingNotificationEnqueues -= 1; });
+      .then(() => {
+        pendingNotificationEnqueues -= 1;
+      });
     void notificationEnqueueChain;
   };
   const AGENT_STATUS_COALESCE_MS = 16;
@@ -141,8 +152,9 @@ export function createAgentJobFeed({
       // Terminal keys are evicted FIRST (a finished execution can no longer
       // emit), but the bound is absolute: with only nonterminal keys left the
       // oldest one goes, otherwise the map grew for the whole session.
-      const oldestTerminal = [...displayedExecutionNotificationKeys]
-        .find((candidate) => terminalExecutionNotificationKeys.has(candidate));
+      const oldestTerminal = [...displayedExecutionNotificationKeys].find((candidate) =>
+        terminalExecutionNotificationKeys.has(candidate)
+      );
       const evicted = oldestTerminal ?? displayedExecutionNotificationKeys.values().next().value;
       if (evicted == null) break;
       displayedExecutionNotificationKeys.delete(evicted);
@@ -172,8 +184,9 @@ export function createAgentJobFeed({
     while (displayedExecutionResponseStates.size >= executionDedupLimit) {
       // Same absolute bound as the notification keys above: prefer terminal
       // entries, fall back to the oldest entry so the map cannot grow forever.
-      const oldestTerminal = [...displayedExecutionResponseStates.keys()]
-        .find((candidate) => terminalExecutionResponseKeys.has(candidate));
+      const oldestTerminal = [...displayedExecutionResponseStates.keys()].find((candidate) =>
+        terminalExecutionResponseKeys.has(candidate)
+      );
       const evicted = oldestTerminal ?? displayedExecutionResponseStates.keys().next().value;
       if (evicted == null) break;
       displayedExecutionResponseStates.delete(evicted);
@@ -245,14 +258,19 @@ export function createAgentJobFeed({
     // Drain every accumulated body into ONE resume turn so no completion body
     // is lost when several deferred while busy.
     const resumeBodies = executionResumeKickBodies.splice(0);
-    const resumeBody = resumeBodies.map(({ body: value }) => value).filter(Boolean).join('\n\n');
+    const resumeBody = resumeBodies
+      .map(({ body: value }) => value)
+      .filter(Boolean)
+      .join('\n\n');
     const resumeCompletionKeys = resumeBodies.map(({ key }) => key).filter(Boolean);
-    pending.push(makeQueueEntry(resumeBody, {
-      mode: 'pending-resume',
-      priority: 'next',
-      abortDiscardOnAbort: true,
-      resumeCompletionKeys,
-    }));
+    pending.push(
+      makeQueueEntry(resumeBody, {
+        mode: 'pending-resume',
+        priority: 'next',
+        abortDiscardOnAbort: true,
+        resumeCompletionKeys,
+      })
+    );
     void drain();
   }
 
@@ -290,9 +308,7 @@ export function createAgentJobFeed({
   function buildAgentJobCardPatch(itemId, text, isError = false) {
     const parsed = parseAgentJob(text);
     const index = itemIndexById?.get(itemId);
-    const current = Number.isInteger(index) && getState().items[index]?.id === itemId
-      ? getState().items[index]
-      : null;
+    const current = Number.isInteger(index) && getState().items[index]?.id === itemId ? getState().items[index] : null;
     const rawDisplayText = agentJobResultText(text, parsed) || String(text ?? '').trim();
     const displayText = isError ? toolErrorDisplay(rawDisplayText, 'agent') : rawDisplayText;
     return {
@@ -311,7 +327,10 @@ export function createAgentJobFeed({
   function refreshAgentStatus(parsed) {
     if (!parsed?.taskId) return;
     const status = String(parsed.status || '').toLowerCase();
-    const terminal = /^(completed|complete|done|success|succeeded|ok|failed|error|timeout|killed|cancelled|canceled|denied)$/.test(status);
+    const terminal =
+      /^(completed|complete|done|success|succeeded|ok|failed|error|timeout|killed|cancelled|canceled|denied)$/.test(
+        status
+      );
     agentStatusRefreshForce = agentStatusRefreshForce || terminal;
     if (agentStatusRefreshTimer) return;
     agentStatusRefreshTimer = setTimeout(() => {
@@ -335,7 +354,10 @@ export function createAgentJobFeed({
       const delivery = resolveTuiRuntimeNotificationDelivery(event, text);
       const executionId = String(event?.meta?.execution_id || parsed?.taskId || '').trim();
       const status = String(event?.meta?.status || parsed?.status || '').toLowerCase();
-      const terminalStatus = /^(completed|complete|done|success|succeeded|ok|failed|error|timeout|killed|cancelled|canceled|denied)$/.test(status);
+      const terminalStatus =
+        /^(completed|complete|done|success|succeeded|ok|failed|error|timeout|killed|cancelled|canceled|denied)$/.test(
+          status
+        );
       if (terminalStatus) promoteExecutionDedupState(executionId);
       if (delivery.action === 'ignore') return;
       if (delivery.action === 'ui-open') {
@@ -358,7 +380,8 @@ export function createAgentJobFeed({
         const firstDelivery = !cardKey || !displayedExecutionNotificationKeys.has(cardKey);
         const hasBody = /\n\s*\n[\s\S]*\S/.test(text);
         const isFailure = /^(failed|error|timeout|killed|cancelled|canceled|denied)$/.test(status);
-        const successfulPreview = !hasBody && !isFailure && /^(completed|complete|done|success|succeeded|ok)$/.test(status);
+        const successfulPreview =
+          !hasBody && !isFailure && /^(completed|complete|done|success|succeeded|ok)$/.test(status);
         const terminal = terminalStatus;
         const responseState = executionId ? displayedExecutionResponseStates.get(executionId) : '';
         const bodyAlreadyDisplayed = responseState === 'body';
@@ -399,7 +422,10 @@ export function createAgentJobFeed({
           // turn. Still ack (modelVisibleDelivered) so runtime-core's
           // mirror/fallback stays suppressed; the card first-delivery push and
           // status refresh above already ran.
-          if (isDiscardedExecutionResumeKey(completionKey) || isDeliveredCompletion({ executionId, text: resumeBody })) {
+          if (
+            isDiscardedExecutionResumeKey(completionKey) ||
+            isDeliveredCompletion({ executionId, text: resumeBody })
+          ) {
             if (event && typeof event === 'object') event.modelVisibleDelivered = true;
             return true;
           }
@@ -457,41 +483,49 @@ export function createAgentJobFeed({
         // already "handled" (return true) — the enqueue lands on resolve, in
         // arrival order via the shared chain.
         // Any unreadable path is skipped; if none load, fall back to text.
-        chainNotificationEnqueue(async (slot) => {
-          if (getDisposed()) return;
-          const parts = [];
-          if (modelContent) parts.push({ type: 'text', text: modelContent });
-          for (const p of imagePaths) {
-            let att = null;
-            try {
-              att = await readImageAttachmentFromPath(p, process.cwd(), {
-                provider: getState()?.provider || '',
-              });
-            } catch { att = null; }
-            if (!att) continue;
-            if (att.metadataText) parts.push({ type: 'text', text: att.metadataText });
-            parts.push({ type: 'image', data: att.content, mimeType: att.mediaType || 'image/png' });
+        chainNotificationEnqueue(
+          async (slot) => {
+            if (getDisposed()) return;
+            const parts = [];
+            if (modelContent) parts.push({ type: 'text', text: modelContent });
+            for (const p of imagePaths) {
+              let att = null;
+              try {
+                att = await readImageAttachmentFromPath(p, process.cwd(), {
+                  provider: getState()?.provider || '',
+                });
+              } catch {
+                att = null;
+              }
+              if (!att) continue;
+              if (att.metadataText) parts.push({ type: 'text', text: att.metadataText });
+              parts.push({ type: 'image', data: att.content, mimeType: att.mediaType || 'image/png' });
+            }
+            if (getDisposed() || slot.abandoned) return;
+            const hasImage = parts.some((part) => part.type === 'image');
+            if (!hasImage && !modelContent) return;
+            enqueue(hasImage ? parts : modelContent, enqueueOpts);
+          },
+          () => {
+            // Image load failed or overran its budget: still deliver the text
+            // body so the notification is never silently lost.
+            if (getDisposed() || !modelContent) return;
+            enqueue(modelContent, enqueueOpts);
           }
-          if (getDisposed() || slot.abandoned) return;
-          const hasImage = parts.some((part) => part.type === 'image');
-          if (!hasImage && !modelContent) return;
-          enqueue(hasImage ? parts : modelContent, enqueueOpts);
-        }, () => {
-          // Image load failed or overran its budget: still deliver the text
-          // body so the notification is never silently lost.
-          if (getDisposed() || !modelContent) return;
-          enqueue(modelContent, enqueueOpts);
-        });
+        );
         return true;
       }
       if (pendingNotificationEnqueues > 0) {
         // An earlier image notification is still loading: queue behind it so
         // this text body cannot overtake it in the model queue.
-        chainNotificationEnqueue((slot) => {
-          if (!getDisposed() && !slot.abandoned) enqueue(modelContent, enqueueOpts);
-        }, () => {
-          if (!getDisposed()) enqueue(modelContent, enqueueOpts);
-        });
+        chainNotificationEnqueue(
+          (slot) => {
+            if (!getDisposed() && !slot.abandoned) enqueue(modelContent, enqueueOpts);
+          },
+          () => {
+            if (!getDisposed()) enqueue(modelContent, enqueueOpts);
+          }
+        );
         return true;
       }
       enqueue(modelContent, enqueueOpts);

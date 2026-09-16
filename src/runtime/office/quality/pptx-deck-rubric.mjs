@@ -57,14 +57,17 @@ export function scoreDeck({ receipt, issues = [] } = {}) {
 
   const fills = observed.map((o) => o.bodyFill).filter((v) => typeof v === 'number');
   // Half a zone is where a page stops reading as composed and starts reading as unfinished.
-  if (fills.length) add('vertical_fill', fills.filter((v) => v >= 0.5).length / fills.length, Number(mean(fills).toFixed(2)));
+  if (fills.length)
+    add('vertical_fill', fills.filter((v) => v >= 0.5).length / fills.length, Number(mean(fills).toFixed(2)));
 
   const planes = observed.map((o) => o.fieldFill?.[0]).filter((v) => typeof v === 'number');
-  if (planes.length) add('owned_planes', planes.filter((v) => v >= 0.25).length / planes.length, Number(Math.min(...planes).toFixed(2)));
+  if (planes.length)
+    add('owned_planes', planes.filter((v) => v >= 0.25).length / planes.length, Number(Math.min(...planes).toFixed(2)));
 
   if (Array.isArray(rhythm.gapSet)) add('spacing_vocabulary', band(rhythm.gapSet.length, 4, 12), rhythm.gapSet.length);
   if (Array.isArray(rhythm.typeSet)) add('type_scale', band(rhythm.typeSet.length, 7, 14), rhythm.typeSet.length);
-  if (Array.isArray(rhythm.textColors)) add('color_ladder', band(rhythm.textColors.length, 5, 10), rhythm.textColors.length);
+  if (Array.isArray(rhythm.textColors))
+    add('color_ladder', band(rhythm.textColors.length, 5, 10), rhythm.textColors.length);
 
   const balances = observed.map((o) => o.renderBalance?.score).filter((v) => typeof v === 'number');
   if (balances.length) add('balance', mean(balances), Number(mean(balances).toFixed(2)));
@@ -75,11 +78,14 @@ export function scoreDeck({ receipt, issues = [] } = {}) {
     add('rhythm', clamp01((spread - 0.02) / 0.08), Number(spread.toFixed(3)));
   }
 
-  if (slides.length) add('carriers', 1 - Number(receipt?.deck?.textOnly || 0) / slides.length, Number(receipt?.deck?.textOnly || 0));
+  if (slides.length)
+    add('carriers', 1 - Number(receipt?.deck?.textOnly || 0) / slides.length, Number(receipt?.deck?.textOnly || 0));
 
   // A quarter of the canvas is where a chart's labels and a picture's subject still read from the back of the
   // room; content slides (those with a body under a title) are read, anchors carry a statement on purpose.
-  const carriers = observed.filter((o) => typeof o.bodyTop === 'number' && typeof o.presence === 'number').map((o) => o.presence);
+  const carriers = observed
+    .filter((o) => typeof o.bodyTop === 'number' && typeof o.presence === 'number')
+    .map((o) => o.presence);
   if (carriers.length) add('presence', mean(carriers.map((v) => clamp01(v / 0.25))), Number(mean(carriers).toFixed(2)));
 
   const strays = observed.map((o) => o.textColumns?.rightStray).filter((v) => typeof v === 'number');
@@ -87,9 +93,12 @@ export function scoreDeck({ receipt, issues = [] } = {}) {
 
   // Body pages (evidence and text, never a beat) by the characters they carry: the reference decks run 330-900
   // per page at the median, ours ran 60-150 before this work — a page that says one sentence beside its chart.
-  const body = slides.filter((slide) => slide.grammar && slide.grammar !== 'beat' && typeof slide.chars === 'number').map((slide) => slide.chars);
+  const body = slides
+    .filter((slide) => slide.grammar && slide.grammar !== 'beat' && typeof slide.chars === 'number')
+    .map((slide) => slide.chars);
   if (body.length) {
-    const sorted = [...body].sort((a, b) => a - b), median = sorted[Math.floor(sorted.length / 2)];
+    const sorted = [...body].sort((a, b) => a - b),
+      median = sorted[Math.floor(sorted.length / 2)];
     add('density', clamp01((median - 80) / (280 - 80)), median);
   }
 
@@ -97,20 +106,29 @@ export function scoreDeck({ receipt, issues = [] } = {}) {
   if (shape && slides.length >= 4) add('deck_shape', band(shape.beat, 0.2, 0.45), shape.beat);
 
   const pacing = receipt?.deck?.pacing;
-  if (typeof pacing?.colourSpread === 'number') add('colour_pacing', clamp01((pacing.colourSpread - 5) / (15 - 5)), pacing.colourSpread);
+  if (typeof pacing?.colourSpread === 'number')
+    add('colour_pacing', clamp01((pacing.colourSpread - 5) / (15 - 5)), pacing.colourSpread);
 
   // The largest rendered object on the body pages (beats are a field by design and are left out): a chart with its
   // bars, a table, a picture row. The reference pages sit at 0.4 of the canvas at the median; 0.1 is a strip.
-  const objects = slides.filter((slide) => slide.grammar && slide.grammar !== 'beat' && typeof slide.observe?.renderLargest === 'number').map((slide) => slide.observe.renderLargest);
-  if (objects.length) add('object_scale', clamp01((mean(objects) - 0.1) / (0.35 - 0.1)), Number(mean(objects).toFixed(2)));
+  const objects = slides
+    .filter((slide) => slide.grammar && slide.grammar !== 'beat' && typeof slide.observe?.renderLargest === 'number')
+    .map((slide) => slide.observe.renderLargest);
+  if (objects.length)
+    add('object_scale', clamp01((mean(objects) - 0.1) / (0.35 - 0.1)), Number(mean(objects).toFixed(2)));
 
   const total = checks.reduce((sum, check) => sum + check.weight, 0);
-  const score = total ? Math.round(checks.reduce((sum, check) => sum + check.weight * check.score, 0) / total * 100) : null;
+  const score = total
+    ? Math.round((checks.reduce((sum, check) => sum + check.weight * check.score, 0) / total) * 100)
+    : null;
   return {
     score,
     slides: slides.length,
     checks,
-    weakest: [...checks].sort((a, b) => a.score - b.score).slice(0, 3).map((check) => check.id),
+    weakest: [...checks]
+      .sort((a, b) => a.score - b.score)
+      .slice(0, 3)
+      .map((check) => check.id),
     note: 'Every check is a reading, not a rule: a breathing page lowers vertical_fill and a motif plane lowers owned_planes on purpose. Compare the same deck across rounds, and read `weakest` before the total.',
   };
 }

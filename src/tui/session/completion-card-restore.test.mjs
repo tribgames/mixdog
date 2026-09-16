@@ -9,28 +9,30 @@ import assert from 'node:assert/strict';
 import { restoreTranscriptItems } from './session-api-ext.mjs';
 import { preserveGoalStateAfterTurn, transcriptToolCallDisplayMode } from './turn.mjs';
 
-const wrapper = (taskId, body) => [
-  `Async shell task ${taskId} (completed, exit 0) finished.`,
-  '',
-  'Result:',
-  ...body.split('\n').map((line) => `> ${line}`),
-].join('\n');
+const wrapper = (taskId, body) =>
+  [
+    `Async shell task ${taskId} (completed, exit 0) finished.`,
+    '',
+    'Result:',
+    ...body.split('\n').map((line) => `> ${line}`),
+  ].join('\n');
 
-const bodyFor = (taskId) => [
-  'background task',
-  `task_id: ${taskId}`,
-  'label: pwsh run.ps1',
-  'status: completed',
-  '',
-  `[task_id: ${taskId}]`,
-  '[status: completed]',
-  '[exit: 0]',
-  '',
-  'Summary: report jobs/report.json',
-  '',
-  '[stdout preview]',
-  '8/8 Mean: 1.000',
-].join('\n');
+const bodyFor = (taskId) =>
+  [
+    'background task',
+    `task_id: ${taskId}`,
+    'label: pwsh run.ps1',
+    'status: completed',
+    '',
+    `[task_id: ${taskId}]`,
+    '[status: completed]',
+    '[exit: 0]',
+    '',
+    'Summary: report jobs/report.json',
+    '',
+    '[stdout preview]',
+    '8/8 Mean: 1.000',
+  ].join('\n');
 
 test('completion wrapper user rows restore as tool cards, not dropped rows', () => {
   const messages = [
@@ -107,20 +109,18 @@ test('task wait calls stay hidden when a session transcript is restored', () => 
   ];
 
   const items = restoreTranscriptItems(messages, { sessionId: 'sess_task_wait_restore' });
-  assert.equal(items.some((item) => item?.kind === 'tool' && item?.args?.action === 'wait'), false);
-  assert.equal(items.some((item) => item?.kind === 'tool' && item?.args?.action === 'read'), true);
+  assert.equal(
+    items.some((item) => item?.kind === 'tool' && item?.args?.action === 'wait'),
+    false
+  );
+  assert.equal(
+    items.some((item) => item?.kind === 'tool' && item?.args?.action === 'read'),
+    true
+  );
 });
 
 test('Goal and load control calls never enter restored tool aggregates', () => {
-  const hiddenNames = [
-    'goal',
-    'create_goal',
-    'get_goal',
-    'set_goal_tasks',
-    'update_goal',
-    'load_tool',
-    'tool_search',
-  ];
+  const hiddenNames = ['goal', 'create_goal', 'get_goal', 'set_goal_tasks', 'update_goal', 'load_tool', 'tool_search'];
   const toolCalls = hiddenNames.map((name, index) => ({
     id: `call_hidden_${index}`,
     name,
@@ -140,8 +140,10 @@ test('Goal and load control calls never enter restored tool aggregates', () => {
   const toolItems = items.filter((item) => item?.kind === 'tool');
   assert.equal(toolItems.length, 1);
   assert.equal(toolItems[0].name, 'read');
-  assert.equal(toolItems.some((item) =>
-    (item.toolMembers || []).some((member) => hiddenNames.includes(member?.name))), false);
+  assert.equal(
+    toolItems.some((item) => (item.toolMembers || []).some((member) => hiddenNames.includes(member?.name))),
+    false
+  );
 });
 
 test('restored skill loads keep user/plugin skills and drop built-in ones', () => {

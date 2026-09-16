@@ -39,7 +39,9 @@ test('author without a script points at the pptx skill instead of serving a guid
 test('author writes a deck from a pptxgenjs script and opens a session on it', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'authored.pptx');
-  const authored = value(await executeOfficeTool({ action: 'author', path, script: DECK_SCRIPT, mode: 'portable', render: false }, { cwd }));
+  const authored = value(
+    await executeOfficeTool({ action: 'author', path, script: DECK_SCRIPT, mode: 'portable', render: false }, { cwd })
+  );
   assert.equal(authored.ok, true);
   assert.ok(authored.bytes > 1000);
   assert.equal(authored.output, path);
@@ -48,7 +50,9 @@ test('author writes a deck from a pptxgenjs script and opens a session on it', a
   assert.equal(snapshot.document.slides.length, 2);
   const validation = value(await executeOfficeTool({ action: 'validate', session: authored.session }, { cwd }));
   assert.equal(validation.ok, true, JSON.stringify(validation.issues || validation));
-  const again = value(await executeOfficeTool({ action: 'author', path, script: DECK_SCRIPT, mode: 'portable', render: false }, { cwd }));
+  const again = value(
+    await executeOfficeTool({ action: 'author', path, script: DECK_SCRIPT, mode: 'portable', render: false }, { cwd })
+  );
   assert.equal(again.ok, true);
   assert.equal(again.replacedSession, authored.session);
   assert.notEqual(again.session, authored.session);
@@ -65,18 +69,38 @@ pres.defineSlideMaster({ title: 'DARK', background: { color: '0F1824' } });
 const slide = pres.addSlide({ masterName: 'DARK' });
 slide.addText('야간 인력 증원을 승인해 주십시오', { x: 0.6, y: 3, w: 9, h: 0.8, fontFace: 'Arial', fontSize: 36, bold: true, color: '${ink}' });
 await pres.writeFile({ fileName: OUTPUT });`;
-  const onDark = value(await executeOfficeTool({
-    action: 'author', path: join(cwd, 'dark-ink.pptx'), script: script('171F2B'), mode: 'portable', render: false,
-  }, { cwd }));
-  const reported = (value(await executeOfficeTool({ action: 'issues', session: onDark.session }, { cwd })).issues || [])
-    .filter((entry) => entry.code === 'low_contrast');
+  const onDark = value(
+    await executeOfficeTool(
+      {
+        action: 'author',
+        path: join(cwd, 'dark-ink.pptx'),
+        script: script('171F2B'),
+        mode: 'portable',
+        render: false,
+      },
+      { cwd }
+    )
+  );
+  const reported = (
+    value(await executeOfficeTool({ action: 'issues', session: onDark.session }, { cwd })).issues || []
+  ).filter((entry) => entry.code === 'low_contrast');
   assert.equal(reported.length, 1, JSON.stringify(reported));
   assert.match(reported[0].message, /1\.\d\d:1/);
-  const readable = value(await executeOfficeTool({
-    action: 'author', path: join(cwd, 'light-ink.pptx'), script: script('F2F5F8'), mode: 'portable', render: false,
-  }, { cwd }));
-  const clean = (value(await executeOfficeTool({ action: 'issues', session: readable.session }, { cwd })).issues || [])
-    .filter((entry) => entry.code === 'low_contrast');
+  const readable = value(
+    await executeOfficeTool(
+      {
+        action: 'author',
+        path: join(cwd, 'light-ink.pptx'),
+        script: script('F2F5F8'),
+        mode: 'portable',
+        render: false,
+      },
+      { cwd }
+    )
+  );
+  const clean = (
+    value(await executeOfficeTool({ action: 'issues', session: readable.session }, { cwd })).issues || []
+  ).filter((entry) => entry.code === 'low_contrast');
   assert.deepEqual(clean, []);
 });
 
@@ -97,26 +121,44 @@ slide.addTable([
   ],
 ], { x: 0.6, y: 1.6, w: 9, h: 1.6, fontFace: 'Arial', fontSize: 14, border: { pt: 0.5, color: 'C7D2DC' } });
 await pres.writeFile({ fileName: OUTPUT });`;
-  const authored = value(await executeOfficeTool({
-    action: 'author', path: join(cwd, 'table-ink.pptx'), script, mode: 'portable', render: false,
-  }, { cwd }));
-  const contrast = (value(await executeOfficeTool({ action: 'issues', session: authored.session }, { cwd })).issues || [])
-    .filter((entry) => entry.code === 'low_contrast');
+  const authored = value(
+    await executeOfficeTool(
+      {
+        action: 'author',
+        path: join(cwd, 'table-ink.pptx'),
+        script,
+        mode: 'portable',
+        render: false,
+      },
+      { cwd }
+    )
+  );
+  const contrast = (
+    value(await executeOfficeTool({ action: 'issues', session: authored.session }, { cwd })).issues || []
+  ).filter((entry) => entry.code === 'low_contrast');
   // Only the header cell whose ink matches its dark fill is unreadable; the
   // white header beside it and the dark body ink on white are left alone.
-  assert.deepEqual(contrast.map((entry) => entry.path), ['/slide[1]/table[1]/row[1]/cell[1]']);
+  assert.deepEqual(
+    contrast.map((entry) => entry.path),
+    ['/slide[1]/table[1]/row[1]/cell[1]']
+  );
   assert.match(contrast[0].message, /against its fill/);
 });
 
 test('author reports script failures with the offending line', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'broken.pptx');
-  const failed = value(await executeOfficeTool({
-    action: 'author',
-    path,
-    mode: 'portable',
-    script: 'const pptxgen = require("pptxgenjs");\nconst pres = new pptxgen();\nundefinedCall();\n',
-  }, { cwd }));
+  const failed = value(
+    await executeOfficeTool(
+      {
+        action: 'author',
+        path,
+        mode: 'portable',
+        script: 'const pptxgen = require("pptxgenjs");\nconst pres = new pptxgen();\nundefinedCall();\n',
+      },
+      { cwd }
+    )
+  );
   assert.equal(failed.ok, false);
   assert.equal(failed.reason, 'script_failed');
   assert.match(failed.error.message, /undefinedCall/);
@@ -127,11 +169,23 @@ test('author rejects invalid modes before closing or rewriting an existing deck'
   const cwd = await workspace(t);
   const path = join(cwd, 'untouched.pptx');
   await writeFile(path, 'original deck');
-  const session = { id: 'untouched', target: path, authored: true, backend: 'microsoft-office-com', format: 'pptx', mode: 'background', ownership: 'owned', visible: false };
+  const session = {
+    id: 'untouched',
+    target: path,
+    authored: true,
+    backend: 'microsoft-office-com',
+    format: 'pptx',
+    mode: 'background',
+    ownership: 'owned',
+    visible: false,
+  };
   sessions.set(session.id, session);
   documentSessions.set(documentSessionKey(path), session.id);
   for (const mode of ['visible', 'attach', 'live', 'unsupported']) {
-    const result = await executeOfficeTool({ action: 'author', path, script: DECK_SCRIPT, mode, render: false }, { cwd });
+    const result = await executeOfficeTool(
+      { action: 'author', path, script: DECK_SCRIPT, mode, render: false },
+      { cwd }
+    );
     assert.equal(result.isError, true);
     assert.match(result.content[0].text, /author requires|Unsupported Office mode/);
     assert.equal(await readFile(path, 'utf8'), 'original deck');
@@ -142,7 +196,16 @@ test('author rejects invalid modes before closing or rewriting an existing deck'
 test('author session reuse respects the requested backend and ownership boundaries', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'reuse.pptx');
-  const session = { id: 'reuse', target: path, authored: true, backend: 'microsoft-office-com', format: 'pptx', mode: 'background', ownership: 'owned', visible: false };
+  const session = {
+    id: 'reuse',
+    target: path,
+    authored: true,
+    backend: 'microsoft-office-com',
+    format: 'pptx',
+    mode: 'background',
+    ownership: 'owned',
+    visible: false,
+  };
   sessions.set(session.id, session);
   documentSessions.set(documentSessionKey(path), session.id);
   assert.equal(reusableAuthoredSession(path, 'auto'), session);
@@ -157,16 +220,27 @@ test('author session reuse respects the requested backend and ownership boundari
 test('cancelled document swaps stop instead of entering replacement recovery', async () => {
   for (const cancellation of ['response', 'signal']) {
     const controller = new AbortController();
-    const session = { id: 'cancelled', format: 'pptx', mode: 'background', target: 'unused.pptx', snapshotVersion: 7, snapshotCache: { old: true }, renderCache: { old: true } };
+    const session = {
+      id: 'cancelled',
+      format: 'pptx',
+      mode: 'background',
+      target: 'unused.pptx',
+      snapshotVersion: 7,
+      snapshotCache: { old: true },
+      renderCache: { old: true },
+    };
     const before = structuredClone(session);
-    await assert.rejects(swapAuthoredDocument(session, 'unused-staging.pptx', controller.signal, {
-      callOffice: async () => {
-        if (cancellation === 'signal') controller.abort();
-        return cancellation === 'response'
-          ? { ok: false, cancelled: true, error: 'cancelled by host' }
-          : { ok: true, appPid: 202 };
-      },
-    }), { name: 'AbortError' });
+    await assert.rejects(
+      swapAuthoredDocument(session, 'unused-staging.pptx', controller.signal, {
+        callOffice: async () => {
+          if (cancellation === 'signal') controller.abort();
+          return cancellation === 'response'
+            ? { ok: false, cancelled: true, error: 'cancelled by host' }
+            : { ok: true, appPid: 202 };
+        },
+      }),
+      { name: 'AbortError' }
+    );
     if (cancellation === 'response') {
       assert.deepEqual(session, before, 'a cancelled replacement leaves the old version intact');
     } else {
@@ -190,7 +264,18 @@ test('cancelled fallback preserves the target and does not consume the staged de
 });
 
 test('document swaps publish fresh application identity and invalidate prior readings', async () => {
-  const session = { id: 'reopened', format: 'pptx', mode: 'background', target: 'unused.pptx', appPid: 101, windowHwnd: 10, snapshotVersion: 7, snapshotCache: {}, renderCache: {}, designState: { requiresVisualReview: true } };
+  const session = {
+    id: 'reopened',
+    format: 'pptx',
+    mode: 'background',
+    target: 'unused.pptx',
+    appPid: 101,
+    windowHwnd: 10,
+    snapshotVersion: 7,
+    snapshotCache: {},
+    renderCache: {},
+    designState: { requiresVisualReview: true },
+  };
   const callOffice = async () => ({ ok: true, appPid: 202, windowHwnd: 20, documentId: 'new-document' });
   assert.equal(await swapAuthoredDocument(session, 'unused-staging.pptx', null, { callOffice }), true);
   assert.equal(session.appPid, 202);
@@ -203,20 +288,30 @@ test('document swaps publish fresh application identity and invalidate prior rea
 });
 
 test('authored decks keep one paragraph-properties element per paragraph', async (t) => {
-  const doubled = '<a:p><a:pPr indent="0"/><a:r><a:t>a</a:t></a:r><a:pPr indent="0"><a:buNone/></a:pPr><a:r><a:t>b</a:t></a:r></a:p><a:p><a:pPr/><a:r><a:t>c</a:t></a:r></a:p>';
+  const doubled =
+    '<a:p><a:pPr indent="0"/><a:r><a:t>a</a:t></a:r><a:pPr indent="0"><a:buNone/></a:pPr><a:r><a:t>b</a:t></a:r></a:p><a:p><a:pPr/><a:r><a:t>c</a:t></a:r></a:p>';
   const normalized = normalizeParagraphProperties(doubled);
   assert.equal(normalized.removed, 1);
   // Hanging punctuation is switched off on every paragraph so the box is the measure (a trailing
   // Korean period otherwise hangs 1-4 pt past the edge and reads as text_overflow).
-  assert.equal(normalized.xml, '<a:p><a:pPr hangingPunct="0" indent="0"/><a:r><a:t>a</a:t></a:r><a:r><a:t>b</a:t></a:r></a:p><a:p><a:pPr hangingPunct="0"/><a:r><a:t>c</a:t></a:r></a:p>');
-  const bare = normalizeParagraphProperties('<a:p><a:r><a:t>d</a:t></a:r></a:p><a:p><a:pPr hangingPunct="1"/><a:r><a:t>e</a:t></a:r></a:p>');
-  assert.equal(bare.xml, '<a:p><a:pPr hangingPunct="0"/><a:r><a:t>d</a:t></a:r></a:p><a:p><a:pPr hangingPunct="0"/><a:r><a:t>e</a:t></a:r></a:p>');
+  assert.equal(
+    normalized.xml,
+    '<a:p><a:pPr hangingPunct="0" indent="0"/><a:r><a:t>a</a:t></a:r><a:r><a:t>b</a:t></a:r></a:p><a:p><a:pPr hangingPunct="0"/><a:r><a:t>c</a:t></a:r></a:p>'
+  );
+  const bare = normalizeParagraphProperties(
+    '<a:p><a:r><a:t>d</a:t></a:r></a:p><a:p><a:pPr hangingPunct="1"/><a:r><a:t>e</a:t></a:r></a:p>'
+  );
+  assert.equal(
+    bare.xml,
+    '<a:p><a:pPr hangingPunct="0"/><a:r><a:t>d</a:t></a:r></a:p><a:p><a:pPr hangingPunct="0"/><a:r><a:t>e</a:t></a:r></a:p>'
+  );
 
   // pptxgenjs writes a pPr for every run; a two-run paragraph must come out of
   // the runner schema-valid without an Office re-save.
   const cwd = await workspace(t);
   const path = join(cwd, 'runs.pptx');
-  const run = await runPptxAuthoringScript(`
+  const run = await runPptxAuthoringScript(
+    `
 const pptxgen = require('pptxgenjs');
 const pres = new pptxgen();
 pres.layout = 'LAYOUT_WIDE';
@@ -224,7 +319,9 @@ const slide = pres.addSlide();
 slide.addText([{ text: 'plain ', options: {} }, { text: '42%', options: { bold: true, color: 'B85042' } }, { text: ' of users', options: {} }],
   { x: 1, y: 1, w: 8, h: 1, fontSize: 18, lineSpacingMultiple: 1.3 });
 await pres.writeFile({ fileName: OUTPUT });
-`, path);
+`,
+    path
+  );
   assert.equal(run.ok, true, run.error?.message);
   assert.ok(run.normalizedParagraphs >= 2);
   const slideXml = await zipText(await loadPackage(path), 'ppt/slides/slide1.xml');
@@ -236,7 +333,8 @@ await pres.writeFile({ fileName: OUTPUT });
 test('an accented bar drawn as two stacked series is saved as one series with a per-point fill', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'accent.pptx');
-  const run = await runPptxAuthoringScript(`
+  const run = await runPptxAuthoringScript(
+    `
 const pptxgen = require('pptxgenjs');
 const pres = new pptxgen();
 pres.layout = 'LAYOUT_WIDE';
@@ -247,7 +345,9 @@ slide.addChart(pres.ChartType.bar, [
   { name: '매출 ·', labels, values: values.map((v, i) => (i === 2 ? v : 0)) },
 ], { x: 1, y: 1, w: 8, h: 4, barDir: 'col', barGrouping: 'stacked', chartColors: ['E6ECF3', '1F5FBF'], showValue: true, dataLabelPosition: 'inEnd' });
 await pres.writeFile({ fileName: OUTPUT });
-`, path);
+`,
+    path
+  );
   assert.equal(run.ok, true, run.error?.message);
   const zip = await loadPackage(path);
   // pptxgenjs numbers chart parts per process, so the part is found, not assumed.
@@ -256,7 +356,11 @@ await pres.writeFile({ fileName: OUTPUT });
   assert.equal((chart.match(/<c:ser>/g) || []).length, 1, 'one series');
   assert.match(chart, /<c:grouping val="clustered"\/>/);
   assert.doesNotMatch(chart, /<c:overlap/);
-  assert.match(chart, /<c:dPt><c:idx val="2"\/>[\s\S]*?<a:srgbClr val="1F5FBF"\/>/, 'the accent point carries the overlay color');
+  assert.match(
+    chart,
+    /<c:dPt><c:idx val="2"\/>[\s\S]*?<a:srgbClr val="1F5FBF"\/>/,
+    'the accent point carries the overlay color'
+  );
   assert.match(chart, /<c:pt idx="2"><c:v>15<\/c:v>/, 'the merged series holds the real value at the accent index');
   const embedded = Object.keys(zip.files).find((name) => /embeddings\/.*\.xlsx$/.test(name));
   const workbook = await JSZip.loadAsync(await zip.file(embedded).async('nodebuffer'));
@@ -267,7 +371,8 @@ await pres.writeFile({ fileName: OUTPUT });
 
 test('authoring scripts reach the offline icon set through ICON by name', async (t) => {
   const cwd = await workspace(t);
-  const run = await runPptxAuthoringScript(`
+  const run = await runPptxAuthoringScript(
+    `
 const pptxgen = require('pptxgenjs');
 const sharp = require('sharp');
 const pres = new pptxgen();
@@ -284,7 +389,9 @@ try { ICON('barchart'); } catch (error) { unknown = error.message; }
 if (!/Nearest: .*chart/.test(unknown)) throw new Error('no nearest hint: ' + unknown);
 console.log('nearest', unknown);
 await pres.writeFile({ fileName: OUTPUT });
-`, join(cwd, 'icons.pptx'));
+`,
+    join(cwd, 'icons.pptx')
+  );
   assert.equal(run.ok, true, run.error?.message);
   assert.ok(run.logs.some((line) => /Nearest: /.test(line.text)));
 });
@@ -295,14 +402,17 @@ await pres.writeFile({ fileName: OUTPUT });
 test('a kit icon is saved as a vector beside its raster fallback', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'icons.pptx');
-  const run = await runPptxAuthoringScript(`
+  const run = await runPptxAuthoringScript(
+    `
 // BRIEF
 // style: editorial · palette: hue 205 · script: ko · pairing: serif · fonts: noto
 deck({ hue: 205, mode: 'balanced', script: 'ko', pairing: 'serif', fonts: 'noto' });
 { const s = light(); await icon(s, 1, 1, 'disc', 'truck'); await icon(s, 3, 1, 'marker', 'shield');
   await vector(s, '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="60" viewBox="0 0 240 60"><path d="M10 30 H230" stroke="#1F6F8B" stroke-width="3"/></svg>', 1, 3, 8, 2); }
 await pres.writeFile({ fileName: OUTPUT });
-`, path);
+`,
+    path
+  );
   assert.equal(run.ok, true, `${run.error?.message}\n${run.error?.excerpt || ''}`);
   assert.equal(run.vectorIcons, 3, 'both icons and the script-drawn diagram carry their vector source');
   const zip = await loadPackage(path);
@@ -314,7 +424,10 @@ await pres.writeFile({ fileName: OUTPUT });
   assert.match(slide, /<a:blip r:embed="rId\d+">\s*<a:extLst><a:ext uri="\{96DAC541-7B7A-43D3-8B79-37D633B846F1\}">/);
   assert.doesNotMatch(slide, /mixdog-svg:/, 'the marker name is cleared');
   // The raster stays the fallback, and the package declares what it now holds.
-  assert.ok(Object.keys(zip.files).some((name) => /^ppt\/media\/.*\.png$/.test(name)), 'the PNG fallback is still there');
+  assert.ok(
+    Object.keys(zip.files).some((name) => /^ppt\/media\/.*\.png$/.test(name)),
+    'the PNG fallback is still there'
+  );
   assert.match(await zipText(zip, '[Content_Types].xml'), /Extension="svg" ContentType="image\/svg\+xml"/);
   const rels = await zipText(zip, 'ppt/slides/_rels/slide1.xml.rels');
   for (const id of [...slide.matchAll(/asvg:svgBlip[^>]*r:embed="(rId\d+)"/g)].map((match) => match[1])) {
@@ -325,14 +438,17 @@ await pres.writeFile({ fileName: OUTPUT });
 test('a script without its own presentation runs on the kit prelude: deck() colors the masters, gradients save native', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'prelude.pptx');
-  const run = await runPptxAuthoringScript(`
+  const run = await runPptxAuthoringScript(
+    `
 // BRIEF
 // style: editorial · palette: hue 225 · type: MODE balanced → body 18 · script: ko · pairing: serif · fonts: noto
 deck({ hue: 225, mode: 'balanced', script: 'ko', pairing: 'serif', fonts: 'noto' });
 { const s = quiet(); gradient(s, 0, 0, W, H, [[0, T.dark], [100, T.darkAlt]], 35); title(s, '한 줄 제목', { y: 2.5, w: 9, color: T.onDark }); }
 { const s = light(); const top = title(s, '본문 제목'); text(s, '본문 한 단락', M, top + GAP.between, 8, 'body'); hero(s, 9.4, top + GAP.between, 3, '42%', '비중'); }
 await pres.writeFile({ fileName: OUTPUT });
-`, path);
+`,
+    path
+  );
   assert.equal(run.ok, true, `${run.error?.message}\n${run.error?.excerpt || ''}`);
   assert.equal(run.kit, 'runtime');
   assert.equal(run.nativeGradients, 1);
@@ -358,7 +474,10 @@ await pres.writeFile({ fileName: OUTPUT });
 
 test('a script error is reported at the script line, not the prelude line; a script with its own pres runs as written', async (t) => {
   const cwd = await workspace(t);
-  const run = await runPptxAuthoringScript('// BRIEF\ndeck({ hue: 205 });\nconst s = light();\nundefinedHelper(s);\n', join(cwd, 'error.pptx'));
+  const run = await runPptxAuthoringScript(
+    '// BRIEF\ndeck({ hue: 205 });\nconst s = light();\nundefinedHelper(s);\n',
+    join(cwd, 'error.pptx')
+  );
   assert.equal(run.ok, false);
   assert.equal(run.error.line, 4, run.error.message);
   assert.match(run.error.excerpt, /undefinedHelper/);
@@ -372,7 +491,10 @@ test('authoring scripts cannot require modules outside the contract', async (t) 
   const run = await runPptxAuthoringScript('require("child_process");', join(cwd, 'blocked.pptx'));
   assert.equal(run.ok, false);
   assert.match(run.error.message, /not available/);
-  const missing = await runPptxAuthoringScript('const pptxgen = require("pptxgenjs"); new pptxgen();', join(cwd, 'missing.pptx'));
+  const missing = await runPptxAuthoringScript(
+    'const pptxgen = require("pptxgenjs"); new pptxgen();',
+    join(cwd, 'missing.pptx')
+  );
   assert.equal(missing.ok, false);
   assert.match(missing.error.message, /without writing OUTPUT/);
 });

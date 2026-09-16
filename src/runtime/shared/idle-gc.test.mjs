@@ -19,7 +19,10 @@ async function withEnv(vars, run) {
   }
 }
 
-const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+const sleep = (ms) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 test('a full collection runs without --expose-gc at launch', async () => {
   assert.equal(await collectGarbageNow(), true);
@@ -31,7 +34,11 @@ test('work in flight defers the sweep', async () => {
 });
 
 test('a probe that throws counts as busy rather than pausing mid-turn', async () => {
-  const gc = createIdleGc({ isBusy: () => { throw new Error('probe down'); } });
+  const gc = createIdleGc({
+    isBusy: () => {
+      throw new Error('probe down');
+    },
+  });
   assert.equal(await gc._tickForTest(), 'busy');
 });
 
@@ -41,29 +48,35 @@ test('an idle host still settles before its first sweep', async () => {
 });
 
 test('a heap below the floor with no committed slack is left alone', async () => {
-  await withEnv({
-    MIXDOG_IDLE_GC_IDLE_MS: '1000',
-    MIXDOG_IDLE_GC_MIN_HEAP_MB: '65536',
-    MIXDOG_IDLE_GC_MIN_SLACK_MB: '65536',
-  }, async () => {
-    const gc = createIdleGc({ isBusy: () => false });
-    await sleep(1100);
-    assert.equal(await gc._tickForTest(), 'small');
-  });
+  await withEnv(
+    {
+      MIXDOG_IDLE_GC_IDLE_MS: '1000',
+      MIXDOG_IDLE_GC_MIN_HEAP_MB: '65536',
+      MIXDOG_IDLE_GC_MIN_SLACK_MB: '65536',
+    },
+    async () => {
+      const gc = createIdleGc({ isBusy: () => false });
+      await sleep(1100);
+      assert.equal(await gc._tickForTest(), 'small');
+    }
+  );
 });
 
 test('a small heap sitting on a wide committed gap is still swept', async () => {
   // The live daemon's shape: a heap far below any sane floor, on a committed
   // total large enough that the pages are worth handing back.
-  await withEnv({
-    MIXDOG_IDLE_GC_IDLE_MS: '1000',
-    MIXDOG_IDLE_GC_MIN_HEAP_MB: '65536',
-    MIXDOG_IDLE_GC_MIN_SLACK_MB: '0',
-  }, async () => {
-    const gc = createIdleGc({ isBusy: () => false });
-    await sleep(1100);
-    assert.equal(await gc._tickForTest(), 'swept');
-  });
+  await withEnv(
+    {
+      MIXDOG_IDLE_GC_IDLE_MS: '1000',
+      MIXDOG_IDLE_GC_MIN_HEAP_MB: '65536',
+      MIXDOG_IDLE_GC_MIN_SLACK_MB: '0',
+    },
+    async () => {
+      const gc = createIdleGc({ isBusy: () => false });
+      await sleep(1100);
+      assert.equal(await gc._tickForTest(), 'swept');
+    }
+  );
 });
 
 test('an idle host sweeps once, then waits for real growth', async () => {
@@ -72,10 +85,7 @@ test('an idle host sweeps once, then waits for real growth', async () => {
     const gc = createIdleGc({ isBusy: () => false, log: (line) => lines.push(line) });
     await sleep(1100);
     assert.equal(await gc._tickForTest(), 'swept');
-    assert.match(
-      lines.join('\n'),
-      /idle gc: heapUsed [\d.]+ -> [\d.]+ MB \(reclaimed -?[\d.]+ MB\) in \d+ms/,
-    );
+    assert.match(lines.join('\n'), /idle gc: heapUsed [\d.]+ -> [\d.]+ MB \(reclaimed -?[\d.]+ MB\) in \d+ms/);
     // Nothing allocated since, so the next cycle must not burn another sweep.
     assert.equal(await gc._tickForTest(), 'unchanged');
   });

@@ -26,16 +26,10 @@ import type {
 } from '../shared/contract';
 import { DESKTOP_READ_CAPABILITIES } from '../shared/contract';
 import { reportTranscriptRead, transcriptReadTraceId } from '../shared/transcript-read-diagnostics';
-import {
-  normalizeSessionTitle,
-  promptTitle,
-} from '../shared/session-title.mjs';
+import { normalizeSessionTitle, promptTitle } from '../shared/session-title.mjs';
 import { desktopSessionSummaries, isSessionId } from './desktop-state';
 import type { DesktopService, SerializableDesktopServiceOptions } from './desktop-service-contract';
-import {
-  SessionHostCatalog,
-  catalogRelevantStoreEntry,
-} from './session-host-catalog';
+import { SessionHostCatalog, catalogRelevantStoreEntry } from './session-host-catalog';
 import { SessionHostPublication } from './session-host-publication';
 import {
   DESKTOP_TRANSCRIPT_ITEM_LIMIT,
@@ -92,11 +86,7 @@ export interface SessionHostRuntime {
   loadProjects(): Promise<MixdogProjectsModule>;
   loadSessionStore(): Promise<MixdogSessionStoreModule>;
   loadStatuslineSegments(): Promise<StatuslineSegmentsModule>;
-  executeCodeGraphTool(
-    name: string,
-    args: Record<string, unknown>,
-    cwd: string,
-  ): Promise<unknown>;
+  executeCodeGraphTool(name: string, args: Record<string, unknown>, cwd: string): Promise<unknown>;
 }
 
 const READ_CAPABILITIES = new Set<string>(DESKTOP_READ_CAPABILITIES);
@@ -120,8 +110,7 @@ function sameTranscriptItem(left: unknown, right: unknown): boolean {
   const a = left as Record<string, unknown>;
   const b = right as Record<string, unknown>;
   if (a.id != null && b.id != null) return String(a.id) === String(b.id);
-  return String(a.kind || '') === String(b.kind || '')
-    && String(a.text ?? '') === String(b.text ?? '');
+  return String(a.kind || '') === String(b.kind || '') && String(a.text ?? '') === String(b.text ?? '');
 }
 
 /** Add a larger durable history head without replacing live work fields or
@@ -129,7 +118,7 @@ function sameTranscriptItem(left: unknown, right: unknown): boolean {
 export function mergeSessionHistorySnapshot(
   sessionId: string,
   live: SessionSnapshot,
-  stored: Record<string, unknown>,
+  stored: Record<string, unknown>
 ): SessionSnapshot {
   const historyItems = Array.isArray(stored.items) ? stored.items : [];
   if (!live || !Array.isArray(live.items) || live.items.length === 0) {
@@ -197,29 +186,34 @@ export class SessionHost implements DesktopService {
   private constructor(
     private readonly options: SerializableDesktopServiceOptions,
     private readonly runtime: SessionHostRuntime,
-    sessionClient: SessionClient,
+    sessionClient: SessionClient
   ) {
     this.sessionClient = sessionClient;
     this.publication = new SessionHostPublication({
       isDisposed: () => this.disposed,
       controlSessionId: () => this.controlSessionId,
-      setControlSessionId: (sessionId) => { this.controlSessionId = sessionId; },
+      setControlSessionId: (sessionId) => {
+        this.controlSessionId = sessionId;
+      },
       visibleSessionIds: () => this.visibleSessionIds,
       readSession: (sessionId) => this.readSession(sessionId),
       snapshotWithShellJobs: (sessionId, snapshot) => this.snapshotWithShellJobs(sessionId, snapshot),
       trackShellJobsEngineState: (snapshot) => this.trackShellJobsEngineState(snapshot),
       onShellPublished: () => this.shellJobsPoller.onEngineEvent(),
     });
-    this.catalog = new SessionHostCatalog({
-      isDisposed: () => this.disposed,
-      listSessions: () => this.listSessions(),
-      listAgentPool: () => this.listAgentPool(),
-      publishSessions: (sessions) => this.publishSessionCatalog(sessions),
-      publishAgents: (agents) => this.publication.publishAgents(agents),
-      coldSessionIds: () => [...this.visibleSessionIds]
-        .filter((sessionId) => this.publication.projections.get(sessionId)?.cold === true),
-      readSession: (sessionId) => this.readSession(sessionId),
-    }, { directory: dataDirectory });
+    this.catalog = new SessionHostCatalog(
+      {
+        isDisposed: () => this.disposed,
+        listSessions: () => this.listSessions(),
+        listAgentPool: () => this.listAgentPool(),
+        publishSessions: (sessions) => this.publishSessionCatalog(sessions),
+        publishAgents: (agents) => this.publication.publishAgents(agents),
+        coldSessionIds: () =>
+          [...this.visibleSessionIds].filter((sessionId) => this.publication.projections.get(sessionId)?.cold === true),
+        readSession: (sessionId) => this.readSession(sessionId),
+      },
+      { directory: dataDirectory }
+    );
     this.shellJobsPoller = createShellJobsPoller({
       getEngineState: () => this.shellJobsEngineState(),
       moduleUrl: () => '',
@@ -235,10 +229,7 @@ export class SessionHost implements DesktopService {
     this.newTaskRequests = new NewTaskRequests(options.userDataPath);
   }
 
-  static async create(
-    options: SerializableDesktopServiceOptions,
-    runtime: SessionHostRuntime,
-  ): Promise<SessionHost> {
+  static async create(options: SerializableDesktopServiceOptions, runtime: SessionHostRuntime): Promise<SessionHost> {
     let host: SessionHost | null = null;
     const sessionClient = await runtime.attachSessionClient({
       onFrame(frame) {
@@ -296,9 +287,7 @@ export class SessionHost implements DesktopService {
     const base = (this.engineSnapshot ?? this.publication.shellSnapshot) as Record<string, unknown> | null;
     if (!base || typeof base !== 'object') return null;
     if (Number(base.ownerClientHostPid || base.clientHostPid) > 0) return base;
-    return this.engineClientHostPid > 0
-      ? { ...base, clientHostPid: this.engineClientHostPid }
-      : base;
+    return this.engineClientHostPid > 0 ? { ...base, clientHostPid: this.engineClientHostPid } : base;
   }
 
   /** Every session frame refreshes the poller's engine state and re-arms it,
@@ -334,7 +323,7 @@ export class SessionHost implements DesktopService {
     sessionId: string,
     snapshot: SessionSnapshot,
     frameSource: DesktopSessionFrameSource = 'live',
-    readTraceId?: string,
+    readTraceId?: string
   ): void {
     this.publication.publishSession(sessionId, snapshot, frameSource, readTraceId);
   }
@@ -342,7 +331,7 @@ export class SessionHost implements DesktopService {
   private applySessionResult(
     sessionId: string,
     value: Record<string, unknown> | null | undefined,
-    publish = true,
+    publish = true
   ): SessionSnapshot {
     return this.publication.applySessionResult(sessionId, value, publish);
   }
@@ -368,15 +357,11 @@ export class SessionHost implements DesktopService {
   private async resolveSessionWorkspace(projectPath?: string | null): Promise<{
     registeredProject: string;
     cwd: string;
-    desktopSession:
-      | { classification: 'project'; projectPath: string }
-      | { classification: 'task'; projectPath: null };
+    desktopSession: { classification: 'project'; projectPath: string } | { classification: 'task'; projectPath: null };
   }> {
     const requested = String(projectPath || '').trim();
     const registeredProject = requested ? await this.projects.knownPath(requested) : '';
-    const cwd = registeredProject
-      ? await this.canonicalDirectory(registeredProject)
-      : await this.taskWorkspace();
+    const cwd = registeredProject ? await this.canonicalDirectory(registeredProject) : await this.taskWorkspace();
     return {
       registeredProject,
       cwd,
@@ -397,9 +382,10 @@ export class SessionHost implements DesktopService {
   private openHints(sessionId: string): Record<string, unknown> {
     const row = this.rawSessionRows.find((entry) => String(entry.id || '') === sessionId);
     const cwd = String(row?.cwd || '');
-    const desktopSession = row?.desktopSession && typeof row.desktopSession === 'object'
-      ? row.desktopSession as Record<string, unknown>
-      : null;
+    const desktopSession =
+      row?.desktopSession && typeof row.desktopSession === 'object'
+        ? (row.desktopSession as Record<string, unknown>)
+        : null;
     return {
       ...(cwd ? { cwd } : {}),
       ...(desktopSession ? { desktopSession } : {}),
@@ -408,26 +394,32 @@ export class SessionHost implements DesktopService {
   }
 
   private async readSession(
-    sessionId: string, forceFull = false, publish = true, readTraceId?: string,
+    sessionId: string,
+    forceFull = false,
+    publish = true,
+    readTraceId?: string
   ): Promise<SessionSnapshot> {
     const id = sessionIdOf(sessionId);
     const prior = this.publication.projections.get(id);
     const startedAt = performance.now();
     reportTranscriptRead(id, readTraceId, 'host-read-start');
-    const result = await this.sessionClient.read({
-      sessionId: id,
-      open: this.openHints(id),
-      baseRevision: forceFull ? null : prior?.revision ?? null,
-      ...(!forceFull && prior?.projectionStamp ? { baseProjectionStamp: prior.projectionStamp } : {}),
-    }, this.callOptions(undefined, TRANSCRIPT_READ_TIMEOUT_MS));
+    const result = await this.sessionClient.read(
+      {
+        sessionId: id,
+        open: this.openHints(id),
+        baseRevision: forceFull ? null : (prior?.revision ?? null),
+        ...(!forceFull && prior?.projectionStamp ? { baseProjectionStamp: prior.projectionStamp } : {}),
+      },
+      this.callOptions(undefined, TRANSCRIPT_READ_TIMEOUT_MS)
+    );
     reportTranscriptRead(id, readTraceId, 'host-read-result', {
       durationMs: performance.now() - startedAt,
     });
     const current = this.publication.projections.get(id);
     const hasFull = result.full !== null && typeof result.full === 'object';
-    const hasBaseline = current && (result.patch
-      ? Number(result.baseRevision) === current.revision
-      : Number(result.revision) === current.revision);
+    const hasBaseline =
+      current &&
+      (result.patch ? Number(result.baseRevision) === current.revision : Number(result.revision) === current.revision);
     if (!hasFull && !hasBaseline) {
       if (forceFull) throw new Error('Session recovery returned no usable baseline.');
       return this.readSession(id, true, publish, readTraceId);
@@ -438,7 +430,7 @@ export class SessionHost implements DesktopService {
   private async invokeSession(
     sessionId: string,
     method: string,
-    args: unknown[] = [],
+    args: unknown[] = []
   ): Promise<{ value: unknown; snapshot: SessionSnapshot; result: Record<string, unknown> }> {
     const id = sessionIdOf(sessionId);
     const prior = this.publication.projections.get(id);
@@ -449,10 +441,7 @@ export class SessionHost implements DesktopService {
       open: this.openHints(id),
       baseRevision: prior?.revision ?? null,
     };
-    const callOptions = this.callOptions(
-      randomUUID(),
-      longRunningRequestTimeout(method, args),
-    );
+    const callOptions = this.callOptions(randomUUID(), longRunningRequestTimeout(method, args));
     const result = READ_CAPABILITIES.has(method)
       ? await this.sessionClient.read(params, callOptions)
       : await this.sessionClient.configure(params, callOptions);
@@ -460,9 +449,10 @@ export class SessionHost implements DesktopService {
     // A stream publication may have advanced the baseline while configure
     // awaited its reply. Recover the resulting state, never replay the command
     // or acknowledge a successful selection with the old cached values.
-    const needsFull = result.patch && !Object.prototype.hasOwnProperty.call(result, 'full')
-      && (!current || (Number(result.revision) > current.revision
-        && Number(result.baseRevision) !== current.revision));
+    const needsFull =
+      result.patch &&
+      !Object.hasOwn(result, 'full') &&
+      (!current || (Number(result.revision) > current.revision && Number(result.baseRevision) !== current.revision));
     return {
       value: result.value,
       snapshot: needsFull ? await this.readSession(id, true) : this.applySessionResult(id, result),
@@ -474,10 +464,13 @@ export class SessionHost implements DesktopService {
     if (this.controlSessionId) return this.controlSessionId;
     if (this.controlSessionPromise) return this.controlSessionPromise;
     const pending = (async () => {
-      const result = await this.sessionClient.create({
-        cwd: await this.taskWorkspace(),
-        desktopSession: null,
-      }, this.callOptions(`service-control-create:${process.pid}:${randomUUID()}`));
+      const result = await this.sessionClient.create(
+        {
+          cwd: await this.taskWorkspace(),
+          desktopSession: null,
+        },
+        this.callOptions(`service-control-create:${process.pid}:${randomUUID()}`)
+      );
       const sessionId = sessionIdOf(result.sessionId);
       this.controlSessionId = sessionId;
       this.applySessionResult(sessionId, result, false);
@@ -493,7 +486,7 @@ export class SessionHost implements DesktopService {
 
   private async invokeControlResult(
     method: string,
-    args: unknown[] = [],
+    args: unknown[] = []
   ): Promise<{ value: unknown; snapshot: SessionSnapshot; result: Record<string, unknown> }> {
     const replayable = READ_CAPABILITIES.has(method);
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -506,10 +499,7 @@ export class SessionHost implements DesktopService {
           open: { cwd: await this.taskWorkspace(), desktopSession: null },
           baseRevision: this.publication.projections.get(sessionId)?.revision ?? null,
         };
-        const callOptions = this.callOptions(
-          randomUUID(),
-          longRunningRequestTimeout(method, args),
-        );
+        const callOptions = this.callOptions(randomUUID(), longRunningRequestTimeout(method, args));
         const result = READ_CAPABILITIES.has(method)
           ? await this.sessionClient.read(params, callOptions)
           : await this.sessionClient.configure(params, callOptions);
@@ -534,10 +524,7 @@ export class SessionHost implements DesktopService {
     return (await this.invokeControlResult(method, args)).value;
   }
 
-  private blankSnapshot(
-    cwd: string,
-    projectPath: string | null,
-  ): SessionSnapshot {
+  private blankSnapshot(cwd: string, projectPath: string | null): SessionSnapshot {
     return this.snapshotWithRemoteSession({
       sessionId: '',
       items: [],
@@ -609,14 +596,14 @@ export class SessionHost implements DesktopService {
     relPath: string,
     content: string,
     expectedContent: string,
-    encoding?: import('./project-files').ProjectTextEncoding,
+    encoding?: import('./project-files').ProjectTextEncoding
   ): Promise<unknown> {
     return writeProjectTextFileIn(
       await this.projectDirectory(projectPath),
       relPath,
       content,
       expectedContent,
-      encoding,
+      encoding
     );
   }
 
@@ -624,12 +611,7 @@ export class SessionHost implements DesktopService {
     return statProjectFileIn(await this.projectDirectory(projectPath), relPath);
   }
 
-  async createProjectEntry(
-    projectPath: string,
-    relDir: string,
-    name: string,
-    directory: boolean,
-  ): Promise<unknown> {
+  async createProjectEntry(projectPath: string, relDir: string, name: string, directory: boolean): Promise<unknown> {
     return createProjectEntryIn(await this.projectDirectory(projectPath), relDir, name, directory);
   }
 
@@ -652,19 +634,14 @@ export class SessionHost implements DesktopService {
   async codeGraphQuery(
     projectPath: string,
     mode: 'find_symbol' | 'references' | 'symbols',
-    query: string,
+    query: string
   ): Promise<unknown> {
-    return codeGraphQueryIn(
-      await this.projectDirectory(projectPath),
-      mode,
-      query,
-      {
-        packaged: this.options.packaged,
-        resourcesPath: this.options.resourcesPath,
-        appPath: this.options.appPath,
-        executeCodeGraphTool: this.runtime.executeCodeGraphTool,
-      },
-    );
+    return codeGraphQueryIn(await this.projectDirectory(projectPath), mode, query, {
+      packaged: this.options.packaged,
+      resourcesPath: this.options.resourcesPath,
+      appPath: this.options.appPath,
+      executeCodeGraphTool: this.runtime.executeCodeGraphTool,
+    });
   }
 
   async listSessions(): Promise<DesktopSessionSummary[]> {
@@ -674,13 +651,14 @@ export class SessionHost implements DesktopService {
       // Cold desktop catalogs use the durable summary index and incrementally
       // inspect only changed/new/deleted records. Exact pane addressing remains
       // guarded by sessionClient.read/subscribe in the daemon.
-      const catalog = await this.sessionClient.list({
-        refreshFromStorage: false,
-      }, this.callOptions());
+      const catalog = await this.sessionClient.list(
+        {
+          refreshFromStorage: false,
+        },
+        this.callOptions()
+      );
       this.applyRemoteSessionState(catalog.remoteSession);
-      this.rawSessionRows = Array.isArray(catalog.sessions)
-        ? catalog.sessions as Array<Record<string, unknown>>
-        : [];
+      this.rawSessionRows = Array.isArray(catalog.sessions) ? (catalog.sessions as Array<Record<string, unknown>>) : [];
       this.sessionCatalogLoaded = true;
       this.ensureStoreWatcher();
       const sessions = this.sessionCatalog();
@@ -702,11 +680,7 @@ export class SessionHost implements DesktopService {
     return Array.isArray(rows) ? rows : [];
   }
 
-  async markSessionRead(
-    sessionId: string,
-    messageCount: number,
-    consumedUnread = false,
-  ): Promise<boolean> {
+  async markSessionRead(sessionId: string, messageCount: number, consumedUnread = false): Promise<boolean> {
     const id = sessionIdOf(sessionId);
     const changed = await this.sessionMetadata.markRead(id, messageCount, consumedUnread);
     if (!changed) return false;
@@ -719,7 +693,7 @@ export class SessionHost implements DesktopService {
     const id = sessionIdOf(sessionId);
     const normalized = normalizeSessionTitle(title, '');
     if (!normalized) throw new TypeError('Session title is invalid.');
-    if (await this.invokeControl('renameSessionTitle', [id, normalized]) !== true) {
+    if ((await this.invokeControl('renameSessionTitle', [id, normalized])) !== true) {
       throw new Error('Session is not available.');
     }
     await this.sessionMetadata.setName(id, normalized);
@@ -742,10 +716,12 @@ export class SessionHost implements DesktopService {
     if (!(await this.listSessions()).some((row) => row.id === id)) {
       throw new Error('Session is not available.');
     }
-    if (await this.invokeControl('deleteSession', [id]) !== true) {
+    if ((await this.invokeControl('deleteSession', [id])) !== true) {
       throw new Error('Session could not be deleted.');
     }
-    try { await this.sessionClient.unsubscribe({ sessionId: id }, this.callOptions()); } catch {}
+    try {
+      await this.sessionClient.unsubscribe({ sessionId: id }, this.callOptions());
+    } catch {}
     this.visibleSessionIds.delete(id);
     for (const sessions of this.visibleSessionSources.values()) sessions.delete(id);
     this.publication.projections.delete(id);
@@ -757,7 +733,7 @@ export class SessionHost implements DesktopService {
   async prefetchSession(
     sessionId: string,
     transcriptItemLimit = DESKTOP_TRANSCRIPT_ITEM_LIMIT,
-    readTraceId?: string,
+    readTraceId?: string
   ): Promise<boolean> {
     const id = sessionIdOf(sessionId);
     const traceId = transcriptReadTraceId(readTraceId);
@@ -765,7 +741,7 @@ export class SessionHost implements DesktopService {
     reportTranscriptRead(id, traceId, 'host-start');
     const limit = Math.max(
       1,
-      Math.min(8_192, Math.floor(Number(transcriptItemLimit) || DESKTOP_TRANSCRIPT_ITEM_LIMIT)),
+      Math.min(8_192, Math.floor(Number(transcriptItemLimit) || DESKTOP_TRANSCRIPT_ITEM_LIMIT))
     );
     try {
       let snapshot: SessionSnapshot;
@@ -806,28 +782,36 @@ export class SessionHost implements DesktopService {
 
   async replaySessionStates(
     sessionIds: string[],
-    deliver: (updates: DesktopSessionStateUpdate[]) => void,
+    deliver: (updates: DesktopSessionStateUpdate[]) => void
   ): Promise<void> {
     const ids = [...new Set(sessionIds.map(sessionIdOf))];
     const gone = new Set<string>();
-    await Promise.all(ids.map(async (id) => {
-      try { await this.readSession(id, false, false); } catch (error) {
-        if (!(error instanceof Error) || !error.message.includes(`session ${id} is not available`)) throw error;
-        gone.add(id);
-        this.publication.projections.delete(id);
-      }
-    }));
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          await this.readSession(id, false, false);
+        } catch (error) {
+          if (!(error instanceof Error) || !error.message.includes(`session ${id} is not available`)) throw error;
+          gone.add(id);
+          this.publication.projections.delete(id);
+        }
+      })
+    );
     if (this.disposed) throw new Error('Mixdog service host is disposed.');
     // Capture and deliver in one synchronous turn. A live update that arrived
     // during a read is already in this map and must outrank the earlier reply.
-    deliver(ids.map((sessionId) => ({
-      sessionId,
-      snapshot: gone.has(sessionId) ? null : this.snapshotWithRemoteSession(this.snapshotWithShellJobs(
-        sessionId, this.publication.projections.get(sessionId)?.snapshot ?? null,
-      )),
-      frameSource: 'replay' as const,
-      ...(gone.has(sessionId) ? { laneEnd: 'gone' as const } : {}),
-    })));
+    deliver(
+      ids.map((sessionId) => ({
+        sessionId,
+        snapshot: gone.has(sessionId)
+          ? null
+          : this.snapshotWithRemoteSession(
+              this.snapshotWithShellJobs(sessionId, this.publication.projections.get(sessionId)?.snapshot ?? null)
+            ),
+        frameSource: 'replay' as const,
+        ...(gone.has(sessionId) ? { laneEnd: 'gone' as const } : {}),
+      }))
+    );
   }
 
   async setVisibleSessions(sessionIds: string[]): Promise<boolean> {
@@ -842,7 +826,7 @@ export class SessionHost implements DesktopService {
       source,
       requested,
       (sessionId, alreadyVisible) => this.attachVisibleSession(sessionId, alreadyVisible),
-      (sessionId) => this.sessionClient.unsubscribe({ sessionId }, this.callOptions()),
+      (sessionId) => this.sessionClient.unsubscribe({ sessionId }, this.callOptions())
     );
     this.ensureColdViewRefresh();
     return accepted;
@@ -857,11 +841,14 @@ export class SessionHost implements DesktopService {
     }
     const prior = this.publication.projections.get(sessionId);
     try {
-      const result = await this.sessionClient.subscribe({
-        sessionId,
-        open: this.openHints(sessionId),
-        baseRevision: prior?.revision ?? null,
-      }, this.callOptions(undefined, TRANSCRIPT_READ_TIMEOUT_MS));
+      const result = await this.sessionClient.subscribe(
+        {
+          sessionId,
+          open: this.openHints(sessionId),
+          baseRevision: prior?.revision ?? null,
+        },
+        this.callOptions(undefined, TRANSCRIPT_READ_TIMEOUT_MS)
+      );
       this.applySessionResult(sessionId, result, false);
       const projection = this.publication.projections.get(sessionId);
       if (projection) this.publishSession(sessionId, projection.snapshot, 'replay');
@@ -873,11 +860,7 @@ export class SessionHost implements DesktopService {
     }
   }
 
-  async searchProjectFiles(
-    projectIdOrWorkspaceId: string,
-    query: string,
-    limit = 50,
-  ): Promise<string[]> {
+  async searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit = 50): Promise<string[]> {
     const root = await this.projectDirectory(projectIdOrWorkspaceId);
     return searchProjectDirectory(root, query, limit);
   }
@@ -885,14 +868,15 @@ export class SessionHost implements DesktopService {
   async submitNewTask(
     prompt: DesktopPromptContent,
     options: DesktopSubmitOptions = {},
-    draft: DesktopNewTaskDraft = {},
+    draft: DesktopNewTaskDraft = {}
   ): Promise<DesktopNewTaskSubmitResult> {
     const id = String(options.id || '').trim() || randomUUID();
     const stableOptions = { ...options, id, submittedAt: undefined };
     return this.newTaskRequests.run(id, { prompt, options: stableOptions, draft }, async (request) => {
       if (request.phase === 'accepted') {
         return {
-          accepted: true, sessionId: request.sessionId,
+          accepted: true,
+          sessionId: request.sessionId,
           snapshot: await this.readSession(request.sessionId, false, false),
         };
       }
@@ -904,12 +888,12 @@ export class SessionHost implements DesktopService {
     prompt: DesktopPromptContent,
     options: DesktopSubmitOptions,
     draft: DesktopNewTaskDraft,
-    request: NewTaskRequest,
+    request: NewTaskRequest
   ): Promise<DesktopNewTaskSubmitResult> {
     const { registeredProject, cwd, desktopSession } = await this.resolveSessionWorkspace(draft.projectPath);
     const created = await this.sessionClient.create(
       { sessionId: request.sessionId, cwd, desktopSession },
-      this.callOptions(`session-create:${request.sessionId}`),
+      this.callOptions(`session-create:${request.sessionId}`)
     );
     const sessionId = sessionIdOf(created.sessionId);
     if (sessionId !== request.sessionId) throw new Error('New task service returned a mismatched reserved session id.');
@@ -920,41 +904,42 @@ export class SessionHost implements DesktopService {
         await this.invokeSession(sessionId, 'setWorkflow', [draft.workflowId]);
       }
       if (request.phase === 'reserved' && draft.route) {
-        const routeResult = await this.invokeSession(sessionId, 'setRoute', [{
-          provider: draft.route.provider,
-          model: draft.route.model,
-          ...(draft.route.effort ? { effort: draft.route.effort } : {}),
-          ...(typeof draft.route.fast === 'boolean' ? { fast: draft.route.fast } : {}),
-          ...(draft.route.modelParameters ? { modelParameters: draft.route.modelParameters } : {}),
-          ...(typeof draft.route.contextPercent === 'number'
-            ? { contextPercent: draft.route.contextPercent }
-            : {}),
-          applyToCurrentSession: true,
-        }]);
-        const resolvedRoute = routeResult.value && typeof routeResult.value === 'object'
-          ? routeResult.value as Record<string, unknown>
-          : null;
+        const routeResult = await this.invokeSession(sessionId, 'setRoute', [
+          {
+            provider: draft.route.provider,
+            model: draft.route.model,
+            ...(draft.route.effort ? { effort: draft.route.effort } : {}),
+            ...(typeof draft.route.fast === 'boolean' ? { fast: draft.route.fast } : {}),
+            ...(draft.route.modelParameters ? { modelParameters: draft.route.modelParameters } : {}),
+            ...(typeof draft.route.contextPercent === 'number' ? { contextPercent: draft.route.contextPercent } : {}),
+            applyToCurrentSession: true,
+          },
+        ]);
+        const resolvedRoute =
+          routeResult.value && typeof routeResult.value === 'object'
+            ? (routeResult.value as Record<string, unknown>)
+            : null;
         // Validate against setRoute's authoritative result. Its projected
         // snapshot is delivered independently and may still describe the
         // pre-route state during the first task after startup.
         if (draft.route.fast === true && resolvedRoute?.fast !== true) {
-          throw new Error(
-            `fast mode is not available for ${draft.route.provider}/${draft.route.model}`,
-          );
+          throw new Error(`fast mode is not available for ${draft.route.provider}/${draft.route.model}`);
         }
       }
       if (request.phase === 'reserved') await request.commit('configured');
       const goalCommand = String(options.goalCommand || '').trim();
       if (goalCommand) {
-        const goalResult = await this.invokeSession(sessionId, 'goalControl', [{
-          command: goalCommand,
-        }]);
-        const goalValue = goalResult.value && typeof goalResult.value === 'object'
-          ? goalResult.value as Record<string, unknown>
-          : null;
-        const goal = goalValue?.goal && typeof goalValue.goal === 'object'
-          ? goalValue.goal as Record<string, unknown>
-          : null;
+        const goalResult = await this.invokeSession(sessionId, 'goalControl', [
+          {
+            command: goalCommand,
+          },
+        ]);
+        const goalValue =
+          goalResult.value && typeof goalResult.value === 'object'
+            ? (goalResult.value as Record<string, unknown>)
+            : null;
+        const goal =
+          goalValue?.goal && typeof goalValue.goal === 'object' ? (goalValue.goal as Record<string, unknown>) : null;
         if (goalValue?.ok !== true || !goal) {
           throw new Error(String(goalValue?.message || 'Goal could not be created.'));
         }
@@ -966,16 +951,18 @@ export class SessionHost implements DesktopService {
         void this.publishCatalogs();
         return { accepted: true, sessionId, snapshot: goalResult.snapshot };
       }
-      const submissionId = String(options.id || '').trim()
-        || `desktop-submit-${sessionId}-${Date.now()}`;
+      const submissionId = String(options.id || '').trim() || `desktop-submit-${sessionId}-${Date.now()}`;
       const prior = this.publication.projections.get(sessionId);
-      const result = await this.sessionClient.submit({
-        sessionId,
-        prompt,
-        options: { ...options, id: submissionId },
-        open: { cwd, desktopSession },
-        baseRevision: prior?.revision ?? null,
-      }, this.callOptions(`session-submit:${sessionId}:${submissionId}`));
+      const result = await this.sessionClient.submit(
+        {
+          sessionId,
+          prompt,
+          options: { ...options, id: submissionId },
+          open: { cwd, desktopSession },
+          baseRevision: prior?.revision ?? null,
+        },
+        this.callOptions(`session-submit:${sessionId}:${submissionId}`)
+      );
       if (String(result.sessionId || '') !== sessionId) {
         throw new Error('New task service returned a mismatched session id.');
       }
@@ -985,18 +972,12 @@ export class SessionHost implements DesktopService {
         throw new Error('New task service returned a mismatched session snapshot.');
       }
       if (!accepted) {
-        await this.sessionClient.unsubscribe(
-          { sessionId },
-          this.callOptions(),
-        ).catch(() => ({}));
+        await this.sessionClient.unsubscribe({ sessionId }, this.callOptions()).catch(() => ({}));
         return { accepted: false, sessionId: '', snapshot: null };
       }
       if (registeredProject) await this.projects.touchSelected(registeredProject);
       await this.sessionMetadata.load();
-      this.sessionMetadata.rememberGeneratedTitle(
-        sessionId,
-        promptTitle(prompt, options.displayText || ''),
-      );
+      this.sessionMetadata.rememberGeneratedTitle(sessionId, promptTitle(prompt, options.displayText || ''));
       this.pendingCatalogSessionIds.delete(sessionId);
       await request.commit('accepted');
       void this.publishCatalogs();
@@ -1018,12 +999,12 @@ export class SessionHost implements DesktopService {
    */
   async inheritSession(
     sourceSessionId: string,
-    route?: DesktopModelSelection | null,
+    route?: DesktopModelSelection | null
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
     const source = sessionIdOf(sourceSessionId);
     const rows = await this.listSessions();
     const { cwd, desktopSession } = await this.resolveSessionWorkspace(
-      rows.find((entry) => entry.id === source)?.projectPath,
+      rows.find((entry) => entry.id === source)?.projectPath
     );
     const created = await this.sessionClient.create(
       {
@@ -1032,7 +1013,7 @@ export class SessionHost implements DesktopService {
         ...(route?.provider ? { provider: route.provider } : {}),
         ...(route?.model ? { model: route.model } : {}),
       },
-      this.callOptions(`session-create:${process.pid}:${randomUUID()}`),
+      this.callOptions(`session-create:${process.pid}:${randomUUID()}`)
     );
     const sessionId = sessionIdOf(created.sessionId);
     this.pendingCatalogSessionIds.add(sessionId);
@@ -1041,10 +1022,12 @@ export class SessionHost implements DesktopService {
       // The heir opens on the route the user is looking at; without this it
       // would inherit the daemon's current default instead.
       if (route) {
-        await this.invokeSession(sessionId, 'setRoute', [{
-          ...route,
-          applyToCurrentSession: true,
-        }]);
+        await this.invokeSession(sessionId, 'setRoute', [
+          {
+            ...route,
+            applyToCurrentSession: true,
+          },
+        ]);
       }
       const inherited = await this.invokeSession(sessionId, 'inheritFrom', [source]);
       await this.sessionMetadata.load();
@@ -1055,7 +1038,9 @@ export class SessionHost implements DesktopService {
       // A half-built heir must not linger in the catalog.
       try {
         await this.sessionClient.unsubscribe({ sessionId }, this.callOptions());
-      } catch { /* the create is being abandoned either way */ }
+      } catch {
+        /* the create is being abandoned either way */
+      }
       throw error;
     } finally {
       this.pendingCatalogSessionIds.delete(sessionId);
@@ -1065,31 +1050,37 @@ export class SessionHost implements DesktopService {
   async submitToSession(
     sessionId: string,
     prompt: DesktopPromptContent,
-    options: DesktopSubmitOptions = {},
+    options: DesktopSubmitOptions = {}
   ): Promise<boolean> {
     const id = sessionIdOf(sessionId);
-    const submissionId = String(options.id || '').trim()
-      || `desktop-submit-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const submissionId =
+      String(options.id || '').trim() || `desktop-submit-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const prior = this.publication.projections.get(id);
-    const result = await this.sessionClient.submit({
-      sessionId: id,
-      prompt,
-      options: { ...options, id: submissionId },
-      open: this.openHints(id),
-      baseRevision: prior?.revision ?? null,
-    }, this.callOptions(`session-submit:${id}:${submissionId}`));
+    const result = await this.sessionClient.submit(
+      {
+        sessionId: id,
+        prompt,
+        options: { ...options, id: submissionId },
+        open: this.openHints(id),
+        baseRevision: prior?.revision ?? null,
+      },
+      this.callOptions(`session-submit:${id}:${submissionId}`)
+    );
     this.applySessionResult(id, result);
     return result.accepted === true;
   }
 
   async abortSession(sessionId: string, options: DesktopAbortOptions = {}): Promise<unknown> {
     const id = sessionIdOf(sessionId);
-    const result = await this.sessionClient.abort({
-      sessionId: id,
-      options,
-      open: this.openHints(id),
-      baseRevision: this.publication.projections.get(id)?.revision ?? null,
-    }, this.callOptions());
+    const result = await this.sessionClient.abort(
+      {
+        sessionId: id,
+        options,
+        open: this.openHints(id),
+        baseRevision: this.publication.projections.get(id)?.revision ?? null,
+      },
+      this.callOptions()
+    );
     this.applySessionResult(id, result);
     return {
       aborted: result.aborted === true,
@@ -1098,46 +1089,38 @@ export class SessionHost implements DesktopService {
       pastedTexts: result.pastedTexts ?? null,
       discardPastedImages: result.discardPastedImages ?? null,
       discardPastedTexts: result.discardPastedTexts ?? null,
-      restoredSubmissionIds: Array.isArray(result.restoredSubmissionIds)
-        ? result.restoredSubmissionIds
-        : [],
+      restoredSubmissionIds: Array.isArray(result.restoredSubmissionIds) ? result.restoredSubmissionIds : [],
     };
   }
 
-  async resolveToolApprovalForSession(
-    sessionId: string,
-    id: string,
-    decision: ToolApprovalDecision,
-  ): Promise<boolean> {
+  async resolveToolApprovalForSession(sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean> {
     const target = sessionIdOf(sessionId);
-    const result = await this.sessionClient.approve({
-      sessionId: target,
-      approvalId: id,
-      decision,
-      open: this.openHints(target),
-      baseRevision: this.publication.projections.get(target)?.revision ?? null,
-    }, this.callOptions());
+    const result = await this.sessionClient.approve(
+      {
+        sessionId: target,
+        approvalId: id,
+        decision,
+        open: this.openHints(target),
+        baseRevision: this.publication.projections.get(target)?.revision ?? null,
+      },
+      this.callOptions()
+    );
     this.applySessionResult(target, result);
     return result.approved === true;
   }
 
-  async listProviderModels(
-    options: DesktopModelCatalogOptions = {},
-  ): Promise<DesktopModelOption[]> {
-    return normalizedProviderModels(
-      await this.invokeControl('listProviderModels', [options]),
-    );
+  async listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
+    return normalizedProviderModels(await this.invokeControl('listProviderModels', [options]));
   }
 
-  async setModelRoute(
-    selection: DesktopModelSelection,
-    sessionId?: string,
-  ): Promise<SessionSnapshot> {
-    const target = sessionId || await this.ensureControlSession();
-    const { value, snapshot } = await this.invokeSession(target, 'setRoute', [{
-      ...selection,
-      applyToCurrentSession: true,
-    }]);
+  async setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot> {
+    const target = sessionId || (await this.ensureControlSession());
+    const { value, snapshot } = await this.invokeSession(target, 'setRoute', [
+      {
+        ...selection,
+        applyToCurrentSession: true,
+      },
+    ]);
     if (value === false) {
       throw new Error('Model change was not applied because another session command is running.');
     }
@@ -1145,14 +1128,14 @@ export class SessionHost implements DesktopService {
   }
 
   async setFast(enabled: boolean, sessionId?: string): Promise<SessionSnapshot> {
-    const target = sessionId || await this.ensureControlSession();
+    const target = sessionId || (await this.ensureControlSession());
     return (await this.invokeSession(target, 'setFast', [enabled])).snapshot;
   }
 
   async invokeCapability<T = unknown>(
     capability: DesktopCapability,
     args: unknown[] = [],
-    sessionId?: string,
+    sessionId?: string
   ): Promise<DesktopCapabilityResult<T>> {
     const result = sessionId
       ? await this.invokeSession(sessionId, capability, args)
@@ -1164,26 +1147,26 @@ export class SessionHost implements DesktopService {
   }
 
   async readCapabilities(
-    requests: ReadonlyArray<DesktopCapabilityReadRequest>,
+    requests: ReadonlyArray<DesktopCapabilityReadRequest>
   ): Promise<DesktopCapabilityReadResult[]> {
     // Reads are independent getters: they go to the control session TOGETHER
     // so one slow status probe (MCP, plugins, skills, voice) never holds the
     // rest of its batch (user: 설정값 반응성). Result order stays positional.
-    return Promise.all(requests.map(async (request): Promise<DesktopCapabilityReadResult> => {
-      try {
-        return {
-          ok: true,
-          value: copyCapabilityValue(
-            await this.invokeControl(request.capability, request.args || []),
-          ),
-        };
-      } catch (error) {
-        return {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
-    }));
+    return Promise.all(
+      requests.map(async (request): Promise<DesktopCapabilityReadResult> => {
+        try {
+          return {
+            ok: true,
+            value: copyCapabilityValue(await this.invokeControl(request.capability, request.args || [])),
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      })
+    );
   }
 
   async invokeDesktopOperation(): Promise<unknown> {
@@ -1210,19 +1193,18 @@ export class SessionHost implements DesktopService {
 
   private sessionCatalog(): DesktopSessionSummary[] {
     return this.sessionMetadata.withReadCursors(
-      this.sessionMetadata.withArchiveFlags(desktopSessionSummaries(
-        this.rawSessionRows,
-        this.sessionMetadata.titles,
-        this.sessionMetadata.names,
-      )),
+      this.sessionMetadata.withArchiveFlags(
+        desktopSessionSummaries(this.rawSessionRows, this.sessionMetadata.titles, this.sessionMetadata.names)
+      )
     );
   }
 
   private publishSessionCatalog(sessions: DesktopSessionSummary[]): void {
     if (this.disposed) return;
-    const visible = this.pendingCatalogSessionIds.size === 0
-      ? sessions
-      : sessions.filter((session) => !this.pendingCatalogSessionIds.has(session.id));
+    const visible =
+      this.pendingCatalogSessionIds.size === 0
+        ? sessions
+        : sessions.filter((session) => !this.pendingCatalogSessionIds.has(session.id));
     this.publication.publishSessions(visible);
   }
 
@@ -1241,7 +1223,9 @@ export class SessionHost implements DesktopService {
         this.sessionViews.close();
         await this.sessionMetadata.flush();
       } finally {
-        try { await this.sessionClient.close('service host disposed'); } catch {}
+        try {
+          await this.sessionClient.close('service host disposed');
+        } catch {}
         this.publication.clearProjections();
         this.visibleSessionIds.clear();
         this.visibleSessionSources.clear();

@@ -1,27 +1,31 @@
-import dns from 'dns'
-import net from 'net'
-import { Agent, fetch as undiciFetch } from 'undici'
+import dns from 'dns';
+import net from 'net';
+import { Agent, fetch as undiciFetch } from 'undici';
 
 // Shared URL guard for the web-search runtime and bounded fetch consumers.
 export function normalizeUrl(url) {
-  const parsed = new URL(url)
-  parsed.hash = ''
-  return parsed.toString()
+  const parsed = new URL(url);
+  parsed.hash = '';
+  return parsed.toString();
 }
 
 function assertPrivateIpv4(hostname) {
-  const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
-  if (!ipv4Match) return
-  const [, a, b] = ipv4Match.map(Number)
-  if (a === 127 || a === 10 || a === 0 ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 169 && b === 254) ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 198 && b >= 18 && b <= 19) ||
-      (a >= 224 && a <= 239) ||
-      (a >= 240)) {
-    throw new Error(`Blocked request to private address: ${hostname}`)
+  const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!ipv4Match) return;
+  const [, a, b] = ipv4Match.map(Number);
+  if (
+    a === 127 ||
+    a === 10 ||
+    a === 0 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 198 && b >= 18 && b <= 19) ||
+    (a >= 224 && a <= 239) ||
+    a >= 240
+  ) {
+    throw new Error(`Blocked request to private address: ${hostname}`);
   }
 }
 
@@ -31,112 +35,112 @@ function assertPrivateIpv4(hostname) {
 // to `[::ffff:7f00:1]`, so the hex form must be handled or assertPublicUrl /
 // _validateIpv6 will miss mapped loopback / private addresses.
 function _mappedIpv4FromIpv6(bare) {
-  const lower = bare.toLowerCase()
+  const lower = bare.toLowerCase();
   // Dotted form: ::ffff:a.b.c.d
-  const dotted = lower.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
-  if (dotted) return dotted[1]
+  const dotted = lower.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (dotted) return dotted[1];
   // Hex form: ::ffff:HHHH:LLLL — low 32 bits of the /96 prefix carry the IPv4.
-  const hex = lower.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+  const hex = lower.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
   if (hex) {
-    const high = parseInt(hex[1], 16)
-    const low = parseInt(hex[2], 16)
+    const high = parseInt(hex[1], 16);
+    const low = parseInt(hex[2], 16);
     if (Number.isFinite(high) && Number.isFinite(low) && high <= 0xffff && low <= 0xffff) {
-      const a = (high >> 8) & 0xff
-      const b = high & 0xff
-      const c = (low >> 8) & 0xff
-      const d = low & 0xff
-      return `${a}.${b}.${c}.${d}`
+      const a = (high >> 8) & 0xff;
+      const b = high & 0xff;
+      const c = (low >> 8) & 0xff;
+      const d = low & 0xff;
+      return `${a}.${b}.${c}.${d}`;
     }
   }
-  return null
+  return null;
 }
 
 export function assertPublicUrl(url) {
-  const parsed = new URL(url)
+  const parsed = new URL(url);
 
   // Block dangerous protocols
-  const blockedProtocols = ['file:', 'ftp:', 'data:', 'javascript:']
+  const blockedProtocols = ['file:', 'ftp:', 'data:', 'javascript:'];
   if (blockedProtocols.includes(parsed.protocol)) {
-    throw new Error(`Blocked non-HTTP protocol: ${parsed.protocol}`)
+    throw new Error(`Blocked non-HTTP protocol: ${parsed.protocol}`);
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Blocked non-HTTP protocol: ${parsed.protocol}`)
+    throw new Error(`Blocked non-HTTP protocol: ${parsed.protocol}`);
   }
 
-  const hostname = parsed.hostname.toLowerCase()
+  const hostname = parsed.hostname.toLowerCase();
 
   // Reject userinfo (user:pass@host) — credential-injection / SSRF vector
   if (parsed.username || parsed.password) {
-    throw new Error(`Blocked URL with userinfo credentials: ${hostname}`)
+    throw new Error(`Blocked URL with userinfo credentials: ${hostname}`);
   }
 
   // Localhost
   if (hostname === 'localhost') {
-    throw new Error(`Blocked request to private address: ${hostname}`)
+    throw new Error(`Blocked request to private address: ${hostname}`);
   }
 
   // IPv4 private/reserved ranges
-  assertPrivateIpv4(hostname)
+  assertPrivateIpv4(hostname);
 
   // Strip brackets for IPv6 analysis (URL parser stores IPv6 without brackets in .hostname)
-  const bare = hostname.startsWith('[') ? hostname.slice(1, -1) : hostname
+  const bare = hostname.startsWith('[') ? hostname.slice(1, -1) : hostname;
 
   // IPv6 loopback
   if (bare === '::1') {
-    throw new Error(`Blocked request to private address: ${hostname}`)
+    throw new Error(`Blocked request to private address: ${hostname}`);
   }
 
   // IPv6 unspecified (::)
   if (bare === '::') {
-    throw new Error(`Blocked request to private address: ${hostname}`)
+    throw new Error(`Blocked request to private address: ${hostname}`);
   }
 
   // IPv6 multicast (ff00::/8)
   if (/^ff/i.test(bare)) {
-    throw new Error(`Blocked request to private address: ${hostname}`)
+    throw new Error(`Blocked request to private address: ${hostname}`);
   }
 
   // IPv4-mapped IPv6 — ::ffff:a.b.c.d
   // Cover both dotted (::ffff:127.0.0.1) and hex (::ffff:7f00:1) forms —
   // WHATWG URL canonicalises bracketed mapped literals to the hex shape.
-  const mappedIpv4 = _mappedIpv4FromIpv6(bare)
+  const mappedIpv4 = _mappedIpv4FromIpv6(bare);
   if (mappedIpv4) {
-    assertPrivateIpv4(mappedIpv4)
+    assertPrivateIpv4(mappedIpv4);
   }
 
   // IPv6 private (fc00::/7 — starts with fc or fd)
   if (/^f[cd]/i.test(bare)) {
-    throw new Error(`Blocked request to private address: ${hostname}`)
+    throw new Error(`Blocked request to private address: ${hostname}`);
   }
 
   // IPv6 link-local (fe80::/10 — starts with fe8, fe9, fea, feb)
   if (/^fe[89ab]/i.test(bare)) {
-    throw new Error(`Blocked request to private address: ${hostname}`)
+    throw new Error(`Blocked request to private address: ${hostname}`);
   }
 }
 
 function _validateIpv6(ip) {
-  const lower = ip.toLowerCase()
+  const lower = ip.toLowerCase();
   if (lower === '::1') {
-    throw new Error(`Blocked request to private address: ${ip}`)
+    throw new Error(`Blocked request to private address: ${ip}`);
   }
   if (lower === '::') {
-    throw new Error(`Blocked request to private address: ${ip}`)
+    throw new Error(`Blocked request to private address: ${ip}`);
   }
   if (/^ff/i.test(lower)) {
-    throw new Error(`Blocked request to private address: ${ip}`)
+    throw new Error(`Blocked request to private address: ${ip}`);
   }
   if (/^f[cd]/i.test(lower)) {
-    throw new Error(`Blocked request to private address: ${ip}`)
+    throw new Error(`Blocked request to private address: ${ip}`);
   }
   if (/^fe[89ab]/i.test(lower)) {
-    throw new Error(`Blocked request to private address: ${ip}`)
+    throw new Error(`Blocked request to private address: ${ip}`);
   }
   // Cover both dotted and hex IPv4-mapped IPv6 forms — resolver output and
   // WHATWG-canonicalised URL hostnames may arrive as `::ffff:7f00:1`.
-  const mappedIpv4 = _mappedIpv4FromIpv6(lower)
+  const mappedIpv4 = _mappedIpv4FromIpv6(lower);
   if (mappedIpv4) {
-    assertPrivateIpv4(mappedIpv4)
+    assertPrivateIpv4(mappedIpv4);
   }
 }
 
@@ -150,76 +154,82 @@ function _validateIpv6(ip) {
 // bounds the outbound fetch (AbortSignal.timeout / requestTimeoutMs), so
 // DNS is bounded by the same deadline as the connection.
 function _abortRace(promise, signal, label) {
-  if (!signal) return promise
-  if (signal.aborted) return Promise.reject(signal.reason || new Error(`${label} aborted`))
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason || new Error(`${label} aborted`));
   return new Promise((resolve, reject) => {
-    const onAbort = () => reject(signal.reason || new Error(`${label} aborted`))
-    signal.addEventListener('abort', onAbort, { once: true })
+    const onAbort = () => reject(signal.reason || new Error(`${label} aborted`));
+    signal.addEventListener('abort', onAbort, { once: true });
     promise.then(
-      (value) => { signal.removeEventListener('abort', onAbort); resolve(value) },
-      (err) => { signal.removeEventListener('abort', onAbort); reject(err) },
-    )
-  })
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      }
+    );
+  });
 }
 
 export async function resolveAndValidate(hostname, { signal } = {}) {
   // Literal IPs bypass DNS entirely — validate directly.
   if (net.isIP(hostname)) {
     if (net.isIPv4(hostname)) {
-      assertPrivateIpv4(hostname)
-      return [{ address: hostname, family: 4 }]
+      assertPrivateIpv4(hostname);
+      return [{ address: hostname, family: 4 }];
     }
-    _validateIpv6(hostname)
-    return [{ address: hostname, family: 6 }]
+    _validateIpv6(hostname);
+    return [{ address: hostname, family: 6 }];
   }
 
-  const addresses = []
-  const seen = new Set()
+  const addresses = [];
+  const seen = new Set();
   const push = (address, family) => {
-    const key = `${family}:${address}`
-    if (seen.has(key)) return
-    seen.add(key)
-    addresses.push({ address, family })
-  }
+    const key = `${family}:${address}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    addresses.push({ address, family });
+  };
 
   // dns.lookup mirrors what the platform resolver will hand to the connector;
   // resolve4/resolve6 catch entries the stub resolver returns even when the
   // OS lookup table would omit them.
-  let lookupAddrs = []
+  let lookupAddrs = [];
   try {
-    lookupAddrs = await _abortRace(dns.promises.lookup(hostname, { all: true }), signal, 'dns.lookup')
+    lookupAddrs = await _abortRace(dns.promises.lookup(hostname, { all: true }), signal, 'dns.lookup');
   } catch (err) {
-    if (err.code !== 'ENODATA' && err.code !== 'ENOTFOUND') throw err
+    if (err.code !== 'ENODATA' && err.code !== 'ENOTFOUND') throw err;
   }
   for (const entry of lookupAddrs) {
-    if (entry.family === 4) assertPrivateIpv4(entry.address)
-    else _validateIpv6(entry.address)
-    push(entry.address, entry.family)
+    if (entry.family === 4) assertPrivateIpv4(entry.address);
+    else _validateIpv6(entry.address);
+    push(entry.address, entry.family);
   }
 
-  let v4Addrs = []
+  let v4Addrs = [];
   try {
-    v4Addrs = await _abortRace(dns.promises.resolve4(hostname), signal, 'dns.resolve4')
+    v4Addrs = await _abortRace(dns.promises.resolve4(hostname), signal, 'dns.resolve4');
   } catch (err) {
-    if (err.code !== 'ENODATA' && err.code !== 'ENOTFOUND') throw err
+    if (err.code !== 'ENODATA' && err.code !== 'ENOTFOUND') throw err;
   }
   for (const ip of v4Addrs) {
-    assertPrivateIpv4(ip)
-    push(ip, 4)
+    assertPrivateIpv4(ip);
+    push(ip, 4);
   }
 
-  let v6Addrs = []
+  let v6Addrs = [];
   try {
-    v6Addrs = await _abortRace(dns.promises.resolve6(hostname), signal, 'dns.resolve6')
+    v6Addrs = await _abortRace(dns.promises.resolve6(hostname), signal, 'dns.resolve6');
   } catch (err) {
-    if (err.code !== 'ENODATA' && err.code !== 'ENOTFOUND') throw err
+    if (err.code !== 'ENODATA' && err.code !== 'ENOTFOUND') throw err;
   }
   for (const ip of v6Addrs) {
-    _validateIpv6(ip)
-    push(ip, 6)
+    _validateIpv6(ip);
+    push(ip, 6);
   }
 
-  return addresses
+  return addresses;
 }
 
 export async function assertResolvedIps(hostname) {
@@ -234,17 +244,17 @@ export async function assertResolvedIps(hostname) {
   // brackets around IPv6 literals (e.g. `[2606:4700::1111]`). Strip them
   // here so resolveAndValidate's net.isIP() path recognises the literal
   // instead of falling through to a doomed DNS lookup on `[..]`.
-  const bare = _bareHost(hostname)
-  const addresses = await resolveAndValidate(bare)
+  const bare = _bareHost(hostname);
+  const addresses = await resolveAndValidate(bare);
   if (!addresses || addresses.length === 0) {
-    throw new Error(`DNS returned no addresses for ${hostname}`)
+    throw new Error(`DNS returned no addresses for ${hostname}`);
   }
 }
 
 // Bare hostname helper that strips IPv6 brackets — undici / WHATWG URL stores
 // IPv6 hostnames with the brackets included.
 function _bareHost(hostname) {
-  return hostname.startsWith('[') ? hostname.slice(1, -1) : hostname
+  return hostname.startsWith('[') ? hostname.slice(1, -1) : hostname;
 }
 
 // SSRF-hardened fetch: resolves the host ONCE, validates every returned
@@ -256,17 +266,17 @@ function _bareHost(hostname) {
 // virtual hosts and HTTPS certificate validation keep working against
 // legitimate public sites.
 export async function pinnedFetch(url, options = {}) {
-  const parsed = new URL(url)
-  const host = _bareHost(parsed.hostname)
+  const parsed = new URL(url);
+  const host = _bareHost(parsed.hostname);
   // Bound the validating DNS lookups by the request's own abort signal so a
   // hung resolver cannot outlive the fetch timeout.
-  const addresses = await resolveAndValidate(host, { signal: options.signal })
+  const addresses = await resolveAndValidate(host, { signal: options.signal });
   if (addresses.length === 0) {
-    throw new Error(`DNS returned no addresses for ${host}`)
+    throw new Error(`DNS returned no addresses for ${host}`);
   }
   // All returned addresses are validated. Let the connector try both IP
   // families instead of failing a usable site on an unreachable first address.
-  const pinned = addresses[0]
+  const pinned = addresses[0];
   const dispatcher = new Agent({
     connect: {
       autoSelectFamily: true,
@@ -276,60 +286,68 @@ export async function pinnedFetch(url, options = {}) {
       // so DNS rebinding cannot flip the address between assert and connect.
       lookup: (_hostname, opts, cb) => {
         if (opts && opts.all) {
-          cb(null, addresses.map(({ address, family }) => ({ address, family })))
+          cb(
+            null,
+            addresses.map(({ address, family }) => ({ address, family }))
+          );
         } else {
-          cb(null, pinned.address, pinned.family)
+          cb(null, pinned.address, pinned.family);
         }
       },
     },
-  })
+  });
   // The per-request Agent owns a dedicated connection pool. If it is never
   // closed it leaks the kept-alive socket until GC. Destroy it once the body
   // is fully consumed, cancelled, or the request errors — wrapping the body
   // stream so the dispatcher outlives streaming reads but is always reclaimed.
-  let response
+  let response;
   try {
-    response = await undiciFetch(url, { ...options, dispatcher })
+    response = await undiciFetch(url, { ...options, dispatcher });
   } catch (err) {
-    dispatcher.destroy().catch(() => {})
-    throw err
+    dispatcher.destroy().catch(() => {});
+    throw err;
   }
-  let cleaned = false
-  const cleanup = () => { if (!cleaned) { cleaned = true; dispatcher.destroy().catch(() => {}) } }
+  let cleaned = false;
+  const cleanup = () => {
+    if (!cleaned) {
+      cleaned = true;
+      dispatcher.destroy().catch(() => {});
+    }
+  };
   // If there's no body to stream, the response is already complete.
   if (!response.body) {
-    cleanup()
-    return response
+    cleanup();
+    return response;
   }
   // Wrap the body in a ReadableStream that pulls from the original reader and
   // destroys the dispatcher when the stream ends, errors, or the consumer
   // cancels it. ReadableStream's underlying-source pull/cancel callbacks are
   // reliably invoked, so the per-request Agent is always reclaimed instead of
   // leaking its kept-alive socket until GC.
-  const reader = response.body.getReader()
+  const reader = response.body.getReader();
   const monitored = new ReadableStream({
     async pull(controller) {
       try {
-        const { done, value } = await reader.read()
+        const { done, value } = await reader.read();
         if (done) {
-          controller.close()
-          cleanup()
-          return
+          controller.close();
+          cleanup();
+          return;
         }
-        controller.enqueue(value)
+        controller.enqueue(value);
       } catch (err) {
-        controller.error(err)
-        cleanup()
+        controller.error(err);
+        cleanup();
       }
     },
     cancel(reason) {
-      reader.cancel(reason).catch(() => {})
-      cleanup()
+      reader.cancel(reason).catch(() => {});
+      cleanup();
     },
-  })
+  });
   return new Response(monitored, {
     status: response.status,
     statusText: response.statusText,
     headers: response.headers,
-  })
+  });
 }

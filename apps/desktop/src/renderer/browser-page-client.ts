@@ -1,6 +1,13 @@
 import type { DesktopBrowserPageAction, DesktopBrowserPageFrame, DesktopBrowserTab } from '../shared/contract';
 import { browserPageTransition } from './browser-page-recovery';
-import { BROWSER_INPUT_BUSY, BROWSER_INPUT_EXPIRED, BROWSER_INPUT_WAIT_MS, browserInputImmediate, browserTabControl, browserTypingInput } from '../shared/browser-input-policy';
+import {
+  BROWSER_INPUT_BUSY,
+  BROWSER_INPUT_EXPIRED,
+  BROWSER_INPUT_WAIT_MS,
+  browserInputImmediate,
+  browserTabControl,
+  browserTypingInput,
+} from '../shared/browser-input-policy';
 
 /** A DOM-sized handle for the pane chrome, with no guest in its focus tree. */
 export interface BrowserPageElement extends HTMLDivElement {
@@ -63,7 +70,12 @@ export function createBrowserPageClient(options: {
     if ((action?.type === 'text' || action?.type === 'composition-end') && action.text) {
       if (!inputOrder.has(action)) inputOrder.set(action, ++nextInputOrder);
       unconfirmedText.set(inputOrder.get(action)!, action.text);
-      options.unconfirmedText?.([...unconfirmedText].sort(([a], [b]) => a - b).map(([, text]) => text).join(''));
+      options.unconfirmedText?.(
+        [...unconfirmedText]
+          .sort(([a], [b]) => a - b)
+          .map(([, text]) => text)
+          .join('')
+      );
     }
   }
 
@@ -96,9 +108,11 @@ export function createBrowserPageClient(options: {
     if (JSON.stringify(previous?.tabs) !== JSON.stringify(frame.tabs)) emit('tabs-changed');
     if (previous?.loading !== frame.loading) emit(frame.loading ? 'did-start-loading' : 'did-stop-loading');
     if (previous?.loading && !frame.loading) emit('did-finish-load');
-    if (frame.fault && frame.fault !== previous?.fault) emit('did-fail-load', {
-      errorDescription: frame.fault, isMainFrame: true,
-    });
+    if (frame.fault && frame.fault !== previous?.fault)
+      emit('did-fail-load', {
+        errorDescription: frame.fault,
+        isMainFrame: true,
+      });
   }
 
   async function poll(): Promise<void> {
@@ -114,12 +128,14 @@ export function createBrowserPageClient(options: {
       }
     };
     pendingRead = capture()
-      .then(async next => {
+      .then(async (next) => {
         if (disposed) return;
         await options.prepare?.(next);
         if (!disposed) accept(next);
       })
-      .finally(() => { pendingRead = null; });
+      .finally(() => {
+        pendingRead = null;
+      });
     return pendingRead;
   }
 
@@ -130,8 +146,8 @@ export function createBrowserPageClient(options: {
     // Coalescing may never cross a click, key, or another kind of input.
     // Passive hover may cross scrolling; a pressed pointer remains a barrier.
     const hover = action.type === 'pointer' && action.phase === 'mouseMoved' && action.buttons === 0;
-    if (pendingMove?.action !== action
-      && !(action.type === 'wheel' && pendingMove?.action.buttons === 0)) pendingMove = null;
+    if (pendingMove?.action !== action && !(action.type === 'wheel' && pendingMove?.action.buttons === 0))
+      pendingMove = null;
     if (pendingWheel?.action !== action && !hover) pendingWheel = null;
     const clearPending = () => {
       if (pendingText?.action === action) pendingText = null;
@@ -173,8 +189,12 @@ export function createBrowserPageClient(options: {
         preserveText(action);
         return;
       }
-      if (!release && !recovery && !browserTypingInput(action)
-        && performance.now() - enqueuedAt >= BROWSER_INPUT_WAIT_MS) {
+      if (
+        !release &&
+        !recovery &&
+        !browserTypingInput(action) &&
+        performance.now() - enqueuedAt >= BROWSER_INPUT_WAIT_MS
+      ) {
         if (motion || action.type === 'resize') return;
         throw new Error(BROWSER_INPUT_EXPIRED);
       }
@@ -183,7 +203,8 @@ export function createBrowserPageClient(options: {
       if (motion && current?.documentId !== documentId) return;
       try {
         await options.api.browserPageControl!(options.sessionId, {
-          ...action, documentId: action.type === 'resize' ? current!.documentId : documentId,
+          ...action,
+          documentId: action.type === 'resize' ? current!.documentId : documentId,
         });
       } catch (error) {
         // Navigation can win the race after the last displayed frame. Drop
@@ -216,23 +237,24 @@ export function createBrowserPageClient(options: {
     });
     // Passive geometry can expire silently. Deliberate human edits must
     // report rejection rather than look like a successful click or keystroke.
-    const settled = work.catch(error => {
+    const settled = work.catch((error) => {
       if (humanInput(action) || !browserPageTransition(error, 'input')) throw error;
     });
-    const completion = settled.catch(error => {
-      preserveText(action);
-      if (error instanceof Error && error.message === BROWSER_INPUT_EXPIRED
-        && generation === inputGeneration) {
-        // One stalled input rejects the unstarted batch, not each queued
-        // keystroke in turn. New input gets a fresh generation; releases
-        // still clean up any press that actually reached the page.
-        inputGeneration += 1;
-      }
-      if (!disposed) reportFailure(error instanceof Error ? error.message : String(error));
-    }).finally(() => {
-      queued -= 1;
-      if (!disposed) refresh();
-    });
+    const completion = settled
+      .catch((error) => {
+        preserveText(action);
+        if (error instanceof Error && error.message === BROWSER_INPUT_EXPIRED && generation === inputGeneration) {
+          // One stalled input rejects the unstarted batch, not each queued
+          // keystroke in turn. New input gets a fresh generation; releases
+          // still clean up any press that actually reached the page.
+          inputGeneration += 1;
+        }
+        if (!disposed) reportFailure(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        queued -= 1;
+        if (!disposed) refresh();
+      });
     // Recovery must not replace the fence protecting an in-flight edit.
     if (recovery) chromeTail = completion;
     else tail = completion;
@@ -241,8 +263,12 @@ export function createBrowserPageClient(options: {
 
   function humanInput(action: DesktopBrowserPageAction): boolean {
     if (action.type === 'pointer') return action.phase !== 'mouseMoved';
-    return action.type === 'wheel' || browserTypingInput(action)
-      || action.type === 'answer-dialog' || action.type === 'choose-files';
+    return (
+      action.type === 'wheel' ||
+      browserTypingInput(action) ||
+      action.type === 'answer-dialog' ||
+      action.type === 'choose-files'
+    );
   }
 
   function rejectInput(message: string, action?: DesktopBrowserPageAction): Promise<void> {
@@ -283,10 +309,13 @@ export function createBrowserPageClient(options: {
       pendingResize = action;
     }
     if (action.type === 'pointer' && action.phase === 'mouseMoved') {
-      if (pendingMove && pendingMove.documentId === current?.documentId
-        && pendingMove.action.buttons === action.buttons
-        && pendingMove.action.button === action.button
-        && pendingMove.action.modifiers === action.modifiers) {
+      if (
+        pendingMove &&
+        pendingMove.documentId === current?.documentId &&
+        pendingMove.action.buttons === action.buttons &&
+        pendingMove.action.button === action.button &&
+        pendingMove.action.modifiers === action.modifiers
+      ) {
         Object.assign(pendingMove.action, action);
         return;
       }
@@ -294,12 +323,16 @@ export function createBrowserPageClient(options: {
     }
     if (action.type === 'wheel') {
       const previous = pendingWheel?.action;
-      if (previous && pendingWheel?.documentId === current?.documentId
-        && previous.x === action.x && previous.y === action.y
-        && Math.sign(previous.deltaX) === Math.sign(action.deltaX)
-        && Math.sign(previous.deltaY) === Math.sign(action.deltaY)
-        && Math.abs(previous.deltaX + action.deltaX) <= 20_000
-        && Math.abs(previous.deltaY + action.deltaY) <= 20_000) {
+      if (
+        previous &&
+        pendingWheel?.documentId === current?.documentId &&
+        previous.x === action.x &&
+        previous.y === action.y &&
+        Math.sign(previous.deltaX) === Math.sign(action.deltaX) &&
+        Math.sign(previous.deltaY) === Math.sign(action.deltaY) &&
+        Math.abs(previous.deltaX + action.deltaX) <= 20_000 &&
+        Math.abs(previous.deltaY + action.deltaY) <= 20_000
+      ) {
         previous.deltaX += action.deltaX;
         previous.deltaY += action.deltaY;
         return;
@@ -319,41 +352,60 @@ export function createBrowserPageClient(options: {
     node.getURL = () => current?.url || 'about:blank';
     node.canGoBack = () => current?.canGoBack === true;
     node.canGoForward = () => current?.canGoForward === true;
-    node.loadURL = url => control({ type: 'navigate', url });
+    node.loadURL = (url) => control({ type: 'navigate', url });
     node.goBack = () => fire({ type: 'back' });
     node.goForward = () => fire({ type: 'forward' });
     node.reload = () => fire({ type: 'reload' });
     node.stop = () => fire({ type: 'stop' });
-    node.setZoomFactor = factor => fire({ type: 'zoom', factor });
+    node.setZoomFactor = (factor) => fire({ type: 'zoom', factor });
     node.getTabs = () => current?.tabs ?? [];
     node.createTab = () => control({ type: 'new-tab' });
-    node.selectTab = tabId => control({ type: 'select-tab', tabId });
-    node.closeTab = tabId => control({ type: 'close-tab', tabId });
+    node.selectTab = (tabId) => control({ type: 'select-tab', tabId });
+    node.closeTab = (tabId) => control({ type: 'close-tab', tabId });
     node.focus = focusInput;
     Object.defineProperty(node, 'src', {
-      configurable: true, get: node.getURL, set: url => fire({ type: 'navigate', url: String(url) }),
+      configurable: true,
+      get: node.getURL,
+      set: (url) => fire({ type: 'navigate', url: String(url) }),
     });
   }
 
   return {
-    poll, fire, control, bind, inputToken,
-    clearUnconfirmedText: () => { unconfirmedText.clear(); options.unconfirmedText?.(''); },
+    poll,
+    fire,
+    control,
+    bind,
+    inputToken,
+    clearUnconfirmedText: () => {
+      unconfirmedText.clear();
+      options.unconfirmedText?.('');
+    },
     shortcut: (shortcut: string) => emit('browser-shortcut', { shortcut }),
     frame: () => current,
-    setRefresh: (callback: () => void) => { refresh = callback; },
-    activate: () => { disposed = false; },
+    setRefresh: (callback: () => void) => {
+      refresh = callback;
+    },
+    activate: () => {
+      disposed = false;
+    },
     dispose: () => {
       disposed = true;
       refresh = () => {};
       // Finish an already-sent press even if the display unmounts mid-drag.
       // Unstarted edits are discarded; cleanup never moves to a new document.
-      void tail.then(async () => {
-        const held = heldPointer;
-        heldPointer = null;
-        if (held) await options.api.browserPageControl?.(options.sessionId, {
-          ...held.action, documentId: held.documentId, phase: 'mouseReleased', buttons: 0,
-        });
-      }).catch(() => {});
+      void tail
+        .then(async () => {
+          const held = heldPointer;
+          heldPointer = null;
+          if (held)
+            await options.api.browserPageControl?.(options.sessionId, {
+              ...held.action,
+              documentId: held.documentId,
+              phase: 'mouseReleased',
+              buttons: 0,
+            });
+        })
+        .catch(() => {});
     },
   };
 }

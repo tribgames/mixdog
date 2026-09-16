@@ -1,5 +1,5 @@
-import { useCallback, useRef } from "react";
-import { nextTranscriptHistoryLimit, TRANSCRIPT_HISTORY_PAGE_ITEMS } from "./transcript-history";
+import { useCallback, useRef } from 'react';
+import { nextTranscriptHistoryLimit, TRANSCRIPT_HISTORY_PAGE_ITEMS } from './transcript-history';
 
 /** Read completion and transcript publication are separate transport events.
  * Track the requested window, not the count one animation frame after an ACK.
@@ -26,13 +26,17 @@ export function useTranscriptHistory(sessionId: string, itemCount: number): () =
     const nextLimit = nextTranscriptHistoryLimit(countRef.current, paging.limit);
     if (nextLimit === null) return;
     paging.pending = true;
-    void Promise.resolve().then(() => prefetch(sessionId, nextLimit)).then((accepted) => {
-      if (pagingRef.current !== paging) return;
-      if (accepted === true) paging.limit = nextLimit;
-    }).catch(() => {
-      // Read-only failures remain retryable on the next boundary gesture.
-    }).finally(() => {
-      if (pagingRef.current === paging) paging.pending = false;
-    });
+    void Promise.resolve()
+      .then(() => prefetch(sessionId, nextLimit))
+      .then((accepted) => {
+        if (pagingRef.current !== paging) return;
+        if (accepted === true) paging.limit = nextLimit;
+      })
+      .catch(() => {
+        // Read-only failures remain retryable on the next boundary gesture.
+      })
+      .finally(() => {
+        if (pagingRef.current === paging) paging.pending = false;
+      });
   }, [sessionId]);
 }

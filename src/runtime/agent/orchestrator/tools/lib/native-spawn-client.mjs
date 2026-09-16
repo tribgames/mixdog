@@ -11,14 +11,10 @@ import { ensureSpawnBinary, findCachedSpawnBinary } from '../spawn-binary-fetche
 
 const RESTART_BACKOFF_MS = 30_000;
 const SERVER_READY_TIMEOUT_MS = 5_000;
-const REQUIRED_LIFECYCLE_CAPS = Object.freeze([
-  'trackedForeground',
-  'promoteTask',
-  'cancelOwner',
-]);
+const REQUIRED_LIFECYCLE_CAPS = Object.freeze(['trackedForeground', 'promoteTask', 'cancelOwner']);
 
 let _server = null;
-let _binaryPath = undefined;
+let _binaryPath;
 let _lastFailureAt = 0;
 const _tasks = new Map();
 const _taskEvents = new EventEmitter();
@@ -45,7 +41,9 @@ function _requestServerTaskRelease(jobId) {
   try {
     server.child.stdin.write(`${JSON.stringify({ id: ++server.sequence, releaseTask: jobId })}\n`);
     return true;
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 function _stopRetentionSweep() {
@@ -113,7 +111,7 @@ function nativeSpawnCompatibilityError(server) {
   const missingCaps = REQUIRED_LIFECYCLE_CAPS.filter((cap) => server.caps?.[cap] !== true);
   if (missingCaps.length === 0) return null;
   const error = new Error(
-    `native spawn server is incompatible; missing required lifecycle capabilities: ${missingCaps.join(', ')}`,
+    `native spawn server is incompatible; missing required lifecycle capabilities: ${missingCaps.join(', ')}`
   );
   error.code = 'NATIVE_SPAWN_INCOMPATIBLE';
   error.missingCaps = missingCaps;
@@ -201,7 +199,9 @@ class LineStream extends EventEmitter {
     super();
     this._pending = [];
   }
-  setEncoding() { return this; }
+  setEncoding() {
+    return this;
+  }
   emit(event, ...args) {
     if (event === 'data' && this.listenerCount('data') === 0) {
       if (args[0] != null) this._pending.push(args[0]);
@@ -288,11 +288,7 @@ function _resolveBinary() {
   }
   const moduleDir = dirname(fileURLToPath(import.meta.url));
   const binName = process.platform === 'win32' ? 'mixdog-spawn.exe' : 'mixdog-spawn';
-  const localBuild = pathResolve(
-    moduleDir,
-    '../../../../../../native/mixdog-spawn/target/release',
-    binName,
-  );
+  const localBuild = pathResolve(moduleDir, '../../../../../../native/mixdog-spawn/target/release', binName);
   if (existsSync(localBuild)) {
     _binaryPath = localBuild;
     return _binaryPath;
@@ -308,9 +304,15 @@ function _resolveBinary() {
 
 function _setServerReferenced(server, referenced) {
   const method = referenced ? 'ref' : 'unref';
-  try { server?.child?.[method]?.(); } catch {}
-  try { server?.child?.stdin?.[method]?.(); } catch {}
-  try { server?.child?.stdout?.[method]?.(); } catch {}
+  try {
+    server?.child?.[method]?.();
+  } catch {}
+  try {
+    server?.child?.stdin?.[method]?.();
+  } catch {}
+  try {
+    server?.child?.stdout?.[method]?.();
+  } catch {}
 }
 
 // Referenced only while a NON-idle request is pending. Idle requests (parked
@@ -319,7 +321,10 @@ function _setServerReferenced(server, referenced) {
 function _recomputeServerRef(server) {
   let active = false;
   for (const entry of server.pending.values()) {
-    if (!entry.idle) { active = true; break; }
+    if (!entry.idle) {
+      active = true;
+      break;
+    }
   }
   _setServerReferenced(server, active);
 }
@@ -341,7 +346,9 @@ function _teardown(error, { kill = true } = {}) {
   _lastFailureAt = Date.now();
   if (!server) return;
   for (const pending of server.pending.values()) {
-    try { pending.fail(error || new Error('native spawn server exited')); } catch {}
+    try {
+      pending.fail(error || new Error('native spawn server exited'));
+    } catch {}
   }
   server.pending.clear();
   const message = error?.message || 'native spawn server exited';
@@ -358,7 +365,9 @@ function _teardown(error, { kill = true } = {}) {
     _taskEvents.emit(jobId, { ...failed });
   }
   if (kill) {
-    try { server.child.kill(); } catch {}
+    try {
+      server.child.kill();
+    } catch {}
   }
 }
 
@@ -376,7 +385,9 @@ export async function shutdownNativeSpawnServer(reason = 'process-exit', timeout
   // killing the server first preempted that cleanup and orphaned children.
   // SIGKILL below is the fallback for a server that misses the window.
   _teardown(new Error(`native spawn server shutdown (${reason})`), { kill: false });
-  try { child.stdin?.end?.(); } catch {}
+  try {
+    child.stdin?.end?.();
+  } catch {}
   let timer;
   const stopped = await Promise.race([
     exited,
@@ -386,7 +397,9 @@ export async function shutdownNativeSpawnServer(reason = 'process-exit', timeout
   ]);
   if (timer) clearTimeout(timer);
   if (!stopped) {
-    try { child.kill('SIGKILL'); } catch {}
+    try {
+      child.kill('SIGKILL');
+    } catch {}
   }
   return stopped;
 }
@@ -408,7 +421,9 @@ function _ensureServer() {
   }
   const server = { child, pending: new Map(), sequence: 0, ready: false, caps: {} };
   let resolveReady;
-  server.readyPromise = new Promise((resolve) => { resolveReady = resolve; });
+  server.readyPromise = new Promise((resolve) => {
+    resolveReady = resolve;
+  });
   const settleReady = (value) => {
     if (!resolveReady) return;
     const resolve = resolveReady;
@@ -418,9 +433,13 @@ function _ensureServer() {
   const lines = createInterface({ input: child.stdout });
   lines.on('line', (line) => {
     let message;
-    try { message = JSON.parse(line); } catch { return; }
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
     if (message?.ready === true) {
-      server.caps = (message.caps && typeof message.caps === 'object') ? message.caps : {};
+      server.caps = message.caps && typeof message.caps === 'object' ? message.caps : {};
       server.ready = true;
       settleReady(true);
       return;
@@ -444,7 +463,9 @@ function _ensureServer() {
     settleReady(false);
     if (_server === server) _teardown();
   });
-  child.stdin.on('error', (error) => { if (_server === server) _teardown(error); });
+  child.stdin.on('error', (error) => {
+    if (_server === server) _teardown(error);
+  });
   _setServerReferenced(server, false);
   _server = server;
   return server;
@@ -505,20 +526,27 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
   if (!server) return null;
   assertNativeSpawnCompatibility(server);
   const id = ++server.sequence;
-  const fake = new NativeSpawnChild(id, (cancelId) => {
-    try { server.child.stdin.write(`${JSON.stringify({ cancel: cancelId })}\n`); } catch {}
-  }, (payload) => {
-    try {
-      server.child.stdin.write(`${JSON.stringify({ id: ++server.sequence, ...payload })}\n`);
-      return true;
-    } catch { return false; }
-  });
+  const fake = new NativeSpawnChild(
+    id,
+    (cancelId) => {
+      try {
+        server.child.stdin.write(`${JSON.stringify({ cancel: cancelId })}\n`);
+      } catch {}
+    },
+    (payload) => {
+      try {
+        server.child.stdin.write(`${JSON.stringify({ id: ++server.sequence, ...payload })}\n`);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  );
   // File capture engages only when the RUNNING server advertises it and the
   // caller supplied both paths. An older server would ignore the unknown
   // fields and keep piping, so the capability gate decides rather than hope.
-  const _fileCapture = server.caps?.fileCapture === true
-    && Boolean(spawnOptions.stdoutPath)
-    && Boolean(spawnOptions.stderrPath);
+  const _fileCapture =
+    server.caps?.fileCapture === true && Boolean(spawnOptions.stdoutPath) && Boolean(spawnOptions.stderrPath);
   const request = {
     id,
     program: String(shell || ''),
@@ -531,10 +559,12 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
     outputLimit: Math.max(0, Number(spawnOptions.outputLimit) || 0),
     mergeStderr: spawnOptions.mergeStderr === true,
     rawOutput: spawnOptions.rawOutput === true,
-    ...(_fileCapture ? {
-      stdoutPath: String(spawnOptions.stdoutPath),
-      stderrPath: String(spawnOptions.stderrPath),
-    } : {}),
+    ...(_fileCapture
+      ? {
+          stdoutPath: String(spawnOptions.stdoutPath),
+          stderrPath: String(spawnOptions.stderrPath),
+        }
+      : {}),
     ...(spawnOptions.stdinPipe === true ? { stdinPipe: true } : {}),
     command: spawnOptions.command || undefined,
     shellType: spawnOptions.shellType || undefined,
@@ -562,23 +592,16 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
         return;
       }
       if (event === 'stdout' && (message.dataBase64 || message.text)) {
-        const chunk = message.dataBase64
-          ? Buffer.from(String(message.dataBase64), 'base64')
-          : String(message.text);
+        const chunk = message.dataBase64 ? Buffer.from(String(message.dataBase64), 'base64') : String(message.text);
         fake.stdout.emit('data', chunk);
-      }
-      else if (event === 'stderr' && (message.dataBase64 || message.text)) {
-        const chunk = message.dataBase64
-          ? Buffer.from(String(message.dataBase64), 'base64')
-          : String(message.text);
+      } else if (event === 'stderr' && (message.dataBase64 || message.text)) {
+        const chunk = message.dataBase64 ? Buffer.from(String(message.dataBase64), 'base64') : String(message.text);
         fake.stderr.emit('data', chunk);
-      }
-      else if (event === 'root_exit') {
+      } else if (event === 'root_exit') {
         fake.exitCode = message.code == null ? null : Number(message.code);
         fake.signalCode = message.signal || null;
         fake.emit('exit', fake.exitCode, fake.signalCode);
-      }
-      else if (event === 'exit') {
+      } else if (event === 'exit') {
         server.pending.delete(id);
         fake.exitCode = message.code == null ? null : Number(message.code);
         fake.signalCode = message.signal || null;
@@ -661,18 +684,23 @@ export function cancelNativeTask(jobId) {
 export function cancelNativeTasks({ ownerSessionId = null } = {}) {
   const owner = String(ownerSessionId || '').trim();
   if (!owner) return { cancelled: 0, unconfirmed: [], confirmed: true };
-  const running = [..._tasks.values()].filter((task) =>
-    task.status === 'running' && String(task.ownerSessionId || '') === owner);
+  const running = [..._tasks.values()].filter(
+    (task) => task.status === 'running' && String(task.ownerSessionId || '') === owner
+  );
   const server = _server;
   let ownerCancelDelivered = false;
   if (server?.caps?.cancelOwner === true) {
     try {
-      server.child.stdin.write(`${JSON.stringify({
-        id: ++server.sequence,
-        cancelOwnerSession: owner,
-      })}\n`);
+      server.child.stdin.write(
+        `${JSON.stringify({
+          id: ++server.sequence,
+          cancelOwnerSession: owner,
+        })}\n`
+      );
       ownerCancelDelivered = true;
-    } catch { ownerCancelDelivered = false; }
+    } catch {
+      ownerCancelDelivered = false;
+    }
   }
   // Also issue direct per-task cancellation for entries already visible in
   // this client so teardown does not wait on the owner-wide command round trip.
@@ -683,7 +711,11 @@ export function cancelNativeTasks({ ownerSessionId = null } = {}) {
   for (const task of running) {
     let delivered = ownerCancelDelivered;
     if (server) {
-      try { delivered = Boolean(cancelNativeTask(task.jobId)) || delivered; } catch { /* undelivered */ }
+      try {
+        delivered = Boolean(cancelNativeTask(task.jobId)) || delivered;
+      } catch {
+        /* undelivered */
+      }
     }
     if (!delivered) unconfirmed.push(task.jobId);
   }
@@ -708,7 +740,9 @@ export function waitNativeTask(jobId, timeoutMs = 30_000, signal = null) {
       settled = true;
       if (timer) clearTimeout(timer);
       if (onAbort && signal) {
-        try { signal.removeEventListener('abort', onAbort); } catch {}
+        try {
+          signal.removeEventListener('abort', onAbort);
+        } catch {}
       }
       unsubscribe();
       resolve(task ? { ...task } : null);
@@ -720,7 +754,9 @@ export function waitNativeTask(jobId, timeoutMs = 30_000, signal = null) {
     const unsubscribe = subscribeNativeTask(key, done);
     if (signal) {
       onAbort = () => finish(getNativeTask(key));
-      try { signal.addEventListener('abort', onAbort, { once: true }); } catch {}
+      try {
+        signal.addEventListener('abort', onAbort, { once: true });
+      } catch {}
     }
     timer = setTimeout(() => finish(getNativeTask(key)), Math.max(1, Number(timeoutMs) || 30_000));
     timer.unref?.();
@@ -782,15 +818,19 @@ export function trackNativeForegroundTask({
   const requestId = Number(child?._id) || 0;
   const server = _server;
   if (!server || server.caps?.trackedForeground !== true || !requestId) return null;
-  return requestNativeTaskState(jobId, {
-    track: requestId,
+  return requestNativeTaskState(
     jobId,
-    command,
-    cwd,
-    shellType,
-    ownerSessionId,
-    clientHostPid,
-  }, 'native task tracking');
+    {
+      track: requestId,
+      jobId,
+      command,
+      cwd,
+      shellType,
+      ownerSessionId,
+      clientHostPid,
+    },
+    'native task tracking'
+  );
 }
 
 export function promoteNativeTask({
@@ -813,15 +853,19 @@ export function promoteNativeTask({
   if (!getNativeTask(key)) {
     throw new Error(`no native task record for jobId ${key || '(empty)'}`);
   }
-  return requestNativeTaskState(key, {
-    promoteTask: key,
-    timeoutMs,
-    command,
-    cwd,
-    shellType,
-    ownerSessionId,
-    clientHostPid,
-  }, 'native task promotion');
+  return requestNativeTaskState(
+    key,
+    {
+      promoteTask: key,
+      timeoutMs,
+      command,
+      cwd,
+      shellType,
+      ownerSessionId,
+      clientHostPid,
+    },
+    'native task promotion'
+  );
 }
 
 // Capability handshake: true only after the connected spawn server announced

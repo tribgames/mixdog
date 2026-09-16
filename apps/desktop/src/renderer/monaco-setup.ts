@@ -42,10 +42,7 @@ import * as vbDef from 'monaco-editor/esm/vs/basic-languages/vb/vb.js';
 import * as xmlDef from 'monaco-editor/esm/vs/basic-languages/xml/xml.js';
 import * as yamlDef from 'monaco-editor/esm/vs/basic-languages/yaml/yaml.js';
 import { MONACO_EAGER_MONARCH_LANGUAGES } from './monaco-eager-languages';
-import {
-  LOG_LANGUAGE_CONFIGURATION,
-  LOG_MONARCH_LANGUAGE,
-} from './monaco-log-language';
+import { LOG_LANGUAGE_CONFIGURATION, LOG_MONARCH_LANGUAGE } from './monaco-log-language';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker.js?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker.js?worker';
 import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker.js?worker';
@@ -54,10 +51,18 @@ import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker.js?worker
 self.MonacoEnvironment = {
   getWorker(_workerId: string, label: string) {
     switch (label) {
-      case 'json': return new jsonWorker();
-      case 'css': case 'scss': case 'less': return new cssWorker();
-      case 'html': case 'handlebars': case 'razor': return new htmlWorker();
-      default: return new editorWorker();
+      case 'json':
+        return new jsonWorker();
+      case 'css':
+      case 'scss':
+      case 'less':
+        return new cssWorker();
+      case 'html':
+      case 'handlebars':
+      case 'razor':
+        return new htmlWorker();
+      default:
+        return new editorWorker();
     }
   },
 };
@@ -70,48 +75,53 @@ loader.config({ monaco });
 // intermittent "white, no highlighting" first open. Registering every PANE
 // target language eagerly makes the first paint colored. ('json' keeps
 // monaco's own JSON-mode tokenizer; 'log' is our custom Monarch below.)
-const BASIC_LANGUAGE_DEFINITIONS: Readonly<Record<string, {
-  conf: monaco.languages.LanguageConfiguration;
-  language: monaco.languages.IMonarchLanguage;
-}>> = {
-  "bat": batDef,
-  "clojure": clojureDef,
-  "coffee": coffeeDef,
-  "cpp": cppDef,
-  "csharp": csharpDef,
-  "css": cssDef,
-  "dart": dartDef,
-  "dockerfile": dockerfileDef,
-  "fsharp": fsharpDef,
-  "go": goDef,
-  "handlebars": handlebarsDef,
-  "html": htmlDef,
-  "ini": iniDef,
-  "java": javaDef,
-  "javascript": javascriptDef,
-  "julia": juliaDef,
-  "less": lessDef,
-  "lua": luaDef,
-  "markdown": markdownDef,
-  "objective-c": objectiveCDef,
-  "perl": perlDef,
-  "php": phpDef,
-  "powershell": powershellDef,
-  "pug": pugDef,
-  "python": pythonDef,
-  "r": rDef,
-  "razor": razorDef,
-  "restructuredtext": restructuredtextDef,
-  "ruby": rubyDef,
-  "rust": rustDef,
-  "scss": scssDef,
-  "shell": shellDef,
-  "sql": sqlDef,
-  "swift": swiftDef,
-  "typescript": typescriptDef,
-  "vb": vbDef,
-  "xml": xmlDef,
-  "yaml": yamlDef,
+const BASIC_LANGUAGE_DEFINITIONS: Readonly<
+  Record<
+    string,
+    {
+      conf: monaco.languages.LanguageConfiguration;
+      language: monaco.languages.IMonarchLanguage;
+    }
+  >
+> = {
+  bat: batDef,
+  clojure: clojureDef,
+  coffee: coffeeDef,
+  cpp: cppDef,
+  csharp: csharpDef,
+  css: cssDef,
+  dart: dartDef,
+  dockerfile: dockerfileDef,
+  fsharp: fsharpDef,
+  go: goDef,
+  handlebars: handlebarsDef,
+  html: htmlDef,
+  ini: iniDef,
+  java: javaDef,
+  javascript: javascriptDef,
+  julia: juliaDef,
+  less: lessDef,
+  lua: luaDef,
+  markdown: markdownDef,
+  'objective-c': objectiveCDef,
+  perl: perlDef,
+  php: phpDef,
+  powershell: powershellDef,
+  pug: pugDef,
+  python: pythonDef,
+  r: rDef,
+  razor: razorDef,
+  restructuredtext: restructuredtextDef,
+  ruby: rubyDef,
+  rust: rustDef,
+  scss: scssDef,
+  shell: shellDef,
+  sql: sqlDef,
+  swift: swiftDef,
+  typescript: typescriptDef,
+  vb: vbDef,
+  xml: xmlDef,
+  yaml: yamlDef,
 };
 for (const [languageId, moduleDir] of Object.entries(MONACO_EAGER_MONARCH_LANGUAGES)) {
   const definition = BASIC_LANGUAGE_DEFINITIONS[moduleDir];
@@ -328,8 +338,10 @@ export function syncMonacoThemes(): void {
 }
 
 if (typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
-  new MutationObserver(() => syncMonacoThemes())
-    .observe(document.documentElement, { attributes: true, attributeFilter: ['data-mixdog-theme'] });
+  new MutationObserver(() => syncMonacoThemes()).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-mixdog-theme'],
+  });
   // Align with whatever theme was applied before this lazy module loaded.
   syncMonacoThemes();
 }

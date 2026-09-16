@@ -16,7 +16,9 @@ const AGENT_PERMISSION_ALIASES = new Map([
 ]);
 
 function unquote(value) {
-  return clean(value).replace(/^['"]|['"]$/g, '').trim();
+  return clean(value)
+    .replace(/^['"]|['"]$/g, '')
+    .trim();
 }
 
 export function parseMarkdownFrontmatter(markdown) {
@@ -32,7 +34,9 @@ export function parseMarkdownFrontmatter(markdown) {
 }
 
 function stripMarkdownFrontmatter(markdown) {
-  return String(markdown || '').replace(FRONTMATTER_RE, '').trim();
+  return String(markdown || '')
+    .replace(FRONTMATTER_RE, '')
+    .trim();
 }
 
 export function readMarkdownDocument(markdown) {

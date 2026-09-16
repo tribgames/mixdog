@@ -18,10 +18,12 @@ test('deferred tool delta coalesces inverse changes before delivery', () => {
   });
 
   const snapshot = snapshotPendingDeferredToolDelta(session);
-  assert.deepEqual(snapshot.added, [{
-    name: 'mcp__demo__two',
-    description: 'Second tool',
-  }]);
+  assert.deepEqual(snapshot.added, [
+    {
+      name: 'mcp__demo__two',
+      description: 'Second tool',
+    },
+  ]);
   assert.deepEqual(snapshot.removed, []);
   assert.match(snapshot.content, /<deferred_tools_delta>/);
   assert.match(snapshot.content, /mcp__demo__two: Second tool/);

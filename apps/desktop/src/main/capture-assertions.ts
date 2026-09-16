@@ -5,7 +5,11 @@ export const captureTitle = `Mixdog Capture ${process.pid}`;
 export const targetSize = { width: 1_113, height: 687 };
 export const captureStepTimeoutMs = 5_000;
 
-export async function withCaptureTimeout<T>(promise: Promise<T>, label: string, timeoutMs = captureStepTimeoutMs): Promise<T> {
+export async function withCaptureTimeout<T>(
+  promise: Promise<T>,
+  label: string,
+  timeoutMs = captureStepTimeoutMs
+): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([
@@ -23,7 +27,7 @@ export async function waitForRenderer(
   window: BrowserWindow,
   expression: string,
   label: string,
-  timeoutMs = captureStepTimeoutMs,
+  timeoutMs = captureStepTimeoutMs
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -31,7 +35,7 @@ export async function waitForRenderer(
     const matched = await withCaptureTimeout(
       window.webContents.executeJavaScript(`Boolean(${expression})`) as Promise<boolean>,
       `${label} DOM probe`,
-      1_000,
+      1_000
     );
     if (matched) return;
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -576,7 +580,9 @@ export async function readModalStackAssertions(window: BrowserWindow): Promise<M
   })()`) as Promise<ModalStackAssertions>;
 }
 
-export async function readMobileOpenAssertions(window: BrowserWindow): Promise<LiveCaptureAssertions['mobile']['open']> {
+export async function readMobileOpenAssertions(
+  window: BrowserWindow
+): Promise<LiveCaptureAssertions['mobile']['open']> {
   return window.webContents.executeJavaScript(`(() => {
     const sidebar = document.querySelector('.sidebar');
     const backdrop = document.querySelector('.sidebar-backdrop');
@@ -626,7 +632,9 @@ export async function readMobileOpenAssertions(window: BrowserWindow): Promise<L
   })()`) as Promise<LiveCaptureAssertions['mobile']['open']>;
 }
 
-export async function readMobileClosedAssertions(window: BrowserWindow): Promise<LiveCaptureAssertions['mobile']['closed']> {
+export async function readMobileClosedAssertions(
+  window: BrowserWindow
+): Promise<LiveCaptureAssertions['mobile']['closed']> {
   return window.webContents.executeJavaScript(`(() => {
     const required = (selector) => {
       const element = document.querySelector(selector);
@@ -700,7 +708,7 @@ export function destroyCaptureWindow(window: BrowserWindow): void {
 export function validateAndDestroyRenderer(
   window: BrowserWindow,
   rendererState: { bridgePresent: boolean; inlineErrors: string[] },
-  rendererConsoleErrors: readonly string[],
+  rendererConsoleErrors: readonly string[]
 ): RendererValidation {
   let validationError: Error | undefined;
   if (!rendererState.bridgePresent) {

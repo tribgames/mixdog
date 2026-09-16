@@ -15,10 +15,7 @@ import {
   resolveContextUsageSnapshot,
   resolveWorkerCompactPolicy,
 } from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
-import {
-  estimateToolSchemaBreakdown,
-  snapshotProviderRequestTools,
-} from './tool-catalog.mjs';
+import { estimateToolSchemaBreakdown, snapshotProviderRequestTools } from './tool-catalog.mjs';
 import { scopedProviderRequestTools } from './provider-request-tools.mjs';
 import { sessionContextMeasurement } from '../ui/context-measurement.mjs';
 
@@ -29,16 +26,18 @@ export function requestSerializedToolsForContext(
   session,
   provider,
   messages = session?.messages,
-  { nativeTools = [] } = {},
+  { nativeTools = [] } = {}
 ) {
-  return scopedProviderRequestTools(session, provider, messages)?.requestTools
-    || snapshotProviderRequestTools({
-    provider,
-    tools: session?.tools,
-    nativeTools,
-    messages,
-    session,
-  });
+  return (
+    scopedProviderRequestTools(session, provider, messages)?.requestTools ||
+    snapshotProviderRequestTools({
+      provider,
+      tools: session?.tools,
+      nativeTools,
+      messages,
+      session,
+    })
+  );
 }
 
 const NO_NATIVE_TOOLS = Object.freeze([]);
@@ -152,22 +151,30 @@ export function createContextStatus({
     const nativeCount = Array.isArray(nativeTools) ? nativeTools.length : 0;
     const memo = requestToolsMemo;
     if (
-      memo
-      && memo.session === session
-      && memo.tools === tools
-      && memo.toolCount === toolCount
-      && memo.nativeCount === nativeCount
+      memo &&
+      memo.session === session &&
+      memo.tools === tools &&
+      memo.toolCount === toolCount &&
+      memo.nativeCount === nativeCount &&
       // Callers may hand back a fresh empty array per call; identity only
       // matters once there is something in it.
-      && (nativeCount === 0 || memo.nativeTools === nativeTools)
-      && memo.requestProvider === requestProvider
-      && memo.messagesRevision === messagesRevision
-    ) return memo.requestTools;
+      (nativeCount === 0 || memo.nativeTools === nativeTools) &&
+      memo.requestProvider === requestProvider &&
+      memo.messagesRevision === messagesRevision
+    )
+      return memo.requestTools;
     const requestTools = requestSerializedToolsForContext(session, requestProvider, messages, {
       nativeTools,
     });
     requestToolsMemo = {
-      session, tools, toolCount, nativeTools, nativeCount, requestProvider, messagesRevision, requestTools,
+      session,
+      tools,
+      toolCount,
+      nativeTools,
+      nativeCount,
+      requestProvider,
+      messagesRevision,
+      requestTools,
     };
     return requestTools;
   }
@@ -178,12 +185,12 @@ export function createContextStatus({
     const committedMessages = Array.isArray(session?.messages) ? session.messages : [];
     const liveMessages = Array.isArray(session?.liveTurnMessages) ? session.liveTurnMessages : null;
     const activityMessages = liveMessages || committedMessages;
-    const hasConversationActivity = hasUserConversationMessage(activityMessages)
-      || activityMessages.some((message) => (
-        message?.role === 'user'
-        && typeof message.content === 'string'
-        && message.content.startsWith(SUMMARY_PREFIX)
-      ));
+    const hasConversationActivity =
+      hasUserConversationMessage(activityMessages) ||
+      activityMessages.some(
+        (message) =>
+          message?.role === 'user' && typeof message.content === 'string' && message.content.startsWith(SUMMARY_PREFIX)
+      );
     // A route is not a conversation. Keep a pristine desktop/TUI task truly
     // empty until the first real turn. Remote auto-start may prepare a local
     // session shell containing system/tool templates, but those templates have
@@ -192,12 +199,10 @@ export function createContextStatus({
       const emptyCompactPolicy = session
         ? resolveWorkerCompactPolicy(session, Array.isArray(session.tools) ? session.tools : [])
         : null;
-      const routeWindow = Math.max(0, Number(
-        session?.compactBoundaryTokens
-        || session?.contextWindow
-        || route?.contextWindow
-        || 0,
-      ));
+      const routeWindow = Math.max(
+        0,
+        Number(session?.compactBoundaryTokens || session?.contextWindow || route?.contextWindow || 0)
+      );
       return {
         sessionId: session?.id || null,
         provider: session?.provider || route.provider,
@@ -223,9 +228,7 @@ export function createContextStatus({
           bufferTokens: Number.isFinite(Number(emptyCompactPolicy?.bufferTokens))
             ? Math.max(0, Number(emptyCompactPolicy.bufferTokens))
             : null,
-          bufferRatio: Number.isFinite(emptyCompactPolicy?.bufferRatio)
-            ? emptyCompactPolicy.bufferRatio
-            : null,
+          bufferRatio: Number.isFinite(emptyCompactPolicy?.bufferRatio) ? emptyCompactPolicy.bufferRatio : null,
           currentEstimatedTokens: 0,
           lastApiRequestTokens: 0,
           lastApiRequestStale: false,
@@ -264,8 +267,8 @@ export function createContextStatus({
     // Do not even evaluate live native definitions when an in-flight request
     // scope owns the complete immutable provider surface.
     const scopedRequest = scopedProviderRequestTools(session, requestProvider, messages);
-    const requestTools = scopedRequest?.requestTools
-      || memoizedRequestTools(session, requestProvider, messages, messagesRevision);
+    const requestTools =
+      scopedRequest?.requestTools || memoizedRequestTools(session, requestProvider, messages, messagesRevision);
     const requestToolsSignature = toolSchemaSignature(requestTools);
     const cacheKey = contextStatusCacheKeyFor({
       messages,
@@ -289,11 +292,11 @@ export function createContextStatus({
     const lastContextTokens = Number(session?.lastContextTokens || 0);
     const compactAt = Number(session?.compaction?.lastChangedAt || session?.compaction?.lastCompactAt || 0);
     const usageAt = Number(session?.lastContextTokensUpdatedAt || 0);
-    const lastUsageStale = !!lastContextTokens && (
-      session?.lastContextTokensStaleAfterCompact === true
-      || (compactAt > 0 && usageAt > 0 && usageAt <= compactAt)
-      || (compactAt > 0 && usageAt <= 0)
-    );
+    const lastUsageStale =
+      !!lastContextTokens &&
+      (session?.lastContextTokensStaleAfterCompact === true ||
+        (compactAt > 0 && usageAt > 0 && usageAt <= compactAt) ||
+        (compactAt > 0 && usageAt <= 0));
     const compactBoundaryTokens = Number(session?.compactBoundaryTokens || session?.compaction?.boundaryTokens || 0);
     const displayWindow = compactBoundaryTokens || effectiveWindow;
     // Use the worker policy when a boundary is available so target/reserve
@@ -305,35 +308,31 @@ export function createContextStatus({
     const compactPolicy = workerCompactPolicy?.boundaryTokens
       ? workerCompactPolicy
       : {
-        ...resolveSessionCompactPolicy(session || {}, compactBoundaryTokens),
-        tokenCalibration: providerTokenCalibration(session?.provider || route.provider),
-      };
+          ...resolveSessionCompactPolicy(session || {}, compactBoundaryTokens),
+          tokenCalibration: providerTokenCalibration(session?.provider || route.provider),
+        };
     // A successful compaction publishes one durable post-mutation reading.
     // Polling and cold resume keep that exact value until a fresh provider
     // baseline or a changed transcript/route/tool surface invalidates it.
-    const usageSnapshot = (!lastContextTokens || lastUsageStale)
-      ? resolveContextUsageSnapshot(session, compactPolicy, { messages })
-      : null;
+    const usageSnapshot =
+      !lastContextTokens || lastUsageStale ? resolveContextUsageSnapshot(session, compactPolicy, { messages }) : null;
     // One resolution owns both the number and its provenance. Deriving the
     // label from session fields instead let a calibrated whole-transcript
     // estimate report itself as `provider`, which hid a 4x disagreement with
     // the provider's own prompt size behind a trustworthy-looking source.
     const resolvedGauge = usageSnapshot
       ? { tokens: usageSnapshot.usedTokens, source: 'post_compact' }
-      : resolveContextTokensWithSource(
-        messageSummary.estimatedTokens,
-        compactPolicy,
-        { messages, sessionRef: session },
-      );
+      : resolveContextTokensWithSource(messageSummary.estimatedTokens, compactPolicy, {
+          messages,
+          sessionRef: session,
+        });
     const usedTokens = resolvedGauge.tokens;
     const freeTokens = displayWindow ? Math.max(0, displayWindow - usedTokens) : 0;
     const compactTriggerTokens = compactPolicy.triggerTokens || 0;
     const compactBufferTokens = Number.isFinite(Number(compactPolicy.bufferTokens))
       ? Math.max(0, Number(compactPolicy.bufferTokens))
       : 0;
-    const compactBufferRatio = Number.isFinite(compactPolicy.bufferRatio)
-      ? compactPolicy.bufferRatio
-      : null;
+    const compactBufferRatio = Number.isFinite(compactPolicy.bufferRatio) ? compactPolicy.bufferRatio : null;
     const value = {
       sessionId: session?.id || null,
       provider: session?.provider || route.provider,

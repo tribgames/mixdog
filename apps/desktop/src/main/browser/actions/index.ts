@@ -32,9 +32,7 @@ export const BROWSER_ACTION_HANDLERS: Readonly<Record<string, BrowserActionHandl
 });
 
 /** Contract names that must resolve to a page handler. */
-export const PAGE_ACTIONS: readonly string[] = BROWSER_ACTIONS.filter(
-  (action) => !TABLESS_ACTIONS.has(action),
-);
+export const PAGE_ACTIONS: readonly string[] = BROWSER_ACTIONS.filter((action) => !TABLESS_ACTIONS.has(action));
 
 export function browserActionHandler(action: string): BrowserActionHandler | undefined {
   return Object.hasOwn(BROWSER_ACTION_HANDLERS, action) ? BROWSER_ACTION_HANDLERS[action] : undefined;

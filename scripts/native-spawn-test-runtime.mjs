@@ -7,7 +7,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const binary = resolve(
   root,
   'native/mixdog-spawn/target/debug',
-  process.platform === 'win32' ? 'mixdog-spawn.exe' : 'mixdog-spawn',
+  process.platform === 'win32' ? 'mixdog-spawn.exe' : 'mixdog-spawn'
 );
 
 if (!existsSync(binary)) {

@@ -3,8 +3,13 @@
 // relying on process.platform. Kept byte-faithful to the source predicate so
 // the harness reflects real clear decisions.
 export function shouldClearTerminalForFrameProbe({
-  isTty, viewportRows, previousViewportRows, previousOutputHeight,
-  nextOutputHeight, isUnmounting, isWindows,
+  isTty,
+  viewportRows,
+  previousViewportRows,
+  previousOutputHeight,
+  nextOutputHeight,
+  isUnmounting,
+  isWindows,
 }) {
   if (!isTty) return false;
   const priorViewportRows = previousViewportRows ?? viewportRows;
@@ -14,13 +19,17 @@ export function shouldClearTerminalForFrameProbe({
   const isOverflowing = nextOutputHeight > viewportRows;
   const isFullscreen = nextOutputHeight >= viewportRows;
   const isLeavingFullscreen = wasFullscreen && nextOutputHeight < viewportRows;
-  const isShrinkingAtViewport = hadPreviousFrame &&
+  const isShrinkingAtViewport =
+    hadPreviousFrame &&
     nextOutputHeight < previousOutputHeight &&
     (wasFullscreen || isFullscreen || wasOverflowing || isOverflowing);
   const shouldClearOnUnmount = isUnmounting && wasFullscreen;
   const viewportResized = previousViewportRows != null && previousViewportRows !== viewportRows;
-  if (isWindows && (wasFullscreen || isFullscreen) &&
-      (viewportResized || isShrinkingAtViewport || isLeavingFullscreen)) {
+  if (
+    isWindows &&
+    (wasFullscreen || isFullscreen) &&
+    (viewportResized || isShrinkingAtViewport || isLeavingFullscreen)
+  ) {
     return true;
   }
   return (
@@ -28,5 +37,6 @@ export function shouldClearTerminalForFrameProbe({
     (isOverflowing && hadPreviousFrame) ||
     isLeavingFullscreen ||
     isShrinkingAtViewport ||
-    shouldClearOnUnmount);
+    shouldClearOnUnmount
+  );
 }

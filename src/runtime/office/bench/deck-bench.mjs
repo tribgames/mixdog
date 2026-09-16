@@ -43,7 +43,11 @@ async function benchDeck(path, { cwd = process.cwd() } = {}) {
 }
 
 async function readHistory(file) {
-  try { return JSON.parse(await readFile(file, 'utf8')); } catch { return []; }
+  try {
+    return JSON.parse(await readFile(file, 'utf8'));
+  } catch {
+    return [];
+  }
 }
 
 async function main() {
@@ -63,10 +67,14 @@ async function main() {
     const previous = [...past].reverse().find((entry) => entry.deck === deck);
     const delta = previous && typeof previous.score === 'number' ? result.score - previous.score : null;
     results.push(result);
-    console.log(`\n${deck}  score ${result.score}${delta === null ? '' : ` (${delta >= 0 ? '+' : ''}${delta} vs ${previous.at.slice(0, 16).replace('T', ' ')})`}  ${result.slides} slides`);
+    console.log(
+      `\n${deck}  score ${result.score}${delta === null ? '' : ` (${delta >= 0 ? '+' : ''}${delta} vs ${previous.at.slice(0, 16).replace('T', ' ')})`}  ${result.slides} slides`
+    );
     for (const check of result.checks) {
       const bar = '█'.repeat(Math.round(check.score * 10)).padEnd(10, '·');
-      console.log(`  ${check.id.padEnd(20)} ${bar} ${check.score.toFixed(2)}  ${String(check.value).padEnd(6)} ${check.reads}`);
+      console.log(
+        `  ${check.id.padEnd(20)} ${bar} ${check.score.toFixed(2)}  ${String(check.value).padEnd(6)} ${check.reads}`
+      );
     }
     if (result.issues.length) console.log(`  measured defects: ${result.issues.join(' | ')}`);
   }

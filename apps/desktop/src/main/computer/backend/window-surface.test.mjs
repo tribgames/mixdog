@@ -8,7 +8,8 @@ import test from 'node:test';
 import { MIXDOG_HOST_CSHARP } from './native-source.ts';
 
 test('native window capture reads only its off-screen fixture surface and preserves foreground', {
-  skip: process.platform !== 'win32', timeout: 40_000,
+  skip: process.platform !== 'win32',
+  timeout: 40_000,
 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-window-surface-'));
   const harness = String.raw`
@@ -95,9 +96,11 @@ try {
   try {
     await writeFile(join(directory, 'native.cs'), MIXDOG_HOST_CSHARP + '\n' + harness);
     await writeFile(join(directory, 'check.ps1'), script);
-    const { stdout } = await promisify(execFile)('powershell.exe',
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-File', join(directory, 'check.ps1')],
-      { windowsHide: true, timeout: 30_000, env: { ...process.env, SURFACE_FIXTURE: directory } });
+      { windowsHide: true, timeout: 30_000, env: { ...process.env, SURFACE_FIXTURE: directory } }
+    );
     const value = JSON.parse(stdout.trim());
     assert.equal(value.off_screen, true);
     assert.deepEqual(value.size, [160, 120]);
@@ -110,5 +113,7 @@ try {
     assert.equal(value.chromium, false);
     assert.equal(value.winui, false);
     assert.equal(value.edit, true);
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

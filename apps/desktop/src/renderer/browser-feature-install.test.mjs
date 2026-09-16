@@ -44,7 +44,9 @@ test('the Browser launcher follows the Browser Use install marker', async () => 
   };
   try {
     let resolveSettings;
-    pendingSettingsRead = new Promise((resolve) => { resolveSettings = resolve; });
+    pendingSettingsRead = new Promise((resolve) => {
+      resolveSettings = resolve;
+    });
     await act(async () => {
       root.render(React.createElement(Probe));
     });

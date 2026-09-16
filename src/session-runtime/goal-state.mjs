@@ -22,7 +22,14 @@ export const GOAL_STATUS_VALUES = Object.freeze([
 
 const MAX_OBJECTIVE_LENGTH = 4_000;
 const MAX_GOAL_BLOCKER_LENGTH = 1_000;
-const ACTIVE_AGENT_STATUSES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'running', 'cancelling']);
+const ACTIVE_AGENT_STATUSES = new Set([
+  'connecting',
+  'requesting',
+  'streaming',
+  'tool_running',
+  'running',
+  'cancelling',
+]);
 
 export function assertSessionId(value) {
   const sessionId = clean(value);
@@ -118,9 +125,10 @@ export function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
   const status = value.status === 'budget_limited' ? 'duration_reached' : value.status;
   if (!GOAL_STATUS_VALUES.includes(status)) throw new Error(`invalid stored Goal status: ${status}`);
   const storedTimeLimitMs = Number(value.timeLimitMs);
-  const timeLimitMs = Number.isFinite(storedTimeLimitMs) && storedTimeLimitMs > 0
-    ? Math.min(MAX_GOAL_TIME_LIMIT_MS, Math.max(60_000, storedTimeLimitMs))
-    : 0;
+  const timeLimitMs =
+    Number.isFinite(storedTimeLimitMs) && storedTimeLimitMs > 0
+      ? Math.min(MAX_GOAL_TIME_LIMIT_MS, Math.max(60_000, storedTimeLimitMs))
+      : 0;
   return {
     id: clean(value.id) || randomUUID(),
     revision: Math.max(1, Math.floor(Number(value.revision) || 1)),
@@ -139,9 +147,13 @@ export function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
     // Observations report progress; they never decide when work is complete.
     turnCount: Math.max(0, Math.floor(Number(value.turnCount) || 0)),
     // Dropped work must survive the turn that removed it before completion.
-    lastDropTurn: Number.isInteger(value.lastDropTurn)
-      && (value.revision != null || value.lastDropTurn !== 0 || (value.tasks || []).some((task) => task.status === 'dropped'))
-      ? value.lastDropTurn : -1,
+    lastDropTurn:
+      Number.isInteger(value.lastDropTurn) &&
+      (value.revision != null ||
+        value.lastDropTurn !== 0 ||
+        (value.tasks || []).some((task) => task.status === 'dropped'))
+        ? value.lastDropTurn
+        : -1,
     tasksUpdatedAt: Number(value.tasksUpdatedAt) > 0 ? Number(value.tasksUpdatedAt) : null,
     timeLimitMs,
     // Unversioned durations retain their original full-period commitment.
@@ -150,9 +162,8 @@ export function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
     createdAt: Math.max(0, Number(value.createdAt) || Date.now()),
     updatedAt: Math.max(0, Number(value.updatedAt) || Date.now()),
     // Preserve the open segment across task writes, eviction, and restart.
-    lastStartedAt: status === 'active'
-      ? Math.max(0, Number(value.lastStartedAt) || Number(resumedAt) || Date.now())
-      : null,
+    lastStartedAt:
+      status === 'active' ? Math.max(0, Number(value.lastStartedAt) || Number(resumedAt) || Date.now()) : null,
     completedAt: Number(value.completedAt) > 0 ? Number(value.completedAt) : null,
     stoppedAt: Number(value.stoppedAt) > 0 ? Number(value.stoppedAt) : null,
     archivedAt: Number(value.archivedAt) > 0 ? Number(value.archivedAt) : null,
@@ -177,9 +188,7 @@ export function publicGoal(goal, now = Date.now()) {
   if (!goal) return null;
   const timeUsedMs = activeElapsedMs(goal, now);
   const hasTimeLimit = Number(goal.timeLimitMs) > 0;
-  const remainingMs = hasTimeLimit
-    ? Math.max(0, Number(goal.timeLimitMs) - timeUsedMs)
-    : null;
+  const remainingMs = hasTimeLimit ? Math.max(0, Number(goal.timeLimitMs) - timeUsedMs) : null;
   const tasks = normalizeGoalTasks(goal.tasks || []);
   return {
     id: goal.id,
@@ -202,9 +211,7 @@ export function publicGoal(goal, now = Date.now()) {
     timeMode: goal.timeMode,
     timeUsedMs,
     remainingMs,
-    deadlineAt: hasTimeLimit && goal.status === 'active' && goal.lastStartedAt
-      ? now + remainingMs
-      : null,
+    deadlineAt: hasTimeLimit && goal.status === 'active' && goal.lastStartedAt ? now + remainingMs : null,
     snapshotAt: now,
     createdAt: goal.createdAt,
     updatedAt: goal.updatedAt,
@@ -217,24 +224,18 @@ export function publicGoal(goal, now = Date.now()) {
 
 export function normalizedCompletedGoalTtlMs(value) {
   const ttlMs = Number(value);
-  return Number.isFinite(ttlMs) && ttlMs >= 0
-    ? ttlMs
-    : DEFAULT_COMPLETED_GOAL_TTL_MS;
+  return Number.isFinite(ttlMs) && ttlMs >= 0 ? ttlMs : DEFAULT_COMPLETED_GOAL_TTL_MS;
 }
 
 export function completedGoalExpired(goal, at, ttlMs = DEFAULT_COMPLETED_GOAL_TTL_MS) {
   if (goal?.status !== 'complete') return false;
-  const completedAt = Number(goal.completedAt)
-    || Number(goal.updatedAt)
-    || Number(goal.createdAt)
-    || 0;
+  const completedAt = Number(goal.completedAt) || Number(goal.updatedAt) || Number(goal.createdAt) || 0;
   return completedAt > 0 && at - completedAt >= normalizedCompletedGoalTtlMs(ttlMs);
 }
 
 export function checkpointActiveClock(goal, now = Date.now()) {
   if (!goal.lastStartedAt) return;
-  goal.timeUsedMs = Math.max(0, Number(goal.timeUsedMs) || 0)
-    + Math.max(0, now - Number(goal.lastStartedAt));
+  goal.timeUsedMs = Math.max(0, Number(goal.timeUsedMs) || 0) + Math.max(0, now - Number(goal.lastStartedAt));
   goal.lastStartedAt = now;
 }
 
@@ -265,7 +266,9 @@ export function resumeGoalState(goal, at, added = null) {
     goal.deadlineWarnedMs = NO_DEADLINE_WARNING_MS;
   }
   if (goal.timeLimitMs > 0 && goal.timeLimitMs <= goal.timeUsedMs) {
-    throw new Error('Goal time budget is exhausted; extend the time budget before resuming with user-approved time_limit_minutes');
+    throw new Error(
+      'Goal time budget is exhausted; extend the time budget before resuming with user-approved time_limit_minutes'
+    );
   }
   activateGoal(goal, at);
   goal.updatedAt = at;

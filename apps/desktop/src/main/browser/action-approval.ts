@@ -20,16 +20,18 @@ export interface BrowserApprovalRequest {
 
 /** Describe only actions and addresses, never form values or typed secrets. */
 function describeApprovalTargets(command: BrowserCommand, fallback: string): string {
-  const describe = (input: Pick<BrowserCommand, 'target' | 'ref' | 'snapshotId' | 'name'>) => (
+  const describe = (input: Pick<BrowserCommand, 'target' | 'ref' | 'snapshotId' | 'name'>) =>
     input.target
       ? describeBrowserTarget(input.target)
-      : redactBrowserText(input.ref || input.snapshotId || input.name || fallback)
-  );
+      : redactBrowserText(input.ref || input.snapshotId || input.name || fallback);
   let summary = describe(command);
   if (command.action === 'sequence' && command.steps?.length) {
-    summary = command.steps.map((step, index) => (
-      `${index + 1}. ${redactBrowserText(step.action)}${step.submit ? ' (submit)' : ''}: ${describe(step)}`
-    )).join('\n');
+    summary = command.steps
+      .map(
+        (step, index) =>
+          `${index + 1}. ${redactBrowserText(step.action)}${step.submit ? ' (submit)' : ''}: ${describe(step)}`
+      )
+      .join('\n');
   } else if (command.action === 'fill' && command.fields?.length) {
     summary = command.fields.map((field, index) => `${index + 1}. fill: ${describe(field)}`).join('\n');
   }
@@ -44,7 +46,10 @@ export function createBrowserActionApproval(host: {
 }) {
   const now = host.now || Date.now;
   function actions(raw = '') {
-    const names = raw.split(',').map((name) => name.trim()).filter(Boolean);
+    const names = raw
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean);
     if (names.some((name) => name !== '*' && !BROWSER_ACTIONS.includes(name))) {
       throw new Error('invalid Browser Use action policy; refusing dispatch');
     }
@@ -53,7 +58,7 @@ export function createBrowserActionApproval(host: {
   async function approve(
     command: BrowserCommand,
     target: () => { url: string; identity: string },
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ) {
     const denied = actions(host.denyActions);
     const confirmation = actions(host.confirmActions);
@@ -64,7 +69,8 @@ export function createBrowserActionApproval(host: {
     if (!confirmation.has('*') && !names.some((name) => confirmation.has(name))) return;
     const files: Array<{ path: string; size: number; mtimeMs: number }> = [];
     if (command.action === 'upload') {
-      if (!command.paths?.length || command.paths.length > 10) throw new Error('upload requires 1–10 approved absolute file paths');
+      if (!command.paths?.length || command.paths.length > 10)
+        throw new Error('upload requires 1–10 approved absolute file paths');
       for (const path of command.paths) {
         if (!isAbsolute(path)) throw new Error('upload approval requires absolute file paths');
         const canonical = await realpath(path);
@@ -78,15 +84,26 @@ export function createBrowserActionApproval(host: {
     const serialized = JSON.stringify(command);
     const expiresAt = now() + 30_000;
     if (signal?.aborted) throw signal.reason || new Error('approval cancelled');
-    const allowed = await host.ask({
-      action: command.action, url: original.url, sessionId: command.session_id || '',
-      target: describeApprovalTargets(command, original.identity),
-      paths: command.paths || [], expiresAt,
-    }, signal);
+    const allowed = await host.ask(
+      {
+        action: command.action,
+        url: original.url,
+        sessionId: command.session_id || '',
+        target: describeApprovalTargets(command, original.identity),
+        paths: command.paths || [],
+        expiresAt,
+      },
+      signal
+    );
     if (signal?.aborted) throw signal.reason || new Error('approval cancelled');
     const current = target();
-    if (!allowed || now() >= expiresAt || current.identity !== original.identity
-      || current.url !== original.url || JSON.stringify(command) !== serialized) {
+    if (
+      !allowed ||
+      now() >= expiresAt ||
+      current.identity !== original.identity ||
+      current.url !== original.url ||
+      JSON.stringify(command) !== serialized
+    ) {
       throw new Error('Browser Use approval denied, expired, or target changed; nothing was dispatched');
     }
     for (const file of files) {
@@ -95,8 +112,13 @@ export function createBrowserActionApproval(host: {
         throw new Error('approved upload file changed; nothing was dispatched');
       }
     }
-    if (signal?.aborted || now() >= expiresAt || target().identity !== original.identity
-      || target().url !== original.url) throw new Error('approval expired or target changed before dispatch');
+    if (
+      signal?.aborted ||
+      now() >= expiresAt ||
+      target().identity !== original.identity ||
+      target().url !== original.url
+    )
+      throw new Error('approval expired or target changed before dispatch');
     // A grant exists only on this stack: it cannot be reused by another call.
   }
   return { approve };

@@ -4,7 +4,19 @@
 // reported as information: a long sheet whose header scrolls away, a table
 // column of numbers left under the General format.
 import { columnLabel } from './portable-cells.mjs';
-import { cellPath, escapeRegExp, formulaBody, generalFormat, insideArea, locate, mergedAreas, numericValue, position, sheetPath, tableAreas } from './xlsx-audit-support.mjs';
+import {
+  cellPath,
+  escapeRegExp,
+  formulaBody,
+  generalFormat,
+  insideArea,
+  locate,
+  mergedAreas,
+  numericValue,
+  position,
+  sheetPath,
+  tableAreas,
+} from './xlsx-audit-support.mjs';
 
 const LONG_SHEET_ROWS = 20;
 const NUMERIC_COLUMN_MIN = 3;
@@ -23,7 +35,9 @@ export function unquotedSheetReferences(formula, sheetNames = []) {
 }
 
 function formatCode(style) {
-  return String(style?.numberFormat || '').replace(/"[^"]*"/g, '').replace(/\\./g, '');
+  return String(style?.numberFormat || '')
+    .replace(/"[^"]*"/g, '')
+    .replace(/\\./g, '');
 }
 
 function percentFormat(style) {
@@ -54,25 +68,50 @@ export function auditSheetHygiene(list, sheet, cells, sheetNames) {
     // A figure typed as text in a merged banner or metric tile is the label it
     // was written as; only a grid cell has a column to sum or sort.
     if (numericText(cell) && !(display.length && insideArea(display, position(cell) || { row: 0, column: 0 }))) {
-      list.push('warning', 'number_stored_as_text', path, `"${cell.value.trim()}" is text, so it neither sums nor sorts as a number; store the number and give the column a format.`);
+      list.push(
+        'warning',
+        'number_stored_as_text',
+        path,
+        `"${cell.value.trim()}" is text, so it neither sums nor sorts as a number; store the number and give the column a format.`
+      );
       continue;
     }
     if (cell.formula) {
       for (const name of unquotedSheetReferences(cell.formula, sheetNames)) {
-        list.push('warning', 'unquoted_sheet_reference', path, `Formula references sheet "${name}" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '${name}'!.`);
+        list.push(
+          'warning',
+          'unquoted_sheet_reference',
+          path,
+          `Formula references sheet "${name}" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '${name}'!.`
+        );
       }
       if (externalLinkReference(cell.formula)) {
-        list.push('warning', 'external_link_reference', path, 'Formula links to another workbook; only its cached value is available here, and recalculation would replace the link with #NAME?. Copy the value into a sourced input cell instead.');
+        list.push(
+          'warning',
+          'external_link_reference',
+          path,
+          'Formula links to another workbook; only its cached value is available here, and recalculation would replace the link with #NAME?. Copy the value into a sourced input cell instead.'
+        );
       }
       continue;
     }
     const value = numericValue(cell);
     if (value === null) continue;
     if (percentFormat(cell.style) && Math.abs(value) >= 10) {
-      list.push('warning', 'percentage_stored_as_whole', path, `Cell shows ${value}% × 100: a percentage is stored as a fraction (0.15 renders 15.0%), so ${value} renders ${value * 100}%.`);
+      list.push(
+        'warning',
+        'percentage_stored_as_whole',
+        path,
+        `Cell shows ${value}% × 100: a percentage is stored as a fraction (0.15 renders 15.0%), so ${value} renders ${value * 100}%.`
+      );
     }
     if (thousandsFormat(cell.style) && Number.isInteger(value) && value >= 1900 && value <= 2100) {
-      list.push('warning', 'year_with_thousands_separator', path, `Year ${value} renders as ${value.toLocaleString('en-US')} under a thousands-separator format; store years as text or format them 0.`);
+      list.push(
+        'warning',
+        'year_with_thousands_separator',
+        path,
+        `Year ${value} renders as ${value.toLocaleString('en-US')} under a thousands-separator format; store years as text or format them 0.`
+      );
     }
   }
 }
@@ -86,14 +125,20 @@ export function auditSheetLayout(list, sheet, cells) {
     const headerRow = Math.min(...located.map((entry) => entry.at.row));
     const headers = located.filter((entry) => entry.at.row === headerRow && entry.cell.dataType === 'text');
     if (lastRow - headerRow >= LONG_SHEET_ROWS && headers.length >= 2) {
-      list.push('info', 'header_not_frozen', sheetPath(sheet), `${lastRow - headerRow} rows scroll under an unfrozen header row; freeze_panes row:${headerRow + 1} keeps the headers in view.`);
+      list.push(
+        'info',
+        'header_not_frozen',
+        sheetPath(sheet),
+        `${lastRow - headerRow} rows scroll under an unfrozen header row; freeze_panes row:${headerRow + 1} keeps the headers in view.`
+      );
     }
   }
   tableAreas(sheet).forEach((area, index) => {
     const unformatted = [];
     for (let column = area.startCol; column <= area.endCol; column += 1) {
-      const body = located.filter((entry) => entry.at.column === column
-        && entry.at.row > area.startRow && entry.at.row <= area.endRow);
+      const body = located.filter(
+        (entry) => entry.at.column === column && entry.at.row > area.startRow && entry.at.row <= area.endRow
+      );
       const numbers = body.filter((entry) => entry.cell.dataType !== 'text' && numericValue(entry.cell) !== null);
       if (numbers.length < NUMERIC_COLUMN_MIN || numbers.length < body.length) continue;
       if (!numbers.every((entry) => generalFormat(entry.cell.style))) continue;
@@ -107,8 +152,8 @@ export function auditSheetLayout(list, sheet, cells) {
       'info',
       'numeric_column_unformatted',
       area.table.path || `${sheetPath(sheet)}/table[${index + 1}]`,
-      `Column${unformatted.length > 1 ? 's' : ''} ${unformatted.join(', ')} of ${area.table.name || 'the table'}`
-        + ` hold numbers under the General format; an explicit format (#,##0, 0.0%, yyyy-mm-dd) aligns the figures and names their unit.`,
+      `Column${unformatted.length > 1 ? 's' : ''} ${unformatted.join(', ')} of ${area.table.name || 'the table'}` +
+        ` hold numbers under the General format; an explicit format (#,##0, 0.0%, yyyy-mm-dd) aligns the figures and names their unit.`
     );
   });
 }

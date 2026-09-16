@@ -17,7 +17,9 @@ export function pretty(value: unknown): string {
 export function Group({ title, children }: React.PropsWithChildren<{ title: string }>) {
   return (
     <section className="settings-group">
-      <header><h3>{title}</h3></header>
+      <header>
+        <h3>{title}</h3>
+      </header>
       <div className="settings-group-body">{children}</div>
     </section>
   );
@@ -48,12 +50,7 @@ export function SurfaceBody({
 }) {
   const busy = Boolean(pending);
   if (surface === 'context') {
-    return (
-      <ContextBody
-        status={data.contextStatus}
-        snapshot={commandSurfaceDisplaySnapshot(data, snapshot)}
-      />
-    );
+    return <ContextBody status={data.contextStatus} snapshot={commandSurfaceDisplaySnapshot(data, snapshot)} />;
   }
   if (surface === 'usage') {
     return <UsageBody data={data} />;

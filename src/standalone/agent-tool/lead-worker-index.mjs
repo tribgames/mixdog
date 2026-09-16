@@ -29,9 +29,9 @@ const LEAD_POOL_FRESH_MS = 2 * 60 * 1000;
 function normalizeLeadRows(value) {
   const source = Array.isArray(value?.workers)
     ? value.workers
-    : (value?.workers && typeof value.workers === 'object'
+    : value?.workers && typeof value.workers === 'object'
       ? Object.values(value.workers)
-      : []);
+      : [];
   return source
     .filter((row) => row && typeof row === 'object')
     .map((row) => {
@@ -55,7 +55,7 @@ function normalizeLeadRows(value) {
 export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession }) {
   const reapTimers = new Map();
   const activeLeadSessions = new Set();
-  const leadWorkerIndexPath = () => dataDir ? resolve(dataDir, LEAD_WORKER_INDEX_FILE) : null;
+  const leadWorkerIndexPath = () => (dataDir ? resolve(dataDir, LEAD_WORKER_INDEX_FILE) : null);
 
   function leadHeartbeatFresh(sessionId, now) {
     const id = clean(sessionId);
@@ -80,8 +80,11 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession })
 
   function terminalReapAt(row, now) {
     let reapMs = null;
-    try { reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), row?.provider); }
-    catch { reapMs = null; }
+    try {
+      reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), row?.provider);
+    } catch {
+      reapMs = null;
+    }
     return reapMs == null ? null : new Date(now + reapMs).toISOString();
   }
 
@@ -95,31 +98,38 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession })
       status: 'idle',
       stage: 'idle',
       turnStartedAt: null,
-      finishedAt: touch ? stamp : (clean(row.finishedAt) || clean(row.updatedAt) || stamp),
-      updatedAt: touch ? stamp : (clean(row.updatedAt) || stamp),
-      reapAt: touch ? terminalReapAt(row, now) : (clean(row.reapAt) || terminalReapAt(row, now)),
+      finishedAt: touch ? stamp : clean(row.finishedAt) || clean(row.updatedAt) || stamp,
+      updatedAt: touch ? stamp : clean(row.updatedAt) || stamp,
+      reapAt: touch ? terminalReapAt(row, now) : clean(row.reapAt) || terminalReapAt(row, now),
     };
   }
 
   function readLeadWorkerRows() {
     const file = leadWorkerIndexPath();
     if (!file) return [];
-    try { return normalizeLeadRows(JSON.parse(readFileSync(file, 'utf8'))); }
-    catch { return []; }
+    try {
+      return normalizeLeadRows(JSON.parse(readFileSync(file, 'utf8')));
+    } catch {
+      return [];
+    }
   }
 
   function writeLeadWorkerRows(mutator) {
     const file = leadWorkerIndexPath();
     if (!file || typeof mutator !== 'function') return null;
     try {
-      return updateJsonAtomicSync(file, (current) => {
-        const byKey = new Map();
-        for (const row of normalizeLeadRows(current)) byKey.set(workerRowKey(row), row);
-        mutator(byKey);
-        const workers = {};
-        for (const row of byKey.values()) workers[workerRowKey(row)] = row;
-        return { version: 1, updatedAt: new Date().toISOString(), workers };
-      }, { lock: true });
+      return updateJsonAtomicSync(
+        file,
+        (current) => {
+          const byKey = new Map();
+          for (const row of normalizeLeadRows(current)) byKey.set(workerRowKey(row), row);
+          mutator(byKey);
+          const workers = {};
+          for (const row of byKey.values()) workers[workerRowKey(row)] = row;
+          return { version: 1, updatedAt: new Date().toISOString(), workers };
+        },
+        { lock: true }
+      );
     } catch {
       return null;
     }

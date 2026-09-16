@@ -28,7 +28,6 @@ export function normalizePriority(value) {
   return Object.hasOwn(PRIORITY_RANK, key) ? key : 'user-visible';
 }
 
-
 function envLimits(env = process.env) {
   return {
     maxAgents: positiveInt(env.MIXDOG_MAX_CONCURRENT_AGENTS, RESOURCE_ADMISSION_DEFAULTS.maxAgents),
@@ -81,12 +80,7 @@ class ResourceAdmissionQueueFullError extends ResourcePressureError {
  * concurrency-blocked request in the bounded FIFO queue.
  */
 export class ResourceAdmissionController {
-  constructor({
-    limits = {},
-    metrics = defaultMetrics,
-    now = Date.now,
-    env = process.env,
-  } = {}) {
+  constructor({ limits = {}, metrics = defaultMetrics, now = Date.now, env = process.env } = {}) {
     this.limits = { ...envLimits(env), ...limits };
     this.metrics = metrics;
     this.now = now;
@@ -105,19 +99,22 @@ export class ResourceAdmissionController {
     // into a failed task because of an RSS or host-free-memory sample.
     if (this.limits.maxRssMb <= 0 && this.limits.minFreeMemoryMb <= 0) return false;
     let sample;
-    try { sample = this.metrics() || {}; }
-    catch { return false; }
+    try {
+      sample = this.metrics() || {};
+    } catch {
+      return false;
+    }
     const rssMb = Number(sample.rssBytes) / MB;
     const freeMb = Number(sample.freeMemoryBytes) / MB;
     if (this.limits.maxRssMb > 0 && Number.isFinite(rssMb) && rssMb >= this.limits.maxRssMb) {
       requestMemoryPressureSnapshot(
-        `diagnostic threshold: Mixdog RSS ${Math.ceil(rssMb)} MB reached ${this.limits.maxRssMb} MB while starting ${kind}`,
+        `diagnostic threshold: Mixdog RSS ${Math.ceil(rssMb)} MB reached ${this.limits.maxRssMb} MB while starting ${kind}`
       );
       return true;
     }
     if (this.limits.minFreeMemoryMb > 0 && Number.isFinite(freeMb) && freeMb < this.limits.minFreeMemoryMb) {
       requestMemoryPressureSnapshot(
-        `diagnostic threshold: host free memory ${Math.floor(freeMb)} MB is below ${this.limits.minFreeMemoryMb} MB while starting ${kind}`,
+        `diagnostic threshold: host free memory ${Math.floor(freeMb)} MB is below ${this.limits.minFreeMemoryMb} MB while starting ${kind}`
       );
       return true;
     }
@@ -267,10 +264,10 @@ export class ResourceAdmissionController {
     }
   }
 
-  acquire(kind, {
-    signal = null, label = null, dependency = 'scoped', ownerKey = null,
-    priority = 'user-visible',
-  } = {}) {
+  acquire(
+    kind,
+    { signal = null, label = null, dependency = 'scoped', ownerKey = null, priority = 'user-visible' } = {}
+  ) {
     const lane = kind === 'shell' ? 'shell' : 'agent';
     const owner = ownerKey == null ? '' : String(ownerKey).trim().slice(0, 240);
     const taskPriority = normalizePriority(priority);
@@ -282,7 +279,7 @@ export class ResourceAdmissionController {
     if (detachedDependency && (!this._canStart(lane) || this.queue.length > 0)) {
       const error = new ResourcePressureError(
         `detached nested ${lane} work has no admission capacity; retry after running work completes`,
-        { kind: lane },
+        { kind: lane }
       );
       error.code = 'ERESOURCEDEPENDENCY';
       return Promise.reject(error);
@@ -297,7 +294,7 @@ export class ResourceAdmissionController {
       const error = new ResourceAdmissionQueueFullError(this.limits.maxQueue);
       return this._resumeParent(parent).then(
         () => Promise.reject(error),
-        (restoreError) => Promise.reject(restoreError),
+        (restoreError) => Promise.reject(restoreError)
       );
     }
     return new Promise((resolve, reject) => {
@@ -324,7 +321,7 @@ export class ResourceAdmissionController {
           const error = abortError(signal);
           this._resumeParent(item.parent).then(
             () => reject(error),
-            (restoreError) => reject(restoreError),
+            (restoreError) => reject(restoreError)
           );
           this._drain();
         };
@@ -337,7 +334,9 @@ export class ResourceAdmissionController {
 
   _detach(item) {
     if (item.onAbort && item.signal) {
-      try { item.signal.removeEventListener('abort', item.onAbort); } catch {}
+      try {
+        item.signal.removeEventListener('abort', item.onAbort);
+      } catch {}
       item.onAbort = null;
     }
   }
@@ -355,10 +354,8 @@ export class ResourceAdmissionController {
     // USER_BLOCKING work (abort/recovery), then USER_VISIBLE tool work, then
     // BEST_EFFORT maintenance. Preserve FIFO between resource kinds inside a
     // priority and round-robin sessions within that lane.
-    const bestRank = Math.min(...runnable.map(({ item }) =>
-      PRIORITY_RANK[normalizePriority(item.priority)]));
-    const prioritized = runnable.filter(({ item }) =>
-      PRIORITY_RANK[normalizePriority(item.priority)] === bestRank);
+    const bestRank = Math.min(...runnable.map(({ item }) => PRIORITY_RANK[normalizePriority(item.priority)]));
+    const prioritized = runnable.filter(({ item }) => PRIORITY_RANK[normalizePriority(item.priority)] === bestRank);
     const lane = prioritized[0].item.kind;
     const laneRows = prioritized.filter((row) => row.item.kind === lane);
     const owners = [];
@@ -383,32 +380,32 @@ export class ResourceAdmissionController {
       let cleaned = false;
       for (let index = 0; index < this.queue.length; index += 1) {
         const item = this.queue[index];
-      if (item.restore) {
-        if (item.parent.released) {
+        if (item.restore) {
+          if (item.parent.released) {
+            this.queue.splice(index, 1);
+            this._detach(item);
+            item.parent.restorePending = null;
+            item.resolve();
+            cleaned = true;
+            break;
+          }
+          if (item.signal?.aborted) {
+            this.queue.splice(index, 1);
+            this._detach(item);
+            item.parent.restorePending = null;
+            item.reject(abortError(item.signal));
+            cleaned = true;
+            break;
+          }
+        }
+        if (item.canceled || item.signal?.aborted) {
           this.queue.splice(index, 1);
           this._detach(item);
-          item.parent.restorePending = null;
-          item.resolve();
-          cleaned = true;
-          break;
-        }
-        if (item.signal?.aborted) {
-          this.queue.splice(index, 1);
-          this._detach(item);
-          item.parent.restorePending = null;
-          item.reject(abortError(item.signal));
-          cleaned = true;
-          break;
-        }
-      }
-      if (item.canceled || item.signal?.aborted) {
-        this.queue.splice(index, 1);
-        this._detach(item);
-        const error = abortError(item.signal);
-        this._resumeParent(item.parent).then(
-          () => item.reject(error),
-          (restoreError) => item.reject(restoreError),
-        );
+          const error = abortError(item.signal);
+          this._resumeParent(item.parent).then(
+            () => item.reject(error),
+            (restoreError) => item.reject(restoreError)
+          );
           cleaned = true;
           break;
         }
@@ -425,21 +422,12 @@ export class ResourceAdmissionController {
         item.parent.counted = true;
         this.active[item.kind] += 1;
         if (item.ownerKey) {
-          this.activeByOwner[item.kind].set(
-            item.ownerKey,
-            (this.activeByOwner[item.kind].get(item.ownerKey) || 0) + 1,
-          );
+          this.activeByOwner[item.kind].set(item.ownerKey, (this.activeByOwner[item.kind].get(item.ownerKey) || 0) + 1);
         }
         item.resolve();
         continue;
       }
-      const lease = this._lease(
-        item.kind,
-        item.queuedAt,
-        item.parent,
-        item.ownerKey,
-        item.priority,
-      );
+      const lease = this._lease(item.kind, item.queuedAt, item.parent, item.ownerKey, item.priority);
       lease.label = item.label;
       lease.signal = item.signal;
       item.resolve(lease);
@@ -448,7 +436,7 @@ export class ResourceAdmissionController {
 
   snapshot() {
     const now = this.now();
-    const wireLimit = (value) => Number.isFinite(value) ? value : null;
+    const wireLimit = (value) => (Number.isFinite(value) ? value : null);
     return {
       active: { ...this.active },
       activeOwners: {
@@ -471,7 +459,7 @@ export class ResourceAdmissionController {
       })),
       oldestQueuedMs: this.queue.reduce(
         (oldest, item) => Math.max(oldest, Math.max(0, now - (item.queuedAt || now))),
-        0,
+        0
       ),
     };
   }

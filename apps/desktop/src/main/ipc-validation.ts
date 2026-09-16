@@ -1,7 +1,4 @@
-import {
-  isAbsolute as pathIsAbsolute,
-  resolve as resolvePath,
-} from 'node:path';
+import { isAbsolute as pathIsAbsolute, resolve as resolvePath } from 'node:path';
 
 import {
   DESKTOP_CAPABILITIES,
@@ -37,14 +34,27 @@ const MAX_STRUCTURED_STRING_TOTAL = 32_000_000;
 const CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);
 const READ_CAPABILITY_SET = new Set<string>(DESKTOP_READ_CAPABILITIES);
 const BOOLEAN_FIRST_CAPABILITIES = new Set<DesktopCapability>([
-  'setAutoUpdate', 'setRecapEnabled', 'setWebSearchEnabled', 'setMemoryToolsEnabled', 'toggleVoice',
+  'setAutoUpdate',
+  'setRecapEnabled',
+  'setWebSearchEnabled',
+  'setMemoryToolsEnabled',
+  'toggleVoice',
 ]);
 const BOOLEAN_SECOND_CAPABILITIES = new Set<DesktopCapability>([
-  'setMcpServerEnabled', 'setPluginEnabled', 'setScheduleEnabled', 'setWebhookEnabled',
+  'setMcpServerEnabled',
+  'setPluginEnabled',
+  'setScheduleEnabled',
+  'setWebhookEnabled',
   'setBuiltinToolEnabled',
 ]);
 const SUBMIT_OPTION_KEYS = new Set([
-  'id', 'submittedAt', 'displayText', 'goalCommand', 'priority', 'pastedImages', 'pastedTexts',
+  'id',
+  'submittedAt',
+  'displayText',
+  'goalCommand',
+  'priority',
+  'pastedImages',
+  'pastedTexts',
 ]);
 const ABORT_OPTION_KEYS = new Set(['restorePrompt', 'submissionId']);
 const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId']);
@@ -55,51 +65,146 @@ const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh']);
 const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason']);
 
 const CAPABILITY_ARITY = {
-  prioritizeQueued: [1, 1], restoreQueued: [0, 2], rewindToItem: [1, 1], setEffort: [1, 1], setToolMode: [1, 1], getAutoClear: [0, 0],
-  setAutoClear: [0, 1], getUpdateSettings: [0, 0], setAutoUpdate: [1, 1], checkForUpdate: [0, 1],
-  runUpdateNow: [0, 0], getUpdateStatus: [0, 0], getProfile: [0, 0], setProfile: [0, 1],
-  getCompactionSettings: [0, 0], setCompactionSettings: [0, 1], getRecapSettings: [0, 0],
-  setRecapEnabled: [1, 1], getToolModuleSettings: [0, 0], setWebSearchEnabled: [1, 1], setMemoryToolsEnabled: [1, 1],
-  setBuiltinToolEnabled: [2, 2], installBuiltinFeature: [1, 1], installLocalProviderModel: [1, 1],
-  startLocalProviderInstallation: [1, 2], cancelLocalProviderInstallation: [1, 1], setLocalProviderIdleTtl: [1, 1],
+  prioritizeQueued: [1, 1],
+  restoreQueued: [0, 2],
+  rewindToItem: [1, 1],
+  setEffort: [1, 1],
+  setToolMode: [1, 1],
+  getAutoClear: [0, 0],
+  setAutoClear: [0, 1],
+  getUpdateSettings: [0, 0],
+  setAutoUpdate: [1, 1],
+  checkForUpdate: [0, 1],
+  runUpdateNow: [0, 0],
+  getUpdateStatus: [0, 0],
+  getProfile: [0, 0],
+  setProfile: [0, 1],
+  getCompactionSettings: [0, 0],
+  setCompactionSettings: [0, 1],
+  getRecapSettings: [0, 0],
+  setRecapEnabled: [1, 1],
+  getToolModuleSettings: [0, 0],
+  setWebSearchEnabled: [1, 1],
+  setMemoryToolsEnabled: [1, 1],
+  setBuiltinToolEnabled: [2, 2],
+  installBuiltinFeature: [1, 1],
+  installLocalProviderModel: [1, 1],
+  startLocalProviderInstallation: [1, 2],
+  cancelLocalProviderInstallation: [1, 1],
+  setLocalProviderIdleTtl: [1, 1],
   setLocalProviderContext: [2, 2],
-  getLocalProviderModelDetails: [1, 1], startLocalProviderModelMaintenance: [2, 2], deleteLocalProviderModel: [1, 1],
-  getVoiceStatus: [0, 0], toggleVoice: [1, 1],
-  agentControl: [0, 2], taskControl: [0, 1], goalControl: [0, 1], toolsStatus: [0, 1], selectTools: [1, 1], getSystemShell: [0, 0],
-  setSystemShell: [1, 1], mcpStatus: [0, 0], getMcpServerConfig: [1, 1], reconnectMcp: [0, 0], addMcpServer: [1, 1],
+  getLocalProviderModelDetails: [1, 1],
+  startLocalProviderModelMaintenance: [2, 2],
+  deleteLocalProviderModel: [1, 1],
+  getVoiceStatus: [0, 0],
+  toggleVoice: [1, 1],
+  agentControl: [0, 2],
+  taskControl: [0, 1],
+  goalControl: [0, 1],
+  toolsStatus: [0, 1],
+  selectTools: [1, 1],
+  getSystemShell: [0, 0],
+  setSystemShell: [1, 1],
+  mcpStatus: [0, 0],
+  getMcpServerConfig: [1, 1],
+  reconnectMcp: [0, 0],
+  addMcpServer: [1, 1],
   saveMcpServer: [1, 1],
-  removeMcpServer: [1, 1], setMcpServerEnabled: [2, 2], getDisabledSkills: [0, 0],
-  setDisabledSkills: [1, 1], setExtensionScope: [2, 3], skillsStatus: [0, 0], skillContent: [1, 1], addSkill: [1, 1],
-  saveSkill: [1, 1], reloadSkills: [0, 0], pluginsStatus: [0, 0], reloadPlugins: [0, 0], addPlugin: [1, 1],
-  updatePlugin: [1, 1], setPluginEnabled: [2, 2], removePlugin: [1, 1], enablePluginMcp: [1, 1],
-  contextStatus: [0, 0], inheritancePreflight: [0, 2],
-  memoryControl: [0, 2], recall: [1, 2], runDoctor: [0, 0], compact: [0, 0], listPresets: [0, 0],
+  removeMcpServer: [1, 1],
+  setMcpServerEnabled: [2, 2],
+  getDisabledSkills: [0, 0],
+  setDisabledSkills: [1, 1],
+  setExtensionScope: [2, 3],
+  skillsStatus: [0, 0],
+  skillContent: [1, 1],
+  addSkill: [1, 1],
+  saveSkill: [1, 1],
+  reloadSkills: [0, 0],
+  pluginsStatus: [0, 0],
+  reloadPlugins: [0, 0],
+  addPlugin: [1, 1],
+  updatePlugin: [1, 1],
+  setPluginEnabled: [2, 2],
+  removePlugin: [1, 1],
+  enablePluginMcp: [1, 1],
+  contextStatus: [0, 0],
+  inheritancePreflight: [0, 2],
+  memoryControl: [0, 2],
+  recall: [1, 2],
+  runDoctor: [0, 0],
+  compact: [0, 0],
+  listPresets: [0, 0],
   setModel: [1, 1],
-  getWebSearchRoute: [0, 0], listWebSearchModels: [0, 1], setWebSearchRoute: [1, 1], listAgents: [0, 0],
-  listWorkflows: [0, 0], getOutputStyle: [0, 0], listOutputStyles: [0, 0], setOutputStyle: [1, 1],
+  getWebSearchRoute: [0, 0],
+  listWebSearchModels: [0, 1],
+  setWebSearchRoute: [1, 1],
+  listAgents: [0, 0],
+  listWorkflows: [0, 0],
+  getOutputStyle: [0, 0],
+  listOutputStyles: [0, 0],
+  setOutputStyle: [1, 1],
   setWorkflow: [1, 1],
-  getWorkflowPack: [1, 1], saveWorkflowPack: [1, 1], createWorkflow: [1, 1], deleteWorkflow: [1, 1],
-  getAgentDefinition: [1, 1], saveAgentDefinition: [1, 1], deleteAgentDefinition: [1, 1],
-  listThemes: [0, 0], getTheme: [0, 0], setTheme: [1, 2], setAgentRoute: [2, 2],
-  listProviders: [0, 0], listProviderModels: [0, 1], getProviderSetup: [0, 1],
-  getProviderAccounts: [1, 1], updateProviderAccounts: [2, 2],
-  getUsageDashboard: [0, 1], getUsageStats: [0, 1], consumeCodexRateLimitResetCredit: [1, 1],
-  getSessionReviewDiff: [0, 0], getTurnReviewDiff: [0, 0], revertTurnReview: [0, 1], revertTurnReviewFile: [1, 2],
-  getOnboardingStatus: [0, 0], skipOnboarding: [0, 0],
-  completeOnboarding: [0, 1], loginOAuthProvider: [1, 1], beginOAuthProviderLogin: [1, 2],
-  getOAuthProviderLoginStatus: [1, 1], completeOAuthProviderLogin: [2, 2], cancelOAuthProviderLogin: [1, 1],
-  saveProviderApiKey: [2, 2], saveOpenCodeGoUsageAuth: [1, 1], loginOpenCodeGoUsage: [0, 0],
-  saveOpenAIUsageSessionKey: [1, 1], authenticateProvider: [2, 2],
-  forgetProviderAuth: [1, 2], getChannelSetup: [0, 0],
+  getWorkflowPack: [1, 1],
+  saveWorkflowPack: [1, 1],
+  createWorkflow: [1, 1],
+  deleteWorkflow: [1, 1],
+  getAgentDefinition: [1, 1],
+  saveAgentDefinition: [1, 1],
+  deleteAgentDefinition: [1, 1],
+  listThemes: [0, 0],
+  getTheme: [0, 0],
+  setTheme: [1, 2],
+  setAgentRoute: [2, 2],
+  listProviders: [0, 0],
+  listProviderModels: [0, 1],
+  getProviderSetup: [0, 1],
+  getProviderAccounts: [1, 1],
+  updateProviderAccounts: [2, 2],
+  getUsageDashboard: [0, 1],
+  getUsageStats: [0, 1],
+  consumeCodexRateLimitResetCredit: [1, 1],
+  getSessionReviewDiff: [0, 0],
+  getTurnReviewDiff: [0, 0],
+  revertTurnReview: [0, 1],
+  revertTurnReviewFile: [1, 2],
+  getOnboardingStatus: [0, 0],
+  skipOnboarding: [0, 0],
+  completeOnboarding: [0, 1],
+  loginOAuthProvider: [1, 1],
+  beginOAuthProviderLogin: [1, 2],
+  getOAuthProviderLoginStatus: [1, 1],
+  completeOAuthProviderLogin: [2, 2],
+  cancelOAuthProviderLogin: [1, 1],
+  saveProviderApiKey: [2, 2],
+  saveOpenCodeGoUsageAuth: [1, 1],
+  loginOpenCodeGoUsage: [0, 0],
+  saveOpenAIUsageSessionKey: [1, 1],
+  authenticateProvider: [2, 2],
+  forgetProviderAuth: [1, 2],
+  getChannelSetup: [0, 0],
   setWebhookConfig: [1, 1],
-  saveSchedule: [1, 1], deleteSchedule: [1, 1], setScheduleEnabled: [2, 2], runScheduleNow: [1, 1], saveWebhook: [1, 1],
-  deleteWebhook: [1, 1], setWebhookEnabled: [2, 2], clear: [0, 0], transcribeAudio: [1, 1],
+  saveSchedule: [1, 1],
+  deleteSchedule: [1, 1],
+  setScheduleEnabled: [2, 2],
+  runScheduleNow: [1, 1],
+  saveWebhook: [1, 1],
+  deleteWebhook: [1, 1],
+  setWebhookEnabled: [2, 2],
+  clear: [0, 0],
+  transcribeAudio: [1, 1],
   resizeImage: [1, 1],
-  listMediaLanes: [0, 0], listMediaAssets: [0, 1], readMediaAsset: [1, 2],
+  listMediaLanes: [0, 0],
+  listMediaAssets: [0, 1],
+  readMediaAsset: [1, 2],
   cacheMediaThumbnail: [2, 2],
   resolveMediaFile: [1, 2],
-  getMediaJob: [1, 1], getMediaDefault: [1, 1], setMediaDefault: [1, 1], startMediaJob: [1, 1],
-  cancelMediaJob: [1, 1], deleteMediaAsset: [1, 1], openMediaAsset: [1, 1],
+  getMediaJob: [1, 1],
+  getMediaDefault: [1, 1],
+  setMediaDefault: [1, 1],
+  startMediaJob: [1, 1],
+  cancelMediaJob: [1, 1],
+  deleteMediaAsset: [1, 1],
+  openMediaAsset: [1, 1],
   openMediaFolder: [0, 1],
 } as const satisfies Record<DesktopCapability, readonly [number, number]>;
 
@@ -111,20 +216,13 @@ export function requiredString(value: unknown, name: string, maximum = 32_768): 
 }
 
 export function requiredGitGlobalConfigKey(value: unknown): DesktopGitGlobalConfigKey {
-  if (
-    typeof value === 'string'
-    && (DESKTOP_GIT_GLOBAL_CONFIG_KEYS as readonly string[]).includes(value)
-  ) {
+  if (typeof value === 'string' && (DESKTOP_GIT_GLOBAL_CONFIG_KEYS as readonly string[]).includes(value)) {
     return value as DesktopGitGlobalConfigKey;
   }
   throw new TypeError('key must be user.name, user.email, or init.defaultBranch.');
 }
 
-export function requireAllowedKeys(
-  input: Record<string, unknown>,
-  allowed: ReadonlySet<string>,
-  name: string,
-): void {
+export function requireAllowedKeys(input: Record<string, unknown>, allowed: ReadonlySet<string>, name: string): void {
   if (Object.keys(input).some((key) => !allowed.has(key))) {
     throw new TypeError(`${name} contains an unsupported field.`);
   }
@@ -179,11 +277,7 @@ export function requiredWorkspaceSearchLimit(value: unknown): number {
   return value as number;
 }
 
-export function validateStructuredValue(
-  value: unknown,
-  state = { strings: 0, nodes: 0 },
-  depth = 0,
-): void {
+export function validateStructuredValue(value: unknown, state = { strings: 0, nodes: 0 }, depth = 0): void {
   state.nodes += 1;
   if (state.nodes > 20_000 || depth > 12) throw new TypeError('structured input is too large.');
   if (value === null || typeof value === 'boolean') return;
@@ -245,8 +339,12 @@ export function requiredPromptContent(value: unknown): DesktopPromptContent {
       if (!/^image\/(?:png|jpe?g|gif|webp)$/.test(mimeType)) {
         throw new TypeError('image type is unsupported.');
       }
-      if (typeof part.data !== 'string' || !part.data || part.data.length > MAX_IMAGE_BASE64_LENGTH ||
-        !/^[A-Za-z0-9+/]*={0,2}$/.test(part.data)) {
+      if (
+        typeof part.data !== 'string' ||
+        !part.data ||
+        part.data.length > MAX_IMAGE_BASE64_LENGTH ||
+        !/^[A-Za-z0-9+/]*={0,2}$/.test(part.data)
+      ) {
         throw new TypeError('image data is invalid.');
       }
       imageLength += part.data.length;
@@ -259,8 +357,12 @@ export function requiredPromptContent(value: unknown): DesktopPromptContent {
       if (fileCount > 4) throw new TypeError('too many prompt files.');
       const mimeType = requiredString(part.mimeType, 'file mime type', 64).toLowerCase();
       if (mimeType !== 'application/pdf') throw new TypeError('file type is unsupported.');
-      if (typeof part.data !== 'string' || !part.data || part.data.length > MAX_FILE_BASE64_LENGTH ||
-        !/^[A-Za-z0-9+/]*={0,2}$/.test(part.data)) {
+      if (
+        typeof part.data !== 'string' ||
+        !part.data ||
+        part.data.length > MAX_FILE_BASE64_LENGTH ||
+        !/^[A-Za-z0-9+/]*={0,2}$/.test(part.data)
+      ) {
         throw new TypeError('file data is invalid.');
       }
       fileLength += part.data.length;
@@ -283,26 +385,35 @@ export function requiredSubmitOptions(value: unknown): DesktopSubmitOptions {
   validateStructuredValue(value);
   const input = value as Record<string, unknown>;
   requireAllowedKeys(input, SUBMIT_OPTION_KEYS, 'submit options');
-  if (input.id !== undefined &&
-    (typeof input.id !== 'string' || !input.id.trim() || input.id.length > 256 ||
-      /[\u0000-\u001f\u007f]/.test(input.id))) {
+  if (
+    input.id !== undefined &&
+    (typeof input.id !== 'string' ||
+      !input.id.trim() ||
+      input.id.length > 256 ||
+      /[\u0000-\u001f\u007f]/.test(input.id))
+  ) {
     throw new TypeError('submit id is invalid.');
   }
-  if (input.submittedAt !== undefined &&
-    (!Number.isSafeInteger(input.submittedAt) || (input.submittedAt as number) <= 0)) {
+  if (
+    input.submittedAt !== undefined &&
+    (!Number.isSafeInteger(input.submittedAt) || (input.submittedAt as number) <= 0)
+  ) {
     throw new TypeError('submit timestamp is invalid.');
   }
   const priority = input.priority;
   if (priority !== undefined && priority !== 'now' && priority !== 'next' && priority !== 'later') {
     throw new TypeError('submit priority is invalid.');
   }
-  if (input.displayText !== undefined &&
-    (typeof input.displayText !== 'string' || input.displayText.length > MAX_PROMPT_LENGTH)) {
+  if (
+    input.displayText !== undefined &&
+    (typeof input.displayText !== 'string' || input.displayText.length > MAX_PROMPT_LENGTH)
+  ) {
     throw new TypeError('submit display text is invalid.');
   }
-  if (input.goalCommand !== undefined &&
-    (typeof input.goalCommand !== 'string' || !input.goalCommand.trim() ||
-      input.goalCommand.length > MAX_PROMPT_LENGTH)) {
+  if (
+    input.goalCommand !== undefined &&
+    (typeof input.goalCommand !== 'string' || !input.goalCommand.trim() || input.goalCommand.length > MAX_PROMPT_LENGTH)
+  ) {
     throw new TypeError('goal command is invalid.');
   }
   return value as DesktopSubmitOptions;
@@ -332,13 +443,9 @@ export function requiredNewTaskDraft(value: unknown): DesktopNewTaskDraft {
   validateStructuredValue(value);
   const input = value as Record<string, unknown>;
   requireAllowedKeys(input, NEW_TASK_DRAFT_KEYS, 'new task draft');
-  const projectPath = input.projectPath === undefined
-    ? ''
-    : requiredString(input.projectPath, 'projectPath');
+  const projectPath = input.projectPath === undefined ? '' : requiredString(input.projectPath, 'projectPath');
   const route = input.route === undefined ? undefined : requiredModelSelection(input.route);
-  const workflowId = input.workflowId === undefined
-    ? ''
-    : requiredString(input.workflowId, 'workflowId', 256);
+  const workflowId = input.workflowId === undefined ? '' : requiredString(input.workflowId, 'workflowId', 256);
   // A legacy `remote` flag was validated here, but NEW_TASK_DRAFT_KEYS rejects
   // the key before this point, the contract has no such field, and no caller
   // sends one: the branch was unreachable and is gone with its passthrough.
@@ -372,13 +479,23 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
   if (BOOLEAN_SECOND_CAPABILITIES.has(capability) && typeof args[1] !== 'boolean') {
     throw new TypeError(`${capability} requires a boolean value.`);
   }
-  if (capability === 'setBuiltinToolEnabled'
-    && args[0] !== 'git' && args[0] !== 'office' && args[0] !== 'localProvider' && args[0] !== 'tidy') {
+  if (
+    capability === 'setBuiltinToolEnabled' &&
+    args[0] !== 'git' &&
+    args[0] !== 'office' &&
+    args[0] !== 'localProvider' &&
+    args[0] !== 'tidy'
+  ) {
     throw new TypeError('setBuiltinToolEnabled requires git, office, localProvider, or tidy.');
   }
-  if (capability === 'installBuiltinFeature'
-    && args[0] !== 'git' && args[0] !== 'memory' && args[0] !== 'office'
-    && args[0] !== 'localProvider' && args[0] !== 'tidy') {
+  if (
+    capability === 'installBuiltinFeature' &&
+    args[0] !== 'git' &&
+    args[0] !== 'memory' &&
+    args[0] !== 'office' &&
+    args[0] !== 'localProvider' &&
+    args[0] !== 'tidy'
+  ) {
     throw new TypeError('installBuiltinFeature requires git, memory, office, localProvider, or tidy.');
   }
   if (capability === 'setModel') requiredString(args[0], 'model selector', 512);
@@ -394,13 +511,16 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
       throw new TypeError('Context size must be null (automatic) or an integer of at least 512 tokens.');
     }
   }
-  if (capability === 'getLocalProviderModelDetails' || capability === 'startLocalProviderModelMaintenance') requiredString(args[0], 'modelId', 512);
+  if (capability === 'getLocalProviderModelDetails' || capability === 'startLocalProviderModelMaintenance')
+    requiredString(args[0], 'modelId', 512);
   if (capability === 'deleteLocalProviderModel') requiredString(args[0], 'confirmationToken', 128);
   if (capability === 'startLocalProviderModelMaintenance' && args[1] !== 'verify' && args[1] !== 'repair') {
     throw new TypeError('operation must be verify or repair.');
   }
-  if (capability === 'setLocalProviderIdleTtl'
-      && (typeof args[0] !== 'number' || !Number.isInteger(args[0]) || args[0] < 0 || args[0] > 86400)) {
+  if (
+    capability === 'setLocalProviderIdleTtl' &&
+    (typeof args[0] !== 'number' || !Number.isInteger(args[0]) || args[0] < 0 || args[0] > 86400)
+  ) {
     throw new TypeError('idleTtlSeconds must be an integer from 0 to 86400.');
   }
   const validateSecret = (secret: unknown, name: string) => {
@@ -415,27 +535,33 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     validateSecret(args[0], 'secret');
   }
   if (capability === 'saveOpenCodeGoUsageAuth') {
-    const options = args[0] && typeof args[0] === 'object' && !Array.isArray(args[0])
-      ? args[0] as Record<string, unknown> : null;
+    const options =
+      args[0] && typeof args[0] === 'object' && !Array.isArray(args[0]) ? (args[0] as Record<string, unknown>) : null;
     if (!options) throw new TypeError('OpenCode Go usage auth is invalid.');
     validateSecret(options.authCookie, 'OpenCode Go auth cookie');
-    if (options.workspaceId !== undefined &&
-      (typeof options.workspaceId !== 'string' || options.workspaceId.length > 256)) {
+    if (
+      options.workspaceId !== undefined &&
+      (typeof options.workspaceId !== 'string' || options.workspaceId.length > 256)
+    ) {
       throw new TypeError('OpenCode Go workspace id is invalid.');
     }
   }
   if (capability === 'getProviderSetup' && args[0] !== undefined) {
-    const options = args[0] && typeof args[0] === 'object' && !Array.isArray(args[0])
-      ? args[0] as Record<string, unknown> : null;
-    if (!options || Object.entries(options).some(([key, option]) =>
-      !PROVIDER_SETUP_OPTION_KEYS.has(key) || typeof option !== 'boolean')) {
+    const options =
+      args[0] && typeof args[0] === 'object' && !Array.isArray(args[0]) ? (args[0] as Record<string, unknown>) : null;
+    if (
+      !options ||
+      Object.entries(options).some(
+        ([key, option]) => !PROVIDER_SETUP_OPTION_KEYS.has(key) || typeof option !== 'boolean'
+      )
+    ) {
       throw new TypeError('provider setup options are invalid.');
     }
   }
-  const sessionId = input.sessionId === undefined || input.sessionId === null
-      || input.sessionId === ''
-    ? undefined
-    : requiredSessionId(input.sessionId);
+  const sessionId =
+    input.sessionId === undefined || input.sessionId === null || input.sessionId === ''
+      ? undefined
+      : requiredSessionId(input.sessionId);
   return { capability, args, ...(sessionId ? { sessionId } : {}) };
 }
 
@@ -468,14 +594,23 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
   if (fast !== undefined && typeof fast !== 'boolean') {
     throw new TypeError('selection.fast must be a boolean.');
   }
-  if (modelParameters !== undefined && (!modelParameters || typeof modelParameters !== 'object' || Array.isArray(modelParameters)
-    || Object.entries(modelParameters).some(([key, option]) => !key || typeof option !== 'string'))) {
+  if (
+    modelParameters !== undefined &&
+    (!modelParameters ||
+      typeof modelParameters !== 'object' ||
+      Array.isArray(modelParameters) ||
+      Object.entries(modelParameters).some(([key, option]) => !key || typeof option !== 'string'))
+  ) {
     throw new TypeError('selection.modelParameters must be a string map.');
   }
-  if (contextPercent !== undefined && (typeof contextPercent !== 'number'
-    || !Number.isFinite(contextPercent)
-    || contextPercent < 10 || contextPercent > 100
-    || contextPercent % 10 !== 0)) {
+  if (
+    contextPercent !== undefined &&
+    (typeof contextPercent !== 'number' ||
+      !Number.isFinite(contextPercent) ||
+      contextPercent < 10 ||
+      contextPercent > 100 ||
+      contextPercent % 10 !== 0)
+  ) {
     throw new TypeError('selection.contextPercent must be a 10-point percentage from 10 to 100.');
   }
   return {
@@ -483,7 +618,7 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
     model: requiredString(selection.model, 'selection.model', 512),
     ...(effort === undefined ? {} : { effort: requiredString(effort, 'selection.effort', 64) }),
     ...(fast === undefined ? {} : { fast }),
-    ...(modelParameters === undefined ? {} : { modelParameters: { ...modelParameters as Record<string, string> } }),
+    ...(modelParameters === undefined ? {} : { modelParameters: { ...(modelParameters as Record<string, string>) } }),
     ...(contextPercent === undefined ? {} : { contextPercent }),
   };
 }
@@ -503,14 +638,17 @@ export function requiredModelCatalogOptions(value: unknown): DesktopModelCatalog
 }
 
 export function requiredToolApprovalDecision(value: unknown): ToolApprovalDecision {
-  if (!value || typeof value !== 'object' || Array.isArray(value) ||
-    typeof (value as ToolApprovalDecision).approved !== 'boolean') {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    typeof (value as ToolApprovalDecision).approved !== 'boolean'
+  ) {
     throw new TypeError('decision is invalid.');
   }
   requireAllowedKeys(value as Record<string, unknown>, TOOL_APPROVAL_KEYS, 'decision');
   const decision = value as ToolApprovalDecision;
-  if (decision.reason !== undefined &&
-    (typeof decision.reason !== 'string' || decision.reason.length > 4_096)) {
+  if (decision.reason !== undefined && (typeof decision.reason !== 'string' || decision.reason.length > 4_096)) {
     throw new TypeError('decision.reason is invalid.');
   }
   return { approved: decision.approved, reason: decision.reason };
@@ -525,16 +663,21 @@ export function requiredGitPaths(value: unknown): string[] {
 
 export function requiredGitPath(value: unknown): string {
   const path = requiredString(value, 'git path', 4_096);
-  if (pathIsAbsolute(path) || path.includes('\0') ||
-    path.replace(/\\/g, '/').split('/').some((part) => part === '..')) {
+  if (
+    pathIsAbsolute(path) ||
+    path.includes('\0') ||
+    path
+      .replace(/\\/g, '/')
+      .split('/')
+      .some((part) => part === '..')
+  ) {
     throw new TypeError('git path is invalid.');
   }
   return path;
 }
 
 export function requiredGitPatch(value: unknown): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 4_000_000
-    || value.includes('\0')) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 4_000_000 || value.includes('\0')) {
     throw new TypeError('git patch is invalid.');
   }
   return value;
@@ -636,9 +779,14 @@ export function requiredAttachmentImage(value: unknown): { bytes: Buffer; extens
  * segment from the renderer survives into the path.
  */
 export function attachmentImageBaseName(value: unknown): string {
-  const label = typeof value === 'string'
-    ? value.replace(/\.[^./\\]*$/, '').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
-    : '';
+  const label =
+    typeof value === 'string'
+      ? value
+          .replace(/\.[^./\\]*$/, '')
+          .replace(/[^\w-]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 60)
+      : '';
   return label || 'image';
 }
 
@@ -650,22 +798,26 @@ export function requiredZoomFactor(value: unknown): number {
 }
 
 export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {
-  if (value === 'autoClear' || value === 'autoCompact' || value === 'keepAwake'
-    || value === 'usagePinned' || value === 'computerControl'
-    || value === 'computerObserveOnly' || value === 'browserControl'
-    || value === 'computerInstalled' || value === 'browserInstalled') return value;
+  if (
+    value === 'autoClear' ||
+    value === 'autoCompact' ||
+    value === 'keepAwake' ||
+    value === 'usagePinned' ||
+    value === 'computerControl' ||
+    value === 'computerObserveOnly' ||
+    value === 'browserControl' ||
+    value === 'computerInstalled' ||
+    value === 'browserInstalled'
+  )
+    return value;
   throw new TypeError('setting key is invalid.');
 }
 
 const LSP_REQUEST_METHOD_SET: ReadonlySet<string> = new Set(DESKTOP_LSP_REQUEST_METHODS);
-const LSP_DOCUMENT_KEYS = new Set([
-  'kind', 'projectPath', 'relPath', 'languageId', 'version', 'content',
-]);
+const LSP_DOCUMENT_KEYS = new Set(['kind', 'projectPath', 'relPath', 'languageId', 'version', 'content']);
 const LSP_REQUEST_KEYS = new Set(['projectPath', 'relPath', 'languageId', 'method', 'params']);
 const WORKSPACE_WRITE_KEYS = new Set(['relPath', 'content', 'expectedContent']);
-const WORKSPACE_SEARCH_KEYS = new Set([
-  'query', 'include', 'exclude', 'matchCase', 'wholeWord', 'regex', 'maxResults',
-]);
+const WORKSPACE_SEARCH_KEYS = new Set(['query', 'include', 'exclude', 'matchCase', 'wholeWord', 'regex', 'maxResults']);
 const MAX_TEXT_FILE_LENGTH = 4_194_304;
 
 export interface DesktopWorkspaceSearchOptionsInput {
@@ -707,15 +859,16 @@ export function requiredLspDocumentInput(value: unknown): DesktopLspDocumentInpu
   }
   const input = value as Record<string, unknown>;
   requireAllowedKeys(input, LSP_DOCUMENT_KEYS, 'LSP document input');
-  if (input.kind !== 'open' && input.kind !== 'change'
-    && input.kind !== 'save' && input.kind !== 'close') {
+  if (input.kind !== 'open' && input.kind !== 'change' && input.kind !== 'save' && input.kind !== 'close') {
     throw new TypeError('LSP document kind is invalid.');
   }
   if (!Number.isInteger(input.version) || Number(input.version) < 0) {
     throw new TypeError('LSP document version is invalid.');
   }
-  if (input.content !== undefined
-    && (typeof input.content !== 'string' || input.content.length > MAX_TEXT_FILE_LENGTH)) {
+  if (
+    input.content !== undefined &&
+    (typeof input.content !== 'string' || input.content.length > MAX_TEXT_FILE_LENGTH)
+  ) {
     throw new TypeError('LSP document content is invalid.');
   }
   return {
@@ -760,9 +913,12 @@ export function requiredWorkspaceTextWrites(value: unknown): DesktopWorkspaceTex
     }
     const record = row as Record<string, unknown>;
     requireAllowedKeys(record, WORKSPACE_WRITE_KEYS, 'Workspace edit file');
-    if (typeof record.content !== 'string' || record.content.length > MAX_TEXT_FILE_LENGTH
-      || typeof record.expectedContent !== 'string'
-      || record.expectedContent.length > MAX_TEXT_FILE_LENGTH) {
+    if (
+      typeof record.content !== 'string' ||
+      record.content.length > MAX_TEXT_FILE_LENGTH ||
+      typeof record.expectedContent !== 'string' ||
+      record.expectedContent.length > MAX_TEXT_FILE_LENGTH
+    ) {
       throw new TypeError('Workspace edit file content is invalid.');
     }
     return {
@@ -790,7 +946,6 @@ export function requiredWorkspaceSearchOptions(value: unknown): DesktopWorkspace
   };
 }
 
-
 export function requiredWorkspaceFolders(value: unknown): DesktopWorkspaceFolder[] {
   if (!Array.isArray(value) || value.length > 64) {
     throw new TypeError('Workspace folders are invalid.');
@@ -808,9 +963,7 @@ export function requiredWorkspaceFolders(value: unknown): DesktopWorkspaceFolder
     seen.add(key);
     return {
       path,
-      ...(typeof record.name === 'string' && record.name.trim()
-        ? { name: record.name.trim().slice(0, 200) }
-        : {}),
+      ...(typeof record.name === 'string' && record.name.trim() ? { name: record.name.trim().slice(0, 200) } : {}),
     };
   });
 }

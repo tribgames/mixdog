@@ -1,20 +1,20 @@
-import { USAGE_PATH, readJson, writeJson } from './config.mjs'
+import { USAGE_PATH, readJson, writeJson } from './config.mjs';
 
-const FLUSH_DELAY_MS = 5000
+const FLUSH_DELAY_MS = 5000;
 
-let usageDirty = false
-let usageFlushTimer = null
-let activeUsageState = null
-let lastUsageFlushWarnAt = 0
+let usageDirty = false;
+let usageFlushTimer = null;
+let activeUsageState = null;
+let lastUsageFlushWarnAt = 0;
 
 function now() {
-  return new Date().toISOString()
+  return new Date().toISOString();
 }
 
 function defaultState() {
   return {
     providers: {},
-  }
+  };
 }
 
 // 5s debounce — every web-search/crawl/batch path mutates usage at least once
@@ -22,89 +22,83 @@ function defaultState() {
 // don't explicitly flush would either spam fsync per call or lose the dirty
 // state on crash. process.on('exit') still fires for graceful shutdown.
 function scheduleUsageFlush(state) {
-  usageDirty = true
-  activeUsageState = state
-  if (usageFlushTimer) return
+  usageDirty = true;
+  activeUsageState = state;
+  if (usageFlushTimer) return;
   usageFlushTimer = setTimeout(() => {
-    usageFlushTimer = null
-    flushUsageState()
-  }, FLUSH_DELAY_MS)
-  if (usageFlushTimer.unref) usageFlushTimer.unref()
+    usageFlushTimer = null;
+    flushUsageState();
+  }, FLUSH_DELAY_MS);
+  if (usageFlushTimer.unref) usageFlushTimer.unref();
 }
 
 function flushUsageState() {
   if (usageFlushTimer) {
-    clearTimeout(usageFlushTimer)
-    usageFlushTimer = null
+    clearTimeout(usageFlushTimer);
+    usageFlushTimer = null;
   }
   if (usageDirty && activeUsageState) {
     try {
-      writeJson(USAGE_PATH, activeUsageState)
-      usageDirty = false
+      writeJson(USAGE_PATH, activeUsageState);
+      usageDirty = false;
     } catch (err) {
       // Usage state is best-effort telemetry. A Windows AV/indexer can
       // hold the destination open. Keep the dirty state and retry quietly.
-      const nowMs = Date.now()
+      const nowMs = Date.now();
       if (nowMs - lastUsageFlushWarnAt > 60000) {
-        lastUsageFlushWarnAt = nowMs
-        process.stderr.write(`[web-search-state] flushUsageState delayed: ${err?.code || err?.message || err}\n`)
+        lastUsageFlushWarnAt = nowMs;
+        process.stderr.write(`[web-search-state] flushUsageState delayed: ${err?.code || err?.message || err}\n`);
       }
       if (!usageFlushTimer) {
         usageFlushTimer = setTimeout(() => {
-          usageFlushTimer = null
-          flushUsageState()
-        }, FLUSH_DELAY_MS * 2)
-        if (usageFlushTimer.unref) usageFlushTimer.unref()
+          usageFlushTimer = null;
+          flushUsageState();
+        }, FLUSH_DELAY_MS * 2);
+        if (usageFlushTimer.unref) usageFlushTimer.unref();
       }
     }
   }
 }
 
-process.on('exit', flushUsageState)
+process.on('exit', flushUsageState);
 
-export { flushUsageState }
+export { flushUsageState };
 
-let _instance = null
+let _instance = null;
 
 export function loadUsageState() {
-  if (_instance) return _instance
-  const raw = readJson(USAGE_PATH, null)
-  const def = defaultState()
-  let state = def
+  if (_instance) return _instance;
+  const raw = readJson(USAGE_PATH, null);
+  const def = defaultState();
+  let state = def;
   if (raw && typeof raw === 'object') {
     // Drop the legacy `routingCache` (rawBySite/scrapeByHost) instead of
     // carrying it forward: it has no consumers, and a plain `...raw` kept
     // rewriting it back to disk on every flush.
-    const { routingCache: legacyRoutingCache, ...rest } = raw
-    state = { ...def, ...rest, providers: { ...(raw.providers || {}) } }
-    if (legacyRoutingCache !== undefined) scheduleUsageFlush(state)
+    const { routingCache: legacyRoutingCache, ...rest } = raw;
+    state = { ...def, ...rest, providers: { ...(raw.providers || {}) } };
+    if (legacyRoutingCache !== undefined) scheduleUsageFlush(state);
   }
-  _instance = state
-  activeUsageState = state
-  return state
+  _instance = state;
+  activeUsageState = state;
+  return state;
 }
 
 export function updateProviderState(state, provider, patch) {
-  let normalizedPatch = { ...patch }
-  const remaining =
-    typeof normalizedPatch.remaining === 'number' ? normalizedPatch.remaining : null
-  const limit = typeof normalizedPatch.limit === 'number' ? normalizedPatch.limit : null
+  const normalizedPatch = { ...patch };
+  const remaining = typeof normalizedPatch.remaining === 'number' ? normalizedPatch.remaining : null;
+  const limit = typeof normalizedPatch.limit === 'number' ? normalizedPatch.limit : null;
 
-  if (
-    limit &&
-    limit > 0 &&
-    remaining !== null &&
-    typeof normalizedPatch.percentUsed !== 'number'
-  ) {
-    normalizedPatch.percentUsed = Number((((limit - remaining) / limit) * 100).toFixed(2))
+  if (limit && limit > 0 && remaining !== null && typeof normalizedPatch.percentUsed !== 'number') {
+    normalizedPatch.percentUsed = Number((((limit - remaining) / limit) * 100).toFixed(2));
   }
 
   state.providers[provider] = {
     ...(state.providers[provider] || {}),
     ...normalizedPatch,
     updatedAt: normalizedPatch.updatedAt || now(),
-  }
-  scheduleUsageFlush(state)
+  };
+  scheduleUsageFlush(state);
 }
 
 export function noteProviderSuccess(state, provider, extra = {}) {
@@ -114,7 +108,7 @@ export function noteProviderSuccess(state, provider, extra = {}) {
     lastUsedAt: now(),
     lastSuccessAt: now(),
     cooldownUntil: null,
-  })
+  });
 }
 
 const PROVIDER_ERROR_KIND = {
@@ -125,22 +119,22 @@ const PROVIDER_ERROR_KIND = {
   SERVER: 'server',
   NETWORK: 'network',
   UNKNOWN: 'unknown',
-}
+};
 
 export function classifyProviderError(error) {
-  let status = error?.status
+  let status = error?.status;
   if (status == null && error?.message) {
-    const m = String(error.message).match(/\bHTTP\s+(\d{3})\b/)
-    if (m) status = Number(m[1])
+    const m = String(error.message).match(/\bHTTP\s+(\d{3})\b/);
+    if (m) status = Number(m[1]);
   }
-  const name = error?.name
-  if (status === 429) return PROVIDER_ERROR_KIND.RATE_LIMIT
-  if (status === 400 || status === 401 || status === 403) return PROVIDER_ERROR_KIND.AUTH
-  if (status === 402) return PROVIDER_ERROR_KIND.PAYMENT
-  if (status >= 500 && status < 600) return PROVIDER_ERROR_KIND.SERVER
-  if (!status && (name === 'AbortError' || name === 'TimeoutError')) return PROVIDER_ERROR_KIND.NETWORK
-  if (!status) return PROVIDER_ERROR_KIND.NETWORK
-  return PROVIDER_ERROR_KIND.UNKNOWN
+  const name = error?.name;
+  if (status === 429) return PROVIDER_ERROR_KIND.RATE_LIMIT;
+  if (status === 400 || status === 401 || status === 403) return PROVIDER_ERROR_KIND.AUTH;
+  if (status === 402) return PROVIDER_ERROR_KIND.PAYMENT;
+  if (status >= 500 && status < 600) return PROVIDER_ERROR_KIND.SERVER;
+  if (!status && (name === 'AbortError' || name === 'TimeoutError')) return PROVIDER_ERROR_KIND.NETWORK;
+  if (!status) return PROVIDER_ERROR_KIND.NETWORK;
+  return PROVIDER_ERROR_KIND.UNKNOWN;
 }
 
 const PROVIDER_DISABLE_TTL_MS = {
@@ -151,7 +145,7 @@ const PROVIDER_DISABLE_TTL_MS = {
   server: 0,
   network: 0,
   unknown: 0,
-}
+};
 
 // `siteScoped` marks a failure that the FETCHED SITE produced (its 400/401/403/
 // 429), not a fault of the provider/extractor itself. Those statuses say
@@ -162,12 +156,12 @@ export function noteProviderFailure(state, provider, errorMessage, errorKind, { 
     error: errorMessage,
     lastUsedAt: now(),
     lastFailureAt: now(),
-  }
-  const ttl = siteScoped ? 0 : (PROVIDER_DISABLE_TTL_MS[errorKind] ?? 0)
+  };
+  const ttl = siteScoped ? 0 : (PROVIDER_DISABLE_TTL_MS[errorKind] ?? 0);
   if (ttl > 0) {
-    payload.cooldownUntil = new Date(Date.now() + ttl).toISOString()
+    payload.cooldownUntil = new Date(Date.now() + ttl).toISOString();
   }
-  updateProviderState(state, provider, payload)
+  updateProviderState(state, provider, payload);
 }
 
 // Selection is config-driven (no preference cache, no historical ranking).

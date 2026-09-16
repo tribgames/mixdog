@@ -34,7 +34,10 @@ export function createLocalRequestQueue({
   }
   function serialize(operation) {
     const next = chain.then(operation, operation);
-    chain = next.then(() => {}, () => {});
+    chain = next.then(
+      () => {},
+      () => {}
+    );
     return next;
   }
   function scheduleIdle() {
@@ -45,9 +48,14 @@ export function createLocalRequestQueue({
       timer = null;
       idleDeadline = null;
       if (requests.size) return;
-      void serialize(unload).then(() => { lastUnloadError = null; }, (error) => {
-        lastUnloadError = String(error?.message || error);
-      });
+      void serialize(unload).then(
+        () => {
+          lastUnloadError = null;
+        },
+        (error) => {
+          lastUnloadError = String(error?.message || error);
+        }
+      );
     }, ttl * 1000);
     timer?.unref?.();
   }
@@ -62,7 +70,9 @@ export function createLocalRequestQueue({
       const request = { controller, started: false };
       requests.add(request);
       const waiting = () => {
-        try { onStageChange?.('reconnecting', { message: 'Waiting for the local model', queueWait: true }); } catch {}
+        try {
+          onStageChange?.('reconnecting', { message: 'Waiting for the local model', queueWait: true });
+        } catch {}
       };
       let heartbeat = null;
       if (requests.size > 1) {
@@ -71,7 +81,9 @@ export function createLocalRequestQueue({
         heartbeat.unref?.();
       }
       let rejectEarly;
-      const early = new Promise((_resolve, reject) => { rejectEarly = reject; });
+      const early = new Promise((_resolve, reject) => {
+        rejectEarly = reject;
+      });
       const onAbort = () => {
         if (!request.started) {
           requests.delete(request);
@@ -86,7 +98,9 @@ export function createLocalRequestQueue({
         request.started = true;
         active++;
         try {
-          try { onStageChange?.('requesting'); } catch {}
+          try {
+            onStageChange?.('requesting');
+          } catch {}
           return await operation(combined);
         } finally {
           active--;
@@ -108,7 +122,9 @@ export function createLocalRequestQueue({
         await unload();
         await chain;
         clearIdle();
-      })().finally(() => { stopping = null; });
+      })().finally(() => {
+        stopping = null;
+      });
       return stopping;
     },
     configure(seconds) {
@@ -118,8 +134,13 @@ export function createLocalRequestQueue({
       if (!requests.size) scheduleIdle();
     },
     status() {
-      return { activeRequests: active, queuedRequests: Math.max(0, requests.size - active),
-        idleTtlSeconds: ttl, idleDeadline, lastUnloadError };
+      return {
+        activeRequests: active,
+        queuedRequests: Math.max(0, requests.size - active),
+        idleTtlSeconds: ttl,
+        idleDeadline,
+        lastUnloadError,
+      };
     },
   };
 }

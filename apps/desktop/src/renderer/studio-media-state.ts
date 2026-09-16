@@ -1,19 +1,8 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type Dispatch,
-  type SetStateAction,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 
 import { t } from './i18n';
 import { readGlobalCapabilities } from './global-capability-reads';
-import {
-  writeStudioAssetReferences,
-  type StudioReferenceStore,
-} from './studio-draft-cache';
+import { writeStudioAssetReferences, type StudioReferenceStore } from './studio-draft-cache';
 import {
   callCapability,
   errorText,
@@ -71,110 +60,115 @@ function initialMediaAssetPaging(): Record<MediaKind, MediaAssetPaging> {
 function mergeMediaAssets(current: MediaAsset[], incoming: MediaAsset[]): MediaAsset[] {
   const byId = new Map(current.map((asset) => [asset.id, asset]));
   for (const asset of incoming) byId.set(asset.id, asset);
-  return Array.from(byId.values()).sort((left, right) =>
-    Number(right.createdAt || 0) - Number(left.createdAt || 0));
+  return Array.from(byId.values()).sort((left, right) => Number(right.createdAt || 0) - Number(left.createdAt || 0));
 }
 
 export function useStudioAssetGallery(api: StudioApi, kind: MediaKind) {
   const [assets, setAssets] = useState<MediaAsset[]>([]);
-  const visibleAssets = useMemo(
-    () => assets.filter((asset) => asset.kind === kind),
-    [assets, kind],
-  );
+  const visibleAssets = useMemo(() => assets.filter((asset) => asset.kind === kind), [assets, kind]);
   const pagingRef = useRef<Record<MediaKind, MediaAssetPaging>>(initialMediaAssetPaging());
   const pageRequests = useRef<Map<string, Promise<MediaAssetPage>>>(new Map());
 
-  const requestAssetPage = useCallback((
-    assetKind: MediaKind,
-    offset: number,
-  ): Promise<MediaAssetPage> => {
-    const key = `${assetKind}:${offset}`;
-    const existing = pageRequests.current.get(key);
-    if (existing) return existing;
-    const request = (async () => {
-      const result = await callCapability(api, 'listMediaAssets', [{
-        kind: assetKind,
-        limit: ASSET_PAGE_SIZE,
-        offset,
-      }]) as { assets?: MediaAsset[]; total?: number } | undefined;
-      const rows = Array.isArray(result?.assets) ? result.assets : [];
-      const reportedTotal = Number(result?.total);
-      return {
-        assets: rows,
-        total: Number.isFinite(reportedTotal) && reportedTotal >= 0
-          ? Math.max(offset + rows.length, Math.trunc(reportedTotal))
-          : offset + rows.length,
+  const requestAssetPage = useCallback(
+    (assetKind: MediaKind, offset: number): Promise<MediaAssetPage> => {
+      const key = `${assetKind}:${offset}`;
+      const existing = pageRequests.current.get(key);
+      if (existing) return existing;
+      const request = (async () => {
+        const result = (await callCapability(api, 'listMediaAssets', [
+          {
+            kind: assetKind,
+            limit: ASSET_PAGE_SIZE,
+            offset,
+          },
+        ])) as { assets?: MediaAsset[]; total?: number } | undefined;
+        const rows = Array.isArray(result?.assets) ? result.assets : [];
+        const reportedTotal = Number(result?.total);
+        return {
+          assets: rows,
+          total:
+            Number.isFinite(reportedTotal) && reportedTotal >= 0
+              ? Math.max(offset + rows.length, Math.trunc(reportedTotal))
+              : offset + rows.length,
+        };
+      })();
+      pageRequests.current.set(key, request);
+      const cleanup = () => {
+        if (pageRequests.current.get(key) === request) {
+          pageRequests.current.delete(key);
+        }
       };
-    })();
-    pageRequests.current.set(key, request);
-    const cleanup = () => {
-      if (pageRequests.current.get(key) === request) {
-        pageRequests.current.delete(key);
-      }
-    };
-    void request.then(cleanup, cleanup);
-    return request;
-  }, [api]);
+      void request.then(cleanup, cleanup);
+      return request;
+    },
+    [api]
+  );
 
-  const refreshAssetKind = useCallback(async (assetKind: MediaKind): Promise<MediaAsset[]> => {
-    const page = await requestAssetPage(assetKind, 0);
-    const paging = pagingRef.current[assetKind];
-    setAssets((current) => mergeMediaAssets(
-      !paging.initialized || page.total === 0
-        ? current.filter((asset) => asset.kind !== assetKind)
-        : current,
-      page.assets,
-    ));
-    const nextOffset = paging.initialized
-      ? Math.min(page.total, Math.max(paging.nextOffset, page.assets.length))
-      : Math.min(page.total, page.assets.length);
-    pagingRef.current = {
-      ...pagingRef.current,
-      [assetKind]: {
-        initialized: true,
-        loadingMore: false,
-        nextOffset,
-        total: page.total,
-      },
-    };
-    return page.assets;
-  }, [requestAssetPage]);
-
-  const loadMoreAssets = useCallback(async (assetKind: MediaKind): Promise<MediaAsset[]> => {
-    const paging = pagingRef.current[assetKind];
-    if (!paging.initialized) return refreshAssetKind(assetKind);
-    if (paging.loadingMore || paging.nextOffset >= paging.total) return [];
-    const offset = paging.nextOffset;
-    pagingRef.current = {
-      ...pagingRef.current,
-      [assetKind]: { ...paging, loadingMore: true },
-    };
-    try {
-      const page = await requestAssetPage(assetKind, offset);
-      setAssets((current) => mergeMediaAssets(current, page.assets));
-      const latest = pagingRef.current[assetKind];
-      const consumedOffset = page.assets.length ? offset + page.assets.length : page.total;
+  const refreshAssetKind = useCallback(
+    async (assetKind: MediaKind): Promise<MediaAsset[]> => {
+      const page = await requestAssetPage(assetKind, 0);
+      const paging = pagingRef.current[assetKind];
+      setAssets((current) =>
+        mergeMediaAssets(
+          !paging.initialized || page.total === 0 ? current.filter((asset) => asset.kind !== assetKind) : current,
+          page.assets
+        )
+      );
+      const nextOffset = paging.initialized
+        ? Math.min(page.total, Math.max(paging.nextOffset, page.assets.length))
+        : Math.min(page.total, page.assets.length);
       pagingRef.current = {
         ...pagingRef.current,
         [assetKind]: {
           initialized: true,
           loadingMore: false,
-          nextOffset: Math.min(page.total, Math.max(latest.nextOffset, consumedOffset)),
+          nextOffset,
           total: page.total,
         },
       };
       return page.assets;
-    } catch (reason) {
+    },
+    [requestAssetPage]
+  );
+
+  const loadMoreAssets = useCallback(
+    async (assetKind: MediaKind): Promise<MediaAsset[]> => {
+      const paging = pagingRef.current[assetKind];
+      if (!paging.initialized) return refreshAssetKind(assetKind);
+      if (paging.loadingMore || paging.nextOffset >= paging.total) return [];
+      const offset = paging.nextOffset;
       pagingRef.current = {
         ...pagingRef.current,
-        [assetKind]: {
-          ...pagingRef.current[assetKind],
-          loadingMore: false,
-        },
+        [assetKind]: { ...paging, loadingMore: true },
       };
-      throw reason;
-    }
-  }, [refreshAssetKind, requestAssetPage]);
+      try {
+        const page = await requestAssetPage(assetKind, offset);
+        setAssets((current) => mergeMediaAssets(current, page.assets));
+        const latest = pagingRef.current[assetKind];
+        const consumedOffset = page.assets.length ? offset + page.assets.length : page.total;
+        pagingRef.current = {
+          ...pagingRef.current,
+          [assetKind]: {
+            initialized: true,
+            loadingMore: false,
+            nextOffset: Math.min(page.total, Math.max(latest.nextOffset, consumedOffset)),
+            total: page.total,
+          },
+        };
+        return page.assets;
+      } catch (reason) {
+        pagingRef.current = {
+          ...pagingRef.current,
+          [assetKind]: {
+            ...pagingRef.current[assetKind],
+            loadingMore: false,
+          },
+        };
+        throw reason;
+      }
+    },
+    [refreshAssetKind, requestAssetPage]
+  );
 
   const removeAsset = useCallback((asset: MediaAsset): void => {
     setAssets((current) => current.filter((entry) => entry.id !== asset.id));
@@ -206,35 +200,38 @@ export function useStudioMediaUrls(api: StudioApi, active: boolean) {
   const failCounts = useRef<Record<string, number>>({});
   const probing = useRef(false);
 
-  const assetUrl = useCallback((assetId: string, variant: string): string => (
-    laneReady === true && !urlBroken[mediaVariantKey(assetId, variant)]
-      ? mediaUrl(api, assetId, variant) : ''
-  ), [api, laneReady, urlBroken]);
+  const assetUrl = useCallback(
+    (assetId: string, variant: string): string =>
+      laneReady === true && !urlBroken[mediaVariantKey(assetId, variant)] ? mediaUrl(api, assetId, variant) : '',
+    [api, laneReady, urlBroken]
+  );
 
-  const markUrlBroken = useCallback((assetId: string, variant: string): void => {
-    const key = mediaVariantKey(assetId, variant);
-    failCounts.current[key] = (failCounts.current[key] || 0) + 1;
-    if (!urlBrokenRef.current[key]) {
-      urlBrokenRef.current = { ...urlBrokenRef.current, [key]: true };
-      setUrlBroken(urlBrokenRef.current);
-    }
-    if (localTransport || probing.current) return;
-    probing.current = true;
-    void probeMediaLane(api).then((ok) => {
-      probing.current = false;
-      if (!ok) {
-        setLaneReady(false);
-        return;
+  const markUrlBroken = useCallback(
+    (assetId: string, variant: string): void => {
+      const key = mediaVariantKey(assetId, variant);
+      failCounts.current[key] = (failCounts.current[key] || 0) + 1;
+      if (!urlBrokenRef.current[key]) {
+        urlBrokenRef.current = { ...urlBrokenRef.current, [key]: true };
+        setUrlBroken(urlBrokenRef.current);
       }
-      const retry = Object.keys(urlBrokenRef.current)
-        .filter((failedKey) => (failCounts.current[failedKey] || 0) < 2);
-      if (!retry.length) return;
-      const next = { ...urlBrokenRef.current };
-      for (const failedKey of retry) delete next[failedKey];
-      urlBrokenRef.current = next;
-      setUrlBroken(next);
-    });
-  }, [api, localTransport]);
+      if (localTransport || probing.current) return;
+      probing.current = true;
+      void probeMediaLane(api).then((ok) => {
+        probing.current = false;
+        if (!ok) {
+          setLaneReady(false);
+          return;
+        }
+        const retry = Object.keys(urlBrokenRef.current).filter((failedKey) => (failCounts.current[failedKey] || 0) < 2);
+        if (!retry.length) return;
+        const next = { ...urlBrokenRef.current };
+        for (const failedKey of retry) delete next[failedKey];
+        urlBrokenRef.current = next;
+        setUrlBroken(next);
+      });
+    },
+    [api, localTransport]
+  );
 
   useEffect(() => {
     if (!active || localTransport) return undefined;
@@ -251,7 +248,9 @@ export function useStudioMediaUrls(api: StudioApi, active: boolean) {
       .catch(() => {
         if (!stopped) setLaneReady(false);
       });
-    return () => { stopped = true; };
+    return () => {
+      stopped = true;
+    };
   }, [active, api, localTransport]);
 
   return { assetUrl, laneReady, localTransport, markUrlBroken };
@@ -275,7 +274,10 @@ export function useStudioMediaJobs({
   const [jobs, setJobs] = useState<StudioMediaJob[]>([]);
   const jobsRef = useRef<StudioMediaJob[]>([]);
   jobsRef.current = jobs;
-  const runningKey = jobs.filter((entry) => entry.status === 'running').map((entry) => entry.id).join(',');
+  const runningKey = jobs
+    .filter((entry) => entry.status === 'running')
+    .map((entry) => entry.id)
+    .join(',');
 
   useEffect(() => {
     if (!active || !runningKey) return undefined;
@@ -285,10 +287,13 @@ export function useStudioMediaJobs({
     const poll = () => {
       void (async () => {
         try {
-          const polled = await readGlobalCapabilities(api, ids.map((id) => ({
-            capability: 'getMediaJob',
-            args: [id],
-          }))) as Array<MediaJob | null>;
+          const polled = (await readGlobalCapabilities(
+            api,
+            ids.map((id) => ({
+              capability: 'getMediaJob',
+              args: [id],
+            }))
+          )) as Array<MediaJob | null>;
           if (stopped) return;
           const landed = polled.filter(Boolean) as MediaJob[];
           for (const entry of landed) misses.delete(entry.id);
@@ -305,29 +310,24 @@ export function useStudioMediaJobs({
             const referenceWrites = completed.map((entry) => {
               const queued = jobsRef.current.find((candidate) => candidate.id === entry.id);
               return entry.assetId
-                ? writeStudioAssetReferences(
-                  entry.assetId,
-                  queued?.request?.references || [],
-                  referenceStore,
-                )
+                ? writeStudioAssetReferences(entry.assetId, queued?.request?.references || [], referenceStore)
                 : Promise.resolve();
             });
-            await Promise.all([
-              ...landedKinds.map((assetKind) => refreshAssetKind(assetKind)),
-              ...referenceWrites,
-            ]);
+            await Promise.all([...landedKinds.map((assetKind) => refreshAssetKind(assetKind)), ...referenceWrites]);
             if (stopped) return;
           }
-          setJobs((current) => current.map((entry) => {
-            const next = landed.find((candidate) => candidate.id === entry.id);
-            if (next) return { ...entry, ...next };
-            if (entry.status !== 'running' || !lost.includes(entry.id)) return entry;
-            return {
-              ...entry,
-              status: 'failed' as const,
-              error: t('Lost track of this run — the runtime restarted.'),
-            };
-          }));
+          setJobs((current) =>
+            current.map((entry) => {
+              const next = landed.find((candidate) => candidate.id === entry.id);
+              if (next) return { ...entry, ...next };
+              if (entry.status !== 'running' || !lost.includes(entry.id)) return entry;
+              return {
+                ...entry,
+                status: 'failed' as const,
+                error: t('Lost track of this run — the runtime restarted.'),
+              };
+            })
+          );
         } catch (reason) {
           if (!stopped) setError(errorText(reason));
         }
@@ -343,8 +343,10 @@ export function useStudioMediaJobs({
 
   useEffect(() => {
     setJobs((current) => {
-      const next = current.filter((entry) => entry.status !== 'done'
-        || Boolean(entry.assetId && !assets.some((asset) => asset.id === entry.assetId)));
+      const next = current.filter(
+        (entry) =>
+          entry.status !== 'done' || Boolean(entry.assetId && !assets.some((asset) => asset.id === entry.assetId))
+      );
       return next.length === current.length ? current : next;
     });
   }, [assets]);

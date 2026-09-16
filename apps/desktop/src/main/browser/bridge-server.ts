@@ -79,7 +79,7 @@ export class BrowserBridgeServer<TCommand extends object> {
     }
     const maxConcurrentRequests = Math.max(
       1,
-      Math.trunc(this.options.maxConcurrentRequests || DEFAULT_MAX_CONCURRENT_REQUESTS),
+      Math.trunc(this.options.maxConcurrentRequests || DEFAULT_MAX_CONCURRENT_REQUESTS)
     );
     if (this.controllers.size >= maxConcurrentRequests) {
       this.respond(response, 429, { ok: false, error: 'too many concurrent browser commands' });
@@ -180,7 +180,9 @@ export class BrowserBridgeServer<TCommand extends object> {
       })().catch(() => {
         try {
           response.destroy();
-        } catch { /* already gone */ }
+        } catch {
+          /* already gone */
+        }
       });
     });
     server.maxConnections = MAX_CONNECTIONS;
@@ -199,21 +201,24 @@ export class BrowserBridgeServer<TCommand extends object> {
       if (!port || this.server !== server) return;
       const record = createBridgeDiscoveryRecord({ port, token: this.token, generation, startedAt });
       this.record = record;
-      void this.discovery.writeDiscovery(record).then((ownership) => {
-        if (this.server !== server || !sameBridgeDiscovery(this.record, record)) return;
-        if (ownership !== 'owned') {
-          console.warn(`browser bridge discovery ${ownership}; heartbeat will retry`);
-        }
-        this.heartbeat = setInterval(() => {
-          void this.maintain(record, server).catch((error) => {
-            console.error('browser bridge discovery heartbeat failed:', error);
-          });
-        }, this.options.heartbeatMs || HEARTBEAT_MS);
-        this.heartbeat.unref?.();
-        this.options.onReady?.();
-      }).catch((error) => {
-        console.error('browser bridge discovery write failed:', error);
-      });
+      void this.discovery
+        .writeDiscovery(record)
+        .then((ownership) => {
+          if (this.server !== server || !sameBridgeDiscovery(this.record, record)) return;
+          if (ownership !== 'owned') {
+            console.warn(`browser bridge discovery ${ownership}; heartbeat will retry`);
+          }
+          this.heartbeat = setInterval(() => {
+            void this.maintain(record, server).catch((error) => {
+              console.error('browser bridge discovery heartbeat failed:', error);
+            });
+          }, this.options.heartbeatMs || HEARTBEAT_MS);
+          this.heartbeat.unref?.();
+          this.options.onReady?.();
+        })
+        .catch((error) => {
+          console.error('browser bridge discovery write failed:', error);
+        });
     });
   }
 

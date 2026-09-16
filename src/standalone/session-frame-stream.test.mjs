@@ -28,15 +28,25 @@ class Response extends EventEmitter {
 function fixture(t) {
   t.mock.timers.enable({ apis: ['setInterval'] });
   let closed = 0;
-  const clients = new Map([['client', {
-    sse: null, paused: false, pending: new Map(), pendingBytes: 0,
-  }]]);
+  const clients = new Map([
+    [
+      'client',
+      {
+        sse: null,
+        paused: false,
+        pending: new Map(),
+        pendingBytes: 0,
+      },
+    ],
+  ]);
   const stream = createSessionFrameStream({
     clients,
     maxPendingBytes: 1024 * 1024,
     nowMs: () => 123,
     onAttached() {},
-    onClosed: () => { closed += 1; },
+    onClosed: () => {
+      closed += 1;
+    },
   });
   return { stream, closed: () => closed };
 }
@@ -130,8 +140,11 @@ test('traced backlog reports queue duration and silent desktop-frame loss withou
   const diagnostics = [];
   const client = { sse: null, paused: false, pending: new Map(), pendingBytes: 0 };
   const stream = createSessionFrameStream({
-    clients: new Map([['client', client]]), maxPendingBytes: 1_024,
-    nowMs: () => now, onAttached() {}, onClosed() {},
+    clients: new Map([['client', client]]),
+    maxPendingBytes: 1_024,
+    nowMs: () => now,
+    onAttached() {},
+    onClosed() {},
     onDiagnostic: (entry) => diagnostics.push(entry),
   });
   const response = new Response();
@@ -139,18 +152,25 @@ test('traced backlog reports queue duration and silent desktop-frame loss withou
   stream.attachSse('client', response);
   for (const sessionId of ['A', 'B']) {
     stream.broadcast({
-      type: 'desktop-event', key: `session:${sessionId}`, desktopId: 'desktop',
+      type: 'desktop-event',
+      key: `session:${sessionId}`,
+      desktopId: 'desktop',
       message: {
-        kind: 'session-state', sessionId, readTraceId: `read-${sessionId}`,
+        kind: 'session-state',
+        sessionId,
+        readTraceId: `read-${sessionId}`,
         wire: { items: [{ text: 'private data '.repeat(50) }] },
       },
     });
   }
-  assert.equal(diagnostics.find(r => r.stage === 'stream-dropped').sessionId, 'A');
+  assert.equal(diagnostics.find((r) => r.stage === 'stream-dropped').sessionId, 'A');
   now = 1_750;
   response.emit('drain');
-  assert.deepEqual(response.frames().map(f => f.message.sessionId), ['B']);
-  const sent = diagnostics.find(r => r.stage === 'stream-write');
+  assert.deepEqual(
+    response.frames().map((f) => f.message.sessionId),
+    ['B']
+  );
+  const sent = diagnostics.find((r) => r.stage === 'stream-write');
   assert.equal(sent.queuedMs, 750);
   assert.equal(sent.traceId, 'read-B');
   assert.equal(JSON.stringify(diagnostics).includes('private data'), false);
@@ -163,9 +183,15 @@ test('stream diagnostics are rate bounded and throwing sinks cannot block writes
   let now = 1_000;
   const client = { sse: null, paused: false, pending: new Map(), pendingBytes: 0 };
   const stream = createSessionFrameStream({
-    clients: new Map([['client', client]]), maxPendingBytes: 1_024,
-    nowMs: () => now, onAttached() {}, onClosed() {},
-    onDiagnostic(entry) { diagnostics.push(entry); throw new Error('sink unavailable'); },
+    clients: new Map([['client', client]]),
+    maxPendingBytes: 1_024,
+    nowMs: () => now,
+    onAttached() {},
+    onClosed() {},
+    onDiagnostic(entry) {
+      diagnostics.push(entry);
+      throw new Error('sink unavailable');
+    },
   });
   const response = new Response();
   stream.attachSse('client', response);

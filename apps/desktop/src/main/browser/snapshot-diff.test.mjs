@@ -26,6 +26,9 @@ test('duplicate semantic controls preserve multiplicity and true removals remain
     { ref: 'old3', role: 'button', name: 'Removed', states: [] },
   ];
   const previous = createBrowserRefSet({ elements });
-  const next = [{ ...elements[1], ref: 'new1' }, { role: 'button', name: 'Added', ref: 'new2' }];
+  const next = [
+    { ...elements[1], ref: 'new1' },
+    { role: 'button', name: 'Added', ref: 'new2' },
+  ];
   assert.deepEqual(diffSnapshotElements(next, previous), { changed: [next[1]], unchanged: 1, gone: 2 });
 });

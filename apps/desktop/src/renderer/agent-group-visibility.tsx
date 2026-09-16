@@ -10,20 +10,27 @@ export const AGENT_GROUP_EXPANSION_EVENT = 'mixdog:agent-group-expansion';
 function parseIds(value: string | null): ReadonlySet<string> {
   try {
     const parsed: unknown = JSON.parse(value || '[]');
-    return new Set(Array.isArray(parsed)
-      ? parsed.filter((id): id is string => typeof id === 'string' && id.length > 0)
-      : []);
-  } catch { return new Set(); }
+    return new Set(
+      Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
+    );
+  } catch {
+    return new Set();
+  }
 }
 
 function createStore(host: Window) {
   const read = (): ReadonlySet<string> => {
-    try { return parseIds(host.localStorage.getItem(STORAGE_KEY)); }
-    catch { return new Set(); }
+    try {
+      return parseIds(host.localStorage.getItem(STORAGE_KEY));
+    } catch {
+      return new Set();
+    }
   };
   let ids = read();
   const listeners = new Set<() => void>();
-  const publish = () => { for (const listener of listeners) listener(); };
+  const publish = () => {
+    for (const listener of listeners) listener();
+  };
   const onStorage = (event: StorageEvent) => {
     if (event.key !== STORAGE_KEY && event.key !== null) return;
     ids = read();
@@ -31,8 +38,11 @@ function createStore(host: Window) {
   };
   const update = (next: ReadonlySet<string>) => {
     ids = next;
-    try { host.localStorage.setItem(STORAGE_KEY, JSON.stringify([...ids])); }
-    catch { /* Storage-less hosts retain the choice for this window. */ }
+    try {
+      host.localStorage.setItem(STORAGE_KEY, JSON.stringify([...ids]));
+    } catch {
+      /* Storage-less hosts retain the choice for this window. */
+    }
     publish();
   };
   return {
@@ -62,22 +72,30 @@ export function useHiddenAgentGroups() {
 
 export function AgentGroupsMenu() {
   const { hiddenOwnerIds, restoreGroups } = useHiddenAgentGroups();
-  const setAllExpanded = (expanded: boolean) => window.dispatchEvent(
-    new window.CustomEvent(AGENT_GROUP_EXPANSION_EVENT, { detail: expanded }),
+  const setAllExpanded = (expanded: boolean) =>
+    window.dispatchEvent(new window.CustomEvent(AGENT_GROUP_EXPANSION_EVENT, { detail: expanded }));
+  return (
+    <RowOverflowMenu
+      label={t('Agent group actions')}
+      items={[
+        {
+          id: 'collapse-agent-groups',
+          label: t('Collapse all'),
+          onSelect: () => setAllExpanded(false),
+        },
+        {
+          id: 'expand-agent-groups',
+          label: t('Expand all'),
+          onSelect: () => setAllExpanded(true),
+        },
+        {
+          id: 'restore-agent-groups',
+          label: t('Show hidden groups'),
+          separatorBefore: true,
+          disabled: hiddenOwnerIds.size === 0,
+          onSelect: restoreGroups,
+        },
+      ]}
+    />
   );
-  return <RowOverflowMenu label={t('Agent group actions')} items={[{
-    id: 'collapse-agent-groups',
-    label: t('Collapse all'),
-    onSelect: () => setAllExpanded(false),
-  }, {
-    id: 'expand-agent-groups',
-    label: t('Expand all'),
-    onSelect: () => setAllExpanded(true),
-  }, {
-    id: 'restore-agent-groups',
-    label: t('Show hidden groups'),
-    separatorBefore: true,
-    disabled: hiddenOwnerIds.size === 0,
-    onSelect: restoreGroups,
-  }]} />;
 }

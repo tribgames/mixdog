@@ -3,7 +3,10 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://mixdog.test/', pretendToBeVisual: true });
+const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+  url: 'https://mixdog.test/',
+  pretendToBeVisual: true,
+});
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.HTMLElement = dom.window.HTMLElement;
@@ -22,14 +25,19 @@ const { BuiltInFeaturesPanel } = await import('./built-in-features-panel.tsx');
 
 function deferred() {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 
 function status(overrides = {}) {
   return {
-    available: true, installed: false, enabled: false,
-    runtime: { installed: false }, hardware: { gpu: { name: 'RTX 3090' } },
+    available: true,
+    installed: false,
+    enabled: false,
+    runtime: { installed: false },
+    hardware: { gpu: { name: 'RTX 3090' } },
     models: [{ id: 'test-model', name: 'Test model', compatible: true, installed: false }],
     ...overrides,
   };
@@ -39,9 +47,18 @@ async function mount(api, initial, run) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
-  const render = async (localProvider) => act(async () => root.render(React.createElement(BuiltInFeaturesPanel, {
-    api, data: { toolModules: { localProvider } }, snapshot: {}, pending: '', run,
-  })));
+  const render = async (localProvider) =>
+    act(async () =>
+      root.render(
+        React.createElement(BuiltInFeaturesPanel, {
+          api,
+          data: { toolModules: { localProvider } },
+          snapshot: {},
+          pending: '',
+          run,
+        })
+      )
+    );
   await render(initial);
   await act(async () => document.querySelector('[data-built-in-feature="localProvider"]').click());
   return {
@@ -59,7 +76,10 @@ test('runtime progress from a chat installation stays live without a UI install 
   let firstRead = true;
   const api = {
     readCapabilities: async () => {
-      if (firstRead) { firstRead = false; return read.promise; }
+      if (firstRead) {
+        firstRead = false;
+        return read.promise;
+      }
       return [{ ok: true, value: { localProvider: current } }];
     },
   };
@@ -87,19 +107,39 @@ test('runtime progress from a chat installation stays live without a UI install 
 
 test('context input validates numbers, applies explicitly, and supports automatic reset', async () => {
   const current = status({
-    installed: true, enabled: true, runtime: { installed: true }, running: true, activeModel: 'installed',
-    models: [{ id: 'installed', name: 'Managed model', installed: true, contextWindow: 8192,
-      configuredContextWindow: 8192, defaultContextWindow: 32768, maxContextWindow: 262144 }],
+    installed: true,
+    enabled: true,
+    runtime: { installed: true },
+    running: true,
+    activeModel: 'installed',
+    models: [
+      {
+        id: 'installed',
+        name: 'Managed model',
+        installed: true,
+        contextWindow: 8192,
+        configuredContextWindow: 8192,
+        defaultContextWindow: 32768,
+        maxContextWindow: 262144,
+      },
+    ],
   });
   const calls = [];
-  const mounted = await mount({ readCapabilities: async () => [{ ok: true, value: { localProvider: current } }] },
-    current, async (capability, args) => { calls.push([capability, args]); return {}; });
+  const mounted = await mount(
+    { readCapabilities: async () => [{ ok: true, value: { localProvider: current } }] },
+    current,
+    async (capability, args) => {
+      calls.push([capability, args]);
+      return {};
+    }
+  );
   const button = (text) => [...document.querySelectorAll('button')].find((node) => node.textContent === text);
   const input = () => document.querySelector('input[inputmode="numeric"]');
-  const enter = async (value) => act(async () => {
-    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input(), value);
-    input().dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-  });
+  const enter = async (value) =>
+    act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input(), value);
+      input().dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    });
   try {
     await enter('262145');
     assert.equal(input().getAttribute('aria-invalid'), 'true');
@@ -119,17 +159,31 @@ test('context input validates numbers, applies explicitly, and supports automati
 test('changing idle release keeps context controls stable while the request is pending', async () => {
   const request = deferred();
   const current = status({
-    installed: true, runtime: { installed: true }, idleTtlSeconds: 3600,
-    models: [{ id: 'installed', name: 'Managed model', installed: true,
-      contextWindow: 8192, configuredContextWindow: 8192, maxContextWindow: 32768 }],
+    installed: true,
+    runtime: { installed: true },
+    idleTtlSeconds: 3600,
+    models: [
+      {
+        id: 'installed',
+        name: 'Managed model',
+        installed: true,
+        contextWindow: 8192,
+        configuredContextWindow: 8192,
+        maxContextWindow: 32768,
+      },
+    ],
   });
   const calls = [];
-  const mounted = await mount({
-    readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
-  }, current, async (capability, args) => {
-    calls.push([capability, args]);
-    return request.promise;
-  });
+  const mounted = await mount(
+    {
+      readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
+    },
+    current,
+    async (capability, args) => {
+      calls.push([capability, args]);
+      return request.promise;
+    }
+  );
   try {
     const row = document.querySelector('[data-extension-item="Managed model"]');
     const input = row.querySelector('input');
@@ -137,8 +191,11 @@ test('changing idle release keeps context controls stable while the request is p
     const originalText = row.textContent;
     const selector = document.querySelector('[data-feature-id="localProvider"] [role="combobox"]');
     await act(async () => selector.click());
-    await act(async () => [...document.querySelectorAll('[role="option"]')]
-      .find((option) => option.textContent === 'After 30 minutes').click());
+    await act(async () =>
+      [...document.querySelectorAll('[role="option"]')]
+        .find((option) => option.textContent === 'After 30 minutes')
+        .click()
+    );
     assert.deepEqual(calls, [['setLocalProviderIdleTtl', [1800]]]);
     assert.equal(input.disabled, true);
     assert.equal(apply.disabled, true);
@@ -156,12 +213,18 @@ test('changing idle release keeps context controls stable while the request is p
 
 test('reopened settings recover model progress from runtime state without issuing another install', async () => {
   const current = status({
-    installed: true, enabled: true, runtime: { installed: true },
+    installed: true,
+    enabled: true,
+    runtime: { installed: true },
     installations: [{ phase: 'model', modelId: 'test-model', state: 'running', stage: 'verifying', percent: 99 }],
   });
-  const mounted = await mount({
-    readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
-  }, status(), () => assert.fail('must not restart the installation'));
+  const mounted = await mount(
+    {
+      readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
+    },
+    status(),
+    () => assert.fail('must not restart the installation')
+  );
   try {
     const progress = document.querySelector('[data-feature-id="localProvider"] [role="progressbar"]');
     assert.equal(progress?.getAttribute('aria-valuenow'), '99');
@@ -175,24 +238,40 @@ test('late status responses do not resurrect an unmounted settings panel', async
   const read = deferred();
   const mounted = await mount({ readCapabilities: async () => read.promise }, status(), async () => ({}));
   await mounted.dispose();
-  await act(async () => read.resolve([{ ok: true, value: { localProvider: status({
-    installations: [{ phase: 'runtime', state: 'running', percent: 60 }],
-  }) } }]));
+  await act(async () =>
+    read.resolve([
+      {
+        ok: true,
+        value: {
+          localProvider: status({
+            installations: [{ phase: 'runtime', state: 'running', percent: 60 }],
+          }),
+        },
+      },
+    ])
+  );
   assert.equal(document.querySelector('[data-feature-id="localProvider"]'), null);
 });
 
 test('detail lists installed models and running state, not the uninstalled catalog', async () => {
   const current = status({
-    installed: true, enabled: true, runtime: { installed: true },
-    running: true, activeModel: 'installed',
+    installed: true,
+    enabled: true,
+    runtime: { installed: true },
+    running: true,
+    activeModel: 'installed',
     models: [
       { id: 'installed', name: 'Installed Qwen', installed: true, sizeBytes: 19e9, contextWindow: 32768 },
       { id: 'catalog-only', name: 'Catalog-only model', installed: false, compatible: true },
     ],
   });
-  const mounted = await mount({
-    readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
-  }, current, () => assert.fail('must not install from detail'));
+  const mounted = await mount(
+    {
+      readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
+    },
+    current,
+    () => assert.fail('must not install from detail')
+  );
   try {
     const text = document.querySelector('[data-feature-id="localProvider"]').textContent;
     assert.match(text, /Installed Qwen/);
@@ -207,7 +286,9 @@ test('detail lists installed models and running state, not the uninstalled catal
 
 test('detail can stop the shared download, resume retained files and change idle release without reinstalling', async () => {
   let current = status({
-    installed: true, runtime: { installed: true }, idleTtlSeconds: 3600,
+    installed: true,
+    runtime: { installed: true },
+    idleTtlSeconds: 3600,
     installations: [{ jobId: 'download-job', phase: 'model', modelId: 'test-model', state: 'running', percent: 35 }],
   });
   const calls = [];
@@ -217,8 +298,10 @@ test('detail can stop the shared download, resume retained files and change idle
     return { localProvider: current };
   });
   try {
-    const button = (label) => [...document.querySelectorAll('[data-feature-id="localProvider"] button')]
-      .find((entry) => entry.textContent === label);
+    const button = (label) =>
+      [...document.querySelectorAll('[data-feature-id="localProvider"] button')].find(
+        (entry) => entry.textContent === label
+      );
     await act(async () => button('Stop download').click());
     assert.deepEqual(calls[0], ['cancelLocalProviderInstallation', ['download-job']]);
     current = { ...current, installations: [{ phase: 'model', modelId: 'test-model', state: 'paused', percent: 35 }] };
@@ -228,12 +311,16 @@ test('detail can stop the shared download, resume retained files and change idle
     const selector = document.querySelector('[data-feature-id="localProvider"] [role="combobox"]');
     assert.match(selector.textContent, /After 1 hour/);
     await act(async () => selector.click());
-    await act(async () => [...document.querySelectorAll('[role="option"]')]
-      .find((option) => option.textContent === 'Never').click());
+    await act(async () =>
+      [...document.querySelectorAll('[role="option"]')].find((option) => option.textContent === 'Never').click()
+    );
     assert.deepEqual(calls[2], ['setLocalProviderIdleTtl', [0]]);
     await act(async () => selector.click());
-    await act(async () => [...document.querySelectorAll('[role="option"]')]
-      .find((option) => option.textContent === 'After 30 minutes').click());
+    await act(async () =>
+      [...document.querySelectorAll('[role="option"]')]
+        .find((option) => option.textContent === 'After 30 minutes')
+        .click()
+    );
     assert.deepEqual(calls[3], ['setLocalProviderIdleTtl', [1800]]);
   } finally {
     await mounted.dispose();
@@ -242,20 +329,34 @@ test('detail can stop the shared download, resume retained files and change idle
 
 test('installed model lists its facts and deletion waits for an exact-path confirmation', async () => {
   const current = status({
-    installed: true, runtime: { installed: true }, running: false,
-    models: [{ id: 'installed', name: 'Managed model', installed: true, sizeBytes: 1e9,
-      supportsFunctionCalling: true, loadTimeMs: 1200,
-      inference: { firstResponseMs: 250, tokensPerSecond: 24.5 } }],
+    installed: true,
+    runtime: { installed: true },
+    running: false,
+    models: [
+      {
+        id: 'installed',
+        name: 'Managed model',
+        installed: true,
+        sizeBytes: 1e9,
+        supportsFunctionCalling: true,
+        loadTimeMs: 1200,
+        inference: { firstResponseMs: 250, tokensPerSecond: 24.5 },
+      },
+    ],
   });
   const calls = [];
-  const mounted = await mount({
-    readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
-  }, current, async (capability, args) => {
-    calls.push([capability, args]);
-    if (capability === 'getLocalProviderModelDetails') return { confirmationToken: 'confirmed-file',
-      files: [{ path: 'C:\\Managed\\installed.gguf', size: 1e9 }] };
-    return { localProvider: current };
-  });
+  const mounted = await mount(
+    {
+      readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
+    },
+    current,
+    async (capability, args) => {
+      calls.push([capability, args]);
+      if (capability === 'getLocalProviderModelDetails')
+        return { confirmationToken: 'confirmed-file', files: [{ path: 'C:\\Managed\\installed.gguf', size: 1e9 }] };
+      return { localProvider: current };
+    }
+  );
   try {
     const detail = () => document.querySelector('[data-feature-id="localProvider"]');
     // Repair and verification are chat-driven (local-provider skill): the
@@ -271,39 +372,57 @@ test('installed model lists its facts and deletion waits for an exact-path confi
     assert.match(confirmation.textContent, /Permanently deletes/);
     await act(async () => confirmation.querySelector('button.danger').click());
     assert.deepEqual(calls.at(-1), ['deleteLocalProviderModel', ['confirmed-file']]);
-  } finally { await mounted.dispose(); }
+  } finally {
+    await mounted.dispose();
+  }
 });
 
 test('a damaged existing model is flagged for chat repair without showing uninstalled search candidates', async () => {
   const current = status({
-    installed: true, runtime: { installed: true },
+    installed: true,
+    runtime: { installed: true },
     models: [
       { id: 'damaged', name: 'Damaged model', installed: false, present: true },
       { id: 'candidate', name: 'Uninstalled candidate', installed: false, present: false },
     ],
   });
-  const mounted = await mount({
-    readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
-  }, current, async () => ({}));
+  const mounted = await mount(
+    {
+      readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
+    },
+    current,
+    async () => ({})
+  );
   try {
     const detail = document.querySelector('[data-feature-id="localProvider"]');
     assert.match(detail.textContent, /Damaged model/);
     assert.match(detail.textContent, /Needs repair/);
     assert.doesNotMatch(detail.textContent, /Uninstalled candidate/);
-    assert.equal([...detail.querySelectorAll('button')].find((button) => button.textContent === 'Repair'), undefined);
-  } finally { await mounted.dispose(); }
+    assert.equal(
+      [...detail.querySelectorAll('button')].find((button) => button.textContent === 'Repair'),
+      undefined
+    );
+  } finally {
+    await mounted.dispose();
+  }
 });
 
 test('background hardware checks stay silent while real hardware failures remain visible', async () => {
   let current = status({ hardware: { checking: true, gpu: { name: 'RTX 3090' } } });
-  const mounted = await mount({
-    readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
-  }, current, async () => ({}));
+  const mounted = await mount(
+    {
+      readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
+    },
+    current,
+    async () => ({})
+  );
   try {
     const detail = () => document.querySelector('[data-feature-id="localProvider"]');
     assert.doesNotMatch(detail().textContent, /Checking hardware/);
     current = status({ hardware: { checking: false, error: 'GPU driver unavailable' } });
     await mounted.render(current);
     assert.match(detail().textContent, /GPU driver unavailable/);
-  } finally { await mounted.dispose(); }
+  } finally {
+    await mounted.dispose();
+  }
 });

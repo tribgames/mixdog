@@ -125,7 +125,7 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
   async function fillCredentialInGuest(
     guest: WebContents,
     credential: Readonly<BrowserCredentialValue>,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<BrowserCredentialFillResult> {
     signal?.throwIfAborted();
     const url = guest.getURL();
@@ -151,7 +151,7 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
         grantUniveralAccess: false,
       },
       signal,
-      { beforeDispatch },
+      { beforeDispatch }
     );
     beforeDispatch();
     if (!world.executionContextId) throw new Error('The secure credential fill context is unavailable.');
@@ -165,23 +165,25 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
       {
         executionContextId: world.executionContextId,
         functionDeclaration: BROWSER_CREDENTIAL_AUTOFILL_FUNCTION,
-        arguments: [{
-          value: {
-            username: credential.username,
-            password: credential.password,
+        arguments: [
+          {
+            value: {
+              username: credential.username,
+              password: credential.password,
+            },
           },
-        }],
+        ],
         returnByValue: true,
         awaitPromise: true,
         userGesture: true,
       },
       signal,
-      { beforeDispatch },
+      { beforeDispatch }
     );
     signal?.throwIfAborted();
     if (response.exceptionDetails) {
-      const detail = response.exceptionDetails.exception?.description
-        || response.exceptionDetails.text || 'credential fill failed';
+      const detail =
+        response.exceptionDetails.exception?.description || response.exceptionDetails.text || 'credential fill failed';
       throw new Error(redactText(guest, detail.split('\n')[0]));
     }
     const result = response.result?.value;

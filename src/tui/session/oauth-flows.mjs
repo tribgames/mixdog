@@ -85,29 +85,34 @@ export function createSessionOAuthFlowRegistry({ ttlMs = DEFAULT_FLOW_TTL_MS } =
       completing: false,
       timeout: null,
     };
-    flow.timeout = setTimeout(() => {
-      const current = flows.get(id);
-      if (!current || current.state !== 'pending') return;
-      finishFlow(current, 'expired', 'OAuth login expired.');
-      cancelFlow(current, 'expired');
-    }, Math.max(1, Number(ttlMs) || DEFAULT_FLOW_TTL_MS));
+    flow.timeout = setTimeout(
+      () => {
+        const current = flows.get(id);
+        if (!current || current.state !== 'pending') return;
+        finishFlow(current, 'expired', 'OAuth login expired.');
+        cancelFlow(current, 'expired');
+      },
+      Math.max(1, Number(ttlMs) || DEFAULT_FLOW_TTL_MS)
+    );
     flow.timeout.unref?.();
     flows.set(id, flow);
     activeByProvider.set(provider, id);
     if (started.waitForCallback && typeof started.waitForCallback.then === 'function') {
-      void Promise.resolve(started.waitForCallback).then((result) => {
-        const current = flows.get(id);
-        if (!current || current.state !== 'pending') return;
-        if (result) {
-          finishFlow(current, 'complete', null, true);
-        } else if (!current.completing) {
-          finishFlow(current, 'failed', 'OAuth login did not complete.');
-        }
-      }).catch((error) => {
-        const current = flows.get(id);
-        if (!current || current.state !== 'pending' || current.completing) return;
-        finishFlow(current, 'failed', error instanceof Error ? error.message : String(error));
-      });
+      void Promise.resolve(started.waitForCallback)
+        .then((result) => {
+          const current = flows.get(id);
+          if (!current || current.state !== 'pending') return;
+          if (result) {
+            finishFlow(current, 'complete', null, true);
+          } else if (!current.completing) {
+            finishFlow(current, 'failed', 'OAuth login did not complete.');
+          }
+        })
+        .catch((error) => {
+          const current = flows.get(id);
+          if (!current || current.state !== 'pending' || current.completing) return;
+          finishFlow(current, 'failed', error instanceof Error ? error.message : String(error));
+        });
     }
     return oauthFlowStatus(flow);
   }
@@ -136,7 +141,7 @@ export function createSessionOAuthFlowRegistry({ ttlMs = DEFAULT_FLOW_TTL_MS } =
         flow,
         completed ? 'complete' : 'failed',
         completed ? null : 'OAuth code did not complete the login.',
-        Boolean(completed),
+        Boolean(completed)
       );
     } catch (error) {
       finishFlow(flow, 'failed', error instanceof Error ? error.message : String(error));

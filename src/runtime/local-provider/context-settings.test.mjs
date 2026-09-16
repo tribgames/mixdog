@@ -34,7 +34,9 @@ test('applying context waits for inference without aborting it, then exposes the
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-context-queue-'));
   const entry = LOCAL_PROVIDER_MANIFEST.models[0];
   let finish;
-  const gate = new Promise((resolve) => { finish = resolve; });
+  const gate = new Promise((resolve) => {
+    finish = resolve;
+  });
   try {
     const inference = runLocalProviderRequest(async (signal) => {
       await gate;

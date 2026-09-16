@@ -3,14 +3,14 @@
 // an authored deck carries neither, so these helpers read the deck's own
 // ladder and geometry instead of the composer's plan.
 
-const DEFAULT_SLIDE = { width: 960, height: 540 };  // LAYOUT_WIDE in points
-const EDGE_ZONE = 60;                                 // pt from the slide edge that reads as page chrome
-const UNDER_TITLE_GAP = 40;                           // pt below a title that reads as an accent rule
-const HANGING_GUTTER = 40;                            // pt between a vertical rule and the text hanging from it
+const DEFAULT_SLIDE = { width: 960, height: 540 }; // LAYOUT_WIDE in points
+const EDGE_ZONE = 60; // pt from the slide edge that reads as page chrome
+const UNDER_TITLE_GAP = 40; // pt below a title that reads as an accent rule
+const HANGING_GUTTER = 40; // pt between a vertical rule and the text hanging from it
 const TITLE_SIZE = 24;
-const ROW_TOLERANCE = 6;                              // pt; same top or left means the same grid line
-const CARD_MIN_HEIGHT = 60;                           // pt; anything shorter is a label, not a card
-const CARD_MIN_TEXT = 20;                             // chars; cards carry copy, nodes carry names
+const ROW_TOLERANCE = 6; // pt; same top or left means the same grid line
+const CARD_MIN_HEIGHT = 60; // pt; anything shorter is a label, not a card
+const CARD_MIN_TEXT = 20; // chars; cards carry copy, nodes carry names
 
 function num(value) {
   const parsed = Number(value);
@@ -30,15 +30,19 @@ export function slideSize(document) {
 // backgrounds came back as drift. Returns null when the deck shares any
 // background with the design tokens: the composer's plan applies instead.
 export function authoredBackgroundLadder(backgrounds, tokenColors) {
-  const tokens = new Set(Object.values(tokenColors || {}).map((color) => String(color || '').toUpperCase()).filter(Boolean));
+  const tokens = new Set(
+    Object.values(tokenColors || {})
+      .map((color) => String(color || '').toUpperCase())
+      .filter(Boolean)
+  );
   if (backgrounds.some((color) => tokens.has(color))) return null;
   const counts = new Map();
   for (const color of backgrounds) counts.set(color, (counts.get(color) || 0) + 1);
   const canvas = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || backgrounds[0];
   const distance = (color) => Math.abs(backgroundLightness(color) - backgroundLightness(canvas));
-  const inverse = [...counts.keys()]
-    .filter((color) => color !== canvas)
-    .sort((left, right) => distance(right) - distance(left))[0] || canvas;
+  const inverse =
+    [...counts.keys()].filter((color) => color !== canvas).sort((left, right) => distance(right) - distance(left))[0] ||
+    canvas;
   return { inverse, canvas };
 }
 
@@ -50,7 +54,7 @@ function backgroundLightness(color) {
     const raw = Number.parseInt(value.slice(index, index + 2), 16) / 255;
     return raw <= 0.04045 ? raw / 12.92 : ((raw + 0.055) / 1.055) ** 2.4;
   };
-  return (0.2126 * channel(0)) + (0.7152 * channel(2)) + (0.0722 * channel(4));
+  return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
 }
 
 // A thin rule is ornamentation when it hugs a slide edge or underlines a title;
@@ -67,12 +71,14 @@ export function isOrnamentalStripe(shape, shapes, size) {
     // A vertical rule that text hangs from (editorial carrier) is scoped to its
     // block: at most half the page tall, with text starting within a small
     // gutter and overlapping it. A page-height edge stripe is ornament.
-    const hanging = height <= size.height * 0.5 && shapes.some((other) => {
-      if (other === shape || !String(other.text || '').trim()) return false;
-      const gutter = num(other.left) - (left + width);
-      const overlap = Math.min(top + height, num(other.top) + num(other.height)) - Math.max(top, num(other.top));
-      return gutter >= 0 && gutter <= HANGING_GUTTER && overlap > 0;
-    });
+    const hanging =
+      height <= size.height * 0.5 &&
+      shapes.some((other) => {
+        if (other === shape || !String(other.text || '').trim()) return false;
+        const gutter = num(other.left) - (left + width);
+        const overlap = Math.min(top + height, num(other.top) + num(other.height)) - Math.max(top, num(other.top));
+        return gutter >= 0 && gutter <= HANGING_GUTTER && overlap > 0;
+      });
     if (hanging) return false;
     return left < EDGE_ZONE || left + width > size.width - EDGE_ZONE;
   }
@@ -93,10 +99,12 @@ export function isOrnamentalStripe(shape, shapes, size) {
 // stage labels, staggered blocks, and unfilled text columns share a size
 // without being cards. Snapshots without fill data fall back to text blocks.
 function contains(surface, shape) {
-  return num(shape.left) >= num(surface.left) - 2
-    && num(shape.top) >= num(surface.top) - 2
-    && num(shape.left) + num(shape.width) <= num(surface.left) + num(surface.width) + 2
-    && num(shape.top) + num(shape.height) <= num(surface.top) + num(surface.height) + 2;
+  return (
+    num(shape.left) >= num(surface.left) - 2 &&
+    num(shape.top) >= num(surface.top) - 2 &&
+    num(shape.left) + num(shape.width) <= num(surface.left) + num(surface.width) + 2 &&
+    num(shape.top) + num(shape.height) <= num(surface.top) + num(surface.height) + 2
+  );
 }
 
 export function isCardGridSlide(textShapes, allShapes = null) {
@@ -104,8 +112,12 @@ export function isCardGridSlide(textShapes, allShapes = null) {
   const fillKnown = shapes.some((shape) => shape.fill);
   const copy = (shape) => String(shape.text || '').trim().length >= CARD_MIN_TEXT;
   const cards = fillKnown
-    ? shapes.filter((surface) => surface.fill && num(surface.height) >= CARD_MIN_HEIGHT
-      && (copy(surface) || textShapes.some((shape) => shape !== surface && copy(shape) && contains(surface, shape))))
+    ? shapes.filter(
+        (surface) =>
+          surface.fill &&
+          num(surface.height) >= CARD_MIN_HEIGHT &&
+          (copy(surface) || textShapes.some((shape) => shape !== surface && copy(shape) && contains(surface, shape)))
+      )
     : textShapes.filter((shape) => num(shape.height) >= CARD_MIN_HEIGHT && copy(shape));
   const groups = new Map();
   for (const shape of cards) {

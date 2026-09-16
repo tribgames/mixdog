@@ -78,15 +78,12 @@ test('session-id authority queues an unobserved completion only for its owner', 
     },
   });
 
-  const delivered = bus.notifyFnForSession('lead-owner')(
-    secondText,
-    {
-      ...completionMeta,
-      execution_id: 'task-agent-2',
-      caller_session_id: 'wrong-session',
-      routing_session_id: 'wrong-session',
-    },
-  );
+  const delivered = bus.notifyFnForSession('lead-owner')(secondText, {
+    ...completionMeta,
+    execution_id: 'task-agent-2',
+    caller_session_id: 'wrong-session',
+    routing_session_id: 'wrong-session',
+  });
 
   assert.equal(delivered, true);
   assert.equal(enqueued.length, 1);
@@ -98,7 +95,11 @@ test('runtime notifications stay live before session materialization and bind on
   const received = [];
   const bus = createNotificationBus({
     listeners: new Set(),
-    mgr: { enqueuePendingMessage() { return 1; } },
+    mgr: {
+      enqueuePendingMessage() {
+        return 1;
+      },
+    },
   });
   const unsubscribe = bus.subscribeRuntimeNotification('', (event) => {
     received.push(event.content);
@@ -111,10 +112,13 @@ test('runtime notifications stay live before session materialization and bind on
 
   assert.equal(bus.bindRuntimeNotificationSession('lead-reserved'), true);
   assert.equal(bus.notifySession('lead-reserved', 'discord-targeted'), true);
-  assert.equal(bus.notifySessionCompletion('lead-reserved', completionText, {
-    ...completionMeta,
-    execution_id: 'task-agent-reserved',
-  }), true);
+  assert.equal(
+    bus.notifySessionCompletion('lead-reserved', completionText, {
+      ...completionMeta,
+      execution_id: 'task-agent-reserved',
+    }),
+    true
+  );
   assert.equal(received.length, 3);
   unsubscribe();
 });
@@ -149,9 +153,14 @@ test('unobserved completion fallback queues and wakes exactly once', () => {
 
 function wakeFixture({ currentSessionId = 'lead-wake', turnApi = undefined } = {}) {
   const asks = [];
-  const api = turnApi === undefined
-    ? { ask: async (prompt, options) => { asks.push({ prompt, options }); } }
-    : turnApi;
+  const api =
+    turnApi === undefined
+      ? {
+          ask: async (prompt, options) => {
+            asks.push({ prompt, options });
+          },
+        }
+      : turnApi;
   const wake = createCompletionWakeScheduler({
     getCurrentSessionId: () => currentSessionId,
     getTurnApi: () => api,

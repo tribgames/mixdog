@@ -19,13 +19,18 @@ import { DEFAULT_SERIES_COLORS } from '../portable/portable-chart.mjs';
 // names no colours takes the portable palette on both backends; a named palette is kept as written.
 function withSharedChartDefaults(session, operations) {
   if (session.format !== 'xlsx') return operations;
-  return operations.map((operation) => (
+  return operations.map((operation) =>
     operation?.op === 'add_chart' && !(Array.isArray(operation.seriesColors) && operation.seriesColors.length)
       ? { ...operation, seriesColors: [...DEFAULT_SERIES_COLORS] }
       : operation
-  ));
+  );
 }
-import { TABULAR_FORMATS, emptyOfficeDesignState, isMicrosoftOfficeSession, mergeOfficeDesignRequest } from './office-core.mjs';
+import {
+  TABULAR_FORMATS,
+  emptyOfficeDesignState,
+  isMicrosoftOfficeSession,
+  mergeOfficeDesignRequest,
+} from './office-core.mjs';
 import { fullPath, materializeWorkingCopy, trustForMutation } from './office-sessions.mjs';
 import {
   assertTransactionUnchanged,
@@ -60,25 +65,46 @@ export async function applyBatch(session, args) {
   session.designRequest = designRequest;
   session.design = prepared.design;
   session.designState ||= emptyOfficeDesignState();
-  const pathOperations = new Set(['add_image', 'replace_image', 'stamp_image', 'add_attachment', 'merge_pdf', 'apply_theme', 'import_slides', 'add_media']);
+  const pathOperations = new Set([
+    'add_image',
+    'replace_image',
+    'stamp_image',
+    'add_attachment',
+    'merge_pdf',
+    'apply_theme',
+    'import_slides',
+    'add_media',
+  ]);
   const operations = Array.isArray(prepared.operations)
     ? prepared.operations.map((operation) => {
         let normalized = operation;
         if (operation?.path && pathOperations.has(String(operation.op || ''))) {
           normalized = { ...normalized, path: fullPath(operation.path, args.__cwd || dirname(session.target)) };
         }
-        if (operation?.fontPath && ['add_text', 'watermark', 'ocr_pages', 'fill_form', 'add_form_field', 'flatten_form'].includes(String(operation.op || ''))) {
+        if (
+          operation?.fontPath &&
+          ['add_text', 'watermark', 'ocr_pages', 'fill_form', 'add_form_field', 'flatten_form'].includes(
+            String(operation.op || '')
+          )
+        ) {
           normalized = { ...normalized, fontPath: fullPath(operation.fontPath, args.__cwd || dirname(session.target)) };
         }
         if (operation?.op === 'merge_pdf' && Array.isArray(operation.sources)) {
           normalized = {
             ...normalized,
-            sources: operation.sources.map((entry) => (typeof entry === 'string'
-              ? fullPath(entry, args.__cwd || dirname(session.target))
-              : entry?.path ? { ...entry, path: fullPath(entry.path, args.__cwd || dirname(session.target)) } : entry)),
+            sources: operation.sources.map((entry) =>
+              typeof entry === 'string'
+                ? fullPath(entry, args.__cwd || dirname(session.target))
+                : entry?.path
+                  ? { ...entry, path: fullPath(entry.path, args.__cwd || dirname(session.target)) }
+                  : entry
+            ),
           };
         }
-        if (operation?.output && ['extract_pages', 'split_pages', 'extract_attachment'].includes(String(operation.op || ''))) {
+        if (
+          operation?.output &&
+          ['extract_pages', 'split_pages', 'extract_attachment'].includes(String(operation.op || ''))
+        ) {
           normalized = { ...normalized, output: fullPath(operation.output, args.__cwd || dirname(session.target)) };
         }
         return normalized;
@@ -86,9 +112,9 @@ export async function applyBatch(session, args) {
     : [];
   if (!operations.length) throw new Error('batch requires at least one operation');
   if (
-    session.format === 'pptx'
-    && operations.some((operation) => operation.op === 'import_slides')
-    && operations.some((operation) => operation.op === 'keep_slides')
+    session.format === 'pptx' &&
+    operations.some((operation) => operation.op === 'import_slides') &&
+    operations.some((operation) => operation.op === 'keep_slides')
   ) {
     throw new Error('Run keep_slides in a later batch after import_slides has been saved');
   }
@@ -122,45 +148,51 @@ export async function applyBatch(session, args) {
     }
   }
   const target = session.target;
-  const emptyDeckReplacement = session.backend === 'microsoft-office-com'
-    && session.format === 'pptx'
-    && session.mode === 'background'
-    && session.created === true
-    && Number(session.snapshotVersion || 0) === 0
-    && operations[0].op === 'import_slides'
-    && Number(operations[0].after || 0) === 0
-    && extname(operations[0].path).toLowerCase() === extname(target).toLowerCase();
-  const portableTemplateSeed = session.backend === 'mixdog-ooxml'
-    && session.format === 'pptx'
-    && session.created === true
-    && Number(session.snapshotVersion || 0) === 0
-    && operations.some((operation) => operation.op === 'import_slides')
-    ? operations.find((operation) => operation.op === 'import_slides').path
-    : '';
-  const needsComCheckpoint = isMicrosoftOfficeSession(session)
-    && session.mode === 'background'
-    && operations.some((operation) => operation.op === 'import_slides');
-  const backup = !isMicrosoftOfficeSession(session) || needsComCheckpoint
-    ? `${target}.mixdog-backup-${randomUUID()}`
-    : '';
-  const replacementSource = emptyDeckReplacement && Array.isArray(operations[0]?.slides)
-    ? join(tmpdir(), `mixdog-pptx-selection-${randomUUID()}.pptx`)
-    : '';
+  const emptyDeckReplacement =
+    session.backend === 'microsoft-office-com' &&
+    session.format === 'pptx' &&
+    session.mode === 'background' &&
+    session.created === true &&
+    Number(session.snapshotVersion || 0) === 0 &&
+    operations[0].op === 'import_slides' &&
+    Number(operations[0].after || 0) === 0 &&
+    extname(operations[0].path).toLowerCase() === extname(target).toLowerCase();
+  const portableTemplateSeed =
+    session.backend === 'mixdog-ooxml' &&
+    session.format === 'pptx' &&
+    session.created === true &&
+    Number(session.snapshotVersion || 0) === 0 &&
+    operations.some((operation) => operation.op === 'import_slides')
+      ? operations.find((operation) => operation.op === 'import_slides').path
+      : '';
+  const needsComCheckpoint =
+    isMicrosoftOfficeSession(session) &&
+    session.mode === 'background' &&
+    operations.some((operation) => operation.op === 'import_slides');
+  const backup =
+    !isMicrosoftOfficeSession(session) || needsComCheckpoint ? `${target}.mixdog-backup-${randomUUID()}` : '';
+  const replacementSource =
+    emptyDeckReplacement && Array.isArray(operations[0]?.slides)
+      ? join(tmpdir(), `mixdog-pptx-selection-${randomUUID()}.pptx`)
+      : '';
   if (replacementSource) {
     await createPptxSlideSelection(operations[0].path, operations[0].slides, replacementSource);
   }
   if (backup && needsComCheckpoint) {
-    const checkpoint = await callMicrosoftOffice({
-      action: 'save_copy',
-      session: session.id,
-      format: session.format,
-      mode: session.mode,
-      path: target,
-      output: backup,
-    }, {
-      signal: session.activeSignal || null,
-      timeoutMs: 120_000,
-    });
+    const checkpoint = await callMicrosoftOffice(
+      {
+        action: 'save_copy',
+        session: session.id,
+        format: session.format,
+        mode: session.mode,
+        path: target,
+        output: backup,
+      },
+      {
+        signal: session.activeSignal || null,
+        timeoutMs: 120_000,
+      }
+    );
     if (!checkpoint.ok) {
       throw new Error(`Microsoft Office save-copy checkpoint failed: ${checkpoint.error || 'unknown error'}`);
     }
@@ -175,19 +207,22 @@ export async function applyBatch(session, args) {
     if (session.backend === 'microsoft-office-com') {
       if (emptyDeckReplacement) {
         const operation = operations[0];
-        const replaced = await callMicrosoftOffice({
-          action: 'replace_presentation_from_source',
-          session: session.id,
-          format: session.format,
-          mode: session.mode,
-          path: target,
-          source: replacementSource || operation.path,
-          ...(replacementSource ? {} : { slides: operation.slides }),
-          checkpoint: backup,
-        }, {
-          signal: session.activeSignal || null,
-          timeoutMs: 120_000,
-        });
+        const replaced = await callMicrosoftOffice(
+          {
+            action: 'replace_presentation_from_source',
+            session: session.id,
+            format: session.format,
+            mode: session.mode,
+            path: target,
+            source: replacementSource || operation.path,
+            ...(replacementSource ? {} : { slides: operation.slides }),
+            checkpoint: backup,
+          },
+          {
+            signal: session.activeSignal || null,
+            timeoutMs: 120_000,
+          }
+        );
         if (!replaced.ok) {
           throw new Error(`PowerPoint source replacement failed: ${replaced.error || 'unknown error'}`);
         }
@@ -195,19 +230,22 @@ export async function applyBatch(session, args) {
         results = Array.isArray(replaced.results) ? replaced.results : [replaced.results];
         const remaining = operations.slice(1);
         if (remaining.length) {
-          const result = await callMicrosoftOffice({
-            action: 'batch',
-            session: session.id,
-            format: session.format,
-            mode: session.mode,
-            path: target,
-            operations: withSharedChartDefaults(session, remaining),
-            save: args.save === true,
-            requireChanges: args.requireChanges !== false,
-          }, {
-            signal: session.activeSignal || null,
-            timeoutMs: Math.min(300_000, 90_000 + (remaining.length * 500)),
-          });
+          const result = await callMicrosoftOffice(
+            {
+              action: 'batch',
+              session: session.id,
+              format: session.format,
+              mode: session.mode,
+              path: target,
+              operations: withSharedChartDefaults(session, remaining),
+              save: args.save === true,
+              requireChanges: args.requireChanges !== false,
+            },
+            {
+              signal: session.activeSignal || null,
+              timeoutMs: Math.min(300_000, 90_000 + remaining.length * 500),
+            }
+          );
           if (!result.ok) throw new Error(result.error || 'Microsoft Office batch failed after native template import');
           backgroundIsolation = result.backgroundIsolation || backgroundIsolation;
           results.push(...(Array.isArray(result.results) ? result.results : [result.results]));
@@ -217,19 +255,22 @@ export async function applyBatch(session, args) {
           saved = replaced.saved === true;
         }
       } else {
-        const result = await callMicrosoftOffice({
-          action: 'batch',
-          session: session.id,
-          format: session.format,
-          mode: session.mode,
-          path: target,
-          operations: withSharedChartDefaults(session, operations),
-          save: args.save === true,
-          requireChanges: args.requireChanges !== false,
-        }, {
-          signal: session.activeSignal || null,
-          timeoutMs: Math.min(300_000, 90_000 + (operations.length * 500)),
-        });
+        const result = await callMicrosoftOffice(
+          {
+            action: 'batch',
+            session: session.id,
+            format: session.format,
+            mode: session.mode,
+            path: target,
+            operations: withSharedChartDefaults(session, operations),
+            save: args.save === true,
+            requireChanges: args.requireChanges !== false,
+          },
+          {
+            signal: session.activeSignal || null,
+            timeoutMs: Math.min(300_000, 90_000 + operations.length * 500),
+          }
+        );
         if (!result.ok) throw new Error(result.error || 'Microsoft Office batch failed');
         backgroundIsolation = result.backgroundIsolation || backgroundIsolation;
         results = result.results;
@@ -250,21 +291,24 @@ export async function applyBatch(session, args) {
     } else {
       results = await applyPortableOoxmlBatch(target, session.format, operations);
     }
-    results = (Array.isArray(results) ? results : [results])
-      .filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry));
+    results = (Array.isArray(results) ? results : [results]).filter(
+      (entry) => entry && typeof entry === 'object' && !Array.isArray(entry)
+    );
     // An operation may declare allowNoChange (a routine normalize_runs, a
     // fit_text that already fits); the Office host honours it per entry and
     // the portable path does the same when results map onto operations.
     const aligned = results.length === operations.length;
-    const noChange = results.filter((entry, index) => (
-      entry.changed === false && !(aligned && operations[index]?.allowNoChange === true)
-    ));
+    const noChange = results.filter(
+      (entry, index) => entry.changed === false && !(aligned && operations[index]?.allowNoChange === true)
+    );
     if (args.requireChanges !== false && noChange.length && session.backend !== 'microsoft-office-com') {
       // An operation that knows why it changed nothing says so: "no change" on
       // its own sends the caller back to look for a fault that is not there.
-      throw new Error(`Office batch produced no change for: ${noChange
-        .map((entry) => `${entry.op || 'operation'}${entry.unchangedReason ? ` (${entry.unchangedReason})` : ''}`)
-        .join(', ')}`);
+      throw new Error(
+        `Office batch produced no change for: ${noChange
+          .map((entry) => `${entry.op || 'operation'}${entry.unchangedReason ? ` (${entry.unchangedReason})` : ''}`)
+          .join(', ')}`
+      );
     }
     let transactionResult;
     if (transaction) {
@@ -315,7 +359,9 @@ export async function applyBatch(session, args) {
         const seen = new Set((session.autofitRanges || []).map((entry) => `${entry.sheet}|${entry.range}`));
         session.autofitRanges = [
           ...(session.autofitRanges || []),
-          ...fitted.filter((entry) => !seen.has(`${entry.sheet}|${entry.range}`) && seen.add(`${entry.sheet}|${entry.range}`)),
+          ...fitted.filter(
+            (entry) => !seen.has(`${entry.sheet}|${entry.range}`) && seen.add(`${entry.sheet}|${entry.range}`)
+          ),
         ];
       }
     }
@@ -349,18 +395,21 @@ export async function applyBatch(session, args) {
     };
   } catch (error) {
     if (backup && emptyDeckReplacement) {
-      await callMicrosoftOffice({
-        action: 'replace_presentation_from_source',
-        session: session.id,
-        format: session.format,
-        mode: session.mode,
-        path: target,
-        source: backup,
-        checkpoint: backup,
-      }, {
-        signal: session.activeSignal || null,
-        timeoutMs: 120_000,
-      }).catch(() => {});
+      await callMicrosoftOffice(
+        {
+          action: 'replace_presentation_from_source',
+          session: session.id,
+          format: session.format,
+          mode: session.mode,
+          path: target,
+          source: backup,
+          checkpoint: backup,
+        },
+        {
+          signal: session.activeSignal || null,
+          timeoutMs: 120_000,
+        }
+      ).catch(() => {});
     } else if (backup) {
       await rm(target, { force: true }).catch(() => {});
       await rename(backup, target).catch(() => {});

@@ -16,9 +16,18 @@ let modality: FocusModality = 'pointer';
 /** Keys that MOVE or ACT on focus. Typing prose into the composer is not a
  *  navigation signal, so plain characters leave the modality alone. */
 const NAVIGATION_KEYS = new Set([
-  'Tab', 'Enter', ' ', 'Escape',
-  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-  'Home', 'End', 'PageUp', 'PageDown',
+  'Tab',
+  'Enter',
+  ' ',
+  'Escape',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
 ]);
 
 function applyModality(next: FocusModality): void {

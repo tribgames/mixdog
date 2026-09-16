@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  foldUsageRollup,
-  normalizeUsageRollup,
-  usageRollupDayKey,
-} from './usage-rollup.mjs';
+import { foldUsageRollup, normalizeUsageRollup, usageRollupDayKey } from './usage-rollup.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = new Date(2026, 7, 12, 12, 0, 0).getTime();
@@ -57,18 +53,19 @@ test('a turn without a route is not counted as unknown usage', () => {
 
 test('separate providers stay separate and keep their own model buckets', () => {
   const first = foldUsageRollup(null, turn(), NOW);
-  const rollup = foldUsageRollup(first, turn({
-    provider: 'openai',
-    model: 'gpt-5.5',
-    providerKind: 'api',
-    sessionId: 'session-b',
-  }), NOW);
+  const rollup = foldUsageRollup(
+    first,
+    turn({
+      provider: 'openai',
+      model: 'gpt-5.5',
+      providerKind: 'api',
+      sessionId: 'session-b',
+    }),
+    NOW
+  );
   const day = rollup.days[usageRollupDayKey(NOW)];
 
-  assert.deepEqual(Object.keys(day.models).sort(), [
-    'anthropic-oauth/claude-sonnet-4-5',
-    'openai/gpt-5.5',
-  ]);
+  assert.deepEqual(Object.keys(day.models).sort(), ['anthropic-oauth/claude-sonnet-4-5', 'openai/gpt-5.5']);
   assert.equal(day.models['openai/gpt-5.5'].kind, 'api');
   assert.equal(Object.keys(day.sessions).length, 2);
 });
@@ -97,10 +94,14 @@ test('a malformed document is read as empty rather than throwing', () => {
 
 test('a background turn is folded whole but stays out of the conversation split', () => {
   const first = foldUsageRollup(null, turn(), NOW);
-  const rollup = foldUsageRollup(first, turn({
-    sourceType: 'memory-cycle',
-    sessionId: 'cycle-1',
-  }), NOW);
+  const rollup = foldUsageRollup(
+    first,
+    turn({
+      sourceType: 'memory-cycle',
+      sessionId: 'cycle-1',
+    }),
+    NOW
+  );
   const day = rollup.days[usageRollupDayKey(NOW)];
 
   assert.equal(day.turns, 2);

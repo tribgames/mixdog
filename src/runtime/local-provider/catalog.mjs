@@ -67,8 +67,7 @@ export function exactLocalProviderFile(path, size) {
 function recommendationFor(hardware) {
   const installedVram = Number(hardware?.gpu?.memoryBytes || 0);
   const candidates = LOCAL_PROVIDER_MANIFEST.models.filter((entry) => entry.recommended === true);
-  return candidates.find((entry) => installedVram >= Number(entry.minimumVramBytes || 0))
-    || null;
+  return candidates.find((entry) => installedVram >= Number(entry.minimumVramBytes || 0)) || null;
 }
 
 function publicModel(entry, dataDir, hardware) {
@@ -109,11 +108,7 @@ export function localProviderCatalogStatus({
   const executable = localProviderRuntimeExecutable(dataDir, { platform, arch });
   const models = localProviderModelEntries(dataDir).map((entry) => publicModel(entry, dataDir, hardware));
   return {
-    available: Boolean(
-      platformEntry
-      && hardware?.gpu?.vendor === 'NVIDIA'
-      && models.some((entry) => entry.compatible),
-    ),
+    available: Boolean(platformEntry && hardware?.gpu?.vendor === 'NVIDIA' && models.some((entry) => entry.compatible)),
     runtime: {
       installed: Boolean(executable && existsSync(executable)),
       version: LOCAL_PROVIDER_MANIFEST.runtime.version,
@@ -131,20 +126,22 @@ export function localProviderCatalogStatus({
 
 export function installedLocalProviderModels({ dataDir = resolvePluginData() } = {}) {
   const status = localProviderCatalogStatus({ dataDir });
-  return status.models.filter((entry) => entry.installed).map((entry) => ({
-    id: entry.id,
-    name: entry.name,
-    display: entry.name,
-    description: entry.description,
-    contextWindow: entry.contextWindow,
-    maxContextWindow: entry.maxContextWindow,
-    runtimeContextWindow: entry.runtimeContextWindow,
-    supportsFunctionCalling: entry.supportsFunctionCalling,
-    supportsReasoning: entry.supportsReasoning,
-    mode: 'chat',
-    family: entry.architecture || (entry.id.startsWith('qwen') ? 'qwen' : ''),
-    supportsImages: false,
-    supportsReasoningSettings: false,
-    latest: true,
-  }));
+  return status.models
+    .filter((entry) => entry.installed)
+    .map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      display: entry.name,
+      description: entry.description,
+      contextWindow: entry.contextWindow,
+      maxContextWindow: entry.maxContextWindow,
+      runtimeContextWindow: entry.runtimeContextWindow,
+      supportsFunctionCalling: entry.supportsFunctionCalling,
+      supportsReasoning: entry.supportsReasoning,
+      mode: 'chat',
+      family: entry.architecture || (entry.id.startsWith('qwen') ? 'qwen' : ''),
+      supportsImages: false,
+      supportsReasoningSettings: false,
+      latest: true,
+    }));
 }

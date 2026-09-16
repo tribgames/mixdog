@@ -73,7 +73,7 @@ export function lspDocumentLanguageId(relPath: string, languageId: string): stri
 }
 
 export function languageServerInitializationOptions(
-  spec: Pick<LanguageServerSpec, 'id'>,
+  spec: Pick<LanguageServerSpec, 'id'>
 ): Readonly<Record<string, unknown>> | undefined {
   if (spec.id !== TYPESCRIPT_LANGUAGE_SERVER.id) return undefined;
   return {
@@ -98,9 +98,12 @@ export const SERVER_BY_LANGUAGE: Readonly<Record<string, LanguageServerSpec>> = 
     command: 'pyright-langserver',
     args: ['--stdio'],
     projectCandidates: (root) => [
-      resolve(root, 'node_modules', '.bin', process.platform === 'win32'
-        ? 'pyright-langserver.cmd'
-        : 'pyright-langserver'),
+      resolve(
+        root,
+        'node_modules',
+        '.bin',
+        process.platform === 'win32' ? 'pyright-langserver.cmd' : 'pyright-langserver'
+      ),
     ],
   },
   go: { id: 'gopls', name: 'gopls', command: 'gopls', args: [] },
@@ -119,17 +122,11 @@ function requiredConfigString(value: unknown, name: string, maximum = 4_096): st
   return value.trim();
 }
 
-function configStringArray(
-  value: unknown,
-  name: string,
-  maximumEntries: number,
-  maximumLength = 4_096,
-): string[] {
+function configStringArray(value: unknown, name: string, maximumEntries: number, maximumLength = 4_096): string[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > maximumEntries) {
     throw new TypeError(`${name} is invalid.`);
   }
-  return value.map((entry, index) =>
-    requiredConfigString(entry, `${name}[${index}]`, maximumLength));
+  return value.map((entry, index) => requiredConfigString(entry, `${name}[${index}]`, maximumLength));
 }
 
 /** Parse a trusted project-local `.mixdog/lsp.json` registry.
@@ -137,7 +134,7 @@ function configStringArray(
  *  executable candidates remain confined to the project root. */
 export function parseProjectLanguageServerConfig(
   value: unknown,
-  root: string,
+  root: string
 ): Readonly<Record<string, LanguageServerSpec>> {
   const record = objectRecord(value);
   const rawServers = record?.servers;
@@ -158,14 +155,12 @@ export function parseProjectLanguageServerConfig(
     const id = requiredConfigString(server.id, `LSP server ${index} id`, 128);
     if (!/^[A-Za-z0-9._-]+$/.test(id)) throw new TypeError(`LSP server ${index} id is invalid.`);
     const command = requiredConfigString(server.command, `LSP server ${id} command`);
-    const languages = configStringArray(server.languages, `LSP server ${id} languages`, 32, 128)
-      .map((language) => language.toLowerCase());
-    const args = server.args === undefined
-      ? []
-      : configStringArray(server.args, `LSP server ${id} args`, 64);
-    const candidates = server.candidates === undefined
-      ? []
-      : configStringArray(server.candidates, `LSP server ${id} candidates`, 32);
+    const languages = configStringArray(server.languages, `LSP server ${id} languages`, 32, 128).map((language) =>
+      language.toLowerCase()
+    );
+    const args = server.args === undefined ? [] : configStringArray(server.args, `LSP server ${id} args`, 64);
+    const candidates =
+      server.candidates === undefined ? [] : configStringArray(server.candidates, `LSP server ${id} candidates`, 32);
     const resolvedCandidates = candidates.map((candidate) => {
       if (isAbsolute(candidate)) throw new TypeError(`LSP server ${id} candidate must be project-relative.`);
       const target = resolve(root, candidate);
@@ -176,14 +171,10 @@ export function parseProjectLanguageServerConfig(
     });
     const spec: LanguageServerSpec = {
       id,
-      name: server.name === undefined
-        ? id
-        : requiredConfigString(server.name, `LSP server ${id} name`, 128),
+      name: server.name === undefined ? id : requiredConfigString(server.name, `LSP server ${id} name`, 128),
       command,
       args,
-      ...(resolvedCandidates.length
-        ? { projectCandidates: () => resolvedCandidates }
-        : {}),
+      ...(resolvedCandidates.length ? { projectCandidates: () => resolvedCandidates } : {}),
     };
     for (const language of languages) {
       if (!/^[a-z0-9_+.-]+$/.test(language)) {
@@ -207,7 +198,7 @@ function publicState(
   spec: LanguageServerSpec | null,
   status: DesktopLspServerState['status'],
   detail?: string,
-  capabilities?: DesktopLspCapabilities,
+  capabilities?: DesktopLspCapabilities
 ): DesktopLspServerState {
   return {
     available: status === 'ready',
@@ -219,9 +210,7 @@ function publicState(
 }
 
 function objectRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 function providerEnabled(value: unknown): boolean {
@@ -257,8 +246,9 @@ export function normalizeLanguageServerCapabilities(value: unknown): DesktopLspC
     completion: providerEnabled(completion),
     completionResolve: completionOptions?.resolveProvider === true,
     completionTriggerCharacters: Array.isArray(completionOptions?.triggerCharacters)
-      ? completionOptions.triggerCharacters.filter((entry): entry is string =>
-          typeof entry === 'string' && entry.length > 0 && entry.length <= 8)
+      ? completionOptions.triggerCharacters.filter(
+          (entry): entry is string => typeof entry === 'string' && entry.length > 0 && entry.length <= 8
+        )
       : [],
     signatureHelp: providerEnabled(signatureHelp),
     signatureHelpTriggerCharacters: boundedStrings(signatureHelpOptions?.triggerCharacters, 64),
@@ -295,8 +285,8 @@ export function normalizeLanguageServerCapabilities(value: unknown): DesktopLspC
     documentColor: providerEnabled(capabilities.colorProvider),
     foldingRange: providerEnabled(capabilities.foldingRangeProvider),
     selectionRange: providerEnabled(capabilities.selectionRangeProvider),
-    semanticTokens: providerEnabled(semanticTokens)
-      && (semanticTokensFull === true || Boolean(semanticTokensFullOptions)),
+    semanticTokens:
+      providerEnabled(semanticTokens) && (semanticTokensFull === true || Boolean(semanticTokensFullOptions)),
     semanticTokensRange: providerEnabled(semanticTokens) && providerEnabled(semanticTokensOptions?.range),
     semanticTokensDelta: semanticTokensFullOptions?.delta === true,
     semanticTokensLegend: {
@@ -342,7 +332,8 @@ const DYNAMIC_CAPABILITY_METHODS = new Set([
 
 function boundedStrings(value: unknown, maximumEntries = 256): string[] {
   if (!Array.isArray(value)) return [];
-  return value.slice(0, maximumEntries)
+  return value
+    .slice(0, maximumEntries)
     .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
 }
 
@@ -368,7 +359,9 @@ function globPatternRegExp(pattern: string): RegExp | null {
     } else if (character === '{') {
       const close = pattern.indexOf('}', index + 1);
       if (close > index) {
-        const choices = pattern.slice(index + 1, close).split(',')
+        const choices = pattern
+          .slice(index + 1, close)
+          .split(',')
           .filter(Boolean)
           .map((choice) => choice.replace(/[|\\{}()[\]^$+*?.-]/g, '\\$&'));
         if (choices.length) {
@@ -389,11 +382,7 @@ function globPatternRegExp(pattern: string): RegExp | null {
   }
 }
 
-function dynamicRegistrationMatches(
-  options: Record<string, unknown>,
-  languageId: string,
-  uri?: string,
-): boolean {
+function dynamicRegistrationMatches(options: Record<string, unknown>, languageId: string, uri?: string): boolean {
   const selector = options.documentSelector;
   if (selector === undefined || selector === null) return true;
   if (!Array.isArray(selector) || selector.length === 0) return false;
@@ -424,7 +413,7 @@ function capabilitiesWithDynamicRegistrations(
   base: DesktopLspCapabilities,
   registrations: Iterable<DynamicCapabilityRegistration>,
   languageId: string,
-  uri?: string,
+  uri?: string
 ): DesktopLspCapabilities {
   const capabilities: DesktopLspCapabilities = {
     ...base,
@@ -445,31 +434,52 @@ function capabilitiesWithDynamicRegistrations(
       case 'textDocument/completion':
         capabilities.completion = true;
         capabilities.completionResolve ||= options.resolveProvider === true;
-        capabilities.completionTriggerCharacters = [...new Set([
-          ...capabilities.completionTriggerCharacters,
-          ...boundedStrings(options.triggerCharacters, 64),
-        ])];
+        capabilities.completionTriggerCharacters = [
+          ...new Set([...capabilities.completionTriggerCharacters, ...boundedStrings(options.triggerCharacters, 64)]),
+        ];
         break;
       case 'textDocument/signatureHelp':
         capabilities.signatureHelp = true;
-        capabilities.signatureHelpTriggerCharacters = [...new Set([
-          ...capabilities.signatureHelpTriggerCharacters,
-          ...boundedStrings(options.triggerCharacters, 64),
-        ])];
-        capabilities.signatureHelpRetriggerCharacters = [...new Set([
-          ...capabilities.signatureHelpRetriggerCharacters,
-          ...boundedStrings(options.retriggerCharacters, 64),
-        ])];
+        capabilities.signatureHelpTriggerCharacters = [
+          ...new Set([
+            ...capabilities.signatureHelpTriggerCharacters,
+            ...boundedStrings(options.triggerCharacters, 64),
+          ]),
+        ];
+        capabilities.signatureHelpRetriggerCharacters = [
+          ...new Set([
+            ...capabilities.signatureHelpRetriggerCharacters,
+            ...boundedStrings(options.retriggerCharacters, 64),
+          ]),
+        ];
         break;
-      case 'textDocument/hover': capabilities.hover = true; break;
-      case 'textDocument/declaration': capabilities.declaration = true; break;
-      case 'textDocument/definition': capabilities.definition = true; break;
-      case 'textDocument/typeDefinition': capabilities.typeDefinition = true; break;
-      case 'textDocument/implementation': capabilities.implementation = true; break;
-      case 'textDocument/references': capabilities.references = true; break;
-      case 'textDocument/documentHighlight': capabilities.documentHighlight = true; break;
-      case 'textDocument/linkedEditingRange': capabilities.linkedEditingRange = true; break;
-      case 'textDocument/documentSymbol': capabilities.documentSymbol = true; break;
+      case 'textDocument/hover':
+        capabilities.hover = true;
+        break;
+      case 'textDocument/declaration':
+        capabilities.declaration = true;
+        break;
+      case 'textDocument/definition':
+        capabilities.definition = true;
+        break;
+      case 'textDocument/typeDefinition':
+        capabilities.typeDefinition = true;
+        break;
+      case 'textDocument/implementation':
+        capabilities.implementation = true;
+        break;
+      case 'textDocument/references':
+        capabilities.references = true;
+        break;
+      case 'textDocument/documentHighlight':
+        capabilities.documentHighlight = true;
+        break;
+      case 'textDocument/linkedEditingRange':
+        capabilities.linkedEditingRange = true;
+        break;
+      case 'textDocument/documentSymbol':
+        capabilities.documentSymbol = true;
+        break;
       case 'textDocument/codeLens':
         capabilities.codeLens = true;
         capabilities.codeLensResolve ||= options.resolveProvider === true;
@@ -481,30 +491,39 @@ function capabilitiesWithDynamicRegistrations(
       case 'textDocument/codeAction':
         capabilities.codeAction = true;
         capabilities.codeActionResolve ||= options.resolveProvider === true;
-        capabilities.codeActionKinds = [...new Set([
-          ...capabilities.codeActionKinds,
-          ...boundedStrings(options.codeActionKinds),
-        ])];
+        capabilities.codeActionKinds = [
+          ...new Set([...capabilities.codeActionKinds, ...boundedStrings(options.codeActionKinds)]),
+        ];
         break;
-      case 'textDocument/formatting': capabilities.formatting = true; break;
-      case 'textDocument/rangeFormatting': capabilities.rangeFormatting = true; break;
+      case 'textDocument/formatting':
+        capabilities.formatting = true;
+        break;
+      case 'textDocument/rangeFormatting':
+        capabilities.rangeFormatting = true;
+        break;
       case 'textDocument/onTypeFormatting':
         capabilities.onTypeFormatting = true;
-        capabilities.onTypeFormattingTriggerCharacters = [...new Set([
-          ...capabilities.onTypeFormattingTriggerCharacters,
-          ...(typeof options.firstTriggerCharacter === 'string'
-            ? [options.firstTriggerCharacter]
-            : []),
-          ...boundedStrings(options.moreTriggerCharacter, 64),
-        ])];
+        capabilities.onTypeFormattingTriggerCharacters = [
+          ...new Set([
+            ...capabilities.onTypeFormattingTriggerCharacters,
+            ...(typeof options.firstTriggerCharacter === 'string' ? [options.firstTriggerCharacter] : []),
+            ...boundedStrings(options.moreTriggerCharacter, 64),
+          ]),
+        ];
         break;
       case 'textDocument/documentLink':
         capabilities.documentLink = true;
         capabilities.documentLinkResolve ||= options.resolveProvider === true;
         break;
-      case 'textDocument/documentColor': capabilities.documentColor = true; break;
-      case 'textDocument/foldingRange': capabilities.foldingRange = true; break;
-      case 'textDocument/selectionRange': capabilities.selectionRange = true; break;
+      case 'textDocument/documentColor':
+        capabilities.documentColor = true;
+        break;
+      case 'textDocument/foldingRange':
+        capabilities.foldingRange = true;
+        break;
+      case 'textDocument/selectionRange':
+        capabilities.selectionRange = true;
+        break;
       case 'textDocument/semanticTokens': {
         const full = options.full;
         const fullOptions = objectRecord(full);
@@ -522,10 +541,17 @@ function capabilitiesWithDynamicRegistrations(
         capabilities.inlayHint = true;
         capabilities.inlayHintResolve ||= options.resolveProvider === true;
         break;
-      case 'textDocument/prepareCallHierarchy': capabilities.callHierarchy = true; break;
-      case 'workspace/symbol': capabilities.workspaceSymbol = true; break;
-      case 'workspace/executeCommand': capabilities.executeCommand = true; break;
-      default: break;
+      case 'textDocument/prepareCallHierarchy':
+        capabilities.callHierarchy = true;
+        break;
+      case 'workspace/symbol':
+        capabilities.workspaceSymbol = true;
+        break;
+      case 'workspace/executeCommand':
+        capabilities.executeCommand = true;
+        break;
+      default:
+        break;
     }
   }
   return capabilities;
@@ -533,56 +559,88 @@ function capabilitiesWithDynamicRegistrations(
 
 function methodSupported(method: string, capabilities: DesktopLspCapabilities): boolean {
   switch (method) {
-    case 'textDocument/completion': return capabilities.completion;
-    case 'completionItem/resolve': return capabilities.completionResolve;
-    case 'textDocument/signatureHelp': return capabilities.signatureHelp;
-    case 'textDocument/hover': return capabilities.hover;
-    case 'textDocument/declaration': return capabilities.declaration;
-    case 'textDocument/definition': return capabilities.definition;
-    case 'textDocument/typeDefinition': return capabilities.typeDefinition;
-    case 'textDocument/implementation': return capabilities.implementation;
-    case 'textDocument/references': return capabilities.references;
-    case 'textDocument/documentHighlight': return capabilities.documentHighlight;
-    case 'textDocument/linkedEditingRange': return capabilities.linkedEditingRange;
-    case 'textDocument/documentSymbol': return capabilities.documentSymbol;
-    case 'textDocument/codeLens': return capabilities.codeLens;
-    case 'codeLens/resolve': return capabilities.codeLensResolve;
-    case 'textDocument/prepareRename': return capabilities.prepareRename;
-    case 'textDocument/rename': return capabilities.rename;
-    case 'textDocument/codeAction': return capabilities.codeAction;
-    case 'codeAction/resolve': return capabilities.codeActionResolve;
-    case 'textDocument/formatting': return capabilities.formatting;
-    case 'textDocument/rangeFormatting': return capabilities.rangeFormatting;
-    case 'textDocument/onTypeFormatting': return capabilities.onTypeFormatting;
-    case 'textDocument/documentLink': return capabilities.documentLink;
-    case 'documentLink/resolve': return capabilities.documentLinkResolve;
+    case 'textDocument/completion':
+      return capabilities.completion;
+    case 'completionItem/resolve':
+      return capabilities.completionResolve;
+    case 'textDocument/signatureHelp':
+      return capabilities.signatureHelp;
+    case 'textDocument/hover':
+      return capabilities.hover;
+    case 'textDocument/declaration':
+      return capabilities.declaration;
+    case 'textDocument/definition':
+      return capabilities.definition;
+    case 'textDocument/typeDefinition':
+      return capabilities.typeDefinition;
+    case 'textDocument/implementation':
+      return capabilities.implementation;
+    case 'textDocument/references':
+      return capabilities.references;
+    case 'textDocument/documentHighlight':
+      return capabilities.documentHighlight;
+    case 'textDocument/linkedEditingRange':
+      return capabilities.linkedEditingRange;
+    case 'textDocument/documentSymbol':
+      return capabilities.documentSymbol;
+    case 'textDocument/codeLens':
+      return capabilities.codeLens;
+    case 'codeLens/resolve':
+      return capabilities.codeLensResolve;
+    case 'textDocument/prepareRename':
+      return capabilities.prepareRename;
+    case 'textDocument/rename':
+      return capabilities.rename;
+    case 'textDocument/codeAction':
+      return capabilities.codeAction;
+    case 'codeAction/resolve':
+      return capabilities.codeActionResolve;
+    case 'textDocument/formatting':
+      return capabilities.formatting;
+    case 'textDocument/rangeFormatting':
+      return capabilities.rangeFormatting;
+    case 'textDocument/onTypeFormatting':
+      return capabilities.onTypeFormatting;
+    case 'textDocument/documentLink':
+      return capabilities.documentLink;
+    case 'documentLink/resolve':
+      return capabilities.documentLinkResolve;
     case 'textDocument/documentColor':
-    case 'textDocument/colorPresentation': return capabilities.documentColor;
-    case 'textDocument/foldingRange': return capabilities.foldingRange;
-    case 'textDocument/selectionRange': return capabilities.selectionRange;
-    case 'textDocument/semanticTokens/full': return capabilities.semanticTokens;
+    case 'textDocument/colorPresentation':
+      return capabilities.documentColor;
+    case 'textDocument/foldingRange':
+      return capabilities.foldingRange;
+    case 'textDocument/selectionRange':
+      return capabilities.selectionRange;
+    case 'textDocument/semanticTokens/full':
+      return capabilities.semanticTokens;
     case 'textDocument/semanticTokens/full/delta':
       return capabilities.semanticTokens && capabilities.semanticTokensDelta;
-    case 'textDocument/semanticTokens/range': return capabilities.semanticTokensRange;
-    case 'textDocument/inlayHint': return capabilities.inlayHint;
-    case 'inlayHint/resolve': return capabilities.inlayHintResolve;
+    case 'textDocument/semanticTokens/range':
+      return capabilities.semanticTokensRange;
+    case 'textDocument/inlayHint':
+      return capabilities.inlayHint;
+    case 'inlayHint/resolve':
+      return capabilities.inlayHintResolve;
     case 'textDocument/prepareCallHierarchy':
     case 'callHierarchy/incomingCalls':
-    case 'callHierarchy/outgoingCalls': return capabilities.callHierarchy;
-    case 'workspace/symbol': return capabilities.workspaceSymbol;
-    case 'workspace/executeCommand': return capabilities.executeCommand;
-    default: return false;
+    case 'callHierarchy/outgoingCalls':
+      return capabilities.callHierarchy;
+    case 'workspace/symbol':
+      return capabilities.workspaceSymbol;
+    case 'workspace/executeCommand':
+      return capabilities.executeCommand;
+    default:
+      return false;
   }
 }
 
 export function languageServerRequestParams(
   uri: string,
   method: string,
-  params: Readonly<Record<string, unknown>>,
+  params: Readonly<Record<string, unknown>>
 ): Readonly<Record<string, unknown>> {
-  return method.startsWith('textDocument/')
-    ? { ...params, textDocument: { uri } }
-    : { ...params };
+  return method.startsWith('textDocument/') ? { ...params, textDocument: { uri } } : { ...params };
 }
 
 async function executableFile(path: string): Promise<boolean> {
@@ -607,17 +665,18 @@ function projectCommandCandidates(spec: LanguageServerSpec, root: string): strin
     if (target !== root && !target.startsWith(`${root}${sep}`)) return [];
     return executableVariants(target);
   }
-  const localBins = process.platform === 'win32'
-    ? [
-        join(root, 'node_modules', '.bin', command),
-        join(root, '.venv', 'Scripts', command),
-        join(root, 'venv', 'Scripts', command),
-      ]
-    : [
-        join(root, 'node_modules', '.bin', command),
-        join(root, '.venv', 'bin', command),
-        join(root, 'venv', 'bin', command),
-      ];
+  const localBins =
+    process.platform === 'win32'
+      ? [
+          join(root, 'node_modules', '.bin', command),
+          join(root, '.venv', 'Scripts', command),
+          join(root, 'venv', 'Scripts', command),
+        ]
+      : [
+          join(root, 'node_modules', '.bin', command),
+          join(root, '.venv', 'bin', command),
+          join(root, 'venv', 'bin', command),
+        ];
   return localBins.flatMap(executableVariants);
 }
 
@@ -630,10 +689,11 @@ async function resolveExecutable(spec: LanguageServerSpec, root: string): Promis
     if (await executableFile(candidate)) return candidate;
   }
   if (isAbsolute(spec.command) || /[\\/]/.test(spec.command)) return null;
-  const extensions = process.platform === 'win32'
-    ? (extname(spec.command) ? [''] : ['.exe', '.cmd', '.bat', ''])
-    : [''];
-  for (const directory of String(process.env.PATH || '').split(delimiter).filter(Boolean)) {
+  const extensions =
+    process.platform === 'win32' ? (extname(spec.command) ? [''] : ['.exe', '.cmd', '.bat', '']) : [''];
+  for (const directory of String(process.env.PATH || '')
+    .split(delimiter)
+    .filter(Boolean)) {
     for (const extension of extensions) {
       const candidate = resolve(directory.replace(/^"|"$/g, ''), `${spec.command}${extension}`);
       if (await executableFile(candidate)) return candidate;
@@ -644,9 +704,7 @@ async function resolveExecutable(spec: LanguageServerSpec, root: string): Promis
 
 function spawnServer(command: string, args: string[], cwd: string): ChildProcessWithoutNullStreams {
   if (process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(command)) {
-    const commandLine = [command, ...args]
-      .map((part) => `"${part.replace(/"/g, '""')}"`)
-      .join(' ');
+    const commandLine = [command, ...args].map((part) => `"${part.replace(/"/g, '""')}"`).join(' ');
     return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${commandLine}"`], {
       cwd,
       env: childEnvironment(),
@@ -668,8 +726,14 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
     const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
     timer.unref?.();
     promise.then(
-      (value) => { clearTimeout(timer); resolvePromise(value); },
-      (error) => { clearTimeout(timer); reject(error); },
+      (value) => {
+        clearTimeout(timer);
+        resolvePromise(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
     );
   });
 }
@@ -679,9 +743,16 @@ function relativeDocumentPath(root: string, uri: string): string | null {
     const absolute = resolve(fileURLToPath(uri));
     const normalizedRoot = process.platform === 'win32' ? root.toLocaleLowerCase() : root;
     const normalizedFile = process.platform === 'win32' ? absolute.toLocaleLowerCase() : absolute;
-    if (normalizedFile !== normalizedRoot && !normalizedFile.startsWith(`${normalizedRoot}\\`)
-      && !normalizedFile.startsWith(`${normalizedRoot}/`)) return null;
-    return absolute.slice(root.length).replace(/^[\\/]+/, '').replace(/\\/g, '/');
+    if (
+      normalizedFile !== normalizedRoot &&
+      !normalizedFile.startsWith(`${normalizedRoot}\\`) &&
+      !normalizedFile.startsWith(`${normalizedRoot}/`)
+    )
+      return null;
+    return absolute
+      .slice(root.length)
+      .replace(/^[\\/]+/, '')
+      .replace(/\\/g, '/');
   } catch {
     return null;
   }
@@ -697,9 +768,7 @@ interface ProjectRegistryCache {
 class LanguageServerRegistry {
   private readonly projectCache = new Map<string, ProjectRegistryCache>();
 
-  constructor(
-    private readonly defaults: Readonly<Record<string, LanguageServerSpec>>,
-  ) {}
+  constructor(private readonly defaults: Readonly<Record<string, LanguageServerSpec>>) {}
 
   private async projectSpecs(root: string): Promise<Readonly<Record<string, LanguageServerSpec>>> {
     const cached = this.projectCache.get(root);
@@ -712,10 +781,7 @@ class LanguageServerRegistry {
         return cached.specs;
       }
       if (info.size > 262_144) throw new TypeError('LSP configuration is too large.');
-      const specs = parseProjectLanguageServerConfig(
-        JSON.parse(await readFile(configPath, 'utf8')),
-        root,
-      );
+      const specs = parseProjectLanguageServerConfig(JSON.parse(await readFile(configPath, 'utf8')), root);
       this.projectCache.set(root, {
         checkedAt: Date.now(),
         mtimeMs: info.mtimeMs,
@@ -753,9 +819,7 @@ export class LanguageServerManager {
   private readonly statusListeners = new Set<(event: DesktopLspStatusEvent) => void>();
   private readonly registry: LanguageServerRegistry;
 
-  constructor(
-    specs: Readonly<Record<string, LanguageServerSpec>> = SERVER_BY_LANGUAGE,
-  ) {
+  constructor(specs: Readonly<Record<string, LanguageServerSpec>> = SERVER_BY_LANGUAGE) {
     this.registry = new LanguageServerRegistry(specs);
   }
 
@@ -765,7 +829,7 @@ export class LanguageServerManager {
 
   private recordRestartFailure(key: string): number {
     const count = Math.min(6, (this.restartFailures.get(key)?.count ?? 0) + 1);
-    const delayMs = Math.min(30_000, 1_000 * (2 ** (count - 1)));
+    const delayMs = Math.min(30_000, 1_000 * 2 ** (count - 1));
     this.restartFailures.set(key, { count, retryAt: Date.now() + delayMs });
     return delayMs;
   }
@@ -787,7 +851,7 @@ export class LanguageServerManager {
     status: DesktopLspServerState['status'],
     detail?: string,
     capabilities?: DesktopLspCapabilities,
-    relPath?: string,
+    relPath?: string
   ): DesktopLspServerState {
     const state = publicState(spec, status, detail, capabilities);
     if (spec) this.states.set(sessionKey(projectPath, spec), state);
@@ -812,7 +876,7 @@ export class LanguageServerManager {
         session.baseCapabilities,
         session.registrations.values(),
         document.languageId,
-        uri,
+        uri
       );
       emittedLanguages.add(document.languageId);
       this.emitStatus(
@@ -822,7 +886,7 @@ export class LanguageServerManager {
         'ready',
         undefined,
         capabilities,
-        document.relPath,
+        document.relPath
       );
     }
     for (const languageId of session.languageIds) {
@@ -830,16 +894,9 @@ export class LanguageServerManager {
       const capabilities = capabilitiesWithDynamicRegistrations(
         session.baseCapabilities,
         session.registrations.values(),
-        languageId,
+        languageId
       );
-      this.emitStatus(
-        session.projectPath,
-        languageId,
-        session.spec,
-        'ready',
-        undefined,
-        capabilities,
-      );
+      this.emitStatus(session.projectPath, languageId, session.spec, 'ready', undefined, capabilities);
     }
   }
 
@@ -847,7 +904,7 @@ export class LanguageServerManager {
     projectPath: string,
     root: string,
     languageId: string,
-    spec: LanguageServerSpec,
+    spec: LanguageServerSpec
   ): Promise<ServerSession | null> {
     const key = sessionKey(root, spec);
     const live = this.sessions.get(key);
@@ -860,8 +917,7 @@ export class LanguageServerManager {
     if (pending) return pending;
     if ((this.missingUntil.get(key) || 0) > Date.now()) return null;
     if ((this.restartFailures.get(key)?.retryAt || 0) > Date.now()) return null;
-    const start = this.start(projectPath, root, languageId, spec, key)
-      .finally(() => this.starting.delete(key));
+    const start = this.start(projectPath, root, languageId, spec, key).finally(() => this.starting.delete(key));
     this.starting.set(key, start);
     return start;
   }
@@ -871,7 +927,7 @@ export class LanguageServerManager {
     root: string,
     languageId: string,
     spec: LanguageServerSpec,
-    key: string,
+    key: string
   ): Promise<ServerSession | null> {
     this.emitStatus(projectPath, languageId, spec, 'starting');
     const executable = await resolveExecutable(spec, root);
@@ -888,14 +944,16 @@ export class LanguageServerManager {
     });
     const connection = createMessageConnection(
       new StreamMessageReader(child.stdout),
-      new StreamMessageWriter(child.stdin),
+      new StreamMessageWriter(child.stdin)
     );
     connection.onError(() => undefined);
     let session: ServerSession | null = null;
-    const workspaceFolders = [{
-      uri: pathToFileURL(root).toString(),
-      name: root.split(/[\\/]/).at(-1) || root,
-    }];
+    const workspaceFolders = [
+      {
+        uri: pathToFileURL(root).toString(),
+        name: root.split(/[\\/]/).at(-1) || root,
+      },
+    ];
     connection.onRequest('workspace/configuration', (payload: unknown) => {
       const items = objectRecord(payload)?.items;
       return Array.isArray(items) ? items.map(() => null) : [];
@@ -946,7 +1004,7 @@ export class LanguageServerManager {
       const relPath = relativeDocumentPath(root, uri);
       if (!relPath) return;
       const diagnostics = Array.isArray(record.diagnostics)
-        ? record.diagnostics.slice(0, 2_000) as DesktopLspDiagnosticEvent['diagnostics']
+        ? (record.diagnostics.slice(0, 2_000) as DesktopLspDiagnosticEvent['diagnostics'])
         : [];
       this.emitDiagnostics({
         projectPath,
@@ -966,128 +1024,161 @@ export class LanguageServerManager {
         languageId,
         spec,
         'stopped',
-        [
-          stderr.trim().split(/\r?\n/).at(-1)?.slice(0, 200),
-          `Retrying after ${Math.ceil(delayMs / 1_000)}s.`,
-        ].filter(Boolean).join(' '),
+        [stderr.trim().split(/\r?\n/).at(-1)?.slice(0, 200), `Retrying after ${Math.ceil(delayMs / 1_000)}s.`]
+          .filter(Boolean)
+          .join(' ')
       );
     };
     child.once('exit', closed);
     child.once('error', closed);
     try {
       const initializationOptions = languageServerInitializationOptions(spec);
-      const initialization = await withTimeout(connection.sendRequest('initialize', {
-        processId: process.pid,
-        clientInfo: { name: 'Mixdog Desktop', version: '0.9' },
-        rootUri: pathToFileURL(root).toString(),
-        rootPath: root,
-        workspaceFolders,
-        ...(initializationOptions ? { initializationOptions } : {}),
-        capabilities: {
-          workspace: {
-            workspaceFolders: true,
-            applyEdit: false,
-            executeCommand: { dynamicRegistration: true },
-            symbol: { dynamicRegistration: true },
-            configuration: true,
-          },
-          textDocument: {
-            synchronization: { didSave: true, dynamicRegistration: true },
-            // Servers gate their push diagnostics on this capability:
-            // typescript-language-server sends NOTHING without it (verified
-            // standalone — user: Problems에 아무것도 안 뜸).
-            publishDiagnostics: {
-              relatedInformation: true,
-              versionSupport: false,
-              tagSupport: { valueSet: [1, 2] },
-              codeDescriptionSupport: true,
-              dataSupport: true,
+      const initialization = await withTimeout(
+        connection.sendRequest('initialize', {
+          processId: process.pid,
+          clientInfo: { name: 'Mixdog Desktop', version: '0.9' },
+          rootUri: pathToFileURL(root).toString(),
+          rootPath: root,
+          workspaceFolders,
+          ...(initializationOptions ? { initializationOptions } : {}),
+          capabilities: {
+            workspace: {
+              workspaceFolders: true,
+              applyEdit: false,
+              executeCommand: { dynamicRegistration: true },
+              symbol: { dynamicRegistration: true },
+              configuration: true,
             },
-            completion: {
-              dynamicRegistration: true,
-              completionItem: {
-                snippetSupport: true,
-                commitCharactersSupport: true,
-                insertReplaceSupport: true,
-                deprecatedSupport: true,
-                documentationFormat: ['markdown', 'plaintext'],
-                resolveSupport: {
-                  properties: ['detail', 'documentation', 'additionalTextEdits'],
+            textDocument: {
+              synchronization: { didSave: true, dynamicRegistration: true },
+              // Servers gate their push diagnostics on this capability:
+              // typescript-language-server sends NOTHING without it (verified
+              // standalone — user: Problems에 아무것도 안 뜸).
+              publishDiagnostics: {
+                relatedInformation: true,
+                versionSupport: false,
+                tagSupport: { valueSet: [1, 2] },
+                codeDescriptionSupport: true,
+                dataSupport: true,
+              },
+              completion: {
+                dynamicRegistration: true,
+                completionItem: {
+                  snippetSupport: true,
+                  commitCharactersSupport: true,
+                  insertReplaceSupport: true,
+                  deprecatedSupport: true,
+                  documentationFormat: ['markdown', 'plaintext'],
+                  resolveSupport: {
+                    properties: ['detail', 'documentation', 'additionalTextEdits'],
+                  },
+                },
+                completionList: {
+                  itemDefaults: ['commitCharacters', 'editRange', 'insertTextFormat', 'insertTextMode'],
                 },
               },
-              completionList: {
-                itemDefaults: ['commitCharacters', 'editRange', 'insertTextFormat', 'insertTextMode'],
+              signatureHelp: {
+                dynamicRegistration: true,
+                signatureInformation: {
+                  documentationFormat: ['markdown', 'plaintext'],
+                  parameterInformation: { labelOffsetSupport: true },
+                  activeParameterSupport: true,
+                },
+                contextSupport: true,
               },
-            },
-            signatureHelp: {
-              dynamicRegistration: true,
-              signatureInformation: {
-                documentationFormat: ['markdown', 'plaintext'],
-                parameterInformation: { labelOffsetSupport: true },
-                activeParameterSupport: true,
+              hover: { dynamicRegistration: true, contentFormat: ['markdown', 'plaintext'] },
+              declaration: { dynamicRegistration: true, linkSupport: true },
+              definition: { dynamicRegistration: true, linkSupport: true },
+              typeDefinition: { dynamicRegistration: true, linkSupport: true },
+              implementation: { dynamicRegistration: true, linkSupport: true },
+              references: { dynamicRegistration: true },
+              documentHighlight: { dynamicRegistration: true },
+              linkedEditingRange: { dynamicRegistration: true },
+              documentSymbol: {
+                dynamicRegistration: true,
+                hierarchicalDocumentSymbolSupport: true,
               },
-              contextSupport: true,
-            },
-            hover: { dynamicRegistration: true, contentFormat: ['markdown', 'plaintext'] },
-            declaration: { dynamicRegistration: true, linkSupport: true },
-            definition: { dynamicRegistration: true, linkSupport: true },
-            typeDefinition: { dynamicRegistration: true, linkSupport: true },
-            implementation: { dynamicRegistration: true, linkSupport: true },
-            references: { dynamicRegistration: true },
-            documentHighlight: { dynamicRegistration: true },
-            linkedEditingRange: { dynamicRegistration: true },
-            documentSymbol: {
-              dynamicRegistration: true,
-              hierarchicalDocumentSymbolSupport: true,
-            },
-            codeLens: { dynamicRegistration: true },
-            rename: { dynamicRegistration: true, prepareSupport: true },
-            codeAction: {
-              dynamicRegistration: true,
-              dataSupport: true,
-              resolveSupport: { properties: ['edit', 'command'] },
-              codeActionLiteralSupport: {
-                codeActionKind: { valueSet: ['', 'quickfix', 'refactor', 'source'] },
+              codeLens: { dynamicRegistration: true },
+              rename: { dynamicRegistration: true, prepareSupport: true },
+              codeAction: {
+                dynamicRegistration: true,
+                dataSupport: true,
+                resolveSupport: { properties: ['edit', 'command'] },
+                codeActionLiteralSupport: {
+                  codeActionKind: { valueSet: ['', 'quickfix', 'refactor', 'source'] },
+                },
               },
+              formatting: { dynamicRegistration: true },
+              rangeFormatting: { dynamicRegistration: true },
+              onTypeFormatting: { dynamicRegistration: true },
+              documentLink: {
+                dynamicRegistration: true,
+                tooltipSupport: true,
+              },
+              colorProvider: { dynamicRegistration: true },
+              foldingRange: {
+                dynamicRegistration: true,
+                lineFoldingOnly: true,
+                foldingRangeKind: { valueSet: ['comment', 'imports', 'region'] },
+              },
+              selectionRange: { dynamicRegistration: true },
+              semanticTokens: {
+                dynamicRegistration: true,
+                requests: { range: true, full: { delta: true } },
+                tokenTypes: [
+                  'namespace',
+                  'type',
+                  'class',
+                  'enum',
+                  'interface',
+                  'struct',
+                  'typeParameter',
+                  'parameter',
+                  'variable',
+                  'property',
+                  'enumMember',
+                  'event',
+                  'function',
+                  'method',
+                  'macro',
+                  'keyword',
+                  'modifier',
+                  'comment',
+                  'string',
+                  'number',
+                  'regexp',
+                  'operator',
+                  'decorator',
+                ],
+                tokenModifiers: [
+                  'declaration',
+                  'definition',
+                  'readonly',
+                  'static',
+                  'deprecated',
+                  'abstract',
+                  'async',
+                  'modification',
+                  'documentation',
+                  'defaultLibrary',
+                ],
+                formats: ['relative'],
+                overlappingTokenSupport: false,
+                multilineTokenSupport: false,
+              },
+              inlayHint: {
+                dynamicRegistration: true,
+                resolveSupport: {
+                  properties: ['tooltip', 'textEdits', 'label.tooltip', 'label.location', 'label.command'],
+                },
+              },
+              callHierarchy: { dynamicRegistration: true },
             },
-            formatting: { dynamicRegistration: true },
-            rangeFormatting: { dynamicRegistration: true },
-            onTypeFormatting: { dynamicRegistration: true },
-            documentLink: {
-              dynamicRegistration: true,
-              tooltipSupport: true,
-            },
-            colorProvider: { dynamicRegistration: true },
-            foldingRange: {
-              dynamicRegistration: true,
-              lineFoldingOnly: true,
-              foldingRangeKind: { valueSet: ['comment', 'imports', 'region'] },
-            },
-            selectionRange: { dynamicRegistration: true },
-            semanticTokens: {
-              dynamicRegistration: true,
-              requests: { range: true, full: { delta: true } },
-              tokenTypes: [
-                'namespace', 'type', 'class', 'enum', 'interface', 'struct',
-                'typeParameter', 'parameter', 'variable', 'property', 'enumMember',
-                'event', 'function', 'method', 'macro', 'keyword', 'modifier',
-                'comment', 'string', 'number', 'regexp', 'operator', 'decorator',
-              ],
-              tokenModifiers: [
-                'declaration', 'definition', 'readonly', 'static', 'deprecated',
-                'abstract', 'async', 'modification', 'documentation', 'defaultLibrary',
-              ],
-              formats: ['relative'],
-              overlappingTokenSupport: false,
-              multilineTokenSupport: false,
-            },
-            inlayHint: { dynamicRegistration: true, resolveSupport: {
-              properties: ['tooltip', 'textEdits', 'label.tooltip', 'label.location', 'label.command'],
-            } },
-            callHierarchy: { dynamicRegistration: true },
           },
-        },
-      }), 10_000, `${spec.name} did not finish initializing.`);
+        }),
+        10_000,
+        `${spec.name} did not finish initializing.`
+      );
       const capabilities = normalizeLanguageServerCapabilities(initialization);
       session = {
         key,
@@ -1106,21 +1197,18 @@ export class LanguageServerManager {
       this.sessions.set(key, session);
       this.restartFailures.delete(key);
       connection.sendNotification('initialized', {});
-      this.states.set(key, this.emitStatus(
-        projectPath,
-        languageId,
-        spec,
-        'ready',
-        undefined,
-        capabilities,
-      ));
+      this.states.set(key, this.emitStatus(projectPath, languageId, spec, 'ready', undefined, capabilities));
       return session;
     } catch (error) {
       if (session) {
         session.closing = true;
         this.sessions.delete(key);
       }
-      try { connection.dispose(); } catch { /* failed initialization */ }
+      try {
+        connection.dispose();
+      } catch {
+        /* failed initialization */
+      }
       await shutdownStdioChild({ _process: child, pid: child.pid }, { graceMs: 200 }).catch(() => false);
       const delayMs = this.recordRestartFailure(key);
       const stderrDetail = stderr.trim().split(/\r?\n/).at(-1)?.slice(0, 500);
@@ -1133,7 +1221,9 @@ export class LanguageServerManager {
           error instanceof Error ? error.message : String(error),
           stderrDetail,
           `Retrying after ${Math.ceil(delayMs / 1_000)}s.`,
-        ].filter(Boolean).join(' '),
+        ]
+          .filter(Boolean)
+          .join(' ')
       );
       return null;
     }
@@ -1142,15 +1232,13 @@ export class LanguageServerManager {
   private scheduleIdle(session: ServerSession): void {
     if (session.documents.size || session.closing) return;
     if (session.idleTimer) clearTimeout(session.idleTimer);
-    session.idleTimer = setTimeout(() => { void this.stop(session); }, LANGUAGE_SERVER_IDLE_MS);
+    session.idleTimer = setTimeout(() => {
+      void this.stop(session);
+    }, LANGUAGE_SERVER_IDLE_MS);
     session.idleTimer.unref?.();
   }
 
-  async document(
-    projectPath: string,
-    root: string,
-    input: DesktopLspDocumentInput,
-  ): Promise<DesktopLspServerState> {
+  async document(projectPath: string, root: string, input: DesktopLspDocumentInput): Promise<DesktopLspServerState> {
     let spec: LanguageServerSpec | null;
     try {
       spec = await this.specFor(root, input.languageId);
@@ -1160,7 +1248,7 @@ export class LanguageServerManager {
         input.languageId,
         null,
         'error',
-        error instanceof Error ? error.message : String(error),
+        error instanceof Error ? error.message : String(error)
       );
     }
     if (!spec) return publicState(null, 'unsupported');
@@ -1168,22 +1256,21 @@ export class LanguageServerManager {
     const key = sessionKey(root, spec);
     // A late renderer cleanup must never start a server merely to close a
     // document. This also makes parked editor teardown safe after idle stop.
-    const session = input.kind === 'close'
-      ? this.sessions.get(key) ?? null
-      : await this.ensure(projectPath, root, input.languageId, spec);
+    const session =
+      input.kind === 'close'
+        ? (this.sessions.get(key) ?? null)
+        : await this.ensure(projectPath, root, input.languageId, spec);
     if (!session) {
-      return this.states.get(key) ?? publicState(
-        spec,
-        input.kind === 'close' ? 'stopped' : 'missing',
-      );
+      return this.states.get(key) ?? publicState(spec, input.kind === 'close' ? 'stopped' : 'missing');
     }
     session.languageIds.add(input.languageId);
-    const documentCapabilities = () => capabilitiesWithDynamicRegistrations(
-      session.baseCapabilities,
-      session.registrations.values(),
-      input.languageId,
-      uri,
-    );
+    const documentCapabilities = () =>
+      capabilitiesWithDynamicRegistrations(
+        session.baseCapabilities,
+        session.registrations.values(),
+        input.languageId,
+        uri
+      );
     const known = session.documents.has(uri);
     if (input.kind === 'close') {
       if (known) {
@@ -1242,7 +1329,7 @@ export class LanguageServerManager {
     relPath: string,
     languageId: string,
     method: string,
-    params: Readonly<Record<string, unknown>>,
+    params: Readonly<Record<string, unknown>>
   ): Promise<DesktopLspRequestResult> {
     let spec: LanguageServerSpec | null;
     try {
@@ -1266,21 +1353,16 @@ export class LanguageServerManager {
       session.baseCapabilities,
       session.registrations.values(),
       languageId,
-      uri,
+      uri
     );
     if (!methodSupported(method, capabilities)) {
-      return publicState(
-        spec,
-        'ready',
-        `${spec.name} does not support ${method}.`,
-        capabilities,
-      );
+      return publicState(spec, 'ready', `${spec.name} does not support ${method}.`, capabilities);
     }
     try {
       const result = await withTimeout(
         session.connection.sendRequest(method, languageServerRequestParams(uri, method, params)),
         15_000,
-        `${spec.name} request timed out.`,
+        `${spec.name} request timed out.`
       );
       return {
         available: true,
@@ -1311,11 +1393,12 @@ export class LanguageServerManager {
     } catch {
       // Forceful tree cleanup below covers an unresponsive server.
     }
-    try { session.connection.dispose(); } catch { /* already closed */ }
-    await shutdownStdioChild(
-      { _process: session.child, pid: session.child.pid },
-      { graceMs: 500 },
-    ).catch(() => false);
+    try {
+      session.connection.dispose();
+    } catch {
+      /* already closed */
+    }
+    await shutdownStdioChild({ _process: session.child, pid: session.child.pid }, { graceMs: 500 }).catch(() => false);
   }
 
   async dispose(): Promise<void> {

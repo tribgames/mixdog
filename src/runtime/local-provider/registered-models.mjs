@@ -8,17 +8,25 @@ const cache = new Map();
 const registryPath = (dataDir) => join(dataDir, 'local-provider', 'registered-models.json');
 
 function validateModel(entry) {
-  if (!entry || !/^hf-[a-f0-9]{24}$/.test(entry.id || '')
-      || entry.filename !== `${entry.id}.gguf`
-      || !/^[a-f0-9]{64}$/.test(entry.sha256 || '')
-      || !Number.isSafeInteger(entry.size) || entry.size <= 0
-      || !Number.isSafeInteger(entry.contextWindow) || entry.contextWindow < 512 || entry.contextWindow > 32768
-      || !Number.isSafeInteger(entry.estimatedVramBytes) || entry.estimatedVramBytes < entry.size
-      || entry.minimumVramBytes !== entry.estimatedVramBytes
-      || !/^[a-f0-9]{40}$/.test(entry.revision || '')
-      || !/^[\w.-]+\/[\w.-]+$/.test(entry.repository || '')
-      || typeof entry.remoteFilename !== 'string' || entry.remoteFilename.split('/').some((part) => !part || part === '.' || part === '..')
-      || /[\\\x00-\x1f]/.test(entry.remoteFilename)) {
+  if (
+    !entry ||
+    !/^hf-[a-f0-9]{24}$/.test(entry.id || '') ||
+    entry.filename !== `${entry.id}.gguf` ||
+    !/^[a-f0-9]{64}$/.test(entry.sha256 || '') ||
+    !Number.isSafeInteger(entry.size) ||
+    entry.size <= 0 ||
+    !Number.isSafeInteger(entry.contextWindow) ||
+    entry.contextWindow < 512 ||
+    entry.contextWindow > 32768 ||
+    !Number.isSafeInteger(entry.estimatedVramBytes) ||
+    entry.estimatedVramBytes < entry.size ||
+    entry.minimumVramBytes !== entry.estimatedVramBytes ||
+    !/^[a-f0-9]{40}$/.test(entry.revision || '') ||
+    !/^[\w.-]+\/[\w.-]+$/.test(entry.repository || '') ||
+    typeof entry.remoteFilename !== 'string' ||
+    entry.remoteFilename.split('/').some((part) => !part || part === '.' || part === '..') ||
+    /[\\\x00-\x1f]/.test(entry.remoteFilename)
+  ) {
     throw new Error('[local-provider] invalid registered model metadata');
   }
   const url = `https://huggingface.co/${entry.repository}/resolve/${entry.revision}/${entry.remoteFilename.split('/').map(encodeURIComponent).join('/')}`;
@@ -38,7 +46,8 @@ export function registeredLocalModels(dataDir = resolvePluginData()) {
     throw new Error('[local-provider] invalid registered model index');
   }
   const models = value.models.map(validateModel);
-  if (new Set(models.map((entry) => entry.id)).size !== models.length) throw new Error('[local-provider] duplicate registered model ids');
+  if (new Set(models.map((entry) => entry.id)).size !== models.length)
+    throw new Error('[local-provider] duplicate registered model ids');
   cache.set(path, { stamp, models });
   return models.map((entry) => ({ ...entry }));
 }
@@ -48,7 +57,8 @@ export function registerLocalModel(entry, dataDir = resolvePluginData()) {
   const models = registeredLocalModels(dataDir);
   const existing = models.find((model) => model.id === entry.id);
   if (existing) {
-    if (existing.contextWindow !== entry.contextWindow) throw new Error('[local-provider] this model is already registered with another context size');
+    if (existing.contextWindow !== entry.contextWindow)
+      throw new Error('[local-provider] this model is already registered with another context size');
     return existing;
   }
   if (models.length >= 256) throw new Error('[local-provider] registered model limit reached');

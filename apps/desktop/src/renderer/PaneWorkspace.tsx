@@ -5,25 +5,23 @@
 // non-focused pane focuses it and asks App to navigate its interactive
 // surface there, so today's single-focused-engine renderer keeps working
 // while the lanes already deliver concurrent live output.
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { useVisibleSessions } from "./use-visible-sessions";
+import type React from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useVisibleSessions } from './use-visible-sessions';
 
-import { t } from "./i18n";
-import {
-  dataTransferHasLocalFiles,
-  droppedLocalPaths,
-} from "./file-drag";
-import { isMobileRemoteSurface } from "./mobile-surface";
-import { PaneSplitLayout } from "./PaneSplitLayout";
-import { PersistentPanePortal } from "./PaneSurfaceGate";
-import type { NavigationSelection, WorkspaceSelection } from "./nav-types";
+import { t } from './i18n';
+import { dataTransferHasLocalFiles, droppedLocalPaths } from './file-drag';
+import { isMobileRemoteSurface } from './mobile-surface';
+import { PaneSplitLayout } from './PaneSplitLayout';
+import { PersistentPanePortal } from './PaneSurfaceGate';
+import type { NavigationSelection, WorkspaceSelection } from './nav-types';
 import {
   paneHierarchyDropTarget,
   paneInnerDropZone,
   paneOuterDropZone,
   type PaneHierarchyCandidate,
-} from "./pane-drop-zone";
+} from './pane-drop-zone';
 import {
   canSplitPaneSize,
   movePaneTabToNodeEdge,
@@ -33,9 +31,9 @@ import {
   paneLeavesInVisualOrder,
   paneNodeMinimumSize,
   type PaneLeaf,
-} from "./pane-layout";
-import type { PaneDropZone, usePaneWorkspace } from "./pane-workspace-state";
-import { defaultSessionLaneStore } from "./session-lane-store";
+} from './pane-layout';
+import type { PaneDropZone, usePaneWorkspace } from './pane-workspace-state';
+import { defaultSessionLaneStore } from './session-lane-store';
 import {
   cancelPaneDragPreview,
   currentPaneDrag,
@@ -43,94 +41,103 @@ import {
   movePaneDrag,
   subscribePaneDrag,
   type PaneDragFrame,
-} from "./pane-drag-session";
-import { navigationKey } from "./text-format";
+} from './pane-drag-session';
+import { navigationKey } from './text-format';
 
-const DROP_PREVIEW_LEAF_ID = "__pane_drop_preview__";
+const DROP_PREVIEW_LEAF_ID = '__pane_drop_preview__';
 
 function paneConversationSlotId(leafId: string): string {
   return `pane-conversation-slot-${leafId}`;
 }
 
 function selectionLabel(selection: WorkspaceSelection | null): string {
-  if (!selection) return t("Empty pane");
+  if (!selection) return t('Empty pane');
   switch (selection.kind) {
-    case "new": return t("New task");
-    case "project": return selection.path;
-    case "session": return selection.id;
-    case "file": return selection.rel.split("/").at(-1) || selection.rel;
-    case "studio": return "Studio";
-    case "terminal": return "Terminal";
-    case "pull-request": return selection.title || `Pull Request #${selection.number}`;
-    case "diff": return `${selection.rel.split("/").at(-1) || selection.rel} (Diff)`;
+    case 'new':
+      return t('New task');
+    case 'project':
+      return selection.path;
+    case 'session':
+      return selection.id;
+    case 'file':
+      return selection.rel.split('/').at(-1) || selection.rel;
+    case 'studio':
+      return 'Studio';
+    case 'terminal':
+      return 'Terminal';
+    case 'pull-request':
+      return selection.title || `Pull Request #${selection.number}`;
+    case 'diff':
+      return `${selection.rel.split('/').at(-1) || selection.rel} (Diff)`;
   }
 }
 
-
 type DropPreview = {
   leafId: string;
-  zone: PaneDropZone | "center" | "insert";
+  zone: PaneDropZone | 'center' | 'insert';
   rect: { left: number; top: number; width: number; height: number };
 };
 
 function sameDropPreview(left: DropPreview | null, right: DropPreview): boolean {
-  return Boolean(left
-    && left.leafId === right.leafId
-    && left.zone === right.zone
-    && left.rect.left === right.rect.left
-    && left.rect.top === right.rect.top
-    && left.rect.width === right.rect.width
-    && left.rect.height === right.rect.height);
+  return Boolean(
+    left &&
+      left.leafId === right.leafId &&
+      left.zone === right.zone &&
+      left.rect.left === right.rect.left &&
+      left.rect.top === right.rect.top &&
+      left.rect.width === right.rect.width &&
+      left.rect.height === right.rect.height
+  );
 }
 
 type PaneWorkspaceModel = ReturnType<typeof usePaneWorkspace>;
 
 type PaneDropAction =
   | {
-    type: "move-group-to-node-edge";
-    sourceLeafId: string;
-    targetPath: string;
-    zone: PaneDropZone;
-  }
+      type: 'move-group-to-node-edge';
+      sourceLeafId: string;
+      targetPath: string;
+      zone: PaneDropZone;
+    }
   | {
-    type: "move-tab-to-node-edge";
-    sourceLeafId: string;
-    key: string;
-    targetPath: string;
-    zone: PaneDropZone;
-  }
+      type: 'move-tab-to-node-edge';
+      sourceLeafId: string;
+      key: string;
+      targetPath: string;
+      zone: PaneDropZone;
+    }
   | {
-    type: "move-group";
-    sourceLeafId: string;
-    targetLeafId: string;
-    zone: PaneDropZone;
-  }
+      type: 'move-group';
+      sourceLeafId: string;
+      targetLeafId: string;
+      zone: PaneDropZone;
+    }
   | {
-    type: "merge-group";
-    sourceLeafId: string;
-    targetLeafId: string;
-    insertIndex?: number;
-  }
+      type: 'merge-group';
+      sourceLeafId: string;
+      targetLeafId: string;
+      insertIndex?: number;
+    }
   | {
-    type: "open-in-leaf";
-    targetLeafId: string;
-    selection: WorkspaceSelection;
-    insertIndex?: number;
-  }
+      type: 'open-in-leaf';
+      targetLeafId: string;
+      selection: WorkspaceSelection;
+      insertIndex?: number;
+    }
   | {
-    type: "move-tab";
-    sourceLeafId: string;
-    key: string;
-    targetLeafId: string;
-    insertIndex?: number;
-  }
+      type: 'move-tab';
+      sourceLeafId: string;
+      key: string;
+      targetLeafId: string;
+      insertIndex?: number;
+    }
   | {
-    type: "split-leaf";
-    targetLeafId: string;
-    zone: PaneDropZone;
-    selection: WorkspaceSelection;
-    sourceLeafId: string;
-  };
+      type: 'split-leaf';
+      targetLeafId: string;
+      zone: PaneDropZone;
+      selection: WorkspaceSelection;
+      sourceLeafId: string;
+    };
 
 type PaneDropIntent = {
   preview: DropPreview;
@@ -142,133 +149,131 @@ type PaneDropIntent = {
 export function resolvePaneDropIntent(
   frame: PaneDragFrame,
   current: PaneWorkspaceModel,
-  panelElement: HTMLElement,
+  panelElement: HTMLElement
 ): PaneDropIntent | null {
-  const groupDrag = frame.kind === "group";
-  const sessionDrag = frame.kind === "session";
+  const groupDrag = frame.kind === 'group';
+  const sessionDrag = frame.kind === 'session';
   const sourceLeafId = sessionDrag
-    ? current.leaves.find((leaf) =>
-      leaf.tabs.some((tab) => navigationKey(tab) === frame.key))?.id ?? ""
-    : frame.sourceLeafId || "";
+    ? (current.leaves.find((leaf) => leaf.tabs.some((tab) => navigationKey(tab) === frame.key))?.id ?? '')
+    : frame.sourceLeafId || '';
   const sourceLeaf = current.leaves.find((leaf) => leaf.id === sourceLeafId);
-  const sourceOwnsTab = sourceLeaf?.tabs.some((tab) =>
-    navigationKey(tab) === frame.key) === true;
+  const sourceOwnsTab = sourceLeaf?.tabs.some((tab) => navigationKey(tab) === frame.key) === true;
   const canDetachAtRoot = groupDrag
     ? current.leaves.length > 1
     : sourceOwnsTab && (current.leaves.length > 1 || (sourceLeaf?.tabs.length ?? 0) > 1);
   const pointedElement = frame.target;
-  const pointedStrip = pointedElement?.closest?.(".workspace-tabs-shell") ?? null;
+  const pointedStrip = pointedElement?.closest?.('.workspace-tabs-shell') ?? null;
   const panelRect = panelElement.getBoundingClientRect();
   // A visible tab strip is an explicit insertion target. It wins over the
   // workspace edge bands that geometrically overlap the top and side rails.
-  const outerZone = !sessionDrag && sourceLeafId && !pointedStrip
-    ? paneOuterDropZone(panelRect, frame.x, frame.y)
-    : null;
-  const candidates: PaneHierarchyCandidate[] = [
-    ...panelElement.querySelectorAll<HTMLElement>("[data-pane-path]"),
-  ].map((element) => ({
-    path: element.dataset.panePath ?? "",
-    rect: element.getBoundingClientRect(),
-  }));
-  if (!candidates.some((candidate) =>
-    candidate.path === "" && candidate.rect.width > 0 && candidate.rect.height > 0)) {
-    candidates.push({ path: "", rect: panelRect });
+  const outerZone =
+    !sessionDrag && sourceLeafId && !pointedStrip ? paneOuterDropZone(panelRect, frame.x, frame.y) : null;
+  const candidates: PaneHierarchyCandidate[] = [...panelElement.querySelectorAll<HTMLElement>('[data-pane-path]')].map(
+    (element) => ({
+      path: element.dataset.panePath ?? '',
+      rect: element.getBoundingClientRect(),
+    })
+  );
+  if (!candidates.some((candidate) => candidate.path === '' && candidate.rect.width > 0 && candidate.rect.height > 0)) {
+    candidates.push({ path: '', rect: panelRect });
   }
-  const hierarchyTarget = canDetachAtRoot && outerZone
-    ? paneHierarchyDropTarget(panelRect, outerZone, frame.x, frame.y, candidates)
-    : null;
-  if (outerZone && hierarchyTarget
-    && canSplitPaneSize(
-      outerZone === "left" || outerZone === "right" ? "row" : "column",
+  const hierarchyTarget =
+    canDetachAtRoot && outerZone ? paneHierarchyDropTarget(panelRect, outerZone, frame.x, frame.y, candidates) : null;
+  if (
+    outerZone &&
+    hierarchyTarget &&
+    canSplitPaneSize(
+      outerZone === 'left' || outerZone === 'right' ? 'row' : 'column',
       hierarchyTarget.rect.width,
-      hierarchyTarget.rect.height,
-    )) {
-    const direction = outerZone === "left" || outerZone === "right" ? "row" : "column";
+      hierarchyTarget.rect.height
+    )
+  ) {
+    const direction = outerZone === 'left' || outerZone === 'right' ? 'row' : 'column';
     const addsPane = !groupDrag && (sourceLeaf?.tabs.length ?? 0) > 1;
-    const position = outerZone === "left" || outerZone === "top" ? "before" : "after";
+    const position = outerZone === 'left' || outerZone === 'top' ? 'before' : 'after';
     const previewLayout = addsPane
       ? movePaneTabToNodeEdge(
-        current.layout,
-        sourceLeafId,
-        frame.key,
-        hierarchyTarget.path,
-        direction,
-        position,
-        DROP_PREVIEW_LEAF_ID,
-      )
+          current.layout,
+          sourceLeafId,
+          frame.key,
+          hierarchyTarget.path,
+          direction,
+          position,
+          DROP_PREVIEW_LEAF_ID
+        )
       : null;
-    const relativeRect = previewLayout
-      ? paneLeafRelativeRect(previewLayout, DROP_PREVIEW_LEAF_ID)
-      : null;
+    const relativeRect = previewLayout ? paneLeafRelativeRect(previewLayout, DROP_PREVIEW_LEAF_ID) : null;
     const preview: DropPreview = relativeRect
       ? {
-        leafId: sourceLeafId,
-        zone: "center",
-        rect: {
-          left: panelRect.left + relativeRect.left * panelRect.width,
-          top: panelRect.top + relativeRect.top * panelRect.height,
-          width: relativeRect.width * panelRect.width,
-          height: relativeRect.height * panelRect.height,
-        },
-      }
+          leafId: sourceLeafId,
+          zone: 'center',
+          rect: {
+            left: panelRect.left + relativeRect.left * panelRect.width,
+            top: panelRect.top + relativeRect.top * panelRect.height,
+            width: relativeRect.width * panelRect.width,
+            height: relativeRect.height * panelRect.height,
+          },
+        }
       : {
-        leafId: sourceLeafId,
-        zone: outerZone,
-        rect: {
-          left: hierarchyTarget.rect.left,
-          top: hierarchyTarget.rect.top,
-          width: hierarchyTarget.rect.width,
-          height: hierarchyTarget.rect.height,
-        },
-      };
+          leafId: sourceLeafId,
+          zone: outerZone,
+          rect: {
+            left: hierarchyTarget.rect.left,
+            top: hierarchyTarget.rect.top,
+            width: hierarchyTarget.rect.width,
+            height: hierarchyTarget.rect.height,
+          },
+        };
     return {
       preview,
       selection: frame.selection,
       action: groupDrag
         ? {
-          type: "move-group-to-node-edge",
-          sourceLeafId,
-          targetPath: hierarchyTarget.path,
-          zone: outerZone,
-        }
+            type: 'move-group-to-node-edge',
+            sourceLeafId,
+            targetPath: hierarchyTarget.path,
+            zone: outerZone,
+          }
         : {
-          type: "move-tab-to-node-edge",
-          sourceLeafId,
-          key: frame.key,
-          targetPath: hierarchyTarget.path,
-          zone: outerZone,
-        },
+            type: 'move-tab-to-node-edge',
+            sourceLeafId,
+            key: frame.key,
+            targetPath: hierarchyTarget.path,
+            zone: outerZone,
+          },
     };
   }
 
-  let leafId = "";
+  let leafId = '';
   let rect: DOMRect | null = null;
   let paneScope: HTMLElement | null = null;
-  const paneNode = pointedElement?.closest?.(".pane-leaf") as HTMLElement | null;
+  const paneNode = pointedElement?.closest?.('.pane-leaf') as HTMLElement | null;
   if (paneNode?.dataset.paneId) {
     leafId = paneNode.dataset.paneId;
     rect = paneNode.getBoundingClientRect();
     paneScope = paneNode;
-  } else if (frame.x >= panelRect.left && frame.x <= panelRect.right
-    && frame.y >= panelRect.top && frame.y <= panelRect.bottom) {
+  } else if (
+    frame.x >= panelRect.left &&
+    frame.x <= panelRect.right &&
+    frame.y >= panelRect.top &&
+    frame.y <= panelRect.bottom
+  ) {
     // A single-pane workspace has no .pane-leaf wrapper.
-    leafId = current.leaves[0]?.id ?? "";
+    leafId = current.leaves[0]?.id ?? '';
     rect = panelRect;
     paneScope = panelElement;
   }
   const target = leafId ? current.leaves.find((leaf) => leaf.id === leafId) : undefined;
   if (!target || !rect) return null;
-  if (sourceLeafId === leafId
-    && (groupDrag || (sourceOwnsTab && (sourceLeaf?.tabs.length ?? 0) < 2))) {
+  if (sourceLeafId === leafId && (groupDrag || (sourceOwnsTab && (sourceLeaf?.tabs.length ?? 0) < 2))) {
     return null;
   }
 
-  const stripRect = paneScope
-    ?.querySelector(".workspace-tabs-shell")?.getBoundingClientRect() ?? null;
-  const editorTop = stripRect && stripRect.height > 0
-    && stripRect.top <= rect.top + 1 && stripRect.bottom < rect.bottom
-    ? stripRect.bottom
-    : rect.top;
+  const stripRect = paneScope?.querySelector('.workspace-tabs-shell')?.getBoundingClientRect() ?? null;
+  const editorTop =
+    stripRect && stripRect.height > 0 && stripRect.top <= rect.top + 1 && stripRect.bottom < rect.bottom
+      ? stripRect.bottom
+      : rect.top;
   const dropRect = {
     left: rect.left,
     top: editorTop,
@@ -278,27 +283,32 @@ export function resolvePaneDropIntent(
     height: rect.bottom - editorTop,
   };
   const overStrip = Boolean(pointedStrip);
-  let zone: PaneDropZone | "center" = overStrip
-    ? "center"
-    : paneInnerDropZone(dropRect, frame.x, frame.y, groupDrag);
-  if (zone !== "center") {
-    const direction = zone === "left" || zone === "right" ? "row" : "column";
-    if (!canSplitPaneSize(direction, dropRect.width, dropRect.height)) zone = "center";
+  let zone: PaneDropZone | 'center' = overStrip ? 'center' : paneInnerDropZone(dropRect, frame.x, frame.y, groupDrag);
+  if (zone !== 'center') {
+    const direction = zone === 'left' || zone === 'right' ? 'row' : 'column';
+    if (!canSplitPaneSize(direction, dropRect.width, dropRect.height)) zone = 'center';
   }
   const targetActive = paneActiveSelection(target);
-  if (zone === "center") {
-    if ((!sessionDrag && (!sourceLeafId || sourceLeafId === leafId))
-      || (sessionDrag && sourceLeafId === leafId && !overStrip)) return null;
-  } else if (!groupDrag && sourceLeafId !== leafId && targetActive
-    && navigationKey(targetActive) === navigationKey(frame.selection)) {
+  if (zone === 'center') {
+    if (
+      (!sessionDrag && (!sourceLeafId || sourceLeafId === leafId)) ||
+      (sessionDrag && sourceLeafId === leafId && !overStrip)
+    )
+      return null;
+  } else if (
+    !groupDrag &&
+    sourceLeafId !== leafId &&
+    targetActive &&
+    navigationKey(targetActive) === navigationKey(frame.selection)
+  ) {
     return null;
   }
 
   let insertIndex: number | undefined;
-  let insertBar: DropPreview["rect"] | null = null;
-  if (overStrip && pointedStrip && zone === "center" && sourceLeafId !== leafId) {
+  let insertBar: DropPreview['rect'] | null = null;
+  if (overStrip && pointedStrip && zone === 'center' && sourceLeafId !== leafId) {
     const targetStripRect = pointedStrip.getBoundingClientRect();
-    const stripTabs = [...pointedStrip.querySelectorAll<HTMLElement>(".workspace-tab")];
+    const stripTabs = [...pointedStrip.querySelectorAll<HTMLElement>('.workspace-tab')];
     insertIndex = stripTabs.length;
     let barX = stripTabs.length
       ? stripTabs[stripTabs.length - 1].getBoundingClientRect().right
@@ -321,27 +331,27 @@ export function resolvePaneDropIntent(
     }
   }
   const preview: DropPreview = insertBar
-    ? { leafId, zone: "insert", rect: insertBar }
+    ? { leafId, zone: 'insert', rect: insertBar }
     : {
-      leafId,
-      zone,
-      rect: {
-        left: dropRect.left,
-        top: dropRect.top,
-        width: dropRect.width,
-        height: dropRect.height,
-      },
-    };
+        leafId,
+        zone,
+        rect: {
+          left: dropRect.left,
+          top: dropRect.top,
+          width: dropRect.width,
+          height: dropRect.height,
+        },
+      };
   let action: PaneDropAction;
-  if (groupDrag && zone !== "center") {
-    action = { type: "move-group", sourceLeafId, targetLeafId: leafId, zone };
+  if (groupDrag && zone !== 'center') {
+    action = { type: 'move-group', sourceLeafId, targetLeafId: leafId, zone };
   } else if (groupDrag) {
-    action = { type: "merge-group", sourceLeafId, targetLeafId: leafId, insertIndex };
-  } else if (sessionDrag && zone === "center") {
-    action = { type: "open-in-leaf", targetLeafId: leafId, selection: frame.selection, insertIndex };
-  } else if (zone === "center") {
+    action = { type: 'merge-group', sourceLeafId, targetLeafId: leafId, insertIndex };
+  } else if (sessionDrag && zone === 'center') {
+    action = { type: 'open-in-leaf', targetLeafId: leafId, selection: frame.selection, insertIndex };
+  } else if (zone === 'center') {
     action = {
-      type: "move-tab",
+      type: 'move-tab',
       sourceLeafId,
       key: frame.key,
       targetLeafId: leafId,
@@ -349,7 +359,7 @@ export function resolvePaneDropIntent(
     };
   } else {
     action = {
-      type: "split-leaf",
+      type: 'split-leaf',
       targetLeafId: leafId,
       zone,
       selection: frame.selection,
@@ -361,33 +371,30 @@ export function resolvePaneDropIntent(
 
 function commitPaneDropAction(current: PaneWorkspaceModel, action: PaneDropAction): void {
   switch (action.type) {
-    case "move-group-to-node-edge":
+    case 'move-group-to-node-edge':
       current.moveGroupToNodeEdge(action.sourceLeafId, action.targetPath, action.zone);
       return;
-    case "move-tab-to-node-edge":
-      current.moveTabToNodeEdge(
-        action.sourceLeafId, action.key, action.targetPath, action.zone);
+    case 'move-tab-to-node-edge':
+      current.moveTabToNodeEdge(action.sourceLeafId, action.key, action.targetPath, action.zone);
       return;
-    case "move-group":
+    case 'move-group':
       current.moveGroupAt(action.sourceLeafId, action.targetLeafId, action.zone);
       return;
-    case "merge-group":
+    case 'merge-group':
       if (action.insertIndex === undefined) {
         current.mergeGroup(action.sourceLeafId, action.targetLeafId);
       } else {
         current.mergeGroup(action.sourceLeafId, action.targetLeafId, action.insertIndex);
       }
       return;
-    case "open-in-leaf":
+    case 'open-in-leaf':
       current.openInLeaf(action.targetLeafId, action.selection, action.insertIndex);
       return;
-    case "move-tab":
-      current.moveTab(
-        action.sourceLeafId, action.key, action.targetLeafId, action.insertIndex);
+    case 'move-tab':
+      current.moveTab(action.sourceLeafId, action.key, action.targetLeafId, action.insertIndex);
       return;
-    case "split-leaf":
-      current.splitLeafAt(
-        action.targetLeafId, action.zone, action.selection, action.sourceLeafId);
+    case 'split-leaf':
+      current.splitLeafAt(action.targetLeafId, action.zone, action.selection, action.sourceLeafId);
   }
 }
 
@@ -400,7 +407,7 @@ type ConversationOwner = {
 type ConversationSurface = {
   leaf: PaneLeaf;
   selectionKey: string;
-  active: Extract<NavigationSelection, { kind: "session" | "new" }>;
+  active: Extract<NavigationSelection, { kind: 'session' | 'new' }>;
   handoff: boolean;
   parked: boolean;
 };
@@ -412,8 +419,8 @@ type PaneSurfaceSnapshot = {
 
 function paneSurfaceKey(leaf: PaneLeaf): string {
   const active = paneActiveSelection(leaf);
-  if (!active) return "empty";
-  if (isConversationSelection(active)) return "conversation";
+  if (!active) return 'empty';
+  if (isConversationSelection(active)) return 'conversation';
   return navigationKey(active);
 }
 
@@ -421,32 +428,37 @@ function paneSurfaceKey(leaf: PaneLeaf): string {
  *  every session it registers, so only that leaf's active session is mirrored
  *  (user: vps라 비용때문에). Every other leaf stays unregistered until it is
  *  focused. */
-function mobileVisibleSessionIds(
-  leaves: readonly PaneLeaf[],
-  focusedLeafId: string,
-): string[] {
+function mobileVisibleSessionIds(leaves: readonly PaneLeaf[], focusedLeafId: string): string[] {
   const leaf = leaves.find((entry) => entry.id === focusedLeafId) ?? leaves[0];
   const active = leaf ? paneActiveSelection(leaf) : null;
-  return active?.kind === "session" ? [active.id] : [];
+  return active?.kind === 'session' ? [active.id] : [];
 }
 
 function isConversationSelection(
-  selection: WorkspaceSelection | null | undefined,
-): selection is Extract<NavigationSelection, { kind: "session" | "new" }> {
-  return selection?.kind === "session" || selection?.kind === "new";
+  selection: WorkspaceSelection | null | undefined
+): selection is Extract<NavigationSelection, { kind: 'session' | 'new' }> {
+  return selection?.kind === 'session' || selection?.kind === 'new';
 }
 
 /** Every selection that renders its own persistent surface behind the chat
  *  layer: the conversation stays mounted and parked underneath it. */
 function parksConversationBehindSelection(selection: WorkspaceSelection | null): boolean {
-  return selection?.kind === "file"
-    || selection?.kind === "studio" || selection?.kind === "terminal"
-    || selection?.kind === "diff" || selection?.kind === "pull-request";
+  return (
+    selection?.kind === 'file' ||
+    selection?.kind === 'studio' ||
+    selection?.kind === 'terminal' ||
+    selection?.kind === 'diff' ||
+    selection?.kind === 'pull-request'
+  );
 }
 
 function usesPersistentUtilityPortal(selection: WorkspaceSelection | null): boolean {
-  return selection?.kind === "studio" || selection?.kind === "terminal"
-    || selection?.kind === "diff" || selection?.kind === "pull-request";
+  return (
+    selection?.kind === 'studio' ||
+    selection?.kind === 'terminal' ||
+    selection?.kind === 'diff' ||
+    selection?.kind === 'pull-request'
+  );
 }
 
 function retainSurfaceForOneFrame(previousLeaf: PaneLeaf, currentLeaf: PaneLeaf): boolean {
@@ -461,13 +473,19 @@ function retainSurfaceForOneFrame(previousLeaf: PaneLeaf, currentLeaf: PaneLeaf)
 function dropZoneStyle(preview: DropPreview): React.CSSProperties {
   const { left, top, width, height } = preview.rect;
   switch (preview.zone) {
-    case "left": return { left, top, width: width / 2, height };
-    case "right": return { left: left + width / 2, top, width: width / 2, height };
-    case "top": return { left, top, width, height: height / 2 };
-    case "bottom": return { left, top: top + height / 2, width, height: height / 2 };
+    case 'left':
+      return { left, top, width: width / 2, height };
+    case 'right':
+      return { left: left + width / 2, top, width: width / 2, height };
+    case 'top':
+      return { left, top, width, height: height / 2 };
+    case 'bottom':
+      return { left, top: top + height / 2, width, height: height / 2 };
     // Center merge highlights the whole target group; a strip insertion caret
     // arrives with the bar (tab drop index) already as its rect.
-    case "center": case "insert": return { left, top, width, height };
+    case 'center':
+    case 'insert':
+      return { left, top, width, height };
   }
 }
 
@@ -497,22 +515,14 @@ export function PaneWorkspace({
     selection: NavigationSelection,
     focused: boolean,
     focusPane: () => void,
-    leafId: string,
+    leafId: string
   ) => React.ReactNode;
   /** File editors stay mounted in their owning group while dirty. The active
    *  file renders in-place even when another pane has focus. */
-  renderFileEditors?: (
-    leaf: PaneLeaf,
-    focused: boolean,
-    focusPane: () => void,
-  ) => React.ReactNode;
+  renderFileEditors?: (leaf: PaneLeaf, focused: boolean, focusPane: () => void) => React.ReactNode;
   /** Studio and terminal tabs stay mounted per group so their prompt,
    * gallery, terminal buffer, and PTY identity survive tab switches. */
-  renderUtilityTabs?: (
-    leaf: PaneLeaf,
-    focused: boolean,
-    focusPane: () => void,
-  ) => React.ReactNode;
+  renderUtilityTabs?: (leaf: PaneLeaf, focused: boolean, focusPane: () => void) => React.ReactNode;
   /** Per-pane right dock: ONE side-tab unit (header + source control /
    *  browser / diff children) attached to the pane's right edge. */
   renderSideDock?: (leaf: PaneLeaf, focused: boolean) => React.ReactNode;
@@ -525,14 +535,14 @@ export function PaneWorkspace({
   /** Opens native/internal file drops in the pane they were dropped onto. */
   onOpenDroppedPaths?: (leafId: string, paths: string[]) => void | Promise<void>;
 }): React.JSX.Element {
-  const [fileDropLeafId, setFileDropLeafId] = useState("");
+  const [fileDropLeafId, setFileDropLeafId] = useState('');
   useEffect(() => {
-    const clear = () => setFileDropLeafId("");
-    window.addEventListener("drop", clear, true);
-    window.addEventListener("dragend", clear, true);
+    const clear = () => setFileDropLeafId('');
+    window.addEventListener('drop', clear, true);
+    window.addEventListener('dragend', clear, true);
     return () => {
-      window.removeEventListener("drop", clear, true);
-      window.removeEventListener("dragend", clear, true);
+      window.removeEventListener('drop', clear, true);
+      window.removeEventListener('dragend', clear, true);
     };
   }, []);
   // Subscribe before the browser can paint the restored pane tree. main.tsx
@@ -557,8 +567,7 @@ export function PaneWorkspace({
   useEffect(() => {
     const root = document.documentElement;
     const release = (): void => {
-      document.querySelector<HTMLElement>(".pane-leaf[data-selecting]")
-        ?.removeAttribute("data-selecting");
+      document.querySelector<HTMLElement>('.pane-leaf[data-selecting]')?.removeAttribute('data-selecting');
       delete root.dataset.paneSelecting;
     };
     const onPointerDown = (event: PointerEvent): void => {
@@ -567,19 +576,19 @@ export function PaneWorkspace({
       if (event.button !== 0) return;
       release();
       const target = event.target instanceof Element ? event.target : null;
-      const leaf = target?.closest<HTMLElement>(".pane-leaf");
+      const leaf = target?.closest<HTMLElement>('.pane-leaf');
       // A single-pane workspace has no .pane-leaf wrapper and needs no fence.
       if (!leaf) return;
-      leaf.dataset.selecting = "true";
-      root.dataset.paneSelecting = "true";
+      leaf.dataset.selecting = 'true';
+      root.dataset.paneSelecting = 'true';
     };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("pointerup", release, true);
-    document.addEventListener("pointercancel", release, true);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('pointerup', release, true);
+    document.addEventListener('pointercancel', release, true);
     return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("pointerup", release, true);
-      document.removeEventListener("pointercancel", release, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('pointerup', release, true);
+      document.removeEventListener('pointercancel', release, true);
       release();
     };
   }, []);
@@ -597,40 +606,43 @@ export function PaneWorkspace({
   workspaceRef.current = workspace;
   const focusSelectionRef = useRef(onFocusSelection);
   focusSelectionRef.current = onFocusSelection;
-  useEffect(() => subscribePaneDrag((frame) => {
-    if (frame.phase === "cancel") {
-      setDropPreview(null);
-      return;
-    }
-    const current = workspaceRef.current;
-    const panelElement = document.querySelector<HTMLElement>(".main-panel");
-    const intent = panelElement
-      ? resolvePaneDropIntent(frame, current, panelElement)
-      : null;
-    if (frame.phase === "move") {
-      if (!intent) {
+  useEffect(
+    () =>
+      subscribePaneDrag((frame) => {
+        if (frame.phase === 'cancel') {
+          setDropPreview(null);
+          return;
+        }
+        const current = workspaceRef.current;
+        const panelElement = document.querySelector<HTMLElement>('.main-panel');
+        const intent = panelElement ? resolvePaneDropIntent(frame, current, panelElement) : null;
+        if (frame.phase === 'move') {
+          if (!intent) {
+            setDropPreview(null);
+          } else {
+            setDropPreview((currentPreview) =>
+              sameDropPreview(currentPreview, intent.preview) ? currentPreview : intent.preview
+            );
+          }
+          return;
+        }
         setDropPreview(null);
-      } else {
-        setDropPreview((currentPreview) =>
-          sameDropPreview(currentPreview, intent.preview) ? currentPreview : intent.preview);
-      }
-      return;
-    }
-    setDropPreview(null);
-    if (!intent) return;
-    commitPaneDropAction(current, intent.action);
-    focusSelectionRef.current(intent.selection);
-  }), []);
+        if (!intent) return;
+        commitPaneDropAction(current, intent.action);
+        focusSelectionRef.current(intent.selection);
+      }),
+    []
+  );
   useEffect(() => {
-    const panel = document.querySelector<HTMLElement>(".main-panel");
+    const panel = document.querySelector<HTMLElement>('.main-panel');
     if (!panel) return undefined;
     let enterCounter = 0;
     const isSourceStripReorder = (event: DragEvent): boolean => {
       const drag = currentPaneDrag();
-      if (!drag || drag.kind !== "tab" || !drag.sourceLeafId) return false;
+      if (!drag || drag.kind !== 'tab' || !drag.sourceLeafId) return false;
       const target = event.target instanceof Element ? event.target : null;
-      const strip = target?.closest(".workspace-tabs-shell");
-      const pane = strip?.closest<HTMLElement>("[data-pane-id]");
+      const strip = target?.closest('.workspace-tabs-shell');
+      const pane = strip?.closest<HTMLElement>('[data-pane-id]');
       return pane?.dataset.paneId === drag.sourceLeafId;
     };
     const onDragEnter = (event: DragEvent): void => {
@@ -643,7 +655,7 @@ export function PaneWorkspace({
       // dragenter coordinates can be synthetic or stale in Chromium. It only
       // admits the native drop; dragover owns every preview coordinate.
       event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
     };
     const onDragOver = (event: DragEvent): void => {
       if (!currentPaneDrag()) return;
@@ -667,30 +679,28 @@ export function PaneWorkspace({
       }
       dropPaneDrag(event);
     };
-    panel.addEventListener("dragenter", onDragEnter);
-    panel.addEventListener("dragover", onDragOver);
-    panel.addEventListener("dragleave", onDragLeave);
-    panel.addEventListener("drop", onDrop);
+    panel.addEventListener('dragenter', onDragEnter);
+    panel.addEventListener('dragover', onDragOver);
+    panel.addEventListener('dragleave', onDragLeave);
+    panel.addEventListener('drop', onDrop);
     return () => {
-      panel.removeEventListener("dragenter", onDragEnter);
-      panel.removeEventListener("dragover", onDragOver);
-      panel.removeEventListener("dragleave", onDragLeave);
-      panel.removeEventListener("drop", onDrop);
+      panel.removeEventListener('dragenter', onDragEnter);
+      panel.removeEventListener('dragover', onDragOver);
+      panel.removeEventListener('dragleave', onDragLeave);
+      panel.removeEventListener('drop', onDrop);
     };
   }, []);
   // Narrow shell (≤760px, phone composition): the split grid cannot hold two
   // panes above their floors, so the tree renders as ONE full-size pane at a
   // time — single-session mode (user decision) — and the strip-row pager
   // steps left/right through the panes in visual order.
-  const [narrowShell, setNarrowShell] = useState(
-    () => window.matchMedia?.("(max-width: 760px)").matches === true,
-  );
+  const [narrowShell, setNarrowShell] = useState(() => window.matchMedia?.('(max-width: 760px)').matches === true);
   useEffect(() => {
-    const query = window.matchMedia?.("(max-width: 760px)");
+    const query = window.matchMedia?.('(max-width: 760px)');
     if (!query) return undefined;
     const onChange = (): void => setNarrowShell(query.matches);
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
   }, []);
   // The band check alone is not enough: on a mid-width window the panel can
   // shrink under the TREE's aggregate floors (side panels open, column
@@ -700,72 +710,72 @@ export function PaneWorkspace({
   // not fit either axis.
   const [panelSize, setPanelSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
-    const panel = document.querySelector<HTMLElement>(".main-panel");
-    if (!panel || typeof ResizeObserver === "undefined") return undefined;
+    const panel = document.querySelector<HTMLElement>('.main-panel');
+    if (!panel || typeof ResizeObserver === 'undefined') return undefined;
     const observer = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
       if (!rect) return;
       setPanelSize((current) => {
         const width = Math.round(rect.width);
         const height = Math.round(rect.height);
-        return current.width === width && current.height === height
-          ? current : { width, height };
+        return current.width === width && current.height === height ? current : { width, height };
       });
     });
     observer.observe(panel);
     return () => observer.disconnect();
   }, []);
-  const treeMinimum = workspace.layout.type === "split"
-    ? paneNodeMinimumSize(workspace.layout)
-    : null;
-  const singlePaneMode = narrowShell || (treeMinimum !== null
-    && panelSize.width > 0 && panelSize.height > 0
-    && (treeMinimum.width > panelSize.width || treeMinimum.height > panelSize.height));
+  const treeMinimum = workspace.layout.type === 'split' ? paneNodeMinimumSize(workspace.layout) : null;
+  const singlePaneMode =
+    narrowShell ||
+    (treeMinimum !== null &&
+      panelSize.width > 0 &&
+      panelSize.height > 0 &&
+      (treeMinimum.width > panelSize.width || treeMinimum.height > panelSize.height));
   const overlay = dropPreview
     ? createPortal(
-      // ONE drop overlay per editor group: the highlight
-      // glides between zones INSIDE a pane but never slides across panes —
-      // the key remounts the element when the pane (or surface kind)
-      // changes, so only intra-pane moves animate.
-      <div
-        key={`${dropPreview.leafId}:${dropPreview.zone === "insert" ? "strip" : "area"}`}
-        className={dropPreview.zone === "insert"
-          ? "pane-drop-overlay pane-drop-insert"
-          : "pane-drop-overlay"}
-        style={dropZoneStyle(dropPreview)} />,
-      document.body,
-    )
+        // ONE drop overlay per editor group: the highlight
+        // glides between zones INSIDE a pane but never slides across panes —
+        // the key remounts the element when the pane (or surface kind)
+        // changes, so only intra-pane moves animate.
+        <div
+          key={`${dropPreview.leafId}:${dropPreview.zone === 'insert' ? 'strip' : 'area'}`}
+          className={dropPreview.zone === 'insert' ? 'pane-drop-overlay pane-drop-insert' : 'pane-drop-overlay'}
+          style={dropZoneStyle(dropPreview)}
+        />,
+        document.body
+      )
     : null;
   const { focusedLeafId } = workspace;
-  const fileDropPropsFor = (leafId: string) => (
-    !onOpenDroppedPaths ? {} : {
-      "data-file-dropping": fileDropLeafId === leafId ? "true" : undefined,
-      onDragEnter: (event: React.DragEvent<HTMLDivElement>) => {
-        if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
-        event.preventDefault();
-        setFileDropLeafId(leafId);
-      },
-      onDragOver: (event: React.DragEvent<HTMLDivElement>) => {
-        if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "copy";
-        setFileDropLeafId(leafId);
-      },
-      onDragLeave: (event: React.DragEvent<HTMLDivElement>) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node)) return;
-        setFileDropLeafId((current) => current === leafId ? "" : current);
-      },
-      onDrop: (event: React.DragEvent<HTMLDivElement>) => {
-        if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
-        const paths = droppedLocalPaths(event.dataTransfer);
-        if (!paths.length) return;
-        event.preventDefault();
-        event.stopPropagation();
-        setFileDropLeafId("");
-        void onOpenDroppedPaths(leafId, paths);
-      },
-    }
-  );
+  const fileDropPropsFor = (leafId: string) =>
+    !onOpenDroppedPaths
+      ? {}
+      : {
+          'data-file-dropping': fileDropLeafId === leafId ? 'true' : undefined,
+          onDragEnter: (event: React.DragEvent<HTMLDivElement>) => {
+            if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+            event.preventDefault();
+            setFileDropLeafId(leafId);
+          },
+          onDragOver: (event: React.DragEvent<HTMLDivElement>) => {
+            if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+            setFileDropLeafId(leafId);
+          },
+          onDragLeave: (event: React.DragEvent<HTMLDivElement>) => {
+            if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+            setFileDropLeafId((current) => (current === leafId ? '' : current));
+          },
+          onDrop: (event: React.DragEvent<HTMLDivElement>) => {
+            if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+            const paths = droppedLocalPaths(event.dataTransfer);
+            if (!paths.length) return;
+            event.preventDefault();
+            event.stopPropagation();
+            setFileDropLeafId('');
+            void onOpenDroppedPaths(leafId, paths);
+          },
+        };
   const multi = workspace.leaves.length > 1;
   const currentPaneSurfaces = new Map<string, PaneSurfaceSnapshot>();
   const liveLeafIds = new Set(workspace.leaves.map((leaf) => leaf.id));
@@ -773,8 +783,7 @@ export function PaneWorkspace({
     const current = { key: paneSurfaceKey(leaf), leaf };
     const previous = previousPaneSurfaces.current.get(leaf.id);
     currentPaneSurfaces.set(leaf.id, current);
-    if (previous && previous.key !== current.key
-      && retainSurfaceForOneFrame(previous.leaf, current.leaf)) {
+    if (previous && previous.key !== current.key && retainSurfaceForOneFrame(previous.leaf, current.leaf)) {
       paneSurfaceHandoffs.current.set(leaf.id, previous);
     } else if (paneSurfaceHandoffs.current.get(leaf.id)?.key === current.key) {
       paneSurfaceHandoffs.current.delete(leaf.id);
@@ -786,7 +795,7 @@ export function PaneWorkspace({
   previousPaneSurfaces.current = currentPaneSurfaces;
   const paneSurfaceHandoffKey = [...paneSurfaceHandoffs.current]
     .map(([leafId, surface]) => `${leafId}\0${surface.key}`)
-    .join("\x01");
+    .join('\x01');
   useLayoutEffect(() => {
     if (!paneSurfaceHandoffKey) return undefined;
     const retiring = new Map(paneSurfaceHandoffs.current);
@@ -815,22 +824,22 @@ export function PaneWorkspace({
   const conversationLeaves: ConversationSurface[] = workspace.restorePending
     ? []
     : workspace.leaves
-      .flatMap((leaf) => conversationSurfaceFor(leaf, false))
-      .concat([...paneSurfaceHandoffs.current.values()]
-        .flatMap((surface) => conversationSurfaceFor(surface.leaf, true)));
+        .flatMap((leaf) => conversationSurfaceFor(leaf, false))
+        .concat(
+          [...paneSurfaceHandoffs.current.values()].flatMap((surface) => conversationSurfaceFor(surface.leaf, true))
+        );
   const previousConversationOwners = conversationOwners.current;
-  const representedConversationLeaves = new Set(
-    conversationLeaves.map((entry) => entry.leaf.id),
-  );
+  const representedConversationLeaves = new Set(conversationLeaves.map((entry) => entry.leaf.id));
   for (const owner of previousConversationOwners) {
     if (representedConversationLeaves.has(owner.leafId)) continue;
-    const leaf = workspace.leaves.find((candidate) =>
-      !representedConversationLeaves.has(candidate.id)
-      && parksConversationBehindSelection(paneActiveSelection(candidate))
-      && candidate.tabs.some((selection) => navigationKey(selection) === owner.selectionKey));
+    const leaf = workspace.leaves.find(
+      (candidate) =>
+        !representedConversationLeaves.has(candidate.id) &&
+        parksConversationBehindSelection(paneActiveSelection(candidate)) &&
+        candidate.tabs.some((selection) => navigationKey(selection) === owner.selectionKey)
+    );
     if (!leaf) continue;
-    const selection = leaf.tabs.find((candidate) =>
-      navigationKey(candidate) === owner.selectionKey);
+    const selection = leaf.tabs.find((candidate) => navigationKey(candidate) === owner.selectionKey);
     if (!isConversationSelection(selection)) continue;
     conversationLeaves.push({
       leaf,
@@ -844,18 +853,19 @@ export function PaneWorkspace({
   const ownerByLeaf = new Map<string, string>();
   const usedOwnerKeys = new Set<string>();
   for (const entry of conversationLeaves) {
-    const movedOwner = previousConversationOwners.find((owner) =>
-      owner.selectionKey === entry.selectionKey && !usedOwnerKeys.has(owner.key));
+    const movedOwner = previousConversationOwners.find(
+      (owner) => owner.selectionKey === entry.selectionKey && !usedOwnerKeys.has(owner.key)
+    );
     if (!movedOwner) continue;
     ownerByLeaf.set(entry.leaf.id, movedOwner.key);
     usedOwnerKeys.add(movedOwner.key);
   }
   for (const entry of conversationLeaves) {
     if (ownerByLeaf.has(entry.leaf.id)) continue;
-    const paneOwner = previousConversationOwners.find((owner) =>
-      owner.leafId === entry.leaf.id && !usedOwnerKeys.has(owner.key));
-    const ownerKey = paneOwner?.key
-      ?? `pane-conversation-owner-${++conversationOwnerSequence.current}`;
+    const paneOwner = previousConversationOwners.find(
+      (owner) => owner.leafId === entry.leaf.id && !usedOwnerKeys.has(owner.key)
+    );
+    const ownerKey = paneOwner?.key ?? `pane-conversation-owner-${++conversationOwnerSequence.current}`;
     ownerByLeaf.set(entry.leaf.id, ownerKey);
     usedOwnerKeys.add(ownerKey);
   }
@@ -866,27 +876,32 @@ export function PaneWorkspace({
   }));
   const conversationPortals = renderConversation
     ? conversationLeaves.map(({ leaf, active, handoff, parked }) => {
-      const focused = leaf.id === focusedLeafId;
-      const focusPane = (): void => {
-        workspace.focusLeaf(leaf.id);
-        onFocusSelection(active);
-      };
-      return <PersistentPanePortal key={ownerByLeaf.get(leaf.id)}
-        targetId={paneConversationSlotId(leaf.id)}
-        className={`conversation-persistent-surface${handoff ? " is-handoff" : ""}`}>
-        {renderConversation(active, focused && !handoff && !parked, focusPane, leaf.id)}
-      </PersistentPanePortal>;
-    })
+        const focused = leaf.id === focusedLeafId;
+        const focusPane = (): void => {
+          workspace.focusLeaf(leaf.id);
+          onFocusSelection(active);
+        };
+        return (
+          <PersistentPanePortal
+            key={ownerByLeaf.get(leaf.id)}
+            targetId={paneConversationSlotId(leaf.id)}
+            className={`conversation-persistent-surface${handoff ? ' is-handoff' : ''}`}
+          >
+            {renderConversation(active, focused && !handoff && !parked, focusPane, leaf.id)}
+          </PersistentPanePortal>
+        );
+      })
     : [];
-  const conversationEntryByLeaf = new Map(
-    conversationLeaves.map((entry) => [entry.leaf.id, entry]),
-  );
-  const conversationSlot = (leafId: string, parked: boolean) =>
-    <div id={paneConversationSlotId(leafId)}
+  const conversationEntryByLeaf = new Map(conversationLeaves.map((entry) => [entry.leaf.id, entry]));
+  const conversationSlot = (leafId: string, parked: boolean) => (
+    <div
+      id={paneConversationSlotId(leafId)}
       className="pane-conversation-slot"
-      data-conversation-parked={parked ? "true" : undefined}
+      data-conversation-parked={parked ? 'true' : undefined}
       inert={parked ? true : undefined}
-      aria-hidden={parked ? true : undefined} />;
+      aria-hidden={parked ? true : undefined}
+    />
+  );
   // Chat owns one fixed pane-sized paint layer. When Studio/file/terminal is
   // active it remains laid out and painted underneath the opaque utility
   // layer, so Chromium and TanStack never discard or recompute its geometry.
@@ -899,18 +914,19 @@ export function PaneWorkspace({
     const current = currentPaneSurfaces.get(leaf.id)!;
     const handoff = visualSurfaceHandoffFor(leaf.id);
     return handoff && handoff.key !== current.key
-      ? [{ ...handoff, handoff: true }, { ...current, handoff: false }]
+      ? [
+          { ...handoff, handoff: true },
+          { ...current, handoff: false },
+        ]
       : [{ ...current, handoff: false }];
   };
-  const renderPaneSurface = (
-    surfaceLeaf: PaneLeaf,
-    focused: boolean,
-    handoff: boolean,
-  ) => {
+  const renderPaneSurface = (surfaceLeaf: PaneLeaf, focused: boolean, handoff: boolean) => {
     if (workspace.restorePending) {
-      return <div className="pane-placeholder" data-restoring="true" role="status">
-        <span className="pane-placeholder-title">{t("Restoring layout…")}</span>
-      </div>;
+      return (
+        <div className="pane-placeholder" data-restoring="true" role="status">
+          <span className="pane-placeholder-title">{t('Restoring layout…')}</span>
+        </div>
+      );
     }
     const active = paneActiveSelection(surfaceLeaf);
     const interactive = focused && !handoff;
@@ -926,113 +942,135 @@ export function PaneWorkspace({
     // This avoids duplicate ids while preserving the last composed utility
     // frame instead of exposing an empty/rasterizing destination.
     const activeHandoff = visualSurfaceHandoffFor(surfaceLeaf.id);
-    const utilityTabs = handoff || !activeHandoff
-      ? renderUtilityTabs?.(surfaceLeaf, interactive, focusPane)
-      : null;
+    const utilityTabs = handoff || !activeHandoff ? renderUtilityTabs?.(surfaceLeaf, interactive, focusPane) : null;
     // Chat, editors and the utility tabs all render themselves: the mounted
     // layers below ARE the pane, so it needs no chrome of its own. A file tab
     // only qualifies while the host actually renders editors.
-    if (isConversationSelection(active)
-      || (parksConversationBehindSelection(active)
-        && (active?.kind !== "file" || renderFileEditors))) {
-      return <>
-        {fileEditors}
-        {utilityTabs}
-      </>;
+    if (
+      isConversationSelection(active) ||
+      (parksConversationBehindSelection(active) && (active?.kind !== 'file' || renderFileEditors))
+    ) {
+      return (
+        <>
+          {fileEditors}
+          {utilityTabs}
+        </>
+      );
     }
     if (interactive) {
-      return <>
+      return (
+        <>
+          {fileEditors}
+          {utilityTabs}
+          {renderActive(surfaceLeaf)}
+        </>
+      );
+    }
+    return (
+      <>
         {fileEditors}
         {utilityTabs}
-        {renderActive(surfaceLeaf)}
-      </>;
-    }
-    return <>
-      {fileEditors}
-      {utilityTabs}
-      {!handoff && <button type="button" className="pane-placeholder" onClick={focusPane}>
-        <span className="pane-placeholder-title">{selectionLabel(active)}</span>
-        <span className="pane-placeholder-hint">{t("Click to work in this pane")}</span>
-      </button>}
-    </>;
+        {!handoff && (
+          <button type="button" className="pane-placeholder" onClick={focusPane}>
+            <span className="pane-placeholder-title">{selectionLabel(active)}</span>
+            <span className="pane-placeholder-hint">{t('Click to work in this pane')}</span>
+          </button>
+        )}
+      </>
+    );
   };
   const renderPaneSurfaceStack = (leaf: PaneLeaf, focused: boolean) => {
     const conversationEntry = conversationEntryByLeaf.get(leaf.id);
-    return <div className="pane-surface-stack">
-      {surfaceLayersFor(leaf).map((surface) =>
-        <div key={surface.key}
-          className="pane-surface-handoff-layer"
-          data-pane-surface-handoff={surface.handoff ? "true" : "false"}
-          inert={surface.handoff ? true : undefined}
-          aria-hidden={surface.handoff ? true : undefined}>
-          {renderPaneSurface(surface.leaf, focused, surface.handoff)}
-        </div>)}
-      {conversationEntry && conversationSlot(leaf.id, conversationEntry.parked)}
-    </div>;
+    return (
+      <div className="pane-surface-stack">
+        {surfaceLayersFor(leaf).map((surface) => (
+          <div
+            key={surface.key}
+            className="pane-surface-handoff-layer"
+            data-pane-surface-handoff={surface.handoff ? 'true' : 'false'}
+            inert={surface.handoff ? true : undefined}
+            aria-hidden={surface.handoff ? true : undefined}
+          >
+            {renderPaneSurface(surface.leaf, focused, surface.handoff)}
+          </div>
+        ))}
+        {conversationEntry && conversationSlot(leaf.id, conversationEntry.parked)}
+      </div>
+    );
   };
-  if (workspace.layout.type === "leaf") {
+  if (workspace.layout.type === 'leaf') {
     const leaf = workspace.layout;
     // A single pane still owns its tab strip (one editor group);
     // the cell stacks the strip above the classic interactive markup.
-    return (<>
-      <div className="pane-cell is-focused" data-pane-id={leaf.id}
-        {...fileDropPropsFor(leaf.id)}>
-        {renderStrip?.(leaf)}
-        {renderPaneSurfaceStack(leaf, true)}
-        {renderProblems?.(leaf, true)}
-        {renderSideDock?.(leaf, true)}
-        {overlay}
-      </div>
-      {conversationPortals}
-    </>);
+    return (
+      <>
+        <div className="pane-cell is-focused" data-pane-id={leaf.id} {...fileDropPropsFor(leaf.id)}>
+          {renderStrip?.(leaf)}
+          {renderPaneSurfaceStack(leaf, true)}
+          {renderProblems?.(leaf, true)}
+          {renderSideDock?.(leaf, true)}
+          {overlay}
+        </div>
+        {conversationPortals}
+      </>
+    );
   }
   if (singlePaneMode) {
     const ordered = paneLeavesInVisualOrder(workspace.layout);
-    const activeIndex = Math.max(0, ordered.findIndex((leaf) => leaf.id === focusedLeafId));
-    return (<>
-      <div className="pane-carousel">
-        {ordered.map((leaf, index) => {
-          const focused = index === activeIndex;
+    const activeIndex = Math.max(
+      0,
+      ordered.findIndex((leaf) => leaf.id === focusedLeafId)
+    );
+    return (
+      <>
+        <div className="pane-carousel">
+          {ordered.map((leaf, index) => {
+            const focused = index === activeIndex;
+            return (
+              <div
+                key={leaf.id}
+                className={`pane-cell pane-carousel-item${focused ? ' is-focused has-siblings' : ''}`}
+                data-pane-id={leaf.id}
+                {...fileDropPropsFor(leaf.id)}
+                data-carousel-active={focused ? 'true' : 'false'}
+                inert={focused ? undefined : true}
+                aria-hidden={focused ? undefined : true}
+              >
+                {renderStrip?.(leaf)}
+                {renderPaneSurfaceStack(leaf, focused)}
+                {renderProblems?.(leaf, focused)}
+                {renderSideDock?.(leaf, focused)}
+              </div>
+            );
+          })}
+        </div>
+        {conversationPortals}
+        {overlay}
+      </>
+    );
+  }
+  return (
+    <>
+      <PaneSplitLayout
+        node={workspace.layout}
+        onRatioChange={workspace.setRatio}
+        renderLeaf={(leaf) => {
+          const focused = leaf.id === focusedLeafId;
           return (
-            <div key={leaf.id}
-              className={`pane-cell pane-carousel-item${focused ? " is-focused has-siblings" : ""}`}
-              data-pane-id={leaf.id}
+            <div
+              className={`pane-cell${focused ? ` is-focused${multi ? ' has-siblings' : ''}` : ''}`}
               {...fileDropPropsFor(leaf.id)}
-              data-carousel-active={focused ? "true" : "false"}
-              inert={focused ? undefined : true}
-              aria-hidden={focused ? undefined : true}>
+            >
               {renderStrip?.(leaf)}
               {renderPaneSurfaceStack(leaf, focused)}
               {renderProblems?.(leaf, focused)}
               {renderSideDock?.(leaf, focused)}
             </div>
           );
-        })}
-      </div>
+        }}
+      />
       {conversationPortals}
       {overlay}
-    </>);
-  }
-  return (
-    <>
-    <PaneSplitLayout
-      node={workspace.layout}
-      onRatioChange={workspace.setRatio}
-      renderLeaf={(leaf) => {
-        const focused = leaf.id === focusedLeafId;
-        return (
-          <div className={`pane-cell${focused ? ` is-focused${multi ? " has-siblings" : ""}` : ""}`}
-            {...fileDropPropsFor(leaf.id)}>
-            {renderStrip?.(leaf)}
-            {renderPaneSurfaceStack(leaf, focused)}
-            {renderProblems?.(leaf, focused)}
-            {renderSideDock?.(leaf, focused)}
-          </div>
-        );
-      }}
-    />
-    {conversationPortals}
-    {overlay}
     </>
   );
 }

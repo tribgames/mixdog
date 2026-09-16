@@ -39,12 +39,10 @@ interface RepositoryIdentity {
 }
 
 async function repositoryIdentity(cwd: string): Promise<RepositoryIdentity> {
-  const raw = await run(cwd, ['rev-parse', '--absolute-git-dir', '--show-toplevel'])
-    .catch(() => '');
+  const raw = await run(cwd, ['rev-parse', '--absolute-git-dir', '--show-toplevel']).catch(() => '');
   const [gitDir = '', toplevel = ''] = raw.split(/\r?\n/).map((line) => line.trim());
   if (!gitDir || !toplevel) throw new Error('This folder is not a Git repository.');
-  const real = async (path: string): Promise<string> =>
-    realpath(resolve(path)).catch(() => resolve(path));
+  const real = async (path: string): Promise<string> => realpath(resolve(path)).catch(() => resolve(path));
   return { gitDir: await real(gitDir), toplevel: await real(toplevel) };
 }
 
@@ -62,9 +60,14 @@ function withRepositorySequence<T>(gitDir: string, task: () => Promise<T>): Prom
   const key = process.platform === 'win32' ? gitDir.toLowerCase() : gitDir;
   const previous = repositorySequences.get(key) ?? Promise.resolve();
   const result = previous.then(task, task);
-  const settled: Promise<void> = result.then(() => undefined, () => undefined).then(() => {
-    if (repositorySequences.get(key) === settled) repositorySequences.delete(key);
-  });
+  const settled: Promise<void> = result
+    .then(
+      () => undefined,
+      () => undefined
+    )
+    .then(() => {
+      if (repositorySequences.get(key) === settled) repositorySequences.delete(key);
+    });
   repositorySequences.set(key, settled);
   return result;
 }
@@ -81,19 +84,25 @@ function indexLockContention(gitDir: string, reason: unknown): Error {
   if (!lock || comparablePath(lock[1] ?? '') !== comparablePath(join(gitDir, 'index.lock'))) {
     return failure;
   }
-  return new Error([
-    'Another Git process is using this repository (index.lock is held)',
-    '. Wait for it to finish, then commit again.',
-  ].join(''));
+  return new Error(
+    [
+      'Another Git process is using this repository (index.lock is held)',
+      '. Wait for it to finish, then commit again.',
+    ].join('')
+  );
 }
 
 function assertCommitPath(path: string): void {
   // Argument-injection guard, applied to the caller's EXACT bytes: a pathspec
   // may never read as an option, an absolute/drive path, a traversal, or a
   // NUL-spliced value.
-  if (path.startsWith('-') || path.includes('\0') || isAbsolute(path)
-    || /^[A-Za-z]:[\\/]/.test(path)
-    || path.split(/[\\/]/).includes('..')) {
+  if (
+    path.startsWith('-') ||
+    path.includes('\0') ||
+    isAbsolute(path) ||
+    /^[A-Za-z]:[\\/]/.test(path) ||
+    path.split(/[\\/]/).includes('..')
+  ) {
     throw new TypeError(`Commit path is invalid: ${path}`);
   }
 }
@@ -143,7 +152,9 @@ async function existsInsideWorktree(cwd: string, path: string): Promise<boolean>
   const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
   const inside = comparablePath(absolute).startsWith(comparablePath(prefix));
   if (!inside) return false;
-  return access(absolute).then(() => true).catch(() => false);
+  return access(absolute)
+    .then(() => true)
+    .catch(() => false);
 }
 
 // ---------------------------------------------------------------------------
@@ -206,11 +217,13 @@ export function missingHookRunner(message: string): boolean {
  */
 export function assertCommitHooksRunnable(supported: boolean, present: string[]): void {
   if (supported || !present.length) return;
-  throw new Error([
-    'This Git cannot run commit hooks (git hook run needs Git 2.36 or newer), and this ',
-    `repository defines ${present.join(', ')}`,
-    '. Update Git, or remove the hook, then commit again.',
-  ].join(''));
+  throw new Error(
+    [
+      'This Git cannot run commit hooks (git hook run needs Git 2.36 or newer), and this ',
+      `repository defines ${present.join(', ')}`,
+      '. Update Git, or remove the hook, then commit again.',
+    ].join('')
+  );
 }
 
 /**
@@ -249,17 +262,17 @@ export interface HookRunnerCache {
   value: Promise<boolean> | null;
 }
 
-export function cacheHookRunnerSupport(
-  probe: () => Promise<unknown>,
-  cache: HookRunnerCache,
-): Promise<boolean> {
-  cache.value ??= probe().then(() => true, (reason: unknown) => {
-    const detail = (reason instanceof Error ? reason.message : String(reason)).trim();
-    if (missingHookRunner(detail)) return false;
-    // A broken probe is not an answer: forget it so the next call asks again.
-    cache.value = null;
-    throw new Error(`Could not check whether Git can run commit hooks: ${detail}`);
-  });
+export function cacheHookRunnerSupport(probe: () => Promise<unknown>, cache: HookRunnerCache): Promise<boolean> {
+  cache.value ??= probe().then(
+    () => true,
+    (reason: unknown) => {
+      const detail = (reason instanceof Error ? reason.message : String(reason)).trim();
+      if (missingHookRunner(detail)) return false;
+      // A broken probe is not an answer: forget it so the next call asks again.
+      cache.value = null;
+      throw new Error(`Could not check whether Git can run commit hooks: ${detail}`);
+    }
+  );
   return cache.value;
 }
 
@@ -280,12 +293,13 @@ function hookRunnerAvailable(cwd: string): Promise<boolean> {
     // never be executed by it. Some git versions accept such a name outright
     // and reject --allow-unknown-hook-name as an unknown option; others demand
     // that flag. Try the plain form and add the flag only when git asks for it.
-    () => probeHookRunner(cwd, []).catch((error: unknown) => {
-      const message = String((error as Error)?.message || '');
-      if (!/allow-unknown-hook-name|unknown hook event/i.test(message)) throw error;
-      return probeHookRunner(cwd, ['--allow-unknown-hook-name']);
-    }),
-    hookRunnerSupport,
+    () =>
+      probeHookRunner(cwd, []).catch((error: unknown) => {
+        const message = String((error as Error)?.message || '');
+        if (!/allow-unknown-hook-name|unknown hook event/i.test(message)) throw error;
+        return probeHookRunner(cwd, ['--allow-unknown-hook-name']);
+      }),
+    hookRunnerSupport
   );
 }
 
@@ -300,13 +314,11 @@ async function runCommitHook(
   hooks: boolean,
   name: string,
   args: string[] = [],
-  advisory = false,
+  advisory = false
 ): Promise<void> {
   if (!hooks) return;
   try {
-    await run(cwd, [
-      'hook', 'run', '--ignore-missing', name, ...(args.length ? ['--', ...args] : []),
-    ], indexFile, true);
+    await run(cwd, ['hook', 'run', '--ignore-missing', name, ...(args.length ? ['--', ...args] : [])], indexFile, true);
   } catch (reason) {
     // git ignores post-commit's exit status; every other hook is a veto.
     if (advisory) return;
@@ -324,7 +336,7 @@ async function messageThroughHooks(
   repository: RepositoryIdentity,
   indexFile: string,
   hooks: boolean,
-  message: string,
+  message: string
 ): Promise<string> {
   if (!hooks) return message;
   const messagePath = join(repository.gitDir, 'COMMIT_EDITMSG');
@@ -368,19 +380,21 @@ async function commitCleanupMode(cwd: string): Promise<string> {
  */
 function cleanCommitMessage(cwd: string, mode: string, raw: string): Promise<string> {
   if (mode === 'verbatim') return Promise.resolve(raw.endsWith('\n') ? raw : `${raw}\n`);
-  return runWithInput(cwd, mode === 'strip'
-    ? ['stripspace', '--strip-comments']
-    : ['stripspace'], raw);
+  return runWithInput(cwd, mode === 'strip' ? ['stripspace', '--strip-comments'] : ['stripspace'], raw);
 }
 
 /** The paths a tree changes against HEAD — the commit's real reach. */
 async function committedPaths(cwd: string, head: string, tree: string): Promise<string[]> {
   const changed: string[] = [];
-  await streamNulRecords(cwd, head
-    ? ['diff-tree', '-r', '--name-only', '-z', '--no-commit-id', `${head}^{tree}`, tree]
-    : ['ls-tree', '-r', '--name-only', '-z', tree], (record) => {
-    if (record) changed.push(record);
-  });
+  await streamNulRecords(
+    cwd,
+    head
+      ? ['diff-tree', '-r', '--name-only', '-z', '--no-commit-id', `${head}^{tree}`, tree]
+      : ['ls-tree', '-r', '--name-only', '-z', tree],
+    (record) => {
+      if (record) changed.push(record);
+    }
+  );
   return changed;
 }
 
@@ -395,13 +409,8 @@ async function indexSnapshot(toplevel: string): Promise<Map<string, string>> {
 }
 
 /** The caller's selection, as repository-root relative path prefixes. */
-function selectionPrefixes(
-  repository: RepositoryIdentity,
-  cwd: string,
-  specs: string[],
-): string[] {
-  return specs.map((spec) =>
-    comparablePath(relative(repository.toplevel, resolve(cwd, spec))));
+function selectionPrefixes(repository: RepositoryIdentity, cwd: string, specs: string[]): string[] {
+  return specs.map((spec) => comparablePath(relative(repository.toplevel, resolve(cwd, spec))));
 }
 
 function withinSelection(prefixes: string[], path: string): boolean {
@@ -417,10 +426,12 @@ function withinSelection(prefixes: string[], path: string): boolean {
 function assertWithinSelection(prefixes: string[], changed: string[]): void {
   const outside = changed.filter((path) => !withinSelection(prefixes, path));
   if (!outside.length) return;
-  throw new Error([
-    `A commit hook staged ${outside.slice(0, 10).join(', ')}, which was not selected`,
-    '. Nothing was committed.',
-  ].join(''));
+  throw new Error(
+    [
+      `A commit hook staged ${outside.slice(0, 10).join(', ')}, which was not selected`,
+      '. Nothing was committed.',
+    ].join('')
+  );
 }
 
 /**
@@ -429,20 +440,18 @@ function assertWithinSelection(prefixes: string[], changed: string[]): void {
  * DETECTED: the user's entries are compared around the hooks, and a change
  * outside the selection refuses the commit while no commit object exists yet.
  */
-function assertHooksLeftIndexAlone(
-  prefixes: string[],
-  before: Map<string, string>,
-  after: Map<string, string>,
-): void {
+function assertHooksLeftIndexAlone(prefixes: string[], before: Map<string, string>, after: Map<string, string>): void {
   const touched = new Set<string>();
   for (const [path, entry] of after) if (before.get(path) !== entry) touched.add(path);
   for (const path of before.keys()) if (!after.has(path)) touched.add(path);
   const outside = [...touched].filter((path) => !withinSelection(prefixes, path));
   if (!outside.length) return;
-  throw new Error([
-    `A commit hook changed the staged entry for ${outside.slice(0, 10).join(', ')}`,
-    ', which was not selected. Nothing was committed; review the index before retrying.',
-  ].join(''));
+  throw new Error(
+    [
+      `A commit hook changed the staged entry for ${outside.slice(0, 10).join(', ')}`,
+      ', which was not selected. Nothing was committed; review the index before retrying.',
+    ].join('')
+  );
 }
 
 /**
@@ -462,21 +471,25 @@ function refreshFailure(commit: string, paths: string[], detail: string): Error 
   // Scoped to the committed paths: a bare `git reset <commit>` would rewrite
   // the WHOLE index and throw away unrelated staged work.
   const recovery = listed.map((path) => shellArgument(literalPathspec(path))).join(' ');
-  return new Error([
-    `Commit ${short} was created, but the index entries for `,
-    `${listed.join(', ')} could not be refreshed: ${detail}`,
-    `. Run "git reset ${short} -- ${recovery}" to finish it`,
-    paths.length > 10 ? ', then the remaining paths the same way.' : '.',
-  ].join(''));
+  return new Error(
+    [
+      `Commit ${short} was created, but the index entries for `,
+      `${listed.join(', ')} could not be refreshed: ${detail}`,
+      `. Run "git reset ${short} -- ${recovery}" to finish it`,
+      paths.length > 10 ? ', then the remaining paths the same way.' : '.',
+    ].join('')
+  );
 }
 
 /** Somebody staged a committed path underneath us; we kept our hands off it. */
 function stagedUnderneathError(commit: string, moved: string[]): Error {
-  return new Error([
-    `Commit ${commit.slice(0, 7)} was created. ${moved.slice(0, 10).join(', ')} was staged `,
-    'again while it was being committed, so that entry was left exactly as it is — nothing ',
-    'staged has been overwritten. Refresh Source Control to see the current state.',
-  ].join(''));
+  return new Error(
+    [
+      `Commit ${commit.slice(0, 7)} was created. ${moved.slice(0, 10).join(', ')} was staged `,
+      'again while it was being committed, so that entry was left exactly as it is — nothing ',
+      'staged has been overwritten. Refresh Source Control to see the current state.',
+    ].join('')
+  );
 }
 
 /**
@@ -486,11 +499,13 @@ function stagedUnderneathError(commit: string, moved: string[]): Error {
  * do about it.
  */
 function indexLockPresentError(lockPath: string): Error {
-  return new Error([
-    'Another Git process is using this repository, or an earlier one was interrupted: ',
-    `"${lockPath}" already exists. Nothing was committed — wait for that process to finish`,
-    `, or, if no Git process is running, delete "${lockPath}" and commit again.`,
-  ].join(''));
+  return new Error(
+    [
+      'Another Git process is using this repository, or an earlier one was interrupted: ',
+      `"${lockPath}" already exists. Nothing was committed — wait for that process to finish`,
+      `, or, if no Git process is running, delete "${lockPath}" and commit again.`,
+    ].join('')
+  );
 }
 
 /**
@@ -501,11 +516,13 @@ function indexLockPresentError(lockPath: string): Error {
  */
 function indexLockUnknownError(lockPath: string, reason: unknown): Error {
   const detail = reason instanceof Error ? reason.message : String(reason);
-  return new Error([
-    `Git's index lock "${lockPath}" could not be checked, so another Git process using this `,
-    `repository cannot be ruled out: ${detail}`,
-    '. Nothing was committed — restore access to that file, then commit again.',
-  ].join(''));
+  return new Error(
+    [
+      `Git's index lock "${lockPath}" could not be checked, so another Git process using this `,
+      `repository cannot be ruled out: ${detail}`,
+      '. Nothing was committed — restore access to that file, then commit again.',
+    ].join('')
+  );
 }
 
 /**
@@ -527,7 +544,7 @@ function indexLockUnknownError(lockPath: string, reason: unknown): Error {
  */
 export async function assertIndexLockFree(
   gitDir: string,
-  probe: (path: string) => Promise<unknown> = lstat,
+  probe: (path: string) => Promise<unknown> = lstat
 ): Promise<void> {
   const lockPath = join(gitDir, 'index.lock');
   try {
@@ -566,8 +583,7 @@ const INDEX_REPLACE_ATTEMPTS = 5;
 
 /** The part of `FileHandle` publishing needs; a test can stand it in. */
 export interface IndexLockFile {
-  write(buffer: Buffer, offset: number, length: number, position: number):
-    Promise<{ bytesWritten: number }>;
+  write(buffer: Buffer, offset: number, length: number, position: number): Promise<{ bytesWritten: number }>;
   truncate(length: number): Promise<void>;
   stat(): Promise<{ size: number }>;
   sync(): Promise<void>;
@@ -672,7 +688,9 @@ function parseConfigInt(value: string): number | null {
   const digits = match[2];
   const magnitude = /^0[xX]/.test(digits)
     ? Number.parseInt(digits.slice(2), 16)
-    : /^0[0-7]+$/.test(digits) ? Number.parseInt(digits, 8) : Number.parseInt(digits, 10);
+    : /^0[0-7]+$/.test(digits)
+      ? Number.parseInt(digits, 8)
+      : Number.parseInt(digits, 10);
   const unit = { '': 1, k: 1024, m: 1024 ** 2, g: 1024 ** 3 }[match[3].toLowerCase()] ?? 1;
   return (match[1] === '-' ? -magnitude : magnitude) * unit;
 }
@@ -736,11 +754,13 @@ export function sharedRepositoryPerm(shared: string | null): number {
     // git prints it camelCase — checked against git 2.51, which answers
     // `fatal: problem with core.sharedRepository filemode value (0400).`. The
     // value is formatted git's way too (`0%.3o`): `044` prints as `0044`.
-    throw new Error([
-      'fatal: problem with core.sharedRepository filemode value ',
-      `(0${(octal.value & 0o7777).toString(8).padStart(3, '0')}).\n`,
-      'The owner of files must always have read and write permissions.',
-    ].join(''));
+    throw new Error(
+      [
+        'fatal: problem with core.sharedRepository filemode value ',
+        `(0${(octal.value & 0o7777).toString(8).padStart(3, '0')}).\n`,
+        'The owner of files must always have read and write permissions.',
+      ].join('')
+    );
   }
   // Others can never get a write bit out of an explicit filemode.
   return -(octal.value & 0o666);
@@ -793,20 +813,15 @@ async function sharedRepositoryConfig(toplevel: string): Promise<string | null |
   const probe = await runWithStatus(toplevel, ['config', '--get', 'core.sharedRepository']);
   if (probe.code === 1) return undefined;
   if (probe.code !== 0) {
-    throw new Error('could not read core.sharedRepository: '
-      + (probe.stderr || `git exited with code ${probe.code}`));
+    throw new Error('could not read core.sharedRepository: ' + (probe.stderr || `git exited with code ${probe.code}`));
   }
   // Only the terminating newline is git's; the value's own bytes are kept.
   const raw = probe.stdout.replace(/\r?\n$/, '');
   if (raw !== '') return raw;
-  const bool = await runWithStatus(
-    toplevel,
-    ['config', '--bool', '--get', 'core.sharedRepository'],
-  );
+  const bool = await runWithStatus(toplevel, ['config', '--bool', '--get', 'core.sharedRepository']);
   if (bool.code === 0 && bool.stdout.trim() === 'true') return null;
   if (bool.code === 0 && bool.stdout.trim() === 'false') return '';
-  throw new Error('could not read core.sharedRepository: '
-    + (bool.stderr || `git exited with code ${bool.code}`));
+  throw new Error('could not read core.sharedRepository: ' + (bool.stderr || `git exited with code ${bool.code}`));
 }
 
 /** The mode to publish with, and the mode it was derived from. */
@@ -837,10 +852,7 @@ export interface IndexPublishMode {
  * Reading either fault as "unset" would publish the user's index with
  * permissions nobody chose.
  */
-export async function indexPublishMode(
-  toplevel: string,
-  indexPath: string,
-): Promise<IndexPublishMode | null> {
+export async function indexPublishMode(toplevel: string, indexPath: string): Promise<IndexPublishMode | null> {
   if (process.platform === 'win32') return null;
   const info = await stat(indexPath).catch((reason: NodeJS.ErrnoException) => {
     if (reason?.code === 'ENOENT' || reason?.code === 'ENOTDIR') return null;
@@ -921,10 +933,7 @@ export function modeGrantsMoreThan(actual: number, required: number): boolean {
  *                           with its OLD content — a width the repository
  *                           already had, not one this publish handed out.
  */
-export async function applyPublishMode(
-  handle: ModedLockFile,
-  mode: number,
-): Promise<void> {
+export async function applyPublishMode(handle: ModedLockFile, mode: number): Promise<void> {
   const wanted = (mode & 0o7777).toString(8);
   try {
     await handle.chmod(mode);
@@ -939,9 +948,7 @@ export async function applyPublishMode(
   }
   const actual = (await handle.stat()).mode;
   if (modeGrantsMoreThan(actual, mode)) {
-    throw new Error(
-      `the index lock kept mode ${(actual & 0o7777).toString(8)} where ${wanted} was required`,
-    );
+    throw new Error(`the index lock kept mode ${(actual & 0o7777).toString(8)} where ${wanted} was required`);
   }
 }
 
@@ -1003,7 +1010,7 @@ async function refreshCommittedPaths(
   scratch: string,
   commit: string,
   changed: string[],
-  committedFrom: Map<string, string>,
+  committedFrom: Map<string, string>
 ): Promise<void> {
   const indexPath = join(repository.gitDir, 'index');
   const lockPath = join(repository.gitDir, 'index.lock');
@@ -1013,11 +1020,15 @@ async function refreshCommittedPaths(
   } catch (reason) {
     const code = (reason as NodeJS.ErrnoException)?.code;
     const failure = reason instanceof Error ? reason.message : String(reason);
-    throw refreshFailure(commit, changed, code === 'EEXIST'
-      // Somebody else's lock: it is left exactly where it is.
-      ? `another Git process took "${lockPath}" while this commit was being made`
-        + '; wait for it to finish, or delete that file if no Git process is running'
-      : `${lockPath} could not be created: ${failure}`);
+    throw refreshFailure(
+      commit,
+      changed,
+      code === 'EEXIST'
+        ? // Somebody else's lock: it is left exactly where it is.
+          `another Git process took "${lockPath}" while this commit was being made` +
+            '; wait for it to finish, or delete that file if no Git process is running'
+        : `${lockPath} could not be created: ${failure}`
+    );
   }
   let published = false;
   let closed = false;
@@ -1033,11 +1044,7 @@ async function refreshCommittedPaths(
       publish = await indexPublishMode(repository.toplevel, indexPath);
     } catch (reason) {
       const detail = reason instanceof Error ? reason.message : String(reason);
-      throw refreshFailure(
-        commit,
-        changed,
-        `the permissions the index must be published with are unknown: ${detail}`,
-      );
+      throw refreshFailure(commit, changed, `the permissions the index must be published with are unknown: ${detail}`);
     }
     if (publish !== null) {
       // The rename makes this mode the index's, so a mode that did not take is
@@ -1053,8 +1060,7 @@ async function refreshCommittedPaths(
     // this read and the replace below.
     await commitRefreshProbe.beforeIndexRead?.();
     const current = await indexSnapshot(repository.toplevel);
-    moved = changed.filter((path) =>
-      (current.get(path) ?? '') !== (committedFrom.get(path) ?? ''));
+    moved = changed.filter((path) => (current.get(path) ?? '') !== (committedFrom.get(path) ?? ''));
     const refreshable = changed.filter((path) => !moved.includes(path));
     if (refreshable.length) {
       try {
@@ -1064,9 +1070,11 @@ async function refreshCommittedPaths(
           if (reason?.code !== 'ENOENT') throw reason;
         });
         // `changed` is repository-root relative, so this runs at the root.
-        await run(repository.toplevel, [
-          'reset', '--quiet', commit, '--', ...refreshable.map(literalPathspec),
-        ], staging);
+        await run(
+          repository.toplevel,
+          ['reset', '--quiet', commit, '--', ...refreshable.map(literalPathspec)],
+          staging
+        );
         await commitRefreshProbe.betweenReadAndReplace?.();
         const updated = await readFile(staging);
         // Every byte, verified, and on disk — before anything is published.
@@ -1078,11 +1086,7 @@ async function refreshCommittedPaths(
         // The rename is only durable once the directory entry is on disk too.
         await syncDirectory(repository.gitDir);
       } catch (reason) {
-        throw refreshFailure(
-          commit,
-          refreshable,
-          indexLockContention(repository.gitDir, reason).message,
-        );
+        throw refreshFailure(commit, refreshable, indexLockContention(repository.gitDir, reason).message);
       }
     }
   } finally {
@@ -1098,16 +1102,20 @@ async function refreshCommittedPaths(
 function refMovedError(reason: unknown): Error {
   const failure = reason instanceof Error ? reason : new Error(String(reason));
   if (/but expected|reference already exists/i.test(failure.message)) {
-    return new Error([
-      'Another commit landed on this branch while this one was being prepared',
-      '. Nothing was committed — refresh Source Control and commit again.',
-    ].join(''));
+    return new Error(
+      [
+        'Another commit landed on this branch while this one was being prepared',
+        '. Nothing was committed — refresh Source Control and commit again.',
+      ].join('')
+    );
   }
   if (/cannot lock ref|unable to (?:update|lock) ref/i.test(failure.message)) {
-    return new Error([
-      'Another Git process is updating this branch right now',
-      '. Nothing was committed — wait for it to finish, then commit again.',
-    ].join(''));
+    return new Error(
+      [
+        'Another Git process is updating this branch right now',
+        '. Nothing was committed — wait for it to finish, then commit again.',
+      ].join('')
+    );
   }
   return failure;
 }
@@ -1156,7 +1164,7 @@ async function commitThroughScratchIndex(
   repository: RepositoryIdentity,
   message: string,
   specs: string[],
-  addable: string[],
+  addable: string[]
 ): Promise<string> {
   // Config git validates before it runs anything, validated before we do too:
   // an unusable `commit.cleanup` must not cost a hook run.
@@ -1181,8 +1189,7 @@ async function commitThroughScratchIndex(
   // committed over. (`post-commit` runs after the ref moves and is covered by
   // the refresh guard instead.)
   const watched = hooks && present.some((name) => name !== 'post-commit');
-  const head = (await run(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'])
-    .catch(() => '')).trim();
+  const head = (await run(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']).catch(() => '')).trim();
   const prefixes = selectionPrefixes(repository, cwd, specs);
   // The state we commit FROM, and the only honest baseline for the refresh:
   // anything staged for a selected path after this point — by a hook that
@@ -1199,15 +1206,13 @@ async function commitThroughScratchIndex(
     if (addable.length) {
       // `--all` so a selected path deleted in the worktree records its removal,
       // `--force` so a deliberately selected ignored file is not skipped.
-      await run(cwd, [
-        'add', '--all', '--force', '--', ...addable.map(literalPathspec),
-      ], indexFile);
+      await run(cwd, ['add', '--all', '--force', '--', ...addable.map(literalPathspec)], indexFile);
     }
     await runCommitHook(cwd, indexFile, hooks, 'pre-commit');
     const cleaned = await cleanCommitMessage(
       cwd,
       cleanup,
-      await messageThroughHooks(cwd, repository, indexFile, hooks, message),
+      await messageThroughHooks(cwd, repository, indexFile, hooks, message)
     );
     const indexAfterHooks = await indexSnapshot(repository.toplevel);
     if (watched) assertHooksLeftIndexAlone(prefixes, indexBefore, indexAfterHooks);
@@ -1215,10 +1220,12 @@ async function commitThroughScratchIndex(
     const tree = (await run(cwd, ['write-tree'], indexFile)).trim();
     const changed = await committedPaths(cwd, head, tree);
     if (!changed.length) {
-      throw new Error([
-        'Nothing to commit: the selected files already match the last commit',
-        '. Refresh Source Control and try again.',
-      ].join(''));
+      throw new Error(
+        [
+          'Nothing to commit: the selected files already match the last commit',
+          '. Refresh Source Control and try again.',
+        ].join('')
+      );
     }
     assertWithinSelection(prefixes, changed);
     // `commit-tree` signs only when asked, so `commit.gpgsign` is read here;
@@ -1226,31 +1233,30 @@ async function commitThroughScratchIndex(
     // answers "unset", and a MALFORMED value is left to fail exactly as it
     // fails for `git commit` ("bad boolean config value") instead of quietly
     // producing the unsigned commit nobody asked for.
-    const signed = (await run(cwd, [
-      'config', '--bool', '--default', 'false', '--get', 'commit.gpgsign',
-    ])).trim() === 'true';
-    const commit = (await runWithInput(cwd, [
-      'commit-tree', tree, ...(signed ? ['-S'] : []), ...(head ? ['-p', head] : []),
-    ], cleaned, indexFile)).trim();
+    const signed =
+      (await run(cwd, ['config', '--bool', '--default', 'false', '--get', 'commit.gpgsign'])).trim() === 'true';
+    const commit = (
+      await runWithInput(
+        cwd,
+        ['commit-tree', tree, ...(signed ? ['-S'] : []), ...(head ? ['-p', head] : [])],
+        cleaned,
+        indexFile
+      )
+    ).trim();
     const subject = (cleaned.split('\n', 1)[0] ?? '').trim();
     // Updating HEAD (a symref) moves the branch and writes BOTH reflogs, in
     // git's own grammar. The old value is a compare-and-swap: a commit that
     // landed underneath us aborts instead of being overwritten, and `''`
     // demands that an unborn branch still be unborn.
     try {
-      await run(cwd, [
-        'update-ref',
-        '-m', `commit${head ? '' : ' (initial)'}: ${subject}`,
-        'HEAD', commit, head,
-      ]);
+      await run(cwd, ['update-ref', '-m', `commit${head ? '' : ' (initial)'}: ${subject}`, 'HEAD', commit, head]);
     } catch (reason) {
       throw refMovedError(reason);
     }
     await runCommitHook(cwd, indexFile, hooks, 'post-commit', [], true);
     await refreshCommittedPaths(repository, scratch, commit, changed, indexBefore);
     const branch = (await run(cwd, ['symbolic-ref', '--short', 'HEAD']).catch(() => '')).trim();
-    return `[${branch || 'detached HEAD'}${head ? '' : ' (root-commit)'} `
-      + `${commit.slice(0, 7)}] ${subject}\n`;
+    return `[${branch || 'detached HEAD'}${head ? '' : ' (root-commit)'} ` + `${commit.slice(0, 7)}] ${subject}\n`;
   } finally {
     // The scratch index lives in the OS temp directory, so a failed cleanup
     // leaves nothing in the repository — and what a kill leaves behind is
@@ -1259,129 +1265,116 @@ async function commitThroughScratchIndex(
   }
 }
 
-export function createGitCommitPaths(
-  gitStatus: (cwd: string) => Promise<GitStatusResult>,
-) {
-async function gitCommitPaths(
-  cwd: string,
-  message: string,
-  paths: string[],
-): Promise<string> {
-  // An all-whitespace message is the caller's rejection; anything else goes to
-  // git EXACTLY as typed. `git commit -m` trims nothing — `commit.cleanup`
-  // decides, and under `verbatim` it decides to change nothing at all.
-  const raw = String(message ?? '');
-  if (!raw.trim()) throw new TypeError('A commit message is required.');
-  // The caller's strings are pathspecs, not display text: no trimming, no
-  // separator rewriting — a mutated string could name a different real file.
-  const requested = (Array.isArray(paths) ? paths : [])
-    .filter((value): value is string => typeof value === 'string' && value.length > 0);
-  if (!requested.length) throw new TypeError('Select at least one file to commit.');
-  for (const path of requested) assertCommitPath(path);
-  // Identity, not spelling: a nested cwd or a symlinked path is the same
-  // repository and must queue behind the same in-flight sequence.
-  const repository = await repositoryIdentity(cwd);
-  return withRepositorySequence(
-    repository.gitDir,
-    () => commitPaths(cwd, repository, raw, requested),
-  );
-}
-
-async function commitPaths(
-  cwd: string,
-  repository: RepositoryIdentity,
-  message: string,
-  requested: string[],
-): Promise<string> {
-  const status = await gitStatus(cwd);
-  if (!status.repository) throw new Error('This folder is not a Git repository.');
-  const entries = new Map<string, GitFileEntry>();
-  for (const file of status.files) {
-    entries.set(file.path, file);
-    // Renames are reported as new path + oldPath; accept either form.
-    if (file.oldPath) entries.set(file.oldPath, file);
+export function createGitCommitPaths(gitStatus: (cwd: string) => Promise<GitStatusResult>) {
+  async function gitCommitPaths(cwd: string, message: string, paths: string[]): Promise<string> {
+    // An all-whitespace message is the caller's rejection; anything else goes to
+    // git EXACTLY as typed. `git commit -m` trims nothing — `commit.cleanup`
+    // decides, and under `verbatim` it decides to change nothing at all.
+    const raw = String(message ?? '');
+    if (!raw.trim()) throw new TypeError('A commit message is required.');
+    // The caller's strings are pathspecs, not display text: no trimming, no
+    // separator rewriting — a mutated string could name a different real file.
+    const requested = (Array.isArray(paths) ? paths : []).filter(
+      (value): value is string => typeof value === 'string' && value.length > 0
+    );
+    if (!requested.length) throw new TypeError('Select at least one file to commit.');
+    for (const path of requested) assertCommitPath(path);
+    // Identity, not spelling: a nested cwd or a symlinked path is the same
+    // repository and must queue behind the same in-flight sequence.
+    const repository = await repositoryIdentity(cwd);
+    return withRepositorySequence(repository.gitDir, () => commitPaths(cwd, repository, raw, requested));
   }
 
-  let candidates: string[] | null = null;
-  const selected: { path: string; entry?: GitFileEntry }[] = [];
-  const unknown: string[] = [];
-  const ambiguous: string[] = [];
-  for (const raw of requested) {
-    let match = '';
-    if (entries.has(raw) || await pathIsInIndex(cwd, raw)) match = raw;
-    if (!match) {
-      candidates ??= await repositoryPaths(cwd, entries.keys());
-      const found = matchRepositoryPath(candidates, raw);
-      if (found.length > 1) {
-        ambiguous.push(raw);
+  async function commitPaths(
+    cwd: string,
+    repository: RepositoryIdentity,
+    message: string,
+    requested: string[]
+  ): Promise<string> {
+    const status = await gitStatus(cwd);
+    if (!status.repository) throw new Error('This folder is not a Git repository.');
+    const entries = new Map<string, GitFileEntry>();
+    for (const file of status.files) {
+      entries.set(file.path, file);
+      // Renames are reported as new path + oldPath; accept either form.
+      if (file.oldPath) entries.set(file.oldPath, file);
+    }
+
+    let candidates: string[] | null = null;
+    const selected: { path: string; entry?: GitFileEntry }[] = [];
+    const unknown: string[] = [];
+    const ambiguous: string[] = [];
+    for (const raw of requested) {
+      let match = '';
+      if (entries.has(raw) || (await pathIsInIndex(cwd, raw))) match = raw;
+      if (!match) {
+        candidates ??= await repositoryPaths(cwd, entries.keys());
+        const found = matchRepositoryPath(candidates, raw);
+        if (found.length > 1) {
+          ambiguous.push(raw);
+          continue;
+        }
+        if (found.length === 1) match = found[0];
+      }
+      // An ignored file the user selected on purpose is in neither the status
+      // nor the index; accept it when it really lives inside this worktree.
+      if (!match && (await existsInsideWorktree(cwd, raw))) match = raw;
+      if (!match) {
+        unknown.push(raw);
         continue;
       }
-      if (found.length === 1) match = found[0];
+      selected.push({ path: match, entry: entries.get(match) });
     }
-    // An ignored file the user selected on purpose is in neither the status
-    // nor the index; accept it when it really lives inside this worktree.
-    if (!match && await existsInsideWorktree(cwd, raw)) match = raw;
-    if (!match) {
-      unknown.push(raw);
-      continue;
+    if (unknown.length) {
+      throw new Error(
+        [`Not in this repository: ${unknown.slice(0, 10).join(', ')}`, '. Refresh Source Control and try again.'].join(
+          ''
+        )
+      );
     }
-    selected.push({ path: match, entry: entries.get(match) });
-  }
-  if (unknown.length) {
-    throw new Error([
-      `Not in this repository: ${unknown.slice(0, 10).join(', ')}`,
-      '. Refresh Source Control and try again.',
-    ].join(''));
-  }
-  if (ambiguous.length) {
-    throw new Error([
-      `More than one file matches ${ambiguous.slice(0, 10).join(', ')}`,
-      '. Select it again from Source Control.',
-    ].join(''));
-  }
-  const conflicted = selected
-    .filter(({ entry }) => entry?.conflicted)
-    .map(({ entry }) => entry?.path ?? '');
-  if (conflicted.length) {
-    throw new Error([
-      `Resolve the conflict in ${conflicted.slice(0, 10).join(', ')}`,
-      ' before committing it.',
-    ].join(''));
-  }
-  if (status.operation) {
-    throw new Error(
-      `A ${status.operation} is in progress. Continue or abort it before committing files.`,
-    );
-  }
+    if (ambiguous.length) {
+      throw new Error(
+        [
+          `More than one file matches ${ambiguous.slice(0, 10).join(', ')}`,
+          '. Select it again from Source Control.',
+        ].join('')
+      );
+    }
+    const conflicted = selected.filter(({ entry }) => entry?.conflicted).map(({ entry }) => entry?.path ?? '');
+    if (conflicted.length) {
+      throw new Error(
+        [`Resolve the conflict in ${conflicted.slice(0, 10).join(', ')}`, ' before committing it.'].join('')
+      );
+    }
+    if (status.operation) {
+      throw new Error(`A ${status.operation} is in progress. Continue or abort it before committing files.`);
+    }
 
-  const specs: string[] = [];
-  const include = (path: string): void => {
-    if (path && !specs.includes(path)) specs.push(path);
-  };
-  for (const { path, entry } of selected) {
-    include(entry ? entry.path : path);
-    // A rename is one change: commit both halves whichever form was passed,
-    // otherwise the old path's deletion would be left staged behind.
-    if (entry?.oldPath) include(entry.oldPath);
-  }
-  // What the scratch index can be asked to record: the worktree content of a
-  // path that is there, or the removal of one HEAD still carries. A path that
-  // is only a staged addition with no file behind it has nothing to record —
-  // it is left exactly as it is, as `git commit -- <path>` left it.
-  const addable: string[] = [];
-  for (const spec of specs) {
-    if (await existsInsideWorktree(cwd, spec) || await pathIsInHead(cwd, spec)) {
-      addable.push(spec);
-      continue;
+    const specs: string[] = [];
+    const include = (path: string): void => {
+      if (path && !specs.includes(path)) specs.push(path);
+    };
+    for (const { path, entry } of selected) {
+      include(entry ? entry.path : path);
+      // A rename is one change: commit both halves whichever form was passed,
+      // otherwise the old path's deletion would be left staged behind.
+      if (entry?.oldPath) include(entry.oldPath);
     }
-    if (await pathIsInIndex(cwd, spec)) continue;
-    throw new Error([
-      `Not in this repository: ${spec}`,
-      '. Refresh Source Control and try again.',
-    ].join(''));
+    // What the scratch index can be asked to record: the worktree content of a
+    // path that is there, or the removal of one HEAD still carries. A path that
+    // is only a staged addition with no file behind it has nothing to record —
+    // it is left exactly as it is, as `git commit -- <path>` left it.
+    const addable: string[] = [];
+    for (const spec of specs) {
+      if ((await existsInsideWorktree(cwd, spec)) || (await pathIsInHead(cwd, spec))) {
+        addable.push(spec);
+        continue;
+      }
+      if (await pathIsInIndex(cwd, spec)) continue;
+      throw new Error([`Not in this repository: ${spec}`, '. Refresh Source Control and try again.'].join(''));
+    }
+    return commitThroughScratchIndex(cwd, repository, message, specs, addable);
   }
-  return commitThroughScratchIndex(cwd, repository, message, specs, addable);
-}
 
   return gitCommitPaths;
 }

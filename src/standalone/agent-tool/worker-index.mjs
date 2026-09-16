@@ -46,9 +46,11 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   function normalizeWorkerRows(value) {
     const source = Array.isArray(value?.workers)
       ? value.workers
-      : (value?.workers && typeof value.workers === 'object'
+      : value?.workers && typeof value.workers === 'object'
         ? Object.values(value.workers)
-        : (Array.isArray(value) ? value : []));
+        : Array.isArray(value)
+          ? value
+          : [];
     return source
       .filter((row) => row && typeof row === 'object')
       .map((row) => ({
@@ -61,7 +63,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
         model: clean(row.model) || null,
         preset: clean(row.preset) || null,
         effort: clean(row.effort) || null,
-        fast: row.fast === true ? true : (row.fast === false ? false : null),
+        fast: row.fast === true ? true : row.fast === false ? false : null,
         status: clean(row.status) || 'idle',
         stage: clean(row.stage) || clean(row.status) || 'idle',
         createdAt: clean(row.createdAt) || null,
@@ -92,7 +94,12 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     const file = workerIndexPath();
     if (!file) return [];
     let st = null;
-    try { st = statSync(file); } catch { cache = null; return []; }
+    try {
+      st = statSync(file);
+    } catch {
+      cache = null;
+      return [];
+    }
     if (!cacheDirty && cache && cache.mtimeMs === st.mtimeMs && cache.size === st.size) {
       return cache.rows;
     }
@@ -132,32 +139,36 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     const file = workerIndexPath();
     if (!file || typeof mutator !== 'function') return null;
     try {
-      const result = updateJsonAtomicSync(file, (cur) => {
-        const byKey = new Map();
-        for (const row of normalizeWorkerRows(cur)) {
-          const key = workerRowKey(row);
-          if (key) byKey.set(key, row);
-        }
-        const tombstonesByKey = new Map();
-        for (const row of normalizeTagTombstones(cur, { cap: false })) {
-          tombstonesByKey.set(tagTombstoneKey(row), row);
-        }
-        const priorityTombstoneKeys = new Set();
-        mutator(byKey, tombstonesByKey, priorityTombstoneKeys);
-        const workers = {};
-        for (const row of [...byKey.values()].filter(keepWorkerRow)) {
-          const key = workerRowKey(row);
-          if (key) workers[key] = row;
-        }
-        const tombstones = {};
-        for (const row of normalizeTagTombstones(
-          { tombstones: [...tombstonesByKey.values()] },
-          { priorityKeys: priorityTombstoneKeys },
-        )) {
-          tombstones[tagTombstoneKey(row)] = row;
-        }
-        return { version: 2, updatedAt: new Date().toISOString(), workers, tombstones };
-      }, { lock: true });
+      const result = updateJsonAtomicSync(
+        file,
+        (cur) => {
+          const byKey = new Map();
+          for (const row of normalizeWorkerRows(cur)) {
+            const key = workerRowKey(row);
+            if (key) byKey.set(key, row);
+          }
+          const tombstonesByKey = new Map();
+          for (const row of normalizeTagTombstones(cur, { cap: false })) {
+            tombstonesByKey.set(tagTombstoneKey(row), row);
+          }
+          const priorityTombstoneKeys = new Set();
+          mutator(byKey, tombstonesByKey, priorityTombstoneKeys);
+          const workers = {};
+          for (const row of [...byKey.values()].filter(keepWorkerRow)) {
+            const key = workerRowKey(row);
+            if (key) workers[key] = row;
+          }
+          const tombstones = {};
+          for (const row of normalizeTagTombstones(
+            { tombstones: [...tombstonesByKey.values()] },
+            { priorityKeys: priorityTombstoneKeys }
+          )) {
+            tombstones[tagTombstoneKey(row)] = row;
+          }
+          return { version: 2, updatedAt: new Date().toISOString(), workers, tombstones };
+        },
+        { lock: true }
+      );
       // This process just rewrote the index; force the next read to re-parse
       // even if the new mtime/size happen to collide with the cached stat.
       invalidateCache();
@@ -179,8 +190,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   }
 
   function staleActiveWorkerRow(row, now) {
-    const active = ACTIVE_WORKER_STATUS.test(clean(row?.status))
-      || ACTIVE_WORKER_STATUS.test(clean(row?.stage));
+    const active = ACTIVE_WORKER_STATUS.test(clean(row?.status)) || ACTIVE_WORKER_STATUS.test(clean(row?.stage));
     if (!active) return false;
     if (positiveInt(row.runtimePid) && !runtimeAlive(row.runtimePid)) return true;
     if (workerHeartbeatFresh(row.sessionId, now)) return false;
@@ -190,8 +200,11 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
 
   function terminalReapAt(row, now) {
     let reapMs = null;
-    try { reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), row?.provider); }
-    catch { reapMs = null; }
+    try {
+      reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), row?.provider);
+    } catch {
+      reapMs = null;
+    }
     return reapMs == null ? null : new Date(now + reapMs).toISOString();
   }
 
@@ -202,9 +215,9 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
       status: 'idle',
       stage: 'idle',
       turnStartedAt: null,
-      finishedAt: touch ? stamp : (clean(row.finishedAt) || clean(row.updatedAt) || stamp),
-      updatedAt: touch ? stamp : (clean(row.updatedAt) || stamp),
-      reapAt: touch ? terminalReapAt(row, now) : (clean(row.reapAt) || terminalReapAt(row, now)),
+      finishedAt: touch ? stamp : clean(row.finishedAt) || clean(row.updatedAt) || stamp,
+      updatedAt: touch ? stamp : clean(row.updatedAt) || stamp,
+      reapAt: touch ? terminalReapAt(row, now) : clean(row.reapAt) || terminalReapAt(row, now),
     };
   }
 
@@ -212,14 +225,22 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   // a single locked rewrite instead of one per worker.
   function flushWorkerIndexMutations() {
     if (flushTimer) {
-      try { clearImmediate(flushTimer); } catch { /* already fired */ }
+      try {
+        clearImmediate(flushTimer);
+      } catch {
+        /* already fired */
+      }
       flushTimer = null;
     }
     if (pendingMutators.length === 0) return;
     const batch = pendingMutators.splice(0, pendingMutators.length);
     writeWorkerRows((byKey) => {
       for (const mutator of batch) {
-        try { mutator(byKey); } catch { /* one bad row never drops the batch */ }
+        try {
+          mutator(byKey);
+        } catch {
+          /* one bad row never drops the batch */
+        }
       }
     });
   }
@@ -246,18 +267,17 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     return {
       tag,
       sessionId,
-      parentSessionId: clean(extra.parentSessionId)
-        || clean(session?.parentSessionId)
-        || null,
-      ownerSessionId: clean(extra.ownerSessionId || extra.parentSessionId)
-        || clean(session?.ownerSessionId || session?.parentSessionId)
-        || null,
+      parentSessionId: clean(extra.parentSessionId) || clean(session?.parentSessionId) || null,
+      ownerSessionId:
+        clean(extra.ownerSessionId || extra.parentSessionId) ||
+        clean(session?.ownerSessionId || session?.parentSessionId) ||
+        null,
       agent: clean(extra.agent) || clean(session?.agent) || null,
       provider: clean(extra.provider) || clean(session?.provider) || null,
       model: clean(extra.model) || clean(session?.model) || null,
       preset: clean(extra.preset) || clean(session?.presetName) || null,
       effort: clean(extra.effort) || clean(session?.effort) || null,
-      fast: extra.fast === true || extra.fast === false ? extra.fast : (session?.fast === true ? true : null),
+      fast: extra.fast === true || extra.fast === false ? extra.fast : session?.fast === true ? true : null,
       status,
       stage,
       createdAt: clean(session?.createdAt) || clean(extra.createdAt) || nowIso,
@@ -288,8 +308,8 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     const normalized = normalizeWorkerRows({ workers: [row] })[0];
     if (!normalized) return false;
     const key = workerRowKey(normalized);
-    if (ACTIVE_WORKER_STATUS.test(normalized.status)
-      || ACTIVE_WORKER_STATUS.test(normalized.stage)) activeWorkerKeys.add(key);
+    if (ACTIVE_WORKER_STATUS.test(normalized.status) || ACTIVE_WORKER_STATUS.test(normalized.stage))
+      activeWorkerKeys.add(key);
     else activeWorkerKeys.delete(key);
     const bindTag = !isLeadPoolAgent(normalized.agent);
     if (bindTag) {
@@ -298,7 +318,9 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
       if (normalized.cwd) tagCwds.set(normalized.tag, normalized.cwd);
     }
     if (defer) return queueWorkerIndexMutation((byKey) => applyWorkerRowUpsert(byKey, normalized));
-    writeWorkerRows((byKey) => { applyWorkerRowUpsert(byKey, normalized); });
+    writeWorkerRows((byKey) => {
+      applyWorkerRowUpsert(byKey, normalized);
+    });
     return true;
   }
 
@@ -354,8 +376,8 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
       for (const key of keys) {
         const current = byKey.get(key);
         if (!current || positiveInt(current.runtimePid) !== process.pid) continue;
-        const active = ACTIVE_WORKER_STATUS.test(clean(current.status))
-          || ACTIVE_WORKER_STATUS.test(clean(current.stage));
+        const active =
+          ACTIVE_WORKER_STATUS.test(clean(current.status)) || ACTIVE_WORKER_STATUS.test(clean(current.stage));
         if (active) byKey.set(key, idleWorkerRow(current, now, true));
       }
     });

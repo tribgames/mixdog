@@ -19,7 +19,7 @@ import type { PixelUnavailable } from '../shared/types';
 export function frameQualityIssue(
   image: NativeImage,
   expectedWidth: number,
-  expectedHeight: number,
+  expectedHeight: number
 ): PixelUnavailable | undefined {
   const size = image.getSize();
   if (!size.width || !size.height || image.isEmpty()) {
@@ -27,17 +27,12 @@ export function frameQualityIssue(
   }
   const expectedAspectRatio = expectedWidth / Math.max(1, expectedHeight);
   const actualAspectRatio = size.width / Math.max(1, size.height);
-  const aspectError = Math.abs(actualAspectRatio - expectedAspectRatio)
-    / Math.max(0.0001, expectedAspectRatio);
+  const aspectError = Math.abs(actualAspectRatio - expectedAspectRatio) / Math.max(0.0001, expectedAspectRatio);
   if (!Number.isFinite(aspectError) || aspectError > 0.05) {
-    return pixelUnavailable(
-      'coordinate_mismatch',
-      'capture dimensions do not match the target coordinate space',
-      {
-        expected_aspect_ratio: Number(expectedAspectRatio.toFixed(4)),
-        actual_aspect_ratio: Number(actualAspectRatio.toFixed(4)),
-      },
-    );
+    return pixelUnavailable('coordinate_mismatch', 'capture dimensions do not match the target coordinate space', {
+      expected_aspect_ratio: Number(expectedAspectRatio.toFixed(4)),
+      actual_aspect_ratio: Number(actualAspectRatio.toFixed(4)),
+    });
   }
   const bitmap = image.toBitmap();
   const totalPixels = Math.floor(bitmap.length / 4);
@@ -47,10 +42,7 @@ export function frameQualityIssue(
   // A window's own border and rounded corners are chrome, not content, so
   // blankness is judged on the interior: a 1px frame cannot make an empty
   // capture look usable.
-  const margin = Math.min(
-    SCREENSHOT_CHROME_MARGIN,
-    Math.floor(Math.min(size.width, size.height) / 8),
-  );
+  const margin = Math.min(SCREENSHOT_CHROME_MARGIN, Math.floor(Math.min(size.width, size.height) / 8));
   const interiorWidth = Math.max(1, size.width - margin * 2);
   const interiorHeight = Math.max(1, size.height - margin * 2);
   const interiorPixels = interiorWidth * interiorHeight;
@@ -59,44 +51,39 @@ export function frameQualityIssue(
   let nearBlack = 0;
   let nearWhite = 0;
   for (let pixel = 0; pixel < interiorPixels; pixel += stride) {
-    const offset = ((margin + Math.floor(pixel / interiorWidth)) * size.width
-      + margin + (pixel % interiorWidth)) * 4;
+    const offset = ((margin + Math.floor(pixel / interiorWidth)) * size.width + margin + (pixel % interiorWidth)) * 4;
     const blue = bitmap[offset] ?? 0;
     const green = bitmap[offset + 1] ?? 0;
     const red = bitmap[offset + 2] ?? 0;
     sampled += 1;
-    if (red <= SCREENSHOT_NEAR_BLACK_CHANNEL
-      && green <= SCREENSHOT_NEAR_BLACK_CHANNEL
-      && blue <= SCREENSHOT_NEAR_BLACK_CHANNEL) {
+    if (
+      red <= SCREENSHOT_NEAR_BLACK_CHANNEL &&
+      green <= SCREENSHOT_NEAR_BLACK_CHANNEL &&
+      blue <= SCREENSHOT_NEAR_BLACK_CHANNEL
+    ) {
       nearBlack += 1;
     }
-    if (red >= SCREENSHOT_NEAR_WHITE_CHANNEL
-      && green >= SCREENSHOT_NEAR_WHITE_CHANNEL
-      && blue >= SCREENSHOT_NEAR_WHITE_CHANNEL) {
+    if (
+      red >= SCREENSHOT_NEAR_WHITE_CHANNEL &&
+      green >= SCREENSHOT_NEAR_WHITE_CHANNEL &&
+      blue >= SCREENSHOT_NEAR_WHITE_CHANNEL
+    ) {
       nearWhite += 1;
     }
   }
   const nearBlackRatio = nearBlack / Math.max(1, sampled);
   if (nearBlackRatio >= SCREENSHOT_UNUSABLE_RATIO) {
-    return pixelUnavailable(
-      'blank_black_frame',
-      'capture is effectively all black; no coordinate frame was issued',
-      {
-        sampled_pixels: sampled,
-        near_black_ratio: Number(nearBlackRatio.toFixed(4)),
-      },
-    );
+    return pixelUnavailable('blank_black_frame', 'capture is effectively all black; no coordinate frame was issued', {
+      sampled_pixels: sampled,
+      near_black_ratio: Number(nearBlackRatio.toFixed(4)),
+    });
   }
   const nearWhiteRatio = nearWhite / Math.max(1, sampled);
   if (nearWhiteRatio >= SCREENSHOT_UNUSABLE_RATIO) {
-    return pixelUnavailable(
-      'blank_white_frame',
-      'capture is effectively all white; no coordinate frame was issued',
-      {
-        sampled_pixels: sampled,
-        near_white_ratio: Number(nearWhiteRatio.toFixed(4)),
-      },
-    );
+    return pixelUnavailable('blank_white_frame', 'capture is effectively all white; no coordinate frame was issued', {
+      sampled_pixels: sampled,
+      near_white_ratio: Number(nearWhiteRatio.toFixed(4)),
+    });
   }
   return undefined;
 }

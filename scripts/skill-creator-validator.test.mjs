@@ -1,10 +1,5 @@
 import assert from 'node:assert/strict';
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -43,21 +38,24 @@ test('the validator accepts standard multiline frontmatter and existing resource
   try {
     mkdirSync(join(skillDir, 'references'), { recursive: true });
     writeFileSync(join(skillDir, 'references', 'guide.md'), '# Guide\n');
-    writeFileSync(join(skillDir, 'SKILL.md'), [
-      '---',
-      'name: portable-skill',
-      'description: >',
-      '  Use when a portable skill',
-      '  needs validation.',
-      'metadata:',
-      '  author: example',
-      '---',
-      '',
-      '# Instructions',
-      '',
-      'Read `references/guide.md` when the detailed guide is needed.',
-      '',
-    ].join('\n'));
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: portable-skill',
+        'description: >',
+        '  Use when a portable skill',
+        '  needs validation.',
+        'metadata:',
+        '  author: example',
+        '---',
+        '',
+        '# Instructions',
+        '',
+        'Read `references/guide.md` when the detailed guide is needed.',
+        '',
+      ].join('\n')
+    );
 
     const result = validateSkillDirectory(skillDir);
     assert.equal(result.ok, true);
@@ -75,18 +73,21 @@ test('the validator reports folder mismatch, unsupported fields, and missing res
     // A bundled references/ folder makes a missing file inside it a broken
     // link (error), not a repository path the validator cannot resolve.
     mkdirSync(join(skillDir, 'references'), { recursive: true });
-    writeFileSync(join(skillDir, 'SKILL.md'), [
-      '---',
-      'name: manifest-name',
-      'description: Use when testing invalid skills.',
-      'vendor-only: true',
-      '---',
-      '',
-      '# Instructions',
-      '',
-      'Read `references/missing.md`.',
-      '',
-    ].join('\n'));
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: manifest-name',
+        'description: Use when testing invalid skills.',
+        'vendor-only: true',
+        '---',
+        '',
+        '# Instructions',
+        '',
+        'Read `references/missing.md`.',
+        '',
+      ].join('\n')
+    );
 
     const result = validateSkillDirectory(skillDir);
     assert.equal(result.ok, false);
@@ -103,17 +104,20 @@ test('the validator rejects malformed nested YAML through the Mixdog parser', ()
   const skillDir = join(root, 'broken-yaml');
   try {
     mkdirSync(skillDir, { recursive: true });
-    writeFileSync(join(skillDir, 'SKILL.md'), [
-      '---',
-      'name: broken-yaml',
-      'description: Use when testing malformed YAML.',
-      'metadata:',
-      '  tags: [unclosed',
-      '---',
-      '',
-      '# Instructions',
-      '',
-    ].join('\n'));
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: broken-yaml',
+        'description: Use when testing malformed YAML.',
+        'metadata:',
+        '  tags: [unclosed',
+        '---',
+        '',
+        '# Instructions',
+        '',
+      ].join('\n')
+    );
 
     const result = validateSkillDirectory(skillDir);
     assert.equal(result.ok, false);
@@ -135,10 +139,20 @@ test('the validator accepts explicit tool dependencies and rejects malformed dep
       ['dependencies:\n  tools: office', false],
       ['dependencies:\n  tools:\n    - type: tool', false],
     ]) {
-      writeFileSync(join(skillDir, 'SKILL.md'), [
-        '---', 'name: linked-skill', 'description: Create linked output.',
-        'when_to_use: Linked output requests.', declaration, '---', '', '# Instructions', '',
-      ].join('\n'));
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        [
+          '---',
+          'name: linked-skill',
+          'description: Create linked output.',
+          'when_to_use: Linked output requests.',
+          declaration,
+          '---',
+          '',
+          '# Instructions',
+          '',
+        ].join('\n')
+      );
       const result = validateSkillDirectory(skillDir);
       assert.equal(result.ok, valid, JSON.stringify(result.errors));
     }
@@ -146,4 +160,3 @@ test('the validator accepts explicit tool dependencies and rejects malformed dep
     rmSync(root, { recursive: true, force: true });
   }
 });
-

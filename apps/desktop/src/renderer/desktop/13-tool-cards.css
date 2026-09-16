@@ -60,7 +60,9 @@
   color: var(--mx-icon-muted);
 }
 .transcript-artifact-media figcaption > .icon-button:hover,
-.transcript-artifact-media figcaption > .icon-button:focus-visible { color: var(--mx-icon); }
+.transcript-artifact-media figcaption > .icon-button:focus-visible {
+  color: var(--mx-icon);
+}
 /* Non-media artifact: one chip-toned row (icon · name · action hint), the
    whole row is the link. */
 .transcript-artifact-file {
@@ -79,16 +81,28 @@
   line-height: var(--mx-line-meta);
   transition: background var(--mx-motion-ink);
 }
-.transcript-artifact-file:hover { background: var(--mx-hover); }
-.transcript-artifact-file:focus-visible { outline: 2px solid var(--mx-focus); outline-offset: 2px; }
-.transcript-artifact-file > svg { flex-shrink: 0; color: var(--mx-icon); }
+.transcript-artifact-file:hover {
+  background: var(--mx-hover);
+}
+.transcript-artifact-file:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.transcript-artifact-file > svg {
+  flex-shrink: 0;
+  color: var(--mx-icon);
+}
 .transcript-artifact-file > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.transcript-artifact-file > small { flex-shrink: 0; color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
+.transcript-artifact-file > small {
+  flex-shrink: 0;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+}
 .transcript-artifact-preview {
   max-width: 95vw;
   max-height: 95vh;
@@ -97,8 +111,14 @@
   border-radius: var(--mx-radius-lg, 10px);
   background: var(--mx-surface);
 }
-.transcript-artifact-preview::backdrop { background: rgb(0 0 0 / 75%); }
-.transcript-artifact-preview > .icon-button { position: absolute; top: 6px; right: 6px; }
+.transcript-artifact-preview::backdrop {
+  background: rgb(0 0 0 / 75%);
+}
+.transcript-artifact-preview > .icon-button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
 .transcript-artifact-preview > img {
   display: block;
   max-width: 90vw;
@@ -119,7 +139,9 @@
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
 }
-.tool-activity-title b { font-family: inherit; }
+.tool-activity-title b {
+  font-family: inherit;
+}
 .tool-activity[data-surface="desktop"] {
   padding: 2px 0 4px;
 }
@@ -135,7 +157,9 @@
   color: var(--mx-text-faint);
   transform: none;
 }
-.tool-activity[data-surface="desktop"] .tool-activity-title { gap: 6px; }
+.tool-activity[data-surface="desktop"] .tool-activity-title {
+  gap: 6px;
+}
 .tool-activity[data-surface="desktop"] .tool-activity-title b,
 .tool-activity[data-surface="desktop"] .tool-activity-title small,
 .tool-activity[data-surface="desktop"] .tool-activity-category-title b,
@@ -159,7 +183,9 @@
   flex-direction: column;
   padding: 4px 0 0 20px;
 }
-.tool-activity-content > .tool-card { padding: 2px 0; }
+.tool-activity-content > .tool-card {
+  padding: 2px 0;
+}
 .tool-activity[data-surface="desktop"] > .tool-activity-content {
   gap: 4px;
   padding: 6px 0 2px 23px;
@@ -275,9 +301,13 @@
   grid-template-rows: auto 0fr;
   transition: grid-template-rows var(--mx-motion-slow) var(--mx-ease-emphasized);
 }
-.tool-activity-item[data-expanded="true"] { grid-template-rows: auto 1fr; }
+.tool-activity-item[data-expanded="true"] {
+  grid-template-rows: auto 1fr;
+}
 @media (prefers-reduced-motion: reduce) {
-  .tool-activity-item { transition: none; }
+  .tool-activity-item {
+    transition: none;
+  }
 }
 /* Same 8 + 1 + 14 = 23px rung as the category rail above. The old
    23 + 1 + 10 hung the detail 11px right of its own title column and put its
@@ -340,15 +370,21 @@
 }
 .tool-activity-terminal:hover > .tool-activity-copy,
 .tool-activity-item-result-block:hover > .tool-activity-copy,
-.tool-activity-copy:focus-visible { opacity: 1; }
+.tool-activity-copy:focus-visible {
+  opacity: 1;
+}
 @media (prefers-reduced-motion: reduce) {
-  .tool-activity-copy { transition: none; }
+  .tool-activity-copy {
+    transition: none;
+  }
 }
 .tool-activity-item-section {
   min-width: 0;
   margin-top: 8px;
 }
-.tool-activity-item-section:first-child { margin-top: 0; }
+.tool-activity-item-section:first-child {
+  margin-top: 0;
+}
 .tool-activity-item-section > span {
   display: block;
   margin-bottom: 4px;
@@ -387,7 +423,9 @@
   color: var(--mx-text-faint);
   text-decoration: line-through;
 }
-.tool-activity-structured-row[data-status="completed"] .tool-activity-structured-question .tool-activity-structured-content {
+.tool-activity-structured-row[data-status="completed"]
+  .tool-activity-structured-question
+  .tool-activity-structured-content {
   color: var(--mx-text-muted);
   text-decoration: none;
 }
@@ -479,13 +517,19 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.tool-activity-item-preview { max-height: 180px; }
+.tool-activity-item-preview {
+  max-height: 180px;
+}
 /* Tool output is tab-separated far more often than it is tab-indented; the
    default 8-column stop shredded list/glob rows. */
 .tool-activity-item-command,
 .tool-activity-item-preview,
-.tool-activity-item-output { tab-size: 2; }
-.tool-activity-item-body .code-diff { margin-top: 4px; }
+.tool-activity-item-output {
+  tab-size: 2;
+}
+.tool-activity-item-body .code-diff {
+  margin-top: 4px;
+}
 /* Expanded tool bodies used to be one flat <pre>, so a fenced block, a table,
    or a JSON payload arrived as an undifferentiated wall of text (user: 코드블록
    이나 마크다운 적용도 안 되어서 지저분). Structured bodies now run through the
@@ -496,12 +540,18 @@
   color: var(--mx-text-muted);
   font-size: var(--mx-font-code);
 }
-.tool-activity-markdown > :first-child { margin-top: 0; }
-.tool-activity-markdown > :last-child { margin-bottom: 0; }
+.tool-activity-markdown > :first-child {
+  margin-top: 0;
+}
+.tool-activity-markdown > :last-child {
+  margin-bottom: 0;
+}
 .tool-activity-markdown p,
 .tool-activity-markdown ul,
 .tool-activity-markdown ol,
-.tool-activity-markdown blockquote { margin: 4px 0; }
+.tool-activity-markdown blockquote {
+  margin: 4px 0;
+}
 .tool-activity-markdown h1,
 .tool-activity-markdown h2,
 .tool-activity-markdown h3,
@@ -521,17 +571,33 @@
   font-size: var(--mx-font-code);
   line-height: var(--mx-line-ui);
 }
-.tool-activity-markdown .markdown-table { margin: 4px 0; }
-.tool-activity-replacement-block .tool-activity-markdown { max-height: 180px; }
+.tool-activity-markdown .markdown-table {
+  margin: 4px 0;
+}
+.tool-activity-replacement-block .tool-activity-markdown {
+  max-height: 180px;
+}
 .tool-activity:not([data-surface="desktop"]).failed > .tool-activity-header .tool-icon,
-.tool-activity:not([data-surface="desktop"]).failed > .tool-activity-header .tool-activity-title b { color: var(--mx-danger); }
+.tool-activity:not([data-surface="desktop"]).failed > .tool-activity-header .tool-activity-title b {
+  color: var(--mx-danger);
+}
 .tool-activity:not([data-surface="desktop"]).warning > .tool-activity-header .tool-icon,
-.tool-activity:not([data-surface="desktop"]).warning > .tool-activity-header .tool-activity-title b { color: var(--mx-warning); }
+.tool-activity:not([data-surface="desktop"]).warning > .tool-activity-header .tool-activity-title b {
+  color: var(--mx-warning);
+}
 .tool-activity-item.error > .tool-activity-item-header .tool-icon,
-.tool-activity-item.error > .tool-activity-item-header .tool-activity-item-title b { color: var(--mx-danger); }
+.tool-activity-item.error > .tool-activity-item-header .tool-activity-item-title b {
+  color: var(--mx-danger);
+}
 .tool-activity-item.warning > .tool-activity-item-header .tool-icon,
-.tool-activity-item.warning > .tool-activity-item-header .tool-activity-item-title b { color: var(--mx-warning); }
-.tool-card:has(.tool-content) { border: 0; background: transparent; box-shadow: none; }
+.tool-activity-item.warning > .tool-activity-item-header .tool-activity-item-title b {
+  color: var(--mx-warning);
+}
+.tool-card:has(.tool-content) {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
 .tool-header {
   min-height: 20px;
   gap: 6px;
@@ -546,14 +612,18 @@
   max-width: 100%;
 }
 .tool-header:hover:not(:disabled),
-.tool-header:focus-visible { background: transparent; }
+.tool-header:focus-visible {
+  background: transparent;
+}
 .tool-header:focus-visible {
   outline: 2px solid var(--mx-focus);
   outline-offset: 2px;
 }
 .tool-header:hover:not(:disabled) .tool-chevron,
 .tool-header:focus-visible .tool-icon,
-.tool-header:focus-visible .tool-chevron { color: var(--mx-icon); }
+.tool-header:focus-visible .tool-chevron {
+  color: var(--mx-icon);
+}
 .tool-icon {
   width: 14px;
   height: 20px;
@@ -582,9 +652,17 @@
 }
 /* Operational rows sit one rung below 14px content. Mono keeps their terminal
    voice while the 13/20 metrics stop them overpowering prose. */
-.tool-title b, .tool-title small { font-family: var(--mx-font-mono); font-size: var(--mx-font-code); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); }
+.tool-title b,
+.tool-title small {
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+}
 /* Weight, not size, separates the primary tool label from its subtitle. */
-.tool-title b { font-weight: var(--mx-weight-medium); }
+.tool-title b {
+  font-weight: var(--mx-weight-medium);
+}
 /* Narrow windows: the title must ellipsize instead of shoving the elapsed
    readout/chevron sideways (user: fully narrowed, text invades the side).
    The subtitle absorbs shrink first (999), the bold label only after. */
@@ -605,10 +683,25 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tool-title small { min-width: 0; flex-shrink: 999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-title small {
+  min-width: 0;
+  flex-shrink: 999;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Tool-card subtitles read as muted, not faint. */
-.tool-title small { color: var(--mx-text-muted); }
-.tool-state { flex: 0 0 auto; gap: 3px; color: var(--mx-text-faint); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: 12px; }
+.tool-title small {
+  color: var(--mx-text-muted);
+}
+.tool-state {
+  flex: 0 0 auto;
+  gap: 3px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: 12px;
+}
 .tool-chevron {
   width: 20px;
   height: 20px;
@@ -618,31 +711,49 @@
   color: var(--mx-text-faint);
   border-radius: var(--mx-radius-sm);
 }
-.tool-chevron svg { transition: transform var(--mx-motion-chrome); }
+.tool-chevron svg {
+  transition: transform var(--mx-motion-chrome);
+}
 /* A collapsed row keeps its chevron hidden until the row is hovered or focused
    (Orca reference): a dozen stacked cards printed a permanent column of arrows
    down the right edge, and none of them said anything. Opacity — never display
    or width — so the 20px slot stays reserved and no title reflows on hover.
    An open row keeps its rotated chevron visible as the way back. */
-.tool-chevron { opacity: 0; transition: opacity var(--mx-motion-chrome); }
+.tool-chevron {
+  opacity: 0;
+  transition: opacity var(--mx-motion-chrome);
+}
 .tool-header:hover:not(:disabled) .tool-chevron,
 .tool-header:focus-visible .tool-chevron,
 .tool-card[data-open="true"] > .tool-header .tool-chevron,
 .tool-activity[data-open="true"] > .tool-activity-header .tool-chevron,
 .tool-activity-category[data-open="true"] > .tool-activity-category-header .tool-chevron,
-.tool-activity-item[data-open="true"] > .tool-activity-item-header .tool-chevron { opacity: 1; }
+.tool-activity-item[data-open="true"] > .tool-activity-item-header .tool-chevron {
+  opacity: 1;
+}
 /* Touch surfaces have no hover to reveal it, so the affordance stays put. */
 @media (hover: none) {
-  .tool-chevron { opacity: 1; }
+  .tool-chevron {
+    opacity: 1;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tool-chevron { transition: none; }
+  .tool-chevron {
+    transition: none;
+  }
 }
 .tool-card[data-open="true"] > .tool-header .tool-chevron svg,
 .tool-activity[data-open="true"] > .tool-activity-header .tool-chevron svg,
 .tool-activity-category[data-open="true"] > .tool-activity-category-header .tool-chevron svg,
-.tool-activity-item[data-open="true"] > .tool-activity-item-header .tool-chevron svg { transform: rotate(90deg); }
-.tool-content { gap: 8px; border: 0; padding: 8px 0 0; background: transparent; }
+.tool-activity-item[data-open="true"] > .tool-activity-item-header .tool-chevron svg {
+  transform: rotate(90deg);
+}
+.tool-content {
+  gap: 8px;
+  border: 0;
+  padding: 8px 0 0;
+  background: transparent;
+}
 /* Manual expansion adds exactly one summary row
    (355 lines / Failed · cause / Running · 12s). */
 .tool-detail-line {
@@ -663,11 +774,17 @@
   animation: tool-detail-enter var(--mx-motion-chrome);
 }
 @keyframes tool-detail-enter {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tool-detail-line { animation: none; }
+  .tool-detail-line {
+    animation: none;
+  }
 }
 .tool-detail-line .tool-detail-text {
   min-width: 0;
@@ -675,20 +792,55 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tool-detail-line .tool-detail-text[data-placeholder] { color: var(--mx-text-faint); }
-.tool-detail-line em { font-style: normal; }
-.tool-detail-line em[data-delta="+"] { color: var(--mx-success); }
-.tool-detail-line em[data-delta="-"] { color: var(--mx-danger); }
-.detail-block > span { color: var(--mx-text-faint); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: 12px; letter-spacing: 0; text-transform: none; }
-.detail-block-heading { min-height: 24px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tool-detail-line .tool-detail-text[data-placeholder] {
+  color: var(--mx-text-faint);
+}
+.tool-detail-line em {
+  font-style: normal;
+}
+.tool-detail-line em[data-delta="+"] {
+  color: var(--mx-success);
+}
+.tool-detail-line em[data-delta="-"] {
+  color: var(--mx-danger);
+}
+.detail-block > span {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.detail-block-heading {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 /* Block headings and arg KEYS name what the row is — they carry the same
    label duty as a section head, so they ride muted ink, one step under the
    value they introduce instead of two (user: 중요한 라벨 이름이 잘 안 보인다). */
-.detail-block-heading > span { color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-meta); }
+.detail-block-heading > span {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-meta);
+}
 /* Structured Input grid: muted key column,
    mono value column — replaces the raw args JSON dump. */
-.tool-args { grid-template-columns: max-content minmax(0, 1fr); gap: 2px 14px; }
-.tool-args [data-slot="key"] { color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); white-space: nowrap; }
+.tool-args {
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 14px;
+}
+.tool-args [data-slot="key"] {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  white-space: nowrap;
+}
 .tool-args [data-slot="value"] {
   min-width: 0;
   font-family: var(--mx-font-mono);
@@ -698,7 +850,9 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.tool-args pre[data-slot="value"] { line-height: var(--mx-line-minor); }
+.tool-args pre[data-slot="value"] {
+  line-height: var(--mx-line-minor);
+}
 .tool-detail-copy {
   width: 24px;
   height: 24px;
@@ -713,8 +867,13 @@
   cursor: pointer;
 }
 .tool-detail-copy:hover,
-.tool-detail-copy:focus-visible { color: var(--mx-icon); background: var(--mx-hover); }
-.tool-detail-copy[data-copied="true"] { color: var(--mx-text); }
+.tool-detail-copy:focus-visible {
+  color: var(--mx-icon);
+  background: var(--mx-hover);
+}
+.tool-detail-copy[data-copied="true"] {
+  color: var(--mx-text);
+}
 .tool-output {
   position: relative;
   width: 100%;
@@ -727,7 +886,9 @@
   overflow: auto;
   scrollbar-width: none;
 }
-.tool-output-scroll::-webkit-scrollbar { display: none; }
+.tool-output-scroll::-webkit-scrollbar {
+  display: none;
+}
 .tool-output pre {
   margin: 0;
   padding: 0;
@@ -752,7 +913,9 @@
   border-radius: var(--mx-radius-md);
   background: transparent;
 }
-.shell-output pre { padding: 12px; }
+.shell-output pre {
+  padding: 12px;
+}
 .tool-output-copy {
   position: absolute;
   z-index: 2;
@@ -785,7 +948,7 @@
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
   background: var(--mx-bg-layer-1);
-  box-shadow: 0 0 0 .5px var(--mx-border);
+  box-shadow: 0 0 0 0.5px var(--mx-border);
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
   white-space: pre-wrap;
@@ -793,13 +956,22 @@
 }
 /* A watchdog/abort notice arrives as 'warn'. Painting it neutral gray hid the
    only signal the turn died, so warnings carry the amber status pair. */
-.notice.warn { color: var(--mx-warning); background: var(--mx-warning-bg); }
-.notice.error { color: var(--mx-danger); background: var(--mx-danger-bg); }
+.notice.warn {
+  color: var(--mx-warning);
+  background: var(--mx-warning-bg);
+}
+.notice.error {
+  color: var(--mx-danger);
+  background: var(--mx-danger-bg);
+}
 /* Empty states center on BOTH axes inside the dock body. Every dock pane is
    a flex column (see .utility-dock-pane), so this one rule centers the
    message on every tab instead of leaving it stuck under the title on the
    panes that used to be plain blocks (user: 탭마다 상하정렬이 다르다). */
-.utility-dock-body { display: flex; flex-direction: column; }
+.utility-dock-body {
+  display: flex;
+  flex-direction: column;
+}
 .utility-dock-empty {
   flex: 1;
   min-height: 0;

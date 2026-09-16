@@ -1,10 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  appendLiveTranscriptRows,
-  projectSettledTranscriptRows,
-} from './transcript-rows.ts';
+import { appendLiveTranscriptRows, projectSettledTranscriptRows } from './transcript-rows.ts';
 
 function project(text) {
   return projectSettledTranscriptRows({
@@ -16,10 +13,7 @@ function project(text) {
 }
 
 test('restart and implicit interruption markers become Cancelled status rows', () => {
-  for (const marker of [
-    '[Request interrupted by process restart]',
-    '[Request interrupted]',
-  ]) {
+  for (const marker of ['[Request interrupted by process restart]', '[Request interrupted]']) {
     const rows = project(marker);
     assert.equal(rows.length, 1);
     assert.equal(rows[0]._tag, 'AssistantPart');

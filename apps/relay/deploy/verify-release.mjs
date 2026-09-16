@@ -19,31 +19,37 @@ function transportOptions(address) {
 
 function readJson(url, { address, timeoutMs }) {
   return new Promise((resolve, reject) => {
-    const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
-      ...transportOptions(address),
-      headers: { Accept: 'application/json' },
-    }, (response) => {
-      let size = 0;
-      const chunks = [];
-      response.on('data', (chunk) => {
-        size += chunk.length;
-        if (size > 64 * 1024) {
-          request.destroy(new Error('Deployment probe response exceeds limit.'));
-          return;
-        }
-        chunks.push(chunk);
-      });
-      response.on('error', reject);
-      response.on('end', () => {
-        if (response.statusCode !== 200) {
-          reject(new Error(`${url.pathname} returned HTTP ${response.statusCode}.`));
-          return;
-        }
-        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch {
-          reject(new Error(`${url.pathname} returned invalid JSON.`));
-        }
-      });
-    });
+    const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(
+      url,
+      {
+        ...transportOptions(address),
+        headers: { Accept: 'application/json' },
+      },
+      (response) => {
+        let size = 0;
+        const chunks = [];
+        response.on('data', (chunk) => {
+          size += chunk.length;
+          if (size > 64 * 1024) {
+            request.destroy(new Error('Deployment probe response exceeds limit.'));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        response.on('error', reject);
+        response.on('end', () => {
+          if (response.statusCode !== 200) {
+            reject(new Error(`${url.pathname} returned HTTP ${response.statusCode}.`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+          } catch {
+            reject(new Error(`${url.pathname} returned invalid JSON.`));
+          }
+        });
+      }
+    );
     const timer = setTimeout(() => request.destroy(new Error('Deployment HTTP probe timed out.')), timeoutMs);
     request.on('close', () => clearTimeout(timer));
     request.on('error', reject);
@@ -67,33 +73,34 @@ function checkWebSocket(origin, { address, timeoutMs, foreignOrigin = false }) {
       settled = true;
       clearTimeout(timer);
       ws.terminate();
-      if (error) reject(error); else resolve();
+      if (error) reject(error);
+      else resolve();
     };
     ws.on('error', (error) => finish(error));
     ws.on('unexpected-response', (_request, response) => {
       const status = response.statusCode;
       response.resume();
-      finish(foreignOrigin && status === 403
-        ? null : new Error(`WebSocket upgrade returned HTTP ${status}.`));
+      finish(foreignOrigin && status === 403 ? null : new Error(`WebSocket upgrade returned HTTP ${status}.`));
     });
     ws.on('open', () => {
       if (foreignOrigin) finish(new Error('WebSocket accepted a foreign origin.'));
     });
-    ws.on('close', (code) => finish(!foreignOrigin && code === 4005
-      ? null : new Error(`WebSocket pairing gate returned close ${code}.`)));
+    ws.on('close', (code) =>
+      finish(!foreignOrigin && code === 4005 ? null : new Error(`WebSocket pairing gate returned close ${code}.`))
+    );
   });
 }
 
-export async function verifyRelease({
-  origin,
-  expectedIndex,
-  address,
-  timeoutMs = 5000,
-  startupMs = 15000,
-}) {
+export async function verifyRelease({ origin, expectedIndex, address, timeoutMs = 5000, startupMs = 15000 }) {
   const base = new URL(origin);
-  if (!['https:', 'http:'].includes(base.protocol) || base.username || base.password
-    || base.pathname !== '/' || base.search || base.hash) {
+  if (
+    !['https:', 'http:'].includes(base.protocol) ||
+    base.username ||
+    base.password ||
+    base.pathname !== '/' ||
+    base.search ||
+    base.hash
+  ) {
     throw new Error('Deployment probe requires an HTTP(S) origin without credentials.');
   }
   if (!/^[a-f0-9]{64}$/.test(expectedIndex || '')) throw new Error('Expected renderer digest is required.');
@@ -114,8 +121,12 @@ export async function verifyRelease({
   }
   if (health?.status !== 'ok') throw new Error('Relay liveness check failed.');
   const ready = await readJson(new URL('/readyz', base), options);
-  if (ready?.status !== 'ready' || ready.indexSha256 !== expectedIndex
-    || !/^[a-f0-9]{64}$/.test(ready.version || '') || !(ready.assets > 0)) {
+  if (
+    ready?.status !== 'ready' ||
+    ready.indexSha256 !== expectedIndex ||
+    !/^[a-f0-9]{64}$/.test(ready.version || '') ||
+    !(ready.assets > 0)
+  ) {
     throw new Error('Renderer readiness or deployed release identity does not match.');
   }
   await checkWebSocket(base, options);
@@ -124,15 +135,23 @@ export async function verifyRelease({
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const args = Object.fromEntries(process.argv.slice(2).map((arg) => {
-    const match = /^--([^=]+)=(.*)$/.exec(arg);
-    if (!match) throw new Error(`Invalid verification argument: ${arg}`);
-    return [match[1], match[2]];
-  }));
+  const args = Object.fromEntries(
+    process.argv.slice(2).map((arg) => {
+      const match = /^--([^=]+)=(.*)$/.exec(arg);
+      if (!match) throw new Error(`Invalid verification argument: ${arg}`);
+      return [match[1], match[2]];
+    })
+  );
   try {
-    console.log(JSON.stringify(await verifyRelease({
-      origin: args.origin, expectedIndex: args['expected-index'], address: args.address,
-    })));
+    console.log(
+      JSON.stringify(
+        await verifyRelease({
+          origin: args.origin,
+          expectedIndex: args['expected-index'],
+          address: args.address,
+        })
+      )
+    );
   } catch (error) {
     console.error(`[deploy] verification failed: ${error.message}`);
     process.exitCode = 1;

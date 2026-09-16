@@ -7,10 +7,14 @@ function ipcUnavailableError() {
 export function safeIpcSend(proc, message, { onError, onComplete } = {}) {
   const report = (error) => {
     if (!error) return;
-    try { onError?.(error); } catch {}
+    try {
+      onError?.(error);
+    } catch {}
   };
   const complete = (error = null) => {
-    try { onComplete?.(error); } catch {}
+    try {
+      onComplete?.(error);
+    } catch {}
   };
 
   if (!proc || typeof proc.send !== 'function' || proc.connected !== true) {

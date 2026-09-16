@@ -46,12 +46,16 @@ export function readRemoteIntent(path) {
   try {
     const intent = normalizeRemoteIntent(JSON.parse(raw));
     if (!intent) {
-      try { rmSync(path, { force: true }); } catch {}
+      try {
+        rmSync(path, { force: true });
+      } catch {}
       return null;
     }
     return intent;
   } catch {
-    try { rmSync(path, { force: true }); } catch {}
+    try {
+      rmSync(path, { force: true });
+    } catch {}
     return null;
   }
 }

@@ -47,12 +47,18 @@ let _inflight = null;
 
 export async function loginOpenCodeGoConsoleWithBrowser({ timeoutMs = 300_000, onStatus } = {}) {
   if (_inflight) return _inflight;
-  _inflight = _run({ timeoutMs, onStatus }).finally(() => { _inflight = null; });
+  _inflight = _run({ timeoutMs, onStatus }).finally(() => {
+    _inflight = null;
+  });
   return _inflight;
 }
 
 async function _run({ timeoutMs, onStatus }) {
-  const status = (msg) => { try { if (typeof onStatus === 'function') onStatus(msg); } catch {} };
+  const status = (msg) => {
+    try {
+      if (typeof onStatus === 'function') onStatus(msg);
+    } catch {}
+  };
   const executablePath = resolveExecutablePath();
   if (!executablePath) {
     throw new Error('No Chrome/Edge browser found. Set PUPPETEER_EXECUTABLE_PATH to a Chrome or Edge executable.');
@@ -64,7 +70,9 @@ async function _run({ timeoutMs, onStatus }) {
   const closeBrowser = async () => {
     if (closed) return;
     closed = true;
-    try { if (browser) await browser.close(); } catch {}
+    try {
+      if (browser) await browser.close();
+    } catch {}
   };
 
   try {
@@ -77,11 +85,18 @@ async function _run({ timeoutMs, onStatus }) {
       // you in / This browser may not be secure"). Strip the automation
       // banner/flag so the OAuth login can complete.
       ignoreDefaultArgs: ['--enable-automation'],
-      args: ['--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled', '--no-first-run', '--no-default-browser-check'],
+      args: [
+        '--disable-dev-shm-usage',
+        '--disable-blink-features=AutomationControlled',
+        '--no-first-run',
+        '--no-default-browser-check',
+      ],
     });
 
     let disconnected = false;
-    browser.on('disconnected', () => { disconnected = true; });
+    browser.on('disconnected', () => {
+      disconnected = true;
+    });
 
     const page = (await browser.pages())[0] || (await browser.newPage());
     status('Opening opencode.ai/auth — please sign in…');
@@ -98,7 +113,7 @@ async function _run({ timeoutMs, onStatus }) {
       } catch {
         throw new Error('Browser was closed before login completed.');
       }
-      const auth = cookies.find(c => c.name === 'auth');
+      const auth = cookies.find((c) => c.name === 'auth');
       const url = page.url();
       const wsMatch = url.match(/\/workspace\/(wrk_[a-zA-Z0-9]+)/);
       // Only treat the login as complete on an authenticated console page.
@@ -116,7 +131,7 @@ async function _run({ timeoutMs, onStatus }) {
         status('Auth cookie captured.');
         return { authCookie: auth.value, workspaceId: wsMatch?.[1] || null };
       }
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 1000));
     }
     throw new Error(`Timed out after ${Math.round(timeoutMs / 1000)}s waiting for OpenCode Go login.`);
   } finally {

@@ -11,7 +11,7 @@ export interface VerifyObservation {
 
 export function evaluateVerifyPredicate(
   predicate: Record<string, unknown>,
-  observation: VerifyObservation,
+  observation: VerifyObservation
 ): VerifyStatus {
   if (!observation.ok) return 'unknown';
   if (typeof predicate.window_exists === 'boolean') {

@@ -64,9 +64,11 @@ export function relativeFormulaSignature(formula, ref) {
         if (!origin) return '#REF';
         const column = columnNumber(label.toUpperCase());
         const rowNumber = Number(row);
-        return `${absoluteRow ? `R${rowNumber}` : `R[${rowNumber - origin.row}]`}`
-          + `${absoluteColumn ? `C${column}` : `C[${column - origin.column}]`}`;
-      },
+        return (
+          `${absoluteRow ? `R${rowNumber}` : `R[${rowNumber - origin.row}]`}` +
+          `${absoluteColumn ? `C${column}` : `C[${column - origin.column}]`}`
+        );
+      }
     )
     .toUpperCase();
 }
@@ -104,7 +106,11 @@ export function singleCellReferences(formula) {
   const text = formulaBody(formula);
   const found = [];
   for (const match of text.matchAll(/(?<![A-Za-z0-9_.!':$\]])\$?([A-Z]{1,3})\$?([1-9]\d*)(?![A-Za-z0-9_(:])/gi)) {
-    found.push({ ref: `${match[1].toUpperCase()}${match[2]}`, column: columnNumber(match[1].toUpperCase()), row: Number(match[2]) });
+    found.push({
+      ref: `${match[1].toUpperCase()}${match[2]}`,
+      column: columnNumber(match[1].toUpperCase()),
+      row: Number(match[2]),
+    });
   }
   return found;
 }
@@ -133,7 +139,7 @@ function auditLine(list, sheet, cells, axis) {
       'warning',
       'formula_pattern_inconsistency',
       cellPath(sheet, entry.cell),
-      `Formula breaks the pattern its neighbours share along the ${axis}; a lone edited cell mid-line is the commonest silent model error.`,
+      `Formula breaks the pattern its neighbours share along the ${axis}; a lone edited cell mid-line is the commonest silent model error.`
     );
   }
 }
@@ -145,7 +151,10 @@ function auditModelDiscipline(list, sheet, cells) {
   const formulaColumnSet = new Set();
   const noted = notedRefs(sheet, cells);
   const bodies = tableAreas(sheet);
-  const checksSheet = String(sheet.name || '').trim().toLowerCase() === 'checks';
+  const checksSheet =
+    String(sheet.name || '')
+      .trim()
+      .toLowerCase() === 'checks';
   const extent = { row: 0, column: 0, firstRow: Number.POSITIVE_INFINITY };
   for (const cell of cells) {
     const at = position(cell);
@@ -167,7 +176,12 @@ function auditModelDiscipline(list, sheet, cells) {
         .filter((reference) => reference.row > extent.row || reference.column > extent.column)
         .map((reference) => reference.ref);
       if (beyond.length) {
-        list.push('warning', 'formula_reads_beyond_data', cellPath(sheet, cell), `Formula reads ${[...new Set(beyond)].join(', ')}, past the last populated row or column of the sheet; a reference one row or column off recalculates cleanly and shows the wrong number.`);
+        list.push(
+          'warning',
+          'formula_reads_beyond_data',
+          cellPath(sheet, cell),
+          `Formula reads ${[...new Set(beyond)].join(', ')}, past the last populated row or column of the sheet; a reference one row or column off recalculates cleanly and shows the wrong number.`
+        );
       }
       formulaCount += 1;
       formulaColumnSet.add(at.column);
@@ -181,13 +195,28 @@ function auditModelDiscipline(list, sheet, cells) {
       const path = cellPath(sheet, cell);
       const constants = inlineConstants(cell.formula);
       if (constants.length) {
-        list.push('warning', 'inline_constant_in_formula', path, `Formula embeds ${constants.join(', ')}; put each assumption in its own labelled cell and reference it (=B5*(1+$B$6), never =B5*1.05).`);
+        list.push(
+          'warning',
+          'inline_constant_in_formula',
+          path,
+          `Formula embeds ${constants.join(', ')}; put each assumption in its own labelled cell and reference it (=B5*(1+$B$6), never =B5*1.05).`
+        );
       }
       if (unguardedDivision(cell.formula)) {
-        list.push('warning', 'unguarded_division', path, 'Formula divides by a cell that can be zero; wrap it in IFERROR or guard the denominator with IF.');
+        list.push(
+          'warning',
+          'unguarded_division',
+          path,
+          'Formula divides by a cell that can be zero; wrap it in IFERROR or guard the denominator with IF.'
+        );
       }
       if (checksSheet && falseValue(cell)) {
-        list.push('warning', 'failed_check', path, 'Tie-out on the Checks sheet evaluates to FALSE; the model does not add up until it reads TRUE.');
+        list.push(
+          'warning',
+          'failed_check',
+          path,
+          'Tie-out on the Checks sheet evaluates to FALSE; the model does not add up until it reads TRUE.'
+        );
       }
     } else if (numericValue(cell) !== null) {
       hardcodes += 1;
@@ -207,9 +236,9 @@ function auditModelDiscipline(list, sheet, cells) {
     // An input a formula reads — marked as one, or sharing a row or column
     // with formulas — says where its number came from; raw data does not,
     // and a year across the first populated row is a column heading.
-    const feedsModel = formulaCount > 0 && (
-      isMarkedInputStyle(cell.style) || formulaRows.has(at.row) || formulaColumnSet.has(at.column)
-    );
+    const feedsModel =
+      formulaCount > 0 &&
+      (isMarkedInputStyle(cell.style) || formulaRows.has(at.row) || formulaColumnSet.has(at.column));
     const headerYear = at.row === extent.firstRow && Number.isInteger(value) && value >= 1900 && value <= 2100;
     if (feedsModel && !headerYear && !noted.has(String(cell.ref).toUpperCase()) && !insideTableBody(bodies, at)) {
       unsourced.push({ row: at.row, column: at.column, ref: String(cell.ref).toUpperCase(), path });
@@ -219,29 +248,62 @@ function auditModelDiscipline(list, sheet, cells) {
     const first = Math.min(...formulaColumns);
     const last = Math.max(...formulaColumns);
     if (at.column > first && at.column < last) {
-      list.push('warning', 'formula_inconsistency', path, 'A hardcoded value interrupts a row of formulas; the projection no longer recalculates through this cell.');
+      list.push(
+        'warning',
+        'formula_inconsistency',
+        path,
+        'A hardcoded value interrupts a row of formulas; the projection no longer recalculates through this cell.'
+      );
     } else if (at.column > last) {
-      list.push('warning', 'rogue_hardcode', path, 'Numeric hardcode sits after the formulas of its row; a pasted result where a formula belongs.');
+      list.push(
+        'warning',
+        'rogue_hardcode',
+        path,
+        'Numeric hardcode sits after the formulas of its row; a pasted result where a formula belongs.'
+      );
     }
   }
   for (const run of contiguousRuns(unsourced)) {
     const span = run.length > 1 ? `${run[0].ref}:${run[run.length - 1].ref}` : run[0].ref;
-    list.push('warning', 'hardcode_missing_source', run[0].path, run.length > 1
-      ? `${run.length} hardcoded inputs (${span}) have no note naming their source or the assumption behind them; add_provenance or add_note on the row.`
-      : 'Hardcoded input has no note naming its source or the assumption behind it; add_provenance or add_note on the cell.');
+    list.push(
+      'warning',
+      'hardcode_missing_source',
+      run[0].path,
+      run.length > 1
+        ? `${run.length} hardcoded inputs (${span}) have no note naming their source or the assumption behind them; add_provenance or add_note on the row.`
+        : 'Hardcoded input has no note naming its source or the assumption behind it; add_provenance or add_note on the cell.'
+    );
   }
-  for (const line of byRow.values()) auditLine(list, sheet, line.sort((a, b) => a.index - b.index), 'row');
-  for (const line of byColumn.values()) auditLine(list, sheet, line.sort((a, b) => a.index - b.index), 'column');
+  for (const line of byRow.values())
+    auditLine(
+      list,
+      sheet,
+      line.sort((a, b) => a.index - b.index),
+      'row'
+    );
+  for (const line of byColumn.values())
+    auditLine(
+      list,
+      sheet,
+      line.sort((a, b) => a.index - b.index),
+      'column'
+    );
   if (styledCells && formulaCount >= 3 && hardcodes >= 5 && markedHardcodes === 0) {
-    list.push('info', 'input_cells_unmarked', sheetPath(sheet), `${hardcodes} hardcoded inputs are indistinguishable from formulas; mark inputs (blue font, or a fill for cells the reader edits) and add a legend.`);
+    list.push(
+      'info',
+      'input_cells_unmarked',
+      sheetPath(sheet),
+      `${hardcodes} hardcoded inputs are indistinguishable from formulas; mark inputs (blue font, or a fill for cells the reader edits) and add a legend.`
+    );
   }
 }
 
 export function auditXlsxFormulas(sheets, { auditProfile = '', sheetNames = null } = {}) {
   const list = new IssueList();
-  const names = Array.isArray(sheetNames) && sheetNames.length
-    ? sheetNames
-    : (sheets || []).map((sheet) => sheet?.name).filter(Boolean);
+  const names =
+    Array.isArray(sheetNames) && sheetNames.length
+      ? sheetNames
+      : (sheets || []).map((sheet) => sheet?.name).filter(Boolean);
   for (const sheet of sheets || []) {
     const cells = Array.isArray(sheet?.cells) ? sheet.cells.filter((cell) => cell && cell.ref) : [];
     if (!cells.length) continue;
@@ -272,14 +334,17 @@ const SHARED_MODEL_VERDICTS = new Set(['hardcode_missing_source', 'rogue_hardcod
 export function mergeXlsxFormulaAudit(result, document, { auditProfile = '', sheet = '' } = {}) {
   const sheets = Array.isArray(document?.sheets) ? document.sheets : [];
   const scope = sheet ? `/sheet[${String(sheet).toLowerCase()}]` : '';
-  const findings = auditXlsxFormulas(sheets, { auditProfile, sheetNames: sheets.map((entry) => entry?.name) })
-    .filter((finding) => !scope || finding.path === '/' || String(finding.path).toLowerCase().startsWith(scope));
+  const findings = auditXlsxFormulas(sheets, { auditProfile, sheetNames: sheets.map((entry) => entry?.name) }).filter(
+    (finding) => !scope || finding.path === '/' || String(finding.path).toLowerCase().startsWith(scope)
+  );
   // Only a sheet whose cells came back was read: Excel's full snapshot carries
   // no cells for a sheet past 500 cells, and the host's own verdicts for such
   // a sheet stay — the shared audit saw nothing there to replace them with.
-  const readSheets = new Set(sheets
-    .filter((entry) => Array.isArray(entry?.cells) && entry.cells.length > 0)
-    .map((entry) => `/sheet[${String(entry?.name || '').toLowerCase()}]`));
+  const readSheets = new Set(
+    sheets
+      .filter((entry) => Array.isArray(entry?.cells) && entry.cells.length > 0)
+      .map((entry) => `/sheet[${String(entry?.name || '').toLowerCase()}]`)
+  );
   const issues = (Array.isArray(result?.issues) ? result.issues : []).filter((entry) => {
     if (!SHARED_MODEL_VERDICTS.has(entry?.code)) return true;
     const owner = /^\/sheet\[[^\]]*\]/.exec(String(entry?.path || '').toLowerCase())?.[0];
@@ -291,6 +356,9 @@ export function mergeXlsxFormulaAudit(result, document, { auditProfile = '', she
     ...result,
     issues: [...issues, ...added],
     issueCount: issues.length + added.length,
-    sharedAudit: { added: added.length, cellsRead: sheets.reduce((total, entry) => total + (entry?.cells?.length || 0), 0) },
+    sharedAudit: {
+      added: added.length,
+      cellsRead: sheets.reduce((total, entry) => total + (entry?.cells?.length || 0), 0),
+    },
   };
 }

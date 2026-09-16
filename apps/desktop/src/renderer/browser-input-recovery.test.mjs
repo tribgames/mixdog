@@ -7,8 +7,9 @@ test('a failed press survives its release and older queued successes until a new
   const recoveries = [];
   const sent = [];
   const client = createBrowserPageClient({
-    sessionId: 's', update() {},
-    failure: error => failures.push(error),
+    sessionId: 's',
+    update() {},
+    failure: (error) => failures.push(error),
     recovered: () => recoveries.push('recovered'),
     api: {
       browserPageFrame: async () => ({ documentId: 'p1:1', frameId: 'f1' }),
@@ -29,6 +30,6 @@ test('a failed press survives its release and older queued successes until a new
   assert.deepEqual(recoveries, []);
   await client.control({ type: 'text', text: 'fresh input' });
   assert.deepEqual(recoveries, ['recovered']);
-  assert.equal(sent.filter(action => action.phase === 'mousePressed').length, 1);
+  assert.equal(sent.filter((action) => action.phase === 'mousePressed').length, 1);
   client.dispose();
 });

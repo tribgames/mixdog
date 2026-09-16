@@ -12,7 +12,9 @@ export function rememberGithubStarred(starred: boolean): boolean {
   if (starred) {
     try {
       window.localStorage.setItem(STARRED_KEY, 'true');
-    } catch { /* Keep the current UI state when storage is unavailable. */ }
+    } catch {
+      /* Keep the current UI state when storage is unavailable. */
+    }
   }
   return starred;
 }

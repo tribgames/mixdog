@@ -47,10 +47,14 @@ const RESET = `${ESC}0m`;
  * historical truecolor default.
  */
 export function supportsTruecolor(environment = env, platformName = platform) {
-  const termProgram = String(environment?.TERM_PROGRAM || '').trim().toLowerCase();
+  const termProgram = String(environment?.TERM_PROGRAM || '')
+    .trim()
+    .toLowerCase();
   if (termProgram === 'apple_terminal') return false;
 
-  const colorTerm = String(environment?.COLORTERM || '').trim().toLowerCase();
+  const colorTerm = String(environment?.COLORTERM || '')
+    .trim()
+    .toLowerCase();
   if (colorTerm === 'truecolor' || colorTerm === '24bit') return true;
   if (environment?.WT_SESSION !== undefined && environment.WT_SESSION !== '') return true;
   if (['iterm.app', 'wezterm', 'ghostty', 'vscode'].includes(termProgram)) return true;
@@ -91,19 +95,15 @@ export function rgbToAnsi256(r, g, b) {
   const cubeRed = ANSI_256_CUBE_LEVELS[redLevel];
   const cubeGreen = ANSI_256_CUBE_LEVELS[greenLevel];
   const cubeBlue = ANSI_256_CUBE_LEVELS[blueLevel];
-  const cubeDistance = ((red - cubeRed) ** 2)
-    + ((green - cubeGreen) ** 2)
-    + ((blue - cubeBlue) ** 2);
+  const cubeDistance = (red - cubeRed) ** 2 + (green - cubeGreen) ** 2 + (blue - cubeBlue) ** 2;
 
   const average = (red + green + blue) / 3;
   const grayLevel = Math.max(0, Math.min(23, Math.round((average - 8) / 10)));
-  const grayValue = 8 + (grayLevel * 10);
-  const grayDistance = ((red - grayValue) ** 2)
-    + ((green - grayValue) ** 2)
-    + ((blue - grayValue) ** 2);
+  const grayValue = 8 + grayLevel * 10;
+  const grayDistance = (red - grayValue) ** 2 + (green - grayValue) ** 2 + (blue - grayValue) ** 2;
 
   if (grayDistance < cubeDistance) return 232 + grayLevel;
-  return 16 + (36 * redLevel) + (6 * greenLevel) + blueLevel;
+  return 16 + 36 * redLevel + 6 * greenLevel + blueLevel;
 }
 
 /** Raw RGB SGR prefix, downsampled to 256 colors when truecolor is unavailable. */

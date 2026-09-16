@@ -19,15 +19,19 @@ const stats = (arr) => {
   };
 };
 
-const rawOnce = () => new Promise((resolveDone, reject) => {
-  const child = shell === 'powershell'
-    ? spawn('pwsh', ['-NoProfile', '-NonInteractive', '-Command', 'echo hi'])
-    : spawn('bash', ['-c', 'echo hi']);
-  let out = '';
-  child.stdout.on('data', (c) => { out += c; });
-  child.on('error', reject);
-  child.on('close', () => resolveDone(out));
-});
+const rawOnce = () =>
+  new Promise((resolveDone, reject) => {
+    const child =
+      shell === 'powershell'
+        ? spawn('pwsh', ['-NoProfile', '-NonInteractive', '-Command', 'echo hi'])
+        : spawn('bash', ['-c', 'echo hi']);
+    let out = '';
+    child.stdout.on('data', (c) => {
+      out += c;
+    });
+    child.on('error', reject);
+    child.on('close', () => resolveDone(out));
+  });
 
 const toolOnce = async () => {
   const out = await executeBashTool({ command: 'echo hi' }, process.cwd(), {});
@@ -35,8 +39,10 @@ const toolOnce = async () => {
 };
 
 // Warm-up both paths (module init, shell resolution cache, standbys).
-await toolOnce(); await toolOnce();
-await rawOnce(); await rawOnce();
+await toolOnce();
+await toolOnce();
+await rawOnce();
+await rawOnce();
 
 const toolMs = [];
 for (let i = 0; i < N; i++) {

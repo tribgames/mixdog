@@ -4,7 +4,7 @@ import { browserRefStateKey, type BrowserRefSet } from './ref-recovery';
 
 export function diffSnapshotElements(
   elements: BrowserSnapshotElement[],
-  previous: BrowserRefSet,
+  previous: BrowserRefSet
 ): { changed: BrowserSnapshotElement[]; unchanged: number; gone: number } {
   const remaining = new Map<string, number>();
   const identities = new Map<string, number>();

@@ -19,38 +19,72 @@ export function localIdleLabel(seconds: number): string {
 
 export function LocalProviderOperations({ status, actions }: { status: RecordValue; actions: LocalProviderActions }) {
   const models = Array.isArray(status.models) ? status.models.map(record) : [];
-  const operations = Array.isArray(status.installations) ? status.installations.map(record)
-    .filter((entry) => ['running', 'cancelling', 'paused', 'failed'].includes(String(entry.state))) : [];
+  const operations = Array.isArray(status.installations)
+    ? status.installations
+        .map(record)
+        .filter((entry) => ['running', 'cancelling', 'paused', 'failed'].includes(String(entry.state)))
+    : [];
   const error = actions.error || String(status.installationCommandError || status.lastUnloadError || '');
   // GPU memory and server state live in the feature's Info facts; the
   // request counters were operational noise and are gone (user: 불필요한
   // 표면 정리). Only live installations earn a section here.
-  return <>
-    {error && <ErrorNotice error={error} />}
-    {operations.length > 0 && <ExtensionSection title={t('Installation')}>
-      <ExtensionItemList>
-      {operations.map((operation) => {
-        const modelId = String(operation.modelId || '');
-        const phase = String(operation.phase);
-        const name = phase === 'runtime' ? t('Runtime')
-          : String(models.find((model) => model.id === modelId)?.name || modelId);
-        const running = operation.state === 'running' || operation.state === 'cancelling';
-        return <div className="local-provider-installation" key={String(operation.jobId || `${phase}:${modelId}`)}>
-          {running && <SlotProgress percent={installationPercent(operation)}
-            label={phase === 'verify' ? t('Verifying {{name}}…', { name }) : t('Installing {{name}}…', { name })} />}
-          <ExtensionItemRow title={name}
-            description={operation.state === 'failed' ? t('Failed')
-              : operation.state === 'cancelling' ? t('Stopping download…')
-              : running ? '' : t('Paused · downloaded files are kept')}
-            control={running
-              ? <ExtensionAction disabled={actions.busy || operation.state === 'cancelling' || !operation.jobId}
-                  onClick={() => actions.cancel(String(operation.jobId))}>{t('Stop download')}</ExtensionAction>
-              : <ExtensionAction disabled={actions.busy}
-                  onClick={() => actions.resume(phase, modelId)}>{t('Resume installation')}</ExtensionAction>} />
-          {operation.state === 'failed' && <ErrorNotice error={operation.error || t('Failed')} />}
-        </div>;
-      })}
-      </ExtensionItemList>
-    </ExtensionSection>}
-  </>;
+  return (
+    <>
+      {error && <ErrorNotice error={error} />}
+      {operations.length > 0 && (
+        <ExtensionSection title={t('Installation')}>
+          <ExtensionItemList>
+            {operations.map((operation) => {
+              const modelId = String(operation.modelId || '');
+              const phase = String(operation.phase);
+              const name =
+                phase === 'runtime'
+                  ? t('Runtime')
+                  : String(models.find((model) => model.id === modelId)?.name || modelId);
+              const running = operation.state === 'running' || operation.state === 'cancelling';
+              return (
+                <div className="local-provider-installation" key={String(operation.jobId || `${phase}:${modelId}`)}>
+                  {running && (
+                    <SlotProgress
+                      percent={installationPercent(operation)}
+                      label={
+                        phase === 'verify' ? t('Verifying {{name}}…', { name }) : t('Installing {{name}}…', { name })
+                      }
+                    />
+                  )}
+                  <ExtensionItemRow
+                    title={name}
+                    description={
+                      operation.state === 'failed'
+                        ? t('Failed')
+                        : operation.state === 'cancelling'
+                          ? t('Stopping download…')
+                          : running
+                            ? ''
+                            : t('Paused · downloaded files are kept')
+                    }
+                    control={
+                      running ? (
+                        <ExtensionAction
+                          disabled={actions.busy || operation.state === 'cancelling' || !operation.jobId}
+                          onClick={() => actions.cancel(String(operation.jobId))}
+                        >
+                          {t('Stop download')}
+                        </ExtensionAction>
+                      ) : (
+                        <ExtensionAction disabled={actions.busy} onClick={() => actions.resume(phase, modelId)}>
+                          {t('Resume installation')}
+                        </ExtensionAction>
+                      )
+                    }
+                  />
+                  {operation.state === 'failed' && <ErrorNotice error={operation.error || t('Failed')} />}
+                </div>
+              );
+            })}
+          </ExtensionItemList>
+        </ExtensionSection>
+      )}
+    </>
+  );
 }

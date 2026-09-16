@@ -18,41 +18,63 @@ function contextSize(tokens: unknown): string {
   return value >= 1024 ? `${Math.round(value / 1024)}K context` : `${value} context`;
 }
 
-export function LocalProviderModels({ status, actions }: {
-  status: RecordValue;
-  actions: LocalProviderActions;
-}) {
+export function LocalProviderModels({ status, actions }: { status: RecordValue; actions: LocalProviderActions }) {
   const models = Array.isArray(status.models) ? status.models.map(record) : [];
   const installed = models.filter((model) => model.installed === true || model.present === true);
   const ttl = typeof status.idleTtlSeconds === 'number' ? status.idleTtlSeconds : 3600;
   const presets = [...new Set([0, 300, 900, 1800, 3600, ttl])].sort((a, b) => a - b);
-  return <>
-  <ExtensionSection title={t('Installed models')} count={installed.length}>
-    {!installed.length && <ExtensionNote>
-      {t('No models installed.')} {t('To add a model, ask in chat. The local-provider skill checks your PC and guides installation.')}
-    </ExtensionNote>}
-    {installed.length > 0 && <ExtensionItemList>
-      {installed.map((model) => {
-        const modelId = String(model.id);
-        const details = [
-          localProviderFileSize(model.sizeBytes),
-          `~${localProviderFileSize(model.estimatedVramBytes)} VRAM`,
-          contextSize(model.contextWindow),
-        ].filter(Boolean).join(' · ');
-        return <LocalProviderModelRow key={modelId} model={model} status={status} actions={actions} details={details} />;
-      })}
-    </ExtensionItemList>}
-  </ExtensionSection>
-  <ExtensionSection title={t('Model loading')}>
-    <ExtensionItemList>
-      <ExtensionItemRow title={t('Auto-unload when idle')}
-        description={t('Active requests and queued work keep the model loaded.')}
-        control={<OpenSelect className="extensions-select" ariaLabel={t('Auto-unload when idle')}
-          value={String(ttl)} disabled={actions.busy}
-          options={presets.map((seconds) => ({ value: String(seconds), label: localIdleLabel(seconds) }))}
-          onChange={(value) => actions.setIdleTtl(Number(value))} />} />
-    </ExtensionItemList>
-  </ExtensionSection>
-  <LocalProviderOperations status={status} actions={actions} />
-  </>;
+  return (
+    <>
+      <ExtensionSection title={t('Installed models')} count={installed.length}>
+        {!installed.length && (
+          <ExtensionNote>
+            {t('No models installed.')}{' '}
+            {t('To add a model, ask in chat. The local-provider skill checks your PC and guides installation.')}
+          </ExtensionNote>
+        )}
+        {installed.length > 0 && (
+          <ExtensionItemList>
+            {installed.map((model) => {
+              const modelId = String(model.id);
+              const details = [
+                localProviderFileSize(model.sizeBytes),
+                `~${localProviderFileSize(model.estimatedVramBytes)} VRAM`,
+                contextSize(model.contextWindow),
+              ]
+                .filter(Boolean)
+                .join(' · ');
+              return (
+                <LocalProviderModelRow
+                  key={modelId}
+                  model={model}
+                  status={status}
+                  actions={actions}
+                  details={details}
+                />
+              );
+            })}
+          </ExtensionItemList>
+        )}
+      </ExtensionSection>
+      <ExtensionSection title={t('Model loading')}>
+        <ExtensionItemList>
+          <ExtensionItemRow
+            title={t('Auto-unload when idle')}
+            description={t('Active requests and queued work keep the model loaded.')}
+            control={
+              <OpenSelect
+                className="extensions-select"
+                ariaLabel={t('Auto-unload when idle')}
+                value={String(ttl)}
+                disabled={actions.busy}
+                options={presets.map((seconds) => ({ value: String(seconds), label: localIdleLabel(seconds) }))}
+                onChange={(value) => actions.setIdleTtl(Number(value))}
+              />
+            }
+          />
+        </ExtensionItemList>
+      </ExtensionSection>
+      <LocalProviderOperations status={status} actions={actions} />
+    </>
+  );
 }

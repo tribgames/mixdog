@@ -10,11 +10,7 @@ export function runtimePackageSource(rootDir, entryPath) {
   return { relativePath, source };
 }
 
-export async function copyRuntimePackagePayload({
-  rootDir,
-  manifest,
-  destination,
-}) {
+export async function copyRuntimePackagePayload({ rootDir, manifest, destination }) {
   await mkdir(destination, { recursive: true });
   for (const entry of manifest.files) {
     const { relativePath, source } = runtimePackageSource(rootDir, entry.path);
@@ -25,7 +21,9 @@ export async function copyRuntimePackagePayload({
 
   const officeTemplateDir = join(destination, 'src', 'runtime', 'office', 'design', 'library', 'templates');
   const officeTemplates = await readdir(officeTemplateDir, { withFileTypes: true }).catch(() => []);
-  await Promise.all(officeTemplates
-    .filter((entry) => entry.isFile() && /\.mixdog-edit\.[^.]+$/i.test(entry.name))
-    .map((entry) => rm(join(officeTemplateDir, entry.name), { force: true })));
+  await Promise.all(
+    officeTemplates
+      .filter((entry) => entry.isFile() && /\.mixdog-edit\.[^.]+$/i.test(entry.name))
+      .map((entry) => rm(join(officeTemplateDir, entry.name), { force: true }))
+  );
 }

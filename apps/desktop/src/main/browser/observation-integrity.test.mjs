@@ -16,14 +16,23 @@ import { createBrowserRefActions } from './ref-actions.ts';
 import { normalizeAgentUrl, assertResolvedAddressAllowed } from './url-policy.ts';
 import { createBrowserDownloads } from './downloads.ts';
 
-const page = () => Object.assign(new EventEmitter(), { getURL: () => 'https://fixture.example/', getTitle: () => 'Fixture', getZoomFactor: () => 1, isLoading: () => false });
+const page = () =>
+  Object.assign(new EventEmitter(), {
+    getURL: () => 'https://fixture.example/',
+    getTitle: () => 'Fixture',
+    getZoomFactor: () => 1,
+    isLoading: () => false,
+  });
 test('canonical IPv4-mapped private and metadata addresses are rejected', () => {
   for (const address of ['::ffff:192.168.1.1', '::ffff:c0a8:101', '::ffff:a9fe:a9fe', '0:0:0:0:0:ffff:0a00:0001']) {
     assert.throws(() => normalizeAgentUrl(`http://[${address}]/`), /private|metadata/);
   }
   assert.match(normalizeAgentUrl('http://[::ffff:8.8.8.8]/'), /808:808/);
   assert.throws(() => normalizeAgentUrl('http://[::ffff:a9fe:a9fe]/', { allowPrivateNetwork: true }), /metadata/);
-  assert.throws(() => assertResolvedAddressAllowed('::ffff:a9fe:a9fe', 'fixture.example', { allowPrivateNetwork: true }), /metadata/);
+  assert.throws(
+    () => assertResolvedAddressAllowed('::ffff:a9fe:a9fe', 'fixture.example', { allowPrivateNetwork: true }),
+    /metadata/
+  );
 });
 
 test('cookie values stay private and known secrets remain masked in reads after navigation', async () => {
@@ -37,8 +46,19 @@ test('cookie values stay private and known secrets remain masked in reads after 
   assert.equal(state.for(guest).remoteFrame, undefined);
   assert.equal(state.for(guest).refSet, undefined);
   const read = await observationActions.read({
-    guest, command: { action: 'read' }, services: { state,
-      documents: { readPage: async () => ({ url: guest.getURL(), title: 'Fixture', text: secret, total: secret.length, offset: 0 }) },
+    guest,
+    command: { action: 'read' },
+    services: {
+      state,
+      documents: {
+        readPage: async () => ({
+          url: guest.getURL(),
+          title: 'Fixture',
+          text: secret,
+          total: secret.length,
+          offset: 0,
+        }),
+      },
     },
   });
   assert.ok(!read.text.includes(secret));
@@ -53,8 +73,12 @@ test('same-page observations serialize their generations while independent pages
   let active = 0;
   let peak = 0;
   const queue = createBrowserCommandQueue({
-    chains: new Map(), pendingReads: new Map(), backgroundEntryByPageId: () => null,
-    readOnlyActions: READ_ONLY_ACTIONS, commandTimeoutMs: 1000, bounded: async (p) => p,
+    chains: new Map(),
+    pendingReads: new Map(),
+    backgroundEntryByPageId: () => null,
+    readOnlyActions: READ_ONLY_ACTIONS,
+    commandTimeoutMs: 1000,
+    bounded: async (p) => p,
     run: async () => {
       peak = Math.max(peak, ++active);
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -72,28 +96,43 @@ test('failed observation cannot satisfy textGone and blocked sequence steps neve
   const guest = page();
   let probes = 0;
   const waited = await flowActions.wait({
-    guest, command: { action: 'wait', textGone: 'Saving' },
+    guest,
+    command: { action: 'wait', textGone: 'Saving' },
     services: {
       documents: {
         observeChanges: async () => ({ latch: createBrowserChangeLatch(), close: async () => {} }),
-        pageText: async () => { if (++probes === 1) throw new Error('context destroyed'); return 'Saved'; },
+        pageText: async () => {
+          if (++probes === 1) throw new Error('context destroyed');
+          return 'Saved';
+        },
       },
       reply: { snapshotResult: async () => ({ text: 'Saved' }) },
     },
   });
   assert.equal(probes, 2);
   assert.match(waited.text, /Condition met/);
-  const settle = createBrowserSettle({ pageText: async () => { throw new Error('frame unavailable'); } });
+  const settle = createBrowserSettle({
+    pageText: async () => {
+      throw new Error('frame unavailable');
+    },
+  });
   assert.equal(await settle.postconditionMatchesGuest(guest, { textGone: 'Saving' }), false);
   let calls = 0;
-  await assert.rejects(flowActions.sequence({
-    guest, command: { action: 'sequence', steps: [{ action: 'click' }, { action: 'click' }] },
-    services: {
-      state: new BrowserGuestStateStore(),
-      runCommand: async () => { calls++; return { outcome: 'blocked', text: 'dialog blocked' }; },
-      reply: { snapshotResult: async () => ({ text: 'dialog blocked' }) },
-    },
-  }), /Sequence stopped.*no step completed/);
+  await assert.rejects(
+    flowActions.sequence({
+      guest,
+      command: { action: 'sequence', steps: [{ action: 'click' }, { action: 'click' }] },
+      services: {
+        state: new BrowserGuestStateStore(),
+        runCommand: async () => {
+          calls++;
+          return { outcome: 'blocked', text: 'dialog blocked' };
+        },
+        reply: { snapshotResult: async () => ({ text: 'dialog blocked' }) },
+      },
+    }),
+    /Sequence stopped.*no step completed/
+  );
   assert.equal(calls, 1);
 });
 
@@ -103,13 +142,23 @@ test('remote frame is consumed once and changed pixels or revisions refuse input
     const state = new BrowserGuestStateStore();
     let taps = 0;
     const remote = createBrowserRemoteControl({
-      state, ensureGuest: async () => guest, noteRemoteViewer() {}, cdp: {},
-      revision: async () => variant === 'revision' ? 'new' : 'old',
+      state,
+      ensureGuest: async () => guest,
+      noteRemoteViewer() {},
+      cdp: {},
+      revision: async () => (variant === 'revision' ? 'new' : 'old'),
       captureScreenshot: async () => ({ data: variant === 'pixels' ? 'new' : 'pixels' }),
-      input: { tapAt: async () => { taps++; } },
+      input: {
+        tapAt: async () => {
+          taps++;
+        },
+      },
     });
     state.for(guest).remoteFrame = {
-      frameId: 'frame', url: guest.getURL(), capturedAt: Date.now(), revision: 'old',
+      frameId: 'frame',
+      url: guest.getURL(),
+      capturedAt: Date.now(),
+      revision: 'old',
       image: { data: 'pixels' },
     };
     const command = { type: 'tap', frameId: 'frame', x: 1, y: 1 };
@@ -125,23 +174,29 @@ test('remote frame is consumed once and changed pixels or revisions refuse input
 });
 
 test('fill respects readonly, disabled and disabled fieldset in AX and fallback paths', async () => {
-  const dom = new JSDOM('<input readonly value="original"><fieldset disabled><input value="original"></fieldset><input disabled value="original">', { runScripts: 'outside-only' });
+  const dom = new JSDOM(
+    '<input readonly value="original"><fieldset disabled><input value="original"></fieldset><input disabled value="original">',
+    { runScripts: 'outside-only' }
+  );
   try {
     for (const input of dom.window.document.querySelectorAll('input')) {
       input.scrollIntoView = () => {};
       for (const ax of [true, false]) {
         dom.window.__mixdogAgentSnapshot = { refs: new Map([['ref', input]]) };
         const refs = createBrowserRefActions({
-          callAccessibilityRef: async (_guest, _ref, source, args) => ax
-            ? { handled: true, value: dom.window.Function(`return (${source})`)().apply(input, args) }
-            : { handled: false },
+          callAccessibilityRef: async (_guest, _ref, source, args) =>
+            ax
+              ? { handled: true, value: dom.window.Function(`return (${source})`)().apply(input, args) }
+              : { handled: false },
           evaluate: async (_guest, source) => dom.window.eval(source),
         });
         await assert.rejects(refs.fillRef(page(), 'ref', 'changed'), /readonly|disabled/);
         assert.equal(input.value, 'original');
       }
     }
-  } finally { dom.window.close(); }
+  } finally {
+    dom.window.close();
+  }
 });
 
 test('download wait pins newest file rather than an older completed download', async () => {
@@ -151,7 +206,12 @@ test('download wait pins newest file rather than an older completed download', a
   ];
   let polls = 0;
   const downloads = createBrowserDownloads({
-    downloads: () => entries, pause: async () => { polls++; entries[0].state = 'completed'; }, attachMaxBytes: 1,
+    downloads: () => entries,
+    pause: async () => {
+      polls++;
+      entries[0].state = 'completed';
+    },
+    attachMaxBytes: 1,
   });
   await downloads.listDownloads('s', { wait: true });
   assert.equal(polls, 1);
@@ -170,7 +230,8 @@ test('document traversal includes open shadow roots and uses child target contex
       guestDebugger: async () => new EventEmitter(),
       call: async (_guest, method, params, _signal, options) => {
         calls.push([method, options?.sessionId]);
-        if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: options?.sessionId ? 'child-frame' : 'root' } } };
+        if (method === 'Page.getFrameTree')
+          return { frameTree: { frame: { id: options?.sessionId ? 'child-frame' : 'root' } } };
         if (method === 'Page.createIsolatedWorld') return { executionContextId: 1 };
         if (failure && options?.sessionId) throw new Error('frame unavailable');
         return { result: { value: options?.sessionId ? 'child text' : 'root text' } };

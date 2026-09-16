@@ -19,25 +19,52 @@ export function captureResultPayload(input: {
   continuation: unknown;
   ocrPayload?: Record<string, unknown>;
 }): Record<string, unknown> {
-  const { captureOk, mode, screenshot, observationWindowId, requestedWindowId,
-    generation, totalElements, ocrElementCount, returnedAccessibilityElements, elements,
-    visualOnlyCacheHit, accessibilityError, semanticAccessibilityAvailable,
-    changes, continuation, ocrPayload } = input;
+  const {
+    captureOk,
+    mode,
+    screenshot,
+    observationWindowId,
+    requestedWindowId,
+    generation,
+    totalElements,
+    ocrElementCount,
+    returnedAccessibilityElements,
+    elements,
+    visualOnlyCacheHit,
+    accessibilityError,
+    semanticAccessibilityAvailable,
+    changes,
+    continuation,
+    ocrPayload,
+  } = input;
   const truncatedAccessibilityElements = Math.max(0, totalElements - returnedAccessibilityElements);
   return {
-    ok: captureOk, action: 'capture', mode,
+    ok: captureOk,
+    action: 'capture',
+    mode,
     coordinate_space: screenshot?.frame ? 'frame' : 'screen',
     ...(screenshot?.route ? { capture_source: screenshot.route } : {}),
     ...(screenshot?.captureAttempts?.length ? { capture_attempts: screenshot.captureAttempts } : {}),
     ...(observationWindowId ? { window_id: observationWindowId } : {}),
-    ...(requestedWindowId && requestedWindowId !== observationWindowId ? {
-      requested_window_id: requestedWindowId, capture_target_reason: 'capturable_owner',
-    } : {}),
+    ...(requestedWindowId && requestedWindowId !== observationWindowId
+      ? {
+          requested_window_id: requestedWindowId,
+          capture_target_reason: 'capturable_owner',
+        }
+      : {}),
     ...(generation !== null ? { generation } : {}),
     total_elements: totalElements + ocrElementCount,
     returned_elements: elements.length,
-    accessibility_status: mode === 'vision' ? 'not_requested' : visualOnlyCacheHit ? 'visual_only_cached'
-      : accessibilityError ? 'error' : semanticAccessibilityAvailable ? 'available' : 'empty',
+    accessibility_status:
+      mode === 'vision'
+        ? 'not_requested'
+        : visualOnlyCacheHit
+          ? 'visual_only_cached'
+          : accessibilityError
+            ? 'error'
+            : semanticAccessibilityAvailable
+              ? 'available'
+              : 'empty',
     ...(visualOnlyCacheHit ? { accessibility_cache: 'visual_only' } : {}),
     ...(accessibilityError ? { accessibility_error: accessibilityError } : {}),
     ...(changes ? { changes } : {}),
@@ -48,6 +75,8 @@ export function captureResultPayload(input: {
     ...(mode !== 'vision' ? { elements } : {}),
     ...(ocrPayload ? { ocr: ocrPayload } : {}),
     pixel_status: screenshot?.pixelUnavailable ? 'unavailable' : mode === 'ax' ? 'not_requested' : 'available',
-    ...(screenshot?.pixelUnavailable ? { pixel_unavailable: screenshot.pixelUnavailable, escalation: 'recapture' } : {}),
+    ...(screenshot?.pixelUnavailable
+      ? { pixel_unavailable: screenshot.pixelUnavailable, escalation: 'recapture' }
+      : {}),
   };
 }

@@ -2,7 +2,12 @@
 // resolution, route-effort refresh, and createCurrentSession (provider
 // session construction with MCP wiring and reset handling). Shared mutable
 // runtime state flows through the rt bag.
-import { ensureProviderEnabled, modelMetaLooksResolved, modelSettingsFor, normalizeCompactionConfig } from './config-helpers.mjs';
+import {
+  ensureProviderEnabled,
+  modelMetaLooksResolved,
+  modelSettingsFor,
+  normalizeCompactionConfig,
+} from './config-helpers.mjs';
 import { clean, hasOwn } from './session-text.mjs';
 import { coerceEffortFor, deferredSurfaceModeForLead, effortItemsFor, toolSpecForMode } from './effort.mjs';
 import { filterMcpToolsForSession } from './extension-scopes.mjs';
@@ -23,9 +28,7 @@ import { createSessionTranscript } from './session-transcript.mjs';
 import { runAbortable, throwIfAborted } from '../runtime/shared/abort-race.mjs';
 
 export function resolveRouteEffortState(targetRoute = {}, modelMeta = null) {
-  const requested = hasOwn(targetRoute, 'effort')
-    ? targetRoute.effort
-    : (targetRoute.preset?.effort || null);
+  const requested = hasOwn(targetRoute, 'effort') ? targetRoute.effort : targetRoute.preset?.effort || null;
   const metadataResolved = modelMetaLooksResolved(modelMeta);
   // A cold runtime initially has only `{ id, provider }`. Treating that
   // placeholder as authoritative erased a persisted effort and disabled a
@@ -34,14 +37,9 @@ export function resolveRouteEffortState(targetRoute = {}, modelMeta = null) {
   // available; the provider still validates the exact variant before send.
   const effectiveEffort = metadataResolved
     ? coerceEffortFor(targetRoute.provider, modelMeta, requested)
-    : (requested || null);
+    : requested || null;
   const fastCapable = metadataResolved
-    ? fastCapableFor(
-      targetRoute.provider,
-      modelMeta,
-      effectiveEffort,
-      targetRoute.modelParameters,
-    )
+    ? fastCapableFor(targetRoute.provider, modelMeta, effectiveEffort, targetRoute.modelParameters)
     : targetRoute.fast === true;
   return { effectiveEffort, fastCapable, metadataResolved };
 }
@@ -59,11 +57,7 @@ function cachedRouteWindows(provider, model) {
   return contextWindow > 0 || maxContextWindow > 0 ? { contextWindow, maxContextWindow } : null;
 }
 
-export function resolveRouteContextState(
-  targetRoute = {},
-  modelMeta = null,
-  windowLookup = cachedRouteWindows,
-) {
+export function resolveRouteContextState(targetRoute = {}, modelMeta = null, windowLookup = cachedRouteWindows) {
   // Only providers that implement getCachedModelInfo (openai-oauth, cursor,
   // openai-compat, opencode-go) hand lookupModelMeta a window; every other one
   // (anthropic-oauth, grok-oauth, gemini, …) gets the bare `{ id, provider }`
@@ -72,25 +66,25 @@ export function resolveRouteContextState(
   // went on to size that session from the provider/catalog window (Claude Opus 5:
   // a full 1M rather than the selected 500k). Read the cached provider row here so
   // the percentage and the session boundary cannot disagree.
-  const windowMeta = Number(modelMeta?.contextWindow) > 0 || Number(modelMeta?.maxContextWindow) > 0
-    ? modelMeta
-    : (windowLookup?.(clean(targetRoute?.provider), clean(targetRoute?.model)) || modelMeta);
+  const windowMeta =
+    Number(modelMeta?.contextWindow) > 0 || Number(modelMeta?.maxContextWindow) > 0
+      ? modelMeta
+      : windowLookup?.(clean(targetRoute?.provider), clean(targetRoute?.model)) || modelMeta;
   const defaultWindow = Math.max(0, Number(windowMeta?.contextWindow) || 0);
   const maxWindow = Math.max(defaultWindow, Number(windowMeta?.maxContextWindow) || 0);
   if (!maxWindow) {
     return { contextPercent: undefined, contextDefaultPercent: undefined, selectedContextWindow: undefined };
   }
-  const contextDefaultPercent = Math.max(
-    10,
-    Math.min(100, Math.round((defaultWindow / maxWindow) * 10) * 10),
-  );
+  const contextDefaultPercent = Math.max(10, Math.min(100, Math.round((defaultWindow / maxWindow) * 10) * 10));
   const requested = Number(targetRoute?.contextPercent);
-  const contextPercent = Number.isFinite(requested) && requested > 0
-    ? Math.max(10, Math.min(100, Math.round(requested / 10) * 10))
-    : contextDefaultPercent;
-  const selectedContextWindow = contextPercent === contextDefaultPercent
-    ? defaultWindow
-    : Math.max(1, Math.floor(maxWindow * contextPercent / 100));
+  const contextPercent =
+    Number.isFinite(requested) && requested > 0
+      ? Math.max(10, Math.min(100, Math.round(requested / 10) * 10))
+      : contextDefaultPercent;
+  const selectedContextWindow =
+    contextPercent === contextDefaultPercent
+      ? defaultWindow
+      : Math.max(1, Math.floor((maxWindow * contextPercent) / 100));
   return { contextPercent, contextDefaultPercent, selectedContextWindow };
 }
 
@@ -162,10 +156,8 @@ export function createSessionLifecycle({
   async function refreshRouteEffort(modelMetaOverride = null, expectedRoute = null, signal = null) {
     const targetRoute = expectedRoute || rt.route;
     await runAbortable(signal, () => ensureProvidersReady(ensureProviderEnabled(rt.config, targetRoute.provider)));
-    const modelMeta = modelMetaOverride || await runAbortable(
-      signal,
-      () => lookupModelMeta(targetRoute.provider, targetRoute.model),
-    );
+    const modelMeta =
+      modelMetaOverride || (await runAbortable(signal, () => lookupModelMeta(targetRoute.provider, targetRoute.model)));
     throwIfAborted(signal);
     // A rapid second resume/model change can replace the route while provider
     // metadata is loading. Never let the older completion overwrite it.
@@ -174,8 +166,8 @@ export function createSessionLifecycle({
     const contextState = resolveRouteContextState(targetRoute, modelMeta);
     const contextValue = clean(targetRoute.modelParameters?.context);
     const contextOption = (modelMeta?.modelParameterOptions || [])
-      .find((option) => option?.id === 'context')?.options
-      ?.find((option) => clean(option?.value) === contextValue);
+      .find((option) => option?.id === 'context')
+      ?.options?.find((option) => clean(option?.value) === contextValue);
     // Carry the catalog display name onto the route so the statusline shows a
     // human label (e.g. "Claude Fable 5") for preset-less direct models instead
     // of the raw id. `name` is only trusted when it differs from the raw model
@@ -184,10 +176,12 @@ export function createSessionLifecycle({
     const metaName = clean(modelMeta?.name);
     // A display-only user alias (modelSettings[provider/model].alias) wins
     // over every catalog label so the statusline matches the picker.
-    const modelDisplay = clean(modelSettingsFor(rt.config, targetRoute.provider, targetRoute.model)?.alias)
-      || clean(modelMeta?.display) || clean(modelMeta?.displayName)
-      || (metaName && metaName !== clean(targetRoute.model) ? metaName : '')
-      || clean(targetRoute.modelDisplay);
+    const modelDisplay =
+      clean(modelSettingsFor(rt.config, targetRoute.provider, targetRoute.model)?.alias) ||
+      clean(modelMeta?.display) ||
+      clean(modelMeta?.displayName) ||
+      (metaName && metaName !== clean(targetRoute.model) ? metaName : '') ||
+      clean(targetRoute.modelDisplay);
     rt.route = {
       ...targetRoute,
       fast: fastCapable ? targetRoute.fast === true : false,
@@ -265,10 +259,9 @@ export function createSessionLifecycle({
       // Route effort waits on provider readiness while the already-started
       // memory load continues independently.
       const expectedRoute = rt.route;
-      const [, coreMemoryContext] = await runAbortable(signal, () => Promise.all([
-        refreshRouteEffort(null, expectedRoute, signal),
-        coreMemoryContextPromise,
-      ]));
+      const [, coreMemoryContext] = await runAbortable(signal, () =>
+        Promise.all([refreshRouteEffort(null, expectedRoute, signal), coreMemoryContextPromise])
+      );
       throwIfAborted(signal);
       bootProfile('session:create:effort-ready', { ms: (performance.now() - startedAt).toFixed(1) });
       const providerImpl = reg.getProvider(rt.route.provider);
@@ -281,11 +274,8 @@ export function createSessionLifecycle({
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       // Load the active WORKFLOW.md pack once for both summary + context block.
       const { summary: workflow, context: workflowContext } = activeWorkflowContext(rt.config, dataDir);
-      const sessionProfile = rt.sessionProfile && typeof rt.sessionProfile === 'object'
-        ? rt.sessionProfile
-        : null;
-      const agentOwned = sessionProfile?.owner === 'agent'
-        || sessionProfile?.visibility === 'agent-only';
+      const sessionProfile = rt.sessionProfile && typeof rt.sessionProfile === 'object' ? rt.sessionProfile : null;
+      const agentOwned = sessionProfile?.owner === 'agent' || sessionProfile?.visibility === 'agent-only';
       const sessionOpts = {
         ...(rt.reservedSessionId ? { id: rt.reservedSessionId } : {}),
         provider: rt.route.provider,
@@ -294,20 +284,16 @@ export function createSessionLifecycle({
         tools: toolSpecForMode(rt.mode),
         ...(Array.isArray(schemaAllowedTools) ? { schemaAllowedTools } : {}),
         owner: agentOwned ? 'agent' : 'cli',
-        agent: agentOwned ? (sessionProfile?.agent || 'worker') : 'lead',
+        agent: agentOwned ? sessionProfile?.agent || 'worker' : 'lead',
         lane: agentOwned ? 'agent' : 'cli',
-        sourceType: agentOwned ? (sessionProfile?.sourceType || 'agent') : 'lead',
-        sourceName: agentOwned ? (sessionProfile?.sourceName || sessionProfile?.agent || 'agent') : 'main',
+        sourceType: agentOwned ? sessionProfile?.sourceType || 'agent' : 'lead',
+        sourceName: agentOwned ? sessionProfile?.sourceName || sessionProfile?.agent || 'agent' : 'main',
         ...(rt.approvalMode ? { approvalMode: rt.approvalMode } : {}),
         clientHostPid: sessionProfile?.clientHostPid || process.pid,
         mcpScopeId: rt.mcpScopeId,
         disallowedTools: agentOwned
           ? [...featureDisallowedTools()]
-          : [
-              ...LEAD_DISALLOWED_TOOLS,
-              ...(rt.disallowDelegation ? ['agent'] : []),
-              ...featureDisallowedTools(),
-            ],
+          : [...LEAD_DISALLOWED_TOOLS, ...(rt.disallowDelegation ? ['agent'] : []), ...featureDisallowedTools()],
         cwd: rt.currentCwd,
         ...(rt.desktopSession && typeof rt.desktopSession === 'object' ? { desktopSession: rt.desktopSession } : {}),
         coreMemoryContext,
@@ -317,21 +303,24 @@ export function createSessionLifecycle({
         modelParameters: rt.route.modelParameters || {},
         contextPercent: rt.route.contextPercent,
         selectedContextWindow: rt.route.selectedContextWindow || null,
-        compaction: rt.config.compaction && typeof rt.config.compaction === 'object'
-          ? normalizeCompactionConfig(rt.config.compaction)
-          : undefined,
-        ...(agentOwned ? {
-          parentSessionId: sessionProfile?.parentSessionId || null,
-          ownerSessionId: sessionProfile?.ownerSessionId || sessionProfile?.parentSessionId || null,
-          visibility: 'agent-only',
-          agentTag: sessionProfile?.agentTag || null,
-          taskType: sessionProfile?.taskType || null,
-          permission: sessionProfile?.permission || undefined,
-          permissionMode: sessionProfile?.permissionMode || undefined,
-          schemaAllowedTools: Array.isArray(sessionProfile?.schemaAllowedTools)
-            ? sessionProfile.schemaAllowedTools
+        compaction:
+          rt.config.compaction && typeof rt.config.compaction === 'object'
+            ? normalizeCompactionConfig(rt.config.compaction)
             : undefined,
-        } : {}),
+        ...(agentOwned
+          ? {
+              parentSessionId: sessionProfile?.parentSessionId || null,
+              ownerSessionId: sessionProfile?.ownerSessionId || sessionProfile?.parentSessionId || null,
+              visibility: 'agent-only',
+              agentTag: sessionProfile?.agentTag || null,
+              taskType: sessionProfile?.taskType || null,
+              permission: sessionProfile?.permission || undefined,
+              permissionMode: sessionProfile?.permissionMode || undefined,
+              schemaAllowedTools: Array.isArray(sessionProfile?.schemaAllowedTools)
+                ? sessionProfile.schemaAllowedTools
+                : undefined,
+            }
+          : {}),
       };
       if (hasOwn(rt.route, 'effort') || rt.route.effectiveEffort) {
         sessionOpts.effort = rt.route.effectiveEffort || null;
@@ -351,15 +340,16 @@ export function createSessionLifecycle({
         connectedMcpTools = filterMcpToolsForSession(
           mcpClient.getMcpTools?.(rt.mcpScopeId) || [],
           rt.currentCwd,
-          rt.config,
+          rt.config
         );
+      } catch {
+        connectedMcpTools = [];
       }
-      catch { connectedMcpTools = []; }
       applyDeferredToolSurface(
         rt.session,
         deferredSurfaceModeForLead(rt.mode),
         connectedMcpTools.length ? [...modelStandaloneTools(), ...connectedMcpTools] : modelStandaloneTools(),
-        { provider: rt.route.provider },
+        { provider: rt.route.provider }
       );
       // Session-local one-shot: mark this FRESH session eligible for the
       // first-turn deferred-surface refresh (session-turn-api). A resumed
@@ -371,24 +361,39 @@ export function createSessionLifecycle({
       writeStatuslineRoute(statusRoutes, rt.session, rt.route);
       try {
         agentTool?.upsertLeadSession?.(rt.session, { status: 'idle', stage: 'idle' });
-      } catch { /* lead pool must never break session create */ }
-      hooks.emit('session:create', { sessionId: rt.session.id, provider: rt.route.provider, model: rt.route.model, toolMode: rt.mode, cwd: rt.currentCwd });
+      } catch {
+        /* lead pool must never break session create */
+      }
+      hooks.emit('session:create', {
+        sessionId: rt.session.id,
+        provider: rt.route.provider,
+        model: rt.route.model,
+        toolMode: rt.mode,
+        cwd: rt.currentCwd,
+      });
       // SessionStart: bridge to the standard project hook bus. Best-effort;
       // a hook error must never break session creation. additionalContext is
       // injected before the first user turn as a system-reminder context pair.
       try {
         const startSource = /resume/i.test(String(reason || ''))
           ? 'resume'
-          : (/clear/i.test(String(reason || '')) ? 'clear' : 'startup');
-        const startDispatch = await runAbortable(
-          signal,
-          () => hooks.dispatch('SessionStart', hookCommonPayload({ session_id: rt.session.id, source: startSource, model: rt.route.model })),
+          : /clear/i.test(String(reason || ''))
+            ? 'clear'
+            : 'startup';
+        const startDispatch = await runAbortable(signal, () =>
+          hooks.dispatch(
+            'SessionStart',
+            hookCommonPayload({ session_id: rt.session.id, source: startSource, model: rt.route.model })
+          )
         );
         const startContext = Array.isArray(startDispatch?.additionalContext)
           ? startDispatch.additionalContext.join('\n\n')
           : String(startDispatch?.additionalContext || '');
         if (startContext.trim()) {
-          rt.session.messages.push({ role: 'user', content: `<system-reminder>\n# SessionStart Hook Context\n${startContext.trim()}\n</system-reminder>` });
+          rt.session.messages.push({
+            role: 'user',
+            content: `<system-reminder>\n# SessionStart Hook Context\n${startContext.trim()}\n</system-reminder>`,
+          });
           rt.session.messages.push({ role: 'assistant', content: '.' });
           rt.session.updatedAt = Date.now();
         }
@@ -396,14 +401,18 @@ export function createSessionLifecycle({
         throwIfAborted(signal);
         // best-effort: ordinary hook failure never breaks session create
       }
-      if (rt.session.provider === 'openai-oauth'
-        && Number(rt.session.totalInputTokens || 0) === 0
-        && !rt.session.providerState
-        && typeof providerImpl.prewarmWsTransportForSession === 'function') {
-        void Promise.resolve(providerImpl.prewarmWsTransportForSession({
-          sessionId: rt.session.id,
-          session: rt.session,
-        })).catch(() => {});
+      if (
+        rt.session.provider === 'openai-oauth' &&
+        Number(rt.session.totalInputTokens || 0) === 0 &&
+        !rt.session.providerState &&
+        typeof providerImpl.prewarmWsTransportForSession === 'function'
+      ) {
+        void Promise.resolve(
+          providerImpl.prewarmWsTransportForSession({
+            sessionId: rt.session.id,
+            session: rt.session,
+          })
+        ).catch(() => {});
       }
       throwIfAborted(signal);
       bootProfile('session:create:ready', {

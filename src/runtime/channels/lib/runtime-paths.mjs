@@ -1,27 +1,26 @@
-import { readFileSync, readdirSync, statSync, writeFileSync } from "fs";
-import { execFileSync } from "child_process";
-import { basename, join } from "path";
-import { ensureDir, readJsonFile, removeFileIfExists } from "./state-file.mjs";
-import { isPidAlive } from "../../shared/pid-liveness.mjs";
-import { updateJsonAtomicSync, withFileLockSync } from "../../shared/atomic-file.mjs";
-import { resolvePluginData, mixdogRoot } from "../../shared/plugin-paths.mjs";
-import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from "../../shared/runtime-root.mjs";
+import { readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
+import { execFileSync } from 'child_process';
+import { basename, join } from 'path';
+import { ensureDir, readJsonFile, removeFileIfExists } from './state-file.mjs';
+import { isPidAlive } from '../../shared/pid-liveness.mjs';
+import { updateJsonAtomicSync, withFileLockSync } from '../../shared/atomic-file.mjs';
+import { resolvePluginData, mixdogRoot } from '../../shared/plugin-paths.mjs';
+import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../../shared/runtime-root.mjs';
 const RUNTIME_ROOT = resolveRuntimeRoot();
-const OWNER_DIR = join(RUNTIME_ROOT, "owners");
-const ACTIVE_INSTANCE_FILE = join(RUNTIME_ROOT, "active-instance.json");
+const OWNER_DIR = join(RUNTIME_ROOT, 'owners');
+const ACTIVE_INSTANCE_FILE = join(RUNTIME_ROOT, 'active-instance.json');
 const RUNTIME_STALE_TTL = 24 * 60 * 60 * 1e3;
 const STATUS_FILE_TTL = 6 * 60 * 60 * 1e3;
 const TMP_FILE_TTL = 60 * 60 * 1e3;
 function sanitize(value) {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "_");
+  return value.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 function forEachFile(dirPath, visit) {
   try {
     for (const fileName of readdirSync(dirPath)) {
       visit(join(dirPath, fileName), fileName);
     }
-  } catch {
-  }
+  } catch {}
 }
 function ensureRuntimeDirs() {
   ensurePrivateRuntimeRoot(RUNTIME_ROOT);
@@ -52,21 +51,27 @@ function setOwnerContext(ctx) {
   // Synchronously re-advertise so external readers (statusline/webhook/memory)
   // see the new owner/cwd immediately, not on the next incidental refresh.
   if (changed) {
-    try { refreshActiveInstance(makeInstanceId(), {}); } catch {}
+    try {
+      refreshActiveInstance(makeInstanceId(), {});
+    } catch {}
   }
 }
 function getServerPid() {
-  return parsePositivePid(process.env.MIXDOG_SERVER_PID) ?? (process.env.MIXDOG_WORKER_MODE === "1" ? null : process.pid);
+  return (
+    parsePositivePid(process.env.MIXDOG_SERVER_PID) ?? (process.env.MIXDOG_WORKER_MODE === '1' ? null : process.pid)
+  );
 }
 function getActiveOwnerPid(state) {
-  return parsePositivePid(state?.ownerLeadPid)
-    ?? parsePositivePid(state?.terminalLeadPid)
-    ?? parsePositivePid(state?.supervisor_pid)
-    ?? parsePositivePid(state?.instanceId);
+  return (
+    parsePositivePid(state?.ownerLeadPid) ??
+    parsePositivePid(state?.terminalLeadPid) ??
+    parsePositivePid(state?.supervisor_pid) ??
+    parsePositivePid(state?.instanceId)
+  );
 }
 function activeInstanceStaleReason(state) {
   const ownerPid = getActiveOwnerPid(state);
-  if (!isPidAlive(ownerPid)) return `owner PID ${ownerPid ?? "unknown"} is dead`;
+  if (!isPidAlive(ownerPid)) return `owner PID ${ownerPid ?? 'unknown'} is dead`;
   const channelsPid = parsePositivePid(state?.channels_pid);
   if (channelsPid && !isPidAlive(channelsPid)) return `channels PID ${channelsPid} is dead`;
   const workerPid = parsePositivePid(state?.worker_pid);
@@ -90,7 +95,7 @@ function buildRuntimeIdentity() {
     supervisor_pid: terminalLeadPid,
     server_pid: serverPid,
     worker_pid: process.pid,
-    ...process.env.MIXDOG_WORKER_MODE === "1" ? { channels_pid: process.pid } : {},
+    ...(process.env.MIXDOG_WORKER_MODE === '1' ? { channels_pid: process.pid } : {}),
     ...(_ownerContextOverride?.cwd ? { sessionCwd: _ownerContextOverride.cwd } : {}),
   };
 }
@@ -139,7 +144,11 @@ function readActiveInstance() {
 // never claimable/no-owner": a torn read during another writer's rename must
 // not be mistaken for an empty seat.
 function probeActiveOwner() {
-  try { statSync(ACTIVE_INSTANCE_FILE); } catch { return { status: 'absent', state: null }; }
+  try {
+    statSync(ACTIVE_INSTANCE_FILE);
+  } catch {
+    return { status: 'absent', state: null };
+  }
   let raw = readJsonFile(ACTIVE_INSTANCE_FILE, null);
   if (!raw) {
     // Transient partial content during an atomic rename — retry once.
@@ -148,7 +157,11 @@ function probeActiveOwner() {
     if (!raw) {
       // Re-check existence to disambiguate a completed delete (absent) from a
       // still-unreadable file (unknown/busy).
-      try { statSync(ACTIVE_INSTANCE_FILE); } catch { return { status: 'absent', state: null }; }
+      try {
+        statSync(ACTIVE_INSTANCE_FILE);
+      } catch {
+        return { status: 'absent', state: null };
+      }
       return { status: 'unknown', state: null };
     }
   }
@@ -157,9 +170,7 @@ function probeActiveOwner() {
   return { status: 'live', state: raw };
 }
 function buildActiveInstanceState(instanceId, meta) {
-  const gatewayMeta = Object.fromEntries(
-    Object.entries(meta || {}).filter(([k]) => k.startsWith('gateway_'))
-  );
+  const gatewayMeta = Object.fromEntries(Object.entries(meta || {}).filter(([k]) => k.startsWith('gateway_')));
   return {
     instanceId,
     ...buildRuntimeIdentity(),
@@ -168,11 +179,11 @@ function buildActiveInstanceState(instanceId, meta) {
     updatedAt: Date.now(),
     turnEndFile: getTurnEndPath(instanceId),
     statusFile: getStatusPath(instanceId),
-    ...meta?.channelId ? { channelId: meta.channelId } : {},
-      ...meta?.transcriptPath ? { transcriptPath: meta.transcriptPath } : {},
-      ...meta?.httpPort ? { httpPort: meta.httpPort } : {},
-      ...gatewayMeta,
-      ...typeof meta?.providerReady === "boolean" ? { providerReady: meta.providerReady } : {}
+    ...(meta?.channelId ? { channelId: meta.channelId } : {}),
+    ...(meta?.transcriptPath ? { transcriptPath: meta.transcriptPath } : {}),
+    ...(meta?.httpPort ? { httpPort: meta.httpPort } : {}),
+    ...gatewayMeta,
+    ...(typeof meta?.providerReady === 'boolean' ? { providerReady: meta.providerReady } : {}),
   };
 }
 function refreshActiveInstance(instanceId, meta, options) {
@@ -182,149 +193,161 @@ function refreshActiveInstance(instanceId, meta, options) {
   // throws ELOCKCONTENDED, which the caller treats as "busy, skip this tick".
   const writeOpts = { compact: true, fsync: false, fsyncDir: false, renameFallback: 'truncate' };
   if (options && Number.isFinite(options.timeoutMs)) writeOpts.timeoutMs = options.timeoutMs;
-  return updateJsonAtomicSync(ACTIVE_INSTANCE_FILE, (curRaw) => {
-    const prevForPreserve = curRaw;
-    const prev = activeInstanceStaleReason(curRaw) ? null : curRaw;
-    // CAS guard (opt-in via options.onlyIfOwned): heartbeat/refresh ticks
-    // check ownership OUTSIDE this lock, so a newer session can claim the
-    // seat between that check and this locked update. Without this re-read,
-    // the tick would overwrite the newer owner's instanceId (TOCTOU
-    // re-steal -> ownership ping-pong / double provider connections).
-    // Returning undefined aborts the update with no write. Explicit claims
-    // (boot, claimBridgeOwnership) omit the option and stay last-wins.
-    if (options?.onlyIfOwned && (!prev?.instanceId || prev.instanceId !== instanceId)) {
-      return undefined;
-    }
-    // CAS guard (opt-in via options.onlyIfVacant): auto-start claim-if-vacant.
-    // Abort the write when a live (non-stale) owner OTHER than us already holds
-    // the seat — an auto-start must never steal from a live owner. A stale/dead
-    // prior owner leaves prev=null above, so it does NOT block the claim; an
-    // absent seat (prev=null) is claimable too.
-    if (options?.onlyIfVacant && prev?.instanceId && prev.instanceId !== instanceId) {
-      return undefined;
-    }
-    // Drop stale fields (pid/startedAt) written by older server versions.
-    const { pid: _legacyPid, startedAt: _legacyStartedAt, ...prevRest } = prev ?? {};
-    const identity = buildRuntimeIdentity();
-    // server_started_at tracks the CURRENT server_pid's start time so the
-    // dev-sync barrier can verify the CHILD's freshness (the supervisor's
-    // supervisor_started_at is stable across child respawns and cannot).
-    // Preserve across refreshes when server_pid is unchanged; stamp fresh
-    // when server_pid is new/changed or there is no prev advert.
-    const prevServerPid = parsePositivePid(prevForPreserve?.server_pid);
-    const prevServerStartedAt = Number(prevForPreserve?.server_started_at);
-    const serverStartedAt = (
-      prevServerPid !== null
-      && identity.server_pid !== null
-      && prevServerPid === identity.server_pid
-      && Number.isFinite(prevServerStartedAt)
-    ) ? prevServerStartedAt : Date.now();
-    const gatewayMeta = Object.fromEntries(
-      Object.entries(meta || {}).filter(([k]) => k.startsWith('gateway_'))
-    );
-    const next = {
-      ...(prev?.instanceId === instanceId ? prevRest : buildActiveInstanceState(instanceId)),
-      ...identity,
-      server_started_at: serverStartedAt,
-      updatedAt: Date.now(),
-      ...meta?.channelId ? { channelId: meta.channelId } : {},
-      ...meta?.transcriptPath ? { transcriptPath: meta.transcriptPath } : {},
-      ...meta?.httpPort ? { httpPort: meta.httpPort } : {},
-      ...gatewayMeta,
-      ...typeof meta?.providerReady === "boolean" ? { providerReady: meta.providerReady } : {},
-    };
-    if (typeof meta?.transcriptPath === "string" && meta.transcriptPath) {
-      const outgoing = prevForPreserve?.transcriptPath;
-      if (typeof outgoing === "string" && outgoing) {
-        const outBase = basename(outgoing, ".jsonl");
-        const newBase = basename(meta.transcriptPath, ".jsonl");
-        if (outBase !== newBase) next.priorTranscriptPath = outgoing;
+  return updateJsonAtomicSync(
+    ACTIVE_INSTANCE_FILE,
+    (curRaw) => {
+      const prevForPreserve = curRaw;
+      const prev = activeInstanceStaleReason(curRaw) ? null : curRaw;
+      // CAS guard (opt-in via options.onlyIfOwned): heartbeat/refresh ticks
+      // check ownership OUTSIDE this lock, so a newer session can claim the
+      // seat between that check and this locked update. Without this re-read,
+      // the tick would overwrite the newer owner's instanceId (TOCTOU
+      // re-steal -> ownership ping-pong / double provider connections).
+      // Returning undefined aborts the update with no write. Explicit claims
+      // (boot, claimBridgeOwnership) omit the option and stay last-wins.
+      if (options?.onlyIfOwned && (!prev?.instanceId || prev.instanceId !== instanceId)) {
+        return undefined;
       }
-    }
-    // Ownership is strict last-wins (no pin): the newest claim always takes
-    // the seat. Drop any legacy `pinned` flag left by older versions — it was
-    // written but never consumed by any takeover check.
-    delete next.pinned;
-    // I1: pg_* spreads FIRST so newFields above win on conflict.
-    // prev.pg_port='A', meta.httpPort-adjacent pg_port='B' → result.pg_port='B'.
-    const preservedExtra = Object.fromEntries(
-      Object.entries(prevForPreserve ?? {}).filter(([k]) => k.startsWith('pg_'))
-    );
-    // gateway_port is preserved while the gateway owner is alive: the
-    // gateway child advertises itself independently, and active-owner
-    // heartbeats must not erase that discovery record while its owning
-    // server-main process is still alive.
-    const prevGatewayServerPid = parsePositivePid(prevForPreserve?.gateway_server_pid);
-    const prevGatewayOwnerAlive = (() => {
-      if (prevGatewayServerPid === null) return false;
-      try {
-        process.kill(prevGatewayServerPid, 0);
-        return true;
-      } catch (e) {
-        if (e && e.code === "ESRCH") return false;
-        return true;
+      // CAS guard (opt-in via options.onlyIfVacant): auto-start claim-if-vacant.
+      // Abort the write when a live (non-stale) owner OTHER than us already holds
+      // the seat — an auto-start must never steal from a live owner. A stale/dead
+      // prior owner leaves prev=null above, so it does NOT block the claim; an
+      // absent seat (prev=null) is claimable too.
+      if (options?.onlyIfVacant && prev?.instanceId && prev.instanceId !== instanceId) {
+        return undefined;
       }
-    })();
-    const sameGatewayAdvertiser =
-      prevGatewayServerPid !== null &&
-      identity.server_pid !== null &&
-      prevGatewayServerPid === identity.server_pid;
-    if (sameGatewayAdvertiser || prevGatewayOwnerAlive) {
-      if (prevForPreserve && Object.prototype.hasOwnProperty.call(prevForPreserve, 'gateway_port')) {
-        for (const [key, value] of Object.entries(prevForPreserve)) {
-          if (key.startsWith('gateway_')) preservedExtra[key] = value;
-        }
-        preservedExtra.gateway_server_pid = prevGatewayServerPid;
-        // Clear session-scoped gateway metrics when the transcript changes —
-        // a new session must not inherit the previous session's context
-        // usage before the gateway re-advertises.
-        const metricTranscript =
-          typeof prevForPreserve?.gateway_transcript_path === 'string' && prevForPreserve.gateway_transcript_path
-            ? prevForPreserve.gateway_transcript_path
-            : typeof prevForPreserve?.transcriptPath === 'string' && prevForPreserve.transcriptPath
-              ? prevForPreserve.transcriptPath
-              : null;
-        if (typeof meta?.transcriptPath === 'string' && meta.transcriptPath && metricTranscript !== meta.transcriptPath) {
-          delete preservedExtra.gateway_context_used_pct;
-          delete preservedExtra.gateway_last_usage;
-          delete next.gateway_context_used_pct;
-          delete next.gateway_last_usage;
+      // Drop stale fields (pid/startedAt) written by older server versions.
+      const { pid: _legacyPid, startedAt: _legacyStartedAt, ...prevRest } = prev ?? {};
+      const identity = buildRuntimeIdentity();
+      // server_started_at tracks the CURRENT server_pid's start time so the
+      // dev-sync barrier can verify the CHILD's freshness (the supervisor's
+      // supervisor_started_at is stable across child respawns and cannot).
+      // Preserve across refreshes when server_pid is unchanged; stamp fresh
+      // when server_pid is new/changed or there is no prev advert.
+      const prevServerPid = parsePositivePid(prevForPreserve?.server_pid);
+      const prevServerStartedAt = Number(prevForPreserve?.server_started_at);
+      const serverStartedAt =
+        prevServerPid !== null &&
+        identity.server_pid !== null &&
+        prevServerPid === identity.server_pid &&
+        Number.isFinite(prevServerStartedAt)
+          ? prevServerStartedAt
+          : Date.now();
+      const gatewayMeta = Object.fromEntries(Object.entries(meta || {}).filter(([k]) => k.startsWith('gateway_')));
+      const next = {
+        ...(prev?.instanceId === instanceId ? prevRest : buildActiveInstanceState(instanceId)),
+        ...identity,
+        server_started_at: serverStartedAt,
+        updatedAt: Date.now(),
+        ...(meta?.channelId ? { channelId: meta.channelId } : {}),
+        ...(meta?.transcriptPath ? { transcriptPath: meta.transcriptPath } : {}),
+        ...(meta?.httpPort ? { httpPort: meta.httpPort } : {}),
+        ...gatewayMeta,
+        ...(typeof meta?.providerReady === 'boolean' ? { providerReady: meta.providerReady } : {}),
+      };
+      if (typeof meta?.transcriptPath === 'string' && meta.transcriptPath) {
+        const outgoing = prevForPreserve?.transcriptPath;
+        if (typeof outgoing === 'string' && outgoing) {
+          const outBase = basename(outgoing, '.jsonl');
+          const newBase = basename(meta.transcriptPath, '.jsonl');
+          if (outBase !== newBase) next.priorTranscriptPath = outgoing;
         }
       }
-    }
-    return { ...preservedExtra, ...next };
-  }, writeOpts);
+      // Ownership is strict last-wins (no pin): the newest claim always takes
+      // the seat. Drop any legacy `pinned` flag left by older versions — it was
+      // written but never consumed by any takeover check.
+      delete next.pinned;
+      // I1: pg_* spreads FIRST so newFields above win on conflict.
+      // prev.pg_port='A', meta.httpPort-adjacent pg_port='B' → result.pg_port='B'.
+      const preservedExtra = Object.fromEntries(
+        Object.entries(prevForPreserve ?? {}).filter(([k]) => k.startsWith('pg_'))
+      );
+      // gateway_port is preserved while the gateway owner is alive: the
+      // gateway child advertises itself independently, and active-owner
+      // heartbeats must not erase that discovery record while its owning
+      // server-main process is still alive.
+      const prevGatewayServerPid = parsePositivePid(prevForPreserve?.gateway_server_pid);
+      const prevGatewayOwnerAlive = (() => {
+        if (prevGatewayServerPid === null) return false;
+        try {
+          process.kill(prevGatewayServerPid, 0);
+          return true;
+        } catch (e) {
+          if (e && e.code === 'ESRCH') return false;
+          return true;
+        }
+      })();
+      const sameGatewayAdvertiser =
+        prevGatewayServerPid !== null && identity.server_pid !== null && prevGatewayServerPid === identity.server_pid;
+      if (sameGatewayAdvertiser || prevGatewayOwnerAlive) {
+        if (prevForPreserve && Object.hasOwn(prevForPreserve, 'gateway_port')) {
+          for (const [key, value] of Object.entries(prevForPreserve)) {
+            if (key.startsWith('gateway_')) preservedExtra[key] = value;
+          }
+          preservedExtra.gateway_server_pid = prevGatewayServerPid;
+          // Clear session-scoped gateway metrics when the transcript changes —
+          // a new session must not inherit the previous session's context
+          // usage before the gateway re-advertises.
+          const metricTranscript =
+            typeof prevForPreserve?.gateway_transcript_path === 'string' && prevForPreserve.gateway_transcript_path
+              ? prevForPreserve.gateway_transcript_path
+              : typeof prevForPreserve?.transcriptPath === 'string' && prevForPreserve.transcriptPath
+                ? prevForPreserve.transcriptPath
+                : null;
+          if (
+            typeof meta?.transcriptPath === 'string' &&
+            meta.transcriptPath &&
+            metricTranscript !== meta.transcriptPath
+          ) {
+            delete preservedExtra.gateway_context_used_pct;
+            delete preservedExtra.gateway_last_usage;
+            delete next.gateway_context_used_pct;
+            delete next.gateway_last_usage;
+          }
+        }
+      }
+      return { ...preservedExtra, ...next };
+    },
+    writeOpts
+  );
 }
-const SERVER_PID_FILE = join(
-  RUNTIME_ROOT,
-  `server-${sanitize(resolvePluginData() ?? "default")}.pid`
-);
+const SERVER_PID_FILE = join(RUNTIME_ROOT, `server-${sanitize(resolvePluginData() ?? 'default')}.pid`);
 function looksLikeTribChannelsServer(pid) {
   const pidStr = String(pid);
-  if (process.platform === "win32") {
+  if (process.platform === 'win32') {
     try {
-      const out = execFileSync("tasklist", ["/FI", `PID eq ${pidStr}`, "/FO", "CSV", "/NH"], { encoding: "utf8", windowsHide: true }).trim();
-      if (!out || out.includes("No tasks")) return false;
+      const out = execFileSync('tasklist', ['/FI', `PID eq ${pidStr}`, '/FO', 'CSV', '/NH'], {
+        encoding: 'utf8',
+        windowsHide: true,
+      }).trim();
+      if (!out || out.includes('No tasks')) return false;
       const lower = out.toLowerCase();
-      return lower.includes("server.ts") && (lower.includes("node") || lower.includes("tsx") || lower.includes("mixdog"));
+      return (
+        lower.includes('server.ts') && (lower.includes('node') || lower.includes('tsx') || lower.includes('mixdog'))
+      );
     } catch {
       // Transient probe failure: treat as unknown, not server (default-deny).
       return null;
     }
   }
   try {
-    const cmd = execFileSync("ps", ["-o", "command=", "-p", pidStr], { encoding: "utf8", windowsHide: true }).trim();
+    const cmd = execFileSync('ps', ['-o', 'command=', '-p', pidStr], { encoding: 'utf8', windowsHide: true }).trim();
     if (!cmd) return false;
-    if (!cmd.includes("server.ts")) return false;
+    if (!cmd.includes('server.ts')) return false;
     const root = mixdogRoot();
-    return cmd.includes("mixdog") || root && cmd.includes(root) || cmd.includes("tsx server.ts") || cmd.includes("node") && cmd.includes("server");
+    return (
+      cmd.includes('mixdog') ||
+      (root && cmd.includes(root)) ||
+      cmd.includes('tsx server.ts') ||
+      (cmd.includes('node') && cmd.includes('server'))
+    );
   } catch {
     return false;
   }
 }
 function notePreviousServerIfAny() {
   try {
-    const oldPid = parseInt(readFileSync(SERVER_PID_FILE, "utf8").trim(), 10);
+    const oldPid = parseInt(readFileSync(SERVER_PID_FILE, 'utf8').trim(), 10);
     if (oldPid && oldPid !== process.pid && oldPid !== process.ppid) {
       try {
         process.kill(oldPid, 0);
@@ -335,8 +358,7 @@ function notePreviousServerIfAny() {
         console.warn(`[singleton] previous server PID ${oldPid} is still alive; leaving it running`);
       }
     }
-  } catch {
-  }
+  } catch {}
 }
 function writeServerPid() {
   ensureRuntimeDirs();
@@ -344,30 +366,39 @@ function writeServerPid() {
 }
 function clearServerPid() {
   try {
-    const current = readFileSync(SERVER_PID_FILE, "utf8").trim();
+    const current = readFileSync(SERVER_PID_FILE, 'utf8').trim();
     if (current === String(process.pid)) removeFileIfExists(SERVER_PID_FILE);
-  } catch {
-  }
+  } catch {}
 }
 function cleanupStaleRuntimeFiles(now = Date.now()) {
   ensureRuntimeDirs();
   forEachFile(RUNTIME_ROOT, (fullPath, file) => {
-    if (file === "owners" || file === "active-instance.json") return;
+    if (file === 'owners' || file === 'active-instance.json') return;
     try {
       const heartbeat = /^supervisor-heartbeat\.(\d+)\.json$/.exec(file);
       if (heartbeat) {
         const pid = Number(heartbeat[1]);
         if (Number.isFinite(pid) && pid > 0) {
-          try { process.kill(pid, 0); }
-          catch { removeFileIfExists(fullPath); return; }
+          try {
+            process.kill(pid, 0);
+          } catch {
+            removeFileIfExists(fullPath);
+            return;
+          }
         }
       }
       if (/^server-.*\.pid$/.test(file)) {
         let pid = NaN;
-        try { pid = Number(readFileSync(fullPath, "utf8").trim()); } catch {}
+        try {
+          pid = Number(readFileSync(fullPath, 'utf8').trim());
+        } catch {}
         if (Number.isFinite(pid) && pid > 0) {
-          try { process.kill(pid, 0); }
-          catch { removeFileIfExists(fullPath); return; }
+          try {
+            process.kill(pid, 0);
+          } catch {
+            removeFileIfExists(fullPath);
+            return;
+          }
         }
       }
       const age = now - statSync(fullPath).mtimeMs;
@@ -377,8 +408,7 @@ function cleanupStaleRuntimeFiles(now = Date.now()) {
       if (/^status-.*\.json$/.test(file)) ttl = STATUS_FILE_TTL;
       else if (/\.tmp$/.test(file)) ttl = TMP_FILE_TTL;
       if (age > ttl) removeFileIfExists(fullPath);
-    } catch {
-    }
+    } catch {}
   });
   forEachFile(OWNER_DIR, (fullPath) => {
     try {
@@ -387,12 +417,15 @@ function cleanupStaleRuntimeFiles(now = Date.now()) {
       const owner = readJsonFile(fullPath, null);
       const ownerPid = Number(owner?.pid ?? owner?.instanceId);
       if (Number.isFinite(ownerPid) && ownerPid > 0) {
-        try { process.kill(ownerPid, 0); }
-        catch { removeFileIfExists(fullPath); return; }
+        try {
+          process.kill(ownerPid, 0);
+        } catch {
+          removeFileIfExists(fullPath);
+          return;
+        }
       }
       if (now - statSync(fullPath).mtimeMs > RUNTIME_STALE_TTL) removeFileIfExists(fullPath);
-    } catch {
-    }
+    } catch {}
   });
 }
 function cleanupInstanceRuntimeFiles(instanceId) {
@@ -401,7 +434,7 @@ function cleanupInstanceRuntimeFiles(instanceId) {
     getStatusPath(instanceId),
     getControlPath(instanceId),
     getControlResponsePath(instanceId),
-    getStopFlagPath(instanceId)
+    getStopFlagPath(instanceId),
   ];
   for (const target of targets) {
     removeFileIfExists(target);
@@ -448,5 +481,5 @@ export {
   refreshActiveInstance,
   releaseOwnedChannelLocks,
   setOwnerContext,
-  writeServerPid
+  writeServerPid,
 };

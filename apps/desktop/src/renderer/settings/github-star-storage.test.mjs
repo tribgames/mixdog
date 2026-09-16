@@ -30,7 +30,11 @@ test('unavailable storage does not break status reads or successful stars', () =
   try {
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
-      value: { get localStorage() { throw new Error('Storage unavailable'); } },
+      value: {
+        get localStorage() {
+          throw new Error('Storage unavailable');
+        },
+      },
     });
     assert.equal(readGithubStarred(), false);
     assert.equal(rememberGithubStarred(true), true);

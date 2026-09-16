@@ -7,10 +7,13 @@ test('desktop GitHub operations honor the same install and enable markers withou
   delete process.env.MIXDOG_FEATURE_GIT;
   const config = { builtins: {}, modules: { git: { enabled: true } }, desktop: { git: { commitPreset: 'custom' } } };
   let executions = 0;
-  const service = createGithubService(async () => ({ readConfig: () => config }), async (_cwd, input) => {
-    executions++;
-    return { action: input.action, repo: 'owner/repo', data: [] };
-  });
+  const service = createGithubService(
+    async () => ({ readConfig: () => config }),
+    async (_cwd, input) => {
+      executions++;
+      return { action: input.action, repo: 'owner/repo', data: [] };
+    }
+  );
   try {
     await assert.rejects(service(process.cwd(), { action: 'repo.list' }), /Enable Git & GitHub/);
     config.builtins.git = { installed: true };
@@ -21,6 +24,7 @@ test('desktop GitHub operations honor the same install and enable markers withou
     assert.equal(config.builtins.git.installed, true);
     assert.equal(config.desktop.git.commitPreset, 'custom');
   } finally {
-    if (previous === undefined) delete process.env.MIXDOG_FEATURE_GIT; else process.env.MIXDOG_FEATURE_GIT = previous;
+    if (previous === undefined) delete process.env.MIXDOG_FEATURE_GIT;
+    else process.env.MIXDOG_FEATURE_GIT = previous;
   }
 });

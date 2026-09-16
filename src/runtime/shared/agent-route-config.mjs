@@ -1,9 +1,6 @@
 import { hasOwn, isPlainObject } from './object.mjs';
 
-const REDUNDANT_WORKFLOW_PRESET_IDS = new Set([
-  'workflow-agent',
-  'workflow-memory',
-]);
+const REDUNDANT_WORKFLOW_PRESET_IDS = new Set(['workflow-agent', 'workflow-memory']);
 
 export const DEFAULT_DISABLED_AGENT_IDS = Object.freeze([
   'worker',
@@ -19,13 +16,14 @@ function record(value) {
 }
 
 function isCompleteAgentRoute(value) {
-  return isPlainObject(value)
-    && !!String(value.provider || '').trim()
-    && !!String(value.model || '').trim();
+  return isPlainObject(value) && !!String(value.provider || '').trim() && !!String(value.model || '').trim();
 }
 
 function agentIdKey(value) {
-  return String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-');
 }
 
 // "Off" is a first-class agent state, not an absent route: config.agents[<id>]
@@ -75,7 +73,7 @@ export function configuredAgentRouteCandidates(config, agentId) {
 
 function canonicalizeAgentRoutes(config = {}) {
   const agents = Object.fromEntries(
-    Object.entries(record(config.agents)).filter(([, route]) => isCompleteAgentRoute(route)),
+    Object.entries(record(config.agents)).filter(([, route]) => isCompleteAgentRoute(route))
   );
   delete agents.maintenance;
   return agents;
@@ -88,10 +86,7 @@ function isRedundantGeneratedRoutePreset(preset, defaultPreset = null) {
 }
 
 export function canonicalizeAgentRouteStorage(config = {}) {
-  const {
-    workflowRoutes: _legacyWorkflowRoutes,
-    ...rest
-  } = config || {};
+  const { workflowRoutes: _legacyWorkflowRoutes, ...rest } = config || {};
   const maintenance = { ...record(config?.maintenance) };
   delete maintenance.memory;
   const presets = Array.isArray(config?.presets)
@@ -113,12 +108,14 @@ export function agentRouteStorageNeedsMigration(config = {}) {
   const agents = record(config?.agents);
   const maintenance = record(config?.maintenance);
   const disabled = disabledAgentIds(config);
-  return hasOwn(config, 'workflowRoutes')
-    || (hasOwn(config, 'disabledAgents')
-      && JSON.stringify(config.disabledAgents) !== JSON.stringify(disabled.length ? disabled : undefined))
-    || hasOwn(agents, 'maintenance')
-    || hasOwn(maintenance, 'memory')
-    || Object.values(agents).some((route) => !isCompleteAgentRoute(route))
-    || (Array.isArray(config?.presets)
-      && config.presets.some((preset) => isRedundantGeneratedRoutePreset(preset, config?.default)));
+  return (
+    hasOwn(config, 'workflowRoutes') ||
+    (hasOwn(config, 'disabledAgents') &&
+      JSON.stringify(config.disabledAgents) !== JSON.stringify(disabled.length ? disabled : undefined)) ||
+    hasOwn(agents, 'maintenance') ||
+    hasOwn(maintenance, 'memory') ||
+    Object.values(agents).some((route) => !isCompleteAgentRoute(route)) ||
+    (Array.isArray(config?.presets) &&
+      config.presets.some((preset) => isRedundantGeneratedRoutePreset(preset, config?.default)))
+  );
 }

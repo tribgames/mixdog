@@ -26,8 +26,9 @@ import type { DesktopService } from './desktop-service-contract';
 // window-width rewrap pass.
 function jitterProbeEnabled(): boolean {
   const mode = String(process.env.MIXDOG_JITTER_PROBE || '');
-  return mode === '1' || mode === 'entry' || mode === 'keys' || mode === 'switch'
-    || mode === 'width' || mode === 'select';
+  return (
+    mode === '1' || mode === 'entry' || mode === 'keys' || mode === 'switch' || mode === 'width' || mode === 'select'
+  );
 }
 
 // The capture profile is a presentation-only fake. It intentionally implements
@@ -63,17 +64,22 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   listOutputStyles: {
     configured: 'default',
     current: { id: 'default', label: 'Default' },
-    styles: [{ id: 'default', label: 'Default' }, { id: 'minimal', label: 'Minimal' }],
+    styles: [
+      { id: 'default', label: 'Default' },
+      { id: 'minimal', label: 'Minimal' },
+    ],
   },
   getWebSearchRoute: { provider: 'openai', model: 'gpt-capture', effort: 'high', fast: true },
-  listWebSearchModels: [{
-    provider: 'openai',
-    model: 'gpt-capture',
-    display: 'Capture',
-    effortOptions: [{ value: 'high', label: 'High' }],
-    fastCapable: true,
-    fastPreferred: true,
-  }],
+  listWebSearchModels: [
+    {
+      provider: 'openai',
+      model: 'gpt-capture',
+      display: 'Capture',
+      effortOptions: [{ value: 'high', label: 'High' }],
+      fastCapable: true,
+      fastPreferred: true,
+    },
+  ],
   getProviderSetup: {
     api: [
       { id: 'openai', name: 'OpenAI', authenticated: true, stored: true, status: 'Connected' },
@@ -90,26 +96,30 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   },
   pluginsStatus: {
     count: 1,
-    plugins: [{
-      id: 'capture-plugin',
-      name: 'Capture plugin',
-      version: '1.0.0',
-      root: 'C:\\capture\\plugin',
-      mcpScript: 'scripts/mcp.mjs',
-      mcpServerName: 'capture-plugin-mcp',
-      mcpEnabled: true,
-    }],
+    plugins: [
+      {
+        id: 'capture-plugin',
+        name: 'Capture plugin',
+        version: '1.0.0',
+        root: 'C:\\capture\\plugin',
+        mcpScript: 'scripts/mcp.mjs',
+        mcpServerName: 'capture-plugin-mcp',
+        mcpEnabled: true,
+      },
+    ],
   },
   skillsStatus: {
     count: 1,
     skills: [{ name: 'capture-skill', description: 'Capture layout skill', source: 'built-in' }],
   },
   getDisabledSkills: { disabled: [] },
-  listAgents: [{
-    id: 'lead',
-    name: 'Lead',
-    route: { provider: 'openai', model: 'gpt-capture', effort: 'high', fast: true },
-  }],
+  listAgents: [
+    {
+      id: 'lead',
+      name: 'Lead',
+      route: { provider: 'openai', model: 'gpt-capture', effort: 'high', fast: true },
+    },
+  ],
   getUpdateSettings: { currentVersion: 'capture', latestVersion: 'capture', autoUpdate: false },
   getUpdateStatus: { phase: 'idle' },
   getSessionReviewDiff: {
@@ -123,20 +133,22 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
     supported: true,
     files: [],
     patch: '',
-    agents: [{
-      sessionId: 'capture-worker',
-      agent: 'worker',
-      tag: 'worker-1',
-      patch: [
-        'diff --git a/src/app.ts b/src/app.ts',
-        '--- a/src/app.ts',
-        '+++ b/src/app.ts',
-        '@@ -1,4 +1,4 @@',
-        '-const retries = 1;',
-        '+const retries = 3;',
-        '',
-      ].join('\n'),
-    }],
+    agents: [
+      {
+        sessionId: 'capture-worker',
+        agent: 'worker',
+        tag: 'worker-1',
+        patch: [
+          'diff --git a/src/app.ts b/src/app.ts',
+          '--- a/src/app.ts',
+          '+++ b/src/app.ts',
+          '@@ -1,4 +1,4 @@',
+          '-const retries = 1;',
+          '+const retries = 3;',
+          '',
+        ].join('\n'),
+      },
+    ],
   },
 };
 
@@ -202,52 +214,83 @@ export class CaptureService implements DesktopService {
     return this.startProject(projectPath);
   }
 
-  async listProjects(): Promise<DesktopProjectSummary[]> { return []; }
+  async listProjects(): Promise<DesktopProjectSummary[]> {
+    return [];
+  }
   async addProject(): Promise<void> {}
-  async projectDirectory(projectPath: string): Promise<string> { return projectPath; }
+  async projectDirectory(projectPath: string): Promise<string> {
+    return projectPath;
+  }
   async renameProject(): Promise<void> {}
   async removeProject(): Promise<void> {}
-  async listProjectDir(): Promise<unknown> { return []; }
-  async readProjectTextFile(): Promise<unknown> { return null; }
-  async writeProjectTextFile(): Promise<unknown> { return null; }
-  async statProjectFile(): Promise<unknown> { return null; }
-  async createProjectEntry(): Promise<unknown> { return null; }
-  async renameProjectEntry(): Promise<unknown> { return null; }
-  async moveProjectEntry(): Promise<unknown> { return null; }
-  async copyProjectEntry(): Promise<unknown> { return null; }
-  async projectEntryPath(_projectPath: string, relPath: string): Promise<string> { return relPath; }
-  async codeGraphQuery(): Promise<unknown> { return null; }
-  async listAgentPool(): Promise<DesktopAgentPoolRow[]> { return []; }
-  async markSessionRead(): Promise<boolean> { return true; }
+  async listProjectDir(): Promise<unknown> {
+    return [];
+  }
+  async readProjectTextFile(): Promise<unknown> {
+    return null;
+  }
+  async writeProjectTextFile(): Promise<unknown> {
+    return null;
+  }
+  async statProjectFile(): Promise<unknown> {
+    return null;
+  }
+  async createProjectEntry(): Promise<unknown> {
+    return null;
+  }
+  async renameProjectEntry(): Promise<unknown> {
+    return null;
+  }
+  async moveProjectEntry(): Promise<unknown> {
+    return null;
+  }
+  async copyProjectEntry(): Promise<unknown> {
+    return null;
+  }
+  async projectEntryPath(_projectPath: string, relPath: string): Promise<string> {
+    return relPath;
+  }
+  async codeGraphQuery(): Promise<unknown> {
+    return null;
+  }
+  async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
+    return [];
+  }
+  async markSessionRead(): Promise<boolean> {
+    return true;
+  }
   async renameSession(): Promise<void> {}
   async setSessionArchived(): Promise<void> {}
-  async deleteSession(): Promise<SessionSnapshot> { return null; }
-  async prefetchSession(_sessionId?: string, _transcriptItemLimit?: number): Promise<boolean> { return true; }
-  async setVisibleSessions(): Promise<boolean> { return true; }
-  async searchProjectFiles(): Promise<string[]> { return []; }
-  async submitToSession(): Promise<boolean> { return true; }
+  async deleteSession(): Promise<SessionSnapshot> {
+    return null;
+  }
+  async prefetchSession(_sessionId?: string, _transcriptItemLimit?: number): Promise<boolean> {
+    return true;
+  }
+  async setVisibleSessions(): Promise<boolean> {
+    return true;
+  }
+  async searchProjectFiles(): Promise<string[]> {
+    return [];
+  }
+  async submitToSession(): Promise<boolean> {
+    return true;
+  }
   async inheritSession(): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
     const sessionId = `capture_inherit_${Date.now()}`;
     return { sessionId, snapshot: { ...this.snapshot, sessionId } };
   }
-  async abortSession(
-    _sessionId: string,
-    _options: DesktopAbortOptions = {},
-  ): Promise<{ aborted: boolean }> {
+  async abortSession(_sessionId: string, _options: DesktopAbortOptions = {}): Promise<{ aborted: boolean }> {
     return { aborted: true };
   }
-  resolveToolApprovalForSession(
-    _sessionId: string,
-    _id: string,
-    _decision: ToolApprovalDecision,
-  ): boolean {
+  resolveToolApprovalForSession(_sessionId: string, _id: string, _decision: ToolApprovalDecision): boolean {
     return true;
   }
 
   async submitNewTask(
     _prompt: DesktopPromptContent,
     _options: DesktopSubmitOptions = {},
-    _draft: DesktopNewTaskDraft = {},
+    _draft: DesktopNewTaskDraft = {}
   ): Promise<DesktopNewTaskSubmitResult> {
     const sessionId = `capture_${Date.now()}`;
     const snapshot = { ...this.snapshot, sessionId };
@@ -255,10 +298,7 @@ export class CaptureService implements DesktopService {
     return { accepted: true, sessionId, snapshot };
   }
 
-  async setModelRoute(
-    selection: DesktopModelSelection,
-    _sessionId?: string,
-  ): Promise<SessionSnapshot> {
+  async setModelRoute(selection: DesktopModelSelection, _sessionId?: string): Promise<SessionSnapshot> {
     this.publish({ ...this.snapshot, ...selection });
     return this.snapshot;
   }
@@ -305,32 +345,34 @@ export class CaptureService implements DesktopService {
           working: false,
         }));
       }
-      const sessions: DesktopSessionSummary[] = [{
-        id: 'probe_session_b',
-        preview: 'Remote streaming probe',
-        title: 'Remote streaming probe',
-        updatedAt: Date.now(),
-        messageCount: 90,
-        cwd: process.cwd(),
-        classification: 'task',
-        projectPath: null,
-        working: true,
-      }];
+      const sessions: DesktopSessionSummary[] = [
+        {
+          id: 'probe_session_b',
+          preview: 'Remote streaming probe',
+          title: 'Remote streaming probe',
+          updatedAt: Date.now(),
+          messageCount: 90,
+          cwd: process.cwd(),
+          classification: 'task',
+          projectPath: null,
+          working: true,
+        },
+      ];
       // The cold-history row belongs to the passes that resume it (entry,
       // keys, width). The streaming pass must not see it: an extra listed
       // session changes the layout it measures against.
       const mode = String(process.env.MIXDOG_JITTER_PROBE || '');
       if (mode === 'entry' || mode === 'keys' || mode === 'width' || mode === 'select') {
         sessions.push({
-        id: 'probe_session_cold',
-        preview: 'Cold history probe',
-        title: 'Cold history probe',
-        updatedAt: Date.now() - 60_000,
-        messageCount: 84,
-        cwd: process.cwd(),
-        classification: 'task',
-        projectPath: null,
-        working: true,
+          id: 'probe_session_cold',
+          preview: 'Cold history probe',
+          title: 'Cold history probe',
+          updatedAt: Date.now() - 60_000,
+          messageCount: 84,
+          cwd: process.cwd(),
+          classification: 'task',
+          projectPath: null,
+          working: true,
         });
       }
       return sessions;
@@ -344,25 +386,28 @@ export class CaptureService implements DesktopService {
       const suffix = sessionId.slice(-1).toUpperCase();
       const longScript = `Switch B transcript\n\n\`\`\`ts\n${Array.from(
         { length: 320 },
-        (_line, line) => `const switchLine${line} = ${line};`,
+        (_line, line) => `const switchLine${line} = ${line};`
       ).join('\n')}\n\`\`\``;
-      const items = suffix === 'B'
-        ? Array.from({ length: 96 }, (_, index) => ({
-            id: `${sessionId}-row-${index}`,
-            kind: index % 2 === 0 ? 'user' : 'assistant',
-            text: index === 95 ? longScript : `Switch B transcript row ${index}`,
-          }))
-        : suffix === 'A'
-          ? Array.from({ length: 88 }, (_, index) => ({
+      const items =
+        suffix === 'B'
+          ? Array.from({ length: 96 }, (_, index) => ({
               id: `${sessionId}-row-${index}`,
               kind: index % 2 === 0 ? 'user' : 'assistant',
-              text: `Switch A transcript row ${index} ${'variable height '.repeat(index % 5)}`,
+              text: index === 95 ? longScript : `Switch B transcript row ${index}`,
             }))
-        : [{
-            id: `${sessionId}-row`,
-            kind: 'assistant',
-            text: `Switch ${suffix} transcript`,
-          }];
+          : suffix === 'A'
+            ? Array.from({ length: 88 }, (_, index) => ({
+                id: `${sessionId}-row-${index}`,
+                kind: index % 2 === 0 ? 'user' : 'assistant',
+                text: `Switch A transcript row ${index} ${'variable height '.repeat(index % 5)}`,
+              }))
+            : [
+                {
+                  id: `${sessionId}-row`,
+                  kind: 'assistant',
+                  text: `Switch ${suffix} transcript`,
+                },
+              ];
       const snapshot = {
         ...((this.snapshot || {}) as Record<string, unknown>),
         toasts: [],
@@ -401,14 +446,16 @@ export class CaptureService implements DesktopService {
   // Keep model-route rows fully populated without starting the isolated
   // runtime engine, so phone alignment covers model, effort, and fast controls.
   async listProviderModels(_options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
-    return [{
-      provider: 'openai',
-      model: 'gpt-capture',
-      display: 'Capture',
-      effortOptions: [{ value: 'high', label: 'High' }],
-      fastCapable: true,
-      fastPreferred: true,
-    }];
+    return [
+      {
+        provider: 'openai',
+        model: 'gpt-capture',
+        display: 'Capture',
+        effortOptions: [{ value: 'high', label: 'High' }],
+        fastCapable: true,
+        fastPreferred: true,
+      },
+    ];
   }
 
   // New-task activation without booting the disabled engine: App renders
@@ -426,7 +473,7 @@ export class CaptureService implements DesktopService {
   }
 
   async readCapabilities(
-    requests: ReadonlyArray<DesktopCapabilityReadRequest>,
+    requests: ReadonlyArray<DesktopCapabilityReadRequest>
   ): Promise<DesktopCapabilityReadResult[]> {
     return requests.map((request) => {
       if (request.capability === 'listThemes') {
@@ -439,7 +486,7 @@ export class CaptureService implements DesktopService {
         };
       }
       if (request.capability === 'getTheme') return { ok: true, value: this.captureTheme };
-      if (Object.prototype.hasOwnProperty.call(CAPTURE_SETTINGS_VALUES, request.capability)) {
+      if (Object.hasOwn(CAPTURE_SETTINGS_VALUES, request.capability)) {
         return { ok: true, value: CAPTURE_SETTINGS_VALUES[request.capability] };
       }
       return { ok: false, error: `${request.capability} is unavailable in UI capture.` };
@@ -448,7 +495,7 @@ export class CaptureService implements DesktopService {
 
   async invokeCapability<T = unknown>(
     capability: DesktopCapability,
-    args: unknown[] = [],
+    args: unknown[] = []
   ): Promise<DesktopCapabilityResult<T>> {
     if (capability === 'setTheme') {
       this.captureTheme = String(args[0] || 'basic');
@@ -484,7 +531,7 @@ export class CaptureService implements DesktopService {
     if (capability === 'getTheme') {
       return { value: this.captureTheme as T, snapshot: this.getSnapshot() };
     }
-    if (Object.prototype.hasOwnProperty.call(CAPTURE_SETTINGS_VALUES, capability)) {
+    if (Object.hasOwn(CAPTURE_SETTINGS_VALUES, capability)) {
       return {
         value: CAPTURE_SETTINGS_VALUES[capability] as T,
         snapshot: this.getSnapshot(),
@@ -493,8 +540,11 @@ export class CaptureService implements DesktopService {
     // The capture profile runs against an isolated MIXDOG_HOME, where a fresh
     // config reports onboarding as incomplete; the wizard would cover the UI
     // under capture. Captures always run as an already-onboarded desktop.
-    if (capability === 'getOnboardingStatus' || capability === 'skipOnboarding'
-      || capability === 'completeOnboarding') {
+    if (
+      capability === 'getOnboardingStatus' ||
+      capability === 'skipOnboarding' ||
+      capability === 'completeOnboarding'
+    ) {
       return { value: { completed: true } as T, snapshot: this.getSnapshot() };
     }
     // Anything else (e.g. the settings preload's memoryControl read) would
@@ -506,7 +556,9 @@ export class CaptureService implements DesktopService {
     throw new Error(`${capability} is unavailable in UI capture.`);
   }
 
-  subscribeDesktopEvents(): () => void { return () => {}; }
+  subscribeDesktopEvents(): () => void {
+    return () => {};
+  }
   perfLog(): void {}
   async dispose(): Promise<void> {
     this.listeners.clear();

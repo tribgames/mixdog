@@ -5,7 +5,6 @@ export function documentSnapshotFingerprint(document) {
   return createHash('sha256').update(stableJson(document)).digest('hex');
 }
 
-
 function scalarState(value) {
   if (!value || typeof value !== 'object') return value;
   const state = {};
@@ -15,7 +14,6 @@ function scalarState(value) {
   }
   return state;
 }
-
 
 function documentPathIndex(document) {
   const entries = new Map();
@@ -33,7 +31,6 @@ function documentPathIndex(document) {
   return entries;
 }
 
-
 export function diffDocuments(before, after, limit = 500) {
   const left = documentPathIndex(before);
   const right = documentPathIndex(after);
@@ -46,9 +43,16 @@ export function diffDocuments(before, after, limit = 500) {
     const beforeValue = left.get(path);
     const afterValue = right.get(path);
     let kind = '';
-    if (beforeValue === undefined) { kind = 'added'; added += 1; }
-    else if (afterValue === undefined) { kind = 'removed'; removed += 1; }
-    else if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) { kind = 'modified'; modified += 1; }
+    if (beforeValue === undefined) {
+      kind = 'added';
+      added += 1;
+    } else if (afterValue === undefined) {
+      kind = 'removed';
+      removed += 1;
+    } else if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) {
+      kind = 'modified';
+      modified += 1;
+    }
     if (kind && changes.length < limit) changes.push({ path, kind, before: beforeValue, after: afterValue });
   }
   const total = added + removed + modified;
@@ -59,13 +63,14 @@ export function diffDocuments(before, after, limit = 500) {
   };
 }
 
-
 export function operationDocumentPaths(format, operation, result = {}) {
   const op = String(operation?.op || '');
   if (format === 'docx') {
     if (operation.paragraph) return [`/body/p[${Number(operation.paragraph)}]`];
-    if (operation.table && operation.row && operation.col) return [`/body/tbl[${Number(operation.table)}]/row[${Number(operation.row)}]/cell[${Number(operation.col)}]`];
-    if (operation.table && operation.row) return [`/body/tbl[${Number(operation.table)}]/row[${Number(operation.row)}]`];
+    if (operation.table && operation.row && operation.col)
+      return [`/body/tbl[${Number(operation.table)}]/row[${Number(operation.row)}]/cell[${Number(operation.col)}]`];
+    if (operation.table && operation.row)
+      return [`/body/tbl[${Number(operation.table)}]/row[${Number(operation.row)}]`];
     if (operation.table) return [`/body/tbl[${Number(operation.table)}]`];
     if (operation.comment) return [`/body/comment[${Number(operation.comment)}]`];
     if (operation.revision) return [`/body/revision[${Number(operation.revision)}]`];
@@ -94,10 +99,11 @@ export function operationDocumentPaths(format, operation, result = {}) {
   return ['/'];
 }
 
-
 export function operationChangeKind(operation) {
   const op = String(operation?.op || '');
-  if (['delete_sheet', 'delete_slide', 'delete_shape', 'remove_paragraph', 'delete_pages'].includes(op)) return 'removed';
-  if (op.startsWith('add_') || op.startsWith('append_') || op.startsWith('insert_') || op === 'duplicate_slide') return 'added';
+  if (['delete_sheet', 'delete_slide', 'delete_shape', 'remove_paragraph', 'delete_pages'].includes(op))
+    return 'removed';
+  if (op.startsWith('add_') || op.startsWith('append_') || op.startsWith('insert_') || op === 'duplicate_slide')
+    return 'added';
   return 'modified';
 }

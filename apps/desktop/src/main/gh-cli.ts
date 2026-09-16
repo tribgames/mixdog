@@ -88,10 +88,13 @@ export const PR_CATEGORIES: ReadonlyArray<{ key: string; label: string; search: 
 ];
 
 function run(cwd: string, args: string[]): Promise<string> {
-  return runGithubProcess({
-    args,
-    mutation: args[0] === 'pr' && ['create', 'checkout', 'merge'].includes(args[1]),
-  }, { cwd, env: childEnvironment() });
+  return runGithubProcess(
+    {
+      args,
+      mutation: args[0] === 'pr' && ['create', 'checkout', 'merge'].includes(args[1]),
+    },
+    { cwd, env: childEnvironment() }
+  );
 }
 
 export function requiredPrNumber(value: unknown): number {
@@ -166,57 +169,64 @@ export function buildGhPrCreateArgs(value: unknown): string[] {
     throw new TypeError('Base branch must differ from the head branch.');
   }
   return [
-    'pr', 'create',
-    '--base', base,
-    '--head', head,
-    '--title', title,
-    '--body', body,
+    'pr',
+    'create',
+    '--base',
+    base,
+    '--head',
+    head,
+    '--title',
+    title,
+    '--body',
+    body,
     ...(input.draft === true ? ['--draft'] : []),
   ];
 }
 
 export async function ghPrDefaultBranch(cwd: string): Promise<string> {
-  const branch = (await run(cwd, [
-    'repo', 'view',
-    '--json', 'defaultBranchRef',
-    '--jq', '.defaultBranchRef.name',
-  ])).trim();
+  const branch = (
+    await run(cwd, ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'])
+  ).trim();
   return requiredCreateText(branch, 'default branch', 512);
 }
 
 export async function ghPrCreate(cwd: string, value: unknown): Promise<GhPrEntry> {
   const output = await run(cwd, buildGhPrCreateArgs(value));
   const number = /\/pull\/(\d+)(?:\b|\/)/.exec(output)?.[1];
-  const raw = await run(cwd, [
-    'pr', 'view',
-    ...(number ? [number] : []),
-    '--json', LIST_FIELDS,
-  ]);
+  const raw = await run(cwd, ['pr', 'view', ...(number ? [number] : []), '--json', LIST_FIELDS]);
   return toEntry(JSON.parse(raw) as Record<string, unknown>);
 }
 
 export async function ghPrList(cwd: string): Promise<GhPrCategory[]> {
-  const lists = await Promise.all(PR_CATEGORIES.map(async (category) => {
-    let raw = '';
-    try {
-      raw = await run(cwd, [
-        'pr', 'list',
-        '--search', category.search,
-        '--limit', category.key === 'all' ? '50' : '25',
-        '--json', LIST_FIELDS,
-      ]);
-    } catch (error) {
-      // GitHub Enterprise instances and repositories without Copilot can
-      // reject the built-in Copilot query. The upstream extension treats that
-      // optional category as empty instead of failing the complete PR tree.
-      if (category.key !== 'copilot') throw error;
-    }
-    const parsed: unknown = JSON.parse(raw || '[]');
-    const prs = Array.isArray(parsed)
-      ? parsed.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object').map(toEntry)
-      : [];
-    return { key: category.key, label: category.label, prs };
-  }));
+  const lists = await Promise.all(
+    PR_CATEGORIES.map(async (category) => {
+      let raw = '';
+      try {
+        raw = await run(cwd, [
+          'pr',
+          'list',
+          '--search',
+          category.search,
+          '--limit',
+          category.key === 'all' ? '50' : '25',
+          '--json',
+          LIST_FIELDS,
+        ]);
+      } catch (error) {
+        // GitHub Enterprise instances and repositories without Copilot can
+        // reject the built-in Copilot query. The upstream extension treats that
+        // optional category as empty instead of failing the complete PR tree.
+        if (category.key !== 'copilot') throw error;
+      }
+      const parsed: unknown = JSON.parse(raw || '[]');
+      const prs = Array.isArray(parsed)
+        ? parsed
+            .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+            .map(toEntry)
+        : [];
+      return { key: category.key, label: category.label, prs };
+    })
+  );
   return lists;
 }
 
@@ -284,11 +294,13 @@ export async function ghPrView(cwd: string, value: unknown): Promise<GhPrDetail>
   const raw = await run(cwd, ['pr', 'view', String(number), '--json', DETAIL_FIELDS]);
   const record = JSON.parse(raw) as Record<string, unknown>;
   const files = Array.isArray(record.files)
-    ? (record.files as Array<Record<string, unknown>>).map((file) => ({
-        path: String(file.path ?? ''),
-        additions: Number(file.additions) || 0,
-        deletions: Number(file.deletions) || 0,
-      })).filter((file) => file.path)
+    ? (record.files as Array<Record<string, unknown>>)
+        .map((file) => ({
+          path: String(file.path ?? ''),
+          additions: Number(file.additions) || 0,
+          deletions: Number(file.deletions) || 0,
+        }))
+        .filter((file) => file.path)
     : [];
   const labels = Array.isArray(record.labels)
     ? (record.labels as Array<Record<string, unknown>>).map((label) => String(label.name ?? '')).filter(Boolean)

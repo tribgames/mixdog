@@ -5,7 +5,9 @@ class ListenerTarget {
     if (!this.listeners.has(name)) this.listeners.set(name, new Set());
     this.listeners.get(name).add(callback);
   }
-  removeEventListener(name, callback) { this.listeners.get(name)?.delete(callback); }
+  removeEventListener(name, callback) {
+    this.listeners.get(name)?.delete(callback);
+  }
   emit(name) {
     for (const callback of [...(this.listeners.get(name) || [])]) callback({ type: name });
   }
@@ -42,14 +44,22 @@ export function createRendererClock(visibility = 'visible') {
     for (let index = 0; index < 12; index += 1) await Promise.resolve();
   };
   return {
-    win, doc, timers, storage, settle,
-    get now() { return now; },
-    visibility(value) { doc.visibilityState = value; doc.emit('visibilitychange'); },
+    win,
+    doc,
+    timers,
+    storage,
+    settle,
+    get now() {
+      return now;
+    },
+    visibility(value) {
+      doc.visibilityState = value;
+      doc.emit('visibilitychange');
+    },
     async advance(milliseconds) {
       const target = now + milliseconds;
       for (;;) {
-        const next = [...timers].filter(([, timer]) => timer.at <= target)
-          .sort((a, b) => a[1].at - b[1].at)[0];
+        const next = [...timers].filter(([, timer]) => timer.at <= target).sort((a, b) => a[1].at - b[1].at)[0];
         if (!next) break;
         const [id, timer] = next;
         now = timer.at;

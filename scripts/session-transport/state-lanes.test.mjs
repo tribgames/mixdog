@@ -16,7 +16,6 @@ import {
   itemsFromFrames,
 } from './_shared.mjs';
 
-
 test('wire-safe runtime state crosses the daemon without a transcript clone', async () => {
   const state = {
     sessionId: 'wire-safe-retention',
@@ -36,7 +35,7 @@ test('wire-safe runtime state crosses the daemon without a transcript clone', as
     const result = await service.handleCall(
       'session.create',
       { sessionId: state.sessionId },
-      { clientToken: 'memory-retention-test' },
+      { clientToken: 'memory-retention-test' }
     );
     assert.equal(result.full, state);
     assert.equal(result.full.items, state.items);
@@ -76,10 +75,14 @@ test('an unknown session subscription is rejected before a session runtime is cr
   });
   try {
     await assert.rejects(
-      service.handleCall('session.subscribe', {
-        sessionId: 'missing_session',
-      }, { clientToken: 'stale_pane' }),
-      /session missing_session is not available/,
+      service.handleCall(
+        'session.subscribe',
+        {
+          sessionId: 'missing_session',
+        },
+        { clientToken: 'stale_pane' }
+      ),
+      /session missing_session is not available/
     );
     assert.equal(creations, 0);
     assert.equal(service.size, 0);
@@ -104,7 +107,9 @@ test('an agent session publishes through the ordinary subscribed session-state l
     }),
     subscribeExternalSessionStates(listener) {
       publishAgentSession = listener;
-      return () => { publishAgentSession = null; };
+      return () => {
+        publishAgentSession = null;
+      };
     },
     onFrame(frame, targets) {
       frames.push({ frame, targets: [...(targets || [])] });
@@ -112,12 +117,19 @@ test('an agent session publishes through the ordinary subscribed session-state l
   });
   const client = { clientToken: 'desktop-pane' };
   try {
-    const subscribed = await service.handleCall('session.subscribe', {
-      sessionId: 'agent_child',
-    }, client);
+    const subscribed = await service.handleCall(
+      'session.subscribe',
+      {
+        sessionId: 'agent_child',
+      },
+      client
+    );
     assert.equal(subscribed.subscribed, true);
     assert.equal(subscribed.projection, true);
-    assert.deepEqual(subscribed.full.items.map((item) => item.id), ['brief']);
+    assert.deepEqual(
+      subscribed.full.items.map((item) => item.id),
+      ['brief']
+    );
 
     publishAgentSession({
       sessionId: 'agent_child',
@@ -135,19 +147,33 @@ test('an agent session publishes through the ordinary subscribed session-state l
     assert.equal(frames.length, 1);
     assert.equal(frames[0].frame.type, 'session-state');
     assert.equal(frames[0].frame.sessionId, 'agent_child');
-    assert.deepEqual(frames[0].frame.full.items.map((item) => item.id), ['brief', 'tool-1']);
+    assert.deepEqual(
+      frames[0].frame.full.items.map((item) => item.id),
+      ['brief', 'tool-1']
+    );
     assert.deepEqual(frames[0].targets, ['desktop-pane']);
     assert.equal(service.status.pendingViewerSessions, 0);
     assert.equal(creations, 0);
 
-    const reread = await service.handleCall('session.read', {
-      sessionId: 'agent_child',
-    }, client);
-    assert.deepEqual(reread.full.items.map((item) => item.id), ['brief', 'tool-1']);
+    const reread = await service.handleCall(
+      'session.read',
+      {
+        sessionId: 'agent_child',
+      },
+      client
+    );
+    assert.deepEqual(
+      reread.full.items.map((item) => item.id),
+      ['brief', 'tool-1']
+    );
 
-    await service.handleCall('session.unsubscribe', {
-      sessionId: 'agent_child',
-    }, client);
+    await service.handleCall(
+      'session.unsubscribe',
+      {
+        sessionId: 'agent_child',
+      },
+      client
+    );
     const frameCount = frames.length;
     publishAgentSession({
       sessionId: 'agent_child',
@@ -224,8 +250,11 @@ test('a live daemon SSE stream reconnects in place with the same client registra
     });
     await waitForValue(() => streamResponses.length === 1);
     streamResponses[0].end();
-    assert.equal(await client.call('probe'), 'still-connected',
-      'ordinary calls remain usable while only the event stream reconnects');
+    assert.equal(
+      await client.call('probe'),
+      'still-connected',
+      'ordinary calls remain usable while only the event stream reconnects'
+    );
     await waitForValue(() => streamResponses.length === 2);
     await waitForValue(() => reconnects.length === 1);
     assert.equal(registrations, 1, 'SSE recovery reuses the original client token');
@@ -234,7 +263,9 @@ test('a live daemon SSE stream reconnects in place with the same client registra
   } finally {
     await client?.close('test end');
     for (const response of streamResponses) {
-      try { response.end(); } catch {}
+      try {
+        response.end();
+      } catch {}
     }
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
@@ -252,19 +283,18 @@ test('a disconnected client receives bounded session resync markers instead of a
     const target = new Set([registered.token]);
     const large = 'x'.repeat(160 * 1024);
     for (let index = 0; index < 3; index += 1) {
-      transport.broadcast({
-        type: 'session-state',
-        key: `session-state:budget-${index}`,
-        sessionId: `budget-${index}`,
-        revision: index + 1,
-        full: { sessionId: `budget-${index}`, items: [{ text: large }] },
-      }, target);
+      transport.broadcast(
+        {
+          type: 'session-state',
+          key: `session-state:budget-${index}`,
+          sessionId: `budget-${index}`,
+          revision: index + 1,
+          full: { sessionId: `budget-${index}`, items: [{ text: large }] },
+        },
+        target
+      );
     }
-    const marker = await waitForSseFrame(
-      discovery,
-      registered.token,
-      (frame) => frame?.resyncRequired === true,
-    );
+    const marker = await waitForSseFrame(discovery, registered.token, (frame) => frame?.resyncRequired === true);
     assert.equal(marker.type, 'session-state');
     await daemonPost(discovery, '/client/deregister', { token: registered.token });
   });
@@ -339,13 +369,19 @@ test('every attached client observes the same session snapshot stream', async ()
     const desktopFrames = [];
     const unrelatedFrames = [];
     const terminal = await attachSession({
-      discovery, cwd: process.cwd(), onFrame: (frame) => terminalFrames.push(frame),
+      discovery,
+      cwd: process.cwd(),
+      onFrame: (frame) => terminalFrames.push(frame),
     });
     const desktop = await attachSession({
-      discovery, cwd: process.cwd(), onFrame: (frame) => desktopFrames.push(frame),
+      discovery,
+      cwd: process.cwd(),
+      onFrame: (frame) => desktopFrames.push(frame),
     });
     const unrelated = await attachSession({
-      discovery, cwd: process.cwd(), onFrame: (frame) => unrelatedFrames.push(frame),
+      discovery,
+      cwd: process.cwd(),
+      onFrame: (frame) => unrelatedFrames.push(frame),
     });
     const created = await terminal.call('session.create', { cwd: process.cwd() });
     assert.match(created.sessionId, /^sess_daemon_/);
@@ -363,29 +399,25 @@ test('every attached client observes the same session snapshot stream', async ()
 
     // A terminal-side submit reaches the desktop view as shared state.
     await terminal.call('session.submit', {
-      sessionId: created.sessionId, prompt: 'from terminal',
+      sessionId: created.sessionId,
+      prompt: 'from terminal',
     });
-    const seen = await waitFor(
-      () => {
-        const items = itemsFromFrames(desktopFrames);
-        return items.length === 1 ? items : null;
-      },
-      'desktop view receives the terminal submission',
-    );
+    const seen = await waitFor(() => {
+      const items = itemsFromFrames(desktopFrames);
+      return items.length === 1 ? items : null;
+    }, 'desktop view receives the terminal submission');
     assert.equal(seen[0].text, 'from terminal');
 
     // ... and the reverse direction is symmetric.
     await desktop.call('session.submit', {
-      sessionId: created.sessionId, prompt: 'from desktop',
+      sessionId: created.sessionId,
+      prompt: 'from desktop',
     });
-    await waitFor(
-      () => itemsFromFrames(terminalFrames).length === 2,
-      'terminal view receives the desktop submission',
-    );
+    await waitFor(() => itemsFromFrames(terminalFrames).length === 2, 'terminal view receives the desktop submission');
     assert.equal(
       unrelatedFrames.some((frame) => frame.sessionId === created.sessionId),
       false,
-      'an unrelated client never receives another session transcript',
+      'an unrelated client never receives another session transcript'
     );
 
     await terminal.close('test');

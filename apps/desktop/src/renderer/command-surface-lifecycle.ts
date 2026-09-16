@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type {
-  DesktopCapability,
-  DesktopCapabilityRequest,
-  DesktopCapabilityResult,
-} from '../shared/contract';
+import type { DesktopCapability, DesktopCapabilityRequest, DesktopCapabilityResult } from '../shared/contract';
 import { readGlobalCapabilities } from './global-capability-reads';
 import type { CommandSurface as CommandSurfaceName } from './slash-commands';
-import {
-  commandSurfaceCacheKey,
-  commandSurfaceSessionId,
-} from './command-surface-state';
+import { commandSurfaceCacheKey, commandSurfaceSessionId } from './command-surface-state';
 import {
   getStatsDataCache,
   hasStatsDataCache,
@@ -24,14 +17,19 @@ import {
 
 async function readSurfaceCapability(
   api: SurfaceApi,
-  request: DesktopCapabilityRequest,
+  request: DesktopCapabilityRequest
 ): Promise<Pick<DesktopCapabilityResult, 'value'> & Partial<Pick<DesktopCapabilityResult, 'snapshot'>>> {
-  if (!request.sessionId
-    && (request.capability === 'getUsageDashboard' || request.capability === 'getUsageStats')) {
-    return { value: (await readGlobalCapabilities(api, [{
-      capability: request.capability,
-      args: request.args,
-    }]))[0] };
+  if (!request.sessionId && (request.capability === 'getUsageDashboard' || request.capability === 'getUsageStats')) {
+    return {
+      value: (
+        await readGlobalCapabilities(api, [
+          {
+            capability: request.capability,
+            args: request.args,
+          },
+        ])
+      )[0],
+    };
   }
   return api.invokeCapability(request);
 }
@@ -74,8 +72,8 @@ export function useCommandSurfaceLifecycle({
   // The desktop keeps statistics warm while this surface is closed. Scope the
   // snapshot to its API owner so another host cannot inherit its figures.
   const cacheable = isSurfaceCacheable(surface);
-  const cachedSurface = surface === 'stats' ? getStatsDataCache(api)
-    : cacheable ? readSurfaceDataCache(cacheKey) : undefined;
+  const cachedSurface =
+    surface === 'stats' ? getStatsDataCache(api) : cacheable ? readSurfaceDataCache(cacheKey) : undefined;
   const [data, setData] = useState<Record<string, unknown>>(() => cachedSurface ?? {});
   const [loading, setLoading] = useState(() => !cachedSurface);
   const [refreshing, setRefreshing] = useState(false);
@@ -94,19 +92,21 @@ export function useCommandSurfaceLifecycle({
     }
   }
 
-  const capabilityRequest = useCallback((capability: DesktopCapability, args: unknown[] = []) => ({
-    capability,
-    args,
-    ...(sessionId ? { sessionId } : {}),
-  }), [sessionId]);
+  const capabilityRequest = useCallback(
+    (capability: DesktopCapability, args: unknown[] = []) => ({
+      capability,
+      args,
+      ...(sessionId ? { sessionId } : {}),
+    }),
+    [sessionId]
+  );
 
   const load = useCallback(async () => {
     if (loadingSurface.current === surface) return;
     const request = ++loadSequence.current;
     loadingSurface.current = surface;
-    const cached = surface === 'stats'
-      ? getStatsDataCache(api)
-      : cacheable ? readSurfaceDataCache(cacheKey) : undefined;
+    const cached =
+      surface === 'stats' ? getStatsDataCache(api) : cacheable ? readSurfaceDataCache(cacheKey) : undefined;
     if (cached) setData(cached);
     setLoading(!cached);
     setRefreshing(true);
@@ -118,9 +118,9 @@ export function useCommandSurfaceLifecycle({
         return;
       }
       const capabilities = LOADERS[surface];
-      const results = await Promise.all(capabilities.map((capability) => (
-        readSurfaceCapability(api, capabilityRequest(capability))
-      )));
+      const results = await Promise.all(
+        capabilities.map((capability) => readSurfaceCapability(api, capabilityRequest(capability)))
+      );
       if (loadSequence.current === request) {
         const next: Record<string, unknown> = {
           ...Object.fromEntries(capabilities.map((capability, index) => [capability, results[index]?.value])),
@@ -164,8 +164,7 @@ export function useCommandSurfaceLifecycle({
   }, [api, load, open, surface]);
 
   useEffect(() => {
-    if (!open || surface !== 'context' || loading
-      || typeof api.subscribeState !== 'function') return undefined;
+    if (!open || surface !== 'context' || loading || typeof api.subscribeState !== 'function') return undefined;
     let disposed = false;
     let refreshRunning = false;
     let refreshQueued = false;
@@ -211,29 +210,32 @@ export function useCommandSurfaceLifecycle({
     };
   }, [api, cacheKey, capabilityRequest, loading, open, surface]);
 
-  const run = useCallback(async (capability: DesktopCapability, args: unknown[] = []) => {
-    if (pending) return undefined;
-    setPending(capability);
-    setError('');
-    try {
-      const result = await api.invokeCapability(capabilityRequest(capability, args));
-      await load();
-      return result.value;
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-      return undefined;
-    } finally {
-      setPending('');
-    }
-  }, [api, capabilityRequest, load, pending]);
+  const run = useCallback(
+    async (capability: DesktopCapability, args: unknown[] = []) => {
+      if (pending) return undefined;
+      setPending(capability);
+      setError('');
+      try {
+        const result = await api.invokeCapability(capabilityRequest(capability, args));
+        await load();
+        return result.value;
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+        return undefined;
+      } finally {
+        setPending('');
+      }
+    },
+    [api, capabilityRequest, load, pending]
+  );
 
-  const requestCapability = useCallback(async (
-    capability: DesktopCapability,
-    args: unknown[] = [],
-  ) => {
-    const result = await readSurfaceCapability(api, capabilityRequest(capability, args));
-    return result.value;
-  }, [api, capabilityRequest]);
+  const requestCapability = useCallback(
+    async (capability: DesktopCapability, args: unknown[] = []) => {
+      const result = await readSurfaceCapability(api, capabilityRequest(capability, args));
+      return result.value;
+    },
+    [api, capabilityRequest]
+  );
 
   return {
     data,

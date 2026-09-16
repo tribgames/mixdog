@@ -13,7 +13,11 @@ let traceDir = null;
 function tracePath() {
   if (!traceDir) {
     traceDir = join(homedir(), '.mixdog', 'data', 'diagnostics');
-    try { mkdirSync(traceDir, { recursive: true }); } catch { /* best effort */ }
+    try {
+      mkdirSync(traceDir, { recursive: true });
+    } catch {
+      /* best effort */
+    }
   }
   return join(traceDir, 'notify-trace.log');
 }
@@ -26,5 +30,7 @@ export function notifyTrace(stage, fields = {}) {
       parts.push(`${key}=${String(value).replace(/\s+/g, ' ').slice(0, 120)}`);
     }
     appendFileSync(tracePath(), `${parts.join(' ')}\n`);
-  } catch { /* tracing must never break delivery */ }
+  } catch {
+    /* tracing must never break delivery */
+  }
 }

@@ -1,5 +1,2 @@
-function startCliWorker(_options) {
-}
-export {
-  startCliWorker
-};
+function startCliWorker(_options) {}
+export { startCliWorker };

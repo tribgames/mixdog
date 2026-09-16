@@ -27,7 +27,7 @@ function readModelsFromCacheFile(fileName) {
     const file = join(getPluginData(), fileName);
     if (!existsSync(file)) return [];
     const raw = JSON.parse(readFileSync(file, 'utf-8'));
-    return Array.isArray(raw?.models) ? raw.models : (Array.isArray(raw) ? raw : []);
+    return Array.isArray(raw?.models) ? raw.models : Array.isArray(raw) ? raw : [];
   } catch {
     return [];
   }
@@ -50,9 +50,11 @@ export function providerCachedModelsSync(provider) {
 }
 
 export function cachedProviderModelListsSync() {
-  return Object.fromEntries(Object.keys(PROVIDER_CACHE_FILES)
-    .filter((provider) => provider !== 'anthropic')
-    .map((provider) => [provider, providerCachedModelsSync(provider)]));
+  return Object.fromEntries(
+    Object.keys(PROVIDER_CACHE_FILES)
+      .filter((provider) => provider !== 'anthropic')
+      .map((provider) => [provider, providerCachedModelsSync(provider)])
+  );
 }
 
 /** Only explicit catalog wire mappings establish an alias. Never strip an
@@ -60,9 +62,12 @@ export function cachedProviderModelListsSync() {
 export function providerPricingModelSync(provider, model) {
   if (provider === 'grok-oauth') return normalizeGrokModelId(model);
   if (provider !== 'antigravity-oauth') return model;
-  const row = [...providerCachedModelsSync(provider), ...ANTIGRAVITY_MODELS].find((entry) =>
-    entry.id === model || entry.wire === model
-    || (entry.wire && typeof entry.wire === 'object' && Object.values(entry.wire).includes(model)));
+  const row = [...providerCachedModelsSync(provider), ...ANTIGRAVITY_MODELS].find(
+    (entry) =>
+      entry.id === model ||
+      entry.wire === model ||
+      (entry.wire && typeof entry.wire === 'object' && Object.values(entry.wire).includes(model))
+  );
   return row?.pricingModel || row?.id || model;
 }
 
@@ -99,13 +104,16 @@ export function providerCachedModelMetadataSync(provider, model) {
   const row = getProviderCachedModelSync(provider, model);
   if (!row) return null;
   return {
-    contextWindow: num(row.contextWindow ?? row.context_window ?? row.maxContextWindow ?? row.max_context_window ?? row.max_input_tokens),
+    contextWindow: num(
+      row.contextWindow ?? row.context_window ?? row.maxContextWindow ?? row.max_context_window ?? row.max_input_tokens
+    ),
     // Grok's /models response currently publishes a context window but no
     // output ceiling. Older enriched cache rows copied contextWindow into
     // outputTokens; never feed that derived value back as provider-native.
-    outputTokens: p === 'grok-oauth'
-      ? null
-      : num(row.outputTokens ?? row.maxOutputTokens ?? row.max_output_tokens ?? row.output_token_limit),
+    outputTokens:
+      p === 'grok-oauth'
+        ? null
+        : num(row.outputTokens ?? row.maxOutputTokens ?? row.max_output_tokens ?? row.output_token_limit),
     supportsVision: row.supportsVision === true,
     supportsFunctionCalling: row.supportsFunctionCalling === true,
     supportsWebSearch: row.supportsWebSearch === true,

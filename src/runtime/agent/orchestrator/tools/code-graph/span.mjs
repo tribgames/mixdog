@@ -1,6 +1,6 @@
 // Declaration span-end inference from indentation. Recovers the end line of a
 // brace-delimited declaration whose endLine the graph does not record
-// (assignment-style decls). Extracted verbatim from code-graph.mjs.
+// (assignment-style decls).
 
 const SYMBOL_SPAN_SCAN_MAX_LINES = 400;
 

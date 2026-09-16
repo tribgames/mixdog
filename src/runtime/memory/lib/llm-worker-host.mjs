@@ -6,8 +6,6 @@
  * Each task spawns a child process directly and communicates via stdio.
  */
 
-export function startLlmWorker() {
-}
+export function startLlmWorker() {}
 
-export async function stopLlmWorker() {
-}
+export async function stopLlmWorker() {}

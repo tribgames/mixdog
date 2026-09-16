@@ -27,5 +27,3 @@ try {
 } finally {
   await rm(outfile, { force: true });
 }
-
-

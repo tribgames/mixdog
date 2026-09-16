@@ -58,10 +58,7 @@ import {
   selectPrecompressed,
   sendStaticFile,
 } from './lib/static-http.mjs';
-import {
-  decodeRelayBinaryFrame,
-  encodeRelayBinaryFrame,
-} from './lib/relay-binary-frame.mjs';
+import { decodeRelayBinaryFrame, encodeRelayBinaryFrame } from './lib/relay-binary-frame.mjs';
 import { isRoutingId } from './lib/ids.mjs';
 
 // Desktops and hook workers mint UUID device ids; fixtures use real random
@@ -86,7 +83,9 @@ function fakePhone({ buffered = 0 } = {}) {
         callback?.();
       };
     },
-    close(code, reason) { this.closed = { code, reason }; },
+    close(code, reason) {
+      this.closed = { code, reason };
+    },
   };
 }
 
@@ -103,8 +102,14 @@ test('precompressed siblings are negotiated and never served directly', () => {
     let headers = {};
     sendStaticFile(
       { method: 'HEAD', headers: acceptEncoding ? { 'accept-encoding': acceptEncoding } : {} },
-      { writeHead(status, next) { headers = next; }, end() {}, destroy() {} },
-      file,
+      {
+        writeHead(status, next) {
+          headers = next;
+        },
+        end() {},
+        destroy() {},
+      },
+      file
     );
     return headers;
   };
@@ -142,8 +147,14 @@ const staticHead = (target, acceptEncoding) => {
   let headers = {};
   sendStaticFile(
     { method: 'HEAD', headers: acceptEncoding ? { 'accept-encoding': acceptEncoding } : {} },
-    { writeHead(_status, next) { headers = next; }, end() {}, destroy() {} },
-    target,
+    {
+      writeHead(_status, next) {
+        headers = next;
+      },
+      end() {},
+      destroy() {},
+    },
+    target
   );
   return headers;
 };
@@ -233,10 +244,12 @@ test('static responses apply browser security headers without changing HEAD beha
         status = nextStatus;
         headers = nextHeaders;
       },
-      end() { ended = true; },
+      end() {
+        ended = true;
+      },
       destroy() {},
     },
-    target,
+    target
   );
   assert.equal(status, 200);
   assert.equal(ended, true);
@@ -244,10 +257,7 @@ test('static responses apply browser security headers without changing HEAD beha
   assert.equal(headers['X-Frame-Options'], 'DENY');
   assert.equal(headers['Referrer-Policy'], 'no-referrer');
   assert.match(headers['Content-Security-Policy'], /frame-ancestors 'none'/);
-  assert.equal(
-    headers['Content-Security-Policy'].match(/script-src[^;]*/)?.[0],
-    "script-src 'self'",
-  );
+  assert.equal(headers['Content-Security-Policy'].match(/script-src[^;]*/)?.[0], "script-src 'self'");
   assert.match(headers['Permissions-Policy'], /camera=\(self\)/);
 
   const assets = join(dir, 'assets');
@@ -261,10 +271,12 @@ test('static responses apply browser security headers without changing HEAD beha
         status = nextStatus;
         headers = nextHeaders;
       },
-      end() { ended = true; },
+      end() {
+        ended = true;
+      },
       destroy() {},
     },
-    hashedAsset,
+    hashedAsset
   );
   assert.equal(headers['Cache-Control'], 'public, max-age=31536000, immutable');
 
@@ -277,10 +289,12 @@ test('static responses apply browser security headers without changing HEAD beha
         status = nextStatus;
         headers = nextHeaders;
       },
-      end() { ended = true; },
+      end() {
+        ended = true;
+      },
       destroy() {},
     },
-    plain,
+    plain
   );
   assert.equal(headers['Cache-Control'], 'public, max-age=86400');
 
@@ -295,10 +309,12 @@ test('static responses apply browser security headers without changing HEAD beha
           status = nextStatus;
           headers = nextHeaders;
         },
-        end() { ended = true; },
+        end() {
+          ended = true;
+        },
         destroy() {},
       },
-      boot,
+      boot
     );
     assert.equal(headers['Cache-Control'], 'no-cache', name);
   }
@@ -308,19 +324,19 @@ test('pairing and device cookies keep Max-Age HttpOnly SameSite forms', () => {
   const token = 'abcd';
   assert.equal(
     pairingCookieHeaders(token)['Set-Cookie'],
-    `mixdog_token=${token}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax`,
+    `mixdog_token=${token}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax`
   );
   assert.equal(
     pairingCookieHeaders(token, { socket: { encrypted: true } })['Set-Cookie'],
-    `mixdog_token=${token}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax; Secure`,
+    `mixdog_token=${token}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax; Secure`
   );
   assert.equal(
     deviceCookieHeaders(DEVICE_ID)['Set-Cookie'],
-    `mixdog_device=${DEVICE_ID}; Path=/; Max-Age=31536000; SameSite=Lax`,
+    `mixdog_device=${DEVICE_ID}; Path=/; Max-Age=31536000; SameSite=Lax`
   );
   assert.equal(
     deviceCookieHeaders(DEVICE_ID, { socket: { encrypted: true } })['Set-Cookie'],
-    `mixdog_device=${DEVICE_ID}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`,
+    `mixdog_device=${DEVICE_ID}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`
   );
 });
 
@@ -334,17 +350,16 @@ test('inlined renderer boot script receives only its exact CSP hash', () => {
   sendStaticFile(
     { method: 'HEAD', headers: {} },
     {
-      writeHead(_status, nextHeaders) { headers = nextHeaders; },
+      writeHead(_status, nextHeaders) {
+        headers = nextHeaders;
+      },
       end() {},
       destroy() {},
     },
-    target,
+    target
   );
   const hash = createHash('sha256').update(source).digest('base64');
-  assert.equal(
-    headers['Content-Security-Policy'].match(/script-src[^;]*/)?.[0],
-    `script-src 'self' 'sha256-${hash}'`,
-  );
+  assert.equal(headers['Content-Security-Policy'].match(/script-src[^;]*/)?.[0], `script-src 'self' 'sha256-${hash}'`);
 });
 
 test('routing ids share one predicate across store, HTTP, and binary frames', (t) => {
@@ -367,21 +382,42 @@ test('routing ids share one predicate across store, HTTP, and binary frames', (t
     data: Buffer.from([1]),
   });
   assert.equal(decodeRelayBinaryFrame(encoded), null);
-  assert.equal(routedClientId(Buffer.from(JSON.stringify({
-    type: 'frame',
-    clientId: '12345678-abcd-4321-abcd-1234567890ab',
-    data: '',
-  }))), '12345678-abcd-4321-abcd-1234567890ab');
-  assert.equal(routedClientId(Buffer.from(JSON.stringify({
-    type: 'frame',
-    clientId: '00000001',
-    data: '',
-  }))), '00000001');
-  assert.equal(routedClientId(Buffer.from(JSON.stringify({
-    type: 'frame',
-    clientId: '0000001',
-    data: '',
-  }))), '');
+  assert.equal(
+    routedClientId(
+      Buffer.from(
+        JSON.stringify({
+          type: 'frame',
+          clientId: '12345678-abcd-4321-abcd-1234567890ab',
+          data: '',
+        })
+      )
+    ),
+    '12345678-abcd-4321-abcd-1234567890ab'
+  );
+  assert.equal(
+    routedClientId(
+      Buffer.from(
+        JSON.stringify({
+          type: 'frame',
+          clientId: '00000001',
+          data: '',
+        })
+      )
+    ),
+    '00000001'
+  );
+  assert.equal(
+    routedClientId(
+      Buffer.from(
+        JSON.stringify({
+          type: 'frame',
+          clientId: '0000001',
+          data: '',
+        })
+      )
+    ),
+    ''
+  );
 });
 
 test('binary relay envelopes preserve routing metadata without base64', () => {
@@ -407,10 +443,7 @@ test('static target resolution rejects symlink and junction escapes', () => {
   symlinkSync(outside, join(root, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
 
   assert.equal(resolveStaticTarget(root, '/index.html').status, 200);
-  assert.deepEqual(
-    resolveStaticTarget(root, '/linked/secret.txt'),
-    { status: 403, target: '' },
-  );
+  assert.deepEqual(resolveStaticTarget(root, '/linked/secret.txt'), { status: 403, target: '' });
 });
 
 test('renderer boot logic is self-hosted for the relay script policy', () => {
@@ -430,16 +463,16 @@ test('device authentication accepts headers and rejects URL credentials', () => 
   assert.deepEqual(
     readDeviceCredentials(
       { headers: { authorization: header } },
-      new URL('https://relay.example/desktop?device=query-device&secret=query-secret'),
+      new URL('https://relay.example/desktop?device=query-device&secret=query-secret')
     ),
-    { deviceId: 'header-device', secret: 'header-secret' },
+    { deviceId: 'header-device', secret: 'header-secret' }
   );
   assert.deepEqual(
     readDeviceCredentials(
       { headers: {} },
-      new URL('https://relay.example/desktop?device=query-device&secret=query-secret'),
+      new URL('https://relay.example/desktop?device=query-device&secret=query-secret')
     ),
-    { deviceId: '', secret: '' },
+    { deviceId: '', secret: '' }
   );
 });
 
@@ -448,7 +481,7 @@ test('webhook relay responses enforce strict base64 and byte limits', () => {
   assert.throws(() => decodeHookResponseBody('not base64!'), /invalid hook response body/);
   assert.throws(
     () => decodeHookResponseBody('A'.repeat(Math.ceil(MAX_HOOK_RESPONSE_BODY_BYTES / 3) * 4 + 4)),
-    /invalid hook response body/,
+    /invalid hook response body/
   );
 });
 
@@ -515,22 +548,13 @@ test('frame admission bounds every leg without stalling its neighbours', () => {
   const megabyte = 1024 * 1024;
   // An idle leg may always take one frame of any supported size: the budget
   // bounds ACCUMULATION, never the payload a supported client may send.
-  assert.equal(
-    admitFrame({ queued: 0, size: MAX_FRAME_BYTES, budget: 8 * megabyte, inflight: 0 }),
-    'send',
-  );
+  assert.equal(admitFrame({ queued: 0, size: MAX_FRAME_BYTES, budget: 8 * megabyte, inflight: 0 }), 'send');
   // A leg that is not draining does not get another one, and the decision is
   // taken BEFORE the enqueue so nothing overshoots by a whole frame.
   assert.equal(admitFrame({ queued: 7 * megabyte, size: 2 * megabyte, budget: 8 * megabyte }), 'slow');
-  assert.equal(
-    admitFrame({ queued: 7 * megabyte, size: 2 * megabyte, budget: 8 * megabyte, droppable: true }),
-    'drop',
-  );
+  assert.equal(admitFrame({ queued: 7 * megabyte, size: 2 * megabyte, budget: 8 * megabyte, droppable: true }), 'drop');
   assert.equal(admitFrame({ queued: 0, size: 2 * megabyte, inflight: MAX_INFLIGHT_BYTES }), 'busy');
-  assert.equal(
-    admitFrame({ queued: 0, size: 2 * megabyte, inflight: MAX_INFLIGHT_BYTES, droppable: true }),
-    'drop',
-  );
+  assert.equal(admitFrame({ queued: 0, size: 2 * megabyte, inflight: MAX_INFLIGHT_BYTES, droppable: true }), 'drop');
 
   const congested = fakePhone({ buffered: 8 * megabyte });
   const healthy = fakePhone();
@@ -587,7 +611,7 @@ test('desktop media metadata cannot make the relay origin serve active content',
     'content-type': 'image/svg+xml',
     'content-length': 12,
     'set-cookie': 'session=stolen',
-    'content-security-policy': "default-src *",
+    'content-security-policy': 'default-src *',
   });
   assert.equal(headers['Content-Type'], 'application/octet-stream');
   assert.equal(headers['Content-Length'], '12');
@@ -617,17 +641,16 @@ test('browser credentials are isolated per desktop and individually revocable', 
   });
   assert.equal(store.clientAccessForToken(first.token)?.clientId, 'bbbbbbbb');
   assert.equal(store.clientAccessForToken(second.token)?.clientId, 'cccccccc');
-  assert.equal(
-    store.listClients(DEVICE_ID, new Set(['bbbbbbbb']))
-      .find((row) => row.id === 'bbbbbbbb')?.online,
-    true,
-  );
+  assert.equal(store.listClients(DEVICE_ID, new Set(['bbbbbbbb'])).find((row) => row.id === 'bbbbbbbb')?.online, true);
   assert.equal(store.revokeClient(DEVICE_ID, 'bbbbbbbb'), true);
   assert.equal(store.clientAccessForToken(first.token), null);
   assert.equal(store.clientAccessForToken(second.token)?.deviceId, DEVICE_ID);
   store.save();
   const restored = new DeviceStore(dir);
-  assert.deepEqual(restored.listClients(DEVICE_ID, new Set()).map((row) => row.id), ['cccccccc']);
+  assert.deepEqual(
+    restored.listClients(DEVICE_ID, new Set()).map((row) => row.id),
+    ['cccccccc']
+  );
 });
 
 test('browser registration exchanges a pairing token for an individual credential', async () => {
@@ -748,7 +771,7 @@ test('the device route opens the shell and aims its manifest back at that route'
       start_url: '/',
       scope: '/',
       share_target: { action: '/share-target', method: 'POST' },
-    }),
+    })
   );
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), rendererDir: renderer });
   try {
@@ -821,7 +844,11 @@ test('an approval mints the credential; the relay only routes the request', asyn
     const forwarded = new Promise((received) => {
       desktop.on('message', (raw) => {
         let value;
-        try { value = JSON.parse(String(raw)); } catch { return; }
+        try {
+          value = JSON.parse(String(raw));
+        } catch {
+          return;
+        }
         if (value.type === 'client-claim') received(value);
       });
     });
@@ -859,7 +886,11 @@ test('an approval mints the credential; the relay only routes the request', asyn
     // One-shot: the credential leaves this relay exactly once.
     assert.equal((await (await fetch(`${origin}/claim/${claimId}`)).json()).status, 'expired');
   } finally {
-    try { desktop?.close(); } catch { /* already closed */ }
+    try {
+      desktop?.close();
+    } catch {
+      /* already closed */
+    }
     await relay.close();
   }
 });
@@ -884,14 +915,19 @@ test('a reopened request resumes instead of prompting the desktop again', async 
     let prompts = 0;
     desktop.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'client-claim') prompts += 1;
     });
-    const claim = (publicKey) => fetch(`${origin}/claim`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: origin },
-      body: JSON.stringify({ deviceId: DEVICE_ID, clientId: 'bbbbbbbb', publicKey }),
-    }).then((response) => response.json());
+    const claim = (publicKey) =>
+      fetch(`${origin}/claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: origin },
+        body: JSON.stringify({ deviceId: DEVICE_ID, clientId: 'bbbbbbbb', publicKey }),
+      }).then((response) => response.json());
     // A phone that reloads mid-approval re-sends the same request; the user is
     // already looking at that prompt, so it must not raise another.
     const first = await claim('k'.repeat(87));
@@ -903,7 +939,11 @@ test('a reopened request resumes instead of prompting the desktop again', async 
     await delay(120);
     assert.equal(prompts, 2);
   } finally {
-    try { desktop?.close(); } catch { /* already closed */ }
+    try {
+      desktop?.close();
+    } catch {
+      /* already closed */
+    }
     await relay.close();
   }
 });
@@ -949,13 +989,14 @@ test('phone /ws accepts only per-browser credentials; others close 4005', async 
     relay.store.authenticate(DEVICE_ID, '0123456789abcdef');
     relay.store.setClientToken(DEVICE_ID, 'fedcba9876543210');
     const origin = `http://127.0.0.1:${relay.port}`;
-    const closeOf = (tokenValue) => new Promise((resolveClose, rejectClose) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${tokenValue}`, {
-        headers: { Origin: origin },
+    const closeOf = (tokenValue) =>
+      new Promise((resolveClose, rejectClose) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${tokenValue}`, {
+          headers: { Origin: origin },
+        });
+        ws.on('close', (code) => resolveClose(code));
+        ws.on('error', rejectClose);
       });
-      ws.on('close', (code) => resolveClose(code));
-      ws.on('error', rejectClose);
-    });
     // Legacy shared bootstrap tokens and unknown tokens are not retryable:
     // the phone must drop its pairing and rescan.
     assert.equal(await closeOf('fedcba9876543210'), 4005);
@@ -976,24 +1017,30 @@ test('phone websocket survives a desktop leg redial and is re-announced', async 
   writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), rendererDir: renderer });
   const sockets = [];
-  const openSocket = (url, options) => new Promise((resolve, reject) => {
-    const ws = new WebSocket(url, options);
-    sockets.push(ws);
-    ws.once('open', () => resolve(ws));
-    ws.once('error', reject);
-  });
-  const nextClientOpen = (ws) => new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('client-open timed out')), 2_000);
-    const onMessage = (raw) => {
-      let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
-      if (value.type !== 'client-open') return;
-      clearTimeout(timeout);
-      ws.off('message', onMessage);
-      resolve(value.clientId);
-    };
-    ws.on('message', onMessage);
-  });
+  const openSocket = (url, options) =>
+    new Promise((resolve, reject) => {
+      const ws = new WebSocket(url, options);
+      sockets.push(ws);
+      ws.once('open', () => resolve(ws));
+      ws.once('error', reject);
+    });
+  const nextClientOpen = (ws) =>
+    new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('client-open timed out')), 2_000);
+      const onMessage = (raw) => {
+        let value;
+        try {
+          value = JSON.parse(String(raw));
+        } catch {
+          return;
+        }
+        if (value.type !== 'client-open') return;
+        clearTimeout(timeout);
+        ws.off('message', onMessage);
+        resolve(value.clientId);
+      };
+      ws.on('message', onMessage);
+    });
   try {
     relay.store.authenticate(DEVICE_ID, '0123456789abcdef');
     const registered = relay.store.registerClient(DEVICE_ID, 'bbbbbbbb', {});
@@ -1001,13 +1048,14 @@ test('phone websocket survives a desktop leg redial and is re-announced', async 
     const desktopOptions = { headers: { Authorization: DESKTOP_AUTH } };
     const firstDesktop = await openSocket(desktopUrl, desktopOptions);
     const firstOpen = nextClientOpen(firstDesktop);
-    const phone = await openSocket(
-      `ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`,
-      { headers: { Origin: `http://127.0.0.1:${relay.port}` } },
-    );
+    const phone = await openSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
+      headers: { Origin: `http://127.0.0.1:${relay.port}` },
+    });
     const relayClientId = await firstOpen;
     let phoneClosed = false;
-    phone.once('close', () => { phoneClosed = true; });
+    phone.once('close', () => {
+      phoneClosed = true;
+    });
 
     firstDesktop.close();
     await delay(100);
@@ -1025,7 +1073,11 @@ test('phone websocket survives a desktop leg redial and is re-announced', async 
     assert.equal(phoneClosed, false);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1034,11 +1086,12 @@ test('phone websocket survives a desktop leg redial and is re-announced', async 
 const basicAuth = (deviceId, secret = '0123456789abcdef') =>
   `Basic ${Buffer.from(`${deviceId}:${secret}`).toString('base64')}`;
 
-const openWebSocket = (url, options) => new Promise((resolve, reject) => {
-  const ws = new WebSocket(url, options);
-  ws.once('open', () => resolve(ws));
-  ws.once('error', reject);
-});
+const openWebSocket = (url, options) =>
+  new Promise((resolve, reject) => {
+    const ws = new WebSocket(url, options);
+    ws.once('open', () => resolve(ws));
+    ws.once('error', reject);
+  });
 
 /** The phone shim's dispatch for a CLEARTEXT frame, in its own order
  *  (apps/desktop/src/renderer/remote-shim.ts:1195-1246). Only `pong` and
@@ -1074,14 +1127,22 @@ test('an oversize frame is a payload error both phone kinds surface', async () =
     let forwarded = 0;
     desktop.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'frame') forwarded += 1;
     });
     const received = [];
     const refusal = new Promise((resolve) => {
       phone.on('message', (raw) => {
         let value;
-        try { value = JSON.parse(String(raw)); } catch { return; }
+        try {
+          value = JSON.parse(String(raw));
+        } catch {
+          return;
+        }
         received.push(value);
         if (value.error === 'frame-too-large') resolve(value);
       });
@@ -1107,7 +1168,11 @@ test('an oversize frame is a payload error both phone kinds surface', async () =
     assert.equal(received.filter((value) => value.error === 'frame-too-large').length, 1);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1129,7 +1194,11 @@ test('an oversize desktop frame is answered on that leg and names the client', a
     let clientId = '';
     desktop.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'client-open') clientId = value.clientId;
       if (value.type === 'frame-too-large') notices.push(value);
     });
@@ -1138,7 +1207,9 @@ test('an oversize desktop frame is answered on that leg and names the client', a
     });
     sockets.push(phone);
     let delivered = 0;
-    phone.on('message', () => { delivered += 1; });
+    phone.on('message', () => {
+      delivered += 1;
+    });
     for (let attempt = 0; attempt < 40 && !clientId; attempt += 1) await delay(25);
     assert.match(clientId, /^[0-9a-f-]{8,64}$/);
 
@@ -1163,7 +1234,11 @@ test('an oversize desktop frame is answered on that leg and names the client', a
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1192,7 +1267,11 @@ test('a frame past the ceiling is refused while it is still arriving, once', asy
     let forwarded = 0;
     desktop.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'frame') forwarded += 1;
     });
     const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
@@ -1202,11 +1281,17 @@ test('a frame past the ceiling is refused while it is still arriving, once', asy
     const refusals = [];
     phone.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.error === 'frame-too-large') refusals.push(value);
     });
     let closeCode = null;
-    phone.on('close', (code) => { closeCode = code; });
+    phone.on('close', (code) => {
+      closeCode = code;
+    });
     // This leg states what its receiver takes, so the ceiling below is this
     // relay's own policy rather than the floor an undeclared leg is held to.
     await declareDesktopLanes(desktop, { maxPayloadBytes: 1024 * 1024 });
@@ -1232,7 +1317,11 @@ test('a frame past the ceiling is refused while it is still arriving, once', asy
     assert.equal(refusals.length, 1);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1254,7 +1343,11 @@ test('a frame at exactly the ceiling is forwarded, never warned about', async ()
     const arrived = [];
     desktop.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'frame') arrived.push(value.data);
     });
     const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
@@ -1264,7 +1357,11 @@ test('a frame at exactly the ceiling is forwarded, never warned about', async ()
     const refusals = [];
     phone.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
@@ -1292,7 +1389,11 @@ test('a frame at exactly the ceiling is forwarded, never warned about', async ()
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1314,7 +1415,11 @@ test('a nested clientId in the payload never attributes a refusal', async () => 
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
         let value;
-        try { value = JSON.parse(String(raw)); } catch { return; }
+        try {
+          value = JSON.parse(String(raw));
+        } catch {
+          return;
+        }
         if (value.type === 'client-open') resolve(value.clientId);
         if (value.type === 'frame-too-large') notices.push(value);
       });
@@ -1350,7 +1455,11 @@ test('a nested clientId in the payload never attributes a refusal', async () => 
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1379,7 +1488,11 @@ test('a burst of control frames pins no ingress reservation', async () => {
     const arrived = [];
     desktop.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'frame') arrived.push(value.data);
     });
     const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
@@ -1406,7 +1519,11 @@ test('a burst of control frames pins no ingress reservation', async () => {
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1435,12 +1552,21 @@ test('a message that cannot be enveloped for the desktop is refused, not deliver
     });
     sockets.push(desktop);
     let desktopClose = null;
-    desktop.on('close', (code) => { desktopClose = code; });
+    desktop.on('close', (code) => {
+      desktopClose = code;
+    });
     let forwarded = 0;
     desktop.on('message', (raw, isBinary) => {
-      if (isBinary) { forwarded += 1; return; }
+      if (isBinary) {
+        forwarded += 1;
+        return;
+      }
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'frame') forwarded += 1;
     });
     const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
@@ -1450,7 +1576,11 @@ test('a message that cannot be enveloped for the desktop is refused, not deliver
     const refusals = [];
     phone.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
@@ -1488,7 +1618,11 @@ test('a message that cannot be enveloped for the desktop is refused, not deliver
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1510,7 +1644,11 @@ test('messages coalesced into one read are refused at most once each', async () 
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
         let value;
-        try { value = JSON.parse(String(raw)); } catch { return; }
+        try {
+          value = JSON.parse(String(raw));
+        } catch {
+          return;
+        }
         if (value.type === 'client-open') resolve(value.clientId);
         if (value.type === 'frame-too-large') notices.push(value);
       });
@@ -1545,7 +1683,11 @@ test('messages coalesced into one read are refused at most once each', async () 
     assert.equal(desktop.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1569,12 +1711,18 @@ test('a fragmented message past transport capacity is refused before the close',
     });
     sockets.push(desktop);
     let closeCode = null;
-    desktop.on('close', (code) => { closeCode = code; });
+    desktop.on('close', (code) => {
+      closeCode = code;
+    });
     const notices = [];
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
         let value;
-        try { value = JSON.parse(String(raw)); } catch { return; }
+        try {
+          value = JSON.parse(String(raw));
+        } catch {
+          return;
+        }
         if (value.type === 'client-open') resolve(value.clientId);
         if (value.type === 'frame-too-large') notices.push(value);
       });
@@ -1617,7 +1765,11 @@ test('a fragmented message past transport capacity is refused before the close',
     assert.equal(notices.length, 1);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1638,7 +1790,11 @@ test('a declared frame that never completes is not described as a message', asyn
     let forwarded = 0;
     desktop.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'frame') forwarded += 1;
     });
     const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
@@ -1648,7 +1804,11 @@ test('a declared frame that never completes is not described as a message', asyn
     const refusals = [];
     phone.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
@@ -1675,7 +1835,11 @@ test('a declared frame that never completes is not described as a message', asyn
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1695,10 +1859,7 @@ test('a desktop leg is held to the capacity it declares, not to configuration', 
   assert.equal(uplinkCapacityFor(64 * 1024, 128 * 1024), 64 * 1024);
   assert.equal(uplinkCapacityFor(256 * 1024, 128 * 1024), 128 * 1024);
   assert.equal(uplinkCapacityFor(undefined, 128 * 1024), UNDECLARED_CAPACITY_BYTES);
-  assert.equal(
-    uplinkCapacityFor(undefined, MAX_UPLINK_CAPACITY_BYTES),
-    UNDECLARED_CAPACITY_BYTES,
-  );
+  assert.equal(uplinkCapacityFor(undefined, MAX_UPLINK_CAPACITY_BYTES), UNDECLARED_CAPACITY_BYTES);
   assert.equal(uplinkCapacityFor(0, 128 * 1024), UNDECLARED_CAPACITY_BYTES);
 
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-capacity-skew-'));
@@ -1722,7 +1883,9 @@ test('a desktop leg is held to the capacity it declares, not to configuration', 
     });
     sockets.push(desktop);
     let closeCode = null;
-    desktop.on('close', (code) => { closeCode = code; });
+    desktop.on('close', (code) => {
+      closeCode = code;
+    });
     const arrived = [];
     desktop.on('message', (raw, isBinary) => {
       if (isBinary) arrived.push(decodeRelayBinaryFrame(raw).data.length);
@@ -1735,7 +1898,11 @@ test('a desktop leg is held to the capacity it declares, not to configuration', 
     const refusals = [];
     phone.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
@@ -1761,7 +1928,11 @@ test('a desktop leg is held to the capacity it declares, not to configuration', 
     assert.equal(closeCode, null);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1787,7 +1958,11 @@ test('the refused limit is a stable property of the path, and is honoured', asyn
     const arrived = [];
     desktop.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'frame') arrived.push(value.data);
     });
     await declareDesktopLanes(desktop, { maxPayloadBytes: 64 * 1024 });
@@ -1798,7 +1973,11 @@ test('the refused limit is a stable property of the path, and is honoured', asyn
     const refusals = [];
     phone.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
@@ -1838,7 +2017,11 @@ test('the refused limit is a stable property of the path, and is honoured', asyn
     assert.equal(desktop.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1889,7 +2072,11 @@ test('a declared text-frame leg carries text in the envelope that cannot inflate
         return;
       }
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'frame') received.push({ form: 'json', data: value.data });
     });
     await declareDesktopLanes(desktop, { maxPayloadBytes: capacity, textFrames: 1 });
@@ -1900,7 +2087,11 @@ test('a declared text-frame leg carries text in the envelope that cannot inflate
     const refusals = [];
     phone.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
@@ -1928,7 +2119,11 @@ test('a declared text-frame leg carries text in the envelope that cannot inflate
     assert.equal(desktop.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -1940,10 +2135,7 @@ test('capacity configuration is clamped on both inputs and normalises nonsense',
   // above the largest frame its own protocol works in.
   assert.equal(uplinkCapacityFor(gigabyte, gigabyte), MAX_UPLINK_CAPACITY_BYTES);
   assert.equal(uplinkCapacityFor(gigabyte, undefined), MAX_UPLINK_CAPACITY_BYTES);
-  assert.equal(
-    uplinkCapacityFor(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
-    MAX_UPLINK_CAPACITY_BYTES,
-  );
+  assert.equal(uplinkCapacityFor(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER), MAX_UPLINK_CAPACITY_BYTES);
   // An undeclared leg stays at the conservative floor however large the
   // configured clamp is: a capacity nobody declared is a capacity nobody
   // promised.
@@ -1989,17 +2181,25 @@ test('a claim is trusted on the connection that made it, and on no other', async
     };
     const first = await openDesktop();
     let firstClosed = null;
-    first.on('close', (code) => { firstClosed = code; });
+    first.on('close', (code) => {
+      firstClosed = code;
+    });
     const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
       headers: { Origin: `http://127.0.0.1:${relay.port}` },
     });
     sockets.push(phone);
     let phoneClosed = null;
-    phone.on('close', (code) => { phoneClosed = code; });
+    phone.on('close', (code) => {
+      phoneClosed = code;
+    });
     const refusals = [];
     phone.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.error === 'frame-too-large') refusals.push(value);
     });
     await delay(150);
@@ -2025,7 +2225,9 @@ test('a claim is trusted on the connection that made it, and on no other', async
     // floor), and not on the phone beside this one.
     const second = await openDesktop();
     let secondClosed = null;
-    second.on('close', (code) => { secondClosed = code; });
+    second.on('close', (code) => {
+      secondClosed = code;
+    });
     await delay(200);
     phone.send(Buffer.alloc(64 * 1024, 2));
     for (let attempt = 0; attempt < 80 && secondClosed === null; attempt += 1) await delay(25);
@@ -2050,7 +2252,11 @@ test('a claim is trusted on the connection that made it, and on no other', async
     assert.equal(third.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -2087,7 +2293,11 @@ test('the text envelope is acknowledged per connection, never inferred', async (
         return;
       }
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'relay-capabilities') capabilities.push(value);
       if (value.type === 'frame') arrived.push({ form: 'json', data: value.data });
     });
@@ -2108,7 +2318,11 @@ test('the text envelope is acknowledged per connection, never inferred', async (
     const refusals = [];
     phone.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.error === 'frame-too-large') refusals.push(value);
     });
     await delay(100);
@@ -2170,7 +2384,11 @@ test('the text envelope is acknowledged per connection, never inferred', async (
     assert.equal(legacy.ws.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -2184,15 +2402,18 @@ test('a close the relay cannot attribute accuses no client', async () => {
   const origin = `http://127.0.0.1:${relay.port}`;
   const openPhone = async (clientId) => {
     const registered = relay.store.registerClient(deviceId, clientId, {});
-    const phone = await openWebSocket(
-      `ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`,
-      { headers: { Origin: origin } },
-    );
+    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
+      headers: { Origin: origin },
+    });
     sockets.push(phone);
     const refusals = [];
     phone.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.error === 'frame-too-large') refusals.push(value);
     });
     return { phone, refusals };
@@ -2206,12 +2427,16 @@ test('a close the relay cannot attribute accuses no client', async () => {
     });
     sockets.push(desktop);
     let desktopClosed = null;
-    desktop.on('close', (code) => { desktopClosed = code; });
-    desktop.send(JSON.stringify({
-      type: 'desktop-lanes',
-      media: false,
-      maxPayloadBytes: 128 * 1024,
-    }));
+    desktop.on('close', (code) => {
+      desktopClosed = code;
+    });
+    desktop.send(
+      JSON.stringify({
+        type: 'desktop-lanes',
+        media: false,
+        maxPayloadBytes: 128 * 1024,
+      })
+    );
     await delay(150);
     const attacker = await openPhone('aa000001');
     const victim = await openPhone('aa000002');
@@ -2238,7 +2463,11 @@ test('a close the relay cannot attribute accuses no client', async () => {
     assert.equal(attacker.phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -2263,11 +2492,13 @@ test('a 1009 on a leg that was only sent safe frames costs it nothing', async ()
       ws.on('message', (raw, isBinary) => {
         if (isBinary) arrived.push(decodeRelayBinaryFrame(raw).data.length);
       });
-      ws.send(JSON.stringify({
-        type: 'desktop-lanes',
-        media: false,
-        maxPayloadBytes: 128 * 1024,
-      }));
+      ws.send(
+        JSON.stringify({
+          type: 'desktop-lanes',
+          media: false,
+          maxPayloadBytes: 128 * 1024,
+        })
+      );
       await delay(150);
       return { ws, arrived };
     };
@@ -2279,7 +2510,11 @@ test('a 1009 on a leg that was only sent safe frames costs it nothing', async ()
     const refusals = [];
     phone.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.error === 'frame-too-large') refusals.push(value);
     });
     await delay(100);
@@ -2305,7 +2540,11 @@ test('a 1009 on a leg that was only sent safe frames costs it nothing', async ()
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -2331,15 +2570,10 @@ test('a critical fan-out defers what the box cannot carry and closes no healthy 
     const origin = `http://127.0.0.1:${relay.port}`;
     const legs = [];
     for (let index = 0; index < MAX_PHONE_CLIENTS_PER_DEVICE; index += 1) {
-      const registered = relay.store.registerClient(
-        deviceId,
-        index.toString(16).padStart(8, '0'),
-        {},
-      );
-      const phone = await openWebSocket(
-        `ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`,
-        { headers: { Origin: origin } },
-      );
+      const registered = relay.store.registerClient(deviceId, index.toString(16).padStart(8, '0'), {});
+      const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
+        headers: { Origin: origin },
+      });
       sockets.push(phone);
       const leg = { socket: phone, payloads: 0, hints: 0, closed: null };
       phone.on('message', (raw) => {
@@ -2347,7 +2581,9 @@ test('a critical fan-out defers what the box cannot carry and closes no healthy 
         if (text.startsWith('{"resync"')) leg.hints += 1;
         else leg.payloads += 1;
       });
-      phone.on('close', (code) => { leg.closed = code; });
+      phone.on('close', (code) => {
+        leg.closed = code;
+      });
       legs.push(leg);
     }
     await delay(150);
@@ -2355,11 +2591,13 @@ test('a critical fan-out defers what the box cannot carry and closes no healthy 
     // Critical: a full snapshot is the recovery frame, so it is never dropped
     // silently — but the whole fan-out runs before ONE flush callback can
     // release, so the ceiling it fills is the loop's own doing.
-    desktop.send(JSON.stringify({
-      type: 'broadcast',
-      critical: true,
-      data: 'x'.repeat(120 * 1024),
-    }));
+    desktop.send(
+      JSON.stringify({
+        type: 'broadcast',
+        critical: true,
+        data: 'x'.repeat(120 * 1024),
+      })
+    );
     await delay(500);
 
     const served = legs.filter((leg) => leg.payloads > 0).length;
@@ -2379,7 +2617,11 @@ test('a critical fan-out defers what the box cannot carry and closes no healthy 
     assert.equal(relayInflightBytes(), baseline);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -2394,15 +2636,12 @@ test('ingress admission bounds arriving frames to the box, not to leg count', as
   assert.equal(admitIngress({ pending: 512 * 1024 }), 'reserve');
   assert.equal(
     admitIngress({ pending: 512 * 1024, reserved: MAX_INGRESS_BYTES - INGRESS_RESERVATION_BYTES }),
-    'reserve',
+    'reserve'
   );
   assert.equal(admitIngress({ pending: 512 * 1024, reserved: MAX_INGRESS_BYTES }), 'wait');
   // A leg that already holds its reservation reads to the end regardless: that
   // is what keeps the pool free of half-received frames waiting on each other.
-  assert.equal(
-    admitIngress({ pending: 64 * 1024 * 1024, holding: true, reserved: MAX_INGRESS_BYTES }),
-    'read',
-  );
+  assert.equal(admitIngress({ pending: 64 * 1024 * 1024, holding: true, reserved: MAX_INGRESS_BYTES }), 'read');
 
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-ingress-'));
   const ceiling = 512 * 1024;
@@ -2426,21 +2665,20 @@ test('ingress admission bounds arriving frames to the box, not to leg count', as
     const arrived = [];
     desktop.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'frame') arrived.push(value.data);
     });
     const origin = `http://127.0.0.1:${relay.port}`;
     const phones = [];
     for (let index = 0; index < legCount; index += 1) {
-      const registered = relay.store.registerClient(
-        deviceId,
-        `aa${index.toString(16).padStart(6, '0')}`,
-        {},
-      );
-      const phone = await openWebSocket(
-        `ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`,
-        { headers: { Origin: origin } },
-      );
+      const registered = relay.store.registerClient(deviceId, `aa${index.toString(16).padStart(6, '0')}`, {});
+      const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
+        headers: { Origin: origin },
+      });
       sockets.push(phone);
       phones.push(phone);
     }
@@ -2469,7 +2707,11 @@ test('ingress admission bounds arriving frames to the box, not to leg count', as
     for (const phone of phones) assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -2531,16 +2773,19 @@ test('a leg parked for ingress admission waits instead of losing its frame', asy
     const arrived = [];
     desktop.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'frame') arrived.push(value.data);
     });
     const origin = `http://127.0.0.1:${relay.port}`;
     const openPhone = async (clientId) => {
       const registered = relay.store.registerClient(deviceId, clientId, {});
-      const phone = await openWebSocket(
-        `ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`,
-        { headers: { Origin: origin } },
-      );
+      const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
+        headers: { Origin: origin },
+      });
       sockets.push(phone);
       return phone;
     };
@@ -2581,7 +2826,11 @@ test('a leg parked for ingress admission waits instead of losing its frame', asy
     assert.equal(parked.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -2601,7 +2850,11 @@ test('webhook ingress caps bodies that are still arriving, not just landed ones'
     let forwarded = 0;
     agent.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'http') forwarded += 1;
     });
     const path = `/hook/${deviceId}/webhook/test`;
@@ -2611,18 +2864,23 @@ test('webhook ingress caps bodies that are still arriving, not just landed ones'
     // slot, a socket and a growing buffer, and it has not reached the agent at
     // all. The write callback is the handshake — head and first chunk are on
     // the wire before the probe runs.
-    const startSlowUpload = () => new Promise((resolve) => {
-      const upload = httpRequest({
-        hostname: '127.0.0.1',
-        port: relay.port,
-        path,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked' },
+    const startSlowUpload = () =>
+      new Promise((resolve) => {
+        const upload = httpRequest({
+          hostname: '127.0.0.1',
+          port: relay.port,
+          path,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked' },
+        });
+        upload.on('error', () => {
+          /* torn down by the test */
+        });
+        upload.on('response', (response) => {
+          response.resume();
+        });
+        upload.write('{"partial":', () => resolve(upload));
       });
-      upload.on('error', () => { /* torn down by the test */ });
-      upload.on('response', (response) => { response.resume(); });
-      upload.write('{"partial":', () => resolve(upload));
-    });
     uploads.push(await startSlowUpload());
     uploads.push(await startSlowUpload());
     await delay(100);
@@ -2641,16 +2899,23 @@ test('webhook ingress caps bodies that are still arriving, not just landed ones'
     // ...and a caller that hangs up mid-body gives its reservation back.
     for (const upload of uploads) upload.destroy();
     await delay(100);
-    const accepted = fetch(url, { method: 'POST', body: '{}', signal: AbortSignal.timeout(2_000) })
-      .catch(() => null);
+    const accepted = fetch(url, { method: 'POST', body: '{}', signal: AbortSignal.timeout(2_000) }).catch(() => null);
     for (let attempt = 0; attempt < 40 && forwarded < 1; attempt += 1) await delay(25);
     assert.equal(forwarded, 1);
     await Promise.allSettled([accepted]);
   } finally {
     for (const upload of uploads) {
-      try { upload.destroy(); } catch { /* already gone */ }
+      try {
+        upload.destroy();
+      } catch {
+        /* already gone */
+      }
     }
-    try { agent?.close(); } catch { /* already closed */ }
+    try {
+      agent?.close();
+    } catch {
+      /* already closed */
+    }
     await relay.close();
   }
 });
@@ -2666,15 +2931,16 @@ test('pending claims give each desktop a bounded share of the pool', async () =>
       headers: { Authorization: basicAuth(deviceId) },
     });
     const origin = `http://127.0.0.1:${relay.port}`;
-    const claim = (index) => fetch(`${origin}/claim`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: origin },
-      body: JSON.stringify({
-        deviceId,
-        clientId: 'bbbbbbbb',
-        publicKey: String(index).padStart(2, '0').repeat(43),
-      }),
-    });
+    const claim = (index) =>
+      fetch(`${origin}/claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: origin },
+        body: JSON.stringify({
+          deviceId,
+          clientId: 'bbbbbbbb',
+          publicKey: String(index).padStart(2, '0').repeat(43),
+        }),
+      });
     for (let index = 0; index < MAX_PENDING_CLAIMS_PER_DEVICE; index += 1) {
       assert.equal((await claim(index)).status, 202);
     }
@@ -2684,7 +2950,11 @@ test('pending claims give each desktop a bounded share of the pool', async () =>
     assert.equal(refused.status, 503);
     assert.deepEqual(await refused.json(), { status: 'busy' });
   } finally {
-    try { desktop?.close(); } catch { /* already closed */ }
+    try {
+      desktop?.close();
+    } catch {
+      /* already closed */
+    }
     await relay.close();
   }
 });
@@ -2695,13 +2965,17 @@ test('a wrong secret for a KNOWN device id is charged and then refused', async (
   try {
     const deviceId = randomUUID();
     relay.store.authenticate(deviceId, '0123456789abcdef');
-    const attempt = () => new Promise((resolve) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-        headers: { Authorization: basicAuth(deviceId, 'wrong-secret-value') },
+    const attempt = () =>
+      new Promise((resolve) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
+          headers: { Authorization: basicAuth(deviceId, 'wrong-secret-value') },
+        });
+        ws.on('open', () => {
+          ws.terminate();
+          resolve(200);
+        });
+        ws.on('error', (error) => resolve(Number(/(\d{3})/.exec(error.message)?.[1] || 0)));
       });
-      ws.on('open', () => { ws.terminate(); resolve(200); });
-      ws.on('error', (error) => resolve(Number(/(\d{3})/.exec(error.message)?.[1] || 0)));
-    });
     let status = 0;
     let unauthorized = 0;
     for (let index = 0; index < 80 && status !== 429; index += 1) {
@@ -2733,16 +3007,21 @@ test('a leg revocation that cannot persist keeps both the pairing and the phone'
       headers: { Origin: `http://127.0.0.1:${relay.port}` },
     });
     sockets.push(phone);
-    const answerOf = (type) => new Promise((resolve) => {
-      const onMessage = (raw) => {
-        let value;
-        try { value = JSON.parse(String(raw)); } catch { return; }
-        if (value.type !== type) return;
-        desktop.off('message', onMessage);
-        resolve(value);
-      };
-      desktop.on('message', onMessage);
-    });
+    const answerOf = (type) =>
+      new Promise((resolve) => {
+        const onMessage = (raw) => {
+          let value;
+          try {
+            value = JSON.parse(String(raw));
+          } catch {
+            return;
+          }
+          if (value.type !== type) return;
+          desktop.off('message', onMessage);
+          resolve(value);
+        };
+        desktop.on('message', onMessage);
+      });
     writeFileSync(join(dir, 'blocked'), 'not a directory');
     relay.store.path = join(dir, 'blocked', 'devices.json');
 
@@ -2751,11 +3030,13 @@ test('a leg revocation that cannot persist keeps both the pairing and the phone'
     assert.equal((await deviceAnswer).ok, false);
 
     const clientAnswer = answerOf('client-revoked');
-    desktop.send(JSON.stringify({
-      type: 'revoke-client',
-      requestId: 'r1',
-      clientId: 'bbbbbbbb',
-    }));
+    desktop.send(
+      JSON.stringify({
+        type: 'revoke-client',
+        requestId: 'r1',
+        clientId: 'bbbbbbbb',
+      })
+    );
     assert.equal((await clientAnswer).ok, false);
 
     await delay(120);
@@ -2766,7 +3047,11 @@ test('a leg revocation that cannot persist keeps both the pairing and the phone'
     assert.equal(desktop.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -2785,33 +3070,39 @@ test('a proxied media answer is neutralized at the relay origin', async () => {
     });
     desktop.on('message', (raw) => {
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type !== 'media-request') return;
       // A compromised or buggy desktop answering with an active type and its
       // own headers must not get either past this hop.
-      desktop.send(JSON.stringify({
-        type: 'media-head',
-        id: value.id,
-        status: 200,
-        headers: {
-          'content-type': 'text/html; charset=utf-8',
-          'content-length': 5,
-          'set-cookie': 'session=stolen',
-          'content-security-policy': 'default-src *',
-        },
-      }));
-      desktop.send(JSON.stringify({
-        type: 'media-chunk',
-        id: value.id,
-        data: Buffer.from('<h1>x').toString('base64'),
-      }));
+      desktop.send(
+        JSON.stringify({
+          type: 'media-head',
+          id: value.id,
+          status: 200,
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'content-length': 5,
+            'set-cookie': 'session=stolen',
+            'content-security-policy': 'default-src *',
+          },
+        })
+      );
+      desktop.send(
+        JSON.stringify({
+          type: 'media-chunk',
+          id: value.id,
+          data: Buffer.from('<h1>x').toString('base64'),
+        })
+      );
       desktop.send(JSON.stringify({ type: 'media-end', id: value.id }));
     });
     desktop.send(JSON.stringify({ type: 'desktop-lanes', media: true }));
     await delay(100);
-    const response = await fetch(
-      `http://127.0.0.1:${relay.port}/media/${randomUUID()}?token=${registered.token}`,
-    );
+    const response = await fetch(`http://127.0.0.1:${relay.port}/media/${randomUUID()}?token=${registered.token}`);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), 'application/octet-stream');
     assert.equal(response.headers.get('content-disposition'), 'attachment');
@@ -2820,7 +3111,11 @@ test('a proxied media answer is neutralized at the relay origin', async () => {
     assert.match(String(response.headers.get('content-security-policy')), /default-src 'none'/);
     assert.equal(await response.text(), '<h1>x');
   } finally {
-    try { desktop?.close(); } catch { /* already closed */ }
+    try {
+      desktop?.close();
+    } catch {
+      /* already closed */
+    }
     await relay.close();
   }
 });
@@ -2851,7 +3146,11 @@ const openPhoneLeg = async (relay, deviceId, clientId, sockets) => {
   const refusals = [];
   phone.on('message', (raw) => {
     let value;
-    try { value = JSON.parse(String(raw)); } catch { return; }
+    try {
+      value = JSON.parse(String(raw));
+    } catch {
+      return;
+    }
     if (value.error === 'frame-too-large') refusals.push(value);
   });
   return { phone, refusals };
@@ -2889,7 +3188,9 @@ test('a redialed leg carries nothing it has not declared on that connection', as
     // drifted from its own receiver.
     const first = await openDesktop({ receives: 64 * 1024, declares: 128 * 1024 });
     let firstClosed = null;
-    first.ws.on('close', (code) => { firstClosed = code; });
+    first.ws.on('close', (code) => {
+      firstClosed = code;
+    });
     const { phone, refusals } = await openPhoneLeg(relay, deviceId, 'bbbbbbbb', sockets);
     await delay(100);
 
@@ -2926,7 +3227,11 @@ test('a redialed leg carries nothing it has not declared on that connection', as
     assert.equal(refusals.length, 1);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -2954,11 +3259,13 @@ test('an unrelated 1009 leaves the next leg its full declared capacity', async (
       ws.on('message', (raw, isBinary) => {
         if (isBinary) arrived.push(decodeRelayBinaryFrame(raw).data.length);
       });
-      ws.send(JSON.stringify({
-        type: 'desktop-lanes',
-        media: false,
-        maxPayloadBytes: 128 * 1024,
-      }));
+      ws.send(
+        JSON.stringify({
+          type: 'desktop-lanes',
+          media: false,
+          maxPayloadBytes: 128 * 1024,
+        })
+      );
       await delay(150);
       return { ws, arrived };
     };
@@ -2986,7 +3293,11 @@ test('an unrelated 1009 leaves the next leg its full declared capacity', async (
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -3014,17 +3325,21 @@ test('one phone cannot shrink the path of the phone beside it', async () => {
       ws.on('message', (raw, isBinary) => {
         if (isBinary) arrived.push(decodeRelayBinaryFrame(raw).data.length);
       });
-      ws.send(JSON.stringify({
-        type: 'desktop-lanes',
-        media: false,
-        maxPayloadBytes: 128 * 1024,
-      }));
+      ws.send(
+        JSON.stringify({
+          type: 'desktop-lanes',
+          media: false,
+          maxPayloadBytes: 128 * 1024,
+        })
+      );
       await delay(150);
       return { ws, arrived };
     };
     const first = await openDesktop();
     let firstClosed = null;
-    first.ws.on('close', (code) => { firstClosed = code; });
+    first.ws.on('close', (code) => {
+      firstClosed = code;
+    });
     const attacker = await openPhoneLeg(relay, deviceId, 'aa000001', sockets);
     const victim = await openPhoneLeg(relay, deviceId, 'aa000002', sockets);
     await delay(100);
@@ -3056,7 +3371,11 @@ test('one phone cannot shrink the path of the phone beside it', async () => {
     assert.equal(attacker.phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -3078,7 +3397,11 @@ test('a refusal names the client the router itself would have used', async () =>
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
         let value;
-        try { value = JSON.parse(String(raw)); } catch { return; }
+        try {
+          value = JSON.parse(String(raw));
+        } catch {
+          return;
+        }
         if (value.type === 'client-open') resolve(value.clientId);
         if (value.type === 'frame-too-large') notices.push(value);
       });
@@ -3117,7 +3440,11 @@ test('a refusal names the client the router itself would have used', async () =>
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -3152,18 +3479,24 @@ test('a nonsense configured capacity is normalised once, and published equals en
         return;
       }
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'relay-capabilities') capabilities.push(value);
     });
     await new Promise((resolve, reject) => {
       desktop.once('open', resolve);
       desktop.once('error', reject);
     });
-    desktop.send(JSON.stringify({
-      type: 'desktop-lanes',
-      media: false,
-      maxPayloadBytes: 128 * 1024,
-    }));
+    desktop.send(
+      JSON.stringify({
+        type: 'desktop-lanes',
+        media: false,
+        maxPayloadBytes: 128 * 1024,
+      })
+    );
     await delay(200);
     const published = capabilities.at(-1);
     // Every published number is a real number: nonsense normalised at ingest
@@ -3192,7 +3525,11 @@ test('a nonsense configured capacity is normalised once, and published equals en
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -3216,9 +3553,16 @@ test('an enveloped uplink message measures the same fragmented or whole', async 
     sockets.push(desktop);
     const wire = [];
     desktop.on('message', (raw, isBinary) => {
-      if (isBinary) { wire.push({ form: 'binary', bytes: raw.length }); return; }
+      if (isBinary) {
+        wire.push({ form: 'binary', bytes: raw.length });
+        return;
+      }
       let value;
-      try { value = JSON.parse(String(raw)); } catch { return; }
+      try {
+        value = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (value.type === 'frame') wire.push({ form: 'json', bytes: raw.length });
     });
     await declareDesktopLanes(desktop, { maxPayloadBytes: 128 * 1024 });
@@ -3237,9 +3581,7 @@ test('an enveloped uplink message measures the same fragmented or whole', async 
 
     const textHead = maskedTextFrame(payload.slice(0, 2500), { fin: false });
     const textTail = maskedTextFrame(payload.slice(2500), { opcode: 0x0, fin: true });
-    phone._socket.write(Buffer.concat([
-      textHead.header, textHead.masked, textTail.header, textTail.masked,
-    ]));
+    phone._socket.write(Buffer.concat([textHead.header, textHead.masked, textTail.header, textTail.masked]));
     for (let attempt = 0; attempt < 40 && wire.length < 2; attempt += 1) await delay(25);
     assert.deepEqual(wire[1], { form: 'json', bytes: 5076 });
 
@@ -3249,9 +3591,7 @@ test('an enveloped uplink message measures the same fragmented or whole', async 
 
     const binaryHead = maskedTextFrame(payload.slice(0, 2500), { opcode: 0x2, fin: false });
     const binaryTail = maskedTextFrame(payload.slice(2500), { opcode: 0x0, fin: true });
-    phone._socket.write(Buffer.concat([
-      binaryHead.header, binaryHead.masked, binaryTail.header, binaryTail.masked,
-    ]));
+    phone._socket.write(Buffer.concat([binaryHead.header, binaryHead.masked, binaryTail.header, binaryTail.masked]));
     for (let attempt = 0; attempt < 40 && wire.length < 4; attempt += 1) await delay(25);
     assert.deepEqual(wire[3], { form: 'binary', bytes: 5042 });
     assert.deepEqual(refusals, []);
@@ -3259,7 +3599,11 @@ test('an enveloped uplink message measures the same fragmented or whole', async 
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -3281,7 +3625,11 @@ test('no padding length lets a decoy id outrank the id that routes', async () =>
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
         let value;
-        try { value = JSON.parse(String(raw)); } catch { return; }
+        try {
+          value = JSON.parse(String(raw));
+        } catch {
+          return;
+        }
         if (value.type === 'client-open') resolve(value.clientId);
         if (value.type === 'frame-too-large') notices.push(value);
       });
@@ -3291,7 +3639,9 @@ test('no padding length lets a decoy id outrank the id that routes', async () =>
     });
     sockets.push(phone);
     let delivered = 0;
-    phone.on('message', () => { delivered += 1; });
+    phone.on('message', () => {
+      delivered += 1;
+    });
     const clientId = await opened;
     const decoy = randomUUID();
     const nextNotice = async () => {
@@ -3307,8 +3657,9 @@ test('no padding length lets a decoy id outrank the id that routes', async () =>
     // once it has reached the end of the object — there is no window to outrun,
     // so there is no length that changes the outcome.
     for (const padding of [0, 600, 4 * 1024, 64 * 1024, 512 * 1024]) {
-      const frame = `{"type":"frame","clientId":"${decoy}","pad":"${'p'.repeat(padding)}",`
-        + `"clientId":"${clientId}","data":"${'y'.repeat(8192)}"}`;
+      const frame =
+        `{"type":"frame","clientId":"${decoy}","pad":"${'p'.repeat(padding)}",` +
+        `"clientId":"${clientId}","data":"${'y'.repeat(8192)}"}`;
       desktop.send(frame);
       const notice = await nextNotice();
       // Present ⇒ authoritative: the named id IS the parser's id.
@@ -3327,8 +3678,7 @@ test('no padding length lets a decoy id outrank the id that routes', async () =>
 
     // A last key the relay could never route with names nobody — never the key
     // that lost. The parser would hand this frame to no client either.
-    const unroutable = `{"type":"frame","clientId":"${clientId}","clientId":42,`
-      + `"data":"${'y'.repeat(8192)}"}`;
+    const unroutable = `{"type":"frame","clientId":"${clientId}","clientId":42,` + `"data":"${'y'.repeat(8192)}"}`;
     assert.equal(JSON.parse(unroutable).clientId, 42);
     desktop.send(unroutable);
     assert.equal((await nextNotice()).clientId, undefined);
@@ -3337,23 +3687,21 @@ test('no padding length lets a decoy id outrank the id that routes', async () =>
     // so it routes nowhere — and a walk that merely stepped over `\q` would
     // have answered with the valid id further along the object, failing an
     // innocent client's call for a frame nobody was ever going to receive.
-    const badEscape = `{"type":"frame","pad":"\\q","clientId":"${clientId}",`
-      + `"data":"${'y'.repeat(8192)}"}`;
+    const badEscape = `{"type":"frame","pad":"\\q","clientId":"${clientId}",` + `"data":"${'y'.repeat(8192)}"}`;
     assert.throws(() => JSON.parse(badEscape));
     desktop.send(badEscape);
     assert.equal((await nextNotice()).clientId, undefined);
 
     // Same for a `\u` the parser would refuse: four hex digits or nothing.
-    const shortUnicode = `{"type":"frame","pad":"\\u01","clientId":"${clientId}",`
-      + `"data":"${'y'.repeat(8192)}"}`;
+    const shortUnicode = `{"type":"frame","pad":"\\u01","clientId":"${clientId}",` + `"data":"${'y'.repeat(8192)}"}`;
     assert.throws(() => JSON.parse(shortUnicode));
     desktop.send(shortUnicode);
     assert.equal((await nextNotice()).clientId, undefined);
 
     // A legal escape is still walked through, so this rule costs nothing that
     // the parser itself would have accepted.
-    const legalEscape = `{"type":"frame","pad":"\\u0041\\n\\"","clientId":"${clientId}",`
-      + `"data":"${'y'.repeat(8192)}"}`;
+    const legalEscape =
+      `{"type":"frame","pad":"\\u0041\\n\\"","clientId":"${clientId}",` + `"data":"${'y'.repeat(8192)}"}`;
     assert.equal(JSON.parse(legalEscape).clientId, clientId);
     desktop.send(legalEscape);
     assert.equal((await nextNotice()).clientId, clientId);
@@ -3373,7 +3721,11 @@ test('no padding length lets a decoy id outrank the id that routes', async () =>
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
     for (const socket of sockets) {
-      try { socket.terminate(); } catch { /* already closed */ }
+      try {
+        socket.terminate();
+      } catch {
+        /* already closed */
+      }
     }
     await relay.close();
   }
@@ -3401,11 +3753,15 @@ test('attribution costs one pass over the frame, whatever shape it is', () => {
     ['numeric-token', `{"type":"frame","clientId":"${clientId}","n":${repeatTo('9', size)}}`],
     // Millions of short keys — the crafted shape. Each one is exactly the
     // length of the routing key, so every key takes the comparison path too.
-    ['many-eight-byte-keys', `{"clientId":"${decoy}",${repeatTo('"kkkkkkkk":1,', size)}`
-      + `"clientId":"${clientId}","data":"x"}`],
+    [
+      'many-eight-byte-keys',
+      `{"clientId":"${decoy}",${repeatTo('"kkkkkkkk":1,', size)}` + `"clientId":"${clientId}","data":"x"}`,
+    ],
     // Millions of routing keys: the id-validation path, every key of it.
-    ['many-client-ids', `{"type":"frame",${repeatTo(`"clientId":"${decoy}",`, size)}`
-      + `"clientId":"${clientId}","data":"x"}`],
+    [
+      'many-client-ids',
+      `{"type":"frame",${repeatTo(`"clientId":"${decoy}",`, size)}` + `"clientId":"${clientId}","data":"x"}`,
+    ],
   ];
   const measure = (shape, frame) => {
     const started = performance.now();
@@ -3446,20 +3802,32 @@ test('attribution costs one pass over the frame, whatever shape it is', () => {
 });
 
 test('browser websocket upgrades require the relay origin', () => {
-  assert.equal(browserSocketOriginAllowed({
-    headers: { origin: 'https://relay.example', host: 'relay.example' },
-    socket: { encrypted: true },
-  }), true);
-  assert.equal(browserSocketOriginAllowed({
-    headers: { origin: 'http://127.0.0.1:9800', host: '127.0.0.1:9800' },
-    socket: { encrypted: false },
-  }), true);
-  assert.equal(browserSocketOriginAllowed({
-    headers: { origin: 'https://evil.example', host: 'relay.example' },
-    socket: { encrypted: true },
-  }), false);
-  assert.equal(browserSocketOriginAllowed({
-    headers: { host: 'relay.example' },
-    socket: { encrypted: true },
-  }), false);
+  assert.equal(
+    browserSocketOriginAllowed({
+      headers: { origin: 'https://relay.example', host: 'relay.example' },
+      socket: { encrypted: true },
+    }),
+    true
+  );
+  assert.equal(
+    browserSocketOriginAllowed({
+      headers: { origin: 'http://127.0.0.1:9800', host: '127.0.0.1:9800' },
+      socket: { encrypted: false },
+    }),
+    true
+  );
+  assert.equal(
+    browserSocketOriginAllowed({
+      headers: { origin: 'https://evil.example', host: 'relay.example' },
+      socket: { encrypted: true },
+    }),
+    false
+  );
+  assert.equal(
+    browserSocketOriginAllowed({
+      headers: { host: 'relay.example' },
+      socket: { encrypted: true },
+    }),
+    false
+  );
 });

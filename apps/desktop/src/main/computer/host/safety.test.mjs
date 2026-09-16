@@ -4,15 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { powershellHostProgram } from '../backend/program.ts';
-import {
-  assertSafeComputerInput,
-  assertSafeComputerSessionId,
-} from '../input/guards.ts';
+import { assertSafeComputerInput, assertSafeComputerSessionId } from '../input/guards.ts';
 import { normalizeComputerKeySequence } from '../input/keyboard.ts';
-import {
-  createOcrCapturePreferenceStore,
-  createVisualOnlyCapabilityStore,
-} from '../input/capability-policy.ts';
+import { createOcrCapturePreferenceStore, createVisualOnlyCapabilityStore } from '../input/capability-policy.ts';
 import {
   buildRecaptureRequiredPayload,
   isFreshRecaptureObservation,
@@ -48,9 +42,10 @@ const hostFiles = (await readdir(hostDirectory, { recursive: true }))
   .map((name) => name.split('\\').join('/'))
   .filter((name) => name.endsWith('.ts') && !name.startsWith('harness/'))
   .sort();
-const hostSource = [...await Promise.all(
-  hostFiles.map((name) => readFile(new URL(name, hostDirectory), 'utf8')),
-), powershellHostProgram()].join('\n');
+const hostSource = [
+  ...(await Promise.all(hostFiles.map((name) => readFile(new URL(name, hostDirectory), 'utf8')))),
+  powershellHostProgram(),
+].join('\n');
 
 function windowRecord(id, overrides = {}) {
   return {
@@ -73,7 +68,7 @@ function windowRecord(id, overrides = {}) {
 
 test('Computer Use overlay windows never become automation transition targets', () => {
   const handle = Buffer.alloc(8);
-  handle.writeBigUInt64LE(0xB305CAn);
+  handle.writeBigUInt64LE(0xb305can);
   const unregister = registerComputerUseInternalWindow({
     getNativeWindowHandle: () => handle,
   });
@@ -85,20 +80,19 @@ test('Computer Use overlay windows never become automation transition targets', 
       height: 82,
     });
     const after = filterComputerUseInternalWindows([target, cursorOverlay]);
-    const transition = computeComputerWindowTransition(
-      [target],
-      after,
-      target.id,
+    const transition = computeComputerWindowTransition([target], after, target.id);
+    assert.deepEqual(
+      after.map((window) => window.id),
+      [target.id]
     );
-    assert.deepEqual(after.map((window) => window.id), [target.id]);
     assert.equal(transition.opened_windows.length, 0);
     assert.equal(transition.next_target, undefined);
     assert.equal(
       filterComputerUseWindowListText(
         `Windows:\r\n${target.id} | app=fixture\r\n${cursorOverlay.id} | app=Mixdog`,
-        after,
+        after
       ),
-      `Windows:\r\n${target.id} | app=fixture`,
+      `Windows:\r\n${target.id} | app=fixture`
     );
   } finally {
     unregister();
@@ -121,7 +115,7 @@ test('run history records semantic failure and its recovery verdict truthfully',
         escalation: 'pixel',
         verdict: { decision: 'escalate', recommended: 'pixel' },
       }),
-    },
+    }
   );
   assert.equal(record.ok, false);
   assert.equal(record.code, 'foreground_unavailable');
@@ -153,19 +147,19 @@ test('inspection reports empty target semantics and bounds each provider call', 
     },
     sessionIdFor: () => 'inspection-test',
     assertExecutionNotAborted: () => {},
-    readComputerWindows: async () => [
-      windowRecord('hwnd:0x1', { focused: true, title: 'Fixture' }),
-    ],
-    readDisplays: () => [
-      { index: 0, id: 'display-1', primary: true, scale_factor: 1, width: 1920, height: 1080 },
-    ],
+    readComputerWindows: async () => [windowRecord('hwnd:0x1', { focused: true, title: 'Fixture' })],
+    readDisplays: () => [{ index: 0, id: 'display-1', primary: true, scale_factor: 1, width: 1920, height: 1080 }],
     isObserveOnly: () => false,
   });
-  const diagnosis = JSON.parse((await inspection.diagnoseComputer({
-    action: 'diagnose',
-    window_id: 'hwnd:0x1',
-    ocr_language: 'ko',
-  })).text);
+  const diagnosis = JSON.parse(
+    (
+      await inspection.diagnoseComputer({
+        action: 'diagnose',
+        window_id: 'hwnd:0x1',
+        ocr_language: 'ko',
+      })
+    ).text
+  );
   assert.equal(diagnosis.capabilities.semantic_accessibility.available, false);
   assert.equal(diagnosis.capabilities.semantic_accessibility.provider_available, true);
   assert.equal(diagnosis.capabilities.semantic_accessibility.state, 'empty');
@@ -173,13 +167,17 @@ test('inspection reports empty target semantics and bounds each provider call', 
   assert.match(diagnosis.issues.join('\n'), /no semantic accessibility elements/);
   assert.equal(calls.find((call) => call.action === 'snapshot').timeoutMs, 2_500);
 
-  const verification = JSON.parse((await inspection.verifyWindowState({
-    action: 'verify',
-    window_id: 'hwnd:0x1',
-    expect: [{ title_contains: 'Fixture' }],
-    timeout_ms: 100,
-    stable_samples: 1,
-  })).text);
+  const verification = JSON.parse(
+    (
+      await inspection.verifyWindowState({
+        action: 'verify',
+        window_id: 'hwnd:0x1',
+        expect: [{ title_contains: 'Fixture' }],
+        timeout_ms: 100,
+        stable_samples: 1,
+      })
+    ).text
+  );
   assert.equal(verification.decision, 'satisfied');
   const predicateCall = calls.find((call) => call.action === 'window_predicates');
   assert.ok(predicateCall.timeoutMs > 0 && predicateCall.timeoutMs <= 100);
@@ -273,144 +271,148 @@ test('oversized key, type, and clipboard writes fail before dispatch', () => {
   for (const session_id of [{ id: 'session' }, '   ', 's'.repeat(4_097)]) {
     assert.throws(
       () => assertSafeComputerSessionId({ action: 'session_release', session_id }),
-      /invalid_session|input_too_large: session_id exceeds 4096 characters/,
+      /invalid_session|input_too_large: session_id exceeds 4096 characters/
     );
   }
   assert.throws(
     () => assertSafeComputerInput({ action: { name: 'capture' } }),
-    /invalid_action: action must be a non-empty string/,
+    /invalid_action: action must be a non-empty string/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'key', keys: ['CTRL', 'A'] }),
-    /invalid_key_chord: keys must be a string/,
+    /invalid_key_chord: keys must be a string/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'type', text: { value: 'hello' } }),
-    /invalid_input: type text must be a string/,
+    /invalid_input: type text must be a string/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'clipboard_write', text: 123 }),
-    /invalid_input: clipboard text must be a string/,
+    /invalid_input: clipboard text must be a string/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'click', modifiers: ['ctrl'] }),
-    /invalid_modifiers: modifiers must be a string/,
+    /invalid_modifiers: modifiers must be a string/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'click', delivery: 'automatic' }),
-    /invalid_delivery: delivery must be background or foreground/,
+    /invalid_delivery: delivery must be background or foreground/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'scroll', direction: 'sideways' }),
-    /invalid_scroll: direction must be up, down, left, or right/,
+    /invalid_scroll: direction must be up, down, left, or right/
   );
   for (const amount of ['3', 0, 101, 1.5]) {
     assert.throws(
       () => assertSafeComputerInput({ action: 'scroll', amount }),
-      /invalid_scroll: amount must be an integer from 1 to 100/,
+      /invalid_scroll: amount must be an integer from 1 to 100/
     );
   }
   assert.throws(
     () => assertSafeComputerInput({ action: 'move_window', x: '100' }),
-    /invalid_window_bounds: x must be an integer/,
+    /invalid_window_bounds: x must be an integer/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'move_window', width: 0 }),
-    /invalid_window_bounds: width must be positive/,
+    /invalid_window_bounds: width must be positive/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'window_state', state: 'fullscreen' }),
-    /invalid_window_state: state must be minimize, maximize, or restore/,
+    /invalid_window_state: state must be minimize, maximize, or restore/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'key', keys: 'a'.repeat(513) }),
-    /input_too_large: key sequence exceeds 512 characters/,
+    /input_too_large: key sequence exceeds 512 characters/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'click', ref: 'r'.repeat(4_097) }),
-    /input_too_large: ref exceeds 4096 characters/,
+    /input_too_large: ref exceeds 4096 characters/
   );
-  assert.doesNotThrow(
-    () => assertSafeComputerInput({ action: 'click', ref: 'r'.repeat(4_096) }),
-  );
+  assert.doesNotThrow(() => assertSafeComputerInput({ action: 'click', ref: 'r'.repeat(4_096) }));
   assert.throws(
     () => assertSafeComputerInput({ action: 'capture', app: '   ' }),
-    /invalid_target: app must not be empty/,
+    /invalid_target: app must not be empty/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'capture', app: { name: 'Notepad' } }),
-    /invalid_target: app must be a string/,
+    /invalid_target: app must be a string/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'capture', query: ['button'] }),
-    /invalid_input: query must be a string/,
+    /invalid_input: query must be a string/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'invoke_menu', path: ['m'.repeat(513)] }),
-    /input_too_large: menu label exceeds 512 characters/,
+    /input_too_large: menu label exceeds 512 characters/
   );
-  assert.doesNotThrow(
-    () => assertSafeComputerInput({ action: 'invoke_menu', path: ['m'.repeat(512)] }),
-  );
+  assert.doesNotThrow(() => assertSafeComputerInput({ action: 'invoke_menu', path: ['m'.repeat(512)] }));
   assert.throws(
     () => assertSafeComputerInput({ action: 'invoke_menu', path: [' '] }),
-    /invalid_menu_path: menu labels must not be empty/,
+    /invalid_menu_path: menu labels must not be empty/
   );
   assert.throws(
-    () => assertSafeComputerInput({
-      action: 'invoke_menu',
-      path: Array.from({ length: 9 }, () => 'menu'),
-    }),
-    /invalid_menu_path: path must contain 1\.\.8 labels/,
+    () =>
+      assertSafeComputerInput({
+        action: 'invoke_menu',
+        path: Array.from({ length: 9 }, () => 'menu'),
+      }),
+    /invalid_menu_path: path must contain 1\.\.8 labels/
   );
   assert.throws(
-    () => assertSafeComputerInput({
-      action: 'verify',
-      expect: [{ present: 'v'.repeat(4_097) }],
-    }),
-    /input_too_large: verify text exceeds 4096 characters/,
+    () =>
+      assertSafeComputerInput({
+        action: 'verify',
+        expect: [{ present: 'v'.repeat(4_097) }],
+      }),
+    /input_too_large: verify text exceeds 4096 characters/
   );
   assert.throws(
-    () => assertSafeComputerInput({
-      action: 'verify',
-      expect: [{ present: ['value'] }],
-    }),
-    /invalid_verify: present must be a string/,
+    () =>
+      assertSafeComputerInput({
+        action: 'verify',
+        expect: [{ present: ['value'] }],
+      }),
+    /invalid_verify: present must be a string/
   );
   assert.throws(
-    () => assertSafeComputerInput({
-      action: 'verify',
-      expect: [{ custom: 'value' }],
-    }),
-    /invalid_verify: unknown predicate field custom/,
+    () =>
+      assertSafeComputerInput({
+        action: 'verify',
+        expect: [{ custom: 'value' }],
+      }),
+    /invalid_verify: unknown predicate field custom/
   );
   assert.throws(
-    () => assertSafeComputerInput({
-      action: 'key',
-      keys: `ctrl${' '.repeat(512)}+A`,
-    }),
-    /input_too_large: key sequence exceeds 512 characters/,
+    () =>
+      assertSafeComputerInput({
+        action: 'key',
+        keys: `ctrl${' '.repeat(512)}+A`,
+      }),
+    /input_too_large: key sequence exceeds 512 characters/
   );
   assert.throws(
-    () => assertSafeComputerInput({
-      action: 'key',
-      keys: `${' '.repeat(513)}A`,
-    }),
-    /input_too_large: key sequence exceeds 512 characters/,
+    () =>
+      assertSafeComputerInput({
+        action: 'key',
+        keys: `${' '.repeat(513)}A`,
+      }),
+    /input_too_large: key sequence exceeds 512 characters/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'type', text: 'a'.repeat(30_001) }),
-    /input_too_large: type text exceeds 30000 characters/,
+    /input_too_large: type text exceeds 30000 characters/
   );
   assert.throws(
     () => assertSafeComputerInput({ action: 'clipboard_write', text: 'a'.repeat(50_001) }),
-    /input_too_large: clipboard text exceeds 50000 characters/,
+    /input_too_large: clipboard text exceeds 50000 characters/
   );
-  assert.doesNotThrow(() => assertSafeComputerInput({
-    action: 'click',
-    modifiers: 'CTRL+shift+alt',
-    delivery: 'foreground',
-  }));
+  assert.doesNotThrow(() =>
+    assertSafeComputerInput({
+      action: 'click',
+      modifiers: 'CTRL+shift+alt',
+      delivery: 'foreground',
+    })
+  );
   for (const modifiers of [
     '',
     ' ctrl',
@@ -425,12 +427,12 @@ test('oversized key, type, and clipboard writes fail before dispatch', () => {
     assert.throws(
       () => assertSafeComputerInput({ action: 'click', modifiers }),
       /invalid_modifiers|input_too_large/,
-      modifiers,
+      modifiers
     );
   }
   assert.throws(
     () => assertSafeComputerInput({ action: 'click', modifiers: 'ctrl+alt' }),
-    /invalid_modifiers: alt pointer input requires foreground delivery/,
+    /invalid_modifiers: alt pointer input requires foreground delivery/
   );
 });
 
@@ -456,17 +458,11 @@ test('canonical key chords become IME-safe Windows key sequences', () => {
     assert.throws(
       () => normalizeComputerKeySequence(`A${String.fromCharCode(codePoint)}B`),
       /invalid_key_chord: key sequence contains control characters/,
-      `U+${codePoint.toString(16).padStart(4, '0')}`,
+      `U+${codePoint.toString(16).padStart(4, '0')}`
     );
   }
-  assert.throws(
-    () => normalizeComputerKeySequence('win+r'),
-    /invalid_key_chord: unsupported modifier 'win'/,
-  );
-  assert.throws(
-    () => normalizeComputerKeySequence('cmd-shift-p'),
-    /invalid_key_chord: unsupported modifier 'cmd'/,
-  );
+  assert.throws(() => normalizeComputerKeySequence('win+r'), /invalid_key_chord: unsupported modifier 'win'/);
+  assert.throws(() => normalizeComputerKeySequence('cmd-shift-p'), /invalid_key_chord: unsupported modifier 'cmd'/);
   for (const malformed of [
     '',
     'ctrl+',
@@ -482,28 +478,17 @@ test('canonical key chords become IME-safe Windows key sequences', () => {
     'ctrl+\tA',
     'ctrl+\nA',
   ]) {
-    assert.throws(
-      () => normalizeComputerKeySequence(malformed),
-      /invalid_key_chord/,
-      JSON.stringify(malformed),
-    );
+    assert.throws(() => normalizeComputerKeySequence(malformed), /invalid_key_chord/, JSON.stringify(malformed));
   }
-  assert.doesNotThrow(() => assertSafeComputerInput({
-    action: 'key',
-    keys: 'CTRL+ALT+ESC',
-  }));
-  assert.throws(
-    () => assertSafeComputerInput({ action: 'key', keys: 'ALT+F4' }),
-    /blocked_input/,
+  assert.doesNotThrow(() =>
+    assertSafeComputerInput({
+      action: 'key',
+      keys: 'CTRL+ALT+ESC',
+    })
   );
-  assert.throws(
-    () => assertSafeComputerInput({ action: 'key', keys: 'CTRL+ALT+DELETE' }),
-    /blocked_input/,
-  );
-  assert.throws(
-    () => assertSafeComputerInput({ action: 'key', keys: 'ctrl-alt-delete' }),
-    /blocked_input/,
-  );
+  assert.throws(() => assertSafeComputerInput({ action: 'key', keys: 'ALT+F4' }), /blocked_input/);
+  assert.throws(() => assertSafeComputerInput({ action: 'key', keys: 'CTRL+ALT+DELETE' }), /blocked_input/);
+  assert.throws(() => assertSafeComputerInput({ action: 'key', keys: 'ctrl-alt-delete' }), /blocked_input/);
   for (const keys of [
     'shift+delete',
     'ctrl+shift+delete',
@@ -519,22 +504,17 @@ test('canonical key chords become IME-safe Windows key sequences', () => {
     '{TAB}+{DELETE}',
     '^A%^{DELETE}',
   ]) {
-    assert.throws(
-      () => assertSafeComputerInput({ action: 'key', keys }),
-      /blocked_input/,
-      keys,
-    );
+    assert.throws(() => assertSafeComputerInput({ action: 'key', keys }), /blocked_input/, keys);
   }
   for (const control of ['ctrl', 'control', 'CmdOrCtrl']) {
     for (const alt of ['alt', 'option']) {
       for (const separator of ['+', '-']) {
-        for (const modifiers of [[control, alt], [alt, control]]) {
+        for (const modifiers of [
+          [control, alt],
+          [alt, control],
+        ]) {
           const keys = [...modifiers, 'delete'].join(separator);
-          assert.throws(
-            () => assertSafeComputerInput({ action: 'key', keys }),
-            /blocked_input/,
-            keys,
-          );
+          assert.throws(() => assertSafeComputerInput({ action: 'key', keys }), /blocked_input/, keys);
         }
       }
     }
@@ -550,11 +530,7 @@ test('canonical key chords become IME-safe Windows key sequences', () => {
     '++{DELETE 001}',
     '^{TAB}+^{DELETE 100}',
   ]) {
-    assert.throws(
-      () => assertSafeComputerInput({ action: 'key', keys }),
-      /blocked_input/,
-      keys,
-    );
+    assert.throws(() => assertSafeComputerInput({ action: 'key', keys }), /blocked_input/, keys);
   }
   for (const keys of [
     'CTRL+DELETE',
@@ -570,10 +546,7 @@ test('canonical key chords become IME-safe Windows key sequences', () => {
     '^{DELETE}',
     '{TAB}{DELETE}',
   ]) {
-    assert.doesNotThrow(
-      () => assertSafeComputerInput({ action: 'key', keys }),
-      keys,
-    );
+    assert.doesNotThrow(() => assertSafeComputerInput({ action: 'key', keys }), keys);
   }
 });
 
@@ -591,28 +564,40 @@ test('stale recapture invalidates action targets while session release also clea
       [otherSessionId, new Map([[2, {}]])],
     ]),
     observedWindowBySession: new Map([
-      [sessionId, {
-        primaryWindowId: 'hwnd:0x1',
-        relatedWindowIds: ['hwnd:0x1'],
-      }],
-      [otherSessionId, {
-        primaryWindowId: 'hwnd:0x2',
-        relatedWindowIds: ['hwnd:0x2'],
-      }],
+      [
+        sessionId,
+        {
+          primaryWindowId: 'hwnd:0x1',
+          relatedWindowIds: ['hwnd:0x1'],
+        },
+      ],
+      [
+        otherSessionId,
+        {
+          primaryWindowId: 'hwnd:0x2',
+          relatedWindowIds: ['hwnd:0x2'],
+        },
+      ],
     ]),
     lastCaptureBySession: new Map([
-      [sessionId, {
-        windowId: 'hwnd:0x1',
-        baselineKey: 'baseline',
-        elements: new Map(),
-        refIdentities: new Map(),
-      }],
-      [otherSessionId, {
-        windowId: 'hwnd:0x2',
-        baselineKey: 'other-baseline',
-        elements: new Map(),
-        refIdentities: new Map(),
-      }],
+      [
+        sessionId,
+        {
+          windowId: 'hwnd:0x1',
+          baselineKey: 'baseline',
+          elements: new Map(),
+          refIdentities: new Map(),
+        },
+      ],
+      [
+        otherSessionId,
+        {
+          windowId: 'hwnd:0x2',
+          baselineKey: 'other-baseline',
+          elements: new Map(),
+          refIdentities: new Map(),
+        },
+      ],
     ]),
   };
   preferences.remember(sessionId, {
@@ -676,20 +661,9 @@ test('a newer capture supersedes only its own session frame', () => {
     ['session-a', new Map([['frame-old', { id: 'frame-old' }]])],
     ['session-b', new Map([['frame-other', { id: 'frame-other' }]])],
   ]);
-  rememberLatestComputerFrame(
-    'session-a',
-    'frame-fresh',
-    { id: 'frame-fresh' },
-    framesBySession,
-  );
-  assert.deepEqual(
-    [...framesBySession.get('session-a').keys()],
-    ['frame-fresh'],
-  );
-  assert.deepEqual(
-    [...framesBySession.get('session-b').keys()],
-    ['frame-other'],
-  );
+  rememberLatestComputerFrame('session-a', 'frame-fresh', { id: 'frame-fresh' }, framesBySession);
+  assert.deepEqual([...framesBySession.get('session-a').keys()], ['frame-fresh']);
+  assert.deepEqual([...framesBySession.get('session-b').keys()], ['frame-other']);
 });
 
 test('visual-only capability cache retains recently used targets and releases a session', () => {
@@ -707,32 +681,14 @@ test('visual-only capability cache retains recently used targets and releases a 
 test('frames and observed scopes expire on one bounded freshness budget', () => {
   const observedAt = 10_000;
   assert.equal(isFreshComputerObservation(observedAt, observedAt), true);
-  assert.equal(
-    isFreshComputerObservation(
-      observedAt,
-      observedAt + MAX_COMPUTER_OBSERVATION_AGE_MS,
-    ),
-    true,
-  );
-  assert.equal(
-    isFreshComputerObservation(
-      observedAt,
-      observedAt + MAX_COMPUTER_OBSERVATION_AGE_MS + 1,
-    ),
-    false,
-  );
+  assert.equal(isFreshComputerObservation(observedAt, observedAt + MAX_COMPUTER_OBSERVATION_AGE_MS), true);
+  assert.equal(isFreshComputerObservation(observedAt, observedAt + MAX_COMPUTER_OBSERVATION_AGE_MS + 1), false);
   assert.equal(isFreshComputerObservation(Number.NaN, observedAt), false);
   assert.equal(isFreshComputerObservation(observedAt, observedAt - 1), false);
-  const scopes = new Map([
-    ['session-a', { observedAt, primaryWindowId: 'hwnd:0x1' }],
-  ]);
+  const scopes = new Map([['session-a', { observedAt, primaryWindowId: 'hwnd:0x1' }]]);
   assert.deepEqual(
-    resolveFreshComputerObservationScope(
-      'session-a',
-      scopes,
-      observedAt + MAX_COMPUTER_OBSERVATION_AGE_MS + 1,
-    ),
-    { expired: true },
+    resolveFreshComputerObservationScope('session-a', scopes, observedAt + MAX_COMPUTER_OBSERVATION_AGE_MS + 1),
+    { expired: true }
   );
   assert.equal(scopes.has('session-a'), false);
 });
@@ -756,25 +712,14 @@ test('legacy SendKeys modifier groups cannot hide dangerous chords', () => {
         for (const key of ['F4', 'DELETE', 'END']) {
           for (const repeat of ['', ' 1', ' 2', ' 100']) {
             const keys = `${prefix}${modifiers}{${key}${repeat}}${suffix}`;
-            const dangerous = (key === 'F4' && modifiers.includes('%'))
-              || (key === 'DELETE' && (
-                modifiers.includes('+')
-                || (modifiers.includes('^') && modifiers.includes('%'))
-              ))
-              || (key === 'END'
-                && modifiers.includes('^')
-                && modifiers.includes('%'));
+            const dangerous =
+              (key === 'F4' && modifiers.includes('%')) ||
+              (key === 'DELETE' && (modifiers.includes('+') || (modifiers.includes('^') && modifiers.includes('%')))) ||
+              (key === 'END' && modifiers.includes('^') && modifiers.includes('%'));
             if (dangerous) {
-              assert.throws(
-                () => assertSafeComputerInput({ action: 'key', keys }),
-                /blocked_input/,
-                keys,
-              );
+              assert.throws(() => assertSafeComputerInput({ action: 'key', keys }), /blocked_input/, keys);
             } else {
-              assert.doesNotThrow(
-                () => assertSafeComputerInput({ action: 'key', keys }),
-                keys,
-              );
+              assert.doesNotThrow(() => assertSafeComputerInput({ action: 'key', keys }), keys);
             }
           }
         }
@@ -785,12 +730,9 @@ test('legacy SendKeys modifier groups cannot hide dangerous chords', () => {
 
 test('recapture-required failures carry one fresh observation without dispatching the mutation', () => {
   const error = new Error(
-    'computer_foreground_available_recapture_required: foreground lane acquired after queue_position=1',
+    'computer_foreground_available_recapture_required: foreground lane acquired after queue_position=1'
   );
-  assert.equal(
-    recaptureRequirementCode(error),
-    'computer_foreground_available_recapture_required',
-  );
+  assert.equal(recaptureRequirementCode(error), 'computer_foreground_available_recapture_required');
   assert.deepEqual(
     buildRecaptureRequiredPayload('click', error, {
       ok: true,
@@ -817,23 +759,29 @@ test('recapture-required failures carry one fresh observation without dispatchin
         frame_id: 'frame-2',
         window_id: 'hwnd:0x1',
       },
-    },
+    }
   );
   assert.equal(
-    isFreshRecaptureObservation({
-      ok: true,
-      action: 'capture',
-      window_id: 'hwnd:0x1',
-    }, 'hwnd:0x1'),
-    true,
+    isFreshRecaptureObservation(
+      {
+        ok: true,
+        action: 'capture',
+        window_id: 'hwnd:0x1',
+      },
+      'hwnd:0x1'
+    ),
+    true
   );
   assert.equal(
-    isFreshRecaptureObservation({
-      ok: true,
-      action: 'capture',
-      window_id: 'hwnd:0x2',
-    }, 'hwnd:0x1'),
-    false,
+    isFreshRecaptureObservation(
+      {
+        ok: true,
+        action: 'capture',
+        window_id: 'hwnd:0x2',
+      },
+      'hwnd:0x1'
+    ),
+    false
   );
   const mismatchedTargetPayload = buildRecaptureRequiredPayload(
     'click',
@@ -844,7 +792,7 @@ test('recapture-required failures carry one fresh observation without dispatchin
       frame_id: 'frame-wrong-target',
       window_id: 'hwnd:0x2',
     },
-    'hwnd:0x1',
+    'hwnd:0x1'
   );
   assert.equal(mismatchedTargetPayload.verdict.recommended, 'recapture');
   assert.equal('observation' in mismatchedTargetPayload, false);
@@ -854,14 +802,12 @@ test('recapture-required failures carry one fresh observation without dispatchin
       action: 'click',
       window_id: 'hwnd:0x1',
     }),
-    false,
+    false
   );
   assert.equal(buildRecaptureRequiredPayload('click', new Error('other')), undefined);
   assert.equal(
-    recaptureRequirementCode(
-      'Error: computer_target_available_recapture_required: hwnd:0x2 lease acquired',
-    ),
-    'computer_target_available_recapture_required',
+    recaptureRequirementCode('Error: computer_target_available_recapture_required: hwnd:0x2 lease acquired'),
+    'computer_target_available_recapture_required'
   );
   assert.deepEqual(
     buildRecaptureRequiredPayload(
@@ -873,7 +819,7 @@ test('recapture-required failures carry one fresh observation without dispatchin
         error: 'target closed',
         frame_id: 'frame-stale',
         elements: [{ mark: 1 }],
-      },
+      }
     ),
     {
       ok: false,
@@ -886,14 +832,15 @@ test('recapture-required failures carry one fresh observation without dispatchin
       },
       recovery: {
         next: 'capture',
-        guidance: 'The stale mutation was not dispatched and a fresh observation was unavailable; capture the exact target again.',
+        guidance:
+          'The stale mutation was not dispatched and a fresh observation was unavailable; capture the exact target again.',
       },
       observation: {
         ok: false,
         action: 'capture',
         error: 'target closed',
       },
-    },
+    }
   );
 });
 
@@ -909,10 +856,12 @@ test('dangerous command-only input fails before dispatch', () => {
   ]) {
     assert.throws(() => assertSafeComputerInput(command), /blocked_input/, JSON.stringify(command));
   }
-  assert.doesNotThrow(() => assertSafeComputerInput({
-    action: 'launch',
-    app: 'https://example.com/path?q=a%7C%7Cb',
-  }));
+  assert.doesNotThrow(() =>
+    assertSafeComputerInput({
+      action: 'launch',
+      app: 'https://example.com/path?q=a%7C%7Cb',
+    })
+  );
 });
 
 test('capture change summary survives the invalidation a mutation performs', () => {
@@ -930,29 +879,24 @@ test('computer window transition selects one deterministic successor', () => {
   const chat = windowRecord('hwnd:0x2', { title: 'chat', focused: true });
   const transition = computeComputerWindowTransition(
     [main],
-    [
-      { ...main, focused: false },
-      chat,
-      windowRecord('hwnd:0x9', { title: 'unrelated', pid: 999 }),
-    ],
-    main.id,
+    [{ ...main, focused: false }, chat, windowRecord('hwnd:0x9', { title: 'unrelated', pid: 999 })],
+    main.id
   );
   assert.equal(transition.next_target?.id, chat.id);
   assert.equal(transition.next_target_reason, 'single_same_process_window_opened');
-  assert.deepEqual(transition.opened_windows.map((window) => window.id), [chat.id]);
-
-  const inactiveSingle = computeComputerWindowTransition(
-    [main],
-    [main, { ...chat, focused: false }],
-    main.id,
+  assert.deepEqual(
+    transition.opened_windows.map((window) => window.id),
+    [chat.id]
   );
+
+  const inactiveSingle = computeComputerWindowTransition([main], [main, { ...chat, focused: false }], main.id);
   assert.equal(inactiveSingle.next_target?.id, chat.id);
   assert.equal(inactiveSingle.next_target_reason, 'single_same_process_window_opened');
 
   const ambiguous = computeComputerWindowTransition(
     [main],
     [main, { ...chat, focused: false }, windowRecord('hwnd:0x3', { title: 'other' })],
-    main.id,
+    main.id
   );
   assert.equal(ambiguous.next_target, undefined);
 
@@ -960,57 +904,51 @@ test('computer window transition selects one deterministic successor', () => {
     [main],
     [main, windowRecord('hwnd:0x4', { title: 'launched', pid: 404 })],
     '',
-    404,
+    404
   );
   assert.equal(launched.next_target?.id, 'hwnd:0x4');
   assert.equal(launched.next_target_reason, 'launched_process_window');
 
   const delegated = computeComputerWindowTransition(
     [main, windowRecord('hwnd:0x5', { app: 'Notepad', pid: 505 })],
-    [
-      { ...main, focused: false },
-      windowRecord('hwnd:0x5', { app: 'Notepad', pid: 505, focused: true }),
-    ],
+    [{ ...main, focused: false }, windowRecord('hwnd:0x5', { app: 'Notepad', pid: 505, focused: true })],
     '',
     606,
-    'notepad.exe',
+    'notepad.exe'
   );
   assert.equal(delegated.next_target?.id, 'hwnd:0x5');
   assert.equal(delegated.next_target_reason, 'launched_app_focused');
-  assert.deepEqual(delegated.changed_windows.map((window) => window.id), ['hwnd:0x5']);
+  assert.deepEqual(
+    delegated.changed_windows.map((window) => window.id),
+    ['hwnd:0x5']
+  );
 
   const delegatedExisting = computeComputerWindowTransition(
     [main, windowRecord('hwnd:0x9', { app: 'Notepad', pid: 505 })],
     [main, windowRecord('hwnd:0x9', { app: 'Notepad', pid: 505 })],
     '',
     606,
-    'Notepad',
+    'Notepad'
   );
   assert.equal(delegatedExisting.next_target?.id, 'hwnd:0x9');
   assert.equal(delegatedExisting.next_target_reason, 'launched_app_existing');
 
   const delegatedOpened = computeComputerWindowTransition(
     [main],
-    [
-      { ...main, focused: false },
-      windowRecord('hwnd:0x6', { app: 'Notepad', pid: 505, focused: true }),
-    ],
+    [{ ...main, focused: false }, windowRecord('hwnd:0x6', { app: 'Notepad', pid: 505, focused: true })],
     '',
     606,
-    'notepad.exe',
+    'notepad.exe'
   );
   assert.equal(delegatedOpened.next_target?.id, 'hwnd:0x6');
   assert.equal(delegatedOpened.next_target_reason, 'launched_app_opened');
 
   const shellAssociated = computeComputerWindowTransition(
     [main],
-    [
-      { ...main, focused: false },
-      windowRecord('hwnd:0x7', { app: 'Notepad', pid: 707, focused: true }),
-    ],
+    [{ ...main, focused: false }, windowRecord('hwnd:0x7', { app: 'Notepad', pid: 707, focused: true })],
     '',
     606,
-    'C:\\fixtures\\document.txt',
+    'C:\\fixtures\\document.txt'
   );
   assert.equal(shellAssociated.next_target, undefined);
   assert.equal(launchTransitionConfirmsTarget(shellAssociated, 'C:\\fixtures\\document.txt'), false);
@@ -1035,28 +973,25 @@ test('computer window transition selects one deterministic successor', () => {
     ],
     '',
     606,
-    'C:\\fixtures\\document.txt',
+    'C:\\fixtures\\document.txt'
   );
   assert.equal(reusedShellWindow.next_target, undefined);
   assert.deepEqual(reusedShellWindow.changed_windows, []);
-  assert.equal(
-    launchTransitionConfirmsTarget(reusedShellWindow, 'C:\\fixtures\\document.txt'),
-    false,
-  );
+  assert.equal(launchTransitionConfirmsTarget(reusedShellWindow, 'C:\\fixtures\\document.txt'), false);
   assert.equal(launchTransitionConfirmsTarget(delegatedExisting, 'notepad.exe'), true);
+  assert.equal(launchTransitionConfirmsTarget(delegatedExisting, 'C:\\fixtures\\document.txt'), false);
   assert.equal(
-    launchTransitionConfirmsTarget(delegatedExisting, 'C:\\fixtures\\document.txt'),
-    false,
-  );
-  assert.equal(
-    launchTransitionConfirmsTarget({
-      ...delegatedExisting,
-      next_target: {
-        ...delegatedExisting.next_target,
-        title: 'document.txt - Notepad',
+    launchTransitionConfirmsTarget(
+      {
+        ...delegatedExisting,
+        next_target: {
+          ...delegatedExisting.next_target,
+          title: 'document.txt - Notepad',
+        },
       },
-    }, 'C:\\fixtures\\document.txt'),
-    true,
+      'C:\\fixtures\\document.txt'
+    ),
+    true
   );
   assert.equal(launchTransitionConfirmsTarget(delegatedExisting, 'https://example.com'), false);
 });
@@ -1066,18 +1001,17 @@ test('computer frame admits only captured owned-window descendants', () => {
   const menu = windowRecord('hwnd:0x2', { ownerId: main.id });
   const nested = windowRecord('hwnd:0x3', { ownerId: menu.id });
   const unrelated = windowRecord('hwnd:0x4');
-  assert.deepEqual(
-    relatedWindowIdsForFrame([main, menu, nested, unrelated], main.id),
-    [main.id, menu.id, nested.id],
-  );
+  assert.deepEqual(relatedWindowIdsForFrame([main, menu, nested, unrelated], main.id), [main.id, menu.id, nested.id]);
   const inactiveTransition = computeComputerWindowTransition([main], [main, menu], main.id);
   assert.equal(inactiveTransition.next_target, undefined);
   const transition = computeComputerWindowTransition(
     [main],
-    [{ ...main, focused: false }, { ...menu, focused: true }],
-    main.id,
+    [
+      { ...main, focused: false },
+      { ...menu, focused: true },
+    ],
+    main.id
   );
   assert.equal(transition.next_target?.id, menu.id);
   assert.equal(transition.next_target_reason, 'owned_window_opened');
 });
-

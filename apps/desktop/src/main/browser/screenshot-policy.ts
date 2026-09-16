@@ -27,7 +27,9 @@ export function normalizeScreenshotOptions(input: {
   quality?: unknown;
   fullPage?: unknown;
 }): BrowserScreenshotOptions {
-  const format = String(input.format || 'jpeg').trim().toLowerCase();
+  const format = String(input.format || 'jpeg')
+    .trim()
+    .toLowerCase();
   if (format !== 'jpeg' && format !== 'png') {
     throw new Error('snapshot format must be jpeg or png');
   }
@@ -56,21 +58,16 @@ export function boundedFullPageRect(contentSize: {
   const width = Math.ceil(Number(contentSize.width) || 0);
   const height = Math.ceil(Number(contentSize.height) || 0);
   if (width < 1 || height < 1) throw new Error('full-page screenshot has no measurable content');
-  if (width > MAX_FULL_PAGE_DIMENSION
-    || height > MAX_FULL_PAGE_DIMENSION
-    || width * height > MAX_FULL_PAGE_PIXELS) {
+  if (width > MAX_FULL_PAGE_DIMENSION || height > MAX_FULL_PAGE_DIMENSION || width * height > MAX_FULL_PAGE_PIXELS) {
     throw new Error(
-      `full-page screenshot is too large (${width}x${height}); limit is `
-      + `${MAX_FULL_PAGE_DIMENSION}px per side and ${MAX_FULL_PAGE_PIXELS.toLocaleString()} pixels`,
+      `full-page screenshot is too large (${width}x${height}); limit is ` +
+        `${MAX_FULL_PAGE_DIMENSION}px per side and ${MAX_FULL_PAGE_PIXELS.toLocaleString()} pixels`
     );
   }
   return { x, y, width, height };
 }
 
-export function scaledScreenshotRect(
-  rect: BrowserScreenshotRect,
-  scale: number,
-): BrowserScreenshotRect {
+export function scaledScreenshotRect(rect: BrowserScreenshotRect, scale: number): BrowserScreenshotRect {
   return {
     x: Math.floor(rect.x * scale),
     y: Math.floor(rect.y * scale),
@@ -79,10 +76,7 @@ export function scaledScreenshotRect(
   };
 }
 
-export function assertFullPageOutputBounds(
-  rect: BrowserScreenshotRect,
-  scale: number,
-): void {
+export function assertFullPageOutputBounds(rect: BrowserScreenshotRect, scale: number): void {
   boundedFullPageRect(scaledScreenshotRect(rect, scale));
 }
 

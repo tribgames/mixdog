@@ -25,7 +25,7 @@ export function assertComputerWorkerCapacity(live: number, maximum = MAX_COMPUTE
   }
   if (live >= maximum) {
     throw new Error(
-      `computer_capacity_exhausted: ${maximum} workers are still live; release an idle session before retrying`,
+      `computer_capacity_exhausted: ${maximum} workers are still live; release an idle session before retrying`
     );
   }
 }

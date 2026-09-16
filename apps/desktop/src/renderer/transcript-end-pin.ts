@@ -1,4 +1,4 @@
-import type { Virtualizer } from "@tanstack/react-virtual";
+import type { Virtualizer } from '@tanstack/react-virtual';
 
 /** Coalesce append, row measurement, and composer resize into one native end.
  * Intermediate core offsets are estimates of different stages of the same
@@ -32,7 +32,7 @@ export function createTranscriptEndPin({
         const instance = getVirtualizer();
         // Follow may have been released after the request but before this
         // microtask, even without a continuing native gesture.
-        if (instance.options.anchorTo !== "end" && !instance.options.followOnAppend) return;
+        if (instance.options.anchorTo !== 'end' && !instance.options.followOnAppend) return;
         const spacer = getSpacer();
         if (spacer) spacer.style.height = `${instance.getTotalSize()}px`;
         const max = Math.max(0, element.scrollHeight - element.clientHeight);

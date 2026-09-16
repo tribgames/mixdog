@@ -35,8 +35,12 @@
   background: transparent;
   cursor: pointer;
 }
-.mobile-tab-overview-head button:active { background: var(--mx-pressed); }
-.mobile-tab-overview-spacer { flex: 1 1 auto; }
+.mobile-tab-overview-head button:active {
+  background: var(--mx-pressed);
+}
+.mobile-tab-overview-spacer {
+  flex: 1 1 auto;
+}
 .mobile-tab-overview-count > i {
   display: grid;
   place-items: center;
@@ -60,7 +64,9 @@
   background: var(--mx-hover);
   font-size: 15px;
 }
-.mobile-tab-overview-search::placeholder { color: var(--mx-text-muted); }
+.mobile-tab-overview-search::placeholder {
+  color: var(--mx-text-muted);
+}
 .mobile-tab-overview-grid {
   flex: 1;
   min-height: 0;
@@ -109,7 +115,9 @@
   text-align: left;
   cursor: pointer;
 }
-.mobile-tab-card-open:active { background: var(--mx-pressed); }
+.mobile-tab-card-open:active {
+  background: var(--mx-pressed);
+}
 .mobile-tab-card-head {
   display: flex;
   align-items: center;
@@ -149,8 +157,12 @@
   font-size: 11px;
   font-weight: var(--mx-weight-medium);
 }
-.mobile-tab-card-state.is-working { color: var(--mx-focus); }
-.mobile-tab-card-state.is-unread { color: var(--mx-text-soft); }
+.mobile-tab-card-state.is-working {
+  color: var(--mx-focus);
+}
+.mobile-tab-card-state.is-unread {
+  color: var(--mx-text-soft);
+}
 /* 44dp touch target with a 16px glyph (user: 탭 전환을 누르려다 닫힌다). */
 .mobile-tab-card-close {
   position: absolute;
@@ -167,9 +179,15 @@
   background: transparent;
   cursor: pointer;
 }
-.mobile-tab-card-close:active { background: var(--mx-pressed); }
-.workbench-side-panel[data-side="left"] { border-right: 1px solid var(--mx-border-structure); }
-.workbench-side-panel[data-side="right"] { border-left: 1px solid var(--mx-border-structure); }
+.mobile-tab-card-close:active {
+  background: var(--mx-pressed);
+}
+.workbench-side-panel[data-side="left"] {
+  border-right: 1px solid var(--mx-border-structure);
+}
+.workbench-side-panel[data-side="right"] {
+  border-left: 1px solid var(--mx-border-structure);
+}
 .workbench-side-panel-resize {
   position: absolute;
   z-index: 5;
@@ -178,8 +196,12 @@
   width: 8px;
   cursor: col-resize;
 }
-.workbench-side-panel[data-side="left"] > .workbench-side-panel-resize { right: -4px; }
-.workbench-side-panel[data-side="right"] > .workbench-side-panel-resize { left: -4px; }
+.workbench-side-panel[data-side="left"] > .workbench-side-panel-resize {
+  right: -4px;
+}
+.workbench-side-panel[data-side="right"] > .workbench-side-panel-resize {
+  left: -4px;
+}
 .workbench-side-panel-tabs,
 .workbench-side-panel-title {
   min-width: 0;
@@ -248,7 +270,9 @@
   flex-direction: column;
   overflow: hidden;
 }
-.workbench-side-panel-content > .workbench-side-panel-body[hidden] { display: none; }
+.workbench-side-panel-content > .workbench-side-panel-body[hidden] {
+  display: none;
+}
 .workbench-side-section {
   position: relative;
   min-width: 0;
@@ -261,8 +285,12 @@
 .workbench-side-section[data-sectioned="true"] {
   border-bottom: 0;
 }
-.workbench-side-section[data-sectioned="true"]:last-child { border-bottom: 0; }
-.workbench-side-section[data-sectioned="false"] { flex: 1 1 100%; }
+.workbench-side-section[data-sectioned="true"]:last-child {
+  border-bottom: 0;
+}
+.workbench-side-section[data-sectioned="false"] {
+  flex: 1 1 100%;
+}
 .workbench-side-section-header {
   box-sizing: border-box;
   min-width: 0;
@@ -276,7 +304,9 @@
   background: var(--mx-window-band);
   cursor: grab;
 }
-.workbench-side-section-header:active { cursor: grabbing; }
+.workbench-side-section-header:active {
+  cursor: grabbing;
+}
 .workbench-side-pane-drop-overlay {
   position: absolute;
   z-index: 20;
@@ -359,13 +389,18 @@
   /* The outer panel owns resizing and its open-width clipping animation.
      SessionSidebar's private stored width can be older than that panel, so
      using it as the inner floor clips titles/actions after a resize. */
-  .workbench-side-section-body > .sidebar.session-sidebar
+  .workbench-side-section-body
+    > .sidebar.session-sidebar
     > :is(.session-panel-header, .session-sidebar-sessions, .session-sidebar-scroll) {
     min-width: calc(var(--workbench-side-panel-width, var(--session-sidebar-width)) - 16px);
   }
 }
-.workbench-side-section-body .session-sidebar-resize { display: none; }
-.workbench-side-section-body .sidebar-view-section-header[hidden] { display: none; }
+.workbench-side-section-body .session-sidebar-resize {
+  display: none;
+}
+.workbench-side-section-body .sidebar-view-section-header[hidden] {
+  display: none;
+}
 .workbench-side-section-body > .utility-dock .utility-dock-header {
   position: relative;
   box-sizing: border-box;
@@ -390,7 +425,9 @@
   line-height: var(--mx-line-emphasis);
   letter-spacing: 0;
 }
-.workbench-side-section-body > .utility-dock .utility-dock-header:active { cursor: grabbing; }
+.workbench-side-section-body > .utility-dock .utility-dock-header:active {
+  cursor: grabbing;
+}
 .workbench-side-section-body > .utility-dock .utility-dock-header::after {
   content: "";
   position: absolute;
@@ -427,8 +464,7 @@
 .workbench-side-section-body .agent-activity-page {
   box-sizing: border-box;
 }
-.workbench-side-section-body .agent-activity-page
-  > .workflows-models:first-child > .workflows-section-head {
+.workbench-side-section-body .agent-activity-page > .workflows-models:first-child > .workflows-section-head {
   margin-top: 0;
 }
 /* The ≤940px right-sheet rules retired with the pane-embedded dock

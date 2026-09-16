@@ -2,16 +2,21 @@
 // store through its OWN equality comparator, so a header-only change never
 // re-renders the conversation (and vice versa). Extracted from App.tsx, which
 // keeps composition and session flow.
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { InitialSurface } from "./InitialSurface";
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import { InitialSurface } from './InitialSurface';
 
-import {
-  beginBootSurface,
-  reportBootSurfaceReady,
-  reportBootSurfaceStage,
-} from "./boot-metrics";
-import type { DesktopModelSelection } from "../shared/contract";
-import { Conversation } from "./Conversation";
+import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
+import type { DesktopModelSelection } from '../shared/contract';
+import { Conversation } from './Conversation';
 import {
   desktopConversationShellSnapshotsEqual,
   desktopDockSnapshotsEqual,
@@ -19,20 +24,15 @@ import {
   desktopRuntimeProgressSnapshotsEqual,
   desktopStreamingTailSnapshotsEqual,
   type DesktopSnapshotStore,
-} from "./desktop-snapshot-store";
-import {
-  EMPTY_SNAPSHOT,
-  EMPTY_TRANSCRIPT_ITEMS,
-  type Snapshot,
-  type TranscriptItem,
-} from "./desktop-types";
-import { PaneSurfaceCover } from "./PaneSurfaceGate";
-import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store";
-import { useSessionLaneRead } from "./use-session-lane-read";
-import { requestSessionRead } from "./session-read-request";
-export { requestSessionRead } from "./session-read-request";
-import { asRecord } from "./text-format";
-import { t } from "./i18n";
+} from './desktop-snapshot-store';
+import { EMPTY_SNAPSHOT, EMPTY_TRANSCRIPT_ITEMS, type Snapshot, type TranscriptItem } from './desktop-types';
+import { PaneSurfaceCover } from './PaneSurfaceGate';
+import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
+import { useSessionLaneRead } from './use-session-lane-read';
+import { requestSessionRead } from './session-read-request';
+export { requestSessionRead } from './session-read-request';
+import { asRecord } from './text-format';
+import { t } from './i18n';
 import {
   conversationCoverIdentity,
   conversationSwitchPaintGate,
@@ -40,14 +40,14 @@ import {
   conversationPresentedSessionId,
   nextConversationOriginSessionId,
   conversationMarkdownPending,
-} from "./first-submit-stability";
-import { readTranscriptVirtualSnapshot } from "./transcript-virtual-cache";
-import { SessionGoalIsland } from "./SessionGoalIsland";
-import { ContextUsageIndicator, TranscriptRow } from "./TranscriptView";
+} from './first-submit-stability';
+import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
+import { SessionGoalIsland } from './SessionGoalIsland';
+import { ContextUsageIndicator, TranscriptRow } from './TranscriptView';
 
-let utilityDockModulePromise: Promise<typeof import("./UtilityDock")> | null = null;
+let utilityDockModulePromise: Promise<typeof import('./UtilityDock')> | null = null;
 function loadUtilityDockModule() {
-  utilityDockModulePromise ||= import("./UtilityDock").catch((error) => {
+  utilityDockModulePromise ||= import('./UtilityDock').catch((error) => {
     utilityDockModulePromise = null;
     throw error;
   });
@@ -60,8 +60,7 @@ export async function prewarmUtilityDockGitState(projectPath: string): Promise<v
   const module = await loadUtilityDockModule();
   await module.prewarmUtilityDockGitState(projectPath);
 }
-const UtilityDock = React.lazy(() => loadUtilityDockModule()
-  .then((module) => ({ default: module.UtilityDock })));
+const UtilityDock = React.lazy(() => loadUtilityDockModule().then((module) => ({ default: module.UtilityDock })));
 
 export const selectDesktopSnapshot = (snapshot: Snapshot) => snapshot;
 
@@ -69,7 +68,7 @@ export function useDesktopSnapshotSelector<T>(
   store: DesktopSnapshotStore,
   selector: (snapshot: Snapshot) => T,
   isEqual: (left: T, right: T) => boolean = Object.is,
-  enabled = true,
+  enabled = true
 ): T {
   const cached = useRef<{ value: T } | null>(null);
   const getSelection = useCallback(() => {
@@ -82,91 +81,93 @@ export function useDesktopSnapshotSelector<T>(
   }, [enabled, isEqual, selector, store]);
   const subscribe = useCallback(
     (listener: () => void) => (enabled ? store.subscribe(listener) : () => {}),
-    [enabled, store],
+    [enabled, store]
   );
   return useSyncExternalStore(subscribe, getSelection, getSelection);
 }
 
-type DraftConversationProps =
-  Omit<React.ComponentProps<typeof Conversation>, "snapshot" | "routeSnapshot" | "transcriptPending"> & {
+type DraftConversationProps = Omit<
+  React.ComponentProps<typeof Conversation>,
+  'snapshot' | 'routeSnapshot' | 'transcriptPending'
+> & {
   transcriptPending?: boolean;
-  };
+};
 
 type PaneStreamingTailProps = {
   sessionId: string;
   hidden: boolean;
 };
 
-const PaneRuntimeProgress = memo(function PaneRuntimeProgress({
-  sessionId,
-  hidden,
-}: PaneStreamingTailProps) {
+const PaneRuntimeProgress = memo(function PaneRuntimeProgress({ sessionId, hidden }: PaneStreamingTailProps) {
   const lane = useSessionLane(
     sessionId,
     defaultSessionLaneStore,
     desktopRuntimeProgressSnapshotsEqual,
-    !hidden && Boolean(sessionId),
+    !hidden && Boolean(sessionId)
   );
   const snapshot = lane ?? EMPTY_SNAPSHOT;
-  const text = String(asRecord(snapshot.progressHint)?.text || "");
-  return !hidden && text
-    ? <div className="runtime-progress" role="status">{text}</div>
-    : null;
+  const text = String(asRecord(snapshot.progressHint)?.text || '');
+  return !hidden && text ? (
+    <div className="runtime-progress" role="status">
+      {text}
+    </div>
+  ) : null;
 });
 
-const PaneStreamingTail = memo(function PaneStreamingTail({
-  sessionId,
-  hidden,
-}: PaneStreamingTailProps) {
+const PaneStreamingTail = memo(function PaneStreamingTail({ sessionId, hidden }: PaneStreamingTailProps) {
   const lane = useSessionLane(
     sessionId,
     defaultSessionLaneStore,
     desktopStreamingTailSnapshotsEqual,
-    !hidden && Boolean(sessionId),
+    !hidden && Boolean(sessionId)
   );
   const snapshot = lane ?? EMPTY_SNAPSHOT;
   const tail = snapshot.streamingTail as TranscriptItem | null | undefined;
   if (hidden) return null;
   if (!tail) return null;
   const items = Array.isArray(snapshot.items) ? snapshot.items : EMPTY_TRANSCRIPT_ITEMS;
-  const settledIndex = tail.id == null
-    ? -1
-    : items.findIndex((item) => item?.id === tail.id);
+  const settledIndex = tail.id == null ? -1 : items.findIndex((item) => item?.id === tail.id);
   if (settledIndex >= 0 && settledIndex !== items.length - 1) return null;
   const index = settledIndex >= 0 ? settledIndex : items.length;
-  return <div className="transcript-live-part" data-streaming-tail="true" data-index={index}>
-    <TranscriptRow item={tail}
-      disclosureScope={String(snapshot.sessionId || "new-task")} />
-  </div>;
+  return (
+    <div className="transcript-live-part" data-streaming-tail="true" data-index={index}>
+      <TranscriptRow item={tail} disclosureScope={String(snapshot.sessionId || 'new-task')} />
+    </div>
+  );
 });
 
 export const DraftConversation = memo(function DraftConversation({
   transcriptPending = false,
   ...props
 }: DraftConversationProps) {
-  return <Conversation snapshot={EMPTY_SNAPSHOT} routeSnapshot={EMPTY_SNAPSHOT}
-    transcriptPending={transcriptPending} {...props} reviewActive />;
+  return (
+    <Conversation
+      snapshot={EMPTY_SNAPSHOT}
+      routeSnapshot={EMPTY_SNAPSHOT}
+      transcriptPending={transcriptPending}
+      {...props}
+      reviewActive
+    />
+  );
 });
 
 // Every split-pane chat keeps ONE Conversation instance mounted for its whole
 // lifetime. Focus changes input routing only; every established session reads
 // its own lane and a draft reads only its local draft props.
-type PaneConversationProps =
-  Omit<React.ComponentProps<typeof Conversation>,
-    "snapshot" | "routeSnapshot" | "streamingTailSlot" | "runtimeProgressSlot" | "transcriptPending"> & {
-    focused: boolean;
-    sessionId: string;
-    hidden: boolean;
-    transcriptPending?: boolean;
-    reconcileOnMount?: boolean;
-    /** Context card → Inherit session, run in place (user: 팝업 안 뜨고 바로
-     *  진행되게). The pane holds the source session and its route; the host
-     *  creates the heir and opens its tab. */
-    onInheritSession?: (
-      sourceSessionId: string,
-      route: DesktopModelSelection,
-    ) => Promise<void>;
-  };
+type PaneConversationProps = Omit<
+  React.ComponentProps<typeof Conversation>,
+  'snapshot' | 'routeSnapshot' | 'streamingTailSlot' | 'runtimeProgressSlot' | 'transcriptPending'
+> & {
+  focused: boolean;
+  sessionId: string;
+  hidden: boolean;
+  transcriptPending?: boolean;
+  reconcileOnMount?: boolean;
+  /** Context card → Inherit session, run in place (user: 팝업 안 뜨고 바로
+   *  진행되게). The pane holds the source session and its route; the host
+   *  creates the heir and opens its tab. */
+  onInheritSession?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
+};
 
 export const PaneConversation = memo(function PaneConversation({
   focused,
@@ -178,12 +179,7 @@ export const PaneConversation = memo(function PaneConversation({
   onInheritSession,
   ...props
 }: PaneConversationProps) {
-  const lane = useSessionLane(
-    sessionId,
-    defaultSessionLaneStore,
-    desktopConversationShellSnapshotsEqual,
-    !hidden,
-  );
+  const lane = useSessionLane(sessionId, defaultSessionLaneStore, desktopConversationShellSnapshotsEqual, !hidden);
   const { readUnavailable, retryRead } = useSessionLaneRead({
     sessionId,
     hasLane: lane !== null,
@@ -191,37 +187,24 @@ export const PaneConversation = memo(function PaneConversation({
     reconcileOnMount,
     read: requestSessionRead,
   });
-  const coverIdRef = useRef(sessionId || "draft");
-  const originSessionRef = useRef(sessionId || "");
+  const coverIdRef = useRef(sessionId || 'draft');
+  const originSessionRef = useRef(sessionId || '');
   const markdownPending = conversationMarkdownPending({
     transcriptPending,
     coverId: coverIdRef.current,
     hasMeasurements: Boolean(readTranscriptVirtualSnapshot(sessionId)?.measurements?.length),
   });
   const laneReady = hidden || !sessionId || (!markdownPending && lane !== null);
-  const { coverKey, promotingFromDraft } = conversationCoverIdentity(
-    coverIdRef.current,
-    sessionId,
-    laneReady,
-  );
+  const { coverKey, promotingFromDraft } = conversationCoverIdentity(coverIdRef.current, sessionId, laneReady);
   useLayoutEffect(() => {
-    originSessionRef.current = nextConversationOriginSessionId(
-      originSessionRef.current,
-      sessionId,
-    );
-    coverIdRef.current = nextConversationCoverId(
-      coverIdRef.current,
-      sessionId,
-      laneReady,
-      originSessionRef.current,
-    );
+    originSessionRef.current = nextConversationOriginSessionId(originSessionRef.current, sessionId);
+    coverIdRef.current = nextConversationCoverId(coverIdRef.current, sessionId, laneReady, originSessionRef.current);
   }, [laneReady, sessionId]);
   // A first-prompt promotion already painted this conversation as New Task.
   // Changing the cover key (or waiting on a one-frame-late lane) replayed
   // "Loading conversation…" over the live composer.
-  const contentReady = hidden || !sessionId || promotingFromDraft
-    || (!markdownPending && lane !== null);
-  const incomingPaintId = sessionId || "draft";
+  const contentReady = hidden || !sessionId || promotingFromDraft || (!markdownPending && lane !== null);
+  const incomingPaintId = sessionId || 'draft';
   const switchArrivalRef = useRef({
     id: incomingPaintId,
     ready: contentReady,
@@ -233,23 +216,19 @@ export const PaneConversation = memo(function PaneConversation({
     };
   }
   const [heldPaintId, setHeldPaintId] = useState(incomingPaintId);
-  const presentedSessionId = conversationPresentedSessionId(
-    heldPaintId === "draft" ? "" : heldPaintId,
-    sessionId,
-    {
-      hidden,
-      promotingFromDraft,
-      incomingReady: contentReady,
-    },
-  );
+  const presentedSessionId = conversationPresentedSessionId(heldPaintId === 'draft' ? '' : heldPaintId, sessionId, {
+    hidden,
+    promotingFromDraft,
+    incomingReady: contentReady,
+  });
   const presentedLane = useSessionLane(
     presentedSessionId,
     defaultSessionLaneStore,
     desktopConversationShellSnapshotsEqual,
-    !hidden && presentedSessionId !== sessionId,
+    !hidden && presentedSessionId !== sessionId
   );
   const routeSnapshot = presentedSessionId
-    ? (presentedSessionId === sessionId ? lane : presentedLane) ?? EMPTY_SNAPSHOT
+    ? ((presentedSessionId === sessionId ? lane : presentedLane) ?? EMPTY_SNAPSHOT)
     : EMPTY_SNAPSHOT;
   const paneSnapshot = hidden ? EMPTY_SNAPSHOT : routeSnapshot;
   const paintGate = conversationSwitchPaintGate(heldPaintId, incomingPaintId, {
@@ -271,11 +250,9 @@ export const PaneConversation = memo(function PaneConversation({
   // cover up until the incoming lane exists and one frame has committed it.
   const surfaceReady = paintGate.reveal;
   const showingIncoming = presentedSessionId === sessionId;
-  const timelinePending = showingIncoming && !promotingFromDraft && (
-    markdownPending
-    || Boolean(sessionId && !hidden && lane === null)
-  );
-  const bootKey = sessionId || "new-task";
+  const timelinePending =
+    showingIncoming && !promotingFromDraft && (markdownPending || Boolean(sessionId && !hidden && lane === null));
+  const bootKey = sessionId || 'new-task';
   // Chromium may discard the raster for a layout-retained Markdown subtree
   // while New Task is visible. Keep the New Task watermark over a warm session
   // for exactly one rAF while the CURRENT route/rows paint underneath. Route
@@ -283,10 +260,8 @@ export const PaneConversation = memo(function PaneConversation({
   // never remain the draft's DOM, even for one observer delivery.
   const [presentedPaintKey, setPresentedPaintKey] = useState(bootKey);
   const paintKeyChanged = presentedPaintKey !== bootKey;
-  const warmDraftHandoff = surfaceReady
-    && paintKeyChanged
-    && presentedPaintKey === "new-task"
-    && bootKey !== "new-task";
+  const warmDraftHandoff =
+    surfaceReady && paintKeyChanged && presentedPaintKey === 'new-task' && bootKey !== 'new-task';
   useLayoutEffect(() => {
     if (!paintKeyChanged) return undefined;
     if (!warmDraftHandoff) {
@@ -296,11 +271,11 @@ export const PaneConversation = memo(function PaneConversation({
     const frame = window.requestAnimationFrame(() => setPresentedPaintKey(bootKey));
     return () => window.cancelAnimationFrame(frame);
   }, [bootKey, paintKeyChanged, warmDraftHandoff]);
-  beginBootSurface("conversation", bootKey);
+  beginBootSurface('conversation', bootKey);
   useEffect(() => {
     if (!surfaceReady) return;
-    reportBootSurfaceStage("conversation", bootKey, "data");
-    reportBootSurfaceReady("conversation", bootKey);
+    reportBootSurfaceStage('conversation', bootKey, 'data');
+    reportBootSurfaceReady('conversation', bootKey);
   }, [bootKey, surfaceReady]);
   // Keep Conversation mounted at its final geometry, but do not expose its
   // empty shell followed by a bulk Markdown/virtualizer insertion. The opaque
@@ -308,43 +283,45 @@ export const PaneConversation = memo(function PaneConversation({
   // The context gauge sits beside the composer's model trigger on every
   // surface (user: 컨텍스트는 모델 선택기 옆; 모바일도 PC에 맞춰) — the
   // phone's floating status capsule is retired with it.
-  const contextIndicator = useMemo(() =>
-    <PaneContextIndicator
-      sessionId={presentedSessionId}
-      hidden={hidden}
-      onInherit={onInheritSession} />,
-  [hidden, onInheritSession, presentedSessionId]);
-  return <>
-    <Conversation
-      snapshot={paneSnapshot}
-      routeSnapshot={routeSnapshot}
-      sessionAddress={presentedSessionId}
-      draftMode={draftMode}
-      transcriptPending={timelinePending}
-      reviewActive={focused && !hidden}
-      warmPaintHandoff={warmDraftHandoff}
-      streamingTailSlot={<PaneStreamingTail
-        sessionId={sessionId}
-        hidden={hidden} />}
-      runtimeProgressSlot={<PaneRuntimeProgress
-        sessionId={sessionId}
-        hidden={hidden} />}
-      {...props}
-      goalIsland={<PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />}
-      contextIndicator={contextIndicator}
-    />
-    <PaneSurfaceCover ready={surfaceReady} label={t("Loading conversation…")}
-      transitionKey={coverKey} showSpinner={false} />
-    {readUnavailable && lane === null && !hidden
-      ? <div className="pane-surface-cover session-unavailable" role="alert">
-        <div className="session-unavailable-card">
-          <strong>{t("Session unavailable")}</strong>
-          <span>{t("The transcript could not be loaded.")}</span>
-          <button type="button" onClick={retryRead}>{t("Retry")}</button>
+  const contextIndicator = useMemo(
+    () => <PaneContextIndicator sessionId={presentedSessionId} hidden={hidden} onInherit={onInheritSession} />,
+    [hidden, onInheritSession, presentedSessionId]
+  );
+  return (
+    <>
+      <Conversation
+        snapshot={paneSnapshot}
+        routeSnapshot={routeSnapshot}
+        sessionAddress={presentedSessionId}
+        draftMode={draftMode}
+        transcriptPending={timelinePending}
+        reviewActive={focused && !hidden}
+        warmPaintHandoff={warmDraftHandoff}
+        streamingTailSlot={<PaneStreamingTail sessionId={sessionId} hidden={hidden} />}
+        runtimeProgressSlot={<PaneRuntimeProgress sessionId={sessionId} hidden={hidden} />}
+        {...props}
+        goalIsland={<PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />}
+        contextIndicator={contextIndicator}
+      />
+      <PaneSurfaceCover
+        ready={surfaceReady}
+        label={t('Loading conversation…')}
+        transitionKey={coverKey}
+        showSpinner={false}
+      />
+      {readUnavailable && lane === null && !hidden ? (
+        <div className="pane-surface-cover session-unavailable" role="alert">
+          <div className="session-unavailable-card">
+            <strong>{t('Session unavailable')}</strong>
+            <span>{t('The transcript could not be loaded.')}</span>
+            <button type="button" onClick={retryRead}>
+              {t('Retry')}
+            </button>
+          </div>
         </div>
-      </div>
-      : null}
-  </>;
+      ) : null}
+    </>
+  );
 });
 
 // Relay hops drop per-session lane pushes for a congested or backgrounded
@@ -358,8 +335,8 @@ const recoverSessionLanesFromRemoteGap = (): void => {
     void requestSessionRead(sessionId, { refresh: true });
   }
 };
-if (typeof window !== "undefined") {
-  window.addEventListener("mixdog:remote-state-gap", recoverSessionLanesFromRemoteGap);
+if (typeof window !== 'undefined') {
+  window.addEventListener('mixdog:remote-state-gap', recoverSessionLanesFromRemoteGap);
 }
 
 /** Session status island: the context gauge and the live Agent/Shell chips as
@@ -372,19 +349,13 @@ function usePaneIslandSnapshot(sessionId: string, hidden: boolean): Snapshot {
     sessionId,
     defaultSessionLaneStore,
     desktopHeaderSnapshotsEqual,
-    !hidden && Boolean(sessionId),
+    !hidden && Boolean(sessionId)
   );
-  return hidden || !sessionId ? EMPTY_SNAPSHOT : lane ?? EMPTY_SNAPSHOT;
+  return hidden || !sessionId ? EMPTY_SNAPSHOT : (lane ?? EMPTY_SNAPSHOT);
 }
 
 /** Goal capsule snapshot owner for the composer. */
-export function PaneGoalIsland({
-  sessionId,
-  hidden,
-}: {
-  sessionId: string;
-  hidden: boolean;
-}) {
+export function PaneGoalIsland({ sessionId, hidden }: { sessionId: string; hidden: boolean }) {
   return <SessionGoalIsland snapshot={usePaneIslandSnapshot(sessionId, hidden)} />;
 }
 
@@ -403,12 +374,13 @@ export function PaneContextIndicator({
   return <ContextUsageIndicator snapshot={visibleSnapshot} onInherit={onInherit} />;
 }
 
-
-type SnapshotUtilityDockProps =
-  Omit<React.ComponentProps<(typeof import("./UtilityDock"))["UtilityDock"]>, "snapshot"> & {
-    snapshotStore: DesktopSnapshotStore;
-    hidden: boolean;
-  };
+type SnapshotUtilityDockProps = Omit<
+  React.ComponentProps<typeof import('./UtilityDock')['UtilityDock']>,
+  'snapshot'
+> & {
+  snapshotStore: DesktopSnapshotStore;
+  hidden: boolean;
+};
 
 // ONE dock element for every tab. The old per-tab alternation between a
 // snapshot-backed dock (Search) and a bare one (Agents/Source Control) swapped
@@ -433,11 +405,12 @@ export const SnapshotUtilityDock = memo(function SnapshotUtilityDock({
     snapshotStore,
     selectDesktopSnapshot,
     desktopDockSnapshotsEqual,
-    activated || !hidden,
+    activated || !hidden
   );
   if (!activated && hidden) return null;
-  return <React.Suspense fallback={<InitialSurface />}>
-    <UtilityDock {...props} prewarm={prewarm}
-      snapshot={hidden ? EMPTY_SNAPSHOT : hostSnapshot} />
-  </React.Suspense>;
+  return (
+    <React.Suspense fallback={<InitialSurface />}>
+      <UtilityDock {...props} prewarm={prewarm} snapshot={hidden ? EMPTY_SNAPSHOT : hostSnapshot} />
+    </React.Suspense>
+  );
 });

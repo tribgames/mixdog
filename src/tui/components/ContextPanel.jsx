@@ -86,7 +86,7 @@ function DetailLine({ label, value, columns }) {
   return (
     <Box flexDirection="row" width="100%">
       <Text color={theme.subtle}>{padCells(truncateText(label, labelWidth), labelWidth)}</Text>
-      <Text color={theme.inactive}>  </Text>
+      <Text color={theme.inactive}> </Text>
       <Text color={theme.text}>{truncateText(value, valueWidth)}</Text>
     </Box>
   );
@@ -170,7 +170,16 @@ function ContextUsageView({ detail, columns }) {
   const pctText = usedTokens == null ? '—' : `${percentLabel(usedTokens, windowTokens)} used`;
   const barWidth = Math.max(12, Math.min(34, innerWidth - stringWidth(summaryText) - stringWidth(pctText) - 5));
   const systemPromptTokens = semanticTokens(semantic, ['system', 'workflow', 'workspace', 'environment', 'other']);
-  const systemToolsTokens = bucketTokens(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'session']);
+  const systemToolsTokens = bucketTokens(schema, [
+    'code',
+    'web',
+    'mutation',
+    'channels',
+    'setup',
+    'other',
+    'control',
+    'session',
+  ]);
   const compactionLine = metricValue([
     compaction.stage && compaction.stage !== 'pending' ? compaction.stage : '',
     compaction.state,
@@ -183,12 +192,16 @@ function ContextUsageView({ detail, columns }) {
   const sourceLine = metricValue([
     contextMeasurementLabel(usage.measurementSource),
     usage.effective ? `effective ${formatTokens(windowTokens)}` : `window ${formatTokens(windowTokens)}`,
-    usage.rawWindowTokens && usage.rawWindowTokens !== usage.windowTokens ? `raw ${formatTokens(usage.rawWindowTokens)}` : '',
+    usage.rawWindowTokens && usage.rawWindowTokens !== usage.windowTokens
+      ? `raw ${formatTokens(usage.rawWindowTokens)}`
+      : '',
   ]);
   const apiLine = metricValue([
     `last ctx ${formatTokens(lastApi.contextTokens)}`,
     `uncached/out ${formatTokens(lastApi.inputTokens)}/${formatTokens(lastApi.outputTokens)}`,
-    lastApi.rawInputTokens && lastApi.rawInputTokens !== lastApi.inputTokens ? `raw in ${formatTokens(lastApi.rawInputTokens)}` : '',
+    lastApi.rawInputTokens && lastApi.rawInputTokens !== lastApi.inputTokens
+      ? `raw in ${formatTokens(lastApi.rawInputTokens)}`
+      : '',
     cache.writeTokens ? `write ${formatTokens(cache.writeTokens)}` : '',
     `cache ${cache.hitRate || 'N/A'}`,
   ]);
@@ -206,17 +219,21 @@ function ContextUsageView({ detail, columns }) {
   const categoryWindowTokens = Math.max(rawWindowTokens, categorizedTokens + autoCompactBufferTokens);
   categories.push(
     { label: 'Free space', tokens: Math.max(0, windowTokens - categorizedTokens) },
-    { label: 'Autocompact buffer', tokens: autoCompactBufferTokens },
+    { label: 'Autocompact buffer', tokens: autoCompactBufferTokens }
   );
 
   return (
     <Box flexDirection="column" width="100%">
       <Box flexDirection="row" width="100%">
-        <Text color={usageColor(usedPct)} bold>{padCells(pctText, Math.min(10, innerWidth))}</Text>
+        <Text color={usageColor(usedPct)} bold>
+          {padCells(pctText, Math.min(10, innerWidth))}
+        </Text>
         <Text color={theme.inactive}> </Text>
         <ProgressBar value={usedTokens} total={windowTokens} width={barWidth} />
-        <Text color={theme.inactive}>  </Text>
-        <Text color={theme.text}>{truncateText(summaryText, Math.max(0, innerWidth - Math.min(10, innerWidth) - barWidth - 3))}</Text>
+        <Text color={theme.inactive}> </Text>
+        <Text color={theme.text}>
+          {truncateText(summaryText, Math.max(0, innerWidth - Math.min(10, innerWidth) - barWidth - 3))}
+        </Text>
       </Box>
       <Box marginTop={1} flexDirection="column" width="100%">
         <DetailLine label="Source" value={sourceLine} columns={columns} />
@@ -233,18 +250,27 @@ function ContextUsageView({ detail, columns }) {
   );
 }
 
-export function ContextPanel({ rows, title = 'Context Usage', columns = 80, fillHeight = false, detail = null, description = '' }) {
+export function ContextPanel({
+  rows,
+  title = 'Context Usage',
+  columns = 80,
+  fillHeight = false,
+  detail = null,
+  description = '',
+}) {
   const safeRows = Array.isArray(rows) ? rows : [];
   const labelWidth = Math.min(
     safeRows.reduce((w, row) => Math.max(w, String(row.label || '').length), 0),
-    Math.max(12, Math.floor(columns * 0.24)),
+    Math.max(12, Math.floor(columns * 0.24))
   );
   const valueWidth = Math.max(0, columns - labelWidth - 8);
   const isContextUsage = detail?.type === 'context';
   // Standard panel rhythm: title row, blank, description/hint row, blank, content.
   const panelDescription = truncateText(
-    String(description || (isContextUsage ? 'Live context window usage by category.' : '')).replace(/\s+/g, ' ').trim(),
-    Math.max(0, columns - 4),
+    String(description || (isContextUsage ? 'Live context window usage by category.' : ''))
+      .replace(/\s+/g, ' ')
+      .trim(),
+    Math.max(0, columns - 4)
   );
 
   return (

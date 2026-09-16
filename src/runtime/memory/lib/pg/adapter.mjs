@@ -1,42 +1,43 @@
 import { __mixdogMemoryLog } from '../memory-log.mjs';
 
-const _poolClientErrorHandlers = new WeakMap()
+const _poolClientErrorHandlers = new WeakMap();
 
 function isPgConnectionLossError(err) {
-  const seen = new Set()
-  let cur = err
+  const seen = new Set();
+  let cur = err;
   for (let depth = 0; cur && depth < 5 && !seen.has(cur); depth++) {
-    seen.add(cur)
-    const code = String(cur?.code || cur?.errno || '').toUpperCase()
-    const msg = String(cur?.message || cur || '')
+    seen.add(cur);
+    const code = String(cur?.code || cur?.errno || '').toUpperCase();
+    const msg = String(cur?.message || cur || '');
     if (
-      code === 'ECONNREFUSED'
-      || code === 'ECONNRESET'
-      || code === 'EPIPE'
-      || code === 'ENETRESET'
-      || code === '57P01'
-      || code === '57P02'
-      || code === '57P03'
-      || /connection terminated(?: unexpectedly)?/i.test(msg)
-      || /server closed the connection unexpectedly/i.test(msg)
-      || /read ECONNRESET|socket hang up|connect ECONNREFUSED/i.test(msg)
-      || /cannot use a pool after calling end/i.test(msg)
-    ) return true
-    cur = cur?.cause
+      code === 'ECONNREFUSED' ||
+      code === 'ECONNRESET' ||
+      code === 'EPIPE' ||
+      code === 'ENETRESET' ||
+      code === '57P01' ||
+      code === '57P02' ||
+      code === '57P03' ||
+      /connection terminated(?: unexpectedly)?/i.test(msg) ||
+      /server closed the connection unexpectedly/i.test(msg) ||
+      /read ECONNRESET|socket hang up|connect ECONNREFUSED/i.test(msg) ||
+      /cannot use a pool after calling end/i.test(msg)
+    )
+      return true;
+    cur = cur?.cause;
   }
-  return false
+  return false;
 }
 
 function isSafePreDispatchRetryError(err) {
-  const code = String(err?.code || err?.errno || '').toUpperCase()
-  const msg = String(err?.message || err || '')
-  return code === 'ECONNREFUSED'
-    || /connect ECONNREFUSED/i.test(msg)
-    || /cannot use a pool after calling end/i.test(msg)
+  const code = String(err?.code || err?.errno || '').toUpperCase();
+  const msg = String(err?.message || err || '');
+  return (
+    code === 'ECONNREFUSED' || /connect ECONNREFUSED/i.test(msg) || /cannot use a pool after calling end/i.test(msg)
+  );
 }
 
 function installPoolErrorHandler(pool, label, { onConnectionLoss } = {}) {
-  if (!pool || typeof pool.on !== 'function') return pool
+  if (!pool || typeof pool.on !== 'function') return pool;
   // pg-pool deliberately removes its idle error listener while a Client is
   // checked out. Long-running advisory-lock owners (cycle1/2) can therefore
   // receive a socket-end `error` between queries with no listener at all,
@@ -44,34 +45,38 @@ function installPoolErrorHandler(pool, label, { onConnectionLoss } = {}) {
   // permanent last-resort listener; pg-pool's own idle listener still owns
   // eviction when the Client is back in the pool.
   pool.on('connect', (client) => {
-    if (!client || typeof client.on !== 'function' || _poolClientErrorHandlers.has(client)) return
+    if (!client || typeof client.on !== 'function' || _poolClientErrorHandlers.has(client)) return;
     const handler = (err) => {
-      const code = err?.code || err?.errno || ''
-      const msg = err?.message || String(err || 'unknown error')
-      const pid = client?.processID ? ` pid=${client.processID}` : ''
-      const suffix = code ? ` ${code}` : ''
-      __mixdogMemoryLog(`[pg-adapter] ${label} client error${suffix}${pid}: ${msg}\n`)
+      const code = err?.code || err?.errno || '';
+      const msg = err?.message || String(err || 'unknown error');
+      const pid = client?.processID ? ` pid=${client.processID}` : '';
+      const suffix = code ? ` ${code}` : '';
+      __mixdogMemoryLog(`[pg-adapter] ${label} client error${suffix}${pid}: ${msg}\n`);
       if (isPgConnectionLossError(err) && typeof onConnectionLoss === 'function') {
         try {
           Promise.resolve(onConnectionLoss(err, client)).catch((recoverErr) => {
-            __mixdogMemoryLog(`[pg-adapter] ${label} client-error recovery failed: ${recoverErr?.message || recoverErr}\n`)
-          })
+            __mixdogMemoryLog(
+              `[pg-adapter] ${label} client-error recovery failed: ${recoverErr?.message || recoverErr}\n`
+            );
+          });
         } catch (recoverErr) {
-          __mixdogMemoryLog(`[pg-adapter] ${label} client-error recovery failed: ${recoverErr?.message || recoverErr}\n`)
+          __mixdogMemoryLog(
+            `[pg-adapter] ${label} client-error recovery failed: ${recoverErr?.message || recoverErr}\n`
+          );
         }
       }
-    }
-    _poolClientErrorHandlers.set(client, handler)
-    client.on('error', handler)
-  })
+    };
+    _poolClientErrorHandlers.set(client, handler);
+    client.on('error', handler);
+  });
   pool.on('error', (err, client) => {
-    const code = err?.code || err?.errno || ''
-    const msg = err?.message || String(err || 'unknown error')
-    const pid = client?.processID ? ` pid=${client.processID}` : ''
-    const suffix = code ? ` ${code}` : ''
-    __mixdogMemoryLog(`[pg-adapter] ${label} idle client error${suffix}${pid}: ${msg}\n`)
-  })
-  return pool
+    const code = err?.code || err?.errno || '';
+    const msg = err?.message || String(err || 'unknown error');
+    const pid = client?.processID ? ` pid=${client.processID}` : '';
+    const suffix = code ? ` ${code}` : '';
+    __mixdogMemoryLog(`[pg-adapter] ${label} idle client error${suffix}${pid}: ${msg}\n`);
+  });
+  return pool;
 }
 
 // pg-adapter.mjs — PG connection manager for mixdog 0.4.0
@@ -87,14 +92,14 @@ function installPoolErrorHandler(pool, label, { onConnectionLoss } = {}) {
 //   db.exec(sql)                    → multi-statement; resolves on completion
 //   db.transaction(async tx => …)  → auto BEGIN/COMMIT, ROLLBACK on throw
 
-import { resolve } from 'path'
-import { ensurePgInstance as supervisorEnsure } from './supervisor.mjs'
+import { resolve } from 'path';
+import { ensurePgInstance as supervisorEnsure } from './supervisor.mjs';
 
 // ---------------------------------------------------------------------------
 // One-shot bootstrap guard — keyed by resolved dataDir (cluster-level, not schema)
 // ---------------------------------------------------------------------------
 
-const _bootstrapped = new Set()
+const _bootstrapped = new Set();
 
 // ---------------------------------------------------------------------------
 // Cross-process advisory-lock keys (two-int4 form: classid + objid).
@@ -106,25 +111,25 @@ const _bootstrapped = new Set()
 // workers serialize on the exact same lock rather than racing the DDL path.
 // ---------------------------------------------------------------------------
 
-const ADVISORY_LOCK_CLASSID = 0x6d696478 // "midx" — mixdog bootstrap namespace
-const ADVISORY_OBJID_CREATE_DB = 1       // CREATE DATABASE mixdog
-const ADVISORY_OBJID_SCHEMA_BOOTSTRAP = 2 // extensions + schema DDL
+const ADVISORY_LOCK_CLASSID = 0x6d696478; // "midx" — mixdog bootstrap namespace
+const ADVISORY_OBJID_CREATE_DB = 1; // CREATE DATABASE mixdog
+const ADVISORY_OBJID_SCHEMA_BOOTSTRAP = 2; // extensions + schema DDL
 
 // ---------------------------------------------------------------------------
 // In-process cache
 // ---------------------------------------------------------------------------
 
-const instances = new Map() // `${dataDir}|${schema}` → instance handle
-const opening   = new Map() // same key → Promise (dedupe concurrent calls)
+const instances = new Map(); // `${dataDir}|${schema}` → instance handle
+const opening = new Map(); // same key → Promise (dedupe concurrent calls)
 
 // ---------------------------------------------------------------------------
 // Per-connection init — WeakSet-guarded so settings run exactly once per client
 // ---------------------------------------------------------------------------
 
-const _clientInited = new WeakSet()
+const _clientInited = new WeakSet();
 
 async function _initClient(client, schema) {
-  if (_clientInited.has(client)) return
+  if (_clientInited.has(client)) return;
   // Set search_path so unqualified table names resolve to the correct schema.
   //
   // CROSS-SCHEMA QUERY RULE: search_path is per-connection and biases every
@@ -133,16 +138,12 @@ async function _initClient(client, schema) {
   // memory.entries from a trace-schema connection, or recall × trace JOIN
   // analytics) MUST use fully-qualified names (memory.entries / trace.trace_events).
   // Relying on search_path silently in cross-schema code = bug magnet.
-  const sp = schema === 'trace'
-    ? 'trace, public'
-    : schema === 'scheduler'
-      ? 'scheduler, public'
-      : 'memory, public'
-  await client.query(`SET search_path = ${sp}`)
-  await client.query(`SET default_transaction_isolation TO 'read committed'`)
+  const sp = schema === 'trace' ? 'trace, public' : schema === 'scheduler' ? 'scheduler, public' : 'memory, public';
+  await client.query(`SET search_path = ${sp}`);
+  await client.query(`SET default_transaction_isolation TO 'read committed'`);
   // Mark seen only after all init statements succeed; failure leaves client
   // unmarked so the next checkout retries init.
-  _clientInited.add(client)
+  _clientInited.add(client);
 }
 
 // Wrapper around pool.connect() that runs per-client init before returning.
@@ -150,16 +151,16 @@ async function _initClient(client, schema) {
 // a connection with search_path already set; raw _pool.connect() leaves it at
 // the PG default and unqualified table lookups resolve in the wrong schema.
 export async function checkedConnect(pgPool, schema) {
-  const client = await pgPool.connect()
+  const client = await pgPool.connect();
   try {
-    await _initClient(client, schema)
+    await _initClient(client, schema);
   } catch (e) {
-    client.release()
-    throw e
+    client.release();
+    throw e;
   }
-  return client
+  return client;
 }
-const _checkedConnect = checkedConnect
+const _checkedConnect = checkedConnect;
 
 // ---------------------------------------------------------------------------
 // native PG db shim
@@ -170,13 +171,13 @@ function makeCompatDb(pgPool, schema, dataDir) {
     // query: use pool directly for single-statement queries
     query: async (sql, params) => {
       return await withPgRetry(dataDir, schema, async (pool) => {
-        const client = await _checkedConnect(pool, schema)
+        const client = await _checkedConnect(pool, schema);
         try {
-          return await client.query(sql, params)
+          return await client.query(sql, params);
         } finally {
-          client.release()
+          client.release();
         }
-      })
+      });
     },
 
     // exec: multi-statement SQL (semicolon-separated); single client for session state
@@ -186,17 +187,17 @@ function makeCompatDb(pgPool, schema, dataDir) {
       // string after recovery risks double-applying already-committed
       // statements. On ECONNREFUSED, trigger recovery in the background (so
       // the NEXT call gets a fresh pool) and propagate the original error.
-      const pool = instances.get(`${resolve(dataDir)}|${schema}`)?.pool ?? pgPool
+      const pool = instances.get(`${resolve(dataDir)}|${schema}`)?.pool ?? pgPool;
       try {
-        const client = await _checkedConnect(pool, schema)
+        const client = await _checkedConnect(pool, schema);
         try {
-          await client.query(sql)
+          await client.query(sql);
         } finally {
-          client.release()
+          client.release();
         }
       } catch (err) {
-        if (isPgConnectionLossError(err)) _recoverPgConnection(dataDir, schema).catch(() => {})
-        throw err
+        if (isPgConnectionLossError(err)) _recoverPgConnection(dataDir, schema).catch(() => {});
+        throw err;
       }
     },
 
@@ -207,30 +208,32 @@ function makeCompatDb(pgPool, schema, dataDir) {
       // unknown to this process; blindly replaying fn() could double-apply
       // side effects. Recover in the background for the next caller and
       // propagate the original error immediately.
-      const pool = instances.get(`${resolve(dataDir)}|${schema}`)?.pool ?? pgPool
-      let client = null
-      let releaseErr = null
+      const pool = instances.get(`${resolve(dataDir)}|${schema}`)?.pool ?? pgPool;
+      let client = null;
+      let releaseErr = null;
       try {
-        client = await _checkedConnect(pool, schema)
-        await client.query('BEGIN')
+        client = await _checkedConnect(pool, schema);
+        await client.query('BEGIN');
         const tx = {
           query: (sql, params) => client.query(sql, params),
-          exec:  (sql)         => client.query(sql),
-        }
-        const result = await fn(tx)
-        await client.query('COMMIT')
-        return result
+          exec: (sql) => client.query(sql),
+        };
+        const result = await fn(tx);
+        await client.query('COMMIT');
+        return result;
       } catch (err) {
         if (client) {
-          try { await client.query('ROLLBACK') } catch {}
+          try {
+            await client.query('ROLLBACK');
+          } catch {}
         }
         if (isPgConnectionLossError(err)) {
-          releaseErr = err instanceof Error ? err : new Error(String(err))
-          _recoverPgConnection(dataDir, schema).catch(() => {})
+          releaseErr = err instanceof Error ? err : new Error(String(err));
+          _recoverPgConnection(dataDir, schema).catch(() => {});
         }
-        throw err
+        throw err;
       } finally {
-        if (client) client.release(releaseErr || undefined)
+        if (client) client.release(releaseErr || undefined);
       }
     },
 
@@ -243,10 +246,10 @@ function makeCompatDb(pgPool, schema, dataDir) {
     // see the refreshed pool after withPgRetry swaps the cached instance —
     // otherwise db._pool would keep pointing at the dead pre-recovery pool.
     get _pool() {
-      return instances.get(`${resolve(dataDir)}|${schema}`)?.pool ?? pgPool
+      return instances.get(`${resolve(dataDir)}|${schema}`)?.pool ?? pgPool;
     },
-  }
-  return db
+  };
+  return db;
 }
 
 // ---------------------------------------------------------------------------
@@ -264,34 +267,34 @@ function makeCompatDb(pgPool, schema, dataDir) {
 //     surface the original error instead of re-triggering PG restart.
 // ---------------------------------------------------------------------------
 
-const RECOVER_COOLDOWN_MS = 15_000
-const _lastRecoverAt = new Map()   // dataDirKey → epoch ms of last recovery attempt
-const _recoverInFlight = new Map() // dataDirKey → Promise<boolean>
+const RECOVER_COOLDOWN_MS = 15_000;
+const _lastRecoverAt = new Map(); // dataDirKey → epoch ms of last recovery attempt
+const _recoverInFlight = new Map(); // dataDirKey → Promise<boolean>
 
 function _instanceKeysForDataDir(dataDirKey) {
-  const prefix = `${dataDirKey}|`
-  return Array.from(instances.keys()).filter(k => k.startsWith(prefix))
+  const prefix = `${dataDirKey}|`;
+  return Array.from(instances.keys()).filter((k) => k.startsWith(prefix));
 }
 
 async function _recoverPgConnection(dataDir, schema) {
-  const dataDirKey = resolve(dataDir)
+  const dataDirKey = resolve(dataDir);
   // In-flight check FIRST: a concurrent recovery already running for this
   // dataDir must be awaited by every caller (even ones arriving inside the
   // cooldown window that starts once that recovery begins) — otherwise a
   // caller that lands between the in-flight recovery's start and its cooldown
   // stamp would see neither in-flight nor cooldown and could trigger a second
   // redundant restart cycle.
-  if (_recoverInFlight.has(dataDirKey)) return _recoverInFlight.get(dataDirKey)
-  const now = Date.now()
-  const last = _lastRecoverAt.get(dataDirKey) || 0
+  if (_recoverInFlight.has(dataDirKey)) return _recoverInFlight.get(dataDirKey);
+  const now = Date.now();
+  const last = _lastRecoverAt.get(dataDirKey) || 0;
   if (now - last < RECOVER_COOLDOWN_MS) {
     // Cooldown active — do not hammer PG restart on every failing query.
-    return false
+    return false;
   }
 
   const p = (async () => {
-    _lastRecoverAt.set(dataDirKey, Date.now())
-    __mixdogMemoryLog(`[pg-adapter] connection loss — recovering PG for dataDir=${dataDirKey}\n`)
+    _lastRecoverAt.set(dataDirKey, Date.now());
+    __mixdogMemoryLog(`[pg-adapter] connection loss — recovering PG for dataDir=${dataDirKey}\n`);
     // memory + trace schemas share one PG cluster/port; discard every cached
     // pool for this dataDir so a dead-port pool is never reused after restart.
     // Track every schema whose pool was actually closed here so ALL of them
@@ -300,29 +303,31 @@ async function _recoverPgConnection(dataDir, schema) {
     // handle is left pointing at an ended pool (its `_pool` getter falls back
     // to the stale `pgPool` closure var) and its next query throws a
     // "Cannot use a pool after calling end" TypeError instead of recovering.
-    const closedSchemas = new Set()
+    const closedSchemas = new Set();
     for (const key of _instanceKeysForDataDir(dataDirKey)) {
-      const sch = key.slice(dataDirKey.length + 1)
-      try { await closePgInstance(dataDir, { schema: sch }) } catch {}
-      closedSchemas.add(sch)
+      const sch = key.slice(dataDirKey.length + 1);
+      try {
+        await closePgInstance(dataDir, { schema: sch });
+      } catch {}
+      closedSchemas.add(sch);
     }
-    closedSchemas.add(schema) // the triggering schema, even if it had no cached instance yet
+    closedSchemas.add(schema); // the triggering schema, even if it had no cached instance yet
     try {
       for (const sch of closedSchemas) {
-        await ensurePgInstance(dataDir, { schema: sch })
+        await ensurePgInstance(dataDir, { schema: sch });
       }
-      __mixdogMemoryLog(`[pg-adapter] PG reconnect recovery complete for dataDir=${dataDirKey}\n`)
-      return true
+      __mixdogMemoryLog(`[pg-adapter] PG reconnect recovery complete for dataDir=${dataDirKey}\n`);
+      return true;
     } catch (e) {
-      __mixdogMemoryLog(`[pg-adapter] PG reconnect recovery failed for dataDir=${dataDirKey}: ${e?.message || e}\n`)
-      return false
+      __mixdogMemoryLog(`[pg-adapter] PG reconnect recovery failed for dataDir=${dataDirKey}: ${e?.message || e}\n`);
+      return false;
     }
-  })()
-  _recoverInFlight.set(dataDirKey, p)
+  })();
+  _recoverInFlight.set(dataDirKey, p);
   try {
-    return await p
+    return await p;
   } finally {
-    _recoverInFlight.delete(dataDirKey)
+    _recoverInFlight.delete(dataDirKey);
   }
 }
 
@@ -333,20 +338,20 @@ async function _recoverPgConnection(dataDir, schema) {
  * propagate the original error unchanged.
  */
 async function withPgRetry(dataDir, schema, fn) {
-  const key = `${resolve(dataDir)}|${schema}`
-  const pool0 = instances.get(key)?.pool
+  const key = `${resolve(dataDir)}|${schema}`;
+  const pool0 = instances.get(key)?.pool;
   try {
-    return await fn(pool0)
+    return await fn(pool0);
   } catch (err) {
-    if (!isPgConnectionLossError(err)) throw err
-    const recovered = await _recoverPgConnection(dataDir, schema)
+    if (!isPgConnectionLossError(err)) throw err;
+    const recovered = await _recoverPgConnection(dataDir, schema);
     // Only retry failures proven to happen before dispatch. ECONNRESET and
     // server-termination errors can arrive after PostgreSQL applied a write;
     // replaying a generic query would risk duplicate side effects.
-    if (!recovered || !isSafePreDispatchRetryError(err)) throw err
-    const pool1 = instances.get(key)?.pool
-    if (!pool1) throw err
-    return await fn(pool1)
+    if (!recovered || !isSafePreDispatchRetryError(err)) throw err;
+    const pool1 = instances.get(key)?.pool;
+    if (!pool1) throw err;
+    return await fn(pool1);
   }
 }
 
@@ -361,51 +366,50 @@ async function withPgRetry(dataDir, schema, fn) {
 // finally; `fn`'s own DDL may run on other pool connections — the lock only has
 // to provide cross-process mutual exclusion, not cover the same session.
 export async function withSchemaBootstrapLock(pgPool, fn) {
-  const client = await pgPool.connect()
+  const client = await pgPool.connect();
   // Tracks whether the advisory lock is provably released. Stays false until a
   // successful pg_advisory_unlock; any failure/uncertainty keeps it false so we
   // never return a still-locked session to the pool.
-  let unlockErr = new Error('schema-bootstrap advisory lock release not attempted')
+  let unlockErr = new Error('schema-bootstrap advisory lock release not attempted');
   try {
-    await client.query(`SELECT pg_advisory_lock($1, $2)`, [
-      ADVISORY_LOCK_CLASSID, ADVISORY_OBJID_SCHEMA_BOOTSTRAP,
-    ])
+    await client.query(`SELECT pg_advisory_lock($1, $2)`, [ADVISORY_LOCK_CLASSID, ADVISORY_OBJID_SCHEMA_BOOTSTRAP]);
     try {
-      return await fn()
+      return await fn();
     } finally {
       try {
         await client.query(`SELECT pg_advisory_unlock($1, $2)`, [
-          ADVISORY_LOCK_CLASSID, ADVISORY_OBJID_SCHEMA_BOOTSTRAP,
-        ])
-        unlockErr = null // lock provably released → client is clean to reuse
+          ADVISORY_LOCK_CLASSID,
+          ADVISORY_OBJID_SCHEMA_BOOTSTRAP,
+        ]);
+        unlockErr = null; // lock provably released → client is clean to reuse
       } catch (err) {
-        unlockErr = err instanceof Error ? err : new Error(String(err))
+        unlockErr = err instanceof Error ? err : new Error(String(err));
       }
     }
   } finally {
     // A client whose advisory-lock state is uncertain must never be reused:
     // release(truthy) makes node-pg destroy it instead of pooling it.
-    client.release(unlockErr || undefined)
+    client.release(unlockErr || undefined);
   }
 }
 
 async function bootstrapInstance(pgPool, dataDirKey) {
-  if (_bootstrapped.has(dataDirKey)) return
+  if (_bootstrapped.has(dataDirKey)) return;
   // Serialize the cluster-level DDL across concurrent first-boot processes.
   await withSchemaBootstrapLock(pgPool, async () => {
     // Use a raw client bypassing per-client schema settings (bootstrap targets
     // the cluster level, not a specific schema).
-    const client = await pgPool.connect()
+    const client = await pgPool.connect();
     try {
-      await client.query(`CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public`)
-      await client.query(`CREATE SCHEMA IF NOT EXISTS memory`)
-      await client.query(`CREATE SCHEMA IF NOT EXISTS trace`)
-      await client.query(`CREATE SCHEMA IF NOT EXISTS scheduler`)
+      await client.query(`CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public`);
+      await client.query(`CREATE SCHEMA IF NOT EXISTS memory`);
+      await client.query(`CREATE SCHEMA IF NOT EXISTS trace`);
+      await client.query(`CREATE SCHEMA IF NOT EXISTS scheduler`);
     } finally {
-      client.release()
+      client.release();
     }
-  })
-  _bootstrapped.add(dataDirKey)
+  });
+  _bootstrapped.add(dataDirKey);
 }
 
 // ---------------------------------------------------------------------------
@@ -420,93 +424,102 @@ async function bootstrapInstance(pgPool, dataDirKey) {
  * @returns {Promise<{ db, pool, host, port, runtimeDir, pgdataDir }>}
  */
 export async function ensurePgInstance(dataDir, opts = {}) {
-  const schema = opts.schema ?? 'memory'
-  const key    = `${resolve(dataDir)}|${schema}`
+  const schema = opts.schema ?? 'memory';
+  const key = `${resolve(dataDir)}|${schema}`;
 
-  if (instances.has(key)) return instances.get(key)
-  if (opening.has(key))   return opening.get(key)
+  if (instances.has(key)) return instances.get(key);
+  if (opening.has(key)) return opening.get(key);
 
   const promise = (async () => {
     // 1. Let supervisor-pg own PG startup and health-checking.
     //    Returns { host, port, runtimeDir, pgdataDir }.
-    const { host, port, runtimeDir, pgdataDir } = await supervisorEnsure(dataDir)
+    const { host, port, runtimeDir, pgdataDir } = await supervisorEnsure(dataDir);
 
     // 2. Connect via node-postgres; auto-create the mixdog database if absent.
-    const { default: pg } = await import('pg')
+    const { default: pg } = await import('pg');
 
-    const PG_USER = 'postgres'
-    const PG_DB   = 'mixdog'
+    const PG_USER = 'postgres';
+    const PG_DB = 'mixdog';
 
     const adminPool = new pg.Pool({
-      host, port, user: PG_USER, database: 'postgres',
-      password: '', max: 1, idleTimeoutMillis: 5_000,
-    })
-    installPoolErrorHandler(adminPool, 'admin-pool')
+      host,
+      port,
+      user: PG_USER,
+      database: 'postgres',
+      password: '',
+      max: 1,
+      idleTimeoutMillis: 5_000,
+    });
+    installPoolErrorHandler(adminPool, 'admin-pool');
     try {
       // CREATE DATABASE cannot run inside a transaction, so guard the
       // check-then-create with a session-level advisory lock held on a single
       // dedicated client. Concurrent first-boot workers block on the same
       // cluster-global key here and only one issues the CREATE; the rest see
       // the row present after the holder releases. Released in finally.
-      const adminClient = await adminPool.connect()
+      const adminClient = await adminPool.connect();
       // Same invariant as withSchemaBootstrapLock: only reuse the client if the
       // advisory lock is provably released.
-      let unlockErr = new Error('create-db advisory lock release not attempted')
+      let unlockErr = new Error('create-db advisory lock release not attempted');
       try {
-        await adminClient.query(`SELECT pg_advisory_lock($1, $2)`, [
-          ADVISORY_LOCK_CLASSID, ADVISORY_OBJID_CREATE_DB,
-        ])
+        await adminClient.query(`SELECT pg_advisory_lock($1, $2)`, [ADVISORY_LOCK_CLASSID, ADVISORY_OBJID_CREATE_DB]);
         try {
-          const r = await adminClient.query(`SELECT 1 FROM pg_database WHERE datname = $1`, [PG_DB])
+          const r = await adminClient.query(`SELECT 1 FROM pg_database WHERE datname = $1`, [PG_DB]);
           if (r.rows.length === 0) {
-            await adminClient.query(`CREATE DATABASE ${PG_DB}`)
-            __mixdogMemoryLog(`[pg-adapter] created database ${PG_DB}\n`)
+            await adminClient.query(`CREATE DATABASE ${PG_DB}`);
+            __mixdogMemoryLog(`[pg-adapter] created database ${PG_DB}\n`);
           }
         } finally {
           try {
             await adminClient.query(`SELECT pg_advisory_unlock($1, $2)`, [
-              ADVISORY_LOCK_CLASSID, ADVISORY_OBJID_CREATE_DB,
-            ])
-            unlockErr = null // lock provably released → client is clean to reuse
+              ADVISORY_LOCK_CLASSID,
+              ADVISORY_OBJID_CREATE_DB,
+            ]);
+            unlockErr = null; // lock provably released → client is clean to reuse
           } catch (err) {
-            unlockErr = err instanceof Error ? err : new Error(String(err))
+            unlockErr = err instanceof Error ? err : new Error(String(err));
           }
         }
       } finally {
         // Uncertain advisory-lock state → destroy the client (truthy release arg)
         // so a still-locked session never re-enters the admin pool.
-        adminClient.release(unlockErr || undefined)
+        adminClient.release(unlockErr || undefined);
       }
     } finally {
-      await adminPool.end()
+      await adminPool.end();
     }
 
     // 3. Production pool.
     const pgPool = new pg.Pool({
-      host, port, user: PG_USER, database: PG_DB,
-      password: '', max: 5, idleTimeoutMillis: 30_000,
+      host,
+      port,
+      user: PG_USER,
+      database: PG_DB,
+      password: '',
+      max: 5,
+      idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
-    })
+    });
     installPoolErrorHandler(pgPool, `pool:${schema}`, {
       onConnectionLoss: () => _recoverPgConnection(dataDir, schema),
-    })
+    });
 
     // 4. Bootstrap extensions + schemas once (idempotent).
-    await bootstrapInstance(pgPool, resolve(dataDir))
+    await bootstrapInstance(pgPool, resolve(dataDir));
 
     // 5. Build the compat db shim.
-    const db = makeCompatDb(pgPool, schema, dataDir)
+    const db = makeCompatDb(pgPool, schema, dataDir);
 
-    const result = { db, pool: pgPool, host, port, runtimeDir, pgdataDir }
-    instances.set(key, result)
-    return result
-  })()
+    const result = { db, pool: pgPool, host, port, runtimeDir, pgdataDir };
+    instances.set(key, result);
+    return result;
+  })();
 
-  opening.set(key, promise)
+  opening.set(key, promise);
   try {
-    return await promise
+    return await promise;
   } finally {
-    opening.delete(key)
+    opening.delete(key);
   }
 }
 
@@ -515,10 +528,12 @@ export async function ensurePgInstance(dataDir, opts = {}) {
 // ---------------------------------------------------------------------------
 
 export async function closePgInstance(dataDir, opts = {}) {
-  const schema = opts.schema ?? 'memory'
-  const key    = `${resolve(dataDir)}|${schema}`
-  const inst   = instances.get(key)
-  if (!inst) return
-  try { await inst.pool.end() } catch {}
-  instances.delete(key)
+  const schema = opts.schema ?? 'memory';
+  const key = `${resolve(dataDir)}|${schema}`;
+  const inst = instances.get(key);
+  if (!inst) return;
+  try {
+    await inst.pool.end();
+  } catch {}
+  instances.delete(key);
 }

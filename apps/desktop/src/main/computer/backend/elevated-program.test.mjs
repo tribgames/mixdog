@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { ELEVATED_BOOTSTRAP, ELEVATED_SUPERVISION, ELEVATED_INPUT_SOURCE, elevatedProgramInvocation } from './elevated-program.ts';
+import {
+  ELEVATED_BOOTSTRAP,
+  ELEVATED_SUPERVISION,
+  ELEVATED_INPUT_SOURCE,
+  elevatedProgramInvocation,
+} from './elevated-program.ts';
 import { powershellHostProgram } from './program.ts';
 import { MIXDOG_HOST_CSHARP } from './native-source.ts';
 import { createHash } from 'node:crypto';
@@ -35,12 +40,19 @@ foreach ($bad in @(
   if (-not $rejected) { throw 'accepted nonliteral or ambiguous source' }
 }
 `;
-    const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand',
-      Buffer.from(script, 'utf16le').toString('base64')], {
-      windowsHide: true, timeout: 10000, env: { ...process.env, AUDIT_DIRECTORY: directory },
-    });
+    const { stdout } = await exec(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+      {
+        windowsHide: true,
+        timeout: 10000,
+        env: { ...process.env, AUDIT_DIRECTORY: directory },
+      }
+    );
     assert.equal(stdout.trim(), createHash('sha256').update(MIXDOG_HOST_CSHARP.trim()).digest('hex'));
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('compressed elevated transport preserves script scope and leaves room for the launch envelope', {
@@ -49,11 +61,13 @@ test('compressed elevated transport preserves script scope and leaves room for t
   const production = Buffer.from(elevatedProgramInvocation(), 'utf16le').toString('base64');
   assert.ok(production.length < 20_000);
   const script = elevatedProgramInvocation(
-    "$state = 'before'; function Complete { $script:state = 'after' }; Complete; [Console]::WriteLine($state)",
+    "$state = 'before'; function Complete { $script:state = 'after' }; Complete; [Console]::WriteLine($state)"
   );
-  const { stdout } = await exec('powershell.exe', [
-    '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64'),
-  ], { windowsHide: true, timeout: 10_000 });
+  const { stdout } = await exec(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+    { windowsHide: true, timeout: 10_000 }
+  );
   assert.equal(stdout.trim(), 'after');
 });
 
@@ -108,18 +122,20 @@ foreach ($mode in @('cancel','deadline','parent','success')) {
 $results | ConvertTo-Json -Compress
 `;
   try {
-    const { stdout } = await exec('powershell.exe', [
-      '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64'),
-    ], {
-      windowsHide: true,
-      timeout: 20_000,
-      env: {
-        ...process.env,
-        AUDIT_DIRECTORY: directory,
-        AUDIT_NODE: process.execPath,
-        AUDIT_BOOTSTRAP: Buffer.from(ELEVATED_BOOTSTRAP, 'utf8').toString('base64'),
-      },
-    });
+    const { stdout } = await exec(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+      {
+        windowsHide: true,
+        timeout: 20_000,
+        env: {
+          ...process.env,
+          AUDIT_DIRECTORY: directory,
+          AUDIT_NODE: process.execPath,
+          AUDIT_BOOTSTRAP: Buffer.from(ELEVATED_BOOTSTRAP, 'utf8').toString('base64'),
+        },
+      }
+    );
     const results = JSON.parse(stdout.trim());
     for (const result of results) {
       assert.equal(result.exited, true, result.mode);

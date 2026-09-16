@@ -6,13 +6,19 @@ import { createFrameBatchedStorePublisher } from './frame-batched-store.mjs';
 function deferred() {
   let resolve;
   let reject;
-  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  const promise = new Promise((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
   return { promise, resolve, reject };
 }
 
 function fixture(t, onCall = () => {}) {
   const initial = {
-    provider: 'openai', model: 'gpt-original', effort: 'high', fast: true,
+    provider: 'openai',
+    model: 'gpt-original',
+    effort: 'high',
+    fast: true,
   };
   let live = { ...initial };
   let draft = {
@@ -29,7 +35,9 @@ function fixture(t, onCall = () => {}) {
   // receive route changes without a later frame, token, or runtime pulse.
   const publisher = createFrameBatchedStorePublisher({
     getState: () => draft,
-    publishState: (snapshot) => { published = snapshot; },
+    publishState: (snapshot) => {
+      published = snapshot;
+    },
     listeners,
     scheduleFrame: () => 1,
     cancelFrame: () => {},
@@ -52,7 +60,9 @@ function fixture(t, onCall = () => {}) {
     runtime: {
       setRoute: change,
       setEffort: (effort) => change({ effort }),
-      get effort() { return live.effort; },
+      get effort() {
+        return live.effort;
+      },
     },
     getState: () => draft,
     getPublishedState: () => published,
@@ -100,9 +110,7 @@ for (const { name, action, value, expected } of selections) {
       const { api, calls, frames, initial, set, publisher } = fixture(t);
       const before = api.getState();
       const operation = api[action](value);
-      const failure = outcome === 'failure'
-        ? assert.rejects(operation, /selection failed/)
-        : null;
+      const failure = outcome === 'failure' ? assert.rejects(operation, /selection failed/) : null;
       // Streaming may publish while the provider is still applying the change.
       set({ stats: { inputTokens: 120 }, spinner: { text: 'Working' } });
       publisher.flush();
@@ -145,12 +153,9 @@ for (const outcome of ['success', 'failure']) {
     const lastRoute = { provider: 'openai', model: 'gpt-last', effort: 'high', fast: true };
     const first = api.setRoute(firstRoute);
     await Promise.resolve();
-    assert.equal(api.getState().model, firstRoute.model,
-      'the preview reaches subscribers without a display frame');
+    assert.equal(api.getState().model, firstRoute.model, 'the preview reaches subscribers without a display frame');
     const last = api.setRoute(lastRoute);
-    const failure = outcome === 'failure'
-      ? assert.rejects(last, /last selection failed/)
-      : null;
+    const failure = outcome === 'failure' ? assert.rejects(last, /last selection failed/) : null;
     await Promise.resolve();
     assert.equal(api.getState().model, lastRoute.model);
     assert.equal(calls.length, 1, 'runtime writes remain serialized');
@@ -159,8 +164,7 @@ for (const outcome of ['success', 'failure']) {
     await secondStarted.promise;
     assert.equal(calls.length, 2);
     assert.deepEqual(calls[1].next, lastRoute);
-    assert.equal(api.getState().model, lastRoute.model,
-      'the earlier RPC reply cannot rewind the newest preview');
+    assert.equal(api.getState().model, lastRoute.model, 'the earlier RPC reply cannot rewind the newest preview');
     assert.equal(api.getState().commandBusy, true);
     if (outcome === 'failure') {
       calls[1].gate.reject(new Error('last selection failed'));
@@ -173,8 +177,11 @@ for (const outcome of ['success', 'failure']) {
     for (const [key, value] of Object.entries(expected)) {
       assert.equal(api.getState()[key], value);
     }
-    assert.notEqual(api.getState().model, initial.model,
-      'rollback uses the last applied route, not the route before both requests');
+    assert.notEqual(
+      api.getState().model,
+      initial.model,
+      'rollback uses the last applied route, not the route before both requests'
+    );
     assert.equal(api.getState().commandBusy, false);
     assert.equal(api.getState().busy, true);
   });

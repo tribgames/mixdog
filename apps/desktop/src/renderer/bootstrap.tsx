@@ -1,52 +1,52 @@
-import "./process-shim";
+import './process-shim';
 // Browser-served remote sessions install a
 // WebSocket-backed DesktopApi before any module reads window.mixdogDesktop;
 // inside Electron the preload bridge already exists and this is a no-op.
-import "./remote-shim";
+import './remote-shim';
 // UI language resolves synchronously here, BEFORE any App module evaluates:
 // module-level English strings pass through t() at import time.
-import "./i18n";
-import { createRoot } from "react-dom/client";
-import { App } from "./App";
-import { RemoteClaimPrompt } from "./RemoteClaimPrompt";
-import { DesktopErrorBoundary, installGlobalRendererDiagnostics } from "./RendererRecovery";
-import "./bootstrap-styles";
-import "./webview-zoom";
-import { installShellViewport } from "./shell-viewport";
-import { installFocusModality } from "./focus-modality";
-import { installMobileSurfaceMarker } from "./mobile-surface";
-import { installMotionVisibility } from "./motion-visibility";
-import { installScrollbarMetrics } from "./scrollbar-metrics";
-import { markBootStage } from "./boot-metrics";
-import { scheduleFontWarmup } from "./font-warmup";
-import { defaultSessionLaneStore } from "./session-lane-store";
-import { installAutoDomI18n } from "./auto-dom-i18n";
+import './i18n';
+import { createRoot } from 'react-dom/client';
+import { App } from './App';
+import { RemoteClaimPrompt } from './RemoteClaimPrompt';
+import { DesktopErrorBoundary, installGlobalRendererDiagnostics } from './RendererRecovery';
+import './bootstrap-styles';
+import './webview-zoom';
+import { installShellViewport } from './shell-viewport';
+import { installFocusModality } from './focus-modality';
+import { installMobileSurfaceMarker } from './mobile-surface';
+import { installMotionVisibility } from './motion-visibility';
+import { installScrollbarMetrics } from './scrollbar-metrics';
+import { markBootStage } from './boot-metrics';
+import { scheduleFontWarmup } from './font-warmup';
+import { defaultSessionLaneStore } from './session-lane-store';
+import { installAutoDomI18n } from './auto-dom-i18n';
 
-markBootStage("renderer-entry");
-if (import.meta.env?.DEV) performance.mark("mixdog:startup:renderer-entry");
+markBootStage('renderer-entry');
+if (import.meta.env?.DEV) performance.mark('mixdog:startup:renderer-entry');
 const removeGlobalRendererDiagnostics = installGlobalRendererDiagnostics();
-window.addEventListener("beforeunload", removeGlobalRendererDiagnostics, { once: true });
+window.addEventListener('beforeunload', removeGlobalRendererDiagnostics, { once: true });
 const removeAutoDomI18n = installAutoDomI18n();
-window.addEventListener("beforeunload", removeAutoDomI18n, { once: true });
+window.addEventListener('beforeunload', removeAutoDomI18n, { once: true });
 const removeShellViewport = installShellViewport();
-window.addEventListener("beforeunload", removeShellViewport, { once: true });
+window.addEventListener('beforeunload', removeShellViewport, { once: true });
 // Focus rings are keyboard chrome: the root records whether the last
 // interaction came from a pointer, and 02-base.css hides button focus frames
 // while it did (user: 동작 끝났는데 선택 프레임이 남는다).
 const removeFocusModality = installFocusModality();
-window.addEventListener("beforeunload", removeFocusModality, { once: true });
+window.addEventListener('beforeunload', removeFocusModality, { once: true });
 // Measured scrollbar reserve BEFORE the first paint: every gutter-paying
 // layout (session rail, transcript column, settings/studio padding, SCM dock)
 // reads --mx-scrollbar-gutter, which is 0 where scrollbars are overlays.
 const removeScrollbarMetrics = installScrollbarMetrics();
-window.addEventListener("beforeunload", removeScrollbarMetrics, { once: true });
+window.addEventListener('beforeunload', removeScrollbarMetrics, { once: true });
 // Phone marker BEFORE the first React render (user: 첫 진입 레이아웃 시프트):
 // the Chrome-toolbar/drawer/popup CSS keys on the root attribute, so it must
 // exist before the desktop grammar can paint even once.
 const removeMobileSurfaceMarker = installMobileSurfaceMarker();
-window.addEventListener("beforeunload", removeMobileSurfaceMarker, { once: true });
+window.addEventListener('beforeunload', removeMobileSurfaceMarker, { once: true });
 const removeMotionVisibility = installMotionVisibility();
-window.addEventListener("beforeunload", removeMotionVisibility, { once: true });
+window.addEventListener('beforeunload', removeMotionVisibility, { once: true });
 
 // Listen before React mounts. Persisted pane session ids are not registered
 // here: usePaneWorkspace first authorizes them against the durable catalog.
@@ -62,35 +62,35 @@ try {
   criticalFontsReady = Promise.allSettled([
     // Pretendard's dynamic subset splits Hangul away from its Latin face.
     // Supplying Korean text starts a Hangul range before React's first layout.
-    document.fonts.load('400 15px "Pretendard Variable"', "한글"),
+    document.fonts.load('400 15px "Pretendard Variable"', '한글'),
     // Only Electron can restore an editor/terminal before the first visible
     // frame. A phone loads the mono face with that deferred surface instead of
     // spending one more cold relay request before its shell appears.
-    ...(nativeDesktop
-      ? [document.fonts.load('400 13px "JetBrains Mono Variable"')]
-      : []),
+    ...(nativeDesktop ? [document.fonts.load('400 13px "JetBrains Mono Variable"')] : []),
   ]);
-} catch { /* font swap stays a cosmetic fallback */ }
+} catch {
+  /* font swap stays a cosmetic fallback */
+}
 
 // Hand the browser's pre-React gate to the same in-app boot cover as Desktop.
 // A timer or navigation signal must not expose unfinished catalogs, layout or
 // onboarding. DesktopBootGate owns readiness and its bounded recovery path.
 function revealInstalledWebApp(): void {
   const reveal = (window as typeof window & { mixdogRevealApp?: () => void }).mixdogRevealApp;
-  if (typeof reveal !== "function") return;
+  if (typeof reveal !== 'function') return;
   window.requestAnimationFrame(() => reveal());
 }
 
 const reactCommitted = new Promise<void>((resolve) => {
-  window.addEventListener("mixdog:react-committed", () => resolve(), { once: true });
+  window.addEventListener('mixdog:react-committed', () => resolve(), { once: true });
 });
-createRoot(document.getElementById("root")!).render(
+createRoot(document.getElementById('root')!).render(
   <DesktopErrorBoundary>
     <App />
     <RemoteClaimPrompt />
-  </DesktopErrorBoundary>,
+  </DesktopErrorBoundary>
 );
-markBootStage("react-render-requested");
+markBootStage('react-render-requested');
 
 // Hidden windows throttle requestAnimationFrame, so using a double-rAF as the
 // main-process handshake created a circular wait with ready-to-show. App emits
@@ -102,7 +102,9 @@ void reactCommitted.then(() => {
   let renderedFontsReady: Promise<unknown> = Promise.resolve();
   try {
     renderedFontsReady = document.fonts.ready;
-  } catch { /* font readiness remains a cosmetic launch guard */ }
+  } catch {
+    /* font readiness remains a cosmetic launch guard */
+  }
   // Every face declares font-display:swap, so a reveal that beats the font
   // parse paints fallback glyphs and then REFLOWS the whole window when
   // Pretendard (~2MB variable) lands — the user-visible "폰트 튐" + hitch at
@@ -114,7 +116,7 @@ void reactCommitted.then(() => {
     new Promise((resolve) => window.setTimeout(resolve, fontRevealBudgetMs)),
   ]);
   void fontsSettled.then(() => {
-    markBootStage("fonts-settled");
+    markBootStage('fonts-settled');
     window.mixdogDesktop?.rendererReady?.();
     revealInstalledWebApp();
     // With the launch faces settled and the window revealed, warm the rest of
@@ -124,11 +126,7 @@ void reactCommitted.then(() => {
 });
 
 if ((window as { __mixdogStartupSettled?: boolean }).__mixdogStartupSettled) {
-  markBootStage("startup-restored");
+  markBootStage('startup-restored');
 } else {
-  window.addEventListener(
-    "mixdog:startup-settled",
-    () => markBootStage("startup-restored"),
-    { once: true },
-  );
+  window.addEventListener('mixdog:startup-settled', () => markBootStage('startup-restored'), { once: true });
 }

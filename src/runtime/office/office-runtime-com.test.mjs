@@ -22,10 +22,11 @@ test('persistent Office validation inspects the open document with bounded Excel
 });
 
 test('Office COM host resolves to the physical ASAR sidecar for external PowerShell', () => {
-  const packaged = 'C:\\Program Files\\Mixdog\\resources\\runtime.asar\\node_modules\\mixdog\\src\\runtime\\office\\com\\office-com-host.ps1';
+  const packaged =
+    'C:\\Program Files\\Mixdog\\resources\\runtime.asar\\node_modules\\mixdog\\src\\runtime\\office\\com\\office-com-host.ps1';
   assert.equal(
     physicalAsarPath(packaged),
-    'C:\\Program Files\\Mixdog\\resources\\runtime.asar.unpacked\\node_modules\\mixdog\\src\\runtime\\office\\com\\office-com-host.ps1',
+    'C:\\Program Files\\Mixdog\\resources\\runtime.asar.unpacked\\node_modules\\mixdog\\src\\runtime\\office\\com\\office-com-host.ps1'
   );
   const development = 'C:\\Project\\mixdog\\src\\runtime\\office\\com\\office-com-host.ps1';
   assert.equal(physicalAsarPath(development), development);
@@ -43,14 +44,29 @@ test('Office process exit requests EOF cleanup without force-closing owned or at
         ownership,
         appPid,
         closed: false,
-        pending: new Map([['request', {
-          timer,
-          resolve: (failure) => failures.push(failure),
-        }]]),
-        readline: { close: () => { state.readlineCloses += 1; } },
+        pending: new Map([
+          [
+            'request',
+            {
+              timer,
+              resolve: (failure) => failures.push(failure),
+            },
+          ],
+        ]),
+        readline: {
+          close: () => {
+            state.readlineCloses += 1;
+          },
+        },
         child: {
-          stdin: { end: () => { state.stdinEnds += 1; } },
-          kill: () => { state.hostKills += 1; },
+          stdin: {
+            end: () => {
+              state.stdinEnds += 1;
+            },
+          },
+          kill: () => {
+            state.hostKills += 1;
+          },
         },
       },
       state,
@@ -118,18 +134,19 @@ test('operation registry matches every COM implementation and rejects unknown fi
   for (const [format, startMarker, endMarker] of sections) {
     const start = source.indexOf(startMarker);
     const block = source.slice(start, source.indexOf(endMarker, start + startMarker.length));
-    const implemented = [...block.matchAll(/^\s{4}'([a-z][a-z0-9_]*)'\s*\{/gm)]
-      .map((match) => match[1])
-      .sort();
+    const implemented = [...block.matchAll(/^\s{4}'([a-z][a-z0-9_]*)'\s*\{/gm)].map((match) => match[1]).sort();
     const described = describeOfficeCapabilities({
       format,
       backend: 'microsoft-office-com',
     }).operations.sort();
-    const native = described.filter((operation) => !describeOfficeCapabilities({
-      format,
-      backend: 'microsoft-office-com',
-      operation,
-    }).operation.virtual);
+    const native = described.filter(
+      (operation) =>
+        !describeOfficeCapabilities({
+          format,
+          backend: 'microsoft-office-com',
+          operation,
+        }).operation.virtual
+    );
     assert.deepEqual(native, implemented, `${format} registry drifted from the COM backend`);
     for (const operation of described) {
       const targeted = describeOfficeCapabilities({
@@ -142,36 +159,44 @@ test('operation registry matches every COM implementation and rejects unknown fi
     }
   }
   assert.throws(
-    () => assertOfficeOperationContracts({
-      format: 'pdf',
-      backend: 'mixdog-pdf',
-      operations: [{ op: 'compress', alowNoChange: true }],
-    }),
-    /unknown field\(s\): alowNoChange.*alowNoChange→allowNoChange/,
+    () =>
+      assertOfficeOperationContracts({
+        format: 'pdf',
+        backend: 'mixdog-pdf',
+        operations: [{ op: 'compress', alowNoChange: true }],
+      }),
+    /unknown field\(s\): alowNoChange.*alowNoChange→allowNoChange/
   );
   // Geometry lives in properties for add_shape and at the top level for
   // add_image within this same format, so a caller who follows the
   // neighbouring operation's convention is taken at their word: the style key
   // is applied where it belongs instead of costing a round trip.
   const styled = [{ op: 'add_textbox', slide: 1, text: 'Title', bold: true, fontSize: 20 }];
-  assert.doesNotThrow(() => assertOfficeOperationContracts({ format: 'pptx', backend: 'mixdog-ooxml', operations: styled }));
+  assert.doesNotThrow(() =>
+    assertOfficeOperationContracts({ format: 'pptx', backend: 'mixdog-ooxml', operations: styled })
+  );
   assert.deepEqual(styled[0].properties, { bold: true });
   assert.equal(styled[0].bold, undefined);
   // fontSize is a field this operation already takes, so it stays where it was
   // written: only a key the operation does not accept there is moved.
   assert.equal(styled[0].fontSize, 20);
-  const placed = [{ op: 'add_image', slide: 1, path: 'map.png', properties: { left: 60, top: 240, width: 300, height: 180 } }];
-  assert.doesNotThrow(() => assertOfficeOperationContracts({ format: 'pptx', backend: 'mixdog-ooxml', operations: placed }));
+  const placed = [
+    { op: 'add_image', slide: 1, path: 'map.png', properties: { left: 60, top: 240, width: 300, height: 180 } },
+  ];
+  assert.doesNotThrow(() =>
+    assertOfficeOperationContracts({ format: 'pptx', backend: 'mixdog-ooxml', operations: placed })
+  );
   assert.equal(placed[0].left, 60);
   assert.equal(placed[0].properties, undefined);
   // A key the operation does not declare anywhere is still refused, so a typo
   // is never applied as a style.
   assert.throws(
-    () => assertOfficeOperationContracts({
-      format: 'pptx',
-      backend: 'mixdog-ooxml',
-      operations: [{ op: 'add_textbox', slide: 1, text: 'Title', boldish: true }],
-    }),
-    /unknown field\(s\): boldish/,
+    () =>
+      assertOfficeOperationContracts({
+        format: 'pptx',
+        backend: 'mixdog-ooxml',
+        operations: [{ op: 'add_textbox', slide: 1, text: 'Title', boldish: true }],
+      }),
+    /unknown field\(s\): boldish/
   );
 });

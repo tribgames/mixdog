@@ -98,15 +98,19 @@ const rendererExpression = `(async () => {
 })()`;
 const response = await new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('CDP smoke timed out')), 60_000);
-  socket.addEventListener('open', () => socket.send(JSON.stringify({
-    id: 1,
-    method: 'Runtime.evaluate',
-    params: {
-      expression: rendererExpression,
-      awaitPromise: true,
-      returnByValue: true,
-    },
-  })));
+  socket.addEventListener('open', () =>
+    socket.send(
+      JSON.stringify({
+        id: 1,
+        method: 'Runtime.evaluate',
+        params: {
+          expression: rendererExpression,
+          awaitPromise: true,
+          returnByValue: true,
+        },
+      })
+    )
+  );
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(event.data);
     if (message.id !== 1) return;

@@ -1,5 +1,6 @@
 import { Bot, ChevronDown, ChevronRight } from 'lucide-react';
-import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import type React from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { InitialSurface } from './InitialSurface';
 import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu, useHiddenAgentGroups } from './agent-group-visibility';
 import { RowOverflowMenu } from './RowOverflowMenu';
@@ -56,7 +57,9 @@ function createAgentPoolStore(host?: DesktopApi): AgentPoolStore {
     getSnapshot: () => store.rows,
     subscribe: (listener) => {
       store.listeners.add(listener);
-      return () => { store.listeners.delete(listener); };
+      return () => {
+        store.listeners.delete(listener);
+      };
     },
   };
   return store;
@@ -75,9 +78,7 @@ function publishAgentPool(store: AgentPoolStore, rows: unknown): void {
   // Every snapshot passes the cancellation ledger: the pool's heartbeat
   // sidecar re-declares a session `running` once the durable index drops its
   // cancelled row, and that promotion is a stale lease, not new work.
-  store.rows = store.cancellations.apply(
-    Array.isArray(rows) ? rows as DesktopAgentPoolRow[] : [],
-  );
+  store.rows = store.cancellations.apply(Array.isArray(rows) ? (rows as DesktopAgentPoolRow[]) : []);
   for (const listener of store.listeners) listener();
 }
 
@@ -89,13 +90,16 @@ function refreshAgentPool(store: AgentPoolStore): Promise<void> {
     return Promise.resolve();
   }
   const revision = store.revision;
-  const request = Promise.resolve(listAgentPool()).then((rows) => {
-    if (revision === store.revision) publishAgentPool(store, rows);
-  }).catch(() => {
-    if (revision === store.revision && store.rows === null) publishAgentPool(store, []);
-  }).finally(() => {
-    if (store.inFlight === request) store.inFlight = undefined;
-  });
+  const request = Promise.resolve(listAgentPool())
+    .then((rows) => {
+      if (revision === store.revision) publishAgentPool(store, rows);
+    })
+    .catch(() => {
+      if (revision === store.revision && store.rows === null) publishAgentPool(store, []);
+    })
+    .finally(() => {
+      if (store.inFlight === request) store.inFlight = undefined;
+    });
   store.inFlight = request;
   return request;
 }
@@ -140,7 +144,8 @@ interface LiveAgentSummary {
 function agentRoleLabel(value: unknown): string {
   const role = String(value || '').trim();
   if (!role) return 'Agent';
-  return role.split(/[-_\s]+/)
+  return role
+    .split(/[-_\s]+/)
     .filter(Boolean)
     .map((part) => `${part.slice(0, 1).toLocaleUpperCase()}${part.slice(1)}`)
     .join(' ');
@@ -187,18 +192,16 @@ export function liveAgentRows(snapshot: unknown, fallbackOwnerSessionId = ''): L
   entries.forEach(({ entry, index, worker }) => {
     const identity = desktopAgentIdentity(entry);
     if (identity && cancelled.has(identity)) return;
-    const unconfirmed = (identity ? unconfirmedCancels.get(identity) : '')
-      || (isCancelUnconfirmedDesktopAgentEntry(entry) ? desktopAgentCancelStatus(entry) : '');
+    const unconfirmed =
+      (identity ? unconfirmedCancels.get(identity) : '') ||
+      (isCancelUnconfirmedDesktopAgentEntry(entry) ? desktopAgentCancelStatus(entry) : '');
     if (!unconfirmed && !isActiveDesktopAgentEntry(entry)) return;
     if (!worker && identity) {
       const workerEntry = workerByIdentity.get(identity);
-      if (workerEntry
-        && (isActiveDesktopAgentEntry(workerEntry) || !isQueuedDesktopAgentEntry(entry))) return;
+      if (workerEntry && (isActiveDesktopAgentEntry(workerEntry) || !isQueuedDesktopAgentEntry(entry))) return;
     }
     const status = unconfirmed || desktopAgentStatus(entry);
-    const state: DesktopAgentActivityState = unconfirmed
-      ? 'cancel-unconfirmed'
-      : desktopAgentActivityState(entry);
+    const state: DesktopAgentActivityState = unconfirmed ? 'cancel-unconfirmed' : desktopAgentActivityState(entry);
     const tag = String(entry.tag || '').trim();
     const taskId = String(entry.task_id || entry.taskId || '').trim();
     const roleValue = String(entry.agent || entry.name || entry.type || '').trim();
@@ -249,9 +252,12 @@ export function liveAgentRows(snapshot: unknown, fallbackOwnerSessionId = ''): L
       // never reaches this merge (see the cancelled set above) and an
       // unconfirmed one wins here: whichever twin reports it, the merge can
       // never fall back to the live twin's status.
-      status: state === 'cancel-unconfirmed' && current.state !== 'cancel-unconfirmed'
-        ? status
-        : current.queued && !queued ? status : current.status,
+      status:
+        state === 'cancel-unconfirmed' && current.state !== 'cancel-unconfirmed'
+          ? status
+          : current.queued && !queued
+            ? status
+            : current.status,
       state: state === 'cancel-unconfirmed' ? state : current.state,
       queued: current.queued && queued,
       startedAt: current.startedAt || startedAt,
@@ -277,21 +283,29 @@ interface LiveShellSummary {
 export function liveShellRows(snapshot: unknown): LiveShellSummary[] {
   const shellJobs = record(record(snapshot).shellJobs);
   const jobs = Array.isArray(shellJobs.jobs) ? shellJobs.jobs : [];
-  return jobs.flatMap((value) => {
-    const entry = record(value);
-    const key = String(entry.taskId || entry.task_id || '').trim();
-    if (!key) return [];
-    return [{
-      key,
-      // One popover row per job: a multi-line command turned the fixed-width
-      // popover into a wall of wrapped text.
-      command: String(entry.command || '').replace(/\s+/g, ' ').trim(),
-      cwd: String(entry.cwd || '').trim(),
-      startedAt: timeMs(entry.startedAt) || 0,
-    }];
-  }).sort((left, right) =>
-    (left.startedAt || Number.MAX_SAFE_INTEGER) - (right.startedAt || Number.MAX_SAFE_INTEGER)
-      || left.key.localeCompare(right.key));
+  return jobs
+    .flatMap((value) => {
+      const entry = record(value);
+      const key = String(entry.taskId || entry.task_id || '').trim();
+      if (!key) return [];
+      return [
+        {
+          key,
+          // One popover row per job: a multi-line command turned the fixed-width
+          // popover into a wall of wrapped text.
+          command: String(entry.command || '')
+            .replace(/\s+/g, ' ')
+            .trim(),
+          cwd: String(entry.cwd || '').trim(),
+          startedAt: timeMs(entry.startedAt) || 0,
+        },
+      ];
+    })
+    .sort(
+      (left, right) =>
+        (left.startedAt || Number.MAX_SAFE_INTEGER) - (right.startedAt || Number.MAX_SAFE_INTEGER) ||
+        left.key.localeCompare(right.key)
+    );
 }
 
 export function liveShellCount(snapshot: unknown): number {
@@ -359,7 +373,7 @@ export interface AgentActivityGroup {
 export function agentRootSessionId(
   agent: DesktopAgentPoolRow,
   rowsBySessionId: ReadonlyMap<string, DesktopAgentPoolRow>,
-  isOwnerSession: (sessionId: string) => boolean,
+  isOwnerSession: (sessionId: string) => boolean
 ): string {
   const owner = String(agent.ownerSessionId || '').trim();
   if (owner && isOwnerSession(owner)) return owner;
@@ -388,10 +402,7 @@ function leadFirst(left: DesktopAgentPoolRow, right: DesktopAgentPoolRow): numbe
   return leftLead - rightLead;
 }
 
-function agentTreeNodes(
-  ownerId: string,
-  agents: readonly DesktopAgentPoolRow[],
-): AgentActivityNode[] {
+function agentTreeNodes(ownerId: string, agents: readonly DesktopAgentPoolRow[]): AgentActivityNode[] {
   const idsInGroup = new Set(agents.map(poolSessionId).filter(Boolean));
   const childrenByParent = new Map<string, DesktopAgentPoolRow[]>();
   const top: DesktopAgentPoolRow[] = [];
@@ -414,8 +425,7 @@ function agentTreeNodes(
     // A live parent inside this group nests the row; a missing, hidden or
     // already-finished parent must never hide it — it stays a top-level orphan
     // under the same valid root.
-    if (sessionId && parent && parent !== sessionId && parent !== ownerId
-      && idsInGroup.has(parent)) {
+    if (sessionId && parent && parent !== sessionId && parent !== ownerId && idsInGroup.has(parent)) {
       attach(parent, agent);
       continue;
     }
@@ -423,18 +433,13 @@ function agentTreeNodes(
     else top.push(agent);
   }
   const placed = new Set<string>();
-  const build = (
-    rows: readonly DesktopAgentPoolRow[],
-    depth: number,
-    parentId: string,
-  ): AgentActivityNode[] => {
-    const ordered = [...rows].sort(leadFirst)
-      .filter((agent) => {
-        const sessionId = poolSessionId(agent);
-        if (sessionId && placed.has(sessionId)) return false;
-        if (sessionId) placed.add(sessionId);
-        return true;
-      });
+  const build = (rows: readonly DesktopAgentPoolRow[], depth: number, parentId: string): AgentActivityNode[] => {
+    const ordered = [...rows].sort(leadFirst).filter((agent) => {
+      const sessionId = poolSessionId(agent);
+      if (sessionId && placed.has(sessionId)) return false;
+      if (sessionId) placed.add(sessionId);
+      return true;
+    });
     return ordered.map((agent, index) => {
       const sessionId = poolSessionId(agent);
       return {
@@ -444,9 +449,10 @@ function agentTreeNodes(
         depth,
         posInSet: index + 1,
         setSize: ordered.length,
-        children: depth < MAX_AGENT_TREE_DEPTH && sessionId
-          ? build(childrenByParent.get(sessionId) || [], depth + 1, sessionId)
-          : [],
+        children:
+          depth < MAX_AGENT_TREE_DEPTH && sessionId
+            ? build(childrenByParent.get(sessionId) || [], depth + 1, sessionId)
+            : [],
       };
     });
   };
@@ -475,7 +481,7 @@ function agentTreeNodes(
  *  by their ROOT owner session and nested by their immediate parent. */
 export function agentActivityGroups(
   rows: readonly DesktopAgentPoolRow[] | null | undefined,
-  isOwnerSession: (sessionId: string) => boolean,
+  isOwnerSession: (sessionId: string) => boolean
 ): AgentActivityGroup[] {
   const visible = (rows || []).filter(visibleAgentActivityRow);
   const bySessionId = new Map<string, DesktopAgentPoolRow>();
@@ -502,9 +508,7 @@ export function agentActivityGroups(
 }
 
 /** Depth-first render order: a parent is immediately followed by its subtree. */
-export function flattenAgentActivityNodes(
-  nodes: readonly AgentActivityNode[],
-): AgentActivityNode[] {
+export function flattenAgentActivityNodes(nodes: readonly AgentActivityNode[]): AgentActivityNode[] {
   return nodes.flatMap((node) => [node, ...flattenAgentActivityNodes(node.children)]);
 }
 
@@ -513,11 +517,11 @@ export function flattenAgentActivityNodes(
  *  keyboard can only ever reach rows that are actually painted. */
 export function visibleAgentTreeRows(
   nodes: readonly AgentActivityNode[],
-  expandedSessionIds: ReadonlySet<string>,
+  expandedSessionIds: ReadonlySet<string>
 ): AgentActivityNode[] {
-  return nodes.flatMap((node) => (expandedSessionIds.has(node.sessionId)
-    ? [node, ...visibleAgentTreeRows(node.children, expandedSessionIds)]
-    : [node]));
+  return nodes.flatMap((node) =>
+    expandedSessionIds.has(node.sessionId) ? [node, ...visibleAgentTreeRows(node.children, expandedSessionIds)] : [node]
+  );
 }
 
 /** Seed placement for a group the dock has never ranked: the moment it was
@@ -531,9 +535,7 @@ function poolRowSeedAt(agent: DesktopAgentPoolRow): number {
   // ranking on it made every running session climb on each tick, so cards
   // leapfrogged mid-turn (user: 위아래로 튄다). Creation is frozen for the
   // whole lifetime, so a live row holds its place until it stops.
-  return timeMs(agent.createdAt)
-    || timeMs(agent.startedAt)
-    || timeMs(agent.turnStartedAt);
+  return timeMs(agent.createdAt) || timeMs(agent.startedAt) || timeMs(agent.turnStartedAt);
 }
 
 /** Sticky ordering stamp for one owner group. The pool decides `working` from
@@ -544,17 +546,14 @@ function poolRowSeedAt(agent: DesktopAgentPoolRow): number {
 export function stickyGroupOrder(
   previous: ReadonlyMap<string, number>,
   ownerId: string,
-  agents: readonly DesktopAgentPoolRow[],
+  agents: readonly DesktopAgentPoolRow[]
 ): number {
   const prior = previous.get(ownerId) || 0;
   // Two moments move a group, and both are FROZEN values: the turn it started
   // and the moment it went idle (user decision: 작업 시작 시 1회, 완료 시 1회).
   // The live heartbeat in updatedAt stays out of the ranking, so a running
   // session climbs once and then holds its slot for the whole turn.
-  const moment = Math.max(
-    0,
-    ...agents.map((agent) => Math.max(timeMs(agent.idleSince), timeMs(agent.turnStartedAt))),
-  );
+  const moment = Math.max(0, ...agents.map((agent) => Math.max(timeMs(agent.idleSince), timeMs(agent.turnStartedAt))));
   if (moment > prior) return moment;
   if (prior) return prior;
   // First sighting: seed from the frozen creation stamp so a brand-new group
@@ -623,19 +622,16 @@ function AgentPoolRow({
   const lead = Boolean(sessionId) && sessionId === ownerSessionId;
   const tag = String(agent.tag || '').trim();
   const sessionTitle = String(agent.title || '').trim();
-  const name = !lead && tag && tag.toLowerCase() !== role.toLowerCase()
-    ? `${role} · ${tag}`
-    : role;
-  const tabTitle = tag && tag.toLowerCase() !== sessionTitle.toLowerCase()
-    ? [sessionTitle, tag].filter(Boolean).join(' · ')
-    : sessionTitle || tag || role;
+  const name = !lead && tag && tag.toLowerCase() !== role.toLowerCase() ? `${role} · ${tag}` : role;
+  const tabTitle =
+    tag && tag.toLowerCase() !== sessionTitle.toLowerCase()
+      ? [sessionTitle, tag].filter(Boolean).join(' · ')
+      : sessionTitle || tag || role;
   const elapsedBase = timeMs(agent.turnStartedAt) || timeMs(agent.startedAt);
   // Idle duration carries no information (user: 대기중인데 왜 시간 표기하냐):
   // a resting agent's card says only that it rests. Time belongs to work.
   const done = state === 'done';
-  const workMeta = elapsedBase
-    ? formatWorkElapsed(clock - elapsedBase) || '0s'
-    : '0s';
+  const workMeta = elapsedBase ? formatWorkElapsed(clock - elapsedBase) || '0s' : '0s';
   const elapsed = queued
     ? t('Queued')
     : running
@@ -645,9 +641,9 @@ function AgentPoolRow({
         : state === 'cancelled'
           ? t('Cancelled')
           : done
-            // A finished turn, not a generic success: the row says WORK is
-            // done (user: 완료보다 작업 완료), and the toast keeps 'Completed'.
-            ? t('Task complete')
+            ? // A finished turn, not a generic success: the row says WORK is
+              // done (user: 완료보다 작업 완료), and the toast keeps 'Completed'.
+              t('Task complete')
             : state === 'waiting'
               ? t('Waiting for agents')
               : t('Idle');
@@ -656,49 +652,58 @@ function AgentPoolRow({
   const prefetch = () => {
     if (sessionId) onPrefetchSession?.(lead ? ownerSessionId : sessionId);
   };
-  return <button type="button"
-    className="schedules-row workflows-agent-summary-row agent-pool-row"
-    data-agent-tag={agent.tag || undefined}
-    data-agent-session-id={sessionId || undefined}
-    data-agent-parent-session-id={parentSessionId || undefined}
-    data-agent-depth={depth}
-    // Flat-tree ARIA: the DOM stays one row per control, so the hierarchy is
-    // carried by level/position, and the tree owns arrow-key navigation.
-    role="treeitem"
-    aria-level={depth + 1}
-    aria-posinset={posInSet}
-    aria-setsize={setSize}
-    aria-expanded={hasChildren ? expanded !== false : undefined}
-    tabIndex={tabIndex}
-    aria-label={name}
-    disabled={!sessionId}
-    onPointerEnter={prefetch}
-    onFocus={prefetch}
-    onPointerDown={prefetch}
-    onClick={() => {
-      if (!sessionId) return;
-      if (lead) onOpenLeadSession?.(ownerSessionId);
-      else onOpenSession?.(sessionId, tabTitle, ownerSessionId);
-    }}>
-    <span className="schedules-row-copy">
-      <span className="agent-pool-heading">
-        <b className="agent-pool-name">{name}</b>
-        {lead && descendantCount > 0 && <span className="dock-review-count">{descendantCount}</span>}
+  return (
+    <button
+      type="button"
+      className="schedules-row workflows-agent-summary-row agent-pool-row"
+      data-agent-tag={agent.tag || undefined}
+      data-agent-session-id={sessionId || undefined}
+      data-agent-parent-session-id={parentSessionId || undefined}
+      data-agent-depth={depth}
+      // Flat-tree ARIA: the DOM stays one row per control, so the hierarchy is
+      // carried by level/position, and the tree owns arrow-key navigation.
+      role="treeitem"
+      aria-level={depth + 1}
+      aria-posinset={posInSet}
+      aria-setsize={setSize}
+      aria-expanded={hasChildren ? expanded !== false : undefined}
+      tabIndex={tabIndex}
+      aria-label={name}
+      disabled={!sessionId}
+      onPointerEnter={prefetch}
+      onFocus={prefetch}
+      onPointerDown={prefetch}
+      onClick={() => {
+        if (!sessionId) return;
+        if (lead) onOpenLeadSession?.(ownerSessionId);
+        else onOpenSession?.(sessionId, tabTitle, ownerSessionId);
+      }}
+    >
+      <span className="schedules-row-copy">
+        <span className="agent-pool-heading">
+          <b className="agent-pool-name">{name}</b>
+          {lead && descendantCount > 0 && <span className="dock-review-count">{descendantCount}</span>}
+        </span>
+        <small className="agent-route-summary" title={String(agent.model || '') || undefined}>
+          <ModelRouteLabel model={modelLabel} effort={effortValue} fast={agent.fast === true} />
+        </small>
       </span>
-      <small className="agent-route-summary" title={String(agent.model || '') || undefined}>
-        <ModelRouteLabel model={modelLabel} effort={effortValue} fast={agent.fast === true} />
-      </small>
-    </span>
-    <span className="agent-activity-status">
-      <time className="agent-activity-elapsed" aria-label={elapsed}
-        title={state === 'cancel-unconfirmed'
-          ? t('Cancel was delivered, but the process could not be confirmed stopped.')
-          : undefined}
-        data-state={state}>
-        {elapsed}
-      </time>
-    </span>
-  </button>;
+      <span className="agent-activity-status">
+        <time
+          className="agent-activity-elapsed"
+          aria-label={elapsed}
+          title={
+            state === 'cancel-unconfirmed'
+              ? t('Cancel was delivered, but the process could not be confirmed stopped.')
+              : undefined
+          }
+          data-state={state}
+        >
+          {elapsed}
+        </time>
+      </span>
+    </button>
+  );
 }
 
 const AGENT_TREE_KEYS = new Set(['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End']);
@@ -737,27 +742,24 @@ function AgentActivityTree({
 }): React.ReactElement {
   const treeRef = useRef<HTMLDivElement | null>(null);
   const [focusedSessionId, setFocusedSessionId] = useState('');
-  const descendantCount = useMemo(() => flattenAgentActivityNodes(group.nodes)
-    .filter((node) => node.sessionId !== group.ownerId).length, [group.nodes, group.ownerId]);
+  const descendantCount = useMemo(
+    () => flattenAgentActivityNodes(group.nodes).filter((node) => node.sessionId !== group.ownerId).length,
+    [group.nodes, group.ownerId]
+  );
   const rows = useMemo(() => {
     const visible = visibleAgentTreeRows(group.nodes, expandedSessionIds);
     // A collapsed GROUP keeps exactly the owner's own row: every descendant,
     // at any generation, folds away with it.
-    return groupExpanded
-      ? visible
-      : visible.filter((node) => node.sessionId === group.ownerId);
+    return groupExpanded ? visible : visible.filter((node) => node.sessionId === group.ownerId);
   }, [expandedSessionIds, group.nodes, group.ownerId, groupExpanded]);
   const focusedIndex = rows.findIndex((node) => node.sessionId === focusedSessionId);
   const activeIndex = focusedIndex >= 0 ? focusedIndex : 0;
-  const rowExpanded = (node: AgentActivityNode): boolean =>
-    groupExpanded && expandedSessionIds.has(node.sessionId);
+  const rowExpanded = (node: AgentActivityNode): boolean => groupExpanded && expandedSessionIds.has(node.sessionId);
   const focusRow = (index: number): void => {
     const node = rows[Math.min(Math.max(index, 0), rows.length - 1)];
     if (!node) return;
     setFocusedSessionId(node.sessionId);
-    treeRef.current
-      ?.querySelector<HTMLElement>(`[data-agent-session-id="${node.sessionId}"]`)
-      ?.focus();
+    treeRef.current?.querySelector<HTMLElement>(`[data-agent-session-id="${node.sessionId}"]`)?.focus();
   };
   const setRowCollapsed = (sessionId: string, collapsed: boolean): void => {
     setFocusedSessionId(sessionId);
@@ -766,8 +768,9 @@ function AgentActivityTree({
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (!AGENT_TREE_KEYS.has(event.key)) return;
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const originId = (event.target as HTMLElement | null)
-      ?.closest<HTMLElement>('[data-agent-session-id]')?.dataset.agentSessionId || '';
+    const originId =
+      (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-agent-session-id]')?.dataset.agentSessionId ||
+      '';
     const found = rows.findIndex((node) => node.sessionId === originId);
     const index = found >= 0 ? found : activeIndex;
     const node = rows[index];
@@ -793,28 +796,33 @@ function AgentActivityTree({
     if (groupExpanded) return onCollapseGroup?.();
     return undefined;
   };
-  return <div ref={treeRef} className="schedules-list" role="tree" aria-label={label}
-    onKeyDown={onKeyDown}>
-    {rows.map((node, index) => <AgentPoolRow
-      key={poolRowKey(node.agent, index)}
-      agent={node.agent}
-      clock={clock}
-      depth={node.depth}
-      parentSessionId={node.parentSessionId}
-      hasChildren={node.children.length > 0}
-      expanded={rowExpanded(node)}
-      posInSet={node.posInSet}
-      setSize={node.setSize}
-      tabIndex={index === activeIndex ? 0 : -1}
-      ownerSessionId={group.ownerId}
-      descendantCount={descendantCount}
-      unread={unreadSessionIds?.has(node.sessionId) === true}
-      waitingForAgents={flattenAgentActivityNodes(node.children).some(({ agent }) =>
-        isActiveDesktopAgentEntry(agent) || isCancelUnconfirmedDesktopAgentEntry(agent))}
-      onPrefetchSession={onPrefetchSession}
-      onOpenLeadSession={onOpenLeadSession}
-      onOpenSession={onOpenSession} />)}
-  </div>;
+  return (
+    <div ref={treeRef} className="schedules-list" role="tree" aria-label={label} onKeyDown={onKeyDown}>
+      {rows.map((node, index) => (
+        <AgentPoolRow
+          key={poolRowKey(node.agent, index)}
+          agent={node.agent}
+          clock={clock}
+          depth={node.depth}
+          parentSessionId={node.parentSessionId}
+          hasChildren={node.children.length > 0}
+          expanded={rowExpanded(node)}
+          posInSet={node.posInSet}
+          setSize={node.setSize}
+          tabIndex={index === activeIndex ? 0 : -1}
+          ownerSessionId={group.ownerId}
+          descendantCount={descendantCount}
+          unread={unreadSessionIds?.has(node.sessionId) === true}
+          waitingForAgents={flattenAgentActivityNodes(node.children).some(
+            ({ agent }) => isActiveDesktopAgentEntry(agent) || isCancelUnconfirmedDesktopAgentEntry(agent)
+          )}
+          onPrefetchSession={onPrefetchSession}
+          onOpenLeadSession={onOpenLeadSession}
+          onOpenSession={onOpenSession}
+        />
+      ))}
+    </div>
+  );
 }
 
 export function AgentActivityPane({
@@ -840,11 +848,7 @@ export function AgentActivityPane({
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }): React.ReactElement {
   const poolStore = useMemo(() => agentPoolStore(window.mixdogDesktop), []);
-  const agents = useSyncExternalStore(
-    poolStore.subscribe,
-    poolStore.getSnapshot,
-    poolStore.getSnapshot,
-  );
+  const agents = useSyncExternalStore(poolStore.subscribe, poolStore.getSnapshot, poolStore.getSnapshot);
   const [clock, setClock] = useState(() => Date.now());
   const [expandedSessionIds, setExpandedSessionIds] = useState<ReadonlySet<string>>(() => new Set());
   const setSessionExpanded = (sessionId: string, expanded: boolean): void =>
@@ -873,10 +877,9 @@ export function AgentActivityPane({
     const start = (): void => {
       if (reconcileTimer) return;
       void refreshAgentPool(poolStore);
-      reconcileTimer = window.setInterval(
-        () => { void refreshAgentPool(poolStore); },
-        AGENT_POOL_RECONCILE_MS,
-      );
+      reconcileTimer = window.setInterval(() => {
+        void refreshAgentPool(poolStore);
+      }, AGENT_POOL_RECONCILE_MS);
     };
     const syncCadence = (): void => {
       if (document.visibilityState === 'visible') start();
@@ -913,13 +916,18 @@ export function AgentActivityPane({
   useEffect(() => {
     const setAllExpanded = (event: Event): void => {
       const expanded = (event as CustomEvent<boolean>).detail;
-      setExpandedSessionIds(expanded
-        ? new Set(groups.filter((group) => !hiddenOwnerIds.has(group.ownerId))
-          .flatMap((group) => [
-            group.ownerId,
-            ...flattenAgentActivityNodes(group.nodes).map((node) => node.sessionId),
-          ]))
-        : new Set());
+      setExpandedSessionIds(
+        expanded
+          ? new Set(
+              groups
+                .filter((group) => !hiddenOwnerIds.has(group.ownerId))
+                .flatMap((group) => [
+                  group.ownerId,
+                  ...flattenAgentActivityNodes(group.nodes).map((node) => node.sessionId),
+                ])
+            )
+          : new Set()
+      );
     };
     window.addEventListener(AGENT_GROUP_EXPANSION_EVENT, setAllExpanded);
     return () => window.removeEventListener(AGENT_GROUP_EXPANSION_EVENT, setAllExpanded);
@@ -933,57 +941,78 @@ export function AgentActivityPane({
   }, [active, hasLiveClock]);
 
   const loading = agents === null || (!sessionsReady && groups.length === 0);
-  if (active) beginBootSurface("agent-activity", "catalog");
+  if (active) beginBootSurface('agent-activity', 'catalog');
   useEffect(() => {
-    if (!loading) reportBootSurfaceReady("agent-activity", "catalog");
+    if (!loading) reportBootSurfaceReady('agent-activity', 'catalog');
   }, [loading]);
-  if (loading) return <div className="schedules-page agent-activity-page">
-    <InitialSurface />
-  </div>;
+  if (loading)
+    return (
+      <div className="schedules-page agent-activity-page">
+        <InitialSurface />
+      </div>
+    );
   const visibleGroups = groups.filter((group) => !hiddenOwnerIds.has(group.ownerId));
-  return <div className="schedules-page agent-activity-page">
-    {showGroupActions && <div className="agent-group-toolbar"><AgentGroupsMenu /></div>}
-    {visibleGroups.length === 0 && <p className="schedules-empty agent-activity-empty">
-      <Bot size={28} aria-hidden="true" />
-      <span>{groups.length > 0 ? t('All agent groups are hidden.') : t('No agents are running.')}</span>
-    </p>}
-    {visibleGroups.map((group) => {
-      const title = sessionSummaryTitle(group.session);
-      const expanded = expandedSessionIds.has(group.ownerId);
-      const setGroupCollapsed = (collapsed: boolean): void =>
-        setSessionExpanded(group.ownerId, !collapsed);
-      return <section key={group.ownerId} className="workflows-models"
-        data-agent-owner-session-id={group.ownerId}>
-        <div className="workflows-section-head">
-          <button type="button" className="agent-session-heading" aria-label={title}
-            aria-expanded={expanded}
-            data-lead-session-id={group.ownerId}
-            onClick={() => setGroupCollapsed(expanded)}>
-            <h2>{title}</h2>
-            <span className="agent-session-chevron" aria-hidden="true">
-              {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            </span>
-          </button>
-          <RowOverflowMenu label={t('Actions for {{title}}', { title })} items={[{
-            id: 'hide-agent-group',
-            label: t('Hide this group'),
-            onSelect: () => hideGroup(group.ownerId),
-          }]} />
+  return (
+    <div className="schedules-page agent-activity-page">
+      {showGroupActions && (
+        <div className="agent-group-toolbar">
+          <AgentGroupsMenu />
         </div>
-        <AgentActivityTree
-          group={group}
-          label={title}
-          groupExpanded={expanded}
-          expandedSessionIds={expandedSessionIds}
-          onSetExpanded={setSessionExpanded}
-          clock={clock}
-          unreadSessionIds={unreadSessionIds}
-          onExpandGroup={() => setGroupCollapsed(false)}
-          onCollapseGroup={() => setGroupCollapsed(true)}
-          onPrefetchSession={onPrefetchSession}
-          onOpenLeadSession={onOpenLeadSession}
-          onOpenSession={onOpenSession} />
-      </section>;
-    })}
-  </div>;
+      )}
+      {visibleGroups.length === 0 && (
+        <p className="schedules-empty agent-activity-empty">
+          <Bot size={28} aria-hidden="true" />
+          <span>{groups.length > 0 ? t('All agent groups are hidden.') : t('No agents are running.')}</span>
+        </p>
+      )}
+      {visibleGroups.map((group) => {
+        const title = sessionSummaryTitle(group.session);
+        const expanded = expandedSessionIds.has(group.ownerId);
+        const setGroupCollapsed = (collapsed: boolean): void => setSessionExpanded(group.ownerId, !collapsed);
+        return (
+          <section key={group.ownerId} className="workflows-models" data-agent-owner-session-id={group.ownerId}>
+            <div className="workflows-section-head">
+              <button
+                type="button"
+                className="agent-session-heading"
+                aria-label={title}
+                aria-expanded={expanded}
+                data-lead-session-id={group.ownerId}
+                onClick={() => setGroupCollapsed(expanded)}
+              >
+                <h2>{title}</h2>
+                <span className="agent-session-chevron" aria-hidden="true">
+                  {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                </span>
+              </button>
+              <RowOverflowMenu
+                label={t('Actions for {{title}}', { title })}
+                items={[
+                  {
+                    id: 'hide-agent-group',
+                    label: t('Hide this group'),
+                    onSelect: () => hideGroup(group.ownerId),
+                  },
+                ]}
+              />
+            </div>
+            <AgentActivityTree
+              group={group}
+              label={title}
+              groupExpanded={expanded}
+              expandedSessionIds={expandedSessionIds}
+              onSetExpanded={setSessionExpanded}
+              clock={clock}
+              unreadSessionIds={unreadSessionIds}
+              onExpandGroup={() => setGroupCollapsed(false)}
+              onCollapseGroup={() => setGroupCollapsed(true)}
+              onPrefetchSession={onPrefetchSession}
+              onOpenLeadSession={onOpenLeadSession}
+              onOpenSession={onOpenSession}
+            />
+          </section>
+        );
+      })}
+    </div>
+  );
 }

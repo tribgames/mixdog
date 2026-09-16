@@ -6,17 +6,17 @@
  * localStorage override.
  */
 export type DesktopFeatureId =
-  | "sessions"
-  | "projects"
-  | "extensions"
-  | "schedules"
-  | "webhooks"
-  | "usage"
-  | "settings"
-  | "agents"
-  | "explorer"
-  | "sourceControl"
-  | "pullRequests";
+  | 'sessions'
+  | 'projects'
+  | 'extensions'
+  | 'schedules'
+  | 'webhooks'
+  | 'usage'
+  | 'settings'
+  | 'agents'
+  | 'explorer'
+  | 'sourceControl'
+  | 'pullRequests';
 
 export const DESKTOP_FEATURES: Readonly<Record<DesktopFeatureId, boolean>> = {
   sessions: true,
@@ -32,40 +32,24 @@ export const DESKTOP_FEATURES: Readonly<Record<DesktopFeatureId, boolean>> = {
   pullRequests: false,
 };
 
-export type DesktopSidebarDestination =
-  | "sessions"
-  | "projects"
-  | "extensions"
-  | "schedules"
-  | "webhooks";
+export type DesktopSidebarDestination = 'sessions' | 'projects' | 'extensions' | 'schedules' | 'webhooks';
 
-export type DesktopUtilityDockTab =
-  | "agents"
-  | "search"
-  | "source-control"
-  | "pull-requests";
+export type DesktopUtilityDockTab = 'agents' | 'search' | 'source-control' | 'pull-requests';
 
 const UTILITY_DOCK_FEATURES: Readonly<Record<DesktopUtilityDockTab, DesktopFeatureId>> = {
-  agents: "agents",
-  search: "explorer",
-  "source-control": "sourceControl",
-  "pull-requests": "pullRequests",
+  agents: 'agents',
+  search: 'explorer',
+  'source-control': 'sourceControl',
+  'pull-requests': 'pullRequests',
 };
 
-const UTILITY_DOCK_TABS: readonly DesktopUtilityDockTab[] = [
-  "agents",
-  "search",
-  "source-control",
-  "pull-requests",
-];
+const UTILITY_DOCK_TABS: readonly DesktopUtilityDockTab[] = ['agents', 'search', 'source-control', 'pull-requests'];
 
 export function desktopFeatureEnabled(feature: DesktopFeatureId): boolean {
   return DESKTOP_FEATURES[feature];
 }
 
-export function desktopSidebarDestinationEnabled(
-  destination: DesktopSidebarDestination,
-): boolean {
+export function desktopSidebarDestinationEnabled(destination: DesktopSidebarDestination): boolean {
   return desktopFeatureEnabled(destination);
 }
 
@@ -77,5 +61,4 @@ export function firstEnabledDesktopUtilityDockTab(): DesktopUtilityDockTab | nul
   return UTILITY_DOCK_TABS.find(desktopUtilityDockTabEnabled) ?? null;
 }
 
-export const hasDesktopUtilityDockFeature =
-  firstEnabledDesktopUtilityDockTab() !== null;
+export const hasDesktopUtilityDockFeature = firstEnabledDesktopUtilityDockTab() !== null;

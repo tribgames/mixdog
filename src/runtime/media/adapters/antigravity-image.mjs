@@ -48,9 +48,10 @@ export function antigravityImageParts(sseText) {
   return { parts, failure };
 }
 
-export async function generateImage({ model, prompt, options = {}, references = [], signal }, {
-  fetchFn = fetch, resolveAuth = resolveAntigravityAuth, endpoint = CONTENT_ENDPOINTS[0],
-} = {}) {
+export async function generateImage(
+  { model, prompt, options = {}, references = [], signal },
+  { fetchFn = fetch, resolveAuth = resolveAntigravityAuth, endpoint = CONTENT_ENDPOINTS[0] } = {}
+) {
   const auth = await resolveAuth();
   const body = antigravityImageRequestBody({ projectId: auth.projectId, model, prompt, options, references });
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);

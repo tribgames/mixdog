@@ -97,7 +97,7 @@ function currentViewport(anchor?: HTMLElement | null) {
 function sheetAnchor(
   rect: { left: number; top: number; bottom: number },
   viewport: { width: number },
-  preferredWidth: number,
+  preferredWidth: number
 ) {
   const width = routeSheetWidth(viewport, preferredWidth);
   return { left: rect.left, right: rect.left + width, top: rect.top, bottom: rect.bottom };
@@ -251,17 +251,17 @@ export function RouteEditor({
   const visible = open && surfaceActive;
   const mounted = (open || closing) && surfaceActive;
   const shownContextPercent = contextDraft ?? contextPercent;
-  const shownContextTokens = shownContextPercent === contextPercent
-    ? contextTokens
-    : shownContextPercent === contextDefaultPercent && contextDefaultTokens
-      ? contextDefaultTokens
-      : contextMaxTokens
-        ? Math.max(1, Math.floor(contextMaxTokens * shownContextPercent / 100))
-        : contextTokens;
-  const defaultContextTokens = contextDefaultTokens
-    || (contextMaxTokens
-      ? Math.max(1, Math.floor(contextMaxTokens * contextDefaultPercent / 100))
-      : contextTokens);
+  const shownContextTokens =
+    shownContextPercent === contextPercent
+      ? contextTokens
+      : shownContextPercent === contextDefaultPercent && contextDefaultTokens
+        ? contextDefaultTokens
+        : contextMaxTokens
+          ? Math.max(1, Math.floor((contextMaxTokens * shownContextPercent) / 100))
+          : contextTokens;
+  const defaultContextTokens =
+    contextDefaultTokens ||
+    (contextMaxTokens ? Math.max(1, Math.floor((contextMaxTokens * contextDefaultPercent) / 100)) : contextTokens);
   const commitContextDraft = () => {
     if (contextDraft === null || contextDraft === contextPercent) return;
     onChangeContext(contextDraft);
@@ -283,38 +283,41 @@ export function RouteEditor({
     setTriggerWidth(null);
   }, []);
 
-  const closeAll = useCallback((restoreFocus = false, immediate = false) => {
-    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
-    setOpen(false);
-    // Re-measure after a model change: the current label can have a different
-    // natural width than the label captured when the sheet opened.
-    // The resting pill is capped by its lane (.route-editor shrinks to the
-    // footer's leftover width next to the context gauge), so a long label
-    // lands back on the clipped width instead of overshooting it.
-    const lane = trigger.current?.parentElement?.getBoundingClientRect().width;
-    const closeWidth = trigger.current
-      ? Math.min(naturalTriggerWidth(trigger.current), lane || Infinity)
-      : morphFrom.current?.width ?? null;
-    if (closeWidth !== null) {
-      morphFrom.current = {
-        width: closeWidth,
-        height: morphFrom.current?.height ?? trigger.current?.getBoundingClientRect().height ?? 28,
-      };
-    }
-    setTriggerWidth(closeWidth);
-    if (immediate) {
-      finishClose();
-    } else {
-      setClosing(true);
-      closeTimer.current = window.setTimeout(() => {
-        closeTimer.current = null;
+  const closeAll = useCallback(
+    (restoreFocus = false, immediate = false) => {
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+      setOpen(false);
+      // Re-measure after a model change: the current label can have a different
+      // natural width than the label captured when the sheet opened.
+      // The resting pill is capped by its lane (.route-editor shrinks to the
+      // footer's leftover width next to the context gauge), so a long label
+      // lands back on the clipped width instead of overshooting it.
+      const lane = trigger.current?.parentElement?.getBoundingClientRect().width;
+      const closeWidth = trigger.current
+        ? Math.min(naturalTriggerWidth(trigger.current), lane || Infinity)
+        : (morphFrom.current?.width ?? null);
+      if (closeWidth !== null) {
+        morphFrom.current = {
+          width: closeWidth,
+          height: morphFrom.current?.height ?? trigger.current?.getBoundingClientRect().height ?? 28,
+        };
+      }
+      setTriggerWidth(closeWidth);
+      if (immediate) {
         finishClose();
-      }, ROUTE_CLOSE_DURATION);
-    }
-    if (restoreFocus) {
-      window.setTimeout(() => trigger.current?.focus({ preventScroll: true }), 0);
-    }
-  }, [finishClose]);
+      } else {
+        setClosing(true);
+        closeTimer.current = window.setTimeout(() => {
+          closeTimer.current = null;
+          finishClose();
+        }, ROUTE_CLOSE_DURATION);
+      }
+      if (restoreFocus) {
+        window.setTimeout(() => trigger.current?.focus({ preventScroll: true }), 0);
+      }
+    },
+    [finishClose]
+  );
 
   const closePane = useCallback((closedPane: RouteSheetPane, restoreFocus = false) => {
     hoverLock.current = closedPane;
@@ -329,53 +332,57 @@ export function RouteEditor({
   // One geometry for every opening: a second column beside the sheet where it
   // fits, and a drilled pane inside the sheet's own footprint where it does
   // not (phones), so the menu never breaks into two detached panels.
-  const paneLayout = useCallback((
-    nextSheet: RoutePanelBox,
-    next: RouteSheetPane,
-    viewport: { left: number; top: number; width: number; height: number },
-  ): { box: RoutePanelBox; drilled: boolean } => {
-    const width = preferredFlyoutWidth(next);
-    const height = preferredFlyoutHeight(next, effortOptions.length);
-    if (routeFlyoutFitsBeside(nextSheet, viewport, width)) {
+  const paneLayout = useCallback(
+    (
+      nextSheet: RoutePanelBox,
+      next: RouteSheetPane,
+      viewport: { left: number; top: number; width: number; height: number }
+    ): { box: RoutePanelBox; drilled: boolean } => {
+      const width = preferredFlyoutWidth(next);
+      const height = preferredFlyoutHeight(next, effortOptions.length);
+      if (routeFlyoutFitsBeside(nextSheet, viewport, width)) {
+        return {
+          box: routeFlyoutBox(
+            nextSheet,
+            height,
+            viewport,
+            rowButtons.current[next]?.getBoundingClientRect().top,
+            width,
+            'right'
+          ),
+          drilled: false,
+        };
+      }
       return {
-        box: routeFlyoutBox(
-          nextSheet,
-          height,
-          viewport,
-          rowButtons.current[next]?.getBoundingClientRect().top,
-          width,
-          'right',
-        ),
-        drilled: false,
+        box: routeDrillBox(nextSheet, routeDrillHeight(height, viewport), viewport),
+        drilled: true,
       };
-    }
-    return {
-      box: routeDrillBox(nextSheet, routeDrillHeight(height, viewport), viewport),
-      drilled: true,
-    };
-  }, [effortOptions.length]);
+    },
+    [effortOptions.length]
+  );
 
   // The sheet anchors to the pill's LEFT edge: the pill expands rightwards
   // to the sheet width, so both share the same left edge and width. That
   // width is the panel's, or the label's natural width when a long model
   // name needs more — measured once per opening (user: 모델명 긴 거 잘림).
-  const measureSheet = useCallback((
-    triggerRect: { left: number; top: number; bottom: number },
-    viewport: { left: number; top: number; width: number; height: number },
-    remeasure = false,
-  ): RoutePanelBox => {
-    if (remeasure || labelWidth.current === null) {
-      labelWidth.current = trigger.current
-        ? naturalTriggerWidth(trigger.current)
-        : ROUTE_PANEL_WIDTH;
-    }
-    return routeSheetBox(
-      sheetAnchor(triggerRect, viewport, labelWidth.current),
-      sheetHeight,
-      viewport,
-      labelWidth.current,
-    );
-  }, [sheetHeight]);
+  const measureSheet = useCallback(
+    (
+      triggerRect: { left: number; top: number; bottom: number },
+      viewport: { left: number; top: number; width: number; height: number },
+      remeasure = false
+    ): RoutePanelBox => {
+      if (remeasure || labelWidth.current === null) {
+        labelWidth.current = trigger.current ? naturalTriggerWidth(trigger.current) : ROUTE_PANEL_WIDTH;
+      }
+      return routeSheetBox(
+        sheetAnchor(triggerRect, viewport, labelWidth.current),
+        sheetHeight,
+        viewport,
+        labelWidth.current
+      );
+    },
+    [sheetHeight]
+  );
 
   const layout = useCallback(() => {
     const triggerRect = trigger.current?.getBoundingClientRect();
@@ -401,9 +408,7 @@ export function RouteEditor({
     }
     hoverLock.current = null;
     setClosing(false);
-    morphFrom.current = triggerRect
-      ? { width: triggerRect.width, height: triggerRect.height }
-      : null;
+    morphFrom.current = triggerRect ? { width: triggerRect.width, height: triggerRect.height } : null;
     if (triggerRect) {
       const viewport = currentViewport(trigger.current);
       // Fresh label measure per opening: the model may have changed since.
@@ -465,10 +470,13 @@ export function RouteEditor({
     layout();
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
-      if (trigger.current?.contains(target)
-        || sheet.current?.contains(target)
-        || modelFlyout.current?.contains(target)
-        || optionFlyout.current?.contains(target)) return;
+      if (
+        trigger.current?.contains(target) ||
+        sheet.current?.contains(target) ||
+        modelFlyout.current?.contains(target) ||
+        optionFlyout.current?.contains(target)
+      )
+        return;
       closeAll();
     };
     const onKeyDown = (event: KeyboardEvent) => {
@@ -505,10 +513,13 @@ export function RouteEditor({
     layout();
   }, [layout, pane, visible]);
 
-  useEffect(() => () => {
-    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
-    if (hoverSwitchTimer.current !== null) window.clearTimeout(hoverSwitchTimer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+      if (hoverSwitchTimer.current !== null) window.clearTimeout(hoverSwitchTimer.current);
+    },
+    []
+  );
 
   // Pretendard splits Hangul into lazy unicode-range subsets, so a first open
   // painted fallback glyphs and swapped mid-animation (user: 처음 열 때
@@ -516,28 +527,40 @@ export function RouteEditor({
   // real faces long before the picker ever opens.
   useEffect(() => {
     try {
-      void document.fonts.load('400 13px "Pretendard Variable"', [
-        t('Model'), t('Reasoning effort'), t('Context'), t('Speed'), t('Standard'), t('Fast'),
-        t('Default speed'), t('Increased speed, increased usage'),
-        t('Search models…'), t('Loading models…'), t('Select model'),
-      ].join(''));
-    } catch { /* font readiness stays cosmetic */ }
+      void document.fonts.load(
+        '400 13px "Pretendard Variable"',
+        [
+          t('Model'),
+          t('Reasoning effort'),
+          t('Context'),
+          t('Speed'),
+          t('Standard'),
+          t('Fast'),
+          t('Default speed'),
+          t('Increased speed, increased usage'),
+          t('Search models…'),
+          t('Loading models…'),
+          t('Select model'),
+        ].join('')
+      );
+    } catch {
+      /* font readiness stays cosmetic */
+    }
   }, []);
 
-  const moveFocus = (
-    event: ReactKeyboardEvent<HTMLButtonElement>,
-    container: HTMLElement | null,
-    selector: string,
-  ) => {
+  const moveFocus = (event: ReactKeyboardEvent<HTMLButtonElement>, container: HTMLElement | null, selector: string) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return false;
     const buttons = Array.from(container?.querySelectorAll<HTMLButtonElement>(selector) || []);
     if (!buttons.length) return false;
     event.preventDefault();
     event.stopPropagation();
     const current = buttons.indexOf(event.currentTarget);
-    const next = event.key === 'Home' ? 0
-      : event.key === 'End' ? buttons.length - 1
-      : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? buttons.length - 1
+          : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
     buttons[next]?.focus({ preventScroll: true });
     return true;
   };
@@ -564,9 +587,16 @@ export function RouteEditor({
   };
 
   const row = (id: RouteSheetPane, label: string, value: string, disabled = false) => (
-    <button ref={(node) => { rowButtons.current[id] = node; }} type="button"
-      className="route-sheet-row" role="menuitem"
-      aria-haspopup="menu" aria-expanded={pane === id} disabled={disabled}
+    <button
+      ref={(node) => {
+        rowButtons.current[id] = node;
+      }}
+      type="button"
+      className="route-sheet-row"
+      role="menuitem"
+      aria-haspopup="menu"
+      aria-expanded={pane === id}
+      disabled={disabled}
       onPointerEnter={(event) => {
         if (event.pointerType === 'touch' || hoverLock.current === id) return;
         if (pane === id) return;
@@ -606,7 +636,8 @@ export function RouteEditor({
           openPane(id);
           focusPane(id);
         }
-      }}>
+      }}
+    >
       <span className="route-sheet-label">{label}</span>
       <span className="route-sheet-value">{value}</span>
       <ChevronRight size={14} aria-hidden="true" />
@@ -615,19 +646,22 @@ export function RouteEditor({
 
   // A drilled pane replaced the sheet, so its first row walks back up one
   // level; a flyout that opened beside the sheet keeps the plain title.
-  const paneHeader = (label: string, target: RouteSheetPane) => (drill
-    ? <button type="button" className="route-sheet-back" aria-label={t('Back')}
-      onClick={() => closePane(target, true)}>
-      <ChevronLeft size={14} aria-hidden="true" />
-      <span>{label}</span>
-    </button>
-    : <div className="route-sheet-flyout-title" aria-hidden="true">{label}</div>);
+  const paneHeader = (label: string, target: RouteSheetPane) =>
+    drill ? (
+      <button type="button" className="route-sheet-back" aria-label={t('Back')} onClick={() => closePane(target, true)}>
+        <ChevronLeft size={14} aria-hidden="true" />
+        <span>{label}</span>
+      </button>
+    ) : (
+      <div className="route-sheet-flyout-title" aria-hidden="true">
+        {label}
+      </div>
+    );
 
   // Whichever surface currently hosts the open pane: the sheet itself while
   // drilled, the flyout beside it otherwise.
-  const paneContainer = () => (sheet.current?.querySelector('.route-sheet-pane')
-    ? sheet.current
-    : optionFlyout.current);
+  const paneContainer = () =>
+    sheet.current?.querySelector('.route-sheet-pane') ? sheet.current : optionFlyout.current;
 
   const paneLabel = (target: RouteSheetPane): string => {
     if (target === 'model') return t('Model');
@@ -642,95 +676,143 @@ export function RouteEditor({
     if (target === 'effort') {
       return effortOptions.map((option) => {
         const selected = option.value === effort;
-        return <button type="button" key={option.value} className="route-sheet-option" role="menuitemradio"
-          aria-checked={selected} disabled={tuningDisabled}
-          onClick={() => {
-            if (option.value !== effort) onChangeEffort(option.value);
-          }}
-          onKeyDown={(event) => {
-            if (moveFocus(event, paneContainer(), '.route-sheet-option:not(:disabled)')) return;
-            if (event.key === 'ArrowLeft') {
-              event.preventDefault();
-              closePane('effort', true);
-            }
-          }}>
-          <span>{option.label}</span>
-          {selected && <span className="route-selection-check">
-            <Check size={14} aria-hidden="true" />
-          </span>}
-        </button>;
+        return (
+          <button
+            type="button"
+            key={option.value}
+            className="route-sheet-option"
+            role="menuitemradio"
+            aria-checked={selected}
+            disabled={tuningDisabled}
+            onClick={() => {
+              if (option.value !== effort) onChangeEffort(option.value);
+            }}
+            onKeyDown={(event) => {
+              if (moveFocus(event, paneContainer(), '.route-sheet-option:not(:disabled)')) return;
+              if (event.key === 'ArrowLeft') {
+                event.preventDefault();
+                closePane('effort', true);
+              }
+            }}
+          >
+            <span>{option.label}</span>
+            {selected && (
+              <span className="route-selection-check">
+                <Check size={14} aria-hidden="true" />
+              </span>
+            )}
+          </button>
+        );
       });
     }
     if (target === 'speed') {
-      return ([
-        { value: false, label: t('Standard'), description: t('Default speed') },
-        { value: true, label: t('Fast'), description: t('Increased speed, increased usage') },
-      ] as const).map((option) => {
+      return (
+        [
+          { value: false, label: t('Standard'), description: t('Default speed') },
+          { value: true, label: t('Fast'), description: t('Increased speed, increased usage') },
+        ] as const
+      ).map((option) => {
         const selected = option.value === fast;
         const disabled = tuningDisabled || (option.value && !fastAvailable);
-        return <button type="button" key={option.label}
-          className="route-sheet-option route-sheet-option--rich" role="menuitemradio"
-          aria-checked={selected} disabled={disabled}
-          onClick={() => {
-            if (option.value !== fast) onChangeFast(option.value);
-          }}
-          onKeyDown={(event) => {
-            if (moveFocus(event, paneContainer(), '.route-sheet-option:not(:disabled)')) return;
-            if (event.key === 'ArrowLeft') {
-              event.preventDefault();
-              closePane('speed', true);
-            }
-          }}>
-          <span className="route-sheet-option-copy">
-            <span>{option.label}</span>
-            <small>{option.description}</small>
-          </span>
-          {selected && <span className="route-selection-check">
-            <Check size={14} aria-hidden="true" />
-          </span>}
-        </button>;
+        return (
+          <button
+            type="button"
+            key={option.label}
+            className="route-sheet-option route-sheet-option--rich"
+            role="menuitemradio"
+            aria-checked={selected}
+            disabled={disabled}
+            onClick={() => {
+              if (option.value !== fast) onChangeFast(option.value);
+            }}
+            onKeyDown={(event) => {
+              if (moveFocus(event, paneContainer(), '.route-sheet-option:not(:disabled)')) return;
+              if (event.key === 'ArrowLeft') {
+                event.preventDefault();
+                closePane('speed', true);
+              }
+            }}
+          >
+            <span className="route-sheet-option-copy">
+              <span>{option.label}</span>
+              <small>{option.description}</small>
+            </span>
+            {selected && (
+              <span className="route-selection-check">
+                <Check size={14} aria-hidden="true" />
+              </span>
+            )}
+          </button>
+        );
       });
     }
     if (target === 'context') {
-      return <>
-        <div className="route-context-head">
-          <strong aria-hidden="true">{shownContextPercent}%</strong>
-          <small aria-hidden="true">
-            {formatContextWindow(shownContextTokens).replace(/ Context$/, '')}
-            {shownContextPercent === contextDefaultPercent ? ` · ${t('Default')}` : ''}
-          </small>
-          {shownContextPercent !== contextDefaultPercent && <button type="button"
-            className="route-context-reset" disabled={tuningDisabled}
-            aria-label={t('Reset to default ({{percent}}%)', { percent: contextDefaultPercent })}
-            onClick={() => { setContextDraft(null); onChangeContext(contextDefaultPercent); }}>
-            {formatContextWindow(defaultContextTokens).replace(/ Context$/, '')} · {t('Default')}
-          </button>}
-        </div>
-        <div className="route-context-slider">
-          <input type="range" min={10} max={100} step={10}
-            value={shownContextPercent} disabled={tuningDisabled}
-            aria-label={t('Context')} aria-valuetext={`${shownContextPercent}%`}
-            onChange={(event) => setContextDraft(Number(event.currentTarget.value))}
-            onPointerUp={commitContextDraft}
-            onKeyUp={commitContextDraft}
-            onBlur={commitContextDraft} />
-        </div>
-      </>;
+      return (
+        <>
+          <div className="route-context-head">
+            <strong aria-hidden="true">{shownContextPercent}%</strong>
+            <small aria-hidden="true">
+              {formatContextWindow(shownContextTokens).replace(/ Context$/, '')}
+              {shownContextPercent === contextDefaultPercent ? ` · ${t('Default')}` : ''}
+            </small>
+            {shownContextPercent !== contextDefaultPercent && (
+              <button
+                type="button"
+                className="route-context-reset"
+                disabled={tuningDisabled}
+                aria-label={t('Reset to default ({{percent}}%)', { percent: contextDefaultPercent })}
+                onClick={() => {
+                  setContextDraft(null);
+                  onChangeContext(contextDefaultPercent);
+                }}
+              >
+                {formatContextWindow(defaultContextTokens).replace(/ Context$/, '')} · {t('Default')}
+              </button>
+            )}
+          </div>
+          <div className="route-context-slider">
+            <input
+              type="range"
+              min={10}
+              max={100}
+              step={10}
+              value={shownContextPercent}
+              disabled={tuningDisabled}
+              aria-label={t('Context')}
+              aria-valuetext={`${shownContextPercent}%`}
+              onChange={(event) => setContextDraft(Number(event.currentTarget.value))}
+              onPointerUp={commitContextDraft}
+              onKeyUp={commitContextDraft}
+              onBlur={commitContextDraft}
+            />
+          </div>
+        </>
+      );
     }
     const parameter = parameterRows.find((entry) => `parameter:${entry.id}` === target);
     if (!parameter) return null;
     return parameter.options.map((option) => {
       const selected = option.value === modelParameters[parameter.id];
-      return <button type="button" key={option.value} className="route-sheet-option"
-        role="menuitemradio" aria-checked={selected} disabled={tuningDisabled}
-        onClick={() => {
-          if (!selected) onChangeModelParameter?.(parameter.id, option.value);
-        }}>
-        <span>{option.label}</span>
-        {selected && <span className="route-selection-check">
-          <Check size={14} aria-hidden="true" />
-        </span>}
-      </button>;
+      return (
+        <button
+          type="button"
+          key={option.value}
+          className="route-sheet-option"
+          role="menuitemradio"
+          aria-checked={selected}
+          disabled={tuningDisabled}
+          onClick={() => {
+            if (!selected) onChangeModelParameter?.(parameter.id, option.value);
+          }}
+        >
+          <span>{option.label}</span>
+          {selected && (
+            <span className="route-selection-check">
+              <Check size={14} aria-hidden="true" />
+            </span>
+          )}
+        </button>
+      );
     });
   };
 
@@ -740,107 +822,171 @@ export function RouteEditor({
   const drilled = drill && Boolean(pane);
   const panelBox = drilled && flyoutBox ? flyoutBox : sheetBox;
 
-  return <div className="route-editor">
-    <button ref={trigger} type="button" className="model-trigger" disabled={modelDisabled}
-      style={triggerWidth !== null ? { width: triggerWidth } : undefined}
-      data-morph={triggerWidth !== null ? '' : undefined}
-      aria-label={tooltip} aria-haspopup="menu" aria-expanded={visible}
-      aria-controls={visible ? `route-sheet-${sheetId}` : undefined}
-      data-tooltip={tooltip} data-tooltip-side="top"
-      onKeyDown={(event) => {
-        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-        event.preventDefault();
-        show(event.key === 'ArrowDown' ? 'first' : 'last');
-      }}
-      onPointerDown={(event) => {
-        if (event.button !== 0) return;
-        clickGuard.markPointerActivation();
-        commitImmediateOverlay(toggle);
-      }}
-      onClick={(event) => {
-        if (clickGuard.consumePointerClick()) return;
-        if (event.detail !== 0) return;
-        commitImmediateOverlay(toggle);
-      }}
-      onPointerCancel={clickGuard.clearPointerActivation}>
-      <span className="route-trigger-copy">
-        <ModelRouteLabel model={triggerModel} effort={effort} fast={fast} effortLabel={effortLabel} />
-      </span>
-      <ChevronDown size={14} aria-hidden="true" />
-    </button>
-    {mounted && panelBox && createPortal(
-      <div ref={sheet} id={`route-sheet-${sheetId}`} className="route-sheet" role="menu"
-        aria-label={drilled && pane ? paneLabel(pane) : t('Choose model')}
-        style={{
-          ...panelBox,
-          '--route-morph-sx': String(Math.min(1,
-            Math.max(0.1, (morphFrom.current?.width || panelBox.width) / panelBox.width))),
-          '--route-morph-sy': String(Math.min(1,
-            Math.max(0.1, (morphFrom.current?.height || panelBox.height) / panelBox.height))),
-        } as CSSProperties}
-        data-placement={panelBox.placement}
-        data-drilled={drilled ? '' : undefined}
-        data-state={closing ? 'closing' : 'open'}>
-        {drilled && pane
-          ? <div className="route-sheet-pane" key={`pane:${pane}`}>
+  return (
+    <div className="route-editor">
+      <button
+        ref={trigger}
+        type="button"
+        className="model-trigger"
+        disabled={modelDisabled}
+        style={triggerWidth !== null ? { width: triggerWidth } : undefined}
+        data-morph={triggerWidth !== null ? '' : undefined}
+        aria-label={tooltip}
+        aria-haspopup="menu"
+        aria-expanded={visible}
+        aria-controls={visible ? `route-sheet-${sheetId}` : undefined}
+        data-tooltip={tooltip}
+        data-tooltip-side="top"
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+          event.preventDefault();
+          show(event.key === 'ArrowDown' ? 'first' : 'last');
+        }}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          clickGuard.markPointerActivation();
+          commitImmediateOverlay(toggle);
+        }}
+        onClick={(event) => {
+          if (clickGuard.consumePointerClick()) return;
+          if (event.detail !== 0) return;
+          commitImmediateOverlay(toggle);
+        }}
+        onPointerCancel={clickGuard.clearPointerActivation}
+      >
+        <span className="route-trigger-copy">
+          <ModelRouteLabel model={triggerModel} effort={effort} fast={fast} effortLabel={effortLabel} />
+        </span>
+        <ChevronDown size={14} aria-hidden="true" />
+      </button>
+      {mounted &&
+        panelBox &&
+        createPortal(
+          <div
+            ref={sheet}
+            id={`route-sheet-${sheetId}`}
+            className="route-sheet"
+            role="menu"
+            aria-label={drilled && pane ? paneLabel(pane) : t('Choose model')}
+            style={
+              {
+                ...panelBox,
+                '--route-morph-sx': String(
+                  Math.min(1, Math.max(0.1, (morphFrom.current?.width || panelBox.width) / panelBox.width))
+                ),
+                '--route-morph-sy': String(
+                  Math.min(1, Math.max(0.1, (morphFrom.current?.height || panelBox.height) / panelBox.height))
+                ),
+              } as CSSProperties
+            }
+            data-placement={panelBox.placement}
+            data-drilled={drilled ? '' : undefined}
+            data-state={closing ? 'closing' : 'open'}
+          >
+            {drilled && pane ? (
+              <div className="route-sheet-pane" key={`pane:${pane}`}>
+                {paneHeader(paneLabel(pane), pane)}
+                {pane === 'model' ? (
+                  <ModelCatalog
+                    models={models}
+                    provider={provider}
+                    model={model}
+                    active
+                    catalogLoaded={catalogLoaded}
+                    catalogRefreshing={catalogRefreshing}
+                    catalogError={catalogError}
+                    providerSetupError={providerSetupError}
+                    onSelect={onSelectModel}
+                    onClose={() => closePane('model', true)}
+                    onOpenProviders={() => {
+                      closeAll();
+                      onOpenProviders?.();
+                    }}
+                  />
+                ) : (
+                  paneBody(pane)
+                )}
+              </div>
+            ) : (
+              <div className="route-sheet-rows" key="rows">
+                {row('model', t('Model'), triggerModel)}
+                {rows.includes('effort') &&
+                  row('effort', t('Reasoning effort'), effortLabel || t('Reasoning effort'), tuningDisabled)}
+                {rows.includes('context') &&
+                  row(
+                    'context',
+                    t('Context'),
+                    formatContextWindow(contextTokens).replace(/ Context$/, ''),
+                    tuningDisabled
+                  )}
+                {parameterRows.map((parameter) =>
+                  row(
+                    `parameter:${parameter.id}`,
+                    modelParameterLabel(parameter),
+                    parameter.options.find((option) => option.value === modelParameters[parameter.id])?.label ||
+                      modelParameters[parameter.id] ||
+                      parameter.options[0]?.label ||
+                      '',
+                    tuningDisabled
+                  )
+                )}
+                {rows.includes('speed') && row('speed', t('Speed'), speedLabel, tuningDisabled)}
+              </div>
+            )}
+          </div>,
+          document.body
+        )}
+      {modelCatalogReady &&
+        !drill &&
+        surfaceActive &&
+        createPortal(
+          <div
+            ref={modelFlyout}
+            className="route-sheet-flyout route-sheet-flyout--model"
+            hidden={pane !== 'model'}
+            data-placement={flyoutBox?.placement}
+            data-state={closing ? 'closing' : 'open'}
+            style={pane === 'model' && flyoutBox ? flyoutBox : { display: 'none' }}
+          >
+            <ModelCatalog
+              models={models}
+              provider={provider}
+              model={model}
+              active={pane === 'model'}
+              catalogLoaded={catalogLoaded}
+              catalogRefreshing={catalogRefreshing}
+              catalogError={catalogError}
+              providerSetupError={providerSetupError}
+              onSelect={onSelectModel}
+              onClose={() => closePane('model', true)}
+              onOpenProviders={() => {
+                closeAll();
+                onOpenProviders?.();
+              }}
+            />
+          </div>,
+          document.body
+        )}
+      {mounted &&
+        !drill &&
+        pane &&
+        pane !== 'model' &&
+        flyoutBox &&
+        createPortal(
+          <div
+            ref={optionFlyout}
+            className="route-sheet-flyout"
+            role="menu"
+            aria-label={paneLabel(pane)}
+            style={flyoutBox}
+            data-placement={flyoutBox.placement}
+            data-state={closing ? 'closing' : 'open'}
+          >
             {paneHeader(paneLabel(pane), pane)}
-            {pane === 'model'
-              ? <ModelCatalog models={models} provider={provider} model={model} active
-                catalogLoaded={catalogLoaded} catalogRefreshing={catalogRefreshing}
-                catalogError={catalogError} providerSetupError={providerSetupError}
-                onSelect={onSelectModel}
-                onClose={() => closePane('model', true)}
-                onOpenProviders={() => {
-                  closeAll();
-                  onOpenProviders?.();
-                }} />
-              : paneBody(pane)}
-          </div>
-          : <div className="route-sheet-rows" key="rows">
-            {row('model', t('Model'), triggerModel)}
-            {rows.includes('effort') && row('effort', t('Reasoning effort'), effortLabel || t('Reasoning effort'), tuningDisabled)}
-            {rows.includes('context') && row('context', t('Context'),
-              formatContextWindow(contextTokens).replace(/ Context$/, ''), tuningDisabled)}
-            {parameterRows.map((parameter) => row(
-              `parameter:${parameter.id}`,
-              modelParameterLabel(parameter),
-              parameter.options.find((option) => option.value === modelParameters[parameter.id])?.label
-                || modelParameters[parameter.id]
-                || parameter.options[0]?.label
-                || '',
-              tuningDisabled,
-            ))}
-            {rows.includes('speed') && row('speed', t('Speed'), speedLabel, tuningDisabled)}
-          </div>}
-      </div>,
-      document.body,
-    )}
-    {modelCatalogReady && !drill && surfaceActive && createPortal(
-      <div ref={modelFlyout} className="route-sheet-flyout route-sheet-flyout--model"
-        hidden={pane !== 'model'} data-placement={flyoutBox?.placement}
-        data-state={closing ? 'closing' : 'open'}
-        style={pane === 'model' && flyoutBox ? flyoutBox : { display: 'none' }}>
-        <ModelCatalog models={models} provider={provider} model={model}
-          active={pane === 'model'}
-          catalogLoaded={catalogLoaded} catalogRefreshing={catalogRefreshing}
-          catalogError={catalogError} providerSetupError={providerSetupError}
-          onSelect={onSelectModel}
-          onClose={() => closePane('model', true)}
-          onOpenProviders={() => {
-            closeAll();
-            onOpenProviders?.();
-          }} />
-      </div>,
-      document.body,
-    )}
-    {mounted && !drill && pane && pane !== 'model' && flyoutBox && createPortal(
-      <div ref={optionFlyout} className="route-sheet-flyout" role="menu" aria-label={paneLabel(pane)}
-        style={flyoutBox} data-placement={flyoutBox.placement}
-        data-state={closing ? 'closing' : 'open'}>
-        {paneHeader(paneLabel(pane), pane)}
-        {paneBody(pane)}
-      </div>,
-      document.body,
-    )}
-  </div>;
+            {paneBody(pane)}
+          </div>,
+          document.body
+        )}
+    </div>
+  );
 }

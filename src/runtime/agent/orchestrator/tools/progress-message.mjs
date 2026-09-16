@@ -10,102 +10,100 @@
 
 // Truncate long arg values so a progress line never blows past ~60 chars.
 function _t(value, max = 60) {
-    const s = String(value ?? '');
-    return s.length > max ? `${s.slice(0, max - 1)}\u2026` : s;
+  const s = String(value ?? '');
+  return s.length > max ? `${s.slice(0, max - 1)}\u2026` : s;
 }
 
 // Count-aware noun so a label never reads "1 files" or "3 query/queries".
 // English progress strings only; default plural appends "s".
 function _plural(n, one, many) {
-    return `${n} ${n === 1 ? one : (many || one + 's')}`;
+  return `${n} ${n === 1 ? one : many || one + 's'}`;
 }
 
 export function formatToolStartProgress(name, args = {}) {
-    const a = args || {};
-    switch (name) {
-        // ── builtin: files / shell ───────────────────────────────────────
-        case 'read':
-            return a.symbol ? `reading symbol ${_t(a.symbol)}` : `reading ${_t(a.path)}`;
-        case 'edit':
-            return `editing ${_t(a.file_path || 'file')}`;
-        case 'apply_patch':
-            return a.dry_run ? 'validating patch' : 'applying patch';
-        case 'shell':
-            return a.command ? `running ${_t(a.command)}` : 'running shell';
-        case 'git':
-            return a.command ? `running ${_t(a.command)}` : 'running git';
-        case 'task': {
-            const action = a.action || (a.task_id ? 'status' : 'list');
-            return action === 'list'
-                ? 'listing background tasks'
-                : `${action} task ${_t(a.task_id)}`;
-        }
-        // ── builtin / code_graph: search & navigation ────────────────────
-        case 'grep':
-            return Array.isArray(a.pattern) ? `searching for ${_plural(a.pattern.length, 'pattern')}` : `searching for ${_t(a.pattern)}`;
-        case 'glob':
-            return Array.isArray(a.pattern) ? `finding ${_plural(a.pattern.length, 'glob')}` : `finding ${_t(a.pattern)}`;
-        case 'find':
-            return `finding ${_t(a.query || 'files')}`;
-        case 'list':
-            return a.mode === 'find' ? 'finding files' : `listing ${_t(a.path || 'cwd')}`;
-        case 'code_graph':
-            if (a.symbol) return `locating ${_t(a.symbol)}`;
-            return a.file ? `mapping ${_t(a.file)}` : 'analyzing code graph';
-
-        // ── web-search module ────────────────────────────────────────────
-        case 'web_search':
-            return Array.isArray(a.query) ? `searching web (${_plural(a.query.length, 'query', 'queries')})` : `searching web for ${_t(a.query || a.keywords)}`;
-        case 'web_fetch':
-            return Array.isArray(a.url) ? `fetching ${_plural(a.url.length, 'URL')}` : `fetching ${_t(a.url)}`;
-        // Bridge tools nest their fields under `input`; the action stays at the root.
-        case 'browser':
-        case 'browser_devtools': {
-            const bi = a.input && typeof a.input === 'object' ? a.input : a;
-            return a.action === 'navigate' && bi.url
-                ? `browsing ${_t(bi.url)}`
-                : `browser ${_t(a.action || 'command')}`;
-        }
-        case 'computer': {
-            const ci = a.input && typeof a.input === 'object' ? a.input : a;
-            const target = ci.operation || ci.kind || ci.ref || ci.window_id || ci.app || '';
-            return target
-                ? `computer ${_t(a.action || 'command')} ${_t(target, 40)}`
-                : `computer ${_t(a.action || 'command')}`;
-        }
-        case 'office':
-            return a.path
-                ? `office ${_t(a.action || 'command')} ${_t(a.path)}`
-                : `office ${_t(a.action || 'command')}`;
-        case 'media':
-            return a.action === 'generate'
-                ? `generating ${_t(a.kind || 'media')}${a.path ? ` ${_t(a.path)}` : ''}`
-                : `media ${_t(a.action || 'command')}`;
-
-        // ── agent module: agent / models ─────────────────────────────────
-        case 'agent': {
-            const route = [a.preset, [a.provider, a.model].filter(Boolean).join('/')].filter(Boolean).join(' ');
-            const suffix = route ? ` (${_t(route, 32)})` : '';
-            if (a.role) return `dispatching ${_t(a.role)}${suffix}`;
-            if (a.tag) return `messaging ${_t(a.tag)}${suffix}`;
-            return 'dispatching agent';
-        }
-        case 'list_models':
-            return 'listing models';
-
-        // ── memory module ────────────────────────────────────────────────
-        case 'recall':
-            return 'recalling memory';
-        case 'memory':
-            return 'managing memory';
-
-        // ── host_input / cwd ─────────────────────────────────────────────
-        case 'inject_input':
-            return 'injecting input';
-        case 'cwd':
-            return a.action === 'set' ? 'setting cwd' : 'resolving cwd';
-
-        default:
-            return `running ${name}`;
+  const a = args || {};
+  switch (name) {
+    // ── builtin: files / shell ───────────────────────────────────────
+    case 'read':
+      return a.symbol ? `reading symbol ${_t(a.symbol)}` : `reading ${_t(a.path)}`;
+    case 'edit':
+      return `editing ${_t(a.file_path || 'file')}`;
+    case 'apply_patch':
+      return a.dry_run ? 'validating patch' : 'applying patch';
+    case 'shell':
+      return a.command ? `running ${_t(a.command)}` : 'running shell';
+    case 'git':
+      return a.command ? `running ${_t(a.command)}` : 'running git';
+    case 'task': {
+      const action = a.action || (a.task_id ? 'status' : 'list');
+      return action === 'list' ? 'listing background tasks' : `${action} task ${_t(a.task_id)}`;
     }
+    // ── builtin / code_graph: search & navigation ────────────────────
+    case 'grep':
+      return Array.isArray(a.pattern)
+        ? `searching for ${_plural(a.pattern.length, 'pattern')}`
+        : `searching for ${_t(a.pattern)}`;
+    case 'glob':
+      return Array.isArray(a.pattern) ? `finding ${_plural(a.pattern.length, 'glob')}` : `finding ${_t(a.pattern)}`;
+    case 'find':
+      return `finding ${_t(a.query || 'files')}`;
+    case 'list':
+      return a.mode === 'find' ? 'finding files' : `listing ${_t(a.path || 'cwd')}`;
+    case 'code_graph':
+      if (a.symbol) return `locating ${_t(a.symbol)}`;
+      return a.file ? `mapping ${_t(a.file)}` : 'analyzing code graph';
+
+    // ── web-search module ────────────────────────────────────────────
+    case 'web_search':
+      return Array.isArray(a.query)
+        ? `searching web (${_plural(a.query.length, 'query', 'queries')})`
+        : `searching web for ${_t(a.query || a.keywords)}`;
+    case 'web_fetch':
+      return Array.isArray(a.url) ? `fetching ${_plural(a.url.length, 'URL')}` : `fetching ${_t(a.url)}`;
+    // Bridge tools nest their fields under `input`; the action stays at the root.
+    case 'browser':
+    case 'browser_devtools': {
+      const bi = a.input && typeof a.input === 'object' ? a.input : a;
+      return a.action === 'navigate' && bi.url ? `browsing ${_t(bi.url)}` : `browser ${_t(a.action || 'command')}`;
+    }
+    case 'computer': {
+      const ci = a.input && typeof a.input === 'object' ? a.input : a;
+      const target = ci.operation || ci.kind || ci.ref || ci.window_id || ci.app || '';
+      return target
+        ? `computer ${_t(a.action || 'command')} ${_t(target, 40)}`
+        : `computer ${_t(a.action || 'command')}`;
+    }
+    case 'office':
+      return a.path ? `office ${_t(a.action || 'command')} ${_t(a.path)}` : `office ${_t(a.action || 'command')}`;
+    case 'media':
+      return a.action === 'generate'
+        ? `generating ${_t(a.kind || 'media')}${a.path ? ` ${_t(a.path)}` : ''}`
+        : `media ${_t(a.action || 'command')}`;
+
+    // ── agent module: agent / models ─────────────────────────────────
+    case 'agent': {
+      const route = [a.preset, [a.provider, a.model].filter(Boolean).join('/')].filter(Boolean).join(' ');
+      const suffix = route ? ` (${_t(route, 32)})` : '';
+      if (a.role) return `dispatching ${_t(a.role)}${suffix}`;
+      if (a.tag) return `messaging ${_t(a.tag)}${suffix}`;
+      return 'dispatching agent';
+    }
+    case 'list_models':
+      return 'listing models';
+
+    // ── memory module ────────────────────────────────────────────────
+    case 'recall':
+      return 'recalling memory';
+    case 'memory':
+      return 'managing memory';
+
+    // ── host_input / cwd ─────────────────────────────────────────────
+    case 'inject_input':
+      return 'injecting input';
+    case 'cwd':
+      return a.action === 'set' ? 'setting cwd' : 'resolving cwd';
+
+    default:
+      return `running ${name}`;
+  }
 }

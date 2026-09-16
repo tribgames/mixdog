@@ -2,14 +2,7 @@
 // (behavior-preserving): registration and revocation still acknowledge the
 // caller only once the change is on disk.
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import {
-  chmodSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { isRoutingId } from './ids.mjs';
@@ -18,8 +11,7 @@ const PROFILE_FIELD_LIMIT = 80;
 const DEFAULT_CLIENT_NAME = 'Browser';
 const HEX_HASH = /^[0-9a-f]{64}$/;
 const MAX_PAIRED_CLIENTS_PER_DEVICE = 256;
-const REGISTRABLE_DEVICE_ID =
-  /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32,64})$/;
+const REGISTRABLE_DEVICE_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32,64})$/;
 
 function sha256(value) {
   return createHash('sha256').update(String(value)).digest('hex');
@@ -65,7 +57,9 @@ export function readDeviceCredentials(request, url) {
           secret: decoded.slice(divider + 1),
         };
       }
-    } catch { /* invalid Basic authorization */ }
+    } catch {
+      /* invalid Basic authorization */
+    }
   }
   return { deviceId: '', secret: '' };
 }
@@ -97,11 +91,13 @@ export class DeviceStore {
         throw new TypeError('device store root is invalid');
       }
       for (const [id, row] of Object.entries(parsed)) {
-        if (!isRoutingId(id)
-          || !isPlainObject(row)
-          || !isHexHash(row.secretHash)
-          || (row.clientTokenHash && !isHexHash(row.clientTokenHash))
-          || (row.clients && !isPlainObject(row.clients))) {
+        if (
+          !isRoutingId(id) ||
+          !isPlainObject(row) ||
+          !isHexHash(row.secretHash) ||
+          (row.clientTokenHash && !isHexHash(row.clientTokenHash)) ||
+          (row.clients && !isPlainObject(row.clients))
+        ) {
           throw new TypeError('device store row is invalid');
         }
         if (!row.clientTokenHash) row.clientTokenHash = '';
@@ -138,7 +134,10 @@ export class DeviceStore {
   // caller only once the credential change is on disk, and a swallowed write
   // here would report success for state that reappears after a restart.
   save() {
-    if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
     const plain = Object.fromEntries(this.devices);
     const directory = dirname(this.path);
     const temporary = join(directory, `.devices-${process.pid}-${randomUUID()}.tmp`);
@@ -182,7 +181,10 @@ export class DeviceStore {
   // loop. Registration is still durable within a beat, and close() flushes.
   scheduleSave() {
     if (this.saveTimer) return;
-    this.saveTimer = setTimeout(() => { this.saveTimer = null; this.saveOrLog(); }, 250);
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.saveOrLog();
+    }, 250);
     this.saveTimer.unref?.();
   }
 
@@ -278,8 +280,7 @@ export class DeviceStore {
     const known = this.devices.get(deviceId);
     if (!known || !isRoutingId(clientId)) return null;
     known.clients ||= {};
-    if (!known.clients[clientId]
-      && Object.keys(known.clients).length >= MAX_PAIRED_CLIENTS_PER_DEVICE) return null;
+    if (!known.clients[clientId] && Object.keys(known.clients).length >= MAX_PAIRED_CLIENTS_PER_DEVICE) return null;
     const previous = known.clients[clientId];
     if (previous?.tokenHash) this.clientTokenIndex.delete(previous.tokenHash);
     const token = randomBytes(32).toString('hex');

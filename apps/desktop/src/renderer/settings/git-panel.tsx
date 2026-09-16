@@ -23,11 +23,7 @@ import {
   ExtensionSection,
   type ExtensionItemTone,
 } from './extension-detail';
-import {
-  getCachedGitPanelInfo,
-  patchCachedGitPanelInfo,
-  preloadGitPanelInfo,
-} from './git-panel-info';
+import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
 
 const CLI_DOWNLOAD_URL = 'https://cli.github.com';
 export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
@@ -66,8 +62,15 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
       setStatus(info.status);
       setAccount(info.account);
     });
-    void host?.gitGlobalConfig?.().then((next) => { if (live) setConfig(next); }).catch(() => {});
-    return () => { live = false; };
+    void host
+      ?.gitGlobalConfig?.()
+      .then((next) => {
+        if (live) setConfig(next);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
   }, [host]);
 
   // Poll the login flow while it is live; a terminal state stops the timer.
@@ -77,13 +80,21 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
     if (!flowId || (flowState !== 'pending' && flowState !== 'code')) return undefined;
     let cancelled = false;
     const timer = window.setInterval(() => {
-      void host?.githubCliLoginStatus?.(flowId).then((next) => {
-        if (cancelled || !next) return;
-        setFlow(next);
-        if (next.state === 'success') void refreshStatus();
-      }).catch(() => { /* transient; the next tick retries */ });
+      void host
+        ?.githubCliLoginStatus?.(flowId)
+        .then((next) => {
+          if (cancelled || !next) return;
+          setFlow(next);
+          if (next.state === 'success') void refreshStatus();
+        })
+        .catch(() => {
+          /* transient; the next tick retries */
+        });
     }, 1_000);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [flowId, flowState, host, refreshStatus]);
 
   // The signed-in GitHub account is the identity source of truth (user
@@ -96,14 +107,19 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
       return undefined;
     }
     let live = true;
-    void host?.githubCliAccount?.()
+    void host
+      ?.githubCliAccount?.()
       .then((next) => {
         if (!live) return;
         setAccount(next || null);
         patchCachedGitPanelInfo(host, { account: next || null });
       })
-      .catch(() => { /* the manual identity rows remain */ });
-    return () => { live = false; };
+      .catch(() => {
+        /* the manual identity rows remain */
+      });
+    return () => {
+      live = false;
+    };
   }, [authenticated, host]);
   // No Identity UI (user decision: 연동하면 자동으로): the git identity syncs
   // itself from the connected account — on a fresh machine with no identity
@@ -117,7 +133,9 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
         await host?.setGitGlobalConfig?.('user.name', account.name);
         const next = await host?.setGitGlobalConfig?.('user.email', account.email);
         if (next) setConfig(next);
-      } catch { /* git config stays as it was */ }
+      } catch {
+        /* git config stays as it was */
+      }
     })();
   }, [account, config, host]);
   useEffect(() => {
@@ -131,7 +149,9 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
         await host?.setGitGlobalConfig?.('user.name', account.name);
         const next = await host?.setGitGlobalConfig?.('user.email', account.email);
         if (next) setConfig(next);
-      } catch { /* git config stays as it was */ }
+      } catch {
+        /* git config stays as it was */
+      }
     })();
   }, [flowState, flowId, account, host]);
 
@@ -150,70 +170,134 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const loading = status === null;
   const busyAny = Boolean(busy);
   const flowLive = flowState === 'pending' || flowState === 'code';
-  const cliStatus = loading ? t('Checking…')
-    : !status?.installed ? t('Not installed')
-    : status.authenticated ? t('Connected') : t('Not connected');
-  const cliTone: ExtensionItemTone = loading ? 'muted'
-    : !status?.installed ? 'warn'
-    : status.authenticated ? 'ok' : 'off';
+  const cliStatus = loading
+    ? t('Checking…')
+    : !status?.installed
+      ? t('Not installed')
+      : status.authenticated
+        ? t('Connected')
+        : t('Not connected');
+  const cliTone: ExtensionItemTone = loading
+    ? 'muted'
+    : !status?.installed
+      ? 'warn'
+      : status.authenticated
+        ? 'ok'
+        : 'off';
 
   // Same grammar as every other Extensions card: sections of item rows whose
   // controls sit on the trailing edge, notes under them, previews as quiet
   // blocks. The settings page's Group/ResourceRow/ToggleRow primitives are
   // gone from here (user: 팝업 디자인 리뉴얼, 우리 테마에 맞게).
-  return <>
-    <ExtensionSection title={t('GitHub')}
-      description={t('The GitHub CLI (gh) powers pull requests and repository actions. Connecting signs it in and authors your commits with this account.')}>
-      <ExtensionItemList>
-        <ExtensionItemRow title="GitHub CLI"
-          description={status?.installed ? `gh ${status.version || ''}`.trim() : undefined}
-          status={cliStatus} tone={cliTone}
-          control={<>
-            {!loading && !status?.installed && <ExtensionAction disabled={busyAny}
-              onClick={() => act('install', () => host?.installGithubCli?.()
-                .then((next) => {
-                  setStatus(next);
-                  patchCachedGitPanelInfo(host, { status: next });
-                }))}>
-              {busy === 'install' ? t('Installing…') : t('Install')}
-            </ExtensionAction>}
-            {!loading && !status?.installed && <ExtensionAction disabled={busyAny}
-              onClick={() => open(CLI_DOWNLOAD_URL)}>{t('Download ↗')}</ExtensionAction>}
-            {status?.installed && !status.authenticated && !flowLive &&
-              <ExtensionAction disabled={busyAny} onClick={() => act('connect', () =>
-                host?.githubCliLoginStart?.().then((started) => { if (started) setFlow(started); }),
-              )}>{t('Connect')}</ExtensionAction>}
-            {flowLive && <ExtensionAction danger disabled={busyAny} onClick={() => {
-              const id = flowId;
-              setFlow(null);
-              act('cancel', () => host?.githubCliLoginCancel?.(id));
-            }}>{t('Cancel')}</ExtensionAction>}
-            {status?.authenticated && <ExtensionAction danger disabled={busyAny}
-              onClick={() => act('logout', () => host?.githubCliLogout?.()
-                .then((next) => {
-                  setStatus(next);
-                  setFlow(null);
-                  patchCachedGitPanelInfo(host, { status: next, account: null });
-                }))}>
-              {busy === 'logout' ? t('Disconnecting…') : t('Disconnect')}
-            </ExtensionAction>}
-          </>} />
-        {status?.authenticated && (account || status.login) &&
-          <ExtensionItemRow title={t('Account')}
-            description={account ? `${account.name} <${account.email}>` : status.login || ''} />}
-      </ExtensionItemList>
-      {flowLive && <ExtensionNote role="status">
-        {flow?.code
-          ? <>
-            {t('Enter this code at github.com/login/device — the browser should open by itself.')}
-            {' '}<code><b>{flow.code}</b></code>{' '}
-            <ExtensionAction onClick={() => open(flow.url || 'https://github.com/login/device')}>
-              {t('Open github.com ↗')}
-            </ExtensionAction>
-          </>
-          : t('Starting GitHub sign-in…')}
-      </ExtensionNote>}
-      {flowState === 'error' && <ErrorNotice error={flow?.message || t('Sign-in failed')} />}
-    </ExtensionSection>
-  </>;
+  return (
+    <>
+      <ExtensionSection
+        title={t('GitHub')}
+        description={t(
+          'The GitHub CLI (gh) powers pull requests and repository actions. Connecting signs it in and authors your commits with this account.'
+        )}
+      >
+        <ExtensionItemList>
+          <ExtensionItemRow
+            title="GitHub CLI"
+            description={status?.installed ? `gh ${status.version || ''}`.trim() : undefined}
+            status={cliStatus}
+            tone={cliTone}
+            control={
+              <>
+                {!loading && !status?.installed && (
+                  <ExtensionAction
+                    disabled={busyAny}
+                    onClick={() =>
+                      act('install', () =>
+                        host?.installGithubCli?.().then((next) => {
+                          setStatus(next);
+                          patchCachedGitPanelInfo(host, { status: next });
+                        })
+                      )
+                    }
+                  >
+                    {busy === 'install' ? t('Installing…') : t('Install')}
+                  </ExtensionAction>
+                )}
+                {!loading && !status?.installed && (
+                  <ExtensionAction disabled={busyAny} onClick={() => open(CLI_DOWNLOAD_URL)}>
+                    {t('Download ↗')}
+                  </ExtensionAction>
+                )}
+                {status?.installed && !status.authenticated && !flowLive && (
+                  <ExtensionAction
+                    disabled={busyAny}
+                    onClick={() =>
+                      act('connect', () =>
+                        host?.githubCliLoginStart?.().then((started) => {
+                          if (started) setFlow(started);
+                        })
+                      )
+                    }
+                  >
+                    {t('Connect')}
+                  </ExtensionAction>
+                )}
+                {flowLive && (
+                  <ExtensionAction
+                    danger
+                    disabled={busyAny}
+                    onClick={() => {
+                      const id = flowId;
+                      setFlow(null);
+                      act('cancel', () => host?.githubCliLoginCancel?.(id));
+                    }}
+                  >
+                    {t('Cancel')}
+                  </ExtensionAction>
+                )}
+                {status?.authenticated && (
+                  <ExtensionAction
+                    danger
+                    disabled={busyAny}
+                    onClick={() =>
+                      act('logout', () =>
+                        host?.githubCliLogout?.().then((next) => {
+                          setStatus(next);
+                          setFlow(null);
+                          patchCachedGitPanelInfo(host, { status: next, account: null });
+                        })
+                      )
+                    }
+                  >
+                    {busy === 'logout' ? t('Disconnecting…') : t('Disconnect')}
+                  </ExtensionAction>
+                )}
+              </>
+            }
+          />
+          {status?.authenticated && (account || status.login) && (
+            <ExtensionItemRow
+              title={t('Account')}
+              description={account ? `${account.name} <${account.email}>` : status.login || ''}
+            />
+          )}
+        </ExtensionItemList>
+        {flowLive && (
+          <ExtensionNote role="status">
+            {flow?.code ? (
+              <>
+                {t('Enter this code at github.com/login/device — the browser should open by itself.')}{' '}
+                <code>
+                  <b>{flow.code}</b>
+                </code>{' '}
+                <ExtensionAction onClick={() => open(flow.url || 'https://github.com/login/device')}>
+                  {t('Open github.com ↗')}
+                </ExtensionAction>
+              </>
+            ) : (
+              t('Starting GitHub sign-in…')
+            )}
+          </ExtensionNote>
+        )}
+        {flowState === 'error' && <ErrorNotice error={flow?.message || t('Sign-in failed')} />}
+      </ExtensionSection>
+    </>
+  );
 }

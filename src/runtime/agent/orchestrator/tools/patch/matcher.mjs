@@ -95,14 +95,14 @@ export function assertSafeReplacementPlan(replacements, label = 'apply_patch') {
     if (cur.start === prev.start) {
       if (prev.oldLen === 0 && cur.oldLen === 0) continue;
       throw new Error(
-        `${label}: two hunks resolve to the same position (line ${cur.start + 1}) and at least one of them replaces existing lines; `
-        + 'widen their context or split them into separate patches.',
+        `${label}: two hunks resolve to the same position (line ${cur.start + 1}) and at least one of them replaces existing lines; ` +
+          'widen their context or split them into separate patches.'
       );
     }
     if (cur.start < prevEnd) {
       throw new Error(
-        `${label}: hunks overlap — line ${cur.start + 1} falls inside lines ${prev.start + 1}-${prevEnd} already replaced by an earlier hunk; `
-        + 'widen their context or split them into separate patches.',
+        `${label}: hunks overlap — line ${cur.start + 1} falls inside lines ${prev.start + 1}-${prevEnd} already replaced by an earlier hunk; ` +
+          'widen their context or split them into separate patches.'
       );
     }
   }
@@ -147,7 +147,8 @@ export function firstFailingUnifiedHunkLineDetail(sourceLines, hunk) {
   };
   const prefixDepth = (start) => {
     let d = 0;
-    while (d < oldLines.length && start + d < sourceLines.length && lineEq(sourceLines[start + d], oldLines[d].line)) d += 1;
+    while (d < oldLines.length && start + d < sourceLines.length && lineEq(sourceLines[start + d], oldLines[d].line))
+      d += 1;
     return d;
   };
   const declared = Math.max(0, (Number(hunk?.oldStart) || 1) - 1);
@@ -224,13 +225,13 @@ const UTF16_MIN_NUL_RATIO = 0.5;
 export function detectPatchTargetCodec(buf, { partial = false } = {}) {
   const bytes = Buffer.isBuffer(buf) ? buf : Buffer.from(buf || []);
   const undecidable = { encoding: null, bomLen: 0, certain: false };
-  if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
     return { encoding: 'utf16le', bomLen: 2, certain: true };
   }
-  if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
     return { encoding: 'utf16be', bomLen: 2, certain: true };
   }
-  if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
     return { encoding: 'utf8', bomLen: 3, certain: true };
   }
   let nulEven = 0;
@@ -258,8 +259,8 @@ export function decodePatchTargetBuffer(buf, displayPath = '') {
   const enc = detectPatchTargetCodec(buf);
   if (!enc.certain) {
     throw new Error(
-      `apply_patch: ${normalizeOutputPath(displayPath)} has NUL bytes without a decidable text encoding — `
-      + 'refusing to rewrite it, because any codec choice would corrupt the file.',
+      `apply_patch: ${normalizeOutputPath(displayPath)} has NUL bytes without a decidable text encoding — ` +
+        'refusing to rewrite it, because any codec choice would corrupt the file.'
     );
   }
   let text;
@@ -269,21 +270,22 @@ export function decodePatchTargetBuffer(buf, displayPath = '') {
     // silent data loss. Refuse the file exactly like invalid UTF-8.
     if (body.length % 2 !== 0) {
       throw new Error(
-        `apply_patch: ${normalizeOutputPath(displayPath)} is malformed UTF-16 (odd payload length) — `
-        + 'refusing to rewrite it, because the dangling byte cannot be preserved.',
+        `apply_patch: ${normalizeOutputPath(displayPath)} is malformed UTF-16 (odd payload length) — ` +
+          'refusing to rewrite it, because the dangling byte cannot be preserved.'
       );
     }
-    text = enc.encoding === 'utf16le'
-      ? body.toString('utf16le')
-      // Node has no 'utf16be': swap pairs into LE and decode.
-      : Buffer.from(body).swap16().toString('utf16le');
+    text =
+      enc.encoding === 'utf16le'
+        ? body.toString('utf16le')
+        : // Node has no 'utf16be': swap pairs into LE and decode.
+          Buffer.from(body).swap16().toString('utf16le');
   } else {
     text = decodeValidUtf8OrNull(buf.subarray(enc.bomLen));
   }
   if (typeof text !== 'string') {
     throw new Error(
-      `apply_patch: ${normalizeOutputPath(displayPath)} is neither valid UTF-8 nor BOM-marked UTF-16 — `
-      + 'refusing to rewrite it, because the edit would transcode every byte.',
+      `apply_patch: ${normalizeOutputPath(displayPath)} is neither valid UTF-8 nor BOM-marked UTF-16 — ` +
+        'refusing to rewrite it, because the edit would transcode every byte.'
     );
   }
   return { text, enc };
@@ -327,15 +329,19 @@ export function patchTargetUsesUtf16(fullPath) {
 // Plain UTF-8 stays a string so atomicWrite keeps its existing fast path.
 export function encodePatchTargetContent(text, enc) {
   if (!enc || (enc.encoding === 'utf8' && !enc.bomLen)) return text;
-  const body = enc.encoding === 'utf16le'
-    ? Buffer.from(text, 'utf16le')
-    : (enc.encoding === 'utf16be'
-      ? Buffer.from(text, 'utf16le').swap16()
-      : Buffer.from(text, 'utf8'));
+  const body =
+    enc.encoding === 'utf16le'
+      ? Buffer.from(text, 'utf16le')
+      : enc.encoding === 'utf16be'
+        ? Buffer.from(text, 'utf16le').swap16()
+        : Buffer.from(text, 'utf8');
   if (!enc.bomLen) return body;
-  const bom = enc.encoding === 'utf16le'
-    ? Buffer.from([0xFF, 0xFE])
-    : (enc.encoding === 'utf16be' ? Buffer.from([0xFE, 0xFF]) : Buffer.from([0xEF, 0xBB, 0xBF]));
+  const bom =
+    enc.encoding === 'utf16le'
+      ? Buffer.from([0xff, 0xfe])
+      : enc.encoding === 'utf16be'
+        ? Buffer.from([0xfe, 0xff])
+        : Buffer.from([0xef, 0xbb, 0xbf]);
   return Buffer.concat([bom, body]);
 }
 
@@ -356,21 +362,24 @@ export function unifiedOldLinesMatchAt(sourceLines, oldLines, startIdx, fuzz, ba
     // file's LAST line encodes it with the default "has newline" unless the
     // patch carries a `\ No newline at end of file` marker, so that single
     // EOF mismatch is tolerated for the hunk's last old line only.
-    const newlineOk = expectedNL === actualNL
-      || (offset + 1 === oldLines.length && actualIdx === lastSrcIdx && expectedNL && !actualNL);
+    const newlineOk =
+      expectedNL === actualNL ||
+      (offset + 1 === oldLines.length && actualIdx === lastSrcIdx && expectedNL && !actualNL);
     if (newlineOk && actualBytes.equals(expectedBytes)) continue;
-    if (newlineOk && fuzz > 0 && (expected.tag === ' ' || expected.tag === '-') && byteTrimPatchWhitespace(actualBytes).equals(byteTrimPatchWhitespace(expectedBytes))) continue;
     if (
-      newlineOk
-      && fuzz > 0
-      && (expected.tag === ' ' || expected.tag === '-')
-    ) {
+      newlineOk &&
+      fuzz > 0 &&
+      (expected.tag === ' ' || expected.tag === '-') &&
+      byteTrimPatchWhitespace(actualBytes).equals(byteTrimPatchWhitespace(expectedBytes))
+    )
+      continue;
+    if (newlineOk && fuzz > 0 && (expected.tag === ' ' || expected.tag === '-')) {
       const actualStr = decodeValidUtf8OrNull(actualBytes);
       const expectedStr = actualStr === null ? null : decodeValidUtf8OrNull(expectedBytes);
       if (
-        actualStr !== null
-        && expectedStr !== null
-        && normalizeTypographic(actualStr) === normalizeTypographic(expectedStr)
+        actualStr !== null &&
+        expectedStr !== null &&
+        normalizeTypographic(actualStr) === normalizeTypographic(expectedStr)
       ) {
         normCount++;
         continue;
@@ -378,9 +387,8 @@ export function unifiedOldLinesMatchAt(sourceLines, oldLines, startIdx, fuzz, ba
     }
     if (fuzz > 0 && expected.tag === ' ') {
       const ctxPos = (offset + 1) * 2;
-      const isOuter = (!band || band.first === null || band.last === null)
-        ? true
-        : (ctxPos < band.first || ctxPos > band.last);
+      const isOuter =
+        !band || band.first === null || band.last === null ? true : ctxPos < band.first || ctxPos > band.last;
       if (!isOuter) return null;
       fuzzUsed++;
       if (fuzzUsed <= fuzz) continue;
@@ -481,7 +489,8 @@ export function nativeFailureMatchesEntry(entry, failedPath) {
 }
 
 // --- typographic normalization + line splitters ------------------------------
-const RUST_WS = '\\u0009\\u000A\\u000B\\u000C\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000';
+const RUST_WS =
+  '\\u0009\\u000A\\u000B\\u000C\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000';
 const RUST_TRIM_RE = new RegExp(`^[${RUST_WS}]+|[${RUST_WS}]+$`, 'g');
 function rustTrim(s) {
   return s.replace(RUST_TRIM_RE, '');
@@ -553,9 +562,7 @@ export function cloneTextLinesForPatch(sourceLines, eol) {
   const lines = [...(sourceLines || [])];
   lines.hasFinalNewline = sourceLines?.hasFinalNewline !== false;
   lines.eol = eol || sourceLines?.eol || '\n';
-  lines.terminators = Array.isArray(sourceLines?.terminators)
-    ? [...sourceLines.terminators]
-    : null;
+  lines.terminators = Array.isArray(sourceLines?.terminators) ? [...sourceLines.terminators] : null;
   return lines;
 }
 
@@ -572,9 +579,9 @@ export function cloneTextLinesForPatch(sourceLines, eol) {
 //             else the local convention.
 export function terminatorsForUnifiedOps(ops, oldTerminators, fallbackEol = '\n') {
   const olds = Array.isArray(oldTerminators) ? oldTerminators : [];
-  const entries = (ops || []).map((entry) => (typeof entry === 'string'
-    ? { op: entry, line: undefined }
-    : { op: entry?.op, line: entry?.line }));
+  const entries = (ops || []).map((entry) =>
+    typeof entry === 'string' ? { op: entry, line: undefined } : { op: entry?.op, line: entry?.line }
+  );
   // Pre-pass: EVERY delete of the hunk with the terminator of the source line
   // it consumes, tagged with its run. Building the pool as we walk only saw
   // deletes already passed, so a BACKWARD move (the add precedes its delete)
@@ -584,8 +591,10 @@ export function terminatorsForUnifiedOps(ops, oldTerminators, fallbackEol = '\n'
     let cursor = 0;
     let run = 0;
     for (const entry of entries) {
-      if (entry.op === 'context') { cursor += 1; run += 1; }
-      else if (entry.op === 'delete') {
+      if (entry.op === 'context') {
+        cursor += 1;
+        run += 1;
+      } else if (entry.op === 'delete') {
         pool.push({ line: entry.line, terminator: olds[cursor], used: false, run });
         cursor += 1;
       }
@@ -635,11 +644,9 @@ export function localTerminatorForWindow(lines, start, oldLen) {
   const terms = lines?.terminators;
   if (!Array.isArray(terms)) return lines?.eol || '\n';
   const replaced = terms.slice(start, start + oldLen);
-  return (replaced.length ? replaced[replaced.length - 1] : '')
-    || terms[start - 1]
-    || terms[start]
-    || lines.eol
-    || '\n';
+  return (
+    (replaced.length ? replaced[replaced.length - 1] : '') || terms[start - 1] || terms[start] || lines.eol || '\n'
+  );
 }
 
 export function spliceTextLinesForPatch(lines, start, oldLen, newLines, newTerminators = null) {
@@ -648,18 +655,14 @@ export function spliceTextLinesForPatch(lines, start, oldLen, newLines, newTermi
     const replacedTerms = terms.slice(start, start + oldLen);
     const replacedLines = lines.slice(start, start + oldLen);
     const local = localTerminatorForWindow(lines, start, oldLen);
-    const explicit = Array.isArray(newTerminators) && newTerminators.length === newLines.length
-      ? newTerminators
-      : null;
+    const explicit = Array.isArray(newTerminators) && newTerminators.length === newLines.length ? newTerminators : null;
     const nextTerms = newLines.map((line, k) => {
       if (explicit) return explicit[k] !== undefined ? explicit[k] : local;
       // No op information (a caller that cannot describe its edit): keep a
       // terminator ONLY for an output line that is byte-identical to the
       // source line at the same offset; everything else takes the local
       // convention. Never guess across offsets.
-      return (replacedLines[k] === line && replacedTerms[k] !== undefined)
-        ? replacedTerms[k]
-        : local;
+      return replacedLines[k] === line && replacedTerms[k] !== undefined ? replacedTerms[k] : local;
     });
     terms.splice(start, oldLen, ...nextTerms);
   }
@@ -682,9 +685,7 @@ export function setFinalNewlineForPatch(lines, hasNewline) {
 export function joinTextLinesForPatch(lines) {
   const arr = lines || [];
   const eol = arr.eol || '\n';
-  const terms = Array.isArray(arr.terminators) && arr.terminators.length === arr.length
-    ? arr.terminators
-    : null;
+  const terms = Array.isArray(arr.terminators) && arr.terminators.length === arr.length ? arr.terminators : null;
   if (!terms) {
     const body = arr.join(eol);
     return arr.hasFinalNewline !== false ? `${body}${eol}` : body;
@@ -761,7 +762,9 @@ export function longestCommonSubstringLen(a, b, cap = 4000) {
       curr[j] = ca === B.charCodeAt(j - 1) ? prev[j - 1] + 1 : 0;
       if (curr[j] > best) best = curr[j];
     }
-    const tmp = prev; prev = curr; curr = tmp;
+    const tmp = prev;
+    prev = curr;
+    curr = tmp;
     curr.fill(0);
   }
   return best;
@@ -797,7 +800,9 @@ export function boundedEditDistance(a, b, max) {
       if (value < rowMin) rowMin = value;
     }
     if (rowMin > max) return max + 1;
-    const tmp = prev; prev = curr; curr = tmp;
+    const tmp = prev;
+    prev = curr;
+    curr = tmp;
   }
   return prev[m] > max ? max + 1 : prev[m];
 }
@@ -813,22 +818,23 @@ export function findLineSequence(lines, needle, fromLine, preferredLine = 0, opt
   const fuzzy = options && options.fuzzy === false ? false : true;
   const tiers = fuzzy
     ? [
-      (a, b) => a === b,
-      (a, b) => a.replace(/\s+$/, '') === b.replace(/\s+$/, ''),
-      (a, b) => a.trim() === b.trim(),
-      (a, b) => a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim(),
-      (a, b) => normalizeTypographic(a) === normalizeTypographic(b),
-    ]
-    : [
-      (a, b) => a === b,
-    ];
+        (a, b) => a === b,
+        (a, b) => a.replace(/\s+$/, '') === b.replace(/\s+$/, ''),
+        (a, b) => a.trim() === b.trim(),
+        (a, b) => a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim(),
+        (a, b) => normalizeTypographic(a) === normalizeTypographic(b),
+      ]
+    : [(a, b) => a === b];
   for (let tierIdx = 0; tierIdx < tiers.length; tierIdx++) {
     const eq = tiers[tierIdx];
     const starts = [];
     for (let i = minStart; i <= lines.length - needle.length; i++) {
       let ok = true;
       for (let k = 0; k < needle.length; k++) {
-        if (!eq(lines[i + k], needle[k])) { ok = false; break; }
+        if (!eq(lines[i + k], needle[k])) {
+          ok = false;
+          break;
+        }
       }
       if (ok) starts.push(i);
     }
@@ -854,26 +860,38 @@ export function findLineSequence(lines, needle, fromLine, preferredLine = 0, opt
     for (let i = 0; i + needle.length <= lines.length && starts.length < 2; i++) {
       let ok = true;
       for (let k = 0; k < needle.length; k++) {
-        if (lines[i + k] !== needle[k]) { ok = false; break; }
+        if (lines[i + k] !== needle[k]) {
+          ok = false;
+          break;
+        }
       }
       if (ok) starts.push(i);
     }
     if (starts.length === 1) return starts[0];
   }
   if (fuzzy && needle.length === 1) {
-    const want = String(needle[0] ?? '').replace(/\s+/g, ' ').trim();
+    const want = String(needle[0] ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
     if (want.length >= 40) {
       const minLcs = Math.max(40, Math.floor(want.length / 2));
       let bestIdx = -1;
       let bestLcs = 0;
       let bestTies = 0;
       for (let i = minStart; i < lines.length; i++) {
-        const cand = String(lines[i] ?? '').replace(/\s+/g, ' ').trim();
+        const cand = String(lines[i] ?? '')
+          .replace(/\s+/g, ' ')
+          .trim();
         if (cand.length === 0) continue;
         const lcs = longestCommonSubstringLen(cand, want);
         if (lcs < minLcs) continue;
-        if (lcs > bestLcs) { bestLcs = lcs; bestIdx = i; bestTies = 1; }
-        else if (lcs === bestLcs) { bestTies++; }
+        if (lcs > bestLcs) {
+          bestLcs = lcs;
+          bestIdx = i;
+          bestTies = 1;
+        } else if (lcs === bestLcs) {
+          bestTies++;
+        }
       }
       if (bestIdx >= 0 && bestTies === 1) return bestIdx;
     }
@@ -891,9 +909,7 @@ function escapeNonAsciiForPatch(line) {
   let out = '';
   for (let i = 0; i < s.length; i++) {
     const code = s.charCodeAt(i);
-    out += code > 0x7f
-      ? String.fromCharCode(92) + 'u' + code.toString(16).padStart(4, '0')
-      : s[i];
+    out += code > 0x7f ? String.fromCharCode(92) + 'u' + code.toString(16).padStart(4, '0') : s[i];
   }
   return out;
 }
@@ -908,7 +924,10 @@ export function findLineSequenceEscapeEquiv(sourceLines, pattern, minStart, pref
       const pat = pattern[k];
       const src = sourceLines[i + k];
       if (src === pat) continue;
-      if (src === escapeNonAsciiForPatch(pat)) { usedEquiv = true; continue; }
+      if (src === escapeNonAsciiForPatch(pat)) {
+        usedEquiv = true;
+        continue;
+      }
       continue outer;
     }
     if (usedEquiv) starts.push(i);
@@ -921,8 +940,12 @@ export function firstMeaningfulPatchLine(lines) {
 }
 
 function scoreSimilarPatchLine(candidate, target) {
-  const cand = String(candidate ?? '').trim().replace(/\s+/g, ' ');
-  const want = String(target ?? '').trim().replace(/\s+/g, ' ');
+  const cand = String(candidate ?? '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  const want = String(target ?? '')
+    .trim()
+    .replace(/\s+/g, ' ');
   if (!cand || !want) return 0;
   if (cand === want) return 100000;
   let score = 0;
@@ -947,7 +970,7 @@ export function nearestPatchLineMatch(sourceLines, expectedLine, preferredLine) 
   let best = null;
   const preferred = Number.isFinite(preferredLine) && preferredLine >= 0 ? preferredLine : 0;
   for (let i = 0; i < sourceLines.length; i++) {
-    const score = scoreSimilarPatchLine(sourceLines[i], expected) - (Math.abs(i - preferred) * 0.01);
+    const score = scoreSimilarPatchLine(sourceLines[i], expected) - Math.abs(i - preferred) * 0.01;
     if (!best || score > best.score) best = { score, index: i, line: sourceLines[i] };
   }
   if (!best || best.score <= 0) return null;

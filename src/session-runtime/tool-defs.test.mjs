@@ -33,18 +33,23 @@ test('only admitted tool names from the optional modules reach the session surfa
   const names = named(collect());
 
   assert.deepEqual(names, [
-    'load_tool', 'Skill', 'cwd',
+    'load_tool',
+    'Skill',
+    'cwd',
     'web_search',
-    'memory', 'recall',
+    'memory',
+    'recall',
     'channel',
     'code_graph',
-    'browser', 'browser_devtools',
+    'browser',
+    'browser_devtools',
     'computer',
     'office',
     'media',
     'setup',
     'get_goal',
-    'agent', 'task',
+    'agent',
+    'task',
   ]);
 });
 
@@ -52,25 +57,28 @@ test('non-public web-search tools are callable internally but never advertised',
   const result = collect();
 
   assert.equal(named(result).includes('image_fetch'), false);
-  assert.equal(result.internalToolDefs.some((tool) => tool.name === 'image_fetch'), true);
-  // The internal set is a superset: every model-facing tool stays callable.
-  assert.deepEqual(
-    result.internalToolDefs.slice(0, result.standaloneTools.length),
-    result.standaloneTools,
+  assert.equal(
+    result.internalToolDefs.some((tool) => tool.name === 'image_fetch'),
+    true
   );
+  // The internal set is a superset: every model-facing tool stays callable.
+  assert.deepEqual(result.internalToolDefs.slice(0, result.standaloneTools.length), result.standaloneTools);
 });
 
 test('a missing optional tool-def module contributes nothing', () => {
-  const names = named(collect({
-    webSearchToolDefs: null,
-    memoryToolDefs: null,
-    channelToolDefs: null,
-    codeGraphToolDefs: null,
-  }));
+  const names = named(
+    collect({
+      webSearchToolDefs: null,
+      memoryToolDefs: null,
+      channelToolDefs: null,
+      codeGraphToolDefs: null,
+    })
+  );
 
-  assert.deepEqual(names.filter((name) => (
-    ['web_search', 'memory', 'recall', 'channel', 'code_graph'].includes(name)
-  )), []);
+  assert.deepEqual(
+    names.filter((name) => ['web_search', 'memory', 'recall', 'channel', 'code_graph'].includes(name)),
+    []
+  );
   assert.equal(names.includes('load_tool'), true);
 });
 

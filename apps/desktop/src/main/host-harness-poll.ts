@@ -25,7 +25,7 @@ export function createPolling(defaults: PollingDefaults) {
   async function eventually<T>(
     operation: () => Promise<T>,
     accept: (value: T) => boolean,
-    timeoutMs = defaults.timeoutMs,
+    timeoutMs = defaults.timeoutMs
   ): Promise<T> {
     const startedAt = Date.now();
     let latest = await operation();
@@ -48,7 +48,7 @@ export function createPolling(defaults: PollingDefaults) {
         }
       },
       (value) => Number.isInteger(value.port) && value.port > 0 && Boolean(value.token),
-      timeoutMs,
+      timeoutMs
     );
   }
 

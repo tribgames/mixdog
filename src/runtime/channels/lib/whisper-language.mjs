@@ -1,25 +1,26 @@
-// Whisper transcription language detection. Extracted verbatim from
-// channels/index.mjs (behavior-preserving). Module-scoped memoization of the
-// resolved device language mirrors the original file-level `let`.
+// Whisper transcription language detection. Module-scoped memoization of the
+// resolved device language mirrors a file-level `let`.
 let resolvedWhisperLanguage = null;
 
 function normalizeWhisperLanguage(value) {
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (!raw || raw === "auto") return null;
+  const raw = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (!raw || raw === 'auto') return null;
   // POSIX pseudo-locales (LANG=C / C.UTF-8 / POSIX) carry no language signal;
   // treating them as a language poisoned detection ('c.utf-8' reached whisper
   // and blocked the ko-KR Intl fallback from ever being consulted).
-  if (raw === "c" || raw === "posix" || raw.startsWith("c.") || raw.startsWith("posix.")) return null;
-  if (raw.startsWith("ko")) return "ko";
-  if (raw.startsWith("ja")) return "ja";
-  if (raw.startsWith("en")) return "en";
-  if (raw.startsWith("zh")) return "zh";
-  if (raw.startsWith("de")) return "de";
-  if (raw.startsWith("fr")) return "fr";
-  if (raw.startsWith("es")) return "es";
-  if (raw.startsWith("it")) return "it";
-  if (raw.startsWith("pt")) return "pt";
-  if (raw.startsWith("ru")) return "ru";
+  if (raw === 'c' || raw === 'posix' || raw.startsWith('c.') || raw.startsWith('posix.')) return null;
+  if (raw.startsWith('ko')) return 'ko';
+  if (raw.startsWith('ja')) return 'ja';
+  if (raw.startsWith('en')) return 'en';
+  if (raw.startsWith('zh')) return 'zh';
+  if (raw.startsWith('de')) return 'de';
+  if (raw.startsWith('fr')) return 'fr';
+  if (raw.startsWith('es')) return 'es';
+  if (raw.startsWith('it')) return 'it';
+  if (raw.startsWith('pt')) return 'pt';
+  if (raw.startsWith('ru')) return 'ru';
   return raw;
 }
 
@@ -30,7 +31,7 @@ function detectDeviceLanguage() {
     process.env.LC_ALL,
     process.env.LC_MESSAGES,
     process.env.LANG,
-    Intl.DateTimeFormat().resolvedOptions().locale
+    Intl.DateTimeFormat().resolvedOptions().locale,
   ];
   for (const candidate of candidates) {
     const normalized = normalizeWhisperLanguage(candidate);
@@ -39,7 +40,7 @@ function detectDeviceLanguage() {
       return normalized;
     }
   }
-  resolvedWhisperLanguage = "auto";
+  resolvedWhisperLanguage = 'auto';
   return resolvedWhisperLanguage;
 }
 

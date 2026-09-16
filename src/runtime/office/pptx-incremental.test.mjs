@@ -19,7 +19,10 @@ async function fixture(t) {
     return value(raw);
   };
   const authored = await office({
-    action: 'author', path: join(cwd, 'incremental.pptx'), mode: 'portable', render: false,
+    action: 'author',
+    path: join(cwd, 'incremental.pptx'),
+    mode: 'portable',
+    render: false,
     script: `const P = require('pptxgenjs'); const p = new P(); p.layout = 'LAYOUT_WIDE';
       for (const text of ['Revenue', 'Growth', 'Spending']) {
         const s = p.addSlide();
@@ -29,11 +32,16 @@ async function fixture(t) {
       await p.writeFile({fileName:OUTPUT});`,
   });
   const session = sessions.get(authored.session);
-  t.after(async () => { if (sessions.has(session.id)) await office({ action: 'close', session: session.id }); });
+  t.after(async () => {
+    if (sessions.has(session.id)) await office({ action: 'close', session: session.id });
+  });
   let exports = 0;
   const rasterCalls = [];
   const adapters = {
-    exportPreview: async (_, output) => { exports++; await writeFile(output, 'pdf'); },
+    exportPreview: async (_, output) => {
+      exports++;
+      await writeFile(output, 'pdf');
+    },
     rasterize: async (output, { pages }) => {
       rasterCalls.push(pages);
       const images = [];
@@ -58,9 +66,11 @@ test('one stable-ID edit rasterizes only its page; detail reads restore complete
   const first = await renderOfficePreview(f.session, {}, f.cwd, f.adapters);
   const snapshot = await snapshotPortableOoxml(f.session.target, 'pptx');
   const slide = snapshot.slides[1];
-  await f.office({ action: 'batch', session: f.session.id, operations: [
-    { op: 'set_text', slideId: slide.slideId, shapeId: slide.shapes[0].shapeId, text: 'Updated growth' },
-  ] });
+  await f.office({
+    action: 'batch',
+    session: f.session.id,
+    operations: [{ op: 'set_text', slideId: slide.slideId, shapeId: slide.shapes[0].shapeId, text: 'Updated growth' }],
+  });
   assert.equal(f.session.designState.renderedVersion, null);
   const changed = await renderOfficePreview(f.session, { pages: [2] }, f.cwd, f.adapters);
   assert.deepEqual(changed.changedPages, [2]);
@@ -80,46 +90,73 @@ test('stable IDs survive reordering, reject conflicts, and transaction rollback 
   const before = await snapshotPortableOoxml(f.session.target, 'pptx');
   const target = before.slides[1];
   await f.office({ action: 'begin', session: f.session.id });
-  await f.office({ action: 'batch', session: f.session.id, operations: [
-    { op: 'move_slide', slide: 2, index: 1 },
-    { op: 'set_text', slideId: target.slideId, shapeId: target.shapes[0].shapeId, text: 'Selected by ID' },
-  ] });
+  await f.office({
+    action: 'batch',
+    session: f.session.id,
+    operations: [
+      { op: 'move_slide', slide: 2, index: 1 },
+      { op: 'set_text', slideId: target.slideId, shapeId: target.shapes[0].shapeId, text: 'Selected by ID' },
+    ],
+  });
   const after = await snapshotPortableOoxml(f.session.target, 'pptx');
   assert.equal(after.slides[0].slideId, target.slideId);
   assert.equal(after.slides[0].shapes[0].text, 'Selected by ID');
-  await assert.rejects(f.office({ action: 'batch', session: f.session.id, operations: [
-    { op: 'set_text', slide: 3, slideId: target.slideId, shapeId: target.shapes[0].shapeId, text: 'Wrong' },
-  ] }), /different pages/);
+  await assert.rejects(
+    f.office({
+      action: 'batch',
+      session: f.session.id,
+      operations: [
+        { op: 'set_text', slide: 3, slideId: target.slideId, shapeId: target.shapes[0].shapeId, text: 'Wrong' },
+      ],
+    }),
+    /different pages/
+  );
   await f.office({ action: 'rollback', session: f.session.id });
   const restored = await snapshotPortableOoxml(f.session.target, 'pptx');
-  assert.deepEqual(restored.slides.map((slide) => slide.text), before.slides.map((slide) => slide.text));
+  assert.deepEqual(
+    restored.slides.map((slide) => slide.text),
+    before.slides.map((slide) => slide.text)
+  );
 });
 
 test('a hidden slide owns no exported page, so rendering the deck stays in range', async (t) => {
   const cwd = await workspace(t);
   const target = join(cwd, 'appendix.pptx');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path: target,
-    format: 'pptx',
-    mode: 'portable',
-    operations: [
-      { op: 'add_slide' },
-      { op: 'add_textbox', slide: 1, text: 'Body', left: 60, top: 60, width: 400, height: 60 },
-      { op: 'add_slide' },
-      { op: 'add_textbox', slide: 2, text: 'Appendix', left: 60, top: 60, width: 400, height: 60 },
-    ],
-  }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: target,
+        format: 'pptx',
+        mode: 'portable',
+        operations: [
+          { op: 'add_slide' },
+          { op: 'add_textbox', slide: 1, text: 'Body', left: 60, top: 60, width: 400, height: 60 },
+          { op: 'add_slide' },
+          { op: 'add_textbox', slide: 2, text: 'Appendix', left: 60, top: 60, width: 400, height: 60 },
+        ],
+      },
+      { cwd }
+    )
+  );
   const before = await pptxPageSignatures(target);
   assert.equal(before.length, 2);
-  value(await executeOfficeTool({
-    action: 'batch',
-    session: created.session,
-    operations: [{ op: 'set_slide_visibility', slide: 2, visible: false }],
-  }, { cwd }));
+  value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: created.session,
+        operations: [{ op: 'set_slide_visibility', slide: 2, visible: false }],
+      },
+      { cwd }
+    )
+  );
   const after = await pptxPageSignatures(target);
   assert.equal(after.length, 1, 'the hidden slide must not claim a rendered page');
-  assert.deepEqual(after.map((entry) => entry.page), [1]);
+  assert.deepEqual(
+    after.map((entry) => entry.page),
+    [1]
+  );
   assert.equal(after[0].slideId, before[0].slideId);
   value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
 });
@@ -127,16 +164,25 @@ test('a hidden slide owns no exported page, so rendering the deck stays in range
 test('a Word run can be hidden, and hidden text is neither audited nor read as body copy', async (t) => {
   const cwd = await workspace(t);
   const target = join(cwd, 'contract.docx');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path: target,
-    format: 'docx',
-    mode: 'portable',
-    operations: [
-      { op: 'append_text', text: '2026 logistics contract summary' },
-      { op: 'append_text', text: 'Internal note: approved up to 42,000,000', properties: { hidden: true, color: 'EEEEEE', size: 7 } },
-    ],
-  }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: target,
+        format: 'docx',
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: '2026 logistics contract summary' },
+          {
+            op: 'append_text',
+            text: 'Internal note: approved up to 42,000,000',
+            properties: { hidden: true, color: 'EEEEEE', size: 7 },
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
   const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
   const hidden = (snapshot.document?.paragraphs || []).filter((entry) => entry.hiddenText);
   assert.equal(hidden.length, 1, 'the snapshot must report the run Word hides');
@@ -145,7 +191,7 @@ test('a Word run can be hidden, and hidden text is neither audited nor read as b
   assert.equal(
     (issues.issues || []).some((entry) => entry.code === 'low_contrast'),
     false,
-    'ink no reader sees must not become a fix target',
+    'ink no reader sees must not become a fix target'
   );
   value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
 });
@@ -153,33 +199,61 @@ test('a Word run can be hidden, and hidden text is neither audited nor read as b
 test('the audit does not report defects on a slide the deck hides', async (t) => {
   const cwd = await workspace(t);
   const target = join(cwd, 'hidden-audit.pptx');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path: target,
-    format: 'pptx',
-    mode: 'portable',
-    operations: [
-      { op: 'add_slide' },
-      { op: 'add_textbox', slide: 1, text: 'Visible summary', left: 60, top: 60, width: 600, height: 80, properties: { fontSize: 28 } },
-      { op: 'add_slide' },
-      { op: 'add_textbox', slide: 2, text: 'Appendix working note', left: 60, top: 60, width: 600, height: 80, properties: { fontSize: 9, color: 'EEEEEE' } },
-    ],
-  }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: target,
+        format: 'pptx',
+        mode: 'portable',
+        operations: [
+          { op: 'add_slide' },
+          {
+            op: 'add_textbox',
+            slide: 1,
+            text: 'Visible summary',
+            left: 60,
+            top: 60,
+            width: 600,
+            height: 80,
+            properties: { fontSize: 28 },
+          },
+          { op: 'add_slide' },
+          {
+            op: 'add_textbox',
+            slide: 2,
+            text: 'Appendix working note',
+            left: 60,
+            top: 60,
+            width: 600,
+            height: 80,
+            properties: { fontSize: 9, color: 'EEEEEE' },
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
   const before = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
   assert.ok(
     (before.issues || []).some((entry) => entry.code === 'low_contrast' && String(entry.path).includes('/slide[2]')),
-    'the unreadable appendix text must be reported while the slide is visible',
+    'the unreadable appendix text must be reported while the slide is visible'
   );
-  value(await executeOfficeTool({
-    action: 'batch',
-    session: created.session,
-    operations: [{ op: 'set_slide_visibility', slide: 2, visible: false }],
-  }, { cwd }));
+  value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: created.session,
+        operations: [{ op: 'set_slide_visibility', slide: 2, visible: false }],
+      },
+      { cwd }
+    )
+  );
   const after = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
   assert.equal(
     (after.issues || []).some((entry) => String(entry.path || '').includes('/slide[2]')),
     false,
-    'a hidden slide must not send the fix round after a page no reader sees',
+    'a hidden slide must not send the fix round after a page no reader sees'
   );
   value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
 });
@@ -189,14 +263,23 @@ test('shared resource changes invalidate all page signatures and failed refresh 
   const before = await pptxPageSignatures(f.session.target);
   await renderOfficePreview(f.session, {}, f.cwd, f.adapters);
   const zip = await loadPackage(f.session.target);
-  zip.file('ppt/theme/theme1.xml', (await zipText(zip, 'ppt/theme/theme1.xml')).replace(/\bname="[^"]*"/, 'name="Changed Theme"'));
+  zip.file(
+    'ppt/theme/theme1.xml',
+    (await zipText(zip, 'ppt/theme/theme1.xml')).replace(/\bname="[^"]*"/, 'name="Changed Theme"')
+  );
   await savePackage(zip, f.session.target);
   const after = await pptxPageSignatures(f.session.target);
   assert.ok(after.every((page, i) => page.signature !== before[i].signature));
   f.session.snapshotVersion++;
-  await assert.rejects(renderOfficePreview(f.session, {}, f.cwd, {
-    ...f.adapters, rasterize: async () => { throw new Error('raster failed'); },
-  }), /raster failed/);
+  await assert.rejects(
+    renderOfficePreview(f.session, {}, f.cwd, {
+      ...f.adapters,
+      rasterize: async () => {
+        throw new Error('raster failed');
+      },
+    }),
+    /raster failed/
+  );
   assert.equal(f.session.designState.renderedVersion, null);
   assert.equal(f.session.renderCache, null);
   assert.equal(f.session.pageRenderCache, null);
@@ -205,16 +288,33 @@ test('shared resource changes invalidate all page signatures and failed refresh 
 test('opening an existing deck uses an owned copy and leaves the source intact during partial editing', async (t) => {
   const f = await fixture(t);
   const original = await snapshotPortableOoxml(f.session.target, 'pptx');
-  const opened = await f.office({ action: 'open', path: f.session.target, output: join(f.cwd, 'copy.pptx'), mode: 'portable' });
+  const opened = await f.office({
+    action: 'open',
+    path: f.session.target,
+    output: join(f.cwd, 'copy.pptx'),
+    mode: 'portable',
+  });
   const copy = sessions.get(opened.session);
   assert.equal(copy.ownership, 'owned');
   await renderOfficePreview(copy, {}, f.cwd, f.adapters);
-  await f.office({ action: 'batch', session: copy.id, operations: [
-    { op: 'set_text', slideId: original.slides[1].slideId, shapeId: original.slides[1].shapes[0].shapeId, text: 'Changed copy only' },
-  ] });
+  await f.office({
+    action: 'batch',
+    session: copy.id,
+    operations: [
+      {
+        op: 'set_text',
+        slideId: original.slides[1].slideId,
+        shapeId: original.slides[1].shapes[0].shapeId,
+        text: 'Changed copy only',
+      },
+    ],
+  });
   const rendered = await renderOfficePreview(copy, {}, f.cwd, f.adapters);
   assert.deepEqual(rendered.changedPages, [2]);
   assert.deepEqual(rendered.reusedPages, [1, 3]);
-  assert.deepEqual((await snapshotPortableOoxml(f.session.target, 'pptx')).slides.map((slide) => slide.text), original.slides.map((slide) => slide.text));
+  assert.deepEqual(
+    (await snapshotPortableOoxml(f.session.target, 'pptx')).slides.map((slide) => slide.text),
+    original.slides.map((slide) => slide.text)
+  );
   await f.office({ action: 'close', session: copy.id });
 });

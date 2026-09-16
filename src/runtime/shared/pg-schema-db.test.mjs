@@ -14,7 +14,9 @@ function opener(overrides = {}) {
       calls.ensure.push({ dataDir, opts });
       const handle = handles.get(dataDir) ?? {
         db: {
-          exec: async (sql) => { calls.exec.push({ dataDir, sql }); },
+          exec: async (sql) => {
+            calls.exec.push({ dataDir, sql });
+          },
         },
         pool: { dataDir },
       };
@@ -39,7 +41,11 @@ test('same dataDir shares in-flight init and runs locked DDL once', async () => 
       started.resolve();
       await gate.promise;
       return {
-        db: { exec: async (sql) => { calls.exec.push({ dataDir, sql }); } },
+        db: {
+          exec: async (sql) => {
+            calls.exec.push({ dataDir, sql });
+          },
+        },
         pool: { dataDir },
       };
     },
@@ -84,12 +90,19 @@ test('init failure evicts the cache and rethrows the same error', async () => {
       calls.ensure.push({ dataDir, opts });
       if (fail) throw boom;
       return {
-        db: { exec: async (sql) => { calls.exec.push({ dataDir, sql }); } },
+        db: {
+          exec: async (sql) => {
+            calls.exec.push({ dataDir, sql });
+          },
+        },
         pool: { dataDir },
       };
     },
   });
-  await assert.rejects(() => getDb('/a'), (error) => error === boom);
+  await assert.rejects(
+    () => getDb('/a'),
+    (error) => error === boom
+  );
   assert.equal(calls.lock.length, 0);
   fail = false;
   const db = await getDb('/a');
@@ -108,7 +121,10 @@ test('lock failure also evicts and preserves error identity', async () => {
       return fn();
     },
   });
-  await assert.rejects(() => getDb('/a'), (error) => error === boom);
+  await assert.rejects(
+    () => getDb('/a'),
+    (error) => error === boom
+  );
   fail = false;
   await getDb('/a');
   assert.equal(calls.lock.length, 2);
@@ -120,7 +136,11 @@ test('each opener keeps its own schema, DDL and cache', async () => {
   const ensurePg = async (dataDir, opts) => {
     calls.ensure.push({ dataDir, opts });
     return {
-      db: { exec: async (sql) => { calls.exec.push(sql); } },
+      db: {
+        exec: async (sql) => {
+          calls.exec.push(sql);
+        },
+      },
       pool: { schema: opts.schema },
     };
   };
@@ -142,7 +162,10 @@ test('each opener keeps its own schema, DDL and cache', async () => {
   const schedDb = await schedules('/shared');
   const hookDb = await webhooks('/shared');
   assert.notEqual(schedDb, hookDb);
-  assert.deepEqual(calls.ensure.map((entry) => entry.opts.schema), ['scheduler', 'webhooks']);
+  assert.deepEqual(
+    calls.ensure.map((entry) => entry.opts.schema),
+    ['scheduler', 'webhooks']
+  );
   assert.deepEqual(calls.exec, ['DDL-SCHEDULER', 'DDL-WEBHOOKS']);
   assert.equal(await schedules('/shared'), schedDb);
   assert.equal(await webhooks('/shared'), hookDb);

@@ -18,12 +18,12 @@ import { DATA_DIR } from './config.mjs';
 import { writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
 import { readHookPublicBase } from './webhook/relay-tunnel.mjs';
 
-const SNAPSHOT_DIR  = path.join(DATA_DIR, 'channels');
+const SNAPSHOT_DIR = path.join(DATA_DIR, 'channels');
 const SNAPSHOT_PATH = path.join(SNAPSHOT_DIR, 'status-snapshot.json');
-const INTERVAL_MS   = 10_000;
-const HEARTBEAT_MS  = 60_000; // force-write even when content is unchanged
+const INTERVAL_MS = 10_000;
+const HEARTBEAT_MS = 60_000; // force-write even when content is unchanged
 
-let _lastSnapshotJson  = null;
+let _lastSnapshotJson = null;
 let _lastSnapshotWrite = 0;
 
 function stableSnapshotJson(snapshot) {
@@ -40,8 +40,8 @@ export async function computeSnapshot(scheduler) {
   const now = Date.now();
 
   // ── Schedules ──────────────────────────────────────────────────────────────
-  let nextSchedule = null;   // { name, fireAt, kind }
-  const deferred  = [];
+  let nextSchedule = null; // { name, fireAt, kind }
+  const deferred = [];
 
   if (scheduler) {
     // Cron-expression next-fire via node-cron ScheduledTask.nextDate().
@@ -53,7 +53,7 @@ export async function computeSnapshot(scheduler) {
           // compatibility with persisted installations on an earlier runtime.
           const nd =
             (typeof task.getNextRun === 'function' ? task.getNextRun() : null) ??
-            (typeof task.nextDate  === 'function' ? task.nextDate()  : null) ??
+            (typeof task.nextDate === 'function' ? task.nextDate() : null) ??
             (typeof task.getNextDate === 'function' ? task.getNextDate() : null);
           if (!nd) continue;
           const fireAt = nd instanceof Date ? nd.getTime() : Number(nd);
@@ -61,7 +61,9 @@ export async function computeSnapshot(scheduler) {
           if (!nextSchedule || fireAt < nextSchedule.fireAt) {
             nextSchedule = { name, fireAt, kind: 'cron' };
           }
-        } catch { /* node-cron version mismatch — skip */ }
+        } catch {
+          /* node-cron version mismatch — skip */
+        }
       }
     }
 
@@ -95,9 +97,7 @@ export async function computeSnapshot(scheduler) {
   return {
     writtenAt: now,
     schedules: {
-      next: nextSchedule
-        ? { name: nextSchedule.name, fireAt: nextSchedule.fireAt, kind: nextSchedule.kind }
-        : null,
+      next: nextSchedule ? { name: nextSchedule.name, fireAt: nextSchedule.fireAt, kind: nextSchedule.kind } : null,
       deferred,
       deferredCount: deferred.length,
     },
@@ -113,17 +113,15 @@ async function writeSnapshot(scheduler) {
     const snap = await computeSnapshot(scheduler);
     const json = stableSnapshotJson(snap);
     const now = Date.now();
-    if (json === _lastSnapshotJson && (now - _lastSnapshotWrite) < HEARTBEAT_MS) {
+    if (json === _lastSnapshotJson && now - _lastSnapshotWrite < HEARTBEAT_MS) {
       return; // unchanged within heartbeat window — skip disk write
     }
-    _lastSnapshotJson  = json;
+    _lastSnapshotJson = json;
     _lastSnapshotWrite = now;
     writeJsonAtomicSync(SNAPSHOT_PATH, snap, { lock: false, fsync: false, fsyncDir: false });
   } catch (err) {
     // Non-fatal — statusline degrades gracefully when snapshot is absent.
-    process.stderr.write(
-      `mixdog status-snapshot: write failed: ${err?.message ?? err}\n`
-    );
+    process.stderr.write(`mixdog status-snapshot: write failed: ${err?.message ?? err}\n`);
   }
 }
 
@@ -158,5 +156,7 @@ export function stopSnapshotWriter() {
     clearInterval(_snapshotTimer);
     _snapshotTimer = null;
   }
-  try { fs.unlinkSync(SNAPSHOT_PATH); } catch {}
+  try {
+    fs.unlinkSync(SNAPSHOT_PATH);
+  } catch {}
 }

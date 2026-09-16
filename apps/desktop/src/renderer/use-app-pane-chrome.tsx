@@ -1,16 +1,11 @@
-import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
+import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from 'react';
 
-import type { DesktopSessionSummary } from "../shared/contract";
-import { sessionSummaryTitle } from "../shared/session-title.mjs";
-import {
-  WorkspaceTabStrip,
-  type NavigationSelection,
-  type WorkspaceSelection,
-  type WorkspaceTab,
-} from "./navigation";
-import type { PaneLeaf } from "./pane-layout";
-import type { usePaneWorkspace } from "./pane-workspace-state";
-import { navigationKey } from "./text-format";
+import type { DesktopSessionSummary } from '../shared/contract';
+import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { WorkspaceTabStrip, type NavigationSelection, type WorkspaceSelection, type WorkspaceTab } from './navigation';
+import type { PaneLeaf } from './pane-layout';
+import type { usePaneWorkspace } from './pane-workspace-state';
+import { navigationKey } from './text-format';
 
 type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
 
@@ -58,50 +53,55 @@ export function useAppPaneChrome({
 }) {
   const stripTitleFor = (key: string, selection: WorkspaceSelection): string => {
     const registered = tabs.find((tab) => tab.key === key);
-    return registered?.title || (
-      selection.kind === "session"
+    return (
+      registered?.title ||
+      (selection.kind === 'session'
         ? (() => {
-          const row = sessions.find((session) => session.id === selection.id);
-          return row ? sessionSummaryTitle(row) : selection.title || "Session";
-        })()
-        : selection.kind === "file"
-            ? (selection.rel.split("/").at(-1) || selection.rel)
-            : selection.kind === "diff"
-              ? `${selection.rel.split("/").at(-1) || selection.rel} (Diff)`
-              : selection.kind === "pull-request"
-                ? (selection.mode === "changes"
-                  ? `Changes in Pull Request #${selection.number}`
-                  : selection.title || `Pull Request #${selection.number}`)
-                : selection.kind === "studio"
-                  ? "Studio"
-                  : selection.kind === "terminal"
-                    ? "Terminal"
-                      : selection.kind === "project"
-                      ? (selection.path.replace(/[\\/]+$/, "").split(/[\\/]/).at(-1)
-                        || selection.path)
-                        : "New task");
+            const row = sessions.find((session) => session.id === selection.id);
+            return row ? sessionSummaryTitle(row) : selection.title || 'Session';
+          })()
+        : selection.kind === 'file'
+          ? selection.rel.split('/').at(-1) || selection.rel
+          : selection.kind === 'diff'
+            ? `${selection.rel.split('/').at(-1) || selection.rel} (Diff)`
+            : selection.kind === 'pull-request'
+              ? selection.mode === 'changes'
+                ? `Changes in Pull Request #${selection.number}`
+                : selection.title || `Pull Request #${selection.number}`
+              : selection.kind === 'studio'
+                ? 'Studio'
+                : selection.kind === 'terminal'
+                  ? 'Terminal'
+                  : selection.kind === 'project'
+                    ? selection.path
+                        .replace(/[\\/]+$/, '')
+                        .split(/[\\/]/)
+                        .at(-1) || selection.path
+                    : 'New task')
+    );
   };
 
   const activatePaneSurface = (paneSelection: WorkspaceSelection) => {
-    if (paneSelection.kind === "studio"
-      || paneSelection.kind === "terminal"
-      || paneSelection.kind === "diff" || paneSelection.kind === "pull-request") return;
-    if (paneSelection.kind === "session") {
-      try { window.localStorage.setItem(lastSessionStorageKey, paneSelection.id); } catch {}
+    if (
+      paneSelection.kind === 'studio' ||
+      paneSelection.kind === 'terminal' ||
+      paneSelection.kind === 'diff' ||
+      paneSelection.kind === 'pull-request'
+    )
+      return;
+    if (paneSelection.kind === 'session') {
+      try {
+        window.localStorage.setItem(lastSessionStorageKey, paneSelection.id);
+      } catch {}
       selectionRef.current = paneSelection;
       viewedSessionRef.current = paneSelection.id;
       unreadViewedSessionRef.current = paneSelection.id;
       setSelection(paneSelection);
-    } else if (paneSelection.kind === "new") {
+    } else if (paneSelection.kind === 'new') {
       if (paneSelection.draftId) startTask(paneSelection, false);
-      else activateSelection(paneSelection, "New task");
-    } else if (paneSelection.kind === "file") {
-      openFileTab(
-        paneSelection.project,
-        paneSelection.rel,
-        undefined,
-        paneSelection.accessToken,
-      );
+      else activateSelection(paneSelection, 'New task');
+    } else if (paneSelection.kind === 'file') {
+      openFileTab(paneSelection.project, paneSelection.rel, undefined, paneSelection.accessToken);
     } else {
       startProject(paneSelection.path);
     }
@@ -136,8 +136,7 @@ export function useAppPaneChrome({
           navigateTab(tab);
         }}
         onCloseTab={(tab) => closeTab(leaf.id, tab)}
-        onReorderTab={(sourceKey, targetKey) =>
-          paneWorkspace.reorderTab(leaf.id, sourceKey, targetKey)}
+        onReorderTab={(sourceKey, targetKey) => paneWorkspace.reorderTab(leaf.id, sourceKey, targetKey)}
         onPinTab={(tab) => pinPaneTab(leaf.id, tab.key)}
         onNewTask={() => {
           paneWorkspace.focusLeaf(leaf.id);

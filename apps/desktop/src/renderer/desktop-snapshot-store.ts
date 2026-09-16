@@ -1,8 +1,5 @@
-import {
-  EMPTY_SNAPSHOT,
-  type Snapshot,
-} from "./desktop-types";
-import { shellJobsStatusEqual } from "../shared/shell-jobs-status";
+import { EMPTY_SNAPSHOT, type Snapshot } from './desktop-types';
+import { shellJobsStatusEqual } from '../shared/shell-jobs-status';
 
 export interface DesktopSnapshotStore {
   getSnapshot(): Snapshot;
@@ -11,22 +8,19 @@ export interface DesktopSnapshotStore {
 }
 
 const URGENT_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
-  "sessionId",
-  "busy",
-  "commandBusy",
-  "commandStatus",
-  "toolApproval",
-  "queued",
-  "toasts",
-  "uiOpenRequest",
+  'sessionId',
+  'busy',
+  'commandBusy',
+  'commandStatus',
+  'toolApproval',
+  'queued',
+  'toasts',
+  'uiOpenRequest',
 ];
 
 /** Command admission, retry/approval state, and route changes stay immediate;
  * transcript/timing-only publications may share the next render frame. */
-export function desktopSnapshotUpdateIsUrgent(
-  previous: Snapshot,
-  next: Snapshot,
-): boolean {
+export function desktopSnapshotUpdateIsUrgent(previous: Snapshot, next: Snapshot): boolean {
   if (previous === EMPTY_SNAPSHOT || next === EMPTY_SNAPSHOT) return previous !== next;
   return !snapshotFieldsEqual(previous, next, URGENT_SNAPSHOT_FIELDS);
 }
@@ -48,65 +42,61 @@ export function createDesktopSnapshotStore(initial: Snapshot = EMPTY_SNAPSHOT): 
 }
 
 const CHROME_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
-  "sessionId",
-  "currentProject",
-  "project",
-  "recentProjects",
-  "busy",
-  "commandBusy",
-  "toasts",
-  "uiOpenRequest",
+  'sessionId',
+  'currentProject',
+  'project',
+  'recentProjects',
+  'busy',
+  'commandBusy',
+  'toasts',
+  'uiOpenRequest',
 ];
 
 const HEADER_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
-  "sessionId",
+  'sessionId',
   // The context card acts on the session's CURRENT route: a model switch is
   // what turns its action into "Inherit session". Leaving the route out held
   // the gauge on the previous model whenever the new one shared the old
   // context window and nothing else moved — an idle phone after a model
   // change never offered the carry (user: 모바일에서 모델 바꿨는데 세션승계가
   // 안 나와), while the composer's own label already showed the new model.
-  "provider",
-  "model",
-  "effort",
-  "busy",
-  "commandBusy",
-  "toolApproval",
-  "thinking",
-  "spinner",
-  "commandStatus",
-  "contextWindow",
-  "displayContextWindow",
-  "autoCompactTokenLimit",
-  "agentWorkers",
-  "agentJobs",
-  "activeTools",
-  "goal",
+  'provider',
+  'model',
+  'effort',
+  'busy',
+  'commandBusy',
+  'toolApproval',
+  'thinking',
+  'spinner',
+  'commandStatus',
+  'contextWindow',
+  'displayContextWindow',
+  'autoCompactTokenLimit',
+  'agentWorkers',
+  'agentJobs',
+  'activeTools',
+  'goal',
 ];
 
 const DOCK_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
-  "currentProject",
-  "project",
-  "agentWorkers",
-  "agentJobs",
-  "activeTools",
+  'currentProject',
+  'project',
+  'agentWorkers',
+  'agentJobs',
+  'activeTools',
 ];
 
 function dockToolItem(snapshot: Snapshot) {
   const items = Array.isArray(snapshot.items) ? snapshot.items : [];
   const tail = snapshot.streamingTail;
-  return tail?.kind === "tool"
+  return tail?.kind === 'tool'
     ? tail
-    : items.length > 0 && items[items.length - 1]?.kind === "tool"
+    : items.length > 0 && items[items.length - 1]?.kind === 'tool'
       ? items[items.length - 1]
       : null;
 }
 
-function snapshotFieldsEqual(
-  left: Snapshot,
-  right: Snapshot,
-  fields: ReadonlyArray<keyof Snapshot>,
-): boolean {
+function snapshotFieldsEqual(left: Snapshot, right: Snapshot, fields: ReadonlyArray<keyof Snapshot>): boolean {
   for (const field of fields) {
     if (!Object.is(left[field], right[field])) return false;
   }
@@ -114,17 +104,17 @@ function snapshotFieldsEqual(
 }
 
 const HEADER_STATS_FIELDS = [
-  "currentContextTokens",
-  "currentEstimatedContextTokens",
-  "currentContextSource",
-  "currentContextUpdatedAt",
-  "costUsd",
+  'currentContextTokens',
+  'currentEstimatedContextTokens',
+  'currentContextSource',
+  'currentContextUpdatedAt',
+  'costUsd',
 ] as const;
 
 function headerStatsEqual(left: Snapshot, right: Snapshot): boolean {
   if (left.stats === right.stats) return true;
-  const previous = left.stats && typeof left.stats === "object" ? left.stats : {};
-  const next = right.stats && typeof right.stats === "object" ? right.stats : {};
+  const previous = left.stats && typeof left.stats === 'object' ? left.stats : {};
+  const next = right.stats && typeof right.stats === 'object' ? right.stats : {};
   return HEADER_STATS_FIELDS.every((field) => Object.is(previous[field], next[field]));
 }
 
@@ -133,16 +123,18 @@ function dockToolSignalsEqual(left: Snapshot, right: Snapshot): boolean {
   const next = dockToolItem(right);
   if (previous === next) return true;
   if (!previous || !next) return false;
-  return previous.id === next.id
-    && previous.name === next.name
-    && previous.count === next.count
-    && previous.completedCount === next.completedCount
-    && previous.startedAt === next.startedAt
-    && previous.completedAt === next.completedAt
-    && (previous.result != null) === (next.result != null)
-    && (previous.rawResult != null) === (next.rawResult != null)
-    && previous.status === next.status
-    && previous.isError === next.isError;
+  return (
+    previous.id === next.id &&
+    previous.name === next.name &&
+    previous.count === next.count &&
+    previous.completedCount === next.completedCount &&
+    previous.startedAt === next.startedAt &&
+    previous.completedAt === next.completedAt &&
+    (previous.result != null) === (next.result != null) &&
+    (previous.rawResult != null) === (next.rawResult != null) &&
+    previous.status === next.status &&
+    previous.isError === next.isError
+  );
 }
 
 function preservesInitialBoundary(left: Snapshot, right: Snapshot): boolean {
@@ -169,29 +161,31 @@ export function desktopChromeSnapshotsEqual(left: Snapshot, right: Snapshot): bo
 export function desktopConversationSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
   if (left === right) return true;
   if (!preservesInitialBoundary(left, right)) return false;
-  return left.items === right.items
-    && left.streamingTail === right.streamingTail
-    && left.failedTurnKeys === right.failedTurnKeys
-    && left.transcriptTurnKeys === right.transcriptTurnKeys
-    && left.busy === right.busy
-    && left.commandBusy === right.commandBusy
-    && left.thinking === right.thinking
-    && left.spinner === right.spinner
-    && left.commandStatus === right.commandStatus
-    && left.toolApproval === right.toolApproval
-    && left.progressHint === right.progressHint
-    && left.queued === right.queued
-    && left.sessionId === right.sessionId
-    && left.currentProject === right.currentProject
-    && left.project === right.project
-    && left.cwd === right.cwd
-    && left.promptHistoryList === right.promptHistoryList
-    && left.provider === right.provider
-    && left.model === right.model
-    && left.effort === right.effort
-    && left.fast === right.fast
-    && left.fastCapable === right.fastCapable
-    && left.workflow === right.workflow;
+  return (
+    left.items === right.items &&
+    left.streamingTail === right.streamingTail &&
+    left.failedTurnKeys === right.failedTurnKeys &&
+    left.transcriptTurnKeys === right.transcriptTurnKeys &&
+    left.busy === right.busy &&
+    left.commandBusy === right.commandBusy &&
+    left.thinking === right.thinking &&
+    left.spinner === right.spinner &&
+    left.commandStatus === right.commandStatus &&
+    left.toolApproval === right.toolApproval &&
+    left.progressHint === right.progressHint &&
+    left.queued === right.queued &&
+    left.sessionId === right.sessionId &&
+    left.currentProject === right.currentProject &&
+    left.project === right.project &&
+    left.cwd === right.cwd &&
+    left.promptHistoryList === right.promptHistoryList &&
+    left.provider === right.provider &&
+    left.model === right.model &&
+    left.effort === right.effort &&
+    left.fast === right.fast &&
+    left.fastCapable === right.fastCapable &&
+    left.workflow === right.workflow
+  );
 }
 
 function streamingTailIdentityEqual(left: Snapshot, right: Snapshot): boolean {
@@ -199,9 +193,9 @@ function streamingTailIdentityEqual(left: Snapshot, right: Snapshot): boolean {
   const next = right.streamingTail;
   if (previous === next) return true;
   if (!previous || !next || previous.id == null || next.id == null) return false;
-  return previous.id === next.id
-    && previous.kind === next.kind
-    && Boolean(previous.streaming) === Boolean(next.streaming);
+  return (
+    previous.id === next.id && previous.kind === next.kind && Boolean(previous.streaming) === Boolean(next.streaming)
+  );
 }
 
 // The historical conversation shell needs tail presence/identity for layout,
@@ -209,61 +203,62 @@ function streamingTailIdentityEqual(left: Snapshot, right: Snapshot): boolean {
 export function desktopConversationShellSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
   if (left === right) return true;
   if (!preservesInitialBoundary(left, right)) return false;
-  return left.items === right.items
-    && streamingTailIdentityEqual(left, right)
-    && left.failedTurnKeys === right.failedTurnKeys
-    && left.transcriptTurnKeys === right.transcriptTurnKeys
-    && left.busy === right.busy
-    && left.commandBusy === right.commandBusy
-    && left.toolApproval === right.toolApproval
-    && left.queued === right.queued
-    && left.sessionId === right.sessionId
-    && left.currentProject === right.currentProject
-    && left.project === right.project
-    && left.cwd === right.cwd
-    && left.promptHistoryList === right.promptHistoryList
-    && left.provider === right.provider
-    && left.model === right.model
-    && left.effort === right.effort
-    && left.fast === right.fast
-    && left.fastCapable === right.fastCapable
-    && left.workflow === right.workflow;
+  return (
+    left.items === right.items &&
+    streamingTailIdentityEqual(left, right) &&
+    left.failedTurnKeys === right.failedTurnKeys &&
+    left.transcriptTurnKeys === right.transcriptTurnKeys &&
+    left.busy === right.busy &&
+    left.commandBusy === right.commandBusy &&
+    left.toolApproval === right.toolApproval &&
+    left.queued === right.queued &&
+    left.sessionId === right.sessionId &&
+    left.currentProject === right.currentProject &&
+    left.project === right.project &&
+    left.cwd === right.cwd &&
+    left.promptHistoryList === right.promptHistoryList &&
+    left.provider === right.provider &&
+    left.model === right.model &&
+    left.effort === right.effort &&
+    left.fast === right.fast &&
+    left.fastCapable === right.fastCapable &&
+    left.workflow === right.workflow
+  );
 }
 
 function runtimeProgressText(snapshot: Snapshot): string {
   const progress = snapshot.progressHint;
-  return progress && typeof progress === "object"
-    ? String((progress as { text?: unknown }).text || "")
-    : "";
+  return progress && typeof progress === 'object' ? String((progress as { text?: unknown }).text || '') : '';
 }
 
 export function desktopRuntimeProgressSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
   if (left === right) return true;
   if (!preservesInitialBoundary(left, right)) return false;
-  return left.sessionId === right.sessionId
-    && runtimeProgressText(left) === runtimeProgressText(right);
+  return left.sessionId === right.sessionId && runtimeProgressText(left) === runtimeProgressText(right);
 }
 
 export function desktopStreamingTailSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
   if (left === right) return true;
   if (!preservesInitialBoundary(left, right)) return false;
-  return left.items === right.items
-    && left.streamingTail === right.streamingTail
-    && left.sessionId === right.sessionId;
+  return left.items === right.items && left.streamingTail === right.streamingTail && left.sessionId === right.sessionId;
 }
 
 export function desktopHeaderSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
   if (left === right) return true;
   if (!preservesInitialBoundary(left, right)) return false;
-  return snapshotFieldsEqual(left, right, HEADER_SNAPSHOT_FIELDS)
-    && headerStatsEqual(left, right)
-    && shellJobsEqual(left, right);
+  return (
+    snapshotFieldsEqual(left, right, HEADER_SNAPSHOT_FIELDS) &&
+    headerStatsEqual(left, right) &&
+    shellJobsEqual(left, right)
+  );
 }
 
 export function desktopDockSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
   if (left === right) return true;
   if (!preservesInitialBoundary(left, right)) return false;
-  return snapshotFieldsEqual(left, right, DOCK_SNAPSHOT_FIELDS)
-    && shellJobsEqual(left, right)
-    && dockToolSignalsEqual(left, right);
+  return (
+    snapshotFieldsEqual(left, right, DOCK_SNAPSHOT_FIELDS) &&
+    shellJobsEqual(left, right) &&
+    dockToolSignalsEqual(left, right)
+  );
 }

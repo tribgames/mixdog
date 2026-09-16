@@ -35,35 +35,40 @@ export interface WorkerPoolHost {
   isDisposed(): boolean;
   onSessionRetired?(sessionId: string, child: ChildProcessWithoutNullStreams, interruptedInput: boolean): void;
   maxWorkers?: number;
-  onPointerProgress?(sessionId: string, x: number, y: number, held: boolean, mode: 'background' | 'foreground', phase: string): void;
+  onPointerProgress?(
+    sessionId: string,
+    x: number,
+    y: number,
+    held: boolean,
+    mode: 'background' | 'foreground',
+    phase: string
+  ): void;
   /** Injectable process transport for isolated lifecycle tests. */
   spawnProcess?: typeof spawn;
 }
 
 export function createWorkerPool(host: WorkerPoolHost) {
-  const {
-    dataDirectory,
-    isBridgeEnabled,
-    isDisposed,
-    onSessionRetired,
-  } = host;
+  const { dataDirectory, isBridgeEnabled, isDisposed, onSessionRetired } = host;
 
   let hostScriptPath: string | null = null;
   let hostScriptBuild = '';
   // One warm worker waiting to be adopted by the next session that needs one.
   let spareHostWorker: ChildProcessWithoutNullStreams | null = null;
   let nextId = 1;
-  const pending = new Map<number, {
-    resolve: (r: PowerShellResponse) => void;
-    reject: (e: Error) => void;
-    timer: NodeJS.Timeout;
-    child: ChildProcessWithoutNullStreams;
-    sessionId: string;
-    pointerFeedback: boolean;
-    mode: 'background' | 'foreground';
-    input: boolean;
-    backgroundPressRelease: boolean;
-  }>();
+  const pending = new Map<
+    number,
+    {
+      resolve: (r: PowerShellResponse) => void;
+      reject: (e: Error) => void;
+      timer: NodeJS.Timeout;
+      child: ChildProcessWithoutNullStreams;
+      sessionId: string;
+      pointerFeedback: boolean;
+      mode: 'background' | 'foreground';
+      input: boolean;
+      backgroundPressRelease: boolean;
+    }
+  >();
   const powerShellBySession = new Map<string, ChildProcessWithoutNullStreams>();
   const workerLastUsedAt = new Map<string, number>();
   const hostWorkers = new Set<ChildProcessWithoutNullStreams>();
@@ -75,7 +80,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
   const spawnProcess = host.spawnProcess || spawn;
   assertComputerWorkerCapacity(0, maxWorkers);
   let elevatedSlots = 0;
-  const inputMarker = String((randomBytes(4).readUInt32LE() & 0x7fffffff) || 1);
+  const inputMarker = String(randomBytes(4).readUInt32LE() & 0x7fffffff || 1);
   const hostScriptName = `computer-host-${process.pid}-${randomBytes(12).toString('hex')}.ps1`;
 
   function ensureHostScript(): string {
@@ -92,9 +97,15 @@ export function createWorkerPool(host: WorkerPoolHost) {
       const current = `mixdog-computer-host-${hostScriptBuild}.dll`;
       for (const name of readdirSync(cacheDirectory)) {
         if (name === current) continue;
-        try { unlinkSync(join(cacheDirectory, name)); } catch { /* a live worker holds it */ }
+        try {
+          unlinkSync(join(cacheDirectory, name));
+        } catch {
+          /* a live worker holds it */
+        }
       }
-    } catch { /* the cache is an optimization, never a requirement */ }
+    } catch {
+      /* the cache is an optimization, never a requirement */
+    }
     return hostScriptPath;
   }
 
@@ -106,15 +117,19 @@ export function createWorkerPool(host: WorkerPoolHost) {
     // with the per-command JSON we also write to stdin. -File leaves stdin
     // dedicated to runtime commands.
     const scriptPath = ensureHostScript();
-    const child = spawnProcess('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
-      windowsHide: true,
-      env: {
-        ...process.env,
-        MIXDOG_COMPUTER_HOST_CACHE: join(dataDirectory(), HOST_ASSEMBLY_CACHE_DIRECTORY),
-        MIXDOG_COMPUTER_HOST_BUILD: hostScriptBuild,
-        MIXDOG_COMPUTER_INPUT_MARKER: inputMarker,
-      },
-    });
+    const child = spawnProcess(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+      {
+        windowsHide: true,
+        env: {
+          ...process.env,
+          MIXDOG_COMPUTER_HOST_CACHE: join(dataDirectory(), HOST_ASSEMBLY_CACHE_DIRECTORY),
+          MIXDOG_COMPUTER_HOST_BUILD: hostScriptBuild,
+          MIXDOG_COMPUTER_INPUT_MARKER: inputMarker,
+        },
+      }
+    );
     hostWorkers.add(child);
     const receive = createComputerLineDecoder((line) => {
       if (line.startsWith('@@MIXDOG_POINTER@@')) {
@@ -122,15 +137,22 @@ export function createWorkerPool(host: WorkerPoolHost) {
         try {
           const event = JSON.parse(line.slice('@@MIXDOG_POINTER@@'.length));
           const entry = pending.get(event.id);
-          if (entry?.child === child && entry.pointerFeedback
-            && Number.isFinite(event.x) && Number.isFinite(event.y) && typeof event.held === 'boolean') {
+          if (
+            entry?.child === child &&
+            entry.pointerFeedback &&
+            Number.isFinite(event.x) &&
+            Number.isFinite(event.y) &&
+            typeof event.held === 'boolean'
+          ) {
             const phase = event.phase ?? (event.held ? 'drag' : 'move');
             if (['move', 'prepare', 'press', 'release', 'drag', 'scroll', 'type'].includes(phase)) {
               recordCursorDiagnostic('validated');
               host.onPointerProgress?.(entry.sessionId, event.x, event.y, event.held, entry.mode, phase);
             } else recordCursorDiagnostic('invalid_phase');
           } else recordCursorDiagnostic('discarded_event');
-        } catch { recordCursorDiagnostic('event_handler_failed'); }
+        } catch {
+          recordCursorDiagnostic('event_handler_failed');
+        }
         return;
       }
       const marker = line.indexOf(RESPONSE_MARKER);
@@ -138,10 +160,15 @@ export function createWorkerPool(host: WorkerPoolHost) {
     });
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
-      try { receive(chunk); }
-      catch (error) { retirePowerShell(child, error instanceof Error ? error : new Error(String(error))); }
+      try {
+        receive(chunk);
+      } catch (error) {
+        retirePowerShell(child, error instanceof Error ? error : new Error(String(error)));
+      }
     });
-    child.stderr.on('data', () => { /* diagnostics ignored; errors ride responses */ });
+    child.stderr.on('data', () => {
+      /* diagnostics ignored; errors ride responses */
+    });
     child.stdin.once('error', (error) => {
       retirePowerShell(child, new Error(`computer host input channel failed: ${error.message}`));
     });
@@ -208,10 +235,18 @@ export function createWorkerPool(host: WorkerPoolHost) {
       pending.delete(id);
     }
     if (!child.killed && child.exitCode === null && child.signalCode === null) {
-      try { child.kill(); } catch { /* exit confirmation belongs to the lifecycle */ }
+      try {
+        child.kill();
+      } catch {
+        /* exit confirmation belongs to the lifecycle */
+      }
     }
     for (const sessionId of retiredSessionIds) {
-      try { onSessionRetired?.(sessionId, child, interruptedInput); } catch { /* failed cleanup stays latched */ }
+      try {
+        onSessionRetired?.(sessionId, child, interruptedInput);
+      } catch {
+        /* failed cleanup stays latched */
+      }
     }
   }
 
@@ -224,13 +259,14 @@ export function createWorkerPool(host: WorkerPoolHost) {
     }
     const entry = pending.get(parsed.id);
     if (!entry || entry.child !== child) return;
-    if (entry.input && entry.mode === 'background'
-      && /input_cleanup_unconfirmed/.test(String(parsed.error || ''))) {
+    if (entry.input && entry.mode === 'background' && /input_cleanup_unconfirmed/.test(String(parsed.error || ''))) {
       unconfirmedBackgroundSessions.add(entry.sessionId);
     }
-    const feedback = (parsed as PowerShellResponse & {
-      pointer_feedback?: { generated: number; failed: number };
-    }).pointer_feedback;
+    const feedback = (
+      parsed as PowerShellResponse & {
+        pointer_feedback?: { generated: number; failed: number };
+      }
+    ).pointer_feedback;
     if (entry.pointerFeedback) {
       recordCursorDiagnostic('tracked_requests');
       if (feedback) {
@@ -251,22 +287,37 @@ export function createWorkerPool(host: WorkerPoolHost) {
 
   function callPowerShell(
     request: Record<string, unknown>,
-    timeoutMs = COMMAND_TIMEOUT_MS,
+    timeoutMs = COMMAND_TIMEOUT_MS
   ): Promise<PowerShellResponse> {
     const sessionId = String(request.session_id || 'default');
     const id = nextId++;
     const step = request.step as Record<string, unknown> | undefined;
     const inputAction = request.action === 'sequence_step' ? step?.action : request.action;
     const input = request.action === 'sequence_step' ? step : request;
-    const backgroundPressRelease = computerActionHas(String(inputAction), 'backgroundPressRelease')
-      || (inputAction === 'type' && ((input?.x != null && input?.y != null)
-        || String(input?.text ?? '').includes('\n')));
-    const pointerFeedback = request.delivery === 'foreground'
-      && ['click', 'invoke', 'double_click', 'right_click', 'middle_click', 'triple_click', 'mouse_move', 'drag', 'scroll', 'key', 'type'].includes(String(inputAction))
-      && Boolean(host.onPointerProgress);
+    const backgroundPressRelease =
+      computerActionHas(String(inputAction), 'backgroundPressRelease') ||
+      (inputAction === 'type' && ((input?.x != null && input?.y != null) || String(input?.text ?? '').includes('\n')));
+    const pointerFeedback =
+      request.delivery === 'foreground' &&
+      [
+        'click',
+        'invoke',
+        'double_click',
+        'right_click',
+        'middle_click',
+        'triple_click',
+        'mouse_move',
+        'drag',
+        'scroll',
+        'key',
+        'type',
+      ].includes(String(inputAction)) &&
+      Boolean(host.onPointerProgress);
     const line = `${JSON.stringify({ ...request, id, pointer_feedback: pointerFeedback })}\n`;
     if (pending.size >= 32 || Buffer.byteLength(line) > MAX_COMPUTER_INTERNAL_REQUEST_BYTES) {
-      return Promise.reject(new Error('computer_capacity_exhausted: worker request budget exceeded; input was not dispatched'));
+      return Promise.reject(
+        new Error('computer_capacity_exhausted: worker request budget exceeded; input was not dispatched')
+      );
     }
     const child = ensurePowerShell(sessionId);
     const commandTimeoutMs = Number.isFinite(timeoutMs)
@@ -276,27 +327,29 @@ export function createWorkerPool(host: WorkerPoolHost) {
       const timer = setTimeout(() => {
         retirePowerShell(
           child,
-          new Error(`computer_command_timeout: command exceeded ${commandTimeoutMs}ms; the input host was restarted`),
+          new Error(`computer_command_timeout: command exceeded ${commandTimeoutMs}ms; the input host was restarted`)
         );
       }, commandTimeoutMs);
-      pending.set(id, { resolve, reject, timer, child, sessionId, pointerFeedback,
+      pending.set(id, {
+        resolve,
+        reject,
+        timer,
+        child,
+        sessionId,
+        pointerFeedback,
         mode: request.delivery === 'foreground' ? 'foreground' : 'background',
         input: !computerActionHas(String(inputAction), 'nativeRead') && inputAction !== 'release_session',
-        backgroundPressRelease });
+        backgroundPressRelease,
+      });
       try {
         child.stdin.write(line);
       } catch (error) {
-        retirePowerShell(
-          child,
-          error instanceof Error ? error : new Error(String(error)),
-        );
+        retirePowerShell(child, error instanceof Error ? error : new Error(String(error)));
       }
     });
   }
 
-  async function callPowerShellElevated(
-    request: Record<string, unknown>,
-  ): Promise<PowerShellResponse> {
+  async function callPowerShellElevated(request: Record<string, unknown>): Promise<PowerShellResponse> {
     ensurePowerShell(String(request.session_id || 'default'));
     if (!hostScriptPath) throw new Error('privileged_worker_unavailable: computer host script is missing');
     const directory = dataDirectory();
@@ -319,9 +372,9 @@ export function createWorkerPool(host: WorkerPoolHost) {
       "$ErrorActionPreference = 'Stop'",
       "$powershell = Join-Path $PSHOME 'powershell.exe'",
       `$bootstrap = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${bootstrapEncoded}'))`,
-      "function ConvertTo-MixdogLiteral([string]$value) { return \"'\" + $value.Replace(\"'\", \"''\") + \"'\" }",
-      "$env:MIXDOG_ELEVATED_PARENT_PID = [string]$PID",
-      "$env:MIXDOG_ELEVATED_PARENT_TICKS = [string]([Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().Ticks)",
+      'function ConvertTo-MixdogLiteral([string]$value) { return "\'" + $value.Replace("\'", "\'\'") + "\'" }',
+      '$env:MIXDOG_ELEVATED_PARENT_PID = [string]$PID',
+      '$env:MIXDOG_ELEVATED_PARENT_TICKS = [string]([Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().Ticks)',
       "$variableNames = @('MIXDOG_ELEVATED_TOKEN','MIXDOG_ELEVATED_HOST_SCRIPT','MIXDOG_ELEVATED_HOST_SHA256','MIXDOG_ELEVATED_REQUEST','MIXDOG_ELEVATED_REQUEST_SHA256','MIXDOG_ELEVATED_RESPONSE','MIXDOG_ELEVATED_CANCEL','MIXDOG_ELEVATED_MARKER','MIXDOG_ELEVATED_PARENT_PID','MIXDOG_ELEVATED_PARENT_TICKS','MIXDOG_COMPUTER_INPUT_MARKER')",
       "$prelude = @($variableNames | ForEach-Object { '$env:' + $_ + ' = ' + (ConvertTo-MixdogLiteral ([string][Environment]::GetEnvironmentVariable($_))) }) -join [Environment]::NewLine",
       '$elevatedScript = $prelude + [Environment]::NewLine + $bootstrap',
@@ -329,7 +382,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
       "if ($elevatedEncoded.Length -gt 30000) { throw 'privileged_worker_unavailable: launch configuration exceeds Windows command line capacity' }",
       "$arguments = @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand',$elevatedEncoded)",
       'try {',
-      "  $process = Start-Process -FilePath $powershell -Verb RunAs -ArgumentList $arguments -Wait -PassThru",
+      '  $process = Start-Process -FilePath $powershell -Verb RunAs -ArgumentList $arguments -Wait -PassThru',
       '  exit $process.ExitCode',
       '} catch {',
       "  [Console]::Error.WriteLine(('launcher_error:' + $_.Exception.Message))",
@@ -342,29 +395,26 @@ export function createWorkerPool(host: WorkerPoolHost) {
     elevatedSlots += 3;
     try {
       const launcherResult = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
-        const child = spawnProcess('powershell.exe', [
-          '-NoProfile',
-          '-NonInteractive',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-Command',
-          launcher,
-        ], {
-          windowsHide: true,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: {
-            ...process.env,
-            MIXDOG_ELEVATED_TOKEN: nonce,
-            MIXDOG_COMPUTER_INPUT_MARKER: inputMarker,
-            MIXDOG_ELEVATED_HOST_SCRIPT: hostScriptPath!,
-            MIXDOG_ELEVATED_HOST_SHA256: sha256(hostBytes),
-            MIXDOG_ELEVATED_REQUEST: requestPath,
-            MIXDOG_ELEVATED_REQUEST_SHA256: sha256(requestBytes),
-            MIXDOG_ELEVATED_RESPONSE: responsePath,
-            MIXDOG_ELEVATED_CANCEL: cancelPath,
-            MIXDOG_ELEVATED_MARKER: RESPONSE_MARKER,
-          },
-        });
+        const child = spawnProcess(
+          'powershell.exe',
+          ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', launcher],
+          {
+            windowsHide: true,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            env: {
+              ...process.env,
+              MIXDOG_ELEVATED_TOKEN: nonce,
+              MIXDOG_COMPUTER_INPUT_MARKER: inputMarker,
+              MIXDOG_ELEVATED_HOST_SCRIPT: hostScriptPath!,
+              MIXDOG_ELEVATED_HOST_SHA256: sha256(hostBytes),
+              MIXDOG_ELEVATED_REQUEST: requestPath,
+              MIXDOG_ELEVATED_REQUEST_SHA256: sha256(requestBytes),
+              MIXDOG_ELEVATED_RESPONSE: responsePath,
+              MIXDOG_ELEVATED_CANCEL: cancelPath,
+              MIXDOG_ELEVATED_MARKER: RESPONSE_MARKER,
+            },
+          }
+        );
         let stdout = '';
         let stderr = '';
         const appendBounded = (current: string, chunk: Buffer): string =>
@@ -377,9 +427,17 @@ export function createWorkerPool(host: WorkerPoolHost) {
         });
         let cleanupTimer: NodeJS.Timeout | undefined;
         const timer = setTimeout(() => {
-          try { cancel(); } catch { /* parent death also cancels the input child */ }
+          try {
+            cancel();
+          } catch {
+            /* parent death also cancels the input child */
+          }
           cleanupTimer = setTimeout(() => {
-            try { child.kill(); } catch { /* launcher already exited */ }
+            try {
+              child.kill();
+            } catch {
+              /* launcher already exited */
+            }
             reject(new Error('privileged_worker_cleanup_unconfirmed: elevated input did not acknowledge cancellation'));
           }, 6_000);
         }, 120_000);
@@ -415,15 +473,21 @@ export function createWorkerPool(host: WorkerPoolHost) {
           throw new Error('privileged_worker_unavailable: elevated worker returned no response');
         }
         throw new Error(
-          `privileged_worker_launcher_failed: elevated worker exited with code ${launcherResult.code}`
-          + (launcherDetail ? ` (${launcherDetail})` : ''),
+          `privileged_worker_launcher_failed: elevated worker exited with code ${launcherResult.code}` +
+            (launcherDetail ? ` (${launcherDetail})` : '')
         );
       }
       const newline = envelope.indexOf('\n');
       const responseToken = (newline >= 0 ? envelope.slice(0, newline) : envelope)
         .replace(/^\uFEFF/, '')
         .replace(/\r$/, '');
-      const receipt = newline >= 0 ? envelope.slice(newline + 1).trim().split(/\r?\n/) : [];
+      const receipt =
+        newline >= 0
+          ? envelope
+              .slice(newline + 1)
+              .trim()
+              .split(/\r?\n/)
+          : [];
       const responseLine = receipt.slice(1).join('\n');
       if (responseToken !== nonce) {
         throw new Error('privileged_worker_rejected: response authentication failed');
@@ -443,10 +507,22 @@ export function createWorkerPool(host: WorkerPoolHost) {
     } finally {
       job.finish(stopped);
       if (stopped) elevatedSlots -= 3;
-      try { unlinkSync(requestPath); } catch { /* already removed */ }
-      try { unlinkSync(responsePath); } catch { /* no response on UAC cancellation */ }
+      try {
+        unlinkSync(requestPath);
+      } catch {
+        /* already removed */
+      }
+      try {
+        unlinkSync(responsePath);
+      } catch {
+        /* no response on UAC cancellation */
+      }
       if (stopped) {
-        try { unlinkSync(cancelPath); } catch { /* no cancellation requested */ }
+        try {
+          unlinkSync(cancelPath);
+        } catch {
+          /* no cancellation requested */
+        }
       }
     }
   }
@@ -459,7 +535,11 @@ export function createWorkerPool(host: WorkerPoolHost) {
       const duplicateSpare = spareHostWorker;
       spareHostWorker = null;
       if (duplicateSpare && duplicateSpare !== warmed && !duplicateSpare.killed) {
-        try { duplicateSpare.kill(); } catch { /* already gone */ }
+        try {
+          duplicateSpare.kill();
+        } catch {
+          /* already gone */
+        }
       }
       powerShellBySession.delete(sessionId);
       workerLastUsedAt.delete(sessionId);
@@ -472,7 +552,11 @@ export function createWorkerPool(host: WorkerPoolHost) {
   /** The published script is a temp artifact; it goes when the host does. */
   function removeHostScript(): void {
     if (hostScriptPath) {
-      try { unlinkSync(hostScriptPath); } catch { /* already gone */ }
+      try {
+        unlinkSync(hostScriptPath);
+      } catch {
+        /* already gone */
+      }
     }
     hostScriptPath = null;
   }
@@ -480,7 +564,11 @@ export function createWorkerPool(host: WorkerPoolHost) {
   /** An idle spare has no reason to outlive the bridge that would use it. */
   function releaseSpareWorker(): void {
     if (spareHostWorker && !spareHostWorker.killed) {
-      try { spareHostWorker.kill(); } catch { /* already gone */ }
+      try {
+        spareHostWorker.kill();
+      } catch {
+        /* already gone */
+      }
     }
     spareHostWorker = null;
   }
@@ -497,8 +585,14 @@ export function createWorkerPool(host: WorkerPoolHost) {
     return new Promise((resolve) => {
       const deadline = Date.now() + timeoutMs;
       const check = () => {
-        if (residentWorkerPids().length === 0) { resolve(true); return; }
-        if (Date.now() >= deadline) { resolve(false); return; }
+        if (residentWorkerPids().length === 0) {
+          resolve(true);
+          return;
+        }
+        if (Date.now() >= deadline) {
+          resolve(false);
+          return;
+        }
         setTimeout(check, 100).unref?.();
       };
       check();
@@ -518,8 +612,8 @@ export function createWorkerPool(host: WorkerPoolHost) {
     ensureSpareHostWorker,
     ensurePowerShell,
     retirePowerShell,
-    hasUnconfirmedBackgroundInput: (sessionId?: string) => sessionId === undefined
-      ? unconfirmedBackgroundSessions.size > 0 : unconfirmedBackgroundSessions.has(sessionId),
+    hasUnconfirmedBackgroundInput: (sessionId?: string) =>
+      sessionId === undefined ? unconfirmedBackgroundSessions.size > 0 : unconfirmedBackgroundSessions.has(sessionId),
     callPowerShell,
     callPowerShellElevated,
     cancelElevatedSession: elevatedJobs.cancel,

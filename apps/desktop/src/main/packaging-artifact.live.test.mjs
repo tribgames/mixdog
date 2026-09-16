@@ -26,7 +26,7 @@ async function findRuntimeArchives(directory, depth = 0) {
     if (entry.isFile() && entry.name === 'runtime.asar') {
       archives.push(path);
     } else if (entry.isDirectory()) {
-      archives.push(...await findRuntimeArchives(path, depth + 1));
+      archives.push(...(await findRuntimeArchives(path, depth + 1)));
     }
   }
   return archives;
@@ -68,14 +68,11 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
   await access(runtimeArchive);
 
   const targetBinding = `/bin/napi-v6/${process.platform}/${process.arch}/onnxruntime_binding.node`;
-  const candidates = await findRuntimeArchives(
-    fileURLToPath(new URL('../../dist', import.meta.url)),
-  );
+  const candidates = await findRuntimeArchives(fileURLToPath(new URL('../../dist', import.meta.url)));
   const built = candidates
     .map((archive) => ({
       archive,
-      entries: listPackage(archive, { isPack: false })
-        .map((entry) => entry.replaceAll('\\', '/')),
+      entries: listPackage(archive, { isPack: false }).map((entry) => entry.replaceAll('\\', '/')),
     }))
     .find(({ entries }) => entries.some((entry) => entry.endsWith(targetBinding)));
   assert.ok(built, `dist is missing a packaged ${process.platform}-${process.arch} runtime.asar`);
@@ -103,7 +100,7 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
   assert.equal(
     entries.some((entry) => /\.mixdog-edit\.[^/]+$/i.test(entry)),
     false,
-    'runtime archive contains an Office authoring copy',
+    'runtime archive contains an Office authoring copy'
   );
   const ortPackage = entries.find((entry) => /\/onnxruntime-node\/package\.json$/.test(entry));
   assert.ok(ortPackage, 'runtime archive is missing onnxruntime-node');
@@ -113,49 +110,51 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
   const embeddingBinaryRoot = `${embeddingPlatformRoot}/${process.arch}`;
   assert.ok(
     entries.includes(`${embeddingBinaryRoot}/onnxruntime_binding.node`),
-    `runtime archive is missing ${process.platform}-${process.arch} ONNX binding`,
+    `runtime archive is missing ${process.platform}-${process.arch} ONNX binding`
   );
   assert.equal(
-    entries.some((entry) => entry.startsWith(`${embeddingNapiRoot}/`)
-      && entry !== embeddingPlatformRoot
-      && entry !== embeddingBinaryRoot
-      && !entry.startsWith(`${embeddingBinaryRoot}/`)),
+    entries.some(
+      (entry) =>
+        entry.startsWith(`${embeddingNapiRoot}/`) &&
+        entry !== embeddingPlatformRoot &&
+        entry !== embeddingBinaryRoot &&
+        !entry.startsWith(`${embeddingBinaryRoot}/`)
+    ),
     false,
-    'runtime archive contains foreign ONNX platform binaries',
+    'runtime archive contains foreign ONNX platform binaries'
   );
   assert.equal(
     entries.some((entry) => /\/onnxruntime-web\/(?:dist|lib)\//.test(entry)),
     false,
-    'runtime archive contains unused ONNX web payloads',
+    'runtime archive contains unused ONNX web payloads'
   );
 
-  const nativeBinaryEntries = entries.filter(
-    (entry) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry),
+  const nativeBinaryEntries = entries.filter((entry) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry));
+  const unpackedRuntimeEntries = [
+    ...new Set([
+      ...nativeBinaryEntries,
+      '/node_modules/mixdog/src/runtime/office/com/office-com-host.ps1',
+      '/node_modules/mixdog/src/runtime/office/com/office-com-session-host.ps1',
+      '/node_modules/mixdog/src/runtime/office/com/office-com-cleanup.ps1',
+      '/node_modules/mixdog/src/runtime/office/com/office-word-formatting.ps1',
+      '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx',
+      '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
+    ]),
+  ];
+  assert.ok(
+    nativeBinaryEntries.some((entry) => entry.endsWith('.node')),
+    'runtime archive contains no native addon'
   );
-  const unpackedRuntimeEntries = [...new Set([
-    ...nativeBinaryEntries,
-    '/node_modules/mixdog/src/runtime/office/com/office-com-host.ps1',
-    '/node_modules/mixdog/src/runtime/office/com/office-com-session-host.ps1',
-    '/node_modules/mixdog/src/runtime/office/com/office-com-cleanup.ps1',
-    '/node_modules/mixdog/src/runtime/office/com/office-word-formatting.ps1',
-    '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx',
-    '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
-  ])];
-  assert.ok(nativeBinaryEntries.some((entry) => entry.endsWith('.node')), 'runtime archive contains no native addon');
   for (const entry of unpackedRuntimeEntries) {
     const archivePath = entry.replace(/^\/+/, '');
-    assert.equal(
-      statFile(builtArchive, archivePath.replaceAll('/', sep)).unpacked,
-      true,
-      `${entry} is not unpacked`,
-    );
+    assert.equal(statFile(builtArchive, archivePath.replaceAll('/', sep)).unpacked, true, `${entry} is not unpacked`);
     const parts = archivePath.split('/');
     const stagedNative = join(stagedSidecar, ...parts);
     const builtNative = join(builtResources, 'runtime.asar.unpacked', ...parts);
     assert.deepEqual(
       await streamingFileIdentity(builtNative),
       await streamingFileIdentity(stagedNative),
-      `${entry} was not emitted unchanged beside the built runtime.asar`,
+      `${entry} was not emitted unchanged beside the built runtime.asar`
     );
   }
 });

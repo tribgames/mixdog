@@ -34,11 +34,29 @@ test('user font directory is absolute and unknown fonts report their install tar
 
 test('prepareOfficeFonts absorbs download failures per font instead of throwing', async (t) => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => { throw new Error('offline'); };
-  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async () => {
+    throw new Error('offline');
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
   const targets = [
-    { id: 'probe-a', family: 'Probe A', fileName: 'Mixdog-Probe-A.ttf', registryName: 'Probe A', url: 'https://example.invalid/a.ttf', bytes: 1 },
-    { id: 'probe-b', family: 'Probe B', fileName: 'Mixdog-Probe-B.ttf', registryName: 'Probe B', url: 'https://example.invalid/b.ttf', bytes: 1 },
+    {
+      id: 'probe-a',
+      family: 'Probe A',
+      fileName: 'Mixdog-Probe-A.ttf',
+      registryName: 'Probe A',
+      url: 'https://example.invalid/a.ttf',
+      bytes: 1,
+    },
+    {
+      id: 'probe-b',
+      family: 'Probe B',
+      fileName: 'Mixdog-Probe-B.ttf',
+      registryName: 'Probe B',
+      url: 'https://example.invalid/b.ttf',
+      bytes: 1,
+    },
   ];
   const results = await prepareOfficeFonts({ targets });
   assert.deepEqual(Object.keys(results).sort(), ['probe-a', 'probe-b']);

@@ -20,32 +20,22 @@ test('OCR language tags stay bounded and use one host-wide grammar', () => {
   for (const language of ['ko', 'en-US', 'zh-Hans', 'sr-Latn-RS']) {
     assert.doesNotThrow(() => assertOcrLanguageTag(language), language);
   }
-  for (const language of [
-    '',
-    'e',
-    ' en-US',
-    'en-US ',
-    'en_US',
-    'en--US',
-    'en-US!',
-    `en-${'a'.repeat(63)}`,
-  ]) {
-    assert.throws(
-      () => assertOcrLanguageTag(language),
-      /BCP-47 language tag/,
-      JSON.stringify(language),
-    );
+  for (const language of ['', 'e', ' en-US', 'en-US ', 'en_US', 'en--US', 'en-US!', `en-${'a'.repeat(63)}`]) {
+    assert.throws(() => assertOcrLanguageTag(language), /BCP-47 language tag/, JSON.stringify(language));
   }
-  assert.doesNotThrow(() => assertCaptureAfterOptions({
-    action: 'click',
-    capture_after_ocr_language: 'ko',
-  }));
-  assert.throws(
-    () => assertCaptureAfterOptions({
+  assert.doesNotThrow(() =>
+    assertCaptureAfterOptions({
       action: 'click',
-      capture_after_ocr_language: 'ko_KR',
-    }),
-    /capture_after_ocr_language.*BCP-47/,
+      capture_after_ocr_language: 'ko',
+    })
+  );
+  assert.throws(
+    () =>
+      assertCaptureAfterOptions({
+        action: 'click',
+        capture_after_ocr_language: 'ko_KR',
+      }),
+    /capture_after_ocr_language.*BCP-47/
   );
 });
 
@@ -72,13 +62,16 @@ function element(overrides = {}) {
 
 test('element identity survives a recapture and numbers repeated labels', () => {
   const refIdentities = new Map();
-  const identities = captureIdentityMap([
-    element({ name: 'Save' }),
-    element({ name: 'Save', mark: 2, ref: 's1:e1' }),
-    element({ role: 'Edit', name: 'File name', value: 'report.txt', ref: 's1:e2' }),
-    // OCR marks are pixel guesses, not stable identities.
-    element({ source: 'ocr', role: 'Text', name: 'SEND', mark: 9, ref: 's1:e8' }),
-  ], refIdentities);
+  const identities = captureIdentityMap(
+    [
+      element({ name: 'Save' }),
+      element({ name: 'Save', mark: 2, ref: 's1:e1' }),
+      element({ role: 'Edit', name: 'File name', value: 'report.txt', ref: 's1:e2' }),
+      // OCR marks are pixel guesses, not stable identities.
+      element({ source: 'ocr', role: 'Text', name: 'SEND', mark: 9, ref: 's1:e8' }),
+    ],
+    refIdentities
+  );
   assert.deepEqual([...identities.keys()], ['Button|Save', 'Button|Save#2', 'Edit|File name']);
   assert.match(identities.get('Edit|File name'), /^report\.txt\u0000/);
   assert.equal(refIdentities.get('s1:e0'), 'Button|Save');
@@ -127,28 +120,17 @@ test('the post-action image is dropped only when a semantic action has a named d
       updated: { count: 1, sample: ['Button|Save'] },
     },
   };
+  assert.equal(captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0' }, changed, 'Button|Save'), true);
+  assert.equal(captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0' }, changed, 'Button|Unrelated'), false);
   assert.equal(
     captureAfterImageIsRedundant(
-      { action: 'invoke', ref: 's1:e0' },
-      changed,
-      'Button|Save',
+      { action: 'set_value', ref: 's1:e0' },
+      {
+        ...changed,
+        changes: { added: { count: 2 }, removed: { count: 1 }, updated: { count: 0 } },
+      }
     ),
-    true,
-  );
-  assert.equal(
-    captureAfterImageIsRedundant(
-      { action: 'invoke', ref: 's1:e0' },
-      changed,
-      'Button|Unrelated',
-    ),
-    false,
-  );
-  assert.equal(
-    captureAfterImageIsRedundant({ action: 'set_value', ref: 's1:e0' }, {
-      ...changed,
-      changes: { added: { count: 2 }, removed: { count: 1 }, updated: { count: 0 } },
-    }),
-    false,
+    false
   );
   // An unrelated tree update cannot replace pixel evidence for coordinate input.
   assert.equal(captureAfterImageIsRedundant({ action: 'click' }, changed), false);
@@ -156,31 +138,49 @@ test('the post-action image is dropped only when a semantic action has a named d
   // An unchanged tree cannot tell "nothing happened" from a pixel-only change,
   // so the frame is the only remaining evidence.
   assert.equal(
-    captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0' }, {
-      ...changed,
-      changes: { added: { count: 0 }, removed: { count: 0 }, updated: { count: 0 } },
-    }),
-    false,
+    captureAfterImageIsRedundant(
+      { action: 'invoke', ref: 's1:e0' },
+      {
+        ...changed,
+        changes: { added: { count: 0 }, removed: { count: 0 }, updated: { count: 0 } },
+      }
+    ),
+    false
   );
   // Every guard that means the pixels still carry evidence.
   assert.equal(captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0', include_ocr: true }, changed), false);
-  assert.equal(captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0', capture_after_include_ocr: true }, changed), false);
-  assert.equal(captureAfterImageIsRedundant(
-    { action: 'invoke', ref: 's1:e0' },
-    { ...changed, ocr_elements: 2 },
-  ), false);
+  assert.equal(
+    captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0', capture_after_include_ocr: true }, changed),
+    false
+  );
+  assert.equal(
+    captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0' }, { ...changed, ocr_elements: 2 }),
+    false
+  );
   assert.equal(
     captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0' }, { ...changed, pixel_status: 'unavailable' }),
-    false,
+    false
   );
   assert.equal(captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0' }, { ...changed, mode: 'som' }), false);
   // A near-empty tree proves nothing on its own, so its image stays.
-  assert.equal(captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0' }, { ...changed, returned_elements: 2 }), false);
-  assert.equal(captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0' }, { ...changed, changes: undefined }), false);
+  assert.equal(
+    captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0' }, { ...changed, returned_elements: 2 }),
+    false
+  );
+  assert.equal(
+    captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0' }, { ...changed, changes: undefined }),
+    false
+  );
 });
 
 test('a predicate is proven, disproven, or unknown — never optimistic', () => {
-  const seen = { ok: true, exists: true, title: 'report.txt - notepad', haystack: 'saved\nfile name', textComplete: true };
+  const seen = {
+    ok: true,
+    exists: true,
+    title: 'report.txt - notepad',
+    haystack: 'saved\nfile name',
+    textComplete: true,
+  };
   const gone = { ok: true, exists: false, title: '', haystack: '' };
   const providerError = { ok: false, exists: false, title: '', haystack: '' };
   assert.equal(evaluateVerifyPredicate({ present: 'saved' }, seen), 'satisfied');
@@ -210,7 +210,7 @@ test('bounded integers report their own field and range', () => {
   assert.equal(screenshotInteger(5, 80, 1, 1000, 'max_elements'), 5);
   assert.throws(
     () => screenshotInteger(0, 80, 1, 1000, 'max_elements'),
-    /max_elements must be an integer from 1 to 1000/,
+    /max_elements must be an integer from 1 to 1000/
   );
   assert.throws(() => screenshotInteger(1.5, 80, 1, 1000, 'max_elements'), /integer/);
 });
@@ -238,7 +238,10 @@ test('OCR words that a labelled control already covers are dropped', () => {
     { text: 'x', line: 2, x: 0, y: 0, width: 1, height: 1, center_x: 0, center_y: 0 },
   ];
   const kept = dedupeOcrWords(words, [{ name: 'Save', value: '', bounds: [8, 8, 40, 20] }]);
-  assert.deepEqual(kept.map((word) => word.text), ['Untitled']);
+  assert.deepEqual(
+    kept.map((word) => word.text),
+    ['Untitled']
+  );
 });
 
 test('capture mode defaults to state and rejects anything the host cannot render', () => {
@@ -257,14 +260,8 @@ test('state and SOM automatically use OCR only when semantic accessibility is em
 });
 
 test('foreground-lock failures request user focus instead of another input attempt', () => {
-  assert.equal(
-    recommendedRecovery('suspected_noop', 'foreground_unavailable', 'foreground', null),
-    'user',
-  );
-  assert.equal(
-    recommendedRecovery('suspected_noop', 'foreground_changed', 'foreground', null),
-    'user',
-  );
+  assert.equal(recommendedRecovery('suspected_noop', 'foreground_unavailable', 'foreground', null), 'user');
+  assert.equal(recommendedRecovery('suspected_noop', 'foreground_changed', 'foreground', null), 'user');
 });
 
 test('an uncertain background effect requests evidence instead of switching delivery', () => {

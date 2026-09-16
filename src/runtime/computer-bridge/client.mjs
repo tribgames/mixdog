@@ -7,15 +7,8 @@
  * `computer` tool surface plus the async executor behind tool calls. The bridge
  * only exists while the desktop app runs with Computer Use enabled.
  */
-import {
-  normalizeComputerToolArgs,
-  toComputerHostCommand,
-  validateComputerToolArgs,
-} from './action-schema.mjs';
-import {
-  computerResultRecovery,
-  formatComputerToolError,
-} from './error-recovery.mjs';
+import { normalizeComputerToolArgs, toComputerHostCommand, validateComputerToolArgs } from './action-schema.mjs';
+import { computerResultRecovery, formatComputerToolError } from './error-recovery.mjs';
 import { bridgeDiscoveryChanged, readBridgeDiscovery } from '../bridge-discovery.mjs';
 import { MAX_COMPUTER_REQUEST_BYTES, readComputerBridgeJson, validateComputerReply } from './limits.mjs';
 import { computerActionHas } from './actions.mjs';
@@ -60,7 +53,9 @@ function canonicalizeActResult(value, args) {
         normalized.type = args.input?.actions?.[index]?.type || normalized.action;
         normalized.status = ACT_STEP_STATUSES.has(normalized.status)
           ? normalized.status
-          : normalized.ok === false ? 'failed' : 'succeeded';
+          : normalized.ok === false
+            ? 'failed'
+            : 'succeeded';
         delete normalized.action;
         delete normalized.ok;
         return normalized;
@@ -79,8 +74,7 @@ export function canonicalComputerResultText(text, args) {
   } catch {
     return text;
   }
-  if (!value || typeof value !== 'object' || Array.isArray(value)
-    || typeof value.action !== 'string') {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.action !== 'string') {
     return text;
   }
   value.action = args.action;
@@ -105,11 +99,7 @@ function canonicalComputerResultIsError(text, args) {
   try {
     const value = JSON.parse(text);
     return Boolean(
-      value
-      && typeof value === 'object'
-      && !Array.isArray(value)
-      && value.action === args.action
-      && value.ok === false,
+      value && typeof value === 'object' && !Array.isArray(value) && value.action === args.action && value.ok === false
     );
   } catch {
     return false;
@@ -147,7 +137,9 @@ function computerMutationMayHaveExecuted(command) {
   return !isReplaySafeComputerCommand(command) && command?.read_only !== true;
 }
 
-function computerUncertainMutationResult(message = 'computer command may have executed and was not replayed; inspect fresh state before retrying') {
+function computerUncertainMutationResult(
+  message = 'computer command may have executed and was not replayed; inspect fresh state before retrying'
+) {
   return {
     content: [{ type: 'text', text: `Error: ${message}` }],
     isError: true,
@@ -158,11 +150,10 @@ function computerUncertainMutationResult(message = 'computer command may have ex
  *  internal-tools normalizer forwards text and screenshot images as-is. */
 async function cancelledComputerResult(sessionId, mutationMayHaveExecuted) {
   const confirmed = sessionId ? await abortComputerSession(sessionId) : false;
-  const cleanup = confirmed
-    ? 'input state and session resources were released'
-    : 'host cleanup could not be confirmed';
+  const cleanup = confirmed ? 'input state and session resources were released' : 'host cleanup could not be confirmed';
   const partial = mutationMayHaveExecuted
-    ? '; input may have partially executed; inspect fresh state before retrying' : '';
+    ? '; input may have partially executed; inspect fresh state before retrying'
+    : '';
   return { content: [{ type: 'text', text: `Error: computer command aborted; ${cleanup}${partial}` }], isError: true };
 }
 
@@ -183,15 +174,30 @@ export async function executeComputerTool(rawArgs, context = {}) {
   const sessionId = context?.sessionId ? String(context.sessionId) : '';
   const encoded = JSON.stringify({ ...command, ...(sessionId ? { session_id: sessionId } : {}) });
   if (Buffer.byteLength(encoded) > MAX_COMPUTER_REQUEST_BYTES) {
-    return { content: [{ type: 'text', text: 'Error: computer request exceeds byte limit; no input was dispatched' }], isError: true };
+    return {
+      content: [{ type: 'text', text: 'Error: computer request exceeds byte limit; no input was dispatched' }],
+      isError: true,
+    };
   }
   cancelDeferredComputerSessionRelease(sessionId);
   try {
-    const released = await waitForComputerRelease(pendingComputerSessionReleases.get(sessionId)?.promise, context.signal);
+    const released = await waitForComputerRelease(
+      pendingComputerSessionReleases.get(sessionId)?.promise,
+      context.signal
+    );
     if (!released) {
-      return { content: [{ type: 'text', text: formatComputerToolError(
-        'computer_cleanup_pending: previous session release was not confirmed; no new input was dispatched', args,
-      ) }], isError: true };
+      return {
+        content: [
+          {
+            type: 'text',
+            text: formatComputerToolError(
+              'computer_cleanup_pending: previous session release was not confirmed; no new input was dispatched',
+              args
+            ),
+          },
+        ],
+        isError: true,
+      };
     }
     context.signal?.throwIfAborted();
   } catch (error) {
@@ -238,9 +244,7 @@ export async function executeComputerTool(rawArgs, context = {}) {
         return computerUncertainMutationResult();
       }
       if (externallyAborted) return cancelledComputerResult(sessionId, mutationMayHaveExecuted);
-      const reason = timedOut
-        ? 'computer bridge timed out'
-        : BRIDGE_UNAVAILABLE_MESSAGE;
+      const reason = timedOut ? 'computer bridge timed out' : BRIDGE_UNAVAILABLE_MESSAGE;
       return { content: [{ type: 'text', text: `Error: ${reason}` }], isError: true };
     }
   }
@@ -267,40 +271,68 @@ export async function executeComputerTool(rawArgs, context = {}) {
     return { content: [{ type: 'text', text: formatComputerToolError(message, args) }], isError: true };
   }
   let value = body.value || {};
-  try { validateComputerReply(value); }
-  catch (error) {
-    return { content: [{ type: 'text', text: `Error: ${error.message}; input may have executed and was not replayed` }], isError: true };
+  try {
+    validateComputerReply(value);
+  } catch (error) {
+    return {
+      content: [{ type: 'text', text: `Error: ${error.message}; input may have executed and was not replayed` }],
+      isError: true,
+    };
   }
   if (isPendingComputerWork(value)) {
     try {
-      value = await continuePendingComputerWork(value, command, async (readCommand) => {
-        const pendingResponse = await postComputerCommand(bridge, {
-          ...readCommand, ...(sessionId ? { session_id: sessionId } : {}),
-        }, { signal: context.signal });
-        const pendingBody = await readComputerBridgeJson(pendingResponse);
-        if (readCommand.action === 'capture' && pendingBody?.ok === false
-          && pendingResponse.status !== 401 && pendingResponse.status !== 403
-          && /^computer_user_control_active(?::|$)/.test(String(pendingBody.error || ''))) {
-          // Control can change between Resume and the read-only capture.
-          // Keep the original progress and wait again; never resubmit input.
-          return { text: JSON.stringify({ ok: false, status: 'paused',
-            code: 'computer_user_intervention_pending' }) };
-        }
-        if (!pendingResponse.ok || !pendingBody?.ok) throw new Error('computer_pending_connection_lost');
-        validateComputerReply(pendingBody.value);
-        return pendingBody.value;
-      }, context.signal);
+      value = await continuePendingComputerWork(
+        value,
+        command,
+        async (readCommand) => {
+          const pendingResponse = await postComputerCommand(
+            bridge,
+            {
+              ...readCommand,
+              ...(sessionId ? { session_id: sessionId } : {}),
+            },
+            { signal: context.signal }
+          );
+          const pendingBody = await readComputerBridgeJson(pendingResponse);
+          if (
+            readCommand.action === 'capture' &&
+            pendingBody?.ok === false &&
+            pendingResponse.status !== 401 &&
+            pendingResponse.status !== 403 &&
+            /^computer_user_control_active(?::|$)/.test(String(pendingBody.error || ''))
+          ) {
+            // Control can change between Resume and the read-only capture.
+            // Keep the original progress and wait again; never resubmit input.
+            return {
+              text: JSON.stringify({ ok: false, status: 'paused', code: 'computer_user_intervention_pending' }),
+            };
+          }
+          if (!pendingResponse.ok || !pendingBody?.ok) throw new Error('computer_pending_connection_lost');
+          validateComputerReply(pendingBody.value);
+          return pendingBody.value;
+        },
+        context.signal
+      );
     } catch (error) {
       if (context.signal?.aborted && sessionId) await abortComputerSession(sessionId);
-      return { content: [{ type: 'text',
-        text: 'Error: pending computer work was interrupted; no input was replayed. Inspect fresh state before continuing.' }], isError: true };
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'Error: pending computer work was interrupted; no input was replayed. Inspect fresh state before continuing.',
+          },
+        ],
+        isError: true,
+      };
     }
   }
   const text = canonicalComputerResultText(String(value.text || 'OK'), args);
-  const content = [{
-    type: 'text',
-    text,
-  }];
+  const content = [
+    {
+      type: 'text',
+      text,
+    },
+  ];
   if (value.image?.data && value.image?.mimeType) {
     content.push({
       type: 'image',
@@ -321,10 +353,14 @@ async function sendComputerSessionControl(sessionId, action, timeoutMs) {
   const discovery = readDiscovery();
   if (!discovery) return false;
   try {
-    const response = await postComputerCommand(discovery, {
-      action,
-      session_id: sessionId,
-    }, { timeoutMs });
+    const response = await postComputerCommand(
+      discovery,
+      {
+        action,
+        session_id: sessionId,
+      },
+      { timeoutMs }
+    );
     const body = await readComputerBridgeJson(response);
     return response.ok && body?.ok === true;
   } catch {
@@ -374,7 +410,10 @@ function waitForComputerRelease(pending, signal) {
       settle(value);
     };
     const onAbort = () => finish(reject, signal.reason);
-    pending.then(value => finish(resolve, value), error => finish(reject, error));
+    pending.then(
+      (value) => finish(resolve, value),
+      (error) => finish(reject, error)
+    );
     if (signal?.aborted) onAbort();
     else signal?.addEventListener('abort', onAbort, { once: true });
   });
@@ -408,13 +447,15 @@ function startComputerSessionRelease(id, timeoutMs, deferred) {
   activeComputerExecutions.delete(id);
   activeComputerSessions.delete(id);
   const record = { deferred, promise: null };
-  record.promise = sendComputerSessionControl(id, 'session_release', timeoutMs).then(released => {
-    if (released) hostBoundComputerSessions.delete(id);
-    else if (hostBoundComputerSessions.has(id)) activeComputerSessions.add(id);
-    return released;
-  }).finally(() => {
-    if (pendingComputerSessionReleases.get(id) === record) pendingComputerSessionReleases.delete(id);
-  });
+  record.promise = sendComputerSessionControl(id, 'session_release', timeoutMs)
+    .then((released) => {
+      if (released) hostBoundComputerSessions.delete(id);
+      else if (hostBoundComputerSessions.has(id)) activeComputerSessions.add(id);
+      return released;
+    })
+    .finally(() => {
+      if (pendingComputerSessionReleases.get(id) === record) pendingComputerSessionReleases.delete(id);
+    });
   pendingComputerSessionReleases.set(id, record);
   return record.promise;
 }
@@ -450,10 +491,14 @@ export async function releaseAllComputerSessions(timeoutMs = SHUTDOWN_SESSION_RE
   const ids = [...new Set([...hostBoundComputerSessions, ...activeComputerSessions])];
   if (ids.length === 0) return 0;
   const timeout = Math.max(1, Number(timeoutMs) || SHUTDOWN_SESSION_RELEASE_TIMEOUT_MS);
-  const outcomes = await Promise.all(ids.map(async (id) => {
-    try {
-      return await waitForComputerRelease(releaseComputerSession(id, timeout), AbortSignal.timeout(timeout));
-    } catch { return false; }
-  }));
+  const outcomes = await Promise.all(
+    ids.map(async (id) => {
+      try {
+        return await waitForComputerRelease(releaseComputerSession(id, timeout), AbortSignal.timeout(timeout));
+      } catch {
+        return false;
+      }
+    })
+  );
   return outcomes.filter(Boolean).length;
 }

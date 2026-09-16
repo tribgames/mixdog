@@ -14,9 +14,7 @@ export const flowActions = defineBrowserActions({
     signal?.throwIfAborted();
     const { documents, reply } = services;
     const wantText = typeof command.text === 'string' && command.text.trim() ? command.text.trim() : '';
-    const wantTextGone = typeof command.textGone === 'string' && command.textGone.trim()
-      ? command.textGone.trim()
-      : '';
+    const wantTextGone = typeof command.textGone === 'string' && command.textGone.trim() ? command.textGone.trim() : '';
     const wantUrl = typeof command.url === 'string' && command.url.trim() ? command.url.trim() : '';
     if (!wantText && !wantTextGone && !wantUrl) {
       throw new Error('wait requires text, textGone, and/or url (substrings to wait for)');
@@ -61,20 +59,22 @@ export const flowActions = defineBrowserActions({
     signal?.throwIfAborted();
     if (!matched) {
       const waited = describeBrowserPostcondition(expected);
-      const outcome = command.internalStep ? { text: '' }
+      const outcome = command.internalStep
+        ? { text: '' }
         : await reply.snapshotResult(guest, command, signal, { targetIsBackground }).catch((error) => {
-          if (signal?.aborted) throw signal.reason || error;
-          return { text: `Final snapshot failed: ${error instanceof Error ? error.message : String(error)}` };
-        });
+            if (signal?.aborted) throw signal.reason || error;
+            return { text: `Final snapshot failed: ${error instanceof Error ? error.message : String(error)}` };
+          });
       signal?.throwIfAborted();
-      throw new Error([
-        `Wait timed out after ${timeoutMs}ms without matching ${waited}.`,
-        observationFailure,
-        outcome.text,
-      ].filter(Boolean).join('\n\n'));
+      throw new Error(
+        [`Wait timed out after ${timeoutMs}ms without matching ${waited}.`, observationFailure, outcome.text]
+          .filter(Boolean)
+          .join('\n\n')
+      );
     }
     const elapsed = Date.now() - startedAt;
-    const outcome = command.internalStep ? { text: '' }
+    const outcome = command.internalStep
+      ? { text: '' }
       : await reply.snapshotResult(guest, command, signal, { targetIsBackground });
     signal?.throwIfAborted();
     return {

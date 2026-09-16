@@ -9,9 +9,17 @@ const model = { minimumVramBytes: 23 * 1024 ** 3, estimatedVramBytes: 22 * 1024 
 test('GPU inspection is nonblocking, coalesced, and independent of device enumeration order', async () => {
   let finish;
   let calls = 0;
-  const gate = new Promise((resolve) => { finish = resolve; });
-  const probe = createHardwareProbe({ platform: 'win32', arch: 'x64',
-    queryFn: async () => { calls++; return gate; } });
+  const gate = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const probe = createHardwareProbe({
+    platform: 'win32',
+    arch: 'x64',
+    queryFn: async () => {
+      calls++;
+      return gate;
+    },
+  });
   assert.equal(probe.status().checking, true);
   const first = probe.refresh();
   const second = probe.refresh();
@@ -27,11 +35,20 @@ test('GPU inspection is nonblocking, coalesced, and independent of device enumer
 });
 
 test('preflight uses available VRAM and fails closed on insufficient or unavailable measurements', async () => {
-  const probe = createHardwareProbe({ platform: 'win32', arch: 'x64',
-    queryFn: async () => large.replace('23500', '1000') });
+  const probe = createHardwareProbe({
+    platform: 'win32',
+    arch: 'x64',
+    queryFn: async () => large.replace('23500', '1000'),
+  });
   const hardware = await probe.refresh();
   assert.throws(() => selectLocalProviderGpu(hardware, model), /insufficient available GPU memory/);
-  const failed = createHardwareProbe({ platform: 'win32', arch: 'x64', queryFn: async () => { throw new Error('driver unavailable'); } });
+  const failed = createHardwareProbe({
+    platform: 'win32',
+    arch: 'x64',
+    queryFn: async () => {
+      throw new Error('driver unavailable');
+    },
+  });
   const unavailable = await failed.refresh();
   assert.equal(unavailable.checking, false);
   assert.throws(() => selectLocalProviderGpu(unavailable, model), /driver unavailable/);
@@ -41,8 +58,15 @@ test('preflight uses available VRAM and fails closed on insufficient or unavaila
 test('stale hardware measurements refresh asynchronously without retaining stale success after a driver failure', async () => {
   let time = 0;
   let fail = false;
-  const probe = createHardwareProbe({ platform: 'win32', arch: 'x64', now: () => time,
-    queryFn: async () => { if (fail) throw new Error('disconnected'); return large; } });
+  const probe = createHardwareProbe({
+    platform: 'win32',
+    arch: 'x64',
+    now: () => time,
+    queryFn: async () => {
+      if (fail) throw new Error('disconnected');
+      return large;
+    },
+  });
   assert.equal((await probe.refresh()).supported, true);
   time = 5001;
   fail = true;

@@ -3,18 +3,11 @@
  * one parking host and is positioned over the preferred visible dock slot, so
  * duplicate session tabs never fight over the same xterm DOM.
  */
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  type ReactNode,
-} from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 
-import { ReadyTerminalPane } from "./app-shell-components";
-import { disposeTerminalPane } from "./lazy-widgets";
+import { ReadyTerminalPane } from './app-shell-components';
+import { disposeTerminalPane } from './lazy-widgets';
 
 type TerminalSurfaceSlot = {
   active: boolean;
@@ -38,12 +31,9 @@ export type SessionTerminalSurfaceRenderProps = {
   parked: boolean;
 };
 
-export type SessionTerminalSurfaceRenderer = (
-  props: SessionTerminalSurfaceRenderProps,
-) => ReactNode;
+export type SessionTerminalSurfaceRenderer = (props: SessionTerminalSurfaceRenderProps) => ReactNode;
 
-export const sessionTerminalId = (sessionId: string): string =>
-  `session-terminal:${sessionId}`;
+export const sessionTerminalId = (sessionId: string): string => `session-terminal:${sessionId}`;
 
 type SessionTerminalSurfaceDisposer = (terminalId: string) => void;
 
@@ -52,46 +42,30 @@ const disposeDefaultTerminalSurface: SessionTerminalSurfaceDisposer = (terminalI
 };
 
 export interface SessionTerminalSurfaceController {
-  registerSlot(
-    sessionId: string,
-    node: HTMLDivElement,
-    active: boolean,
-    foreground: boolean,
-    cwd: string | null,
-  ): void;
+  registerSlot(sessionId: string, node: HTMLDivElement, active: boolean, foreground: boolean, cwd: string | null): void;
   unregisterSlot(sessionId: string, node: HTMLDivElement): void;
   refresh(sessionId: string): void;
   release(sessionId: string): void;
   setParkingHost(node: HTMLDivElement | null): void;
 }
 
-const renderDefaultTerminalSurface: SessionTerminalSurfaceRenderer = ({
-  sessionId,
-  cwd,
-  active,
-}) => <ReadyTerminalPane
-  cwd={cwd}
-  terminalId={sessionTerminalId(sessionId)}
-  active={active}
-/>;
+const renderDefaultTerminalSurface: SessionTerminalSurfaceRenderer = ({ sessionId, cwd, active }) => (
+  <ReadyTerminalPane cwd={cwd} terminalId={sessionTerminalId(sessionId)} active={active} />
+);
 
-function preferredSlot(
-  surface: TerminalSurface,
-): [HTMLDivElement, TerminalSurfaceSlot] | null {
+function preferredSlot(surface: TerminalSurface): [HTMLDivElement, TerminalSurfaceSlot] | null {
   const active = [...surface.slots].filter(([, slot]) => slot.active);
   return active.find(([, slot]) => slot.foreground) ?? active[0] ?? null;
 }
 
 export function useSessionTerminalSurfaces(
   renderTerminalSurface: SessionTerminalSurfaceRenderer = renderDefaultTerminalSurface,
-  disposeTerminalSurface: SessionTerminalSurfaceDisposer = disposeDefaultTerminalSurface,
+  disposeTerminalSurface: SessionTerminalSurfaceDisposer = disposeDefaultTerminalSurface
 ): SessionTerminalSurfaceController {
   const surfaces = useRef(new Map<string, TerminalSurface>());
   const parkingHost = useRef<HTMLDivElement | null>(null);
 
-  const position = useCallback((
-    surface: TerminalSurface,
-  ): [HTMLDivElement, TerminalSurfaceSlot] | null => {
+  const position = useCallback((surface: TerminalSurface): [HTMLDivElement, TerminalSurfaceSlot] | null => {
     const host = parkingHost.current;
     if (host && surface.container.parentElement !== host) {
       host.appendChild(surface.container);
@@ -104,32 +78,37 @@ export function useSessionTerminalSurfaces(
       surface.container.style.top = `${rect.top}px`;
       surface.container.style.width = `${rect.width}px`;
       surface.container.style.height = `${rect.height}px`;
-      surface.container.dataset.parked = "false";
-      surface.container.removeAttribute("aria-hidden");
+      surface.container.dataset.parked = 'false';
+      surface.container.removeAttribute('aria-hidden');
       return selected;
     }
-    surface.container.style.left = "-10000px";
-    surface.container.style.top = "0";
+    surface.container.style.left = '-10000px';
+    surface.container.style.top = '0';
     // Preserve the last visible grid while parked. Browser Use intentionally
     // takes a synthetic desktop viewport, but resizing a hidden PTY would send
     // a false SIGWINCH and restore the wrong row count on return.
-    surface.container.dataset.parked = "true";
-    surface.container.setAttribute("aria-hidden", "true");
+    surface.container.dataset.parked = 'true';
+    surface.container.setAttribute('aria-hidden', 'true');
     return null;
   }, []);
 
-  const commit = useCallback((surface: TerminalSurface) => {
-    const selected = position(surface);
-    if (selected) surface.cwd = selected[1].cwd;
-    const active = Boolean(selected);
-    surface.root.render(renderTerminalSurface({
-      sessionId: surface.sessionId,
-      cwd: surface.cwd,
-      active,
-      foreground: selected?.[1].foreground === true,
-      parked: !active,
-    }));
-  }, [position, renderTerminalSurface]);
+  const commit = useCallback(
+    (surface: TerminalSurface) => {
+      const selected = position(surface);
+      if (selected) surface.cwd = selected[1].cwd;
+      const active = Boolean(selected);
+      surface.root.render(
+        renderTerminalSurface({
+          sessionId: surface.sessionId,
+          cwd: surface.cwd,
+          active,
+          foreground: selected?.[1].foreground === true,
+          parked: !active,
+        })
+      );
+    },
+    [position, renderTerminalSurface]
+  );
 
   const ensure = useCallback((sessionId: string, cwd: string | null) => {
     const existing = surfaces.current.get(sessionId);
@@ -137,8 +116,8 @@ export function useSessionTerminalSurfaces(
       existing.cwd = cwd;
       return existing;
     }
-    const container = document.createElement("div");
-    container.className = "session-terminal-surface-container";
+    const container = document.createElement('div');
+    container.className = 'session-terminal-surface-container';
     container.dataset.terminalSessionId = sessionId;
     const surface: TerminalSurface = {
       sessionId,
@@ -151,69 +130,77 @@ export function useSessionTerminalSurfaces(
     return surface;
   }, []);
 
-  const registerSlot = useCallback((
-    sessionId: string,
-    node: HTMLDivElement,
-    active: boolean,
-    foreground: boolean,
-    cwd: string | null,
-  ) => {
-    let surface = surfaces.current.get(sessionId);
-    if (!surface && active) surface = ensure(sessionId, cwd);
-    if (!surface) return;
-    surface.slots.set(node, { active, foreground, cwd });
-    commit(surface);
-  }, [commit, ensure]);
+  const registerSlot = useCallback(
+    (sessionId: string, node: HTMLDivElement, active: boolean, foreground: boolean, cwd: string | null) => {
+      let surface = surfaces.current.get(sessionId);
+      if (!surface && active) surface = ensure(sessionId, cwd);
+      if (!surface) return;
+      surface.slots.set(node, { active, foreground, cwd });
+      commit(surface);
+    },
+    [commit, ensure]
+  );
 
-  const unregisterSlot = useCallback((sessionId: string, node: HTMLDivElement) => {
-    const surface = surfaces.current.get(sessionId);
-    if (!surface) return;
-    surface.slots.delete(node);
-    commit(surface);
-  }, [commit]);
+  const unregisterSlot = useCallback(
+    (sessionId: string, node: HTMLDivElement) => {
+      const surface = surfaces.current.get(sessionId);
+      if (!surface) return;
+      surface.slots.delete(node);
+      commit(surface);
+    },
+    [commit]
+  );
 
-  const refresh = useCallback((sessionId: string) => {
-    const surface = surfaces.current.get(sessionId);
-    if (surface) commit(surface);
-  }, [commit]);
+  const refresh = useCallback(
+    (sessionId: string) => {
+      const surface = surfaces.current.get(sessionId);
+      if (surface) commit(surface);
+    },
+    [commit]
+  );
 
-  const release = useCallback((sessionId: string) => {
-    const surface = surfaces.current.get(sessionId);
-    if (!surface) return;
-    surface.root.unmount();
-    surface.container.remove();
-    surfaces.current.delete(sessionId);
-    disposeTerminalSurface(sessionTerminalId(sessionId));
-  }, [disposeTerminalSurface]);
+  const release = useCallback(
+    (sessionId: string) => {
+      const surface = surfaces.current.get(sessionId);
+      if (!surface) return;
+      surface.root.unmount();
+      surface.container.remove();
+      surfaces.current.delete(sessionId);
+      disposeTerminalSurface(sessionTerminalId(sessionId));
+    },
+    [disposeTerminalSurface]
+  );
 
-  const setParkingHost = useCallback((node: HTMLDivElement | null) => {
-    parkingHost.current = node;
-    for (const surface of surfaces.current.values()) commit(surface);
-  }, [commit]);
+  const setParkingHost = useCallback(
+    (node: HTMLDivElement | null) => {
+      parkingHost.current = node;
+      for (const surface of surfaces.current.values()) commit(surface);
+    },
+    [commit]
+  );
 
-  useEffect(() => () => {
-    for (const surface of surfaces.current.values()) surface.root.unmount();
-    surfaces.current.clear();
-  }, []);
+  useEffect(
+    () => () => {
+      for (const surface of surfaces.current.values()) surface.root.unmount();
+      surfaces.current.clear();
+    },
+    []
+  );
 
-  return useMemo(() => ({
-    registerSlot,
-    unregisterSlot,
-    refresh,
-    release,
-    setParkingHost,
-  }), [refresh, registerSlot, release, setParkingHost, unregisterSlot]);
+  return useMemo(
+    () => ({
+      registerSlot,
+      unregisterSlot,
+      refresh,
+      release,
+      setParkingHost,
+    }),
+    [refresh, registerSlot, release, setParkingHost, unregisterSlot]
+  );
 }
 
-export function SessionTerminalParkingHost({
-  controller,
-}: {
-  controller: SessionTerminalSurfaceController;
-}) {
-  return <div
-    ref={controller.setParkingHost}
-    className="session-terminal-parking-host"
-  />;
+export function SessionTerminalParkingHost({ controller }: { controller: SessionTerminalSurfaceController }) {
+  return <div ref={controller.setParkingHost} className="session-terminal-parking-host" />;
 }
 
 export function SessionTerminalSlot({
@@ -242,7 +229,7 @@ export function SessionTerminalSlot({
     let frame = 0;
     const refresh = () => controller.refresh(sessionId);
     const schedule = () => {
-      if (typeof window.requestAnimationFrame !== "function") {
+      if (typeof window.requestAnimationFrame !== 'function') {
         refresh();
         return;
       }
@@ -252,26 +239,20 @@ export function SessionTerminalSlot({
         refresh();
       });
     };
-    const observer = typeof ResizeObserver === "function"
-      ? new ResizeObserver(schedule)
-      : null;
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(schedule) : null;
     observer?.observe(node);
-    window.addEventListener("resize", schedule);
+    window.addEventListener('resize', schedule);
     // The phone dock SLIDES in: the slot's size never changes during the
     // transform, only its position, so the rect measured mid-slide would pin
     // the surface off-screen. Any finished transition re-measures.
-    window.addEventListener("transitionend", schedule, true);
+    window.addEventListener('transitionend', schedule, true);
     schedule();
     return () => {
       if (frame) window.cancelAnimationFrame(frame);
       observer?.disconnect();
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("transitionend", schedule, true);
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('transitionend', schedule, true);
     };
   }, [active, controller, sessionId]);
-  return <div
-    ref={slotRef}
-    className="session-terminal-slot"
-    data-terminal-session-id={sessionId}
-  />;
+  return <div ref={slotRef} className="session-terminal-slot" data-terminal-session-id={sessionId} />;
 }

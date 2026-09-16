@@ -1,8 +1,8 @@
-import { sessionDiffFilePatch, type SessionDiffResult } from "./session-diff-model";
-import { RendererLruCache } from "./renderer-lru-cache";
-import { registerIdleReclaim } from "./idle-reclaim";
-import { catalogStorageScope } from "./catalog-storage-scope";
-import { estimateRetainedChars } from "./renderer-value-weight";
+import { sessionDiffFilePatch, type SessionDiffResult } from './session-diff-model';
+import { RendererLruCache } from './renderer-lru-cache';
+import { registerIdleReclaim } from './idle-reclaim';
+import { catalogStorageScope } from './catalog-storage-scope';
+import { estimateRetainedChars } from './renderer-value-weight';
 
 /** Shared renderer cache for the session review diff (user: 세션디프 불러오는
  *  게 너무 느림). The backend rebuilds ONE full patch per `getSessionReviewDiff`
@@ -14,17 +14,17 @@ import { estimateRetainedChars } from "./renderer-value-weight";
 const SESSION_DIFF_CACHE_LIMIT = 32;
 export const SESSION_DIFF_CACHE_MAX_CHARS = 8 * 1024 * 1024;
 const sessionDiffCache = new RendererLruCache<string, SessionDiffResult>({
-  name: "session-diff",
+  name: 'session-diff',
   maxEntries: SESSION_DIFF_CACHE_LIMIT,
   maxChars: SESSION_DIFF_CACHE_MAX_CHARS,
   measure: (result) => estimateRetainedChars(result, SESSION_DIFF_CACHE_MAX_CHARS),
 });
 const pendingDiffs = new Map<string, Promise<SessionDiffResult>>();
 let boundHost: unknown;
-let boundScope = "";
+let boundScope = '';
 
 function adoptHost(): void {
-  const host = typeof window === "undefined" ? undefined : window.mixdogDesktop;
+  const host = typeof window === 'undefined' ? undefined : window.mixdogDesktop;
   const scope = catalogStorageScope();
   if (host === boundHost && scope === boundScope) return;
   boundHost = host;
@@ -39,16 +39,16 @@ registerIdleReclaim(() => {
 });
 
 function cleanSessionId(sessionId: string): string {
-  return String(sessionId || "").trim();
+  return String(sessionId || '').trim();
 }
 
 function emptySessionDiff(): SessionDiffResult {
-  return { supported: false, files: [], patch: "" };
+  return { supported: false, files: [], patch: '' };
 }
 
 async function invokeSessionDiff(sessionId: string): Promise<SessionDiffResult> {
   const response = await window.mixdogDesktop?.invokeCapability?.({
-    capability: "getSessionReviewDiff",
+    capability: 'getSessionReviewDiff',
     args: [],
     sessionId,
   });
@@ -79,10 +79,7 @@ export function releaseSessionDiff(sessionId: string): void {
 
 /** One round-trip per session at a time: concurrent callers share the same
  *  promise, and a settled result answers without one unless forced. */
-export function fetchSessionDiff(
-  sessionId: string,
-  options?: { force?: boolean },
-): Promise<SessionDiffResult> {
+export function fetchSessionDiff(sessionId: string, options?: { force?: boolean }): Promise<SessionDiffResult> {
   adoptHost();
   const id = cleanSessionId(sessionId);
   if (!id) return Promise.resolve(emptySessionDiff());
@@ -90,23 +87,22 @@ export function fetchSessionDiff(
   if (pending) return pending;
   const result = sessionDiffCache.get(id);
   if (options?.force !== true && result) return Promise.resolve(result);
-  const task = invokeSessionDiff(id).then((value) => {
-    adoptHost();
-    if (pendingDiffs.get(id) === task) sessionDiffCache.set(id, value);
-    return value;
-  }).finally(() => {
-    if (pendingDiffs.get(id) === task) pendingDiffs.delete(id);
-  });
+  const task = invokeSessionDiff(id)
+    .then((value) => {
+      adoptHost();
+      if (pendingDiffs.get(id) === task) sessionDiffCache.set(id, value);
+      return value;
+    })
+    .finally(() => {
+      if (pendingDiffs.get(id) === task) pendingDiffs.delete(id);
+    });
   pendingDiffs.set(id, task);
   return task;
 }
 
 /** The slice of a session's patch that belongs to ONE file, served from the
  *  shared cache so opening a file never recomputes the whole session diff. */
-export async function fetchSessionDiffFilePatch(
-  sessionId: string,
-  rel: string,
-): Promise<string> {
+export async function fetchSessionDiffFilePatch(sessionId: string, rel: string): Promise<string> {
   const result = await fetchSessionDiff(sessionId);
-  return sessionDiffFilePatch(typeof result?.patch === "string" ? result.patch : "", rel);
+  return sessionDiffFilePatch(typeof result?.patch === 'string' ? result.patch : '', rel);
 }

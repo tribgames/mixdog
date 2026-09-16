@@ -5,7 +5,9 @@ import { createSessionService } from './session-service.mjs';
 
 function deferred() {
   let resolve;
-  const promise = new Promise((yes) => { resolve = yes; });
+  const promise = new Promise((yes) => {
+    resolve = yes;
+  });
   return { promise, resolve };
 }
 
@@ -35,13 +37,22 @@ test('a runtime acquired after service stop is disposed instead of registered', 
   const entered = deferred();
   let disposed = 0;
   const service = createSessionService({
-    createSessionRuntime: () => { entered.resolve(); return created.promise; },
+    createSessionRuntime: () => {
+      entered.resolve();
+      return created.promise;
+    },
   });
   t.after(() => service.stop());
   const pending = service.createSession({ sessionId: 'sess_late_creation' });
   await entered.promise;
   await service.stop();
-  created.resolve(runtime({ dispose: async () => { disposed += 1; } }));
+  created.resolve(
+    runtime({
+      dispose: async () => {
+        disposed += 1;
+      },
+    })
+  );
   await assert.rejects(pending, /session service is closed/);
   assert.equal(disposed, 1);
   assert.equal(service.size, 0);
@@ -53,33 +64,46 @@ for (const action of ['reserve', 'resume']) {
     let disposed = 0;
     const frames = [];
     const service = createSessionService({
-      createSessionRuntime: async () => runtime({
-        ...(action === 'reserve' ? { reserveGate: gate } : { resumeGate: gate }),
-        dispose: async () => { disposed += 1; },
-      }),
+      createSessionRuntime: async () =>
+        runtime({
+          ...(action === 'reserve' ? { reserveGate: gate } : { resumeGate: gate }),
+          dispose: async () => {
+            disposed += 1;
+          },
+        }),
       onFrame: (frame) => frames.push(frame),
     });
     t.after(() => service.stop());
-    const pending = action === 'reserve'
-      ? service.createSession({ sessionId: 'sess_late_reserve' })
-      : service.materializeSession('sess_late_resume');
+    const pending =
+      action === 'reserve'
+        ? service.createSession({ sessionId: 'sess_late_reserve' })
+        : service.materializeSession('sess_late_resume');
     await setImmediate();
     await service.stop();
     gate.resolve();
     await assert.rejects(pending, /session service is closed/);
     assert.equal(disposed, 1);
     assert.equal(service.size, 0);
-    assert.equal(frames.some((frame) => frame.type === 'session-state'), false);
+    assert.equal(
+      frames.some((frame) => frame.type === 'session-state'),
+      false
+    );
   });
 }
 
 test('disposal uses the owned address even when the runtime can no longer report state', async (t) => {
   let disposed = 0;
-  const live = runtime({ dispose: async () => { disposed += 1; } });
+  const live = runtime({
+    dispose: async () => {
+      disposed += 1;
+    },
+  });
   const service = createSessionService({ createSessionRuntime: async () => live });
   t.after(() => service.stop());
   await service.createSession({ sessionId: 'sess_unreadable_dispose' });
-  live.getState = () => { throw new Error('runtime state unavailable'); };
+  live.getState = () => {
+    throw new Error('runtime state unavailable');
+  };
   await service.stop();
   assert.equal(disposed, 1);
   assert.equal(service.size, 0);
@@ -91,14 +115,22 @@ test('an old asynchronous disposal cannot publish session-gone after a replaceme
   const frames = [];
   let created = 0;
   const service = createSessionService({
-    createSessionRuntime: async () => runtime({
-      dispose: ++created === 1
-        ? async () => { disposalEntered.resolve(); await disposalFinished.promise; }
-        : async () => {},
-    }),
+    createSessionRuntime: async () =>
+      runtime({
+        dispose:
+          ++created === 1
+            ? async () => {
+                disposalEntered.resolve();
+                await disposalFinished.promise;
+              }
+            : async () => {},
+      }),
     onFrame: (frame) => frames.push(frame),
   });
-  t.after(async () => { disposalFinished.resolve(); await service.stop(); });
+  t.after(async () => {
+    disposalFinished.resolve();
+    await service.stop();
+  });
   const id = 'sess_replaced_dispose';
   await service.createSession({ sessionId: id }, { clientToken: 'first' });
   const released = service.unsubscribeSession({ sessionId: id }, { clientToken: 'first' });
@@ -114,7 +146,11 @@ test('concurrent explicit creation of one session address shares one runtime', a
   const gate = deferred();
   let created = 0;
   const service = createSessionService({
-    createSessionRuntime: async () => { created += 1; await gate.promise; return runtime(); },
+    createSessionRuntime: async () => {
+      created += 1;
+      await gate.promise;
+      return runtime();
+    },
   });
   t.after(() => service.stop());
   const first = service.createSession({ sessionId: 'sess_shared_create' }, { clientToken: 'first' });
@@ -123,7 +159,10 @@ test('concurrent explicit creation of one session address shares one runtime', a
   const results = await Promise.all([first, second]);
   assert.equal(created, 1);
   assert.equal(service.size, 1);
-  assert.deepEqual(results.map((result) => result.sessionId), ['sess_shared_create', 'sess_shared_create']);
+  assert.deepEqual(
+    results.map((result) => result.sessionId),
+    ['sess_shared_create', 'sess_shared_create']
+  );
 });
 
 for (const malformed of [false, true]) {
@@ -131,12 +170,13 @@ for (const malformed of [false, true]) {
     const failure = new Error('live transcript read failed');
     let diskReads = 0;
     const service = createSessionService({
-      createSessionRuntime: async () => runtime({
-        readMessages: () => {
-          if (malformed) return { messages: null };
-          throw failure;
-        },
-      }),
+      createSessionRuntime: async () =>
+        runtime({
+          readMessages: () => {
+            if (malformed) return { messages: null };
+            throw failure;
+          },
+        }),
       readStoredSession: async () => {
         diskReads += 1;
         return { messages: [{ role: 'assistant', content: 'stale' }] };
@@ -146,7 +186,7 @@ for (const malformed of [false, true]) {
     await service.createSession({ sessionId: 'sess_live_transcript' });
     await assert.rejects(
       service.readSession({ sessionId: 'sess_live_transcript', messageStart: 0 }),
-      malformed ? /live session transcript is invalid/ : (error) => error === failure,
+      malformed ? /live session transcript is invalid/ : (error) => error === failure
     );
     assert.equal(diskReads, 0);
   });
@@ -154,7 +194,9 @@ for (const malformed of [false, true]) {
 
 test('service shutdown releases pending viewers of cold stored sessions', async (t) => {
   const service = createSessionService({
-    createSessionRuntime: async () => { throw new Error('cold views must not create runtimes'); },
+    createSessionRuntime: async () => {
+      throw new Error('cold views must not create runtimes');
+    },
     readStoredSession: async (sessionId) => ({ sessionId, items: [], queued: [] }),
   });
   t.after(() => service.stop());
@@ -170,24 +212,28 @@ for (const releasingView of [false, true]) {
     const finished = deferred();
     let disposed = 0;
     const service = createSessionService({
-      createSessionRuntime: async () => runtime({
-        dispose: async () => {
-          disposed += 1;
-          entered.resolve();
-          await finished.promise;
-        },
-      }),
+      createSessionRuntime: async () =>
+        runtime({
+          dispose: async () => {
+            disposed += 1;
+            entered.resolve();
+            await finished.promise;
+          },
+        }),
     });
-    t.after(async () => { finished.resolve(); await service.stop(); });
+    t.after(async () => {
+      finished.resolve();
+      await service.stop();
+    });
     const sessionId = 'sess_wait_for_disposal';
     const viewer = { clientToken: 'viewer' };
     await service.createSession({ sessionId }, viewer);
-    const retiring = releasingView
-      ? service.unsubscribeSession({ sessionId }, viewer)
-      : service.stop();
+    const retiring = releasingView ? service.unsubscribeSession({ sessionId }, viewer) : service.stop();
     await entered.promise;
     let stopped = false;
-    const stopping = service.stop().then(() => { stopped = true; });
+    const stopping = service.stop().then(() => {
+      stopped = true;
+    });
     try {
       await setImmediate();
       assert.equal(stopped, false);
@@ -212,7 +258,7 @@ for (const method of ['readSession', 'subscribeSession']) {
     await service.stop();
     await assert.rejects(
       service[method]({ sessionId: 'sess_closed_view' }, { clientToken: 'viewer' }),
-      /session service is closed/,
+      /session service is closed/
     );
     assert.equal(reads, 0);
     assert.equal(service.status.pendingViewerSessions, 0);
@@ -229,10 +275,7 @@ for (const method of ['readSession', 'subscribeSession']) {
         return { sessionId, items: [], queued: [] };
       },
     });
-    const pending = service[method](
-      { sessionId: 'sess_late_cold_view' },
-      { clientToken: 'viewer' },
-    );
+    const pending = service[method]({ sessionId: 'sess_late_cold_view' }, { clientToken: 'viewer' });
     const rejected = assert.rejects(pending, /session service is closed/);
     await entered.promise;
     await service.stop();
@@ -246,13 +289,14 @@ test('a live transcript read cannot return an active projection after its owner 
   const entered = deferred();
   const finished = deferred();
   const service = createSessionService({
-    createSessionRuntime: async () => runtime({
-      readMessages: async () => {
-        entered.resolve();
-        await finished.promise;
-        return { messageCount: 1, messages: [{ role: 'assistant', content: 'finished' }] };
-      },
-    }),
+    createSessionRuntime: async () =>
+      runtime({
+        readMessages: async () => {
+          entered.resolve();
+          await finished.promise;
+          return { messageCount: 1, messages: [{ role: 'assistant', content: 'finished' }] };
+        },
+      }),
   });
   await service.createSession({ sessionId: 'sess_late_history' });
   const pending = service.readSession({ sessionId: 'sess_late_history', messageStart: 0 });
@@ -266,7 +310,10 @@ test('a live transcript read cannot return an active projection after its owner 
 test('a queued addressed action cannot start after service closure', async () => {
   let calls = 0;
   const live = runtime();
-  live.getTheme = () => { calls += 1; return 'dark'; };
+  live.getTheme = () => {
+    calls += 1;
+    return 'dark';
+  };
   const service = createSessionService({ createSessionRuntime: async () => live });
   await service.createSession({ sessionId: 'sess_queued_action' });
   const pending = service.readSession({ sessionId: 'sess_queued_action', action: 'getTheme' });

@@ -22,9 +22,25 @@ import {
   MEASURED_TOOL_USAGE,
   READONLY_TOOL_NAMES,
 } from './tool-catalog-data.mjs';
-import { toolKind, measuredToolUsage, parseToolSelection, routeToolRank, sortedCatalogByMeasuredUsage, activeToolForSurface, deferredProviderMode, nativeProviderFamily } from './tool-catalog-schema.mjs';
+import {
+  toolKind,
+  measuredToolUsage,
+  parseToolSelection,
+  routeToolRank,
+  sortedCatalogByMeasuredUsage,
+  activeToolForSurface,
+  deferredProviderMode,
+  nativeProviderFamily,
+} from './tool-catalog-schema.mjs';
 import { filterModelEditTools } from '../runtime/shared/edit-tool-dialect.mjs';
-export { toolKind, toolSchemaBucket, estimateToolSchemaBreakdown, measuredToolUsage, parseToolSelection, sortedCatalogByMeasuredUsage } from './tool-catalog-schema.mjs';
+export {
+  toolKind,
+  toolSchemaBucket,
+  estimateToolSchemaBreakdown,
+  measuredToolUsage,
+  parseToolSelection,
+  sortedCatalogByMeasuredUsage,
+} from './tool-catalog-schema.mjs';
 export { snapshotProviderRequestTools } from './provider-request-snapshot.mjs';
 export {
   DEFERRED_DEFAULT_FULL_TOOLS,
@@ -32,7 +48,6 @@ export {
   DEFERRED_DEFAULT_READONLY_TOOLS,
   MEASURED_TOOL_USAGE,
 } from './tool-catalog-data.mjs';
-
 
 export function filterDisallowedTools(tools, disallowed = []) {
   if (!Array.isArray(disallowed) || disallowed.length === 0) return tools;
@@ -97,15 +112,15 @@ function providerSupportsResponsesCustomTools(provider) {
 }
 
 function openAILoadableToolSpec(tool, provider = '') {
-  if (providerSupportsResponsesCustomTools(provider) && isResponsesFreeformTool(tool)) return toResponsesCustomTool(tool);
+  if (providerSupportsResponsesCustomTools(provider) && isResponsesFreeformTool(tool))
+    return toResponsesCustomTool(tool);
   return {
     type: 'function',
     name: clean(tool?.name),
     description: clean(tool?.description),
     defer_loading: true,
-    parameters: tool?.inputSchema && typeof tool.inputSchema === 'object'
-      ? tool.inputSchema
-      : { type: 'object', properties: {} },
+    parameters:
+      tool?.inputSchema && typeof tool.inputSchema === 'object' ? tool.inputSchema : { type: 'object', properties: {} },
   };
 }
 
@@ -146,9 +161,10 @@ function activeToolSchemas(catalog, session, names) {
       specs.push({
         name,
         description: clean(tool?.description),
-        parameters: tool?.inputSchema && typeof tool.inputSchema === 'object'
-          ? tool.inputSchema
-          : { type: 'object', properties: {} },
+        parameters:
+          tool?.inputSchema && typeof tool.inputSchema === 'object'
+            ? tool.inputSchema
+            : { type: 'object', properties: {} },
       });
     }
   }
@@ -211,12 +227,14 @@ function setDeferredToolState(session, names) {
 }
 
 function deferredPoolToolNames(session) {
-  if (!session || session.deferredProviderMode === 'full'
-    || session.deferredProviderMode === 'manifest'
-    || session.deferredProviderMode === 'canonical') return [];
-  const catalog = Array.isArray(session.deferredToolCatalog)
-    ? session.deferredToolCatalog
-    : [];
+  if (
+    !session ||
+    session.deferredProviderMode === 'full' ||
+    session.deferredProviderMode === 'manifest' ||
+    session.deferredProviderMode === 'canonical'
+  )
+    return [];
+  const catalog = Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : [];
   const active = new Set([
     ...(session.tools || []).map((tool) => clean(tool?.name)).filter(Boolean),
     ...parseToolSelection(session.deferredCallableTools),
@@ -235,11 +253,11 @@ function deferredPoolToolNames(session) {
 export function deferredCatalogUnion(session) {
   const boot = filterDisallowedTools(
     Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : [],
-    session?.disallowedTools,
+    session?.disallowedTools
   );
   const late = filterDisallowedTools(
     Array.isArray(session?.deferredLateToolCatalog) ? session.deferredLateToolCatalog : [],
-    session?.disallowedTools,
+    session?.disallowedTools
   );
   if (!late.length) return boot;
   const byName = new Map();
@@ -270,11 +288,8 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   const providerMode = deferredProviderMode(options.provider || session.provider);
   const byName = new Map();
   const candidates = filterDisallowedTools(
-    filterModelEditTools(
-      [...session.tools, ...(extraTools || [])],
-      options.model || session.model,
-    ),
-    [...(session.disallowedTools || []), ...(options.disallowed || [])],
+    filterModelEditTools([...session.tools, ...(extraTools || [])], options.model || session.model),
+    [...(session.disallowedTools || []), ...(options.disallowed || [])]
   );
   for (const tool of candidates) {
     const name = clean(tool?.name);
@@ -284,9 +299,10 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
   const defaultNames = defaultDeferredToolNames(catalog, mode);
   const storedNames = providerMode === 'native' ? [] : storedDeferredToolNames(session);
-  let selectedNames = providerMode === 'full' || providerMode === 'manifest' || providerMode === 'canonical'
-    ? sortedNamesByMeasuredUsage(catalog.map((tool) => clean(tool?.name)).filter(Boolean))
-    : [];
+  let selectedNames =
+    providerMode === 'full' || providerMode === 'manifest' || providerMode === 'canonical'
+      ? sortedNamesByMeasuredUsage(catalog.map((tool) => clean(tool?.name)).filter(Boolean))
+      : [];
   if (!['full', 'manifest', 'canonical'].includes(providerMode)) {
     selectedNames = storedNames.length ? canonicalDeferredToolNames(catalog, storedNames) : [];
     if (!selectedNames.length || providerMode === 'native') selectedNames = sortedNamesByMeasuredUsage(defaultNames);
@@ -341,38 +357,34 @@ export function rebuildDeferredToolSurfaceForProvider(session, provider) {
     : [];
   const catalog = deferredCatalogUnion(session).slice();
   session.deferredDiscoveredTools = discovered;
-  applyDeferredToolSurface(
-    session,
-    session.deferredSurfaceMode || 'lead',
-    catalog,
-    { provider },
-  );
+  applyDeferredToolSurface(session, session.deferredSurfaceMode || 'lead', catalog, { provider });
   if (session.deferredProviderMode === 'native' && discovered.length) {
     session.deferredDiscoveredTools = discovered;
-    session.deferredCallableTools = sortedNamesByMeasuredUsage(new Set([
-      ...(session.deferredCallableTools || []),
-      ...discovered,
-    ]));
+    session.deferredCallableTools = sortedNamesByMeasuredUsage(
+      new Set([...(session.deferredCallableTools || []), ...discovered])
+    );
     session.deferredSelectedTools = session.deferredCallableTools.slice();
   }
   if (previousMode && previousMode !== session.deferredProviderMode) {
     if (session.deferredProviderMode === 'native') {
       session.mcpServerInstructions = getMcpServerInstructionsMap(session.mcpScopeId);
       applyInitialDeferredToolManifestToBp2(session, deferredPoolToolNames(session), { rebuild: true });
-      const rendered = session.messages?.find((message) => (
-        message?.role === 'system'
-        && typeof message.content === 'string'
-        && message.content.includes('<available-deferred-tools>')
-      ))?.content;
-      session.deferredAnnouncedTools = deferredPoolToolNames(session)
-        .filter((name) => typeof rendered === 'string' && rendered.includes(name));
+      const rendered = session.messages?.find(
+        (message) =>
+          message?.role === 'system' &&
+          typeof message.content === 'string' &&
+          message.content.includes('<available-deferred-tools>')
+      )?.content;
+      session.deferredAnnouncedTools = deferredPoolToolNames(session).filter(
+        (name) => typeof rendered === 'string' && rendered.includes(name)
+      );
     } else if (previousMode === 'native') {
       for (const system of session.messages?.filter((message) => message?.role === 'system') || []) {
         if (typeof system.content === 'string') system.content = stripDeferredToolManifestBlock(system.content);
       }
-      session.messages = session.messages.filter((message) => (
-        message?.role !== 'system' || String(message.content || '').trim()
-      ));
+      session.messages = session.messages.filter(
+        (message) => message?.role !== 'system' || String(message.content || '').trim()
+      );
       session.deferredAnnouncedTools = [];
       session.deferredToolBp2Applied = true;
       delete session.deferredToolBp1Applied;
@@ -408,9 +420,9 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
   if (!added) return false;
   session.deferredToolCatalog = sortedCatalogByMeasuredUsage([...byName.values()]);
   if (session.deferredProviderMode === 'manifest' || session.deferredProviderMode === 'canonical') {
-    const next = session.deferredToolCatalog.filter((tool) => (
-      session.deferredSurfaceMode !== 'readonly' || isReadonlySelectable(tool)
-    ));
+    const next = session.deferredToolCatalog.filter(
+      (tool) => session.deferredSurfaceMode !== 'readonly' || isReadonlySelectable(tool)
+    );
     session.tools.splice(0, session.tools.length, ...next);
     session.deferredCallableTools = next.map((tool) => clean(tool?.name)).filter(Boolean);
     if (session.deferredProviderMode === 'canonical') {
@@ -428,11 +440,9 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
   // announced; anything the manifest could not advertise stays un-announced so
   // the turn-boundary late reminder can still surface it.
   const rendered = (() => {
-    const sys = session.messages.find((m) => (
-      m?.role === 'system'
-      && typeof m.content === 'string'
-      && m.content.includes('<available-deferred-tools>')
-    ));
+    const sys = session.messages.find(
+      (m) => m?.role === 'system' && typeof m.content === 'string' && m.content.includes('<available-deferred-tools>')
+    );
     return typeof sys?.content === 'string' ? sys.content : '';
   })();
   session.deferredAnnouncedTools = deferredPoolToolNames(session).filter((name) => rendered.includes(name));
@@ -458,14 +468,15 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
 export function reconcileDeferredMcpToolCatalog(session, liveMcpTools) {
   if (!session || !Array.isArray(session.tools)) return null;
   const isMcp = (name) => typeof name === 'string' && name.startsWith('mcp__');
-  const live = filterDisallowedTools(
-    Array.isArray(liveMcpTools) ? liveMcpTools : [], session.disallowedTools,
-  );
+  const live = filterDisallowedTools(Array.isArray(liveMcpTools) ? liveMcpTools : [], session.disallowedTools);
   const hadSnapshot = Array.isArray(session.deferredMcpToolNames);
-  const previousNames = new Set(hadSnapshot ? session.deferredMcpToolNames : [
-    ...(session.deferredToolCatalog || []),
-    ...(session.deferredLateToolCatalog || []),
-  ].map((tool) => clean(tool?.name)).filter(isMcp));
+  const previousNames = new Set(
+    hadSnapshot
+      ? session.deferredMcpToolNames
+      : [...(session.deferredToolCatalog || []), ...(session.deferredLateToolCatalog || [])]
+          .map((tool) => clean(tool?.name))
+          .filter(isMcp)
+  );
   session.deferredMcpToolNames = [...new Set(live.map((tool) => clean(tool?.name)).filter(isMcp))];
   if (['full', 'manifest', 'canonical'].includes(session.deferredProviderMode)) {
     const byName = new Map();
@@ -478,9 +489,7 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools) {
       if (name && isMcp(name)) byName.set(name, activeToolForSurface(tool));
     }
     const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
-    const next = catalog.filter((tool) => (
-      session.deferredSurfaceMode !== 'readonly' || isReadonlySelectable(tool)
-    ));
+    const next = catalog.filter((tool) => session.deferredSurfaceMode !== 'readonly' || isReadonlySelectable(tool));
     const before = JSON.stringify((session.tools || []).map((tool) => activeToolForSurface(tool)));
     const after = JSON.stringify(next);
     session.deferredToolCatalog = catalog;
@@ -534,9 +543,7 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools) {
   }
 
   const nextNames = new Set(session.deferredMcpToolNames);
-  const startupNames = new Set(
-    Array.isArray(session.deferredAnnouncedTools) ? session.deferredAnnouncedTools : [],
-  );
+  const startupNames = new Set(Array.isArray(session.deferredAnnouncedTools) ? session.deferredAnnouncedTools : []);
   const added = [];
   for (const tool of liveMcpByName.values()) {
     const name = clean(tool?.name);
@@ -616,9 +623,7 @@ export function selectDeferredTools(session, names, mode, { exact = false } = {}
   }
   if (native) {
     session.deferredCallableTools = sortedNamesByMeasuredUsage(active);
-    session.deferredDiscoveredTools = sortedNamesByMeasuredUsage(
-      [...discovered],
-    );
+    session.deferredDiscoveredTools = sortedNamesByMeasuredUsage([...discovered]);
     session.deferredSelectedTools = sortedNamesByMeasuredUsage(active);
   } else {
     setDeferredToolState(session, active);
@@ -673,17 +678,23 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
 
   if (!requestedNames.length) {
     const strayQuery = clean(args.query || args.q || args.text);
-    return JSON.stringify({
-      error: strayQuery
-        ? `load_tool is a loader, not a search: "${strayQuery}" is not an exact tool name. Pass names:["exact_tool_name", ...] (deferred tool names/aliases). No keyword search.`
-        : 'load_tool requires names:["exact_tool_name", ...] (deferred tool names/aliases).',
-      loaded: [],
-      alreadyActive: [],
-      missing: [],
-      ...mcpFields,
-      activeTools: sortedNamesByMeasuredUsage((session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean)),
-      discoveredTools: sortedNamesByMeasuredUsage(session?.deferredDiscoveredTools || []),
-    }, null, 2);
+    return JSON.stringify(
+      {
+        error: strayQuery
+          ? `load_tool is a loader, not a search: "${strayQuery}" is not an exact tool name. Pass names:["exact_tool_name", ...] (deferred tool names/aliases). No keyword search.`
+          : 'load_tool requires names:["exact_tool_name", ...] (deferred tool names/aliases).',
+        loaded: [],
+        alreadyActive: [],
+        missing: [],
+        ...mcpFields,
+        activeTools: sortedNamesByMeasuredUsage(
+          (session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean)
+        ),
+        discoveredTools: sortedNamesByMeasuredUsage(session?.deferredDiscoveredTools || []),
+      },
+      null,
+      2
+    );
   }
 
   // Native loads update only the callable registry and provider-native history
@@ -703,12 +714,12 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
   // harmless reference refresh; suppressing it leaves declaration-gated
   // harnesses with "already active" text but no callable schema.
   const nativeToolSearchBase = toolSelection.native
-    ? (toolSearchNativePayload(catalog, [...loaded, ...alreadyActive], session?.provider) || {
+    ? toolSearchNativePayload(catalog, [...loaded, ...alreadyActive], session?.provider) || {
         provider: clean(session?.provider).toLowerCase(),
         toolReferences: [],
         openaiTools: [],
         summary: '',
-      })
+      }
     : null;
   const alreadyActiveSchemas = activeToolSchemas(catalog, session, alreadyActive);
   const nativeSummary = [
@@ -729,18 +740,24 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
   if (missing.length && failedMcpServers.length) {
     notes.push('Some requested names may belong to a failed MCP server; those tools are unavailable.');
   }
-  return JSON.stringify({
-    // `selected` retained for back-compat consumers (mode is always 'select').
-    selected: { mode: 'select', tools: toolSelection },
-    ...(nativeToolSearch ? { nativeToolSearch } : {}),
-    loaded,
-    alreadyActive,
-    ...(alreadyActiveSchemas.length ? { alreadyActiveSchemas } : {}),
-    missing,
-    ...(blocked.length ? { blocked } : {}),
-    ...mcpFields,
-    activeTools: sortedNamesByMeasuredUsage([...nextActiveNames].filter((name) => isDeferredToolAvailable(session, name))),
-    discoveredTools: sortedNamesByMeasuredUsage(session?.deferredDiscoveredTools || []),
-    ...(notes.length ? { note: notes.join(' ') } : {}),
-  }, null, 2);
+  return JSON.stringify(
+    {
+      // `selected` retained for back-compat consumers (mode is always 'select').
+      selected: { mode: 'select', tools: toolSelection },
+      ...(nativeToolSearch ? { nativeToolSearch } : {}),
+      loaded,
+      alreadyActive,
+      ...(alreadyActiveSchemas.length ? { alreadyActiveSchemas } : {}),
+      missing,
+      ...(blocked.length ? { blocked } : {}),
+      ...mcpFields,
+      activeTools: sortedNamesByMeasuredUsage(
+        [...nextActiveNames].filter((name) => isDeferredToolAvailable(session, name))
+      ),
+      discoveredTools: sortedNamesByMeasuredUsage(session?.deferredDiscoveredTools || []),
+      ...(notes.length ? { note: notes.join(' ') } : {}),
+    },
+    null,
+    2
+  );
 }

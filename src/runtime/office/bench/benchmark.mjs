@@ -9,10 +9,21 @@ import { compareRenderedPages } from '../quality/visual-diff.mjs';
 import { resultValue } from './bench-support.mjs';
 
 const OFFICE_EXTENSIONS = new Set([
-  '.docx', '.dotx', '.docm', '.dotm',
-  '.xlsx', '.xltx', '.xlsm', '.xltm',
-  '.pptx', '.potx', '.pptm', '.potm',
-  '.csv', '.tsv', '.pdf',
+  '.docx',
+  '.dotx',
+  '.docm',
+  '.dotm',
+  '.xlsx',
+  '.xltx',
+  '.xlsm',
+  '.xltm',
+  '.pptx',
+  '.potx',
+  '.pptm',
+  '.potm',
+  '.csv',
+  '.tsv',
+  '.pdf',
 ]);
 const SNAPSHOT_LIMIT = 10_000;
 const SNAPSHOT_MAX_CHARS = 100_000;
@@ -28,10 +39,7 @@ export function officeBenchmarkSnapshotRequest(session, cursor = null) {
   };
 }
 
-export function officeBenchmarkVisualPolicy({
-  format = '',
-  totalCells = 0,
-} = {}) {
+export function officeBenchmarkVisualPolicy({ format = '', totalCells = 0 } = {}) {
   const spreadsheet = /^(xlsx|xlsm|xltx|xltm)$/i.test(String(format));
   if (spreadsheet && Number(totalCells) > LARGE_SPREADSHEET_VISUAL_CELLS) {
     return {
@@ -84,11 +92,11 @@ function workbookOperations(index) {
       { op: 'freeze_panes', sheet: 'Sheet1', row: 2, column: 0 },
     ];
   }
-  const rows = Array.from({ length: 500 }, (_, row) => (
-    Array.from({ length: 10 }, (_, column) => column === 0
-      ? `Item ${index + 1}-${row + 1}`
-      : (row + 1) * (column + 1))
-  ));
+  const rows = Array.from({ length: 500 }, (_, row) =>
+    Array.from({ length: 10 }, (_, column) =>
+      column === 0 ? `Item ${index + 1}-${row + 1}` : (row + 1) * (column + 1)
+    )
+  );
   return [
     { op: 'set_range', sheet: 'Sheet1', range: 'A1:J500', values: rows },
     { op: 'set_formula', sheet: 'Sheet1', cell: 'K2', formula: '=SUM(B2:J2)' },
@@ -121,19 +129,20 @@ function presentationOperations(index) {
       {
         op: 'add_table',
         slide,
-        values: [['Metric', 'Value'], ['Actual', index * 100 + slide], ['Plan', index * 100 + slide + 5]],
+        values: [
+          ['Metric', 'Value'],
+          ['Actual', index * 100 + slide],
+          ['Plan', index * 100 + slide + 5],
+        ],
         properties: { left: 360, top: 140, width: 300, height: 120 },
       },
-      { op: 'set_notes', slide, text: `Source: benchmark.xlsx, Sheet1!K${slide + 1}` },
+      { op: 'set_notes', slide, text: `Source: benchmark.xlsx, Sheet1!K${slide + 1}` }
     );
   }
   return operations;
 }
 
-async function generateOfficeBenchmarkCorpus(directory, {
-  documentsPerFormat = 8,
-  onProgress = null,
-} = {}) {
+async function generateOfficeBenchmarkCorpus(directory, { documentsPerFormat = 8, onProgress = null } = {}) {
   const root = resolve(directory);
   await mkdir(root, { recursive: true });
   const generated = [];
@@ -145,19 +154,29 @@ async function generateOfficeBenchmarkCorpus(directory, {
   for (const [format, operationsFor] of formats) {
     for (let index = 0; index < documentsPerFormat; index += 1) {
       const path = join(root, `${format}-benchmark-${String(index + 1).padStart(2, '0')}.${format}`);
-      const created = resultValue(await executeOfficeTool({
-        action: 'create',
-        path,
-        format,
-        mode: 'background',
-        overwrite: true,
-      }, { cwd: root }));
-      resultValue(await executeOfficeTool({
-        action: 'batch',
-        session: created.session,
-        operations: operationsFor(index),
-        save: true,
-      }, { cwd: root }));
+      const created = resultValue(
+        await executeOfficeTool(
+          {
+            action: 'create',
+            path,
+            format,
+            mode: 'background',
+            overwrite: true,
+          },
+          { cwd: root }
+        )
+      );
+      resultValue(
+        await executeOfficeTool(
+          {
+            action: 'batch',
+            session: created.session,
+            operations: operationsFor(index),
+            save: true,
+          },
+          { cwd: root }
+        )
+      );
       resultValue(await executeOfficeTool({ action: 'close', session: created.session, save: true }, { cwd: root }));
       generated.push(path);
       onProgress?.({
@@ -220,10 +239,11 @@ async function fullVisualDiff(source, output, outputDirectory, { signal = null }
   };
 }
 
-async function benchmarkDocument(path, outputDirectory, {
-  onProgress = null,
-  documentTimeoutMs = DEFAULT_DOCUMENT_TIMEOUT_MS,
-} = {}) {
+async function benchmarkDocument(
+  path,
+  outputDirectory,
+  { onProgress = null, documentTimeoutMs = DEFAULT_DOCUMENT_TIMEOUT_MS } = {}
+) {
   const extension = extname(path);
   const output = join(outputDirectory, `${basename(path, extension)}.roundtrip${extension}`);
   const report = {
@@ -239,12 +259,19 @@ async function benchmarkDocument(path, outputDirectory, {
   let session = '';
   try {
     const context = { cwd: dirnameOf(path), signal: controller.signal };
-    const opened = await timed(async () => resultValue(await executeOfficeTool({
-      action: 'open',
-      path,
-      output,
-      mode: 'background',
-    }, context)));
+    const opened = await timed(async () =>
+      resultValue(
+        await executeOfficeTool(
+          {
+            action: 'open',
+            path,
+            output,
+            mode: 'background',
+          },
+          context
+        )
+      )
+    );
     report.open = opened;
     if (!opened.ok) {
       report.timedOut = controller.signal.aborted;
@@ -259,10 +286,7 @@ async function benchmarkDocument(path, outputDirectory, {
       let total = 0;
       let finalLimit = 0;
       do {
-        const page = resultValue(await executeOfficeTool(
-          officeBenchmarkSnapshotRequest(session, cursor),
-          context,
-        ));
+        const page = resultValue(await executeOfficeTool(officeBenchmarkSnapshotRequest(session, cursor), context));
         const pagination = page.document?.pagination || {};
         calls += 1;
         returned += Number(pagination.returned || 0);
@@ -295,37 +319,63 @@ async function benchmarkDocument(path, outputDirectory, {
       report.success = false;
       return report;
     }
-    report.validation = await timed(async () => resultValue(await executeOfficeTool({
-      action: 'validate',
-      session,
-      compatibility: true,
-    }, context)));
-    report.save = await timed(async () => resultValue(await executeOfficeTool({
-      action: 'save',
-      session,
-    }, context)));
+    report.validation = await timed(async () =>
+      resultValue(
+        await executeOfficeTool(
+          {
+            action: 'validate',
+            session,
+            compatibility: true,
+          },
+          context
+        )
+      )
+    );
+    report.save = await timed(async () =>
+      resultValue(
+        await executeOfficeTool(
+          {
+            action: 'save',
+            session,
+          },
+          context
+        )
+      )
+    );
     report.visualPolicy = officeBenchmarkVisualPolicy({
       format: report.format,
       totalCells: report.snapshot.value?.total || 0,
     });
-    report.visualRequired = report.visualPolicy.mode === 'full'
-      && (report.format === 'pdf' || report.validation.value?.compatibility?.available === true);
+    report.visualRequired =
+      report.visualPolicy.mode === 'full' &&
+      (report.format === 'pdf' || report.validation.value?.compatibility?.available === true);
     if (report.visualRequired) {
       const previewPath = join(outputDirectory, `${basename(path, extension)}.preview.pdf`);
-      report.render = await timed(async () => resultValue(await executeOfficeTool({
-        action: 'render',
-        session,
-        output: previewPath,
-        pages: [1],
-        maxWidth: 900,
-      }, context)));
-      report.visual = await timed(async () => await fullVisualDiff(path, output, outputDirectory, {
-        signal: controller.signal,
-      }));
+      report.render = await timed(async () =>
+        resultValue(
+          await executeOfficeTool(
+            {
+              action: 'render',
+              session,
+              output: previewPath,
+              pages: [1],
+              maxWidth: 900,
+            },
+            context
+          )
+        )
+      );
+      report.visual = await timed(
+        async () =>
+          await fullVisualDiff(path, output, outputDirectory, {
+            signal: controller.signal,
+          })
+      );
     } else {
-      const reason = report.visualPolicy.mode !== 'full'
-        ? report.visualPolicy.reason
-        : 'LibreOffice compatibility rendering is unavailable; visual comparison was not run.';
+      const reason =
+        report.visualPolicy.mode !== 'full'
+          ? report.visualPolicy.reason
+          : 'LibreOffice compatibility rendering is unavailable; visual comparison was not run.';
       report.render = {
         ok: true,
         skipped: true,
@@ -342,17 +392,17 @@ async function benchmarkDocument(path, outputDirectory, {
     }
     report.timedOut = controller.signal.aborted;
     report.visualThresholdPercent = 0.5;
-    report.success = !report.timedOut
-      && report.snapshot.ok
-      && report.validation.ok
-      && report.validation.value.ok
-      && report.render.ok
-      && (!report.visualRequired || (
-        report.visual.ok
-        && report.visual.value.available
-        && report.visual.value.pageCountBefore === report.visual.value.pageCountAfter
-        && report.visual.value.changedPercent <= report.visualThresholdPercent
-      ));
+    report.success =
+      !report.timedOut &&
+      report.snapshot.ok &&
+      report.validation.ok &&
+      report.validation.value.ok &&
+      report.render.ok &&
+      (!report.visualRequired ||
+        (report.visual.ok &&
+          report.visual.value.available &&
+          report.visual.value.pageCountBefore === report.visual.value.pageCountAfter &&
+          report.visual.value.changedPercent <= report.visualThresholdPercent));
     report.roundTrip = {
       lostProtectedParts: report.validation.value?.baseline?.lostProtectedParts || [],
       changedProtectedParts: report.validation.value?.baseline?.changedProtectedParts || [],
@@ -373,13 +423,14 @@ function dirnameOf(path) {
 
 function summarize(results) {
   const successful = results.filter((entry) => entry.success).length;
-  const durations = results.map((entry) => (
-    Number(entry.open?.durationMs || 0)
-    + Number(entry.snapshot?.durationMs || 0)
-    + Number(entry.validation?.durationMs || 0)
-    + Number(entry.render?.durationMs || 0)
-    + Number(entry.visual?.durationMs || 0)
-  ));
+  const durations = results.map(
+    (entry) =>
+      Number(entry.open?.durationMs || 0) +
+      Number(entry.snapshot?.durationMs || 0) +
+      Number(entry.validation?.durationMs || 0) +
+      Number(entry.render?.durationMs || 0) +
+      Number(entry.visual?.durationMs || 0)
+  );
   return {
     documents: results.length,
     successful,
@@ -389,14 +440,17 @@ function summarize(results) {
     averageDurationMs: results.length
       ? Number((durations.reduce((sum, value) => sum + value, 0) / results.length).toFixed(2))
       : 0,
-    regressions: results.filter((entry) => !entry.success).map((entry) => ({
-      path: entry.path,
-      error: entry.open?.error
-        || entry.snapshot?.error
-        || entry.validation?.error
-        || entry.render?.error
-        || (entry.timedOut ? 'document timed out' : 'verification failed'),
-    })),
+    regressions: results
+      .filter((entry) => !entry.success)
+      .map((entry) => ({
+        path: entry.path,
+        error:
+          entry.open?.error ||
+          entry.snapshot?.error ||
+          entry.validation?.error ||
+          entry.render?.error ||
+          (entry.timedOut ? 'document timed out' : 'verification failed'),
+      })),
   };
 }
 
@@ -449,8 +503,12 @@ export async function runOfficeBenchmark({
       report.comparison = {
         baseline: resolve(baseline),
         successRateDelta: Number((report.summary.successRate - Number(previous.summary?.successRate || 0)).toFixed(4)),
-        averageDurationDeltaMs: Number((report.summary.averageDurationMs - Number(previous.summary?.averageDurationMs || 0)).toFixed(2)),
-        newRegressions: report.summary.regressions.filter((entry) => !(previous.summary?.regressions || []).some((prior) => prior.path === entry.path)),
+        averageDurationDeltaMs: Number(
+          (report.summary.averageDurationMs - Number(previous.summary?.averageDurationMs || 0)).toFixed(2)
+        ),
+        newRegressions: report.summary.regressions.filter(
+          (entry) => !(previous.summary?.regressions || []).some((prior) => prior.path === entry.path)
+        ),
       };
     }
     const reportPath = join(outputDirectory, 'office-benchmark-report.json');
@@ -468,7 +526,8 @@ function argument(name, fallback = '') {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const corpus = argument('--corpus');
-  if (!corpus) throw new Error('Usage: node benchmark.mjs --corpus DIR [--output DIR] [--generate] [--baseline REPORT]');
+  if (!corpus)
+    throw new Error('Usage: node benchmark.mjs --corpus DIR [--output DIR] [--generate] [--baseline REPORT]');
   const terminate = (signal) => {
     resetOfficeSessionsForTest();
     process.stderr.write(`[office-benchmark] interrupted by ${signal}; owned Office sessions were stopped\n`);
@@ -488,7 +547,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       documentTimeoutMs: Number(argument('--document-timeout-ms', String(DEFAULT_DOCUMENT_TIMEOUT_MS))),
       onProgress: ({ message }) => process.stderr.write(`[office-benchmark] ${message}\n`),
     });
-    process.stdout.write(`${JSON.stringify({ reportPath: result.reportPath, summary: result.report.summary }, null, 2)}\n`);
+    process.stdout.write(
+      `${JSON.stringify({ reportPath: result.reportPath, summary: result.report.summary }, null, 2)}\n`
+    );
   } finally {
     process.removeListener('SIGINT', onSigint);
     process.removeListener('SIGTERM', onSigterm);

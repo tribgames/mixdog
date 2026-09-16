@@ -17,15 +17,17 @@ const REQUEST_TIMEOUT_MS = 180_000;
 export function geminiImageRequestBody(prompt, options = {}, references = []) {
   const body = {
     generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-    contents: [{
-      role: 'user',
-      parts: [
-        ...references.map((ref) => ({
-          inlineData: { mimeType: ref.mime || 'image/png', data: ref.base64 },
-        })),
-        { text: prompt },
-      ],
-    }],
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          ...references.map((ref) => ({
+            inlineData: { mimeType: ref.mime || 'image/png', data: ref.base64 },
+          })),
+          { text: prompt },
+        ],
+      },
+    ],
   };
   const aspect = String(options?.aspectRatio || 'auto');
   if (aspect !== 'auto') {
@@ -51,13 +53,11 @@ async function post(model, key, body, signal, fetchFn) {
 export function pickGeminiImagePart(parts, label, failure = null) {
   const image = parts.find((part) => part?.inlineData?.data);
   if (!image) {
-    const refusal = failure
-      || parts.find((part) => typeof part?.text === 'string' && part.text.trim())?.text
-      || '';
+    const refusal = failure || parts.find((part) => typeof part?.text === 'string' && part.text.trim())?.text || '';
     throw mediaError(
       `${label} returned no image data${refusal ? `: ${String(refusal).slice(0, 200)}` : ''}`,
       'MEDIA_EMPTY_RESULT',
-      502,
+      502
     );
   }
   return {
@@ -67,9 +67,10 @@ export function pickGeminiImagePart(parts, label, failure = null) {
   };
 }
 
-export async function generateImage({ model, prompt, options = {}, references = [], signal }, {
-  fetchFn = fetch, resolveKey = resolveGeminiKey,
-} = {}) {
+export async function generateImage(
+  { model, prompt, options = {}, references = [], signal },
+  { fetchFn = fetch, resolveKey = resolveGeminiKey } = {}
+) {
   const key = resolveKey();
   const res = await post(model, key, geminiImageRequestBody(prompt, options, references), signal, fetchFn);
   if (!res.ok) throw upstreamError('Gemini image', res.status, await res.text().catch(() => ''));

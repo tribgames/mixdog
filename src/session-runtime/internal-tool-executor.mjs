@@ -17,10 +17,7 @@ import { refreshDeferredMcpToolCatalog, renderToolSearch } from './tool-catalog.
 import { clean } from './session-text.mjs';
 import { STANDALONE_DATA_DIR } from './runtime-paths.mjs';
 import { listProjects } from '../standalone/projects.mjs';
-import {
-  dispatchWebSearchRuntimeTool,
-  memoryToolArgsForCaller,
-} from './runtime-tool-routing.mjs';
+import { dispatchWebSearchRuntimeTool, memoryToolArgsForCaller } from './runtime-tool-routing.mjs';
 
 export function createInternalToolExecutor({
   rt,
@@ -66,7 +63,9 @@ export function createInternalToolExecutor({
         throw new Error('web search is disabled in settings; start a new session to refresh the tool list');
       }
       if ((name === 'memory' || name === 'recall') && !memoryToolsEnabled()) {
-        throw new Error('memory tools are disabled in settings; background memory and manual core memory remain available');
+        throw new Error(
+          'memory tools are disabled in settings; background memory and manual core memory remain available'
+        );
       }
     }
     // `browser` and `browser_devtools` are one bridge; the tool name only
@@ -148,7 +147,7 @@ export function createInternalToolExecutor({
       return await memoryMod.handleToolCall(
         name,
         memoryToolArgsForCaller(args, callerCwd),
-        callerCtx?.signal || rt.session?.controller?.signal || null,
+        callerCtx?.signal || rt.session?.controller?.signal || null
       );
     }
     if (name === 'code_graph') {
@@ -165,10 +164,14 @@ export function createInternalToolExecutor({
       const action = clean(args?.action || (args?.path ? 'set' : 'get')).toLowerCase();
       let currentCwd = callerCwd;
       if (action === 'list') {
-        return JSON.stringify({
-          cwd: currentCwd,
-          projects: listProjects().map((project) => ({ name: project.name, path: project.path })),
-        }, null, 2);
+        return JSON.stringify(
+          {
+            cwd: currentCwd,
+            projects: listProjects().map((project) => ({ name: project.name, path: project.path })),
+          },
+          null,
+          2
+        );
       }
       if (action === 'set') {
         const rawPath = clean(args?.path);
@@ -176,16 +179,21 @@ export function createInternalToolExecutor({
         const nextCwd = resolve(callerCwd || process.cwd(), rawPath);
         const stat = statSync(nextCwd);
         if (!stat.isDirectory()) throw new Error(`cwd: not a directory: ${nextCwd}`);
-        currentCwd = typeof callerCtx?.setCallerCwd === 'function'
-          ? clean(await callerCtx.setCallerCwd(nextCwd)) || nextCwd
-          : applyResolvedCwd(nextCwd, { persistProjectSelection: true });
+        currentCwd =
+          typeof callerCtx?.setCallerCwd === 'function'
+            ? clean(await callerCtx.setCallerCwd(nextCwd)) || nextCwd
+            : applyResolvedCwd(nextCwd, { persistProjectSelection: true });
       } else if (action !== 'get') {
         throw new Error(`cwd: unknown action "${action}"`);
       }
-      return JSON.stringify({
-        cwd: currentCwd,
-        sessionId: callerCtx?.callerSessionId || rt.session?.id || null,
-      }, null, 2);
+      return JSON.stringify(
+        {
+          cwd: currentCwd,
+          sessionId: callerCtx?.callerSessionId || rt.session?.id || null,
+        },
+        null,
+        2
+      );
     }
     if (name === 'Skill') {
       return skillToolContent(args?.name, activeToolSurface(), rt.mode);

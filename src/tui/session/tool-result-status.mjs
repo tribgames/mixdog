@@ -8,16 +8,9 @@
  * keeps calling them unchanged.
  */
 import { stripShellExitHeader, toolErrorDisplay } from './tool-result-text.mjs';
-import {
-  normalizeToolTerminalStatus,
-  toolResultTerminalStatus,
-} from '../../runtime/shared/tool-status.mjs';
+import { normalizeToolTerminalStatus, toolResultTerminalStatus } from '../../runtime/shared/tool-status.mjs';
 import { isReadOnlyNavigationMiss } from '../../runtime/agent/orchestrator/session/result-classification.mjs';
-import {
-  formatAggregateDetail,
-  summarizeToolResult,
-  toolLoadingTargets,
-} from '../../runtime/shared/tool-surface.mjs';
+import { formatAggregateDetail, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
 
 const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
 
@@ -36,7 +29,9 @@ export function shellCommandExitCode(text) {
   const header = lines.slice(0, 6).join('\n');
   // Timeout / signal / abort are NOT a plain command exit — keep them "Failed".
   if (/\[timeout:|\[signal:|timed out|aborted|interrupted/i.test(header)) return null;
-  const m = header.match(/^\s*(?:\[session:[^\n]*\]\s*\n)?(?:Error:\s*)?(?:\[shell-run-failed\]\s*)?\[exit code:\s*(\d+)\]/i);
+  const m = header.match(
+    /^\s*(?:\[session:[^\n]*\]\s*\n)?(?:Error:\s*)?(?:\[shell-run-failed\]\s*)?\[exit code:\s*(\d+)\]/i
+  );
   if (!m) return null;
   const code = Number(m[1]);
   return Number.isFinite(code) ? code : null;
@@ -53,8 +48,7 @@ export function toolCallOutcome(message, rawText) {
     // Every completed shell result carries `[exit code: N]` — including 0.
     // A non-zero code is a command failure unless execution marked a known
     // successful no-match/no-change outcome.
-    const benignExit = exitCode !== 0
-      && /^\[outcome:\s*(?:no-match|no-change)\]\s*$/im.test(String(rawText || ''));
+    const benignExit = exitCode !== 0 && /^\[outcome:\s*(?:no-match|no-change)\]\s*$/im.test(String(rawText || ''));
     return { isCallError: false, isExitError: exitCode !== 0 && !benignExit, exitCode };
   }
   if (isReadOnlyNavigationMiss(message?.toolName || message?.name, rawText)) {
@@ -77,9 +71,7 @@ export function failureDetailText({ succeeded = 0, realErrors = 0, exitErrors = 
   if (realErrors > 0) parts.push(`${realErrors} Failed`);
   if (exitErrors > 0) {
     const solo = exitErrors === 1 && realErrors === 0 && succeeded === 0;
-    parts.push(solo && Number.isFinite(exitCode)
-      ? `Exited ${exitCode}`
-      : `${exitErrors} Exited non-zero`);
+    parts.push(solo && Number.isFinite(exitCode) ? `Exited ${exitCode}` : `${exitErrors} Exited non-zero`);
   }
   return parts.join(' · ');
 }
@@ -130,10 +122,7 @@ export function groupedToolResultText(group) {
       .filter(Boolean);
     const uniqueReasons = [...new Set(reasons)].slice(0, 2);
     const base = failureDetailText({ succeeded, realErrors, exitErrors, exitCode });
-    return [
-      `${base}${uniqueReasons[0] ? ` · ${uniqueReasons[0]}` : ''}`,
-      ...uniqueReasons.slice(1),
-    ].join('\n');
+    return [`${base}${uniqueReasons[0] ? ` · ${uniqueReasons[0]}` : ''}`, ...uniqueReasons.slice(1)].join('\n');
   }
   for (const result of group.results || []) {
     const line = String(result?.text || '').trim();
@@ -150,14 +139,19 @@ function firstErrorLine(text) {
     if (!trimmed) continue;
     if (/^(Error|\[?error|FAIL\b)/i.test(trimmed)) return trimmed;
   }
-  return String(text || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
+  return (
+    String(text || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean) || ''
+  );
 }
 
 export function aggregateRawResult(calls) {
   const chunks = [];
   for (const rec of calls || []) {
     if (rec?.resolved !== true) continue;
-    let text = String(rec?.rawResultText ?? rec?.resultText ?? '').replace(/\s+$/, '');
+    const text = String(rec?.rawResultText ?? rec?.resultText ?? '').replace(/\s+$/, '');
     if (!text.trim()) continue;
     const label = String(rec?.name || rec?.category || 'tool').trim() || 'tool';
     chunks.push(`${chunks.length + 1}. ${label}\n${text}`);
@@ -260,19 +254,17 @@ export function toolResultDisplay(message, rawText, toolName) {
   const isError = outcome.isCallError;
   const text = isError
     ? toolErrorDisplay(rawText, toolName || 'tool')
-    : (outcome.exitCode != null ? stripShellExitHeader(rawText) : rawText);
+    : outcome.exitCode != null
+      ? stripShellExitHeader(rawText)
+      : rawText;
   return { ...outcome, isError, text };
 }
 
-export function applyAggregateCallFields(callRec, aggregate, {
-  isError,
-  isCallError,
-  isExitError,
-  exitCode,
-  text,
-  rawText,
-  message,
-} = {}) {
+export function applyAggregateCallFields(
+  callRec,
+  aggregate,
+  { isError, isCallError, isExitError, exitCode, text, rawText, message } = {}
+) {
   if (!callRec) return callRec;
   callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
   assignAggregateSummaryOrder(aggregate, callRec);
@@ -299,14 +291,15 @@ export function aggregateResultPatch(aggregate, allCalls, completedCount) {
   const callErrors = allCalls.filter((r) => r.isCallError).length;
   const exitErrors = allCalls.filter((r) => r.isExitError).length;
   const succeeded = Math.max(0, completedCount - errors - exitErrors);
-  const displayDetail = errors > 0 || exitErrors > 0
-    ? failureDetailText({
-      succeeded,
-      realErrors: callErrors,
-      exitErrors,
-      exitCode: allCalls.find((r) => r.isExitError)?.exitCode,
-    })
-    : formatAggregateDetail(aggregateSummaries(aggregate));
+  const displayDetail =
+    errors > 0 || exitErrors > 0
+      ? failureDetailText({
+          succeeded,
+          realErrors: callErrors,
+          exitErrors,
+          exitCode: allCalls.find((r) => r.isExitError)?.exitCode,
+        })
+      : formatAggregateDetail(aggregateSummaries(aggregate));
   return {
     result: displayDetail,
     text: displayDetail,

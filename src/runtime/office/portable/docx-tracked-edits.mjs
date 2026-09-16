@@ -13,8 +13,9 @@ export function trackedParagraphRewrite(paragraphXml, text, id, author) {
   const runCount = (paragraphXml.match(/<w:r(?:\s[^>]*)?>/g) || []).length;
   const properties = /<w:r(?:\s[^>]*)?>\s*(<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>)/.exec(paragraphXml)?.[1] || '';
   const deleted = markRunsDeleted(paragraphXml, id, author);
-  const inserted = `<w:ins ${revisionAttributes(id + runCount, author)}><w:r>${properties}`
-    + `<w:t xml:space="preserve">${xmlEncode(text)}</w:t></w:r></w:ins>`;
+  const inserted =
+    `<w:ins ${revisionAttributes(id + runCount, author)}><w:r>${properties}` +
+    `<w:t xml:space="preserve">${xmlEncode(text)}</w:t></w:r></w:ins>`;
   if (/<\/w:p>\s*$/.test(deleted)) return deleted.replace(/<\/w:p>\s*$/, `${inserted}</w:p>`);
   if (/\/>\s*$/.test(deleted)) return deleted.replace(/\/>\s*$/, `>${inserted}</w:p>`);
   throw new Error('DOCX paragraph is malformed');
@@ -39,7 +40,11 @@ function paragraphRuns(paragraphXml) {
       xml: match[0],
       open,
       properties,
-      text: textOnly ? textNodes(content, 'w:t').map((node) => node.text).join('') : '',
+      text: textOnly
+        ? textNodes(content, 'w:t')
+            .map((node) => node.text)
+            .join('')
+        : '',
       textOnly,
     });
   }
@@ -152,8 +157,10 @@ export function trackedParagraphReplace(paragraphXml, find, replacement, id, aut
       if (kept) output.push(textRun(run, kept));
       const deleted = run.text.slice(from - runStart, to - runStart);
       if (deleted) {
-        output.push(`<w:del ${revisionAttributes(nextId, author)}>${run.open}${run.properties}`
-          + `<w:delText xml:space="preserve">${xmlEncode(deleted)}</w:delText></w:r></w:del>`);
+        output.push(
+          `<w:del ${revisionAttributes(nextId, author)}>${run.open}${run.properties}` +
+            `<w:delText xml:space="preserve">${xmlEncode(deleted)}</w:delText></w:r></w:del>`
+        );
         nextId += 1;
       }
       if (interval.end <= runEnd && replacement) {

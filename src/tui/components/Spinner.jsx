@@ -42,7 +42,17 @@ const INTERRUPT_HINT = 'esc to interrupt';
 const THINKING_DELAY_MS = 3000;
 
 // One-way shimmer. The tail runs past the final character before restarting.
-const GLIMMER_SPEED_MS = { requesting: 70, reconnecting: 70, compacting: 120, 'auto-clear': 120, resuming: 120, 'tool-use': 120, responding: 120, thinking: 120, 'tool-input': 120 };
+const GLIMMER_SPEED_MS = {
+  requesting: 70,
+  reconnecting: 70,
+  compacting: 120,
+  'auto-clear': 120,
+  resuming: 120,
+  'tool-use': 120,
+  responding: 120,
+  thinking: 120,
+  'tool-input': 120,
+};
 // A wider trail turns the highlight into a wipe travelling across the phrase
 // instead of a single bright character hopping along it.
 const GLIMMER_TRAIL = 6;
@@ -85,13 +95,14 @@ function renderShimmerText(text, head, trail, baseRgb, shimmerRgb, baseColor, ke
         // Treat the sweep as a loop: when head wraps past the end, the tail of
         // the previous pass is the same as the head of the next one.
         if (distance < 0) distance += cycle;
-        const intensity = distance >= 0 && distance < trail
-          ? 1 - distance / trail
-          : 0;
-        const color = intensity > 0
-          ? toRgbString(interpolateColor(baseRgb, shimmerRgb, 0.35 + intensity * 0.65))
-          : baseColor;
-        return <Text key={`${keyPrefix}-${index}`} color={color}>{char}</Text>;
+        const intensity = distance >= 0 && distance < trail ? 1 - distance / trail : 0;
+        const color =
+          intensity > 0 ? toRgbString(interpolateColor(baseRgb, shimmerRgb, 0.35 + intensity * 0.65)) : baseColor;
+        return (
+          <Text key={`${keyPrefix}-${index}`} color={color}>
+            {char}
+          </Text>
+        );
       })}
     </>
   );
@@ -133,7 +144,22 @@ function tokenModeGlyph(mode) {
   }
 }
 
-export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, thinkingActiveSince = 0, thinkingMs = 0, effort = '', hasActiveTools = false, paused = false, interruptible = false, mode = 'responding', columns = 80, marginTop = 1 }) {
+export function Spinner({
+  verb = 'Working',
+  startedAt,
+  outputTokens = 0,
+  tokens = 0,
+  thinking = false,
+  thinkingActiveSince = 0,
+  thinkingMs = 0,
+  effort = '',
+  hasActiveTools = false,
+  paused = false,
+  interruptible = false,
+  mode = 'responding',
+  columns = 80,
+  marginTop = 1,
+}) {
   const reducedMotion = isReducedMotion();
   // Re-render at the frame cadence off the shared tick (no dedicated timer).
   // Glyph/shimmer/token/elapsed values are all derived from Date.now() below.
@@ -189,16 +215,17 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   const stallMs = now - lastGrowRef.current;
   const isStalled = !reducedMotion && targetOutputTokens > 0 && stallMs > STALL_TIMEOUT_MS;
   // Stall smoothing: exponential fade toward target
-  const rawIntensity = isStalled
-    ? Math.min(1, (stallMs - STALL_TIMEOUT_MS) / STALL_FADE_MS)
-    : 0;
+  const rawIntensity = isStalled ? Math.min(1, (stallMs - STALL_TIMEOUT_MS) / STALL_FADE_MS) : 0;
   if (rawIntensity > 0 || stallSmoothRef.current > 0) {
     const dt = frame - lastStallTickRef.current;
     if (dt > 0) {
       let cur = stallSmoothRef.current;
       for (let i = 0; i < dt; i++) {
         const diff = rawIntensity - cur;
-        if (Math.abs(diff) < 0.01) { cur = rawIntensity; break; }
+        if (Math.abs(diff) < 0.01) {
+          cur = rawIntensity;
+          break;
+        }
         cur += diff * 0.1;
       }
       stallSmoothRef.current = cur;
@@ -210,19 +237,17 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   const glyph = FRAMES[frame % FRAMES.length];
 
   // Glyph color — interpolate toward red when stalled.
-  const glyphColor = stalledIntensity > 0
-    ? toRgbString(interpolateColor(
-        SPINNER_GLYPH_RGB,
-        STALL_RGB,
-        stalledIntensity
-      ))
-    : theme.spinnerGlyph;
+  const glyphColor =
+    stalledIntensity > 0
+      ? toRgbString(interpolateColor(SPINNER_GLYPH_RGB, STALL_RGB, stalledIntensity))
+      : theme.spinnerGlyph;
 
   // --- Verb (one common pool, one phrase per 30s window) ---
   // Anchored to `startedAt`, so a mode flip cannot rewrite the label and the
   // desktop shows the same word at the same second.
-  const displayVerb = SPINNER_MODE_OVERRIDE_VERBS[mode]
-    || (mode === 'reconnecting' ? (String(verb || '').trim() || 'Reconnecting') : spinnerVerbFor(startedAt, now));
+  const displayVerb =
+    SPINNER_MODE_OVERRIDE_VERBS[mode] ||
+    (mode === 'reconnecting' ? String(verb || '').trim() || 'Reconnecting' : spinnerVerbFor(startedAt, now));
   const messageText = displayVerb;
   const messageLen = messageText.length;
 
@@ -234,9 +259,21 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   // Keep the verb shimmer moving even during stalls/tool waits. Stall tinting is
   // limited to the glyph; tinting the whole verb made the sweep disappear after
   // a few seconds and read as a stuck dark label.
-  const verbContent = messageLen > 0 && !reducedMotion && TEXT_RGB && SHIMMER_RGB
-    ? renderShimmerText(messageText, shimmerHead, GLIMMER_TRAIL, TEXT_RGB, SHIMMER_RGB, theme.spinnerText, 'verb', shimmerSpan)
-    : (messageLen > 0 ? <Text color={theme.spinnerText}>{messageText}</Text> : null);
+  const verbContent =
+    messageLen > 0 && !reducedMotion && TEXT_RGB && SHIMMER_RGB ? (
+      renderShimmerText(
+        messageText,
+        shimmerHead,
+        GLIMMER_TRAIL,
+        TEXT_RGB,
+        SHIMMER_RGB,
+        theme.spinnerText,
+        'verb',
+        shimmerSpan
+      )
+    ) : messageLen > 0 ? (
+      <Text color={theme.spinnerText}>{messageText}</Text>
+    ) : null;
 
   const advanceCounter = (ref, target) => {
     if (reducedMotion) {
@@ -273,9 +310,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
     effort,
   });
   const tokenGlyph = tokenModeGlyph(mode);
-  const tokenText = meta.tokensText
-    ? (tokenGlyph ? `${tokenGlyph} ${meta.tokensText}` : meta.tokensText)
-    : '';
+  const tokenText = meta.tokensText ? (tokenGlyph ? `${tokenGlyph} ${meta.tokensText}` : meta.tokensText) : '';
   const tokenW = tokenText.length;
 
   // Progressive width gating: show status parts
@@ -310,26 +345,48 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   const segments = [];
   if (showTimer) {
     segments.push(
-      <Text key="elapsed" color={theme.timerText}>{timerLabel}</Text>
+      <Text key="elapsed" color={theme.timerText}>
+        {timerLabel}
+      </Text>
     );
   }
   if (showTokens) {
     segments.push(
-      <Text key="tokens" color={theme.statusSubtle}>{tokenText}</Text>
+      <Text key="tokens" color={theme.statusSubtle}>
+        {tokenText}
+      </Text>
     );
   }
   if (showThinkingStatus) {
     const thinkingSpan = Math.max(1, thinkingStatusText.length + THINKING_GLIMMER_TRAIL);
-    const thinkingHead = Math.floor(Math.max(0, rawElapsedMs - THINKING_DELAY_MS) / THINKING_GLIMMER_SPEED_MS) % thinkingSpan;
+    const thinkingHead =
+      Math.floor(Math.max(0, rawElapsedMs - THINKING_DELAY_MS) / THINKING_GLIMMER_SPEED_MS) % thinkingSpan;
     segments.push(
-      thinkingActive && !reducedMotion
-        ? <Text key="thinking-status">{renderShimmerText(thinkingStatusText, thinkingHead, THINKING_GLIMMER_TRAIL, THINKING_INACTIVE, THINKING_SHIMMER, theme.thinkingBase, 'thinking-status', thinkingSpan)}</Text>
-        : <Text key="thinking-status" color={theme.statusSubtle}>{thinkingStatusText}</Text>
+      thinkingActive && !reducedMotion ? (
+        <Text key="thinking-status">
+          {renderShimmerText(
+            thinkingStatusText,
+            thinkingHead,
+            THINKING_GLIMMER_TRAIL,
+            THINKING_INACTIVE,
+            THINKING_SHIMMER,
+            theme.thinkingBase,
+            'thinking-status',
+            thinkingSpan
+          )}
+        </Text>
+      ) : (
+        <Text key="thinking-status" color={theme.statusSubtle}>
+          {thinkingStatusText}
+        </Text>
+      )
     );
   }
   if (showInterrupt) {
     segments.push(
-      <Text key="interrupt" color={theme.statusSubtle}>{interruptText}</Text>
+      <Text key="interrupt" color={theme.statusSubtle}>
+        {interruptText}
+      </Text>
     );
   }
   return (
@@ -341,9 +398,19 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
       {segments.length > 0 ? (
         <Text color={theme.inactive}>
           {' ('}
-          {segments.reduce((acc, el, i) => (
-            i === 0 ? [el] : [...acc, <Text key={`s${i}`} color={theme.statusSubtle}>{STATUS_SEP}</Text>, el]
-          ), [])}
+          {segments.reduce(
+            (acc, el, i) =>
+              i === 0
+                ? [el]
+                : [
+                    ...acc,
+                    <Text key={`s${i}`} color={theme.statusSubtle}>
+                      {STATUS_SEP}
+                    </Text>,
+                    el,
+                  ],
+            []
+          )}
           {')'}
         </Text>
       ) : null}

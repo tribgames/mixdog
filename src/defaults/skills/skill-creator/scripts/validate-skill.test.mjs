@@ -10,15 +10,18 @@ test('UI summaries and model triggers have independent budgets', () => {
   const dir = join(root, 'sample');
   mkdirSync(dir);
   const validate = (trigger) => {
-    writeFileSync(join(dir, 'SKILL.md'), [
-      '---',
-      'name: sample',
-      `description: ${JSON.stringify('A'.repeat(100))}`,
-      `when_to_use: ${JSON.stringify(trigger)}`,
-      '---',
-      '# Instructions',
-      'Perform the requested operation and verify the result.',
-    ].join('\n'));
+    writeFileSync(
+      join(dir, 'SKILL.md'),
+      [
+        '---',
+        'name: sample',
+        `description: ${JSON.stringify('A'.repeat(100))}`,
+        `when_to_use: ${JSON.stringify(trigger)}`,
+        '---',
+        '# Instructions',
+        'Perform the requested operation and verify the result.',
+      ].join('\n')
+    );
     return validateSkillDirectory(dir);
   };
   try {

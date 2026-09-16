@@ -33,14 +33,8 @@ export interface DocumentPreviewPages {
 
 export interface DocumentPreviewModule {
   documentPreviewFormat(path: string): string;
-  documentPreviewPdf(
-    path: string,
-    options: { cacheRoot: string },
-  ): Promise<DocumentPreviewPdf>;
-  documentPreviewPages(
-    pdfPath: string,
-    options: { pages: number[]; maxWidth: number },
-  ): Promise<DocumentPreviewPages>;
+  documentPreviewPdf(path: string, options: { cacheRoot: string }): Promise<DocumentPreviewPdf>;
+  documentPreviewPages(pdfPath: string, options: { pages: number[]; maxWidth: number }): Promise<DocumentPreviewPages>;
 }
 
 // A viewer asks for the pages it is about to show. The ceiling keeps one call
@@ -53,8 +47,9 @@ const DEFAULT_PAGE_WIDTH = 1200;
 
 function requestedPages(value: unknown): number[] {
   const raw = Array.isArray(value) ? value : [1];
-  const pages = [...new Set(raw.map((page) => Math.trunc(Number(page))))]
-    .filter((page) => Number.isInteger(page) && page >= 1);
+  const pages = [...new Set(raw.map((page) => Math.trunc(Number(page))))].filter(
+    (page) => Number.isInteger(page) && page >= 1
+  );
   if (!pages.length) throw new TypeError('A document preview needs at least one page.');
   if (pages.length > MAX_PAGES_PER_CALL) {
     throw new TypeError(`A document preview accepts at most ${MAX_PAGES_PER_CALL} pages per request.`);
@@ -98,7 +93,7 @@ export function createDocumentPreviewOperations({
     documentPreviewPagesIn: async (
       root: string,
       relPath: string,
-      options: { pages?: unknown; maxWidth?: unknown } = {},
+      options: { pages?: unknown; maxWidth?: unknown } = {}
     ) => {
       const pages = requestedPages(options.pages);
       const maxWidth = requestedWidth(options.maxWidth);

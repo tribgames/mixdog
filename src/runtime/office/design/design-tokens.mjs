@@ -16,19 +16,26 @@ function resolvePptxDeckPlan(input, tokens, artDirection) {
     : PPTX_BACKGROUND_MODES.has(String(direction.backgroundMode || '').toLowerCase())
       ? String(direction.backgroundMode).toLowerCase()
       : 'sandwich';
-  const defaults = backgroundMode === 'dark'
-    ? { cover: 'inverse', content: 'inverse', section: 'inverse', closing: 'inverse' }
-    : backgroundMode === 'light'
-      ? { cover: 'canvas', content: 'canvas', section: 'canvas', closing: 'canvas' }
-      : { cover: 'inverse', content: 'canvas', section: 'inverse', closing: 'inverse' };
+  const defaults =
+    backgroundMode === 'dark'
+      ? { cover: 'inverse', content: 'inverse', section: 'inverse', closing: 'inverse' }
+      : backgroundMode === 'light'
+        ? { cover: 'canvas', content: 'canvas', section: 'canvas', closing: 'canvas' }
+        : { cover: 'inverse', content: 'canvas', section: 'inverse', closing: 'inverse' };
   const requestedRoles = plainObject(source.roles) ? source.roles : {};
-  const roles = Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => {
-    const requested = String(requestedRoles[key] || '').trim();
-    return [key, Object.hasOwn(tokens.colors, requested) ? requested : fallback];
-  }));
+  const roles = Object.fromEntries(
+    Object.entries(defaults).map(([key, fallback]) => {
+      const requested = String(requestedRoles[key] || '').trim();
+      return [key, Object.hasOwn(tokens.colors, requested) ? requested : fallback];
+    })
+  );
   const dominantColorRole = String(source.dominantColorRole || roles.content);
-  const requestedTemplateMode = String(source.templateMode || '').trim().toLowerCase();
-  const requestedCompositionMode = String(source.compositionMode || '').trim().toLowerCase();
+  const requestedTemplateMode = String(source.templateMode || '')
+    .trim()
+    .toLowerCase();
+  const requestedCompositionMode = String(source.compositionMode || '')
+    .trim()
+    .toLowerCase();
   return {
     backgroundMode,
     dominantColorRole: Object.hasOwn(tokens.colors, dominantColorRole) ? dominantColorRole : roles.content,
@@ -39,16 +46,16 @@ function resolvePptxDeckPlan(input, tokens, artDirection) {
     grid: String(source.grid || direction.grid || 'twelve-column editorial grid'),
     shapeLanguage: String(source.shapeLanguage || direction.shapeLanguage || 'native evidence fields'),
     chartTreatment: String(source.chartTreatment || direction.chartTreatment || 'native annotated chart'),
-    densityPattern: strings(source.densityPattern).length ? strings(source.densityPattern) : strings(direction.densityPattern),
+    densityPattern: strings(source.densityPattern).length
+      ? strings(source.densityPattern)
+      : strings(direction.densityPattern),
     motifRules: strings(source.motifRules).length ? strings(source.motifRules) : strings(direction.motifRules),
     directionId: String(artDirection?.selected?.id || ''),
     directionCandidates: (artDirection?.candidates || []).map((candidate) => candidate.id),
     sectionSlides: slideNumbers(source.sectionSlides),
     roles,
     templateMode: PPTX_TEMPLATE_MODES.has(requestedTemplateMode) ? requestedTemplateMode : 'scratch',
-    compositionMode: PPTX_COMPOSITION_MODES.has(requestedCompositionMode)
-      ? requestedCompositionMode
-      : 'model',
+    compositionMode: PPTX_COMPOSITION_MODES.has(requestedCompositionMode) ? requestedCompositionMode : 'model',
     enforce: source.enforce !== false,
     requireSlidePlan: source.requireSlidePlan !== false,
   };
@@ -203,7 +210,6 @@ const DESIGN_PACKS = Object.freeze({
   }),
 });
 
-
 const DEFAULT_PROFILE = Object.freeze({
   docx: 'executive',
   xlsx: 'executive',
@@ -213,34 +219,29 @@ const DEFAULT_PROFILE = Object.freeze({
   tsv: 'data',
 });
 
-
 function clone(value) {
   if (Array.isArray(value)) return value.map(clone);
   if (!plainObject(value)) return value;
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, clone(entry)]));
 }
 
-
 export function merge(base, override) {
   if (!plainObject(override)) return clone(base);
   const result = clone(base);
   for (const [key, value] of Object.entries(override)) {
-    result[key] = plainObject(value) && plainObject(result[key])
-      ? merge(result[key], value)
-      : clone(value);
+    result[key] = plainObject(value) && plainObject(result[key]) ? merge(result[key], value) : clone(value);
   }
   return result;
 }
 
-
 export function hex(value, fallback) {
-  const normalized = String(value || '').replace(/^#/, '').toUpperCase();
+  const normalized = String(value || '')
+    .replace(/^#/, '')
+    .toUpperCase();
   return /^[0-9A-F]{6}$/.test(normalized) ? normalized : fallback;
 }
 
-
 export { presetLabels } from '../shared/labels.mjs';
-
 
 export function strings(value) {
   if (Array.isArray(value)) return value.map((entry) => String(entry ?? '')).filter(Boolean);
@@ -248,14 +249,15 @@ export function strings(value) {
   return [String(value)];
 }
 
-
 export function slideNumbers(value) {
-  return [...new Set((Array.isArray(value) ? value : [])
-    .map((entry) => Number(entry))
-    .filter((entry) => Number.isInteger(entry) && entry > 0))]
-    .sort((left, right) => left - right);
+  return [
+    ...new Set(
+      (Array.isArray(value) ? value : [])
+        .map((entry) => Number(entry))
+        .filter((entry) => Number.isInteger(entry) && entry > 0)
+    ),
+  ].sort((left, right) => left - right);
 }
-
 
 export function compactDesign(design) {
   return {
@@ -282,7 +284,6 @@ export function compactDesign(design) {
   };
 }
 
-
 function compactLibrary(library) {
   if (!plainObject(library)) {
     return {
@@ -295,17 +296,21 @@ function compactLibrary(library) {
   }
   return {
     source: String(library.source || 'mixdog-starter'),
-    pack: library.pack ? {
-      id: String(library.pack.id || ''),
-      version: String(library.pack.version || ''),
-      keyId: String(library.pack.keyId || ''),
-    } : null,
-    template: library.template ? {
-      id: String(library.template.id || ''),
-      version: String(library.template.version || ''),
-      source: String(library.template.source || ''),
-      ...(library.coverage ? { coverage: clone(library.coverage) } : {}),
-    } : null,
+    pack: library.pack
+      ? {
+          id: String(library.pack.id || ''),
+          version: String(library.pack.version || ''),
+          keyId: String(library.pack.keyId || ''),
+        }
+      : null,
+    template: library.template
+      ? {
+          id: String(library.template.id || ''),
+          version: String(library.template.version || ''),
+          source: String(library.template.source || ''),
+          ...(library.coverage ? { coverage: clone(library.coverage) } : {}),
+        }
+      : null,
     templateIndexRevision: String(library.templateIndexRevision || ''),
     recentCompositionCount: Array.isArray(library.recentCompositions) ? library.recentCompositions.length : 0,
     pinned: library.pinned === true,
@@ -313,22 +318,23 @@ function compactLibrary(library) {
   };
 }
 
-
 function resolvedDesignPacks(library) {
   const remote = plainObject(library?.pack?.profiles) ? library.pack.profiles : {};
   const output = { ...DESIGN_PACKS };
   for (const [id, profile] of Object.entries(remote)) {
     const parentId = String(profile?.extends || (DESIGN_PACKS[id] ? id : 'editorial')).toLowerCase();
     const parent = DESIGN_PACKS[parentId] || DESIGN_PACKS.editorial;
-    output[id] = merge({
-      ...parent,
-      id,
-      label: profile?.label || id,
-    }, profile);
+    output[id] = merge(
+      {
+        ...parent,
+        id,
+        label: profile?.label || id,
+      },
+      profile
+    );
   }
   return output;
 }
-
 
 export function officeDesignCatalog(format = '', { library = null } = {}) {
   const normalized = String(format || '').toLowerCase();
@@ -342,18 +348,15 @@ export function officeDesignCatalog(format = '', { library = null } = {}) {
   }));
 }
 
-
 export function resolveOfficeDesign(format, request = {}, { library = null } = {}) {
   const normalizedFormat = String(format || '').toLowerCase();
   if (!FORMATS.has(normalizedFormat)) throw new Error(`Unsupported Office design format: ${format}`);
-  const input = typeof request === 'string'
-    ? { profile: request }
-    : plainObject(request)
-      ? request
-      : {};
+  const input = typeof request === 'string' ? { profile: request } : plainObject(request) ? request : {};
   const packs = resolvedDesignPacks(library);
   const libraryDefault = library?.pack?.defaultProfiles?.[normalizedFormat];
-  const profile = String(input.profile || libraryDefault || DEFAULT_PROFILE[normalizedFormat] || 'editorial').toLowerCase();
+  const profile = String(
+    input.profile || libraryDefault || DEFAULT_PROFILE[normalizedFormat] || 'editorial'
+  ).toLowerCase();
   const pack = packs[profile];
   if (!pack) {
     throw new Error(`Unknown Office design profile "${profile}". Use one of: ${Object.keys(packs).join(', ')}`);
@@ -366,19 +369,20 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
     purpose: composition.purpose,
     expressionMode: composition.expressionMode,
   });
-  const directionTokens = artDirection.applyTokens ? {
-    colors: artDirection.selected.palette,
-    typography: artDirection.selected.typography,
-  } : {};
+  const directionTokens = artDirection.applyTokens
+    ? {
+        colors: artDirection.selected.palette,
+        typography: artDirection.selected.typography,
+      }
+    : {};
   const palette = plainObject(input.palette) ? input.palette : {};
   const baseTokens = merge(pack.tokens, directionTokens);
   const typographyDiscipline = normalizeTypographyTokens(input.typography, baseTokens.typography);
   const paletteDiscipline = normalizePaletteTokens({
     ...baseTokens.colors,
-    ...Object.fromEntries(Object.entries(palette).map(([key, value]) => [
-      key,
-      hex(value, baseTokens.colors[key] || baseTokens.colors.ink),
-    ])),
+    ...Object.fromEntries(
+      Object.entries(palette).map(([key, value]) => [key, hex(value, baseTokens.colors[key] || baseTokens.colors.ink)])
+    ),
   });
   const tokens = merge(baseTokens, {
     colors: paletteDiscipline.colors,
@@ -413,17 +417,20 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
     },
     format: clone(pack.formats[normalizedFormat] || {}),
     ...(deck ? { deck } : {}),
-    ...(normalizedFormat === 'pptx' ? {
-      slidePlans: Array.isArray(input.slidePlans) ? clone(input.slidePlans) : [],
-      // The authoring brief (plan lines + fact sheet) parsed from the script; the
-      // review holds the saved deck to it.
-      ...(plainObject(input.brief) ? { brief: clone(input.brief) } : {}),
-    } : {}),
+    ...(normalizedFormat === 'pptx'
+      ? {
+          slidePlans: Array.isArray(input.slidePlans) ? clone(input.slidePlans) : [],
+          // The authoring brief (plan lines + fact sheet) parsed from the script; the
+          // review holds the saved deck to it.
+          ...(plainObject(input.brief) ? { brief: clone(input.brief) } : {}),
+        }
+      : {}),
     compositions: Array.isArray(input.compositions) ? clone(input.compositions) : [],
     review: {
-      required: normalizedFormat === 'pptx'
-        ? true
-        : input.review !== false && normalizedFormat !== 'csv' && normalizedFormat !== 'tsv',
+      required:
+        normalizedFormat === 'pptx'
+          ? true
+          : input.review !== false && normalizedFormat !== 'csv' && normalizedFormat !== 'tsv',
       allowTextOnly: input.allowTextOnly === true,
       allowRepetition: input.allowRepetition === true,
       allowDecorativeLines: input.allowDecorativeLines === true,
@@ -434,8 +441,6 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
     },
   };
 }
-
-
 
 export function provenanceText(source) {
   if (!source) return '';

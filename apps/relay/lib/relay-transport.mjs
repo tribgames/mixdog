@@ -1,10 +1,7 @@
 // Frame admission, ingress metering, uplink capacity, and oversize signalling.
 // Extracted from server.mjs (behavior-preserving). Process-wide inflight and
 // ingress counters live here; per-socket flow flags stay on the socket.
-import {
-  decodeRelayBinaryFrame,
-  RELAY_BINARY_HEADER_BYTES,
-} from './relay-binary-frame.mjs';
+import { decodeRelayBinaryFrame, RELAY_BINARY_HEADER_BYTES } from './relay-binary-frame.mjs';
 import { isRoutingId } from './ids.mjs';
 
 // Forwarding policy ceiling for ONE frame. It matches the desktop leg's own
@@ -453,9 +450,8 @@ function consumeIngressBytes(socket, chunk) {
     offset += take;
     if (state.headerBytes === 2) {
       const marker = state.header[1] & 0x7f;
-      state.headerNeeded = 2
-        + (marker === 126 ? 2 : marker === 127 ? 8 : 0)
-        + ((state.header[1] & 0x80) === 0x80 ? 4 : 0);
+      state.headerNeeded =
+        2 + (marker === 126 ? 2 : marker === 127 ? 8 : 0) + ((state.header[1] & 0x80) === 0x80 ? 4 : 0);
     }
     if (state.headerBytes < state.headerNeeded) continue;
     startIngressFrame(socket);
@@ -533,9 +529,7 @@ function captureIngressHead(state, chunk, offset, take) {
   const wanted = Math.min(take, OVERSIZE_ID_SCAN_BYTES - state.headLength);
   for (let index = 0; index < wanted; index += 1) {
     const byte = chunk[offset + index];
-    state.head[state.headLength] = state.mask
-      ? byte ^ state.mask[(state.payloadSeen + index) % 4]
-      : byte;
+    state.head[state.headLength] = state.mask ? byte ^ state.mask[(state.payloadSeen + index) % 4] : byte;
     state.headLength += 1;
   }
 }
@@ -552,9 +546,7 @@ function flushIngressRefusal(socket, frameEnded = false) {
   const head = state.headLength > 0 ? state.head.subarray(0, state.headLength) : null;
   // Quote the ceiling this leg would enforce for a message of THIS wire form,
   // so every refusal a client sees names the same number it can keep.
-  const limit = socket.oversizeLimitFor
-    ? socket.oversizeLimitFor(state.messageBinary)
-    : state.limit;
+  const limit = socket.oversizeLimitFor ? socket.oversizeLimitFor(state.messageBinary) : state.limit;
   socket.oversizeSignal?.(state.refusalBytes, limit, head, state.messageBinary);
 }
 
@@ -677,7 +669,9 @@ function closeLeg(socket, decision) {
   const busy = decision === 'busy';
   try {
     socket.close(busy ? 4009 : 4008, busy ? 'relay busy' : 'slow consumer');
-  } catch { /* already gone */ }
+  } catch {
+    /* already gone */
+  }
 }
 
 function hintResync(phone) {
@@ -688,7 +682,11 @@ function hintResync(phone) {
   // as it drains.
   if (phone.resyncHinted) return;
   phone.resyncHinted = true;
-  try { phone.send('{"resync":1}'); } catch { /* phone vanished */ }
+  try {
+    phone.send('{"resync":1}');
+  } catch {
+    /* phone vanished */
+  }
 }
 
 /** Desktop -> phone. Admission is per phone leg, so a congested phone never
@@ -728,7 +726,11 @@ export function sendToPhone(phone, data, droppable, pressure = 'cut') {
   }
   phone.resyncHinted = false;
   const release = chargeFrame(phone, size);
-  try { phone.send(data, release); } catch { release(); }
+  try {
+    phone.send(data, release);
+  } catch {
+    release();
+  }
   return true;
 }
 
@@ -812,17 +814,21 @@ export function rejectOversizeFrame(socket, raw, limit, announced = false, binar
  *  A raw (non-E2EE) phone takes the same branch before any dispatch. */
 export function signalPhoneOversize(socket, bytes, limit) {
   try {
-    socket.send(JSON.stringify({
-      resync: 1,
-      error: 'frame-too-large',
-      bytes,
-      // The stable ceiling of this path in this wire form — the same number the
-      // desktop leg was published, and the only figure a client may keep. A
-      // per-payload measurement would have a client refusing traffic this relay
-      // would have carried.
-      limit,
-    }));
-  } catch { /* peer vanished */ }
+    socket.send(
+      JSON.stringify({
+        resync: 1,
+        error: 'frame-too-large',
+        bytes,
+        // The stable ceiling of this path in this wire form — the same number the
+        // desktop leg was published, and the only figure a client may keep. A
+        // per-payload measurement would have a client refusing traffic this relay
+        // would have carried.
+        limit,
+      })
+    );
+  } catch {
+    /* peer vanished */
+  }
 }
 
 /** Oversize toward the DESKTOP leg. The desktop is what answers phone RPCs, so
@@ -832,13 +838,17 @@ export function signalPhoneOversize(socket, bytes, limit) {
 export function signalDesktopOversize(socket, bytes, limit, raw, binary) {
   const clientId = oversizeFrameClientId(raw, binary);
   try {
-    socket.send(JSON.stringify({
-      type: 'frame-too-large',
-      ...(clientId ? { clientId } : {}),
-      bytes,
-      limit,
-    }));
-  } catch { /* peer vanished */ }
+    socket.send(
+      JSON.stringify({
+        type: 'frame-too-large',
+        ...(clientId ? { clientId } : {}),
+        bytes,
+        limit,
+      })
+    );
+  } catch {
+    /* peer vanished */
+  }
 }
 
 /** Name the client a refused frame belongs to — and name one ONLY when that is
@@ -860,9 +870,7 @@ function oversizeFrameClientId(raw, binary = false) {
   if (binary) {
     // The routing header is fixed-size and sits at the front, so this is
     // settled by the head of the frame however large the frame is.
-    const frame = decodeRelayBinaryFrame(
-      raw.subarray(0, Math.min(raw.length, OVERSIZE_ID_SCAN_BYTES)),
-    );
+    const frame = decodeRelayBinaryFrame(raw.subarray(0, Math.min(raw.length, OVERSIZE_ID_SCAN_BYTES)));
     return frame ? frame.clientId : '';
   }
   return routedClientId(raw);

@@ -24,16 +24,23 @@ export function SidebarSectionToolbar<Id extends string>({
   active: Id;
   onChange(section: Id): void;
 }) {
-  return <div className="sidebar-section-toolbar" aria-label={label}>
-    {sections.map((item) => {
-      const Icon = item.icon;
-      return <button type="button" key={item.id}
-        className={active === item.id ? 'active' : ''}
-        aria-pressed={active === item.id}
-        onClick={() => onChange(item.id)}>
-        <Icon size={14} aria-hidden="true" />
-        <span>{t(item.label)}</span>
-      </button>;
-    })}
-  </div>;
+  return (
+    <div className="sidebar-section-toolbar" aria-label={label}>
+      {sections.map((item) => {
+        const Icon = item.icon;
+        return (
+          <button
+            type="button"
+            key={item.id}
+            className={active === item.id ? 'active' : ''}
+            aria-pressed={active === item.id}
+            onClick={() => onChange(item.id)}
+          >
+            <Icon size={14} aria-hidden="true" />
+            <span>{t(item.label)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }

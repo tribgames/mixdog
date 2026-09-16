@@ -43,7 +43,9 @@ const _PACKAGE_ROOT = dirname(_PACKAGE_JSON_PATH);
 export function isDevInstall() {
   try {
     if (existsSync(join(_PACKAGE_ROOT, '.git'))) return true;
-  } catch { /* fall through to path heuristic */ }
+  } catch {
+    /* fall through to path heuristic */
+  }
   const norm = _PACKAGE_ROOT.replace(/\\/g, '/').toLowerCase();
   return !/\/node_modules\//.test(`/${norm}/`);
 }
@@ -91,7 +93,9 @@ function writeCache(dataDir, payload) {
 
 /** Parse a semver-ish string into { parts:[maj,min,patch], prerelease }. */
 function parseSemver(value) {
-  const text = String(value || '').trim().replace(/^v/i, '');
+  const text = String(value || '')
+    .trim()
+    .replace(/^v/i, '');
   const [core, ...preParts] = text.split('-');
   const parts = core.split('.').map((n) => {
     const num = Number.parseInt(n, 10);
@@ -211,7 +215,9 @@ export function npmCliJsPath() {
   try {
     const realExecDir = dirname(realpathSync(process.execPath));
     if (!execDirs.includes(realExecDir)) execDirs.push(realExecDir);
-  } catch { /* retain the raw executable path */ }
+  } catch {
+    /* retain the raw executable path */
+  }
 
   for (const execDir of execDirs) {
     // Windows: npm ships beside node.exe.
@@ -222,29 +228,35 @@ export function npmCliJsPath() {
     candidates.push(join(execDir, '..', 'libexec', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'));
   }
   for (const candidate of candidates) {
-    try { if (existsSync(candidate)) return candidate; } catch { /* keep looking */ }
+    try {
+      if (existsSync(candidate)) return candidate;
+    } catch {
+      /* keep looking */
+    }
   }
 
   // Last resort: npm shims on PATH commonly resolve into npm's package bin dir.
   const pathDirs = (process.env.PATH || process.env.Path || '').split(delimiter);
   for (const pathDir of pathDirs) {
     if (!pathDir) continue;
-    const npmPaths = process.platform === 'win32'
-      ? [join(pathDir, 'npm'), join(pathDir, 'npm.cmd')]
-      : [join(pathDir, 'npm')];
+    const npmPaths =
+      process.platform === 'win32' ? [join(pathDir, 'npm'), join(pathDir, 'npm.cmd')] : [join(pathDir, 'npm')];
     for (const npmPath of npmPaths) {
       try {
         if (!existsSync(npmPath)) continue;
         const resolvedNpm = realpathSync(npmPath);
         const npmBinDir = dirname(resolvedNpm);
         if (
-          basename(npmBinDir) !== 'bin'
-          || basename(dirname(npmBinDir)) !== 'npm'
-          || basename(dirname(dirname(npmBinDir))) !== 'node_modules'
-        ) continue;
+          basename(npmBinDir) !== 'bin' ||
+          basename(dirname(npmBinDir)) !== 'npm' ||
+          basename(dirname(dirname(npmBinDir))) !== 'node_modules'
+        )
+          continue;
         const cliJs = join(npmBinDir, 'npm-cli.js');
         if (existsSync(cliJs)) return cliJs;
-      } catch { /* keep looking */ }
+      } catch {
+        /* keep looking */
+      }
     }
   }
   return null;

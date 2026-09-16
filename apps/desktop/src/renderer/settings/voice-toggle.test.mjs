@@ -32,7 +32,9 @@ const { CategoryPanel } = await import('./capability-panels.tsx');
 
 function deferred() {
   let resolve;
-  const promise = new Promise((next) => { resolve = next; });
+  const promise = new Promise((next) => {
+    resolve = next;
+  });
   return { promise, resolve };
 }
 
@@ -87,13 +89,16 @@ function context({ run, snapshot = null, voice = {}, api = {}, toolModules = {} 
 
 // Built-in rows carry no control; the install pill / progress / switch live
 // in the feature's detail dialog, which the row opens.
-const openFeature = (id) => act(async () => {
-  document.querySelector(`button[data-built-in-feature="${id}"]`).click();
-});
+const openFeature = (id) =>
+  act(async () => {
+    document.querySelector(`button[data-built-in-feature="${id}"]`).click();
+  });
 // jsdom's selector engine mishandles "&" inside a quoted attribute value
 // ("Git & GitHub"), so labelled controls are found by attribute equality.
-const labelled = (id, tag, label) => [...document.querySelectorAll(`[data-feature-id="${id}"] ${tag}`)]
-  .find((element) => element.getAttribute('aria-label') === label) ?? null;
+const labelled = (id, tag, label) =>
+  [...document.querySelectorAll(`[data-feature-id="${id}"] ${tag}`)].find(
+    (element) => element.getAttribute('aria-label') === label
+  ) ?? null;
 
 test('voice installs inline with live progress and enables on completion', async () => {
   const host = document.createElement('main');
@@ -105,33 +110,38 @@ test('voice installs inline with live progress and enables on completion', async
     calls.push([capability, args]);
     return install.promise;
   };
-  const render = (next) => act(async () => {
-    root.render(React.createElement(CategoryPanel, {
-      category: 'builtins',
-      context: next,
-    }));
-  });
+  const render = (next) =>
+    act(async () => {
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: next,
+        })
+      );
+    });
 
   try {
     await render(context({ run }));
     await openFeature('voice');
     const installButton = document.querySelector(
-      '[data-feature-id="voice"] button[aria-label="Install Voice transcription"]',
+      '[data-feature-id="voice"] button[aria-label="Install Voice transcription"]'
     );
     assert.ok(installButton);
     await act(async () => installButton.click());
     assert.deepEqual(calls, [['toggleVoice', [true]]]);
 
-    await render(context({
-      run,
-      snapshot: {
-        progressHint: {
-          text: '⬇ Voice model ▓▓▓░░░ 42%',
-          tone: 'info',
-          percent: 42,
+    await render(
+      context({
+        run,
+        snapshot: {
+          progressHint: {
+            text: '⬇ Voice model ▓▓▓░░░ 42%',
+            tone: 'info',
+            percent: 42,
+          },
         },
-      },
-    }));
+      })
+    );
     // The progress paints in the control slot, where the toggle will land.
     const progress = document.querySelector('[data-feature-id="voice"] [role="progressbar"]');
     assert.ok(progress);
@@ -159,10 +169,12 @@ test('failed inline voice installation stays actionable with retry', async () =>
 
   try {
     await act(async () => {
-      root.render(React.createElement(CategoryPanel, {
-        category: 'builtins',
-        context: context({ run }),
-      }));
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({ run }),
+        })
+      );
     });
     await openFeature('voice');
     await act(async () => document.querySelector('[data-feature-id="voice"] button').click());
@@ -185,12 +197,15 @@ test('voice disable keeps the installed runtime and leaves an off toggle', async
     calls.push([capability, args]);
     return { enabled: false, installed: true };
   };
-  const render = (voice) => act(async () => {
-    root.render(React.createElement(CategoryPanel, {
-      category: 'builtins',
-      context: context({ run, voice }),
-    }));
-  });
+  const render = (voice) =>
+    act(async () => {
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({ run, voice }),
+        })
+      );
+    });
 
   try {
     await render({ enabled: true, installed: true });
@@ -204,9 +219,10 @@ test('voice disable keeps the installed runtime and leaves an off toggle', async
     const disabled = document.querySelector('[data-feature-id="voice"] input[aria-label="Voice transcription"]');
     assert.ok(disabled);
     assert.equal(disabled.checked, false);
-    assert.equal(document.querySelector(
-      '[data-feature-id="voice"] button[aria-label="Install Voice transcription"]',
-    ), null);
+    assert.equal(
+      document.querySelector('[data-feature-id="voice"] button[aria-label="Install Voice transcription"]'),
+      null
+    );
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -226,16 +242,18 @@ test('missing Git dependency installs inline and enables the tool on completion'
 
   try {
     await act(async () => {
-      root.render(React.createElement(CategoryPanel, {
-        category: 'builtins',
-        context: context({
-          run,
-          api: {
-            gitCliStatus: async () => ({ installed: false }),
-            installGitCli: async () => dependency.promise,
-          },
-        }),
-      }));
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({
+            run,
+            api: {
+              gitCliStatus: async () => ({ installed: false }),
+              installGitCli: async () => dependency.promise,
+            },
+          }),
+        })
+      );
     });
     await openFeature('git');
     const install = labelled('git', 'button', 'Install Git & GitHub');
@@ -245,9 +263,11 @@ test('missing Git dependency installs inline and enables the tool on completion'
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     // A system install reports no percent: the slot bar runs indeterminate.
-    assert.ok(document.querySelector(
-      '[data-feature-id="git"] [role="progressbar"] .built-in-feature-progress-bar.is-indeterminate',
-    ));
+    assert.ok(
+      document.querySelector(
+        '[data-feature-id="git"] [role="progressbar"] .built-in-feature-progress-bar.is-indeterminate'
+      )
+    );
 
     await act(async () => dependency.resolve({ installed: true, version: '2.50.1' }));
     assert.deepEqual(calls, [['setBuiltinToolEnabled', ['git', true]]]);
@@ -265,14 +285,16 @@ test('system Git alone does not bypass the Mixdog install marker', async () => {
 
   try {
     await act(async () => {
-      root.render(React.createElement(CategoryPanel, {
-        category: 'builtins',
-        context: context({
-          run: async () => ({}),
-          toolModules: { git: { enabled: true, installed: false } },
-          api: { gitCliStatus: async () => ({ installed: true, version: '2.50.1' }) },
-        }),
-      }));
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({
+            run: async () => ({}),
+            toolModules: { git: { enabled: true, installed: false } },
+            api: { gitCliStatus: async () => ({ installed: true, version: '2.50.1' }) },
+          }),
+        })
+      );
     });
     await openFeature('git');
     assert.ok(labelled('git', 'button', 'Install Git & GitHub'));
@@ -298,36 +320,39 @@ test('missing LibreOffice dependency installs inline before the Office feature',
     calls.push([capability, args]);
     return { office: { enabled: true, installed: true } };
   };
-  const render = (toolModules) => act(async () => {
-    root.render(React.createElement(CategoryPanel, {
-      category: 'builtins',
-      context: context({
-        run,
-        toolModules,
-        api: {
-          libreOfficeStatus: async () => dependencyState,
-          installLibreOffice: async () => {
-            apiCalls.push('installLibreOffice');
-            return dependency.promise;
-          },
-        },
-      }),
-    }));
-  });
+  const render = (toolModules) =>
+    act(async () => {
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({
+            run,
+            toolModules,
+            api: {
+              libreOfficeStatus: async () => dependencyState,
+              installLibreOffice: async () => {
+                apiCalls.push('installLibreOffice');
+                return dependency.promise;
+              },
+            },
+          }),
+        })
+      );
+    });
 
   try {
     await render({ office: { enabled: false, installed: false } });
     await openFeature('office');
-    const install = document.querySelector(
-      '[data-feature-id="office"] button[aria-label="Install Office"]',
-    );
+    const install = document.querySelector('[data-feature-id="office"] button[aria-label="Install Office"]');
     assert.ok(install);
     await act(async () => install.click());
     // The dependency phase reports no percent: the slot bar runs indeterminate,
     // and the feature install itself waits for LibreOffice to land.
-    assert.ok(document.querySelector(
-      '[data-feature-id="office"] [role="progressbar"] .built-in-feature-progress-bar.is-indeterminate',
-    ));
+    assert.ok(
+      document.querySelector(
+        '[data-feature-id="office"] [role="progressbar"] .built-in-feature-progress-bar.is-indeterminate'
+      )
+    );
     assert.deepEqual(calls, []);
 
     dependencyState = { installed: true, version: '25.2.1.2' };
@@ -357,20 +382,22 @@ test('a present LibreOffice skips the dependency step of the Office install', as
 
   try {
     await act(async () => {
-      root.render(React.createElement(CategoryPanel, {
-        category: 'builtins',
-        context: context({
-          run,
-          toolModules: { office: { enabled: false, installed: false } },
-          api: {
-            libreOfficeStatus: async () => ({ installed: true, version: '25.2.1.2' }),
-            installLibreOffice: async () => {
-              apiCalls.push('installLibreOffice');
-              return { installed: true };
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({
+            run,
+            toolModules: { office: { enabled: false, installed: false } },
+            api: {
+              libreOfficeStatus: async () => ({ installed: true, version: '25.2.1.2' }),
+              installLibreOffice: async () => {
+                apiCalls.push('installLibreOffice');
+                return { installed: true };
+              },
             },
-          },
-        }),
-      }));
+          }),
+        })
+      );
     });
     await openFeature('office');
     await act(async () => document.querySelector('[data-feature-id="office"] button').click());
@@ -394,31 +421,33 @@ test('an uninstalled built-in installs through the shared capability', async () 
 
   try {
     await act(async () => {
-      root.render(React.createElement(CategoryPanel, {
-        category: 'builtins',
-        context: context({
-          run,
-          toolModules: { memory: { enabled: false, installed: false } },
-        }),
-      }));
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({
+            run,
+            toolModules: { memory: { enabled: false, installed: false } },
+          }),
+        })
+      );
     });
     await openFeature('memory');
-    const install = document.querySelector(
-      '[data-feature-id="memory"] button[aria-label="Install Memory"]',
-    );
+    const install = document.querySelector('[data-feature-id="memory"] button[aria-label="Install Memory"]');
     assert.ok(install);
     await act(async () => install.click());
     assert.deepEqual(calls, [['installBuiltinFeature', ['memory']]]);
     // The capability result refreshes the toolModules section; the card's
     // control slot then swaps the Install pill for the live toggle.
     await act(async () => {
-      root.render(React.createElement(CategoryPanel, {
-        category: 'builtins',
-        context: context({
-          run,
-          toolModules: { memory: { enabled: true, installed: true } },
-        }),
-      }));
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({
+            run,
+            toolModules: { memory: { enabled: true, installed: true } },
+          }),
+        })
+      );
     });
     assert.ok(document.querySelector('[data-feature-id="memory"] input[aria-label="Memory"]'));
   } finally {
@@ -434,32 +463,36 @@ test('Local Provider shows hardware and chat installation guidance before runtim
 
   try {
     await act(async () => {
-      root.render(React.createElement(CategoryPanel, {
-        category: 'builtins',
-        context: context({
-          run: async () => ({}),
-          toolModules: {
-            localProvider: {
-              available: true,
-              enabled: false,
-              installed: false,
-              runtime: { installed: false, version: 'b10621', downloadBytes: 641_907_910 },
-              hardware: { gpu: { name: 'NVIDIA GeForce RTX 3090' } },
-              models: [{
-                id: 'qwen3.8-27b-q4-k-m',
-                name: 'Qwen3.8 27B Q4_K_M',
-                description: 'Recommended coding and tool-use model.',
-                sizeBytes: 18_973_870_432,
-                estimatedVramBytes: 23_622_320_128,
-                contextWindow: 32_768,
-                recommended: true,
-                compatible: true,
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({
+            run: async () => ({}),
+            toolModules: {
+              localProvider: {
+                available: true,
+                enabled: false,
                 installed: false,
-              }],
+                runtime: { installed: false, version: 'b10621', downloadBytes: 641_907_910 },
+                hardware: { gpu: { name: 'NVIDIA GeForce RTX 3090' } },
+                models: [
+                  {
+                    id: 'qwen3.8-27b-q4-k-m',
+                    name: 'Qwen3.8 27B Q4_K_M',
+                    description: 'Recommended coding and tool-use model.',
+                    sizeBytes: 18_973_870_432,
+                    estimatedVramBytes: 23_622_320_128,
+                    contextWindow: 32_768,
+                    recommended: true,
+                    compatible: true,
+                    installed: false,
+                  },
+                ],
+              },
             },
-          },
-        }),
-      }));
+          }),
+        })
+      );
     });
     await openFeature('localProvider');
     const detail = document.querySelector('[data-feature-id="localProvider"]');
@@ -493,13 +526,15 @@ test('built-in feature switches route to their existing authoritative settings',
 
   try {
     await act(async () => {
-      root.render(React.createElement(CategoryPanel, {
-        category: 'builtins',
-        context: context({
-          run,
-          voice: { enabled: true, installed: true },
-        }),
-      }));
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({
+            run,
+            voice: { enabled: true, installed: true },
+          }),
+        })
+      );
     });
     await openFeature('memory');
     await act(async () => document.querySelector('[data-feature-id="memory"] input').click());
@@ -545,15 +580,15 @@ test('Browser Use install survives OFF and can be turned back ON without reinsta
 
   try {
     await act(async () => {
-      root.render(React.createElement(CategoryPanel, {
-        category: 'builtins',
-        context: context({ run: async () => ({}), api }),
-      }));
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({ run: async () => ({}), api }),
+        })
+      );
     });
     await openFeature('browser');
-    const install = document.querySelector(
-      '[data-feature-id="browser"] button[aria-label="Install Browser Use"]',
-    );
+    const install = document.querySelector('[data-feature-id="browser"] button[aria-label="Install Browser Use"]');
     assert.ok(install);
     await act(async () => {
       install.click();
@@ -567,9 +602,7 @@ test('Browser Use install survives OFF and can be turned back ON without reinsta
     await act(async () => toggle.click());
     assert.equal(settings.browserControl, false);
     assert.equal(settings.browserInstalled, true);
-    assert.equal(document.querySelector(
-      '[data-feature-id="browser"] button[aria-label="Install Browser Use"]',
-    ), null);
+    assert.equal(document.querySelector('[data-feature-id="browser"] button[aria-label="Install Browser Use"]'), null);
 
     toggle = document.querySelector('[data-feature-id="browser"] input[aria-label="Browser Use"]');
     await act(async () => toggle.click());
@@ -612,15 +645,15 @@ test('Computer Use install survives OFF and can be turned back ON without reinst
 
   try {
     await act(async () => {
-      root.render(React.createElement(CategoryPanel, {
-        category: 'builtins',
-        context: context({ run: async () => ({}), api }),
-      }));
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({ run: async () => ({}), api }),
+        })
+      );
     });
     await openFeature('computer');
-    const install = document.querySelector(
-      '[data-feature-id="computer"] button[aria-label="Install Computer Use"]',
-    );
+    const install = document.querySelector('[data-feature-id="computer"] button[aria-label="Install Computer Use"]');
     assert.ok(install);
     assert.equal(install.disabled, false);
     await act(async () => {
@@ -635,9 +668,10 @@ test('Computer Use install survives OFF and can be turned back ON without reinst
     await act(async () => toggle.click());
     assert.equal(settings.computerControl, false);
     assert.equal(settings.computerInstalled, true);
-    assert.equal(document.querySelector(
-      '[data-feature-id="computer"] button[aria-label="Install Computer Use"]',
-    ), null);
+    assert.equal(
+      document.querySelector('[data-feature-id="computer"] button[aria-label="Install Computer Use"]'),
+      null
+    );
 
     toggle = document.querySelector('[data-feature-id="computer"] input[aria-label="Computer Use"]');
     await act(async () => toggle.click());
@@ -686,20 +720,27 @@ test('runtime-backed Built-ins stay installed through OFF and ON', async () => {
     }
     return {};
   };
-  const render = () => act(async () => {
-    root.render(React.createElement(CategoryPanel, {
-      category: 'builtins',
-      context: context({ run, toolModules, voice, api }),
-    }));
-  });
+  const render = () =>
+    act(async () => {
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({ run, toolModules, voice, api }),
+        })
+      );
+    });
 
   try {
     await render();
     for (const id of ['memory', 'git', 'office', 'tidy', 'voice']) {
-      const label = id === 'voice' ? 'Voice transcription'
-        : id === 'git' ? 'Git & GitHub'
-        : id === 'tidy' ? 'Code Tidy'
-        : id[0].toUpperCase() + id.slice(1);
+      const label =
+        id === 'voice'
+          ? 'Voice transcription'
+          : id === 'git'
+            ? 'Git & GitHub'
+            : id === 'tidy'
+              ? 'Code Tidy'
+              : id[0].toUpperCase() + id.slice(1);
       await openFeature(id);
       let toggle = labelled(id, 'input', label);
       assert.equal(toggle.checked, true, `${id} starts on`);

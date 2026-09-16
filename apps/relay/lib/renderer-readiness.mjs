@@ -6,7 +6,9 @@ const MAX_DOCUMENT_BYTES = 128 * 1024;
 const MAX_ASSETS = 128;
 
 function assetPath(value) {
-  const path = String(value || '').replace(/^\.\//, '').replace(/^\//, '');
+  const path = String(value || '')
+    .replace(/^\.\//, '')
+    .replace(/^\//, '');
   if (!path || /[\\?#:]/.test(path) || path.split('/').some((part) => !part || part === '.' || part === '..')) {
     throw new Error('invalid renderer asset path');
   }
@@ -68,7 +70,8 @@ export function inspectRenderer(rendererDir) {
  *  Deployments restart the process, so the first check always sees the new
  *  release; later checks notice missing files without a process restart. */
 export function createRendererReadiness(rendererDir, { cacheMs = 2000, now = Date.now } = {}) {
-  let cached, expiresAt = 0;
+  let cached,
+    expiresAt = 0;
   return () => {
     const time = now();
     if (cached && time < expiresAt) return cached;

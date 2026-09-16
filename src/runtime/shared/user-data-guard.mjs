@@ -1,20 +1,5 @@
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'fs';
-import {
-  copyFile as copyFileP,
-  mkdir as mkdirP,
-  readdir as readdirP,
-  rm as rmP,
-  stat as statP,
-} from 'fs/promises';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
+import { copyFile as copyFileP, mkdir as mkdirP, readdir as readdirP, rm as rmP, stat as statP } from 'fs/promises';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
@@ -25,32 +10,30 @@ function mixdogConfigBaseDir() {
 }
 
 function getBackupRoot() {
-  return process.env.MIXDOG_USER_DATA_BACKUP_ROOT
-    || join(mixdogConfigBaseDir(), 'backups', 'user-data');
+  return process.env.MIXDOG_USER_DATA_BACKUP_ROOT || join(mixdogConfigBaseDir(), 'backups', 'user-data');
 }
 
-const USER_DATA_FILES = [
-  'mixdog-config.json',
-  'instructions.md',
-  'user-workflow.md',
-];
+const USER_DATA_FILES = ['mixdog-config.json', 'instructions.md', 'user-workflow.md'];
 
-const USER_DATA_DIRS = [
-  'schedules',
-  'webhooks',
-  'workflows',
-];
+const USER_DATA_DIRS = ['schedules', 'webhooks', 'workflows'];
 
 function stamp() {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
 function safeReason(reason) {
-  return String(reason || 'snapshot').replace(/[^a-z0-9_.-]+/gi, '-').slice(0, 48) || 'snapshot';
+  return (
+    String(reason || 'snapshot')
+      .replace(/[^a-z0-9_.-]+/gi, '-')
+      .slice(0, 48) || 'snapshot'
+  );
 }
 
 function initMarkerPath(dataDir) {
-  const id = createHash('sha256').update(String(dataDir || 'unknown')).digest('hex').slice(0, 16);
+  const id = createHash('sha256')
+    .update(String(dataDir || 'unknown'))
+    .digest('hex')
+    .slice(0, 16);
   return join(getBackupRoot(), `.initialized-${id}.json`);
 }
 
@@ -88,9 +71,7 @@ export function loadLatestMixdogConfigFromBackup(_dataDir) {
     try {
       const parsed = JSON.parse(readFileSync(cfgPath, 'utf8'));
       if (isStructurallyCompleteMixdogConfigBackup(parsed)) return parsed;
-    } catch {
-      continue;
-    }
+    } catch {}
   }
   return null;
 }
@@ -121,17 +102,27 @@ function pruneBackups(keep = 40) {
     return;
   }
   for (const name of entries.slice(keep)) {
-    try { rmSync(join(getBackupRoot(), name), { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(join(getBackupRoot(), name), { recursive: true, force: true });
+    } catch {}
   }
 }
 
 export function markUserDataInitialized(dataDir) {
   try {
     mkdirSync(getBackupRoot(), { recursive: true });
-    writeFileSync(initMarkerPath(dataDir), JSON.stringify({
-      dataDir,
-      updatedAt: new Date().toISOString(),
-    }, null, 2) + '\n', 'utf8');
+    writeFileSync(
+      initMarkerPath(dataDir),
+      JSON.stringify(
+        {
+          dataDir,
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2
+      ) + '\n',
+      'utf8'
+    );
   } catch {}
 }
 
@@ -190,7 +181,9 @@ async function pruneBackupsAsync(keep = 40) {
     return;
   }
   for (const name of entries.slice(keep)) {
-    try { await rmP(join(getBackupRoot(), name), { recursive: true, force: true }); } catch {}
+    try {
+      await rmP(join(getBackupRoot(), name), { recursive: true, force: true });
+    } catch {}
   }
 }
 

@@ -13,9 +13,7 @@ export function setRemoteClaimPromptActive(next: boolean): void {
   for (const listener of [...listeners]) listener(active);
 }
 
-export function subscribeRemoteClaimPromptActive(
-  listener: RemoteClaimPromptListener,
-): () => void {
+export function subscribeRemoteClaimPromptActive(listener: RemoteClaimPromptListener): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }

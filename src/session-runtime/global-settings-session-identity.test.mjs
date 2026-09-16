@@ -11,7 +11,9 @@ test('output-style changes never replace a materialized session', async () => {
   const api = createWorkflowAgentsApi({
     getConfig: () => config,
     getSession: () => ({ id: 'sess_daemon_control', messages: [] }),
-    adoptConfig: (next) => { config = next; },
+    adoptConfig: (next) => {
+      config = next;
+    },
     getOutputStyleStatusCached: () => ({
       configured: 'default',
       current: style,
@@ -20,8 +22,14 @@ test('output-style changes never replace a materialized session', async () => {
     seedOutputStyleStatusCache: () => {},
     scheduleOutputStyleSave: () => {},
     invalidateContextStatusCache: () => {},
-    mgr: { closeSession: () => { lifecycleCalls += 1; } },
-    recreateCurrentSessionIfReady: async () => { lifecycleCalls += 1; },
+    mgr: {
+      closeSession: () => {
+        lifecycleCalls += 1;
+      },
+    },
+    recreateCurrentSessionIfReady: async () => {
+      lifecycleCalls += 1;
+    },
   });
 
   const result = await api.setOutputStyle('default');
@@ -37,13 +45,23 @@ test('onboarding route completion updates configuration without replacing a sess
   const api = createWorkflowAgentsApi({
     getConfig: () => config,
     getRoute: () => route,
-    setRouteState: (next) => { route = next; },
+    setRouteState: (next) => {
+      route = next;
+    },
     getSession: () => ({ id: 'sess_daemon_control', messages: [] }),
-    saveConfigAndAdopt: (next) => { config = next; },
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
     resolveRoute: (_config, next) => next,
     invalidatePreSessionToolSurface: () => {},
-    mgr: { closeSession: () => { lifecycleCalls += 1; } },
-    recreateCurrentSessionIfReady: async () => { lifecycleCalls += 1; },
+    mgr: {
+      closeSession: () => {
+        lifecycleCalls += 1;
+      },
+    },
+    recreateCurrentSessionIfReady: async () => {
+      lifecycleCalls += 1;
+    },
   });
   api.getOnboardingStatus = () => ({ completed: true });
 
@@ -62,11 +80,21 @@ test('tool-mode changes refresh an empty session in place', async () => {
   let lifecycleCalls = 0;
   const api = createSessionTurnApi({
     getSession: () => ({ id: 'sess_daemon_control', messages: [] }),
-    setMode: (next) => { mode = next; },
-    refreshEmptySessionToolPolicy: async () => { refreshes += 1; },
+    setMode: (next) => {
+      mode = next;
+    },
+    refreshEmptySessionToolPolicy: async () => {
+      refreshes += 1;
+    },
     invalidatePreSessionToolSurface: () => {},
-    mgr: { closeSession: () => { lifecycleCalls += 1; } },
-    recreateCurrentSessionIfReady: async () => { lifecycleCalls += 1; },
+    mgr: {
+      closeSession: () => {
+        lifecycleCalls += 1;
+      },
+    },
+    recreateCurrentSessionIfReady: async () => {
+      lifecycleCalls += 1;
+    },
   });
 
   assert.equal(await api.setToolMode('readonly'), 'readonly');

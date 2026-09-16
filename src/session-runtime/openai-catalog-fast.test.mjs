@@ -88,22 +88,22 @@ test('OpenAI OAuth catalog Fast capability survives caching and agrees with requ
   const rows = await api.collectProviderModels();
   assert.equal(rows.length, cases.length);
   for (const entry of cases) {
-    const row = rows.find(model => model.id === entry.slug);
+    const row = rows.find((model) => model.id === entry.slug);
     assert.equal(row.fastCapable, entry.expected, `${entry.slug}: picker capability`);
     const routeMeta = await api.lookupModelMeta('openai-oauth', entry.slug);
     assert.equal(fastCapableFor('openai-oauth', routeMeta), entry.expected, `${entry.slug}: saved route capability`);
     assert.equal(
       buildRequestBody(messages, entry.slug, [], { fast: true }).service_tier,
       entry.expected ? 'priority' : undefined,
-      `${entry.slug}: requested tier`,
+      `${entry.slug}: requested tier`
     );
     assert.equal(buildRequestBody(messages, entry.slug, [], { fast: false }).service_tier, undefined);
   }
-  assert.equal(rows.find(model => model.id === 'gpt-6-astra').fastPreferred, true);
+  assert.equal(rows.find((model) => model.id === 'gpt-6-astra').fastPreferred, true);
   assert.equal(
-    (await api.collectProviderModels()).find(model => model.id === 'gpt-6-astra').fastCapable,
+    (await api.collectProviderModels()).find((model) => model.id === 'gpt-6-astra').fastCapable,
     true,
-    'cached picker retains server capability',
+    'cached picker retains server capability'
   );
   assert.equal(buildRequestBody(messages, 'unknown-model', [], { fast: true }).service_tier, undefined);
 
@@ -116,8 +116,8 @@ test('OpenAI OAuth catalog Fast capability survives caching and agrees with requ
   ]);
   revision += 1;
   const refreshed = await api.collectProviderModels();
-  assert.equal(refreshed.find(model => model.id === 'gpt-6-astra').fastCapable, false);
-  assert.equal(refreshed.find(model => model.id === 'gpt-5.5').fastCapable, true);
+  assert.equal(refreshed.find((model) => model.id === 'gpt-6-astra').fastCapable, false);
+  assert.equal(refreshed.find((model) => model.id === 'gpt-5.5').fastCapable, true);
   assert.equal(fastCapableFor('openai-oauth', await api.lookupModelMeta('openai-oauth', 'gpt-6-astra')), false);
   assert.equal(buildRequestBody(messages, 'gpt-6-astra', [], { fast: true }).service_tier, undefined);
   assert.equal(buildRequestBody(messages, 'gpt-5.5', [], { fast: true }).service_tier, 'priority');

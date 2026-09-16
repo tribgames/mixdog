@@ -52,10 +52,19 @@ test('placement skips unplaceable shards but never drops the work', () => {
   const key = 'sess-degraded';
   const home = shardIndexForKey(key, 3);
   const next = shardProbeOrder(key, 3)[1];
-  assert.equal(selectShardIndex(key, 3, () => true), home);
-  assert.equal(selectShardIndex(key, 3, (index) => index !== home), next);
+  assert.equal(
+    selectShardIndex(key, 3, () => true),
+    home
+  );
+  assert.equal(
+    selectShardIndex(key, 3, (index) => index !== home),
+    next
+  );
   // Every shard degraded: the home shard still owns it (queued, not lost).
-  assert.equal(selectShardIndex(key, 3, () => false), home);
+  assert.equal(
+    selectShardIndex(key, 3, () => false),
+    home
+  );
 });
 
 test('session identity owns the shard and ownership is sticky until released', () => {
@@ -75,7 +84,10 @@ test('session identity owns the shard and ownership is sticky until released', (
   ownership.release('sess-a');
   assert.equal(ownership.peek('sess-a'), null);
   assert.equal(ownership.size, 0);
-  assert.equal(ownership.claim('sess-a', () => 2), 2);
+  assert.equal(
+    ownership.claim('sess-a', () => 2),
+    2
+  );
 });
 
 test('provider cooldown merges monotonically across shards', () => {

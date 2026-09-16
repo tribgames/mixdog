@@ -8,12 +8,17 @@ import { _pruneCodeGraphMemoryCache } from './memory-cache.mjs';
 function graphWithSource(text) {
   const graph = _attachGraphRuntimeCaches({
     cwd: '.',
-    nodes: new Map([['src/a.ts', {
-      rel: 'src/a.ts',
-      abs: 'src/a.ts',
-      lang: 'typescript',
-      symbols: [{ name: 'alpha', kind: 'function', line: 1, endLine: 1 }],
-    }]]),
+    nodes: new Map([
+      [
+        'src/a.ts',
+        {
+          rel: 'src/a.ts',
+          abs: 'src/a.ts',
+          lang: 'typescript',
+          symbols: [{ name: 'alpha', kind: 'function', line: 1, endLine: 1 }],
+        },
+      ],
+    ]),
     reverse: new Map(),
   });
   graph._sourceTextCache.set('src/a.ts', { fingerprint: '', text });

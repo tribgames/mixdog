@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type RefObject } from "react";
+import { useLayoutEffect, useState, type RefObject } from 'react';
 
 // A streaming session or an unavailable font must not leave the conversation
 // hidden indefinitely. This is only an entry gate, never a live-update gate.
@@ -24,7 +24,7 @@ export function useTranscriptReveal({
   content: RefObject<HTMLDivElement | null>;
   hasScrollGesture(): boolean;
 }): boolean {
-  const [revealedIdentity, setRevealedIdentity] = useState(draft ? identity : "");
+  const [revealedIdentity, setRevealedIdentity] = useState(draft ? identity : '');
   useLayoutEffect(() => {
     if (revealedIdentity === identity) return undefined;
     if (draft) {
@@ -33,14 +33,14 @@ export function useTranscriptReveal({
     }
     if (!enabled) return undefined;
     let frame = 0;
-    let previous = "";
+    let previous = '';
     const started = performance.now();
     const sample = () => {
       const root = viewport.current;
       const space = content.current;
       if (!root || !space) return;
       const box = root.getBoundingClientRect();
-      const rows = [...space.querySelectorAll<HTMLElement>(".transcript-virtual-row")];
+      const rows = [...space.querySelectorAll<HTMLElement>('.transcript-virtual-row')];
       const signature = [box.width, box.height];
       let visible = 0;
       for (const row of rows) {
@@ -50,17 +50,15 @@ export function useTranscriptReveal({
         signature.push(Number(row.dataset.index), rect.top, rect.height);
       }
       const current = JSON.stringify(signature);
-      const pending = space.querySelector("[data-transcript-pending]")
-        || document.fonts?.status === "loading";
+      const pending = space.querySelector('[data-transcript-pending]') || document.fonts?.status === 'loading';
       const atEnd = root.scrollHeight - root.clientHeight - root.scrollTop <= 1;
       const readerOwnsPosition = hasScrollGesture();
-      const settled = visible > 0 && !pending && (atEnd || readerOwnsPosition)
-        && current === previous;
+      const settled = visible > 0 && !pending && (atEnd || readerOwnsPosition) && current === previous;
       if (settled || readerOwnsPosition || performance.now() - started >= MAX_REVEAL_WAIT_MS) {
         setRevealedIdentity(identity);
         return;
       }
-      previous = pending ? "" : current;
+      previous = pending ? '' : current;
       frame = requestAnimationFrame(sample);
     };
     frame = requestAnimationFrame(sample);

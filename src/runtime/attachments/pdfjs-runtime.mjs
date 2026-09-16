@@ -10,7 +10,9 @@ let configuredPromise = null;
  * letter-spaced text in previews.
  */
 export function pdfjsStandardFontDataUrl() {
-  const directory = fileURLToPath(new URL('../../standard_fonts/', import.meta.resolve('pdfjs-dist/legacy/build/pdf.mjs')));
+  const directory = fileURLToPath(
+    new URL('../../standard_fonts/', import.meta.resolve('pdfjs-dist/legacy/build/pdf.mjs'))
+  );
   return `${directory.replace(/\\/g, '/').replace(/\/+$/, '')}/`;
 }
 

@@ -8,13 +8,7 @@ export const PATCH_PLATFORMS = nativeToolPlatformAssets('patch');
 export const GRAPH_PLATFORMS = nativeToolPlatformAssets('graph');
 export const SPAWN_PLATFORMS = nativeToolPlatformAssets('spawn');
 
-const RUNTIME_PLATFORMS = [
-  'linux-x64',
-  'linux-arm64',
-  'darwin-x64',
-  'darwin-arm64',
-  'win32-x64',
-];
+const RUNTIME_PLATFORMS = ['linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64', 'win32-x64'];
 const STRICT_VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 const SHA256 = /^[a-f0-9]{64}$/i;
 const MAX_ASSET_BYTES = 256 * 1024 * 1024;
@@ -61,14 +55,14 @@ function assertParsedGithubAssetUrl(assetUrl, platform, kind, expectedPath) {
     throw new Error(`${platform}: invalid ${kind} asset URL`);
   }
   if (
-    url.protocol !== 'https:'
-    || url.hostname !== 'github.com'
-    || url.port
-    || url.username
-    || url.password
-    || url.search
-    || url.hash
-    || url.pathname !== expectedPath
+    url.protocol !== 'https:' ||
+    url.hostname !== 'github.com' ||
+    url.port ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== expectedPath
   ) {
     throw new Error(`${platform}: ${kind} asset URL must be https://github.com${expectedPath}`);
   }
@@ -122,7 +116,7 @@ export function validateRuntimeManifest(manifest) {
   assertExactKeys(
     manifest,
     ['schema_version', 'generated_at', 'release_tag', 'pg', 'pgvector', 'assets'],
-    'Runtime manifest',
+    'Runtime manifest'
   );
   if (manifest.schema_version !== 1) {
     throw new Error('Runtime manifest schema_version must be 1');
@@ -191,7 +185,9 @@ export function validateSpawnManifest(manifest, cargoToml) {
   assertToolManifestEnvelope(manifest, 'Spawn');
   const cargoVersion = String(cargoToml).match(/^\s*version\s*=\s*"([^"]+)"\s*$/m)?.[1];
   if (cargoVersion !== manifest.version) {
-    throw new Error(`Spawn Cargo version ${cargoVersion || '(missing)'} does not match manifest version ${manifest.version}`);
+    throw new Error(
+      `Spawn Cargo version ${cargoVersion || '(missing)'} does not match manifest version ${manifest.version}`
+    );
   }
   assertPlainObject(manifest.assets, 'Spawn manifest assets');
   assertExactKeys(manifest.assets, Object.keys(SPAWN_PLATFORMS), 'Spawn manifest assets');
@@ -254,10 +250,8 @@ export async function verifyAssetDownloads(
     attempts = 3,
     timeoutMs = 300_000,
     maxAssetBytes = MAX_ASSET_BYTES,
-    retryDelay = (attempt) => (
-    new Promise((resolve) => setTimeout(resolve, attempt === 1 ? 2_000 : 6_000))
-    ),
-  } = {},
+    retryDelay = (attempt) => new Promise((resolve) => setTimeout(resolve, attempt === 1 ? 2_000 : 6_000)),
+  } = {}
 ) {
   if (!Number.isSafeInteger(attempts) || attempts < 1 || attempts > 5) {
     throw new Error(`Download attempts must be between 1 and 5, got ${attempts}`);
@@ -297,23 +291,16 @@ export async function verifyReleaseAssets({
   packagePath = PACKAGE_PATH,
   downloadOptions,
 } = {}) {
-  const [
-    patchSource,
-    cargoToml,
-    runtimeSource,
-    graphSource,
-    spawnSource,
-    spawnCargo,
-    packageSource,
-  ] = await Promise.all([
-    readFile(patchManifestPath, 'utf8'),
-    readFile(cargoPath, 'utf8'),
-    readFile(runtimeManifestPath, 'utf8'),
-    readFile(graphManifestPath, 'utf8'),
-    readFile(spawnManifestPath, 'utf8'),
-    readFile(spawnCargoPath, 'utf8'),
-    readFile(packagePath, 'utf8'),
-  ]);
+  const [patchSource, cargoToml, runtimeSource, graphSource, spawnSource, spawnCargo, packageSource] =
+    await Promise.all([
+      readFile(patchManifestPath, 'utf8'),
+      readFile(cargoPath, 'utf8'),
+      readFile(runtimeManifestPath, 'utf8'),
+      readFile(graphManifestPath, 'utf8'),
+      readFile(spawnManifestPath, 'utf8'),
+      readFile(spawnCargoPath, 'utf8'),
+      readFile(packagePath, 'utf8'),
+    ]);
   const patchManifest = validatePatchManifest(JSON.parse(patchSource), cargoToml);
   const runtimeManifest = validateRuntimeManifest(JSON.parse(runtimeSource));
   const graphManifest = validateGraphManifest(JSON.parse(graphSource), JSON.parse(packageSource));

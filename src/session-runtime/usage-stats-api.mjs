@@ -36,8 +36,12 @@ export function createUsageStatsApi({ ledger = getUsageLedger, importHistory = i
       // writer may still be active. A previous import is not a live subscription.
       if (!liveSince || !imported || Number(store.get('importedThrough')) < liveSince) {
         importing ||= importHistory(store, resolvePluginData())
-          .then(() => { imported = true; })
-          .finally(() => { importing = null; });
+          .then(() => {
+            imported = true;
+          })
+          .finally(() => {
+            importing = null;
+          });
         await importing;
       }
       refreshUnpricedUsage(store);
@@ -45,17 +49,26 @@ export function createUsageStatsApi({ ledger = getUsageLedger, importHistory = i
       // beyond a clock captured before the import started.
       const now = Date.now();
       // Keep the existing days API for non-desktop callers.
-      const period = options?.view == null ? null : resolveUsageStatsPeriod({
-        view: options.view, anchor: options.anchor, startDay: options.startDay, endDay: options.endDay, now,
-      });
+      const period =
+        options?.view == null
+          ? null
+          : resolveUsageStatsPeriod({
+              view: options.view,
+              anchor: options.anchor,
+              startDay: options.startDay,
+              endDay: options.endDay,
+              now,
+            });
       const snapshot = usageStatsSnapshot({
         rollup: store.rollup({
           hourlyDay: period?.view === 'hour' ? period.startDay : null,
           ...(period?.view === 'hour' ? { fromMs: period.fromMs, toMs: period.toMs } : {}),
-          ...(period ? {
-            fromDay: period.startDay || undefined,
-            toDay: usageRollupDayKey(period.toMs),
-          } : {}),
+          ...(period
+            ? {
+                fromDay: period.startDay || undefined,
+                toDay: usageRollupDayKey(period.toMs),
+              }
+            : {}),
         }),
         days: normalizeDays(options?.days),
         period,

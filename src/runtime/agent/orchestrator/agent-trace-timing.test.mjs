@@ -9,7 +9,12 @@ test('tool traces expose dispatch, execution, collection, and postprocess timing
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-tool-timing-'));
   try {
     const tracePath = join(dir, 'agent-trace.jsonl');
-    const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    const child = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
       import { readFileSync } from 'node:fs';
       import { traceAgentTool } from './src/runtime/agent/orchestrator/agent-trace-format.mjs';
       import { drainAgentTrace } from './src/runtime/agent/orchestrator/agent-trace-io.mjs';
@@ -32,17 +37,20 @@ test('tool traces expose dispatch, execution, collection, and postprocess timing
       await drainAgentTrace();
       const row = JSON.parse(readFileSync(process.env.MIXDOG_AGENT_TRACE_PATH, 'utf8').trim());
       process.stdout.write(JSON.stringify(row.payload.timing));
-    `], {
-      cwd: process.cwd(),
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        MIXDOG_AGENT_TRACE_PATH: tracePath,
-        MIXDOG_AGENT_TRACE_DISABLE: '',
-        MIXDOG_AGENT_TRACE_LOCAL_DISABLE: '',
-        MIXDOG_RUNTIME_ROOT: join(dir, 'no-service'),
-      },
-    });
+    `,
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          MIXDOG_AGENT_TRACE_PATH: tracePath,
+          MIXDOG_AGENT_TRACE_DISABLE: '',
+          MIXDOG_AGENT_TRACE_LOCAL_DISABLE: '',
+          MIXDOG_RUNTIME_ROOT: join(dir, 'no-service'),
+        },
+      }
+    );
     assert.equal(child.status, 0, child.stderr);
     assert.deepEqual(JSON.parse(child.stdout), {
       dispatch_wait_ms: 10,

@@ -1,17 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 
 export function mediaPlaybackAllowed(
   active: boolean,
   visibilityState: DocumentVisibilityState,
-  documentFocused: boolean,
+  documentFocused: boolean
 ): boolean {
-  return active && visibilityState !== "hidden" && documentFocused;
+  return active && visibilityState !== 'hidden' && documentFocused;
 }
 
 function foregroundState(active: boolean): boolean {
   let focused = true;
   try {
-    focused = typeof document.hasFocus !== "function" || document.hasFocus();
+    focused = typeof document.hasFocus !== 'function' || document.hasFocus();
   } catch {
     // A host without focus introspection should not disable foreground media.
   }
@@ -29,15 +29,15 @@ export function useForegroundMedia(active: boolean): boolean {
     const refresh = () => setAllowed(foregroundState(active));
     const suspend = () => setAllowed(false);
     refresh();
-    window.addEventListener("focus", refresh);
-    window.addEventListener("blur", suspend);
-    window.addEventListener("pagehide", suspend);
-    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('blur', suspend);
+    window.addEventListener('pagehide', suspend);
+    document.addEventListener('visibilitychange', refresh);
     return () => {
-      window.removeEventListener("focus", refresh);
-      window.removeEventListener("blur", suspend);
-      window.removeEventListener("pagehide", suspend);
-      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('blur', suspend);
+      window.removeEventListener('pagehide', suspend);
+      document.removeEventListener('visibilitychange', refresh);
     };
   }, [active]);
   return allowed;

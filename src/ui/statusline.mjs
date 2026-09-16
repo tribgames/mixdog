@@ -12,7 +12,11 @@
 import { readCachedOAuthUsageSnapshot } from '../runtime/agent/orchestrator/providers/oauth-usage.mjs';
 import { readCachedOpenCodeGoUsageSnapshot } from '../runtime/agent/orchestrator/providers/opencode-go-usage.mjs';
 import { buildGatewayLimits } from '../runtime/agent/orchestrator/providers/statusline-route-meta.mjs';
-import { compactBoundaryForStatus, formatGatewayLimitSegments, loadGatewayStatus } from '../vendor/statusline/bin/statusline-route.mjs';
+import {
+  compactBoundaryForStatus,
+  formatGatewayLimitSegments,
+  loadGatewayStatus,
+} from '../vendor/statusline/bin/statusline-route.mjs';
 import { createSessionStats } from './session-stats.mjs';
 import { measuredContextUsage } from './context-measurement.mjs';
 import {
@@ -34,7 +38,10 @@ import {
 } from './statusline-format.mjs';
 import { shellJobsStatus, memoryCycleStatus } from './statusline-segments.mjs';
 import {
-  agentStatuslinePayload, classifyAgentWorkers, activeHiddenAgentWorkers, agentWebSearchStatus,
+  agentStatuslinePayload,
+  classifyAgentWorkers,
+  activeHiddenAgentWorkers,
+  agentWebSearchStatus,
 } from './statusline-agents.mjs';
 export { createSessionStats, applyUsageDelta } from './session-stats.mjs';
 // Facade re-exports: keep these public symbols resolving from statusline.mjs.
@@ -82,7 +89,9 @@ const LAST_NON_EMPTY_QUOTA_SEGMENTS_CACHE_MAX = 8;
 
 function quotaSegmentsHoldKey({ provider, model, effort, fast, sessionId, clientHostPid } = {}) {
   return [
-    String(provider || '').trim().toLowerCase(),
+    String(provider || '')
+      .trim()
+      .toLowerCase(),
     String(model || '').trim(),
     String(effort || '').trim(),
     fast === true ? 'fast' : '',
@@ -177,14 +186,20 @@ function displayContextBoundary({
   autoCompactTokenLimit = 0,
   compact = null,
 } = {}) {
-  const boundarySeed = num(compactBoundaryTokens) > 0
-    ? num(compactBoundaryTokens)
-    : (num(displayContextWindow) > 0 ? num(displayContextWindow) : num(contextWindow));
-  const boundary = compactBoundaryForStatus({
-    contextWindow: boundarySeed,
-    rawContextWindow: num(rawContextWindow),
-    autoCompactTokenLimit: num(autoCompactTokenLimit),
-  }, compact);
+  const boundarySeed =
+    num(compactBoundaryTokens) > 0
+      ? num(compactBoundaryTokens)
+      : num(displayContextWindow) > 0
+        ? num(displayContextWindow)
+        : num(contextWindow);
+  const boundary = compactBoundaryForStatus(
+    {
+      contextWindow: boundarySeed,
+      rawContextWindow: num(rawContextWindow),
+      autoCompactTokenLimit: num(autoCompactTokenLimit),
+    },
+    compact
+  );
   if (Number.isFinite(boundary) && boundary > 0) return boundary;
   return modelContextWindow('', '', boundarySeed);
 }
@@ -219,17 +234,43 @@ export function resolveContextUsedPct({
  * @returns {Promise<string>}
  */
 export async function renderStatusline({
-  provider = '', model = '', effort = '', fast = false, cwd = '', stats, sessionId,
-  contextWindow = 0, displayContextWindow = 0, rawContextWindow = 0,
-  compactBoundaryTokens = 0, autoCompactTokenLimit = 0,
-  agentWorkers = [], agentJobs = [], activeTools = null, clientHostPid = process.pid,
+  provider = '',
+  model = '',
+  effort = '',
+  fast = false,
+  cwd = '',
+  stats,
+  sessionId,
+  contextWindow = 0,
+  displayContextWindow = 0,
+  rawContextWindow = 0,
+  compactBoundaryTokens = 0,
+  autoCompactTokenLimit = 0,
+  agentWorkers = [],
+  agentJobs = [],
+  activeTools = null,
+  clientHostPid = process.pid,
 } = {}) {
   const displayArgs = {
-    contextWindow, displayContextWindow, rawContextWindow, compactBoundaryTokens, autoCompactTokenLimit,
+    contextWindow,
+    displayContextWindow,
+    rawContextWindow,
+    compactBoundaryTokens,
+    autoCompactTokenLimit,
   };
   try {
     return renderNativeStatusline({
-      provider, model, effort, fast, cwd, stats, sessionId, agentWorkers, agentJobs, activeTools, clientHostPid,
+      provider,
+      model,
+      effort,
+      fast,
+      cwd,
+      stats,
+      sessionId,
+      agentWorkers,
+      agentJobs,
+      activeTools,
+      clientHostPid,
       ...displayArgs,
     });
   } catch {
@@ -240,17 +281,31 @@ export async function renderStatusline({
 // --- helpers -----------------------------------------------------------------
 
 function renderNativeStatusline({
-  provider = '', model = '', effort = '', fast = false, stats, sessionId,
-  contextWindow = 0, displayContextWindow = 0, rawContextWindow = 0,
-  compactBoundaryTokens = 0, autoCompactTokenLimit = 0,
-  agentWorkers = [], agentJobs = [], activeTools = null, clientHostPid = process.pid,
+  provider = '',
+  model = '',
+  effort = '',
+  fast = false,
+  stats,
+  sessionId,
+  contextWindow = 0,
+  displayContextWindow = 0,
+  rawContextWindow = 0,
+  compactBoundaryTokens = 0,
+  autoCompactTokenLimit = 0,
+  agentWorkers = [],
+  agentJobs = [],
+  activeTools = null,
+  clientHostPid = process.pid,
 } = {}) {
   const cols = terminalColumns();
   const s = stats || createSessionStats();
   const contextTokens = activeContextNumerator(provider, s);
   const routeContextWindow = num(displayContextWindow) > 0 ? num(displayContextWindow) : num(contextWindow);
   const gatewayStatus = loadGatewayQuotaStatus({
-    provider, model, effort, fast,
+    provider,
+    model,
+    effort,
+    fast,
     contextWindow: routeContextWindow,
     rawContextWindow,
     autoCompactTokenLimit,
@@ -273,8 +328,12 @@ function renderNativeStatusline({
   const sep = ` ${D}│${R} `;
   const l1Parts = [];
   const l2Parts = [];
-  const addL1 = (seg) => { if (seg) l1Parts.push(seg); };
-  const addL2 = (seg) => { if (seg) l2Parts.push(seg); };
+  const addL1 = (seg) => {
+    if (seg) l1Parts.push(seg);
+  };
+  const addL2 = (seg) => {
+    if (seg) l2Parts.push(seg);
+  };
 
   addL1(formatModelSegment({ provider, model, effort, fast, cols }));
   addL1(formatContextSegment(ctxPct, cols, s.currentContextSource));
@@ -288,9 +347,7 @@ function renderNativeStatusline({
   // unaffected. Once armed, the latch holds for the process lifetime so the
   // segment turns on exactly once and then holds the last known value as today.
   const usageReady = oauthUsageSegmentReady({ provider, model });
-  const quotaStatus = usageReady
-    ? mergeQuotaStatus(gatewayStatus, fallbackQuotaStatus({ provider, model }))
-    : null;
+  const quotaStatus = usageReady ? mergeQuotaStatus(gatewayStatus, fallbackQuotaStatus({ provider, model })) : null;
   let quotaSegments = quotaStatus
     ? formatGatewayLimitSegments(quotaStatus, { COLS: cols, D, R, GRN, YLW, RED, colourPct, epochMsToHHMM })
     : [];
@@ -298,7 +355,9 @@ function renderNativeStatusline({
   // oauthUsageSegmentReady() also returns true for non-OAuth providers (they
   // are never gated), so gate the hold itself on _oauthUsageArmedProviders to
   // keep non-OAuth empty/null behavior byte-for-byte unchanged.
-  const normalizedHoldProvider = String(provider || '').trim().toLowerCase();
+  const normalizedHoldProvider = String(provider || '')
+    .trim()
+    .toLowerCase();
   if (usageReady && _oauthUsageArmedProviders.has(normalizedHoldProvider)) {
     const holdKey = quotaSegmentsHoldKey({ provider, model, effort, fast, sessionId, clientHostPid });
     if (quotaSegments.length) {
@@ -321,10 +380,10 @@ function renderNativeStatusline({
   }
   for (const seg of quotaSegments) addL1(seg);
 
-  const agentPayload = agentStatuslinePayload([
-    ...(Array.isArray(agentWorkers) ? agentWorkers : []),
-    ...activeHiddenAgentWorkers({ sessionId, clientHostPid }),
-  ], agentJobs);
+  const agentPayload = agentStatuslinePayload(
+    [...(Array.isArray(agentWorkers) ? agentWorkers : []), ...activeHiddenAgentWorkers({ sessionId, clientHostPid })],
+    agentJobs
+  );
   const { runningWorkers } = classifyAgentWorkers(agentPayload.workers);
   // Shell segment scope: one host process can own MANY sessions' jobs (the
   // desktop pools every pane's engine; the daemon hosts every
@@ -389,8 +448,16 @@ function renderNativeStatusline({
 let _gatewayQuotaRefreshInFlight = false;
 
 function loadGatewayQuotaStatus({
-  provider, model, effort, fast, contextWindow, rawContextWindow, autoCompactTokenLimit = 0,
-  sessionId, activeContextTokens, clientHostPid,
+  provider,
+  model,
+  effort,
+  fast,
+  contextWindow,
+  rawContextWindow,
+  autoCompactTokenLimit = 0,
+  sessionId,
+  activeContextTokens,
+  clientHostPid,
 } = {}) {
   // Route identity: which route this cached value belongs to. Serving a stale
   // value across a routeKey change would leak the previous provider/model's
@@ -413,7 +480,8 @@ function loadGatewayQuotaStatus({
     Math.floor((Number(activeContextTokens) || 0) / 1024),
   ].join('\0');
   const now = Date.now();
-  const fresh = _gatewayQuotaStatusCache.key === key && now - _gatewayQuotaStatusCache.at < GATEWAY_QUOTA_STATUS_CACHE_MS;
+  const fresh =
+    _gatewayQuotaStatusCache.key === key && now - _gatewayQuotaStatusCache.at < GATEWAY_QUOTA_STATUS_CACHE_MS;
   if (fresh) {
     return _gatewayQuotaStatusCache.value;
   }
@@ -444,8 +512,11 @@ function loadGatewayQuotaStatus({
         const cliProvider = String(provider || '').trim();
         const statusModel = String(status?.model || '').trim();
         const cliModel = String(model || '').trim();
-        if (status && !(cliProvider && statusProvider && statusProvider !== cliProvider)
-          && !(cliModel && statusModel && statusModel !== cliModel)) {
+        if (
+          status &&
+          !(cliProvider && statusProvider && statusProvider !== cliProvider) &&
+          !(cliModel && statusModel && statusModel !== cliModel)
+        ) {
           value = status;
         }
       } catch {
@@ -470,7 +541,9 @@ function loadGatewayQuotaStatus({
 // with the data actually becoming renderable — no extra delay, single clean
 // transition.
 function oauthUsageSegmentReady({ provider, model } = {}) {
-  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  const normalizedProvider = String(provider || '')
+    .trim()
+    .toLowerCase();
   if (!normalizedProvider.includes('oauth')) return true;
   if (_oauthUsageArmedProviders.has(normalizedProvider)) return true;
   // Not yet armed: never do the sync snapshot read on this render call. Kick
@@ -480,11 +553,14 @@ function oauthUsageSegmentReady({ provider, model } = {}) {
     _oauthArmCheckInFlight.add(normalizedProvider);
     setImmediate(() => {
       try {
-        const snapshot = readCachedOAuthUsageSnapshot({
-          provider: normalizedProvider,
-          model: String(model || '').trim(),
-          providerKind: providerKindForQuota(normalizedProvider),
-        }, { allowStale: true });
+        const snapshot = readCachedOAuthUsageSnapshot(
+          {
+            provider: normalizedProvider,
+            model: String(model || '').trim(),
+            providerKind: providerKindForQuota(normalizedProvider),
+          },
+          { allowStale: true }
+        );
         if (isConfirmedCurrentProcessSnapshot(snapshot)) {
           _oauthUsageArmedProviders.add(normalizedProvider);
         }
@@ -499,11 +575,16 @@ function oauthUsageSegmentReady({ provider, model } = {}) {
 }
 
 function fallbackQuotaStatus({ provider, model } = {}) {
-  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  const normalizedProvider = String(provider || '')
+    .trim()
+    .toLowerCase();
   if (!normalizedProvider) return null;
   const cacheKey = `${normalizedProvider}\0${String(model || '').trim()}`;
   const cacheNow = Date.now();
-  if (_fallbackQuotaStatusCache.key === cacheKey && cacheNow - _fallbackQuotaStatusCache.at < GATEWAY_QUOTA_STATUS_CACHE_MS) {
+  if (
+    _fallbackQuotaStatusCache.key === cacheKey &&
+    cacheNow - _fallbackQuotaStatusCache.at < GATEWAY_QUOTA_STATUS_CACHE_MS
+  ) {
     return _fallbackQuotaStatusCache.value;
   }
   // Stale-while-revalidate: serve last cached value for this render call
@@ -579,31 +660,59 @@ function mergeQuotaStatus(primary, fallback) {
   return {
     ...fallback,
     ...primary,
-    quotaWindows: usePrimaryWindows ? primary.quotaWindows : (fallback.quotaWindows || []),
+    quotaWindows: usePrimaryWindows ? primary.quotaWindows : fallback.quotaWindows || [],
     // Keep asOf/owned aligned with whichever windows won, so the hysteresis gate
     // compares against the timestamp of the value actually being rendered.
     quotaWindowsAsOf: usePrimaryWindows ? num(primary.quotaWindowsAsOf) : num(fallback.quotaWindowsAsOf),
     quotaWindowsOwned: usePrimaryWindows ? primary.quotaWindowsOwned === true : fallback.quotaWindowsOwned === true,
     balance: primary.balance || fallback.balance || null,
     routeSpend: primary.routeSpend || fallback.routeSpend || null,
-    providerKind: primary.providerKind || fallback.providerKind || providerKindForQuota(primary.provider || fallback.provider),
+    providerKind:
+      primary.providerKind || fallback.providerKind || providerKindForQuota(primary.provider || fallback.provider),
   };
 }
 
 /** Minimal one-line footer used when the vendored renderer is unavailable. */
 export function fallbackStatusline({
-  provider = '', model = '', effort = '', fast = false, cwd = '', stats, contextWindow = 0,
-  displayContextWindow = 0, rawContextWindow = 0, compactBoundaryTokens = 0, autoCompactTokenLimit = 0,
+  provider = '',
+  model = '',
+  effort = '',
+  fast = false,
+  cwd = '',
+  stats,
+  contextWindow = 0,
+  displayContextWindow = 0,
+  rawContextWindow = 0,
+  compactBoundaryTokens = 0,
+  autoCompactTokenLimit = 0,
 } = {}) {
   return fallbackLine({
-    provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow,
-    rawContextWindow, compactBoundaryTokens, autoCompactTokenLimit,
+    provider,
+    model,
+    effort,
+    fast,
+    cwd,
+    stats,
+    contextWindow,
+    displayContextWindow,
+    rawContextWindow,
+    compactBoundaryTokens,
+    autoCompactTokenLimit,
   });
 }
 
 function fallbackLine({
-  provider = '', model = '', effort = '', fast = false, cwd = '', stats, contextWindow = 0,
-  displayContextWindow = 0, rawContextWindow = 0, compactBoundaryTokens = 0, autoCompactTokenLimit = 0,
+  provider = '',
+  model = '',
+  effort = '',
+  fast = false,
+  cwd = '',
+  stats,
+  contextWindow = 0,
+  displayContextWindow = 0,
+  rawContextWindow = 0,
+  compactBoundaryTokens = 0,
+  autoCompactTokenLimit = 0,
 } = {}) {
   const s = stats || createSessionStats();
   const cols = terminalColumns();

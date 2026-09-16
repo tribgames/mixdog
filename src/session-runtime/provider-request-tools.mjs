@@ -6,13 +6,16 @@ const finalizedProviderRequestTools = new WeakSet();
 let requestToolScopeGeneration = 0;
 
 function normalizedProvider(provider) {
-  return String(provider || '').trim().toLowerCase();
+  return String(provider || '')
+    .trim()
+    .toLowerCase();
 }
 
 export function providerNativeToolPrefixCount(requestTools, fallback = 0) {
-  const raw = Array.isArray(requestTools) && Number.isInteger(requestTools[NATIVE_PREFIX_COUNT])
-    ? requestTools[NATIVE_PREFIX_COUNT]
-    : fallback;
+  const raw =
+    Array.isArray(requestTools) && Number.isInteger(requestTools[NATIVE_PREFIX_COUNT])
+      ? requestTools[NATIVE_PREFIX_COUNT]
+      : fallback;
   return Math.max(0, Math.min(Array.isArray(requestTools) ? requestTools.length : 0, Number(raw) || 0));
 }
 
@@ -37,10 +40,7 @@ export function runWithProviderRequestToolsScope(scope, callback) {
     provider: normalizedProvider(scope.provider),
     messages: scope.messages,
     requestTools: scope.requestTools,
-    nativePrefixCount: providerNativeToolPrefixCount(
-      scope.requestTools,
-      scope.nativePrefixCount,
-    ),
+    nativePrefixCount: providerNativeToolPrefixCount(scope.requestTools, scope.nativePrefixCount),
     generation: ++requestToolScopeGeneration,
     active: true,
   };
@@ -68,11 +68,11 @@ export function invalidateProviderRequestToolsScope(scope = requestToolScope.get
 
 export function scopedProviderRequestTools(session, provider, messages) {
   const scope = requestToolScope.getStore();
-  return scope
-    && scope.active === true
-    && scope.session === session
-    && scope.provider === normalizedProvider(provider)
-    && scope.messages === messages
+  return scope &&
+    scope.active === true &&
+    scope.session === session &&
+    scope.provider === normalizedProvider(provider) &&
+    scope.messages === messages
     ? scope
     : null;
 }

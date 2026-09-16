@@ -1,12 +1,5 @@
 import assert from 'node:assert/strict';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -20,35 +13,38 @@ test('media assets are organized by kind, provider, model, and local date while 
   mkdirSync(assetsDir, { recursive: true });
   writeFileSync(join(assetsDir, 'legacy-image.jpg'), Buffer.from('image'));
   writeFileSync(join(assetsDir, 'legacy-video.mp4'), Buffer.from('video'));
-  writeFileSync(join(root, 'media', 'index.json'), JSON.stringify({
-    version: 1,
-    assets: [
-      {
-        id: 'legacy-image',
-        file: 'legacy-image.jpg',
-        kind: 'image',
-        lane: 'gemini',
-        model: 'image-alpha',
-        prompt: 'image',
-        options: { aspectRatio: '4:3' },
-        mime: 'image/jpeg',
-        bytes: 5,
-        createdAt,
-      },
-      {
-        id: 'legacy-video',
-        file: 'legacy-video.mp4',
-        kind: 'video',
-        lane: 'grok',
-        model: 'video-beta',
-        prompt: 'video',
-        options: { aspectRatio: '16:9' },
-        mime: 'video/mp4',
-        bytes: 5,
-        createdAt,
-      },
-    ],
-  }));
+  writeFileSync(
+    join(root, 'media', 'index.json'),
+    JSON.stringify({
+      version: 1,
+      assets: [
+        {
+          id: 'legacy-image',
+          file: 'legacy-image.jpg',
+          kind: 'image',
+          lane: 'gemini',
+          model: 'image-alpha',
+          prompt: 'image',
+          options: { aspectRatio: '4:3' },
+          mime: 'image/jpeg',
+          bytes: 5,
+          createdAt,
+        },
+        {
+          id: 'legacy-video',
+          file: 'legacy-video.mp4',
+          kind: 'video',
+          lane: 'grok',
+          model: 'video-beta',
+          prompt: 'video',
+          options: { aspectRatio: '16:9' },
+          mime: 'video/mp4',
+          bytes: 5,
+          createdAt,
+        },
+      ],
+    })
+  );
 
   try {
     const store = await import(`./store.mjs?test=${Date.now()}`);
@@ -57,18 +53,21 @@ test('media assets are organized by kind, provider, model, and local date while 
         reveal: true,
         platform: 'win32',
       }),
-      ['explorer.exe', ['/select,', 'C:\\Media Assets\\clip.mp4']],
+      ['explorer.exe', ['/select,', 'C:\\Media Assets\\clip.mp4']]
     );
     assert.deepEqual(
       store.mediaOpenCommand('/Users/me/Media Assets/image.png', {
         reveal: true,
         platform: 'darwin',
       }),
-      ['open', ['-R', '/Users/me/Media Assets/image.png']],
+      ['open', ['-R', '/Users/me/Media Assets/image.png']]
     );
     const beforeMigration = store.listMediaAssets({ limit: 10 }).assets;
-    assert.equal(beforeMigration[0].file, 'legacy-image.jpg',
-      'read-only listing must not run the write-side layout migration');
+    assert.equal(
+      beforeMigration[0].file,
+      'legacy-image.jpg',
+      'read-only listing must not run the write-side layout migration'
+    );
     const saved = store.saveMediaAsset({
       kind: 'video',
       lane: 'gemini',
@@ -79,8 +78,7 @@ test('media assets are organized by kind, provider, model, and local date while 
       bytes: Buffer.from('new-video'),
     });
     const migrated = store.listMediaAssets({ limit: 10 }).assets;
-    const listed = ['legacy-image', 'legacy-video'].map((id) =>
-      migrated.find((entry) => entry.id === id));
+    const listed = ['legacy-image', 'legacy-video'].map((id) => migrated.find((entry) => entry.id === id));
     assert.equal(listed[0].file, 'images/gemini/image-alpha/2026-07-05/legacy-image.jpg');
     assert.equal(listed[1].file, 'videos/grok/video-beta/2026-07-05/legacy-video.mp4');
     assert.equal(existsSync(join(assetsDir, ...listed[0].file.split('/'))), true);
@@ -93,19 +91,22 @@ test('media assets are organized by kind, provider, model, and local date while 
       store.resolveMediaFile('legacy-image'),
     ]);
     const cacheAfterReads = store.mediaStoreCacheStats();
-    assert.equal(cacheAfterReads.indexDiskReads, cacheBeforeReads.indexDiskReads,
-      'a thumbnail-resolution burst must reuse the parsed media index');
+    assert.equal(
+      cacheAfterReads.indexDiskReads,
+      cacheBeforeReads.indexDiskReads,
+      'a thumbnail-resolution burst must reuse the parsed media index'
+    );
     assert.ok(cacheAfterReads.indexCacheHits >= cacheBeforeReads.indexCacheHits + 3);
     const cachedOnlyMiss = await store.resolveMediaFile('legacy-image', {
       variant: 'thumb',
       generate: false,
     });
-    assert.equal(cachedOnlyMiss.available, false,
-      'a local protocol probe must not start native rendition generation on a cache miss');
     assert.equal(
-      (await store.readMediaAsset('legacy-video')).base64,
-      Buffer.from('video').toString('base64'),
+      cachedOnlyMiss.available,
+      false,
+      'a local protocol probe must not start native rendition generation on a cache miss'
     );
+    assert.equal((await store.readMediaAsset('legacy-video')).base64, Buffer.from('video').toString('base64'));
 
     // A tile-sized rendition is impossible for these stub bytes (and video
     // needs ffmpeg): the read must REPORT the miss instead of quietly
@@ -137,8 +138,11 @@ test('media assets are organized by kind, provider, model, and local date while 
       variant: 'thumb',
       generate: false,
     });
-    assert.equal(cachedTarget.available, true,
-      'a cache-only local protocol probe must serve a browser-generated rendition');
+    assert.equal(
+      cachedTarget.available,
+      true,
+      'a cache-only local protocol probe must serve a browser-generated rendition'
+    );
     const cachedRead = await store.readMediaAsset('legacy-video', { variant: 'thumb' });
     assert.equal(cachedRead.mime, 'image/jpeg');
     assert.equal(cachedRead.base64, browserThumb.toString('base64'));

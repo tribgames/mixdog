@@ -4,5 +4,6 @@ export function earlyUiT(key: string, options: Record<string, unknown> = {}): st
   const translate = (globalThis as { bootT?: (key: string) => string }).bootT;
   const text = translate ? translate(key) : key;
   return text.replace(/\{\{(\w+)\}\}/g, (token, name: string) =>
-    options[name] === undefined ? token : String(options[name]));
+    options[name] === undefined ? token : String(options[name])
+  );
 }

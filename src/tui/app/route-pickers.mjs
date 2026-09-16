@@ -84,14 +84,20 @@ export function createRoutePickers({
     // /agents refresh: force the nested model picker to reload the provider
     // catalog on the next agent open (the agents list itself is always fresh).
     const refreshModels = options.refreshModels === true;
-    const routeOverrides = options.routeOverrides && typeof options.routeOverrides === 'object' ? options.routeOverrides : {};
+    const routeOverrides =
+      options.routeOverrides && typeof options.routeOverrides === 'object' ? options.routeOverrides : {};
     const initialAgentId = clean(options.initialAgentId || '');
     const items = agents.map((agent) => ({
       value: agent.id,
       label: agent.label,
-      metaParts: agent.disabled === true && !routeOverrides[agent.id]
-        ? [{ text: '(not used)', width: 17 }, { text: '', width: 6 }, { text: '', width: 4 }]
-        : agentModelParts(routeOverrides[agent.id] || agent.route || {}),
+      metaParts:
+        agent.disabled === true && !routeOverrides[agent.id]
+          ? [
+              { text: '(not used)', width: 17 },
+              { text: '', width: 6 },
+              { text: '', width: 4 },
+            ]
+          : agentModelParts(routeOverrides[agent.id] || agent.route || {}),
       description: agent.description || agent.definition?.description || '',
       _agent: agent,
     }));
@@ -107,31 +113,35 @@ export function createRoutePickers({
       indexMode: 'always',
       labelWidth: 18,
       metaWidth: 33,
-      initialIndex: Math.max(0, items.findIndex((item) => item.value === initialAgentId)),
+      initialIndex: Math.max(
+        0,
+        items.findIndex((item) => item.value === initialAgentId)
+      ),
       items,
       onSelect: (_value, item) => {
         const agent = item?._agent;
         if (!agent) return;
         // Agents are either pinned to a model or switched off — the same two
         // states the desktop panel offers. "Follows Main" is web-search only.
-        const openAgentModelPicker = () => void openModelPicker({
-          title: `${agent.label} Model`,
-          providerDescription: 'Choose a provider for this agent.',
-          refreshModels,
-          currentRoute: agent.route || null,
-          returnTo: () => openAgentsPicker(),
-          onImmediateSelect: (routeInput) => {
-            openAgentsPicker({ routeOverrides: { [agent.id]: routeInput }, initialAgentId: agent.id });
-          },
-          onSelectRoute: async (routeInput) => {
-            const result = await store.setAgentRoute?.(agent.id, routeInput);
-            if (!result) {
-              store.pushNotice('Agent model save is already running.', 'warn');
-              return;
-            }
-            store.pushNotice(`${agent.label} model set to ${agentModelProfile(result)}`, 'info');
-          },
-        });
+        const openAgentModelPicker = () =>
+          void openModelPicker({
+            title: `${agent.label} Model`,
+            providerDescription: 'Choose a provider for this agent.',
+            refreshModels,
+            currentRoute: agent.route || null,
+            returnTo: () => openAgentsPicker(),
+            onImmediateSelect: (routeInput) => {
+              openAgentsPicker({ routeOverrides: { [agent.id]: routeInput }, initialAgentId: agent.id });
+            },
+            onSelectRoute: async (routeInput) => {
+              const result = await store.setAgentRoute?.(agent.id, routeInput);
+              if (!result) {
+                store.pushNotice('Agent model save is already running.', 'warn');
+                return;
+              }
+              store.pushNotice(`${agent.label} model set to ${agentModelProfile(result)}`, 'info');
+            },
+          });
         // Nested panel for an Enter on an agent row: the same claim that
         // painted the Agents list, re-armed by that paint.
         own.paint({
@@ -162,7 +172,9 @@ export function createRoutePickers({
             }
             // Post-ack handover back to Agents, bound to THIS keypress: a late
             // ack must not overwrite whatever replaced this panel meanwhile.
-            const reopenAgents = own.defer(() => { void openAgentsPicker(); });
+            const reopenAgents = own.defer(() => {
+              void openAgentsPicker();
+            });
             try {
               const result = await store.setAgentRoute?.(agent.id, { disabled: true });
               if (!result) {
@@ -188,9 +200,7 @@ export function createRoutePickers({
 
   const openWorkflowPicker = async (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
-    const handoffPanel = options.handoffPanel && typeof options.handoffPanel === 'object'
-      ? options.handoffPanel
-      : null;
+    const handoffPanel = options.handoffPanel && typeof options.handoffPanel === 'object' ? options.handoffPanel : null;
     const own = surface.claim();
     let workflows = [];
     try {
@@ -229,8 +239,11 @@ export function createRoutePickers({
         // the post-ack hop below is bound to THIS keypress. An Esc before the
         // switch acks cancels the hop instead of re-opening Settings.
         own.paint(handoffPanel);
-        const returnAfterSwitch = own.defer(() => { if (returnTo) returnTo(); });
-        void store.setWorkflow?.(workflow.id)
+        const returnAfterSwitch = own.defer(() => {
+          if (returnTo) returnTo();
+        });
+        void store
+          .setWorkflow?.(workflow.id)
           .then((result) => {
             if (!result) {
               store.pushNotice('Workflow switch is already running.', 'warn');
@@ -255,9 +268,7 @@ export function createRoutePickers({
 
   const openOutputStylePicker = async (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
-    const handoffPanel = options.handoffPanel && typeof options.handoffPanel === 'object'
-      ? options.handoffPanel
-      : null;
+    const handoffPanel = options.handoffPanel && typeof options.handoffPanel === 'object' ? options.handoffPanel : null;
     // Onboarding mode: Enter (row select) and ConfirmBar Next must both persist
     // the chosen style, then advance. `onboarding.onAdvance/onBack` drive the
     // wizard; the confirm bar is built here so both paths share `saveStyle`.
@@ -303,7 +314,8 @@ export function createRoutePickers({
         if (advance && onboarding) onboarding.onAdvance?.();
         else if (returnTo) returnTo();
       });
-      void store.setOutputStyle?.(styleId)
+      void store
+        .setOutputStyle?.(styleId)
         .then((result) => {
           if (!result) {
             store.pushNotice('Output style switch is already running.', 'warn');
@@ -322,26 +334,34 @@ export function createRoutePickers({
       description: 'Select response style.',
       // Onboarding uses a ConfirmBar (←/→ = Back/Next); let the Picker supply
       // its ConfirmBar help instead of a stale ←/→ hint.
-      help: onboarding ? undefined : (returnTo ? '↑/↓ Select · Enter Choose · Esc Settings' : '↑/↓ Select · Enter Choose · Esc Back'),
+      help: onboarding
+        ? undefined
+        : returnTo
+          ? '↑/↓ Select · Enter Choose · Esc Settings'
+          : '↑/↓ Select · Enter Choose · Esc Back',
       labelWidth: 18,
       items,
-      confirmBar: onboarding ? {
-        buttons: [
-          { value: 'back', label: '◀ Back' },
-          { value: 'next', label: 'Next ▶' },
-        ],
-        onConfirm: (button) => {
-          if (button.value === 'back') {
-            own.close();
-            onboarding.onBack?.();
-            return;
+      confirmBar: onboarding
+        ? {
+            buttons: [
+              { value: 'back', label: '◀ Back' },
+              { value: 'next', label: 'Next ▶' },
+            ],
+            onConfirm: (button) => {
+              if (button.value === 'back') {
+                own.close();
+                onboarding.onBack?.();
+                return;
+              }
+              saveStyle(highlightedStyleId, { advance: true });
+            },
           }
-          saveStyle(highlightedStyleId, { advance: true });
-        },
-      } : (options.confirmBar || null),
-      onHighlight: onboarding ? (_value, item) => {
-        if (item?._style?.id) highlightedStyleId = item._style.id;
-      } : undefined,
+        : options.confirmBar || null,
+      onHighlight: onboarding
+        ? (_value, item) => {
+            if (item?._style?.id) highlightedStyleId = item._style.id;
+          }
+        : undefined,
       onSelect: (_value, item) => {
         const style = item?._style;
         if (!style) return;

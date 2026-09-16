@@ -1,10 +1,4 @@
-'use strict';
-
-import {
-  extractHeredocBodies,
-  extractShellCInner,
-  stripQuotedAndHeredoc,
-} from './destructive-warning.mjs';
+import { extractHeredocBodies, extractShellCInner, stripQuotedAndHeredoc } from './destructive-warning.mjs';
 import { extractPowerShellCommandInner } from './shell-command.mjs';
 import { decodePowerShellEncodedCommand, isBlockedCommand, WRAPPER_NAMES } from './shell-policy.mjs';
 
@@ -30,8 +24,19 @@ const EXEC_POLICY_DENY_PATTERNS = [
 // position by shell-policy, while `dd if=/dev/zero of=file` is the ordinary
 // way to create a fixed-size file and blocking it only cost retries.
 const EXEC_POLICY_DENY_COMMANDS = new Set([
-  'diskpart', 'shutdown', 'reboot', 'halt', 'poweroff', 'init', 'telinit',
-  'mkfs', 'mkfs.ext4', 'mkfs.ntfs', 'format', 'fdisk', 'parted',
+  'diskpart',
+  'shutdown',
+  'reboot',
+  'halt',
+  'poweroff',
+  'init',
+  'telinit',
+  'mkfs',
+  'mkfs.ext4',
+  'mkfs.ntfs',
+  'format',
+  'fdisk',
+  'parted',
 ]);
 
 const _POLICY_RANK = { allow: 0, deny: 1 };
@@ -47,7 +52,10 @@ function _commandNamesAtPositions(command) {
     let i = 0;
     while (i < tokens.length) {
       const t = tokens[i];
-      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) { i++; continue; }
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) {
+        i++;
+        continue;
+      }
       if (WRAPPER_NAMES.has(t.toLowerCase())) {
         i++;
         while (i < tokens.length && (/^[-+]/.test(tokens[i]) || /^\d+[smhd]?$/.test(tokens[i]))) i++;
@@ -83,7 +91,10 @@ function classifyExecPolicy(command) {
   const executableText = stripQuotedAndHeredoc(text);
   for (const pat of EXEC_POLICY_DENY_PATTERNS) {
     if (pat.test(executableText)) {
-      return { decision: 'deny', reason: 'high-risk shell invocation (pipe-to-shell, elevated launcher, or remote-exec pattern)' };
+      return {
+        decision: 'deny',
+        reason: 'high-risk shell invocation (pipe-to-shell, elevated launcher, or remote-exec pattern)',
+      };
     }
   }
   for (const name of _commandNamesAtPositions(executableText)) {

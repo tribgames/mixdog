@@ -1,12 +1,12 @@
-import type { DesktopRemoteClientClaim } from "../shared/contract";
+import type { DesktopRemoteClientClaim } from '../shared/contract';
 
 export const REMOTE_CLAIM_FALLBACK_LIFETIME_MS = 295_000;
 
 export function normalizeRemoteClientClaim(
   value: Partial<DesktopRemoteClientClaim> | null | undefined,
-  now = Date.now(),
+  now = Date.now()
 ): DesktopRemoteClientClaim | null {
-  const claimId = String(value?.claimId || "").slice(0, 1_024);
+  const claimId = String(value?.claimId || '').slice(0, 1_024);
   if (!claimId) return null;
 
   const rawExpiresAt = Number(value?.expiresAt);
@@ -18,16 +18,16 @@ export function normalizeRemoteClientClaim(
   return {
     claimId,
     clientId: String(value?.clientId || claimId).slice(0, 80),
-    name: String(value?.name || "").slice(0, 80),
-    platform: String(value?.platform || "").slice(0, 80),
-    browser: String(value?.browser || "").slice(0, 80),
+    name: String(value?.name || '').slice(0, 80),
+    platform: String(value?.platform || '').slice(0, 80),
+    browser: String(value?.browser || '').slice(0, 80),
     expiresAt,
   };
 }
 
 export function pruneRemoteClientClaims(
   claims: readonly DesktopRemoteClientClaim[],
-  now = Date.now(),
+  now = Date.now()
 ): DesktopRemoteClientClaim[] {
   return claims.filter((claim) => claim.expiresAt > now);
 }
@@ -35,7 +35,7 @@ export function pruneRemoteClientClaims(
 export function enqueueRemoteClientClaim(
   claims: readonly DesktopRemoteClientClaim[],
   incoming: DesktopRemoteClientClaim,
-  now = Date.now(),
+  now = Date.now()
 ): DesktopRemoteClientClaim[] {
   const next: DesktopRemoteClientClaim[] = [];
   let insertionIndex = -1;

@@ -19,12 +19,8 @@ export const QUICK_WEB_SEARCH_MODELS = Object.freeze({
     { id: 'gpt-4.1', display: 'GPT-4.1' },
     { id: 'gpt-4o', display: 'GPT-4o' },
   ],
-  'grok-oauth': [
-    { id: 'grok-4.5', display: 'Grok 4.5', latest: true },
-  ],
-  xai: [
-    { id: 'grok-4.5', display: 'Grok 4.5', latest: true },
-  ],
+  'grok-oauth': [{ id: 'grok-4.5', display: 'Grok 4.5', latest: true }],
+  xai: [{ id: 'grok-4.5', display: 'Grok 4.5', latest: true }],
   gemini: [
     { id: 'gemini-3.6-flash', display: 'Gemini 3.6 Flash', latest: true },
     { id: 'gemini-3.5-flash-lite', display: 'Gemini 3.5 Flash Lite', latest: true },

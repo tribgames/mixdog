@@ -1,7 +1,7 @@
 // Graph (de)serialization, runtime-cache lifecycle, and signature hashing.
-// Extracted verbatim from code-graph.mjs. Graph shape: { cwd, nodes:
-// Map<rel,node>, reverse: Map<rel,Set<rel>>, schemaVersion, builtAt,
-// signature, +runtime caches }. Persisted form omits empty fields.
+// Graph shape: { cwd, nodes: Map<rel,node>, reverse: Map<rel,Set<rel>>,
+// schemaVersion, builtAt, signature, +runtime caches }. Persisted form omits
+// empty fields.
 import { createHash } from 'node:crypto';
 import { resolve as pathResolve } from 'node:path';
 import { SYMBOL_SCHEMA_VERSION, CODE_GRAPH_MAX_FILES } from './constants.mjs';
@@ -78,7 +78,9 @@ export function _deserializeGraph(cwd, payload) {
     // JS resolution layer is gone — resolvedImports/resolvedImportsRel are
     // restored straight from disk; the reverse index is rederived below from
     // the forward edges of every node.
-    const resolvedImportsRel = Array.isArray(item.resolvedImports) ? item.resolvedImports.filter((v) => typeof v === 'string') : [];
+    const resolvedImportsRel = Array.isArray(item.resolvedImports)
+      ? item.resolvedImports.filter((v) => typeof v === 'string')
+      : [];
     const importedBy = Array.isArray(item.importedBy) ? item.importedBy.filter((v) => typeof v === 'string') : [];
     const node = {
       abs: pathResolve(cwd, item.rel),
@@ -150,7 +152,7 @@ export function _estimateGraphRetainedBytes(graph) {
   const estimate = (value) => {
     if (value == null) return 0;
     const type = typeof value;
-    if (type === 'string') return 16 + (value.length * 2);
+    if (type === 'string') return 16 + value.length * 2;
     if (type === 'number' || type === 'bigint') return 8;
     if (type === 'boolean') return 4;
     if (type !== 'object') return 0;
@@ -159,17 +161,17 @@ export function _estimateGraphRetainedBytes(graph) {
     if (ArrayBuffer.isView(value)) return 32 + value.byteLength;
     if (value instanceof ArrayBuffer) return 24 + value.byteLength;
     if (value instanceof Map) {
-      let bytes = 48 + (value.size * 24);
+      let bytes = 48 + value.size * 24;
       for (const [key, item] of value) bytes += estimate(key) + estimate(item);
       return bytes;
     }
     if (value instanceof Set) {
-      let bytes = 48 + (value.size * 16);
+      let bytes = 48 + value.size * 16;
       for (const item of value) bytes += estimate(item);
       return bytes;
     }
     if (Array.isArray(value)) {
-      let bytes = 24 + (value.length * 8);
+      let bytes = 24 + value.length * 8;
       for (const item of value) bytes += estimate(item);
       return bytes;
     }

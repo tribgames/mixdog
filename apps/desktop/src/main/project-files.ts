@@ -44,7 +44,11 @@ export function decodeProjectText(bytes: Buffer): {
   }
   const pairs = sample.length / 2;
   if (pairs >= 4 && oddNuls / pairs > 0.6 && evenNuls / pairs < 0.1) {
-    return { content: bytes.subarray(0, bytes.length - (bytes.length % 2)).toString('utf16le'), encoding: 'utf16le', binary: false };
+    return {
+      content: bytes.subarray(0, bytes.length - (bytes.length % 2)).toString('utf16le'),
+      encoding: 'utf16le',
+      binary: false,
+    };
   }
   if (pairs >= 4 && evenNuls / pairs > 0.6 && oddNuls / pairs < 0.1) {
     return { content: decodeUtf16Be(bytes), encoding: 'utf16be', binary: false };
@@ -121,8 +125,15 @@ export async function listProjectDirIn(root: string, relDir: string): Promise<Ar
 }
 
 /** Editor tab: read a project text file (1 MB cap, binary sniff). */
-export async function readProjectTextFileIn(root: string, relPath: string): Promise<{
-  content: string; mtimeMs: number; binary: boolean; tooLarge: boolean; encoding: ProjectTextEncoding;
+export async function readProjectTextFileIn(
+  root: string,
+  relPath: string
+): Promise<{
+  content: string;
+  mtimeMs: number;
+  binary: boolean;
+  tooLarge: boolean;
+  encoding: ProjectTextEncoding;
 }> {
   const file = projectEntryPathIn(root, relPath);
   const info = await stat(file);
@@ -157,29 +168,19 @@ export async function codeGraphQueryIn(
     packaged: boolean;
     resourcesPath: string;
     appPath: string | undefined;
-    executeCodeGraphTool?: (
-      name: string,
-      args: Record<string, unknown>,
-      cwd: string,
-    ) => Promise<unknown>;
-  },
+    executeCodeGraphTool?: (name: string, args: Record<string, unknown>, cwd: string) => Promise<unknown>;
+  }
 ): Promise<string> {
   const trimmed = query.trim();
   if (!trimmed || trimmed.length > (mode === 'symbols' ? 1_024 : 256)) {
     throw new TypeError(mode === 'symbols' ? 'File path is invalid.' : 'Symbol is invalid.');
   }
-  const args = mode === 'symbols'
-    ? { mode, files: trimmed, limit: 200 }
-    : { mode, symbols: trimmed, limit: 20 };
+  const args = mode === 'symbols' ? { mode, files: trimmed, limit: 200 } : { mode, symbols: trimmed, limit: 20 };
   let execute = env.executeCodeGraphTool;
   if (!execute) {
     const moduleUrl = codeGraphModuleUrl(env.packaged, env.resourcesPath, env.appPath);
-    const graph = await import(/* @vite-ignore */ moduleUrl) as {
-      executeCodeGraphTool(
-        name: string,
-        args: Record<string, unknown>,
-        cwd: string,
-      ): Promise<unknown>;
+    const graph = (await import(/* @vite-ignore */ moduleUrl)) as {
+      executeCodeGraphTool(name: string, args: Record<string, unknown>, cwd: string): Promise<unknown>;
     };
     execute = graph.executeCodeGraphTool;
   }
@@ -195,17 +196,19 @@ export async function writeProjectTextFileIn(
   relPath: string,
   content: string,
   expectedContent: string,
-  encoding?: ProjectTextEncoding,
+  encoding?: ProjectTextEncoding
 ): Promise<{ mtimeMs: number }> {
   if (typeof content !== 'string' || content.length > 4_194_304) throw new TypeError('File content is invalid.');
   if (typeof expectedContent !== 'string' || expectedContent.length > 4_194_304) {
     throw new TypeError('Expected file content is invalid.');
   }
-  if (encoding !== undefined
-    && encoding !== 'utf8'
-    && encoding !== 'utf8bom'
-    && encoding !== 'utf16le'
-    && encoding !== 'utf16be') {
+  if (
+    encoding !== undefined &&
+    encoding !== 'utf8' &&
+    encoding !== 'utf8bom' &&
+    encoding !== 'utf16le' &&
+    encoding !== 'utf16be'
+  ) {
     throw new TypeError('File encoding is invalid.');
   }
   const file = projectEntryPathIn(root, relPath);
@@ -222,8 +225,7 @@ export async function writeProjectTextFileIn(
     // Recheck immediately before the swap so a change during temp-file IO is
     // also rejected. The final rename remains atomic for readers.
     const rechecked = decodeProjectText(await readFile(file));
-    if (rechecked.binary || rechecked.content !== expectedContent
-      || rechecked.encoding !== current.encoding) {
+    if (rechecked.binary || rechecked.content !== expectedContent || rechecked.encoding !== current.encoding) {
       throw new Error('File changed on disk. Reload or keep your edits before saving.');
     }
     await rename(temp, file);
@@ -240,7 +242,7 @@ export async function writeProjectTextFileIn(
  * exact replacement, so an external edit is never overwritten. */
 export async function writeProjectTextFilesIn(
   root: string,
-  writes: ReadonlyArray<{ relPath: string; content: string; expectedContent: string }>,
+  writes: ReadonlyArray<{ relPath: string; content: string; expectedContent: string }>
 ): Promise<void> {
   if (!Array.isArray(writes) || writes.length < 1 || writes.length > 100) {
     throw new TypeError('Workspace edit files are invalid.');
@@ -254,8 +256,13 @@ export async function writeProjectTextFilesIn(
     throw new TypeError('Workspace edit contains duplicate files.');
   }
   for (const write of normalized) {
-    if (!write.relPath || typeof write.content !== 'string' || typeof write.expectedContent !== 'string'
-      || write.content.length > 4_194_304 || write.expectedContent.length > 4_194_304) {
+    if (
+      !write.relPath ||
+      typeof write.content !== 'string' ||
+      typeof write.expectedContent !== 'string' ||
+      write.content.length > 4_194_304 ||
+      write.expectedContent.length > 4_194_304
+    ) {
       throw new TypeError('Workspace edit file content is invalid.');
     }
     const current = decodeProjectText(await readFile(projectEntryPathIn(root, write.relPath)));
@@ -271,8 +278,7 @@ export async function writeProjectTextFilesIn(
     }
   } catch (error) {
     for (const write of committed.reverse()) {
-      await writeProjectTextFileIn(root, write.relPath, write.expectedContent, write.content)
-        .catch(() => {});
+      await writeProjectTextFileIn(root, write.relPath, write.expectedContent, write.content).catch(() => {});
     }
     throw error;
   }
@@ -281,7 +287,9 @@ export async function writeProjectTextFilesIn(
 const INVALID_ENTRY_SEGMENT = /[:*?"<>|\u0000-\u001f]/;
 
 function explorerEntrySegments(name: string): string[] {
-  const segments = String(name || '').replace(/\\/g, '/').split('/')
+  const segments = String(name || '')
+    .replace(/\\/g, '/')
+    .split('/')
     .map((segment) => segment.trim())
     .filter(Boolean);
   if (!segments.length) throw new TypeError('Entry name is invalid.');
@@ -330,7 +338,12 @@ export async function moveProjectEntryIn(root: string, relPath: string, targetDi
   }
   const destination = join(targetDir, basename(source));
   if (destination === source) return;
-  if (await stat(destination).then(() => true, () => false)) {
+  if (
+    await stat(destination).then(
+      () => true,
+      () => false
+    )
+  ) {
     throw new Error('An entry with that name already exists in the target folder.');
   }
   await rename(source, destination);
@@ -341,7 +354,7 @@ export async function moveProjectEntryIn(root: string, relPath: string, targetDi
 export async function copyProjectEntryIn(
   root: string,
   relPath: string,
-  targetDirRel: string,
+  targetDirRel: string
 ): Promise<{ name: string }> {
   const source = projectEntryPathIn(root, relPath);
   if (source === root) throw new Error('Cannot copy the project root.');
@@ -351,7 +364,11 @@ export async function copyProjectEntryIn(
     throw new Error('Cannot copy a folder into itself.');
   }
   const sourceIsDir = (await stat(source)).isDirectory();
-  const exists = (candidate: string) => stat(join(targetDir, candidate)).then(() => true, () => false);
+  const exists = (candidate: string) =>
+    stat(join(targetDir, candidate)).then(
+      () => true,
+      () => false
+    );
   let name = basename(source);
   if (await exists(name)) {
     const dot = sourceIsDir ? -1 : name.lastIndexOf('.');

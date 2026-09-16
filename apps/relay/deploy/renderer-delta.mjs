@@ -1,33 +1,24 @@
 import { createHash } from 'node:crypto';
-import {
-  cp,
-  copyFile,
-  link,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { cp, copyFile, link, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 function parseArgs(argv) {
-  return Object.fromEntries(argv.map((entry) => {
-    const match = /^--([^=]+)=(.*)$/s.exec(entry);
-    return match ? [match[1], match[2]] : [entry.replace(/^--/, ''), true];
-  }));
+  return Object.fromEntries(
+    argv.map((entry) => {
+      const match = /^--([^=]+)=(.*)$/s.exec(entry);
+      return match ? [match[1], match[2]] : [entry.replace(/^--/, ''), true];
+    })
+  );
 }
 
 function safeRelativePath(value) {
   if (
-    typeof value !== 'string'
-    || value.length === 0
-    || value.startsWith('/')
-    || value.includes('\\')
-    || value.split('/').some((part) => !part || part === '.' || part === '..')
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.startsWith('/') ||
+    value.includes('\\') ||
+    value.split('/').some((part) => !part || part === '.' || part === '..')
   ) {
     throw new Error(`Unsafe renderer manifest path: ${JSON.stringify(value)}`);
   }
@@ -45,7 +36,7 @@ async function pathType(path) {
 }
 
 async function walk(root, dir = root, files = []) {
-  if (await pathType(dir) === 'missing') return files;
+  if ((await pathType(dir)) === 'missing') return files;
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isSymbolicLink()) throw new Error(`Renderer tree contains a symbolic link: ${path}`);
@@ -57,7 +48,9 @@ async function walk(root, dir = root, files = []) {
 }
 
 async function hashFile(path) {
-  return createHash('sha256').update(await readFile(path)).digest('hex');
+  return createHash('sha256')
+    .update(await readFile(path))
+    .digest('hex');
 }
 
 function treeHash(files) {
@@ -162,18 +155,15 @@ async function replaceHardlinkedFile(source, destination) {
   }
 }
 
-export async function createRendererDelta({
-  root,
-  baseManifest,
-  deltaDir,
-  manifestPath,
-}) {
+export async function createRendererDelta({ root, baseManifest, deltaDir, manifestPath }) {
   const current = await buildRendererManifest(root);
-  const base = baseManifest ? validateRendererManifest(baseManifest) : {
-    schemaVersion: 1,
-    treeHash: treeHash([]),
-    files: [],
-  };
+  const base = baseManifest
+    ? validateRendererManifest(baseManifest)
+    : {
+        schemaVersion: 1,
+        treeHash: treeHash([]),
+        files: [],
+      };
   const baseFiles = new Map(base.files.map((file) => [file.path, file]));
   await rm(deltaDir, { recursive: true, force: true });
   await mkdir(deltaDir, { recursive: true });
@@ -197,20 +187,12 @@ export async function createRendererDelta({
     totalBytes: current.files.reduce((sum, file) => sum + file.size, 0),
     changedFiles,
     changedBytes,
-    removedFiles: base.files.filter((file) => !current.files.some(
-      (candidate) => candidate.path === file.path,
-    )).length,
+    removedFiles: base.files.filter((file) => !current.files.some((candidate) => candidate.path === file.path)).length,
     treeHash: current.treeHash,
   };
 }
 
-export async function applyRendererDelta({
-  baseDir,
-  deltaDir,
-  manifest,
-  outputDir,
-  hardlinkBase = false,
-}) {
+export async function applyRendererDelta({ baseDir, deltaDir, manifest, outputDir, hardlinkBase = false }) {
   const target = validateRendererManifest(manifest);
   // A delta reconstructs its target tree ONLY on top of the base it was built
   // against. Without this gate a cached delta from an older release rebuilds
@@ -219,14 +201,12 @@ export async function applyRendererDelta({
   if (target.base) {
     const baseState = await buildRendererManifest(baseDir);
     if (baseState.treeHash !== target.base) {
-      throw new Error(
-        `Renderer delta base failed verification: expected ${target.base}, found ${baseState.treeHash}`,
-      );
+      throw new Error(`Renderer delta base failed verification: expected ${target.base}, found ${baseState.treeHash}`);
     }
   }
   const targetFiles = new Map(target.files.map((file) => [file.path, file]));
   await rm(outputDir, { recursive: true, force: true });
-  if (await pathType(baseDir) === 'directory') {
+  if ((await pathType(baseDir)) === 'directory') {
     if (hardlinkBase) await cloneTreeWithHardlinks(baseDir, outputDir);
     else await cp(baseDir, outputDir, { recursive: true });
   } else {
@@ -243,7 +223,7 @@ export async function applyRendererDelta({
     const expected = targetFiles.get(relativePath);
     if (!expected) throw new Error(`Renderer delta contains an unlisted file: ${relativePath}`);
     const metadata = await stat(path);
-    if (metadata.size !== expected.size || await hashFile(path) !== expected.sha256) {
+    if (metadata.size !== expected.size || (await hashFile(path)) !== expected.sha256) {
       throw new Error(`Renderer delta file failed verification: ${relativePath}`);
     }
     const destination = join(resolve(outputDir), ...relativePath.split('/'));
@@ -257,7 +237,7 @@ export async function applyRendererDelta({
   const applied = await buildRendererManifest(outputDir);
   if (applied.treeHash !== target.treeHash) {
     throw new Error(
-      `Renderer reconstruction failed verification: expected ${target.treeHash}, got ${applied.treeHash}`,
+      `Renderer reconstruction failed verification: expected ${target.treeHash}, got ${applied.treeHash}`
     );
   }
   return {

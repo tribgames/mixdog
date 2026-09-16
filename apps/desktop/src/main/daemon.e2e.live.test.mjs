@@ -21,17 +21,13 @@ test('plain-Node daemon loads the unpacked desktop adapter and serves pane catal
   };
   process.env.MIXDOG_RUNTIME_ROOT = runtimeRoot;
   process.env.MIXDOG_DATA_DIR = runtimeRoot;
-  const child = fork(
-    join(REPOSITORY_ROOT, 'src', 'standalone', 'daemon.mjs'),
-    [],
-    {
-      cwd: REPOSITORY_ROOT,
-      env: environment,
-      execArgv: [],
-      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
-      windowsHide: true,
-    },
-  );
+  const child = fork(join(REPOSITORY_ROOT, 'src', 'standalone', 'daemon.mjs'), [], {
+    cwd: REPOSITORY_ROOT,
+    env: environment,
+    execArgv: [],
+    stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+    windowsHide: true,
+  });
   try {
     await new Promise((resolveReady, reject) => {
       const timer = setTimeout(() => reject(new Error('service daemon ready timeout')), 30_000);
@@ -43,8 +39,8 @@ test('plain-Node daemon loads the unpacked desktop adapter and serves pane catal
       });
     });
     const clientModule = await import(
-      `${pathToFileURL(join(REPOSITORY_ROOT, 'src', 'standalone', 'session-client.mjs')).href}`
-      + `?desktop-service-e2e=${Date.now()}`
+      `${pathToFileURL(join(REPOSITORY_ROOT, 'src', 'standalone', 'session-client.mjs')).href}` +
+        `?desktop-service-e2e=${Date.now()}`
     );
     const discovery = clientModule.readSessionDiscovery();
     assert.ok(discovery?.port);
@@ -52,9 +48,7 @@ test('plain-Node daemon loads the unpacked desktop adapter and serves pane catal
     try {
       const initialized = await client.call('desktop.init', {
         desktopId: 'desktop_packaged_e2e',
-        moduleUrl: pathToFileURL(
-          join(DESKTOP_DIR, 'out', 'main', 'daemon.cjs'),
-        ).href,
+        moduleUrl: pathToFileURL(join(DESKTOP_DIR, 'out', 'main', 'daemon.cjs')).href,
         options: {
           userDataPath: runtimeRoot,
           packaged: true,
@@ -81,21 +75,17 @@ test('plain-Node daemon loads the unpacked desktop adapter and serves pane catal
       const submitted = await client.call('desktop.invoke', {
         desktopId: initialized.desktopId,
         method: 'submitNewTask',
-        args: [
-          'Atomic daemon prompt',
-          { id: 'desktop-service-e2e-submit', submittedAt: Date.now() },
-          {},
-        ],
+        args: ['Atomic daemon prompt', { id: 'desktop-service-e2e-submit', submittedAt: Date.now() }, {}],
       });
       assert.equal(submitted.accepted, true);
       assert.match(submitted.sessionId, /^[A-Za-z0-9_-]+$/);
       assert.equal(submitted.snapshot?.sessionId, submitted.sessionId);
       assert.ok(
-        submitted.snapshot?.items?.some((item) =>
-          item?.id === 'desktop-service-e2e-submit'
-          && item?.kind === 'user'
-          && item?.text === 'Atomic daemon prompt'),
-        'the atomic ACK must contain its own durable first user row',
+        submitted.snapshot?.items?.some(
+          (item) =>
+            item?.id === 'desktop-service-e2e-submit' && item?.kind === 'user' && item?.text === 'Atomic daemon prompt'
+        ),
+        'the atomic ACK must contain its own durable first user row'
       );
       await client.call('desktop.unsubscribe', { desktopId: initialized.desktopId });
     } finally {

@@ -7,7 +7,10 @@ import { measureBrowserWheelToPixels } from './input-surface-latency';
 /** A full-size, changing page exercises encoding and input together. The
  * isolated fixture is disposable; neither a user page nor OS input is used. */
 export async function measureBrowserSurfaceLoad(
-  host: BrowserHost, guest: WebContents, shell: WebContents, log: (text: string) => void,
+  host: BrowserHost,
+  guest: WebContents,
+  shell: WebContents,
+  log: (text: string) => void
 ): Promise<void> {
   const { eventually } = createPolling({ timeoutMs: 5000, intervalMs: 16 });
   const parent = BrowserWindow.fromWebContents(shell)!;
@@ -21,11 +24,14 @@ export async function measureBrowserSurfaceLoad(
     window.setSurfaceActive(true);
   })()`);
   try {
-    await eventually(() => shell.executeJavaScript(`(() => {
+    await eventually(
+      () =>
+        shell.executeJavaScript(`(() => {
       const image = document.querySelector('.browser-isolated-pixels > :first-child');
       return image?.naturalWidth || image?.width;
     })()`),
-      width => width === 1366);
+      (width) => width === 1366
+    );
     await guest.executeJavaScript(`(() => {
       document.body.innerHTML = '<input id="load-input" style="position:fixed;top:10px;left:10px;z-index:2">'
         + '<button id="load-button" style="position:fixed;top:10px;left:300px;z-index:2">Click</button>'
@@ -75,37 +81,61 @@ export async function measureBrowserSurfaceLoad(
         await shell.executeJavaScript(`document.querySelector('.browser-isolated-pixels > :first-child').dispatchEvent(
           new WheelEvent('wheel', {bubbles:true,cancelable:true,
             clientX:${bounds.x + 800},clientY:${bounds.y + 300},deltaY:${index < 30 ? 32 : -32}}))`);
-        if (index === 29) await eventually(() => guest.executeJavaScript('scrollY'), value => value > 0);
-        await new Promise(resolve => setTimeout(resolve, 16));
+        if (index === 29)
+          await eventually(
+            () => guest.executeJavaScript('scrollY'),
+            (value) => value > 0
+          );
+        await new Promise((resolve) => setTimeout(resolve, 16));
       }
-      await eventually(() => guest.executeJavaScript('scrollY'), value => value === 0);
+      await eventually(
+        () => guest.executeJavaScript('scrollY'),
+        (value) => value === 0
+      );
       assert.ok(acknowledgement.length > 0, 'the production wheel input path must be exercised');
       for (const type of ['mousePressed', 'mouseReleased']) {
         await shell.debugger.sendCommand('Input.dispatchMouseEvent', {
-          type, x: bounds.x + 325, y: bounds.y + 20, button: 'left', clickCount: 1,
+          type,
+          x: bounds.x + 325,
+          y: bounds.y + 20,
+          button: 'left',
+          clickCount: 1,
         });
       }
-      await eventually(() => guest.executeJavaScript('window.loadClicks'), value => value === 1);
+      await eventually(
+        () => guest.executeJavaScript('window.loadClicks'),
+        (value) => value === 1
+      );
       for (const type of ['mousePressed', 'mouseReleased']) {
         await shell.debugger.sendCommand('Input.dispatchMouseEvent', {
-          type, x: bounds.x + 70, y: bounds.y + 20, button: 'left', clickCount: 1,
+          type,
+          x: bounds.x + 70,
+          y: bounds.y + 20,
+          button: 'left',
+          clickCount: 1,
         });
       }
       await shell.debugger.sendCommand('Input.insertText', { text: 'scroll 한글 123' });
-      await eventually(() => guest.executeJavaScript(`document.getElementById('load-input').value`),
-        value => value === 'scroll 한글 123');
-      assert.equal(await shell.executeJavaScript(`document.getElementById('draft').textContent`),
-        'keep editing 사용자 입력');
+      await eventually(
+        () => guest.executeJavaScript(`document.getElementById('load-input').value`),
+        (value) => value === 'scroll 한글 123'
+      );
+      assert.equal(
+        await shell.executeJavaScript(`document.getElementById('draft').textContent`),
+        'keep editing 사용자 입력'
+      );
       const frames = await shell.executeJavaScript('window.loadFrames');
       const p95 = (values: number[]) =>
         Number([...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1].toFixed(1));
-      log(`full-size scrolling benchmark ${JSON.stringify({
-        width: 1366,
-        decodedFramesPerSecond: Number((frames * 1000 / (performance.now() - started)).toFixed(2)),
-        wheelDispatchP95Ms: p95(acknowledgement),
-        frameCaptureP95Ms: p95(frameTimes),
-        clickAndTyping: 'passed',
-      })}`);
+      log(
+        `full-size scrolling benchmark ${JSON.stringify({
+          width: 1366,
+          decodedFramesPerSecond: Number(((frames * 1000) / (performance.now() - started)).toFixed(2)),
+          wheelDispatchP95Ms: p95(acknowledgement),
+          frameCaptureP95Ms: p95(frameTimes),
+          clickAndTyping: 'passed',
+        })}`
+      );
       await measureBrowserWheelToPixels(guest, shell, log);
       // Compare a static text/colour region against independent native pixels,
       // outside the performance sample and away from the blinking input caret.
@@ -117,9 +147,13 @@ export async function measureBrowserSurfaceLoad(
         copy.getContext('2d').drawImage(image, 0, 100, 500, 120, 0, 0, 500, 120);
         return {kind:image.tagName, data:copy.toDataURL('image/png')};
       })()`);
-      assert.ok(source.crop({ x: 0, y: 100, width: 500, height: 120 }).toBitmap()
-        .equals(nativeImage.createFromDataURL(display.data).toBitmap()),
-      'displayed text and colour pixels must exactly match the independent native capture');
+      assert.ok(
+        source
+          .crop({ x: 0, y: 100, width: 500, height: 120 })
+          .toBitmap()
+          .equals(nativeImage.createFromDataURL(display.data).toBitmap()),
+        'displayed text and colour pixels must exactly match the independent native capture'
+      );
       log(`native/display text and colour pixels match (${display.kind})`);
     } finally {
       host.browserPageFrame = originalFrame;

@@ -29,9 +29,22 @@ import { toOpenAIResponsesTool } from '../../src/runtime/agent/orchestrator/prov
 // validator checks JSON Schema structure, value types, and numeric/string bounds.
 const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false });
 const catalog = [
-  ...BUILTIN_TOOLS, ...CODE_GRAPH_TOOL_DEFS, ...PATCH_TOOL_DEFS,
-  ...memory, ...web, ...channels, ...browser, ...computer, ...office, ...media,
-  ...GOAL_TOOL_DEFS, ...SETUP_TOOL_DEFS, CWD_TOOL, SKILL_TOOL, TOOL_SEARCH_TOOL, AGENT_TOOL,
+  ...BUILTIN_TOOLS,
+  ...CODE_GRAPH_TOOL_DEFS,
+  ...PATCH_TOOL_DEFS,
+  ...memory,
+  ...web,
+  ...channels,
+  ...browser,
+  ...computer,
+  ...office,
+  ...media,
+  ...GOAL_TOOL_DEFS,
+  ...SETUP_TOOL_DEFS,
+  CWD_TOOL,
+  SKILL_TOOL,
+  TOOL_SEARCH_TOOL,
+  AGENT_TOOL,
 ];
 const schemaFor = (name) => catalog.find((tool) => tool.name === name).inputSchema;
 const accepts = (schema, args) => {
@@ -54,8 +67,11 @@ test('the complete catalog and provider projections remain valid without mutatin
     for (const [provider, schema] of projections(tool)) {
       assert.equal(ajv.validateSchema(schema), true, `${tool.name}/${provider}: ${JSON.stringify(ajv.errors)}`);
       ajv.compile(schema);
-      assert.equal(JSON.stringify(schema).includes('__mixdog_unrepresentable_schema_conjunction__'), false,
-        `${tool.name}/${provider} must not advertise an impossible placeholder`);
+      assert.equal(
+        JSON.stringify(schema).includes('__mixdog_unrepresentable_schema_conjunction__'),
+        false,
+        `${tool.name}/${provider} must not advertise an impossible placeholder`
+      );
     }
     const openai = toOpenAIResponsesTool(tool);
     if (openai.type !== 'custom') assert.deepEqual(openai.parameters, tool.inputSchema);
@@ -76,9 +92,13 @@ test('Goal boundaries are known before a call and updates do not need a failed a
   const unicode = { ...task, text: '😀'.repeat(500) };
   accepts(schemaFor('goal'), { action: 'create', tasks: [unicode] });
   assert.equal(normalizeGoalTasks([unicode], [], { strict: true })[0].text, unicode.text);
-  assert.equal(ajv.validate(schemaFor('goal'), {
-    action: 'create', tasks: Array.from({ length: 21 }, (_, i) => ({ ...task, text: `Task ${i}` })),
-  }), false);
+  assert.equal(
+    ajv.validate(schemaFor('goal'), {
+      action: 'create',
+      tasks: Array.from({ length: 21 }, (_, i) => ({ ...task, text: `Task ${i}` })),
+    }),
+    false
+  );
 });
 
 test('documented browser first calls and stored-login sequences agree with runtime validation', () => {
@@ -88,10 +108,15 @@ test('documented browser first calls and stored-login sequences agree with runti
     { action: 'console', input: { limit: 20 } },
     { action: 'snapshot', input: { mode: 'both', maxElements: 100 } },
     { action: 'fill', input: { ref: 'p1-s1-e1', checked: false } },
-    { action: 'sequence', input: { steps: [
-      { action: 'fill', savedAccount: 'a•••a@example.test' },
-      { action: 'click', target: { role: 'button', name: 'Sign in' } },
-    ] } },
+    {
+      action: 'sequence',
+      input: {
+        steps: [
+          { action: 'fill', savedAccount: 'a•••a@example.test' },
+          { action: 'click', target: { role: 'button', name: 'Sign in' } },
+        ],
+      },
+    },
   ];
   for (const args of cases) {
     accepts(schemaFor('browser'), args);
@@ -102,8 +127,11 @@ test('documented browser first calls and stored-login sequences agree with runti
   const fields = schemaFor('browser').properties.input.properties;
   assert.match(fields.mode.description, /snapshot only/);
   assert.match(fields.maxChars.description, /not locate\/console/);
-  assert.equal(validateBrowserToolArgs({ action: 'snapshot', input: '{"mode":"both"}' }).ok, true,
-    'unambiguous JSON transport shape remains supported');
+  assert.equal(
+    validateBrowserToolArgs({ action: 'snapshot', input: '{"mode":"both"}' }).ok,
+    true,
+    'unambiguous JSON transport shape remains supported'
+  );
 });
 
 test('browser rejects schema-invalid scalar and nested values before input dispatch', () => {
@@ -114,10 +142,15 @@ test('browser rejects schema-invalid scalar and nested values before input dispa
     { action: 'click', input: { snapshotId: 's1', x: -1, y: 1 } },
     { action: 'click', input: { ref: 'p1-s1-e1', button: 'other' } },
     { action: 'click', input: { ref: 'p1-s1-e1', expect: { timeoutMs: -1 } } },
-    { action: 'sequence', input: { steps: [
-      { action: 'fill', ref: 'p1-s1-e1', checked: false },
-      { action: 'press', key: 'Enter', submit: 'yes' },
-    ] } },
+    {
+      action: 'sequence',
+      input: {
+        steps: [
+          { action: 'fill', ref: 'p1-s1-e1', checked: false },
+          { action: 'press', key: 'Enter', submit: 'yes' },
+        ],
+      },
+    },
   ];
   for (const args of cases) {
     assert.equal(ajv.validate(schemaFor('browser'), args), false, JSON.stringify(args));
@@ -149,7 +182,9 @@ test('every computer action keeps its usable input fields through provider flatt
     assert.equal(typeof toComputerHostCommand(args).action, 'string');
     for (const [, schema] of projections(tool)) accepts(schema, args);
   }
-  const sourceFields = [...new Set(tool.inputSchema.oneOf.flatMap((branch) => Object.keys(branch.properties.input.properties)))].sort();
+  const sourceFields = [
+    ...new Set(tool.inputSchema.oneOf.flatMap((branch) => Object.keys(branch.properties.input.properties))),
+  ].sort();
   for (const schema of [
     normalizeGrokToolSchemas([tool])[0].inputSchema,
     sanitizeAnthropicInputSchema(tool.inputSchema, tool.name, 'first-call'),
@@ -172,7 +207,14 @@ test('computer nested text bounds match the public schema before host execution'
 
 test('Office matrices, row values and PDF field maps survive every provider schema', () => {
   const operations = [
-    { op: 'set_range', range: 'A1:B2', values: [[1, 'two'], [true, null]] },
+    {
+      op: 'set_range',
+      range: 'A1:B2',
+      values: [
+        [1, 'two'],
+        [true, null],
+      ],
+    },
     { op: 'append_row', values: [1, 'two', true] },
     { op: 'fill_form', values: { name: 'Ada', accepted: true } },
   ];
@@ -190,12 +232,22 @@ test('Gemini uses its JSON Schema wire field for opaque values instead of guessi
   const declaration = toGeminiTools(office).functionDeclarations[0];
   assert.equal(Object.hasOwn(declaration, 'parameters'), false);
   assert.deepEqual(declaration.parametersJsonSchema, office[0].inputSchema);
-  const untypedArray = { name: 'rows', inputSchema: {
-    type: 'object', properties: { values: { type: 'array' } }, required: ['values'],
-  } };
+  const untypedArray = {
+    name: 'rows',
+    inputSchema: {
+      type: 'object',
+      properties: { values: { type: 'array' } },
+      required: ['values'],
+    },
+  };
   const arrayDeclaration = toGeminiTools([untypedArray]).functionDeclarations[0];
   assert.equal(Object.hasOwn(arrayDeclaration, 'parameters'), false);
-  accepts(arrayDeclaration.parametersJsonSchema, { values: [[1, 2], [3, 4]] });
+  accepts(arrayDeclaration.parametersJsonSchema, {
+    values: [
+      [1, 2],
+      [3, 4],
+    ],
+  });
   const typed = toGeminiTools(GOAL_TOOL_DEFS).functionDeclarations[0];
   assert.equal(Object.hasOwn(typed, 'parametersJsonSchema'), false);
   assert.ok(typed.parameters);

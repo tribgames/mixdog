@@ -68,15 +68,19 @@ export function createPrewarmSchedulers({
           if (typeof mod?.prewarmCodeGraphIfProject !== 'function') return false;
           return mod.prewarmCodeGraphIfProject(prewarmCwd);
         })
-        .then((scheduled) => bootProfile(scheduled ? 'code-graph:prewarm:scheduled' : 'code-graph:prewarm:no-project', {
-          cwd: prewarmCwd,
-          ms: (performance.now() - startedAt).toFixed(1),
-        }))
-        .catch((error) => bootProfile('code-graph:prewarm:failed', {
-          cwd: prewarmCwd,
-          ms: (performance.now() - startedAt).toFixed(1),
-          error: error?.message || String(error),
-        }))
+        .then((scheduled) =>
+          bootProfile(scheduled ? 'code-graph:prewarm:scheduled' : 'code-graph:prewarm:no-project', {
+            cwd: prewarmCwd,
+            ms: (performance.now() - startedAt).toFixed(1),
+          })
+        )
+        .catch((error) =>
+          bootProfile('code-graph:prewarm:failed', {
+            cwd: prewarmCwd,
+            ms: (performance.now() - startedAt).toFixed(1),
+            error: error?.message || String(error),
+          })
+        )
         .finally(() => {
           state.codeGraphPrewarmInFlight = false;
           if (state.codeGraphPrewarmQueuedCwd && !isCloseRequested()) {
@@ -93,24 +97,32 @@ export function createPrewarmSchedulers({
       bootProfile('tool-runtime:prewarm-skipped');
       return;
     }
-    const timer = setTimeout(() => void (async () => {
-      if (isCloseRequested()) return;
-      try {
-        const { warmNativeSpawnServer } = await import('../runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs');
-        bootProfile('tool-runtime:native-shell', { warmed: await warmNativeSpawnServer() === true });
-      } catch (error) {
-        bootProfile('tool-runtime:native-shell-failed', { error: error?.message || String(error) });
-      }
-      try {
-        // Shell jobs orphaned by a daemon restart: finalize their records and
-        // deliver one completion notice to each owner session so the outcome
-        // is never silently dropped.
-        const { reconcileRecoveredShellJobCompletions } = await import('../runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs');
-        bootProfile('tool-runtime:shell-job-recovery', { notified: await reconcileRecoveredShellJobCompletions() });
-      } catch (error) {
-        bootProfile('tool-runtime:shell-job-recovery-failed', { error: error?.message || String(error) });
-      }
-    })(), delayMs);
+    const timer = setTimeout(
+      () =>
+        void (async () => {
+          if (isCloseRequested()) return;
+          try {
+            const { warmNativeSpawnServer } = await import(
+              '../runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs'
+            );
+            bootProfile('tool-runtime:native-shell', { warmed: (await warmNativeSpawnServer()) === true });
+          } catch (error) {
+            bootProfile('tool-runtime:native-shell-failed', { error: error?.message || String(error) });
+          }
+          try {
+            // Shell jobs orphaned by a daemon restart: finalize their records and
+            // deliver one completion notice to each owner session so the outcome
+            // is never silently dropped.
+            const { reconcileRecoveredShellJobCompletions } = await import(
+              '../runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs'
+            );
+            bootProfile('tool-runtime:shell-job-recovery', { notified: await reconcileRecoveredShellJobCompletions() });
+          } catch (error) {
+            bootProfile('tool-runtime:shell-job-recovery-failed', { error: error?.message || String(error) });
+          }
+        })(),
+      delayMs
+    );
     timer.unref?.();
   }
 
@@ -124,23 +136,28 @@ export function createPrewarmSchedulers({
     }
     if (timers.searchRuntimeWarmupTimer || timers.searchRuntimeWarmupStarted) return;
     timers.searchRuntimeWarmupStarted = true;
-    const start = () => void (async () => {
-      timers.searchRuntimeWarmupTimer = null;
-      if (isCloseRequested()) return;
-      const nativeSearchWarm = (async () => {
-        const { warmNativeSearchServer } = await import('../runtime/agent/orchestrator/tools/builtin/native-search-client.mjs');
-        bootProfile('native-search:warm', { up: await warmNativeSearchServer() === true });
-      })().catch((error) => {
-        bootProfile('native-search:warm-failed', { error: error?.message || String(error) });
+    const start = () =>
+      void (async () => {
+        timers.searchRuntimeWarmupTimer = null;
+        if (isCloseRequested()) return;
+        const nativeSearchWarm = (async () => {
+          const { warmNativeSearchServer } = await import(
+            '../runtime/agent/orchestrator/tools/builtin/native-search-client.mjs'
+          );
+          bootProfile('native-search:warm', { up: (await warmNativeSearchServer()) === true });
+        })().catch((error) => {
+          bootProfile('native-search:warm-failed', { error: error?.message || String(error) });
+        });
+        const nativeSpawnWarm = (async () => {
+          const { warmNativeSpawnServer } = await import(
+            '../runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs'
+          );
+          bootProfile('native-spawn:warm', { up: (await warmNativeSpawnServer()) === true });
+        })().catch((error) => {
+          bootProfile('native-spawn:warm-failed', { error: error?.message || String(error) });
+        });
+        await Promise.all([nativeSearchWarm, nativeSpawnWarm]);
       });
-      const nativeSpawnWarm = (async () => {
-        const { warmNativeSpawnServer } = await import('../runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs');
-        bootProfile('native-spawn:warm', { up: await warmNativeSpawnServer() === true });
-      })().catch((error) => {
-        bootProfile('native-spawn:warm-failed', { error: error?.message || String(error) });
-      });
-      await Promise.all([nativeSearchWarm, nativeSpawnWarm]);
-    });
     if (delayMs <= 0) {
       start();
       return;
@@ -153,12 +170,15 @@ export function createPrewarmSchedulers({
     if (state.channelStartPromise) return state.channelStartPromise;
     const startedAt = performance.now();
     bootProfile('channels:start:begin');
-    state.channelStartPromise = channels.start()
+    state.channelStartPromise = channels
+      .start()
       .then(() => bootProfile('channels:start:ready', { ms: (performance.now() - startedAt).toFixed(1) }))
-      .catch((error) => bootProfile('channels:start:failed', {
-        ms: (performance.now() - startedAt).toFixed(1),
-        error: error?.message || String(error),
-      }))
+      .catch((error) =>
+        bootProfile('channels:start:failed', {
+          ms: (performance.now() - startedAt).toFixed(1),
+          error: error?.message || String(error),
+        })
+      )
       .finally(() => {
         state.channelStartPromise = null;
       });
@@ -172,25 +192,31 @@ export function createPrewarmSchedulers({
     }
     if (timers.channelStartTimer || state.channelStartPromise || isCloseRequested()) return;
     bootProfile('channels:start-scheduled', { delayMs });
-    timers.channelStartTimer = setTimeout(() => void (async () => {
-      timers.channelStartTimer = null;
-      if (isCloseRequested()) return;
-      // Channels-module and remote toggles gate MESSAGING; automation
-      // (enabled schedules/webhooks) keeps the worker boot alive — its
-      // channel worker runs headless: only active automation boots it.
-      const automation = await hasActiveAutomation().catch(() => false);
-      if (!automation) {
-        bootProfile('channels:start-disabled');
-        return;
-      }
-      if (isCloseRequested()) return;
-      if (getActiveTurnCount() > 0 || getSessionCreatePromise()) {
-        bootProfile('channels:start-deferred', { reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create' });
-        scheduleChannelStart(backgroundBusyRetryMs);
-        return;
-      }
-      void invokeChannelStart();
-    })(), delayMs);
+    timers.channelStartTimer = setTimeout(
+      () =>
+        void (async () => {
+          timers.channelStartTimer = null;
+          if (isCloseRequested()) return;
+          // Channels-module and remote toggles gate MESSAGING; automation
+          // (enabled schedules/webhooks) keeps the worker boot alive — its
+          // channel worker runs headless: only active automation boots it.
+          const automation = await hasActiveAutomation().catch(() => false);
+          if (!automation) {
+            bootProfile('channels:start-disabled');
+            return;
+          }
+          if (isCloseRequested()) return;
+          if (getActiveTurnCount() > 0 || getSessionCreatePromise()) {
+            bootProfile('channels:start-deferred', {
+              reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create',
+            });
+            scheduleChannelStart(backgroundBusyRetryMs);
+            return;
+          }
+          void invokeChannelStart();
+        })(),
+      delayMs
+    );
     timers.channelStartTimer.unref?.();
   }
 
@@ -210,7 +236,9 @@ export function createPrewarmSchedulers({
           bootProfile('channels:automation-autostart');
           void invokeChannelStart();
         })
-        .catch(() => { /* automation probe is best-effort */ });
+        .catch(() => {
+          /* automation probe is best-effort */
+        });
     }, delayMs);
     timers.channelStartTimer.unref?.();
   }

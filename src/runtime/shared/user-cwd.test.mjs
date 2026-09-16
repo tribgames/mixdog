@@ -4,12 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import {
-  explicitSessionCwd,
-  pwd,
-  runWithCwdOverride,
-  updateCurrentCwdOverride,
-} from './user-cwd.mjs';
+import { explicitSessionCwd, pwd, runWithCwdOverride, updateCurrentCwdOverride } from './user-cwd.mjs';
 
 test('cwd overrides stay isolated across concurrent inline sessions', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-user-cwd-'));

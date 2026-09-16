@@ -18,7 +18,9 @@ function fixture() {
   const settle = createBrowserSettle({
     diagnostics: () => diagnostics,
     renderCheckpoint: async (_guest, background) => dom.window.eval(browserRenderCheckpoint(background)),
-    quietMs: 350, domTimeoutMs: 1500, loadTimeoutMs: 8000,
+    quietMs: 350,
+    domTimeoutMs: 1500,
+    loadTimeoutMs: 8000,
   });
   const calls = [];
   let snapshots = 0;
@@ -27,7 +29,9 @@ function fixture() {
     return { text: `Observed ${dom.window.document.querySelector('input').value}` };
   };
   const services = {
-    state, settle, reply: { snapshotResult: snapshot },
+    state,
+    settle,
+    reply: { snapshotResult: snapshot },
     documents: {
       observeChanges: async () => ({ latch: createBrowserChangeLatch(), close: async () => {} }),
       pageText: async () => dom.window.document.body.textContent,
@@ -42,14 +46,32 @@ function fixture() {
     },
   };
   const context = {
-    guest, services, actionSnapshot: snapshot,
-    command: { action: 'sequence', steps: [{ action: 'fill', text: 'one' }, { action: 'fill', text: 'two' }] },
+    guest,
+    services,
+    actionSnapshot: snapshot,
+    command: {
+      action: 'sequence',
+      steps: [
+        { action: 'fill', text: 'one' },
+        { action: 'fill', text: 'two' },
+      ],
+    },
   };
   return {
-    dom, guest, diagnostics, context, calls, services, settle,
+    dom,
+    guest,
+    diagnostics,
+    context,
+    calls,
+    services,
+    settle,
     snapshots: () => snapshots,
-    setUrl: (value) => { url = value; },
-    setLoading: (value) => { loading = value; },
+    setUrl: (value) => {
+      url = value;
+    },
+    setLoading: (value) => {
+      loading = value;
+    },
     close: () => dom.window.close(),
   };
 }
@@ -68,7 +90,10 @@ test('a batch finishes amid unrelated DOM updates, with one final observation', 
   assert.match(result.text, /Sequence completed 6 steps/);
   assert.match(result.text, /Observed 5/);
   assert.equal(f.snapshots(), 1);
-  assert.deepEqual(result.timing.steps.map((step) => step.index), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(
+    result.timing.steps.map((step) => step.index),
+    [1, 2, 3, 4, 5, 6]
+  );
   assert.ok(result.timing.steps.every((step) => step.commandMs >= step.waitMs));
   t.diagnostic(`six-step rendering checkpoints: ${result.timing.waitMs.toFixed(1)}ms`);
 });
@@ -118,7 +143,9 @@ test('a dialog or a failed checkpoint stops a batch without replaying input', as
       }
       const broken = createBrowserSettle({
         diagnostics: () => f.diagnostics,
-        renderCheckpoint: async () => { throw new Error('renderer disappeared'); },
+        renderCheckpoint: async () => {
+          throw new Error('renderer disappeared');
+        },
       });
       return broken.stepSettleResult(f.guest);
     };
@@ -164,7 +191,9 @@ test('a hidden checkpoint yields queued work without relying on animation frames
   const f = fixture();
   t.after(f.close);
   Object.defineProperty(f.dom.window.document, 'hidden', { value: true });
-  f.dom.window.requestAnimationFrame = () => { throw new Error('hidden frame requested'); };
+  f.dom.window.requestAnimationFrame = () => {
+    throw new Error('hidden frame requested');
+  };
   f.dom.window.setTimeout(() => {
     f.dom.window.document.querySelector('output').textContent = 'rendered task';
   }, 0);
@@ -177,7 +206,9 @@ test('host background routing works even when Chromium reports a visible documen
   const f = fixture();
   t.after(f.close);
   assert.equal(f.dom.window.document.hidden, false);
-  f.dom.window.requestAnimationFrame = () => { throw new Error('background frame requested'); };
+  f.dom.window.requestAnimationFrame = () => {
+    throw new Error('background frame requested');
+  };
   f.dom.window.setTimeout(() => {
     f.dom.window.document.querySelector('output').textContent = 'background task';
   }, 0);

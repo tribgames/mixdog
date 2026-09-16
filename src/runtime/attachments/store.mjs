@@ -17,12 +17,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import {
-  readdir,
-  readFile as readFileAsync,
-  stat,
-  unlink,
-} from 'node:fs/promises';
+import { readdir, readFile as readFileAsync, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
@@ -38,7 +33,7 @@ const ATTACHMENT_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const MAX_ATTACHMENT_BLOB_BYTES = 64 * 1024 * 1024;
 const ATTACHMENT_GC_MIN_AGE_MS = Math.max(
   60_000,
-  Number(process.env.MIXDOG_ATTACHMENT_GC_MIN_AGE_MS) || 7 * 24 * 60 * 60 * 1000,
+  Number(process.env.MIXDOG_ATTACHMENT_GC_MIN_AGE_MS) || 7 * 24 * 60 * 60 * 1000
 );
 const ATTACHMENT_GC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const ATTACHMENT_GC_START_DELAY_MS = 5_000;
@@ -90,11 +85,13 @@ function saveBuffer(buffer) {
   if (existsSync(target)) {
     try {
       const current = readFileSync(target);
-      existingValid = current.length === buffer.length
-        && createHash('sha256').update(current).digest('hex') === attachmentRef;
+      existingValid =
+        current.length === buffer.length && createHash('sha256').update(current).digest('hex') === attachmentRef;
     } catch {}
     if (!existingValid) {
-      try { unlinkSync(target); } catch {}
+      try {
+        unlinkSync(target);
+      } catch {}
     }
   }
   if (!existingValid) {
@@ -107,12 +104,14 @@ function saveBuffer(buffer) {
       let racedValid = false;
       try {
         const current = readFileSync(target);
-        racedValid = current.length === buffer.length
-          && createHash('sha256').update(current).digest('hex') === attachmentRef;
+        racedValid =
+          current.length === buffer.length && createHash('sha256').update(current).digest('hex') === attachmentRef;
       } catch {}
       if (!racedValid) throw error;
     } finally {
-      try { unlinkSync(temp); } catch {}
+      try {
+        unlinkSync(temp);
+      } catch {}
     }
   } else {
     // Reusing old content creates a fresh reference before its queue/session
@@ -129,8 +128,7 @@ function saveBuffer(buffer) {
 }
 
 export function isAttachmentReference(value) {
-  return Boolean(value && typeof value === 'object'
-    && ATTACHMENT_REF_RE.test(String(value.attachmentRef || '')));
+  return Boolean(value && typeof value === 'object' && ATTACHMENT_REF_RE.test(String(value.attachmentRef || '')));
 }
 
 export function readAttachmentBuffer(value) {
@@ -257,8 +255,11 @@ function materializeInlinePart(part) {
     const { data, ...metadata } = part;
     return { ...metadata, ...saveBuffer(Buffer.from(data, 'base64')) };
   }
-  if (part.type === 'text' && typeof part.text === 'string'
-    && Buffer.byteLength(part.text, 'utf8') >= TEXT_REFERENCE_THRESHOLD_BYTES) {
+  if (
+    part.type === 'text' &&
+    typeof part.text === 'string' &&
+    Buffer.byteLength(part.text, 'utf8') >= TEXT_REFERENCE_THRESHOLD_BYTES
+  ) {
     return materializeText(part.text, part);
   }
   return part;
@@ -313,10 +314,12 @@ function materializePastedImages(pastedImages, imageParts) {
     const { content: _content, ...meta } = raw;
     out[key] = {
       ...meta,
-      ...(ref ? {
-        attachmentRef: ref.attachmentRef,
-        sizeBytes: Number(ref.sizeBytes) || Number(raw.sizeBytes) || 0,
-      } : {}),
+      ...(ref
+        ? {
+            attachmentRef: ref.attachmentRef,
+            sizeBytes: Number(ref.sizeBytes) || Number(raw.sizeBytes) || 0,
+          }
+        : {}),
     };
   }
   return Object.keys(out).length ? out : null;
@@ -328,30 +331,27 @@ export function materializePromptSubmission(prompt, options = {}) {
   if (promptTextBytes(materializedPrompt) > MAX_PROMPT_TEXT_BYTES) {
     throw new RangeError('prompt text exceeds the 1 MiB input limit');
   }
-  const imageParts = (Array.isArray(materializedPrompt) ? materializedPrompt : [])
-    .filter((part) => part?.type === 'image' && isAttachmentReference(part));
+  const imageParts = (Array.isArray(materializedPrompt) ? materializedPrompt : []).filter(
+    (part) => part?.type === 'image' && isAttachmentReference(part)
+  );
   return {
     prompt: materializedPrompt,
     options: {
       ...(options || {}),
-      ...(options?.pastedImages
-        ? { pastedImages: materializePastedImages(options.pastedImages, imageParts) }
-        : {}),
+      ...(options?.pastedImages ? { pastedImages: materializePastedImages(options.pastedImages, imageParts) } : {}),
       ...(options?.pastedTexts ? { pastedTexts: textState.options } : {}),
     },
   };
 }
 
-const NATIVE_PDF_PROVIDERS = new Set([
-  'anthropic',
-  'anthropic-oauth',
-  'gemini',
-  'openai',
-  'openai-oauth',
-]);
+const NATIVE_PDF_PROVIDERS = new Set(['anthropic', 'anthropic-oauth', 'gemini', 'openai', 'openai-oauth']);
 
 function providerSupportsNativePdf(provider) {
-  return NATIVE_PDF_PROVIDERS.has(String(provider || '').trim().toLowerCase());
+  return NATIVE_PDF_PROVIDERS.has(
+    String(provider || '')
+      .trim()
+      .toLowerCase()
+  );
 }
 
 /**
@@ -403,18 +403,24 @@ export async function preparePromptSubmissionForProvider(intake, provider) {
 }
 
 export function hydratePastedAttachments(pastedImages, pastedTexts) {
-  const images = pastedImages && typeof pastedImages === 'object'
-    ? Object.fromEntries(Object.entries(pastedImages).map(([key, raw]) => {
-      if (!raw || typeof raw !== 'object' || !isAttachmentReference(raw)) return [key, raw];
-      return [key, { ...raw, content: readAttachmentBase64(raw) }];
-    }))
-    : null;
-  const texts = pastedTexts && typeof pastedTexts === 'object'
-    ? Object.fromEntries(Object.entries(pastedTexts).map(([key, raw]) => {
-      if (!raw || typeof raw !== 'object' || !isAttachmentReference(raw)) return [key, raw];
-      return [key, { ...raw, text: readAttachmentText(raw) }];
-    }))
-    : null;
+  const images =
+    pastedImages && typeof pastedImages === 'object'
+      ? Object.fromEntries(
+          Object.entries(pastedImages).map(([key, raw]) => {
+            if (!raw || typeof raw !== 'object' || !isAttachmentReference(raw)) return [key, raw];
+            return [key, { ...raw, content: readAttachmentBase64(raw) }];
+          })
+        )
+      : null;
+  const texts =
+    pastedTexts && typeof pastedTexts === 'object'
+      ? Object.fromEntries(
+          Object.entries(pastedTexts).map(([key, raw]) => {
+            if (!raw || typeof raw !== 'object' || !isAttachmentReference(raw)) return [key, raw];
+            return [key, { ...raw, text: readAttachmentText(raw) }];
+          })
+        )
+      : null;
   return { pastedImages: images, pastedTexts: texts };
 }
 
@@ -455,10 +461,7 @@ async function persistedAttachmentReferencePaths() {
   return paths;
 }
 
-export async function collectPromptAttachments({
-  now = Date.now(),
-  minAgeMs = ATTACHMENT_GC_MIN_AGE_MS,
-} = {}) {
+export async function collectPromptAttachments({ now = Date.now(), minAgeMs = ATTACHMENT_GC_MIN_AGE_MS } = {}) {
   const referenced = new Set();
   let referenceFiles = 0;
   for (const path of await persistedAttachmentReferencePaths()) {
@@ -529,24 +532,25 @@ export async function collectPromptAttachments({
 
 function armAttachmentGc(delayMs) {
   if (attachmentGcTimer) return;
-  attachmentGcTimer = setTimeout(() => {
-    attachmentGcTimer = null;
-    void collectPromptAttachments()
-      .catch(() => undefined)
-      .finally(() => {
-        lastAttachmentGcAt = Date.now();
-        armAttachmentGc(ATTACHMENT_GC_INTERVAL_MS);
-      });
-  }, Math.max(ATTACHMENT_GC_START_DELAY_MS, Number(delayMs) || 0));
+  attachmentGcTimer = setTimeout(
+    () => {
+      attachmentGcTimer = null;
+      void collectPromptAttachments()
+        .catch(() => undefined)
+        .finally(() => {
+          lastAttachmentGcAt = Date.now();
+          armAttachmentGc(ATTACHMENT_GC_INTERVAL_MS);
+        });
+    },
+    Math.max(ATTACHMENT_GC_START_DELAY_MS, Number(delayMs) || 0)
+  );
   attachmentGcTimer.unref?.();
 }
 
 function scheduleAttachmentGc() {
   if (attachmentGcTimer) return;
   const elapsed = Date.now() - lastAttachmentGcAt;
-  armAttachmentGc(lastAttachmentGcAt === 0
-    ? ATTACHMENT_GC_START_DELAY_MS
-    : ATTACHMENT_GC_INTERVAL_MS - elapsed);
+  armAttachmentGc(lastAttachmentGcAt === 0 ? ATTACHMENT_GC_START_DELAY_MS : ATTACHMENT_GC_INTERVAL_MS - elapsed);
 }
 
 scheduleAttachmentGc();

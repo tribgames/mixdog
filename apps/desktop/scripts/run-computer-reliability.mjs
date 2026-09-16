@@ -3,12 +3,7 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { computerSourceEsbuildPlugin } from './computer-source-assets.mjs';
 import { optionValue } from './cli-args.mjs';
-import {
-  bundleElectronEntry,
-  electronProcessEnv,
-  spawnElectron,
-  waitForChildExit,
-} from './electron-harness.mjs';
+import { bundleElectronEntry, electronProcessEnv, spawnElectron, waitForChildExit } from './electron-harness.mjs';
 
 const root = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const output = join(root, 'artifacts', 'computer-use');

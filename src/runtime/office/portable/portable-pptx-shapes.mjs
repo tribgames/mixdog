@@ -1,12 +1,49 @@
 import { basename, extname, join, posix } from 'node:path';
 import { resolveImageLayout } from './image-layout.mjs';
 import { contrastRatio, shrinkFontSizeToFit } from './text-metrics.mjs';
-import { pictureXml, resolveGeometry, shapeXml, supportedShapeTypes, tableXml, textBodyXml, toEmu } from './portable-slide-shapes.mjs';
+import {
+  pictureXml,
+  resolveGeometry,
+  shapeXml,
+  supportedShapeTypes,
+  tableXml,
+  textBodyXml,
+  toEmu,
+} from './portable-slide-shapes.mjs';
 import { readFile } from 'node:fs/promises';
-import { addPackageRelationship, ensureDefaultContentType, imagePixelSize, partRelationshipPath, removePackageRelationship, zipText } from './portable-opc.mjs';
-import { DRAWING_MAIN_NS, OFFICE_RELATIONSHIP_BASE, containerBody, containerInner, rebuildTextNodes, textNodes, topLevelElements, xmlAttribute, xmlEncode } from './portable-xml.mjs';
+import {
+  addPackageRelationship,
+  ensureDefaultContentType,
+  imagePixelSize,
+  partRelationshipPath,
+  removePackageRelationship,
+  zipText,
+} from './portable-opc.mjs';
+import {
+  DRAWING_MAIN_NS,
+  OFFICE_RELATIONSHIP_BASE,
+  containerBody,
+  containerInner,
+  rebuildTextNodes,
+  textNodes,
+  topLevelElements,
+  xmlAttribute,
+  xmlEncode,
+} from './portable-xml.mjs';
 import { addSlideImage, slidePath } from './portable-pptx-package.mjs';
-import { DEFAULT_TEXT_INSETS, appendSlideShape, balancedInner, nextShapeId, presentationSlideSize, selectedShapeSpans, setTableValues, shapeFrame, shapeParagraphs, updateShapeGeometry, writeShapeTree } from './portable-pptx-core.mjs';
+import {
+  DEFAULT_TEXT_INSETS,
+  appendSlideShape,
+  balancedInner,
+  nextShapeId,
+  presentationSlideSize,
+  selectedShapeSpans,
+  setTableValues,
+  shapeFrame,
+  shapeParagraphs,
+  updateShapeGeometry,
+  writeShapeTree,
+} from './portable-pptx-core.mjs';
 
 export async function handleSetHyperlink(context, op) {
   const { zip } = context;
@@ -22,26 +59,26 @@ export async function handleSetHyperlink(context, op) {
   if (!address && !op.subAddress) throw new Error('set_hyperlink requires address or subAddress');
   const relationshipId = address
     ? await addPackageRelationship(
-      zip,
-      partRelationshipPath(path),
-      `${OFFICE_RELATIONSHIP_BASE}/hyperlink`,
-      address,
-      'External',
-    )
+        zip,
+        partRelationshipPath(path),
+        `${OFFICE_RELATIONSHIP_BASE}/hyperlink`,
+        address,
+        'External'
+      )
     : '';
-  const link = `<a:hlinkClick xmlns:a="${DRAWING_MAIN_NS}"`
-    + `${relationshipId ? ` r:id="${relationshipId}"` : ' r:id=""'}`
-    + `${op.subAddress ? ` action="ppaction://hlinksldjump"` : ''}/>`;
+  const link =
+    `<a:hlinkClick xmlns:a="${DRAWING_MAIN_NS}"` +
+    `${relationshipId ? ` r:id="${relationshipId}"` : ' r:id=""'}` +
+    `${op.subAddress ? ` action="ppaction://hlinksldjump"` : ''}/>`;
   const updated = shape.xml
     .replace(/<a:hlinkClick\b[^>]*?(?:\/>|>[\s\S]*?<\/a:hlinkClick>)/, '')
-    .replace(/<p:cNvPr\b([^>]*?)(\/>|>)/, (_match, attrs, close) => (
+    .replace(/<p:cNvPr\b([^>]*?)(\/>|>)/, (_match, attrs, close) =>
       close === '/>' ? `<p:cNvPr${attrs}>${link}</p:cNvPr>` : `<p:cNvPr${attrs}>${link}`
-    ));
+    );
   const nextInner = `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`;
   zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);
   return { op: op.op, changed: true, slide: Number(op.slide), shape: Number(op.shape), address };
 }
-
 
 export async function handleZOrder(context, op) {
   const { zip } = context;
@@ -58,17 +95,17 @@ export async function handleZOrder(context, op) {
   const index = Number(op.shape) - 1;
   const ordered = shapes.map((shape) => shape.xml);
   const [moved] = ordered.splice(index, 1);
-  const destination = command === 'front'
-    ? ordered.length
-    : command === 'back'
-      ? 0
-      : Math.max(0, Math.min(ordered.length, index + (command === 'forward' ? 1 : -1)));
+  const destination =
+    command === 'front'
+      ? ordered.length
+      : command === 'back'
+        ? 0
+        : Math.max(0, Math.min(ordered.length, index + (command === 'forward' ? 1 : -1)));
   ordered.splice(destination, 0, moved);
   const preamble = tree.inner.slice(0, shapes[0]?.start ?? tree.inner.length);
   zip.file(path, writeShapeTree(current, tree, [preamble, ...ordered]));
   return { op: op.op, changed: true, slide: Number(op.slide), command };
 }
-
 
 export async function handleAlignShapesOrDistributeShapes(context, op) {
   const { zip } = context;
@@ -86,14 +123,15 @@ export async function handleAlignShapesOrDistributeShapes(context, op) {
     return frame;
   });
   const slideSize = await presentationSlideSize(zip);
-  const bounds = op.relativeToSlide === true
-    ? { left: 0, top: 0, right: slideSize.width, bottom: slideSize.height }
-    : {
-      left: Math.min(...frames.map((frame) => frame.left)),
-      top: Math.min(...frames.map((frame) => frame.top)),
-      right: Math.max(...frames.map((frame) => frame.left + frame.width)),
-      bottom: Math.max(...frames.map((frame) => frame.top + frame.height)),
-    };
+  const bounds =
+    op.relativeToSlide === true
+      ? { left: 0, top: 0, right: slideSize.width, bottom: slideSize.height }
+      : {
+          left: Math.min(...frames.map((frame) => frame.left)),
+          top: Math.min(...frames.map((frame) => frame.top)),
+          right: Math.max(...frames.map((frame) => frame.left + frame.width)),
+          bottom: Math.max(...frames.map((frame) => frame.top + frame.height)),
+        };
   const placements = frames.map((frame) => ({ ...frame }));
   if (op.op === 'align_shapes') {
     const align = String(op.align || '').toLowerCase();
@@ -104,9 +142,9 @@ export async function handleAlignShapesOrDistributeShapes(context, op) {
     }
     for (const placement of placements) {
       if (['left', 'center', 'right'].includes(align)) {
-        placement.left = bounds.left + ((bounds.right - bounds.left - placement.width) * horizontal);
+        placement.left = bounds.left + (bounds.right - bounds.left - placement.width) * horizontal;
       } else {
-        placement.top = bounds.top + ((bounds.bottom - bounds.top - placement.height) * vertical);
+        placement.top = bounds.top + (bounds.bottom - bounds.top - placement.height) * vertical;
       }
     }
   } else {
@@ -116,12 +154,15 @@ export async function handleAlignShapesOrDistributeShapes(context, op) {
     }
     const order = placements
       .map((placement, index) => ({ placement, index }))
-      .sort((left, right) => (direction === 'horizontal'
-        ? left.placement.left - right.placement.left
-        : left.placement.top - right.placement.top));
-    const total = direction === 'horizontal'
-      ? bounds.right - bounds.left - order.reduce((sum, entry) => sum + entry.placement.width, 0)
-      : bounds.bottom - bounds.top - order.reduce((sum, entry) => sum + entry.placement.height, 0);
+      .sort((left, right) =>
+        direction === 'horizontal'
+          ? left.placement.left - right.placement.left
+          : left.placement.top - right.placement.top
+      );
+    const total =
+      direction === 'horizontal'
+        ? bounds.right - bounds.left - order.reduce((sum, entry) => sum + entry.placement.width, 0)
+        : bounds.bottom - bounds.top - order.reduce((sum, entry) => sum + entry.placement.height, 0);
     const gap = total / Math.max(1, order.length - 1);
     let cursor = direction === 'horizontal' ? bounds.left : bounds.top;
     for (const entry of order) {
@@ -134,13 +175,18 @@ export async function handleAlignShapesOrDistributeShapes(context, op) {
       }
     }
   }
-  const updates = new Map(selected.map((shape, index) => [shape.start, {
-    xml: updateShapeGeometry(shape.xml, {
-      left: placements[index].left,
-      top: placements[index].top,
-    }),
-    end: shape.end,
-  }]));
+  const updates = new Map(
+    selected.map((shape, index) => [
+      shape.start,
+      {
+        xml: updateShapeGeometry(shape.xml, {
+          left: placements[index].left,
+          top: placements[index].top,
+        }),
+        end: shape.end,
+      },
+    ])
+  );
   let inner = '';
   let cursor = 0;
   for (const shape of shapes) {
@@ -153,7 +199,6 @@ export async function handleAlignShapesOrDistributeShapes(context, op) {
   zip.file(path, `${current.slice(0, tree.start)}${inner}${current.slice(tree.end)}`);
   return { op: op.op, changed: true, slide: Number(op.slide), shapes: numbers.length };
 }
-
 
 export async function handleSetText(context, op) {
   const { zip } = context;
@@ -175,12 +220,13 @@ export async function handleSetText(context, op) {
   return { op: op.op, changed: true };
 }
 
-
 // The ink a filled shape can carry: white on a dark card, near-black on a light
 // one, and nothing at all when the fill is a theme reference or absent, so the
 // inherited colour keeps deciding.
 function inkOnFill(fill) {
-  const field = String(fill || '').replace(/^#/, '').toUpperCase();
+  const field = String(fill || '')
+    .replace(/^#/, '')
+    .toUpperCase();
   if (!/^[0-9A-F]{6}$/.test(field)) return undefined;
   return (contrastRatio('FFFFFF', field) ?? 0) >= (contrastRatio('1F2429', field) ?? 0) ? 'FFFFFF' : '1F2429';
 }
@@ -197,9 +243,8 @@ export async function handleAddTextboxOrAddShape(context, op) {
   if (!geometry) {
     throw new Error(`Unsupported shapeType: ${op.shapeType}. Use one of: ${supportedShapeTypes().join(', ')}`);
   }
-  const paragraphs = Array.isArray(op.paragraphs) && op.paragraphs.length
-    ? op.paragraphs
-    : [{ text: String(op.text ?? '') }];
+  const paragraphs =
+    Array.isArray(op.paragraphs) && op.paragraphs.length ? op.paragraphs : [{ text: String(op.text ?? '') }];
   const shape = shapeXml({
     id,
     name: String(op.name || '').trim() || `Mixdog ${textBox ? 'TextBox' : 'Shape'} ${id}`,
@@ -237,7 +282,6 @@ export async function handleAddTextboxOrAddShape(context, op) {
   return { op: op.op, changed: true, shapeId: id };
 }
 
-
 export async function handleDeleteShape(context, op) {
   const { zip } = context;
   const slides = context.slides;
@@ -252,7 +296,6 @@ export async function handleDeleteShape(context, op) {
   zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);
   return { op: op.op, changed: true };
 }
-
 
 export async function handleAddTable(context, op) {
   const { zip } = context;
@@ -272,7 +315,6 @@ export async function handleAddTable(context, op) {
   zip.file(path, appendSlideShape(current, table));
   return { op: op.op, changed: true, shapeId: id };
 }
-
 
 export async function handleAddImage(context, op) {
   const { zip } = context;
@@ -319,7 +361,6 @@ export async function handleAddImage(context, op) {
   };
 }
 
-
 export async function handleFitText(context, op) {
   const { zip } = context;
   const slides = context.slides;
@@ -341,8 +382,14 @@ export async function handleFitText(context, op) {
   };
   const minimumFontSize = Math.max(1, Number(op.minFontSize) || 8);
   const fitted = shrinkFontSizeToFit(paragraphs, {
-    width: Math.max(1, (Number(extent[1]) / 12_700) - inset('lIns', DEFAULT_TEXT_INSETS.left) - inset('rIns', DEFAULT_TEXT_INSETS.right)),
-    height: Math.max(1, (Number(extent[2]) / 12_700) - inset('tIns', DEFAULT_TEXT_INSETS.top) - inset('bIns', DEFAULT_TEXT_INSETS.bottom)),
+    width: Math.max(
+      1,
+      Number(extent[1]) / 12_700 - inset('lIns', DEFAULT_TEXT_INSETS.left) - inset('rIns', DEFAULT_TEXT_INSETS.right)
+    ),
+    height: Math.max(
+      1,
+      Number(extent[2]) / 12_700 - inset('tIns', DEFAULT_TEXT_INSETS.top) - inset('bIns', DEFAULT_TEXT_INSETS.bottom)
+    ),
     minimumFontSize,
   });
   if (!fitted.scale) {
@@ -350,9 +397,10 @@ export async function handleFitText(context, op) {
   }
   const changed = fitted.scale < 1;
   const updated = changed
-    ? shape.xml.replace(/\bsz="(\d+)"/g, (_, size) => (
-      `sz="${Math.max(minimumFontSize * 100, Math.round(Number(size) * fitted.scale))}"`
-    ))
+    ? shape.xml.replace(
+        /\bsz="(\d+)"/g,
+        (_, size) => `sz="${Math.max(minimumFontSize * 100, Math.round(Number(size) * fitted.scale))}"`
+      )
     : shape.xml;
   if (changed) {
     const nextInner = `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`;
@@ -369,7 +417,6 @@ export async function handleFitText(context, op) {
     fontSize: Math.max(...fitted.sizes.map((size) => Number(size) || 0), 0) || undefined,
   };
 }
-
 
 export async function handleSetTableDataOrReplaceImage(context, op) {
   const { zip } = context;
@@ -419,7 +466,6 @@ export async function handleSetTableDataOrReplaceImage(context, op) {
   return { op: op.op, changed: updated !== shape.xml, slide: Number(op.slide), ...detail };
 }
 
-
 export async function handleGroupShapesOrUngroupShape(context, op) {
   const { zip } = context;
   const slides = context.slides;
@@ -439,7 +485,9 @@ export async function handleGroupShapesOrUngroupShape(context, op) {
     zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);
     return { op: op.op, changed: true, slide: Number(op.slide), shape: Number(op.shape) };
   }
-  const numbers = Array.isArray(op.shapes) ? [...new Set(op.shapes.map(Number))].sort((left, right) => left - right) : [];
+  const numbers = Array.isArray(op.shapes)
+    ? [...new Set(op.shapes.map(Number))].sort((left, right) => left - right)
+    : [];
   if (numbers.length < 2) throw new Error('group_shapes requires at least two shapes');
   const { shapes, selected } = selectedShapeSpans(tree, numbers);
   const frames = selected.map((shape) => shapeFrame(shape.xml));
@@ -449,15 +497,16 @@ export async function handleGroupShapesOrUngroupShape(context, op) {
   const right = Math.max(...frames.map((frame) => frame.left + frame.width));
   const bottom = Math.max(...frames.map((frame) => frame.top + frame.height));
   const id = nextShapeId(current);
-  const group = `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${id}" name="Group ${id}"/>`
-    + '<p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
-    + `<p:grpSpPr><a:xfrm><a:off x="${toEmu(left)}" y="${toEmu(top)}"/>`
-    + `<a:ext cx="${Math.max(1, toEmu(right - left))}" cy="${Math.max(1, toEmu(bottom - top))}"/>`
-    + `<a:chOff x="${toEmu(left)}" y="${toEmu(top)}"/>`
-    + `<a:chExt cx="${Math.max(1, toEmu(right - left))}" cy="${Math.max(1, toEmu(bottom - top))}"/>`
-    + '</a:xfrm></p:grpSpPr>'
-    + selected.map((shape) => shape.xml).join('')
-    + '</p:grpSp>';
+  const group =
+    `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${id}" name="Group ${id}"/>` +
+    '<p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>' +
+    `<p:grpSpPr><a:xfrm><a:off x="${toEmu(left)}" y="${toEmu(top)}"/>` +
+    `<a:ext cx="${Math.max(1, toEmu(right - left))}" cy="${Math.max(1, toEmu(bottom - top))}"/>` +
+    `<a:chOff x="${toEmu(left)}" y="${toEmu(top)}"/>` +
+    `<a:chExt cx="${Math.max(1, toEmu(right - left))}" cy="${Math.max(1, toEmu(bottom - top))}"/>` +
+    '</a:xfrm></p:grpSpPr>' +
+    selected.map((shape) => shape.xml).join('') +
+    '</p:grpSp>';
   const anchors = new Set(selected.map((shape) => shape.start));
   let inner = '';
   let cursor = 0;
@@ -471,7 +520,6 @@ export async function handleGroupShapesOrUngroupShape(context, op) {
   return { op: op.op, changed: true, slide: Number(op.slide), shapes: numbers.length, shapeId: id };
 }
 
-
 export async function handleAddMedia(context, op) {
   const { zip } = context;
   const slides = context.slides;
@@ -479,11 +527,19 @@ export async function handleAddMedia(context, op) {
   const current = await zipText(zip, path);
   const kind = String(op.kind || 'video').toLowerCase();
   if (!['video', 'audio'].includes(kind)) throw new Error('add_media kind must be video or audio');
-  const extension = extname(String(op.path || '')).replace(/^\./, '').toLowerCase();
+  const extension = extname(String(op.path || ''))
+    .replace(/^\./, '')
+    .toLowerCase();
   if (!extension) throw new Error('add_media requires a media file path');
   const mediaTypes = {
-    mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
-    wmv: 'video/x-ms-wmv', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav',
+    mp4: 'video/mp4',
+    m4v: 'video/mp4',
+    mov: 'video/quicktime',
+    avi: 'video/x-msvideo',
+    wmv: 'video/x-ms-wmv',
+    mp3: 'audio/mpeg',
+    m4a: 'audio/mp4',
+    wav: 'audio/wav',
   };
   const contentType = mediaTypes[extension];
   if (!contentType) {
@@ -500,32 +556,34 @@ export async function handleAddMedia(context, op) {
     zip,
     partRelationshipPath(path),
     `http://schemas.microsoft.com/office/2007/relationships/media`,
-    relative,
+    relative
   );
   const linkId = await addPackageRelationship(
     zip,
     partRelationshipPath(path),
     `${OFFICE_RELATIONSHIP_BASE}/${kind}`,
-    relative,
+    relative
   );
   const poster = await addSlideImage(zip, path, op.poster);
   const id = nextShapeId(current);
-  const shape = '<p:pic><p:nvPicPr>'
-    + `<p:cNvPr id="${id}" name="${xmlEncode(posix.basename(mediaPart))}"${op.altText ? ` descr="${xmlEncode(String(op.altText))}"` : ''}>`
-    + '<a:hlinkClick xmlns:a="' + DRAWING_MAIN_NS + '" r:id="" action="ppaction://media"/></p:cNvPr>'
-    + '<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr>'
-    + `<p:nvPr><a:${kind}File xmlns:a="${DRAWING_MAIN_NS}" r:link="${linkId}"/>`
-    + `<p:extLst><p:ext uri="{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}">`
-    + `<p14:media xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" r:embed="${mediaId}"/>`
-    + '</p:ext></p:extLst></p:nvPr></p:nvPicPr>'
-    + `<p:blipFill><a:blip r:embed="${poster.relationshipId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>`
-    + `<p:spPr><a:xfrm><a:off x="${toEmu(op.left ?? 72)}" y="${toEmu(op.top ?? 72)}"/>`
-    + `<a:ext cx="${Math.max(1, toEmu(op.width ?? 360))}" cy="${Math.max(1, toEmu(op.height ?? 240))}"/></a:xfrm>`
-    + '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>';
+  const shape =
+    '<p:pic><p:nvPicPr>' +
+    `<p:cNvPr id="${id}" name="${xmlEncode(posix.basename(mediaPart))}"${op.altText ? ` descr="${xmlEncode(String(op.altText))}"` : ''}>` +
+    '<a:hlinkClick xmlns:a="' +
+    DRAWING_MAIN_NS +
+    '" r:id="" action="ppaction://media"/></p:cNvPr>' +
+    '<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr>' +
+    `<p:nvPr><a:${kind}File xmlns:a="${DRAWING_MAIN_NS}" r:link="${linkId}"/>` +
+    `<p:extLst><p:ext uri="{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}">` +
+    `<p14:media xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" r:embed="${mediaId}"/>` +
+    '</p:ext></p:extLst></p:nvPr></p:nvPicPr>' +
+    `<p:blipFill><a:blip r:embed="${poster.relationshipId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>` +
+    `<p:spPr><a:xfrm><a:off x="${toEmu(op.left ?? 72)}" y="${toEmu(op.top ?? 72)}"/>` +
+    `<a:ext cx="${Math.max(1, toEmu(op.width ?? 360))}" cy="${Math.max(1, toEmu(op.height ?? 240))}"/></a:xfrm>` +
+    '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>';
   zip.file(path, appendSlideShape(await zipText(zip, path), shape));
   return { op: op.op, changed: true, slide: Number(op.slide), media: mediaPart, kind };
 }
-
 
 export async function handleCropImage(context, op) {
   const { zip } = context;
@@ -547,7 +605,6 @@ export async function handleCropImage(context, op) {
   zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);
   return { op: op.op, changed: true, slide: Number(op.slide), shape: Number(op.shape) };
 }
-
 
 export async function handleAddAnimation(context, op) {
   const { zip } = context;
@@ -572,7 +629,10 @@ export async function handleAddAnimation(context, op) {
   // Every other multiword value in this runtime is written with a separator
   // (outside_end, section_next), so on_click and after_previous name the same
   // triggers as onclick and afterprevious.
-  const named = (value) => String(value || '').toLowerCase().replace(/[\s_-]+/g, '');
+  const named = (value) =>
+    String(value || '')
+      .toLowerCase()
+      .replace(/[\s_-]+/g, '');
   const requested = named(op.effect) || 'fade';
   if (!Object.hasOwn(effects, requested)) {
     throw new Error(`add_animation effect must be one of: ${Object.keys(effects).join(', ')}`);
@@ -586,36 +646,40 @@ export async function handleAddAnimation(context, op) {
   const duration = Math.max(1, Math.round((Number(op.duration) > 0 ? Number(op.duration) : 0.5) * 1000));
   const delay = Math.max(0, Math.round((Number(op.delay) > 0 ? Number(op.delay) : 0) * 1000));
   const existing = /<p:timing>[\s\S]*?<\/p:timing>/.exec(current)?.[0] || '';
-  let nextId = Math.max(2, ...[...existing.matchAll(/<p:cTn\b[^>]*\bid="(\d+)"/g)]
-    .map((match) => Number(match[1]))) + 1;
+  let nextId =
+    Math.max(2, ...[...existing.matchAll(/<p:cTn\b[^>]*\bid="(\d+)"/g)].map((match) => Number(match[1]))) + 1;
   const id = () => nextId++;
   const target = `<p:tgtEl><p:spTgt spid="${shapeId}"/></p:tgtEl>`;
-  const behaviour = `<p:set><p:cBhvr><p:cTn id="${id()}" dur="1" fill="hold">`
-    + '<p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn>'
-    + `${target}<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr>`
-    + '<p:to><p:strVal val="visible"/></p:to></p:set>'
-    + (effect.filter
-      ? `<p:animEffect transition="in" filter="${effect.filter}"><p:cBhvr>`
-        + `<p:cTn id="${id()}" dur="${duration}"/>${target}</p:cBhvr></p:animEffect>`
+  const behaviour =
+    `<p:set><p:cBhvr><p:cTn id="${id()}" dur="1" fill="hold">` +
+    '<p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn>' +
+    `${target}<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr>` +
+    '<p:to><p:strVal val="visible"/></p:to></p:set>' +
+    (effect.filter
+      ? `<p:animEffect transition="in" filter="${effect.filter}"><p:cBhvr>` +
+        `<p:cTn id="${id()}" dur="${duration}"/>${target}</p:cBhvr></p:animEffect>`
       : '');
-  const node = `<p:par><p:cTn id="${id()}" presetID="${effect.presetID}" presetClass="entr"`
-    + ` presetSubtype="0" fill="hold" grpId="0" nodeType="${triggers[trigger]}">`
-    + `<p:stCondLst><p:cond delay="${delay}"/></p:stCondLst>`
-    + `<p:childTnLst>${behaviour}</p:childTnLst></p:cTn></p:par>`;
-  const group = `<p:par><p:cTn id="${id()}" fill="hold">`
-    + '<p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst>'
-    + `<p:par><p:cTn id="${id()}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst>`
-    + `<p:childTnLst>${node}</p:childTnLst></p:cTn></p:par>`
-    + '</p:childTnLst></p:cTn></p:par>';
+  const node =
+    `<p:par><p:cTn id="${id()}" presetID="${effect.presetID}" presetClass="entr"` +
+    ` presetSubtype="0" fill="hold" grpId="0" nodeType="${triggers[trigger]}">` +
+    `<p:stCondLst><p:cond delay="${delay}"/></p:stCondLst>` +
+    `<p:childTnLst>${behaviour}</p:childTnLst></p:cTn></p:par>`;
+  const group =
+    `<p:par><p:cTn id="${id()}" fill="hold">` +
+    '<p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst>' +
+    `<p:par><p:cTn id="${id()}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst>` +
+    `<p:childTnLst>${node}</p:childTnLst></p:cTn></p:par>` +
+    '</p:childTnLst></p:cTn></p:par>';
   let timing;
   if (!existing) {
-    timing = '<p:timing><p:tnLst><p:par>'
-      + `<p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>`
-      + '<p:seq concurrent="1" nextAc="seek">'
-      + `<p:cTn id="${id()}" dur="indefinite" nodeType="mainSeq"><p:childTnLst>${group}</p:childTnLst></p:cTn>`
-      + '<p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst>'
-      + '<p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst>'
-      + '</p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>';
+    timing =
+      '<p:timing><p:tnLst><p:par>' +
+      `<p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>` +
+      '<p:seq concurrent="1" nextAc="seek">' +
+      `<p:cTn id="${id()}" dur="indefinite" nodeType="mainSeq"><p:childTnLst>${group}</p:childTnLst></p:cTn>` +
+      '<p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst>' +
+      '<p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst>' +
+      '</p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>';
   } else {
     const head = /<p:cTn\b[^>]*\bnodeType="mainSeq"[^>]*>/.exec(existing);
     const sequence = head ? balancedInner(existing, head.index + head[0].length, 'p:childTnLst') : null;
@@ -644,7 +708,6 @@ export async function handleAddAnimation(context, op) {
     trigger,
   };
 }
-
 
 export async function handleSetShape(context, op) {
   const { zip } = context;

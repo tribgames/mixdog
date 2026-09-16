@@ -49,12 +49,17 @@ const {
 } = require('../runtime/shared/profile-config.cjs');
 
 function readOptional(filePath) {
-  try { return fs.readFileSync(filePath, 'utf8').trim(); } catch { return ''; }
+  try {
+    return fs.readFileSync(filePath, 'utf8').trim();
+  } catch {
+    return '';
+  }
 }
 
 function readMarkdownDirectory(dirPath) {
   try {
-    return fs.readdirSync(dirPath)
+    return fs
+      .readdirSync(dirPath)
       .filter((name) => name.endsWith('.md'))
       .sort()
       .map((name) => readOptional(path.join(dirPath, name)))
@@ -78,10 +83,11 @@ function readAgentConfig(dataDir) {
   return unified.agent && typeof unified.agent === 'object' ? unified.agent : unified;
 }
 
-
 function systemLocaleId(locale) {
   let parsed = null;
-  try { parsed = new Intl.Locale(locale || ''); } catch {}
+  try {
+    parsed = new Intl.Locale(locale || '');
+  } catch {}
   const language = parsed?.language || String(locale || '').split(/[-_]/)[0] || '';
   if (language === 'zh') {
     const script = parsed?.script;
@@ -95,9 +101,7 @@ function profileLanguagePrompt(language) {
   const selected = String(language || 'system');
   if (selected !== 'system') {
     const prompt = profileLanguageEntry(selected).prompt;
-    return prompt
-      ? { prompt, source: 'profile', locale: null }
-      : null;
+    return prompt ? { prompt, source: 'profile', locale: null } : null;
   }
   const locale = Intl.DateTimeFormat().resolvedOptions().locale || '';
   const id = systemLocaleId(locale);
@@ -111,11 +115,15 @@ function buildProfilePreferencesContent(dataDir) {
   const profile = normalizeProfileConfig(readAgentConfig(dataDir).profile);
   const lines = [];
   if (profile.title) {
-    lines.push(`- Address the user as "${profile.title}"; omit the title from routine progress updates and pre-tool preambles.`);
+    lines.push(
+      `- Address the user as "${profile.title}"; omit the title from routine progress updates and pre-tool preambles.`
+    );
   }
   const experience = profileExperienceLevelEntry(profile.experienceLevel);
   if (experience) {
-    lines.push(`- Development experience: ${experience.label}. ${PROFILE_EXPERIENCE_PROMPTS[experience.id]} Output style controls information depth.`);
+    lines.push(
+      `- Development experience: ${experience.label}. ${PROFILE_EXPERIENCE_PROMPTS[experience.id]} Output style controls information depth.`
+    );
   }
   // No configured preference means no section: a bare heading would ship an
   // empty block to every model that has neither a title nor an experience level.
@@ -135,14 +143,16 @@ function buildLanguageSection(dataDir) {
   // mistranslate, so the two clauses would be dead text.
   if (language.prompt !== 'English') {
     lines.push(
-      `- Preserve identifiers, paths, commands, API names, and exact errors. For technical jargon, use the established term or a plain functional description, never an invented literal translation.`,
+      `- Preserve identifiers, paths, commands, API names, and exact errors. For technical jargon, use the established term or a plain functional description, never an invented literal translation.`
     );
   }
   return `# Language\n\n${lines.join('\n')}`;
 }
 
 function stripFrontmatter(markdown) {
-  return String(markdown || '').replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '').trim();
+  return String(markdown || '')
+    .replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '')
+    .trim();
 }
 
 // Tool dependency is declared as metadata, not matched against prose. A
@@ -154,7 +164,10 @@ const TOOL_MARKER_RE = /^[ \t]*<!--[ \t]*tools:[ \t]*([^>]*?)[ \t]*-->[ \t]*$/;
 function markerTools(line) {
   const match = TOOL_MARKER_RE.exec(String(line ?? ''));
   if (!match) return null;
-  return match[1].split(',').map((name) => name.trim().toLowerCase()).filter(Boolean);
+  return match[1]
+    .split(',')
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 // A marked block runs from the line after the marker through every deeper
@@ -173,7 +186,9 @@ function markedBlockEnd(lines, start) {
 }
 
 function omitKeySet(omitTools) {
-  return new Set((Array.isArray(omitTools) ? omitTools : []).map((name) => String(name || '').toLowerCase()).filter(Boolean));
+  return new Set(
+    (Array.isArray(omitTools) ? omitTools : []).map((name) => String(name || '').toLowerCase()).filter(Boolean)
+  );
 }
 
 /** Drop routing clauses for tools that are not on the session surface. */
@@ -198,13 +213,18 @@ function omitToolRoutes(text, omitTools = [], allowTools = null) {
     }
     index = end;
   }
-  return kept.join('\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return kept
+    .join('\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 // Framing line under the style header: the block owns user-facing prose only,
 // so a style (including a `keep-shared-format: false` replacement) never reads
 // as guidance for code or tool payloads.
-const OUTPUT_STYLE_ANCHOR = 'The section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.';
+const OUTPUT_STYLE_ANCHOR =
+  'The section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.';
 
 function listOutputStyleEntries({ PLUGIN_ROOT, DATA_DIR }) {
   const byId = new Map();
@@ -213,7 +233,12 @@ function listOutputStyleEntries({ PLUGIN_ROOT, DATA_DIR }) {
     { dir: path.join(DATA_DIR, 'output-styles'), source: 'user' },
   ]) {
     let files = [];
-    try { files = fs.readdirSync(dir).filter((name) => name.toLowerCase().endsWith('.md')).sort(); } catch {}
+    try {
+      files = fs
+        .readdirSync(dir)
+        .filter((name) => name.toLowerCase().endsWith('.md'))
+        .sort();
+    } catch {}
     for (const name of files) {
       const raw = readOptional(path.join(dir, name));
       const meta = raw ? outputStyleMetaFromMarkdown(raw, name) : null;
@@ -225,8 +250,10 @@ function listOutputStyleEntries({ PLUGIN_ROOT, DATA_DIR }) {
 
 /** Shared format partial: a user copy in DATA_DIR overrides the built-in one. */
 function readSharedFormatPartial({ PLUGIN_ROOT, DATA_DIR }) {
-  return stripFrontmatter(readOptional(path.join(DATA_DIR, 'output-styles', 'common.md')))
-    || stripFrontmatter(readOptional(path.join(PLUGIN_ROOT, 'output-styles', 'common.md')));
+  return (
+    stripFrontmatter(readOptional(path.join(DATA_DIR, 'output-styles', 'common.md'))) ||
+    stripFrontmatter(readOptional(path.join(PLUGIN_ROOT, 'output-styles', 'common.md')))
+  );
 }
 
 function loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
@@ -234,9 +261,7 @@ function loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
   // `agent.outputStyle` key is dropped by config canonicalization.
   const configured = String(readUnifiedConfig(DATA_DIR).outputStyle || '').trim() || DEFAULT_OUTPUT_STYLE_ID;
   const styles = listOutputStyleEntries({ PLUGIN_ROOT, DATA_DIR });
-  const style = matchOutputStyle(configured, styles)
-    || matchOutputStyle(DEFAULT_OUTPUT_STYLE_ID, styles)
-    || styles[0];
+  const style = matchOutputStyle(configured, styles) || matchOutputStyle(DEFAULT_OUTPUT_STYLE_ID, styles) || styles[0];
   if (!style) return '';
   const selected = stripFrontmatter(style.raw);
   if (!selected) return '';

@@ -29,33 +29,39 @@ import { resolveToolCompletionSessionId } from '../src/runtime/agent/orchestrato
 
 const advisoryTest = process.env.MIXDOG_TEST_ADVISORY === '1' ? test : test.skip;
 
-const failAfter = (ms, message) => new Promise((_, reject) => {
-  setTimeout(() => reject(new Error(message)), ms);
-});
+const failAfter = (ms, message) =>
+  new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(message)), ms);
+  });
 
 test('background tool completion stays with the invoking agent session', () => {
-  assert.equal(resolveToolCompletionSessionId({
-    callerSessionId: 'sess_agent',
-    ownerSessionId: 'sess_lead',
-    requestedNotificationSessionId: 'sess_lead',
-  }), 'sess_agent');
+  assert.equal(
+    resolveToolCompletionSessionId({
+      callerSessionId: 'sess_agent',
+      ownerSessionId: 'sess_lead',
+      requestedNotificationSessionId: 'sess_lead',
+    }),
+    'sess_agent'
+  );
 });
 
 test('provider failures expose concise capacity, session-state, and retry reasons', () => {
   assert.equal(
     presentErrorText(new Error('The model is currently at capacity due to high demand. https://example.invalid')),
-    'Provider is busy at capacity.',
+    'Provider is busy at capacity.'
   );
   assert.equal(
-    presentErrorText(Object.assign(new Error('provider message prefix changed outside compaction'), {
-      name: 'ProviderPrefixMutationError',
-      code: 'PROVIDER_PREFIX_MUTATION',
-    })),
-    'Session state changed unexpectedly.',
+    presentErrorText(
+      Object.assign(new Error('provider message prefix changed outside compaction'), {
+        name: 'ProviderPrefixMutationError',
+        code: 'PROVIDER_PREFIX_MUTATION',
+      })
+    ),
+    'Session state changed unexpectedly.'
   );
   assert.equal(
     presentErrorText(new Error('Anthropic OAuth API 429 quota/rate limit retryAfter=214641s')),
-    'Anthropic quota/rate limit hit; retry after 2d 11h 37m.',
+    'Anthropic quota/rate limit hit; retry after 2d 11h 37m.'
   );
   assert.equal(
     providerRetryStatusText(new Error('first byte timed out after 60000ms'), {
@@ -63,7 +69,7 @@ test('provider failures expose concise capacity, session-state, and retry reason
       maxAttempts: 5,
       delayMs: 2_000,
     }),
-    'No first response 1m · retry 3/5 in 2s',
+    'No first response 1m · retry 3/5 in 2s'
   );
 });
 
@@ -99,7 +105,9 @@ test('canonical runtime context snapshot wins over stale published stats', () =>
   const context = createContextState({
     runtime,
     getState: () => state,
-    updateState: (patch) => { state = { ...state, ...patch }; },
+    updateState: (patch) => {
+      state = { ...state, ...patch };
+    },
     getPendingSessionReset: () => false,
   });
 
@@ -133,26 +141,32 @@ test('Lead pool rows never enter the agent-tool closeAll registry', () => {
     closed: false,
   };
   try {
-    writeFileSync(join(dataDir, WORKER_INDEX_FILE), JSON.stringify({
-      version: 2,
-      workers: {
-        [lead.id]: {
-          tag: lead.agentTag,
-          sessionId: lead.id,
-          ownerSessionId: lead.id,
-          agent: lead.agent,
-          status: lead.status,
+    writeFileSync(
+      join(dataDir, WORKER_INDEX_FILE),
+      JSON.stringify({
+        version: 2,
+        workers: {
+          [lead.id]: {
+            tag: lead.agentTag,
+            sessionId: lead.id,
+            ownerSessionId: lead.id,
+            agent: lead.agent,
+            status: lead.status,
+          },
+          [worker.id]: {
+            tag: worker.agentTag,
+            sessionId: worker.id,
+            ownerSessionId: lead.id,
+            agent: worker.agent,
+            status: worker.status,
+          },
         },
-        [worker.id]: {
-          tag: worker.agentTag,
-          sessionId: worker.id,
-          ownerSessionId: lead.id,
-          agent: worker.agent,
-          status: worker.status,
-        },
-      },
-    }));
-    const sessions = new Map([[lead.id, lead], [worker.id, worker]]);
+      })
+    );
+    const sessions = new Map([
+      [lead.id, lead],
+      [worker.id, worker],
+    ]);
     const registry = createTagRegistry({
       dataDir,
       cfgMod: { loadConfig: () => ({}) },
@@ -169,7 +183,7 @@ test('Lead pool rows never enter the agent-tool closeAll registry', () => {
     assert.equal(registry.tags.get(worker.agentTag), worker.id);
     assert.deepEqual(
       registry.agentSessionEntries().map(({ session }) => session.id),
-      [worker.id],
+      [worker.id]
     );
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
@@ -180,10 +194,16 @@ advisoryTest('an explicitly addressed route change preserves an empty session id
   const empty = { id: 'reserved-session', messages: [], liveTurnMessages: [] };
   assert.equal(shouldRecreateEmptySessionForRouteChange(empty, true), false);
   assert.equal(shouldRecreateEmptySessionForRouteChange(empty, false), true);
-  assert.equal(shouldRecreateEmptySessionForRouteChange({
-    ...empty,
-    messages: [{ role: 'user', content: 'already started' }],
-  }, false), false);
+  assert.equal(
+    shouldRecreateEmptySessionForRouteChange(
+      {
+        ...empty,
+        messages: [{ role: 'user', content: 'already started' }],
+      },
+      false
+    ),
+    false
+  );
 });
 
 function makeTurnHarness({
@@ -213,7 +233,9 @@ function makeTurnHarness({
     getMode: () => 'full',
     setMode: () => {},
     getActiveTurnCount: () => activeTurnCount,
-    setActiveTurnCount: (value) => { activeTurnCount = value; },
+    setActiveTurnCount: (value) => {
+      activeTurnCount = value;
+    },
     isFirstTurnCompleted: () => true,
     setFirstTurnCompleted: () => {},
     getCodeGraphFirstTurnPrewarmDone: () => true,
@@ -228,12 +250,16 @@ function makeTurnHarness({
     getReservedSessionId: () => null,
     registerActiveTurnController: (controller) => {
       activeController = controller;
-      return () => { unregistered = true; };
+      return () => {
+        unregistered = true;
+      };
     },
     awaitRoutePreparation,
     refreshSessionForCwdIfNeeded: async () => session,
     beginTurnSnapshotForTurn,
-    cancelTurnSnapshotForTurn: () => { cancelledSnapshot = true; },
+    cancelTurnSnapshotForTurn: () => {
+      cancelledSnapshot = true;
+    },
     completeTurnSnapshotForTurn: async () => {},
     turnCleanupSettleMs,
     hooks: { emit: () => {}, dispatch: hookDispatch },
@@ -286,7 +312,9 @@ test('abort-aware waits never start work cancelled before its first microtask', 
     const reason = new SessionClosedError('abort-before-start', 'test abort', 'user-cancel');
     let calls = 0;
     if (alreadyAborted) controller.abort(reason);
-    const waiting = runAbortable(controller.signal, () => { calls += 1; });
+    const waiting = runAbortable(controller.signal, () => {
+      calls += 1;
+    });
     if (!alreadyAborted) controller.abort(reason);
     await assert.rejects(waiting, (error) => error === reason);
     assert.equal(calls, 0);
@@ -346,7 +374,9 @@ test('runtime ask aborts while route preparation is permanently pending', async 
 
 test('runtime ask aborts while a prompt hook ignores cancellation', async () => {
   let enterHook;
-  const hookEntered = new Promise((resolve) => { enterHook = resolve; });
+  const hookEntered = new Promise((resolve) => {
+    enterHook = resolve;
+  });
   const harness = makeTurnHarness({
     sessionId: 'hook-hang',
     hookDispatch: async (name) => {
@@ -358,9 +388,7 @@ test('runtime ask aborts while a prompt hook ignores cancellation', async () => 
 
   const asking = harness.api.ask('blocked by prompt hook');
   await hookEntered;
-  harness.getActiveController().abort(
-    new SessionClosedError('hook-hang', 'prompt hook aborted', 'user-cancel'),
-  );
+  harness.getActiveController().abort(new SessionClosedError('hook-hang', 'prompt hook aborted', 'user-cancel'));
   await Promise.race([
     assert.rejects(asking, (error) => error?.name === 'SessionClosedError'),
     failAfter(200, 'runtime ask remained pinned by prompt hook'),
@@ -392,7 +420,9 @@ test('local main turns persist user and assistant conversation without Remote', 
   };
   const harness = makeTurnHarness({
     transcriptWriter: writer,
-    ensureSessionTranscriptWriter: () => { ensured += 1; },
+    ensureSessionTranscriptWriter: () => {
+      ensured += 1;
+    },
     askSession: async (...args) => {
       args[7]?.onAssistantText?.('local reply');
       return { content: 'local reply' };
@@ -427,14 +457,17 @@ test('running shell output is progress until the terminal completion arrives', (
   });
   assert.equal(runningCard.labelText, 'Shell progress');
   assert.equal(runningCard.isBackgroundResponse, false);
-  const runningDelivery = resolveTuiRuntimeNotificationDelivery({
-    content: runningText,
-    meta: {
-      execution_id: 'shell-1',
-      execution_surface: 'shell',
-      status: 'running',
+  const runningDelivery = resolveTuiRuntimeNotificationDelivery(
+    {
+      content: runningText,
+      meta: {
+        execution_id: 'shell-1',
+        execution_surface: 'shell',
+        status: 'running',
+      },
     },
-  }, runningText);
+    runningText
+  );
   assert.equal(runningDelivery.action, 'execution-ui');
   assert.equal(runningDelivery.modelContent, '');
   assert.deepEqual(runningDelivery.executionMeta, {
@@ -454,14 +487,17 @@ test('running shell output is progress until the terminal completion arrives', (
   });
   assert.equal(completedCard.labelText, 'Shell output');
   assert.equal(completedCard.isBackgroundResponse, true);
-  const completedDelivery = resolveTuiRuntimeNotificationDelivery({
-    content: completedText,
-    meta: {
-      execution_id: 'shell-1',
-      execution_surface: 'shell',
-      status: 'completed',
+  const completedDelivery = resolveTuiRuntimeNotificationDelivery(
+    {
+      content: completedText,
+      meta: {
+        execution_id: 'shell-1',
+        execution_surface: 'shell',
+        status: 'completed',
+      },
     },
-  }, completedText);
+    completedText
+  );
   assert.match(completedDelivery.modelContent, /^Async shell shell-1 completed finished\./i);
 });
 

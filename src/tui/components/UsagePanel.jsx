@@ -61,7 +61,9 @@ function resetLabel(value) {
 }
 
 function isLocalEstimateWindow(w) {
-  const source = String(w?.source || '').trim().toLowerCase();
+  const source = String(w?.source || '')
+    .trim()
+    .toLowerCase();
   return !source || source.includes('local') || source.includes('config');
 }
 
@@ -115,19 +117,28 @@ function windowValue(w) {
     return { text: `${prefix}${Math.round(usedPct)}%`, color: estimated ? theme.warning : pctColor(usedPct) };
   }
   if (hasFiniteNumber(w?.remainingUsd)) {
-    return { text: `${prefix}${money(remainingUsd)}`, color: estimated ? theme.warning : remainingUsdColor(remainingUsd) };
+    return {
+      text: `${prefix}${money(remainingUsd)}`,
+      color: estimated ? theme.warning : remainingUsdColor(remainingUsd),
+    };
   }
   if (hasFiniteNumber(w?.usedUsd) && hasFiniteNumber(w?.limitUsd)) {
     return { text: `${prefix}${money(usedUsd)}/${money(limitUsd)}`, color: estimated ? theme.warning : theme.success };
   }
   if (hasFiniteNumber(w?.remainingCredits) && hasFiniteNumber(w?.limitCredits)) {
-    return { text: `${prefix}${compactNumber(remainingCredits)}/${compactNumber(limitCredits)}`, color: estimated ? theme.warning : creditsColor(w) };
+    return {
+      text: `${prefix}${compactNumber(remainingCredits)}/${compactNumber(limitCredits)}`,
+      color: estimated ? theme.warning : creditsColor(w),
+    };
   }
   if (hasFiniteNumber(w?.remainingCredits)) {
     return { text: `${prefix}${compactNumber(remainingCredits)}`, color: estimated ? theme.warning : creditsColor(w) };
   }
   if (hasFiniteNumber(w?.usedCredits) && hasFiniteNumber(w?.limitCredits)) {
-    return { text: `${prefix}${compactNumber(usedCredits)}/${compactNumber(limitCredits)}`, color: estimated ? theme.warning : creditsColor(w) };
+    return {
+      text: `${prefix}${compactNumber(usedCredits)}/${compactNumber(limitCredits)}`,
+      color: estimated ? theme.warning : creditsColor(w),
+    };
   }
   return { text: '', color: theme.subtle };
 }
@@ -243,14 +254,15 @@ export function UsagePanel({ dashboard, loading = false, columns = 80, fillHeigh
   const labelWidth = Math.max(12, Math.min(PROVIDER_LABEL_WIDTH, Math.max(12, Math.floor(columns * 0.45))));
   const statusWidth = Math.max(0, columns - indexWidth - labelWidth - 8);
   const panelTitle = dashboard?.title || 'Provider Quotas';
-  const panelDescription = truncate(dashboard?.subtitle || 'Statusline-style provider quota windows.', Math.max(0, columns - 4));
+  const panelDescription = truncate(
+    dashboard?.subtitle || 'Statusline-style provider quota windows.',
+    Math.max(0, columns - 4)
+  );
   const hasMeasuredRows = Number(panelRows) > 0;
   const maxProviderRows = hasMeasuredRows ? Math.max(1, Math.floor(panelRows) - 6) : rows.length;
   const maxScrollOffset = Math.max(0, rows.length - maxProviderRows);
   const [scrollOffset, setScrollOffset] = useState(0);
-  const visibleRows = hasMeasuredRows
-    ? rows.slice(scrollOffset, scrollOffset + maxProviderRows)
-    : rows;
+  const visibleRows = hasMeasuredRows ? rows.slice(scrollOffset, scrollOffset + maxProviderRows) : rows;
   const scrollable = rows.length > maxProviderRows;
   const helpText = `${scrollable || isLoading || isChecking ? '↑/↓ Scroll · PgUp/PgDn Page · ' : ''}Esc Back · /usage refresh`;
 
@@ -318,22 +330,31 @@ export function UsagePanel({ dashboard, loading = false, columns = 80, fillHeigh
               const statusParts = fitParts(rowStatusParts(row, columns, statusWidth), statusWidth);
               return (
                 <Box key={row.id} flexDirection="row" width="100%">
-                  <Text color={theme.subtle}>{index}{indexWidth > 0 ? ' ' : ''}</Text>
+                  <Text color={theme.subtle}>
+                    {index}
+                    {indexWidth > 0 ? ' ' : ''}
+                  </Text>
                   <Text color={theme.text}>{provider}</Text>
-                  <Text color={theme.inactive}>  </Text>
+                  <Text color={theme.inactive}> </Text>
                   <Box flexDirection="row" width={statusWidth}>
-                    {statusParts.map((part, partIdx) => (
-                      part.color
-                        ? <Text key={partIdx} color={part.color}>{part.text}</Text>
-                        : <Text key={partIdx}>{part.text}</Text>
-                    ))}
+                    {statusParts.map((part, partIdx) =>
+                      part.color ? (
+                        <Text key={partIdx} color={part.color}>
+                          {part.text}
+                        </Text>
+                      ) : (
+                        <Text key={partIdx}>{part.text}</Text>
+                      )
+                    )}
                   </Box>
                 </Box>
               );
             })}
 
             {rows.length === 0 ? (
-              <Box marginTop={1}><Text color={theme.inactive}>No providers configured.</Text></Box>
+              <Box marginTop={1}>
+                <Text color={theme.inactive}>No providers configured.</Text>
+              </Box>
             ) : null}
           </>
         )}

@@ -12,7 +12,8 @@ import { workspace } from './office-test-support.mjs';
 test('authored relationships survive the file and distinguish adjacent metric rows from prose', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'relations.pptx');
-  const authored = await runPptxAuthoringScript(`
+  const authored = await runPptxAuthoringScript(
+    `
     const P = require('pptxgenjs'); const p = new P(); p.layout = 'LAYOUT_WIDE';
     const s = p.addSlide();
     for (let i = 0; i < 3; i++) {
@@ -22,7 +23,9 @@ test('authored relationships survive the file and distinguish adjacent metric ro
         ...RELATE({ id: 'label-' + i, role: 'label' }) });
     }
     await p.writeFile({ fileName: OUTPUT });
-  `, path);
+  `,
+    path
+  );
   assert.equal(authored.ok, true, JSON.stringify(authored));
   const inspected = await inspectPptxTextBoxes(await loadPackage(path));
   const snapshot = await snapshotPortableOoxml(path, 'pptx');
@@ -41,14 +44,29 @@ test('authored relationships survive the file and distinguish adjacent metric ro
 
 test('inferred geometry is advisory and declared table cells remain independent', () => {
   const boxes = Array.from({ length: 3 }, (_, i) => ({
-    slide: 1, shape: i + 1, left: 72, top: 100 + i * 26, width: 200, height: 25,
+    slide: 1,
+    shape: i + 1,
+    left: 72,
+    top: 100 + i * 26,
+    width: 200,
+    height: 25,
     paragraphs: [{ text: 'Separate meaning', fontSize: 18 }],
   }));
   assert.equal(reviewTextFragmentation(boxes)[0].severity, 'info');
-  const cells = boxes.flatMap((box, i) => [0, 1].map((column) => ({
-    ...box, shape: i * 2 + column + 1, left: 72 + column * 220,
-    relation: { id: `cell-${i}-${column}`, role: 'table-cell', group: 'ledger', row: String(i), column: String(column) },
-  })));
+  const cells = boxes.flatMap((box, i) =>
+    [0, 1].map((column) => ({
+      ...box,
+      shape: i * 2 + column + 1,
+      left: 72 + column * 220,
+      relation: {
+        id: `cell-${i}-${column}`,
+        role: 'table-cell',
+        group: 'ledger',
+        row: String(i),
+        column: String(column),
+      },
+    }))
+  );
   assert.deepEqual(reviewTextFragmentation(cells), []);
   const stat = { ...boxes[0], paragraphs: [{ text: '51.4%', fontSize: 32 }], width: 100 };
   const label = { ...boxes[1], top: 100, left: 180, paragraphs: [{ text: 'Cloud', fontSize: 18 }] };
@@ -57,7 +75,16 @@ test('inferred geometry is advisory and declared table cells remain independent'
 });
 
 test('ambiguous relationship IDs cannot silently satisfy a value label', () => {
-  const make = (shape, relation) => ({ slide: 1, shape, left: 0, top: 0, width: 100, height: 20, relation, paragraphs: [] });
+  const make = (shape, relation) => ({
+    slide: 1,
+    shape,
+    left: 0,
+    top: 0,
+    width: 100,
+    height: 20,
+    relation,
+    paragraphs: [],
+  });
   const issues = reviewStatLabelProximity([
     make(1, { id: 'v', role: 'value', label: 'l' }),
     make(2, { id: 'l', role: 'label' }),

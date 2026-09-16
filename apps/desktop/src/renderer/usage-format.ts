@@ -16,8 +16,7 @@ export function usageMoney(value: unknown): string {
   const amount = usageNumber(value);
   if (amount === null) return '—';
   if (amount > 0 && amount < 0.000001) return `<${uiCurrency(0.000001, 6)}`;
-  return uiCurrency(amount, Math.abs(amount) >= 0.01 || amount === 0 ? 2
-    : Math.abs(amount) >= 0.0001 ? 4 : 6);
+  return uiCurrency(amount, Math.abs(amount) >= 0.01 || amount === 0 ? 2 : Math.abs(amount) >= 0.0001 ? 4 : 6);
 }
 
 /**
@@ -35,6 +34,7 @@ export function usageCompact(value: unknown): string {
   // One decimal at every magnitude: "1293만" and "4억" hid a third of the
   // difference between two routes that both rounded to the same figure.
   return new Intl.NumberFormat(uiFormatLocale(), {
-    notation: 'compact', maximumFractionDigits: 1,
+    notation: 'compact',
+    maximumFractionDigits: 1,
   }).format(amount);
 }

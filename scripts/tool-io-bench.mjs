@@ -36,9 +36,11 @@ async function timed(run) {
 
 try {
   await mkdir(entriesDir);
-  await Promise.all(Array.from({ length: 512 }, (_, index) => (
-    writeFile(join(entriesDir, `entry-${String(index).padStart(4, '0')}.txt`), `row ${index}\n`)
-  )));
+  await Promise.all(
+    Array.from({ length: 512 }, (_, index) =>
+      writeFile(join(entriesDir, `entry-${String(index).padStart(4, '0')}.txt`), `row ${index}\n`)
+    )
+  );
   await mkdir(join(entriesDir, 'nested', 'deeper'), { recursive: true });
   await writeFile(join(entriesDir, 'nested', 'deeper', 'leaf.txt'), 'deep\n');
   const chunk = Array.from({ length: 4096 }, (_, index) => `line ${index} ${'x'.repeat(240)}`).join('\n');
@@ -46,43 +48,113 @@ try {
   await warmNativeSearchServer();
 
   const cases = [
-    ['list_meta', () => executeBuiltinTool('list', {
-      path: entriesDir,
-      meta: true,
-      limit: 200,
-    }, fixture, options), /entry-0000\.txt\tfile/],
-    ['list_deep', () => executeBuiltinTool('list', {
-      path: entriesDir,
-      depth: 3,
-      hidden: true,
-      // 0 = no page cap; the page cap is 100 so a positive value never
-      // reaches the nested leaf that sits after 512 flat entries.
-      limit: 0,
-    }, fixture, options), /nested\/deeper\/leaf\.txt\tfile/],
-    ['glob_entries', () => executeBuiltinTool('glob', {
-      pattern: 'entries/**/*.txt',
-      path: fixture,
-      limit: 0,
-    }, fixture, options), /entry-0511\.txt/],
-    ['find_leaf', () => executeBuiltinTool('find', {
-      query: 'deeper leaf',
-      path: fixture,
-    }, fixture, options), /leaf\.txt/],
-    ['grep_large', () => executeBuiltinTool('grep', {
-      pattern: '^line 4000 ',
-      path: largeFile,
-      context: 0,
-    }, fixture, options), /line 4000/],
-    ['grep_tree', () => executeBuiltinTool('grep', {
-      pattern: 'row 511',
-      path: entriesDir,
-      mode: 'files',
-    }, fixture, options), /entry-0511\.txt/],
-    ['read_range', () => executeBuiltinTool('read', {
-      path: largeFile,
-      offset: 3000,
-      limit: 120,
-    }, fixture, options), /3001→line 3000/],
+    [
+      'list_meta',
+      () =>
+        executeBuiltinTool(
+          'list',
+          {
+            path: entriesDir,
+            meta: true,
+            limit: 200,
+          },
+          fixture,
+          options
+        ),
+      /entry-0000\.txt\tfile/,
+    ],
+    [
+      'list_deep',
+      () =>
+        executeBuiltinTool(
+          'list',
+          {
+            path: entriesDir,
+            depth: 3,
+            hidden: true,
+            // 0 = no page cap; the page cap is 100 so a positive value never
+            // reaches the nested leaf that sits after 512 flat entries.
+            limit: 0,
+          },
+          fixture,
+          options
+        ),
+      /nested\/deeper\/leaf\.txt\tfile/,
+    ],
+    [
+      'glob_entries',
+      () =>
+        executeBuiltinTool(
+          'glob',
+          {
+            pattern: 'entries/**/*.txt',
+            path: fixture,
+            limit: 0,
+          },
+          fixture,
+          options
+        ),
+      /entry-0511\.txt/,
+    ],
+    [
+      'find_leaf',
+      () =>
+        executeBuiltinTool(
+          'find',
+          {
+            query: 'deeper leaf',
+            path: fixture,
+          },
+          fixture,
+          options
+        ),
+      /leaf\.txt/,
+    ],
+    [
+      'grep_large',
+      () =>
+        executeBuiltinTool(
+          'grep',
+          {
+            pattern: '^line 4000 ',
+            path: largeFile,
+            context: 0,
+          },
+          fixture,
+          options
+        ),
+      /line 4000/,
+    ],
+    [
+      'grep_tree',
+      () =>
+        executeBuiltinTool(
+          'grep',
+          {
+            pattern: 'row 511',
+            path: entriesDir,
+            mode: 'files',
+          },
+          fixture,
+          options
+        ),
+      /entry-0511\.txt/,
+    ],
+    [
+      'read_range',
+      () =>
+        executeBuiltinTool(
+          'read',
+          {
+            path: largeFile,
+            offset: 3000,
+            limit: 120,
+          },
+          fixture,
+          options
+        ),
+      /3001→line 3000/,
+    ],
   ];
 
   for (const [name, run, expected] of cases) {
@@ -93,9 +165,7 @@ try {
       const first = await timed(run);
       const second = await timed(run);
       if (!expected.test(first.result) || !expected.test(second.result)) {
-        throw new Error(
-          `${name} produced unexpected output: ${JSON.stringify(first.result.slice(0, 160))}`,
-        );
+        throw new Error(`${name} produced unexpected output: ${JSON.stringify(first.result.slice(0, 160))}`);
       }
       cold.push(first.elapsed);
       warm.push(second.elapsed);

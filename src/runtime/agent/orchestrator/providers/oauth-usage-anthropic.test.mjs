@@ -17,14 +17,29 @@ test('scoped weekly windows are reported next to the all-model windows', () => {
     seven_day_opus: { utilization: 100, resets_at: resetsAt },
     seven_day_omelette: null,
     limits: [
-      { kind: 'weekly_model', percent: 100, resets_at: resetsAt, scope: { model: { id: 'opus', display_name: 'Opus' } } },
-      { kind: 'weekly_surface', percent: 12, resets_at: resetsAt, scope: { surface: { id: 'oauth_apps', display_name: 'OAuth apps' } } },
+      {
+        kind: 'weekly_model',
+        percent: 100,
+        resets_at: resetsAt,
+        scope: { model: { id: 'opus', display_name: 'Opus' } },
+      },
+      {
+        kind: 'weekly_surface',
+        percent: 12,
+        resets_at: resetsAt,
+        scope: { surface: { id: 'oauth_apps', display_name: 'OAuth apps' } },
+      },
       { kind: 'weekly_model', percent: 90, resets_at: resetsAt, is_active: false, scope: { model: { id: 'retired' } } },
     ],
   });
   assert.deepEqual(
     snapshot.quotaWindows.map((window) => [window.label, window.usedPct]),
-    [['5H', 4], ['7D', 52], ['7D Opus', 100], ['7D OAuth apps', 12]],
+    [
+      ['5H', 4],
+      ['7D', 52],
+      ['7D Opus', 100],
+      ['7D OAuth apps', 12],
+    ]
   );
   assert.equal(snapshot.quotaWindows[2].resetAt, Date.parse(resetsAt));
 });
@@ -39,6 +54,10 @@ test('the limits[] fallback still covers unscoped windows only once', () => {
   });
   assert.deepEqual(
     snapshot.quotaWindows.map((window) => [window.label, window.usedPct]),
-    [['5H', 10], ['7D', 20], ['7D Opus', 30]],
+    [
+      ['5H', 10],
+      ['7D', 20],
+      ['7D Opus', 30],
+    ]
   );
 });

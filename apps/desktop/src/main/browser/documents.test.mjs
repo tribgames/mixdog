@@ -2,11 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 
-import {
-  BROWSER_OBSERVATION_REVISION,
-  browserDocumentChanged,
-  filterBrowserReadLines,
-} from './documents.ts';
+import { BROWSER_OBSERVATION_REVISION, browserDocumentChanged, filterBrowserReadLines } from './documents.ts';
 
 test('document change ignores pointer activity and scrolling unless asked', () => {
   const at = (version, dom, scrollY = 0) => `1700000000:${version}:800:600:0:${scrollY}:${dom}`;
@@ -43,7 +39,13 @@ test('the page-side revision counts mutations and value changes apart from gestu
 test('read filters lines by OR keywords or a regular expression with two lines of context', () => {
   const text = ['Title', 'Price: 10', 'Stock: none', 'Shipping', 'Footer', 'Contact', 'Legal'].join('\n');
   assert.deepEqual(filterBrowserReadLines(text, 'stock contact').split('\n'), [
-    'Title', 'Price: 10', 'Stock: none', 'Shipping', 'Footer', 'Contact', 'Legal',
+    'Title',
+    'Price: 10',
+    'Stock: none',
+    'Shipping',
+    'Footer',
+    'Contact',
+    'Legal',
   ]);
   assert.deepEqual(filterBrowserReadLines(text, '/^legal$/i').split('\n'), ['Footer', 'Contact', 'Legal']);
   assert.equal(filterBrowserReadLines(text, 'nothing here'), '');

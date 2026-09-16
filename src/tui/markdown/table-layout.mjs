@@ -83,8 +83,7 @@ export function buildTableRender(token, terminalWidth) {
     if (words.length === 0) return MIN_COLUMN_WIDTH;
     return Math.max(...words.map((w) => displayWidth(w)), MIN_COLUMN_WIDTH);
   };
-  const getIdealWidth = (tokens) =>
-    Math.max(displayWidth(getPlainText(tokens)), MIN_COLUMN_WIDTH);
+  const getIdealWidth = (tokens) => Math.max(displayWidth(getPlainText(tokens)), MIN_COLUMN_WIDTH);
 
   // Step 1: min (longest word) and ideal (full content) widths per column.
   const minWidths = token.header.map((header, colIndex) => {
@@ -143,7 +142,7 @@ export function buildTableRender(token, terminalWidth) {
 
   const renderRowLines = (cells, isHeader) => {
     const cellLines = cells.map((cell, colIndex) =>
-      wrapText(formatCell(cell.tokens), columnWidths[colIndex], { hard: needsHardWrap }),
+      wrapText(formatCell(cell.tokens), columnWidths[colIndex], { hard: needsHardWrap })
     );
     const maxLines = Math.max(...cellLines.map((l) => l.length), 1);
     const verticalOffsets = cellLines.map((l) => Math.floor((maxLines - l.length) / 2));
@@ -156,7 +155,7 @@ export function buildTableRender(token, terminalWidth) {
         const contentLineIdx = lineIdx - offset;
         const lineText = contentLineIdx >= 0 && contentLineIdx < lines.length ? lines[contentLineIdx] : '';
         const colWidth = columnWidths[colIndex];
-        const align = isHeader ? 'center' : token.align?.[colIndex] ?? 'left';
+        const align = isHeader ? 'center' : (token.align?.[colIndex] ?? 'left');
         line += ' ' + padAligned(lineText, displayWidth(lineText), colWidth, align) + ' │';
       }
       result.push(line);

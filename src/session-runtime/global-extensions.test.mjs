@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  publishGlobalExtensionChange,
-  subscribeGlobalExtensionChanges,
-} from './global-extensions.mjs';
+import { publishGlobalExtensionChange, subscribeGlobalExtensionChanges } from './global-extensions.mjs';
 
 test('global extension changes fan out to every runtime except the writer', async () => {
   const events = [];

@@ -12,9 +12,17 @@ import { relationOptions } from '../portable/pptx-relations.mjs';
 // Text measurement for the script, in inches, with the metrics the review
 // reads the saved file with; a box sized here does not overflow there.
 // lineHeight is the PowerPoint multiple the box will carry (lineSpacingMultiple; 1 = single).
-function measureForScript(text, { font = 'Calibri', size = 18, bold = false, italic = false, width = 0, lineHeight = 1 } = {}) {
-  const paragraphs = String(text ?? '').split('\n').map((line) => ({ text: line, fontName: font, fontSize: size, bold, italic }));
-  const measured = measureTextBlock(paragraphs, { width: Math.max(0, Number(width) || 0) * 72, lineSpacing: lineHeight });
+function measureForScript(
+  text,
+  { font = 'Calibri', size = 18, bold = false, italic = false, width = 0, lineHeight = 1 } = {}
+) {
+  const paragraphs = String(text ?? '')
+    .split('\n')
+    .map((line) => ({ text: line, fontName: font, fontSize: size, bold, italic }));
+  const measured = measureTextBlock(paragraphs, {
+    width: Math.max(0, Number(width) || 0) * 72,
+    lineSpacing: lineHeight,
+  });
   return { lines: measured.lines, height: measured.height / 72, width: measured.width / 72 };
 }
 
@@ -32,17 +40,21 @@ function scriptRequire(name) {
   const bare = requested.replace(NODE_PREFIX, '');
   const key = ALLOWED_MODULES.has(`node:${bare}`) ? `node:${bare}` : requested;
   if (!ALLOWED_MODULES.has(key)) {
-    throw new Error(`require('${requested}') is not available to authoring scripts; allowed: ${[...ALLOWED_MODULES].join(', ')}`);
+    throw new Error(
+      `require('${requested}') is not available to authoring scripts; allowed: ${[...ALLOWED_MODULES].join(', ')}`
+    );
   }
   return hostRequire(key);
 }
 
 function captureConsole(lines) {
-  const push = (level) => (...parts) => {
-    const text = parts.map((part) => (typeof part === 'string' ? part : safeString(part))).join(' ');
-    lines.push({ level, text: text.slice(0, 2000) });
-    if (lines.length > 200) lines.splice(0, lines.length - 200);
-  };
+  const push =
+    (level) =>
+    (...parts) => {
+      const text = parts.map((part) => (typeof part === 'string' ? part : safeString(part))).join(' ');
+      lines.push({ level, text: text.slice(0, 2000) });
+      if (lines.length > 200) lines.splice(0, lines.length - 200);
+    };
   return { log: push('log'), info: push('info'), warn: push('warn'), error: push('error'), debug: push('debug') };
 }
 
@@ -62,7 +74,11 @@ function scriptError(error, script, preludeLines = 0) {
   // pragma) before the body, and the kit prelude sits before the script.
   const raw = match ? Number(match[1]) - 3 : null;
   if (raw !== null && preludeLines && raw <= preludeLines) {
-    return { message: `${message} (inside the kit prelude, line ${raw} of the kit.md/charts.md/pictures.md code blocks — usually an argument the script passed)`, line: null, excerpt: '' };
+    return {
+      message: `${message} (inside the kit prelude, line ${raw} of the kit.md/charts.md/pictures.md code blocks — usually an argument the script passed)`,
+      line: null,
+      excerpt: '',
+    };
   }
   const line = raw === null ? null : Math.max(1, raw - preludeLines);
   const lines = script.split('\n');
@@ -95,7 +111,18 @@ export async function runPptxAuthoringScript(script, output, { timeoutMs = PPTX_
   const preludeLines = kit ? kit.lines : 0;
   let body;
   try {
-    body = new AsyncFunction('require', 'module', 'exports', 'OUTPUT', 'console', 'process', 'MEASURE', 'ICON', 'RELATE', `"use strict";\n${kit ? `${kit.source}\n` : ''}${source}\n`);
+    body = new AsyncFunction(
+      'require',
+      'module',
+      'exports',
+      'OUTPUT',
+      'console',
+      'process',
+      'MEASURE',
+      'ICON',
+      'RELATE',
+      `"use strict";\n${kit ? `${kit.source}\n` : ''}${source}\n`
+    );
   } catch (error) {
     return { ok: false, error: scriptError(error, source, preludeLines), logs, elapsedMs: 0 };
   }
@@ -106,15 +133,27 @@ export async function runPptxAuthoringScript(script, output, { timeoutMs = PPTX_
   });
   try {
     await Promise.race([
-      body(scriptRequire, module, module.exports, output, captureConsole(logs), scopedProcess, measureForScript, iconGlobal(), relationOptions),
+      body(
+        scriptRequire,
+        module,
+        module.exports,
+        output,
+        captureConsole(logs),
+        scopedProcess,
+        measureForScript,
+        iconGlobal(),
+        relationOptions
+      ),
       timeout,
     ]);
-    if (!await pathExists(output)) {
+    if (!(await pathExists(output))) {
       const exported = module.exports;
       if (exported && typeof exported.writeFile === 'function') {
         await exported.writeFile({ fileName: output });
       } else {
-        throw new Error('The script finished without writing OUTPUT; end with `await pres.writeFile({ fileName: OUTPUT })`.');
+        throw new Error(
+          'The script finished without writing OUTPUT; end with `await pres.writeFile({ fileName: OUTPUT })`.'
+        );
       }
     }
   } catch (error) {

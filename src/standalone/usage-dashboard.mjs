@@ -1,4 +1,7 @@
-import { fetchOAuthUsageSnapshot, readCachedOAuthUsageSnapshot } from '../runtime/agent/orchestrator/providers/oauth-usage.mjs';
+import {
+  fetchOAuthUsageSnapshot,
+  readCachedOAuthUsageSnapshot,
+} from '../runtime/agent/orchestrator/providers/oauth-usage.mjs';
 import {
   fetchOpenCodeGoUsageSnapshot,
   openCodeGoUsageConfigStatus,
@@ -34,18 +37,15 @@ async function oauthSnapshot(providerId, { refresh, getProvider, log }) {
   // A rate-limited or failed forced refresh (Anthropic /oauth/usage 429s
   // aggressively) must not blank a known quota row: fall back to the last
   // contentful snapshot — a stale meter with its updatedAt beats an empty row.
-  const staleFallback = () => cached
-    || readCachedOAuthUsageSnapshot({ provider: providerId, model: '' }, { allowStale: true });
+  const staleFallback = () =>
+    cached || readCachedOAuthUsageSnapshot({ provider: providerId, model: '' }, { allowStale: true });
   if (typeof getProvider === 'function') {
     try {
       const providerObj = getProvider(providerId);
       if (providerObj) {
-        const fresh = await fetchOAuthUsageSnapshot(
-          { provider: providerId, model: '' },
-          providerObj,
-          log,
-          { force: refresh === true },
-        );
+        const fresh = await fetchOAuthUsageSnapshot({ provider: providerId, model: '' }, providerObj, log, {
+          force: refresh === true,
+        });
         return fresh || staleFallback();
       }
     } catch {
@@ -99,10 +99,8 @@ export async function createUsageDashboard(config = {}, options = {}) {
   const refreshFor = (id) => refresh && (!scope || scope.has(String(id || '').toLowerCase()));
   const snapshotOptions = (id) => ({ ...options, refresh: refreshFor(id) });
   const preview = options.preview === true;
-  const emit = (checking = true) => emitUsageDashboard(
-    options,
-    usageDashboardSnapshot(rows, { checkedAt, refresh, checking }),
-  );
+  const emit = (checking = true) =>
+    emitUsageDashboard(options, usageDashboardSnapshot(rows, { checkedAt, refresh, checking }));
 
   const apiTasks = (setup.api || []).map(async (item) => {
     const providerCfg = providers[item.id] || {};
@@ -134,7 +132,8 @@ export async function createUsageDashboard(config = {}, options = {}) {
         try {
           const snapshot = refreshFor(item.id)
             ? await fetchOpenCodeGoUsageSnapshot(config, { force: true })
-            : readCachedOpenCodeGoUsageSnapshot() || (usageStatus.ready ? await fetchOpenCodeGoUsageSnapshot(config) : null);
+            : readCachedOpenCodeGoUsageSnapshot() ||
+              (usageStatus.ready ? await fetchOpenCodeGoUsageSnapshot(config) : null);
           if (snapshot) {
             hasQuota = applyWindowQuota(row, snapshot?.quotaWindows, {
               source: 'opencode-go-console',
@@ -213,7 +212,7 @@ export async function createUsageDashboard(config = {}, options = {}) {
     row.source = row.authenticated ? 'checking' : 'not-configured';
     row.sourceLabel = row.authenticated ? 'checking' : 'not signed in';
     row.primary = row.authenticated ? '' : 'not signed in';
-    row.detail = row.authenticated ? 'Checking provider usage' : (item.detail || 'OAuth credentials missing');
+    row.detail = row.authenticated ? 'Checking provider usage' : item.detail || 'OAuth credentials missing';
     row.tone = rowTone(row);
     rows.push(row);
     emit(true);

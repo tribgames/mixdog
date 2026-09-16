@@ -43,9 +43,10 @@ export function callsSidecarHash(fileName) {
 // without this a single `--files` rebuild would erase the sidecar.
 // Entries for rels that left the graph are dropped, bounding the file.
 export function buildCallsSidecarPayload(graph, previous = null) {
-  const previousFiles = previous && typeof previous === 'object' && previous.files && typeof previous.files === 'object'
-    ? previous.files
-    : null;
+  const previousFiles =
+    previous && typeof previous === 'object' && previous.files && typeof previous.files === 'object'
+      ? previous.files
+      : null;
   const files = {};
   let fresh = 0;
   let carried = 0;

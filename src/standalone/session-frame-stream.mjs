@@ -3,10 +3,10 @@
 const TERMINAL_BACKLOG_MAX_CHARS = 256 * 1024;
 
 function terminalDataFrame(frame) {
-  return frame?.type === 'desktop-event'
-    && frame.message?.kind === 'desktop-event'
-    && frame.message?.name === 'terminal-data'
-    && typeof frame.message?.value?.data === 'string'
+  return frame?.type === 'desktop-event' &&
+    frame.message?.kind === 'desktop-event' &&
+    frame.message?.name === 'terminal-data' &&
+    typeof frame.message?.value?.data === 'string'
     ? frame
     : null;
 }
@@ -16,9 +16,8 @@ function mergePendingFrame(existing, frame, json) {
   const next = terminalDataFrame(frame);
   if (!previous || !next) return { frame, json };
   const joined = `${previous.message.value.data}${next.message.value.data}`;
-  const data = joined.length > TERMINAL_BACKLOG_MAX_CHARS
-    ? joined.slice(joined.length - TERMINAL_BACKLOG_MAX_CHARS)
-    : joined;
+  const data =
+    joined.length > TERMINAL_BACKLOG_MAX_CHARS ? joined.slice(joined.length - TERMINAL_BACKLOG_MAX_CHARS) : joined;
   const merged = {
     ...next,
     message: { ...next.message, value: { ...next.message.value, data } },
@@ -44,9 +43,7 @@ function resyncEntry(frame) {
   return pendingEntry(marker, JSON.stringify(marker));
 }
 
-export function createSessionFrameStream({
-  clients, maxPendingBytes, nowMs, onAttached, onClosed, onDiagnostic,
-}) {
+export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAttached, onClosed, onDiagnostic }) {
   const cleanups = new WeakMap();
   let diagnosticWindowAt = 0;
   let diagnosticCount = 0;
@@ -54,36 +51,52 @@ export function createSessionFrameStream({
 
   function traceFrame(client, frame, stage, { bytes, queuedAt } = {}, force = false) {
     if (typeof onDiagnostic !== 'function') return;
-    const message = frame?.type === 'desktop-event' && frame.message?.kind === 'session-state'
-      ? frame.message : frame?.type === 'session-state' ? frame : null;
-    if (!message || typeof message.sessionId !== 'string'
-      || !/^[A-Za-z0-9_-]{1,160}$/.test(message.sessionId)) return;
-    const traceId = typeof message.readTraceId === 'string'
-      && /^[A-Za-z0-9_-]{1,160}$/.test(message.readTraceId) ? message.readTraceId : undefined;
+    const message =
+      frame?.type === 'desktop-event' && frame.message?.kind === 'session-state'
+        ? frame.message
+        : frame?.type === 'session-state'
+          ? frame
+          : null;
+    if (!message || typeof message.sessionId !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(message.sessionId)) return;
+    const traceId =
+      typeof message.readTraceId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(message.readTraceId)
+        ? message.readTraceId
+        : undefined;
     if (!traceId && !force) return;
     const atMs = nowMs();
     if (atMs - diagnosticWindowAt >= 10_000) {
       diagnosticWindowAt = atMs;
       diagnosticCount = 0;
     }
-    if (diagnosticCount >= 40) { diagnosticSuppressed += 1; return; }
+    if (diagnosticCount >= 40) {
+      diagnosticSuppressed += 1;
+      return;
+    }
     diagnosticCount += 1;
     try {
       onDiagnostic({
-        stage, sessionId: message.sessionId, ...(traceId ? { traceId } : {}),
-        atMs, ...(bytes !== undefined ? { bytes } : {}),
+        stage,
+        sessionId: message.sessionId,
+        ...(traceId ? { traceId } : {}),
+        atMs,
+        ...(bytes !== undefined ? { bytes } : {}),
         ...(queuedAt !== undefined ? { queuedMs: Math.max(0, atMs - queuedAt) } : {}),
-        pendingBytes: client.pendingBytes || 0, maxPendingBytes,
+        pendingBytes: client.pendingBytes || 0,
+        maxPendingBytes,
         ...(diagnosticSuppressed ? { suppressed: diagnosticSuppressed } : {}),
       });
       diagnosticSuppressed = 0;
-    } catch { /* A diagnostic failure cannot lose a frame or change backpressure. */ }
+    } catch {
+      /* A diagnostic failure cannot lose a frame or change backpressure. */
+    }
   }
 
   function retireStream(res) {
     if (!res) return;
     cleanups.get(res)?.();
-    try { res.end(); } catch {}
+    try {
+      res.end();
+    } catch {}
   }
 
   function flushPending(client) {
@@ -161,7 +174,11 @@ export function createSessionFrameStream({
   function attachSse(token, res) {
     const client = clients.get(token);
     if (!client) return false;
-    try { res.socket?.setNoDelay(true); } catch { /* transport default stands */ }
+    try {
+      res.socket?.setNoDelay(true);
+    } catch {
+      /* transport default stands */
+    }
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -191,7 +208,10 @@ export function createSessionFrameStream({
       clearInterval(keepAlive);
       cleanups.delete(res);
       res.off('drain', onDrain);
-      if (client.sse === res) { client.sse = null; client.paused = false; }
+      if (client.sse === res) {
+        client.sse = null;
+        client.paused = false;
+      }
       onClosed();
     };
     cleanups.set(res, cleanup);

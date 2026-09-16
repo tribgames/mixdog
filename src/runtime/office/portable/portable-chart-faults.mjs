@@ -8,8 +8,18 @@ const STACKED = new Set(['stacked', 'percentStacked']);
 const LEGAL_ON_STACKED = ['ctr', 'inEnd', 'inBase'];
 // Axis ids a plot group must resolve against the axes its own part declares.
 const AXIS_MINIMUM = Object.freeze({
-  barChart: 2, lineChart: 2, areaChart: 2, scatterChart: 2, bubbleChart: 2, radarChart: 2, stockChart: 2,
-  bar3DChart: 2, area3DChart: 2, surfaceChart: 2, line3DChart: 3, surface3DChart: 3,
+  barChart: 2,
+  lineChart: 2,
+  areaChart: 2,
+  scatterChart: 2,
+  bubbleChart: 2,
+  radarChart: 2,
+  stockChart: 2,
+  bar3DChart: 2,
+  area3DChart: 2,
+  surfaceChart: 2,
+  line3DChart: 3,
+  surface3DChart: 3,
 });
 
 function stripExtLst(xml) {
@@ -42,13 +52,15 @@ function stackedLabelFaults(part, block, name) {
   if (!STACKED.has(grouping)) return [];
   const bad = [...block.matchAll(/<c:dLblPos\b[^>]*\bval="(\w+)"/g)].map((m) => m[1]).filter((pos) => pos === 'outEnd');
   if (!bad.length) return [];
-  return [{
-    severity: 'error',
-    code: 'chart_stacked_label_position',
-    path: `/${part}`,
-    message: `${bad.length} data label(s) use dLblPos="outEnd" on a ${grouping} ${name}; PowerPoint allows only ${LEGAL_ON_STACKED.join(', ')} there and refuses the file. Use dataLabelPosition 'ctr', 'inEnd', or 'inBase' in the script.`,
-    source: 'chart-scan',
-  }];
+  return [
+    {
+      severity: 'error',
+      code: 'chart_stacked_label_position',
+      path: `/${part}`,
+      message: `${bad.length} data label(s) use dLblPos="outEnd" on a ${grouping} ${name}; PowerPoint allows only ${LEGAL_ON_STACKED.join(', ')} there and refuses the file. Use dataLabelPosition 'ctr', 'inEnd', or 'inBase' in the script.`,
+      source: 'chart-scan',
+    },
+  ];
 }
 
 function axisReferenceFaults(part, block, name, declared) {
@@ -63,13 +75,15 @@ function axisReferenceFaults(part, block, name, declared) {
     : dead.length
       ? `references axId ${ids.join(', ')}, of which ${dead.join(', ')} name no axis this part declares`
       : `references only ${ids.length} axis id(s)`;
-  return [{
-    severity: 'error',
-    code: 'chart_axis_undeclared',
-    path: `/${part}`,
-    message: `<c:${name}> ${detail}, leaving fewer than two live axes; PowerPoint discards the chart and reports the file as corrupt. A secondary-axis combo needs both valAxes and catAxes with two entries each.`,
-    source: 'chart-scan',
-  }];
+  return [
+    {
+      severity: 'error',
+      code: 'chart_axis_undeclared',
+      path: `/${part}`,
+      message: `<c:${name}> ${detail}, leaving fewer than two live axes; PowerPoint discards the chart and reports the file as corrupt. A secondary-axis combo needs both valAxes and catAxes with two entries each.`,
+      source: 'chart-scan',
+    },
+  ];
 }
 
 export function chartFaultsInXml(part, xml) {

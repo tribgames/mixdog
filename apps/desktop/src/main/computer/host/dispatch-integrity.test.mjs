@@ -5,14 +5,19 @@ import test from 'node:test';
 // Isolated adapters, never the user's desktop.
 registerHooks({
   resolve(specifier, context, next) {
-    return specifier === 'electron' ? {
-      url: 'data:text/javascript,' + encodeURIComponent(`
+    return specifier === 'electron'
+      ? {
+          url:
+            'data:text/javascript,' +
+            encodeURIComponent(`
         export const BrowserWindow = { getAllWindows: () => [] };
         export const desktopCapturer = { getSources: async () => globalThis.auditCaptureSources || [] };
         export const nativeImage = {};
         export const screen = {};
-      `), shortCircuit: true,
-    } : next(specifier, context);
+      `),
+          shortCircuit: true,
+        }
+      : next(specifier, context);
   },
 });
 const { createCommandRouter } = await import('./command-router.ts');
@@ -35,12 +40,23 @@ test('semantic input does not move a duplicate display pointer before native dis
   computerUseCoordinator.beginCommand({ sessionId: 'test', action: 'invoke', mode: 'background' });
   const router = createCommandRouter({
     ...stateAdapters(),
-    isObserveOnly: () => false, sessionIdFor: () => 'test',
-    framesBySession: new Map(), elementTargetsBySession: new Map(), observedWindowBySession: new Map(),
-    lastCaptureBySession: new Map(), sessionRecoveryBySession: new Map(),
-    assertExecutionNotAborted() {}, resolveElementAliases: command => command,
-    resolveInputTarget: async () => ({ targetWindowId: 'hwnd:0x1', allowedWindowIds: ['hwnd:0x1'], cursorX: 3100, cursorY: 1200 }),
-    claimComputerTargets: async () => {}, readComputerWindows: async () => [],
+    isObserveOnly: () => false,
+    sessionIdFor: () => 'test',
+    framesBySession: new Map(),
+    elementTargetsBySession: new Map(),
+    observedWindowBySession: new Map(),
+    lastCaptureBySession: new Map(),
+    sessionRecoveryBySession: new Map(),
+    assertExecutionNotAborted() {},
+    resolveElementAliases: (command) => command,
+    resolveInputTarget: async () => ({
+      targetWindowId: 'hwnd:0x1',
+      allowedWindowIds: ['hwnd:0x1'],
+      cursorX: 3100,
+      cursorY: 1200,
+    }),
+    claimComputerTargets: async () => {},
+    readComputerWindows: async () => [],
     callPowerShell: async () => {
       dispatched++;
       assert.equal(computerUseCoordinator.snapshot().cursors.length, 0);
@@ -48,17 +64,29 @@ test('semantic input does not move a duplicate display pointer before native dis
     },
   });
   try {
-    await assert.rejects(router.runCommand({ action: 'invoke', window_id: 'hwnd:0x1', ref: 's1:e0' }), /fixture_native_dispatch/);
+    await assert.rejects(
+      router.runCommand({ action: 'invoke', window_id: 'hwnd:0x1', ref: 's1:e0' }),
+      /fixture_native_dispatch/
+    );
     assert.equal(dispatched, 1);
-  } finally { computerUseCoordinator.reset(); }
+  } finally {
+    computerUseCoordinator.reset();
+  }
 });
 
 test('observation-only routing refuses every input family before backend dispatch', WINDOWS_ONLY, async () => {
   let dispatched = 0;
   const router = createCommandRouter({
-    isObserveOnly: () => true, sessionIdFor: () => 'test',
-    callPowerShell: async () => { dispatched++; return { ok: true }; },
-    runBoundedSequence: async () => { dispatched++; return { text: '' }; },
+    isObserveOnly: () => true,
+    sessionIdFor: () => 'test',
+    callPowerShell: async () => {
+      dispatched++;
+      return { ok: true };
+    },
+    runBoundedSequence: async () => {
+      dispatched++;
+      return { text: '' };
+    },
     diagnoseComputer: async () => ({ text: 'diagnosed' }),
   });
   for (const action of ['sequence', 'key', 'type', 'launch', 'clipboard_write', 'close_window']) {
@@ -73,13 +101,24 @@ test('switching observation-only on during preparation blocks the pending input'
   let dispatched = 0;
   const router = createCommandRouter({
     ...stateAdapters(),
-    isObserveOnly: () => observeOnly, sessionIdFor: () => 'test',
-    framesBySession: new Map(), elementTargetsBySession: new Map(), observedWindowBySession: new Map(),
+    isObserveOnly: () => observeOnly,
+    sessionIdFor: () => 'test',
+    framesBySession: new Map(),
+    elementTargetsBySession: new Map(),
+    observedWindowBySession: new Map(),
     lastCaptureBySession: new Map(),
-    assertExecutionNotAborted() {}, resolveElementAliases: command => command,
-    resolveInputTarget: async () => ({ allowedWindowIds: [] }), claimComputerTargets: async () => {},
-    readComputerWindows: async () => { observeOnly = true; return []; },
-    callPowerShell: async () => { dispatched++; throw new Error('unexpected input'); },
+    assertExecutionNotAborted() {},
+    resolveElementAliases: (command) => command,
+    resolveInputTarget: async () => ({ allowedWindowIds: [] }),
+    claimComputerTargets: async () => {},
+    readComputerWindows: async () => {
+      observeOnly = true;
+      return [];
+    },
+    callPowerShell: async () => {
+      dispatched++;
+      throw new Error('unexpected input');
+    },
   });
   await assert.rejects(router.runCommand({ action: 'clipboard_write', text: 'fixture' }), /observation_only/);
   assert.equal(dispatched, 0);
@@ -88,18 +127,37 @@ test('switching observation-only on during preparation blocks the pending input'
 test('authority which expires during preparation never reaches the input backend', WINDOWS_ONLY, async () => {
   let now = 0;
   let dispatched = 0;
-  const policy = createComputerExecutionPolicy({
-    version: 1, actions: ['clipboard_write'], windows: [], expiresAt: new Date(1000).toISOString(),
-  }, () => now);
+  const policy = createComputerExecutionPolicy(
+    {
+      version: 1,
+      actions: ['clipboard_write'],
+      windows: [],
+      expiresAt: new Date(1000).toISOString(),
+    },
+    () => now
+  );
   const router = createCommandRouter({
     ...stateAdapters(),
-    policy, isObserveOnly: () => false, sessionIdFor: () => 'test',
-    framesBySession: new Map(), elementTargetsBySession: new Map(), observedWindowBySession: new Map(),
-    lastCaptureBySession: new Map(), sessionRecoveryBySession: new Map(),
-    assertExecutionNotAborted() {}, resolveElementAliases: (command) => command,
-    resolveInputTarget: async () => ({ allowedWindowIds: [] }), claimComputerTargets: async () => {},
-    readComputerWindows: async () => { now = 2000; return []; },
-    callPowerShell: async () => { dispatched++; return { ok: true }; },
+    policy,
+    isObserveOnly: () => false,
+    sessionIdFor: () => 'test',
+    framesBySession: new Map(),
+    elementTargetsBySession: new Map(),
+    observedWindowBySession: new Map(),
+    lastCaptureBySession: new Map(),
+    sessionRecoveryBySession: new Map(),
+    assertExecutionNotAborted() {},
+    resolveElementAliases: (command) => command,
+    resolveInputTarget: async () => ({ allowedWindowIds: [] }),
+    claimComputerTargets: async () => {},
+    readComputerWindows: async () => {
+      now = 2000;
+      return [];
+    },
+    callPowerShell: async () => {
+      dispatched++;
+      return { ok: true };
+    },
   });
   await assert.rejects(router.runCommand({ action: 'clipboard_write', text: 'fixture' }), /computer_policy_expired/);
   assert.equal(dispatched, 0);
@@ -109,13 +167,23 @@ test('unavailable window compositor never falls back to pixels belonging to anot
   const calls = [];
   const capture = createCaptureEngine({
     ...stateAdapters(),
-    sessionIdFor: () => 'test', assertExecutionNotAborted() {},
+    sessionIdFor: () => 'test',
+    assertExecutionNotAborted() {},
     callPowerShell: async (request) => {
       calls.push(request);
-      return { ok: true, result: {
-        window_id: 'hwnd:0x1', title: 'Fixture', x: 0, y: 0, width: 600, height: 600,
-        visible_samples: 5, image_base64: 'cHJpdmF0ZQ==',
-      } };
+      return {
+        ok: true,
+        result: {
+          window_id: 'hwnd:0x1',
+          title: 'Fixture',
+          x: 0,
+          y: 0,
+          width: 600,
+          height: 600,
+          visible_samples: 5,
+          image_base64: 'cHJpdmF0ZQ==',
+        },
+      };
     },
   });
   for (const sources of [[], [{ id: 'window:2:1', thumbnail: {} }]]) {
@@ -125,8 +193,8 @@ test('unavailable window compositor never falls back to pixels belonging to anot
     assert.equal(result.pixelUnavailable.code, 'pixel_unavailable');
   }
   delete globalThis.auditCaptureSources;
-  assert.equal(calls.filter(request => request.action === 'window_capture').length, 2);
-  assert.ok(calls.every(request => request.window_id === 'hwnd:0x1' && request.read_only === true));
+  assert.equal(calls.filter((request) => request.action === 'window_capture').length, 2);
+  assert.ok(calls.every((request) => request.window_id === 'hwnd:0x1' && request.read_only === true));
 });
 
 test('pending command admission is bounded per session and globally and releases once', () => {
@@ -136,7 +204,9 @@ test('pending command admission is bounded per session and globally and releases
   assert.throws(() => budget.acquire('a'), /capacity_exhausted/);
   const third = budget.acquire('b');
   assert.throws(() => budget.acquire('c'), /capacity_exhausted/);
-  first(); first();
+  first();
+  first();
   budget.acquire('c')();
-  second(); third();
+  second();
+  third();
 });

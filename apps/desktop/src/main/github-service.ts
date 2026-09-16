@@ -13,7 +13,7 @@ export function githubRequest(cwd: unknown, input: unknown) {
 
 export function createGithubService(
   loadConfig: () => Promise<MixdogConfigModule>,
-  execute: typeof githubRequest = githubRequest,
+  execute: typeof githubRequest = githubRequest
 ) {
   return async (cwd: unknown, input: unknown) => {
     const request = validateGithubRequest(input);

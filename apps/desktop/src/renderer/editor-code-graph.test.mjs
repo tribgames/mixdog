@@ -121,10 +121,7 @@ test('parseCodeGraphSymbols: CRLF and trailing whitespace tolerance', () => {
 });
 
 test('parseCodeGraphSymbols: deduplication of identical rows', () => {
-  const text = [
-    'function save (L89-104)',
-    'function save (L89-104)',
-  ].join('\n');
+  const text = ['function save (L89-104)', 'function save (L89-104)'].join('\n');
   const rows = parseCodeGraphSymbols(text);
   assert.equal(rows.length, 1);
 });
@@ -138,11 +135,13 @@ test('codeGraphOutlineItems: uses explicit level and sig detail from new rows', 
     projectPath: '/workspace',
     relPath: 'service.ts',
   };
-  const symbols = parseCodeGraphSymbols([
-    'export class Service (L10-50)',
-    '  method process (L20-30)  process(data: string): boolean',
-    '    variable count (L25)  count: number',
-  ].join('\n'));
+  const symbols = parseCodeGraphSymbols(
+    [
+      'export class Service (L10-50)',
+      '  method process (L20-30)  process(data: string): boolean',
+      '    variable count (L25)  count: number',
+    ].join('\n')
+  );
 
   const items = codeGraphOutlineItems(model, context, symbols);
   assert.equal(items.length, 3);
@@ -182,11 +181,9 @@ test('codeGraphOutlineItems: fallback to span nesting for old rows at level 0', 
     relPath: 'old.py',
   };
   // Old rows: all have level 0, no signatures
-  const symbols = parseCodeGraphSymbols([
-    'class Container (L1-40)',
-    'function helper (L5-15)',
-    'function standalone (L50-60)',
-  ].join('\n'));
+  const symbols = parseCodeGraphSymbols(
+    ['class Container (L1-40)', 'function helper (L5-15)', 'function standalone (L50-60)'].join('\n')
+  );
 
   assert.equal(symbols[0].level, 0);
   assert.equal(symbols[1].level, 0);
@@ -213,33 +210,37 @@ test('codeGraphOutlineItems: fallback to span nesting for old rows at level 0', 
 
 test('symbolKind mapping totality: covers all 21 unified vocabulary kinds', () => {
   const expectedMappings = {
-    module: 1,       // Module
-    namespace: 2,    // Namespace
-    package: 3,      // Package
-    class: 4,        // Class
-    impl: 4,         // Class
-    method: 5,       // Method
-    property: 6,     // Property
-    field: 7,        // Field
-    constructor: 8,  // Constructor
-    enum: 9,         // Enum
-    interface: 10,   // Interface
-    trait: 10,       // Interface
-    protocol: 10,    // Interface
-    function: 11,    // Function
-    macro: 11,       // Function
-    variable: 12,    // Variable
-    constant: 13,    // Constant
-    enumMember: 21,  // EnumMember
-    struct: 22,      // Struct
-    type: 10,        // Interface (aligned with LSP type alias -> Interface)
-    event: 23,       // Event
+    module: 1, // Module
+    namespace: 2, // Namespace
+    package: 3, // Package
+    class: 4, // Class
+    impl: 4, // Class
+    method: 5, // Method
+    property: 6, // Property
+    field: 7, // Field
+    constructor: 8, // Constructor
+    enum: 9, // Enum
+    interface: 10, // Interface
+    trait: 10, // Interface
+    protocol: 10, // Interface
+    function: 11, // Function
+    macro: 11, // Function
+    variable: 12, // Variable
+    constant: 13, // Constant
+    enumMember: 21, // EnumMember
+    struct: 22, // Struct
+    type: 10, // Interface (aligned with LSP type alias -> Interface)
+    event: 23, // Event
   };
 
   for (const kind of UNIFIED_SYMBOL_KINDS) {
     assert.ok(kind in expectedMappings, `Missing expected mapping for unified kind: ${kind}`);
     const mapped = codeGraphSymbolKindValue(kind);
-    assert.equal(mapped, expectedMappings[kind], `Kind ${kind} mapped to ${mapped}, expected ${expectedMappings[kind]}`);
+    assert.equal(
+      mapped,
+      expectedMappings[kind],
+      `Kind ${kind} mapped to ${mapped}, expected ${expectedMappings[kind]}`
+    );
   }
 
   // Dead legacy token 'binding' falls back to default Variable (12)
@@ -260,11 +261,13 @@ test('codeGraphDocumentSymbols: builds hierarchical DocumentSymbol tree from lev
     },
     getLineMaxColumn: () => 80,
   };
-  const symbols = parseCodeGraphSymbols([
-    'export class Service (L10-50)',
-    '  method process (L20-30)  process(data: string): boolean',
-    '    variable count (L25)  count: number',
-  ].join('\n'));
+  const symbols = parseCodeGraphSymbols(
+    [
+      'export class Service (L10-50)',
+      '  method process (L20-30)  process(data: string): boolean',
+      '    variable count (L25)  count: number',
+    ].join('\n')
+  );
 
   const roots = codeGraphDocumentSymbols(model, symbols);
   assert.equal(roots.length, 1);
@@ -300,11 +303,9 @@ test('codeGraphDocumentSymbols: fallback to span nesting for old rows at level 0
     getLineMaxColumn: () => 80,
   };
   // Old rows without indent
-  const symbols = parseCodeGraphSymbols([
-    'class Container (L1-40)',
-    'function helper (L5-15)',
-    'function standalone (L50-60)',
-  ].join('\n'));
+  const symbols = parseCodeGraphSymbols(
+    ['class Container (L1-40)', 'function helper (L5-15)', 'function standalone (L50-60)'].join('\n')
+  );
 
   const roots = codeGraphDocumentSymbols(model, symbols);
   assert.equal(roots.length, 2);
@@ -354,8 +355,3 @@ test('parseCodeGraphSymbols: signature separated by one space is not swallowed i
   const invalid = parseCodeGraphSymbols('function run (L1-2) x');
   assert.equal(invalid.length, 0);
 });
-
-
-
-
-

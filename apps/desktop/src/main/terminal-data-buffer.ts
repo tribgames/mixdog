@@ -30,20 +30,17 @@ export class TerminalDataBufferer {
     delayMs: number | { delayMs?: number; leadingEdge?: boolean } = 5,
     highWatermarkChars = 256 * 1024,
     private readonly producerFlow?: TerminalProducerFlowControl,
-    lowWatermarkChars = Math.max(1, Math.floor(highWatermarkChars / 8)),
+    lowWatermarkChars = Math.max(1, Math.floor(highWatermarkChars / 8))
   ) {
-    this.leadingEdge = typeof delayMs === "object" && delayMs.leadingEdge === true;
-    this.delayMs = Math.max(0, Math.round(typeof delayMs === "number" ? delayMs : delayMs.delayMs ?? 5));
+    this.leadingEdge = typeof delayMs === 'object' && delayMs.leadingEdge === true;
+    this.delayMs = Math.max(0, Math.round(typeof delayMs === 'number' ? delayMs : (delayMs.delayMs ?? 5)));
     this.highWatermarkChars = Math.max(1, Math.round(highWatermarkChars));
-    this.lowWatermarkChars = Math.max(
-      0,
-      Math.min(this.highWatermarkChars - 1, Math.round(lowWatermarkChars)),
-    );
+    this.lowWatermarkChars = Math.max(0, Math.min(this.highWatermarkChars - 1, Math.round(lowWatermarkChars)));
   }
 
   push(event: TerminalDataEvent): void {
-    const id = String(event?.id || "");
-    const data = String(event?.data || "");
+    const id = String(event?.id || '');
+    const data = String(event?.data || '');
     if (!id || !data) return;
     const existing = this.pending.get(id);
     if (existing) {
@@ -75,9 +72,9 @@ export class TerminalDataBufferer {
       return;
     }
     if (buffered.timer) clearTimeout(buffered.timer);
-    const joined = buffered.chunks.join("");
+    const joined = buffered.chunks.join('');
     const data = force ? joined : joined.slice(0, available);
-    const remainder = force ? "" : joined.slice(data.length);
+    const remainder = force ? '' : joined.slice(data.length);
     if (remainder) {
       this.pending.set(id, { chunks: [remainder], charCount: remainder.length, timer: null });
     } else {
@@ -93,7 +90,7 @@ export class TerminalDataBufferer {
 
   /** Release IPC pressure only after xterm has parsed the corresponding data. */
   acknowledge(id: string, charCount: number): void {
-    const terminalId = String(id || "");
+    const terminalId = String(id || '');
     const count = Math.floor(Number(charCount));
     if (!terminalId || !Number.isFinite(count) || count <= 0) return;
     const current = this.inFlightChars.get(terminalId) || 0;
@@ -110,7 +107,7 @@ export class TerminalDataBufferer {
   /** Drop all accounting for a disposed PTY and guarantee that a producer
    * paused under the old terminal id cannot remain wedged. */
   release(id: string): void {
-    const terminalId = String(id || "");
+    const terminalId = String(id || '');
     if (!terminalId) return;
     const buffered = this.pending.get(terminalId);
     if (buffered?.timer) clearTimeout(buffered.timer);

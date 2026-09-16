@@ -36,13 +36,20 @@ function wrappedLineRows(line, width) {
     const tw = displayWidth(token);
     if (tw === 0) continue;
     if (tw > width) {
-      if (col > 0) { rows++; col = 0; }
+      if (col > 0) {
+        rows++;
+        col = 0;
+      }
       rows += Math.ceil(tw / width) - 1;
       col = tw % width || width;
       continue;
     }
-    if (col + tw > width) { rows++; col = tw; }
-    else { col += tw; }
+    if (col + tw > width) {
+      rows++;
+      col = tw;
+    } else {
+      col += tw;
+    }
   }
   return Math.max(1, rows);
 }
@@ -50,7 +57,10 @@ function wrappedLineRows(line, width) {
 function estimateWrappedRowsFallback(text, columns, reserve = 3) {
   const width = Math.max(8, Number(columns || 80) - reserve);
   const lines = String(text ?? '').split('\n');
-  return Math.max(1, lines.reduce((sum, line) => sum + wrappedLineRows(line, width), 0));
+  return Math.max(
+    1,
+    lines.reduce((sum, line) => sum + wrappedLineRows(line, width), 0)
+  );
 }
 
 export function measureMarkdownRenderedRows(text, columns, { trimPartialFences = false } = {}) {
@@ -85,9 +95,7 @@ function measureStreamingPartsUncached(parts, columns) {
   }
   let rows = 0;
   let childCount = 0;
-  const stableChunks = parts.stableChunks?.length
-    ? parts.stableChunks
-    : parts.stablePrefix ? [parts.stablePrefix] : [];
+  const stableChunks = parts.stableChunks?.length ? parts.stableChunks : parts.stablePrefix ? [parts.stablePrefix] : [];
   for (const chunk of stableChunks) {
     if (childCount > 0) rows += 1;
     rows += measureMarkdownRenderedRows(chunk, columns, { trimPartialFences: false });
@@ -136,18 +144,21 @@ export function measureStreamingMarkdownRenderedRows(text, columns, streamKey) {
     const lastBreak = plain.lastIndexOf('\n');
     const stablePrefix = lastBreak >= 0 ? plain.substring(0, lastBreak + 1) : '';
     let stableRows = 0;
-    if (cached
-      && cached.mode === 'plain'
-      && cached.columns === columns
-      && stablePrefix.startsWith(cached.stablePrefix)) {
+    if (
+      cached &&
+      cached.mode === 'plain' &&
+      cached.columns === columns &&
+      stablePrefix.startsWith(cached.stablePrefix)
+    ) {
       // Lines preceding the currently-growing final line wrap independently.
       // Measure only complete lines added since the previous split.
-      const addedComplete = plain.substring(cached.stablePrefix.length, Math.max(cached.stablePrefix.length, lastBreak));
+      const addedComplete = plain.substring(
+        cached.stablePrefix.length,
+        Math.max(cached.stablePrefix.length, lastBreak)
+      );
       stableRows = cached.stableRows;
       if (addedComplete) {
-        stableRows += addedComplete
-          .split('\n')
-          .reduce((sum, line) => sum + wrappedLineRows(line, width), 0);
+        stableRows += addedComplete.split('\n').reduce((sum, line) => sum + wrappedLineRows(line, width), 0);
       }
     } else if (lastBreak >= 0) {
       stableRows = plain
@@ -170,15 +181,14 @@ export function measureStreamingMarkdownRenderedRows(text, columns, streamKey) {
   let rows = 0;
   let childCount = 0;
   let stableRows = 0;
-  const stableChunks = parts.stableChunks?.length
-    ? parts.stableChunks
-    : parts.stablePrefix ? [parts.stablePrefix] : [];
-  const reusableChunks = cached
-    && cached.mode === 'markdown'
-    && cached.columns === columns
-    && Array.isArray(cached.stableChunks)
-    && cached.stableChunks.length <= stableChunks.length
-    && cached.stableChunks.every((chunk, index) => chunk === stableChunks[index]);
+  const stableChunks = parts.stableChunks?.length ? parts.stableChunks : parts.stablePrefix ? [parts.stablePrefix] : [];
+  const reusableChunks =
+    cached &&
+    cached.mode === 'markdown' &&
+    cached.columns === columns &&
+    Array.isArray(cached.stableChunks) &&
+    cached.stableChunks.length <= stableChunks.length &&
+    cached.stableChunks.every((chunk, index) => chunk === stableChunks[index]);
   let measuredStableChunks = 0;
   if (reusableChunks) {
     stableRows = cached.stableRows;

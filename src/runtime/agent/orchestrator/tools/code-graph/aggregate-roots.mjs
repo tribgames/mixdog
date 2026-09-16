@@ -10,8 +10,16 @@ import { _isFilesystemRootPath, formatFederatedProjectLabel } from './trusted-ro
 
 export const _AGGREGATE_FILE_WILDCARD_RE = /[*?[\]{}]/;
 export const ROOT_FEDERATED_MODES = new Set([
-  'overview', 'symbol', 'find_symbol', 'symbol_search', 'search',
-  'references', 'callers', 'callees', 'symbols', 'prewarm',
+  'overview',
+  'symbol',
+  'find_symbol',
+  'symbol_search',
+  'search',
+  'references',
+  'callers',
+  'callees',
+  'symbols',
+  'prewarm',
 ]);
 // Fan-out cap when federation targets are DISCOVERED (immediate child project
 // roots of a sentinel-free cwd) rather than registered. Bounds the cost of
@@ -22,12 +30,17 @@ export const CODE_GRAPH_DISCOVERED_FEDERATION_CAP = (() => {
 })();
 
 export async function _runCodeGraphFederation(roots, runOne, projectArgs) {
-  return Promise.all((roots || []).map(async (root) => {
-    let body;
-    try { body = await runOne(root, projectArgs); }
-    catch (err) { body = `Error: ${err?.message || String(err)}`; }
-    return `# project ${formatFederatedProjectLabel(root)}\n${body}`;
-  }));
+  return Promise.all(
+    (roots || []).map(async (root) => {
+      let body;
+      try {
+        body = await runOne(root, projectArgs);
+      } catch (err) {
+        body = `Error: ${err?.message || String(err)}`;
+      }
+      return `# project ${formatFederatedProjectLabel(root)}\n${body}`;
+    })
+  );
 }
 
 // Absorb: file/files arriving as a JSON-stringified array
@@ -40,7 +53,9 @@ function _parseJsonArrayString(v) {
   try {
     const parsed = JSON.parse(t);
     if (Array.isArray(parsed)) return parsed.map((x) => String(x || '').trim()).filter(Boolean);
-  } catch { /* not JSON — leave untouched */ }
+  } catch {
+    /* not JSON — leave untouched */
+  }
   return null;
 }
 
@@ -50,7 +65,10 @@ export function _normalizeGraphFileArgs(args) {
   const filesArr = _parseJsonArrayString(args.files);
   if (!fileArr && !filesArr) return args;
   const out = { ...args };
-  if (fileArr) { out.files = Array.isArray(out.files) ? [...fileArr, ...out.files] : fileArr; delete out.file; }
+  if (fileArr) {
+    out.files = Array.isArray(out.files) ? [...fileArr, ...out.files] : fileArr;
+    delete out.file;
+  }
   if (filesArr) out.files = filesArr;
   // Collapse a lone entry back to the single-file field for the fast path.
   if (Array.isArray(out.files) && out.files.length === 1 && !out.file && !filesArr) {
@@ -61,17 +79,25 @@ export function _normalizeGraphFileArgs(args) {
 }
 
 export function _collectGraphFileList(args) {
-  const split = (s) => String(s || '').split(/,+/).map((t) => t.trim()).filter(Boolean);
-  return [...new Set([
-    ...(Array.isArray(args?.files) ? args.files.map((f) => String(f || '').trim()).filter(Boolean) : []),
-    ...(typeof args?.files === 'string' ? split(args.files) : []),
-    ...(typeof args?.file === 'string' && args.file.trim() ? [args.file.trim()] : []),
-  ])];
+  const split = (s) =>
+    String(s || '')
+      .split(/,+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+  return [
+    ...new Set([
+      ...(Array.isArray(args?.files) ? args.files.map((f) => String(f || '').trim()).filter(Boolean) : []),
+      ...(typeof args?.files === 'string' ? split(args.files) : []),
+      ...(typeof args?.file === 'string' && args.file.trim() ? [args.file.trim()] : []),
+    ]),
+  ];
 }
 
 export function _hasAggregateFileArgs(args) {
-  return (Array.isArray(args?.files) && args.files.some((f) => String(f || '').trim()))
-    || (typeof args?.files === 'string' && args.files.trim());
+  return (
+    (Array.isArray(args?.files) && args.files.some((f) => String(f || '').trim())) ||
+    (typeof args?.files === 'string' && args.files.trim())
+  );
 }
 
 // Aggregate anchors that ALL resolve to the cwd itself ('.', './', the cwd
@@ -89,7 +115,9 @@ export function _aggregateAnchorsAreCwd(args, baseCwd) {
     if (!trimmed || _AGGREGATE_FILE_WILDCARD_RE.test(trimmed)) return false;
     try {
       return pathResolve(isAbsolute(trimmed) ? trimmed : pathResolve(baseCwd, trimmed)) === pathResolve(baseCwd);
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   });
 }
 
@@ -111,7 +139,11 @@ export function _resolveAggregateFileProjectRoot(args, baseCwd, { stopAtUserBoun
     const abs = isAbsolute(file) ? pathResolve(file) : pathResolve(baseCwd, file);
     if (!existsSync(abs)) return null;
     let isDirectory = false;
-    try { isDirectory = statSync(abs).isDirectory(); } catch { return null; }
+    try {
+      isDirectory = statSync(abs).isDirectory();
+    } catch {
+      return null;
+    }
     const root = isDirectory
       ? _findDirProjectRoot(abs, { stopAtUserBoundary })
       : _resolveFileProjectRoot(abs, { stopAtUserBoundary });
@@ -195,13 +227,15 @@ export function _relocateAggregateAnchorsUnderChildProject(args, baseCwd) {
   }
   const holders = _childProjectRoots(baseCwd, { cap: 8 })
     .filter((root) => pathResolve(root) !== pathResolve(baseCwd))
-    .filter((root) => files.every((file) => {
-      try {
-        return statSync(pathResolve(root, file)).isFile();
-      } catch {
-        return false;
-      }
-    }));
+    .filter((root) =>
+      files.every((file) => {
+        try {
+          return statSync(pathResolve(root, file)).isFile();
+        } catch {
+          return false;
+        }
+      })
+    );
   if (holders.length !== 1) return null;
   const root = pathResolve(holders[0]);
   const remap = (file) => pathResolve(root, String(file || '').trim());
@@ -212,7 +246,9 @@ export function _relocateAggregateAnchorsUnderChildProject(args, baseCwd) {
       file: typeof args?.file === 'string' && args.file.trim() ? remap(args.file) : args?.file,
       files: Array.isArray(args?.files)
         ? args.files.map(remap)
-        : (typeof args?.files === 'string' && args.files.trim() ? remap(args.files) : args?.files),
+        : typeof args?.files === 'string' && args.files.trim()
+          ? remap(args.files)
+          : args?.files,
     },
   };
 }
@@ -271,6 +307,8 @@ export function _absolutizeAggregateFileArgs(args, baseCwd) {
     file: typeof args?.file === 'string' ? absolutize(args.file) : args?.file,
     files: Array.isArray(args?.files)
       ? args.files.map(absolutize)
-      : (typeof args?.files === 'string' ? absolutize(args.files) : args?.files),
+      : typeof args?.files === 'string'
+        ? absolutize(args.files)
+        : args?.files,
   };
 }

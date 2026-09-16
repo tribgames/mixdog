@@ -18,17 +18,15 @@ const markerName = '.mixdog-fast-runtime.json';
 async function resolveRuntimePackageManifest() {
   const npmCli = process.env.npm_execpath;
   if (!npmCli) throw new Error('prepare-fast-runtime-code must be run from npm.');
-  const { stdout } = await execFileAsync(process.execPath, [
-    npmCli,
-    'pack',
-    '--dry-run',
-    '--json',
-    '--ignore-scripts',
-  ], {
-    cwd: rootDir,
-    windowsHide: true,
-    maxBuffer: 16 * 1024 * 1024,
-  });
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [npmCli, 'pack', '--dry-run', '--json', '--ignore-scripts'],
+    {
+      cwd: rootDir,
+      windowsHide: true,
+      maxBuffer: 16 * 1024 * 1024,
+    }
+  );
   const [manifest] = JSON.parse(stdout);
   if (!manifest?.files?.length) throw new Error('npm pack returned no Mixdog runtime files.');
   return manifest;
@@ -62,7 +60,7 @@ export async function prepareFastRuntimeCode({
   });
   await writeFile(
     join(temporary, markerName),
-    `${JSON.stringify(fastRuntimeMarker({ dependencyHash, runtimeHash }), null, 2)}\n`,
+    `${JSON.stringify(fastRuntimeMarker({ dependencyHash, runtimeHash }), null, 2)}\n`
   );
   await rm(destination, { recursive: true, force: true });
   await rename(temporary, destination);
@@ -79,7 +77,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   });
   const marker = JSON.parse(await readFile(join(outputDir, markerName), 'utf8'));
   console.log(
-    `[fast-runtime] staged ${manifest.files.length} Mixdog files in `
-    + `${Math.round(performance.now() - startedAt)}ms (${marker.runtimeHash.slice(0, 8)})`,
+    `[fast-runtime] staged ${manifest.files.length} Mixdog files in ` +
+      `${Math.round(performance.now() - startedAt)}ms (${marker.runtimeHash.slice(0, 8)})`
   );
 }

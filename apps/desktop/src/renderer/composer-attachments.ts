@@ -2,9 +2,9 @@
 // attachment conversion (engine-side image resize, PDF, inline text).
 // Extracted from Composer.tsx, which keeps token insertion, draft edits and
 // error surfacing.
-import type { RecordValue } from "./desktop-types";
-import { fileLooksLikeText } from "./file-content";
-import { asRecord } from "./text-format";
+import type { RecordValue } from './desktop-types';
+import { fileLooksLikeText } from './file-content';
+import { asRecord } from './text-format';
 import {
   MAX_COMPOSER_ATTACHMENTS,
   MAX_INLINE_FILE_BYTES,
@@ -12,8 +12,8 @@ import {
   MAX_INLINE_TEXT_TOTAL,
   MAX_PDF_FILE_BYTES,
   type ComposerAttachment,
-} from "./composer-support";
-import { isRemoteBrowserRenderer } from "./remote-ui-projection";
+} from './composer-support';
+import { isRemoteBrowserRenderer } from './remote-ui-projection';
 
 const MAX_IMAGE_FILE_BYTES = 12_000_000;
 const WEB_IMAGE_MAX_WIDTH = 2_000;
@@ -24,29 +24,32 @@ const WEB_IMAGE_PNG_REENCODE_BYTES = 300_000;
 const SUPPORTED_IMAGE_TYPES = /^image\/(?:png|jpe?g|gif|webp)$/i;
 const SUPPORTED_IMAGE_PATH = /\.(?:png|jpe?g|gif|webp)$/i;
 const TEXT_LIKE_MIME = /^application\/(?:json|ld\+json|toml|x-toml|yaml|x-yaml|xml)$/;
-const TEXT_LIKE_EXTENSION = /\.(?:md|mdx|txt|json|jsonl|ya?ml|toml|xml|csv|tsv|[cm]?[jt]sx?|py|rb|rs|go|java|kt|swift|cs|cpp|cc|c|h|hh|hpp|sh|zsh|ps1|bat|cmd|sql|css|scss|sass|html|htm|vue|svelte|log|env|ini|conf|cfg|gql|graphql)$/i;
+const TEXT_LIKE_EXTENSION =
+  /\.(?:md|mdx|txt|json|jsonl|ya?ml|toml|xml|csv|tsv|[cm]?[jt]sx?|py|rb|rs|go|java|kt|swift|cs|cpp|cc|c|h|hh|hpp|sh|zsh|ps1|bat|cmd|sql|css|scss|sass|html|htm|vue|svelte|log|env|ini|conf|cfg|gql|graphql)$/i;
 
 export function isSupportedComposerImagePath(path: string): boolean {
-  return SUPPORTED_IMAGE_PATH.test(String(path || "").trim());
+  return SUPPORTED_IMAGE_PATH.test(String(path || '').trim());
 }
 
 /** Empty when the attachment fits the per-turn budget, else the user message. */
 export function attachmentPolicyError(
   currentAttachments: ComposerAttachment[],
-  attachment: ComposerAttachment,
+  attachment: ComposerAttachment
 ): string {
   if (currentAttachments.length >= MAX_COMPOSER_ATTACHMENTS) {
     return `Attach up to ${MAX_COMPOSER_ATTACHMENTS} items at a time.`;
   }
-  const textTotal = currentAttachments.reduce((sum, item) =>
-    sum + (item.kind === 'text' ? item.data.length : 0), 0) +
+  const textTotal =
+    currentAttachments.reduce((sum, item) => sum + (item.kind === 'text' ? item.data.length : 0), 0) +
     (attachment.kind === 'text' ? attachment.data.length : 0);
   if (textTotal > MAX_INLINE_TEXT_TOTAL) {
     return 'Inline text attachments are too large together. Keep the total under 850 KB.';
   }
-  const imageTotal = currentAttachments.reduce((sum, item) =>
-    sum + (item.kind === 'image' || item.kind === 'pdf' ? item.data.length : 0), 0) +
-    (attachment.kind === 'image' || attachment.kind === 'pdf' ? attachment.data.length : 0);
+  const imageTotal =
+    currentAttachments.reduce(
+      (sum, item) => sum + (item.kind === 'image' || item.kind === 'pdf' ? item.data.length : 0),
+      0
+    ) + (attachment.kind === 'image' || attachment.kind === 'pdf' ? attachment.data.length : 0);
   if (imageTotal > MAX_INLINE_IMAGE_BASE64_TOTAL) {
     return 'Attached images and PDFs are too large together. Remove one or use smaller files.';
   }
@@ -68,13 +71,15 @@ function imageMetadataText(
   originalWidth: number,
   originalHeight: number,
   displayWidth: number,
-  displayHeight: number,
+  displayHeight: number
 ): string {
   const resized = originalWidth !== displayWidth || originalHeight !== displayHeight;
   const parts = [`source: ${displayName}`, `${originalWidth}x${originalHeight}`];
   if (resized) {
     const scale = originalWidth / displayWidth;
-    parts.push(`displayed at ${displayWidth}x${displayHeight}. Multiply coordinates by ${scale.toFixed(2)} to map to the original image.`);
+    parts.push(
+      `displayed at ${displayWidth}x${displayHeight}. Multiply coordinates by ${scale.toFixed(2)} to map to the original image.`
+    );
   } else {
     parts.push(`displayed at ${displayWidth}x${displayHeight}`);
   }
@@ -83,15 +88,14 @@ function imageMetadataText(
 
 function canvasBlob(canvas: HTMLCanvasElement, mimeType: string, quality?: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => blob ? resolve(blob) : reject(new Error('image encoding failed')),
-      mimeType,
-      quality,
-    );
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('image encoding failed'))), mimeType, quality);
   });
 }
 
-async function browserResizedImage(file: File, displayName: string): Promise<{
+async function browserResizedImage(
+  file: File,
+  displayName: string
+): Promise<{
   data: string;
   mimeType: string;
   metadataText: string;
@@ -107,22 +111,15 @@ async function browserResizedImage(file: File, displayName: string): Promise<{
     const originalWidth = image.naturalWidth;
     const originalHeight = image.naturalHeight;
     if (!originalWidth || !originalHeight) throw new Error(`${displayName}: image dimensions are invalid.`);
-    const scale = Math.min(
-      1,
-      WEB_IMAGE_MAX_WIDTH / originalWidth,
-      WEB_IMAGE_MAX_HEIGHT / originalHeight,
-    );
+    const scale = Math.min(1, WEB_IMAGE_MAX_WIDTH / originalWidth, WEB_IMAGE_MAX_HEIGHT / originalHeight);
     const displayWidth = Math.max(1, Math.floor(originalWidth * scale));
     const displayHeight = Math.max(1, Math.floor(originalHeight * scale));
     // A PNG is lossless, so a screenshot stays enormous next to the same
     // pixels in WebP even when it fits the generic budget. Re-encode it well
     // before that budget; GIFs are left alone because a canvas round trip
     // would drop every frame but the first.
-    const oversizedLossless = /^image\/png$/i.test(file.type)
-      && file.size > WEB_IMAGE_PNG_REENCODE_BYTES;
-    const needsResize = scale < 1
-      || file.size > WEB_IMAGE_TARGET_BYTES
-      || oversizedLossless;
+    const oversizedLossless = /^image\/png$/i.test(file.type) && file.size > WEB_IMAGE_PNG_REENCODE_BYTES;
+    const needsResize = scale < 1 || file.size > WEB_IMAGE_TARGET_BYTES || oversizedLossless;
     let payload: Blob = file;
     if (needsResize) {
       const canvas = document.createElement('canvas');
@@ -138,11 +135,7 @@ async function browserResizedImage(file: File, displayName: string): Promise<{
       payload = await canvasBlob(canvas, 'image/webp', 0.85);
       if (payload.type !== 'image/webp') {
         const fallbackType = /^image\/jpe?g$/i.test(file.type) ? 'image/jpeg' : 'image/png';
-        payload = await canvasBlob(
-          canvas,
-          fallbackType,
-          fallbackType === 'image/png' ? undefined : 0.85,
-        );
+        payload = await canvasBlob(canvas, fallbackType, fallbackType === 'image/png' ? undefined : 0.85);
       }
       if (payload.size > WEB_IMAGE_TARGET_BYTES && payload.type !== 'image/jpeg') {
         payload = await canvasBlob(canvas, 'image/jpeg', 0.82);
@@ -151,13 +144,7 @@ async function browserResizedImage(file: File, displayName: string): Promise<{
     return {
       data: await base64Payload(payload, `${displayName}: could not read image.`),
       mimeType: payload.type || file.type,
-      metadataText: imageMetadataText(
-        displayName,
-        originalWidth,
-        originalHeight,
-        displayWidth,
-        displayHeight,
-      ),
+      metadataText: imageMetadataText(displayName, originalWidth, originalHeight, displayWidth, displayHeight),
     };
   } finally {
     URL.revokeObjectURL(objectUrl);
@@ -168,7 +155,12 @@ async function browserResizedImage(file: File, displayName: string): Promise<{
 // so desktop submits the same downscaled payload the terminal client would.
 // Hosts without the capability (older engines, test stubs) keep the raw attach,
 // while a REAL resize failure blocks the attach exactly like the TUI paste path.
-async function resizedImage(file: File, data: string, mimeType: string, displayName: string): Promise<{
+async function resizedImage(
+  file: File,
+  data: string,
+  mimeType: string,
+  displayName: string
+): Promise<{
   data: string;
   mimeType: string;
   metadataText: string;
@@ -204,10 +196,13 @@ async function resizedImage(file: File, data: string, mimeType: string, displayN
 /** Convert one dropped/pasted file into an attachment, rejecting anything the
  *  engine cannot inline. Returns null when `cancelled` turns true mid-read —
  *  the caller must stop ingesting the remaining files then. */
-export async function attachmentFromFile(file: File, options: {
-  id: number;
-  cancelled?: () => boolean;
-}): Promise<ComposerAttachment | null> {
+export async function attachmentFromFile(
+  file: File,
+  options: {
+    id: number;
+    cancelled?: () => boolean;
+  }
+): Promise<ComposerAttachment | null> {
   const { id, cancelled = () => false } = options;
   const displayName = file.name || (file.type.startsWith('image/') ? 'Pasted image' : 'Pasted file');
   if (file.type.startsWith('image/')) {
@@ -244,9 +239,13 @@ export async function attachmentFromFile(file: File, options: {
       token: `[PDF #${id}: ${displayName}]`,
     };
   }
-  const textLike = mimeKind.startsWith('text/') || TEXT_LIKE_MIME.test(mimeKind) ||
-    mimeKind.endsWith('+json') || mimeKind.endsWith('+xml') ||
-    TEXT_LIKE_EXTENSION.test(displayName) || await fileLooksLikeText(file);
+  const textLike =
+    mimeKind.startsWith('text/') ||
+    TEXT_LIKE_MIME.test(mimeKind) ||
+    mimeKind.endsWith('+json') ||
+    mimeKind.endsWith('+xml') ||
+    TEXT_LIKE_EXTENSION.test(displayName) ||
+    (await fileLooksLikeText(file));
   if (!textLike || file.size > MAX_INLINE_FILE_BYTES) {
     throw new Error(`${displayName}: attach images, PDFs, or text files under 750 KB.`);
   }

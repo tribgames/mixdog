@@ -1,14 +1,8 @@
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type MutableRefObject,
-  type ReactNode,
-} from "react";
-import type { TranscriptItem } from "./desktop-types";
-import { reviewSlotReserved, turnTouchesFiles } from "./composer-dock-reservation";
-import { SessionGoalHost } from "./SessionGoalIsland";
-import { TurnReviewBar } from "./TurnReview";
+import { useEffect, useMemo, useState, type MutableRefObject, type ReactNode } from 'react';
+import type { TranscriptItem } from './desktop-types';
+import { reviewSlotReserved, turnTouchesFiles } from './composer-dock-reservation';
+import { SessionGoalHost } from './SessionGoalIsland';
+import { TurnReviewBar } from './TurnReview';
 
 /**
  * The chrome stacked ABOVE the prompt input: Goal capsule, runtime progress,
@@ -29,7 +23,7 @@ import { TurnReviewBar } from "./TurnReview";
  * The reservation rules themselves live in composer-dock-reservation.ts.
  */
 
-export type ComposerContextBarPhase = "open" | "collapsing" | "closed";
+export type ComposerContextBarPhase = 'open' | 'collapsing' | 'closed';
 
 /** Draft-only composer context bar: when the surface promotes to a session
  *  the bar collapses over ~140ms (CSS) before unmounting, instead of
@@ -37,25 +31,23 @@ export type ComposerContextBarPhase = "open" | "collapsing" | "closed";
  *  shift; user: 첫 프롬 직후 화면이 한 번 툭 튐). */
 export function useComposerContextBarPhase(
   showProjectSelector: boolean,
-  softCollapse: MutableRefObject<boolean>,
+  softCollapse: MutableRefObject<boolean>
 ): ComposerContextBarPhase {
-  const [phase, setPhase] = useState<ComposerContextBarPhase>(
-    showProjectSelector ? "open" : "closed",
-  );
+  const [phase, setPhase] = useState<ComposerContextBarPhase>(showProjectSelector ? 'open' : 'closed');
   useEffect(() => {
     if (showProjectSelector) {
-      setPhase("open");
+      setPhase('open');
       return undefined;
     }
     // Only this pane's OWN draft->session promotion earns the soft collapse —
     // ordinary session renders and tab switches must drop the bar instantly
     // (session chrome asserts its absence).
     if (!softCollapse.current) {
-      setPhase("closed");
+      setPhase('closed');
       return undefined;
     }
-    setPhase((current) => current === "open" ? "collapsing" : current);
-    const timer = window.setTimeout(() => setPhase("closed"), 180);
+    setPhase((current) => (current === 'open' ? 'collapsing' : current));
+    const timer = window.setTimeout(() => setPhase('closed'), 180);
     return () => window.clearTimeout(timer);
   }, [showProjectSelector, softCollapse]);
   return phase;
@@ -104,7 +96,7 @@ export function ComposerDock({
   const contextBarPhase = useComposerContextBarPhase(showProjectSelector, softCollapseContextBar);
   const touchesFiles = useMemo(
     () => turnTouchesFiles(reviewItems, reviewStreamingTail),
-    [reviewItems, reviewStreamingTail],
+    [reviewItems, reviewStreamingTail]
   );
   const reserved = reviewSlotReserved({
     touchesFiles,
@@ -113,26 +105,29 @@ export function ComposerDock({
   });
   return (
     <div className="composer-region">
-      <SessionGoalHost placement="composer" submissionId={goalSubmissionId}>{goalIsland}</SessionGoalHost>
+      <SessionGoalHost placement="composer" submissionId={goalSubmissionId}>
+        {goalIsland}
+      </SessionGoalHost>
       {runtimeProgress}
       {approval ? <div className="composer-approval-row">{approval}</div> : null}
-      {(showProjectSelector || contextBarPhase !== "closed")
-        && <div className={`composer-context-bar${showProjectSelector
-          ? "" : " composer-context-bar-collapsing"}`}>
+      {(showProjectSelector || contextBarPhase !== 'closed') && (
+        <div className={`composer-context-bar${showProjectSelector ? '' : ' composer-context-bar-collapsing'}`}>
           {contextBar}
-        </div>}
+        </div>
+      )}
       {/* Review sits attached ABOVE the input (user: 채팅창 위에 붙어야 한다).
           It is not a timeline row: as scroll content it read as a detached
           card floating over the composer. */}
-      <div className="turn-review-slot"
-        data-reserved={reserved ? "true" : "false"}>
-        <TurnReviewBar items={reviewItems}
+      <div className="turn-review-slot" data-reserved={reserved ? 'true' : 'false'}>
+        <TurnReviewBar
+          items={reviewItems}
           active={reviewActive}
           busy={reviewBusy}
           sessionId={reviewSessionId}
           cwd={reviewCwd}
           onOpenFile={onOpenFile}
-          onPendingChange={setReviewPending} />
+          onPendingChange={setReviewPending}
+        />
       </div>
       {children}
     </div>

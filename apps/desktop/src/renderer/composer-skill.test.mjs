@@ -3,7 +3,12 @@ import test from 'node:test';
 import React, { act, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
-import { selectableComposerSkills, withSelectedSkill, useComposerSkill, shouldRemoveSelectedSkill } from './composer-skill.ts';
+import {
+  selectableComposerSkills,
+  withSelectedSkill,
+  useComposerSkill,
+  shouldRemoveSelectedSkill,
+} from './composer-skill.ts';
 import { useComposerSubmission } from './use-composer-submission.ts';
 import { selectedSkillName } from '../../../../src/runtime/shared/skill-selection.mjs';
 
@@ -21,39 +26,56 @@ test('Backspace removes the skill only at the unselected start, without stealing
   const input = { selected: 'pdf', key: 'Backspace', start: 0, end: 0, composing: false };
   assert.equal(shouldRemoveSelectedSkill(input), true);
   for (const change of [
-    { selected: '' }, { key: 'Delete' }, { start: 1, end: 1 }, { end: 3 },
-    { composing: true }, { repeat: true }, { modified: true },
+    { selected: '' },
+    { key: 'Delete' },
+    { start: 1, end: 1 },
+    { end: 3 },
+    { composing: true },
+    { repeat: true },
+    { modified: true },
   ]) {
     assert.equal(shouldRemoveSelectedSkill({ ...input, ...change }), false);
   }
 });
 
 test('menu offers enabled built-in and custom skills, not disabled or unavailable entries', () => {
-  assert.deepEqual(selectableComposerSkills({ skills: [
-    { name: 'pdf', enabled: true, description: 'PDF files' },
-    { name: 'private-skill', enabled: true },
-    { name: 'disabled', enabled: false },
-    { name: 'unknown-status' },
-    { name: 'pdf', enabled: true },
-  ] }), [{ name: 'pdf', description: 'PDF files' }, { name: 'private-skill', description: '' }]);
+  assert.deepEqual(
+    selectableComposerSkills({
+      skills: [
+        { name: 'pdf', enabled: true, description: 'PDF files' },
+        { name: 'private-skill', enabled: true },
+        { name: 'disabled', enabled: false },
+        { name: 'unknown-status' },
+        { name: 'pdf', enabled: true },
+      ],
+    }),
+    [
+      { name: 'pdf', description: 'PDF files' },
+      { name: 'private-skill', description: '' },
+    ]
+  );
 });
 
 test('shipped goal-management stays off the menu because the dedicated goal entry already covers it', () => {
-  const names = selectableComposerSkills({ skills: [
-    { name: 'goal-management', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
-    { name: 'goal-management', enabled: true, owner: { kind: 'builtin' }, description: 'MODEL_ONLY_TEXT' },
-    { name: 'pdf', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
-  ] }).map(skill => skill.name);
+  const names = selectableComposerSkills({
+    skills: [
+      { name: 'goal-management', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
+      { name: 'goal-management', enabled: true, owner: { kind: 'builtin' }, description: 'MODEL_ONLY_TEXT' },
+      { name: 'pdf', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
+    ],
+  }).map((skill) => skill.name);
   assert.deepEqual(names, ['pdf']);
 });
 
 test('built-in skills lead the menu and custom skills keep their reported order below', () => {
-  const names = selectableComposerSkills({ skills: [
-    { name: 'team-review', enabled: true, description: 'Team review' },
-    { name: 'pdf', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
-    { name: 'release-notes', enabled: true, description: 'Release notes' },
-    { name: 'setup', enabled: true, owner: { kind: 'builtin' }, description: 'MODEL_ONLY_TEXT' },
-  ] }).map(skill => skill.name);
+  const names = selectableComposerSkills({
+    skills: [
+      { name: 'team-review', enabled: true, description: 'Team review' },
+      { name: 'pdf', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
+      { name: 'release-notes', enabled: true, description: 'Release notes' },
+      { name: 'setup', enabled: true, owner: { kind: 'builtin' }, description: 'MODEL_ONLY_TEXT' },
+    ],
+  }).map((skill) => skill.name);
   assert.deepEqual(names, ['pdf', 'setup', 'team-review', 'release-notes']);
 });
 
@@ -76,23 +98,46 @@ test('selection survives rejected submission and scope switches, clears only aft
     const [draft, setDraft] = useState('Make a report');
     const [, setSubmitting] = useState(false);
     const [, setSubmissionRecoveryVersion] = useState(0);
-    const draftRef = useRef(draft); draftRef.current = draft;
+    const draftRef = useRef(draft);
+    draftRef.current = draft;
     const textarea = useRef(null);
     const attachmentsRef = useRef([]);
-    current = { skill, draft, setDraft, ...useComposerSubmission({
-      turnBusy: false, commandBusy: false, recoveryScope: scope, textarea, draftRef,
-      attachmentsRef, transitioningRef: useRef(false), composingRef: useRef(false),
-      submittingRef: useRef(false), submissionRetryRef: useRef(null),
-      mountedRef: useRef(true), historyNavigation: useRef({ index: -1, seed: '' }),
-      setDraft, setSubmitting, setSubmissionRecoveryVersion,
-      clearNotice() {}, setAttachmentError() {}, removeAttachments() {},
-      mergeRestoredAttachments: (_attachments, text) => text,
-      restoredAttachments: (_value, text) => ({ attachments: [], text }),
-      executeSlash: async () => true, rememberPrompt() {},
-      selectedSkill: skill.name, onSkillSubmitted: skill.submitted,
-      submit: async (content, options) => { submissions.push({ content, options }); return accept; },
-      abort: async () => ({}),
-    }) };
+    current = {
+      skill,
+      draft,
+      setDraft,
+      ...useComposerSubmission({
+        turnBusy: false,
+        commandBusy: false,
+        recoveryScope: scope,
+        textarea,
+        draftRef,
+        attachmentsRef,
+        transitioningRef: useRef(false),
+        composingRef: useRef(false),
+        submittingRef: useRef(false),
+        submissionRetryRef: useRef(null),
+        mountedRef: useRef(true),
+        historyNavigation: useRef({ index: -1, seed: '' }),
+        setDraft,
+        setSubmitting,
+        setSubmissionRecoveryVersion,
+        clearNotice() {},
+        setAttachmentError() {},
+        removeAttachments() {},
+        mergeRestoredAttachments: (_attachments, text) => text,
+        restoredAttachments: (_value, text) => ({ attachments: [], text }),
+        executeSlash: async () => true,
+        rememberPrompt() {},
+        selectedSkill: skill.name,
+        onSkillSubmitted: skill.submitted,
+        submit: async (content, options) => {
+          submissions.push({ content, options });
+          return accept;
+        },
+        abort: async () => ({}),
+      }),
+    };
     return React.createElement('textarea', { ref: textarea, value: draft, readOnly: true });
   }
   const host = document.createElement('main');

@@ -19,7 +19,9 @@ function argValue(name, fallback = null) {
   const hit = process.argv.find((a) => a.startsWith(pref));
   return hit ? hit.slice(pref.length) : fallback;
 }
-function hasFlag(name) { return process.argv.includes(name); }
+function hasFlag(name) {
+  return process.argv.includes(name);
+}
 
 function replayDir() {
   if (process.env.MIXDOG_PATCH_REPLAY_DIR) return resolve(process.env.MIXDOG_PATCH_REPLAY_DIR);
@@ -30,19 +32,27 @@ function replayDir() {
 function loadRecords() {
   const dir = replayDir();
   if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => {
-    try { return { file: join(dir, f), ...JSON.parse(readFileSync(join(dir, f), 'utf8')) }; }
-    catch { return null; }
-  }).filter(Boolean).sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => {
+      try {
+        return { file: join(dir, f), ...JSON.parse(readFileSync(join(dir, f), 'utf8')) };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
 }
 
-function isErr(text) { return /^Error[\s:[]/.test(String(text || '').trimStart()); }
+function isErr(text) {
+  return /^Error[\s:[]/.test(String(text || '').trimStart());
+}
 
 function resolveReplaySnapshotPath(root, rel) {
   const text = String(rel || '');
   const portableAbsolute = /^[A-Za-z]:[\\/]/.test(text) || /^[/\\]{2}/.test(text);
-  if (!text || text.includes('\0') || isAbsolute(text) || portableAbsolute
-    || text.split(/[\\/]+/).includes('..')) {
+  if (!text || text.includes('\0') || isAbsolute(text) || portableAbsolute || text.split(/[\\/]+/).includes('..')) {
     throw new Error(`unsafe snapshot path: ${text || '(empty)'}`);
   }
   const abs = resolve(root, text);
@@ -54,8 +64,8 @@ function resolveReplaySnapshotPath(root, rel) {
 }
 
 export function legacyPartialReplayReason(rec) {
-  const partial = rec?.outcome?.kind === 'partial'
-    || /apply_patch file-level partial/i.test(String(rec?.error_first_line || ''));
+  const partial =
+    rec?.outcome?.kind === 'partial' || /apply_patch file-level partial/i.test(String(rec?.error_first_line || ''));
   if (partial && rec?.snapshot_phase !== 'pre') {
     return 'legacy partial capture has post-mutation snapshots; replay would not reproduce the original pre-state';
   }
@@ -90,13 +100,24 @@ export async function replayOne(rec) {
     }
     const args = { ...(rec.args || {}), base_path: tmp };
     let result;
-    try { result = await executePatchTool('apply_patch', args, tmp, {}); }
-    catch (e) { result = `Error: ${e?.message || String(e)}`; }
-    return { id: rec.id, ok: !isErr(result), skipped: false, before: rec.error_first_line, after: String(result).split('\n')[0].slice(0, 200) };
+    try {
+      result = await executePatchTool('apply_patch', args, tmp, {});
+    } catch (e) {
+      result = `Error: ${e?.message || String(e)}`;
+    }
+    return {
+      id: rec.id,
+      ok: !isErr(result),
+      skipped: false,
+      before: rec.error_first_line,
+      after: String(result).split('\n')[0].slice(0, 200),
+    };
   } finally {
     if (previousCapture === undefined) delete process.env.MIXDOG_PATCH_REPLAY_CAPTURE;
     else process.env.MIXDOG_PATCH_REPLAY_CAPTURE = previousCapture;
-    try { rmSync(tmp, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(tmp, { recursive: true, force: true });
+    } catch {}
   }
 }
 
@@ -105,7 +126,16 @@ async function main() {
   const records = loadRecords();
 
   if (hasFlag('--list') || (!hasFlag('--replay-all') && !argValue('--replay'))) {
-    if (jsonMode) { console.log(JSON.stringify(records.map(({ file_snapshots, args, ...m }) => m), null, 2)); return; }
+    if (jsonMode) {
+      console.log(
+        JSON.stringify(
+          records.map(({ file_snapshots, args, ...m }) => m),
+          null,
+          2
+        )
+      );
+      return;
+    }
     console.log(`captured apply_patch failures: ${records.length}  (dir: ${replayDir()})`);
     for (const r of records.slice(0, 50)) {
       const phase = r.snapshot_phase || 'legacy';

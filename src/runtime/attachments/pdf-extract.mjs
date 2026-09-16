@@ -14,7 +14,10 @@ function boundedUtf8(value, maxBytes) {
   const buffer = Buffer.from(String(value || ''), 'utf8');
   if (buffer.length <= maxBytes) return { text: buffer.toString('utf8'), bytes: buffer.length, truncated: false };
   if (maxBytes <= 0) return { text: '', bytes: 0, truncated: true };
-  const text = buffer.subarray(0, maxBytes).toString('utf8').replace(/\uFFFD+$/g, '');
+  const text = buffer
+    .subarray(0, maxBytes)
+    .toString('utf8')
+    .replace(/\uFFFD+$/g, '');
   return { text, bytes: Buffer.byteLength(text, 'utf8'), truncated: true };
 }
 
@@ -36,13 +39,16 @@ function runPlacement(item) {
   };
 }
 
-export async function inspectPdfBuffer(buffer, {
-  extractText = false,
-  maxPages = DEFAULT_MAX_PAGES,
-  maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
-  pageRange = null,
-  password = '',
-} = {}) {
+export async function inspectPdfBuffer(
+  buffer,
+  {
+    extractText = false,
+    maxPages = DEFAULT_MAX_PAGES,
+    maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
+    pageRange = null,
+    password = '',
+  } = {}
+) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new TypeError('PDF payload is empty');
   await resolvedPdfJs();
   const { getDocumentProxy } = await import('unpdf');
@@ -76,9 +82,10 @@ export async function inspectPdfBuffer(buffer, {
             // A writer splits one word into several runs for kerning, and a
             // Korean line into a run per token; joining those with a space
             // invents "2026 년". Only a gap the page itself leaves is a space.
-            const separated = placement && cursor && placement.line === cursor.line
-              ? placement.start - cursor.end > cursor.size * 0.22
-              : !placement || !cursor;
+            const separated =
+              placement && cursor && placement.line === cursor.line
+                ? placement.start - cursor.end > cursor.size * 0.22
+                : !placement || !cursor;
             const glued = !body || body.endsWith('\n') || body.endsWith(' ') || item.str.startsWith(' ') || !separated;
             body += (glued ? '' : ' ') + item.str;
             cursor = placement;
@@ -88,7 +95,10 @@ export async function inspectPdfBuffer(buffer, {
             cursor = null;
           }
         }
-        body = body.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+        body = body
+          .replace(/[ \t]+\n/g, '\n')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
         const block = `--- Page ${pageNumber} ---\n${body || '(no extractable text on this page)'}`;
         const separatorBytes = chunks.length ? 2 : 0;
         const remaining = byteLimit - bytes - separatorBytes;
@@ -108,7 +118,9 @@ export async function inspectPdfBuffer(buffer, {
           break;
         }
       } finally {
-        try { page.cleanup?.(); } catch {}
+        try {
+          page.cleanup?.();
+        } catch {}
       }
     }
     if (truncated) {
@@ -119,6 +131,8 @@ export async function inspectPdfBuffer(buffer, {
     }
     return { pageCount, text: chunks.join(''), truncated: false };
   } finally {
-    try { await pdf.destroy?.(); } catch {}
+    try {
+      await pdf.destroy?.();
+    } catch {}
   }
 }

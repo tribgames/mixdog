@@ -4,19 +4,19 @@ const sources = new Set();
 const closedListeners = new Set();
 
 export function registerRenderFrameSource() {
-    const source = {};
-    sources.add(source);
-    return () => {
-        if (!sources.delete(source) || sources.size > 0) return;
-        for (const listener of [...closedListeners]) listener();
-    };
+  const source = {};
+  sources.add(source);
+  return () => {
+    if (!sources.delete(source) || sources.size > 0) return;
+    for (const listener of [...closedListeners]) listener();
+  };
 }
 
 export function hasRenderFrameSource() {
-    return sources.size > 0;
+  return sources.size > 0;
 }
 
 export function onRenderFrameSourcesClosed(listener) {
-    closedListeners.add(listener);
-    return () => closedListeners.delete(listener);
+  closedListeners.add(listener);
+  return () => closedListeners.delete(listener);
 }

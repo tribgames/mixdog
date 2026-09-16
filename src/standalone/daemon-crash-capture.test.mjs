@@ -26,9 +26,22 @@ import {
 import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 
 const RECORD_KEYS = [
-  'detached', 'error', 'exitCode', 'exitSignal', 'exitedAt', 'heapFlags', 'kind',
-  'launcher', 'launcherPid', 'pid', 'ready', 'readyAt', 'spawnedAt', 'stderrBytes',
-  'stderrFile', 'uptimeMs',
+  'detached',
+  'error',
+  'exitCode',
+  'exitSignal',
+  'exitedAt',
+  'heapFlags',
+  'kind',
+  'launcher',
+  'launcherPid',
+  'pid',
+  'ready',
+  'readyAt',
+  'spawnedAt',
+  'stderrBytes',
+  'stderrFile',
+  'uptimeMs',
 ];
 
 // Writes to fd 2 before the ready handshake, then — only once the fixture opens
@@ -68,12 +81,16 @@ function within(promise, ms, what) {
   const bound = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms waiting for ${what}`)), ms);
   });
-  return Promise.race([promise, bound]).finally(() => { if (timer) clearTimeout(timer); });
+  return Promise.race([promise, bound]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 function readyMessage(child) {
   return new Promise((resolve) => {
-    child.on('message', (message) => { if (message?.type === 'ready') resolve(message); });
+    child.on('message', (message) => {
+      if (message?.type === 'ready') resolve(message);
+    });
   });
 }
 
@@ -86,11 +103,15 @@ function workspace(t, prefix) {
   // temp directory is removed.
   t.after(async () => {
     for (const capture of captures) {
-      try { capture.release(); } catch {}
+      try {
+        capture.release();
+      } catch {}
     }
     for (const pid of children) {
       if (!isPidAlive(pid)) continue;
-      try { process.kill(pid, 'SIGKILL'); } catch {}
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {}
     }
     for (const pid of children) await waitFor(() => !isPidAlive(pid), { timeoutMs: 10_000 });
     rmSync(root, { recursive: true, force: true });
@@ -98,7 +119,10 @@ function workspace(t, prefix) {
   return {
     root,
     /** Captures whose launcher never forks still hold a descriptor. */
-    own(capture) { captures.add(capture); return capture; },
+    own(capture) {
+      captures.add(capture);
+      return capture;
+    },
     // Fixture children run INSIDE the temp directory: a native crash artifact
     // (core dump, report) must never land in the repository.
     fork(entry, args = [], options = {}) {
@@ -129,9 +153,13 @@ function deadRecord(pid = 999_999_999) {
 }
 
 function bootStems(dir) {
-  return [...new Set(readdirSync(dir)
-    .filter((name) => /^daemon-\d{8}-\d{6}-\d+-[0-9a-f]{4}\.(err\.log|json)$/.test(name))
-    .map((name) => name.replace(/\.(err\.log|json)$/, '')))];
+  return [
+    ...new Set(
+      readdirSync(dir)
+        .filter((name) => /^daemon-\d{8}-\d{6}-\d+-[0-9a-f]{4}\.(err\.log|json)$/.test(name))
+        .map((name) => name.replace(/\.(err\.log|json)$/, ''))
+    ),
+  ];
 }
 
 function writeBoot(dir, stem, { bytes = 1024, record = null, mtimeMs }) {
@@ -237,9 +265,12 @@ test('a capture that cannot be opened falls back to the stderr pipe without losi
   assert.equal(
     countLines(logs, 'post ready native line'),
     1,
-    'a native fd 2 line after ready is still mirrored while the launcher lives',
+    'a native fd 2 line after ready is still mirrored while the launcher lives'
   );
-  assert.match(logs.find((line) => line.startsWith('daemon exit ')), /code=7 signal=- ready=1/);
+  assert.match(
+    logs.find((line) => line.startsWith('daemon exit ')),
+    /code=7 signal=- ready=1/
+  );
 });
 
 test('a losing contender leaves no capture file behind', async (t) => {
@@ -257,7 +288,10 @@ test('a losing contender leaves no capture file behind', async (t) => {
   capture.track(child, { detached: false, execArgv: [] });
   await within(once(child, 'exit'), 15_000, 'contender exit');
   assert.deepEqual(readdirSync(daemonCrashCaptureDir({ dataDir: root })), []);
-  assert.match(logs.find((line) => line.startsWith('daemon exit ')), /code=0 signal=- ready=0/);
+  assert.match(
+    logs.find((line) => line.startsWith('daemon exit ')),
+    /code=0 signal=- ready=0/
+  );
 });
 
 test('an asynchronous spawn failure is persisted in the sidecar', async (t) => {
@@ -277,12 +311,17 @@ test('an asynchronous spawn failure is persisted in the sidecar', async (t) => {
   capture.track(child, { detached: false, execArgv: [] });
   const [error] = await within(once(child, 'error'), 15_000, 'spawn error');
   assert.ok(error, 'the fixture reproduced an asynchronous spawn failure');
-  const recorded = await waitFor(() => {
-    try {
-      const value = JSON.parse(readFileSync(capture.recordPath, 'utf8'));
-      return value.error ? value : null;
-    } catch { return null; }
-  }, { timeoutMs: 10_000 });
+  const recorded = await waitFor(
+    () => {
+      try {
+        const value = JSON.parse(readFileSync(capture.recordPath, 'utf8'));
+        return value.error ? value : null;
+      } catch {
+        return null;
+      }
+    },
+    { timeoutMs: 10_000 }
+  );
   assert.ok(recorded, 'the spawn failure reached the sidecar');
   assert.equal(recorded.pid, null);
   assert.ok(recorded.exitedAt, 'a boot that never spawned is terminal, not "launching"');
@@ -305,20 +344,22 @@ test('a colliding boot identity never adopts or overwrites existing evidence', (
 
   const nonces = ['aaaa', 'cccc', 'bbbb'];
   let index = 0;
-  const capture = fixture.own(beginDaemonSpawnCapture({
-    launcher: 'test',
-    dataDir: root,
-    prune: false,
-    now: () => fixedNow,
-    nonce: () => nonces[Math.min(index++, nonces.length - 1)],
-  }));
+  const capture = fixture.own(
+    beginDaemonSpawnCapture({
+      launcher: 'test',
+      dataDir: root,
+      prune: false,
+      now: () => fixedNow,
+      nonce: () => nonces[Math.min(index++, nonces.length - 1)],
+    })
+  );
   assert.equal(capture.stem, stemAt('bbbb'), 'a taken identity is skipped, not reused');
   assert.equal(readFileSync(takenRaw, 'utf8'), 'FATAL ERROR: earlier crash evidence\n');
   assert.equal(JSON.parse(readFileSync(takenRecord, 'utf8')).pid, deadRecord().pid);
   assert.equal(
     existsSync(join(dir, `${stemAt('cccc')}.err.log`)),
     false,
-    'the probe for a sidecar-owned identity leaves nothing behind',
+    'the probe for a sidecar-owned identity leaves nothing behind'
   );
   assert.equal(statSync(capture.capturePath).size, 0, 'the new capture starts empty');
 });
@@ -332,14 +373,16 @@ test('an exhausted identity search degrades to the pipe instead of overwriting e
   const taken = join(dir, `daemon-20260915-064859-${process.pid}-aaaa.err.log`);
   writeFileSync(taken, 'FATAL ERROR: earlier crash evidence\n');
   const logs = [];
-  const capture = fixture.own(beginDaemonSpawnCapture({
-    launcher: 'test',
-    dataDir: root,
-    prune: false,
-    now: () => fixedNow,
-    nonce: () => 'aaaa',
-    log: (line) => logs.push(line),
-  }));
+  const capture = fixture.own(
+    beginDaemonSpawnCapture({
+      launcher: 'test',
+      dataDir: root,
+      prune: false,
+      now: () => fixedNow,
+      nonce: () => 'aaaa',
+      log: (line) => logs.push(line),
+    })
+  );
   assert.equal(capture.stderrStdio, 'pipe', 'boot diagnostics still have a sink');
   assert.equal(capture.capturePath, null);
   assert.equal(capture.stem, null);
@@ -356,9 +399,10 @@ test('retention keeps an active daemon capture untouched and bounds completed bo
     writeBoot(dir, `daemon-20260915-06480${index}-1234-ab0${index}`, {
       bytes: 1024,
       mtimeMs: now - (10 - index) * 60_000,
-      record: index === 0
-        ? { kind: 'mixdog-daemon-crash-capture', pid: process.pid, launcherPid: process.pid, exitedAt: null }
-        : deadRecord(),
+      record:
+        index === 0
+          ? { kind: 'mixdog-daemon-crash-capture', pid: process.pid, launcherPid: process.pid, exitedAt: null }
+          : deadRecord(),
     });
   }
   writeFileSync(join(dir, 'notes.txt'), 'operator note');
@@ -385,17 +429,20 @@ test('the newest completed crash capture is trimmed to its tail, never deleted',
   const recordPath = join(dir, `${stem}.json`);
   // One capture that alone blows the whole byte budget, with the fatal report
   // where V8 always puts it: at the very end.
-  writeFileSync(rawPath, Buffer.concat([
-    Buffer.alloc(300 * 1024, 'x'),
-    Buffer.from('FATAL ERROR: Reached heap limit Allocation failed\n'),
-  ]));
+  writeFileSync(
+    rawPath,
+    Buffer.concat([Buffer.alloc(300 * 1024, 'x'), Buffer.from('FATAL ERROR: Reached heap limit Allocation failed\n')])
+  );
   writeFileSync(recordPath, JSON.stringify(deadRecord()));
   const at = new Date(now - 60_000);
   utimesSync(rawPath, at, at);
   utimesSync(recordPath, at, at);
 
   const result = pruneDaemonCrashCaptures({
-    dir, keepBoots: 8, keepBytes: 64 * 1024, tailBytes: 32 * 1024,
+    dir,
+    keepBoots: 8,
+    keepBytes: 64 * 1024,
+    tailBytes: 32 * 1024,
   });
   assert.equal(result.removed, 0, 'the newest crash evidence is never deleted');
   assert.equal(result.trimmed, 1);
@@ -447,7 +494,7 @@ test('a restart prunes to the completed budget while its own active capture stay
   assert.equal(
     afterSpawn.filter((stem) => stem !== capture.stem).length,
     CRASH_CAPTURE_KEEP_BOOTS,
-    'completed boots are held to the documented budget, the active boot is extra',
+    'completed boots are held to the documented budget, the active boot is extra'
   );
 
   // Closing the boot folds it into the completed budget on the next restart,

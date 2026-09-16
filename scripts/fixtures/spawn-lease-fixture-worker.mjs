@@ -7,7 +7,11 @@ import { join } from 'node:path';
 
 const outDir = process.env.SPAWN_LEASE_FIXTURE_DIR || process.cwd();
 const record = (name) => {
-  try { writeFileSync(join(outDir, name), String(Date.now())); } catch { /* test observes absence */ }
+  try {
+    writeFileSync(join(outDir, name), String(Date.now()));
+  } catch {
+    /* test observes absence */
+  }
 };
 
 process.on('message', (message) => {

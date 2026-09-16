@@ -32,15 +32,22 @@ export function ProjectsPane({
   onSectionChange?(section: ProjectsSection): void;
 }) {
   useSurfaceNavigationReset(active, () => onSectionChange?.('projects'));
-  return <div className="schedules-pane projects-pane stable-surface-preserved stable-takeover-surface"
-    data-surface-active={active ? 'true' : 'false'}
-    inert={active ? undefined : true} aria-hidden={active ? undefined : true}>
-    <div className="schedules-page">
-      <SidebarSectionToolbar label={t('Projects')} sections={SECTIONS}
-        active={section} onChange={(next) => onSectionChange?.(next)} />
-      {section === 'workflows'
-        ? <WorkflowsPane active={active} />
-        : <ProjectListSection active={active} {...list} />}
+  return (
+    <div
+      className="schedules-pane projects-pane stable-surface-preserved stable-takeover-surface"
+      data-surface-active={active ? 'true' : 'false'}
+      inert={active ? undefined : true}
+      aria-hidden={active ? undefined : true}
+    >
+      <div className="schedules-page">
+        <SidebarSectionToolbar
+          label={t('Projects')}
+          sections={SECTIONS}
+          active={section}
+          onChange={(next) => onSectionChange?.(next)}
+        />
+        {section === 'workflows' ? <WorkflowsPane active={active} /> : <ProjectListSection active={active} {...list} />}
+      </div>
     </div>
-  </div>;
+  );
 }

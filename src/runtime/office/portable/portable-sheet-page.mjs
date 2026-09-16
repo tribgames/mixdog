@@ -2,7 +2,15 @@ import { posix } from 'node:path';
 import { cellRecords, columnLabel, columnNumber, parseCellRef, sharedStrings } from './portable-cells.mjs';
 import { partRelationshipPath, zipText } from './portable-opc.mjs';
 import { xmlAttribute, xmlEncode } from './portable-xml.mjs';
-import { absoluteRange, mergedRanges, parseAreaRange, quoteSheetName, upsertDefinedName, upsertWorksheetSection, worksheetSection } from './portable-sheet-xml.mjs';
+import {
+  absoluteRange,
+  mergedRanges,
+  parseAreaRange,
+  quoteSheetName,
+  upsertDefinedName,
+  upsertWorksheetSection,
+  worksheetSection,
+} from './portable-sheet-xml.mjs';
 
 // OOXML stores row heights in points and column widths in character units.
 // Use the persisted dimensions, including hidden ranges, rather than a uniform grid.
@@ -13,14 +21,14 @@ export function worksheetGeometry(xml) {
   const columns = [...xml.matchAll(/<col\b([^>]*?)\/>/g)].map((match) => ({
     start: Number(xmlAttribute(match[1], 'min')),
     end: Number(xmlAttribute(match[1], 'max')),
-    width: xmlAttribute(match[1], 'hidden') === '1' ? 0
-      : Number(xmlAttribute(match[1], 'width')) || defaultColumn,
+    width: xmlAttribute(match[1], 'hidden') === '1' ? 0 : Number(xmlAttribute(match[1], 'width')) || defaultColumn,
   }));
-  const rows = new Map([...xml.matchAll(/<row\b([^>]*?)(?:\/>|>)/g)].map((match) => [
-    Number(xmlAttribute(match[1], 'r')),
-    xmlAttribute(match[1], 'hidden') === '1' ? 0
-      : Number(xmlAttribute(match[1], 'ht')) || defaultRow,
-  ]));
+  const rows = new Map(
+    [...xml.matchAll(/<row\b([^>]*?)(?:\/>|>)/g)].map((match) => [
+      Number(xmlAttribute(match[1], 'r')),
+      xmlAttribute(match[1], 'hidden') === '1' ? 0 : Number(xmlAttribute(match[1], 'ht')) || defaultRow,
+    ])
+  );
   const columnPoints = (index) => {
     const width = columns.find((entry) => index >= entry.start && index <= entry.end)?.width ?? defaultColumn;
     return width === 0 ? 0 : Math.floor(width * 7 + 5) * 0.75;
@@ -56,11 +64,19 @@ export async function worksheetDrawings(zip, sheet, xml) {
   const drawings = [];
   for (const match of (relations || '').matchAll(/<Relationship\b([^>]*?)\/>/g)) {
     const attrs = match[1];
-    if (!String(xmlAttribute(attrs, 'Type') || '').endsWith('/drawing') || xmlAttribute(attrs, 'TargetMode') === 'External') continue;
+    if (
+      !String(xmlAttribute(attrs, 'Type') || '').endsWith('/drawing') ||
+      xmlAttribute(attrs, 'TargetMode') === 'External'
+    )
+      continue;
     const target = xmlAttribute(attrs, 'Target');
-    const part = target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join(posix.dirname(sheet.path), target));
+    const part = target.startsWith('/')
+      ? target.slice(1)
+      : posix.normalize(posix.join(posix.dirname(sheet.path), target));
     const drawing = await zipText(zip, part);
-    for (const anchor of (drawing || '').matchAll(/<xdr:(absoluteAnchor|oneCellAnchor|twoCellAnchor)\b[^>]*>([\s\S]*?)<\/xdr:\1>/g)) {
+    for (const anchor of (drawing || '').matchAll(
+      /<xdr:(absoluteAnchor|oneCellAnchor|twoCellAnchor)\b[^>]*>([\s\S]*?)<\/xdr:\1>/g
+    )) {
       const kind = anchor[1];
       const body = anchor[2];
       const marker = (tag) => {
@@ -74,7 +90,8 @@ export async function worksheetDrawings(zip, sheet, xml) {
       }
       if (kind === 'twoCellAnchor') {
         const end = marker('to');
-        if (end.column >= 16_384 || end.row >= 1_048_576) throw new Error('Worksheet drawing anchor exceeds the Excel grid');
+        if (end.column >= 16_384 || end.row >= 1_048_576)
+          throw new Error('Worksheet drawing anchor exceeds the Excel grid');
         drawings.push({
           part,
           kind,
@@ -151,9 +168,15 @@ export function fitDrawingSheetOnePageWide(xml) {
   if (setup && /\bscale="/.test(setup[0])) return { xml, applied: false };
   const sheetPr = worksheetSection(xml, 'sheetPr');
   const attrs = sheetPr ? /^<sheetPr\b([^>]*?)(?:\/>|>)/.exec(sheetPr[0])?.[1] || '' : '';
-  const body = sheetPr && !sheetPr[0].endsWith('/>')
-    ? sheetPr[0].slice(sheetPr[0].indexOf('>') + 1, sheetPr[0].lastIndexOf('</sheetPr>')) : '';
-  let next = upsertWorksheetSection(xml, 'sheetPr', `<sheetPr${attrs}>${body.replace(/<pageSetUpPr\b[^>]*?\/>/, '')}<pageSetUpPr fitToPage="1"/></sheetPr>`);
+  const body =
+    sheetPr && !sheetPr[0].endsWith('/>')
+      ? sheetPr[0].slice(sheetPr[0].indexOf('>') + 1, sheetPr[0].lastIndexOf('</sheetPr>'))
+      : '';
+  let next = upsertWorksheetSection(
+    xml,
+    'sheetPr',
+    `<sheetPr${attrs}>${body.replace(/<pageSetUpPr\b[^>]*?\/>/, '')}<pageSetUpPr fitToPage="1"/></sheetPr>`
+  );
   const existing = setup ? setup[0].replace(/\s+fitTo(?:Width|Height)="[^"]*"/g, '') : '<pageSetup/>';
   next = upsertWorksheetSection(next, 'pageSetup', existing.replace(/\/?>$/, ' fitToWidth="1" fitToHeight="0"/>'));
   return { xml: next, applied: true };
@@ -169,30 +192,52 @@ export async function applyWorksheetPageSetup(zip, sheets, sheet, xml, op) {
   // A call that sets only the print area or margins keeps the fit the sheet
   // already declares: with fitToPage on and the counts dropped, Excel would
   // read the default 1 × 1 and shrink a long sheet onto one page.
-  const carriedFit = fitWide || fitTall != null
-    ? ''
-    : (worksheetSection(xml, 'pageSetup')?.[0].match(/\s+fitTo(?:Width|Height)="[^"]*"/g) || []).join('');
+  const carriedFit =
+    fitWide || fitTall != null
+      ? ''
+      : (worksheetSection(xml, 'pageSetup')?.[0].match(/\s+fitTo(?:Width|Height)="[^"]*"/g) || []).join('');
   if (fitWide || fitTall != null) {
     const existing = worksheetSection(xml, 'sheetPr');
     const attrs = existing ? /^<sheetPr\b([^>]*?)(?:\/>|>)/.exec(existing[0])?.[1] || '' : '';
-    const body = existing && !existing[0].endsWith('/>')
-      ? existing[0].slice(existing[0].indexOf('>') + 1, existing[0].lastIndexOf('</sheetPr>')) : '';
-    xml = upsertWorksheetSection(xml, 'sheetPr', `<sheetPr${attrs}>${body.replace(/<pageSetUpPr\b[^>]*?\/>/, '')}<pageSetUpPr fitToPage="1"/></sheetPr>`);
+    const body =
+      existing && !existing[0].endsWith('/>')
+        ? existing[0].slice(existing[0].indexOf('>') + 1, existing[0].lastIndexOf('</sheetPr>'))
+        : '';
+    xml = upsertWorksheetSection(
+      xml,
+      'sheetPr',
+      `<sheetPr${attrs}>${body.replace(/<pageSetUpPr\b[^>]*?\/>/, '')}<pageSetUpPr fitToPage="1"/></sheetPr>`
+    );
   }
   const centered = `${op.centerHorizontally === true ? ' horizontalCentered="1"' : ''}${op.centerVertically === true ? ' verticalCentered="1"' : ''}`;
   xml = upsertWorksheetSection(xml, 'printOptions', centered ? `<printOptions${centered}/>` : '');
-  const margin = (value, fallback) => Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : fallback;
-  xml = upsertWorksheetSection(xml, 'pageMargins', `<pageMargins left="${margin(op.leftMargin, 0.7)}" right="${margin(op.rightMargin, 0.7)}" top="${margin(op.topMargin, 0.75)}" bottom="${margin(op.bottomMargin, 0.75)}" header="0.3" footer="0.3"/>`);
-  xml = upsertWorksheetSection(xml, 'pageSetup', `<pageSetup paperSize="9"${orientation ? ` orientation="${orientation}"` : ''}${fitWide ? ` fitToWidth="${fitWide}"` : ''}${fitTall == null ? '' : ` fitToHeight="${fitTall}"`}${carriedFit}/>`);
+  const margin = (value, fallback) => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : fallback);
+  xml = upsertWorksheetSection(
+    xml,
+    'pageMargins',
+    `<pageMargins left="${margin(op.leftMargin, 0.7)}" right="${margin(op.rightMargin, 0.7)}" top="${margin(op.topMargin, 0.75)}" bottom="${margin(op.bottomMargin, 0.75)}" header="0.3" footer="0.3"/>`
+  );
+  xml = upsertWorksheetSection(
+    xml,
+    'pageSetup',
+    `<pageSetup paperSize="9"${orientation ? ` orientation="${orientation}"` : ''}${fitWide ? ` fitToWidth="${fitWide}"` : ''}${fitTall == null ? '' : ` fitToHeight="${fitTall}"`}${carriedFit}/>`
+  );
   const printArea = op.fitToContent === true ? await contentPrintArea(zip, sheet, xml) : op.printArea;
   if (printArea) {
     const area = parseAreaRange(printArea);
     const reference = `${quoteSheetName(sheet.name)}!${absoluteRange(`${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`)}`;
     const localSheetId = sheets.findIndex((entry) => entry.name === sheet.name);
     const workbook = await zipText(zip, 'xl/workbook.xml');
-    zip.file('xl/workbook.xml', upsertDefinedName(workbook,
-      `<definedName name="_xlnm.Print_Area" localSheetId="${localSheetId}">${xmlEncode(reference)}</definedName>`,
-      (item) => xmlAttribute(item, 'name') === '_xlnm.Print_Area' && Number(xmlAttribute(item, 'localSheetId')) === localSheetId));
+    zip.file(
+      'xl/workbook.xml',
+      upsertDefinedName(
+        workbook,
+        `<definedName name="_xlnm.Print_Area" localSheetId="${localSheetId}">${xmlEncode(reference)}</definedName>`,
+        (item) =>
+          xmlAttribute(item, 'name') === '_xlnm.Print_Area' &&
+          Number(xmlAttribute(item, 'localSheetId')) === localSheetId
+      )
+    );
   }
   zip.file(sheet.path, xml);
   return { op: op.op, changed: true, sheet: sheet.name, ...(printArea ? { printArea } : {}) };

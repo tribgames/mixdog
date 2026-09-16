@@ -18,15 +18,20 @@ export function stampRendererShell(html: string, bundle: Record<string, BundleOu
     for (const dependency of bundle[fileName]?.imports ?? []) visit(dependency);
   };
   for (const output of Object.values(bundle)) {
-    if (output.type === 'chunk'
-      && (output.isEntry || ['bootstrap', 'remote-shim', 'i18n', 'mobile-surface'].includes(output.name ?? ''))) {
+    if (
+      output.type === 'chunk' &&
+      (output.isEntry || ['bootstrap', 'remote-shim', 'i18n', 'mobile-surface'].includes(output.name ?? ''))
+    ) {
       visit(output.fileName);
     }
   }
   const version = createHash('sha256').update(html).digest('hex');
-  return html.replace('</head>', [
-    `<meta name="mixdog-shell-version" content="${version}">`,
-    `<meta name="mixdog-shell-assets" content="${[...assets].join(',')}">`,
+  return html.replace(
     '</head>',
-  ].join(''));
+    [
+      `<meta name="mixdog-shell-version" content="${version}">`,
+      `<meta name="mixdog-shell-assets" content="${[...assets].join(',')}">`,
+      '</head>',
+    ].join('')
+  );
 }

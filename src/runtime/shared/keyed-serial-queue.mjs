@@ -4,7 +4,10 @@ export function createKeyedSerialQueue() {
   return function run(key, task) {
     const previous = tails.get(key) ?? Promise.resolve();
     const pending = previous.then(task);
-    const settled = pending.then(() => {}, () => {});
+    const settled = pending.then(
+      () => {},
+      () => {}
+    );
     tails.set(key, settled);
     void settled.then(() => {
       if (tails.get(key) === settled) tails.delete(key);

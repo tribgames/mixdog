@@ -3,10 +3,10 @@
 // root listing, lazy expansion, the watcher/interval refresh and the toolbar's
 // full refresh. The pane itself owns selection, inline editing and the entry
 // mutations, and reaches this state only through the returned handles.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DesktopApi } from "../shared/contract";
-import { explorerErrorText } from "./explorer-mutations";
-import { subscribeProjectFileChanges } from "./project-file-changes";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { DesktopApi } from '../shared/contract';
+import { explorerErrorText } from './explorer-mutations';
+import { subscribeProjectFileChanges } from './project-file-changes';
 import {
   collapseExplorerDirs,
   explorerHasExpandedDirs,
@@ -19,7 +19,7 @@ import {
   type ExplorerDirs,
   type ExplorerDirState,
   type ExplorerRow,
-} from "./explorer-tree-model";
+} from './explorer-tree-model';
 
 // Watcher overflow and hosts without native change delivery still converge
 // through this slow safety pass.
@@ -67,23 +67,33 @@ export function useExplorerDirs(input: {
   const patch = useCallback((rel: string, next: Partial<ExplorerDirState>) => {
     setDirs((current) => patchExplorerDir(current, rel, next));
   }, []);
-  const load = useCallback((rel: string) => {
-    patch(rel, { expanded: true, error: undefined });
-    void api?.listProjectDir?.(projectPath, rel)
-      .then((entries) => patch(rel, { entries: entries ?? [] }))
-      .catch((reason) => patch(rel, { entries: [], error: explorerErrorText(reason) }));
-  }, [api, projectPath, patch]);
-  const refreshDir = useCallback((rel: string) => {
-    void api?.listProjectDir?.(projectPath, rel)
-      .then((entries) => patch(rel, { entries: entries ?? [] }))
-      .catch(() => { /* gone — collapsed on next interaction */ });
-  }, [api, patch, projectPath]);
+  const load = useCallback(
+    (rel: string) => {
+      patch(rel, { expanded: true, error: undefined });
+      void api
+        ?.listProjectDir?.(projectPath, rel)
+        .then((entries) => patch(rel, { entries: entries ?? [] }))
+        .catch((reason) => patch(rel, { entries: [], error: explorerErrorText(reason) }));
+    },
+    [api, projectPath, patch]
+  );
+  const refreshDir = useCallback(
+    (rel: string) => {
+      void api
+        ?.listProjectDir?.(projectPath, rel)
+        .then((entries) => patch(rel, { entries: entries ?? [] }))
+        .catch(() => {
+          /* gone — collapsed on next interaction */
+        });
+    },
+    [api, patch, projectPath]
+  );
   // The Dock retains every visited tab, so this effect must never rebuild the
   // tree for a surface the user is not looking at: an inactive Files pane keeps
   // its expansion and issues no listProjectDir. The signature defers the reset
   // + root listing to the moment the pane becomes active again, which is also
   // the moment a stale project would otherwise be visible.
-  const loadedTreeSignature = useRef("");
+  const loadedTreeSignature = useRef('');
   useEffect(() => {
     const signature = `${readinessKey}\u0000${projectPath}`;
     if (!active || loadedTreeSignature.current === signature) return undefined;
@@ -94,23 +104,36 @@ export function useExplorerDirs(input: {
     resetPaneState.current();
     if (!projectPath) {
       onReadyChange(readinessKey, true);
-      return () => { live = false; };
+      return () => {
+        live = false;
+      };
     }
-    const rootRequest = api?.listProjectDir?.(projectPath, "");
+    const rootRequest = api?.listProjectDir?.(projectPath, '');
     void Promise.resolve(rootRequest ?? [])
       .then((entries) => {
-        if (live) setDirs(new Map([["", { expanded: true, entries: entries ?? [] }]]));
+        if (live) setDirs(new Map([['', { expanded: true, entries: entries ?? [] }]]));
       })
       .catch((reason) => {
-        if (live) setDirs(new Map([["", {
-          expanded: true, entries: [],
-          error: explorerErrorText(reason),
-        }]]));
+        if (live)
+          setDirs(
+            new Map([
+              [
+                '',
+                {
+                  expanded: true,
+                  entries: [],
+                  error: explorerErrorText(reason),
+                },
+              ],
+            ])
+          );
       })
       .finally(() => {
         if (live) onReadyChange(readinessKey, true);
       });
-    return () => { live = false; };
+    return () => {
+      live = false;
+    };
   }, [active, api, onReadyChange, projectPath, readinessKey]);
   // Agent/external edits arrive through the shared recursive project watcher.
   useEffect(() => {
@@ -119,10 +142,15 @@ export function useExplorerDirs(input: {
       setDirs((current) => {
         for (const [rel, state] of current) {
           if (!state.expanded || !state.entries) continue;
-          void api?.listProjectDir?.(projectPath, rel).then((entries) => {
-            if (!entries) return;
-            setDirs((latest) => withChangedExplorerDirEntries(latest, rel, entries));
-          }).catch(() => { /* dir removed — next expand reloads */ });
+          void api
+            ?.listProjectDir?.(projectPath, rel)
+            .then((entries) => {
+              if (!entries) return;
+              setDirs((latest) => withChangedExplorerDirEntries(latest, rel, entries));
+            })
+            .catch(() => {
+              /* dir removed — next expand reloads */
+            });
         }
         return current;
       });
@@ -141,13 +169,15 @@ export function useExplorerDirs(input: {
     try {
       // One batch, applied together: a directory that failed to list keeps the
       // rows it already had instead of blinking empty mid-refresh.
-      const refreshed = await Promise.all(targets.map(async (rel): Promise<ExplorerDirListing | null> => {
-        try {
-          return { rel, entries: await Promise.resolve(api?.listProjectDir?.(projectPath, rel) ?? []) };
-        } catch {
-          return null;
-        }
-      }));
+      const refreshed = await Promise.all(
+        targets.map(async (rel): Promise<ExplorerDirListing | null> => {
+          try {
+            return { rel, entries: await Promise.resolve(api?.listProjectDir?.(projectPath, rel) ?? []) };
+          } catch {
+            return null;
+          }
+        })
+      );
       const listings = refreshed.filter((listing): listing is ExplorerDirListing => listing !== null);
       setDirs((current) => withExplorerDirEntries(current, listings));
     } finally {

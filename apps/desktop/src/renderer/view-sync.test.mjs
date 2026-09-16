@@ -9,8 +9,13 @@ test('only the latest subscription and connection may complete synchronization',
   const reads = [];
   const states = [];
   const sync = createRemoteViewSync({
-    synchronize: () => { const request = Promise.withResolvers(); reads.push(request); return request.promise; },
-    state: (state) => states.push(state), error: () => {},
+    synchronize: () => {
+      const request = Promise.withResolvers();
+      reads.push(request);
+      return request.promise;
+    },
+    state: (state) => states.push(state),
+    error: () => {},
     interrupted: () => new Error('interrupted'),
   });
   sync.open();
@@ -37,26 +42,49 @@ test('one failing pane or diagnostic cannot discard a sibling scheduled update',
   let flush;
   const seen = [];
   const coordinator = createFrameCoordinator({
-    requestFrame: (callback) => { flush = callback; return 1; },
+    requestFrame: (callback) => {
+      flush = callback;
+      return 1;
+    },
     cancelFrame() {},
-    onError: () => { throw new Error('diagnostic failure'); },
+    onError: () => {
+      throw new Error('diagnostic failure');
+    },
   });
-  coordinator.schedule({}, () => { throw new Error('pane failure'); });
+  coordinator.schedule({}, () => {
+    throw new Error('pane failure');
+  });
   coordinator.schedule({}, () => seen.push('sibling updated'));
   flush(0);
   assert.deepEqual(seen, ['sibling updated']);
 });
 
 test('only interrupted durable creations are retried, not application errors', async () => {
-  let attempts = 0, recoveries = 0;
-  const result = await recoverableCreation(async () => {
-    attempts++;
-    if (attempts === 1) throw Object.assign(new Error('lost receipt'), { code: 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED' });
-    return 'same-session';
-  }, async () => { recoveries++; });
+  let attempts = 0,
+    recoveries = 0;
+  const result = await recoverableCreation(
+    async () => {
+      attempts++;
+      if (attempts === 1)
+        throw Object.assign(new Error('lost receipt'), { code: 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED' });
+      return 'same-session';
+    },
+    async () => {
+      recoveries++;
+    }
+  );
   assert.equal(result, 'same-session');
   assert.equal(attempts, 2);
   assert.equal(recoveries, 1);
-  await assert.rejects(recoverableCreation(async () => { throw new Error('invalid project'); },
-    async () => { throw new Error('must not retry'); }), /invalid project/);
+  await assert.rejects(
+    recoverableCreation(
+      async () => {
+        throw new Error('invalid project');
+      },
+      async () => {
+        throw new Error('must not retry');
+      }
+    ),
+    /invalid project/
+  );
 });

@@ -40,31 +40,36 @@ export function createBrowserDialogReport(host: BrowserDialogReportHost) {
     accept: boolean,
     promptText: string,
     signal?: AbortSignal,
-    beforeDispatch?: () => void,
+    beforeDispatch?: () => void
   ): Promise<void> {
     const diagnostics = diagnosticsFor(guest);
     const pending = diagnostics.pendingDialog;
     if (!pending) throw new Error('no JavaScript dialog is currently open');
     if (answering.has(pending)) throw new Error('Browser dialog is already being answered.');
     answering.add(pending);
-    const target = { sessionId: pending.sessionId, beforeDispatch: () => {
-      beforeDispatch?.();
-      if (diagnostics.pendingDialog !== pending) throw new Error('Browser dialog changed; answer was not sent.');
-    } };
+    const target = {
+      sessionId: pending.sessionId,
+      beforeDispatch: () => {
+        beforeDispatch?.();
+        if (diagnostics.pendingDialog !== pending) throw new Error('Browser dialog changed; answer was not sent.');
+      },
+    };
     try {
-    if (pending.bridgeRequestId) {
-      await cdp.call(
-        guest,
-        'Fetch.fulfillRequest',
-        dialogBridgeFulfillParams(pending.bridgeRequestId, accept, promptText),
-        signal,
-        target,
-      );
-    } else {
-      await cdp.call(guest, 'Page.handleJavaScriptDialog', { accept, promptText }, signal, target);
+      if (pending.bridgeRequestId) {
+        await cdp.call(
+          guest,
+          'Fetch.fulfillRequest',
+          dialogBridgeFulfillParams(pending.bridgeRequestId, accept, promptText),
+          signal,
+          target
+        );
+      } else {
+        await cdp.call(guest, 'Page.handleJavaScriptDialog', { accept, promptText }, signal, target);
+      }
+      if (diagnostics.pendingDialog === pending) diagnostics.pendingDialog = null;
+    } finally {
+      answering.delete(pending);
     }
-    if (diagnostics.pendingDialog === pending) diagnostics.pendingDialog = null;
-    } finally { answering.delete(pending); }
   }
 
   function diagnosticsResult(guest: WebContents): BrowserCommandResult {
@@ -75,7 +80,9 @@ export function createBrowserDialogReport(host: BrowserDialogReportHost) {
       `Pending requests: ${diagnostics.network.pendingCount}`,
     ];
     if (diagnostics.pendingDialog) {
-      lines.push(`Dialog: ${diagnostics.pendingDialog.type} ${JSON.stringify(redactBrowserText(diagnostics.pendingDialog.message))}`);
+      lines.push(
+        `Dialog: ${diagnostics.pendingDialog.type} ${JSON.stringify(redactBrowserText(diagnostics.pendingDialog.message))}`
+      );
     }
     const consoleErrors = diagnostics.console.recentErrors(10);
     if (consoleErrors.length) {

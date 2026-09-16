@@ -24,7 +24,8 @@ export function captureCleanup(value: unknown): CaptureCleanup | undefined {
   return {
     status: row.status as CaptureCleanup['status'],
     ...(['settled', 'unconfirmed', 'failed'].includes(String(row.cancellation))
-      ? { cancellation: row.cancellation as CaptureCleanup['cancellation'] } : {}),
+      ? { cancellation: row.cancellation as CaptureCleanup['cancellation'] }
+      : {}),
   };
 }
 
@@ -32,16 +33,27 @@ export function captureCleanup(value: unknown): CaptureCleanup | undefined {
 export function captureAttempts(value: unknown): CaptureAttempt[] {
   if (!Array.isArray(value)) return [];
   return value.slice(0, 8).flatMap((row) => {
-    if (!row || !['app_owned', 'composited', 'print_window', 'wgc'].includes(row.backend)
-      || !['target', 'owner'].includes(row.scope)
-      || !['captured', 'unavailable', 'failed'].includes(row.status)
-      || typeof row.elapsed_ms !== 'number' || !Number.isFinite(row.elapsed_ms) || row.elapsed_ms < 0) return [];
+    if (
+      !row ||
+      !['app_owned', 'composited', 'print_window', 'wgc'].includes(row.backend) ||
+      !['target', 'owner'].includes(row.scope) ||
+      !['captured', 'unavailable', 'failed'].includes(row.status) ||
+      typeof row.elapsed_ms !== 'number' ||
+      !Number.isFinite(row.elapsed_ms) ||
+      row.elapsed_ms < 0
+    )
+      return [];
     const cleanup = captureCleanup(row.cleanup);
-    return [{
-      backend: row.backend, scope: row.scope, status: row.status, elapsed_ms: row.elapsed_ms,
-      ...(typeof row.code === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(row.code) ? { code: row.code } : {}),
-      ...(cleanup ? { cleanup } : {}),
-    }];
+    return [
+      {
+        backend: row.backend,
+        scope: row.scope,
+        status: row.status,
+        elapsed_ms: row.elapsed_ms,
+        ...(typeof row.code === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(row.code) ? { code: row.code } : {}),
+        ...(cleanup ? { cleanup } : {}),
+      },
+    ];
   });
 }
 
@@ -53,5 +65,6 @@ export function attachCaptureAttempts(error: unknown, attempts: CaptureAttempt[]
 
 export function captureAttemptsFromError(error: unknown): CaptureAttempt[] {
   return error instanceof Error
-    ? captureAttempts((error as Error & { captureAttempts?: unknown }).captureAttempts) : [];
+    ? captureAttempts((error as Error & { captureAttempts?: unknown }).captureAttempts)
+    : [];
 }

@@ -24,9 +24,7 @@ export function createThemeEffortPickers({
   const openThemePicker = (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     const onboarding = options.onboarding || null;
-    const handoffPanel = options.handoffPanel && typeof options.handoffPanel === 'object'
-      ? options.handoffPanel
-      : null;
+    const handoffPanel = options.handoffPanel && typeof options.handoffPanel === 'object' ? options.handoffPanel : null;
     const own = surface.claim();
     let themes = [];
     try {
@@ -73,25 +71,34 @@ export function createThemeEffortPickers({
     own.paint({
       title: 'Theme',
       description: 'Choose the color theme that looks best with your terminal.',
-      help: onboarding ? undefined : (returnTo ? '↑/↓ Preview · Enter Choose · Esc Settings' : '↑/↓ Preview · Enter Choose · Esc Back'),
+      help: onboarding
+        ? undefined
+        : returnTo
+          ? '↑/↓ Preview · Enter Choose · Esc Settings'
+          : '↑/↓ Preview · Enter Choose · Esc Back',
       labelWidth: 22,
-      initialIndex: Math.max(0, items.findIndex((item) => item.value === currentId)),
+      initialIndex: Math.max(
+        0,
+        items.findIndex((item) => item.value === currentId)
+      ),
       items,
-      confirmBar: onboarding ? {
-        buttons: [
-          { value: 'back', label: '◀ Back' },
-          { value: 'next', label: 'Next ▶' },
-        ],
-        onConfirm: (button) => {
-          if (button.value === 'back') {
-            // Restore the palette active before the picker opened, then step back.
-            if (currentId) applyTheme(currentId, { persist: false });
-            onboarding.onBack?.();
-            return;
+      confirmBar: onboarding
+        ? {
+            buttons: [
+              { value: 'back', label: '◀ Back' },
+              { value: 'next', label: 'Next ▶' },
+            ],
+            onConfirm: (button) => {
+              if (button.value === 'back') {
+                // Restore the palette active before the picker opened, then step back.
+                if (currentId) applyTheme(currentId, { persist: false });
+                onboarding.onBack?.();
+                return;
+              }
+              saveTheme(highlightedThemeId, { advance: true });
+            },
           }
-          saveTheme(highlightedThemeId, { advance: true });
-        },
-      } : (options.confirmBar || null),
+        : options.confirmBar || null,
       // Live preview while moving: apply (no persist) so the surface re-tones
       // as the selection moves. Enter persists; Esc restores the original.
       onHighlight: (_value, item) => {
@@ -120,9 +127,7 @@ export function createThemeEffortPickers({
     const own = surface.claim();
     setProviderPrompt(null);
     setSettingsPrompt(null);
-    const items = Array.isArray(state.effortOptions) && state.effortOptions.length > 0
-      ? state.effortOptions
-      : [];
+    const items = Array.isArray(state.effortOptions) && state.effortOptions.length > 0 ? state.effortOptions : [];
     if (!items.length) {
       store.pushNotice('Current model has no effort levels.', 'warn');
       return;
@@ -142,8 +147,14 @@ export function createThemeEffortPickers({
         own.close();
         // Mid-turn picks are allowed; the running turn keeps its own effort.
         const pendingTurn = state.busy ? ' (applies from the next turn)' : '';
-        void store.setEffort(value)
-          .then(result => store.pushNotice(result ? `Effort set to ${result}${pendingTurn}` : 'Effort switch is already running.', result ? 'info' : 'warn'))
+        void store
+          .setEffort(value)
+          .then((result) =>
+            store.pushNotice(
+              result ? `Effort set to ${result}${pendingTurn}` : 'Effort switch is already running.',
+              result ? 'info' : 'warn'
+            )
+          )
           .catch((e) => store.pushNotice(`Couldn’t switch effort: ${e?.message || e}`, 'error'));
       },
       onCancel: () => {

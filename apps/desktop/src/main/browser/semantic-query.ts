@@ -118,11 +118,11 @@ export const BROWSER_SEMANTIC_MATCH_SOURCE = `function(rawQuery, fields) {
 
 type SemanticMatcher = (
   queryValue: unknown,
-  fields: { name?: unknown; value?: unknown; role?: unknown; href?: unknown },
+  fields: { name?: unknown; value?: unknown; role?: unknown; href?: unknown }
 ) => BrowserSemanticMatch | null;
 
 // The page and the host run the same source, so a ranking change lands in
 // both places at once.
 export const rankBrowserSemanticMatch: SemanticMatcher = new Function(
-  `return (${BROWSER_SEMANTIC_MATCH_SOURCE})`,
+  `return (${BROWSER_SEMANTIC_MATCH_SOURCE})`
 )() as SemanticMatcher;

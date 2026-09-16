@@ -1,24 +1,9 @@
 // Explicit handler/preload registration:
 // arbitrary renderer-selected method execution is intentionally absent.
-import type {
-  App,
-  BrowserWindow,
-  Dialog,
-  IpcMain,
-  IpcMainInvokeEvent,
-  PowerMonitor,
-  Shell,
-} from 'electron';
+import type { App, BrowserWindow, Dialog, IpcMain, IpcMainInvokeEvent, PowerMonitor, Shell } from 'electron';
 
-import {
-  readFile as fsReadFile,
-  stat as fsStat,
-} from 'node:fs/promises';
-import {
-  basename as pathBasename,
-  isAbsolute as pathIsAbsolute,
-  resolve as resolvePath,
-} from 'node:path';
+import { readFile as fsReadFile, stat as fsStat } from 'node:fs/promises';
+import { basename as pathBasename, isAbsolute as pathIsAbsolute, resolve as resolvePath } from 'node:path';
 import {
   DESKTOP_IPC,
   type DesktopRemoteAccessInfo,
@@ -30,34 +15,17 @@ import { translateNativeUi } from '../shared/native-ui';
 import { openLocalFileLink } from './local-file-links';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
 import type { DesktopService } from './desktop-service-contract';
-import {
-  absoluteLocalPath,
-  MAX_LOCAL_FILE_BYTES,
-} from './local-files';
+import { absoluteLocalPath, MAX_LOCAL_FILE_BYTES } from './local-files';
 import { readOnboardingStatusFromDisk } from './onboarding-status-file';
-import {
-  setDesktopTitleBarDim,
-  setDesktopTitleBarTheme,
-  setDesktopTitleBarZoom,
-} from './window-options';
-import {
-  commonInstructionsFile,
-  legacyCommonInstructionsFile,
-  projectInstructionsFile,
-} from './instructions-file';
+import { setDesktopTitleBarDim, setDesktopTitleBarTheme, setDesktopTitleBarZoom } from './window-options';
+import { commonInstructionsFile, legacyCommonInstructionsFile, projectInstructionsFile } from './instructions-file';
 import type { DesktopSettingsStore } from './settings-store';
 import type { BrowserHost } from './browser/host';
 import { registerBrowserIpc } from './ipc-browser';
 import { registerProjectFileIpc } from './ipc-project-files';
 import { registerSourceControlIpc } from './ipc-source-control';
-import {
-  DesktopStateBridge,
-  type DesktopUpdater,
-} from './ipc-state-bridge';
-import {
-  registerTerminalIpc,
-  type DesktopTerminalHost,
-} from './ipc-terminal';
+import { DesktopStateBridge, type DesktopUpdater } from './ipc-state-bridge';
+import { registerTerminalIpc, type DesktopTerminalHost } from './ipc-terminal';
 import { SelectedFileAccess } from './selected-file-access';
 import {
   projectDisplayName,
@@ -84,38 +52,86 @@ import {
   sessionDisplayName,
 } from './ipc-validation';
 const SERVICE_OPERATION_NAMES = [
-  'githubStarStatus', 'starGithub', 'gitCliStatus', 'installGitCli',
-  'libreOfficeStatus', 'installLibreOffice', 'githubCliStatus', 'installGithubCli',
-  'githubCliLoginStart', 'githubCliLoginStatus', 'cancelGithubCliLogin',
-  'githubCliLogout', 'githubCliAccount', 'gitGlobalConfig', 'setGitGlobalConfig',
-  'gitAbortOperation', 'gitAmend', 'gitApplyPatch', 'gitBranches',
-  'gitCheckoutBranch', 'gitCheckoutCommit', 'gitCherryPickCommit', 'gitCommit',
-  'gitCommitPaths', 'gitContinue', 'gitCreateBranch', 'gitCreateBranchAtCommit',
-  'gitCreateTag', 'gitDeleteBranch', 'gitDeleteTag', 'gitDiff', 'gitFetch',
-  'gitIgnore', 'gitLog', 'gitMergeBranch', 'gitPull', 'gitPush',
-  'gitRenameBranch', 'gitResetToCommit', 'gitRevertCommit', 'gitRevertFile',
-  'gitReview', 'gitReviewDiff', 'gitShow', 'gitShowDiff', 'gitShowFile',
-  'gitStage', 'gitStash', 'gitStashApply', 'gitStashDrop', 'gitStashList',
-  'gitStashPop', 'gitStatus', 'gitSync', 'gitUndoLastCommit', 'gitUnstage',
-  'ghPrCheckout', 'ghPrCreate', 'ghPrDefaultBranch', 'ghPrDiff', 'ghPrList',
-  'ghPrMerge', 'ghPrView', 'githubRequest',
+  'githubStarStatus',
+  'starGithub',
+  'gitCliStatus',
+  'installGitCli',
+  'libreOfficeStatus',
+  'installLibreOffice',
+  'githubCliStatus',
+  'installGithubCli',
+  'githubCliLoginStart',
+  'githubCliLoginStatus',
+  'cancelGithubCliLogin',
+  'githubCliLogout',
+  'githubCliAccount',
+  'gitGlobalConfig',
+  'setGitGlobalConfig',
+  'gitAbortOperation',
+  'gitAmend',
+  'gitApplyPatch',
+  'gitBranches',
+  'gitCheckoutBranch',
+  'gitCheckoutCommit',
+  'gitCherryPickCommit',
+  'gitCommit',
+  'gitCommitPaths',
+  'gitContinue',
+  'gitCreateBranch',
+  'gitCreateBranchAtCommit',
+  'gitCreateTag',
+  'gitDeleteBranch',
+  'gitDeleteTag',
+  'gitDiff',
+  'gitFetch',
+  'gitIgnore',
+  'gitLog',
+  'gitMergeBranch',
+  'gitPull',
+  'gitPush',
+  'gitRenameBranch',
+  'gitResetToCommit',
+  'gitRevertCommit',
+  'gitRevertFile',
+  'gitReview',
+  'gitReviewDiff',
+  'gitShow',
+  'gitShowDiff',
+  'gitShowFile',
+  'gitStage',
+  'gitStash',
+  'gitStashApply',
+  'gitStashDrop',
+  'gitStashList',
+  'gitStashPop',
+  'gitStatus',
+  'gitSync',
+  'gitUndoLastCommit',
+  'gitUnstage',
+  'ghPrCheckout',
+  'ghPrCreate',
+  'ghPrDefaultBranch',
+  'ghPrDiff',
+  'ghPrList',
+  'ghPrMerge',
+  'ghPrView',
+  'githubRequest',
 ] as const;
 
 interface DesktopIpcDependencies {
   app: Pick<App, 'quit'> & Partial<Pick<App, 'getPath' | 'getLocale'>>;
   translateUi?: (key: string) => string;
   ipcMain: Pick<IpcMain, 'handle' | 'removeHandler' | 'on' | 'removeListener'>;
-  dialog: Pick<Dialog, 'showOpenDialog' | 'showMessageBox'>
-    & Partial<Pick<Dialog, 'showSaveDialog'>>;
+  dialog: Pick<Dialog, 'showOpenDialog' | 'showMessageBox'> & Partial<Pick<Dialog, 'showSaveDialog'>>;
   shell: Pick<Shell, 'openPath' | 'openExternal' | 'showItemInFolder' | 'trashItem'>;
   powerMonitor?: Pick<PowerMonitor, 'on' | 'removeListener'>;
-  settingsStore?: Pick<DesktopSettingsStore,
-    'read' | 'update' | 'readZoom' | 'updateZoom'>;
+  settingsStore?: Pick<DesktopSettingsStore, 'read' | 'update' | 'readZoom' | 'updateZoom'>;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
   /** Browser Use pane: local profile import without renderer-visible secrets. */
-  browserHost?: Pick<BrowserHost,
-    'browserImportSources'
+  browserHost?: Pick<
+    BrowserHost,
+    | 'browserImportSources'
     | 'browserImport'
     | 'browserHistorySearch'
     | 'releaseSession'
@@ -124,7 +140,8 @@ interface DesktopIpcDependencies {
     | 'browserCredentialSuggestions'
     | 'browserCredentialFill'
     | 'browserPageFrame'
-    | 'browserPageControl'>;
+    | 'browserPageControl'
+  >;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
   remoteAccessInfo?: () => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: mint a new pairing token (revokes paired phones). */
@@ -153,7 +170,7 @@ export function registerDesktopIpc(
     remoteAccessInfo,
     rotateRemoteAccess,
     revokeRemoteAccessClient,
-  }: DesktopIpcDependencies,
+  }: DesktopIpcDependencies
 ): () => void {
   const nativeT = translateUi || ((key: string) => translateNativeUi(app.getLocale?.() || 'en', key));
   let quitPromise: Promise<void> | null = null;
@@ -162,45 +179,31 @@ export function registerDesktopIpc(
       throw new Error('IPC call rejected.');
     }
   };
-  const handle = (
-    channel: string,
-    listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown,
-  ): void => {
+  const handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown): void => {
     ipcMain.handle(channel, (event, ...args) => {
       assertSender(event);
       return listener(event, ...args);
     });
   };
-  const invokeDesktopOperation = <T>(
-    method: string,
-    args: unknown[],
-  ): Promise<T> => host.invokeDesktopOperation(method, args) as Promise<T>;
+  const invokeDesktopOperation = <T>(method: string, args: unknown[]): Promise<T> =>
+    host.invokeDesktopOperation(method, args) as Promise<T>;
   type ServiceOperation = (...args: any[]) => Promise<any>;
-  const serviceOperation = (name: string): ServiceOperation =>
-    (...args: unknown[]) => invokeDesktopOperation(name, args);
-  const serviceOperations = Object.fromEntries(SERVICE_OPERATION_NAMES
-    .map((name) => [name, serviceOperation(name)])) as Record<
-      (typeof SERVICE_OPERATION_NAMES)[number],
-      ServiceOperation
-    >;
-  const {
-    githubStarStatus,
-    starGithub,
-    libreOfficeStatus,
-    installLibreOffice,
-  } = serviceOperations;
+  const serviceOperation =
+    (name: string): ServiceOperation =>
+    (...args: unknown[]) =>
+      invokeDesktopOperation(name, args);
+  const serviceOperations = Object.fromEntries(
+    SERVICE_OPERATION_NAMES.map((name) => [name, serviceOperation(name)])
+  ) as Record<(typeof SERVICE_OPERATION_NAMES)[number], ServiceOperation>;
+  const { githubStarStatus, starGithub, libreOfficeStatus, installLibreOffice } = serviceOperations;
   const selectedFiles = new SelectedFileAccess({
-    storePath: typeof app.getPath === 'function'
-      ? resolvePath(app.getPath('userData'), 'selected-file-grants.json')
-      : '',
+    storePath:
+      typeof app.getPath === 'function' ? resolvePath(app.getPath('userData'), 'selected-file-grants.json') : '',
     listProjects: () => host.listProjects(),
   });
   const describeLocalPaths = (value: unknown) => selectedFiles.describe(value);
-  const grantedFile = (
-    accessToken: unknown,
-    projectPath: unknown,
-    relPath: unknown,
-  ) => selectedFiles.requireGrant(accessToken, projectPath, relPath);
+  const grantedFile = (accessToken: unknown, projectPath: unknown, relPath: unknown) =>
+    selectedFiles.requireGrant(accessToken, projectPath, relPath);
 
   handle(DESKTOP_IPC.chooseProject, async () => {
     const result = await dialog.showOpenDialog(window, {
@@ -237,9 +240,7 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.chooseFile, async (_event, defaultPath) => {
     const result = await dialog.showOpenDialog(window, {
       title: nativeT('Open file'),
-      ...(typeof defaultPath === 'string' && pathIsAbsolute(defaultPath)
-        ? { defaultPath }
-        : {}),
+      ...(typeof defaultPath === 'string' && pathIsAbsolute(defaultPath) ? { defaultPath } : {}),
       properties: ['openFile'],
     });
     const file = result.canceled ? '' : resolvePath(result.filePaths[0] || '');
@@ -249,9 +250,7 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.chooseFiles, async (_event, defaultPath) => {
     const result = await dialog.showOpenDialog(window, {
       title: nativeT('Open files'),
-      ...(typeof defaultPath === 'string' && pathIsAbsolute(defaultPath)
-        ? { defaultPath }
-        : {}),
+      ...(typeof defaultPath === 'string' && pathIsAbsolute(defaultPath) ? { defaultPath } : {}),
       properties: ['openFile', 'multiSelections'],
     });
     if (result.canceled || !result.filePaths.length) return null;
@@ -267,18 +266,13 @@ export function registerDesktopIpc(
     });
     const file = result.canceled ? '' : result.filePaths[0] || '';
     if (!file) return null;
-    const workspace = await invokeDesktopOperation<DesktopWorkspace>(
-      'readWorkspaceFile',
-      [file],
-    );
+    const workspace = await invokeDesktopOperation<DesktopWorkspace>('readWorkspaceFile', [file]);
     for (const folder of workspace.folders) await host.addProject(folder.path);
     return workspace;
   });
   handle(DESKTOP_IPC.saveWorkspace, async (_event, workspaceFile, rawFolders) => {
     const folders = requiredWorkspaceFolders(rawFolders);
-    let file = typeof workspaceFile === 'string' && workspaceFile.trim()
-      ? resolvePath(workspaceFile)
-      : '';
+    let file = typeof workspaceFile === 'string' && workspaceFile.trim() ? resolvePath(workspaceFile) : '';
     if (!file) {
       if (typeof dialog.showSaveDialog !== 'function') {
         throw new Error('The Project file save dialog is unavailable.');
@@ -291,37 +285,26 @@ export function registerDesktopIpc(
       if (result.canceled || !result.filePath) return null;
       file = result.filePath;
     }
-    return invokeDesktopOperation(
-      'writeWorkspaceFile',
-      [file, folders],
-    );
+    return invokeDesktopOperation('writeWorkspaceFile', [file, folders]);
   });
-  handle(DESKTOP_IPC.readEditorSettings, async (
-    _event,
-    projectPath,
-    relPath,
-    workspaceFile,
-  ) => {
+  handle(DESKTOP_IPC.readEditorSettings, async (_event, projectPath, relPath, workspaceFile) => {
     const project = requiredString(projectPath, 'projectPath');
     const root = await host.projectDirectory(project);
-    const workspace = typeof workspaceFile === 'string' && workspaceFile.trim()
-      ? resolvePath(workspaceFile)
-      : undefined;
+    const workspace =
+      typeof workspaceFile === 'string' && workspaceFile.trim() ? resolvePath(workspaceFile) : undefined;
     const userDataPath = typeof app.getPath === 'function' ? app.getPath('userData') : '';
     const cleanRel = requiredString(relPath, 'relPath', 4_096);
-    return invokeDesktopOperation(
-      'readScopedEditorSettings',
-      [userDataPath, root, cleanRel, workspace],
-    );
+    return invokeDesktopOperation('readScopedEditorSettings', [userDataPath, root, cleanRel, workspace]);
   });
   handle(DESKTOP_IPC.startProject, (_event, projectPath) =>
-    host.startProject(requiredString(projectPath, 'projectPath')));
+    host.startProject(requiredString(projectPath, 'projectPath'))
+  );
   handle(DESKTOP_IPC.startProjectTask, (_event, projectPath) =>
-    host.startProjectTask(requiredString(projectPath, 'projectPath')));
+    host.startProjectTask(requiredString(projectPath, 'projectPath'))
+  );
   handle(DESKTOP_IPC.startTask, () => host.startTask());
   handle(DESKTOP_IPC.listProjects, () => host.listProjects());
-  handle(DESKTOP_IPC.addProject, (_event, projectPath) =>
-    host.addProject(requiredString(projectPath, 'projectPath')));
+  handle(DESKTOP_IPC.addProject, (_event, projectPath) => host.addProject(requiredString(projectPath, 'projectPath')));
   handle(DESKTOP_IPC.openProjectInExplorer, async (_event, projectPath) => {
     const directory = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
     const failure = await shell.openPath(directory);
@@ -329,10 +312,10 @@ export function registerDesktopIpc(
   });
   const resolvedMediaAssetPath = async (assetId: unknown): Promise<string> => {
     const id = requiredString(assetId, 'assetId', 512);
-    const result = await host.invokeCapability<{ available?: unknown; path?: unknown }>(
-      'resolveMediaFile',
-      [id, { variant: 'original' }],
-    );
+    const result = await host.invokeCapability<{ available?: unknown; path?: unknown }>('resolveMediaFile', [
+      id,
+      { variant: 'original' },
+    ]);
     const file = result.value;
     if (file?.available !== true || typeof file.path !== 'string' || !pathIsAbsolute(file.path)) {
       throw new Error('Media asset is unavailable.');
@@ -346,22 +329,21 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.openMediaFolder, async (_event, assetId) => {
     shell.showItemInFolder(await resolvedMediaAssetPath(assetId));
   });
-  handle(DESKTOP_IPC.openExternal, (_event, url) =>
-    shell.openExternal(requiredExternalUrl(url)));
+  handle(DESKTOP_IPC.openExternal, (_event, url) => shell.openExternal(requiredExternalUrl(url)));
   handle(DESKTOP_IPC.openLocalFileLink, (_event, projectPath, href) =>
-    openLocalFileLink(projectPath, href, (file) => shell.openPath(file)));
+    openLocalFileLink(projectPath, href, (file) => shell.openPath(file))
+  );
   handle(DESKTOP_IPC.githubStarStatus, () => githubStarStatus());
   handle(DESKTOP_IPC.starGithub, () => starGithub());
   // Extensions → Office: LibreOffice dependency probe + guided install.
   handle(DESKTOP_IPC.libreOfficeStatus, () => libreOfficeStatus());
   handle(DESKTOP_IPC.installLibreOffice, () => installLibreOffice());
   handle(DESKTOP_IPC.renameProject, (_event, projectPath, alias) =>
-    host.renameProject(
-      requiredString(projectPath, 'projectPath'),
-      projectDisplayName(alias),
-    ));
+    host.renameProject(requiredString(projectPath, 'projectPath'), projectDisplayName(alias))
+  );
   handle(DESKTOP_IPC.removeProject, (_event, projectPath) =>
-    host.removeProject(requiredString(projectPath, 'projectPath')));
+    host.removeProject(requiredString(projectPath, 'projectPath'))
+  );
   // Instructions editor (Projects page). null/'' → the common instructions
   // file (data/instructions.md, injected as "# Common Instructions" in BP3;
   // legacy user-workflow.md is read as a fallback so old installs surface
@@ -374,9 +356,7 @@ export function registerDesktopIpc(
   };
   handle(DESKTOP_IPC.readInstructions, async (_event, projectPath) => {
     const file = await instructionsFilePath(projectPath);
-    const legacy = projectPath == null || projectPath === ''
-      ? legacyCommonInstructionsFile()
-      : '';
+    const legacy = projectPath == null || projectPath === '' ? legacyCommonInstructionsFile() : '';
     return invokeDesktopOperation('readInstructions', [file, legacy]);
   });
   handle(DESKTOP_IPC.writeInstructions, async (_event, projectPath, content) => {
@@ -400,17 +380,18 @@ export function registerDesktopIpc(
     return host.markSessionRead(
       requiredSessionId(sessionId),
       requiredSessionMessageCount(messageCount),
-      consumedUnread === true,
+      consumedUnread === true
     );
   });
   handle(DESKTOP_IPC.listAgentPool, () => host.listAgentPool());
   // Settings → Connection: pairing card (null while the bridge is off).
   handle(DESKTOP_IPC.remoteAccessInfo, () => remoteAccessInfo?.() ?? null);
   handle(DESKTOP_IPC.rotateRemoteAccess, () => rotateRemoteAccess?.() ?? null);
-  handle(DESKTOP_IPC.revokeRemoteAccessClient, (_event, clientId) =>
-    revokeRemoteAccessClient?.(requiredString(clientId, 'clientId')) ?? null);
-  handle(DESKTOP_IPC.listRemoteClientClaims, () =>
-    invokeDesktopOperation('remoteAccessListClaims', []));
+  handle(
+    DESKTOP_IPC.revokeRemoteAccessClient,
+    (_event, clientId) => revokeRemoteAccessClient?.(requiredString(clientId, 'clientId')) ?? null
+  );
+  handle(DESKTOP_IPC.listRemoteClientClaims, () => invokeDesktopOperation('remoteAccessListClaims', []));
   // The approval itself: this answer is what mints the asking app's credential.
   handle(DESKTOP_IPC.resolveRemoteClientClaim, async (_event, claimId, approved) => {
     if (typeof approved !== 'boolean') throw new TypeError('approved must be a boolean.');
@@ -421,7 +402,8 @@ export function registerDesktopIpc(
     return handled === true;
   });
   handle(DESKTOP_IPC.renameSession, (_event, sessionId, title) =>
-    host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)));
+    host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title))
+  );
   handle(DESKTOP_IPC.setSessionArchived, (_event, sessionId, archived) => {
     if (typeof archived !== 'boolean') throw new TypeError('archived must be a boolean.');
     return host.setSessionArchived(requiredSessionId(sessionId), archived);
@@ -436,8 +418,9 @@ export function registerDesktopIpc(
     host.prefetchSession(
       requiredSessionId(sessionId),
       requiredTranscriptItemLimit(itemLimit),
-      typeof readTraceId === 'string' ? readTraceId : undefined,
-    ));
+      typeof readTraceId === 'string' ? readTraceId : undefined
+    )
+  );
   handle(DESKTOP_IPC.searchProjectFiles, (_event, projectIdOrWorkspaceId, query, limit) => {
     if (typeof query !== 'string' || query.length > 1_024) {
       throw new TypeError('query is invalid.');
@@ -445,25 +428,16 @@ export function registerDesktopIpc(
     return host.searchProjectFiles(
       requiredString(projectIdOrWorkspaceId, 'projectIdOrWorkspaceId'),
       query,
-      requiredFileSearchLimit(limit),
+      requiredFileSearchLimit(limit)
     );
   });
   handle(DESKTOP_IPC.searchWorkspaceText, async (_event, projectPath, rawOptions) => {
     const project = requiredString(projectPath, 'projectPath');
     const root = await host.projectDirectory(project);
     const options = requiredWorkspaceSearchOptions(rawOptions);
-    return invokeDesktopOperation(
-      'searchWorkspaceTextIn',
-      [root, options],
-    );
+    return invokeDesktopOperation('searchWorkspaceTextIn', [root, options]);
   });
-  handle(DESKTOP_IPC.replaceWorkspaceText, async (
-    _event,
-    projectPath,
-    rawOptions,
-    replacement,
-    relPaths,
-  ) => {
+  handle(DESKTOP_IPC.replaceWorkspaceText, async (_event, projectPath, rawOptions, replacement, relPaths) => {
     const project = requiredString(projectPath, 'projectPath');
     const root = await host.projectDirectory(project);
     if (typeof replacement !== 'string' || replacement.length > 1_000_000) {
@@ -471,53 +445,43 @@ export function registerDesktopIpc(
     }
     const options = requiredWorkspaceSearchOptions(rawOptions);
     const paths = relPaths === undefined ? undefined : requiredGitPaths(relPaths);
-    return invokeDesktopOperation(
-      'replaceWorkspaceTextIn',
-      [root, options, replacement, paths],
-    );
+    return invokeDesktopOperation('replaceWorkspaceTextIn', [root, options, replacement, paths]);
   });
   handle(DESKTOP_IPC.submitNewTask, (_event, prompt, options, draft) =>
-    host.submitNewTask(
-      requiredPromptContent(prompt),
-      requiredSubmitOptions(options),
-      requiredNewTaskDraft(draft),
-    ));
+    host.submitNewTask(requiredPromptContent(prompt), requiredSubmitOptions(options), requiredNewTaskDraft(draft))
+  );
   // Split panes: prompt/abort/approval addressed to any pooled live session
   // (active or parked). The host contract requires every addressed route.
   handle(DESKTOP_IPC.submitToSession, (_event, sessionId, prompt, options) =>
-    host.submitToSession(
-      requiredSessionId(sessionId),
-      requiredPromptContent(prompt),
-      requiredSubmitOptions(options),
-    ));
+    host.submitToSession(requiredSessionId(sessionId), requiredPromptContent(prompt), requiredSubmitOptions(options))
+  );
   handle(DESKTOP_IPC.abortSession, (_event, sessionId, options) =>
-    host.abortSession(requiredSessionId(sessionId), requiredAbortOptions(options)));
+    host.abortSession(requiredSessionId(sessionId), requiredAbortOptions(options))
+  );
   handle(DESKTOP_IPC.resolveToolApprovalForSession, (_event, sessionId, id, input) =>
     host.resolveToolApprovalForSession(
       requiredSessionId(sessionId),
       requiredString(id, 'approval id', 1_024),
-      requiredToolApprovalDecision(input),
-    ));
+      requiredToolApprovalDecision(input)
+    )
+  );
   handle(DESKTOP_IPC.inheritSession, (_event, sourceSessionId, selection) =>
     host.inheritSession(
       requiredSessionId(sourceSessionId),
-      selection === undefined || selection === null
-        ? null
-        : requiredModelSelection(selection),
-    ));
+      selection === undefined || selection === null ? null : requiredModelSelection(selection)
+    )
+  );
   handle(DESKTOP_IPC.listProviderModels, (_event, options) =>
-    host.listProviderModels(requiredModelCatalogOptions(options)));
+    host.listProviderModels(requiredModelCatalogOptions(options))
+  );
   handle(DESKTOP_IPC.setModelRoute, (_event, selection, sessionId) =>
-    host.setModelRoute(
-      requiredModelSelection(selection),
-      optionalSessionId(sessionId),
-    ));
+    host.setModelRoute(requiredModelSelection(selection), optionalSessionId(sessionId))
+  );
   handle(DESKTOP_IPC.setFast, (_event, enabled, sessionId) => {
     if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
     return host.setFast(enabled, optionalSessionId(sessionId));
   });
-  handle(DESKTOP_IPC.readSettings, () =>
-    settingsStore?.read() ?? invokeDesktopOperation('readSettings', []));
+  handle(DESKTOP_IPC.readSettings, () => settingsStore?.read() ?? invokeDesktopOperation('readSettings', []));
   handle(DESKTOP_IPC.updateSetting, (_event, key, enabled) => {
     if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
     const settingKey = requiredDesktopSettingKey(key);
@@ -561,11 +525,15 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.setTitleBarDim, async (_event, dim) => {
     const record = (dim && typeof dim === 'object' ? dim : {}) as Record<string, unknown>;
     const hex = /^#[0-9a-f]{6}$/i;
-    const valid = typeof record.color === 'string' && hex.test(record.color)
-      && typeof record.symbolColor === 'string' && hex.test(record.symbolColor);
-    setDesktopTitleBarDim(window, valid
-      ? { color: record.color as string, symbolColor: record.symbolColor as string }
-      : null);
+    const valid =
+      typeof record.color === 'string' &&
+      hex.test(record.color) &&
+      typeof record.symbolColor === 'string' &&
+      hex.test(record.symbolColor);
+    setDesktopTitleBarDim(
+      window,
+      valid ? { color: record.color as string, symbolColor: record.symbolColor as string } : null
+    );
   });
   handle(DESKTOP_IPC.invokeCapability, async (_event, input) => {
     const request = requiredDesktopCapabilityRequest(input);
@@ -576,7 +544,8 @@ export function registerDesktopIpc(
     return host.invokeCapability(request.capability, request.args, request.sessionId);
   });
   handle(DESKTOP_IPC.readCapabilities, (_event, input) =>
-    host.readCapabilities(requiredDesktopCapabilityReadRequests(input)));
+    host.readCapabilities(requiredDesktopCapabilityReadRequests(input))
+  );
   handle(DESKTOP_IPC.quit, () => {
     quitPromise ??= (async () => {
       try {
@@ -616,12 +585,21 @@ export function registerDesktopIpc(
     grantedFile,
   });
   const eventChannels = new Set<string>([
-    DESKTOP_IPC.state, DESKTOP_IPC.sessionState, DESKTOP_IPC.sessionStateResync,
-    DESKTOP_IPC.sessionsChanged, DESKTOP_IPC.agentPoolChanged, DESKTOP_IPC.stateResync,
-    DESKTOP_IPC.updaterState, DESKTOP_IPC.perfLog, DESKTOP_IPC.rendererDiagnostic,
-    DESKTOP_IPC.termWrite, DESKTOP_IPC.termResize, DESKTOP_IPC.termAcknowledge,
+    DESKTOP_IPC.state,
+    DESKTOP_IPC.sessionState,
+    DESKTOP_IPC.sessionStateResync,
+    DESKTOP_IPC.sessionsChanged,
+    DESKTOP_IPC.agentPoolChanged,
+    DESKTOP_IPC.stateResync,
+    DESKTOP_IPC.updaterState,
+    DESKTOP_IPC.perfLog,
+    DESKTOP_IPC.rendererDiagnostic,
+    DESKTOP_IPC.termWrite,
+    DESKTOP_IPC.termResize,
+    DESKTOP_IPC.termAcknowledge,
     DESKTOP_IPC.termData,
-    DESKTOP_IPC.lspDiagnostics, DESKTOP_IPC.lspStatus,
+    DESKTOP_IPC.lspDiagnostics,
+    DESKTOP_IPC.lspStatus,
     DESKTOP_IPC.remoteClientClaim,
   ]);
   const channels = Object.values(DESKTOP_IPC).filter((channel) => !eventChannels.has(channel));

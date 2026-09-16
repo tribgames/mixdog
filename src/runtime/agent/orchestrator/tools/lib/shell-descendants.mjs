@@ -1,4 +1,3 @@
-'use strict';
 // Post-exit descendant observation for the shell runner.
 //
 // The question this module answers is "did the command leave anything
@@ -122,10 +121,18 @@ export async function waitForShellDescendants(handle, { pollMs = 1_000, signal =
 export async function killShellDescendants(handle) {
   if (!handle) return { terminated: true, survivors: [] };
   if (handle.groupPid) {
-    try { process.kill(-handle.groupPid, 'SIGTERM'); } catch { /* already gone */ }
+    try {
+      process.kill(-handle.groupPid, 'SIGTERM');
+    } catch {
+      /* already gone */
+    }
     await delay(200);
     if (groupAlive(handle.groupPid)) {
-      try { process.kill(-handle.groupPid, 'SIGKILL'); } catch { /* already gone */ }
+      try {
+        process.kill(-handle.groupPid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
       await delay(100);
     }
     return { terminated: !groupAlive(handle.groupPid), survivors: [] };

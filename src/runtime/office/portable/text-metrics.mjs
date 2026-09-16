@@ -8,10 +8,11 @@ const CJK = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\
 // CJK runs to PowerPoint's East Asian theme font, so those runs are measured in that fallback rather
 // than in the canvas's own (half-width) substitute. Probe 2026-09-04: Arial 18 pt wrapped the same
 // Korean sentence to 3 lines in PowerPoint and 2 lines in the canvas before this.
-const CJK_FAMILY = /noto (sans|serif) (kr|sc|tc|jp|cjk)|malgun|batang|gulim|dotum|yahei|jhenghei|yu gothic|meiryo|ms (gothic|mincho)|simsun|simhei|pingfang|hiragino|apple sd|nanum/i;
+const CJK_FAMILY =
+  /noto (sans|serif) (kr|sc|tc|jp|cjk)|malgun|batang|gulim|dotum|yahei|jhenghei|yu gothic|meiryo|ms (gothic|mincho)|simsun|simhei|pingfang|hiragino|apple sd|nanum/i;
 // Line-break prohibitions (kinsoku): a closing mark never starts a line, an opening mark never ends one.
 const NO_LINE_START = /^[,.、。，．:;!?%)\]}」』〉》】〕’”…·]$/;
-const NO_LINE_END = /^[(\[{「『〈《【〔‘“]$/;
+const NO_LINE_END = /^[([{「『〈《【〔‘“]$/;
 
 let measureContext = null;
 
@@ -26,23 +27,33 @@ function context() {
 // Hangul width. Map to the registered family plus a numeric weight instead.
 const FONT_ALIASES = Object.freeze({
   '맑은 고딕': 'Malgun Gothic',
-  '바탕': 'Batang',
-  '돋움': 'Dotum',
-  '굴림': 'Gulim',
-  '본고딕': 'Noto Sans KR',
-  '본명조': 'Noto Serif KR',
-  '微软雅黑': 'Microsoft YaHei',
-  '微軟正黑體': 'Microsoft JhengHei',
-  '游ゴシック': 'Yu Gothic',
-  'メイリオ': 'Meiryo',
+  바탕: 'Batang',
+  돋움: 'Dotum',
+  굴림: 'Gulim',
+  본고딕: 'Noto Sans KR',
+  본명조: 'Noto Serif KR',
+  微软雅黑: 'Microsoft YaHei',
+  微軟正黑體: 'Microsoft JhengHei',
+  游ゴシック: 'Yu Gothic',
+  メイリオ: 'Meiryo',
 });
 const WEIGHT_SUFFIX = /\s+(semilight|light|semibold|medium|black|thin|extrabold)$/iu;
 // Semilight faces register at weight 300 (Windows enumerates Malgun Gothic
 // Semilight there); a non-standard 350 makes the canvas synthesize nonsense.
-const SUFFIX_WEIGHT = Object.freeze({ thin: 100, light: 300, semilight: 300, medium: 500, semibold: 600, extrabold: 800, black: 900 });
+const SUFFIX_WEIGHT = Object.freeze({
+  thin: 100,
+  light: 300,
+  semilight: 300,
+  medium: 500,
+  semibold: 600,
+  extrabold: 800,
+  black: 900,
+});
 
 function resolveFont(fontName) {
-  let family = String(fontName || 'Calibri').replace(/"/g, '').trim();
+  let family = String(fontName || 'Calibri')
+    .replace(/"/g, '')
+    .trim();
   family = FONT_ALIASES[family] || family;
   let weight = 0;
   const suffix = WEIGHT_SUFFIX.exec(family);
@@ -68,10 +79,12 @@ function installedFamilies() {
   if (!installedFonts) {
     try {
       warmupInstalledOfficeFonts();
-      installedFamilyNames = new Map((GlobalFonts.families || [])
-        .map((entry) => String(entry?.family || '').trim())
-        .filter(Boolean)
-        .map((family) => [family.toLowerCase(), family]));
+      installedFamilyNames = new Map(
+        (GlobalFonts.families || [])
+          .map((entry) => String(entry?.family || '').trim())
+          .filter(Boolean)
+          .map((family) => [family.toLowerCase(), family])
+      );
     } catch {
       installedFamilyNames = new Map();
     }
@@ -120,7 +133,11 @@ let cjkFallback = null;
 function cjkFallbackFamily() {
   if (cjkFallback) return cjkFallback;
   const families = installedFamilies();
-  cjkFallback = families.has('malgun gothic') ? 'Malgun Gothic' : families.has('noto sans kr') ? 'Noto Sans KR' : 'Malgun Gothic';
+  cjkFallback = families.has('malgun gothic')
+    ? 'Malgun Gothic'
+    : families.has('noto sans kr')
+      ? 'Noto Sans KR'
+      : 'Malgun Gothic';
   return cjkFallback;
 }
 
@@ -276,11 +293,7 @@ function naturalLineRatio() {
 // lineSpacing: the PowerPoint multiple (1.0 = single); a paragraph's own
 // `lineSpacing` (read from lnSpc) overrides it. `lineHeightRatio` is the legacy
 // pitch-per-em override for callers that already resolved spacing themselves.
-export function measureTextBlock(paragraphs = [], {
-  width = 0,
-  lineSpacing = 1,
-  lineHeightRatio = 0,
-} = {}) {
+export function measureTextBlock(paragraphs = [], { width = 0, lineSpacing = 1, lineHeightRatio = 0 } = {}) {
   let height = 0;
   let lines = 0;
   let widest = 0;
@@ -302,7 +315,8 @@ export function measureTextBlock(paragraphs = [], {
       if (part !== ' ') longestRun = Math.max(longestRun, measureTextWidth(part, font));
     }
     lines += wrapped.length;
-    const multiple = Number(paragraph.lineSpacing) > 0 ? Number(paragraph.lineSpacing) : Math.max(0.5, Number(lineSpacing) || 1);
+    const multiple =
+      Number(paragraph.lineSpacing) > 0 ? Number(paragraph.lineSpacing) : Math.max(0.5, Number(lineSpacing) || 1);
     const pitch = lineHeightRatio > 0 ? lineHeightRatio : naturalLineRatio(paragraph.fontName) * multiple;
     height += wrapped.length * size * pitch;
     height += Math.max(0, Number(paragraph.spaceBefore) || 0);
@@ -317,12 +331,14 @@ function channelLuminance(value) {
 }
 
 export function relativeLuminance(hex) {
-  const raw = String(hex || '').replace(/^#/, '').slice(-6);
+  const raw = String(hex || '')
+    .replace(/^#/, '')
+    .slice(-6);
   if (!/^[0-9A-Fa-f]{6}$/.test(raw)) return null;
   const red = channelLuminance(Number.parseInt(raw.slice(0, 2), 16));
   const green = channelLuminance(Number.parseInt(raw.slice(2, 4), 16));
   const blue = channelLuminance(Number.parseInt(raw.slice(4, 6), 16));
-  return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
 export function contrastRatio(foreground, background) {
@@ -341,7 +357,10 @@ const LABEL_MAX_CHARS = 16;
 
 function isLabelBox(box) {
   const paragraphs = Array.isArray(box?.paragraphs) ? box.paragraphs : [];
-  const text = paragraphs.map((paragraph) => String(paragraph.text ?? '').trim()).filter(Boolean).join('\n');
+  const text = paragraphs
+    .map((paragraph) => String(paragraph.text ?? '').trim())
+    .filter(Boolean)
+    .join('\n');
   return text.length > 0 && text.length <= LABEL_MAX_CHARS && !text.includes('\n');
 }
 
@@ -357,22 +376,15 @@ export function reviewShapeSpacing(boxes = [], { minimumGap = 21.6 } = {}) {
       for (let second = first + 1; second < shapes.length; second += 1) {
         const left = shapes[first];
         const right = shapes[second];
-        const horizontal = Math.max(
-          left.left - (right.left + right.width),
-          right.left - (left.left + left.width),
-        );
-        const vertical = Math.max(
-          left.top - (right.top + right.height),
-          right.top - (left.top + left.height),
-        );
+        const horizontal = Math.max(left.left - (right.left + right.width), right.left - (left.left + left.width));
+        const vertical = Math.max(left.top - (right.top + right.height), right.top - (left.top + left.height));
         const apart = [horizontal >= 0, vertical >= 0];
         if (apart[0] === apart[1]) continue;
         const gap = apart[0] ? horizontal : vertical;
         if (gap >= minimumGap) continue;
         if (isLabelBox(left) || isLabelBox(right)) continue;
         if (!apart[0]) {
-          const aligned = Math.min(left.left + left.width, right.left + right.width)
-            - Math.max(left.left, right.left);
+          const aligned = Math.min(left.left + left.width, right.left + right.width) - Math.max(left.left, right.left);
           if (aligned >= Math.min(left.width, right.width) * 0.6) continue;
         }
         issues.push({
@@ -449,12 +461,10 @@ export function reviewCjkTracking(boxes = []) {
   return issues;
 }
 
-export function reviewTextBoxFit(boxes = [], {
-  slideWidth = 0,
-  slideHeight = 0,
-  tolerance = 1.04,
-  isFontAvailable = fontAvailable,
-} = {}) {
+export function reviewTextBoxFit(
+  boxes = [],
+  { slideWidth = 0, slideHeight = 0, tolerance = 1.04, isFontAvailable = fontAvailable } = {}
+) {
   const issues = [];
   for (const box of boxes) {
     const paragraphs = Array.isArray(box.paragraphs) ? box.paragraphs : [];
@@ -469,9 +479,13 @@ export function reviewTextBoxFit(boxes = [], {
     const measured = measureTextBlock(paragraphs, {
       width: box.wrap === false ? 0 : usableWidth,
     });
-    const unavailableFonts = [...new Set(paragraphs
-      .map((paragraph) => String(paragraph.fontName || '').trim())
-      .filter((name) => name && !isFontAvailable(name)))];
+    const unavailableFonts = [
+      ...new Set(
+        paragraphs
+          .map((paragraph) => String(paragraph.fontName || '').trim())
+          .filter((name) => name && !isFontAvailable(name))
+      ),
+    ];
     for (const font of unavailableFonts) {
       issues.push({
         code: 'font_unavailable',
@@ -486,8 +500,9 @@ export function reviewTextBoxFit(boxes = [], {
       issues.push({
         code: 'text_overflow',
         path: `/slide[${box.slide}]/shape[${box.shape}]`,
-        message: `Text needs about ${Math.round(measured.height)}pt but the shape allows ${Math.round(usableHeight)}pt.`
-          + (substituted ? ' The font is not installed here, so the measurement is approximate.' : ''),
+        message:
+          `Text needs about ${Math.round(measured.height)}pt but the shape allows ${Math.round(usableHeight)}pt.` +
+          (substituted ? ' The font is not installed here, so the measurement is approximate.' : ''),
         overflow: Math.round(measured.height - usableHeight),
         lines: measured.lines,
         ...(substituted ? { approximate: true } : {}),
@@ -521,10 +536,11 @@ export function reviewTextBoxFit(boxes = [], {
     }
     const right = (Number(box.left) || 0) + (Number(box.width) || 0);
     const bottom = (Number(box.top) || 0) + (Number(box.height) || 0);
-    if (slideWidth > 0 && slideHeight > 0 && (
-      Number(box.left) < -1 || Number(box.top) < -1
-      || right > slideWidth + 1 || bottom > slideHeight + 1
-    )) {
+    if (
+      slideWidth > 0 &&
+      slideHeight > 0 &&
+      (Number(box.left) < -1 || Number(box.top) < -1 || right > slideWidth + 1 || bottom > slideHeight + 1)
+    ) {
       issues.push({
         code: 'shape_out_of_bounds',
         path: `/slide[${box.slide}]/shape[${box.shape}]`,
@@ -542,7 +558,10 @@ function statementSlides(boxes = []) {
   const perSlide = new Map();
   for (const box of boxes) {
     const paragraphs = Array.isArray(box.paragraphs) ? box.paragraphs : [];
-    const text = paragraphs.map((paragraph) => String(paragraph.text || '')).join('').trim();
+    const text = paragraphs
+      .map((paragraph) => String(paragraph.text || ''))
+      .join('')
+      .trim();
     if (!text) continue;
     const entry = perSlide.get(box.slide) || { count: 0, sizes: [], chars: 0 };
     entry.count += 1;
@@ -554,14 +573,15 @@ function statementSlides(boxes = []) {
   for (const [slide, entry] of perSlide) {
     if (entry.count > 5) continue;
     const largest = Math.max(...entry.sizes);
-    if (largest >= 42 || entry.sizes.filter((size) => size >= 34).length >= 2 || (largest >= 24 && entry.chars <= 280)) result.add(slide);
+    if (largest >= 42 || entry.sizes.filter((size) => size >= 34).length >= 2 || (largest >= 24 && entry.chars <= 280))
+      result.add(slide);
   }
   return result;
 }
 
 // A band this deep with content above and below it reads as an unfinished
 // page, not as air: the eye crosses it looking for the missing region.
-const HOLLOW_BAND = 108;   // 1.5in at 72pt per inch
+const HOLLOW_BAND = 108; // 1.5in at 72pt per inch
 
 // The deepest empty band between the slide's content, measured on merged
 // intervals so overlapping shapes (a value over its field) never open a gap.
@@ -593,9 +613,9 @@ export function reviewVerticalBalance(bounds = [], { slideWidth = 0, slideHeight
   }
   for (const [slide, shapes] of slides) {
     if (statements.has(slide)) continue;
-    const content = shapes.filter((shape) => (
-      Math.max(0, shape.width) * Math.max(0, shape.height) < slideWidth * slideHeight * 0.8
-    ));
+    const content = shapes.filter(
+      (shape) => Math.max(0, shape.width) * Math.max(0, shape.height) < slideWidth * slideHeight * 0.8
+    );
     if (!content.length) continue;
     const top = Math.min(...content.map((shape) => shape.top));
     const bottom = Math.max(...content.map((shape) => shape.top + shape.height));
@@ -644,18 +664,25 @@ export function reviewStatLabelProximity(boxes = [], { maximumGap = 36 } = {}) {
     for (const box of shapes) {
       if (box.relation?.role === 'value') continue;
       const paragraphs = Array.isArray(box.paragraphs) ? box.paragraphs : [];
-      const text = paragraphs.map((paragraph) => String(paragraph.text ?? '')).join(' ').trim();
+      const text = paragraphs
+        .map((paragraph) => String(paragraph.text ?? ''))
+        .join(' ')
+        .trim();
       const size = Math.max(...paragraphs.map((paragraph) => Number(paragraph.fontSize) || 0), 0);
       if (size < 28 || !text || text.length > 16 || !/\d/.test(text)) continue;
       const letters = (text.match(/\p{L}/gu) || []).length;
       if (letters > text.replace(/\s/g, '').length * 0.5) continue;
       const nearest = shapes
         .filter((candidate) => candidate !== box)
-        .filter((candidate) => Math.max(
-          ...(Array.isArray(candidate.paragraphs) ? candidate.paragraphs : [])
-            .map((paragraph) => Number(paragraph.fontSize) || 0),
-          0,
-        ) <= 20)
+        .filter(
+          (candidate) =>
+            Math.max(
+              ...(Array.isArray(candidate.paragraphs) ? candidate.paragraphs : []).map(
+                (paragraph) => Number(paragraph.fontSize) || 0
+              ),
+              0
+            ) <= 20
+        )
         .filter((candidate) => candidate.paragraphs?.some((paragraph) => String(paragraph.text || '').trim()))
         .sort((first, second) => rectangleGap(box, first) - rectangleGap(box, second))[0];
       if (!nearest) continue;
@@ -681,12 +708,10 @@ const TYPE_LADDER = Object.freeze([
   96, 80, 72, 66, 60, 54, 48, 44, 40, 36, 32, 28, 26, 24, 22, 20, 18, 16, 15, 14, 13, 12, 11, 10, 9, 8,
 ]);
 
-export function shrinkFontSizeToFit(paragraphs = [], {
-  width = 0,
-  height = 0,
-  minimumFontSize = 8,
-  steps = null,
-} = {}) {
+export function shrinkFontSizeToFit(
+  paragraphs = [],
+  { width = 0, height = 0, minimumFontSize = 8, steps = null } = {}
+) {
   const sizes = paragraphs.map((paragraph) => Math.max(1, Number(paragraph.fontSize) || 18));
   const largest = Math.max(...sizes, 1);
   const floor = Math.max(1, Number(minimumFontSize) || 8);

@@ -17,12 +17,9 @@ import { __mixdogMemoryLog } from '../memory-log.mjs';
  *   pg_runtime_dir? string  — absolute path to the pg runtime binaries dir
  */
 
-import { createServer }                       from 'node:net';
-import {
-  unlinkSync, readFileSync, writeFileSync,
-  renameSync, statSync, mkdirSync,
-}                                             from 'node:fs';
-import { join, resolve }                      from 'node:path';
+import { createServer } from 'node:net';
+import { unlinkSync, readFileSync, writeFileSync, renameSync, statSync, mkdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import {
   discoveryPath as _pgDiscoveryPath,
   readServiceAdvert as _readPgServiceAdvert,
@@ -40,11 +37,11 @@ async function _getPgProc() {
   // import.meta.url is in src/memory/lib/pg/ — process.mjs lives alongside.
   const mod = await import('./process.mjs');
   _pgProc = {
-    startPg:          mod.startPg,
-    stopPg:           mod.stopPg,
-    healthcheckPg:    mod.healthcheckPg,
-    reconcileConfV2:  mod.reconcileConfV2,
-    stopPgSync:       mod.stopPgSync,
+    startPg: mod.startPg,
+    stopPg: mod.stopPg,
+    healthcheckPg: mod.healthcheckPg,
+    reconcileConfV2: mod.reconcileConfV2,
+    stopPgSync: mod.stopPgSync,
   };
   return _pgProc;
 }
@@ -58,17 +55,19 @@ let _ensureInFlight = null;
 let _v2ReconcileTried = false;
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const PG_PORT_MIN      = 55432;
-const PG_PORT_MAX      = 55632;
+const PG_PORT_MIN = 55432;
+const PG_PORT_MAX = 55632;
 const PG_LOG_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
-const SPAWN_LOCK_NAME  = 'pg-spawn.lock';
-const LOCK_WAIT_MS     = 30_000;
-const LOCK_POLL_MS     = 100;
-const LOCK_WARN_MS     = 5_000;
-const LOCK_WAIT_CODES  = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
+const SPAWN_LOCK_NAME = 'pg-spawn.lock';
+const LOCK_WAIT_MS = 30_000;
+const LOCK_POLL_MS = 100;
+const LOCK_WARN_MS = 5_000;
+const LOCK_WAIT_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
 
 function envFlagEnabled(name) {
-  const raw = String(process.env[name] ?? '').trim().toLowerCase();
+  const raw = String(process.env[name] ?? '')
+    .trim()
+    .toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes';
 }
 
@@ -86,9 +85,9 @@ function attachOnlyMode() {
  * converge on the first's port).
  */
 async function acquireSpawnLock(dataDir, blockedProbe = null) {
-  const lp       = join(dataDir, SPAWN_LOCK_NAME);
+  const lp = join(dataDir, SPAWN_LOCK_NAME);
   const deadline = Date.now() + LOCK_WAIT_MS;
-  const body     = JSON.stringify({ pid: process.pid, startedAt: Date.now() });
+  const body = JSON.stringify({ pid: process.pid, startedAt: Date.now() });
   let warned = false;
   for (;;) {
     try {
@@ -110,10 +109,13 @@ async function acquireSpawnLock(dataDir, blockedProbe = null) {
       try {
         const holder = JSON.parse(readFileSync(lp, 'utf8'));
         if (holder?.pid) {
-          try { process.kill(holder.pid, 0); }
-          catch (ke) {
+          try {
+            process.kill(holder.pid, 0);
+          } catch (ke) {
             if (ke.code === 'ESRCH') {
-              try { unlinkSync(lp); } catch {}
+              try {
+                unlinkSync(lp);
+              } catch {}
               continue; // retry immediately after removing stale lock
             }
           }
@@ -121,9 +123,13 @@ async function acquireSpawnLock(dataDir, blockedProbe = null) {
         const ageMs = Date.now() - Number(holder?.startedAt || 0);
         if (!warned && ageMs >= LOCK_WARN_MS) {
           warned = true;
-          __mixdogMemoryLog(`[supervisor-pg] waiting for spawn lock holder pid=${holder?.pid || 'unknown'} ageMs=${ageMs}\n`);
+          __mixdogMemoryLog(
+            `[supervisor-pg] waiting for spawn lock holder pid=${holder?.pid || 'unknown'} ageMs=${ageMs}\n`
+          );
         }
-      } catch { /* unreadable — fall through and wait */ }
+      } catch {
+        /* unreadable — fall through and wait */
+      }
       if (Date.now() >= deadline) {
         if (blockedProbe) {
           try {
@@ -133,20 +139,22 @@ async function acquireSpawnLock(dataDir, blockedProbe = null) {
         }
         throw new Error(`[supervisor-pg] spawn-lock acquire timeout (concurrent supervisor risk)`);
       }
-      await new Promise(r => setTimeout(r, LOCK_POLL_MS));
+      await new Promise((r) => setTimeout(r, LOCK_POLL_MS));
     }
   }
 }
 
 function releaseSpawnLock(lp) {
   if (!lp) return;
-  try { unlinkSync(lp); } catch {}
+  try {
+    unlinkSync(lp);
+  } catch {}
 }
 
 // ── Port allocation ──────────────────────────────────────────────────────────
 
 function _probePort(port) {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     const srv = createServer();
     srv.once('error', () => resolve(false));
     srv.once('listening', () => srv.close(() => resolve(true)));
@@ -169,10 +177,14 @@ function rotateLogIfNeeded(logPath) {
     const st = statSync(logPath);
     if (st.size > PG_LOG_MAX_BYTES) {
       const archive = logPath + '.1';
-      try { unlinkSync(archive); } catch {}
+      try {
+        unlinkSync(archive);
+      } catch {}
       renameSync(logPath, archive);
     }
-  } catch { /* log does not exist yet — nothing to rotate */ }
+  } catch {
+    /* log does not exist yet — nothing to rotate */
+  }
 }
 
 // ── active-instance.json patch ───────────────────────────────────────────────
@@ -225,28 +237,34 @@ function _applyActiveInstancePatch(fields, timeoutMs) {
   // active-instance.json bottleneck (memory.json stays lock-free).
   ensurePrivateRuntimeRoot(_RUNTIME_ROOT);
   const file = _pgDiscoveryPath(_PG_DISCOVERY);
-  withFileLockSync(`${file}.lock`, () => {
-    const cur = _readPgServiceAdvert(_PG_DISCOVERY) ?? {};
-    // Drop stale fields (pid/startedAt/updatedAt) written by older versions.
-    const { pid: _legacyPid, startedAt: _legacyStartedAt, updatedAt: _prevUpdatedAt, ...merged } = cur;
-    for (const [k, v] of Object.entries(fields)) {
-      if (v == null) delete merged[k];
-      else merged[k] = v;
-    }
-    const port = Number(merged.pg_port);
-    if (!Number.isInteger(port) || port <= 0) {
-      // No live port left → drop the advert (clean pg shutdown). But a late
-      // clear from an old shutdown/recovery path must NOT delete a fresh advert
-      // a newer supervisor just published — unlink only when it is ours or a
-      // dead corpse, never another live owner's.
-      if (_pgAdvertIsForeignLive(cur)) return;
-      try { unlinkSync(file); } catch {}
-      return;
-    }
-    // Stamp our supervisor pid so a later clear can prove advert ownership.
-    merged.pg_owner_pid = process.pid;
-    _writePgServiceAdvert(_PG_DISCOVERY, merged);
-  }, { timeoutMs });
+  withFileLockSync(
+    `${file}.lock`,
+    () => {
+      const cur = _readPgServiceAdvert(_PG_DISCOVERY) ?? {};
+      // Drop stale fields (pid/startedAt/updatedAt) written by older versions.
+      const { pid: _legacyPid, startedAt: _legacyStartedAt, updatedAt: _prevUpdatedAt, ...merged } = cur;
+      for (const [k, v] of Object.entries(fields)) {
+        if (v == null) delete merged[k];
+        else merged[k] = v;
+      }
+      const port = Number(merged.pg_port);
+      if (!Number.isInteger(port) || port <= 0) {
+        // No live port left → drop the advert (clean pg shutdown). But a late
+        // clear from an old shutdown/recovery path must NOT delete a fresh advert
+        // a newer supervisor just published — unlink only when it is ours or a
+        // dead corpse, never another live owner's.
+        if (_pgAdvertIsForeignLive(cur)) return;
+        try {
+          unlinkSync(file);
+        } catch {}
+        return;
+      }
+      // Stamp our supervisor pid so a later clear can prove advert ownership.
+      merged.pg_owner_pid = process.pid;
+      _writePgServiceAdvert(_PG_DISCOVERY, merged);
+    },
+    { timeoutMs }
+  );
 }
 
 // Re-stamp advert ownership on REUSE without clobbering a concurrently-updated
@@ -261,18 +279,24 @@ function _restampReuseOwner({ pgdata, port }) {
   ensurePrivateRuntimeRoot(_RUNTIME_ROOT);
   const file = _pgDiscoveryPath(_PG_DISCOVERY);
   try {
-    withFileLockSync(`${file}.lock`, () => {
-      const cur = _readPgServiceAdvert(_PG_DISCOVERY);
-      if (!cur) return;                                   // advert gone — nothing to re-stamp
-      if (Number(cur.pg_port) !== Number(port)) return;   // restarted on a new port
-      if (!cur.pg_pgdata || resolve(cur.pg_pgdata) !== resolve(pgdata)) return; // different instance
-      if (_pgAdvertIsForeignLive(cur)) return;            // a different live owner holds it
-      if (Number(cur.pg_owner_pid) === process.pid) return; // already ours
-      const { pid: _legacyPid, startedAt: _legacyStartedAt, updatedAt: _prevUpdatedAt, ...merged } = cur;
-      merged.pg_owner_pid = process.pid;                  // minimal: owner pid only (updatedAt re-stamped on write)
-      _writePgServiceAdvert(_PG_DISCOVERY, merged);
-    }, { timeoutMs: 1000 });
-  } catch { /* best-effort: lock contention → skip re-stamp (guard reverts to prior owner) */ }
+    withFileLockSync(
+      `${file}.lock`,
+      () => {
+        const cur = _readPgServiceAdvert(_PG_DISCOVERY);
+        if (!cur) return; // advert gone — nothing to re-stamp
+        if (Number(cur.pg_port) !== Number(port)) return; // restarted on a new port
+        if (!cur.pg_pgdata || resolve(cur.pg_pgdata) !== resolve(pgdata)) return; // different instance
+        if (_pgAdvertIsForeignLive(cur)) return; // a different live owner holds it
+        if (Number(cur.pg_owner_pid) === process.pid) return; // already ours
+        const { pid: _legacyPid, startedAt: _legacyStartedAt, updatedAt: _prevUpdatedAt, ...merged } = cur;
+        merged.pg_owner_pid = process.pid; // minimal: owner pid only (updatedAt re-stamped on write)
+        _writePgServiceAdvert(_PG_DISCOVERY, merged);
+      },
+      { timeoutMs: 1000 }
+    );
+  } catch {
+    /* best-effort: lock contention → skip re-stamp (guard reverts to prior owner) */
+  }
 }
 
 // Single module-level background-retry slot: a delayed retry must NEVER replay
@@ -284,7 +308,9 @@ let _pendingPatchRetry = null; // { timer, generation }
 
 function _cancelPendingPatchRetry() {
   if (_pendingPatchRetry) {
-    try { clearTimeout(_pendingPatchRetry.timer); } catch {}
+    try {
+      clearTimeout(_pendingPatchRetry.timer);
+    } catch {}
     _pendingPatchRetry = null;
   }
 }
@@ -298,10 +324,7 @@ function _tryPatchInBackground(fields, timeoutMs, generation, attempt) {
   } catch (e) {
     if (_LOCK_CONTENTION_CODES.has(e?.code) && attempt < 5) {
       const delay = Math.min(2000, 100 * 2 ** attempt);
-      const timer = setTimeout(
-        () => _tryPatchInBackground(fields, timeoutMs, generation, attempt + 1),
-        delay,
-      );
+      const timer = setTimeout(() => _tryPatchInBackground(fields, timeoutMs, generation, attempt + 1), delay);
       timer.unref?.();
       _pendingPatchRetry = { timer, generation };
       return;
@@ -327,8 +350,10 @@ function patchActiveInstance(fields, opts = {}) {
     return;
   }
   for (let i = 0; ; i++) {
-    try { _applyActiveInstancePatch(fields, timeoutMs); return; }
-    catch (e) {
+    try {
+      _applyActiveInstancePatch(fields, timeoutMs);
+      return;
+    } catch (e) {
       if (_LOCK_CONTENTION_CODES.has(e?.code) && i < syncRetries) continue;
       __mixdogMemoryLog(`[supervisor-pg] patchActiveInstance failed: ${e?.message}\n`);
       return;
@@ -348,7 +373,9 @@ function readPostmasterInfo(pgdata) {
       pid: Number.isFinite(pid) && pid > 0 ? pid : null,
       port: Number.isFinite(port) && port > 0 ? port : null,
     };
-  } catch { return { pid: null, port: null }; }
+  } catch {
+    return { pid: null, port: null };
+  }
 }
 
 /**
@@ -370,11 +397,16 @@ async function isPostgresPid(pid) {
     }
     if (process.platform === 'win32') {
       const { spawnSync } = await import('node:child_process');
-      const r = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true });
+      const r = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
+        encoding: 'utf8',
+        windowsHide: true,
+      });
       if (r.status === 0) return (r.stdout || '').toLowerCase().includes('postgres');
       return true;
     }
-  } catch { /* cannot read — fall back to alive */ }
+  } catch {
+    /* cannot read — fall back to alive */
+  }
   return true;
 }
 
@@ -390,7 +422,7 @@ async function waitForPostmasterReady({ pid, port, healthcheckPg, timeoutMs = 30
       if (await healthcheckPg({ port })) return 'ready';
     } catch {}
     if (Date.now() >= deadline) return 'alive-not-ready';
-    await new Promise(resolve => setTimeout(resolve, 250));
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
   return 'dead';
 }
@@ -408,11 +440,18 @@ async function _startFresh(dataDir, pgdata, port, runtimeDir) {
   const proc = await startPg({ runtimeDir, pgdataDir, port, logPath });
   const actualPort = proc?.port ?? port;
   _live = { port: actualPort, pgdata, runtimeDir, proc };
-  patchActiveInstance({
-    pg_port: actualPort, pg_started_at: Date.now(),
-    pg_pgdata: pgdata, pg_runtime_dir: runtimeDir,
-  }, { timeoutMs: 1000, background: true });
-  __mixdogMemoryLog(`[supervisor-pg] ${proc?.attached ? 'attached to' : 'started'} PG port=${actualPort} pgdata=${pgdata}\n`);
+  patchActiveInstance(
+    {
+      pg_port: actualPort,
+      pg_started_at: Date.now(),
+      pg_pgdata: pgdata,
+      pg_runtime_dir: runtimeDir,
+    },
+    { timeoutMs: 1000, background: true }
+  );
+  __mixdogMemoryLog(
+    `[supervisor-pg] ${proc?.attached ? 'attached to' : 'started'} PG port=${actualPort} pgdata=${pgdata}\n`
+  );
   scheduleOrphanTempPostmasterSweep();
   return { host: '127.0.0.1', port: actualPort, runtimeDir, pgdataDir };
 }
@@ -425,10 +464,14 @@ function scheduleOrphanTempPostmasterSweep() {
   if (_orphanSweepStarted) return;
   _orphanSweepStarted = true;
   const timer = setTimeout(() => {
-    void _getPgProc().then(({ sweepOrphanTempPostmasters }) => {
-      const reaped = sweepOrphanTempPostmasters?.() || 0;
-      if (reaped > 0) __mixdogMemoryLog(`[supervisor-pg] orphan sweep reaped ${reaped} temp postmaster(s)\n`);
-    }).catch(() => { /* hygiene is best-effort */ });
+    void _getPgProc()
+      .then(({ sweepOrphanTempPostmasters }) => {
+        const reaped = sweepOrphanTempPostmasters?.() || 0;
+        if (reaped > 0) __mixdogMemoryLog(`[supervisor-pg] orphan sweep reaped ${reaped} temp postmaster(s)\n`);
+      })
+      .catch(() => {
+        /* hygiene is best-effort */
+      });
   }, 30_000);
   timer.unref?.();
 }
@@ -465,17 +508,20 @@ async function tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source = 
   }
 
   const pm = readPostmasterInfo(pgdata);
-  if (pm.pid && pm.port && await isPostmasterAlive(pm.pid)) {
+  if (pm.pid && pm.port && (await isPostmasterAlive(pm.pid))) {
     try {
       if (await healthcheckPg({ port: pm.port })) {
         __mixdogMemoryLog(`[supervisor-pg] attaching to PG pid=${pm.pid} port=${pm.port} (${source}:postmaster.pid)\n`);
         _live = { port: pm.port, pgdata, runtimeDir, proc: null };
-        patchActiveInstance({
-          pg_port: pm.port,
-          pg_started_at: ai?.pg_started_at ?? Date.now(),
-          pg_pgdata: pgdata,
-          pg_runtime_dir: runtimeDir,
-        }, { timeoutMs: 1000, background: true });
+        patchActiveInstance(
+          {
+            pg_port: pm.port,
+            pg_started_at: ai?.pg_started_at ?? Date.now(),
+            pg_pgdata: pgdata,
+            pg_runtime_dir: runtimeDir,
+          },
+          { timeoutMs: 1000, background: true }
+        );
         scheduleOrphanTempPostmasterSweep();
         return { host: '127.0.0.1', port: pm.port, runtimeDir, pgdataDir: pgdata };
       }
@@ -528,16 +574,18 @@ async function _doEnsure(dataDir) {
   });
   if (prelockReuse) return prelockReuse;
   if (attachOnlyMode()) {
-    throw new Error('secondary memory runtime requires an existing PG instance')
+    throw new Error('secondary memory runtime requires an existing PG instance');
   }
 
   // ── Acquire spawn lock to serialize initdb races ─────────────────────────
-  const acquired = await acquireSpawnLock(dataDir, () => tryReusePgInstance({
-    pgdata,
-    runtimeDir,
-    healthcheckPg,
-    source: 'lock-wait',
-  }));
+  const acquired = await acquireSpawnLock(dataDir, () =>
+    tryReusePgInstance({
+      pgdata,
+      runtimeDir,
+      healthcheckPg,
+      source: 'lock-wait',
+    })
+  );
   if (acquired?.reuse) return acquired.reuse;
   const lp = acquired?.lockPath ?? null;
   try {
@@ -575,11 +623,12 @@ async function _doEnsure(dataDir) {
       } catch {}
 
       // ── Stale detection: pg_port recorded but healthcheck failing ─────────
-      __mixdogMemoryLog(
-        `[supervisor-pg] pg_port=${existingPort} recorded but healthcheck failed — recovering\n`,
-      );
+      __mixdogMemoryLog(`[supervisor-pg] pg_port=${existingPort} recorded but healthcheck failed — recovering\n`);
       // Clear stale pg fields before restart
-      patchActiveInstance({ pg_port: null, pg_started_at: null, pg_pgdata: null }, { timeoutMs: 1000, background: true });
+      patchActiveInstance(
+        { pg_port: null, pg_started_at: null, pg_pgdata: null },
+        { timeoutMs: 1000, background: true }
+      );
     }
 
     // postmaster.pid is the authoritative pgdata owner even when the discovery
@@ -590,7 +639,7 @@ async function _doEnsure(dataDir) {
     // stop from an ensure path: an alive postmaster owns the data directory,
     // and interrupting recovery can turn a transient outage into a restart loop.
     const pm = readPostmasterInfo(pgdata);
-    if (pm.pid && pm.port && await isPostmasterAlive(pm.pid)) {
+    if (pm.pid && pm.port && (await isPostmasterAlive(pm.pid))) {
       __mixdogMemoryLog(`[supervisor-pg] postmaster PID ${pm.pid} alive but not ready — awaiting recovery\n`);
       const state = await waitForPostmasterReady({
         pid: pm.pid,
@@ -600,23 +649,28 @@ async function _doEnsure(dataDir) {
       if (state === 'ready') {
         __mixdogMemoryLog(`[supervisor-pg] attaching to recovered PG pid=${pm.pid} port=${pm.port}\n`);
         _live = { port: pm.port, pgdata, runtimeDir, proc: null };
-        patchActiveInstance({
-          pg_port: pm.port,
-          pg_started_at: ai?.pg_started_at ?? Date.now(),
-          pg_pgdata: pgdata,
-          pg_runtime_dir: runtimeDir,
-        }, { timeoutMs: 1000, background: true });
+        patchActiveInstance(
+          {
+            pg_port: pm.port,
+            pg_started_at: ai?.pg_started_at ?? Date.now(),
+            pg_pgdata: pgdata,
+            pg_runtime_dir: runtimeDir,
+          },
+          { timeoutMs: 1000, background: true }
+        );
         return { host: '127.0.0.1', port: pm.port, runtimeDir, pgdataDir: pgdata };
       }
       if (state === 'alive-not-ready') {
         throw new Error(
-          `[supervisor-pg] existing postmaster PID ${pm.pid} remains alive but unhealthy; refusing concurrent start`,
+          `[supervisor-pg] existing postmaster PID ${pm.pid} remains alive but unhealthy; refusing concurrent start`
         );
       }
     }
     if (pm.pid) {
       __mixdogMemoryLog(`[supervisor-pg] postmaster PID ${pm.pid} dead — removing stale postmaster.pid\n`);
-      try { unlinkSync(join(pgdata, 'postmaster.pid')); } catch {}
+      try {
+        unlinkSync(join(pgdata, 'postmaster.pid'));
+      } catch {}
     }
 
     // ── Allocate a fresh port and spawn ───────────────────────────────────
@@ -642,7 +696,9 @@ async function _doEnsure(dataDir) {
  */
 export function ensurePgInstance(dataDir) {
   if (!_ensureInFlight) {
-    _ensureInFlight = _doEnsure(dataDir).finally(() => { _ensureInFlight = null; });
+    _ensureInFlight = _doEnsure(dataDir).finally(() => {
+      _ensureInFlight = null;
+    });
   }
   return _ensureInFlight;
 }
@@ -662,12 +718,16 @@ export async function stopPgForShutdown() {
     // _live may be null if PG was started by another process or adapter call.
     // Attempt graceful stop via active-instance.json.
     let ai = null;
-    try { ai = _readPgAdvert(); } catch {}
+    try {
+      ai = _readPgAdvert();
+    } catch {}
     if (!ai?.pg_port || !ai?.pg_pgdata) return;
-    const pgdataDir2  = ai.pg_pgdata;
+    const pgdataDir2 = ai.pg_pgdata;
     const runtimeDir2 = ai.pg_runtime_dir;
     if (!runtimeDir2) {
-      __mixdogMemoryLog(`[supervisor-pg] stopPgForShutdown: pg_runtime_dir missing from active-instance.json — skipping\n`);
+      __mixdogMemoryLog(
+        `[supervisor-pg] stopPgForShutdown: pg_runtime_dir missing from active-instance.json — skipping\n`
+      );
       return;
     }
     try {
@@ -680,7 +740,10 @@ export async function stopPgForShutdown() {
     }
     // Bounded sync clear (<=4s: 2s + one 2s retry). A residual stale pg_port is
     // tolerated — readers healthcheck-verify the port before reuse.
-    patchActiveInstance({ pg_port: null, pg_started_at: null, pg_pgdata: null, pg_runtime_dir: null }, { timeoutMs: 2000, syncRetries: 1 });
+    patchActiveInstance(
+      { pg_port: null, pg_started_at: null, pg_pgdata: null, pg_runtime_dir: null },
+      { timeoutMs: 2000, syncRetries: 1 }
+    );
     return;
   }
   const snap = _live;
@@ -696,7 +759,10 @@ export async function stopPgForShutdown() {
   }
   // Bounded sync clear (<=4s: 2s + one 2s retry). A residual stale pg_port is
   // tolerated — readers healthcheck-verify the port before reuse.
-  patchActiveInstance({ pg_port: null, pg_started_at: null, pg_pgdata: null, pg_runtime_dir: null }, { timeoutMs: 2000, syncRetries: 1 });
+  patchActiveInstance(
+    { pg_port: null, pg_started_at: null, pg_pgdata: null, pg_runtime_dir: null },
+    { timeoutMs: 2000, syncRetries: 1 }
+  );
 }
 
 /**
@@ -714,12 +780,18 @@ export function stopPgForShutdownSync() {
   // live owner that re-stamped pg_owner_pid; that owner will stop it itself, so
   // the exit hook must never sync-stop it out from under them.
   let ai = null;
-  try { ai = _readPgAdvert(); } catch {}
+  try {
+    ai = _readPgAdvert();
+  } catch {}
   if (_pgAdvertIsForeignLive(ai)) return;
-  let runtimeDir = _live?.runtimeDir, pgdataDir = _live?.pgdata;
+  let runtimeDir = _live?.runtimeDir,
+    pgdataDir = _live?.pgdata;
   if (!runtimeDir || !pgdataDir) {
-    runtimeDir = ai?.pg_runtime_dir; pgdataDir = ai?.pg_pgdata;
+    runtimeDir = ai?.pg_runtime_dir;
+    pgdataDir = ai?.pg_pgdata;
   }
   if (!runtimeDir || !pgdataDir || !_pgProc?.stopPgSync) return;
-  try { _pgProc.stopPgSync({ runtimeDir, pgdataDir }); } catch {}
+  try {
+    _pgProc.stopPgSync({ runtimeDir, pgdataDir });
+  } catch {}
 }

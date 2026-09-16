@@ -24,14 +24,14 @@ import { mixdogGlobalDir, mtimeWithTtl, readSafe } from './skill-catalog.mjs';
 // `kind` field in internal-agents.mjs. Any other non-null agent is public/custom.
 
 function loadAgentClassification() {
-    // Not cached — called only on instruction rebuild (mtime-busted), and
-    // listHiddenAgentsByKind now reads from the mtime-aware cache inside
-    // internal-agents.mjs so the classification always reflects the current
-    // agents.json on disk.
-    return {
-        retrieval: new Set(listHiddenAgentsByKind('retrieval')),
-        maintenance: new Set(listHiddenAgentsByKind('maintenance')),
-    };
+  // Not cached — called only on instruction rebuild (mtime-busted), and
+  // listHiddenAgentsByKind now reads from the mtime-aware cache inside
+  // internal-agents.mjs so the classification always reflects the current
+  // agents.json on disk.
+  return {
+    retrieval: new Set(listHiddenAgentsByKind('retrieval')),
+    maintenance: new Set(listHiddenAgentsByKind('maintenance')),
+  };
 }
 
 const _scopedRoleInstructionsCache = new Map();
@@ -45,25 +45,25 @@ const _scopedRoleInstructionsMtimeCache = new Map();
 const _ROLE_INSTRUCTIONS_MTIME_TTL_MS = 2000;
 
 function loadHiddenAgentSnippets(pluginRoot) {
-    try {
-        const agentRulesDir = join(pluginRoot, 'rules', 'agent');
-        if (!existsSync(agentRulesDir)) return [];
-        const files = readdirSync(agentRulesDir)
-            .filter(f => f.endsWith('.md') && f !== '00-common.md' && f !== '00-core.md')
-            .sort();
-        const pairs = [];
-        for (const f of files) {
-            const raw = readSafe(join(agentRulesDir, f));
-            if (!raw) continue;
-            const { body } = readMarkdownDocument(raw);
-            if (!body) continue;
-            const name = f.replace(/^\d+-/, '').replace(/\.md$/, '');
-            pairs.push({ name, body });
-        }
-        return pairs;
-    } catch {
-        return [];
+  try {
+    const agentRulesDir = join(pluginRoot, 'rules', 'agent');
+    if (!existsSync(agentRulesDir)) return [];
+    const files = readdirSync(agentRulesDir)
+      .filter((f) => f.endsWith('.md') && f !== '00-common.md' && f !== '00-core.md')
+      .sort();
+    const pairs = [];
+    for (const f of files) {
+      const raw = readSafe(join(agentRulesDir, f));
+      if (!raw) continue;
+      const { body } = readMarkdownDocument(raw);
+      if (!body) continue;
+      const name = f.replace(/^\d+-/, '').replace(/\.md$/, '');
+      pairs.push({ name, body });
     }
+    return pairs;
+  } catch {
+    return [];
+  }
 }
 
 // Role-markdown roots, in precedence order (later wins on the same name):
@@ -72,50 +72,50 @@ function loadHiddenAgentSnippets(pluginRoot) {
 // reading only the install root left a custom agent with an EMPTY role
 // catalog while Lead already saw the edited AGENT.md.
 function agentSectionDirs(pluginRoot) {
-    const dirs = [];
-    if (pluginRoot) dirs.push(join(pluginRoot, 'agents'));
-    try {
-        const userDir = mixdogGlobalDir('agents');
-        if (userDir && !dirs.includes(userDir)) dirs.push(userDir);
-    } catch { /* unresolvable data dir — built-in roles still load */ }
-    return dirs;
+  const dirs = [];
+  if (pluginRoot) dirs.push(join(pluginRoot, 'agents'));
+  try {
+    const userDir = mixdogGlobalDir('agents');
+    if (userDir && !dirs.includes(userDir)) dirs.push(userDir);
+  } catch {
+    /* unresolvable data dir — built-in roles still load */
+  }
+  return dirs;
 }
 
 function loadAgentSections(pluginRoot) {
-    // agents/ accepts both the compatibility flat layout and the current
-    // nested agents/<agent>/AGENT.md layout.
-    // The previous flat-only readdir silently dropped every nested agent, so a
-    // public agent like heavy-worker produced an EMPTY scoped instruction block
-    // (BP2) — the model lost its agent contract and the tool smoke's
-    // "heavy-worker AGENT.md must be included" assertion failed. Walk both.
-    const byName = new Map();
-    for (const agentsDir of agentSectionDirs(pluginRoot)) {
-        if (!existsSync(agentsDir)) continue;
-        let entries;
-        try {
-            entries = readdirSync(agentsDir, { withFileTypes: true });
-        } catch {
-            continue;
-        }
-        for (const entry of entries) {
-            let name = '';
-            let raw = null;
-            if (entry.isDirectory()) {
-                name = entry.name;
-                raw = readSafe(join(agentsDir, entry.name, 'AGENT.md'));
-            } else if (entry.isFile() && entry.name.endsWith('.md')) {
-                name = entry.name.replace(/\.md$/, '');
-                raw = readSafe(join(agentsDir, entry.name));
-            }
-            if (!name || !raw) continue;
-            const { body } = readMarkdownDocument(raw);
-            if (!body) continue;
-            byName.set(name, `## ${name}\n\n${body}`);
-        }
+  // agents/ accepts both the compatibility flat layout and the current
+  // nested agents/<agent>/AGENT.md layout.
+  // The previous flat-only readdir silently dropped every nested agent, so a
+  // public agent like heavy-worker produced an EMPTY scoped instruction block
+  // (BP2) — the model lost its agent contract and the tool smoke's
+  // "heavy-worker AGENT.md must be included" assertion failed. Walk both.
+  const byName = new Map();
+  for (const agentsDir of agentSectionDirs(pluginRoot)) {
+    if (!existsSync(agentsDir)) continue;
+    let entries;
+    try {
+      entries = readdirSync(agentsDir, { withFileTypes: true });
+    } catch {
+      continue;
     }
-    return [...byName.entries()]
-        .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
-        .map(([, text]) => text);
+    for (const entry of entries) {
+      let name = '';
+      let raw = null;
+      if (entry.isDirectory()) {
+        name = entry.name;
+        raw = readSafe(join(agentsDir, entry.name, 'AGENT.md'));
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        name = entry.name.replace(/\.md$/, '');
+        raw = readSafe(join(agentsDir, entry.name));
+      }
+      if (!name || !raw) continue;
+      const { body } = readMarkdownDocument(raw);
+      if (!body) continue;
+      byName.set(name, `## ${name}\n\n${body}`);
+    }
+  }
+  return [...byName.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([, text]) => text);
 }
 
 // Empty by design: scoped agent markdown already rides BP2 for every provider.
@@ -124,102 +124,107 @@ function loadAgentSections(pluginRoot) {
 const EXPLICIT_CACHE_PROVIDERS = new Set();
 
 function hiddenRuleSections(hiddenPairs) {
-    return hiddenPairs.map((p) => `## ${p.name}\n\n${p.body}`);
+  return hiddenPairs.map((p) => `## ${p.name}\n\n${p.body}`);
 }
 
 function selfHiddenRuleSection(hiddenPairs, agent) {
-    const self = hiddenPairs.find((p) => p.name === agent);
-    return self ? [`## ${self.name}\n\n${self.body}`] : [];
+  const self = hiddenPairs.find((p) => p.name === agent);
+  return self ? [`## ${self.name}\n\n${self.body}`] : [];
 }
 
 function selectRoleInstructionSections({
-    useUnified,
-    agent,
-    classification,
-    agentSharesCatalog,
-    agentSections,
-    hiddenPairs,
+  useUnified,
+  agent,
+  classification,
+  agentSharesCatalog,
+  agentSections,
+  hiddenPairs,
 }) {
-    if (useUnified || !agent) {
-        return {
-            agentRuleSectionsToEmit: hiddenRuleSections(hiddenPairs),
-            agentSectionsToEmit: agentSections,
-        };
-    }
-    if (classification.retrieval.has(agent)) {
-        return {
-            agentRuleSectionsToEmit: selfHiddenRuleSection(hiddenPairs, agent),
-            agentSectionsToEmit: agentSections.filter((s) =>
-                [...agentSharesCatalog].some((name) => s.startsWith(`## ${name}\n`))),
-        };
-    }
-    if (classification.maintenance.has(agent)) {
-        const selfRules = selfHiddenRuleSection(hiddenPairs, agent);
-        const fromAgent = agentSections.find((s) => s.startsWith(`## ${agent}\n`));
-        return {
-            agentRuleSectionsToEmit: selfRules.length ? selfRules : (fromAgent ? [fromAgent] : []),
-            agentSectionsToEmit: [],
-        };
-    }
+  if (useUnified || !agent) {
     return {
-        agentRuleSectionsToEmit: [],
-        agentSectionsToEmit: agentSections.filter((s) => s.startsWith(`## ${agent}\n`)),
+      agentRuleSectionsToEmit: hiddenRuleSections(hiddenPairs),
+      agentSectionsToEmit: agentSections,
     };
+  }
+  if (classification.retrieval.has(agent)) {
+    return {
+      agentRuleSectionsToEmit: selfHiddenRuleSection(hiddenPairs, agent),
+      agentSectionsToEmit: agentSections.filter((s) =>
+        [...agentSharesCatalog].some((name) => s.startsWith(`## ${name}\n`))
+      ),
+    };
+  }
+  if (classification.maintenance.has(agent)) {
+    const selfRules = selfHiddenRuleSection(hiddenPairs, agent);
+    const fromAgent = agentSections.find((s) => s.startsWith(`## ${agent}\n`));
+    return {
+      agentRuleSectionsToEmit: selfRules.length ? selfRules : fromAgent ? [fromAgent] : [],
+      agentSectionsToEmit: [],
+    };
+  }
+  return {
+    agentRuleSectionsToEmit: [],
+    agentSectionsToEmit: agentSections.filter((s) => s.startsWith(`## ${agent}\n`)),
+  };
 }
 
 export function loadScopedRoleInstructions(agent, provider = null) {
-    const useUnified = !!(provider && EXPLICIT_CACHE_PROVIDERS.has(provider));
-    const cacheKey = useUnified ? '__unified__' : (agent || '__all__');
-    const cached = _scopedRoleInstructionsCache.get(cacheKey);
-    const pluginRoot = mixdogRoot();
-    // Use maxMtimeRecursive so edits to .md files inside agents/ and
-    // rules/agent/ propagate — parent dir mtime is unchanged on
-    // Linux/macOS when only a nested file's content changes. Gate the stat
-    // behind a short TTL so repeated same-turn calls reuse the last mtime
-    // instead of re-walking the trees on every invocation.
-    const mtime = pluginRoot
-        ? mtimeWithTtl(_scopedRoleInstructionsMtimeCache, cacheKey, [
-            ...agentSectionDirs(pluginRoot),
-            join(pluginRoot, 'rules', 'agent'),
-            join(pluginRoot, 'defaults', 'agents.json'),
-        ], _ROLE_INSTRUCTIONS_MTIME_TTL_MS)
-        : 0;
-    if (cached && mtime <= cached.mtime) {
-        return cached.value;
-    }
-    // Compute classification before file loading — internal-agents metadata
-    // failures (malformed/missing agents.json) must propagate, not be
-    // silently swallowed by the file-IO catch below.
-    const classification = loadAgentClassification();
-    const agentSharesCatalog = agent && classification.retrieval.has(agent)
-        ? new Set(getAgentCatalogShareAgents(agent))
-        : new Set();
-    try {
-        const agentSections = loadAgentSections(pluginRoot);
-        const hiddenPairs = loadHiddenAgentSnippets(pluginRoot);
+  const useUnified = !!(provider && EXPLICIT_CACHE_PROVIDERS.has(provider));
+  const cacheKey = useUnified ? '__unified__' : agent || '__all__';
+  const cached = _scopedRoleInstructionsCache.get(cacheKey);
+  const pluginRoot = mixdogRoot();
+  // Use maxMtimeRecursive so edits to .md files inside agents/ and
+  // rules/agent/ propagate — parent dir mtime is unchanged on
+  // Linux/macOS when only a nested file's content changes. Gate the stat
+  // behind a short TTL so repeated same-turn calls reuse the last mtime
+  // instead of re-walking the trees on every invocation.
+  const mtime = pluginRoot
+    ? mtimeWithTtl(
+        _scopedRoleInstructionsMtimeCache,
+        cacheKey,
+        [
+          ...agentSectionDirs(pluginRoot),
+          join(pluginRoot, 'rules', 'agent'),
+          join(pluginRoot, 'defaults', 'agents.json'),
+        ],
+        _ROLE_INSTRUCTIONS_MTIME_TTL_MS
+      )
+    : 0;
+  if (cached && mtime <= cached.mtime) {
+    return cached.value;
+  }
+  // Compute classification before file loading — internal-agents metadata
+  // failures (malformed/missing agents.json) must propagate, not be
+  // silently swallowed by the file-IO catch below.
+  const classification = loadAgentClassification();
+  const agentSharesCatalog =
+    agent && classification.retrieval.has(agent) ? new Set(getAgentCatalogShareAgents(agent)) : new Set();
+  try {
+    const agentSections = loadAgentSections(pluginRoot);
+    const hiddenPairs = loadHiddenAgentSnippets(pluginRoot);
 
-        const { agentRuleSectionsToEmit, agentSectionsToEmit } = selectRoleInstructionSections({
-            useUnified,
-            agent,
-            classification,
-            agentSharesCatalog,
-            agentSections,
-            hiddenPairs,
-        });
+    const { agentRuleSectionsToEmit, agentSectionsToEmit } = selectRoleInstructionSections({
+      useUnified,
+      agent,
+      classification,
+      agentSharesCatalog,
+      agentSections,
+      hiddenPairs,
+    });
 
-        const blocks = [];
-        if (agentSectionsToEmit.length) {
-            blocks.push(`# Agent Role Catalog\n\n${agentSectionsToEmit.join('\n\n---\n\n')}`);
-        }
-        if (agentRuleSectionsToEmit.length) {
-            blocks.push(`# Agent Role Rules\n\n${agentRuleSectionsToEmit.join('\n\n---\n\n')}`);
-        }
-        const value = blocks.join('\n\n---\n\n');
-        _scopedRoleInstructionsCache.set(cacheKey, { mtime, value });
-        return value;
-    } catch {
-        return '';
+    const blocks = [];
+    if (agentSectionsToEmit.length) {
+      blocks.push(`# Agent Role Catalog\n\n${agentSectionsToEmit.join('\n\n---\n\n')}`);
     }
+    if (agentRuleSectionsToEmit.length) {
+      blocks.push(`# Agent Role Rules\n\n${agentRuleSectionsToEmit.join('\n\n---\n\n')}`);
+    }
+    const value = blocks.join('\n\n---\n\n');
+    _scopedRoleInstructionsCache.set(cacheKey, { mtime, value });
+    return value;
+  } catch {
+    return '';
+  }
 }
 
 // --- Compose system prompt — 4-BP cache layout ---
@@ -236,61 +241,61 @@ export function loadScopedRoleInstructions(agent, provider = null) {
 // `profile.skip` still filters specific buckets (claudemd, skills, memory)
 // for backward compatibility with existing profiles.
 function trimmedPromptSlice(value) {
-    return typeof value === 'string' && value.trim() ? value.trim() : '';
+  return typeof value === 'string' && value.trim() ? value.trim() : '';
 }
 
 function joinPromptSlices(parts) {
-    return parts.filter(Boolean).join('\n\n---\n\n');
+  return parts.filter(Boolean).join('\n\n---\n\n');
 }
 
 export function composeSystemPrompt(opts) {
-    const skip = opts.profile?.skip || {};
+  const skip = opts.profile?.skip || {};
 
-    // ── BP1: globally shared tool policy ────────────────────────────────
-    const baseParts = [];
-    if (opts.agentRules) baseParts.push(opts.agentRules);
-    const baseRules = baseParts.join('\n\n---\n\n');
+  // ── BP1: globally shared tool policy ────────────────────────────────
+  const baseParts = [];
+  if (opts.agentRules) baseParts.push(opts.agentRules);
+  const baseRules = baseParts.join('\n\n---\n\n');
 
-    // ── BP2: persistent profile/tool catalog layer ──────────────────────
-    // deferredToolManifest: optional BP2 slice; production path is
-    // applyInitialDeferredToolManifestToBp2 once after applyDeferredToolSurface.
-    const stableSystemContext = joinPromptSlices([
-        trimmedPromptSlice(opts.metaContext),
-        skip.skills ? '' : trimmedPromptSlice(opts.skillManifest),
-        trimmedPromptSlice(opts.deferredToolManifest),
-    ]);
+  // ── BP2: persistent profile/tool catalog layer ──────────────────────
+  // deferredToolManifest: optional BP2 slice; production path is
+  // applyInitialDeferredToolManifestToBp2 once after applyDeferredToolSurface.
+  const stableSystemContext = joinPromptSlices([
+    trimmedPromptSlice(opts.metaContext),
+    skip.skills ? '' : trimmedPromptSlice(opts.skillManifest),
+    trimmedPromptSlice(opts.deferredToolManifest),
+  ]);
 
-    // ── BP3: workflow/role + session environment layer ─────────────────
-    const roleInstructionContext = opts.skipRoleCatalog
-        ? ''
-        : loadScopedRoleInstructions(opts.agent || null, opts.provider || null);
-    // Keep the active workflow first within BP3 so it leads the role and
-    // environment material that varies with the session.
-    const coreMemory = skip.memory ? '' : trimmedPromptSlice(opts.coreMemoryContext);
-    const sessionMarkerCore = joinPromptSlices([
-        trimmedPromptSlice(opts.workflowContext),
-        opts.roleRules || '',
-        opts.userPrompt || '',
-        roleInstructionContext,
-        coreMemory ? `# Core Memory\n${coreMemory}` : '',
-    ]);
-    // Response language is the LAST system text before the conversation. It
-    // rides the environment block (not the tier3 core) because the `# Session`
-    // / shell / git lines are English and would otherwise trail it, pulling the
-    // pre-tool preamble toward English.
-    const environmentParts = [
-        opts.sessionStartContext,
-        opts.projectInstructionsContext,
-        opts.environmentContext,
-        opts.languageContext,
-    ].map(trimmedPromptSlice);
-    // Volatile session/project environment. Kept OUT of sessionMarkerCore so
-    // Anthropic providers can leave it as an UNMARKED system block (covered by
-    // the messages-tail breakpoint) while prefix-order providers still see it
-    // after the stable context. sessionMarker keeps the combined legacy shape
-    // for callers that consume a single BP3 string.
-    const sessionEnvironment = joinPromptSlices(environmentParts);
-    const sessionMarker = joinPromptSlices([sessionMarkerCore, sessionEnvironment]);
+  // ── BP3: workflow/role + session environment layer ─────────────────
+  const roleInstructionContext = opts.skipRoleCatalog
+    ? ''
+    : loadScopedRoleInstructions(opts.agent || null, opts.provider || null);
+  // Keep the active workflow first within BP3 so it leads the role and
+  // environment material that varies with the session.
+  const coreMemory = skip.memory ? '' : trimmedPromptSlice(opts.coreMemoryContext);
+  const sessionMarkerCore = joinPromptSlices([
+    trimmedPromptSlice(opts.workflowContext),
+    opts.roleRules || '',
+    opts.userPrompt || '',
+    roleInstructionContext,
+    coreMemory ? `# Core Memory\n${coreMemory}` : '',
+  ]);
+  // Response language is the LAST system text before the conversation. It
+  // rides the environment block (not the tier3 core) because the `# Session`
+  // / shell / git lines are English and would otherwise trail it, pulling the
+  // pre-tool preamble toward English.
+  const environmentParts = [
+    opts.sessionStartContext,
+    opts.projectInstructionsContext,
+    opts.environmentContext,
+    opts.languageContext,
+  ].map(trimmedPromptSlice);
+  // Volatile session/project environment. Kept OUT of sessionMarkerCore so
+  // Anthropic providers can leave it as an UNMARKED system block (covered by
+  // the messages-tail breakpoint) while prefix-order providers still see it
+  // after the stable context. sessionMarker keeps the combined legacy shape
+  // for callers that consume a single BP3 string.
+  const sessionEnvironment = joinPromptSlices(environmentParts);
+  const sessionMarker = joinPromptSlices([sessionMarkerCore, sessionEnvironment]);
 
-    return { baseRules, stableSystemContext, sessionMarkerCore, sessionEnvironment, sessionMarker };
+  return { baseRules, stableSystemContext, sessionMarkerCore, sessionEnvironment, sessionMarker };
 }

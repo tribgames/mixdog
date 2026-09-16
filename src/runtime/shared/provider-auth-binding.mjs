@@ -9,10 +9,13 @@ export function hasExplicitProviderAuthBinding(provider) {
 }
 
 export function withProviderAccount(provider, id, run) {
-  return scopedBindings.run({
-    ...scopedBindings.getStore(),
-    [provider]: { id, path: providerAccountPath(provider, id) },
-  }, run);
+  return scopedBindings.run(
+    {
+      ...scopedBindings.getStore(),
+      [provider]: { id, path: providerAccountPath(provider, id) },
+    },
+    run
+  );
 }
 
 export function currentProviderAccountId(provider) {
@@ -28,9 +31,7 @@ export function boundProviderAuthPath(provider) {
   const scoped = scopedBindings.getStore()?.[provider];
   if (scoped) return scoped.path || globalThis[AUTH_BINDINGS]?.[provider] || null;
   const bindings = globalThis[AUTH_BINDINGS];
-  const value = bindings && typeof bindings === 'object'
-    ? bindings[String(provider || '').trim()]
-    : null;
+  const value = bindings && typeof bindings === 'object' ? bindings[String(provider || '').trim()] : null;
   if (typeof value === 'string' && value) return value;
   if (!ACCOUNT_PROVIDERS.includes(provider)) return null;
   return providerAccountPath(provider, currentProviderAccountId(provider));

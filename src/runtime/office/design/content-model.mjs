@@ -7,10 +7,14 @@ import { clone, plainObject, stableValue } from '../shared/values.mjs';
 // message names the entry it came from, since a list of facts all fail alike.
 function safeId(value, label, where = '') {
   const at = where ? ` (${where})` : '';
-  const normalized = String(value ?? '').trim().toLowerCase();
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
   if (!normalized) throw new Error(`Office content ${label} is required${at}`);
   if (!/^[\p{L}\p{N}][\p{L}\p{N}._-]{0,63}$/u.test(normalized)) {
-    throw new Error(`Office content ${label} "${normalized}" must use 1-64 letters, digits, dots, underscores, or hyphens${at}`);
+    throw new Error(
+      `Office content ${label} "${normalized}" must use 1-64 letters, digits, dots, underscores, or hyphens${at}`
+    );
   }
   return normalized;
 }
@@ -83,8 +87,10 @@ export function normalizeOfficeContentModel(value) {
     const numberFormat = officeNumberFormat(fact);
     const unknown = Object.keys(fact).filter((key) => !FACT_KEYS.has(key));
     if (unknown.length) {
-      throw new Error(`Office content fact ${id} has unknown key(s): ${unknown.join(', ')}.`
-        + ` A fact takes: ${[...FACT_KEYS].join(', ')}.`);
+      throw new Error(
+        `Office content fact ${id} has unknown key(s): ${unknown.join(', ')}.` +
+          ` A fact takes: ${[...FACT_KEYS].join(', ')}.`
+      );
     }
     return {
       id,
@@ -105,9 +111,7 @@ export function normalizeOfficeContentModel(value) {
     // The references are the point of a claim: naming them "facts" instead of
     // factIds used to bind the claim to nothing at all, and the deck then
     // reported the figure it carried as unsourced.
-    const references = Array.isArray(claim.factIds) ? claim.factIds
-      : Array.isArray(claim.facts) ? claim.facts
-        : [];
+    const references = Array.isArray(claim.factIds) ? claim.factIds : Array.isArray(claim.facts) ? claim.facts : [];
     const factRefs = [...new Set(references.map((entry) => safeId(entry, `claim ${id} fact reference`)))];
     for (const factId of factRefs) {
       if (!factIds.has(factId)) throw new Error(`Office content claim ${id} references unknown fact ${factId}`);

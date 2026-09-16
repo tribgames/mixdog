@@ -26,10 +26,13 @@ for (const f of files) {
   if (!existsSync(f)) continue;
   for (const line of readFileSync(f, 'utf8').split(/\r?\n/)) {
     if (!line) continue;
-    try { const r = JSON.parse(line); if ((r.ts || 0) >= since) rows.push(r); } catch {}
+    try {
+      const r = JSON.parse(line);
+      if ((r.ts || 0) >= since) rows.push(r);
+    } catch {}
   }
 }
-const F = (r, n) => (r[n] != null ? r[n] : (r.payload && r.payload[n] != null ? r.payload[n] : null));
+const F = (r, n) => (r[n] != null ? r[n] : r.payload && r.payload[n] != null ? r.payload[n] : null);
 const bySess = new Map();
 for (const r of rows) {
   const k = r.sessionId || r.session_id || '?';
@@ -38,17 +41,32 @@ for (const r of rows) {
 }
 console.log(`window since ${new Date(since).toISOString()}`);
 for (const target of ['heavy-worker', 'worker']) {
-  let batch1 = 0, batchTot = 0, llmCalls = 0, sessions = 0, toolCalls = 0;
-  let grepContent = 0, grepContentWithCtx = 0, grepThenRead = 0, rereads = 0, outTok = 0;
+  let batch1 = 0,
+    batchTot = 0,
+    llmCalls = 0,
+    sessions = 0,
+    toolCalls = 0;
+  let grepContent = 0,
+    grepContentWithCtx = 0,
+    grepThenRead = 0,
+    rereads = 0,
+    outTok = 0;
   for (const [, rs] of bySess) {
     let agent = null;
-    for (const r of rs) { const x = F(r, 'agent'); if (x) { agent = x; break; } }
+    for (const r of rs) {
+      const x = F(r, 'agent');
+      if (x) {
+        agent = x;
+        break;
+      }
+    }
     if (agent !== target) continue;
     sessions++;
     rs.sort((a, b) => (a.ts || 0) - (b.ts || 0));
     for (const b of rs.filter((r) => r.kind === 'batch')) {
       const c = Number(F(b, 'tool_call_count')) || 0;
-      batchTot++; if (c === 1) batch1++;
+      batchTot++;
+      if (c === 1) batch1++;
     }
     const usage = rs.filter((r) => r.kind === 'usage_raw');
     llmCalls += usage.length;
@@ -68,15 +86,18 @@ for (const target of ['heavy-worker', 'worker']) {
         grepContent++;
         // Implicit context: output_mode content_with_context carries context
         // without explicit -C/-A/-B flags.
-        if (a['-C'] != null || a['-A'] != null || a['-B'] != null
-          || String(a.output_mode) === 'content_with_context') grepContentWithCtx++;
+        if (a['-C'] != null || a['-A'] != null || a['-B'] != null || String(a.output_mode) === 'content_with_context')
+          grepContentWithCtx++;
         const gpath = typeof a.path === 'string' ? a.path : JSON.stringify(a.path || '');
         for (let j = i + 1; j < Math.min(i + 4, tools.length); j++) {
           const u = tools[j];
           if (String(F(u, 'tool_name')) !== 'read') continue;
           const ra = F(u, 'tool_args_summary') || {};
           const rpath = typeof ra.path === 'string' ? ra.path : JSON.stringify(ra.path || '');
-          if (rpath && gpath && (rpath.includes(gpath) || gpath.includes(rpath))) { grepThenRead++; break; }
+          if (rpath && gpath && (rpath.includes(gpath) || gpath.includes(rpath))) {
+            grepThenRead++;
+            break;
+          }
         }
       }
     }
@@ -84,8 +105,12 @@ for (const target of ['heavy-worker', 'worker']) {
   }
   const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
   console.log(`\n${target}: sessions=${sessions} llmCalls=${llmCalls} toolCalls=${toolCalls} outTok=${outTok}`);
-  console.log(`  llmCalls/session=${sessions ? Math.round(llmCalls / sessions) : 0}  tools/llmCall=${llmCalls ? (toolCalls / llmCalls).toFixed(2) : '-'}`);
+  console.log(
+    `  llmCalls/session=${sessions ? Math.round(llmCalls / sessions) : 0}  tools/llmCall=${llmCalls ? (toolCalls / llmCalls).toFixed(2) : '-'}`
+  );
   console.log(`  single-call batches: ${batch1}/${batchTot} (${pct(batch1, batchTot)}%)`);
-  console.log(`  content greps with -C/-A/-B: ${grepContentWithCtx}/${grepContent} (${pct(grepContentWithCtx, grepContent)}%)  grep->read follow-ups: ${grepThenRead}`);
+  console.log(
+    `  content greps with -C/-A/-B: ${grepContentWithCtx}/${grepContent} (${pct(grepContentWithCtx, grepContent)}%)  grep->read follow-ups: ${grepThenRead}`
+  );
   console.log(`  same-path re-reads >=3x: ${rereads}`);
 }

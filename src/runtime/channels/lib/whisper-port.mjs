@@ -6,14 +6,15 @@ import { spawnSync } from 'node:child_process';
 // release the reservation immediately before spawn, then verify the listener's
 // PID before treating the child as ready (the handoff is not atomic).
 export function selectWhisperPort(host, preferred) {
-  const reserve = (port) => new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.once('error', reject);
-    server.listen({ host, port, exclusive: true }, () => {
-      const selected = server.address().port;
-      server.close((error) => error ? reject(error) : resolve(selected));
+  const reserve = (port) =>
+    new Promise((resolve, reject) => {
+      const server = net.createServer();
+      server.once('error', reject);
+      server.listen({ host, port, exclusive: true }, () => {
+        const selected = server.address().port;
+        server.close((error) => (error ? reject(error) : resolve(selected)));
+      });
     });
-  });
   return reserve(preferred).catch((error) => {
     if (error.code !== 'EADDRINUSE' && error.code !== 'EACCES') throw error;
     return reserve(0);
@@ -30,8 +31,12 @@ export function whisperListenerOwned(host, port, pid) {
       if (result.status !== 0) return false;
       return result.stdout.split(/\r?\n/).some((line) => {
         const fields = line.trim().split(/\s+/);
-        return fields[0] === 'TCP' && fields[1] === `${host}:${port}`
-          && fields[3] === 'LISTENING' && fields[4] === String(pid);
+        return (
+          fields[0] === 'TCP' &&
+          fields[1] === `${host}:${port}` &&
+          fields[3] === 'LISTENING' &&
+          fields[4] === String(pid)
+        );
       });
     }
     if (process.platform === 'linux') {
@@ -39,11 +44,14 @@ export function whisperListenerOwned(host, port, pid) {
       if (result.status !== 0) return false;
       return result.stdout.split(/\r?\n/).some((line) => {
         const fields = line.trim().split(/\s+/);
-        return fields[3] === `${host}:${port}`
-          && new RegExp(`\\bpid=${pid},`).test(line);
+        return fields[3] === `${host}:${port}` && new RegExp(`\\bpid=${pid},`).test(line);
       });
     }
-    const result = spawnSync('lsof', ['-nP', '-a', '-p', String(pid), `-iTCP@${host}:${port}`, '-sTCP:LISTEN', '-Fp'], options);
+    const result = spawnSync(
+      'lsof',
+      ['-nP', '-a', '-p', String(pid), `-iTCP@${host}:${port}`, '-sTCP:LISTEN', '-Fp'],
+      options
+    );
     return result.status === 0 && result.stdout.split(/\r?\n/).includes(`p${pid}`);
   } catch {
     // No ownership evidence means no readiness and no audio upload.

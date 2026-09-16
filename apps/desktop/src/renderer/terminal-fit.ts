@@ -19,10 +19,7 @@ export type StableTerminalFitOptions<RestoreState> = {
 
 const MAX_STABILITY_FRAMES = 8;
 
-export function sameTerminalGrid(
-  left: TerminalGrid | null,
-  right: TerminalGrid | null,
-): boolean {
+export function sameTerminalGrid(left: TerminalGrid | null, right: TerminalGrid | null): boolean {
   return left?.cols === right?.cols && left?.rows === right?.rows;
 }
 
@@ -86,9 +83,10 @@ export class StableTerminalFitScheduler<RestoreState> {
     if (!proposed) return;
 
     const current = this.options.currentGrid();
-    const stable = sameTerminalGrid(current, proposed)
-      || sameTerminalGrid(this.candidate, proposed)
-      || this.stabilityFrames >= MAX_STABILITY_FRAMES - 1;
+    const stable =
+      sameTerminalGrid(current, proposed) ||
+      sameTerminalGrid(this.candidate, proposed) ||
+      this.stabilityFrames >= MAX_STABILITY_FRAMES - 1;
     if (!stable) {
       this.candidate = proposed;
       this.stabilityFrames += 1;
@@ -123,7 +121,7 @@ export function applyTerminalActivity(
     scheduleFit(): void;
     pauseFit(): void;
     focus(): void;
-  },
+  }
 ): void {
   if (!active) {
     handlers.pauseFit();

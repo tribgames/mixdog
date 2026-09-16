@@ -4,7 +4,14 @@
  *  they do for a UI click. The facade is read lazily because runtime-core
  *  registers the tool executor before it finishes assembling the API object. */
 import { builtinFeatureActive } from '../builtin-features.mjs';
-import { SETUP_ACTIONS, SETUP_ACTION_FIELDS, SETUP_OPEN_TARGETS, SETUP_STATUS_DOMAINS, SETUP_TOOL_DEFS, SETUP_BUILTIN_TOGGLE_FEATURES } from './tool-defs.mjs';
+import {
+  SETUP_ACTIONS,
+  SETUP_ACTION_FIELDS,
+  SETUP_OPEN_TARGETS,
+  SETUP_STATUS_DOMAINS,
+  SETUP_TOOL_DEFS,
+  SETUP_BUILTIN_TOGGLE_FEATURES,
+} from './tool-defs.mjs';
 import { schemaValueError } from '../../runtime/shared/schema-value-error.mjs';
 
 const clean = (value) => String(value ?? '').trim();
@@ -20,7 +27,8 @@ const OPEN_TARGET_HINTS = Object.freeze({
   theme: 'Desktop: Settings → General → Theme · TUI: /theme',
   profile: 'Desktop: Settings → General → Profile · TUI: /profile',
   autoclear: 'Desktop: Settings → Context · TUI: /autoclear',
-  memory: 'Desktop: Extensions → Plugin → Built-in (Memory); core memories under Projects → project → Memories · TUI: /memory',
+  memory:
+    'Desktop: Extensions → Plugin → Built-in (Memory); core memories under Projects → project → Memories · TUI: /memory',
   mcp: 'Desktop: Extensions → Skill tab → MCP · TUI: /mcp',
   skills: 'Desktop: Extensions → Skill tab → Skills · TUI: /skills',
   plugins: 'Desktop: Extensions → Plugin tab → Plugins · TUI: /plugins',
@@ -51,7 +59,7 @@ function requireText(value, label) {
 
 function routeInput(source) {
   const next = {};
-  if (clean(source.provider) || Object.prototype.hasOwnProperty.call(source, 'provider')) next.provider = clean(source.provider);
+  if (clean(source.provider) || Object.hasOwn(source, 'provider')) next.provider = clean(source.provider);
   if (clean(source.model)) next.model = clean(source.model);
   if (clean(source.effort)) next.effort = clean(source.effort);
   if (typeof source.fast === 'boolean') next.fast = source.fast;
@@ -73,18 +81,24 @@ function publicProviderRows(setup) {
   });
   return {
     pendingSecrets: setup?.pendingSecrets === true,
-    api: (setup?.api || []).map((row) => pick(row, {
-      source: row.env ? `env:${row.envName}` : row.stored ? 'keychain' : 'none',
-      keyUrl: /^https:\/\//.test(String(row.url || '')) ? row.url : null,
-    })),
-    oauth: (setup?.oauth || []).map((row) => pick(row, {
-      reauthRequired: row.reauthRequired === true,
-      expiresAt: row.expiresAt || null,
-    })),
-    local: (setup?.local || []).map((row) => pick(row, {
-      detected: row.detected === true,
-      baseURL: row.baseURL || row.defaultURL || '',
-    })),
+    api: (setup?.api || []).map((row) =>
+      pick(row, {
+        source: row.env ? `env:${row.envName}` : row.stored ? 'keychain' : 'none',
+        keyUrl: /^https:\/\//.test(String(row.url || '')) ? row.url : null,
+      })
+    ),
+    oauth: (setup?.oauth || []).map((row) =>
+      pick(row, {
+        reauthRequired: row.reauthRequired === true,
+        expiresAt: row.expiresAt || null,
+      })
+    ),
+    local: (setup?.local || []).map((row) =>
+      pick(row, {
+        detected: row.detected === true,
+        baseURL: row.baseURL || row.defaultURL || '',
+      })
+    ),
   };
 }
 
@@ -127,7 +141,9 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
           route: mainRoute(rt),
           workflow: (rt.listWorkflows?.() || []).find((pack) => pack.active) || null,
           outputStyle: rt.getOutputStyle?.()?.configured || null,
-          profile: (({ title, language, experienceLevel }) => ({ title, language, experienceLevel }))(rt.getProfile?.() || {}),
+          profile: (({ title, language, experienceLevel }) => ({ title, language, experienceLevel }))(
+            rt.getProfile?.() || {}
+          ),
           features: {
             ...(rt.getToolModuleSettings?.() || {}),
             browser: { active: builtinFeatureActive(config, 'browser') },
@@ -136,11 +152,19 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
           onboarding: rt.getOnboardingStatus?.() || null,
         };
       }
-      case 'model': return { route: mainRoute(rt), effortOptions: rt.effortOptions || [] };
-      case 'agents': return { agents: rt.listAgents?.() || [] };
-      case 'workflow': return { workflows: rt.listWorkflows?.() || [] };
-      case 'websearch': return { route: rt.getWebSearchRoute?.() || null, enabled: rt.getToolModuleSettings?.()?.webSearch?.enabled !== false };
-      case 'output-style': return rt.getOutputStyle?.() || {};
+      case 'model':
+        return { route: mainRoute(rt), effortOptions: rt.effortOptions || [] };
+      case 'agents':
+        return { agents: rt.listAgents?.() || [] };
+      case 'workflow':
+        return { workflows: rt.listWorkflows?.() || [] };
+      case 'websearch':
+        return {
+          route: rt.getWebSearchRoute?.() || null,
+          enabled: rt.getToolModuleSettings?.()?.webSearch?.enabled !== false,
+        };
+      case 'output-style':
+        return rt.getOutputStyle?.() || {};
       case 'profile': {
         const profile = rt.getProfile?.() || {};
         return {
@@ -151,10 +175,14 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
           experienceLevels: (profile.experienceLevels || []).map((entry) => entry.id || entry),
         };
       }
-      case 'autoclear': return rt.getAutoClear?.() || {};
-      case 'compaction': return rt.getCompactionSettings?.() || {};
-      case 'memory': return { ...(rt.getToolModuleSettings?.()?.memory || {}), recap: rt.getRecapSettings?.() || null };
-      case 'local-provider': return rt.getToolModuleSettings().localProvider;
+      case 'autoclear':
+        return rt.getAutoClear?.() || {};
+      case 'compaction':
+        return rt.getCompactionSettings?.() || {};
+      case 'memory':
+        return { ...(rt.getToolModuleSettings?.()?.memory || {}), recap: rt.getRecapSettings?.() || null };
+      case 'local-provider':
+        return rt.getToolModuleSettings().localProvider;
       case 'features': {
         const config = getConfig?.() || {};
         return {
@@ -163,14 +191,22 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
           computer: { active: builtinFeatureActive(config, 'computer') },
         };
       }
-      case 'shell': return rt.getSystemShell?.() || {};
-      case 'providers': return publicProviderRows(await rt.getProviderSetup?.({}));
-      case 'mcp': return mcpRows(rt.mcpStatus?.());
-      case 'skills': return { ...(rt.skillsStatus?.() || {}), disabled: rt.getDisabledSkills?.()?.disabled || [] };
-      case 'plugins': return rt.pluginsStatus?.() || {};
-      case 'update': return rt.getUpdateSettings?.() || {};
-      case 'onboarding': return rt.getOnboardingStatus?.() || {};
-      default: throw new Error(`setup: unknown status domain "${domain}"`);
+      case 'shell':
+        return rt.getSystemShell?.() || {};
+      case 'providers':
+        return publicProviderRows(await rt.getProviderSetup?.({}));
+      case 'mcp':
+        return mcpRows(rt.mcpStatus?.());
+      case 'skills':
+        return { ...(rt.skillsStatus?.() || {}), disabled: rt.getDisabledSkills?.()?.disabled || [] };
+      case 'plugins':
+        return rt.pluginsStatus?.() || {};
+      case 'update':
+        return rt.getUpdateSettings?.() || {};
+      case 'onboarding':
+        return rt.getOnboardingStatus?.() || {};
+      default:
+        throw new Error(`setup: unknown status domain "${domain}"`);
     }
   }
 
@@ -197,7 +233,8 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
     const fields = SETUP_ACTION_FIELDS[action].split(' ').filter(Boolean);
     const allowed = fields.map((field) => field.replace(/\?$/, ''));
     const extras = Object.keys(args).filter((field) => field !== 'action' && !allowed.includes(field));
-    if (extras.length) throw new Error(`[tool-input-validation] setup.${action} does not accept field(s): ${extras.join(', ')}`);
+    if (extras.length)
+      throw new Error(`[tool-input-validation] setup.${action} does not accept field(s): ${extras.join(', ')}`);
     const missing = fields.find((field) => !field.endsWith('?') && !Object.hasOwn(args, field));
     if (missing) throw new Error(`[tool-input-validation] ${missing} is required for setup.${action}`);
     const rt = action === 'status' || action === 'open' ? null : api();
@@ -207,7 +244,8 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         requireEnum(domain, SETUP_STATUS_DOMAINS, 'domain');
         return { domain, ...(await readStatus(domain)) };
       }
-      case 'open': return openSurface(args.target);
+      case 'open':
+        return openSurface(args.target);
       case 'set_route': {
         const route = routeInput(args.route);
         if (!route.provider && !route.model && !route.effort && route.fast === undefined) {
@@ -221,27 +259,42 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         const route = routeInput(args.route);
         return { agent, route: await rt.setAgentRoute(agent, route) };
       }
-      case 'set_web_search_route': return { route: await rt.setWebSearchRoute(routeInput(args.route)) };
-      case 'set_workflow': return await rt.setWorkflow(requireText(args.workflow, 'workflow'));
+      case 'set_web_search_route':
+        return { route: await rt.setWebSearchRoute(routeInput(args.route)) };
+      case 'set_workflow':
+        return await rt.setWorkflow(requireText(args.workflow, 'workflow'));
       case 'set_output_style': {
         const result = await rt.setOutputStyle(requireText(args.style, 'style'));
-        return { configured: result?.configured || null, appliedToCurrentSession: result?.appliedToCurrentSession === true };
+        return {
+          configured: result?.configured || null,
+          appliedToCurrentSession: result?.appliedToCurrentSession === true,
+        };
       }
       case 'set_profile': {
         const profile = args.profile && typeof args.profile === 'object' ? args.profile : null;
-        if (!profile || !Object.keys(profile).length) throw new Error('profile with title, language, or experienceLevel is required');
+        if (!profile || !Object.keys(profile).length)
+          throw new Error('profile with title, language, or experienceLevel is required');
         const result = rt.setProfile(profile);
-        return { title: result.title || '', language: result.language || 'system', experienceLevel: result.experienceLevel || '' };
+        return {
+          title: result.title || '',
+          language: result.language || 'system',
+          experienceLevel: result.experienceLevel || '',
+        };
       }
       case 'set_autoclear': {
         const input = args.autoclear && typeof args.autoclear === 'object' ? args.autoclear : null;
-        if (!input || !Object.keys(input).length) throw new Error('autoclear with enabled, duration, or provider is required');
+        if (!input || !Object.keys(input).length)
+          throw new Error('autoclear with enabled, duration, or provider is required');
         return rt.setAutoClear(input);
       }
-      case 'set_compaction': return rt.setCompactionSettings({ auto: requireBoolean(args.enabled) });
-      case 'set_memory_enabled': return await rt.setMemoryToolsEnabled(requireBoolean(args.enabled));
-      case 'set_recap_enabled': return rt.setRecapEnabled(requireBoolean(args.enabled));
-      case 'set_web_search_enabled': return await rt.setWebSearchEnabled(requireBoolean(args.enabled));
+      case 'set_compaction':
+        return rt.setCompactionSettings({ auto: requireBoolean(args.enabled) });
+      case 'set_memory_enabled':
+        return await rt.setMemoryToolsEnabled(requireBoolean(args.enabled));
+      case 'set_recap_enabled':
+        return rt.setRecapEnabled(requireBoolean(args.enabled));
+      case 'set_web_search_enabled':
+        return await rt.setWebSearchEnabled(requireBoolean(args.enabled));
       case 'set_builtin_enabled': {
         const name = requireEnum(args.name, SETUP_BUILTIN_TOGGLE_FEATURES, 'name');
         return await rt.setBuiltinToolEnabled(name, requireBoolean(args.enabled));
@@ -260,8 +313,10 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
       }
       case 'start_local_installation': {
         const phase = requireEnum(args.phase, ['runtime', 'model'], 'phase');
-        const result = await rt.startLocalProviderInstallation(phase,
-          phase === 'model' ? requireText(args.modelId, 'modelId') : args.modelId);
+        const result = await rt.startLocalProviderInstallation(
+          phase,
+          phase === 'model' ? requireText(args.modelId, 'modelId') : args.modelId
+        );
         return { background: true, ...result.localProvider };
       }
       case 'cancel_local_installation': {
@@ -272,19 +327,34 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         const result = await rt.setLocalProviderIdleTtl(args.idleTtlSeconds);
         return result.localProvider;
       }
-      case 'search_local_models': return await rt.searchLocalProviderModels(requireText(args.query, 'query'));
-      case 'inspect_hf_model': return await rt.inspectHuggingFaceModel({
-        repository: requireText(args.repository, 'repository'), filename: args.filename, contextWindow: args.contextWindow,
-      });
-      case 'register_hf_model': return await rt.registerHuggingFaceModel(
-        requireText(args.previewId, 'previewId'), requireBoolean(args.licenseAccepted, 'licenseAccepted'));
-      case 'local_model_details': return await rt.getLocalProviderModelDetails(requireText(args.modelId, 'modelId'));
-      case 'maintain_local_model': return await rt.startLocalProviderModelMaintenance(
-        requireText(args.modelId, 'modelId'), requireEnum(args.operation, ['verify', 'repair'], 'operation'));
-      case 'delete_local_model': return await rt.deleteLocalProviderModel(requireText(args.confirmationToken, 'confirmationToken'));
-      case 'set_system_shell': return rt.setSystemShell({ command: clean(args.command) });
-      case 'set_auto_update': return rt.setAutoUpdate(requireBoolean(args.enabled));
-      case 'forget_provider_auth': return rt.forgetProviderAuth(requireText(args.name, 'name'));
+      case 'search_local_models':
+        return await rt.searchLocalProviderModels(requireText(args.query, 'query'));
+      case 'inspect_hf_model':
+        return await rt.inspectHuggingFaceModel({
+          repository: requireText(args.repository, 'repository'),
+          filename: args.filename,
+          contextWindow: args.contextWindow,
+        });
+      case 'register_hf_model':
+        return await rt.registerHuggingFaceModel(
+          requireText(args.previewId, 'previewId'),
+          requireBoolean(args.licenseAccepted, 'licenseAccepted')
+        );
+      case 'local_model_details':
+        return await rt.getLocalProviderModelDetails(requireText(args.modelId, 'modelId'));
+      case 'maintain_local_model':
+        return await rt.startLocalProviderModelMaintenance(
+          requireText(args.modelId, 'modelId'),
+          requireEnum(args.operation, ['verify', 'repair'], 'operation')
+        );
+      case 'delete_local_model':
+        return await rt.deleteLocalProviderModel(requireText(args.confirmationToken, 'confirmationToken'));
+      case 'set_system_shell':
+        return rt.setSystemShell({ command: clean(args.command) });
+      case 'set_auto_update':
+        return rt.setAutoUpdate(requireBoolean(args.enabled));
+      case 'forget_provider_auth':
+        return rt.forgetProviderAuth(requireText(args.name, 'name'));
       case 'add_mcp_server': {
         const server = args.server && typeof args.server === 'object' ? args.server : null;
         if (!server) throw new Error('server object is required');
@@ -297,9 +367,14 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         const result = await rt.saveMcpServer(server);
         return { name: result?.name, mcp: mcpRows(result?.status) };
       }
-      case 'remove_mcp_server': return { mcp: mcpRows(await rt.removeMcpServer(requireText(args.name, 'name'))) };
-      case 'set_mcp_enabled': return { mcp: mcpRows(await rt.setMcpServerEnabled(requireText(args.name, 'name'), requireBoolean(args.enabled))) };
-      case 'reconnect_mcp': return { mcp: mcpRows(await rt.reconnectMcp()) };
+      case 'remove_mcp_server':
+        return { mcp: mcpRows(await rt.removeMcpServer(requireText(args.name, 'name'))) };
+      case 'set_mcp_enabled':
+        return {
+          mcp: mcpRows(await rt.setMcpServerEnabled(requireText(args.name, 'name'), requireBoolean(args.enabled))),
+        };
+      case 'reconnect_mcp':
+        return { mcp: mcpRows(await rt.reconnectMcp()) };
       case 'set_disabled_skills': {
         if (!Array.isArray(args.skills)) throw new Error('skills (array of names) is required');
         return await rt.setDisabledSkills(args.skills.map(clean).filter(Boolean));
@@ -311,11 +386,19 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         if (kind === 'mcp') return { mcp: mcpRows(status) };
         return status || {};
       }
-      case 'add_plugin': return { plugin: (await rt.addPlugin(requireText(args.source, 'source')))?.plugin || null };
-      case 'update_plugin': return { plugin: (await rt.updatePlugin(requireText(args.name, 'name')))?.plugin || null };
-      case 'set_plugin_enabled': return { plugin: (await rt.setPluginEnabled(requireText(args.name, 'name'), requireBoolean(args.enabled)))?.plugin || null };
-      case 'remove_plugin': return { plugin: (await rt.removePlugin(requireText(args.name, 'name')))?.plugin || null };
-      default: throw new Error(`setup: unhandled action "${action}"`);
+      case 'add_plugin':
+        return { plugin: (await rt.addPlugin(requireText(args.source, 'source')))?.plugin || null };
+      case 'update_plugin':
+        return { plugin: (await rt.updatePlugin(requireText(args.name, 'name')))?.plugin || null };
+      case 'set_plugin_enabled':
+        return {
+          plugin:
+            (await rt.setPluginEnabled(requireText(args.name, 'name'), requireBoolean(args.enabled)))?.plugin || null,
+        };
+      case 'remove_plugin':
+        return { plugin: (await rt.removePlugin(requireText(args.name, 'name')))?.plugin || null };
+      default:
+        throw new Error(`setup: unhandled action "${action}"`);
     }
   }
 

@@ -21,13 +21,35 @@ function credentialContext(fillResult, command) {
           return fillResult;
         },
       },
-      state: { invalidateInteraction: () => { calls.invalidated += 1; } },
-      input: { pressKey: async (_guest, key) => { calls.keys.push(key); } },
+      state: {
+        invalidateInteraction: () => {
+          calls.invalidated += 1;
+        },
+      },
+      input: {
+        pressKey: async (_guest, key) => {
+          calls.keys.push(key);
+        },
+      },
       reply: { decorateRecovery: (result) => result },
-      refActions: new Proxy({}, { get: () => { throw new Error('ref actions must not run for a stored login'); } }),
-      targets: { resolveTargetRefs: async () => { throw new Error('targets must not resolve for a stored login'); } },
+      refActions: new Proxy(
+        {},
+        {
+          get: () => {
+            throw new Error('ref actions must not run for a stored login');
+          },
+        }
+      ),
+      targets: {
+        resolveTargetRefs: async () => {
+          throw new Error('targets must not resolve for a stored login');
+        },
+      },
     },
-    actionSnapshot: async () => { calls.snapshots += 1; return { text: 'snapshot' }; },
+    actionSnapshot: async () => {
+      calls.snapshots += 1;
+      return { text: 'snapshot' };
+    },
   };
   return { context, calls };
 }
@@ -35,7 +57,7 @@ function credentialContext(fillResult, command) {
 test('savedAccount hands the account to the host and reports only the settled page', async () => {
   const { context, calls } = credentialContext(
     { usernameFilled: true, passwordFilled: true },
-    { savedAccount: 'ada@example.test' },
+    { savedAccount: 'ada@example.test' }
   );
   const result = await formActions.fill(context);
   assert.deepEqual(calls.accounts, ['ada@example.test']);
@@ -48,7 +70,7 @@ test('savedAccount hands the account to the host and reports only the settled pa
 test('savedAccount with submit presses Enter after the host filled the form', async () => {
   const { context, calls } = credentialContext(
     { usernameFilled: false, passwordFilled: true },
-    { savedAccount: 'a•••a@example.test', submit: true },
+    { savedAccount: 'a•••a@example.test', submit: true }
   );
   await formActions.fill(context);
   assert.deepEqual(calls.keys, ['enter']);
@@ -57,7 +79,7 @@ test('savedAccount with submit presses Enter after the host filled the form', as
 test('a page without a password field is reported instead of claimed filled', async () => {
   const { context, calls } = credentialContext(
     { usernameFilled: false, passwordFilled: false, reason: 'no-password-field' },
-    { savedAccount: 'ada@example.test', submit: true },
+    { savedAccount: 'ada@example.test', submit: true }
   );
   await assert.rejects(formActions.fill(context), /no visible password field/);
   assert.deepEqual(calls.keys, [], 'a failed fill never submits');
@@ -67,7 +89,9 @@ test('a page without a password field is reported instead of claimed filled', as
 test('a host lookup failure surfaces its masked-label guidance unchanged', async () => {
   const { context } = credentialContext(undefined, { savedAccount: 'nobody@example.test' });
   context.services.credentials.fillStored = async () => {
-    throw new Error('savedAccount "nobody@example.test" is not a stored login for https://example.test; stored: a•••a@example.test');
+    throw new Error(
+      'savedAccount "nobody@example.test" is not a stored login for https://example.test; stored: a•••a@example.test'
+    );
   };
   await assert.rejects(formActions.fill(context), /stored: a•••a@example\.test/);
 });
@@ -82,9 +106,9 @@ test('savedAccount passes cancellation through and never submits after takeover'
     controller.abort(reason);
     return { usernameFilled: true, passwordFilled: true };
   };
-  await assert.rejects(formActions.fill(context), error => error === reason);
+  await assert.rejects(formActions.fill(context), (error) => error === reason);
   assert.deepEqual(calls.keys, []);
   assert.equal(calls.snapshots, 0);
   context.services.credentials.fillStored = async () => assert.fail('an already-cancelled fill must not start');
-  await assert.rejects(formActions.fill(context), error => error === reason);
+  await assert.rejects(formActions.fill(context), (error) => error === reason);
 });

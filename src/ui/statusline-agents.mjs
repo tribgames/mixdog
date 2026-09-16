@@ -1,10 +1,9 @@
 /**
  * src/ui/statusline-agents.mjs — agent worker/job normalization for the L2 line.
  *
- * Extracted verbatim from statusline.mjs: normalize/merge REPL agent workers &
- * bridge jobs into a statusline payload, classify running vs hidden-maintenance
- * workers, and enumerate active hidden agents from live session runtimes. No
- * behavior change.
+ * Normalize/merge REPL agent workers & bridge jobs into a statusline payload,
+ * classify running vs hidden-maintenance workers, and enumerate active hidden
+ * agents from live session runtimes.
  */
 import { forEachSessionRuntime } from '../runtime/agent/orchestrator/session/manager.mjs';
 import { listHiddenAgentNames } from '../runtime/agent/orchestrator/internal-agents.mjs';
@@ -174,8 +173,12 @@ export function activeHiddenAgentWorkers({ sessionId = '', clientHostPid = 0 } =
       if (sessionOwnerId && ownerSessionId && sessionOwnerId !== ownerSessionId) continue;
       const pid = positiveInt(session?.clientHostPid);
       if (ownerPid && pid && pid !== ownerPid) continue;
-      const stage = String(entry.stage || session?.stage || session?.status || '').trim().toLowerCase();
-      const status = String(session?.status || stage || '').trim().toLowerCase();
+      const stage = String(entry.stage || session?.stage || session?.status || '')
+        .trim()
+        .toLowerCase();
+      const status = String(session?.status || stage || '')
+        .trim()
+        .toLowerCase();
       if (!isActiveHiddenStatus(stage || status)) continue;
       rows.push({
         tag: String(session?.agentTag || `${agent}:${id || rows.length}`).trim(),
@@ -206,14 +209,15 @@ function isTerminalAgentEntry(statuses = []) {
 }
 
 function isActiveAgentEntry(statuses = []) {
-  return statuses.length > 0
-    && !isTerminalAgentEntry(statuses)
-    && statuses.some((status) => ACTIVE_AGENT_STATUS.test(status));
+  return (
+    statuses.length > 0 &&
+    !isTerminalAgentEntry(statuses) &&
+    statuses.some((status) => ACTIVE_AGENT_STATUS.test(status))
+  );
 }
 
 function isQueuedAgentEntry(statuses = []) {
-  return isActiveAgentEntry(statuses)
-    && statuses.every((status) => QUEUED_AGENT_STATUS.test(status));
+  return isActiveAgentEntry(statuses) && statuses.every((status) => QUEUED_AGENT_STATUS.test(status));
 }
 
 // Agent-side web search activity for the L2 "Web Searching" segment: any live
@@ -229,7 +233,12 @@ export function agentWebSearchStatus({ sessionId = '', clientHostPid = 0 } = {})
   try {
     for (const [runtimeSessionId, entry] of forEachSessionRuntime() || []) {
       if (!entry || entry.closed === true) continue;
-      if (String(entry.stage || '').trim().toLowerCase() !== 'tool_running') continue;
+      if (
+        String(entry.stage || '')
+          .trim()
+          .toLowerCase() !== 'tool_running'
+      )
+        continue;
       const session = entry.session || null;
       if (!session || session.closed === true) continue;
       const id = session?.id || runtimeSessionId || null;
@@ -241,7 +250,11 @@ export function agentWebSearchStatus({ sessionId = '', clientHostPid = 0 } = {})
       const tool = String(entry.lastToolCall || '').trim();
       if (!tool) continue;
       let category = null;
-      try { category = classifyToolCategory(tool); } catch { /* unknown tool -> skip */ }
+      try {
+        category = classifyToolCategory(tool);
+      } catch {
+        /* unknown tool -> skip */
+      }
       if (category !== 'Web Research') continue;
       count += 1;
       const started = num(entry.toolStartedAt);
@@ -259,8 +272,11 @@ function timeMs(value) {
 
 function maintenanceLabel(tag) {
   switch (tag) {
-    case 'cycle1-agent': return 'cycle1';
-    case 'cycle2-agent': return 'cycle2';
-    default: return '';
+    case 'cycle1-agent':
+      return 'cycle1';
+    case 'cycle2-agent':
+      return 'cycle2';
+    default:
+      return '';
   }
 }

@@ -121,8 +121,9 @@ function markerCode(value: NativeMarker['code'] | DesktopLspDiagnostic['code']):
 
 function publish(): void {
   const status = active
-    ? statuses.get(`${active.projectPath}\0${active.languageId}\0${active.relPath.replace(/\\/g, '/').toLocaleLowerCase()}`)
-      ?? statuses.get(`${active.projectPath}\0${active.languageId}`)
+    ? (statuses.get(
+        `${active.projectPath}\0${active.languageId}\0${active.relPath.replace(/\\/g, '/').toLocaleLowerCase()}`
+      ) ?? statuses.get(`${active.projectPath}\0${active.languageId}`))
     : undefined;
   const capabilities = status?.available ? status.capabilities : undefined;
   const nextCommandCapabilities = capabilities
@@ -141,17 +142,17 @@ function publish(): void {
       }
     : EMPTY_COMMAND_CAPABILITIES;
   if (
-    commandCapabilities.declaration !== nextCommandCapabilities.declaration
-    || commandCapabilities.definition !== nextCommandCapabilities.definition
-    || commandCapabilities.typeDefinition !== nextCommandCapabilities.typeDefinition
-    || commandCapabilities.implementation !== nextCommandCapabilities.implementation
-    || commandCapabilities.references !== nextCommandCapabilities.references
-    || commandCapabilities.signatureHelp !== nextCommandCapabilities.signatureHelp
-    || commandCapabilities.rename !== nextCommandCapabilities.rename
-    || commandCapabilities.codeAction !== nextCommandCapabilities.codeAction
-    || commandCapabilities.formatting !== nextCommandCapabilities.formatting
-    || commandCapabilities.rangeFormatting !== nextCommandCapabilities.rangeFormatting
-    || commandCapabilities.callHierarchy !== nextCommandCapabilities.callHierarchy
+    commandCapabilities.declaration !== nextCommandCapabilities.declaration ||
+    commandCapabilities.definition !== nextCommandCapabilities.definition ||
+    commandCapabilities.typeDefinition !== nextCommandCapabilities.typeDefinition ||
+    commandCapabilities.implementation !== nextCommandCapabilities.implementation ||
+    commandCapabilities.references !== nextCommandCapabilities.references ||
+    commandCapabilities.signatureHelp !== nextCommandCapabilities.signatureHelp ||
+    commandCapabilities.rename !== nextCommandCapabilities.rename ||
+    commandCapabilities.codeAction !== nextCommandCapabilities.codeAction ||
+    commandCapabilities.formatting !== nextCommandCapabilities.formatting ||
+    commandCapabilities.rangeFormatting !== nextCommandCapabilities.rangeFormatting ||
+    commandCapabilities.callHierarchy !== nextCommandCapabilities.callHierarchy
   ) {
     commandCapabilities = nextCommandCapabilities;
   }
@@ -169,21 +170,23 @@ function publish(): void {
 }
 
 function acceptLspDiagnostics(event: DesktopLspDiagnosticEvent): void {
-  const rows = event.diagnostics.map((diagnostic, index): EditorProblem => ({
-    key: `lsp:${event.uri}:${index}:${diagnostic.range.start.line}:${diagnostic.range.start.character}`,
-    projectPath: event.projectPath,
-    relPath: event.relPath,
-    uri: event.uri,
-    origin: 'lsp',
-    severity: Number(diagnostic.severity || 3),
-    message: String(diagnostic.message || ''),
-    source: String(diagnostic.source || event.server || ''),
-    code: markerCode(diagnostic.code),
-    startLineNumber: Math.max(1, Number(diagnostic.range.start.line) + 1),
-    startColumn: Math.max(1, Number(diagnostic.range.start.character) + 1),
-    endLineNumber: Math.max(1, Number(diagnostic.range.end.line) + 1),
-    endColumn: Math.max(1, Number(diagnostic.range.end.character) + 1),
-  }));
+  const rows = event.diagnostics.map(
+    (diagnostic, index): EditorProblem => ({
+      key: `lsp:${event.uri}:${index}:${diagnostic.range.start.line}:${diagnostic.range.start.character}`,
+      projectPath: event.projectPath,
+      relPath: event.relPath,
+      uri: event.uri,
+      origin: 'lsp',
+      severity: Number(diagnostic.severity || 3),
+      message: String(diagnostic.message || ''),
+      source: String(diagnostic.source || event.server || ''),
+      code: markerCode(diagnostic.code),
+      startLineNumber: Math.max(1, Number(diagnostic.range.start.line) + 1),
+      startColumn: Math.max(1, Number(diagnostic.range.start.character) + 1),
+      endLineNumber: Math.max(1, Number(diagnostic.range.end.line) + 1),
+      endColumn: Math.max(1, Number(diagnostic.range.end.character) + 1),
+    })
+  );
   if (rows.length) lspProblems.set(event.uri, rows);
   else lspProblems.delete(event.uri);
   publish();
@@ -196,13 +199,12 @@ export function ensureEditorLanguageStore(): void {
   unsubscribeStatus?.();
   boundApi = api;
   unsubscribeDiagnostics = api?.subscribeLspDiagnostics?.(acceptLspDiagnostics) ?? null;
-  unsubscribeStatus = api?.subscribeLspStatus?.((event) => {
-    const suffix = event.relPath
-      ? `\0${event.relPath.replace(/\\/g, '/').toLocaleLowerCase()}`
-      : '';
-    statuses.set(`${event.projectPath}\0${event.languageId}${suffix}`, event);
-    publish();
-  }) ?? null;
+  unsubscribeStatus =
+    api?.subscribeLspStatus?.((event) => {
+      const suffix = event.relPath ? `\0${event.relPath.replace(/\\/g, '/').toLocaleLowerCase()}` : '';
+      statuses.set(`${event.projectPath}\0${event.languageId}${suffix}`, event);
+      publish();
+    }) ?? null;
 }
 
 export function subscribeEditorLanguageStore(listener: () => void): () => void {
@@ -221,8 +223,13 @@ export function getEditorCommandCapabilities(): EditorCommandCapabilities {
 }
 
 export function setActiveEditorDocument(next: ActiveEditorDocument): void {
-  if (active?.uri === next.uri && active.projectPath === next.projectPath
-    && active.relPath === next.relPath && active.languageId === next.languageId) return;
+  if (
+    active?.uri === next.uri &&
+    active.projectPath === next.projectPath &&
+    active.relPath === next.relPath &&
+    active.languageId === next.languageId
+  )
+    return;
   if (active?.uri !== next.uri) {
     activeLine = 1;
     activeColumn = 1;
@@ -254,23 +261,25 @@ export function setNativeEditorProblems(
   projectPath: string,
   relPath: string,
   uri: string,
-  markers: readonly NativeMarker[],
+  markers: readonly NativeMarker[]
 ): void {
-  const rows = markers.map((marker, index): EditorProblem => ({
-    key: `native:${uri}:${index}:${marker.startLineNumber}:${marker.startColumn}`,
-    projectPath,
-    relPath,
-    uri,
-    origin: 'native',
-    severity: marker.severity >= 8 ? 1 : marker.severity >= 4 ? 2 : marker.severity >= 2 ? 3 : 4,
-    message: marker.message,
-    source: marker.source || '',
-    code: markerCode(marker.code),
-    startLineNumber: marker.startLineNumber,
-    startColumn: marker.startColumn,
-    endLineNumber: marker.endLineNumber,
-    endColumn: marker.endColumn,
-  }));
+  const rows = markers.map(
+    (marker, index): EditorProblem => ({
+      key: `native:${uri}:${index}:${marker.startLineNumber}:${marker.startColumn}`,
+      projectPath,
+      relPath,
+      uri,
+      origin: 'native',
+      severity: marker.severity >= 8 ? 1 : marker.severity >= 4 ? 2 : marker.severity >= 2 ? 3 : 4,
+      message: marker.message,
+      source: marker.source || '',
+      code: markerCode(marker.code),
+      startLineNumber: marker.startLineNumber,
+      startColumn: marker.startColumn,
+      endLineNumber: marker.endLineNumber,
+      endColumn: marker.endColumn,
+    })
+  );
   if (rows.length) nativeProblems.set(uri, rows);
   else nativeProblems.delete(uri);
   publish();
@@ -283,9 +292,7 @@ export function setEditorOutline(uri: string, rows: readonly EditorOutlineItem[]
 }
 
 function objectRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 function textOffset(content: string, rawPosition: unknown): number {
@@ -306,18 +313,17 @@ function textOffset(content: string, rawPosition: unknown): number {
 /** Apply non-overlapping LSP UTF-16 text ranges from the end of the file so
  *  earlier offsets remain stable. Shared by unopened-file persistence and
  *  its pure renderer regression contract. */
-export function applyLspTextEdits(
-  content: string,
-  edits: readonly Record<string, unknown>[],
-): string {
-  const offsets = edits.map((edit) => {
-    const range = objectRecord(edit.range);
-    return {
-      start: textOffset(content, range?.start),
-      end: textOffset(content, range?.end),
-      text: String(edit.newText ?? ''),
-    };
-  }).sort((left, right) => left.start - right.start || left.end - right.end);
+export function applyLspTextEdits(content: string, edits: readonly Record<string, unknown>[]): string {
+  const offsets = edits
+    .map((edit) => {
+      const range = objectRecord(edit.range);
+      return {
+        start: textOffset(content, range?.start),
+        end: textOffset(content, range?.end),
+        text: String(edit.newText ?? ''),
+      };
+    })
+    .sort((left, right) => left.start - right.start || left.end - right.end);
   for (let index = 1; index < offsets.length; index += 1) {
     if (offsets[index].start < offsets[index - 1].end) {
       throw new Error('Language server returned overlapping text edits.');

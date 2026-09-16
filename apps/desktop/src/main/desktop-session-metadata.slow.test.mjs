@@ -30,9 +30,8 @@ test('failed metadata writes reject and keep the latest maps available for an ex
 for (const kind of ['archive', 'read']) {
   test(`an unchanged ${kind} request retries its previously failed save`, async (t) => {
     const { root, metadata, target } = await fixture(t);
-    const update = () => kind === 'archive'
-      ? metadata.setArchived('session-a', true)
-      : metadata.markRead('session-a', 3, false);
+    const update = () =>
+      kind === 'archive' ? metadata.setArchived('session-a', true) : metadata.markRead('session-a', 3, false);
     await mkdir(target);
     await assert.rejects(update());
     await rmdir(target);
@@ -55,8 +54,9 @@ test('concurrent metadata publications retain one complete JSON snapshot', async
   }));
   await Promise.all(maps.map((value) => writeSessionMetadata(root, value)));
   const saved = JSON.parse(await readFile(target, 'utf8'));
-  assert.ok(maps.some((value) =>
-    saved.titles.session === value.titles.session && saved.names.session === value.names.session));
+  assert.ok(
+    maps.some((value) => saved.titles.session === value.titles.session && saved.names.session === value.names.session)
+  );
 });
 
 for (const mutation of ['name', 'archive', 'forget']) {

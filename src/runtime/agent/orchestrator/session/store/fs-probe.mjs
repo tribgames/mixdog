@@ -28,13 +28,13 @@ const PROBE_FAULT_ENV = 'MIXDOG_SESSION_LOAD_FAULT_HOOKS';
 let _probeFaultHook = null;
 
 function _probeFault(path, phase) {
-    if (!_probeFaultHook) return;
-    if (process.env[PROBE_FAULT_ENV] !== '1') {
-        _probeFaultHook = null; // gate revoked after install: stay inert
-        return;
-    }
-    const injected = _probeFaultHook(path, phase);
-    if (injected instanceof Error) throw injected;
+  if (!_probeFaultHook) return;
+  if (process.env[PROBE_FAULT_ENV] !== '1') {
+    _probeFaultHook = null; // gate revoked after install: stay inert
+    return;
+  }
+  const injected = _probeFaultHook(path, phase);
+  if (injected instanceof Error) throw injected;
 }
 
 /**
@@ -42,15 +42,15 @@ function _probeFault(path, phase) {
  * present / absent / unreadable.
  */
 export function probePath(path) {
-    try {
-        _probeFault(path, 'stat');
-        const info = statSync(path);
-        return { state: PROBE_PRESENT, mtimeMs: info.mtimeMs || 0, size: info.size, code: null };
-    } catch (err) {
-        const code = err?.code || 'EUNKNOWN';
-        if (ABSENT_CODES.has(code)) return { state: PROBE_ABSENT, mtimeMs: 0, size: 0, code };
-        return { state: PROBE_UNREADABLE, mtimeMs: 0, size: 0, code };
-    }
+  try {
+    _probeFault(path, 'stat');
+    const info = statSync(path);
+    return { state: PROBE_PRESENT, mtimeMs: info.mtimeMs || 0, size: info.size, code: null };
+  } catch (err) {
+    const code = err?.code || 'EUNKNOWN';
+    if (ABSENT_CODES.has(code)) return { state: PROBE_ABSENT, mtimeMs: 0, size: 0, code };
+    return { state: PROBE_UNREADABLE, mtimeMs: 0, size: 0, code };
+  }
 }
 
 /**
@@ -61,12 +61,12 @@ export function probePath(path) {
  * it already had instead of treating the content as missing.
  */
 export function readTextFile(path) {
-    try {
-        _probeFault(path, 'read');
-        return { state: PROBE_PRESENT, text: readFileSync(path, 'utf8'), code: null };
-    } catch (err) {
-        const code = err?.code || 'EUNKNOWN';
-        if (ABSENT_CODES.has(code)) return { state: PROBE_ABSENT, text: '', code };
-        return { state: PROBE_UNREADABLE, text: '', code };
-    }
+  try {
+    _probeFault(path, 'read');
+    return { state: PROBE_PRESENT, text: readFileSync(path, 'utf8'), code: null };
+  } catch (err) {
+    const code = err?.code || 'EUNKNOWN';
+    if (ABSENT_CODES.has(code)) return { state: PROBE_ABSENT, text: '', code };
+    return { state: PROBE_UNREADABLE, text: '', code };
+  }
 }

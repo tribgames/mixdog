@@ -40,7 +40,8 @@ export function createAggregateCardTracker({
     }
     for (const aggregate of aggregateCards) {
       if (aggregate?.itemId) ids.add(aggregate.itemId);
-      if (aggregate && aggregate.pushed === false && aggregate.pendingSpec) aggregate.pendingSpec.headerFinalized = true;
+      if (aggregate && aggregate.pushed === false && aggregate.pendingSpec)
+        aggregate.pendingSpec.headerFinalized = true;
     }
     if (ids.size === 0) return false;
     let changed = false;
@@ -169,24 +170,27 @@ export function createAggregateCardTracker({
     if (!callRec || callRec.resolved || callRec.completedEarly) return;
     aggregate.ensureVisible?.();
     const rawText = toolResultText(message?.content);
-    const { exitCode, isExitError, isCallError, isError, text } = toolResultDisplay(
-      message,
-      rawText,
-      callRec.name,
-    );
+    const { exitCode, isExitError, isCallError, isError, text } = toolResultDisplay(message, rawText, callRec.name);
     applyAggregateCallFields(callRec, aggregate, {
-      isError, isCallError, isExitError, exitCode, text, rawText, message,
+      isError,
+      isCallError,
+      isExitError,
+      exitCode,
+      text,
+      rawText,
+      message,
     });
     callRec.completedEarly = true;
     const allCalls = [...aggregate.calls.values()];
     const completedCount = allCalls.filter((r) => r.resolved || r.completedEarly).length;
     const currentIndex = itemIndexById.get(card.itemId);
-    const currentItem = Number.isInteger(currentIndex) && getState().items[currentIndex]?.id === card.itemId
-      ? getState().items[currentIndex]
-      : null;
+    const currentItem =
+      Number.isInteger(currentIndex) && getState().items[currentIndex]?.id === card.itemId
+        ? getState().items[currentIndex]
+        : null;
     const visualCompleted = Math.max(
       completedCount,
-      Math.min(allCalls.length, Number(currentItem?.completedCount || 0)),
+      Math.min(allCalls.length, Number(currentItem?.completedCount || 0))
     );
     // Collapsed detail carries the merged per-call count summary even on
     // the early-notify path; patching '' here flipped the detail row back
@@ -210,6 +214,8 @@ export function createAggregateCardTracker({
     markToolCardCompletedState,
     // A standalone card breaks the consecutive run: a later same-bucket call
     // must open a fresh card below it, never merge into an aggregate above.
-    sealTail: () => { tailAggregate = null; },
+    sealTail: () => {
+      tailAggregate = null;
+    },
   };
 }

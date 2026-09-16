@@ -35,59 +35,60 @@
  *   - 'full' : shared agent tool schema for provider cache reuse.
  */
 
-import { readFileSync, statSync } from 'fs'
-import { join } from 'path'
-import { mixdogRoot } from '../../shared/plugin-paths.mjs'
-import {
-  normalizeAgentPermissionOrNone,
-  parseMarkdownFrontmatter,
-} from '../../shared/markdown-frontmatter.mjs'
+import { readFileSync, statSync } from 'fs';
+import { join } from 'path';
+import { mixdogRoot } from '../../shared/plugin-paths.mjs';
+import { normalizeAgentPermissionOrNone, parseMarkdownFrontmatter } from '../../shared/markdown-frontmatter.mjs';
 
 // Resolve the path to defaults/agents.json once.
-const _MIXDOG_ROOT = mixdogRoot()
+const _MIXDOG_ROOT = mixdogRoot();
 const _AGENTS_PATH = (() => {
-  return join(_MIXDOG_ROOT, 'defaults', 'agents.json')
-})()
+  return join(_MIXDOG_ROOT, 'defaults', 'agents.json');
+})();
 
 /** @type {{ mtime: number, map: object } | null} */
-let _hiddenAgentsCache = null
+let _hiddenAgentsCache = null;
 
 function _mtimeSafe(file) {
-  try { return statSync(file).mtimeMs } catch { return 0 }
+  try {
+    return statSync(file).mtimeMs;
+  } catch {
+    return 0;
+  }
 }
 
 function _hiddenAgentsDependencyMtime() {
-  let mtime = _mtimeSafe(_AGENTS_PATH)
+  let mtime = _mtimeSafe(_AGENTS_PATH);
   try {
-    const raw = JSON.parse(readFileSync(_AGENTS_PATH, 'utf8'))
-    for (const entry of (raw.agents || [])) {
-      const systemFile = typeof entry?.systemFile === 'string' ? entry.systemFile.trim() : ''
-      if (!systemFile) continue
-      mtime = Math.max(mtime, _mtimeSafe(join(_MIXDOG_ROOT, systemFile)))
+    const raw = JSON.parse(readFileSync(_AGENTS_PATH, 'utf8'));
+    for (const entry of raw.agents || []) {
+      const systemFile = typeof entry?.systemFile === 'string' ? entry.systemFile.trim() : '';
+      if (!systemFile) continue;
+      mtime = Math.max(mtime, _mtimeSafe(join(_MIXDOG_ROOT, systemFile)));
     }
   } catch {}
-  return mtime
+  return mtime;
 }
 
 function _loadHiddenAgentFrontmatter(systemFile) {
-  const rel = typeof systemFile === 'string' ? systemFile.trim() : ''
-  if (!rel) return {}
+  const rel = typeof systemFile === 'string' ? systemFile.trim() : '';
+  if (!rel) return {};
   try {
-    return parseMarkdownFrontmatter(readFileSync(join(_MIXDOG_ROOT, rel), 'utf8'))
+    return parseMarkdownFrontmatter(readFileSync(join(_MIXDOG_ROOT, rel), 'utf8'));
   } catch {
-    return {}
+    return {};
   }
 }
 
 function _mergeHiddenAgentFrontmatter(entry) {
-  const fm = _loadHiddenAgentFrontmatter(entry.systemFile)
-  const merged = { ...entry }
-  const permission = normalizeAgentPermissionOrNone(fm.permission)
-  if (permission) merged.permission = permission
+  const fm = _loadHiddenAgentFrontmatter(entry.systemFile);
+  const merged = { ...entry };
+  const permission = normalizeAgentPermissionOrNone(fm.permission);
+  if (permission) merged.permission = permission;
   for (const key of ['toolSchemaProfile', 'kind', 'slot', 'maintKey']) {
-    if (typeof fm[key] === 'string' && fm[key].trim()) merged[key] = fm[key].trim()
+    if (typeof fm[key] === 'string' && fm[key].trim()) merged[key] = fm[key].trim();
   }
-  return merged
+  return merged;
 }
 
 /**
@@ -95,15 +96,15 @@ function _mergeHiddenAgentFrontmatter(entry) {
  */
 function _loadHiddenAgents() {
   try {
-    const raw = JSON.parse(readFileSync(_AGENTS_PATH, 'utf8'))
-    const map = Object.create(null)
-    for (const entry of (raw.agents || [])) {
-      if (entry && entry.agent) map[entry.agent] = Object.freeze(_mergeHiddenAgentFrontmatter(entry))
+    const raw = JSON.parse(readFileSync(_AGENTS_PATH, 'utf8'));
+    const map = Object.create(null);
+    for (const entry of raw.agents || []) {
+      if (entry && entry.agent) map[entry.agent] = Object.freeze(_mergeHiddenAgentFrontmatter(entry));
     }
-    return Object.freeze(map)
+    return Object.freeze(map);
   } catch (err) {
     // Fail loudly — a missing or malformed agents.json breaks dispatch.
-    throw new Error(`[internal-agents] failed to load defaults/agents.json: ${err.message}`)
+    throw new Error(`[internal-agents] failed to load defaults/agents.json: ${err.message}`);
   }
 }
 
@@ -115,29 +116,29 @@ function _loadHiddenAgents() {
  */
 function _getHiddenAgents() {
   try {
-    const mtime = _hiddenAgentsDependencyMtime()
+    const mtime = _hiddenAgentsDependencyMtime();
     if (_hiddenAgentsCache && mtime <= _hiddenAgentsCache.mtime) {
-      return _hiddenAgentsCache.map
+      return _hiddenAgentsCache.map;
     }
-    const map = _loadHiddenAgents()
-    _hiddenAgentsCache = { mtime, map }
-    return map
+    const map = _loadHiddenAgents();
+    _hiddenAgentsCache = { mtime, map };
+    return map;
   } catch (err) {
     // Fail loudly — re-throw with a clear message. A cache hit is never used
     // when statSync fails because the caller expects current data.
-    throw new Error(`[internal-agents] failed to load defaults/agents.json: ${err.message}`)
+    throw new Error(`[internal-agents] failed to load defaults/agents.json: ${err.message}`);
   }
 }
 
 // Eager validate at module init so startup failures are immediate.
-_getHiddenAgents()
+_getHiddenAgents();
 
 /**
  * Return the hidden-agent definition, or null if the name is not internal.
  */
 export function getHiddenAgent(name) {
-  if (!name) return null
-  return _getHiddenAgents()[name] || null
+  if (!name) return null;
+  return _getHiddenAgents()[name] || null;
 }
 
 /**
@@ -146,19 +147,19 @@ export function getHiddenAgent(name) {
  * Other built-in permissions include `none`, `read-write`, `mcp`, and `full`.
  */
 export function resolveAgentSessionPermission(agent, callerPermission) {
-  const hidden = getHiddenAgent(agent)
-  if (hidden && hidden.permission === 'read') return 'read'
-  if (callerPermission != null && callerPermission !== '') return callerPermission
-  if (hidden?.permission) return hidden.permission
-  return null
+  const hidden = getHiddenAgent(agent);
+  if (hidden && hidden.permission === 'read') return 'read';
+  if (callerPermission != null && callerPermission !== '') return callerPermission;
+  if (hidden?.permission) return hidden.permission;
+  return null;
 }
 
 /**
  * Boolean check — useful for branching inside agent-dispatch / session-manager.
  */
 export function isHiddenAgent(name) {
-  if (!name) return false
-  return Object.prototype.hasOwnProperty.call(_getHiddenAgents(), name)
+  if (!name) return false;
+  return Object.hasOwn(_getHiddenAgents(), name);
 }
 
 /**
@@ -166,7 +167,7 @@ export function isHiddenAgent(name) {
  * a user-defined agent doesn't collide with an internal one.
  */
 export function listHiddenAgentNames() {
-  return Object.keys(_getHiddenAgents())
+  return Object.keys(_getHiddenAgents());
 }
 
 /**
@@ -175,11 +176,11 @@ export function listHiddenAgentNames() {
  * instead of hard-coding agent-name sets.
  */
 export function listHiddenAgentsByKind(kind) {
-  const out = []
+  const out = [];
   for (const [name, def] of Object.entries(_getHiddenAgents())) {
-    if (def.kind === kind) out.push(name)
+    if (def.kind === kind) out.push(name);
   }
-  return out
+  return out;
 }
 
 /**
@@ -189,7 +190,7 @@ export function listHiddenAgentsByKind(kind) {
  * collect.mjs. Returns [] when the agent declares none.
  */
 export function getAgentCatalogShareAgents(name) {
-  const hidden = getHiddenAgent(name)
-  if (!hidden || !Array.isArray(hidden.catalogShareAgents)) return []
-  return hidden.catalogShareAgents.map((n) => String(n || '').trim()).filter(Boolean)
+  const hidden = getHiddenAgent(name);
+  if (!hidden || !Array.isArray(hidden.catalogShareAgents)) return [];
+  return hidden.catalogShareAgents.map((n) => String(n || '').trim()).filter(Boolean);
 }

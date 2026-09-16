@@ -72,9 +72,8 @@ const positiveSize = (value: unknown): number | null => {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
 };
 
-const callIdOf = (value: unknown): number | null => (
-  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
-);
+const callIdOf = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 
 const NON_ASCII = /[^\u0000-\u007F]/;
 
@@ -83,9 +82,7 @@ const NON_ASCII = /[^\u0000-\u007F]/;
  *  uses UTF-16 code units instead would under-count every non-ASCII payload
  *  and miss the very frame that was refused. The ASCII fast path keeps the
  *  common case (base64url ciphertext) allocation-free. */
-export const relayFrameByteLength = (
-  frame: string | ArrayBufferView,
-): number => {
+export const relayFrameByteLength = (frame: string | ArrayBufferView): number => {
   if (typeof frame !== 'string') return frame.byteLength;
   return NON_ASCII.test(frame) ? new TextEncoder().encode(frame).length : frame.length;
 };
@@ -99,18 +96,15 @@ export const readRelayPayloadRejection = (
    *  the channel, never of the shape: cleartext relay data reaches the same
    *  handler on a non-E2EE connection, and a forged `relayPayloadRejected`
    *  there must not be able to fail a call. Defaults to untrusted. */
-  authenticated = false,
+  authenticated = false
 ): RelayPayloadRejection | null => {
   if (!source || typeof source !== 'object') return null;
   const frame = source as Record<string, unknown>;
   const desktopEvent = frame.event === RELAY_PAYLOAD_REJECTED_EVENT;
-  const refused = desktopEvent
-    || frame.type === RELAY_FRAME_TOO_LARGE
-    || frame.error === RELAY_FRAME_TOO_LARGE;
+  const refused = desktopEvent || frame.type === RELAY_FRAME_TOO_LARGE || frame.error === RELAY_FRAME_TOO_LARGE;
   if (!refused) return null;
-  const detail = frame.payload && typeof frame.payload === 'object'
-    ? frame.payload as Record<string, unknown>
-    : frame;
+  const detail =
+    frame.payload && typeof frame.payload === 'object' ? (frame.payload as Record<string, unknown>) : frame;
   const trusted = desktopEvent && authenticated;
   const callId = trusted ? callIdOf(detail.id) : null;
   let scope: RelayRejectionScope = 'unknown';
@@ -128,9 +122,7 @@ const MEGABYTE = 1024 * 1024;
 const megabytes = (value: number): string => (value / MEGABYTE).toFixed(1);
 
 /** The user-visible failure text for a call the relay would not forward. */
-export const relayPayloadTooLargeMessage = (
-  rejection: RelayPayloadRejection,
-): string => {
+export const relayPayloadTooLargeMessage = (rejection: RelayPayloadRejection): string => {
   // Defensive typeof rather than `!== null`: these numbers come off the wire.
   const bytes = typeof rejection.bytes === 'number' ? rejection.bytes : null;
   const limit = typeof rejection.limit === 'number' ? rejection.limit : null;
@@ -150,9 +142,7 @@ export const RELAY_DEFAULT_MAX_FRAME_BYTES = 64 * 1024 * 1024;
  *  declared capability, and any limit a refusal notice reported. The SMALLEST
  *  usable candidate wins, so the local check can never be more permissive than
  *  the relay's; with nothing usable, the shared default applies. */
-export const resolveRelayFrameLimit = (
-  ...candidates: ReadonlyArray<number | null | undefined>
-): number => {
+export const resolveRelayFrameLimit = (...candidates: ReadonlyArray<number | null | undefined>): number => {
   let limit: number | null = null;
   for (const candidate of candidates) {
     if (typeof candidate !== 'number' || !Number.isFinite(candidate) || candidate <= 0) continue;
@@ -168,7 +158,7 @@ export const resolveRelayFrameLimit = (
 export const relayFrameRefusal = (
   bytes: number,
   limit: number,
-  callId: number | null,
+  callId: number | null
 ): RelayPayloadRejection | null => {
   if (bytes <= limit) return null;
   const id = callIdOf(callId);
@@ -201,15 +191,11 @@ export interface RelayInflightFrame {
  *  frames remain non-problems, and a call within the ceiling is untouched. */
 export const relayStrandedCallRefusals = (
   inflight: Iterable<readonly [number, RelayInflightFrame]>,
-  ceilings: { binary: number; text: number },
+  ceilings: { binary: number; text: number }
 ): RelayPayloadRejection[] => {
   const stranded: RelayPayloadRejection[] = [];
   for (const [callId, frame] of inflight) {
-    const refusal = relayFrameRefusal(
-      frame.bytes,
-      frame.binary ? ceilings.binary : ceilings.text,
-      callId,
-    );
+    const refusal = relayFrameRefusal(frame.bytes, frame.binary ? ceilings.binary : ceilings.text, callId);
     if (refusal) stranded.push(refusal);
   }
   return stranded;
@@ -259,9 +245,8 @@ export interface RelayUplinkCeilings {
 
 /** A published size. Zero is a legitimate ceiling (a capacity smaller than the
  *  envelope itself), so it is a value, not a missing field. */
-const publishedSize = (value: unknown): number | null => (
-  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : null
-);
+const publishedSize = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
 
 /** The ceilings a peer PUBLISHED for this connection, or null when it
  *  published none. The same three fields travel on both hops — relay → desktop
@@ -280,9 +265,7 @@ export const readRelayUplinkCeilings = (frame: unknown): RelayUplinkCeilings | n
 };
 
 /** The published fields again, ready to be handed to the next leg verbatim. */
-export const relayUplinkCeilingFields = (
-  ceilings: RelayUplinkCeilings,
-): Record<string, number> => ({
+export const relayUplinkCeilingFields = (ceilings: RelayUplinkCeilings): Record<string, number> => ({
   uplinkCapacityBytes: ceilings.capacity,
   uplinkBinaryCeilingBytes: ceilings.binary,
   uplinkTextCeilingBytes: ceilings.text,
@@ -318,23 +301,30 @@ export const RELAY_UNPUBLISHED_CAPACITY_BYTES = 1024;
  *  All three push the result DOWN. This leg therefore refuses everything such
  *  a relay refuses, plus a good deal it would have accepted; it is never the
  *  more permissive of the two. */
-export const relayFallbackUplinkCeilings = (
-  { capacity, policy, textFrames = false }:
-    { capacity: number; policy: number; textFrames?: boolean },
-): RelayUplinkCeilings => {
-  const binary = Math.max(0, Math.min(
-    policy,
-    capacity - RELAY_BINARY_HEADER_BYTES - RELAY_FALLBACK_CLIENT_ID_BYTES,
-  ));
+export const relayFallbackUplinkCeilings = ({
+  capacity,
+  policy,
+  textFrames = false,
+}: {
+  capacity: number;
+  policy: number;
+  textFrames?: boolean;
+}): RelayUplinkCeilings => {
+  const binary = Math.max(0, Math.min(policy, capacity - RELAY_BINARY_HEADER_BYTES - RELAY_FALLBACK_CLIENT_ID_BYTES));
   return {
     capacity,
     binary,
     text: textFrames
       ? binary
-      : Math.max(0, Math.min(policy, Math.floor(
-        (capacity - RELAY_JSON_ENVELOPE_BYTES - RELAY_FALLBACK_CLIENT_ID_BYTES)
-          / RELAY_JSON_ESCAPE_WORST_CASE,
-      ))),
+      : Math.max(
+          0,
+          Math.min(
+            policy,
+            Math.floor(
+              (capacity - RELAY_JSON_ENVELOPE_BYTES - RELAY_FALLBACK_CLIENT_ID_BYTES) / RELAY_JSON_ESCAPE_WORST_CASE
+            )
+          )
+        ),
   };
 };
 
@@ -346,16 +336,15 @@ export const relayFallbackUplinkCeilings = (
  *  (a policy ceiling is a statement about frames, not about the receiver). */
 export const relayUplinkContract = (
   published: RelayUplinkCeilings | null,
-  { policy, capacity = null, textFrames = false }:
-    { policy: number; capacity?: number | null; textFrames?: boolean },
+  { policy, capacity = null, textFrames = false }: { policy: number; capacity?: number | null; textFrames?: boolean }
 ): RelayUplinkCeilings => {
-  const base = published ?? relayFallbackUplinkCeilings({
-    capacity: capacity !== null && capacity > 0
-      ? capacity
-      : RELAY_UNPUBLISHED_CAPACITY_BYTES,
-    policy,
-    textFrames,
-  });
+  const base =
+    published ??
+    relayFallbackUplinkCeilings({
+      capacity: capacity !== null && capacity > 0 ? capacity : RELAY_UNPUBLISHED_CAPACITY_BYTES,
+      policy,
+      textFrames,
+    });
   return {
     capacity: base.capacity,
     binary: Math.min(base.binary, policy),
@@ -370,26 +359,18 @@ export const relayUplinkContract = (
 export const relayFrameCapRefusal = (
   frame: string | ArrayBufferView,
   ceilings: { binary: number; text: number },
-  callId: number | null,
-): RelayPayloadRejection | null => relayFrameRefusal(
-  relayFrameByteLength(frame),
-  typeof frame === 'string' ? ceilings.text : ceilings.binary,
-  callId,
-);
+  callId: number | null
+): RelayPayloadRejection | null =>
+  relayFrameRefusal(relayFrameByteLength(frame), typeof frame === 'string' ? ceilings.text : ceilings.binary, callId);
 
 /** The call a frame carries (a request) or answers (a response); pushes have
  *  none, and a push refusal therefore blames nobody. */
-export const relayFrameCallId = (payload: unknown): number | null => (
-  payload && typeof payload === 'object'
-    ? callIdOf((payload as { id?: unknown }).id)
-    : null
-);
+export const relayFrameCallId = (payload: unknown): number | null =>
+  payload && typeof payload === 'object' ? callIdOf((payload as { id?: unknown }).id) : null;
 
 /** The authenticated desktop → browser event for a refusal. The id travels
  *  only when the desktop itself named the call. */
-export const relayPayloadRejectedFrame = (
-  rejection: RelayPayloadRejection,
-): Record<string, unknown> => ({
+export const relayPayloadRejectedFrame = (rejection: RelayPayloadRejection): Record<string, unknown> => ({
   event: RELAY_PAYLOAD_REJECTED_EVENT,
   payload: {
     bytes: rejection.bytes,
@@ -397,8 +378,6 @@ export const relayPayloadRejectedFrame = (
     ...(rejection.callId !== null ? { id: rejection.callId } : {}),
     // A push refusal leaves nobody waiting; anything unattributed does, and
     // the browser has to stop that wait instead of running it to the deadline.
-    ...(rejection.callId === null && rejection.scope === 'push'
-      ? { scope: 'push' as const }
-      : {}),
+    ...(rejection.callId === null && rejection.scope === 'push' ? { scope: 'push' as const } : {}),
   },
 });

@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type DragEvent as ReactDragEvent,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react';
 
 const DRAG_EDGE_SCROLL_ZONE = 48;
 const DRAG_EDGE_SCROLL_MAX_STEP = 18;
@@ -13,13 +6,11 @@ const DRAG_EDGE_SCROLL_MAX_STEP = 18;
 export function dragEdgeScrollDelta(clientY: number, top: number, bottom: number): number {
   if (bottom <= top) return 0;
   if (clientY < top + DRAG_EDGE_SCROLL_ZONE) {
-    const pressure = Math.min(1, Math.max(0,
-      (top + DRAG_EDGE_SCROLL_ZONE - clientY) / DRAG_EDGE_SCROLL_ZONE));
+    const pressure = Math.min(1, Math.max(0, (top + DRAG_EDGE_SCROLL_ZONE - clientY) / DRAG_EDGE_SCROLL_ZONE));
     return pressure ? -Math.max(1, Math.ceil(DRAG_EDGE_SCROLL_MAX_STEP * pressure)) : 0;
   }
   if (clientY > bottom - DRAG_EDGE_SCROLL_ZONE) {
-    const pressure = Math.min(1, Math.max(0,
-      (clientY - (bottom - DRAG_EDGE_SCROLL_ZONE)) / DRAG_EDGE_SCROLL_ZONE));
+    const pressure = Math.min(1, Math.max(0, (clientY - (bottom - DRAG_EDGE_SCROLL_ZONE)) / DRAG_EDGE_SCROLL_ZONE));
     return pressure ? Math.max(1, Math.ceil(DRAG_EDGE_SCROLL_MAX_STEP * pressure)) : 0;
   }
   return 0;
@@ -76,22 +67,26 @@ export function usePersistedListOrder(storageKey: string, ids: readonly string[]
     }
   }, []);
 
-  const handleDocumentDragOver = useCallback((event: globalThis.DragEvent) => {
-    const node = scrollNodeRef.current;
-    if (!node) return;
-    const bounds = node.getBoundingClientRect();
-    const insideExpandedEdge = event.clientX >= bounds.left
-      && event.clientX <= bounds.right
-      && event.clientY >= bounds.top - DRAG_EDGE_SCROLL_ZONE
-      && event.clientY <= bounds.bottom + DRAG_EDGE_SCROLL_ZONE;
-    dragClientYRef.current = insideExpandedEdge ? event.clientY : null;
-    if (!insideExpandedEdge) return;
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-    if (scrollFrameRef.current === null) {
-      scrollFrameRef.current = window.requestAnimationFrame(runEdgeScroll);
-    }
-  }, [runEdgeScroll]);
+  const handleDocumentDragOver = useCallback(
+    (event: globalThis.DragEvent) => {
+      const node = scrollNodeRef.current;
+      if (!node) return;
+      const bounds = node.getBoundingClientRect();
+      const insideExpandedEdge =
+        event.clientX >= bounds.left &&
+        event.clientX <= bounds.right &&
+        event.clientY >= bounds.top - DRAG_EDGE_SCROLL_ZONE &&
+        event.clientY <= bounds.bottom + DRAG_EDGE_SCROLL_ZONE;
+      dragClientYRef.current = insideExpandedEdge ? event.clientY : null;
+      if (!insideExpandedEdge) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      if (scrollFrameRef.current === null) {
+        scrollFrameRef.current = window.requestAnimationFrame(runEdgeScroll);
+      }
+    },
+    [runEdgeScroll]
+  );
 
   const stopEdgeScroll = useCallback(() => {
     document.removeEventListener('dragover', handleDocumentDragOver);
@@ -134,9 +129,7 @@ export function usePersistedListOrder(storageKey: string, ids: readonly string[]
       event.dataTransfer.dropEffect = 'move';
       const bounds = event.currentTarget.getBoundingClientRect();
       const position = event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after';
-      setDropTarget((current) => current?.id === id && current.position === position
-        ? current
-        : { id, position });
+      setDropTarget((current) => (current?.id === id && current.position === position ? current : { id, position }));
     },
     onDrop: (event: ReactDragEvent<HTMLElement>) => {
       event.preventDefault();
@@ -156,7 +149,9 @@ export function usePersistedListOrder(storageKey: string, ids: readonly string[]
       setStoredOrder(next);
       try {
         window.localStorage.setItem(storageKey, JSON.stringify(next));
-      } catch { /* list order is a convenience only */ }
+      } catch {
+        /* list order is a convenience only */
+      }
       finishDrag();
     },
     onDragEnd: finishDrag,

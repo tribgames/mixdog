@@ -41,10 +41,10 @@ export function createAgentTree({
       id: sessionId,
       parentSessionId,
       ownerSessionId: String(
-        descriptor.ownerSessionId
-        || previous?.ownerSessionId
-        || agentSessions.get(parentSessionId)?.ownerSessionId
-        || parentSessionId,
+        descriptor.ownerSessionId ||
+          previous?.ownerSessionId ||
+          agentSessions.get(parentSessionId)?.ownerSessionId ||
+          parentSessionId
       ),
       owner: 'agent',
       visibility: 'agent-only',
@@ -52,7 +52,7 @@ export function createAgentTree({
     };
     agentSessions.set(sessionId, linked);
     let children = agentChildren.get(parentSessionId);
-    if (!children) agentChildren.set(parentSessionId, children = new Set());
+    if (!children) agentChildren.set(parentSessionId, (children = new Set()));
     children.add(sessionId);
     return linked;
   }
@@ -65,15 +65,16 @@ export function createAgentTree({
   function storedAgentCandidate(row) {
     const id = String(row?.id || '').trim();
     if (!SESSION_ID_PATTERN.test(id)) return null;
-    const parentSessionId = validLinkedSessionId(
-      row?.parentSessionId || row?.ownerSessionId,
-      id,
-    );
+    const parentSessionId = validLinkedSessionId(row?.parentSessionId || row?.ownerSessionId, id);
     if (!parentSessionId) return null;
-    const declaredVisibility = String(
-      row?.visibility || row?.sessionVisibility || '',
-    ).trim().toLowerCase() === 'agent-only';
-    const legacyAgentChild = String(row?.owner || '').trim().toLowerCase() === 'agent';
+    const declaredVisibility =
+      String(row?.visibility || row?.sessionVisibility || '')
+        .trim()
+        .toLowerCase() === 'agent-only';
+    const legacyAgentChild =
+      String(row?.owner || '')
+        .trim()
+        .toLowerCase() === 'agent';
     if (!declaredVisibility && !legacyAgentChild) return null;
     return { row, id, parentSessionId };
   }
@@ -81,14 +82,15 @@ export function createAgentTree({
   function lastStoredAgentHandoff(row) {
     if (typeof row?.lastHandoff === 'string') return row.lastHandoff;
     const messages = Array.isArray(row?.messages) ? row.messages : [];
-    const assistant = [...messages].reverse().find((message) => (
-      message?.role === 'assistant'
-      && (typeof message.content === 'string' ? message.content.trim() : message.content)
-    ));
+    const assistant = [...messages]
+      .reverse()
+      .find(
+        (message) =>
+          message?.role === 'assistant' &&
+          (typeof message.content === 'string' ? message.content.trim() : message.content)
+      );
     if (!assistant) return '';
-    return typeof assistant.content === 'string'
-      ? assistant.content
-      : JSON.stringify(assistant.content);
+    return typeof assistant.content === 'string' ? assistant.content : JSON.stringify(assistant.content);
   }
 
   /** Rebuild the Agent-only routing layer from lightweight durable summaries
@@ -108,24 +110,26 @@ export function createAgentTree({
         summaryOnly: true,
         refreshFromStorage: false,
       });
-      let candidates = (Array.isArray(stored) ? stored : [])
-        .map(storedAgentCandidate)
-        .filter(Boolean);
+      let candidates = (Array.isArray(stored) ? stored : []).map(storedAgentCandidate).filter(Boolean);
       if (typeof readStoredSession === 'function') {
-        candidates = await Promise.all(candidates.map(async (candidate) => {
-          if (candidate.row?.parentSessionId) return candidate;
-          try {
-            const metadata = await readStoredSession(candidate.id, { metadataOnly: true });
-            return storedAgentCandidate({
-              ...candidate.row,
-              ...(metadata && typeof metadata === 'object' ? metadata : {}),
-              id: candidate.id,
-            }) || candidate;
-          } catch (error) {
-            log(`agent metadata migration failed session=${candidate.id}: ${error?.message || error}`);
-            return candidate;
-          }
-        }));
+        candidates = await Promise.all(
+          candidates.map(async (candidate) => {
+            if (candidate.row?.parentSessionId) return candidate;
+            try {
+              const metadata = await readStoredSession(candidate.id, { metadataOnly: true });
+              return (
+                storedAgentCandidate({
+                  ...candidate.row,
+                  ...(metadata && typeof metadata === 'object' ? metadata : {}),
+                  id: candidate.id,
+                }) || candidate
+              );
+            } catch (error) {
+              log(`agent metadata migration failed session=${candidate.id}: ${error?.message || error}`);
+              return candidate;
+            }
+          })
+        );
       }
       const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
       const roots = new Map();
@@ -139,7 +143,7 @@ export function createAgentTree({
           return explicitOwner;
         }
         const parent = byId.get(candidate.parentSessionId);
-        const root = parent ? resolveRoot(parent, seen) : (explicitOwner || candidate.parentSessionId);
+        const root = parent ? resolveRoot(parent, seen) : explicitOwner || candidate.parentSessionId;
         roots.set(candidate.id, root);
         return root;
       };
@@ -167,18 +171,15 @@ export function createAgentTree({
           permission: row.permission || null,
           permissionMode: row.permissionMode || null,
           toolPermission: row.toolPermission || null,
-          schemaAllowedTools: Array.isArray(row.schemaAllowedTools)
-            ? row.schemaAllowedTools
-            : null,
+          schemaAllowedTools: Array.isArray(row.schemaAllowedTools) ? row.schemaAllowedTools : null,
           sourceType: row.sourceType || 'agent',
           sourceName: row.sourceName || row.agent || 'agent',
           clientHostPid: row.clientHostPid || null,
           createdAt: row.createdAt || null,
           updatedAt: row.updatedAt || row.lastUsedAt || null,
-          status: row.closed === true ? 'closed' : (row.status || 'idle'),
-          stage: row.closed === true ? 'closed' : (row.stage || row.status || 'idle'),
-          messageCount: Number(row.messageCount)
-            || (Array.isArray(row.messages) ? row.messages.length : 0),
+          status: row.closed === true ? 'closed' : row.status || 'idle',
+          stage: row.closed === true ? 'closed' : row.stage || row.status || 'idle',
+          messageCount: Number(row.messageCount) || (Array.isArray(row.messages) ? row.messages.length : 0),
           lastHandoff: lastStoredAgentHandoff(row),
           closed: row.closed === true,
         });
@@ -199,17 +200,18 @@ export function createAgentTree({
     const owner = sessionOwner(id);
     const state = owner?.runtime?.getState?.() || {};
     const status = descriptor.closed
-      ? (descriptor.status || 'closed')
+      ? descriptor.status || 'closed'
       : stateBusy(state)
         ? 'running'
-        : (descriptor.status || 'idle');
+        : descriptor.status || 'idle';
     return {
       ...descriptor,
       status,
       stage: status,
-      messageCount: Array.isArray(state.items) && state.items.length > 0
-        ? state.items.length
-        : Math.max(0, Number(descriptor.messageCount) || 0),
+      messageCount:
+        Array.isArray(state.items) && state.items.length > 0
+          ? state.items.length
+          : Math.max(0, Number(descriptor.messageCount) || 0),
       updatedAt: descriptor.updatedAt || Date.now(),
     };
   }
@@ -224,9 +226,7 @@ export function createAgentTree({
     const parentSessionId = String(spec.parentSessionId || '').trim();
     if (!parentSessionId) throw new TypeError('agent child parentSessionId is required');
     const ownerSessionId = String(
-      spec.ownerSessionId
-      || agentSessions.get(parentSessionId)?.ownerSessionId
-      || parentSessionId,
+      spec.ownerSessionId || agentSessions.get(parentSessionId)?.ownerSessionId || parentSessionId
     );
     const preset = spec.preset && typeof spec.preset === 'object' ? spec.preset : {};
     const provider = String(preset.provider || spec.provider || '').trim();
@@ -242,9 +242,7 @@ export function createAgentTree({
       taskType: spec.taskType || null,
       permission: spec.permission || null,
       permissionMode: spec.permissionMode || null,
-      schemaAllowedTools: Array.isArray(spec.schemaAllowedTools)
-        ? spec.schemaAllowedTools
-        : null,
+      schemaAllowedTools: Array.isArray(spec.schemaAllowedTools) ? spec.schemaAllowedTools : null,
       sourceType: spec.sourceType || 'agent',
       sourceName: spec.sourceName || spec.agent || 'agent',
       clientHostPid: spec.clientHostPid || null,
@@ -277,13 +275,7 @@ export function createAgentTree({
     return { session: descriptor, effectiveCwd: descriptor.cwd };
   }
 
-  async function runAgentTurn({
-    session,
-    prompt,
-    context = null,
-    onToolResult,
-    onTerminalResult,
-  } = {}) {
+  async function runAgentTurn({ session, prompt, context = null, onToolResult, onTerminalResult } = {}) {
     await rehydrateAgentSessions();
     const sessionId = String(session?.id || session || '').trim();
     const descriptor = agentSessions.get(sessionId);
@@ -310,9 +302,7 @@ export function createAgentTree({
         priority: 'next',
         context,
         transcriptMeta: { sender: 'lead' },
-        ...(entry.runtime.isWireSafe === true || typeof onToolResult !== 'function'
-          ? {}
-          : { onToolResult }),
+        ...(entry.runtime.isWireSafe === true || typeof onToolResult !== 'function' ? {} : { onToolResult }),
       };
       const detail = await target.call(entry.runtime, String(prompt || ''), options);
       if (detail?.status === 'failed') {
@@ -325,7 +315,9 @@ export function createAgentTree({
       descriptor.status = 'idle';
       descriptor.stage = 'idle';
       descriptor.lastHandoff = typeof result?.content === 'string' ? result.content : '';
-      try { onTerminalResult?.(result); } catch {}
+      try {
+        onTerminalResult?.(result);
+      } catch {}
       return result;
     } catch (error) {
       descriptor.status = /cancel/i.test(String(error?.message || '')) ? 'cancelled' : 'error';
@@ -426,9 +418,10 @@ export function createAgentTree({
     rehydrateAgentSessions,
     descendantSessionIds: agentDescendantSessionIds,
     getSession: (sessionId) => agentDescriptor(sessionId),
-    listSessions: ({ includeClosed = false } = {}) => [...agentSessions.keys()]
-      .map(agentDescriptor)
-      .filter((session) => session && (includeClosed || session.closed !== true)),
+    listSessions: ({ includeClosed = false } = {}) =>
+      [...agentSessions.keys()]
+        .map(agentDescriptor)
+        .filter((session) => session && (includeClosed || session.closed !== true)),
     getSessionRuntime: (sessionId) => {
       const session = agentDescriptor(sessionId);
       return session ? { stage: session.stage || session.status || 'idle' } : null;

@@ -26,91 +26,132 @@ test('PDF backend edits and validates without Microsoft Office', async (t) => {
   pdf.addPage([400, 300]);
   await writeFile(source, await pdf.save());
 
-  const opened = value(await executeOfficeTool({
-    action: 'open',
-    path: source,
-    output,
-    mode: 'auto',
-  }, { cwd }));
+  const opened = value(
+    await executeOfficeTool(
+      {
+        action: 'open',
+        path: source,
+        output,
+        mode: 'auto',
+      },
+      { cwd }
+    )
+  );
   assert.equal(opened.mode, 'portable');
   assert.equal(opened.backend, 'mixdog-pdf');
 
-  value(await executeOfficeTool({
-    action: 'batch',
-    session: opened.session,
-    operations: [
-      { op: 'add_text', page: 1, text: 'PDF edited', x: 20, y: 20, size: 14 },
-      { op: 'rotate_pages', pages: [1], rotation: 90 },
-      { op: 'set_metadata', properties: { title: 'Mixdog PDF' } },
-    ],
-  }, { cwd }));
+  value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [
+          { op: 'add_text', page: 1, text: 'PDF edited', x: 20, y: 20, size: 14 },
+          { op: 'rotate_pages', pages: [1], rotation: 90 },
+          { op: 'set_metadata', properties: { title: 'Mixdog PDF' } },
+        ],
+      },
+      { cwd }
+    )
+  );
 
-  const validation = value(await executeOfficeTool({
-    action: 'validate',
-    session: opened.session,
-  }, { cwd }));
+  const validation = value(
+    await executeOfficeTool(
+      {
+        action: 'validate',
+        session: opened.session,
+      },
+      { cwd }
+    )
+  );
   assert.equal(validation.ok, true);
   assert.equal(validation.pages, 1);
 
-  const snapshot = value(await executeOfficeTool({
-    action: 'snapshot',
-    session: opened.session,
-  }, { cwd }));
+  const snapshot = value(
+    await executeOfficeTool(
+      {
+        action: 'snapshot',
+        session: opened.session,
+      },
+      { cwd }
+    )
+  );
   assert.equal(snapshot.document.pageCount, 1);
   assert.equal(snapshot.document.pages[0].path, '/page[1]');
 
   value(await executeOfficeTool({ action: 'begin', session: opened.session }, { cwd }));
-  value(await executeOfficeTool({
-    action: 'batch',
-    session: opened.session,
-    operations: [{ op: 'add_text', page: 1, text: 'Visual QA delta', x: 30, y: 60, size: 16 }],
-  }, { cwd }));
-  const qaResult = await executeOfficeTool({
-    action: 'qa',
-    session: opened.session,
-    output: join(cwd, 'qa-preview.pdf'),
-    pages: [1],
-    maxWidth: 640,
-  }, { cwd });
+  value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [{ op: 'add_text', page: 1, text: 'Visual QA delta', x: 30, y: 60, size: 16 }],
+      },
+      { cwd }
+    )
+  );
+  const qaResult = await executeOfficeTool(
+    {
+      action: 'qa',
+      session: opened.session,
+      output: join(cwd, 'qa-preview.pdf'),
+      pages: [1],
+      maxWidth: 640,
+    },
+    { cwd }
+  );
   const qa = value(qaResult);
   assert.equal(qa.review.visualDiff.available, true);
   assert.ok(qa.review.visualDiff.changedPercent > 0);
   assert.ok(qaResult.content.filter((item) => item.type === 'image').length >= 2);
   value(await executeOfficeTool({ action: 'rollback', session: opened.session }, { cwd }));
 
-  const renderedResult = await executeOfficeTool({
-    action: 'render',
-    session: opened.session,
-    output: join(cwd, 'preview.pdf'),
-    pages: [1],
-    maxWidth: 640,
-  }, { cwd });
+  const renderedResult = await executeOfficeTool(
+    {
+      action: 'render',
+      session: opened.session,
+      output: join(cwd, 'preview.pdf'),
+      pages: [1],
+      maxWidth: 640,
+    },
+    { cwd }
+  );
   const rendered = value(renderedResult);
   assert.equal(rendered.images.length, 1);
   assert.equal(renderedResult.content[1].type, 'image');
   assert.equal(renderedResult.content[1].source.media_type, 'image/png');
 
-  const pendingReview = value(await executeOfficeTool({
-    action: 'finalize',
-    session: opened.session,
-    output: join(cwd, 'final-preview.pdf'),
-    pages: [1],
-    maxWidth: 640,
-  }, { cwd }));
+  const pendingReview = value(
+    await executeOfficeTool(
+      {
+        action: 'finalize',
+        session: opened.session,
+        output: join(cwd, 'final-preview.pdf'),
+        pages: [1],
+        maxWidth: 640,
+      },
+      { cwd }
+    )
+  );
   assert.equal(pendingReview.finalized, false);
   assert.equal(pendingReview.reason, 'visual_review_required');
-  const finalizedResult = await executeOfficeTool({
-    action: 'finalize',
-    session: opened.session,
-    output: join(cwd, 'final-preview.pdf'),
-    pages: [1],
-    maxWidth: 640,
-    design: {
-      reviewed: true,
-      reviewToken: pendingReview.reviewToken,
-      critique: [{ page: 1, verdict: 'pass', note: 'The rotated test page retains its edited text inside the page bounds.' }],
+  const finalizedResult = await executeOfficeTool(
+    {
+      action: 'finalize',
+      session: opened.session,
+      output: join(cwd, 'final-preview.pdf'),
+      pages: [1],
+      maxWidth: 640,
+      design: {
+        reviewed: true,
+        reviewToken: pendingReview.reviewToken,
+        critique: [
+          { page: 1, verdict: 'pass', note: 'The rotated test page retains its edited text inside the page bounds.' },
+        ],
+      },
     },
-  }, { cwd });
+    { cwd }
+  );
   const finalized = value(finalizedResult);
   assert.equal(finalized.finalized, true);
   assert.equal(finalized.review._images, undefined);
@@ -140,9 +181,12 @@ test('the PDF audit reads every page, not the excerpt a reader is shown', async 
   const audited = value(await executeOfficeTool({ action: 'issues', session: opened.session }, { cwd }));
   assert.ok(
     audited.issues.some((issue) => issue.code === 'ocr_required' && issue.path === '/page[15]'),
-    JSON.stringify(audited.issues),
+    JSON.stringify(audited.issues)
   );
-  assert.equal(audited.issues.some((issue) => issue.code === 'audit_scope_limited'), false);
+  assert.equal(
+    audited.issues.some((issue) => issue.code === 'audit_scope_limited'),
+    false
+  );
   value(await executeOfficeTool({ action: 'close', session: opened.session }, { cwd }));
 });
 
@@ -192,65 +236,97 @@ test('PDF specialized queries expose positioned text, inferred tables, and embed
   page.drawText('Value', { x: 220, y: 240, size: 12 });
   page.drawText('Revenue', { x: 40, y: 210, size: 12 });
   page.drawText('120', { x: 220, y: 210, size: 12 });
-  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2S9sAAAAASUVORK5CYII=', 'base64');
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2S9sAAAAASUVORK5CYII=',
+    'base64'
+  );
   const image = await pdf.embedPng(png);
   page.drawImage(image, { x: 40, y: 40, width: 20, height: 20 });
   page.drawLine({ start: { x: 40, y: 190 }, end: { x: 360, y: 190 }, thickness: 1, color: rgb(0, 0, 0) });
   page.drawRectangle({ x: 300, y: 40, width: 12, height: 12, borderWidth: 1, borderColor: rgb(0, 0, 0) });
   await writeFile(path, await pdf.save());
   const opened = value(await executeOfficeTool({ action: 'open', path, mode: 'portable' }, { cwd }));
-  const layout = value(await executeOfficeTool({
-    action: 'query',
-    session: opened.session,
-    queryKind: 'pdf-layout',
-  }, { cwd }));
+  const layout = value(
+    await executeOfficeTool(
+      {
+        action: 'query',
+        session: opened.session,
+        queryKind: 'pdf-layout',
+      },
+      { cwd }
+    )
+  );
   assert.ok(layout.pages[0].items.some((item) => item.text === 'Metric'));
   const rule = layout.pages[0].lines.find((line) => Math.abs(line.x1 - 40) < 1 && Math.abs(line.x2 - 360) < 1);
   assert.ok(rule && Math.abs(rule.y1 - 110) < 1, JSON.stringify(layout.pages[0].lines));
   const checkbox = layout.pages[0].boxes.find((box) => box.checkbox);
-  assert.ok(checkbox && Math.abs(checkbox.x - 300) < 1 && Math.abs(checkbox.top - 248) < 1 && checkbox.stroked, JSON.stringify(layout.pages[0].boxes));
-  const tables = value(await executeOfficeTool({
-    action: 'query',
-    session: opened.session,
-    queryKind: 'pdf-tables',
-  }, { cwd }));
+  assert.ok(
+    checkbox && Math.abs(checkbox.x - 300) < 1 && Math.abs(checkbox.top - 248) < 1 && checkbox.stroked,
+    JSON.stringify(layout.pages[0].boxes)
+  );
+  const tables = value(
+    await executeOfficeTool(
+      {
+        action: 'query',
+        session: opened.session,
+        queryKind: 'pdf-tables',
+      },
+      { cwd }
+    )
+  );
   assert.equal(tables.tableCount, 1);
   assert.deepEqual(tables.tables[0].rows[0], ['Metric', 'Value']);
-  const imagesResult = await executeOfficeTool({
-    action: 'query',
-    session: opened.session,
-    queryKind: 'pdf-images',
-  }, { cwd });
+  const imagesResult = await executeOfficeTool(
+    {
+      action: 'query',
+      session: opened.session,
+      queryKind: 'pdf-images',
+    },
+    { cwd }
+  );
   const images = value(imagesResult);
   assert.ok(images.imageCount >= 1);
   assert.ok(imagesResult.content.some((item) => item.type === 'image'));
   const [picture] = images.images;
-  assert.ok(Math.abs(picture.x - 40) < 1 && Math.abs(picture.top - 240) < 1 && Math.abs(picture.placedWidth - 20) < 1, JSON.stringify(picture));
+  assert.ok(
+    Math.abs(picture.x - 40) < 1 && Math.abs(picture.top - 240) < 1 && Math.abs(picture.placedWidth - 20) < 1,
+    JSON.stringify(picture)
+  );
   assert.equal(picture.placements, 1);
-  const filesResult = await executeOfficeTool({
-    action: 'query',
-    session: opened.session,
-    queryKind: 'pdf-images',
-    output: 'extracted-images',
-  }, { cwd });
+  const filesResult = await executeOfficeTool(
+    {
+      action: 'query',
+      session: opened.session,
+      queryKind: 'pdf-images',
+      output: 'extracted-images',
+    },
+    { cwd }
+  );
   const files = value(filesResult);
   assert.equal(files.output, join(cwd, 'extracted-images'));
   assert.ok((await readFile(files.images[0].path)).subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])));
   assert.ok(!filesResult.content.some((item) => item.type === 'image'));
 
-  value(await executeOfficeTool({
-    action: 'batch',
-    session: opened.session,
-    operations: [
-      { op: 'add_text', page: 1, text: 'Centered', align: 'center', y: 150, size: 12 },
-      { op: 'add_text', page: 1, text: 'Right', align: 'right', y: 130, size: 12 },
-    ],
-  }, { cwd }));
-  const marked = value(await executeOfficeTool({ action: 'query', session: opened.session, queryKind: 'pdf-layout' }, { cwd }));
+  value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [
+          { op: 'add_text', page: 1, text: 'Centered', align: 'center', y: 150, size: 12 },
+          { op: 'add_text', page: 1, text: 'Right', align: 'right', y: 130, size: 12 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const marked = value(
+    await executeOfficeTool({ action: 'query', session: opened.session, queryKind: 'pdf-layout' }, { cwd })
+  );
   const centered = marked.pages[0].items.find((item) => item.text === 'Centered');
   const right = marked.pages[0].items.find((item) => item.text === 'Right');
-  assert.ok(centered && Math.abs((centered.x + (centered.width / 2)) - 200) < 1, JSON.stringify(centered));
-  assert.ok(right && Math.abs((right.x + right.width) - (400 - 36)) < 1, JSON.stringify(right));
+  assert.ok(centered && Math.abs(centered.x + centered.width / 2 - 200) < 1, JSON.stringify(centered));
+  assert.ok(right && Math.abs(right.x + right.width - (400 - 36)) < 1, JSON.stringify(right));
 });
 
 // OCR is promised to the user before it runs. The engine ships with the
@@ -273,23 +349,31 @@ test('detect reports which OCR languages this machine can already read', async (
 // name what blocks the file, or the caller hunts for a font that cannot exist.
 test('a character no installed font carries is named in the refusal, not left to a font hunt', async (t) => {
   const cwd = await workspace(t);
-  const emoji = await executeOfficeTool({
-    action: 'create',
-    format: 'pdf',
-    path: join(cwd, 'emoji.pdf'),
-    blocks: [{ type: 'paragraph', text: '야간 처리량 😀 회의' }],
-  }, { cwd });
+  const emoji = await executeOfficeTool(
+    {
+      action: 'create',
+      format: 'pdf',
+      path: join(cwd, 'emoji.pdf'),
+      blocks: [{ type: 'paragraph', text: '야간 처리량 😀 회의' }],
+    },
+    { cwd }
+  );
   const message = emoji.content[0].text;
   assert.match(message, /U\+1F600/);
   assert.match(message, /Replace or remove/);
   assert.equal(existsSync(join(cwd, 'emoji.pdf')), false, 'a refused create leaves no file behind');
   // The same text without that one character is written normally.
-  const plain = value(await executeOfficeTool({
-    action: 'create',
-    format: 'pdf',
-    path: join(cwd, 'plain.pdf'),
-    blocks: [{ type: 'paragraph', text: '야간 처리량 92.8% — 회의' }],
-  }, { cwd }));
+  const plain = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        format: 'pdf',
+        path: join(cwd, 'plain.pdf'),
+        blocks: [{ type: 'paragraph', text: '야간 처리량 92.8% — 회의' }],
+      },
+      { cwd }
+    )
+  );
   assert.match(plain.document.pages[0].text, /야간 처리량 92\.8%/);
 });
 
@@ -315,7 +399,7 @@ test('the OCR text layer keeps the line the engine read, not its word boxes', ()
   assert.equal(lines[0].fromEngine, true);
   assert.deepEqual(
     { left: lines[0].left, top: lines[0].top, width: lines[0].width, height: lines[0].height },
-    { left: 153, top: 374, width: 245, height: 44 },
+    { left: 153, top: 374, width: 245, height: 44 }
   );
   // Two columns the engine read as one row: stretching a single run across the
   // gap would put every character in it far from the word it belongs to.
@@ -323,29 +407,47 @@ test('the OCR text layer keeps the line the engine read, not its word boxes', ()
 });
 
 test('OCR TSV parsing and on-demand OOXML validator manifest stay deterministic', async (t) => {
-  const words = parseOcrTsv('level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n5\t1\t1\t1\t1\t1\t10\t20\t30\t12\t92.5\tHello');
-  assert.deepEqual(words, [{
-    text: 'Hello',
-    confidence: 92.5,
-    left: 10,
-    top: 20,
-    width: 30,
-    height: 12,
-  }]);
-  assert.deepEqual(parseOcrBlocks([{
-    paragraphs: [{ lines: [{ words: [{ text: 'Block', confidence: 88, bbox: { x0: 2, y0: 3, x1: 12, y1: 9 } }] }] }],
-  }]), [{
-    text: 'Block',
-    confidence: 88,
-    left: 2,
-    top: 3,
-    width: 10,
-    height: 6,
-  }]);
+  const words = parseOcrTsv(
+    'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n5\t1\t1\t1\t1\t1\t10\t20\t30\t12\t92.5\tHello'
+  );
+  assert.deepEqual(words, [
+    {
+      text: 'Hello',
+      confidence: 92.5,
+      left: 10,
+      top: 20,
+      width: 30,
+      height: 12,
+    },
+  ]);
+  assert.deepEqual(
+    parseOcrBlocks([
+      {
+        paragraphs: [
+          { lines: [{ words: [{ text: 'Block', confidence: 88, bbox: { x0: 2, y0: 3, x1: 12, y1: 9 } }] }] },
+        ],
+      },
+    ]),
+    [
+      {
+        text: 'Block',
+        confidence: 88,
+        left: 2,
+        top: 3,
+        width: 10,
+        height: 6,
+      },
+    ]
+  );
   // The worker API writes this table without a header row, so a reader that
   // assumes one eats the first word and reports an empty page.
-  const headerless = parseOcrTsv('5\t1\t1\t1\t1\t1\t10\t20\t30\t12\t92.5\tHello\n5\t1\t1\t1\t1\t2\t50\t20\t20\t12\t88\tworld');
-  assert.deepEqual(headerless.map((word) => word.text), ['Hello', 'world']);
+  const headerless = parseOcrTsv(
+    '5\t1\t1\t1\t1\t1\t10\t20\t30\t12\t92.5\tHello\n5\t1\t1\t1\t1\t2\t50\t20\t20\t12\t88\tworld'
+  );
+  assert.deepEqual(
+    headerless.map((word) => word.text),
+    ['Hello', 'world']
+  );
   assert.equal(headerless[0].left, 10);
   const manifest = ooxmlValidatorManifest();
   assert.equal(manifest.version, '0.3.0');
@@ -365,18 +467,21 @@ test('OCR TSV parsing and on-demand OOXML validator manifest stay deterministic'
     {
       path: '/ppt/presentation.xml',
       xPath: '/p:presentation[1]',
-      description: "The element has unexpected child element 'http://schemas.openxmlformats.org/presentationml/2006/main:notesMasterIdLst'. List of possible elements expected: <http://schemas.openxmlformats.org/presentationml/2006/main:notesSz>.",
+      description:
+        "The element has unexpected child element 'http://schemas.openxmlformats.org/presentationml/2006/main:notesMasterIdLst'. List of possible elements expected: <http://schemas.openxmlformats.org/presentationml/2006/main:notesSz>.",
     },
     {
       path: '/ppt/presentation.xml',
       xPath: '/p:presentation[1]/p:sldIdLst[1]',
-      description: "The element has unexpected child element 'http://schemas.openxmlformats.org/presentationml/2006/main:notesMasterIdLst'.",
+      description:
+        "The element has unexpected child element 'http://schemas.openxmlformats.org/presentationml/2006/main:notesMasterIdLst'.",
     },
     {
       path: '/ppt/charts/chart1.xml',
       xPath: '/c:chartSpace[1]/c:chart[1]/c:plotArea[1]/c:barChart[1]',
       id: 'Sch_UnexpectedElementContentExpectingComplex',
-      description: "The element has unexpected child element 'http://schemas.openxmlformats.org/drawingml/2006/chart:axId'.",
+      description:
+        "The element has unexpected child element 'http://schemas.openxmlformats.org/drawingml/2006/chart:axId'.",
     },
     {
       path: '/ppt/charts/chart1.xml',
@@ -405,23 +510,38 @@ test('PDF text edits embed an explicit Unicode font for non-Latin text', async (
   const pdf = await PDFDocument.create();
   pdf.addPage([400, 300]);
   await writeFile(source, await pdf.save());
-  const opened = value(await executeOfficeTool({
-    action: 'open',
-    path: source,
-    output,
-    mode: 'portable',
-  }, { cwd }));
-  const edited = value(await executeOfficeTool({
-    action: 'batch',
-    session: opened.session,
-    operations: [{ op: 'add_text', page: 1, text, x: 30, y: 60, size: 16, fontPath }],
-  }, { cwd }));
+  const opened = value(
+    await executeOfficeTool(
+      {
+        action: 'open',
+        path: source,
+        output,
+        mode: 'portable',
+      },
+      { cwd }
+    )
+  );
+  const edited = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [{ op: 'add_text', page: 1, text, x: 30, y: 60, size: 16, fontPath }],
+      },
+      { cwd }
+    )
+  );
   assert.equal(edited.results[0].fontEmbedded, true);
-  const snapshot = value(await executeOfficeTool({
-    action: 'snapshot',
-    session: opened.session,
-    pages: [1],
-  }, { cwd }));
+  const snapshot = value(
+    await executeOfficeTool(
+      {
+        action: 'snapshot',
+        session: opened.session,
+        pages: [1],
+      },
+      { cwd }
+    )
+  );
   assert.ok(JSON.stringify(snapshot.document.pages).includes(expected));
 });
 
@@ -429,46 +549,62 @@ test('PDF blocks are checked before writing, and a list is drawn as a list', asy
   const cwd = await workspace(t);
   // A block the writer cannot read used to flow as an empty paragraph: the
   // table and the list simply never appeared, and the result said nothing.
-  const refused = await executeOfficeTool({
-    action: 'create',
-    path: join(cwd, 'refused.pdf'),
-    format: 'pdf',
-    blocks: [
-      { kind: 'title', text: 'Night shift' },
-      { type: 'bullets', items: ['hire'] },
-      { type: 'table', columns: 3 },
-    ],
-  }, { cwd });
+  const refused = await executeOfficeTool(
+    {
+      action: 'create',
+      path: join(cwd, 'refused.pdf'),
+      format: 'pdf',
+      blocks: [
+        { kind: 'title', text: 'Night shift' },
+        { type: 'bullets', items: ['hire'] },
+        { type: 'table', columns: 3 },
+      ],
+    },
+    { cwd }
+  );
   assert.equal(refused.isError, true);
   const message = refused.content[0].text;
   assert.match(message, /block 1 names its block with kind; the field is type/);
-  assert.match(message, /block 2 has unknown type "bullets"\. Use one of: paragraph, heading, list, table, image, pagebreak, cover, callout, quote, caption, stats, rule/);
+  assert.match(
+    message,
+    /block 2 has unknown type "bullets"\. Use one of: paragraph, heading, list, table, image, pagebreak, cover, callout, quote, caption, stats, rule/
+  );
   assert.match(message, /block 3 \(table\) has unknown field\(s\): columns/);
   assert.match(message, /block 3 \(table\) is missing: rows/);
   assert.equal(existsSync(join(cwd, 'refused.pdf')), false, 'a refused create leaves no file behind');
 
   const path = join(cwd, 'listed.pdf');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path,
-    format: 'pdf',
-    blocks: [
-      { type: 'heading', text: 'Actions' },
-      { type: 'list', items: ['Hire twelve crew', 'Add one shuttle'] },
-      { type: 'list', ordered: true, items: ['First', 'Second'] },
-      { type: 'table', headers: ['Item', 'Count'], rows: [['Crew', '12']] },
-    ],
-  }, { cwd }));
-  const layout = value(await executeOfficeTool({
-    action: 'query',
-    session: created.session,
-    queryKind: 'pdf-layout',
-  }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pdf',
+        blocks: [
+          { type: 'heading', text: 'Actions' },
+          { type: 'list', items: ['Hire twelve crew', 'Add one shuttle'] },
+          { type: 'list', ordered: true, items: ['First', 'Second'] },
+          { type: 'table', headers: ['Item', 'Count'], rows: [['Crew', '12']] },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const layout = value(
+    await executeOfficeTool(
+      {
+        action: 'query',
+        session: created.session,
+        queryKind: 'pdf-layout',
+      },
+      { cwd }
+    )
+  );
   const items = layout.pages[0].items.map((item) => item.text.trim());
   assert.ok(items.includes('•'), `the bullet is drawn: ${JSON.stringify(items)}`);
   assert.ok(
     items.some((item) => /^1\.\s*First$/.test(item)) && items.some((item) => /^2\.\s*Second$/.test(item)),
-    `an ordered list numbers its items: ${JSON.stringify(items)}`,
+    `an ordered list numbers its items: ${JSON.stringify(items)}`
   );
   // The marker sits left of its text, which keeps its own indent.
   const marker = layout.pages[0].items.find((item) => item.text.trim() === '•');
@@ -484,35 +620,80 @@ test('PDF blocks are checked before writing, and a list is drawn as a list', asy
 test('PDF anatomy blocks — cover, stats, callout, quote, caption, rule — are drawn and their words land', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'anatomy.pdf');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path,
-    format: 'pdf',
-    blocks: [
-      { type: 'cover', eyebrow: '운영기획팀 · 내부 검토', title: '물류 허브 증설 검토', subtitle: '도크 4 증설 예산 승인 요청', meta: ['2026년 9월', '작성: 운영기획팀'] },
-      { type: 'stats', items: [{ value: '1.6배', label: '처리량 (운영 로그)' }, { value: '0.3%', label: '오류율 (품질 시트)' }, { value: '22시', label: '피크 시간대' }] },
-      { type: 'callout', label: '결론', text: '야간 셔틀 두 대를 추가한 첫 분기에 처리량은 1.6배로 늘고 오류율은 0.3%로 내려갔다.' },
-      { type: 'quote', text: '야간에 도크가 하나 더 있었다면 셔틀을 기다리며 서 있는 시간이 없었을 겁니다.', attribution: '3번 도크 야간 조장' },
-      { type: 'rule' },
-      { type: 'paragraph', text: '본문 단락.' },
-      { type: 'caption', text: '표: 라인별 월 처리 건수. 출처: 운영 로그.' },
-    ],
-  }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pdf',
+        blocks: [
+          {
+            type: 'cover',
+            eyebrow: '운영기획팀 · 내부 검토',
+            title: '물류 허브 증설 검토',
+            subtitle: '도크 4 증설 예산 승인 요청',
+            meta: ['2026년 9월', '작성: 운영기획팀'],
+          },
+          {
+            type: 'stats',
+            items: [
+              { value: '1.6배', label: '처리량 (운영 로그)' },
+              { value: '0.3%', label: '오류율 (품질 시트)' },
+              { value: '22시', label: '피크 시간대' },
+            ],
+          },
+          {
+            type: 'callout',
+            label: '결론',
+            text: '야간 셔틀 두 대를 추가한 첫 분기에 처리량은 1.6배로 늘고 오류율은 0.3%로 내려갔다.',
+          },
+          {
+            type: 'quote',
+            text: '야간에 도크가 하나 더 있었다면 셔틀을 기다리며 서 있는 시간이 없었을 겁니다.',
+            attribution: '3번 도크 야간 조장',
+          },
+          { type: 'rule' },
+          { type: 'paragraph', text: '본문 단락.' },
+          { type: 'caption', text: '표: 라인별 월 처리 건수. 출처: 운영 로그.' },
+        ],
+      },
+      { cwd }
+    )
+  );
   assert.equal(created.blocks, 7);
-  const layout = value(await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-layout' }, { cwd }));
+  const layout = value(
+    await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-layout' }, { cwd })
+  );
   const items = layout.pages[0].items.map((item) => item.text.trim());
-  for (const expected of ['물류 허브 증설 검토', '도크 4 증설 예산 승인 요청', '1.6배', '피크 시간대', '결론', '— 3번 도크 야간 조장', '표: 라인별 월 처리 건수. 출처: 운영 로그.']) {
-    assert.ok(items.some((item) => item.includes(expected)), `${expected} is on the page: ${JSON.stringify(items)}`);
+  for (const expected of [
+    '물류 허브 증설 검토',
+    '도크 4 증설 예산 승인 요청',
+    '1.6배',
+    '피크 시간대',
+    '결론',
+    '— 3번 도크 야간 조장',
+    '표: 라인별 월 처리 건수. 출처: 운영 로그.',
+  ]) {
+    assert.ok(
+      items.some((item) => item.includes(expected)),
+      `${expected} is on the page: ${JSON.stringify(items)}`
+    );
   }
   // The stat strip's values share one baseline, and the callout's label sits above its text.
   const values = layout.pages[0].items.filter((item) => ['1.6배', '0.3%', '22시'].includes(item.text.trim()));
   assert.equal(values.length, 3);
-  assert.ok(values.every((item) => Math.abs(item.top - values[0].top) < 1), JSON.stringify(values.map((item) => item.top)));
+  assert.ok(
+    values.every((item) => Math.abs(item.top - values[0].top) < 1),
+    JSON.stringify(values.map((item) => item.top))
+  );
   const label = layout.pages[0].items.find((item) => item.text.trim() === '결론');
   const body = layout.pages[0].items.find((item) => item.text.includes('야간 셔틀 두 대를'));
   assert.ok(label.top < body.top, JSON.stringify({ label: label.top, body: body.top }));
   // A block that names a stat wrongly is refused before anything is written.
-  const refused = await executeOfficeTool({ action: 'create', path: join(cwd, 'refused.pdf'), format: 'pdf', blocks: [{ type: 'stats', items: ['1.6배'] }] }, { cwd });
+  const refused = await executeOfficeTool(
+    { action: 'create', path: join(cwd, 'refused.pdf'), format: 'pdf', blocks: [{ type: 'stats', items: ['1.6배'] }] },
+    { cwd }
+  );
   assert.equal(refused.isError, true);
   assert.match(refused.content[0].text, /stats\) items must be an array of \{ value, label \} objects/);
 });
@@ -525,25 +706,43 @@ test('an SVG lands on a PDF page at its own size, rasterized above it', async (t
   const svg = join(cwd, '로고.svg');
   await writeFile(
     svg,
-    '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120" viewBox="0 0 240 120"><rect width="240" height="120" fill="#1F6F8B"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120" viewBox="0 0 240 120"><rect width="240" height="120" fill="#1F6F8B"/></svg>'
   );
   const path = join(cwd, 'logo.pdf');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path,
-    format: 'pdf',
-    blocks: [{ type: 'heading', text: '로고' }, { type: 'image', path: svg }],
-  }, { cwd }));
-  value(await executeOfficeTool({
-    action: 'batch',
-    session: created.session,
-    operations: [{ op: 'stamp_image', page: 1, path: svg, x: 60, y: 60, width: 120 }],
-  }, { cwd }));
-  const images = value(await executeOfficeTool({
-    action: 'query',
-    session: created.session,
-    queryKind: 'pdf-images',
-  }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pdf',
+        blocks: [
+          { type: 'heading', text: '로고' },
+          { type: 'image', path: svg },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: created.session,
+        operations: [{ op: 'stamp_image', page: 1, path: svg, x: 60, y: 60, width: 120 }],
+      },
+      { cwd }
+    )
+  );
+  const images = value(
+    await executeOfficeTool(
+      {
+        action: 'query',
+        session: created.session,
+        queryKind: 'pdf-images',
+      },
+      { cwd }
+    )
+  );
   const placements = images.images.map((image) => ({
     placedWidth: image.placedWidth,
     placedHeight: image.placedHeight,
@@ -565,19 +764,36 @@ test('an SVG lands on a PDF page at its own size, rasterized above it', async (t
 test('a written table sets its figures against the right edge and marks its header', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'hubs.pdf');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path,
-    format: 'pdf',
-    blocks: [
-      { type: 'table', headers: ['허브', '처리량', '메모'], rows: [['대전', '128,400', '야간 증원 검토'], ['광주', '84,200', '유지']] },
-    ],
-  }, { cwd }));
-  const layout = value(await executeOfficeTool({
-    action: 'query',
-    session: created.session,
-    queryKind: 'pdf-layout',
-  }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pdf',
+        blocks: [
+          {
+            type: 'table',
+            headers: ['허브', '처리량', '메모'],
+            rows: [
+              ['대전', '128,400', '야간 증원 검토'],
+              ['광주', '84,200', '유지'],
+            ],
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const layout = value(
+    await executeOfficeTool(
+      {
+        action: 'query',
+        session: created.session,
+        queryKind: 'pdf-layout',
+      },
+      { cwd }
+    )
+  );
   const { items, lines } = layout.pages[0];
   const at = (text) => items.find((item) => item.text === text);
   const rightEdge = (text) => at(text).x + at(text).width;
@@ -587,8 +803,10 @@ test('a written table sets its figures against the right edge and marks its head
   assert.ok(Math.abs(at('야간 증원 검토').x - at('유지').x) < 0.6, 'the note column stays left-aligned');
   const headerBottom = at('허브').top + 12;
   assert.ok(
-    lines.some((line) => Math.abs(line.y1 - line.y2) < 0.6 && line.x2 - line.x1 > 300 && Math.abs(line.y1 - headerBottom) < 14),
-    `a rule closes the header row: ${JSON.stringify(lines)} against ${headerBottom}`,
+    lines.some(
+      (line) => Math.abs(line.y1 - line.y2) < 0.6 && line.x2 - line.x1 > 300 && Math.abs(line.y1 - headerBottom) < 14
+    ),
+    `a rule closes the header row: ${JSON.stringify(lines)} against ${headerBottom}`
   );
   value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
 });
@@ -598,32 +816,58 @@ test('a written table sets its figures against the right edge and marks its head
 test('PDF blocks given as design content are written, and an empty document is visible in the result', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'hub.pdf');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path,
-    format: 'pdf',
-    design: {
-      blocks: [
-        { type: 'heading', text: '허브별 실적' },
-        { type: 'table', headers: ['허브', '지연'], rows: [['대전', '38'], ['부산', '9']] },
-      ],
-    },
-  }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pdf',
+        design: {
+          blocks: [
+            { type: 'heading', text: '허브별 실적' },
+            {
+              type: 'table',
+              headers: ['허브', '지연'],
+              rows: [
+                ['대전', '38'],
+                ['부산', '9'],
+              ],
+            },
+          ],
+        },
+      },
+      { cwd }
+    )
+  );
   assert.equal(created.blocks, 2, JSON.stringify({ blocks: created.blocks, fields: created.fields }));
-  const tables = value(await executeOfficeTool({
-    action: 'query',
-    session: created.session,
-    queryKind: 'pdf-tables',
-  }, { cwd }));
+  const tables = value(
+    await executeOfficeTool(
+      {
+        action: 'query',
+        session: created.session,
+        queryKind: 'pdf-tables',
+      },
+      { cwd }
+    )
+  );
   assert.equal(tables.tableCount, 1);
-  assert.deepEqual(tables.tables[0].rows, [['허브', '지연'], ['대전', '38'], ['부산', '9']]);
+  assert.deepEqual(tables.tables[0].rows, [
+    ['허브', '지연'],
+    ['대전', '38'],
+    ['부산', '9'],
+  ]);
   value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
 
-  const empty = value(await executeOfficeTool({
-    action: 'create',
-    path: join(cwd, 'empty.pdf'),
-    format: 'pdf',
-  }, { cwd }));
+  const empty = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'empty.pdf'),
+        format: 'pdf',
+      },
+      { cwd }
+    )
+  );
   assert.equal(empty.blocks, 0);
   assert.equal(empty.fields, 0);
   value(await executeOfficeTool({ action: 'close', session: empty.session }, { cwd }));
@@ -634,23 +878,38 @@ test('PDF create lints forms, reports OCR handoff, and preserves attachments', a
   const path = join(cwd, 'created.pdf');
   const attachment = join(cwd, 'source.txt');
   await writeFile(attachment, 'attached evidence', 'utf8');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path,
-    format: 'pdf',
-    blocks: [
-      { type: 'heading', text: 'Frontier PDF' },
-      { type: 'paragraph', text: 'Structured document body.' },
-      { type: 'pagebreak' },
-    ],
-    fields: [
-      { name: 'Reviewer', type: 'text', page: 1, x: 50, y: 650, width: 180, height: 24, value: 'Mixdog' },
-      { name: 'Approved', type: 'checkbox', page: 1, x: 240, y: 650, width: 18, height: 18, value: true },
-      { name: 'Tags', type: 'optionlist', page: 1, x: 300, y: 600, width: 120, height: 40, options: ['alpha', 'beta', 'gamma'], value: ['alpha', 'gamma'] },
-      { name: 'Tiny', type: 'text', page: 1, x: 50, y: 600, width: 20, height: 8, required: true, maxLength: 4 },
-    ],
-    properties: { title: 'Frontier PDF', pageNumbers: false },
-  }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pdf',
+        blocks: [
+          { type: 'heading', text: 'Frontier PDF' },
+          { type: 'paragraph', text: 'Structured document body.' },
+          { type: 'pagebreak' },
+        ],
+        fields: [
+          { name: 'Reviewer', type: 'text', page: 1, x: 50, y: 650, width: 180, height: 24, value: 'Mixdog' },
+          { name: 'Approved', type: 'checkbox', page: 1, x: 240, y: 650, width: 18, height: 18, value: true },
+          {
+            name: 'Tags',
+            type: 'optionlist',
+            page: 1,
+            x: 300,
+            y: 600,
+            width: 120,
+            height: 40,
+            options: ['alpha', 'beta', 'gamma'],
+            value: ['alpha', 'gamma'],
+          },
+          { name: 'Tiny', type: 'text', page: 1, x: 50, y: 600, width: 20, height: 8, required: true, maxLength: 4 },
+        ],
+        properties: { title: 'Frontier PDF', pageNumbers: false },
+      },
+      { cwd }
+    )
+  );
   assert.equal(created.created, true);
   assert.equal(created.artifacts[0].type, 'pdf');
   assert.equal(created.outputCount, 1);
@@ -662,16 +921,26 @@ test('PDF create lints forms, reports OCR handoff, and preserves attachments', a
   assert.equal(fieldsByName.Tiny.required, true);
   assert.equal(fieldsByName.Tiny.maxLength, 4);
   assert.ok(created.document.likelyScannedPages.includes(2));
-  value(await executeOfficeTool({
-    action: 'batch',
-    session: created.session,
-    operations: [{ op: 'add_attachment', path: attachment, name: 'evidence.txt', description: 'Source evidence' }],
-  }, { cwd }));
-  const snapshot = value(await executeOfficeTool({
-    action: 'snapshot',
-    session: created.session,
-    pages: [1],
-  }, { cwd }));
+  value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: created.session,
+        operations: [{ op: 'add_attachment', path: attachment, name: 'evidence.txt', description: 'Source evidence' }],
+      },
+      { cwd }
+    )
+  );
+  const snapshot = value(
+    await executeOfficeTool(
+      {
+        action: 'snapshot',
+        session: created.session,
+        pages: [1],
+      },
+      { cwd }
+    )
+  );
   assert.equal(snapshot.document.metadata.title, 'Frontier PDF');
   assert.equal(snapshot.document.fieldCount, 4);
   assert.equal(snapshot.document.attachmentCount, 1);
@@ -705,44 +974,65 @@ test('PDF forms expose options, validate fill values, and report what was filled
   assert.equal(fields.Agree.type, 'checkbox');
   assert.deepEqual(fields.Size.options, ['small', 'large']);
   assert.deepEqual(fields.Colour.options, ['red', 'blue']);
-  assert.deepEqual([opened.document.pages[0].width, opened.document.pages[0].height, opened.document.pages[0].rotation], [400, 400, 0]);
+  assert.deepEqual(
+    [opened.document.pages[0].width, opened.document.pages[0].height, opened.document.pages[0].rotation],
+    [400, 400, 0]
+  );
 
-  const unknown = await executeOfficeTool({
-    action: 'batch',
-    session: opened.session,
-    operations: [{ op: 'fill_form', values: { Nmae: 'x' } }],
-  }, { cwd });
+  const unknown = await executeOfficeTool(
+    {
+      action: 'batch',
+      session: opened.session,
+      operations: [{ op: 'fill_form', values: { Nmae: 'x' } }],
+    },
+    { cwd }
+  );
   assert.equal(unknown.isError, true);
   assert.match(unknown.content[0].text, /no field named Nmae; fields: Name, Agree, Size, Colour/);
-  const badOption = await executeOfficeTool({
-    action: 'batch',
-    session: opened.session,
-    operations: [{ op: 'fill_form', values: { Size: 'medium' } }],
-  }, { cwd });
+  const badOption = await executeOfficeTool(
+    {
+      action: 'batch',
+      session: opened.session,
+      operations: [{ op: 'fill_form', values: { Size: 'medium' } }],
+    },
+    { cwd }
+  );
   assert.equal(badOption.isError, true);
   assert.match(badOption.content[0].text, /options: small, large/);
 
-  const filled = value(await executeOfficeTool({
-    action: 'batch',
-    session: opened.session,
-    operations: [{ op: 'fill_form', values: { Name: 'Mixdog', Agree: 'yes', Size: 'large', Colour: '/blue' } }],
-  }, { cwd }));
+  const filled = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [{ op: 'fill_form', values: { Name: 'Mixdog', Agree: 'yes', Size: 'large', Colour: '/blue' } }],
+      },
+      { cwd }
+    )
+  );
   assert.deepEqual(filled.results[0].filled, ['Name', 'Agree', 'Size', 'Colour']);
   assert.equal(filled.results[0].flattened, false);
   const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd }));
-  assert.deepEqual(
-    Object.fromEntries(snapshot.document.fields.map((field) => [field.name, field.value])),
-    { Name: 'Mixdog', Agree: true, Size: 'large', Colour: 'blue' },
-  );
+  assert.deepEqual(Object.fromEntries(snapshot.document.fields.map((field) => [field.name, field.value])), {
+    Name: 'Mixdog',
+    Agree: true,
+    Size: 'large',
+    Colour: 'blue',
+  });
 
   const fontPath = await unicodeFontPath();
   if (!fontPath) return;
   const unicodeName = /DejaVuSans/i.test(fontPath) ? 'Ξένος' : '재영';
-  const flattened = value(await executeOfficeTool({
-    action: 'batch',
-    session: opened.session,
-    operations: [{ op: 'fill_form', values: { Name: unicodeName }, flatten: true }],
-  }, { cwd }));
+  const flattened = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [{ op: 'fill_form', values: { Name: unicodeName }, flatten: true }],
+      },
+      { cwd }
+    )
+  );
   assert.equal(flattened.results[0].fontEmbedded, true);
   assert.equal(flattened.results[0].flattened, true);
   const baked = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd }));
@@ -750,40 +1040,51 @@ test('PDF forms expose options, validate fill values, and report what was filled
   assert.ok(baked.document.pages[0].text.includes(unicodeName), baked.document.pages[0].text);
 });
 
-test('a form field takes a reader\'s rectangle and draws the caption it declares', async (t) => {
+test("a form field takes a reader's rectangle and draws the caption it declares", async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'labelled-form.pdf');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path,
-    format: 'pdf',
-    mode: 'portable',
-    blocks: [{ type: 'heading', text: 'Request' }],
-    // rect and kind are how a PDF reader reports a field; both spellings reach
-    // the box and the type the writer draws.
-    fields: [
-      { name: 'hub', label: 'Hub', kind: 'text', page: 1, rect: [72, 600, 260, 24] },
-      { name: 'approved', label: 'Approved', kind: 'checkbox', page: 1, rect: [72, 560, 18, 18] },
-    ],
-  }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pdf',
+        mode: 'portable',
+        blocks: [{ type: 'heading', text: 'Request' }],
+        // rect and kind are how a PDF reader reports a field; both spellings reach
+        // the box and the type the writer draws.
+        fields: [
+          { name: 'hub', label: 'Hub', kind: 'text', page: 1, rect: [72, 600, 260, 24] },
+          { name: 'approved', label: 'Approved', kind: 'checkbox', page: 1, rect: [72, 560, 18, 18] },
+        ],
+      },
+      { cwd }
+    )
+  );
   const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
   assert.deepEqual(
     snapshot.document.fields.map((field) => [field.name, field.type]),
-    [['hub', 'text'], ['approved', 'checkbox']],
+    [
+      ['hub', 'text'],
+      ['approved', 'checkbox'],
+    ]
   );
   // A field is a bare box: without its caption drawn, the page reaches the
   // reader as unlabelled rectangles.
   const page = snapshot.document.pages[0];
   assert.ok(page.text.includes('Hub') && page.text.includes('Approved'), page.text);
 
-  const boxless = await executeOfficeTool({
-    action: 'create',
-    path: join(cwd, 'boxless-form.pdf'),
-    format: 'pdf',
-    mode: 'portable',
-    blocks: [{ type: 'heading', text: 'Request' }],
-    fields: [{ name: 'hub', label: 'Hub', type: 'text', page: 1 }],
-  }, { cwd });
+  const boxless = await executeOfficeTool(
+    {
+      action: 'create',
+      path: join(cwd, 'boxless-form.pdf'),
+      format: 'pdf',
+      mode: 'portable',
+      blocks: [{ type: 'heading', text: 'Request' }],
+      fields: [{ name: 'hub', label: 'Hub', type: 'text', page: 1 }],
+    },
+    { cwd }
+  );
   assert.equal(boxless.isError, true);
   assert.match(boxless.content[0].text, /Form field hub has no usable box: give x, y, width and height/);
 });
@@ -791,40 +1092,68 @@ test('a form field takes a reader\'s rectangle and draws the caption it declares
 test('a filled value that will not fit its field box is reported with the fill', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'clipped-form.pdf');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path,
-    format: 'pdf',
-    mode: 'portable',
-    blocks: [{ type: 'heading', text: 'Request' }],
-    fields: [
-      { name: 'department', type: 'text', page: 1, x: 200, y: 640, width: 120, height: 22, fontSize: 11 },
-      { name: 'reason', type: 'text', page: 1, x: 200, y: 500, width: 200, height: 40, multiline: true, fontSize: 11 },
-    ],
-  }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pdf',
+        mode: 'portable',
+        blocks: [{ type: 'heading', text: 'Request' }],
+        fields: [
+          { name: 'department', type: 'text', page: 1, x: 200, y: 640, width: 120, height: 22, fontSize: 11 },
+          {
+            name: 'reason',
+            type: 'text',
+            page: 1,
+            x: 200,
+            y: 500,
+            width: 200,
+            height: 40,
+            multiline: true,
+            fontSize: 11,
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
   // A form reads as filled whether or not the box can show the value, so the
   // measurement rides on the fill itself.
-  const overflowing = value(await executeOfficeTool({
-    action: 'batch',
-    session: created.session,
-    operations: [{
-      op: 'fill_form',
-      values: {
-        department: 'Operations planning and night logistics group',
-        reason: 'The night shift ran at sixty-eight percent of its planned headcount for the whole quarter, and the on-time dispatch rate fell with it every single week.',
+  const overflowing = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: created.session,
+        operations: [
+          {
+            op: 'fill_form',
+            values: {
+              department: 'Operations planning and night logistics group',
+              reason:
+                'The night shift ran at sixty-eight percent of its planned headcount for the whole quarter, and the on-time dispatch rate fell with it every single week.',
+            },
+          },
+        ],
       },
-    }],
-  }, { cwd }));
+      { cwd }
+    )
+  );
   const clipped = overflowing.results[0].clipped || [];
   assert.deepEqual(clipped.map((entry) => entry.field).sort(), ['department', 'reason']);
   assert.equal(clipped.find((entry) => entry.field === 'department').reason, 'width');
   assert.equal(clipped.find((entry) => entry.field === 'reason').reason, 'height');
   assert.match(overflowing.results[0].warning, /do not fit their field box/);
-  const fitting = value(await executeOfficeTool({
-    action: 'batch',
-    session: created.session,
-    operations: [{ op: 'fill_form', values: { department: 'Ops', reason: 'Short reason.' } }],
-  }, { cwd }));
+  const fitting = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: created.session,
+        operations: [{ op: 'fill_form', values: { department: 'Ops', reason: 'Short reason.' } }],
+      },
+      { cwd }
+    )
+  );
   assert.equal(fitting.results[0].clipped, undefined);
   assert.equal(fitting.results[0].warning, undefined);
 });
@@ -837,30 +1166,58 @@ test('PDF create resolves a Unicode font, wraps unspaced text, grows table rows,
   const greek = /DejaVuSans/i.test(fontPath);
   const prose = (greek ? 'Ελληνικά' : '한글문장').repeat(60);
   const choices = greek ? ['Αθήνα', 'Πάτρα'] : ['개발', '영업'];
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path,
-    format: 'pdf',
-    blocks: [
-      { type: 'heading', text: 'Wrap' },
-      { type: 'paragraph', text: prose },
-      { type: 'paragraph', text: 'line one\nline two' },
-      { type: 'table', rows: [['Item', 'Description'], ['A', 'word '.repeat(80).trim()]], columnWidths: [1, 3] },
-      ...Array.from({ length: 10 }, () => ({ type: 'paragraph', text: 'filler '.repeat(120).trim() })),
-    ],
-    fields: [
-      { name: 'Team', type: 'dropdown', page: 1, x: 400, y: 780, width: 120, height: 24, options: choices, value: choices[1] },
-      { name: 'Note', type: 'text', page: 1, x: 400, y: 740, width: 120, height: 24, value: choices[0] },
-    ],
-  }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pdf',
+        blocks: [
+          { type: 'heading', text: 'Wrap' },
+          { type: 'paragraph', text: prose },
+          { type: 'paragraph', text: 'line one\nline two' },
+          {
+            type: 'table',
+            rows: [
+              ['Item', 'Description'],
+              ['A', 'word '.repeat(80).trim()],
+            ],
+            columnWidths: [1, 3],
+          },
+          ...Array.from({ length: 10 }, () => ({ type: 'paragraph', text: 'filler '.repeat(120).trim() })),
+        ],
+        fields: [
+          {
+            name: 'Team',
+            type: 'dropdown',
+            page: 1,
+            x: 400,
+            y: 780,
+            width: 120,
+            height: 24,
+            options: choices,
+            value: choices[1],
+          },
+          { name: 'Note', type: 'text', page: 1, x: 400, y: 740, width: 120, height: 24, value: choices[0] },
+        ],
+      },
+      { cwd }
+    )
+  );
   assert.equal(created.font.embedded, true);
   assert.equal(created.pageNumbers, true);
-  assert.deepEqual(created.document.fields.map((field) => field.value), [choices[1], choices[0]]);
+  assert.deepEqual(
+    created.document.fields.map((field) => field.value),
+    [choices[1], choices[0]]
+  );
   const pageCount = created.document.pageCount;
   assert.ok(pageCount >= 2);
-  const layout = value(await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-layout' }, { cwd }));
+  const layout = value(
+    await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-layout' }, { cwd })
+  );
   for (const page of layout.pages) {
-    for (const item of page.items) assert.ok(item.x + item.width <= page.width + 1, `${item.text} leaves page ${page.page}`);
+    for (const item of page.items)
+      assert.ok(item.x + item.width <= page.width + 1, `${item.text} leaves page ${page.page}`);
   }
   const items = layout.pages[0].items;
   const lineOne = items.find((item) => item.text === 'line one');
@@ -877,23 +1234,26 @@ test('PDF text reads back with its own spacing and a query answers with an excer
   const fontPath = await unicodeFontPath();
   if (!fontPath) return t.skip('No Unicode TrueType font is installed');
   const greek = /DejaVuSans/i.test(fontPath);
-  const sentence = greek
-    ? 'Η νυχτερινή βάρδια αυξήθηκε 18% το 2026.'
-    : '야간 전환 뒤 처리량이 18% 늘었습니다.';
+  const sentence = greek ? 'Η νυχτερινή βάρδια αυξήθηκε 18% το 2026.' : '야간 전환 뒤 처리량이 18% 늘었습니다.';
   const needle = greek ? 'νυχτερινή' : '야간';
   const cwd = await workspace(t);
   const path = join(cwd, 'spacing.pdf');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path,
-    format: 'pdf',
-    properties: { pageNumbers: false },
-    blocks: [
-      { type: 'heading', text: greek ? 'Αναφορά' : '분기 보고' },
-      { type: 'paragraph', text: sentence },
-      ...Array.from({ length: 12 }, () => ({ type: 'paragraph', text: `${sentence} ` .repeat(6).trim() })),
-    ],
-  }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pdf',
+        properties: { pageNumbers: false },
+        blocks: [
+          { type: 'heading', text: greek ? 'Αναφορά' : '분기 보고' },
+          { type: 'paragraph', text: sentence },
+          ...Array.from({ length: 12 }, () => ({ type: 'paragraph', text: `${sentence} `.repeat(6).trim() })),
+        ],
+      },
+      { cwd }
+    )
+  );
   const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
   assert.ok(snapshot.document.pages[0].text.includes(sentence), snapshot.document.pages[0].text.slice(0, 200));
   const queried = value(await executeOfficeTool({ action: 'query', session: created.session, query: needle }, { cwd }));
@@ -911,22 +1271,31 @@ test('PDF text reads back with its own spacing and a query answers with an excer
 test('PDF flow opens a section: a heading takes more space above it than below', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'flow.pdf');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path,
-    format: 'pdf',
-    properties: { margin: 54, pageNumbers: false },
-    blocks: [
-      { type: 'heading', text: 'Opening', level: 1 },
-      { type: 'paragraph', text: 'The first section ends here.' },
-      { type: 'heading', text: 'Evidence', level: 2 },
-      { type: 'paragraph', text: 'The second section starts here.' },
-    ],
-  }, { cwd }));
-  const layout = value(await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-layout' }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pdf',
+        properties: { margin: 54, pageNumbers: false },
+        blocks: [
+          { type: 'heading', text: 'Opening', level: 1 },
+          { type: 'paragraph', text: 'The first section ends here.' },
+          { type: 'heading', text: 'Evidence', level: 2 },
+          { type: 'paragraph', text: 'The second section starts here.' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const layout = value(
+    await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-layout' }, { cwd })
+  );
   const items = layout.pages[0].items;
   const at = (text) => items.find((item) => item.text.startsWith(text));
-  const [first, ends, heading, starts] = ['Opening', 'The first section ends', 'Evidence', 'The second section'].map(at);
+  const [first, ends, heading, starts] = ['Opening', 'The first section ends', 'Evidence', 'The second section'].map(
+    at
+  );
   assert.ok(first && ends && heading && starts, JSON.stringify(items.map((item) => item.text)));
   const above = heading.top - (ends.top + ends.height);
   const below = starts.top - (heading.top + heading.height);
@@ -941,17 +1310,32 @@ test('PDF flow opens a section: a heading takes more space above it than below',
 test('PDF tables keep a digit-bearing label column left and figures right', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'labels.pdf');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path,
-    format: 'pdf',
-    properties: { margin: 54, pageNumbers: false },
-    blocks: [
-      { type: 'list', items: ['first point', 'second point'] },
-      { type: 'table', headers: ['Line', 'Oct', 'Nov'], rows: [['1호', '1,200', '1,320'], ['2호', '980', '1,150']], columnWidths: [2, 1, 1] },
-    ],
-  }, { cwd }));
-  const layout = value(await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-layout' }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pdf',
+        properties: { margin: 54, pageNumbers: false },
+        blocks: [
+          { type: 'list', items: ['first point', 'second point'] },
+          {
+            type: 'table',
+            headers: ['Line', 'Oct', 'Nov'],
+            rows: [
+              ['1호', '1,200', '1,320'],
+              ['2호', '980', '1,150'],
+            ],
+            columnWidths: [2, 1, 1],
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const layout = value(
+    await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-layout' }, { cwd })
+  );
   const items = layout.pages[0].items;
   const at = (text) => items.find((item) => item.text === text);
   const [line, one, two, oct, big, small] = ['Line', '1호', '2호', 'Oct', '1,200', '980'].map(at);
@@ -961,9 +1345,15 @@ test('PDF tables keep a digit-bearing label column left and figures right', asyn
   assert.ok(line && one && two && oct && big && small && second, JSON.stringify(items.map((item) => item.text)));
   // Labels share the header's left edge; figures share one right edge.
   assert.ok(Math.abs(one.x - line.x) < 1 && Math.abs(two.x - line.x) < 1, `${one.x} ${two.x} vs ${line.x}`);
-  assert.ok(Math.abs((big.x + big.width) - (small.x + small.width)) < 1, `${big.x + big.width} vs ${small.x + small.width}`);
+  assert.ok(
+    Math.abs(big.x + big.width - (small.x + small.width)) < 1,
+    `${big.x + big.width} vs ${small.x + small.width}`
+  );
   assert.ok(big.x > one.x + one.width, 'figures sit in their own column, right of the labels');
-  assert.ok(Math.abs((oct.x + oct.width) - (big.x + big.width)) < 1, 'the header over a figure column shares its right edge');
+  assert.ok(
+    Math.abs(oct.x + oct.width - (big.x + big.width)) < 1,
+    'the header over a figure column shares its right edge'
+  );
   // The table starts a full step under the list's last item.
   assert.ok(line.top - (second.top + second.height) >= 10, `${line.top - (second.top + second.height)}`);
 });
@@ -974,23 +1364,46 @@ test('PDF tables read bordered cells by geometry and ignore the prose around the
   const description = 'word '.repeat(30).trim();
   const png = join(cwd, 'dot.png');
   await writeFile(png, PNG_PIXEL);
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path,
-    format: 'pdf',
-    blocks: [
-      { type: 'heading', text: 'Quarterly numbers' },
-      { type: 'paragraph', text: 'Two columns of prose sit above the table and must not become rows.' },
-      { type: 'table', rows: [['Item', 'Description', 'Value'], ['A', description, '12'], ['B', '', '7']], columnWidths: [1, 3, 1] },
-      { type: 'paragraph', text: 'Source: internal ledger 2026' },
-      { type: 'image', path: png, width: 40, height: 40, align: 'center' },
-    ],
-    properties: { pageNumbers: true },
-  }, { cwd }));
-  const pictures = value(await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-images' }, { cwd }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pdf',
+        blocks: [
+          { type: 'heading', text: 'Quarterly numbers' },
+          { type: 'paragraph', text: 'Two columns of prose sit above the table and must not become rows.' },
+          {
+            type: 'table',
+            rows: [
+              ['Item', 'Description', 'Value'],
+              ['A', description, '12'],
+              ['B', '', '7'],
+            ],
+            columnWidths: [1, 3, 1],
+          },
+          { type: 'paragraph', text: 'Source: internal ledger 2026' },
+          { type: 'image', path: png, width: 40, height: 40, align: 'center' },
+        ],
+        properties: { pageNumbers: true },
+      },
+      { cwd }
+    )
+  );
+  const pictures = value(
+    await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-images' }, { cwd })
+  );
   assert.equal(pictures.imageCount, 1);
-  assert.ok(Math.abs(pictures.images[0].x - ((595.28 - 40) / 2)) < 1 && Math.abs(pictures.images[0].placedWidth - 40) < 1, JSON.stringify(pictures.images[0]));
-  const tables = value(await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-tables', output: 'tables' }, { cwd }));
+  assert.ok(
+    Math.abs(pictures.images[0].x - (595.28 - 40) / 2) < 1 && Math.abs(pictures.images[0].placedWidth - 40) < 1,
+    JSON.stringify(pictures.images[0])
+  );
+  const tables = value(
+    await executeOfficeTool(
+      { action: 'query', session: created.session, queryKind: 'pdf-tables', output: 'tables' },
+      { cwd }
+    )
+  );
   assert.equal(tables.tableCount, 1);
   const [table] = tables.tables;
   assert.equal(table.source, 'ruled');
@@ -1028,19 +1441,24 @@ test('PDF batches merge sources, extract page subsets to a file, rotate relative
   await writeFile(attachment, 'a,b\n1,2\n', 'utf8');
 
   const opened = value(await executeOfficeTool({ action: 'open', path: main, mode: 'portable' }, { cwd }));
-  const edited = value(await executeOfficeTool({
-    action: 'batch',
-    session: opened.session,
-    operations: [
-      { op: 'merge_pdf', sources: [{ path: extra, pages: [1, 3], title: 'Extra' }], bookmarks: true },
-      { op: 'add_bookmark', title: 'Start', page: 1 },
-      { op: 'rotate_pages', pages: [1], rotation: 90 },
-      { op: 'rotate_pages', pages: [1], rotation: 90 },
-      { op: 'extract_pages', pages: [2, 3], output: 'subset.pdf' },
-      { op: 'add_attachment', path: attachment, name: 'data.csv' },
-      { op: 'compress' },
-    ],
-  }, { cwd }));
+  const edited = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [
+          { op: 'merge_pdf', sources: [{ path: extra, pages: [1, 3], title: 'Extra' }], bookmarks: true },
+          { op: 'add_bookmark', title: 'Start', page: 1 },
+          { op: 'rotate_pages', pages: [1], rotation: 90 },
+          { op: 'rotate_pages', pages: [1], rotation: 90 },
+          { op: 'extract_pages', pages: [2, 3], output: 'subset.pdf' },
+          { op: 'add_attachment', path: attachment, name: 'data.csv' },
+          { op: 'compress' },
+        ],
+      },
+      { cwd }
+    )
+  );
   const [merge, , rotateA, rotateB, extract, , compress] = edited.results;
   assert.equal(merge.pagesAdded, 2);
   assert.equal(merge.pageCount, 3);
@@ -1052,22 +1470,33 @@ test('PDF batches merge sources, extract page subsets to a file, rotate relative
   assert.equal(typeof compress.bytesBefore, 'number');
   assert.equal(typeof compress.bytesAfter, 'number');
 
-  const extracted = value(await executeOfficeTool({
-    action: 'batch',
-    session: opened.session,
-    operations: [
-      { op: 'extract_attachment', name: 'data.csv', output: 'data-copy.csv' },
-      { op: 'split_pages', output: 'parts' },
-      { op: 'split_pages', every: 2, output: 'pairs' },
-    ],
-  }, { cwd }));
+  const extracted = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [
+          { op: 'extract_attachment', name: 'data.csv', output: 'data-copy.csv' },
+          { op: 'split_pages', output: 'parts' },
+          { op: 'split_pages', every: 2, output: 'pairs' },
+        ],
+      },
+      { cwd }
+    )
+  );
   assert.equal(await readFile(extracted.results[0].output, 'utf8'), 'a,b\n1,2\n');
   const [, split, pairs] = extracted.results;
   assert.equal(split.count, 3);
-  assert.deepEqual(split.files.map((file) => file.pages), [[1], [2], [3]]);
+  assert.deepEqual(
+    split.files.map((file) => file.pages),
+    [[1], [2], [3]]
+  );
   assert.ok(split.files[2].output.endsWith('-003.pdf') && split.files[2].output.startsWith(join(cwd, 'parts')));
   assert.equal((await PDFDocument.load(await readFile(split.files[1].output))).getPageCount(), 1);
-  assert.deepEqual(pairs.files.map((file) => file.pages), [[1, 2], [3]]);
+  assert.deepEqual(
+    pairs.files.map((file) => file.pages),
+    [[1, 2], [3]]
+  );
   assert.ok(pairs.files[0].output.endsWith('-001-002.pdf'));
   const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd }));
   assert.equal(snapshot.document.pageCount, 3);
@@ -1075,7 +1504,10 @@ test('PDF batches merge sources, extract page subsets to a file, rotate relative
   assert.equal(snapshot.document.attachments[0].name, 'data.csv');
   assert.deepEqual(
     snapshot.document.outline.map((entry) => [entry.title, entry.page, entry.level]),
-    [['Extra', 2, 1], ['Start', 1, 1]],
+    [
+      ['Extra', 2, 1],
+      ['Start', 1, 1],
+    ]
   );
 });
 
@@ -1139,18 +1571,25 @@ test('PDF snapshots report encryption and edits point at secure decrypt', async 
   assert.equal(opened.document.encrypted, true);
   assert.equal(opened.document.passwordRequired, true);
   assert.equal(opened.document.pageCount, 1);
-  const edit = await executeOfficeTool({
-    action: 'batch',
-    session: opened.session,
-    operations: [{ op: 'add_text', page: 1, text: 'x' }],
-  }, { cwd });
+  const edit = await executeOfficeTool(
+    {
+      action: 'batch',
+      session: opened.session,
+      operations: [{ op: 'add_text', page: 1, text: 'x' }],
+    },
+    { cwd }
+  );
   assert.equal(edit.isError, true);
   assert.match(edit.content[0].text, /security:'decrypt'/);
   const issues = value(await executeOfficeTool({ action: 'issues', session: opened.session }, { cwd }));
   assert.ok(issues.issues.some((issue) => issue.code === 'encrypted' && issue.severity === 'error'));
-  const wrongPassword = value(await executeOfficeTool({ action: 'snapshot', session: opened.session, password: 'nope' }, { cwd }));
+  const wrongPassword = value(
+    await executeOfficeTool({ action: 'snapshot', session: opened.session, password: 'nope' }, { cwd })
+  );
   assert.equal(wrongPassword.document.passwordRequired, true);
-  const unlocked = value(await executeOfficeTool({ action: 'snapshot', session: opened.session, password: 'secret' }, { cwd }));
+  const unlocked = value(
+    await executeOfficeTool({ action: 'snapshot', session: opened.session, password: 'secret' }, { cwd })
+  );
   assert.equal(unlocked.document.encrypted, true);
   assert.equal(unlocked.document.passwordRequired, false);
   assert.deepEqual(unlocked.document.likelyScannedPages, [1]);
@@ -1168,28 +1607,40 @@ test('PDF secure either encrypts through qpdf or says plainly that qpdf is missi
   const pdf = await PDFDocument.create();
   pdf.addPage([200, 100]);
   await writeFile(plain, await pdf.save());
-  const secured = await executeOfficeTool({
-    action: 'secure',
-    security: 'encrypt',
-    path: plain,
-    password: 'secret',
-    output: 'locked.pdf',
-  }, { cwd });
+  const secured = await executeOfficeTool(
+    {
+      action: 'secure',
+      security: 'encrypt',
+      path: plain,
+      password: 'secret',
+      output: 'locked.pdf',
+    },
+    { cwd }
+  );
   if (secured.isError) {
     assert.match(secured.content[0].text, /qpdf/);
     assert.match(secured.content[0].text, /left as is/);
     return;
   }
-  const locked = value(await executeOfficeTool({ action: 'open', path: join(cwd, 'locked.pdf'), mode: 'portable' }, { cwd }));
+  const locked = value(
+    await executeOfficeTool({ action: 'open', path: join(cwd, 'locked.pdf'), mode: 'portable' }, { cwd })
+  );
   assert.equal(locked.document.encrypted, true);
   assert.equal(locked.document.passwordRequired, true);
-  value(await executeOfficeTool({
-    action: 'secure',
-    security: 'decrypt',
-    path: join(cwd, 'locked.pdf'),
-    password: 'secret',
-    output: 'unlocked.pdf',
-  }, { cwd }));
-  const unlocked = value(await executeOfficeTool({ action: 'open', path: join(cwd, 'unlocked.pdf'), mode: 'portable' }, { cwd }));
+  value(
+    await executeOfficeTool(
+      {
+        action: 'secure',
+        security: 'decrypt',
+        path: join(cwd, 'locked.pdf'),
+        password: 'secret',
+        output: 'unlocked.pdf',
+      },
+      { cwd }
+    )
+  );
+  const unlocked = value(
+    await executeOfficeTool({ action: 'open', path: join(cwd, 'unlocked.pdf'), mode: 'portable' }, { cwd })
+  );
   assert.equal(unlocked.document.encrypted, false);
 });

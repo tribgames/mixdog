@@ -8,11 +8,17 @@ export function killProcessesUnder(root) {
   if (!root) return;
   if (process.platform === 'win32') {
     const escaped = String(root).replace(/'/g, "''");
-    spawnSync('powershell', [
-      '-NoProfile', '-NonInteractive', '-Command',
-      `Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like '${escaped}*' } `
-      + '| ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }',
-    ], { stdio: 'ignore' });
+    spawnSync(
+      'powershell',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like '${escaped}*' } ` +
+          '| ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }',
+      ],
+      { stdio: 'ignore' }
+    );
     return;
   }
   spawnSync('bash', ['-lc', `pkill -f ${JSON.stringify(root)} || true`], { stdio: 'ignore' });

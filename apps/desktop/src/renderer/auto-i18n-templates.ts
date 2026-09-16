@@ -15,20 +15,22 @@ export function uiTranslationTemplates(keys: string[]): readonly Template[] {
     return cachedTemplates;
   }
   cachedKeys = keys;
-  cachedTemplates = keys.flatMap((key): Template[] => {
-    const literal = key.replace(/\{\{[^}]+\}\}/g, "");
-    if (!/[A-Za-z]/.test(literal) || literal === key) return [];
-    const names: string[] = [];
-    let cursor = 0;
-    let expression = "^";
-    for (const match of key.matchAll(/\{\{([^}]+)\}\}/g)) {
-      expression += key.slice(cursor, match.index).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      expression += NUMERIC_PLACEHOLDER.test(match[1]) ? "(\\d[\\d.,]*)" : "(.*?)";
-      names.push(match[1]);
-      cursor = match.index! + match[0].length;
-    }
-    expression += key.slice(cursor).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$";
-    return [{ key, names, expression: new RegExp(expression), specificity: literal.length }];
-  }).sort((a, b) => b.specificity - a.specificity);
+  cachedTemplates = keys
+    .flatMap((key): Template[] => {
+      const literal = key.replace(/\{\{[^}]+\}\}/g, '');
+      if (!/[A-Za-z]/.test(literal) || literal === key) return [];
+      const names: string[] = [];
+      let cursor = 0;
+      let expression = '^';
+      for (const match of key.matchAll(/\{\{([^}]+)\}\}/g)) {
+        expression += key.slice(cursor, match.index).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        expression += NUMERIC_PLACEHOLDER.test(match[1]) ? '(\\d[\\d.,]*)' : '(.*?)';
+        names.push(match[1]);
+        cursor = match.index! + match[0].length;
+      }
+      expression += key.slice(cursor).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$';
+      return [{ key, names, expression: new RegExp(expression), specificity: literal.length }];
+    })
+    .sort((a, b) => b.specificity - a.specificity);
   return cachedTemplates;
 }

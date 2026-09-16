@@ -3,7 +3,14 @@ import test from 'node:test';
 import { createAgentDispatchBroker } from './agent-dispatch-broker.mjs';
 
 function unreadablePreset() {
-  return new Proxy({}, { ownKeys() { throw new Error('preset cannot be inspected'); } });
+  return new Proxy(
+    {},
+    {
+      ownKeys() {
+        throw new Error('preset cannot be inspected');
+      },
+    }
+  );
 }
 
 for (const firstUnreadable of [false, true]) {
@@ -11,17 +18,29 @@ for (const firstUnreadable of [false, true]) {
     const finish = Promise.withResolvers();
     let calls = 0;
     const broker = createAgentDispatchBroker({
-      dispatchAgent: async () => { calls += 1; await finish.promise; return 'original'; },
+      dispatchAgent: async () => {
+        calls += 1;
+        await finish.promise;
+        return 'original';
+      },
     });
-    const original = broker.dispatch({
-      agent: 'cycle1-agent', prompt: 'work',
-      preset: firstUnreadable ? unreadablePreset() : { model: 'first' },
-    }, { callId: 'dispatch' });
+    const original = broker.dispatch(
+      {
+        agent: 'cycle1-agent',
+        prompt: 'work',
+        preset: firstUnreadable ? unreadablePreset() : { model: 'first' },
+      },
+      { callId: 'dispatch' }
+    );
     try {
-      const retry = broker.dispatch({
-        agent: 'cycle1-agent', prompt: 'work',
-        preset: firstUnreadable ? { model: 'different' } : unreadablePreset(),
-      }, { callId: 'dispatch' });
+      const retry = broker.dispatch(
+        {
+          agent: 'cycle1-agent',
+          prompt: 'work',
+          preset: firstUnreadable ? { model: 'different' } : unreadablePreset(),
+        },
+        { callId: 'dispatch' }
+      );
       finish.resolve();
       await assert.rejects(retry, { code: 'ECALLIDCONFLICT' });
     } finally {
@@ -37,7 +56,11 @@ test('matching concurrent dispatches execute once and a settled call id is reusa
   const finish = Promise.withResolvers();
   let calls = 0;
   const broker = createAgentDispatchBroker({
-    dispatchAgent: async () => { const value = ++calls; await finish.promise; return value; },
+    dispatchAgent: async () => {
+      const value = ++calls;
+      await finish.promise;
+      return value;
+    },
   });
   const params = { agent: 'cycle1-agent', prompt: 'work', preset: { model: 'same' } };
   const first = broker.dispatch(params, { callId: 'dispatch' });
@@ -61,9 +84,13 @@ test('caller cancellation reaches a running dispatch and retains its reason', as
       });
     },
   });
-  const pending = broker.dispatch({ agent: 'cycle1-agent', prompt: 'work' }, {
-    callId: 'cancel-me', signal: controller.signal,
-  });
+  const pending = broker.dispatch(
+    { agent: 'cycle1-agent', prompt: 'work' },
+    {
+      callId: 'cancel-me',
+      signal: controller.signal,
+    }
+  );
   const rejected = assert.rejects(pending, (error) => error === reason);
   await entered.promise;
   controller.abort(reason);

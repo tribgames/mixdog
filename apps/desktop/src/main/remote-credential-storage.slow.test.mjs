@@ -74,10 +74,16 @@ for (const existing of [false, true]) {
       await writeSecretFile(path, 'fixture secret');
     }
     const quoted = path.replaceAll("'", "''");
-    const { stdout } = await execute('powershell.exe', [
-      '-NoProfile', '-NonInteractive', '-Command',
-      `[System.IO.File]::GetAccessControl('${quoted}').Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value }`,
-    ], { windowsHide: true });
+    const { stdout } = await execute(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `[System.IO.File]::GetAccessControl('${quoted}').Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value }`,
+      ],
+      { windowsHide: true }
+    );
     assert.equal(stdout.split(/\r?\n/).includes('S-1-1-0'), false);
   });
 }

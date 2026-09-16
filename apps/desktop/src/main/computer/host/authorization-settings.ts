@@ -1,13 +1,21 @@
-import type { ComputerAuthorization, ComputerAuthorizationStatus, ComputerAuthorizationWindow } from '../../../shared/computer-settings';
+import type {
+  ComputerAuthorization,
+  ComputerAuthorizationStatus,
+  ComputerAuthorizationWindow,
+} from '../../../shared/computer-settings';
 import { createComputerExecutionPolicy, type ComputerExecutionPolicy } from './execution-policy';
 
 function normalizeAuthorization(value: unknown): ComputerAuthorization {
   createComputerExecutionPolicy(value);
-  if (!value || typeof value !== 'object') throw new Error('computer_policy_invalid: an authorization object is required');
+  if (!value || typeof value !== 'object')
+    throw new Error('computer_policy_invalid: an authorization object is required');
   const raw = value as ComputerAuthorization;
   const normalized = {
-    version: 1 as const, actions: raw.actions ?? [], windows: raw.windows ?? [],
-    launchTargets: raw.launchTargets ?? [], allowElevatedInput: raw.allowElevatedInput === true,
+    version: 1 as const,
+    actions: raw.actions ?? [],
+    windows: raw.windows ?? [],
+    launchTargets: raw.launchTargets ?? [],
+    allowElevatedInput: raw.allowElevatedInput === true,
     expiresAt: raw.expiresAt,
   };
   if (Buffer.byteLength(JSON.stringify(normalized)) > 64 * 1024) {
@@ -35,10 +43,13 @@ export function createComputerAuthorizationSettings(options: {
     if (updating) throw new Error('computer_policy_updating: authorization is being replaced');
   };
   const policy: ComputerExecutionPolicy = {
-    get restricted() { return updating || options.base.restricted || current.restricted; },
+    get restricted() {
+      return updating || options.base.restricted || current.restricted;
+    },
     authorizationExpiry() {
-      const values = [options.base.authorizationExpiry(), current.authorizationExpiry()]
-        .filter((value): value is number => value !== null);
+      const values = [options.base.authorizationExpiry(), current.authorizationExpiry()].filter(
+        (value): value is number => value !== null
+      );
       return values.length ? Math.min(...values) : null;
     },
     dispatchAuthority(windowId) {
@@ -47,12 +58,26 @@ export function createComputerAuthorizationSettings(options: {
       const selected = current.dispatchAuthority(windowId);
       return { ...base, ...selected, authorization_expires_at: policy.authorizationExpiry() };
     },
-    assertAction(command) { assertReady(); options.base.assertAction(command); current.assertAction(command); },
-    assertWindow(command, records) { assertReady(); options.base.assertWindow(command, records); current.assertWindow(command, records); },
-    assertElevated() { assertReady(); options.base.assertElevated(); current.assertElevated(); },
+    assertAction(command) {
+      assertReady();
+      options.base.assertAction(command);
+      current.assertAction(command);
+    },
+    assertWindow(command, records) {
+      assertReady();
+      options.base.assertWindow(command, records);
+      current.assertWindow(command, records);
+    },
+    assertElevated() {
+      assertReady();
+      options.base.assertElevated();
+      current.assertElevated();
+    },
   };
   const read = (): ComputerAuthorizationStatus => ({
-    policy: raw ? structuredClone(raw) : null, externallyRestricted: options.base.restricted, updating,
+    policy: raw ? structuredClone(raw) : null,
+    externallyRestricted: options.base.restricted,
+    updating,
   });
   return {
     policy,
@@ -63,9 +88,12 @@ export function createComputerAuthorizationSettings(options: {
       // Copy before awaiting so the caller cannot alter already-validated authority.
       const candidate = normalizeAuthorization(structuredClone(value));
       const next = createComputerExecutionPolicy(candidate);
-      if (!candidate || next.authorizationExpiry() === null
-        || next.authorizationExpiry()! <= Date.now()
-        || next.authorizationExpiry()! > Date.now() + 24 * 60 * 60_000) {
+      if (
+        !candidate ||
+        next.authorizationExpiry() === null ||
+        next.authorizationExpiry()! <= Date.now() ||
+        next.authorizationExpiry()! > Date.now() + 24 * 60 * 60_000
+      ) {
         throw new Error('computer_policy_invalid: authorization must expire within 24 hours');
       }
       updating = true;
@@ -77,7 +105,8 @@ export function createComputerAuthorizationSettings(options: {
             throw new Error('computer_policy_denied: selected window is no longer available; refresh the list');
           }
         }
-        if (next.authorizationExpiry()! <= Date.now()) throw new Error('computer_policy_expired: authorization expired while saving');
+        if (next.authorizationExpiry()! <= Date.now())
+          throw new Error('computer_policy_expired: authorization expired while saving');
         raw = candidate as ComputerAuthorization;
         current = next;
       } finally {

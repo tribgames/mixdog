@@ -23,22 +23,34 @@ function createBenchSessionRuntime(itemCount) {
     sessionId: 'bench',
     busy: false,
     items: Array.from({ length: itemCount }, (_, index) => ({
-      id: `item-${index}`, kind: index % 2 ? 'assistant' : 'user', text: ITEM_TEXT,
+      id: `item-${index}`,
+      kind: index % 2 ? 'assistant' : 'user',
+      text: ITEM_TEXT,
     })),
   };
   const listeners = new Set();
   let storeScans = 0;
   return {
     getState: () => state,
-    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     listSessions() {
       storeScans += 1;
       return [{ id: 'bench', title: 'Bench', updatedAt: 1 }];
     },
-    get storeScans() { return storeScans; },
-    ping() { return true; },
+    get storeScans() {
+      return storeScans;
+    },
+    ping() {
+      return true;
+    },
     append() {
-      state = { ...state, items: [...state.items, { id: `item-${state.items.length}`, kind: 'assistant', text: ITEM_TEXT }] };
+      state = {
+        ...state,
+        items: [...state.items, { id: `item-${state.items.length}`, kind: 'assistant', text: ITEM_TEXT }],
+      };
       for (const listener of [...listeners]) listener();
       return true;
     },
@@ -64,7 +76,10 @@ async function benchmark(itemCount) {
       frames += 1;
       const bytes = JSON.stringify(frame).length;
       if (frame.full !== undefined) firstFrameBytes = bytes;
-      else { deltaFrames += 1; deltaFrameBytes += bytes; }
+      else {
+        deltaFrames += 1;
+        deltaFrameBytes += bytes;
+      }
       transport.broadcast(frame, targetTokens);
     },
   });
@@ -73,15 +88,22 @@ async function benchmark(itemCount) {
   });
   const { port, token } = await transport.start();
   const discovery = { pid: process.pid, port, token };
-  writeFileSync(join(ROOT, 'daemon.json'), JSON.stringify({
-    pid: process.pid,
-    startedAt: Date.now(),
-    endpoints: { session: { port: discovery.port, token: discovery.token } },
-  }));
+  writeFileSync(
+    join(ROOT, 'daemon.json'),
+    JSON.stringify({
+      pid: process.pid,
+      startedAt: Date.now(),
+      endpoints: { session: { port: discovery.port, token: discovery.token } },
+    })
+  );
   let received = 0;
   let view = null;
   const client = await attachSession({
-    discovery, cwd: process.cwd(), onFrame: () => { received += 1; },
+    discovery,
+    cwd: process.cwd(),
+    onFrame: () => {
+      received += 1;
+    },
   });
   try {
     // The product path is the VIEW proxy: it tracks revisions, so responses can
@@ -103,14 +125,20 @@ async function benchmark(itemCount) {
     const streamMs = performance.now() - streamStarted;
 
     console.log(
-      `items=${String(itemCount).padStart(5)}  call p50=${percentile(latencies, 0.5).toFixed(1)}ms `
-      + `p95=${percentile(latencies, 0.95).toFixed(1)}ms  store-scans/60-calls=${scansAfterCalls}  `
-      + `full-frame=${firstFrameBytes}B delta-frames=${deltaFrames} `
-      + `bytes/delta=${deltaFrames ? Math.round(deltaFrameBytes / deltaFrames) : 0} `
-      + `stream200=${streamMs.toFixed(0)}ms received=${received}`,
+      `items=${String(itemCount).padStart(5)}  call p50=${percentile(latencies, 0.5).toFixed(1)}ms ` +
+        `p95=${percentile(latencies, 0.95).toFixed(1)}ms  store-scans/60-calls=${scansAfterCalls}  ` +
+        `full-frame=${firstFrameBytes}B delta-frames=${deltaFrames} ` +
+        `bytes/delta=${deltaFrames ? Math.round(deltaFrameBytes / deltaFrames) : 0} ` +
+        `stream200=${streamMs.toFixed(0)}ms received=${received}`
     );
   } finally {
-    if (view) { try { await view.dispose('bench end'); } catch { /* teardown */ } }
+    if (view) {
+      try {
+        await view.dispose('bench end');
+      } catch {
+        /* teardown */
+      }
+    }
     await client.close('bench end');
     await service.stop('bench end');
     await transport.stop();
@@ -120,5 +148,7 @@ async function benchmark(itemCount) {
 try {
   for (const itemCount of [0, 200, 2000]) await benchmark(itemCount);
 } finally {
-  try { rmSync(ROOT, { recursive: true, force: true }); } catch {}
+  try {
+    rmSync(ROOT, { recursive: true, force: true });
+  } catch {}
 }

@@ -29,7 +29,8 @@ test('document and open-shadow mutations wake a wait and cleanup disconnects obs
     cdp: {
       guestDebugger: async () => port,
       call: async (_guest, _method, args) => {
-        dom.window[args.name] = payload => port.emit('message', {}, 'Runtime.bindingCalled', { name: args.name, payload });
+        dom.window[args.name] = (payload) =>
+          port.emit('message', {}, 'Runtime.bindingCalled', { name: args.name, payload });
       },
     },
   };
@@ -46,9 +47,11 @@ test('document and open-shadow mutations wake a wait and cleanup disconnects obs
     await changes.close();
     const after = changes.latch.version;
     root.append(dom.window.document.createElement('span'));
-    await new Promise(resolve => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
     assert.equal(changes.latch.version, after);
     assert.equal(port.listenerCount('message'), 0);
     assert.equal(dom.window.__mixdogWaitObserver, undefined);
-  } finally { dom.window.close(); }
+  } finally {
+    dom.window.close();
+  }
 });

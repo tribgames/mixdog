@@ -13,7 +13,6 @@ import {
   sessionSnapshotFromFrames,
 } from './_shared.mjs';
 
-
 test('daemon-owned OAuth flows expose serializable status, completion, and cancellation', async () => {
   const registry = createSessionOAuthFlowRegistry();
   let cancelled = 0;
@@ -32,7 +31,9 @@ test('daemon-owned OAuth flows expose serializable status, completion, and cance
 
     const second = registry.register({
       provider: 'openai',
-      cancel: async () => { cancelled += 1; },
+      cancel: async () => {
+        cancelled += 1;
+      },
     });
     const cancelledStatus = await registry.cancel(second.flowId);
     assert.equal(cancelledStatus.state, 'cancelled');
@@ -60,11 +61,15 @@ test('session calls log only a bounded result summary, never the transcript body
     log: (line) => logs.push(line),
   });
   try {
-    const result = await service.handleCall('session.read', {
-      sessionId: 'bounded_log_session',
-      action: 'getSettingsSnapshot',
-      args: [],
-    }, { clientToken: 'bounded_log_client' });
+    const result = await service.handleCall(
+      'session.read',
+      {
+        sessionId: 'bounded_log_session',
+        action: 'getSettingsSnapshot',
+        args: [],
+      },
+      { clientToken: 'bounded_log_client' }
+    );
     assert.equal(result.value.items.length, 200);
     const line = logs.find((entry) => entry.includes('session action getSettingsSnapshot'));
     assert.match(line, /result=object items=200/);
@@ -80,7 +85,9 @@ test('session catalog has one explicit route and never rides session responses',
   const service = createSessionService({
     createSessionRuntime: async () => ({
       ...createStubSessionRuntime(),
-      renameSessionTitle() { return true; },
+      renameSessionTitle() {
+        return true;
+      },
     }),
     listSessions() {
       scans += 1;
@@ -142,7 +149,10 @@ test('canonical session.read returns raw agent messages without a deprecated act
     });
     assert.equal(result.messageCount, 2);
     assert.deepEqual(result.messages, [messages[1]]);
-    assert.equal(SESSION_READ_ACTIONS.some((name) => /peek/i.test(name)), false);
+    assert.equal(
+      SESSION_READ_ACTIONS.some((name) => /peek/i.test(name)),
+      false
+    );
   } finally {
     await service.stop('test end');
   }
@@ -151,10 +161,14 @@ test('canonical session.read returns raw agent messages without a deprecated act
 test('call idempotency is isolated per client process', async () => {
   await withDaemon(async ({ discovery }) => {
     const first = await attachSession({
-      discovery, cwd: process.cwd(), leadPid: process.pid,
+      discovery,
+      cwd: process.cwd(),
+      leadPid: process.pid,
     });
     const second = await attachSession({
-      discovery, cwd: process.cwd(), leadPid: process.ppid,
+      discovery,
+      cwd: process.cwd(),
+      leadPid: process.ppid,
     });
     const { sessionId } = await first.call('session.create', { cwd: process.cwd() });
     const args = { sessionId, prompt: 'same payload' };
@@ -174,10 +188,15 @@ test('session protocol ACKs intake and unsubscribe never interrupts execution', 
   const sessionFactory = async () => {
     let state = { sessionId: '', items: [], busy: false };
     const listeners = new Set();
-    const publish = () => { for (const listener of [...listeners]) listener(); };
+    const publish = () => {
+      for (const listener of [...listeners]) listener();
+    };
     return {
       getState: () => state,
-      subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
       reserveSession(id) {
         state = { ...state, sessionId: String(id) };
         publish();
@@ -217,59 +236,64 @@ test('session protocol ACKs intake and unsubscribe never interrupts execution', 
         publish();
         return true;
       },
-      resolveToolApproval() { return true; },
+      resolveToolApproval() {
+        return true;
+      },
       async dispose() {},
     };
   };
 
-  await withDaemon(async ({ discovery, service }) => {
-    const terminalFrames = [];
-    const terminal = await attachSession({
-      discovery,
-      cwd: process.cwd(),
-      onFrame: (frame) => terminalFrames.push(frame),
-    });
-    const desktop = await attachSession({ discovery, cwd: process.cwd() });
-    const created = await terminal.call('session.create', { cwd: process.cwd() });
-    assert.match(created.sessionId, /^sess_daemon_/, 'create returns a daemon-reserved stable address');
-    assert.ok(created.revision > 1_000_000_000_000,
-      'default daemon revisions carry a restart-monotonic epoch');
-    assert.equal(created.reservedOnly, true);
-    assert.equal(eagerSessionCreates, 0, 'reservation does not eagerly materialize a provider session');
-    const subscribed = await desktop.call('session.subscribe', { sessionId: created.sessionId });
-    assert.equal(subscribed.subscribed, true);
+  await withDaemon(
+    async ({ discovery, service }) => {
+      const terminalFrames = [];
+      const terminal = await attachSession({
+        discovery,
+        cwd: process.cwd(),
+        onFrame: (frame) => terminalFrames.push(frame),
+      });
+      const desktop = await attachSession({ discovery, cwd: process.cwd() });
+      const created = await terminal.call('session.create', { cwd: process.cwd() });
+      assert.match(created.sessionId, /^sess_daemon_/, 'create returns a daemon-reserved stable address');
+      assert.ok(created.revision > 1_000_000_000_000, 'default daemon revisions carry a restart-monotonic epoch');
+      assert.equal(created.reservedOnly, true);
+      assert.equal(eagerSessionCreates, 0, 'reservation does not eagerly materialize a provider session');
+      const subscribed = await desktop.call('session.subscribe', { sessionId: created.sessionId });
+      assert.equal(subscribed.subscribed, true);
 
-    const submitted = await terminal.call('session.submit', {
-      sessionId: created.sessionId,
-      prompt: 'keep running',
-      options: { id: 'durable-submit' },
-    }, { callId: 'session-submit:durable-session:durable-submit' });
-    assert.equal(submitted.accepted, true, 'submit ACKs queue intake');
-    assert.equal(submitted.reservedOnly, false);
-    await waitFor(
-      () => sessionSnapshotFromFrames(terminalFrames, created.sessionId)?.busy === true,
-      'the session stream reports the accepted turn',
-    );
-    assert.equal(typeof finishWork, 'function', 'execution remains independently finishable after ACK');
+      const submitted = await terminal.call(
+        'session.submit',
+        {
+          sessionId: created.sessionId,
+          prompt: 'keep running',
+          options: { id: 'durable-submit' },
+        },
+        { callId: 'session-submit:durable-session:durable-submit' }
+      );
+      assert.equal(submitted.accepted, true, 'submit ACKs queue intake');
+      assert.equal(submitted.reservedOnly, false);
+      await waitFor(
+        () => sessionSnapshotFromFrames(terminalFrames, created.sessionId)?.busy === true,
+        'the session stream reports the accepted turn'
+      );
+      assert.equal(typeof finishWork, 'function', 'execution remains independently finishable after ACK');
 
-    await desktop.call('session.unsubscribe', { sessionId: created.sessionId });
-    await desktop.close('desktop closed');
-    assert.equal(abortCalls, 0, 'unsubscribe and disconnect do not call abort');
-    assert.equal(service.size, 1, 'the daemon still owns the session runtime');
+      await desktop.call('session.unsubscribe', { sessionId: created.sessionId });
+      await desktop.close('desktop closed');
+      assert.equal(abortCalls, 0, 'unsubscribe and disconnect do not call abort');
+      assert.equal(service.size, 1, 'the daemon still owns the session runtime');
 
-    finishWork();
-    const completed = await waitFor(
-      () => {
+      finishWork();
+      const completed = await waitFor(() => {
         const snapshot = sessionSnapshotFromFrames(terminalFrames, created.sessionId);
         return snapshot?.items?.at(-1)?.text === 'completed after detach' ? snapshot : null;
-      },
-      'terminal observes completion after desktop detach',
-    );
-    assert.equal(completed.busy, false);
-    assert.equal(abortCalls, 0);
-    await terminal.call('session.unsubscribe', { sessionId: created.sessionId });
-    await terminal.close('test');
-  }, { sessionFactory });
+      }, 'terminal observes completion after desktop detach');
+      assert.equal(completed.busy, false);
+      assert.equal(abortCalls, 0);
+      await terminal.call('session.unsubscribe', { sessionId: created.sessionId });
+      await terminal.close('test');
+    },
+    { sessionFactory }
+  );
 });
 
 test('session faults answer as call errors and non-serializable values are dropped', async () => {
@@ -278,11 +302,11 @@ test('session faults answer as call errors and non-serializable values are dropp
     const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
     await assert.rejects(
       () => client.call('session.read', { sessionId, action: 'getProfile', args: [] }),
-      /stub failure/,
+      /stub failure/
     );
     await assert.rejects(
       () => client.call('session.read', { sessionId, action: 'getOutputStyle', args: [] }),
-      /unavailable/,
+      /unavailable/
     );
     const described = await client.call('session.read', { sessionId, action: 'getTheme', args: [] });
     assert.deepEqual(described.value, { ok: true, when: '1970-01-01T00:00:00.000Z' });
@@ -317,23 +341,27 @@ test('an addressed session action cannot silently move to another id', async () 
     };
   };
 
-  await withDaemon(async ({ discovery }) => {
-    const client = await attachSession({ discovery, cwd: process.cwd() });
-    const created = await client.call('session.create', {
-      sessionId: 'addressed-session',
-      cwd: process.cwd(),
-    });
-    assert.equal(created.sessionId, 'addressed-session');
-    await assert.rejects(
-      () => client.call('session.configure', {
-        sessionId: created.sessionId,
-        action: 'setRoute',
-        args: [{ model: 'test-model', applyToCurrentSession: true }],
-      }),
-      /session addressed-session changed its durable address to silently-rebound-session/,
-    );
-    await client.close('address invariant verified');
-  }, { sessionFactory });
+  await withDaemon(
+    async ({ discovery }) => {
+      const client = await attachSession({ discovery, cwd: process.cwd() });
+      const created = await client.call('session.create', {
+        sessionId: 'addressed-session',
+        cwd: process.cwd(),
+      });
+      assert.equal(created.sessionId, 'addressed-session');
+      await assert.rejects(
+        () =>
+          client.call('session.configure', {
+            sessionId: created.sessionId,
+            action: 'setRoute',
+            args: [{ model: 'test-model', applyToCurrentSession: true }],
+          }),
+        /session addressed-session changed its durable address to silently-rebound-session/
+      );
+      await client.close('address invariant verified');
+    },
+    { sessionFactory }
+  );
 });
 
 test('a retried call with the same id runs exactly one runtime mutation', async () => {
@@ -358,10 +386,7 @@ test('replay-safe session reads do not retain snapshots in the mutation cache', 
       await client.call('session.read', { sessionId }, { callId: `snapshot-read:${index}` });
     }
     const after = await probeSessionHealth(discovery);
-    assert.equal(
-      after?.transportMemory?.callCacheEntries,
-      before?.transportMemory?.callCacheEntries,
-    );
+    assert.equal(after?.transportMemory?.callCacheEntries, before?.transportMemory?.callCacheEntries);
     await client.close('read cache verified');
   });
 });
@@ -373,7 +398,9 @@ test('the remote session projection keeps the store contract', async () => {
     assert.match(runtime.getState().sessionId, /^sess_daemon_/);
 
     let notified = 0;
-    const unsubscribe = runtime.subscribe(() => { notified += 1; });
+    const unsubscribe = runtime.subscribe(() => {
+      notified += 1;
+    });
     assert.equal(await runtime.submit('through the proxy'), true);
     await waitFor(() => runtime.getState().items?.length === 1, 'proxy mirrors its own submission');
     assert.ok(notified > 0, 'subscribers observe the mirrored snapshot');
@@ -396,8 +423,7 @@ test('the remote session projection keeps the store contract', async () => {
     const previousSessionId = runtime.getState().sessionId;
     await runtime.newSession();
     assert.notEqual(runtime.getState().sessionId, previousSessionId);
-    assert.deepEqual(runtime.getState().items, [],
-      'a fresh New task never retains the previous session transcript');
+    assert.deepEqual(runtime.getState().items, [], 'a fresh New task never retains the previous session transcript');
 
     // A second view shares the process attachment but owns another session.
     const second = await createSession({ cwd: process.cwd() });
@@ -415,7 +441,7 @@ test('reusing a mutation callId with a different payload fails closed', async ()
     await client.call('session.submit', { sessionId, prompt: 'first' }, { callId });
     await assert.rejects(
       () => client.call('session.submit', { sessionId, prompt: 'second' }, { callId }),
-      /reused with a different payload/,
+      /reused with a different payload/
     );
     const read = await client.call('session.read', { sessionId });
     assert.equal(read.full.items.length, 1);

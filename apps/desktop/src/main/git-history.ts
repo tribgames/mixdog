@@ -17,7 +17,7 @@ export function gitDiff(
   path: string,
   staged: boolean,
   worktreeOnly = false,
-  untracked = false,
+  untracked = false
 ): Promise<string> {
   if (untracked) return untrackedPatch(cwd, path);
   return run(cwd, [
@@ -53,19 +53,19 @@ async function resolveReviewBase(cwd: string): Promise<string> {
     return base;
   };
   try {
-    const head = (await run(cwd, [
-      '--no-optional-locks', 'symbolic-ref', 'refs/remotes/origin/HEAD',
-    ])).trim();
+    const head = (await run(cwd, ['--no-optional-locks', 'symbolic-ref', 'refs/remotes/origin/HEAD'])).trim();
     const short = head.replace(/^refs\/remotes\//, '');
     if (short) return remember(short);
-  } catch { /* no origin/HEAD ref */ }
+  } catch {
+    /* no origin/HEAD ref */
+  }
   for (const candidate of ['origin/main', 'origin/master']) {
     try {
-      await run(cwd, [
-        '--no-optional-locks', 'rev-parse', '--verify', '--quiet', candidate,
-      ]);
+      await run(cwd, ['--no-optional-locks', 'rev-parse', '--verify', '--quiet', candidate]);
       return remember(candidate);
-    } catch { /* try next */ }
+    } catch {
+      /* try next */
+    }
   }
   return remember('HEAD');
 }
@@ -91,7 +91,8 @@ export interface GitLogEntry {
 }
 
 function displayRef(value: string): string {
-  return value.trim()
+  return value
+    .trim()
     .replace(/^HEAD -> /, '')
     .replace(/^tag:\s*/, '')
     .replace(/^refs\/heads\//, '')
@@ -122,15 +123,12 @@ function decodeRefs(decorations: string): DecodedRefs {
   return decoded;
 }
 
-export async function gitLog(
-  cwd: string,
-  query = '',
-  skip = 0,
-  limit = 40,
-): Promise<GitLogEntry[]> {
+export async function gitLog(cwd: string, query = '', skip = 0, limit = 40): Promise<GitLogEntry[]> {
   let raw = '';
   try {
-    const safeQuery = String(query || '').trim().slice(0, 200);
+    const safeQuery = String(query || '')
+      .trim()
+      .slice(0, 200);
     const safeSkip = Math.max(0, Math.floor(Number(skip) || 0));
     const safeLimit = Math.min(100, Math.max(1, Math.floor(Number(limit) || 40)));
     raw = await run(cwd, [
@@ -156,26 +154,36 @@ export async function gitLog(
       unpushed = new Set();
     }
   }
-  return raw.split('\n').filter(Boolean).map((line) => {
-    const [hash = '', shortHash = '', parents = '', decorations = '', subject = '',
-      when = '', author = '', authoredAt = ''] =
-      line.split('\u001f');
-    const { refs, tags, branches, remotes } = decodeRefs(decorations);
-    return {
-      hash,
-      shortHash,
-      subject,
-      when,
-      author,
-      authoredAt,
-      pushed: !unpushed.has(hash),
-      parents: parents.split(/\s+/).filter(Boolean),
-      refs,
-      tags,
-      branches,
-      remotes,
-    };
-  });
+  return raw
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [
+        hash = '',
+        shortHash = '',
+        parents = '',
+        decorations = '',
+        subject = '',
+        when = '',
+        author = '',
+        authoredAt = '',
+      ] = line.split('\u001f');
+      const { refs, tags, branches, remotes } = decodeRefs(decorations);
+      return {
+        hash,
+        shortHash,
+        subject,
+        when,
+        author,
+        authoredAt,
+        pushed: !unpushed.has(hash),
+        parents: parents.split(/\s+/).filter(Boolean),
+        refs,
+        tags,
+        branches,
+        remotes,
+      };
+    });
 }
 
 export interface GitCommitFile {
@@ -201,7 +209,7 @@ function parseCommitFiles(statusRaw: string, numstatRaw: string): GitCommitFile[
   const stats = parseNumstat(numstatRaw);
   const fields = statusRaw.split('\0');
   const files: GitCommitFile[] = [];
-  for (let index = 0; index < fields.length;) {
+  for (let index = 0; index < fields.length; ) {
     const token = fields[index++];
     if (!token) continue;
     const status = token[0] || 'M';
@@ -232,8 +240,15 @@ export async function gitShow(cwd: string, hash: string): Promise<GitCommitDetai
     run(cwd, ['show', '--format=', '--name-status', '-z', '--find-renames', '--first-parent', hash]),
     run(cwd, ['show', '--format=', '--numstat', '-z', '--find-renames', '--first-parent', hash]),
   ]);
-  const [fullHash = hash, shortHash = hash.slice(0, 8), subject = '', author = '', email = '',
-    authoredAt = '', parents = ''] = metadata.trim().split('\u001f');
+  const [
+    fullHash = hash,
+    shortHash = hash.slice(0, 8),
+    subject = '',
+    author = '',
+    email = '',
+    authoredAt = '',
+    parents = '',
+  ] = metadata.trim().split('\u001f');
   return {
     hash: fullHash,
     shortHash,
@@ -272,16 +287,11 @@ export async function gitReview(cwd: string): Promise<GitReviewResult> {
   const { base, ref } = await resolveMergeBase(cwd);
   const files = new Map<string, GitReviewFile>();
   const [nameStatus, numstat, worktreeStatus] = await Promise.all([
-    run(cwd, [
-      '--no-optional-locks', 'diff', ref, '--name-status', '--no-renames', '-z',
-    ]).catch(() => ''),
-    run(cwd, [
-      '--no-optional-locks', 'diff', ref, '--numstat', '--no-renames', '-z',
-    ]).catch(() => ''),
-    run(cwd, [
-      '--no-optional-locks', 'status', '--porcelain=v1', '-z',
-      '--untracked-files=all', '--no-renames',
-    ]).catch(() => ''),
+    run(cwd, ['--no-optional-locks', 'diff', ref, '--name-status', '--no-renames', '-z']).catch(() => ''),
+    run(cwd, ['--no-optional-locks', 'diff', ref, '--numstat', '--no-renames', '-z']).catch(() => ''),
+    run(cwd, ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames']).catch(
+      () => ''
+    ),
   ]);
   try {
     const fields = nameStatus.split('\0').filter(Boolean);
@@ -304,7 +314,9 @@ export async function gitReview(cwd: string): Promise<GitReviewResult> {
       entry.additions = match[1] === '-' ? 0 : Number(match[1]);
       entry.deletions = match[2] === '-' ? 0 : Number(match[2]);
     }
-  } catch { /* empty repository (no HEAD yet) */ }
+  } catch {
+    /* empty repository (no HEAD yet) */
+  }
   const untrackedPaths: string[] = [];
   try {
     for (const entry of worktreeStatus.split('\0')) {
@@ -328,7 +340,9 @@ export async function gitReview(cwd: string): Promise<GitReviewResult> {
         uncommitted: true,
       });
     }
-  } catch { /* not a repository */ }
+  } catch {
+    /* not a repository */
+  }
   await mapWithConcurrency(untrackedPaths, UNTRACKED_STAT_CONCURRENCY, async (path) => {
     const entry = files.get(path);
     if (entry?.untracked) entry.additions = await untrackedStat(cwd, path);

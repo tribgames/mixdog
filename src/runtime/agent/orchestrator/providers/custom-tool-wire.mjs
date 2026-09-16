@@ -1,8 +1,10 @@
 export function isResponsesFreeformTool(tool) {
-  return !!(tool?.freeform
-    && tool.freeform.type === 'grammar'
-    && typeof tool.freeform.syntax === 'string'
-    && typeof tool.freeform.definition === 'string');
+  return !!(
+    tool?.freeform &&
+    tool.freeform.type === 'grammar' &&
+    typeof tool.freeform.syntax === 'string' &&
+    typeof tool.freeform.definition === 'string'
+  );
 }
 
 export function toResponsesCustomTool(tool) {
@@ -18,15 +20,24 @@ export function customToolInputFromArguments(name, args) {
   if (typeof args === 'string') return args;
   if (name === 'apply_patch' && typeof args?.patch === 'string') return args.patch;
   if (typeof args?.input === 'string') return args.input;
-  try { return JSON.stringify(args ?? {}); } catch { return String(args ?? ''); }
+  try {
+    return JSON.stringify(args ?? {});
+  } catch {
+    return String(args ?? '');
+  }
 }
 
 function customToolArgumentsFromInput(name, input) {
-  const text = typeof input === 'string'
-    ? input
-    : (() => {
-        try { return JSON.stringify(input ?? ''); } catch { return String(input ?? ''); }
-      })();
+  const text =
+    typeof input === 'string'
+      ? input
+      : (() => {
+          try {
+            return JSON.stringify(input ?? '');
+          } catch {
+            return String(input ?? '');
+          }
+        })();
   if (name === 'apply_patch') return { patch: text };
   return { input: text };
 }
@@ -69,9 +80,7 @@ export function responsesToolLoadingSurface(tools = []) {
       ...(loader?.inputSchema?.properties || {}),
       name: skill.inputSchema?.properties?.name || { type: 'string' },
     },
-    ...(loader
-      ? { oneOf: [{ required: ['name'] }, { required: ['names'] }] }
-      : { required: ['name'] }),
+    ...(loader ? { oneOf: [{ required: ['name'] }, { required: ['names'] }] } : { required: ['name'] }),
     additionalProperties: false,
   };
   const combined = {
@@ -81,7 +90,9 @@ export function responsesToolLoadingSurface(tools = []) {
       loader?.description,
       'For Skill instructions, call this tool with name:"skill-name" instead of names. It loads the skill body and its required tool schemas together; no second load is needed.',
       skill.description,
-    ].filter(Boolean).join('\n'),
+    ]
+      .filter(Boolean)
+      .join('\n'),
     inputSchema: parameters,
   };
   return tools.flatMap((tool) => {
@@ -105,8 +116,7 @@ export function nativeToolSearchOutputInput(message, provider) {
   const source = String(native?.provider || '').toLowerCase();
   const target = String(provider || '').toLowerCase();
   const openaiNative = new Set(['openai', 'openai-oauth']);
-  const sameNativeFamily = source === target
-    || (openaiNative.has(source) && openaiNative.has(target));
+  const sameNativeFamily = source === target || (openaiNative.has(source) && openaiNative.has(target));
   if (!native || (source && !sameNativeFamily)) return null;
   if (!Array.isArray(native.openaiTools)) return null;
   return {
@@ -116,8 +126,6 @@ export function nativeToolSearchOutputInput(message, provider) {
     execution: 'client',
     // Responses otherwise normalizes optional fields to required. Apply this
     // at the wire boundary so restored tool-search history is covered too.
-    tools: native.openaiTools.map(tool => tool?.type === 'function'
-      ? { ...tool, strict: false }
-      : tool),
+    tools: native.openaiTools.map((tool) => (tool?.type === 'function' ? { ...tool, strict: false } : tool)),
   };
 }

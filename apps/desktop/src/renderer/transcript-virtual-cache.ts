@@ -1,4 +1,4 @@
-import type { VirtualItem } from "@tanstack/react-virtual";
+import type { VirtualItem } from '@tanstack/react-virtual';
 
 /**
  * Per-session virtual geometry, kept across visits.
@@ -46,10 +46,7 @@ export function transcriptRowNamespace(sessionKey: string): string {
   return namespaces.get(sessionKey) || sessionKey;
 }
 
-export function rememberTranscriptRowNamespace(
-  sessionKey: string,
-  namespace: string,
-): void {
+export function rememberTranscriptRowNamespace(sessionKey: string, namespace: string): void {
   if (!sessionKey || !namespace || sessionKey === namespace) return;
   namespaces.delete(sessionKey);
   namespaces.set(sessionKey, namespace);
@@ -70,17 +67,12 @@ function remember(sessionKey: string, snapshot: TranscriptVirtualSnapshot): void
   }
 }
 
-export function readTranscriptVirtualSnapshot(
-  sessionKey: string,
-): TranscriptVirtualSnapshot | undefined {
+export function readTranscriptVirtualSnapshot(sessionKey: string): TranscriptVirtualSnapshot | undefined {
   return sessionKey ? snapshots.get(sessionKey) : undefined;
 }
 
 /** Final geometry handed over when the session leaves the screen. */
-export function rememberTranscriptVirtualMeasurements(
-  sessionKey: string,
-  measurements: VirtualItem[],
-): void {
+export function rememberTranscriptVirtualMeasurements(sessionKey: string, measurements: VirtualItem[]): void {
   if (!sessionKey) return;
   const current = snapshots.get(sessionKey);
   const measured = measurements.length > 0;

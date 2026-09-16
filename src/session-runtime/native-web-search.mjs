@@ -27,7 +27,10 @@ export function createNativeWebSearch({
     try {
       return new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.toLowerCase();
     } catch {
-      return raw.replace(/^https?:\/\//i, '').split('/')[0].toLowerCase();
+      return raw
+        .replace(/^https?:\/\//i, '')
+        .split('/')[0]
+        .toLowerCase();
     }
   }
 
@@ -101,9 +104,10 @@ export function createNativeWebSearch({
     // sidebar has always presented it that way. Materialize it here instead of
     // treating a missing key as "not configured", which used to fail the search
     // before the Main Model was ever consulted.
-    const webSearchRoute = normalizeWebSearchRouteConfig(cfg.webSearchRoute)
-      || normalizeWebSearchRouteConfig(getWebSearchRoute())
-      || normalizeWebSearchRouteConfig({
+    const webSearchRoute =
+      normalizeWebSearchRouteConfig(cfg.webSearchRoute) ||
+      normalizeWebSearchRouteConfig(getWebSearchRoute()) ||
+      normalizeWebSearchRouteConfig({
         provider: WEB_SEARCH_DEFAULT_PROVIDER,
         model: WEB_SEARCH_DEFAULT_MODEL,
       });
@@ -112,27 +116,31 @@ export function createNativeWebSearch({
     if (isDefaultWebSearchRouteConfig(webSearchRoute)) {
       const mainModel = currentMainWebSearchModelMeta();
       if (!mainModel || !webSearchCapableFor(route.provider, mainModel)) return [];
-      return [{
-        key: `default\n${route.provider}\n${route.model}`,
-        provider: normalizeWebSearchProviderId(route.provider),
-        model: route.model,
-        source: 'default-web-search-route',
-        effort: route.effectiveEffort || route.effort || null,
-        fast: route.fast === true,
-        toolType: webSearchRoute.toolType || null,
-      }];
+      return [
+        {
+          key: `default\n${route.provider}\n${route.model}`,
+          provider: normalizeWebSearchProviderId(route.provider),
+          model: route.model,
+          source: 'default-web-search-route',
+          effort: route.effectiveEffort || route.effort || null,
+          fast: route.fast === true,
+          toolType: webSearchRoute.toolType || null,
+        },
+      ];
     }
     const providerName = normalizeWebSearchProviderId(webSearchRoute.provider);
     if (!isWebSearchCapableProvider(providerName)) return [];
-    return [{
-      key: `${providerName}\n${webSearchRoute.model}`,
-      provider: providerName,
-      model: webSearchRoute.model,
-      source: 'web-search-route',
-      effort: webSearchRoute.effort || null,
-      fast: webSearchRoute.fast === true,
-      toolType: webSearchRoute.toolType || null,
-    }];
+    return [
+      {
+        key: `${providerName}\n${webSearchRoute.model}`,
+        provider: providerName,
+        model: webSearchRoute.model,
+        source: 'web-search-route',
+        effort: webSearchRoute.effort || null,
+        fast: webSearchRoute.fast === true,
+        toolType: webSearchRoute.toolType || null,
+      },
+    ];
   }
 
   function nativeWebSearchMessages(webSearchArgs = {}) {
@@ -187,10 +195,14 @@ export function createNativeWebSearch({
     const candidates = await nativeWebSearchRoutes();
     if (!candidates.length) {
       if (isDefaultWebSearchRouteConfig(getWebSearchRoute())) {
-        throw new Error(`default web search route requires the current main model to support native web search (${route?.provider || 'unknown'}/${route?.model || 'unknown'})`);
+        throw new Error(
+          `default web search route requires the current main model to support native web search (${route?.provider || 'unknown'}/${route?.model || 'unknown'})`
+        );
       }
       const configured = getWebSearchRoute();
-      throw new Error(`web search route "${configured?.provider || 'unknown'}/${configured?.model || 'unknown'}" cannot run native web search; open /websearch to choose another provider/model`);
+      throw new Error(
+        `web search route "${configured?.provider || 'unknown'}/${configured?.model || 'unknown'}" cannot run native web search; open /websearch to choose another provider/model`
+      );
     }
     const errors = [];
     for (const candidate of candidates) {
@@ -207,28 +219,24 @@ export function createNativeWebSearch({
           const model = candidate.model;
           const webSearchTool = nativeWebSearchTool(webSearchArgs, toolType, candidate.provider);
           const startedAt = Date.now();
-          const result = await providerImpl.send(
-            nativeWebSearchMessages(webSearchArgs),
-            model,
-            undefined,
-            {
-              signal,
-              role: 'web-search',
-              sessionId: `${session?.id || 'web_search'}:native-web-search:${Date.now().toString(36)}`,
-              sourceType: 'native-web-search',
-              sourceName: 'web_search',
-              nativeTools: [webSearchTool],
-              nativeInclude: candidate.provider === 'openai' || candidate.provider === 'openai-oauth'
+          const result = await providerImpl.send(nativeWebSearchMessages(webSearchArgs), model, undefined, {
+            signal,
+            role: 'web-search',
+            sessionId: `${session?.id || 'web_search'}:native-web-search:${Date.now().toString(36)}`,
+            sourceType: 'native-web-search',
+            sourceName: 'web_search',
+            nativeTools: [webSearchTool],
+            nativeInclude:
+              candidate.provider === 'openai' || candidate.provider === 'openai-oauth'
                 ? ['web_search_call.action.sources']
                 : [],
-              toolChoice: candidate.provider === 'gemini' ? 'auto' : 'required',
-              ...(candidate.effort ? { effort: candidate.effort } : {}),
-              fast: candidate.fast === true,
-              modelParameters: candidate.modelParameters || {},
-              onStageChange: () => {},
-              onStreamDelta: () => {},
-            },
-          );
+            toolChoice: candidate.provider === 'gemini' ? 'auto' : 'required',
+            ...(candidate.effort ? { effort: candidate.effort } : {}),
+            fast: candidate.fast === true,
+            modelParameters: candidate.modelParameters || {},
+            onStageChange: () => {},
+            onStreamDelta: () => {},
+          });
           const sources = flattenNativeWebSearchSources(result);
           return {
             content: String(result?.content || '').trim(),
@@ -240,7 +248,9 @@ export function createNativeWebSearch({
             durationMs: Date.now() - startedAt,
           };
         } catch (err) {
-          errors.push(`${candidate.provider}${candidate.model ? `/${candidate.model}` : ''}/${toolType}: ${err?.message || String(err)}`);
+          errors.push(
+            `${candidate.provider}${candidate.model ? `/${candidate.model}` : ''}/${toolType}: ${err?.message || String(err)}`
+          );
         }
       }
     }

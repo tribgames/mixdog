@@ -5,8 +5,16 @@ function escapedStringBytes(value) {
   let bytes = Buffer.byteLength(text, 'utf8') + 2;
   for (let index = 0; index < text.length; index += 1) {
     const code = text.charCodeAt(index);
-    if (code === 0x22 || code === 0x5c || code === 0x08 || code === 0x0c
-      || code === 0x0a || code === 0x0d || code === 0x09) bytes += 1;
+    if (
+      code === 0x22 ||
+      code === 0x5c ||
+      code === 0x08 ||
+      code === 0x0c ||
+      code === 0x0a ||
+      code === 0x0d ||
+      code === 0x09
+    )
+      bytes += 1;
     else if (code < 0x20) bytes += 5;
   }
   return bytes;
@@ -44,10 +52,7 @@ export function estimateJsonBytes(value, seen = new Set()) {
   }
 }
 
-export function hashStructuredValue(value, {
-  algorithm = 'sha1',
-  maxStringChars = Infinity,
-} = {}) {
+export function hashStructuredValue(value, { algorithm = 'sha1', maxStringChars = Infinity } = {}) {
   const hash = createHash(algorithm);
   let remaining = Number.isFinite(maxStringChars) ? Math.max(0, maxStringChars) : Infinity;
   const seen = new Set();
@@ -77,7 +82,10 @@ export function hashStructuredValue(value, {
     stack.pop();
     if (remaining <= 0) continue;
     const entry = frame.value;
-    if (entry === null) { hash.update('n;'); continue; }
+    if (entry === null) {
+      hash.update('n;');
+      continue;
+    }
     const type = typeof entry;
     if (type === 'string') {
       const slice = remaining === Infinity ? entry : entry.slice(0, remaining);
@@ -93,7 +101,10 @@ export function hashStructuredValue(value, {
       hash.update('u;');
       continue;
     }
-    if (seen.has(entry)) { hash.update('c;'); continue; }
+    if (seen.has(entry)) {
+      hash.update('c;');
+      continue;
+    }
     seen.add(entry);
     if (Array.isArray(entry)) {
       hash.update('[');

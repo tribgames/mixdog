@@ -109,12 +109,18 @@ export function startRuntimeEventLoopLagMonitor({
       at: Date.now(),
     };
     histogram.reset();
-    try { onSample(sample); } catch { /* telemetry must never throw upward */ }
+    try {
+      onSample(sample);
+    } catch {
+      /* telemetry must never throw upward */
+    }
   }, intervalMs);
   timer.unref?.();
   return () => {
     clearInterval(timer);
-    try { histogram.disable(); } catch {}
+    try {
+      histogram.disable();
+    } catch {}
   };
 }
 
@@ -129,9 +135,15 @@ export function createRuntimeLagTracker(overrides = {}) {
   let degraded = false;
   let sample = null;
   return {
-    get config() { return config; },
-    get degraded() { return degraded; },
-    get sample() { return sample; },
+    get config() {
+      return config;
+    },
+    get degraded() {
+      return degraded;
+    },
+    get sample() {
+      return sample;
+    },
     record(next) {
       sample = next && typeof next === 'object' ? next : null;
       const p99 = Number(sample?.p99Ms) || 0;
@@ -158,12 +170,7 @@ export function createRuntimeLagTracker(overrides = {}) {
   };
 }
 
-export function reportRuntimeAbortListenerPressure(
-  warning,
-  now = Date.now(),
-  retainedListeners = 0,
-  context = {},
-) {
+export function reportRuntimeAbortListenerPressure(warning, now = Date.now(), retainedListeners = 0, context = {}) {
   if (!isCurrentSessionRuntimeWorker()) return false;
   if (!Number.isFinite(Number(retainedListeners)) || Number(retainedListeners) <= 50) {
     return false;

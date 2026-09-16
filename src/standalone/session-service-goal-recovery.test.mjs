@@ -11,39 +11,41 @@ import {
 } from '../session-runtime/goal-runtime.mjs';
 import { createSessionService } from './session-service.mjs';
 
-function writeGoal(dataDir, sessionId, status, {
-  archivedAt = null,
-  completedAt = undefined,
-  clock = 2_200_000_000_000,
-} = {}) {
+function writeGoal(
+  dataDir,
+  sessionId,
+  status,
+  { archivedAt = null, completedAt = undefined, clock = 2_200_000_000_000 } = {}
+) {
   const root = join(dataDir, 'goals');
   mkdirSync(root, { recursive: true });
-  writeFileSync(join(root, `${sessionId}.json`), JSON.stringify({
-    version: 1,
-    goal: {
-      id: `goal-${status}-${sessionId}`,
-      sessionId,
-      objective: `Keep ${status} Goal`,
-      title: `${status} Goal`,
-      status,
-      tasks: [
-        { id: 'task_1', text: 'Keep progress', status: 'in_progress', kind: 'work' },
-        { id: 'task_2', text: 'Verify recovery', status: 'pending', kind: 'verification' },
-      ],
-      blocker: status === 'blocked' ? 'External service unavailable' : '',
-      failureReason: '',
-      failureCount: 0,
-      timeLimitMs: 0,
-      timeUsedMs: 5_000,
-      createdAt: clock - 10_000,
-      updatedAt: clock - 5_000,
-      lastStartedAt: status === 'active' ? clock - 5_000 : null,
-      completedAt: completedAt === undefined
-        ? status === 'complete' ? clock - 5_000 : null
-        : completedAt,
-      archivedAt,
-    },
-  }));
+  writeFileSync(
+    join(root, `${sessionId}.json`),
+    JSON.stringify({
+      version: 1,
+      goal: {
+        id: `goal-${status}-${sessionId}`,
+        sessionId,
+        objective: `Keep ${status} Goal`,
+        title: `${status} Goal`,
+        status,
+        tasks: [
+          { id: 'task_1', text: 'Keep progress', status: 'in_progress', kind: 'work' },
+          { id: 'task_2', text: 'Verify recovery', status: 'pending', kind: 'verification' },
+        ],
+        blocker: status === 'blocked' ? 'External service unavailable' : '',
+        failureReason: '',
+        failureCount: 0,
+        timeLimitMs: 0,
+        timeUsedMs: 5_000,
+        createdAt: clock - 10_000,
+        updatedAt: clock - 5_000,
+        lastStartedAt: status === 'active' ? clock - 5_000 : null,
+        completedAt: completedAt === undefined ? (status === 'complete' ? clock - 5_000 : null) : completedAt,
+        archivedAt,
+      },
+    })
+  );
 }
 
 function fakeRuntimeFactory({ dataDir, storedSessions, created, resumed, clock }) {
@@ -103,23 +105,26 @@ test('recreated session service projects every unexpired Goal cold and resumes o
       clock,
     });
   }
-  const storedSessions = new Map(Object.values(ids).map((sessionId) => [
-    sessionId,
-    {
+  const storedSessions = new Map(
+    Object.values(ids).map((sessionId) => [
       sessionId,
-      provider: 'openai-oauth',
-      model: 'test-model',
-      items: [{ id: `item-${sessionId}`, kind: 'assistant', text: 'Persisted transcript' }],
-      queued: [],
-    },
-  ]));
+      {
+        sessionId,
+        provider: 'openai-oauth',
+        model: 'test-model',
+        items: [{ id: `item-${sessionId}`, kind: 'assistant', text: 'Persisted transcript' }],
+        queued: [],
+      },
+    ])
+  );
   const created = [];
   const resumed = [];
-  const readGoal = async (sessionId) => readStoredGoalSnapshot({
-    dataDir,
-    sessionId,
-    now: () => clock,
-  });
+  const readGoal = async (sessionId) =>
+    readStoredGoalSnapshot({
+      dataDir,
+      sessionId,
+      now: () => clock,
+    });
   const service = createSessionService({
     createSessionRuntime: fakeRuntimeFactory({
       dataDir,
@@ -131,28 +136,23 @@ test('recreated session service projects every unexpired Goal cold and resumes o
     sessionExists: async (sessionId) => storedSessions.has(sessionId),
     readStoredSession: async (sessionId) => storedSessions.get(sessionId) || null,
     readStoredGoal: readGoal,
-    listStoredActiveGoalSessionIds: async () => listStoredActiveGoalSessionIds({
-      dataDir,
-      now: () => clock,
-    }),
+    listStoredActiveGoalSessionIds: async () =>
+      listStoredActiveGoalSessionIds({
+        dataDir,
+        now: () => clock,
+      }),
     idleEvictMs: 60_000,
     evictSweepMs: 60_000,
   });
   try {
     for (const status of ['active', 'paused', 'blocked', 'complete']) {
-      const result = await service.subscribeSession(
-        { sessionId: ids[status] },
-        { clientToken: `viewer-${status}` },
-      );
+      const result = await service.subscribeSession({ sessionId: ids[status] }, { clientToken: `viewer-${status}` });
       assert.equal(result.projection, true);
       assert.equal(result.full.goal.status, status);
       assert.equal(result.full.goal.tasks[0].status, 'in_progress');
       if (status === 'active') assert.equal(result.full.goal.timeUsedMs, 10_000);
     }
-    const archived = await service.subscribeSession(
-      { sessionId: ids.archived },
-      { clientToken: 'viewer-archived' },
-    );
+    const archived = await service.subscribeSession({ sessionId: ids.archived }, { clientToken: 'viewer-archived' });
     assert.equal(archived.full.goal, null);
     assert.equal(created.length, 0);
 
@@ -161,15 +161,9 @@ test('recreated session service projects every unexpired Goal cold and resumes o
     assert.equal(created.length, 1);
     assert.deepEqual(resumed, [ids.active]);
     assert.equal(service.status.live, 1);
-    const expired = await service.subscribeSession(
-      { sessionId: ids.expired },
-      { clientToken: 'viewer-expired' },
-    );
+    const expired = await service.subscribeSession({ sessionId: ids.expired }, { clientToken: 'viewer-expired' });
     assert.equal(expired.full.goal, null);
-    assert.equal(
-      existsSync(join(dataDir, 'goals', `${ids.expired}.json`)),
-      false,
-    );
+    assert.equal(existsSync(join(dataDir, 'goals', `${ids.expired}.json`)), false);
   } finally {
     await service.stop('test complete');
     rmSync(dataDir, { recursive: true, force: true });

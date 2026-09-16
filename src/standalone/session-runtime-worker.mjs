@@ -60,9 +60,7 @@ function reportUnhealthy() {
 process.on(SESSION_RUNTIME_WORKER_UNHEALTHY_EVENT, (detail) => {
   if (stopping || unhealthyDetail) return;
   unhealthyDetail = sanitizeForWire(detail) || { reason: 'session runtime worker unhealthy' };
-  process.stderr.write(
-    `[session-runtime-health] shard ${SHARD_INDEX}: ${unhealthyDetail.reason || 'unhealthy'}\n`,
-  );
+  process.stderr.write(`[session-runtime-health] shard ${SHARD_INDEX}: ${unhealthyDetail.reason || 'unhealthy'}\n`);
   reportUnhealthy();
 });
 
@@ -70,8 +68,8 @@ process.on('warning', (warning) => {
   if (warning?.name !== 'MaxListenersExceededWarning') return;
   if (!/AbortSignal/i.test(String(warning?.message || ''))) return;
   const target = warning?.target;
-  if ((!target || (typeof target !== 'object' && typeof target !== 'function'))
-    || pendingAbortPressureChecks.has(target)) return;
+  if (!target || (typeof target !== 'object' && typeof target !== 'function') || pendingAbortPressureChecks.has(target))
+    return;
   const context = {
     shard: SHARD_INDEX,
     runtimesAtWarning: records.size,
@@ -81,7 +79,9 @@ process.on('warning', (warning) => {
   const timer = setTimeout(() => {
     pendingAbortPressureChecks.delete(target);
     let retained = 0;
-    try { retained = getEventListeners(target, 'abort').length; } catch {}
+    try {
+      retained = getEventListeners(target, 'abort').length;
+    } catch {}
     reportRuntimeAbortListenerPressure(warning, Date.now(), retained, {
       ...context,
       runtimesAfterDelay: records.size,
@@ -132,14 +132,18 @@ let cooldownBridgePromise = null;
 
 function fastModeModule() {
   fastModePromise ??= import('../runtime/agent/orchestrator/providers/anthropic-fast-mode.mjs')
-    .then((policy) => { fastModePolicy = policy; return policy; })
+    .then((policy) => {
+      fastModePolicy = policy;
+      return policy;
+    })
     .catch(() => null);
   return fastModePromise;
 }
 
 function admissionSchedulerModule() {
-  admissionModulePromise ??= import('../runtime/agent/orchestrator/providers/admission-scheduler.mjs')
-    .catch(() => null);
+  admissionModulePromise ??= import('../runtime/agent/orchestrator/providers/admission-scheduler.mjs').catch(
+    () => null
+  );
   return admissionModulePromise;
 }
 
@@ -152,13 +156,19 @@ function admissionSchedulerModule() {
  */
 function ensureProviderCooldownBridge() {
   if (cooldownBridgeUnsubscribe || cooldownBridgePromise || stopping) return;
-  cooldownBridgePromise = admissionSchedulerModule().then((module) => {
-    if (!module || stopping || cooldownBridgeUnsubscribe) return;
-    cooldownBridgeUnsubscribe = module.providerAdmissionScheduler.onCooldownEvent((event) => {
-      publishProviderCooldownNow(event);
+  cooldownBridgePromise = admissionSchedulerModule()
+    .then((module) => {
+      if (!module || stopping || cooldownBridgeUnsubscribe) return;
+      cooldownBridgeUnsubscribe = module.providerAdmissionScheduler.onCooldownEvent((event) => {
+        publishProviderCooldownNow(event);
+      });
+    })
+    .catch(() => {
+      /* provider graph is absent in this shard */
+    })
+    .finally(() => {
+      cooldownBridgePromise = null;
     });
-  }).catch(() => { /* provider graph is absent in this shard */ })
-    .finally(() => { cooldownBridgePromise = null; });
 }
 
 function normalizeAdmissionCooldownEvent(event) {
@@ -219,7 +229,7 @@ async function applyReplayedProviderCooldown(frame) {
       if (admission.type === 'cooldown') {
         module.providerAdmissionScheduler.applyExternalCooldown(
           String(admission.key || ''),
-          Number(admission.cooldownUntil) || 0,
+          Number(admission.cooldownUntil) || 0
         );
       } else if (admission.type === 'reset') {
         module.resetProviderAdmissionCooldowns(admission.provider || null);
@@ -255,9 +265,10 @@ function publish(record, forceFull = false) {
   const source = record.runtime.getState?.() || {};
   const previous = record.publishedSource;
   if (!forceFull && source === previous) return;
-  const body = forceFull || !previous
-    ? { full: sanitizeForWire(source) }
-    : { patch: sanitizeForWire(diffSessionState(previous, source)) };
+  const body =
+    forceFull || !previous
+      ? { full: sanitizeForWire(source) }
+      : { patch: sanitizeForWire(diffSessionState(previous, source)) };
   record.publishedSource = source;
   record.revision += 1;
   send({
@@ -315,9 +326,8 @@ async function callRuntime(message) {
 // the host's recycle guard (activeResources) never interrupts one.
 let agentGraphPromise = null;
 function loadAgentGraph() {
-  const testModule = process.env.NODE_ENV === 'test'
-    ? String(process.env.MIXDOG_SESSION_RUNTIME_TEST_AGENT_GRAPH || '')
-    : '';
+  const testModule =
+    process.env.NODE_ENV === 'test' ? String(process.env.MIXDOG_SESSION_RUNTIME_TEST_AGENT_GRAPH || '') : '';
   if (testModule) {
     return import(testModule).then((module) => module.default || module);
   }
@@ -330,9 +340,9 @@ function loadAgentGraph() {
 
 function agentGraph() {
   agentGraphPromise ??= loadAgentGraph().catch((error) => {
-      agentGraphPromise = null;
-      throw error;
-    });
+    agentGraphPromise = null;
+    throw error;
+  });
   return agentGraphPromise;
 }
 const agentDispatchers = new Map();
@@ -343,11 +353,8 @@ async function deliverDistributedAgentNotification(message) {
   for (const record of records.values()) {
     if (record.disposed) continue;
     try {
-      if (record.runtime?.deliverToolCompletion?.(
-        ownerSessionId,
-        String(message.text),
-        message.meta || {},
-      )) return true;
+      if (record.runtime?.deliverToolCompletion?.(ownerSessionId, String(message.text), message.meta || {}))
+        return true;
     } catch {}
   }
   // The owning runtime may be between recycle and recreate. Persist the
@@ -358,17 +365,17 @@ async function deliverDistributedAgentNotification(message) {
       import('../runtime/agent/orchestrator/session/manager.mjs'),
       import('../runtime/shared/tool-execution-contract.mjs'),
     ]);
-    const visible = contract.modelVisibleToolCompletionMessage(
-      String(message.text),
-      message.meta || {},
+    const visible = contract.modelVisibleToolCompletionMessage(String(message.text), message.meta || {});
+    return Boolean(
+      visible &&
+        mgr.enqueuePendingMessage(
+          ownerSessionId,
+          mgr.markCompletionEntry(visible, {
+            executionId: message.meta?.execution_id,
+            meta: message.meta,
+          })
+        ) > 0
     );
-    return Boolean(visible && mgr.enqueuePendingMessage(
-      ownerSessionId,
-      mgr.markCompletionEntry(visible, {
-        executionId: message.meta?.execution_id,
-        meta: message.meta,
-      }),
-    ) > 0);
   } catch {
     return false;
   }
@@ -402,7 +409,15 @@ function takeRetainedDispatchCancel(dispatchId) {
 }
 
 function abortDispatchController(controller, reason) {
-  try { controller.abort(reason); } catch { try { controller.abort(); } catch { /* settled */ } }
+  try {
+    controller.abort(reason);
+  } catch {
+    try {
+      controller.abort();
+    } catch {
+      /* settled */
+    }
+  }
 }
 
 function throwIfDispatchAborted(controller) {
@@ -417,7 +432,11 @@ async function prepareAgentProviders() {
   const { config, registry } = await agentGraph();
   const providers = config.loadConfig()?.providers || {};
   let signature = null;
-  try { signature = JSON.stringify(providers); } catch { /* re-prepare each call */ }
+  try {
+    signature = JSON.stringify(providers);
+  } catch {
+    /* re-prepare each call */
+  }
   if (signature !== null && preparedProviderSignature === signature) return;
   if (providerPreparePromise) {
     await providerPreparePromise;
@@ -426,7 +445,9 @@ async function prepareAgentProviders() {
   }
   const pending = Promise.resolve()
     .then(() => registry.initProviders(providers))
-    .then(() => { preparedProviderSignature = signature; });
+    .then(() => {
+      preparedProviderSignature = signature;
+    });
   const tracked = pending.finally(() => {
     if (providerPreparePromise === tracked) providerPreparePromise = null;
   });
@@ -499,12 +520,14 @@ function cancelAgentDispatch(message) {
 
 async function prewarm() {
   const module = await sessionModule();
-  await Promise.allSettled([
-    () => module.preloadSessionRuntimeModule?.(),
-    () => module.preloadAgentLoopRuntime?.(),
-    () => module.preloadKeychainSecrets?.(),
-    () => module.preloadMemoryRuntime?.(),
-  ].map((start) => Promise.resolve().then(start)));
+  await Promise.allSettled(
+    [
+      () => module.preloadSessionRuntimeModule?.(),
+      () => module.preloadAgentLoopRuntime?.(),
+      () => module.preloadKeychainSecrets?.(),
+      () => module.preloadMemoryRuntime?.(),
+    ].map((start) => Promise.resolve().then(start))
+  );
   return { ready: true };
 }
 
@@ -541,15 +564,11 @@ async function workloadSnapshot() {
 // shutdown).
 async function exitAfterPendingWrites(code = 0) {
   try {
-    const pendingMessages = await import(
-      '../runtime/agent/orchestrator/session/manager/pending-messages.mjs'
-    );
+    const pendingMessages = await import('../runtime/agent/orchestrator/session/manager/pending-messages.mjs');
     await pendingMessages.settlePendingMessageWrites?.({ timeoutMs: 1_500 });
   } catch (error) {
     try {
-      process.stderr.write(
-        `[session-runtime-worker] pending message drain failed: ${error?.message || error}\n`,
-      );
+      process.stderr.write(`[session-runtime-worker] pending message drain failed: ${error?.message || error}\n`);
     } catch {}
   }
   process.exit(code);
@@ -558,26 +577,34 @@ async function exitAfterPendingWrites(code = 0) {
 async function stopAll(reason = 'session runtime worker shutdown') {
   if (stopping) return;
   stopping = true;
-  try { stopEventLoopLagMonitor(); } catch {}
-  try { cooldownBridgeUnsubscribe?.(); } catch {}
+  try {
+    stopEventLoopLagMonitor();
+  } catch {}
+  try {
+    cooldownBridgeUnsubscribe?.();
+  } catch {}
   cooldownBridgeUnsubscribe = null;
   retainedDispatchCancels.clear();
   for (const controller of agentDispatchRuns.values()) {
-    try { controller.abort(new Error(reason)); } catch { /* settled */ }
+    try {
+      controller.abort(new Error(reason));
+    } catch {
+      /* settled */
+    }
   }
   for (const record of [...records.values()]) {
     try {
-      await disposeSessionRuntimeRecord(
-        records,
-        record,
-        [reason, { keepBackgroundWork: true }],
-      );
+      await disposeSessionRuntimeRecord(records, record, [reason, { keepBackgroundWork: true }]);
     } catch {}
   }
   records.clear();
   // Backstop for sessions whose runtime never reached a clean dispose: the host
   // keeps their workers and target claims until it is told to release them.
-  try { await releaseAllComputerSessions(); } catch { /* best-effort shutdown */ }
+  try {
+    await releaseAllComputerSessions();
+  } catch {
+    /* best-effort shutdown */
+  }
 }
 
 process.on('message', (message) => {
@@ -611,19 +638,23 @@ process.on('message', (message) => {
       return { stopped: true };
     }
     throw new Error(`unknown session runtime message ${message.type}`);
-  })().then((value) => {
-    if (requestId) send({ type: 'response', requestId, ok: true, value: value ?? null });
-    reportUnhealthy();
-    if (message.type === 'shutdown') setImmediate(() => { void exitAfterPendingWrites(0); });
-  }).catch((error) => {
-    if (requestId) send({ type: 'response', requestId, ok: false, error: errorBody(error) });
-    reportUnhealthy();
-  });
+  })()
+    .then((value) => {
+      if (requestId) send({ type: 'response', requestId, ok: true, value: value ?? null });
+      reportUnhealthy();
+      if (message.type === 'shutdown')
+        setImmediate(() => {
+          void exitAfterPendingWrites(0);
+        });
+    })
+    .catch((error) => {
+      if (requestId) send({ type: 'response', requestId, ok: false, error: errorBody(error) });
+      reportUnhealthy();
+    });
 });
 
 process.on('disconnect', () => {
-  void stopAll('session runtime parent disconnected')
-    .finally(() => exitAfterPendingWrites(0));
+  void stopAll('session runtime parent disconnected').finally(() => exitAfterPendingWrites(0));
 });
 
 process.on('SIGTERM', () => {

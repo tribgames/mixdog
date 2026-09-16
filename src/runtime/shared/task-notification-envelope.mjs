@@ -19,11 +19,7 @@ import { displayShellCommand } from './shell-display.mjs';
 // tool-execution-contract.mjs (shouldPersistModelVisibleToolCompletion et al.
 // depend on them there); this keeps a single import surface without forking
 // the regexes.
-export {
-  isInternalRuntimeNotificationText,
-  isBracketedShellNotificationEnvelope,
-  backgroundTaskHeaderStatus,
-};
+export { isInternalRuntimeNotificationText, isBracketedShellNotificationEnvelope, backgroundTaskHeaderStatus };
 
 // The full command is already visible in the start response / task record;
 // the envelope only needs an identifying prefix. Flatten whitespace and cap
@@ -52,11 +48,18 @@ export function renderShellCompletionEnvelope({
   // and invites a success reading. Foreground shell results already separate
   // the two; background completions state the same outcome explicitly.
   const normalizedStatus = String(status || '').toLowerCase();
-  const outcome = normalizedStatus === 'completed'
-    ? (exitCode === 0 ? 'success' : (typeof exitCode === 'number' ? 'command-failed' : 'completed'))
-    : (normalizedStatus === 'failed'
-      ? 'not-completed'
-      : ((normalizedStatus === 'cancelled' || normalizedStatus === 'canceled') ? 'cancelled' : null));
+  const outcome =
+    normalizedStatus === 'completed'
+      ? exitCode === 0
+        ? 'success'
+        : typeof exitCode === 'number'
+          ? 'command-failed'
+          : 'completed'
+      : normalizedStatus === 'failed'
+        ? 'not-completed'
+        : normalizedStatus === 'cancelled' || normalizedStatus === 'canceled'
+          ? 'cancelled'
+          : null;
   const header = [
     `[task_id: ${jobId}]`,
     `[status: ${status}]`,
@@ -71,16 +74,14 @@ export function renderShellCompletionEnvelope({
       : null,
     summary ? `Summary: ${summary}` : null,
     stdoutPreview ? `\n[stdout preview]\n${stdoutPreview}` : null,
-    (mergeStderr !== true && stderrPreview) ? `\n[stderr preview]\n${stderrPreview}` : null,
+    mergeStderr !== true && stderrPreview ? `\n[stderr preview]\n${stderrPreview}` : null,
   ].filter((l) => l !== null);
   // Exactly one blank line separates the bracket header block from the body
   // when any body section exists; no trailing blank line when there is none.
   // (Previously the '' separator was filtered out by the value filter, so a
   // summary-only envelope glued headers straight onto `Summary:` and read as
   // bodyless to the `\n\s*\n` body detector.)
-  const lines = bodySections.length > 0
-    ? [...header, '', ...bodySections]
-    : header;
+  const lines = bodySections.length > 0 ? [...header, '', ...bodySections] : header;
   return lines.join('\n');
 }
 

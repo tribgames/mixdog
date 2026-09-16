@@ -9,11 +9,15 @@ const PAIRING_TOKEN_FILE = 'remote-bridge.token';
 
 export async function loadOrCreatePairingToken(userDataPath: string): Promise<string> {
   const tokenPath = join(userDataPath, PAIRING_TOKEN_FILE);
-  return withFileLock(`${tokenPath}.lock`, async () => {
-    const existing = (await readSecretFile(tokenPath))?.trim();
-    if (existing && /^[0-9a-f]{32,128}$/.test(existing)) return existing;
-    return writePairingToken(tokenPath);
-  }, { secret: true });
+  return withFileLock(
+    `${tokenPath}.lock`,
+    async () => {
+      const existing = (await readSecretFile(tokenPath))?.trim();
+      if (existing && /^[0-9a-f]{32,128}$/.test(existing)) return existing;
+      return writePairingToken(tokenPath);
+    },
+    { secret: true }
+  );
 }
 
 async function writePairingToken(tokenPath: string): Promise<string> {

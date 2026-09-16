@@ -15,50 +15,71 @@ const { createProviderModels } = await import('../../src/session-runtime/provide
 const { createProviderAuthApi } = await import('../../src/session-runtime/provider-auth-api.mjs');
 const { createMcpGlue } = await import('../../src/session-runtime/mcp-glue.mjs');
 const importMs = performance.now() - started;
-let catalogCalls = 0, revision = 987654;
+let catalogCalls = 0,
+  revision = 987654;
 const registry = {
-    providerCatalogRevision: () => revision,
-    getAllProviders: () => new Map([['openai', {
-        listModels: async () => {
+  providerCatalogRevision: () => revision,
+  getAllProviders: () =>
+    new Map([
+      [
+        'openai',
+        {
+          listModels: async () => {
             catalogCalls++;
             await immediate();
             return [{ id: 'synthetic-model', name: 'Synthetic model', contextWindow: 128000 }];
+          },
         },
-    }]]),
+      ],
+    ]),
 };
-const createModels = () => createProviderModels({
-    caches: { providerModelsCache: { models: null }, providerModelsLoadSeq: 0,
-        webSearchProviderModelsCache: { models: null } },
-    modelMetaByRoute: new Map(), getRoute: () => ({ provider: 'openai' }),
-    getConfig: () => ({}), getReg: () => registry, webSearchCapableFor: () => false,
-    sortProviderModelsRaw: rows => rows,
+const createModels = () =>
+  createProviderModels({
+    caches: {
+      providerModelsCache: { models: null },
+      providerModelsLoadSeq: 0,
+      webSearchProviderModelsCache: { models: null },
+    },
+    modelMetaByRoute: new Map(),
+    getRoute: () => ({ provider: 'openai' }),
+    getConfig: () => ({}),
+    getReg: () => registry,
+    webSearchCapableFor: () => false,
+    sortProviderModelsRaw: (rows) => rows,
     providerModelCacheRowRaw: (provider, row) => ({ ...row, provider }),
-    normalizeWebSearchProviderId: value => value, isWebSearchCapableProvider: () => false,
-    ensureFullConfig() {}, awaitKeychainPrewarm: async () => {},
-    ensureProvidersReady: async () => {}, bootProfile() {}, scheduleProviderModelWarmup() {},
+    normalizeWebSearchProviderId: (value) => value,
+    isWebSearchCapableProvider: () => false,
+    ensureFullConfig() {},
+    awaitKeychainPrewarm: async () => {},
+    ensureProvidersReady: async () => {},
+    bootProfile() {},
+    scheduleProviderModelWarmup() {},
     quickHelpers: { quickProviderModelRows: () => [{ id: 'quick' }] },
-});
+  });
 const sessions = Array.from({ length: 8 }, createModels);
 let start = performance.now();
-const cold = await Promise.all(sessions.map(api => api.collectProviderModels()));
+const cold = await Promise.all(sessions.map((api) => api.collectProviderModels()));
 const catalogColdMs = performance.now() - start;
-assert.ok(cold.every(rows => rows.length === 1));
+assert.ok(cold.every((rows) => rows.length === 1));
 assert.equal(catalogCalls, 1);
 start = performance.now();
-await Promise.all(sessions.map(api => api.collectProviderModels()));
+await Promise.all(sessions.map((api) => api.collectProviderModels()));
 const catalogWarmMs = performance.now() - start;
 assert.equal(catalogCalls, 1);
 revision++;
-await Promise.all(sessions.map(api => api.collectProviderModels()));
+await Promise.all(sessions.map((api) => api.collectProviderModels()));
 assert.equal(catalogCalls, 2);
 
-let releaseSecrets, ready = false;
-const secrets = new Promise(resolve => { releaseSecrets = resolve; });
+let releaseSecrets,
+  ready = false;
+const secrets = new Promise((resolve) => {
+  releaseSecrets = resolve;
+});
 const auth = createProviderAuthApi({
-    awaitKeychainPrewarm: () => secrets,
-    isKeychainPrewarmReady: () => ready,
-    hasProviderSetupCached: () => ready,
-    cachedProviderSetup: async options => ({ source: options.quick ? 'quick' : 'authoritative' }),
+  awaitKeychainPrewarm: () => secrets,
+  isKeychainPrewarmReady: () => ready,
+  hasProviderSetupCached: () => ready,
+  cachedProviderSetup: async (options) => ({ source: options.quick ? 'quick' : 'authoritative' }),
 });
 start = performance.now();
 const quickAuth = await auth.getProviderSetup();
@@ -71,22 +92,30 @@ await immediate();
 assert.equal((await auth.getProviderSetup()).source, 'authoritative');
 
 let releaseConnect;
-let active = 0, maxActive = 0, config = { mcpServers: { first: { command: 'synthetic' } } };
+let active = 0,
+  maxActive = 0,
+  config = { mcpServers: { first: { command: 'synthetic' } } };
 const connected = [];
-const gate = new Promise(resolve => { releaseConnect = resolve; });
+const gate = new Promise((resolve) => {
+  releaseConnect = resolve;
+});
 const state = { mcpConnectGeneration: 0, mcpConnectInFlight: null, mcpFailures: [] };
 const mcp = createMcpGlue({
-    state, getConfig: () => config, getCurrentCwd: () => directory,
-    mcpClient: {
-        resolveMcpTransportKind: () => 'stdio', getMcpServerStatus: () => [],
-        resolveMcpStartupTimeoutMs: () => 10000, disconnectAll: async () => {},
-        connectMcpServers: async servers => {
-            maxActive = Math.max(maxActive, ++active);
-            await gate;
-            connected.push(Object.keys(servers));
-            active--;
-        },
+  state,
+  getConfig: () => config,
+  getCurrentCwd: () => directory,
+  mcpClient: {
+    resolveMcpTransportKind: () => 'stdio',
+    getMcpServerStatus: () => [],
+    resolveMcpStartupTimeoutMs: () => 10000,
+    disconnectAll: async () => {},
+    connectMcpServers: async (servers) => {
+      maxActive = Math.max(maxActive, ++active);
+      await gate;
+      connected.push(Object.keys(servers));
+      active--;
     },
+  },
 });
 const initial = mcp.connectConfiguredMcp();
 start = performance.now();
@@ -101,9 +130,17 @@ await Promise.all([initial, obsolete, latest]);
 assert.equal(maxActive, 1);
 assert.deepEqual(connected, [['first'], ['latest']]);
 assert.equal(state.mcpConnectInFlight, null);
-const report = { directory, importMs, catalogColdMs, catalogWarmMs, pendingAuthMs,
-    catalogCallsForEightSessionsBeforeAndAfterInvalidation: catalogCalls, mcpBoundedWaitMs,
-    maxConcurrentMcpConnections: maxActive, connected,
-    limits: 'Injected model lists, keychain and MCP: validates orchestration, not external network/keychain latency.' };
+const report = {
+  directory,
+  importMs,
+  catalogColdMs,
+  catalogWarmMs,
+  pendingAuthMs,
+  catalogCallsForEightSessionsBeforeAndAfterInvalidation: catalogCalls,
+  mcpBoundedWaitMs,
+  maxConcurrentMcpConnections: maxActive,
+  connected,
+  limits: 'Injected model lists, keychain and MCP: validates orchestration, not external network/keychain latency.',
+};
 writeFileSync(join(directory, 'report.json'), JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report, null, 2));

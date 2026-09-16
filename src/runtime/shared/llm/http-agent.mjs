@@ -19,23 +19,23 @@
  * so a shared long-lived pool is appropriate here.
  */
 
-import { createRequire } from 'node:module'
+import { createRequire } from 'node:module';
 
-const require = createRequire(import.meta.url)
-let _undici = null
+const require = createRequire(import.meta.url);
+let _undici = null;
 function undici() {
-  if (!_undici) _undici = require('undici')
-  return _undici
+  if (!_undici) _undici = require('undici');
+  return _undici;
 }
 
-let _agent = null
-let _globalInstalled = false
+let _agent = null;
+let _globalInstalled = false;
 
 function envInt(name, fallback) {
-  const raw = process.env[name]
-  if (!raw) return fallback
-  const n = Number(raw)
-  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : fallback
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : fallback;
 }
 
 /**
@@ -56,17 +56,19 @@ function envInt(name, fallback) {
  * itself a direct-connection pool (no proxy hop), so the bypass risk is minimal.
  */
 function proxyConfigured() {
-  const env = process.env
-  if (env.HTTP_PROXY || env.HTTPS_PROXY || env.http_proxy || env.https_proxy) return true
-  if (env.NODE_USE_ENV_PROXY) return true
+  const env = process.env;
+  if (env.HTTP_PROXY || env.HTTPS_PROXY || env.http_proxy || env.https_proxy) return true;
+  if (env.NODE_USE_ENV_PROXY) return true;
   try {
-    const g = undici().getGlobalDispatcher?.()
+    const g = undici().getGlobalDispatcher?.();
     // Any non-default global dispatcher (constructor name other than the plain
     // `Agent` undici installs by default) is treated as custom — ProxyAgent,
     // EnvHttpProxyAgent, MockAgent, or a user subclass — and we step aside.
-    if (g && g.constructor && g.constructor.name !== 'Agent') return true
-  } catch { /* getGlobalDispatcher unavailable — treat as no proxy */ }
-  return false
+    if (g && g.constructor && g.constructor.name !== 'Agent') return true;
+  } catch {
+    /* getGlobalDispatcher unavailable — treat as no proxy */
+  }
+  return false;
 }
 
 /**
@@ -82,10 +84,10 @@ function proxyConfigured() {
  * harmless fetch option, so call sites need no change.
  */
 export function getLlmDispatcher() {
-  if (proxyConfigured()) return undefined
+  if (proxyConfigured()) return undefined;
   if (_agent?.destroyed || _agent?.closed) {
-    _agent = null
-    _globalInstalled = false
+    _agent = null;
+    _globalInstalled = false;
   }
   if (!_agent) {
     _agent = new (undici().Agent)({
@@ -103,15 +105,20 @@ export function getLlmDispatcher() {
       // dead-socket bound.
       headersTimeout: envInt('MIXDOG_LLM_HEADERS_TIMEOUT_MS', 600_000),
       bodyTimeout: envInt('MIXDOG_LLM_BODY_TIMEOUT_MS', 600_000),
-    })
+    });
   }
   // mixdog standalone: separate undici instance from Node's fetch undici, so
   // a per-request dispatcher throws UND_ERR_INVALID_ARG. Install globally once
   // and omit the per-request dispatcher. See port-plan D7.
   if (!_globalInstalled) {
-    try { undici().setGlobalDispatcher(_agent); _globalInstalled = true } catch { /* fall back */ }
+    try {
+      undici().setGlobalDispatcher(_agent);
+      _globalInstalled = true;
+    } catch {
+      /* fall back */
+    }
   }
-  return _globalInstalled ? undefined : _agent
+  return _globalInstalled ? undefined : _agent;
 }
 
 /**
@@ -121,24 +128,28 @@ export function getLlmDispatcher() {
  * every provider because one origin failed. No-op under a proxy.
  */
 export function recycleLlmDispatcher() {
-  if (proxyConfigured()) return false
-  const old = _agent
-  if (!old) return false
-  _agent = null
-  _globalInstalled = false
-  _preconnectedAt.clear()
-  getLlmDispatcher()
+  if (proxyConfigured()) return false;
+  const old = _agent;
+  if (!old) return false;
+  _agent = null;
+  _globalInstalled = false;
+  _preconnectedAt.clear();
+  getLlmDispatcher();
   if (undici().getGlobalDispatcher() !== _agent) {
-    const unused = _agent
-    _agent = old
-    _globalInstalled = false
-    try { unused?.close()?.catch?.(() => {}) } catch {}
-    return false
+    const unused = _agent;
+    _agent = old;
+    _globalInstalled = false;
+    try {
+      unused?.close()?.catch?.(() => {});
+    } catch {}
+    return false;
   }
   try {
-    old.close().catch(() => {})
-  } catch { /* never let recycle throw into a retry path */ }
-  return true
+    old.close().catch(() => {});
+  } catch {
+    /* never let recycle throw into a retry path */
+  }
+  return true;
 }
 
 // Origins warmed (or warming) recently, with the timestamp of the last warm.
@@ -147,12 +158,12 @@ export function recycleLlmDispatcher() {
 // went cold after keepAliveTimeout (~60s idle between turns), so the first
 // request after a pause paid the full TLS handshake again. Re-warming just
 // before a turn keeps the hot-path send on a live socket.
-const _preconnectedAt = new Map()
+const _preconnectedAt = new Map();
 // Re-warm cadence: slightly below the keep-alive window so a socket is renewed
 // before it can lapse. Capped so an explicit short keepAlive still re-warms.
 function _preconnectTtlMs() {
-  const keepAlive = envInt('MIXDOG_LLM_KEEPALIVE_MS', 60_000)
-  return Math.max(5_000, keepAlive - 10_000)
+  const keepAlive = envInt('MIXDOG_LLM_KEEPALIVE_MS', 60_000);
+  return Math.max(5_000, keepAlive - 10_000);
 }
 
 /**
@@ -166,29 +177,36 @@ export function preconnect(origin) {
   try {
     // With a proxy / custom global dispatcher in play we deliberately don't own
     // the connection pool, so there's no warm socket to seed — no-op.
-    if (proxyConfigured()) return
-    if (!origin || typeof origin !== 'string') return
-    let url
-    try { url = new URL(origin) } catch { return }
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return
-    const key = url.origin
-    const now = Date.now()
-    const last = _preconnectedAt.get(key) || 0
-    if (now - last < _preconnectTtlMs()) return
-    _preconnectedAt.set(key, now)
+    if (proxyConfigured()) return;
+    if (!origin || typeof origin !== 'string') return;
+    let url;
+    try {
+      url = new URL(origin);
+    } catch {
+      return;
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return;
+    const key = url.origin;
+    const now = Date.now();
+    const last = _preconnectedAt.get(key) || 0;
+    if (now - last < _preconnectTtlMs()) return;
+    _preconnectedAt.set(key, now);
     // A throwaway HEAD lands a pooled socket without fetching a body. Any
     // failure (offline, DNS, 4xx/5xx) is irrelevant — the handshake is the
     // point, and the real request will surface genuine errors.
-    undici().request(key, {
-      method: 'HEAD',
-      dispatcher: getLlmDispatcher(),
-      signal: AbortSignal.timeout(10_000),
-    })
+    undici()
+      .request(key, {
+        method: 'HEAD',
+        dispatcher: getLlmDispatcher(),
+        signal: AbortSignal.timeout(10_000),
+      })
       .then((res) => res.body?.dump?.())
       .catch(() => {
         // Warm failed — clear the timestamp so the next call can retry instead
         // of waiting out the full TTL on a connection that never landed.
-        _preconnectedAt.delete(key)
-      })
-  } catch { /* never let warmup break construction */ }
+        _preconnectedAt.delete(key);
+      });
+  } catch {
+    /* never let warmup break construction */
+  }
 }

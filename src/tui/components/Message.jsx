@@ -49,21 +49,17 @@ export const AssistantMessage = React.memo(function AssistantMessage({
   }, [streaming, assistantId]);
 
   const bodyWidth = assistantBodyWidth(columns);
-  const renderText = streaming && streamingWindowRows > 0
-    ? windowPlainStreamingText(text, bodyWidth, streamingWindowRows, assistantId)
-    : text;
+  const renderText =
+    streaming && streamingWindowRows > 0
+      ? windowPlainStreamingText(text, bodyWidth, streamingWindowRows, assistantId)
+      : text;
   return (
     <Box flexDirection="row" marginTop={1}>
       <Box flexShrink={0} minWidth={2}>
         <Text color={theme.text}>{TURN_MARKER}</Text>
       </Box>
       <Box flexDirection="column" flexShrink={0} width={bodyWidth}>
-        <StreamingMarkdown
-          themeEpoch={themeEpoch}
-          columns={bodyWidth}
-          streamKey={assistantId}
-          streaming={streaming}
-        >
+        <StreamingMarkdown themeEpoch={themeEpoch} columns={bodyWidth} streamKey={assistantId} streaming={streaming}>
           {streaming ? renderText : text}
         </StreamingMarkdown>
       </Box>
@@ -84,8 +80,17 @@ export const UserMessage = React.memo(function UserMessage({ text, attached = fa
   // and stacks stale gray bands on re-render. One narrower cell is invisible.
   const bandColumns = Math.max(1, columns - 1);
   return (
-    <Box flexDirection="column" width={bandColumns} marginTop={attached ? 0 : 1} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>
-      <Text color={theme.mixdogIvory} wrap="wrap">{text}</Text>
+    <Box
+      flexDirection="column"
+      width={bandColumns}
+      marginTop={attached ? 0 : 1}
+      backgroundColor={theme.userMessageBackground}
+      paddingLeft={2}
+      paddingRight={1}
+    >
+      <Text color={theme.mixdogIvory} wrap="wrap">
+        {text}
+      </Text>
     </Box>
   );
 });
@@ -106,7 +111,9 @@ export function NoticeMessage({ text, tone, columns = 80 }) {
         </Box>
       ) : null}
       <Box flexDirection="column" width={bodyWidth} flexShrink={0}>
-        <Text color={bodyColor} wrap="wrap">{text}</Text>
+        <Text color={bodyColor} wrap="wrap">
+          {text}
+        </Text>
       </Box>
     </Box>
   );

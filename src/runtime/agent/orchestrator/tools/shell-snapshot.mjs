@@ -1,4 +1,3 @@
-'use strict';
 // Shell environment snapshot.
 //
 // Captures the user's interactive shell state (functions, aliases, shell
@@ -41,7 +40,9 @@ let _cleanupRegistered = false;
 
 function drainShellSnapshots() {
   for (const p of _activeSnapshots) {
-    try { unlinkSync(p); } catch {}
+    try {
+      unlinkSync(p);
+    } catch {}
   }
   _activeSnapshots.clear();
 }
@@ -59,15 +60,21 @@ async function _sweepStaleSnapshots() {
   if (!existsSync(dir)) return;
   const cutoff = Date.now() - SNAPSHOT_STALE_MS;
   let names;
-  try { names = await readdirAsync(dir); } catch { return; }
-  await Promise.all(names.map(async (name) => {
-    if (!name.startsWith('snapshot-') || !name.endsWith('.sh')) return;
-    const p = join(dir, name);
-    try {
-      const st = await statAsync(p);
-      if (st.mtimeMs < cutoff) await unlinkAsync(p);
-    } catch {}
-  }));
+  try {
+    names = await readdirAsync(dir);
+  } catch {
+    return;
+  }
+  await Promise.all(
+    names.map(async (name) => {
+      if (!name.startsWith('snapshot-') || !name.endsWith('.sh')) return;
+      const p = join(dir, name);
+      try {
+        const st = await statAsync(p);
+        if (st.mtimeMs < cutoff) await unlinkAsync(p);
+      } catch {}
+    })
+  );
 }
 // Fire-and-forget. Async dirent iteration keeps the main event loop free
 // while the sweep runs; errors swallowed per-file so a single stat/unlink
@@ -150,79 +157,81 @@ exit 0
 }
 
 async function _runSnapshot(shellPath, snapshotPath, configFileExists) {
-    const script = getSnapshotScript(shellPath, snapshotPath, configFileExists);
-    let stderrBuf = '';
-    // Snapshot shell invocation:
-    // `-c -l` (login non-interactive). Earlier `-ic` (interactive command)
-    // forced bash-completion to load — Git's completion loader spawns `find`
-    // in subshells (__git_find_on_cmdline etc.) which detach on Windows when
-    // the parent gets SIGTERM at timeout, leaking find.exe processes. Login
-    // mode runs .bash_profile / .profile (which typically sources .bashrc)
-    // without triggering completion init. The script also explicitly sources
-    // the rc file, so the interactive-guard `[[ $- == *i* ]] && return` is
-    // accepted as a known tradeoff.
-    const env = (() => {
-      // P3 fix: blank prompts so an interactive sourcing in -ic does not
-      // print PS1 / PS2 / RPROMPT / PROMPT noise to stderr (which our
-      // failure log truncates to 200 chars and tags as "snapshot failed"
-      // even when the snapshot itself is fine).
-      // R11: scrub loader/execution vars from process.env before
-      // handing it to the snapshot shell. This site previously passed
-      // raw process.env, bypassing even the R5 secret scrub — the
-      // snapshot child sources the user's rc file, so NODE_OPTIONS /
-      // LD_PRELOAD / BASH_ENV here would inject into every subsequent
-      // bash command that uses this snapshot.
-        const e = scrubLoaderVars({
-          ...process.env,
-          SHELL: shellPath,
-          GIT_EDITOR: 'true',
-          CLAUDECODE: '1',
-          PS1: '',
-          PS2: '',
-          PS3: '',
-          PS4: '',
-          PROMPT: '',
-          RPROMPT: '',
-        });
-        // R5 secret scrub — the rc-sourcing snapshot child runs user code
-        // (.bashrc / .zshrc) which can exfil any inherited env. Strip
-        // provider/cloud tokens before exposing the env to that script.
-        // Shared with bash-session and shell-jobs via env-scrub.mjs.
-        scrubProviderSecrets(e);
-        // Runtime-root isolation — see env-scrub.mjs scrubRuntimeRootVars.
-        scrubRuntimeRootVars(e);
-        return e;
-      })();
-    let spawned;
-    try {
-      spawned = await spawnShellWithRetry({
-        shell: shellPath,
-        argv: ['-c', '-l', script],
-        shellArg: '-c',
-        cwd: process.cwd(),
-        spawnOptions: { env, cwd: process.cwd() },
-      });
-    } catch {
-      return null;
-    }
-    const child = spawned.child;
-    child.stderr.setEncoding('utf-8');
-    child.stderr.on('data', (s) => {
-      stderrBuf += s;
+  const script = getSnapshotScript(shellPath, snapshotPath, configFileExists);
+  let stderrBuf = '';
+  // Snapshot shell invocation:
+  // `-c -l` (login non-interactive). Earlier `-ic` (interactive command)
+  // forced bash-completion to load — Git's completion loader spawns `find`
+  // in subshells (__git_find_on_cmdline etc.) which detach on Windows when
+  // the parent gets SIGTERM at timeout, leaking find.exe processes. Login
+  // mode runs .bash_profile / .profile (which typically sources .bashrc)
+  // without triggering completion init. The script also explicitly sources
+  // the rc file, so the interactive-guard `[[ $- == *i* ]] && return` is
+  // accepted as a known tradeoff.
+  const env = (() => {
+    // P3 fix: blank prompts so an interactive sourcing in -ic does not
+    // print PS1 / PS2 / RPROMPT / PROMPT noise to stderr (which our
+    // failure log truncates to 200 chars and tags as "snapshot failed"
+    // even when the snapshot itself is fine).
+    // R11: scrub loader/execution vars from process.env before
+    // handing it to the snapshot shell. This site previously passed
+    // raw process.env, bypassing even the R5 secret scrub — the
+    // snapshot child sources the user's rc file, so NODE_OPTIONS /
+    // LD_PRELOAD / BASH_ENV here would inject into every subsequent
+    // bash command that uses this snapshot.
+    const e = scrubLoaderVars({
+      ...process.env,
+      SHELL: shellPath,
+      GIT_EDITOR: 'true',
+      CLAUDECODE: '1',
+      PS1: '',
+      PS2: '',
+      PS3: '',
+      PS4: '',
+      PROMPT: '',
+      RPROMPT: '',
     });
-    return new Promise((resolve) => {
-      let settled = false;
-      const finish = (value) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(value);
-      };
-      const timer = setTimeout(() => {
-        try { child.kill(); } catch {}
-      }, SNAPSHOT_TIMEOUT_MS);
-      if (timer.unref) timer.unref();
-      child.once('close', (code) => {
+    // R5 secret scrub — the rc-sourcing snapshot child runs user code
+    // (.bashrc / .zshrc) which can exfil any inherited env. Strip
+    // provider/cloud tokens before exposing the env to that script.
+    // Shared with bash-session and shell-jobs via env-scrub.mjs.
+    scrubProviderSecrets(e);
+    // Runtime-root isolation — see env-scrub.mjs scrubRuntimeRootVars.
+    scrubRuntimeRootVars(e);
+    return e;
+  })();
+  let spawned;
+  try {
+    spawned = await spawnShellWithRetry({
+      shell: shellPath,
+      argv: ['-c', '-l', script],
+      shellArg: '-c',
+      cwd: process.cwd(),
+      spawnOptions: { env, cwd: process.cwd() },
+    });
+  } catch {
+    return null;
+  }
+  const child = spawned.child;
+  child.stderr.setEncoding('utf-8');
+  child.stderr.on('data', (s) => {
+    stderrBuf += s;
+  });
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {}
+    }, SNAPSHOT_TIMEOUT_MS);
+    if (timer.unref) timer.unref();
+    child.once('close', (code) => {
       clearTimeout(timer);
       if (code === 0 && existsSync(snapshotPath)) {
         // P3 fix: payload-aware sentinel. Header bytes alone (~80) plus
@@ -230,20 +239,25 @@ async function _runSnapshot(shellPath, snapshotPath, configFileExists) {
         // when no user state was captured. Require at least one of:
         // alias declaration, function definition, or shell-option line.
         let snapContent = '';
-        try { snapContent = readFileSync(snapshotPath, 'utf-8'); } catch {}
+        try {
+          snapContent = readFileSync(snapshotPath, 'utf-8');
+        } catch {}
         const _hasAlias = /^\s*alias\s+--\s/m.test(snapContent);
-        const _hasFn = /^\s*[A-Za-z_][\w-]*\s*\(\s*\)\s*\{/m.test(snapContent)
-          || /^\s*function\s+[A-Za-z_]/m.test(snapContent);
-        const _hasOpt = /^\s*setopt\b/m.test(snapContent)
-          || /^\s*shopt\s+-s/m.test(snapContent)
-          || /^\s*set\s+-o\s/m.test(snapContent);
+        const _hasFn =
+          /^\s*[A-Za-z_][\w-]*\s*\(\s*\)\s*\{/m.test(snapContent) || /^\s*function\s+[A-Za-z_]/m.test(snapContent);
+        const _hasOpt =
+          /^\s*setopt\b/m.test(snapContent) ||
+          /^\s*shopt\s+-s/m.test(snapContent) ||
+          /^\s*set\s+-o\s/m.test(snapContent);
         if (!_hasAlias && !_hasFn && !_hasOpt) {
           try {
             process.stderr.write(
-              `[shell-snapshot] empty snapshot rejected (no aliases / functions / options captured, size=${snapContent.length})\n`,
+              `[shell-snapshot] empty snapshot rejected (no aliases / functions / options captured, size=${snapContent.length})\n`
             );
           } catch {}
-          try { unlinkSync(snapshotPath); } catch {}
+          try {
+            unlinkSync(snapshotPath);
+          } catch {}
           finish(null);
           return;
         }
@@ -251,17 +265,17 @@ async function _runSnapshot(shellPath, snapshotPath, configFileExists) {
         finish(snapshotPath);
       } else {
         try {
-          process.stderr.write(
-            `[shell-snapshot] failed exit=${code} stderr=${(stderrBuf || '').slice(0, 200)}\n`,
-          );
+          process.stderr.write(`[shell-snapshot] failed exit=${code} stderr=${(stderrBuf || '').slice(0, 200)}\n`);
         } catch {}
         // Failure branch may have left a partially-written file behind.
-        try { unlinkSync(snapshotPath); } catch {}
+        try {
+          unlinkSync(snapshotPath);
+        } catch {}
         finish(null);
       }
-      });
-      child.once('error', () => finish(null));
     });
+    child.once('error', () => finish(null));
+  });
 }
 
 // Returns the snapshot file path for the given shell, generating one on
@@ -295,10 +309,7 @@ async function getOrCreateSnapshot(shellPath) {
     : shellPath.toLowerCase().includes('bash')
       ? 'bash'
       : 'sh';
-  const snapshotPath = join(
-    dir,
-    `snapshot-${shellTag}-${Date.now()}-${randomUUID().slice(0, 6)}.sh`,
-  );
+  const snapshotPath = join(dir, `snapshot-${shellTag}-${Date.now()}-${randomUUID().slice(0, 6)}.sh`);
   const result = await _runSnapshot(shellPath, snapshotPath, configExists);
   if (result) _cache.set(cacheKey, result);
   else _failedShells.add(cacheKey);

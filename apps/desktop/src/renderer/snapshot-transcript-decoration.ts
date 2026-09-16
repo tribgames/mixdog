@@ -5,11 +5,11 @@
 // turn keys and stable row identities. Focus therefore changed visible rows
 // ("failed" ↔ "Failed · Retry") even though PaneConversation itself stayed
 // mounted. Both pipelines now pass through this same bounded decorator.
-import type { SessionSnapshot } from "../shared/contract";
-import { type Snapshot, type TranscriptItem, EMPTY_SNAPSHOT } from "./desktop-types";
-import { createTranscriptIdentityReconciler } from "./transcript-identity";
-import { reconcileTurnFailures } from "./renderer-logic.mjs";
-import type { TurnFailureModel } from "./renderer-logic.mjs";
+import type { SessionSnapshot } from '../shared/contract';
+import { type Snapshot, type TranscriptItem, EMPTY_SNAPSHOT } from './desktop-types';
+import { createTranscriptIdentityReconciler } from './transcript-identity';
+import { reconcileTurnFailures } from './renderer-logic.mjs';
+import type { TurnFailureModel } from './renderer-logic.mjs';
 
 const DECORATED_SCOPE_LIMIT = 12;
 
@@ -28,10 +28,10 @@ export function createTranscriptSnapshotDecorator(): TranscriptSnapshotDecorator
   const scopes = new Map<string, FailureScope>();
   return {
     decorate(next) {
-      const raw = next && typeof next === "object" ? next as Snapshot : EMPTY_SNAPSHOT;
+      const raw = next && typeof next === 'object' ? (next as Snapshot) : EMPTY_SNAPSHOT;
       if (raw === EMPTY_SNAPSHOT) return raw;
       const state = identity.reconcile(raw);
-      const scope = `${String(state.currentProject || state.project || state.cwd || "")}\n${String(state.sessionId || "")}`;
+      const scope = `${String(state.currentProject || state.project || state.cwd || '')}\n${String(state.sessionId || '')}`;
       let failure = scopes.get(scope);
       if (!failure || failure.items !== state.items) {
         failure = {

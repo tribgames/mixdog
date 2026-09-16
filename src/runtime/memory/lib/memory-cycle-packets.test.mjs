@@ -1,58 +1,69 @@
-import test from 'node:test'
-import assert from 'node:assert/strict'
-import { packCycle1Windows } from './memory-cycle1.mjs'
-import { packHistoryPackets } from './memory-cycle2-review.mjs'
-import { periodicCycleDue } from './cycle-scheduler.mjs'
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { packCycle1Windows } from './memory-cycle1.mjs';
+import { packHistoryPackets } from './memory-cycle2-review.mjs';
+import { periodicCycleDue } from './cycle-scheduler.mjs';
 
 test('cycle1 packets cap each agent at 50 rows and each cycle at four agents', () => {
   const rowsBySession = new Map([
     ['a', Array.from({ length: 130 }, (_, i) => ({ id: 130 - i }))],
     ['b', Array.from({ length: 130 }, (_, i) => ({ id: 260 - i }))],
-  ])
-  const packets = packCycle1Windows(rowsBySession, 100, 10)
-  assert.equal(packets.length, 4)
-  assert.ok(packets.every(packet => packet.length <= 50))
-  assert.equal(packets.reduce((sum, packet) => sum + packet.length, 0), 200)
-})
+  ]);
+  const packets = packCycle1Windows(rowsBySession, 100, 10);
+  assert.equal(packets.length, 4);
+  assert.ok(packets.every((packet) => packet.length <= 50));
+  assert.equal(
+    packets.reduce((sum, packet) => sum + packet.length, 0),
+    200
+  );
+});
 
 test('cycle1 reserves a packet for the oldest selected session and round-robins busy sessions', () => {
-  const sessions = new Map(Array.from({ length: 10 }, (_, s) => [
-    String(s), Array.from({ length: 120 }, (_, i) => ({ id: s * 1000 + 120 - i, session_id: String(s) })),
-  ]))
-  const packets = packCycle1Windows(sessions)
-  assert.deepEqual(packets.map(packet => packet[0].session_id), ['0', '1', '2', '9'])
-  assert.equal(new Set(packets.flat().map(row => row.id)).size, 200)
-})
+  const sessions = new Map(
+    Array.from({ length: 10 }, (_, s) => [
+      String(s),
+      Array.from({ length: 120 }, (_, i) => ({ id: s * 1000 + 120 - i, session_id: String(s) })),
+    ])
+  );
+  const packets = packCycle1Windows(sessions);
+  assert.deepEqual(
+    packets.map((packet) => packet[0].session_id),
+    ['0', '1', '2', '9']
+  );
+  assert.equal(new Set(packets.flat().map((row) => row.id)).size, 200);
+});
 
 test('cycle2 counts roots and lineage together inside the 50-material packet cap', () => {
-  const rows = Array.from({ length: 50 }, (_, i) => ({ id: i + 1 }))
-  const candidates = new Map(rows.map(row => [
-    row.id,
-    Array.from({ length: 6 }, (_, i) => ({ older_id: row.id * 100 + i })),
-  ]))
-  const packed = packHistoryPackets(rows, candidates, { materialCap: 50, maxPackets: 4 })
-  assert.equal(packed.packets.length, 4)
-  assert.ok(packed.packets.every(packet => packet.materialCount <= 50))
-  assert.equal(packed.packets.reduce((sum, packet) => sum + packet.rows.length, 0), 28)
-  assert.equal(packed.deferredIds.length, 22)
-})
+  const rows = Array.from({ length: 50 }, (_, i) => ({ id: i + 1 }));
+  const candidates = new Map(
+    rows.map((row) => [row.id, Array.from({ length: 6 }, (_, i) => ({ older_id: row.id * 100 + i }))])
+  );
+  const packed = packHistoryPackets(rows, candidates, { materialCap: 50, maxPackets: 4 });
+  assert.equal(packed.packets.length, 4);
+  assert.ok(packed.packets.every((packet) => packet.materialCount <= 50));
+  assert.equal(
+    packed.packets.reduce((sum, packet) => sum + packet.rows.length, 0),
+    28
+  );
+  assert.equal(packed.deferredIds.length, 22);
+});
 
 test('cycle2 can place 50 roots without lineage in one disposable agent packet', () => {
-  const rows = Array.from({ length: 50 }, (_, i) => ({ id: i + 1 }))
-  const packed = packHistoryPackets(rows, new Map())
-  assert.equal(packed.packets.length, 1)
-  assert.equal(packed.packets[0].materialCount, 50)
-  assert.equal(packed.deferredIds.length, 0)
-})
+  const rows = Array.from({ length: 50 }, (_, i) => ({ id: i + 1 }));
+  const packed = packHistoryPackets(rows, new Map());
+  assert.equal(packed.packets.length, 1);
+  assert.equal(packed.packets[0].materialCount, 50);
+  assert.equal(packed.deferredIds.length, 0);
+});
 
 test('a never-run periodic cycle gets one startup interval of grace', () => {
-  const startedAt = 1_000_000
-  assert.equal(periodicCycleDue(0, startedAt, 600_000, startedAt + 599_999), false)
-  assert.equal(periodicCycleDue(0, startedAt, 600_000, startedAt + 600_000), true)
-})
+  const startedAt = 1_000_000;
+  assert.equal(periodicCycleDue(0, startedAt, 600_000, startedAt + 599_999), false);
+  assert.equal(periodicCycleDue(0, startedAt, 600_000, startedAt + 600_000), true);
+});
 
 test('an overdue periodic cycle stays due across a runtime restart', () => {
-  const lastSuccess = 1_000_000
-  const restartedAt = 2_000_000
-  assert.equal(periodicCycleDue(lastSuccess, restartedAt, 600_000, restartedAt), true)
-})
+  const lastSuccess = 1_000_000;
+  const restartedAt = 2_000_000;
+  assert.equal(periodicCycleDue(lastSuccess, restartedAt, 600_000, restartedAt), true);
+});

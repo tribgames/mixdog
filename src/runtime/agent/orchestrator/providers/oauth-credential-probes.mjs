@@ -18,19 +18,19 @@ const ANTHROPIC_DEFAULT_CREDENTIALS_PATH = join(resolvePluginData(), 'anthropic-
  * be mistaken for a deliberate logout by every caller downstream.
  */
 function readCredentialFile(path) {
-    if (!path) return { present: false, data: null, unreadable: false };
-    let raw;
-    try {
-        if (!existsSync(path)) return { present: false, data: null, unreadable: false };
-        raw = readFileSync(path, 'utf-8');
-    } catch {
-        return { present: true, data: null, unreadable: true };
-    }
-    try {
-        return { present: true, data: JSON.parse(raw), unreadable: false };
-    } catch {
-        return { present: true, data: null, unreadable: true };
-    }
+  if (!path) return { present: false, data: null, unreadable: false };
+  let raw;
+  try {
+    if (!existsSync(path)) return { present: false, data: null, unreadable: false };
+    raw = readFileSync(path, 'utf-8');
+  } catch {
+    return { present: true, data: null, unreadable: true };
+  }
+  try {
+    return { present: true, data: JSON.parse(raw), unreadable: false };
+  } catch {
+    return { present: true, data: null, unreadable: true };
+  }
 }
 
 // Resolve a probe to 'present' | 'absent' | 'unreadable'. `evaluate` sees only
@@ -38,21 +38,24 @@ function readCredentialFile(path) {
 // least one candidate file was unreadable, the answer is "cannot tell", never
 // "absent".
 function resolveProbeState(paths, evaluate) {
-    let sawUnreadable = false;
-    const docs = [];
-    for (const path of paths) {
-        if (!path) continue;
-        const file = readCredentialFile(path);
-        if (file.unreadable) { sawUnreadable = true; continue; }
-        if (file.data) docs.push(file.data);
+  let sawUnreadable = false;
+  const docs = [];
+  for (const path of paths) {
+    if (!path) continue;
+    const file = readCredentialFile(path);
+    if (file.unreadable) {
+      sawUnreadable = true;
+      continue;
     }
-    if (evaluate(docs) === true) return 'present';
-    return sawUnreadable ? 'unreadable' : 'absent';
+    if (file.data) docs.push(file.data);
+  }
+  if (evaluate(docs) === true) return 'present';
+  return sawUnreadable ? 'unreadable' : 'absent';
 }
 
 function pushUnique(list, value) {
-    if (!value || typeof value !== 'string') return;
-    if (!list.includes(value)) list.push(value);
+  if (!value || typeof value !== 'string') return;
+  if (!list.includes(value)) list.push(value);
 }
 
 // Short-TTL memo. Under simultaneous multi-agent launch, buildDefaultConfig
@@ -78,30 +81,30 @@ const _probeCache = new Map();
 // cannot be back-dated through utimes, and ino changes on rename-replace, so
 // both join the signature; neither costs an extra syscall.
 function credentialPathsSignature(paths, extra = '') {
-    const parts = [];
-    for (const path of paths) {
-        if (!path) continue;
-        try {
-            const st = statSync(path);
-            parts.push(`${path}:${st.mtimeMs}:${st.ctimeMs}:${st.size}:${st.ino}`);
-        } catch {
-            // Missing (the logout case) or unstattable — both distinct from a
-            // readable file, and both must invalidate a cached answer.
-            parts.push(`${path}:-`);
-        }
+  const parts = [];
+  for (const path of paths) {
+    if (!path) continue;
+    try {
+      const st = statSync(path);
+      parts.push(`${path}:${st.mtimeMs}:${st.ctimeMs}:${st.size}:${st.ino}`);
+    } catch {
+      // Missing (the logout case) or unstattable — both distinct from a
+      // readable file, and both must invalidate a cached answer.
+      parts.push(`${path}:-`);
     }
-    if (extra) parts.push(extra);
-    return parts.join('|');
+  }
+  if (extra) parts.push(extra);
+  return parts.join('|');
 }
 
 function memoProbe(key, paths, compute, extraSignature = '') {
-    const signature = credentialPathsSignature(paths, extraSignature);
-    const hit = _probeCache.get(key);
-    const now = Date.now();
-    if (hit && hit.signature === signature && now - hit.ts < PROBE_TTL_MS) return hit.value;
-    const value = compute();
-    _probeCache.set(key, { ts: now, signature, value });
-    return value;
+  const signature = credentialPathsSignature(paths, extraSignature);
+  const hit = _probeCache.get(key);
+  const now = Date.now();
+  if (hit && hit.signature === signature && now - hit.ts < PROBE_TTL_MS) return hit.value;
+  const value = compute();
+  _probeCache.set(key, { ts: now, signature, value });
+  return value;
 }
 
 function anthropicOAuthState() {
@@ -127,8 +130,11 @@ function anthropicOAuthState() {
       const chosen = candidates[0];
       const hasInferenceScope = Array.isArray(chosen.scopes) && chosen.scopes.includes('user:inference');
       const expiresAt = Number(chosen.expiresAt) || 0;
-      return !!(chosen.accessToken && hasInferenceScope
-        && (expiresAt === 0 || expiresAt > Date.now() || chosen.refreshToken));
+      return !!(
+        chosen.accessToken &&
+        hasInferenceScope &&
+        (expiresAt === 0 || expiresAt > Date.now() || chosen.refreshToken)
+      );
     });
   });
 }
@@ -137,25 +143,20 @@ function openAIOAuthState() {
   // Match the chat provider's account/path precedence. Credentials belonging
   // to another account must never authenticate a missing or unreadable one.
   const paths = [
-    boundProviderAuthPath('openai-oauth')
-      || process.env.OPENAI_OAUTH_CREDENTIALS_PATH
-      || join(resolvePluginData(), 'openai-oauth.json'),
+    boundProviderAuthPath('openai-oauth') ||
+      process.env.OPENAI_OAUTH_CREDENTIALS_PATH ||
+      join(resolvePluginData(), 'openai-oauth.json'),
   ];
-  return memoProbe('openai-oauth', paths, () => resolveProbeState(
-    paths,
-    (docs) => docs.some((raw) => !!(raw?.access_token && raw?.refresh_token)),
-  ));
+  return memoProbe('openai-oauth', paths, () =>
+    resolveProbeState(paths, (docs) => docs.some((raw) => !!(raw?.access_token && raw?.refresh_token)))
+  );
 }
 
 function grokOAuthState() {
-  const paths = [
-    process.env.GROK_OAUTH_CREDENTIALS_PATH,
-    join(resolvePluginData(), 'grok-oauth.json'),
-  ];
-  return memoProbe('grok-oauth', paths, () => resolveProbeState(
-    paths,
-    (docs) => docs.some((own) => !!(own?.access_token && own?.refresh_token)),
-  ));
+  const paths = [process.env.GROK_OAUTH_CREDENTIALS_PATH, join(resolvePluginData(), 'grok-oauth.json')];
+  return memoProbe('grok-oauth', paths, () =>
+    resolveProbeState(paths, (docs) => docs.some((own) => !!(own?.access_token && own?.refresh_token)))
+  );
 }
 
 // Antigravity needs a resolved Cloud project alongside the tokens: without it
@@ -164,14 +165,15 @@ function antigravityOAuthState() {
   // Same account/path precedence as the token store: a login lands in the
   // selected account's pool file, so the probe must read that file first.
   const paths = [
-    boundProviderAuthPath('antigravity-oauth')
-      || process.env.ANTIGRAVITY_OAUTH_CREDENTIALS_PATH
-      || join(resolvePluginData(), 'antigravity-oauth.json'),
+    boundProviderAuthPath('antigravity-oauth') ||
+      process.env.ANTIGRAVITY_OAUTH_CREDENTIALS_PATH ||
+      join(resolvePluginData(), 'antigravity-oauth.json'),
   ];
-  return memoProbe('antigravity-oauth', paths, () => resolveProbeState(
-    paths,
-    (docs) => docs.some((own) => !!(own?.access_token && own?.refresh_token && own?.project_id)),
-  ));
+  return memoProbe('antigravity-oauth', paths, () =>
+    resolveProbeState(paths, (docs) =>
+      docs.some((own) => !!(own?.access_token && own?.refresh_token && own?.project_id))
+    )
+  );
 }
 
 // Content fingerprint of CURSOR_ACCESS_TOKEN (never the token itself).
@@ -184,31 +186,35 @@ function cursorEnvTokenFingerprint() {
 }
 
 function cursorOAuthState() {
-  const paths = [
-    process.env.CURSOR_OAUTH_CREDENTIALS_PATH,
-    join(resolvePluginData(), 'cursor-oauth.json'),
-  ];
+  const paths = [process.env.CURSOR_OAUTH_CREDENTIALS_PATH, join(resolvePluginData(), 'cursor-oauth.json')];
   // The env token is the whole answer on this branch and has no file metadata
   // behind it, so its VALUE is what the memo signature has to track: a length
   // (or a bare present/absent flag) let a swap to an equal-length expired token
   // keep serving the stale 'present' for up to PROBE_TTL_MS. Hashed rather than
   // embedded so the memo never holds a second copy of the raw credential.
   const envSignature = `env:${cursorEnvTokenFingerprint()}`;
-  return memoProbe('cursor-oauth', paths, () => {
-    // An env-provided token needs no file read, so it is never "unreadable".
-    // Expiry is read by the one shared JWT reader (cursor-auth.cursorTokenExpiry),
-    // which answers 0 for a non-JWT or unparseable token — exactly the "assume
-    // usable" outcome this branch already took for those shapes.
-    if (process.env.CURSOR_ACCESS_TOKEN) {
-      const expiresAt = cursorTokenExpiry(process.env.CURSOR_ACCESS_TOKEN);
-      return (expiresAt === 0 || expiresAt > Date.now()) ? 'present' : 'absent';
-    }
-    return resolveProbeState(paths, (docs) => docs.some((own) => {
-      if (!own?.access_token) return false;
-      const expiresAt = Number(own.expires_at) || 0;
-      return expiresAt === 0 || expiresAt > Date.now() || Boolean(own.refresh_token);
-    }));
-  }, envSignature);
+  return memoProbe(
+    'cursor-oauth',
+    paths,
+    () => {
+      // An env-provided token needs no file read, so it is never "unreadable".
+      // Expiry is read by the one shared JWT reader (cursor-auth.cursorTokenExpiry),
+      // which answers 0 for a non-JWT or unparseable token — exactly the "assume
+      // usable" outcome this branch already took for those shapes.
+      if (process.env.CURSOR_ACCESS_TOKEN) {
+        const expiresAt = cursorTokenExpiry(process.env.CURSOR_ACCESS_TOKEN);
+        return expiresAt === 0 || expiresAt > Date.now() ? 'present' : 'absent';
+      }
+      return resolveProbeState(paths, (docs) =>
+        docs.some((own) => {
+          if (!own?.access_token) return false;
+          const expiresAt = Number(own.expires_at) || 0;
+          return expiresAt === 0 || expiresAt > Date.now() || Boolean(own.refresh_token);
+        })
+      );
+    },
+    envSignature
+  );
 }
 
 const OAUTH_PROBE_STATES = new Map([
@@ -225,7 +231,9 @@ const OAUTH_PROBE_STATES = new Map([
 export const DEV_ONLY_OAUTH_PROVIDERS = Object.freeze(new Set(['cursor-oauth', 'antigravity-oauth']));
 
 function devProvidersFlagEnabled() {
-  const raw = String(process.env.MIXDOG_DEV_PROVIDERS || '').trim().toLowerCase();
+  const raw = String(process.env.MIXDOG_DEV_PROVIDERS || '')
+    .trim()
+    .toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 }
 
@@ -249,11 +257,25 @@ export function oauthCredentialProbeState(name) {
   if (!isOAuthProviderAvailable(id)) return 'absent';
   const probe = OAUTH_PROBE_STATES.get(id);
   if (!probe) return 'absent';
-  try { return probe(); } catch { return 'unreadable'; }
+  try {
+    return probe();
+  } catch {
+    return 'unreadable';
+  }
 }
 
-export function hasAnthropicOAuthCredentials() { return anthropicOAuthState() === 'present'; }
-export function hasOpenAIOAuthCredentials() { return openAIOAuthState() === 'present'; }
-export function hasGrokOAuthCredentials() { return grokOAuthState() === 'present'; }
-export function hasAntigravityOAuthCredentials() { return oauthCredentialProbeState('antigravity-oauth') === 'present'; }
-export function hasCursorOAuthCredentials() { return oauthCredentialProbeState('cursor-oauth') === 'present'; }
+export function hasAnthropicOAuthCredentials() {
+  return anthropicOAuthState() === 'present';
+}
+export function hasOpenAIOAuthCredentials() {
+  return openAIOAuthState() === 'present';
+}
+export function hasGrokOAuthCredentials() {
+  return grokOAuthState() === 'present';
+}
+export function hasAntigravityOAuthCredentials() {
+  return oauthCredentialProbeState('antigravity-oauth') === 'present';
+}
+export function hasCursorOAuthCredentials() {
+  return oauthCredentialProbeState('cursor-oauth') === 'present';
+}

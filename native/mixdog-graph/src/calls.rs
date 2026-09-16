@@ -280,7 +280,10 @@ fn parse_call_document(
     match parse_outline_rules::<ScanLang>(doc) {
         Ok(parsed) => {
             if parsed.len() != 1 {
-                let ids: Vec<&str> = parsed.iter().map(|rule| rule.common().id.as_str()).collect();
+                let ids: Vec<&str> = parsed
+                    .iter()
+                    .map(|rule| rule.common().id.as_str())
+                    .collect();
                 errors.push(format!(
                     "{origin}: document {number}: {} rules in one YAML document ({}); \
                      split them with `---` so `# mixdog-call-kind:` binds to one rule",
@@ -308,11 +311,20 @@ fn parse_call_document(
 fn load_rules() -> LoadedCallRules {
     let mut rules = Vec::new();
     let mut errors = Vec::new();
-    for (index, doc) in split_yaml_documents(BUNDLED_CALL_RULES).into_iter().enumerate() {
+    for (index, doc) in split_yaml_documents(BUNDLED_CALL_RULES)
+        .into_iter()
+        .enumerate()
+    {
         parse_call_document(doc, "rules/calls", index + 1, &mut rules, &mut errors);
         // `.tsx` parses with its own grammar and needs the identical rule.
         if let Some(tsx) = tsx_variant(doc) {
-            parse_call_document(&tsx, "rules/calls (tsx copy)", index + 1, &mut rules, &mut errors);
+            parse_call_document(
+                &tsx,
+                "rules/calls (tsx copy)",
+                index + 1,
+                &mut rules,
+                &mut errors,
+            );
         }
     }
     LoadedCallRules { rules, errors }
@@ -382,9 +394,9 @@ impl CallExtractors {
                     kinds.push(entry.kind);
                     recvs.push(entry.recv);
                 }
-                Err(error) => {
-                    errors.push(format!("{lang}: call rule `{id}` does not compile: {error}"))
-                }
+                Err(error) => errors.push(format!(
+                    "{lang}: call rule `{id}` does not compile: {error}"
+                )),
             }
         }
 
@@ -554,9 +566,7 @@ impl<'a> ContainmentSweep<'a> {
 /// `ContainmentSweep` (start ASC, end DESC) by the caller that also uses them
 /// to resolve symbol parents.
 pub fn finish(mut raw: Vec<RawCall>, symbols: &[SymbolSpan<'_>]) -> Vec<CallInfo> {
-    raw.sort_by(|a, b| {
-        (a.line, a.col, &a.name, a.kind).cmp(&(b.line, b.col, &b.name, b.kind))
-    });
+    raw.sort_by(|a, b| (a.line, a.col, &a.name, a.kind).cmp(&(b.line, b.col, &b.name, b.kind)));
     // One name node is one call site: a second rule matching the same callee
     // (a nested node that re-reports it) never doubles the list.
     raw.dedup_by(|a, b| a.line == b.line && a.col == b.col && a.name == b.name);
@@ -614,7 +624,9 @@ mod tests {
     fn named(calls: &[(String, u32, u32, u32, &'static str, String, String)]) -> Vec<String> {
         calls
             .iter()
-            .map(|(name, _, _, _, kind, recv, _)| format!("{kind} {name} {recv}").trim_end().to_string())
+            .map(|(name, _, _, _, kind, recv, _)| {
+                format!("{kind} {name} {recv}").trim_end().to_string()
+            })
             .collect()
     }
 
@@ -656,7 +668,11 @@ mod tests {
     #[test]
     fn typescript_new_expression_is_kind_new() {
         assert_eq!(
-            named(&calls("typescript", "ts", "new Widget();\nnew a.Widget();\n")),
+            named(&calls(
+                "typescript",
+                "ts",
+                "new Widget();\nnew a.Widget();\n"
+            )),
             // Last segment only, qualifier as the receiver, kind still `new`.
             vec!["new Widget", "new Widget a"]
         );
@@ -664,7 +680,8 @@ mod tests {
 
     #[test]
     fn typescript_in_symbol_is_the_innermost_enclosing_symbol() {
-        let source = "function outer() {\n  function inner() {\n    run();\n  }\n  helper();\n}\ntop();\n";
+        let source =
+            "function outer() {\n  function inner() {\n    run();\n  }\n  helper();\n}\ntop();\n";
         let found: Vec<(String, String)> = calls("typescript", "ts", source)
             .into_iter()
             .map(|(name, _, _, _, _, _, in_symbol)| (name, in_symbol))
@@ -742,7 +759,12 @@ mod tests {
         );
         assert_eq!(extract("", "typescript", ts).calls, Some(Vec::new()));
         assert_eq!(
-            extract("# only a comment\n", "python", scan_lang_for_ext("py").expect("py")).calls,
+            extract(
+                "# only a comment\n",
+                "python",
+                scan_lang_for_ext("py").expect("py")
+            )
+            .calls,
             Some(Vec::new())
         );
     }
@@ -842,18 +864,24 @@ mod tests {
         // A string-literal receiver of non-BMP emoji: 4 bytes per character,
         // and the quote inside `recv` also has to survive JSON escaping.
         let emoji = "🙂".repeat(80);
-        let found = calls("typescript", "ts", &format!("const z = \"{emoji}\".trim();\n"));
+        let found = calls(
+            "typescript",
+            "ts",
+            &format!("const z = \"{emoji}\".trim();\n"),
+        );
         let (_, _, _, _, _, recv, _) = &found[0];
         assert_eq!(recv.chars().count(), 64);
         assert_eq!(*recv, format!("\"{}…", "🙂".repeat(62)));
         assert!(recv.chars().all(|ch| ch == '"' || ch == '🙂' || ch == '…'));
-        let json = serde_json::to_string(&extract(
-            &format!("const z = \"{emoji}\".trim();\n"),
-            "typescript",
-            scan_lang_for_ext("ts").expect("ts"),
+        let json = serde_json::to_string(
+            &extract(
+                &format!("const z = \"{emoji}\".trim();\n"),
+                "typescript",
+                scan_lang_for_ext("ts").expect("ts"),
+            )
+            .calls
+            .expect("list"),
         )
-        .calls
-        .expect("list"))
         .expect("serializes");
         assert!(json.contains(r#"\"🙂"#), "{json}");
 
@@ -898,7 +926,8 @@ mod tests {
     /// A parenthesised or awaited receiver is still a receiver.
     #[test]
     fn parenthesised_and_awaited_receivers_are_reported() {
-        let source = "async function run() {\n  (await import('x')).foo();\n  (await load()).baz();\n}\n";
+        let source =
+            "async function run() {\n  (await import('x')).foo();\n  (await load()).baz();\n}\n";
         for (lang, ext) in [("typescript", "ts"), ("javascript", "mjs")] {
             assert_eq!(
                 named(&calls(lang, ext, source)),
@@ -930,7 +959,11 @@ mod tests {
 
     #[test]
     fn every_call_rule_file_compiles_for_every_extraction_language() {
-        assert!(super::load_errors().is_empty(), "{:?}", super::load_errors());
+        assert!(
+            super::load_errors().is_empty(),
+            "{:?}",
+            super::load_errors()
+        );
         for info in crate::scan_lang::LANG_INFOS {
             if !info.extract() {
                 continue;
@@ -954,7 +987,11 @@ mod tests {
         let source = "fn probe(text: &str) {\n    let a = text.parse::<u32>();\n    let b = serde_json::from_str::<Vec<u32>>(text);\n    let c = plain::<u32>(1);\n}\n";
         assert_eq!(
             named(&calls("rust", "rs", source)),
-            vec!["method parse text", "method from_str serde_json", "call plain"]
+            vec![
+                "method parse text",
+                "method from_str serde_json",
+                "call plain"
+            ]
         );
         // The name node is the identifier alone: the type arguments are not
         // part of `name`, and `endCol` stops before `::<`.
@@ -1133,9 +1170,16 @@ mod tests {
         // A language whose call rules are ALL unusable still extracts symbols.
         let none = super::CallExtractors::compile(lang, &[]);
         assert!(none.is_empty());
-        let extraction = extract("export class Widget { run() { helper(); } }\n", "typescript", lang);
+        let extraction = extract(
+            "export class Widget { run() { helper(); } }\n",
+            "typescript",
+            lang,
+        );
         assert!(
-            extraction.symbols.iter().any(|symbol| symbol.name == "Widget"),
+            extraction
+                .symbols
+                .iter()
+                .any(|symbol| symbol.name == "Widget"),
             "symbol extraction is independent of the call rules"
         );
     }

@@ -10,9 +10,7 @@ import {
 /** Actions that only observe the desktop. Naming them on the tool surface lets
  *  a caller repeat one without wondering whether it moved anything; the host
  *  enforces the same split when it decides which session owns a write. */
-export const COMPUTER_OBSERVATION_ACTIONS = Object.freeze([
-  'list', 'diagnose', 'capture', 'verify', 'wait_for_user',
-]);
+export const COMPUTER_OBSERVATION_ACTIONS = Object.freeze(['list', 'diagnose', 'capture', 'verify', 'wait_for_user']);
 
 const MAX_CLIPBOARD_TEXT_LENGTH = 50_000;
 const MAX_TARGET_TOKEN_LENGTH = 4_096;
@@ -26,8 +24,16 @@ const ocrLanguage = {
 };
 
 const ACTIONS = [
-  'list', 'diagnose', 'capture', 'verify', 'wait_for_user',
-  'act', 'window', 'menu', 'clipboard', 'launch',
+  'list',
+  'diagnose',
+  'capture',
+  'verify',
+  'wait_for_user',
+  'act',
+  'window',
+  'menu',
+  'clipboard',
+  'launch',
 ];
 
 const windowTarget = {
@@ -52,7 +58,8 @@ const delivery = {
   delivery: {
     type: 'string',
     enum: ['background', 'foreground'],
-    description: 'Background by default for supported semantic/message input. Use explicit foreground for unsupported routes, real pointer/focus requirements, or demonstrations. Never replay uncertain input in another mode.',
+    description:
+      'Background by default for supported semantic/message input. Use explicit foreground for unsupported routes, real pointer/focus requirements, or demonstrations. Never replay uncertain input in another mode.',
   },
 };
 
@@ -92,7 +99,8 @@ const captureProperties = {
   mode: {
     type: 'string',
     enum: ['state', 'som', 'vision', 'ax', 'zoom'],
-    description: 'state (default) is structured UI plus image; som adds marks; vision is image only; ax is accessibility only; zoom crops a prior frame.',
+    description:
+      'state (default) is structured UI plus image; som adds marks; vision is image only; ax is accessibility only; zoom crops a prior frame.',
   },
   frame_id: {
     type: 'string',
@@ -109,7 +117,8 @@ const captureProperties = {
   },
   include_ocr: {
     type: 'boolean',
-    description: 'State/SOM automatically use offline Windows OCR when semantic targets are absent; true always runs OCR even when semantic targets exist. OCR shares max_elements.',
+    description:
+      'State/SOM automatically use offline Windows OCR when semantic targets are absent; true always runs OCR even when semantic targets exist. OCR shares max_elements.',
   },
   ocr_language: {
     ...ocrLanguage,
@@ -142,12 +151,14 @@ const captureProperties = {
 
 export const COMPUTER_INPUT_SCHEMA = {
   type: 'object',
-  description: 'One compact Computer Use operation. Use act.actions to execute 1-6 simple actions and receive one fresh observation.',
+  description:
+    'One compact Computer Use operation. Use act.actions to execute 1-6 simple actions and receive one fresh observation.',
   properties: {
     action: {
       type: 'string',
       enum: ACTIONS,
-      description: 'Use capture to observe, act for simple input actions, and the remaining operations only for their named advanced capability.',
+      description:
+        'Use capture to observe, act for simple input actions, and the remaining operations only for their named advanced capability.',
     },
     input: {
       type: 'object',
@@ -157,109 +168,168 @@ export const COMPUTER_INPUT_SCHEMA = {
   required: ['action'],
   additionalProperties: false,
   oneOf: [
-    branch('wait_for_user', input({
-      timeout_ms: { type: 'integer', minimum: 0, maximum: 120000,
-        description: 'Wait for manual or host-configured idle resume; default 60000.' },
-    }), false),
-    branch('list', input({
-      kind: { type: 'string', enum: ['windows', 'apps'] },
-    }, ['kind'])),
-    branch('diagnose', input({
-      ...windowTarget,
-      ocr_language: {
-        ...ocrLanguage,
-        description: 'Optional Windows OCR language tag to verify, e.g. ko or en-US.',
-      },
-    }), false),
-    branch('capture', input(captureProperties), false),
-    branch('act', input({
-      ...windowTarget,
-      ...appTarget,
-      frame_id: {
-        type: 'string',
-        minLength: 1,
-        maxLength: MAX_TARGET_TOKEN_LENGTH,
-        description: 'Latest unexpired frame id shared by coordinate actions in this act call.',
-      },
-      actions: {
-        type: 'array',
-        items: COMPUTER_CORE_ACTION_SCHEMA,
-        minItems: 1,
-        maxItems: 6,
-        description: 'First: an input action. Then only type/key/wait, reusing focus without targets. Waits total ≤10s; transition/failure stops the rest.',
-      },
-      ...delivery,
-    }, ['actions'])),
-    branch('window', input({
-      ...windowTarget,
-      ...appTarget,
-      operation: {
-        type: 'string',
-        enum: ['focus', 'move', 'minimize', 'maximize', 'restore', 'close'],
-      },
-      x: { type: 'integer', description: 'move only: new left edge; y the top; width/height an optional new size.' },
-      y: { type: 'integer' },
-      width: { type: 'integer', minimum: 1 },
-      height: { type: 'integer', minimum: 1 },
-    }, ['operation'])),
-    branch('menu', input({
-      ...windowTarget,
-      ...appTarget,
-      path: {
-        type: 'array',
-        items: { type: 'string', minLength: 1, maxLength: 512 },
-        minItems: 1,
-        maxItems: 8,
-        description: 'Exact labels from the bar down, e.g. ["File","Save As"]. Missing, ambiguous, or disabled entries fail closed.',
-      },
-    }, ['path'])),
-    branch('verify', input({
-      ...windowTarget,
-      ...appTarget,
-      expect: {
-        type: 'array',
-        minItems: 1,
-        maxItems: 8,
-        description: 'AND-combined predicates. Reads state only: no pixels, and prior refs stay valid.',
-        items: {
-          type: 'object',
-          properties: {
-            present: {
-              type: 'string',
-              maxLength: MAX_TARGET_TOKEN_LENGTH,
-              description: 'Text an element name or value must contain.',
-            },
-            absent: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH },
-            title_contains: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH },
-            window_exists: { type: 'boolean' },
-          },
-          additionalProperties: false,
+    branch(
+      'wait_for_user',
+      input({
+        timeout_ms: {
+          type: 'integer',
+          minimum: 0,
+          maximum: 120000,
+          description: 'Wait for manual or host-configured idle resume; default 60000.',
         },
-      },
-      timeout_ms: { type: 'integer', minimum: 0, maximum: 30000 },
-      stable_samples: {
-        type: 'integer',
-        minimum: 1,
-        maximum: 5,
-        description: 'Consecutive satisfied samples required. Default 2.',
-      },
-    }, ['expect'])),
-    branch('clipboard', input({
-      operation: { type: 'string', enum: ['read', 'write'] },
-      text: {
-        type: 'string',
-        maxLength: MAX_CLIPBOARD_TEXT_LENGTH,
-        description: 'Required for operation="write".',
-      },
-    }, ['operation'])),
-    branch('launch', input({
-      app: {
-        type: 'string',
-        minLength: 1,
-        maxLength: MAX_TARGET_TOKEN_LENGTH,
-        description: 'Executable name, exact path, file, or URL.',
-      },
-    }, ['app'])),
+      }),
+      false
+    ),
+    branch(
+      'list',
+      input(
+        {
+          kind: { type: 'string', enum: ['windows', 'apps'] },
+        },
+        ['kind']
+      )
+    ),
+    branch(
+      'diagnose',
+      input({
+        ...windowTarget,
+        ocr_language: {
+          ...ocrLanguage,
+          description: 'Optional Windows OCR language tag to verify, e.g. ko or en-US.',
+        },
+      }),
+      false
+    ),
+    branch('capture', input(captureProperties), false),
+    branch(
+      'act',
+      input(
+        {
+          ...windowTarget,
+          ...appTarget,
+          frame_id: {
+            type: 'string',
+            minLength: 1,
+            maxLength: MAX_TARGET_TOKEN_LENGTH,
+            description: 'Latest unexpired frame id shared by coordinate actions in this act call.',
+          },
+          actions: {
+            type: 'array',
+            items: COMPUTER_CORE_ACTION_SCHEMA,
+            minItems: 1,
+            maxItems: 6,
+            description:
+              'First: an input action. Then only type/key/wait, reusing focus without targets. Waits total ≤10s; transition/failure stops the rest.',
+          },
+          ...delivery,
+        },
+        ['actions']
+      )
+    ),
+    branch(
+      'window',
+      input(
+        {
+          ...windowTarget,
+          ...appTarget,
+          operation: {
+            type: 'string',
+            enum: ['focus', 'move', 'minimize', 'maximize', 'restore', 'close'],
+          },
+          x: {
+            type: 'integer',
+            description: 'move only: new left edge; y the top; width/height an optional new size.',
+          },
+          y: { type: 'integer' },
+          width: { type: 'integer', minimum: 1 },
+          height: { type: 'integer', minimum: 1 },
+        },
+        ['operation']
+      )
+    ),
+    branch(
+      'menu',
+      input(
+        {
+          ...windowTarget,
+          ...appTarget,
+          path: {
+            type: 'array',
+            items: { type: 'string', minLength: 1, maxLength: 512 },
+            minItems: 1,
+            maxItems: 8,
+            description:
+              'Exact labels from the bar down, e.g. ["File","Save As"]. Missing, ambiguous, or disabled entries fail closed.',
+          },
+        },
+        ['path']
+      )
+    ),
+    branch(
+      'verify',
+      input(
+        {
+          ...windowTarget,
+          ...appTarget,
+          expect: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 8,
+            description: 'AND-combined predicates. Reads state only: no pixels, and prior refs stay valid.',
+            items: {
+              type: 'object',
+              properties: {
+                present: {
+                  type: 'string',
+                  maxLength: MAX_TARGET_TOKEN_LENGTH,
+                  description: 'Text an element name or value must contain.',
+                },
+                absent: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH },
+                title_contains: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH },
+                window_exists: { type: 'boolean' },
+              },
+              additionalProperties: false,
+            },
+          },
+          timeout_ms: { type: 'integer', minimum: 0, maximum: 30000 },
+          stable_samples: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 5,
+            description: 'Consecutive satisfied samples required. Default 2.',
+          },
+        },
+        ['expect']
+      )
+    ),
+    branch(
+      'clipboard',
+      input(
+        {
+          operation: { type: 'string', enum: ['read', 'write'] },
+          text: {
+            type: 'string',
+            maxLength: MAX_CLIPBOARD_TEXT_LENGTH,
+            description: 'Required for operation="write".',
+          },
+        },
+        ['operation']
+      )
+    ),
+    branch(
+      'launch',
+      input(
+        {
+          app: {
+            type: 'string',
+            minLength: 1,
+            maxLength: MAX_TARGET_TOKEN_LENGTH,
+            description: 'Executable name, exact path, file, or URL.',
+          },
+        },
+        ['app']
+      )
+    ),
   ],
 };
 
@@ -273,10 +343,7 @@ for (const actionBranch of COMPUTER_INPUT_SCHEMA.oneOf) {
 // Actions that drive one exact window. They carry exactly one window target:
 // the exact window_id, or an app label the host resolves to one window and
 // refuses when it matches more than one.
-const WINDOW_TARGET_ACTIONS = new Set([
-  'act', 'window', 'menu', 'verify',
-]);
-
+const WINDOW_TARGET_ACTIONS = new Set(['act', 'window', 'menu', 'verify']);
 
 function objectSchemaValueError(value, schema, path) {
   for (const [name, item] of Object.entries(value)) {
@@ -308,9 +375,7 @@ export function validateComputerToolArgs(rawArgs) {
     return 'Computer Use arguments must be an object';
   }
   const args = normalizeComputerToolArgs(rawArgs);
-  const rootExtras = Object.keys(args).filter(
-    (key) => !['action', 'input'].includes(key),
-  );
+  const rootExtras = Object.keys(args).filter((key) => !['action', 'input'].includes(key));
   if (rootExtras.length) {
     return `Computer Use does not accept root field(s): ${rootExtras.join(', ')}`;
   }
@@ -345,9 +410,7 @@ export function validateComputerToolArgs(rawArgs) {
 
   const inputObject = inputValue || {};
   for (const field of ['window_id', 'app', 'frame_id']) {
-    if (hasOwn(inputObject, field)
-      && typeof inputObject[field] === 'string'
-      && !inputObject[field].trim()) {
+    if (hasOwn(inputObject, field) && typeof inputObject[field] === 'string' && !inputObject[field].trim()) {
       return `Computer Use ${name} ${field} must not be empty`;
     }
   }
@@ -359,9 +422,7 @@ export function validateComputerToolArgs(rawArgs) {
   }
   if (name === 'capture') {
     const mode = inputObject.mode || 'state';
-    const captureTargets = ['window_id', 'app', 'screen'].filter(
-      (key) => hasOwn(inputObject, key),
-    );
+    const captureTargets = ['window_id', 'app', 'screen'].filter((key) => hasOwn(inputObject, key));
     if (captureTargets.length > 1) {
       return 'Computer Use capture accepts at most one of window_id, app, or screen';
     }
@@ -428,8 +489,11 @@ export function validateComputerToolArgs(rawArgs) {
     });
     if (actionError) return actionError;
   }
-  if (name === 'window' && inputObject.operation === 'move'
-    && !['x', 'y', 'width', 'height'].some((key) => hasOwn(inputObject, key))) {
+  if (
+    name === 'window' &&
+    inputObject.operation === 'move' &&
+    !['x', 'y', 'width', 'height'].some((key) => hasOwn(inputObject, key))
+  ) {
     return 'Computer Use window operation="move" requires x, y, width, or height';
   }
   if (name === 'clipboard') {
@@ -447,10 +511,13 @@ export function validateComputerToolArgs(rawArgs) {
     if (/[\r\n\0]|javascript:/i.test(app) || (!httpUrl && /&&|\|\|/.test(app))) {
       return 'Computer Use launch app must be one executable, file, or URL without command syntax';
     }
-    if (!httpUrl && (
-      /(?:^|[\\/"'])\s*(?:cmd|powershell|pwsh|wt|wsl|bash|sh|zsh|fish|nu|wscript|cscript|mshta|rundll32|regsvr32)(?:\.exe)?(?:["'\s]|$)/i.test(app)
-      || /\.(?:bat|cmd|ps1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|appref-ms)(?:["']?\s*)$/i.test(app)
-    )) {
+    if (
+      !httpUrl &&
+      (/(?:^|[\\/"'])\s*(?:cmd|powershell|pwsh|wt|wsl|bash|sh|zsh|fish|nu|wscript|cscript|mshta|rundll32|regsvr32)(?:\.exe)?(?:["'\s]|$)/i.test(
+        app
+      ) ||
+        /\.(?:bat|cmd|ps1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|appref-ms)(?:["']?\s*)$/i.test(app))
+    ) {
       return 'Computer Use launch blocks shells, script hosts, and shortcut files; use an exact non-shell executable, document, or URL';
     }
   }
@@ -480,16 +547,12 @@ export function toComputerHostCommand(rawArgs) {
         const translated = { ...step, action: step.type };
         delete translated.type;
         if (step.type === 'click') {
-          translated.action = step.button === 'right'
-            ? 'right_click'
-            : step.button === 'middle'
-              ? 'middle_click'
-              : 'click';
+          translated.action =
+            step.button === 'right' ? 'right_click' : step.button === 'middle' ? 'middle_click' : 'click';
           delete translated.button;
         }
         if (step.type === 'move') translated.action = 'mouse_move';
-        if (inputValue.frame_id
-          && ['x', 'y', 'to_x', 'to_y'].some((field) => hasOwn(step, field))) {
+        if (inputValue.frame_id && ['x', 'y', 'to_x', 'to_y'].some((field) => hasOwn(step, field))) {
           translated.frame_id = inputValue.frame_id;
         }
         return translated;
@@ -498,13 +561,14 @@ export function toComputerHostCommand(rawArgs) {
       delete command.frame_id;
       break;
     case 'window':
-      command.action = inputValue.operation === 'focus'
-        ? 'focus_window'
-        : inputValue.operation === 'move'
-          ? 'move_window'
-          : inputValue.operation === 'close'
-            ? 'close_window'
-            : 'window_state';
+      command.action =
+        inputValue.operation === 'focus'
+          ? 'focus_window'
+          : inputValue.operation === 'move'
+            ? 'move_window'
+            : inputValue.operation === 'close'
+              ? 'close_window'
+              : 'window_state';
       if (command.action === 'window_state') command.state = inputValue.operation;
       delete command.operation;
       break;

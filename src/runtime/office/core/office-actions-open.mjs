@@ -48,12 +48,15 @@ function openedOfficeIdentity(session, action, extra = {}) {
  *  the operations this call named, then snapshot or finalize. */
 export async function openCreateOrAttachOffice({ action, args, cwd, dataDir, signal, startedAt }) {
   if (action === 'attach' && args.finalize === true) {
-    throw new Error('attach does not support finalize:true; attach first, then use batch with finalize:true when closing the document is intended');
+    throw new Error(
+      'attach does not support finalize:true; attach first, then use batch with finalize:true when closing the document is intended'
+    );
   }
   const operationArgs = signal ? { ...args, __signal: signal } : args;
-  const session = action === 'create'
-    ? await createSession(operationArgs, cwd, dataDir)
-    : await openSession(action === 'attach' ? { ...operationArgs, mode: 'attach' } : operationArgs, cwd, dataDir);
+  const session =
+    action === 'create'
+      ? await createSession(operationArgs, cwd, dataDir)
+      : await openSession(action === 'attach' ? { ...operationArgs, mode: 'attach' } : operationArgs, cwd, dataDir);
   await ensureOfficeSessionDesign(session, args, dataDir, { created: session.created === true });
   session.activeSignal = signal;
   let initialEditSettled = false;
@@ -69,53 +72,65 @@ export async function openCreateOrAttachOffice({ action, args, cwd, dataDir, sig
       : null;
     initialEditSettled = true;
     if (args.finalize === true) {
-      const completed = await finalize(session, {
-        ...args,
-        __alreadySaved: initialEdit?.saved === true,
-      }, cwd, signal);
+      const completed = await finalize(
+        session,
+        {
+          ...args,
+          __alreadySaved: initialEdit?.saved === true,
+        },
+        cwd,
+        signal
+      );
       const images = Array.isArray(completed?._images) ? completed._images : [];
       if (completed && typeof completed === 'object') delete completed._images;
       delete session.activeSignal;
-      return toolResult(finalizeOfficeResult(
-        {
-          ...completed,
-          ...openedOfficeIdentity(session, action, initialEdit ? { batch: initialEdit } : {}),
-        },
-        { action, session, startedAt },
-      ), false, images);
+      return toolResult(
+        finalizeOfficeResult(
+          {
+            ...completed,
+            ...openedOfficeIdentity(session, action, initialEdit ? { batch: initialEdit } : {}),
+          },
+          { action, session, startedAt }
+        ),
+        false,
+        images
+      );
     }
-    const initial = args.snapshotAfter === false || (initialEdit && args.snapshotAfter !== true)
-      ? {
-          session: session.id,
-          mode: session.mode,
-          backend: session.backend,
-          fileKind: session.fileKind,
-          source: session.source,
-          output: session.target,
-          ownership: session.ownership,
-          visible: session.visible,
-          appPid: session.appPid,
-          windowHwnd: session.windowHwnd,
-          foregroundActivated: session.foregroundActivated === true,
-          backgroundIsolation: session.backgroundIsolation || null,
-          documentId: session.documentId,
-          batch: initialEdit,
-        }
-      : {
-          ...await snapshot(session, args),
-          ...(initialEdit ? { batch: initialEdit } : {}),
-        };
+    const initial =
+      args.snapshotAfter === false || (initialEdit && args.snapshotAfter !== true)
+        ? {
+            session: session.id,
+            mode: session.mode,
+            backend: session.backend,
+            fileKind: session.fileKind,
+            source: session.source,
+            output: session.target,
+            ownership: session.ownership,
+            visible: session.visible,
+            appPid: session.appPid,
+            windowHwnd: session.windowHwnd,
+            foregroundActivated: session.foregroundActivated === true,
+            backgroundIsolation: session.backgroundIsolation || null,
+            documentId: session.documentId,
+            batch: initialEdit,
+          }
+        : {
+            ...(await snapshot(session, args)),
+            ...(initialEdit ? { batch: initialEdit } : {}),
+          };
     delete session.activeSignal;
-    return toolResult(finalizeOfficeResult(
-      {
-        ...initial,
-        ...openedOfficeIdentity(session, action, {
-          foregroundActivated: session.foregroundActivated === true,
-          backgroundIsolation: initialEdit?.backgroundIsolation || session.backgroundIsolation || null,
-        }),
-      },
-      { action, session, startedAt },
-    ));
+    return toolResult(
+      finalizeOfficeResult(
+        {
+          ...initial,
+          ...openedOfficeIdentity(session, action, {
+            foregroundActivated: session.foregroundActivated === true,
+            backgroundIsolation: initialEdit?.backgroundIsolation || session.backgroundIsolation || null,
+          }),
+        },
+        { action, session, startedAt }
+      )
+    );
   } catch (error) {
     delete session.activeSignal;
     await discardFailedOfficeSession(session, { action, initialEditSettled });

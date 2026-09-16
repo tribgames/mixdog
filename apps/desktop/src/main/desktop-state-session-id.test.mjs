@@ -33,10 +33,11 @@ test('visible-session lists reject on IPC and drop malformed entries on the serv
   assert.throws(() => requiredSessionIds(['lead', 'bad id']), /invalid/);
   assert.throws(() => requiredSessionIds('lead'), /bounded array/);
   assert.throws(() => requiredSessionIds(Array(257).fill('lead')), /bounded array/);
-  assert.deepEqual(
-    filterSessionIds(['lead', 'bad id', '', ' lead ', stored, 0, false, 'agent', 'lead']),
-    ['lead', stored, 'agent'],
-  );
+  assert.deepEqual(filterSessionIds(['lead', 'bad id', '', ' lead ', stored, 0, false, 'agent', 'lead']), [
+    'lead',
+    stored,
+    'agent',
+  ]);
   assert.deepEqual(filterSessionIds(null), []);
   assert.equal(requiredVisibleSessionVersion(2), 2);
   assert.throws(() => requiredVisibleSessionVersion(0), /version/);
@@ -46,8 +47,21 @@ test('visible-session lists reject on IPC and drop malformed entries on the serv
 test('catalog and stored-id filters keep pattern-only ids longer than 256', () => {
   const stored = 'x'.repeat(257);
   const summaries = desktopSessionSummaries([
-    { id: stored, cwd: 'C:\\Project\\mixdog', title: 'Stored long id', desktopSession: { classification: 'task', projectPath: null } },
-    { id: 'bad id', cwd: 'C:\\Project\\mixdog', title: 'Rejected', desktopSession: { classification: 'task', projectPath: null } },
+    {
+      id: stored,
+      cwd: 'C:\\Project\\mixdog',
+      title: 'Stored long id',
+      desktopSession: { classification: 'task', projectPath: null },
+    },
+    {
+      id: 'bad id',
+      cwd: 'C:\\Project\\mixdog',
+      title: 'Rejected',
+      desktopSession: { classification: 'task', projectPath: null },
+    },
   ]);
-  assert.deepEqual(summaries.map((row) => row.id), [stored]);
+  assert.deepEqual(
+    summaries.map((row) => row.id),
+    [stored]
+  );
 });

@@ -26,14 +26,14 @@ function workProgress(command: ComputerCommand, progress: ComputerWorkProgress) 
     steps: steps.map((step, index) => ({
       index: index + 1,
       action: step.action,
-      status: index < progress.completed ? 'succeeded'
-        : index === uncertain ? 'uncertain' : 'pending',
+      status: index < progress.completed ? 'succeeded' : index === uncertain ? 'uncertain' : 'pending',
     })),
     pending_work: {
       completed_steps: progress.completed,
       ...(uncertain !== undefined ? { uncertain_step: uncertain + 1 } : {}),
       pending_steps: steps.flatMap((_, index) =>
-        index >= progress.completed && index !== uncertain ? [index + 1] : []),
+        index >= progress.completed && index !== uncertain ? [index + 1] : []
+      ),
     },
   };
 }
@@ -42,7 +42,7 @@ function workProgress(command: ComputerCommand, progress: ComputerWorkProgress) 
 export function pausedWorkReply(
   command: ComputerCommand,
   progress: ComputerWorkProgress,
-  reason: string,
+  reason: string
 ): ComputerCommandResult {
   return {
     text: JSON.stringify({
@@ -57,10 +57,11 @@ export function pausedWorkReply(
       verdict: { decision: 'wait_for_user', recommended: 'wait_for_user' },
       recovery: {
         next: 'wait_for_user',
-        guidance: 'User control is still active. This request stopped waiting and will not dispatch later. '
-          + 'The configured idle/manual resume route remains available. Wait for confirmed resume, '
-          + 'capture fresh state, and continue only the remaining intent. Completed or uncertain input '
-          + 'must never be resent blindly.',
+        guidance:
+          'User control is still active. This request stopped waiting and will not dispatch later. ' +
+          'The configured idle/manual resume route remains available. Wait for confirmed resume, ' +
+          'capture fresh state, and continue only the remaining intent. Completed or uncertain input ' +
+          'must never be resent blindly.',
       },
     }),
   };
@@ -69,7 +70,7 @@ export function pausedWorkReply(
 export function pendingWorkReply(
   command: ComputerCommand,
   result: ComputerCommandResult,
-  progress: ComputerWorkProgress,
+  progress: ComputerWorkProgress
 ): ComputerCommandResult {
   const payload = JSON.parse(result.text) as Record<string, unknown>;
   const observation = payload.observation as Record<string, unknown> | undefined;
@@ -88,10 +89,11 @@ export function pendingWorkReply(
       },
       recovery: {
         next: fresh ? 'continue_from_observation' : 'capture',
-        guidance: 'The request waited for user control to end. Keep the task active. '
-          + 'Use the fresh observation to check the target, focus and remaining intent, then continue pending steps. '
-          + 'Completed steps must not be replayed. An uncertain step may already have dispatched input: '
-          + 'resolve its effect before deciding what remains. Never resend it blindly.',
+        guidance:
+          'The request waited for user control to end. Keep the task active. ' +
+          'Use the fresh observation to check the target, focus and remaining intent, then continue pending steps. ' +
+          'Completed steps must not be replayed. An uncertain step may already have dispatched input: ' +
+          'resolve its effect before deciding what remains. Never resend it blindly.',
       },
     }),
   };

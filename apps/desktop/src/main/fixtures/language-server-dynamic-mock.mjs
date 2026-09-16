@@ -1,12 +1,8 @@
-import {
-  createMessageConnection,
-  StreamMessageReader,
-  StreamMessageWriter,
-} from 'vscode-jsonrpc/node.js';
+import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node.js';
 
 const connection = createMessageConnection(
   new StreamMessageReader(process.stdin),
-  new StreamMessageWriter(process.stdout),
+  new StreamMessageWriter(process.stdout)
 );
 const range = {
   start: { line: 0, character: 0 },
@@ -43,10 +39,12 @@ connection.onNotification('initialized', () => {
       ],
     });
     await connection.sendRequest('client/unregisterCapability', {
-      unregisterations: [{
-        id: 'dynamic-range-format',
-        method: 'textDocument/rangeFormatting',
-      }],
+      unregisterations: [
+        {
+          id: 'dynamic-range-format',
+          method: 'textDocument/rangeFormatting',
+        },
+      ],
     });
   })();
 });

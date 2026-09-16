@@ -85,14 +85,18 @@ function workspace(t, prefix) {
   t.after(async () => {
     for (const pid of children) {
       if (!isPidAlive(pid)) continue;
-      try { process.kill(pid, 'SIGKILL'); } catch {}
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {}
     }
     for (const pid of children) await waitFor(() => !isPidAlive(pid), { timeoutMs: 15_000 });
     rmSync(root, { recursive: true, force: true });
   });
   return {
     root,
-    watch(pid) { if (pid) children.add(pid); },
+    watch(pid) {
+      if (pid) children.add(pid);
+    },
     // Fixture children run INSIDE the temp directory, so a V8 fatal report or
     // core dump can never land in the repository.
     fork(entry, args = [], options = {}) {
@@ -115,12 +119,16 @@ function within(promise, ms, what) {
   const bound = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms waiting for ${what}`)), ms);
   });
-  return Promise.race([promise, bound]).finally(() => { if (timer) clearTimeout(timer); });
+  return Promise.race([promise, bound]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 function readyMessage(child) {
   return new Promise((resolve) => {
-    child.on('message', (message) => { if (message?.type === 'ready') resolve(message); });
+    child.on('message', (message) => {
+      if (message?.type === 'ready') resolve(message);
+    });
   });
 }
 
@@ -168,7 +176,7 @@ test('a real heap-OOM abort after ready is captured with its exit signal', async
   assert.ok(record.stderrBytes > 0);
   assert.ok(
     record.exitSignal !== null || (record.exitCode !== null && record.exitCode !== 0),
-    `an abort is recorded as a signal or a non-zero code (${JSON.stringify(record)})`,
+    `an abort is recorded as a signal or a non-zero code (${JSON.stringify(record)})`
   );
   const exitLine = logs.find((line) => line.startsWith('daemon exit '));
   assert.match(exitLine, new RegExp(`pid=${child.pid}\\b`));
@@ -191,8 +199,12 @@ test('a heap-OOM abort survives in the file after its detached launcher exited',
   let stderr = '';
   launcher.stdout.setEncoding('utf8');
   launcher.stderr.setEncoding('utf8');
-  launcher.stdout.on('data', (chunk) => { stdout += chunk; });
-  launcher.stderr.on('data', (chunk) => { stderr += chunk; });
+  launcher.stdout.on('data', (chunk) => {
+    stdout += chunk;
+  });
+  launcher.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
   const [launcherCode] = await within(once(launcher, 'exit'), 30_000, 'the detached launcher to exit');
   assert.equal(launcherCode, 0, `launcher exited cleanly: ${stderr}`);
 
@@ -203,20 +215,23 @@ test('a heap-OOM abort survives in the file after its detached launcher exited',
   // Whatever the daemon already wrote is the diagnosis when an assertion below
   // fails: never report "not alive" without the native text behind it.
   const capturedText = () => {
-    try { return readFileSync(handoff.capturePath, 'utf8').slice(-4_000); }
-    catch (error) { return `<unreadable: ${error?.message || error}>`; }
+    try {
+      return readFileSync(handoff.capturePath, 'utf8').slice(-4_000);
+    } catch (error) {
+      return `<unreadable: ${error?.message || error}>`;
+    }
   };
   // The daemon is still alive and still waiting: the abort provably happens
   // AFTER its launcher is gone, not before.
   assert.ok(
     isPidAlive(handoff.pid),
-    `the daemon outlived the launcher that spawned it;`
-    + ` capture=${JSON.stringify(capturedText())} launcherStderr=${stderr}`,
+    `the daemon outlived the launcher that spawned it;` +
+      ` capture=${JSON.stringify(capturedText())} launcherStderr=${stderr}`
   );
   assert.equal(
     FATAL_TEXT.test(capturedText()),
     false,
-    'nothing fatal was written while the launcher was still running',
+    'nothing fatal was written while the launcher was still running'
   );
   writeFileSync(gate, 'go');
 
@@ -227,8 +242,8 @@ test('a heap-OOM abort survives in the file after its detached launcher exited',
   });
   assert.ok(
     captured,
-    `the orphaned daemon still wrote its fatal report into the capture file;`
-    + ` capture=${JSON.stringify(capturedText())}`,
+    `the orphaned daemon still wrote its fatal report into the capture file;` +
+      ` capture=${JSON.stringify(capturedText())}`
   );
   await waitFor(() => !isPidAlive(handoff.pid));
 

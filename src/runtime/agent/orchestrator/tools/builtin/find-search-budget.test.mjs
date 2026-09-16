@@ -26,18 +26,19 @@ test('a fuzzy deadline returns promptly without starting another filesystem walk
   const root = mkdtempSync(join(tmpdir(), 'mixdog-find-budget-'));
   try {
     writeFileSync(join(root, 'anchor.txt'), 'anchor\n');
-    const timeout = Object.assign(
-      new Error('native fuzzy search timed out after 1500ms.'),
-      { code: 'NATIVE_SEARCH_TIMEOUT' },
-    );
+    const timeout = Object.assign(new Error('native fuzzy search timed out after 1500ms.'), {
+      code: 'NATIVE_SEARCH_TIMEOUT',
+    });
     const telemetry = {};
-    const out = String(await runWithLocalSearchTelemetry(telemetry, () => executeFuzzyFindTool(
-      { query: 'needle-that-never-ranks', path: '.', head_limit: 5 },
-      root,
-      {
-        __tryServeFuzzySearch: async () => { throw timeout; },
-      },
-    )));
+    const out = String(
+      await runWithLocalSearchTelemetry(telemetry, () =>
+        executeFuzzyFindTool({ query: 'needle-that-never-ranks', path: '.', head_limit: 5 }, root, {
+          __tryServeFuzzySearch: async () => {
+            throw timeout;
+          },
+        })
+      )
+    );
     assert.match(out, /^Error: fuzzy search timed out/);
     assert.doesNotMatch(out, /no fuzzy match/);
     assert.match(out, /inventory was incomplete/);
@@ -72,10 +73,8 @@ test('a complete fuzzy miss returns without an unsolicited noise-tree probe', as
 test('a served partial still reports its ranked matches', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-find-partial-'));
   try {
-    const out = String(await executeFuzzyFindTool(
-      { query: 'alpha', path: '.', head_limit: 5 },
-      root,
-      {
+    const out = String(
+      await executeFuzzyFindTool({ query: 'alpha', path: '.', head_limit: 5 }, root, {
         __tryServeFuzzySearch: async () => ({
           matches: ['src/alpha.ts'],
           hasMore: false,
@@ -87,8 +86,8 @@ test('a served partial still reports its ranked matches', async () => {
           scanErrors: 0,
           walkErrorDetails: [],
         }),
-      },
-    ));
+      })
+    );
     assert.match(out, /src\/alpha\.ts/);
     assert.ok(!/^Error[\s:[]/.test(out.trimStart()), `partials are results, not failures:\n${out}`);
   } finally {
@@ -99,10 +98,8 @@ test('a served partial still reports its ranked matches', async () => {
 test('an empty served partial is returned without another filesystem walk', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-find-empty-partial-'));
   try {
-    const out = String(await executeFuzzyFindTool(
-      { query: 'missing', path: '.', head_limit: 5 },
-      root,
-      {
+    const out = String(
+      await executeFuzzyFindTool({ query: 'missing', path: '.', head_limit: 5 }, root, {
         __tryServeFuzzySearch: async () => ({
           matches: [],
           hasMore: false,
@@ -114,8 +111,8 @@ test('an empty served partial is returned without another filesystem walk', asyn
           scanErrors: 0,
           walkErrorDetails: [],
         }),
-      },
-    ));
+      })
+    );
     assert.match(out, /^Error: fuzzy search timed out/);
     assert.match(out, /inventory was incomplete/);
   } finally {

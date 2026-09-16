@@ -13,11 +13,14 @@ import { BrowserPagePrompts } from './BrowserPagePrompts';
 import './desktop/browser-isolated-view.css';
 
 /** Pixel-only display: guest events have no DOM path to the shell. */
-export const IsolatedBrowserView = forwardRef<BrowserPageElement, {
-  sessionId: string;
-  active: boolean;
-  className?: string;
-}>(function IsolatedBrowserView({ sessionId, active, className }, ref) {
+export const IsolatedBrowserView = forwardRef<
+  BrowserPageElement,
+  {
+    sessionId: string;
+    active: boolean;
+    className?: string;
+  }
+>(function IsolatedBrowserView({ sessionId, active, className }, ref) {
   const element = useRef<HTMLDivElement | null>(null);
   const image = useRef<HTMLElement | null>(null);
   const pixels = useRef<HTMLDivElement | null>(null);
@@ -27,24 +30,35 @@ export const IsolatedBrowserView = forwardRef<BrowserPageElement, {
   const [failure, setFailure] = useState('');
   const [actionFailure, setActionFailure] = useState('');
   const [unconfirmedText, setUnconfirmedText] = useState('');
-  const presentation = useMemo(() => createBrowserPixelPresentation({
-    container: () => pixels.current, image, canvasId,
-    texture: (id, canvas) => {
-      const present = window.mixdogDesktop?.browserPresentTexture;
-      if (!present) throw new Error('Browser GPU display is unavailable.');
-      present(sessionId, id, canvas);
-    },
-    metadata: setFrame,
-  }), [sessionId, canvasId]);
-  const client = useMemo(() => createBrowserPageClient({
-    api: window.mixdogDesktop!, sessionId,
-    prepare: presentation.prepare,
-    update: presentation.update,
-    failure: setActionFailure,
-    unconfirmedText: setUnconfirmedText,
-    // Only a new deliberate input, begun after the failure, proves recovery.
-    recovered: () => setActionFailure(''),
-  }), [sessionId, presentation]);
+  const presentation = useMemo(
+    () =>
+      createBrowserPixelPresentation({
+        container: () => pixels.current,
+        image,
+        canvasId,
+        texture: (id, canvas) => {
+          const present = window.mixdogDesktop?.browserPresentTexture;
+          if (!present) throw new Error('Browser GPU display is unavailable.');
+          present(sessionId, id, canvas);
+        },
+        metadata: setFrame,
+      }),
+    [sessionId, canvasId]
+  );
+  const client = useMemo(
+    () =>
+      createBrowserPageClient({
+        api: window.mixdogDesktop!,
+        sessionId,
+        prepare: presentation.prepare,
+        update: presentation.update,
+        failure: setActionFailure,
+        unconfirmedText: setUnconfirmedText,
+        // Only a new deliberate input, begun after the failure, proves recovery.
+        recovered: () => setActionFailure(''),
+      }),
+    [sessionId, presentation]
+  );
   useImperativeHandle(ref, () => {
     const node = element.current as BrowserPageElement;
     client.bind(node, () => keyboard.current?.focus({ preventScroll: true }));
@@ -52,7 +66,10 @@ export const IsolatedBrowserView = forwardRef<BrowserPageElement, {
   }, [client]);
   useEffect(() => {
     client.activate();
-    return () => { client.dispose(); window.mixdogDesktop?.browserDiscardTexture?.(sessionId); };
+    return () => {
+      client.dispose();
+      window.mixdogDesktop?.browserDiscardTexture?.(sessionId);
+    };
   }, [client, sessionId]);
   const input = useBrowserPageInput(client, image, keyboard);
 
@@ -64,10 +81,13 @@ export const IsolatedBrowserView = forwardRef<BrowserPageElement, {
       visible: () => document.visibilityState !== 'hidden',
       now: () => performance.now(),
       schedule: (callback, delay) => window.setTimeout(callback, delay),
-      cancel: handle => window.clearTimeout(handle as number),
+      cancel: (handle) => window.clearTimeout(handle as number),
       async read() {
         await client.poll();
-        if (!stopped) { health.recovered(); setFailure(''); }
+        if (!stopped) {
+          health.recovered();
+          setFailure('');
+        }
       },
       failed(error) {
         const node = element.current;
@@ -107,33 +127,77 @@ export const IsolatedBrowserView = forwardRef<BrowserPageElement, {
     });
     observer.observe(node);
     resize();
-    return () => { observer.disconnect(); window.cancelAnimationFrame(timer); };
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(timer);
+    };
   }, [active, client, presentation, frame?.documentId]);
-  return <div ref={element} className={`${className || ''} browser-isolated-view`}>
-    <div className="browser-isolated-surface"
-      onPointerDown={input.onPointerDown} onPointerMove={input.onPointerMove}
-      onPointerUp={input.onPointerUp} onPointerCancel={input.onPointerCancel}
-      onLostPointerCapture={input.onPointerCancel} onWheel={input.onWheel}
-      onContextMenu={event => event.preventDefault()}>
-      <div className="browser-isolated-pixels" ref={pixels} />
-      <textarea ref={keyboard} className="browser-isolated-input" aria-label={t("Type on page")}
-        autoComplete="off" autoCapitalize="none" spellCheck={false}
-        onKeyDown={input.onKeyDown} onInput={input.onInput} onPaste={input.onPaste} onBlur={input.onBlur}
-        onCompositionStart={input.onCompositionStart} onCompositionUpdate={input.onCompositionUpdate}
-        onCompositionEnd={input.onCompositionEnd} />
+  return (
+    <div ref={element} className={`${className || ''} browser-isolated-view`}>
+      <div
+        className="browser-isolated-surface"
+        onPointerDown={input.onPointerDown}
+        onPointerMove={input.onPointerMove}
+        onPointerUp={input.onPointerUp}
+        onPointerCancel={input.onPointerCancel}
+        onLostPointerCapture={input.onPointerCancel}
+        onWheel={input.onWheel}
+        onContextMenu={(event) => event.preventDefault()}
+      >
+        <div className="browser-isolated-pixels" ref={pixels} />
+        <textarea
+          ref={keyboard}
+          className="browser-isolated-input"
+          aria-label={t('Type on page')}
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          onKeyDown={input.onKeyDown}
+          onInput={input.onInput}
+          onPaste={input.onPaste}
+          onBlur={input.onBlur}
+          onCompositionStart={input.onCompositionStart}
+          onCompositionUpdate={input.onCompositionUpdate}
+          onCompositionEnd={input.onCompositionEnd}
+        />
+      </div>
+      {frame && (
+        <BrowserPagePrompts
+          key={`${frame.documentId}:${frame.dialog?.id ?? frame.fileChooser?.id ?? ''}`}
+          frame={frame}
+          control={client.control}
+        />
+      )}
+      {(failure || actionFailure || unconfirmedText) && (
+        <div className="browser-remote-status">
+          <ErrorNotice
+            errors={[failure, actionFailure]}
+            role="status"
+            onDismiss={() => {
+              setFailure('');
+              setActionFailure('');
+            }}
+          />
+          {unconfirmedText && (
+            <div className="browser-input-recovery" role="status">
+              <span>{t('Some typed text could not be confirmed. Copy it before retrying.')}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  void copyTextToClipboard(unconfirmedText).catch((error) =>
+                    setActionFailure(String(error?.message || error))
+                  );
+                }}
+              >
+                {t('Copy')}
+              </button>
+              <button type="button" onClick={() => client.clearUnconfirmedText()}>
+                {t('Clear')}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
-    {frame && <BrowserPagePrompts key={`${frame.documentId}:${frame.dialog?.id ?? frame.fileChooser?.id ?? ''}`}
-      frame={frame} control={client.control} />}
-    {(failure || actionFailure || unconfirmedText) && <div className="browser-remote-status">
-      <ErrorNotice errors={[failure, actionFailure]} role="status"
-        onDismiss={() => { setFailure(''); setActionFailure(''); }} />
-      {unconfirmedText && <div className="browser-input-recovery" role="status">
-        <span>{t('Some typed text could not be confirmed. Copy it before retrying.')}</span>
-        <button type="button" onClick={() => {
-          void copyTextToClipboard(unconfirmedText).catch(error => setActionFailure(String(error?.message || error)));
-        }}>{t('Copy')}</button>
-        <button type="button" onClick={() => client.clearUnconfirmedText()}>{t('Clear')}</button>
-      </div>}
-    </div>}
-  </div>;
+  );
 });

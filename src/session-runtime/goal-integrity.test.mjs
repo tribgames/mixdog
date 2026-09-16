@@ -13,15 +13,20 @@ function fixture(t, options = {}) {
   const sessionId = 'sess_goal_integrity';
   const call = async (args) => JSON.parse(await runtime.executeTool('goal', args, { callerSessionId: sessionId }));
   const snapshot = () => runtime.snapshot(sessionId);
-  const create = (extra = {}) => call({
-    action: 'create', objective: 'Deliver the requested work',
-    tasks: [
-      { text: 'Implement work', status: 'pending', kind: 'work' },
-      { text: 'Verify work', status: 'pending', kind: 'verification' },
-    ],
-    ...extra,
+  const create = (extra = {}) =>
+    call({
+      action: 'create',
+      objective: 'Deliver the requested work',
+      tasks: [
+        { text: 'Implement work', status: 'pending', kind: 'work' },
+        { text: 'Verify work', status: 'pending', kind: 'verification' },
+      ],
+      ...extra,
+    });
+  t.after(() => {
+    runtime.close();
+    rmSync(dataDir, { recursive: true, force: true });
   });
-  t.after(() => { runtime.close(); rmSync(dataDir, { recursive: true, force: true }); });
   return { runtime, dataDir, sessionId, call, snapshot, create };
 }
 
@@ -37,7 +42,8 @@ test('failed persistence exposes no speculative task or lifecycle state and can 
   const events = [];
   f.runtime.subscribe((event) => events.push(event));
   const update = {
-    action: 'update_tasks', revision: created.revision,
+    action: 'update_tasks',
+    revision: created.revision,
     updates: created.tasks.map(({ id }) => ({ id, status: 'completed' })),
   };
   fail = true;
@@ -79,55 +85,83 @@ test('same-Goal objective edits invalidate stale updates and require explicit ta
   const created = (await f.create()).goal;
   await f.runtime.startTurn(f.sessionId);
   await f.runtime.control(f.sessionId, { action: 'edit', objective: 'Deliver work AND security review' });
-  await assert.rejects(f.call({
-    action: 'set_tasks', revision: created.revision,
-    tasks: created.tasks.map((task) => ({ ...task, status: 'completed' })),
-  }), /stale Goal revision/);
+  await assert.rejects(
+    f.call({
+      action: 'set_tasks',
+      revision: created.revision,
+      tasks: created.tasks.map((task) => ({ ...task, status: 'completed' })),
+    }),
+    /stale Goal revision/
+  );
   // Frozen schemas without a revision still use the last model-visible state.
   await assert.rejects(f.call({ action: 'complete' }), /stale Goal revision/);
   const current = (await f.call({ action: 'status' })).goal;
   assert.equal(current.needsTaskReview, true);
   assert.match(goalStateReminder(current, { reason: 'objective-updated' }), /Revision: \d+/);
   await assert.rejects(f.call({ action: 'complete', revision: current.revision }), /objective changed/);
-  await assert.rejects(f.call({
-    action: 'update_tasks', revision: current.revision,
-    updates: [{ id: created.tasks[0].id, status: 'completed' }],
-  }), /reconcile the full task list/);
-  const aligned = (await f.call({
-    action: 'set_tasks', revision: current.revision,
-    tasks: [...created.tasks, { text: 'Security review', status: 'pending', kind: 'verification' }],
-  })).goal;
+  await assert.rejects(
+    f.call({
+      action: 'update_tasks',
+      revision: current.revision,
+      updates: [{ id: created.tasks[0].id, status: 'completed' }],
+    }),
+    /reconcile the full task list/
+  );
+  const aligned = (
+    await f.call({
+      action: 'set_tasks',
+      revision: current.revision,
+      tasks: [...created.tasks, { text: 'Security review', status: 'pending', kind: 'verification' }],
+    })
+  ).goal;
   assert.equal(f.snapshot().needsTaskReview, false);
   assert.ok(aligned.revision > current.revision);
-  const finished = (await f.call({
-    action: 'update_tasks', revision: aligned.revision,
-    updates: f.snapshot().tasks.map(({ id }) => ({ id, status: 'completed' })),
-  })).goal;
+  const finished = (
+    await f.call({
+      action: 'update_tasks',
+      revision: aligned.revision,
+      updates: f.snapshot().tasks.map(({ id }) => ({ id, status: 'completed' })),
+    })
+  ).goal;
   assert.equal((await f.call({ action: 'complete', revision: finished.revision })).goal.status, 'complete');
 });
 
 test('concurrent partial updates detect stale revisions instead of silently overwriting completed work', async (t) => {
   const f = fixture(t);
   const created = (await f.create()).goal;
-  const results = await Promise.allSettled(created.tasks.map(({ id }) => f.call({
-    action: 'update_tasks', revision: created.revision, updates: [{ id, status: 'completed' }],
-  })));
+  const results = await Promise.allSettled(
+    created.tasks.map(({ id }) =>
+      f.call({
+        action: 'update_tasks',
+        revision: created.revision,
+        updates: [{ id, status: 'completed' }],
+      })
+    )
+  );
   assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
   assert.match(results.find((result) => result.status === 'rejected').reason.message, /stale Goal revision/);
   const current = (await f.call({ action: 'status' })).goal;
   assert.equal(current.tasksCompleted, 1);
   const remaining = current.tasks.find((task) => task.status === 'pending');
-  await f.call({ action: 'update_tasks', revision: current.revision, updates: [{ id: remaining.id, status: 'completed' }] });
+  await f.call({
+    action: 'update_tasks',
+    revision: current.revision,
+    updates: [{ id: remaining.id, status: 'completed' }],
+  });
   assert.equal(f.snapshot().tasksCompleted, 2);
 });
 
 test('concurrent old-schema full snapshots also reject the stale writer', async (t) => {
   const f = fixture(t);
   const created = (await f.create()).goal;
-  const results = await Promise.allSettled(created.tasks.map((_, index) => f.call({
-    action: 'set_tasks',
-    tasks: created.tasks.map((task, i) => ({ ...task, status: i === index ? 'completed' : task.status })),
-  })));
+  const results = await Promise.allSettled(
+    created.tasks.map((_, index) =>
+      f.call({
+        action: 'set_tasks',
+        tasks: created.tasks.map((task, i) => ({ ...task, status: i === index ? 'completed' : task.status })),
+      })
+    )
+  );
   assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
   assert.equal(f.snapshot().tasksCompleted, 1);
 });
@@ -142,14 +176,22 @@ test('new ids stay unique after completed rows are omitted and partial additions
   });
   assert.equal(replaced.assigned_tasks[0].id, 'task_3');
   const added = await f.call({
-    action: 'update_tasks', revision: replaced.goal.revision,
+    action: 'update_tasks',
+    revision: replaced.goal.revision,
     tasks: [{ text: 'Another follow-up', status: 'pending', kind: 'work' }],
   });
   assert.equal(added.assigned_tasks[0].id, 'task_4');
-  assert.deepEqual(f.snapshot().tasks.map((task) => task.id), ['task_2', 'task_3', 'task_4']);
-  await assert.rejects(f.call({
-    action: 'update_tasks', updates: [{ id: 'missing', status: 'completed' }],
-  }), /unknown Goal task id/);
+  assert.deepEqual(
+    f.snapshot().tasks.map((task) => task.id),
+    ['task_2', 'task_3', 'task_4']
+  );
+  await assert.rejects(
+    f.call({
+      action: 'update_tasks',
+      updates: [{ id: 'missing', status: 'completed' }],
+    }),
+    /unknown Goal task id/
+  );
   assert.equal(f.snapshot().revision, added.goal.revision);
 });
 
@@ -167,9 +209,14 @@ test('dropping work during the creation turn cannot immediately complete a Goal,
   f.runtime.close();
   const restored = createGoalRuntime({ dataDir: f.dataDir });
   t.after(() => restored.close());
-  await assert.rejects(restored.executeTool('goal', { action: 'complete' }, { callerSessionId: f.sessionId }), /dropped this turn/);
+  await assert.rejects(
+    restored.executeTool('goal', { action: 'complete' }, { callerSessionId: f.sessionId }),
+    /dropped this turn/
+  );
   await restored.startTurn(f.sessionId);
-  const completed = JSON.parse(await restored.executeTool('goal', { action: 'complete' }, { callerSessionId: f.sessionId }));
+  const completed = JSON.parse(
+    await restored.executeTool('goal', { action: 'complete' }, { callerSessionId: f.sessionId })
+  );
   assert.equal(completed.goal.status, 'complete');
 });
 
@@ -205,10 +252,15 @@ test('ordinary updates return bounded acknowledgements while reads and recovery 
   const f = fixture(t);
   const tasks = Array.from({ length: 20 }, (_, index) => ({
     text: `Task ${index + 1}`.padEnd(100, '.'),
-    status: 'pending', kind: index === 19 ? 'verification' : 'work',
+    status: 'pending',
+    kind: index === 19 ? 'verification' : 'work',
   }));
   const created = (await f.create({ tasks })).goal;
-  const args = { action: 'update_tasks', revision: created.revision, updates: [{ id: created.tasks[0].id, status: 'in_progress' }] };
+  const args = {
+    action: 'update_tasks',
+    revision: created.revision,
+    updates: [{ id: created.tasks[0].id, status: 'in_progress' }],
+  };
   const reply = await f.call(args);
   assert.equal(reply.goal.tasks, undefined);
   assert.equal(reply.goal.objective, undefined);
@@ -222,12 +274,17 @@ test('ordinary updates return bounded acknowledgements while reads and recovery 
 test('clock checkpoints and title generation do not invalidate a task revision', async (t) => {
   let clock = 2_000_000_000_000;
   let releaseTitle;
-  const title = new Promise((resolve) => { releaseTitle = resolve; });
+  const title = new Promise((resolve) => {
+    releaseTitle = resolve;
+  });
   const f = fixture(t, { now: () => clock, generateTitle: () => title });
   const created = (await f.create()).goal;
   const savedTitle = new Promise((resolve) => {
     const unsubscribe = f.runtime.subscribe(({ goal }) => {
-      if (goal?.title === 'Compact title') { unsubscribe(); resolve(); }
+      if (goal?.title === 'Compact title') {
+        unsubscribe();
+        resolve();
+      }
     });
   });
   releaseTitle('Compact title');
@@ -236,7 +293,11 @@ test('clock checkpoints and title generation do not invalidate a task revision',
   clock += 1_000;
   await f.runtime.settleTurn(f.sessionId, { status: 'done' });
   assert.equal(f.snapshot().revision, created.revision);
-  await f.call({ action: 'update_tasks', revision: created.revision, updates: [{ id: created.tasks[0].id, status: 'in_progress' }] });
+  await f.call({
+    action: 'update_tasks',
+    revision: created.revision,
+    updates: [{ id: created.tasks[0].id, status: 'in_progress' }],
+  });
   assert.equal(f.snapshot().tasks[0].status, 'in_progress');
 });
 
@@ -253,17 +314,20 @@ test('resume commits task patches and additions together with activation in one 
   const events = [];
   f.runtime.subscribe(({ goal }) => events.push(goal));
   writes.length = 0;
-  const resumed = (await f.call({
-    action: 'resume', revision: paused.revision,
-    updates: [
-      { id: '', text: '', status: 'pending', kind: 'work' },
-      { id: created.tasks[0].id, status: 'in_progress' },
-    ],
-    tasks: [
-      { id: '', text: '', status: 'pending', kind: 'work' },
-      { text: 'Approved follow-up', status: 'pending', kind: 'work' },
-    ],
-  })).goal;
+  const resumed = (
+    await f.call({
+      action: 'resume',
+      revision: paused.revision,
+      updates: [
+        { id: '', text: '', status: 'pending', kind: 'work' },
+        { id: created.tasks[0].id, status: 'in_progress' },
+      ],
+      tasks: [
+        { id: '', text: '', status: 'pending', kind: 'work' },
+        { text: 'Approved follow-up', status: 'pending', kind: 'work' },
+      ],
+    })
+  ).goal;
   assert.equal(resumed.status, 'active');
   assert.equal(resumed.revision, paused.revision + 1);
   assert.equal(resumed.tasks[0].status, 'in_progress');
@@ -291,18 +355,31 @@ test('invalid or unsaved resume task changes leave the entire paused state intac
   const events = [];
   f.runtime.subscribe((event) => events.push(event));
   const args = {
-    action: 'resume', revision: paused.revision,
+    action: 'resume',
+    revision: paused.revision,
     updates: [{ id: created.tasks[0].id, status: 'in_progress' }],
   };
-  await assert.rejects(f.call({
-    ...args, tasks: [{ text: 'Invalid follow-up', status: 'invalid', kind: 'work' }],
-  }), /invalid status/);
-  await assert.rejects(f.call({
-    ...args, updates: [{ id: created.tasks[0].id, text: '' }],
-  }), /task text is required/);
-  await assert.rejects(f.call({
-    ...args, updates: [{ id: '', text: '', unknown: true }],
-  }), /unknown Goal task id/);
+  await assert.rejects(
+    f.call({
+      ...args,
+      tasks: [{ text: 'Invalid follow-up', status: 'invalid', kind: 'work' }],
+    }),
+    /invalid status/
+  );
+  await assert.rejects(
+    f.call({
+      ...args,
+      updates: [{ id: created.tasks[0].id, text: '' }],
+    }),
+    /task text is required/
+  );
+  await assert.rejects(
+    f.call({
+      ...args,
+      updates: [{ id: '', text: '', unknown: true }],
+    }),
+    /unknown Goal task id/
+  );
   await assert.rejects(f.call({ ...args, tasks: {} }), /must be arrays/);
   fail = true;
   await assert.rejects(f.call(args), /injected resume write failure/);
@@ -323,14 +400,23 @@ test('plain resume tolerates empty frozen-schema task fields without bypassing o
   await f.runtime.control(f.sessionId, { action: 'pause' });
   await f.runtime.control(f.sessionId, { action: 'edit', objective: 'Changed work requiring review' });
   const current = (await f.call({ action: 'status' })).goal;
-  await assert.rejects(f.call({
-    action: 'resume', revision: current.revision,
-    updates: [{ id: current.tasks[0].id, status: 'in_progress' }],
-  }), /reconcile the full task list/);
+  await assert.rejects(
+    f.call({
+      action: 'resume',
+      revision: current.revision,
+      updates: [{ id: current.tasks[0].id, status: 'in_progress' }],
+    }),
+    /reconcile the full task list/
+  );
   assert.equal(f.snapshot().status, 'paused');
-  const resumed = (await f.call({
-    action: 'resume', revision: current.revision, tasks: [], updates: [],
-  })).goal;
+  const resumed = (
+    await f.call({
+      action: 'resume',
+      revision: current.revision,
+      tasks: [],
+      updates: [],
+    })
+  ).goal;
   assert.equal(resumed.status, 'active');
   assert.equal(resumed.needsTaskReview, true);
   assert.deepEqual(resumed.tasks, current.tasks);

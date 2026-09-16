@@ -28,9 +28,7 @@ import {
   parseModelVisibleCompletionWrapper,
   parseSyntheticAgentMessage,
 } from './session/agent-envelope.mjs';
-import {
-  promptDisplayText,
-} from './session/queue-helpers.mjs';
+import { promptDisplayText } from './session/queue-helpers.mjs';
 import {
   TUI_FRAME_MS,
   cancelRenderAlignedStoreFlush,
@@ -42,11 +40,7 @@ import { createAgentJobFeed } from './session/agent-job-feed.mjs';
 import { appendAgentResponseTail } from './session/agent-response-tail.mjs';
 import { createContextState } from './session/context-state.mjs';
 import { recomputePromptHistory } from './session/prompt-history.mjs';
-import {
-  appendPromptHistory,
-  buildMergedPromptHistory,
-  loadPromptHistory,
-} from './prompt-history-store.mjs';
+import { appendPromptHistory, buildMergedPromptHistory, loadPromptHistory } from './prompt-history-store.mjs';
 import { createSessionFlow } from './session/session-flow.mjs';
 import { createRunTurn } from './session/turn.mjs';
 import { createSessionApi } from './session/session-api.mjs';
@@ -75,9 +69,9 @@ export function preloadSessionRuntimeModule() {
 
 let agentLoopPrewarmPromise = null;
 export function preloadAgentLoopRuntime() {
-  agentLoopPrewarmPromise ??= import(
-    '../runtime/agent/orchestrator/session/manager/runtime-loaders.mjs'
-  ).then((module) => module.prewarmAgentLoop());
+  agentLoopPrewarmPromise ??= import('../runtime/agent/orchestrator/session/manager/runtime-loaders.mjs').then(
+    (module) => module.prewarmAgentLoop()
+  );
   void agentLoopPrewarmPromise.catch(() => {
     // Reservation-time prewarm retries through the same shared loader.
     agentLoopPrewarmPromise = null;
@@ -94,7 +88,9 @@ export function preloadAgentLoopRuntime() {
 // it initialized. Honors the same MIXDOG_BOOT_CORE_MEMORY opt-out.
 let memoryRuntimePrewarmPromise = null;
 export function preloadMemoryRuntime() {
-  const bootFlag = String(process.env.MIXDOG_BOOT_CORE_MEMORY ?? '').trim().toLowerCase();
+  const bootFlag = String(process.env.MIXDOG_BOOT_CORE_MEMORY ?? '')
+    .trim()
+    .toLowerCase();
   if (bootFlag === '0' || bootFlag === 'false' || bootFlag === 'no' || bootFlag === 'off') {
     return Promise.resolve();
   }
@@ -145,8 +141,26 @@ const TOOL_APPROVAL_TIMEOUT_MS = (() => {
 // Opt-in diagnostic trace for the hang chain (runTurn start/end, busy-queue
 // enqueue/drain). Quiet by default so it can never tear through
 // the alternate-screen render; enable with MIXDOG_TUI_DEBUG=1.
-import { tuiDebug, nextId, cleanupStaleTranscriptSpillDirs, createTranscriptSpillBuffer, refillTranscriptViewOverlap, replaceSessionItemsState, createSessionItemMutators, TRANSCRIPT_LIVE_ITEM_CAP, TRANSCRIPT_SPILL_CHUNK_ITEMS } from './session/transcript-spill.mjs';
-export { cleanupStaleTranscriptSpillDirs, createTranscriptSpillBuffer, refillTranscriptViewOverlap, replaceSessionItemsState, createSessionItemMutators, TRANSCRIPT_LIVE_ITEM_CAP, TRANSCRIPT_SPILL_CHUNK_ITEMS } from './session/transcript-spill.mjs';
+import {
+  tuiDebug,
+  nextId,
+  cleanupStaleTranscriptSpillDirs,
+  createTranscriptSpillBuffer,
+  refillTranscriptViewOverlap,
+  replaceSessionItemsState,
+  createSessionItemMutators,
+  TRANSCRIPT_LIVE_ITEM_CAP,
+  TRANSCRIPT_SPILL_CHUNK_ITEMS,
+} from './session/transcript-spill.mjs';
+export {
+  cleanupStaleTranscriptSpillDirs,
+  createTranscriptSpillBuffer,
+  refillTranscriptViewOverlap,
+  replaceSessionItemsState,
+  createSessionItemMutators,
+  TRANSCRIPT_LIVE_ITEM_CAP,
+  TRANSCRIPT_SPILL_CHUNK_ITEMS,
+} from './session/transcript-spill.mjs';
 export { parseBackgroundTaskEnvelope } from './session/agent-envelope.mjs';
 
 export async function createLocalSessionRuntime({
@@ -222,20 +236,14 @@ export async function createLocalSessionRuntime({
   // `pendingSessionReset` closures declared below; the sync helpers mutate
   // state.stats / display fields IN PLACE exactly as the old inline versions
   // did (callers follow with a set({ stats: { ...state.stats }, ... })).
-  const {
-    autoClearState,
-    agentStatusState,
-    baseRouteState,
-    routeState,
-    syncContextStats,
-  } = createContextState({
+  const { autoClearState, agentStatusState, baseRouteState, routeState, syncContextStats } = createContextState({
     runtime,
     getState: () => state,
-    updateState: (patch) => { state = { ...state, ...patch }; },
+    updateState: (patch) => {
+      state = { ...state, ...patch };
+    },
     getPendingSessionReset: () => flags.pendingSessionReset,
-    getVisibleGoal: () => (visibleGoalStatus
-      ? visibleGoalStatus()
-      : (runtime.goalStatus?.() || null)),
+    getVisibleGoal: () => (visibleGoalStatus ? visibleGoalStatus() : runtime.goalStatus?.() || null),
   });
 
   const initialAgentState = {
@@ -317,8 +325,8 @@ export async function createLocalSessionRuntime({
   const flushEmitImmediate = publisher.flushImmediate;
   const set = (patch) => {
     if (!patch || typeof patch !== 'object') return false;
-    const requestsStructureChange = Object.prototype.hasOwnProperty.call(patch, 'structureRevision')
-      && !Object.is(patch.structureRevision, state.structureRevision);
+    const requestsStructureChange =
+      Object.hasOwn(patch, 'structureRevision') && !Object.is(patch.structureRevision, state.structureRevision);
     const effectivePatch = requestsStructureChange
       ? Object.fromEntries(Object.entries(patch).filter(([key]) => key !== 'structureRevision'))
       : patch;
@@ -334,15 +342,12 @@ export async function createLocalSessionRuntime({
     // session command was in flight were queued and drain bailed on commandBusy;
     // re-kick drain here — one central point covers every command releaser
     // (setModel/newSession/resume/clear/...) so queued prompts are never stranded.
-    const commandBusyReleased = state.commandBusy === true
-      && Object.prototype.hasOwnProperty.call(patch, 'commandBusy')
-      && patch.commandBusy === false;
+    const commandBusyReleased =
+      state.commandBusy === true && Object.hasOwn(patch, 'commandBusy') && patch.commandBusy === false;
     // Some recovery and externally-driven settlement paths release busy
     // without returning through drain's own finally. Re-kick centrally so a
     // prompt accepted during the old turn cannot remain queued indefinitely.
-    const busyReleased = state.busy === true
-      && Object.prototype.hasOwnProperty.call(patch, 'busy')
-      && patch.busy === false;
+    const busyReleased = state.busy === true && Object.hasOwn(patch, 'busy') && patch.busy === false;
     state = { ...state, ...effectivePatch };
     if (requestsStructureChange) publisher.markStructureChange();
     emit();
@@ -351,10 +356,11 @@ export async function createLocalSessionRuntime({
     if (effectivePatch.commandStatus || effectivePatch.toolApproval) {
       flushEmitImmediate();
     }
-    if (commandBusyReleased || busyReleased) queueMicrotask(() => {
-      void bag.drain?.();
-      bag.scheduleGoalContinuation?.();
-    });
+    if (commandBusyReleased || busyReleased)
+      queueMicrotask(() => {
+        void bag.drain?.();
+        bag.scheduleGoalContinuation?.();
+      });
     return true;
   };
 
@@ -393,18 +399,18 @@ export async function createLocalSessionRuntime({
     flushEmitImmediate();
     return true;
   };
-  const replaceItems = (items, {
-    preserveStreamingTail = false,
-    preserveSpill = false,
-    preserveTranscriptView = false,
-  } = {}) => {
+  const replaceItems = (
+    items,
+    { preserveStreamingTail = false, preserveSpill = false, preserveTranscriptView = false } = {}
+  ) => {
     const nextItems = Array.isArray(items) ? items : [];
     if (!preserveSpill) transcriptSpill.reset();
     const liveItems = transcriptSpill.capLive(nextItems);
     const previousTranscriptView = state.transcriptViewItems;
-    const nextTranscriptView = preserveTranscriptView && previousTranscriptView
-      ? refillTranscriptViewOverlap(previousTranscriptView, state.items, liveItems)
-      : null;
+    const nextTranscriptView =
+      preserveTranscriptView && previousTranscriptView
+        ? refillTranscriptViewOverlap(previousTranscriptView, state.items, liveItems)
+        : null;
     const transcriptViewChanged = nextTranscriptView !== previousTranscriptView;
     // Bulk item swap (session load / clear / compact). Derive the prompt-history
     // list from the NEW items and stage it onto state here so App never rescans;
@@ -456,9 +462,12 @@ export async function createLocalSessionRuntime({
   // directly; background shell records and worker rows later dedupe by max.
   const activeToolCalls = new Map(); // callKey -> { category, count, startedAt }
   const recomputeActiveToolSummary = () => {
-    let shellCount = 0, shellStart = 0;
-    let webSearchCount = 0, webSearchStart = 0;
-    let agentCount = 0, agentStart = 0;
+    let shellCount = 0,
+      shellStart = 0;
+    let webSearchCount = 0,
+      webSearchStart = 0;
+    let agentCount = 0,
+      agentStart = 0;
     for (const rec of activeToolCalls.values()) {
       if (!rec) continue;
       const c = Math.max(1, Number(rec.count || 1));
@@ -474,20 +483,27 @@ export async function createLocalSessionRuntime({
         if (started > 0 && (agentStart === 0 || started < agentStart)) agentStart = started;
       }
     }
-    const next = shellCount || webSearchCount || agentCount
-      ? `${shellCount}:${shellStart}:${webSearchCount}:${webSearchStart}:${agentCount}:${agentStart}`
-      : '';
-    const activeTools = next ? {
-      ...(shellCount ? { shell: { count: shellCount, startedAt: shellStart } } : {}),
-      ...(webSearchCount ? { web_search: { count: webSearchCount, startedAt: webSearchStart } } : {}),
-      ...(agentCount ? { agent: { count: agentCount, startedAt: agentStart } } : {}),
-    } : null;
+    const next =
+      shellCount || webSearchCount || agentCount
+        ? `${shellCount}:${shellStart}:${webSearchCount}:${webSearchStart}:${agentCount}:${agentStart}`
+        : '';
+    const activeTools = next
+      ? {
+          ...(shellCount ? { shell: { count: shellCount, startedAt: shellStart } } : {}),
+          ...(webSearchCount ? { web_search: { count: webSearchCount, startedAt: webSearchStart } } : {}),
+          ...(agentCount ? { agent: { count: agentCount, startedAt: agentStart } } : {}),
+        }
+      : null;
     const prev = state.activeToolSummary || '';
     if (next !== prev) set({ activeToolSummary: next || null, activeTools });
   };
   const markToolCallActive = (callKey, category, count, startedAt) => {
     if (!callKey || !['Shell', 'Web Research', 'Agent'].includes(category)) return;
-    activeToolCalls.set(callKey, { category, count: Math.max(1, Number(count || 1)), startedAt: Number(startedAt || Date.now()) });
+    activeToolCalls.set(callKey, {
+      category,
+      count: Math.max(1, Number(count || 1)),
+      startedAt: Number(startedAt || Date.now()),
+    });
     recomputeActiveToolSummary();
   };
   const markToolCallDone = (callKey) => {
@@ -500,8 +516,7 @@ export async function createLocalSessionRuntime({
     activeToolCalls.clear();
     if (state.activeToolSummary || state.activeTools) set({ activeToolSummary: null, activeTools: null });
   };
-  const transcriptRouteMetadata = (at = Date.now()) =>
-    createTranscriptRouteMetadata(runtime.session, routeState(), at);
+  const transcriptRouteMetadata = (at = Date.now()) => createTranscriptRouteMetadata(runtime.session, routeState(), at);
   const pushItem = (item) => {
     if (!flags.pushingFromDeferredEntry && flags.flushDeferredBeforeImmediatePush) {
       flags.flushDeferredBeforeImmediatePush();
@@ -542,14 +557,12 @@ export async function createLocalSessionRuntime({
   let streamingTailTextEpoch = 0;
   const updateStreamingTail = (id, patch = {}, extra = {}, { resetText = false } = {}) => {
     if (id == null) return false;
-    const current = state.streamingTail?.id === id
-      ? state.streamingTail
-      : { kind: 'assistant', id, text: '', streaming: true };
+    const current =
+      state.streamingTail?.id === id ? state.streamingTail : { kind: 'assistant', id, text: '', streaming: true };
     const next = { ...current, ...patch, kind: 'assistant', id, streaming: true };
     const currentTextEpoch = current[streamingTailTextEpochKey];
-    const textEpoch = !resetText && Number.isSafeInteger(currentTextEpoch)
-      ? currentTextEpoch
-      : ++streamingTailTextEpoch;
+    const textEpoch =
+      !resetText && Number.isSafeInteger(currentTextEpoch) ? currentTextEpoch : ++streamingTailTextEpoch;
     Object.defineProperty(next, streamingTailTextEpochKey, {
       value: textEpoch,
       enumerable: false,
@@ -595,9 +608,12 @@ export async function createLocalSessionRuntime({
     // the second arrival patches the existing card instead of duplicating it.
     const upsertTaskId = String(args?.task_id || synthetic.taskId || '').trim();
     if (upsertTaskId) {
-      const existing = state.items.findLast((it) => it?.kind === 'tool'
-        && String(it?.args?.task_id || '').trim() === upsertTaskId
-        && (it.name || 'agent') === (synthetic.name || 'agent'));
+      const existing = state.items.findLast(
+        (it) =>
+          it?.kind === 'tool' &&
+          String(it?.args?.task_id || '').trim() === upsertTaskId &&
+          (it.name || 'agent') === (synthetic.name || 'agent')
+      );
       if (existing) {
         patchItem(existing.id, {
           args,
@@ -660,7 +676,10 @@ export async function createLocalSessionRuntime({
     const transcriptMeta = transcriptRouteMetadata();
     if (origin === 'user') flags.pendingTranscriptMeta = transcriptMeta;
     pushItem({
-      kind: 'user', id, text, ...transcriptMeta,
+      kind: 'user',
+      id,
+      text,
+      ...transcriptMeta,
       ...(extra && typeof extra.sender === 'string' && extra.sender ? { sender: extra.sender } : {}),
       // Byte-free attachment metadata (name/mime/size) from the queue entry —
       // lets the desktop transcript render image chips without ever carrying
@@ -683,10 +702,7 @@ export async function createLocalSessionRuntime({
     const previous = state.items.at(-1);
     // Tail-only aggregation prevents a later completion from mutating a card
     // above any outbound tool, assistant, user, or preview/body boundary.
-    if (
-      previous?.kind === 'tool'
-      && previous.agentDirection === 'inbound'
-    ) {
+    if (previous?.kind === 'tool' && previous.agentDirection === 'inbound') {
       const patch = appendAgentResponseTail(previous, {
         key: responseItem.agentResponseKey,
         args: responseItem.args,
@@ -707,9 +723,17 @@ export async function createLocalSessionRuntime({
     const id = nextId();
     const value = String(text ?? '').trim();
     if (!value) return null;
-    set({ toasts: [...state.toasts.filter((toast) => toast.id !== id), {
-      id, text: value, tone, ...(options.owner ? { owner: options.owner } : {}),
-    }] });
+    set({
+      toasts: [
+        ...state.toasts.filter((toast) => toast.id !== id),
+        {
+          id,
+          text: value,
+          tone,
+          ...(options.owner ? { owner: options.owner } : {}),
+        },
+      ],
+    });
     const timer = setTimeout(() => {
       toastTimers.delete(timer);
       if (flags.disposed) return;
@@ -747,26 +771,27 @@ export async function createLocalSessionRuntime({
   const setProgressHint = (text, tone = 'info', percent) => {
     const value = String(text ?? '').trim();
     const numericPercent = Number(percent);
-    set({ progressHint: value ? {
-      text: value,
-      tone,
-      ...(Number.isFinite(numericPercent)
-        ? { percent: Math.max(0, Math.min(100, Math.round(numericPercent))) }
-        : {}),
-    } : null });
+    set({
+      progressHint: value
+        ? {
+            text: value,
+            tone,
+            ...(Number.isFinite(numericPercent)
+              ? { percent: Math.max(0, Math.min(100, Math.round(numericPercent))) }
+              : {}),
+          }
+        : null,
+    });
   };
-  const {
-    presentNextToolApproval,
-    finishToolApproval,
-    denyAllToolApprovals,
-    requestToolApproval,
-  } = createToolApproval({
-    getState: () => state,
-    set,
-    nextId,
-    getDisposed: () => flags.disposed,
-    timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
-  });
+  const { presentNextToolApproval, finishToolApproval, denyAllToolApprovals, requestToolApproval } = createToolApproval(
+    {
+      getState: () => state,
+      set,
+      nextId,
+      getDisposed: () => flags.disposed,
+      timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
+    }
+  );
   const toastTimers = new Set();
   lifecycle.runtimePulseTimer = setInterval(() => {
     if (flags.disposed) return;
@@ -841,34 +866,79 @@ export async function createLocalSessionRuntime({
     itemIndexById,
   });
 
-
   Object.assign(bag, {
-    runtime, nextId, tuiDebug,
-    flags, lifecycle, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, clearExecutionDedupState, listeners, itemIndexById,
-    getState: () => state, getPublishedState: () => publishedState,
-    set, flushEmit, flushEmitImmediate, disposeEmit: publisher.dispose,
-    pushItem, appendItems, patchItem, replaceItems, restoreOlderTranscript, restoreNewerTranscript, updateStreamingTail, settleStreamingTail, clearStreamingTail,
-    pushToast, pushNotice, removeNotice, setProgressHint,
-    pushUserOrSyntheticItem, pushAsyncAgentResponse, upsertSyntheticToolItem,
-    markToolCallActive, markToolCallDone, clearActiveToolSummary, clearToastTimers,
-    autoClearState, agentStatusState, baseRouteState, routeState, transcriptRouteMetadata, syncContextStats,
+    runtime,
+    nextId,
+    tuiDebug,
+    flags,
+    lifecycle,
+    pending,
+    pendingNotificationKeys,
+    displayedExecutionNotificationKeys,
+    clearExecutionDedupState,
+    listeners,
+    itemIndexById,
+    getState: () => state,
+    getPublishedState: () => publishedState,
+    set,
+    flushEmit,
+    flushEmitImmediate,
+    disposeEmit: publisher.dispose,
+    pushItem,
+    appendItems,
+    patchItem,
+    replaceItems,
+    restoreOlderTranscript,
+    restoreNewerTranscript,
+    updateStreamingTail,
+    settleStreamingTail,
+    clearStreamingTail,
+    pushToast,
+    pushNotice,
+    removeNotice,
+    setProgressHint,
+    pushUserOrSyntheticItem,
+    pushAsyncAgentResponse,
+    upsertSyntheticToolItem,
+    markToolCallActive,
+    markToolCallDone,
+    clearActiveToolSummary,
+    clearToastTimers,
+    autoClearState,
+    agentStatusState,
+    baseRouteState,
+    routeState,
+    transcriptRouteMetadata,
+    syncContextStats,
     disposeTranscriptSpill: () => transcriptSpill.dispose(),
     snapshotTranscriptSpill: () => transcriptSpill.snapshot(),
     restoreTranscriptSpill: (snapshot) => transcriptSpill.restoreSnapshot(snapshot),
     releaseTranscriptSpill: (snapshot) => transcriptSpill.releaseSnapshot(snapshot),
-    presentNextToolApproval, finishToolApproval, denyAllToolApprovals, requestToolApproval,
-    patchToolCardResult, flushToolResults,
-    kickExecutionPendingResume, flushDeferredExecutionPendingResumeKick, scheduleExecutionPendingResumeKick, discardExecutionPendingResume, updateAgentJobCard, subscribeRuntimeNotifications,
+    presentNextToolApproval,
+    finishToolApproval,
+    denyAllToolApprovals,
+    requestToolApproval,
+    patchToolCardResult,
+    flushToolResults,
+    kickExecutionPendingResume,
+    flushDeferredExecutionPendingResumeKick,
+    scheduleExecutionPendingResumeKick,
+    discardExecutionPendingResume,
+    updateAgentJobCard,
+    subscribeRuntimeNotifications,
   });
   Object.assign(bag, createSessionFlow(bag));
-  Object.assign(bag, createGoalContinuation({
-    runtime,
-    flags,
-    getState: () => state,
-    set,
-    getPending: () => pending,
-    enqueue: (...args) => bag.enqueue(...args),
-  }));
+  Object.assign(
+    bag,
+    createGoalContinuation({
+      runtime,
+      flags,
+      getState: () => state,
+      set,
+      getPending: () => pending,
+      enqueue: (...args) => bag.enqueue(...args),
+    })
+  );
   visibleGoalStatus = bag.visibleGoalStatus;
   bag.runTurn = createRunTurn(bag);
   const api = createSessionApi(bag);
@@ -908,7 +978,9 @@ export async function createLocalSessionRuntime({
         });
       }
       void bag.drain();
-    })().catch(() => { /* the watch/tick pair retries */ });
+    })().catch(() => {
+      /* the watch/tick pair retries */
+    });
     const tracked = run.finally(() => {
       if (remoteInjectionDrain === tracked) remoteInjectionDrain = null;
     });
@@ -916,10 +988,9 @@ export async function createLocalSessionRuntime({
     return tracked;
   };
   const liveShare = createLiveShare({
-    ownerSessionId: () => (flags.disposed || flags.pendingSessionReset || state.sessionRemoteAttached
-      ? '' : String(state.sessionId || '')),
-    viewerSessionId: () => (flags.disposed || !state.sessionRemoteAttached
-      ? '' : String(state.sessionId || '')),
+    ownerSessionId: () =>
+      flags.disposed || flags.pendingSessionReset || state.sessionRemoteAttached ? '' : String(state.sessionId || ''),
+    viewerSessionId: () => (flags.disposed || !state.sessionRemoteAttached ? '' : String(state.sessionId || '')),
     socketPathFor: (id) => liveSharePipePath(id, sessionPath(id)),
     getPublishedState: () => publishedState,
     listeners,
@@ -933,17 +1004,18 @@ export async function createLocalSessionRuntime({
       // Preserve the viewer's submission id end-to-end: the queue entry and
       // the settled user item then carry the id the submitting surface used
       // for its optimistic row, so that row releases instead of duplicating.
-      const queued = bag.enqueue(
-        prompt,
-        meta && typeof meta === 'object' ? meta : {},
-      ) !== false;
+      const queued = bag.enqueue(prompt, meta && typeof meta === 'object' ? meta : {}) !== false;
       void bag.drain();
       return queued;
     },
     onRemoteAbort: () => {
       // Forwarded viewer stop: interrupt OUR active turn (we are the owner).
       if (flags.disposed || state.sessionRemoteAttached) return;
-      try { api.abort?.(); } catch { /* abort is best-effort */ }
+      try {
+        api.abort?.();
+      } catch {
+        /* abort is best-effort */
+      }
     },
     onOwnerClosed: (id) => {
       // Owner left (clean close or crash): promote via the normal quiet
@@ -952,7 +1024,9 @@ export async function createLocalSessionRuntime({
         if (flags.disposed || !state.sessionRemoteAttached) return;
         if (String(state.sessionId || '') !== id) return;
         if (liveShare.viewerConnected()) return;
-        void Promise.resolve(api.resume(id, { quiet: true })).catch(() => { /* tick retries */ });
+        void Promise.resolve(api.resume(id, { quiet: true })).catch(() => {
+          /* tick retries */
+        });
       }, 1500);
       timer.unref?.();
     },
@@ -972,7 +1046,13 @@ export async function createLocalSessionRuntime({
   // pipe finally connected (visible up/down lurch until heights resettled).
   // resume() calls this right after installing the restored items so the
   // owner's full frame lands at the entry boundary instead of seconds later.
-  bag.ensureLiveShare = () => { try { liveShare.ensure(); } catch { /* share tick retries */ } };
+  bag.ensureLiveShare = () => {
+    try {
+      liveShare.ensure();
+    } catch {
+      /* share tick retries */
+    }
+  };
   // Pulse guard: while this surface is an attached viewer with a live pipe,
   // owner frames own stats/agent/tool state (see runtimePulseTimer above).
   bag.liveShareMirroring = () => state.sessionRemoteAttached && liveShare.viewerConnected();
@@ -991,12 +1071,13 @@ export async function createLocalSessionRuntime({
         share: liveShare,
         // Writing to the owner's spool instead of starting a fake local turn
         // that would render an error/synthetic assistant message here.
-        spool: (submissionId) => runtime.enqueueRemoteAttachedPrompt?.({
-          content: prompt,
-          text,
-          id: submissionId,
-          options,
-        }) === true,
+        spool: (submissionId) =>
+          runtime.enqueueRemoteAttachedPrompt?.({
+            content: prompt,
+            text,
+            id: submissionId,
+            options,
+          }) === true,
       }),
     };
   };
@@ -1037,7 +1118,13 @@ export async function createLocalSessionRuntime({
   // conversation looks missing and then pops in late (user report). The
   // owner leg benefits equally: its pipe server starts the moment the
   // session opens, so cross-surface viewers can connect at once.
-  const reconcileLiveShareNow = () => { try { liveShare.ensure(); } catch { /* tick retries */ } };
+  const reconcileLiveShareNow = () => {
+    try {
+      liveShare.ensure();
+    } catch {
+      /* tick retries */
+    }
+  };
   for (const method of ['resume', 'newSession', 'switchContext']) {
     if (typeof api[method] !== 'function') continue;
     const base = api[method].bind(api);
@@ -1059,7 +1146,7 @@ export async function createLocalSessionRuntime({
         // 세션 로드가 가끔 매우 느림). Cap the boundary wait low: late owner
         // frames still land through viewerApply and simply replace the disk
         // restore when they arrive.
-        if (id && await liveShare.waitForViewerSync(id, 400)) bag.flushEmit();
+        if (id && (await liveShare.waitForViewerSync(id, 400))) bag.flushEmit();
       }
       return result;
     };
@@ -1083,22 +1170,43 @@ export async function createLocalSessionRuntime({
           spoolDebounce = null;
           if (flags.disposed || flags.pendingSessionReset) return;
           if (state.busy || state.commandBusy || state.sessionRemoteAttached) return;
-          try { void drainRemoteInjections(); } catch { /* tick fallback */ }
+          try {
+            void drainRemoteInjections();
+          } catch {
+            /* tick fallback */
+          }
         }, 120);
         spoolDebounce.unref?.();
       });
       spoolWatcher.on?.('error', () => {
-        try { spoolWatcher.close(); } catch { /* already closed */ }
+        try {
+          spoolWatcher.close();
+        } catch {
+          /* already closed */
+        }
         spoolWatcher = null;
       });
     }
-  } catch { /* spool watch is an optimization; the 3s tick remains */ }
+  } catch {
+    /* spool watch is an optimization; the 3s tick remains */
+  }
   const remoteAttachTimer = setInterval(() => {
     if (flags.disposed) {
       clearInterval(remoteAttachTimer);
-      try { liveShare.dispose(); } catch { /* best-effort */ }
-      try { spoolWatcher?.close(); } catch { /* already closed */ }
-      if (spoolDebounce) { clearTimeout(spoolDebounce); spoolDebounce = null; }
+      try {
+        liveShare.dispose();
+      } catch {
+        /* best-effort */
+      }
+      try {
+        spoolWatcher?.close();
+      } catch {
+        /* already closed */
+      }
+      if (spoolDebounce) {
+        clearTimeout(spoolDebounce);
+        spoolDebounce = null;
+      }
       return;
     }
     if (flags.pendingSessionReset) return;
@@ -1106,8 +1214,14 @@ export async function createLocalSessionRuntime({
       const heldId = runtime.publishSessionPresence?.() || '';
       if (heldPresenceId && heldPresenceId !== heldId) runtime.clearSessionPresence?.(heldPresenceId);
       heldPresenceId = heldId;
-    } catch { /* best-effort */ }
-    try { liveShare.ensure(); } catch { /* next tick retries */ }
+    } catch {
+      /* best-effort */
+    }
+    try {
+      liveShare.ensure();
+    } catch {
+      /* next tick retries */
+    }
     try {
       if (state.busy || state.commandBusy) return;
       if (state.sessionRemoteAttached) {
@@ -1115,7 +1229,10 @@ export async function createLocalSessionRuntime({
         if (!id) return;
         // Pipe-connected viewers follow the owner live; the disk-mtime
         // re-resume would only reload mid-stream state and flicker.
-        if (liveShare.viewerConnected()) { viewerStoreMtime = 0; return; }
+        if (liveShare.viewerConnected()) {
+          viewerStoreMtime = 0;
+          return;
+        }
         // Self-heal: a force-killed owner never announces onOwnerClosed and
         // its final save never bumps the store mtime, so without this probe
         // the surface stays a viewer forever, spooling messages to nobody.
@@ -1123,23 +1240,36 @@ export async function createLocalSessionRuntime({
         // quiet re-resume (it drains the pending spool on the next tick).
         if (runtime.sessionOwnerGone?.(id) === true) {
           viewerStoreMtime = 0;
-          void Promise.resolve(api.resume(id, { quiet: true })).catch(() => { /* next tick retries */ });
+          void Promise.resolve(api.resume(id, { quiet: true })).catch(() => {
+            /* next tick retries */
+          });
           return;
         }
         let mtime = 0;
-        try { mtime = statSync(sessionPath(id)).mtimeMs || 0; } catch { return; }
+        try {
+          mtime = statSync(sessionPath(id)).mtimeMs || 0;
+        } catch {
+          return;
+        }
         // First attached tick only baselines: the resume that attached this
         // surface already loaded the current on-disk transcript.
-        if (!viewerStoreMtime) { viewerStoreMtime = mtime; return; }
+        if (!viewerStoreMtime) {
+          viewerStoreMtime = mtime;
+          return;
+        }
         if (mtime > viewerStoreMtime) {
           viewerStoreMtime = mtime;
-          void Promise.resolve(api.resume(id, { quiet: true })).catch(() => { /* next tick retries */ });
+          void Promise.resolve(api.resume(id, { quiet: true })).catch(() => {
+            /* next tick retries */
+          });
         }
         return;
       }
       viewerStoreMtime = 0;
       void drainRemoteInjections();
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }, 3000);
   remoteAttachTimer.unref?.();
   void Promise.resolve(bag.restoreLeadSteeringFromDisk())

@@ -4,7 +4,13 @@
 // patch.mjs; control flow and output are unchanged.
 
 import { chmodSync, existsSync, statSync, readFileSync, readdirSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
-import { dirname as pathDirname, resolve as pathResolve, relative as pathRelative, isAbsolute, join as pathJoin } from 'node:path';
+import {
+  dirname as pathDirname,
+  resolve as pathResolve,
+  relative as pathRelative,
+  isAbsolute,
+  join as pathJoin,
+} from 'node:path';
 import { parsePatch } from 'diff';
 import { getAbortSignalForSession } from '../../session/abort-lookup.mjs';
 import {
@@ -17,7 +23,17 @@ import { withAdvisoryLocks } from '../builtin/advisory-lock.mjs';
 import { getPluginData } from '../../config.mjs';
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
 import { recordTurnDiffChanges } from '../../../../shared/turn-snapshot.mjs';
-import { prepareInput, isV4APatchInput, hasUnifiedBareV4AHunk, canFallbackCountedUnified, parseV4APatch, parseUnifiedBareV4APatch, parseUnifiedCountedAsV4APatch, isCompactedPlaceholderPatch, salvageV4AOpening } from './parsing.mjs';
+import {
+  prepareInput,
+  isV4APatchInput,
+  hasUnifiedBareV4AHunk,
+  canFallbackCountedUnified,
+  parseV4APatch,
+  parseUnifiedBareV4APatch,
+  parseUnifiedCountedAsV4APatch,
+  isCompactedPlaceholderPatch,
+  salvageV4AOpening,
+} from './parsing.mjs';
 import {
   resolveBasePath,
   resolveEntryPath,
@@ -77,7 +93,11 @@ function uniqueExistingPatchTarget(basePath, requestedFullPath) {
   const asFile = (candidate) => {
     if (!candidate) return null;
     const fullPath = isAbsolute(candidate) ? pathResolve(candidate) : pathResolve(basePath, candidate);
-    try { return statSync(fullPath).isFile() ? fullPath : null; } catch { return null; }
+    try {
+      return statSync(fullPath).isFile() ? fullPath : null;
+    } catch {
+      return null;
+    }
   };
   const suffix = asFile(findBySuffixStrip(basePath, requestedFullPath));
   if (suffix) return suffix;
@@ -143,9 +163,12 @@ function capturePatchRollbackState(paths) {
       stat = statSync(fullPath);
     } catch (err) {
       if (err?.code === 'ENOENT') return { fullPath, existed: false, content: null, mode: null };
-      throw new Error(`apply_patch: rollback snapshot target unreadable: ${normalizeOutputPath(fullPath)} (${err?.code || err?.message || String(err)})`);
+      throw new Error(
+        `apply_patch: rollback snapshot target unreadable: ${normalizeOutputPath(fullPath)} (${err?.code || err?.message || String(err)})`
+      );
     }
-    if (!stat.isFile()) throw new Error(`apply_patch: rollback snapshot target is not a regular file: ${normalizeOutputPath(fullPath)}`);
+    if (!stat.isFile())
+      throw new Error(`apply_patch: rollback snapshot target is not a regular file: ${normalizeOutputPath(fullPath)}`);
     return { fullPath, existed: true, content: readFileSync(fullPath), mode: stat.mode };
   });
 }
@@ -179,9 +202,8 @@ function restorePatchRollbackState(snapshots, readStateScope) {
 // Apply one "wave" (a set of unique-target parsed entries) via the native
 // (+ JS out-of-base) split. Returns { executor, text } on success or
 // { executor, error } so the caller decides whether earlier waves already
-// committed to disk. Extracted verbatim from the inline applyWave closure so
-// both the default wave loop and sequence mode share identical apply
-// semantics.
+// committed to disk. Both the default wave loop and sequence mode share
+// identical apply semantics.
 async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewrites: whr }, basePath, opts) {
   const { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal } = opts;
   // Create entries use the JS atomic writer even inside the base path. Its
@@ -201,35 +223,34 @@ async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewri
   // Codec routing only concerns entries that REWRITE bytes; a delete does not.
   // An unverified engine, however, must receive no work at all — deletes
   // included — so the whole wave takes the JS writer.
-  const codecNeedsJs = (fullPath, kind) => kind !== 'create' && kind !== 'delete'
-    && patchTargetUsesUtf16(fullPath);
+  const codecNeedsJs = (fullPath, kind) => kind !== 'create' && kind !== 'delete' && patchTargetUsesUtf16(fullPath);
   // A symlinked target takes the JS writer too: the native engine renames its
   // output over the path it was handed, which would replace the link with a
   // regular file. The JS writer resolves the link and rewrites the file it
   // points at. Delete is exempt — removing the link itself is correct there.
-  const symlinkNeedsJs = (fullPath, kind) => kind !== 'create' && kind !== 'delete'
-    && symlinkWriteTarget(fullPath) !== null;
-  const needsJsWriter = (fullPath, kind) => !engineContractOk
-    || codecNeedsJs(fullPath, kind)
-    || symlinkNeedsJs(fullPath, kind);
+  const symlinkNeedsJs = (fullPath, kind) =>
+    kind !== 'create' && kind !== 'delete' && symlinkWriteTarget(fullPath) !== null;
+  const needsJsWriter = (fullPath, kind) =>
+    !engineContractOk || codecNeedsJs(fullPath, kind) || symlinkNeedsJs(fullPath, kind);
   const nativeEntries = wentries.filter(
-    (entry) => entry.kind !== 'create'
-      && !isResolvedPathOutsideBase(entry.fullPath, basePath)
-      && !needsJsWriter(entry.fullPath, entry.kind),
+    (entry) =>
+      entry.kind !== 'create' &&
+      !isResolvedPathOutsideBase(entry.fullPath, basePath) &&
+      !needsJsWriter(entry.fullPath, entry.kind)
   );
   const jsEntries = wentries.filter(
-    (entry) => entry.kind === 'create'
-      || isResolvedPathOutsideBase(entry.fullPath, basePath)
-      || needsJsWriter(entry.fullPath, entry.kind),
+    (entry) =>
+      entry.kind === 'create' ||
+      isResolvedPathOutsideBase(entry.fullPath, basePath) ||
+      needsJsWriter(entry.fullPath, entry.kind)
   );
   const parsedInside = (wparsed || []).filter(
-    (entry) => classifyEntry(entry) !== 'create'
-      && !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath)
-      && !needsJsWriter(parsedEntryResolvedPath(entry, basePath), classifyEntry(entry)),
+    (entry) =>
+      classifyEntry(entry) !== 'create' &&
+      !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath) &&
+      !needsJsWriter(parsedEntryResolvedPath(entry, basePath), classifyEntry(entry))
   );
-  const executor = jsEntries.length > 0
-    ? (nativeEntries.length > 0 ? 'native+js-patch' : 'js-patch')
-    : 'native-patch';
+  const executor = jsEntries.length > 0 ? (nativeEntries.length > 0 ? 'native+js-patch' : 'js-patch') : 'native-patch';
   const resultParts = [];
   if (nativeEntries.length > 0) {
     const nativePatchStr = rewriteHeaderPaths(renderParsedUnifiedPatch(parsedInside), whr);
@@ -270,9 +291,16 @@ async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewri
 // fails. Reports applied / failed / skipped reflecting true disk state.
 async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
   const {
-    v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
-    readStateScope, abortSignal, mutationPlan,
-    toolCallId, sessionId,
+    v4aConvertOpts,
+    dryRun,
+    fuzz,
+    fuzzy,
+    rejectPartial,
+    readStateScope,
+    abortSignal,
+    mutationPlan,
+    toolCallId,
+    sessionId,
     replayCapture = null,
     continueAfterFailure = false,
     coalesceByFile = false,
@@ -326,14 +354,8 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
   if (isV4APatchInput(patchStr, requestedFormat)) {
     let allSections;
     try {
-      const parsedSections = rewriteV4AReadRedirects(
-        parseV4APatch(patchStr),
-        basePath,
-        readStateScope,
-      );
-      allSections = coalesceByFile
-        ? coalesceCompatibleV4ASections(parsedSections, basePath)
-        : parsedSections;
+      const parsedSections = rewriteV4AReadRedirects(parseV4APatch(patchStr), basePath, readStateScope);
+      allSections = coalesceByFile ? coalesceCompatibleV4ASections(parsedSections, basePath) : parsedSections;
     } catch (err) {
       throw new Error(`apply_patch: V4A parse failed — ${err?.message || String(err)}`);
     }
@@ -344,11 +366,7 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
     // than converting the whole patch up front.
     let sections;
     try {
-      sections = rewriteV4AReadRedirects(
-        parseUnifiedBareV4APatch(patchStr),
-        basePath,
-        readStateScope,
-      );
+      sections = rewriteV4AReadRedirects(parseUnifiedBareV4APatch(patchStr), basePath, readStateScope);
     } catch (err) {
       throw new Error(`apply_patch: bare @@ parse failed — ${err?.message || String(err)}`);
     }
@@ -360,19 +378,19 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
       parsed = parsePatch(prepareInput(patchStr));
     } catch (err) {
       if (!canFallbackCountedUnified(patchStr, requestedFormat, err)) {
-        throw new Error(`apply_patch: parse failed — ${err?.message || String(err)}; prefer V4A envelope for multi-hunk edits (no @@ line counts)`);
+        throw new Error(
+          `apply_patch: parse failed — ${err?.message || String(err)}; prefer V4A envelope for multi-hunk edits (no @@ line counts)`
+        );
       }
       // Counted-unified (`@@ -a,b +c,d @@`) that parsePatch rejects: parse to
       // V4A-style sections and defer per-section conversion — same ordered-stop
       // guarantee as the V4A path (no whole-patch up-front convert).
       try {
-        countedSections = rewriteV4AReadRedirects(
-          parseUnifiedCountedAsV4APatch(patchStr),
-          basePath,
-          readStateScope,
-        );
+        countedSections = rewriteV4AReadRedirects(parseUnifiedCountedAsV4APatch(patchStr), basePath, readStateScope);
       } catch (fallbackErr) {
-        throw new Error(`apply_patch: parse failed — ${err?.message || String(err)}; V4A fallback failed — ${fallbackErr?.message || String(fallbackErr)}`);
+        throw new Error(
+          `apply_patch: parse failed — ${err?.message || String(err)}; V4A fallback failed — ${fallbackErr?.message || String(fallbackErr)}`
+        );
       }
     }
     if (countedSections) {
@@ -384,9 +402,9 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
         const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
         if (!headerName) {
           throw new Error(
-            'apply_patch: a file section header could not be parsed (no target path) — the patch body is not a valid diff. '
-            + 'Each section must start with `*** Update File: <path>` / `*** Add File: <path>` / `*** Delete File: <path>` '
-            + '(V4A, wrapped in `*** Begin Patch` / `*** End Patch`), or a `--- a/<path>` + `+++ b/<path>` pair (unified).',
+            'apply_patch: a file section header could not be parsed (no target path) — the patch body is not a valid diff. ' +
+              'Each section must start with `*** Update File: <path>` / `*** Add File: <path>` / `*** Delete File: <path>` ' +
+              '(V4A, wrapped in `*** Begin Patch` / `*** End Patch`), or a `--- a/<path>` + `+++ b/<path>` pair (unified).'
           );
         }
         units.push({
@@ -435,7 +453,10 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
       };
       for (let i = 0; i < units.length; i++) {
         const unit = units[i];
-        if (failed) { skipped.push(unit.displayPath); continue; }
+        if (failed) {
+          skipped.push(unit.displayPath);
+          continue;
+        }
         if (abortSignal?.aborted) {
           noteFailure(unit, i, 'Error: apply_patch aborted');
           continue;
@@ -479,22 +500,33 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
       }
 
       const verb = dryRun ? 'validated' : 'applied';
-      const dryNote = (dryRun && units.length > 1)
-        ? '\n(dry_run: each section validated against unchanged disk; a section depending on an earlier section\'s edits may report a false failure)'
-        : '';
-      const appliedTexts = applied.map((a) => a.text).filter(Boolean).join('\n');
+      const dryNote =
+        dryRun && units.length > 1
+          ? "\n(dry_run: each section validated against unchanged disk; a section depending on an earlier section's edits may report a false failure)"
+          : '';
+      const appliedTexts = applied
+        .map((a) => a.text)
+        .filter(Boolean)
+        .join('\n');
       // reject_partial=false may have skipped individual V4A hunks in ANY
       // already-processed section; surface them in BOTH the success and failure
       // reports so the reported disk state stays complete even when a later
       // section fails.
       const rejected = Array.isArray(v4aConvertOpts?.rejectedHunks) ? v4aConvertOpts.rejectedHunks : [];
-      const rejectedTail = rejected.length > 0
-        ? '\n' + [
-          '',
-          `hunk-level rejected (rejectPartial=false, V4A): ${rejected.length}`,
-          ...rejected.map((r) => `  REJECT ${r.file || '(unknown)'} — ${String(r.reason || '').split(';')[0].trim()}`),
-        ].join('\n')
-        : '';
+      const rejectedTail =
+        rejected.length > 0
+          ? '\n' +
+            [
+              '',
+              `hunk-level rejected (rejectPartial=false, V4A): ${rejected.length}`,
+              ...rejected.map(
+                (r) =>
+                  `  REJECT ${r.file || '(unknown)'} — ${String(r.reason || '')
+                    .split(';')[0]
+                    .trim()}`
+              ),
+            ].join('\n')
+          : '';
       if (continueAfterFailure && failures.length > 0) {
         if (!dryRun && uiBeforeSnapshots.length > 0 && applied.length > 0) {
           registerCommittedPatchUiDiff({
@@ -518,7 +550,7 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
         for (const failure of failures) {
           lines.push(
             `--- rejected file ${failure.index + 1}/${units.length}: ${failure.displayPath} ---`,
-            failure.error.replace(/^Error:\s*/, ''),
+            failure.error.replace(/^Error:\s*/, '')
           );
         }
         return wrapPatchMutationOutput(lines.join('\n') + dryNote + rejectedTail, mutationPlan, { executor });
@@ -538,11 +570,7 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
         return wrapPatchMutationOutput(body, mutationPlan, { executor });
       }
       const failMsg = failed.error.replace(/^Error:\s*/, '');
-      if (
-        !dryRun
-        && uiBeforeSnapshots.length > 0
-        && applied.length > 0
-      ) {
+      if (!dryRun && uiBeforeSnapshots.length > 0 && applied.length > 0) {
         registerCommittedPatchUiDiff({
           callId: toolCallId,
           sessionId,
@@ -555,8 +583,8 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
         ? `${applied.length} earlier section(s) were validated`
         : `${applied.length} earlier section(s) were applied to disk (committed) and left in place`;
       const lines = [
-        `Error: apply_patch sequence stopped at section ${failedIndex + 1}/${units.length} (${failed.displayPath}); `
-          + `${committedPhrase}; ${skipped.length} later section(s) were skipped (not attempted).`,
+        `Error: apply_patch sequence stopped at section ${failedIndex + 1}/${units.length} (${failed.displayPath}); ` +
+          `${committedPhrase}; ${skipped.length} later section(s) were skipped (not attempted).`,
       ];
       if (!dryRun) {
         lines.push('Retry only the failed and skipped sections; do not resend committed sections.');
@@ -569,7 +597,8 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
         lines.push(`--- skipped (not attempted): ${skipped.join(', ')} ---`);
       }
       return wrapPatchMutationOutput(lines.join('\n') + dryNote + rejectedTail, mutationPlan, { executor });
-    }));
+    })
+  );
 }
 
 const APPLY_PATCH_UI_DIFF_MAX_CHARS = 64 * 1024;
@@ -608,12 +637,14 @@ export function takeApplyPatchUiDiff(callId) {
 export function registerEditToolUiDiff({ callId, sessionId, basePath, fullPath, before, after }) {
   if (!callId || !sessionId || typeof fullPath !== 'string') return;
   try {
-    const turnDiff = recordTurnDiffChanges(sessionId, [{
-      path: fullPath,
-      displayPath: patchHeaderPathForResolved(basePath || '', fullPath),
-      before: typeof before === 'string' ? before : null,
-      after: typeof after === 'string' ? after : null,
-    }]);
+    const turnDiff = recordTurnDiffChanges(sessionId, [
+      {
+        path: fullPath,
+        displayPath: patchHeaderPathForResolved(basePath || '', fullPath),
+        before: typeof before === 'string' ? before : null,
+        after: typeof after === 'string' ? after : null,
+      },
+    ]);
     registerApplyPatchUiDiff(callId, turnDiff);
   } catch {
     // best-effort display channel
@@ -621,20 +652,10 @@ export function registerEditToolUiDiff({ callId, sessionId, basePath, fullPath, 
 }
 
 function snapshotByPath(snapshots) {
-  return new Map((snapshots || []).map((snapshot) => [
-    patchPathKey(snapshot.fullPath),
-    snapshot,
-  ]));
+  return new Map((snapshots || []).map((snapshot) => [patchPathKey(snapshot.fullPath), snapshot]));
 }
 
-function registerCommittedPatchUiDiff({
-  callId,
-  sessionId,
-  basePath,
-  beforeSnapshots,
-  paths,
-  renameSections = [],
-}) {
+function registerCommittedPatchUiDiff({ callId, sessionId, basePath, beforeSnapshots, paths, renameSections = [] }) {
   if (!callId || !sessionId || !Array.isArray(beforeSnapshots) || beforeSnapshots.length === 0) return;
   try {
     const afterSnapshots = capturePatchRollbackState(paths);
@@ -681,8 +702,8 @@ function registerCommittedPatchUiDiff({
 }
 
 function planApplyPatchMutationRoute(args, patchStr, requestedFormat) {
-  const v4aInput = isV4APatchInput(patchStr, requestedFormat)
-    || (requestedFormat !== 'unified' && hasUnifiedBareV4AHunk(patchStr));
+  const v4aInput =
+    isV4APatchInput(patchStr, requestedFormat) || (requestedFormat !== 'unified' && hasUnifiedBareV4AHunk(patchStr));
   return {
     sourceTool: 'apply_patch',
     engine: v4aInput ? 'v4a-patch' : 'unified-patch',
@@ -744,7 +765,11 @@ function appendPostPatchExcerpts(outputText, patchStr, requestedFormat, basePath
     for (const section of sections) {
       const target = section.movePath || section.path;
       let fileKey;
-      try { fileKey = resolveV4AEntryPath(basePath, target); } catch { continue; }
+      try {
+        fileKey = resolveV4AEntryPath(basePath, target);
+      } catch {
+        continue;
+      }
       if (process.platform === 'win32') fileKey = fileKey.toLowerCase();
       if (seen.has(fileKey)) repeats.push(section);
       seen.set(fileKey, Date.now());
@@ -758,18 +783,19 @@ function appendPostPatchExcerpts(outputText, patchStr, requestedFormat, basePath
       let fileLines;
       try {
         fileLines = readFileSync(resolveV4AEntryPath(basePath, target), 'utf8').replace(/\r\n/g, '\n').split('\n');
-      } catch { continue; }
+      } catch {
+        continue;
+      }
       const hunk = section.hunks[0];
-      const newSide = (hunk.lines || [])
-        .filter((l) => l && (l[0] === ' ' || l[0] === '+'))
-        .map((l) => l.slice(1));
+      const newSide = (hunk.lines || []).filter((l) => l && (l[0] === ' ' || l[0] === '+')).map((l) => l.slice(1));
       if (!newSide.length) continue;
       let at = -1;
       outer: for (let i = 0; i + newSide.length <= fileLines.length; i++) {
         for (let k = 0; k < newSide.length; k++) {
           if (fileLines[i + k] !== newSide[k]) continue outer;
         }
-        at = i; break;
+        at = i;
+        break;
       }
       if (at < 0) continue;
       const shown = Math.min(newSide.length, POST_PATCH_EXCERPT_MAX_LINES);
@@ -778,7 +804,10 @@ function appendPostPatchExcerpts(outputText, patchStr, requestedFormat, basePath
         rows.push(`${String(at + i + 1).padStart(5, ' ')}| ${fileLines[at + i]}`);
       }
       if (newSide.length > shown) rows.push('     | …');
-      const more = section.hunks.length > 1 ? ` (+${section.hunks.length - 1} more hunk${section.hunks.length > 2 ? 's' : ''})` : '';
+      const more =
+        section.hunks.length > 1
+          ? ` (+${section.hunks.length - 1} more hunk${section.hunks.length > 2 ? 's' : ''})`
+          : '';
       const block = `${String(target).replace(/\\/g, '/')} lines ${at + 1}-${at + shown}${more}:\n${rows.join('\n')}`;
       chars += block.length;
       if (chars > POST_PATCH_EXCERPT_MAX_CHARS) break;
@@ -791,11 +820,21 @@ function appendPostPatchExcerpts(outputText, patchStr, requestedFormat, basePath
   }
 }
 
-const APPLY_PATCH_SCHEMA_KEYS = new Set(['patch', 'format', 'base_path', 'dry_run', 'reject_partial', 'fuzzy', 'sequence', 'mode']);
+const APPLY_PATCH_SCHEMA_KEYS = new Set([
+  'patch',
+  'format',
+  'base_path',
+  'dry_run',
+  'reject_partial',
+  'fuzzy',
+  'sequence',
+  'mode',
+]);
 function salvageShatteredV4APatchArgs(args) {
   if (!args || typeof args !== 'object') return args;
   const rawPatch = typeof args.patch === 'string' ? args.patch : '';
-  if (!rawPatch.startsWith('*** Begin Patch') || rawPatch.includes('\n') || rawPatch.includes('*** End Patch')) return args;
+  if (!rawPatch.startsWith('*** Begin Patch') || rawPatch.includes('\n') || rawPatch.includes('*** End Patch'))
+    return args;
   const stray = Object.keys(args).filter((k) => !APPLY_PATCH_SCHEMA_KEYS.has(k));
   if (stray.length === 0) return args;
   const lines = [rawPatch];
@@ -821,32 +860,31 @@ function salvageShatteredV4APatchArgs(args) {
 // Everything else (Update+Delete, Add+Add, renames) keeps rejecting: those
 // pairs genuinely describe two different end states.
 function collapseDeleteThenAddSection(prior, section, fullPath) {
-    if (prior?.kind !== 'delete' || section?.kind !== 'add') return null;
-    if (prior.movePath || section.movePath) return null;
-    const added = Array.isArray(section.lines) ? [...section.lines] : [];
-    let raw;
-    try {
-        raw = readFileSync(fullPath);
-    } catch (error) {
-        if (error?.code !== 'ENOENT') return null;
-        return { ...section, lines: added, hunks: [] };
-    }
-    // A binary target has no line model to rewrite; leave it to the existing
-    // conflict error rather than inventing one.
-    if (raw.includes(0)) return null;
-    const current = splitTextLinesForPatch(raw.toString('utf8'));
-    return {
-        kind: 'update',
-        path: section.path,
-        lines: [],
-        hunks: [{
-            anchors: [],
-            lines: [
-                ...[...current].map((line) => `-${line}`),
-                ...added.map((line) => `+${line}`),
-            ],
-        }],
-    };
+  if (prior?.kind !== 'delete' || section?.kind !== 'add') return null;
+  if (prior.movePath || section.movePath) return null;
+  const added = Array.isArray(section.lines) ? [...section.lines] : [];
+  let raw;
+  try {
+    raw = readFileSync(fullPath);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') return null;
+    return { ...section, lines: added, hunks: [] };
+  }
+  // A binary target has no line model to rewrite; leave it to the existing
+  // conflict error rather than inventing one.
+  if (raw.includes(0)) return null;
+  const current = splitTextLinesForPatch(raw.toString('utf8'));
+  return {
+    kind: 'update',
+    path: section.path,
+    lines: [],
+    hunks: [
+      {
+        anchors: [],
+        lines: [...[...current].map((line) => `-${line}`), ...added.map((line) => `+${line}`)],
+      },
+    ],
+  };
 }
 
 function coalesceCompatibleV4ASections(sections, basePath) {
@@ -875,14 +913,11 @@ function coalesceCompatibleV4ASections(sections, basePath) {
       out[priorIndex] = replaced;
       continue;
     }
-    const mergeable = prior?.kind === 'update'
-      && section.kind === 'update'
-      && !prior.movePath
-      && !section.movePath;
+    const mergeable = prior?.kind === 'update' && section.kind === 'update' && !prior.movePath && !section.movePath;
     if (!mergeable) {
       throw new Error(
-        `apply_patch: conflicting operations target ${normalizeOutputPath(section.path)}; `
-        + 'only repeated plain Update File sections can be merged',
+        `apply_patch: conflicting operations target ${normalizeOutputPath(section.path)}; ` +
+          'only repeated plain Update File sections can be merged'
       );
     }
     prior.hunks.push(...(Array.isArray(section.hunks) ? section.hunks : []));
@@ -898,11 +933,15 @@ async function apply_patch(args, cwd, options = {}) {
     throw new Error('apply_patch: "patch" is required (unified diff or V4A patch string)');
   }
   if (isCompactedPlaceholderPatch(patchStr)) {
-    throw new Error('patch body is a compacted-history placeholder ([mixdog compacted …]), not patch content. Submit real patch text; do not reuse or reconstruct the marker.');
+    throw new Error(
+      'patch body is a compacted-history placeholder ([mixdog compacted …]), not patch content. Submit real patch text; do not reuse or reconstruct the marker.'
+    );
   }
   const patchByteLen = Buffer.byteLength(patchStr, 'utf8');
   if (patchByteLen > APPLY_PATCH_MAX_BYTES) {
-    throw new Error(`apply_patch: patch too large (${patchByteLen} bytes > ${APPLY_PATCH_MAX_BYTES} byte cap); split into smaller patches`);
+    throw new Error(
+      `apply_patch: patch too large (${patchByteLen} bytes > ${APPLY_PATCH_MAX_BYTES} byte cap); split into smaller patches`
+    );
   }
   const requestedFormat = String(args?.format || '').toLowerCase();
   if (requestedFormat && requestedFormat !== 'unified' && requestedFormat !== 'v4a') {
@@ -912,7 +951,11 @@ async function apply_patch(args, cwd, options = {}) {
   const readStateScope = options?.readStateScope ?? options?.sessionId ?? null;
   let abortSignal = options?.signal || options?.abortSignal || null;
   if (!abortSignal && options?.sessionId) {
-    try { abortSignal = await getAbortSignalForSession(options.sessionId); } catch { abortSignal = null; }
+    try {
+      abortSignal = await getAbortSignalForSession(options.sessionId);
+    } catch {
+      abortSignal = null;
+    }
   }
   if (abortSignal?.aborted) {
     throw new Error(abortSignal.reason?.message || abortSignal.reason || 'apply_patch aborted');
@@ -934,11 +977,7 @@ async function apply_patch(args, cwd, options = {}) {
   let preParsedV4ASections = null;
   if (isV4APatchInput(patchStr, requestedFormat)) {
     try {
-      preParsedV4ASections = rewriteV4AReadRedirects(
-        parseV4APatch(patchStr),
-        basePath,
-        readStateScope,
-      );
+      preParsedV4ASections = rewriteV4AReadRedirects(parseV4APatch(patchStr), basePath, readStateScope);
     } catch {
       // The selected execution path reports the authoritative parse error.
     }
@@ -948,24 +987,31 @@ async function apply_patch(args, cwd, options = {}) {
   // rename executor automatically so the advertised `*** Move to:` grammar is
   // actually callable. Mixed patches stay ordered and tell the caller to retry
   // the move as its own section.
-  const modelSurfaceRenameOnly = preParsedV4ASections?.length === 1
-    && isV4ARenameSection(preParsedV4ASections[0]);
-  const modelSurfaceFilePartial = Array.isArray(preParsedV4ASections)
-    && !preParsedV4ASections.some(isV4ARenameSection)
-    && new Set(preParsedV4ASections.map((section) => {
-      const fullPath = resolveV4AEntryPath(basePath, section.path);
-      return process.platform === 'win32' ? fullPath.toLowerCase() : fullPath;
-    })).size > 1;
+  const modelSurfaceRenameOnly = preParsedV4ASections?.length === 1 && isV4ARenameSection(preParsedV4ASections[0]);
+  const modelSurfaceFilePartial =
+    Array.isArray(preParsedV4ASections) &&
+    !preParsedV4ASections.some(isV4ARenameSection) &&
+    new Set(
+      preParsedV4ASections.map((section) => {
+        const fullPath = resolveV4AEntryPath(basePath, section.path);
+        return process.platform === 'win32' ? fullPath.toLowerCase() : fullPath;
+      })
+    ).size > 1;
   // The model-visible default matches Codex: validate the complete patch before
   // writing and reject duplicate targets. Ordered partial application remains
   // an internal compatibility mode only.
   const patchMode = String(args?.mode || '').toLowerCase();
-  const orderedSequenceMode = args?.sequence === true
-    || ['ordered', 'sequence'].includes(patchMode);
+  const orderedSequenceMode = args?.sequence === true || ['ordered', 'sequence'].includes(patchMode);
   if ((orderedSequenceMode || modelSurfaceFilePartial) && !modelSurfaceRenameOnly) {
     const seqOut = await applyPatchSequence(patchStr, requestedFormat, basePath, {
-      v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
-      readStateScope, abortSignal, mutationPlan,
+      v4aConvertOpts,
+      dryRun,
+      fuzz,
+      fuzzy,
+      rejectPartial,
+      readStateScope,
+      abortSignal,
+      mutationPlan,
       toolCallId: options?.toolCallId || null,
       sessionId: options?.sessionId || null,
       replayCapture: options?.replayCapture || null,
@@ -977,29 +1023,23 @@ async function apply_patch(args, cwd, options = {}) {
   let v4aRenamePlan = null;
   if (isV4APatchInput(patchStr, requestedFormat)) {
     try {
-      const parsedSections = preParsedV4ASections || rewriteV4AReadRedirects(
-          parseV4APatch(patchStr),
-          basePath,
-          readStateScope,
-        );
+      const parsedSections =
+        preParsedV4ASections || rewriteV4AReadRedirects(parseV4APatch(patchStr), basePath, readStateScope);
       const allSections = coalesceCompatibleV4ASections(parsedSections, basePath);
       v4aRenamePlan = await planV4ARenameSections(allSections, basePath);
       inputPatchStr = await convertV4ASectionsToUnifiedPatch(v4aRenamePlan.remainingSections, basePath, v4aConvertOpts);
       if (v4aRenamePlan.renameSections.length > 0) {
-        mutationPlan = v4aRenamePlan.remainingSections.length > 0
-          ? { sourceTool: 'apply_patch', engine: 'v4a-patch', reason: 'v4a-mixed' }
-          : { sourceTool: 'apply_patch', engine: 'v4a-rename', reason: 'v4a-move' };
+        mutationPlan =
+          v4aRenamePlan.remainingSections.length > 0
+            ? { sourceTool: 'apply_patch', engine: 'v4a-patch', reason: 'v4a-mixed' }
+            : { sourceTool: 'apply_patch', engine: 'v4a-rename', reason: 'v4a-move' };
       }
     } catch (err) {
       throw new Error(`apply_patch: V4A parse failed — ${err?.message || String(err)}`);
     }
   } else if (requestedFormat !== 'unified' && hasUnifiedBareV4AHunk(patchStr)) {
     try {
-      const sections = rewriteV4AReadRedirects(
-        parseUnifiedBareV4APatch(patchStr),
-        basePath,
-        readStateScope,
-      );
+      const sections = rewriteV4AReadRedirects(parseUnifiedBareV4APatch(patchStr), basePath, readStateScope);
       inputPatchStr = await convertV4ASectionsToUnifiedPatch(sections, basePath, v4aConvertOpts);
     } catch (err) {
       throw new Error(`apply_patch: bare @@ parse failed — ${err?.message || String(err)}`);
@@ -1009,30 +1049,31 @@ async function apply_patch(args, cwd, options = {}) {
   const v4aRenameOnly = v4aRenamePlan?.renameSections?.length > 0 && v4aRenamePlan.remainingSections.length === 0;
 
   let parsed = [];
-  if (!v4aRenameOnly) try {
-    parsed = parsePatch(normalizedPatchStr);
-  } catch (err) {
-    if (!canFallbackCountedUnified(patchStr, requestedFormat, err)) {
-      throw new Error(`apply_patch: parse failed — ${err?.message || String(err)}; prefer V4A envelope for multi-hunk edits (no @@ line counts)`);
-    }
+  if (!v4aRenameOnly)
     try {
-      const sections = rewriteV4AReadRedirects(
-        parseUnifiedCountedAsV4APatch(patchStr),
-        basePath,
-        readStateScope,
-      );
-      inputPatchStr = await convertV4ASectionsToUnifiedPatch(sections, basePath, v4aConvertOpts);
-      normalizedPatchStr = prepareInput(inputPatchStr);
       parsed = parsePatch(normalizedPatchStr);
-      mutationPlan = {
-        sourceTool: 'apply_patch',
-        engine: 'v4a-patch',
-        reason: 'unified-count-fallback',
-      };
-    } catch (fallbackErr) {
-      throw new Error(`apply_patch: parse failed — ${err?.message || String(err)}; V4A fallback failed — ${fallbackErr?.message || String(fallbackErr)}`);
+    } catch (err) {
+      if (!canFallbackCountedUnified(patchStr, requestedFormat, err)) {
+        throw new Error(
+          `apply_patch: parse failed — ${err?.message || String(err)}; prefer V4A envelope for multi-hunk edits (no @@ line counts)`
+        );
+      }
+      try {
+        const sections = rewriteV4AReadRedirects(parseUnifiedCountedAsV4APatch(patchStr), basePath, readStateScope);
+        inputPatchStr = await convertV4ASectionsToUnifiedPatch(sections, basePath, v4aConvertOpts);
+        normalizedPatchStr = prepareInput(inputPatchStr);
+        parsed = parsePatch(normalizedPatchStr);
+        mutationPlan = {
+          sourceTool: 'apply_patch',
+          engine: 'v4a-patch',
+          reason: 'unified-count-fallback',
+        };
+      } catch (fallbackErr) {
+        throw new Error(
+          `apply_patch: parse failed — ${err?.message || String(err)}; V4A fallback failed — ${fallbackErr?.message || String(fallbackErr)}`
+        );
+      }
     }
-  }
   if (!v4aRenameOnly) {
     parsed = rewriteParsedReadRedirects(parsed, basePath, readStateScope);
   }
@@ -1091,7 +1132,8 @@ async function apply_patch(args, cwd, options = {}) {
     }
     // Apply one wave (a set of unique targets) via applyParsedWave (native +
     // JS split). Returns { executor, text } on success or { executor, error }.
-    const applyWave = (wave) => applyParsedWave(wave, basePath, { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal });
+    const applyWave = (wave) =>
+      applyParsedWave(wave, basePath, { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal });
 
     const res = await applyWave(waveDispatch[0]);
     const executor = res.executor;
@@ -1105,7 +1147,12 @@ async function apply_patch(args, cwd, options = {}) {
       const tail = [
         '',
         `hunk-level rejected (rejectPartial=false, V4A): ${rejectedV4AHunks.length}`,
-        ...rejectedV4AHunks.map((r) => `  REJECT ${r.file || '(unknown)'} — ${String(r.reason || '').split(';')[0].trim()}`),
+        ...rejectedV4AHunks.map(
+          (r) =>
+            `  REJECT ${r.file || '(unknown)'} — ${String(r.reason || '')
+              .split(';')[0]
+              .trim()}`
+        ),
       ];
       return wrapPatchMutationOutput(`${combined}\n${tail.join('\n')}`, mutationPlan, { executor });
     }
@@ -1134,9 +1181,10 @@ async function apply_patch(args, cwd, options = {}) {
       const withRollback = (outcome) => {
         const rollbackErrors = restorePatchRollbackState(rollbackSnapshots, readStateScope);
         return {
-          text: rollbackErrors.length === 0
-            ? `${outcome}\n--- rolled back: every touched path was restored to its pre-patch state ---`
-            : [outcome, '--- rollback incomplete ---', ...rollbackErrors].join('\n'),
+          text:
+            rollbackErrors.length === 0
+              ? `${outcome}\n--- rolled back: every touched path was restored to its pre-patch state ---`
+              : [outcome, '--- rollback incomplete ---', ...rollbackErrors].join('\n'),
           rollbackErrors,
         };
       };
@@ -1184,7 +1232,8 @@ async function apply_patch(args, cwd, options = {}) {
         });
       }
       return rolledBack.text;
-    }));
+    })
+  );
 }
 
 export async function executePatchTool(name, args, cwd, options = {}) {
@@ -1192,13 +1241,16 @@ export async function executePatchTool(name, args, cwd, options = {}) {
 }
 
 function patchReplayDir() {
-  const base = process.env.MIXDOG_PATCH_REPLAY_DIR
-    || pathJoin(getPluginDataDir(), 'history', 'patch-replays');
+  const base = process.env.MIXDOG_PATCH_REPLAY_DIR || pathJoin(getPluginDataDir(), 'history', 'patch-replays');
   return base;
 }
 
 function getPluginDataDir() {
-  try { return getPluginData(); } catch { /* fall through */ }
+  try {
+    return getPluginData();
+  } catch {
+    /* fall through */
+  }
   return process.env.MIXDOG_DATA_DIR || pathJoin(process.env.USERPROFILE || process.env.HOME || '.', '.mixdog', 'data');
 }
 
@@ -1228,7 +1280,9 @@ function patchTargetPaths(patchStr, basePath) {
 const PATCH_REPLAY_ERROR_MAX_CHARS = 64 * 1024;
 
 function patchReplayCaptureEnabled() {
-  const flag = String(process.env.MIXDOG_PATCH_REPLAY_CAPTURE ?? '1').trim().toLowerCase();
+  const flag = String(process.env.MIXDOG_PATCH_REPLAY_CAPTURE ?? '1')
+    .trim()
+    .toLowerCase();
   return flag !== '0' && flag !== 'false' && flag !== 'off';
 }
 
@@ -1266,28 +1320,34 @@ function snapshotPatchReplayTargets(capture) {
       const abs = isAbsolute(rel) ? rel : pathResolve(capture.basePath, rel);
       // Never persist snapshots for targets outside basePath — a malicious
       // or malformed patch could otherwise exfiltrate arbitrary files.
-      if (isResolvedPathOutsideBase(abs, capture.basePath)) { files[rel] = null; continue; }
+      if (isResolvedPathOutsideBase(abs, capture.basePath)) {
+        files[rel] = null;
+        continue;
+      }
       files[rel] = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
-    } catch { files[rel] = null; }
+    } catch {
+      files[rel] = null;
+    }
   }
   return files;
 }
 
 function setPatchReplayPreSnapshots(capture, snapshots) {
   if (!capture || capture.snapshotPhase === 'pre') return;
-  const byPath = new Map((snapshots || []).map((snapshot) => [
-    pathResolve(snapshot.fullPath),
-    snapshot,
-  ]));
+  const byPath = new Map((snapshots || []).map((snapshot) => [pathResolve(snapshot.fullPath), snapshot]));
   const files = {};
   for (const rel of capture.targets || []) {
     try {
       const abs = pathResolve(isAbsolute(rel) ? rel : pathResolve(capture.basePath, rel));
       const snapshot = byPath.get(abs);
       files[rel] = snapshot?.existed
-        ? (Buffer.isBuffer(snapshot.content) ? snapshot.content.toString('utf8') : String(snapshot.content ?? ''))
+        ? Buffer.isBuffer(snapshot.content)
+          ? snapshot.content.toString('utf8')
+          : String(snapshot.content ?? '')
         : null;
-    } catch { files[rel] = null; }
+    } catch {
+      files[rel] = null;
+    }
   }
   capture.fileSnapshots = files;
   capture.snapshotPhase = 'pre';
@@ -1295,7 +1355,10 @@ function setPatchReplayPreSnapshots(capture, snapshots) {
 
 function patchReplayOutcome(errorText) {
   const text = String(errorText || '');
-  const partial = /apply_patch file-level partial:\s*(\d+)\/(\d+) file\(s\) applied to disk \(committed\);\s*(\d+) file\(s\) rejected/i.exec(text);
+  const partial =
+    /apply_patch file-level partial:\s*(\d+)\/(\d+) file\(s\) applied to disk \(committed\);\s*(\d+) file\(s\) rejected/i.exec(
+      text
+    );
   if (!partial) return { kind: 'error' };
   return {
     kind: 'partial',
@@ -1340,11 +1403,19 @@ function maybeCapturePatchReplay(capture, errorText) {
     // Retention: keep the newest 40 captures. The id prefix is Date.now() in
     // base36 (fixed width until ~2059), so a lexicographic sort is
     // chronological and the oldest records sort first.
-    const _kept = readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+    const _kept = readdirSync(dir)
+      .filter((f) => f.endsWith('.json'))
+      .sort();
     for (const stale of _kept.slice(0, Math.max(0, _kept.length - 40))) {
-      try { rmSync(pathJoin(dir, stale), { force: true }); } catch { /* best-effort */ }
+      try {
+        rmSync(pathJoin(dir, stale), { force: true });
+      } catch {
+        /* best-effort */
+      }
     }
-  } catch { /* capture is best-effort; never affect the tool result */ }
+  } catch {
+    /* capture is best-effort; never affect the tool result */
+  }
 }
 
 async function _executePatchTool(name, args, cwd, options = {}) {
@@ -1372,10 +1443,13 @@ async function _executePatchTool(name, args, cwd, options = {}) {
               options.onProgress(`applied ${_n} files`);
             }
           }
-        } catch { /* best-effort */ }
+        } catch {
+          /* best-effort */
+        }
       }
       return result;
     }
-    default: throw new Error(`Unknown patch tool: ${name}`);
+    default:
+      throw new Error(`Unknown patch tool: ${name}`);
   }
 }

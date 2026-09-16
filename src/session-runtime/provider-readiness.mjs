@@ -9,12 +9,7 @@ import { providerInitCacheKey } from './provider-init-key.mjs';
 
 const KEYCHAIN_PREWARM_WAIT_MS = 5000;
 
-export function createProviderReadiness({
-  rt,
-  keychain,
-  getReg,
-  getWarmProviderModelCache,
-}) {
+export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderModelCache }) {
   const keychainPrewarmPromise = keychain.prewarmSecrets();
   rt.keychainPrewarmWaitDone = false;
   rt.keychainPrewarmWaitPromise = null;

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createCursorTail } from './cursor-tail.ts';
 
-test('visual feedback survives a short completed action then expires without extending on updates', t => {
+test('visual feedback survives a short completed action then expires without extending on updates', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let changed = 0;
   const tail = createCursorTail(() => changed++);
@@ -17,7 +17,7 @@ test('visual feedback survives a short completed action then expires without ext
   assert.deepEqual(tail.update([], false), []);
 });
 
-test('user takeover immediately removes pending visual feedback and its deadline', t => {
+test('user takeover immediately removes pending visual feedback and its deadline', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let changed = 0;
   const tail = createCursorTail(() => changed++);
@@ -30,7 +30,7 @@ test('user takeover immediately removes pending visual feedback and its deadline
   tail.dispose();
 });
 
-test('a new pointer owner removes the previous halo without resurrecting older events', t => {
+test('a new pointer owner removes the previous halo without resurrecting older events', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const tail = createCursorTail(() => {});
   t.after(() => tail.dispose());

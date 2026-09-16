@@ -7,15 +7,29 @@ import { selectableComposerSkills, skillTitle } from './composer-skill.ts';
 import { BUILT_IN_FEATURES } from './settings/built-in-feature-registry.ts';
 
 const names = [
-  'browser-use', 'computer-use', 'docx', 'pdf', 'xlsx', 'pptx', 'image', 'video',
-  'goal-management', 'history-recall', 'memory-management', 'local-provider', 'setup', 'skill-creator',
+  'browser-use',
+  'computer-use',
+  'docx',
+  'pdf',
+  'xlsx',
+  'pptx',
+  'image',
+  'video',
+  'goal-management',
+  'history-recall',
+  'memory-management',
+  'local-provider',
+  'setup',
+  'skill-creator',
   'code-tidy',
 ];
 
 test('every shipped skill and built-in feature has translated UI descriptions in every supported non-English language', async () => {
   await i18next.changeLanguage('en');
-  const originals = names.map(name => skillDisplayDescription({ name, source: 'builtin', description: 'MODEL_ONLY_TEXT' }));
-  assert.ok(originals.every(description => description !== 'MODEL_ONLY_TEXT'));
+  const originals = names.map((name) =>
+    skillDisplayDescription({ name, source: 'builtin', description: 'MODEL_ONLY_TEXT' })
+  );
+  assert.ok(originals.every((description) => description !== 'MODEL_ONLY_TEXT'));
   try {
     for (const { value: language } of SUPPORTED_UI_LANGUAGES) {
       if (language === 'en') continue;
@@ -52,9 +66,12 @@ test('custom skills and plugin skills retain their authors descriptions even whe
     }
     assert.equal(
       skillDisplayDescription({ name: 'pdf', owner: { kind: 'builtin' }, description: 'MODEL_ONLY_TEXT' }),
-      'PDF 문서를 읽고 만들고 편집합니다.',
+      'PDF 문서를 읽고 만들고 편집합니다.'
     );
-    assert.equal(skillDisplayDescription({ name: 'future-skill', source: 'builtin', description: 'Future description' }), 'Future description');
+    assert.equal(
+      skillDisplayDescription({ name: 'future-skill', source: 'builtin', description: 'Future description' }),
+      'Future description'
+    );
   } finally {
     await i18next.changeLanguage('en');
   }

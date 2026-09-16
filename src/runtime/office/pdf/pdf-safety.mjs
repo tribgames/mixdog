@@ -1,9 +1,4 @@
-import {
-  PDFDict,
-  PDFHexString,
-  PDFName,
-  PDFString,
-} from 'pdf-lib';
+import { PDFDict, PDFHexString, PDFName, PDFString } from 'pdf-lib';
 
 const WEB_LINK_SCHEMES = /^(https?|mailto|tel):/i;
 const ACTIVE_ACTIONS = new Set(['JavaScript', 'Launch', 'GoToR', 'GoToE', 'ImportData', 'SubmitForm']);
@@ -24,16 +19,18 @@ export function activeContentIssues(document) {
     const text = uri instanceof PDFString || uri instanceof PDFHexString ? uri.decodeText().trim() : '';
     return WEB_LINK_SCHEMES.test(text) ? null : `a link to ${text.slice(0, 80) || 'an empty target'}`;
   };
-  const report = (path, what) => issues.push({
-    severity: 'warning',
-    code: 'active_content',
-    path,
-    message: `${what}; treat the file as untrusted and do not open it in a viewer that honours actions.`,
-  });
+  const report = (path, what) =>
+    issues.push({
+      severity: 'warning',
+      code: 'active_content',
+      path,
+      message: `${what}; treat the file as untrusted and do not open it in a viewer that honours actions.`,
+    });
   const opening = context.lookupMaybe(catalog.get(PDFName.of('OpenAction')), PDFDict);
   const openingKind = opening ? describeAction(opening) : null;
   if (openingKind) report('/metadata', `The document runs ${openingKind} when opened`);
-  if (catalog.has(PDFName.of('AA'))) report('/metadata', 'The document declares additional actions (AA) that run on events');
+  if (catalog.has(PDFName.of('AA')))
+    report('/metadata', 'The document declares additional actions (AA) that run on events');
   const names = context.lookupMaybe(catalog.get(PDFName.of('Names')), PDFDict);
   if (names?.has(PDFName.of('JavaScript'))) report('/metadata', 'The document carries document-level JavaScript');
   document.getPages().forEach((page, index) => {

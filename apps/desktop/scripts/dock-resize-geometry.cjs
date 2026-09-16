@@ -1,27 +1,33 @@
 // Run with Electron: npx electron apps/desktop/scripts/dock-resize-geometry.cjs
 // Real layout/hit testing: jsdom cannot detect clipped or covered resize edges.
-const { app, BrowserWindow } = require("electron");
-const fs = require("node:fs");
-const path = require("node:path");
-const assert = require("node:assert/strict");
+const { app, BrowserWindow } = require('electron');
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
 
-app.whenReady().then(async () => {
-  const window = new BrowserWindow({
-    show: false,
-    width: 1200,
-    height: 800,
-    webPreferences: { backgroundThrottling: false },
-  });
-  try {
-    const renderer = path.resolve(__dirname, "../src/renderer");
-    const css = [
-      "desktop/06-activity-rail.css",
-      "desktop/08-mobile-tabs.css",
-      "pane-layout.css",
-      "session-browser-surfaces.css",
-      "desktop/26-editor.css",
-    ].map((file) => fs.readFileSync(path.join(renderer, file), "utf8")).join("\n");
-    await window.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(`
+app
+  .whenReady()
+  .then(async () => {
+    const window = new BrowserWindow({
+      show: false,
+      width: 1200,
+      height: 800,
+      webPreferences: { backgroundThrottling: false },
+    });
+    try {
+      const renderer = path.resolve(__dirname, '../src/renderer');
+      const css = [
+        'desktop/06-activity-rail.css',
+        'desktop/08-mobile-tabs.css',
+        'pane-layout.css',
+        'session-browser-surfaces.css',
+        'desktop/26-editor.css',
+      ]
+        .map((file) => fs.readFileSync(path.join(renderer, file), 'utf8'))
+        .join('\n');
+      await window.loadURL(
+        'data:text/html;charset=utf-8,' +
+          encodeURIComponent(`
       <style>${css}
       :root { --mx-border-structure: #444; --mx-focus: #08f; }
       body { margin: 0; }
@@ -47,11 +53,12 @@ app.whenReady().then(async () => {
         </div>
       </div></div>
       <div id="surface" data-parked="false"></div>
-    `));
-    window.webContents.debugger.attach("1.3");
-    for (const overlay of [false, true]) {
-      for (const kind of ["browser", "terminal", "diff"]) {
-        const result = await window.webContents.executeJavaScript(`(() => {
+    `)
+      );
+      window.webContents.debugger.attach('1.3');
+      for (const overlay of [false, true]) {
+        for (const kind of ['browser', 'terminal', 'diff']) {
+          const result = await window.webContents.executeJavaScript(`(() => {
           const dock = document.querySelector(".pane-side-dock");
           dock.dataset.overlay = ${JSON.stringify(String(overlay))};
           const column = document.querySelector("aside");
@@ -74,28 +81,36 @@ app.whenReady().then(async () => {
             x: rect.left + 4, y
           };
         })()`);
-        assert.deepEqual(result.hits, [true, true, true], `${kind}, overlay=${overlay}: exposed drag target`);
-        assert.equal(result.cursor, "col-resize");
-        assert.equal(result.indicator, "rgb(68, 68, 68)");
-        await window.webContents.debugger.sendCommand("Input.dispatchMouseEvent", {
-          type: "mouseMoved", x: result.x, y: result.y,
-        });
-        const hover = await window.webContents.executeJavaScript(`(() => {
+          assert.deepEqual(result.hits, [true, true, true], `${kind}, overlay=${overlay}: exposed drag target`);
+          assert.equal(result.cursor, 'col-resize');
+          assert.equal(result.indicator, 'rgb(68, 68, 68)');
+          await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: result.x,
+            y: result.y,
+          });
+          const hover = await window.webContents.executeJavaScript(`(() => {
           const handle = document.querySelector('[role="separator"]');
           const style = getComputedStyle(handle, "::after");
           return { color: style.backgroundColor, width: style.width };
         })()`);
-        assert.deepEqual(hover, { color: "rgb(0, 136, 255)", width: "3px" });
-        await window.webContents.debugger.sendCommand("Input.dispatchMouseEvent", {
-          type: "mouseMoved", x: 10, y: 10,
-        });
-        console.log(`PASS ${kind}, overlay=${overlay}: hit target, resize cursor, hover indicator`);
+          assert.deepEqual(hover, { color: 'rgb(0, 136, 255)', width: '3px' });
+          await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: 10,
+            y: 10,
+          });
+          console.log(`PASS ${kind}, overlay=${overlay}: hit target, resize cursor, hover indicator`);
+        }
       }
+    } finally {
+      window.destroy();
     }
-  } finally {
-    window.destroy();
-  }
-}).then(() => app.exit(0), (error) => {
-  console.error(error);
-  app.exit(1);
-});
+  })
+  .then(
+    () => app.exit(0),
+    (error) => {
+      console.error(error);
+      app.exit(1);
+    }
+  );

@@ -73,13 +73,8 @@ export interface PowerShellComputerHost {
   /** Live native worker PIDs, retained until each child actually exits. */
   residentWorkerPids(): number[];
   inspectChromeRemoteDebuggingTarget(): Promise<ChromeRemoteDebuggingTarget>;
-  prepareChromeRemoteDebugging(
-    target: ChromeRemoteDebuggingTarget,
-  ): Promise<ChromeRemoteDebuggingSetup>;
-  acceptChromeRemoteDebuggingConsent(
-    setup: ChromeRemoteDebuggingSetup,
-    signal?: AbortSignal,
-  ): Promise<boolean>;
+  prepareChromeRemoteDebugging(target: ChromeRemoteDebuggingTarget): Promise<ChromeRemoteDebuggingSetup>;
+  acceptChromeRemoteDebuggingConsent(setup: ChromeRemoteDebuggingSetup, signal?: AbortSignal): Promise<boolean>;
   finalizeChromeRemoteDebuggingSetup(setup: ChromeRemoteDebuggingSetup): Promise<void>;
   releaseChromeRemoteDebugging(setup: ChromeRemoteDebuggingSetup): Promise<void>;
   dispose(): Promise<void>;
@@ -92,7 +87,7 @@ export function createPowerShellComputerHost(
     policyFile?: string;
     maxWorkers?: number;
     onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
-  } = {},
+  } = {}
 ): PowerShellComputerHost {
   let bridgeWanted = options.bridgeEnabled !== false;
   let observeOnly = options.observeOnly === true;
@@ -115,7 +110,11 @@ export function createPowerShellComputerHost(
   const policy = authorization.policy;
   configureCursorDiagnostics(join(mixdogDataDirectory(), 'computer-cursor-diagnostics.json'));
   const diagnose = (event: string, data: Record<string, unknown> = {}): void => {
-    try { options.onDiagnostic?.(event, data); } catch { /* diagnostics are advisory */ }
+    try {
+      options.onDiagnostic?.(event, data);
+    } catch {
+      /* diagnostics are advisory */
+    }
   };
 
   // Agent-scoped resident PowerShell workers + their shared pending-request table.
@@ -123,21 +122,46 @@ export function createPowerShellComputerHost(
     dataDirectory: mixdogDataDirectory,
     isBridgeEnabled: () => bridgeWanted,
     isDisposed: () => disposed,
-    onSessionRetired: (sessionId, child, interruptedInput) => lifecycle.onSessionWorkerRetired(sessionId, child, interruptedInput),
+    onSessionRetired: (sessionId, child, interruptedInput) =>
+      lifecycle.onSessionWorkerRetired(sessionId, child, interruptedInput),
     maxWorkers: options.maxWorkers,
     onPointerProgress: (sessionId, x, y, held, mode, phase) => {
       const state = computerUseCoordinator.snapshot();
-      if (state.userControlActive) { recordCursorDiagnostic('ignored_user_control'); return; }
-      if (state.cleanupState !== 'ready') { recordCursorDiagnostic('ignored_cleanup'); return; }
-      if (!state.activities.some(activity => activity.sessionId === sessionId)) {
-        recordCursorDiagnostic('ignored_no_activity'); return;
+      if (state.userControlActive) {
+        recordCursorDiagnostic('ignored_user_control');
+        return;
+      }
+      if (state.cleanupState !== 'ready') {
+        recordCursorDiagnostic('ignored_cleanup');
+        return;
+      }
+      if (!state.activities.some((activity) => activity.sessionId === sessionId)) {
+        recordCursorDiagnostic('ignored_no_activity');
+        return;
       }
       recordCursorDiagnostic('published');
-      computerUseCoordinator.showCursor({ sessionId, x, y, tracking: true,
-        action: phase, effect: phase === 'release' ? 'click'
-          : phase === 'prepare' ? 'prepare' : phase === 'press' ? 'press'
-          : phase === 'scroll' ? 'scroll' : phase === 'type' ? 'type'
-          : held ? 'drag' : 'move', mode });
+      computerUseCoordinator.showCursor({
+        sessionId,
+        x,
+        y,
+        tracking: true,
+        action: phase,
+        effect:
+          phase === 'release'
+            ? 'click'
+            : phase === 'prepare'
+              ? 'prepare'
+              : phase === 'press'
+                ? 'press'
+                : phase === 'scroll'
+                  ? 'scroll'
+                  : phase === 'type'
+                    ? 'type'
+                    : held
+                      ? 'drag'
+                      : 'move',
+        mode,
+      });
     },
   });
   const { callPowerShell, powerShellBySession } = workerPool;
@@ -201,9 +225,11 @@ export function createPowerShellComputerHost(
   });
   const sequenceRunner = createSequenceRunner({
     preflightSteps: createInputPreflight({
-      callPowerShell, sessionIdFor, assertExecutionNotAborted,
+      callPowerShell,
+      sessionIdFor,
+      assertExecutionNotAborted,
       resolveElementAliases: sessionState.resolveElementAliases,
-      isAppOwnedWindow: windowId => Boolean(electronWindowForNativeId(windowId)),
+      isAppOwnedWindow: (windowId) => Boolean(electronWindowForNativeId(windowId)),
     }),
     sessionIdFor,
     recordProgress: (completed, inFlight) => {
@@ -238,7 +264,9 @@ export function createPowerShellComputerHost(
   });
 
   const userWait = createUserWaitService({
-    directory: mixdogDataDirectory(), lifecycle, callPowerShell,
+    directory: mixdogDataDirectory(),
+    lifecycle,
+    callPowerShell,
     recordDiagnostic: failureDiagnostics.record,
     enabled: () => bridgeWanted && !disposed && !observeOnly,
   });
@@ -276,7 +304,10 @@ export function createPowerShellComputerHost(
       if (disposed || bridgeWanted === enabled) return;
       bridgeWanted = enabled;
       if (enabled) bridge.startBridge();
-      else { userWait.cancel(); void bridge.stopBridge().catch(() => {}); }
+      else {
+        userWait.cancel();
+        void bridge.stopBridge().catch(() => {});
+      }
     },
     setObserveOnly(enabled: boolean): void {
       observeOnly = enabled === true;
@@ -310,7 +341,11 @@ export function createPowerShellComputerHost(
       await bridge.stopBridge();
       for (const child of powerShellBySession.values()) {
         if (!child.killed) {
-          try { child.kill(); } catch { /* already gone */ }
+          try {
+            child.kill();
+          } catch {
+            /* already gone */
+          }
         }
       }
       powerShellBySession.clear();

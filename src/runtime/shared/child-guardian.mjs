@@ -1,5 +1,3 @@
-'use strict';
-
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { positiveInt } from './numbers.mjs';
@@ -176,7 +174,9 @@ function removeBrokerTarget(id, { notify = true } = {}) {
   const target = brokerTargets.get(id);
   if (!target) return false;
   brokerTargets.delete(id);
-  try { target.onRemoved?.(); } catch {}
+  try {
+    target.onRemoved?.();
+  } catch {}
   if (notify) sendBrokerMessage({ type: 'remove', id });
   stopBrokerTargetSweepIfIdle();
   return true;
@@ -198,11 +198,7 @@ function ensureSharedBroker() {
     return sharedBroker;
   }
   try {
-    const broker = spawn(process.execPath, [
-      '--no-warnings',
-      '--eval',
-      guardianBrokerScript(),
-    ], {
+    const broker = spawn(process.execPath, ['--no-warnings', '--eval', guardianBrokerScript()], {
       stdio: ['pipe', 'ignore', 'ignore'],
       env: childGuardianSpawnEnv(),
       ...detachedSpawnOpts,
@@ -259,7 +255,9 @@ export function startChildGuardian({
     orphanGraceMs: Math.max(100, Math.floor(Number(orphanGraceMs) || Number(graceMs) || 3000)),
     forceGraceMs: Math.max(100, Math.floor(Number(forceGraceMs) || Number(graceMs) || 3000)),
     receiptPath: typeof receiptPath === 'string' && receiptPath ? receiptPath : null,
-    onRemoved: () => { stopped = true; },
+    onRemoved: () => {
+      stopped = true;
+    },
   };
   brokerTargets.set(id, target);
   ensureBrokerTargetSweep();

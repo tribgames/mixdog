@@ -44,12 +44,16 @@ export const COMPUTER_CORE_ACTION_SCHEMA = {
       minLength: 1,
       maxLength: 32,
       pattern: '^(?:ctrl|shift|alt)(?:\\+(?:ctrl|shift|alt))*$',
-      description: 'Optional pointer modifiers joined by +. Background supports ctrl/shift; alt requires foreground delivery.',
+      description:
+        'Optional pointer modifiers joined by +. Background supports ctrl/shift; alt requires foreground delivery.',
     },
     direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
     amount: { type: 'integer', minimum: 1, maximum: 100 },
-    text: { type: 'string', maxLength: 30_000,
-      description: `Literal text; foreground cap ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units per action.` },
+    text: {
+      type: 'string',
+      maxLength: 30_000,
+      description: `Literal text; foreground cap ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units per action.`,
+    },
     keys: {
       type: 'string',
       minLength: 1,
@@ -69,15 +73,12 @@ const FIELDS_BY_TYPE = {
   click: new Set(['type', ...TARGET_FIELDS, 'button', 'modifiers']),
   double_click: new Set(['type', ...TARGET_FIELDS, 'modifiers']),
   move: new Set(['type', ...TARGET_FIELDS, 'modifiers']),
-  drag: new Set([
-    'type', ...TARGET_FIELDS, 'to', 'to_element', 'to_x', 'to_y', 'modifiers',
-  ]),
+  drag: new Set(['type', ...TARGET_FIELDS, 'to', 'to_element', 'to_x', 'to_y', 'modifiers']),
   scroll: new Set(['type', ...TARGET_FIELDS, 'direction', 'amount', 'modifiers']),
   type: new Set(['type', ...TARGET_FIELDS, 'text']),
   key: new Set(['type', 'ref', 'keys']),
   wait: new Set(['type', 'duration']),
 };
-
 
 function targetFormError(action, { required = true, frameId = '' } = {}) {
   const semantic = ['ref', 'element'].filter((field) => hasOwn(action, field));
@@ -130,10 +131,7 @@ function fieldValueError(field, value, label) {
   return null;
 }
 
-export function validateComputerCoreActions(
-  actions,
-  { frameId = '', delivery = COMPUTER_DEFAULT_DELIVERY } = {},
-) {
+export function validateComputerCoreActions(actions, { frameId = '', delivery = COMPUTER_DEFAULT_DELIVERY } = {}) {
   if (!Array.isArray(actions) || actions.length < 1 || actions.length > 6) {
     return 'Computer Use act actions must contain 1..6 items';
   }
@@ -157,8 +155,12 @@ export function validateComputerCoreActions(
       const valueError = fieldValueError(field, value, label);
       if (valueError) return valueError;
     }
-    if (type === 'type' && delivery === 'foreground'
-      && typeof action.text === 'string' && action.text.length > MAX_COMPUTER_FOREGROUND_TEXT_CHARS) {
+    if (
+      type === 'type' &&
+      delivery === 'foreground' &&
+      typeof action.text === 'string' &&
+      action.text.length > MAX_COMPUTER_FOREGROUND_TEXT_CHARS
+    ) {
       return `${label} foreground text exceeds ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units`;
     }
     for (const field of ['ref', 'to']) {
@@ -166,8 +168,10 @@ export function validateComputerCoreActions(
         return `${label}.${field} must not be empty`;
       }
     }
-    if (typeof action.modifiers === 'string'
-      && new Set(action.modifiers.split('+')).size !== action.modifiers.split('+').length) {
+    if (
+      typeof action.modifiers === 'string' &&
+      new Set(action.modifiers.split('+')).size !== action.modifiers.split('+').length
+    ) {
       return `${label}.modifiers must not repeat a modifier`;
     }
     if (typeof action.modifiers === 'string') {
@@ -198,8 +202,12 @@ export function validateComputerCoreActions(
       const destinationPoint = ['to_x', 'to_y'].filter((field) => hasOwn(action, field));
       const semantic = sourceSemantic.length === 1 && destinationSemantic.length === 1;
       const coordinate = sourcePoint.length === 2 && destinationPoint.length === 2;
-      if (sourceSemantic.length > 1 || destinationSemantic.length > 1
-        || (semantic && coordinate) || (!semantic && !coordinate)) {
+      if (
+        sourceSemantic.length > 1 ||
+        destinationSemantic.length > 1 ||
+        (semantic && coordinate) ||
+        (!semantic && !coordinate)
+      ) {
         return `${label} requires one matching semantic or coordinate source/destination pair`;
       }
       if (coordinate && !frameId) return `${label} coordinate target requires act.input.frame_id`;
@@ -219,15 +227,19 @@ export function validateComputerCoreActions(
     if (type === 'key') {
       if (typeof action.keys !== 'string') return `${label} requires keys`;
     }
-    if (type === 'wait'
-      && (typeof action.duration !== 'number' || !Number.isFinite(action.duration)
-        || action.duration < 0 || action.duration > 5)) {
+    if (
+      type === 'wait' &&
+      (typeof action.duration !== 'number' ||
+        !Number.isFinite(action.duration) ||
+        action.duration < 0 ||
+        action.duration > 5)
+    ) {
       return `${label} duration must be 0..5 seconds`;
     }
   }
   const totalWaitSeconds = actions.reduce(
     (total, action) => total + (action?.type === 'wait' ? Number(action.duration) || 0 : 0),
-    0,
+    0
   );
   if (totalWaitSeconds > 10) {
     return 'Computer Use act wait actions accept at most 10 total seconds; use verify for longer conditions';

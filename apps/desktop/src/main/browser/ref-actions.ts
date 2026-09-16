@@ -15,11 +15,7 @@ import type { PendingFileChooser } from './guest-state';
 import type { createBrowserInputDriver } from './input';
 import { redactBrowserText } from './redaction';
 import { BROWSER_EDITABILITY_CHECK } from './editability';
-import {
-  browserRefElementSource,
-  checkedBrowserRefResult,
-  createBrowserRefAccess,
-} from './ref-access';
+import { browserRefElementSource, checkedBrowserRefResult, createBrowserRefAccess } from './ref-access';
 import { createBrowserRefSelection } from './ref-select';
 
 /** How long a clicked button gets to open its picker. */
@@ -103,21 +99,19 @@ export interface BrowserRefActionsHost {
     ref: string,
     functionDeclaration: string,
     args: unknown[],
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<{ handled: false } | { handled: true; value: T }>;
   /** The page-side fallback for a ref the accessibility snapshot lost. */
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
   cdp: BrowserCdpPort;
   /** The accessibility snapshot's ref table, when this page still has one. */
-  accessibilityRefs(guest: WebContents): {
-    refs: Map<string, { backendNodeId: number; sessionId?: string }>;
-  } | undefined;
+  accessibilityRefs(guest: WebContents):
+    | {
+        refs: Map<string, { backendNodeId: number; sessionId?: string }>;
+      }
+    | undefined;
   /** Where the ref sits right now, refused when something covers it. */
-  resolveRefPoint(
-    guest: WebContents,
-    ref: string,
-    signal?: AbortSignal,
-  ): Promise<{ x: number; y: number }>;
+  resolveRefPoint(guest: WebContents, ref: string, signal?: AbortSignal): Promise<{ x: number; y: number }>;
   input: Pick<ReturnType<typeof createBrowserInputDriver>, 'pressKey' | 'clickAt'>;
   pause(ms: number, signal?: AbortSignal): Promise<void>;
   /** The picker the page opened and nobody has answered yet. */
@@ -148,7 +142,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     guest: WebContents,
     ref: string,
     text: string,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<string> {
     if (text) {
       await cdp.sendCdpInput(guest, await cdp.guestDebugger(guest), 'Input.insertText', { text }, signal);
@@ -160,40 +154,37 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
       ref,
       'function() { return String(this.innerText ?? this.textContent ?? ""); }',
       [],
-      signal,
+      signal
     );
-    const compact = (value: string) => String(value || '').replace(/\s+/g, ' ').trim();
+    const compact = (value: string) =>
+      String(value || '')
+        .replace(/\s+/g, ' ')
+        .trim();
     if (compact(text) && !compact(actual)) {
       throw new Error('the editor did not keep the inserted text; click into it first or use type');
     }
     return redactBrowserText(actual);
   }
 
-  async function fillRef(
-    guest: WebContents,
-    ref: string,
-    text: string,
-    signal?: AbortSignal,
-  ): Promise<string> {
-    const outcome = checkedBrowserRefResult(await callRef<{
-      error?: string;
-      value?: string;
-      sensitive?: boolean;
-      contentEditable?: boolean;
-    }>(guest, ref, FILL_REF, [text], signal), ref);
+  async function fillRef(guest: WebContents, ref: string, text: string, signal?: AbortSignal): Promise<string> {
+    const outcome = checkedBrowserRefResult(
+      await callRef<{
+        error?: string;
+        value?: string;
+        sensitive?: boolean;
+        contentEditable?: boolean;
+      }>(guest, ref, FILL_REF, [text], signal),
+      ref
+    );
     if (outcome?.contentEditable) return replaceContentEditable(guest, ref, text, signal);
     if (outcome?.sensitive && text) host.rememberSecret?.(guest, text);
     return outcome?.sensitive ? '[REDACTED]' : redactBrowserText(outcome?.value ?? '');
   }
 
-  async function typeRef(
-    guest: WebContents,
-    ref: string,
-    text: string,
-    signal?: AbortSignal,
-  ): Promise<void> {
+  async function typeRef(guest: WebContents, ref: string, text: string, signal?: AbortSignal): Promise<void> {
     const focused = checkedBrowserRefResult(
-      await callRef<{ error?: string; sensitive?: boolean }>(guest, ref, FOCUS_REF, [], signal), ref,
+      await callRef<{ error?: string; sensitive?: boolean }>(guest, ref, FOCUS_REF, [], signal),
+      ref
     );
     if (focused?.sensitive && text) host.rememberSecret?.(guest, text);
     await browserInput.pressKey(guest, process.platform === 'darwin' ? 'Meta+A' : 'Control+A', signal);
@@ -201,24 +192,22 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     await cdp.sendCdpInput(guest, await cdp.guestDebugger(guest), 'Input.insertText', { text }, signal);
   }
 
-
   /** What a control offers, without choosing anything. A native <select> keeps
    *  its options out of the accessibility tree, so they are read from the
    *  element itself; a custom dropdown puts its options in the page once it is
    *  open, where a snapshot already sees them. */
-  async function listSelectOptions(
-    guest: WebContents,
-    ref: string,
-    signal?: AbortSignal,
-  ): Promise<string[]> {
-    const result = checkedBrowserRefResult(await callRef<{
-      error?: string;
-      custom?: boolean;
-      options?: string[];
-    }>(guest, ref, READ_SELECT_OPTIONS, [], signal), ref);
+  async function listSelectOptions(guest: WebContents, ref: string, signal?: AbortSignal): Promise<string[]> {
+    const result = checkedBrowserRefResult(
+      await callRef<{
+        error?: string;
+        custom?: boolean;
+        options?: string[];
+      }>(guest, ref, READ_SELECT_OPTIONS, [], signal),
+      ref
+    );
     if (result?.custom) {
       throw new Error(
-        `ref ${ref} is not a native <select>; click it to open the list, then read the options from the fresh snapshot`,
+        `ref ${ref} is not a native <select>; click it to open the list, then read the options from the fresh snapshot`
       );
     }
     return result?.options || [];
@@ -227,22 +216,20 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
   async function checkedRefState(
     guest: WebContents,
     ref: string,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<{ checked: boolean; radio: boolean }> {
-    const state = checkedBrowserRefResult(await callRef<{
-      error?: string;
-      checked?: boolean;
-      radio?: boolean;
-    }>(guest, ref, READ_CHECKED, [], signal), ref);
+    const state = checkedBrowserRefResult(
+      await callRef<{
+        error?: string;
+        checked?: boolean;
+        radio?: boolean;
+      }>(guest, ref, READ_CHECKED, [], signal),
+      ref
+    );
     return { checked: state?.checked === true, radio: state?.radio === true };
   }
 
-  async function setCheckedRef(
-    guest: WebContents,
-    ref: string,
-    checked: boolean,
-    signal?: AbortSignal,
-  ): Promise<void> {
+  async function setCheckedRef(guest: WebContents, ref: string, checked: boolean, signal?: AbortSignal): Promise<void> {
     const state = await checkedRefState(guest, ref, signal);
     if (state.radio && !checked) throw new Error('radio buttons cannot be unchecked directly; choose another option');
     if (state.checked !== checked) {
@@ -251,7 +238,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
       const finalState = await checkedRefState(guest, ref, signal);
       if (finalState.checked !== checked) {
         throw new Error(
-          `check input was dispatched once but the element remained checked=${finalState.checked}; the action was not retried`,
+          `check input was dispatched once but the element remained checked=${finalState.checked}; the action was not retried`
         );
       }
     }
@@ -262,7 +249,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
   async function resolveRefObject(
     guest: WebContents,
     ref: string,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<{ objectId: string; sessionId?: string }> {
     const accessibilitySnapshot = accessibilityRefs(guest);
     if (accessibilitySnapshot) {
@@ -273,7 +260,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
         'DOM.resolveNode',
         { backendNodeId: target.backendNodeId },
         signal,
-        { sessionId: target.sessionId },
+        { sessionId: target.sessionId }
       );
       const objectId = resolved.object?.objectId;
       if (!objectId) throw new Error(`ref ${ref} is stale or detached; take a fresh snapshot first`);
@@ -282,14 +269,19 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     const response = await cdp.call<{
       result?: { objectId?: string };
       exceptionDetails?: unknown;
-    }>(guest, 'Runtime.evaluate', {
-      expression: `(() => {
+    }>(
+      guest,
+      'Runtime.evaluate',
+      {
+        expression: `(() => {
         ${browserRefElementSource(ref)}
         return element;
       })()`,
-      returnByValue: false,
-      userGesture: true,
-    }, signal);
+        returnByValue: false,
+        userGesture: true,
+      },
+      signal
+    );
     const objectId = response.result?.objectId;
     if (!objectId || response.exceptionDetails) {
       throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
@@ -300,7 +292,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
   async function isFileInput(
     guest: WebContents,
     object: { objectId: string; sessionId?: string },
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<boolean> {
     const validation = await cdp.call<{
       result?: { value?: { valid?: boolean } };
@@ -319,7 +311,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
         returnByValue: true,
       },
       signal,
-      { sessionId: object.sessionId },
+      { sessionId: object.sessionId }
     );
     return !validation.exceptionDetails && validation.result?.value?.valid === true;
   }
@@ -330,7 +322,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     chooser: PendingFileChooser,
     paths: string[],
     signal?: AbortSignal,
-    beforeDispatch?: () => void,
+    beforeDispatch?: () => void
   ): Promise<void> {
     if (!chooser.backendNodeId) {
       clearFileChooser(guest);
@@ -339,18 +331,16 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     if (chooser.mode === 'selectSingle' && paths.length > 1) {
       throw new Error('the open file chooser accepts a single file');
     }
-    await cdp.call(
-      guest,
-      'DOM.setFileInputFiles',
-      { files: paths, backendNodeId: chooser.backendNodeId },
-      signal,
-      { sessionId: chooser.sessionId, beforeDispatch: () => {
+    await cdp.call(guest, 'DOM.setFileInputFiles', { files: paths, backendNodeId: chooser.backendNodeId }, signal, {
+      sessionId: chooser.sessionId,
+      beforeDispatch: () => {
         beforeDispatch?.();
-        if (pendingFileChooser(guest) !== chooser) throw new Error('Browser file chooser changed; files were not sent.');
+        if (pendingFileChooser(guest) !== chooser)
+          throw new Error('Browser file chooser changed; files were not sent.');
         // Claim before dispatch so a concurrent answer cannot send twice.
         clearFileChooser(guest);
-      } },
-    );
+      },
+    });
     if (pendingFileChooser(guest) === chooser) clearFileChooser(guest);
   }
 
@@ -360,7 +350,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
   async function openFileChooserVia(
     guest: WebContents,
     ref: string,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<PendingFileChooser> {
     clearFileChooser(guest);
     const point = await resolveRefPoint(guest, ref, signal);
@@ -371,7 +361,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
       if (chooser) return chooser;
       if (Date.now() >= deadline) {
         throw new Error(
-          `ref ${ref} is not a file input and clicking it did not open a file chooser within ${FILE_CHOOSER_WAIT_MS}ms`,
+          `ref ${ref} is not a file input and clicking it did not open a file chooser within ${FILE_CHOOSER_WAIT_MS}ms`
         );
       }
       await pause(FILE_CHOOSER_POLL_MS, signal);
@@ -386,7 +376,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     ref: string | undefined,
     paths: string[],
     signal?: AbortSignal,
-    beforeDispatch?: () => void,
+    beforeDispatch?: () => void
   ): Promise<void> {
     if (!paths.length || paths.length > 10) throw new Error('upload requires 1–10 file paths');
     for (const path of paths) {
@@ -405,16 +395,13 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     try {
       direct = await isFileInput(guest, object, signal);
       if (direct) {
-        await cdp.call(
-          guest,
-          'DOM.setFileInputFiles',
-          { files: paths, objectId: object.objectId },
-          signal,
-          { sessionId: object.sessionId },
-        );
+        await cdp.call(guest, 'DOM.setFileInputFiles', { files: paths, objectId: object.objectId }, signal, {
+          sessionId: object.sessionId,
+        });
       }
     } finally {
-      void cdp.guestDebugger(guest)
+      void cdp
+        .guestDebugger(guest)
         .then((debug) => debug.sendCommand('Runtime.releaseObject', { objectId: object.objectId }, object.sessionId))
         .catch(() => undefined);
     }

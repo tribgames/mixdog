@@ -29,20 +29,43 @@ test('Gemini SDK releases an acquired generation when already cancelled', async 
   let finalized = 0;
   const aggregate = Promise.withResolvers();
   const stream = {
-    [Symbol.asyncIterator]() { return this; },
-    next() { throw new Error('cancelled generation must not be read'); },
-    async return() { returned = true; return { done: true }; },
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    next() {
+      throw new Error('cancelled generation must not be read');
+    },
+    async return() {
+      returned = true;
+      return { done: true };
+    },
   };
   // Observe the fixture too, so a failing pre-fix run cannot escape the test.
   aggregate.promise.catch(() => {});
-  await assert.rejects(bounded(consumeGeminiSdkStream({
-    stream, response: aggregate.promise,
-  }, {
-    signal: controller.signal,
-    label: 'fixture',
-    cancelGeneration(error) { stopped = error === reason; aggregate.reject(error); },
-    textLeakGuard: { finalize() { finalized++; } },
-  })), (error) => error === reason);
+  await assert.rejects(
+    bounded(
+      consumeGeminiSdkStream(
+        {
+          stream,
+          response: aggregate.promise,
+        },
+        {
+          signal: controller.signal,
+          label: 'fixture',
+          cancelGeneration(error) {
+            stopped = error === reason;
+            aggregate.reject(error);
+          },
+          textLeakGuard: {
+            finalize() {
+              finalized++;
+            },
+          },
+        }
+      )
+    ),
+    (error) => error === reason
+  );
   assert.equal(stopped, true);
   assert.equal(returned, true);
   assert.equal(finalized, 1);
@@ -62,15 +85,29 @@ test('Gemini SDK cancellation from a text callback cannot strand the next read',
       await release.promise;
     }
   })();
-  await assert.rejects(bounded(consumeGeminiSdkStream({
-    stream, response: Promise.resolve({}),
-  }, {
-    signal: controller.signal,
-    label: 'fixture',
-    cancellationGraceMs: 5,
-    cancelGeneration() { stopped = true; },
-    onTextDelta(delta) { text.push(delta); controller.abort(reason); },
-  })), (error) => error === reason);
+  await assert.rejects(
+    bounded(
+      consumeGeminiSdkStream(
+        {
+          stream,
+          response: Promise.resolve({}),
+        },
+        {
+          signal: controller.signal,
+          label: 'fixture',
+          cancellationGraceMs: 5,
+          cancelGeneration() {
+            stopped = true;
+          },
+          onTextDelta(delta) {
+            text.push(delta);
+            controller.abort(reason);
+          },
+        }
+      )
+    ),
+    (error) => error === reason
+  );
   assert.equal(stopped, true);
   assert.deepEqual(text, ['visible partial']);
   assert.equal(reason.liveTextEmitted, true);
@@ -82,21 +119,36 @@ for (const cleanup of ['ready', 'failed', 'pending']) {
     const reason = new Error('fixture parser failure');
     let stopped = false;
     const stream = {
-      [Symbol.asyncIterator]() { return this; },
-      async next() { throw reason; },
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      async next() {
+        throw reason;
+      },
       async return() {
         if (cleanup === 'failed') throw new Error('fixture cleanup failure');
         if (cleanup === 'pending') await new Promise(() => {});
         return { done: true };
       },
     };
-    await assert.rejects(bounded(consumeGeminiSdkStream({
-      stream, response: Promise.resolve({}),
-    }, {
-      label: 'fixture',
-      cancellationGraceMs: 5,
-      cancelGeneration() { stopped = true; },
-    })), (error) => error === reason);
+    await assert.rejects(
+      bounded(
+        consumeGeminiSdkStream(
+          {
+            stream,
+            response: Promise.resolve({}),
+          },
+          {
+            label: 'fixture',
+            cancellationGraceMs: 5,
+            cancelGeneration() {
+              stopped = true;
+            },
+          }
+        )
+      ),
+      (error) => error === reason
+    );
     assert.equal(stopped, true);
   });
 }
@@ -107,17 +159,22 @@ test('Gemini SDK cancellation interrupts a pending aggregate response', async ()
   const aggregate = Promise.withResolvers();
   let stopped = false;
   const stream = (async function* () {})();
-  const result = consumeGeminiSdkStream({
-    stream,
-    get response() {
-      setImmediate(() => controller.abort(reason));
-      return aggregate.promise;
+  const result = consumeGeminiSdkStream(
+    {
+      stream,
+      get response() {
+        setImmediate(() => controller.abort(reason));
+        return aggregate.promise;
+      },
     },
-  }, {
-    signal: controller.signal,
-    label: 'fixture',
-    cancelGeneration() { stopped = true; },
-  });
+    {
+      signal: controller.signal,
+      label: 'fixture',
+      cancelGeneration() {
+        stopped = true;
+      },
+    }
+  );
   await assert.rejects(bounded(result), (error) => error === reason);
   assert.equal(stopped, true);
 });
@@ -127,20 +184,35 @@ test('Gemini SDK does not publish a received chunk after cancellation wins its d
   const reason = new Error('cancel before delivery');
   const text = [];
   const stream = {
-    [Symbol.asyncIterator]() { return this; },
+    [Symbol.asyncIterator]() {
+      return this;
+    },
     next() {
       queueMicrotask(() => queueMicrotask(() => controller.abort(reason)));
       return Promise.resolve({ value: chunk, done: false });
     },
-    async return() { return { done: true }; },
+    async return() {
+      return { done: true };
+    },
   };
-  await assert.rejects(bounded(consumeGeminiSdkStream({
-    stream, response: Promise.resolve({}),
-  }, {
-    signal: controller.signal,
-    label: 'fixture',
-    onTextDelta(delta) { text.push(delta); },
-  })), (error) => error === reason);
+  await assert.rejects(
+    bounded(
+      consumeGeminiSdkStream(
+        {
+          stream,
+          response: Promise.resolve({}),
+        },
+        {
+          signal: controller.signal,
+          label: 'fixture',
+          onTextDelta(delta) {
+            text.push(delta);
+          },
+        }
+      )
+    ),
+    (error) => error === reason
+  );
   assert.deepEqual(text, []);
 });
 
@@ -148,17 +220,35 @@ test('Gemini SDK first-byte timeout stops the request even when iterator cleanup
   const read = Promise.withResolvers();
   let stopped = false;
   const stream = {
-    [Symbol.asyncIterator]() { return this; },
-    next() { return read.promise; },
-    return() { return new Promise(() => {}); },
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    next() {
+      return read.promise;
+    },
+    return() {
+      return new Promise(() => {});
+    },
   };
-  await assert.rejects(bounded(consumeGeminiSdkStream({
-    stream, response: Promise.resolve({}),
-  }, {
-    label: 'fixture',
-    firstByteTimeoutMs: 5,
-    cancellationGraceMs: 5,
-    cancelGeneration() { stopped = true; read.resolve({ done: true }); },
-  })), (error) => error.code === 'EGEMINITIMEOUT');
+  await assert.rejects(
+    bounded(
+      consumeGeminiSdkStream(
+        {
+          stream,
+          response: Promise.resolve({}),
+        },
+        {
+          label: 'fixture',
+          firstByteTimeoutMs: 5,
+          cancellationGraceMs: 5,
+          cancelGeneration() {
+            stopped = true;
+            read.resolve({ done: true });
+          },
+        }
+      )
+    ),
+    (error) => error.code === 'EGEMINITIMEOUT'
+  );
   assert.equal(stopped, true);
 });

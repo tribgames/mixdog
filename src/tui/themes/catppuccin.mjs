@@ -69,4 +69,3 @@ export const catppuccinPalette = {
   userMessageBackgroundHover: 'rgb(69,71,90)',
   fastMode: 'rgb(250,179,135)',
 };
-

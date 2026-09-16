@@ -28,7 +28,7 @@ test('browser URL admission rechecks completed DNS answers and coalesces only co
 
   await assert.rejects(
     admission.assertResolvedUrlAllowed('https://rebind.example.test/private'),
-    /resolved to blocked private or internal address 192\.168\.1\.10/,
+    /resolved to blocked private or internal address 192\.168\.1\.10/
   );
   await admission.assertResolvedUrlAllowed('http://[::1]:8080/fixture');
   assert.equal(calls, 2, 'a later request must recheck DNS after the first lookup completed');
@@ -41,7 +41,7 @@ test('browser URL admission rechecks completed DNS answers and coalesces only co
   });
   await assert.rejects(
     unresolved.assertResolvedUrlAllowed('https://unresolved.example.test/'),
-    /could not be resolved for private-network validation/,
+    /could not be resolved for private-network validation/
   );
 
   let releasePending;
@@ -59,7 +59,7 @@ test('browser URL admission rechecks completed DNS answers and coalesces only co
   const occupied = bounded.assertResolvedUrlAllowed('https://one.example.test/');
   await assert.rejects(
     bounded.assertResolvedUrlAllowed('https://two.example.test/'),
-    /too many concurrent browser DNS validations/,
+    /too many concurrent browser DNS validations/
   );
   releasePending();
   await occupied;
@@ -71,6 +71,6 @@ test('browser URL admission rechecks completed DNS answers and coalesces only co
   await socketAdmission.assertResolvedResourceUrlAllowed('wss://socket.example.test/live');
   await assert.rejects(
     socketAdmission.assertResolvedResourceUrlAllowed('ws://169.254.169.254/latest/meta-data'),
-    /cloud metadata endpoints is blocked/,
+    /cloud metadata endpoints is blocked/
   );
 });

@@ -5,14 +5,17 @@ import {
 } from '../shared/transcript-read-diagnostics';
 
 // Only pending reads are observed. Streaming tokens do not generate records.
-const reads = new Map<string, {
-  traceId: string;
-  startedAt: number;
-  received: boolean;
-  applied: boolean;
-  settled: boolean;
-  reported: Set<string>;
-}>();
+const reads = new Map<
+  string,
+  {
+    traceId: string;
+    startedAt: number;
+    received: boolean;
+    applied: boolean;
+    settled: boolean;
+    reported: Set<string>;
+  }
+>();
 const MAX_READ_TRACES = 64;
 
 function emit(diagnostic: TranscriptReadDiagnostic): void {
@@ -23,8 +26,12 @@ export function beginSessionReadTrace(sessionId: string): string {
   const traceId = crypto.randomUUID();
   reads.delete(sessionId);
   reads.set(sessionId, {
-    traceId, startedAt: performance.now(), received: false, applied: false,
-    settled: false, reported: new Set(),
+    traceId,
+    startedAt: performance.now(),
+    received: false,
+    applied: false,
+    settled: false,
+    reported: new Set(),
   });
   while (reads.size > MAX_READ_TRACES) reads.delete(reads.keys().next().value!);
   reportTranscriptRead(sessionId, traceId, 'request-start', {}, emit);
@@ -35,7 +42,7 @@ export function reportSessionRead(
   sessionId: string,
   stage: TranscriptReadDiagnostic['stage'],
   details: TranscriptReadDetails = {},
-  traceId?: string,
+  traceId?: string
 ): void {
   const read = reads.get(sessionId);
   if (!read || (traceId && read.traceId !== traceId)) return;
@@ -43,9 +50,16 @@ export function reportSessionRead(
   const key = `${stage}:${details.attempt ?? ''}`;
   if (read.reported.has(key)) return;
   read.reported.add(key);
-  reportTranscriptRead(sessionId, read.traceId, stage, {
-    ...details, elapsedMs: performance.now() - read.startedAt,
-  }, emit);
+  reportTranscriptRead(
+    sessionId,
+    read.traceId,
+    stage,
+    {
+      ...details,
+      elapsedMs: performance.now() - read.startedAt,
+    },
+    emit
+  );
 }
 
 export function settleSessionReadTrace(sessionId: string, traceId: string, hasLane: boolean): void {
@@ -58,7 +72,7 @@ export function settleSessionReadTrace(sessionId: string, traceId: string, hasLa
 export function reportSessionReadFrame(
   update: { sessionId: string; snapshot: unknown; readTraceId?: string },
   phase: 'received' | 'applied' | 'rejected',
-  durationMs = 0,
+  durationMs = 0
 ): void {
   const read = reads.get(update.sessionId);
   if (!read || (update.readTraceId && update.readTraceId !== read.traceId)) return;

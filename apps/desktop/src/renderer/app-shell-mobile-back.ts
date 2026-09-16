@@ -1,14 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, type MutableRefObject } from "react";
-import type { DesktopUpdaterState } from "../shared/contract";
-import { isMobileRemoteSurface } from "./MobileTabOverview";
-import { registerMobileBack } from "./mobile-back";
-import type { WorkbenchQuickAccessMode } from "./workbench-overlays-loader";
+import { useEffect, useLayoutEffect, useRef, type MutableRefObject } from 'react';
+import type { DesktopUpdaterState } from '../shared/contract';
+import { isMobileRemoteSurface } from './MobileTabOverview';
+import { registerMobileBack } from './mobile-back';
+import type { WorkbenchQuickAccessMode } from './workbench-overlays-loader';
 
 export interface MobileBackProps {
   sidebarOpen: boolean;
-  applySidebarOpen: (open: boolean, motion?: "animated" | "instant") => void;
+  applySidebarOpen: (open: boolean, motion?: 'animated' | 'instant') => void;
   bottomPanelOpen: boolean;
-  setBottomPanelOpen: (open: boolean, motion?: "animated" | "instant") => void;
+  setBottomPanelOpen: (open: boolean, motion?: 'animated' | 'instant') => void;
   focusedPaneDockOpen: boolean;
   closeFocusedPaneDock: () => void;
   settingsOpen: boolean;
@@ -54,8 +54,8 @@ export function useAppMobileBack({
   applySidebarOpenRef.current = applySidebarOpen;
   useEffect(() => {
     const onHome = () => applySidebarOpenRef.current(!sidebarOpen);
-    window.addEventListener("mixdog:mobile-home", onHome);
-    return () => window.removeEventListener("mixdog:mobile-home", onHome);
+    window.addEventListener('mixdog:mobile-home', onHome);
+    return () => window.removeEventListener('mixdog:mobile-home', onHome);
   }, [sidebarOpen]);
 
   // Each transient mobile layer owns a history sentinel so hardware back
@@ -121,7 +121,7 @@ export function useAppMobileBack({
 
   const closeDesktopUpdateRef = useRef(closeDesktopUpdate);
   closeDesktopUpdateRef.current = closeDesktopUpdate;
-  const updateReady = updateDialogOpen && updaterState.status === "ready";
+  const updateReady = updateDialogOpen && updaterState.status === 'ready';
   useEffect(() => {
     if (!updateReady) return undefined;
     return registerMobileBack(() => closeDesktopUpdateRef.current());
@@ -134,9 +134,9 @@ export function useAppMobileInitialClose({
   setBottomPanelOpen,
   focusedLeafIdRef,
 }: {
-  applySidebarOpen: (open: boolean, motion?: "animated" | "instant") => void;
+  applySidebarOpen: (open: boolean, motion?: 'animated' | 'instant') => void;
   closeFocusedPaneDock: (leafId: string) => void;
-  setBottomPanelOpen: (open: boolean, motion?: "animated" | "instant") => void;
+  setBottomPanelOpen: (open: boolean, motion?: 'animated' | 'instant') => void;
   focusedLeafIdRef: MutableRefObject<string>;
 }) {
   // Initialize mobile with drawer, docks, and bottom panel closed once per
@@ -145,9 +145,8 @@ export function useAppMobileInitialClose({
   useLayoutEffect(() => {
     if (mobileStartedClosed.current || !isMobileRemoteSurface()) return;
     mobileStartedClosed.current = true;
-    applySidebarOpen(false, "instant");
+    applySidebarOpen(false, 'instant');
     closeFocusedPaneDock(focusedLeafIdRef.current);
-    setBottomPanelOpen(false, "instant");
+    setBottomPanelOpen(false, 'instant');
   }, [applySidebarOpen, closeFocusedPaneDock, focusedLeafIdRef, setBottomPanelOpen]);
 }
-

@@ -18,14 +18,19 @@ async function fixture(t, outputs) {
     else process.env.MIXDOG_HOOKS_FILE = previous;
     await rm(root, { recursive: true, force: true });
   });
-  await writeFile(path, JSON.stringify({
-    hooks: {
-      PreToolUse: [{
-        matcher: '*',
-        hooks: outputs.map((_, index) => ({ type: 'mcp_tool', tool: `fixture_${index}` })),
-      }],
-    },
-  }));
+  await writeFile(
+    path,
+    JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: '*',
+            hooks: outputs.map((_, index) => ({ type: 'mcp_tool', tool: `fixture_${index}` })),
+          },
+        ],
+      },
+    })
+  );
   const calls = [];
   const bus = createStandaloneHookBus({
     dataDir: root,

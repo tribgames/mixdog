@@ -38,10 +38,7 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
   let disposed = false;
 
   const deliver = async (completion: TurnCompletion): Promise<void> => {
-    const [keys, subscriptions] = await Promise.all([
-      options.store.keys(),
-      options.store.list(),
-    ]);
+    const [keys, subscriptions] = await Promise.all([options.store.keys(), options.store.list()]);
     if (subscriptions.length === 0) return;
     const payload = JSON.stringify({
       title: completion.title,
@@ -52,23 +49,25 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
       body: completion.preview || '',
       data: { sessionId: completion.sessionId, reason: 'turn-finished' },
     });
-    await Promise.allSettled(subscriptions.map(async (subscription) => {
-      if (subscription.clientId && options.isClientConnected(subscription.clientId)) return;
-      const result = await sendWebPush({
-        subscription,
-        payload,
-        keys,
-        subject: VAPID_SUBJECT,
-        ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-      });
-      if (result.expired) {
-        await options.store.remove(subscription.endpoint).catch(() => false);
-        return;
-      }
-      if (result.statusCode >= 400 || result.error) {
-        options.onError?.(`push ${result.statusCode}${result.error ? `: ${result.error}` : ''}`);
-      }
-    }));
+    await Promise.allSettled(
+      subscriptions.map(async (subscription) => {
+        if (subscription.clientId && options.isClientConnected(subscription.clientId)) return;
+        const result = await sendWebPush({
+          subscription,
+          payload,
+          keys,
+          subject: VAPID_SUBJECT,
+          ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+        });
+        if (result.expired) {
+          await options.store.remove(subscription.endpoint).catch(() => false);
+          return;
+        }
+        if (result.statusCode >= 400 || result.error) {
+          options.onError?.(`push ${result.statusCode}${result.error ? `: ${result.error}` : ''}`);
+        }
+      })
+    );
   };
 
   const schedule = (completion: TurnCompletion): void => {

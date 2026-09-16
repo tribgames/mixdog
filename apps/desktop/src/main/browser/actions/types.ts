@@ -83,9 +83,7 @@ export interface BrowserActionContext {
   services: BrowserActionServices;
 }
 
-export type BrowserActionHandler = (
-  context: BrowserActionContext,
-) => Promise<BrowserCommandResult>;
+export type BrowserActionHandler = (context: BrowserActionContext) => Promise<BrowserCommandResult>;
 
 export function defineBrowserActions<T extends Record<string, BrowserActionHandler>>(actions: T): T {
   return actions;

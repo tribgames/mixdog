@@ -19,24 +19,27 @@ import { getPluginData } from '../../config.mjs';
 import { ensurePatchBinary, findCachedPatchBinary } from '../patch-binary-fetcher.mjs';
 import { envFlag } from '../../../../shared/env.mjs';
 
-const PLUGIN_ROOT = process.env.MIXDOG_ROOT
+const PLUGIN_ROOT =
+  process.env.MIXDOG_ROOT ||
   // This module lives at src/runtime/agent/orchestrator/tools/patch/, so the
   // repo root is SIX levels up. Five levels stopped at src/ and made the
   // documented "local cargo build first" rule dead code: the local
   // native/mixdog-patch/target/release build was never found and a stale
   // cached prebuilt was used instead, so native fixes could not be exercised.
-  || pathResolve(pathDirname(fileURLToPath(import.meta.url)), '../../../../../..');
+  pathResolve(pathDirname(fileURLToPath(import.meta.url)), '../../../../../..');
 const NATIVE_PATCH_DEFAULT_BIN = pathJoin(
   PLUGIN_ROOT,
   'native/mixdog-patch/target/release',
-  process.platform === 'win32' ? 'mixdog-patch.exe' : 'mixdog-patch',
+  process.platform === 'win32' ? 'mixdog-patch.exe' : 'mixdog-patch'
 );
 let _nativePatchServer = null;
 let _nativePatchPrewarmTimer = null;
 let _nativeEditServer = null;
 
 function markNativePatchRuntimeTouched() {
-  try { globalThis.__mixdogNativePatchRuntimeTouched = true; } catch {}
+  try {
+    globalThis.__mixdogNativePatchRuntimeTouched = true;
+  } catch {}
 }
 
 function nativePatchMode() {
@@ -63,9 +66,11 @@ export function ioTrace(event, fields = {}) {
 }
 
 export function patchTraceEnabled() {
-  return ioTraceEnabled()
-    || nativePatchTraceEnabled()
-    || /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_PATCH_TRACE || ''));
+  return (
+    ioTraceEnabled() ||
+    nativePatchTraceEnabled() ||
+    /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_PATCH_TRACE || ''))
+  );
 }
 
 function nativePatchPrewarmEnabled() {
@@ -117,19 +122,25 @@ const ENGINE_CONTRACT_MAX_BYTES = 4_096;
 // it cannot create a file. Queued output, trailing bytes, an oversized flood or
 // a late frame all invalidate the session — leftover output must never become
 // the next command's response.
-export async function verifyContractOverSession(session, {
-  timeoutMs = ENGINE_CONTRACT_TIMEOUT_MS,
-  maxBytes = ENGINE_CONTRACT_MAX_BYTES,
-} = {}) {
+export async function verifyContractOverSession(
+  session,
+  { timeoutMs = ENGINE_CONTRACT_TIMEOUT_MS, maxBytes = ENGINE_CONTRACT_MAX_BYTES } = {}
+) {
   _contractVerificationCount += 1;
-  try { session.assertAlive?.('contract'); } catch { return false; }
+  try {
+    session.assertAlive?.('contract');
+  } catch {
+    return false;
+  }
   const expected = `OK\t${NATIVE_PATCH_ENGINE_CONTRACT}`;
   let timer = null;
   let onData = null;
   let seen = 0;
   let overflow = false;
   let signalOverflow = null;
-  const overflowed = new Promise((resolve) => { signalOverflow = resolve; });
+  const overflowed = new Promise((resolve) => {
+    signalOverflow = resolve;
+  });
   session.ref?.();
   try {
     onData = (chunk) => {
@@ -160,11 +171,9 @@ export async function verifyContractOverSession(session, {
     const nonce = randomBytes(16).toString('hex');
     const probePath = pathJoin(tmpdir(), `mixdog-engine-challenge-${nonce}`, 'probe');
     const probeBuf = Buffer.from(probePath, 'utf8');
-    const challenge = await ask(Buffer.concat([
-      Buffer.from(`EDIT ${probeBuf.length} 1 0 0 1\n`, 'utf8'),
-      probeBuf,
-      Buffer.from('x', 'utf8'),
-    ]));
+    const challenge = await ask(
+      Buffer.concat([Buffer.from(`EDIT ${probeBuf.length} 1 0 0 1\n`, 'utf8'), probeBuf, Buffer.from('x', 'utf8')])
+    );
     // Evidence, not timing: the answer carries the nonce this request invented.
     if (typeof challenge !== 'string' || !challenge.includes(nonce)) return false;
     const seenBeforeContract = seen;
@@ -178,7 +187,13 @@ export async function verifyContractOverSession(session, {
     return false;
   } finally {
     if (timer) clearTimeout(timer);
-    if (onData) { try { session.child.stdout.off('data', onData); } catch { /* detached */ } }
+    if (onData) {
+      try {
+        session.child.stdout.off('data', onData);
+      } catch {
+        /* detached */
+      }
+    }
     session.unref?.();
   }
 }
@@ -252,9 +267,7 @@ function digestOf(bytes) {
 }
 
 function contractFailure(action) {
-  const err = new Error(
-    `native patch engine did not state contract ${NATIVE_PATCH_ENGINE_CONTRACT} (${action})`,
-  );
+  const err = new Error(`native patch engine did not state contract ${NATIVE_PATCH_ENGINE_CONTRACT} (${action})`);
   err.code = NATIVE_PATCH_CONTRACT_FAILED;
   return err;
 }
@@ -347,7 +360,9 @@ export function nativePatchBinPath(options = {}) {
 
 export async function ensureNativePatchBinaryAvailable(options = {}) {
   if (!nativePatchEnabled()) {
-    throw new Error('apply_patch: native engine disabled via MIXDOG_PATCH_NATIVE; set it to "auto" or "1" to apply patches.');
+    throw new Error(
+      'apply_patch: native engine disabled via MIXDOG_PATCH_NATIVE; set it to "auto" or "1" to apply patches.'
+    );
   }
   const current = nativePatchBinPath(options);
   if (existsSync(current)) return current;
@@ -355,10 +370,7 @@ export async function ensureNativePatchBinaryAvailable(options = {}) {
     throw new Error(`apply_patch: native patch binary not found at MIXDOG_PATCH_NATIVE_BIN=${current}.`);
   }
   try {
-    const fetched = await ensurePatchBinary(
-      options.dataDir || getPluginData(),
-      options.fetcherOptions,
-    );
+    const fetched = await ensurePatchBinary(options.dataDir || getPluginData(), options.fetcherOptions);
     if (fetched && existsSync(fetched)) return fetched;
   } catch (err) {
     throw new Error(`apply_patch: native patch binary unavailable — ${err?.message || String(err)}`);
@@ -377,8 +389,11 @@ function decodeNativeFailures(hexPayload) {
   if (typeof hexPayload !== 'string' || hexPayload.length === 0) return [];
   if (!/^[0-9a-fA-F]+$/.test(hexPayload) || hexPayload.length % 2 !== 0) return [];
   let text = '';
-  try { text = Buffer.from(hexPayload, 'hex').toString('utf-8'); }
-  catch { return []; }
+  try {
+    text = Buffer.from(hexPayload, 'hex').toString('utf-8');
+  } catch {
+    return [];
+  }
   const out = [];
   for (const raw of text.split('\n')) {
     if (!raw) continue;
@@ -408,9 +423,15 @@ function lifecycleOnlyChild(child) {
       const value = Reflect.get(target, prop, target);
       return typeof value === 'function' ? value.bind(target) : value;
     },
-    set() { return false; },
-    defineProperty() { return false; },
-    deleteProperty() { return false; },
+    set() {
+      return false;
+    },
+    defineProperty() {
+      return false;
+    },
+    deleteProperty() {
+      return false;
+    },
   });
 }
 
@@ -448,11 +469,16 @@ class NativePatchServer {
     this.exited = false;
     this.transportError = null;
     this.#child.stderr.setEncoding('utf8');
-    this.#child.stderr.on('data', (chunk) => { this.stderr += chunk; });
+    this.#child.stderr.on('data', (chunk) => {
+      this.stderr += chunk;
+    });
     this.#rl = createInterface({ input: this.#child.stdout });
     this.#rl.on('line', (line) => {
       const waiter = this.waiters.shift();
-      if (waiter) { waiter.resolve(line); return; }
+      if (waiter) {
+        waiter.resolve(line);
+        return;
+      }
       // Unsolicited output. Every command registers its waiter BEFORE writing,
       // so a line with no waiter is off-protocol chatter — queueing it would
       // hand it to the NEXT command as that command's response. Abandon the
@@ -465,12 +491,16 @@ class NativePatchServer {
     // a release validate job was lost exactly that way. Absorb it here: mark
     // the transport dead and reject the waiters so callers see an ordinary
     // rejection (and respawn) instead of a crash.
-    this.#child.stdin.on('error', (err) => { this.failTransport(err); });
+    this.#child.stdin.on('error', (err) => {
+      this.failTransport(err);
+    });
     this.#child.on('exit', (code, signal) => {
       this.exited = true;
       const err = new Error(`native patch server exited code=${code} signal=${signal} stderr=${this.stderr}`);
       for (const waiter of this.waiters.splice(0)) waiter.reject(err);
-      try { this.#rl.close(); } catch {}
+      try {
+        this.#rl.close();
+      } catch {}
     });
   }
 
@@ -508,7 +538,9 @@ class NativePatchServer {
       this.transportError = err;
     }
     for (const waiter of this.waiters.splice(0)) waiter.reject(this.transportError);
-    try { this.#rl.close(); } catch {}
+    try {
+      this.#rl.close();
+    } catch {}
   }
 
   // Pre-flight for every request: refuse BEFORE a single byte is written, so
@@ -523,7 +555,11 @@ class NativePatchServer {
           if (!ok) this.markContractFailed();
           return ok;
         },
-        () => { this.#contractVerified = false; this.markContractFailed(); return false; },
+        () => {
+          this.#contractVerified = false;
+          this.markContractFailed();
+          return false;
+        }
       );
     }
     return this.#contractPromise;
@@ -537,7 +573,11 @@ class NativePatchServer {
     this.#contractVerified = false;
     if (_nativePatchServer === this) _nativePatchServer = null;
     if (_nativeEditServer === this) _nativeEditServer = null;
-    try { this.#child.kill('SIGKILL'); } catch { /* already gone */ }
+    try {
+      this.#child.kill('SIGKILL');
+    } catch {
+      /* already gone */
+    }
   }
 
   markProtocolViolation(detail) {
@@ -568,7 +608,9 @@ class NativePatchServer {
     err.name = 'AbortError';
     if (_nativePatchServer === this) _nativePatchServer = null;
     for (const waiter of this.waiters.splice(0)) waiter.reject(err);
-    try { this.#child.kill('SIGTERM'); } catch {}
+    try {
+      this.#child.kill('SIGTERM');
+    } catch {}
     return err;
   }
 
@@ -579,17 +621,33 @@ class NativePatchServer {
   }
 
   ref() {
-    try { this.#child.ref(); } catch {}
-    try { this.#child.stdin.ref?.(); } catch {}
-    try { this.#child.stdout.ref?.(); } catch {}
-    try { this.#child.stderr.ref?.(); } catch {}
+    try {
+      this.#child.ref();
+    } catch {}
+    try {
+      this.#child.stdin.ref?.();
+    } catch {}
+    try {
+      this.#child.stdout.ref?.();
+    } catch {}
+    try {
+      this.#child.stderr.ref?.();
+    } catch {}
   }
 
   unref() {
-    try { this.#child.unref(); } catch {}
-    try { this.#child.stdin.unref?.(); } catch {}
-    try { this.#child.stdout.unref?.(); } catch {}
-    try { this.#child.stderr.unref?.(); } catch {}
+    try {
+      this.#child.unref();
+    } catch {}
+    try {
+      this.#child.stdin.unref?.();
+    } catch {}
+    try {
+      this.#child.stdout.unref?.();
+    } catch {}
+    try {
+      this.#child.stderr.unref?.();
+    } catch {}
   }
 
   async ping() {
@@ -618,12 +676,14 @@ class NativePatchServer {
     const linePromise = this.nextLine();
     if (signal) linePromise.catch(() => {});
     let abortListener = null;
-    const abortPromise = signal ? new Promise((_, reject) => {
-      abortListener = () => {
-        reject(this.abort(signal));
-      };
-      signal.addEventListener('abort', abortListener, { once: true });
-    }) : null;
+    const abortPromise = signal
+      ? new Promise((_, reject) => {
+          abortListener = () => {
+            reject(this.abort(signal));
+          };
+          signal.addEventListener('abort', abortListener, { once: true });
+        })
+      : null;
     // 7-token APPLY protocol: APPLY <base_len> <patch_len> <timing> <dry_run> <fuzz> <reject_partial>
     // - timing=1 keeps the server emitting per-phase ms fields
     // - dry_run=1 validates without writing; useful for tests and explicit callers
@@ -640,7 +700,9 @@ class NativePatchServer {
       line = abortPromise ? await Promise.race([linePromise, abortPromise]) : await linePromise;
     } finally {
       if (abortListener) {
-        try { signal.removeEventListener('abort', abortListener); } catch {}
+        try {
+          signal.removeEventListener('abort', abortListener);
+        } catch {}
       }
     }
     if (!line) throw new Error('no native response');
@@ -655,8 +717,14 @@ class NativePatchServer {
     // The OK_PARTIAL line carries an extra <failed> count between <files>
     // and the timing block, plus a trailing <hexFailures> column — keep
     // the two decodes separate so SKIP failure counts stay accurate.
-    let files; let readMs; let applyMs; let writeMs; let totalMs; let hashMs;
-    let contentHashesRaw; let hexFailures;
+    let files;
+    let readMs;
+    let applyMs;
+    let writeMs;
+    let totalMs;
+    let hashMs;
+    let contentHashesRaw;
+    let hexFailures;
     if (okPartial) {
       files = fields[1];
       // fields[2] = <failed> count; the JS layer already derives a failure
@@ -715,12 +783,16 @@ class NativePatchServer {
     const linePromise = this.nextLine();
     if (signal) linePromise.catch(() => {});
     let abortListener = null;
-    const abortPromise = signal ? new Promise((_, reject) => {
-      abortListener = () => { reject(this.abort(signal)); };
-      signal.addEventListener('abort', abortListener, { once: true });
-    }) : null;
+    const abortPromise = signal
+      ? new Promise((_, reject) => {
+          abortListener = () => {
+            reject(this.abort(signal));
+          };
+          signal.addEventListener('abort', abortListener, { once: true });
+        })
+      : null;
     this.#child.stdin.write(
-      `EDIT ${pathBuf.length} ${oldBuf.length} ${newBuf.length} ${replaceAll ? 1 : 0} ${dryRun ? 1 : 0}\n`,
+      `EDIT ${pathBuf.length} ${oldBuf.length} ${newBuf.length} ${replaceAll ? 1 : 0} ${dryRun ? 1 : 0}\n`
     );
     this.#child.stdin.write(pathBuf);
     this.#child.stdin.write(oldBuf);
@@ -730,7 +802,9 @@ class NativePatchServer {
       line = abortPromise ? await Promise.race([linePromise, abortPromise]) : await linePromise;
     } finally {
       if (abortListener) {
-        try { signal.removeEventListener('abort', abortListener); } catch {}
+        try {
+          signal.removeEventListener('abort', abortListener);
+        } catch {}
       }
     }
     if (!line) throw new Error('no native response');
@@ -754,14 +828,20 @@ class NativePatchServer {
     if (this.exited) return;
     const waitForExit = options?.waitForExit !== false;
     if (!waitForExit) {
-      try { this.#child.stdin.end('QUIT\n'); } catch {}
+      try {
+        this.#child.stdin.end('QUIT\n');
+      } catch {}
       this.unref();
       return;
     }
     this.ref();
-    try { this.#child.stdin.end('QUIT\n'); } catch {}
+    try {
+      this.#child.stdin.end('QUIT\n');
+    } catch {}
     await new Promise((resolve) => this.#child.once('exit', resolve));
-    try { this.#rl.close(); } catch {}
+    try {
+      this.#rl.close();
+    } catch {}
   }
 }
 
@@ -848,7 +928,11 @@ export function scheduleNativePatchPrewarm() {
         // surface as a hard error at dispatch (no JS fallback in the
         // native-only path).
         if (!existsSync(nativePatchBinPath())) {
-          try { await ensurePatchBinary(getPluginData()); } catch { /* surfaces at dispatch */ }
+          try {
+            await ensurePatchBinary(getPluginData());
+          } catch {
+            /* surfaces at dispatch */
+          }
         }
         await getNativePatchServer().ping();
         if (!nativePatchPersistent() && (_nativePatchServer?.waiters?.length || 0) === 0) {
@@ -880,7 +964,9 @@ export function scheduleNativePatchIdleClose() {
 
 export async function closeNativePatchServerForTests(options = {}) {
   if (_nativePatchPrewarmTimer) {
-    try { clearImmediate(_nativePatchPrewarmTimer); } catch {}
+    try {
+      clearImmediate(_nativePatchPrewarmTimer);
+    } catch {}
     _nativePatchPrewarmTimer = null;
   }
   const server = _nativePatchServer;
@@ -891,4 +977,6 @@ export async function closeNativePatchServerForTests(options = {}) {
   await editServer?.close(options);
 }
 
-try { globalThis.__mixdogCloseNativePatchServers = closeNativePatchServerForTests; } catch {}
+try {
+  globalThis.__mixdogCloseNativePatchServers = closeNativePatchServerForTests;
+} catch {}

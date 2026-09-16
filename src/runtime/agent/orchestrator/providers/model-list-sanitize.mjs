@@ -23,9 +23,21 @@ const CODING_UNFIT_ID_RE = /-search(-preview)?(\b|-|$)|-(audio|realtime)-preview
 // custom provider name openai-compat forwards) is treated as CUSTOM: only the
 // enriched-mode drop applies — no id regex, no legacy filter, no dedupe.
 const HOSTED_PROVIDERS = new Set([
-  'openai', 'openai-oauth', 'openai-ws', 'anthropic', 'anthropic-oauth',
-  'gemini', 'google', 'xai', 'grok-oauth', 'deepseek', 'groq', 'mistral',
-  'opencode-go', 'openrouter', 'azure',
+  'openai',
+  'openai-oauth',
+  'openai-ws',
+  'anthropic',
+  'anthropic-oauth',
+  'gemini',
+  'google',
+  'xai',
+  'grok-oauth',
+  'deepseek',
+  'groq',
+  'mistral',
+  'opencode-go',
+  'openrouter',
+  'azure',
 ]);
 
 // (a) Non-chat modality ids. Matched as whole word-ish tokens on the id so we
@@ -34,17 +46,43 @@ const HOSTED_PROVIDERS = new Set([
 const NON_CHAT_RE = new RegExp(
   '(^|[-_/\\s])(' +
     [
-      'embed', 'embedding', 'embeddings',
-      'tts', 'stt', 'whisper', 'audio', 'speech', 'voice',
-      'image', 'images', 'video', 'videos',
-      'moderation', 'moderations', 'rerank', 'reranker', 'similarity',
-      'dall[-_]?e', 'sora', 'imagen', 'imagine', 'veo', 'kling', 'runway',
-      'realtime', 'transcribe', 'transcription', 'diarize',
-      'guard', 'safety', 'classifier',
-      'robotics', 'computer[-_]?use',
+      'embed',
+      'embedding',
+      'embeddings',
+      'tts',
+      'stt',
+      'whisper',
+      'audio',
+      'speech',
+      'voice',
+      'image',
+      'images',
+      'video',
+      'videos',
+      'moderation',
+      'moderations',
+      'rerank',
+      'reranker',
+      'similarity',
+      'dall[-_]?e',
+      'sora',
+      'imagen',
+      'imagine',
+      'veo',
+      'kling',
+      'runway',
+      'realtime',
+      'transcribe',
+      'transcription',
+      'diarize',
+      'guard',
+      'safety',
+      'classifier',
+      'robotics',
+      'computer[-_]?use',
     ].join('|') +
     ')([-_/\\s]|$)',
-  'i',
+  'i'
 );
 
 // (a2) Whole-id non-LLM SKUs that don't carry a modality token in a matchable
@@ -52,28 +90,28 @@ const NON_CHAT_RE = new RegExp(
 // but are never chat/completion LLMs (image gen, TTS, embeddings, moderation).
 // Anchored to the full id so version/date siblings all match.
 const NON_LLM_ID_PATTERNS = [
-  /^tts(\b|-)/i,                       // tts-1, tts-1-hd
-  /^whisper(\b|-)/i,                   // whisper-1
-  /^dall[-_]?e(\b|-)/i,                // dall-e-2, dall-e-3
-  /^(text-)?embedding/i,              // text-embedding-3-large, embedding-*
-  /^text-embedding-ada/i,             // text-embedding-ada-002
-  /^text-moderation(\b|-)/i,          // text-moderation-*
-  /^omni-moderation(\b|-)/i,          // omni-moderation-latest
-  /^gpt-image(\b|-)/i,                // gpt-image-1, gpt-image-2
-  /^chatgpt-image(\b|-)/i,            // chatgpt-image-latest
+  /^tts(\b|-)/i, // tts-1, tts-1-hd
+  /^whisper(\b|-)/i, // whisper-1
+  /^dall[-_]?e(\b|-)/i, // dall-e-2, dall-e-3
+  /^(text-)?embedding/i, // text-embedding-3-large, embedding-*
+  /^text-embedding-ada/i, // text-embedding-ada-002
+  /^text-moderation(\b|-)/i, // text-moderation-*
+  /^omni-moderation(\b|-)/i, // omni-moderation-latest
+  /^gpt-image(\b|-)/i, // gpt-image-1, gpt-image-2
+  /^chatgpt-image(\b|-)/i, // chatgpt-image-latest
   /^gpt-(4o|4o-mini|realtime|audio)?-?(tts|transcribe)(\b|-)/i, // gpt-4o-*-tts / -transcribe
-  /^gpt-audio(\b|-)/i,               // gpt-audio, gpt-audio-mini, gpt-audio-1.5
-  /^gpt-realtime(\b|-)/i,            // gpt-realtime*, gpt-realtime-mini
-  /-tts(\b|-)/i,                      // any *-tts SKU
+  /^gpt-audio(\b|-)/i, // gpt-audio, gpt-audio-mini, gpt-audio-1.5
+  /^gpt-realtime(\b|-)/i, // gpt-realtime*, gpt-realtime-mini
+  /-tts(\b|-)/i, // any *-tts SKU
   // Purpose-specific SKUs that report mode:'chat' but are never useful for a
   // coding agent (embodied/robotics, browser computer-use, audio-native,
   // customtools picker-duplicate variants).
-  /(^|-)robotics(\b|-)/i,             // gemini-robotics-er-*
-  /computer[-_]?use/i,                // gemini-2.5-computer-use-preview-*
-  /native[-_]?audio/i,                // gemini-2.5-flash-native-audio-*
-  /-customtools(\b|-|$)/i,            // gemini-3.1-pro-preview-customtools
-  /^codex-auto-review$/i,             // Codex backend auto-review model, not a picker choice
-  /^grok-build$/i,                    // proxy alias duplicating grok-build-0.1 (exact — 0.1 stays)
+  /(^|-)robotics(\b|-)/i, // gemini-robotics-er-*
+  /computer[-_]?use/i, // gemini-2.5-computer-use-preview-*
+  /native[-_]?audio/i, // gemini-2.5-flash-native-audio-*
+  /-customtools(\b|-|$)/i, // gemini-3.1-pro-preview-customtools
+  /^codex-auto-review$/i, // Codex backend auto-review model, not a picker choice
+  /^grok-build$/i, // proxy alias duplicating grok-build-0.1 (exact — 0.1 stays)
 ];
 
 function _isNonLlmId(lid) {
@@ -122,20 +160,29 @@ function _isNonChatMode(row) {
 // collides with version ids (grok-4.20-0309, custom foo-0123). MMDD-style
 // collapse is handled separately and conditionally.
 function _canonicalKey(id) {
-  let key = String(id || '').trim().toLowerCase();
+  let key = String(id || '')
+    .trim()
+    .toLowerCase();
   key = key.replace(/-\d{4}-\d{2}-\d{2}$/, ''); // -YYYY-MM-DD
-  key = key.replace(/-20\d{6}$/, '');           // -20YYMMDD
+  key = key.replace(/-20\d{6}$/, ''); // -20YYMMDD
   return key;
 }
 
 function _isDated(id) {
-  return _canonicalKey(id) !== String(id || '').trim().toLowerCase();
+  return (
+    _canonicalKey(id) !==
+    String(id || '')
+      .trim()
+      .toLowerCase()
+  );
 }
 
 // MMDD-style suffix (-0309): only collapse when the undated alias exists in
 // the same list AND both rows share identical context/output limits.
 function _mmddBase(id) {
-  const lid = String(id || '').trim().toLowerCase();
+  const lid = String(id || '')
+    .trim()
+    .toLowerCase();
   const m = lid.match(/^(.*)-0\d{3}$/);
   return m ? m[1] : null;
 }
@@ -157,7 +204,9 @@ function _releaseEpoch(row) {
 }
 
 function _stalenessFamily(row, id) {
-  const modelId = String(id || row?.id || row?.name || '').trim().toLowerCase();
+  const modelId = String(id || row?.id || row?.name || '')
+    .trim()
+    .toLowerCase();
   const claude = modelId.match(/(?:^|\/)claude-(opus|sonnet|haiku|fable)(?:-|$)/);
   if (claude) return `claude-${claude[1]}`;
   const family = row && typeof row.family === 'string' ? row.family.trim().toLowerCase() : '';
@@ -206,7 +255,7 @@ function _applyAutoStaleness(kept, provider, testCatalog) {
     if (prev == null || ep > prev) familyNewest.set(fam, ep);
   }
 
-  let dropped = new Set();
+  const dropped = new Set();
   for (const m of meta) {
     if (!m.cat || m.family == null || m.epoch == null) continue; // fallback: keep
     const newest = familyNewest.get(m.family);
@@ -291,7 +340,9 @@ function _applyCodingUnfit(kept, provider, testCatalog) {
  */
 export function sanitizeModelList(models, opts = {}) {
   if (!Array.isArray(models)) return models;
-  const provider = String(opts?.provider || '').trim().toLowerCase();
+  const provider = String(opts?.provider || '')
+    .trim()
+    .toLowerCase();
   const hosted = HOSTED_PROVIDERS.has(provider);
 
   // CUSTOM/local providers (including mixdog-local): apply ONLY the
@@ -333,10 +384,13 @@ export function sanitizeModelList(models, opts = {}) {
   for (const row of codingFit) {
     const key = _canonicalKey(row.id);
     const prev = byKey.get(key);
-    if (!prev) { byKey.set(key, row); continue; }
+    if (!prev) {
+      byKey.set(key, row);
+      continue;
+    }
     byKey.set(key, _preferRow(prev, row));
   }
-  let winners = new Set(byKey.values());
+  const winners = new Set(byKey.values());
 
   // Conditional MMDD collapse: drop a `-0xxx` row only when its undated alias
   // survives in the winner set AND both share identical context/output limits.

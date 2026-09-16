@@ -4,17 +4,15 @@ import {
   PANE_DOCK_TERMINAL_SURFACE,
   type PaneSideDockDiff,
   type PaneSideDockEntry,
-} from "./pane-side-dock";
-import { navigationKey } from "./text-format";
+} from './pane-side-dock';
+import { navigationKey } from './text-format';
 
-export type SessionSideSurface =
-  | typeof PANE_DOCK_BROWSER_SURFACE
-  | typeof PANE_DOCK_TERMINAL_SURFACE;
+export type SessionSideSurface = typeof PANE_DOCK_BROWSER_SURFACE | typeof PANE_DOCK_TERMINAL_SURFACE;
 
 export function withSessionSideSurface(
   current: ReadonlyMap<string, SessionSideSurface>,
   sessionId: string,
-  surface: SessionSideSurface | null,
+  surface: SessionSideSurface | null
 ): ReadonlyMap<string, SessionSideSurface> {
   const cleanSessionId = sessionId.trim();
   if (!cleanSessionId) return current;
@@ -37,7 +35,7 @@ export function withSessionSideSurface(
 export function withSessionDiff(
   current: ReadonlyMap<string, PaneSideDockDiff>,
   sessionId: string,
-  diff: PaneSideDockDiff | null,
+  diff: PaneSideDockDiff | null
 ): ReadonlyMap<string, PaneSideDockDiff> {
   const cleanSessionId = sessionId.trim();
   if (!cleanSessionId) return current;
@@ -59,12 +57,12 @@ export function withSessionDiff(
  *  `withSessionDiff`. The list used to live in the pane entry itself, so it
  *  leaked across sessions in the same pane (user: 다른 세션으로 넘어가면 그
  *  세션 기본값으로 — 안 열려 있었으면 닫아줘야). */
-export type SessionSidePanelView = "session-diff";
+export type SessionSidePanelView = 'session-diff';
 
 export function withSessionPanelView(
   current: ReadonlyMap<string, SessionSidePanelView>,
   sessionId: string,
-  view: SessionSidePanelView | null,
+  view: SessionSidePanelView | null
 ): ReadonlyMap<string, SessionSidePanelView> {
   const cleanSessionId = sessionId.trim();
   if (!cleanSessionId) return current;
@@ -90,16 +88,22 @@ export function sessionSideDockEntryForSession(
   sessionId: string,
   surface: SessionSideSurface | null,
   sessionDiff: PaneSideDockDiff | null = null,
-  sessionPanelView: SessionSidePanelView | null = null,
+  sessionPanelView: SessionSidePanelView | null = null
 ): PaneSideDockEntry {
   // A session diff persisted into the pane entry by an older build belongs to
   // no pane: drop it so the session map below is the only owner.
-  const base = entry.surface === PANE_DOCK_DIFF_SURFACE && entry.diff?.source === "session"
-    ? { ...entry, surface: "", diff: null }
-    : entry;
+  const base =
+    entry.surface === PANE_DOCK_DIFF_SURFACE && entry.diff?.source === 'session'
+      ? { ...entry, surface: '', diff: null }
+      : entry;
   if (sessionId && sessionDiff) {
-    if (base.open && base.surface === PANE_DOCK_DIFF_SURFACE && base.diff
-      && navigationKey(base.diff) === navigationKey(sessionDiff)) return base;
+    if (
+      base.open &&
+      base.surface === PANE_DOCK_DIFF_SURFACE &&
+      base.diff &&
+      navigationKey(base.diff) === navigationKey(sessionDiff)
+    )
+      return base;
     return { ...base, open: true, surface: PANE_DOCK_DIFF_SURFACE, diff: sessionDiff };
   }
   if (base.surface === PANE_DOCK_DIFF_SURFACE) return base;
@@ -111,19 +115,18 @@ export function sessionSideDockEntryForSession(
   // session, exactly like the browser/terminal surfaces above: switching
   // back restores it even when the pane's remembered view moved on.
   if (sessionId && sessionPanelView) {
-    if (base.open && base.surface === "" && base.view === sessionPanelView) return base;
-    return { ...base, open: true, surface: "", view: sessionPanelView };
+    if (base.open && base.surface === '' && base.view === sessionPanelView) return base;
+    return { ...base, open: true, surface: '', view: sessionPanelView };
   }
-  if (base.surface !== PANE_DOCK_BROWSER_SURFACE
-    && base.surface !== PANE_DOCK_TERMINAL_SURFACE) {
+  if (base.surface !== PANE_DOCK_BROWSER_SURFACE && base.surface !== PANE_DOCK_TERMINAL_SURFACE) {
     // A session-owned view never leaks across sessions: a pane showing
     // Session Diff for one session folds for a session that never opened it
     // (user: 거기 안 열려 있었으면 닫아줘야).
-    if (sessionId && base.view === "session-diff") {
-      if (!base.open && base.surface === "") return base;
-      return { ...base, open: false, surface: "" };
+    if (sessionId && base.view === 'session-diff') {
+      if (!base.open && base.surface === '') return base;
+      return { ...base, open: false, surface: '' };
     }
     return base;
   }
-  return { ...base, open: false, surface: "" };
+  return { ...base, open: false, surface: '' };
 }

@@ -64,11 +64,17 @@ export function filterMcpToolsForCwd(tools, scopes, cwd, options = {}) {
 let _registryCache = { path: '', mtime: -1, plugins: [] };
 export function registeredPluginIdentities(dataDir = null) {
   let path = '';
-  try { path = join(dataDir || resolvePluginData(), 'plugins', 'registry.json'); }
-  catch { return []; }
+  try {
+    path = join(dataDir || resolvePluginData(), 'plugins', 'registry.json');
+  } catch {
+    return [];
+  }
   let mtime = -1;
-  try { mtime = statSync(path).mtimeMs; }
-  catch { return []; }
+  try {
+    mtime = statSync(path).mtimeMs;
+  } catch {
+    return [];
+  }
   if (_registryCache.path === path && _registryCache.mtime === mtime) return _registryCache.plugins;
   let plugins = [];
   try {

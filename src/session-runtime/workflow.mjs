@@ -26,18 +26,22 @@ const AGENT_ROLE_IDS = new Set(FIXED_AGENT_SLOTS.map((agent) => agent.id));
 // Slot-backed built-ins run through dedicated maintenance channels, so they are never
 // Lead-delegation targets and stay out of the Available Agents catalog.
 const BUILTIN_SLOT_AGENT_IDS = new Set(
-  FIXED_AGENT_SLOTS.filter((agent) => agent.workflowSlot).map((agent) => agent.id),
+  FIXED_AGENT_SLOTS.filter((agent) => agent.workflowSlot).map((agent) => agent.id)
 );
-const STARTER_AGENT_ORDER = new Map(
-  DEFAULT_DISABLED_AGENT_IDS.map((id, index) => [id, index]),
-);
+const STARTER_AGENT_ORDER = new Map(DEFAULT_DISABLED_AGENT_IDS.map((id, index) => [id, index]));
 // Fallback workflow for a config with no explicit selection, for an unknown
 // id, and for the pack reset after a delete. Solo is the shipped default
 // working mode; the cowork pack (directory id `default`) is opt-in.
 export const DEFAULT_WORKFLOW_ID = 'solo';
 
 const WEB_SEARCH_CAPABLE_PROVIDERS = new Set([
-  'openai-oauth', 'openai', 'grok-oauth', 'xai', 'gemini', 'anthropic', 'anthropic-oauth',
+  'openai-oauth',
+  'openai',
+  'grok-oauth',
+  'xai',
+  'gemini',
+  'anthropic',
+  'anthropic-oauth',
 ]);
 export const WEB_SEARCH_DEFAULT_PROVIDER = 'default';
 export const WEB_SEARCH_DEFAULT_MODEL = 'default';
@@ -79,13 +83,17 @@ function workflowPresetName(slot) {
 }
 
 export function normalizeAgentId(value) {
-  const id = clean(value).toLowerCase().replace(/[\s_]+/g, '-');
+  const id = clean(value)
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-');
   if (id === 'maint' || id === 'maintenance' || id === 'memory') return 'maintainer';
   return AGENT_ROLE_IDS.has(id) ? id : '';
 }
 
 export function normalizeWorkflowId(value, fallback = '') {
-  const id = clean(value).toLowerCase().replace(/[\s_]+/g, '-');
+  const id = clean(value)
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-');
   return /^[a-z0-9][a-z0-9_.-]*$/.test(id) ? id : fallback;
 }
 
@@ -113,8 +121,7 @@ export function toSessionWorkflowMeta(workflow) {
 export function workflowDisallowsAgentTool(workflow) {
   if (!workflow || typeof workflow !== 'object') return false;
   if (workflow.delegatesAgents === false) return true;
-  return Boolean(workflow.agentsConfigured === true
-      && Array.isArray(workflow.agents) && workflow.agents.length === 0);
+  return Boolean(workflow.agentsConfigured === true && Array.isArray(workflow.agents) && workflow.agents.length === 0);
 }
 
 function internalIdFromName(value, fallbackPrefix) {
@@ -166,10 +173,7 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
   function agentSourceDirs(dir, id) {
     const userDir = join(dir || dataDir, 'agents', id);
     if (existsSync(join(userDir, AGENT_DELETED_MARKER))) return [userDir];
-    return [
-      userDir,
-      join(rootDir, 'agents', id),
-    ];
+    return [userDir, join(rootDir, 'agents', id)];
   }
 
   // Custom agents include shipped starter roles and user-authored roles.
@@ -181,7 +185,11 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     for (const root of [userRoot, join(rootDir, 'agents')]) {
       if (!existsSync(root)) continue;
       let entries = [];
-      try { entries = readdirSync(root, { withFileTypes: true }); } catch { entries = []; }
+      try {
+        entries = readdirSync(root, { withFileTypes: true });
+      } catch {
+        entries = [];
+      }
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         const id = normalizeWorkflowId(entry.name);
@@ -213,20 +221,26 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     // (every defined agent is available) or it does not (`delegation: none`,
     // e.g. Solo). Legacy `agents:` frontmatter maps empty→no delegation and
     // non-empty→delegates; the roster itself is ignored.
-    const delegationRaw = String(fm.delegation ?? '').trim().toLowerCase();
+    const delegationRaw = String(fm.delegation ?? '')
+      .trim()
+      .toLowerCase();
     let delegatesAgents = !['none', 'false', 'off', '0'].includes(delegationRaw);
-    if (!delegationRaw && Object.prototype.hasOwnProperty.call(fm, 'agents')) {
-      delegatesAgents = String(fm.agents || '')
-        .split(',')
-        .map((agent) => agent.trim())
-        .filter(Boolean).length > 0;
+    if (!delegationRaw && Object.hasOwn(fm, 'agents')) {
+      delegatesAgents =
+        String(fm.agents || '')
+          .split(',')
+          .map((agent) => agent.trim())
+          .filter(Boolean).length > 0;
     }
     return {
       id,
       name: clean(fm.name) || id,
       description: clean(fm.description),
       entry,
-      hidden: String(fm.hidden ?? '').trim().toLowerCase() === 'true',
+      hidden:
+        String(fm.hidden ?? '')
+          .trim()
+          .toLowerCase() === 'true',
       delegatesAgents,
       body,
       source,
@@ -238,7 +252,11 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     for (const { root, source } of workflowSourceDirs(dir)) {
       if (!existsSync(root)) continue;
       let entries = [];
-      try { entries = readdirSync(root, { withFileTypes: true }); } catch { entries = []; }
+      try {
+        entries = readdirSync(root, { withFileTypes: true });
+      } catch {
+        entries = [];
+      }
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         const d = join(root, entry.name);
@@ -252,10 +270,8 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     // — every picker (TUI, desktop sidebar, onboarding) shares this order.
     // The cowork id stays literal here: DEFAULT_WORKFLOW_ID now means "the
     // fallback pack" (solo), not "the pack whose directory is `default`".
-    const weight = (pack) => pack.id === 'solo' ? 0
-      : (pack.id === 'default' || pack.id === 'cowork') ? 1 : 2;
-    return [...byId.values()].sort((a, b) =>
-      (weight(a) - weight(b)) || a.name.localeCompare(b.name));
+    const weight = (pack) => (pack.id === 'solo' ? 0 : pack.id === 'default' || pack.id === 'cowork' ? 1 : 2);
+    return [...byId.values()].sort((a, b) => weight(a) - weight(b) || a.name.localeCompare(b.name));
   }
 
   function activeWorkflowId(config) {
@@ -274,10 +290,9 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
   // Agents the Lead may actually delegate to: on disk, not hidden, not a
   // slot-backed built-in, and not switched off by the user.
   function delegatableAgentIds(config, dir) {
-    return listCustomAgentIds(dir)
-      .filter((id) => !isHiddenAgent(id)
-        && !BUILTIN_SLOT_AGENT_IDS.has(id)
-        && !isAgentDisabled(config, id));
+    return listCustomAgentIds(dir).filter(
+      (id) => !isHiddenAgent(id) && !BUILTIN_SLOT_AGENT_IDS.has(id) && !isAgentDisabled(config, id)
+    );
   }
 
   function workflowSummary(pack, { hasAgents = true } = {}) {
@@ -319,7 +334,8 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
       const definition = {
         id: agentId,
         name: clean(manifest.name) || FIXED_AGENT_SLOTS.find((agent) => agent.id === agentId)?.label || agentId,
-        description: clean(manifest.description) || FIXED_AGENT_SLOTS.find((agent) => agent.id === agentId)?.description || '',
+        description:
+          clean(manifest.description) || FIXED_AGENT_SLOTS.find((agent) => agent.id === agentId)?.description || '',
         permission: normalizeAgentPermissionOrNone(doc.frontmatter.permission),
         frontmatter: doc.frontmatter,
         body,
@@ -345,16 +361,15 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     const rawBody = String(pack.body || '');
     const firstBreak = rawBody.indexOf('\n');
     const firstLine = (firstBreak === -1 ? rawBody : rawBody.slice(0, firstBreak)).trim();
-    const body = firstBreak !== -1 && firstLine.toLowerCase() === `# ${String(pack.name || '').toLowerCase()}`
-      ? rawBody.slice(firstBreak + 1).replace(/^\s+/, '')
-      : rawBody;
+    const body =
+      firstBreak !== -1 && firstLine.toLowerCase() === `# ${String(pack.name || '').toLowerCase()}`
+        ? rawBody.slice(firstBreak + 1).replace(/^\s+/, '')
+        : rawBody;
     const lines = [`# Active Workflow: ${pack.name}${pack.description ? ` — ${pack.description}` : ''}`, body];
     // Agents are global: a delegating pack sees every active custom agent.
     // Slot-backed built-ins (maintainer) ride their own channels and
     // hidden roles stay Mixdog-internal.
-    const agentIds = pack.delegatesAgents === false
-      ? []
-      : delegatableAgentIds(config, dir);
+    const agentIds = pack.delegatesAgents === false ? [] : delegatableAgentIds(config, dir);
     const agentBlocks = agentIds.map((id) => loadAgentDefinition(dir, id)).filter(Boolean);
     if (agentBlocks.length) {
       lines.push('# Available Agents');
@@ -362,9 +377,11 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
       // prompt and rides in the worker session at spawn time — repeating it in
       // the Lead prompt only bloats context. Lead picks agents by description
       // (a when-to-use signal); the workflow body carries the rules.
-      lines.push(agentBlocks
-        .map((agent) => `- ${agent.name} (${agent.id})${agent.description ? `: ${agent.description}` : ''}`)
-        .join('\n'));
+      lines.push(
+        agentBlocks
+          .map((agent) => `- ${agent.name} (${agent.id})${agent.description ? `: ${agent.description}` : ''}`)
+          .join('\n')
+      );
     }
     return lines.join('\n\n');
   }
@@ -400,8 +417,10 @@ export function normalizeWebSearchProviderId(provider) {
 }
 
 export function isDefaultWebSearchRouteConfig(routeLike = {}) {
-  return normalizeWebSearchProviderId(routeLike?.provider) === WEB_SEARCH_DEFAULT_PROVIDER
-    && clean(routeLike?.model).toLowerCase() === WEB_SEARCH_DEFAULT_MODEL;
+  return (
+    normalizeWebSearchProviderId(routeLike?.provider) === WEB_SEARCH_DEFAULT_PROVIDER &&
+    clean(routeLike?.model).toLowerCase() === WEB_SEARCH_DEFAULT_MODEL
+  );
 }
 
 export function isWebSearchCapableProvider(provider) {
@@ -480,7 +499,9 @@ export function upsertWorkflowPreset(presets, slot, routeLike) {
     ...(route.modelParameters ? { modelParameters: route.modelParameters } : {}),
     tools: 'full',
   };
-  const next = (Array.isArray(presets) ? presets : []).filter((p) => clean(p?.id) !== id && clean(p?.name) !== preset.name);
+  const next = (Array.isArray(presets) ? presets : []).filter(
+    (p) => clean(p?.id) !== id && clean(p?.name) !== preset.name
+  );
   next.push(preset);
   return next;
 }
@@ -520,8 +541,7 @@ export function createWorkflowRouteHelpers({ findPreset }) {
     const id = normalizeAgentId(agentId) || normalizeWorkflowId(agentId);
     if (!id) return null;
     for (const candidate of configuredAgentRouteCandidates(config, id)) {
-      const route = normalizeWorkflowRoute(candidate)
-        || routeFromPreset(config, candidate);
+      const route = normalizeWorkflowRoute(candidate) || routeFromPreset(config, candidate);
       if (route) return route;
     }
     return null;

@@ -14,9 +14,15 @@ process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 async function fixture(t) {
   const cwd = await workspace(t);
   const session = {
-    id: 'preview', format: 'pptx', backend: 'microsoft-office-com',
-    mode: 'background', ownership: 'owned', visible: false,
-    target: join(cwd, 'deck.pptx'), snapshotVersion: 0, designState: {},
+    id: 'preview',
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    mode: 'background',
+    ownership: 'owned',
+    visible: false,
+    target: join(cwd, 'deck.pptx'),
+    snapshotVersion: 0,
+    designState: {},
   };
   const calls = { exports: 0, rasters: 0 };
   const canvas = createCanvas(800, 450);
@@ -28,7 +34,10 @@ async function fixture(t) {
   context.fillText('Review fixture', 60, 100);
   const png = canvas.toBuffer('image/png');
   const adapters = {
-    exportPreview: async (_, output) => { calls.exports++; await writeFile(output, 'export'); },
+    exportPreview: async (_, output) => {
+      calls.exports++;
+      await writeFile(output, 'export');
+    },
     rasterize: async (output, options) => {
       calls.rasters++;
       const pages = options.pages || [1, 2];
@@ -39,7 +48,8 @@ async function fixture(t) {
         images.push({ page, path, width: 800, height: 450, mimeType: 'image/png', data: png.toString('base64') });
       }
       return {
-        pageCount: 2, images,
+        pageCount: 2,
+        images,
         visualCoverage: { complete: pages.length === 2, reviewedPages: pages, reviewed: pages.length, total: 2 },
       };
     },
@@ -58,7 +68,10 @@ test('complete custom preview is reused without exporting and caller edits do no
   assert.equal(reused.reused, true);
   assert.equal(reused.output, join(cwd, 'chosen.pdf'));
   assert.equal(reused.reviewToken, token);
-  assert.deepEqual(reused._images.map((image) => image.page), [1, 2]);
+  assert.deepEqual(
+    reused._images.map((image) => image.page),
+    [1, 2]
+  );
   assert.equal(reused.visualCoverage.complete, true);
   assert.deepEqual(calls, { exports: 1, rasters: 1 });
   assert.equal(await cachedOfficePreview(session, { maxWidth: 800 }, cwd, { reuseLatest: true }), null);
@@ -88,22 +101,43 @@ test('changed documents and partial previews cannot reuse complete-deck approval
   const partial = await renderOfficePreview(session, { pages: [2] }, cwd, adapters);
   assert.notEqual(partial.reviewToken, first.reviewToken);
   assert.equal(await cachedOfficePreview(session, {}, cwd, { reuseLatest: true }), null);
-  assert.equal(pptxVisualReviewAcknowledged({
-    reviewed: true, providedToken: partial.reviewToken, expectedToken: partial.reviewToken,
-    renderedVersion: 1, snapshotVersion: 1, critiqueOk: true, coverageComplete: false,
-  }), false);
+  assert.equal(
+    pptxVisualReviewAcknowledged({
+      reviewed: true,
+      providedToken: partial.reviewToken,
+      expectedToken: partial.reviewToken,
+      renderedVersion: 1,
+      snapshotVersion: 1,
+      critiqueOk: true,
+      coverageComplete: false,
+    }),
+    false
+  );
 });
 
 test('unrendered version zero and failed refresh do not retain approval', async (t) => {
-  assert.equal(pptxVisualReviewAcknowledged({
-    reviewed: true, providedToken: 'preview:0', expectedToken: 'preview:0',
-    renderedVersion: null, snapshotVersion: 0, critiqueOk: true,
-  }), false);
+  assert.equal(
+    pptxVisualReviewAcknowledged({
+      reviewed: true,
+      providedToken: 'preview:0',
+      expectedToken: 'preview:0',
+      renderedVersion: null,
+      snapshotVersion: 0,
+      critiqueOk: true,
+    }),
+    false
+  );
   const { cwd, session, adapters } = await fixture(t);
   await renderOfficePreview(session, {}, cwd, adapters);
-  await assert.rejects(renderOfficePreview(session, { maxWidth: 700 }, cwd, {
-    ...adapters, exportPreview: async () => { throw new Error('export failed'); },
-  }), /export failed/);
+  await assert.rejects(
+    renderOfficePreview(session, { maxWidth: 700 }, cwd, {
+      ...adapters,
+      exportPreview: async () => {
+        throw new Error('export failed');
+      },
+    }),
+    /export failed/
+  );
   assert.equal(session.designState.renderedVersion, null);
   assert.equal(session.designState.reviewToken, '');
   assert.equal(await cachedOfficePreview(session, {}, cwd, { reuseLatest: true }), null);
@@ -111,7 +145,11 @@ test('unrendered version zero and failed refresh do not retain approval', async 
 
 test('visible and attached documents refresh instead of using owned-session caches', async (t) => {
   const { cwd, session, calls, adapters } = await fixture(t);
-  for (const change of [{ visible: true }, { ownership: 'attached', visible: false }, { ownership: 'owned', mode: 'attach' }]) {
+  for (const change of [
+    { visible: true },
+    { ownership: 'attached', visible: false },
+    { ownership: 'owned', mode: 'attach' },
+  ]) {
     Object.assign(session, change);
     const first = await renderOfficePreview(session, {}, cwd, adapters);
     const second = await renderOfficePreview(session, {}, cwd, adapters);
@@ -130,7 +168,11 @@ test('visible and attached documents refresh instead of using owned-session cach
       return rendered;
     },
   });
-  assert.notEqual(changed.reviewToken, previousToken, 'external visual changes invalidate approval without a batch revision');
+  assert.notEqual(
+    changed.reviewToken,
+    previousToken,
+    'external visual changes invalidate approval without a batch revision'
+  );
 });
 
 test('cancelled reads do not hand back cached visual evidence', async (t) => {
@@ -142,28 +184,49 @@ test('cancelled reads do not hand back cached visual evidence', async (t) => {
 
 test('finalize uses a complete custom preview and still validates the saved deck', async (t) => {
   const { cwd, adapters } = await fixture(t);
-  const authored = value(await executeOfficeTool({
-    action: 'author', path: join(cwd, 'finalize.pptx'), mode: 'portable', render: false,
-    script: `const P = require('pptxgenjs'); const p = new P(); p.layout = 'LAYOUT_WIDE';
+  const authored = value(
+    await executeOfficeTool(
+      {
+        action: 'author',
+        path: join(cwd, 'finalize.pptx'),
+        mode: 'portable',
+        render: false,
+        script: `const P = require('pptxgenjs'); const p = new P(); p.layout = 'LAYOUT_WIDE';
       for (const text of ['Planning', 'Delivery']) {
         p.addSlide().addText(text, { x: 1, y: 2, w: 10, h: 1, fontFace: 'Arial', fontSize: 32 });
       }
       await p.writeFile({ fileName: OUTPUT });`,
-  }, { cwd }));
+      },
+      { cwd }
+    )
+  );
   const session = sessions.get(authored.session);
   const preview = await renderOfficePreview(session, { output: 'reviewed.pdf', maxWidth: 1600 }, cwd, adapters);
   const critique = [
     ['Planning opens on a single statement with the left margin carrying the eye into the sequence.'],
     ['Delivery closes the pair: the same measure, one statement, and no competing element beside it.'],
   ].map(([note], index) => ({
-    slide: index + 1, verdict: 'pass', hierarchy: 4, balance: 4, legibility: 4, cohesion: 4, evidence: 4,
+    slide: index + 1,
+    verdict: 'pass',
+    hierarchy: 4,
+    balance: 4,
+    legibility: 4,
+    cohesion: 4,
+    evidence: 4,
     note,
     fixes: [],
   }));
-  const finalized = value(await executeOfficeTool({
-    action: 'finalize', session: session.id, render: false,
-    design: { reviewed: true, reviewToken: preview.reviewToken, critique },
-  }, { cwd }));
+  const finalized = value(
+    await executeOfficeTool(
+      {
+        action: 'finalize',
+        session: session.id,
+        render: false,
+        design: { reviewed: true, reviewToken: preview.reviewToken, critique },
+      },
+      { cwd }
+    )
+  );
   assert.equal(finalized.finalized, true, JSON.stringify(finalized));
   assert.equal(finalized.review.preview.reused, true);
   assert.equal(finalized.review.preview.output, preview.output);

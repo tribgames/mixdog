@@ -67,6 +67,8 @@ export function useTerminalChrome({ stdout, isRawModeSupported, setResizeState }
     if (!supportsExtendedKeys()) return;
     try {
       stdout.write(ENABLE_KITTY_KEYBOARD + ENABLE_MODIFY_OTHER_KEYS);
-    } catch { /* terminal may be closing */ }
+    } catch {
+      /* terminal may be closing */
+    }
   }, []);
 }

@@ -48,22 +48,27 @@ function findOnPath(binary: string): string {
 /** `wsl.exe -l -q`: one distribution per line, emitted as UTF-16LE. */
 function wslDistributions(wslPath: string): Promise<string[]> {
   return new Promise((resolve) => {
-    exec(`"${wslPath}" -l -q`, {
-      encoding: 'utf16le',
-      timeout: 3_000,
-      windowsHide: true,
-      env: childEnvironment(),
-    },
+    exec(
+      `"${wslPath}" -l -q`,
+      {
+        encoding: 'utf16le',
+        timeout: 3_000,
+        windowsHide: true,
+        env: childEnvironment(),
+      },
       (error, stdout) => {
         if (error) {
           resolve([]);
           return;
         }
-        resolve(String(stdout || '')
-          .split(/\r?\n/)
-          .map((line) => line.replace(/\u0000/g, '').trim())
-          .filter(Boolean));
-      });
+        resolve(
+          String(stdout || '')
+            .split(/\r?\n/)
+            .map((line) => line.replace(/\u0000/g, '').trim())
+            .filter(Boolean)
+        );
+      }
+    );
   });
 }
 
@@ -71,13 +76,12 @@ async function detectWindowsProfiles(): Promise<DetectedShellProfile[]> {
   const profiles: DetectedShellProfile[] = [];
   const windir = process.env.windir || process.env.SystemRoot || 'C:\\Windows';
   const system32 = path.join(windir, 'System32');
-  const pwsh = findOnPath('pwsh.exe')
-    || existingFile(path.join(process.env.ProgramFiles || 'C:\\Program Files',
-      'PowerShell', '7', 'pwsh.exe'));
+  const pwsh =
+    findOnPath('pwsh.exe') ||
+    existingFile(path.join(process.env.ProgramFiles || 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe'));
   // Label PS7 and PS5.1 unmistakably apart (user: pwsh랑 파워셀 구분).
   if (pwsh) profiles.push({ id: 'pwsh', label: 'PowerShell (pwsh)', path: pwsh });
-  const windowsPowerShell = existingFile(
-    path.join(system32, 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
+  const windowsPowerShell = existingFile(path.join(system32, 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
   if (windowsPowerShell) {
     profiles.push({ id: 'windows-powershell', label: 'Windows PowerShell', path: windowsPowerShell });
   }
@@ -98,9 +102,10 @@ async function detectWindowsProfiles(): Promise<DetectedShellProfile[]> {
   }
   let gitBash = '';
   for (const dir of gitDirs) {
-    gitBash = existingFile(path.join(dir, 'Git', 'bin', 'bash.exe'))
-      || existingFile(path.join(dir, 'Git', 'usr', 'bin', 'bash.exe'))
-      || existingFile(path.join(dir, 'usr', 'bin', 'bash.exe'));
+    gitBash =
+      existingFile(path.join(dir, 'Git', 'bin', 'bash.exe')) ||
+      existingFile(path.join(dir, 'Git', 'usr', 'bin', 'bash.exe')) ||
+      existingFile(path.join(dir, 'usr', 'bin', 'bash.exe'));
     if (gitBash) break;
   }
   if (gitBash) {
@@ -111,12 +116,16 @@ async function detectWindowsProfiles(): Promise<DetectedShellProfile[]> {
   if (msys) {
     // CHERE_INVOKING keeps the requested cwd instead of MSYS2's home.
     profiles.push({
-      id: 'msys2', label: 'bash (MSYS2)', path: msys,
-      args: ['--login', '-i'], env: { CHERE_INVOKING: '1' },
+      id: 'msys2',
+      label: 'bash (MSYS2)',
+      path: msys,
+      args: ['--login', '-i'],
+      env: { CHERE_INVOKING: '1' },
     });
   }
-  const cygwin = existingFile(path.join(homeDrive, 'cygwin64', 'bin', 'bash.exe'))
-    || existingFile(path.join(homeDrive, 'cygwin', 'bin', 'bash.exe'));
+  const cygwin =
+    existingFile(path.join(homeDrive, 'cygwin64', 'bin', 'bash.exe')) ||
+    existingFile(path.join(homeDrive, 'cygwin', 'bin', 'bash.exe'));
   if (cygwin) profiles.push({ id: 'cygwin', label: 'Cygwin', path: cygwin, args: ['--login'] });
   const wsl = existingFile(path.join(system32, 'wsl.exe'));
   if (wsl) {
@@ -135,8 +144,7 @@ async function detectWindowsProfiles(): Promise<DetectedShellProfile[]> {
 
 /** Utility-VM distributions are not user shells. */
 export function hiddenWslDistribution(name: string): boolean {
-  return /^(?:docker-desktop(?:-data)?|rancher-desktop(?:-data)?|podman-machine.*)$/i
-    .test(String(name || '').trim());
+  return /^(?:docker-desktop(?:-data)?|rancher-desktop(?:-data)?|podman-machine.*)$/i.test(String(name || '').trim());
 }
 
 /** OS-default profile id: Windows prefers PowerShell 7
@@ -144,7 +152,7 @@ export function hiddenWslDistribution(name: string): boolean {
 export function defaultShellProfileId(
   profiles: readonly Pick<DesktopShellProfileInfo, 'id' | 'path'>[],
   platform: NodeJS.Platform = process.platform,
-  envShell: string = process.env.SHELL || '',
+  envShell: string = process.env.SHELL || ''
 ): string {
   if (!profiles.length) return '';
   if (platform === 'win32') {
@@ -175,16 +183,17 @@ function detectUnixProfiles(): DetectedShellProfile[] {
       const candidate = line.trim();
       if (candidate && !candidate.startsWith('#')) push(candidate);
     }
-  } catch { /* the conventional fallbacks below stand in */ }
+  } catch {
+    /* the conventional fallbacks below stand in */
+  }
   for (const candidate of ['/bin/bash', '/bin/zsh', '/usr/bin/fish', '/bin/sh']) push(candidate);
   return profiles;
 }
 
 function detect(): Promise<DetectedShellProfile[]> {
-  detection ??= (process.platform === 'win32'
-    ? detectWindowsProfiles()
-    : Promise.resolve(detectUnixProfiles())
-  ).catch(() => []);
+  detection ??= (process.platform === 'win32' ? detectWindowsProfiles() : Promise.resolve(detectUnixProfiles())).catch(
+    () => []
+  );
   return detection;
 }
 
@@ -206,8 +215,9 @@ export async function listShellProfiles(): Promise<DesktopShellProfileInfo[]> {
 export async function resolveShellProfileSpawn(id: unknown): Promise<TerminalSpawnProfile | null> {
   const wanted = typeof id === 'string' ? id.trim() : '';
   const detected = await detect();
-  const profile = (wanted ? detected.find((candidate) => candidate.id === wanted) : undefined)
-    ?? detected.find((candidate) => candidate.id === defaultShellProfileId(detected));
+  const profile =
+    (wanted ? detected.find((candidate) => candidate.id === wanted) : undefined) ??
+    detected.find((candidate) => candidate.id === defaultShellProfileId(detected));
   if (!profile) return null;
   return {
     path: profile.path,

@@ -2,30 +2,33 @@
 // memory-cycle2.mjs). Logging, cancellation, concurrency and store faults.
 // No cycle2 business logic; safe to import from any cycle2 sub-module.
 
-import { __mixdogMemoryLog } from './memory-log.mjs'
-export { __mixdogMemoryLog }
+import { __mixdogMemoryLog } from './memory-log.mjs';
+export { __mixdogMemoryLog };
 
 export function throwIfAborted(signal) {
-  if (signal?.aborted) throw signal.reason ?? new Error('aborted')
+  if (signal?.aborted) throw signal.reason ?? new Error('aborted');
 }
 
 // Tiny inline semaphore — bounds cycle fan-out (cycle1 windows, cycle2 review
 // packets). One implementation so the two concurrency caps cannot drift.
 export function createSemaphore(limit) {
-  const cap = Math.max(1, Number(limit) || 1)
-  let active = 0
-  const queue = []
+  const cap = Math.max(1, Number(limit) || 1);
+  let active = 0;
+  const queue = [];
   const release = () => {
-    active -= 1
-    const next = queue.shift()
-    if (next) next()
-  }
+    active -= 1;
+    const next = queue.shift();
+    if (next) next();
+  };
   return async (fn) => {
-    if (active >= cap) await new Promise(resolve => queue.push(resolve))
-    active += 1
-    try { return await fn() }
-    finally { release() }
-  }
+    if (active >= cap) await new Promise((resolve) => queue.push(resolve));
+    active += 1;
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  };
 }
 
 // Two error classes travel through the cycle2 apply paths and must never be
@@ -52,30 +55,30 @@ export function createSemaphore(limit) {
 // tick. runCycle2 converts it at its own boundary into a plain
 // { ok: false, error: <string>, storeFault: <boolean> } result, so the explicit
 // boolean — not a re-parsed Error — is what any IPC/worker hop carries onward.
-export const MEMORY_STORE_FAULT_CODE = 'MEMORY_STORE_FAULT'
+export const MEMORY_STORE_FAULT_CODE = 'MEMORY_STORE_FAULT';
 
 export class MemoryStoreFault extends Error {
   constructor(message, options) {
-    super(message, options)
-    this.name = 'MemoryStoreFault'
-    this.code = MEMORY_STORE_FAULT_CODE
-    this.isMemoryStoreFault = true
+    super(message, options);
+    this.name = 'MemoryStoreFault';
+    this.code = MEMORY_STORE_FAULT_CODE;
+    this.isMemoryStoreFault = true;
   }
 }
 
 export function markStoreFault(err) {
-  if (isStoreFault(err)) return err
-  const cause = err instanceof Error ? err : new Error(String(err))
+  if (isStoreFault(err)) return err;
+  const cause = err instanceof Error ? err : new Error(String(err));
   // The original is never mutated (frozen/sealed store errors are ordinary):
   // it is carried as `cause`, with its message copied verbatim — unprefixed —
   // and its stack preserved so the failing statement stays visible.
-  const fault = new MemoryStoreFault(cause.message || String(cause), { cause })
-  if (typeof cause.stack === 'string') fault.stack = cause.stack
-  return fault
+  const fault = new MemoryStoreFault(cause.message || String(cause), { cause });
+  if (typeof cause.stack === 'string') fault.stack = cause.stack;
+  return fault;
 }
 
 export function isStoreFault(err) {
-  if (!err || typeof err !== 'object') return false
-  if (err instanceof MemoryStoreFault) return true
-  return err.isMemoryStoreFault === true && err.code === MEMORY_STORE_FAULT_CODE
+  if (!err || typeof err !== 'object') return false;
+  if (err instanceof MemoryStoreFault) return true;
+  return err.isMemoryStoreFault === true && err.code === MEMORY_STORE_FAULT_CODE;
 }

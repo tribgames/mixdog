@@ -26,7 +26,10 @@ let tapFailed = false;
 let emptySelection = false;
 // Forward chunks immediately; retain only a bounded line prefix for TAP status,
 // not the potentially large Office snapshots printed in assertion failures.
-for (const [source, destination] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
+for (const [source, destination] of [
+  [child.stdout, process.stdout],
+  [child.stderr, process.stderr],
+]) {
   source.setEncoding('utf8');
   let prefix = '';
   const inspect = () => {

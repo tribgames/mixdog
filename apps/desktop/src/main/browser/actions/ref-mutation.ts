@@ -6,7 +6,7 @@ export async function mutateRef<T>(
   context: BrowserActionContext,
   sourceRef: string,
   operation: (ref: string) => Promise<T>,
-  editable = false,
+  editable = false
 ): Promise<T> {
   const { guest, signal, refRecovery, services } = context;
   const ref = await services.reply.withRefRecovery(
@@ -14,7 +14,7 @@ export async function mutateRef<T>(
     refRecovery,
     sourceRef,
     (candidate) => services.refActions.prepareRef(guest, candidate, signal, editable),
-    signal,
+    signal
   );
   if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
   try {
@@ -22,8 +22,8 @@ export async function mutateRef<T>(
   } catch (error) {
     services.state.invalidateInteraction(guest);
     throw new Error(
-      `${error instanceof Error ? error.message : String(error)}; `
-      + 'input may have executed and was not replayed; take a fresh snapshot before continuing',
+      `${error instanceof Error ? error.message : String(error)}; ` +
+        'input may have executed and was not replayed; take a fresh snapshot before continuing'
     );
   }
 }

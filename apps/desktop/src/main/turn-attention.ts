@@ -39,17 +39,23 @@ export function createTurnAttention(hooks: TurnAttentionHooks): TurnAttention {
       signaled = true;
       try {
         hooks.flashFrame(true);
-      } catch { /* window is going away */ }
+      } catch {
+        /* window is going away */
+      }
       try {
         hooks.bounceDock?.();
-      } catch { /* dock unavailable */ }
+      } catch {
+        /* dock unavailable */
+      }
     },
     onFocus() {
       if (!signaled) return;
       signaled = false;
       try {
         hooks.flashFrame(false);
-      } catch { /* window is going away */ }
+      } catch {
+        /* window is going away */
+      }
     },
   };
 }

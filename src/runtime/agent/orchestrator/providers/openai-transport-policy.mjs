@@ -18,19 +18,33 @@
 // spellings collapse to the canonical modes. Unknown/empty → null so the
 // caller falls back to the default 'auto'.
 export function _normalizeTransportMode(raw) {
-    const v = String(raw || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
-    switch (v) {
-        case 'ws-full': case 'wsfull': case 'full': case 'ws': case 'websocket-full':
-            return 'ws-full';
-        case 'ws-delta': case 'wsdelta': case 'delta': case 'websocket-delta':
-            return 'ws-delta';
-        case 'http-sse': case 'httpsse': case 'http': case 'sse': case 'http/sse':
-            return 'http-sse';
-        case 'auto':
-            return 'auto';
-        default:
-            return null;
-    }
+  const v = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-');
+  switch (v) {
+    case 'ws-full':
+    case 'wsfull':
+    case 'full':
+    case 'ws':
+    case 'websocket-full':
+      return 'ws-full';
+    case 'ws-delta':
+    case 'wsdelta':
+    case 'delta':
+    case 'websocket-delta':
+      return 'ws-delta';
+    case 'http-sse':
+    case 'httpsse':
+    case 'http':
+    case 'sse':
+    case 'http/sse':
+      return 'http-sse';
+    case 'auto':
+      return 'auto';
+    default:
+      return null;
+  }
 }
 
 const DELTA_OFF = Object.freeze({ force: false, refs: false, optIn: false });
@@ -52,23 +66,23 @@ const DELTA_REFS = Object.freeze({ force: false, refs: true, optIn: true });
 // Unknown providers get the permissive full-capability default.
 export const FULL_RESPONSES_TRANSPORT_CAPS = Object.freeze({ ws: true, http: true, delta: true });
 export const RESPONSES_TRANSPORT_CAPABILITIES = Object.freeze({
-    'openai-oauth': Object.freeze({ ws: true, http: true, delta: true }),
-    'openai':       Object.freeze({ ws: true, http: true, delta: true }), // direct
-    'xai':          Object.freeze({ ws: true, http: true, delta: true }), // official WS continuation
+  'openai-oauth': Object.freeze({ ws: true, http: true, delta: true }),
+  openai: Object.freeze({ ws: true, http: true, delta: true }), // direct
+  xai: Object.freeze({ ws: true, http: true, delta: true }), // official WS continuation
 });
 
 // Down-shift a requested mode to the nearest mode the provider actually
 // supports. Pure/idempotent: full-capability providers pass every mode through
 // unchanged, so the OpenAI OAuth/direct resolution stays byte-identical.
 export function _gateTransportMode(mode, caps) {
-    let m = mode;
-    // Delta unsupported → keep WS transport but force full frames.
-    if ((m === 'auto' || m === 'ws-delta') && !caps.delta) m = caps.ws ? 'ws-full' : (caps.http ? 'http-sse' : 'auto');
-    // WS unsupported → prefer HTTP, else defer to auto.
-    if ((m === 'auto' || m === 'ws-full' || m === 'ws-delta') && !caps.ws) m = caps.http ? 'http-sse' : 'auto';
-    // HTTP unsupported → prefer full-frame WS, else defer to auto.
-    if (m === 'http-sse' && !caps.http) m = caps.ws ? 'ws-full' : 'auto';
-    return m;
+  let m = mode;
+  // Delta unsupported → keep WS transport but force full frames.
+  if ((m === 'auto' || m === 'ws-delta') && !caps.delta) m = caps.ws ? 'ws-full' : caps.http ? 'http-sse' : 'auto';
+  // WS unsupported → prefer HTTP, else defer to auto.
+  if ((m === 'auto' || m === 'ws-full' || m === 'ws-delta') && !caps.ws) m = caps.http ? 'http-sse' : 'auto';
+  // HTTP unsupported → prefer full-frame WS, else defer to auto.
+  if (m === 'http-sse' && !caps.http) m = caps.ws ? 'ws-full' : 'auto';
+  return m;
 }
 
 /**
@@ -84,43 +98,43 @@ export function _gateTransportMode(mode, caps) {
  *             capabilities: {ws:boolean,http:boolean,delta:boolean} }}
  */
 export function resolveResponsesTransportPolicy(env = process.env, capabilities = FULL_RESPONSES_TRANSPORT_CAPS) {
-    const caps = { ...FULL_RESPONSES_TRANSPORT_CAPS, ...(capabilities || {}) };
-    const requestedMode = _normalizeTransportMode(env?.MIXDOG_OAI_TRANSPORT) || 'auto';
-    const mode = _gateTransportMode(requestedMode, caps);
-    let transport;
-    let delta;
-    switch (mode) {
-        case 'http-sse':
-            transport = 'http';
-            delta = DELTA_OFF;      // delta is a WS-only optimization
-            break;
-        case 'ws-full':
-            transport = 'ws';
-            delta = DELTA_OFF;      // explicit full frames
-            break;
-        case 'auto':
-        case 'ws-delta':
-            transport = 'ws';
-            // Reachable only when caps.delta is true (else gated to ws-full).
-            delta = caps.delta ? DELTA_REFS : DELTA_OFF;
-            break;
-        default:
-            transport = 'ws';
-            delta = caps.delta ? DELTA_REFS : DELTA_OFF;
-            break;
-    }
-    return {
-        mode,
-        requestedMode,
-        transport,
-        // Reference behavior: default/auto is WS-first but not WS-only. If the
-        // websocket path stalls/fails before emitting live output, callers may
-        // replay the request over HTTP/SSE. Explicit ws-* modes remain pinned
-        // for transport experiments; explicit http-sse bypasses WS entirely.
-        allowHttpFallback: requestedMode === 'auto' && caps.http,
-        delta,
-        capabilities: caps,
-    };
+  const caps = { ...FULL_RESPONSES_TRANSPORT_CAPS, ...(capabilities || {}) };
+  const requestedMode = _normalizeTransportMode(env?.MIXDOG_OAI_TRANSPORT) || 'auto';
+  const mode = _gateTransportMode(requestedMode, caps);
+  let transport;
+  let delta;
+  switch (mode) {
+    case 'http-sse':
+      transport = 'http';
+      delta = DELTA_OFF; // delta is a WS-only optimization
+      break;
+    case 'ws-full':
+      transport = 'ws';
+      delta = DELTA_OFF; // explicit full frames
+      break;
+    case 'auto':
+    case 'ws-delta':
+      transport = 'ws';
+      // Reachable only when caps.delta is true (else gated to ws-full).
+      delta = caps.delta ? DELTA_REFS : DELTA_OFF;
+      break;
+    default:
+      transport = 'ws';
+      delta = caps.delta ? DELTA_REFS : DELTA_OFF;
+      break;
+  }
+  return {
+    mode,
+    requestedMode,
+    transport,
+    // Reference behavior: default/auto is WS-first but not WS-only. If the
+    // websocket path stalls/fails before emitting live output, callers may
+    // replay the request over HTTP/SSE. Explicit ws-* modes remain pinned
+    // for transport experiments; explicit http-sse bypasses WS entirely.
+    allowHttpFallback: requestedMode === 'auto' && caps.http,
+    delta,
+    capabilities: caps,
+  };
 }
 
 /**
@@ -130,5 +144,5 @@ export function resolveResponsesTransportPolicy(env = process.env, capabilities 
  * @param {Record<string,string|undefined>} [env=process.env]
  */
 export function resolveOpenAiTransportPolicy(env = process.env) {
-    return resolveResponsesTransportPolicy(env, FULL_RESPONSES_TRANSPORT_CAPS);
+  return resolveResponsesTransportPolicy(env, FULL_RESPONSES_TRANSPORT_CAPS);
 }

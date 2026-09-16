@@ -80,7 +80,10 @@ export function createExtensionPickers({
         markerColor: enabled ? theme.success : theme.inactive,
         description: pending
           ? `${optimistic.enabled ? 'enabling' : 'disabling'}… · ${server.transport || 'unknown'}`
-          : withScope(`${server.source || 'config'} · ${server.status || 'unknown'} · ${server.transport || 'unknown'} · ${server.toolCount || 0} tools${server.error ? ` · ${server.error}` : ''}`, server),
+          : withScope(
+              `${server.source || 'config'} · ${server.status || 'unknown'} · ${server.transport || 'unknown'} · ${server.toolCount || 0} tools${server.error ? ` · ${server.error}` : ''}`,
+              server
+            ),
         _action: 'server',
         _server: server,
         _enabled: enabled,
@@ -118,7 +121,10 @@ export function createExtensionPickers({
       _kind: 'mcp-servers',
       title: 'MCP servers',
       description: 'Enable or disable configured MCP servers.',
-      initialIndex: Math.max(0, items.findIndex((entry) => entry.value === options?.highlightValue)),
+      initialIndex: Math.max(
+        0,
+        items.findIndex((entry) => entry.value === options?.highlightValue)
+      ),
       items,
       onSelect: (_value, item) => toggleServer(item),
       onLeft: (item) => toggleServer(item),
@@ -232,11 +238,12 @@ export function createExtensionPickers({
       if (item._action !== 'skill' || !item._skill?.name) return;
       const name = item._skill.name;
       const next = new Set(disabledSet);
-      if (item._enabled) next.add(name); else next.delete(name);
+      if (item._enabled) next.add(name);
+      else next.delete(name);
       setDisabledSkills(next);
       store.pushNotice(
         `skill ${item._enabled ? 'disabled' : 'enabled'}: ${name} (prompt updates next session /clear)`,
-        'info',
+        'info'
       );
       openSkillsPicker({ highlightValue: name, disabledOverride: next, skills });
     };
@@ -244,7 +251,10 @@ export function createExtensionPickers({
       _kind: 'skills',
       title: 'Skills',
       description: 'Enable or disable project skills.',
-      initialIndex: Math.max(0, items.findIndex((entry) => entry.value === options.highlightValue)),
+      initialIndex: Math.max(
+        0,
+        items.findIndex((entry) => entry.value === options.highlightValue)
+      ),
       items,
       onSelect: (_value, item) => toggleSkill(item),
       onLeft: (item) => toggleSkill(item),
@@ -357,7 +367,9 @@ export function createExtensionPickers({
         {
           value: 'enable-mcp',
           label: p.mcpScript ? (p.mcpEnabled ? 'Refresh MCP server' : 'Enable MCP server') : 'No MCP script',
-          description: p.mcpScript ? `${p.mcpServerName || 'plugin-mcp'} · ${p.mcpEnabled ? 'configured' : p.mcpScript}` : 'plugin does not expose scripts/run-mcp.mjs or mcp/server.mjs',
+          description: p.mcpScript
+            ? `${p.mcpServerName || 'plugin-mcp'} · ${p.mcpEnabled ? 'configured' : p.mcpScript}`
+            : 'plugin does not expose scripts/run-mcp.mjs or mcp/server.mjs',
           _action: p.mcpScript ? 'enable-mcp' : 'noop',
         },
         {
@@ -383,27 +395,34 @@ export function createExtensionPickers({
         // Clear-and-continue: the reopens below are bound to this keypress.
         own.paint(null);
         if (detail._action === 'info') {
-          store.pushNotice([
-            `${p.title || p.name}${p.version ? ` ${p.version}` : ''}`,
-            `source: ${p.sourceType || p.source}${p.sourceUrl ? ` / ${p.sourceUrl}` : ''}`,
-            `skills: ${p.skillCount || 0}`,
-            `mcp: ${p.mcpScript ? `${p.mcpEnabled ? 'enabled' : 'available'} (${p.mcpServerName || 'plugin-mcp'})` : '(none)'}`,
-            `applies to: ${Array.isArray(p.scope) && p.scope.length ? p.scope.join(', ') : 'all projects'}`,
-            `root: ${p.root}`,
-            p.description ? `\n${p.description}` : '',
-          ].filter(Boolean).join('\n'), 'info');
+          store.pushNotice(
+            [
+              `${p.title || p.name}${p.version ? ` ${p.version}` : ''}`,
+              `source: ${p.sourceType || p.source}${p.sourceUrl ? ` / ${p.sourceUrl}` : ''}`,
+              `skills: ${p.skillCount || 0}`,
+              `mcp: ${p.mcpScript ? `${p.mcpEnabled ? 'enabled' : 'available'} (${p.mcpServerName || 'plugin-mcp'})` : '(none)'}`,
+              `applies to: ${Array.isArray(p.scope) && p.scope.length ? p.scope.join(', ') : 'all projects'}`,
+              `root: ${p.root}`,
+              p.description ? `\n${p.description}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            'info'
+          );
           return;
         }
         if (detail._action === 'update') {
           // Post-write delegation: the reopen is bound to the claim of this
           // keypress, so an ack after Esc cannot re-open the plugin list.
-          void store.updatePlugin?.(p)
+          void store
+            .updatePlugin?.(p)
             .then(own.defer(() => openInstalledPluginsPicker()))
             .catch((e) => store.pushNotice(`plugin update failed: ${e?.message || e}`, 'error'));
           return;
         }
         if (detail._action === 'enable-mcp') {
-          void store.enablePluginMcp?.(p)
+          void store
+            .enablePluginMcp?.(p)
             .then(own.defer(() => openMcpPicker()))
             .catch((e) => store.pushNotice(`plugin MCP enable failed: ${e?.message || e}`, 'error'));
           return;
@@ -421,7 +440,8 @@ export function createExtensionPickers({
           return;
         }
         if (detail._action === 'uninstall') {
-          void store.removePlugin?.(p)
+          void store
+            .removePlugin?.(p)
             .then(own.defer(() => openInstalledPluginsPicker()))
             .catch((e) => store.pushNotice(`plugin uninstall failed: ${e?.message || e}`, 'error'));
         }
@@ -451,7 +471,10 @@ export function createExtensionPickers({
       items.push({
         value: `${plugin.id || plugin.name}:${plugin.version || ''}`,
         label: plugin.title || plugin.name,
-        description: withScope(`${plugin.sourceType || plugin.source}${plugin.version ? ` · ${plugin.version}` : ''} · skills ${plugin.skillCount || 0}${plugin.mcpScript ? ` · mcp ${plugin.mcpEnabled ? 'enabled' : plugin.mcpScript}` : ''}`, plugin),
+        description: withScope(
+          `${plugin.sourceType || plugin.source}${plugin.version ? ` · ${plugin.version}` : ''} · skills ${plugin.skillCount || 0}${plugin.mcpScript ? ` · mcp ${plugin.mcpEnabled ? 'enabled' : plugin.mcpScript}` : ''}`,
+          plugin
+        ),
         _action: 'plugin',
         _plugin: plugin,
       });

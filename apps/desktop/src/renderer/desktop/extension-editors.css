@@ -11,7 +11,9 @@
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
 }
-.extensions-skill-dialog .extensions-instructions-field textarea { min-height: 320px; }
+.extensions-skill-dialog .extensions-instructions-field textarea {
+  min-height: 320px;
+}
 
 /* MCP uses transport-specific structured rows instead of exposing JSON. */
 .extensions-mcp-transport-field {
@@ -66,7 +68,7 @@
 .extensions-mcp-transport button[aria-pressed="true"] {
   color: var(--mx-text);
   background: var(--mx-pressed);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
+  box-shadow: inset 0 0 0 0.5px var(--mx-rail-item-outline-active);
   font-weight: var(--mx-weight-semibold);
 }
 .extensions-mcp-transport button.active > svg,
@@ -77,7 +79,10 @@
   outline: 1px solid var(--mx-focus);
   outline-offset: -1px;
 }
-.extensions-mcp-transport button:disabled { cursor: default; opacity: var(--mx-op-disabled); }
+.extensions-mcp-transport button:disabled {
+  cursor: default;
+  opacity: var(--mx-op-disabled);
+}
 .extensions-mcp-list {
   display: grid;
   gap: 8px;
@@ -129,7 +134,9 @@
   color: var(--mx-text);
   background: var(--mx-hover);
 }
-.extensions-mcp-list-row > button:disabled { opacity: var(--mx-op-disabled); }
+.extensions-mcp-list-row > button:disabled {
+  opacity: var(--mx-op-disabled);
+}
 .extensions-mcp-list-add {
   width: 100%;
   min-height: 30px;
@@ -156,7 +163,10 @@
     grid-row: auto;
     justify-self: stretch;
   }
-  .extensions-mcp-transport { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .extensions-mcp-transport {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .extensions-mcp-pair-row {
     grid-template-columns: minmax(0, 1fr) 34px;
   }

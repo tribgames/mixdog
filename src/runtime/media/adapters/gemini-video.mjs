@@ -39,9 +39,9 @@ async function generateViaOmni({ model, prompt, options, references = [], signal
   // from text-to-video to image-to-video.
   const input = references.length
     ? [
-      ...references.map((ref) => ({ type: 'image', data: ref.base64, mime_type: ref.mime || 'image/png' })),
-      { type: 'text', text: prompt },
-    ]
+        ...references.map((ref) => ({ type: 'image', data: ref.base64, mime_type: ref.mime || 'image/png' })),
+        { type: 'text', text: prompt },
+      ]
     : prompt;
   const res = await fetch(`${BASE_URL}/interactions`, {
     method: 'POST',
@@ -115,8 +115,7 @@ async function generateViaVeo({ model, prompt, options, references = [], signal,
     if (data.error) {
       throw mediaError(`Veo generation failed: ${data.error.message || 'unknown error'}`, 'MEDIA_UPSTREAM_FAILED', 502);
     }
-    const sample = data?.response?.generateVideoResponse?.generatedSamples?.[0]
-      || data?.response?.generatedVideos?.[0];
+    const sample = data?.response?.generateVideoResponse?.generatedSamples?.[0] || data?.response?.generatedVideos?.[0];
     const uri = sample?.video?.uri || sample?.video?.fileUri;
     if (!uri) throw mediaError('Veo finished without a video URI', 'MEDIA_EMPTY_RESULT', 502);
     return {

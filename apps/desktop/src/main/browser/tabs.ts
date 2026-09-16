@@ -24,16 +24,9 @@ export interface BrowserTabsHost {
   /** Visible pane guests owned by one session, in stable attach order. */
   visibleGuests(sessionId: string): WebContents[];
   backgroundPages(sessionId: string): Map<string, BackgroundPage>;
-  backgroundEntryByPageId(
-    sessionId: string,
-    pageId: string,
-  ): [string, BackgroundPage] | null;
+  backgroundEntryByPageId(sessionId: string, pageId: string): [string, BackgroundPage] | null;
   ensureOffscreen(sessionId: string, rawName?: string): BackgroundPage;
-  destroyBackgroundPage(
-    sessionId: string,
-    name: string,
-    entry: BackgroundPage,
-  ): void;
+  destroyBackgroundPage(sessionId: string, name: string, entry: BackgroundPage): void;
   pageId(guest: WebContents): string;
   currentGuest(sessionId: string): WebContents | null;
   /** Targeting a visible tab also makes it the default for later commands. */
@@ -57,7 +50,7 @@ export function createBrowserTabs(host: BrowserTabsHost) {
   function resolveTargetGuest(
     sessionId: string,
     background: boolean | undefined,
-    tab: string,
+    tab: string
   ): { guest: WebContents; background: boolean; tabName?: string } | null {
     if (background) {
       if (/^p\d+$/i.test(tab)) {
@@ -72,8 +65,7 @@ export function createBrowserTabs(host: BrowserTabsHost) {
     }
     if (!tab) return null;
     if (/^p\d+$/i.test(tab)) {
-      const picked = visibleGuests(sessionId)
-        .find((guest) => stablePageId(guest).toLowerCase() === tab.toLowerCase());
+      const picked = visibleGuests(sessionId).find((guest) => stablePageId(guest).toLowerCase() === tab.toLowerCase());
       if (picked) {
         selectGuest(sessionId, picked);
         return { guest: picked, background: false };
@@ -109,19 +101,18 @@ export function createBrowserTabs(host: BrowserTabsHost) {
     visibleGuests(sessionId).forEach((guest, index) => {
       const marker = guest === currentGuest(sessionId) ? ' (active)' : '';
       lines.push(
-        `- ${stablePageId(guest)} [v${index + 1}]${marker}: `
-        + `${redactBrowserText(guest.getTitle() || '(untitled)')} — ${redactBrowserUrl(guest.getURL() || 'about:blank')}`,
+        `- ${stablePageId(guest)} [v${index + 1}]${marker}: ` +
+          `${redactBrowserText(guest.getTitle() || '(untitled)')} — ${redactBrowserUrl(guest.getURL() || 'about:blank')}`
       );
     });
     for (const [name, page] of backgroundPages(sessionId)) {
       if (page.window.isDestroyed()) continue;
       const contents = page.window.webContents;
-      const kind = page.kind === 'popup'
-        ? `popup${page.openerPageId ? ` from ${page.openerPageId}` : ''}`
-        : 'background';
+      const kind =
+        page.kind === 'popup' ? `popup${page.openerPageId ? ` from ${page.openerPageId}` : ''}` : 'background';
       lines.push(
-        `- ${stablePageId(contents)} ["${name}"] (${kind}): ${redactBrowserText(contents.getTitle() || '(untitled)')} `
-        + `— ${redactBrowserUrl(contents.getURL() || 'about:blank')}`,
+        `- ${stablePageId(contents)} ["${name}"] (${kind}): ${redactBrowserText(contents.getTitle() || '(untitled)')} ` +
+          `— ${redactBrowserUrl(contents.getURL() || 'about:blank')}`
       );
     }
     if (lines.length === 0) {
@@ -134,10 +125,10 @@ export function createBrowserTabs(host: BrowserTabsHost) {
     const found = /^p\d+$/i.test(tab)
       ? backgroundEntryByPageId(sessionId, tab)
       : (() => {
-        const name = normalizeBackgroundTabName(tab, { required: true });
-        const page = backgroundPages(sessionId).get(name);
-        return page ? [name, page] as [string, BackgroundPage] : null;
-      })();
+          const name = normalizeBackgroundTabName(tab, { required: true });
+          const page = backgroundPages(sessionId).get(name);
+          return page ? ([name, page] as [string, BackgroundPage]) : null;
+        })();
     if (!found || found[1].window.isDestroyed()) {
       throw new Error(`unknown background tab "${tab}"; call list_tabs`);
     }
@@ -148,14 +139,20 @@ export function createBrowserTabs(host: BrowserTabsHost) {
 
   function displayEntries(sessionId: string) {
     return [
-      ...visibleGuests(sessionId).map(guest => ({
-        guest, kind: 'page' as DesktopBrowserTab['kind'], page: null as BackgroundPage | null,
+      ...visibleGuests(sessionId).map((guest) => ({
+        guest,
+        kind: 'page' as DesktopBrowserTab['kind'],
+        page: null as BackgroundPage | null,
       })),
       ...[...backgroundPages(sessionId).values()]
-        .filter(page => !page.window.isDestroyed() && !page.guest.isDestroyed())
-        .map(page => ({
+        .filter((page) => !page.window.isDestroyed() && !page.guest.isDestroyed())
+        .map((page) => ({
           guest: page.guest,
-          kind: (page.kind === 'popup' ? 'popup' : page.kind === 'user' ? 'page' : 'background') as DesktopBrowserTab['kind'],
+          kind: (page.kind === 'popup'
+            ? 'popup'
+            : page.kind === 'user'
+              ? 'page'
+              : 'background') as DesktopBrowserTab['kind'],
           page,
         })),
     ];
@@ -190,18 +187,22 @@ export function createBrowserTabs(host: BrowserTabsHost) {
 
   function createDisplayTab(sessionId: string): void {
     const entries = displayEntries(sessionId);
-    const initial = entries.length === 1 && entries[0].page === null
-      ? entries[0].guest : null;
+    const initial = entries.length === 1 && entries[0].page === null ? entries[0].guest : null;
     // Reuse only the initial, idle blank page, not a page navigated back to
     // blank or an independently created user/support tab.
-    if (initial && initial.getURL() === 'about:blank'
-      && !initial.isLoadingMainFrame()
-      && initial.navigationHistory.length() <= 1) {
+    if (
+      initial &&
+      initial.getURL() === 'about:blank' &&
+      !initial.isLoadingMainFrame() &&
+      initial.navigationHistory.length() <= 1
+    ) {
       selectGuest(sessionId, initial);
       return;
     }
     let name: string;
-    do { name = `user-tab-${++nextUserTab}`; } while (backgroundPages(sessionId).has(name));
+    do {
+      name = `user-tab-${++nextUserTab}`;
+    } while (backgroundPages(sessionId).has(name));
     const page = ensureOffscreen(sessionId, name);
     page.kind = 'user';
     page.keepAlive = true;
@@ -214,7 +215,12 @@ export function createBrowserTabs(host: BrowserTabsHost) {
   }
 
   return {
-    resolveTargetGuest, listTabs, closeBackgroundTab,
-    displayTabs, selectDisplayTab, createDisplayTab, closeDisplayTab,
+    resolveTargetGuest,
+    listTabs,
+    closeBackgroundTab,
+    displayTabs,
+    selectDisplayTab,
+    createDisplayTab,
+    closeDisplayTab,
   };
 }

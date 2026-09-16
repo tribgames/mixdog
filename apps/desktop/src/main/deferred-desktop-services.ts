@@ -20,7 +20,7 @@ export interface DeferredDesktopServiceScheduleOptions {
  */
 export function scheduleDeferredDesktopServices(
   window: BrowserWindow,
-  options: DeferredDesktopServiceScheduleOptions,
+  options: DeferredDesktopServiceScheduleOptions
 ): () => void {
   const webContents = window.webContents;
   const quietMs = Math.max(0, options.quietMs ?? 2_000);

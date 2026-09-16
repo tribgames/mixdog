@@ -34,9 +34,7 @@ export interface NativeCookieImportReport {
   failures: NativeCookieImportFailures;
 }
 
-const FAILURE_KEYS = [
-  'decryption', 'domainMismatch', 'invalidEncoding', 'invalidPartition',
-] as const;
+const FAILURE_KEYS = ['decryption', 'domainMismatch', 'invalidEncoding', 'invalidPartition'] as const;
 const MAX_COOKIES = 1_000_000;
 
 /** Require source accounting: an old array-only helper cannot prove completeness. */
@@ -50,11 +48,17 @@ export function parseBrowserCookieReport(output: unknown): NativeCookieImportRep
   const report = output as Partial<NativeCookieImportReport>;
   const count = (value: unknown): value is number =>
     typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= MAX_COOKIES;
-  if (report.version !== 2 || !count(report.sourceCount) || !count(report.expired)
-    || !Array.isArray(report.cookies) || report.cookies.length > MAX_COOKIES
-    || !report.failures || typeof report.failures !== 'object'
-    || !FAILURE_KEYS.every((key) => count(report.failures?.[key]))
-    || report.cookies.some((cookie) => !cookie || typeof cookie !== 'object' || Array.isArray(cookie))) {
+  if (
+    report.version !== 2 ||
+    !count(report.sourceCount) ||
+    !count(report.expired) ||
+    !Array.isArray(report.cookies) ||
+    report.cookies.length > MAX_COOKIES ||
+    !report.failures ||
+    typeof report.failures !== 'object' ||
+    !FAILURE_KEYS.every((key) => count(report.failures?.[key])) ||
+    report.cookies.some((cookie) => !cookie || typeof cookie !== 'object' || Array.isArray(cookie))
+  ) {
     throw new Error('Native cookie importer returned an invalid report.');
   }
   const failed = FAILURE_KEYS.reduce((sum, key) => sum + report.failures![key], 0);
@@ -68,23 +72,29 @@ export class CookieImportError extends Error {
   constructor(
     readonly imported: number,
     readonly failed: number,
-    sourceFailures?: NativeCookieImportFailures,
+    sourceFailures?: NativeCookieImportFailures
   ) {
     const detail = sourceFailures
-      ? ` Source failures: ${sourceFailures.decryption} decryption, ${sourceFailures.domainMismatch} domain integrity,`
-        + ` ${sourceFailures.invalidEncoding} invalid encoding, ${sourceFailures.invalidPartition} invalid partition.`
+      ? ` Source failures: ${sourceFailures.decryption} decryption, ${sourceFailures.domainMismatch} domain integrity,` +
+        ` ${sourceFailures.invalidEncoding} invalid encoding, ${sourceFailures.invalidPartition} invalid partition.`
       : '';
-    super(`Cookie import incomplete: ${imported} imported, ${failed} failed.${detail} Existing cookies were not cleared. Sign-in has not been verified.`);
+    super(
+      `Cookie import incomplete: ${imported} imported, ${failed} failed.${detail} Existing cookies were not cleared. Sign-in has not been verified.`
+    );
   }
 }
 
 function sameSite(value: unknown): Electron.CookiesSetDetails['sameSite'] {
   switch (String(value || '').toLowerCase()) {
-    case 'strict': return 'strict';
-    case 'lax': return 'lax';
+    case 'strict':
+      return 'strict';
+    case 'lax':
+      return 'lax';
     case 'none':
-    case 'no_restriction': return 'no_restriction';
-    default: return 'unspecified';
+    case 'no_restriction':
+      return 'no_restriction';
+    default:
+      return 'unspecified';
   }
 }
 
@@ -98,7 +108,7 @@ export async function importBrowserCookies(
   partition: { cookies: BrowserCookieJar },
   cookies: BrowserImportCookie[],
   backup: (cookies: BrowserCookie[]) => Promise<void>,
-  sourceFailures?: NativeCookieImportFailures,
+  sourceFailures?: NativeCookieImportFailures
 ): Promise<number> {
   const existing = await partition.cookies.get({});
   // Persist an OS-encrypted recovery snapshot before any changes.
@@ -106,21 +116,17 @@ export async function importBrowserCookies(
   const existingKeys = new Set(existing.map(cookieKey));
   const sourceKeys = new Set(cookies.map(cookieKey));
   let imported = 0;
-  let failed = sourceFailures
-    ? FAILURE_KEYS.reduce((sum, key) => sum + sourceFailures[key], 0)
-    : 0;
+  let failed = sourceFailures ? FAILURE_KEYS.reduce((sum, key) => sum + sourceFailures[key], 0) : 0;
   for (const cookie of cookies) {
     const name = typeof cookie.name === 'string' ? cookie.name : '';
     const domain = typeof cookie.domain === 'string' ? cookie.domain : '';
     const host = domain.replace(/^\./, '');
     const path = typeof cookie.path === 'string' ? cookie.path : '/';
-    if (!name || typeof cookie.value !== 'string' || !/^[a-z0-9.-]+$/i.test(host)
-      || !path.startsWith('/')) {
+    if (!name || typeof cookie.value !== 'string' || !/^[a-z0-9.-]+$/i.test(host) || !path.startsWith('/')) {
       failed += 1;
       continue;
     }
-    const isSession = cookie.session === true
-      || (cookie.session === undefined && cookie.expires === undefined);
+    const isSession = cookie.session === true || (cookie.session === undefined && cookie.expires === undefined);
     const expirationDate = cookie.expires;
     if (!isSession && (typeof expirationDate !== 'number' || !Number.isFinite(expirationDate))) {
       failed += 1;
@@ -144,12 +150,11 @@ export async function importBrowserCookies(
       }
       if (!domain.startsWith('.')) {
         const wrongDomainKey = cookieKey({ domain: `.${host}`, name, path, partitionKey });
-        if (!sourceKeys.has(wrongDomainKey)
-          && existingKeys.has(wrongDomainKey)) {
+        if (!sourceKeys.has(wrongDomainKey) && existingKeys.has(wrongDomainKey)) {
           // The old importer widened host-only cookies to .host. Electron's
           // URL/name removal can also remove other matching paths or parents:
           // preserve those exact live cookies in memory and restore them.
-          const matching = (await partition.cookies.get({ url, name, partitionKey: partitionKey ?? null }));
+          const matching = await partition.cookies.get({ url, name, partitionKey: partitionKey ?? null });
           try {
             await partition.cookies.remove(url, name, partitionKey);
             for (const entry of matching) {
@@ -166,10 +171,14 @@ export async function importBrowserCookies(
         }
       }
       await partition.cookies.set({
-        url, name, value: cookie.value,
+        url,
+        name,
+        value: cookie.value,
         // Supplying domain, even without a leading dot, makes a domain cookie.
         ...(domain.startsWith('.') ? { domain } : {}),
-        path, secure, httpOnly: cookie.httpOnly === true,
+        path,
+        secure,
+        httpOnly: cookie.httpOnly === true,
         sameSite: sameSite(cookie.sameSite),
         ...(!isSession ? { expirationDate: expirationDate as number } : {}),
         ...(partitionKey ? { partitionKey } : {}),

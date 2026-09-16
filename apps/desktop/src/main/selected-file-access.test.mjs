@@ -5,11 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { SelectedFileAccess } from './selected-file-access.ts';
-import {
-  parseSelectedFileGrants,
-  selectedFileGrantKey,
-  serializeSelectedFileGrants,
-} from './selected-file-grants.ts';
+import { parseSelectedFileGrants, selectedFileGrantKey, serializeSelectedFileGrants } from './selected-file-grants.ts';
 import { readSecretFile, writeSecretFile } from './secret-file.ts';
 
 async function fixture(t, seed = false) {
@@ -24,9 +20,7 @@ async function fixture(t, seed = false) {
   const storePath = join(root, 'grants.json');
   const token = 'stored-fixture-token';
   if (seed) {
-    await writeSecretFile(storePath, serializeSelectedFileGrants(
-      new Map([[selectedFileGrantKey(token), files[0]]]),
-    ));
+    await writeSecretFile(storePath, serializeSelectedFileGrants(new Map([[selectedFileGrantKey(token), files[0]]])));
   }
   const create = () => new SelectedFileAccess({ storePath, listProjects: async () => [] });
   return { root, files, storePath, token, create, access: create() };
@@ -51,7 +45,14 @@ test('concurrent permission reads share the initial load instead of seeing an em
   await entered.promise;
   let secondSettled = false;
   const second = requireFile(access, token, files[0]);
-  void second.then(() => { secondSettled = true; }, () => { secondSettled = true; });
+  void second.then(
+    () => {
+      secondSettled = true;
+    },
+    () => {
+      secondSettled = true;
+    }
+  );
   try {
     await new Promise(setImmediate);
     assert.equal(secondSettled, false);
@@ -114,10 +115,7 @@ test('concurrent successful selections remain authorized after reloading their p
   const results = await Promise.all(files.map((file) => access.describe([file])));
   const reloaded = create();
   for (let index = 0; index < files.length; index++) {
-    assert.equal(
-      (await requireFile(reloaded, results[index][0].accessToken, files[index])).absolute,
-      files[index],
-    );
+    assert.equal((await requireFile(reloaded, results[index][0].accessToken, files[index])).absolute, files[index]);
   }
   await assert.rejects(requireFile(reloaded, results[0][0].accessToken, files[1]), /does not match/);
 });

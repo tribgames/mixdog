@@ -7,18 +7,24 @@ import { SessionHost } from './session-host.ts';
 
 async function fixture(t, close) {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-session-host-lifecycle-'));
-  const host = await SessionHost.create({
-    userDataPath: root, resourcesPath: root, appPath: root, packaged: false,
-  }, {
-    attachSessionClient: async () => ({
-      list: async () => ({ sessions: [] }),
-      close,
-    }),
-    loadProjects: async () => ({}),
-    loadSessionStore: async () => ({}),
-    loadStatuslineSegments: async () => ({}),
-    executeCodeGraphTool: async () => ({}),
-  });
+  const host = await SessionHost.create(
+    {
+      userDataPath: root,
+      resourcesPath: root,
+      appPath: root,
+      packaged: false,
+    },
+    {
+      attachSessionClient: async () => ({
+        list: async () => ({ sessions: [] }),
+        close,
+      }),
+      loadProjects: async () => ({}),
+      loadSessionStore: async () => ({}),
+      loadStatuslineSegments: async () => ({}),
+      executeCodeGraphTool: async () => ({}),
+    }
+  );
   t.after(async () => {
     // A test may deliberately leave a failed metadata flush as the terminal
     // result. The assertions below own that rejection; cleanup still runs.
@@ -40,7 +46,9 @@ test('every overlapping host disposal waits for the same attachment cleanup', as
   const first = host.dispose();
   await entered.promise;
   let secondFinished = false;
-  const second = host.dispose().then(() => { secondFinished = true; });
+  const second = host.dispose().then(() => {
+    secondFinished = true;
+  });
   try {
     await Promise.resolve();
     assert.equal(secondFinished, false);
@@ -53,7 +61,9 @@ test('every overlapping host disposal waits for the same attachment cleanup', as
 
 test('failed metadata flushing cannot prevent host attachment cleanup', async (t) => {
   let closes = 0;
-  const { host, root } = await fixture(t, async () => { closes++; });
+  const { host, root } = await fixture(t, async () => {
+    closes++;
+  });
   t.mock.method(console, 'error', () => {});
   await host.listSessions();
   await mkdir(join(root, 'desktop-session-metadata.json'));

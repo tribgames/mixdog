@@ -26,7 +26,11 @@ function _tokenStartOffsets(sym) {
   for (let i = 0; i < sym.length; i += 1) {
     const c = sym[i];
     const isAlnum = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
-    if (!isAlnum) { prevAlnum = false; prevUpper = false; continue; }
+    if (!isAlnum) {
+      prevAlnum = false;
+      prevUpper = false;
+      continue;
+    }
     const isUpper = c >= 'A' && c <= 'Z';
     if (!prevAlnum) starts.add(i);
     else if (isUpper && !prevUpper) starts.add(i);
@@ -57,7 +61,10 @@ function _contiguousMatchTokenAligned(sym, lowerKey) {
     if (starts.has(effectiveIdx)) return true;
     let interiorBoundary = false;
     for (const s of starts) {
-      if (s > effectiveIdx && s < end) { interiorBoundary = true; break; }
+      if (s > effectiveIdx && s < end) {
+        interiorBoundary = true;
+        break;
+      }
     }
     if (!interiorBoundary) return true;
     from = idx + 1;

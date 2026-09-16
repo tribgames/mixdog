@@ -3,76 +3,78 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 const localSearchTelemetry = new AsyncLocalStorage();
 
 export function runWithLocalSearchTelemetry(telemetry, run) {
-    return telemetry && typeof telemetry === 'object'
-        ? localSearchTelemetry.run(telemetry, run)
-        : run();
+  return telemetry && typeof telemetry === 'object' ? localSearchTelemetry.run(telemetry, run) : run();
 }
 
 function current() {
-    return localSearchTelemetry.getStore();
+  return localSearchTelemetry.getStore();
 }
 
 function addNumber(target, key, value) {
-    const number = Number(value);
-    if (!Number.isFinite(number)) return;
-    target[key] = Math.round(((Number(target[key]) || 0) + number) * 10) / 10;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return;
+  target[key] = Math.round(((Number(target[key]) || 0) + number) * 10) / 10;
 }
 
 export function recordLocalSearchBackend(backend, durationMs, outcome) {
-    const target = current();
-    if (!target) return;
-    const name = String(backend || '').replace(/[^a-z0-9_]/gi, '').toLowerCase();
-    const result = String(outcome || 'hit').replace(/[^a-z0-9_]/gi, '').toLowerCase();
-    if (!name || !result) return;
-    // An outcome already ending in `s` takes `es`, so a miss counts under
-    // `native_misses` rather than the unreadable `native_misss`.
-    const counter = `${name}_${result.endsWith('s') ? `${result}es` : `${result}s`}`;
-    target[counter] = (Number(target[counter]) || 0) + 1;
-    addNumber(target, `${name}_ms`, durationMs);
+  const target = current();
+  if (!target) return;
+  const name = String(backend || '')
+    .replace(/[^a-z0-9_]/gi, '')
+    .toLowerCase();
+  const result = String(outcome || 'hit')
+    .replace(/[^a-z0-9_]/gi, '')
+    .toLowerCase();
+  if (!name || !result) return;
+  // An outcome already ending in `s` takes `es`, so a miss counts under
+  // `native_misses` rather than the unreadable `native_misss`.
+  const counter = `${name}_${result.endsWith('s') ? `${result}es` : `${result}s`}`;
+  target[counter] = (Number(target[counter]) || 0) + 1;
+  addNumber(target, `${name}_ms`, durationMs);
 }
 
 export function recordNativeSearchFailure(error) {
-    const target = current();
-    if (!target) return;
-    if (!Array.isArray(target.native_failures)) target.native_failures = [];
-    if (target.native_failures.length < 3) {
-        target.native_failures.push({
-            code: String(error?.code || ''),
-            message: String(error?.message || error).slice(0, 300),
-        });
-    }
+  const target = current();
+  if (!target) return;
+  if (!Array.isArray(target.native_failures)) target.native_failures = [];
+  if (target.native_failures.length < 3) {
+    target.native_failures.push({
+      code: String(error?.code || ''),
+      message: String(error?.message || error).slice(0, 300),
+    });
+  }
 }
 
 export function recordNativeSearchTiming(served) {
-    const target = current();
-    if (!target || !served || typeof served !== 'object') return;
-    const requestClass = ['bulk', 'fuzzy'].includes(served.requestClass)
-        ? served.requestClass
-        : 'interactive';
-    target[`native_${requestClass}_requests`] = (Number(target[`native_${requestClass}_requests`]) || 0) + 1;
-    addNumber(target, `native_${requestClass}_queue_ms`, served.queueMs);
-    addNumber(target, `native_${requestClass}_handler_ms`, served.handlerMs);
-    if (requestClass === 'fuzzy') {
-        addNumber(target, 'native_fuzzy_inventory_ms', served.inventoryMs);
-        addNumber(target, 'native_fuzzy_rank_ms', served.rankMs);
-        if (served.inventoryContinues === true) {
-            target.native_fuzzy_inventory_leases = (Number(target.native_fuzzy_inventory_leases) || 0) + 1;
-            addNumber(target, 'native_fuzzy_inventory_lease_ms', served.inventoryLeaseMs);
-        }
+  const target = current();
+  if (!target || !served || typeof served !== 'object') return;
+  const requestClass = ['bulk', 'fuzzy'].includes(served.requestClass) ? served.requestClass : 'interactive';
+  target[`native_${requestClass}_requests`] = (Number(target[`native_${requestClass}_requests`]) || 0) + 1;
+  addNumber(target, `native_${requestClass}_queue_ms`, served.queueMs);
+  addNumber(target, `native_${requestClass}_handler_ms`, served.handlerMs);
+  if (requestClass === 'fuzzy') {
+    addNumber(target, 'native_fuzzy_inventory_ms', served.inventoryMs);
+    addNumber(target, 'native_fuzzy_rank_ms', served.rankMs);
+    if (served.inventoryContinues === true) {
+      target.native_fuzzy_inventory_leases = (Number(target.native_fuzzy_inventory_leases) || 0) + 1;
+      addNumber(target, 'native_fuzzy_inventory_lease_ms', served.inventoryLeaseMs);
     }
+  }
 }
 
 export function recordLocalSearchAdmission(waitedMs) {
-    const target = current();
-    if (!target) return;
-    target.broad_admissions = (Number(target.broad_admissions) || 0) + 1;
-    addNumber(target, 'broad_admission_wait_ms', waitedMs);
+  const target = current();
+  if (!target) return;
+  target.broad_admissions = (Number(target.broad_admissions) || 0) + 1;
+  addNumber(target, 'broad_admission_wait_ms', waitedMs);
 }
 
 export function recordLocalSearchCacheHit(layer) {
-    const target = current();
-    if (!target) return;
-    const name = String(layer || 'result').replace(/[^a-z0-9_]/gi, '').toLowerCase();
-    target.cache_hits = (Number(target.cache_hits) || 0) + 1;
-    target.cache_layer = target.cache_layer && target.cache_layer !== name ? 'mixed' : name;
+  const target = current();
+  if (!target) return;
+  const name = String(layer || 'result')
+    .replace(/[^a-z0-9_]/gi, '')
+    .toLowerCase();
+  target.cache_hits = (Number(target.cache_hits) || 0) + 1;
+  target.cache_layer = target.cache_layer && target.cache_layer !== name ? 'mixed' : name;
 }

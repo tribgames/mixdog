@@ -25,9 +25,13 @@ const options = {
 
 test('usage progress snapshots retain the state and totals from their publication', async () => {
   const updates = [];
-  const dashboard = await createUsageDashboard({}, {
-    ...options, onUpdate: (snapshot) => updates.push(snapshot),
-  });
+  const dashboard = await createUsageDashboard(
+    {},
+    {
+      ...options,
+      onUpdate: (snapshot) => updates.push(snapshot),
+    }
+  );
   assert.equal(updates[0].checking, true);
   assert.equal(updates[0].rows[0].status, 'checking');
   assert.equal(updates[0].total.checkingCount, 1);
@@ -55,38 +59,50 @@ test('a scoped refresh re-queries only the named provider and keeps the rest on 
     },
     getProvider: (id) => (id === 'cursor-oauth' ? cursor : null),
   };
-  const cursorWindow = (dashboard) =>
-    dashboard.rows.find((row) => row.id === 'cursor-oauth').windows[0];
+  const cursorWindow = (dashboard) => dashboard.rows.find((row) => row.id === 'cursor-oauth').windows[0];
 
   const first = await createUsageDashboard({}, { ...scopedOptions, refresh: true });
   assert.equal(cursorFetches, 1);
   assert.equal(cursorWindow(first).usedPct, 41);
 
   // Another provider was refreshed: Cursor answers from its snapshot.
-  const scoped = await createUsageDashboard({}, {
-    ...scopedOptions, refresh: true, refreshProviders: ['test-dashboard-oauth'],
-  });
+  const scoped = await createUsageDashboard(
+    {},
+    {
+      ...scopedOptions,
+      refresh: true,
+      refreshProviders: ['test-dashboard-oauth'],
+    }
+  );
   assert.equal(cursorFetches, 1);
   assert.equal(cursorWindow(scoped).usedPct, 41);
 
-  const targeted = await createUsageDashboard({}, {
-    ...scopedOptions, refresh: true, refreshProviders: ['cursor-oauth'],
-  });
+  const targeted = await createUsageDashboard(
+    {},
+    {
+      ...scopedOptions,
+      refresh: true,
+      refreshProviders: ['cursor-oauth'],
+    }
+  );
   assert.equal(cursorFetches, 2);
   assert.equal(cursorWindow(targeted).usedPct, 42);
 });
 
 test('usage progress observers cannot modify the collector through a published row', async () => {
-  const dashboard = await createUsageDashboard({}, {
-    ...options,
-    onUpdate(snapshot) {
-      if (!snapshot.checking) return;
-      for (const row of snapshot.rows) {
-        row.label = 'Observer-only label';
-        row.windows.push({ label: 'Observer-only window', usedPct: 100 });
-      }
-    },
-  });
+  const dashboard = await createUsageDashboard(
+    {},
+    {
+      ...options,
+      onUpdate(snapshot) {
+        if (!snapshot.checking) return;
+        for (const row of snapshot.rows) {
+          row.label = 'Observer-only label';
+          row.windows.push({ label: 'Observer-only window', usedPct: 100 });
+        }
+      },
+    }
+  );
   assert.equal(dashboard.rows[0].label, 'Fixture quota');
   assert.deepEqual(dashboard.rows[0].windows, []);
 });

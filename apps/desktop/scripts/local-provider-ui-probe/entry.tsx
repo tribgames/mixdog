@@ -10,13 +10,34 @@ import '../../src/renderer/desktop/31-extensions.css';
 const root = createRoot(document.getElementById('root')!);
 (window as any).mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {} };
 const localProvider = {
-  installed: true, enabled: true, available: true, running: false, starting: false,
+  installed: true,
+  enabled: true,
+  available: true,
+  running: false,
+  starting: false,
   runtime: { installed: true, version: 'b10621', downloadBytes: 641907910 },
-  hardware: { checking: true, gpu: { name: 'NVIDIA GeForce RTX 3090', memoryBytes: 24 * 1024 ** 3, freeMemoryBytes: 22 * 1024 ** 3 } },
-  activeRequests: 0, queuedRequests: 0, idleTtlSeconds: 3600, installations: [],
-  models: [{ id: 'qwen', name: 'Qwen3.8 27B Q4_K_M', installed: true, present: true,
-    sizeBytes: 18973870432, estimatedVramBytes: 23622320128, contextWindow: 32768,
-    supportsFunctionCalling: true, loadTimeMs: 3200, inference: { firstResponseMs: 180, tokensPerSecond: 34.2 } }],
+  hardware: {
+    checking: true,
+    gpu: { name: 'NVIDIA GeForce RTX 3090', memoryBytes: 24 * 1024 ** 3, freeMemoryBytes: 22 * 1024 ** 3 },
+  },
+  activeRequests: 0,
+  queuedRequests: 0,
+  idleTtlSeconds: 3600,
+  installations: [],
+  models: [
+    {
+      id: 'qwen',
+      name: 'Qwen3.8 27B Q4_K_M',
+      installed: true,
+      present: true,
+      sizeBytes: 18973870432,
+      estimatedVramBytes: 23622320128,
+      contextWindow: 32768,
+      supportsFunctionCalling: true,
+      loadTimeMs: 3200,
+      inference: { firstResponseMs: 180, tokensPerSecond: 34.2 },
+    },
+  ],
 };
 const api = { readCapabilities: async () => [{ ok: true, value: { localProvider } }] };
 const run = async () => ({ localProvider });
@@ -34,10 +55,19 @@ async function settle() {
     document.documentElement.dataset.mixdogTheme = theme;
     document.documentElement.toggleAttribute('data-mixdog-mobile-tabs', mobile);
     document.documentElement.style.setProperty('--mx-device-scale', '1');
-    flushSync(() => root.render(<div className="app-shell" key={`${theme}-${mobile}`}>
-      <BuiltInFeaturesPanel api={api as any} data={{ toolModules: { localProvider } }} snapshot={{} as any}
-        pending="" run={run as any} />
-    </div>));
+    flushSync(() =>
+      root.render(
+        <div className="app-shell" key={`${theme}-${mobile}`}>
+          <BuiltInFeaturesPanel
+            api={api as any}
+            data={{ toolModules: { localProvider } }}
+            snapshot={{} as any}
+            pending=""
+            run={run as any}
+          />
+        </div>
+      )
+    );
     (document.querySelector('[data-built-in-feature="localProvider"]') as HTMLElement).click();
     await settle();
   },

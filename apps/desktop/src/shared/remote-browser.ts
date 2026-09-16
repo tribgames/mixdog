@@ -1,14 +1,9 @@
-import type { DesktopRemoteBrowserControl } from "./contract";
+import type { DesktopRemoteBrowserControl } from './contract';
 
 const MAX_REMOTE_BROWSER_COORDINATE = 100_000;
 const MAX_REMOTE_BROWSER_DELTA = 20_000;
 
-function requiredFiniteNumber(
-  value: unknown,
-  label: string,
-  minimum: number,
-  maximum: number,
-): number {
+function requiredFiniteNumber(value: unknown, label: string, minimum: number, maximum: number): number {
   const number = Number(value);
   if (!Number.isFinite(number) || number < minimum || number > maximum) {
     throw new TypeError(`${label} is invalid.`);
@@ -17,7 +12,7 @@ function requiredFiniteNumber(
 }
 
 function requiredPoint(value: unknown, label: string): { x: number; y: number } {
-  if (!value || typeof value !== "object") throw new TypeError(`${label} is invalid.`);
+  if (!value || typeof value !== 'object') throw new TypeError(`${label} is invalid.`);
   const point = value as Record<string, unknown>;
   return {
     x: requiredFiniteNumber(point.x, `${label}.x`, 0, MAX_REMOTE_BROWSER_COORDINATE),
@@ -26,85 +21,88 @@ function requiredPoint(value: unknown, label: string): { x: number; y: number } 
 }
 
 export function normalizeRemoteBrowserFrameId(value: unknown): string {
-  if (value == null || value === "") return "";
-  if (typeof value !== "string" || !/^rbf_[a-z0-9]+$/iu.test(value)) {
-    throw new TypeError("remote browser frame id is invalid.");
+  if (value == null || value === '') return '';
+  if (typeof value !== 'string' || !/^rbf_[a-z0-9]+$/iu.test(value)) {
+    throw new TypeError('remote browser frame id is invalid.');
   }
   return value;
 }
 
 export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrowserControl {
-  if (!value || typeof value !== "object") {
-    throw new TypeError("remote browser control is invalid.");
+  if (!value || typeof value !== 'object') {
+    throw new TypeError('remote browser control is invalid.');
   }
   const input = value as Record<string, unknown>;
-  const type = String(input.type || "");
+  const type = String(input.type || '');
   const requiredFrameId = (): string => {
     const frameId = normalizeRemoteBrowserFrameId(input.frameId);
-    if (!frameId) throw new TypeError("remote browser control requires a frame id.");
+    if (!frameId) throw new TypeError('remote browser control requires a frame id.');
     return frameId;
   };
   const keyboardIdentity = (): { frameId: string; documentId?: string } => {
     const frameId = requiredFrameId();
     if (input.documentId === undefined) return { frameId };
-    if (typeof input.documentId !== "string" || input.documentId.length > 64
-      || !/^p[1-9]\d*:\d+$/u.test(input.documentId)) {
-      throw new TypeError("remote browser document id is invalid.");
+    if (
+      typeof input.documentId !== 'string' ||
+      input.documentId.length > 64 ||
+      !/^p[1-9]\d*:\d+$/u.test(input.documentId)
+    ) {
+      throw new TypeError('remote browser document id is invalid.');
     }
     return { frameId, documentId: input.documentId };
   };
-  if (type === "navigate") {
-    if (typeof input.url !== "string" || input.url.length < 1 || input.url.length > 4_096) {
-      throw new TypeError("remote browser url is invalid.");
+  if (type === 'navigate') {
+    if (typeof input.url !== 'string' || input.url.length < 1 || input.url.length > 4_096) {
+      throw new TypeError('remote browser url is invalid.');
     }
     return { type, url: input.url };
   }
-  if (type === "back" || type === "forward" || type === "reload" || type === "stop") {
+  if (type === 'back' || type === 'forward' || type === 'reload' || type === 'stop') {
     return { type };
   }
-  if (type === "tap") {
-    return { type, frameId: requiredFrameId(), ...requiredPoint(input, "remote browser tap") };
+  if (type === 'tap') {
+    return { type, frameId: requiredFrameId(), ...requiredPoint(input, 'remote browser tap') };
   }
-  if (type === "swipe") {
+  if (type === 'swipe') {
     return {
       type,
       frameId: requiredFrameId(),
-      from: requiredPoint(input.from, "remote browser swipe start"),
-      to: requiredPoint(input.to, "remote browser swipe end"),
+      from: requiredPoint(input.from, 'remote browser swipe start'),
+      to: requiredPoint(input.to, 'remote browser swipe end'),
     };
   }
-  if (type === "scroll") {
+  if (type === 'scroll') {
     return {
       type,
       frameId: requiredFrameId(),
-      ...requiredPoint(input, "remote browser scroll"),
+      ...requiredPoint(input, 'remote browser scroll'),
       deltaX: requiredFiniteNumber(
         input.deltaX,
-        "remote browser horizontal scroll",
+        'remote browser horizontal scroll',
         -MAX_REMOTE_BROWSER_DELTA,
-        MAX_REMOTE_BROWSER_DELTA,
+        MAX_REMOTE_BROWSER_DELTA
       ),
       deltaY: requiredFiniteNumber(
         input.deltaY,
-        "remote browser vertical scroll",
+        'remote browser vertical scroll',
         -MAX_REMOTE_BROWSER_DELTA,
-        MAX_REMOTE_BROWSER_DELTA,
+        MAX_REMOTE_BROWSER_DELTA
       ),
     };
   }
-  if (type === "text") {
-    if (typeof input.text !== "string" || input.text.length < 1 || input.text.length > 2_000) {
-      throw new TypeError("remote browser text is invalid.");
+  if (type === 'text') {
+    if (typeof input.text !== 'string' || input.text.length < 1 || input.text.length > 2_000) {
+      throw new TypeError('remote browser text is invalid.');
     }
     return { type, ...keyboardIdentity(), text: input.text };
   }
-  if (type === "key") {
-    if (typeof input.key !== "string" || input.key.length < 1 || input.key.length > 64) {
-      throw new TypeError("remote browser key is invalid.");
+  if (type === 'key') {
+    if (typeof input.key !== 'string' || input.key.length < 1 || input.key.length > 64) {
+      throw new TypeError('remote browser key is invalid.');
     }
     return { type, ...keyboardIdentity(), key: input.key };
   }
-  throw new TypeError(`unknown remote browser control "${type || "(none)"}".`);
+  throw new TypeError(`unknown remote browser control "${type || '(none)'}".`);
 }
 
 export interface RemoteBrowserImageBounds {
@@ -118,7 +116,7 @@ export interface RemoteBrowserImageBounds {
 export function remoteBrowserImagePoint(
   bounds: RemoteBrowserImageBounds,
   source: { width: number; height: number },
-  client: { x: number; y: number },
+  client: { x: number; y: number }
 ): { x: number; y: number } | null {
   if (bounds.width <= 0 || bounds.height <= 0 || source.width <= 0 || source.height <= 0) {
     return null;

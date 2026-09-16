@@ -45,23 +45,30 @@ export class MixdogLocalProvider {
     assertLocalModelInput(entry, messages, tools, sendOpts, localModelState(model).capabilities);
     const wireMessages = toLocalProviderMessages(messages);
     const queuedAt = performance.now();
-    return this._runRequest(async (requestSignal) => {
-      const measurement = beginLocalInference(model, queuedAt);
-      try {
-        const provider = await this._providerFor(model, requestSignal);
-        requestSignal.throwIfAborted();
-        assertLocalModelInput(entry, messages, tools, sendOpts, localModelState(model).capabilities);
-        const result = await provider.send(wireMessages, model, tools, {
-          ...sendOpts, signal: requestSignal,
-          onStreamDelta: (kind) => { measurement.progress(kind); sendOpts?.onStreamDelta?.(kind); },
-        });
-        measurement.finish(result);
-        return result;
-      } catch (error) {
-        measurement.finish(null, error);
-        throw error;
-      }
-    }, { signal, onStageChange: sendOpts?.onStageChange });
+    return this._runRequest(
+      async (requestSignal) => {
+        const measurement = beginLocalInference(model, queuedAt);
+        try {
+          const provider = await this._providerFor(model, requestSignal);
+          requestSignal.throwIfAborted();
+          assertLocalModelInput(entry, messages, tools, sendOpts, localModelState(model).capabilities);
+          const result = await provider.send(wireMessages, model, tools, {
+            ...sendOpts,
+            signal: requestSignal,
+            onStreamDelta: (kind) => {
+              measurement.progress(kind);
+              sendOpts?.onStreamDelta?.(kind);
+            },
+          });
+          measurement.finish(result);
+          return result;
+        } catch (error) {
+          measurement.finish(null, error);
+          throw error;
+        }
+      },
+      { signal, onStageChange: sendOpts?.onStageChange }
+    );
   }
 
   async listModels() {

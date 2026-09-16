@@ -159,7 +159,7 @@ export async function runSelectionProbe({
   // own the transcript, fall back to a real composer submit on the open
   // draft tab (CaptureService mints a capture_* session for it) and push the
   // fixture items to THAT session id.
-  const entered = await window.webContents.executeJavaScript(`(async () => {
+  const entered = (await window.webContents.executeJavaScript(`(async () => {
     const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const cold = document.querySelector('[data-session-id="probe_session_cold"]');
     if (cold instanceof HTMLElement) { cold.click(); await wait(900); }
@@ -185,15 +185,15 @@ export async function runSelectionProbe({
       if (session) return session;
     }
     return '';
-  })()`) as string;
+  })()`)) as string;
   if (!entered) throw new Error('selection probe: could not enter a session');
   const sessionId = entered;
   await window.webContents.executeJavaScript(
-    `window.__selProbeTranscript = ${JSON.stringify(`.transcript[data-session-key="${sessionId}"]`)}; true`,
+    `window.__selProbeTranscript = ${JSON.stringify(`.transcript[data-session-key="${sessionId}"]`)}; true`
   );
   send({ ...snapshot, sessionId });
   await sleep(1_200);
-  const ready = await window.webContents.executeJavaScript(`(async () => {
+  const ready = (await window.webContents.executeJavaScript(`(async () => {
     for (let attempt = 0; attempt < 60; attempt += 1) {
       const node = document.querySelector('.transcript[data-session-key=${JSON.stringify(sessionId)}]');
       const rows = node ? node.querySelectorAll('.transcript-virtual-row').length : 0;
@@ -218,9 +218,11 @@ export async function runSelectionProbe({
         .map((node) => (node.textContent || '').trim()),
       transcriptHtml: document.querySelector('.transcript')?.outerHTML.slice(0, 600) ?? null,
     };
-  })()`) as { rows: number };
+  })()`)) as { rows: number };
   if (!ready.rows) {
-    throw new Error(`selection probe: transcript never rendered ${JSON.stringify(ready)}\nconsole: ${consoleErrors.slice(0, 12).join('\n')}`);
+    throw new Error(
+      `selection probe: transcript never rendered ${JSON.stringify(ready)}\nconsole: ${consoleErrors.slice(0, 12).join('\n')}`
+    );
   }
 
   // The isolated capture profile may raise the onboarding wizard over the
@@ -242,10 +244,7 @@ export async function runSelectionProbe({
   console.log(`[jitter-probe] onboarding: ${String(wizard)}`);
   const debug = window.webContents.debugger;
   if (!debug.isAttached()) debug.attach('1.3');
-  const mouse = async (
-    type: 'mousePressed' | 'mouseReleased' | 'mouseMoved',
-    point: Point,
-  ) => {
+  const mouse = async (type: 'mousePressed' | 'mouseReleased' | 'mouseMoved', point: Point) => {
     await debug.sendCommand('Input.dispatchMouseEvent', {
       type,
       x: Math.round(point.x),
@@ -256,18 +255,21 @@ export async function runSelectionProbe({
       pointerType: 'mouse',
     });
   };
-  const sample = (label: string) => window.webContents.executeJavaScript(
-    `({ label: ${JSON.stringify(label)}, ...window.__selProbe.state() })`,
-  ) as Promise<Record<string, unknown>>;
-  const events = () => window.webContents.executeJavaScript(
-    '(() => { const e = window.__selProbe.events; window.__selProbe.events = []; return e; })()',
-  ) as Promise<unknown[]>;
-  const geometry = () => window.webContents.executeJavaScript(GEOMETRY_SCRIPT) as Promise<{
-    view: { left: number; top: number; right: number; bottom: number };
-    row: { index: number; x: number; y: number };
-    textarea: { x: number; y: number; top: number; bottom: number } | null;
-    inner: { width: number; height: number };
-  } | null>;
+  const sample = (label: string) =>
+    window.webContents.executeJavaScript(
+      `({ label: ${JSON.stringify(label)}, ...window.__selProbe.state() })`
+    ) as Promise<Record<string, unknown>>;
+  const events = () =>
+    window.webContents.executeJavaScript(
+      '(() => { const e = window.__selProbe.events; window.__selProbe.events = []; return e; })()'
+    ) as Promise<unknown[]>;
+  const geometry = () =>
+    window.webContents.executeJavaScript(GEOMETRY_SCRIPT) as Promise<{
+      view: { left: number; top: number; right: number; bottom: number };
+      row: { index: number; x: number; y: number };
+      textarea: { x: number; y: number; top: number; bottom: number } | null;
+      inner: { width: number; height: number };
+    } | null>;
 
   const glide = async (from: Point, to: Point, steps: number, label: string, out: unknown[]) => {
     for (let step = 1; step <= steps; step += 1) {
@@ -285,7 +287,7 @@ export async function runSelectionProbe({
 
   const scenario = async (
     name: string,
-    drive: (g: NonNullable<Awaited<ReturnType<typeof geometry>>>, out: unknown[]) => Promise<void>,
+    drive: (g: NonNullable<Awaited<ReturnType<typeof geometry>>>, out: unknown[]) => Promise<void>
   ) => {
     // Reset: collapse any range, blur the composer, re-centre the transcript.
     await window.webContents.executeJavaScript(`(() => {
@@ -401,10 +403,7 @@ export async function runSelectionProbe({
     window.focus();
     window.moveTop();
     await sleep(600);
-    const mouseDriver = new RealMouse(
-      Math.round(display.size.width * scale),
-      Math.round(display.size.height * scale),
-    );
+    const mouseDriver = new RealMouse(Math.round(display.size.width * scale), Math.round(display.size.height * scale));
     const toScreen = (point: Point): Point => {
       const content = window.getContentBounds();
       return { x: (content.x + point.x) * scale, y: (content.y + point.y) * scale };
@@ -425,7 +424,7 @@ export async function runSelectionProbe({
     };
     const realScenario = async (
       name: string,
-      exit: (g: NonNullable<Awaited<ReturnType<typeof geometry>>>) => { edge: Point; outside: Point },
+      exit: (g: NonNullable<Awaited<ReturnType<typeof geometry>>>) => { edge: Point; outside: Point }
     ) => {
       await window.webContents.executeJavaScript(`(() => {
         window.getSelection()?.removeAllRanges();
@@ -445,11 +444,13 @@ export async function runSelectionProbe({
       const start = toScreen(g.row);
       await mouseDriver.move(start.x, start.y);
       await sleep(80);
-      console.log(`[jitter-probe] real ${name}: press at ${JSON.stringify(start)}`
-        + ` cursor=${JSON.stringify(screen.getCursorScreenPoint())}`
-        + ` bounds=${JSON.stringify(window.getBounds())}`
-        + ` content=${JSON.stringify(window.getContentBounds())}`
-        + ` focused=${window.isFocused()} visible=${window.isVisible()}`);
+      console.log(
+        `[jitter-probe] real ${name}: press at ${JSON.stringify(start)}` +
+          ` cursor=${JSON.stringify(screen.getCursorScreenPoint())}` +
+          ` bounds=${JSON.stringify(window.getBounds())}` +
+          ` content=${JSON.stringify(window.getContentBounds())}` +
+          ` focused=${window.isFocused()} visible=${window.isVisible()}`
+      );
       await mouseDriver.down();
       await sleep(80);
       steps.push(await sample('pressed'));
@@ -496,13 +497,24 @@ export async function runSelectionProbe({
 
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, JSON.stringify({ summary: report }, null, 1));
-  const brief = Object.fromEntries(Object.entries(report).map(([name, value]) => {
-    const steps = (value as { steps: Array<Record<string, unknown>> }).steps;
-    return [name, steps.map((step) => [
-      step.label, step.anchorRow, step.focusRow, step.collapsed, step.textLength, step.active,
-      step.transcriptSelecting, step.moves,
-    ])];
-  }));
+  const brief = Object.fromEntries(
+    Object.entries(report).map(([name, value]) => {
+      const steps = (value as { steps: Array<Record<string, unknown>> }).steps;
+      return [
+        name,
+        steps.map((step) => [
+          step.label,
+          step.anchorRow,
+          step.focusRow,
+          step.collapsed,
+          step.textLength,
+          step.active,
+          step.transcriptSelecting,
+          step.moves,
+        ]),
+      ];
+    })
+  );
   console.log(`[jitter-probe] ${JSON.stringify(brief)}`);
   return { reversals: 0 };
 }

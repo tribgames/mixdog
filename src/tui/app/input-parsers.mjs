@@ -1,10 +1,12 @@
 /**
  * input-parsers.mjs — pure text-to-structure parsers for slash-command inputs
  * (MCP servers, skills, memory commands + memory row tables).
- * Extracted verbatim from App.jsx; no hooks, no App state, no closures.
+ * No hooks, no App state, no closures.
  */
 export function parseMcpServerInput(text) {
-  const parts = String(text || '').split('|').map((part) => part.trim());
+  const parts = String(text || '')
+    .split('|')
+    .map((part) => part.trim());
   const [name, commandOrUrl, argsText = '', cwd = ''] = parts;
   if (!name || !commandOrUrl) return { error: 'usage: name | command-or-url | args(optional) | cwd(optional)' };
   if (/^(?:https?|wss?):\/\//i.test(commandOrUrl)) return { server: { name, url: commandOrUrl } };
@@ -19,14 +21,19 @@ export function parseMcpServerInput(text) {
 }
 
 export function parseSkillInput(text) {
-  const parts = String(text || '').split('|').map((part) => part.trim());
+  const parts = String(text || '')
+    .split('|')
+    .map((part) => part.trim());
   const [name, description = 'Project skill.', whenToUse = ''] = parts;
   if (!name) return { error: 'usage: name | description(optional) | trigger(optional)' };
   return { skill: { name, description, ...(whenToUse ? { whenToUse } : {}) } };
 }
 
 export function parseMemoryCommand(text) {
-  const parts = String(text || '').trim().split(/\s+/).filter(Boolean);
+  const parts = String(text || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
   const action = parts[0] || 'status';
   const out = { action };
   for (const part of parts.slice(1)) {
@@ -54,9 +61,13 @@ export function parseMemoryCoreRows(text) {
         // meta column instead (blank for common).
         return null;
       }
-      const metadata = raw.match(/^id=\d+\s+source=curated project=(\S+) status=\S+ injection=\S+(?: index_revision=(\S+))?\s+/);
+      const metadata = raw.match(
+        /^id=\d+\s+source=curated project=(\S+) status=\S+ injection=\S+(?: index_revision=(\S+))?\s+/
+      );
       if (metadata) currentProjectId = metadata[1] === 'COMMON' ? null : metadata[1];
-      const normalized = metadata ? raw.replace(/\s+source=curated project=\S+ status=\S+ injection=\S+(?: index_revision=\S+)?/, '') : raw;
+      const normalized = metadata
+        ? raw.replace(/\s+source=curated project=\S+ status=\S+ injection=\S+(?: index_revision=\S+)?/, '')
+        : raw;
       const match = normalized.match(/^id=(\d+)\s+(.+?)(?:\s+—\s+(.+))?$/);
       if (match) {
         const [, id, element, summary = ''] = match;

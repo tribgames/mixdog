@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRemoteBrowserInputQueue } from './remote-browser-input.ts';
 
-const text = (value, documentId = 'p1:0') =>
-  ({ type: 'text', text: value, frameId: 'rbf_a1', documentId });
+const text = (value, documentId = 'p1:0') => ({ type: 'text', text: value, frameId: 'rbf_a1', documentId });
 const deferred = () => {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 };
 
@@ -61,7 +62,10 @@ test('closing or replacing a remote pane drops its unstarted input, even after r
   const gate = deferred();
   const sent = [];
   const queue = createRemoteBrowserInputQueue({
-    send: async (input) => { sent.push(input); await gate.promise; },
+    send: async (input) => {
+      sent.push(input);
+      await gate.promise;
+    },
     failure: assert.fail,
     settled() {},
   });
@@ -80,7 +84,10 @@ test('remote input backpressure reports the unsent action instead of growing an 
   const sent = [];
   const failures = [];
   const queue = createRemoteBrowserInputQueue({
-    send: async (input) => { await gate.promise; sent.push(input); },
+    send: async (input) => {
+      await gate.promise;
+      sent.push(input);
+    },
     failure: (message) => failures.push(message),
     settled() {},
   });

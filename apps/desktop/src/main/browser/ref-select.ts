@@ -2,11 +2,7 @@
  * changing native options; custom options stay in the control's own realm. */
 import type { WebContents } from 'electron';
 import { BROWSER_EDITABILITY_CHECK } from './editability';
-import {
-  checkedBrowserRefResult,
-  createBrowserRefAccess,
-  type BrowserRefAccessHost,
-} from './ref-access';
+import { checkedBrowserRefResult, createBrowserRefAccess, type BrowserRefAccessHost } from './ref-access';
 
 interface SelectionResult {
   error?: string;
@@ -126,15 +122,20 @@ const PICK_CUSTOM = `function(wanted) {
   return { values: [value.slice(0, 120)] };
 }`;
 
-export function createBrowserRefSelection(host: BrowserRefAccessHost & {
-  pause(ms: number, signal?: AbortSignal): Promise<void>;
-  dropdownTimeoutMs: number;
-  dropdownPollMs: number;
-}) {
+export function createBrowserRefSelection(
+  host: BrowserRefAccessHost & {
+    pause(ms: number, signal?: AbortSignal): Promise<void>;
+    dropdownTimeoutMs: number;
+    dropdownPollMs: number;
+  }
+) {
   const { callRef } = createBrowserRefAccess(host);
 
   async function selectCustomRef(
-    guest: WebContents, ref: string, values: string[], signal?: AbortSignal,
+    guest: WebContents,
+    ref: string,
+    values: string[],
+    signal?: AbortSignal
   ): Promise<string[]> {
     if (values.length !== 1 || !values[0].trim()) {
       throw new Error('custom dropdowns require exactly one non-empty value');
@@ -144,7 +145,8 @@ export function createBrowserRefSelection(host: BrowserRefAccessHost & {
     for (;;) {
       if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
       const result = checkedBrowserRefResult(
-        await callRef<SelectionResult>(guest, ref, PICK_CUSTOM, [values[0].trim()], signal), ref,
+        await callRef<SelectionResult>(guest, ref, PICK_CUSTOM, [values[0].trim()], signal),
+        ref
       );
       if (result.values) return result.values;
       if (!result.pending || Date.now() >= deadline) {
@@ -154,12 +156,11 @@ export function createBrowserRefSelection(host: BrowserRefAccessHost & {
     }
   }
 
-  async function selectRef(
-    guest: WebContents, ref: string, values: string[], signal?: AbortSignal,
-  ): Promise<string[]> {
+  async function selectRef(guest: WebContents, ref: string, values: string[], signal?: AbortSignal): Promise<string[]> {
     if (!values.length) throw new Error('select requires at least one value');
     const result = checkedBrowserRefResult(
-      await callRef<SelectionResult>(guest, ref, SELECT_NATIVE, [values], signal), ref,
+      await callRef<SelectionResult>(guest, ref, SELECT_NATIVE, [values], signal),
+      ref
     );
     if (result.custom) return selectCustomRef(guest, ref, values, signal);
     return result.values || [];

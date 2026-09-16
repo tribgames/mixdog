@@ -1,8 +1,6 @@
-import {
-  TOOL_SYNC_EXECUTION_CONTRACT,
-} from '../shared/tool-execution-contract.mjs';
+import { TOOL_SYNC_EXECUTION_CONTRACT } from '../shared/tool-execution-contract.mjs';
 
-const TOOL_DEFS_PLACEHOLDER = Symbol('web-fetch-schema')
+const TOOL_DEFS_PLACEHOLDER = Symbol('web-fetch-schema');
 
 export const TOOL_DEFS = [
   {
@@ -12,7 +10,13 @@ export const TOOL_DEFS = [
     inputSchema: {
       type: 'object',
       properties: {
-        query: { anyOf: [{ type: 'string', minLength: 1, pattern: '\\S' }, { type: 'array', minItems: 1, items: { type: 'string', minLength: 1, pattern: '\\S' } }], description: 'Non-empty query or array for lossless fan-out.' },
+        query: {
+          anyOf: [
+            { type: 'string', minLength: 1, pattern: '\\S' },
+            { type: 'array', minItems: 1, items: { type: 'string', minLength: 1, pattern: '\\S' } },
+          ],
+          description: 'Non-empty query or array for lossless fan-out.',
+        },
         site: { type: 'string', description: 'Site/domain filter.' },
         type: { type: 'string', enum: ['web', 'news', 'images'], description: 'Default web.' },
         maxResults: { type: 'integer', minimum: 1, maximum: 20, description: 'Result count; default 10; 1-20.' },
@@ -22,7 +26,13 @@ export const TOOL_DEFS = [
       required: ['query'],
       additionalProperties: false,
     },
-    annotations: { title: 'Mixdog Web Search', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    annotations: {
+      title: 'Mixdog Web Search',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   {
     name: 'web_fetch',
@@ -31,14 +41,26 @@ export const TOOL_DEFS = [
     inputSchema: {
       type: 'object',
       properties: {
-        url: { anyOf: [{ type: 'string', format: 'uri' }, { type: 'array', items: { type: 'string', format: 'uri' }, minItems: 1, maxItems: 10 }], description: 'Public HTTP(S) URL or array of up to 10 URLs.' },
+        url: {
+          anyOf: [
+            { type: 'string', format: 'uri' },
+            { type: 'array', items: { type: 'string', format: 'uri' }, minItems: 1, maxItems: 10 },
+          ],
+          description: 'Public HTTP(S) URL or array of up to 10 URLs.',
+        },
         startIndex: { type: 'integer', minimum: 0, description: 'Character offset; default 0.' },
         maxLength: { type: 'integer', minimum: 0, description: 'Maximum characters; default 50000; 0 unlimited.' },
       },
       required: ['url'],
       additionalProperties: false,
     },
-    annotations: { title: 'Mixdog Web Fetch', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    annotations: {
+      title: 'Mixdog Web Fetch',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   {
     name: 'local_fetch',
@@ -46,7 +68,13 @@ export const TOOL_DEFS = [
     public: false,
     description: 'Runtime-only loopback HTTP(S) fetch target.',
     inputSchema: TOOL_DEFS_PLACEHOLDER,
-    annotations: { title: 'Mixdog Loopback Fetch', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    annotations: {
+      title: 'Mixdog Loopback Fetch',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
   },
   {
     name: 'image_fetch',
@@ -54,11 +82,17 @@ export const TOOL_DEFS = [
     public: false,
     description: 'Runtime-only bounded public image fetch target.',
     inputSchema: TOOL_DEFS_PLACEHOLDER,
-    annotations: { title: 'Mixdog Image Fetch', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    annotations: {
+      title: 'Mixdog Image Fetch',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
-]
+];
 
-const webFetchSchema = TOOL_DEFS.find((tool) => tool.name === 'web_fetch').inputSchema
+const webFetchSchema = TOOL_DEFS.find((tool) => tool.name === 'web_fetch').inputSchema;
 for (const tool of TOOL_DEFS) {
-  if (tool.inputSchema === TOOL_DEFS_PLACEHOLDER) tool.inputSchema = webFetchSchema
+  if (tool.inputSchema === TOOL_DEFS_PLACEHOLDER) tool.inputSchema = webFetchSchema;
 }

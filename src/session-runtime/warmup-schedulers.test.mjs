@@ -6,7 +6,10 @@ import { createWarmupSchedulers } from './warmup-schedulers.mjs';
 function deferred() {
   let resolve;
   let reject;
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
   return { promise, resolve, reject };
 }
 
@@ -26,12 +29,20 @@ function fixture(t, overrides = {}) {
     getSessionCreatePromise: () => null,
     getProviderModelsCache: () => ({}),
     getProviderModelsPromise: () => null,
-    reloadFullConfig: () => { calls.push('reload'); },
-    ensureConfigForRouteProvider: () => { calls.push('config'); },
+    reloadFullConfig: () => {
+      calls.push('reload');
+    },
+    ensureConfigForRouteProvider: () => {
+      calls.push('config');
+    },
     awaitKeychainPrewarm: async () => {},
-    ensureProvidersReady: async () => { calls.push('providers'); },
+    ensureProvidersReady: async () => {
+      calls.push('providers');
+    },
     ensureProviderEnabled: (config) => config.providers,
-    refreshStatuslineUsageSnapshot: (value) => { calls.push(['usage', value]); },
+    refreshStatuslineUsageSnapshot: (value) => {
+      calls.push(['usage', value]);
+    },
     warmProviderModelCache() {},
     cachedProviderSetup: async () => ({}),
     warmCatalogsInBackground: async () => {},
@@ -49,7 +60,17 @@ function fixture(t, overrides = {}) {
     flags: { providerWarmupEnabled: true, modelPrefetchEnabled: true, modelCatalogWarmupEnabled: true },
     ...overrides,
   });
-  return { schedulers, calls, timers, close: () => { closed = true; }, setRoute: (next) => { route = next; } };
+  return {
+    schedulers,
+    calls,
+    timers,
+    close: () => {
+      closed = true;
+    },
+    setRoute: (next) => {
+      route = next;
+    },
+  };
 }
 
 for (const method of ['scheduleProviderWarmup', 'scheduleStatuslineUsageWarmup', 'scheduleStatuslineUsageRefresh']) {

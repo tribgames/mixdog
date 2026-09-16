@@ -4,24 +4,19 @@
  * during virtualization, and measuring a detached node reports 0 and thrashes
  * the size cache into a one-frame height jump.
  */
-export function scheduleConnectedMeasure<T extends HTMLElement>(
-  element: T,
-  measure: (element: T) => void,
-): number {
+export function scheduleConnectedMeasure<T extends HTMLElement>(element: T, measure: (element: T) => void): number {
   return window.requestAnimationFrame(() => {
     if (element.isConnected) measure(element);
   });
 }
 
-export const TRANSCRIPT_ROW_MEASURE_EVENT = "mixdog:transcript-row-measure";
+export const TRANSCRIPT_ROW_MEASURE_EVENT = 'mixdog:transcript-row-measure';
 
 /**
  * Markdown can promote several sibling chunks in one React commit. Collapse
  * those layout-effect notifications into one pre-paint row measurement.
  */
-export function createTranscriptRowMeasureScheduler(
-  measure: () => void,
-): () => void {
+export function createTranscriptRowMeasureScheduler(measure: () => void): () => void {
   let queued = false;
   return () => {
     if (queued) return;
@@ -40,8 +35,7 @@ export function createTranscriptRowMeasureScheduler(
  * spacer describing different geometry for one frame.
  */
 export function requestTranscriptRowMeasure(element: HTMLElement | null): void {
-  const row = element?.closest<HTMLElement>(".transcript-virtual-row");
+  const row = element?.closest<HTMLElement>('.transcript-virtual-row');
   if (!row?.isConnected) return;
   row.dispatchEvent(new CustomEvent(TRANSCRIPT_ROW_MEASURE_EVENT, { bubbles: true }));
 }
-

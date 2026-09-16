@@ -27,7 +27,9 @@ export function resolveImageLayout({
   focusX = 0.5,
   focusY = 0.5,
 } = {}) {
-  const mode = String(fit || 'stretch').trim().toLowerCase();
+  const mode = String(fit || 'stretch')
+    .trim()
+    .toLowerCase();
   if (!IMAGE_FITS.has(mode)) {
     throw new Error('Image fit must be stretch, contain, or cover');
   }
@@ -52,8 +54,8 @@ export function resolveImageLayout({
     const placedWidth = source.width * scale;
     const placedHeight = source.height * scale;
     return {
-      left: frame.left + ((frame.width - placedWidth) / 2),
-      top: frame.top + ((frame.height - placedHeight) / 2),
+      left: frame.left + (frame.width - placedWidth) / 2,
+      top: frame.top + (frame.height - placedHeight) / 2,
       width: placedWidth,
       height: placedHeight,
       fit: mode,
@@ -67,13 +69,13 @@ export function resolveImageLayout({
   if (sourceRatio > targetRatio) {
     const visible = targetRatio / sourceRatio;
     const remaining = 1 - visible;
-    const start = Math.max(0, Math.min(remaining, unit(focusX) - (visible / 2)));
+    const start = Math.max(0, Math.min(remaining, unit(focusX) - visible / 2));
     crop.left = start;
     crop.right = remaining - start;
   } else if (sourceRatio < targetRatio) {
     const visible = sourceRatio / targetRatio;
     const remaining = 1 - visible;
-    const start = Math.max(0, Math.min(remaining, unit(focusY) - (visible / 2)));
+    const start = Math.max(0, Math.min(remaining, unit(focusY) - visible / 2));
     crop.top = start;
     crop.bottom = remaining - start;
   }

@@ -11,10 +11,7 @@ import { session } from 'electron';
 
 import { BROWSER_PARTITION } from './command';
 import { createBrowserDownloadLedger } from './downloads';
-import {
-  clearBrowserPermissionHandlers,
-  lockDownBrowserPermissions,
-} from './permissions';
+import { clearBrowserPermissionHandlers, lockDownBrowserPermissions } from './permissions';
 import { redactBrowserText } from './redaction';
 
 export interface BrowserPartitionHost {
@@ -33,31 +30,27 @@ export function createBrowserPartition(host: BrowserPartitionHost) {
   // Agent-visited pages receive no ambient browser permission. A future
   // capability-specific approval path can grant an individual request.
   lockDownBrowserPermissions(partitionSession);
-  partitionSession.webRequest.onBeforeRequest(
-    { urls: ['<all_urls>'] },
-    (details, callback) => {
-      let parsed: URL;
-      try {
-        parsed = new URL(details.url);
-      } catch {
+  partitionSession.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(details.url);
+    } catch {
+      callback({ cancel: true });
+      return;
+    }
+    if (!WEB_PROTOCOLS.has(parsed.protocol)) {
+      const allowedEmbedded = details.resourceType !== 'mainFrame' && EMBEDDED_ONLY_PROTOCOLS.has(parsed.protocol);
+      callback({ cancel: !allowedEmbedded });
+      return;
+    }
+    void host.assertResolvedResourceUrlAllowed(details.url).then(
+      () => callback({}),
+      (error) => {
+        console.warn('Browser Use blocked request:', redactBrowserText((error as Error).message));
         callback({ cancel: true });
-        return;
       }
-      if (!WEB_PROTOCOLS.has(parsed.protocol)) {
-        const allowedEmbedded = details.resourceType !== 'mainFrame'
-          && EMBEDDED_ONLY_PROTOCOLS.has(parsed.protocol);
-        callback({ cancel: !allowedEmbedded });
-        return;
-      }
-      void host.assertResolvedResourceUrlAllowed(details.url).then(
-        () => callback({}),
-        (error) => {
-          console.warn('Browser Use blocked request:', redactBrowserText((error as Error).message));
-          callback({ cancel: true });
-        },
-      );
-    },
-  );
+    );
+  });
   // Downloads auto-save into the user's Downloads folder (no dialog); the
   // ledger is what the agent sees.
   const downloadLedger = createBrowserDownloadLedger({

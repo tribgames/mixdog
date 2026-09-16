@@ -1,9 +1,4 @@
-import {
-  defaultRangeExtractor,
-  elementScroll,
-  useVirtualizer,
-  type Virtualizer,
-} from "@tanstack/react-virtual";
+import { defaultRangeExtractor, elementScroll, useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
 import {
   useCallback,
   useEffect,
@@ -14,27 +9,24 @@ import {
   type MutableRefObject,
   type ReactNode,
   type RefObject,
-} from "react";
-import type { TranscriptRowModel } from "./transcript-rows";
+} from 'react';
+import type { TranscriptRowModel } from './transcript-rows';
 import {
   readTranscriptVirtualSnapshot,
   rememberTranscriptVirtualMeasurements,
   TRANSCRIPT_BOTTOM_SPACER,
   TRANSCRIPT_ROW_ESTIMATE,
   TRANSCRIPT_VIRTUAL_OVERSCAN,
-} from "./transcript-virtual-cache";
-import {
-  scheduleConnectedMeasure,
-  TRANSCRIPT_ROW_MEASURE_EVENT,
-} from "./transcript-measure";
-import { isRemoteBrowserRenderer } from "./remote-ui-projection";
-import { isMobileRemoteSurface } from "./mobile-surface";
-import { createTranscriptEndPin } from "./transcript-end-pin";
+} from './transcript-virtual-cache';
+import { scheduleConnectedMeasure, TRANSCRIPT_ROW_MEASURE_EVENT } from './transcript-measure';
+import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { isMobileRemoteSurface } from './mobile-surface';
+import { createTranscriptEndPin } from './transcript-end-pin';
 import {
   attachTranscriptSelectionDrag,
   type TranscriptSelectionEndpoint,
   type TranscriptSelectionPin,
-} from "./transcript-selection-drag";
+} from './transcript-selection-drag';
 
 /**
  * The virtualized transcript timeline.
@@ -61,12 +53,8 @@ function measureTranscriptRow(element: Element, entry?: ResizeObserverEntry): nu
 
 // Newer virtual cores expose getLogicalScrollOffset(); the resolved core
 // predates it, so read the scrollOffset + pending scrollAdjustments pair here.
-function logicalScrollOffset(
-  instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
-): number {
-  const adjustments = Number(
-    (instance as unknown as { scrollAdjustments?: number }).scrollAdjustments,
-  ) || 0;
+function logicalScrollOffset(instance: Virtualizer<HTMLDivElement, HTMLDivElement>): number {
+  const adjustments = Number((instance as unknown as { scrollAdjustments?: number }).scrollAdjustments) || 0;
   return (instance.scrollOffset ?? 0) + adjustments;
 }
 
@@ -151,10 +139,14 @@ export function TranscriptList({
   const [, invalidateSelectionPin] = useState(0);
   const setSelectionPin = useCallback((next: SelectionPin | null) => {
     const current = selectionPinned.current;
-    if (current === next
-      || (current && next
-        && Object.is(current.anchor.key, next.anchor.key)
-        && Object.is(current.focus.key, next.focus.key))) return;
+    if (
+      current === next ||
+      (current &&
+        next &&
+        Object.is(current.anchor.key, next.anchor.key) &&
+        Object.is(current.focus.key, next.focus.key))
+    )
+      return;
     selectionPinned.current = next;
     invalidateSelectionPin((version) => version + 1);
   }, []);
@@ -177,16 +169,13 @@ export function TranscriptList({
   const activeIndexesRef = useRef<number[]>([]);
   let activeIndex = -1;
   rows.forEach((row, index) => {
-    if ("active" in row && row.active) activeIndex = index;
+    if ('active' in row && row.active) activeIndex = index;
   });
   activeIndexesRef.current = activeIndex < 0 ? [] : [activeIndex];
   // Mount-time only: this component is remounted per session. The real
   // measurements are replayed immediately and corrected by virtual-core if
   // the current width wraps them differently.
-  const restored = useMemo(
-    () => readTranscriptVirtualSnapshot(sessionKey),
-    [sessionKey],
-  );
+  const restored = useMemo(() => readTranscriptVirtualSnapshot(sessionKey), [sessionKey]);
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: rows.length,
     getScrollElement: () => viewport.current,
@@ -196,12 +185,10 @@ export function TranscriptList({
     overscan: TRANSCRIPT_VIRTUAL_OVERSCAN,
     rangeExtractor: (range) => {
       const indexes = defaultRangeExtractor({ ...range, overscan: TRANSCRIPT_VIRTUAL_OVERSCAN });
-      return [...new Set([
-        ...resizePinned.current,
-        ...selectionPinnedIndexes(),
-        ...indexes,
-        ...activeIndexesRef.current,
-      ])].filter((index) => index >= 0 && index < rows.length)
+      return [
+        ...new Set([...resizePinned.current, ...selectionPinnedIndexes(), ...indexes, ...activeIndexesRef.current]),
+      ]
+        .filter((index) => index >= 0 && index < rows.length)
         .sort((a, b) => a - b);
     },
     initialOffset: () => (shouldAnchorBottom ? Number.MAX_SAFE_INTEGER : 0),
@@ -209,7 +196,7 @@ export function TranscriptList({
     // Reader intent wins immediately. Keeping end anchoring active inside the
     // 80px return band let a small upward wheel move get reversed by the next
     // append or row measurement even after the follow hook had detached.
-    anchorTo: shouldAnchorBottom ? "end" : "start",
+    anchorTo: shouldAnchorBottom ? 'end' : 'start',
     followOnAppend: shouldAnchorBottom,
     // While the tail is owned, every append and measured-size delta is an
     // end pin. An 80px band lost tall rows in a short split and invited a
@@ -230,11 +217,11 @@ export function TranscriptList({
     // present those compositor layers from different scroll phases and draw
     // the visible horizontal tear. Top-position writes still land in the same
     // direct pre-paint transaction, without per-row compositor surfaces.
-    directDomUpdatesMode: "position",
+    directDomUpdatesMode: 'position',
     // Grow the spacer before a programmatic write so Chrome cannot clamp the
     // requested offset against the previous total height.
     scrollToFn: (offset, options, instance) => {
-      if (instance.options.anchorTo === "end" || instance.options.followOnAppend) {
+      if (instance.options.anchorTo === 'end' || instance.options.followOnAppend) {
         // Core measurements can request several opposing offsets while the
         // prompt/Goal/diff commit is still changing geometry. They share the
         // final native pin, never an intermediate elementScroll followed by
@@ -305,14 +292,17 @@ export function TranscriptList({
   }, [pumpDeferredResizes]);
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
-  const endPin = useMemo(() => createTranscriptEndPin({
-    getVirtualizer: () => virtualizerRef.current,
-    getViewport: () => viewport.current,
-    getSpacer: () => spacer.current,
-    hasReaderGesture: () => hasScrollGestureRef.current(),
-    markProgrammaticScroll: (top, intended) =>
-      markProgrammaticScrollRef.current?.(top, intended),
-  }), [viewport]);
+  const endPin = useMemo(
+    () =>
+      createTranscriptEndPin({
+        getVirtualizer: () => virtualizerRef.current,
+        getViewport: () => viewport.current,
+        getSpacer: () => spacer.current,
+        hasReaderGesture: () => hasScrollGestureRef.current(),
+        markProgrammaticScroll: (top, intended) => markProgrammaticScrollRef.current?.(top, intended),
+      }),
+    [viewport]
+  );
   useLayoutEffect(() => () => endPin.cancel(), [endPin]);
   // React re-renders reuse one virtualizer instance. Patch resizeItem exactly
   // once instead of wrapping the previous wrapper again on every render.
@@ -330,20 +320,20 @@ export function TranscriptList({
       // Reader gesture + row fully above the reading offset: DEFER. Never
       // drop — a dropped delta leaves the reader displaced by exactly that
       // delta once the geometry it saw is recomputed.
-      if (measured
-        && shouldDeferTranscriptScrollAdjustment(hasScrollGestureRef.current())
-        && measured.end <= logicalScrollOffset(virtualizer)) {
+      if (
+        measured &&
+        shouldDeferTranscriptScrollAdjustment(hasScrollGestureRef.current()) &&
+        measured.end <= logicalScrollOffset(virtualizer)
+      ) {
         pendingResizes.current.set(measured.key, { index, size });
         scheduleResizeFlush();
         return;
       }
       pendingResizes.current.delete(measured?.key ?? index);
-      const previous = measured
-        ? virtualizer.itemSizeCache.get(measured.key) ?? measured.size
-        : undefined;
+      const previous = measured ? (virtualizer.itemSizeCache.get(measured.key) ?? measured.size) : undefined;
       if (element && previous !== undefined && Math.abs(size - previous) > element.clientHeight) {
         const view = element.getBoundingClientRect();
-        resizePinned.current = [...element.querySelectorAll<HTMLElement>(".transcript-virtual-row")]
+        resizePinned.current = [...element.querySelectorAll<HTMLElement>('.transcript-virtual-row')]
           .filter((row) => {
             const rect = row.getBoundingClientRect();
             return rect.bottom > view.top && rect.top < view.bottom;
@@ -359,7 +349,7 @@ export function TranscriptList({
         });
       }
       resizeItem(index, size);
-      if (virtualizer.options.followOnAppend || virtualizer.options.anchorTo === "end") {
+      if (virtualizer.options.followOnAppend || virtualizer.options.anchorTo === 'end') {
         endPin.request();
       }
     };
@@ -395,20 +385,22 @@ export function TranscriptList({
       virtualizerRef.current.measureElement(node);
     });
   }, []);
-  const bindSpacer = useCallback((element: HTMLDivElement | null) => {
-    spacer.current = element;
-    content.current = element;
-    // Direct DOM updates keep the spacer height current between React commits.
-    virtualizerRef.current.containerRef(element);
-  }, [content]);
+  const bindSpacer = useCallback(
+    (element: HTMLDivElement | null) => {
+      spacer.current = element;
+      content.current = element;
+      // Direct DOM updates keep the spacer height current between React commits.
+      virtualizerRef.current.containerRef(element);
+    },
+    [content]
+  );
 
   useLayoutEffect(() => {
     const root = spacer.current;
     if (!root) return undefined;
     const measureDisclosureRow = (event: Event) => {
-      const row = event.target instanceof HTMLElement
-        ? event.target.closest<HTMLDivElement>(".transcript-virtual-row")
-        : null;
+      const row =
+        event.target instanceof HTMLElement ? event.target.closest<HTMLDivElement>('.transcript-virtual-row') : null;
       if (!row || row.parentElement !== root) return;
       // Tool disclosure commits already changed the natural DOM height. Feed
       // that exact box to the virtualizer before paint, so its row cache,
@@ -420,15 +412,15 @@ export function TranscriptList({
     return () => root.removeEventListener(TRANSCRIPT_ROW_MEASURE_EVENT, measureDisclosureRow);
   }, [sessionKey]);
 
-  useLayoutEffect(() => () => {
-    // Pending gesture-deferred sizes are part of the truth this snapshot
-    // promises to replay on re-entry.
-    flushDeferredResizes();
-    rememberTranscriptVirtualMeasurements(
-      sessionKey,
-      virtualizerRef.current.takeSnapshot(),
-    );
-  }, [flushDeferredResizes, sessionKey, viewport]);
+  useLayoutEffect(
+    () => () => {
+      // Pending gesture-deferred sizes are part of the truth this snapshot
+      // promises to replay on re-entry.
+      flushDeferredResizes();
+      rememberTranscriptVirtualMeasurements(sessionKey, virtualizerRef.current.takeSnapshot());
+    },
+    [flushDeferredResizes, sessionKey, viewport]
+  );
 
   useLayoutEffect(() => {
     const scrollToEnd = () => {
@@ -447,10 +439,13 @@ export function TranscriptList({
     const setAnchorBottom = (bottom: boolean) => {
       anchorOverride.current = bottom;
       const instance = virtualizerRef.current;
-      const anchorTo = bottom ? "end" : "start";
-      if (instance.options.anchorTo === anchorTo
-        && instance.options.followOnAppend === bottom
-        && instance.options.scrollEndThreshold === 80) return;
+      const anchorTo = bottom ? 'end' : 'start';
+      if (
+        instance.options.anchorTo === anchorTo &&
+        instance.options.followOnAppend === bottom &&
+        instance.options.scrollEndThreshold === 80
+      )
+        return;
       instance.setOptions({
         ...instance.options,
         anchorTo,
@@ -479,23 +474,29 @@ export function TranscriptList({
     });
   }, [onSelectionAutoScroll, sessionKey, setSelectionPin, viewport]);
 
-  useEffect(() => () => {
-    if (resizePinFrame.current) window.cancelAnimationFrame(resizePinFrame.current);
-    if (resizeFlushFrame.current) window.cancelAnimationFrame(resizeFlushFrame.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (resizePinFrame.current) window.cancelAnimationFrame(resizePinFrame.current);
+      if (resizeFlushFrame.current) window.cancelAnimationFrame(resizeFlushFrame.current);
+    },
+    []
+  );
 
   const virtualRows = virtualizer.getVirtualItems();
   return (
     // directDomUpdates owns this height synchronously through containerRef.
     // A React height prop can commit an older render after a native wheel
     // reaches the bottom and temporarily clip one pane at stale geometry.
-    <div className="transcript-virtual-space" ref={bindSpacer}
-      style={reactOwnedLayout ? { height: `${virtualizer.getTotalSize()}px` } : undefined}>
+    <div
+      className="transcript-virtual-space"
+      ref={bindSpacer}
+      style={reactOwnedLayout ? { height: `${virtualizer.getTotalSize()}px` } : undefined}
+    >
       {virtualRows.map((virtualRow) => {
         const row = rows[virtualRow.index];
         if (!row) return null;
         const next = rows[virtualRow.index + 1];
-        const turnEnd = !next || next._tag === "TurnGap";
+        const turnEnd = !next || next._tag === 'TurnGap';
         return (
           // A row binds position AND measurement to one element.
           // Position and measurement therefore share the
@@ -503,16 +504,21 @@ export function TranscriptList({
           // the element the ResizeObserver measures — in the same pre-paint
           // transaction. The row keeps its natural content height; geometry
           // corrections land before paint, so nothing is clipped a frame late.
-          <div className="transcript-virtual-row" key={virtualRow.key}
+          <div
+            className="transcript-virtual-row"
+            key={virtualRow.key}
             data-index={virtualRow.index}
             data-timeline-key={String(virtualRow.key)}
-            style={reactOwnedLayout
-              ? { top: `${virtualRow.start - virtualizer.options.scrollMargin}px` }
-              : undefined}
-            ref={measureRow}>
-            <div className="transcript-virtual-row-content"
-              data-slot="session-turn-message-container" data-index={virtualRow.index}
-              data-tag={row._tag} data-turn-end={turnEnd ? "true" : undefined}>
+            style={reactOwnedLayout ? { top: `${virtualRow.start - virtualizer.options.scrollMargin}px` } : undefined}
+            ref={measureRow}
+          >
+            <div
+              className="transcript-virtual-row-content"
+              data-slot="session-turn-message-container"
+              data-index={virtualRow.index}
+              data-tag={row._tag}
+              data-turn-end={turnEnd ? 'true' : undefined}
+            >
               {renderRow(row)}
             </div>
           </div>

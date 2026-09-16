@@ -22,16 +22,27 @@ test('browser tools share one family; other tools are not gated', () => {
 
 test('the first call asks once per session and family; a grant covers the rest of the session', async () => {
   const asked = [];
-  const hook = async (request) => { asked.push(request); return { approved: true }; };
+  const hook = async (request) => {
+    asked.push(request);
+    return { approved: true };
+  };
   const gate = createBridgeFirstUseGate({ getConfig: () => ({}) });
   assert.equal(await gate(call({ toolApprovalHook: hook })), null);
   assert.equal(asked.length, 1);
   assert.equal(asked[0].name, 'browser');
   assert.match(asked[0].reason, /first Browser Use call in this session \(navigate https:\/\/example\.test\/login\)/);
   // Same session: the developer tool rides the browser grant; computer asks on its own.
-  assert.equal(await gate(call({ name: 'browser_devtools', args: { action: 'emulate' }, toolApprovalHook: hook })), null);
+  assert.equal(
+    await gate(call({ name: 'browser_devtools', args: { action: 'emulate' }, toolApprovalHook: hook })),
+    null
+  );
   assert.equal(asked.length, 1);
-  assert.equal(await gate(call({ name: 'computer', args: { action: 'list', input: { kind: 'windows' } }, toolApprovalHook: hook })), null);
+  assert.equal(
+    await gate(
+      call({ name: 'computer', args: { action: 'list', input: { kind: 'windows' } }, toolApprovalHook: hook })
+    ),
+    null
+  );
   assert.equal(asked.length, 2);
   assert.match(asked[1].reason, /first Computer Use call/);
   // Another session asks again.
@@ -52,14 +63,23 @@ test('a declined or failed approval blocks the call with the reason and asks aga
   assert.equal(await gate(call({ toolApprovalHook: hook })), null);
   const failing = createBridgeFirstUseGate({ getConfig: () => ({}) });
   assert.match(
-    await failing(call({ toolApprovalHook: async () => { throw new Error('ui closed'); } })),
-    /first-use approval failed: ui closed/,
+    await failing(
+      call({
+        toolApprovalHook: async () => {
+          throw new Error('ui closed');
+        },
+      })
+    ),
+    /first-use approval failed: ui closed/
   );
 });
 
 test('the gate stands aside without an approval UI, for non-model callers, and when the profile turns it off', async () => {
   let asked = 0;
-  const hook = async () => { asked += 1; return true; };
+  const hook = async () => {
+    asked += 1;
+    return true;
+  };
   const off = createBridgeFirstUseGate({ getConfig: () => ({ builtins: { browser: { firstUseApproval: false } } }) });
   assert.equal(await off(call({ toolApprovalHook: hook })), null);
   assert.equal(await off(call({ name: 'computer', args: { action: 'list' }, toolApprovalHook: hook })), null);

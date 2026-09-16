@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import { getEventListeners } from 'node:events';
 import test from 'node:test';
-import {
-  consumeCompatChatCompletionStream,
-  consumeCompatResponsesStream,
-} from './openai-compat-stream.mjs';
+import { consumeCompatChatCompletionStream, consumeCompatResponsesStream } from './openai-compat-stream.mjs';
 
 async function bounded(promise) {
   let timer;
@@ -73,7 +70,8 @@ for (const { name, consume, event } of protocols) {
       await bounded(stream.waiting);
       if (interruption === 'cancel') controller.abort(reason);
       await assert.rejects(bounded(result), (error) =>
-        interruption === 'cancel' ? error === reason : error.streamStalled === true);
+        interruption === 'cancel' ? error === reason : error.streamStalled === true
+      );
       await bounded(stream.released);
       assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
     });

@@ -1,4 +1,4 @@
-import type { DesktopSessionSummary } from "../shared/contract";
+import type { DesktopSessionSummary } from '../shared/contract';
 
 export type RecordValue = Record<string, unknown>;
 export type Project = string;
@@ -35,7 +35,6 @@ export type TranscriptItem = RecordValue & {
   exitErrorCount?: number;
   images?: Array<{ id?: number | null; name?: string; mimeType?: string; bytes?: number }>;
 };
-
 
 export type Approval = RecordValue & {
   id?: string;
@@ -149,16 +148,11 @@ export const EMPTY_TRANSCRIPT_ITEMS: TranscriptItem[] = [];
 /** Session owners whose Lead or child-agent heartbeat is active. Unlike the
  * sidebar selection helper below, this list is process-wide and must never be
  * changed by whichever conversation currently has focus. */
-export function agentActivitySessionIds(
-  sessions: readonly DesktopSessionSummary[],
-): string[] {
+export function agentActivitySessionIds(sessions: readonly DesktopSessionSummary[]): string[] {
   return sessions
-    .filter((session) =>
-      session.leadWorking === true
-      || session.agentWorking === true)
+    .filter((session) => session.leadWorking === true || session.agentWorking === true)
     .map((session) => session.id);
 }
-
 
 /** Legacy shared Unified/Split key; the three surfaces below persist
  *  separately now and only read this one as the first-run fallback. */
@@ -183,5 +177,9 @@ export function readDiffStyle(key: string): DiffStyle {
 }
 
 export function writeDiffStyle(key: string, style: DiffStyle): void {
-  try { window.localStorage.setItem(key, style); } catch { /* persistence only */ }
+  try {
+    window.localStorage.setItem(key, style);
+  } catch {
+    /* persistence only */
+  }
 }

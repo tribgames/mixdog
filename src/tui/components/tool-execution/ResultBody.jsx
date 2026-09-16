@@ -1,7 +1,6 @@
 /**
  * components/tool-execution/ResultBody.jsx — the multi-line result body under
- * the ⎿ gutter (COLLAPSED fitted summary or EXPANDED raw). Extracted verbatim
- * from ToolExecution.jsx — behavior unchanged.
+ * the ⎿ gutter (COLLAPSED fitted summary or EXPANDED raw).
  */
 import React from 'react';
 import { Box, Text } from 'ink';
@@ -10,9 +9,15 @@ import { formatExpandedResult, wrapExpandedResultLines } from '../tool-output-fo
 import { deltaTextParts, fitResultLine } from './text-format.mjs';
 
 function renderDeltaText(text) {
-  return deltaTextParts(text).map((part, index) => (
-    part.color ? <Text key={index} color={part.color}>{part.text}</Text> : part.text
-  ));
+  return deltaTextParts(text).map((part, index) =>
+    part.color ? (
+      <Text key={index} color={part.color}>
+        {part.text}
+      </Text>
+    ) : (
+      part.text
+    )
+  );
 }
 
 // Shared multi-line result body: `└` on the first row, `│` continuation rail on
@@ -28,26 +33,22 @@ function renderDeltaText(text) {
 //     (default 600; 0 disables). Shell/script bodies keep the newest tail when capped.
 export function ResultBody({ lines, rawText, pathArg = '', isShell = false, columns, color, raw }) {
   const renderLines = raw
-    ? wrapExpandedResultLines(
-      formatExpandedResult(rawText, { pathArg, isShell }),
-      columns,
-      { isShell },
-    )
-    : (lines || []);
+    ? wrapExpandedResultLines(formatExpandedResult(rawText, { pathArg, isShell }), columns, { isShell })
+    : lines || [];
   if (!renderLines || renderLines.length === 0) return null;
   return (
     <Box flexDirection="row">
       <Box flexShrink={0} flexDirection="column">
         {renderLines.map((_, i) => (
-          <Text key={i} color={theme.subtle}>{i === 0 ? RESULT_GUTTER : RESULT_GUTTER_CONT}</Text>
+          <Text key={i} color={theme.subtle}>
+            {i === 0 ? RESULT_GUTTER : RESULT_GUTTER_CONT}
+          </Text>
         ))}
       </Box>
       <Box flexDirection="column" flexShrink={1} flexGrow={1}>
         {renderLines.map((line, i) => (
           <Text key={i} color={raw ? undefined : color} wrap="truncate">
-            {raw
-              ? (line || ' ')
-              : renderDeltaText(fitResultLine(line || ' ', columns))}
+            {raw ? line || ' ' : renderDeltaText(fitResultLine(line || ' ', columns))}
           </Text>
         ))}
       </Box>

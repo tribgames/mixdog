@@ -29,11 +29,17 @@ function runCapture(cmd, args, { timeoutMs = DIALOG_TIMEOUT_MS } = {}) {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      try { child.kill(); } catch { /* ignore */ }
+      try {
+        child.kill();
+      } catch {
+        /* ignore */
+      }
       resolve({ ok: false, code: -1, stdout: '', error: new Error('dialog timed out') });
     }, timeoutMs);
     timer.unref?.();
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString('utf8');
+    });
     child.on('error', (error) => {
       if (settled) return;
       settled = true;
@@ -60,9 +66,10 @@ function spawnFailed(result) {
 /** Whether a command exists on PATH (best-effort, non-blocking spawn probe). */
 function commandExists(cmd) {
   return new Promise((resolve) => {
-    const probe = process.platform === 'win32'
-      ? spawn('where', [cmd], { stdio: 'ignore', windowsHide: true })
-      : spawn('which', [cmd], { stdio: 'ignore' });
+    const probe =
+      process.platform === 'win32'
+        ? spawn('where', [cmd], { stdio: 'ignore', windowsHide: true })
+        : spawn('which', [cmd], { stdio: 'ignore' });
     probe.on('error', () => resolve(false));
     probe.on('close', (code) => resolve(code === 0));
   });
@@ -272,8 +279,12 @@ export async function pickFolder({ title = 'Select a project folder', initialPat
   if (platform === 'win32') {
     const resolvedInitial = resolveInitialPath(initialPath);
     const result = await runCapture('powershell.exe', [
-      '-NoLogo', '-NoProfile', '-NonInteractive', '-STA',
-      '-Command', powershellScript(title, resolvedInitial),
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-STA',
+      '-Command',
+      powershellScript(title, resolvedInitial),
     ]);
     // Could not run PowerShell / Common File Dialog → fall back to manual typing.
     if (spawnFailed(result)) return { available: false, path: null };
@@ -295,9 +306,7 @@ export async function pickFolder({ title = 'Select a project folder', initialPat
 
   // Linux / other unix: prefer zenity, then kdialog.
   if (await commandExists('zenity')) {
-    const result = await runCapture('zenity', [
-      '--file-selection', '--directory', `--title=${title}`,
-    ]);
+    const result = await runCapture('zenity', ['--file-selection', '--directory', `--title=${title}`]);
     // Spawn failure / timeout (broken display, missing portal, etc.) → manual
     // fallback rather than silently looping back to the picker.
     if (spawnFailed(result)) return { available: false, path: null };

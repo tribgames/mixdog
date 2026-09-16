@@ -47,17 +47,50 @@
   border-radius: var(--mx-radius-pill);
   background: color-mix(in srgb, var(--mx-text-muted) 28%, transparent);
   cursor: pointer;
-  transition: width 300ms var(--mx-ease-standard), background-color 300ms var(--mx-ease-standard);
+  transition:
+    width 300ms var(--mx-ease-standard),
+    background-color 300ms var(--mx-ease-standard);
 }
-.onboarding-progress-bar::before { content: ""; position: absolute; inset: -8px -4px; }
-.onboarding-progress-bar:hover:not(:disabled):not(.active) { background: color-mix(in srgb, var(--mx-text-muted) 48%, transparent); }
-.onboarding-progress-bar.complete { background: color-mix(in srgb, var(--mx-text) 55%, transparent); }
-.onboarding-progress-bar.active { width: 42px; background: var(--mx-text); }
-.onboarding-progress-count { margin-left: 6px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); }
+.onboarding-progress-bar::before {
+  content: "";
+  position: absolute;
+  inset: -8px -4px;
+}
+.onboarding-progress-bar:hover:not(:disabled):not(.active) {
+  background: color-mix(in srgb, var(--mx-text-muted) 48%, transparent);
+}
+.onboarding-progress-bar.complete {
+  background: color-mix(in srgb, var(--mx-text) 55%, transparent);
+}
+.onboarding-progress-bar.active {
+  width: 42px;
+  background: var(--mx-text);
+}
+.onboarding-progress-count {
+  margin-left: 6px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+}
 /* Per-step hero heading */
-.onboarding-hero { min-width: 0; flex: 1; }
-.onboarding-dialog h1 { color: var(--mx-text); font-size: 29px; font-weight: var(--mx-weight-semibold); line-height: 1.15; letter-spacing: -.45px; }
-.onboarding-hero p { margin-top: 10px; max-width: 640px; color: var(--mx-text-muted); font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
+.onboarding-hero {
+  min-width: 0;
+  flex: 1;
+}
+.onboarding-dialog h1 {
+  color: var(--mx-text);
+  font-size: 29px;
+  font-weight: var(--mx-weight-semibold);
+  line-height: 1.15;
+  letter-spacing: -0.45px;
+}
+.onboarding-hero p {
+  margin-top: 10px;
+  max-width: 640px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
 /* The scroll gutter lives OUTSIDE the content column (negative margin into
    the dialog padding), so the card's right edge lines up with the footer. */
 .onboarding-body {
@@ -87,7 +120,9 @@
 }
 /* The 240px floor exists for the loading spinner only; once revealed it
    would push short content (output tiles) off vertical center. */
-.onboarding-body > .pane-surface-gate[data-ready="true"] { min-height: 0; }
+.onboarding-body > .pane-surface-gate[data-ready="true"] {
+  min-height: 0;
+}
 .onboarding-body > .pane-surface-gate > .pane-surface-gate-content {
   display: block;
   height: auto;
@@ -96,14 +131,26 @@
    scroll box for a few frames, so a scrollbar flashed on every step change
    (user: 진입할 때 스크롤바가 잠시 생겼다 사라진다). The 16px gap is the
    wizard's density at the default install size (1040×700). */
-.onboarding-step-view { display: grid; gap: 16px; animation: onboarding-step-in var(--mx-motion-slow) var(--mx-ease-standard); }
+.onboarding-step-view {
+  display: grid;
+  gap: 16px;
+  animation: onboarding-step-in var(--mx-motion-slow) var(--mx-ease-standard);
+}
 @keyframes onboarding-step-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .onboarding-step-view { animation: none; }
-  .onboarding-progress-bar { transition: none; }
+  .onboarding-step-view {
+    animation: none;
+  }
+  .onboarding-progress-bar {
+    transition: none;
+  }
 }
 .onboarding-loading {
   min-height: 220px;
@@ -117,7 +164,8 @@
 /* Row actions: the footer ladder is the dialog system's; rows keep one notch
    denser and wear the popup's quiet action plate (the usage card's Compact
    button) so a button reads as a button on the same base plate. */
-.onboarding-provider-list button, .onboarding-star-actions button {
+.onboarding-provider-list button,
+.onboarding-star-actions button {
   min-height: 28px;
   padding: 0 11px;
   border: 0;
@@ -144,70 +192,108 @@
 /* Secondary actions (Forget/Disable/Cancel/Download) go ghost so each row
    keeps ONE plated action. A hairline still reads as a BUTTON (user: 포갓엔
    버튼이 없고) — the quiet twin differs by ink, not by losing its frame. */
-.onboarding-provider-list button.ghost, .onboarding-star-actions button.ghost {
+.onboarding-provider-list button.ghost,
+.onboarding-star-actions button.ghost {
   color: var(--mx-text-muted);
   background: transparent;
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
 .onboarding-provider-list button.ghost:hover:not(:disabled),
 .onboarding-star-actions button.ghost:hover:not(:disabled) {
   color: var(--mx-text);
   background: var(--mx-hover);
-  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border);
 }
 /* Separated row cards instead of one tall sheet: the stack keeps an even
    rhythm and no half-cut hairline at the fold. The rows are FLAT (user:
    아이템 프레임이 블록처럼 느껴진다) — a hairline ring on the card's own
    plate, a hover wash, no lift gradient and no drop shadow. */
-.onboarding-provider-list, .onboarding-model-grid {
+.onboarding-provider-list,
+.onboarding-model-grid {
   display: grid;
   gap: 8px;
   border: 0;
   background: transparent;
   box-shadow: none;
 }
-.onboarding-provider-list > form, .onboarding-provider-row, .onboarding-model-grid > label {
+.onboarding-provider-list > form,
+.onboarding-provider-row,
+.onboarding-model-grid > label {
   min-height: 0;
   padding: 10px 16px;
   border: 0;
   border-radius: var(--mx-radius-lg);
   background: transparent;
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
   transition: background-color var(--mx-motion-ink);
 }
-.onboarding-provider-list > form:hover, .onboarding-provider-row:hover,
+.onboarding-provider-list > form:hover,
+.onboarding-provider-row:hover,
 .onboarding-model-grid > label:hover {
   background: var(--mx-hover);
 }
 /* Provider rows: the state sits under the name for every kind, and the OAuth
    action shares the API rows' action column. */
-.onboarding-provider-state { color: var(--mx-text-muted); }
-.onboarding-provider-state.connected { color: var(--mx-success); }
-.onboarding-provider-row > .onboarding-provider-action { grid-column: 4; }
-.onboarding-provider-row > .onboarding-provider-action > button { width: 100%; }
+.onboarding-provider-state {
+  color: var(--mx-text-muted);
+}
+.onboarding-provider-state.connected {
+  color: var(--mx-success);
+}
+.onboarding-provider-row > .onboarding-provider-action {
+  grid-column: 4;
+}
+.onboarding-provider-row > .onboarding-provider-action > button {
+  width: 100%;
+}
 /* Shared control columns (user: 정렬): title | extras | input 240 | two 92px
    action slots — inputs and buttons line up across every row. */
-.onboarding-provider-list > form, .onboarding-provider-row {
+.onboarding-provider-list > form,
+.onboarding-provider-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content 240px 92px 92px;
   align-items: center;
   gap: 10px;
 }
-.onboarding-provider-list form > input { grid-column: 3; width: 100%; min-width: 0; }
-.onboarding-provider-row > span { grid-column: 3; justify-self: end; }
+.onboarding-provider-list form > input {
+  grid-column: 3;
+  width: 100%;
+  min-width: 0;
+}
+.onboarding-provider-row > span {
+  grid-column: 3;
+  justify-self: end;
+}
 /* A lone trailing action (Enable/Connect/Forget) pins to the last slot. */
 .onboarding-provider-list > form > button:last-child,
-.onboarding-provider-row > button:last-child { grid-column: 5; }
+.onboarding-provider-row > button:last-child {
+  grid-column: 5;
+}
 /* input + single action (channel Save, LM Studio Enable, token Replace):
    the button spans both action slots, so no empty track floats between the
    input and the button or at the card's right edge. */
-.onboarding-provider-list > form > input + button:last-child { grid-column: 4 / 6; }
+.onboarding-provider-list > form > input + button:last-child {
+  grid-column: 4 / 6;
+}
 /* Saved secrets show a masked value instead of an empty password box. */
-.onboarding-provider-list input.masked { color: var(--mx-text-faint); letter-spacing: 2px; }
+.onboarding-provider-list input.masked {
+  color: var(--mx-text-faint);
+  letter-spacing: 2px;
+}
 /* Git rows keep a free-flowing right cluster (no input column to align). */
-.onboarding-provider-row.onboarding-provider-row--plain { display: flex; gap: 14px; }
-.onboarding-model-grid > label { display: flex; align-items: center; gap: 14px; }
-.onboarding-model-section { display: grid; gap: 10px; }
+.onboarding-provider-row.onboarding-provider-row--plain {
+  display: flex;
+  gap: 14px;
+}
+.onboarding-model-grid > label {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.onboarding-model-section {
+  display: grid;
+  gap: 10px;
+}
 .onboarding-model-section > h3 {
   margin: 0;
   display: flex;
@@ -224,23 +310,30 @@
 .onboarding-model-section > h3::after {
   content: "";
   flex: 1;
-  height: .5px;
+  height: 0.5px;
   background: var(--mx-border);
 }
-.onboarding-provider-list form > div, .onboarding-provider-row > div,
+.onboarding-provider-list form > div,
+.onboarding-provider-row > div,
 .onboarding-model-grid label > span {
   min-width: 150px;
   flex: 1;
   display: grid;
 }
-.onboarding-provider-list form > div, .onboarding-provider-row > div, .onboarding-model-grid label > span { gap: 8px; }
-.onboarding-provider-list b, .onboarding-model-grid b {
+.onboarding-provider-list form > div,
+.onboarding-provider-row > div,
+.onboarding-model-grid label > span {
+  gap: 8px;
+}
+.onboarding-provider-list b,
+.onboarding-model-grid b {
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-semibold);
   line-height: 1;
 }
-.onboarding-provider-list small, .onboarding-model-grid small {
+.onboarding-provider-list small,
+.onboarding-model-grid small {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
@@ -282,10 +375,20 @@
 }
 .onboarding-provider-list input::placeholder,
 .onboarding-model-grid input::placeholder,
-.onboarding-profile-fields input::placeholder { color: var(--mx-text-faint); }
-.onboarding-provider-list input { min-width: 150px; }
-.onboarding-model-grid .mx-select-root { width: min(280px, 44vw); min-width: 150px; }
-.onboarding-model-grid input { width: min(280px, 44vw); min-width: 150px; }
+.onboarding-profile-fields input::placeholder {
+  color: var(--mx-text-faint);
+}
+.onboarding-provider-list input {
+  min-width: 150px;
+}
+.onboarding-model-grid .mx-select-root {
+  width: min(280px, 44vw);
+  min-width: 150px;
+}
+.onboarding-model-grid input {
+  width: min(280px, 44vw);
+  min-width: 150px;
+}
 /* Workflow profile cards */
 .onboarding-workflow-grid {
   display: grid;
@@ -305,13 +408,15 @@
   text-align: left;
   color: var(--mx-text);
   background: transparent;
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
   cursor: pointer;
-  transition: background-color var(--mx-motion-ink), box-shadow var(--mx-motion-ink);
+  transition:
+    background-color var(--mx-motion-ink),
+    box-shadow var(--mx-motion-ink);
 }
 .onboarding-workflow-grid > button:hover:not(:disabled) {
   background: var(--mx-hover);
-  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border);
 }
 /* Selected keeps its own plate: one raised step and a full-pixel ring. */
 .onboarding-workflow-grid > button.selected {
@@ -327,22 +432,33 @@
   border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
   background: var(--mx-bg-layer-3);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
-.onboarding-workflow-grid > button b { font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); }
-.onboarding-workflow-grid > button small { color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.onboarding-workflow-grid > button b {
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-semibold);
+}
+.onboarding-workflow-grid > button small {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
 .onboarding-workflow-points {
   margin: 4px 0 0;
   padding: 12px 0 0;
   list-style: none;
   display: grid;
   gap: 7px;
-  border-top: .5px solid var(--mx-border-muted);
+  border-top: 0.5px solid var(--mx-border-muted);
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-meta);
 }
-.onboarding-workflow-points li { display: flex; align-items: baseline; gap: 8px; }
+.onboarding-workflow-points li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
 .onboarding-workflow-points li::before {
   content: "";
   flex: none;
@@ -352,9 +468,20 @@
   background: var(--mx-success);
   transform: translateY(-2px);
 }
-.onboarding-workflow-grid > button .onboarding-choice-check { position: absolute; top: 12px; right: 12px; color: var(--mx-success); }
+.onboarding-workflow-grid > button .onboarding-choice-check {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  color: var(--mx-success);
+}
 /* Phone pairing (reuses the Settings → Connection QR cards). */
-.onboarding-pair { display: grid; justify-items: center; gap: 12px; width: min(600px, 100%); margin-inline: auto; }
+.onboarding-pair {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  width: min(600px, 100%);
+  margin-inline: auto;
+}
 /* Channels: authenticated providers pick which one Mixdog talks through. */
 /* Beats `.onboarding-provider-row > div` (grid/flex:1): the segmented toggle
    must stay a compact side-by-side pair, not stacked full-width rows. */
@@ -367,7 +494,7 @@
   padding: 3px;
   border-radius: var(--mx-radius-md);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
 .onboarding-provider-toggle > button {
   min-height: 24px;
@@ -381,21 +508,32 @@
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
 }
-.onboarding-provider-toggle > button:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.onboarding-provider-toggle > button:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
 .onboarding-provider-toggle > button.active {
   color: var(--mx-text);
   background: var(--mx-bg-layer-3);
-  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border);
 }
-.onboarding-provider-row > span, .onboarding-provider-list .connected { color: var(--mx-success); font-size: var(--mx-font-meta); }
+.onboarding-provider-row > span,
+.onboarding-provider-list .connected {
+  color: var(--mx-success);
+  font-size: var(--mx-font-meta);
+}
 /* Step prose primitives */
-.onboarding-note { color: var(--mx-text-muted); font-size: var(--mx-font-minor); line-height: var(--mx-line-minor); }
+.onboarding-note {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
+}
 .onboarding-code {
   padding: 1px 6px;
   border-radius: var(--mx-radius-sm);
   color: var(--mx-text);
   background: var(--mx-bg-layer-2);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
   font-weight: var(--mx-weight-semibold);
   letter-spacing: var(--mx-tracking-wide);
 }
@@ -425,13 +563,15 @@
   text-align: left;
   color: var(--mx-text);
   background: transparent;
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
   cursor: pointer;
-  transition: background-color var(--mx-motion-ink), box-shadow var(--mx-motion-ink);
+  transition:
+    background-color var(--mx-motion-ink),
+    box-shadow var(--mx-motion-ink);
 }
 .onboarding-theme-grid > button:hover:not(:disabled) {
   background: var(--mx-hover);
-  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border);
 }
 .onboarding-theme-grid > button.selected {
   background: var(--mx-bg-layer-1);
@@ -443,16 +583,55 @@
   aspect-ratio: 3 / 4;
   border-radius: var(--mx-radius-md);
   overflow: hidden;
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
-.onboarding-theme-preview-empty { display: block; width: 100%; height: 100%; background: var(--mx-bg-layer-2); }
-.onboarding-theme-split { display: flex; width: 100%; height: 100%; }
-.onboarding-theme-split > .onboarding-theme-chrome { width: 50%; flex: none; }
-.onboarding-theme-chrome { display: flex; width: 100%; height: 100%; }
-.onboarding-theme-side { width: 32%; display: flex; flex-direction: column; gap: 4px; padding: 8px 7px; }
-.onboarding-theme-side > span, .onboarding-theme-main > span { flex: none; height: 3px; border-radius: var(--mx-radius-hair); }
-.onboarding-theme-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 8px 9px; }
-.onboarding-theme-main > .onboarding-theme-tab { width: 38px; height: 8px; border-radius: var(--mx-radius-hair); margin-bottom: 2px; }
+.onboarding-theme-preview-empty {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--mx-bg-layer-2);
+}
+.onboarding-theme-split {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+.onboarding-theme-split > .onboarding-theme-chrome {
+  width: 50%;
+  flex: none;
+}
+.onboarding-theme-chrome {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+.onboarding-theme-side {
+  width: 32%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 7px;
+}
+.onboarding-theme-side > span,
+.onboarding-theme-main > span {
+  flex: none;
+  height: 3px;
+  border-radius: var(--mx-radius-hair);
+}
+.onboarding-theme-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 9px;
+}
+.onboarding-theme-main > .onboarding-theme-tab {
+  width: 38px;
+  height: 8px;
+  border-radius: var(--mx-radius-hair);
+  margin-bottom: 2px;
+}
 .onboarding-theme-main > .onboarding-theme-composer {
   margin-top: auto;
   height: 13px;
@@ -462,8 +641,17 @@
   gap: 4px;
   padding: 0 5px;
 }
-.onboarding-theme-composer > span:first-child { flex: none; width: 4px; height: 4px; border-radius: 50%; }
-.onboarding-theme-composer > span:last-child { flex: 1; height: 2px; border-radius: var(--mx-radius-hair); }
+.onboarding-theme-composer > span:first-child {
+  flex: none;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+}
+.onboarding-theme-composer > span:last-child {
+  flex: 1;
+  height: 2px;
+  border-radius: var(--mx-radius-hair);
+}
 .onboarding-theme-name {
   display: flex;
   align-items: center;
@@ -472,8 +660,15 @@
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-semibold);
 }
-.onboarding-theme-name svg { color: var(--mx-success); }
-.onboarding-theme-name small { margin-left: auto; color: var(--mx-text-faint); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); }
+.onboarding-theme-name svg {
+  color: var(--mx-success);
+}
+.onboarding-theme-name small {
+  margin-left: auto;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+}
 /* Output styles: one horizontal row of tile cards (check pinned top-right). */
 .onboarding-choice-grid {
   display: grid;
@@ -490,19 +685,21 @@
   border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
   background: transparent;
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--mx-motion-ink), box-shadow var(--mx-motion-ink);
+  transition:
+    background-color var(--mx-motion-ink),
+    box-shadow var(--mx-motion-ink);
 }
 .onboarding-choice-grid > button:hover:not(:disabled) {
   border: 0;
   color: var(--mx-text);
   background: var(--mx-hover);
-  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border);
 }
 .onboarding-choice-grid > button.selected {
   border: 0;
@@ -510,11 +707,24 @@
   background: var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 1px var(--mx-border-strong);
 }
-.onboarding-choice-grid > button .onboarding-choice-check { position: absolute; top: 12px; right: 12px; color: var(--mx-success); }
-.onboarding-choice-grid > button b { font-size: var(--mx-font-ui); font-weight: var(--mx-weight-semibold); }
+.onboarding-choice-grid > button .onboarding-choice-check {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  color: var(--mx-success);
+}
+.onboarding-choice-grid > button b {
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+}
 /* Two reserved lines: 1-line and 2-line descriptions must not shift the
    badge/text baselines between neighboring cards (user: 정렬 틀어짐). */
-.onboarding-choice-grid > button small { min-height: 32px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.onboarding-choice-grid > button small {
+  min-height: 32px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
 /* Reply-length mock: line count mirrors the style's output volume. */
 .onboarding-choice-preview {
   width: 100%;
@@ -527,7 +737,7 @@
   gap: 6px;
   border-radius: var(--mx-radius-md);
   background: color-mix(in srgb, var(--mx-bg-deep) 55%, var(--mx-bg-layer-1));
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
 /* Reply header dot ties the mock to the green Output badge below. */
 .onboarding-choice-preview::before {
@@ -544,20 +754,26 @@
   border-radius: var(--mx-radius-hair);
   background: color-mix(in srgb, var(--mx-text) 16%, transparent);
 }
-.onboarding-choice-preview > i:first-child { background: color-mix(in srgb, var(--mx-text) 34%, transparent); }
+.onboarding-choice-preview > i:first-child {
+  background: color-mix(in srgb, var(--mx-text) 34%, transparent);
+}
 .onboarding-choice-meta {
   margin-top: 4px;
   padding: 2px 8px;
   border-radius: var(--mx-radius-pill);
   color: var(--mx-success);
   background: var(--mx-success-bg);
-  box-shadow: inset 0 0 0 .5px var(--mx-success-border);
+  box-shadow: inset 0 0 0 0.5px var(--mx-success-border);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
-.onboarding-choice-grid > button:active:not(:disabled) { background: var(--mx-pressed); }
-.onboarding-choice-grid > button.selected:active:not(:disabled) { background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-bg-layer-1); }
+.onboarding-choice-grid > button:active:not(:disabled) {
+  background: var(--mx-pressed);
+}
+.onboarding-choice-grid > button.selected:active:not(:disabled) {
+  background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-bg-layer-1);
+}
 /* Closing star ask */
 .onboarding-star-card {
   display: grid;
@@ -572,7 +788,7 @@
   border-radius: var(--mx-radius-lg);
   text-align: center;
   background: transparent;
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
 .onboarding-star-icon {
   width: 52px;
@@ -595,9 +811,14 @@
   text-align: left;
   color: var(--mx-text);
   background: transparent;
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
-.onboarding-repo-head { display: flex; align-items: center; gap: 10px; color: var(--mx-icon-muted); }
+.onboarding-repo-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--mx-icon-muted);
+}
 /* GitHub mark in a small hairline tile — same grammar as the connect cards. */
 .onboarding-repo-head > svg {
   width: 32px;
@@ -605,20 +826,44 @@
   padding: 7px;
   border-radius: 9px;
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
-.onboarding-repo-head b > span { color: var(--mx-text); font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); }
-.onboarding-repo-card > p { margin: 0; color: var(--mx-text-muted); font-size: var(--mx-font-code); line-height: var(--mx-line-ui); }
+.onboarding-repo-head b > span {
+  color: var(--mx-text);
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-semibold);
+}
+.onboarding-repo-card > p {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-ui);
+}
 /* GitHub-style meta row: product facts instead of language/license trivia. */
-.onboarding-repo-meta { display: flex; align-items: center; gap: 16px; color: var(--mx-text-faint); font-size: var(--mx-font-minor); }
-.onboarding-repo-meta span { display: inline-flex; align-items: center; gap: 6px; }
-.onboarding-repo-meta i { width: 10px; height: 10px; border-radius: 50%; background: var(--mx-success); }
+.onboarding-repo-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-minor);
+}
+.onboarding-repo-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.onboarding-repo-meta i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--mx-success);
+}
 /* Starred state gets a visible amber celebration instead of a dimmed gray. */
 .onboarding-star-actions button.primary.starred,
 .onboarding-star-actions button.primary.starred:disabled {
   color: var(--mx-warning);
   background: color-mix(in srgb, var(--mx-warning) 10%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-warning) 45%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-warning) 45%, transparent);
   opacity: 1;
   cursor: default;
 }
@@ -642,7 +887,7 @@
   font: inherit;
   color: var(--mx-text-muted);
   background: transparent;
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
   transition: background-color var(--mx-motion-ink);
 }
 .onboarding-memory-options > button:hover:not(:disabled) {
@@ -662,18 +907,32 @@
   border-radius: 50%;
   box-shadow: inset 0 0 0 1.5px var(--mx-border-strong);
 }
-.onboarding-memory-options > button.selected > i { box-shadow: inset 0 0 0 4.5px var(--mx-success); }
-.onboarding-memory-options b { display: block; font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); }
-.onboarding-memory-options small { display: block; margin-top: 3px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.onboarding-memory-options > button.selected > i {
+  box-shadow: inset 0 0 0 4.5px var(--mx-success);
+}
+.onboarding-memory-options b {
+  display: block;
+  font-size: var(--mx-font-code);
+  font-weight: var(--mx-weight-semibold);
+}
+.onboarding-memory-options small {
+  display: block;
+  margin-top: 3px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
 /* Two classes so this outranks .onboarding-star-actions' centered default. */
 .onboarding-star-actions.onboarding-repo-actions {
   margin-top: 4px;
   padding-top: 14px;
-  border-top: .5px solid var(--mx-border-muted);
+  border-top: 0.5px solid var(--mx-border-muted);
   justify-content: flex-end;
 }
 /* GitHub connect card (Git step): icon tile, status pill, identity chip. */
-.onboarding-connect-card { width: min(480px, 100%); }
+.onboarding-connect-card {
+  width: min(480px, 100%);
+}
 /* Profile setup card: stacked labeled fields on the shared card sheet. */
 .onboarding-profile-card {
   width: min(420px, 100%);
@@ -682,13 +941,22 @@
   gap: 12px;
   padding: 34px 30px;
 }
-.onboarding-profile-card > .onboarding-connect-icon { justify-self: center; margin-bottom: 2px; }
+.onboarding-profile-card > .onboarding-connect-icon {
+  justify-self: center;
+  margin-bottom: 2px;
+}
 /* Live initial avatar: adopts the primary-button identity, so the letter you
    type paints the same chrome the app uses for its main action. */
-.onboarding-profile-avatar { border-radius: 50%; }
+.onboarding-profile-avatar {
+  border-radius: 50%;
+}
 .onboarding-profile-avatar.has-initial {
   color: var(--mx-grey-100);
-  background: linear-gradient(135deg, var(--mx-bg-contrast), color-mix(in srgb, var(--mx-bg-contrast) 55%, var(--mx-success)));
+  background: linear-gradient(
+    135deg,
+    var(--mx-bg-contrast),
+    color-mix(in srgb, var(--mx-bg-contrast) 55%, var(--mx-success))
+  );
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--mx-bg-contrast) 16%, transparent);
   font-size: 22px;
   font-weight: var(--mx-weight-semibold);
@@ -700,16 +968,34 @@
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text);
   background: var(--mx-bg-layer-2);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
   font-size: var(--mx-font-code);
 }
-.onboarding-profile-fields { display: grid; gap: 18px; width: 100%; }
-.onboarding-profile-fields label { display: grid; gap: 6px; }
-.onboarding-profile-fields label > span { color: var(--mx-text); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
+.onboarding-profile-fields {
+  display: grid;
+  gap: 18px;
+  width: 100%;
+}
+.onboarding-profile-fields label {
+  display: grid;
+  gap: 6px;
+}
+.onboarding-profile-fields label > span {
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+}
 /* Profile inputs wear the shared wizard field skin declared above. */
-.onboarding-profile-fields input { width: 100%; }
-.onboarding-profile-fields .mx-select-root { width: 100%; }
-.onboarding-profile-fields small { color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
+.onboarding-profile-fields input {
+  width: 100%;
+}
+.onboarding-profile-fields .mx-select-root {
+  width: 100%;
+}
+.onboarding-profile-fields small {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+}
 .onboarding-connect-icon {
   width: 56px;
   height: 56px;
@@ -718,7 +1004,7 @@
   border-radius: var(--mx-radius-sheet);
   color: var(--mx-text);
   background: var(--mx-bg-layer-2);
-  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border);
 }
 .onboarding-connect-title {
   display: flex;
@@ -733,12 +1019,25 @@
   padding: 0;
   overflow: hidden;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 .5px var(--mx-border),
+  box-shadow:
+    inset 0 0 0 0.5px var(--mx-border),
     0 0 0 4px color-mix(in srgb, var(--mx-success) 16%, transparent);
 }
-.onboarding-connect-icon img { width: 100%; height: 100%; object-fit: cover; }
-.onboarding-connect-pills { margin-top: 8px; display: flex; justify-content: center; gap: 6px; }
-.onboarding-star-card p.onboarding-connect-mail { color: var(--mx-text-faint); font-size: var(--mx-font-minor); }
+.onboarding-connect-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.onboarding-connect-pills {
+  margin-top: 8px;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+.onboarding-star-card p.onboarding-connect-mail {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-minor);
+}
 .onboarding-pill {
   padding: 2.5px 9px;
   border-radius: var(--mx-radius-pill);
@@ -748,40 +1047,70 @@
 .onboarding-pill.ok {
   color: var(--mx-success);
   background: var(--mx-success-bg);
-  box-shadow: inset 0 0 0 .5px var(--mx-success-border);
+  box-shadow: inset 0 0 0 0.5px var(--mx-success-border);
 }
 .onboarding-pill.warn {
   color: var(--mx-warning);
   background: var(--mx-warning-bg);
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-warning) 45%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-warning) 45%, transparent);
 }
 .onboarding-pill.neutral {
   color: var(--mx-text-muted);
   background: var(--mx-bg-layer-2);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
 .onboarding-star-card small.onboarding-connect-identity {
   padding: 4px 10px;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
-.onboarding-star-card b { font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); }
-.onboarding-star-card p { margin-top: 6px; max-width: 420px; color: var(--mx-text-muted); font-size: var(--mx-font-code); line-height: var(--mx-line-ui); }
-.onboarding-star-actions { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
-.onboarding-star-card small { color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
+.onboarding-star-card b {
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-semibold);
+}
+.onboarding-star-card p {
+  margin-top: 6px;
+  max-width: 420px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-ui);
+}
+.onboarding-star-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.onboarding-star-card small {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+}
 /* Context step: the session-lifecycle toggles live inside the memory card and
    the card drops the 300px star floor, so the fixed-height dialog never grows
    a scrollbar (user: 스크롤 안 나오게). */
-.onboarding-context-card { min-height: 0; gap: 12px; padding: 24px 28px; }
+.onboarding-context-card {
+  min-height: 0;
+  gap: 12px;
+  padding: 24px 28px;
+}
 /* The decorative brain tile bought nothing but height and pushed the
    fixed-height card into a scrollbar (user: 메모리에 스크롤 안 생기게, 아이콘
    빼고 제목 살짝 키우자). The heading carries the step instead. */
-.onboarding-context-card .onboarding-connect-title { font-size: 18px; }
+.onboarding-context-card .onboarding-connect-title {
+  font-size: 18px;
+}
 .onboarding-context-card > p,
-.onboarding-context-card div > p { margin-top: 5px; }
-.onboarding-context-rows { width: 100%; display: grid; gap: 8px; }
+.onboarding-context-card div > p {
+  margin-top: 5px;
+}
+.onboarding-context-rows {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+}
 .onboarding-context-row {
   display: flex;
   align-items: center;
@@ -791,11 +1120,22 @@
   border-radius: var(--mx-radius-lg);
   text-align: left;
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
-.onboarding-context-row > div:first-child { min-width: 0; display: grid; }
-.onboarding-context-row b { font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); }
-.onboarding-context-row small { margin-top: 1px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.onboarding-context-row > div:first-child {
+  min-width: 0;
+  display: grid;
+}
+.onboarding-context-row b {
+  font-size: var(--mx-font-code);
+  font-weight: var(--mx-weight-semibold);
+}
+.onboarding-context-row small {
+  margin-top: 1px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
 .onboarding-dialog > footer {
   flex: none;
   margin-top: 20px;
@@ -807,7 +1147,10 @@
      card (user: 확인/취소 구역이 분리돼 보이는 게 별로다). */
   padding-top: 12px;
 }
-.onboarding-dialog > footer > div { display: flex; gap: 8px; }
+.onboarding-dialog > footer > div {
+  display: flex;
+  gap: 8px;
+}
 /* Footer buttons take the dialog system's ladder; only the star card's
    in-body primary repeats the contrast plate here. */
 .onboarding-star-actions button.primary {
@@ -816,18 +1159,42 @@
   box-shadow: var(--mx-button-contrast);
   font-weight: var(--mx-weight-semibold);
 }
-.onboarding-star-actions button.primary:hover:not(:disabled) { color: var(--mx-grey-100); background: var(--mx-flat-hover-contrast); box-shadow: var(--mx-button-contrast); }
-.onboarding-star-actions button.primary:active:not(:disabled) { background: var(--mx-flat-press-contrast); }
-.onboarding-error { color: var(--mx-danger); font-size: var(--mx-font-meta); }
-.onboarding-dialog button:disabled { opacity: var(--mx-op-disabled); cursor: wait; }
+.onboarding-star-actions button.primary:hover:not(:disabled) {
+  color: var(--mx-grey-100);
+  background: var(--mx-flat-hover-contrast);
+  box-shadow: var(--mx-button-contrast);
+}
+.onboarding-star-actions button.primary:active:not(:disabled) {
+  background: var(--mx-flat-press-contrast);
+}
+.onboarding-error {
+  color: var(--mx-danger);
+  font-size: var(--mx-font-meta);
+}
+.onboarding-dialog button:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: wait;
+}
 
 @media (max-width: 760px) {
-  .desktop-body { padding-inline: 0; }
-  .workspace { border-radius: 0; }
-  .studio-header { display: flex; }
-  .session-header-menu { display: grid; place-items: center; margin: 0 2px 0 -6px; }
+  .desktop-body {
+    padding-inline: 0;
+  }
+  .workspace {
+    border-radius: 0;
+  }
+  .studio-header {
+    display: flex;
+  }
+  .session-header-menu {
+    display: grid;
+    place-items: center;
+    margin: 0 2px 0 -6px;
+  }
   /* Narrow layouts retain the same desktop chrome and only fold panels. */
-  .main-panel { flex-direction: column; }
+  .main-panel {
+    flex-direction: column;
+  }
   /* ONE fixed frame owns geometry, motion, shadow and ring.
      Its stable 48 + 232px width exists even before the session tree's first
      mount, so opening can never reveal the standing rail as a separate part. */
@@ -847,7 +1214,9 @@
     visibility: hidden;
     /* Manual closes slide back out. Responsive breakpoint folds opt out via
        data-motion so a layout change never performs decorative motion. */
-    transition: transform var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
+    transition:
+      transform var(--mx-sheet-motion),
+      visibility var(--mx-sheet-motion);
   }
   /* The rail/list divider belongs to the shared frame too: painting it above
      both child surfaces keeps the 48px boundary visible for the full drawer
@@ -921,7 +1290,9 @@
   }
   /* The sheet titles itself: the header's full-bleed hairline read as chrome
      band residue on the floating card, so the title row sits clean. */
-  .sidebar.session-sidebar > .session-panel-header::after { display: none; }
+  .sidebar.session-sidebar > .session-panel-header::after {
+    display: none;
+  }
   .sidebar-backdrop {
     display: block;
     position: fixed;
@@ -937,39 +1308,65 @@
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
-    transition: opacity var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
+    transition:
+      opacity var(--mx-sheet-motion),
+      visibility var(--mx-sheet-motion);
   }
   .sidebar-backdrop[data-state="open"] {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
   }
-  .session-sidebar-resize { display: none; }
+  .session-sidebar-resize {
+    display: none;
+  }
   .mx-toast-region {
     width: calc(100vw - 32px);
   }
-  .studio-topbar { gap: 8px; }
-  .studio-topbar-tools { grid-column: auto; }
+  .studio-topbar {
+    gap: 8px;
+  }
+  .studio-topbar-tools {
+    grid-column: auto;
+  }
   /* A taller field gives the thumb a real target (user: too small to tap).
      The type size stays the body size: the iOS zoom-on-focus floor lives in
      mobile-web-runtime.css under the iOS marker only, so a narrow desktop
      window or an Android phone no longer jumps the composer to 16px. */
-  .composer { min-height: 108px; }
+  .composer {
+    min-height: 108px;
+  }
   .composer textarea {
     min-height: 72px;
     padding: 14px 16px 10px;
   }
-  .composer-footer { height: 48px; }
-  .studio-composer { min-height: 108px; }
+  .composer-footer {
+    height: 48px;
+  }
+  .studio-composer {
+    min-height: 108px;
+  }
   .studio-composer textarea {
     min-height: 72px;
     padding: 14px 16px 10px;
   }
-  .studio-composer-bar { height: 48px; }
+  .studio-composer-bar {
+    height: 48px;
+  }
   /* The closed trigger follows its label instead of painting the footer's
      entire remaining lane. Opening still supplies the sheet width inline. */
-  .route-editor { width: max-content; min-width: 0; max-width: 100%; flex: 0 1 auto; }
-  .model-trigger { width: max-content; min-width: 0; max-width: 100%; flex: 0 1 auto; }
+  .route-editor {
+    width: max-content;
+    min-width: 0;
+    max-width: 100%;
+    flex: 0 1 auto;
+  }
+  .model-trigger {
+    width: max-content;
+    min-width: 0;
+    max-width: 100%;
+    flex: 0 1 auto;
+  }
   .model-trigger > span {
     min-width: 0;
     overflow: visible;
@@ -984,8 +1381,12 @@
     flex: 0 1 auto;
     justify-content: flex-start;
   }
-  .effort-control .mx-select-root { min-width: 0; }
-  .effort-control .mx-select-trigger { min-width: 0; }
+  .effort-control .mx-select-root {
+    min-width: 0;
+  }
+  .effort-control .mx-select-trigger {
+    min-width: 0;
+  }
   .route-controls > .fast-control {
     width: 28px;
     min-width: 28px;
@@ -1009,27 +1410,67 @@ html[data-mixdog-mobile-tabs] .model-trigger {
 }
 
 @media (max-width: 640px) {
-  .mixdog-settings__body { padding: 32px 20px; }
-  .onboarding-layer { padding: 0; }
-  .onboarding-dialog { width: 100vw; height: var(--vvh, 100vh); padding: 20px 18px 16px; border-radius: 0; }
-  .onboarding-dialog h1 { font-size: 23px; }
-  .onboarding-dialog > header { flex-direction: column-reverse; gap: 14px; }
-  .onboarding-top-actions { width: 100%; margin-top: 0; justify-content: space-between; }
-  .onboarding-model-grid .mx-select-root { width: 100%; max-width: none; }
-  .onboarding-choice-grid { grid-template-columns: 1fr; }
-  .onboarding-theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .onboarding-workflow-grid { grid-template-columns: 1fr; }
-  .onboarding-provider-list > form, .onboarding-provider-row, .onboarding-model-grid > label {
+  .mixdog-settings__body {
+    padding: 32px 20px;
+  }
+  .onboarding-layer {
+    padding: 0;
+  }
+  .onboarding-dialog {
+    width: 100vw;
+    height: var(--vvh, 100vh);
+    padding: 20px 18px 16px;
+    border-radius: 0;
+  }
+  .onboarding-dialog h1 {
+    font-size: 23px;
+  }
+  .onboarding-dialog > header {
+    flex-direction: column-reverse;
+    gap: 14px;
+  }
+  .onboarding-top-actions {
+    width: 100%;
+    margin-top: 0;
+    justify-content: space-between;
+  }
+  .onboarding-model-grid .mx-select-root {
+    width: 100%;
+    max-width: none;
+  }
+  .onboarding-choice-grid {
+    grid-template-columns: 1fr;
+  }
+  .onboarding-theme-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .onboarding-workflow-grid {
+    grid-template-columns: 1fr;
+  }
+  .onboarding-provider-list > form,
+  .onboarding-provider-row,
+  .onboarding-model-grid > label {
     display: flex;
     align-items: stretch;
     flex-direction: column;
   }
-  .onboarding-provider-list form > input, .onboarding-provider-list input { width: 100%; }
+  .onboarding-provider-list form > input,
+  .onboarding-provider-list input {
+    width: 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mx-menu, .mx-toast, .slash-palette,
-  .route-sheet, .route-sheet-flyout,
-  .live-activity span, .stream-cursor { animation: none; }
-  .message-actions { transition: none; }
+  .mx-menu,
+  .mx-toast,
+  .slash-palette,
+  .route-sheet,
+  .route-sheet-flyout,
+  .live-activity span,
+  .stream-cursor {
+    animation: none;
+  }
+  .message-actions {
+    transition: none;
+  }
 }

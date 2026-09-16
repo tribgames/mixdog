@@ -14,8 +14,7 @@ const REQUEST_MS = 10_000;
 const natural = new Intl.Collator('en', { numeric: true });
 
 function methodsAllow(row, method) {
-  return !Array.isArray(row.supportedGenerationMethods)
-    || row.supportedGenerationMethods.includes(method);
+  return !Array.isArray(row.supportedGenerationMethods) || row.supportedGenerationMethods.includes(method);
 }
 
 function imageToolSupported(row, id) {
@@ -42,25 +41,23 @@ function kindFor(lane, row, id) {
     if (/^grok-imagine-image(?:-|$)/.test(id)) return 'image';
     // This version requires a start image. Studio also permits prompt-only
     // generation, so keep it out until the required-input contract is exposed.
-    if (/^grok-imagine-video(?:-|$)/.test(id)
-      && !/^grok-imagine-video-1\.5(?:-|$)/.test(id)) return 'video';
+    if (/^grok-imagine-video(?:-|$)/.test(id) && !/^grok-imagine-video-1\.5(?:-|$)/.test(id)) return 'video';
     return null;
   }
   if (googleLane(lane)) {
-    if (/^gemini-.*(?:^|-)image(?:-|$)/.test(id)
-      && methodsAllow(row, 'generateContent')) return 'image';
+    if (/^gemini-.*(?:^|-)image(?:-|$)/.test(id) && methodsAllow(row, 'generateContent')) return 'image';
   }
   if (lane === 'gemini') {
     if (/^gemini-omni-(?:[\d.]+-)?flash(?:-|$)/.test(id)) return 'video';
-    if (/^veo-3(?:\.[\d]+)?-.*generate(?:-|$)/.test(id)
-      && methodsAllow(row, 'predictLongRunning')) return 'video';
+    if (/^veo-3(?:\.[\d]+)?-.*generate(?:-|$)/.test(id) && methodsAllow(row, 'predictLongRunning')) return 'video';
   }
   return null;
 }
 
 function version(id) {
-  return (id.match(/^(?:gpt|gemini|veo)-(\d+(?:\.\d+)*)/)
-    || id.match(/(?:image|video|omni)-(\d+(?:\.\d+)*)/))?.[1] || '0';
+  return (
+    (id.match(/^(?:gpt|gemini|veo)-(\d+(?:\.\d+)*)/) || id.match(/(?:image|video|omni)-(\d+(?:\.\d+)*)/))?.[1] || '0'
+  );
 }
 
 function isPreferredMediaModel(lane, kind, id) {
@@ -71,19 +68,23 @@ function isPreferredMediaModel(lane, kind, id) {
 }
 
 function compareModels(a, b) {
-  return Number(/preview|experimental/.test(a.id)) - Number(/preview|experimental/.test(b.id))
-    || (Number(b.created) || 0) - (Number(a.created) || 0)
-    || natural.compare(version(b.id), version(a.id))
-    || natural.compare(b.id, a.id);
+  return (
+    Number(/preview|experimental/.test(a.id)) - Number(/preview|experimental/.test(b.id)) ||
+    (Number(b.created) || 0) - (Number(a.created) || 0) ||
+    natural.compare(version(b.id), version(a.id)) ||
+    natural.compare(b.id, a.id)
+  );
 }
 
 /** Keep official tiers and generations intact; never infer a quality ranking. */
 export function mediaModelLabel(lane, row, id) {
   let label = String(row.displayName || row.display || row.label || row.name || id).replace(/^models\//, '');
   if (lane === 'xai' || lane === 'grok-oauth') {
-    label = id.replace(/^grok-imagine-image/, 'Grok Imagine Image')
+    label = id
+      .replace(/^grok-imagine-image/, 'Grok Imagine Image')
       .replace(/^grok-imagine-video/, 'Grok Imagine Video')
-      .replace(/-quality$/, ' Quality').replace(/-(\d)/, ' $1');
+      .replace(/-quality$/, ' Quality')
+      .replace(/-(\d)/, ' $1');
   } else if (googleLane(lane)) {
     const names = {
       'gemini-2.5-flash-image': 'Nano Banana · Gemini 2.5 Flash Image',
@@ -103,7 +104,9 @@ export function projectMediaModels(lane, rows) {
   const result = { image: [], video: [] };
   const seen = new Set();
   for (const row of Array.isArray(rows) ? rows : []) {
-    const id = String(row?.id || row?.name || '').replace(/^models\//, '').trim();
+    const id = String(row?.id || row?.name || '')
+      .replace(/^models\//, '')
+      .trim();
     if (!id || seen.has(id)) continue;
     seen.add(id);
     const kind = kindFor(lane, row, id);
@@ -133,13 +136,18 @@ export function projectMediaModels(lane, rows) {
     // OAuth accepts image model hints without honoring them. Expose one
     // explicitly automatic route instead of inventing Flare/Sunburst access.
     const orchestrator = result.image[0];
-    result.image = orchestrator ? [{
-      id: 'chatgpt-image-auto',
-      label: 'ChatGPT Image · Auto',
-      description: 'ChatGPT selects the image engine. GPT Image 2.5 selection and output size/quality are not verified on this connection.',
-      requestModel: orchestrator.id,
-      controls: { maxReferences: 5 },
-    }] : [];
+    result.image = orchestrator
+      ? [
+          {
+            id: 'chatgpt-image-auto',
+            label: 'ChatGPT Image · Auto',
+            description:
+              'ChatGPT selects the image engine. GPT Image 2.5 selection and output size/quality are not verified on this connection.',
+            requestModel: orchestrator.id,
+            controls: { maxReferences: 5 },
+          },
+        ]
+      : [];
   }
   return result;
 }
@@ -148,10 +156,13 @@ async function providerSource(lane) {
   const { getProvider, providerCatalogRevision } = await import('../agent/orchestrator/providers/registry.mjs');
   const revision = providerCatalogRevision();
   if (lane === 'openai-oauth') {
-    const provider = getProvider(lane)
-      || new (await import('../agent/orchestrator/providers/openai-oauth.mjs')).OpenAIOAuthProvider({});
+    const provider =
+      getProvider(lane) ||
+      new (await import('../agent/orchestrator/providers/openai-oauth.mjs')).OpenAIOAuthProvider({});
     return {
-      key: lane, revision, cache: false,
+      key: lane,
+      revision,
+      cache: false,
       // This is already the account's Codex catalog with its own 24h cache.
       // Do not put another TTL in front of it and hide provider refreshes.
       async fetchModels() {
@@ -161,17 +172,22 @@ async function providerSource(lane) {
       },
     };
   }
-  const auth = lane === 'gemini'
-    ? { token: resolveGeminiKey() }
-    : lane === 'antigravity-oauth'
-      ? await resolveAntigravityAuth()
-      : await resolveXaiAuth(lane);
+  const auth =
+    lane === 'gemini'
+      ? { token: resolveGeminiKey() }
+      : lane === 'antigravity-oauth'
+        ? await resolveAntigravityAuth()
+        : await resolveXaiAuth(lane);
   // API-key and OAuth catalogs must not leak availability across credentials.
   // Persist only a one-way scope hash, never a key or a bearer. Antigravity
   // bearers rotate hourly; the Cloud project identifies that account instead.
-  const scope = createHash('sha256').update(auth.projectId || auth.token).digest('hex').slice(0, 24);
+  const scope = createHash('sha256')
+    .update(auth.projectId || auth.token)
+    .digest('hex')
+    .slice(0, 24);
   return {
-    key: `${lane}-${scope}`, revision,
+    key: `${lane}-${scope}`,
+    revision,
     fetchModels: () => fetchMediaModelRows({ lane, auth }),
   };
 }
@@ -196,7 +212,9 @@ export async function fetchMediaModelRows({ lane, auth, fetchFn = fetch }) {
   const { getLlmDispatcher } = await import('../shared/llm/http-agent.mjs');
   const response = await fetchFn(`${auth.baseURL}/models`, {
     headers: { Authorization: `Bearer ${auth.token}` },
-    redirect: 'error', signal, dispatcher: getLlmDispatcher(),
+    redirect: 'error',
+    signal,
+    dispatcher: getLlmDispatcher(),
   });
   if (!response.ok) throw catalogHttpError(response.status, await response.text());
   const data = await response.json();
@@ -233,25 +251,29 @@ export function createMediaModelLoader({ source = providerSource, cache = source
       revisions.set(key, revision);
       return cached;
     }
-    const request = Promise.resolve().then(() => target.fetchModels()).then((models) => {
-      if (!Array.isArray(models)) throw new Error('Invalid media catalog response');
-      store?.save(models);
-      revisions.set(key, revision);
-      retryAfter.delete(key);
-      return models;
-    }).catch((error) => {
-      // Only this credential's last successful catalog is a safe offline
-      // fallback. A successful empty catalog is authoritative, not an outage.
-      const previous = store && cache(key, true).loadSync();
-      if (Array.isArray(previous)) {
-        // Revoked credentials and exhausted billing must not look available
-        // merely because this account had a successful catalog in the past.
-        if (['MEDIA_AUTH_REJECTED', 'MEDIA_ACCESS_DENIED', 'MEDIA_BILLING_BLOCKED'].includes(error.code)) throw error;
-        retryAfter.set(key, { revision, at: now() + 60_000, error });
-        return staleCatalog(previous, error);
-      }
-      throw error;
-    }).finally(() => pending.delete(key));
+    const request = Promise.resolve()
+      .then(() => target.fetchModels())
+      .then((models) => {
+        if (!Array.isArray(models)) throw new Error('Invalid media catalog response');
+        store?.save(models);
+        revisions.set(key, revision);
+        retryAfter.delete(key);
+        return models;
+      })
+      .catch((error) => {
+        // Only this credential's last successful catalog is a safe offline
+        // fallback. A successful empty catalog is authoritative, not an outage.
+        const previous = store && cache(key, true).loadSync();
+        if (Array.isArray(previous)) {
+          // Revoked credentials and exhausted billing must not look available
+          // merely because this account had a successful catalog in the past.
+          if (['MEDIA_AUTH_REJECTED', 'MEDIA_ACCESS_DENIED', 'MEDIA_BILLING_BLOCKED'].includes(error.code)) throw error;
+          retryAfter.set(key, { revision, at: now() + 60_000, error });
+          return staleCatalog(previous, error);
+        }
+        throw error;
+      })
+      .finally(() => pending.delete(key));
     pending.set(key, request);
     return request;
   };

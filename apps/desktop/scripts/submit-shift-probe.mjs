@@ -17,9 +17,8 @@ import { fileURLToPath } from 'node:url';
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const argumentsList = process.argv.slice(2);
-const valueFor = (prefix) => argumentsList
-  .find((argument) => argument.startsWith(`${prefix}=`))
-  ?.slice(prefix.length + 1);
+const valueFor = (prefix) =>
+  argumentsList.find((argument) => argument.startsWith(`${prefix}=`))?.slice(prefix.length + 1);
 const projectPath = resolve(valueFor('--project') || join(desktopDir, '..', '..'));
 const historyTurns = Math.max(0, Number(valueFor('--history') || 5));
 const port = Number(valueFor('--port') || 9351);
@@ -28,14 +27,23 @@ const port = Number(valueFor('--port') || 9351);
 const fakeModelPort = Number(valueFor('--fake-model-port') || 0);
 const recordMs = Number(valueFor('--record') || (fakeModelPort ? 9_000 : 3_000));
 const keepProfile = argumentsList.includes('--keep-profile');
-const electron = join(desktopDir, 'node_modules', 'electron', 'dist',
-  process.platform === 'win32' ? 'electron.exe' : 'electron');
+const electron = join(
+  desktopDir,
+  'node_modules',
+  'electron',
+  'dist',
+  process.platform === 'win32' ? 'electron.exe' : 'electron'
+);
 const profilePath = join(desktopDir, 'artifacts', 'submit-shift-profile');
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
 class Cdp {
-  constructor(url) { this.socket = new WebSocket(url); this.nextId = 1; this.pending = new Map(); }
+  constructor(url) {
+    this.socket = new WebSocket(url);
+    this.nextId = 1;
+    this.pending = new Map();
+  }
   async connect() {
     this.socket.addEventListener('message', (event) => {
       const message = JSON.parse(String(event.data));
@@ -64,7 +72,9 @@ class Cdp {
     }
     return result.result?.value;
   }
-  close() { this.socket.close(); }
+  close() {
+    this.socket.close();
+  }
 }
 
 async function waitForTarget(child) {
@@ -73,10 +83,13 @@ async function waitForTarget(child) {
     if (child.exitCode !== null) throw new Error(`Electron exited with ${child.exitCode}.`);
     try {
       const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
-      const target = targets.find((candidate) => candidate.type === 'page'
-        && candidate.url?.includes('/out/renderer/index.html'));
+      const target = targets.find(
+        (candidate) => candidate.type === 'page' && candidate.url?.includes('/out/renderer/index.html')
+      );
       if (target?.webSocketDebuggerUrl) return target.webSocketDebuggerUrl;
-    } catch { /* not listening yet */ }
+    } catch {
+      /* not listening yet */
+    }
     await sleep(50);
   }
   throw new Error(`CDP target did not appear on port ${port}.`);
@@ -86,9 +99,12 @@ async function evaluateStable(client, expression, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
   let lastError = null;
   while (Date.now() < deadline) {
-    try { return await client.evaluate(expression); } catch (error) {
+    try {
+      return await client.evaluate(expression);
+    } catch (error) {
       lastError = error;
-      if (!/Execution context was destroyed|Cannot find context|localStorage/i.test(String(error?.message))) throw error;
+      if (!/Execution context was destroyed|Cannot find context|localStorage/i.test(String(error?.message)))
+        throw error;
       await sleep(100);
     }
   }
@@ -96,7 +112,11 @@ async function evaluateStable(client, expression, timeoutMs = 20_000) {
 }
 
 async function stopApp(client, child) {
-  try { await client.evaluate('window.mixdogDesktop?.quit?.()'); } catch { /* fallback below */ }
+  try {
+    await client.evaluate('window.mixdogDesktop?.quit?.()');
+  } catch {
+    /* fallback below */
+  }
   client.close();
   await Promise.race([new Promise((done) => child.once('exit', done)), sleep(4_000)]);
   if (child.exitCode === null) child.kill();
@@ -236,7 +256,9 @@ async function waitFor(client, predicate, timeoutMs, label) {
 }
 
 async function typeAndSubmit(client, text, { record }) {
-  await client.evaluate(`(() => { const t = document.querySelector('.composer textarea'); t.focus({ preventScroll: true }); return true; })()`);
+  await client.evaluate(
+    `(() => { const t = document.querySelector('.composer textarea'); t.focus({ preventScroll: true }); return true; })()`
+  );
   await client.request('Input.insertText', { text });
   await sleep(150);
   let typed = await client.evaluate(`(() => { const t = document.querySelector('.composer textarea');
@@ -254,10 +276,22 @@ async function typeAndSubmit(client, text, { record }) {
   console.log('typed', JSON.stringify(typed));
   if (record) await client.evaluate('window.__probe.start(), true');
   await sleep(48);
-  await client.request('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter',
-    windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: '\r', unmodifiedText: '\r' });
-  await client.request('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter',
-    windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+  await client.request('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+    text: '\r',
+    unmodifiedText: '\r',
+  });
+  await client.request('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  });
   await sleep(400);
   const after = await client.evaluate(`(() => { const t = document.querySelector('.composer textarea');
     return { value: t?.value.length || 0, notice: [...document.querySelectorAll('[role="alert"], .composer-notice, .attachment-error, .inline-error')]
@@ -269,7 +303,9 @@ async function typeAndSubmit(client, text, { record }) {
       t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true })); return true; })()`);
     await sleep(400);
     after.synthetic = true;
-    after.valueAfterSynthetic = await client.evaluate(`document.querySelector('.composer textarea')?.value.length || 0`);
+    after.valueAfterSynthetic = await client.evaluate(
+      `document.querySelector('.composer textarea')?.value.length || 0`
+    );
   }
   console.log('submitted', JSON.stringify(after));
 }
@@ -278,7 +314,12 @@ async function settleTurn(client, label) {
   // Wait for the turn's live band to leave the transcript (fake model: a few
   // seconds; no provider: an immediate error row), then a quiet beat.
   await sleep(800);
-  await waitFor(client, (state) => state.composer && !state.disabled && !state.spinner && !state.live, 40_000, `${label} settle`);
+  await waitFor(
+    client,
+    (state) => state.composer && !state.disabled && !state.spinner && !state.live,
+    40_000,
+    `${label} settle`
+  );
   await sleep(1_200);
 }
 
@@ -298,30 +339,45 @@ function report(name, capture) {
   const final = frames.at(-1);
   const finalTop = new Map((final?.rows || []).map((row) => [row.key, row.top]));
   console.log(`\n=== ${name}: frames=${frames.length} writes=${capture.writes.length} shifts=${capture.shifts.length}`);
-  console.log('ms\ttop\tmax\tclient\tviewBot\tcompH\tctx\tprog\tgoal\trev\tta\tbox\tfirst..last\tpreexisting rows vs final (n:min..max)');
+  console.log(
+    'ms\ttop\tmax\tclient\tviewBot\tcompH\tctx\tprog\tgoal\trev\tta\tbox\tfirst..last\tpreexisting rows vs final (n:min..max)'
+  );
   let previous = null;
   for (const frame of frames) {
-    const drifts = frame.rows
-      .filter((row) => finalTop.has(row.key))
-      .map((row) => row.top - finalTop.get(row.key));
-    const movedText = drifts.length
-      ? `${drifts.length}:${Math.min(...drifts)}..${Math.max(...drifts)}` : '-';
-    const summary = [frame.top, frame.height - frame.client, frame.client, frame.viewBottom,
-      frame.composerH, frame.contextBarH, frame.progressH, frame.goalH, frame.reviewH, frame.textareaH, frame.composerBoxH].join('\t');
+    const drifts = frame.rows.filter((row) => finalTop.has(row.key)).map((row) => row.top - finalTop.get(row.key));
+    const movedText = drifts.length ? `${drifts.length}:${Math.min(...drifts)}..${Math.max(...drifts)}` : '-';
+    const summary = [
+      frame.top,
+      frame.height - frame.client,
+      frame.client,
+      frame.viewBottom,
+      frame.composerH,
+      frame.contextBarH,
+      frame.progressH,
+      frame.goalH,
+      frame.reviewH,
+      frame.textareaH,
+      frame.composerBoxH,
+    ].join('\t');
     const rowsText = frame.rows.length
-      ? `${shortKey(frame.rows[0].key)}@${frame.rows[0].top} | ` + frame.rows.slice(-3)
-        .map((row) => `${shortKey(row.key)}@${row.top}+${row.h}${row.ch !== row.h ? `(c${row.ch})` : ''}[${row.sig}]`).join(' ')
+      ? `${shortKey(frame.rows[0].key)}@${frame.rows[0].top} | ` +
+        frame.rows
+          .slice(-3)
+          .map((row) => `${shortKey(row.key)}@${row.top}+${row.h}${row.ch !== row.h ? `(c${row.ch})` : ''}[${row.sig}]`)
+          .join(' ')
       : '(none)';
     const line = `${summary}\t${rowsText}\t${movedText}`;
     if (previous !== line) console.log(`${frame.t - base}${frame.hidden ? 'H' : ''}\t${line}`);
     previous = line;
   }
   console.log('--- scroll writes ---');
-  for (const write of capture.writes) console.log(`${write.t - base}\t${write.kind}\t${write.from} -> ${write.to} (max ${write.max})\t${write.stack}`);
+  for (const write of capture.writes)
+    console.log(`${write.t - base}\t${write.kind}\t${write.from} -> ${write.to} (max ${write.max})\t${write.stack}`);
   console.log('--- layout shifts ---');
   for (const shift of capture.shifts) {
     console.log(`${shift.t - base}\tvalue=${shift.value}${shift.recent ? ' (recent-input)' : ''}`);
-    for (const source of shift.sources) console.log(`\t  y ${source.from} -> ${source.to}  h ${source.fromH} -> ${source.toH}  ${source.node}`);
+    for (const source of shift.sources)
+      console.log(`\t  y ${source.from} -> ${source.to}  h ${source.fromH} -> ${source.toH}  ${source.node}`);
   }
 }
 
@@ -340,28 +396,42 @@ if (fakeModelPort) {
   const { writeFile } = await import('node:fs/promises');
   // deepseek preset: baseURL is user-overridable and reasoning_content deltas
   // reach the thinking band. The key comes from the environment only.
-  await writeFile(join(profilePath, 'data', 'mixdog-config.json'), JSON.stringify({
-    agent: {
-      providers: { deepseek: { enabled: true, baseURL: `http://127.0.0.1:${fakeModelPort}/v1` } },
-      presets: [{ id: 'fake-turn', provider: 'deepseek', model: 'deepseek-v4-pro' }],
-      default: 'fake-turn',
-    },
-  }, null, 2));
+  await writeFile(
+    join(profilePath, 'data', 'mixdog-config.json'),
+    JSON.stringify(
+      {
+        agent: {
+          providers: { deepseek: { enabled: true, baseURL: `http://127.0.0.1:${fakeModelPort}/v1` } },
+          presets: [{ id: 'fake-turn', provider: 'deepseek', model: 'deepseek-v4-pro' }],
+          default: 'fake-turn',
+        },
+      },
+      null,
+      2
+    )
+  );
   env.DEEPSEEK_API_KEY = 'fake-probe-key';
 }
 const child = spawn(electron, [desktopDir, `--remote-debugging-port=${port}`, '--window-size=1100,720'], {
-  cwd: desktopDir, env, stdio: 'ignore', windowsHide: false,
+  cwd: desktopDir,
+  env,
+  stdio: 'ignore',
+  windowsHide: false,
 });
 const client = new Cdp(await waitForTarget(child));
 await client.connect();
 try {
-  await evaluateStable(client, `(async () => {
+  await evaluateStable(
+    client,
+    `(async () => {
     const deadline = performance.now() + 15000;
     while (!window.__mixdogStartupSettled && performance.now() < deadline) await new Promise((r) => setTimeout(r, 25));
     await window.mixdogDesktop.addProject(${JSON.stringify(projectPath)});
     await window.mixdogDesktop.invokeCapability({ capability: 'skipOnboarding', args: [] }).catch(() => undefined);
     return true;
-  })()`, 30_000);
+  })()`,
+    30_000
+  );
   await sleep(1_500);
   await evaluateStable(client, INSTALL);
   const initial = await waitFor(client, (state) => state.composer && !state.disabled, 20_000, 'composer mount');
@@ -379,11 +449,13 @@ try {
     // Same launch, a SECOND new task: separates "first turn after launch"
     // (cold renderer/runtime paths) from "first turn of every session".
     await settleTurn(client, 'first');
-    await client.evaluate(`(() => {
+    await client
+      .evaluate(`(() => {
       const link = document.querySelector('.session-new-task') || document.querySelector('button[aria-label="New task"]');
       if (link instanceof HTMLElement) { link.click(); return 'clicked'; }
       return 'missing';
-    })()`).then((result) => console.log('new-task', result));
+    })()`)
+      .then((result) => console.log('new-task', result));
     await waitFor(client, (state) => state.composer && state.contextBar && state.rows === 0, 15_000, 'second draft');
     await sleep(800);
     await typeAndSubmit(client, 'Second draft prompt\nsecond line\nthird line', { record: true });
@@ -393,26 +465,30 @@ try {
     report('second-draft-first-submit', second);
   }
   if (!argumentsList.includes('--only-draft')) {
-  await settleTurn(client, 'first');
+    await settleTurn(client, 'first');
 
-  // Seed history so the transcript scrolls, then measure a mid-session submit.
-  for (let index = 0; index < historyTurns; index += 1) {
-    await typeAndSubmit(client, `History prompt ${index}\n` + 'A wrapped sentence to give the row some height. '.repeat(3), { record: false });
-    await settleTurn(client, `history ${index}`);
-  }
-  console.log('before-session-submit', JSON.stringify(await evaluateStable(client, STATE)));
-  await typeAndSubmit(client, 'Probe session prompt\nsecond line\nthird line\nfourth line', { record: true });
-  await sleep(recordMs);
-  const session = await client.evaluate('window.__probe.stop()');
-  captures['session-submit-multiline'] = session;
-  report('session-submit-multiline', session);
-  await settleTurn(client, 'session');
-  await typeAndSubmit(client, 'Probe single line prompt', { record: true });
-  await sleep(recordMs);
-  const single = await client.evaluate('window.__probe.stop()');
-  captures['session-submit-single'] = single;
-  report('session-submit-single', single);
-  console.log('final', JSON.stringify(await evaluateStable(client, STATE)));
+    // Seed history so the transcript scrolls, then measure a mid-session submit.
+    for (let index = 0; index < historyTurns; index += 1) {
+      await typeAndSubmit(
+        client,
+        `History prompt ${index}\n` + 'A wrapped sentence to give the row some height. '.repeat(3),
+        { record: false }
+      );
+      await settleTurn(client, `history ${index}`);
+    }
+    console.log('before-session-submit', JSON.stringify(await evaluateStable(client, STATE)));
+    await typeAndSubmit(client, 'Probe session prompt\nsecond line\nthird line\nfourth line', { record: true });
+    await sleep(recordMs);
+    const session = await client.evaluate('window.__probe.stop()');
+    captures['session-submit-multiline'] = session;
+    report('session-submit-multiline', session);
+    await settleTurn(client, 'session');
+    await typeAndSubmit(client, 'Probe single line prompt', { record: true });
+    await sleep(recordMs);
+    const single = await client.evaluate('window.__probe.stop()');
+    captures['session-submit-single'] = single;
+    report('session-submit-single', single);
+    console.log('final', JSON.stringify(await evaluateStable(client, STATE)));
   }
   const { writeFile } = await import('node:fs/promises');
   const rawPath = join(desktopDir, 'artifacts', 'submit-shift-probe.json');

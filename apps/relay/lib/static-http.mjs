@@ -39,14 +39,7 @@ export const DEVICE_COOKIE_NAME = 'mixdog_device';
 // (gzip would only burn CPU).
 const COMPRESSIBLE_TYPE = /^(?:text\/|application\/(?:json|wasm)|image\/svg)/;
 const COMPRESS_MIN_BYTES = 1024;
-const NO_CACHE_SUFFIXES = [
-  'index.html',
-  'manifest.webmanifest',
-  'sw.js',
-  'sw-shell.js',
-  'ui-language.js',
-  'boot.js',
-];
+const NO_CACHE_SUFFIXES = ['index.html', 'manifest.webmanifest', 'sw.js', 'sw-shell.js', 'ui-language.js', 'boot.js'];
 // Siblings written by `npm run stage:web` next to each text asset.
 const PRECOMPRESSED_EXTENSIONS = new Set(['.br', '.gz']);
 // Keep validators, not asset bodies, across requests. Release swaps and
@@ -66,10 +59,12 @@ function staticEtag(target, encoding) {
 
 function notModified(request, etag) {
   if (request.method !== 'GET' && request.method !== 'HEAD') return false;
-  return String(request.headers['if-none-match'] || '').split(',').some((value) => {
-    const candidate = value.trim();
-    return candidate === '*' || candidate.replace(/^W\//, '') === etag.replace(/^W\//, '');
-  });
+  return String(request.headers['if-none-match'] || '')
+    .split(',')
+    .some((value) => {
+      const candidate = value.trim();
+      return candidate === '*' || candidate.replace(/^W\//, '') === etag.replace(/^W\//, '');
+    });
 }
 export const BROWSER_SECURITY_HEADERS = Object.freeze({
   'Content-Security-Policy': [
@@ -109,8 +104,10 @@ function browserSecurityHeadersForTarget(target) {
     const hash = createHash('sha256').update(source).digest('base64');
     return {
       ...BROWSER_SECURITY_HEADERS,
-      'Content-Security-Policy': BROWSER_SECURITY_HEADERS['Content-Security-Policy']
-        .replace("script-src 'self'", `script-src 'self' 'sha256-${hash}'`),
+      'Content-Security-Policy': BROWSER_SECURITY_HEADERS['Content-Security-Policy'].replace(
+        "script-src 'self'",
+        `script-src 'self' 'sha256-${hash}'`
+      ),
     };
   } catch {
     return BROWSER_SECURITY_HEADERS;
@@ -121,7 +118,11 @@ function parseCookieValue(header, name) {
   for (const part of String(header || '').split(';')) {
     const eq = part.indexOf('=');
     if (eq > 0 && part.slice(0, eq).trim() === name) {
-      try { return decodeURIComponent(part.slice(eq + 1).trim()); } catch { return ''; }
+      try {
+        return decodeURIComponent(part.slice(eq + 1).trim());
+      } catch {
+        return '';
+      }
     }
   }
   return '';
@@ -144,8 +145,7 @@ function cookieHeader(name, value, request, { httpOnly = false } = {}) {
   const secure = request?.socket?.encrypted ? '; Secure' : '';
   const flags = httpOnly ? 'HttpOnly; ' : '';
   return {
-    'Set-Cookie': `${name}=${encodeURIComponent(value)}; Path=/; `
-      + `Max-Age=31536000; ${flags}SameSite=Lax${secure}`,
+    'Set-Cookie': `${name}=${encodeURIComponent(value)}; Path=/; ` + `Max-Age=31536000; ${flags}SameSite=Lax${secure}`,
   };
 }
 
@@ -321,23 +321,16 @@ export function selectPrecompressed(target, acceptEncoding, fileExists = existsS
 /** Stream a resolved file with cache/compression/HEAD handling. */
 function cacheControlForTarget(target, hashedAsset) {
   if (NO_CACHE_SUFFIXES.some((suffix) => target.endsWith(suffix))) return 'no-cache';
-  return hashedAsset
-    ? 'public, max-age=31536000, immutable'
-    : 'public, max-age=86400';
+  return hashedAsset ? 'public, max-age=31536000, immutable' : 'public, max-age=86400';
 }
 
 export function sendStaticFile(request, response, target, extraHeaders = {}) {
   const type = MIME_TYPES[extname(target).toLowerCase()] || 'application/octet-stream';
   const size = statSync(target).size;
-  const hashedAsset = target.split(sep).includes('assets')
-    && HASHED_ASSET_NAME.test(target);
+  const hashedAsset = target.split(sep).includes('assets') && HASHED_ASSET_NAME.test(target);
   const compressible = COMPRESSIBLE_TYPE.test(type) && size > COMPRESS_MIN_BYTES;
-  const precompressed = compressible
-    ? selectPrecompressed(target, request.headers['accept-encoding'])
-    : null;
-  const gzip = !precompressed
-    && compressible
-    && encodingAccepted(request.headers['accept-encoding'], 'gzip');
+  const precompressed = compressible ? selectPrecompressed(target, request.headers['accept-encoding']) : null;
+  const gzip = !precompressed && compressible && encodingAccepted(request.headers['accept-encoding'], 'gzip');
   const headers = {
     ...browserSecurityHeadersForTarget(target),
     'Content-Type': type,
@@ -373,8 +366,7 @@ export function sendStaticFile(request, response, target, extraHeaders = {}) {
     response.end();
     return;
   }
-  const source = createReadStream(precompressed ? precompressed.path : target)
-    .on('error', () => response.destroy());
+  const source = createReadStream(precompressed ? precompressed.path : target).on('error', () => response.destroy());
   if (gzip) source.pipe(createGzip({ level: 6 })).pipe(response);
   else source.pipe(response);
 }

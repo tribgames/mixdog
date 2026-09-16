@@ -103,10 +103,7 @@ const intervalMs = parseDuration(argValue('--interval', process.env.MIXDOG_SMOKE
 const maxIterations = Number(argValue('--iterations', process.env.MIXDOG_SMOKE_LOOP_ITERATIONS || 0)) || Infinity;
 const logPath = argFlag('--no-log')
   ? null
-  : resolveOptionalPath(
-    argValue('--log', process.env.MIXDOG_SMOKE_LOOP_LOG),
-    '.mixdog/data/history/smoke-loop.jsonl',
-  );
+  : resolveOptionalPath(argValue('--log', process.env.MIXDOG_SMOKE_LOOP_LOG), '.mixdog/data/history/smoke-loop.jsonl');
 const startedAt = Date.now();
 const since = new Date(startedAt).toISOString();
 const deadline = startedAt + durationMs;
@@ -117,11 +114,15 @@ const rssSamples = [];
 function writeLoopLog(row) {
   if (!logPath) return;
   mkdirSync(dirname(logPath), { recursive: true });
-  appendFileSync(logPath, `${JSON.stringify({
-    ts: new Date().toISOString(),
-    pid: process.pid,
-    ...row,
-  })}\n`, { encoding: 'utf8', mode: 0o600 });
+  appendFileSync(
+    logPath,
+    `${JSON.stringify({
+      ts: new Date().toISOString(),
+      pid: process.pid,
+      ...row,
+    })}\n`,
+    { encoding: 'utf8', mode: 0o600 }
+  );
 }
 
 function writeFatalLog(error) {
@@ -155,14 +156,20 @@ writeLoopLog({
   since,
   rss_mb: startRss,
 });
-process.stdout.write(`smoke loop start duration=${durationMs}ms interval=${intervalMs}ms since=${since} rss_mb=${startRss} log=${logPath || 'off'}\n`);
+process.stdout.write(
+  `smoke loop start duration=${durationMs}ms interval=${intervalMs}ms since=${since} rss_mb=${startRss} log=${logPath || 'off'}\n`
+);
 
 while (Date.now() < deadline && iteration < maxIterations) {
   iteration += 1;
   const iterStartedAt = Date.now();
   const smoke = runSmokeAll(iteration);
   smokeTimes.push(smoke.ms);
-  const failure = runNode(['scripts/tool-failures.mjs', '--since', since, '--limit', '1', '--json'], `failures iteration ${iteration}`, 60_000);
+  const failure = runNode(
+    ['scripts/tool-failures.mjs', '--since', since, '--limit', '1', '--json'],
+    `failures iteration ${iteration}`,
+    60_000
+  );
   if (actionableFailureCount(failure.stdout) > 0) {
     throw new Error(`tool failures appeared after loop start:\n${failure.stdout}`);
   }
@@ -178,7 +185,9 @@ while (Date.now() < deadline && iteration < maxIterations) {
     elapsed_ms: elapsedMs,
   });
   const stepSummary = smoke.steps.map((step) => `${step.script.replace(/^scripts\//, '')}=${step.ms}ms`).join(' ');
-  process.stdout.write(`iteration ${iteration} ok smoke_ms=${smoke.ms.toFixed(1)} ${stepSummary} rss_mb=${currentRss} elapsed_ms=${elapsedMs}\n`);
+  process.stdout.write(
+    `iteration ${iteration} ok smoke_ms=${smoke.ms.toFixed(1)} ${stepSummary} rss_mb=${currentRss} elapsed_ms=${elapsedMs}\n`
+  );
   const remaining = deadline - Date.now();
   if (remaining <= 0 || iteration >= maxIterations) break;
   if (intervalMs > 0) await sleep(Math.min(intervalMs, remaining));
@@ -196,7 +205,7 @@ writeLoopLog({
   rss_mb: rssSummary,
 });
 process.stdout.write(
-  `smoke loop passed iterations=${iteration} elapsed_ms=${totalElapsedMs} `
-  + `smoke_ms=min:${smokeSummary.min},avg:${smokeSummary.avg},max:${smokeSummary.max} `
-  + `rss_mb=min:${rssSummary.min},avg:${rssSummary.avg},max:${rssSummary.max}\n`,
+  `smoke loop passed iterations=${iteration} elapsed_ms=${totalElapsedMs} ` +
+    `smoke_ms=min:${smokeSummary.min},avg:${smokeSummary.avg},max:${smokeSummary.max} ` +
+    `rss_mb=min:${rssSummary.min},avg:${rssSummary.avg},max:${rssSummary.max}\n`
 );

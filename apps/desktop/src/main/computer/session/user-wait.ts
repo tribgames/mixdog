@@ -9,8 +9,12 @@ export interface IdleObservation {
 }
 
 export function isIdleResumePause(snapshot: ComputerUseSnapshot): boolean {
-  return snapshot.userControlActive && snapshot.cleanupState === 'ready'
-    && !snapshot.attentionRequired && snapshot.takeoverReason === 'user_input_active';
+  return (
+    snapshot.userControlActive &&
+    snapshot.cleanupState === 'ready' &&
+    !snapshot.attentionRequired &&
+    snapshot.takeoverReason === 'user_input_active'
+  );
 }
 
 /** Waiters never enter the execution/cleanup queues and never replay input. */
@@ -34,15 +38,22 @@ export function createComputerUserWait(options: {
   let attempt: AbortController | undefined;
   let observationFailures = 0;
 
-  const reset = () => { baseline = undefined; quietSince = now(); attempt?.abort(); };
+  const reset = () => {
+    baseline = undefined;
+    quietSince = now();
+    attempt?.abort();
+  };
   const publish = (remaining?: number) => options.coordinator.setIdleResume(seconds, remaining);
-  const valid = (value: IdleObservation) => value.ready
-    && Boolean(value.monitor) && Number.isSafeInteger(value.sequence) && value.sequence >= 0
-    && Number.isFinite(value.idleMs) && value.idleMs >= 0;
-  const eligible = () => !disposed && seconds > 0 && options.enabled()
-    && isIdleResumePause(options.coordinator.snapshot());
-  const same = (a: IdleObservation, b: IdleObservation) =>
-    a.monitor === b.monitor && a.sequence === b.sequence;
+  const valid = (value: IdleObservation) =>
+    value.ready &&
+    Boolean(value.monitor) &&
+    Number.isSafeInteger(value.sequence) &&
+    value.sequence >= 0 &&
+    Number.isFinite(value.idleMs) &&
+    value.idleMs >= 0;
+  const eligible = () =>
+    !disposed && seconds > 0 && options.enabled() && isIdleResumePause(options.coordinator.snapshot());
+  const same = (a: IdleObservation, b: IdleObservation) => a.monitor === b.monitor && a.sequence === b.sequence;
   const observationFailed = (code: string, elapsedMs: number) => {
     reset();
     observationFailures++;
@@ -65,7 +76,11 @@ export function createComputerUserWait(options: {
         observationFailed(!valid(value) ? 'idle_observation_invalid' : 'idle_observation_slow', now() - sampledAt);
         return;
       }
-      if (value.held) { reset(); publish(seconds); return; }
+      if (value.held) {
+        reset();
+        publish(seconds);
+        return;
+      }
       if (!baseline || !same(value, baseline) || value.idleMs < baseline.idleMs) {
         baseline = value;
         quietSince = now();
@@ -79,14 +94,25 @@ export function createComputerUserWait(options: {
       await options.resume(currentGeneration, signal, async () => {
         const started = now();
         const last = await options.observe();
-        if (!signal.aborted && eligible() && currentGeneration === generation
-          && (now() - started > 2_000 || !valid(last))) {
+        if (
+          !signal.aborted &&
+          eligible() &&
+          currentGeneration === generation &&
+          (now() - started > 2_000 || !valid(last))
+        ) {
           observationFailed(!valid(last) ? 'idle_observation_invalid' : 'idle_observation_slow', now() - started);
           return false;
         }
-        return !signal.aborted && eligible() && currentGeneration === generation
-          && now() - started <= 2_000 && valid(last) && !last.held && same(expected, last)
-          && last.idleMs >= seconds * 1000;
+        return (
+          !signal.aborted &&
+          eligible() &&
+          currentGeneration === generation &&
+          now() - started <= 2_000 &&
+          valid(last) &&
+          !last.held &&
+          same(expected, last) &&
+          last.idleMs >= seconds * 1000
+        );
       });
     } catch (error) {
       if (eligible() && generation === currentGeneration) {
@@ -102,7 +128,10 @@ export function createComputerUserWait(options: {
   }
   function schedule(): void {
     if (timer || inFlight || !eligible()) return;
-    timer = setTimeout(() => { timer = undefined; void sample(); }, 500);
+    timer = setTimeout(() => {
+      timer = undefined;
+      void sample();
+    }, 500);
     timer.unref?.();
   }
   const unsubscribe = options.coordinator.subscribe((snapshot) => {
@@ -130,7 +159,10 @@ export function createComputerUserWait(options: {
       if (!Number.isInteger(value) || value < 0 || value > 60) {
         throw new Error('computer_idle_seconds_invalid: use 0 (manual) or 1..60 seconds');
       }
-      seconds = value; reset(); publish(); schedule();
+      seconds = value;
+      reset();
+      publish();
+      schedule();
     },
     wait(sessionId: string, timeoutMs = 60_000, signal?: AbortSignal): Promise<string> {
       if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 120_000) {
@@ -163,7 +195,8 @@ export function createComputerUserWait(options: {
     },
     dispose(): void {
       disposed = true;
-      unsubscribe(); reset();
+      unsubscribe();
+      reset();
       if (timer) clearTimeout(timer);
       for (const finish of [...waiters.values()]) finish('cancelled');
     },

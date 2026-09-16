@@ -15,7 +15,11 @@ function createEmitter() {
     emit(name, ...args) {
       const handler = handlers[name];
       if (typeof handler !== 'function') return;
-      try { handler(...args); } catch { /* a listener fault must not kill the transport */ }
+      try {
+        handler(...args);
+      } catch {
+        /* a listener fault must not kill the transport */
+      }
     },
   };
 }
@@ -36,20 +40,44 @@ function createChildTransport(binaryPath, cwd) {
   return {
     kind: 'child',
     child,
-    write(text) { child.stdin.write(text); },
-    end() { try { child.stdin?.end?.(); } catch { /* already closed */ } },
-    kill(signal) { try { child.kill(signal); } catch { /* already gone */ } },
+    write(text) {
+      child.stdin.write(text);
+    },
+    end() {
+      try {
+        child.stdin?.end?.();
+      } catch {
+        /* already closed */
+      }
+    },
+    kill(signal) {
+      try {
+        child.kill(signal);
+      } catch {
+        /* already gone */
+      }
+    },
     ref() {
       for (const handle of [child, child.stdin, child.stdout, child.stderr]) {
-        try { handle?.ref?.(); } catch { /* detached handle */ }
+        try {
+          handle?.ref?.();
+        } catch {
+          /* detached handle */
+        }
       }
     },
     unref() {
       for (const handle of [child, child.stdin, child.stdout, child.stderr]) {
-        try { handle?.unref?.(); } catch { /* detached handle */ }
+        try {
+          handle?.unref?.();
+        } catch {
+          /* detached handle */
+        }
       }
     },
-    on(name, handler) { handlers[name] = handler; },
+    on(name, handler) {
+      handlers[name] = handler;
+    },
   };
 }
 

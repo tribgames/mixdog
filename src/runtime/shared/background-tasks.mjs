@@ -8,11 +8,7 @@ import {
 import { presentErrorText, errorLine } from './err-text.mjs';
 import { clean } from './clean.mjs';
 
-export {
-  TOOL_ASYNC_EXECUTION_CONTRACT,
-  TOOL_MANUAL_CONTROL_CONTRACT,
-  TOOL_SYNC_EXECUTION_CONTRACT,
-};
+export { TOOL_ASYNC_EXECUTION_CONTRACT, TOOL_MANUAL_CONTROL_CONTRACT, TOOL_SYNC_EXECUTION_CONTRACT };
 
 const TASK_TTL_MS = 30 * 60_000;
 const MAX_TASKS = 300;
@@ -31,7 +27,10 @@ export function taskIdFromArgs(args = {}) {
 
 function nextTaskId(surface) {
   seq += 1;
-  const safe = clean(surface).toLowerCase().replace(/[^a-z0-9_-]+/g, '_') || 'tool';
+  const safe =
+    clean(surface)
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '_') || 'tool';
   return `task_${safe}_${Date.now().toString(36)}_${seq.toString(36)}`;
 }
 
@@ -45,9 +44,7 @@ function normalizeStatus(status) {
 }
 
 function normalizeTaskScope(options = {}) {
-  const source = options.context && typeof options.context === 'object'
-    ? { ...options.context, ...options }
-    : options;
+  const source = options.context && typeof options.context === 'object' ? { ...options.context, ...options } : options;
   const ctx = normalizeToolNotifyContext(source);
   return {
     callerSessionId: ctx.callerSessionId || null,
@@ -103,7 +100,8 @@ function taskMatchesScope(task, options = {}, { includeUnattributed = true } = {
   if (!task) return false;
   const scope = normalizeTaskScope(options);
   if (!hasScopeCriteria(scope)) return true;
-  const taskSessionId = task.ownerSessionId || task.notifyContext?.callerSessionId || task.notifyContext?.routingSessionId || null;
+  const taskSessionId =
+    task.ownerSessionId || task.notifyContext?.callerSessionId || task.notifyContext?.routingSessionId || null;
   const taskClientHostPid = task.clientHostPid || task.notifyContext?.clientHostPid || null;
   // Legacy/unattributed tasks remain visible so old async jobs are still recoverable.
   if (!taskSessionId && !taskClientHostPid) return includeUnattributed;
@@ -161,9 +159,10 @@ export function registerBackgroundTask({
   }
   const registeredAt = Date.now();
   const requestedStart = Number(startedAtMs);
-  const now = Number.isFinite(requestedStart) && requestedStart > 0
-    ? Math.min(registeredAt, Math.floor(requestedStart))
-    : registeredAt;
+  const now =
+    Number.isFinite(requestedStart) && requestedStart > 0
+      ? Math.min(registeredAt, Math.floor(requestedStart))
+      : registeredAt;
   const notifyContext = normalizeToolNotifyContext(context);
   const task = {
     taskId: id,
@@ -228,10 +227,12 @@ export function getBackgroundTask(taskId, options = {}) {
 export function hasActiveBackgroundTasks(options = {}) {
   pruneTasks(options);
   const wanted = clean(options.surface);
-  return [...tasks.values()].some((task) =>
-    task.status === 'running'
-    && (!wanted || task.surface === wanted)
-    && taskMatchesScope(task, options, { includeUnattributed: false }));
+  return [...tasks.values()].some(
+    (task) =>
+      task.status === 'running' &&
+      (!wanted || task.surface === wanted) &&
+      taskMatchesScope(task, options, { includeUnattributed: false })
+  );
 }
 
 export function listBackgroundTasks(options = {}) {
@@ -246,9 +247,10 @@ export function listBackgroundTasks(options = {}) {
 
 export function cleanupBackgroundTasks(options = {}) {
   const wanted = clean(options.surface);
-  const countForSurface = () => wanted
-    ? [...tasks.values()].filter((task) => task.surface === wanted && taskMatchesScope(task, options)).length
-    : [...tasks.values()].filter((task) => taskMatchesScope(task, options)).length;
+  const countForSurface = () =>
+    wanted
+      ? [...tasks.values()].filter((task) => task.surface === wanted && taskMatchesScope(task, options)).length
+      : [...tasks.values()].filter((task) => taskMatchesScope(task, options)).length;
   const before = countForSurface();
   pruneTasks(options);
   const after = countForSurface();
@@ -259,7 +261,9 @@ export function cancelBackgroundTask(taskId, reason = 'cancelled') {
   const task = getBackgroundTask(taskId);
   if (!task) return null;
   if (!TERMINAL_STATUSES.has(task.status)) {
-    try { task.cancel?.(); } catch {}
+    try {
+      task.cancel?.();
+    } catch {}
     completeBackgroundTask(task.taskId, { status: 'cancelled', error: reason, notify: false });
   }
   return task;
@@ -276,7 +280,9 @@ export function cancelBackgroundTasks(options = {}) {
     // to close first.
     if (!taskMatchesScope(task, options, { includeUnattributed: false })) continue;
     if (TERMINAL_STATUSES.has(task.status)) continue;
-    try { task.cancel?.(); } catch {}
+    try {
+      task.cancel?.();
+    } catch {}
     completeBackgroundTask(task.taskId, { status: 'cancelled', error: reason, notify: options.notify === true });
     cancelled += 1;
   }
@@ -305,25 +311,32 @@ function resultTextForTask(task) {
       } catch (err) {
         // Don't silently swallow a renderer throw: fall through to the JSON
         // fallback below so the completion notification still carries a body.
-        try { process.stderr.write(`[background-${task.surface}] renderResult failed: ${err?.message || err}\n`); } catch {}
+        try {
+          process.stderr.write(`[background-${task.surface}] renderResult failed: ${err?.message || err}\n`);
+        } catch {}
       }
     }
     if (typeof task.result === 'string') return task.result;
-    try { return JSON.stringify(task.result, null, 2); } catch {}
+    try {
+      return JSON.stringify(task.result, null, 2);
+    } catch {}
   }
   return '';
 }
 
-export function completeBackgroundTask(taskId, {
-  status = 'completed',
-  result,
-  resultText,
-  error,
-  resultType,
-  instruction,
-  notify = true,
-  terminalReason = null,
-} = {}) {
+export function completeBackgroundTask(
+  taskId,
+  {
+    status = 'completed',
+    result,
+    resultText,
+    error,
+    resultType,
+    instruction,
+    notify = true,
+    terminalReason = null,
+  } = {}
+) {
   const task = getBackgroundTask(taskId);
   if (!task) return null;
   if (TERMINAL_STATUSES.has(task.status)) return task;
@@ -393,14 +406,10 @@ export function notifyTaskCompletion(task, instruction) {
 // post-result step (session save) hung or threw before the task promise could
 // settle — this forces the task to a terminal state and fires the completion
 // notification. Idempotent: a no-op once the task is already terminal.
-export function reconcileBackgroundTask(taskId, {
-  status = 'completed',
-  result,
-  resultText,
-  error,
-  instruction,
-  terminalReason = 'reconciled',
-} = {}) {
+export function reconcileBackgroundTask(
+  taskId,
+  { status = 'completed', result, resultText, error, instruction, terminalReason = 'reconciled' } = {}
+) {
   const task = getBackgroundTask(taskId);
   if (!task) return null;
   if (TERMINAL_STATUSES.has(task.status)) {
@@ -457,9 +466,10 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
   // stdout/stderr log paths differ only by suffix — collapse to one line.
   const _so = typeof visibleMeta.stdout === 'string' ? visibleMeta.stdout : null;
   const _se = typeof visibleMeta.stderr === 'string' ? visibleMeta.stderr : null;
-  const logsBase = _so && _se && _so.endsWith('.stdout.log') && _se.endsWith('.stderr.log')
-    && _so.slice(0, -11) === _se.slice(0, -11)
-    ? _so.slice(0, -11) : null;
+  const logsBase =
+    _so && _se && _so.endsWith('.stdout.log') && _se.endsWith('.stderr.log') && _so.slice(0, -11) === _se.slice(0, -11)
+      ? _so.slice(0, -11)
+      : null;
   for (const [key, value] of Object.entries(visibleMeta)) {
     if (key === 'task_id' || key === 'surface' || key === 'operation') continue;
     if (logsBase && (key === 'stdout' || key === 'stderr')) continue;
@@ -487,6 +497,9 @@ export function renderBackgroundTaskList(options = {}) {
   if (!rows.length) return 'background tasks: 0';
   return [
     `background tasks: ${rows.length}`,
-    ...rows.map((task) => `- ${task.task_id} ${task.surface}/${task.operation} ${task.status}${task.label ? ` label=${task.label}` : ''}${task.error ? ` error=${task.error}` : ''}`),
+    ...rows.map(
+      (task) =>
+        `- ${task.task_id} ${task.surface}/${task.operation} ${task.status}${task.label ? ` label=${task.label}` : ''}${task.error ? ` error=${task.error}` : ''}`
+    ),
   ].join('\n');
 }

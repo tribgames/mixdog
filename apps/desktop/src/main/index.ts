@@ -4,7 +4,18 @@ import { constants as osConstants, freemem, homedir, setPriority, totalmem } fro
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { app, BrowserWindow, crashReporter, dialog, ipcMain, powerMonitor, powerSaveBlocker, screen, session, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  crashReporter,
+  dialog,
+  ipcMain,
+  powerMonitor,
+  powerSaveBlocker,
+  screen,
+  session,
+  shell,
+} from 'electron';
 
 import type { DesktopService } from './desktop-service-contract';
 import { DesktopServiceClient } from './desktop-service-client';
@@ -26,10 +37,7 @@ import {
 import { registerDesktopIpc } from './ipc';
 import { createBrowserHost, type BrowserHost } from './browser/host';
 import { createComputerHost, type ComputerHost } from './computer';
-import {
-  createComputerUseOverlay,
-  type ComputerUseOverlay,
-} from './computer/overlay';
+import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
 import { desktopPermissionAllowed } from './permission-policy';
@@ -53,7 +61,8 @@ import {
 } from '../shared/contract';
 import { persistWindowState, readWindowState } from './window-state';
 import {
-  normalizeTranscriptReadDiagnostic, setTranscriptReadDiagnosticSink,
+  normalizeTranscriptReadDiagnostic,
+  setTranscriptReadDiagnosticSink,
 } from '../shared/transcript-read-diagnostics';
 import {
   normalizeRendererComposerActionDiagnostic,
@@ -69,14 +78,18 @@ const desktopProcessStartedAt = Date.now();
 // "A JavaScript error occurred in the main process" dialog. Logging is never
 // worth a crash, so dead-pipe writes fail silently.
 for (const stream of [process.stdout, process.stderr]) {
-  stream?.on?.('error', () => { /* dead stdio pipe: logging is best-effort */ });
+  stream?.on?.('error', () => {
+    /* dead stdio pipe: logging is best-effort */
+  });
 }
 // V8 compile cache for the main process's dynamic imports (remote access,
 // dialogs) and the daemon service adapter. Best-effort no-op when the
 // running Node build lacks the API.
 try {
   (nodeModule as { enableCompileCache?: () => unknown }).enableCompileCache?.();
-} catch { /* launch-speed optimization only */ }
+} catch {
+  /* launch-speed optimization only */
+}
 const desktopBootId = `${desktopProcessStartedAt.toString(36)}-${process.pid.toString(36)}`;
 const desktopBootScenario = String(process.env.MIXDOG_BOOT_SCENARIO || '')
   .replace(/[^A-Za-z0-9_.:-]/g, '')
@@ -132,8 +145,16 @@ if (app.isPackaged) {
   const graphPath = join(nativeToolsDir, `mixdog-graph${executableSuffix}`);
   const nativeOverrides = [
     { kind: 'graph', names: ['MIXDOG_GRAPH_BIN', 'MIXDOG_SEARCH_SERVER_BIN'], path: graphPath },
-    { kind: 'patch', names: ['MIXDOG_PATCH_NATIVE_BIN'], path: join(nativeToolsDir, `mixdog-patch${executableSuffix}`) },
-    { kind: 'spawn', names: ['MIXDOG_SPAWN_SERVER_BIN'], path: join(nativeToolsDir, `mixdog-spawn${executableSuffix}`) },
+    {
+      kind: 'patch',
+      names: ['MIXDOG_PATCH_NATIVE_BIN'],
+      path: join(nativeToolsDir, `mixdog-patch${executableSuffix}`),
+    },
+    {
+      kind: 'spawn',
+      names: ['MIXDOG_SPAWN_SERVER_BIN'],
+      path: join(nativeToolsDir, `mixdog-spawn${executableSuffix}`),
+    },
   ];
   const bundledKinds = [];
   for (const { kind, names, path } of nativeOverrides) {
@@ -157,10 +178,7 @@ const gpuFallbackEnvironment: GpuFallbackEnvironment = {
   electronVersion: process.versions.electron || '',
   platform: process.platform,
 };
-const gpuFallbackMarker = readActiveGpuFallbackMarker(
-  app.getPath('userData'),
-  gpuFallbackEnvironment,
-);
+const gpuFallbackMarker = readActiveGpuFallbackMarker(app.getPath('userData'), gpuFallbackEnvironment);
 const softwareRenderingThisLaunch = Boolean(gpuFallbackMarker);
 if (softwareRenderingThisLaunch) {
   // Electron requires this before app.whenReady(). The marker is scoped to the
@@ -192,9 +210,10 @@ if (process.platform === 'win32') {
 // (see main/idle-reclaim.ts). MIXDOG_RENDERER_HEAP_MB overrides; 0 restores
 // V8's own default sizing.
 const configuredRendererHeapMb = Number(process.env.MIXDOG_RENDERER_HEAP_MB);
-const rendererHeapMb = Number.isFinite(configuredRendererHeapMb) && configuredRendererHeapMb >= 0
-  ? Math.floor(configuredRendererHeapMb)
-  : 768;
+const rendererHeapMb =
+  Number.isFinite(configuredRendererHeapMb) && configuredRendererHeapMb >= 0
+    ? Math.floor(configuredRendererHeapMb)
+    : 768;
 if (rendererHeapMb > 0) {
   app.commandLine.appendSwitch('js-flags', `--max-old-space-size=${rendererHeapMb}`);
 }
@@ -223,8 +242,7 @@ if (process.env.MIXDOG_DESKTOP_PERF === '1') {
   void (async () => {
     // ESM namespace exports are read-only; patch the mutable CJS exports object.
     const { createRequire } = await import('node:module');
-    const cp = createRequire(import.meta.url)('node:child_process') as
-      typeof import('node:child_process');
+    const cp = createRequire(import.meta.url)('node:child_process') as typeof import('node:child_process');
     const { appendFile } = await import('node:fs/promises');
     let writeQueue: Promise<void> = Promise.resolve();
     const wrap = <K extends 'spawnSync' | 'execSync' | 'execFileSync'>(name: K) => {
@@ -236,16 +254,17 @@ if (process.env.MIXDOG_DESKTOP_PERF === '1') {
         } finally {
           const ms = Date.now() - started;
           if (ms >= 150) {
-            const caller = (new Error().stack || '').split('\n').slice(2, 5)
-              .map((line) => line.trim()).join(' <- ');
-            const entry =
-              `${new Date().toISOString()} main-sync-spawn ${name} ms=${ms} cmd=${String(values[0] ?? '')} by=${caller}\n`;
+            const caller = (new Error().stack || '')
+              .split('\n')
+              .slice(2, 5)
+              .map((line) => line.trim())
+              .join(' <- ');
+            const entry = `${new Date().toISOString()} main-sync-spawn ${name} ms=${ms} cmd=${String(values[0] ?? '')} by=${caller}\n`;
             writeQueue = writeQueue
-              .then(() => appendFile(
-                join(app.getPath('userData'), 'desktop-perf.log'),
-                entry,
-              ))
-              .catch(() => { /* diagnostics only */ });
+              .then(() => appendFile(join(app.getPath('userData'), 'desktop-perf.log'), entry))
+              .catch(() => {
+                /* diagnostics only */
+              });
           }
         }
       };
@@ -261,22 +280,13 @@ if (process.env.MIXDOG_DESKTOP_PERF === '1') {
     const installed = [wrap('spawnSync'), wrap('execSync'), wrap('execFileSync')].some(Boolean);
     if (!installed) console.warn('Mixdog desktop sync-spawn diagnostics disabled: exports are read-only.');
   })().catch((error) => {
-    console.warn(
-      'Mixdog desktop sync-spawn diagnostics disabled:',
-      error instanceof Error ? error.name : 'Error',
-    );
+    console.warn('Mixdog desktop sync-spawn diagnostics disabled:', error instanceof Error ? error.name : 'Error');
   });
 }
 
 function desktopServiceModuleUrl(): string {
   const modulePath = app.isPackaged
-    ? join(
-      process.resourcesPath,
-      'app.asar.unpacked',
-      'out',
-      'main',
-      'daemon.cjs',
-    )
+    ? join(process.resourcesPath, 'app.asar.unpacked', 'out', 'main', 'daemon.cjs')
     : join(__dirname, 'daemon.cjs');
   const moduleUrl = pathToFileURL(modulePath);
   let artifact = app.getVersion();
@@ -293,10 +303,7 @@ function desktopServiceModuleUrl(): string {
 let diagnostics: DesktopDiagnostics | null = null;
 const earlyDiagnostics: Array<{ event: string; entry: Record<string, unknown>; at: string }> = [];
 const serviceClient = new DesktopServiceClient({
-  connect: () => new SessionTransport(
-    desktopServiceModuleUrl(),
-    process.cwd(),
-  ),
+  connect: () => new SessionTransport(desktopServiceModuleUrl(), process.cwd()),
   sessionOptions: () => ({
     userDataPath: app.getPath('userData'),
     packaged: app.isPackaged,
@@ -308,13 +315,17 @@ const serviceClient = new DesktopServiceClient({
   }),
   initialSnapshot: readDesktopModelBootstrapSnapshot(),
   onDiagnostic: (event, data) => {
-    const entry = event === 'desktop-transport-error'
-      ? {
-        type: String(data.type || ''),
-        detail: String(data.detail || '').replace(/\s+/g, ' ').trim().slice(0, 500),
-        generation: Number(data.generation) || 0,
-      }
-      : data;
+    const entry =
+      event === 'desktop-transport-error'
+        ? {
+            type: String(data.type || ''),
+            detail: String(data.detail || '')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, 500),
+            generation: Number(data.generation) || 0,
+          }
+        : data;
     // The daemon handshake starts before app.whenReady opens the sink: its
     // first phases (client import, discovery probe, spawn) are exactly the
     // ones a boot investigation needs, so they wait here and flush in order.
@@ -349,7 +360,8 @@ function reportDaemonServiceStart(): void {
 function startDaemonService(): void {
   if (!daemonServiceStartedAt) daemonServiceStartedAt = Date.now();
   reportDaemonServiceStart();
-  void serviceClient.start()
+  void serviceClient
+    .start()
     .then(() => {
       diagnostics?.write('daemon-service-ready', {
         totalMs: Date.now() - desktopProcessStartedAt,
@@ -400,7 +412,7 @@ const serviceTerminalManager = {
   async ensure(
     id: string | null,
     cwd: string | null,
-    profile?: import('./terminal-contract').TerminalSpawnProfile | string | null,
+    profile?: import('./terminal-contract').TerminalSpawnProfile | string | null
   ): Promise<{ id: string; replay: string }> {
     const value = await serviceClient.invokeDesktopOperation('termEnsure', [id, cwd, profile ?? null]);
     if (!value || typeof value !== 'object') {
@@ -470,41 +482,33 @@ unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value
     return;
   }
   if (name === 'browser-remote-request') {
-    const request = value && typeof value === 'object'
-      ? value as { id?: unknown; method?: unknown; args?: unknown }
-      : {};
+    const request =
+      value && typeof value === 'object' ? (value as { id?: unknown; method?: unknown; args?: unknown }) : {};
     const id = typeof request.id === 'string' ? request.id : '';
-    const method = request.method === 'frame'
-      || request.method === 'control'
-      || request.method === 'release'
-      ? request.method
-      : '';
+    const method =
+      request.method === 'frame' || request.method === 'control' || request.method === 'release' ? request.method : '';
     const args = Array.isArray(request.args) ? request.args : [];
     if (!id || !method) return;
     void (async () => {
       try {
         if (!browserHost) throw new Error('Desktop Browser Use is unavailable.');
         const sessionId = typeof args[0] === 'string' ? args[0] : '';
-        const result = method === 'frame'
-          ? await browserHost.remoteBrowserFrame(
-              sessionId,
-              typeof args[1] === 'string' ? args[1] : '',
-            )
-          : method === 'control'
-            ? await browserHost.remoteBrowserControl(
-                sessionId,
-                args[1] as DesktopRemoteBrowserControl,
-              )
-            : browserHost.releaseSession(sessionId);
-        await serviceClient.invokeDesktopOperation(
-          'browserRemoteResolve',
-          [id, true, result ?? null, null],
-        );
+        const result =
+          method === 'frame'
+            ? await browserHost.remoteBrowserFrame(sessionId, typeof args[1] === 'string' ? args[1] : '')
+            : method === 'control'
+              ? await browserHost.remoteBrowserControl(sessionId, args[1] as DesktopRemoteBrowserControl)
+              : browserHost.releaseSession(sessionId);
+        await serviceClient.invokeDesktopOperation('browserRemoteResolve', [id, true, result ?? null, null]);
       } catch (error) {
-        await serviceClient.invokeDesktopOperation(
-          'browserRemoteResolve',
-          [id, false, null, error instanceof Error ? error.message : String(error)],
-        ).catch(() => {});
+        await serviceClient
+          .invokeDesktopOperation('browserRemoteResolve', [
+            id,
+            false,
+            null,
+            error instanceof Error ? error.message : String(error),
+          ])
+          .catch(() => {});
       }
     })();
     return;
@@ -529,15 +533,18 @@ let gpuFallbackPromptOpen = false;
 
 function currentProcessMemory() {
   try {
-    return app.getAppMetrics().slice(0, 32).map((metric) => ({
-      pid: metric.pid,
-      type: metric.type,
-      name: metric.name,
-      serviceName: metric.serviceName,
-      workingSetKb: metric.memory.workingSetSize,
-      peakWorkingSetKb: metric.memory.peakWorkingSetSize,
-      privateKb: metric.memory.privateBytes,
-    }));
+    return app
+      .getAppMetrics()
+      .slice(0, 32)
+      .map((metric) => ({
+        pid: metric.pid,
+        type: metric.type,
+        name: metric.name,
+        serviceName: metric.serviceName,
+        workingSetKb: metric.memory.workingSetSize,
+        peakWorkingSetKb: metric.memory.peakWorkingSetSize,
+        privateKb: metric.memory.privateBytes,
+      }));
   } catch {
     return [];
   }
@@ -546,7 +553,8 @@ function currentProcessMemory() {
 /** Working set of the renderer processes only, for the idle-reclaim record. */
 function rendererWorkingSetKb(): number {
   try {
-    return app.getAppMetrics()
+    return app
+      .getAppMetrics()
       .filter((metric) => metric.type === 'Tab')
       .reduce((total, metric) => total + (metric.memory?.workingSetSize || 0), 0);
   } catch {
@@ -560,9 +568,7 @@ function currentSystemMemory() {
   return {
     freeKb: Math.round(freeBytes / 1024),
     totalKb: Math.round(totalBytes / 1024),
-    pressurePercent: totalBytes > 0
-      ? Math.round((1 - freeBytes / totalBytes) * 1_000) / 10
-      : 0,
+    pressurePercent: totalBytes > 0 ? Math.round((1 - freeBytes / totalBytes) * 1_000) / 10 : 0,
   };
 }
 
@@ -585,30 +591,41 @@ function startDiagnosticsEventLoopMonitor(): void {
 }
 
 function installDesktopMenu(): void {
-  installNativeMenu(Boolean(process.env.ELECTRON_RENDERER_URL), {
-    reset: () => { void setPersistentZoom(1); },
-    zoomIn: () => { void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) + 0.2); },
-    zoomOut: () => { void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) - 0.2); },
-  }, {
-    // The OS window stays in Electron; the daemon owns both remote transports.
-    showRemoteAccess: () => {
-      void (async () => {
-        const info = await remoteAccessInfo();
-        if (!info) return;
-        const { showRemoteAccessWindow } = await import('./remote-access-window');
-        await showRemoteAccessWindow(info, mainWindow);
-      })().catch((error: unknown) => {
-        console.error('Failed to open the remote access window:', error);
-      });
+  installNativeMenu(
+    Boolean(process.env.ELECTRON_RENDERER_URL),
+    {
+      reset: () => {
+        void setPersistentZoom(1);
+      },
+      zoomIn: () => {
+        void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) + 0.2);
+      },
+      zoomOut: () => {
+        void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) - 0.2);
+      },
     },
-  });
+    {
+      // The OS window stays in Electron; the daemon owns both remote transports.
+      showRemoteAccess: () => {
+        void (async () => {
+          const info = await remoteAccessInfo();
+          if (!info) return;
+          const { showRemoteAccessWindow } = await import('./remote-access-window');
+          await showRemoteAccessWindow(info, mainWindow);
+        })().catch((error: unknown) => {
+          console.error('Failed to open the remote access window:', error);
+        });
+      },
+    }
+  );
 }
 
 function startDeferredDesktopServices(): Promise<void> {
   if (deferredServicesPromise) return deferredServicesPromise;
   const startedAt = Date.now();
   diagnostics?.write('deferred-services-start', {});
-  deferredServicesPromise = host.invokeDesktopOperation('remoteAccessStart', [])
+  deferredServicesPromise = host
+    .invokeDesktopOperation('remoteAccessStart', [])
     .then(() => {
       diagnostics?.write('deferred-services-ready', { durationMs: Date.now() - startedAt });
     })
@@ -619,7 +636,9 @@ function startDeferredDesktopServices(): Promise<void> {
       });
       throw error;
     })
-    .finally(() => { deferredServicesPromise = null; });
+    .finally(() => {
+      deferredServicesPromise = null;
+    });
   return deferredServicesPromise;
 }
 
@@ -661,15 +680,20 @@ function scheduleDeferredDesktopServices(window: BrowserWindow): void {
         console.error('Failed to start deferred Desktop services:', error);
       });
       diagnostics?.write('updater-start', {});
-      startAutoUpdater(async () => {
-        await disposeDesktopResources();
-        quitAfterDispose = true;
-      }, (message, data) => {
-        diagnostics?.write('updater', { message, ...data });
-      });
+      startAutoUpdater(
+        async () => {
+          await disposeDesktopResources();
+          quitAfterDispose = true;
+        },
+        (message, data) => {
+          diagnostics?.write('updater', { message, ...data });
+        }
+      );
     },
     onReady: () => diagnostics?.write('deferred-services-quiet-phase', {}),
-    onCancelled: () => { deferredServicesScheduled = false; },
+    onCancelled: () => {
+      deferredServicesScheduled = false;
+    },
     onError: (error) => {
       diagnostics?.write('deferred-services-schedule-failed', {
         errorName: error instanceof Error ? error.name : typeof error,
@@ -738,13 +762,17 @@ function handleGpuChildCrash(reason: string, exitCode: number): void {
   gpuCrashTimes = decision.crashes;
   if (decision.action !== 'engage' || process.platform !== 'win32') return;
   try {
-    writeGpuFallbackMarker(app.getPath('userData'), {
-      engagedAt: Date.now(),
-      crashesInWindow: decision.crashes.length,
-    }, {
-      ...gpuFallbackEnvironment,
-      platform: 'win32',
-    });
+    writeGpuFallbackMarker(
+      app.getPath('userData'),
+      {
+        engagedAt: Date.now(),
+        crashesInWindow: decision.crashes.length,
+      },
+      {
+        ...gpuFallbackEnvironment,
+        platform: 'win32',
+      }
+    );
   } catch (error) {
     diagnostics?.write('gpu-fallback-persist-failed', {
       errorName: error instanceof Error ? error.name : typeof error,
@@ -770,24 +798,25 @@ function handleGpuChildCrash(reason: string, exitCode: number): void {
     noLink: true,
   };
   const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-  const prompt = parent
-    ? dialog.showMessageBox(parent, options)
-    : dialog.showMessageBox(options);
-  void prompt.then(({ response }) => {
-    if (response !== 0 || quitAfterDispose) {
-      diagnostics?.write('gpu-fallback-restart-deferred');
-      return;
-    }
-    diagnostics?.write('gpu-fallback-restart');
-    app.relaunch();
-    app.quit();
-  }).catch((error: unknown) => {
-    diagnostics?.write('gpu-fallback-prompt-failed', {
-      errorName: error instanceof Error ? error.name : typeof error,
+  const prompt = parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options);
+  void prompt
+    .then(({ response }) => {
+      if (response !== 0 || quitAfterDispose) {
+        diagnostics?.write('gpu-fallback-restart-deferred');
+        return;
+      }
+      diagnostics?.write('gpu-fallback-restart');
+      app.relaunch();
+      app.quit();
+    })
+    .catch((error: unknown) => {
+      diagnostics?.write('gpu-fallback-prompt-failed', {
+        errorName: error instanceof Error ? error.name : typeof error,
+      });
+    })
+    .finally(() => {
+      gpuFallbackPromptOpen = false;
     });
-  }).finally(() => {
-    gpuFallbackPromptOpen = false;
-  });
 }
 
 async function setPersistentZoom(factor: number): Promise<void> {
@@ -822,19 +851,18 @@ async function createWindow(): Promise<void> {
   // Use an explicit runtime icon even in packaged builds. Relying only on the
   // executable's embedded resource leaves the live taskbar button at the mercy
   // of Explorer's stale icon cache after an in-place installer upgrade.
-  const brandIconPath = [
-    ...(app.isPackaged ? [join(process.resourcesPath, 'mixdog.ico')] : []),
-    ...['mixdog.ico', 'mixdog.png'].map((name) => join(app.getAppPath(), 'build', name)),
-  ].find((candidate) => existsSync(candidate)) ?? null;
+  const brandIconPath =
+    [
+      ...(app.isPackaged ? [join(process.resourcesPath, 'mixdog.ico')] : []),
+      ...['mixdog.ico', 'mixdog.png'].map((name) => join(app.getAppPath(), 'build', name)),
+    ].find((candidate) => existsSync(candidate)) ?? null;
   const rendererUrl = developmentUrl
     ? configuredDevelopmentUrl(developmentUrl)
     : new URL(pathToFileURL(packagedRendererPath).href);
   const isAllowedNavigation = (candidate: string): boolean => {
     try {
       const target = new URL(candidate);
-      return developmentUrl
-        ? target.origin === rendererUrl.origin
-        : target.href === rendererUrl.href;
+      return developmentUrl ? target.origin === rendererUrl.origin : target.href === rendererUrl.href;
     } catch {
       return false;
     }
@@ -876,21 +904,24 @@ async function createWindow(): Promise<void> {
   }
   if (process.platform === 'win32' && computerHost && !computerUseOverlay) {
     const overlayComputerHost = computerHost;
-    computerUseOverlay = createComputerUseOverlay({
-      resume: (generation, signal) => overlayComputerHost.resumeAfterTakeover(generation, signal),
-      // Not a button: the overlay pauses input itself when its control
-      // renderer is lost, so the desktop never runs without a Stop control.
-      pause: async () => overlayComputerHost.takeOver('user_pause'),
-      configureIdleResume: (seconds) => overlayComputerHost.configureIdleResume(seconds),
-      // Stop native input immediately, independently of the daemon's turn
-      // cancellation reply. Only both confirmations may clear the pause.
-      async stop(sessionIds) {
-        overlayComputerHost.takeOver('user_stop');
-        await overlayComputerHost.stopAllSessions(
-          confirmComputerTurnsStopped(sessionIds, async (sessionId) => host.abortSession(sessionId)),
-        );
+    computerUseOverlay = createComputerUseOverlay(
+      {
+        resume: (generation, signal) => overlayComputerHost.resumeAfterTakeover(generation, signal),
+        // Not a button: the overlay pauses input itself when its control
+        // renderer is lost, so the desktop never runs without a Stop control.
+        pause: async () => overlayComputerHost.takeOver('user_pause'),
+        configureIdleResume: (seconds) => overlayComputerHost.configureIdleResume(seconds),
+        // Stop native input immediately, independently of the daemon's turn
+        // cancellation reply. Only both confirmations may clear the pause.
+        async stop(sessionIds) {
+          overlayComputerHost.takeOver('user_stop');
+          await overlayComputerHost.stopAllSessions(
+            confirmComputerTurnsStopped(sessionIds, async (sessionId) => host.abortSession(sessionId))
+          );
+        },
       },
-    }, app.getLocale());
+      app.getLocale()
+    );
   }
   computerHost?.setObserveOnly(computerObserveOnly);
   computerHost?.setBridgeEnabled(computerControlEnabled);
@@ -913,7 +944,11 @@ async function createWindow(): Promise<void> {
       if (!window.isDestroyed()) window.flashFrame(flag);
     },
     ...(process.platform === 'darwin'
-      ? { bounceDock: () => { app.dock?.bounce('informational'); } }
+      ? {
+          bounceDock: () => {
+            app.dock?.bounce('informational');
+          },
+        }
       : {}),
   });
   // Background memory reclaim: a heavy session leaves the renderer resident
@@ -973,9 +1008,12 @@ async function createWindow(): Promise<void> {
     window.webContents.reload();
   };
   const onRendererDiagnostic = (event: Electron.IpcMainEvent, payload: unknown) => {
-    if (window.isDestroyed()
-      || event.sender !== window.webContents
-      || event.senderFrame !== window.webContents.mainFrame) return;
+    if (
+      window.isDestroyed() ||
+      event.sender !== window.webContents ||
+      event.senderFrame !== window.webContents.mainFrame
+    )
+      return;
     const transcriptRead = normalizeTranscriptReadDiagnostic(payload);
     if (transcriptRead) {
       diagnostics?.write('renderer-transcript-read', { ...transcriptRead });
@@ -984,8 +1022,8 @@ async function createWindow(): Promise<void> {
     const composerAction = normalizeRendererComposerActionDiagnostic(payload);
     const longTask = composerAction ? null : normalizeRendererLongTaskDiagnostic(payload);
     diagnostics?.write(
-      composerAction ? 'renderer-composer-action' : (longTask ? 'renderer-long-task' : 'renderer-error'),
-      composerAction ?? longTask ?? normalizeRendererDiagnostic(payload),
+      composerAction ? 'renderer-composer-action' : longTask ? 'renderer-long-task' : 'renderer-error',
+      composerAction ?? longTask ?? normalizeRendererDiagnostic(payload)
     );
   };
   ipcMain.on(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
@@ -1006,7 +1044,10 @@ async function createWindow(): Promise<void> {
       sourceId?: string;
     };
     if (details.level !== 'error' || consoleErrorsWritten >= 100) return;
-    const message = String(details.message || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+    const message = String(details.message || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 500);
     if (!message) return;
     const now = Date.now();
     if (now - (consoleErrorSeenAt.get(message) ?? 0) < 10_000) return;
@@ -1015,7 +1056,11 @@ async function createWindow(): Promise<void> {
     consoleErrorsWritten += 1;
     diagnostics?.write('renderer-console-error', {
       message,
-      source: String(details.sourceId || '').split(/[\\/]/).at(-1)?.slice(0, 120) || '',
+      source:
+        String(details.sourceId || '')
+          .split(/[\\/]/)
+          .at(-1)
+          ?.slice(0, 120) || '',
       line: Number(details.lineNumber) || 0,
       totalMs: now - startupStartedAt,
     });
@@ -1065,24 +1110,27 @@ async function createWindow(): Promise<void> {
       setTimeout(reloadRenderer, 250);
       return;
     }
-    if (recovery.action !== 'prompt' || rendererRecoveryPromptOpen
-      || quitAfterDispose || window.isDestroyed()) return;
+    if (recovery.action !== 'prompt' || rendererRecoveryPromptOpen || quitAfterDispose || window.isDestroyed()) return;
     rendererRecoveryPromptOpen = true;
-    void dialog.showMessageBox(window, {
-      type: 'error',
-      title: nativeT('Mixdog needs to recover'),
-      message: nativeT('The interface stopped repeatedly.'),
-      detail: nativeT('Your active task remains in the desktop host. Reload the interface to continue.'),
-      buttons: [nativeT('Reload interface'), nativeT('Close window')],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
-    }).then(({ response }) => {
-      if (response === 0) reloadRenderer();
-      else if (!window.isDestroyed()) window.close();
-    }).catch(() => reloadRenderer()).finally(() => {
-      rendererRecoveryPromptOpen = false;
-    });
+    void dialog
+      .showMessageBox(window, {
+        type: 'error',
+        title: nativeT('Mixdog needs to recover'),
+        message: nativeT('The interface stopped repeatedly.'),
+        detail: nativeT('Your active task remains in the desktop host. Reload the interface to continue.'),
+        buttons: [nativeT('Reload interface'), nativeT('Close window')],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      })
+      .then(({ response }) => {
+        if (response === 0) reloadRenderer();
+        else if (!window.isDestroyed()) window.close();
+      })
+      .catch(() => reloadRenderer())
+      .finally(() => {
+        rendererRecoveryPromptOpen = false;
+      });
   });
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -1104,17 +1152,20 @@ async function createWindow(): Promise<void> {
   const announceVisibleFrame = () => {
     if (window.isDestroyed() || window.webContents.isDestroyed()) return;
     visibleFrameAnnounced = true;
-    void window.webContents.executeJavaScript(`new Promise((resolve) => {
+    void window.webContents
+      .executeJavaScript(`new Promise((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => {
         window.__mixdogWindowShown = true;
         window.dispatchEvent(new Event("mixdog:window-shown"));
         resolve(true);
       }));
-    })`).then(() => {
-      diagnostics?.write('window-visible-frame', {
-        totalMs: Date.now() - startupStartedAt,
-      });
-    }).catch(() => {});
+    })`)
+      .then(() => {
+        diagnostics?.write('window-visible-frame', {
+          totalMs: Date.now() - startupStartedAt,
+        });
+      })
+      .catch(() => {});
   };
   // A renderer navigation/reload wipes window.__mixdogWindowShown, and the
   // one-shot 'mixdog:window-shown' event never repeats, so every surface gate
@@ -1124,8 +1175,8 @@ async function createWindow(): Promise<void> {
   // visible and has published its true first frame — cold start still
   // announces exactly once, from showWhenComposed.
   window.webContents.on('did-finish-load', () => {
-    if (!visibleFrameAnnounced || window.isDestroyed()
-      || window.webContents.isDestroyed() || !window.isVisible()) return;
+    if (!visibleFrameAnnounced || window.isDestroyed() || window.webContents.isDestroyed() || !window.isVisible())
+      return;
     announceVisibleFrame();
   });
   const showWhenComposed = (force = false, reason = 'composed') => {
@@ -1175,7 +1226,7 @@ async function createWindow(): Promise<void> {
   });
   showDeadline = setTimeout(
     () => showWhenComposed(true, 'absolute-deadline'),
-    Math.max(0, DESKTOP_WINDOW_SHOW_DEADLINE_MS - (Date.now() - startupStartedAt)),
+    Math.max(0, DESKTOP_WINDOW_SHOW_DEADLINE_MS - (Date.now() - startupStartedAt))
   );
   showDeadline.unref();
   window.on('closed', () => {
@@ -1216,8 +1267,8 @@ if (!app.requestSingleInstanceLock()) {
   // Mixdog holds the lock. Say so instead of exiting silently.
   if (!app.isPackaged) {
     console.error(
-      'Mixdog desktop: another instance already owns the shared user profile. '
-      + 'Close the running app, or set MIXDOG_DESKTOP_USER_DATA to run an isolated profile.',
+      'Mixdog desktop: another instance already owns the shared user profile. ' +
+        'Close the running app, or set MIXDOG_DESKTOP_USER_DATA to run an isolated profile.'
     );
   }
   app.quit();
@@ -1234,150 +1285,152 @@ if (!app.requestSingleInstanceLock()) {
   // the transport is plain Node and the daemon is a separate process.
   startDaemonService();
 
-  void app.whenReady().then(async () => {
-    const appReadyAt = Date.now();
-    // Windows toast/taskbar identity. Packaged installs get a shortcut whose
-    // AppUserModelID matches, so the taskbar resolves the branded icon. In the
-    // dev/preview shell no such shortcut exists and an explicit AUMID makes
-    // Explorer fall back to electron.exe's stock icon for the taskbar button
-    // (user-reported missing Mixdog icon), so leave the default identity there
-    // and let the BrowserWindow icon brand the button instead.
-    if (process.platform === 'win32' && app.isPackaged) {
-      app.setAppUserModelId('io.mixdog.desktop');
-    }
-    diagnostics = createDesktopDiagnostics(
-      join(app.getPath('userData'), 'logs', 'desktop-diagnostics.jsonl'),
-      {
+  void app
+    .whenReady()
+    .then(async () => {
+      const appReadyAt = Date.now();
+      // Windows toast/taskbar identity. Packaged installs get a shortcut whose
+      // AppUserModelID matches, so the taskbar resolves the branded icon. In the
+      // dev/preview shell no such shortcut exists and an explicit AUMID makes
+      // Explorer fall back to electron.exe's stock icon for the taskbar button
+      // (user-reported missing Mixdog icon), so leave the default identity there
+      // and let the BrowserWindow icon brand the button instead.
+      if (process.platform === 'win32' && app.isPackaged) {
+        app.setAppUserModelId('io.mixdog.desktop');
+      }
+      diagnostics = createDesktopDiagnostics(join(app.getPath('userData'), 'logs', 'desktop-diagnostics.jsonl'), {
         appVersion: app.getVersion(),
         packaged: app.isPackaged,
         bootId: desktopBootId,
         ...(desktopBootScenario ? { scenario: desktopBootScenario } : {}),
-      },
-    );
-    setTranscriptReadDiagnosticSink((entry) => {
-      diagnostics?.write('transcript-read', { ...entry });
-    });
-    diagnostics.write('process-entry', {
-      occurredAt: new Date(desktopProcessStartedAt).toISOString(),
-      totalMs: 0,
-    });
-    diagnostics.write('app-ready', {
-      totalMs: appReadyAt - desktopProcessStartedAt,
-    });
-    reportDaemonServiceStart();
-    for (const { event, entry, at } of earlyDiagnostics.splice(0)) {
-      diagnostics.write(event, { ...entry, occurredAt: at });
-    }
-    diagnostics.write('desktop-start', {
-      totalMs: Date.now() - desktopProcessStartedAt,
-      electronVersion: process.versions.electron,
-      chromeVersion: process.versions.chrome,
-      nodeVersion: process.versions.node,
-      sessionProcess: 'daemon',
-      gpuRendering: softwareRenderingThisLaunch ? 'software-fallback' : 'hardware',
-      crashReporterStatus,
-      ...(crashReporterErrorName ? { crashReporterErrorName } : {}),
-      ...(gpuFallbackMarker
-        ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow }
-        : {}),
-    });
-    // The daemon handshake is already running (started before whenReady);
-    // stamp its start into the timeline now that the sink exists.
-    reportDaemonServiceStart();
-    startDiagnosticsEventLoopMonitor();
-    // Keep-awake + taskbar attention feed on the same session state lane.
-    unsubscribeAwake = host.subscribe((snapshot) => {
-      awakeService.onSnapshot(snapshot);
-      turnAttention?.onSnapshot(snapshot);
-      idleReclaim?.onSnapshot(snapshot);
-    });
-    void settingsStore.read().then(applyDesktopSettings).catch(() => {
-      /* default stays enabled */
-    });
-    powerMonitor.on('resume', () => {
-      // The blocker may have been dropped across sleep; re-assert it, and
-      // redial the relay leg instead of waiting for the ping cycle.
-      awakeService.reevaluate();
-      void host.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
-    });
-    diagnosticsMemoryTimer = setInterval(() => {
-      diagnostics?.write('process-memory', {
-        processes: currentProcessMemory(),
-        systemMemory: currentSystemMemory(),
       });
-    }, 5 * 60 * 1000);
-    diagnosticsMemoryTimer.unref();
-    app.on('child-process-gone', (_event, details) => {
-      diagnostics?.write('child-process-gone', {
-        type: details.type,
-        reason: details.reason,
-        exitCode: details.exitCode,
-        serviceName: details.serviceName,
-        name: details.name,
+      setTranscriptReadDiagnosticSink((entry) => {
+        diagnostics?.write('transcript-read', { ...entry });
       });
-      if (String(details.type).toLowerCase() === 'gpu') {
-        handleGpuChildCrash(details.reason, details.exitCode);
+      diagnostics.write('process-entry', {
+        occurredAt: new Date(desktopProcessStartedAt).toISOString(),
+        totalMs: 0,
+      });
+      diagnostics.write('app-ready', {
+        totalMs: appReadyAt - desktopProcessStartedAt,
+      });
+      reportDaemonServiceStart();
+      for (const { event, entry, at } of earlyDiagnostics.splice(0)) {
+        diagnostics.write(event, { ...entry, occurredAt: at });
       }
-    });
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-      const development = Boolean(process.env.ELECTRON_RENDERER_URL);
-      // GitHub avatar hosts are allowed in img-src for the onboarding /
-      // settings account cards (github.com redirects to avatars host).
-      // media-src mirrors img-src: Studio tiles load from the mixdog-media
-      // byte lane, and older paths still inline data:/blob: URLs, which
-      // default-src 'self' would otherwise block.
-      const policy = development
-        ? `default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; connect-src 'self' ${MEDIA_SCHEME}: ws://127.0.0.1:* ws://localhost:*; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; frame-src 'self' blob: ${MEDIA_SCHEME}:; style-src 'self' 'unsafe-inline'; font-src 'self' data:`
-        : `default-src 'self'; script-src 'self'; connect-src 'self' ${MEDIA_SCHEME}:; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; frame-src 'self' blob: ${MEDIA_SCHEME}:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`;
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          'Content-Security-Policy': [policy],
-        },
+      diagnostics.write('desktop-start', {
+        totalMs: Date.now() - desktopProcessStartedAt,
+        electronVersion: process.versions.electron,
+        chromeVersion: process.versions.chrome,
+        nodeVersion: process.versions.node,
+        sessionProcess: 'daemon',
+        gpuRendering: softwareRenderingThisLaunch ? 'software-fallback' : 'hardware',
+        crashReporterStatus,
+        ...(crashReporterErrorName ? { crashReporterErrorName } : {}),
+        ...(gpuFallbackMarker ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow } : {}),
       });
-    });
-    // Gallery bytes leave the RPC lane here: tiles and clips become ordinary
-    // cacheable, range-able resources fetched straight by the DOM.
-    registerMediaProtocol(host);
-    // Push-to-talk and pairing use getUserMedia. Only the trusted desktop
-    // renderer receives that permission; every other permission fails closed.
-    const trustedPermissionSender = () => {
-      const window = mainWindow;
-      return window && !window.isDestroyed() ? window.webContents : null;
-    };
-    session.defaultSession.setPermissionCheckHandler((webContents, permission) =>
-      desktopPermissionAllowed(permission, webContents, trustedPermissionSender()));
-    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-      const allowed = desktopPermissionAllowed(
-        permission,
-        webContents,
-        trustedPermissionSender(),
-      );
-      if (!allowed) {
-        diagnostics?.write('permission-request', { permission });
-      }
-      callback(allowed);
-    });
-    await createWindow();
-    if (pendingPrimaryActivation) activatePrimaryWindow();
-    installDesktopMenu();
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        void createWindow().catch((error: unknown) => {
-          console.error('Failed to recreate the Mixdog desktop window:', error);
+      // The daemon handshake is already running (started before whenReady);
+      // stamp its start into the timeline now that the sink exists.
+      reportDaemonServiceStart();
+      startDiagnosticsEventLoopMonitor();
+      // Keep-awake + taskbar attention feed on the same session state lane.
+      unsubscribeAwake = host.subscribe((snapshot) => {
+        awakeService.onSnapshot(snapshot);
+        turnAttention?.onSnapshot(snapshot);
+        idleReclaim?.onSnapshot(snapshot);
+      });
+      void settingsStore
+        .read()
+        .then(applyDesktopSettings)
+        .catch(() => {
+          /* default stays enabled */
         });
-      }
+      powerMonitor.on('resume', () => {
+        // The blocker may have been dropped across sleep; re-assert it, and
+        // redial the relay leg instead of waiting for the ping cycle.
+        awakeService.reevaluate();
+        void host.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
+      });
+      diagnosticsMemoryTimer = setInterval(
+        () => {
+          diagnostics?.write('process-memory', {
+            processes: currentProcessMemory(),
+            systemMemory: currentSystemMemory(),
+          });
+        },
+        5 * 60 * 1000
+      );
+      diagnosticsMemoryTimer.unref();
+      app.on('child-process-gone', (_event, details) => {
+        diagnostics?.write('child-process-gone', {
+          type: details.type,
+          reason: details.reason,
+          exitCode: details.exitCode,
+          serviceName: details.serviceName,
+          name: details.name,
+        });
+        if (String(details.type).toLowerCase() === 'gpu') {
+          handleGpuChildCrash(details.reason, details.exitCode);
+        }
+      });
+      session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        const development = Boolean(process.env.ELECTRON_RENDERER_URL);
+        // GitHub avatar hosts are allowed in img-src for the onboarding /
+        // settings account cards (github.com redirects to avatars host).
+        // media-src mirrors img-src: Studio tiles load from the mixdog-media
+        // byte lane, and older paths still inline data:/blob: URLs, which
+        // default-src 'self' would otherwise block.
+        const policy = development
+          ? `default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; connect-src 'self' ${MEDIA_SCHEME}: ws://127.0.0.1:* ws://localhost:*; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; frame-src 'self' blob: ${MEDIA_SCHEME}:; style-src 'self' 'unsafe-inline'; font-src 'self' data:`
+          : `default-src 'self'; script-src 'self'; connect-src 'self' ${MEDIA_SCHEME}:; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; frame-src 'self' blob: ${MEDIA_SCHEME}:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`;
+        callback({
+          responseHeaders: {
+            ...details.responseHeaders,
+            'Content-Security-Policy': [policy],
+          },
+        });
+      });
+      // Gallery bytes leave the RPC lane here: tiles and clips become ordinary
+      // cacheable, range-able resources fetched straight by the DOM.
+      registerMediaProtocol(host);
+      // Push-to-talk and pairing use getUserMedia. Only the trusted desktop
+      // renderer receives that permission; every other permission fails closed.
+      const trustedPermissionSender = () => {
+        const window = mainWindow;
+        return window && !window.isDestroyed() ? window.webContents : null;
+      };
+      session.defaultSession.setPermissionCheckHandler((webContents, permission) =>
+        desktopPermissionAllowed(permission, webContents, trustedPermissionSender())
+      );
+      session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+        const allowed = desktopPermissionAllowed(permission, webContents, trustedPermissionSender());
+        if (!allowed) {
+          diagnostics?.write('permission-request', { permission });
+        }
+        callback(allowed);
+      });
+      await createWindow();
+      if (pendingPrimaryActivation) activatePrimaryWindow();
+      installDesktopMenu();
+      app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+          void createWindow().catch((error: unknown) => {
+            console.error('Failed to recreate the Mixdog desktop window:', error);
+          });
+        }
+      });
+    })
+    .catch((error: unknown) => {
+      diagnostics?.write('desktop-initialize-failed', {
+        errorName: error instanceof Error ? error.name : typeof error,
+        errorCode:
+          typeof error === 'object' && error !== null && 'code' in error
+            ? String((error as NodeJS.ErrnoException).code || '')
+            : '',
+      });
+      console.error('Failed to initialize the Mixdog desktop window:', error);
+      app.quit();
     });
-  }).catch((error: unknown) => {
-    diagnostics?.write('desktop-initialize-failed', {
-      errorName: error instanceof Error ? error.name : typeof error,
-      errorCode: typeof error === 'object' && error !== null && 'code' in error
-        ? String((error as NodeJS.ErrnoException).code || '')
-        : '',
-    });
-    console.error('Failed to initialize the Mixdog desktop window:', error);
-    app.quit();
-  });
 }
 
 app.on('before-quit', (event) => {
@@ -1386,9 +1439,9 @@ app.on('before-quit', (event) => {
   removeIpc?.();
   removeIpc = null;
   void disposeDesktopResources().finally(() => {
-      quitAfterDispose = true;
-      app.quit();
-    });
+    quitAfterDispose = true;
+    app.quit();
+  });
 });
 
 app.on('window-all-closed', () => {

@@ -43,26 +43,21 @@ export class BrowserSessionRegistry {
     const sessionId = this.sessionByGuest.get(guest);
     this.sessionByGuest.delete(guest);
     if (!sessionId || this.activeBySession.get(sessionId) !== guest) return;
-    const fallback = this.visibleGuests(sessionId)[0]
-      ?? [...this.backgroundPages(sessionId).values()].find(page => !page.guest.isDestroyed())?.guest;
+    const fallback =
+      this.visibleGuests(sessionId)[0] ??
+      [...this.backgroundPages(sessionId).values()].find((page) => !page.guest.isDestroyed())?.guest;
     if (fallback) this.activeBySession.set(sessionId, fallback);
     else this.activeBySession.delete(sessionId);
   }
 
-  bindVisibleGuest(
-    sessionId: string,
-    webContentsId: number,
-    active: boolean,
-  ): WebContents | null {
-    const guest = this.visibleOrder.find((candidate) =>
-      !candidate.isDestroyed() && candidate.id === webContentsId) ?? null;
+  bindVisibleGuest(sessionId: string, webContentsId: number, active: boolean): WebContents | null {
+    const guest =
+      this.visibleOrder.find((candidate) => !candidate.isDestroyed() && candidate.id === webContentsId) ?? null;
     if (!guest) return this.liveGuest(sessionId);
 
     const previousSessionId = this.sessionByGuest.get(guest);
-    if (previousSessionId && previousSessionId !== sessionId
-      && this.activeBySession.get(previousSessionId) === guest) {
-      const fallback = this.visibleGuests(previousSessionId)
-        .find((candidate) => candidate !== guest);
+    if (previousSessionId && previousSessionId !== sessionId && this.activeBySession.get(previousSessionId) === guest) {
+      const fallback = this.visibleGuests(previousSessionId).find((candidate) => candidate !== guest);
       if (fallback) this.activeBySession.set(previousSessionId, fallback);
       else this.activeBySession.delete(previousSessionId);
     }
@@ -72,7 +67,7 @@ export class BrowserSessionRegistry {
       this.visibleGuests(sessionId),
       this.activeBySession.get(sessionId) ?? null,
       webContentsId,
-      active,
+      active
     );
     if (selected) this.activeBySession.set(sessionId, selected);
     else this.activeBySession.delete(sessionId);
@@ -90,10 +85,13 @@ export class BrowserSessionRegistry {
   }
 
   guestForSession(sessionId: string, webContentsId: number): WebContents | null {
-    return this.visibleGuests(sessionId).find(guest => guest.id === webContentsId)
-      ?? [...this.backgroundPages(sessionId).values()]
-        .find(page => !page.guest.isDestroyed() && page.guest.id === webContentsId)?.guest
-      ?? null;
+    return (
+      this.visibleGuests(sessionId).find((guest) => guest.id === webContentsId) ??
+      [...this.backgroundPages(sessionId).values()].find(
+        (page) => !page.guest.isDestroyed() && page.guest.id === webContentsId
+      )?.guest ??
+      null
+    );
   }
 
   currentGuest(sessionId: string): WebContents | null {
@@ -108,9 +106,9 @@ export class BrowserSessionRegistry {
   }
 
   visibleGuests(sessionId?: string): WebContents[] {
-    return this.visibleOrder.filter((guest) =>
-      !guest.isDestroyed()
-      && (sessionId === undefined || this.sessionByGuest.get(guest) === sessionId));
+    return this.visibleOrder.filter(
+      (guest) => !guest.isDestroyed() && (sessionId === undefined || this.sessionByGuest.get(guest) === sessionId)
+    );
   }
 
   waitForGuest(sessionId: string, resolve: GuestWaiter): () => void {
@@ -160,8 +158,8 @@ export class BrowserSessionRegistry {
       this.sessionByGuest.delete(removed.guest);
     }
     if (removed && this.activeBySession.get(sessionId) === removed.guest) {
-      const fallback = this.visibleGuests(sessionId)[0]
-        ?? [...pages.values()].find(page => !page.guest.isDestroyed())?.guest;
+      const fallback =
+        this.visibleGuests(sessionId)[0] ?? [...pages.values()].find((page) => !page.guest.isDestroyed())?.guest;
       if (fallback) this.activeBySession.set(sessionId, fallback);
       else this.activeBySession.delete(sessionId);
     }

@@ -21,6 +21,8 @@ export function preserveGoalStateAfterTurn({
   disposed = false,
   interruptedForSteering = false,
 } = {}) {
-  return cancelled === true
-    && (stale === true || pendingSessionReset === true || disposed === true || interruptedForSteering === true);
+  return (
+    cancelled === true &&
+    (stale === true || pendingSessionReset === true || disposed === true || interruptedForSteering === true)
+  );
 }

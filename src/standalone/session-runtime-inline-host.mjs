@@ -10,11 +10,12 @@ export function createInlineSessionRuntimeHost({
   log = () => {},
   measureBootPhase = async (_phase, task) => await task(),
   loadLocalModule = () => import('../tui/session-local.mjs'),
-  loadAgentGraph = () => Promise.all([
-    import('../runtime/agent/orchestrator/config.mjs'),
-    import('../runtime/agent/orchestrator/providers/registry.mjs'),
-    import('../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs'),
-  ]).then(([config, registry, dispatch]) => ({ config, registry, dispatch })),
+  loadAgentGraph = () =>
+    Promise.all([
+      import('../runtime/agent/orchestrator/config.mjs'),
+      import('../runtime/agent/orchestrator/providers/registry.mjs'),
+      import('../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs'),
+    ]).then(([config, registry, dispatch]) => ({ config, registry, dispatch })),
   warmKeychain = async () => {
     const { default: keychain } = await import('../lib/keychain-cjs.cjs');
     await keychain.prewarmSecrets();
@@ -44,17 +45,14 @@ export function createInlineSessionRuntimeHost({
   }
 
   function localModule() {
-    localModulePromise ??= measured(
-      'session-local-import',
-      async () => {
-        // Runtime initialization reads credentials synchronously. Let the
-        // bounded asynchronous keychain warm-up finish first, otherwise cold
-        // DPAPI reads block the daemon's registration and event-stream routes.
-        await prewarmKeychain();
-        assertOpen();
-        return loadLocalModule();
-      },
-    ).catch((error) => {
+    localModulePromise ??= measured('session-local-import', async () => {
+      // Runtime initialization reads credentials synchronously. Let the
+      // bounded asynchronous keychain warm-up finish first, otherwise cold
+      // DPAPI reads block the daemon's registration and event-stream routes.
+      await prewarmKeychain();
+      assertOpen();
+      return loadLocalModule();
+    }).catch((error) => {
       localModulePromise = null;
       throw error;
     });
@@ -62,18 +60,15 @@ export function createInlineSessionRuntimeHost({
   }
 
   function agentGraph() {
-    agentGraphPromise ??= measured(
-      'agent-dispatch-graph-import',
-      () => {
-        assertOpen();
-        return loadAgentGraph();
-      },
-    ).then(
+    agentGraphPromise ??= measured('agent-dispatch-graph-import', () => {
+      assertOpen();
+      return loadAgentGraph();
+    }).then(
       (graph) => graph,
       (error) => {
         agentGraphPromise = null;
         throw error;
-      },
+      }
     );
     return agentGraphPromise;
   }
@@ -99,7 +94,9 @@ export function createInlineSessionRuntimeHost({
         assertOpen();
         return registry.initProviders(providers);
       })
-      .then(() => { preparedProviderSignature = signature; });
+      .then(() => {
+        preparedProviderSignature = signature;
+      });
     const tracked = pending.finally(() => {
       if (providerPreparePromise === tracked) providerPreparePromise = null;
     });
@@ -137,8 +134,11 @@ export function createInlineSessionRuntimeHost({
       ...(typeof executeAgentControl === 'function' ? { executeAgentControl } : {}),
     });
     if (closed) {
-      try { await runtime.dispose?.('session runtime host is closed'); }
-      catch (error) { log(`late runtime dispose failed: ${error?.message || error}`); }
+      try {
+        await runtime.dispose?.('session runtime host is closed');
+      } catch (error) {
+        log(`late runtime dispose failed: ${error?.message || error}`);
+      }
       assertOpen();
     }
     const record = {
@@ -149,9 +149,7 @@ export function createInlineSessionRuntimeHost({
     const hintedSessionId = String(options.sessionId || '').trim();
     if (hintedSessionId) recordsBySessionId.set(hintedSessionId, record);
 
-    const originalDispose = typeof runtime.dispose === 'function'
-      ? runtime.dispose.bind(runtime)
-      : null;
+    const originalDispose = typeof runtime.dispose === 'function' ? runtime.dispose.bind(runtime) : null;
     runtime.dispose = async (...args) => {
       try {
         return await originalDispose?.(...args);
@@ -237,11 +235,7 @@ export function createInlineSessionRuntimeHost({
     notifySessionCompletion(ownerSessionId, text, meta = {}) {
       if (closed) return false;
       const runtime = ownerRuntime(ownerSessionId);
-      return runtime?.deliverToolCompletion?.(
-        String(ownerSessionId || ''),
-        String(text || ''),
-        meta,
-      ) === true;
+      return runtime?.deliverToolCompletion?.(String(ownerSessionId || ''), String(text || ''), meta) === true;
     },
     async agentSessionAction(sessionId, action, args = []) {
       void sessionId;

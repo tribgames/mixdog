@@ -27,9 +27,17 @@ test('worker capacity counts retiring children until exit without evicting anoth
     spawnProcess: () => {
       const child = new EventEmitter();
       Object.assign(child, {
-        pid: 100 + children.length, killed: false, exitCode: null, signalCode: null,
-        stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
-        kill() { this.killed = true; return true; },
+        pid: 100 + children.length,
+        killed: false,
+        exitCode: null,
+        signalCode: null,
+        stdin: new PassThrough(),
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill() {
+          this.killed = true;
+          return true;
+        },
       });
       children.push(child);
       return child;
@@ -50,7 +58,9 @@ test('worker capacity counts retiring children until exit without evicting anoth
   } finally {
     for (const child of children) {
       child.emit('exit', 0);
-      child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
+      child.stdin.destroy();
+      child.stdout.destroy();
+      child.stderr.destroy();
     }
     pool.removeHostScript();
     await rm(directory, { recursive: true, force: true });

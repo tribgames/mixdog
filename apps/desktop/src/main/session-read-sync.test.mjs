@@ -16,19 +16,23 @@ test('shared session read cursors persist and advance for completion-only reads'
   assert.equal(await metadata.markRead('session-a', 4, false), false);
   assert.equal(await metadata.markRead('session-a', 4, true), true);
 
-  assert.deepEqual(metadata.withReadCursors([{ id: 'session-a' }]), [{
-    id: 'session-a',
-    readMessageCount: 4,
-    readRevision: 2,
-  }]);
+  assert.deepEqual(metadata.withReadCursors([{ id: 'session-a' }]), [
+    {
+      id: 'session-a',
+      readMessageCount: 4,
+      readRevision: 2,
+    },
+  ]);
 
   const reloaded = new DesktopSessionMetadata(() => root);
   await reloaded.load();
-  assert.deepEqual(reloaded.withReadCursors([{ id: 'session-a' }]), [{
-    id: 'session-a',
-    readMessageCount: 4,
-    readRevision: 2,
-  }]);
+  assert.deepEqual(reloaded.withReadCursors([{ id: 'session-a' }]), [
+    {
+      id: 'session-a',
+      readMessageCount: 4,
+      readRevision: 2,
+    },
+  ]);
 
   await reloaded.forget('session-a');
   assert.deepEqual(reloaded.withReadCursors([{ id: 'session-a' }]), [{ id: 'session-a' }]);

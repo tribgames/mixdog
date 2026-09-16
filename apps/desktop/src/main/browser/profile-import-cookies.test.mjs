@@ -18,12 +18,26 @@ test('native cookie report accounts for source entries and categorized omissions
     failures: { decryption: 1, domainMismatch: 1, invalidEncoding: 1, invalidPartition: 1 },
   };
   assert.equal(parseBrowserCookieReport(report), report);
-  assert.equal(parseBrowserCookieReport({
-    version: 2, sourceCount: 0, expired: 0, cookies: [], failures,
-  }).sourceCount, 0);
-  assert.equal(parseBrowserCookieReport({
-    version: 2, sourceCount: 2, expired: 2, cookies: [], failures,
-  }).expired, 2);
+  assert.equal(
+    parseBrowserCookieReport({
+      version: 2,
+      sourceCount: 0,
+      expired: 0,
+      cookies: [],
+      failures,
+    }).sourceCount,
+    0
+  );
+  assert.equal(
+    parseBrowserCookieReport({
+      version: 2,
+      sourceCount: 2,
+      expired: 2,
+      cookies: [],
+      failures,
+    }).expired,
+    2
+  );
 });
 
 test('native cookie reports reject unaccounted or malformed results without echoing secrets', () => {
@@ -44,9 +58,12 @@ test('native cookie reports reject unaccounted or malformed results without echo
     { ...base, sourceCount: 1, cookies: [null] },
     { ...base, sourceCount: 1, cookies: [[]] },
   ]) {
-    assert.throws(() => parseBrowserCookieReport(output), (error) => {
-      assert.doesNotMatch(error.message, /private-token/);
-      return true;
-    });
+    assert.throws(
+      () => parseBrowserCookieReport(output),
+      (error) => {
+        assert.doesNotMatch(error.message, /private-token/);
+        return true;
+      }
+    );
   }
 });

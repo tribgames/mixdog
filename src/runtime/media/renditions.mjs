@@ -15,15 +15,7 @@
  */
 import { spawn } from 'child_process';
 import { randomBytes } from 'crypto';
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'fs';
+import { existsSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
@@ -46,10 +38,10 @@ const FAILED_RENDITION_COOLDOWN_MS = 30_000;
 const MAX_CACHED_RENDITION_BYTES = 4 * 1024 * 1024;
 const DEFAULT_RENDITION_CACHE_MAX_BYTES = 512 * 1024 * 1024;
 const configuredRenditionCacheMaxBytes = Number(process.env.MIXDOG_RENDITION_CACHE_MAX_BYTES);
-const RENDITION_CACHE_MAX_BYTES = Number.isFinite(configuredRenditionCacheMaxBytes)
-  && configuredRenditionCacheMaxBytes >= MAX_CACHED_RENDITION_BYTES
-  ? Math.floor(configuredRenditionCacheMaxBytes)
-  : DEFAULT_RENDITION_CACHE_MAX_BYTES;
+const RENDITION_CACHE_MAX_BYTES =
+  Number.isFinite(configuredRenditionCacheMaxBytes) && configuredRenditionCacheMaxBytes >= MAX_CACHED_RENDITION_BYTES
+    ? Math.floor(configuredRenditionCacheMaxBytes)
+    : DEFAULT_RENDITION_CACHE_MAX_BYTES;
 
 const MEDIA_VARIANTS = Object.keys(SPECS);
 
@@ -60,13 +52,20 @@ export function renditionSpec(variant) {
 
 let sharpPromise;
 async function loadSharp() {
-  sharpPromise ??= import('sharp').then((mod) => {
-    const sharp = mod?.default || mod || null;
-    // Renditions are cached on disk; libvips' in-memory operation cache
-    // (default ~50MB per process) would only duplicate them in native memory.
-    try { sharp?.cache(false); } catch { /* cache stays default */ }
-    return sharp;
-  }, () => null);
+  sharpPromise ??= import('sharp').then(
+    (mod) => {
+      const sharp = mod?.default || mod || null;
+      // Renditions are cached on disk; libvips' in-memory operation cache
+      // (default ~50MB per process) would only duplicate them in native memory.
+      try {
+        sharp?.cache(false);
+      } catch {
+        /* cache stays default */
+      }
+      return sharp;
+    },
+    () => null
+  );
   return sharpPromise;
 }
 
@@ -102,7 +101,9 @@ function cachedRendition(cacheDir, variant, id) {
     try {
       const info = statSync(path);
       if (info.isFile()) return { path, mime, bytes: info.size };
-    } catch { /* absent or evicted mid-lookup */ }
+    } catch {
+      /* absent or evicted mid-lookup */
+    }
   }
   return null;
 }
@@ -111,23 +112,28 @@ function cachedRendition(cacheDir, variant, id) {
 export function removeRenditions(cacheDir, id) {
   for (const variant of MEDIA_VARIANTS) {
     for (const extension of Object.keys(EXTENSION_MIME)) {
-      try { unlinkSync(renditionPath(cacheDir, variant, id, extension)); } catch { /* absent */ }
+      try {
+        unlinkSync(renditionPath(cacheDir, variant, id, extension));
+      } catch {
+        /* absent */
+      }
     }
   }
 }
 
 /** Bound the rebuildable rendition tree by evicting the oldest files first. */
-export function pruneRenditionCache(cacheDir, {
-  maxBytes = RENDITION_CACHE_MAX_BYTES,
-  protectedPath = '',
-} = {}) {
+export function pruneRenditionCache(cacheDir, { maxBytes = RENDITION_CACHE_MAX_BYTES, protectedPath = '' } = {}) {
   const budget = Math.max(0, Math.floor(Number(maxBytes) || 0));
   const rows = [];
   let totalBytes = 0;
   for (const variant of MEDIA_VARIANTS) {
     const dir = join(cacheDir, variant);
     let names;
-    try { names = readdirSync(dir); } catch { continue; }
+    try {
+      names = readdirSync(dir);
+    } catch {
+      continue;
+    }
     for (const name of names) {
       if (!Object.keys(EXTENSION_MIME).some((extension) => name.endsWith(extension))) continue;
       const path = join(dir, name);
@@ -136,17 +142,21 @@ export function pruneRenditionCache(cacheDir, {
         if (!stat.isFile()) continue;
         rows.push({ path, bytes: stat.size, mtimeMs: stat.mtimeMs });
         totalBytes += stat.size;
-      } catch { /* raced with another writer/pruner */ }
+      } catch {
+        /* raced with another writer/pruner */
+      }
     }
   }
-  rows.sort((a, b) => (a.mtimeMs - b.mtimeMs) || a.path.localeCompare(b.path));
+  rows.sort((a, b) => a.mtimeMs - b.mtimeMs || a.path.localeCompare(b.path));
   for (const row of rows) {
     if (totalBytes <= budget) break;
     if (row.path === protectedPath) continue;
     try {
       unlinkSync(row.path);
       totalBytes -= row.bytes;
-    } catch { /* another process already removed it */ }
+    } catch {
+      /* another process already removed it */
+    }
   }
   return { bytes: Math.max(0, totalBytes), entries: rows.length };
 }
@@ -166,10 +176,18 @@ function writeRendition(cacheDir, variant, id, extension, buffer) {
     // Another process may have won the same cache publication race.
     if (!existsSync(path)) throw error;
   } finally {
-    try { unlinkSync(staging); } catch { /* renamed or already removed */ }
+    try {
+      unlinkSync(staging);
+    } catch {
+      /* renamed or already removed */
+    }
   }
   let bytes = buffer.length;
-  try { bytes = statSync(path).size; } catch { /* use written size */ }
+  try {
+    bytes = statSync(path).size;
+  } catch {
+    /* use written size */
+  }
   pruneRenditionCache(cacheDir, { protectedPath: path });
   return { path, mime: EXTENSION_MIME[extension], bytes };
 }
@@ -184,8 +202,7 @@ export function createPriorityScheduler(limit = 2) {
   const pump = () => {
     while (active < concurrency) {
       const foregroundEntry = foreground.shift();
-      const entry = foregroundEntry
-        ?? (backgroundActive < backgroundConcurrency ? background.shift() : null);
+      const entry = foregroundEntry ?? (backgroundActive < backgroundConcurrency ? background.shift() : null);
       if (!entry) return;
       active += 1;
       if (!foregroundEntry) backgroundActive += 1;
@@ -199,11 +216,12 @@ export function createPriorityScheduler(limit = 2) {
         });
     }
   };
-  return (task, priority = 'foreground') => new Promise((resolve, reject) => {
-    const queue = priority === 'background' ? background : foreground;
-    queue.push({ task, resolve, reject });
-    pump();
-  });
+  return (task, priority = 'foreground') =>
+    new Promise((resolve, reject) => {
+      const queue = priority === 'background' ? background : foreground;
+      queue.push({ task, resolve, reject });
+      pump();
+    });
 }
 
 const scheduleRendition = createPriorityScheduler(2);
@@ -235,17 +253,27 @@ function parseDurationSeconds(text) {
 
 export function videoPosterArguments(sourcePath, spec) {
   return [
-    '-hide_banner', '-nostdin',
-    '-i', sourcePath,
+    '-hide_banner',
+    '-nostdin',
+    '-i',
+    sourcePath,
     // The encoded first frame is frequently a black transition. An accurate
     // post-input seek gives generated clips a representative early poster.
-    '-ss', '0.12',
-    '-frames:v', '1',
-    '-vf', `scale='min(${spec.maxEdge},iw)':-2`,
+    '-ss',
+    '0.12',
+    '-frames:v',
+    '1',
+    '-vf',
+    `scale='min(${spec.maxEdge},iw)':-2`,
     // Emit the tile JPEG directly. The old PNG -> sharp -> webp second encode
     // doubled cold-video latency and failed when sharp was unavailable.
-    '-q:v', '4',
-    '-f', 'image2', '-vcodec', 'mjpeg', 'pipe:1',
+    '-q:v',
+    '4',
+    '-f',
+    'image2',
+    '-vcodec',
+    'mjpeg',
+    'pipe:1',
   ];
 }
 
@@ -255,11 +283,10 @@ async function grabVideoFrame(sourcePath, spec) {
   const ffmpeg = await resolveFfmpeg();
   if (!ffmpeg) return null;
   return new Promise((resolve) => {
-    const child = spawn(
-      ffmpeg,
-      videoPosterArguments(sourcePath, spec),
-      { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true },
-    );
+    const child = spawn(ffmpeg, videoPosterArguments(sourcePath, spec), {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
     const chunks = [];
     let total = 0;
     let stderr = '';
@@ -268,7 +295,11 @@ async function grabVideoFrame(sourcePath, spec) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      try { child.kill(); } catch { /* already gone */ }
+      try {
+        child.kill();
+      } catch {
+        /* already gone */
+      }
       resolve(value);
     };
     const timer = setTimeout(() => finish(null), POSTER_TIMEOUT_MS);
@@ -282,7 +313,9 @@ async function grabVideoFrame(sourcePath, spec) {
       }
       chunks.push(chunk);
     });
-    child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk);
+    });
     child.on('error', () => finish(null));
     child.on('close', () => {
       const buffer = Buffer.concat(chunks);
@@ -349,11 +382,9 @@ export async function ensureRendition({
   const key = `${variant}:${id}`;
   pruneFailedRenditions();
   if ((failedUntil.get(key) || 0) > Date.now()) return null;
-  const pending = inflight.get(key)
-    ?? scheduleRendition(
-      () => generate({ id, kind, sourcePath, variant, spec, cacheDir }),
-      priority,
-    )
+  const pending =
+    inflight.get(key) ??
+    scheduleRendition(() => generate({ id, kind, sourcePath, variant, spec, cacheDir }), priority)
       .then((result) => {
         if (result) failedUntil.delete(key);
         else rememberFailedRendition(key);
@@ -363,7 +394,9 @@ export async function ensureRendition({
         rememberFailedRendition(key);
         return null;
       })
-      .finally(() => { inflight.delete(key); });
+      .finally(() => {
+        inflight.delete(key);
+      });
   inflight.set(key, pending);
   return pending;
 }
@@ -371,10 +404,8 @@ export async function ensureRendition({
 /** Persist a small browser-generated fallback so a codec miss is paid once. */
 export function cacheRendition({ id, variant = 'thumb', mime, buffer, cacheDir }) {
   if (!renditionSpec(variant)) return null;
-  const extension = mime === 'image/webp'
-    ? '.webp'
-    : mime === 'image/png' ? '.png'
-      : mime === 'image/jpeg' ? '.jpg' : '';
+  const extension =
+    mime === 'image/webp' ? '.webp' : mime === 'image/png' ? '.png' : mime === 'image/jpeg' ? '.jpg' : '';
   if (!extension || !buffer?.length || buffer.length > MAX_CACHED_RENDITION_BYTES) return null;
   failedUntil.delete(`${variant}:${id}`);
   return writeRendition(cacheDir, variant, id, extension, buffer);

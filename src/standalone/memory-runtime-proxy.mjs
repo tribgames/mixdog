@@ -5,7 +5,12 @@ import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { claimSingletonOwner, handoffSingletonOwner, readSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
+import {
+  claimSingletonOwner,
+  handoffSingletonOwner,
+  readSingletonOwner,
+  releaseSingletonOwner,
+} from '../runtime/shared/singleton-owner.mjs';
 import { readLiveServiceAdvert } from '../runtime/shared/service-discovery.mjs';
 import { isPidAlive, parsePid } from '../runtime/shared/pid-liveness.mjs';
 import { resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
@@ -60,14 +65,14 @@ const MEMORY_CRASH_COOLDOWN_MS = Math.max(0, Number(process.env.MIXDOG_MEMORY_CR
 function isConnResetLikeError(err) {
   const code = String(err?.code || '');
   const msg = String(err?.message || err || '');
-  return code === 'ECONNRESET'
-    || code === 'ECONNREFUSED'
-    || /ECONNRESET|socket hang up/i.test(msg);
+  return code === 'ECONNRESET' || code === 'ECONNREFUSED' || /ECONNRESET|socket hang up/i.test(msg);
 }
 
 function isMemoryWorkerNotReadyError(err) {
   const msg = String(err?.message || err || '');
-  return /memory worker exited before ready|memory worker ready timeout|memory runtime did not become ready|memory worker degraded|memory worker draining/i.test(msg);
+  return /memory worker exited before ready|memory worker ready timeout|memory runtime did not become ready|memory worker degraded|memory worker draining/i.test(
+    msg
+  );
 }
 
 function isTransientMemoryRpcError(err) {
@@ -88,9 +93,11 @@ function isMemoryReadOnlyToolCall(name, args = {}) {
 }
 
 export function prepareMemoryToolArgumentsForWire(name, args = {}) {
-  if (String(name || '').trim() !== 'memory'
-    || String(args?.action || '').trim() !== 'ingest_session'
-    || !Array.isArray(args?.messages)) {
+  if (
+    String(name || '').trim() !== 'memory' ||
+    String(args?.action || '').trim() !== 'ingest_session' ||
+    !Array.isArray(args?.messages)
+  ) {
     return args;
   }
   return {
@@ -120,7 +127,9 @@ export function requestJson({
     let settled = false;
     let req = null;
     const cleanup = () => {
-      try { signal?.removeEventListener?.('abort', onAbort); } catch {}
+      try {
+        signal?.removeEventListener?.('abort', onAbort);
+      } catch {}
     };
     const resolve = (value) => {
       if (settled) return;
@@ -144,44 +153,48 @@ export function requestJson({
       return;
     }
     const payload = body == null ? null : JSON.stringify(body);
-    req = http.request({
-      hostname: '127.0.0.1',
-      port,
-      path,
-      method,
-      headers: {
-        ...headers,
-        ...(payload
-          ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-          : {}),
+    req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path,
+        method,
+        headers: {
+          ...headers,
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+        },
+        timeout: timeoutMs,
       },
-      timeout: timeoutMs,
-    }, (res) => {
-      let data = '';
-      res.setEncoding('utf8');
-      res.on('data', chunk => { data += chunk; });
-      res.on('end', () => {
-        let parsed = null;
-        try { parsed = data ? JSON.parse(data) : null; } catch {}
-        if (res.statusCode && res.statusCode >= 400) {
-          const message = parsed?.error
-            || parsed?.content?.[0]?.text
-            || data
-            || `HTTP ${res.statusCode}`;
-          const error = new Error(message);
-          error.statusCode = res.statusCode;
-          reject(error);
-          return;
-        }
-        resolve(parsed ?? { raw: data });
-      });
-      res.on('error', reject);
-    });
+      (res) => {
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          let parsed = null;
+          try {
+            parsed = data ? JSON.parse(data) : null;
+          } catch {}
+          if (res.statusCode && res.statusCode >= 400) {
+            const message = parsed?.error || parsed?.content?.[0]?.text || data || `HTTP ${res.statusCode}`;
+            const error = new Error(message);
+            error.statusCode = res.statusCode;
+            reject(error);
+            return;
+          }
+          resolve(parsed ?? { raw: data });
+        });
+        res.on('error', reject);
+      }
+    );
     req.on('error', reject);
     req.on('timeout', () => {
       req.destroy(new Error(`memory proxy request timed out: ${method} ${path}`));
     });
-    try { signal?.addEventListener?.('abort', onAbort, { once: true }); } catch {}
+    try {
+      signal?.addEventListener?.('abort', onAbort, { once: true });
+    } catch {}
     if (signal?.aborted) {
       onAbort();
       return;
@@ -191,11 +204,7 @@ export function requestJson({
   });
 }
 
-export function createStandaloneMemoryRuntime({
-  entry,
-  dataDir,
-  cwd = process.cwd(),
-} = {}) {
+export function createStandaloneMemoryRuntime({ entry, dataDir, cwd = process.cwd() } = {}) {
   if (!entry) throw new Error('memory runtime entry is required');
   if (!dataDir) throw new Error('memory runtime dataDir is required');
 
@@ -266,7 +275,9 @@ export function createStandaloneMemoryRuntime({
         body: { clientPid: process.pid },
         timeoutMs: 1500,
       });
-    } catch { /* best-effort; sweep + idle TTL reap us anyway */ }
+    } catch {
+      /* best-effort; sweep + idle TTL reap us anyway */
+    }
   }
 
   function invalidateMemoryRuntimeAfterTransient(err) {
@@ -277,7 +288,9 @@ export function createStandaloneMemoryRuntime({
     const proc = child;
     child = null;
     if (!proc || proc.killed) return;
-    try { proc.kill(); } catch {}
+    try {
+      proc.kill();
+    } catch {}
   }
 
   function shouldRetryMemoryRpcError(err, { readOnlyRpc = false } = {}) {
@@ -309,7 +322,10 @@ export function createStandaloneMemoryRuntime({
     // A dead server pid means the published memory_port is stale — the daemon
     // that owned it is gone. Clearing portCache here (and letting the caller
     // re-claim + respawn) prevents the stale port from wedging recovery.
-    if (ownerPid && !isPidAlive(ownerPid)) { portCache = null; return null; }
+    if (ownerPid && !isPidAlive(ownerPid)) {
+      portCache = null;
+      return null;
+    }
     try {
       const health = await requestJson({ port, path: '/health', timeoutMs: allowStarting ? 2000 : 500 });
       if (health?.status === 'ok' || (allowStarting && health?.status === 'starting')) {
@@ -328,7 +344,9 @@ export function createStandaloneMemoryRuntime({
     if (singletonEnabled) {
       const owner = readSingletonOwner(ownerPath);
       if (owner.owner && !owner.alive) {
-        try { releaseSingletonOwner(ownerPath, parsePid(owner.owner.pid) ?? process.pid); } catch {}
+        try {
+          releaseSingletonOwner(ownerPath, parsePid(owner.owner.pid) ?? process.pid);
+        } catch {}
       }
     }
     return null;
@@ -369,11 +387,17 @@ export function createStandaloneMemoryRuntime({
   async function start() {
     if (portCache) {
       const port = await findLivePort();
-      if (port) { crashState = null; return { running: true, port, mode: 'http-proxy' }; }
+      if (port) {
+        crashState = null;
+        return { running: true, port, mode: 'http-proxy' };
+      }
       portCache = null;
     }
     const existing = await findLivePort();
-    if (existing) { crashState = null; return { running: true, port: existing, mode: 'http-proxy' }; }
+    if (existing) {
+      crashState = null;
+      return { running: true, port: existing, mode: 'http-proxy' };
+    }
     // Persistent crash-loop guard: no live daemon and a recent deterministic
     // spawn crash → fail fast with the cached reason, don't re-fork per call.
     // But a healthy singleton owner may be mid-boot and not yet advertising a
@@ -411,10 +435,15 @@ export function createStandaloneMemoryRuntime({
             try {
               const health = await requestJson({ port: livePort, path: '/health', timeoutMs: 1500 });
               if (health?.status === 'ok') return livePort;
-            } catch { /* dying/unreachable — fall through to reclaim */ }
+            } catch {
+              /* dying/unreachable — fall through to reclaim */
+            }
           }
           const reclaim = claimOwner();
-          if (reclaim.owned) { claim = reclaim; break; }
+          if (reclaim.owned) {
+            claim = reclaim;
+            break;
+          }
           await delay(150);
         }
         if (!claim.owned) {
@@ -468,7 +497,7 @@ export function createStandaloneMemoryRuntime({
         });
       }
       let stderrTail = '';
-      child.stderr?.on('data', chunk => {
+      child.stderr?.on('data', (chunk) => {
         const text = String(chunk || '');
         const trimmed = text.trimEnd();
         if (trimmed) logLine(logPath, trimmed);
@@ -525,9 +554,15 @@ export function createStandaloneMemoryRuntime({
       }
       const port = await waitForPort(15_000);
       crashState = null;
-      try { child.disconnect?.(); } catch {}
-      try { child.unref?.(); } catch {}
-      try { child.stderr?.unref?.(); } catch {}
+      try {
+        child.disconnect?.();
+      } catch {}
+      try {
+        child.unref?.();
+      } catch {}
+      try {
+        child.stderr?.unref?.();
+      } catch {}
       return port;
     })().finally(() => {
       startPromise = null;
@@ -543,20 +578,20 @@ export function createStandaloneMemoryRuntime({
     return { ...started, port };
   }
 
-  async function requestMemoryPath(path, body, {
-    timeoutMs = 30_000,
-    readOnlyRpc = false,
-  } = {}) {
-    return await withTransientMemoryRpcRetry(async () => {
-      const started = await retain();
-      return await requestJson({
-        port: started.port,
-        method: 'POST',
-        path,
-        body,
-        timeoutMs,
-      });
-    }, { readOnlyRpc });
+  async function requestMemoryPath(path, body, { timeoutMs = 30_000, readOnlyRpc = false } = {}) {
+    return await withTransientMemoryRpcRetry(
+      async () => {
+        const started = await retain();
+        return await requestJson({
+          port: started.port,
+          method: 'POST',
+          path,
+          body,
+          timeoutMs,
+        });
+      },
+      { readOnlyRpc }
+    );
   }
 
   async function appendEntry(data = {}) {
@@ -571,9 +606,13 @@ export function createStandaloneMemoryRuntime({
   }
 
   async function recordTraceEvents(events = []) {
-    return await requestMemoryPath('/admin/trace-record', { events }, {
-      timeoutMs: 5_000,
-    });
+    return await requestMemoryPath(
+      '/admin/trace-record',
+      { events },
+      {
+        timeoutMs: 5_000,
+      }
+    );
   }
 
   async function handleToolCall(name, args = {}, signalOrOptions = null) {
@@ -597,51 +636,61 @@ export function createStandaloneMemoryRuntime({
       }).catch(() => {});
     };
     throwIfAborted();
-    try { signal?.addEventListener?.('abort', cancelRemote, { once: true }); } catch {}
     try {
-      return await withTransientMemoryRpcRetry(async () => {
-        throwIfAborted();
-        await start();
-        throwIfAborted();
-        let port = portCache || await findLivePort({ allowStarting: true });
-        if (!port) throw new Error('memory runtime is not available');
-        // ensureClientRegistered may respawn onto a fresh daemon/port; target the
-        // port it hands back so the RPC and registration always hit the same one.
-        port = await ensureClientRegistered(port);
-        if (!port) throw new Error('memory runtime is not available');
-        activePort = port;
-        throwIfAborted();
-        rpcStarted = true;
-        return await requestJson({
-          port,
-          method: 'POST',
-          path: '/api/tool',
-          body: { name, arguments: wireArgs || {} },
-          timeoutMs: Math.max(1000, Number(process.env.MIXDOG_MEMORY_TOOL_TIMEOUT_MS) || 180_000),
-          headers: { 'X-Mixdog-Call-Id': callId },
-          signal,
-        });
-      }, { readOnlyRpc });
+      signal?.addEventListener?.('abort', cancelRemote, { once: true });
+    } catch {}
+    try {
+      return await withTransientMemoryRpcRetry(
+        async () => {
+          throwIfAborted();
+          await start();
+          throwIfAborted();
+          let port = portCache || (await findLivePort({ allowStarting: true }));
+          if (!port) throw new Error('memory runtime is not available');
+          // ensureClientRegistered may respawn onto a fresh daemon/port; target the
+          // port it hands back so the RPC and registration always hit the same one.
+          port = await ensureClientRegistered(port);
+          if (!port) throw new Error('memory runtime is not available');
+          activePort = port;
+          throwIfAborted();
+          rpcStarted = true;
+          return await requestJson({
+            port,
+            method: 'POST',
+            path: '/api/tool',
+            body: { name, arguments: wireArgs || {} },
+            timeoutMs: Math.max(1000, Number(process.env.MIXDOG_MEMORY_TOOL_TIMEOUT_MS) || 180_000),
+            headers: { 'X-Mixdog-Call-Id': callId },
+            signal,
+          });
+        },
+        { readOnlyRpc }
+      );
     } finally {
-      try { signal?.removeEventListener?.('abort', cancelRemote); } catch {}
+      try {
+        signal?.removeEventListener?.('abort', cancelRemote);
+      } catch {}
     }
   }
 
   async function buildSessionCoreMemoryPayload(sessionCwd) {
-    return await withTransientMemoryRpcRetry(async () => {
-      await start();
-      let port = portCache || await findLivePort({ allowStarting: true });
-      if (!port) throw new Error('memory runtime is not available');
-      port = await ensureClientRegistered(port);
-      if (!port) throw new Error('memory runtime is not available');
-      return await requestJson({
-        port,
-        method: 'POST',
-        path: '/session-start/core-memory',
-        body: { cwd: sessionCwd || cwd },
-        timeoutMs: 30_000,
-      });
-    }, { readOnlyRpc: true });
+    return await withTransientMemoryRpcRetry(
+      async () => {
+        await start();
+        let port = portCache || (await findLivePort({ allowStarting: true }));
+        if (!port) throw new Error('memory runtime is not available');
+        port = await ensureClientRegistered(port);
+        if (!port) throw new Error('memory runtime is not available');
+        return await requestJson({
+          port,
+          method: 'POST',
+          path: '/session-start/core-memory',
+          body: { cwd: sessionCwd || cwd },
+          timeoutMs: 30_000,
+        });
+      },
+      { readOnlyRpc: true }
+    );
   }
 
   async function stop({ waitForExit = false, timeoutMs = 10_000 } = {}) {
@@ -649,26 +698,32 @@ export function createStandaloneMemoryRuntime({
     // seconds-scale client grace once no clients remain, then detach. We never
     // hard-kill the daemon here — another tab/session may still be using it.
     const ownedChild = child;
-    const childExit = waitForExit && ownedChild && ownedChild.exitCode == null
-      ? new Promise((resolveExit, rejectExit) => {
-          const onExit = (code, signal) => {
-            clearTimeout(timer);
-            if (code === 0) resolveExit(true);
-            else rejectExit(new Error(
-              `memory runtime exited unsuccessfully (${signal || code || 'unknown'})`,
-            ));
-          };
-          const timer = setTimeout(() => {
-            ownedChild.off('exit', onExit);
-            rejectExit(new Error(`memory runtime did not exit within ${timeoutMs}ms`));
-          }, Math.max(1, Number(timeoutMs) || 10_000));
-          ownedChild.once('exit', onExit);
-        })
-      : null;
+    const childExit =
+      waitForExit && ownedChild && ownedChild.exitCode == null
+        ? new Promise((resolveExit, rejectExit) => {
+            const onExit = (code, signal) => {
+              clearTimeout(timer);
+              if (code === 0) resolveExit(true);
+              else rejectExit(new Error(`memory runtime exited unsuccessfully (${signal || code || 'unknown'})`));
+            };
+            const timer = setTimeout(
+              () => {
+                ownedChild.off('exit', onExit);
+                rejectExit(new Error(`memory runtime did not exit within ${timeoutMs}ms`));
+              },
+              Math.max(1, Number(timeoutMs) || 10_000)
+            );
+            ownedChild.once('exit', onExit);
+          })
+        : null;
     await deregisterClient();
     if (childExit) await childExit;
-    try { child?.disconnect?.(); } catch {}
-    try { child?.unref?.(); } catch {}
+    try {
+      child?.disconnect?.();
+    } catch {}
+    try {
+      child?.unref?.();
+    } catch {}
     child = null;
     return true;
   }

@@ -11,12 +11,7 @@ import v8 from 'node:v8';
 
 export const DAEMON_TELEMETRY_INTERVAL_MS = 30_000;
 
-const WORK_KEYS = Object.freeze([
-  'activeCalls',
-  'queuedCalls',
-  'busySessions',
-  'busyMemoryAgents',
-]);
+const WORK_KEYS = Object.freeze(['activeCalls', 'queuedCalls', 'busySessions', 'busyMemoryAgents']);
 const REASONS = new Set(['boot', 'periodic']);
 
 function nonNegativeInt(value) {
@@ -38,7 +33,9 @@ function timestamp(now) {
       const parsed = new Date(value);
       if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
     }
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
   return new Date().toISOString();
 }
 
@@ -132,7 +129,11 @@ export function createDaemonTelemetry({
   function emit(reason = 'periodic') {
     try {
       let work = {};
-      try { work = getWork(); } catch { work = {}; }
+      try {
+        work = getWork();
+      } catch {
+        work = {};
+      }
       const record = collectDaemonTelemetry({
         now,
         pid,
@@ -149,7 +150,11 @@ export function createDaemonTelemetry({
 
   function tick() {
     emit('periodic');
-    try { onInterval?.(); } catch { /* lag probes must not kill the sample loop */ }
+    try {
+      onInterval?.();
+    } catch {
+      /* lag probes must not kill the sample loop */
+    }
   }
 
   function start(intervalMs = DAEMON_TELEMETRY_INTERVAL_MS) {

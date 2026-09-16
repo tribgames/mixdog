@@ -24,11 +24,7 @@ import {
   verticalOffset,
   caretPosition,
 } from '../input-editing.mjs';
-import {
-  sliceVisualRowWindow,
-  textEntryReservedRows,
-  wrappedTextRows,
-} from '../app/text-layout.mjs';
+import { sliceVisualRowWindow, textEntryReservedRows, wrappedTextRows } from '../app/text-layout.mjs';
 import { canSubmitTextEntry } from '../app/text-entry-policy.mjs';
 
 function insertText(draft, input) {
@@ -44,7 +40,9 @@ function renderSelectedText(displayValue, range, trailingSpace = false) {
     <>
       {start > 0 ? displayValue.slice(0, start) : null}
       {end > start ? (
-        <Text color={theme.selectionText} backgroundColor={theme.selectionBackground}>{displayValue.slice(start, end)}</Text>
+        <Text color={theme.selectionText} backgroundColor={theme.selectionBackground}>
+          {displayValue.slice(start, end)}
+        </Text>
       ) : null}
       {displayValue.slice(end)}
       {trailingSpace ? ' ' : ''}
@@ -77,7 +75,10 @@ function windowSingleLine(flat, cursor, width) {
   let cuIndex = 0;
   let cursorCharIdx = chars.length;
   for (let i = 0; i < chars.length; i += 1) {
-    if (cuIndex >= cursor) { cursorCharIdx = i; break; }
+    if (cuIndex >= cursor) {
+      cursorCharIdx = i;
+      break;
+    }
     cuIndex += chars[i].length;
   }
   let cursorCell = 0;
@@ -88,11 +89,17 @@ function windowSingleLine(flat, cursor, width) {
   startCell = Math.max(0, startCell);
   let acc = 0;
   let a = 0;
-  while (a < chars.length && acc + cells[a] <= startCell) { acc += cells[a]; a += 1; }
+  while (a < chars.length && acc + cells[a] <= startCell) {
+    acc += cells[a];
+    a += 1;
+  }
   const alignedStart = acc;
   let b = a;
   let bAcc = 0;
-  while (b < chars.length && bAcc + cells[b] <= w) { bAcc += cells[b]; b += 1; }
+  while (b < chars.length && bAcc + cells[b] <= w) {
+    bAcc += cells[b];
+    b += 1;
+  }
   let cuStart = 0;
   for (let i = 0; i < a; i += 1) cuStart += chars[i].length;
   let cuEnd = cuStart;
@@ -108,7 +115,9 @@ function windowSingleLine(flat, cursor, width) {
 
 // Collapse any whitespace/newlines so a hint is always a single visual line.
 function singleLine(text) {
-  return String(text ?? '').replace(/\s+/g, ' ').trim();
+  return String(text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // Width-aware single-line truncation with an ellipsis so a long hint (e.g. an
@@ -146,7 +155,7 @@ function isModifiedEnterSequence(input) {
   const kitty = /^13;(\d+)(?::\d+)?(?:;[\d:]+)?u$/.exec(body);
   if (kitty) return ((Number(kitty[1]) - 1) & MODIFIED_ENTER_SHIFT_OR_CTRL) !== 0;
   const modifyOtherKeys = /^27;(\d+);13~$/.exec(body);
-  return Boolean(modifyOtherKeys && (((Number(modifyOtherKeys[1]) - 1) & MODIFIED_ENTER_SHIFT_OR_CTRL) !== 0));
+  return Boolean(modifyOtherKeys && ((Number(modifyOtherKeys[1]) - 1) & MODIFIED_ENTER_SHIFT_OR_CTRL) !== 0);
 }
 
 // Recognize ANY modified Enter (any modifier bitmask, e.g. Alt+Enter). Used to
@@ -158,9 +167,9 @@ function isAnyModifiedEnterSequence(input) {
   const body = text.startsWith('\x1b[') ? text.slice(2) : text.startsWith('[') ? text.slice(1) : '';
   if (!body) return false;
   const kitty = /^13;(\d+)(?::\d+)?(?:;[\d:]+)?u$/.exec(body);
-  if (kitty) return (Number(kitty[1]) - 1) !== 0;
+  if (kitty) return Number(kitty[1]) - 1 !== 0;
   const modifyOtherKeys = /^27;(\d+);13~$/.exec(body);
-  return Boolean(modifyOtherKeys && ((Number(modifyOtherKeys[1]) - 1) !== 0));
+  return Boolean(modifyOtherKeys && Number(modifyOtherKeys[1]) - 1 !== 0);
 }
 
 export function TextEntryPanel({
@@ -182,7 +191,11 @@ export function TextEntryPanel({
   onSubmit,
   onCancel,
 }) {
-  const [draft, setDraft] = useState(() => ({ value: String(initialValue || ''), cursor: String(initialValue || '').length, selectionAnchor: null }));
+  const [draft, setDraft] = useState(() => ({
+    value: String(initialValue || ''),
+    cursor: String(initialValue || '').length,
+    selectionAnchor: null,
+  }));
   const [, bumpCursorAnchorEpoch] = useState(0);
   const draftRef = useRef(draft);
   const submitGateRef = useRef(false);
@@ -222,7 +235,7 @@ export function TextEntryPanel({
       current.cursor,
       contentWidthRef.current,
       direction,
-      preferredColumnRef.current,
+      preferredColumnRef.current
     );
     preferredColumnRef.current = moved.preferredColumn;
     if (moved.cursor === current.cursor) return false;
@@ -256,7 +269,9 @@ export function TextEntryPanel({
     const accepted = onSubmit?.(draftRef.current.value) !== false;
     if (accepted) {
       commitDraft({ value: '', cursor: 0, selectionAnchor: null });
-      queueMicrotask(() => { submitGateRef.current = false; });
+      queueMicrotask(() => {
+        submitGateRef.current = false;
+      });
     } else {
       submitGateRef.current = false;
     }
@@ -271,7 +286,9 @@ export function TextEntryPanel({
     const accepted = onSubmit?.(next.value) !== false;
     if (accepted) {
       commitDraft({ value: '', cursor: 0, selectionAnchor: null });
-      queueMicrotask(() => { submitGateRef.current = false; });
+      queueMicrotask(() => {
+        submitGateRef.current = false;
+      });
     } else if (next !== current) {
       submitGateRef.current = false;
       commitDraft(next);
@@ -280,177 +297,186 @@ export function TextEntryPanel({
     }
   };
 
-  usePaste((text) => {
-    const pasted = normalizeInput(text);
-    if (!pasted) return;
-    updateDraft((d) => insertText(d, pasted));
-  }, { isActive: isRawModeSupported });
+  usePaste(
+    (text) => {
+      const pasted = normalizeInput(text);
+      if (!pasted) return;
+      updateDraft((d) => insertText(d, pasted));
+    },
+    { isActive: isRawModeSupported }
+  );
 
-  useInput((input, key) => {
-    const rawSource = String(input ?? '');
-    const rawInput = normalizeInput(input);
-    if (/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/.test(rawSource)) return;
-    // Safety net: drop CSI-private replies/fragments (\x1b[?<n>u / \x1b[?...c).
-    // We no longer query the terminal, so these should not normally appear, but
-    // a volunteered report must never type into the field. See PromptInput for
-    // the full rationale; optional final byte also discards partial fragments.
-    if (/^(?:\x1b)?\[\?[\d;]*[uc]?$/.test(rawSource)) return;
+  useInput(
+    (input, key) => {
+      const rawSource = String(input ?? '');
+      const rawInput = normalizeInput(input);
+      if (/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/.test(rawSource)) return;
+      // Safety net: drop CSI-private replies/fragments (\x1b[?<n>u / \x1b[?...c).
+      // We no longer query the terminal, so these should not normally appear, but
+      // a volunteered report must never type into the field. See PromptInput for
+      // the full rationale; optional final byte also discards partial fragments.
+      if (/^(?:\x1b)?\[\?[\d;]*[uc]?$/.test(rawSource)) return;
 
-    if (key.escape) {
-      if (selectionRange(draftRef.current)) {
-        commitDraft(clearSelection(draftRef.current));
+      if (key.escape) {
+        if (selectionRange(draftRef.current)) {
+          commitDraft(clearSelection(draftRef.current));
+          return;
+        }
+        onCancel?.();
         return;
       }
-      onCancel?.();
-      return;
-    }
-    const trailingEnterPrefix = singleTrailingLineBreakPrefix(rawInput);
-    const rawCtrlEnter = isModifiedEnterSequence(rawSource) || isModifiedEnterSequence(rawInput);
-    // Newline-insert chords are meaningless (and dangerous — hidden newlines
-    // in API keys/URLs) outside multiline mode; gate here so every downstream
-    // branch that inserts '\n' inherits the guard.
-    const modifiedLineBreak = multiline && (key.shift || key.meta || key.ctrl || rawCtrlEnter);
+      const trailingEnterPrefix = singleTrailingLineBreakPrefix(rawInput);
+      const rawCtrlEnter = isModifiedEnterSequence(rawSource) || isModifiedEnterSequence(rawInput);
+      // Newline-insert chords are meaningless (and dangerous — hidden newlines
+      // in API keys/URLs) outside multiline mode; gate here so every downstream
+      // branch that inserts '\n' inherits the guard.
+      const modifiedLineBreak = multiline && (key.shift || key.meta || key.ctrl || rawCtrlEnter);
 
-    // Ctrl+J — the protocol-independent newline that works on every terminal.
-    // Legacy/modifyOtherKeys: a lone '\n' (real Enter is CR → key.return). Kitty:
-    // \x1b[106;5u → input 'j' with key.ctrl. Either → insert a newline. Must
-    // precede the trailing-newline/submit paths since
-    // singleTrailingLineBreakPrefix('\n') returns '' (not null) and would
-    // otherwise route Ctrl+J to submit.
-    if (multiline && ((rawSource === '\n' && !key.return) || (key.ctrl && rawSource.toLowerCase() === 'j'))) {
-      updateDraft((d) => replaceSelection(d, '\n'));
-      return;
-    }
-
-    // A modified Enter that is NOT a newline chord (e.g. Alt+Enter): consume it
-    // so its raw CSI bytes don't type into the field under modifyOtherKeys. Plain
-    // Enter (mod=1) is not matched and still submits below.
-    if (!rawCtrlEnter && (isAnyModifiedEnterSequence(rawSource) || isAnyModifiedEnterSequence(rawInput))) {
-      return;
-    }
-
-    const pasteFallback = rawInput.includes('\n') && trailingEnterPrefix === null && (rawInput.length > 1 || !key.return);
-    if (pasteFallback) {
-      updateDraft((d) => insertText(d, rawInput));
-      return;
-    }
-    if (trailingEnterPrefix !== null) {
-      if (modifiedLineBreak) {
-        updateDraft((d) => insertText(d, `${trailingEnterPrefix}\n`));
-        return;
-      }
-      submitEnterChunk(trailingEnterPrefix);
-      return;
-    }
-    if (multiline && rawCtrlEnter) {
-      updateDraft((d) => replaceSelection(d, '\n'));
-      return;
-    }
-    if (key.return) {
-      if (modifiedLineBreak) {
+      // Ctrl+J — the protocol-independent newline that works on every terminal.
+      // Legacy/modifyOtherKeys: a lone '\n' (real Enter is CR → key.return). Kitty:
+      // \x1b[106;5u → input 'j' with key.ctrl. Either → insert a newline. Must
+      // precede the trailing-newline/submit paths since
+      // singleTrailingLineBreakPrefix('\n') returns '' (not null) and would
+      // otherwise route Ctrl+J to submit.
+      if (multiline && ((rawSource === '\n' && !key.return) || (key.ctrl && rawSource.toLowerCase() === 'j'))) {
         updateDraft((d) => replaceSelection(d, '\n'));
         return;
       }
-      submit();
-      return;
-    }
-    if (key.leftArrow) {
-      updateDraft((d) => {
-        const range = !key.shift && !key.ctrl && !key.meta ? selectionRange(d) : null;
-        const cursor = range
-          ? range.start
-          : key.ctrl || key.meta
-            ? previousWordOffset(d.value, d.cursor)
-            : previousOffset(d.value, d.cursor);
-        return moveCursor(d, cursor, { extend: key.shift });
-      });
-      return;
-    }
-    if (key.rightArrow) {
-      updateDraft((d) => {
-        const range = !key.shift && !key.ctrl && !key.meta ? selectionRange(d) : null;
-        const cursor = range
-          ? range.end
-          : key.ctrl || key.meta
-            ? nextWordOffset(d.value, d.cursor)
-            : nextOffset(d.value, d.cursor);
-        return moveCursor(d, cursor, { extend: key.shift });
-      });
-      return;
-    }
-    if (key.upArrow) {
-      moveDraftVertically(-1, { extend: key.shift });
-      return;
-    }
-    if (key.downArrow) {
-      moveDraftVertically(1, { extend: key.shift });
-      return;
-    }
-    const inputKey = String(input || '').toLowerCase();
-    if (key.home || (key.ctrl && inputKey === 'a')) {
-      updateDraft((d) => (key.ctrl && inputKey === 'a' && d.value
-        ? { ...d, cursor: d.value.length, selectionAnchor: 0 }
-        : moveCursor(d, lineStart(d.value, d.cursor), { extend: key.shift })));
-      return;
-    }
-    if (key.end || (key.ctrl && inputKey === 'e')) {
-      updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: key.shift }));
-      return;
-    }
-    if (key.ctrl && inputKey === 'b') {
-      updateDraft((d) => moveCursor(d, previousOffset(d.value, d.cursor), { extend: key.shift }));
-      return;
-    }
-    if (key.ctrl && inputKey === 'f') {
-      updateDraft((d) => moveCursor(d, nextOffset(d.value, d.cursor), { extend: key.shift }));
-      return;
-    }
-    if (key.meta && inputKey === 'b') {
-      updateDraft((d) => moveCursor(d, previousWordOffset(d.value, d.cursor), { extend: key.shift }));
-      return;
-    }
-    if (key.meta && inputKey === 'f') {
-      updateDraft((d) => moveCursor(d, nextWordOffset(d.value, d.cursor), { extend: key.shift }));
-      return;
-    }
-    if (key.ctrl && inputKey === 'u') {
-      updateDraft(deleteToLineStart);
-      return;
-    }
-    if (key.ctrl && inputKey === 'k') {
-      updateDraft(deleteToLineEnd);
-      return;
-    }
-    if ((key.ctrl && inputKey === 'w') || ((key.ctrl || key.meta) && key.backspace)) {
-      updateDraft(deleteBackwardWord);
-      return;
-    }
-    if ((key.meta && inputKey === 'd') || (key.ctrl && key.delete)) {
-      updateDraft(deleteForwardWord);
-      return;
-    }
-    if (key.backspace) {
-      updateDraft((d) => {
-        if (selectionRange(d)) return deleteSelectedText(d);
-        if (d.cursor <= 0) return d;
-        const start = previousOffset(d.value, d.cursor);
-        return { value: d.value.slice(0, start) + d.value.slice(d.cursor), cursor: start, selectionAnchor: null };
-      });
-      return;
-    }
-    if (key.delete) {
-      updateDraft((d) => {
-        if (selectionRange(d)) return deleteSelectedText(d);
-        if (d.cursor >= d.value.length) return d;
-        const end = nextOffset(d.value, d.cursor);
-        return { value: d.value.slice(0, d.cursor) + d.value.slice(end), cursor: d.cursor, selectionAnchor: null };
-      });
-      return;
-    }
-    if (rawInput && !key.ctrl && !key.meta) {
-      updateDraft((d) => insertText(d, rawInput));
-    }
-  }, { isActive: isRawModeSupported });
+
+      // A modified Enter that is NOT a newline chord (e.g. Alt+Enter): consume it
+      // so its raw CSI bytes don't type into the field under modifyOtherKeys. Plain
+      // Enter (mod=1) is not matched and still submits below.
+      if (!rawCtrlEnter && (isAnyModifiedEnterSequence(rawSource) || isAnyModifiedEnterSequence(rawInput))) {
+        return;
+      }
+
+      const pasteFallback =
+        rawInput.includes('\n') && trailingEnterPrefix === null && (rawInput.length > 1 || !key.return);
+      if (pasteFallback) {
+        updateDraft((d) => insertText(d, rawInput));
+        return;
+      }
+      if (trailingEnterPrefix !== null) {
+        if (modifiedLineBreak) {
+          updateDraft((d) => insertText(d, `${trailingEnterPrefix}\n`));
+          return;
+        }
+        submitEnterChunk(trailingEnterPrefix);
+        return;
+      }
+      if (multiline && rawCtrlEnter) {
+        updateDraft((d) => replaceSelection(d, '\n'));
+        return;
+      }
+      if (key.return) {
+        if (modifiedLineBreak) {
+          updateDraft((d) => replaceSelection(d, '\n'));
+          return;
+        }
+        submit();
+        return;
+      }
+      if (key.leftArrow) {
+        updateDraft((d) => {
+          const range = !key.shift && !key.ctrl && !key.meta ? selectionRange(d) : null;
+          const cursor = range
+            ? range.start
+            : key.ctrl || key.meta
+              ? previousWordOffset(d.value, d.cursor)
+              : previousOffset(d.value, d.cursor);
+          return moveCursor(d, cursor, { extend: key.shift });
+        });
+        return;
+      }
+      if (key.rightArrow) {
+        updateDraft((d) => {
+          const range = !key.shift && !key.ctrl && !key.meta ? selectionRange(d) : null;
+          const cursor = range
+            ? range.end
+            : key.ctrl || key.meta
+              ? nextWordOffset(d.value, d.cursor)
+              : nextOffset(d.value, d.cursor);
+          return moveCursor(d, cursor, { extend: key.shift });
+        });
+        return;
+      }
+      if (key.upArrow) {
+        moveDraftVertically(-1, { extend: key.shift });
+        return;
+      }
+      if (key.downArrow) {
+        moveDraftVertically(1, { extend: key.shift });
+        return;
+      }
+      const inputKey = String(input || '').toLowerCase();
+      if (key.home || (key.ctrl && inputKey === 'a')) {
+        updateDraft((d) =>
+          key.ctrl && inputKey === 'a' && d.value
+            ? { ...d, cursor: d.value.length, selectionAnchor: 0 }
+            : moveCursor(d, lineStart(d.value, d.cursor), { extend: key.shift })
+        );
+        return;
+      }
+      if (key.end || (key.ctrl && inputKey === 'e')) {
+        updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: key.shift }));
+        return;
+      }
+      if (key.ctrl && inputKey === 'b') {
+        updateDraft((d) => moveCursor(d, previousOffset(d.value, d.cursor), { extend: key.shift }));
+        return;
+      }
+      if (key.ctrl && inputKey === 'f') {
+        updateDraft((d) => moveCursor(d, nextOffset(d.value, d.cursor), { extend: key.shift }));
+        return;
+      }
+      if (key.meta && inputKey === 'b') {
+        updateDraft((d) => moveCursor(d, previousWordOffset(d.value, d.cursor), { extend: key.shift }));
+        return;
+      }
+      if (key.meta && inputKey === 'f') {
+        updateDraft((d) => moveCursor(d, nextWordOffset(d.value, d.cursor), { extend: key.shift }));
+        return;
+      }
+      if (key.ctrl && inputKey === 'u') {
+        updateDraft(deleteToLineStart);
+        return;
+      }
+      if (key.ctrl && inputKey === 'k') {
+        updateDraft(deleteToLineEnd);
+        return;
+      }
+      if ((key.ctrl && inputKey === 'w') || ((key.ctrl || key.meta) && key.backspace)) {
+        updateDraft(deleteBackwardWord);
+        return;
+      }
+      if ((key.meta && inputKey === 'd') || (key.ctrl && key.delete)) {
+        updateDraft(deleteForwardWord);
+        return;
+      }
+      if (key.backspace) {
+        updateDraft((d) => {
+          if (selectionRange(d)) return deleteSelectedText(d);
+          if (d.cursor <= 0) return d;
+          const start = previousOffset(d.value, d.cursor);
+          return { value: d.value.slice(0, start) + d.value.slice(d.cursor), cursor: start, selectionAnchor: null };
+        });
+        return;
+      }
+      if (key.delete) {
+        updateDraft((d) => {
+          if (selectionRange(d)) return deleteSelectedText(d);
+          if (d.cursor >= d.value.length) return d;
+          const end = nextOffset(d.value, d.cursor);
+          return { value: d.value.slice(0, d.cursor) + d.value.slice(end), cursor: d.cursor, selectionAnchor: null };
+        });
+        return;
+      }
+      if (rawInput && !key.ctrl && !key.meta) {
+        updateDraft((d) => insertText(d, rawInput));
+      }
+    },
+    { isActive: isRawModeSupported }
+  );
 
   const installCursorAnchor = () => {
     if (!boxRef.current || boxRef.current.internal_cursorAnchor) return false;
@@ -465,9 +491,8 @@ export function TextEntryPanel({
         const totalRows = wrappedTextRows(`${visible}${trailing ? ' ' : ''}`, w);
         const visibleRows = Math.min(totalRows, Math.max(1, maxContentRows));
         const caret = caretPosition(visible, d.cursor, w, trailing ? true : undefined);
-        const scrollRow = totalRows > visibleRows
-          ? Math.min(Math.max(0, caret.row - visibleRows + 1), totalRows - visibleRows)
-          : 0;
+        const scrollRow =
+          totalRows > visibleRows ? Math.min(Math.max(0, caret.row - visibleRows + 1), totalRows - visibleRows) : 0;
         return { row: Math.max(0, caret.row - scrollRow), col: caret.col };
       }
       const flat = flattenForSingleLine(visible);
@@ -501,9 +526,8 @@ export function TextEntryPanel({
     const visibleRows = Math.min(totalRows, Math.max(1, maxContentRows));
     contentHeight = visibleRows;
     const caret = caretPosition(visibleValue, draft.cursor, contentCells, trailingCaret ? true : undefined);
-    const scrollRow = totalRows > visibleRows
-      ? Math.min(Math.max(0, caret.row - visibleRows + 1), totalRows - visibleRows)
-      : 0;
+    const scrollRow =
+      totalRows > visibleRows ? Math.min(Math.max(0, caret.row - visibleRows + 1), totalRows - visibleRows) : 0;
     const window = sliceVisualRowWindow(visibleValue, contentCells, scrollRow, visibleRows);
     const windowSelection = (() => {
       const range = selectionRange(draft);
@@ -550,7 +574,9 @@ export function TextEntryPanel({
         {detailText ? (
           <Box flexDirection="column" width="100%">
             <Text> </Text>
-            <Text color={theme.subtle} wrap="wrap">{detailText}</Text>
+            <Text color={theme.subtle} wrap="wrap">
+              {detailText}
+            </Text>
           </Box>
         ) : null}
         <Text> </Text>
@@ -565,13 +591,17 @@ export function TextEntryPanel({
               overflow="hidden"
               backgroundColor={surfaceBackground()}
             >
-              <Text color={theme.text} wrap="hard">{renderedValue}</Text>
+              <Text color={theme.text} wrap="hard">
+                {renderedValue}
+              </Text>
             </Box>
           </Box>
         ) : (
           <Box ref={boxRef} flexDirection="row" width="100%" backgroundColor={surfaceBackground()}>
             <Text color={theme.inactive}>{promptLabel}</Text>
-            <Text color={theme.text} wrap="truncate">{renderedValue}</Text>
+            <Text color={theme.text} wrap="truncate">
+              {renderedValue}
+            </Text>
           </Box>
         )}
       </Box>

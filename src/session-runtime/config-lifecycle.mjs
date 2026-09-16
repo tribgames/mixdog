@@ -23,9 +23,7 @@ const pendingSessionConfigWriters = new Set();
 
 export async function flushPendingSessionConfigWrites() {
   while (pendingSessionConfigWriters.size) {
-    await Promise.all([...pendingSessionConfigWriters].map((flush) => (
-      flush({ requireSaved: true })
-    )));
+    await Promise.all([...pendingSessionConfigWriters].map((flush) => flush({ requireSaved: true })));
   }
 }
 
@@ -50,7 +48,7 @@ export function resolveInitialConfigState({
   modelParameters,
 }) {
   const config = withGrandfatheredBuiltins(
-    initialConfig && typeof initialConfig === 'object' ? initialConfig : loadConfig(),
+    initialConfig && typeof initialConfig === 'object' ? initialConfig : loadConfig()
   );
   return {
     config,
@@ -58,9 +56,7 @@ export function resolveInitialConfigState({
       ...resolveRoute(config, { provider, model }),
       ...(effort === undefined ? {} : { effort: effort || null }),
       ...(fast === true || fast === false ? { fast } : {}),
-      ...(modelParameters && typeof modelParameters === 'object'
-        ? { modelParameters: { ...modelParameters } }
-        : {}),
+      ...(modelParameters && typeof modelParameters === 'object' ? { modelParameters: { ...modelParameters } } : {}),
     },
     webSearchRoute: webSearchRouteOrDefault(config.webSearchRoute),
   };
@@ -98,10 +94,10 @@ export function createConfigLifecycle({
     const cacheDir = resolve(dataDir);
     const now = performanceNow();
     if (
-      !fresh
-      && outputStyleStatusCache
-      && outputStyleStatusCacheDir === cacheDir
-      && now - outputStyleStatusCacheAt < 2500
+      !fresh &&
+      outputStyleStatusCache &&
+      outputStyleStatusCacheDir === cacheDir &&
+      now - outputStyleStatusCacheAt < 2500
     ) {
       return outputStyleStatusCache;
     }
@@ -133,8 +129,7 @@ export function createConfigLifecycle({
     const config = getConfig();
     setConfiguredShell(normalizeSystemShellConfig(config.shell).command);
     setWebSearchRoute(
-      normalizeWebSearchRouteConfig(config.webSearchRoute)
-        || normalizeWebSearchRouteConfig(getWebSearchRoute()),
+      normalizeWebSearchRouteConfig(config.webSearchRoute) || normalizeWebSearchRouteConfig(getWebSearchRoute())
     );
     return config;
   }
@@ -144,16 +139,16 @@ export function createConfigLifecycle({
   const configWriter = createDebouncedWriter({
     delayMs: CONFIG_SAVE_DEBOUNCE_MS,
     write: (snapshot) => cfgMod.saveConfigAsync(snapshot),
-    onError: (error, sync) => process.stderr.write(
-      `[config] ${sync ? 'debounced' : 'async'} saveConfig failed: ${error?.message || error}\n`,
-    ),
+    onError: (error, sync) =>
+      process.stderr.write(`[config] ${sync ? 'debounced' : 'async'} saveConfig failed: ${error?.message || error}\n`),
   });
   const skillsWriter = createDebouncedWriter({
     delayMs: CONFIG_SAVE_DEBOUNCE_MS,
     write: (names) => cfgMod.patchSkillsDisabledAsync(names),
-    onError: (error, sync) => process.stderr.write(
-      `[config] ${sync ? 'debounced' : 'async'} patchSkillsDisabled failed: ${error?.message || error}\n`,
-    ),
+    onError: (error, sync) =>
+      process.stderr.write(
+        `[config] ${sync ? 'debounced' : 'async'} patchSkillsDisabled failed: ${error?.message || error}\n`
+      ),
   });
   const outputStyleWriter = createDebouncedWriter({
     delayMs: CONFIG_SAVE_DEBOUNCE_MS,
@@ -171,8 +166,8 @@ export function createConfigLifecycle({
   async function runConfigFlushAsync() {
     // Whole-config snapshots precede the more specific skills.disabled patch.
     do {
-      if (!await configWriter.flush()) return false;
-      if (!await skillsWriter.flush()) return false;
+      if (!(await configWriter.flush())) return false;
+      if (!(await skillsWriter.flush())) return false;
     } while (configWriter.hasPending() || skillsWriter.hasPending());
     return true;
   }
@@ -229,10 +224,7 @@ export function createConfigLifecycle({
   // variants, then resolve only when every promise tail (including skills,
   // which config flushes after its whole-section write) has settled.
   async function flushAllConfigSavesAsync({ requireSaved = false } = {}) {
-    const saved = await Promise.all([
-      flushConfigSaveAsync(),
-      outputStyleWriter.flush(),
-    ]);
+    const saved = await Promise.all([flushConfigSaveAsync(), outputStyleWriter.flush()]);
     // The shared config layer also tracks writes started directly by channel,
     // webhook, voice, and future async RMW callers.
     await sharedCfgMod.pendingConfigWrites();

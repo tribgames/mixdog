@@ -1,13 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  utimesSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -21,16 +14,11 @@ const {
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
 } = await import('./store.mjs');
-const {
-  normalizeContentForAnthropic,
-  normalizeContentForOpenAIResponses,
-  sanitizeContentForStoredHistory,
-} = await import('../agent/orchestrator/providers/media-normalization.mjs');
-const {
-  imageResizeCacheStats,
-  openAIImagePatchCount,
-  resizeImageBuffer,
-} = await import('../agent/orchestrator/tools/builtin/read-image-resize.mjs');
+const { normalizeContentForAnthropic, normalizeContentForOpenAIResponses, sanitizeContentForStoredHistory } =
+  await import('../agent/orchestrator/providers/media-normalization.mjs');
+const { imageResizeCacheStats, openAIImagePatchCount, resizeImageBuffer } = await import(
+  '../agent/orchestrator/tools/builtin/read-image-resize.mjs'
+);
 
 function minimalPdf(text = 'Hello PDF') {
   const objects = [
@@ -48,7 +36,10 @@ function minimalPdf(text = 'Hello PDF') {
   });
   const xref = Buffer.byteLength(body, 'latin1');
   body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  body += offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  body += offsets
+    .slice(1)
+    .map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`)
+    .join('');
   body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(body, 'latin1');
 }
@@ -96,40 +87,36 @@ test('daemon intake stores one payload and keeps byte-free refs through history/
   assert.match(responses.find((part) => part.type === 'input_image')?.image_url, /^data:image\/png;base64,/);
   assert.match(responses.find((part) => part.type === 'input_file')?.file_data, /^data:application\/pdf;base64,/);
 
-  const hydrated = hydratePastedAttachments(
-    intake.options.pastedImages,
-    intake.options.pastedTexts,
-  );
+  const hydrated = hydratePastedAttachments(intake.options.pastedImages, intake.options.pastedTexts);
   assert.equal(hydrated.pastedImages[1].content, imageData);
   assert.equal(hydrated.pastedTexts[7].text, pastedText);
   assert.ok(attachmentStoreCacheStats().bytes <= attachmentStoreCacheStats().maxBytes);
 });
 
 test('attachment reads reject content that no longer matches its sha256 reference', async () => {
-  const stored = materializePromptSubmission([{
-    type: 'file',
-    data: Buffer.from('original attachment').toString('base64'),
-    mimeType: 'application/octet-stream',
-  }]).prompt[0];
+  const stored = materializePromptSubmission([
+    {
+      type: 'file',
+      data: Buffer.from('original attachment').toString('base64'),
+      mimeType: 'application/octet-stream',
+    },
+  ]).prompt[0];
   const blobPath = join(
     dataDir,
     'prompt-attachments',
     'sha256',
     stored.attachmentRef.slice(0, 2),
-    stored.attachmentRef,
+    stored.attachmentRef
   );
   writeFileSync(blobPath, 'tampered attachment');
   const freshStore = await import(`./store.mjs?integrity=${Date.now()}`);
-  assert.throws(
-    () => freshStore.readAttachmentBuffer(stored),
-    /integrity check failed/,
-  );
+  assert.throws(() => freshStore.readAttachmentBuffer(stored), /integrity check failed/);
 });
 
 test('image resize output is reused from the bounded hash LRU', async () => {
   const onePixelPng = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-    'base64',
+    'base64'
   );
   const before = imageResizeCacheStats();
   const first = await resizeImageBuffer(onePixelPng, 'png');
@@ -145,27 +132,26 @@ test('OpenAI image profile respects the 2048px and 1536-patch budget', async () 
   const sharp = (await import('sharp')).default;
   const source = await sharp({
     create: { width: 1600, height: 1200, channels: 3, background: '#abcdef' },
-  }).png().toBuffer();
+  })
+    .png()
+    .toBuffer();
   const anthropic = await resizeImageBuffer(source, 'png', { profile: 'anthropic' });
   const openai = await resizeImageBuffer(source, 'png', { profile: 'openai' });
   assert.equal(anthropic.dimensions.displayWidth, 1600);
-  assert.ok(openAIImagePatchCount(
-    openai.dimensions.displayWidth,
-    openai.dimensions.displayHeight,
-  ) <= 1536);
+  assert.ok(openAIImagePatchCount(openai.dimensions.displayWidth, openai.dimensions.displayHeight) <= 1536);
 });
 
 test('PDF intake keeps native documents and extracts page text for compat providers', async () => {
   const data = minimalPdf('Provider parity').toString('base64');
   const native = await preparePromptSubmissionForProvider(
     materializePromptSubmission([{ type: 'file', data, mimeType: 'application/pdf', filename: 'native.pdf' }]),
-    'anthropic',
+    'anthropic'
   );
   assert.equal(native.prompt[0].type, 'file');
   assert.equal(native.prompt[0].pageCount, 1);
   const compat = await preparePromptSubmissionForProvider(
     materializePromptSubmission([{ type: 'file', data, mimeType: 'application/pdf', filename: 'compat.pdf' }]),
-    'xai',
+    'xai'
   );
   assert.equal(compat.prompt[0].type, 'text');
   assert.match(normalizeContentForAnthropic(compat.prompt)[0].text, /Provider parity/);
@@ -173,25 +159,23 @@ test('PDF intake keeps native documents and extracts page text for compat provid
 });
 
 test('attachment GC preserves durable refs and the safety window while deleting stale orphans', async () => {
-  const makeFile = (text) => materializePromptSubmission([{
-    type: 'file',
-    data: Buffer.from(text).toString('base64'),
-    mimeType: 'application/octet-stream',
-  }]).prompt[0];
+  const makeFile = (text) =>
+    materializePromptSubmission([
+      {
+        type: 'file',
+        data: Buffer.from(text).toString('base64'),
+        mimeType: 'application/octet-stream',
+      },
+    ]).prompt[0];
   const referenced = makeFile('durably referenced attachment');
   const orphan = makeFile('stale orphan attachment');
   const fresh = makeFile('fresh orphan attachment');
-  const blobPath = (part) => join(
-    dataDir,
-    'prompt-attachments',
-    'sha256',
-    part.attachmentRef.slice(0, 2),
-    part.attachmentRef,
-  );
+  const blobPath = (part) =>
+    join(dataDir, 'prompt-attachments', 'sha256', part.attachmentRef.slice(0, 2), part.attachmentRef);
   mkdirSync(join(dataDir, 'sessions'), { recursive: true });
   writeFileSync(
     join(dataDir, 'sessions', 'sess_attachment_gc.json'),
-    JSON.stringify({ id: 'sess_attachment_gc', messages: [{ content: [referenced] }] }),
+    JSON.stringify({ id: 'sess_attachment_gc', messages: [{ content: [referenced] }] })
   );
   const old = new Date(Date.now() - 10_000);
   utimesSync(blobPath(referenced), old, old);

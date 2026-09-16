@@ -35,7 +35,9 @@ export function createProviderUsage({
     if (!providerObj) return;
     void fetchOAuthUsageSnapshot({ provider: providerId, model: modelId }, providerObj, (message) => {
       if (process.env.MIXDOG_STATUSLINE_TRACE) {
-        try { process.stderr.write(`[statusline] ${message}\n`); } catch {}
+        try {
+          process.stderr.write(`[statusline] ${message}\n`);
+        } catch {}
       }
     }).catch(() => {});
   }
@@ -90,7 +92,9 @@ export function createProviderUsage({
         cachedAt: caches.usageDashboardCache.at,
       };
       if (typeof options?.onUpdate === 'function') {
-        try { options.onUpdate(cached); } catch {}
+        try {
+          options.onUpdate(cached);
+        } catch {}
       }
       return cached;
     }
@@ -102,7 +106,9 @@ export function createProviderUsage({
     const getProvider = (providerId) => reg().getProvider(providerId);
     const log = (message) => {
       if (process.env.MIXDOG_USAGE_TRACE) {
-        try { process.stderr.write(`[usage] ${message}\n`); } catch {}
+        try {
+          process.stderr.write(`[usage] ${message}\n`);
+        } catch {}
       }
     };
     const buildDashboard = async () => {
@@ -142,10 +148,9 @@ export function createProviderUsage({
       return dashboard;
     };
     if (forceSetup || refreshUsage) return await buildDashboard();
-    const promise = buildDashboard()
-      .finally(() => {
-        if (caches.usageDashboardPromise === promise) caches.usageDashboardPromise = null;
-      });
+    const promise = buildDashboard().finally(() => {
+      if (caches.usageDashboardPromise === promise) caches.usageDashboardPromise = null;
+    });
     caches.usageDashboardPromise = promise;
     return await promise;
   }
@@ -173,10 +178,7 @@ export function createProviderUsage({
       timer?.unref?.();
     });
     try {
-      return await Promise.race([
-        getUsageDashboard({ refresh: true, refreshSetup: false }).catch(() => null),
-        budget,
-      ]);
+      return await Promise.race([getUsageDashboard({ refresh: true, refreshSetup: false }).catch(() => null), budget]);
     } finally {
       if (timer) clearTimeout(timer);
     }

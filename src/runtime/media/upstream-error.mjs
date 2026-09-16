@@ -27,7 +27,11 @@ export function upstreamError(label, status, text) {
     if (CREDIT_HINTS.test(detail)) {
       return mediaError(`${label}: account has no usable balance — ${detail}`, 'MEDIA_BILLING_BLOCKED', status);
     }
-    return mediaError(`${label}: authentication rejected — sign in again in Settings → Providers`, 'MEDIA_AUTH_REJECTED', status);
+    return mediaError(
+      `${label}: authentication rejected — sign in again in Settings → Providers`,
+      'MEDIA_AUTH_REJECTED',
+      status
+    );
   }
   if (status === 402 || CREDIT_HINTS.test(detail)) {
     return mediaError(`${label}: account has no usable balance — ${detail}`, 'MEDIA_BILLING_BLOCKED', status || 402);

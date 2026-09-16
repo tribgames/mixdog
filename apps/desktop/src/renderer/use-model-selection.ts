@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import type { DesktopModelSelection, SessionSnapshot } from "../shared/contract";
-import { mergeRoutePreference } from "./app-route-preference";
+import { useEffect, useRef, useState } from 'react';
+import type { DesktopModelSelection, SessionSnapshot } from '../shared/contract';
+import { mergeRoutePreference } from './app-route-preference';
 
 type PendingSelection = {
   token: number;
@@ -10,10 +10,14 @@ type PendingSelection = {
 };
 
 function sameSelection(left: DesktopModelSelection, right: DesktopModelSelection): boolean {
-  if (left.provider !== right.provider || left.model !== right.model
-    || (left.effort || "") !== (right.effort || "")
-    || Boolean(left.fast) !== Boolean(right.fast)
-    || left.contextPercent !== right.contextPercent) return false;
+  if (
+    left.provider !== right.provider ||
+    left.model !== right.model ||
+    (left.effort || '') !== (right.effort || '') ||
+    Boolean(left.fast) !== Boolean(right.fast) ||
+    left.contextPercent !== right.contextPercent
+  )
+    return false;
   const before = left.modelParameters || {};
   const after = right.modelParameters || {};
   const keys = Object.keys(before);
@@ -22,21 +26,19 @@ function sameSelection(left: DesktopModelSelection, right: DesktopModelSelection
 
 function acknowledgedSelection(
   requested: DesktopModelSelection,
-  snapshot: NonNullable<SessionSnapshot>,
+  snapshot: NonNullable<SessionSnapshot>
 ): DesktopModelSelection {
   const value = snapshot as Record<string, unknown>;
   return {
     ...requested,
-    ...(typeof value.provider === "string" ? { provider: value.provider } : {}),
-    ...(typeof value.model === "string" ? { model: value.model } : {}),
-    ...(Object.hasOwn(value, "effort")
-      ? { effort: typeof value.effort === "string" ? value.effort : "" }
+    ...(typeof value.provider === 'string' ? { provider: value.provider } : {}),
+    ...(typeof value.model === 'string' ? { model: value.model } : {}),
+    ...(Object.hasOwn(value, 'effort') ? { effort: typeof value.effort === 'string' ? value.effort : '' } : {}),
+    ...(typeof value.fast === 'boolean' ? { fast: value.fast } : {}),
+    ...(Object.hasOwn(value, 'contextPercent')
+      ? { contextPercent: typeof value.contextPercent === 'number' ? value.contextPercent : undefined }
       : {}),
-    ...(typeof value.fast === "boolean" ? { fast: value.fast } : {}),
-    ...(Object.hasOwn(value, "contextPercent")
-      ? { contextPercent: typeof value.contextPercent === "number" ? value.contextPercent : undefined }
-      : {}),
-    ...(value.modelParameters && typeof value.modelParameters === "object"
+    ...(value.modelParameters && typeof value.modelParameters === 'object'
       ? { modelParameters: value.modelParameters as Record<string, string> }
       : {}),
   };
@@ -52,8 +54,10 @@ export function useModelSelection(sessionId: string, authoritative: DesktopModel
   const active = pending?.sessionId === sessionId ? pending : null;
   const selection = active?.selection || authoritative;
   useEffect(() => {
-    if (pending && (pending.sessionId !== sessionId
-      || (pending.settled && sameSelection(authoritative, pending.selection)))) {
+    if (
+      pending &&
+      (pending.sessionId !== sessionId || (pending.settled && sameSelection(authoritative, pending.selection)))
+    ) {
       setPending(null);
     }
   }, [authoritative, pending, sessionId]);

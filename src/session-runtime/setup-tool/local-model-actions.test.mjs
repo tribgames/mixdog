@@ -4,10 +4,22 @@ import { createSetupToolExecutor } from './executor.mjs';
 
 test('HF discovery, consent and maintenance route to their explicit runtime operations', async () => {
   const calls = [];
-  const facade = Object.fromEntries([
-    'searchLocalProviderModels', 'inspectHuggingFaceModel', 'registerHuggingFaceModel',
-    'getLocalProviderModelDetails', 'startLocalProviderModelMaintenance', 'deleteLocalProviderModel',
-  ].map((name) => [name, async (...args) => { calls.push([name, args]); return { ok: true }; }]));
+  const facade = Object.fromEntries(
+    [
+      'searchLocalProviderModels',
+      'inspectHuggingFaceModel',
+      'registerHuggingFaceModel',
+      'getLocalProviderModelDetails',
+      'startLocalProviderModelMaintenance',
+      'deleteLocalProviderModel',
+    ].map((name) => [
+      name,
+      async (...args) => {
+        calls.push([name, args]);
+        return { ok: true };
+      },
+    ])
+  );
   const executor = createSetupToolExecutor({ getApi: () => facade });
   const run = (args) => executor.execute(args);
   await run({ action: 'search_local_models', query: 'coding gguf' });
@@ -25,5 +37,8 @@ test('HF discovery, consent and maintenance route to their explicit runtime oper
     ['deleteLocalProviderModel', ['confirmed']],
   ]);
   await assert.rejects(run({ action: 'register_hf_model', previewId: 'x' }), /licenseAccepted/);
-  await assert.rejects(run({ action: 'maintain_local_model', modelId: 'registered', operation: 'execute' }), /operation/);
+  await assert.rejects(
+    run({ action: 'maintain_local_model', modelId: 'registered', operation: 'execute' }),
+    /operation/
+  );
 });

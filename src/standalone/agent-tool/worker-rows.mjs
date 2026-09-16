@@ -22,14 +22,14 @@ export function workerRowTime(row = {}) {
 
 export function isTerminalWorkerStatus(status) {
   return /^(idle|closed|complete|completed|done|success|fail|failed|error|cancelled|canceled|killed|timeout)$/i.test(
-    clean(status),
+    clean(status)
   );
 }
 
 /** Finished / gone. Idle is living and must stay in the process-global pool. */
 export function isDeadWorkerStatus(status) {
   return /^(closed|complete|completed|done|success|fail|failed|error|cancelled|canceled|killed|timeout)$/i.test(
-    clean(status),
+    clean(status)
   );
 }
 
@@ -40,9 +40,9 @@ export function tagTombstoneKey(row = {}) {
 export function normalizeTagTombstones(value, { cap = true, priorityKeys = null } = {}) {
   const source = Array.isArray(value?.tombstones)
     ? value.tombstones
-    : (value?.tombstones && typeof value.tombstones === 'object'
+    : value?.tombstones && typeof value.tombstones === 'object'
       ? Object.values(value.tombstones)
-      : []);
+      : [];
   const now = Date.now();
   const cutoff = now - TAG_TOMBSTONE_TTL_MS;
   const rows = source
@@ -62,8 +62,7 @@ export function normalizeTagTombstones(value, { cap = true, priorityKeys = null 
     .sort((a, b) => {
       const aPriority = priorityKeys?.has(tagTombstoneKey(a)) ? 1 : 0;
       const bPriority = priorityKeys?.has(tagTombstoneKey(b)) ? 1 : 0;
-      return bPriority - aPriority
-        || (Date.parse(b.reapedAt) || 0) - (Date.parse(a.reapedAt) || 0);
+      return bPriority - aPriority || (Date.parse(b.reapedAt) || 0) - (Date.parse(a.reapedAt) || 0);
     });
   return cap ? rows.slice(0, MAX_TAG_TOMBSTONES) : rows;
 }
@@ -74,7 +73,23 @@ export function applyWorkerRowUpsert(byKey, normalized) {
   if (!key) return;
   const prev = byKey.get(key) || {};
   const merged = { ...prev, ...normalized };
-  for (const field of ['parentSessionId', 'ownerSessionId', 'agent', 'provider', 'model', 'preset', 'effort', 'fast', 'clientHostPid', 'runtimePid', 'cwd', 'task_id', 'permission', 'toolPermission', 'turnStartedAt']) {
+  for (const field of [
+    'parentSessionId',
+    'ownerSessionId',
+    'agent',
+    'provider',
+    'model',
+    'preset',
+    'effort',
+    'fast',
+    'clientHostPid',
+    'runtimePid',
+    'cwd',
+    'task_id',
+    'permission',
+    'toolPermission',
+    'turnStartedAt',
+  ]) {
     if ((merged[field] === null || merged[field] === '') && prev[field] != null && prev[field] !== '') {
       merged[field] = prev[field];
     }

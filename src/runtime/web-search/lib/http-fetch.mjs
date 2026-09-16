@@ -1,16 +1,19 @@
-import { readFileSync } from 'fs'
-import dns from 'node:dns'
-import { Agent, fetch as undiciFetch } from 'undici'
+import { readFileSync } from 'fs';
+import dns from 'node:dns';
+import { Agent, fetch as undiciFetch } from 'undici';
 
-import {
-  assertPublicUrl,
-  pinnedFetch,
-} from './ssrf-guard.mjs'
+import { assertPublicUrl, pinnedFetch } from './ssrf-guard.mjs';
 
-const PKG_VERSION = (() => { try { return JSON.parse(readFileSync(new URL('../../../../package.json', import.meta.url), 'utf8')).version } catch { return '0.0.1' } })()
+const PKG_VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL('../../../../package.json', import.meta.url), 'utf8')).version;
+  } catch {
+    return '0.0.1';
+  }
+})();
 
 export function withTimeout(controller, timeoutMs) {
-  return setTimeout(() => controller.abort(), timeoutMs)
+  return setTimeout(() => controller.abort(), timeoutMs);
 }
 
 export function buildHeaders() {
@@ -18,235 +21,270 @@ export function buildHeaders() {
     'User-Agent': `mixdog-web-search/${PKG_VERSION}`,
     Accept: 'text/html, application/xhtml+xml, text/markdown, text/plain, application/json;q=0.9, */*;q=0.5',
     'Accept-Language': 'en, ko;q=0.9',
-  }
+  };
 }
 
-const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
-const MAX_REDIRECTS = 5
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const MAX_REDIRECTS = 5;
 // Hard cap on response body size (10 MB) to prevent memory DoS from a
 // hostile / misconfigured URL returning a huge body. Applied in two places:
 //   1. Content-Length pre-check (cheap reject before reading bytes).
 //   2. Streaming byte counter (covers chunked transfer / missing header).
-export const MAX_BODY_BYTES = 10 * 1024 * 1024
+export const MAX_BODY_BYTES = 10 * 1024 * 1024;
 
 /** HTTP-path policy failures must not fall through to the Puppeteer extractor. */
 export function isFatalHttpPathPolicyError(error) {
-  const msg = error instanceof Error ? error.message : String(error)
-  if (/response body too large|page content too large|Content-Length=.*> cap=/i.test(msg)) return true
-  if (/Blocked non-text content-type/i.test(msg)) return true
-  if (/Blocked request to private|Blocked non-HTTP|Blocked URL with userinfo/i.test(msg)) return true
-  if (/DNS returned no addresses/i.test(msg)) return true
-  if (/Too many redirects/i.test(msg)) return true
-  return false
+  const msg = error instanceof Error ? error.message : String(error);
+  if (/response body too large|page content too large|Content-Length=.*> cap=/i.test(msg)) return true;
+  if (/Blocked non-text content-type/i.test(msg)) return true;
+  if (/Blocked request to private|Blocked non-HTTP|Blocked URL with userinfo/i.test(msg)) return true;
+  if (/DNS returned no addresses/i.test(msg)) return true;
+  if (/Too many redirects/i.test(msg)) return true;
+  return false;
 }
 
 async function readBodyWithCap(response, maxBytes) {
   // Reject non-text content-types early; decode by content-type charset.
-  const contentType = (response.headers.get('content-type') || '').toLowerCase()
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
   if (contentType) {
-    const isText = contentType.startsWith('text/') || contentType.includes('/html') ||
-      contentType.includes('/xml') || contentType.includes('/json') ||
+    const isText =
+      contentType.startsWith('text/') ||
+      contentType.includes('/html') ||
+      contentType.includes('/xml') ||
+      contentType.includes('/json') ||
       /\+(?:json|xml)\b/.test(contentType) ||
-      contentType.includes('javascript') || contentType.includes('application/x-www-form-urlencoded')
+      contentType.includes('javascript') ||
+      contentType.includes('application/x-www-form-urlencoded');
     if (!isText) {
       // Cancel body before throwing so the underlying socket isn't held
       // until GC — fetchDocument's caller would otherwise leak the connection.
-      try { await response.body?.cancel() } catch {}
-      throw new Error(`Blocked non-text content-type: ${contentType.split(';')[0].trim()}`)
+      try {
+        await response.body?.cancel();
+      } catch {}
+      throw new Error(`Blocked non-text content-type: ${contentType.split(';')[0].trim()}`);
     }
   }
-  const charsetMatch = contentType.match(/charset=["']?([\w-]+)/i)
-  const charset = charsetMatch ? charsetMatch[1] : 'utf-8'
+  const charsetMatch = contentType.match(/charset=["']?([\w-]+)/i);
+  const charset = charsetMatch ? charsetMatch[1] : 'utf-8';
 
-  const contentLength = Number(response.headers.get('content-length') || 0)
+  const contentLength = Number(response.headers.get('content-length') || 0);
   if (contentLength > maxBytes) {
-    try { await response.body?.cancel() } catch {}
-    throw new Error(`response body too large: Content-Length=${contentLength} > cap=${maxBytes}`)
+    try {
+      await response.body?.cancel();
+    } catch {}
+    throw new Error(`response body too large: Content-Length=${contentLength} > cap=${maxBytes}`);
   }
-  const reader = response.body?.getReader?.()
+  const reader = response.body?.getReader?.();
   if (!reader) {
     // Fallback for environments without a readable stream — post-check length.
-    const text = await response.text()
+    const text = await response.text();
     if (Buffer.byteLength(text, 'utf8') > maxBytes) {
       // response.text() already drained the body, but guard symmetrically.
-      try { await response.body?.cancel() } catch {}
-      throw new Error(`response body too large: ${text.length} bytes > cap=${maxBytes}`)
+      try {
+        await response.body?.cancel();
+      } catch {}
+      throw new Error(`response body too large: ${text.length} bytes > cap=${maxBytes}`);
     }
-    return text
+    return text;
   }
-  const chunks = []
-  let total = 0
+  const chunks = [];
+  let total = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      total += value.byteLength
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
       if (total > maxBytes) {
-        try { await reader.cancel() } catch {}
-        throw new Error(`response body too large: received ${total}+ bytes > cap=${maxBytes}`)
+        try {
+          await reader.cancel();
+        } catch {}
+        throw new Error(`response body too large: received ${total}+ bytes > cap=${maxBytes}`);
       }
-      chunks.push(value)
+      chunks.push(value);
     }
   } finally {
-    try { reader.releaseLock() } catch {}
+    try {
+      reader.releaseLock();
+    } catch {}
   }
-  let decoder
-  try { decoder = new TextDecoder(charset, { fatal: false }) }
-  catch { decoder = new TextDecoder('utf-8') }
-  let text = ''
-  for (const chunk of chunks) text += decoder.decode(chunk, { stream: true })
-  text += decoder.decode()
-  return text
+  let decoder;
+  try {
+    decoder = new TextDecoder(charset, { fatal: false });
+  } catch {
+    decoder = new TextDecoder('utf-8');
+  }
+  let text = '';
+  for (const chunk of chunks) text += decoder.decode(chunk, { stream: true });
+  text += decoder.decode();
+  return text;
 }
 
 /** Binary-safe body reader for CDP Fetch fulfillment (no text-only filter). */
 async function readBodyBytesWithCap(response, maxBytes) {
-  const contentLength = Number(response.headers.get('content-length') || 0)
+  const contentLength = Number(response.headers.get('content-length') || 0);
   if (contentLength > maxBytes) {
-    try { await response.body?.cancel() } catch {}
-    throw new Error(`response body too large: Content-Length=${contentLength} > cap=${maxBytes}`)
+    try {
+      await response.body?.cancel();
+    } catch {}
+    throw new Error(`response body too large: Content-Length=${contentLength} > cap=${maxBytes}`);
   }
-  const reader = response.body?.getReader?.()
+  const reader = response.body?.getReader?.();
   if (!reader) {
-    const buf = Buffer.from(await response.arrayBuffer())
+    const buf = Buffer.from(await response.arrayBuffer());
     if (buf.byteLength > maxBytes) {
-      try { await response.body?.cancel() } catch {}
-      throw new Error(`response body too large: ${buf.byteLength} bytes > cap=${maxBytes}`)
+      try {
+        await response.body?.cancel();
+      } catch {}
+      throw new Error(`response body too large: ${buf.byteLength} bytes > cap=${maxBytes}`);
     }
-    return buf
+    return buf;
   }
-  const chunks = []
-  let total = 0
+  const chunks = [];
+  let total = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      total += value.byteLength
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
       if (total > maxBytes) {
-        try { await reader.cancel() } catch {}
-        throw new Error(`response body too large: received ${total}+ bytes > cap=${maxBytes}`)
+        try {
+          await reader.cancel();
+        } catch {}
+        throw new Error(`response body too large: received ${total}+ bytes > cap=${maxBytes}`);
       }
-      chunks.push(value)
+      chunks.push(value);
     }
   } finally {
-    try { reader.releaseLock() } catch {}
+    try {
+      reader.releaseLock();
+    } catch {}
   }
-  return Buffer.concat(chunks.map((c) => Buffer.from(c)))
+  return Buffer.concat(chunks.map((c) => Buffer.from(c)));
 }
 
-const SAFE_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+const SAFE_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
 function loopbackHost(hostname) {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
-  if (host === 'localhost' || host === '::1') return true
-  const match = host.match(/^(\d{1,3})(?:\.(\d{1,3})){3}$/)
-  return Boolean(match && Number(match[1]) === 127)
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (host === 'localhost' || host === '::1') return true;
+  const match = host.match(/^(\d{1,3})(?:\.(\d{1,3})){3}$/);
+  return Boolean(match && Number(match[1]) === 127);
 }
 
 function abortRace(promise, signal) {
-  if (!signal) return promise
-  if (signal.aborted) return Promise.reject(signal.reason || new Error('local_fetch aborted'))
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason || new Error('local_fetch aborted'));
   return new Promise((resolve, reject) => {
-    const onAbort = () => reject(signal.reason || new Error('local_fetch aborted'))
-    signal.addEventListener('abort', onAbort, { once: true })
+    const onAbort = () => reject(signal.reason || new Error('local_fetch aborted'));
+    signal.addEventListener('abort', onAbort, { once: true });
     promise.then(
-      (value) => { signal.removeEventListener('abort', onAbort); resolve(value) },
-      (error) => { signal.removeEventListener('abort', onAbort); reject(error) },
-    )
-  })
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      }
+    );
+  });
 }
 
 async function pinnedLoopbackFetch(url, options = {}) {
-  const parsed = assertLoopbackUrl(url)
-  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
-  const addresses = host === 'localhost'
-    ? await abortRace(dns.promises.lookup(host, { all: true }), options.signal)
-    : [{ address: host, family: host.includes(':') ? 6 : 4 }]
+  const parsed = assertLoopbackUrl(url);
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const addresses =
+    host === 'localhost'
+      ? await abortRace(dns.promises.lookup(host, { all: true }), options.signal)
+      : [{ address: host, family: host.includes(':') ? 6 : 4 }];
   if (!addresses.length || addresses.some((entry) => !loopbackHost(entry.address))) {
-    throw new Error(`Blocked non-loopback local_fetch resolution: ${host}`)
+    throw new Error(`Blocked non-loopback local_fetch resolution: ${host}`);
   }
-  const pinned = addresses[0]
+  const pinned = addresses[0];
   const dispatcher = new Agent({
     connect: {
-      lookup: (_hostname, opts, cb) => opts?.all
-        ? cb(null, [{ address: pinned.address, family: pinned.family }])
-        : cb(null, pinned.address, pinned.family),
+      lookup: (_hostname, opts, cb) =>
+        opts?.all
+          ? cb(null, [{ address: pinned.address, family: pinned.family }])
+          : cb(null, pinned.address, pinned.family),
     },
-  })
-  let response
+  });
+  let response;
   try {
-    response = await undiciFetch(url, { ...options, dispatcher })
+    response = await undiciFetch(url, { ...options, dispatcher });
   } catch (error) {
-    dispatcher.destroy().catch(() => {})
-    throw error
+    dispatcher.destroy().catch(() => {});
+    throw error;
   }
   if (!response.body) {
-    dispatcher.destroy().catch(() => {})
-    return response
+    dispatcher.destroy().catch(() => {});
+    return response;
   }
-  const reader = response.body.getReader()
-  let cleaned = false
+  const reader = response.body.getReader();
+  let cleaned = false;
   const cleanup = () => {
-    if (cleaned) return
-    cleaned = true
-    dispatcher.destroy().catch(() => {})
-  }
+    if (cleaned) return;
+    cleaned = true;
+    dispatcher.destroy().catch(() => {});
+  };
   const monitored = new ReadableStream({
     async pull(controller) {
       try {
-        const { done, value } = await reader.read()
+        const { done, value } = await reader.read();
         if (done) {
-          controller.close()
-          cleanup()
+          controller.close();
+          cleanup();
         } else {
-          controller.enqueue(value)
+          controller.enqueue(value);
         }
       } catch (error) {
-        controller.error(error)
-        cleanup()
+        controller.error(error);
+        cleanup();
       }
     },
     cancel(reason) {
-      reader.cancel(reason).catch(() => {})
-      cleanup()
+      reader.cancel(reason).catch(() => {});
+      cleanup();
     },
-  })
+  });
   return new Response(monitored, {
     status: response.status,
     statusText: response.statusText,
     headers: response.headers,
-  })
+  });
 }
 
 function assertLoopbackUrl(url) {
-  const parsed = new URL(url)
+  const parsed = new URL(url);
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Blocked non-HTTP protocol: ${parsed.protocol}`)
+    throw new Error(`Blocked non-HTTP protocol: ${parsed.protocol}`);
   }
-  if (parsed.username || parsed.password) throw new Error('Blocked loopback URL with userinfo credentials')
-  if (!loopbackHost(parsed.hostname)) throw new Error(`Blocked non-loopback local_fetch target: ${parsed.hostname}`)
-  return parsed
+  if (parsed.username || parsed.password) throw new Error('Blocked loopback URL with userinfo credentials');
+  if (!loopbackHost(parsed.hostname)) throw new Error(`Blocked non-loopback local_fetch target: ${parsed.hostname}`);
+  return parsed;
 }
 
 async function boundedManualFetch(url, { signal, fetchImpl, validateUrl, sameHost = false } = {}) {
-  const original = validateUrl(url)
-  let currentUrl = original.toString()
+  const original = validateUrl(url);
+  let currentUrl = original.toString();
   for (let hops = 0; ; hops++) {
-    const current = validateUrl(currentUrl)
+    const current = validateUrl(currentUrl);
     if (sameHost && current.hostname.toLowerCase() !== original.hostname.toLowerCase()) {
-      throw new Error(`cross-host redirect blocked (redirected_to: ${currentUrl})`)
+      throw new Error(`cross-host redirect blocked (redirected_to: ${currentUrl})`);
     }
     const response = await fetchImpl(currentUrl, {
       signal,
       headers: buildHeaders(),
       redirect: 'manual',
-    })
-    if (!REDIRECT_STATUSES.has(response.status)) return response
-    try { await response.body?.cancel() } catch {}
-    if (hops >= MAX_REDIRECTS) throw new Error(`Too many redirects (max ${MAX_REDIRECTS})`)
-    const location = response.headers.get('location')
-    if (!location) throw new Error(`Redirect ${response.status} without Location header`)
-    currentUrl = new URL(location, currentUrl).toString()
+    });
+    if (!REDIRECT_STATUSES.has(response.status)) return response;
+    try {
+      await response.body?.cancel();
+    } catch {}
+    if (hops >= MAX_REDIRECTS) throw new Error(`Too many redirects (max ${MAX_REDIRECTS})`);
+    const location = response.headers.get('location');
+    if (!location) throw new Error(`Redirect ${response.status} without Location header`);
+    currentUrl = new URL(location, currentUrl).toString();
   }
 }
 
@@ -255,12 +293,14 @@ export async function fetchLoopbackText(url, { signal, fetchImpl = pinnedLoopbac
     signal,
     fetchImpl,
     validateUrl: assertLoopbackUrl,
-  })
+  });
   if (!response.ok) {
-    try { await response.body?.cancel() } catch {}
-    throw new Error(`HTTP ${response.status}`)
+    try {
+      await response.body?.cancel();
+    } catch {}
+    throw new Error(`HTTP ${response.status}`);
   }
-  return readBodyWithCap(response, MAX_BODY_BYTES)
+  return readBodyWithCap(response, MAX_BODY_BYTES);
 }
 
 export async function fetchPublicImage(url, { signal, fetchImpl = pinnedFetch } = {}) {
@@ -268,22 +308,26 @@ export async function fetchPublicImage(url, { signal, fetchImpl = pinnedFetch } 
     signal,
     fetchImpl,
     validateUrl: (value) => {
-      assertPublicUrl(value)
-      return new URL(value)
+      assertPublicUrl(value);
+      return new URL(value);
     },
     sameHost: true,
-  })
+  });
   if (!response.ok) {
-    try { await response.body?.cancel() } catch {}
-    throw new Error(`HTTP ${response.status}`)
+    try {
+      await response.body?.cancel();
+    } catch {}
+    throw new Error(`HTTP ${response.status}`);
   }
-  const mimeType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
+  const mimeType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
   if (!SAFE_IMAGE_MIMES.has(mimeType)) {
-    try { await response.body?.cancel() } catch {}
-    throw new Error(`Blocked unsupported image content-type: ${mimeType || '(missing)'}`)
+    try {
+      await response.body?.cancel();
+    } catch {}
+    throw new Error(`Blocked unsupported image content-type: ${mimeType || '(missing)'}`);
   }
-  const bytes = await readBodyBytesWithCap(response, MAX_BODY_BYTES)
-  return { mimeType, data: bytes.toString('base64'), bytes: bytes.byteLength }
+  const bytes = await readBodyBytesWithCap(response, MAX_BODY_BYTES);
+  return { mimeType, data: bytes.toString('base64'), bytes: bytes.byteLength };
 }
 
 const CDP_FORBIDDEN_RESPONSE_HEADERS = new Set([
@@ -291,126 +335,137 @@ const CDP_FORBIDDEN_RESPONSE_HEADERS = new Set([
   'transfer-encoding',
   // undici decodes gzip/br/deflate; body passed to fulfillRequest is plain bytes
   'content-encoding',
-])
+]);
 
 function headersToCdpPairs(headers) {
-  const out = []
+  const out = [];
   headers.forEach((value, name) => {
-    const lower = name.toLowerCase()
-    if (CDP_FORBIDDEN_RESPONSE_HEADERS.has(lower)) return
-    if (lower === 'set-cookie' && headers.getSetCookie) return
-    out.push({ name, value })
-  })
-  for (const value of headers.getSetCookie?.() || []) out.push({ name: 'set-cookie', value })
-  return out
+    const lower = name.toLowerCase();
+    if (CDP_FORBIDDEN_RESPONSE_HEADERS.has(lower)) return;
+    if (lower === 'set-cookie' && headers.getSetCookie) return;
+    out.push({ name, value });
+  });
+  for (const value of headers.getSetCookie?.() || []) out.push({ name: 'set-cookie', value });
+  return out;
 }
 
 /**
  * Return one validated HTTP response to Chromium. The browser owns redirects,
  * cookie scoping and method rewriting; each subsequent hop is intercepted again.
  */
-export async function fetchPinnedForPausedRequest(url, { signal, method = 'GET', headers = {}, body, request = pinnedFetch } = {}) {
-  assertPublicUrl(url)
-  const response = await request(url, { signal, method, headers, body, redirect: 'manual' })
+export async function fetchPinnedForPausedRequest(
+  url,
+  { signal, method = 'GET', headers = {}, body, request = pinnedFetch } = {}
+) {
+  assertPublicUrl(url);
+  const response = await request(url, { signal, method, headers, body, redirect: 'manual' });
   try {
-    const location = response.headers.get('location')
+    const location = response.headers.get('location');
     if (REDIRECT_STATUSES.has(response.status) && location) {
-      assertPublicUrl(new URL(location, url).href)
+      assertPublicUrl(new URL(location, url).href);
     }
-    const respBody = await readBodyBytesWithCap(response, MAX_BODY_BYTES)
+    const respBody = await readBodyBytesWithCap(response, MAX_BODY_BYTES);
     return {
       status: response.status,
       responseHeaders: headersToCdpPairs(response.headers),
       body: respBody,
-    }
+    };
   } catch (error) {
-    try { await response.body?.cancel() } catch {}
-    throw error
+    try {
+      await response.body?.cancel();
+    } catch {}
+    throw error;
   }
 }
 
 export function parseRetryAfter(value, now = Date.now()) {
-  if (!value?.trim()) return 0
-  const seconds = Number(value)
-  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
-  const date = Date.parse(value)
-  return Number.isFinite(date) ? Math.max(0, date - now) : 0
+  if (!value?.trim()) return 0;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - now) : 0;
 }
 
 export function assertDocumentResponse(status, headers, url) {
-  const challenged = headers.get('cf-mitigated') === 'challenge'
-  if (!challenged && status >= 200 && status < 300) return
-  const error = new Error(challenged ? 'Challenge response (cf-mitigated: challenge)' : `HTTP ${status}`)
-  error.status = status
-  error.url = url
-  error.retryAfterMs = parseRetryAfter(headers.get('retry-after'))
-  if (challenged) error.code = 'BLOCKED_CONTENT'
-  throw error
+  const challenged = headers.get('cf-mitigated') === 'challenge';
+  if (!challenged && status >= 200 && status < 300) return;
+  const error = new Error(challenged ? 'Challenge response (cf-mitigated: challenge)' : `HTTP ${status}`);
+  error.status = status;
+  error.url = url;
+  error.retryAfterMs = parseRetryAfter(headers.get('retry-after'));
+  if (challenged) error.code = 'BLOCKED_CONTENT';
+  throw error;
 }
 
 export async function fetchDocument(url, timeoutMs, signal, { request = pinnedFetch, session = {} } = {}) {
-  const controller = new AbortController()
-  const timer = withTimeout(controller, timeoutMs)
+  const controller = new AbortController();
+  const timer = withTimeout(controller, timeoutMs);
   // Propagate an external (tool-call) abort into the local timeout controller
   // so a cancelled web_fetch tears down the in-flight request promptly.
-  let onExternalAbort
+  let onExternalAbort;
   if (signal) {
-    if (signal.aborted) controller.abort(signal.reason)
+    if (signal.aborted) controller.abort(signal.reason);
     else {
-      onExternalAbort = () => controller.abort(signal.reason)
-      signal.addEventListener('abort', onExternalAbort, { once: true })
+      onExternalAbort = () => controller.abort(signal.reason);
+      signal.addEventListener('abort', onExternalAbort, { once: true });
     }
   }
   try {
-    let currentUrl = url
-    const redirects = []
+    let currentUrl = url;
+    const redirects = [];
     for (let hops = 0; ; hops++) {
       // pinnedFetch resolves+validates the host once and forces the
       // connection to the validated IP — closes the validate-then-fetch
       // TOCTOU / DNS-rebinding window that bare `fetch` left open.
-      assertPublicUrl(currentUrl)
-      const headers = buildHeaders()
-      const cookies = session.jar?.getCookieStringSync(currentUrl)
-      if (cookies) headers.Cookie = cookies
+      assertPublicUrl(currentUrl);
+      const headers = buildHeaders();
+      const cookies = session.jar?.getCookieStringSync(currentUrl);
+      if (cookies) headers.Cookie = cookies;
       const response = await request(currentUrl, {
         signal: controller.signal,
         headers,
         redirect: 'manual',
-      })
-      const setCookies = response.headers.getSetCookie?.() || []
+      });
+      const setCookies = response.headers.getSetCookie?.() || [];
       if (setCookies.length) {
         try {
           if (!session.jar) {
-            const { CookieJar } = await import('jsdom')
-            session.jar = new CookieJar()
+            const { CookieJar } = await import('jsdom');
+            session.jar = new CookieJar();
           }
-          for (const cookie of setCookies) session.jar.setCookieSync(cookie, currentUrl, { ignoreError: true })
+          for (const cookie of setCookies) session.jar.setCookieSync(cookie, currentUrl, { ignoreError: true });
         } catch (error) {
-          try { await response.body?.cancel() } catch {}
-          throw error
+          try {
+            await response.body?.cancel();
+          } catch {}
+          throw error;
         }
       }
       if (REDIRECT_STATUSES.has(response.status)) {
         // Drain the redirect response body so the socket isn't held until GC.
-        try { await response.body?.cancel() } catch {}
+        try {
+          await response.body?.cancel();
+        } catch {}
         if (hops >= MAX_REDIRECTS) {
-          throw new Error(`Too many redirects (max ${MAX_REDIRECTS})`)
+          throw new Error(`Too many redirects (max ${MAX_REDIRECTS})`);
         }
-        const location = response.headers.get('location')
+        const location = response.headers.get('location');
         if (!location) {
-          throw new Error(`Redirect ${response.status} without Location header`)
+          throw new Error(`Redirect ${response.status} without Location header`);
         }
-        const nextUrl = new URL(location, currentUrl).toString()
-        assertPublicUrl(nextUrl)
-        redirects.push({ url: currentUrl, status: response.status, location: nextUrl })
-        currentUrl = nextUrl
-        continue
+        const nextUrl = new URL(location, currentUrl).toString();
+        assertPublicUrl(nextUrl);
+        redirects.push({ url: currentUrl, status: response.status, location: nextUrl });
+        currentUrl = nextUrl;
+        continue;
       }
       try {
-        assertDocumentResponse(response.status, response.headers, currentUrl)
+        assertDocumentResponse(response.status, response.headers, currentUrl);
       } catch (error) {
-        try { await response.body?.cancel() } catch {}
-        throw error
+        try {
+          await response.body?.cancel();
+        } catch {}
+        throw error;
       }
       return {
         url: currentUrl,
@@ -419,11 +474,11 @@ export async function fetchDocument(url, timeoutMs, signal, { request = pinnedFe
         contentType: response.headers.get('content-type') || '',
         body: await readBodyWithCap(response, MAX_BODY_BYTES),
         redirects,
-      }
+      };
     }
   } finally {
-    clearTimeout(timer)
-    if (onExternalAbort) signal.removeEventListener('abort', onExternalAbort)
+    clearTimeout(timer);
+    if (onExternalAbort) signal.removeEventListener('abort', onExternalAbort);
   }
 }
 
@@ -434,27 +489,28 @@ export async function fetchDocument(url, timeoutMs, signal, { request = pinnedFe
 // "article". Long-delay refreshes (>5s) are page auto-reloads, not
 // redirects, and are deliberately NOT followed.
 export function _metaRefreshTarget(html, baseUrl) {
-  const head = String(html || '').slice(0, 8192)
-  const tags = head.match(/<meta\b[^>]*>/gi) || []
+  const head = String(html || '').slice(0, 8192);
+  const tags = head.match(/<meta\b[^>]*>/gi) || [];
   for (const tag of tags) {
-    if (!/http-equiv\s*=\s*["']?refresh\b/i.test(tag)) continue
+    if (!/http-equiv\s*=\s*["']?refresh\b/i.test(tag)) continue;
     // Quote-aware capture: the attribute value may NEST the other quote kind
     // (content="0; url='...'"), so a combined ["'] char class would cut the
     // capture at the inner quote. Match each quote style to its own closer.
-    const m = /content\s*=\s*"([^"]*)"/i.exec(tag)
-      || /content\s*=\s*'([^']*)'/i.exec(tag)
-      || /content\s*=\s*([^\s>]+)/i.exec(tag)
-    if (!m) continue
-    const cm = /^\s*(\d+(?:\.\d+)?)\s*[;,]\s*url\s*=\s*['"]?([^'"]+?)['"]?\s*$/i.exec(m[1])
-    if (!cm) continue
-    const delay = Number(cm[1])
-    if (!Number.isFinite(delay) || delay > 5) continue
+    const m =
+      /content\s*=\s*"([^"]*)"/i.exec(tag) ||
+      /content\s*=\s*'([^']*)'/i.exec(tag) ||
+      /content\s*=\s*([^\s>]+)/i.exec(tag);
+    if (!m) continue;
+    const cm = /^\s*(\d+(?:\.\d+)?)\s*[;,]\s*url\s*=\s*['"]?([^'"]+?)['"]?\s*$/i.exec(m[1]);
+    if (!cm) continue;
+    const delay = Number(cm[1]);
+    if (!Number.isFinite(delay) || delay > 5) continue;
     try {
-      const resolved = new URL(cm[2].trim(), baseUrl)
-      if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') continue
-      if (resolved.href === baseUrl) continue
-      return resolved.href
-    } catch { continue }
+      const resolved = new URL(cm[2].trim(), baseUrl);
+      if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') continue;
+      if (resolved.href === baseUrl) continue;
+      return resolved.href;
+    } catch {}
   }
-  return null
+  return null;
 }

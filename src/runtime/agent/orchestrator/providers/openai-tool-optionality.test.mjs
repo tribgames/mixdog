@@ -11,10 +11,16 @@ test('Responses function tools preserve optional Goal fields in direct and defer
   for (const wire of [
     toOpenAIResponsesTool(goal),
     ...toResponsesTools([goal], { provider: 'openai-oauth' }),
-    ...['openai', 'openai-oauth'].flatMap(provider => nativeToolSearchOutputInput({
-      toolCallId: 'goal-schema',
-      nativeToolSearch: toolSearchNativePayload([goal], ['goal'], provider),
-    }, provider).tools),
+    ...['openai', 'openai-oauth'].flatMap(
+      (provider) =>
+        nativeToolSearchOutputInput(
+          {
+            toolCallId: 'goal-schema',
+            nativeToolSearch: toolSearchNativePayload([goal], ['goal'], provider),
+          },
+          provider
+        ).tools
+    ),
   ]) {
     assert.equal(wire.strict, false);
     assert.deepEqual(wire.parameters.required, ['action']);

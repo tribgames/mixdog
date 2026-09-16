@@ -41,17 +41,41 @@ export interface EditorAnsiDecorationPlan extends EditorAnsiParseResult {
 
 // Default ANSI palette. Attribution is recorded under LICENSES.
 const ANSI_DARK = [
-  "#000000", "#cd3131", "#0dbc79", "#e5e510",
-  "#2472c8", "#bc3fbc", "#11a8cd", "#e5e5e5",
-  "#666666", "#f14c4c", "#23d18b", "#f5f543",
-  "#3b8eea", "#d670d6", "#29b8db", "#e5e5e5",
+  '#000000',
+  '#cd3131',
+  '#0dbc79',
+  '#e5e510',
+  '#2472c8',
+  '#bc3fbc',
+  '#11a8cd',
+  '#e5e5e5',
+  '#666666',
+  '#f14c4c',
+  '#23d18b',
+  '#f5f543',
+  '#3b8eea',
+  '#d670d6',
+  '#29b8db',
+  '#e5e5e5',
 ] as const;
 
 const ANSI_LIGHT = [
-  "#000000", "#cd3131", "#107c10", "#949800",
-  "#0451a5", "#bc05bc", "#0598bc", "#555555",
-  "#666666", "#cd3131", "#14ce14", "#b5ba00",
-  "#0451a5", "#bc05bc", "#0598bc", "#a5a5a5",
+  '#000000',
+  '#cd3131',
+  '#107c10',
+  '#949800',
+  '#0451a5',
+  '#bc05bc',
+  '#0598bc',
+  '#555555',
+  '#666666',
+  '#cd3131',
+  '#14ce14',
+  '#b5ba00',
+  '#0451a5',
+  '#bc05bc',
+  '#0598bc',
+  '#a5a5a5',
 ] as const;
 
 const CSI_TERMINATOR = /^[ABCDHIJKfhmpsu]$/;
@@ -105,10 +129,10 @@ function ansi8BitColor(index: number, palette: readonly string[]): string | unde
 
 function setColor(
   style: EditorAnsiStyle,
-  target: "foreground" | "background" | "underlineColor",
+  target: 'foreground' | 'background' | 'underlineColor',
   codes: number[],
   index: number,
-  palette: readonly string[],
+  palette: readonly string[]
 ): number {
   const mode = codes[index + 1];
   if (mode === 5 && Number.isFinite(codes[index + 2])) {
@@ -116,8 +140,7 @@ function setColor(
     if (color) style[target] = color;
     return index + 2;
   }
-  if (mode === 2 && [codes[index + 2], codes[index + 3], codes[index + 4]]
-    .every(Number.isFinite)) {
+  if (mode === 2 && [codes[index + 2], codes[index + 3], codes[index + 4]].every(Number.isFinite)) {
     style[target] = rgb(codes[index + 2], codes[index + 3], codes[index + 4]);
     return index + 4;
   }
@@ -149,9 +172,9 @@ function applySgr(style: EditorAnsiStyle, rawCodes: number[], palette: readonly 
     else if (code === 53) style.overline = true;
     else if (code === 55) style.overline = false;
     else if (code === 59) style.underlineColor = undefined;
-    else if (code === 38) index = setColor(style, "foreground", codes, index, palette);
-    else if (code === 48) index = setColor(style, "background", codes, index, palette);
-    else if (code === 58) index = setColor(style, "underlineColor", codes, index, palette);
+    else if (code === 38) index = setColor(style, 'foreground', codes, index, palette);
+    else if (code === 48) index = setColor(style, 'background', codes, index, palette);
+    else if (code === 58) index = setColor(style, 'underlineColor', codes, index, palette);
     else if (code >= 30 && code <= 37) style.foreground = palette[code - 30];
     else if (code >= 90 && code <= 97) style.foreground = palette[code - 90 + 8];
     else if (code >= 40 && code <= 47) style.background = palette[code - 40];
@@ -160,11 +183,11 @@ function applySgr(style: EditorAnsiStyle, rawCodes: number[], palette: readonly 
 }
 
 export function isAnsiOutputPath(path: string): boolean {
-  return /\.(?:ansi|log|out|stderr|stdout)$/i.test(String(path || ""));
+  return /\.(?:ansi|log|out|stderr|stdout)$/i.test(String(path || ''));
 }
 
 export function parseEditorAnsi(text: string, light = false): EditorAnsiParseResult {
-  const source = String(text ?? "");
+  const source = String(text ?? '');
   const palette = light ? ANSI_LIGHT : ANSI_DARK;
   const controls: EditorAnsiRange[] = [];
   const spans: EditorAnsiSpan[] = [];
@@ -181,13 +204,13 @@ export function parseEditorAnsi(text: string, light = false): EditorAnsiParseRes
   };
 
   while (current < source.length) {
-    if (source.charCodeAt(current) !== 27 || source[current + 1] !== "[") {
+    if (source.charCodeAt(current) !== 27 || source[current + 1] !== '[') {
       current += 1;
       continue;
     }
     const start = current;
     current += 2;
-    let sequence = "";
+    let sequence = '';
     let found = false;
     while (current < source.length) {
       const character = source[current];
@@ -205,16 +228,16 @@ export function parseEditorAnsi(text: string, light = false): EditorAnsiParseRes
 
     flush(start);
     controls.push({ start, end: current });
-    if (sequence.endsWith("m")) {
+    if (sequence.endsWith('m')) {
       const body = sequence.slice(0, -1);
-      const values = body === "" ? [] : body.split(";").map(Number);
+      const values = body === '' ? [] : body.split(';').map(Number);
       if (values.every(Number.isFinite)) applySgr(style, values, palette);
     }
     visibleStart = current;
   }
 
   flush(source.length);
-  return { controls, spans, visibleText: visibleParts.join("") };
+  return { controls, spans, visibleText: visibleParts.join('') };
 }
 
 function styleHash(value: string): string {
@@ -230,25 +253,25 @@ function declarationsFor(style: EditorAnsiStyle): string[] {
   let foreground = style.foreground;
   let background = style.background;
   if (style.inverse) {
-    const nextForeground = background ?? "var(--mx-workspace-sheet)";
-    const nextBackground = foreground ?? "var(--mx-text)";
+    const nextForeground = background ?? 'var(--mx-workspace-sheet)';
+    const nextBackground = foreground ?? 'var(--mx-text)';
     foreground = nextForeground;
     background = nextBackground;
   }
   const declarations: string[] = [];
   if (foreground) declarations.push(`color:${foreground}!important`);
   if (background) declarations.push(`background-color:${background}!important`);
-  if (style.bold) declarations.push("font-weight:700");
-  if (style.dim) declarations.push("opacity:.65");
-  if (style.italic) declarations.push("font-style:italic");
+  if (style.bold) declarations.push('font-weight:700');
+  if (style.dim) declarations.push('opacity:.65');
+  if (style.italic) declarations.push('font-style:italic');
   const lines = [
-    style.underline ? "underline" : "",
-    style.strike ? "line-through" : "",
-    style.overline ? "overline" : "",
+    style.underline ? 'underline' : '',
+    style.strike ? 'line-through' : '',
+    style.overline ? 'overline' : '',
   ].filter(Boolean);
-  if (lines.length) declarations.push(`text-decoration-line:${lines.join(" ")}`);
+  if (lines.length) declarations.push(`text-decoration-line:${lines.join(' ')}`);
   if (style.underlineColor) declarations.push(`text-decoration-color:${style.underlineColor}`);
-  if (style.hidden) declarations.push("visibility:hidden");
+  if (style.hidden) declarations.push('visibility:hidden');
   return declarations;
 }
 
@@ -256,13 +279,13 @@ export function editorAnsiDecorationPlan(text: string, light = false): EditorAns
   const parsed = parseEditorAnsi(text, light);
   const decorations: EditorAnsiDecoration[] = parsed.controls.map((range) => ({
     ...range,
-    className: "editor-ansi-control",
+    className: 'editor-ansi-control',
   }));
   const rules = new Map<string, string>();
   for (const span of parsed.spans) {
     const declarations = declarationsFor(span.style);
     if (!declarations.length) continue;
-    const declaration = declarations.join(";");
+    const declaration = declarations.join(';');
     const className = `editor-ansi-style-${styleHash(declaration)}`;
     rules.set(className, declaration);
     decorations.push({ start: span.start, end: span.end, className });
@@ -270,8 +293,7 @@ export function editorAnsiDecorationPlan(text: string, light = false): EditorAns
   return {
     ...parsed,
     decorations,
-    cssText: [...rules].map(([className, declaration]) =>
-      `.monaco-editor .${className}{${declaration}}`).join("\n"),
+    cssText: [...rules].map(([className, declaration]) => `.monaco-editor .${className}{${declaration}}`).join('\n'),
   };
 }
 

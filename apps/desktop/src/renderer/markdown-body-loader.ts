@@ -1,11 +1,11 @@
 let markdownBodyReady = false;
-let markdownBodyPromise: Promise<typeof import("./MarkdownBody")> | null = null;
+let markdownBodyPromise: Promise<typeof import('./MarkdownBody')> | null = null;
 
 export function isMarkdownBodyReady(): boolean {
   return markdownBodyReady;
 }
 
-export function preloadMarkdownBody(): Promise<typeof import("./MarkdownBody")> {
+export function preloadMarkdownBody(): Promise<typeof import('./MarkdownBody')> {
   markdownBodyPromise ||= (async () => {
     // Capture-only race hook: a cold probe can force IPC to beat the lazy
     // chunk and prove that App keeps the transcript neutral until rich
@@ -16,7 +16,7 @@ export function preloadMarkdownBody(): Promise<typeof import("./MarkdownBody")> 
     if (delayMs > 0) {
       await new Promise((resolve) => window.setTimeout(resolve, delayMs));
     }
-    const module = await import("./MarkdownBody");
+    const module = await import('./MarkdownBody');
     markdownBodyReady = true;
     return module;
   })().catch((error) => {

@@ -28,8 +28,11 @@ function spansOverlap(aStart, aEnd, bStart, bEnd) {
 // part of the diagram: the label beside a brace, the caption under a node.
 function isRegisteredText(shape, anchors) {
   const own = box(shape);
-  return anchors.some((anchor) => spansOverlap(own.top, own.bottom, anchor.top, anchor.bottom)
-    || spansOverlap(own.left, own.right, anchor.left, anchor.right));
+  return anchors.some(
+    (anchor) =>
+      spansOverlap(own.top, own.bottom, anchor.top, anchor.bottom) ||
+      spansOverlap(own.left, own.right, anchor.left, anchor.right)
+  );
 }
 
 // A diagram shape is a connector, a preset geometry that is not a plain text
@@ -46,22 +49,30 @@ export function isPptxDiagramShape(shape) {
 // text registered to them (the slide's title — its largest type — excluded),
 // as a share of the canvas.
 export function pptxDiagramCoverage(slide, size = DEFAULT_SLIDE) {
-  const all = (Array.isArray(slide?.shapes) ? slide.shapes : []).filter((shape) => hasBox(shape) && !shape.placeholder && !isMotifShape(shape));
+  const all = (Array.isArray(slide?.shapes) ? slide.shapes : []).filter(
+    (shape) => hasBox(shape) && !shape.placeholder && !isMotifShape(shape)
+  );
   const drawn = all.filter(isPptxDiagramShape);
   if (!drawn.length) return { count: 0, fieldShare: 0 };
   const anchors = drawn.map(box);
   const largestType = Math.max(0, ...all.map((shape) => Number(shape.font?.size) || 0));
-  const registered = all.filter((shape) => !drawn.includes(shape)
-    && String(shape.text || '').trim()
-    && (Number(shape.font?.size) || 0) < largestType
-    && isRegisteredText(shape, anchors));
+  const registered = all.filter(
+    (shape) =>
+      !drawn.includes(shape) &&
+      String(shape.text || '').trim() &&
+      (Number(shape.font?.size) || 0) < largestType &&
+      isRegisteredText(shape, anchors)
+  );
   const boxes = [...anchors, ...registered.map(box)];
   const left = Math.min(...boxes.map((entry) => entry.left));
   const top = Math.min(...boxes.map((entry) => entry.top));
   const right = Math.max(...boxes.map((entry) => entry.right));
   const bottom = Math.max(...boxes.map((entry) => entry.bottom));
-  const canvas = Math.max(1, (Number(size?.width) || DEFAULT_SLIDE.width) * (Number(size?.height) || DEFAULT_SLIDE.height));
-  const fieldShare = Math.max(0, right - left) * Math.max(0, bottom - top) / canvas;
+  const canvas = Math.max(
+    1,
+    (Number(size?.width) || DEFAULT_SLIDE.width) * (Number(size?.height) || DEFAULT_SLIDE.height)
+  );
+  const fieldShare = (Math.max(0, right - left) * Math.max(0, bottom - top)) / canvas;
   return { count: drawn.length, fieldShare: Number(fieldShare.toFixed(4)) };
 }
 
@@ -69,7 +80,10 @@ const PICTURE_MIN_SHARE = 0.25;
 
 // The share of the canvas under pictures (each frame's own area; overlaps count twice, which only helps a stack).
 export function pptxPictureShare(slide, size = DEFAULT_SLIDE) {
-  const canvas = Math.max(1, (Number(size?.width) || DEFAULT_SLIDE.width) * (Number(size?.height) || DEFAULT_SLIDE.height));
+  const canvas = Math.max(
+    1,
+    (Number(size?.width) || DEFAULT_SLIDE.width) * (Number(size?.height) || DEFAULT_SLIDE.height)
+  );
   const area = (Array.isArray(slide?.shapes) ? slide.shapes : [])
     .filter((shape) => shape?.type === 'p:pic' && Number(shape.width) > 0 && Number(shape.height) > 0)
     .reduce((total, shape) => total + Number(shape.width) * Number(shape.height), 0);
@@ -91,15 +105,14 @@ export function isPptxDiagramSlide(slide, size = DEFAULT_SLIDE) {
 // plans say so through slideRole; an authored deck has no plan, so the same
 // criterion is read from the saved shapes and shared with the render review.
 export function isPptxStatementSlide(slide) {
-  const textShapes = (Array.isArray(slide?.shapes) ? slide.shapes : [])
-    .filter((shape) => String(shape.text || '').trim() && !isMotifShape(shape) && !shape.placeholder);
+  const textShapes = (Array.isArray(slide?.shapes) ? slide.shapes : []).filter(
+    (shape) => String(shape.text || '').trim() && !isMotifShape(shape) && !shape.placeholder
+  );
   if (!textShapes.length || textShapes.length > 5) return false;
   const sizes = textShapes.map((shape) => Number(shape.font?.size) || 0);
   const largest = Math.max(...sizes);
   const totalText = textShapes.reduce((total, shape) => total + String(shape.text || '').length, 0);
-  return largest >= 42
-    || sizes.filter((size) => size >= 34).length >= 2
-    || (largest >= 24 && totalText <= 280);
+  return largest >= 42 || sizes.filter((size) => size >= 34).length >= 2 || (largest >= 24 && totalText <= 280);
 }
 
 // A specimen draws its subject: three or more text blocks sharing one left edge,

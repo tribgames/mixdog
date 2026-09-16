@@ -1,12 +1,7 @@
 import type React from 'react';
 import { t, uiFormatLocale } from './i18n';
 import { record } from './record-utils';
-import {
-  usageCompact,
-  usageMoney,
-  usageNumber,
-  usageProviderLabel as stripPlanSuffix,
-} from './usage-format';
+import { usageCompact, usageMoney, usageNumber, usageProviderLabel as stripPlanSuffix } from './usage-format';
 import { displayUsagePercent } from './usage-percent';
 
 type Row = Record<string, unknown>;
@@ -77,36 +72,55 @@ export function usageProviderLabel(provider: Row): string {
 }
 
 export function UsageTableFrame({ children }: React.PropsWithChildren) {
-  return <div className="usage-table-shell">
-    <table className="usage-table" aria-label={t('Provider usage')}>
-      <colgroup><col className="usage-provider-column" /><col className="usage-plan-column" />
-        <col className="usage-values-column" /></colgroup>
-      <thead><tr><th scope="col">{t('Provider')}</th><th scope="col">{t('Type')}</th><th scope="col">{t('Usage')}</th></tr></thead>
-      <tbody>{children}</tbody>
-    </table>
-  </div>;
+  return (
+    <div className="usage-table-shell">
+      <table className="usage-table" aria-label={t('Provider usage')}>
+        <colgroup>
+          <col className="usage-provider-column" />
+          <col className="usage-plan-column" />
+          <col className="usage-values-column" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col">{t('Provider')}</th>
+            <th scope="col">{t('Type')}</th>
+            <th scope="col">{t('Usage')}</th>
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
 }
 
 // Entry skeleton mirrors the loaded table geometry, so the dialog opens at
 // its real size instead of collapsing around a bare "Loading…" line.
 export function UsageSkeleton() {
-  return <>
-    <p className="sr-only" role="status">{t('Loading provider usage…')}</p>
-    <UsageTableFrame>
-      {[104, 88, 64, 112, 72, 96].map((width, index) => (
-        <tr className="usage-skeleton-row" key={index} aria-hidden="true">
-          <td className="usage-provider-cell">
-            <span className="usage-skeleton" style={{ width }} />
-            <span className="usage-skeleton" style={{ width: 58 }} />
-          </td>
-          <td className="usage-plan-cell"><span className="usage-skeleton usage-skeleton-pill" /></td>
-          <td><div className="usage-row-values">
-            <span className="usage-skeleton usage-skeleton-chip" style={{ width: index % 2 ? 132 : 180 }} />
-          </div></td>
-        </tr>
-      ))}
-    </UsageTableFrame>
-  </>;
+  return (
+    <>
+      <p className="sr-only" role="status">
+        {t('Loading provider usage…')}
+      </p>
+      <UsageTableFrame>
+        {[104, 88, 64, 112, 72, 96].map((width, index) => (
+          <tr className="usage-skeleton-row" key={index} aria-hidden="true">
+            <td className="usage-provider-cell">
+              <span className="usage-skeleton" style={{ width }} />
+              <span className="usage-skeleton" style={{ width: 58 }} />
+            </td>
+            <td className="usage-plan-cell">
+              <span className="usage-skeleton usage-skeleton-pill" />
+            </td>
+            <td>
+              <div className="usage-row-values">
+                <span className="usage-skeleton usage-skeleton-chip" style={{ width: index % 2 ? 132 : 180 }} />
+              </div>
+            </td>
+          </tr>
+        ))}
+      </UsageTableFrame>
+    </>
+  );
 }
 
 // API-key providers mostly have NO balance endpoint at all (Anthropic and the
@@ -128,10 +142,12 @@ export function billingUrl(provider: Row): string {
 
 export function UsageBody({ data }: { data: Record<string, unknown> }) {
   const dashboard = record(data.getUsageDashboard);
-  const providers = (Array.isArray(dashboard.rows) ? (dashboard.rows as unknown[]).map(record) : [])
-    .filter((provider) => usagePlanType(provider) !== '');
-  return <UsageTableFrame>
-    {providers.map((provider, index) => {
+  const providers = (Array.isArray(dashboard.rows) ? (dashboard.rows as unknown[]).map(record) : []).filter(
+    (provider) => usagePlanType(provider) !== ''
+  );
+  return (
+    <UsageTableFrame>
+      {providers.map((provider, index) => {
         const windows = Array.isArray(provider.windows) ? (provider.windows as unknown[]).map(record) : [];
         const credit = usageNumber(provider.remainingUsd);
         // A $0 credit chip carries no information — hide it so subscription
@@ -140,33 +156,59 @@ export function UsageBody({ data }: { data: Record<string, unknown> }) {
         const note = String(provider.primary || provider.detail || '');
         const plan = usagePlanType(provider);
         const connected = provider.authenticated === true;
-        return <tr key={String(provider.id || provider.label || index)}>
-          <td className="usage-provider-cell">
-            <b>{usageProviderLabel(provider)}</b>
-            <span>{connected ? t('Connected') : String(provider.sourceLabel || provider.status || '')}</span>
+        return (
+          <tr key={String(provider.id || provider.label || index)}>
+            <td className="usage-provider-cell">
+              <b>{usageProviderLabel(provider)}</b>
+              <span>{connected ? t('Connected') : String(provider.sourceLabel || provider.status || '')}</span>
+            </td>
+            <td className="usage-plan-cell">
+              <span className="usage-plan" data-plan={plan}>
+                {plan === 'subscription' ? t('Subscription') : 'API'}
+              </span>
+            </td>
+            <td>
+              <div className="usage-row-values">
+                {windows.map((window, windowIndex) => {
+                  const reset = usageEstimated(window) ? '' : usageClock(window.resetAt);
+                  return (
+                    <span className="usage-chip" key={windowIndex} data-tone={usageTone(window)}>
+                      <em>{String(window.label || 'USE').toUpperCase()}</em>
+                      <b>{usageWindowValue(window) || '—'}</b>
+                      {reset && <i>↻ {reset}</i>}
+                    </span>
+                  );
+                })}
+                {showCredit && (
+                  <span className="usage-chip" data-tone="credit">
+                    <em>CREDIT</em>
+                    <b>{usageMoney(credit)}</b>
+                  </span>
+                )}
+                {!windows.length && !showCredit && <span className="usage-row-note">{note || '—'}</span>}
+                {billingUrl(provider) && (
+                  <button
+                    className="usage-row-link"
+                    type="button"
+                    onClick={() =>
+                      void window.mixdogDesktop?.openExternal?.(billingUrl(provider)).catch(() => undefined)
+                    }
+                  >
+                    {t('Billing ↗')}
+                  </button>
+                )}
+              </div>
+            </td>
+          </tr>
+        );
+      })}
+      {!providers.length && (
+        <tr>
+          <td className="usage-empty" colSpan={3}>
+            {t('No provider usage available.')}
           </td>
-          <td className="usage-plan-cell"><span className="usage-plan" data-plan={plan}>
-            {plan === 'subscription' ? t('Subscription') : 'API'}
-          </span></td>
-          <td><div className="usage-row-values">
-            {windows.map((window, windowIndex) => {
-              const reset = usageEstimated(window) ? '' : usageClock(window.resetAt);
-              return <span className="usage-chip" key={windowIndex} data-tone={usageTone(window)}>
-                <em>{String(window.label || 'USE').toUpperCase()}</em>
-                <b>{usageWindowValue(window) || '—'}</b>
-                {reset && <i>↻ {reset}</i>}
-              </span>;
-            })}
-            {showCredit && <span className="usage-chip" data-tone="credit">
-              <em>CREDIT</em><b>{usageMoney(credit)}</b></span>}
-            {!windows.length && !showCredit
-              && <span className="usage-row-note">{note || '—'}</span>}
-            {billingUrl(provider) && <button className="usage-row-link" type="button"
-              onClick={() => void window.mixdogDesktop?.openExternal?.(billingUrl(provider))
-                .catch(() => undefined)}>{t('Billing ↗')}</button>}
-          </div></td>
-        </tr>;
-    })}
-    {!providers.length && <tr><td className="usage-empty" colSpan={3}>{t('No provider usage available.')}</td></tr>}
-  </UsageTableFrame>;
+        </tr>
+      )}
+    </UsageTableFrame>
+  );
 }

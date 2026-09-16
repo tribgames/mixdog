@@ -4,10 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import {
-  FAST_DIRECT_RUNTIME_MARKER,
-  packagedRuntimeSourceRoot,
-} from './runtime-layout.ts';
+import { FAST_DIRECT_RUNTIME_MARKER, packagedRuntimeSourceRoot } from './runtime-layout.ts';
 
 test('packaged runtime uses the FastDirect tree only after its marker and entry point exist', async (context) => {
   const resources = await mkdtemp(join(tmpdir(), 'mixdog-runtime-layout-'));

@@ -57,7 +57,9 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
       activeToolApproval = null;
       if (entry.timer) clearTimeout(entry.timer);
       set({ toolApproval: null });
-      try { entry.resolve({ approved: approved === true, reason: String(reason || '') }); } catch {}
+      try {
+        entry.resolve({ approved: approved === true, reason: String(reason || '') });
+      } catch {}
       presentNextToolApproval();
       return true;
     }
@@ -65,7 +67,9 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     if (index >= 0) {
       const [entry] = toolApprovalQueue.splice(index, 1);
       if (entry?.timer) clearTimeout(entry.timer);
-      try { entry.resolve({ approved: approved === true, reason: String(reason || '') }); } catch {}
+      try {
+        entry.resolve({ approved: approved === true, reason: String(reason || '') });
+      } catch {}
       return true;
     }
     return false;
@@ -75,12 +79,16 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
       const entry = activeToolApproval;
       activeToolApproval = null;
       if (entry.timer) clearTimeout(entry.timer);
-      try { entry.resolve({ approved: false, reason }); } catch {}
+      try {
+        entry.resolve({ approved: false, reason });
+      } catch {}
     }
     while (toolApprovalQueue.length > 0) {
       const entry = toolApprovalQueue.shift();
       if (entry?.timer) clearTimeout(entry.timer);
-      try { entry.resolve({ approved: false, reason }); } catch {}
+      try {
+        entry.resolve({ approved: false, reason });
+      } catch {}
     }
     if (getState().toolApproval) set({ toolApproval: null });
   }

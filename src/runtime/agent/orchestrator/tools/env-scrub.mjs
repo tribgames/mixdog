@@ -12,26 +12,26 @@
 // expose live agent credentials to the child.
 // PATH is intentionally preserved — subprocesses need it to find tools.
 const LOADER_VARS = [
-    'NODE_OPTIONS',
-    'NODE_PATH',
-    'LD_PRELOAD',
-    'LD_LIBRARY_PATH',
-    'DYLD_INSERT_LIBRARIES',
-    'DYLD_LIBRARY_PATH',
-    'PYTHONPATH',
-    'RUBYLIB',
-    'PERL5LIB',
-    'BASH_ENV',
-    'ENV',
-    'SHELLOPTS',
-    'GLOBIGNORE',
-    'CDPATH',
-    'PROMPT_COMMAND',
-    'BASHOPTS',
-    'IFS',
-    'SSH_AUTH_SOCK',
-    'GPG_AGENT_INFO',
-    'GNUPGHOME',
+  'NODE_OPTIONS',
+  'NODE_PATH',
+  'LD_PRELOAD',
+  'LD_LIBRARY_PATH',
+  'DYLD_INSERT_LIBRARIES',
+  'DYLD_LIBRARY_PATH',
+  'PYTHONPATH',
+  'RUBYLIB',
+  'PERL5LIB',
+  'BASH_ENV',
+  'ENV',
+  'SHELLOPTS',
+  'GLOBIGNORE',
+  'CDPATH',
+  'PROMPT_COMMAND',
+  'BASHOPTS',
+  'IFS',
+  'SSH_AUTH_SOCK',
+  'GPG_AGENT_INFO',
+  'GNUPGHOME',
 ];
 
 // R5: provider / cloud / secret-family scrub. Shared across all spawn
@@ -47,53 +47,55 @@ const LOADER_VARS = [
 // non-secret public keys (GPG_KEY, NEXT_PUBLIC_*_KEY). `_API_KEY` is kept for
 // broad provider coverage (e.g. XAI_API_KEY) but is guarded by PUBLIC_PREFIX_RE
 // so client-exposed build vars (VITE_FIREBASE_API_KEY, NEXT_PUBLIC_*) survive.
-const SECRET_SUFFIX_RE = /(_SECRET_ACCESS_KEY|_ACCESS_KEY|_SESSION_TOKEN|_AUTH_TOKEN|_API_KEY|_TOKEN|_SECRET|_PASSWORD|_CREDENTIALS|_PRIVATE_KEY|_PAT)$/;
+const SECRET_SUFFIX_RE =
+  /(_SECRET_ACCESS_KEY|_ACCESS_KEY|_SESSION_TOKEN|_AUTH_TOKEN|_API_KEY|_TOKEN|_SECRET|_PASSWORD|_CREDENTIALS|_PRIVATE_KEY|_PAT)$/;
 // By-convention client-PUBLIC env prefixes: these are intentionally bundled to
 // the browser and must never be scrubbed as secrets even with an _API_KEY/_KEY
 // shape. Excludes them from the secret match below.
-const PUBLIC_PREFIX_RE = /^(?:NEXT_PUBLIC_|NUXT_PUBLIC_|VITE_|REACT_APP_|VUE_APP_|EXPO_PUBLIC_|GATSBY_|STORYBOOK_|PUBLIC_)/;
+const PUBLIC_PREFIX_RE =
+  /^(?:NEXT_PUBLIC_|NUXT_PUBLIC_|VITE_|REACT_APP_|VUE_APP_|EXPO_PUBLIC_|GATSBY_|STORYBOOK_|PUBLIC_)/;
 const SECRET_EXACT = new Set([
-    'AWS_ACCESS_KEY_ID',
-    'AWS_SECRET_ACCESS_KEY',
-    'AWS_SESSION_TOKEN',
-    'AWS_WEB_IDENTITY_TOKEN_FILE',
-    'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',
-    'AWS_CONTAINER_CREDENTIALS_FULL_URI',
-    'DATABASE_URL',
-    'ANTHROPIC_API_KEY',
-    'OPENAI_API_KEY',
-    'GEMINI_API_KEY',
-    'GOOGLE_API_KEY',
-    'GOOGLE_APPLICATION_CREDENTIALS',
-    'GITHUB_PAT',
-    'STRIPE_SECRET_KEY',
-    'SUPABASE_SERVICE_ROLE_KEY',
-    'NPM_CONFIG__AUTH',
-    'npm_config__auth',
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_SESSION_TOKEN',
+  'AWS_WEB_IDENTITY_TOKEN_FILE',
+  'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',
+  'AWS_CONTAINER_CREDENTIALS_FULL_URI',
+  'DATABASE_URL',
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY',
+  'GEMINI_API_KEY',
+  'GOOGLE_API_KEY',
+  'GOOGLE_APPLICATION_CREDENTIALS',
+  'GITHUB_PAT',
+  'STRIPE_SECRET_KEY',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'NPM_CONFIG__AUTH',
+  'npm_config__auth',
 ]);
 
 export function scrubLoaderVars(env) {
-    if (!env || typeof env !== 'object') return env;
-    for (const k of LOADER_VARS) delete env[k];
-    return _continueScrubLoaderVars(env);
+  if (!env || typeof env !== 'object') return env;
+  for (const k of LOADER_VARS) delete env[k];
+  return _continueScrubLoaderVars(env);
 }
 
 // Web-search availability is independent from ordinary shell networking.
 // Keep this boundary explicit so disabling the search tool never blocks
 // package managers, source-control clients, or user-configured proxies.
 export function applyShellEgressPolicy(env) {
-    return env;
+  return env;
 }
 
 function _continueScrubLoaderVars(env) {
-    // Wildcard sweep: the exact-name list covers the common loader vars but
-    // the DYLD_/LD_ families have many siblings (DYLD_FRAMEWORK_PATH,
-    // DYLD_FALLBACK_LIBRARY_PATH, LD_AUDIT, LD_BIND_NOW, …). Delete every
-    // key under those prefixes so a new variant doesn't sneak through.
-    for (const k of Object.keys(env)) {
-        if (/^DYLD_/.test(k) || /^LD_/.test(k)) delete env[k];
-    }
-    return env;
+  // Wildcard sweep: the exact-name list covers the common loader vars but
+  // the DYLD_/LD_ families have many siblings (DYLD_FRAMEWORK_PATH,
+  // DYLD_FALLBACK_LIBRARY_PATH, LD_AUDIT, LD_BIND_NOW, …). Delete every
+  // key under those prefixes so a new variant doesn't sneak through.
+  for (const k of Object.keys(env)) {
+    if (/^DYLD_/.test(k) || /^LD_/.test(k)) delete env[k];
+  }
+  return env;
 }
 
 // R5: strip provider/cloud/secret-family keys from a spawn env in place.
@@ -101,13 +103,13 @@ function _continueScrubLoaderVars(env) {
 // the prefix/suffix lists never drift across spawn sites. PATH is not
 // matched by any family here and is preserved.
 export function scrubProviderSecrets(env) {
-    if (!env || typeof env !== 'object') return env;
-    for (const k of Object.keys(env)) {
-        if (!PUBLIC_PREFIX_RE.test(k) && (SECRET_EXACT.has(k) || SECRET_SUFFIX_RE.test(k))) {
-            delete env[k];
-        }
+  if (!env || typeof env !== 'object') return env;
+  for (const k of Object.keys(env)) {
+    if (!PUBLIC_PREFIX_RE.test(k) && (SECRET_EXACT.has(k) || SECRET_SUFFIX_RE.test(k))) {
+      delete env[k];
     }
-    return env;
+  }
+  return env;
 }
 
 // Runtime-root isolation: MIXDOG_ROOT is a runtime-internal alias for THIS
@@ -118,38 +120,38 @@ export function scrubProviderSecrets(env) {
 // node can't even read asar paths → ENOENT). Internal worker spawns that need
 // the root re-set it explicitly and are unaffected.
 export function scrubRuntimeRootVars(env) {
-    if (!env || typeof env !== 'object') return env;
-    delete env.MIXDOG_ROOT;
-    // Host-runtime leak: a packaged Electron/daemon host runs with
-    // NODE_ENV=production, and inheriting it silently corrupts model-spawned
-    // shells — `npm install` prunes devDependencies, React resolves its
-    // production build (no `act`), test suites flip red on developer machines
-    // while CI stays green. The value is OUR process's, not the user's OS
-    // env, so shells must not see it. A command that needs NODE_ENV sets it
-    // explicitly.
-    delete env.NODE_ENV;
-    // Daemon IDENTITY leak: user-facing children must not inherit host/worker
-    // ownership or the daemon's terminal-lead PID. Internal daemon/worker
-    // spawns set every identity value explicitly after this boundary.
-    delete env.MIXDOG_DAEMON_HOST;
-    delete env.MIXDOG_WORKER_MODE;
-    delete env.MIXDOG_DAEMON_SPAWNED_FOR;
-    delete env.MIXDOG_SUPERVISOR_PID;
-    // Same identity family as MIXDOG_SUPERVISOR_PID above, and the last one
-    // missing: MIXDOG_SERVER_PID is the DAEMON's own pid. A child that
-    // inherits it advertises the daemon as its server in active-instance.json,
-    // so the liveness/staleness checks in runtime-paths.mjs judge an unrelated
-    // process. Internal forks blank or re-set it explicitly after this
-    // boundary (see memory-runtime-proxy.mjs).
-    delete env.MIXDOG_SERVER_PID;
-    // Electron execution-MODE leak: a packaged desktop/daemon host runs its
-    // node entrypoints with ELECTRON_RUN_AS_NODE=1. Inherited by a child, it
-    // silently converts every Electron app that child launches into a bare
-    // node interpreter — Unity Hub, VS Code, Slack and friends stop booting
-    // their own CLI and hand the argv to node instead, which eats a leading
-    // `--` as its end-of-options marker and rejects app flags as bad node
-    // options. Internal daemon/worker forks that genuinely need node mode set
-    // this explicitly after the boundary and are unaffected.
-    delete env.ELECTRON_RUN_AS_NODE;
-    return env;
+  if (!env || typeof env !== 'object') return env;
+  delete env.MIXDOG_ROOT;
+  // Host-runtime leak: a packaged Electron/daemon host runs with
+  // NODE_ENV=production, and inheriting it silently corrupts model-spawned
+  // shells — `npm install` prunes devDependencies, React resolves its
+  // production build (no `act`), test suites flip red on developer machines
+  // while CI stays green. The value is OUR process's, not the user's OS
+  // env, so shells must not see it. A command that needs NODE_ENV sets it
+  // explicitly.
+  delete env.NODE_ENV;
+  // Daemon IDENTITY leak: user-facing children must not inherit host/worker
+  // ownership or the daemon's terminal-lead PID. Internal daemon/worker
+  // spawns set every identity value explicitly after this boundary.
+  delete env.MIXDOG_DAEMON_HOST;
+  delete env.MIXDOG_WORKER_MODE;
+  delete env.MIXDOG_DAEMON_SPAWNED_FOR;
+  delete env.MIXDOG_SUPERVISOR_PID;
+  // Same identity family as MIXDOG_SUPERVISOR_PID above, and the last one
+  // missing: MIXDOG_SERVER_PID is the DAEMON's own pid. A child that
+  // inherits it advertises the daemon as its server in active-instance.json,
+  // so the liveness/staleness checks in runtime-paths.mjs judge an unrelated
+  // process. Internal forks blank or re-set it explicitly after this
+  // boundary (see memory-runtime-proxy.mjs).
+  delete env.MIXDOG_SERVER_PID;
+  // Electron execution-MODE leak: a packaged desktop/daemon host runs its
+  // node entrypoints with ELECTRON_RUN_AS_NODE=1. Inherited by a child, it
+  // silently converts every Electron app that child launches into a bare
+  // node interpreter — Unity Hub, VS Code, Slack and friends stop booting
+  // their own CLI and hand the argv to node instead, which eats a leading
+  // `--` as its end-of-options marker and rejects app flags as bad node
+  // options. Internal daemon/worker forks that genuinely need node mode set
+  // this explicitly after the boundary and are unaffected.
+  delete env.ELECTRON_RUN_AS_NODE;
+  return env;
 }

@@ -23,7 +23,10 @@ export async function compareRenderedPages(beforeImages, afterImages, outputPdf)
     if (!width || !height) continue;
     const beforeCanvas = createCanvas(width, height);
     const afterCanvas = createCanvas(width, height);
-    for (const [canvas, image] of [[beforeCanvas, left], [afterCanvas, right]]) {
+    for (const [canvas, image] of [
+      [beforeCanvas, left],
+      [afterCanvas, right],
+    ]) {
       const context = canvas.getContext('2d');
       context.fillStyle = '#ffffff';
       context.fillRect(0, 0, width, height);
@@ -39,7 +42,7 @@ export async function compareRenderedPages(beforeImages, afterImages, outputPdf)
       const delta = Math.max(
         Math.abs(beforePixels[index] - afterPixels[index]),
         Math.abs(beforePixels[index + 1] - afterPixels[index + 1]),
-        Math.abs(beforePixels[index + 2] - afterPixels[index + 2]),
+        Math.abs(beforePixels[index + 2] - afterPixels[index + 2])
       );
       const pixel = index / 4;
       if (delta >= 24) {

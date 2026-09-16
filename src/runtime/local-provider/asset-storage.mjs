@@ -22,7 +22,9 @@ export function ensureDiskSpace(path, requiredBytes) {
   mkdirSync(path, { recursive: true });
   const { availableBytes } = localProviderDiskStatus(path);
   if (availableBytes !== null && availableBytes < requiredBytes + LOCAL_ASSET_DISK_HEADROOM_BYTES) {
-    throw new Error(`[local-provider] not enough free disk space: requires ${requiredBytes + LOCAL_ASSET_DISK_HEADROOM_BYTES} bytes`);
+    throw new Error(
+      `[local-provider] not enough free disk space: requires ${requiredBytes + LOCAL_ASSET_DISK_HEADROOM_BYTES} bytes`
+    );
   }
 }
 

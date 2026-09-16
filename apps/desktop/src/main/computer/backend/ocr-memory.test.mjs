@@ -7,7 +7,9 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import { powershellHostProgram } from './program.ts';
 
-test('OCR decodes generated pixels without creating screenshot files', { skip: process.platform !== 'win32' }, async (t) => {
+test('OCR decodes generated pixels without creating screenshot files', {
+  skip: process.platform !== 'win32',
+}, async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-ocr-memory-'));
   try {
     await writeFile(join(directory, 'host.ps1'), powershellHostProgram());
@@ -54,18 +56,29 @@ try {
   $memory.Dispose(); $font.Dispose(); $graphics.Dispose(); $bitmap.Dispose()
 }
 `;
-    const { stdout } = await promisify(execFile)('powershell.exe',
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', script],
-      { windowsHide: true, timeout: 20_000, env: { ...process.env, TEMP: directory, TMP: directory, OCR_FIXTURE: directory } });
+      {
+        windowsHide: true,
+        timeout: 20_000,
+        env: { ...process.env, TEMP: directory, TMP: directory, OCR_FIXTURE: directory },
+      }
+    );
     const outcome = JSON.parse(stdout.trim());
     assert.deepEqual(outcome.decoded, [240, 80]);
-    assert.equal((await readdir(directory)).some(name => name.startsWith('mixdog-ocr-')), false);
+    assert.equal(
+      (await readdir(directory)).some((name) => name.startsWith('mixdog-ocr-')),
+      false
+    );
     await t.test('Windows OCR recognizes the generated text', (recognition) => {
       if (!outcome.available) {
         recognition.skip('Windows OCR en-US recognizer is not installed; recognition verification is blocked');
         return;
       }
-      assert.ok(outcome.result.words.some(word => word.text === 'TEST'));
+      assert.ok(outcome.result.words.some((word) => word.text === 'TEST'));
     });
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

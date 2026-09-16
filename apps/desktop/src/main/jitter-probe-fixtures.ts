@@ -1,5 +1,19 @@
-const WORDS = ['transcript', 'virtualizer', 'anchors', 'the', 'bottom', 'while',
-  'markdown', 'reflows', 'and', 'tool', 'cards', 'append', 'mid', 'stream'];
+const WORDS = [
+  'transcript',
+  'virtualizer',
+  'anchors',
+  'the',
+  'bottom',
+  'while',
+  'markdown',
+  'reflows',
+  'and',
+  'tool',
+  'cards',
+  'append',
+  'mid',
+  'stream',
+];
 
 export function paragraph(seed: number, sentences: number): string {
   let out = '';

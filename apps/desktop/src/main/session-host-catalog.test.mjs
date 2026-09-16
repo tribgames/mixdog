@@ -10,10 +10,7 @@ import {
 } from './session-host-catalog.ts';
 
 function catalogRefreshDelay(refreshedAt = 0) {
-  return Math.max(
-    STORE_REFRESH_DEBOUNCE_MS,
-    STORE_REFRESH_MIN_GAP_MS - (Date.now() - refreshedAt),
-  );
+  return Math.max(STORE_REFRESH_DEBOUNCE_MS, STORE_REFRESH_MIN_GAP_MS - (Date.now() - refreshedAt));
 }
 
 function catalogOwner(overrides = {}) {
@@ -23,7 +20,7 @@ function catalogOwner(overrides = {}) {
   const reads = [];
   let cold = [];
   let sessions = [{ id: 'lead' }];
-  let agents = [{ id: 'worker' }];
+  const agents = [{ id: 'worker' }];
   let failSessions = false;
   let failAgents = false;
   const held = [];
@@ -44,7 +41,9 @@ function catalogOwner(overrides = {}) {
         else sessionWaiters.push(waiter);
       }
     },
-    publishAgents(value) { published.agents.push(value); },
+    publishAgents(value) {
+      published.agents.push(value);
+    },
     whenSessionCount(count) {
       if (published.sessions.length >= count) return Promise.resolve();
       const waiter = Promise.withResolvers();
@@ -60,13 +59,23 @@ function catalogOwner(overrides = {}) {
         await pending.release.promise;
       }
     },
-    dispose() { disposed = true; },
+    dispose() {
+      disposed = true;
+    },
     published,
     reads,
-    setCold(ids) { cold = ids; },
-    failSessions() { failSessions = true; },
-    failAgents() { failAgents = true; },
-    setSessions(value) { sessions = value; },
+    setCold(ids) {
+      cold = ids;
+    },
+    failSessions() {
+      failSessions = true;
+    },
+    failAgents() {
+      failAgents = true;
+    },
+    setSessions(value) {
+      sessions = value;
+    },
     holdRead() {
       const captured = Promise.withResolvers();
       const release = Promise.withResolvers();
@@ -85,7 +94,9 @@ function fakeWatch() {
       if (event === 'error') watcher.onError = fn;
       return watcher;
     },
-    close() { watcher.closed = true; },
+    close() {
+      watcher.closed = true;
+    },
   };
   return {
     watch(directory, options, cb) {
@@ -94,7 +105,9 @@ function fakeWatch() {
       watcher.options = options;
       return watcher;
     },
-    emit(filename) { callback('change', filename); },
+    emit(filename) {
+      callback('change', filename);
+    },
     watcher,
   };
 }

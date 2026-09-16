@@ -1,31 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
-import {
-  sessionClientModuleUrl,
-} from './desktop-support';
-import type {
-  DesktopServiceInbound,
-  DesktopServiceOutbound,
-} from './desktop-service-protocol';
-import type {
-  DesktopTransport,
-} from './desktop-service-client';
+import { sessionClientModuleUrl } from './desktop-support';
+import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
+import type { DesktopTransport } from './desktop-service-client';
 
 interface AttachedDaemon {
   call(
     name: string,
     args?: Record<string, unknown>,
-    options?: { timeoutMs?: number; callId?: string },
+    options?: { timeoutMs?: number; callId?: string }
   ): Promise<unknown>;
   close(reason?: string): Promise<void>;
 }
 
 interface SessionClientModule {
-  ensureDaemon(options?: {
-    cwd?: string;
-    log?: (line: string) => void;
-  }): Promise<Record<string, unknown>>;
+  ensureDaemon(options?: { cwd?: string; log?: (line: string) => void }): Promise<Record<string, unknown>>;
   attachSession(options: {
     discovery: Record<string, unknown>;
     cwd?: string;
@@ -39,7 +29,7 @@ interface SessionClientModule {
 }
 
 type SessionClientLoader = (
-  options: Extract<DesktopServiceInbound, { kind: 'init' }>['options'],
+  options: Extract<DesktopServiceInbound, { kind: 'init' }>['options']
 ) => Promise<SessionClientModule>;
 type DesktopInitOptions = Extract<DesktopServiceInbound, { kind: 'init' }>['options'];
 
@@ -48,9 +38,7 @@ function isTransientConnectionReset(error: unknown): boolean {
   const record = error as Record<string, unknown>;
   const code = String(record.code || '').toUpperCase();
   const message = error instanceof Error ? error.message : String(error);
-  return code === 'ECONNRESET'
-    || code === 'EPIPE'
-    || /socket hang up|read ECONNRESET|write EPIPE/i.test(message);
+  return code === 'ECONNRESET' || code === 'EPIPE' || /socket hang up|read ECONNRESET|write EPIPE/i.test(message);
 }
 
 function isDaemonTransportFailure(error: unknown): boolean {
@@ -58,21 +46,22 @@ function isDaemonTransportFailure(error: unknown): boolean {
   const record = error as Record<string, unknown>;
   const code = String(record.code || '').toUpperCase();
   const message = error instanceof Error ? error.message : String(error);
-  return record.daemonTransportError === true
-    || ['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ETIMEDOUT'].includes(code)
-    || /socket hang up|ECONNREFUSED|ECONNRESET|EPIPE|daemon (?:exited|replaced)/i.test(message);
+  return (
+    record.daemonTransportError === true ||
+    ['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ETIMEDOUT'].includes(code) ||
+    /socket hang up|ECONNREFUSED|ECONNRESET|EPIPE|daemon (?:exited|replaced)/i.test(message)
+  );
 }
 
 function desktopSessionProtocolError(error: unknown): Error {
-  if (!error || typeof error !== 'object'
-    || (error as Record<string, unknown>).sessionProtocolMismatch !== true) {
+  if (!error || typeof error !== 'object' || (error as Record<string, unknown>).sessionProtocolMismatch !== true) {
     return error instanceof Error ? error : new Error(String(error));
   }
   const cause = error instanceof Error ? error : new Error(String(error));
   return new Error(
-    'A different Mixdog session contract is already running. Close every Mixdog window and '
-      + 'terminal before reopening the current build.',
-    { cause },
+    'A different Mixdog session contract is already running. Close every Mixdog window and ' +
+      'terminal before reopening the current build.',
+    { cause }
   );
 }
 
@@ -96,7 +85,7 @@ export class SessionTransport implements DesktopTransport {
   constructor(
     private readonly moduleUrl: string,
     private readonly cwd = process.cwd(),
-    private readonly loadClientModule: SessionClientLoader | null = null,
+    private readonly loadClientModule: SessionClientLoader | null = null
   ) {}
 
   on(event: string, listener: (...args: any[]) => void): unknown {
@@ -111,14 +100,18 @@ export class SessionTransport implements DesktopTransport {
 
   private emit(event: string, ...args: unknown[]): void {
     for (const listener of this.listeners.get(event) ?? []) {
-      try { listener(...args); } catch { /* host listener owns its diagnostics */ }
+      try {
+        listener(...args);
+      } catch {
+        /* host listener owns its diagnostics */
+      }
     }
   }
 
   private async measureBootPhase<T>(
     phase: string,
     task: () => Promise<T>,
-    details: Record<string, unknown> = {},
+    details: Record<string, unknown> = {}
   ): Promise<T> {
     const startedAt = performance.now();
     this.emit('diagnostic', 'desktop-boot-phase', {
@@ -172,22 +165,20 @@ export class SessionTransport implements DesktopTransport {
     void this.control(message).catch((error) => this.fail(error));
   }
 
-  private async initialize(
-    message: Extract<DesktopServiceInbound, { kind: 'init' }>,
-  ): Promise<void> {
+  private async initialize(message: Extract<DesktopServiceInbound, { kind: 'init' }>): Promise<void> {
     if (this.initializing) return this.initializing;
     this.initializing = (async () => {
-      const daemonModule = await this.measureBootPhase('session-client-import', async () => (
+      const daemonModule = await this.measureBootPhase('session-client-import', async () =>
         this.loadClientModule
           ? await this.loadClientModule(message.options)
-          : await import(
-            /* @vite-ignore */ sessionClientModuleUrl(
-              message.options.packaged,
-              message.options.resourcesPath,
-              message.options.appPath,
-            )
-          ) as SessionClientModule
-      ));
+          : ((await import(
+              /* @vite-ignore */ sessionClientModuleUrl(
+                message.options.packaged,
+                message.options.resourcesPath,
+                message.options.appPath
+              )
+            )) as SessionClientModule)
+      );
       this.daemonModule = daemonModule;
       this.initOptions = message.options;
       await this.connectDaemon(daemonModule, message.options);
@@ -206,21 +197,19 @@ export class SessionTransport implements DesktopTransport {
     }
   }
 
-  private async connectDaemon(
-    daemonModule: SessionClientModule,
-    options: DesktopInitOptions,
-  ): Promise<AttachedDaemon> {
+  private async connectDaemon(daemonModule: SessionClientModule, options: DesktopInitOptions): Promise<AttachedDaemon> {
     const attempt = ++this.connectAttempt;
     this.viewSyncSupported = false;
     let discovery: Record<string, unknown>;
     try {
       discovery = await this.measureBootPhase(
         'ensure-daemon',
-        () => daemonModule.ensureDaemon({
-          cwd: this.cwd,
-          log: (line) => this.emit('error', 'daemon', line),
-        }),
-        { attempt },
+        () =>
+          daemonModule.ensureDaemon({
+            cwd: this.cwd,
+            log: (line) => this.emit('error', 'daemon', line),
+          }),
+        { attempt }
       );
     } catch (error) {
       throw desktopSessionProtocolError(error);
@@ -230,33 +219,34 @@ export class SessionTransport implements DesktopTransport {
     try {
       attached = await this.measureBootPhase(
         'attach-session',
-        () => daemonModule.attachSession({
-          discovery,
-          cwd: this.cwd,
-          clientKind: 'desktop',
-          onFrame: (frame) => {
-            if (frame?.type !== 'desktop-event') return;
-            if (String(frame.desktopId || '') !== this.desktopId) return;
-            const outbound = frame.message as DesktopServiceOutbound;
-            if (outbound?.kind === 'view-sync-complete') this.viewSyncSupported = true;
-            if (outbound && typeof outbound === 'object') this.emit('message', outbound);
-          },
-          onFatal: (reason) => {
-            if (!attached) {
-              fatalDuringAttach = reason;
-              return;
-            }
-            void this.recoverDaemon(attached, reason).catch(() => {});
-          },
-          onStreamDisconnect: (details) => {
-            this.emit('diagnostic', 'session-stream-reconnecting', details);
-          },
-          onStreamReconnect: (details) => {
-            this.emit('diagnostic', 'session-stream-reconnected', details);
-            void this.resyncAfterStreamReconnect(details);
-          },
-        }),
-        { attempt },
+        () =>
+          daemonModule.attachSession({
+            discovery,
+            cwd: this.cwd,
+            clientKind: 'desktop',
+            onFrame: (frame) => {
+              if (frame?.type !== 'desktop-event') return;
+              if (String(frame.desktopId || '') !== this.desktopId) return;
+              const outbound = frame.message as DesktopServiceOutbound;
+              if (outbound?.kind === 'view-sync-complete') this.viewSyncSupported = true;
+              if (outbound && typeof outbound === 'object') this.emit('message', outbound);
+            },
+            onFatal: (reason) => {
+              if (!attached) {
+                fatalDuringAttach = reason;
+                return;
+              }
+              void this.recoverDaemon(attached, reason).catch(() => {});
+            },
+            onStreamDisconnect: (details) => {
+              this.emit('diagnostic', 'session-stream-reconnecting', details);
+            },
+            onStreamReconnect: (details) => {
+              this.emit('diagnostic', 'session-stream-reconnected', details);
+              void this.resyncAfterStreamReconnect(details);
+            },
+          }),
+        { attempt }
       );
       if (fatalDuringAttach) {
         throw new Error(`Mixdog daemon disconnected during attach: ${fatalDuringAttach}`);
@@ -267,37 +257,46 @@ export class SessionTransport implements DesktopTransport {
       }
       const initialized = await this.measureBootPhase(
         'desktop-init',
-        () => attached!.call('desktop.init', {
-          desktopId: this.requestedDesktopId,
-          moduleUrl: this.moduleUrl,
-          options,
-        }) as Promise<{ desktopId?: unknown }>,
-        { attempt },
+        () =>
+          attached!.call('desktop.init', {
+            desktopId: this.requestedDesktopId,
+            moduleUrl: this.moduleUrl,
+            options,
+          }) as Promise<{ desktopId?: unknown }>,
+        { attempt }
       );
       this.desktopId = String(initialized?.desktopId || this.requestedDesktopId);
       await this.measureBootPhase(
         'desktop-state-resync',
-        () => attached!.call('desktop.control', {
-          desktopId: this.desktopId,
-          message: { kind: 'state-resync' },
-        }),
-        { attempt },
+        () =>
+          attached!.call('desktop.control', {
+            desktopId: this.desktopId,
+            message: { kind: 'state-resync' },
+          }),
+        { attempt }
       );
       await this.measureBootPhase(
         'desktop-background-ready',
-        () => attached!.call('desktop.ready', {
-          desktopId: this.desktopId,
-        }),
-        { attempt },
+        () =>
+          attached!.call('desktop.ready', {
+            desktopId: this.desktopId,
+          }),
+        { attempt }
       );
       this.client = attached;
       return attached;
     } catch (error) {
-      await attached?.call('desktop.unsubscribe', {
-        desktopId: this.desktopId,
-      }, {
-        timeoutMs: 1_000,
-      }).catch(() => {});
+      await attached
+        ?.call(
+          'desktop.unsubscribe',
+          {
+            desktopId: this.desktopId,
+          },
+          {
+            timeoutMs: 1_000,
+          }
+        )
+        .catch(() => {});
       await attached?.close('desktop daemon attach failed').catch(() => {});
       throw error;
     }
@@ -334,9 +333,11 @@ export class SessionTransport implements DesktopTransport {
       this.emit('message', { kind: 'daemon-replaced' } satisfies DesktopServiceOutbound);
     })();
     this.recovering = recovery;
-    void recovery.catch((error) => this.fail(error)).finally(() => {
-      if (this.recovering === recovery) this.recovering = null;
-    });
+    void recovery
+      .catch((error) => this.fail(error))
+      .finally(() => {
+        if (this.recovering === recovery) this.recovering = null;
+      });
     return recovery;
   }
 
@@ -372,9 +373,7 @@ export class SessionTransport implements DesktopTransport {
           }
         }
       }
-      const record = lastError && typeof lastError === 'object'
-        ? lastError as Record<string, unknown>
-        : null;
+      const record = lastError && typeof lastError === 'object' ? (lastError as Record<string, unknown>) : null;
       this.emit('diagnostic', 'session-stream-resync-failed', {
         ...details,
         errorName: lastError instanceof Error ? lastError.name : typeof lastError,
@@ -386,9 +385,7 @@ export class SessionTransport implements DesktopTransport {
     return this.streamResync;
   }
 
-  private async request(
-    message: Extract<DesktopServiceInbound, { kind: 'request' }>,
-  ): Promise<void> {
+  private async request(message: Extract<DesktopServiceInbound, { kind: 'request' }>): Promise<void> {
     try {
       let client = await this.activeClient();
       const args = {
@@ -416,10 +413,7 @@ export class SessionTransport implements DesktopTransport {
         }
         if (failure) {
           if (!isDaemonTransportFailure(failure)) throw failure;
-          await this.recoverDaemon(
-            client,
-            failure instanceof Error ? failure.message : String(failure),
-          );
+          await this.recoverDaemon(client, failure instanceof Error ? failure.message : String(failure));
           client = await this.activeClient();
           value = await client.call('desktop.invoke', args, { callId });
         }
@@ -431,9 +425,7 @@ export class SessionTransport implements DesktopTransport {
         value: value ?? null,
       } satisfies DesktopServiceOutbound);
     } catch (error) {
-      const record = error && typeof error === 'object'
-        ? error as Record<string, unknown>
-        : null;
+      const record = error && typeof error === 'object' ? (error as Record<string, unknown>) : null;
       this.emit('message', {
         kind: 'response',
         id: message.id,
@@ -456,9 +448,7 @@ export class SessionTransport implements DesktopTransport {
   }
 
   /** Same daemon route as `request`, without the response frame. */
-  private async notify(
-    message: Extract<DesktopServiceInbound, { kind: 'notify' }>,
-  ): Promise<void> {
+  private async notify(message: Extract<DesktopServiceInbound, { kind: 'notify' }>): Promise<void> {
     const client = await this.activeClient();
     await client.call('desktop.invoke', {
       desktopId: this.desktopId,
@@ -472,8 +462,7 @@ export class SessionTransport implements DesktopTransport {
     const failure = error instanceof Error ? error : new Error(String(error));
     this.emit('error', 'daemon', failure.message);
     this.closed = true;
-    void this.closeClient('desktop daemon transport failed')
-      .finally(() => this.emit('exit', 1, failure));
+    void this.closeClient('desktop daemon transport failed').finally(() => this.emit('exit', 1, failure));
   }
 
   private closeClient(reason: string): Promise<void> {
@@ -483,9 +472,15 @@ export class SessionTransport implements DesktopTransport {
       const client = this.client;
       this.client = null;
       if (!client) return;
-      await client.call('desktop.unsubscribe', { desktopId: this.desktopId }, {
-        timeoutMs: 1_000,
-      }).catch(() => {});
+      await client
+        .call(
+          'desktop.unsubscribe',
+          { desktopId: this.desktopId },
+          {
+            timeoutMs: 1_000,
+          }
+        )
+        .catch(() => {});
       await client.close(reason).catch(() => {});
     })();
     return this.closePromise;

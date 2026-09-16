@@ -39,7 +39,7 @@ export interface DesktopService {
     relPath: string,
     content: string,
     expectedContent: string,
-    encoding?: import('./project-files').ProjectTextEncoding,
+    encoding?: import('./project-files').ProjectTextEncoding
   ): unknown;
   statProjectFile(projectPath: string, relPath: string): unknown;
   createProjectEntry(projectPath: string, relDir: string, name: string, directory: boolean): unknown;
@@ -57,10 +57,7 @@ export interface DesktopService {
   prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
   /** Transport-only recovery: capture current projections after refreshing
    * every requested lane, even when the daemon reports unchanged content. */
-  replaySessionStates?(
-    sessionIds: string[],
-    deliver: (updates: DesktopSessionStateUpdate[]) => void,
-  ): Promise<void>;
+  replaySessionStates?(sessionIds: string[], deliver: (updates: DesktopSessionStateUpdate[]) => void): Promise<void>;
   /** Keep every currently visible pane attached to its external live owner. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
   setVisibleSessionsForSource?(sourceId: string, sessionIds: string[]): Promise<boolean>;
@@ -68,27 +65,23 @@ export interface DesktopService {
   submitNewTask(
     prompt: DesktopPromptContent,
     options?: DesktopSubmitOptions,
-    draft?: DesktopNewTaskDraft,
+    draft?: DesktopNewTaskDraft
   ): Promise<DesktopNewTaskSubmitResult>;
   /** /inherit — copy one session's conversation into a NEW session id running
    *  on the supplied route; the source session is left untouched. */
   inheritSession(
     sourceSessionId: string,
-    route?: DesktopModelSelection | null,
+    route?: DesktopModelSelection | null
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }>;
   /** Split panes use daemon-owned session addresses directly. Pane actions
    *  never fall back to whichever session happens to be focused. */
   subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void;
-  submitToSession(
-    sessionId: string,
-    prompt: DesktopPromptContent,
-    options?: DesktopSubmitOptions,
-  ): Promise<boolean>;
+  submitToSession(sessionId: string, prompt: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<boolean>;
   abortSession(sessionId: string, options?: DesktopAbortOptions): unknown;
   resolveToolApprovalForSession(
     sessionId: string,
     id: string,
-    decision: ToolApprovalDecision,
+    decision: ToolApprovalDecision
   ): boolean | Promise<boolean>;
   listProviderModels(options?: DesktopModelCatalogOptions): Promise<DesktopModelOption[]>;
   /** Optional sessionId targets a pane; omitted routes through the control
@@ -99,17 +92,13 @@ export interface DesktopService {
     capability: DesktopCapability,
     args?: unknown[],
     /** Session the issuing surface paints; omitted = control session. */
-    sessionId?: string,
+    sessionId?: string
   ): Promise<DesktopCapabilityResult<T>>;
-  readCapabilities(
-    requests: ReadonlyArray<DesktopCapabilityReadRequest>,
-  ): Promise<DesktopCapabilityReadResult[]>;
+  readCapabilities(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]>;
   /** Non-UI desktop service domains (Git, files, LSP, PTY) hosted by the
    * singleton daemon. Product hosts never execute these domains locally. */
   invokeDesktopOperation(method: string, args?: unknown[]): Promise<unknown>;
-  subscribeDesktopEvents?(
-    listener: (event: { name: string; value: unknown }) => void,
-  ): () => void;
+  subscribeDesktopEvents?(listener: (event: { name: string; value: unknown }) => void): () => void;
   perfLog(line: string): void;
   dispose(): Promise<void>;
 }
@@ -156,7 +145,7 @@ export const DESKTOP_SERVICE_METHODS = [
   'perfLog',
 ] as const;
 
-export type DesktopServiceMethod = typeof DESKTOP_SERVICE_METHODS[number];
+export type DesktopServiceMethod = (typeof DESKTOP_SERVICE_METHODS)[number];
 
 export interface SerializableDesktopServiceOptions {
   userDataPath: string;

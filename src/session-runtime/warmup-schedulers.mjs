@@ -41,11 +41,7 @@ export function createWarmupSchedulers({
     statuslineUsageRefreshDelayMs,
     backgroundBusyRetryMs,
   } = delays;
-  const {
-    providerWarmupEnabled,
-    modelPrefetchEnabled,
-    modelCatalogWarmupEnabled,
-  } = flags;
+  const { providerWarmupEnabled, modelPrefetchEnabled, modelCatalogWarmupEnabled } = flags;
 
   function scheduleProviderWarmup(delayMs = providerWarmupDelayMs) {
     if (!providerWarmupEnabled) {
@@ -104,7 +100,9 @@ export function createWarmupSchedulers({
       timers.providerModelWarmupTimer = null;
       if (isCloseRequested() || Array.isArray(getProviderModelsCache().models) || getProviderModelsPromise()) return;
       if (getActiveTurnCount() > 0 || getSessionCreatePromise()) {
-        bootProfile('provider-models:warm-deferred', { reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create' });
+        bootProfile('provider-models:warm-deferred', {
+          reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create',
+        });
         scheduleProviderModelWarmup(backgroundBusyRetryMs);
         return;
       }
@@ -141,7 +139,9 @@ export function createWarmupSchedulers({
       timers.modelCatalogWarmupTimer = null;
       if (isCloseRequested()) return;
       if (getActiveTurnCount() > 0 || getSessionCreatePromise()) {
-        bootProfile('model-catalog:warm-deferred', { reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create' });
+        bootProfile('model-catalog:warm-deferred', {
+          reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create',
+        });
         scheduleModelCatalogWarmup(backgroundBusyRetryMs);
         return;
       }
@@ -183,7 +183,9 @@ export function createWarmupSchedulers({
       timers.statuslineUsageWarmupTimer = null;
       if (isCloseRequested()) return;
       if (getActiveTurnCount() > 0 || getSessionCreatePromise()) {
-        bootProfile('statusline-usage:warm-deferred', { reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create' });
+        bootProfile('statusline-usage:warm-deferred', {
+          reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create',
+        });
         scheduleStatuslineUsageWarmup(backgroundBusyRetryMs);
         return;
       }

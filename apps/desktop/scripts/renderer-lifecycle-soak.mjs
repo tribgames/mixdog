@@ -5,7 +5,9 @@ import { setTimeout as delay, setImmediate } from 'node:timers/promises';
 import { performance } from 'node:perf_hooks';
 import { createSessionLaneStore } from '../src/renderer/session-lane-store.ts';
 import {
-  holdUsageDashboardCadence, refreshUsageDashboard, subscribeUsageDashboard,
+  holdUsageDashboardCadence,
+  refreshUsageDashboard,
+  subscribeUsageDashboard,
 } from '../src/renderer/usage-dashboard-store.ts';
 import { createRendererClock } from './test-renderer-clock.mjs';
 
@@ -13,14 +15,17 @@ const durationMs = 10 * 60_000;
 const clock = createRendererClock();
 globalThis.window = clock.win;
 const store = createSessionLaneStore({
-  maxEntries: 64, maxBytes: 64 * 1024,
+  maxEntries: 64,
+  maxBytes: 64 * 1024,
   decorator: { decorate: (snapshot) => snapshot, clear() {} },
 });
 let calls = 0;
-const api = { async invokeCapability() {
-  calls += 1;
-  return { value: { rows: [{ id: 'probe', used: calls }] } };
-} };
+const api = {
+  async invokeCapability() {
+    calls += 1;
+    return { value: { rows: [{ id: 'probe', used: calls }] } };
+  },
+};
 let cycles = 0;
 async function cycle() {
   const sessionId = `soak-${cycles++ % 128}`;
@@ -51,7 +56,9 @@ async function sample(elapsedMs) {
   globalThis.gc?.();
   const memory = process.memoryUsage();
   const value = {
-    elapsedMs: Math.round(elapsedMs), cycles, calls,
+    elapsedMs: Math.round(elapsedMs),
+    cycles,
+    calls,
     heapMB: +(memory.heapUsed / 1024 / 1024).toFixed(3),
     rssMB: +(memory.rss / 1024 / 1024).toFixed(3),
   };
@@ -73,13 +80,20 @@ try {
     }
   }
   if (samples.at(-1).elapsedMs < durationMs) await sample(performance.now() - started);
-  console.log(JSON.stringify({
-    complete: true, cycles,
-    heapGrowthMB: +(samples.at(-1).heapMB - samples[0].heapMB).toFixed(3),
-    residualResources: store.stats().entries + store.stats().subscribedSessions
-      + store.stats().notificationKeys + clock.timers.size
-      + clock.doc.listenerCount() + clock.win.listenerCount(),
-  }));
+  console.log(
+    JSON.stringify({
+      complete: true,
+      cycles,
+      heapGrowthMB: +(samples.at(-1).heapMB - samples[0].heapMB).toFixed(3),
+      residualResources:
+        store.stats().entries +
+        store.stats().subscribedSessions +
+        store.stats().notificationKeys +
+        clock.timers.size +
+        clock.doc.listenerCount() +
+        clock.win.listenerCount(),
+    })
+  );
 } finally {
   store.clear();
   delete globalThis.window;

@@ -23,16 +23,30 @@ function statusMessageColor(tone) {
 }
 
 function cleanRightMessage(value) {
-  return String(value || '').replace(/\s+/g, ' ').trim();
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-export function TurnDone({ elapsedMs = 0, status = 'done', verb = 'Thought', rightMessage = '', rightTone = 'info', rightMessageWidth = 24, marginTop = 1 }) {
+export function TurnDone({
+  elapsedMs = 0,
+  status = 'done',
+  verb = 'Thought',
+  rightMessage = '',
+  rightTone = 'info',
+  rightMessageWidth = 24,
+  marginTop = 1,
+}) {
   const elapsed = formatDuration(elapsedMs);
   const cancelled = status === 'cancelled';
   const doneVerb = String(verb || 'Thought').trim() || 'Thought';
   const copy = cancelled
-    ? elapsed ? `Cancelled after ${elapsed}` : 'Cancelled'
-    : elapsed ? `${doneVerb} for ${elapsed}` : doneVerb;
+    ? elapsed
+      ? `Cancelled after ${elapsed}`
+      : 'Cancelled'
+    : elapsed
+      ? `${doneVerb} for ${elapsed}`
+      : doneVerb;
   const rightText = cleanRightMessage(rightMessage);
   const rightWidth = Math.max(1, Number(rightMessageWidth) || 24);
 
@@ -45,15 +59,31 @@ export function TurnDone({ elapsedMs = 0, status = 'done', verb = 'Thought', rig
         </Text>
       </Box>
       {rightText ? (
-        <Box flexShrink={0} width={rightWidth} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
-          <Text color={statusMessageColor(rightTone)} wrap="truncate">{rightText}</Text>
+        <Box
+          flexShrink={0}
+          width={rightWidth}
+          marginLeft={1}
+          marginRight={1}
+          justifyContent="flex-end"
+          overflow="hidden"
+        >
+          <Text color={statusMessageColor(rightTone)} wrap="truncate">
+            {rightText}
+          </Text>
         </Box>
       ) : null}
     </Box>
   );
 }
 
-export function StatusDone({ label = 'Complete', detail = '', rightMessage = '', rightTone = 'info', rightMessageWidth = 24, marginTop = 1 }) {
+export function StatusDone({
+  label = 'Complete',
+  detail = '',
+  rightMessage = '',
+  rightTone = 'info',
+  rightMessageWidth = 24,
+  marginTop = 1,
+}) {
   const copy = String(label || 'Complete').trim() || 'Complete';
   const suffix = String(detail || '').trim();
   const rightText = cleanRightMessage(rightMessage);
@@ -69,8 +99,17 @@ export function StatusDone({ label = 'Complete', detail = '', rightMessage = '',
         </Text>
       </Box>
       {rightText ? (
-        <Box flexShrink={0} width={rightWidth} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
-          <Text color={statusMessageColor(rightTone)} wrap="truncate">{rightText}</Text>
+        <Box
+          flexShrink={0}
+          width={rightWidth}
+          marginLeft={1}
+          marginRight={1}
+          justifyContent="flex-end"
+          overflow="hidden"
+        >
+          <Text color={statusMessageColor(rightTone)} wrap="truncate">
+            {rightText}
+          </Text>
         </Box>
       ) : null}
     </Box>

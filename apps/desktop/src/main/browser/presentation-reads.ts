@@ -4,9 +4,18 @@ import type { DesktopBrowserPageFrame } from '../../shared/contract';
  * queue, and late results cannot resurrect a released session. */
 export function createBrowserPresentationReads(host: {
   capture(sessionId: string, signal: AbortSignal, texture?: boolean): Promise<DesktopBrowserPageFrame>;
-  bounded<T>(work: Promise<T>, timeoutMs: number, label: string, signal: AbortSignal, onTimeout: () => void): Promise<T>;
+  bounded<T>(
+    work: Promise<T>,
+    timeoutMs: number,
+    label: string,
+    signal: AbortSignal,
+    onTimeout: () => void
+  ): Promise<T>;
 }) {
-  const reads = new Map<string, { sessionId: string; controller: AbortController; work: Promise<DesktopBrowserPageFrame> }>();
+  const reads = new Map<
+    string,
+    { sessionId: string; controller: AbortController; work: Promise<DesktopBrowserPageFrame> }
+  >();
   let disposed = false;
   function release(sessionId: string): void {
     for (const [key, read] of reads) {
@@ -24,19 +33,26 @@ export function createBrowserPresentationReads(host: {
         const controller = new AbortController();
         const { signal } = controller;
         const work = host.bounded(
-          host.capture(sessionId, signal, texture).then(frame => { signal.throwIfAborted(); return frame; }),
-          2500, 'Browser display frame', signal,
-          () => controller.abort(new Error('Browser display frame timed out.')),
+          host.capture(sessionId, signal, texture).then((frame) => {
+            signal.throwIfAborted();
+            return frame;
+          }),
+          2500,
+          'Browser display frame',
+          signal,
+          () => controller.abort(new Error('Browser display frame timed out.'))
         );
         read = { sessionId, controller, work };
         reads.set(key, read);
         const entry = read;
-        void work.finally(() => {
-          if (reads.get(key) === entry) reads.delete(key);
-        }).catch(() => {});
+        void work
+          .finally(() => {
+            if (reads.get(key) === entry) reads.delete(key);
+          })
+          .catch(() => {});
       }
       const { work, controller } = read;
-      return work.then(frame => {
+      return work.then((frame) => {
         controller.signal.throwIfAborted();
         return previousId === frame.frameId ? { ...frame, image: undefined } : frame;
       });

@@ -12,9 +12,7 @@ export function parseModelRef(ref: string): ParsedModelRef {
   const raw = String(ref || '');
   const queryAt = raw.indexOf('?');
   let route = queryAt >= 0 ? raw.slice(0, queryAt) : raw;
-  const modelParameters = queryAt >= 0
-    ? Object.fromEntries(new URLSearchParams(raw.slice(queryAt + 1)))
-    : {};
+  const modelParameters = queryAt >= 0 ? Object.fromEntries(new URLSearchParams(raw.slice(queryAt + 1))) : {};
   let fast = false;
   if (route.endsWith('+fast')) {
     fast = true;
@@ -32,16 +30,12 @@ export function parseModelRef(ref: string): ParsedModelRef {
   return { route, effort, fast, modelParameters };
 }
 
-export function preferredModelEffort(
-  model: DesktopModelOption | undefined,
-): string | undefined {
+export function preferredModelEffort(model: DesktopModelOption | undefined): string | undefined {
   if (!model?.effortOptions.length) return undefined;
-  if (model.savedEffort
-    && model.effortOptions.some((entry) => entry.value === model.savedEffort)) {
+  if (model.savedEffort && model.effortOptions.some((entry) => entry.value === model.savedEffort)) {
     return model.savedEffort;
   }
-  if (model.defaultEffort
-    && model.effortOptions.some((entry) => entry.value === model.defaultEffort)) {
+  if (model.defaultEffort && model.effortOptions.some((entry) => entry.value === model.defaultEffort)) {
     return model.defaultEffort;
   }
   for (const value of ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra']) {
@@ -52,7 +46,7 @@ export function preferredModelEffort(
 
 export function preferredModelParameters(
   model: DesktopModelOption | undefined,
-  current: Record<string, string> = {},
+  current: Record<string, string> = {}
 ): Record<string, string> {
   if (!model) return {};
   const defaults = {
@@ -60,14 +54,16 @@ export function preferredModelParameters(
     ...(model.savedModelParameters || {}),
     ...current,
   };
-  return Object.fromEntries((model.modelParameterOptions || []).flatMap((definition) => {
-    const value = defaults[definition.id];
-    if (value && definition.options.some((option) => option.value === value)) {
-      return [[definition.id, value]];
-    }
-    const fallback = definition.options[0]?.value;
-    return fallback ? [[definition.id, fallback]] : [];
-  }));
+  return Object.fromEntries(
+    (model.modelParameterOptions || []).flatMap((definition) => {
+      const value = defaults[definition.id];
+      if (value && definition.options.some((option) => option.value === value)) {
+        return [[definition.id, value]];
+      }
+      const fallback = definition.options[0]?.value;
+      return fallback ? [[definition.id, fallback]] : [];
+    })
+  );
 }
 
 export function routeOption(value: UnknownRecord): DesktopModelOption {
@@ -81,10 +77,14 @@ export function routeOption(value: UnknownRecord): DesktopModelOption {
   const savedFast = typeof value.savedFast === 'boolean' ? value.savedFast : undefined;
   const fastCapable = value.fastCapable === true;
   const fastEfforts = Array.isArray(value.fastEfforts)
-    ? value.fastEfforts.map((entry) => String(entry || '').trim().toLowerCase())
+    ? value.fastEfforts.map((entry) =>
+        String(entry || '')
+          .trim()
+          .toLowerCase()
+      )
     : undefined;
   const modelParameterOptions = Array.isArray(value.modelParameterOptions)
-    ? value.modelParameterOptions as DesktopModelOption['modelParameterOptions']
+    ? (value.modelParameterOptions as DesktopModelOption['modelParameterOptions'])
     : [];
   return {
     provider: String(value.provider || ''),
@@ -101,7 +101,7 @@ export function routeOption(value: UnknownRecord): DesktopModelOption {
     ...(value.defaultFast === true ? { defaultFast: true } : {}),
     modelParameterOptions,
     parameterVariants: Array.isArray(value.parameterVariants)
-      ? value.parameterVariants as Array<Record<string, string>>
+      ? (value.parameterVariants as Array<Record<string, string>>)
       : [],
     defaultModelParameters: record(value.defaultModelParameters) as Record<string, string>,
     savedModelParameters: record(value.savedModelParameters) as Record<string, string>,

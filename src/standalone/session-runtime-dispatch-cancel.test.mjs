@@ -40,19 +40,20 @@ function startWorker(runtimeRoot) {
     responses.set(id, message);
   });
   const send = (payload) => child.send(payload);
-  const wait = (requestId, timeoutMs = 30_000) => new Promise((resolve, reject) => {
-    const settled = responses.get(requestId);
-    if (settled) {
-      responses.delete(requestId);
-      resolve(settled);
-      return;
-    }
-    const timer = setTimeout(
-      () => reject(new Error(`timed out waiting for ${requestId}`)),
-      timeoutMs,
-    );
-    waiters.set(requestId, (message) => { clearTimeout(timer); resolve(message); });
-  });
+  const wait = (requestId, timeoutMs = 30_000) =>
+    new Promise((resolve, reject) => {
+      const settled = responses.get(requestId);
+      if (settled) {
+        responses.delete(requestId);
+        resolve(settled);
+        return;
+      }
+      const timer = setTimeout(() => reject(new Error(`timed out waiting for ${requestId}`)), timeoutMs);
+      waiters.set(requestId, (message) => {
+        clearTimeout(timer);
+        resolve(message);
+      });
+    });
   return { child, send, wait };
 }
 
@@ -62,7 +63,9 @@ async function stopWorker(worker) {
     await worker.wait('shutdown-1', 8_000).catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, 250));
   } finally {
-    try { worker.child.kill(); } catch {}
+    try {
+      worker.child.kill();
+    } catch {}
   }
 }
 
@@ -95,10 +98,7 @@ test('a cancel that arrives before the dispatch is retained and aborts it', asyn
     assert.match(String(dispatch.error?.message || ''), /user aborted during cold start/);
     // The abort is adopted at registration — before the orchestrator/provider
     // cold start, which alone takes seconds in this worker.
-    assert.ok(
-      Date.now() - startedAt < 3_000,
-      'aborted dispatch never entered module/provider setup',
-    );
+    assert.ok(Date.now() - startedAt < 3_000, 'aborted dispatch never entered module/provider setup');
   } finally {
     await stopWorker(worker);
     await rm(runtimeRoot, { recursive: true, force: true });

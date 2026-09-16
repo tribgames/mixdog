@@ -1,5 +1,5 @@
-import type { Snapshot } from "./desktop-types";
-import { estimateRetainedChars } from "./renderer-value-weight";
+import type { Snapshot } from './desktop-types';
+import { estimateRetainedChars } from './renderer-value-weight';
 
 export interface SessionLaneEntry {
   snapshot: Snapshot;
@@ -16,15 +16,23 @@ export class SessionLaneCache {
   private readonly entries = new Map<string, SessionLaneEntry>();
   private retained = 0;
 
-  constructor(private readonly options: {
-    maxEntries: number;
-    maxBytes: number;
-    subscribed(sessionId: string): boolean;
-  }) {}
+  constructor(
+    private readonly options: {
+      maxEntries: number;
+      maxBytes: number;
+      subscribed(sessionId: string): boolean;
+    }
+  ) {}
 
-  get size(): number { return this.entries.size; }
-  get bytes(): number { return this.retained; }
-  get(sessionId: string): SessionLaneEntry | undefined { return this.entries.get(sessionId); }
+  get size(): number {
+    return this.entries.size;
+  }
+  get bytes(): number {
+    return this.retained;
+  }
+  get(sessionId: string): SessionLaneEntry | undefined {
+    return this.entries.get(sessionId);
+  }
 
   touch(sessionId: string): void {
     const entry = this.entries.get(sessionId);
@@ -66,8 +74,11 @@ export class SessionLaneCache {
 
   prune(): void {
     for (const sessionId of this.entries.keys()) {
-      if (this.entries.size <= Math.max(0, this.options.maxEntries)
-        && this.retained <= Math.max(0, this.options.maxBytes)) break;
+      if (
+        this.entries.size <= Math.max(0, this.options.maxEntries) &&
+        this.retained <= Math.max(0, this.options.maxBytes)
+      )
+        break;
       if (!this.options.subscribed(sessionId)) this.delete(sessionId);
     }
   }

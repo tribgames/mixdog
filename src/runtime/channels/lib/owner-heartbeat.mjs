@@ -5,7 +5,7 @@
 // active-instance.json is now a pure metadata advert; it is no longer read to
 // decide ownership.
 function createOwnerHeartbeat() {
-  let lastOwnershipNote = "";
+  let lastOwnershipNote = '';
 
   function logOwnership(note) {
     if (lastOwnershipNote === note) return;

@@ -22,9 +22,7 @@ function backupDirectory(userDataPath: string): string {
 
 function backupPath(userDataPath: string, sourcePath: string): string {
   if (!userDataPath || !isAbsolute(sourcePath)) throw new TypeError('Editor backup path is invalid.');
-  const source = process.platform === 'win32'
-    ? resolve(sourcePath).toLocaleLowerCase()
-    : resolve(sourcePath);
+  const source = process.platform === 'win32' ? resolve(sourcePath).toLocaleLowerCase() : resolve(sourcePath);
   const key = createHash('sha256').update(source).digest('hex');
   return join(backupDirectory(userDataPath), `${key}.json`);
 }
@@ -32,12 +30,14 @@ function backupPath(userDataPath: string, sourcePath: string): string {
 function validBackup(value: unknown): value is EditorBackup {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const row = value as Record<string, unknown>;
-  return typeof row.content === 'string'
-    && row.content.length <= MAX_BACKUP_CONTENT
-    && typeof row.expectedContent === 'string'
-    && row.expectedContent.length <= MAX_BACKUP_CONTENT
-    && Number.isFinite(row.updatedAt)
-    && Number(row.updatedAt) > 0;
+  return (
+    typeof row.content === 'string' &&
+    row.content.length <= MAX_BACKUP_CONTENT &&
+    typeof row.expectedContent === 'string' &&
+    row.expectedContent.length <= MAX_BACKUP_CONTENT &&
+    Number.isFinite(row.updatedAt) &&
+    Number(row.updatedAt) > 0
+  );
 }
 
 async function pruneBackups(userDataPath: string): Promise<void> {
@@ -47,17 +47,21 @@ async function pruneBackups(userDataPath: string): Promise<void> {
   const pending = (async () => {
     try {
       const now = Date.now();
-      const rows = await Promise.all((await readdir(root))
-        .filter((name) => /^[a-f0-9]{64}\.json$/.test(name))
-        .map(async (name) => {
-          const path = join(root, name);
-          const info = await stat(path);
-          return { path, mtimeMs: info.mtimeMs };
-        }));
+      const rows = await Promise.all(
+        (await readdir(root))
+          .filter((name) => /^[a-f0-9]{64}\.json$/.test(name))
+          .map(async (name) => {
+            const path = join(root, name);
+            const info = await stat(path);
+            return { path, mtimeMs: info.mtimeMs };
+          })
+      );
       rows.sort((left, right) => right.mtimeMs - left.mtimeMs);
-      await Promise.all(rows
-        .filter((row, index) => index >= MAX_BACKUP_FILES || now - row.mtimeMs > MAX_BACKUP_AGE_MS)
-        .map((row) => rm(row.path, { force: true })));
+      await Promise.all(
+        rows
+          .filter((row, index) => index >= MAX_BACKUP_FILES || now - row.mtimeMs > MAX_BACKUP_AGE_MS)
+          .map((row) => rm(row.path, { force: true }))
+      );
     } catch {
       // Pruning is best-effort; every first writer still joins this same pass.
     }
@@ -66,10 +70,7 @@ async function pruneBackups(userDataPath: string): Promise<void> {
   return pending;
 }
 
-export async function readEditorBackup(
-  userDataPath: string,
-  sourcePath: string,
-): Promise<EditorBackup | null> {
+export async function readEditorBackup(userDataPath: string, sourcePath: string): Promise<EditorBackup | null> {
   const path = backupPath(userDataPath, sourcePath);
   return backupOperations(path, async () => {
     try {
@@ -92,10 +93,14 @@ export async function writeEditorBackup(
   userDataPath: string,
   sourcePath: string,
   content: string,
-  expectedContent: string,
+  expectedContent: string
 ): Promise<EditorBackup> {
-  if (typeof content !== 'string' || content.length > MAX_BACKUP_CONTENT
-    || typeof expectedContent !== 'string' || expectedContent.length > MAX_BACKUP_CONTENT) {
+  if (
+    typeof content !== 'string' ||
+    content.length > MAX_BACKUP_CONTENT ||
+    typeof expectedContent !== 'string' ||
+    expectedContent.length > MAX_BACKUP_CONTENT
+  ) {
     throw new TypeError('Editor backup content is invalid.');
   }
   const path = backupPath(userDataPath, sourcePath);

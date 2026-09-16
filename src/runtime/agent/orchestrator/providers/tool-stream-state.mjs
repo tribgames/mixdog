@@ -2,12 +2,9 @@
  * tool-stream-state.mjs — shared active tool-item / alias tracking for the
  * OpenAI Responses stream consumers.
  *
- * Extracted verbatim (no behavior change) from openai-ws-stream.mjs, where the
- * activeToolItems Set + activeToolAliases Map (id/call_id/fallback-key alias
- * union) were WS-local closures. Kept as a plain factory so any
- * Responses-shaped stream can reuse the same lifecycle-tracking semantics.
+ * Kept as a plain factory so any Responses-shaped stream can reuse the same
+ * lifecycle-tracking semantics.
  */
-
 /**
  * Per-stream active tool-item tracker. Tracks in-flight function/custom/
  * tool_search items by every key they surface under (id, call_id, and any
@@ -15,46 +12,46 @@
  * and a clear under another still resolve to the same item.
  */
 export function createActiveToolItemTracker() {
-    const activeToolItems = new Set();
-    const activeToolAliases = new Map();
-    const activeToolKeys = (item, fallback = '') => {
-        const keys = [];
-        const add = (value) => {
-            const key = String(value || '');
-            if (key && !keys.includes(key)) keys.push(key);
-        };
-        add(fallback);
-        add(item?.id);
-        add(item?.call_id);
-        return keys;
+  const activeToolItems = new Set();
+  const activeToolAliases = new Map();
+  const activeToolKeys = (item, fallback = '') => {
+    const keys = [];
+    const add = (value) => {
+      const key = String(value || '');
+      if (key && !keys.includes(key)) keys.push(key);
     };
-    const mark = (item, fallback = '') => {
-        const keys = new Set(activeToolKeys(item, fallback));
-        for (const key of [...keys]) {
-            const aliases = activeToolAliases.get(key);
-            if (aliases) for (const alias of aliases) keys.add(alias);
-        }
-        for (const key of keys) {
-            activeToolItems.add(key);
-            activeToolAliases.set(key, new Set(keys));
-        }
-    };
-    const clear = (item, fallback = '') => {
-        const keys = new Set(activeToolKeys(item, fallback));
-        for (const key of [...keys]) {
-            const aliases = activeToolAliases.get(key);
-            if (aliases) for (const alias of aliases) keys.add(alias);
-        }
-        for (const key of keys) {
-            activeToolItems.delete(key);
-            activeToolAliases.delete(key);
-        }
-    };
-    return {
-        items: activeToolItems,
-        aliases: activeToolAliases,
-        keys: activeToolKeys,
-        mark,
-        clear,
-    };
+    add(fallback);
+    add(item?.id);
+    add(item?.call_id);
+    return keys;
+  };
+  const mark = (item, fallback = '') => {
+    const keys = new Set(activeToolKeys(item, fallback));
+    for (const key of [...keys]) {
+      const aliases = activeToolAliases.get(key);
+      if (aliases) for (const alias of aliases) keys.add(alias);
+    }
+    for (const key of keys) {
+      activeToolItems.add(key);
+      activeToolAliases.set(key, new Set(keys));
+    }
+  };
+  const clear = (item, fallback = '') => {
+    const keys = new Set(activeToolKeys(item, fallback));
+    for (const key of [...keys]) {
+      const aliases = activeToolAliases.get(key);
+      if (aliases) for (const alias of aliases) keys.add(alias);
+    }
+    for (const key of keys) {
+      activeToolItems.delete(key);
+      activeToolAliases.delete(key);
+    }
+  };
+  return {
+    items: activeToolItems,
+    aliases: activeToolAliases,
+    keys: activeToolKeys,
+    mark,
+    clear,
+  };
 }

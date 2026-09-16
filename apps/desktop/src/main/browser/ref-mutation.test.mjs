@@ -10,7 +10,10 @@ import { pointerActions } from './actions/pointer.ts';
 
 function payload(snapshotId, role = 'checkbox') {
   return {
-    snapshotId, url: 'https://fixture.example/app', viewportWidth: 100, viewportHeight: 100,
+    snapshotId,
+    url: 'https://fixture.example/app',
+    viewportWidth: 100,
+    viewportHeight: 100,
     elements: [{ ref: `${snapshotId}-e1`, role, name: 'Fixture', tag: 'input' }],
   };
 }
@@ -35,10 +38,16 @@ test('checkbox recovery is allowed before input but a rerender after clicking ne
       else original.addEventListener('click', replace, { once: true });
       const refActions = createBrowserRefActions({
         callAccessibilityRef: async (_guest, ref, source, args) => ({
-          handled: true, value: await dom.window.eval(`(${source})`).apply(refs.get(ref), args),
+          handled: true,
+          value: await dom.window.eval(`(${source})`).apply(refs.get(ref), args),
         }),
         resolveRefPoint: async () => ({ x: 1, y: 1 }),
-        input: { clickAt: async () => { clicks++; dom.window.document.querySelector('input').click(); } },
+        input: {
+          clickAt: async () => {
+            clicks++;
+            dom.window.document.querySelector('input').click();
+          },
+        },
       });
       const reply = createBrowserReply({
         state,
@@ -51,9 +60,11 @@ test('checkbox recovery is allowed before input but a rerender after clicking ne
         },
       });
       const context = {
-        guest, command: { action: 'fill', ref: 'p1-s1-e1', checked: true },
+        guest,
+        command: { action: 'fill', ref: 'p1-s1-e1', checked: true },
         refRecovery: reply.refRecoveryFor(guest),
-        services: { state, reply, refActions }, actionSnapshot: async () => ({ text: 'observed' }),
+        services: { state, reply, refActions },
+        actionSnapshot: async () => ({ text: 'observed' }),
       };
       if (phase === 'before') {
         const result = await formActions.fill(context);
@@ -66,7 +77,9 @@ test('checkbox recovery is allowed before input but a rerender after clicking ne
         assert.equal(state.peek(guest).refSet, undefined);
       }
       assert.equal(clicks, 1);
-    } finally { dom.window.close(); }
+    } finally {
+      dom.window.close();
+    }
   }
 });
 
@@ -77,19 +90,27 @@ test('form and ref-scroll failures after dispatch cannot enter the recovery loop
     state.for(guest).refSet = createBrowserRefSet(payload('p1-s1', 'textbox'));
     let writes = 0;
     let recoveries = 0;
-    const fail = async () => { writes++; throw new Error('node detached after input'); };
+    const fail = async () => {
+      writes++;
+      throw new Error('node detached after input');
+    };
     const reply = createBrowserReply({
       state,
-      captureSnapshotPayload: async () => { recoveries++; throw new Error('unexpected recovery'); },
+      captureSnapshotPayload: async () => {
+        recoveries++;
+        throw new Error('unexpected recovery');
+      },
     });
     const context = {
       guest,
-      command: action === 'fields'
-        ? { action: 'fill', fields: [{ ref: 'p1-s1-e1', text: 'new' }] }
-        : { action, ref: 'p1-s1-e1', text: action === 'scroll' ? undefined : 'new', values: ['new'], dy: 100 },
+      command:
+        action === 'fields'
+          ? { action: 'fill', fields: [{ ref: 'p1-s1-e1', text: 'new' }] }
+          : { action, ref: 'p1-s1-e1', text: action === 'scroll' ? undefined : 'new', values: ['new'], dy: 100 },
       refRecovery: reply.refRecoveryFor(guest),
       services: {
-        state, reply,
+        state,
+        reply,
         refActions: { prepareRef: async (_guest, ref) => ref, fillRef: fail, typeRef: fail, selectRef: fail },
         snapshots: { evaluateRefScript: fail },
       },

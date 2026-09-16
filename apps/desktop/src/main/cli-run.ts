@@ -14,25 +14,30 @@ export interface RunResult {
 
 export function run(file: string, args: string[], timeout = 15_000): Promise<RunResult> {
   return new Promise((resolve) => {
-    execFile(file, args, {
-      timeout,
-      windowsHide: true,
-      env: childEnvironment(),
-    }, (error, stdout, stderr) => {
-      if (!error) {
-        resolve({ code: 0, stdout: String(stdout || ''), stderr: String(stderr || '') });
-        return;
+    execFile(
+      file,
+      args,
+      {
+        timeout,
+        windowsHide: true,
+        env: childEnvironment(),
+      },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolve({ code: 0, stdout: String(stdout || ''), stderr: String(stderr || '') });
+          return;
+        }
+        const failure = error as NodeJS.ErrnoException;
+        if (failure.code === 'ENOENT') {
+          resolve({ code: -1, stdout: '', stderr: 'ENOENT' });
+          return;
+        }
+        resolve({
+          code: typeof failure.code === 'number' ? failure.code : 1,
+          stdout: String(stdout || ''),
+          stderr: String(stderr || '') || failure.message,
+        });
       }
-      const failure = error as NodeJS.ErrnoException;
-      if (failure.code === 'ENOENT') {
-        resolve({ code: -1, stdout: '', stderr: 'ENOENT' });
-        return;
-      }
-      resolve({
-        code: typeof failure.code === 'number' ? failure.code : 1,
-        stdout: String(stdout || ''),
-        stderr: String(stderr || '') || failure.message,
-      });
-    });
+    );
   });
 }

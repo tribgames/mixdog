@@ -6,26 +6,30 @@
  *  tall one), `:many` swaps the branch fixture for one that overflows the list
  *  and `:rows` swaps the changed-file / history fixtures for 2000 files and a
  *  paged 120-commit history — the windowed lists' scenario. */
-const path = require("node:path");
-const fs = require("node:fs");
-const { app, BrowserWindow } = require("electron");
+const path = require('node:path');
+const fs = require('node:fs');
+const { app, BrowserWindow } = require('electron');
 
-const outFile = (process.argv.find((arg) => arg.startsWith("--out=")) || "").split("=")[1] || "";
+const outFile = (process.argv.find((arg) => arg.startsWith('--out=')) || '').split('=')[1] || '';
 
 app.disableHardwareAcceleration();
-app.commandLine.appendSwitch("disable-gpu");
+app.commandLine.appendSwitch('disable-gpu');
 
-const cases = (process.argv.find((arg) => arg.startsWith("--cases="))
-  || "--cases=300x687,290x687,290x420,290x420:many,290x687:rows").split("=")[1].split(",").map((value) => {
-  const [size, mode] = value.trim().split(":");
-  const [width, height] = size.split("x").map(Number);
-  return {
-    width,
-    height,
-    branches: mode === "many" ? "many" : "few",
-    rows: mode === "rows" ? "many" : "few",
-  };
-});
+const cases = (
+  process.argv.find((arg) => arg.startsWith('--cases=')) || '--cases=300x687,290x687,290x420,290x420:many,290x687:rows'
+)
+  .split('=')[1]
+  .split(',')
+  .map((value) => {
+    const [size, mode] = value.trim().split(':');
+    const [width, height] = size.split('x').map(Number);
+    return {
+      width,
+      height,
+      branches: mode === 'many' ? 'many' : 'few',
+      rows: mode === 'rows' ? 'many' : 'few',
+    };
+  });
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
@@ -36,11 +40,11 @@ app.whenReady().then(async () => {
     show: false,
     webPreferences: { contextIsolation: true, sandbox: false, offscreen: false },
   });
-  win.webContents.on("console-message", (_event, _level, message) => {
+  win.webContents.on('console-message', (_event, _level, message) => {
     process.stderr.write(`[page] ${message}\n`);
   });
   try {
-    await win.loadFile(path.join(__dirname, "probe.html"));
+    await win.loadFile(path.join(__dirname, 'probe.html'));
     const report = [];
     for (const scenario of cases) {
       // The WINDOW is what shrinks: `#shell` used to be resized inside a
@@ -48,9 +52,7 @@ app.whenReady().then(async () => {
       // genuinely short window.
       win.setContentSize(1113, scenario.height);
       await new Promise((resolve) => setTimeout(resolve, 150));
-      const measured = await win.webContents.executeJavaScript(
-        `window.__probe.run(${JSON.stringify([scenario])})`,
-      );
+      const measured = await win.webContents.executeJavaScript(`window.__probe.run(${JSON.stringify([scenario])})`);
       report.push(...measured);
     }
     const json = `${JSON.stringify(report, null, 2)}\n`;

@@ -55,9 +55,7 @@ async function resolveGh(refresh = false): Promise<{ path: string; version: stri
 function loginFromAuthOutput(output: string): string {
   // gh ≥2.40 prints "✓ Logged in to github.com account <login> (keyring)";
   // older builds print "✓ Logged in to github.com as <login> (oauth_token)".
-  return /account\s+(\S+)/.exec(output)?.[1]
-    || /Logged in to \S+ as (\S+)/.exec(output)?.[1]
-    || '';
+  return /account\s+(\S+)/.exec(output)?.[1] || /Logged in to \S+ as (\S+)/.exec(output)?.[1] || '';
 }
 
 export async function githubCliStatus(refresh = false): Promise<DesktopGithubCliStatus> {
@@ -107,18 +105,26 @@ async function resolveGit(refresh = false): Promise<{ path: string; version: str
 
 export async function gitCliStatus(refresh = false): Promise<DesktopGitCliStatus> {
   const git = await resolveGit(refresh);
-  return git
-    ? { installed: true, ...(git.version ? { version: git.version } : {}) }
-    : { installed: false };
+  return git ? { installed: true, ...(git.version ? { version: git.version } : {}) } : { installed: false };
 }
 
 export async function installGitCli(): Promise<DesktopGitCliStatus> {
   if (process.platform === 'win32') {
-    const result = await run('winget', [
-      'install', '--id', 'Git.Git', '--exact', '--source', 'winget',
-      '--accept-package-agreements', '--accept-source-agreements',
-      '--disable-interactivity',
-    ], INSTALL_TIMEOUT_MS);
+    const result = await run(
+      'winget',
+      [
+        'install',
+        '--id',
+        'Git.Git',
+        '--exact',
+        '--source',
+        'winget',
+        '--accept-package-agreements',
+        '--accept-source-agreements',
+        '--disable-interactivity',
+      ],
+      INSTALL_TIMEOUT_MS
+    );
     if (result.code === -1) {
       throw new Error('winget is unavailable. Install Git from https://git-scm.com and try again.');
     }
@@ -136,7 +142,9 @@ export async function installGitCli(): Promise<DesktopGitCliStatus> {
       throw new Error(`brew could not install Git: ${detail || `exit code ${result.code}`}`);
     }
   } else {
-    throw new Error('Automatic Git installation is not supported on this platform. Install Git from https://git-scm.com.');
+    throw new Error(
+      'Automatic Git installation is not supported on this platform. Install Git from https://git-scm.com.'
+    );
   }
   const status = await gitCliStatus(true);
   if (!status.installed) {
@@ -147,11 +155,21 @@ export async function installGitCli(): Promise<DesktopGitCliStatus> {
 
 export async function installGithubCli(): Promise<DesktopGithubCliStatus> {
   if (process.platform === 'win32') {
-    const result = await run('winget', [
-      'install', '--id', 'GitHub.cli', '--exact', '--source', 'winget',
-      '--accept-package-agreements', '--accept-source-agreements',
-      '--disable-interactivity',
-    ], INSTALL_TIMEOUT_MS);
+    const result = await run(
+      'winget',
+      [
+        'install',
+        '--id',
+        'GitHub.cli',
+        '--exact',
+        '--source',
+        'winget',
+        '--accept-package-agreements',
+        '--accept-source-agreements',
+        '--disable-interactivity',
+      ],
+      INSTALL_TIMEOUT_MS
+    );
     if (result.code === -1) {
       throw new Error('winget is unavailable. Install GitHub CLI from https://cli.github.com and try again.');
     }
@@ -169,11 +187,15 @@ export async function installGithubCli(): Promise<DesktopGithubCliStatus> {
       throw new Error(`brew could not install GitHub CLI: ${detail || `exit code ${result.code}`}`);
     }
   } else {
-    throw new Error('Automatic install is not supported on this platform. Install GitHub CLI from https://cli.github.com.');
+    throw new Error(
+      'Automatic install is not supported on this platform. Install GitHub CLI from https://cli.github.com.'
+    );
   }
   const status = await githubCliStatus(true);
   if (!status.installed) {
-    throw new Error('GitHub CLI installed, but the executable was not found yet. Restart Mixdog Desktop to pick it up.');
+    throw new Error(
+      'GitHub CLI installed, but the executable was not found yet. Restart Mixdog Desktop to pick it up.'
+    );
   }
   return status;
 }
@@ -217,22 +239,22 @@ export async function githubCliLoginStart(): Promise<DesktopGithubCliLoginFlow> 
     timer: null,
   };
   loginFlows.set(flowId, entry);
-  const pty = spawn(
-    gh.path,
-    ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web'],
-    {
-      name: 'xterm-256color',
-      cols: 120,
-      rows: 30,
-      cwd: homedir(),
-      env: childEnvironment() as Record<string, string>,
-    },
-  );
+  const pty = spawn(gh.path, ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web'], {
+    name: 'xterm-256color',
+    cols: 120,
+    rows: 30,
+    cwd: homedir(),
+    env: childEnvironment() as Record<string, string>,
+  });
   entry.pty = pty;
   entry.timer = setTimeout(() => {
     if (entry.flow.state === 'pending' || entry.flow.state === 'code') {
       entry.flow = { ...entry.flow, state: 'error', message: 'Login timed out after 10 minutes.' };
-      try { pty.kill(); } catch { /* already gone */ }
+      try {
+        pty.kill();
+      } catch {
+        /* already gone */
+      }
     }
   }, LOGIN_TIMEOUT_MS);
   pty.onData((data) => {
@@ -287,7 +309,11 @@ export function cancelGithubCliLogin(flowId: string): void {
   const entry = loginFlows.get(flowId);
   if (!entry) return;
   if (entry.timer) clearTimeout(entry.timer);
-  try { entry.pty?.kill(); } catch { /* already gone */ }
+  try {
+    entry.pty?.kill();
+  } catch {
+    /* already gone */
+  }
   loginFlows.delete(flowId);
 }
 
@@ -329,9 +355,10 @@ export async function githubCliAccount(): Promise<DesktopGithubCliAccount> {
     name: typeof data.name === 'string' && data.name ? data.name : login,
     // No public email → the account's noreply address, exactly like GitHub
     // Desktop's suggested commit email.
-    email: typeof data.email === 'string' && data.email
-      ? data.email
-      : `${id ? `${id}+` : ''}${login}@users.noreply.github.com`,
+    email:
+      typeof data.email === 'string' && data.email
+        ? data.email
+        : `${id ? `${id}+` : ''}${login}@users.noreply.github.com`,
   };
 }
 
@@ -354,7 +381,7 @@ export async function gitGlobalConfig(): Promise<DesktopGitGlobalConfig> {
 
 export async function setGitGlobalConfig(
   key: DesktopGitGlobalConfigKey,
-  value: string,
+  value: string
 ): Promise<DesktopGitGlobalConfig> {
   const trimmed = value.trim();
   const result = trimmed

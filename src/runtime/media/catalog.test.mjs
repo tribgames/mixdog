@@ -6,35 +6,56 @@ import { catalogHttpError } from './catalog-errors.mjs';
 
 test('live catalogs admit new compatible ids and exclude unsupported generation routes', () => {
   const openai = projectMediaModels('openai-oauth', [
-    { id: 'gpt-5.6-sol' }, { id: 'gpt-6-astra' }, { id: 'gpt-7-mini' },
-    { id: 'gpt-7-codex' }, { id: 'gpt-7-nano' }, { id: 'gpt-image-3' },
+    { id: 'gpt-5.6-sol' },
+    { id: 'gpt-6-astra' },
+    { id: 'gpt-7-mini' },
+    { id: 'gpt-7-codex' },
+    { id: 'gpt-7-nano' },
+    { id: 'gpt-image-3' },
     _normalizeCodexModel({ slug: 'gpt-8-denied', supports_image_generation: false }),
     _normalizeCodexModel({ slug: 'gpt-8-text', supported_tools: ['web_search'] }),
     _normalizeCodexModel({ slug: 'gpt-7-mainline', supported_tools: [{ type: 'image_generation' }] }),
   ]);
-  assert.deepEqual(openai.image.map((row) => row.id), ['chatgpt-image-auto']);
+  assert.deepEqual(
+    openai.image.map((row) => row.id),
+    ['chatgpt-image-auto']
+  );
   assert.equal(openai.image[0].requestModel, 'gpt-7-mainline');
   assert.equal(openai.image[0].controls.size, undefined);
   assert.equal(openai.image[0].controls.quality, undefined);
-  assert.deepEqual(projectMediaModels('openai-oauth', [
-    { id: 'gpt-image-2.5-flare' }, { id: 'gpt-8-codex' },
-    { id: 'gpt-8-denied', supportsImageGeneration: false },
-  ]).image, []);
+  assert.deepEqual(
+    projectMediaModels('openai-oauth', [
+      { id: 'gpt-image-2.5-flare' },
+      { id: 'gpt-8-codex' },
+      { id: 'gpt-8-denied', supportsImageGeneration: false },
+    ]).image,
+    []
+  );
   assert.deepEqual(openai.video, []);
 
   const xai = projectMediaModels('xai', [
-    { id: 'grok-imagine-image' }, { id: 'grok-imagine-image-2.0' },
-    { id: 'grok-imagine-image-2.0' }, { id: 'grok-imagine-video' },
-    { id: 'grok-imagine-video-1.5' }, { id: 'grok-4.6' },
+    { id: 'grok-imagine-image' },
+    { id: 'grok-imagine-image-2.0' },
+    { id: 'grok-imagine-image-2.0' },
+    { id: 'grok-imagine-video' },
+    { id: 'grok-imagine-video-1.5' },
+    { id: 'grok-4.6' },
     { id: 'grok-imagine-image-3.0', deprecated: true },
   ]);
   assert.equal(xai.image[0].id, 'grok-imagine-image-2.0');
   assert.equal(xai.image.length, 2);
-  assert.deepEqual(xai.video.map((row) => row.id), ['grok-imagine-video']);
+  assert.deepEqual(
+    xai.video.map((row) => row.id),
+    ['grok-imagine-video']
+  );
   assert.deepEqual(xai.video[0].controls.resolution, ['480p', '720p']);
 
   const gemini = projectMediaModels('gemini', [
-    { name: 'models/gemini-3.1-flash-lite-image', displayName: 'Nano Banana 2 Lite', supportedGenerationMethods: ['generateContent'] },
+    {
+      name: 'models/gemini-3.1-flash-lite-image',
+      displayName: 'Nano Banana 2 Lite',
+      supportedGenerationMethods: ['generateContent'],
+    },
     { name: 'models/gemini-4-flash-image', supportedGenerationMethods: ['generateContent'] },
     { name: 'models/gemini-9-image', supportedGenerationMethods: ['embedContent'] },
     { name: 'models/gemini-3.8-flash' },
@@ -44,7 +65,10 @@ test('live catalogs admit new compatible ids and exclude unsupported generation 
     { name: 'models/veo-2.0-generate-001', supportedGenerationMethods: ['predictLongRunning'] },
     { name: 'models/imagen-4-generate' },
   ]);
-  assert.deepEqual(gemini.image.map((row) => row.id), ['gemini-4-flash-image', 'gemini-3.1-flash-lite-image']);
+  assert.deepEqual(
+    gemini.image.map((row) => row.id),
+    ['gemini-4-flash-image', 'gemini-3.1-flash-lite-image']
+  );
   assert.equal(gemini.image[1].label, 'Nano Banana 2 Lite · Gemini 3.1 Flash Lite Image');
   assert.equal(gemini.video[0].id, 'gemini-omni-1.1-flash');
   assert.deepEqual(gemini.video[0].controls, { resolution: [], durations: [], maxReferences: 3 });
@@ -60,7 +84,10 @@ test('live catalogs admit new compatible ids and exclude unsupported generation 
     { id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6 (Thinking)', maxTokens: 250000 },
     { id: 'chat_23310', maxTokens: 32768 },
   ]);
-  assert.deepEqual(antigravity.image.map((row) => row.id), ['gemini-3.1-flash-image', 'gemini-3.1-flash-lite-image-preview']);
+  assert.deepEqual(
+    antigravity.image.map((row) => row.id),
+    ['gemini-3.1-flash-image', 'gemini-3.1-flash-lite-image-preview']
+  );
   assert.equal(antigravity.image[0].label, 'Nano Banana 2 · Gemini 3.1 Flash Image');
   assert.deepEqual(antigravity.video, []);
 });
@@ -68,13 +95,19 @@ test('live catalogs admit new compatible ids and exclude unsupported generation 
 test('Antigravity discovery reads the gateway model map with the hub identity', async () => {
   const requests = [];
   const rows = await fetchMediaModelRows({
-    lane: 'antigravity-oauth', auth: { token: 'access-token', projectId: 'projects/test' },
+    lane: 'antigravity-oauth',
+    auth: { token: 'access-token', projectId: 'projects/test' },
     fetchFn: async (url, init) => {
       requests.push({ url, init });
-      return { ok: true, json: async () => ({ models: {
-        'gemini-3.1-flash-image': { displayName: 'Gemini 3.1 Flash Image' },
-        'gemini-3.8-flash-high': { displayName: 'Gemini 3.8 Flash (High)', maxTokens: 1048576 },
-      } }) };
+      return {
+        ok: true,
+        json: async () => ({
+          models: {
+            'gemini-3.1-flash-image': { displayName: 'Gemini 3.1 Flash Image' },
+            'gemini-3.8-flash-high': { displayName: 'Gemini 3.8 Flash (High)', maxTokens: 1048576 },
+          },
+        }),
+      };
     },
   });
   assert.deepEqual(rows, [
@@ -91,24 +124,33 @@ test('Antigravity discovery reads the gateway model map with the hub identity', 
 test('discovery keeps raw media rows, follows Gemini pages and refuses credential redirects', async () => {
   const requests = [];
   const rows = [{ id: 'grok-imagine-image-2.0' }, { id: 'grok-imagine-video' }];
-  assert.deepEqual(await fetchMediaModelRows({
-    lane: 'xai', auth: { token: 'test-key', baseURL: 'https://api.x.ai/v1' },
-    fetchFn: async (url, init) => {
-      requests.push({ url, init });
-      return { ok: true, json: async () => ({ data: rows }) };
-    },
-  }), rows);
+  assert.deepEqual(
+    await fetchMediaModelRows({
+      lane: 'xai',
+      auth: { token: 'test-key', baseURL: 'https://api.x.ai/v1' },
+      fetchFn: async (url, init) => {
+        requests.push({ url, init });
+        return { ok: true, json: async () => ({ data: rows }) };
+      },
+    }),
+    rows
+  );
   assert.equal(requests[0].url, 'https://api.x.ai/v1/models');
   assert.equal(requests[0].init.headers.Authorization, 'Bearer test-key');
 
   const gemini = await fetchMediaModelRows({
-    lane: 'gemini', auth: { token: 'test-key' },
+    lane: 'gemini',
+    auth: { token: 'test-key' },
     fetchFn: async (url, init) => {
       requests.push({ url, init });
       const second = new URL(url).searchParams.get('pageToken') === 'next';
-      return { ok: true, json: async () => second
-        ? { models: [{ name: 'models/gemini-omni-1.1-flash' }] }
-        : { models: [{ name: 'models/gemini-3.1-flash-lite-image' }], nextPageToken: 'next' } };
+      return {
+        ok: true,
+        json: async () =>
+          second
+            ? { models: [{ name: 'models/gemini-omni-1.1-flash' }] }
+            : { models: [{ name: 'models/gemini-3.1-flash-lite-image' }], nextPageToken: 'next' },
+      };
     },
   });
   assert.equal(gemini.length, 2);
@@ -118,10 +160,14 @@ test('discovery keeps raw media rows, follows Gemini pages and refuses credentia
     assert.ok(init.signal instanceof AbortSignal);
   }
   for (const lane of ['xai', 'gemini']) {
-    await assert.rejects(fetchMediaModelRows({
-      lane, auth: { token: 'test-key', baseURL: 'https://api.x.ai/v1' },
-      fetchFn: async () => ({ ok: true, json: async () => ({ error: 'unavailable' }) }),
-    }), /Invalid .*catalog response/);
+    await assert.rejects(
+      fetchMediaModelRows({
+        lane,
+        auth: { token: 'test-key', baseURL: 'https://api.x.ai/v1' },
+        fetchFn: async () => ({ ok: true, json: async () => ({ error: 'unavailable' }) }),
+      }),
+      /Invalid .*catalog response/
+    );
   }
 });
 
@@ -136,7 +182,8 @@ test('catalog caching joins concurrent reads, refreshes expired/invalidated rows
   const load = createMediaModelLoader({
     now: () => clock,
     source: async (lane) => ({
-      key: `${lane}-${scope}`, revision,
+      key: `${lane}-${scope}`,
+      revision,
       async fetchModels() {
         calls += 1;
         await Promise.resolve();
@@ -187,7 +234,9 @@ test('already-cached provider catalogs have no second Studio TTL', async () => {
   let models = [{ id: 'gpt-6-astra' }];
   const load = createMediaModelLoader({
     source: async () => ({ key: 'openai-oauth', cache: false, fetchModels: async () => models }),
-    cache: () => { throw new Error('must use the provider cache'); },
+    cache: () => {
+      throw new Error('must use the provider cache');
+    },
   });
   assert.deepEqual(await load('openai-oauth'), models);
   models = [{ id: 'gpt-7-mainline' }];
@@ -202,23 +251,34 @@ test('image tiers and preview releases stay distinguishable without treating Lit
     { id: 'gemini-3-pro-image-preview', displayName: 'Nano Banana Pro' },
   ]);
   assert.equal(gemini.image[0].id, 'gemini-3.1-flash-image');
-  assert.match(gemini.image.find(row => row.id.endsWith('image-preview')).label, /Preview/);
-  assert.equal(new Set(gemini.image.map(row => row.label)).size, 4);
+  assert.match(gemini.image.find((row) => row.id.endsWith('image-preview')).label, /Preview/);
+  assert.equal(new Set(gemini.image.map((row) => row.label)).size, 4);
   const grok = projectMediaModels('grok-oauth', [
-    { id: 'grok-imagine-image' }, { id: 'grok-imagine-image-quality' }, { id: 'grok-imagine-image-2.0' },
+    { id: 'grok-imagine-image' },
+    { id: 'grok-imagine-image-quality' },
+    { id: 'grok-imagine-image-2.0' },
   ]);
-  assert.deepEqual(new Set(grok.image.map(row => row.label)), new Set([
-    'Grok Imagine Image', 'Grok Imagine Image Quality', 'Grok Imagine Image 2.0',
-  ]));
+  assert.deepEqual(
+    new Set(grok.image.map((row) => row.label)),
+    new Set(['Grok Imagine Image', 'Grok Imagine Image Quality', 'Grok Imagine Image 2.0'])
+  );
 });
 
 test('catalog outages expose stale state, but billing and credential rejection cannot reuse it', async () => {
   const old = [{ id: 'grok-imagine-image' }];
   for (const status of [401, 403, 429, 503]) {
-    const error = catalogHttpError(status, status === 403 ? '{"error":"team secret-id has reached its spending limit"}' : '');
+    const error = catalogHttpError(
+      status,
+      status === 403 ? '{"error":"team secret-id has reached its spending limit"}' : ''
+    );
     const load = createMediaModelLoader({
-      source: async () => ({ key: 'same-account', fetchModels: async () => { throw error; } }),
-      cache: (_key, stale) => ({ loadSync: () => stale ? old : null }),
+      source: async () => ({
+        key: 'same-account',
+        fetchModels: async () => {
+          throw error;
+        },
+      }),
+      cache: (_key, stale) => ({ loadSync: () => (stale ? old : null) }),
     });
     if (status === 401 || status === 403) await assert.rejects(load('xai'), { code: error.code });
     else {

@@ -37,7 +37,12 @@ async function sessionFixture(t) {
       };
       runtime = {
         getState: () => state,
-        subscribe(next) { listener = next; return () => { listener = () => {}; }; },
+        subscribe(next) {
+          listener = next;
+          return () => {
+            listener = () => {};
+          };
+        },
         resume: async () => true,
         async submitAsync(prompt, options) {
           append('user', prompt, options.id);
@@ -53,36 +58,56 @@ async function sessionFixture(t) {
       if (targets?.has(ctx.clientToken)) sink?.(frame);
     },
   });
-  const host = await SessionHost.create({
-    userDataPath: directory, resourcesPath: directory, appPath: directory, packaged: false,
-  }, {
-    async attachSessionClient({ onFrame }) {
-      sink = onFrame;
-      const call = (method) => (args) => service.handleCall(`session.${method}`, args, ctx);
-      return {
-        list: call('list'), create: call('create'),
-        subscribe: call('subscribe'), unsubscribe: call('unsubscribe'),
-        submit: call('submit'), abort: call('abort'),
-        approve: call('approve'), configure: call('configure'),
-        async read(args) {
-          reads++;
-          const result = await service.handleCall('session.read', args, ctx);
-          if (heldRead) {
-            const pending = heldRead;
-            heldRead = null;
-            pending.captured.resolve();
-            await pending.release.promise;
-          }
-          return result;
-        },
-        async close() { service.releaseClient(ctx.clientToken); },
-      };
+  const host = await SessionHost.create(
+    {
+      userDataPath: directory,
+      resourcesPath: directory,
+      appPath: directory,
+      packaged: false,
     },
-    async loadProjects() { return {}; },
-    async loadSessionStore() { return {}; },
-    async loadStatuslineSegments() { return {}; },
-    async executeCodeGraphTool() { return {}; },
-  });
+    {
+      async attachSessionClient({ onFrame }) {
+        sink = onFrame;
+        const call = (method) => (args) => service.handleCall(`session.${method}`, args, ctx);
+        return {
+          list: call('list'),
+          create: call('create'),
+          subscribe: call('subscribe'),
+          unsubscribe: call('unsubscribe'),
+          submit: call('submit'),
+          abort: call('abort'),
+          approve: call('approve'),
+          configure: call('configure'),
+          async read(args) {
+            reads++;
+            const result = await service.handleCall('session.read', args, ctx);
+            if (heldRead) {
+              const pending = heldRead;
+              heldRead = null;
+              pending.captured.resolve();
+              await pending.release.promise;
+            }
+            return result;
+          },
+          async close() {
+            service.releaseClient(ctx.clientToken);
+          },
+        };
+      },
+      async loadProjects() {
+        return {};
+      },
+      async loadSessionStore() {
+        return {};
+      },
+      async loadStatuslineSegments() {
+        return {};
+      },
+      async executeCodeGraphTool() {
+        return {};
+      },
+    }
+  );
   host.subscribeSessionStates((update) => {
     updates.push(update);
     updateWaiter?.resolve(update);
@@ -94,9 +119,16 @@ async function sessionFixture(t) {
     await rm(directory, { recursive: true, force: true });
   });
   return {
-    id, host, service, updates,
-    get runtime() { return runtime; },
-    get reads() { return reads; },
+    id,
+    host,
+    service,
+    updates,
+    get runtime() {
+      return runtime;
+    },
+    get reads() {
+      return reads;
+    },
     texts: () => updates.at(-1)?.snapshot?.items.map((item) => item.text),
     persist(text) {
       persist([...stored.items, { id: stored.projectionStamp, kind: 'assistant', text }]);
@@ -178,7 +210,7 @@ test('cold refresh ticks do not stack reads while that session is still loading'
   held.release.resolve();
   // Unchanged content intentionally emits no frame. Drain the read completion,
   // rather than waiting for a publication that the transport must suppress.
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   t.mock.timers.tick(1_000);
   assert.equal(f.reads, reads + 2, 'refresh resumes after the preceding read settles');
 });
@@ -194,14 +226,18 @@ test('read tracing measures a held host read and propagates its correlation with
   const held = f.holdRead();
   const reading = f.host.prefetchSession(f.id, undefined, 'read-host-1');
   await held.captured.promise;
-  assert.deepEqual(records.map(r => r.stage), ['host-start', 'host-read-start']);
+  assert.deepEqual(
+    records.map((r) => r.stage),
+    ['host-start', 'host-read-start']
+  );
   now = 321;
   held.release.resolve();
   assert.equal(await reading, true);
-  assert.equal(records.find(r => r.stage === 'host-read-result').durationMs, 321);
-  assert.deepEqual(records.map(r => r.stage), [
-    'host-start', 'host-read-start', 'host-read-result', 'host-projected', 'host-published',
-  ]);
+  assert.equal(records.find((r) => r.stage === 'host-read-result').durationMs, 321);
+  assert.deepEqual(
+    records.map((r) => r.stage),
+    ['host-start', 'host-read-start', 'host-read-result', 'host-projected', 'host-published']
+  );
   assert.equal(f.updates.at(-1).readTraceId, 'read-host-1');
   assert.deepEqual(f.texts(), ['private saved answer']);
   assert.equal(JSON.stringify(records).includes('private saved answer'), false);
@@ -210,11 +246,16 @@ test('read tracing measures a held host read and propagates its correlation with
 test('a traced host read preserves its original rejection', async (t) => {
   const f = await sessionFixture(t);
   const failure = new Error('private read failure');
-  t.mock.method(f.host.sessionClient, 'read', async () => { throw failure; });
+  t.mock.method(f.host.sessionClient, 'read', async () => {
+    throw failure;
+  });
   const records = [];
   const restore = setTranscriptReadDiagnosticSink((entry) => records.push(entry));
   t.after(restore);
-  await assert.rejects(f.host.prefetchSession(f.id, undefined, 'read-host-failure'), error => error === failure);
+  await assert.rejects(f.host.prefetchSession(f.id, undefined, 'read-host-failure'), (error) => error === failure);
   assert.equal(records.at(-1).stage, 'host-failed');
-  assert.equal(records.some(r => r.stage === 'host-published'), false);
+  assert.equal(
+    records.some((r) => r.stage === 'host-published'),
+    false
+  );
 });

@@ -1,4 +1,9 @@
-import { renderedWordText, resolveDocxPropertyChanges, resolveDocxRevisions, revisionOwner } from './docx-revisions.mjs';
+import {
+  renderedWordText,
+  resolveDocxPropertyChanges,
+  resolveDocxRevisions,
+  revisionOwner,
+} from './docx-revisions.mjs';
 import { docxBodyModel } from './portable-snapshot.mjs';
 import { containerInner, xmlEncode } from './portable-xml.mjs';
 
@@ -15,9 +20,10 @@ function consolidateText(content, tag) {
     const match = pair.exec(result);
     if (!match) return { content: result, merged };
     const text = `${renderedWordText(match[1], match[2])}${renderedWordText(match[3], match[4])}`;
-    const preserve = /^[ \t\r\n]|[ \t\r\n]$/.test(text)
-      || /\bxml:space="preserve"/.test(match[1])
-      || /\bxml:space="preserve"/.test(match[3]);
+    const preserve =
+      /^[ \t\r\n]|[ \t\r\n]$/.test(text) ||
+      /\bxml:space="preserve"/.test(match[1]) ||
+      /\bxml:space="preserve"/.test(match[3]);
     result = `${result.slice(0, match.index)}<${tag}${preserve ? ' xml:space="preserve"' : ''}>${xmlEncode(text)}</${tag}>${result.slice(match.index + match[0].length)}`;
     merged += 1;
   }
@@ -38,10 +44,12 @@ export function normalizeDocxRuns(xml) {
     return '';
   });
   working = working.replace(/<w:r(\s[^>]*)?>/g, (_, attrs = '') => {
-    const stripped = attrs.replace(/\s+w:rsid\w*="[^"]*"/g, () => {
-      rsidStripped += 1;
-      return '';
-    }).trim();
+    const stripped = attrs
+      .replace(/\s+w:rsid\w*="[^"]*"/g, () => {
+        rsidStripped += 1;
+        return '';
+      })
+      .trim();
     return `<w:r${stripped ? ` ${stripped}` : ''}>`;
   });
   const output = [];
@@ -107,9 +115,8 @@ function markedParagraph(properties, tag, author = '') {
 function clearedParagraph(paragraphXml, tag, author = '') {
   const parts = paragraphParts(paragraphXml);
   if (parts.empty) return paragraphXml;
-  const properties = parts.properties.replace(
-    /<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>/,
-    (block) => block.replace(marker(tag, author), ''),
+  const properties = parts.properties.replace(/<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>/, (block) =>
+    block.replace(marker(tag, author), '')
   );
   return `${parts.open}${properties}${parts.content}</w:p>`;
 }
@@ -123,13 +130,21 @@ function elementExtents(xml, tag) {
   while ((match = opener.exec(xml))) {
     const inner = containerInner(xml, tag, match.index);
     if (!inner) continue;
-    found.push({ start: match.index, innerStart: inner.start, innerEnd: inner.end, end: inner.end + `</${tag}>`.length });
+    found.push({
+      start: match.index,
+      innerStart: inner.start,
+      innerEnd: inner.end,
+      end: inner.end + `</${tag}>`.length,
+    });
   }
   return found;
 }
 
 function leftoverMarks(author = '') {
-  return new RegExp(`(<w:rPr(?:\\s[^>]*)?>(?:(?!<\\/w:rPr>)[\\s\\S])*?)<w:(ins|del)\\b${revisionOwner(author)}[^>]*\\/>`, 'g');
+  return new RegExp(
+    `(<w:rPr(?:\\s[^>]*)?>(?:(?!<\\/w:rPr>)[\\s\\S])*?)<w:(ins|del)\\b${revisionOwner(author)}[^>]*\\/>`,
+    'g'
+  );
 }
 
 /** Resolves paragraph-mark revisions the way Word does. A deleted mark that
@@ -182,7 +197,10 @@ export function resolveDocxRowMarks(documentXml, { resolution = 'accept', author
   for (const row of elementExtents(xml, 'w:tr').reverse()) {
     const rowXml = xml.slice(row.start, row.end);
     if (/<w:tbl\b/.test(rowXml)) continue;
-    const properties = /^<w:tr(?:\s[^>]*)?>\s*(?:<w:tblPrEx(?:\s[^>]*)?>[\s\S]*?<\/w:tblPrEx>\s*)?(<w:trPr(?:\s[^>]*)?>[\s\S]*?<\/w:trPr>)/.exec(rowXml)?.[1] || '';
+    const properties =
+      /^<w:tr(?:\s[^>]*)?>\s*(?:<w:tblPrEx(?:\s[^>]*)?>[\s\S]*?<\/w:tblPrEx>\s*)?(<w:trPr(?:\s[^>]*)?>[\s\S]*?<\/w:trPr>)/.exec(
+        rowXml
+      )?.[1] || '';
     if (!properties) continue;
     const marks = { del: marker('del', author).test(properties), ins: marker('ins', author).test(properties) };
     if (!marks.del && !marks.ins) continue;
@@ -195,10 +213,16 @@ export function resolveDocxRowMarks(documentXml, { resolution = 'accept', author
     xml = `${xml.slice(0, row.start)}${rowXml.replace(properties, clearedProperties)}${xml.slice(row.end)}`;
     cleared += 1;
   }
-  xml = xml.replace(new RegExp(`(<w:trPr(?:\\s[^>]*)?>(?:(?!<\\/w:trPr>)[\\s\\S])*?)<w:(?:ins|del)\\b${revisionOwner(author)}[^>]*\\/>`, 'g'), (_, head) => {
-    cleared += 1;
-    return head;
-  });
+  xml = xml.replace(
+    new RegExp(
+      `(<w:trPr(?:\\s[^>]*)?>(?:(?!<\\/w:trPr>)[\\s\\S])*?)<w:(?:ins|del)\\b${revisionOwner(author)}[^>]*\\/>`,
+      'g'
+    ),
+    (_, head) => {
+      cleared += 1;
+      return head;
+    }
+  );
   return { xml, removed, cleared };
 }
 
@@ -275,7 +299,15 @@ function resolveStoryParagraphMarks(xml, options) {
  *  limits every stage to one reviewer. */
 export function settleDocxStory(xml, { resolution = 'accept', target = 0, id = '', author = '' } = {}) {
   const wrappers = resolveDocxRevisions(xml, { resolution, target, id, author });
-  const counts = { resolved: wrappers.resolved, merged: 0, cleared: 0, unmerged: 0, rowsRemoved: 0, rowsCleared: 0, propertyChanges: 0 };
+  const counts = {
+    resolved: wrappers.resolved,
+    merged: 0,
+    cleared: 0,
+    unmerged: 0,
+    rowsRemoved: 0,
+    rowsCleared: 0,
+    propertyChanges: 0,
+  };
   if (target || id) return { xml: wrappers.xml, ...counts };
   const marks = resolveStoryParagraphMarks(wrappers.xml, { resolution, author });
   const rows = resolveDocxRowMarks(marks.xml, { resolution, author });

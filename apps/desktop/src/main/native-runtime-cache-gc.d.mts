@@ -10,5 +10,5 @@ export interface NativeRuntimeCacheGcResult {
 
 export function gcSupersededNativeToolCaches(
   dataDir: string,
-  bundledKinds: string[],
+  bundledKinds: string[]
 ): Promise<NativeRuntimeCacheGcResult>;

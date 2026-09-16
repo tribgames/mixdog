@@ -19,8 +19,7 @@ if (!sourceArg) {
 const source = resolve(sourceArg);
 const theme = JSON.parse(readFileSync(join(source, 'icons/vs-seti-icon-theme.json'), 'utf8'));
 
-const escapeChar = (definition) =>
-  '\\u' + definition.fontCharacter.replace(/^\\/, '').toUpperCase().padStart(4, '0');
+const escapeChar = (definition) => '\\u' + definition.fontCharacter.replace(/^\\/, '').toUpperCase().padStart(4, '0');
 
 const used = new Map();
 const claim = (id) => {
@@ -72,9 +71,10 @@ claim(theme.file);
 const defsSource = [...used.entries()]
   .map(([id, [glyph, color]]) => `  ${JSON.stringify(id)}: ["${glyph}", ${JSON.stringify(color)}],`)
   .join('\n');
-const recordSource = (record) => Object.entries(record)
-  .map(([key, id]) => `  ${JSON.stringify(key)}: ${JSON.stringify(id)},`)
-  .join('\n');
+const recordSource = (record) =>
+  Object.entries(record)
+    .map(([key, id]) => `  ${JSON.stringify(key)}: ${JSON.stringify(id)},`)
+    .join('\n');
 
 const output = [
   '// GENERATED FILE — do not edit by hand: run scripts/generate-seti-icons.mjs.',
@@ -116,5 +116,7 @@ const output = [
 
 writeFileSync(join(here, '../src/renderer/seti-icons.ts'), output);
 copyFileSync(join(source, 'icons/seti.woff'), join(here, '../src/renderer/seti.woff'));
-console.log(`seti-icons.ts: ${used.size} definitions, `
-  + `${Object.keys(extensions).length} extensions, ${Object.keys(names).length} names`);
+console.log(
+  `seti-icons.ts: ${used.size} definitions, ` +
+    `${Object.keys(extensions).length} extensions, ${Object.keys(names).length} names`
+);

@@ -1,13 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { extractPdfImages, extractPdfTextLayout, findPdfText, inferPdfTables } from '../pdf/pdf-analysis.mjs';
-import {
-  findByDocumentPath,
-  fullPath,
-  queryObject,
-  snapshot,
-  snapshotSelectionForTarget,
-} from './office-sessions.mjs';
+import { findByDocumentPath, fullPath, queryObject, snapshot, snapshotSelectionForTarget } from './office-sessions.mjs';
 
 /** RFC 4180 quoting so a table cell that contains a comma or quote round-trips. */
 export function csvCell(text) {
@@ -22,7 +16,8 @@ export async function getOfficeElement(session, args) {
   // is read with its own contents, because asking for the element and
   // getting one of its twelve cells back under truncated:true answers a
   // question the caller did not ask.
-  const leafTarget = /\/(?:cell|run|note|comment|comment-thread|revision|footnote|endnote|content-control)\[[^\]]+]$/i.test(target);
+  const leafTarget =
+    /\/(?:cell|run|note|comment|comment-thread|revision|footnote|endnote|content-control)\[[^\]]+]$/i.test(target);
   const current = await snapshot(session, {
     ...args,
     ...selection,
@@ -47,7 +42,7 @@ async function queryPdfLayout(session, args, signal) {
   const needle = String(args.query || '').trim();
   const layout = await extractPdfTextLayout(session.target, {
     pages: args.pages,
-    maxItems: needle ? 20_000 : (args.limit || 10_000),
+    maxItems: needle ? 20_000 : args.limit || 10_000,
     shapes: !needle,
     signal,
   });
@@ -55,12 +50,12 @@ async function queryPdfLayout(session, args, signal) {
   // phrase sits, not every run on the page.
   return needle
     ? {
-      session: session.id,
-      queryKind: 'pdf-layout',
-      pageCount: layout.pageCount,
-      ...findPdfText(layout, needle, { limit: args.limit || 200 }),
-      pages: layout.pages.map(({ page, width, height }) => ({ page, width, height })),
-    }
+        session: session.id,
+        queryKind: 'pdf-layout',
+        pageCount: layout.pageCount,
+        ...findPdfText(layout, needle, { limit: args.limit || 200 }),
+        pages: layout.pages.map(({ page, width, height }) => ({ page, width, height })),
+      }
     : { session: session.id, queryKind: 'pdf-layout', ...layout };
 }
 
@@ -80,7 +75,11 @@ async function queryPdfTables(session, args, cwd, signal) {
       const ordinal = (counters.get(table.page) || 0) + 1;
       counters.set(table.page, ordinal);
       const file = join(directory, `page-${table.page}-table-${ordinal}.csv`);
-      await writeFile(file, `${table.rows.map((row) => row.map((cell) => csvCell(String(cell ?? ''))).join(',')).join('\r\n')}\r\n`, 'utf8');
+      await writeFile(
+        file,
+        `${table.rows.map((row) => row.map((cell) => csvCell(String(cell ?? ''))).join(',')).join('\r\n')}\r\n`,
+        'utf8'
+      );
       table.path = file;
     }
     inferred.output = directory;
@@ -110,7 +109,9 @@ async function queryPdfImages(session, args, cwd, signal) {
 export async function queryOfficeDocument(session, args, cwd, signal) {
   const queryKind = String(args.queryKind || 'text').toLowerCase();
   if (queryKind === 'text') {
-    const needle = String(args.query || '').trim().toLowerCase();
+    const needle = String(args.query || '')
+      .trim()
+      .toLowerCase();
     if (!needle) throw new Error('query requires non-empty query text');
     const current = await snapshot(session, { ...args, maxChars: 100_000 }, { full: true });
     return {

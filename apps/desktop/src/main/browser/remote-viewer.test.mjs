@@ -36,9 +36,16 @@ test('a polling phone is reported present once and absent only after it stops', 
   t.mock.timers.tick(3_000);
   assert.deepEqual(f.changes, [['s', true]], 'each frame extends the same presence');
   t.mock.timers.tick(1_000);
-  assert.deepEqual(f.changes, [['s', true], ['s', false]]);
+  assert.deepEqual(f.changes, [
+    ['s', true],
+    ['s', false],
+  ]);
   await f.remote.remoteBrowserFrame('s');
-  assert.deepEqual(f.changes, [['s', true], ['s', false], ['s', true]]);
+  assert.deepEqual(f.changes, [
+    ['s', true],
+    ['s', false],
+    ['s', true],
+  ]);
 });
 
 test('releasing a session forgets its viewer without reporting another change', async (t) => {

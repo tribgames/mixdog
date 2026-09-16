@@ -5,10 +5,7 @@
  * compiled native backend can replace it without changing desktop startup or
  * the renderer/session contract.
  */
-import {
-  createPowerShellComputerHost,
-  type PowerShellComputerHost,
-} from './host/powershell-host';
+import { createPowerShellComputerHost, type PowerShellComputerHost } from './host/powershell-host';
 
 export type {
   ChromeRemoteDebuggingSetup,
@@ -21,7 +18,7 @@ export function createComputerHost(
     bridgeEnabled?: boolean;
     observeOnly?: boolean;
     onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
-  } = {},
+  } = {}
 ): ComputerHost {
   return createPowerShellComputerHost(options);
 }

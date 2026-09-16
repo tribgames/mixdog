@@ -13,12 +13,27 @@ function fixture(t, options = {}) {
   const sessionId = 'sess_goal_activity';
   const call = async (args) => JSON.parse(await runtime.executeTool('goal', args, { callerSessionId: sessionId }));
   const snapshot = () => runtime.snapshot(sessionId);
-  const create = (tasks = [
-    { text: 'Approved work', status: 'awaiting_approval', kind: 'work' },
-    { text: 'Verify work', status: 'awaiting_approval', kind: 'verification' },
-  ]) => call({ action: 'create', objective: 'Finish approved work', tasks });
-  t.after(() => { runtime.close(); rmSync(dataDir, { recursive: true, force: true }); });
-  return { runtime, dataDir, sessionId, call, snapshot, create, advance: (ms) => { clock += ms; } };
+  const create = (
+    tasks = [
+      { text: 'Approved work', status: 'awaiting_approval', kind: 'work' },
+      { text: 'Verify work', status: 'awaiting_approval', kind: 'verification' },
+    ]
+  ) => call({ action: 'create', objective: 'Finish approved work', tasks });
+  t.after(() => {
+    runtime.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+  return {
+    runtime,
+    dataDir,
+    sessionId,
+    call,
+    snapshot,
+    create,
+    advance: (ms) => {
+      clock += ms;
+    },
+  };
 }
 
 test('starting a paused task publishes task progress, activation, and clock together', async (t) => {
@@ -39,7 +54,8 @@ test('starting a paused task publishes task progress, activation, and clock toge
   f.runtime.subscribe(({ goal }) => events.push(goal));
   writes.length = 0;
   const reply = await f.call({
-    action: 'update_tasks', revision: paused.revision,
+    action: 'update_tasks',
+    revision: paused.revision,
     updates: [{ id: paused.tasks[0].id, status: 'in_progress' }],
   });
   const resumed = f.snapshot();
@@ -93,9 +109,10 @@ test('full task transitions and newly started tasks also resume paused work', as
       const f = fixture(t);
       await f.create();
       await f.call({ action: 'pause', blocker: 'Need approval to start' });
-      const tasks = action === 'update_tasks'
-        ? [{ text: 'Approved addition', status: 'in_progress', kind: 'work' }]
-        : f.snapshot().tasks.map((task, index) => index ? task : { ...task, status: 'in_progress' });
+      const tasks =
+        action === 'update_tasks'
+          ? [{ text: 'Approved addition', status: 'in_progress', kind: 'work' }]
+          : f.snapshot().tasks.map((task, index) => (index ? task : { ...task, status: 'in_progress' }));
       const reply = await f.call({ action, tasks });
       assert.equal(reply.goal.status, 'active');
       assert.equal(f.snapshot().tasks.find((task) => task.kind === 'verification').status, 'awaiting_approval');
@@ -115,13 +132,17 @@ test('work-start task writes cannot bypass revision, validation, or persistence 
   await f.call({ action: 'pause', blocker: 'Need approval to start' });
   const paused = f.snapshot();
   const args = {
-    action: 'update_tasks', revision: paused.revision,
+    action: 'update_tasks',
+    revision: paused.revision,
     updates: [{ id: paused.tasks[0].id, status: 'in_progress' }],
   };
   const events = [];
   f.runtime.subscribe((event) => events.push(event));
   await assert.rejects(f.call({ ...args, revision: paused.revision - 1 }), /stale Goal revision/);
-  await assert.rejects(f.call({ ...args, tasks: [{ text: '', status: 'pending', kind: 'work' }] }), /task text is required/);
+  await assert.rejects(
+    f.call({ ...args, tasks: [{ text: '', status: 'pending', kind: 'work' }] }),
+    /task text is required/
+  );
   fail = true;
   await assert.rejects(f.call(args), /injected work-start failure/);
   const stored = readStoredGoalSnapshot({ dataDir: f.dataDir, sessionId: f.sessionId });
@@ -174,7 +195,8 @@ test('work-start updates do not silently clear blocking, usage, or duration stop
       }
       const current = (await f.call({ action: 'status' })).goal;
       await f.call({
-        action: 'update_tasks', revision: current.revision,
+        action: 'update_tasks',
+        revision: current.revision,
         updates: [{ id: current.tasks[0].id, status: 'in_progress' }],
       });
       assert.equal(f.snapshot().status, status);

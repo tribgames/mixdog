@@ -14,5 +14,7 @@ test('cursor renders no labels, and movement does not announce a click', () => {
     assert.equal(dom.window.document.getElementById('surface').className, 'visible click');
     dom.window.mixdogAgentCursor({ effect: 'move' });
     assert.equal(dom.window.document.getElementById('surface').className, 'visible move');
-  } finally { dom.window.close(); }
+  } finally {
+    dom.window.close();
+  }
 });

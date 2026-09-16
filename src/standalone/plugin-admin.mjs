@@ -1,18 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
-import {
-  withFileLockSync,
-  writeJsonAtomicSync,
-} from '../runtime/shared/atomic-file.mjs';
+import { withFileLockSync, writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import { pluginManifest } from '../runtime/shared/plugin-manifest.mjs';
 import { pluginMetadata } from '../runtime/shared/plugin-metadata.mjs';
@@ -48,19 +39,27 @@ function loadRegistry(dataDir = resolvePluginData()) {
 function mutateRegistry(dataDir, mutator) {
   const path = registryPath(dataDir);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  return withFileLockSync(`${path}.lock`, () => {
-    const registry = loadRegistry(dataDir);
-    const result = mutator(registry);
-    writeJsonAtomicSync(path, {
-      version: REGISTRY_VERSION,
-      plugins: Array.isArray(registry.plugins) ? registry.plugins : [],
-    }, {
-      lock: false,
-      secret: true,
-      fsyncDir: true,
-    });
-    return result;
-  }, { secret: true });
+  return withFileLockSync(
+    `${path}.lock`,
+    () => {
+      const registry = loadRegistry(dataDir);
+      const result = mutator(registry);
+      writeJsonAtomicSync(
+        path,
+        {
+          version: REGISTRY_VERSION,
+          plugins: Array.isArray(registry.plugins) ? registry.plugins : [],
+        },
+        {
+          lock: false,
+          secret: true,
+          fsyncDir: true,
+        }
+      );
+      return result;
+    },
+    { secret: true }
+  );
 }
 
 function displayNameFromUrl(url) {
@@ -93,7 +92,10 @@ function normalizeSource(input) {
       displaySource: source,
     };
   }
-  if (/^(https?:\/\/|git@|ssh:\/\/).+\.git(?:#.+)?$/i.test(source) || /^https:\/\/github\.com\/[^/]+\/[^/]+\/?$/i.test(source)) {
+  if (
+    /^(https?:\/\/|git@|ssh:\/\/).+\.git(?:#.+)?$/i.test(source) ||
+    /^https:\/\/github\.com\/[^/]+\/[^/]+\/?$/i.test(source)
+  ) {
     if (/^http:\/\//i.test(source)) {
       throw new Error('plugin Git URLs must use HTTPS or SSH');
     }
@@ -145,8 +147,7 @@ function ensureInside(parent, child) {
 }
 
 function pluginIndex(registry, key) {
-  return registry.plugins.findIndex((plugin) =>
-    plugin.id === key || plugin.name === key || plugin.title === key);
+  return registry.plugins.findIndex((plugin) => plugin.id === key || plugin.name === key || plugin.title === key);
 }
 
 function withPluginMutation(dataDir, id, operation) {
@@ -165,7 +166,9 @@ function cleanupManagedPartials(root) {
   if (!existsSync(parent)) return;
   for (const entry of readdirSync(parent)) {
     if (!entry.startsWith(prefix)) continue;
-    try { rmSync(join(parent, entry), { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(join(parent, entry), { recursive: true, force: true });
+    } catch {}
   }
 }
 
@@ -193,15 +196,14 @@ export function _publishManagedPluginRoot(root, tempRoot) {
       try {
         renameSync(backupRoot, root);
       } catch (rollbackError) {
-        throw new AggregateError(
-          [error, rollbackError],
-          `plugin publish and rollback both failed for ${root}`,
-        );
+        throw new AggregateError([error, rollbackError], `plugin publish and rollback both failed for ${root}`);
       }
     }
     throw error;
   }
-  try { rmSync(backupRoot, { recursive: true, force: true }); } catch {}
+  try {
+    rmSync(backupRoot, { recursive: true, force: true });
+  } catch {}
 }
 
 function materializePlugin(normalized, id, dataDir) {
@@ -217,7 +219,9 @@ function materializePlugin(normalized, id, dataDir) {
     runGit(['clone', '--depth', '1', normalized.url, tempRoot]);
     _publishManagedPluginRoot(root, tempRoot);
   } catch (error) {
-    try { rmSync(tempRoot, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(tempRoot, { recursive: true, force: true });
+    } catch {}
     throw error;
   } finally {
     cleanupManagedPartials(root);
@@ -250,13 +254,15 @@ export function addPlugin(sourceInput, { dataDir = resolvePluginData(), name } =
   const normalized = normalizeSource(sourceInput);
   const id = stableIdForSource(normalized.displaySource || normalized.url || normalized.path);
   const initial = loadRegistry(dataDir);
-  const initialExisting = initial.plugins.find((plugin) =>
-    plugin.id === id || clean(plugin.source) === clean(normalized.displaySource));
+  const initialExisting = initial.plugins.find(
+    (plugin) => plugin.id === id || clean(plugin.source) === clean(normalized.displaySource)
+  );
   const lockId = initialExisting?.id || id;
   return withPluginMutation(dataDir, lockId, () => {
     const currentRegistry = loadRegistry(dataDir);
-    const existing = currentRegistry.plugins.find((plugin) =>
-      plugin.id === id || clean(plugin.source) === clean(normalized.displaySource));
+    const existing = currentRegistry.plugins.find(
+      (plugin) => plugin.id === id || clean(plugin.source) === clean(normalized.displaySource)
+    );
     if (existing) return updatePluginLocked(existing, dataDir);
     const materialized = materializePlugin(normalized, id, dataDir);
     const manifest = pluginManifest(materialized.root);
@@ -268,7 +274,11 @@ export function addPlugin(sourceInput, { dataDir = resolvePluginData(), name } =
       root: materialized.root,
       managed: materialized.managed,
       name: clean(name) || clean(manifest.name) || clean(manifest.id) || displayNameFromUrl(normalized.displaySource),
-      title: clean(manifest.title) || clean(manifest.displayName) || clean(name) || displayNameFromUrl(normalized.displaySource),
+      title:
+        clean(manifest.title) ||
+        clean(manifest.displayName) ||
+        clean(name) ||
+        displayNameFromUrl(normalized.displaySource),
       version: clean(manifest.version) || null,
       description: clean(manifest.description),
       enabled: true,
@@ -276,8 +286,9 @@ export function addPlugin(sourceInput, { dataDir = resolvePluginData(), name } =
       updatedAt: nowIso(),
     };
     return mutateRegistry(dataDir, (registry) => {
-      const duplicate = registry.plugins.findIndex((plugin) =>
-        plugin.id === id || clean(plugin.source) === clean(normalized.displaySource));
+      const duplicate = registry.plugins.findIndex(
+        (plugin) => plugin.id === id || clean(plugin.source) === clean(normalized.displaySource)
+      );
       if (duplicate >= 0) {
         entry.installedAt = registry.plugins[duplicate].installedAt || entry.installedAt;
         registry.plugins[duplicate] = entry;

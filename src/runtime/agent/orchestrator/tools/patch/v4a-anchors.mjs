@@ -40,7 +40,9 @@ export function v4AHunkLineStats(hunk) {
 // ASCII on the most permissive matching pass, so a patch authored in plain
 // ASCII still locates context in a file containing smart quotes / en dashes.
 function normalizeAnchorText(value) {
-  return String(value).trim().replace(/[\u2010-\u2015\u2212]/g, '-')
+  return String(value)
+    .trim()
+    .replace(/[\u2010-\u2015\u2212]/g, '-')
     .replace(/[\u2018-\u201B]/g, "'")
     .replace(/[\u201C-\u201F]/g, '"')
     .replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, ' ');
@@ -144,8 +146,8 @@ export function noteV4AHunkAmbiguity(displayPath, sourceLines, loc) {
   if (loc.anchored || !(loc.matchLen > 0)) return;
   if (countExactWindows(sourceLines, loc.pattern) < 2) return;
   _v4aAmbiguityNotices.add(
-    `${displayPath}: hunk context matches more than one place; applied at line ${loc.oldStartIdx + 1} `
-    + '(first match after the previous hunk). Add an @@ anchor to target a different one.',
+    `${displayPath}: hunk context matches more than one place; applied at line ${loc.oldStartIdx + 1} ` +
+      '(first match after the previous hunk). Add an @@ anchor to target a different one.'
   );
 }
 
@@ -156,8 +158,8 @@ export function noteV4AEofSignalIgnored(displayPath, loc) {
   if (_v4aAmbiguityNotices.size >= V4A_AMBIGUITY_NOTICE_CAP) return;
   if (!loc?.eofSignalIgnored) return;
   _v4aAmbiguityNotices.add(
-    `${displayPath}: hunk carried *** End of File but its context is at line ${loc.oldStartIdx + 1}, `
-    + 'not the end of file; the marker was ignored. Drop it unless the hunk really ends the file.',
+    `${displayPath}: hunk carried *** End of File but its context is at line ${loc.oldStartIdx + 1}, ` +
+      'not the end of file; the marker was ignored. Drop it unless the hunk really ends the file.'
   );
 }
 
@@ -174,9 +176,8 @@ export function formatV4AHunkLocator(hunk) {
 
 export function formatV4AAnchorMissHint(sourceLines, hunk) {
   const anchors = (hunk?.anchors || []).filter(Boolean);
-  const nearest = anchors.length > 0
-    ? anchors.map((anchor) => nearestPatchLineHint(sourceLines, anchor, 0)).find(Boolean)
-    : null;
+  const nearest =
+    anchors.length > 0 ? anchors.map((anchor) => nearestPatchLineHint(sourceLines, anchor, 0)).find(Boolean) : null;
   return anchors.length === 0
     ? ' use an existing @@ anchor from the current file or add exact context lines.'
     : ` use an existing @@ anchor from the current file or add exact context lines; no stubs.${nearest ? ` nearest anchor candidate: ${nearest}.` : ''}`;
@@ -226,10 +227,12 @@ export function v4aEnvelopeMarkerInHunk(sourceLines, oldLines) {
 }
 
 export function formatV4AEnvelopeMarkerError(marker) {
-  return 'V4A hunk structure error (malformed patch envelope): '
-    + `${JSON.stringify(compactPatchPreviewLine(marker.line))} appears as a content line at old[${marker.index + 1}]. `
-    + 'The section body ended early or is missing its `*** Update File: <path>` header. '
-    + 'Rebuild the envelope and resend; the file was never searched, so no context excerpt applies.';
+  return (
+    'V4A hunk structure error (malformed patch envelope): ' +
+    `${JSON.stringify(compactPatchPreviewLine(marker.line))} appears as a content line at old[${marker.index + 1}]. ` +
+    'The section body ended early or is missing its `*** Update File: <path>` header. ' +
+    'Rebuild the envelope and resend; the file was never searched, so no context excerpt applies.'
+  );
 }
 
 // When the FIRST old line does exist verbatim in the source, the real
@@ -248,8 +251,7 @@ function firstV4ADivergenceHint(sourceLines, oldLines, anchorLine) {
     if (sourceLines[i] === first) starts.push(i - firstIdx);
   }
   const pref = Number.isFinite(anchorLine) && anchorLine >= 0 ? anchorLine : 0;
-  const start = starts.filter((s) => s >= 0)
-    .sort((a, b) => Math.abs(a - pref) - Math.abs(b - pref) || a - b)[0];
+  const start = starts.filter((s) => s >= 0).sort((a, b) => Math.abs(a - pref) - Math.abs(b - pref) || a - b)[0];
   if (start === undefined) return null;
   for (let k = 0; k < lines.length; k++) {
     const exp = lines[k];

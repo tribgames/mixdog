@@ -133,16 +133,18 @@ function laneKindView(lane, kind, models) {
   };
 }
 
-export function createMediaLaneCatalog({
-  loadModels = loadMediaModels,
-  authenticated = laneAuthenticated,
-} = {}) {
+export function createMediaLaneCatalog({ loadModels = loadMediaModels, authenticated = laneAuthenticated } = {}) {
   async function laneView(lane) {
     const signedIn = authenticated(lane);
     const view = {
-      id: lane.id, label: lane.label,
-      authType: lane.auth.type, authProvider: lane.auth.provider,
-      authenticated: signedIn, kinds: [], image: null, video: null,
+      id: lane.id,
+      label: lane.label,
+      authType: lane.auth.type,
+      authProvider: lane.auth.provider,
+      authenticated: signedIn,
+      kinds: [],
+      image: null,
+      video: null,
     };
     if (!signedIn) return view;
     try {
@@ -160,7 +162,9 @@ export function createMediaLaneCatalog({
         // sanitized internal reason, never the upstream body or account id.
         try {
           console.warn(`[media] catalog excluded lane=${lane.id} code=${diagnostic.code}`);
-        } catch { /* diagnostics must not affect catalog availability */ }
+        } catch {
+          /* diagnostics must not affect catalog availability */
+        }
         return null;
       }
       view.catalogErrorCode = diagnostic.code;
@@ -181,19 +185,27 @@ export function createMediaLaneCatalog({
       }
       const definition = LANE_BY_ID.get(String(laneId || '').trim());
       if (!definition) throw mediaError(`unknown media lane "${laneId}"`, 'MEDIA_LANE_UNKNOWN');
-      if (!definition[kindName]) throw mediaError(`${definition.id} does not support ${kindName}`, 'MEDIA_KIND_UNSUPPORTED');
+      if (!definition[kindName])
+        throw mediaError(`${definition.id} does not support ${kindName}`, 'MEDIA_KIND_UNSUPPORTED');
       const lane = await laneView(definition);
       if (!lane) {
         throw mediaError('The selected media model is not available.', 'MEDIA_MODEL_UNSUPPORTED');
       }
       if (!lane.authenticated) {
-        throw mediaError(`${lane.label} is not authenticated — sign in from Settings → Providers first`, 'MEDIA_LANE_UNAUTHENTICATED');
+        throw mediaError(
+          `${lane.label} is not authenticated — sign in from Settings → Providers first`,
+          'MEDIA_LANE_UNAUTHENTICATED'
+        );
       }
-      if (lane.catalogError) throw mediaError(lane.catalogError, lane.catalogErrorCode || 'MEDIA_CATALOG_UNAVAILABLE', 503);
+      if (lane.catalogError)
+        throw mediaError(lane.catalogError, lane.catalogErrorCode || 'MEDIA_CATALOG_UNAVAILABLE', 503);
       const spec = lane[kindName];
       const requested = String(model || '').trim() || spec?.defaultModel;
       if (!spec?.models.some((entry) => entry.id === requested)) {
-        throw mediaError(`model "${requested || ''}" is not available on ${lane.id}/${kindName}`, 'MEDIA_MODEL_UNSUPPORTED');
+        throw mediaError(
+          `model "${requested || ''}" is not available on ${lane.id}/${kindName}`,
+          'MEDIA_MODEL_UNSUPPORTED'
+        );
       }
       return { lane, kind: kindName, model: requested, spec };
     },

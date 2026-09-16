@@ -8,22 +8,32 @@ function clock() {
   const pending = new Map();
   return {
     timers: {
-      setTimeout(callback, ms) { const id = { unref() {} }; pending.set(id, { callback, at: now + ms }); return id; },
-      clearTimeout(id) { pending.delete(id); },
+      setTimeout(callback, ms) {
+        const id = { unref() {} };
+        pending.set(id, { callback, at: now + ms });
+        return id;
+      },
+      clearTimeout(id) {
+        pending.delete(id);
+      },
     },
     advance(ms) {
       now += ms;
       for (const [id, entry] of [...pending]) {
         if (entry.at > now) continue;
-        pending.delete(id); entry.callback();
+        pending.delete(id);
+        entry.callback();
       }
     },
-    get pending() { return pending.size; },
+    get pending() {
+      return pending.size;
+    },
   };
 }
 const items = [{ id: 'user', kind: 'user', text: 'input' }];
 const update = (text, fields = {}) => ({
-  sessionId: 's', frameSource: 'live',
+  sessionId: 's',
+  frameSource: 'live',
   snapshot: { busy: true, items, streamingTail: { id: 'tail', kind: 'assistant', text }, ...fields },
 });
 
@@ -32,7 +42,8 @@ test('a text burst sends one latest snapshot within 16ms, with every character p
   const frames = [];
   let mailbox;
   mailbox = createRemoteStreamingMailbox((sequence, value, critical) => {
-    frames.push({ value, critical }); mailbox.acknowledge(sequence);
+    frames.push({ value, critical });
+    mailbox.acknowledge(sequence);
   }, time.timers);
   mailbox.publish(update(''));
   mailbox.publish(update('한'));
@@ -52,7 +63,8 @@ test('completion, replay, and unknown approval fields bypass batching and remain
   const frames = [];
   let mailbox;
   mailbox = createRemoteStreamingMailbox((sequence, value, critical) => {
-    frames.push({ value, critical }); mailbox.acknowledge(sequence);
+    frames.push({ value, critical });
+    mailbox.acknowledge(sequence);
   }, time.timers);
   mailbox.publish(update(''));
   mailbox.publish(update('pending text'));
@@ -96,7 +108,9 @@ test('batching reduces real compact packet bytes while preserving decoder state'
   const time = clock();
   const encoder = createSnapshotDeltaEncoder({ compact: true });
   const decoder = createSnapshotDeltaDecoder();
-  let bytes = 0, packets = 0, received;
+  let bytes = 0,
+    packets = 0,
+    received;
   let mailbox;
   mailbox = createRemoteStreamingMailbox((sequence, value) => {
     const wire = encoder.encode(value.snapshot);

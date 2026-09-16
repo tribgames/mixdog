@@ -10,7 +10,9 @@ export const PASTE_TOKEN_MIN_CHARS = 200;
 // three. Counting the empty trailing chunk folded ordinary two-line copies
 // into chips and mislabelled the chip's line count.
 export function pastedTextLineCount(text) {
-  const value = String(text ?? '').replace(/\r\n?/g, '\n').replace(/\n+$/, '');
+  const value = String(text ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n+$/, '');
   if (!value) return 0;
   return value.split('\n').length;
 }
@@ -18,8 +20,7 @@ export function pastedTextLineCount(text) {
 export function shouldFoldPastedText(text) {
   const value = String(text ?? '');
   if (!value) return false;
-  return pastedTextLineCount(value) >= PASTE_TOKEN_MIN_LINES
-    || value.length > PASTE_TOKEN_MIN_CHARS;
+  return pastedTextLineCount(value) >= PASTE_TOKEN_MIN_LINES || value.length > PASTE_TOKEN_MIN_CHARS;
 }
 
 export function formatPastedTextRef(id, text) {

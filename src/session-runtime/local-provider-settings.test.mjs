@@ -6,7 +6,11 @@ import test from 'node:test';
 import { createSettingsApi } from './settings-api.mjs';
 import { setModuleEnabledInConfig } from './config-helpers.mjs';
 import { createSetupToolExecutor } from './setup-tool/executor.mjs';
-import { trackLocalInstallation, localProviderInstallStatus, cancelLocalInstallation } from '../runtime/local-provider/install-progress.mjs';
+import {
+  trackLocalInstallation,
+  localProviderInstallStatus,
+  cancelLocalInstallation,
+} from '../runtime/local-provider/install-progress.mjs';
 
 test('background setup installation returns a job, pauses all observers, and resumes without changing the route', async () => {
   const root = join(tmpdir(), randomUUID());
@@ -16,22 +20,36 @@ test('background setup installation returns a job, pauses all observers, and res
   let attempts = 0;
   let ttl;
   const api = createSettingsApi({
-    getConfig: () => config, saveConfigAndAdopt: (next) => { config = next; },
+    getConfig: () => config,
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
     setModuleEnabledInConfig,
-    getLocalProviderStatus: () => ({ runtime: { installed: true },
-      models: [{ id: 'model', installed: modelInstalled }], installations: localProviderInstallStatus(root) }),
-    prepareLocalProviderModel: (id) => trackLocalInstallation(root, { phase: 'model', modelId: id }, (_publish, signal) => {
-      attempts++;
-      return new Promise((resolve, reject) => {
-        signal.throwIfAborted();
-        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
-        finish = () => { modelInstalled = true; resolve(); };
-      });
+    getLocalProviderStatus: () => ({
+      runtime: { installed: true },
+      models: [{ id: 'model', installed: modelInstalled }],
+      installations: localProviderInstallStatus(root),
     }),
+    prepareLocalProviderModel: (id) =>
+      trackLocalInstallation(root, { phase: 'model', modelId: id }, (_publish, signal) => {
+        attempts++;
+        return new Promise((resolve, reject) => {
+          signal.throwIfAborted();
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+          finish = () => {
+            modelInstalled = true;
+            resolve();
+          };
+        });
+      }),
     cancelLocalProviderInstallation: (jobId) => cancelLocalInstallation(jobId, root),
-    configureLocalProviderIdleTtl: (seconds) => { ttl = seconds; },
-    webSearchEnabled: () => true, memoryToolsEnabledFn: () => true,
-    gitToolsEnabledFn: () => true, officeToolsEnabledFn: () => true,
+    configureLocalProviderIdleTtl: (seconds) => {
+      ttl = seconds;
+    },
+    webSearchEnabled: () => true,
+    memoryToolsEnabledFn: () => true,
+    gitToolsEnabledFn: () => true,
+    officeToolsEnabledFn: () => true,
   });
   const executor = createSetupToolExecutor({ getApi: () => api });
   const run = async (args) => JSON.parse(await executor.execute(args));
@@ -56,5 +74,8 @@ test('background setup installation returns a job, pauses all observers, and res
   assert.equal(config.providers['mixdog-local'].idleTtlSeconds, 0);
   assert.deepEqual(config.default, { provider: 'hosted', model: 'keep' });
   await assert.rejects(run({ action: 'set_local_idle_ttl', idleTtlSeconds: -1 }), /idleTtlSeconds/);
-  await assert.rejects(run({ action: 'start_local_installation', phase: 'model', modelId: 'not-in-catalog' }), /catalog/);
+  await assert.rejects(
+    run({ action: 'start_local_installation', phase: 'model', modelId: 'not-in-catalog' }),
+    /catalog/
+  );
 });

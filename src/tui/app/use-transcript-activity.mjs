@@ -11,10 +11,16 @@ export function useTranscriptActivity({ state }) {
   // JSON.stringify over the worker/job arrays ran on EVERY render (including the
   // ~120fps streaming reconciles). Memoize on the agent slices so it only
   // recomputes when agent state actually changes, not on every assistant delta.
-  const agentRevision = useMemo(() => JSON.stringify({
-    workers: (state.agentWorkers || []).map((w) => [w.tag, w.status, w.stage, w.sessionId]).slice(0, 20),
-    jobs: (state.agentJobs || []).map((j) => [j.task_id, j.status, j.tag, j.sessionId, j.startedAt, j.finishedAt, j.error]).slice(0, 20),
-  }), [state.agentWorkers, state.agentJobs]);
+  const agentRevision = useMemo(
+    () =>
+      JSON.stringify({
+        workers: (state.agentWorkers || []).map((w) => [w.tag, w.status, w.stage, w.sessionId]).slice(0, 20),
+        jobs: (state.agentJobs || [])
+          .map((j) => [j.task_id, j.status, j.tag, j.sessionId, j.startedAt, j.finishedAt, j.error])
+          .slice(0, 20),
+      }),
+    [state.agentWorkers, state.agentJobs]
+  );
 
   // Surface-tool activity is the MAIN session's own running tool cards.
   // Derive pending counts + oldest
@@ -36,9 +42,12 @@ export function useTranscriptActivity({ state }) {
     // only when the engine did not publish it (older snapshot).
     if (state.activeToolSummary !== undefined) return state.activeToolSummary || '';
     const items = state.items || [];
-    let shellCount = 0, shellStart = 0;
-    let webSearchCount = 0, webSearchStart = 0;
-    let agentCount = 0, agentStart = 0;
+    let shellCount = 0,
+      shellStart = 0;
+    let webSearchCount = 0,
+      webSearchStart = 0;
+    let agentCount = 0,
+      agentStart = 0;
     for (const it of items) {
       if (!it || it.kind !== 'tool') continue;
       const count = Math.max(1, Number(it.count || 1));

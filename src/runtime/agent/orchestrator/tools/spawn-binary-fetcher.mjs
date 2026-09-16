@@ -55,8 +55,8 @@ export const ensureSpawnBinary = singleFlight(async (dataDir, options = {}) => {
   if (!validSpawnAsset(manifest, pkey)) {
     const supported = Object.keys(manifest?.assets || {}).join(', ') || '(none; spawn release not synchronized)';
     throw new Error(
-      `${LABEL} no verified mixdog-spawn binary for ${pkey}. `
-      + `Supported platforms: ${supported}. No local-build or Node shell fallback is permitted.`,
+      `${LABEL} no verified mixdog-spawn binary for ${pkey}. ` +
+        `Supported platforms: ${supported}. No local-build or Node shell fallback is permitted.`
     );
   }
   return installVerifiedBinary({

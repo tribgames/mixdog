@@ -15,7 +15,7 @@ function briefLine(script, key) {
   for (let index = start + 1; index < lines.length; index += 1) {
     const line = lines[index];
     if (!/^\s*\/\//.test(line)) break;
-    if (/^\s*\/\/\s*[a-z][a-z /-]*:/i.test(line)) break;   // the next brief key
+    if (/^\s*\/\/\s*[a-z][a-z /-]*:/i.test(line)) break; // the next brief key
     collected.push(line.replace(/^\s*\/\/\s*/, ''));
   }
   // Continuation lines are joined as list items (` · `), so a facts or plan
@@ -46,8 +46,17 @@ function parseSlidePlan(text) {
       if (match && PLAN_KEYS.includes(match[1].toLowerCase())) fields[match[1].toLowerCase()] = match[2].trim();
     }
     const head = `${entry.tokens[0]} ${fields.job || ''}`;
-    const role = /\bcover\b/i.test(head) ? 'cover' : /\bclosing\b/i.test(head) ? 'closing' : /\bsection\b/i.test(head) ? 'section' : '';
-    const carriers = String(fields.carriers || '').split(/\s*[,+/]\s*/).map((word) => word.trim().toLowerCase()).filter(Boolean);
+    const role = /\bcover\b/i.test(head)
+      ? 'cover'
+      : /\bclosing\b/i.test(head)
+        ? 'closing'
+        : /\bsection\b/i.test(head)
+          ? 'section'
+          : '';
+    const carriers = String(fields.carriers || '')
+      .split(/\s*[,+/]\s*/)
+      .map((word) => word.trim().toLowerCase())
+      .filter(Boolean);
     return { slide: entry.slide, role, ...fields, carriers, text: entry.tokens.join(' · ') };
   });
 }
@@ -58,9 +67,13 @@ function parseDirections(text) {
   let selected = '';
   for (const token of String(text || '').split(/\s*·\s*/)) {
     const pick = /^selected\s*:\s*([A-Za-z0-9]+)/i.exec(token.trim());
-    if (pick) { selected = pick[1].toUpperCase(); continue; }
+    if (pick) {
+      selected = pick[1].toUpperCase();
+      continue;
+    }
     const candidate = /^([A-Z]|\d)\b[\s:.)-]*(.+)$/.exec(token.trim());
-    if (candidate && !/^why\s*:/i.test(token.trim())) candidates.push({ id: candidate[1].toUpperCase(), text: candidate[2].trim() });
+    if (candidate && !/^why\s*:/i.test(token.trim()))
+      candidates.push({ id: candidate[1].toUpperCase(), text: candidate[2].trim() });
   }
   return { candidates, selected };
 }
@@ -68,7 +81,8 @@ function parseDirections(text) {
 // A fact's source is a locator when it points into material the reader can open at that spot: a page,
 // a cell or range, a section, a slide, a figure, or a URL. Grounding is the half of deck quality the
 // runtime can check cheaply — a deck built from supplied sources is only as good as its citations.
-const LOCATOR = /\bp\.?\s?\d|\bpage\s*\d|\d+\s*(?:쪽|페이지)|![A-Z]{1,3}\$?\d+|§\s*\d|https?:\/\/|\bslide\s*\d|\bsheet\s*\d|\bfig(?:ure)?\.?\s*\d|\btable\s*\d|\bline\s*\d|\b\d+:\d+/i;
+const LOCATOR =
+  /\bp\.?\s?\d|\bpage\s*\d|\d+\s*(?:쪽|페이지)|![A-Z]{1,3}\$?\d+|§\s*\d|https?:\/\/|\bslide\s*\d|\bsheet\s*\d|\bfig(?:ure)?\.?\s*\d|\btable\s*\d|\bline\s*\d|\b\d+:\d+/i;
 
 function parseFacts(text) {
   const facts = [];
@@ -84,7 +98,10 @@ function parseFacts(text) {
 
 // `sources: <file, document, or url> · <…>` — the supplied material the deck is built from.
 function parseSources(text) {
-  return String(text || '').split(/\s*·\s*/).map((token) => token.trim()).filter(Boolean);
+  return String(text || '')
+    .split(/\s*·\s*/)
+    .map((token) => token.trim())
+    .filter(Boolean);
 }
 
 // `facts: sample — <why>` declares every figure illustrative: no fact sheet
@@ -92,7 +109,8 @@ function parseSources(text) {
 // numbers are examples.
 const SAMPLE_FACTS = /^\s*(?:sample|illustrative|example)\b\s*[—–:-]?\s*/i;
 
-export const FACTS_SAMPLE_DISCLOSURE = 'The brief declares facts: sample — every figure on this deck is illustrative. Tell the user so in the delivery and never present the numbers as measured.';
+export const FACTS_SAMPLE_DISCLOSURE =
+  'The brief declares facts: sample — every figure on this deck is illustrative. Tell the user so in the delivery and never present the numbers as measured.';
 
 export function parseAuthoringBrief(script) {
   const plan = parseSlidePlan(briefLine(script, 'slide plan'));
@@ -118,7 +136,10 @@ const PROMISES = {
   hero: { test: (s) => s.text.some((t) => t.size >= 40), label: 'a hero numeral (40 pt+)' },
   statement: { test: (s) => s.text.some((t) => t.size >= 22), label: 'a statement at 22 pt or larger' },
   quote: { test: (s) => s.text.some((t) => t.size >= 24), label: 'a quote at 24 pt or larger' },
-  specimen: { test: (s) => new Set(s.text.map((t) => `${t.size}|${t.bold ? 1 : 0}`)).size >= 3, label: 'a specimen (three or more size/weight steps drawn)' },
+  specimen: {
+    test: (s) => new Set(s.text.map((t) => `${t.size}|${t.bold ? 1 : 0}`)).size >= 3,
+    label: 'a specimen (three or more size/weight steps drawn)',
+  },
   gauge: { test: (s) => s.geometry.has('blockArc'), label: 'a gauge (block arc)' },
   diagram: { test: (s) => s.drawn >= 2, label: 'a drawn construction (two or more shapes without text)' },
 };
@@ -136,8 +157,10 @@ function slideFacts(slide) {
     if (shape.table) tables += 1;
     if (shape.type === 'p:pic' || Number(shape.type) === 13) pictures += 1;
     if (shape.geometry) geometry.add(shape.geometry);
-    if (String(shape.text || '').trim() && !shape.placeholder) text.push({ size: Number(shape.font?.size) || 0, bold: shape.font?.bold === true, text: String(shape.text) });
-    else if (!shape.chart && !shape.table && !shape.placeholder && shape.type !== 'p:pic' && Number(shape.type) !== 13) drawn += 1;
+    if (String(shape.text || '').trim() && !shape.placeholder)
+      text.push({ size: Number(shape.font?.size) || 0, bold: shape.font?.bold === true, text: String(shape.text) });
+    else if (!shape.chart && !shape.table && !shape.placeholder && shape.type !== 'p:pic' && Number(shape.type) !== 13)
+      drawn += 1;
   }
   return { geometry, charts, tables, pictures, drawn, text };
 }
@@ -178,10 +201,19 @@ export function reviewBriefPromises(document, brief) {
   if (!plan.length) return issues;
   const planned = Math.max(...plan.map((entry) => entry.slide));
   if (slides.length !== planned) {
-    issues.push(issue('plan_count_mismatch', '/', `The brief plans ${planned} slides but the deck has ${slides.length}.`, 'info'));
+    issues.push(
+      issue('plan_count_mismatch', '/', `The brief plans ${planned} slides but the deck has ${slides.length}.`, 'info')
+    );
   }
   for (const gap of plannedCarrierGaps(document, brief)) {
-    issues.push(issue('plan_promise_missing', `/slide[${gap.slide}]`, `The plan names ${gap.carrier} among the slide's carriers but the slide does not seem to carry ${gap.label}.`, 'info'));
+    issues.push(
+      issue(
+        'plan_promise_missing',
+        `/slide[${gap.slide}]`,
+        `The plan names ${gap.carrier} among the slide's carriers but the slide does not seem to carry ${gap.label}.`,
+        'info'
+      )
+    );
   }
   return issues;
 }
@@ -208,11 +240,13 @@ export function reviewSourceGrounding(brief) {
   if (!sources.length || !facts.length) return [];
   const loose = facts.filter((fact) => !fact.locator);
   if (!loose.length) return [];
-  return [issue(
-    'fact_without_locator',
-    '/',
-    `The brief names ${sources.length} source${sources.length > 1 ? 's' : ''} but ${loose.map((fact) => fact.id).join(', ')} ${loose.length > 1 ? 'cite' : 'cites'} no locator. Point each fact where a reader can open it (F1 38건 — 운영 리포트 p.12, Sheet1!B4, §3, or a URL).`,
-  )];
+  return [
+    issue(
+      'fact_without_locator',
+      '/',
+      `The brief names ${sources.length} source${sources.length > 1 ? 's' : ''} but ${loose.map((fact) => fact.id).join(', ')} ${loose.length > 1 ? 'cite' : 'cites'} no locator. Point each fact where a reader can open it (F1 38건 — 운영 리포트 p.12, Sheet1!B4, §3, or a URL).`
+    ),
+  ];
 }
 
 // Figures the slides show that no fact covers, per slide, and whether any
@@ -246,7 +280,12 @@ function unlistedFigures(document, brief) {
         const token = raw.trim();
         const value = normalizedNumber(token);
         const digits = value.replace(/[^\d]/g, '');
-        if (DATE.test(token) || digits.length < 2 || (digits.length === 2 && /^\d{1,2}$/.test(value) && Number(value) <= 12)) continue;
+        if (
+          DATE.test(token) ||
+          digits.length < 2 ||
+          (digits.length === 2 && /^\d{1,2}$/.test(value) && Number(value) <= 12)
+        )
+          continue;
         anyNumber = true;
         if (!known.has(comparableFigure(token))) figures.add(token);
       }
@@ -258,18 +297,37 @@ function unlistedFigures(document, brief) {
 
 export function reviewFactCoverage(document, brief) {
   if (brief?.factsMode === 'sample') {
-    return [issue('facts_illustrative', '/', 'The brief declares facts: sample, so every figure on the deck is illustrative; the delivery says so.', 'info')];
+    return [
+      issue(
+        'facts_illustrative',
+        '/',
+        'The brief declares facts: sample, so every figure on the deck is illustrative; the delivery says so.',
+        'info'
+      ),
+    ];
   }
   const issues = [];
   const facts = Array.isArray(brief?.facts) ? brief.facts : [];
   const { anyNumber, slides } = unlistedFigures(document, brief);
   if (facts.length) {
     for (const entry of slides) {
-      issues.push(issue('number_without_fact', `/slide[${entry.slide}]`, `Figures with no fact behind them: ${entry.figures.join(', ')}. Add them to the brief's facts line with a source, or remove them.`));
+      issues.push(
+        issue(
+          'number_without_fact',
+          `/slide[${entry.slide}]`,
+          `Figures with no fact behind them: ${entry.figures.join(', ')}. Add them to the brief's facts line with a source, or remove them.`
+        )
+      );
     }
   }
   if (anyNumber && !facts.length && brief?.present) {
-    issues.push(issue('facts_missing', '/', 'The deck shows figures but the brief has no facts line; list each figure with its source (F1 <value> — <source>).'));
+    issues.push(
+      issue(
+        'facts_missing',
+        '/',
+        'The deck shows figures but the brief has no facts line; list each figure with its source (F1 <value> — <source>).'
+      )
+    );
   }
   return issues;
 }

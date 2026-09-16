@@ -1,29 +1,44 @@
 import { extname, join } from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { IMAGE_CONTENT_TYPES, addPackageRelationship, ensureContentTypeOverride, ensureDefaultContentType, imagePixelSize, partRelationshipPath, zipText } from './portable-opc.mjs';
+import {
+  IMAGE_CONTENT_TYPES,
+  addPackageRelationship,
+  ensureContentTypeOverride,
+  ensureDefaultContentType,
+  imagePixelSize,
+  partRelationshipPath,
+  zipText,
+} from './portable-opc.mjs';
 import { docxBodyModel } from './portable-snapshot.mjs';
-import { DRAWING_MAIN_NS, OFFICE_RELATIONSHIP_BASE, SECTION_PROPERTIES_SOURCE, TRAILING_SECTION_PATTERN, XML_HEADER, settingsTrackChanges, xmlEncode } from './portable-xml.mjs';
+import {
+  DRAWING_MAIN_NS,
+  OFFICE_RELATIONSHIP_BASE,
+  SECTION_PROPERTIES_SOURCE,
+  TRAILING_SECTION_PATTERN,
+  XML_HEADER,
+  settingsTrackChanges,
+  xmlEncode,
+} from './portable-xml.mjs';
 
 export const WORD_MAIN_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
-
 const HEADER_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml';
-
 
 const FOOTER_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml';
 
-
 const WORD_DRAWING_NS = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
-
 
 const PICTURE_NS = 'http://schemas.openxmlformats.org/drawingml/2006/picture';
 
-
 export async function addDocumentImage(zip, source) {
-  const extension = extname(String(source || '')).replace(/^\./, '').toLowerCase();
+  const extension = extname(String(source || ''))
+    .replace(/^\./, '')
+    .toLowerCase();
   const contentType = IMAGE_CONTENT_TYPES[extension];
   if (!contentType) {
-    throw new Error(`Unsupported image type: .${extension || 'unknown'}. Use ${Object.keys(IMAGE_CONTENT_TYPES).join(', ')}`);
+    throw new Error(
+      `Unsupported image type: .${extension || 'unknown'}. Use ${Object.keys(IMAGE_CONTENT_TYPES).join(', ')}`
+    );
   }
   const data = await readFile(source);
   let ordinal = 1;
@@ -35,12 +50,10 @@ export async function addDocumentImage(zip, source) {
     zip,
     partRelationshipPath('word/document.xml'),
     `${OFFICE_RELATIONSHIP_BASE}/image`,
-    `media/image${ordinal}.${extension}`,
+    `media/image${ordinal}.${extension}`
   );
   return { part, relationshipId, pixels: imagePixelSize(data), name: `image${ordinal}.${extension}` };
 }
-
-
 
 export function wordDrawingXml({ id, embedId, name, width, height, altText = '' }) {
   const cx = Math.max(1, Math.round(width * 12_700));
@@ -48,22 +61,22 @@ export function wordDrawingXml({ id, embedId, name, width, height, altText = '' 
   // A reader who cannot see the picture hears this description; Word reads it
   // from the drawing's descr, so it is written on both names of the picture.
   const descr = String(altText ?? '').trim() ? ` descr="${xmlEncode(String(altText).trim())}"` : '';
-  return `<w:drawing><wp:inline xmlns:wp="${WORD_DRAWING_NS}" distT="0" distB="0" distL="0" distR="0">`
-    + `<wp:extent cx="${cx}" cy="${cy}"/>`
-    + '<wp:effectExtent l="0" t="0" r="0" b="0"/>'
-    + `<wp:docPr id="${id}" name="${xmlEncode(name)}"${descr}/>`
-    + `<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="${DRAWING_MAIN_NS}" noChangeAspect="1"/></wp:cNvGraphicFramePr>`
-    + `<a:graphic xmlns:a="${DRAWING_MAIN_NS}"><a:graphicData uri="${PICTURE_NS}">`
-    + `<pic:pic xmlns:pic="${PICTURE_NS}">`
-    + `<pic:nvPicPr><pic:cNvPr id="${id}" name="${xmlEncode(name)}"${descr}/><pic:cNvPicPr/></pic:nvPicPr>`
-    + `<pic:blipFill><a:blip xmlns:a="${DRAWING_MAIN_NS}" r:embed="${embedId}"/>`
-    + `<a:stretch xmlns:a="${DRAWING_MAIN_NS}"><a:fillRect/></a:stretch></pic:blipFill>`
-    + `<pic:spPr><a:xfrm xmlns:a="${DRAWING_MAIN_NS}"><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>`
-    + `<a:prstGeom xmlns:a="${DRAWING_MAIN_NS}" prst="rect"><a:avLst/></a:prstGeom></pic:spPr>`
-    + '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>';
+  return (
+    `<w:drawing><wp:inline xmlns:wp="${WORD_DRAWING_NS}" distT="0" distB="0" distL="0" distR="0">` +
+    `<wp:extent cx="${cx}" cy="${cy}"/>` +
+    '<wp:effectExtent l="0" t="0" r="0" b="0"/>' +
+    `<wp:docPr id="${id}" name="${xmlEncode(name)}"${descr}/>` +
+    `<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="${DRAWING_MAIN_NS}" noChangeAspect="1"/></wp:cNvGraphicFramePr>` +
+    `<a:graphic xmlns:a="${DRAWING_MAIN_NS}"><a:graphicData uri="${PICTURE_NS}">` +
+    `<pic:pic xmlns:pic="${PICTURE_NS}">` +
+    `<pic:nvPicPr><pic:cNvPr id="${id}" name="${xmlEncode(name)}"${descr}/><pic:cNvPicPr/></pic:nvPicPr>` +
+    `<pic:blipFill><a:blip xmlns:a="${DRAWING_MAIN_NS}" r:embed="${embedId}"/>` +
+    `<a:stretch xmlns:a="${DRAWING_MAIN_NS}"><a:fillRect/></a:stretch></pic:blipFill>` +
+    `<pic:spPr><a:xfrm xmlns:a="${DRAWING_MAIN_NS}"><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>` +
+    `<a:prstGeom xmlns:a="${DRAWING_MAIN_NS}" prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
+    '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>'
+  );
 }
-
-
 
 export function trailingSectionProperties(documentXml) {
   const model = docxBodyModel(documentXml);
@@ -71,8 +84,6 @@ export function trailingSectionProperties(documentXml) {
   const match = TRAILING_SECTION_PATTERN.exec(model.body.inner);
   return { model, match };
 }
-
-
 
 export function upsertSectionChild(sectionXml, tag, element, afterTags = []) {
   const pattern = new RegExp(`<w:${tag}\\b[^>]*\\/>`);
@@ -91,15 +102,16 @@ export function upsertSectionChild(sectionXml, tag, element, afterTags = []) {
   return `${sectionXml.slice(0, position)}${element}${sectionXml.slice(position)}`;
 }
 
-
-
 // Sections in reading order: each break paragraph carries the properties of the
 // section it closes, and the trailing sectPr governs the last one.
 export function documentSectionSpans(documentXml) {
   const model = docxBodyModel(documentXml);
   if (!model.body) throw new Error('DOCX document body is missing');
-  const spans = [...model.body.inner.matchAll(new RegExp(SECTION_PROPERTIES_SOURCE, 'g'))]
-    .map((match) => ({ start: match.index, end: match.index + match[0].length, xml: match[0] }));
+  const spans = [...model.body.inner.matchAll(new RegExp(SECTION_PROPERTIES_SOURCE, 'g'))].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+    xml: match[0],
+  }));
   return { model, spans };
 }
 
@@ -114,7 +126,9 @@ export function writeSectionPropertiesAt(documentXml, section, mutate) {
   if (!spans.length) return writeSectionProperties(documentXml, mutate);
   const target = spans[requested === null ? spans.length - 1 : requested - 1];
   if (!target) {
-    throw new Error(`DOCX has ${spans.length} section${spans.length === 1 ? '' : 's'}; section ${requested} does not exist`);
+    throw new Error(
+      `DOCX has ${spans.length} section${spans.length === 1 ? '' : 's'}; section ${requested} does not exist`
+    );
   }
   const next = mutate(target.xml);
   const inner = `${model.body.inner.slice(0, target.start)}${next}${model.body.inner.slice(target.end)}`;
@@ -131,11 +145,7 @@ export function writeSectionProperties(documentXml, mutate) {
   return `${documentXml.slice(0, model.body.start)}${inner}${documentXml.slice(model.body.end)}`;
 }
 
-
-
 const COMMENTS_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml';
-
-
 
 const NOTE_PARTS = Object.freeze({
   footnote: Object.freeze({
@@ -160,13 +170,11 @@ const NOTE_PARTS = Object.freeze({
   }),
 });
 
-
 export function noteDefinition(kind) {
   const definition = NOTE_PARTS[String(kind || 'footnote').toLowerCase()];
   if (!definition) throw new Error(`Unsupported note kind: ${kind}. Use footnote or endnote.`);
   return definition;
 }
-
 
 // Word reads the separator notes (ids -1 and 0) before any real note: without
 // them the note area has no rule above it and Word repairs the file on open.
@@ -174,41 +182,36 @@ export async function ensureNotePart(zip, kind) {
   const definition = noteDefinition(kind);
   const existing = await zipText(zip, definition.part);
   if (existing) return { ...definition, xml: existing };
-  const separator = (id, element) => `<${definition.tag} w:type="${element}" w:id="${id}">`
-    + `<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>`
-    + `<w:r><w:${element === 'separator' ? 'separator' : 'continuationSeparator'}/></w:r></w:p></${definition.tag}>`;
-  const xml = `${XML_HEADER}<${definition.root} xmlns:w="${WORD_MAIN_NS}" xmlns:r="${OFFICE_RELATIONSHIP_BASE}">`
-    + `${separator(-1, 'separator')}${separator(0, 'continuationSeparator')}</${definition.root}>`;
+  const separator = (id, element) =>
+    `<${definition.tag} w:type="${element}" w:id="${id}">` +
+    `<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>` +
+    `<w:r><w:${element === 'separator' ? 'separator' : 'continuationSeparator'}/></w:r></w:p></${definition.tag}>`;
+  const xml =
+    `${XML_HEADER}<${definition.root} xmlns:w="${WORD_MAIN_NS}" xmlns:r="${OFFICE_RELATIONSHIP_BASE}">` +
+    `${separator(-1, 'separator')}${separator(0, 'continuationSeparator')}</${definition.root}>`;
   zip.file(definition.part, xml);
   await ensureContentTypeOverride(zip, `/${definition.part}`, definition.contentType);
   await addPackageRelationship(
     zip,
     partRelationshipPath('word/document.xml'),
     definition.relationship,
-    definition.part.replace(/^word\//, ''),
+    definition.part.replace(/^word\//, '')
   );
   return { ...definition, xml };
 }
 
-
-const COMMENTS_EXTENDED_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml';
-
+const COMMENTS_EXTENDED_CONTENT_TYPE =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml';
 
 const COMMENTS_EXTENDED_RELATIONSHIP = 'http://schemas.microsoft.com/office/2011/relationships/commentsExtended';
 
-
 export const WORD_2010_NS = 'http://schemas.microsoft.com/office/word/2010/wordml';
 
-
 const WORD_2012_NS = 'http://schemas.microsoft.com/office/word/2012/wordml';
-
-
 
 export function commentParagraphId(commentId) {
   return (0x10000000 + Number(commentId)).toString(16).toUpperCase().padStart(8, '0');
 }
-
-
 
 async function ensureCommentsExtendedPart(zip) {
   const part = 'word/commentsExtended.xml';
@@ -221,28 +224,25 @@ async function ensureCommentsExtendedPart(zip) {
     zip,
     partRelationshipPath('word/document.xml'),
     COMMENTS_EXTENDED_RELATIONSHIP,
-    'commentsExtended.xml',
+    'commentsExtended.xml'
   );
   return { part, xml };
 }
-
-
 
 export async function registerCommentThread(zip, { commentId, parentId = 0, done = false }) {
   const extended = await ensureCommentsExtendedPart(zip);
   const paraId = commentParagraphId(commentId);
   const pattern = new RegExp(`<w15:commentEx\\b[^>]*\\bw15:paraId="${paraId}"[^>]*\\/>`);
-  const entry = `<w15:commentEx w15:paraId="${paraId}"`
-    + `${parentId ? ` w15:paraIdParent="${commentParagraphId(parentId)}"` : ''}`
-    + ` w15:done="${done ? 1 : 0}"/>`;
+  const entry =
+    `<w15:commentEx w15:paraId="${paraId}"` +
+    `${parentId ? ` w15:paraIdParent="${commentParagraphId(parentId)}"` : ''}` +
+    ` w15:done="${done ? 1 : 0}"/>`;
   const next = pattern.test(extended.xml)
     ? extended.xml.replace(pattern, entry)
     : extended.xml.replace('</w15:commentsEx>', `${entry}</w15:commentsEx>`);
   zip.file(extended.part, next);
   return paraId;
 }
-
-
 
 export async function ensureCommentsPart(zip) {
   const part = 'word/comments.xml';
@@ -255,12 +255,10 @@ export async function ensureCommentsPart(zip) {
     zip,
     partRelationshipPath('word/document.xml'),
     `${OFFICE_RELATIONSHIP_BASE}/comments`,
-    'comments.xml',
+    'comments.xml'
   );
   return { part, xml };
 }
-
-
 
 const WORD_2016_CID_NS = 'http://schemas.microsoft.com/office/word/2016/wordml/cid';
 const WORD_2018_CEX_NS = 'http://schemas.microsoft.com/office/word/2018/wordml/cex';
@@ -294,14 +292,14 @@ async function ensureCommentSidecar(zip, sidecar) {
     zip,
     partRelationshipPath('word/document.xml'),
     sidecar.relationship,
-    sidecar.part.replace(/^word\//, ''),
+    sidecar.part.replace(/^word\//, '')
   );
   return { part: sidecar.part, xml };
 }
 
 function commentDurableId(commentId) {
   // Eight hex digits below 0x7FFFFFFF, spread so neighbouring ids differ.
-  const value = 0x10000000 + ((Number(commentId) * 2654435761) % 0x6FFFFFFF);
+  const value = 0x10000000 + ((Number(commentId) * 2654435761) % 0x6fffffff);
   return value.toString(16).toUpperCase().padStart(8, '0');
 }
 
@@ -314,17 +312,23 @@ export async function registerCommentIdentity(zip, { commentId, date }) {
   const durableId = commentDurableId(commentId);
   const ids = await ensureCommentSidecar(zip, COMMENT_SIDECARS.ids);
   if (!ids.xml.includes(`w16cid:paraId="${paraId}"`)) {
-    zip.file(ids.part, ids.xml.replace(
-      `</${COMMENT_SIDECARS.ids.root}>`,
-      `<w16cid:commentId w16cid:paraId="${paraId}" w16cid:durableId="${durableId}"/></${COMMENT_SIDECARS.ids.root}>`,
-    ));
+    zip.file(
+      ids.part,
+      ids.xml.replace(
+        `</${COMMENT_SIDECARS.ids.root}>`,
+        `<w16cid:commentId w16cid:paraId="${paraId}" w16cid:durableId="${durableId}"/></${COMMENT_SIDECARS.ids.root}>`
+      )
+    );
   }
   const extensible = await ensureCommentSidecar(zip, COMMENT_SIDECARS.extensible);
   if (!extensible.xml.includes(`w16cex:durableId="${durableId}"`)) {
-    zip.file(extensible.part, extensible.xml.replace(
-      `</${COMMENT_SIDECARS.extensible.root}>`,
-      `<w16cex:commentExtensible w16cex:durableId="${durableId}" w16cex:dateUtc="${xmlEncode(date)}"/></${COMMENT_SIDECARS.extensible.root}>`,
-    ));
+    zip.file(
+      extensible.part,
+      extensible.xml.replace(
+        `</${COMMENT_SIDECARS.extensible.root}>`,
+        `<w16cex:commentExtensible w16cex:durableId="${durableId}" w16cex:dateUtc="${xmlEncode(date)}"/></${COMMENT_SIDECARS.extensible.root}>`
+      )
+    );
   }
   return { paraId, durableId };
 }
@@ -350,7 +354,10 @@ export async function forgetCommentIdentity(zip, commentXml) {
   const durableId = /\bw16cid:durableId="([0-9A-Fa-f]+)"/.exec(idEntry[0])?.[1] || '';
   if (!durableId) return { removed };
   const extensible = await zipText(zip, COMMENT_SIDECARS.extensible.part);
-  const extensibleNext = extensible.replace(new RegExp(`<w16cex:commentExtensible\\b[^>]*\\bw16cex:durableId="${durableId}"[^>]*\\/>`), '');
+  const extensibleNext = extensible.replace(
+    new RegExp(`<w16cex:commentExtensible\\b[^>]*\\bw16cex:durableId="${durableId}"[^>]*\\/>`),
+    ''
+  );
   if (extensibleNext !== extensible) {
     zip.file(COMMENT_SIDECARS.extensible.part, extensibleNext);
     removed.push(COMMENT_SIDECARS.extensible.part);
@@ -358,28 +365,29 @@ export async function forgetCommentIdentity(zip, commentXml) {
   return { removed };
 }
 
-
 export function anchorDocxComment(paragraphXml, id) {
   const opening = /^<w:p(?:\s[^>]*)?>(?:<w:pPr(?:\s[^>]*)?>[\s\S]*?<\/w:pPr>)?/.exec(paragraphXml)?.[0] || '<w:p>';
   const body = paragraphXml.slice(opening.length);
-  return `${opening}<w:commentRangeStart w:id="${id}"/>${body}`
-    .replace(/<\/w:p>$/, `<w:commentRangeEnd w:id="${id}"/><w:r><w:commentReference w:id="${id}"/></w:r></w:p>`);
+  return `${opening}<w:commentRangeStart w:id="${id}"/>${body}`.replace(
+    /<\/w:p>$/,
+    `<w:commentRangeEnd w:id="${id}"/><w:r><w:commentReference w:id="${id}"/></w:r></w:p>`
+  );
 }
-
-
 
 export async function writeHeaderFooterPart(zip, { header, body, documentXml = '', kind = '' }) {
   const tag = header ? 'hdr' : 'ftr';
   const prefix = header ? 'header' : 'footer';
-  const document = (content) => `${XML_HEADER}<w:${tag} xmlns:w="${WORD_MAIN_NS}" xmlns:r="${OFFICE_RELATIONSHIP_BASE}">${content}</w:${tag}>`;
+  const document = (content) =>
+    `${XML_HEADER}<w:${tag} xmlns:w="${WORD_MAIN_NS}" xmlns:r="${OFFICE_RELATIONSHIP_BASE}">${content}</w:${tag}>`;
   // A story this section already references is rewritten where it lives.
   // Writing a new part for every call left the previous one orphaned in the
   // package while the section pointed at whichever was written last.
-  const reference = kind && documentXml
-    ? [...documentXml.matchAll(new RegExp(`<w:${prefix}Reference\\b[^>]*\\/>`, 'g'))]
-      .map((match) => match[0])
-      .find((element) => new RegExp(`\\bw:type="${kind}"`).test(element))
-    : '';
+  const reference =
+    kind && documentXml
+      ? [...documentXml.matchAll(new RegExp(`<w:${prefix}Reference\\b[^>]*\\/>`, 'g'))]
+          .map((match) => match[0])
+          .find((element) => new RegExp(`\\bw:type="${kind}"`).test(element))
+      : '';
   const referencedId = reference ? /\br:id="([^"]+)"/.exec(reference)?.[1] || '' : '';
   if (referencedId) {
     const relationships = await zipText(zip, partRelationshipPath('word/document.xml'));
@@ -402,12 +410,10 @@ export async function writeHeaderFooterPart(zip, { header, body, documentXml = '
     zip,
     partRelationshipPath('word/document.xml'),
     `${OFFICE_RELATIONSHIP_BASE}/${prefix}`,
-    `${prefix}${ordinal}.xml`,
+    `${prefix}${ordinal}.xml`
   );
   return { part, relationshipId };
 }
-
-
 
 export function upsertSectionReference(sectionXml, tag, kind, relationshipId) {
   const element = `<w:${tag} w:type="${kind}" r:id="${relationshipId}"/>`;
@@ -417,45 +423,56 @@ export function upsertSectionReference(sectionXml, tag, kind, relationshipId) {
   return `${sectionXml.slice(0, position)}${element}${sectionXml.slice(position)}`;
 }
 
-
-
 const NUMBERING_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml';
-
-
 
 export const SETTINGS_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml';
 
-
 export const SETTINGS_ORDER = Object.freeze([
-  'w:writeProtection', 'w:view', 'w:zoom', 'w:removePersonalInformation', 'w:removeDateAndTime',
-  'w:proofState', 'w:attachedTemplate', 'w:linkStyles', 'w:stylePaneFormatFilter',
-  'w:documentType', 'w:mailMerge', 'w:revisionView', 'w:trackRevisions', 'w:doNotTrackMoves',
-  'w:doNotTrackFormatting', 'w:documentProtection', 'w:autoFormatOverride', 'w:styleLockTheme',
-  'w:styleLockQFSet', 'w:defaultTabStop', 'w:autoHyphenation', 'w:characterSpacingControl',
-  'w:compat', 'w:rsids', 'w:themeFontLang', 'w:clrSchemeMapping', 'w:decimalSymbol', 'w:listSeparator',
+  'w:writeProtection',
+  'w:view',
+  'w:zoom',
+  'w:removePersonalInformation',
+  'w:removeDateAndTime',
+  'w:proofState',
+  'w:attachedTemplate',
+  'w:linkStyles',
+  'w:stylePaneFormatFilter',
+  'w:documentType',
+  'w:mailMerge',
+  'w:revisionView',
+  'w:trackRevisions',
+  'w:doNotTrackMoves',
+  'w:doNotTrackFormatting',
+  'w:documentProtection',
+  'w:autoFormatOverride',
+  'w:styleLockTheme',
+  'w:styleLockQFSet',
+  'w:defaultTabStop',
+  'w:autoHyphenation',
+  'w:characterSpacingControl',
+  'w:compat',
+  'w:rsids',
+  'w:themeFontLang',
+  'w:clrSchemeMapping',
+  'w:decimalSymbol',
+  'w:listSeparator',
 ]);
 
-
-
 export async function documentTracksChanges(zip) {
-  return settingsTrackChanges(await zipText(zip, 'word/settings.xml') || '');
+  return settingsTrackChanges((await zipText(zip, 'word/settings.xml')) || '');
 }
-
-
 
 export function revisionAttributes(id, author) {
-  return `w:id="${id}" w:author="${xmlEncode(author || 'Mixdog')}"`
-    + ` w:date="${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}"`;
+  return (
+    `w:id="${id}" w:author="${xmlEncode(author || 'Mixdog')}"` +
+    ` w:date="${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}"`
+  );
 }
-
-
 
 export function nextRevisionId(documentXml) {
   const ids = [...documentXml.matchAll(/<w:(?:ins|del)\b[^>]*\bw:id="(\d+)"/g)].map((match) => Number(match[1]));
   return Math.max(0, ...ids) + 1;
 }
-
-
 
 export function markRunsDeleted(paragraphXml, id, author) {
   const runs = [...paragraphXml.matchAll(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)];
@@ -472,27 +489,29 @@ export function markRunsDeleted(paragraphXml, id, author) {
   return output;
 }
 
-
-
 function numberingDefinition(abstractId, kind) {
-  const levels = [0, 1, 2].map((level) => {
-    const indent = 720 * (level + 1);
-    if (kind === 'bullet') {
-      const marks = ['\u2022', '\u25E6', '\u25AA'];
-      return `<w:lvl w:ilvl="${level}"><w:start w:val="1"/><w:numFmt w:val="bullet"/>`
-        + `<w:lvlText w:val="${marks[level]}"/><w:lvlJc w:val="left"/>`
-        + `<w:pPr><w:ind w:left="${indent}" w:hanging="360"/></w:pPr>`
-        + '<w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:hint="default"/></w:rPr></w:lvl>';
-    }
-    const formats = ['decimal', 'lowerLetter', 'lowerRoman'];
-    return `<w:lvl w:ilvl="${level}"><w:start w:val="1"/><w:numFmt w:val="${formats[level]}"/>`
-      + `<w:lvlText w:val="%${level + 1}."/><w:lvlJc w:val="left"/>`
-      + `<w:pPr><w:ind w:left="${indent}" w:hanging="360"/></w:pPr></w:lvl>`;
-  }).join('');
+  const levels = [0, 1, 2]
+    .map((level) => {
+      const indent = 720 * (level + 1);
+      if (kind === 'bullet') {
+        const marks = ['\u2022', '\u25E6', '\u25AA'];
+        return (
+          `<w:lvl w:ilvl="${level}"><w:start w:val="1"/><w:numFmt w:val="bullet"/>` +
+          `<w:lvlText w:val="${marks[level]}"/><w:lvlJc w:val="left"/>` +
+          `<w:pPr><w:ind w:left="${indent}" w:hanging="360"/></w:pPr>` +
+          '<w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:hint="default"/></w:rPr></w:lvl>'
+        );
+      }
+      const formats = ['decimal', 'lowerLetter', 'lowerRoman'];
+      return (
+        `<w:lvl w:ilvl="${level}"><w:start w:val="1"/><w:numFmt w:val="${formats[level]}"/>` +
+        `<w:lvlText w:val="%${level + 1}."/><w:lvlJc w:val="left"/>` +
+        `<w:pPr><w:ind w:left="${indent}" w:hanging="360"/></w:pPr></w:lvl>`
+      );
+    })
+    .join('');
   return `<w:abstractNum w:abstractNumId="${abstractId}"><w:multiLevelType w:val="hybridMultilevel"/>${levels}</w:abstractNum>`;
 }
-
-
 
 export async function ensureNumbering(zip, kind) {
   const part = 'word/numbering.xml';
@@ -504,13 +523,15 @@ export async function ensureNumbering(zip, kind) {
       zip,
       partRelationshipPath('word/document.xml'),
       `${OFFICE_RELATIONSHIP_BASE}/numbering`,
-      'numbering.xml',
+      'numbering.xml'
     );
   }
   const marker = kind === 'bullet' ? 'w:numFmt w:val="bullet"' : 'w:numFmt w:val="decimal"';
   for (const match of xml.matchAll(/<w:abstractNum\b[^>]*\bw:abstractNumId="(\d+)"[^>]*>[\s\S]*?<\/w:abstractNum>/g)) {
     if (!match[0].includes(marker)) continue;
-    const reuse = new RegExp(`<w:num\\b[^>]*\\bw:numId="(\\d+)"[^>]*>\\s*<w:abstractNumId w:val="${match[1]}"\\/>`).exec(xml);
+    const reuse = new RegExp(
+      `<w:num\\b[^>]*\\bw:numId="(\\d+)"[^>]*>\\s*<w:abstractNumId w:val="${match[1]}"\\/>`
+    ).exec(xml);
     if (reuse) return { xml, numId: Number(reuse[1]), created: false };
   }
   const abstractIds = [...xml.matchAll(/\bw:abstractNumId="(\d+)"/g)].map((match) => Number(match[1]));
@@ -523,8 +544,10 @@ export async function ensureNumbering(zip, kind) {
   const position = abstracts.length
     ? abstracts.at(-1).index + abstracts.at(-1)[0].length
     : xml.indexOf('>', xml.indexOf('<w:numbering')) + 1;
-  const next = `${xml.slice(0, position)}${abstract}${xml.slice(position)}`
-    .replace('</w:numbering>', `${definition}</w:numbering>`);
+  const next = `${xml.slice(0, position)}${abstract}${xml.slice(position)}`.replace(
+    '</w:numbering>',
+    `${definition}</w:numbering>`
+  );
   zip.file(part, next);
   return { xml: next, numId, created: true };
 }

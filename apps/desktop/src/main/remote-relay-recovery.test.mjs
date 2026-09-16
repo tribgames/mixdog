@@ -24,12 +24,30 @@ test('real encrypted clients recover independently and reads bypass a slow read 
   const catalogReads = { sessions: 0, agents: 0 };
   const host = {
     getSnapshot: () => snapshot,
-    listSessions: async () => { catalogReads.sessions += 1; return sessions; },
-    listAgentPool: async () => { catalogReads.agents += 1; return agents; },
-    subscribe: (listener) => { publish = listener; return () => {}; },
-    subscribeSessions: (listener) => { publishSessions = listener; return () => {}; },
-    subscribeAgentPool: (listener) => { publishAgents = listener; return () => {}; },
-    subscribeSessionStates: (listener) => { publishSessionState = listener; return () => {}; },
+    listSessions: async () => {
+      catalogReads.sessions += 1;
+      return sessions;
+    },
+    listAgentPool: async () => {
+      catalogReads.agents += 1;
+      return agents;
+    },
+    subscribe: (listener) => {
+      publish = listener;
+      return () => {};
+    },
+    subscribeSessions: (listener) => {
+      publishSessions = listener;
+      return () => {};
+    },
+    subscribeAgentPool: (listener) => {
+      publishAgents = listener;
+      return () => {};
+    },
+    subscribeSessionStates: (listener) => {
+      publishSessionState = listener;
+      return () => {};
+    },
     setVisibleSessionsForSource: async (_source, ids) => {
       if (ids.includes('session')) {
         publishSessionState({ sessionId: 'session', snapshot, frameSource: 'replay' });
@@ -37,45 +55,59 @@ test('real encrypted clients recover independently and reads bypass a slow read 
       return true;
     },
     subscribeDesktopEvents: () => () => {},
-    readProjectTextFile: async () => { readStarted.resolve(); return slow.promise; },
-    addProject: async (path) => { writes.push(path); return path; },
+    readProjectTextFile: async () => {
+      readStarted.resolve();
+      return slow.promise;
+    },
+    addProject: async (path) => {
+      writes.push(path);
+      return path;
+    },
     invokeDesktopOperation: async () => null,
   };
   const peers = new Map();
-  const waitFor = (peer, match) => new Promise((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error('No encrypted response within 5s.')), 5000);
-    const check = () => {
-      const message = peer.messages.find(match);
-      if (message) finish(null, message);
-    };
-    const finish = (error, value) => {
-      clearTimeout(timer);
-      peer.listeners.delete(check);
-      if (error) reject(error); else resolve(value);
-    };
-    peer.listeners.add(check);
-    check();
-  });
+  const waitFor = (peer, match) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => finish(new Error('No encrypted response within 5s.')), 5000);
+      const check = () => {
+        const message = peer.messages.find(match);
+        if (message) finish(null, message);
+      };
+      const finish = (error, value) => {
+        clearTimeout(timer);
+        peer.listeners.delete(check);
+        if (error) reject(error);
+        else resolve(value);
+      };
+      peer.listeners.add(check);
+      check();
+    });
   try {
     handle = await startRemoteRelay({
-      relayUrl: `ws://127.0.0.1:${server.address().port}`, userDataPath: dir, host,
+      relayUrl: `ws://127.0.0.1:${server.address().port}`,
+      userDataPath: dir,
+      host,
     });
     [socket] = await connected;
     socket.on('message', (raw) => {
       const envelope = JSON.parse(String(raw));
       const peer = peers.get(envelope.clientId);
       if (envelope.type !== 'frame' || !peer) return;
-      peer.queue = peer.queue.then(async () => {
-        if (!peer.channel) {
-          const handshake = await createRelayE2EEClientHandshake(handle.pairing, JSON.parse(envelope.data));
-          peer.channel = handshake.channel;
-          socket.send(JSON.stringify({ type: 'frame', clientId: peer.id, data: JSON.stringify(handshake.hello) }));
-          return;
-        }
-        const message = await peer.channel.decryptJson(envelope.data);
-        peer.messages.push(message);
-        for (const listener of [...peer.listeners]) listener();
-      }).catch((error) => { peer.error = error; });
+      peer.queue = peer.queue
+        .then(async () => {
+          if (!peer.channel) {
+            const handshake = await createRelayE2EEClientHandshake(handle.pairing, JSON.parse(envelope.data));
+            peer.channel = handshake.channel;
+            socket.send(JSON.stringify({ type: 'frame', clientId: peer.id, data: JSON.stringify(handshake.hello) }));
+            return;
+          }
+          const message = await peer.channel.decryptJson(envelope.data);
+          peer.messages.push(message);
+          for (const listener of [...peer.listeners]) listener();
+        })
+        .catch((error) => {
+          peer.error = error;
+        });
     });
     const open = async (id) => {
       const peer = { id, messages: [], listeners: new Set(), queue: Promise.resolve(), channel: null };
@@ -91,8 +123,14 @@ test('real encrypted clients recover independently and reads bypass a slow read 
     const a = await open('client-a');
     const b = await open('client-b');
     for (const peer of [a, b]) {
-      assert.deepEqual((await waitFor(peer, (message) => message.event === 'sessions')).payload.rows.map((row) => row[1]), sessions);
-      assert.deepEqual((await waitFor(peer, (message) => message.event === 'agentPool')).payload.rows.map((row) => row[1]), agents);
+      assert.deepEqual(
+        (await waitFor(peer, (message) => message.event === 'sessions')).payload.rows.map((row) => row[1]),
+        sessions
+      );
+      assert.deepEqual(
+        (await waitFor(peer, (message) => message.event === 'agentPool')).payload.rows.map((row) => row[1]),
+        agents
+      );
     }
     assert.deepEqual(catalogReads, { sessions: 1, agents: 1 }, 'join has real rows before any watcher changes');
     const states = (peer) => peer.messages.filter((message) => message.e === 'S' || message.event === 'state');
@@ -124,11 +162,17 @@ test('real encrypted clients recover independently and reads bypass a slow read 
     await send(a, { method: 'stateResync', params: [] });
     await waitFor(a, () => states(a).length === 3);
     assert.deepEqual(writes, []);
-    assert.equal(a.messages.some((message) => message.id === 6), false);
+    assert.equal(
+      a.messages.some((message) => message.id === 6),
+      false
+    );
     slow.resolve('file contents');
     await waitFor(a, (message) => message.id === 6);
     assert.deepEqual(writes, ['next-project']);
-    assert.deepEqual(a.messages.filter((message) => [3, 5, 6].includes(message.id)).map((message) => message.id), [3, 5, 6]);
+    assert.deepEqual(
+      a.messages.filter((message) => [3, 5, 6].includes(message.id)).map((message) => message.id),
+      [3, 5, 6]
+    );
 
     snapshot = { ...snapshot, status: 'running' };
     publish(snapshot);
@@ -154,11 +198,14 @@ test('real encrypted clients recover independently and reads bypass a slow read 
     socket.send(JSON.stringify({ type: 'client-close', clientId: a.id }));
     const reopened = await open(a.id);
     await send(reopened, { id: 21, method: 'setVisibleSessions', params: [['session']] });
-    const restoredTranscript = await waitFor(reopened, (message) => message.e === 'T' || message.event === 'sessionState');
+    const restoredTranscript = await waitFor(
+      reopened,
+      (message) => message.e === 'T' || message.event === 'sessionState'
+    );
     assert.deepEqual(decodeTranscript(restoredTranscript).items, snapshot.items);
     assert.deepEqual(
       (await waitFor(reopened, (message) => message.event === 'agentPool')).payload.rows.map((row) => row[1]),
-      agents,
+      agents
     );
     assert.deepEqual(catalogReads, { sessions: 1, agents: 1 }, 'reconnect reuses the latest authoritative rosters');
     for (const peer of peers.values()) assert.equal(peer.error, undefined);

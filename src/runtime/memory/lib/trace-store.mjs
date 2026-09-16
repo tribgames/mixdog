@@ -4,14 +4,14 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 // Uses pg-adapter (schema='trace') so trace_events live in the trace schema.
 // Isolated from memory schema; shares the same PG instance.
 
-import { ensurePgInstance, checkedConnect, closePgInstance } from './pg/adapter.mjs'
-import { resolve } from 'path'
-import { cleanupTraceWhenDisabled, traceEnabled } from './trace-mode.mjs'
-import { sessionIndexSql } from './pg/compact-indexes.mjs'
+import { ensurePgInstance, checkedConnect, closePgInstance } from './pg/adapter.mjs';
+import { resolve } from 'path';
+import { cleanupTraceWhenDisabled, traceEnabled } from './trace-mode.mjs';
+import { sessionIndexSql } from './pg/compact-indexes.mjs';
 
-const dbs = new Map()
-const opening = new Map()
-const partitionTimers = new Map()
+const dbs = new Map();
+const opening = new Map();
+const partitionTimers = new Map();
 
 // ---------------------------------------------------------------------------
 // Schema bootstrap
@@ -33,14 +33,14 @@ async function maybeDropLegacyTable(client) {
       AND  c.oid NOT IN (
              SELECT partrelid FROM pg_partitioned_table
            )
-  `)
+  `);
   if (r.rows.length > 0) {
-    await client.query(`DROP TABLE trace.trace_events CASCADE`)
+    await client.query(`DROP TABLE trace.trace_events CASCADE`);
   }
 }
 
 async function init(client) {
-  await maybeDropLegacyTable(client)
+  await maybeDropLegacyTable(client);
 
   // Partitioned root.
   // PK is (id, ts) because PostgreSQL requires the partition key (ts) to be
@@ -72,7 +72,7 @@ async function init(client) {
       entry_id           BIGINT,
       PRIMARY KEY (id, ts)
     ) PARTITION BY RANGE (ts)
-  `)
+  `);
 
   // Default catch-all partition — ensures no INSERT is lost even before named
   // monthly partitions exist.  Rows here cannot be auto-rerouted once a covering
@@ -81,7 +81,7 @@ async function init(client) {
   await client.query(`
     CREATE TABLE IF NOT EXISTS trace_events_default
       PARTITION OF trace_events DEFAULT
-  `)
+  `);
 
   // Previous-month partition — created in init only (not on every boot).
   await client.query(`
@@ -102,31 +102,37 @@ async function init(client) {
         );
       END IF;
     END $$
-  `)
+  `);
 
   // Drift repair MUST run before index creation: an old cluster whose
   // trace_events predates the `agent` column would otherwise die right below
   // at idx_trace_agent_ts (CREATE INDEX references the missing column) before
   // initAgentTables() ever gets a chance to repair it. Reviewer High fix.
-  await migrateSchemaDrift(client)
+  await migrateSchemaDrift(client);
 
   // BRIN on ts — ~1000× smaller than btree for append-only timeseries; ideal
   // for time-window range scans where rows arrive in roughly ts order.
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_ts_brin      ON trace_events USING BRIN (ts) WITH (pages_per_range = 32)`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_kind_ts     ON trace_events(kind, ts DESC)`)
-  await client.query(sessionIndexSql('idx_trace_session'))
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_agent_ts    ON trace_events(agent, ts DESC)`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_model_ts    ON trace_events(model, ts DESC)`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_tool        ON trace_events(tool_name) WHERE kind = 'tool'`)
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_trace_ts_brin      ON trace_events USING BRIN (ts) WITH (pages_per_range = 32)`
+  );
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_kind_ts     ON trace_events(kind, ts DESC)`);
+  await client.query(sessionIndexSql('idx_trace_session'));
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_agent_ts    ON trace_events(agent, ts DESC)`);
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_model_ts    ON trace_events(model, ts DESC)`);
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_tool        ON trace_events(tool_name) WHERE kind = 'tool'`);
   // Span-tree and cross-schema recall↔trace correlation — partial indexes so
   // they cover only the (small) fraction of rows where these FKs are set.
   // No FK constraints: self-FKs on partitioned tables are fragile, and
   // entry_id crosses schema boundaries (memory.entries).
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_parent      ON trace_events(parent_span_id) WHERE parent_span_id IS NOT NULL`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_entry       ON trace_events(entry_id)       WHERE entry_id IS NOT NULL`)
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_trace_parent      ON trace_events(parent_span_id) WHERE parent_span_id IS NOT NULL`
+  );
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_trace_entry       ON trace_events(entry_id)       WHERE entry_id IS NOT NULL`
+  );
 
   // Current + next month created on every boot (see ensureCurrentAndNextMonthPartitions).
-  await ensureCurrentAndNextMonthPartitions(client)
+  await ensureCurrentAndNextMonthPartitions(client);
 }
 
 // ---------------------------------------------------------------------------
@@ -156,20 +162,22 @@ async function migrateSchemaDrift(client) {
   // ALTERs; on any error roll back (leaving drift in place, inserts fail as
   // before — no worse).
   try {
-    await client.query('BEGIN')
-    await client.query(`SET LOCAL lock_timeout = '5s'`)
-    await client.query(`ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS agent TEXT`)
-    await client.query(`ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS result_kind TEXT`)
-    await client.query(`ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS result_error_category TEXT`)
-    await client.query(`ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS result_error_first_line TEXT`)
-    await client.query(`ALTER TABLE IF EXISTS agent_calls ADD COLUMN IF NOT EXISTS result_kind TEXT`)
-    await client.query(`ALTER TABLE IF EXISTS agent_calls ADD COLUMN IF NOT EXISTS result_error_category TEXT`)
-    await client.query(`ALTER TABLE IF EXISTS agent_calls ADD COLUMN IF NOT EXISTS result_error_first_line TEXT`)
-    await client.query(`ALTER TABLE IF EXISTS agent_sessions ADD COLUMN IF NOT EXISTS agent TEXT`)
-    await client.query('COMMIT')
+    await client.query('BEGIN');
+    await client.query(`SET LOCAL lock_timeout = '5s'`);
+    await client.query(`ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS agent TEXT`);
+    await client.query(`ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS result_kind TEXT`);
+    await client.query(`ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS result_error_category TEXT`);
+    await client.query(`ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS result_error_first_line TEXT`);
+    await client.query(`ALTER TABLE IF EXISTS agent_calls ADD COLUMN IF NOT EXISTS result_kind TEXT`);
+    await client.query(`ALTER TABLE IF EXISTS agent_calls ADD COLUMN IF NOT EXISTS result_error_category TEXT`);
+    await client.query(`ALTER TABLE IF EXISTS agent_calls ADD COLUMN IF NOT EXISTS result_error_first_line TEXT`);
+    await client.query(`ALTER TABLE IF EXISTS agent_sessions ADD COLUMN IF NOT EXISTS agent TEXT`);
+    await client.query('COMMIT');
   } catch (err) {
-    try { await client.query('ROLLBACK') } catch {}
-    __mixdogMemoryLog(`[trace-store] schema-drift migrate skipped: ${err?.message ?? err}\n`)
+    try {
+      await client.query('ROLLBACK');
+    } catch {}
+    __mixdogMemoryLog(`[trace-store] schema-drift migrate skipped: ${err?.message ?? err}\n`);
   }
 }
 
@@ -184,7 +192,7 @@ async function initAgentTables(client) {
   // Repair schema drift on already-created tables before anything else
   // (trace_events already exists at this point via init(); agent_sessions
   // is created just below in this same function).
-  await migrateSchemaDrift(client)
+  await migrateSchemaDrift(client);
   // ── agent_calls: one row per tool invocation ─────────────────────────────
   await client.query(`
     CREATE TABLE IF NOT EXISTS agent_calls (
@@ -200,16 +208,22 @@ async function initAgentTables(client) {
       result_error_category TEXT,
       result_error_first_line TEXT
     )
-  `)
-  await client.query(sessionIndexSql('idx_ac_session'))
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_ts        ON agent_calls USING BRIN (ts)`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_tool_name ON agent_calls (tool_name)`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_errors_ts ON agent_calls (ts DESC) WHERE result_kind = 'error'`)
+  `);
+  await client.query(sessionIndexSql('idx_ac_session'));
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_ts        ON agent_calls USING BRIN (ts)`);
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_tool_name ON agent_calls (tool_name)`);
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_ac_errors_ts ON agent_calls (ts DESC) WHERE result_kind = 'error'`
+  );
   // Expression indexes covering the two actual query patterns (md5 dedup + path lookup).
   // The old GIN index had no @> callers and was write-heavy; dropped in favour of these.
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_args_md5  ON agent_calls (session_id, tool_name, md5(tool_args::text))`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_args_path ON agent_calls (session_id, tool_name, (tool_args->>'path'), ts, id)`)
-  await client.query(`DROP INDEX IF EXISTS idx_ac_args`)
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_ac_args_md5  ON agent_calls (session_id, tool_name, md5(tool_args::text))`
+  );
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_ac_args_path ON agent_calls (session_id, tool_name, (tool_args->>'path'), ts, id)`
+  );
+  await client.query(`DROP INDEX IF EXISTS idx_ac_args`);
 
   // ── agent_llm: one row per LLM usage event ───────────────────────────────
   await client.query(`
@@ -226,10 +240,10 @@ async function initAgentTables(client) {
       prompt_tokens      INT,
       response_id        TEXT
     )
-  `)
-  await client.query(sessionIndexSql('idx_al_session'))
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_al_ts      ON agent_llm USING BRIN (ts)`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_al_model   ON agent_llm (model)`)
+  `);
+  await client.query(sessionIndexSql('idx_al_session'));
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_al_ts      ON agent_llm USING BRIN (ts)`);
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_al_model   ON agent_llm (model)`);
 
   // ── agent_sessions: denormalised summary upserted on each insert ─────────
   await client.query(`
@@ -245,50 +259,57 @@ async function initAgentTables(client) {
       total_input_tokens  BIGINT      NOT NULL DEFAULT 0,
       total_output_tokens BIGINT      NOT NULL DEFAULT 0
     )
-  `)
+  `);
 
   // Repair drift again post-creation for agent_sessions (belt-and-suspenders;
   // no-op when the table was freshly created above with the column present).
-  await migrateSchemaDrift(client)
+  await migrateSchemaDrift(client);
 }
 
 // ---------------------------------------------------------------------------
 // insertAgentCalls — batch insert tool rows + upsert session summary
 // ---------------------------------------------------------------------------
-const TOOL_ARGS_MAX_BYTES = 65536  // 64 KB cap; oversized → sha256 + truncated preview
+const TOOL_ARGS_MAX_BYTES = 65536; // 64 KB cap; oversized → sha256 + truncated preview
 
-import { createHash as _createHash } from 'crypto'
+import { createHash as _createHash } from 'crypto';
 function _capToolArgsSync(args) {
-  if (args == null) return null
-  const raw = typeof args === 'string' ? args : JSON.stringify(args)
+  if (args == null) return null;
+  const raw = typeof args === 'string' ? args : JSON.stringify(args);
   if (Buffer.byteLength(raw, 'utf8') <= TOOL_ARGS_MAX_BYTES) {
-    if (typeof args !== 'string') return args
+    if (typeof args !== 'string') return args;
     // tool_args is JSONB in PG; round-trip parse for string inputs, but a
     // plain non-JSON string (e.g. a bare path) would otherwise throw and
     // fail the whole insert batch. Treat unparseable as the raw string.
-    try { return JSON.parse(raw) } catch { return raw }
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return raw;
+    }
   }
-  return { _oversized: true, sha256: _createHash('sha256').update(raw).digest('hex'), preview: raw.slice(0, 512) }
+  return { _oversized: true, sha256: _createHash('sha256').update(raw).digest('hex'), preview: raw.slice(0, 512) };
 }
 
 export async function insertAgentCalls(db, events) {
-  if (!db || !Array.isArray(events) || events.length === 0) return { calls: 0, llm: 0 }
-  const toolRows = []
-  const llmRows  = []
+  if (!db || !Array.isArray(events) || events.length === 0) return { calls: 0, llm: 0 };
+  const toolRows = [];
+  const llmRows = [];
   for (const ev of events) {
-    let ts = ev.ts; if (typeof ts === 'string') ts = Date.parse(ts); ts = Number(ts); if (!Number.isFinite(ts)) ts = Date.now()
-    const tsIso = new Date(ts).toISOString()
-    const sid = ev.session_id ?? ev.sessionId ?? null
-    if (!sid) continue
-    const iter = ev.iteration != null ? Number(ev.iteration) : null
+    let ts = ev.ts;
+    if (typeof ts === 'string') ts = Date.parse(ts);
+    ts = Number(ts);
+    if (!Number.isFinite(ts)) ts = Date.now();
+    const tsIso = new Date(ts).toISOString();
+    const sid = ev.session_id ?? ev.sessionId ?? null;
+    if (!sid) continue;
+    const iter = ev.iteration != null ? Number(ev.iteration) : null;
     if (ev.kind === 'tool') {
-      const tool_name = ev.tool_name ?? ev.toolName ?? null
-      const tool_kind = ev.tool_kind ?? ev.toolKind ?? null
-      const tool_ms   = ev.tool_ms   ?? ev.toolMs   ?? null
-      const tool_args = ev.tool_args ?? ev.toolArgs  ?? null
-      const result_kind = ev.result_kind ?? ev.resultKind ?? null
-      const result_error_category = ev.result_error_category ?? ev.resultErrorCategory ?? null
-      const result_error_first_line = ev.result_error_first_line ?? ev.resultErrorFirstLine ?? null
+      const tool_name = ev.tool_name ?? ev.toolName ?? null;
+      const tool_kind = ev.tool_kind ?? ev.toolKind ?? null;
+      const tool_ms = ev.tool_ms ?? ev.toolMs ?? null;
+      const tool_args = ev.tool_args ?? ev.toolArgs ?? null;
+      const result_kind = ev.result_kind ?? ev.resultKind ?? null;
+      const result_error_category = ev.result_error_category ?? ev.resultErrorCategory ?? null;
+      const result_error_first_line = ev.result_error_first_line ?? ev.resultErrorFirstLine ?? null;
       toolRows.push({
         session_id: sid,
         iteration: iter,
@@ -300,16 +321,20 @@ export async function insertAgentCalls(db, events) {
         result_kind,
         result_error_category,
         result_error_first_line,
-      })
+      });
     } else if (ev.kind === 'usage_raw' || (ev.input_tokens != null && ev.output_tokens != null)) {
-      llmRows.push({ session_id: sid, iteration: iter, ts: tsIso, model: ev.model ?? null,
-        input_tokens:        ev.input_tokens        ?? ev.inputTokens        ?? null,
-        output_tokens:       ev.output_tokens       ?? ev.outputTokens       ?? null,
-        cached_tokens:       ev.cached_tokens       ?? ev.cachedTokens       ?? null,
-        cache_write_tokens:  ev.cache_write_tokens  ?? ev.cacheWriteTokens   ?? null,
-        prompt_tokens:       ev.prompt_tokens       ?? ev.promptTokens       ?? null,
-        response_id:         ev.response_id         ?? ev.responseId         ?? null,
-      })
+      llmRows.push({
+        session_id: sid,
+        iteration: iter,
+        ts: tsIso,
+        model: ev.model ?? null,
+        input_tokens: ev.input_tokens ?? ev.inputTokens ?? null,
+        output_tokens: ev.output_tokens ?? ev.outputTokens ?? null,
+        cached_tokens: ev.cached_tokens ?? ev.cachedTokens ?? null,
+        cache_write_tokens: ev.cache_write_tokens ?? ev.cacheWriteTokens ?? null,
+        prompt_tokens: ev.prompt_tokens ?? ev.promptTokens ?? null,
+        response_id: ev.response_id ?? ev.responseId ?? null,
+      });
     }
   }
 
@@ -317,114 +342,158 @@ export async function insertAgentCalls(db, events) {
   // checkedConnect ensures search_path = trace, public on fresh connections;
   // raw _pool.connect() leaves search_path at PG default and agent_* lookups
   // resolve in the wrong schema.
-  const client = await checkedConnect(db._pool, 'trace')
+  const client = await checkedConnect(db._pool, 'trace');
   try {
-    await client.query('BEGIN')
+    await client.query('BEGIN');
 
-  if (toolRows.length > 0) {
-    await client.query(
-      `INSERT INTO agent_calls (session_id,iteration,ts,tool_name,tool_kind,tool_ms,tool_args,result_kind,result_error_category,result_error_first_line)
+    if (toolRows.length > 0) {
+      await client.query(
+        `INSERT INTO agent_calls (session_id,iteration,ts,tool_name,tool_kind,tool_ms,tool_args,result_kind,result_error_category,result_error_first_line)
        SELECT u.session_id, u.iteration::int, u.ts::timestamptz,
               u.tool_name, u.tool_kind, u.tool_ms::int, u.tool_args::jsonb,
               u.result_kind, u.result_error_category, u.result_error_first_line
        FROM unnest($1::text[],$2::int[],$3::text[],$4::text[],$5::text[],$6::int[],$7::text[],$8::text[],$9::text[],$10::text[])
             AS u(session_id,iteration,ts,tool_name,tool_kind,tool_ms,tool_args,result_kind,result_error_category,result_error_first_line)`,
-      [
-        toolRows.map(r => r.session_id),
-        toolRows.map(r => r.iteration),
-        toolRows.map(r => r.ts),
-        toolRows.map(r => r.tool_name),
-        toolRows.map(r => r.tool_kind),
-        toolRows.map(r => r.tool_ms),
-        toolRows.map(r => r.tool_args != null ? JSON.stringify(r.tool_args) : null),
-        toolRows.map(r => r.result_kind),
-        toolRows.map(r => r.result_error_category),
-        toolRows.map(r => r.result_error_first_line),
-      ],
-    )
-  }
+        [
+          toolRows.map((r) => r.session_id),
+          toolRows.map((r) => r.iteration),
+          toolRows.map((r) => r.ts),
+          toolRows.map((r) => r.tool_name),
+          toolRows.map((r) => r.tool_kind),
+          toolRows.map((r) => r.tool_ms),
+          toolRows.map((r) => (r.tool_args != null ? JSON.stringify(r.tool_args) : null)),
+          toolRows.map((r) => r.result_kind),
+          toolRows.map((r) => r.result_error_category),
+          toolRows.map((r) => r.result_error_first_line),
+        ]
+      );
+    }
 
-  if (llmRows.length > 0) {
-    await client.query(
-      `INSERT INTO agent_llm (session_id,iteration,ts,model,input_tokens,output_tokens,cached_tokens,cache_write_tokens,prompt_tokens,response_id)
+    if (llmRows.length > 0) {
+      await client.query(
+        `INSERT INTO agent_llm (session_id,iteration,ts,model,input_tokens,output_tokens,cached_tokens,cache_write_tokens,prompt_tokens,response_id)
        SELECT u.session_id, u.iteration::int, u.ts::timestamptz,
               u.model, u.input_tokens::int, u.output_tokens::int,
               u.cached_tokens::int, u.cache_write_tokens::int,
               u.prompt_tokens::int, u.response_id
        FROM unnest($1::text[],$2::int[],$3::text[],$4::text[],$5::int[],$6::int[],$7::int[],$8::int[],$9::int[],$10::text[])
             AS u(session_id,iteration,ts,model,input_tokens,output_tokens,cached_tokens,cache_write_tokens,prompt_tokens,response_id)`,
-      [
-        llmRows.map(r => r.session_id),
-        llmRows.map(r => r.iteration),
-        llmRows.map(r => r.ts),
-        llmRows.map(r => r.model),
-        llmRows.map(r => r.input_tokens),
-        llmRows.map(r => r.output_tokens),
-        llmRows.map(r => r.cached_tokens),
-        llmRows.map(r => r.cache_write_tokens),
-        llmRows.map(r => r.prompt_tokens),
-        llmRows.map(r => r.response_id),
-      ],
-    )
-  }
-
-  // Upsert session summaries — accumulate from tool+llm rows in this batch
-  const sessionMap = new Map()
-  for (const r of toolRows) {
-    const s = sessionMap.get(r.session_id) ?? { tool_calls: 0, llm_calls: 0, max_iteration: 0, total_input: 0n, total_output: 0n, ts0: r.ts, ts1: r.ts, agent: null, model: null }
-    s.tool_calls += 1
-    if (r.iteration != null && r.iteration > s.max_iteration) s.max_iteration = r.iteration
-    if (r.ts < s.ts0) s.ts0 = r.ts; if (r.ts > s.ts1) s.ts1 = r.ts
-    sessionMap.set(r.session_id, s)
-  }
-  for (const r of llmRows) {
-    const s = sessionMap.get(r.session_id) ?? { tool_calls: 0, llm_calls: 0, max_iteration: 0, total_input: 0n, total_output: 0n, ts0: r.ts, ts1: r.ts, agent: null, model: null }
-    s.llm_calls += 1
-    s.total_input  += BigInt(r.input_tokens ?? 0)
-    s.total_output += BigInt(r.output_tokens ?? 0)
-    if (r.model) s.model = r.model
-    if (r.iteration != null && r.iteration > s.max_iteration) s.max_iteration = r.iteration
-    if (r.ts < s.ts0) s.ts0 = r.ts; if (r.ts > s.ts1) s.ts1 = r.ts
-    sessionMap.set(r.session_id, s)
-  }
-  // Also pick up agent from preset_assign events in the same batch
-  for (const ev of events) {
-    if (ev.kind === 'preset_assign' && ev.agent) {
-      const sid = ev.session_id ?? ev.sessionId ?? null
-      if (!sid) continue
-      const s = sessionMap.get(sid)
-      if (s) s.agent = ev.agent
+        [
+          llmRows.map((r) => r.session_id),
+          llmRows.map((r) => r.iteration),
+          llmRows.map((r) => r.ts),
+          llmRows.map((r) => r.model),
+          llmRows.map((r) => r.input_tokens),
+          llmRows.map((r) => r.output_tokens),
+          llmRows.map((r) => r.cached_tokens),
+          llmRows.map((r) => r.cache_write_tokens),
+          llmRows.map((r) => r.prompt_tokens),
+          llmRows.map((r) => r.response_id),
+        ]
+      );
     }
-  }
-  // Fix 5 — upsert sessions for preset_assign-only batches (no tool/llm rows yet)
-  for (const ev of events) {
-    if (ev.kind !== 'preset_assign') continue
-    const sid = ev.session_id ?? ev.sessionId ?? null
-    if (!sid) continue
-    if (sessionMap.has(sid)) continue  // already populated from tool/llm rows above
-    let ts = ev.ts; if (typeof ts === 'string') ts = Date.parse(ts); ts = Number(ts); if (!Number.isFinite(ts)) ts = Date.now()
-    const tsIso = new Date(ts).toISOString()
-    sessionMap.set(sid, {
-      tool_calls: 0, llm_calls: 0, max_iteration: 0,
-      total_input: 0n, total_output: 0n,
-      ts0: tsIso, ts1: tsIso,
-      agent: ev.agent ?? null, model: ev.model ?? null,
-    })
-  }
 
-  // Coalesce agent_sessions upserts: batch all sessions in one unnest INSERT.
-  // Also within the same transaction.
-  if (sessionMap.size > 0) {
-    const sids = [], agents = [], models = [], ts0s = [], ts1s = [],
-          tcalls = [], lcalls = [], maxiters = [], tinputs = [], toutputs = []
-    for (const [sid, s] of sessionMap) {
-      sids.push(sid); agents.push(s.agent); models.push(s.model)
-      ts0s.push(s.ts0); ts1s.push(s.ts1)
-      tcalls.push(s.tool_calls); lcalls.push(s.llm_calls)
-      maxiters.push(s.max_iteration)
-      tinputs.push(String(s.total_input)); toutputs.push(String(s.total_output))
+    // Upsert session summaries — accumulate from tool+llm rows in this batch
+    const sessionMap = new Map();
+    for (const r of toolRows) {
+      const s = sessionMap.get(r.session_id) ?? {
+        tool_calls: 0,
+        llm_calls: 0,
+        max_iteration: 0,
+        total_input: 0n,
+        total_output: 0n,
+        ts0: r.ts,
+        ts1: r.ts,
+        agent: null,
+        model: null,
+      };
+      s.tool_calls += 1;
+      if (r.iteration != null && r.iteration > s.max_iteration) s.max_iteration = r.iteration;
+      if (r.ts < s.ts0) s.ts0 = r.ts;
+      if (r.ts > s.ts1) s.ts1 = r.ts;
+      sessionMap.set(r.session_id, s);
     }
-    await client.query(`
+    for (const r of llmRows) {
+      const s = sessionMap.get(r.session_id) ?? {
+        tool_calls: 0,
+        llm_calls: 0,
+        max_iteration: 0,
+        total_input: 0n,
+        total_output: 0n,
+        ts0: r.ts,
+        ts1: r.ts,
+        agent: null,
+        model: null,
+      };
+      s.llm_calls += 1;
+      s.total_input += BigInt(r.input_tokens ?? 0);
+      s.total_output += BigInt(r.output_tokens ?? 0);
+      if (r.model) s.model = r.model;
+      if (r.iteration != null && r.iteration > s.max_iteration) s.max_iteration = r.iteration;
+      if (r.ts < s.ts0) s.ts0 = r.ts;
+      if (r.ts > s.ts1) s.ts1 = r.ts;
+      sessionMap.set(r.session_id, s);
+    }
+    // Also pick up agent from preset_assign events in the same batch
+    for (const ev of events) {
+      if (ev.kind === 'preset_assign' && ev.agent) {
+        const sid = ev.session_id ?? ev.sessionId ?? null;
+        if (!sid) continue;
+        const s = sessionMap.get(sid);
+        if (s) s.agent = ev.agent;
+      }
+    }
+    // Fix 5 — upsert sessions for preset_assign-only batches (no tool/llm rows yet)
+    for (const ev of events) {
+      if (ev.kind !== 'preset_assign') continue;
+      const sid = ev.session_id ?? ev.sessionId ?? null;
+      if (!sid) continue;
+      if (sessionMap.has(sid)) continue; // already populated from tool/llm rows above
+      let ts = ev.ts;
+      if (typeof ts === 'string') ts = Date.parse(ts);
+      ts = Number(ts);
+      if (!Number.isFinite(ts)) ts = Date.now();
+      const tsIso = new Date(ts).toISOString();
+      sessionMap.set(sid, {
+        tool_calls: 0,
+        llm_calls: 0,
+        max_iteration: 0,
+        total_input: 0n,
+        total_output: 0n,
+        ts0: tsIso,
+        ts1: tsIso,
+        agent: ev.agent ?? null,
+        model: ev.model ?? null,
+      });
+    }
+
+    // Coalesce agent_sessions upserts: batch all sessions in one unnest INSERT.
+    // Also within the same transaction.
+    if (sessionMap.size > 0) {
+      const sids = [],
+        agents = [],
+        models = [],
+        ts0s = [],
+        ts1s = [],
+        tcalls = [],
+        lcalls = [],
+        maxiters = [],
+        tinputs = [],
+        toutputs = [];
+      for (const [sid, s] of sessionMap) {
+        sids.push(sid);
+        agents.push(s.agent);
+        models.push(s.model);
+        ts0s.push(s.ts0);
+        ts1s.push(s.ts1);
+        tcalls.push(s.tool_calls);
+        lcalls.push(s.llm_calls);
+        maxiters.push(s.max_iteration);
+        tinputs.push(String(s.total_input));
+        toutputs.push(String(s.total_output));
+      }
+      await client.query(
+        `
       INSERT INTO agent_sessions (session_id, agent, model, started_at, last_seen_at, tool_calls, llm_calls, max_iteration, total_input_tokens, total_output_tokens)
       SELECT u.session_id, u.agent, u.model,
              u.started_at::timestamptz, u.last_seen_at::timestamptz,
@@ -442,18 +511,22 @@ export async function insertAgentCalls(db, events) {
         max_iteration       = GREATEST(agent_sessions.max_iteration, EXCLUDED.max_iteration),
         total_input_tokens  = agent_sessions.total_input_tokens  + EXCLUDED.total_input_tokens,
         total_output_tokens = agent_sessions.total_output_tokens + EXCLUDED.total_output_tokens
-    `, [sids, agents, models, ts0s, ts1s, tcalls, lcalls, maxiters, tinputs, toutputs])
-  }
+    `,
+        [sids, agents, models, ts0s, ts1s, tcalls, lcalls, maxiters, tinputs, toutputs]
+      );
+    }
 
-    await client.query('COMMIT')
+    await client.query('COMMIT');
   } catch (err) {
-    try { await client.query('ROLLBACK') } catch {}
-    throw err
+    try {
+      await client.query('ROLLBACK');
+    } catch {}
+    throw err;
   } finally {
-    client.release()
+    client.release();
   }
 
-  return { calls: toolRows.length, llm: llmRows.length }
+  return { calls: toolRows.length, llm: llmRows.length };
 }
 
 // Idempotently ensure partitions exist for the current and next calendar month.
@@ -492,24 +565,24 @@ async function ensureCurrentAndNextMonthPartitions(client) {
         );
       END IF;
     END $$
-  `)
+  `);
 }
 
 // Full trace is personal developer diagnostics. Keep a short rolling window so
 // opting in never turns the shared memory database into an unbounded event log.
 const TRACE_RETENTION_DAYS = (() => {
-  const raw = process.env.MIXDOG_TRACE_RETENTION_DAYS
-  if (raw == null || raw === '') return 7
-  const n = Number(raw)
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 7
-})()
-const TRACE_RETENTION_DELETE_BATCH = 5000
+  const raw = process.env.MIXDOG_TRACE_RETENTION_DAYS;
+  if (raw == null || raw === '') return 7;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 7;
+})();
+const TRACE_RETENTION_DELETE_BATCH = 5000;
 
 async function dropAgedTracePartitions(client) {
-  if (TRACE_RETENTION_DAYS <= 0) return
+  if (TRACE_RETENTION_DAYS <= 0) return;
   // Whole old partitions reclaim disk immediately. The active cutoff month is
   // row-pruned below because it can contain both retained and expired days.
-  const days = TRACE_RETENTION_DAYS
+  const days = TRACE_RETENTION_DAYS;
   await client.query(`
     DO $$
     DECLARE
@@ -527,15 +600,15 @@ async function dropAgedTracePartitions(client) {
         EXECUTE format('DROP TABLE IF EXISTS trace.%I', part.relname);
       END LOOP;
     END $$
-  `)
+  `);
 }
 
 // Delete in small transactions so first boot after an update never holds one
 // giant lock or allocates a single huge WAL transaction. Autovacuum reuses the
 // reclaimed pages; old whole-month partitions are dropped above.
 export async function pruneAgedTraceRows(client, nowMs = Date.now()) {
-  if (TRACE_RETENTION_DAYS <= 0) return
-  const cutoffMs = nowMs - TRACE_RETENTION_DAYS * 86_400_000
+  if (TRACE_RETENTION_DAYS <= 0) return;
+  const cutoffMs = nowMs - TRACE_RETENTION_DAYS * 86_400_000;
   const plans = [
     {
       table: 'trace_events',
@@ -554,33 +627,33 @@ export async function pruneAgedTraceRows(client, nowMs = Date.now()) {
                 WHERE ts < to_timestamp($1 / 1000.0) LIMIT $2
              ))`,
     })),
-  ]
+  ];
   for (const plan of plans) {
     try {
-      let guard = 0
+      let guard = 0;
       while (guard++ < 10_000) {
-        const result = await client.query(plan.sql, [cutoffMs, TRACE_RETENTION_DELETE_BATCH])
-        if (Number(result.rowCount ?? 0) < TRACE_RETENTION_DELETE_BATCH) break
-        await new Promise((resolvePromise) => setImmediate(resolvePromise))
+        const result = await client.query(plan.sql, [cutoffMs, TRACE_RETENTION_DELETE_BATCH]);
+        if (Number(result.rowCount ?? 0) < TRACE_RETENTION_DELETE_BATCH) break;
+        await new Promise((resolvePromise) => setImmediate(resolvePromise));
       }
     } catch (err) {
-      __mixdogMemoryLog(`[trace-store] aged-row delete skipped for ${plan.table}: ${err?.message ?? err}\n`)
+      __mixdogMemoryLog(`[trace-store] aged-row delete skipped for ${plan.table}: ${err?.message ?? err}\n`);
     }
   }
 }
 
 async function runTraceRetention(db) {
-  let client
+  let client;
   try {
-    client = await db._pool.connect()
-    await client.query(`SET search_path = trace, public`)
-    await ensureCurrentAndNextMonthPartitions(client)
-    await dropAgedTracePartitions(client)
-    await pruneAgedTraceRows(client)
+    client = await db._pool.connect();
+    await client.query(`SET search_path = trace, public`);
+    await ensureCurrentAndNextMonthPartitions(client);
+    await dropAgedTracePartitions(client);
+    await pruneAgedTraceRows(client);
   } catch (err) {
-    __mixdogMemoryLog(`[trace-store] retention failed: ${err?.message ?? err}\n`)
+    __mixdogMemoryLog(`[trace-store] retention failed: ${err?.message ?? err}\n`);
   } finally {
-    client?.release()
+    client?.release();
   }
 }
 
@@ -622,15 +695,15 @@ async function isBootstrapComplete(client) {
           JOIN pg_namespace n ON n.oid = cp.relnamespace
           WHERE n.nspname = 'trace' AND cp.relname = 'trace_events'
         )
-    `)
-    return r.rows.length > 0
+    `);
+    return r.rows.length > 0;
   } catch {
-    return false
+    return false;
   }
 }
 
 // Advisory lock key — session-scoped, prevents cross-process bootstrap races.
-const BOOTSTRAP_LOCK_KEY = `hashtext('mixdog.trace_bootstrap')`
+const BOOTSTRAP_LOCK_KEY = `hashtext('mixdog.trace_bootstrap')`;
 
 // ---------------------------------------------------------------------------
 // openTraceDatabase
@@ -638,59 +711,61 @@ const BOOTSTRAP_LOCK_KEY = `hashtext('mixdog.trace_bootstrap')`
 
 export async function openTraceDatabase(dataDir) {
   if (!traceEnabled(dataDir)) {
-    const cleanup = await cleanupTraceWhenDisabled(dataDir)
+    const cleanup = await cleanupTraceWhenDisabled(dataDir);
     if (cleanup.dropped) {
-      __mixdogMemoryLog('[trace-store] disabled; removed existing trace diagnostics\n')
+      __mixdogMemoryLog('[trace-store] disabled; removed existing trace diagnostics\n');
     }
-    return null
+    return null;
   }
 
-  const key = resolve(dataDir)
+  const key = resolve(dataDir);
 
-  if (dbs.get(key)) return dbs.get(key)
-  if (opening.has(key)) return opening.get(key)
+  if (dbs.get(key)) return dbs.get(key);
+  if (opening.has(key)) return opening.get(key);
 
   const promise = (async () => {
     // pg-adapter with schema='trace' sets search_path=trace,public per connection.
-    const { db } = await ensurePgInstance(dataDir, { schema: 'trace' })
+    const { db } = await ensurePgInstance(dataDir, { schema: 'trace' });
 
     // Acquire a dedicated pool client for bootstrap so the advisory lock is
     // session-scoped to exactly one connection (advisory locks are per-session).
     // The client is released in finally — in both success and error paths.
-    const client = await db._pool.connect()
+    const client = await db._pool.connect();
     try {
       // Set search_path on the dedicated client to match the pool default.
-      await client.query(`SET search_path = trace, public`)
+      await client.query(`SET search_path = trace, public`);
       // Session-scoped advisory lock — bounded so a stuck holder can't hang
       // boot indefinitely. Try non-blocking first; on contention, set a
       // 30s lock_timeout for the blocking acquire and surface a clear error
       // instead of an unbounded wait.
-      const tryAcquire = await client.query(`SELECT pg_try_advisory_lock(${BOOTSTRAP_LOCK_KEY}) AS locked`)
+      const tryAcquire = await client.query(`SELECT pg_try_advisory_lock(${BOOTSTRAP_LOCK_KEY}) AS locked`);
       if (!tryAcquire.rows[0]?.locked) {
         // SET LOCAL only persists inside an explicit transaction — without
         // BEGIN/COMMIT PG resets it immediately, so pg_advisory_lock() would
         // wait unbounded. Wrap the lock_timeout + blocking acquire so the
         // 30s ceiling actually applies.
-        await client.query('BEGIN')
+        await client.query('BEGIN');
         try {
-          await client.query(`SET LOCAL lock_timeout = '30s'`)
-          await client.query(`SELECT pg_advisory_lock(${BOOTSTRAP_LOCK_KEY})`)
-          await client.query('COMMIT')
+          await client.query(`SET LOCAL lock_timeout = '30s'`);
+          await client.query(`SELECT pg_advisory_lock(${BOOTSTRAP_LOCK_KEY})`);
+          await client.query('COMMIT');
         } catch (err) {
-          try { await client.query('ROLLBACK') } catch {}
+          try {
+            await client.query('ROLLBACK');
+          } catch {}
           // lock_timeout fires as 55P03 (lock_not_available); surface with context.
-          throw new Error(`trace-store bootstrap advisory lock timed out (30s): ${err?.message || err}`)
+          throw new Error(`trace-store bootstrap advisory lock timed out (30s): ${err?.message || err}`);
         }
       }
       try {
         // Re-check after acquiring the lock: another process may have completed
         // init while we were waiting.
         if (!(await isBootstrapComplete(client))) {
-          await init(client)
+          await init(client);
         } else {
           // Init already done by another process; still ensure upcoming partitions
           // are pre-created for this boot.
-          await ensureCurrentAndNextMonthPartitions(client)
+          await ensureCurrentAndNextMonthPartitions(client);
         }
         // Agent-specific analytic tables — moved inside the advisory-lock
         // scope (was previously run after client.release() with no lock,
@@ -698,34 +773,37 @@ export async function openTraceDatabase(dataDir) {
         // agent_llm/agent_sessions CREATE TABLE + migrateSchemaDrift DDL).
         // Reuses the same lock-holding client/session; still idempotent
         // (IF NOT EXISTS everywhere) but no longer racy across processes.
-        await initAgentTables(client)
+        await initAgentTables(client);
       } finally {
-        await client.query(`SELECT pg_advisory_unlock(${BOOTSTRAP_LOCK_KEY})`)
+        await client.query(`SELECT pg_advisory_unlock(${BOOTSTRAP_LOCK_KEY})`);
       }
     } finally {
-      client.release()
+      client.release();
     }
 
-    dbs.set(key, db)
-    void runTraceRetention(db)
+    dbs.set(key, db);
+    void runTraceRetention(db);
 
     // Periodically ensure current + next-month partitions exist so a
     // long-running process never hits the default catch-all partition at
     // month rollover. Fires every 12 h — well ahead of any boundary.
-    const _partitionEnsureInterval = setInterval(async () => {
-      await runTraceRetention(db)
-    }, 12 * 60 * 60 * 1000)
-    _partitionEnsureInterval.unref?.()
-    partitionTimers.set(key, _partitionEnsureInterval)
+    const _partitionEnsureInterval = setInterval(
+      async () => {
+        await runTraceRetention(db);
+      },
+      12 * 60 * 60 * 1000
+    );
+    _partitionEnsureInterval.unref?.();
+    partitionTimers.set(key, _partitionEnsureInterval);
 
-    return db
-  })()
+    return db;
+  })();
 
-  opening.set(key, promise)
+  opening.set(key, promise);
   try {
-    return await promise
+    return await promise;
   } finally {
-    opening.delete(key)
+    opening.delete(key);
   }
 }
 
@@ -734,66 +812,81 @@ export async function openTraceDatabase(dataDir) {
 // ---------------------------------------------------------------------------
 
 const TRACE_COLS = [
-  'ts', 'session_id', 'iteration', 'kind', 'agent', 'model',
-  'tool_name', 'tool_ms', 'result_kind', 'result_error_category',
-  'result_error_first_line', 'input_tokens', 'output_tokens',
-  'cached_tokens', 'cache_write_tokens', 'duration_ms',
-  'error_message', 'payload', 'parent_span_id', 'entry_id',
-]
-const PG_MAX_BIND_PARAMETERS = 65_535
-const TRACE_INSERT_MAX_ROWS = Math.floor(PG_MAX_BIND_PARAMETERS / TRACE_COLS.length)
+  'ts',
+  'session_id',
+  'iteration',
+  'kind',
+  'agent',
+  'model',
+  'tool_name',
+  'tool_ms',
+  'result_kind',
+  'result_error_category',
+  'result_error_first_line',
+  'input_tokens',
+  'output_tokens',
+  'cached_tokens',
+  'cache_write_tokens',
+  'duration_ms',
+  'error_message',
+  'payload',
+  'parent_span_id',
+  'entry_id',
+];
+const PG_MAX_BIND_PARAMETERS = 65_535;
+const TRACE_INSERT_MAX_ROWS = Math.floor(PG_MAX_BIND_PARAMETERS / TRACE_COLS.length);
 
 // ---------------------------------------------------------------------------
 // Cross-request trace_events write queue (100ms / 500-row flush window)
 // ---------------------------------------------------------------------------
 
-const TRACE_QUEUE_FLUSH_MS  = 100
-const TRACE_QUEUE_MAX_ROWS  = 500
+const TRACE_QUEUE_FLUSH_MS = 100;
+const TRACE_QUEUE_MAX_ROWS = 500;
 // Twenty normal flush batches leaves ample room for ordinary DB jitter while
 // bounding producer memory across repeated flush failures.
-const TRACE_QUEUE_MAX_PENDING_EVENTS = 10_000
+const TRACE_QUEUE_MAX_PENDING_EVENTS = 10_000;
 
 // Per-db queue state (keyed by db object identity via WeakMap).
-const _traceQueues = new WeakMap()
+const _traceQueues = new WeakMap();
 
 function _getQueue(db) {
-  let q = _traceQueues.get(db)
+  let q = _traceQueues.get(db);
   if (!q) {
-    q = { pending: [], timer: null, flushPromise: null, droppedEvents: 0 }
-    _traceQueues.set(db, q)
+    q = { pending: [], timer: null, flushPromise: null, droppedEvents: 0 };
+    _traceQueues.set(db, q);
   }
-  return q
+  return q;
 }
 
 function _pendingEventCount(q) {
-  return q.pending.reduce((n, w) => n + w.events.length, 0)
+  return q.pending.reduce((n, w) => n + w.events.length, 0);
 }
 
 function _trimPendingQueue(q) {
-  let overflow = _pendingEventCount(q) - TRACE_QUEUE_MAX_PENDING_EVENTS
+  let overflow = _pendingEventCount(q) - TRACE_QUEUE_MAX_PENDING_EVENTS;
   while (overflow > 0 && q.pending.length > 0) {
-    const oldest = q.pending[0]
+    const oldest = q.pending[0];
     if (oldest.events.length <= overflow) {
-      q.pending.shift()
-      q.droppedEvents += oldest.events.length
-      overflow -= oldest.events.length
+      q.pending.shift();
+      q.droppedEvents += oldest.events.length;
+      overflow -= oldest.events.length;
     } else {
-      oldest.events.splice(0, overflow)
-      q.droppedEvents += overflow
-      overflow = 0
+      oldest.events.splice(0, overflow);
+      q.droppedEvents += overflow;
+      overflow = 0;
     }
   }
 }
 
 function _dropWrittenEvents(wrappers, count) {
   while (count > 0 && wrappers.length > 0) {
-    const wrapper = wrappers[0]
+    const wrapper = wrappers[0];
     if (wrapper.events.length <= count) {
-      wrappers.shift()
-      count -= wrapper.events.length
+      wrappers.shift();
+      count -= wrapper.events.length;
     } else {
-      wrapper.events.splice(0, count)
-      count = 0
+      wrapper.events.splice(0, count);
+      count = 0;
     }
   }
 }
@@ -804,47 +897,49 @@ async function _flushQueue(db, q) {
   // is consumed by the early return. Reschedule a follow-up flush so events
   // queued mid-flush don't sit until the next unrelated enqueue.
   if (q.flushPromise) {
-    if (q.pending.length > 0) _scheduleFlush(db, q)
-    return q.flushPromise
+    if (q.pending.length > 0) _scheduleFlush(db, q);
+    return q.flushPromise;
   }
-  const wrappers = q.pending.splice(0)
-  if (wrappers.length === 0) return { inserted: 0 }
-  const MAX_RETRIES = 3
+  const wrappers = q.pending.splice(0);
+  if (wrappers.length === 0) return { inserted: 0 };
+  const MAX_RETRIES = 3;
   q.flushPromise = (async () => {
-    let writtenEvents = 0
+    let writtenEvents = 0;
     try {
-      const allEvents = wrappers.flatMap(w => w.events)
-      return await _insertTraceEventBatches(db, allEvents, count => { writtenEvents += count })
+      const allEvents = wrappers.flatMap((w) => w.events);
+      return await _insertTraceEventBatches(db, allEvents, (count) => {
+        writtenEvents += count;
+      });
     } catch (err) {
-      _dropWrittenEvents(wrappers, writtenEvents)
-      for (const w of wrappers) w.attempts += 1
-      const keep = wrappers.filter(w => w.attempts < MAX_RETRIES)
-      const dropped = wrappers.filter(w => w.attempts >= MAX_RETRIES)
+      _dropWrittenEvents(wrappers, writtenEvents);
+      for (const w of wrappers) w.attempts += 1;
+      const keep = wrappers.filter((w) => w.attempts < MAX_RETRIES);
+      const dropped = wrappers.filter((w) => w.attempts >= MAX_RETRIES);
       if (dropped.length > 0) {
-        __mixdogMemoryLog(`[trace-queue] dropped ${dropped.reduce((n, w) => n + w.events.length, 0)} events after ${MAX_RETRIES} retries: ${err?.message}\n`)
+        __mixdogMemoryLog(
+          `[trace-queue] dropped ${dropped.reduce((n, w) => n + w.events.length, 0)} events after ${MAX_RETRIES} retries: ${err?.message}\n`
+        );
       }
-      q.pending.unshift(...keep)
-      _trimPendingQueue(q)
-      __mixdogMemoryLog(`[trace-queue] flush error: ${err?.message}\n`)
-      throw err
+      q.pending.unshift(...keep);
+      _trimPendingQueue(q);
+      __mixdogMemoryLog(`[trace-queue] flush error: ${err?.message}\n`);
+      throw err;
     } finally {
-      q.flushPromise = null
+      q.flushPromise = null;
       // Drain any events that landed in the queue while this flush ran.
-      if (q.pending.length > 0) _scheduleFlush(db, q)
+      if (q.pending.length > 0) _scheduleFlush(db, q);
     }
-  })()
-  return q.flushPromise
+  })();
+  return q.flushPromise;
 }
 
 function _scheduleFlush(db, q) {
-  if (q.timer) return
+  if (q.timer) return;
   q.timer = setTimeout(async () => {
-    q.timer = null
-    _flushQueue(db, q).catch(err =>
-      __mixdogMemoryLog(`[trace-queue] flush error: ${err?.message}\n`)
-    )
-  }, TRACE_QUEUE_FLUSH_MS)
-  q.timer.unref?.()
+    q.timer = null;
+    _flushQueue(db, q).catch((err) => __mixdogMemoryLog(`[trace-queue] flush error: ${err?.message}\n`));
+  }, TRACE_QUEUE_FLUSH_MS);
+  q.timer.unref?.();
 }
 
 // ---------------------------------------------------------------------------
@@ -852,78 +947,107 @@ function _scheduleFlush(db, q) {
 // Issue 4: timer is unref()'d so it won't prevent exit; register drain handlers.
 // ---------------------------------------------------------------------------
 
-const _registeredExitDbs = new WeakMap()
+const _registeredExitDbs = new WeakMap();
 
 async function drainTraceQueue(db) {
-  const q = _traceQueues.get(db)
-  if (!q) return
+  const q = _traceQueues.get(db);
+  if (!q) return;
   try {
-    if (q.timer) { clearTimeout(q.timer); q.timer = null }
-    if (q.flushPromise) await q.flushPromise.catch(() => {})
-    if (q.pending.length > 0) await _insertTraceEventBatches(db, q.pending.splice(0).flatMap(w => w.events))
+    if (q.timer) {
+      clearTimeout(q.timer);
+      q.timer = null;
+    }
+    if (q.flushPromise) await q.flushPromise.catch(() => {});
+    if (q.pending.length > 0)
+      await _insertTraceEventBatches(
+        db,
+        q.pending.splice(0).flatMap((w) => w.events)
+      );
   } catch (e) {
-    __mixdogMemoryLog(`[trace-queue] drain failed: ${e?.message}\n`)
+    __mixdogMemoryLog(`[trace-queue] drain failed: ${e?.message}\n`);
   }
 }
 
 function clearTraceQueue(db) {
-  const q = _traceQueues.get(db)
-  if (!q) return
-  if (q.timer) { clearTimeout(q.timer); q.timer = null }
-  q.pending.length = 0
-  q.flushPromise = null
-  _traceQueues.delete(db)
+  const q = _traceQueues.get(db);
+  if (!q) return;
+  if (q.timer) {
+    clearTimeout(q.timer);
+    q.timer = null;
+  }
+  q.pending.length = 0;
+  q.flushPromise = null;
+  _traceQueues.delete(db);
 }
 
 function unregisterTraceExitDrain(db) {
-  const handlers = _registeredExitDbs.get(db)
-  if (!handlers) return
-  try { process.off('exit', handlers.onExit) } catch {}
-  try { process.off('SIGTERM', handlers.onSigterm) } catch {}
-  try { process.off('beforeExit', handlers.onBeforeExit) } catch {}
-  _registeredExitDbs.delete(db)
+  const handlers = _registeredExitDbs.get(db);
+  if (!handlers) return;
+  try {
+    process.off('exit', handlers.onExit);
+  } catch {}
+  try {
+    process.off('SIGTERM', handlers.onSigterm);
+  } catch {}
+  try {
+    process.off('beforeExit', handlers.onBeforeExit);
+  } catch {}
+  _registeredExitDbs.delete(db);
 }
 
 export function registerTraceExitDrain(db) {
-  if (!db) return
-  if (_registeredExitDbs.has(db)) return
+  if (!db) return;
+  if (_registeredExitDbs.has(db)) return;
 
   async function drainOnExit() {
-    await drainTraceQueue(db)
+    await drainTraceQueue(db);
   }
 
   const onExit = () => {
-    const q = _traceQueues.get(db)
-    if (q?.pending.length) __mixdogMemoryLog(`[trace-queue] exit with ${q.pending.length} unflushed events\n`)
-  }
-  const onSigterm = async () => { await drainOnExit(); process.exit(0) }
+    const q = _traceQueues.get(db);
+    if (q?.pending.length) __mixdogMemoryLog(`[trace-queue] exit with ${q.pending.length} unflushed events\n`);
+  };
+  const onSigterm = async () => {
+    await drainOnExit();
+    process.exit(0);
+  };
 
-  process.on('exit', onExit)
-  process.on('SIGTERM', onSigterm)
-  process.once('beforeExit', drainOnExit)
+  process.on('exit', onExit);
+  process.on('SIGTERM', onSigterm);
+  process.once('beforeExit', drainOnExit);
 
-  _registeredExitDbs.set(db, { onExit, onSigterm, onBeforeExit: drainOnExit })
+  _registeredExitDbs.set(db, { onExit, onSigterm, onBeforeExit: drainOnExit });
 }
 
 export async function closeTraceDatabase(dataDir) {
-  const key = resolve(dataDir)
-  let db = dbs.get(key)
+  const key = resolve(dataDir);
+  let db = dbs.get(key);
   if (!db && opening.has(key)) {
-    try { db = await opening.get(key) } catch { db = null }
+    try {
+      db = await opening.get(key);
+    } catch {
+      db = null;
+    }
   }
-  if (!db) return false
-  const timer = partitionTimers.get(key)
+  if (!db) return false;
+  const timer = partitionTimers.get(key);
   if (timer) {
-    try { clearInterval(timer) } catch {}
-    partitionTimers.delete(key)
+    try {
+      clearInterval(timer);
+    } catch {}
+    partitionTimers.delete(key);
   }
-  await drainTraceQueue(db)
-  clearTraceQueue(db)
-  unregisterTraceExitDrain(db)
-  dbs.delete(key)
-  try { await db.close?.() } catch {}
-  try { await closePgInstance(dataDir, { schema: 'trace' }) } catch {}
-  return true
+  await drainTraceQueue(db);
+  clearTraceQueue(db);
+  unregisterTraceExitDrain(db);
+  dbs.delete(key);
+  try {
+    await db.close?.();
+  } catch {}
+  try {
+    await closePgInstance(dataDir, { schema: 'trace' });
+  } catch {}
+  return true;
 }
 
 /**
@@ -932,55 +1056,56 @@ export async function closeTraceDatabase(dataDir) {
  * Callers that need a synchronous result should use insertTraceEvents directly.
  */
 export function enqueueTraceEvents(db, events) {
-  if (!db || !Array.isArray(events) || events.length === 0) return
-  const q = _getQueue(db)
-  q.pending.push({ events: [...events], attempts: 0 })
+  if (!db || !Array.isArray(events) || events.length === 0) return;
+  const q = _getQueue(db);
+  q.pending.push({ events: [...events], attempts: 0 });
   // Row cap counts pending EVENTS, not wrappers — a single wrapper with
   // >TRACE_QUEUE_MAX_ROWS events would otherwise sit until the timer.
-  _trimPendingQueue(q)
-  const pendingEvents = _pendingEventCount(q)
+  _trimPendingQueue(q);
+  const pendingEvents = _pendingEventCount(q);
   if (pendingEvents >= TRACE_QUEUE_MAX_ROWS) {
     // Flush immediately when row cap reached — don't wait for timer.
-    if (q.timer) { clearTimeout(q.timer); q.timer = null }
-    _flushQueue(db, q).catch(err =>
-      __mixdogMemoryLog(`[trace-queue] flush error: ${err?.message}\n`)
-    )
+    if (q.timer) {
+      clearTimeout(q.timer);
+      q.timer = null;
+    }
+    _flushQueue(db, q).catch((err) => __mixdogMemoryLog(`[trace-queue] flush error: ${err?.message}\n`));
   } else {
-    _scheduleFlush(db, q)
+    _scheduleFlush(db, q);
   }
 }
 
 // Renamed internal: direct DB insert without queuing (used by queue flusher and
 // the existing intra-request multi-row path where immediate persistence matters).
 async function _insertTraceEventsDirect(db, events) {
-  return insertTraceEvents(db, events)
+  return insertTraceEvents(db, events);
 }
 
 async function _insertTraceEventBatches(db, events, onBatchInserted) {
-  let inserted = 0
+  let inserted = 0;
   for (let start = 0; start < events.length; start += TRACE_INSERT_MAX_ROWS) {
-    const batch = events.slice(start, start + TRACE_INSERT_MAX_ROWS)
-    const result = await _insertTraceEventsDirect(db, batch)
-    inserted += result.inserted
-    onBatchInserted?.(batch.length)
+    const batch = events.slice(start, start + TRACE_INSERT_MAX_ROWS);
+    const result = await _insertTraceEventsDirect(db, batch);
+    inserted += result.inserted;
+    onBatchInserted?.(batch.length);
   }
-  return { inserted }
+  return { inserted };
 }
 
 export async function insertTraceEvents(db, events) {
-  if (!db || !Array.isArray(events) || events.length === 0) return { inserted: 0 }
+  if (!db || !Array.isArray(events) || events.length === 0) return { inserted: 0 };
 
-  const valuePlaceholders = []
-  const params = []
-  let p = 1
+  const valuePlaceholders = [];
+  const params = [];
+  let p = 1;
 
   for (const ev of events) {
-    let ts = ev.ts
-    if (typeof ts === 'string') ts = Date.parse(ts)
-    ts = Number(ts)
-    if (!Number.isFinite(ts)) ts = Date.now()
+    let ts = ev.ts;
+    if (typeof ts === 'string') ts = Date.parse(ts);
+    ts = Number(ts);
+    if (!Number.isFinite(ts)) ts = Date.now();
 
-    const payload = ev.payload != null ? ev.payload : {}
+    const payload = ev.payload != null ? ev.payload : {};
 
     const cols = [
       ts,
@@ -1003,12 +1128,12 @@ export async function insertTraceEvents(db, events) {
       typeof payload === 'string' ? payload : JSON.stringify(payload),
       ev.parent_span_id != null ? Number(ev.parent_span_id) : null,
       ev.entry_id != null ? Number(ev.entry_id) : null,
-    ]
-    valuePlaceholders.push(`(${cols.map(() => `$${p++}`).join(', ')})`)
-    params.push(...cols)
+    ];
+    valuePlaceholders.push(`(${cols.map(() => `$${p++}`).join(', ')})`);
+    params.push(...cols);
   }
 
-  const sql = `INSERT INTO trace_events (${TRACE_COLS.join(', ')}) VALUES ${valuePlaceholders.join(', ')}`
-  await db.query(sql, params)
-  return { inserted: events.length }
+  const sql = `INSERT INTO trace_events (${TRACE_COLS.join(', ')}) VALUES ${valuePlaceholders.join(', ')}`;
+  await db.query(sql, params);
+  return { inserted: events.length };
 }

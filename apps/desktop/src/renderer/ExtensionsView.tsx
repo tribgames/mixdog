@@ -1,23 +1,23 @@
-import { Blocks, Plus, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Blocks, Plus, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
-import type { ExtensionsSection } from "./extension-sections";
-import { t } from "./i18n";
-import { SidebarPanelAction } from "./session-sidebar";
-import { SidebarSectionToolbar, type SidebarToolbarSection } from "./sidebar-section-toolbar";
-import { CapabilitySettings } from "./settings/CapabilitySettings";
-import { useSurfaceNavigationReset } from "./surface-activity";
-import "./settings/settings.css";
-import "./desktop/31-extensions.css";
+import type { ExtensionsSection } from './extension-sections';
+import { t } from './i18n';
+import { SidebarPanelAction } from './session-sidebar';
+import { SidebarSectionToolbar, type SidebarToolbarSection } from './sidebar-section-toolbar';
+import { CapabilitySettings } from './settings/CapabilitySettings';
+import { useSurfaceNavigationReset } from './surface-activity';
+import './settings/settings.css';
+import './desktop/31-extensions.css';
 
 const SECTIONS: ReadonlyArray<SidebarToolbarSection<ExtensionsSection>> = [
-  { id: "plugins", label: "Plugin", icon: Blocks },
-  { id: "skills", label: "Skill", icon: Sparkles },
+  { id: 'plugins', label: 'Plugin', icon: Blocks },
+  { id: 'skills', label: 'Skill', icon: Sparkles },
 ];
 
 const CREATE_LABEL = {
-  plugins: "Install plugin",
-  skills: "Add skill or MCP",
+  plugins: 'Install plugin',
+  skills: 'Add skill or MCP',
 } as const satisfies Record<ExtensionsSection, string>;
 
 export function ExtensionsPane({
@@ -32,12 +32,14 @@ export function ExtensionsPane({
   const [createOpen, setCreateOpen] = useState(false);
   useSurfaceNavigationReset(active, () => {
     setCreateOpen(false);
-    onSectionChange("plugins");
+    onSectionChange('plugins');
   });
   const api = window.mixdogDesktop ?? {};
   // The header's + belongs to the VISIBLE section: switching tabs drops a
   // half-filled form instead of carrying it into a different resource kind.
-  useEffect(() => { setCreateOpen(false); }, [section]);
+  useEffect(() => {
+    setCreateOpen(false);
+  }, [section]);
 
   // Extensions is a RAIL destination, so it renders the page grammar its
   // siblings (Schedules, Webhooks) already share: surface → page → filters →
@@ -45,18 +47,29 @@ export function ExtensionsPane({
   // views opening as popup dialogs. The pane used to hand-roll a tab
   // strip and a second toolbar band, which is what made it read as a different
   // product (user: 익스텐션창이 다른 UI랑 너무 동떨어져있다).
-  return <div className="extensions-pane schedules-pane stable-surface-preserved stable-takeover-surface"
-    data-surface-active={active ? "true" : "false"}
-    inert={active ? undefined : true} aria-hidden={active ? undefined : true}>
-    <div className="schedules-page">
-      {/* Title and primary actions live in the sidebar panel header. */}
-      <SidebarPanelAction active={active} label={t(CREATE_LABEL[section])} icon={Plus}
-        onClick={() => setCreateOpen((open) => !open)} />
-      <SidebarSectionToolbar label={t("Extension type")} sections={SECTIONS}
-        active={section} onChange={onSectionChange} />
-      <CapabilitySettings api={api} category={section}
-        createOpen={createOpen}
-        onCreateOpenChange={setCreateOpen} />
+  return (
+    <div
+      className="extensions-pane schedules-pane stable-surface-preserved stable-takeover-surface"
+      data-surface-active={active ? 'true' : 'false'}
+      inert={active ? undefined : true}
+      aria-hidden={active ? undefined : true}
+    >
+      <div className="schedules-page">
+        {/* Title and primary actions live in the sidebar panel header. */}
+        <SidebarPanelAction
+          active={active}
+          label={t(CREATE_LABEL[section])}
+          icon={Plus}
+          onClick={() => setCreateOpen((open) => !open)}
+        />
+        <SidebarSectionToolbar
+          label={t('Extension type')}
+          sections={SECTIONS}
+          active={section}
+          onChange={onSectionChange}
+        />
+        <CapabilitySettings api={api} category={section} createOpen={createOpen} onCreateOpenChange={setCreateOpen} />
+      </div>
     </div>
-  </div>;
+  );
 }

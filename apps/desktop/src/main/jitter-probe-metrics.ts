@@ -53,22 +53,15 @@ export interface PaintFrameSample {
 
 function sampledFrameLuma(image: NativeImage, bounds: PaintProbeBounds): number | null {
   const size = image.getSize();
-  if (size.width <= 0 || size.height <= 0
-    || bounds.viewportWidth <= 0 || bounds.viewportHeight <= 0) return null;
+  if (size.width <= 0 || size.height <= 0 || bounds.viewportWidth <= 0 || bounds.viewportHeight <= 0) return null;
   const bitmap = image.toBitmap();
   if (bitmap.length < size.width * size.height * 4) return null;
   const scaleX = size.width / bounds.viewportWidth;
   const scaleY = size.height / bounds.viewportHeight;
   const left = Math.max(0, Math.min(size.width - 1, Math.floor(bounds.left * scaleX)));
   const top = Math.max(0, Math.min(size.height - 1, Math.floor(bounds.top * scaleY)));
-  const right = Math.max(left + 1, Math.min(
-    size.width,
-    Math.ceil((bounds.left + bounds.width) * scaleX),
-  ));
-  const bottom = Math.max(top + 1, Math.min(
-    size.height,
-    Math.ceil((bounds.top + bounds.height) * scaleY),
-  ));
+  const right = Math.max(left + 1, Math.min(size.width, Math.ceil((bounds.left + bounds.width) * scaleX)));
+  const bottom = Math.max(top + 1, Math.min(size.height, Math.ceil((bounds.top + bounds.height) * scaleY)));
   let total = 0;
   let count = 0;
   const columns = 16;
@@ -76,8 +69,7 @@ function sampledFrameLuma(image: NativeImage, bounds: PaintProbeBounds): number 
   for (let row = 0; row < rows; row += 1) {
     const y = Math.min(bottom - 1, top + Math.floor(((row + 0.5) / rows) * (bottom - top)));
     for (let column = 0; column < columns; column += 1) {
-      const x = Math.min(right - 1, left
-        + Math.floor(((column + 0.5) / columns) * (right - left)));
+      const x = Math.min(right - 1, left + Math.floor(((column + 0.5) / columns) * (right - left)));
       const offset = (y * size.width + x) * 4;
       total += (bitmap[offset] + bitmap[offset + 1] + bitmap[offset + 2]) / (3 * 255);
       count += 1;
@@ -115,30 +107,24 @@ function median(values: number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? (sorted[middle - 1] + sorted[middle]) / 2
-    : sorted[middle];
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 }
 
 export function summarizeWarmPaint(samples: PaintFrameSample[]) {
-  const phaseLuma = (phase: string) => samples
-    .filter((sample) => sample.phase === phase)
-    .map((sample) => sample.luma);
+  const phaseLuma = (phase: string) => samples.filter((sample) => sample.phase === phase).map((sample) => sample.luma);
   const sessionLuma = median(phaseLuma('session'));
   const newTaskLuma = median(phaseLuma('new-task'));
   const reentry = samples.filter((sample) => sample.phase === 'reentry');
   const low = Math.min(sessionLuma ?? 0, newTaskLuma ?? sessionLuma ?? 0);
   const high = Math.max(sessionLuma ?? 0, newTaskLuma ?? sessionLuma ?? 0);
-  const brightnessExcursion = reentry.reduce((peak, sample) => Math.max(
-    peak,
-    sample.luma < low ? low - sample.luma
-      : sample.luma > high ? sample.luma - high
-        : 0,
-  ), 0);
+  const brightnessExcursion = reentry.reduce(
+    (peak, sample) =>
+      Math.max(peak, sample.luma < low ? low - sample.luma : sample.luma > high ? sample.luma - high : 0),
+    0
+  );
   const stableTolerance = 0.025;
-  const firstStableIndex = sessionLuma === null
-    ? -1
-    : reentry.findIndex((sample) => Math.abs(sample.luma - sessionLuma) <= stableTolerance);
+  const firstStableIndex =
+    sessionLuma === null ? -1 : reentry.findIndex((sample) => Math.abs(sample.luma - sessionLuma) <= stableTolerance);
   return {
     frames: samples.length,
     sessionFrames: phaseLuma('session').length,

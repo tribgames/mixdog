@@ -13,9 +13,13 @@ export function goalTaskProgress(tasks) {
 // row. Only discard that filler for optional lifecycle changes; addressed,
 // populated, or malformed rows must still reach the normal validators.
 export function optionalGoalTaskChanges({ tasks, updates } = {}) {
-  const populated = (entry) => !entry || typeof entry !== 'object' || Array.isArray(entry)
-    || clean(entry.id) || clean(entry.text)
-    || Object.keys(entry).some((key) => !['id', 'text', 'status', 'kind'].includes(key));
+  const populated = (entry) =>
+    !entry ||
+    typeof entry !== 'object' ||
+    Array.isArray(entry) ||
+    clean(entry.id) ||
+    clean(entry.text) ||
+    Object.keys(entry).some((key) => !['id', 'text', 'status', 'kind'].includes(key));
   return {
     tasks: Array.isArray(tasks) ? tasks.filter(populated) : tasks,
     updates: Array.isArray(updates) ? updates.filter(populated) : updates,
@@ -31,7 +35,11 @@ export function normalizeGoalTasks(input, previous = [], { strict = false } = {}
   let nextId = 1;
   for (const id of reservedIds) {
     const match = /^task_(\d+)$/.exec(id);
-    if (match && Number.isSafeInteger(Number(match[1])) && Number(match[1]) < Number.MAX_SAFE_INTEGER - MAX_GOAL_TASKS) {
+    if (
+      match &&
+      Number.isSafeInteger(Number(match[1])) &&
+      Number(match[1]) < Number.MAX_SAFE_INTEGER - MAX_GOAL_TASKS
+    ) {
       nextId = Math.max(nextId, Number(match[1]) + 1);
     }
   }
@@ -42,7 +50,8 @@ export function normalizeGoalTasks(input, previous = [], { strict = false } = {}
     if (!source || typeof source !== 'object') throw new Error(`goal task ${index + 1} is invalid`);
     const text = clean(source.text);
     if (!text) throw new Error('goal task text is required');
-    if ([...text].length > MAX_GOAL_TASK_TEXT_LENGTH) throw new Error(`goal task exceeds ${MAX_GOAL_TASK_TEXT_LENGTH} characters`);
+    if ([...text].length > MAX_GOAL_TASK_TEXT_LENGTH)
+      throw new Error(`goal task exceeds ${MAX_GOAL_TASK_TEXT_LENGTH} characters`);
     if (seenText.has(text)) throw new Error(`duplicate goal task: ${text}`);
     seenText.add(text);
     const id = clean(source.id) || clean(previousByText.get(text)?.id) || `task_${nextId++}`;
@@ -50,10 +59,13 @@ export function normalizeGoalTasks(input, previous = [], { strict = false } = {}
     seenIds.add(id);
     const rawStatus = clean(source.status).toLowerCase();
     const rawKind = clean(source.kind).toLowerCase();
-    if (strict && !GOAL_TASK_STATUSES.includes(rawStatus)) throw new Error(`goal task ${index + 1} has an invalid status`);
-    if (strict && !['work', 'verification'].includes(rawKind)) throw new Error(`goal task ${index + 1} has an invalid kind`);
+    if (strict && !GOAL_TASK_STATUSES.includes(rawStatus))
+      throw new Error(`goal task ${index + 1} has an invalid status`);
+    if (strict && !['work', 'verification'].includes(rawKind))
+      throw new Error(`goal task ${index + 1} has an invalid kind`);
     return {
-      id, text,
+      id,
+      text,
       status: GOAL_TASK_STATUSES.includes(rawStatus) ? rawStatus : source.satisfied === true ? 'completed' : 'pending',
       kind: rawKind === 'verification' ? 'verification' : 'work',
     };
@@ -71,11 +83,15 @@ export function taskInputRetains(entry, task) {
 // a partial in_progress patch, however, explicitly starts/restarts that task.
 export function goalTasksStartWork(previous, next, args = {}, { partial = false } = {}) {
   const previousById = new Map(previous.map((task) => [task.id, task]));
-  const restarted = new Set((partial && Array.isArray(args.updates) ? args.updates : [])
-    .filter((patch) => clean(patch?.status).toLowerCase() === 'in_progress')
-    .map((patch) => clean(patch.id)));
-  return next.some((task) => task.status === 'in_progress'
-    && (previousById.get(task.id)?.status !== 'in_progress' || restarted.has(task.id)));
+  const restarted = new Set(
+    (partial && Array.isArray(args.updates) ? args.updates : [])
+      .filter((patch) => clean(patch?.status).toLowerCase() === 'in_progress')
+      .map((patch) => clean(patch.id))
+  );
+  return next.some(
+    (task) =>
+      task.status === 'in_progress' && (previousById.get(task.id)?.status !== 'in_progress' || restarted.has(task.id))
+  );
 }
 
 export function patchGoalTasks(previous, { updates, tasks } = {}) {
@@ -91,10 +107,12 @@ export function patchGoalTasks(previous, { updates, tasks } = {}) {
     if (!id || !byId.has(id)) throw new Error(`unknown Goal task id: ${id || '(missing)'}`);
     if (seen.has(id)) throw new Error(`duplicate Goal task update: ${id}`);
     seen.add(id);
-    if (Object.keys(patch).some((key) => !['id', 'text', 'status', 'kind'].includes(key))) throw new Error(`unknown Goal task update field for ${id}`);
+    if (Object.keys(patch).some((key) => !['id', 'text', 'status', 'kind'].includes(key)))
+      throw new Error(`unknown Goal task update field for ${id}`);
     byId.set(id, { ...byId.get(id), ...patch, id });
   }
-  if (additions.some((task) => clean(task?.id))) throw new Error('new Goal tasks must omit ids; use updates for existing tasks');
+  if (additions.some((task) => clean(task?.id)))
+    throw new Error('new Goal tasks must omit ids; use updates for existing tasks');
   return normalizeGoalTasks([...byId.values(), ...additions], previous, { strict: true });
 }
 
@@ -102,18 +120,21 @@ export function patchGoalTasks(previous, { updates, tasks } = {}) {
 // task changes in the same durable commit instead of exposing an intermediate
 // paused/active snapshot or consuming two revisions.
 export function applyGoalTaskChanges(goal, args = {}, { partial = false, at = Date.now() } = {}) {
-  if (['complete', 'stopped'].includes(goal.status)) throw new Error('cannot update tasks for a completed or stopped Goal');
+  if (['complete', 'stopped'].includes(goal.status))
+    throw new Error('cannot update tasks for a completed or stopped Goal');
   if (!partial && (!Array.isArray(args.tasks) || args.tasks.length === 0)) {
     throw new Error('goal set_tasks requires at least one task');
   }
   if (partial && goal.tasksObjectiveRevision !== goal.objectiveRevision) {
-    throw new Error('Goal objective changed; read status and reconcile the full task list with set_tasks before partial updates');
+    throw new Error(
+      'Goal objective changed; read status and reconcile the full task list with set_tasks before partial updates'
+    );
   }
   const previousTasks = normalizeGoalTasks(goal.tasks || []);
   const input = partial ? patchGoalTasks(previousTasks, args) : args.tasks;
-  const omitted = previousTasks.filter((task) =>
-    !GOAL_TASK_SETTLED.includes(task.status)
-    && !input.some((entry) => taskInputRetains(entry, task)));
+  const omitted = previousTasks.filter(
+    (task) => !GOAL_TASK_SETTLED.includes(task.status) && !input.some((entry) => taskInputRetains(entry, task))
+  );
   if (omitted.length > 0) {
     const detail = omitted.map((task) => `${task.id} (${task.text})`).join(', ');
     throw new Error(`cannot remove unfinished Goal tasks: ${detail}`);
@@ -122,8 +143,9 @@ export function applyGoalTaskChanges(goal, args = {}, { partial = false, at = Da
   // Re-sending the same tasks is not progress. A newly dropped task must
   // survive this turn before completion can retire the requested work.
   if (JSON.stringify(nextTasks) !== JSON.stringify(previousTasks)) goal.tasksUpdatedAt = at;
-  const droppedNow = nextTasks.some((task) => task.status === 'dropped'
-    && previousTasks.find((prev) => prev.id === task.id)?.status !== 'dropped');
+  const droppedNow = nextTasks.some(
+    (task) => task.status === 'dropped' && previousTasks.find((prev) => prev.id === task.id)?.status !== 'dropped'
+  );
   if (droppedNow) goal.lastDropTurn = Math.max(0, Math.floor(Number(goal.turnCount) || 0));
   goal.tasks = nextTasks;
   goal.tasksObjectiveRevision = goal.objectiveRevision;

@@ -1,7 +1,8 @@
 // Which pane is which (diagnosis helper for the pane-submit probe).
 (() => {
-  const areas = [...document.querySelectorAll('textarea')]
-    .filter((element) => element.closest('.pane-chat-surface') && element.getClientRects().length > 0);
+  const areas = [...document.querySelectorAll('textarea')].filter(
+    (element) => element.closest('.pane-chat-surface') && element.getClientRects().length > 0
+  );
   return areas.map((element, index) => {
     const cell = element.closest('.pane-cell');
     const leaf = element.closest('.pane-leaf');
@@ -18,4 +19,4 @@
       transcriptItems: items,
     };
   });
-})()
+})();

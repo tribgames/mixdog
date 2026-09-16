@@ -18,16 +18,18 @@ class TestTransport extends EventEmitter {
     }
     if (message.kind !== 'request') return;
     this.requests.push(message);
-    queueMicrotask(() => this.emit('message', {
-      kind: 'response',
-      id: message.id,
-      ok: true,
-      value: {
-        accepted: true,
-        sessionId: 'session_ready',
-        snapshot: { sessionId: 'session_ready', items: [], queued: [] },
-      },
-    }));
+    queueMicrotask(() =>
+      this.emit('message', {
+        kind: 'response',
+        id: message.id,
+        ok: true,
+        value: {
+          accepted: true,
+          sessionId: 'session_ready',
+          snapshot: { sessionId: 'session_ready', items: [], queued: [] },
+        },
+      })
+    );
   }
 
   async close() {}
@@ -87,11 +89,7 @@ test('an immediate mutation stays queued across a pre-ready daemon handoff', asy
   });
   const keepAlive = setTimeout(() => {}, 2_000);
   try {
-    const result = await client.submitNewTask(
-      'boot-safe prompt',
-      { id: 'desktop-submit-boot-safe' },
-      {},
-    );
+    const result = await client.submitNewTask('boot-safe prompt', { id: 'desktop-submit-boot-safe' }, {});
     assert.equal(result.accepted, true);
     assert.equal(transports.length, 2);
     assert.equal(transports[0].requests.length, 0);
@@ -126,10 +124,7 @@ test('pre-ready daemon handoff retries remain bounded by the startup timeout', a
   const keepAlive = setTimeout(() => {}, 1_000);
   try {
     const startedAt = Date.now();
-    await assert.rejects(
-      client.start(),
-      /daemon session endpoint is unavailable/,
-    );
+    await assert.rejects(client.start(), /daemon session endpoint is unavailable/);
     assert.ok(connections > 1, 'startup should retry before reaching its deadline');
     assert.ok(Date.now() - startedAt < 500, 'startup timeout must stay bounded');
   } finally {
@@ -159,7 +154,9 @@ test('a daemon replaced behind a live transport counts as a new attachment', asy
     restartMaxDelayMs: 1,
     startupTimeoutMs: 1_000,
     failureNoticeDelayMs: 1_000,
-    onServiceReady: ({ generation }) => { readyGenerations.push(generation); },
+    onServiceReady: ({ generation }) => {
+      readyGenerations.push(generation);
+    },
   });
   const keepAlive = setTimeout(() => {}, 2_000);
   try {
@@ -169,14 +166,16 @@ test('a daemon replaced behind a live transport counts as a new attachment', asy
     live.requests.length = 0;
 
     live.emit('message', { kind: 'daemon-replaced' });
-    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
 
     // A raised generation is what the host redials the relay off; the
     // renderer's registration has to reach the new process as well.
     assert.deepEqual(readyGenerations, [1, 2]);
     assert.deepEqual(
       live.requests.map((request) => request.method),
-      ['setVisibleSessions'],
+      ['setVisibleSessions']
     );
   } finally {
     clearTimeout(keepAlive);
@@ -189,8 +188,10 @@ test('overlapping desktop registrations carry increasing versions before either 
   const client = new DesktopServiceClient({
     connect: () => transport,
     sessionOptions: () => ({
-      userDataPath: 'C:/tmp/mixdog', packaged: true,
-      resourcesPath: 'C:/tmp/resources', appPath: 'C:/tmp/resources/app.asar',
+      userDataPath: 'C:/tmp/mixdog',
+      packaged: true,
+      resourcesPath: 'C:/tmp/resources',
+      appPath: 'C:/tmp/resources/app.asar',
     }),
   });
   try {
@@ -207,7 +208,9 @@ test('overlapping desktop registrations carry increasing versions before either 
     assert.equal(await current, true);
     transport.respond(a, true);
     assert.equal(await old, true);
-  } finally { await client.dispose(); }
+  } finally {
+    await client.dispose();
+  }
 });
 
 test('Local Provider asset installs outlive the ordinary desktop request deadline', async () => {
@@ -235,8 +238,12 @@ test('Local Provider asset installs outlive the ordinary desktop request deadlin
       const pending = client.invokeCapability(capability, args);
       let settled = false;
       void pending.then(
-        () => { settled = true; },
-        () => { settled = true; },
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
       );
       await new Promise((resolve) => setTimeout(resolve, 40));
       assert.equal(settled, false, `${capability} must not inherit the 20ms ordinary deadline`);

@@ -1,15 +1,9 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
 
-import type { MarkdownAstRoot } from "./markdown-ast";
-import {
-  LatestMarkdownAstQueue,
-  readCachedStreamingMarkdownAst,
-} from "./markdown-worker-client";
-import MarkdownAstBody from "./MarkdownAstBody";
-import {
-  containsFencedCodeMarkdown,
-  MarkdownSourceFallback,
-} from "./MarkdownSourceFallback";
+import type { MarkdownAstRoot } from './markdown-ast';
+import { LatestMarkdownAstQueue, readCachedStreamingMarkdownAst } from './markdown-worker-client';
+import MarkdownAstBody from './MarkdownAstBody';
+import { containsFencedCodeMarkdown, MarkdownSourceFallback } from './MarkdownSourceFallback';
 
 type MarkdownCopyControl = ComponentType<{
   value: string;
@@ -54,14 +48,13 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   // worker, so the equivalent guarantee is "the parsed source is a prefix of
   // what is on screen now" — append-only streaming keeps that true and a
   // truncation/replacement drops it back to source.
-  const usable = exact
-    ?? (rendered && text.startsWith(rendered.source) ? rendered : null);
+  const usable = exact ?? (rendered && text.startsWith(rendered.source) ? rendered : null);
   const renderedRoot = usable?.root ?? null;
   // A cold web Worker can trail the first streamed tokens by a network round
   // trip. Fenced scripts still reserve their final card/mono geometry during
   // that gap; ordinary prose stays hidden so raw Markdown markers never flash.
   const showFencedSourceFallback = !renderedRoot && containsFencedCodeMarkdown(text);
-  const fallbackMeasureText = showFencedSourceFallback ? text : "";
+  const fallbackMeasureText = showFencedSourceFallback ? text : '';
   useLayoutEffect(() => {
     if (renderedRoot || fallbackMeasureText) onRendered?.();
   }, [fallbackMeasureText, onRendered, renderedRoot]);
@@ -76,8 +69,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
         if (current?.text === parsedText) return current;
         // Results are single-flight, but never let an older parse replace a
         // newer one if one ever lands out of order.
-        if (current && current.source.length > source.length
-          && current.source.startsWith(source)) {
+        if (current && current.source.length > source.length && current.source.startsWith(source)) {
           return current;
         }
         return { text: parsedText, source, root };
@@ -143,8 +135,15 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   // `parseText` is the healed form of `text` for the live tail: the parser
   // sees closed markers while the source fallback still shows exactly what
   // the model has emitted.
-  return <ParsedMarkdownBody text={text} parseText={parseText ?? text} parse={parse}
-    copyControl={copyControl} onRendered={onRendered} />;
+  return (
+    <ParsedMarkdownBody
+      text={text}
+      parseText={parseText ?? text}
+      parse={parse}
+      copyControl={copyControl}
+      onRendered={onRendered}
+    />
+  );
 });
 
 export default StreamingMarkdownBody;

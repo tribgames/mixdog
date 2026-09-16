@@ -1,20 +1,18 @@
-import assert from "node:assert/strict";
-import test from "node:test";
-import { JSDOM } from "jsdom";
-import {
-  paneInnerDropZone,
-  paneOuterDropZone,
-} from "./pane-drop-zone.ts";
-import { resolvePaneDropIntent } from "./PaneWorkspace.tsx";
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { JSDOM } from 'jsdom';
+import { paneInnerDropZone, paneOuterDropZone } from './pane-drop-zone.ts';
+import { resolvePaneDropIntent } from './PaneWorkspace.tsx';
 
-test("pane drag commits only on drop and cancels an unfinished native drag", async () => {
-  const dom = new JSDOM("<!doctype html><html><body><div class=\"app-shell\"><div id=\"source\"></div><div id=\"target\"></div></div></body></html>");
-  const globals = ["window", "document", "Element"];
-  const previous = new Map(globals.map((key) =>
-    [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
-  Object.defineProperty(globalThis, "window", { configurable: true, value: dom.window });
-  Object.defineProperty(globalThis, "document", { configurable: true, value: dom.window.document });
-  Object.defineProperty(globalThis, "Element", { configurable: true, value: dom.window.Element });
+test('pane drag commits only on drop and cancels an unfinished native drag', async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div class="app-shell"><div id="source"></div><div id="target"></div></div></body></html>'
+  );
+  const globals = ['window', 'document', 'Element'];
+  const previous = new Map(globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+  Object.defineProperty(globalThis, 'Element', { configurable: true, value: dom.window.Element });
 
   const {
     acceptPaneDrag,
@@ -25,17 +23,21 @@ test("pane drag commits only on drop and cancels an unfinished native drag", asy
     finishPaneDrag,
     movePaneDrag,
     subscribePaneDrag,
-  } = await import("./pane-drag-session.ts");
-  const source = document.getElementById("source");
-  const target = document.getElementById("target");
+  } = await import('./pane-drag-session.ts');
+  const source = document.getElementById('source');
+  const target = document.getElementById('target');
   const frames = [];
   const unsubscribe = subscribePaneDrag((frame) => frames.push(frame));
   const data = new Map();
   const dataTransfer = {
-    effectAllowed: "none",
-    dropEffect: "none",
-    setData(type, value) { data.set(type, value); },
-    getData(type) { return data.get(type) ?? ""; },
+    effectAllowed: 'none',
+    dropEffect: 'none',
+    setData(type, value) {
+      data.set(type, value);
+    },
+    getData(type) {
+      return data.get(type) ?? '';
+    },
     setDragImage() {},
   };
   const dragEvent = (x, y, eventTarget = target) => ({
@@ -46,11 +48,11 @@ test("pane drag commits only on drop and cancels an unfinished native drag", asy
     preventDefault() {},
   });
   const session = {
-    kind: "tab",
-    key: "session:one",
-    title: "One",
-    selection: { kind: "session", id: "one", title: "One" },
-    sourceLeafId: "leaf-a",
+    kind: 'tab',
+    key: 'session:one',
+    title: 'One',
+    selection: { kind: 'session', id: 'one', title: 'One' },
+    sourceLeafId: 'leaf-a',
   };
 
   try {
@@ -58,24 +60,24 @@ test("pane drag commits only on drop and cancels an unfinished native drag", asy
     assert.equal(currentPaneDrag(), session);
     movePaneDrag(dragEvent(20, 40));
     finishPaneDrag();
-    assert.deepEqual(frames.map((frame) => frame.phase), ["move", "cancel"]);
+    assert.deepEqual(
+      frames.map((frame) => frame.phase),
+      ['move', 'cancel']
+    );
 
     frames.length = 0;
     let sourceCleanupCount = 0;
-    beginPaneDrag(
-      dragEvent(10, 10, source),
-      session,
-      source,
-      () => { sourceCleanupCount += 1; },
-    );
+    beginPaneDrag(dragEvent(10, 10, source), session, source, () => {
+      sourceCleanupCount += 1;
+    });
     movePaneDrag(dragEvent(30, 50));
     dropPaneDrag(dragEvent(15, 25, source));
     finishPaneDrag();
-    assert.deepEqual(frames.map((frame) => frame.phase), ["move", "drop"]);
     assert.deepEqual(
-      { x: frames[1].x, y: frames[1].y, target: frames[1].target },
-      { x: 15, y: 25, target: source },
+      frames.map((frame) => frame.phase),
+      ['move', 'drop']
     );
+    assert.deepEqual({ x: frames[1].x, y: frames[1].y, target: frames[1].target }, { x: 15, y: 25, target: source });
     assert.equal(sourceCleanupCount, 1);
     assert.equal(currentPaneDrag(), null);
 
@@ -86,12 +88,12 @@ test("pane drag commits only on drop and cancels an unfinished native drag", asy
     assert.equal(frames.length, 1);
     dropPaneDrag(dragEvent(0, 0, source));
     finishPaneDrag();
-    assert.deepEqual(frames.map((frame) => frame.phase), ["move", "drop"]);
-    assert.equal(frames[1].target, target);
     assert.deepEqual(
-      { x: frames[1].x, y: frames[1].y },
-      { x: 30, y: 50 },
+      frames.map((frame) => frame.phase),
+      ['move', 'drop']
     );
+    assert.equal(frames[1].target, target);
+    assert.deepEqual({ x: frames[1].x, y: frames[1].y }, { x: 30, y: 50 });
     assert.equal(currentPaneDrag(), null);
 
     frames.length = 0;
@@ -101,7 +103,10 @@ test("pane drag commits only on drop and cancels an unfinished native drag", asy
     cancelPaneDragPreview();
     assert.equal(acceptPaneDrag(), true);
     finishPaneDrag();
-    assert.deepEqual(frames.map((frame) => frame.phase), ["move", "cancel"]);
+    assert.deepEqual(
+      frames.map((frame) => frame.phase),
+      ['move', 'cancel']
+    );
   } finally {
     finishPaneDrag();
     unsubscribe();
@@ -113,7 +118,7 @@ test("pane drag commits only on drop and cancels an unfinished native drag", asy
   }
 });
 
-test("pane drop zones follow the current pointer geometry", () => {
+test('pane drop zones follow the current pointer geometry', () => {
   const rect = {
     left: 0,
     right: 400,
@@ -122,14 +127,14 @@ test("pane drop zones follow the current pointer geometry", () => {
     width: 400,
     height: 400,
   };
-  assert.equal(paneInnerDropZone(rect, 200, 110), "top");
-  assert.equal(paneInnerDropZone(rect, 200, 300), "center");
-  assert.equal(paneInnerDropZone(rect, 200, 490), "bottom");
-  assert.equal(paneOuterDropZone(rect, 200, 105), "top");
-  assert.equal(paneOuterDropZone(rect, 200, 495), "bottom");
+  assert.equal(paneInnerDropZone(rect, 200, 110), 'top');
+  assert.equal(paneInnerDropZone(rect, 200, 300), 'center');
+  assert.equal(paneInnerDropZone(rect, 200, 490), 'bottom');
+  assert.equal(paneOuterDropZone(rect, 200, 105), 'top');
+  assert.equal(paneOuterDropZone(rect, 200, 495), 'bottom');
 });
 
-test("a foreign tab strip wins over overlapping workspace edge zones", () => {
+test('a foreign tab strip wins over overlapping workspace edge zones', () => {
   const dom = new JSDOM(`<!doctype html><html><body>
     <div id="panel">
       <div id="source-pane" class="pane-leaf" data-pane-id="leaf-a" data-pane-path="0">
@@ -141,11 +146,11 @@ test("a foreign tab strip wins over overlapping workspace edge zones", () => {
       </div>
     </div>
   </body></html>`);
-  const panel = dom.window.document.getElementById("panel");
-  const sourcePane = dom.window.document.getElementById("source-pane");
-  const sourceEditor = dom.window.document.getElementById("source-editor");
-  const targetPane = dom.window.document.getElementById("target-pane");
-  const targetStrip = dom.window.document.getElementById("target-strip");
+  const panel = dom.window.document.getElementById('panel');
+  const sourcePane = dom.window.document.getElementById('source-pane');
+  const sourceEditor = dom.window.document.getElementById('source-editor');
+  const targetPane = dom.window.document.getElementById('target-pane');
+  const targetStrip = dom.window.document.getElementById('target-strip');
   const rect = (left, top, width, height) => ({
     left,
     right: left + width,
@@ -160,32 +165,32 @@ test("a foreign tab strip wins over overlapping workspace edge zones", () => {
   targetPane.getBoundingClientRect = () => rect(400, 0, 400, 600);
   targetStrip.getBoundingClientRect = () => rect(400, 0, 400, 32);
 
-  const source = { kind: "session", id: "one", title: "One" };
-  const sourceSibling = { kind: "session", id: "two", title: "Two" };
-  const target = { kind: "session", id: "three", title: "Three" };
+  const source = { kind: 'session', id: 'one', title: 'One' };
+  const sourceSibling = { kind: 'session', id: 'two', title: 'Two' };
+  const target = { kind: 'session', id: 'three', title: 'Three' };
   const current = {
     leaves: [
       {
-        type: "leaf",
-        id: "leaf-a",
+        type: 'leaf',
+        id: 'leaf-a',
         tabs: [source, sourceSibling],
-        activeKey: "session:one",
+        activeKey: 'session:one',
       },
       {
-        type: "leaf",
-        id: "leaf-b",
+        type: 'leaf',
+        id: 'leaf-b',
         tabs: [target],
-        activeKey: "session:three",
+        activeKey: 'session:three',
       },
     ],
   };
   const frame = {
-    phase: "move",
-    kind: "tab",
-    key: "session:one",
-    title: "One",
+    phase: 'move',
+    kind: 'tab',
+    key: 'session:one',
+    title: 'One',
     selection: source,
-    sourceLeafId: "leaf-a",
+    sourceLeafId: 'leaf-a',
     x: 790,
     y: 16,
     target: targetStrip,
@@ -193,32 +198,25 @@ test("a foreign tab strip wins over overlapping workspace edge zones", () => {
 
   const stripIntent = resolvePaneDropIntent(frame, current, panel);
   assert.deepEqual(stripIntent?.action, {
-    type: "move-tab",
-    sourceLeafId: "leaf-a",
-    key: "session:one",
-    targetLeafId: "leaf-b",
+    type: 'move-tab',
+    sourceLeafId: 'leaf-a',
+    key: 'session:one',
+    targetLeafId: 'leaf-b',
     insertIndex: 0,
   });
-  assert.equal(
-    resolvePaneDropIntent(
-      { ...frame, x: 200, y: 300, target: sourceEditor },
-      current,
-      panel,
-    ),
-    null,
-  );
+  assert.equal(resolvePaneDropIntent({ ...frame, x: 200, y: 300, target: sourceEditor }, current, panel), null);
   dom.window.close();
 });
 
-test("a single pane can split vertically at 700px content height", () => {
+test('a single pane can split vertically at 700px content height', () => {
   const dom = new JSDOM(`<!doctype html><html><body>
     <div id="panel">
       <div class="workspace-tabs-shell"></div>
       <div id="editor"></div>
     </div>
   </body></html>`);
-  const panel = dom.window.document.getElementById("panel");
-  const editor = dom.window.document.getElementById("editor");
+  const panel = dom.window.document.getElementById('panel');
+  const editor = dom.window.document.getElementById('editor');
   panel.getBoundingClientRect = () => ({
     left: 0,
     right: 800,
@@ -227,38 +225,39 @@ test("a single pane can split vertically at 700px content height", () => {
     width: 800,
     height: 700,
   });
-  const source = { kind: "session", id: "one", title: "One" };
+  const source = { kind: 'session', id: 'one', title: 'One' };
   const leaf = {
-    type: "leaf",
-    id: "leaf-a",
-    tabs: [
-      source,
-      { kind: "session", id: "two", title: "Two" },
-    ],
-    activeKey: "session:one",
+    type: 'leaf',
+    id: 'leaf-a',
+    tabs: [source, { kind: 'session', id: 'two', title: 'Two' }],
+    activeKey: 'session:one',
   };
 
-  const intent = resolvePaneDropIntent({
-    phase: "move",
-    kind: "tab",
-    key: "session:one",
-    title: "One",
-    selection: source,
-    sourceLeafId: "leaf-a",
-    x: 400,
-    y: 5,
-    target: editor,
-  }, {
-    layout: leaf,
-    leaves: [leaf],
-  }, panel);
+  const intent = resolvePaneDropIntent(
+    {
+      phase: 'move',
+      kind: 'tab',
+      key: 'session:one',
+      title: 'One',
+      selection: source,
+      sourceLeafId: 'leaf-a',
+      x: 400,
+      y: 5,
+      target: editor,
+    },
+    {
+      layout: leaf,
+      leaves: [leaf],
+    },
+    panel
+  );
 
   assert.deepEqual(intent?.action, {
-    type: "move-tab-to-node-edge",
-    sourceLeafId: "leaf-a",
-    key: "session:one",
-    targetPath: "",
-    zone: "top",
+    type: 'move-tab-to-node-edge',
+    sourceLeafId: 'leaf-a',
+    key: 'session:one',
+    targetPath: '',
+    zone: 'top',
   });
   dom.window.close();
 });

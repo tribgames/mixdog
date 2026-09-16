@@ -12,7 +12,10 @@ export function escapeGoalPromptText(value) {
 }
 
 const TASK_MARKS = Object.freeze({
-  completed: 'x', in_progress: '~', dropped: '-', awaiting_approval: '?',
+  completed: 'x',
+  in_progress: '~',
+  dropped: '-',
+  awaiting_approval: '?',
 });
 
 export function goalTaskLines(tasks) {
@@ -31,11 +34,9 @@ export function durationLabel(milliseconds) {
   const days = Math.floor(totalMinutes / (24 * 60));
   const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
   const minutes = totalMinutes % 60;
-  return [
-    days ? `${days}d` : '',
-    hours ? `${hours}h` : '',
-    minutes || (!days && !hours) ? `${minutes}m` : '',
-  ].filter(Boolean).join(' ');
+  return [days ? `${days}d` : '', hours ? `${hours}h` : '', minutes || (!days && !hours) ? `${minutes}m` : '']
+    .filter(Boolean)
+    .join(' ');
 }
 
 // Both recovery and idle continuation carry the same timing facts. Exact
@@ -45,7 +46,9 @@ export function goalTimeLines(goal) {
   const elapsed = Math.max(0, Number(goal?.timeUsedMs) || 0);
   const label = (ms) => `${durationLabel(ms)} (${ms} ms)`;
   return [
-    limit > 0 ? `${goal?.timeMode === 'max' ? 'Maximum time budget' : 'Requested duration'}: ${label(limit)}` : 'Duration: none',
+    limit > 0
+      ? `${goal?.timeMode === 'max' ? 'Maximum time budget' : 'Requested duration'}: ${label(limit)}`
+      : 'Duration: none',
     `Time elapsed: ${label(elapsed)}`,
     ...(limit > 0 ? [`Time remaining: ${label(Math.max(0, limit - elapsed))}`] : []),
   ];
@@ -70,7 +73,7 @@ export function continuationPrompt(goal) {
     taskList,
     '',
     'Rules:',
-    '- The user\'s completion conditions decide everything: the objective, what it references, and explicit user instructions. The task list records them; it never replaces them.',
+    "- The user's completion conditions decide everything: the objective, what it references, and explicit user instructions. The task list records them; it never replaces them.",
     '- A turn may end while this Goal remains active. Report that turn as progress, not as completion of the whole objective; ending a turn does not complete the Goal.',
     '- Preserve the full objective and scope; use current files and external state rather than prior narration. Never redefine success around a smaller, easier, or already-finished subset.',
     '- Finish every approved task without stepwise approval. Record user additions, park new approval-dependent work, and continue unaffected approved work; routine errors and retries are not reasons to stop.',
@@ -98,9 +101,7 @@ export function goalDeadlineWarning(goal) {
   return [
     '<system-reminder>',
     '<goal_deadline>',
-    goal.timeMode === 'max'
-      ? 'The maximum time budget is nearly spent.'
-      : 'The requested duration is nearly over.',
+    goal.timeMode === 'max' ? 'The maximum time budget is nearly spent.' : 'The requested duration is nearly over.',
     'This is advance notice only: the Goal is still active. Prioritize bounded approved work and the verification needed to close out; do not start work that cannot reasonably finish within the remaining budget.',
     goal.timeMode === 'max'
       ? 'This is an upper bound, not a minimum duration. Complete a fully verified objective without waiting for the remaining budget.'
@@ -155,27 +156,32 @@ export function goalStateReminder(goal, { reason = '' } = {}) {
   const { tasksCompleted, tasksTotal } = goalTaskProgress(tasks);
   // Event-specific steering: what the model could not have learned from its own
   // tool results. Standing rules stay in the cached tool description.
-  const lead = reason === 'compaction'
-    ? 'Context was compacted, so this Goal\'s earlier tool results are no longer in context. Current durable snapshot:'
-    : reason === 'objective-updated'
-      ? 'The user changed this Goal\'s objective. Re-align the durable tasks to the objective below before continuing.'
-      : 'Current durable Goal snapshot:';
+  const lead =
+    reason === 'compaction'
+      ? "Context was compacted, so this Goal's earlier tool results are no longer in context. Current durable snapshot:"
+      : reason === 'objective-updated'
+        ? "The user changed this Goal's objective. Re-align the durable tasks to the objective below before continuing."
+        : 'Current durable Goal snapshot:';
   return [
     '<system-reminder>',
     '<goal_state>',
     lead,
-    ...(goal.status === 'paused' ? [
-      goal.pauseReason === 'waiting'
-        ? 'Waiting for a user answer. Resume with task changes only when that answer permits approved work to continue.'
-        : 'The user paused this Goal. Do not resume for bookkeeping, notifications, or unrelated questions; resume only when the user asks to continue.',
-    ] : []),
+    ...(goal.status === 'paused'
+      ? [
+          goal.pauseReason === 'waiting'
+            ? 'Waiting for a user answer. Resume with task changes only when that answer permits approved work to continue.'
+            : 'The user paused this Goal. Do not resume for bookkeeping, notifications, or unrelated questions; resume only when the user asks to continue.',
+        ]
+      : []),
     '',
     `Objective: ${escapeGoalPromptText(goal.objective)}`,
     `Status: ${escapeGoalPromptText(goal.status)} · tasks ${tasksCompleted}/${tasksTotal}`,
     ...(goal.blocker ? [`Waiting or stop reason: ${escapeGoalPromptText(goal.blocker)}`] : []),
     ...(goal.revision ? [`Revision: ${goal.revision}`] : []),
     ...goalTimeLines(goal),
-    ...(goal.needsTaskReview ? ['The objective changed; reconcile the full task list with set_tasks before continuing.'] : []),
+    ...(goal.needsTaskReview
+      ? ['The objective changed; reconcile the full task list with set_tasks before continuing.']
+      : []),
     '',
     'Durable tasks:',
     ...goalTaskLines(tasks),

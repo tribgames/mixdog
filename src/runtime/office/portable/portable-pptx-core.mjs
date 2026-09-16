@@ -1,7 +1,17 @@
 import { join } from 'node:path';
 import { backgroundXml, shapeXml, solidFillXml, toEmu } from './portable-slide-shapes.mjs';
 import { partRelationshipPath, relationshipTarget, zipText } from './portable-opc.mjs';
-import { containerBody, containerInner, elementSpans, rebuildTextNodes, textNodes, topLevelElements, xmlAttribute, xmlDecode, xmlEncode } from './portable-xml.mjs';
+import {
+  containerBody,
+  containerInner,
+  elementSpans,
+  rebuildTextNodes,
+  textNodes,
+  topLevelElements,
+  xmlAttribute,
+  xmlDecode,
+  xmlEncode,
+} from './portable-xml.mjs';
 import { presentationSlides } from './portable-pptx-package.mjs';
 import { shapeIdentity } from './pptx-relations.mjs';
 
@@ -23,37 +33,33 @@ export function balancedInner(xml, from, tag) {
   return null;
 }
 
-
-
-
 export const DEFAULT_TEXT_INSETS = Object.freeze({ left: 7.2, top: 3.6, right: 7.2, bottom: 3.6 });
 
 // A painted plane covers a box when the box sits inside it (a point of slack for EMU rounding).
 function coversBounds(entry, bounds) {
-  return entry.left <= bounds.left + 1
-    && entry.top <= bounds.top + 1
-    && entry.left + entry.width >= bounds.left + bounds.width - 1
-    && entry.top + entry.height >= bounds.top + bounds.height - 1;
+  return (
+    entry.left <= bounds.left + 1 &&
+    entry.top <= bounds.top + 1 &&
+    entry.left + entry.width >= bounds.left + bounds.width - 1 &&
+    entry.top + entry.height >= bounds.top + bounds.height - 1
+  );
 }
 
 // The color a translucent fill shows: fg at alpha (0-1) over bg, per channel.
 export function blendHex(fg, bg, alpha) {
   const channel = (hex, at) => Number.parseInt(hex.slice(at, at + 2), 16);
-  return [0, 2, 4].map((at) => Math.round(alpha * channel(fg, at) + (1 - alpha) * channel(bg, at)))
-    .map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0')).join('').toUpperCase();
+  return [0, 2, 4]
+    .map((at) => Math.round(alpha * channel(fg, at) + (1 - alpha) * channel(bg, at)))
+    .map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase();
 }
-
-
-
-
 
 export function shapeParagraphs(shapeXml) {
   const paragraphs = [];
   for (const match of shapeXml.matchAll(/<a:p>[\s\S]*?<\/a:p>/g)) {
     const block = match[0];
-    const text = [...block.matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g)]
-      .map((node) => xmlDecode(node[1]))
-      .join('');
+    const text = [...block.matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g)].map((node) => xmlDecode(node[1])).join('');
     const runElement = /<a:rPr\b[^>]*?(?:\/>|>[\s\S]*?<\/a:rPr>)/.exec(block)?.[0] || '';
     const runProperties = /^<a:rPr\b([^>]*?)(?:\/>|>)/.exec(runElement)?.[1] || '';
     const size = Number(xmlAttribute(runProperties, 'sz'));
@@ -79,10 +85,6 @@ export function shapeParagraphs(shapeXml) {
   }
   return paragraphs;
 }
-
-
-
-
 
 function backgroundBlock(xml) {
   return /<p:bg\b[^>]*>([\s\S]*?)<\/p:bg>/.exec(xml || '')?.[1] || '';
@@ -111,9 +113,11 @@ async function themeBackgroundColor(zip, masterPart, token) {
   const theme = themePart ? await zipText(zip, themePart) : '';
   const scheme = /<a:clrScheme\b[^>]*>([\s\S]*?)<\/a:clrScheme>/.exec(theme || '')?.[1] || '';
   const entry = new RegExp(`<a:${mapped}\\b[^>]*>([\\s\\S]*?)</a:${mapped}>`).exec(scheme)?.[1] || '';
-  return /<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/.exec(entry)?.[1]
-    || /<a:sysClr\b[^>]*\blastClr="([0-9A-Fa-f]{6})"/.exec(entry)?.[1]
-    || '';
+  return (
+    /<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/.exec(entry)?.[1] ||
+    /<a:sysClr\b[^>]*\blastClr="([0-9A-Fa-f]{6})"/.exec(entry)?.[1] ||
+    ''
+  );
 }
 
 /** The field a reader actually sees behind a slide's text: the slide's own
@@ -177,20 +181,27 @@ export async function inspectPptxTextBoxes(zip) {
       }
       // A gradient plane reads as its first stop: the kit puts the text on that side (a scrim's dark edge).
       const shapeProperties = containerInner(shape.xml, 'p:spPr')?.inner || '';
-      const solid = /<a:solidFill><a:srgbClr val="([0-9A-Fa-f]{6})"(?:\/>|>([\s\S]*?)<\/a:srgbClr>)/.exec(shapeProperties);
-      let ownFill = /<a:gradFill\b[\s\S]*?<a:gs\b[^>]*><a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(shapeProperties)?.[1]
-        || solid?.[1] || '';
+      const solid = /<a:solidFill><a:srgbClr val="([0-9A-Fa-f]{6})"(?:\/>|>([\s\S]*?)<\/a:srgbClr>)/.exec(
+        shapeProperties
+      );
+      let ownFill =
+        /<a:gradFill\b[\s\S]*?<a:gs\b[^>]*><a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(shapeProperties)?.[1] ||
+        solid?.[1] ||
+        '';
       // A translucent plane (a venn set, a wash) is the color a reader sees: its fill blended by its alpha over
       // whatever it covers; reading the fill opaque reports contrast against a color that is not on the page.
-      const alpha = solid && ownFill === solid[1] ? Number(/<a:alpha val="(\d+)"/.exec(solid[2] || '')?.[1] ?? 100_000) / 100_000 : 1;
+      const alpha =
+        solid && ownFill === solid[1]
+          ? Number(/<a:alpha val="(\d+)"/.exec(solid[2] || '')?.[1] ?? 100_000) / 100_000
+          : 1;
       if (ownFill && alpha < 1) {
         const under = [...painted].reverse().find((entry) => coversBounds(entry, bounds))?.color || slideBackground;
         if (under) ownFill = blendHex(ownFill, under, alpha);
       }
       if (ownFill) painted.push({ ...bounds, color: ownFill });
       const paragraphs = shapeParagraphs(shape.xml);
-      const hasText = Boolean(paragraphs?.length)
-        && paragraphs.some((paragraph) => String(paragraph.text || '').trim());
+      const hasText =
+        Boolean(paragraphs?.length) && paragraphs.some((paragraph) => String(paragraph.text || '').trim());
       if (ownFill || hasText) {
         content.push({ slide: index + 1, shape: shapeIndex + 1, kind: 'p:sp', ...bounds });
       }
@@ -229,10 +240,6 @@ export async function inspectPptxTextBoxes(zip) {
   };
 }
 
-
-
-
-
 function setTableCellText(cell, text) {
   const value = String(text ?? '');
   const nodes = textNodes(cell, 'a:t');
@@ -241,8 +248,9 @@ function setTableCellText(cell, text) {
     for (let index = 1; index < nodes.length; index += 1) nodes[index].text = '';
     return rebuildTextNodes(cell, 'a:t', nodes);
   }
-  const run = `<a:r><a:rPr lang="en-US" dirty="0"/>`
-    + `<a:t${/^\s|\s$/.test(value) ? ' xml:space="preserve"' : ''}>${xmlEncode(value)}</a:t></a:r>`;
+  const run =
+    `<a:r><a:rPr lang="en-US" dirty="0"/>` +
+    `<a:t${/^\s|\s$/.test(value) ? ' xml:space="preserve"' : ''}>${xmlEncode(value)}</a:t></a:r>`;
   const paragraph = /<a:p(?:\s[^>]*)?>[\s\S]*?<\/a:p>/.exec(cell);
   if (paragraph) {
     const replaced = paragraph[0].replace(/<\/a:p>$/, `${run}</a:p>`);
@@ -251,10 +259,6 @@ function setTableCellText(cell, text) {
   if (!/<\/a:txBody>/.test(cell)) throw new Error('PPTX table cell has no text body');
   return cell.replace('</a:txBody>', `<a:p>${run}</a:p></a:txBody>`);
 }
-
-
-
-
 
 export function setTableValues(shapeXml, values) {
   const table = containerInner(shapeXml, 'a:tbl');
@@ -296,10 +300,6 @@ export function setTableValues(shapeXml, values) {
   };
 }
 
-
-
-
-
 export function shapeFrame(shapeXml) {
   const offset = /<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/.exec(shapeXml);
   const extent = /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(shapeXml);
@@ -312,10 +312,6 @@ export function shapeFrame(shapeXml) {
   };
 }
 
-
-
-
-
 export async function presentationSlideSize(zip) {
   const presentation = await zipText(zip, 'ppt/presentation.xml');
   const size = /<p:sldSz\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(presentation);
@@ -324,10 +320,6 @@ export async function presentationSlideSize(zip) {
     height: size ? Number(size[2]) / 12_700 : 540,
   };
 }
-
-
-
-
 
 export function selectedShapeSpans(tree, numbers) {
   const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
@@ -340,26 +332,14 @@ export function selectedShapeSpans(tree, numbers) {
   return { shapes, selected };
 }
 
-
-
-
-
 export function writeShapeTree(slideXml, tree, shapes) {
   return `${slideXml.slice(0, tree.start)}${shapes.join('')}${slideXml.slice(tree.end)}`;
 }
-
-
-
-
 
 export function appendSlideShape(xml, shape) {
   if (!/<\/p:spTree>/.test(xml)) throw new Error('PPTX slide shape tree is missing');
   return xml.replace('</p:spTree>', `${shape}</p:spTree>`);
 }
-
-
-
-
 
 export function setSlideBackground(xml, color) {
   const background = backgroundXml(color);
@@ -372,10 +352,6 @@ export function setSlideBackground(xml, color) {
   const position = common.index + common[0].length;
   return `${xml.slice(0, position)}${background}${xml.slice(position)}`;
 }
-
-
-
-
 
 export function updateShapeGeometry(shape, properties) {
   let next = shape;
@@ -393,14 +369,16 @@ export function updateShapeGeometry(shape, properties) {
     const current = /<a:xfrm\b[^>]*?(?:\/>|>[\s\S]*?<\/a:xfrm>)/.exec(next);
     const offset = current ? /<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/.exec(current[0]) : null;
     const extent = current ? /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(current[0]) : null;
-    const rotation = properties.rotation != null
-      ? Math.round(Number(properties.rotation) * 60_000)
-      : Number(current ? xmlAttribute(current[0], 'rot') : 0) || 0;
-    const frame = `<a:xfrm${rotation ? ` rot="${rotation}"` : ''}>`
-      + `<a:off x="${properties.left != null ? toEmu(properties.left) : Number(offset?.[1] || 0)}"`
-      + ` y="${properties.top != null ? toEmu(properties.top) : Number(offset?.[2] || 0)}"/>`
-      + `<a:ext cx="${properties.width != null ? toEmu(properties.width) : Number(extent?.[1] || 1)}"`
-      + ` cy="${properties.height != null ? toEmu(properties.height) : Number(extent?.[2] || 1)}"/></a:xfrm>`;
+    const rotation =
+      properties.rotation != null
+        ? Math.round(Number(properties.rotation) * 60_000)
+        : Number(current ? xmlAttribute(current[0], 'rot') : 0) || 0;
+    const frame =
+      `<a:xfrm${rotation ? ` rot="${rotation}"` : ''}>` +
+      `<a:off x="${properties.left != null ? toEmu(properties.left) : Number(offset?.[1] || 0)}"` +
+      ` y="${properties.top != null ? toEmu(properties.top) : Number(offset?.[2] || 0)}"/>` +
+      `<a:ext cx="${properties.width != null ? toEmu(properties.width) : Number(extent?.[1] || 1)}"` +
+      ` cy="${properties.height != null ? toEmu(properties.height) : Number(extent?.[2] || 1)}"/></a:xfrm>`;
     next = current
       ? `${next.slice(0, current.index)}${frame}${next.slice(current.index + current[0].length)}`
       : next.replace(/<p:spPr(?:\s[^>]*)?>/, `$&${frame}`);
@@ -420,10 +398,6 @@ export function updateShapeGeometry(shape, properties) {
   }
   return next;
 }
-
-
-
-
 
 export function nextShapeId(xml) {
   const ids = [...xml.matchAll(/\bcNvPr\s+id="(\d+)"/g)].map((match) => Number(match[1]));

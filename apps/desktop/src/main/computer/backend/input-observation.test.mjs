@@ -7,11 +7,15 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import { MIXDOG_HOST_CSHARP } from './native-source.ts';
 
-test('native input ledger uses event origin, retains physical intervention, and handles tick wrap', { skip: process.platform !== 'win32' }, async () => {
+test('native input ledger uses event origin, retains physical intervention, and handles tick wrap', {
+  skip: process.platform !== 'win32',
+}, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-input-ledger-'));
   try {
     await writeFile(join(directory, 'native.cs'), MIXDOG_HOST_CSHARP);
-    await writeFile(join(directory, 'test.ps1'), String.raw`
+    await writeFile(
+      join(directory, 'test.ps1'),
+      String.raw`
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing
@@ -39,10 +43,19 @@ if ($start.x -ne -1200 -or $start.y -ne -300) { throw 'physical motion start mis
 if ($middle.x -le $start.x -or $middle.x -ge $end.x) { throw 'physical motion has no intermediate travel' }
 if ($end.x -ne 3100 -or $end.y -ne 1050) { throw 'physical motion endpoint mismatch' }
 [Console]::WriteLine('ledger passed')
-`);
-    const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')], {
-      windowsHide: true, timeout: 30_000, env: { ...process.env, AUDIT_DIRECTORY: directory },
-    });
+`
+    );
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
+      {
+        windowsHide: true,
+        timeout: 30_000,
+        env: { ...process.env, AUDIT_DIRECTORY: directory },
+      }
+    );
     assert.equal(stdout.trim(), 'ledger passed');
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

@@ -27,11 +27,16 @@ export async function probeMouseDispatch(guest: WebContents, progress: (message:
       const started = Date.now();
       if (mode === 'frame') {
         const captured = await Promise.race([
-          guest.debugger.sendCommand('Page.captureScreenshot', {
-            format: 'jpeg', quality: 1, fromSurface: true, captureBeyondViewport: true,
-            clip: { x: 0, y: 0, width: 1, height: 1, scale: 1 },
-          }).then(() => true),
-          new Promise(resolve => {
+          guest.debugger
+            .sendCommand('Page.captureScreenshot', {
+              format: 'jpeg',
+              quality: 1,
+              fromSurface: true,
+              captureBeyondViewport: true,
+              clip: { x: 0, y: 0, width: 1, height: 1, scale: 1 },
+            })
+            .then(() => true),
+          new Promise((resolve) => {
             const timer = setTimeout(() => resolve(false), 3000);
             timer.unref();
           }),
@@ -43,11 +48,18 @@ export async function probeMouseDispatch(guest: WebContents, progress: (message:
       }
       const dispatched = Date.now();
       if (mode === 'native') {
-        guest.sendInputEvent({ type: 'mouseMove',
-          x: Math.round(x * guest.getZoomFactor()), y: Math.round(350 * guest.getZoomFactor()) });
+        guest.sendInputEvent({
+          type: 'mouseMove',
+          x: Math.round(x * guest.getZoomFactor()),
+          y: Math.round(350 * guest.getZoomFactor()),
+        });
       } else {
         await guest.debugger.sendCommand('Input.dispatchMouseEvent', {
-          type: 'mouseMoved', x, y: 350, button: 'none', buttons: 0,
+          type: 'mouseMoved',
+          x,
+          y: 350,
+          button: 'none',
+          buttons: 0,
         });
       }
       const event = await guest.executeJavaScript(`Promise.race([
@@ -56,8 +68,13 @@ export async function probeMouseDispatch(guest: WebContents, progress: (message:
       ])`);
       assert.equal(owner.isVisible(), visible);
       assert.equal(BrowserWindow.getFocusedWindow()?.id, focused);
-      samples.push({ mode, totalMs: Date.now() - started, dispatchMs: Date.now() - dispatched,
-        delivered: Boolean(event?.trusted), eventMs: event ? event.at - started : null });
+      samples.push({
+        mode,
+        totalMs: Date.now() - started,
+        dispatchMs: Date.now() - dispatched,
+        delivered: Boolean(event?.trusted),
+        eventMs: event ? event.at - started : null,
+      });
       progress(`mouse dispatch sample ${JSON.stringify(samples.at(-1))}`);
     }
     progress(`mouse dispatch comparison ${JSON.stringify(samples)}`);

@@ -59,14 +59,24 @@ export function toEmu(points, fallback = 0) {
 }
 
 function normalizeHex(value) {
-  const raw = String(value ?? '').trim().replace(/^#/, '').toUpperCase();
+  const raw = String(value ?? '')
+    .trim()
+    .replace(/^#/, '')
+    .toUpperCase();
   if (/^[0-9A-F]{6}$/.test(raw)) return raw;
-  if (/^[0-9A-F]{3}$/.test(raw)) return raw.split('').map((digit) => `${digit}${digit}`).join('');
+  if (/^[0-9A-F]{3}$/.test(raw))
+    return raw
+      .split('')
+      .map((digit) => `${digit}${digit}`)
+      .join('');
   return '';
 }
 
 export function resolveGeometry(shapeType) {
-  const key = String(shapeType || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const key = String(shapeType || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
   return GEOMETRY[key] || '';
 }
 
@@ -78,9 +88,10 @@ function solidFill(color, transparency) {
   const hex = normalizeHex(color);
   if (!hex) return '';
   const alpha = Number(transparency);
-  const modifier = Number.isFinite(alpha) && alpha > 0
-    ? `<a:alpha val="${Math.round(Math.max(0, Math.min(100, 100 - alpha)) * 1000)}"/>`
-    : '';
+  const modifier =
+    Number.isFinite(alpha) && alpha > 0
+      ? `<a:alpha val="${Math.round(Math.max(0, Math.min(100, 100 - alpha)) * 1000)}"/>`
+      : '';
   return `<a:solidFill><a:srgbClr val="${hex}">${modifier}</a:srgbClr></a:solidFill>`;
 }
 
@@ -88,8 +99,10 @@ function outline(properties) {
   const color = normalizeHex(properties.lineColor);
   if (!color) return properties.lineColor === null ? '<a:ln><a:noFill/></a:ln>' : '';
   const width = Number(properties.lineWidth);
-  return `<a:ln${Number.isFinite(width) && width > 0 ? ` w="${toEmu(width)}"` : ''}>`
-    + `${solidFill(color, properties.lineTransparency)}</a:ln>`;
+  return (
+    `<a:ln${Number.isFinite(width) && width > 0 ? ` w="${toEmu(width)}"` : ''}>` +
+    `${solidFill(color, properties.lineTransparency)}</a:ln>`
+  );
 }
 
 function runProperties(source, defaults) {
@@ -98,13 +111,17 @@ function runProperties(source, defaults) {
   const color = normalizeHex(source.color ?? defaults.color);
   const bold = source.bold ?? defaults.bold;
   const italic = source.italic ?? defaults.italic;
-  const attributes = ' lang="en-US"'
-    + (Number.isFinite(size) && size > 0 ? ` sz="${Math.round(size * 100)}"` : '')
-    + (bold === true ? ' b="1"' : '')
-    + (italic === true ? ' i="1"' : '')
-    + ' dirty="0"';
-  const children = `${color ? solidFill(color) : ''}`
-    + (name ? `<a:latin typeface="${xmlEncode(name)}"/><a:ea typeface="${xmlEncode(name)}"/><a:cs typeface="${xmlEncode(name)}"/>` : '');
+  const attributes =
+    ' lang="en-US"' +
+    (Number.isFinite(size) && size > 0 ? ` sz="${Math.round(size * 100)}"` : '') +
+    (bold === true ? ' b="1"' : '') +
+    (italic === true ? ' i="1"' : '') +
+    ' dirty="0"';
+  const children =
+    `${color ? solidFill(color) : ''}` +
+    (name
+      ? `<a:latin typeface="${xmlEncode(name)}"/><a:ea typeface="${xmlEncode(name)}"/><a:cs typeface="${xmlEncode(name)}"/>`
+      : '');
   return { attributes, children };
 }
 
@@ -114,19 +131,20 @@ function paragraphXml(paragraph, defaults) {
   const spacing = Number(paragraph.paragraphSpacing ?? defaults.paragraphSpacing);
   const bulleted = paragraph.bullet === true;
   const indent = bulleted ? Math.round(2.2 * EMU_PER_POINT * 10) : 0;
-  const properties = `<a:pPr${level ? ` lvl="${level}"` : ''}`
-    + `${bulleted ? ` marL="${indent}" indent="${-indent}"` : ' marL="0" indent="0"'}`
-    + `${align ? ` algn="${align}"` : ''}>`
-    + (Number.isFinite(spacing) && spacing > 0 ? `<a:spcBef><a:spcPts val="${Math.round(spacing * 100)}"/></a:spcBef>` : '')
-    + (bulleted
-      ? '<a:buFont typeface="Arial"/><a:buChar char="&#8226;"/>'
-      : '<a:buNone/>')
-    + '</a:pPr>';
+  const properties =
+    `<a:pPr${level ? ` lvl="${level}"` : ''}` +
+    `${bulleted ? ` marL="${indent}" indent="${-indent}"` : ' marL="0" indent="0"'}` +
+    `${align ? ` algn="${align}"` : ''}>` +
+    (Number.isFinite(spacing) && spacing > 0
+      ? `<a:spcBef><a:spcPts val="${Math.round(spacing * 100)}"/></a:spcBef>`
+      : '') +
+    (bulleted ? '<a:buFont typeface="Arial"/><a:buChar char="&#8226;"/>' : '<a:buNone/>') +
+    '</a:pPr>';
   const text = String(paragraph.text ?? '');
   const run = runProperties(paragraph, defaults);
   const body = text
-    ? `<a:r><a:rPr${run.attributes}>${run.children}</a:rPr>`
-      + `<a:t${/^\s|\s$/.test(text) ? ' xml:space="preserve"' : ''}>${xmlEncode(text)}</a:t></a:r>`
+    ? `<a:r><a:rPr${run.attributes}>${run.children}</a:rPr>` +
+      `<a:t${/^\s|\s$/.test(text) ? ' xml:space="preserve"' : ''}>${xmlEncode(text)}</a:t></a:r>`
     : `<a:endParaRPr${run.attributes}>${run.children}</a:endParaRPr>`;
   return `<a:p>${properties}${body}</a:p>`;
 }
@@ -147,23 +165,23 @@ export function textBodyXml({
       return ` ${['lIns', 'tIns', 'rIns', 'bIns'][index]}="${toEmu(value)}"`;
     })
     .join('');
-  const fit = autofit === 'shrink'
-    ? '<a:normAutofit/>'
-    : autofit === 'resize'
-      ? '<a:spAutoFit/>'
-      : '<a:noAutofit/>';
+  const fit = autofit === 'shrink' ? '<a:normAutofit/>' : autofit === 'resize' ? '<a:spAutoFit/>' : '<a:noAutofit/>';
   const body = paragraphs.length
     ? paragraphs.map((paragraph) => paragraphXml(paragraph, defaults)).join('')
     : paragraphXml({ text: '' }, defaults);
-  return `<a:bodyPr wrap="${wrap ? 'square' : 'none'}"${inset}${anchorValue ? ` anchor="${anchorValue}"` : ''}>${fit}</a:bodyPr>`
-    + `<a:lstStyle/>${body}`;
+  return (
+    `<a:bodyPr wrap="${wrap ? 'square' : 'none'}"${inset}${anchorValue ? ` anchor="${anchorValue}"` : ''}>${fit}</a:bodyPr>` +
+    `<a:lstStyle/>${body}`
+  );
 }
 
 function frame(left, top, width, height, rotation) {
   const angle = Number(rotation);
-  return `<a:xfrm${Number.isFinite(angle) && angle ? ` rot="${Math.round(angle * 60_000)}"` : ''}>`
-    + `<a:off x="${toEmu(left)}" y="${toEmu(top)}"/>`
-    + `<a:ext cx="${Math.max(1, toEmu(width))}" cy="${Math.max(1, toEmu(height))}"/></a:xfrm>`;
+  return (
+    `<a:xfrm${Number.isFinite(angle) && angle ? ` rot="${Math.round(angle * 60_000)}"` : ''}>` +
+    `<a:off x="${toEmu(left)}" y="${toEmu(top)}"/>` +
+    `<a:ext cx="${Math.max(1, toEmu(width))}" cy="${Math.max(1, toEmu(height))}"/></a:xfrm>`
+  );
 }
 
 export function shapeXml({
@@ -180,14 +198,18 @@ export function shapeXml({
 }) {
   const fill = Object.hasOwn(properties, 'fillColor')
     ? solidFill(properties.fillColor, properties.fillTransparency) || '<a:noFill/>'
-    : (textBox ? '<a:noFill/>' : '');
+    : textBox
+      ? '<a:noFill/>'
+      : '';
   const line = outline(properties) || (textBox ? '<a:ln><a:noFill/></a:ln>' : '');
-  return `<p:sp><p:nvSpPr>`
-    + `<p:cNvPr id="${id}" name="${xmlEncode(name || `Shape ${id}`)}"/>`
-    + `<p:cNvSpPr${textBox ? ' txBox="1"' : ''}/><p:nvPr/></p:nvSpPr>`
-    + `<p:spPr>${frame(left, top, width, height, properties.rotation)}`
-    + `<a:prstGeom prst="${geometry}"><a:avLst/></a:prstGeom>${fill}${line}</p:spPr>`
-    + `<p:txBody>${textBody}</p:txBody></p:sp>`;
+  return (
+    `<p:sp><p:nvSpPr>` +
+    `<p:cNvPr id="${id}" name="${xmlEncode(name || `Shape ${id}`)}"/>` +
+    `<p:cNvSpPr${textBox ? ' txBox="1"' : ''}/><p:nvPr/></p:nvSpPr>` +
+    `<p:spPr>${frame(left, top, width, height, properties.rotation)}` +
+    `<a:prstGeom prst="${geometry}"><a:avLst/></a:prstGeom>${fill}${line}</p:spPr>` +
+    `<p:txBody>${textBody}</p:txBody></p:sp>`
+  );
 }
 
 function cropRectXml(crop) {
@@ -213,12 +235,14 @@ export function pictureXml({
   crop = null,
   altText = '',
 }) {
-  return '<p:pic><p:nvPicPr>'
-    + `<p:cNvPr id="${id}" name="${xmlEncode(name || `Picture ${id}`)}"${altText ? ` descr="${xmlEncode(altText)}"` : ''}/>`
-    + '<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>'
-    + `<p:blipFill><a:blip r:embed="${embedId}"/>${cropRectXml(crop)}<a:stretch><a:fillRect/></a:stretch></p:blipFill>`
-    + `<p:spPr>${frame(left, top, width, height)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>`
-    + '</p:pic>';
+  return (
+    '<p:pic><p:nvPicPr>' +
+    `<p:cNvPr id="${id}" name="${xmlEncode(name || `Picture ${id}`)}"${altText ? ` descr="${xmlEncode(altText)}"` : ''}/>` +
+    '<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>' +
+    `<p:blipFill><a:blip r:embed="${embedId}"/>${cropRectXml(crop)}<a:stretch><a:fillRect/></a:stretch></p:blipFill>` +
+    `<p:spPr>${frame(left, top, width, height)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>` +
+    '</p:pic>'
+  );
 }
 
 export function tableXml({
@@ -241,38 +265,41 @@ export function tableXml({
   const grid = Array.from({ length: columns }, () => `<a:gridCol w="${columnWidth}"/>`).join('');
   const headerFill = normalizeHex(properties.headerFillColor);
   const bodyFill = normalizeHex(properties.bodyFillColor);
-  const body = rows.map((row, rowIndex) => {
-    const header = rowIndex === 0;
-    const rowHeight = header
-      ? headerHeight || bodyHeight
-      : bodyHeight || headerHeight;
-    const cells = Array.from({ length: columns }, (_, columnIndex) => {
-      const defaults = {
-        fontName: properties.fontName,
-        fontSize: properties.fontSize,
-        color: header ? (properties.headerColor ?? properties.color) : properties.color,
-        bold: header ? true : properties.bold,
-      };
-      const text = textBodyXml({
-        paragraphs: [{ text: row[columnIndex] ?? '', align: header ? 'left' : properties.align }],
-        defaults,
-        anchor: 'center',
-        margins: { marginLeft: 7, marginRight: 7, marginTop: 3, marginBottom: 3 },
-      });
-      const fill = header ? headerFill : bodyFill;
-      return `<a:tc><a:txBody>${text}</a:txBody>`
-        + `<a:tcPr anchor="ctr">${fill ? solidFill(fill) : ''}</a:tcPr></a:tc>`;
-    }).join('');
-    return `<a:tr h="${rowHeight ? toEmu(rowHeight) : Math.round(toEmu(height) / rows.length)}">${cells}</a:tr>`;
-  }).join('');
-  return '<p:graphicFrame><p:nvGraphicFramePr>'
-    + `<p:cNvPr id="${id}" name="${xmlEncode(name || `Table ${id}`)}"/>`
-    + '<p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>'
-    + `<p:xfrm><a:off x="${toEmu(left)}" y="${toEmu(top)}"/>`
-    + `<a:ext cx="${Math.max(1, toEmu(width))}" cy="${Math.max(1, toEmu(height))}"/></p:xfrm>`
-    + '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">'
-    + `<a:tbl><a:tblPr firstRow="1" bandRow="1"/><a:tblGrid>${grid}</a:tblGrid>${body}</a:tbl>`
-    + '</a:graphicData></a:graphic></p:graphicFrame>';
+  const body = rows
+    .map((row, rowIndex) => {
+      const header = rowIndex === 0;
+      const rowHeight = header ? headerHeight || bodyHeight : bodyHeight || headerHeight;
+      const cells = Array.from({ length: columns }, (_, columnIndex) => {
+        const defaults = {
+          fontName: properties.fontName,
+          fontSize: properties.fontSize,
+          color: header ? (properties.headerColor ?? properties.color) : properties.color,
+          bold: header ? true : properties.bold,
+        };
+        const text = textBodyXml({
+          paragraphs: [{ text: row[columnIndex] ?? '', align: header ? 'left' : properties.align }],
+          defaults,
+          anchor: 'center',
+          margins: { marginLeft: 7, marginRight: 7, marginTop: 3, marginBottom: 3 },
+        });
+        const fill = header ? headerFill : bodyFill;
+        return (
+          `<a:tc><a:txBody>${text}</a:txBody>` + `<a:tcPr anchor="ctr">${fill ? solidFill(fill) : ''}</a:tcPr></a:tc>`
+        );
+      }).join('');
+      return `<a:tr h="${rowHeight ? toEmu(rowHeight) : Math.round(toEmu(height) / rows.length)}">${cells}</a:tr>`;
+    })
+    .join('');
+  return (
+    '<p:graphicFrame><p:nvGraphicFramePr>' +
+    `<p:cNvPr id="${id}" name="${xmlEncode(name || `Table ${id}`)}"/>` +
+    '<p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>' +
+    `<p:xfrm><a:off x="${toEmu(left)}" y="${toEmu(top)}"/>` +
+    `<a:ext cx="${Math.max(1, toEmu(width))}" cy="${Math.max(1, toEmu(height))}"/></p:xfrm>` +
+    '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">' +
+    `<a:tbl><a:tblPr firstRow="1" bandRow="1"/><a:tblGrid>${grid}</a:tblGrid>${body}</a:tbl>` +
+    '</a:graphicData></a:graphic></p:graphicFrame>'
+  );
 }
 
 export function solidFillXml(color, transparency) {

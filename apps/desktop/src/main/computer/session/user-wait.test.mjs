@@ -6,37 +6,61 @@ import { createComputerUserWait } from './user-wait.ts';
 function fixture(t, reason = 'user_input_active') {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
   const coordinator = new ComputerUseCoordinator();
-  let sequence = 0, held = false, ready = true, lastInput = 0, reads = 0, resumes = 0;
+  let sequence = 0,
+    held = false,
+    ready = true,
+    lastInput = 0,
+    reads = 0,
+    resumes = 0;
   let beforeResume;
   const manager = createComputerUserWait({
-    coordinator, now: () => Date.now(), enabled: () => true,
+    coordinator,
+    now: () => Date.now(),
+    enabled: () => true,
     observe: async () => {
       reads++;
       return { ready, monitor: 'one', sequence, held, idleMs: Date.now() - lastInput };
     },
     resume: async (generation, signal, recheck) => {
       beforeResume?.();
-      if (!await recheck() || signal.aborted) throw new Error('computer_resume_stale');
+      if (!(await recheck()) || signal.aborted) throw new Error('computer_resume_stale');
       resumes++;
       coordinator.resumeAfterUserTakeover(generation);
     },
   });
   coordinator.beginCommand({ sessionId: 'a', action: 'type', mode: 'foreground' });
   coordinator.pauseForUser(reason);
-  t.after(() => { manager.dispose(); coordinator.reset(); });
+  t.after(() => {
+    manager.dispose();
+    coordinator.reset();
+  });
   return {
-    coordinator, manager,
-    input() { sequence++; lastInput = Date.now(); },
-    hold(value) { held = value; },
-    fail() { ready = false; },
-    recover() { ready = true; },
-    beforeResume(callback) { beforeResume = callback; },
+    coordinator,
+    manager,
+    input() {
+      sequence++;
+      lastInput = Date.now();
+    },
+    hold(value) {
+      held = value;
+    },
+    fail() {
+      ready = false;
+    },
+    recover() {
+      ready = true;
+    },
+    beforeResume(callback) {
+      beforeResume = callback;
+    },
     counts: () => ({ reads, resumes }),
     async tick(ms = 500) {
       t.mock.timers.tick(ms);
       for (let i = 0; i < 12; i++) await Promise.resolve();
     },
-    async advance(ms) { for (let i = 0; i < ms / 500; i++) await this.tick(); },
+    async advance(ms) {
+      for (let i = 0; i < ms / 500; i++) await this.tick();
+    },
   };
 }
 
@@ -58,16 +82,30 @@ test('held keys/buttons wait without treating ordinary input as an observation f
   await f.advance(7000);
   assert.equal(f.coordinator.snapshot().takeoverReason, 'user_input_active');
   assert.equal(f.counts().resumes, 0);
-  f.hold(false); f.input();
+  f.hold(false);
+  f.input();
   await f.advance(5500);
   assert.equal(f.counts().resumes, 1);
 });
 
-for (const reason of ['user_stop', 'user_pause', 'user_takeover', 'input_recovery_unconfirmed', 'input_observation_unavailable', 'screen_locked']) {
+for (const reason of [
+  'user_stop',
+  'user_pause',
+  'user_takeover',
+  'input_recovery_unconfirmed',
+  'input_observation_unavailable',
+  'screen_locked',
+]) {
   test(`${reason} cannot auto-resume from elapsed time`, async (t) => {
     const f = fixture(t, reason);
-    assert.equal(await (async () => { const p = f.manager.wait('a', 1000); await f.advance(1500); return p; })(),
-      reason === 'user_stop' ? 'cancelled' : 'timeout');
+    assert.equal(
+      await (async () => {
+        const p = f.manager.wait('a', 1000);
+        await f.advance(1500);
+        return p;
+      })(),
+      reason === 'user_stop' ? 'cancelled' : 'timeout'
+    );
     await f.advance(10000);
     assert.deepEqual(f.counts(), { reads: 0, resumes: 0 });
     assert.equal(f.coordinator.snapshot().userControlActive, true);

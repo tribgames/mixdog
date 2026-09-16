@@ -8,7 +8,10 @@ import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mj
 
 const sourceRoute = { provider: 'openai', model: 'gpt-5.4', effort: 'high', fast: false };
 const heirRoute = {
-  provider: 'openai', model: 'gpt-5.3-codex', effort: 'low', fast: true,
+  provider: 'openai',
+  model: 'gpt-5.3-codex',
+  effort: 'low',
+  fast: true,
   contextPercent: 70,
 };
 
@@ -17,9 +20,12 @@ function fixture(extra = {}) {
   const state = {
     route: { ...sourceRoute, contextPercent: 100, effectiveEffort: 'high' },
     session: {
-      id: 'session-route-lock', ...sourceRoute,
+      id: 'session-route-lock',
+      ...sourceRoute,
       contextPercent: 100,
-      contextWindow: 128_000, rawContextWindow: 128_000, compactBoundaryTokens: 128_000,
+      contextWindow: 128_000,
+      rawContextWindow: 128_000,
+      compactBoundaryTokens: 128_000,
       compaction: { auto: true, boundaryTokens: 128_000 },
       messages: [{ role: 'user', content: 'Keep working on this task.' }],
       providerState: { continuation: 'source-provider' },
@@ -30,16 +36,24 @@ function fixture(extra = {}) {
     getConfig: () => config,
     getConfigHasSecrets: () => false,
     getRoute: () => state.route,
-    setRouteState: (value) => { state.route = value; },
+    setRouteState: (value) => {
+      state.route = value;
+    },
     getSession: () => state.session,
-    setSession: (value) => { state.session = value; },
+    setSession: (value) => {
+      state.session = value;
+    },
     cfgMod: { loadConfig: () => config },
     resolveRoute: (_config, requested) => ({ ...state.route, ...requested }),
     lookupModelMeta: async (_provider, model) => ({ id: model, fastCapable: true }),
     ensureProvidersReady: async () => {},
-    adoptConfig: (value) => { config = value; },
+    adoptConfig: (value) => {
+      config = value;
+    },
     persistLeadRoute: () => null,
-    saveConfigAndAdopt: (value) => { config = value; },
+    saveConfigAndAdopt: (value) => {
+      config = value;
+    },
     refreshRouteEffort: async () => {
       state.route = { ...state.route, effectiveEffort: state.route.effort, selectedContextWindow: 512_000 };
     },
@@ -50,7 +64,9 @@ function fixture(extra = {}) {
     mgr: {
       updateSessionRoute(_id, next) {
         Object.assign(state.session, next, {
-          contextWindow: 512_000, rawContextWindow: 512_000, compactBoundaryTokens: 512_000,
+          contextWindow: 512_000,
+          rawContextWindow: 512_000,
+          compactBoundaryTokens: 512_000,
         });
         return state.session;
       },
@@ -83,9 +99,15 @@ test('effort and Fast update the current model without touching its context or c
   assert.equal(state.session.effort, 'low');
   assert.equal(state.session.fast, true);
   const before = structuredClone(state.session);
-  await api.setRoute({
-    ...sourceRoute, effort: 'medium', fast: false, contextPercent: 50,
-  }, { applyToCurrentSession: true });
+  await api.setRoute(
+    {
+      ...sourceRoute,
+      effort: 'medium',
+      fast: false,
+      contextPercent: 50,
+    },
+    { applyToCurrentSession: true }
+  );
   assert.deepEqual(state.session, { ...before, effort: 'medium', fast: false });
 });
 
@@ -106,18 +128,29 @@ test('heir selection leaves the source context gauge and compact trigger unchang
     getMode: () => 'full',
   });
   const runtime = createRuntimeFacade({
-    state, getContextStatus: contextApi.contextStatus,
-    getAutoClear: () => ({}), getSystemShell: () => ({}),
-    getWebSearchRoute: () => null, getWorkflow: () => null,
+    state,
+    getContextStatus: contextApi.contextStatus,
+    getAutoClear: () => ({}),
+    getSystemShell: () => ({}),
+    getWebSearchRoute: () => null,
+    getWorkflow: () => null,
   });
   let display = {
-    sessionId: state.session.id, clientHostPid: process.pid,
-    ...sourceRoute, contextWindow: 128_000, rawContextWindow: 128_000,
-    displayContextWindow: 128_000, compactBoundaryTokens: 128_000, autoCompactTokenLimit: 115_200,
+    sessionId: state.session.id,
+    clientHostPid: process.pid,
+    ...sourceRoute,
+    contextWindow: 128_000,
+    rawContextWindow: 128_000,
+    displayContextWindow: 128_000,
+    compactBoundaryTokens: 128_000,
+    autoCompactTokenLimit: 115_200,
   };
   const { routeState } = createContextState({
-    runtime, getState: () => display,
-    updateState: (patch) => { display = { ...display, ...patch }; },
+    runtime,
+    getState: () => display,
+    updateState: (patch) => {
+      display = { ...display, ...patch };
+    },
     getPendingSessionReset: () => false,
   });
   const before = contextApi.contextStatus();

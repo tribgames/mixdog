@@ -1,6 +1,6 @@
-import { parseMarkdownToHast } from "./markdown-ast";
-import { MARKDOWN_AST_CACHE_MAX_CHARACTERS } from "./markdown-ast-weight";
-import { estimateRetainedChars } from "./renderer-value-weight";
+import { parseMarkdownToHast } from './markdown-ast';
+import { MARKDOWN_AST_CACHE_MAX_CHARACTERS } from './markdown-ast-weight';
+import { estimateRetainedChars } from './renderer-value-weight';
 
 interface MarkdownWorkerRequest {
   id: number;
@@ -17,7 +17,7 @@ const workerScope = self as unknown as MarkdownWorkerScope;
 workerScope.onmessage = (event) => {
   const id = Number(event.data?.id);
   try {
-    const root = parseMarkdownToHast(String(event.data?.text ?? ""));
+    const root = parseMarkdownToHast(String(event.data?.text ?? ''));
     workerScope.postMessage({
       id,
       root,

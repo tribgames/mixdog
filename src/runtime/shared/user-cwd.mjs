@@ -22,22 +22,22 @@
  *     disk reads of user-cwd.txt are negligible.
  */
 
-import { AsyncLocalStorage } from 'async_hooks'
-import { readFileSync, statSync, writeFileSync } from 'fs'
-import { join, resolve } from 'path'
-import { homedir } from 'os'
-import { resolvePluginData, mixdogRoot } from './plugin-paths.mjs'
+import { AsyncLocalStorage } from 'async_hooks';
+import { readFileSync, statSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
+import { homedir } from 'os';
+import { resolvePluginData, mixdogRoot } from './plugin-paths.mjs';
 
-const _cwdOverride = new AsyncLocalStorage()
+const _cwdOverride = new AsyncLocalStorage();
 
 function _activeCwdOverride() {
-  const store = _cwdOverride.getStore()
-  if (typeof store === 'string') return store
-  return store && typeof store.cwd === 'string' ? store.cwd : null
+  const store = _cwdOverride.getStore();
+  if (typeof store === 'string') return store;
+  return store && typeof store.cwd === 'string' ? store.cwd : null;
 }
 
 function _dataFile(name) {
-  return join(resolvePluginData(), name)
+  return join(resolvePluginData(), name);
 }
 
 // process.cwd() is the server's LAUNCH directory. In daemon mode that can be
@@ -49,32 +49,36 @@ function _dataFile(name) {
 // (absolute paths required) rather than a silent stale read. Invariant check
 // (exact path equality with the known root), not a path-substring heuristic.
 function _safeProcessCwd() {
-  const cwd = process.cwd()
-  try { if (resolve(cwd) === resolve(mixdogRoot())) return homedir() } catch { /* fall through to cwd */ }
-  return cwd
+  const cwd = process.cwd();
+  try {
+    if (resolve(cwd) === resolve(mixdogRoot())) return homedir();
+  } catch {
+    /* fall through to cwd */
+  }
+  return cwd;
 }
 
 // Hook payloads can deliver POSIX paths on Windows (e.g. `/c/Project`); Node's
 // path.resolve does not map MSYS-style drive prefixes, so the value must be
 // rewritten to the platform-native shape before path resolution.
 function _normalizePlatformCwd(p) {
-  if (!p || typeof p !== 'string') return p
-  if (process.platform !== 'win32') return resolve(p)
+  if (!p || typeof p !== 'string') return p;
+  if (process.platform !== 'win32') return resolve(p);
   // Map all three POSIX drive-prefix shapes to native Windows paths before
   // resolution, aligned with path-utils.mjs posixPathToWindowsPath:
   //   /cygdrive/c/... (Cygwin), /mnt/c/... (WSL), /c/... (MSYS/Git-Bash) → C:\...
   // Cygwin/WSL prefixes must be tested before the bare single-letter form
   // because their slice offsets differ.
-  const cyg = p.match(/^\/cygdrive\/([a-zA-Z])\//)
-  const wsl = p.match(/^\/mnt\/([a-zA-Z])\//)
-  let native = p
-  if (cyg) native = `${cyg[1].toUpperCase()}:\\${p.slice(11).replace(/\//g, '\\')}`
-  else if (wsl) native = `${wsl[1].toUpperCase()}:\\${p.slice(7).replace(/\//g, '\\')}`
+  const cyg = p.match(/^\/cygdrive\/([a-zA-Z])\//);
+  const wsl = p.match(/^\/mnt\/([a-zA-Z])\//);
+  let native = p;
+  if (cyg) native = `${cyg[1].toUpperCase()}:\\${p.slice(11).replace(/\//g, '\\')}`;
+  else if (wsl) native = `${wsl[1].toUpperCase()}:\\${p.slice(7).replace(/\//g, '\\')}`;
   else {
-    const m = p.match(/^[\/\\]([a-zA-Z])[\/\\](.*)$/)
-    if (m) native = `${m[1].toUpperCase()}:\\${m[2].replace(/\//g, '\\')}`
+    const m = p.match(/^[/\\]([a-zA-Z])[/\\](.*)$/);
+    if (m) native = `${m[1].toUpperCase()}:\\${m[2].replace(/\//g, '\\')}`;
   }
-  return resolve(native)
+  return resolve(native);
 }
 
 /**
@@ -92,23 +96,25 @@ function _normalizePlatformCwd(p) {
  * project_id resolution; use pwd() for relative-path resolution.
  */
 export function explicitSessionCwd() {
-  const scoped = _activeCwdOverride()
-  if (scoped) return scoped
-  const sessionRaw = process.env.MIXDOG_SESSION_CWD
+  const scoped = _activeCwdOverride();
+  if (scoped) return scoped;
+  const sessionRaw = process.env.MIXDOG_SESSION_CWD;
   if (typeof sessionRaw === 'string' && sessionRaw.length > 0) {
-    const normalized = _normalizePlatformCwd(sessionRaw)
+    const normalized = _normalizePlatformCwd(sessionRaw);
     if (normalized) {
       try {
-        const st = statSync(normalized)
-        if (st.isDirectory()) return normalized
-      } catch { /* fall through to user-cwd.txt */ }
+        const st = statSync(normalized);
+        if (st.isDirectory()) return normalized;
+      } catch {
+        /* fall through to user-cwd.txt */
+      }
     }
   }
   try {
-    const txt = readFileSync(_dataFile('user-cwd.txt'), 'utf8').trim()
-    return (txt && _normalizePlatformCwd(txt)) || null
+    const txt = readFileSync(_dataFile('user-cwd.txt'), 'utf8').trim();
+    return (txt && _normalizePlatformCwd(txt)) || null;
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -116,16 +122,18 @@ export function explicitSessionCwd() {
  * Resolve the session entry root from an explicit project dir.
  */
 function startRootCwd() {
-  const dir = process.env.MIXDOG_PROJECT_DIR
+  const dir = process.env.MIXDOG_PROJECT_DIR;
   if (typeof dir === 'string' && dir.length > 0) {
-    const normalized = _normalizePlatformCwd(dir)
+    const normalized = _normalizePlatformCwd(dir);
     if (normalized) {
       try {
-        if (statSync(normalized).isDirectory()) return normalized
-      } catch { /* not a live directory — fall through */ }
+        if (statSync(normalized).isDirectory()) return normalized;
+      } catch {
+        /* not a live directory — fall through */
+      }
     }
   }
-  return null
+  return null;
 }
 
 /**
@@ -140,7 +148,7 @@ function startRootCwd() {
  * disk reads are negligible.
  */
 export function captureOriginalUserCwd() {
-  return explicitSessionCwd() ?? startRootCwd() ?? _safeProcessCwd()
+  return explicitSessionCwd() ?? startRootCwd() ?? _safeProcessCwd();
 }
 
 /**
@@ -150,10 +158,10 @@ export function captureOriginalUserCwd() {
  */
 function rawUserCwd() {
   try {
-    const txt = readFileSync(_dataFile('user-cwd.txt'), 'utf8').trim()
-    return _normalizePlatformCwd(txt) || startRootCwd() || _safeProcessCwd()
+    const txt = readFileSync(_dataFile('user-cwd.txt'), 'utf8').trim();
+    return _normalizePlatformCwd(txt) || startRootCwd() || _safeProcessCwd();
   } catch {
-    return startRootCwd() ?? _safeProcessCwd()
+    return startRootCwd() ?? _safeProcessCwd();
   }
 }
 
@@ -175,9 +183,9 @@ function _lastSessionCwdFile(keyPid) {
   // fall back to this process's MIXDOG_SUPERVISOR_PID. Under the shared daemon
   // a single process serves N terminals, so keying writes by the per-connection
   // leadPid is what keeps one terminal's `cwd set` out of another's sentinel.
-  const raw = (keyPid != null && keyPid !== '') ? String(keyPid) : process.env.MIXDOG_SUPERVISOR_PID
-  const key = (typeof raw === 'string' && /^\d+$/.test(raw)) ? raw : 'solo'
-  return _dataFile(`session-cwd-${key}.txt`)
+  const raw = keyPid != null && keyPid !== '' ? String(keyPid) : process.env.MIXDOG_SUPERVISOR_PID;
+  const key = typeof raw === 'string' && /^\d+$/.test(raw) ? raw : 'solo';
+  return _dataFile(`session-cwd-${key}.txt`);
 }
 
 /**
@@ -187,8 +195,10 @@ function _lastSessionCwdFile(keyPid) {
  */
 export function writeLastSessionCwd(cwd, keyPid) {
   try {
-    writeFileSync(_lastSessionCwdFile(keyPid), String(cwd))
-  } catch { /* best-effort */ }
+    writeFileSync(_lastSessionCwdFile(keyPid), String(cwd));
+  } catch {
+    /* best-effort */
+  }
 }
 
 /**
@@ -200,12 +210,12 @@ export function writeLastSessionCwd(cwd, keyPid) {
  */
 export function readLastSessionCwd(keyPid) {
   try {
-    const content = readFileSync(_lastSessionCwdFile(keyPid), 'utf8')
-    const normalized = _normalizePlatformCwd(content.trim())
-    if (normalized && statSync(normalized).isDirectory()) return normalized
-    return null
+    const content = readFileSync(_lastSessionCwdFile(keyPid), 'utf8');
+    const normalized = _normalizePlatformCwd(content.trim());
+    if (normalized && statSync(normalized).isDirectory()) return normalized;
+    return null;
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -214,8 +224,8 @@ export function readLastSessionCwd(keyPid) {
  * All descendant async calls within fn see cwd as their working directory.
  */
 export function runWithCwdOverride(cwd, fn) {
-  const normalized = _normalizePlatformCwd(cwd)
-  return _cwdOverride.run({ cwd: normalized || String(cwd || '') }, fn)
+  const normalized = _normalizePlatformCwd(cwd);
+  return _cwdOverride.run({ cwd: normalized || String(cwd || '') }, fn);
 }
 
 /**
@@ -223,12 +233,12 @@ export function runWithCwdOverride(cwd, fn) {
  * Other concurrent sessions hold different AsyncLocalStorage records.
  */
 export function updateCurrentCwdOverride(cwd) {
-  const store = _cwdOverride.getStore()
-  if (!store || typeof store !== 'object') return false
-  const normalized = _normalizePlatformCwd(cwd)
-  if (!normalized) return false
-  store.cwd = normalized
-  return true
+  const store = _cwdOverride.getStore();
+  if (!store || typeof store !== 'object') return false;
+  const normalized = _normalizePlatformCwd(cwd);
+  if (!normalized) return false;
+  store.cwd = normalized;
+  return true;
 }
 
 /**
@@ -236,5 +246,5 @@ export function updateCurrentCwdOverride(cwd) {
  *   override set by runWithCwdOverride (innermost wins) ?? original user cwd.
  */
 export function pwd() {
-  return _activeCwdOverride() ?? captureOriginalUserCwd()
+  return _activeCwdOverride() ?? captureOriginalUserCwd();
 }

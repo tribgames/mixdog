@@ -7,18 +7,14 @@ import { DatabaseSync } from 'node:sqlite';
 import { promisify } from 'node:util';
 import { app, safeStorage, session } from 'electron';
 
-import {
-  BrowserProfileImportService,
-  prepareChromeForImport,
-  type BrowserImportProgress,
-} from './profile-import';
+import { BrowserProfileImportService, prepareChromeForImport, type BrowserImportProgress } from './profile-import';
 import { verifyCookieImport } from './profile-import-cookies.integration';
 import { verifyPartitionedCookieImport } from './cookie-jar.integration';
 
 const execFileAsync = promisify(execFile);
 process.stdout.write('browser profile import integration loaded\n');
 const configuredRoot = String(process.env.MIXDOG_BROWSER_PROFILE_IMPORT_TEST_ROOT || '');
-const root = configuredRoot || await mkdtemp(join(tmpdir(), 'mixdog-browser-profile-import-'));
+const root = configuredRoot || (await mkdtemp(join(tmpdir(), 'mixdog-browser-profile-import-')));
 await mkdir(root, { recursive: true });
 app.setPath('userData', join(root, 'electron-user-data'));
 app.disableHardwareAcceleration();
@@ -41,9 +37,11 @@ async function run(): Promise<void> {
       'Microsoft.NET',
       'Framework64',
       'v4.0.30319',
-      'csc.exe',
+      'csc.exe'
     );
-    await writeFile(closeFixtureSource, String.raw`
+    await writeFile(
+      closeFixtureSource,
+      String.raw`
 using System;
 using System.Windows.Forms;
 public static class MixdogBrowserCloseFixture {
@@ -53,17 +51,16 @@ public static class MixdogBrowserCloseFixture {
     Application.Run(new Form { Text = "Mixdog browser close fixture", Width = 320, Height = 180 });
   }
 }
-`);
-    await execFileAsync(compiler, [
-      '/nologo',
-      '/target:winexe',
-      `/out:${closeFixture}`,
-      '/reference:System.Windows.Forms.dll',
-      closeFixtureSource,
-    ], {
-      windowsHide: true,
-      timeout: 20_000,
-    });
+`
+    );
+    await execFileAsync(
+      compiler,
+      ['/nologo', '/target:winexe', `/out:${closeFixture}`, '/reference:System.Windows.Forms.dll', closeFixtureSource],
+      {
+        windowsHide: true,
+        timeout: 20_000,
+      }
+    );
     const fixtureProcess = spawn(closeFixture, [], {
       windowsHide: false,
       stdio: 'ignore',
@@ -83,19 +80,22 @@ public static class MixdogBrowserCloseFixture {
       if (fixtureProcess.exitCode === null) fixtureProcess.kill();
     }
   }
-  await writeFile(join(sourceUserData, 'Local State'), JSON.stringify({
-    profile: {
-      info_cache: {
-        Default: {
-          name: '재영',
-          user_name: 'owner@example.test',
-        },
-        '../escape': {
-          name: 'Unsafe',
+  await writeFile(
+    join(sourceUserData, 'Local State'),
+    JSON.stringify({
+      profile: {
+        info_cache: {
+          Default: {
+            name: '재영',
+            user_name: 'owner@example.test',
+          },
+          '../escape': {
+            name: 'Unsafe',
+          },
         },
       },
-    },
-  }));
+    })
+  );
 
   const history = new DatabaseSync(join(sourceProfile, 'History'));
   history.exec(`
@@ -108,26 +108,18 @@ public static class MixdogBrowserCloseFixture {
       hidden INTEGER NOT NULL DEFAULT 0
     );
   `);
-  history.prepare(`
+  history
+    .prepare(`
     INSERT INTO urls (url, title, visit_count, last_visit_time, hidden)
     VALUES (?, ?, ?, ?, ?)
-  `).run(
-    'https://accounts.example.test/dashboard',
-    'Account dashboard',
-    7,
-    13_400_000_000_000_000n,
-    0,
-  );
-  history.prepare(`
+  `)
+    .run('https://accounts.example.test/dashboard', 'Account dashboard', 7, 13_400_000_000_000_000n, 0);
+  history
+    .prepare(`
     INSERT INTO urls (url, title, visit_count, last_visit_time, hidden)
     VALUES (?, ?, ?, ?, ?)
-  `).run(
-    'chrome://settings/',
-    'Settings',
-    1,
-    13_400_000_000_000_001n,
-    0,
-  );
+  `)
+    .run('chrome://settings/', 'Settings', 1, 13_400_000_000_000_001n, 0);
   history.close();
   const importedCookies: unknown[] = [];
   let chromePreparationCalls = 0;
@@ -154,12 +146,14 @@ public static class MixdogBrowserCloseFixture {
     },
     readNativeCredentials: async (profileId) => {
       assert.equal(profileId, 'Default');
-      return [{
-        url: 'https://accounts.example.test/',
-        username: 'fixture-user',
-        password: 'fixture-password',
-        note: '',
-      }];
+      return [
+        {
+          url: 'https://accounts.example.test/',
+          username: 'fixture-user',
+          password: 'fixture-password',
+          note: '',
+        },
+      ];
     },
     readNativeCookies: async (profileId) => {
       assert.equal(profileId, 'Default');
@@ -168,16 +162,18 @@ public static class MixdogBrowserCloseFixture {
         sourceCount: 1,
         expired: 0,
         failures: { decryption: 0, domainMismatch: 0, invalidEncoding: 0, invalidPartition: 0 },
-        cookies: [{
-        name: 'session',
-        value: 'secret-cookie-value',
-        domain: '.example.test',
-        path: '/',
-        secure: true,
-        httpOnly: true,
-        session: true,
-        sameSite: 'Lax',
-        }],
+        cookies: [
+          {
+            name: 'session',
+            value: 'secret-cookie-value',
+            domain: '.example.test',
+            path: '/',
+            secure: true,
+            httpOnly: true,
+            session: true,
+            sameSite: 'Lax',
+          },
+        ],
       };
     },
   });
@@ -186,7 +182,7 @@ public static class MixdogBrowserCloseFixture {
   assert.equal(sources.length, 1);
   assert.deepEqual(
     sources[0].profiles.map((profile) => profile.id),
-    ['Default'],
+    ['Default']
   );
   assert.equal(sources[0].profiles[0].accountEmail, 'owner@example.test');
   assert.equal(sources[0].supports.cookies, true);
@@ -205,31 +201,34 @@ public static class MixdogBrowserCloseFixture {
   const passwordOnlySources = await passwordOnlyService.sources();
   assert.equal(passwordOnlySources[0].supports.passwords, true);
   assert.equal(passwordOnlySources[0].supports.cookies, false);
-  assert.match(
-    passwordOnlySources[0].supportReasons?.cookies || '',
-    /native cookie importer is not installed/,
-  );
+  assert.match(passwordOnlySources[0].supportReasons?.cookies || '', /native cookie importer is not installed/);
 
   await assert.rejects(
-    service.importProfile({
-      jobId: 'fixturedenied1234',
-      sourceId: 'chrome',
-      profileId: 'Default',
-      items: ['passwords'],
-      administratorApproved: false,
-    }, () => undefined),
-    /explicit administrator approval/i,
+    service.importProfile(
+      {
+        jobId: 'fixturedenied1234',
+        sourceId: 'chrome',
+        profileId: 'Default',
+        items: ['passwords'],
+        administratorApproved: false,
+      },
+      () => undefined
+    ),
+    /explicit administrator approval/i
   );
   assert.equal(chromePreparationCalls, 0);
 
   const progress: BrowserImportProgress[] = [];
-  const result = await service.importProfile({
-    jobId: 'fixturejob1234',
-    sourceId: 'chrome',
-    profileId: 'Default',
-    items: ['passwords', 'cookies', 'history'],
-    administratorApproved: true,
-  }, (update) => progress.push(update));
+  const result = await service.importProfile(
+    {
+      jobId: 'fixturejob1234',
+      sourceId: 'chrome',
+      profileId: 'Default',
+      items: ['passwords', 'cookies', 'history'],
+      administratorApproved: true,
+    },
+    (update) => progress.push(update)
+  );
 
   assert.equal(result.counts.passwords, 1, JSON.stringify(result));
   assert.equal(result.counts.history, 1, JSON.stringify(result));
@@ -241,17 +240,18 @@ public static class MixdogBrowserCloseFixture {
       ['passwords', 'running', undefined],
       ['cookies', 'running', undefined],
       ['history', 'running', undefined],
-    ],
+    ]
   );
   assert.deepEqual(
-    progress.slice(3)
+    progress
+      .slice(3)
       .map((entry) => [entry.item, entry.state, entry.count])
       .sort(([left], [right]) => String(left).localeCompare(String(right))),
     [
       ['cookies', 'completed', 1],
       ['history', 'completed', 1],
       ['passwords', 'completed', 1],
-    ],
+    ]
   );
   assert.equal(JSON.stringify(progress).includes('accounts.example.test'), false);
   assert.equal(JSON.stringify(progress).includes('secret-cookie-value'), false);
@@ -267,16 +267,11 @@ public static class MixdogBrowserCloseFixture {
   assert.equal(vault.credentials?.[0]?.username, 'fixture-user');
   assert.equal(vault.credentials?.[0]?.password, 'fixture-password');
 
-  const credentialSuggestions = await service.credentialSuggestions(
-    'https://accounts.example.test/login',
-  );
+  const credentialSuggestions = await service.credentialSuggestions('https://accounts.example.test/login');
   assert.equal(credentialSuggestions.length, 1);
   assert.match(credentialSuggestions[0].label, /^f.*r$/);
   assert.doesNotMatch(JSON.stringify(credentialSuggestions), /fixture-user|fixture-password/);
-  assert.deepEqual(
-    await service.credentialSuggestions('http://accounts.example.test/login'),
-    [],
-  );
+  assert.deepEqual(await service.credentialSuggestions('http://accounts.example.test/login'), []);
   const fillResult = await service.useCredential(
     'https://accounts.example.test/login',
     credentialSuggestions[0].id,
@@ -284,16 +279,12 @@ public static class MixdogBrowserCloseFixture {
       assert.equal(credential.username, 'fixture-user');
       assert.equal(credential.password, 'fixture-password');
       return { usernameFilled: true, passwordFilled: true };
-    },
+    }
   );
   assert.deepEqual(fillResult, { usernameFilled: true, passwordFilled: true });
   await assert.rejects(
-    service.useCredential(
-      'https://other.example.test/login',
-      credentialSuggestions[0].id,
-      async () => undefined,
-    ),
-    /does not match the current page origin/,
+    service.useCredential('https://other.example.test/login', credentialSuggestions[0].id, async () => undefined),
+    /does not match the current page origin/
   );
 
   const suggestions = await service.searchHistory('dashboard');
@@ -338,23 +329,29 @@ public static class MixdogBrowserCloseFixture {
       failures: { decryption: 0, domainMismatch: 0, invalidEncoding: 0, invalidPartition: 0 },
     }),
   });
-  const firstImport = raceService.importProfile({
-    jobId: 'racejob1234',
-    sourceId: 'chrome',
-    profileId: 'Default',
-    items: ['cookies'],
-    administratorApproved: true,
-  }, () => undefined);
-  await preparationEntered;
-  await assert.rejects(
-    raceService.importProfile({
-      jobId: 'racejob5678',
+  const firstImport = raceService.importProfile(
+    {
+      jobId: 'racejob1234',
       sourceId: 'chrome',
       profileId: 'Default',
       items: ['cookies'],
       administratorApproved: true,
-    }, () => undefined),
-    /Another browser import is already running/,
+    },
+    () => undefined
+  );
+  await preparationEntered;
+  await assert.rejects(
+    raceService.importProfile(
+      {
+        jobId: 'racejob5678',
+        sourceId: 'chrome',
+        profileId: 'Default',
+        items: ['cookies'],
+        administratorApproved: true,
+      },
+      () => undefined
+    ),
+    /Another browser import is already running/
   );
   releasePreparation();
   await firstImport;
@@ -370,20 +367,28 @@ public static class MixdogBrowserCloseFixture {
       version: 2,
       sourceCount: 3,
       expired: 0,
-      cookies: [{
-        domain: 'partial.example.test', name: 'SID', value: 'private-partial-token', session: true,
-      }],
+      cookies: [
+        {
+          domain: 'partial.example.test',
+          name: 'SID',
+          value: 'private-partial-token',
+          session: true,
+        },
+      ],
       failures: { decryption: 1, domainMismatch: 0, invalidEncoding: 0, invalidPartition: 1 },
     }),
   });
   const partialProgress: BrowserImportProgress[] = [];
-  const partial = await partialService.importProfile({
-    jobId: 'partialfixture123',
-    sourceId: 'chrome',
-    profileId: 'Default',
-    items: ['cookies'],
-    administratorApproved: true,
-  }, (update) => partialProgress.push(update));
+  const partial = await partialService.importProfile(
+    {
+      jobId: 'partialfixture123',
+      sourceId: 'chrome',
+      profileId: 'Default',
+      items: ['cookies'],
+      administratorApproved: true,
+    },
+    (update) => partialProgress.push(update)
+  );
   assert.equal(partial.counts.cookies, 1);
   assert.match(partial.errors.cookies || '', /2 failed/);
   assert.match(partial.errors.cookies || '', /1 decryption/);
@@ -397,11 +402,14 @@ public static class MixdogBrowserCloseFixture {
 }
 
 process.stdout.write('browser profile import integration waiting for app\n');
-void app.whenReady().then(async () => {
-  process.stdout.write('browser profile import integration app ready\n');
-  await run();
-  app.exit(0);
-}).catch(async (error) => {
-  process.stderr.write(`${error instanceof Error ? error.stack || error.message : String(error)}\n`);
-  app.exit(1);
-});
+void app
+  .whenReady()
+  .then(async () => {
+    process.stdout.write('browser profile import integration app ready\n');
+    await run();
+    app.exit(0);
+  })
+  .catch(async (error) => {
+    process.stderr.write(`${error instanceof Error ? error.stack || error.message : String(error)}\n`);
+    app.exit(1);
+  });

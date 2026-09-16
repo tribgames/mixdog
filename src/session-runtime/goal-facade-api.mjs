@@ -1,12 +1,6 @@
 import { markPendingGoalReminder } from './goal-reminder.mjs';
 
-export function createGoalFacadeApi({
-  agentStatusState,
-  createCurrentSession,
-  getSession,
-  getSessionId,
-  goalRuntime,
-}) {
+export function createGoalFacadeApi({ agentStatusState, createCurrentSession, getSession, getSessionId, goalRuntime }) {
   return {
     goalStatus() {
       const sessionId = getSessionId();
@@ -21,12 +15,18 @@ export function createGoalFacadeApi({
       if (!sessionId) throw new Error('goal: session could not be created');
       const result = await goalRuntime.control(sessionId, args);
       if (result?.action === 'edit') {
-        try { markPendingGoalReminder(getSession(), 'objective-updated'); } catch {}
+        try {
+          markPendingGoalReminder(getSession(), 'objective-updated');
+        } catch {}
       }
       return result;
     },
     markGoalReminder(reason = '') {
-      try { return markPendingGoalReminder(getSession(), reason); } catch { return null; }
+      try {
+        return markPendingGoalReminder(getSession(), reason);
+      } catch {
+        return null;
+      }
     },
     goalContinuation() {
       const sessionId = getSessionId();

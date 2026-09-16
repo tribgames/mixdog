@@ -9,7 +9,11 @@ import { prewarmHeadlessSearch, runHeadlessExec } from './headless-exec.mjs';
 import { resolveCursorOAuthAccessToken } from './runtime/agent/orchestrator/providers/cursor-auth.mjs';
 import { createPristineExecutionBoundary } from './runtime/shared/pristine-execution.mjs';
 import { withGrandfatheredBuiltins, featureDisallowedToolsFor } from './session-runtime/builtin-features.mjs';
-import { applyDeferredToolSurface, deferredCatalogUnion, selectDeferredTools } from './session-runtime/tool-catalog.mjs';
+import {
+  applyDeferredToolSurface,
+  deferredCatalogUnion,
+  selectDeferredTools,
+} from './session-runtime/tool-catalog.mjs';
 
 test('headless search prewarm starts only the canonical native server', async () => {
   const calls = [];
@@ -28,9 +32,12 @@ test('pristine headless execution binds Cursor OAuth credentials in process', as
   const root = mkdtempSync(join(tmpdir(), 'mixdog-headless-cursor-auth-test-'));
   const dataDir = join(root, 'data');
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(join(dataDir, 'cursor-oauth.json'), JSON.stringify({
-    access_token: 'cursor-test-token',
-  }));
+  writeFileSync(
+    join(dataDir, 'cursor-oauth.json'),
+    JSON.stringify({
+      access_token: 'cursor-test-token',
+    })
+  );
   const selectedGraph = join(root, 'selected-graph');
   const env = {
     MIXDOG_HOME: root,
@@ -56,13 +63,17 @@ test('pristine headless execution binds Cursor OAuth credentials in process', as
     const session = {
       provider: 'openai-oauth',
       model: 'gpt-test',
-      tools: ['git', 'office', 'git_stage', 'github'].map(name => ({
-        name, inputSchema: { type: 'object', properties: {} },
+      tools: ['git', 'office', 'git_stage', 'github'].map((name) => ({
+        name,
+        inputSchema: { type: 'object', properties: {} },
       })),
       disallowedTools,
     };
     applyDeferredToolSurface(session, 'full');
-    assert.deepEqual(deferredCatalogUnion(session).map(tool => tool.name), ['git']);
+    assert.deepEqual(
+      deferredCatalogUnion(session).map((tool) => tool.name),
+      ['git']
+    );
     assert.deepEqual(selectDeferredTools(session, ['office', 'git_stage', 'github'], 'full').added, []);
   } finally {
     boundary.cleanup();
@@ -154,10 +165,12 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
     assert.equal(boundaryCleaned, true);
     assert.equal(runtimeClosed, true);
     assert.deepEqual(cleanupOrder, ['runtime', 'daemon', 'memory', 'boundary']);
-    assert.deepEqual(daemonCleanupCalls, [{
-      runtimeRoot: join(root, 'runtime-root'),
-      options: { waitForExit: true, timeoutMs: 8_000 },
-    }]);
+    assert.deepEqual(daemonCleanupCalls, [
+      {
+        runtimeRoot: join(root, 'runtime-root'),
+        options: { waitForExit: true, timeoutMs: 8_000 },
+      },
+    ]);
     const usage = JSON.parse(readFileSync(usageLogPath, 'utf8'));
     assert.deepEqual(usage.sessions[0].models, ['gpt-test', 'gpt-fallback']);
     assert.deepEqual(usage.totals, {
@@ -185,16 +198,22 @@ test('headless exec preserves the pristine root when isolated daemon shutdown fa
     boundaryFactory: () => ({
       runtimeRoot: '/isolated/runtime',
       loadConfig: () => ({ providers: { 'openai-oauth': { enabled: true } } }),
-      cleanup: (options) => { cleanupOptions = options; },
+      cleanup: (options) => {
+        cleanupOptions = options;
+      },
     }),
     runtimeFactory: async () => ({
       id: 'sess_cleanup_failure',
       model: 'gpt-test',
       clientHostPid: 123,
-      async ask() { return { result: { content: 'done' } }; },
+      async ask() {
+        return { result: { content: 'done' } };
+      },
       async close() {},
     }),
-    daemonRuntimeCleanup: async () => { throw new Error('daemon stuck'); },
+    daemonRuntimeCleanup: async () => {
+      throw new Error('daemon stuck');
+    },
     memoryRuntimeCleanup: async () => {},
     hasActiveTasks: () => false,
     installSignalCleanupFn: () => ({ uninstall() {} }),
@@ -287,7 +306,9 @@ test('headless exec answers an arrived completion and exits without waiting on l
       clientHostPid: 123,
       onNotification(listener) {
         notificationListener = listener;
-        return () => { notificationListener = null; };
+        return () => {
+          notificationListener = null;
+        };
       },
       async ask(prompt) {
         prompts.push(prompt);
@@ -300,7 +321,9 @@ test('headless exec answers an arrived completion and exits without waiting on l
         }
         return { result: { content: 'final result' } };
       },
-      async close(reason, options) { closeOptions = options ?? null; },
+      async close(reason, options) {
+        closeOptions = options ?? null;
+      },
     }),
     // The job the model left running never ends — a server it was asked to
     // keep up. Exit must not wait for it, and must not reap it either: this
@@ -347,7 +370,9 @@ test('headless exec emits a timestamped JSONL lifecycle and exact tool count', a
         clientHostPid: 123,
         onNotification(listener) {
           notificationListener = listener;
-          return () => { notificationListener = null; };
+          return () => {
+            notificationListener = null;
+          };
         },
         async ask(_prompt, options) {
           options.onProviderSendStarted();
@@ -414,17 +439,17 @@ test('headless exec emits a timestamped JSONL lifecycle and exact tool count', a
 
     assert.equal(code, 0);
     assert.deepEqual(errors, []);
-    const events = output.join('').trim().split('\n').map((line) => JSON.parse(line));
+    const events = output
+      .join('')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
     assert.equal(events[0].type, 'thread.started');
     assert.equal(events[1].type, 'turn.started');
     assert.equal(Object.hasOwn(events[0].session, 'memory'), false);
     assert.ok(events.every((event) => event.schema_version === 1 && event.timestamp));
-    const toolStarted = events.find(
-      (event) => event.type === 'item.started' && event.item?.type === 'tool_call',
-    );
-    const toolCompleted = events.find(
-      (event) => event.type === 'item.completed' && event.item?.id === 'call_1',
-    );
+    const toolStarted = events.find((event) => event.type === 'item.started' && event.item?.type === 'tool_call');
+    const toolCompleted = events.find((event) => event.type === 'item.completed' && event.item?.id === 'call_1');
     assert.equal(toolStarted.item.name, 'shell');
     assert.equal(toolCompleted.item.output, 'ok\n');
     assert.equal(toolCompleted.item.status, 'completed');
@@ -433,9 +458,7 @@ test('headless exec emits a timestamped JSONL lifecycle and exact tool count', a
     assert.equal(toolCompleted.item.timing.execution_ms, 3);
     assert.equal(toolCompleted.item.timing.batch_wait_ms, 1);
     assert.equal(toolCompleted.item.timing.postprocess_ms, 2);
-    assert.equal(events.filter(
-      (event) => event.type === 'item.completed' && event.item?.id === 'call_1',
-    ).length, 1);
+    assert.equal(events.filter((event) => event.type === 'item.completed' && event.item?.id === 'call_1').length, 1);
     assert.ok(events.some((event) => event.type === 'notification'));
     assert.equal(events.filter((event) => event.type === 'model.request.completed').length, 2);
     const terminal = events.at(-1);
@@ -485,7 +508,11 @@ test('headless exec emits structured JSONL failure before returning exit 1', asy
     installSignalCleanupFn: () => ({ uninstall() {} }),
   });
 
-  const events = output.join('').trim().split('\n').map((line) => JSON.parse(line));
+  const events = output
+    .join('')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
   assert.equal(code, 1);
   assert.ok(events.some((event) => event.type === 'turn.failed'));
   assert.equal(events.at(-1).type, 'result');
@@ -527,7 +554,12 @@ test('headless exec exposes typed refusal as an API error result', async () => {
     installSignalCleanupFn: () => ({ uninstall() {} }),
   });
 
-  const terminal = output.join('').trim().split('\n').map((line) => JSON.parse(line)).at(-1);
+  const terminal = output
+    .join('')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+    .at(-1);
   assert.equal(code, 0);
   assert.equal(terminal.subtype, 'success');
   assert.equal(terminal.is_error, true);
@@ -536,13 +568,7 @@ test('headless exec exposes typed refusal as an API error result', async () => {
 });
 
 test('--json is accepted for exec and rejected for the interactive command', () => {
-  const exec = classifyCliInvocation([
-    'exec',
-    '--provider', 'openai-oauth',
-    '--model', 'gpt-test',
-    '--json',
-    'fix it',
-  ]);
+  const exec = classifyCliInvocation(['exec', '--provider', 'openai-oauth', '--model', 'gpt-test', '--json', 'fix it']);
   assert.equal(exec.kind, 'exec');
   assert.equal(exec.options.json, true);
 
@@ -554,9 +580,12 @@ test('--json is accepted for exec and rejected for the interactive command', () 
 test('headless exec rejects workflow selection', () => {
   const invocation = classifyCliInvocation([
     'exec',
-    '--provider', 'openai-oauth',
-    '--model', 'gpt-test',
-    '--workflow', 'solo',
+    '--provider',
+    'openai-oauth',
+    '--model',
+    'gpt-test',
+    '--workflow',
+    'solo',
     'fix it',
   ]);
   assert.equal(invocation.kind, 'error');
@@ -566,8 +595,10 @@ test('headless exec rejects workflow selection', () => {
 test('headless exec rejects memory because pristine state is discarded', () => {
   const invocation = classifyCliInvocation([
     'exec',
-    '--provider', 'openai-oauth',
-    '--model', 'gpt-test',
+    '--provider',
+    'openai-oauth',
+    '--model',
+    'gpt-test',
     '--memory',
     'fix it',
   ]);

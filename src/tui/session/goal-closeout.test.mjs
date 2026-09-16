@@ -7,11 +7,23 @@ const tick = () => new Promise(setImmediate);
 
 function fixture(t, { busy = true, status = 'active', remote = false } = {}) {
   let current = {
-    id: 'goal-closeout', revision: 1, status, objective: 'Finish the approved work',
-    timeMode: 'duration', timeLimitMs: 60_000, timeUsedMs: 50_000, remainingMs: 10_000,
+    id: 'goal-closeout',
+    revision: 1,
+    status,
+    objective: 'Finish the approved work',
+    timeMode: 'duration',
+    timeLimitMs: 60_000,
+    timeUsedMs: 50_000,
+    remainingMs: 10_000,
     tasks: [{ id: 'task_1', text: 'Verify the result', status: 'completed', kind: 'verification' }],
   };
-  const state = { busy, commandBusy: false, sessionRemoteAttached: remote, sessionId: 'session-closeout', goal: current };
+  const state = {
+    busy,
+    commandBusy: false,
+    sessionRemoteAttached: remote,
+    sessionId: 'session-closeout',
+    goal: current,
+  };
   const pending = [];
   const aborts = [];
   const reminders = [];
@@ -21,10 +33,15 @@ function fixture(t, { busy = true, status = 'active', remote = false } = {}) {
       id: state.sessionId,
       goalStatus: () => current,
       goalContinuation: () => ({
-        run: current.status === 'active', goal: current, prompt: 'Continue approved work',
+        run: current.status === 'active',
+        goal: current,
+        prompt: 'Continue approved work',
       }),
       goalTurnSettled: async () => current,
-      onGoalStatusChange: (next) => { listener = next; return () => {}; },
+      onGoalStatusChange: (next) => {
+        listener = next;
+        return () => {};
+      },
       markGoalReminder: (reason) => reminders.push(reason),
       abort: (reason) => aborts.push(reason),
     },
@@ -40,12 +57,18 @@ function fixture(t, { busy = true, status = 'active', remote = false } = {}) {
   });
   t.after(() => controller.disposeGoalContinuation());
   return {
-    state, pending, aborts, reminders, controller,
+    state,
+    pending,
+    aborts,
+    reminders,
+    controller,
     change(patch) {
       current = { ...current, ...patch };
       listener({ sessionId: state.sessionId, goal: current });
     },
-    expire() { this.change({ status: 'duration_reached', remainingMs: 0, timeUsedMs: 60_000, revision: 2 }); },
+    expire() {
+      this.change({ status: 'duration_reached', remainingMs: 0, timeUsedMs: 60_000, revision: 2 });
+    },
   };
 }
 
@@ -107,7 +130,10 @@ for (const status of ['active', 'paused', 'complete']) {
     const entry = f.pending[0];
     f.change({ status, revision: 3 });
     assert.equal(f.controller.shouldRunGoalContinuation(entry), false);
-    assert.equal(f.pending.some((item) => item.mode === 'goal-closeout'), false);
+    assert.equal(
+      f.pending.some((item) => item.mode === 'goal-closeout'),
+      false
+    );
   });
 }
 
@@ -135,10 +161,15 @@ function queueFixture({ busy, valid }) {
     set: (patch) => Object.assign(state, patch),
     nextId: () => `queued-${++nextId}`,
     tuiDebug() {},
-    pushUserOrSyntheticItem() { assert.fail('closeout must not create a user bubble'); },
+    pushUserOrSyntheticItem() {
+      assert.fail('closeout must not create a user bubble');
+    },
     flushDeferredExecutionPendingResumeKick() {},
     shouldRunGoalContinuation: () => valid,
-    runTurn: async (content, options) => { turns.push({ content, options }); return 'done'; },
+    runTurn: async (content, options) => {
+      turns.push({ content, options });
+      return 'done';
+    },
   };
   return { state, pending, turns, flow: createSessionFlow(bag) };
 }
@@ -147,8 +178,12 @@ for (const valid of [true, false]) {
   test(`the real steering queue ${valid ? 'delivers' : 'rejects'} a deadline closeout without ending the turn`, () => {
     const f = queueFixture({ busy: true, valid });
     f.flow.enqueue('Stop new Goal work and report the verified outcome.', {
-      mode: 'goal-closeout', priority: 'next', goalId: 'goal-closeout',
-      isMeta: true, suppressDisplay: true, abortDiscardOnAbort: true,
+      mode: 'goal-closeout',
+      priority: 'next',
+      goalId: 'goal-closeout',
+      isMeta: true,
+      suppressDisplay: true,
+      abortDiscardOnAbort: true,
     });
     const messages = f.flow.drainPendingSteering();
     assert.equal(messages.length, valid ? 1 : 0);
@@ -160,8 +195,12 @@ for (const valid of [true, false]) {
   test(`the real idle queue ${valid ? 'delivers' : 'rejects'} a deadline closeout without replay on cancellation`, async () => {
     const f = queueFixture({ busy: false, valid });
     f.flow.enqueue('Report the stopped Goal.', {
-      mode: 'goal-closeout', priority: 'later', goalId: 'goal-closeout',
-      isMeta: true, suppressDisplay: true, abortDiscardOnAbort: true,
+      mode: 'goal-closeout',
+      priority: 'later',
+      goalId: 'goal-closeout',
+      isMeta: true,
+      suppressDisplay: true,
+      abortDiscardOnAbort: true,
     });
     await tick();
     assert.equal(f.turns.length, valid ? 1 : 0);

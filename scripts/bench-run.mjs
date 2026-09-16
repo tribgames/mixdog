@@ -36,19 +36,23 @@ function argValue(name, fallback = null) {
   const hit = process.argv.find((a) => a.startsWith(pref));
   return hit ? hit.slice(pref.length) : fallback;
 }
-function hasFlag(name) { return process.argv.includes(name); }
+function hasFlag(name) {
+  return process.argv.includes(name);
+}
 
 // Model aliases so a round switches model+provider with one flag
 // (--model opus|gpt|grok). Full provider/model pairs still work verbatim.
 const MODEL_ALIASES = {
-  opus:   { provider: 'anthropic-oauth', model: 'claude-opus-4-8' },
+  opus: { provider: 'anthropic-oauth', model: 'claude-opus-4-8' },
   sonnet: { provider: 'anthropic-oauth', model: 'claude-sonnet-5' },
-  gpt:    { provider: 'openai-oauth', model: 'gpt-5.5' },
+  gpt: { provider: 'openai-oauth', model: 'gpt-5.5' },
   'gpt-5.5': { provider: 'openai-oauth', model: 'gpt-5.5' },
-  grok:   { provider: 'grok-oauth', model: 'grok-composer-2.5-fast' },
+  grok: { provider: 'grok-oauth', model: 'grok-composer-2.5-fast' },
 };
 function resolveModelOpts(modelArg, providerArg) {
-  const key = String(modelArg || '').trim().toLowerCase();
+  const key = String(modelArg || '')
+    .trim()
+    .toLowerCase();
   if (MODEL_ALIASES[key] && !providerArg) return { ...MODEL_ALIASES[key] };
   return { provider: providerArg || null, model: modelArg || null };
 }
@@ -147,25 +151,28 @@ const RUNNERS = {
     ].join('\n');
     const started = Date.now();
     const { raw, ok } = await new Promise((resolveRun) => {
-      execFile('node', ['--input-type=module', '-e', driver], {
-        encoding: 'utf8',
-        maxBuffer: 64 * 1024 * 1024,
-        env: {
-          ...process.env,
-          ...(opts.env || {}),
+      execFile(
+        'node',
+        ['--input-type=module', '-e', driver],
+        {
+          encoding: 'utf8',
+          maxBuffer: 64 * 1024 * 1024,
+          env: {
+            ...process.env,
+            ...(opts.env || {}),
+          },
         },
-      }, (err, stdout, stderrOut) => {
-        if (err) resolveRun({ raw: String(stdout || '') + String(stderrOut || ''), ok: false });
-        else resolveRun({ raw: String(stdout || ''), ok: true });
-      });
+        (err, stdout, stderrOut) => {
+          if (err) resolveRun({ raw: String(stdout || '') + String(stderrOut || ''), ok: false });
+          else resolveRun({ raw: String(stdout || ''), ok: true });
+        }
+      );
     });
     return { sessionId: extractSessionId(raw), ok, ms: Date.now() - started, raw };
   },
   async mixdog(task, opts) {
     if (!opts.provider || !opts.model) {
-      throw new Error(
-        'mixdog headless runner requires explicit --provider and --model (or a model alias)',
-      );
+      throw new Error('mixdog headless runner requires explicit --provider and --model (or a model alias)');
     }
     const driver = [
       `import { runHeadlessExec } from ${JSON.stringify(HEADLESS)};`,
@@ -185,17 +192,22 @@ const RUNNERS = {
     ].join('\n');
     const started = Date.now();
     const { raw, ok } = await new Promise((resolveRun) => {
-      execFile('node', ['--input-type=module', '-e', driver], {
-        encoding: 'utf8',
-        maxBuffer: 64 * 1024 * 1024,
-        env: {
-          ...process.env,
-          ...(opts.env || {}),
+      execFile(
+        'node',
+        ['--input-type=module', '-e', driver],
+        {
+          encoding: 'utf8',
+          maxBuffer: 64 * 1024 * 1024,
+          env: {
+            ...process.env,
+            ...(opts.env || {}),
+          },
         },
-      }, (err, stdout, stderrOut) => {
-        if (err) resolveRun({ raw: String(stdout || '') + String(stderrOut || ''), ok: false });
-        else resolveRun({ raw: String(stdout || ''), ok: true });
-      });
+        (err, stdout, stderrOut) => {
+          if (err) resolveRun({ raw: String(stdout || '') + String(stderrOut || ''), ok: false });
+          else resolveRun({ raw: String(stdout || ''), ok: true });
+        }
+      );
     });
     return { sessionId: extractSessionId(raw), ok, ms: Date.now() - started, raw };
   },
@@ -204,8 +216,15 @@ const RUNNERS = {
   // Sandbox is read-only: review tasks must not mutate the repo. Usage comes
   // from turn.completed events; the final agent_message is kept for judging.
   async codex(task, opts) {
-    const args = ['exec', '--json', '--skip-git-repo-check', '-s', 'read-only',
-      '-C', task.cwd ? resolve(task.cwd) : process.cwd()];
+    const args = [
+      'exec',
+      '--json',
+      '--skip-git-repo-check',
+      '-s',
+      'read-only',
+      '-C',
+      task.cwd ? resolve(task.cwd) : process.cwd(),
+    ];
     if (opts.model) args.push('-m', opts.model);
     if (opts.effort) args.push('-c', `model_reasoning_effort="${opts.effort}"`);
     if (opts.fast) args.push('-c', 'service_tier="fast"');
@@ -215,8 +234,12 @@ const RUNNERS = {
       const child = spawn('codex', args, { shell: true, env: { ...process.env, ...(opts.env || {}) } });
       let out = '';
       let errOut = '';
-      child.stdout.on('data', (d) => { out += d; });
-      child.stderr.on('data', (d) => { errOut += d; });
+      child.stdout.on('data', (d) => {
+        out += d;
+      });
+      child.stderr.on('data', (d) => {
+        errOut += d;
+      });
       child.on('error', (e) => resolveRun({ raw: `${out}\n${errOut}\n${e.message}`, ok: false }));
       child.on('close', (code) => resolveRun({ raw: code === 0 ? out : `${out}\n${errOut}`, ok: code === 0 }));
       child.stdin.write(String(task.prompt || ''));
@@ -230,7 +253,11 @@ const RUNNERS = {
     for (const line of raw.split(/\r?\n/)) {
       if (!line.trim().startsWith('{')) continue;
       let ev = null;
-      try { ev = JSON.parse(line); } catch { continue; }
+      try {
+        ev = JSON.parse(line);
+      } catch {
+        continue;
+      }
       if (ev?.thread_id && !threadId) threadId = String(ev.thread_id);
       const u = ev?.usage || ev?.turn?.usage || null;
       if (u) {
@@ -257,7 +284,9 @@ const RUNNERS = {
     return { sessionId: card.session, ok, ms, raw, card, finalMessage };
   },
   claude() {
-    throw new Error('runner "claude" not implemented (slot: claude -p --output-format json). Cross-CLI compare is a separate mode.');
+    throw new Error(
+      'runner "claude" not implemented (slot: claude -p --output-format json). Cross-CLI compare is a separate mode.'
+    );
   },
 };
 
@@ -270,7 +299,8 @@ function scoreSession(sessionId, { attempts = 5, env = null } = {}) {
   for (let i = 0; i < attempts; i += 1) {
     try {
       const raw = execFileSync('node', [TASK_BENCH, '--session', sessionId, '--json'], {
-        encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
         env: { ...process.env, ...(env || {}) },
       });
       const s = raw.replace(/^\uFEFF/, '');
@@ -305,14 +335,17 @@ function usdCost(model, uncachedIn, cachedIn, outTokens) {
 
 function averageCards(cards) {
   if (!cards.length) return null;
-  const keys = Object.keys(cards[0]).filter((k) => cards.some((c) => typeof c[k] === 'number' && Number.isFinite(c[k])));
+  const keys = Object.keys(cards[0]).filter((k) =>
+    cards.some((c) => typeof c[k] === 'number' && Number.isFinite(c[k]))
+  );
   const out = { n: cards.length };
   for (const k of keys) {
     if (k === 'usd_cost') {
       const priced = cards.map((c) => c.usd_cost).filter((v) => typeof v === 'number' && Number.isFinite(v));
-      out.usd_cost = priced.length === cards.length
-        ? Math.round((priced.reduce((a, b) => a + b, 0) / priced.length) * 10) / 10
-        : null;
+      out.usd_cost =
+        priced.length === cards.length
+          ? Math.round((priced.reduce((a, b) => a + b, 0) / priced.length) * 10) / 10
+          : null;
       continue;
     }
     const vals = cards.map((c) => c[k]).filter((v) => typeof v === 'number' && Number.isFinite(v));
@@ -325,16 +358,27 @@ function averageCards(cards) {
 // ---- main ----
 const tasksPath = argValue('--tasks', null);
 if (!tasksPath) {
-  console.error('usage: --tasks <tasks.json> [--round N] [--runner mixdog|codex|lead] [--provider P] [--model M] [--effort E] [--fast] [--save round.json] [--json]');
+  console.error(
+    'usage: --tasks <tasks.json> [--round N] [--runner mixdog|codex|lead] [--provider P] [--model M] [--effort E] [--fast] [--save round.json] [--json]'
+  );
   process.exit(1);
 }
-if (!existsSync(resolve(tasksPath))) { console.error(`tasks file not found: ${tasksPath}`); process.exit(1); }
+if (!existsSync(resolve(tasksPath))) {
+  console.error(`tasks file not found: ${tasksPath}`);
+  process.exit(1);
+}
 const tasks = JSON.parse(readFileSync(resolve(tasksPath), 'utf8'));
-if (!Array.isArray(tasks) || !tasks.length) { console.error('tasks.json must be a non-empty array'); process.exit(1); }
+if (!Array.isArray(tasks) || !tasks.length) {
+  console.error('tasks.json must be a non-empty array');
+  process.exit(1);
+}
 
 const runnerName = argValue('--runner', 'mixdog');
 const runner = RUNNERS[runnerName];
-if (!runner) { console.error(`unknown runner "${runnerName}" (mixdog|codex|lead)`); process.exit(1); }
+if (!runner) {
+  console.error(`unknown runner "${runnerName}" (mixdog|codex|lead)`);
+  process.exit(1);
+}
 const round = argValue('--round', '1');
 const savePath = argValue('--save', null);
 const jsonMode = hasFlag('--json');
@@ -374,7 +418,9 @@ const opts = {
   workflow: argValue('--workflow', null),
   env: _env,
 };
-process.stderr.write(`[bench-run] model=${opts.model || '(agent default)'} provider=${opts.provider || '(agent default)'} effort=${opts.effort || '-'} fast=${opts.fast} workflow=${opts.workflow || '-'} env=${JSON.stringify(_env)}\n`);
+process.stderr.write(
+  `[bench-run] model=${opts.model || '(agent default)'} provider=${opts.provider || '(agent default)'} effort=${opts.effort || '-'} fast=${opts.fast} workflow=${opts.workflow || '-'} env=${JSON.stringify(_env)}\n`
+);
 
 // --parallel N: run up to N tasks concurrently (default: all). Scoring stays
 // sequential after runs so task-bench reads a settled trace.
@@ -397,14 +443,21 @@ for (let r = 1; r <= repeat; r += 1) {
 async function runTask(task) {
   process.stderr.write(`[bench-run] round=${round} runner=${runnerName} task=${task.id || task.agent} ...\n`);
   let r;
-  try { r = await runner(task, opts); }
-  catch (e) {
+  try {
+    r = await runner(task, opts);
+  } catch (e) {
     console.error(`[bench-run] runner error (${task.id || task.agent}): ${e.message}`);
     return { id: task.id || null, agent: task.agent || null, ok: false, ms: 0, sessionId: null };
   }
-  process.stderr.write(`[bench-run]   -> ${task.id || task.agent}: ${r.ok ? 'ok' : 'FAIL'} ${Math.round(r.ms / 1000)}s session=${r.sessionId || '(none)'}\n`);
+  process.stderr.write(
+    `[bench-run]   -> ${task.id || task.agent}: ${r.ok ? 'ok' : 'FAIL'} ${Math.round(r.ms / 1000)}s session=${r.sessionId || '(none)'}\n`
+  );
   return {
-    id: task.id || null, agent: task.agent || null, ok: r.ok, ms: r.ms, sessionId: r.sessionId,
+    id: task.id || null,
+    agent: task.agent || null,
+    ok: r.ok,
+    ms: r.ms,
+    sessionId: r.sessionId,
     // External runners (codex/claude) pre-build their scorecard; mixdog scores
     // from its own trace below. Output text is kept for quality judging.
     ...(r.card ? { card: r.card } : {}),
@@ -436,7 +489,9 @@ for (const result of results) {
     // the session's own model when present, else the round's --model.
     const c = scored.card;
     c.usd_cost = usdCost(c.model || opts.model, c.uncached_tokens, c.cached_tokens, c.output_tokens);
-    process.stderr.write(`[bench-run]   -> scored ${result.sessionId.slice(0, 22)} turns=${scored.card.turns} tools=${scored.card.tool_calls}\n`);
+    process.stderr.write(
+      `[bench-run]   -> scored ${result.sessionId.slice(0, 22)} turns=${scored.card.turns} tools=${scored.card.tool_calls}\n`
+    );
   } else {
     result.scoreError = scored.error;
     process.stderr.write(`[bench-run]   -> SCORE FAIL ${result.sessionId.slice(0, 22)} ${scored.error}\n`);
@@ -447,20 +502,34 @@ const sessionIds = results.map((r) => r.sessionId).filter(Boolean);
 const scoredCards = results.map((r) => r.card).filter(Boolean);
 const scoreErrors = results
   .filter((r) => !r.card)
-  .map((r) => ({ id: r.id, sessionId: r.sessionId || null, error: r.sessionId ? (r.scoreError || 'missing scorecard') : 'missing sessionId' }));
-const score = scoredCards.length ? { cards: scoredCards, group: averageCards(scoredCards.map(({ session, ...c }) => c)) } : null;
+  .map((r) => ({
+    id: r.id,
+    sessionId: r.sessionId || null,
+    error: r.sessionId ? r.scoreError || 'missing scorecard' : 'missing sessionId',
+  }));
+const score = scoredCards.length
+  ? { cards: scoredCards, group: averageCards(scoredCards.map(({ session, ...c }) => c)) }
+  : null;
 const completed = results.filter((r) => r.ok).length;
 const taskErrors = results
   .filter((r) => !r.ok)
   .map((r) => ({ id: r.id, sessionId: r.sessionId || null, error: 'task failed' }));
 const roundResult = {
-  round, runner: runnerName, opts,
-  tasks: results.length, completed,
+  round,
+  runner: runnerName,
+  opts,
+  tasks: results.length,
+  completed,
   completion_rate: results.length ? Math.round((completed / results.length) * 100) : 0,
-  sessions: sessionIds, results,
+  sessions: sessionIds,
+  results,
   task_complete: results.length > 0 && completed === results.length,
   task_errors: taskErrors,
-  score_complete: results.length > 0 && taskErrors.length === 0 && scoreErrors.length === 0 && (score?.cards?.length || 0) === results.length,
+  score_complete:
+    results.length > 0 &&
+    taskErrors.length === 0 &&
+    scoreErrors.length === 0 &&
+    (score?.cards?.length || 0) === results.length,
   score_errors: scoreErrors,
   group: score?.group || null,
   cards: score?.cards || null,
@@ -472,24 +541,32 @@ if (roundResult.task_complete === false) {
 }
 if (roundResult.score_complete === false) {
   console.error(`[bench-run] incomplete scoring: scored=${roundResult.cards?.length || 0}/${results.length}`);
-  for (const e of scoreErrors) console.error(`[bench-run] score error ${e.id || '-'} ${e.sessionId || '(no session)'}: ${e.error}`);
+  for (const e of scoreErrors)
+    console.error(`[bench-run] score error ${e.id || '-'} ${e.sessionId || '(no session)'}: ${e.error}`);
 }
 if (savePath) {
   if (roundResult.task_complete === false || roundResult.score_complete === false) {
     console.error(`[bench-run] not saving incomplete round -> ${resolve(savePath)}`);
   } else {
-  writeFileSync(resolve(savePath), JSON.stringify(roundResult, null, 2));
-  console.error(`[bench-run] saved round ${round} -> ${resolve(savePath)}`);
+    writeFileSync(resolve(savePath), JSON.stringify(roundResult, null, 2));
+    console.error(`[bench-run] saved round ${round} -> ${resolve(savePath)}`);
   }
 }
 if (jsonMode) {
   console.log(JSON.stringify(roundResult, null, 2));
 } else {
-  console.log(`round=${round} runner=${runnerName} tasks=${results.length} completed=${completed} (${roundResult.completion_rate}%)`);
-  for (const r of results) console.log(`- ${r.id || r.agent}: ${r.ok ? 'ok' : 'FAIL'} ${Math.round(r.ms / 1000)}s ${r.sessionId ? r.sessionId.slice(0, 22) : '(no session)'}`);
+  console.log(
+    `round=${round} runner=${runnerName} tasks=${results.length} completed=${completed} (${roundResult.completion_rate}%)`
+  );
+  for (const r of results)
+    console.log(
+      `- ${r.id || r.agent}: ${r.ok ? 'ok' : 'FAIL'} ${Math.round(r.ms / 1000)}s ${r.sessionId ? r.sessionId.slice(0, 22) : '(no session)'}`
+    );
   if (roundResult.group) {
     const g = roundResult.group;
-    console.log(`group: wall=${Math.round((g.wall_ms || 0) / 1000)}s turns=${g.turns} tools=${g.tool_calls} tpt=${g.tools_per_turn} tool_ms=${Math.round((g.total_tool_ms || 0) / 1000)}s cache=${Math.round((g.cache_ratio || 0) * 100)}% antipatterns=${g.antipatterns}`);
+    console.log(
+      `group: wall=${Math.round((g.wall_ms || 0) / 1000)}s turns=${g.turns} tools=${g.tool_calls} tpt=${g.tools_per_turn} tool_ms=${Math.round((g.total_tool_ms || 0) / 1000)}s cache=${Math.round((g.cache_ratio || 0) * 100)}% antipatterns=${g.antipatterns}`
+    );
   }
 }
 const incomplete = roundResult.task_complete === false || roundResult.score_complete === false;

@@ -37,9 +37,7 @@ export function consumeCodeGraphDirtyPaths(cwd) {
 // Accept absolute written paths only; resolve affected indexed roots centrally.
 export function markCodeGraphDirtyPaths(paths) {
   const values = Array.isArray(paths) ? paths : [paths];
-  const cleaned = values
-    .filter(Boolean)
-    .map((p) => canonicalGraphPath(p));
+  const cleaned = values.filter(Boolean).map((p) => canonicalGraphPath(p));
   if (cleaned.length === 0) return;
 
   const knownRoots = new Set([...codeGraphDirtyPaths.keys(), ...codeGraphCache.keys()]);

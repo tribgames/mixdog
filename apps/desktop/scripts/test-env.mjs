@@ -64,11 +64,11 @@ for (const specifier of ['react', 'react-dom']) {
   const rootVersion = packageVersion(rootRequire, specifier);
   if (desktopVersion && rootVersion && desktopVersion !== rootVersion) {
     throw new Error(
-      `[test-env] ${specifier} version drift between workspace trees: `
-      + `apps/desktop ${desktopVersion} vs repository root ${rootVersion}. `
-      + 'Desktop tests pin every React specifier to the desktop copy, so this '
-      + 'mismatch would be hidden instead of tested. Align the two installs '
-      + '(or narrow apps/desktop/package.json) before running the suite.',
+      `[test-env] ${specifier} version drift between workspace trees: ` +
+        `apps/desktop ${desktopVersion} vs repository root ${rootVersion}. ` +
+        'Desktop tests pin every React specifier to the desktop copy, so this ' +
+        'mismatch would be hidden instead of tested. Align the two installs ' +
+        '(or narrow apps/desktop/package.json) before running the suite.'
     );
   }
 }

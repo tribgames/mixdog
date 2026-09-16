@@ -36,14 +36,31 @@ import {
 // session locals plus the closure callbacks.
 export function createWorkflowAgentsApi(deps) {
   const {
-    getConfig, getRoute, setRouteState, getSession,
-    cfgMod, STANDALONE_DATA_DIR,
-    resolveRoute, lookupModelMeta, adoptConfig, saveConfigAndAdopt, displayConfig, ensureProvidersReady,
-    agentRouteFromConfig, loadAgentDefinition, activeWorkflowId, listWorkflowPacks,
-    loadWorkflowPack, workflowSummary, listCustomAgentIds,
-    getOutputStyleStatusCached, seedOutputStyleStatusCache, scheduleOutputStyleSave,
+    getConfig,
+    getRoute,
+    setRouteState,
+    getSession,
+    cfgMod,
+    STANDALONE_DATA_DIR,
+    resolveRoute,
+    lookupModelMeta,
+    adoptConfig,
+    saveConfigAndAdopt,
+    displayConfig,
+    ensureProvidersReady,
+    agentRouteFromConfig,
+    loadAgentDefinition,
+    activeWorkflowId,
+    listWorkflowPacks,
+    loadWorkflowPack,
+    workflowSummary,
+    listCustomAgentIds,
+    getOutputStyleStatusCached,
+    seedOutputStyleStatusCache,
+    scheduleOutputStyleSave,
     invalidateContextStatusCache,
-    invalidatePreSessionToolSurface, refreshEmptySessionToolPolicy,
+    invalidatePreSessionToolSurface,
+    refreshEmptySessionToolPolicy,
   } = deps;
   return {
     async completeOnboarding(payload = {}) {
@@ -52,9 +69,8 @@ export function createWorkflowAgentsApi(deps) {
       // Web Search/agent picks) omits defaultRoute entirely and must NOT persist the
       // current route as Main or recreate the session.
       const config = getConfig();
-      const workflowInput = payload.workflowRoutes && typeof payload.workflowRoutes === 'object'
-        ? payload.workflowRoutes
-        : {};
+      const workflowInput =
+        payload.workflowRoutes && typeof payload.workflowRoutes === 'object' ? payload.workflowRoutes : {};
       const nextConfig = { ...config };
       const defaultRoute = hasOwn(payload, 'defaultRoute')
         ? normalizeWorkflowRoute(payload.defaultRoute, getRoute())
@@ -85,9 +101,7 @@ export function createWorkflowAgentsApi(deps) {
 
       nextConfig.presets = presets;
       nextConfig.agents = agentRoutes;
-      const agentInput = payload.agentRoutes && typeof payload.agentRoutes === 'object'
-        ? payload.agentRoutes
-        : null;
+      const agentInput = payload.agentRoutes && typeof payload.agentRoutes === 'object' ? payload.agentRoutes : null;
       if (agentInput) {
         const nextAgents = { ...agentRoutes };
         const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
@@ -113,13 +127,23 @@ export function createWorkflowAgentsApi(deps) {
       if (payload.webSearchRoute) {
         const webSearchToSave = clean(payload.webSearchRoute.provider)
           ? normalizeWebSearchRouteConfig(payload.webSearchRoute)
-          : normalizeWebSearchRouteConfig({ provider: 'default', model: 'default', toolType: payload.webSearchRoute.toolType });
+          : normalizeWebSearchRouteConfig({
+              provider: 'default',
+              model: 'default',
+              toolType: payload.webSearchRoute.toolType,
+            });
         if (webSearchToSave) nextConfig.webSearchRoute = webSearchToSave;
       }
 
       saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
       if (defaultRoute) {
-        setRouteState(resolveRoute(getConfig(), { provider: defaultRoute.provider, model: defaultRoute.model, effort: defaultRoute.effort }));
+        setRouteState(
+          resolveRoute(getConfig(), {
+            provider: defaultRoute.provider,
+            model: defaultRoute.model,
+            effort: defaultRoute.effort,
+          })
+        );
         invalidatePreSessionToolSurface?.();
       }
       return this.getOnboardingStatus();
@@ -130,8 +154,8 @@ export function createWorkflowAgentsApi(deps) {
       // Agents have two states only (a model, or off), so an agent that has
       // never been pinned reports the effective Main route instead of an empty
       // one — the surfaces must never offer a third "follows Main" state.
-      const effectiveRoute = (agentId) => agentRouteFromConfig(config, agentId)
-        || normalizeWorkflowRoute(resolveRoute(config, {}));
+      const effectiveRoute = (agentId) =>
+        agentRouteFromConfig(config, agentId) || normalizeWorkflowRoute(resolveRoute(config, {}));
       const fixed = FIXED_AGENT_SLOTS.map((agent) => ({
         ...agent,
         locked: true,
@@ -245,16 +269,24 @@ export function createWorkflowAgentsApi(deps) {
       const description = oneLine(payload.description);
       // Delegation on/off replaces the legacy `agents` roster payload: only an
       // explicit "none" writes frontmatter; anything else means "delegates".
-      const delegation = String(payload.delegation ?? '').trim().toLowerCase();
+      const delegation = String(payload.delegation ?? '')
+        .trim()
+        .toLowerCase();
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const dir = join(dataDir, 'workflows', id);
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, 'WORKFLOW.md'), serializeFrontmatterDoc({
-        id,
-        name,
-        ...(description ? { description } : {}),
-        ...(delegation === 'none' ? { delegation: 'none' } : {}),
-      }, body));
+      writeFileSync(
+        join(dir, 'WORKFLOW.md'),
+        serializeFrontmatterDoc(
+          {
+            id,
+            name,
+            ...(description ? { description } : {}),
+            ...(delegation === 'none' ? { delegation: 'none' } : {}),
+          },
+          body
+        )
+      );
       return this.getWorkflowPack(id);
     },
     async createWorkflow(payload = {}) {
@@ -311,8 +343,7 @@ export function createWorkflowAgentsApi(deps) {
         body: definition.body,
         custom: !FIXED_AGENT_SLOTS.some((agent) => agent.id === id),
         userOverride: existsSync(join(dataDir, 'agents', id, 'AGENT.md')),
-        route: agentRouteFromConfig(getConfig(), id)
-          || normalizeWorkflowRoute(resolveRoute(getConfig(), {})),
+        route: agentRouteFromConfig(getConfig(), id) || normalizeWorkflowRoute(resolveRoute(getConfig(), {})),
         disabled: isAgentDisabled(getConfig(), id),
       };
     },
@@ -335,15 +366,28 @@ export function createWorkflowAgentsApi(deps) {
       }
       const dir = join(dataDir, 'agents', id);
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, 'AGENT.md'), serializeFrontmatterDoc({
-        name: name || id,
-        ...(description ? { description } : {}),
-      }, body));
+      writeFileSync(
+        join(dir, 'AGENT.md'),
+        serializeFrontmatterDoc(
+          {
+            name: name || id,
+            ...(description ? { description } : {}),
+          },
+          body
+        )
+      );
       // loadAgentDefinition prefers the manifest for name/description.
-      writeFileSync(join(dir, 'agent.json'), `${JSON.stringify({
-        name: name || id,
-        ...(description ? { description } : {}),
-      }, null, 2)}\n`);
+      writeFileSync(
+        join(dir, 'agent.json'),
+        `${JSON.stringify(
+          {
+            name: name || id,
+            ...(description ? { description } : {}),
+          },
+          null,
+          2
+        )}\n`
+      );
       rmSync(join(dir, AGENT_DELETED_MARKER), { force: true });
       clearAgentDefinitionCache(id);
       if (payload.route) {
@@ -415,7 +459,7 @@ export function createWorkflowAgentsApi(deps) {
       if (!clean(requested.provider)) {
         const nextConfig = { ...getConfig() };
         const agents = { ...(nextConfig.agents || {}) };
-        const hadOverride = Object.prototype.hasOwnProperty.call(agents, id);
+        const hadOverride = Object.hasOwn(agents, id);
         delete agents[id];
         nextConfig.agents = agents;
         if (hadOverride) saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
@@ -424,19 +468,18 @@ export function createWorkflowAgentsApi(deps) {
       }
       if (!clean(requested.model)) throw new Error('agent route requires provider and model');
       let selectedRoute = resolveRoute(getConfig(), requested);
-      const sameModel = clean(selectedRoute.provider) === clean(stored.provider)
-        && clean(selectedRoute.model) === clean(stored.model);
+      const sameModel =
+        clean(selectedRoute.provider) === clean(stored.provider) && clean(selectedRoute.model) === clean(stored.model);
       selectedRoute = {
         ...selectedRoute,
-        effort: requested.effort !== undefined
-          ? selectedRoute.effort
-          : (sameModel ? (stored.effort || null) : null),
-        fast: requested.fast !== undefined
-          ? selectedRoute.fast === true
-          : (sameModel && stored.fast === true),
-        modelParameters: requested.modelParameters !== undefined
-          ? selectedRoute.modelParameters
-          : (sameModel ? (stored.modelParameters || {}) : {}),
+        effort: requested.effort !== undefined ? selectedRoute.effort : sameModel ? stored.effort || null : null,
+        fast: requested.fast !== undefined ? selectedRoute.fast === true : sameModel && stored.fast === true,
+        modelParameters:
+          requested.modelParameters !== undefined
+            ? selectedRoute.modelParameters
+            : sameModel
+              ? stored.modelParameters || {}
+              : {},
       };
       await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
       const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
@@ -444,7 +487,7 @@ export function createWorkflowAgentsApi(deps) {
         selectedRoute.provider,
         modelMeta,
         selectedRoute.effort,
-        selectedRoute.modelParameters,
+        selectedRoute.modelParameters
       );
       selectedRoute = { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };
 

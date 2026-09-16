@@ -18,9 +18,11 @@ const DISCOVERY_MAX_AGE_MS = 5 * 60_000;
 /** Same resolution the desktop uses when publishing: an isolated profile sets
  *  MIXDOG_BRIDGE_DISCOVERY_DIR so its bridges stay out of the shared data dir. */
 export function bridgeDiscoveryDirectory() {
-  return process.env.MIXDOG_BRIDGE_DISCOVERY_DIR
-    || process.env.MIXDOG_DATA_DIR
-    || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
+  return (
+    process.env.MIXDOG_BRIDGE_DISCOVERY_DIR ||
+    process.env.MIXDOG_DATA_DIR ||
+    join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data')
+  );
 }
 
 /** True unless the pid is known not to exist. A permission error still means
@@ -45,8 +47,7 @@ export function readBridgeDiscovery(fileName) {
  *  than the one this call already used. Observations may retry there;
  *  mutations must not. */
 export function bridgeDiscoveryChanged(current, replacement) {
-  return Boolean(replacement
-    && (replacement.port !== current?.port || replacement.token !== current?.token));
+  return Boolean(replacement && (replacement.port !== current?.port || replacement.token !== current?.token));
 }
 
 export function readBridgeDiscoveryDetail(fileName) {
@@ -64,8 +65,7 @@ export function readBridgeDiscoveryDetail(fileName) {
   const port = Number(parsed?.port);
   const token = String(parsed?.token || '');
   const pid = Number(parsed?.pid || 0);
-  if (version !== DISCOVERY_VERSION
-    || !Number.isInteger(port) || port <= 0 || port > 65_535 || !token) {
+  if (version !== DISCOVERY_VERSION || !Number.isInteger(port) || port <= 0 || port > 65_535 || !token) {
     return { discovery: null, reason: 'invalid' };
   }
   if (!processAlive(pid)) {

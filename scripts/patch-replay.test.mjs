@@ -18,21 +18,26 @@ test('partial patch replay captures the pre-mutation state and never recaptures 
   process.env.MIXDOG_PATCH_REPLAY_DIR = replayDir;
   process.env.MIXDOG_PATCH_REPLAY_CAPTURE = '1';
   try {
-    const result = await executePatchTool('apply_patch', {
-      patch: [
-        '*** Begin Patch',
-        '*** Update File: good.txt',
-        '@@',
-        '-one',
-        '+two',
-        '*** Update File: stale.txt',
-        '@@',
-        '-expected',
-        '+next',
-        '*** End Patch',
-        '',
-      ].join('\n'),
-    }, root, { sessionId: 'session-test', toolCallId: 'call-test' });
+    const result = await executePatchTool(
+      'apply_patch',
+      {
+        patch: [
+          '*** Begin Patch',
+          '*** Update File: good.txt',
+          '@@',
+          '-one',
+          '+two',
+          '*** Update File: stale.txt',
+          '@@',
+          '-expected',
+          '+next',
+          '*** End Patch',
+          '',
+        ].join('\n'),
+      },
+      root,
+      { sessionId: 'session-test', toolCallId: 'call-test' }
+    );
     assert.match(result, /^Error: apply_patch file-level partial: 1\/2/m);
     const captures = readdirSync(replayDir).filter((file) => file.endsWith('.json'));
     assert.equal(captures.length, 1);
@@ -65,13 +70,20 @@ test('partial patch replay captures the pre-mutation state and never recaptures 
 });
 
 test('legacy partial captures are skipped instead of producing misleading replay failures', () => {
-  assert.match(legacyPartialReplayReason({
-    error_first_line: 'Error: apply_patch file-level partial: 1/2 file(s) applied to disk (committed); 1 file(s) rejected',
-  }), /post-mutation snapshots/);
-  assert.equal(legacyPartialReplayReason({
-    snapshot_phase: 'pre',
-    outcome: { kind: 'partial' },
-  }), null);
+  assert.match(
+    legacyPartialReplayReason({
+      error_first_line:
+        'Error: apply_patch file-level partial: 1/2 file(s) applied to disk (committed); 1 file(s) rejected',
+    }),
+    /post-mutation snapshots/
+  );
+  assert.equal(
+    legacyPartialReplayReason({
+      snapshot_phase: 'pre',
+      outcome: { kind: 'partial' },
+    }),
+    null
+  );
 });
 
 test('replay snapshots cannot write outside the throwaway replay root', async () => {

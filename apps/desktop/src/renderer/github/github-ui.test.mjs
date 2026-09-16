@@ -30,7 +30,9 @@ const { SourceControlDock } = await import('../SourceControlDock.tsx');
 
 const deferred = () => {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 };
 async function mount(element) {
@@ -38,7 +40,14 @@ async function mount(element) {
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => root.render(element));
-  return { host, root, cleanup: async () => { await act(async () => root.unmount()); host.remove(); } };
+  return {
+    host,
+    root,
+    cleanup: async () => {
+      await act(async () => root.unmount());
+      host.remove();
+    },
+  };
 }
 const click = async (host, text) => {
   const button = [...host.querySelectorAll('button')].find((entry) => entry.textContent === text);
@@ -48,17 +57,30 @@ const click = async (host, text) => {
 const props = { projectPath: 'C:\\Project\\demo', repositoryUrl: 'https://github.com/owner/demo', section: 'issues' };
 
 test('Git settings leave the settings sidebar and legacy extension routes remain usable', () => {
-  for (const remote of [false, true]) assert.equal(settingsCategoriesForSurface(remote).some((item) => item.value === 'git'), false);
+  for (const remote of [false, true])
+    assert.equal(
+      settingsCategoriesForSurface(remote).some((item) => item.value === 'git'),
+      false
+    );
   assert.equal(extensionSectionForSettings('git'), 'plugins');
 });
 
 test('the GitHub dock offers repository creation before local Git status is ready or initialized', () => {
   window.mixdogDesktop = {};
   for (const status of [null, { repository: false, files: [] }]) {
-    const markup = renderToStaticMarkup(React.createElement(SourceControlDock, {
-      projectPath: props.projectPath, status, statusReady: Boolean(status), statusError: '',
-      loading: false, active: true, readinessKey: 'github', surface: 'prs', onRefreshStatus() {},
-    }));
+    const markup = renderToStaticMarkup(
+      React.createElement(SourceControlDock, {
+        projectPath: props.projectPath,
+        status,
+        statusReady: Boolean(status),
+        statusError: '',
+        loading: false,
+        active: true,
+        readinessKey: 'github',
+        surface: 'prs',
+        onRefreshStatus() {},
+      })
+    );
     assert.match(markup, /GitHub view/);
     assert.match(markup, /Create repository/);
     assert.match(markup, /Clone repository/);
@@ -76,10 +98,12 @@ test('each GitHub section displays data and provides bounded next-page navigatio
     ['notifications', 'notification.list', { id: '1', subject: { title: 'Review needed' } }],
   ]) {
     const calls = [];
-    window.mixdogDesktop = { githubRequest: async (_cwd, input) => {
-      calls.push(input);
-      return { action, repo: 'owner/demo', data: [item], hasMore: input.page === 1 };
-    } };
+    window.mixdogDesktop = {
+      githubRequest: async (_cwd, input) => {
+        calls.push(input);
+        return { action, repo: 'owner/demo', data: [item], hasMore: input.page === 1 };
+      },
+    };
     const rendered = await mount(React.createElement(GithubPanel, { ...props, section }));
     try {
       assert.equal(rendered.host.querySelectorAll('.github-item').length, 1);
@@ -87,16 +111,23 @@ test('each GitHub section displays data and provides bounded next-page navigatio
       await click(rendered.host, 'Next');
       assert.equal(calls.at(-1).page, 2);
       assert.equal(calls.at(-1).limit, 30);
-    } finally { await rendered.cleanup(); }
+    } finally {
+      await rendered.cleanup();
+    }
   }
 });
 
 test('inactive surfaces do not fetch and late results cannot repaint an inactive surface', async () => {
   const pending = deferred();
   let calls = 0;
-  window.mixdogDesktop = { githubRequest: () => { calls++; return pending.promise; } };
-  const element = (active) => React.createElement(SurfaceActiveContext.Provider, { value: active },
-    React.createElement(GithubPanel, props));
+  window.mixdogDesktop = {
+    githubRequest: () => {
+      calls++;
+      return pending.promise;
+    },
+  };
+  const element = (active) =>
+    React.createElement(SurfaceActiveContext.Provider, { value: active }, React.createElement(GithubPanel, props));
   const rendered = await mount(element(false));
   try {
     assert.equal(calls, 0);
@@ -105,7 +136,9 @@ test('inactive surfaces do not fetch and late results cannot repaint an inactive
     await act(async () => rendered.root.render(element(false)));
     await act(async () => pending.resolve({ data: [{ id: 1, title: 'Stale issue' }] }));
     assert.equal(rendered.host.textContent.includes('Stale issue'), false);
-  } finally { await rendered.cleanup(); }
+  } finally {
+    await rendered.cleanup();
+  }
 });
 
 test('write forms require confirmation and block a second submit while the first is pending', async () => {
@@ -113,22 +146,38 @@ test('write forms require confirmation and block a second submit while the first
   const writes = [];
   let closed = 0;
   window.confirm = () => false;
-  const rendered = await mount(React.createElement(GithubActionForm, {
-    request: { action: 'issue.create', repo: 'owner/demo', title: '한글 제목', body: '내용' },
-    onSubmit: (input) => { writes.push(input); return pending.promise; }, onClose: () => { closed++; },
-  }));
+  const rendered = await mount(
+    React.createElement(GithubActionForm, {
+      request: { action: 'issue.create', repo: 'owner/demo', title: '한글 제목', body: '내용' },
+      onSubmit: (input) => {
+        writes.push(input);
+        return pending.promise;
+      },
+      onClose: () => {
+        closed++;
+      },
+    })
+  );
   try {
-    const submit = () => rendered.host.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    const submit = () =>
+      rendered.host
+        .querySelector('form')
+        .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
     await act(async () => submit());
     assert.equal(writes.length, 0);
     window.confirm = () => true;
-    await act(async () => { submit(); submit(); });
+    await act(async () => {
+      submit();
+      submit();
+    });
     assert.equal(writes.length, 1);
     assert.equal(writes[0].title, '한글 제목');
     assert.equal(writes[0].repo, 'owner/demo');
     await act(async () => pending.resolve());
     assert.equal(closed, 1);
-  } finally { await rendered.cleanup(); }
+  } finally {
+    await rendered.cleanup();
+  }
 });
 
 test('PR approval submits the displayed repository and commit, then refreshes once', async () => {
@@ -136,24 +185,37 @@ test('PR approval submits the displayed repository and commit, then refreshes on
   let refreshed = 0;
   const sha = 'b'.repeat(40);
   window.confirm = () => true;
-  window.mixdogDesktop = { githubRequest: async (_cwd, input) => {
-    requests.push(input);
-    return { repo: 'owner/demo', data: { head: { sha } } };
-  } };
-  const rendered = await mount(React.createElement(GithubReviewForm, {
-    projectPath: props.projectPath, number: 12, active: true, onSubmitted: () => { refreshed++; },
-  }));
+  window.mixdogDesktop = {
+    githubRequest: async (_cwd, input) => {
+      requests.push(input);
+      return { repo: 'owner/demo', data: { head: { sha } } };
+    },
+  };
+  const rendered = await mount(
+    React.createElement(GithubReviewForm, {
+      projectPath: props.projectPath,
+      number: 12,
+      active: true,
+      onSubmitted: () => {
+        refreshed++;
+      },
+    })
+  );
   try {
     const select = rendered.host.querySelector('select');
     await act(async () => {
       select.value = 'APPROVE';
       select.dispatchEvent(new window.Event('change', { bubbles: true }));
     });
-    await act(async () => rendered.host.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    await act(async () =>
+      rendered.host.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
+    );
     assert.equal(requests.at(-1).action, 'pr.review');
     assert.equal(requests.at(-1).event, 'APPROVE');
     assert.equal(requests.at(-1).sha, sha);
     assert.equal(requests.at(-1).repo, 'owner/demo');
     assert.equal(refreshed, 1);
-  } finally { await rendered.cleanup(); }
+  } finally {
+    await rendered.cleanup();
+  }
 });

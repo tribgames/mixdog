@@ -15,7 +15,9 @@ async function waitFor(predicate, label, timeoutMs = 8_000) {
     try {
       const value = await predicate();
       if (value) return value;
-    } catch { /* retry until the deadline */ }
+    } catch {
+      /* retry until the deadline */
+    }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`timed out waiting for ${label}`);
@@ -237,11 +239,7 @@ process.on('message', (message) => {
 });
 `;
 
-async function withShardHost(run, {
-  shardCount = SHARDS,
-  env = {},
-  executeAgentControl = null,
-} = {}) {
+async function withShardHost(run, { shardCount = SHARDS, env = {}, executeAgentControl = null } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'mixdog-runtime-shard-'));
   const workerEntry = join(dir, 'shard-stub.mjs');
   const logs = [];
@@ -302,7 +300,7 @@ test('agent dispatch fans out across shards and cancel follows its shard', async
     const cancelId = dispatchIdForShard(1);
     const pending = host.agentDispatch(
       { dispatchId: cancelId, agent: 'memory', delayMs: 400 },
-      { signal: controller.signal },
+      { signal: controller.signal }
     );
     controller.abort(new Error('test abort'));
     await pending.catch(() => {});
@@ -317,48 +315,53 @@ test('agent dispatch fans out across shards and cancel follows its shard', async
 
 test('runtime shard Agent control is executed by the daemon canonical controller', async () => {
   const calls = [];
-  await withShardHost(async ({ host }) => {
-    const ownerSessionId = keyForShard(0, 'canonical-owner');
-    const owner = await host.create({ sessionId: ownerSessionId });
-    const result = await owner.submitAsync('canonical-agent-control');
-    assert.deepEqual(result, {
-      task_id: 'task_agent_canonical',
-      status: 'running',
-      sessionId: 'sess_canonical_child',
-    });
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].args.type, 'spawn');
-    assert.equal(calls[0].args.tag, 'canonical');
-    assert.ok(calls[0].context.signal instanceof AbortSignal);
-    assert.equal(host.notifySessionCompletion(
-      ownerSessionId,
-      'canonical owner handoff',
-      {
-        type: 'agent_task_result',
-        execution_surface: 'agent',
-        execution_id: 'task_agent_canonical',
-        status: 'completed',
-      },
-    ), true);
-    const notifications = await waitFor(async () => {
-      const row = await owner.submitAsync('agent-notifications');
-      return row.agentNotifications.some((entry) => entry.text === 'canonical owner handoff')
-        ? row.agentNotifications
-        : null;
-    }, 'canonical Agent completion owner routing');
-    assert.equal(notifications.some((entry) =>
-      entry.ownerSessionId === ownerSessionId
-      && entry.meta?.execution_id === 'task_agent_canonical'), true);
-  }, {
-    executeAgentControl: async (args, context) => {
-      calls.push({ args, context });
-      return {
+  await withShardHost(
+    async ({ host }) => {
+      const ownerSessionId = keyForShard(0, 'canonical-owner');
+      const owner = await host.create({ sessionId: ownerSessionId });
+      const result = await owner.submitAsync('canonical-agent-control');
+      assert.deepEqual(result, {
         task_id: 'task_agent_canonical',
         status: 'running',
         sessionId: 'sess_canonical_child',
-      };
+      });
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].args.type, 'spawn');
+      assert.equal(calls[0].args.tag, 'canonical');
+      assert.ok(calls[0].context.signal instanceof AbortSignal);
+      assert.equal(
+        host.notifySessionCompletion(ownerSessionId, 'canonical owner handoff', {
+          type: 'agent_task_result',
+          execution_surface: 'agent',
+          execution_id: 'task_agent_canonical',
+          status: 'completed',
+        }),
+        true
+      );
+      const notifications = await waitFor(async () => {
+        const row = await owner.submitAsync('agent-notifications');
+        return row.agentNotifications.some((entry) => entry.text === 'canonical owner handoff')
+          ? row.agentNotifications
+          : null;
+      }, 'canonical Agent completion owner routing');
+      assert.equal(
+        notifications.some(
+          (entry) => entry.ownerSessionId === ownerSessionId && entry.meta?.execution_id === 'task_agent_canonical'
+        ),
+        true
+      );
     },
-  });
+    {
+      executeAgentControl: async (args, context) => {
+        calls.push({ args, context });
+        return {
+          task_id: 'task_agent_canonical',
+          status: 'running',
+          sessionId: 'sess_canonical_child',
+        };
+      },
+    }
+  );
 });
 
 test.skip('retired shard-local Agent execution is replaced by daemon canonical sessions', async () => {
@@ -377,11 +380,11 @@ test.skip('retired shard-local Agent execution is replaced by daemon canonical s
 
     const first = await host.agentControl(
       { type: 'spawn', tag: tag0, agent: 'worker', prompt: 'first' },
-      { callerSessionId: ownerSessionId, callerCwd: process.cwd() },
+      { callerSessionId: ownerSessionId, callerCwd: process.cwd() }
     );
     const second = await host.agentControl(
       { type: 'spawn', tag: tag1, agent: 'worker', prompt: 'second' },
-      { callerSessionId: ownerSessionId, callerCwd: process.cwd() },
+      { callerSessionId: ownerSessionId, callerCwd: process.cwd() }
     );
     assert.match(first, /sess_agent_0_/);
     assert.match(second, /sess_agent_1_/);
@@ -389,11 +392,11 @@ test.skip('retired shard-local Agent execution is replaced by daemon canonical s
     // Same-tag follow-ups preserve the shard-local persistent session.
     const follow0 = await host.agentControl(
       { type: 'send', tag: tag0, message: 'follow zero' },
-      { callerSessionId: ownerSessionId, callerCwd: process.cwd() },
+      { callerSessionId: ownerSessionId, callerCwd: process.cwd() }
     );
     const follow1 = await host.agentControl(
       { type: 'send', tag: tag1, message: 'follow one' },
-      { callerSessionId: ownerSessionId, callerCwd: process.cwd() },
+      { callerSessionId: ownerSessionId, callerCwd: process.cwd() }
     );
     assert.match(follow0, /sess_agent_0_/);
     assert.match(follow1, /sess_agent_1_/);
@@ -402,13 +405,22 @@ test.skip('retired shard-local Agent execution is replaced by daemon canonical s
       const row = await owner.submitAsync('agent-notifications');
       return row.agentNotifications.length >= 4 ? row.agentNotifications : null;
     }, 'cross-shard Agent completion delivery');
-    assert.equal(notifications.every((row) => row.ownerSessionId === ownerSessionId), true);
-    assert.equal(notifications.some((row) => /shard 0/.test(row.text)), true);
-    assert.equal(notifications.some((row) => /shard 1/.test(row.text)), true);
+    assert.equal(
+      notifications.every((row) => row.ownerSessionId === ownerSessionId),
+      true
+    );
+    assert.equal(
+      notifications.some((row) => /shard 0/.test(row.text)),
+      true
+    );
+    assert.equal(
+      notifications.some((row) => /shard 1/.test(row.text)),
+      true
+    );
 
     const listed = await host.agentControl(
       { type: 'list' },
-      { callerSessionId: ownerSessionId, callerCwd: process.cwd() },
+      { callerSessionId: ownerSessionId, callerCwd: process.cwd() }
     );
     assert.match(listed, /agents:\s*2/);
     assert.match(listed, /tasks:\s*4/);
@@ -424,9 +436,10 @@ test('an unhealthy shard recycles alone while sibling shards keep serving', asyn
 
     await failing.submitAsync('unhealthy');
     await waitFor(
-      () => logs.some((line) => /shard 0 recycling.*unhealthy/.test(line))
-        && logs.some((line) => /shard 0 recovered 1 runtime/.test(line)),
-      'shard 0 recycle + recovery',
+      () =>
+        logs.some((line) => /shard 0 recycling.*unhealthy/.test(line)) &&
+        logs.some((line) => /shard 0 recovered 1 runtime/.test(line)),
+      'shard 0 recycle + recovery'
     );
 
     // The sibling shard is untouched: same process, still answering control.
@@ -542,10 +555,14 @@ test('an admission cooldown event reaches sibling shards without waiting for a t
     await origin.submitAsync('admission-cooldown');
     // No fast-mode change at all: only the admission event carries the news,
     // and it must still be forwarded (and far faster than the 5s lag tick).
-    const state = await waitFor(async () => {
-      const row = await sibling.submitAsync('syncs');
-      return row.syncs.length > 0 ? row : null;
-    }, 'admission cooldown replay into shard 1', 2_000);
+    const state = await waitFor(
+      async () => {
+        const row = await sibling.submitAsync('syncs');
+        return row.syncs.length > 0 ? row : null;
+      },
+      'admission cooldown replay into shard 1',
+      2_000
+    );
     assert.ok(Date.now() - startedAt < 2_000);
     assert.equal(state.syncs[0].admission.type, 'cooldown');
     assert.equal(state.syncs[0].admission.key, 'anthropic-oauth:test');
@@ -583,13 +600,19 @@ test('a failed create releases sticky shard ownership exactly once', async () =>
 });
 
 test('an explicit shard count is clamped to the hard maximum', async () => {
-  await withShardHost(async ({ host }) => {
-    assert.equal(host.status.shardCount, 16);
-    assert.equal(host.status.shards.length, 16);
-    // Shards stay lazy: clamping must not fork 16 children either.
-    assert.equal(host.status.shards.every((shard) => shard.pid === null), true);
-    assert.equal(host.status.active, false);
-  }, { shardCount: 999 });
+  await withShardHost(
+    async ({ host }) => {
+      assert.equal(host.status.shardCount, 16);
+      assert.equal(host.status.shards.length, 16);
+      // Shards stay lazy: clamping must not fork 16 children either.
+      assert.equal(
+        host.status.shards.every((shard) => shard.pid === null),
+        true
+      );
+      assert.equal(host.status.active, false);
+    },
+    { shardCount: 999 }
+  );
 });
 
 test('prewarm warms shard 0 once and every later shard on spawn', async () => {
@@ -613,30 +636,33 @@ test('prewarm warms shard 0 once and every later shard on spawn', async () => {
 });
 
 test('a single-shard host keeps the historical single-worker behaviour', async () => {
-  await withShardHost(async ({ host }) => {
-    const runtime = await host.create({ sessionId: 'solo-session' });
-    const row = await runtime.submitAsync('ping');
-    assert.equal(row.shard, 0);
-    assert.equal(host.status.shardCount, 1);
-    assert.equal(host.status.worker.pid, row.pid);
-    assert.equal(host.status.shards.length, 1);
-  }, { shardCount: 1 });
+  await withShardHost(
+    async ({ host }) => {
+      const runtime = await host.create({ sessionId: 'solo-session' });
+      const row = await runtime.submitAsync('ping');
+      assert.equal(row.shard, 0);
+      assert.equal(host.status.shardCount, 1);
+      assert.equal(host.status.worker.pid, row.pid);
+      assert.equal(host.status.shards.length, 1);
+    },
+    { shardCount: 1 }
+  );
 });
 
 test('production ignores the legacy shard env and hosts session actors in one process', async () => {
-  await withShardHost(async ({ host }) => {
-    const first = await host.create({ sessionId: 'actor-a' });
-    const second = await host.create({ sessionId: 'actor-b' });
-    const [a, b] = await Promise.all([
-      first.submitAsync('ping'),
-      second.submitAsync('ping'),
-    ]);
-    assert.equal(a.pid, b.pid);
-    assert.equal(host.status.mode, 'single-runtime');
-    assert.equal(host.status.shardCount, 1);
-    assert.deepEqual(host.status.worker.pids, [a.pid]);
-  }, {
-    shardCount: null,
-    env: { MIXDOG_SESSION_RUNTIME_SHARDS: '8' },
-  });
+  await withShardHost(
+    async ({ host }) => {
+      const first = await host.create({ sessionId: 'actor-a' });
+      const second = await host.create({ sessionId: 'actor-b' });
+      const [a, b] = await Promise.all([first.submitAsync('ping'), second.submitAsync('ping')]);
+      assert.equal(a.pid, b.pid);
+      assert.equal(host.status.mode, 'single-runtime');
+      assert.equal(host.status.shardCount, 1);
+      assert.deepEqual(host.status.worker.pids, [a.pid]);
+    },
+    {
+      shardCount: null,
+      env: { MIXDOG_SESSION_RUNTIME_SHARDS: '8' },
+    }
+  );
 });

@@ -1,6 +1,8 @@
 /* Shared row grammar for select and overflow menus.
    Imported by layer 16; each owner keeps only its positioning and semantics. */
-html[data-mixdog-mobile-tabs] { --mx-menu-row-height: 44px; }
+html[data-mixdog-mobile-tabs] {
+  --mx-menu-row-height: 44px;
+}
 
 .mx-menu-item,
 .row-overflow-menu > button {
@@ -22,7 +24,9 @@ html[data-mixdog-mobile-tabs] { --mx-menu-row-height: 44px; }
   line-height: var(--mx-line-ui);
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--mx-motion-ink), color var(--mx-motion-ink);
+  transition:
+    background-color var(--mx-motion-ink),
+    color var(--mx-motion-ink);
 }
 .mx-menu-item > svg,
 .row-overflow-menu > button > svg {

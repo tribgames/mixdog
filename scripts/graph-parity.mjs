@@ -28,7 +28,7 @@ export function parseArgs(argv) {
     maxSymbolLoss: 0,
     maxImportDiff: 0,
     maxTokenLoss: 0,
-    maxTimeRatio: 1.10,
+    maxTimeRatio: 1.1,
     runs: 3,
     oldJsonl: null,
     newJsonl: null,
@@ -44,19 +44,57 @@ export function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     switch (a) {
-      case '--old': out.old = take(argv, i, a); i += 1; break;
-      case '--new': out.new = take(argv, i, a); i += 1; break;
-      case '--root': out.root = take(argv, i, a); i += 1; break;
-      case '--json': out.json = take(argv, i, a); i += 1; break;
-      case '--old-jsonl': out.oldJsonl = take(argv, i, a); i += 1; break;
-      case '--new-jsonl': out.newJsonl = take(argv, i, a); i += 1; break;
-      case '--max-symbol-loss': out.maxSymbolLoss = Number(take(argv, i, a)); i += 1; break;
-      case '--max-import-diff': out.maxImportDiff = Number(take(argv, i, a)); i += 1; break;
-      case '--max-token-loss': out.maxTokenLoss = Number(take(argv, i, a)); i += 1; break;
-      case '--max-time-ratio': out.maxTimeRatio = Number(take(argv, i, a)); i += 1; break;
-      case '--runs': out.runs = Number(take(argv, i, a)); i += 1; break;
-      case '--kind-map': out.kindMap = take(argv, i, a); i += 1; break;
-      case '--tokens': out.tokens = true; break;
+      case '--old':
+        out.old = take(argv, i, a);
+        i += 1;
+        break;
+      case '--new':
+        out.new = take(argv, i, a);
+        i += 1;
+        break;
+      case '--root':
+        out.root = take(argv, i, a);
+        i += 1;
+        break;
+      case '--json':
+        out.json = take(argv, i, a);
+        i += 1;
+        break;
+      case '--old-jsonl':
+        out.oldJsonl = take(argv, i, a);
+        i += 1;
+        break;
+      case '--new-jsonl':
+        out.newJsonl = take(argv, i, a);
+        i += 1;
+        break;
+      case '--max-symbol-loss':
+        out.maxSymbolLoss = Number(take(argv, i, a));
+        i += 1;
+        break;
+      case '--max-import-diff':
+        out.maxImportDiff = Number(take(argv, i, a));
+        i += 1;
+        break;
+      case '--max-token-loss':
+        out.maxTokenLoss = Number(take(argv, i, a));
+        i += 1;
+        break;
+      case '--max-time-ratio':
+        out.maxTimeRatio = Number(take(argv, i, a));
+        i += 1;
+        break;
+      case '--runs':
+        out.runs = Number(take(argv, i, a));
+        i += 1;
+        break;
+      case '--kind-map':
+        out.kindMap = take(argv, i, a);
+        i += 1;
+        break;
+      case '--tokens':
+        out.tokens = true;
+        break;
       case '--allow-new-languages': {
         const first = take(argv, i, a);
         i += 1;
@@ -97,7 +135,10 @@ export function parseArgs(argv) {
 }
 
 export function splitLangIds(value) {
-  return String(value || '').split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
+  return String(value || '')
+    .split(/[,\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function takeKindsObject(out, lang, kinds) {
@@ -136,8 +177,11 @@ export function parseLangsStdout(text) {
   const src = String(text || '').trim();
   if (!src) return {};
   const tryParse = (raw) => {
-    try { return parseKindMap(JSON.parse(raw)); }
-    catch { return null; }
+    try {
+      return parseKindMap(JSON.parse(raw));
+    } catch {
+      return null;
+    }
   };
   const whole = tryParse(src);
   if (whole && Object.keys(whole).length) return whole;
@@ -164,8 +208,9 @@ export function parseJsonl(text) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     let rec;
-    try { rec = JSON.parse(trimmed); }
-    catch (error) {
+    try {
+      rec = JSON.parse(trimmed);
+    } catch (error) {
       throw new Error(`invalid JSONL at line ${lineNumber}: ${error?.message || error}`);
     }
     if (!rec || typeof rec.rel !== 'string') {
@@ -346,7 +391,7 @@ function collectDeclaredSymbolNames(oldRecords, newRecords) {
 
 function tokenSet(rec, declaredNames) {
   // Absent / null tokens are unknown (skip loss). `[]` is a known empty set.
-  if (!rec || !Object.prototype.hasOwnProperty.call(rec, 'tokens') || rec.tokens == null) {
+  if (!rec || !Object.hasOwn(rec, 'tokens') || rec.tokens == null) {
     return null;
   }
   const out = new Set();
@@ -421,7 +466,7 @@ export function compareWalks(oldRecords, newRecords, options = {}) {
     const map = kindMap[lang];
     if (!map || !Object.keys(map).length) continue;
     for (const kind of [...kinds].sort()) {
-      if (!Object.prototype.hasOwnProperty.call(map, kind)) {
+      if (!Object.hasOwn(map, kind)) {
         unmappedKinds.push({ lang, kind });
       }
     }
@@ -583,7 +628,7 @@ export function evaluateGate(report, thresholds) {
   const reasons = [];
   const maxLoss = thresholds.maxSymbolLoss ?? 0;
   const maxImport = thresholds.maxImportDiff ?? 0;
-  const maxRatio = thresholds.maxTimeRatio ?? 1.10;
+  const maxRatio = thresholds.maxTimeRatio ?? 1.1;
   const maxTokenLoss = thresholds.maxTokenLoss ?? 0;
   const allowed = allowedLangSet(thresholds);
   if (report.totals.loss > maxLoss) {
@@ -624,8 +669,11 @@ function parseManifestRows(buf) {
   for (const line of src.split(/\n/)) {
     if (!line.trim()) continue;
     let rec = null;
-    try { rec = JSON.parse(line); }
-    catch { rec = null; }
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      rec = null;
+    }
     rows.push({
       line,
       rel: rec && typeof rec.rel === 'string' ? normalizeRel(rec.rel) : line,
@@ -693,23 +741,27 @@ export function formatMarkdown(report) {
   } else if (report.kindMapSource === 'langs-failed') {
     lines.push('- kind-map: inactive (--langs failed)');
   } else if (report.kindMapSource === 'langs') {
-    lines.push(report.kindMapActive
-      ? '- kind-map: auto (--langs)'
-      : '- kind-map: inactive (--langs produced no kinds)');
+    lines.push(
+      report.kindMapActive ? '- kind-map: auto (--langs)' : '- kind-map: inactive (--langs produced no kinds)'
+    );
   } else if (report.kindMapSource === 'none' || report.kindMapInactive) {
     lines.push('- kind-map: inactive');
   }
   if (report.tokens) lines.push('- tokens: on');
   if (report.manifestIdentical == null) lines.push('- manifest: (skipped)');
   else if (report.manifestIdentical) {
-    lines.push(report.manifestRawIdentical === false
-      ? '- manifest: identical after --allow-new-languages'
-      : '- manifest: identical');
+    lines.push(
+      report.manifestRawIdentical === false
+        ? '- manifest: identical after --allow-new-languages'
+        : '- manifest: identical'
+    );
   } else {
     lines.push('- manifest: DIFFERS');
   }
   if (report.timing) {
-    lines.push(`- timing: old ${report.timing.oldMs.toFixed(1)}ms / new ${report.timing.newMs.toFixed(1)}ms (ratio ${report.timing.ratio.toFixed(3)}, runs=${report.timing.runs})`);
+    lines.push(
+      `- timing: old ${report.timing.oldMs.toFixed(1)}ms / new ${report.timing.newMs.toFixed(1)}ms (ratio ${report.timing.ratio.toFixed(3)}, runs=${report.timing.runs})`
+    );
   } else {
     lines.push('- timing: (skipped)');
   }
@@ -752,7 +804,9 @@ export function formatMarkdown(report) {
   }
   if (report.lineMoves?.length) {
     lines.push('', '## Likely line moves', '');
-    lines.push(`${report.lineMoves.length} symbol(s) appear as both LOSS and ADDITION on the same file (likely a line move between walks). Still counted as LOSS.`);
+    lines.push(
+      `${report.lineMoves.length} symbol(s) appear as both LOSS and ADDITION on the same file (likely a line move between walks). Still counted as LOSS.`
+    );
     for (const item of report.lineMoves.slice(0, EXAMPLE_CAP)) {
       lines.push(`- ${item.rel}: \`${item.name}\``);
     }
@@ -794,7 +848,11 @@ function reusedMetaLine(rec) {
 }
 
 function killProcessTree(proc) {
-  try { proc.kill(); } catch { /* ignore */ }
+  try {
+    proc.kill();
+  } catch {
+    /* ignore */
+  }
   if (process.platform === 'win32' && proc.pid) {
     spawn('taskkill', ['/pid', String(proc.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
   }
@@ -830,8 +888,14 @@ export function runProcess(bin, args, { stdinText = null, timeoutMs = SPAWN_TIME
       finish(() => reject(err));
     });
     if (stdinText != null && proc.stdin) {
-      proc.stdin.on('error', () => { /* child may close stdin early */ });
-      try { proc.stdin.end(stdinText); } catch { /* spawn failed before stdin was writable */ }
+      proc.stdin.on('error', () => {
+        /* child may close stdin early */
+      });
+      try {
+        proc.stdin.end(stdinText);
+      } catch {
+        /* spawn failed before stdin was writable */
+      }
     }
     proc.on('close', (code) => {
       finish(() => {
@@ -926,9 +990,7 @@ export async function runParity(opts) {
   } else {
     const oldWalk = await runTimedWalks(opts.old, root, opts.runs);
     const newWalk = await runTimedWalks(opts.new, root, opts.runs);
-    const ratio = oldWalk.medianMs > 0
-      ? newWalk.medianMs / oldWalk.medianMs
-      : (newWalk.medianMs > 0 ? Infinity : 1);
+    const ratio = oldWalk.medianMs > 0 ? newWalk.medianMs / oldWalk.medianMs : newWalk.medianMs > 0 ? Infinity : 1;
     timing = {
       oldMs: oldWalk.medianMs,
       newMs: newWalk.medianMs,
@@ -1021,9 +1083,9 @@ export async function main(argv = process.argv.slice(2)) {
     return exitCode;
   } catch (err) {
     const code = err?.exitCode === 2 ? 2 : 1;
-    process.stderr.write(code === 2
-      ? `graph-parity: ${err.message}\n${USAGE}\n`
-      : `graph-parity: ${err?.stack || err?.message || err}\n`);
+    process.stderr.write(
+      code === 2 ? `graph-parity: ${err.message}\n${USAGE}\n` : `graph-parity: ${err?.stack || err?.message || err}\n`
+    );
     process.exitCode = code;
     return code;
   }

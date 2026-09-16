@@ -70,6 +70,17 @@
   overflow-wrap: anywhere;
 }
 
-.browser-page-prompt > div { display: flex; justify-content: flex-end; gap: 8px; }
-.browser-page-prompt input { width: 100%; box-sizing: border-box; margin-bottom: 12px; }
-.browser-page-prompt button { padding: 6px 12px; cursor: pointer; }
+.browser-page-prompt > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.browser-page-prompt input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+}
+.browser-page-prompt button {
+  padding: 6px 12px;
+  cursor: pointer;
+}

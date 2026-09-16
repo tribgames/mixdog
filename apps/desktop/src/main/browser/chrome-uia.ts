@@ -42,51 +42,51 @@ function normalized(value: unknown): string {
 }
 
 function isDescendantOf(element: ChromeUiaElement, runtimeId: string): boolean {
-  return Boolean(runtimeId)
-    && (element.ancestors || []).some((ancestor) => ancestor.runtime_id === runtimeId);
+  return Boolean(runtimeId) && (element.ancestors || []).some((ancestor) => ancestor.runtime_id === runtimeId);
 }
 
-export function chromeNativeAddressField(
-  elements: ChromeUiaElement[],
-): ChromeAddressField {
-  const matches = elements.filter((element) =>
-    element.source === 'uia'
-    && element.role === 'Edit'
-    && element.enabled
-    && element.in_document !== true
-    && element.actions.includes('set_value'));
+export function chromeNativeAddressField(elements: ChromeUiaElement[]): ChromeAddressField {
+  const matches = elements.filter(
+    (element) =>
+      element.source === 'uia' &&
+      element.role === 'Edit' &&
+      element.enabled &&
+      element.in_document !== true &&
+      element.actions.includes('set_value')
+  );
   if (matches.length !== 1) {
     throw new Error('Chrome did not expose one exact native editable address field.');
   }
   return { ref: matches[0].ref, value: normalized(matches[0].value) };
 }
 
-export function chromeSetupControl(
-  elements: ChromeUiaElement[],
-): ChromeSetupControl | null {
-  const exactAddressFields = elements.filter((element) =>
-    element.source === 'uia'
-    && element.role === 'Edit'
-    && element.in_document !== true
-    && normalized(element.value).toLowerCase() === CHROME_REMOTE_DEBUGGING_URL.toLowerCase());
+export function chromeSetupControl(elements: ChromeUiaElement[]): ChromeSetupControl | null {
+  const exactAddressFields = elements.filter(
+    (element) =>
+      element.source === 'uia' &&
+      element.role === 'Edit' &&
+      element.in_document !== true &&
+      normalized(element.value).toLowerCase() === CHROME_REMOTE_DEBUGGING_URL.toLowerCase()
+  );
   if (exactAddressFields.length === 0) return null;
   if (exactAddressFields.length !== 1) {
     throw new Error('Chrome exposed multiple native address fields with the remote-debugging setup URL.');
   }
-  const documents = elements.filter((element) =>
-    element.source === 'uia'
-    && element.role === 'Document'
-    && element.runtime_id);
+  const documents = elements.filter(
+    (element) => element.source === 'uia' && element.role === 'Document' && element.runtime_id
+  );
   if (documents.length !== 1) {
     throw new Error('Chrome did not expose one exact remote-debugging setup document.');
   }
-  const checkboxes = elements.filter((element) =>
-    element.source === 'uia'
-    && element.role === 'CheckBox'
-    && element.enabled
-    && element.actions.includes('toggle')
-    && element.in_document === true
-    && isDescendantOf(element, documents[0].runtime_id || ''));
+  const checkboxes = elements.filter(
+    (element) =>
+      element.source === 'uia' &&
+      element.role === 'CheckBox' &&
+      element.enabled &&
+      element.actions.includes('toggle') &&
+      element.in_document === true &&
+      isDescendantOf(element, documents[0].runtime_id || '')
+  );
   if (checkboxes.length !== 1) {
     throw new Error('Chrome did not expose one exact remote-debugging setup control.');
   }
@@ -119,7 +119,7 @@ function selectConsentActions(candidates: ConsentButton[]): {
     throw new Error('Chrome native consent did not expose exactly three distinct dialog buttons.');
   }
   const focused = candidates
-    .map((candidate, index) => candidate.element.has_keyboard_focus ? index : -1)
+    .map((candidate, index) => (candidate.element.has_keyboard_focus ? index : -1))
     .filter((index) => index >= 0);
   if (focused.length > 1) {
     throw new Error('Chrome native consent exposed multiple focused dialog buttons.');
@@ -139,13 +139,10 @@ function selectConsentActions(candidates: ConsentButton[]): {
   const extra = gaps[1];
   const firstWidth = candidates[standard.first].right - candidates[standard.first].left;
   const secondWidth = candidates[standard.second].right - candidates[standard.second].left;
-  if (standard.gap >= extra.gap
-    || standard.gap > Math.max(firstWidth, secondWidth)
-    || extra.gap < standard.gap * 2) {
+  if (standard.gap >= extra.gap || standard.gap > Math.max(firstWidth, secondWidth) || extra.gap < standard.gap * 2) {
     throw new Error('Chrome native consent had no uniquely separated standard button pair.');
   }
-  const extraIndex = [0, 1, 2]
-    .find((index) => index !== standard.first && index !== standard.second);
+  const extraIndex = [0, 1, 2].find((index) => index !== standard.first && index !== standard.second);
   if (extraIndex === undefined) {
     throw new Error('Chrome native consent button geometry was incomplete.');
   }
@@ -168,52 +165,55 @@ function selectConsentActions(candidates: ConsentButton[]): {
 }
 
 function trustedNative(element: ChromeUiaElement): boolean {
-  return element.source === 'uia'
-    && element.in_document !== true
-    && element.role !== 'Document';
+  return element.source === 'uia' && element.in_document !== true && element.role !== 'Document';
 }
 
 function promptSurfaces(elements: ChromeUiaElement[]): ChromeUiaElement[] {
   return elements.filter((root) => {
     if (!trustedNative(root) || !root.runtime_id || !normalized(root.name)) return false;
-    const descendants = elements.filter((element) =>
-      trustedNative(element)
-      && isDescendantOf(element, root.runtime_id || ''));
+    const descendants = elements.filter(
+      (element) => trustedNative(element) && isDescendantOf(element, root.runtime_id || '')
+    );
     if (root.role === 'Window') {
-      const matchingPaneAncestor = (root.ancestors || []).some((ancestor) =>
-        ancestor.role === 'Pane' && normalized(ancestor.name) === normalized(root.name));
-      return matchingPaneAncestor
-        && descendants.some((element) =>
-          element.role === 'Text' && normalized(element.name) === normalized(root.name));
+      const matchingPaneAncestor = (root.ancestors || []).some(
+        (ancestor) => ancestor.role === 'Pane' && normalized(ancestor.name) === normalized(root.name)
+      );
+      return (
+        matchingPaneAncestor &&
+        descendants.some((element) => element.role === 'Text' && normalized(element.name) === normalized(root.name))
+      );
     }
     if (root.role !== 'Pane') return false;
-    const directTitle = descendants.some((element) =>
-      element.parent_runtime_id === root.runtime_id
-      && element.role === 'Text'
-      && normalized(element.name) === normalized(root.name));
-    const nestedTitle = descendants.some((element) =>
-      element.parent_runtime_id !== root.runtime_id
-      && element.role === 'Text'
-      && normalized(element.name) === normalized(root.name));
+    const directTitle = descendants.some(
+      (element) =>
+        element.parent_runtime_id === root.runtime_id &&
+        element.role === 'Text' &&
+        normalized(element.name) === normalized(root.name)
+    );
+    const nestedTitle = descendants.some(
+      (element) =>
+        element.parent_runtime_id !== root.runtime_id &&
+        element.role === 'Text' &&
+        normalized(element.name) === normalized(root.name)
+    );
     const nestedWindow = descendants.some((element) => element.role === 'Window');
     return directTitle && nestedTitle && !nestedWindow;
   });
 }
 
-function consentButtons(
-  elements: ChromeUiaElement[],
-  withinRuntimeId?: string,
-): ConsentButton[] {
+function consentButtons(elements: ChromeUiaElement[], withinRuntimeId?: string): ConsentButton[] {
   return elements
-    .filter((element) =>
-      trustedNative(element)
-      && (!withinRuntimeId || isDescendantOf(element, withinRuntimeId))
-      && element.role === 'Button'
-      && element.enabled
-      && element.actions.includes('invoke')
-      && element.class_name === 'MdTextButton'
-      && element.width > 0
-      && element.height > 0)
+    .filter(
+      (element) =>
+        trustedNative(element) &&
+        (!withinRuntimeId || isDescendantOf(element, withinRuntimeId)) &&
+        element.role === 'Button' &&
+        element.enabled &&
+        element.actions.includes('invoke') &&
+        element.class_name === 'MdTextButton' &&
+        element.width > 0 &&
+        element.height > 0
+    )
     .map((element) => ({
       element,
       left: element.x,
@@ -221,12 +221,16 @@ function consentButtons(
       right: element.x + element.width,
       bottom: element.y + element.height,
     }))
-    .filter((candidate, index, all) =>
-      all.findIndex((other) =>
-        other.left === candidate.left
-        && other.top === candidate.top
-        && other.right === candidate.right
-        && other.bottom === candidate.bottom) === index);
+    .filter(
+      (candidate, index, all) =>
+        all.findIndex(
+          (other) =>
+            other.left === candidate.left &&
+            other.top === candidate.top &&
+            other.right === candidate.right &&
+            other.bottom === candidate.bottom
+        ) === index
+    );
 }
 
 export function chromeOwnedConsentAllowRef(elements: ChromeUiaElement[]): string | null {

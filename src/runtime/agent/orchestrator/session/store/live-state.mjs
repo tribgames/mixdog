@@ -32,7 +32,7 @@ const _failureEpochs = new Map(); // id -> epoch of the newest failed/dropped sa
 const _failedSaveSnapshots = new Map(); // id -> frozen-in-time session copy
 
 export function _nextSaveEpoch() {
-    return ++_saveEpochSeq;
+  return ++_saveEpochSeq;
 }
 
 // ── Save outcomes ───────────────────────────────────────────────────────────
@@ -61,12 +61,12 @@ const _sessionIncarnations = new Map(); // id -> { id, token, refs }
 const SESSION_INCARNATION_MAX = 4096;
 
 function _evictSessionIncarnations() {
-    if (_sessionIncarnations.size <= SESSION_INCARNATION_MAX) return;
-    for (const [key, incarnation] of _sessionIncarnations) {
-        if (_sessionIncarnations.size <= SESSION_INCARNATION_MAX) break;
-        if (incarnation.refs > 0) continue; // still referenced by outstanding work
-        _sessionIncarnations.delete(key);
-    }
+  if (_sessionIncarnations.size <= SESSION_INCARNATION_MAX) return;
+  for (const [key, incarnation] of _sessionIncarnations) {
+    if (_sessionIncarnations.size <= SESSION_INCARNATION_MAX) break;
+    if (incarnation.refs > 0) continue; // still referenced by outstanding work
+    _sessionIncarnations.delete(key);
+  }
 }
 
 // Strict diagnostics: a release without a matching acquire is a BUG, not a
@@ -74,44 +74,44 @@ function _evictSessionIncarnations() {
 let _incarnationReleaseUnderflows = 0;
 
 export function _sessionIncarnationStats() {
-    return {
-        size: _sessionIncarnations.size,
-        max: SESSION_INCARNATION_MAX,
-        releaseUnderflows: _incarnationReleaseUnderflows,
-    };
+  return {
+    size: _sessionIncarnations.size,
+    max: SESSION_INCARNATION_MAX,
+    releaseUnderflows: _incarnationReleaseUnderflows,
+  };
 }
 
 /** Stamp for a new unit of work; keeps the incarnation alive until released. */
 export function _acquireSessionIncarnation(id) {
-    if (!id) return null;
-    let incarnation = _sessionIncarnations.get(id);
-    if (incarnation) _sessionIncarnations.delete(id);
-    else incarnation = { id, token: ++_incarnationSeq, refs: 0 };
-    incarnation.refs += 1;
-    _sessionIncarnations.set(id, incarnation); // LRU touch
-    _evictSessionIncarnations();
-    return incarnation;
+  if (!id) return null;
+  let incarnation = _sessionIncarnations.get(id);
+  if (incarnation) _sessionIncarnations.delete(id);
+  else incarnation = { id, token: ++_incarnationSeq, refs: 0 };
+  incarnation.refs += 1;
+  _sessionIncarnations.set(id, incarnation); // LRU touch
+  _evictSessionIncarnations();
+  return incarnation;
 }
 
 export function _releaseSessionIncarnation(incarnation) {
-    if (!incarnation) return;
-    if (incarnation.refs > 0) incarnation.refs -= 1;
-    else _incarnationReleaseUnderflows += 1; // double release — surfaced, not hidden
-    // The cap is enforced on RELEASE too: a token that just became
-    // unreferenced is exactly the one eviction is allowed to reclaim.
-    if (incarnation.refs === 0) _evictSessionIncarnations();
+  if (!incarnation) return;
+  if (incarnation.refs > 0) incarnation.refs -= 1;
+  else _incarnationReleaseUnderflows += 1; // double release — surfaced, not hidden
+  // The cap is enforced on RELEASE too: a token that just became
+  // unreferenced is exactly the one eviction is allowed to reclaim.
+  if (incarnation.refs === 0) _evictSessionIncarnations();
 }
 
 /** Diagnostics/tests: outstanding references to an id's incarnation. */
 export function _sessionIncarnationRefs(id) {
-    const incarnation = id && _sessionIncarnations.get(id);
-    return incarnation ? incarnation.refs : 0;
+  const incarnation = id && _sessionIncarnations.get(id);
+  return incarnation ? incarnation.refs : 0;
 }
 
 /** False once the id was hard-deleted (or re-created) after this stamp. */
 export function _isCurrentSessionIncarnation(id, incarnation) {
-    if (!incarnation) return true; // unstamped work keeps its legacy behavior
-    return _sessionIncarnations.get(id) === incarnation;
+  if (!incarnation) return true; // unstamped work keeps its legacy behavior
+  return _sessionIncarnations.get(id) === incarnation;
 }
 
 /**
@@ -121,36 +121,36 @@ export function _isCurrentSessionIncarnation(id, incarnation) {
  * object of its own.
  */
 export function _retireSessionIncarnation(id) {
-    if (id) _sessionIncarnations.delete(id);
+  if (id) _sessionIncarnations.delete(id);
 }
 
 /** Clear every save marker for an id (successful hard delete). */
 export function _clearSessionSaveState(id) {
-    if (!id) return;
-    _lastSaveError.delete(id);
-    _failureEpochs.delete(id);
-    // The recovery evidence dies with the file it was evidence ABOUT: a
-    // re-created id must never inherit the deleted incarnation's snapshot
-    // (that would resurrect a deleted transcript as the "only good copy").
-    _failedSaveSnapshots.delete(id);
-    _droppedSaveIds.delete(id);
+  if (!id) return;
+  _lastSaveError.delete(id);
+  _failureEpochs.delete(id);
+  // The recovery evidence dies with the file it was evidence ABOUT: a
+  // re-created id must never inherit the deleted incarnation's snapshot
+  // (that would resurrect a deleted transcript as the "only good copy").
+  _failedSaveSnapshots.delete(id);
+  _droppedSaveIds.delete(id);
 }
 
 function _markFailureEpoch(id, epoch) {
-    // An unknown epoch is treated as "newest": callers without an identity
-    // must never weaken the marker.
-    const value = Number.isFinite(epoch) ? epoch : _nextSaveEpoch();
-    const previous = _failureEpochs.get(id);
-    if (previous === undefined || value > previous) _failureEpochs.set(id, value);
+  // An unknown epoch is treated as "newest": callers without an identity
+  // must never weaken the marker.
+  const value = Number.isFinite(epoch) ? epoch : _nextSaveEpoch();
+  const previous = _failureEpochs.get(id);
+  if (previous === undefined || value > previous) _failureEpochs.set(id, value);
 }
 
 export function setLiveSession(session) {
-    if (!session?.id) return;
-    _liveSessions.set(session.id, session);
+  if (!session?.id) return;
+  _liveSessions.set(session.id, session);
 }
 
 export function _clearLiveSession(id) {
-    if (id) _liveSessions.delete(id);
+  if (id) _liveSessions.delete(id);
 }
 
 // Live snapshots that still carry raw media bytes (images are placeholder'd
@@ -158,17 +158,17 @@ export function _clearLiveSession(id) {
 // multi-turn image recognition keeps working across an idle gap. Beyond the
 // TTL the memory cost wins and the snapshot is reclaimed like any other.
 export const LIVE_MEDIA_RETENTION_MS = Math.max(
-    60_000,
-    Number(process.env.MIXDOG_LIVE_MEDIA_RETENTION_MS) || 10 * 60 * 1000,
+  60_000,
+  Number(process.env.MIXDOG_LIVE_MEDIA_RETENTION_MS) || 10 * 60 * 1000
 ); // 10m default — raw image bytes are the most expensive thing we retain
 
 export function _messagesCarryLiveMedia(messages) {
-    if (!Array.isArray(messages)) return false;
-    for (const m of messages) {
-        if (!m || typeof m !== 'object') continue;
-        if (sanitizeContentForStoredHistory(m.content) !== m.content) return true;
-    }
-    return false;
+  if (!Array.isArray(messages)) return false;
+  for (const m of messages) {
+    if (!m || typeof m !== 'object') continue;
+    if (sanitizeContentForStoredHistory(m.content) !== m.content) return true;
+  }
+  return false;
 }
 
 /**
@@ -176,13 +176,13 @@ export function _messagesCarryLiveMedia(messages) {
  * Shape: { message: string, at: number } | null
  */
 export function getSessionSaveError(id) {
-    return _lastSaveError.get(id) ?? null;
+  return _lastSaveError.get(id) ?? null;
 }
 
 export function clearSessionSaveError(id) {
-    _lastSaveError.delete(id);
-    _failureEpochs.delete(id);
-    _failedSaveSnapshots.delete(id);
+  _lastSaveError.delete(id);
+  _failureEpochs.delete(id);
+  _failedSaveSnapshots.delete(id);
 }
 
 /**
@@ -208,26 +208,26 @@ export function clearSessionSaveError(id) {
  * report the unreadable file instead of masking it.
  */
 function _failedSaveClone(session) {
-    try {
-        const clone = JSON.parse(JSON.stringify(session));
-        return clone && typeof clone === 'object' && !Array.isArray(clone) ? clone : null;
-    } catch {
-        return null;
-    }
+  try {
+    const clone = JSON.parse(JSON.stringify(session));
+    return clone && typeof clone === 'object' && !Array.isArray(clone) ? clone : null;
+  } catch {
+    return null;
+  }
 }
 
 export function _recordSaveFailure(id, err, epoch = null, session = null) {
-    if (!id) return;
-    _lastSaveError.set(id, { message: err?.message ?? String(err), at: Date.now() });
-    _droppedSaveIds.add(id);
-    _markFailureEpoch(id, epoch);
-    // Only a snapshot that IS this id's failed payload is retained; a caller
-    // without one records no recovery evidence at all (readers then report the
-    // unreadable file instead of masking it).
-    if (session && session.id === id) {
-        const clone = _failedSaveClone(session);
-        if (clone && clone.id === id) _failedSaveSnapshots.set(id, clone);
-    }
+  if (!id) return;
+  _lastSaveError.set(id, { message: err?.message ?? String(err), at: Date.now() });
+  _droppedSaveIds.add(id);
+  _markFailureEpoch(id, epoch);
+  // Only a snapshot that IS this id's failed payload is retained; a caller
+  // without one records no recovery evidence at all (readers then report the
+  // unreadable file instead of masking it).
+  if (session && session.id === id) {
+    const clone = _failedSaveClone(session);
+    if (clone && clone.id === id) _failedSaveSnapshots.set(id, clone);
+  }
 }
 
 /**
@@ -236,12 +236,12 @@ export function _recordSaveFailure(id, err, epoch = null, session = null) {
  * same-process copy is newer than the canonical file.
  */
 export function getFailedSaveSnapshot(id) {
-    if (!id) return null;
-    const snapshot = _failedSaveSnapshots.get(id);
-    if (!snapshot) return null;
-    // Hand out a COPY as well: a reader that mutates what it got back (every
-    // session consumer does) must not be able to edit the stored evidence.
-    return _failedSaveClone(snapshot);
+  if (!id) return null;
+  const snapshot = _failedSaveSnapshots.get(id);
+  if (!snapshot) return null;
+  // Hand out a COPY as well: a reader that mutates what it got back (every
+  // session consumer does) must not be able to edit the stored evidence.
+  return _failedSaveClone(snapshot);
 }
 
 /**
@@ -250,9 +250,9 @@ export function getFailedSaveSnapshot(id) {
  * clear it.
  */
 export function _recordSaveDrop(id, epoch = null) {
-    if (!id) return;
-    _droppedSaveIds.add(id);
-    _markFailureEpoch(id, epoch);
+  if (!id) return;
+  _droppedSaveIds.add(id);
+  _markFailureEpoch(id, epoch);
 }
 
 /**
@@ -261,19 +261,19 @@ export function _recordSaveDrop(id, epoch = null) {
  * Returns whether the markers were cleared.
  */
 export function _clearSaveStateIfCurrent(id, epoch = null) {
-    if (!id) return false;
-    const marked = _failureEpochs.get(id);
-    if (marked !== undefined && Number.isFinite(epoch) && epoch < marked) return false;
-    _failureEpochs.delete(id);
-    _lastSaveError.delete(id);
-    _failedSaveSnapshots.delete(id);
-    _droppedSaveIds.delete(id);
-    return true;
+  if (!id) return false;
+  const marked = _failureEpochs.get(id);
+  if (marked !== undefined && Number.isFinite(epoch) && epoch < marked) return false;
+  _failureEpochs.delete(id);
+  _lastSaveError.delete(id);
+  _failedSaveSnapshots.delete(id);
+  _droppedSaveIds.delete(id);
+  return true;
 }
 
 /** True while this process's last save attempt for `id` failed. */
 export function hasSessionSaveFailure(id) {
-    return !!id && _lastSaveError.has(id);
+  return !!id && _lastSaveError.has(id);
 }
 
 // ── Lifecycle (tombstone/detach) commit failures ────────────────────────────
@@ -287,19 +287,19 @@ export function hasSessionSaveFailure(id) {
 const _lifecycleCommitErrors = new Map(); // id -> { message, at, code, reason }
 
 export function _recordLifecycleCommitFailure(id, err, reason = null) {
-    if (!id) return;
-    _lifecycleCommitErrors.set(id, {
-        message: err?.message ?? String(err),
-        code: err?.code ?? null,
-        reason,
-        at: Date.now(),
-    });
+  if (!id) return;
+  _lifecycleCommitErrors.set(id, {
+    message: err?.message ?? String(err),
+    code: err?.code ?? null,
+    reason,
+    at: Date.now(),
+  });
 }
 
 export function getSessionLifecycleCommitError(id) {
-    return _lifecycleCommitErrors.get(id) ?? null;
+  return _lifecycleCommitErrors.get(id) ?? null;
 }
 
 export function clearSessionLifecycleCommitError(id) {
-    _lifecycleCommitErrors.delete(id);
+  _lifecycleCommitErrors.delete(id);
 }

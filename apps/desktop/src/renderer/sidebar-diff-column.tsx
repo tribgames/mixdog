@@ -1,18 +1,9 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 
-import { DESKTOP_WORKSPACE_MIN_WIDTH } from "../shared/window-layout";
-import {
-  DIFF_STARTUP_DELAY_MS,
-  ReadyGitDiffPane,
-} from "./app-shell-components";
-import { t } from "./i18n";
-import { isMobileRemoteSurface } from "./mobile-surface";
+import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
+import { DIFF_STARTUP_DELAY_MS, ReadyGitDiffPane } from './app-shell-components';
+import { t } from './i18n';
+import { isMobileRemoteSurface } from './mobile-surface';
 import {
   PANE_SIDE_DOCK_DIFF_DEFAULT_WIDTH,
   PANE_SIDE_DOCK_DIFF_MAX_WIDTH,
@@ -20,19 +11,23 @@ import {
   readStoredWidth,
   useRetainedDiff,
   type PaneSideDockDiff,
-} from "./pane-side-dock";
-import { DeferredPersistentSurface } from "./PaneSurfaceGate";
-import { DesktopLoadingSurface } from "./RendererRecovery";
+} from './pane-side-dock';
+import { DeferredPersistentSurface } from './PaneSurfaceGate';
+import { DesktopLoadingSurface } from './RendererRecovery';
 
 /** The LEFT sidebar's diff column keeps its own width preference; the right
  *  dock's pair column has a separate one. */
-const SIDEBAR_DIFF_WIDTH_KEY = "mixdog.desktop.sidebar-diff-width.v1";
+const SIDEBAR_DIFF_WIDTH_KEY = 'mixdog.desktop.sidebar-diff-width.v1';
 
 /** Narrow bands render the left sidebar as a drawer sheet; the column has no
  *  place there and Source Control falls back to the diff tab. */
 export function sidebarDiffColumnAvailable(): boolean {
   if (isMobileRemoteSurface()) return false;
-  try { return !window.matchMedia("(max-width: 760px)").matches; } catch { return true; }
+  try {
+    return !window.matchMedia('(max-width: 760px)').matches;
+  } catch {
+    return true;
+  }
 }
 
 /** Diff column paired to the RIGHT of the left sidebar (user: 왼쪽 소스컨트롤도
@@ -53,12 +48,14 @@ export function SidebarDiffColumn({
   openFileTab(project: string, rel: string, line?: number): void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const [pref, setPref] = useState(() => readStoredWidth(
-    SIDEBAR_DIFF_WIDTH_KEY,
-    PANE_SIDE_DOCK_DIFF_MIN_WIDTH,
-    PANE_SIDE_DOCK_DIFF_MAX_WIDTH,
-    PANE_SIDE_DOCK_DIFF_DEFAULT_WIDTH,
-  ));
+  const [pref, setPref] = useState(() =>
+    readStoredWidth(
+      SIDEBAR_DIFF_WIDTH_KEY,
+      PANE_SIDE_DOCK_DIFF_MIN_WIDTH,
+      PANE_SIDE_DOCK_DIFF_MAX_WIDTH,
+      PANE_SIDE_DOCK_DIFF_DEFAULT_WIDTH
+    )
+  );
   const resizeStart = useRef<{ x: number; width: number } | null>(null);
   const dragPending = useRef<number | null>(null);
   const retained = useRetainedDiff(diff);
@@ -71,7 +68,7 @@ export function SidebarDiffColumn({
   useEffect(() => {
     if (!visible) return undefined;
     const host = hostRef.current;
-    const body = host?.closest<HTMLElement>(".desktop-body");
+    const body = host?.closest<HTMLElement>('.desktop-body');
     if (!host || !body) return undefined;
     const measure = () => {
       const bodyRect = body.getBoundingClientRect();
@@ -80,11 +77,10 @@ export function SidebarDiffColumn({
         ? previous.getBoundingClientRect().right - bodyRect.left
         : host.getBoundingClientRect().left - bodyRect.left;
       const room = bodyRect.width - left - DESKTOP_WORKSPACE_MIN_WIDTH;
-      setGeometry((current) =>
-        current.left === left && current.room === room ? current : { left, room });
+      setGeometry((current) => (current.left === left && current.room === room ? current : { left, room }));
     };
     measure();
-    if (typeof ResizeObserver === "undefined") return undefined;
+    if (typeof ResizeObserver === 'undefined') return undefined;
     const observer = new ResizeObserver(measure);
     observer.observe(body);
     const previous = host.previousElementSibling;
@@ -92,61 +88,71 @@ export function SidebarDiffColumn({
     return () => observer.disconnect();
   }, [visible]);
   if (!columnDiff) return null;
-  const desired = Math.max(
-    PANE_SIDE_DOCK_DIFF_MIN_WIDTH,
-    Math.min(pref, PANE_SIDE_DOCK_DIFF_MAX_WIDTH),
-  );
+  const desired = Math.max(PANE_SIDE_DOCK_DIFF_MIN_WIDTH, Math.min(pref, PANE_SIDE_DOCK_DIFF_MAX_WIDTH));
   const overlay = visible && geometry.room < desired;
   const width = overlay
     ? Math.max(PANE_SIDE_DOCK_DIFF_MIN_WIDTH, Math.min(desired, geometry.room + DESKTOP_WORKSPACE_MIN_WIDTH))
     : desired;
-  return <div className="sidebar-diff-column" ref={hostRef}
-    hidden={!visible}
-    inert={visible ? undefined : true}
-    data-overlay={overlay ? "true" : "false"}
-    style={{
-      "--sidebar-diff-width": `${width}px`,
-      "--sidebar-diff-left": `${geometry.left}px`,
-    } as CSSProperties}>
-    <div className="sidebar-diff-body">
-      <div className="workbench-side-surface-slot"
-        data-surface-active={visible ? "true" : "false"}>
-        <DeferredPersistentSurface active
-          startupDelayMs={DIFF_STARTUP_DELAY_MS}
-          fallback={<DesktopLoadingSurface label={t("Loading diff…")} />}>
-          <ReadyGitDiffPane selection={columnDiff} active={visible}
-            onOpenFile={openFileTab}
-            onClose={onClose} />
-        </DeferredPersistentSurface>
+  return (
+    <div
+      className="sidebar-diff-column"
+      ref={hostRef}
+      hidden={!visible}
+      inert={visible ? undefined : true}
+      data-overlay={overlay ? 'true' : 'false'}
+      style={
+        {
+          '--sidebar-diff-width': `${width}px`,
+          '--sidebar-diff-left': `${geometry.left}px`,
+        } as CSSProperties
+      }
+    >
+      <div className="sidebar-diff-body">
+        <div className="workbench-side-surface-slot" data-surface-active={visible ? 'true' : 'false'}>
+          <DeferredPersistentSurface
+            active
+            startupDelayMs={DIFF_STARTUP_DELAY_MS}
+            fallback={<DesktopLoadingSurface label={t('Loading diff…')} />}
+          >
+            <ReadyGitDiffPane selection={columnDiff} active={visible} onOpenFile={openFileTab} onClose={onClose} />
+          </DeferredPersistentSurface>
+        </div>
       </div>
+      <div
+        className="sidebar-diff-resize"
+        role="separator"
+        aria-orientation="vertical"
+        onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
+          if (event.button !== 0) return;
+          resizeStart.current = { x: event.clientX, width };
+          dragPending.current = null;
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const start = resizeStart.current;
+          if (!start || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+          const next = Math.max(
+            PANE_SIDE_DOCK_DIFF_MIN_WIDTH,
+            Math.min(PANE_SIDE_DOCK_DIFF_MAX_WIDTH, Math.round(start.width + (event.clientX - start.x)))
+          );
+          dragPending.current = next;
+          setPref(next);
+        }}
+        onPointerUp={(event) => {
+          if (!resizeStart.current) return;
+          resizeStart.current = null;
+          try {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          } catch {}
+          const next = dragPending.current ?? width;
+          dragPending.current = null;
+          try {
+            window.localStorage.setItem(SIDEBAR_DIFF_WIDTH_KEY, String(next));
+          } catch {
+            /* session-only */
+          }
+        }}
+      />
     </div>
-    <div className="sidebar-diff-resize" role="separator"
-      aria-orientation="vertical"
-      onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
-        if (event.button !== 0) return;
-        resizeStart.current = { x: event.clientX, width };
-        dragPending.current = null;
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }}
-      onPointerMove={(event) => {
-        const start = resizeStart.current;
-        if (!start || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-        const next = Math.max(
-          PANE_SIDE_DOCK_DIFF_MIN_WIDTH,
-          Math.min(PANE_SIDE_DOCK_DIFF_MAX_WIDTH,
-            Math.round(start.width + (event.clientX - start.x))),
-        );
-        dragPending.current = next;
-        setPref(next);
-      }}
-      onPointerUp={(event) => {
-        if (!resizeStart.current) return;
-        resizeStart.current = null;
-        try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
-        const next = dragPending.current ?? width;
-        dragPending.current = null;
-        try { window.localStorage.setItem(SIDEBAR_DIFF_WIDTH_KEY, String(next)); }
-        catch { /* session-only */ }
-      }} />
-  </div>;
+  );
 }

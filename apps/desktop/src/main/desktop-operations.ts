@@ -41,13 +41,18 @@ const GITHUB_REPO_SLUG = 'tribgames/mixdog';
 
 function runGh(args: string[]): Promise<{ ok: boolean; stderr: string }> {
   return new Promise((done) => {
-    execFile('gh', args, {
-      timeout: 8_000,
-      windowsHide: true,
-      env: childEnvironment(),
-    }, (error, _stdout, stderr) => {
-      done({ ok: !error, stderr: String(stderr || '') });
-    });
+    execFile(
+      'gh',
+      args,
+      {
+        timeout: 8_000,
+        windowsHide: true,
+        env: childEnvironment(),
+      },
+      (error, _stdout, stderr) => {
+        done({ ok: !error, stderr: String(stderr || '') });
+      }
+    );
   });
 }
 
@@ -158,22 +163,28 @@ export function createDesktopOperations({
     appPath,
     loadConfig,
   });
-  const executeGithub = createGithubService(loadConfig ?? (async () => import(
-    /* @vite-ignore */ settingsConfigModuleUrl(packaged, resourcesPath, appPath)
-  ) as Promise<MixdogConfigModule>));
+  const executeGithub = createGithubService(
+    loadConfig ??
+      (async () =>
+        import(
+          /* @vite-ignore */ settingsConfigModuleUrl(packaged, resourcesPath, appPath)
+        ) as Promise<MixdogConfigModule>)
+  );
   // Converted documents are a cache, not user data: they live under the app's
   // own directory and are evicted, never synced or backed up.
   const documentPreviews = createDocumentPreviewOperations({
     cacheRoot: userDataPath,
     loadDocumentPreview,
   });
-  const folderWatchers = new Map<string, {
-    watcher: FSWatcher;
-    count: number;
-    timer: NodeJS.Timeout | null;
-  }>();
-  const watchKey = (path: string) =>
-    process.platform === 'win32' ? path.toLocaleLowerCase() : path;
+  const folderWatchers = new Map<
+    string,
+    {
+      watcher: FSWatcher;
+      count: number;
+      timer: NodeJS.Timeout | null;
+    }
+  >();
+  const watchKey = (path: string) => (process.platform === 'win32' ? path.toLocaleLowerCase() : path);
   const unsubscribeDiagnostics = languageServers.subscribeDiagnostics((value) => {
     emit({ name: 'lsp-diagnostics', value });
   });
@@ -204,7 +215,10 @@ export function createDesktopOperations({
     const data = String(value?.data || '');
     if (!id || !data) return;
     const chunks = terminalChunks.get(id);
-    if (chunks) { chunks.push(data); return; }
+    if (chunks) {
+      chunks.push(data);
+      return;
+    }
     terminalChunks.set(id, [data]);
     const timer = setTimeout(() => flushTerminal(id), TERMINAL_COALESCE_MS);
     timer.unref();
@@ -224,15 +238,12 @@ export function createDesktopOperations({
       return documentPreviews.documentPreviewPagesIn(
         String(args[0] || ''),
         String(args[1] || ''),
-        (args[2] ?? {}) as { pages?: unknown; maxWidth?: unknown },
+        (args[2] ?? {}) as { pages?: unknown; maxWidth?: unknown }
       );
     }
     if (name === 'readSettings') return settingsStore.read();
     if (name === 'updateSetting') {
-      return settingsStore.update(
-        args[0] as Parameters<DesktopSettingsStore['update']>[0],
-        args[1] === true,
-      );
+      return settingsStore.update(args[0] as Parameters<DesktopSettingsStore['update']>[0], args[1] === true);
     }
     if (name === 'readZoom') return settingsStore.readZoom();
     if (name === 'updateZoom') return settingsStore.updateZoom(Number(args[0]));
@@ -249,8 +260,9 @@ export function createDesktopOperations({
         if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error;
       }
       if (legacyFile) {
-        try { return await readFile(legacyFile, 'utf8'); }
-        catch (error) {
+        try {
+          return await readFile(legacyFile, 'utf8');
+        } catch (error) {
           if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error;
         }
       }
@@ -267,7 +279,7 @@ export function createDesktopOperations({
       return languageServers.document(
         String(args[0] || ''),
         String(args[1] || ''),
-        args[2] as Parameters<LanguageServerManager['document']>[2],
+        args[2] as Parameters<LanguageServerManager['document']>[2]
       );
     }
     if (name === 'lspRequest') {
@@ -277,18 +289,19 @@ export function createDesktopOperations({
         String(args[2] || ''),
         String(args[3] || ''),
         args[4] as Parameters<LanguageServerManager['request']>[4],
-        args[5] as Parameters<LanguageServerManager['request']>[5],
+        args[5] as Parameters<LanguageServerManager['request']>[5]
       );
     }
     if (name === 'termEnsure') {
       const requestedProfile = args[2];
-      const profile = requestedProfile && typeof requestedProfile === 'object'
-        ? requestedProfile as Parameters<TerminalManager['ensure']>[2]
-        : await resolveShellProfileSpawn(requestedProfile);
+      const profile =
+        requestedProfile && typeof requestedProfile === 'object'
+          ? (requestedProfile as Parameters<TerminalManager['ensure']>[2])
+          : await resolveShellProfileSpawn(requestedProfile);
       return terminals.ensure(
         typeof args[0] === 'string' && args[0] ? args[0] : null,
         typeof args[1] === 'string' && args[1] ? args[1] : null,
-        profile,
+        profile
       );
     }
     if (name === 'termProfiles') return listShellProfiles();
@@ -348,7 +361,9 @@ export function createDesktopOperations({
       state.count -= 1;
       if (state.count <= 0) {
         if (state.timer) clearTimeout(state.timer);
-        try { state.watcher.close(); } catch {}
+        try {
+          state.watcher.close();
+        } catch {}
         folderWatchers.delete(key);
       }
       return null;
@@ -365,7 +380,9 @@ export function createDesktopOperations({
     terminalChunks.clear();
     for (const state of folderWatchers.values()) {
       if (state.timer) clearTimeout(state.timer);
-      try { state.watcher.close(); } catch {}
+      try {
+        state.watcher.close();
+      } catch {}
     }
     folderWatchers.clear();
     terminals.disposeAll();
@@ -376,7 +393,7 @@ export function createDesktopOperations({
     ensure(
       id: string | null,
       cwd: string | null,
-      profile?: import('./terminal-contract').TerminalSpawnProfile | string | null,
+      profile?: import('./terminal-contract').TerminalSpawnProfile | string | null
     ) {
       return invoke('termEnsure', [id, cwd, profile ?? null]) as Promise<{ id: string; replay: string }>;
     },
@@ -394,7 +411,6 @@ export function createDesktopOperations({
     userDataPath,
     terminals: remoteTerminals,
     settingsStore,
-    subscribeTerminalData: (listener: (event: { id: string; data: string }) => void) =>
-      terminals.subscribe(listener),
+    subscribeTerminalData: (listener: (event: { id: string; data: string }) => void) => terminals.subscribe(listener),
   };
 }

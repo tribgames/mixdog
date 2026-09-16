@@ -1,20 +1,10 @@
 import assert from 'node:assert/strict';
-import {
-  existsSync,
-  mkdtempSync,
-  rmSync,
-  utimesSync,
-} from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import {
-  cacheRendition,
-  createPriorityScheduler,
-  pruneRenditionCache,
-  videoPosterArguments,
-} from './renditions.mjs';
+import { cacheRendition, createPriorityScheduler, pruneRenditionCache, videoPosterArguments } from './renditions.mjs';
 
 test('video posters seek off frame zero and encode one JPEG without a second still pass', () => {
   const args = videoPosterArguments('clip.mp4', { maxEdge: 512 });
@@ -29,15 +19,20 @@ test('rendition scheduler bounds work and prioritizes visible requests over queu
   const started = [];
   let active = 0;
   let peak = 0;
-  const blocked = (name) => schedule(() => new Promise((resolve) => {
-    started.push(name);
-    active += 1;
-    peak = Math.max(peak, active);
-    releases.push(() => {
-      active -= 1;
-      resolve(name);
-    });
-  }), 'background');
+  const blocked = (name) =>
+    schedule(
+      () =>
+        new Promise((resolve) => {
+          started.push(name);
+          active += 1;
+          peak = Math.max(peak, active);
+          releases.push(() => {
+            active -= 1;
+            resolve(name);
+          });
+        }),
+      'background'
+    );
   const first = blocked('background-a');
   const second = blocked('background-b');
   const third = blocked('background-c');
@@ -49,8 +44,7 @@ test('rendition scheduler bounds work and prioritizes visible requests over queu
     return 'foreground';
   });
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(started, ['background-a', 'foreground'],
-    'one slot must stay available for a visible request');
+  assert.deepEqual(started, ['background-a', 'foreground'], 'one slot must stay available for a visible request');
   assert.equal(await foreground, 'foreground');
   releases.shift()();
   await new Promise((resolve) => setImmediate(resolve));
@@ -86,13 +80,16 @@ test('rendition files reject oversized entries and obey a total disk budget', ()
     assert.equal(pruned.bytes, 10);
     assert.equal(existsSync(first.path), false);
     assert.equal(existsSync(second.path), true);
-    assert.equal(cacheRendition({
-      id: 'oversized',
-      variant: 'thumb',
-      mime: 'image/jpeg',
-      buffer: Buffer.alloc(4 * 1024 * 1024 + 1),
-      cacheDir: root,
-    }), null);
+    assert.equal(
+      cacheRendition({
+        id: 'oversized',
+        variant: 'thumb',
+        mime: 'image/jpeg',
+        buffer: Buffer.alloc(4 * 1024 * 1024 + 1),
+        cacheDir: root,
+      }),
+      null
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -6,20 +6,30 @@
 // Deterministic, key-sorted stringify for cross-turn call signatures. Mirrors
 // _canonicalArgs but exposed by name for the dedup signature contract.
 export function stableStringify(value) {
-    if (value == null || typeof value !== 'object') {
-        try { return JSON.stringify(value); } catch { return String(value); }
-    }
-    if (Array.isArray(value)) {
-        try { return `[${value.map(stableStringify).join(',')}]`; } catch { return String(value); }
-    }
+  if (value == null || typeof value !== 'object') {
     try {
-        const keys = Object.keys(value).sort();
-        return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(',')}}`;
-    } catch { return String(value); }
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  if (Array.isArray(value)) {
+    try {
+      return `[${value.map(stableStringify).join(',')}]`;
+    } catch {
+      return String(value);
+    }
+  }
+  try {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(',')}}`;
+  } catch {
+    return String(value);
+  }
 }
 
 export function crossTurnSignature(name, args) {
-    return `${name}:${stableStringify(args)}`;
+  return `${name}:${stableStringify(args)}`;
 }
 
 // Tool names that are non-eager (no readOnlyHint) but are NOT edits/progress —
@@ -32,16 +42,16 @@ const NON_PROGRESS_TOOLS = new Set(['Skill', 'recall', 'agent', 'task', 'cwd', '
 // counts as progress only if its def lacks readOnlyHint (not eager) AND it is
 // not in the meta/non-progress set. apply_patch and shell/bash always count.
 export function isEditProgressTool(name, isEager) {
-    if (isEager) return false;
-    const bare = name && name.startsWith('mcp__') ? name.split('__').pop() : name;
-    if (bare === 'apply_patch' || bare === 'shell' || bare === 'bash' || bare === 'bash_session') return true;
-    return !NON_PROGRESS_TOOLS.has(bare);
+  if (isEager) return false;
+  const bare = name && name.startsWith('mcp__') ? name.split('__').pop() : name;
+  if (bare === 'apply_patch' || bare === 'shell' || bare === 'bash' || bare === 'bash_session') return true;
+  return !NON_PROGRESS_TOOLS.has(bare);
 }
 
 // Step 2 — cross-turn dedup stub. `stuck` appends the escalation tail at the
 // 5th+ dedup stub in the session.
 export function crossTurnDedupStub(name, firstIteration, stuck) {
-    let s = `[cross-turn-dedup] \`${name}\` already ran in iteration ${firstIteration}; result unchanged, already in context.`;
-    if (stuck) s += ` No new evidence; use the existing result or report it unresolved.`;
-    return s;
+  let s = `[cross-turn-dedup] \`${name}\` already ran in iteration ${firstIteration}; result unchanged, already in context.`;
+  if (stuck) s += ` No new evidence; use the existing result or report it unresolved.`;
+  return s;
 }

@@ -32,14 +32,11 @@ import { createSessionCallCache } from './session-call-cache.mjs';
 
 // A loopback front door still buffers whatever a client sends before it can be
 // parsed, so the body has an explicit ceiling instead of the client's memory.
-const MAX_BODY_BYTES = Math.max(1, Number(process.env.MIXDOG_SESSION_MAX_BODY_MB) || 32)
-  * 1024 * 1024;
-
+const MAX_BODY_BYTES = Math.max(1, Number(process.env.MIXDOG_SESSION_MAX_BODY_MB) || 32) * 1024 * 1024;
 
 const SSE_PENDING_MAX_BYTES = Math.max(
   256 * 1024,
-  (Number(process.env.MIXDOG_SESSION_SSE_PENDING_MB) || 8)
-    * 1024 * 1024,
+  (Number(process.env.MIXDOG_SESSION_SSE_PENDING_MB) || 8) * 1024 * 1024
 );
 
 export function createSessionTransport({
@@ -69,23 +66,23 @@ export function createSessionTransport({
   let drainCommitted = false;
   const BODY_INFLIGHT_MAX_BYTES = Math.max(
     MAX_BODY_BYTES,
-    (Number(process.env.MIXDOG_SESSION_BODY_INFLIGHT_MB) || 64)
-      * 1024 * 1024,
+    (Number(process.env.MIXDOG_SESSION_BODY_INFLIGHT_MB) || 64) * 1024 * 1024
   );
   let bodyBytesInFlight = 0;
-  const readBody = (req) => readJsonRequestBody(req, {
-    maxBytes: MAX_BODY_BYTES,
-    tooLargeMessage: 'request body too large',
-    destroyOnLimit: true,
-    reserve(bytes) {
-      if (bodyBytesInFlight + bytes > BODY_INFLIGHT_MAX_BYTES) return false;
-      bodyBytesInFlight += bytes;
-      return true;
-    },
-    release(bytes) {
-      bodyBytesInFlight = Math.max(0, bodyBytesInFlight - bytes);
-    },
-  });
+  const readBody = (req) =>
+    readJsonRequestBody(req, {
+      maxBytes: MAX_BODY_BYTES,
+      tooLargeMessage: 'request body too large',
+      destroyOnLimit: true,
+      reserve(bytes) {
+        if (bodyBytesInFlight + bytes > BODY_INFLIGHT_MAX_BYTES) return false;
+        bodyBytesInFlight += bytes;
+        return true;
+      },
+      release(bytes) {
+        bodyBytesInFlight = Math.max(0, bodyBytesInFlight - bytes);
+      },
+    });
   // Idempotency cache: a transport retry of the SAME callId must never run a
   // second session mutation (submit/abort are not idempotent).
   // These routes are safe to replay and can return large snapshots. Keeping
@@ -102,17 +99,13 @@ export function createSessionTransport({
   // A client may wait up to 300s before recovering a lost /call response.
   // Retain the authoritative result beyond that horizon so a retry cannot
   // re-run a completed mutation. Default to the transport reconnect budget.
-  const CALL_CACHE_TTL_MS = Math.max(
-    300_000,
-    Number(process.env.MIXDOG_SESSION_CALL_CACHE_TTL_MS) || 10 * 60_000,
-  );
+  const CALL_CACHE_TTL_MS = Math.max(300_000, Number(process.env.MIXDOG_SESSION_CALL_CACHE_TTL_MS) || 10 * 60_000);
   // Bound the dedup table: a call that never settles would otherwise pin its
   // entry for the daemon's whole life.
   const CALL_CACHE_MAX = Math.max(512, Number(process.env.MIXDOG_SESSION_CALL_CACHE) || 4096);
   const CALL_CACHE_MAX_BYTES = Math.max(
     1024 * 1024,
-    (Number(process.env.MIXDOG_SESSION_CALL_CACHE_MB) || 8)
-      * 1024 * 1024,
+    (Number(process.env.MIXDOG_SESSION_CALL_CACHE_MB) || 8) * 1024 * 1024
   );
   const callCache = createSessionCallCache({
     ttlMs: CALL_CACHE_TTL_MS,
@@ -158,13 +151,7 @@ export function createSessionTransport({
     'project.ensureDirectory',
     'desktop.init',
   ]);
-  const INTERACTIVE_DESKTOP_METHODS = new Set([
-    'termEnsure',
-    'termWrite',
-    'termResize',
-    'termDispose',
-    'termProfiles',
-  ]);
+  const INTERACTIVE_DESKTOP_METHODS = new Set(['termEnsure', 'termWrite', 'termResize', 'termDispose', 'termProfiles']);
   const normalCalls = createFairCallScheduler({
     name: 'session service call',
     activeMax: configuredLaneLimit('MIXDOG_SESSION_ACTIVE_CALLS'),
@@ -199,24 +186,20 @@ export function createSessionTransport({
     if (INTERACTIVE_CALLS.has(name)) return 'interactive';
     if (name === 'desktop.invoke') {
       const adapterMethod = String(args?.method || '');
-      const desktopMethod = adapterMethod === 'invokeDesktopOperation'
-        ? String(args?.args?.[0] || '')
-        : adapterMethod;
+      const desktopMethod = adapterMethod === 'invokeDesktopOperation' ? String(args?.args?.[0] || '') : adapterMethod;
       if (INTERACTIVE_DESKTOP_METHODS.has(desktopMethod)) return 'interactive';
     }
     return 'normal';
   }
 
   function dispatchCall(ownerKey, run, { lane = 'normal', signal = null } = {}) {
-    const scheduler = lane === 'critical'
-      ? criticalCalls
-      : lane === 'interactive'
-        ? interactiveCalls
-        : normalCalls;
+    const scheduler = lane === 'critical' ? criticalCalls : lane === 'interactive' ? interactiveCalls : normalCalls;
     return scheduler.enqueue(ownerKey, run, { signal });
   }
 
-  function nowMs() { return Date.now(); }
+  function nowMs() {
+    return Date.now();
+  }
 
   function lifecycleClientCount() {
     let count = 0;
@@ -227,7 +210,10 @@ export function createSessionTransport({
   }
 
   function cancelGrace() {
-    if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+    if (graceTimer) {
+      clearTimeout(graceTimer);
+      graceTimer = null;
+    }
   }
 
   function maybeArmGrace(reason) {
@@ -241,7 +227,9 @@ export function createSessionTransport({
       graceTimer = null;
       if (closed || lifecycleClientCount() > 0) return;
       log(`no clients remain (${reason}) — signalling shutdown`);
-      try { onClientsEmpty(); } catch {}
+      try {
+        onClientsEmpty();
+      } catch {}
     }, clientGraceMs);
     graceTimer.unref?.();
   }
@@ -249,7 +237,9 @@ export function createSessionTransport({
   function removeClientRecord(token) {
     const c = clients.get(token);
     if (!c) return;
-    try { c.sse?.end?.(); } catch {}
+    try {
+      c.sse?.end?.();
+    } catch {}
     clients.delete(token);
     for (const [registrationId, replay] of registrationReplays) {
       if (replay.token === token) {
@@ -266,7 +256,9 @@ export function createSessionTransport({
     // must stop holding session runtimes open (and must stop being counted as the
     // reason another client's session runtime survives).
     if (typeof onClientDropped === 'function') {
-      try { onClientDropped(token, reason); } catch {}
+      try {
+        onClientDropped(token, reason);
+      } catch {}
     }
     log(`client dropped token=${token} (${reason})`);
     maybeArmGrace(reason);
@@ -313,11 +305,12 @@ export function createSessionTransport({
     const replayId = registrationId ? String(registrationId).slice(0, 200) : null;
     const replay = replayId ? registrationReplays.get(replayId) : null;
     if (replay) {
-      const sameIdentity = replay.leadPid === pid
-        && replay.cwd === (cwd || null)
-        && replay.lifecycle === ownsLifecycle
-        && replay.clientKind === kind
-        && replay.revision === Math.max(0, Number(revision) || 0);
+      const sameIdentity =
+        replay.leadPid === pid &&
+        replay.cwd === (cwd || null) &&
+        replay.lifecycle === ownsLifecycle &&
+        replay.clientKind === kind &&
+        replay.revision === Math.max(0, Number(revision) || 0);
       if (sameIdentity && clients.has(replay.token)) {
         log(`client registration replay token=${replay.token} lead=${pid}`);
         return replay.token;
@@ -352,10 +345,7 @@ export function createSessionTransport({
       cancelGrace();
     }
     startSweep();
-    log(
-      `client registered token=${token} lead=${pid} cwd=${cwd || '-'}`
-      + ` lifecycle=${ownsLifecycle} kind=${kind}`,
-    );
+    log(`client registered token=${token} lead=${pid} cwd=${cwd || '-'}` + ` lifecycle=${ownsLifecycle} kind=${kind}`);
     if (typeof onClientRegistered === 'function') {
       try {
         onClientRegistered({
@@ -444,14 +434,16 @@ export function createSessionTransport({
             callCacheEntries: callCache.size,
             callCacheBytes: callCache.bytes,
             callCacheMaxBytes: CALL_CACHE_MAX_BYTES,
-            ssePendingBytes: [...clients.values()]
-              .reduce((sum, client) => sum + (client.pendingBytes || 0), 0),
+            ssePendingBytes: [...clients.values()].reduce((sum, client) => sum + (client.pendingBytes || 0), 0),
           },
         });
         return;
       }
       const token = req.headers['x-mixdog-daemon-token'];
-      if (token !== serverToken) { sendError(res, 'forbidden', 403); return; }
+      if (token !== serverToken) {
+        sendError(res, 'forbidden', 403);
+        return;
+      }
 
       if (req.method === 'POST' && pathName === '/client/register') {
         const body = await readBody(req);
@@ -488,7 +480,10 @@ export function createSessionTransport({
       }
       if (req.method === 'GET' && pathName === '/events') {
         const clientToken = url.searchParams.get('token');
-        if (!attachSse(clientToken, res)) { sendError(res, 'unknown client token', 404); return; }
+        if (!attachSse(clientToken, res)) {
+          sendError(res, 'unknown client token', 404);
+          return;
+        }
         return; // stream stays open
       }
       if (req.method === 'POST' && pathName === '/call') {
@@ -499,7 +494,10 @@ export function createSessionTransport({
         const body = await readBody(req);
         const clientToken = body.token ? String(body.token) : null;
         const c = clientToken ? clients.get(clientToken) : null;
-        if (!c) { sendError(res, 'unknown client token', 404); return; }
+        if (!c) {
+          sendError(res, 'unknown client token', 404);
+          return;
+        }
         c.lastSeen = nowMs();
         const name = String(body.name || '');
         const callId = body.callId ? String(body.callId) : null;
@@ -513,9 +511,7 @@ export function createSessionTransport({
         // belongs to the CALLING PROCESS. Two clients legitimately issuing the
         // same callId against one shared session must not dedupe each other.
         const cacheOwnerKey = clientCallOwner(c, clientToken);
-        const cacheKey = callId && !REPLAY_SAFE_CALLS.has(name)
-          ? `${cacheOwnerKey}\u0000${callId}`
-          : null;
+        const cacheKey = callId && !REPLAY_SAFE_CALLS.has(name) ? `${cacheOwnerKey}\u0000${callId}` : null;
         // A retry is the SAME payload under the same id. A different payload
         // that reuses an id (submission ids are caller-supplied) is a NEW call
         // and must never be answered out of another call's result.
@@ -526,10 +522,11 @@ export function createSessionTransport({
           if (cached.resultDropped) {
             // The identity survived memory pressure but its result did not.
             // Fail closed: re-running a settled mutation is never correct.
-            dispatch = Promise.reject(Object.assign(
-              new Error(`callId '${callId}' already ran; its result is no longer retained`),
-              { code: 'ECALLRESULTDROPPED' },
-            ));
+            dispatch = Promise.reject(
+              Object.assign(new Error(`callId '${callId}' already ran; its result is no longer retained`), {
+                code: 'ECALLRESULTDROPPED',
+              })
+            );
           } else if (!signature || cached.signature !== signature) {
             // callId is an idempotency key, not a caller-selected overwrite
             // slot. Fail closed while the original keeps its cache identity;
@@ -541,13 +538,14 @@ export function createSessionTransport({
         } else {
           dispatch = dispatchCall(
             ownerKey,
-            () => handleCall(name, body.args || {}, {
-              clientToken,
-              leadPid: c.leadPid ?? null,
-              cwd: c.cwd ?? null,
-              revision: c.revision ?? 0,
-            }),
-            { lane: callLane(name, body.args || {}) },
+            () =>
+              handleCall(name, body.args || {}, {
+                clientToken,
+                leadPid: c.leadPid ?? null,
+                cwd: c.cwd ?? null,
+                revision: c.revision ?? 0,
+              }),
+            { lane: callLane(name, body.args || {}) }
           );
           if (cacheKey) {
             callCache.track(cacheKey, dispatch, signature);
@@ -561,16 +559,24 @@ export function createSessionTransport({
           // tell a failed CALL from a dead TRANSPORT (which must re-attach). The
           // machine-readable `code` (ECALLIDCONFLICT / ECALLRESULTDROPPED) travels
           // with it: a client must be able to branch on it, not parse prose.
-          sendJson(res, {
-            error: err?.message || String(err),
-            ...(err?.code ? { code: String(err.code) } : {}),
-          }, 200);
+          sendJson(
+            res,
+            {
+              error: err?.message || String(err),
+              ...(err?.code ? { code: String(err.code) } : {}),
+            },
+            200
+          );
         }
         return;
       }
       if (req.method === 'POST' && pathName === '/shutdown') {
         sendJson(res, { ok: true });
-        if (typeof onClientsEmpty === 'function') { try { onClientsEmpty(); } catch {} }
+        if (typeof onClientsEmpty === 'function') {
+          try {
+            onClientsEmpty();
+          } catch {}
+        }
         return;
       }
       if (req.method === 'POST' && pathName === '/upgrade') {
@@ -580,13 +586,13 @@ export function createSessionTransport({
         const requestedVersion = String(body.version || '0.0.0');
         const revisionOrder = requestedRevision - SESSION_REVISION;
         const versionOrder = compareRuntimeVersions(requestedVersion, runtimeVersion());
-        const newerBuild = requestedProtocol === SESSION_PROTOCOL
-          && (revisionOrder > 0 || (revisionOrder === 0 && versionOrder > 0));
+        const newerBuild =
+          requestedProtocol === SESSION_PROTOCOL && (revisionOrder > 0 || (revisionOrder === 0 && versionOrder > 0));
         if (!newerBuild) {
           sendError(
             res,
             `replacement must use protocol ${SESSION_PROTOCOL} with a revision/build newer than ${SESSION_REVISION}/${runtimeVersion()}`,
-            409,
+            409
           );
           return;
         }
@@ -611,7 +617,9 @@ export function createSessionTransport({
       }
       sendError(res, 'not found', 404);
     } catch (err) {
-      try { sendError(res, err?.message || String(err), err?.statusCode || 500); } catch {}
+      try {
+        sendError(res, err?.message || String(err), err?.statusCode || 500);
+      } catch {}
     }
   }
 
@@ -637,7 +645,10 @@ export function createSessionTransport({
     closed = true;
     try {
       cancelGrace();
-      if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
+      if (sweepTimer) {
+        clearInterval(sweepTimer);
+        sweepTimer = null;
+      }
       normalCalls.close('session service transport is closed');
       interactiveCalls.close('session service transport is closed');
       criticalCalls.close('session service transport is closed');
@@ -659,16 +670,26 @@ export function createSessionTransport({
     broadcast,
     beginDrain,
     commitDrain,
-    get port() { return boundPort; },
-    get clientCount() { return lifecycleClientCount(); },
-    get connectionCount() { return clients.size; },
+    get port() {
+      return boundPort;
+    },
+    get clientCount() {
+      return lifecycleClientCount();
+    },
+    get connectionCount() {
+      return clients.size;
+    },
     get activeCount() {
       return normalCalls.active + interactiveCalls.active + criticalCalls.active;
     },
     get queuedCount() {
       return normalCalls.queued + interactiveCalls.queued + criticalCalls.queued;
     },
-    get draining() { return Boolean(drainingReason); },
-    get drainCommitted() { return drainCommitted; },
+    get draining() {
+      return Boolean(drainingReason);
+    },
+    get drainCommitted() {
+      return drainCommitted;
+    },
   };
 }

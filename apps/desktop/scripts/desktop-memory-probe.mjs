@@ -19,29 +19,49 @@ for (const key of Object.keys(process.env)) {
   if (key.startsWith('MIXDOG_')) delete process.env[key];
 }
 const electron = join(
-  desktopDir, 'node_modules', 'electron', 'dist',
-  process.platform === 'win32' ? 'electron.exe' : 'electron',
+  desktopDir,
+  'node_modules',
+  'electron',
+  'dist',
+  process.platform === 'win32' ? 'electron.exe' : 'electron'
 );
 const profileRoot = join(desktopDir, 'artifacts', 'memory-probe-profiles');
-const SPLIT_SESSIONS = Math.max(2, Number(
-  process.argv.find((argument) => argument.startsWith('--sessions='))?.slice('--sessions='.length) || 4,
-));
+const SPLIT_SESSIONS = Math.max(
+  2,
+  Number(process.argv.find((argument) => argument.startsWith('--sessions='))?.slice('--sessions='.length) || 4)
+);
 
 // Session ids come straight from the shared store (renderer listSessions is
 // project-scoped and empty on a fresh profile): newest first.
 async function recentSessionIds(limit) {
-  const readerPath = join(desktopDir, '..', '..', 'src', 'runtime', 'agent', 'orchestrator', 'session', 'store-summary-reader.mjs');
+  const readerPath = join(
+    desktopDir,
+    '..',
+    '..',
+    'src',
+    'runtime',
+    'agent',
+    'orchestrator',
+    'session',
+    'store-summary-reader.mjs'
+  );
   const reader = await import(pathToFileURL(readerPath).href);
-  const rows = await reader.listStoredSessionSummaries?.() || [];
-  return rows
-    // Lead conversations only (agent==='lead' / user-owned): worker sessions
-    // are rejected by the pane layout and would reset the seeded split.
-    .filter((row) => row?.id && row.closed !== true
-      && (row.agent === 'lead' || (!row.agent && (row.owner === 'user' || row.owner === 'cli'))))
-    // Heaviest transcripts first: storageSize is the honest cost proxy.
-    .sort((a, b) => (Number(b.storageSize) || 0) - (Number(a.storageSize) || 0))
-    .slice(0, limit)
-    .map((row) => String(row.id));
+  const rows = (await reader.listStoredSessionSummaries?.()) || [];
+  return (
+    rows
+      // Lead conversations only (agent==='lead' / user-owned): worker sessions
+      // are rejected by the pane layout and would reset the seeded split.
+      .filter(
+        (row) =>
+          row?.id &&
+          row.closed !== true &&
+          (row.agent === 'lead' || (!row.agent && (row.owner === 'user' || row.owner === 'cli')))
+      )
+      // Heaviest transcripts first: storageSize is the honest cost proxy.
+      .sort((a, b) => (Number(b.storageSize) || 0) - (Number(a.storageSize) || 0))
+      .slice(0, limit)
+      .map((row) => String(row.id))
+  );
 }
 
 class CdpClient {
@@ -63,8 +83,22 @@ class CdpClient {
     });
     await new Promise((resolvePromise, reject) => {
       const timer = setTimeout(() => reject(new Error('CDP connection timed out.')), 15_000);
-      this.socket.addEventListener('open', () => { clearTimeout(timer); resolvePromise(); }, { once: true });
-      this.socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('CDP websocket failed.')); }, { once: true });
+      this.socket.addEventListener(
+        'open',
+        () => {
+          clearTimeout(timer);
+          resolvePromise();
+        },
+        { once: true }
+      );
+      this.socket.addEventListener(
+        'error',
+        () => {
+          clearTimeout(timer);
+          reject(new Error('CDP websocket failed.'));
+        },
+        { once: true }
+      );
     });
   }
   request(method, params = {}, timeoutMs = 20_000) {
@@ -79,15 +113,23 @@ class CdpClient {
     });
   }
   async evaluate(expression, timeoutMs = 20_000) {
-    const response = await this.request('Runtime.evaluate', {
-      expression, awaitPromise: true, returnByValue: true,
-    }, timeoutMs);
+    const response = await this.request(
+      'Runtime.evaluate',
+      {
+        expression,
+        awaitPromise: true,
+        returnByValue: true,
+      },
+      timeoutMs
+    );
     if (response.exceptionDetails) {
       throw new Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text);
     }
     return response.result?.value;
   }
-  close() { this.socket.close(); }
+  close() {
+    this.socket.close();
+  }
 }
 
 async function waitForTarget(port, child) {
@@ -96,10 +138,13 @@ async function waitForTarget(port, child) {
     if (child.exitCode !== null) throw new Error(`Electron exited with ${child.exitCode}.`);
     try {
       const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
-      const target = targets.find((candidate) => candidate.type === 'page'
-        && candidate.url?.includes('/out/renderer/index.html'));
+      const target = targets.find(
+        (candidate) => candidate.type === 'page' && candidate.url?.includes('/out/renderer/index.html')
+      );
       if (target?.webSocketDebuggerUrl) return target.webSocketDebuggerUrl;
-    } catch { /* not listening yet */ }
+    } catch {
+      /* not listening yet */
+    }
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
   }
   throw new Error(`CDP target did not appear on port ${port}.`);
@@ -113,8 +158,12 @@ async function evaluateStable(client, expression, timeoutMs = 30_000) {
       return await client.evaluate(expression, Math.max(1_000, deadline - Date.now()));
     } catch (error) {
       lastError = error;
-      if (!/Execution context was destroyed|Cannot find context|Failed to read the 'localStorage' property/i
-        .test(String(error?.message || error))) throw error;
+      if (
+        !/Execution context was destroyed|Cannot find context|Failed to read the 'localStorage' property/i.test(
+          String(error?.message || error)
+        )
+      )
+        throw error;
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
     }
   }
@@ -122,7 +171,11 @@ async function evaluateStable(client, expression, timeoutMs = 30_000) {
 }
 
 async function stopApp(client, child) {
-  try { await client.evaluate('window.mixdogDesktop?.quit?.()', 5_000); } catch { /* kill below */ }
+  try {
+    await client.evaluate('window.mixdogDesktop?.quit?.()', 5_000);
+  } catch {
+    /* kill below */
+  }
   client.close();
   await Promise.race([
     new Promise((resolvePromise) => child.once('exit', resolvePromise)),
@@ -158,21 +211,31 @@ async function launch(profilePath, port) {
 async function rendererRssMb(mainPid) {
   if (process.platform !== 'win32') return null;
   try {
-    const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-Command',
-      `Get-CimInstance Win32_Process -Filter "ParentProcessId=${mainPid}" | `
-      + `Where-Object { $_.CommandLine -match '--type=renderer' } | `
-      + `ForEach-Object { (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).WorkingSet64 }`,
+    const { stdout } = await execFileAsync('powershell', [
+      '-NoProfile',
+      '-Command',
+      `Get-CimInstance Win32_Process -Filter "ParentProcessId=${mainPid}" | ` +
+        `Where-Object { $_.CommandLine -match '--type=renderer' } | ` +
+        `ForEach-Object { (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).WorkingSet64 }`,
     ]);
-    const values = stdout.trim().split(/\r?\n/).map(Number).filter((value) => value > 0);
+    const values = stdout
+      .trim()
+      .split(/\r?\n/)
+      .map(Number)
+      .filter((value) => value > 0);
     if (!values.length) return null;
     return Math.round(Math.max(...values) / (1024 * 1024));
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 async function seedLayout(profilePath, port, kind, sessionIds = []) {
   const { child, client } = await launch(profilePath, port);
   try {
-    const seeded = await evaluateStable(client, `(async () => {
+    const seeded = await evaluateStable(
+      client,
+      `(async () => {
       const startupDeadline = performance.now() + 10_000;
       while (!window.__mixdogStartupSettled && performance.now() < startupDeadline) {
         await new Promise((resolve) => setTimeout(resolve, 25));
@@ -212,9 +275,16 @@ async function seedLayout(profilePath, port, kind, sessionIds = []) {
         first: ids[0] || null,
         timeOrigin: performance.timeOrigin,
       };
-    })()`);
-    try { await client.evaluate('window.location.reload(); true'); } catch { /* context swaps below */ }
-    const restored = await evaluateStable(client, `(async () => {
+    })()`
+    );
+    try {
+      await client.evaluate('window.location.reload(); true');
+    } catch {
+      /* context swaps below */
+    }
+    const restored = await evaluateStable(
+      client,
+      `(async () => {
       const previousTimeOrigin = ${JSON.stringify(seeded?.timeOrigin || 0)};
       const expectedIds = ${JSON.stringify(seeded?.ids || [])};
       const layoutReady = () => {
@@ -263,10 +333,14 @@ async function seedLayout(profilePath, port, kind, sessionIds = []) {
           ? sessionRows.some((row) => row?.id === expectedSessionId)
           : null,
       };
-    })()`, 30_000);
-    console.log(`[seed:${kind}] sessions=${seeded?.sessions} first=${seeded?.first}`
-      + ` active=${restored?.active} leaves=${restored?.leafCount}`
-      + ` catalog=${restored?.catalogCount} expected=${restored?.expectedSession}`);
+    })()`,
+      30_000
+    );
+    console.log(
+      `[seed:${kind}] sessions=${seeded?.sessions} first=${seeded?.first}` +
+        ` active=${restored?.active} leaves=${restored?.leafCount}` +
+        ` catalog=${restored?.catalogCount} expected=${restored?.expectedSession}`
+    );
   } finally {
     await stopApp(client, child);
   }
@@ -276,14 +350,18 @@ async function measure(profilePath, port, label) {
   const { child, client } = await launch(profilePath, port);
   try {
     // Let the layout restore, transcripts hydrate, and the heap settle.
-    await evaluateStable(client, `(async () => {
+    await evaluateStable(
+      client,
+      `(async () => {
       const startupDeadline = performance.now() + 20_000;
       while (!window.__mixdogStartupSettled && performance.now() < startupDeadline) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
       await new Promise((resolve) => setTimeout(resolve, 8_000));
       return true;
-    })()`, 40_000);
+    })()`,
+      40_000
+    );
     await client.request('HeapProfiler.collectGarbage', {}, 10_000).catch(() => null);
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
     const heap = await client.evaluate(`(() => {
@@ -297,9 +375,11 @@ async function measure(profilePath, port, label) {
     })()`);
     const counters = await client.request('Memory.getDOMCounters', {}, 10_000).catch(() => null);
     const rss = await rendererRssMb(child.pid);
-    console.log(`[${label}] jsHeap=${heap.usedMB}/${heap.totalMB}MB domNodes=${heap.domNodes}`
-      + ` cdpNodes=${counters?.nodes ?? 'n/a'} listeners=${counters?.jsEventListeners ?? 'n/a'}`
-      + ` rendererRss=${rss ?? 'n/a'}MB layout=${heap.activeLayout ?? 'n/a'}`);
+    console.log(
+      `[${label}] jsHeap=${heap.usedMB}/${heap.totalMB}MB domNodes=${heap.domNodes}` +
+        ` cdpNodes=${counters?.nodes ?? 'n/a'} listeners=${counters?.jsEventListeners ?? 'n/a'}` +
+        ` rendererRss=${rss ?? 'n/a'}MB layout=${heap.activeLayout ?? 'n/a'}`
+    );
     return { label, heap, counters, rss };
   } finally {
     await stopApp(client, child);
@@ -319,7 +399,11 @@ for (const kind of ['empty', 'one', 'split']) {
 }
 const [empty, one, split] = results;
 if (empty?.heap && one?.heap && split?.heap) {
-  console.log(`delta one-session: heap +${one.heap.usedMB - empty.heap.usedMB}MB rss +${(one.rss ?? 0) - (empty.rss ?? 0)}MB`);
-  console.log(`delta ${SPLIT_SESSIONS}-split: heap +${split.heap.usedMB - empty.heap.usedMB}MB rss +${(split.rss ?? 0) - (empty.rss ?? 0)}MB`);
+  console.log(
+    `delta one-session: heap +${one.heap.usedMB - empty.heap.usedMB}MB rss +${(one.rss ?? 0) - (empty.rss ?? 0)}MB`
+  );
+  console.log(
+    `delta ${SPLIT_SESSIONS}-split: heap +${split.heap.usedMB - empty.heap.usedMB}MB rss +${(split.rss ?? 0) - (empty.rss ?? 0)}MB`
+  );
 }
 process.exit(0);

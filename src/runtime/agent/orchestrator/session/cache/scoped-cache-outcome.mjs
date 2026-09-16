@@ -3,9 +3,9 @@
  * Tools set `complete: false` only when the result is known incomplete/truncated.
  */
 export function createScopedCacheOutcome() {
-    return { complete: true };
+  return { complete: true };
 }
 
 export function markScopedCacheIncomplete(outcome) {
-    if (outcome && typeof outcome === 'object') outcome.complete = false;
+  if (outcome && typeof outcome === 'object') outcome.complete = false;
 }

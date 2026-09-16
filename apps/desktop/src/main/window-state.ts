@@ -18,7 +18,7 @@ function finiteInteger(value: unknown): number | null {
 
 export function validateWindowState(
   candidate: unknown,
-  displays: readonly Pick<Display, 'workArea'>[],
+  displays: readonly Pick<Display, 'workArea'>[]
 ): PersistedWindowState | null {
   if (!candidate || typeof candidate !== 'object') return null;
   const record = candidate as Record<string, unknown>;
@@ -29,8 +29,14 @@ export function validateWindowState(
   const y = finiteInteger(boundsRecord.y);
   const width = finiteInteger(boundsRecord.width);
   const height = finiteInteger(boundsRecord.height);
-  if (x === null || y === null || width === null || height === null
-    || width < DESKTOP_WINDOW_MIN_WIDTH || height < 600) {
+  if (
+    x === null ||
+    y === null ||
+    width === null ||
+    height === null ||
+    width < DESKTOP_WINDOW_MIN_WIDTH ||
+    height < 600
+  ) {
     return null;
   }
 
@@ -45,7 +51,7 @@ export function validateWindowState(
 
 export async function readWindowState(
   filePath: string,
-  displays: readonly Pick<Display, 'workArea'>[],
+  displays: readonly Pick<Display, 'workArea'>[]
 ): Promise<PersistedWindowState | null> {
   try {
     const contents = await readFile(filePath, 'utf8');
@@ -59,7 +65,10 @@ export async function readWindowState(
   }
 }
 
-export function persistWindowState(window: BrowserWindow, filePath: string): {
+export function persistWindowState(
+  window: BrowserWindow,
+  filePath: string
+): {
   flush(): Promise<void>;
   dispose(): void;
 } {
@@ -73,14 +82,16 @@ export function persistWindowState(window: BrowserWindow, filePath: string): {
       bounds: lastNormalBounds,
       maximized: window.isMaximized(),
     };
-    writes = writes.then(async () => {
-      await mkdir(dirname(filePath), { recursive: true });
-      const temporaryPath = `${filePath}.${process.pid}.tmp`;
-      await writeFile(temporaryPath, `${JSON.stringify(state)}\n`, { encoding: 'utf8', mode: 0o600 });
-      await rename(temporaryPath, filePath);
-    }).catch((error: unknown) => {
-      console.error('Failed to persist desktop window state:', error);
-    });
+    writes = writes
+      .then(async () => {
+        await mkdir(dirname(filePath), { recursive: true });
+        const temporaryPath = `${filePath}.${process.pid}.tmp`;
+        await writeFile(temporaryPath, `${JSON.stringify(state)}\n`, { encoding: 'utf8', mode: 0o600 });
+        await rename(temporaryPath, filePath);
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to persist desktop window state:', error);
+      });
   };
   const schedule = (): void => {
     if (disposed) return;

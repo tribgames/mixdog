@@ -9,7 +9,9 @@
    Chrome: [pill][+][count][menu/trailing]. */
 /* The desktop title band is dead weight on a phone (user: 상단 상태줄 하나
    날리고 최상단): the Chrome toolbar IS the top row. */
-html[data-mixdog-mobile-tabs] .topbar { display: none; }
+html[data-mixdog-mobile-tabs] .topbar {
+  display: none;
+}
 /* A surface that has not reached its desktop for the disconnect threshold is
    frozen, not broken: ONE dim layer with the wifi glyph blocks input until the
    leg returns, and nothing is written on it (user: 오류도 띄우지 말고). Shorter
@@ -39,11 +41,18 @@ html[data-mixdog-mobile-tabs] .topbar { display: none; }
   animation: remote-connection-pulse 1.8s ease-in-out infinite;
 }
 @keyframes remote-connection-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .remote-connection-overlay > svg { animation: none; }
+  .remote-connection-overlay > svg {
+    animation: none;
+  }
 }
 html[data-mixdog-mobile-tabs] .remote-connection-overlay > svg {
   width: calc(40px * var(--mx-device-scale, 1));
@@ -218,9 +227,7 @@ html[data-mixdog-mobile-tabs] .studio-generate {
 /* During dictation the send action stays disabled, but dimming the whole
    button made its equal 36dp disc look smaller beside the recording disc.
    Disabled color still mutes the glyph; the plate keeps its full frame. */
-html[data-mixdog-mobile-tabs]
-  .composer:has(.composer-mic:is(.is-recording, .is-transcribing))
-  .send-button:disabled {
+html[data-mixdog-mobile-tabs] .composer:has(.composer-mic:is(.is-recording, .is-transcribing)) .send-button:disabled {
   opacity: 1;
 }
 /* Both stop squares take the desktop 12/28 measure — the same 3:4 against the
@@ -279,7 +286,8 @@ html[data-mixdog-mobile-tabs] .composer-footer > .composer-tool {
    lands elsewhere, so the wash stayed on after the press (user: + 버튼
    누르니 하이라이트 안 사라짐). Rest state carries no hover wash here; the
    press itself still flashes through :active. */
-html[data-mixdog-mobile-tabs] :is(
+html[data-mixdog-mobile-tabs]
+:is(
   .composer-tool:not(.is-recording),
   .model-trigger,
   .fast-mode-toggle,
@@ -309,7 +317,9 @@ html[data-mixdog-mobile-tabs] .route-sheet,
 html[data-mixdog-mobile-tabs] .route-sheet-flyout {
   border-width: 1px;
 }
-html[data-mixdog-mobile-tabs] .composer-model-aside { margin-left: 0; }
+html[data-mixdog-mobile-tabs] .composer-model-aside {
+  margin-left: 0;
+}
 html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator,
 html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator > button {
   width: var(--mx-touch-main);
@@ -332,8 +342,12 @@ html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator s
    to the gauge mid-footer, so its 220px rightward growth spilled past the
    viewport's right edge — it now anchors to the footer itself, opening from
    the footer's left edge where the full width always fits. */
-html[data-mixdog-mobile-tabs] .composer-footer { position: relative; }
-html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator { position: static; }
+html[data-mixdog-mobile-tabs] .composer-footer {
+  position: relative;
+}
+html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator {
+  position: static;
+}
 html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-popover {
   max-width: calc(100vw - 2 * var(--mx-mobile-edge-main));
 }
@@ -382,8 +396,7 @@ html[data-mixdog-mobile-tabs] .model-provider-add > svg {
 }
 /* Workflow and agent section actions keep the desktop 20px trailing
    centerline while their touch box grows from 28px to 44px. */
-html[data-mixdog-mobile-tabs]
-  .session-sidebar-panels .workflows-section-head > .schedules-new {
+html[data-mixdog-mobile-tabs] .session-sidebar-panels .workflows-section-head > .schedules-new {
   margin-right: calc(var(--mx-rail-trailing-center, 20px) - 22px);
 }
 html[data-mixdog-mobile-tabs] .mobile-tab-card > header {
@@ -419,14 +432,16 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-panel-header-actions > .
    a centered 44px box pulled the glyph 8px inboard of that line. The extra
    width is spent outward, into the rail's own 8px inset — the LAST action
    only, so a slot holding two actions keeps its own gap. */
-html[data-mixdog-mobile-tabs]
-  .session-sidebar .session-panel-header-actions > .session-panel-action:last-child {
+html[data-mixdog-mobile-tabs] .session-sidebar .session-panel-header-actions > .session-panel-action:last-child {
   margin-right: calc(var(--mx-rail-trailing-center, 20px) - 22px);
 }
 /* Chrome has NO hairlines above/below its toolbar (user: 상하 테두리 없네);
    the toolbar band runs uninterrupted into the sheet on mobile. The pills
    and square controls retain their own raised gray fills. */
-html[data-mixdog-mobile-tabs] .desktop-body { border-top: 0; padding-inline: 0; }
+html[data-mixdog-mobile-tabs] .desktop-body {
+  border-top: 0;
+  padding-inline: 0;
+}
 html[data-mixdog-mobile-tabs] .pane-cell > .workspace-tabs-shell,
 html[data-mixdog-mobile-tabs] .pane-strip-row > .workspace-tabs-shell {
   border-top: 0;
@@ -483,12 +498,16 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame {
   box-shadow: 24px 0 24px var(--mx-alpha-dark-24);
   transform: translateX(-110%);
   visibility: hidden;
-  transition: transform var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
+  transition:
+    transform var(--mx-sheet-motion),
+    visibility var(--mx-sheet-motion);
 }
 /* Children clip to the rounded sheet (user: 둥근 테두리 뒤로 긴 선이 보임 —
    the desktop-width side panel and its resize separator painted past the
    corner radius). */
-html[data-mixdog-mobile-tabs] .sidebar-drawer-frame { overflow: hidden; }
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame {
+  overflow: hidden;
+}
 html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .workbench-side-panel {
   width: calc(100% - 48px);
   min-width: 0;
@@ -522,7 +541,9 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-state="open"] {
   transform: none;
   visibility: visible;
 }
-html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-motion="instant"] { transition: none; }
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-motion="instant"] {
+  transition: none;
+}
 html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .activity-rail {
   position: relative;
   z-index: auto;
@@ -554,7 +575,9 @@ html[data-mixdog-mobile-tabs] .sidebar-collapsed .sidebar-drawer-frame > .sideba
   pointer-events: auto;
   transition: none;
 }
-html[data-mixdog-mobile-tabs] .sidebar.session-sidebar > .session-panel-header::after { display: none; }
+html[data-mixdog-mobile-tabs] .sidebar.session-sidebar > .session-panel-header::after {
+  display: none;
+}
 html[data-mixdog-mobile-tabs] .sidebar-backdrop {
   display: block;
   position: fixed;
@@ -567,14 +590,18 @@ html[data-mixdog-mobile-tabs] .sidebar-backdrop {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
+  transition:
+    opacity var(--mx-sheet-motion),
+    visibility var(--mx-sheet-motion);
 }
 html[data-mixdog-mobile-tabs] .sidebar-backdrop[data-state="open"] {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
 }
-html[data-mixdog-mobile-tabs] .session-sidebar-resize { display: none; }
+html[data-mixdog-mobile-tabs] .session-sidebar-resize {
+  display: none;
+}
 
 /* ── Mobile right drawer (user: 우측이 좌우 전체를 덮는다 — 왼쪽처럼
    일부만, 상하는 다 채워서) ── the pane's side-dock UNIT — header (title,
@@ -611,7 +638,9 @@ html[data-mixdog-mobile-tabs] .pane-side-dock {
      it — the exit runs on the same curve as the entry. */
   transform: translateX(0);
   visibility: visible;
-  transition: transform var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
+  transition:
+    transform var(--mx-sheet-motion),
+    visibility var(--mx-sheet-motion);
 }
 /* The closed sheet keeps its box and parks off the right edge so the exit
    runs on the same curve as the entry; the panel inside is already `inert` +
@@ -623,7 +652,7 @@ html[data-mixdog-mobile-tabs] .pane-side-dock[data-open="false"] {
 }
 /* Responsive band corrections are layout, not gesture — they never animate. */
 html[data-mixdog-mobile-tabs]
-  .pane-side-dock:has(> .pane-side-dock-main > .workbench-side-panel[data-motion="instant"]) {
+.pane-side-dock:has(> .pane-side-dock-main > .workbench-side-panel[data-motion="instant"]) {
   transition: none;
 }
 /* Sheet header at the touch tier: title, the SAME dock toggles the desktop
@@ -703,8 +732,7 @@ html[data-mixdog-mobile-tabs] .pane-side-dock .workbench-side-panel[data-side="r
   transform: none;
   transition: none;
 }
-html[data-mixdog-mobile-tabs]
-  .workbench-side-panel[data-side="right"] > .workbench-side-panel-content {
+html[data-mixdog-mobile-tabs] .workbench-side-panel[data-side="right"] > .workbench-side-panel-content {
   box-sizing: border-box;
   position: absolute;
   top: 0;
@@ -720,7 +748,8 @@ html[data-mixdog-mobile-tabs]
   padding-bottom: var(--mx-mobile-sheet-safe-bottom);
 }
 html[data-mixdog-mobile-tabs]
-  .workbench-side-panel[data-side="right"] :is(
+  .workbench-side-panel[data-side="right"]
+  :is(
     .workbench-side-panel-body,
     .workbench-side-section,
     .workbench-side-section-body,
@@ -746,12 +775,15 @@ html[data-mixdog-mobile-tabs] .pane-side-dock::after {
 /* The edge resize separator IS the stray long line behind the rounded
    corners (user: 둥근 테두리 뒤에 긴 선) — both drawers hide it; the sheet
    width is fixed by ratio on the phone anyway. */
-html[data-mixdog-mobile-tabs] .workbench-side-panel-resize { display: none; }
+html[data-mixdog-mobile-tabs] .workbench-side-panel-resize {
+  display: none;
+}
 /* Mobile scrollbars are overlay feedback, not layout — the transcript already
    hides its bar. The drawer/sheet lists still painted the 8px desktop bar on
    their right edge, where it darkens on touch and even drags (user: 오른쪽
    끝을 누르면 클릭되고 회색으로 변함). Same treatment, list-wide. */
-html[data-mixdog-mobile-tabs] :is(
+html[data-mixdog-mobile-tabs]
+:is(
   .utility-dock-pane,
   .agent-activity-page,
   .dock-scm-scroll,
@@ -767,17 +799,20 @@ html[data-mixdog-mobile-tabs] :is(
 /* The desktop rail deliberately expands its scroller into the reserved
    scrollbar column. Mobile hides that column entirely, so keeping the
    negative compensation consumes the sheet's trailing inset. */
-html[data-mixdog-mobile-tabs] .session-sidebar-scroll { margin-right: 0; }
-html[data-mixdog-mobile-tabs] :is(
-  .utility-dock-pane,
-  .agent-activity-page,
-  .dock-scm-scroll,
-  .dock-scm-history,
-  .dock-files,
-  .dock-task-list,
-  .workbench-side-section-body,
-  .session-sidebar-scroll
-)::-webkit-scrollbar {
+html[data-mixdog-mobile-tabs] .session-sidebar-scroll {
+  margin-right: 0;
+}
+html[data-mixdog-mobile-tabs]
+  :is(
+    .utility-dock-pane,
+    .agent-activity-page,
+    .dock-scm-scroll,
+    .dock-scm-history,
+    .dock-files,
+    .dock-task-list,
+    .workbench-side-section-body,
+    .session-sidebar-scroll
+  )::-webkit-scrollbar {
   display: none;
 }
 /* ── Mobile dialogs (user: 팝업이 중앙정렬 안 되고 스크롤됨 — 전체 팝업
@@ -957,7 +992,9 @@ html[data-mixdog-mobile-tabs] .transcript {
   scrollbar-width: none;
   touch-action: pan-y;
 }
-html[data-mixdog-mobile-tabs] .transcript::-webkit-scrollbar { display: none; }
+html[data-mixdog-mobile-tabs] .transcript::-webkit-scrollbar {
+  display: none;
+}
 /* Horizontal touch belongs to pane tab traversal everywhere in the pane,
    including controls and horizontally scrollable content. */
 html[data-mixdog-mobile-tabs] .pane-cell {
@@ -974,21 +1011,13 @@ html[data-mixdog-mobile-tabs] .jump-to-latest {
 }
 /* Code/table surfaces keep vertical momentum while horizontal touch traverses
    pane tabs. Hide tracks that otherwise flash over the final line of content. */
-html[data-mixdog-mobile-tabs] :is(
-  .markdown-code > pre,
-  .markdown-table,
-  .detail-block pre
-) {
+html[data-mixdog-mobile-tabs] :is(.markdown-code > pre, .markdown-table, .detail-block pre) {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-inline: contain;
   scrollbar-width: none;
   touch-action: pan-y;
 }
-html[data-mixdog-mobile-tabs] :is(
-  .markdown-code > pre,
-  .markdown-table,
-  .detail-block pre
-)::-webkit-scrollbar {
+html[data-mixdog-mobile-tabs] :is(.markdown-code > pre, .markdown-table, .detail-block pre)::-webkit-scrollbar {
   display: none;
 }
 html[data-mixdog-mobile-tabs] .mobile-tab-overview-grid {
@@ -996,46 +1025,38 @@ html[data-mixdog-mobile-tabs] .mobile-tab-overview-grid {
   scrollbar-width: none;
   touch-action: pan-y;
 }
-html[data-mixdog-mobile-tabs] .mobile-tab-overview-grid::-webkit-scrollbar { display: none; }
+html[data-mixdog-mobile-tabs] .mobile-tab-overview-grid::-webkit-scrollbar {
+  display: none;
+}
 
 /* Modal polish: safe-area-aware centring, no live blur on a phone GPU, and
    footer actions large enough to tap without changing desktop density. */
-html[data-mixdog-mobile-tabs] :is(
-  .onboarding-layer,
-  .schedules-dialog-layer,
-  .settings-confirm-layer,
-  .mx-dialog-layer
-) {
-  padding: max(12px, env(safe-area-inset-top, 0px)) 12px
-    max(12px, env(safe-area-inset-bottom, 0px));
+html[data-mixdog-mobile-tabs]
+:is(.onboarding-layer, .schedules-dialog-layer, .settings-confirm-layer, .mx-dialog-layer) {
+  padding: max(12px, env(safe-area-inset-top, 0px)) 12px max(12px, env(safe-area-inset-bottom, 0px));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
-html[data-mixdog-mobile-tabs] :is(
-  .schedules-dialog,
-  .settings-confirm-dialog,
-  .settings-oauth-dialog,
-  .mx-dialog
-) > header {
+html[data-mixdog-mobile-tabs]
+  :is(.schedules-dialog, .settings-confirm-dialog, .settings-oauth-dialog, .mx-dialog)
+  > header {
   min-height: 56px;
   align-items: center;
   padding: 6px 8px 6px 16px;
 }
-html[data-mixdog-mobile-tabs] :is(
-  .schedules-dialog footer button,
-  .settings-confirm-dialog > footer button,
-  .settings-oauth-dialog > footer button,
-  .onboarding-dialog > footer button,
-  .mx-dialog > footer button
-) {
+html[data-mixdog-mobile-tabs]
+  :is(
+    .schedules-dialog footer button,
+    .settings-confirm-dialog > footer button,
+    .settings-oauth-dialog > footer button,
+    .onboarding-dialog > footer button,
+    .mx-dialog > footer button
+  ) {
   min-height: var(--mx-touch);
   padding-inline: 16px;
 }
-html[data-mixdog-mobile-tabs] :is(
-  .settings-confirm-dialog > footer,
-  .settings-oauth-dialog > footer,
-  .mx-dialog > footer
-) {
+html[data-mixdog-mobile-tabs]
+  :is(.settings-confirm-dialog > footer, .settings-oauth-dialog > footer, .mx-dialog > footer) {
   padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
 }
 
@@ -1052,15 +1073,14 @@ html[data-mixdog-mobile-tabs] :is(
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
   }
-  html[data-mixdog-mobile-tabs] .mobile-tab-card { min-height: 112px; }
+  html[data-mixdog-mobile-tabs] .mobile-tab-card {
+    min-height: 112px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html[data-mixdog-mobile-tabs] :is(
-    .sidebar-drawer-frame,
-    .workbench-side-panel[data-side="right"],
-    .sidebar-backdrop
-  ) {
+  html[data-mixdog-mobile-tabs]
+    :is(.sidebar-drawer-frame, .workbench-side-panel[data-side="right"], .sidebar-backdrop) {
     transition: none;
   }
 }
@@ -1106,7 +1126,9 @@ html[data-mixdog-mobile-tabs] .effort-control select,
 html[data-mixdog-mobile-tabs] .mx-select-root.route-select .mx-select-trigger {
   height: var(--mx-touch-main);
 }
-html[data-mixdog-mobile-tabs] .effort-control select { line-height: var(--mx-touch-main); }
+html[data-mixdog-mobile-tabs] .effort-control select {
+  line-height: var(--mx-touch-main);
+}
 html[data-mixdog-mobile-tabs] .fast-control,
 html[data-mixdog-mobile-tabs] .route-controls > .fast-control,
 html[data-mixdog-mobile-tabs] .fast-mode-toggle {
@@ -1162,7 +1184,9 @@ html[data-mixdog-mobile-tabs] .message.assistant .response-footer:has(.turn-stat
 html[data-mixdog-mobile-tabs] .markdown-code > header {
   min-height: var(--mx-touch-fixed-main);
 }
-html[data-mixdog-mobile-tabs] .turn-review-action-slot { width: auto; }
+html[data-mixdog-mobile-tabs] .turn-review-action-slot {
+  width: auto;
+}
 
 /* ── 4. Session drawer ─────────────────────────────────────────────────────
    Primary links keep the full touch tier; session rows use the compact row
@@ -1183,9 +1207,15 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-row-actions {
 }
 /* Desktop and phone now share one 20px trailing centerline; touch targets grow
    around that center instead of pulling their glyphs toward the edge. */
-html[data-mixdog-mobile-tabs] .session-row-unread-dot { right: 16.5px; }
-html[data-mixdog-mobile-tabs] .sidebar-heading-dot { right: 16.5px; }
-html[data-mixdog-mobile-tabs] .session-row-status { right: 14px; }
+html[data-mixdog-mobile-tabs] .session-row-unread-dot {
+  right: 16.5px;
+}
+html[data-mixdog-mobile-tabs] .sidebar-heading-dot {
+  right: 16.5px;
+}
+html[data-mixdog-mobile-tabs] .session-row-status {
+  right: 14px;
+}
 html[data-mixdog-mobile-tabs] .row-overflow-trigger,
 html[data-mixdog-mobile-tabs] .session-sidebar-panels .row-overflow-trigger,
 html[data-mixdog-mobile-tabs] .sidebar-usage-heading > .sidebar-usage-pin {
@@ -1193,8 +1223,7 @@ html[data-mixdog-mobile-tabs] .sidebar-usage-heading > .sidebar-usage-pin {
   height: var(--mx-touch-row);
   flex-basis: var(--mx-touch-row);
 }
-html[data-mixdog-mobile-tabs]
-  .session-sidebar .sidebar-category-header > .row-overflow .row-overflow-trigger {
+html[data-mixdog-mobile-tabs] .session-sidebar .sidebar-category-header > .row-overflow .row-overflow-trigger {
   /* Restate size at greater specificity than the later desktop category
      rule; otherwise the computed box falls back to 28px despite this mobile
      layer declaring 36px above. */
@@ -1205,13 +1234,8 @@ html[data-mixdog-mobile-tabs]
 }
 /* Card actions start after a 12px inner gutter. A 36px overflow target ends
    2px before the card edge so its glyph center stays on the same 20px line. */
-html[data-mixdog-mobile-tabs]
-  .session-sidebar-panels .schedules-row .row-overflow-trigger {
-  margin-right: calc(
-    var(--mx-rail-trailing-center, 20px) -
-    var(--mx-rail-gutter, 12px) -
-    18px
-  );
+html[data-mixdog-mobile-tabs] .session-sidebar-panels .schedules-row .row-overflow-trigger {
+  margin-right: calc(var(--mx-rail-trailing-center, 20px) - var(--mx-rail-gutter, 12px) - 18px);
 }
 html[data-mixdog-mobile-tabs] .sidebar-section-heading,
 html[data-mixdog-mobile-tabs] .project-group-heading,
@@ -1220,7 +1244,9 @@ html[data-mixdog-mobile-tabs] .project-group-toggle {
   height: var(--mx-touch);
   min-height: var(--mx-touch);
 }
-html[data-mixdog-mobile-tabs] .sidebar-usage-heading { min-height: var(--mx-touch); }
+html[data-mixdog-mobile-tabs] .sidebar-usage-heading {
+  min-height: var(--mx-touch);
+}
 /* Section "+" actions answer to the tier-2 action + above, not to the row. */
 html[data-mixdog-mobile-tabs] .sidebar-section-action,
 html[data-mixdog-mobile-tabs] .project-task-add {
@@ -1231,32 +1257,27 @@ html[data-mixdog-mobile-tabs] .project-task-add {
 /* Grouped rail destinations own a real divider/header row. Their primary +
    must use the same mobile action tier without overflowing a desktop 34px
    row, and its center resolves against the divider's own 2px inner padding. */
-html[data-mixdog-mobile-tabs]
-  .session-sidebar .sidebar-view-section[data-active="true"][data-sectioned="true"] {
+html[data-mixdog-mobile-tabs] .session-sidebar .sidebar-view-section[data-active="true"][data-sectioned="true"] {
   min-height: var(--mx-touch);
 }
-html[data-mixdog-mobile-tabs]
-  .session-sidebar .sidebar-view-section[data-sectioned="true"][data-collapsed="true"] {
+html[data-mixdog-mobile-tabs] .session-sidebar .sidebar-view-section[data-sectioned="true"][data-collapsed="true"] {
   flex-basis: var(--mx-touch);
 }
 html[data-mixdog-mobile-tabs] .session-sidebar .sidebar-view-section-header {
   height: var(--mx-touch);
   flex-basis: var(--mx-touch);
 }
-html[data-mixdog-mobile-tabs]
-  .session-sidebar .sidebar-view-section-actions > .session-panel-action {
+html[data-mixdog-mobile-tabs] .session-sidebar .sidebar-view-section-actions > .session-panel-action {
   width: var(--mx-touch);
   height: var(--mx-touch);
   min-width: var(--mx-touch);
   flex-basis: var(--mx-touch);
 }
-html[data-mixdog-mobile-tabs]
-  .session-sidebar .sidebar-view-section-actions > .session-panel-action > svg {
+html[data-mixdog-mobile-tabs] .session-sidebar .sidebar-view-section-actions > .session-panel-action > svg {
   width: var(--mx-touch-glyph);
   height: var(--mx-touch-glyph);
 }
-html[data-mixdog-mobile-tabs]
-  .session-sidebar .sidebar-view-section-actions > .session-panel-action:last-child {
+html[data-mixdog-mobile-tabs] .session-sidebar .sidebar-view-section-actions > .session-panel-action:last-child {
   margin-right: calc(var(--mx-rail-trailing-center, 20px) - 2px - 22px);
 }
 
@@ -1275,7 +1296,9 @@ html[data-mixdog-mobile-tabs] .utility-dock-pane > .dock-language-search {
   min-height: var(--mx-touch);
   flex-basis: var(--mx-touch);
 }
-html[data-mixdog-mobile-tabs] .dock-pr-toolbar { min-height: var(--mx-touch); }
+html[data-mixdog-mobile-tabs] .dock-pr-toolbar {
+  min-height: var(--mx-touch);
+}
 html[data-mixdog-mobile-tabs] .workbench-side-icon-bar.is-horizontal > button {
   width: var(--mx-touch);
   height: var(--mx-touch);
@@ -1355,7 +1378,9 @@ html[data-mixdog-mobile-tabs] .mx-toast-close {
   flex-basis: var(--mx-touch-row);
 }
 /* The value text centres optically against its copy button. */
-html[data-mixdog-mobile-tabs] .webhook-connection-value { line-height: var(--mx-touch-row); }
+html[data-mixdog-mobile-tabs] .webhook-connection-value {
+  line-height: var(--mx-touch-row);
+}
 html[data-mixdog-mobile-tabs] .onboarding-top-actions > button {
   width: var(--mx-touch);
   height: var(--mx-touch);
@@ -1366,51 +1391,54 @@ html[data-mixdog-mobile-tabs] .onboarding-top-actions > button {
    leave the fragmentation exactly where the eye reads it. Each tier carries
    one glyph size. `:is()` is enough here because lucide writes width/height
    as ATTRIBUTES, which any rule outranks. */
-html[data-mixdog-mobile-tabs] :is(
-  .editor-breadcrumb-actions button,
-  .editor-breadcrumb-picker-header button,
-  .editor-call-hierarchy-actions button,
-  .editor-call-hierarchy-expand,
-  .workspace-pr-editor-header-actions > button,
-  .studio-tile-actions button,
-  .studio-detail-close,
-  .studio-folder
-) > svg {
+html[data-mixdog-mobile-tabs]
+  :is(
+    .editor-breadcrumb-actions button,
+    .editor-breadcrumb-picker-header button,
+    .editor-call-hierarchy-actions button,
+    .editor-call-hierarchy-expand,
+    .workspace-pr-editor-header-actions > button,
+    .studio-tile-actions button,
+    .studio-detail-close,
+    .studio-folder
+  )
+  > svg {
   width: var(--mx-touch-row-glyph-main);
   height: var(--mx-touch-row-glyph-main);
 }
-html[data-mixdog-mobile-tabs] :is(
-  .row-overflow-trigger,
-  .sidebar-usage-pin,
-  .dock-pr-toolbar > button,
-  .dock-pr-row-actions > button,
-  .dock-scm-list-actions > button,
-  .dock-language-toolbar > button,
-  .dock-git-action,
-  .dock-git-refresh,
-  .dock-agent-back,
-  .workbench-search-input button,
-  .model-search button,
-  .webhook-connection-copy,
-  .workflows-agent-remove,
-  .mx-toast-close
-) > svg {
+html[data-mixdog-mobile-tabs]
+  :is(
+    .row-overflow-trigger,
+    .sidebar-usage-pin,
+    .dock-pr-toolbar > button,
+    .dock-pr-row-actions > button,
+    .dock-scm-list-actions > button,
+    .dock-language-toolbar > button,
+    .dock-git-action,
+    .dock-git-refresh,
+    .dock-agent-back,
+    .workbench-search-input button,
+    .model-search button,
+    .webhook-connection-copy,
+    .workflows-agent-remove,
+    .mx-toast-close
+  )
+  > svg {
   width: var(--mx-touch-row-glyph);
   height: var(--mx-touch-row-glyph);
 }
-html[data-mixdog-mobile-tabs] :is(
-  .sidebar-section-action,
-  .project-task-add,
-  .workbench-side-icon-bar.is-horizontal > button,
-  .onboarding-top-actions > button
-) > svg {
+html[data-mixdog-mobile-tabs]
+  :is(
+    .sidebar-section-action,
+    .project-task-add,
+    .workbench-side-icon-bar.is-horizontal > button,
+    .onboarding-top-actions > button
+  )
+  > svg {
   width: var(--mx-touch-glyph);
   height: var(--mx-touch-glyph);
 }
-html[data-mixdog-mobile-tabs] :is(
-  .studio-detail-stage-close
-) > svg {
+html[data-mixdog-mobile-tabs] :is(.studio-detail-stage-close) > svg {
   width: var(--mx-touch-glyph-main);
   height: var(--mx-touch-glyph-main);
 }
-

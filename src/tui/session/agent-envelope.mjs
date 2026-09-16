@@ -17,7 +17,10 @@ function stripSyntheticAgentTags(text) {
   if (taskResult) return taskResult;
   return value
     .replace(/^agent result[^\n]*(?:\n|$)/i, '')
-    .replace(/<\/?(?:final-answer|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>/gi, '')
+    .replace(
+      /<\/?(?:final-answer|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>/gi,
+      ''
+    )
     .trim();
 }
 
@@ -80,7 +83,12 @@ export function parseAgentResultEnvelope(text, fallback = {}) {
       effort: fallback.effort || attrs.effort || undefined,
       fast: fallback.fast ?? attrs.fast,
     },
-    result: body || agentJobStatusText({ status: fallback.status || attrs.status || 'completed', taskId: fallback.taskId || attrs.task_id || attrs.taskid || '' }),
+    result:
+      body ||
+      agentJobStatusText({
+        status: fallback.status || attrs.status || 'completed',
+        taskId: fallback.taskId || attrs.task_id || attrs.taskid || '',
+      }),
     isError: /^(failed|error|timeout|cancelled|canceled|killed|denied)$/i.test(fallback.status || attrs.status || ''),
   };
 }
@@ -92,7 +100,13 @@ export function parseBackgroundTaskEnvelope(text) {
   const rest = allLines.slice(1);
   const blank = rest.findIndex((line) => !line.trim());
   const headLines = blank >= 0 ? rest.slice(0, blank) : rest;
-  const body = blank >= 0 ? rest.slice(blank + 1).join('\n').trim() : '';
+  const body =
+    blank >= 0
+      ? rest
+          .slice(blank + 1)
+          .join('\n')
+          .trim()
+      : '';
   const fields = {};
   for (const line of headLines) {
     const match = /^([a-zA-Z][\w-]*):\s*(.*)$/.exec(line.trim());
@@ -122,7 +136,7 @@ export function parseBackgroundTaskEnvelope(text) {
     name,
     label: status || 'notification',
     args: {
-      type: body ? (nonTerminal ? 'progress' : 'result') : (fields.operation || 'status'),
+      type: body ? (nonTerminal ? 'progress' : 'result') : fields.operation || 'status',
       status,
       task_id: taskId || undefined,
       surface,
@@ -139,9 +153,16 @@ export function parseBackgroundTaskEnvelope(text) {
       startedAt: fields.started || fields.startedat || undefined,
       finishedAt: fields.finished || fields.finishedat || undefined,
     },
-    result: resultBody || (!errorText ? [status ? `status: ${status}` : '', taskId ? `task_id: ${taskId}` : ''].filter(Boolean).join(' · ') : ''),
+    result:
+      resultBody ||
+      (!errorText
+        ? [status ? `status: ${status}` : '', taskId ? `task_id: ${taskId}` : ''].filter(Boolean).join(' · ')
+        : ''),
     rawResult: value,
-    isError: /^(failed|error|timeout|cancelled|canceled|killed|denied)$/i.test(status) || /^error:/i.test(body) || Boolean(errorText),
+    isError:
+      /^(failed|error|timeout|cancelled|canceled|killed|denied)$/i.test(status) ||
+      /^error:/i.test(body) ||
+      Boolean(errorText),
   };
 }
 
@@ -155,7 +176,10 @@ export function parseModelVisibleCompletionWrapper(text) {
   }
   const quotedLines = value.slice(split.index + split[0].length).split(/\r?\n/);
   if (quotedLines.length === 0 || quotedLines.some((line) => line && !/^> /.test(line))) return null;
-  const unquoted = quotedLines.map((line) => line.replace(/^> ?/, '')).join('\n').trim();
+  const unquoted = quotedLines
+    .map((line) => line.replace(/^> ?/, ''))
+    .join('\n')
+    .trim();
   const parsed = parseBackgroundTaskEnvelope(unquoted);
   return parsed ? { ...parsed, rawResult: unquoted } : null;
 }
@@ -178,7 +202,12 @@ export function completionCardFromExecution(execution, text) {
   const status = String(exec?.status || toolResultStatus(value) || '').toLowerCase();
   const split = /\n\nResult:\n/.exec(value);
   const body = split
-    ? value.slice(split.index + split[0].length).split(/\r?\n/).map((line) => line.replace(/^> ?/, '')).join('\n').trim()
+    ? value
+        .slice(split.index + split[0].length)
+        .split(/\r?\n/)
+        .map((line) => line.replace(/^> ?/, ''))
+        .join('\n')
+        .trim()
     : value;
   const taskId = exec?.id || bracketField(body, 'task_id') || undefined;
   return {
@@ -210,7 +239,10 @@ export function isStatusOnlyAgentCompletionNotification(text) {
 function hasAgentResponseResultText(text) {
   const value = String(text || '').trim();
   if (!value) return false;
-  if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)) return false;
+  if (
+    /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)
+  )
+    return false;
   if (/^(?:background task\b|agent task:|task_id:)/i.test(value) && !/\n\s*\n[\s\S]*\S/.test(value)) return false;
   return true;
 }
@@ -226,7 +258,7 @@ export function toolResultStatus(text) {
   if (tagged) return tagged.trim();
   const bracketed = bracketField(value, 'status');
   if (bracketed) return bracketed.trim();
-  const inline = /^(?:status|state):\s*([^\s·,;]+)/mi.exec(value);
+  const inline = /^(?:status|state):\s*([^\s·,;]+)/im.exec(value);
   return inline ? inline[1].trim() : '';
 }
 
@@ -270,7 +302,10 @@ export function parseSyntheticAgentMessage(text) {
     return {
       name: 'agent',
       label,
-      args: agentArgsWithResultMetadata({ type: agentJob.type || 'notification', description: 'agent notification' }, agentJob),
+      args: agentArgsWithResultMetadata(
+        { type: agentJob.type || 'notification', description: 'agent notification' },
+        agentJob
+      ),
       result: result || agentJobStatusText(agentJob) || 'agent notification',
       isError: /^(failed|error|timeout|cancelled|canceled|killed|denied)$/i.test(label),
     };
@@ -278,38 +313,45 @@ export function parseSyntheticAgentMessage(text) {
   return null;
 }
 
-export function buildExecutionResponseToolItem(text, {
-  id,
-  responseKey = '',
-  executionSurface = '',
-  executionStatus = '',
-  now = Date.now(),
-} = {}) {
-  const surface = String(executionSurface || '').trim().toLowerCase();
-  const status = String(executionStatus || '').trim().toLowerCase();
+export function buildExecutionResponseToolItem(
+  text,
+  { id, responseKey = '', executionSurface = '', executionStatus = '', now = Date.now() } = {}
+) {
+  const surface = String(executionSurface || '')
+    .trim()
+    .toLowerCase();
+  const status = String(executionStatus || '')
+    .trim()
+    .toLowerCase();
   const explicitName = /^(agent|shell|web_search)$/.test(surface) ? surface : '';
   const parsed = parseSyntheticAgentMessage(text);
-  const synthetic = parsed || (explicitName ? {
-    name: explicitName,
-    label: status || 'completed',
-    args: {
-      type: 'result',
-      status: status || undefined,
-      task_id: responseKey || undefined,
-      surface: explicitName,
-    },
-    result: String(text ?? '').trim(),
-  } : null);
+  const synthetic =
+    parsed ||
+    (explicitName
+      ? {
+          name: explicitName,
+          label: status || 'completed',
+          args: {
+            type: 'result',
+            status: status || undefined,
+            task_id: responseKey || undefined,
+            surface: explicitName,
+          },
+          result: String(text ?? '').trim(),
+        }
+      : null);
   if (!synthetic) return null;
   const label = synthetic.label || 'notification';
   const name = explicitName || synthetic.name || 'task';
   const isAgent = name === 'agent';
   const args = {
-    ...(synthetic.args && typeof synthetic.args === 'object' ? synthetic.args : {
-      type: label,
-      task_id: synthetic.taskId || undefined,
-      description: synthetic.summary || 'execution notification',
-    }),
+    ...(synthetic.args && typeof synthetic.args === 'object'
+      ? synthetic.args
+      : {
+          type: label,
+          task_id: synthetic.taskId || undefined,
+          description: synthetic.summary || 'execution notification',
+        }),
     ...(surface ? { surface } : {}),
     ...(status ? { status } : {}),
     ...(isAgent ? { type: 'result' } : {}),
@@ -330,19 +372,23 @@ export function buildExecutionResponseToolItem(text, {
     completedCount: 1,
     startedAt: now,
     completedAt: now,
-    ...(isAgent ? {
-      agentDirection: 'inbound',
-      agentResponseKey: key,
-      agentResponseHasBody: responseHasBody,
-      agentResponseAggregate: false,
-      agentResponseEntries: [{
-        key,
-        raw: String(rawResult ?? '').trim(),
-        result: synthetic.result,
-        hasBody: responseHasBody,
-        isError: synthetic.isError === true,
-      }],
-    } : {}),
+    ...(isAgent
+      ? {
+          agentDirection: 'inbound',
+          agentResponseKey: key,
+          agentResponseHasBody: responseHasBody,
+          agentResponseAggregate: false,
+          agentResponseEntries: [
+            {
+              key,
+              raw: String(rawResult ?? '').trim(),
+              result: synthetic.result,
+              hasBody: responseHasBody,
+              isError: synthetic.isError === true,
+            },
+          ],
+        }
+      : {}),
   };
 }
 
@@ -359,9 +405,8 @@ export function parseAgentJob(text) {
   // completion envelopes carry the resolved route as separate provider/model
   // fields. A generic tool result can also contain task_id/provider/model
   // diagnostics, so only recognize either route shape on an agent envelope.
-  const isAgentEnvelope = /^agent task:\s*/mi.test(value)
-    || /^agent result\b/mi.test(value)
-    || /^surface:\s*agent\s*$/mi.test(value);
+  const isAgentEnvelope =
+    /^agent task:\s*/im.test(value) || /^agent result\b/im.test(value) || /^surface:\s*agent\s*$/im.test(value);
   const providerMatch = isAgentEnvelope ? /^provider:\s*(.+)$/m.exec(value) : null;
   const modelLineMatch = isAgentEnvelope ? /^model:\s*(.+)$/m.exec(value) : null;
   const providerModelMatch = /^([^/\s]+)\/(.+)$/.exec(modelLineMatch?.[1]?.trim() || '');
@@ -384,7 +429,9 @@ export function parseAgentJob(text) {
 export function agentArgsWithResultMetadata(args, parsed) {
   if (!parsed) return args;
   const next = { ...(args && typeof args === 'object' ? args : {}) };
-  const requestedAction = String(next.type || next.action || next.mode || '').trim().toLowerCase();
+  const requestedAction = String(next.type || next.action || next.mode || '')
+    .trim()
+    .toLowerCase();
   if (parsed.type) {
     // Job status envelopes report the original job type (usually "spawn").
     // Preserve the user's current agent tool action ("status", "read", …) so
@@ -397,8 +444,9 @@ export function agentArgsWithResultMetadata(args, parsed) {
   if (parsed.taskId) next.task_id = parsed.taskId;
   if (parsed.agent) next.agent = parsed.agent;
   if (parsed.preset) next.preset = parsed.preset;
-  const hasExplicitProvider = [next.provider, next.providerId, next.provider_id]
-    .some((value) => String(value || '').trim());
+  const hasExplicitProvider = [next.provider, next.providerId, next.provider_id].some((value) =>
+    String(value || '').trim()
+  );
   if (parsed.provider && !hasExplicitProvider) next.provider = parsed.provider;
   if (parsed.model && !String(next.model || '').trim()) next.model = parsed.model;
   if (parsed.effort) next.effort = parsed.effort;

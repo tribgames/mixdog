@@ -9,7 +9,7 @@ type SendBrowserInput = (
   guest: WebContents,
   method: string,
   params: Record<string, unknown>,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) => Promise<BrowserInputOutcome>;
 
 const KEY_TABLE: Record<string, { key: string; code: string; keyCode: number; text?: string }> = {
@@ -30,7 +30,9 @@ const KEY_TABLE: Record<string, { key: string; code: string; keyCode: number; te
 };
 
 export function normalizeMouseButton(value: unknown): BrowserMouseButton {
-  const button = String(value || 'left').trim().toLowerCase();
+  const button = String(value || 'left')
+    .trim()
+    .toLowerCase();
   if (button === 'left' || button === 'right' || button === 'middle') return button;
   throw new Error('click button must be left, right, or middle');
 }
@@ -40,7 +42,9 @@ export function normalizeModifierMask(value: unknown): number {
   if (!Array.isArray(value)) throw new Error('click modifiers must be an array');
   let mask = 0;
   for (const raw of value) {
-    const modifier = String(raw || '').trim().toLowerCase();
+    const modifier = String(raw || '')
+      .trim()
+      .toLowerCase();
     if (modifier === 'alt') mask |= 1;
     else if (modifier === 'control' || modifier === 'ctrl') mask |= 2;
     else if (modifier === 'meta' || modifier === 'command' || modifier === 'cmd') mask |= 4;
@@ -54,61 +58,69 @@ function cssPoint(point: { x: number; y: number }): { x: number; y: number } {
   return { x: Math.round(point.x), y: Math.round(point.y) };
 }
 
-export function browserImagePointToCss(
-  point: { x: number; y: number },
-  zoomFactor: number,
-): { x: number; y: number } {
+export function browserImagePointToCss(point: { x: number; y: number }, zoomFactor: number): { x: number; y: number } {
   const zoom = Number.isFinite(zoomFactor) && zoomFactor > 0 ? zoomFactor : 1;
   return { x: point.x / zoom, y: point.y / zoom };
 }
 
 export function assertBrowserKeyDoesNotAccessClipboard(rawKey: string): void {
-  const parts = String(rawKey || '').trim().split('+').map((part) => part.trim().toLowerCase())
+  const parts = String(rawKey || '')
+    .trim()
+    .split('+')
+    .map((part) => part.trim().toLowerCase())
     .filter(Boolean);
   const key = parts.at(-1) || '';
   const modifiers = new Set(parts.slice(0, -1));
-  const controlOrMeta = modifiers.has('control') || modifiers.has('ctrl')
-    || modifiers.has('meta') || modifiers.has('command') || modifiers.has('cmd');
+  const controlOrMeta =
+    modifiers.has('control') ||
+    modifiers.has('ctrl') ||
+    modifiers.has('meta') ||
+    modifiers.has('command') ||
+    modifiers.has('cmd');
   const clipboardLetter = key === 'c' || key === 'v' || key === 'x';
-  const clipboardInsert = key === 'insert'
-    && (controlOrMeta || modifiers.has('shift'));
+  const clipboardInsert = key === 'insert' && (controlOrMeta || modifiers.has('shift'));
   if ((controlOrMeta && clipboardLetter) || clipboardInsert) {
     throw new Error('Browser Use press cannot access the system clipboard');
   }
 }
 
-export function createBrowserInputDriver(
-  send: SendBrowserInput,
-  options: { allowClipboard?: boolean } = {},
-) {
-  async function pressKey(
-    guest: WebContents,
-    rawKey: string,
-    signal?: AbortSignal,
-  ): Promise<void> {
+export function createBrowserInputDriver(send: SendBrowserInput, options: { allowClipboard?: boolean } = {}) {
+  async function pressKey(guest: WebContents, rawKey: string, signal?: AbortSignal): Promise<void> {
     if (!options.allowClipboard) assertBrowserKeyDoesNotAccessClipboard(rawKey);
     const raw = String(rawKey || '').trim();
     const plus = raw.endsWith('+');
-    const parts = (plus ? raw.slice(0, -1) : raw).split('+').map((part) => part.trim()).filter(Boolean);
+    const parts = (plus ? raw.slice(0, -1) : raw)
+      .split('+')
+      .map((part) => part.trim())
+      .filter(Boolean);
     if (plus) parts.push('+');
     const keyName = parts.pop() || '';
     const modifierNames = new Set(parts.map((part) => part.toLowerCase()));
     const modifierBits = normalizeModifierMask([...modifierNames]);
     const normalized = keyName.toLowerCase();
-    const printable = keyName.length === 1
-      ? {
-        key: modifierNames.has('shift') ? keyName.toUpperCase() : keyName,
-        code: keyName === '+' ? 'Equal' : /[a-z]/i.test(keyName) ? `Key${keyName.toUpperCase()}` : `Digit${keyName}`,
-        keyCode: keyName === '+' ? 187 : keyName.toUpperCase().charCodeAt(0),
-        text: modifierBits === 0 ? keyName : undefined,
-      }
-      : null;
+    const printable =
+      keyName.length === 1
+        ? {
+            key: modifierNames.has('shift') ? keyName.toUpperCase() : keyName,
+            code:
+              keyName === '+' ? 'Equal' : /[a-z]/i.test(keyName) ? `Key${keyName.toUpperCase()}` : `Digit${keyName}`,
+            keyCode: keyName === '+' ? 187 : keyName.toUpperCase().charCodeAt(0),
+            text: modifierBits === 0 ? keyName : undefined,
+          }
+        : null;
     const functionKey = /^f([1-9]|1\d|2[0-4])$/.test(normalized)
-      ? { key: normalized.toUpperCase(), code: normalized.toUpperCase(), keyCode: 111 + Number(normalized.slice(1)), text: undefined }
+      ? {
+          key: normalized.toUpperCase(),
+          code: normalized.toUpperCase(),
+          keyCode: 111 + Number(normalized.slice(1)),
+          text: undefined,
+        }
       : null;
     const spec = KEY_TABLE[normalized] || printable || functionKey;
     if (!spec) {
-      throw new Error(`unsupported key "${rawKey}"; use a character, modifier combination, or one of: ${Object.keys(KEY_TABLE).join(', ')}`);
+      throw new Error(
+        `unsupported key "${rawKey}"; use a character, modifier combination, or one of: ${Object.keys(KEY_TABLE).join(', ')}`
+      );
     }
     const base = {
       key: spec.key,
@@ -117,14 +129,12 @@ export function createBrowserInputDriver(
       nativeVirtualKeyCode: spec.keyCode,
       modifiers: modifierBits,
     };
-    if (await send(guest, 'Input.dispatchKeyEvent', { ...base, type: 'rawKeyDown' }, signal) === 'dialog') return;
+    if ((await send(guest, 'Input.dispatchKeyEvent', { ...base, type: 'rawKeyDown' }, signal)) === 'dialog') return;
     if (spec.text) {
-      if (await send(
-        guest,
-        'Input.dispatchKeyEvent',
-        { ...base, type: 'char', text: spec.text },
-        signal,
-      ) === 'dialog') return;
+      if (
+        (await send(guest, 'Input.dispatchKeyEvent', { ...base, type: 'char', text: spec.text }, signal)) === 'dialog'
+      )
+        return;
     }
     await send(guest, 'Input.dispatchKeyEvent', { ...base, type: 'keyUp' }, signal);
   }
@@ -136,73 +146,107 @@ export function createBrowserInputDriver(
     clickCount = 1,
     button: BrowserMouseButton = 'left',
     modifiers = 0,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<void> {
     const { x, y } = cssPoint({ x: cssX, y: cssY });
     const base = { x, y, button, clickCount, modifiers };
-    if (await measureBrowserMouseEvent('mouseMoved', () => send(
-      guest,
-      'Input.dispatchMouseEvent',
-      { ...base, type: 'mouseMoved', button: 'none' },
-      signal,
-    )) === 'dialog') return;
-    if (await measureBrowserMouseEvent('mousePressed', () => send(
-      guest,
-      'Input.dispatchMouseEvent',
-      { ...base, type: 'mousePressed' },
-      signal,
-    )) === 'dialog') return;
+    if (
+      (await measureBrowserMouseEvent('mouseMoved', () =>
+        send(guest, 'Input.dispatchMouseEvent', { ...base, type: 'mouseMoved', button: 'none' }, signal)
+      )) === 'dialog'
+    )
+      return;
+    if (
+      (await measureBrowserMouseEvent('mousePressed', () =>
+        send(guest, 'Input.dispatchMouseEvent', { ...base, type: 'mousePressed' }, signal)
+      )) === 'dialog'
+    )
+      return;
     await measureBrowserMouseEvent('mouseReleased', () =>
-      send(guest, 'Input.dispatchMouseEvent', { ...base, type: 'mouseReleased' }, signal));
+      send(guest, 'Input.dispatchMouseEvent', { ...base, type: 'mouseReleased' }, signal)
+    );
   }
 
-  async function hoverAt(
-    guest: WebContents,
-    cssX: number,
-    cssY: number,
-    signal?: AbortSignal,
-  ): Promise<void> {
+  async function hoverAt(guest: WebContents, cssX: number, cssY: number, signal?: AbortSignal): Promise<void> {
     const point = cssPoint({ x: cssX, y: cssY });
-    await send(guest, 'Input.dispatchMouseEvent', {
-      ...point,
-      type: 'mouseMoved',
-      button: 'none',
-    }, signal);
+    await send(
+      guest,
+      'Input.dispatchMouseEvent',
+      {
+        ...point,
+        type: 'mouseMoved',
+        button: 'none',
+      },
+      signal
+    );
   }
 
   async function dragAt(
     guest: WebContents,
     source: { x: number; y: number },
     target: { x: number; y: number },
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<void> {
     const start = cssPoint(source);
     const end = cssPoint(target);
-    if (await send(guest, 'Input.dispatchMouseEvent', {
-      ...start, type: 'mouseMoved', button: 'none',
-    }, signal) === 'dialog') return;
-    if (await send(guest, 'Input.dispatchMouseEvent', {
-      ...start, type: 'mousePressed', button: 'left', clickCount: 1,
-    }, signal) === 'dialog') return;
+    if (
+      (await send(
+        guest,
+        'Input.dispatchMouseEvent',
+        {
+          ...start,
+          type: 'mouseMoved',
+          button: 'none',
+        },
+        signal
+      )) === 'dialog'
+    )
+      return;
+    if (
+      (await send(
+        guest,
+        'Input.dispatchMouseEvent',
+        {
+          ...start,
+          type: 'mousePressed',
+          button: 'left',
+          clickCount: 1,
+        },
+        signal
+      )) === 'dialog'
+    )
+      return;
     for (let step = 1; step <= 8; step += 1) {
-      if (await send(guest, 'Input.dispatchMouseEvent', {
-        x: Math.round(start.x + (end.x - start.x) * step / 8),
-        y: Math.round(start.y + (end.y - start.y) * step / 8),
-        type: 'mouseMoved',
-        button: 'left',
-        buttons: 1,
-      }, signal) === 'dialog') return;
+      if (
+        (await send(
+          guest,
+          'Input.dispatchMouseEvent',
+          {
+            x: Math.round(start.x + ((end.x - start.x) * step) / 8),
+            y: Math.round(start.y + ((end.y - start.y) * step) / 8),
+            type: 'mouseMoved',
+            button: 'left',
+            buttons: 1,
+          },
+          signal
+        )) === 'dialog'
+      )
+        return;
     }
-    await send(guest, 'Input.dispatchMouseEvent', {
-      ...end, type: 'mouseReleased', button: 'left', clickCount: 1,
-    }, signal);
+    await send(
+      guest,
+      'Input.dispatchMouseEvent',
+      {
+        ...end,
+        type: 'mouseReleased',
+        button: 'left',
+        clickCount: 1,
+      },
+      signal
+    );
   }
 
-  async function tapAt(
-    guest: WebContents,
-    point: { x: number; y: number },
-    signal?: AbortSignal,
-  ): Promise<void> {
+  async function tapAt(guest: WebContents, point: { x: number; y: number }, signal?: AbortSignal): Promise<void> {
     const zoom = guest.getZoomFactor();
     const touch = {
       ...cssPoint({ x: point.x / zoom, y: point.y / zoom }),
@@ -211,21 +255,31 @@ export function createBrowserInputDriver(
       force: 1,
       id: 0,
     };
-    await send(guest, 'Input.dispatchTouchEvent', {
-      type: 'touchStart',
-      touchPoints: [touch],
-    }, signal);
-    await send(guest, 'Input.dispatchTouchEvent', {
-      type: 'touchEnd',
-      touchPoints: [],
-    }, signal);
+    await send(
+      guest,
+      'Input.dispatchTouchEvent',
+      {
+        type: 'touchStart',
+        touchPoints: [touch],
+      },
+      signal
+    );
+    await send(
+      guest,
+      'Input.dispatchTouchEvent',
+      {
+        type: 'touchEnd',
+        touchPoints: [],
+      },
+      signal
+    );
   }
 
   async function swipeAt(
     guest: WebContents,
     source: { x: number; y: number },
     destination: { x: number; y: number },
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<void> {
     const zoom = guest.getZoomFactor();
     const touch = (x: number, y: number) => ({
@@ -235,23 +289,40 @@ export function createBrowserInputDriver(
       force: 1,
       id: 0,
     });
-    await send(guest, 'Input.dispatchTouchEvent', {
-      type: 'touchStart',
-      touchPoints: [touch(source.x, source.y)],
-    }, signal);
+    await send(
+      guest,
+      'Input.dispatchTouchEvent',
+      {
+        type: 'touchStart',
+        touchPoints: [touch(source.x, source.y)],
+      },
+      signal
+    );
     for (let step = 0; step <= 10; step += 1) {
-      await send(guest, 'Input.dispatchTouchEvent', {
-        type: 'touchMove',
-        touchPoints: [touch(
-          source.x + (destination.x - source.x) * step / 10,
-          source.y + (destination.y - source.y) * step / 10,
-        )],
-      }, signal);
+      await send(
+        guest,
+        'Input.dispatchTouchEvent',
+        {
+          type: 'touchMove',
+          touchPoints: [
+            touch(
+              source.x + ((destination.x - source.x) * step) / 10,
+              source.y + ((destination.y - source.y) * step) / 10
+            ),
+          ],
+        },
+        signal
+      );
     }
-    await send(guest, 'Input.dispatchTouchEvent', {
-      type: 'touchEnd',
-      touchPoints: [],
-    }, signal);
+    await send(
+      guest,
+      'Input.dispatchTouchEvent',
+      {
+        type: 'touchEnd',
+        touchPoints: [],
+      },
+      signal
+    );
   }
 
   async function scrollAt(
@@ -259,15 +330,20 @@ export function createBrowserInputDriver(
     point: { x: number; y: number },
     deltaX: number,
     deltaY: number,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<void> {
-    await send(guest, 'Input.dispatchMouseEvent', {
-      type: 'mouseWheel',
-      ...cssPoint(point),
-      deltaX,
-      deltaY,
-      button: 'none',
-    }, signal);
+    await send(
+      guest,
+      'Input.dispatchMouseEvent',
+      {
+        type: 'mouseWheel',
+        ...cssPoint(point),
+        deltaX,
+        deltaY,
+        button: 'none',
+      },
+      signal
+    );
   }
 
   return {

@@ -16,68 +16,56 @@ import { parse } from 'acorn';
 import { analyze } from 'eslint-scope';
 
 import {
-    OpenAICompatProvider,
-    _toResponsesToolsForTest,
-    _toXaiResponsesInputForTest,
-    parseToolCalls as compatParseToolCalls,
-    parseResponsesToolCalls as compatParseResponsesToolCalls,
+  OpenAICompatProvider,
+  _toResponsesToolsForTest,
+  _toXaiResponsesInputForTest,
+  parseToolCalls as compatParseToolCalls,
+  parseResponsesToolCalls as compatParseResponsesToolCalls,
 } from '../../src/runtime/agent/orchestrator/providers/openai-compat.mjs';
 import {
-    _xaiResponsesFingerprintPayloadForTest,
-    xaiResponsesCacheRouting,
+  _xaiResponsesFingerprintPayloadForTest,
+  xaiResponsesCacheRouting,
 } from '../../src/runtime/agent/orchestrator/providers/openai-compat-xai.mjs';
+import { GrokOAuthProvider } from '../../src/runtime/agent/orchestrator/providers/grok-oauth.mjs';
 import {
-    GrokOAuthProvider,
-} from '../../src/runtime/agent/orchestrator/providers/grok-oauth.mjs';
-import {
-    consumeCompatResponsesStream,
-    isInvalidToolArgsMarker,
+  consumeCompatResponsesStream,
+  isInvalidToolArgsMarker,
 } from '../../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
+import { consumeCompatChatCompletionStream } from '../../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
 import {
-    consumeCompatChatCompletionStream,
-} from '../../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
-import {
-    _computeDelta,
-    _buildResponseCreateFrame,
-    _sansInput,
-    _stableStringify,
+  _computeDelta,
+  _buildResponseCreateFrame,
+  _sansInput,
+  _stableStringify,
 } from '../../src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs';
 import {
-    _cacheObservationForTest,
-    _cacheContinuityResetReasonForTest,
-    sendViaWebSocket,
+  _cacheObservationForTest,
+  _cacheContinuityResetReasonForTest,
+  sendViaWebSocket,
 } from '../../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
+import { _withCodexWsClientMetadata } from '../../src/runtime/agent/orchestrator/providers/openai-codex-metadata.mjs';
+import { _captureTurnStateFromEvent } from '../../src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs';
 import {
-    _withCodexWsClientMetadata,
-} from '../../src/runtime/agent/orchestrator/providers/openai-codex-metadata.mjs';
-import {
-    _captureTurnStateFromEvent,
-} from '../../src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs';
-import {
-    createGeminiTextLeakGuard,
-    geminiChunkProgressKind,
+  createGeminiTextLeakGuard,
+  geminiChunkProgressKind,
 } from '../../src/runtime/agent/orchestrator/providers/gemini-stream.mjs';
-import {
-    parseToolCalls as geminiParseToolCalls,
-} from '../../src/runtime/agent/orchestrator/providers/gemini-schema.mjs';
-import {
-    _resolveGeminiCacheUsage,
-} from '../../src/runtime/agent/orchestrator/providers/gemini-cache.mjs';
+import { parseToolCalls as geminiParseToolCalls } from '../../src/runtime/agent/orchestrator/providers/gemini-schema.mjs';
+import { _resolveGeminiCacheUsage } from '../../src/runtime/agent/orchestrator/providers/gemini-cache.mjs';
 import { parseSSEStream as anthropicParseSSEStream } from '../../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import { _buildRequestBodyForCacheSmoke } from '../../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import { _test as _anthropicApiKeyTest } from '../../src/runtime/agent/orchestrator/providers/anthropic.mjs';
 import { _toAnthropicMessagesForTest } from '../../src/runtime/agent/orchestrator/providers/anthropic.mjs';
 import { _test as _anthropicOAuthTest } from '../../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import {
-    EFFORT_BETA_HEADER,
-    LEGACY_EFFORT_BUDGET,
-    effortValuesForModel,
-    modelSupportsEffort,
-    modelSupportsMaxEffort,
-    modelSupportsXhighEffort,
-    normalizeAnthropicEffortInput,
-    setModelEffortCapabilities,
-    shouldIncludeEffortBeta,
+  EFFORT_BETA_HEADER,
+  LEGACY_EFFORT_BUDGET,
+  effortValuesForModel,
+  modelSupportsEffort,
+  modelSupportsMaxEffort,
+  modelSupportsXhighEffort,
+  normalizeAnthropicEffortInput,
+  setModelEffortCapabilities,
+  shouldIncludeEffortBeta,
 } from '../../src/runtime/agent/orchestrator/providers/anthropic-effort.mjs';
 import { buildAnthropicBetaHeaders } from '../../src/runtime/agent/orchestrator/providers/anthropic-betas.mjs';
 import { PATCH_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
@@ -85,82 +73,86 @@ import { BUILTIN_TOOLS } from '../../src/runtime/agent/orchestrator/tools/builti
 import { normalizeGrokToolSchemas } from '../../src/runtime/agent/orchestrator/providers/lib/grok-tool-schema.mjs';
 import { sendViaHttpSse } from '../../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
 import {
-    OpenAIOAuthProvider,
-    buildCodexStartupPrewarmBody,
-    buildRequestBody as buildOpenAIOAuthRequestBody,
+  OpenAIOAuthProvider,
+  buildCodexStartupPrewarmBody,
+  buildRequestBody as buildOpenAIOAuthRequestBody,
 } from '../../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { _convertMessagesToResponsesInputForTest } from '../../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { OpenAIDirectProvider } from '../../src/runtime/agent/orchestrator/providers/openai-ws.mjs';
 import { isVisibleStreamProgress } from '../../src/runtime/shared/stream-progress.mjs';
 
 function directHandshakeError(status) {
-    return Object.assign(new Error(`handshake ${status}`), { httpStatus: status });
+  return Object.assign(new Error(`handshake ${status}`), { httpStatus: status });
 }
 
 function directWsEntry() {
-    return { socket: { close() {} }, ephemeral: true };
+  return { socket: { close() {} }, ephemeral: true };
 }
 
 // Wraps an array of Anthropic SSE event objects in a minimal Response-like
 // shape exposing the single `body.getReader()` API that parseSSEStream uses.
 // Each event becomes a `data: <json>` SSE frame, preceded by its `event:` line.
 function anthropicSseResponse(events) {
-    const encoder = new TextEncoder();
-    const frames = events.map((e) => {
-        const type = e.type || 'message';
-        return `event: ${type}\ndata: ${JSON.stringify(e)}\n\n`;
-    });
-    const chunks = frames.map((f) => encoder.encode(f));
-    let i = 0;
-    return {
-        body: {
-            getReader() {
-                return {
-                    read() {
-                        if (i < chunks.length) return Promise.resolve({ done: false, value: chunks[i++] });
-                        return Promise.resolve({ done: true, value: undefined });
-                    },
-                    cancel() { return Promise.resolve(); },
-                    releaseLock() {},
-                };
-            },
-        },
-    };
+  const encoder = new TextEncoder();
+  const frames = events.map((e) => {
+    const type = e.type || 'message';
+    return `event: ${type}\ndata: ${JSON.stringify(e)}\n\n`;
+  });
+  const chunks = frames.map((f) => encoder.encode(f));
+  let i = 0;
+  return {
+    body: {
+      getReader() {
+        return {
+          read() {
+            if (i < chunks.length) return Promise.resolve({ done: false, value: chunks[i++] });
+            return Promise.resolve({ done: true, value: undefined });
+          },
+          cancel() {
+            return Promise.resolve();
+          },
+          releaseLock() {},
+        };
+      },
+    },
+  };
 }
 
 function compatResponsesEventStream(events) {
-    return {
-        async *[Symbol.asyncIterator]() {
-            for (const event of events) yield event;
-        },
-    };
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const event of events) yield event;
+    },
+  };
 }
 
 // Minimal 200-OK Response-like shape for the HTTP/SSE Responses path: frames
 // each event as `event:<type>\ndata:<json>\n\n`, delivered synchronously so the
 // semantic-idle watchdog never arms during the test.
 function httpSseResponse(events) {
-    const encoder = new TextEncoder();
-    const chunks = events.map((e) => encoder.encode(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`));
-    let i = 0;
-    return {
-        status: 200,
-        ok: true,
-        headers: new Map(),
-        body: {
-            getReader() {
-                return {
-                    read() {
-                        return i < chunks.length
-                            ? Promise.resolve({ done: false, value: chunks[i++] })
-                            : Promise.resolve({ done: true, value: undefined });
-                    },
-                    cancel() { return Promise.resolve(); },
-                    releaseLock() {},
-                };
-            },
-        },
-    };
+  const encoder = new TextEncoder();
+  const chunks = events.map((e) => encoder.encode(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`));
+  let i = 0;
+  return {
+    status: 200,
+    ok: true,
+    headers: new Map(),
+    body: {
+      getReader() {
+        return {
+          read() {
+            return i < chunks.length
+              ? Promise.resolve({ done: false, value: chunks[i++] })
+              : Promise.resolve({ done: true, value: undefined });
+          },
+          cancel() {
+            return Promise.resolve();
+          },
+          releaseLock() {},
+        };
+      },
+    },
+  };
 }
 
 // --- Leaked tool-call recovery (shared parseSSEStream guard) ----------------
@@ -172,14 +164,14 @@ function httpSseResponse(events) {
 const LEAK_TOOLS = new Set(['shell', 'read']);
 
 function textDeltaEvents(chunks, stopReason = 'end_turn') {
-    return [
-        { type: 'message_start', message: { model: 'claude', usage: { input_tokens: 1 } } },
-        { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
-        ...chunks.map((text) => ({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })),
-        { type: 'content_block_stop', index: 0 },
-        { type: 'message_delta', delta: { stop_reason: stopReason }, usage: { output_tokens: 1 } },
-        { type: 'message_stop' },
-    ];
+  return [
+    { type: 'message_start', message: { model: 'claude', usage: { input_tokens: 1 } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+    ...chunks.map((text) => ({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })),
+    { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: stopReason }, usage: { output_tokens: 1 } },
+    { type: 'message_stop' },
+  ];
 }
 
 // === 4. openai-oauth / openai-oauth-ws =====================================
@@ -213,18 +205,18 @@ import { _warmupContinuityTraceForTest } from '../../src/runtime/agent/orchestra
 const OAI_LEAK_TOOLS = new Set(['shell', 'read']);
 
 function chatCompletionStream(contentChunks) {
-    // Each chunk is an assistant text delta; ends with a stop finish_reason.
-    const events = contentChunks.map((text) => ({
-        choices: [{ delta: { content: text } }],
-    }));
-    events.push({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { total_tokens: 1 } });
-    return compatResponsesEventStream(events);
+  // Each chunk is an assistant text delta; ends with a stop finish_reason.
+  const events = contentChunks.map((text) => ({
+    choices: [{ delta: { content: text } }],
+  }));
+  events.push({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { total_tokens: 1 } });
+  return compatResponsesEventStream(events);
 }
 
 function responsesTextStream(textChunks) {
-    const events = textChunks.map((delta) => ({ type: 'response.output_text.delta', delta }));
-    events.push({ type: 'response.completed', response: { id: 'r1', model: 'gpt', status: 'completed', output: [] } });
-    return compatResponsesEventStream(events);
+  const events = textChunks.map((delta) => ({ type: 'response.output_text.delta', delta }));
+  events.push({ type: 'response.completed', response: { id: 'r1', model: 'gpt', status: 'completed', output: [] } });
+  return compatResponsesEventStream(events);
 }
 
 // === 10. OpenAI transport-policy switch (MIXDOG_OAI_TRANSPORT) ==============
@@ -233,21 +225,21 @@ function responsesTextStream(textChunks) {
 // (_computeDelta) + transport dispatch both read it, so these unit tests pin
 // the resolution and the delta branching without any network.
 import {
-    resolveOpenAiTransportPolicy,
-    _normalizeTransportMode,
+  resolveOpenAiTransportPolicy,
+  _normalizeTransportMode,
 } from '../../src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs';
 import {
-    resolveResponsesTransportPolicy,
-    RESPONSES_TRANSPORT_CAPABILITIES,
-    _gateTransportMode,
-    FULL_RESPONSES_TRANSPORT_CAPS,
+  resolveResponsesTransportPolicy,
+  RESPONSES_TRANSPORT_CAPABILITIES,
+  _gateTransportMode,
+  FULL_RESPONSES_TRANSPORT_CAPS,
 } from '../../src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs';
 
 import {
-    acquireWebSocket,
-    releaseWebSocket,
-    _clearWebSocketPoolForTest,
-    _setOpenSocketForTest,
+  acquireWebSocket,
+  releaseWebSocket,
+  _clearWebSocketPoolForTest,
+  _setOpenSocketForTest,
 } from '../../src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs';
 
 export {

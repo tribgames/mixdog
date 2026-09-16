@@ -57,20 +57,20 @@ function clampMetaWidth(value, columns, labelWidth) {
 }
 
 function normalizeFooterLines(activeFooter, columns) {
-  const rawLines = Array.isArray(activeFooter)
-    ? activeFooter
-    : (activeFooter ? [activeFooter] : []);
-  return rawLines.map((line) => {
-    const isObject = line && typeof line === 'object';
-    const glyph = isObject ? String(line.glyph || '') : '';
-    const color = isObject ? line.color || theme.panelTitle : theme.text;
-    const text = isObject ? String(line.text || '') : String(line || '');
-    return {
-      glyph,
-      color,
-      text: truncateText(text, Math.max(0, columns - (glyph ? 7 : 4))),
-    };
-  }).filter((line) => line.glyph || line.text);
+  const rawLines = Array.isArray(activeFooter) ? activeFooter : activeFooter ? [activeFooter] : [];
+  return rawLines
+    .map((line) => {
+      const isObject = line && typeof line === 'object';
+      const glyph = isObject ? String(line.glyph || '') : '';
+      const color = isObject ? line.color || theme.panelTitle : theme.text;
+      const text = isObject ? String(line.text || '') : String(line || '');
+      return {
+        glyph,
+        color,
+        text: truncateText(text, Math.max(0, columns - (glyph ? 7 : 4))),
+      };
+    })
+    .filter((line) => line.glyph || line.text);
 }
 
 export function Picker({
@@ -108,7 +108,9 @@ export function Picker({
   themeEpoch = 0,
 }) {
   const visibleLimit = Math.max(1, Math.floor(Number(visibleCount) || MAX_VISIBLE));
-  const [selectedIndex, setSelectedIndex] = useState(() => Math.max(0, Math.min(Number(initialIndex) || 0, Math.max(0, items.length - 1))));
+  const [selectedIndex, setSelectedIndex] = useState(() =>
+    Math.max(0, Math.min(Number(initialIndex) || 0, Math.max(0, items.length - 1)))
+  );
   const confirmButtons = Array.isArray(confirmBar?.buttons) ? confirmBar.buttons.filter(Boolean) : [];
   const hasConfirm = confirmButtons.length > 0;
   // -1 = list focus; 0..n-1 = confirm-bar button focus.
@@ -149,7 +151,10 @@ export function Picker({
     // Explicit highlight target: honor initialIndex only when the owner
     // actually provides a *new* one. A reopen that drops initialIndex
     // (prop -> null default) must not reset the user's position to row 0.
-    if (initialIndex == null) { selectionMemo.initialIndex = null; return; }
+    if (initialIndex == null) {
+      selectionMemo.initialIndex = null;
+      return;
+    }
     if (selectionMemo.initialIndex === initialIndex) return;
     selectionMemo.initialIndex = initialIndex;
     setSelectedIndex(Math.max(0, Math.min(Number(initialIndex) || 0, Math.max(0, items.length - 1))));
@@ -167,14 +172,20 @@ export function Picker({
 
   const activeFooter = typeof footer === 'function' ? footer(items[selectedIndex], selectedIndex) : footer;
   const confirmInlineWidth = hasConfirm
-    ? confirmButtons.reduce((sum, button, index) => sum + (index > 0 ? 1 : 0) + stringWidth(`[ ${button?.label || ''} ]`) + 2, 0)
+    ? confirmButtons.reduce(
+        (sum, button, index) => sum + (index > 0 ? 1 : 0) + stringWidth(`[ ${button?.label || ''} ]`) + 2,
+        0
+      )
     : 0;
-  const footerLines = normalizeFooterLines(activeFooter, Math.max(0, columns - (hasConfirm ? confirmInlineWidth + 1 : 0)));
+  const footerLines = normalizeFooterLines(
+    activeFooter,
+    Math.max(0, columns - (hasConfirm ? confirmInlineWidth + 1 : 0))
+  );
   const footerGap = footerLines.length > 0 ? Math.max(0, Math.floor(Number(footerGapRows) || 0)) : 0;
   const footerReserveRows = footerLines.length > 0 ? footerLines.length + footerGap : 0;
   const confirmReserveRows = hasConfirm && footerLines.length === 0 ? 2 : 0;
   const effectiveVisibleLimit = Math.max(1, visibleLimit - footerReserveRows - confirmReserveRows);
-  const helpText = help || (hasConfirm ? CONFIRM_HELP : (onLeft || onRight || onTab ? ADJUST_HELP : SELECT_HELP));
+  const helpText = help || (hasConfirm ? CONFIRM_HELP : onLeft || onRight || onTab ? ADJUST_HELP : SELECT_HELP);
 
   useInput(
     useCallback(
@@ -183,10 +194,20 @@ export function Picker({
           // Single vertical loop over [list items...] + [confirm buttons...].
           if (hasConfirm) {
             const last = items.length - 1;
-            if (confirmFocus > 0) { setConfirmFocus((f) => f - 1); return; }
-            if (confirmFocus === 0) { setConfirmFocus(-1); setSelectedIndex(Math.max(0, last)); return; }
+            if (confirmFocus > 0) {
+              setConfirmFocus((f) => f - 1);
+              return;
+            }
+            if (confirmFocus === 0) {
+              setConfirmFocus(-1);
+              setSelectedIndex(Math.max(0, last));
+              return;
+            }
             // list focus: first row ↑ → last confirm button.
-            if (items.length === 0 || selectedIndex === 0) { setConfirmFocus(confirmButtons.length - 1); return; }
+            if (items.length === 0 || selectedIndex === 0) {
+              setConfirmFocus(confirmButtons.length - 1);
+              return;
+            }
             setSelectedIndex((i) => i - 1);
             return;
           }
@@ -201,12 +222,20 @@ export function Picker({
             const last = items.length - 1;
             const lastBtn = confirmButtons.length - 1;
             if (confirmFocus >= 0) {
-              if (confirmFocus < lastBtn) { setConfirmFocus((f) => f + 1); return; }
+              if (confirmFocus < lastBtn) {
+                setConfirmFocus((f) => f + 1);
+                return;
+              }
               // last button ↓ → first list row.
-              setConfirmFocus(-1); setSelectedIndex(0); return;
+              setConfirmFocus(-1);
+              setSelectedIndex(0);
+              return;
             }
             // list focus: last row ↓ → first confirm button.
-            if (items.length === 0 || selectedIndex === last) { setConfirmFocus(0); return; }
+            if (items.length === 0 || selectedIndex === last) {
+              setConfirmFocus(0);
+              return;
+            }
             setSelectedIndex((i) => i + 1);
             return;
           }
@@ -253,7 +282,7 @@ export function Picker({
           if (now - lastTabAtRef.current < 120) return;
           lastTabAtRef.current = now;
           if (hasConfirm) {
-            setConfirmFocus((f) => (f < 0 ? 0 : (f + 1 > confirmButtons.length - 1 ? -1 : f + 1)));
+            setConfirmFocus((f) => (f < 0 ? 0 : f + 1 > confirmButtons.length - 1 ? -1 : f + 1));
             return;
           }
           if (onTab) onTab(items[selectedIndex], selectedIndex);
@@ -281,16 +310,37 @@ export function Picker({
           return;
         }
       },
-      [items, selectedIndex, onSelect, onCancel, onLeft, onRight, onTab, onKey, effectiveVisibleLimit, hasConfirm, confirmFocus, confirmButtons, confirmBar],
-    ),
+      [
+        items,
+        selectedIndex,
+        onSelect,
+        onCancel,
+        onLeft,
+        onRight,
+        onTab,
+        onKey,
+        effectiveVisibleLimit,
+        hasConfirm,
+        confirmFocus,
+        confirmButtons,
+        confirmBar,
+      ]
+    )
   );
 
   // Clamp selected index when items change length.
   if (items.length === 0) {
-    const emptyLine = truncateText(String(description || '').replace(/\s+/g, ' ').trim(), Math.max(0, columns - 4));
+    const emptyLine = truncateText(
+      String(description || '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+      Math.max(0, columns - 4)
+    );
     const loadingRows = loading
       ? Array.from({ length: visibleLimit }, (_, index) => (
-          <Text key={`loading-${index}`} color={theme.inactive}> </Text>
+          <Text key={`loading-${index}`} color={theme.inactive}>
+            {' '}
+          </Text>
         ))
       : null;
     return (
@@ -317,7 +367,10 @@ export function Picker({
             <>
               <Box flexGrow={1} />
               <Text> </Text>
-              <ConfirmBar buttons={confirmButtons} focusedIndex={clampConfirmFocus(confirmFocus, confirmButtons.length)} />
+              <ConfirmBar
+                buttons={confirmButtons}
+                focusedIndex={clampConfirmFocus(confirmFocus, confirmButtons.length)}
+              />
             </>
           ) : null}
         </Box>
@@ -329,16 +382,12 @@ export function Picker({
   const total = items.length;
   const half = Math.floor(effectiveVisibleLimit / 2);
   let start = Math.max(0, selectedIndex - half);
-  let end = Math.min(total, start + effectiveVisibleLimit);
+  const end = Math.min(total, start + effectiveVisibleLimit);
   if (end - start < effectiveVisibleLimit && start > 0) {
     start = Math.max(0, end - effectiveVisibleLimit);
   }
   const visible = items.slice(start, end);
-  const showIndex = indexMode === 'always'
-    ? total > 0
-    : indexMode === 'never'
-      ? false
-      : total > effectiveVisibleLimit;
+  const showIndex = indexMode === 'always' ? total > 0 : indexMode === 'never' ? false : total > effectiveVisibleLimit;
   const indexWidth = showIndex ? stringWidth(`${total}.`) : 0;
   const indexOffset = showIndex ? indexWidth + 1 : 0;
 
@@ -349,13 +398,21 @@ export function Picker({
   const markerWidth = hasMarker ? 2 : 0;
   const hasMeta = metaWidthOverride != null || items.some((item) => item.meta || item.modelProfile || item.metaParts);
   const metaWidth = hasMeta ? clampMetaWidth(metaWidthOverride, columns, labelWidth) : 0;
-  const descriptionWidth = Math.max(0, columns - indexOffset - markerWidth - labelWidth - (hasMeta ? metaWidth + 14 : 12));
+  const descriptionWidth = Math.max(
+    0,
+    columns - indexOffset - markerWidth - labelWidth - (hasMeta ? metaWidth + 14 : 12)
+  );
   // Standard panel rhythm: title row, blank, description/hint row, blank,
   // content. Description newlines are collapsed and width-truncated to a single
   // line so a multi-line description (e.g. ToolApproval) cannot push the title
   // off the top. The slot is always reserved so panel chrome is a constant 6
   // rows (title + blank + desc + blank + 2 border), matching PICKER_CHROME_ROWS.
-  const panelDescription = truncateText(String(description || '').replace(/\s+/g, ' ').trim(), Math.max(0, columns - 4));
+  const panelDescription = truncateText(
+    String(description || '')
+      .replace(/\s+/g, ' ')
+      .trim(),
+    Math.max(0, columns - 4)
+  );
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%" height={fillHeight ? '100%' : undefined}>
@@ -418,7 +475,10 @@ export function Picker({
                     <Text color={theme.text}>{line.text}</Text>
                   </Text>
                   {attachConfirm ? (
-                    <ConfirmBar buttons={confirmButtons} focusedIndex={clampConfirmFocus(confirmFocus, confirmButtons.length)} />
+                    <ConfirmBar
+                      buttons={confirmButtons}
+                      focusedIndex={clampConfirmFocus(confirmFocus, confirmButtons.length)}
+                    />
                   ) : null}
                 </Box>
               );
@@ -429,7 +489,10 @@ export function Picker({
           <>
             <Box flexGrow={1} />
             <Text> </Text>
-            <ConfirmBar buttons={confirmButtons} focusedIndex={clampConfirmFocus(confirmFocus, confirmButtons.length)} />
+            <ConfirmBar
+              buttons={confirmButtons}
+              focusedIndex={clampConfirmFocus(confirmFocus, confirmButtons.length)}
+            />
           </>
         ) : null}
       </Box>
@@ -437,7 +500,25 @@ export function Picker({
   );
 }
 
-const ItemRow = React.memo(function ItemRow({ indexText, indexWidth, marker, markerColor, markerWidth, label, labelSuffix, labelSuffixColor, meta, metaParts, description, labelWidth, metaWidth, descriptionWidth, showMeta, isSelected, themeEpoch = 0 }) {
+const ItemRow = React.memo(function ItemRow({
+  indexText,
+  indexWidth,
+  marker,
+  markerColor,
+  markerWidth,
+  label,
+  labelSuffix,
+  labelSuffixColor,
+  meta,
+  metaParts,
+  description,
+  labelWidth,
+  metaWidth,
+  descriptionWidth,
+  showMeta,
+  isSelected,
+  themeEpoch = 0,
+}) {
   const rowText = isSelected ? theme.selectionText : theme.text;
   const rowIndexColor = isSelected ? theme.selectionText : theme.subtle;
   const rawSuffix = String(labelSuffix || '');
@@ -453,20 +534,17 @@ const ItemRow = React.memo(function ItemRow({ indexText, indexWidth, marker, mar
 
   return (
     <Box flexDirection="row" width="100%" backgroundColor={isSelected ? theme.selectionBackground : undefined}>
-      {indexWidth > 0 ? (
-        <Text color={rowIndexColor}>
-          {padCells(indexText, indexWidth)}{' '}
-        </Text>
-      ) : null}
+      {indexWidth > 0 ? <Text color={rowIndexColor}>{padCells(indexText, indexWidth)} </Text> : null}
       {markerWidth > 0 ? (
-        <Text color={isSelected ? theme.selectionText : (marker ? (markerColor || theme.success) : rowText)}>
+        <Text color={isSelected ? theme.selectionText : marker ? markerColor || theme.success : rowText}>
           {padCells(displayMarker, markerWidth)}
         </Text>
       ) : null}
       <Text color={rowText}>{displayLabel}</Text>
       {suffix ? (
-        <Text color={isSelected ? theme.selectionText : (labelSuffixColor || theme.success)}>
-          {suffixGap}{suffix}
+        <Text color={isSelected ? theme.selectionText : labelSuffixColor || theme.success}>
+          {suffixGap}
+          {suffix}
         </Text>
       ) : null}
       <Text color={rowText}>{labelPadding}</Text>
@@ -474,7 +552,14 @@ const ItemRow = React.memo(function ItemRow({ indexText, indexWidth, marker, mar
         <Text color={rowText}>
           {'  '}
           {parts
-            ? padCells(parts.map((part) => padCells(truncateText(part?.text || '', Number(part?.width) || 1), Number(part?.width) || 1)).join('  '), metaWidth)
+            ? padCells(
+                parts
+                  .map((part) =>
+                    padCells(truncateText(part?.text || '', Number(part?.width) || 1), Number(part?.width) || 1)
+                  )
+                  .join('  '),
+                metaWidth
+              )
             : padCells(displayMeta, metaWidth)}
         </Text>
       ) : null}

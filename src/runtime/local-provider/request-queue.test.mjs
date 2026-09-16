@@ -4,16 +4,25 @@ import { createLocalRequestQueue } from './request-queue.mjs';
 
 function deferred() {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 const flush = () => new Promise(setImmediate);
 function fixture(unload = async () => {}) {
   const timers = [];
   const queue = createLocalRequestQueue({
-    idleTtlSeconds: 10, unload,
-    setTimer(fn, ms) { const timer = { fn, ms, cleared: false, unref() {} }; timers.push(timer); return timer; },
-    clearTimer(timer) { timer.cleared = true; },
+    idleTtlSeconds: 10,
+    unload,
+    setTimer(fn, ms) {
+      const timer = { fn, ms, cleared: false, unref() {} };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimer(timer) {
+      timer.cleared = true;
+    },
   });
   return { queue, timers };
 }
@@ -26,7 +35,8 @@ test('one request owns the runtime and cancelling queued work does not interrupt
   const controller = new AbortController();
   const stages = [];
   const second = queue.run(() => assert.fail('cancelled work must not reach the provider'), {
-    signal: controller.signal, onStageChange: (stage) => stages.push(stage),
+    signal: controller.signal,
+    onStageChange: (stage) => stages.push(stage),
   });
   assert.equal(queue.status().activeRequests, 1);
   assert.equal(queue.status().queuedRequests, 1);
@@ -40,9 +50,15 @@ test('one request owns the runtime and cancelling queued work does not interrupt
 });
 
 test('idle unload waits for all active and queued work and serializes with the next request', async () => {
-  const a = deferred(), b = deferred(), unloading = deferred();
-  let unloads = 0, thirdStarted = false;
-  const { queue, timers } = fixture(async () => { unloads++; await unloading.promise; });
+  const a = deferred(),
+    b = deferred(),
+    unloading = deferred();
+  let unloads = 0,
+    thirdStarted = false;
+  const { queue, timers } = fixture(async () => {
+    unloads++;
+    await unloading.promise;
+  });
   const first = queue.run(() => a.promise);
   const second = queue.run(() => b.promise);
   await flush();
@@ -56,7 +72,9 @@ test('idle unload waits for all active and queued work and serializes with the n
   await second;
   assert.equal(timers.length, 1);
   timers[0].fn();
-  const third = queue.run(async () => { thirdStarted = true; });
+  const third = queue.run(async () => {
+    thirdStarted = true;
+  });
   await flush();
   assert.equal(unloads, 1);
   assert.equal(thirdStarted, false);
@@ -71,14 +89,20 @@ test('idle unload waits for all active and queued work and serializes with the n
 test('stop cancels active and queued work, rejects new work during shutdown, and permits later reuse', async () => {
   const unloading = deferred();
   const { queue } = fixture(() => unloading.promise);
-  const first = queue.run((signal) => new Promise((_resolve, reject) => {
-    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
-  }));
+  const first = queue.run(
+    (signal) =>
+      new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      })
+  );
   await flush();
   const second = queue.run(() => assert.fail('queued work must not start during shutdown'));
   const failures = [assert.rejects(first, /inference stopped/), assert.rejects(second, /inference stopped/)];
   const stopping = queue.stop();
-  await assert.rejects(queue.run(() => {}), /is stopping/);
+  await assert.rejects(
+    queue.run(() => {}),
+    /is stopping/
+  );
   unloading.resolve();
   await stopping;
   await Promise.all(failures);
@@ -97,7 +121,10 @@ test('unchanged configuration does not keep extending idle lifetime and queue ov
   const gate = deferred();
   const bounded = createLocalRequestQueue({ maxQueue: 0, idleTtlSeconds: 0 });
   const active = bounded.run(() => gate.promise);
-  await assert.rejects(bounded.run(() => {}), /queue is full/);
+  await assert.rejects(
+    bounded.run(() => {}),
+    /queue is full/
+  );
   gate.resolve();
   await active;
 });

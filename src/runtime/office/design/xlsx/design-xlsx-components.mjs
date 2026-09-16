@@ -1,15 +1,7 @@
 import { presetLabels, strings } from '../design-tokens.mjs';
 import { columnLabel } from '../../portable/portable-cells.mjs';
 
-
-function mergedBlock(output, {
-  sheet,
-  startColumn,
-  endColumn,
-  row,
-  value,
-  properties,
-}) {
+function mergedBlock(output, { sheet, startColumn, endColumn, row, value, properties }) {
   const start = columnLabel(startColumn);
   const end = columnLabel(endColumn);
   output.push({ op: 'set_cell', sheet, cell: `${start}${row}`, value: String(value || '') });
@@ -24,31 +16,24 @@ function mergedBlock(output, {
   });
 }
 
-
 function normalizedGates(value) {
-  return (Array.isArray(value) ? value : []).map((entry) => {
-    if (Array.isArray(entry)) return entry.slice(0, 3).map((cell) => String(cell ?? ''));
-    if (!entry || typeof entry !== 'object') return [];
-    return [
-      String(entry.track || entry.label || entry.title || ''),
-      String(entry.release || entry.go || ''),
-      String(entry.stop || entry.hold || ''),
-    ];
-  }).filter((row) => row.length === 3 && row.some(Boolean));
+  return (Array.isArray(value) ? value : [])
+    .map((entry) => {
+      if (Array.isArray(entry)) return entry.slice(0, 3).map((cell) => String(cell ?? ''));
+      if (!entry || typeof entry !== 'object') return [];
+      return [
+        String(entry.track || entry.label || entry.title || ''),
+        String(entry.release || entry.go || ''),
+        String(entry.stop || entry.hold || ''),
+      ];
+    })
+    .filter((row) => row.length === 3 && row.some(Boolean));
 }
 
-
-export function addXlsxDecisionPanel(output, {
-  sheet,
-  row,
-  startColumn = 1,
-  columns,
-  design,
-  decision,
-  gates,
-  actions,
-  label = '',
-}) {
+export function addXlsxDecisionPanel(
+  output,
+  { sheet, row, startColumn = 1, columns, design, decision, gates, actions, label = '' }
+) {
   const colors = design.tokens.colors;
   const type = design.tokens.typography;
   const firstColumn = Math.max(1, Number(startColumn) || 1);
@@ -96,10 +81,7 @@ export function addXlsxDecisionPanel(output, {
       [Math.max(2, Math.floor(width / 3) + 1), Math.max(3, Math.floor((width * 2) / 3))],
       [Math.max(4, Math.floor((width * 2) / 3) + 1), width],
     ];
-    const spans = relativeSpans.map(([start, end]) => [
-      firstColumn + start - 1,
-      firstColumn + end - 1,
-    ]);
+    const spans = relativeSpans.map(([start, end]) => [firstColumn + start - 1, firstColumn + end - 1]);
     ['트랙', 'Release', 'Stop'].forEach((label, index) => {
       mergedBlock(output, {
         sheet,
@@ -132,14 +114,20 @@ export function addXlsxDecisionPanel(output, {
             fontSize: 10,
             bold: columnIndex === 0,
             // Release is a positive state, Stop a critical one: the state fields and words, never a literal tint.
-            color: columnIndex === 1 ? (colors.positiveText || colors.accent) : columnIndex === 2 ? (colors.criticalText || colors.accent2) : colors.ink,
-            fillColor: columnIndex === 1
-              ? (colors.positiveWeak || colors.surface)
-              : columnIndex === 2
-                ? (colors.criticalWeak || colors.surface2)
-                : rowIndex % 2 === 0
-                  ? colors.canvas
-                  : colors.surface2,
+            color:
+              columnIndex === 1
+                ? colors.positiveText || colors.accent
+                : columnIndex === 2
+                  ? colors.criticalText || colors.accent2
+                  : colors.ink,
+            fillColor:
+              columnIndex === 1
+                ? colors.positiveWeak || colors.surface
+                : columnIndex === 2
+                  ? colors.criticalWeak || colors.surface2
+                  : rowIndex % 2 === 0
+                    ? colors.canvas
+                    : colors.surface2,
             verticalAlignment: 'center',
             wrapText: true,
           },

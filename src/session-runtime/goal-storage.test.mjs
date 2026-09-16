@@ -23,7 +23,9 @@ function fixture(t, writeRecord) {
 
 test('a read inside our own in-flight write answers from the committed cache', async (t) => {
   let release;
-  const gate = new Promise((resolve) => { release = resolve; });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
   const { path, storage } = fixture(t, async (target, value) => {
     await gate;
     writeFileSync(target, JSON.stringify(value));

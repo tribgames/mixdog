@@ -1,9 +1,21 @@
-import { t } from "./i18n";
+import { t } from './i18n';
 
 export type SettingsSection =
-  | 'profile' | 'autoclear' | 'autocompact' | 'output-style'
-  | 'theme' | 'workflow' | 'model' | 'websearch' | 'providers' | 'mcp'
-  | 'plugins' | 'skills' | 'memory' | 'voice' | 'update';
+  | 'profile'
+  | 'autoclear'
+  | 'autocompact'
+  | 'output-style'
+  | 'theme'
+  | 'workflow'
+  | 'model'
+  | 'websearch'
+  | 'providers'
+  | 'mcp'
+  | 'plugins'
+  | 'skills'
+  | 'memory'
+  | 'voice'
+  | 'update';
 
 // 'stats' has no slash command: it is reached from the usage flyout, which is
 // where the question "how much have I spent" already starts.
@@ -26,30 +38,144 @@ export interface DesktopSlashCommand {
 // Public fields mirror src/tui/app/slash-commands.mjs exactly. Desktop routing
 // metadata sends each command to its native GUI home or session capability.
 export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
-  { name: 'clear', usage: '/clear', aliases: ['new'], aliasUsage: ['new'], description: 'Start a fresh chat', action: 'clear' },
-  { name: 'project', usage: '/project', aliases: ['projects'], aliasUsage: ['projects'], showAliasUsage: false, params: '[path]', description: 'Switch working directory (project)', action: 'project' },
+  {
+    name: 'clear',
+    usage: '/clear',
+    aliases: ['new'],
+    aliasUsage: ['new'],
+    description: 'Start a fresh chat',
+    action: 'clear',
+  },
+  {
+    name: 'project',
+    usage: '/project',
+    aliases: ['projects'],
+    aliasUsage: ['projects'],
+    showAliasUsage: false,
+    params: '[path]',
+    description: 'Switch working directory (project)',
+    action: 'project',
+  },
   { name: 'compact', usage: '/compact', description: 'Compact older conversation context', action: 'compact' },
-  { name: 'goal', usage: '/goal', params: '[objective --time 1h --time-mode max|status|pause|resume|edit|stop]', description: 'Run and manage a durable session Goal', action: 'goal' },
-  { name: 'autoclear', usage: '/autoclear', params: '[on|off|duration]', description: 'Reduce cache-miss cost after long idle gaps', settingsRow: 'autoclear' },
+  {
+    name: 'goal',
+    usage: '/goal',
+    params: '[objective --time 1h --time-mode max|status|pause|resume|edit|stop]',
+    description: 'Run and manage a durable session Goal',
+    action: 'goal',
+  },
+  {
+    name: 'autoclear',
+    usage: '/autoclear',
+    params: '[on|off|duration]',
+    description: 'Reduce cache-miss cost after long idle gaps',
+    settingsRow: 'autoclear',
+  },
   { name: 'resume', usage: '/resume', params: '[id]', description: 'Resume a saved chat', action: 'resume' },
   { name: 'context', usage: '/context', description: 'Show current context surface', surface: 'context' },
-  { name: 'inherit', usage: '/inherit', description: 'Carry this conversation into a new session on the current model', surface: 'inherit' },
-  { name: 'usage', usage: '/usage', params: '[refresh]', description: 'Show total provider quota / balance', surface: 'usage' },
-  { name: 'model', usage: '/model', params: '[name|refresh]', description: 'Switch model for subsequent turns', settingsRow: 'model' },
-  { name: 'websearch', usage: '/websearch', description: 'Set the web search provider/model', settingsRow: 'websearch' },
-  { name: 'workflow', usage: '/workflow', params: '[name]', description: 'Switch the active workflow', settingsRow: 'workflow' },
-  { name: 'outputstyle', usage: '/OutputStyle', aliases: ['output-style', 'style'], aliasUsage: ['style'], showAliasUsage: false, params: '[name]', description: 'Switch Lead output style', settingsRow: 'output-style' },
-  { name: 'theme', usage: '/theme', params: '[id]', description: 'Change the TUI color theme', desktopDescription: 'Change the app color theme', settingsRow: 'theme' },
-  { name: 'agents', usage: '/agents', params: '[refresh]', description: 'Show available workflow agents', settingsRow: 'workflow' },
-  { name: 'effort', usage: '/effort', params: '[level]', description: 'Set reasoning effort for the current model', settingsRow: 'model' },
-  { name: 'fast', usage: '/fast', params: '[on|off]', description: 'Toggle Fast mode for the current model', action: 'fast' },
+  {
+    name: 'inherit',
+    usage: '/inherit',
+    description: 'Carry this conversation into a new session on the current model',
+    surface: 'inherit',
+  },
+  {
+    name: 'usage',
+    usage: '/usage',
+    params: '[refresh]',
+    description: 'Show total provider quota / balance',
+    surface: 'usage',
+  },
+  {
+    name: 'model',
+    usage: '/model',
+    params: '[name|refresh]',
+    description: 'Switch model for subsequent turns',
+    settingsRow: 'model',
+  },
+  {
+    name: 'websearch',
+    usage: '/websearch',
+    description: 'Set the web search provider/model',
+    settingsRow: 'websearch',
+  },
+  {
+    name: 'workflow',
+    usage: '/workflow',
+    params: '[name]',
+    description: 'Switch the active workflow',
+    settingsRow: 'workflow',
+  },
+  {
+    name: 'outputstyle',
+    usage: '/OutputStyle',
+    aliases: ['output-style', 'style'],
+    aliasUsage: ['style'],
+    showAliasUsage: false,
+    params: '[name]',
+    description: 'Switch Lead output style',
+    settingsRow: 'output-style',
+  },
+  {
+    name: 'theme',
+    usage: '/theme',
+    params: '[id]',
+    description: 'Change the TUI color theme',
+    desktopDescription: 'Change the app color theme',
+    settingsRow: 'theme',
+  },
+  {
+    name: 'agents',
+    usage: '/agents',
+    params: '[refresh]',
+    description: 'Show available workflow agents',
+    settingsRow: 'workflow',
+  },
+  {
+    name: 'effort',
+    usage: '/effort',
+    params: '[level]',
+    description: 'Set reasoning effort for the current model',
+    settingsRow: 'model',
+  },
+  {
+    name: 'fast',
+    usage: '/fast',
+    params: '[on|off]',
+    description: 'Toggle Fast mode for the current model',
+    action: 'fast',
+  },
   { name: 'mcp', usage: '/mcp', description: 'Manage MCP servers and tools', settingsRow: 'mcp' },
   { name: 'skills', usage: '/skills', description: 'Choose a skill for the next request', settingsRow: 'skills' },
-  { name: 'memory', usage: '/memory', params: '[status|core ...]', description: 'List and edit core memories', settingsRow: 'memory' },
+  {
+    name: 'memory',
+    usage: '/memory',
+    params: '[status|core ...]',
+    description: 'List and edit core memories',
+    settingsRow: 'memory',
+  },
   { name: 'plugins', usage: '/plugins', description: 'Manage local plugin integrations', settingsRow: 'plugins' },
-  { name: 'providers', usage: '/providers', description: 'Manage auth, API keys, OAuth, and local endpoints', settingsRow: 'providers' },
-  { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings', action: 'settings' },
-  { name: 'profile', usage: '/profile', description: 'Set your title, development experience, and response language', settingsRow: 'profile' },
+  {
+    name: 'providers',
+    usage: '/providers',
+    description: 'Manage auth, API keys, OAuth, and local endpoints',
+    settingsRow: 'providers',
+  },
+  {
+    name: 'settings',
+    usage: '/setting',
+    aliases: ['setting', 'config'],
+    aliasUsage: ['settings', 'config'],
+    showAliasUsage: false,
+    description: 'Open runtime settings',
+    action: 'settings',
+  },
+  {
+    name: 'profile',
+    usage: '/profile',
+    description: 'Set your title, development experience, and response language',
+    settingsRow: 'profile',
+  },
   { name: 'update', usage: '/update', description: 'Check version and update mixdog', settingsRow: 'update' },
   { name: 'doctor', usage: '/doctor', description: 'Diagnose installation health', surface: 'doctor' },
   {
@@ -70,7 +196,13 @@ export function resolveDesktopSlashCommand(rawName: string): DesktopSlashCommand
 
 // Discovery stays small; the full registry still accepts commands typed directly.
 const COMPOSER_SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
-  'new', 'model', 'compact', 'context', 'goal', 'inherit', 'fast',
+  'new',
+  'model',
+  'compact',
+  'context',
+  'goal',
+  'inherit',
+  'fast',
 ].map((name) => ({ ...resolveDesktopSlashCommand(name)!, usage: `/${name}` }));
 
 export function desktopComposerSlashCommands(draft: string): ReadonlyArray<DesktopSlashCommand> {

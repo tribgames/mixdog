@@ -55,8 +55,8 @@ export function createDaemonBootCoordinator({
       await ensureKeychain();
       const result = await measure('active-goal-recovery', recoverActiveGoals);
       log(
-        `active Goal recovery found=${result.found} resumed=${result.resumed}`
-        + ` skipped=${result.skipped} failed=${result.failed}`,
+        `active Goal recovery found=${result.found} resumed=${result.resumed}` +
+          ` skipped=${result.skipped} failed=${result.failed}`
       );
       if (typeof prewarmCatalogs === 'function') {
         await new Promise((resolve) => delay(resolve, catalogDelayMs));

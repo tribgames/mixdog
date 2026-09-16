@@ -23,16 +23,19 @@ export async function reviewSnapshot(session, args = {}) {
   const version = Number(session.snapshotVersion || 0);
   const cached = reviewSnapshots.get(session);
   if (cached && cached.version === version) return cached.read;
-  const read = await snapshot(session, {
-    ...args,
-    includeStyles: true,
-    limit: Math.min(100, Number(args.limit) || 100),
-    maxChars: 100_000,
-  }, { full: true });
+  const read = await snapshot(
+    session,
+    {
+      ...args,
+      includeStyles: true,
+      limit: Math.min(100, Number(args.limit) || 100),
+      maxChars: 100_000,
+    },
+    { full: true }
+  );
   reviewSnapshots.set(session, { version, read });
   return read;
 }
-
 
 // What the format review owns — an orphan heading, a chart the page break cuts,
 // a sheet with no reading order — is read from the document, not the package.
@@ -68,31 +71,35 @@ export async function validate(session, args = {}) {
         reusedReview: true,
       };
     } else {
-      const response = await callMicrosoftOffice({
-        action: postSaveNativeValidation ? 'post_save_validate' : 'validate',
-        session: session.id,
-        format: session.format,
-        mode: session.mode,
-        path: session.target,
-        inspectIssues: args.__skipNativeIssues !== true,
-      }, {
-        signal: session.activeSignal || null,
-        timeoutMs: postSaveNativeValidation ? 300_000 : undefined,
-      });
+      const response = await callMicrosoftOffice(
+        {
+          action: postSaveNativeValidation ? 'post_save_validate' : 'validate',
+          session: session.id,
+          format: session.format,
+          mode: session.mode,
+          path: session.target,
+          inspectIssues: args.__skipNativeIssues !== true,
+        },
+        {
+          signal: session.activeSignal || null,
+          timeoutMs: postSaveNativeValidation ? 300_000 : undefined,
+        }
+      );
       if (!response.ok) throw new Error(response.error || 'Microsoft Office native validation failed');
       native = response.value;
     }
   }
-  const packageResult = session.format === 'pdf'
-    ? await validatePdf(session.target)
-    : TABULAR_FORMATS.has(session.format)
-      ? await validateTabular(session.target, session.format)
-      : await validatePortableOoxml(session.target, session.format, {
-          original: session.source !== session.target ? session.source : '',
-          savedBy: session.backend,
-          auditProfile: args.auditProfile,
-          author: args.author,
-      });
+  const packageResult =
+    session.format === 'pdf'
+      ? await validatePdf(session.target)
+      : TABULAR_FORMATS.has(session.format)
+        ? await validateTabular(session.target, session.format)
+        : await validatePortableOoxml(session.target, session.format, {
+            original: session.source !== session.target ? session.source : '',
+            savedBy: session.backend,
+            auditProfile: args.auditProfile,
+            author: args.author,
+          });
   let schema = null;
   if (OOXML_FORMATS.has(session.format)) {
     let schemaCopy = '';
@@ -120,34 +127,44 @@ export async function validate(session, args = {}) {
   let assertions = null;
   if (Array.isArray(args.assertions) && args.assertions.length) {
     if (session.format !== 'xlsx') throw new Error('assertions are supported for XLSX sessions only');
-    const asserted = await snapshot(session, {
-      limit: 10_000,
-      maxChars: 100_000,
-      includeStyles: false,
-    }, { full: true });
+    const asserted = await snapshot(
+      session,
+      {
+        limit: 10_000,
+        maxChars: 100_000,
+        includeStyles: false,
+      },
+      { full: true }
+    );
     assertions = evaluateXlsxAssertions(asserted.document, args.assertions);
   }
-  const compatibility = args.compatibility === true && ['docx', 'xlsx', 'pptx'].includes(session.format)
-    ? await validateLibreOfficeReopen(session.target)
-    : null;
-  const postSaveGate = native?.persisted != null
-    ? evaluateOfficeSubmissionGate({
-        issues: native?.issues || [],
-        persisted: native?.persisted === true,
-      })
-    : null;
+  const compatibility =
+    args.compatibility === true && ['docx', 'xlsx', 'pptx'].includes(session.format)
+      ? await validateLibreOfficeReopen(session.target)
+      : null;
+  const postSaveGate =
+    native?.persisted != null
+      ? evaluateOfficeSubmissionGate({
+          issues: native?.issues || [],
+          persisted: native?.persisted === true,
+        })
+      : null;
   return {
     session: session.id,
     mode: session.mode,
     backend: session.backend,
     path: session.target,
     ...packageResult,
-    ok: packageResult.ok
-      && (!schema || schema.ok || schema.disabled === true || (args.downloadDependencies === false && schema.downloadRequired === true))
-      && (!assertions || assertions.ok)
-      && (!native || (native.ok && (session.mode === 'background' || native.documentSaved)))
-      && (!postSaveGate || postSaveGate.ok)
-      && (!compatibility?.available || compatibility.opened),
+    ok:
+      packageResult.ok &&
+      (!schema ||
+        schema.ok ||
+        schema.disabled === true ||
+        (args.downloadDependencies === false && schema.downloadRequired === true)) &&
+      (!assertions || assertions.ok) &&
+      (!native || (native.ok && (session.mode === 'background' || native.documentSaved))) &&
+      (!postSaveGate || postSaveGate.ok) &&
+      (!compatibility?.available || compatibility.opened),
     schema,
     assertions,
     native,
@@ -167,20 +184,24 @@ const HOST_OWNED_PPTX_CODES = new Set(['text_overflow']);
 async function mergeComPptxMeasuredRead(session, result, args) {
   const copy = join(tmpdir(), `mixdog-pptx-measure-${randomUUID()}.pptx`);
   try {
-    const saved = await callMicrosoftOffice({
-      action: 'save_copy',
-      session: session.id,
-      format: session.format,
-      mode: session.mode,
-      path: session.target,
-      output: copy,
-    }, { signal: session.activeSignal || null, timeoutMs: 120_000 });
-    if (!saved.ok) return { ...result, measuredRead: { status: 'unavailable', reason: saved.error || 'save-copy failed' } };
+    const saved = await callMicrosoftOffice(
+      {
+        action: 'save_copy',
+        session: session.id,
+        format: session.format,
+        mode: session.mode,
+        path: session.target,
+        output: copy,
+      },
+      { signal: session.activeSignal || null, timeoutMs: 120_000 }
+    );
+    if (!saved.ok)
+      return { ...result, measuredRead: { status: 'unavailable', reason: saved.error || 'save-copy failed' } };
     const measured = await issuesPortableOoxml(copy, 'pptx', args);
     const seen = new Set((result.issues || []).map((issue) => `${issue.code}|${issue.path}`));
-    const added = (measured.issues || []).filter((issue) => (
-      !HOST_OWNED_PPTX_CODES.has(String(issue.code || '')) && !seen.has(`${issue.code}|${issue.path}`)
-    ));
+    const added = (measured.issues || []).filter(
+      (issue) => !HOST_OWNED_PPTX_CODES.has(String(issue.code || '')) && !seen.has(`${issue.code}|${issue.path}`)
+    );
     if (!added.length) return { ...result, measuredRead: { status: 'merged', added: 0 } };
     const issues = normalizeOfficeReviewIssues([...(result.issues || []), ...added]);
     return {
@@ -200,21 +221,24 @@ async function mergeComPptxMeasuredRead(session, result, args) {
 export async function issues(session, args = {}) {
   let result;
   if (session.backend === 'microsoft-office-com') {
-    const response = await callMicrosoftOffice({
-      action: 'issues',
-      session: session.id,
-      format: session.format,
-      mode: session.mode,
-      path: session.target,
-      sheet: args.sheet,
-      range: args.range,
-      pages: args.pages,
-      target: args.target,
-      auditProfile: args.auditProfile,
-    }, {
-      signal: session.activeSignal || null,
-      timeoutMs: args.auditProfile === 'financial-model' ? 300_000 : undefined,
-    });
+    const response = await callMicrosoftOffice(
+      {
+        action: 'issues',
+        session: session.id,
+        format: session.format,
+        mode: session.mode,
+        path: session.target,
+        sheet: args.sheet,
+        range: args.range,
+        pages: args.pages,
+        target: args.target,
+        auditProfile: args.auditProfile,
+      },
+      {
+        signal: session.activeSignal || null,
+        timeoutMs: args.auditProfile === 'financial-model' ? 300_000 : undefined,
+      }
+    );
     if (!response.ok) throw new Error(response.error || 'Microsoft Office issue inspection failed');
     result = response.value;
     // Excel's host reports its own subset; the shared formula audit reads the
@@ -225,11 +249,12 @@ export async function issues(session, args = {}) {
     }
     if (session.format === 'pptx') result = await mergeComPptxMeasuredRead(session, result, args);
   } else {
-    result = session.format === 'pdf'
-      ? await issuesPdf(session.target, args)
-      : TABULAR_FORMATS.has(session.format)
-      ? await issuesTabular(session.target, session.format, args)
-      : await issuesPortableOoxml(session.target, session.format, args);
+    result =
+      session.format === 'pdf'
+        ? await issuesPdf(session.target, args)
+        : TABULAR_FORMATS.has(session.format)
+          ? await issuesTabular(session.target, session.format, args)
+          : await issuesPortableOoxml(session.target, session.format, args);
   }
   const structural = await structureIssues(session, args);
   const merged = structural.length
@@ -243,10 +268,10 @@ export async function issues(session, args = {}) {
     ...result,
     ...(structural.length
       ? {
-        issues: merged,
-        issueCount: merged.length,
-        ok: !merged.some((entry) => entry.severity === 'error'),
-      }
+          issues: merged,
+          issueCount: merged.length,
+          ok: !merged.some((entry) => entry.severity === 'error'),
+        }
       : {}),
   };
 }

@@ -1,7 +1,8 @@
 import type { DesktopApi, DesktopRemoteAccessInfo } from '../../shared/contract';
 
-export type ConnectionInfoApi = Partial<Pick<DesktopApi,
-  'getRemoteAccessInfo' | 'rotateRemoteAccess' | 'revokeRemoteAccessClient'>>;
+export type ConnectionInfoApi = Partial<
+  Pick<DesktopApi, 'getRemoteAccessInfo' | 'rotateRemoteAccess' | 'revokeRemoteAccessClient'>
+>;
 
 interface ConnectionInfoCacheEntry {
   value?: DesktopRemoteAccessInfo | null;
@@ -15,7 +16,7 @@ const DEFAULT_CONNECTION_INFO_TIMEOUT_MS = 2_000;
 
 /** True once the relay QR exists and the pairing card can paint. */
 export function connectionInfoReady(
-  value: DesktopRemoteAccessInfo | null | undefined,
+  value: DesktopRemoteAccessInfo | null | undefined
 ): value is DesktopRemoteAccessInfo {
   return Boolean(value && value.relayBrowserQrSvg);
 }
@@ -29,16 +30,11 @@ function cacheEntry(api: ConnectionInfoApi): ConnectionInfoCacheEntry {
   return entry;
 }
 
-export function getCachedConnectionInfo(
-  api: ConnectionInfoApi,
-): DesktopRemoteAccessInfo | null | undefined {
+export function getCachedConnectionInfo(api: ConnectionInfoApi): DesktopRemoteAccessInfo | null | undefined {
   return cacheEntry(api).value;
 }
 
-export function setCachedConnectionInfo(
-  api: ConnectionInfoApi,
-  value: DesktopRemoteAccessInfo | null,
-): void {
+export function setCachedConnectionInfo(api: ConnectionInfoApi, value: DesktopRemoteAccessInfo | null): void {
   const entry = cacheEntry(api);
   const requestVersion = (entry.requestVersion ?? 0) + 1;
   entry.requestVersion = requestVersion;
@@ -48,7 +44,7 @@ export function setCachedConnectionInfo(
 
 export function preloadConnectionInfo(
   api: ConnectionInfoApi,
-  timeoutMs = DEFAULT_CONNECTION_INFO_TIMEOUT_MS,
+  timeoutMs = DEFAULT_CONNECTION_INFO_TIMEOUT_MS
 ): Promise<DesktopRemoteAccessInfo | null> {
   const entry = cacheEntry(api);
   // Null results stay cached for instant paint but are refetched on the next
@@ -64,7 +60,8 @@ export function preloadConnectionInfo(
   const requestVersion = (entry.requestVersion ?? 0) + 1;
   entry.requestVersion = requestVersion;
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-  const request = api.getRemoteAccessInfo()
+  const request = api
+    .getRemoteAccessInfo()
     .then((value) => {
       const next = value ?? null;
       const appliedRequestVersion = entry.appliedRequestVersion ?? 0;
@@ -88,14 +85,13 @@ export function preloadConnectionInfo(
   const deadline = new Promise<DesktopRemoteAccessInfo | null>((resolve) => {
     deadlineTimer = setTimeout(
       () => resolve(entry.value ?? null),
-      Number.isFinite(timeoutMs) ? Math.max(0, timeoutMs) : DEFAULT_CONNECTION_INFO_TIMEOUT_MS,
+      Number.isFinite(timeoutMs) ? Math.max(0, timeoutMs) : DEFAULT_CONNECTION_INFO_TIMEOUT_MS
     );
   });
-  const attempt = Promise.race([request, deadline])
-    .finally(() => {
-      if (deadlineTimer) clearTimeout(deadlineTimer);
-      if (entry.promise === attempt) entry.promise = undefined;
-    });
+  const attempt = Promise.race([request, deadline]).finally(() => {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+    if (entry.promise === attempt) entry.promise = undefined;
+  });
   entry.promise = attempt;
   return attempt;
 }

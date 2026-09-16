@@ -64,25 +64,21 @@ export function compileNativeTextFixture(directory: string): string {
   writeFileSync(sourcePath, NATIVE_TEXT_FIXTURE_SOURCE, 'utf8');
   const compile = [
     "$ErrorActionPreference = 'Stop'",
-    "$source = [IO.File]::ReadAllText($env:MIXDOG_NATIVE_FIXTURE_SOURCE, [Text.Encoding]::UTF8)",
+    '$source = [IO.File]::ReadAllText($env:MIXDOG_NATIVE_FIXTURE_SOURCE, [Text.Encoding]::UTF8)',
     "Add-Type -TypeDefinition $source -Language CSharp -ReferencedAssemblies @('System.dll','System.Drawing.dll','System.Windows.Forms.dll') -OutputAssembly $env:MIXDOG_NATIVE_FIXTURE_OUTPUT -OutputType WindowsApplication",
   ].join('; ');
-  execFileSync('powershell.exe', [
-    '-NoLogo',
-    '-NoProfile',
-    '-NonInteractive',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-Command',
-    compile,
-  ], {
-    windowsHide: true,
-    stdio: 'pipe',
-    env: {
-      ...process.env,
-      MIXDOG_NATIVE_FIXTURE_SOURCE: sourcePath,
-      MIXDOG_NATIVE_FIXTURE_OUTPUT: outputPath,
-    },
-  });
+  execFileSync(
+    'powershell.exe',
+    ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', compile],
+    {
+      windowsHide: true,
+      stdio: 'pipe',
+      env: {
+        ...process.env,
+        MIXDOG_NATIVE_FIXTURE_SOURCE: sourcePath,
+        MIXDOG_NATIVE_FIXTURE_OUTPUT: outputPath,
+      },
+    }
+  );
   return outputPath;
 }

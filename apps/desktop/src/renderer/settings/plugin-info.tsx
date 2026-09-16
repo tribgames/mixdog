@@ -24,14 +24,19 @@ export function PluginInfo({ plugin }: { plugin: RecordValue }) {
     ['Homepage', text(plugin.homepage)],
     ['Repository', text(plugin.repository)],
     ['License', text(plugin.license)],
-    ['Keywords', Array.isArray(plugin.keywords) ? plugin.keywords.map(text).filter(Boolean).join(', ') : text(plugin.keywords)],
+    [
+      'Keywords',
+      Array.isArray(plugin.keywords) ? plugin.keywords.map(text).filter(Boolean).join(', ') : text(plugin.keywords),
+    ],
     ['Source', [text(plugin.sourceType), text(plugin.sourceUrl)].filter(Boolean).join(' · ')],
     ['Root', text(plugin.root)],
     ['MCP server', text(plugin.mcpServerName)],
     ['Installed', formatInstallDate(plugin.installedAt)],
     ['Updated', formatInstallDate(plugin.updatedAt)],
   ];
-  return <ExtensionSection title={t('Info')}>
-    <ExtensionFacts facts={facts.map(([label, value]) => [label, value || t('Not provided')])} />
-  </ExtensionSection>;
+  return (
+    <ExtensionSection title={t('Info')}>
+      <ExtensionFacts facts={facts.map(([label, value]) => [label, value || t('Not provided')])} />
+    </ExtensionSection>
+  );
 }

@@ -35,7 +35,11 @@ test('trace_events persists tool result metadata', async () => {
   await insertTraceEvents(db, [toolError]);
   assert.equal(calls.length, 1);
   const { sql, params } = calls[0];
-  const columns = sql.match(/trace_events \(([^)]+)\)/)?.[1].split(',').map((part) => part.trim()) || [];
+  const columns =
+    sql
+      .match(/trace_events \(([^)]+)\)/)?.[1]
+      .split(',')
+      .map((part) => part.trim()) || [];
   assert.equal(params[columns.indexOf('result_kind')], 'error');
   assert.equal(params[columns.indexOf('result_error_category')], 'runtime/failure');
   assert.equal(params[columns.indexOf('result_error_first_line')], 'Error: diagnostic probe');

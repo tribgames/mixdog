@@ -6,7 +6,9 @@ import { scheduleDeferredDesktopServices } from './deferred-desktop-services.ts'
 
 function deferred() {
   let resolve;
-  const promise = new Promise((accept) => { resolve = accept; });
+  const promise = new Promise((accept) => {
+    resolve = accept;
+  });
   return { promise, resolve };
 }
 
@@ -32,14 +34,18 @@ test('deferred services wait for service readiness and a fresh quiet phase', asy
   let starts = 0;
   scheduleDeferredDesktopServices(window, {
     awaitServiceReady: () => ready.promise,
-    start: () => { starts += 1; },
+    start: () => {
+      starts += 1;
+    },
     quietMs: 2_000,
     setTimer(task, delayMs) {
       const timer = { task, delayMs, unref() {} };
       timers.push(timer);
       return timer;
     },
-    clearTimer(timer) { cleared.push(timer); },
+    clearTimer(timer) {
+      cleared.push(timer);
+    },
   });
 
   await Promise.resolve();
@@ -64,8 +70,12 @@ test('closing the window cancels deferred services before readiness', async () =
   let cancelled = 0;
   scheduleDeferredDesktopServices(window, {
     awaitServiceReady: () => ready.promise,
-    start: () => { starts += 1; },
-    onCancelled: () => { cancelled += 1; },
+    start: () => {
+      starts += 1;
+    },
+    onCancelled: () => {
+      cancelled += 1;
+    },
   });
 
   window.destroy();

@@ -28,21 +28,21 @@ import { _renameWithRetrySync } from './serialize.mjs';
 // (`sessionPath(id) + '.' + randomBytes(6).toString('hex') + '.tmp'`).
 // Anything else in sessions/ is somebody else's file and is left alone.
 const SAVE_TMP_RE = /^[A-Za-z0-9_-]+\.json\.[0-9a-f]{12}\.tmp$/;
-const ORPHAN_TMP_SWEEP_LIMIT = 64;            // registered paths retried per chunk
-const ORPHAN_TMP_DRAIN_MAX_ATTEMPTS = 4096;   // hard ceiling for one drain pass
-const ORPHAN_TMP_TRACK_MAX = 256;             // soft cap: only reclaimed paths leave
+const ORPHAN_TMP_SWEEP_LIMIT = 64; // registered paths retried per chunk
+const ORPHAN_TMP_DRAIN_MAX_ATTEMPTS = 4096; // hard ceiling for one drain pass
+const ORPHAN_TMP_TRACK_MAX = 256; // soft cap: only reclaimed paths leave
 const UNLINK_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
 
-const _activeSaveTmp = new Set();   // scratch paths this thread is writing now
-const _orphanSaveTmp = new Set();   // scratch paths whose unlink failed
+const _activeSaveTmp = new Set(); // scratch paths this thread is writing now
+const _orphanSaveTmp = new Set(); // scratch paths whose unlink failed
 
 export function _trackSaveTmp(tmp) {
-    if (tmp) _activeSaveTmp.add(tmp);
-    return tmp;
+  if (tmp) _activeSaveTmp.add(tmp);
+  return tmp;
 }
 
 export function _untrackSaveTmp(tmp) {
-    if (tmp) _activeSaveTmp.delete(tmp);
+  if (tmp) _activeSaveTmp.delete(tmp);
 }
 
 /**
@@ -51,24 +51,24 @@ export function _untrackSaveTmp(tmp) {
  * paths and for tests.
  */
 export function _registerOrphanSaveTmp(tmp) {
-    if (!tmp) return;
-    _activeSaveTmp.delete(tmp);
-    _orphanSaveTmp.add(tmp);
-    if (_orphanSaveTmp.size <= ORPHAN_TMP_TRACK_MAX) return;
-    // Over the soft cap: try to RECLAIM the oldest entries instead of evicting
-    // them. Dropping a path that is still on disk turns it into an orphan no
-    // realm owns any more, which is exactly how scratch files leaked forever.
-    // A path whose unlink still fails keeps its registry slot (retry ownership).
-    for (const oldest of [..._orphanSaveTmp]) {
-        if (_orphanSaveTmp.size <= ORPHAN_TMP_TRACK_MAX) break;
-        if (oldest === tmp) continue;
-        try {
-            unlinkSync(oldest);
-            _orphanSaveTmp.delete(oldest);
-        } catch (err) {
-            if (err?.code === 'ENOENT') _orphanSaveTmp.delete(oldest);
-        }
+  if (!tmp) return;
+  _activeSaveTmp.delete(tmp);
+  _orphanSaveTmp.add(tmp);
+  if (_orphanSaveTmp.size <= ORPHAN_TMP_TRACK_MAX) return;
+  // Over the soft cap: try to RECLAIM the oldest entries instead of evicting
+  // them. Dropping a path that is still on disk turns it into an orphan no
+  // realm owns any more, which is exactly how scratch files leaked forever.
+  // A path whose unlink still fails keeps its registry slot (retry ownership).
+  for (const oldest of [..._orphanSaveTmp]) {
+    if (_orphanSaveTmp.size <= ORPHAN_TMP_TRACK_MAX) break;
+    if (oldest === tmp) continue;
+    try {
+      unlinkSync(oldest);
+      _orphanSaveTmp.delete(oldest);
+    } catch (err) {
+      if (err?.code === 'ENOENT') _orphanSaveTmp.delete(oldest);
     }
+  }
 }
 
 /**
@@ -77,23 +77,23 @@ export function _registerOrphanSaveTmp(tmp) {
  * of leaking it (the previous `catch { /* ignore *\/ }` was terminal).
  */
 export function _discardSaveTmp(tmp) {
-    if (!tmp) return true;
-    _activeSaveTmp.delete(tmp);
-    for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-            unlinkSync(tmp);
-            _orphanSaveTmp.delete(tmp);
-            return true;
-        } catch (err) {
-            if (err?.code === 'ENOENT') {
-                _orphanSaveTmp.delete(tmp);
-                return true;
-            }
-            if (!UNLINK_RETRY_CODES.has(err?.code)) break;
-        }
+  if (!tmp) return true;
+  _activeSaveTmp.delete(tmp);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      unlinkSync(tmp);
+      _orphanSaveTmp.delete(tmp);
+      return true;
+    } catch (err) {
+      if (err?.code === 'ENOENT') {
+        _orphanSaveTmp.delete(tmp);
+        return true;
+      }
+      if (!UNLINK_RETRY_CODES.has(err?.code)) break;
     }
-    _registerOrphanSaveTmp(tmp);
-    return false;
+  }
+  _registerOrphanSaveTmp(tmp);
+  return false;
 }
 
 /**
@@ -113,49 +113,49 @@ export function _discardSaveTmp(tmp) {
  * Returns the number of scratch files reclaimed.
  */
 export function sweepOrphanSessionTmpFiles(options = {}) {
-    const limit = Number.isFinite(options.limit) && options.limit > 0
-        ? options.limit
-        : ORPHAN_TMP_SWEEP_LIMIT;
-    if (options.drain !== true) return _sweepOrphanChunk(limit).removed;
-    const budget = Number.isFinite(options.maxAttempts) && options.maxAttempts > 0
-        ? options.maxAttempts
-        : ORPHAN_TMP_DRAIN_MAX_ATTEMPTS;
-    // One attempt per path per drain: `attempted` is what makes the loop
-    // terminate even when every remaining unlink keeps failing.
-    const attempted = new Set();
-    let removed = 0;
-    let spent = 0;
-    while (spent < budget) {
-        const chunk = _sweepOrphanChunk(Math.min(limit, budget - spent), attempted);
-        if (chunk.attempts === 0) break;
-        removed += chunk.removed;
-        spent += chunk.attempts;
-    }
-    return removed;
+  const limit = Number.isFinite(options.limit) && options.limit > 0 ? options.limit : ORPHAN_TMP_SWEEP_LIMIT;
+  if (options.drain !== true) return _sweepOrphanChunk(limit).removed;
+  const budget =
+    Number.isFinite(options.maxAttempts) && options.maxAttempts > 0
+      ? options.maxAttempts
+      : ORPHAN_TMP_DRAIN_MAX_ATTEMPTS;
+  // One attempt per path per drain: `attempted` is what makes the loop
+  // terminate even when every remaining unlink keeps failing.
+  const attempted = new Set();
+  let removed = 0;
+  let spent = 0;
+  while (spent < budget) {
+    const chunk = _sweepOrphanChunk(Math.min(limit, budget - spent), attempted);
+    if (chunk.attempts === 0) break;
+    removed += chunk.removed;
+    spent += chunk.attempts;
+  }
+  return removed;
 }
 
 function _sweepOrphanChunk(limit, attempted = null) {
-    let removed = 0;
-    let attempts = 0;
-    for (const path of [..._orphanSaveTmp]) {
-        if (attempts >= limit) break;
-        if (attempted?.has(path)) continue;      // already retried in this drain
-        if (_activeSaveTmp.has(path)) continue;  // re-minted since it was registered
-        if (!SAVE_TMP_RE.test(basename(path))) { // never an unrelated/external file
-            _orphanSaveTmp.delete(path);
-            continue;
-        }
-        attempts++;
-        attempted?.add(path);
-        try {
-            unlinkSync(path);
-            _orphanSaveTmp.delete(path);
-            removed++;
-        } catch (err) {
-            if (err?.code === 'ENOENT') _orphanSaveTmp.delete(path);
-        }
+  let removed = 0;
+  let attempts = 0;
+  for (const path of [..._orphanSaveTmp]) {
+    if (attempts >= limit) break;
+    if (attempted?.has(path)) continue; // already retried in this drain
+    if (_activeSaveTmp.has(path)) continue; // re-minted since it was registered
+    if (!SAVE_TMP_RE.test(basename(path))) {
+      // never an unrelated/external file
+      _orphanSaveTmp.delete(path);
+      continue;
     }
-    return { removed, attempts };
+    attempts++;
+    attempted?.add(path);
+    try {
+      unlinkSync(path);
+      _orphanSaveTmp.delete(path);
+      removed++;
+    } catch (err) {
+      if (err?.code === 'ENOENT') _orphanSaveTmp.delete(path);
+    }
+  }
+  return { removed, attempts };
 }
 
 // ── Deterministic commit-fault injection (test-gated) ───────────────────────
@@ -178,7 +178,7 @@ let _syncedFaultApplied = false;
 let _syncedFault = null;
 
 function _faultInjectionEnabled() {
-    return process.env[SESSION_SAVE_FAULT_ENV] === '1';
+  return process.env[SESSION_SAVE_FAULT_ENV] === '1';
 }
 
 /**
@@ -187,21 +187,21 @@ function _faultInjectionEnabled() {
  * has this set, so those seams cannot be reached there.
  */
 export function _sessionStoreTestMode() {
-    return _faultInjectionEnabled();
+  return _faultInjectionEnabled();
 }
 
 function _clearFaultState() {
-    _programmaticFault.ids = null;
-    _programmaticFault.remaining = 0;
-    _programmaticFault.code = 'EIO';
-    _syncedFaultApplied = false;
-    _syncedFault = null;
+  _programmaticFault.ids = null;
+  _programmaticFault.remaining = 0;
+  _programmaticFault.code = 'EIO';
+  _syncedFaultApplied = false;
+  _syncedFault = null;
 }
 
 function _idSet(ids) {
-    if (ids === '*' || ids === true) return '*';
-    const list = Array.isArray(ids) ? ids : [ids];
-    return new Set(list.map((v) => String(v)).filter(Boolean));
+  if (ids === '*' || ids === true) return '*';
+  const list = Array.isArray(ids) ? ids : [ids];
+  return new Set(list.map((v) => String(v)).filter(Boolean));
 }
 
 /**
@@ -213,30 +213,34 @@ function _idSet(ids) {
  * fail exactly one save and let the NEXT save land without extra bookkeeping.
  */
 export function setSessionSaveFault(spec = null) {
-    if (!spec || !_faultInjectionEnabled()) {
-        _clearFaultState();
-        _faultConfigEpoch++;
-        _notifyFaultChange();
-        return false;
-    }
-    _programmaticFault.ids = _idSet(spec.ids ?? spec.id ?? '*');
-    const count = Number(spec.count);
-    _programmaticFault.remaining = Number.isFinite(count) && count >= 0 ? count : Infinity;
-    _programmaticFault.code = typeof spec.code === 'string' && spec.code ? spec.code : 'EIO';
+  if (!spec || !_faultInjectionEnabled()) {
+    _clearFaultState();
     _faultConfigEpoch++;
     _notifyFaultChange();
-    return true;
+    return false;
+  }
+  _programmaticFault.ids = _idSet(spec.ids ?? spec.id ?? '*');
+  const count = Number(spec.count);
+  _programmaticFault.remaining = Number.isFinite(count) && count >= 0 ? count : Infinity;
+  _programmaticFault.code = typeof spec.code === 'string' && spec.code ? spec.code : 'EIO';
+  _faultConfigEpoch++;
+  _notifyFaultChange();
+  return true;
 }
 
 function _notifyFaultChange() {
-    if (typeof _faultChangeListener === 'function') {
-        try { _faultChangeListener(); } catch { /* best-effort */ }
+  if (typeof _faultChangeListener === 'function') {
+    try {
+      _faultChangeListener();
+    } catch {
+      /* best-effort */
     }
+  }
 }
 
 /** Register the realm-sync hook (save-worker.mjs pushes state to the worker). */
 export function _onSessionSaveFaultChange(listener) {
-    _faultChangeListener = typeof listener === 'function' ? listener : null;
+  _faultChangeListener = typeof listener === 'function' ? listener : null;
 }
 
 /**
@@ -245,18 +249,18 @@ export function _onSessionSaveFaultChange(listener) {
  * postMessage.
  */
 export function sessionSaveFaultSyncKey() {
-    return String(_faultConfigEpoch);
+  return String(_faultConfigEpoch);
 }
 
 /** Wire form of the currently effective fault state (null when disabled). */
 export function serializeSessionSaveFault() {
-    const state = _effectiveFaultState();
-    if (!state) return null;
-    return {
-        ids: state.ids === '*' ? '*' : [...state.ids],
-        remaining: state.remaining === Infinity ? null : state.remaining,
-        code: state.code,
-    };
+  const state = _effectiveFaultState();
+  if (!state) return null;
+  return {
+    ids: state.ids === '*' ? '*' : [...state.ids],
+    remaining: state.remaining === Infinity ? null : state.remaining,
+    code: state.code,
+  };
 }
 
 /**
@@ -265,39 +269,41 @@ export function serializeSessionSaveFault() {
  * worker-thread faults too.
  */
 export function applySessionSaveFault(serialized) {
-    _syncedFaultApplied = true;
-    _syncedFault = (serialized && _faultInjectionEnabled())
-        ? {
-            ids: serialized.ids === '*' ? '*' : _idSet(serialized.ids),
-            remaining: serialized.remaining === null || serialized.remaining === undefined
-                ? Infinity
-                : Number(serialized.remaining),
-            code: serialized.code || 'EIO',
+  _syncedFaultApplied = true;
+  _syncedFault =
+    serialized && _faultInjectionEnabled()
+      ? {
+          ids: serialized.ids === '*' ? '*' : _idSet(serialized.ids),
+          remaining:
+            serialized.remaining === null || serialized.remaining === undefined
+              ? Infinity
+              : Number(serialized.remaining),
+          code: serialized.code || 'EIO',
         }
-        : null;
+      : null;
 }
 
 function _effectiveFaultState() {
-    // Gate revoked after arming: stay inert and forget the armed state.
-    if (!_faultInjectionEnabled()) {
-        if (_programmaticFault.ids || _syncedFault) _clearFaultState();
-        return null;
-    }
-    // A synced realm is fully governed by its owner — never by a programmatic
-    // call that never happened there.
-    const state = _syncedFaultApplied ? _syncedFault : (_programmaticFault.ids ? _programmaticFault : null);
-    return state && state.remaining > 0 ? state : null;
+  // Gate revoked after arming: stay inert and forget the armed state.
+  if (!_faultInjectionEnabled()) {
+    if (_programmaticFault.ids || _syncedFault) _clearFaultState();
+    return null;
+  }
+  // A synced realm is fully governed by its owner — never by a programmatic
+  // call that never happened there.
+  const state = _syncedFaultApplied ? _syncedFault : _programmaticFault.ids ? _programmaticFault : null;
+  return state && state.remaining > 0 ? state : null;
 }
 
 function _takeInjectedCommitFault(id) {
-    const state = _effectiveFaultState();
-    if (!state) return null;
-    if (state.ids !== '*' && !state.ids.has(id)) return null;
-    if (state.remaining !== Infinity) state.remaining -= 1;
-    const err = new Error(`[session-store] injected save commit fault for ${id}`);
-    err.code = state.code;
-    err.injectedSaveFault = true;
-    return err;
+  const state = _effectiveFaultState();
+  if (!state) return null;
+  if (state.ids !== '*' && !state.ids.has(id)) return null;
+  if (state.remaining !== Infinity) state.remaining -= 1;
+  const err = new Error(`[session-store] injected save commit fault for ${id}`);
+  err.code = state.code;
+  err.injectedSaveFault = true;
+  return err;
 }
 
 /**
@@ -307,7 +313,7 @@ function _takeInjectedCommitFault(id) {
  * file is the caller's to discard (see _discardSaveTmp).
  */
 export function _commitSessionWrite(tmp, target, id) {
-    const injected = _takeInjectedCommitFault(id);
-    if (injected) throw injected;
-    return _renameWithRetrySync(tmp, target);
+  const injected = _takeInjectedCommitFault(id);
+  if (injected) throw injected;
+  return _renameWithRetrySync(tmp, target);
 }

@@ -28,12 +28,11 @@
 const THINKING_BLOCK_TYPES = new Set(['thinking', 'redacted_thinking']);
 
 export function isAnthropicThinkingBlock(block) {
-    return THINKING_BLOCK_TYPES.has(block?.type);
+  return THINKING_BLOCK_TYPES.has(block?.type);
 }
 
 export function isEmptyAnthropicTextBlock(block) {
-    return block?.type === 'text'
-        && (typeof block.text !== 'string' || block.text.length === 0);
+  return block?.type === 'text' && (typeof block.text !== 'string' || block.text.length === 0);
 }
 
 /**
@@ -46,34 +45,38 @@ export function isEmptyAnthropicTextBlock(block) {
  * `onDrop(kind, block)` observes removals for logging; never throws upward.
  */
 export function sanitizeAnthropicReplayBlocks(blocks, onDrop) {
-    if (!Array.isArray(blocks)) return [];
-    const out = [];
-    // Whether an empty text block has been skipped since the last kept block:
-    // the model put something between the neighbours, so they are not one run.
-    let separatorRemoved = false;
-    let lastKeptWasThinking = false;
-    const note = (kind, block) => {
-        if (typeof onDrop !== 'function') return;
-        try { onDrop(kind, block); } catch { /* logging must never break replay */ }
-    };
-    for (const block of blocks) {
-        if (!block || typeof block !== 'object') continue;
-        if (isEmptyAnthropicTextBlock(block)) {
-            separatorRemoved = true;
-            note('empty_text', block);
-            continue;
-        }
-        if (isAnthropicThinkingBlock(block) && lastKeptWasThinking && separatorRemoved) {
-            // Keeping this would advertise a two-block run the model never
-            // produced. The run already in `out` stays intact.
-            note('merged_thinking', block);
-            continue;
-        }
-        out.push(block);
-        lastKeptWasThinking = isAnthropicThinkingBlock(block);
-        separatorRemoved = false;
+  if (!Array.isArray(blocks)) return [];
+  const out = [];
+  // Whether an empty text block has been skipped since the last kept block:
+  // the model put something between the neighbours, so they are not one run.
+  let separatorRemoved = false;
+  let lastKeptWasThinking = false;
+  const note = (kind, block) => {
+    if (typeof onDrop !== 'function') return;
+    try {
+      onDrop(kind, block);
+    } catch {
+      /* logging must never break replay */
     }
-    return out;
+  };
+  for (const block of blocks) {
+    if (!block || typeof block !== 'object') continue;
+    if (isEmptyAnthropicTextBlock(block)) {
+      separatorRemoved = true;
+      note('empty_text', block);
+      continue;
+    }
+    if (isAnthropicThinkingBlock(block) && lastKeptWasThinking && separatorRemoved) {
+      // Keeping this would advertise a two-block run the model never
+      // produced. The run already in `out` stays intact.
+      note('merged_thinking', block);
+      continue;
+    }
+    out.push(block);
+    lastKeptWasThinking = isAnthropicThinkingBlock(block);
+    separatorRemoved = false;
+  }
+  return out;
 }
 
 /**
@@ -81,11 +84,9 @@ export function sanitizeAnthropicReplayBlocks(blocks, onDrop) {
  * (the streaming parser's maps). Entries are [index, block] pairs.
  */
 export function sanitizeAnthropicReplayEntries(entries, onDrop) {
-    if (!Array.isArray(entries)) return [];
-    const ordered = [...entries]
-        .sort((a, b) => a[0] - b[0])
-        .map(([, block]) => block);
-    return sanitizeAnthropicReplayBlocks(ordered, onDrop);
+  if (!Array.isArray(entries)) return [];
+  const ordered = [...entries].sort((a, b) => a[0] - b[0]).map(([, block]) => block);
+  return sanitizeAnthropicReplayBlocks(ordered, onDrop);
 }
 
 /**
@@ -94,5 +95,5 @@ export function sanitizeAnthropicReplayEntries(entries, onDrop) {
  * turn carries no ordered block list, so it must honour the same run rule.
  */
 export function sanitizeAnthropicThinkingRun(blocks, onDrop) {
-    return sanitizeAnthropicReplayBlocks(blocks, onDrop).filter(isAnthropicThinkingBlock);
+  return sanitizeAnthropicReplayBlocks(blocks, onDrop).filter(isAnthropicThinkingBlock);
 }

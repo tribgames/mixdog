@@ -14,7 +14,9 @@ export function createBrowserDomQuiet(host: DomQuietHost) {
     const key = JSON.stringify(`__mixdogQuiet_${randomUUID()}`);
     signal?.throwIfAborted();
     // Registration returns immediately; cutoff cannot race ahead of it.
-    await host.evaluate<void>(guest, `(() => {
+    await host.evaluate<void>(
+      guest,
+      `(() => {
       let quietTimer;
       let hardTimer;
       let done = false;
@@ -42,18 +44,25 @@ export function createBrowserDomQuiet(host: DomQuietHost) {
       });
       hardTimer = setTimeout(finish, ${host.timeoutMs});
       arm();
-    })()`, signal);
+    })()`,
+      signal
+    );
     let finished = false;
-    void until?.then(async () => {
-      if (!finished) {
-        // Only real command cancellation reaches CDP. A soft cutoff resolves
-        // the observer's own promise, with no Runtime.terminateExecution.
-        await host.evaluate<void>(guest, `globalThis[${key}]?.finish()`, signal);
-      }
-    }, () => undefined).catch(() => {
-      // Navigation/cancellation may remove the context. The hard timer still
-      // bounds the observer if its document remains alive.
-    });
+    void until
+      ?.then(
+        async () => {
+          if (!finished) {
+            // Only real command cancellation reaches CDP. A soft cutoff resolves
+            // the observer's own promise, with no Runtime.terminateExecution.
+            await host.evaluate<void>(guest, `globalThis[${key}]?.finish()`, signal);
+          }
+        },
+        () => undefined
+      )
+      .catch(() => {
+        // Navigation/cancellation may remove the context. The hard timer still
+        // bounds the observer if its document remains alive.
+      });
     try {
       await host.evaluate<void>(guest, `globalThis[${key}]?.promise`, signal);
     } finally {

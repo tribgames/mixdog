@@ -12,15 +12,12 @@
 // The repair is the one the API documents as safe: drop the opaque reasoning
 // replay from that turn and keep its text and tool calls. Reasoning replay is
 // an optimization; the turn's decisions live in the text/tool_use blocks.
-import {
-    isAnthropicThinkingBlock,
-    isEmptyAnthropicTextBlock,
-} from '../providers/lib/anthropic-replay-blocks.mjs';
+import { isAnthropicThinkingBlock, isEmptyAnthropicTextBlock } from '../providers/lib/anthropic-replay-blocks.mjs';
 import { errorHttpStatus as errorStatus } from '../../../shared/err-text.mjs';
 
 function errorText(err) {
-    const detail = err?.providerError || err?.responseFailed?.response?.error || null;
-    return `${detail?.message || ''} ${err?.message || ''}`;
+  const detail = err?.providerError || err?.responseFailed?.response?.error || null;
+  return `${detail?.message || ''} ${err?.message || ''}`;
 }
 
 /**
@@ -29,21 +26,23 @@ function errorText(err) {
  * wrong move there — that error asks for MORE reasoning replay, not less.
  */
 export function isThinkingReplayRejection(err) {
-    if (!err || typeof err !== 'object') return false;
-    if (errorStatus(err) !== 400) return false;
-    const text = errorText(err);
-    return /blocks in the latest assistant message cannot be modified/i.test(text)
-        || /text content blocks must be non-empty/i.test(text);
+  if (!err || typeof err !== 'object') return false;
+  if (errorStatus(err) !== 400) return false;
+  const text = errorText(err);
+  return (
+    /blocks in the latest assistant message cannot be modified/i.test(text) ||
+    /text content blocks must be non-empty/i.test(text)
+  );
 }
 
 function keepsReplayBlock(block) {
-    return !isAnthropicThinkingBlock(block) && !isEmptyAnthropicTextBlock(block);
+  return !isAnthropicThinkingBlock(block) && !isEmptyAnthropicTextBlock(block);
 }
 
 function strippedList(list) {
-    if (!Array.isArray(list) || list.length === 0) return null;
-    const kept = list.filter(keepsReplayBlock);
-    return kept.length === list.length ? null : kept;
+  if (!Array.isArray(list) || list.length === 0) return null;
+  const kept = list.filter(keepsReplayBlock);
+  return kept.length === list.length ? null : kept;
 }
 
 /**
@@ -51,42 +50,40 @@ function strippedList(list) {
  * the API could have objected to (so the failure is not this message's shape).
  */
 export function assistantMessageWithoutThinkingReplay(message) {
-    if (message?.role !== 'assistant') return null;
-    const next = { ...message };
-    let changed = false;
+  if (message?.role !== 'assistant') return null;
+  const next = { ...message };
+  let changed = false;
 
-    const replayItems = Array.isArray(message.providerReplay?.items)
-        ? strippedList(message.providerReplay.items)
-        : null;
-    if (replayItems) {
-        changed = true;
-        // An assistant turn whose ordered replay is now empty has nothing to
-        // replay verbatim; the flattened content/toolCalls lowering takes over.
-        if (replayItems.length) next.providerReplay = { ...message.providerReplay, items: replayItems };
-        else delete next.providerReplay;
-    }
-    const assistantBlocks = strippedList(message.assistantBlocks);
-    if (assistantBlocks) {
-        changed = true;
-        if (assistantBlocks.length) next.assistantBlocks = assistantBlocks;
-        else delete next.assistantBlocks;
-    }
-    if (Array.isArray(message.thinkingBlocks) && message.thinkingBlocks.length) {
-        changed = true;
-        delete next.thinkingBlocks;
-    }
-    return changed ? next : null;
+  const replayItems = Array.isArray(message.providerReplay?.items) ? strippedList(message.providerReplay.items) : null;
+  if (replayItems) {
+    changed = true;
+    // An assistant turn whose ordered replay is now empty has nothing to
+    // replay verbatim; the flattened content/toolCalls lowering takes over.
+    if (replayItems.length) next.providerReplay = { ...message.providerReplay, items: replayItems };
+    else delete next.providerReplay;
+  }
+  const assistantBlocks = strippedList(message.assistantBlocks);
+  if (assistantBlocks) {
+    changed = true;
+    if (assistantBlocks.length) next.assistantBlocks = assistantBlocks;
+    else delete next.assistantBlocks;
+  }
+  if (Array.isArray(message.thinkingBlocks) && message.thinkingBlocks.length) {
+    changed = true;
+    delete next.thinkingBlocks;
+  }
+  return changed ? next : null;
 }
 
 /** Whether any assistant turn still carries replay blocks a repair would drop. */
 export function canRepairThinkingReplay(messages) {
-    if (!Array.isArray(messages)) return false;
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const message = messages[index];
-        if (message?.role !== 'assistant') continue;
-        if (assistantMessageWithoutThinkingReplay(message)) return true;
-    }
-    return false;
+  if (!Array.isArray(messages)) return false;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== 'assistant') continue;
+    if (assistantMessageWithoutThinkingReplay(message)) return true;
+  }
+  return false;
 }
 
 /**
@@ -95,16 +92,16 @@ export function canRepairThinkingReplay(messages) {
  * any later request. Returns the repaired index, or -1 when nothing matched.
  */
 export function repairThinkingReplayInPlace(messages) {
-    if (!Array.isArray(messages)) return -1;
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const message = messages[index];
-        if (message?.role !== 'assistant') continue;
-        const repaired = assistantMessageWithoutThinkingReplay(message);
-        if (!repaired) continue;
-        // Replace the reference (never edit in place): the session store's
-        // delta writer only re-sends messages whose reference changed.
-        messages[index] = repaired;
-        return index;
-    }
-    return -1;
+  if (!Array.isArray(messages)) return -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== 'assistant') continue;
+    const repaired = assistantMessageWithoutThinkingReplay(message);
+    if (!repaired) continue;
+    // Replace the reference (never edit in place): the session store's
+    // delta writer only re-sends messages whose reference changed.
+    messages[index] = repaired;
+    return index;
+  }
+  return -1;
 }

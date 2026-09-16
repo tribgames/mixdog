@@ -74,18 +74,18 @@ export interface ComputerUseSnapshot {
 
 export type TargetLeaseResult =
   | {
-    status: 'acquired';
-    queued: boolean;
-    waitedMs: number;
-    windowIds: string[];
-  }
+      status: 'acquired';
+      queued: boolean;
+      waitedMs: number;
+      windowIds: string[];
+    }
   | {
-    status: 'timeout' | 'cancelled' | 'user_takeover';
-    queued: boolean;
-    waitedMs: number;
-    queuePosition: number;
-    windowIds: string[];
-  };
+      status: 'timeout' | 'cancelled' | 'user_takeover';
+      queued: boolean;
+      waitedMs: number;
+      queuePosition: number;
+      windowIds: string[];
+    };
 
 interface TargetLease {
   sessionId: string;
@@ -237,18 +237,12 @@ export class ComputerUseCoordinator {
     this.assertAutomationAllowed();
   }
 
-  beginCommand(input: {
-    sessionId: string;
-    action: string;
-    target?: string;
-    mode: 'background' | 'foreground';
-  }): void {
+  beginCommand(input: { sessionId: string; action: string; target?: string; mode: 'background' | 'foreground' }): void {
     this.assertOperationAllowed(input.action);
     if (this.userControlActive && isComputerRecoveryRead(input.action)) return;
     if (input.mode === 'background') this.cursors.delete(input.sessionId);
     const now = this.now();
-    if (!this.attentionRequired?.sessionId
-      || this.attentionRequired.sessionId === input.sessionId) {
+    if (!this.attentionRequired?.sessionId || this.attentionRequired.sessionId === input.sessionId) {
       this.attentionRequired = null;
     }
     const existing = this.activities.get(input.sessionId);
@@ -274,8 +268,10 @@ export class ComputerUseCoordinator {
     if (!this.activities.has(input.sessionId)) {
       const now = this.now();
       this.activities.set(input.sessionId, {
-        ...input, phase: this.userControlActive ? 'paused_user_takeover' : 'queued',
-        startedAt: now, updatedAt: now,
+        ...input,
+        phase: this.userControlActive ? 'paused_user_takeover' : 'queued',
+        startedAt: now,
+        updatedAt: now,
       });
     }
     this.changed();
@@ -320,10 +316,12 @@ export class ComputerUseCoordinator {
       ...(input.tracking ? { tracking: true } : {}),
       x: Math.round(input.x),
       y: Math.round(input.y),
-      ...(hasDestination ? {
-        toX: Math.round(input.toX as number),
-        toY: Math.round(input.toY as number),
-      } : {}),
+      ...(hasDestination
+        ? {
+            toX: Math.round(input.toX as number),
+            toY: Math.round(input.toY as number),
+          }
+        : {}),
       action: input.action,
       effect: input.effect,
       ...(input.direction ? { direction: input.direction } : {}),
@@ -386,7 +384,10 @@ export class ComputerUseCoordinator {
 
   requestAttention(input: { sessionId?: string; detail?: string }): void {
     const sessionId = String(input.sessionId || '');
-    const detail = String(input.detail || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+    const detail = String(input.detail || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 160);
     this.attentionRequired = {
       sessionId,
       detail,
@@ -398,9 +399,7 @@ export class ComputerUseCoordinator {
 
   clearAttention(sessionId?: string): void {
     if (!this.attentionRequired) return;
-    if (sessionId
-      && this.attentionRequired.sessionId
-      && this.attentionRequired.sessionId !== sessionId) {
+    if (sessionId && this.attentionRequired.sessionId && this.attentionRequired.sessionId !== sessionId) {
       return;
     }
     this.attentionRequired = null;
@@ -424,7 +423,7 @@ export class ComputerUseCoordinator {
   async acquireTargets(
     sessionId: string,
     windowIds: Array<string | undefined>,
-    waitMs = this.targetLeaseWaitMs,
+    waitMs = this.targetLeaseWaitMs
   ): Promise<TargetLeaseResult> {
     this.assertAutomationAllowed();
     this.pruneExpiredLeases();
@@ -432,8 +431,7 @@ export class ComputerUseCoordinator {
     if (exactWindowIds.length === 0) {
       return { status: 'acquired', queued: false, waitedMs: 0, windowIds: [] };
     }
-    if (this.targetsAvailableTo(sessionId, exactWindowIds)
-      && !this.hasEarlierOverlappingWaiter(exactWindowIds)) {
+    if (this.targetsAvailableTo(sessionId, exactWindowIds) && !this.hasEarlierOverlappingWaiter(exactWindowIds)) {
       this.assignTargets(sessionId, exactWindowIds);
       return { status: 'acquired', queued: false, waitedMs: 0, windowIds: exactWindowIds };
     }
@@ -508,10 +506,7 @@ export class ComputerUseCoordinator {
     }
   }
 
-  pauseForUser(
-    reason = 'user_takeover',
-    additionalSessionIds: Iterable<string> = [],
-  ): string[] {
+  pauseForUser(reason = 'user_takeover', additionalSessionIds: Iterable<string> = []): string[] {
     const sessionIds = new Set<string>([
       ...this.pausedSessionIds,
       ...this.activities.keys(),
@@ -557,8 +552,10 @@ export class ComputerUseCoordinator {
 
   resumeAfterUserTakeover(expectedGeneration?: number): void {
     this.cleanup.assertClear();
-    if (expectedGeneration !== undefined && (!Number.isSafeInteger(expectedGeneration)
-      || expectedGeneration !== this.takeoverGeneration)) {
+    if (
+      expectedGeneration !== undefined &&
+      (!Number.isSafeInteger(expectedGeneration) || expectedGeneration !== this.takeoverGeneration)
+    ) {
       throw new Error('computer_resume_stale: user control changed; use the current resume control');
     }
     this.userControlActive = false;
@@ -603,7 +600,7 @@ export class ComputerUseCoordinator {
 
   private updateActivity(
     sessionId: string,
-    patch: Partial<Omit<ComputerUseActivity, 'sessionId' | 'startedAt'>>,
+    patch: Partial<Omit<ComputerUseActivity, 'sessionId' | 'startedAt'>>
   ): void {
     const existing = this.activities.get(sessionId);
     if (!existing) return;
@@ -615,7 +612,9 @@ export class ComputerUseCoordinator {
     this.changed();
   }
 
-  hasPendingCleanup(sessionId: string): boolean { return this.cleanup.has(sessionId); }
+  hasPendingCleanup(sessionId: string): boolean {
+    return this.cleanup.has(sessionId);
+  }
 
   /** Stop's recovery: only evidence that no worker or held input remains may call this. */
   clearFailedCleanup(): boolean {
@@ -643,9 +642,7 @@ export class ComputerUseCoordinator {
 
   private hasEarlierOverlappingWaiter(windowIds: string[]): boolean {
     const targets = new Set(windowIds);
-    return this.pendingTargetLeases.some((request) => (
-      request.windowIds.some((windowId) => targets.has(windowId))
-    ));
+    return this.pendingTargetLeases.some((request) => request.windowIds.some((windowId) => targets.has(windowId)));
   }
 
   private assignTargets(sessionId: string, windowIds: string[]): void {
@@ -666,10 +663,7 @@ export class ComputerUseCoordinator {
     return true;
   }
 
-  private cancelPendingRequests(
-    sessionId: string,
-    status: 'cancelled' | 'user_takeover',
-  ): void {
+  private cancelPendingRequests(sessionId: string, status: 'cancelled' | 'user_takeover'): void {
     const now = this.now();
     for (const request of [...this.pendingTargetLeases]) {
       if (request.sessionId !== sessionId || !this.removePendingRequest(request)) continue;
@@ -690,8 +684,10 @@ export class ComputerUseCoordinator {
     let granted = false;
     const waitingTargets = new Set<string>();
     for (const request of [...this.pendingTargetLeases]) {
-      if (!this.targetsAvailableTo(request.sessionId, request.windowIds)
-        || request.windowIds.some((windowId) => waitingTargets.has(windowId))) {
+      if (
+        !this.targetsAvailableTo(request.sessionId, request.windowIds) ||
+        request.windowIds.some((windowId) => waitingTargets.has(windowId))
+      ) {
         for (const windowId of request.windowIds) waitingTargets.add(windowId);
         continue;
       }
@@ -738,17 +734,18 @@ export class ComputerUseCoordinator {
     this.leaseExpiryTimer = null;
     const now = this.now();
     const nextExpiry = Math.min(
-      ...[...this.targetLeases.values()]
-        .map((lease) => lease.expiresAt)
-        .filter(Number.isFinite),
+      ...[...this.targetLeases.values()].map((lease) => lease.expiresAt).filter(Number.isFinite)
     );
     if (!Number.isFinite(nextExpiry)) return;
-    this.leaseExpiryTimer = setTimeout(() => {
-      this.leaseExpiryTimer = null;
-      this.pruneExpiredLeases();
-      this.scheduleLeaseExpiry();
-      this.changed();
-    }, Math.max(0, nextExpiry - now));
+    this.leaseExpiryTimer = setTimeout(
+      () => {
+        this.leaseExpiryTimer = null;
+        this.pruneExpiredLeases();
+        this.scheduleLeaseExpiry();
+        this.changed();
+      },
+      Math.max(0, nextExpiry - now)
+    );
     this.leaseExpiryTimer.unref?.();
   }
 

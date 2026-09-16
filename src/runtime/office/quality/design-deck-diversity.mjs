@@ -24,10 +24,12 @@ function deckShapeIssues(slides) {
   const dark = receipts.filter((receipt) => receipt.background === 'dark').length;
   const issues = [];
   if (slides.length >= 8 && beats / inner.length > 0.25 && dark / slides.length < 0.6) {
-    issues.push(issue(
-      'beat_share_high',
-      `${beats} of the ${inner.length} slides between the cover and the closing are beats (dark or field pages); the reference decks run one in eight. Give the body pages their evidence and keep the field for the section marks.`,
-    ));
+    issues.push(
+      issue(
+        'beat_share_high',
+        `${beats} of the ${inner.length} slides between the cover and the closing are beats (dark or field pages); the reference decks run one in eight. Give the body pages their evidence and keep the field for the section marks.`
+      )
+    );
   }
   let run = 0;
   for (let index = 0; index < grammar.length; index += 1) {
@@ -35,10 +37,12 @@ function deckShapeIssues(slides) {
     // The first three slides may be front matter (cover, disclaimer, agenda); a run that ends inside them is not read.
     if (run === 3 && index >= 3) {
       const first = Number(slides[index - 2]?.index) || index - 1;
-      issues.push(issue(
-        'consecutive_beats',
-        `Slides ${first}-${first + 2} are three beats in a row (dark or field pages with no evidence); a beat opens or closes a run of content pages, it never replaces them.`,
-      ));
+      issues.push(
+        issue(
+          'consecutive_beats',
+          `Slides ${first}-${first + 2} are three beats in a row (dark or field pages with no evidence); a beat opens or closes a run of content pages, it never replaces them.`
+        )
+      );
       break;
     }
   }
@@ -50,7 +54,10 @@ function deckShapeIssues(slides) {
     const carriers = (receipt.charts || 0) + (receipt.tables || 0) + (receipt.pictures || 0) + (receipt.groups || 0);
     if (carriers > 0 || typeof receipt.chars !== 'number' || receipt.chars >= 80) return;
     issues.push({
-      ...issue('page_underfill', `Slide ${slides[index]?.index ?? index + 1} carries ${receipt.chars} characters and no chart, table, picture, or structure; a body page needs its payload or belongs to the page it introduces.`),
+      ...issue(
+        'page_underfill',
+        `Slide ${slides[index]?.index ?? index + 1} carries ${receipt.chars} characters and no chart, table, picture, or structure; a body page needs its payload or belongs to the page it introduces.`
+      ),
       path: `/slide[${slides[index]?.index ?? index + 1}]`,
     });
   });
@@ -96,8 +103,8 @@ function layoutGrammarSignature(slide, canvas) {
       const height = Number(shape?.height) || 0;
       return [
         shapeRole(shape),
-        positionBucket(left + (width / 2), canvas.width),
-        positionBucket(top + (height / 2), canvas.height),
+        positionBucket(left + width / 2, canvas.width),
+        positionBucket(top + height / 2, canvas.height),
         sizeBucket(width, canvas.width),
         sizeBucket(height, canvas.height),
       ].join(':');
@@ -109,7 +116,10 @@ function layoutGrammarSignature(slide, canvas) {
 // Native preset geometry families, each a distinct evidence structure. Rect
 // and line are surfaces and rules, not structures, so they fall through.
 const GEOMETRY_FAMILIES = [
-  ['process', /^(chevron|homePlate|rightArrow|leftArrow|leftRightArrow|upArrow|downArrow|bentArrow|curvedRightArrow|notchedRightArrow)$/],
+  [
+    'process',
+    /^(chevron|homePlate|rightArrow|leftArrow|leftRightArrow|upArrow|downArrow|bentArrow|curvedRightArrow|notchedRightArrow)$/,
+  ],
   ['share', /^(blockArc|pie|donut|arc)$/],
   ['tiers', /^(trapezoid|triangle|funnel)$/],
   ['silhouette', /^(custGeom|parallelogram|hexagon|diamond)$/],
@@ -177,10 +187,7 @@ function longestRepeatRun(entries) {
   return best;
 }
 
-export function reviewPptxDeckDiversity({
-  document,
-  design,
-} = {}) {
+export function reviewPptxDeckDiversity({ document, design } = {}) {
   if (design?.review?.allowRepetition) return [];
   const slides = Array.isArray(document?.slides) ? document.slides : [];
   const content = slides.length >= 3 ? slides.slice(1, -1) : slides.slice(1);
@@ -196,41 +203,50 @@ export function reviewPptxDeckDiversity({
   }
   const repeated = Math.max(0, ...signatures.values());
   const plans = new Map((design?.slidePlans || []).map((plan) => [Number(plan?.slide), plan]));
-  const visualTypes = content.map((slide) => (
-    String(plans.get(Number(slide?.index))?.visualType || '').toLowerCase()
-      || inferredVisualType(slide)
-  ));
+  const visualTypes = content.map(
+    (slide) => String(plans.get(Number(slide?.index))?.visualType || '').toLowerCase() || inferredVisualType(slide)
+  );
   const uniqueVisualTypes = new Set(visualTypes.filter(Boolean));
   const issues = [];
   if (content.length >= 4 && repeated / content.length >= 0.6) {
-    issues.push(issue(
-      'repeated_layout_grammar',
-      `${repeated} of ${content.length} content slides reuse the same coarse layout grammar.`,
-    ));
+    issues.push(
+      issue(
+        'repeated_layout_grammar',
+        `${repeated} of ${content.length} content slides reuse the same coarse layout grammar.`
+      )
+    );
   }
-  const run = longestRepeatRun(grammar.map((signature, index) => (signature ? `${signature}\u0000${visualTypes[index]}` : `\u0000${index}`)));
+  const run = longestRepeatRun(
+    grammar.map((signature, index) => (signature ? `${signature}\u0000${visualTypes[index]}` : `\u0000${index}`))
+  );
   if (run.length >= 3) {
     const first = Number(content[run.start]?.index) || run.start + 2;
     const last = Number(content[run.start + run.length - 1]?.index) || first + run.length - 1;
-    issues.push(issue(
-      'consecutive_composition_repeat',
-      `Slides ${first}-${last} repeat one composition (${visualTypes[run.start]}) ${run.length} pages in a row; change the structure where the meaning changes, or merge the pages.`,
-    ));
+    issues.push(
+      issue(
+        'consecutive_composition_repeat',
+        `Slides ${first}-${last} repeat one composition (${visualTypes[run.start]}) ${run.length} pages in a row; change the structure where the meaning changes, or merge the pages.`
+      )
+    );
   }
   const requiredVisualTypes = Math.min(3, Math.ceil(content.length / 2));
   if (content.length >= 5 && uniqueVisualTypes.size < requiredVisualTypes) {
-    issues.push(issue(
-      'visual_role_variety_low',
-      `The deck uses ${uniqueVisualTypes.size} visual role(s) across ${content.length} content slides; use at least ${requiredVisualTypes}.`,
-    ));
+    issues.push(
+      issue(
+        'visual_role_variety_low',
+        `The deck uses ${uniqueVisualTypes.size} visual role(s) across ${content.length} content slides; use at least ${requiredVisualTypes}.`
+      )
+    );
   }
   issues.push(...deckShapeIssues(slides));
   const directionCandidates = design?.artDirection?.candidates || [];
   if (directionCandidates.length < 3 || !design?.artDirection?.selected?.id) {
-    issues.push(issue(
-      'art_direction_candidates_missing',
-      'The deck has no selected art direction backed by three distinct candidates.',
-    ));
+    issues.push(
+      issue(
+        'art_direction_candidates_missing',
+        'The deck has no selected art direction backed by three distinct candidates.'
+      )
+    );
   }
   return issues;
 }

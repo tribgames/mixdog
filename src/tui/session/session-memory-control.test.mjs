@@ -12,7 +12,10 @@ function harness(commandBusy = false) {
       memoryControl: (args) => new Promise((resolve, reject) => calls.push({ args, resolve, reject })),
     },
     getState: () => state,
-    set: (patch) => { patches.push(patch); Object.assign(state, patch); },
+    set: (patch) => {
+      patches.push(patch);
+      Object.assign(state, patch);
+    },
     pushNotice: (...args) => notices.push(args),
   });
   return { api, state, calls, notices, patches };

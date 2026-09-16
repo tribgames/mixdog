@@ -6,16 +6,20 @@ import { createSnapshotDeltaDecoder, markCompactWire } from './state-delta.ts';
 test('one receiver resyncs in full while its sibling continues a valid compact delta stream', async () => {
   const received = [[], []];
   const decoders = [createSnapshotDeltaDecoder(), createSnapshotDeltaDecoder()];
-  const lanes = received.map((frames, index) => createRemoteStateLane(true, async (frame, droppable) => {
-    const wire = frame.w;
-    if (!Object.hasOwn(wire, '__itemsRevision')) markCompactWire(wire);
-    const decoded = decoders[index].decode(wire);
-    assert.equal(decoded.ok, true);
-    frames.push({ snapshot: decoded.snapshot, droppable, bytes: JSON.stringify(frame).length });
-  }));
+  const lanes = received.map((frames, index) =>
+    createRemoteStateLane(true, async (frame, droppable) => {
+      const wire = frame.w;
+      if (!Object.hasOwn(wire, '__itemsRevision')) markCompactWire(wire);
+      const decoded = decoders[index].decode(wire);
+      assert.equal(decoded.ok, true);
+      frames.push({ snapshot: decoded.snapshot, droppable, bytes: JSON.stringify(frame).length });
+    })
+  );
   const initial = {
-    sessionId: 'session', items: [{ id: 1, text: 'x'.repeat(10000) }],
-    status: 'idle', streamingTail: null,
+    sessionId: 'session',
+    items: [{ id: 1, text: 'x'.repeat(10000) }],
+    status: 'idle',
+    streamingTail: null,
   };
   lanes.forEach((lane) => lane.reset(initial));
   await new Promise(setImmediate);

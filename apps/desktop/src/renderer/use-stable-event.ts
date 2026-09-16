@@ -1,7 +1,7 @@
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from 'react';
 
 export function useStableEvent<Args extends unknown[], Result>(
-  handler: (...args: Args) => Result,
+  handler: (...args: Args) => Result
 ): (...args: Args) => Result {
   const handlerRef = useRef(handler);
   useLayoutEffect(() => {

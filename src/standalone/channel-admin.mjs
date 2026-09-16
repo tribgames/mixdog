@@ -92,7 +92,7 @@ export function setWebhookConfig(patch = {}) {
     ...cfg,
     webhook: {
       ...(cfg.webhook || {}),
-      ...(Object.prototype.hasOwnProperty.call(patch, 'enabled') ? { enabled: patch.enabled === true } : {}),
+      ...(Object.hasOwn(patch, 'enabled') ? { enabled: patch.enabled === true } : {}),
       ...(patch.port ? { port: Number(patch.port) || 3333 } : {}),
       ...(patch.domain ? { domain: String(patch.domain).trim() } : {}),
     },
@@ -104,13 +104,12 @@ export async function setWebhookConfigAsync(patch = {}) {
     ...cfg,
     webhook: {
       ...(cfg.webhook || {}),
-      ...(Object.prototype.hasOwnProperty.call(patch, 'enabled') ? { enabled: patch.enabled === true } : {}),
+      ...(Object.hasOwn(patch, 'enabled') ? { enabled: patch.enabled === true } : {}),
       ...(patch.port ? { port: Number(patch.port) || 3333 } : {}),
       ...(patch.domain ? { domain: String(patch.domain).trim() } : {}),
     },
   }));
 }
-
 
 function normalizeCron(time) {
   const value = String(time || '').trim();
@@ -123,13 +122,24 @@ function normalizeCron(time) {
 
 // Day-name / keyword -> cron day-of-week number (Sun=0 .. Sat=6).
 const DAY_TOKEN_TO_DOW = {
-  sun: 0, sunday: 0,
-  mon: 1, monday: 1,
-  tue: 2, tues: 2, tuesday: 2,
-  wed: 3, weds: 3, wednesday: 3,
-  thu: 4, thur: 4, thurs: 4, thursday: 4,
-  fri: 5, friday: 5,
-  sat: 6, saturday: 6,
+  sun: 0,
+  sunday: 0,
+  mon: 1,
+  monday: 1,
+  tue: 2,
+  tues: 2,
+  tuesday: 2,
+  wed: 3,
+  weds: 3,
+  wednesday: 3,
+  thu: 4,
+  thur: 4,
+  thurs: 4,
+  thursday: 4,
+  fri: 5,
+  friday: 5,
+  sat: 6,
+  saturday: 6,
 };
 
 // Fold a legacy `days` selector into the day-of-week (last) field of a cron
@@ -139,7 +149,9 @@ const DAY_TOKEN_TO_DOW = {
 function foldDaysIntoCron(cron, days) {
   const parts = String(cron).trim().split(/\s+/);
   const dowIndex = parts.length - 1;
-  const raw = String(days || '').trim().toLowerCase();
+  const raw = String(days || '')
+    .trim()
+    .toLowerCase();
   // days absent -> keep the cron's own day-of-week field ('0 9 * * 1' stays
   // Monday-only). Only an explicit selector rewrites the dow field.
   if (!raw) return parts.join(' ');
@@ -148,9 +160,10 @@ function foldDaysIntoCron(cron, days) {
   else if (raw === 'weekday' || raw === 'weekdays') dow = '1-5';
   else if (raw === 'weekend' || raw === 'weekends') dow = '0,6';
   else {
-    const nums = raw.split(/[\s,]+/).filter(Boolean).map((tok) => (
-      /^[0-6]$/.test(tok) ? Number(tok) : DAY_TOKEN_TO_DOW[tok]
-    ));
+    const nums = raw
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map((tok) => (/^[0-6]$/.test(tok) ? Number(tok) : DAY_TOKEN_TO_DOW[tok]));
     if (nums.some((n) => n === undefined)) {
       throw new Error(`days "${days}" is not a recognizable day selector`);
     }
@@ -227,7 +240,9 @@ export async function saveSchedule({
   // main channel (target 'channel', channelId resolved at fire time).
   const mode = ['app', 'channel', 'both'].includes(String(delivery || '').trim())
     ? String(delivery).trim()
-    : (channel ? 'both' : 'app');
+    : channel
+      ? 'both'
+      : 'app';
   const hasTime = time != null && String(time).trim() !== '';
   const hasAt = at != null && String(at).trim() !== '';
   if (hasTime && hasAt) throw new Error('provide either `time` (recurring) or `at` (one-shot), not both');
@@ -235,9 +250,7 @@ export async function saveSchedule({
   if (overwrite !== true && (await dbGetSchedule(id))) {
     throw new Error(`schedule "${id}" already exists`);
   }
-  const whenCron = hasTime
-    ? validateScheduleCron(foldDaysIntoCron(normalizeCron(time), days))
-    : null;
+  const whenCron = hasTime ? validateScheduleCron(foldDaysIntoCron(normalizeCron(time), days)) : null;
   const whenAt = hasAt ? parseAtDatetime(at) : null;
   const scheduleTimezone = hasTime ? resolveScheduleTimezone(timezone) : null;
   const saved = await upsertSchedule({
@@ -315,7 +328,9 @@ export async function saveWebhook({
   overwrite = false,
 } = {}) {
   const id = assertName(name, 'webhook name');
-  const nextParser = String(parser || 'github').trim().toLowerCase();
+  const nextParser = String(parser || 'github')
+    .trim()
+    .toLowerCase();
   if (!['github', 'generic', 'stripe', 'sentry'].includes(nextParser)) {
     throw new Error('parser must be github, generic, stripe, or sentry');
   }
@@ -329,9 +344,10 @@ export async function saveWebhook({
   // overwrite PRESERVES the stored secret (editing instructions must not
   // silently rotate the key the external service was configured with); only
   // a brand-new endpoint mints a random secret.
-  const secretValue = String(secret || '').trim()
-    || (overwrite === true ? String((await dbReadEndpointSecret(id)) || '').trim() : '')
-    || randomBytes(24).toString('hex');
+  const secretValue =
+    String(secret || '').trim() ||
+    (overwrite === true ? String((await dbReadEndpointSecret(id)) || '').trim() : '') ||
+    randomBytes(24).toString('hex');
   const saved = await dbUpsertEndpoint({
     name: id,
     description: String(description || '').trim(),
@@ -341,9 +357,7 @@ export async function saveWebhook({
     cwd: cwd ? String(cwd).trim() : null,
     workflow: workflow ? String(workflow).trim() : null,
     attachments: normalizeAutomationAttachments(attachments),
-    delivery: ['app', 'channel', 'both'].includes(String(delivery || '').trim())
-      ? String(delivery).trim()
-      : 'app',
+    delivery: ['app', 'channel', 'both'].includes(String(delivery || '').trim()) ? String(delivery).trim() : 'app',
     secret: secretValue,
     instructions: body,
     enabled: enabled !== false,
@@ -392,8 +406,10 @@ export async function getWebhookSecret(name) {
 export async function hasActiveAutomation() {
   try {
     const [schedules, webhooks] = await Promise.all([listSchedules(), listWebhooks()]);
-    return schedules.some((entry) => entry?.enabled !== false && entry?.status !== 'done')
-      || webhooks.some((entry) => entry?.enabled !== false);
+    return (
+      schedules.some((entry) => entry?.enabled !== false && entry?.status !== 'done') ||
+      webhooks.some((entry) => entry?.enabled !== false)
+    );
   } catch {
     return false;
   }
@@ -416,7 +432,9 @@ export async function channelSetup(config = null) {
 async function renderChannelStatus(config = null) {
   const setup = await channelSetup(config);
   const lines = [];
-  lines.push(`webhook  ${setup.webhook.enabled === false ? 'disabled' : 'enabled'} · port ${setup.webhook.port || 3333}${setup.webhook.publicUrl ? ` · ${setup.webhook.publicUrl}` : ''}`);
+  lines.push(
+    `webhook  ${setup.webhook.enabled === false ? 'disabled' : 'enabled'} · port ${setup.webhook.port || 3333}${setup.webhook.publicUrl ? ` · ${setup.webhook.publicUrl}` : ''}`
+  );
   lines.push('schedules');
   if (setup.schedules.length === 0) lines.push('  (none)');
   for (const item of setup.schedules) {
@@ -425,7 +443,9 @@ async function renderChannelStatus(config = null) {
   lines.push('webhooks');
   if (setup.webhooks.length === 0) lines.push('  (none)');
   for (const item of setup.webhooks) {
-    lines.push(`  ${item.name}  ${item.parser || 'github'}  ${item.route}${item.model ? `  ${item.model}` : ''}  secret:${item.secretSet ? 'set' : 'missing'}`);
+    lines.push(
+      `  ${item.name}  ${item.parser || 'github'}  ${item.route}${item.model ? `  ${item.model}` : ''}  secret:${item.secretSet ? 'set' : 'missing'}`
+    );
   }
   return lines.join('\n');
 }

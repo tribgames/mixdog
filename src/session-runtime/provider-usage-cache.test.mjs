@@ -6,7 +6,9 @@ import { createProviderUsage } from './provider-usage.mjs';
 
 function deferred() {
   let resolve;
-  const promise = new Promise((yes) => { resolve = yes; });
+  const promise = new Promise((yes) => {
+    resolve = yes;
+  });
   return { promise, resolve };
 }
 
@@ -77,8 +79,10 @@ test('a quick setup invalidated in flight cannot repopulate its cache or schedul
   let builds = 0;
   let warmups = 0;
   const f = fixture({
-    providerSetup: async () => ++builds === 1 ? request.promise : { generation: 'new' },
-    scheduleProviderSetupWarmup: () => { warmups += 1; },
+    providerSetup: async () => (++builds === 1 ? request.promise : { generation: 'new' }),
+    scheduleProviderSetupWarmup: () => {
+      warmups += 1;
+    },
   });
   const first = f.usage.cachedProviderSetup({ quick: true });
   f.invalidate();
@@ -137,7 +141,7 @@ test('a dashboard preview is already part of the shared in-flight build', async 
   let builds = 0;
   let previews = 0;
   const f = fixture({
-    providerSetup: async (_config, options) => options.checkSecrets === false ? quick.promise : {},
+    providerSetup: async (_config, options) => (options.checkSecrets === false ? quick.promise : {}),
     createUsageDashboard: async (_config, options) => {
       if (options.preview) previews += 1;
       else builds += 1;

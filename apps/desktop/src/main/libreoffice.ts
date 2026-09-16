@@ -24,7 +24,7 @@ export interface InstallLibreOfficeOptions {
 export function fontProvisionerModuleUrl(
   packaged = false,
   resourcesPath = process.resourcesPath,
-  appPath = process.cwd(),
+  appPath = process.cwd()
 ): string {
   const modulePath = packaged
     ? join(packagedRuntimeSourceRoot(resourcesPath), 'runtime', 'office', 'portable', 'font-provisioner.mjs')
@@ -85,25 +85,35 @@ async function resolveSoffice(refresh = false): Promise<{ path: string; version:
 
 export async function libreOfficeStatus(refresh = false): Promise<DesktopLibreOfficeStatus> {
   const soffice = await resolveSoffice(refresh);
-  return soffice
-    ? { installed: true, ...(soffice.version ? { version: soffice.version } : {}) }
-    : { installed: false };
+  return soffice ? { installed: true, ...(soffice.version ? { version: soffice.version } : {}) } : { installed: false };
 }
 
-export async function installLibreOffice(
-  { packaged, resourcesPath, appPath }: InstallLibreOfficeOptions = {},
-): Promise<DesktopLibreOfficeStatus> {
+export async function installLibreOffice({
+  packaged,
+  resourcesPath,
+  appPath,
+}: InstallLibreOfficeOptions = {}): Promise<DesktopLibreOfficeStatus> {
   // The install click may race a probe that never ran (or ran before a manual
   // install), and winget treats "already installed" as a failure — so a fresh
   // probe answers first.
   const existing = await libreOfficeStatus(true);
   if (existing.installed) return existing;
   if (process.platform === 'win32') {
-    const result = await run('winget', [
-      'install', '--id', 'TheDocumentFoundation.LibreOffice', '--exact', '--source', 'winget',
-      '--accept-package-agreements', '--accept-source-agreements',
-      '--disable-interactivity',
-    ], INSTALL_TIMEOUT_MS);
+    const result = await run(
+      'winget',
+      [
+        'install',
+        '--id',
+        'TheDocumentFoundation.LibreOffice',
+        '--exact',
+        '--source',
+        'winget',
+        '--accept-package-agreements',
+        '--accept-source-agreements',
+        '--disable-interactivity',
+      ],
+      INSTALL_TIMEOUT_MS
+    );
     if (result.code === -1) {
       throw new Error('winget is unavailable. Install LibreOffice from https://www.libreoffice.org and try again.');
     }
@@ -121,18 +131,22 @@ export async function installLibreOffice(
       throw new Error(`brew could not install LibreOffice: ${detail || `exit code ${result.code}`}`);
     }
   } else {
-    throw new Error('Automatic LibreOffice installation is not supported on this platform. Install LibreOffice from https://www.libreoffice.org.');
+    throw new Error(
+      'Automatic LibreOffice installation is not supported on this platform. Install LibreOffice from https://www.libreoffice.org.'
+    );
   }
   const status = await libreOfficeStatus(true);
   if (!status.installed) {
-    throw new Error('LibreOffice installed, but the executable was not found yet. Restart Mixdog Desktop to pick it up.');
+    throw new Error(
+      'LibreOffice installed, but the executable was not found yet. Restart Mixdog Desktop to pick it up.'
+    );
   }
   try {
     // The Noto faces LibreOffice renders with come in alongside it; a missing
     // or offline provisioner never fails the install itself.
-    const provisioner = await import(
+    const provisioner = (await import(
       /* @vite-ignore */ fontProvisionerModuleUrl(packaged, resourcesPath, appPath)
-    ) as { prepareOfficeFonts(): Promise<unknown> };
+    )) as { prepareOfficeFonts(): Promise<unknown> };
     await provisioner.prepareOfficeFonts();
   } catch {
     // Non-fatal: fonts can be prepared on the next Office render.

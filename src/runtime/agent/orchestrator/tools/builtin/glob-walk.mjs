@@ -22,89 +22,92 @@ const MAX_BRACE_VARIANTS = 256;
 const MAX_PATTERN_LENGTH = 1024;
 const MAX_REGEX_BODY_LENGTH = 16384;
 function expandBraces(pattern) {
-    const m = pattern.match(/\{([^{}]*)\}/);
-    if (!m) return [pattern];
-    const before = pattern.slice(0, m.index);
-    const after = pattern.slice(m.index + m[0].length);
-    const parts = m[1].split(',');
-    const out = [];
-    for (const p of parts) {
-        for (const rest of expandBraces(after)) {
-            if (out.length >= MAX_BRACE_VARIANTS) {
-                throw new Error(`glob brace expansion exceeds ${MAX_BRACE_VARIANTS} variants`);
-            }
-            out.push(before + p + rest);
-        }
+  const m = pattern.match(/\{([^{}]*)\}/);
+  if (!m) return [pattern];
+  const before = pattern.slice(0, m.index);
+  const after = pattern.slice(m.index + m[0].length);
+  const parts = m[1].split(',');
+  const out = [];
+  for (const p of parts) {
+    for (const rest of expandBraces(after)) {
+      if (out.length >= MAX_BRACE_VARIANTS) {
+        throw new Error(`glob brace expansion exceeds ${MAX_BRACE_VARIANTS} variants`);
+      }
+      out.push(before + p + rest);
     }
-    return out;
+  }
+  return out;
 }
 const REGEX_META = /[.+^${}()|[\]\\]/;
 function compileVariant(variant) {
-    let body = '';
-    for (let i = 0; i < variant.length; i++) {
-        const ch = variant[i];
-        if (ch === '*') {
-            // `**/` (at any position, including leading) means "zero-or-more
-            // directory segments" so `src/**/foo` matches both `src/foo` and
-            // `src/a/b/foo`. The older compile emitted `.*/` which forced at
-            // least one path char between, breaking the zero-dir case.
-            if (variant[i + 1] === '*' && variant[i + 2] === '/') {
-                body += '(?:.*/)?';
-                i += 2;
-            } else if (variant[i + 1] === '*') {
-                body += '.*';
-                i++;
-            } else {
-                body += '[^/]*';
-            }
-        } else if (ch === '?') {
-            body += '[^/]';
-        } else if (ch === '[') {
-            // Glob bracket class: [abc], [!abc], [a-z]. Parse forward to the
-            // closing `]`; only when a well-formed class is found do we emit
-            // a regex character class. Malformed/unclosed `[` falls back to
-            // a literal escape so REGEX_META semantics still hold.
-            let j = i + 1;
-            let negate = false;
-            if (variant[j] === '!' || variant[j] === '^') { negate = true; j++; }
-            // POSIX-style: a `]` as the first class char is a literal.
-            const innerStart = j;
-            if (variant[j] === ']') j++;
-            while (j < variant.length && variant[j] !== ']') j++;
-            if (j < variant.length && j > innerStart) {
-                // Escape backslashes inside the class; hyphens and other
-                // chars are passed through so `[a-z]` ranges still work.
-                const inner = variant.slice(innerStart, j).replace(/\\/g, '\\\\');
-                body += '[' + (negate ? '^' : '') + inner + ']';
-                i = j;
-            } else {
-                body += '\\[';
-            }
-        } else if (REGEX_META.test(ch)) {
-            body += '\\' + ch;
-        } else {
-            body += ch;
-        }
+  let body = '';
+  for (let i = 0; i < variant.length; i++) {
+    const ch = variant[i];
+    if (ch === '*') {
+      // `**/` (at any position, including leading) means "zero-or-more
+      // directory segments" so `src/**/foo` matches both `src/foo` and
+      // `src/a/b/foo`. The older compile emitted `.*/` which forced at
+      // least one path char between, breaking the zero-dir case.
+      if (variant[i + 1] === '*' && variant[i + 2] === '/') {
+        body += '(?:.*/)?';
+        i += 2;
+      } else if (variant[i + 1] === '*') {
+        body += '.*';
+        i++;
+      } else {
+        body += '[^/]*';
+      }
+    } else if (ch === '?') {
+      body += '[^/]';
+    } else if (ch === '[') {
+      // Glob bracket class: [abc], [!abc], [a-z]. Parse forward to the
+      // closing `]`; only when a well-formed class is found do we emit
+      // a regex character class. Malformed/unclosed `[` falls back to
+      // a literal escape so REGEX_META semantics still hold.
+      let j = i + 1;
+      let negate = false;
+      if (variant[j] === '!' || variant[j] === '^') {
+        negate = true;
+        j++;
+      }
+      // POSIX-style: a `]` as the first class char is a literal.
+      const innerStart = j;
+      if (variant[j] === ']') j++;
+      while (j < variant.length && variant[j] !== ']') j++;
+      if (j < variant.length && j > innerStart) {
+        // Escape backslashes inside the class; hyphens and other
+        // chars are passed through so `[a-z]` ranges still work.
+        const inner = variant.slice(innerStart, j).replace(/\\/g, '\\\\');
+        body += '[' + (negate ? '^' : '') + inner + ']';
+        i = j;
+      } else {
+        body += '\\[';
+      }
+    } else if (REGEX_META.test(ch)) {
+      body += '\\' + ch;
+    } else {
+      body += ch;
     }
-    return body;
+  }
+  return body;
 }
 export function compileSimpleGlob(pattern) {
-    if (!pattern) return null;
-    // On Windows, treat backslashes as path separators — candidate paths are
-    // forward-slash normalized, so a literal-escaped `\` (REGEX_META) in e.g.
-    // `**\*.mjs` would never match a `/`-joined path. Mirrors the win32 `\`->`/`
-    // canonicalization the grep tool already applies.
-    if (process.platform === 'win32') pattern = pattern.replace(/\\/g, '/');
-    if (pattern.length > MAX_PATTERN_LENGTH) {
-        throw new Error(`glob pattern length ${pattern.length} exceeds limit ${MAX_PATTERN_LENGTH}`);
-    }
-    const variants = expandBraces(pattern).map(compileVariant);
-    const DOLLAR = '\x24';
-    const body = variants.length === 1 ? variants[0] : `(?:${variants.join('|')})`;
-    if (body.length > MAX_REGEX_BODY_LENGTH) {
-        throw new Error(`glob regex body length ${body.length} exceeds limit ${MAX_REGEX_BODY_LENGTH}`);
-    }
-    return new RegExp('^' + body + DOLLAR, 'i');
+  if (!pattern) return null;
+  // On Windows, treat backslashes as path separators — candidate paths are
+  // forward-slash normalized, so a literal-escaped `\` (REGEX_META) in e.g.
+  // `**\*.mjs` would never match a `/`-joined path. Mirrors the win32 `\`->`/`
+  // canonicalization the grep tool already applies.
+  if (process.platform === 'win32') pattern = pattern.replace(/\\/g, '/');
+  if (pattern.length > MAX_PATTERN_LENGTH) {
+    throw new Error(`glob pattern length ${pattern.length} exceeds limit ${MAX_PATTERN_LENGTH}`);
+  }
+  const variants = expandBraces(pattern).map(compileVariant);
+  const DOLLAR = '\x24';
+  const body = variants.length === 1 ? variants[0] : `(?:${variants.join('|')})`;
+  if (body.length > MAX_REGEX_BODY_LENGTH) {
+    throw new Error(`glob regex body length ${body.length} exceeds limit ${MAX_REGEX_BODY_LENGTH}`);
+  }
+  return new RegExp('^' + body + DOLLAR, 'i');
 }
 
 // Directory names that are dependency / build / cache artifacts. Skipped
@@ -117,11 +120,19 @@ export function compileSimpleGlob(pattern) {
 // a package.json) is intentionally not implemented; the basename rule is
 // simpler and matches the noise patterns developers actually create.
 export const NOISE_DIR_NAMES = new Set([
-    'node_modules', '.git',
-    '.next', '.nuxt', '.svelte-kit',
-    '.cache', '.parcel-cache', '.turbo',
-    'venv', '.venv', '__pycache__', '.pytest_cache',
-    '.gradle',
+  'node_modules',
+  '.git',
+  '.next',
+  '.nuxt',
+  '.svelte-kit',
+  '.cache',
+  '.parcel-cache',
+  '.turbo',
+  'venv',
+  '.venv',
+  '__pycache__',
+  '.pytest_cache',
+  '.gradle',
 ]);
 
 const MAX_WALK_ENTRIES = 200_000;
@@ -131,97 +142,125 @@ const MAX_WALK_ENTRIES = 200_000;
 // literal false aborts the whole walk.
 // `onWarn(dir, err, { root, depth })` (optional) is invoked for any readdir failure so
 // callers can surface skipped paths instead of silently dropping them.
-export async function walkDir(root, { hidden = false, maxDepth = Infinity, visit, sort, excludeDirNames, onWarn, maxEntries = MAX_WALK_ENTRIES, signal, readdirImpl = readdir, prefetchConcurrency = 8 } = {}) {
-    // Windows filesystems are case-insensitive — match exclusion names the
-    // same way so e.g. Node_Modules is pruned like node_modules.
-    const _exclCI = process.platform === 'win32' && excludeDirNames && excludeDirNames.size > 0
-        ? new Set([...excludeDirNames].map((n) => n.toLowerCase()))
-        : null;
-    let truncated = false;
-    let aborted = false;
-    const cap = maxEntries;
-    let entriesVisited = 0;
-    // Bounded readdir PREFETCH: visiting stays strictly serial (visit order,
-    // entriesVisited accounting, isLast/tree rendering and abort semantics are
-    // unchanged) — only the readdir I/O of soon-to-be-walked subdirectories
-    // overlaps. Rejections are boxed so an abandoned prefetch (visitor abort,
-    // entry cap) can never surface as an unhandled rejection.
-    const _prefetched = new Map(); // dirPath -> Promise<{ok}|{err}>
-    let _prefetchInFlight = 0;
-    const _prefetch = (dirPath) => {
-        if (_prefetchInFlight >= prefetchConcurrency || _prefetched.has(dirPath)) return;
-        _prefetchInFlight += 1;
-        _prefetched.set(dirPath, Promise.resolve()
-            .then(() => readdirImpl(dirPath, { withFileTypes: true }))
-            .then((ok) => ({ ok }), (err) => ({ err }))
-            .finally(() => { _prefetchInFlight -= 1; }));
-    };
-    const _readdir = async (dir) => {
-        const pending = _prefetched.get(dir);
-        if (pending) {
-            _prefetched.delete(dir);
-            const settled = await pending;
-            if (settled.err) throw settled.err;
-            return settled.ok;
+export async function walkDir(
+  root,
+  {
+    hidden = false,
+    maxDepth = Infinity,
+    visit,
+    sort,
+    excludeDirNames,
+    onWarn,
+    maxEntries = MAX_WALK_ENTRIES,
+    signal,
+    readdirImpl = readdir,
+    prefetchConcurrency = 8,
+  } = {}
+) {
+  // Windows filesystems are case-insensitive — match exclusion names the
+  // same way so e.g. Node_Modules is pruned like node_modules.
+  const _exclCI =
+    process.platform === 'win32' && excludeDirNames && excludeDirNames.size > 0
+      ? new Set([...excludeDirNames].map((n) => n.toLowerCase()))
+      : null;
+  let truncated = false;
+  let aborted = false;
+  const cap = maxEntries;
+  let entriesVisited = 0;
+  // Bounded readdir PREFETCH: visiting stays strictly serial (visit order,
+  // entriesVisited accounting, isLast/tree rendering and abort semantics are
+  // unchanged) — only the readdir I/O of soon-to-be-walked subdirectories
+  // overlaps. Rejections are boxed so an abandoned prefetch (visitor abort,
+  // entry cap) can never surface as an unhandled rejection.
+  const _prefetched = new Map(); // dirPath -> Promise<{ok}|{err}>
+  let _prefetchInFlight = 0;
+  const _prefetch = (dirPath) => {
+    if (_prefetchInFlight >= prefetchConcurrency || _prefetched.has(dirPath)) return;
+    _prefetchInFlight += 1;
+    _prefetched.set(
+      dirPath,
+      Promise.resolve()
+        .then(() => readdirImpl(dirPath, { withFileTypes: true }))
+        .then(
+          (ok) => ({ ok }),
+          (err) => ({ err })
+        )
+        .finally(() => {
+          _prefetchInFlight -= 1;
+        })
+    );
+  };
+  const _readdir = async (dir) => {
+    const pending = _prefetched.get(dir);
+    if (pending) {
+      _prefetched.delete(dir);
+      const settled = await pending;
+      if (settled.err) throw settled.err;
+      return settled.ok;
+    }
+    return readdirImpl(dir, { withFileTypes: true });
+  };
+  const _walk = async (dir, depth) => {
+    if (signal?.aborted) {
+      truncated = true;
+      aborted = true;
+      return false;
+    }
+    if (entriesVisited >= cap) {
+      truncated = true;
+      return false;
+    }
+    if (depth > maxDepth) return true;
+    let entries;
+    try {
+      entries = await _readdir(dir);
+    } catch (err) {
+      if (typeof onWarn === 'function') {
+        try {
+          onWarn(dir, err, { root: depth === 1, depth });
+        } catch {
+          /* warning sink must not abort */
         }
-        return readdirImpl(dir, { withFileTypes: true });
-    };
-    const _walk = async (dir, depth) => {
-        if (signal?.aborted) {
-            truncated = true;
-            aborted = true;
-            return false;
-        }
-        if (entriesVisited >= cap) {
-            truncated = true;
-            return false;
-        }
-        if (depth > maxDepth) return true;
-        let entries;
-        try { entries = await _readdir(dir); }
-        catch (err) {
-            if (typeof onWarn === 'function') {
-                try { onWarn(dir, err, { root: depth === 1, depth }); } catch { /* warning sink must not abort */ }
-            }
-            return true;
-        }
-        if (!hidden) entries = entries.filter(e => !e.name.startsWith('.'));
-        if (excludeDirNames && excludeDirNames.size > 0) {
-            entries = entries.filter(e => !(e.isDirectory() && (_exclCI
-                ? _exclCI.has(e.name.toLowerCase())
-                : excludeDirNames.has(e.name))));
-        }
-        if (sort) entries.sort(sort);
-        // Post-filter/sort: children about to be recursed into are known —
-        // overlap their readdir I/O (only when recursion will actually run).
-        if (depth + 1 <= maxDepth) {
-            for (const e of entries) {
-                if (e.isDirectory()) _prefetch(join(dir, e.name));
-            }
-        }
-        const total = entries.length;
-        for (let i = 0; i < total; i++) {
-            if (signal?.aborted) {
-                truncated = true;
-                aborted = true;
-                return false;
-            }
-            if (entriesVisited >= cap) {
-                truncated = true;
-                return false;
-            }
-            entriesVisited += 1;
-            const ent = entries[i];
-            const entPath = join(dir, ent.name);
-            const ctx = { depth, index: i, total, isLast: i === total - 1 };
-            const cont = visit(ent, entPath, ctx);
-            if (cont === false) return false;
-            if (ent.isDirectory()) {
-                if ((await _walk(entPath, depth + 1)) === false) return false;
-            }
-        }
-        return true;
-    };
-    await _walk(root, 1);
-    return { truncated, aborted, entriesVisited };
+      }
+      return true;
+    }
+    if (!hidden) entries = entries.filter((e) => !e.name.startsWith('.'));
+    if (excludeDirNames && excludeDirNames.size > 0) {
+      entries = entries.filter(
+        (e) => !(e.isDirectory() && (_exclCI ? _exclCI.has(e.name.toLowerCase()) : excludeDirNames.has(e.name)))
+      );
+    }
+    if (sort) entries.sort(sort);
+    // Post-filter/sort: children about to be recursed into are known —
+    // overlap their readdir I/O (only when recursion will actually run).
+    if (depth + 1 <= maxDepth) {
+      for (const e of entries) {
+        if (e.isDirectory()) _prefetch(join(dir, e.name));
+      }
+    }
+    const total = entries.length;
+    for (let i = 0; i < total; i++) {
+      if (signal?.aborted) {
+        truncated = true;
+        aborted = true;
+        return false;
+      }
+      if (entriesVisited >= cap) {
+        truncated = true;
+        return false;
+      }
+      entriesVisited += 1;
+      const ent = entries[i];
+      const entPath = join(dir, ent.name);
+      const ctx = { depth, index: i, total, isLast: i === total - 1 };
+      const cont = visit(ent, entPath, ctx);
+      if (cont === false) return false;
+      if (ent.isDirectory()) {
+        if ((await _walk(entPath, depth + 1)) === false) return false;
+      }
+    }
+    return true;
+  };
+  await _walk(root, 1);
+  return { truncated, aborted, entriesVisited };
 }

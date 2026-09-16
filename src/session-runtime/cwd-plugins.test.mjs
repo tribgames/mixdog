@@ -26,11 +26,15 @@ test('explicit cwd selection persists execution cwd and desktop project metadata
   try {
     const { applyResolvedCwd } = createCwdPlugins({
       getCurrentCwd: () => currentCwd,
-      setCurrentCwd: (next) => { currentCwd = next; },
+      setCurrentCwd: (next) => {
+        currentCwd = next;
+      },
       getConfig: () => ({}),
       getSession: () => session,
       getDesktopSession: () => desktopSession,
-      setDesktopSession: (next) => { desktopSession = next; },
+      setDesktopSession: (next) => {
+        desktopSession = next;
+      },
       getRoute: () => ({}),
       isCodeGraphPrewarmLazy: () => true,
       isCodeGraphFirstTurnPrewarmDone: () => false,
@@ -75,7 +79,10 @@ test('explicit cwd selection persists execution cwd and desktop project metadata
     assert.equal(persisted.length, 1);
     assert.equal(persisted[0].cwd, after);
     assert.deepEqual(persisted[0].desktopSession, desktopSession);
-    assert.deepEqual(sentinels, [{ cwd: after, pid: undefined }, { cwd: after, pid: 4321 }]);
+    assert.deepEqual(sentinels, [
+      { cwd: after, pid: undefined },
+      { cwd: after, pid: 4321 },
+    ]);
     assert.deepEqual(overrides, [after, after]);
   } finally {
     rmSync(root, { recursive: true, force: true });

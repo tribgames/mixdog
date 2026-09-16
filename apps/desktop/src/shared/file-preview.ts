@@ -37,13 +37,27 @@ const FILE_PREVIEW_TYPES: Readonly<Record<string, DesktopFilePreviewType>> = Obj
 // and refuses anything else; this copy only decides whether the editor offers
 // the attempt instead of the binary-file notice.
 const DOCUMENT_PREVIEW_FORMATS: ReadonlySet<string> = new Set([
-  'docx', 'doc', 'docm', 'dotx', 'rtf', 'odt',
-  'xlsx', 'xls', 'xlsm', 'ods',
-  'pptx', 'ppt', 'pptm', 'odp',
+  'docx',
+  'doc',
+  'docm',
+  'dotx',
+  'rtf',
+  'odt',
+  'xlsx',
+  'xls',
+  'xlsm',
+  'ods',
+  'pptx',
+  'ppt',
+  'pptm',
+  'odp',
 ]);
 
 function fileExtension(path: string): string {
-  const name = String(path || '').split(/[\\/]/).at(-1) || '';
+  const name =
+    String(path || '')
+      .split(/[\\/]/)
+      .at(-1) || '';
   const dot = name.lastIndexOf('.');
   if (dot < 0 || dot === name.length - 1) return '';
   return name.slice(dot + 1).toLocaleLowerCase();
@@ -58,5 +72,5 @@ export function documentPreviewFormatForPath(path: string): string {
 /** Browser-native read-only preview support, selected by the final extension. */
 export function filePreviewTypeForPath(path: string): DesktopFilePreviewType | null {
   const extension = fileExtension(path);
-  return extension ? FILE_PREVIEW_TYPES[extension] ?? null : null;
+  return extension ? (FILE_PREVIEW_TYPES[extension] ?? null) : null;
 }

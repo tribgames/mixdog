@@ -34,8 +34,12 @@ function desktopEventKey(desktopId, message) {
   // key. Name (and terminal id) keep each producer on its own key.
   if (kind === 'desktop-event') {
     const name = String(message?.name || '');
-    const terminalId = name === 'terminal-data' ? String(message?.value?.id || '')
-      : name === 'session-runtime-released' ? String(message?.value?.sessionId || '') : '';
+    const terminalId =
+      name === 'terminal-data'
+        ? String(message?.value?.id || '')
+        : name === 'session-runtime-released'
+          ? String(message?.value?.sessionId || '')
+          : '';
     return `desktop-event:${desktopId}:${kind}:${name}${terminalId ? `:${terminalId}` : ''}`;
   }
   return `desktop-event:${desktopId}:${kind}`;
@@ -72,12 +76,15 @@ export class DesktopServiceRegistry {
     const wire = sanitizeForWire(message);
     const service = this.#servicesById.get(desktopId);
     if (!wire || !service) return;
-    this.#onFrame({
-      type: 'desktop-event',
-      key: desktopEventKey(desktopId, wire),
-      desktopId,
-      message: wire,
-    }, service.subscribers);
+    this.#onFrame(
+      {
+        type: 'desktop-event',
+        key: desktopEventKey(desktopId, wire),
+        desktopId,
+        message: wire,
+      },
+      service.subscribers
+    );
   }
 
   #require(desktopId) {
@@ -89,8 +96,9 @@ export class DesktopServiceRegistry {
 
   async #discard(instance, reason) {
     if (typeof instance?.dispose !== 'function') return;
-    try { await instance.dispose(reason); }
-    catch (error) {
+    try {
+      await instance.dispose(reason);
+    } catch (error) {
       this.#log(`desktop service dispose failed: ${error?.message || error}`);
     }
   }
@@ -103,8 +111,11 @@ export class DesktopServiceRegistry {
     }
     const requestedModule = String(moduleUrl || '').trim();
     let parsed;
-    try { parsed = new URL(requestedModule); }
-    catch { throw new TypeError('desktop service moduleUrl is invalid'); }
+    try {
+      parsed = new URL(requestedModule);
+    } catch {
+      throw new TypeError('desktop service moduleUrl is invalid');
+    }
     if (parsed.protocol !== 'file:') {
       throw new TypeError('desktop service moduleUrl must be a file URL');
     }
@@ -136,11 +147,12 @@ export class DesktopServiceRegistry {
         },
         onClientCountChanged: () => {
           if (!ownsRecord()) return;
-          try { this.#onExternalClientsChanged(); } catch {}
+          try {
+            this.#onExternalClientsChanged();
+          } catch {}
         },
       });
-      if (!instance || typeof instance.invoke !== 'function'
-        || typeof instance.control !== 'function') {
+      if (!instance || typeof instance.invoke !== 'function' || typeof instance.control !== 'function') {
         await this.#discard(instance, 'desktop service adapter is invalid');
         throw new TypeError('desktop service adapter is invalid');
       }
@@ -185,10 +197,7 @@ export class DesktopServiceRegistry {
     if (token) service.subscribers.add(token);
     const name = String(method || '');
     if (!name) throw new TypeError('desktop service method is required');
-    return sanitizeForWire(await service.instance.invoke(
-      name,
-      Array.isArray(args) ? args : [],
-    )) ?? null;
+    return sanitizeForWire(await service.instance.invoke(name, Array.isArray(args) ? args : [])) ?? null;
   }
 
   async control({ desktopId, message } = {}, ctx = null) {

@@ -4,7 +4,13 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { SETUP_ACTIONS, SETUP_BUILTIN_TOGGLE_FEATURES, SETUP_OPEN_TARGETS, SETUP_STATUS_DOMAINS, SETUP_TOOL_DEFS } from './tool-defs.mjs';
+import {
+  SETUP_ACTIONS,
+  SETUP_BUILTIN_TOGGLE_FEATURES,
+  SETUP_OPEN_TARGETS,
+  SETUP_STATUS_DOMAINS,
+  SETUP_TOOL_DEFS,
+} from './tool-defs.mjs';
 import { createSetupToolExecutor } from './executor.mjs';
 import { createNotificationBus } from '../notification-bus.mjs';
 import { resolveTuiRuntimeNotificationDelivery } from '../../tui/session/notification-plan.mjs';
@@ -35,7 +41,7 @@ test('every open target is a slash command in both TUI and Desktop tables', () =
   const tuiNames = new Set(TUI_SLASH_COMMANDS.flatMap((cmd) => [cmd.name, ...(cmd.aliases || [])]));
   const desktopSource = fs.readFileSync(
     path.join(repoRoot, 'apps', 'desktop', 'src', 'renderer', 'slash-commands.ts'),
-    'utf8',
+    'utf8'
   );
   for (const target of SETUP_OPEN_TARGETS) {
     assert.ok(tuiNames.has(target), `TUI slash table lacks /${target}`);
@@ -48,12 +54,17 @@ test('open: attached UI handles the request -> opened:true; headless -> guidance
   const attached = createSetupToolExecutor({
     getApi: () => ({}),
     getSessionId: () => 'sess-1',
-    notifySessionUi: (sessionId, content, meta) => { sent.push({ sessionId, content, meta }); return true; },
+    notifySessionUi: (sessionId, content, meta) => {
+      sent.push({ sessionId, content, meta });
+      return true;
+    },
   });
   const opened = await run(attached, { action: 'open', target: 'providers' });
   assert.equal(opened.opened, true);
   assert.equal(opened.target, 'providers');
-  assert.deepEqual(sent, [{ sessionId: 'sess-1', content: 'Open /providers', meta: { kind: 'ui-open', command: 'providers' } }]);
+  assert.deepEqual(sent, [
+    { sessionId: 'sess-1', content: 'Open /providers', meta: { kind: 'ui-open', command: 'providers' } },
+  ]);
 
   const headless = createSetupToolExecutor({
     getApi: () => ({}),
@@ -74,13 +85,21 @@ test('open never enqueues into the model queue when no UI listener is attached',
   const enqueued = [];
   const bus = createNotificationBus({
     listeners: new Set(),
-    mgr: { enqueuePendingMessage(sessionId, message) { enqueued.push({ sessionId, message }); return 1; } },
+    mgr: {
+      enqueuePendingMessage(sessionId, message) {
+        enqueued.push({ sessionId, message });
+        return 1;
+      },
+    },
   });
   assert.equal(bus.notifySessionUi('sess-x', 'Open /providers', { kind: 'ui-open', command: 'providers' }), false);
   assert.equal(enqueued.length, 0);
 
   const seen = [];
-  bus.subscribeRuntimeNotification('sess-x', (event) => { seen.push(event); return true; });
+  bus.subscribeRuntimeNotification('sess-x', (event) => {
+    seen.push(event);
+    return true;
+  });
   assert.equal(bus.notifySessionUi('sess-x', 'Open /providers', { kind: 'ui-open', command: 'providers' }), true);
   assert.equal(seen.length, 1);
   assert.equal(seen[0].meta.command, 'providers');
@@ -89,11 +108,16 @@ test('open never enqueues into the model queue when no UI listener is attached',
 });
 
 test('notification plan routes ui-open meta to the UI and never to the model', () => {
-  const plan = resolveTuiRuntimeNotificationDelivery({ meta: { kind: 'ui-open', command: '/Providers' } }, 'Open /providers');
+  const plan = resolveTuiRuntimeNotificationDelivery(
+    { meta: { kind: 'ui-open', command: '/Providers' } },
+    'Open /providers'
+  );
   assert.equal(plan.action, 'ui-open');
   assert.equal(plan.command, 'providers');
   assert.equal(plan.modelContent, undefined);
-  assert.deepEqual(resolveTuiRuntimeNotificationDelivery({ meta: { kind: 'ui-open', command: '' } }, 'Open'), { action: 'ignore' });
+  assert.deepEqual(resolveTuiRuntimeNotificationDelivery({ meta: { kind: 'ui-open', command: '' } }, 'Open'), {
+    action: 'ignore',
+  });
 });
 
 test('status providers exposes connection state and key-console URL, never secrets', async () => {
@@ -103,10 +127,38 @@ test('status providers exposes connection state and key-console URL, never secre
         return {
           pendingSecrets: false,
           api: [
-            { id: 'openai', name: 'OpenAI', type: 'api', enabled: true, authenticated: false, url: 'https://platform.openai.com/api-keys', apiKey: 'sk-live', status: 'missing' },
-            { id: 'x', name: 'X', type: 'api', enabled: true, authenticated: true, env: true, envName: 'X_KEY', url: 'javascript:alert(1)' },
+            {
+              id: 'openai',
+              name: 'OpenAI',
+              type: 'api',
+              enabled: true,
+              authenticated: false,
+              url: 'https://platform.openai.com/api-keys',
+              apiKey: 'sk-live',
+              status: 'missing',
+            },
+            {
+              id: 'x',
+              name: 'X',
+              type: 'api',
+              enabled: true,
+              authenticated: true,
+              env: true,
+              envName: 'X_KEY',
+              url: 'javascript:alert(1)',
+            },
           ],
-          oauth: [{ id: 'anthropic', name: 'Anthropic', type: 'oauth', enabled: true, authenticated: true, accessToken: 't', refreshToken: 'r' }],
+          oauth: [
+            {
+              id: 'anthropic',
+              name: 'Anthropic',
+              type: 'oauth',
+              enabled: true,
+              authenticated: true,
+              accessToken: 't',
+              refreshToken: 'r',
+            },
+          ],
           local: [],
         };
       },
@@ -127,13 +179,34 @@ test('status providers exposes connection state and key-console URL, never secre
 test('mutations go through the runtime facade with validated input', async () => {
   const calls = [];
   const facade = {
-    async setRoute(route) { calls.push(['setRoute', route]); return { provider: 'openai', model: 'gpt', ...route }; },
-    async setAgentRoute(agent, route) { calls.push(['setAgentRoute', agent, route]); return route; },
-    async setBuiltinToolEnabled(name, enabled) { calls.push(['setBuiltinToolEnabled', name, enabled]); return { name, enabled }; },
-    async installBuiltinFeature(name) { calls.push(['installBuiltinFeature', name]); return { [name]: { enabled: true, installed: true } }; },
-    async setBridgeFirstUseApproval(name, enabled) { calls.push(['setBridgeFirstUseApproval', name, enabled]); return { name, firstUseApproval: enabled }; },
-    setCompactionSettings(next) { calls.push(['setCompactionSettings', next]); return next; },
-    async setDisabledSkills(list) { calls.push(['setDisabledSkills', list]); return { disabled: list }; },
+    async setRoute(route) {
+      calls.push(['setRoute', route]);
+      return { provider: 'openai', model: 'gpt', ...route };
+    },
+    async setAgentRoute(agent, route) {
+      calls.push(['setAgentRoute', agent, route]);
+      return route;
+    },
+    async setBuiltinToolEnabled(name, enabled) {
+      calls.push(['setBuiltinToolEnabled', name, enabled]);
+      return { name, enabled };
+    },
+    async installBuiltinFeature(name) {
+      calls.push(['installBuiltinFeature', name]);
+      return { [name]: { enabled: true, installed: true } };
+    },
+    async setBridgeFirstUseApproval(name, enabled) {
+      calls.push(['setBridgeFirstUseApproval', name, enabled]);
+      return { name, firstUseApproval: enabled };
+    },
+    setCompactionSettings(next) {
+      calls.push(['setCompactionSettings', next]);
+      return next;
+    },
+    async setDisabledSkills(list) {
+      calls.push(['setDisabledSkills', list]);
+      return { disabled: list };
+    },
   };
   const executor = createSetupToolExecutor({ getApi: () => facade, getSessionId: () => '' });
 
@@ -148,8 +221,14 @@ test('mutations go through the runtime facade with validated input', async () =>
   assert.deepEqual(calls[2], ['setBuiltinToolEnabled', 'office', false]);
   await run(executor, { action: 'set_builtin_enabled', name: 'localProvider', enabled: true });
   assert.deepEqual(calls[3], ['setBuiltinToolEnabled', 'localProvider', true]);
-  await assert.rejects(run(executor, { action: 'set_builtin_enabled', name: 'memory', enabled: true }), /name must be one of git, office, tidy, localProvider/);
-  await assert.rejects(run(executor, { action: 'set_builtin_enabled', name: 'git', enabled: 'yes' }), /enabled must be a boolean/);
+  await assert.rejects(
+    run(executor, { action: 'set_builtin_enabled', name: 'memory', enabled: true }),
+    /name must be one of git, office, tidy, localProvider/
+  );
+  await assert.rejects(
+    run(executor, { action: 'set_builtin_enabled', name: 'git', enabled: 'yes' }),
+    /enabled must be a boolean/
+  );
 
   await run(executor, { action: 'set_compaction', enabled: true });
   assert.deepEqual(calls[4], ['setCompactionSettings', { auto: true }]);
@@ -161,7 +240,7 @@ test('mutations go through the runtime facade with validated input', async () =>
   assert.deepEqual(calls[6], ['setBridgeFirstUseApproval', 'computer', false]);
   await assert.rejects(
     run(executor, { action: 'set_first_use_approval', name: 'office', enabled: false }),
-    /name must be one of browser, computer/,
+    /name must be one of browser, computer/
   );
 
   await assert.rejects(run(executor, { action: 'set_route', route: {} }), /at least one of/);
@@ -176,7 +255,7 @@ test('mutations go through the runtime facade with validated input', async () =>
   assert.deepEqual(calls.at(-1), ['setBuiltinToolEnabled', 'tidy', false]);
   await assert.rejects(
     run(executor, { action: 'install_builtin', name: 'shell' }),
-    /name must be one of git, memory, office, tidy, localProvider/,
+    /name must be one of git, memory, office, tidy, localProvider/
   );
   assert.ok(SETUP_BUILTIN_TOGGLE_FEATURES.includes('tidy'));
 });
@@ -189,7 +268,8 @@ test('mutations fail clearly before the runtime facade is assembled', async () =
 test('setup skill documents every tool action and open target', () => {
   const skillRoot = path.join(repoRoot, 'src', 'defaults', 'skills', 'setup');
   const skill = fs.readFileSync(path.join(skillRoot, 'SKILL.md'), 'utf8');
-  const references = fs.readdirSync(path.join(skillRoot, 'references'))
+  const references = fs
+    .readdirSync(path.join(skillRoot, 'references'))
     .filter((name) => name.endsWith('.md'))
     .map((name) => fs.readFileSync(path.join(skillRoot, 'references', name), 'utf8'));
   const documentation = [skill, ...references].join('\n');
@@ -199,8 +279,15 @@ test('setup skill documents every tool action and open target', () => {
     assert.ok(documentation.includes('`' + action + '`'), `setup docs do not document action ${action}`);
   }
   for (const target of SETUP_OPEN_TARGETS) {
-    assert.ok(new RegExp('(?<![\\w-])' + target + '(?![\\w-])').test(documentation), `setup docs do not list open target ${target}`);
+    assert.ok(
+      new RegExp('(?<![\\w-])' + target + '(?![\\w-])').test(documentation),
+      `setup docs do not list open target ${target}`
+    );
   }
   assert.match(documentation, /Extensions/);
-  assert.doesNotMatch(documentation, /Settings\s*→\s*(MCP|Skills|Plugins)\b/, 'MCP/Skills/Plugins live under Extensions, not Settings');
+  assert.doesNotMatch(
+    documentation,
+    /Settings\s*→\s*(MCP|Skills|Plugins)\b/,
+    'MCP/Skills/Plugins live under Extensions, not Settings'
+  );
 });

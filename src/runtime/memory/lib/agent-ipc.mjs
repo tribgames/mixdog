@@ -6,120 +6,137 @@
  * daemon. Calls use its authenticated loopback broker, so the memory process
  * can outlive its original fork parent and reconnect after a daemon restart.
  */
-import http from 'node:http'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { resolveRuntimeRoot } from '../../shared/runtime-root.mjs'
-import { isPidAlive } from '../../shared/pid-liveness.mjs'
+import http from 'node:http';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { resolveRuntimeRoot } from '../../shared/runtime-root.mjs';
+import { isPidAlive } from '../../shared/pid-liveness.mjs';
 
 const brokerAgent = new http.Agent({
   keepAlive: true,
   maxSockets: 64,
   maxFreeSockets: 8,
-})
-let _idSeq = 0
+});
+let _idSeq = 0;
 
 function nextCallId() {
-  _idSeq += 1
-  return `mem-${process.pid}-${Date.now()}-${_idSeq}`
+  _idSeq += 1;
+  return `mem-${process.pid}-${Date.now()}-${_idSeq}`;
 }
 
 function runtimeRoot() {
-  return resolveRuntimeRoot()
+  return resolveRuntimeRoot();
 }
 
 function readBrokerDiscovery() {
   try {
-    const raw = JSON.parse(readFileSync(join(runtimeRoot(), 'daemon.json'), 'utf8'))
-    const endpoint = raw?.endpoints?.channel
-    const port = Number(endpoint?.port)
+    const raw = JSON.parse(readFileSync(join(runtimeRoot(), 'daemon.json'), 'utf8'));
+    const endpoint = raw?.endpoints?.channel;
+    const port = Number(endpoint?.port);
     if (!Number.isInteger(port) || port <= 0 || port >= 65536 || !endpoint?.token || !isPidAlive(raw?.pid)) {
-      return null
+      return null;
     }
-    return { port, token: String(endpoint.token) }
+    return { port, token: String(endpoint.token) };
   } catch {
-    return null
+    return null;
   }
 }
 
 function abortError(signal) {
   return signal?.reason instanceof Error
     ? signal.reason
-    : new Error(String(signal?.reason || 'agent broker request canceled'))
+    : new Error(String(signal?.reason || 'agent broker request canceled'));
 }
 
 function requestBroker(discovery, path, body, { timeoutMs, signal = null } = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
-    const payload = JSON.stringify(body || {})
-    let settled = false
-    let req = null
+    const payload = JSON.stringify(body || {});
+    let settled = false;
+    let req = null;
     const finish = (fn, value) => {
-      if (settled) return
-      settled = true
-      clearTimeout(deadline)
-      try { signal?.removeEventListener?.('abort', onAbort) } catch {}
-      fn(value)
-    }
-    const reject = (error) => finish(
-      rejectPromise,
-      error instanceof Error ? error : new Error(String(error)),
-    )
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      try {
+        signal?.removeEventListener?.('abort', onAbort);
+      } catch {}
+      fn(value);
+    };
+    const reject = (error) => finish(rejectPromise, error instanceof Error ? error : new Error(String(error)));
     const onAbort = () => {
-      const error = abortError(signal)
-      try { req?.destroy?.(error) } catch {}
-      reject(error)
-    }
+      const error = abortError(signal);
+      try {
+        req?.destroy?.(error);
+      } catch {}
+      reject(error);
+    };
     const deadline = setTimeout(() => {
-      const error = new Error(`agent broker request timed out after ${timeoutMs}ms`)
-      try { req?.destroy?.(error) } catch {}
-      reject(error)
-    }, timeoutMs)
-    deadline.unref?.()
+      const error = new Error(`agent broker request timed out after ${timeoutMs}ms`);
+      try {
+        req?.destroy?.(error);
+      } catch {}
+      reject(error);
+    }, timeoutMs);
+    deadline.unref?.();
     if (signal?.aborted) {
-      onAbort()
-      return
+      onAbort();
+      return;
     }
-    try { signal?.addEventListener?.('abort', onAbort, { once: true }) } catch {}
-    req = http.request({
-      hostname: '127.0.0.1',
-      port: discovery.port,
-      path,
-      method: 'POST',
-      agent: brokerAgent,
-      headers: {
-        'X-Mixdog-Daemon-Token': discovery.token,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload),
+    try {
+      signal?.addEventListener?.('abort', onAbort, { once: true });
+    } catch {}
+    req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port: discovery.port,
+        path,
+        method: 'POST',
+        agent: brokerAgent,
+        headers: {
+          'X-Mixdog-Daemon-Token': discovery.token,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        },
       },
-    }, (res) => {
-      let data = ''
-      res.setEncoding('utf8')
-      res.on('data', (chunk) => { data += chunk })
-      res.on('error', reject)
-      res.on('end', () => {
-        let parsed = null
-        try { parsed = data ? JSON.parse(data) : null } catch {}
-        if ((res.statusCode || 0) >= 400) {
-          reject(new Error(parsed?.error || data || `HTTP ${res.statusCode}`))
-          return
-        }
-        if (parsed?.ok === false) {
-          reject(new Error(parsed.error || 'agent broker dispatch failed'))
-          return
-        }
-        finish(resolvePromise, parsed)
-      })
-    })
-    req.on('error', reject)
-    req.write(payload)
-    req.end()
-  })
+      (res) => {
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('error', reject);
+        res.on('end', () => {
+          let parsed = null;
+          try {
+            parsed = data ? JSON.parse(data) : null;
+          } catch {}
+          if ((res.statusCode || 0) >= 400) {
+            reject(new Error(parsed?.error || data || `HTTP ${res.statusCode}`));
+            return;
+          }
+          if (parsed?.ok === false) {
+            reject(new Error(parsed.error || 'agent broker dispatch failed'));
+            return;
+          }
+          finish(resolvePromise, parsed);
+        });
+      }
+    );
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
 }
 
 function cancelBrokerCall(discovery, callId, reason) {
-  return requestBroker(discovery, '/agent/cancel', { callId, reason }, {
-    timeoutMs: 1500,
-  }).catch(() => {})
+  return requestBroker(
+    discovery,
+    '/agent/cancel',
+    { callId, reason },
+    {
+      timeoutMs: 1500,
+    }
+  ).catch(() => {});
 }
 
 /**
@@ -136,32 +153,37 @@ function cancelBrokerCall(discovery, callId, reason) {
  * @returns {Promise<string>}      raw assistant content
  */
 export async function callAgentDispatch(opts = {}, prompt) {
-  const discovery = readBrokerDiscovery()
+  const discovery = readBrokerDiscovery();
   if (!discovery) {
-    throw new Error('agent-broker: daemon unavailable')
+    throw new Error('agent-broker: daemon unavailable');
   }
-  const callId = nextCallId()
-  const timeoutMs = Math.max(1000, Number(opts.timeout ?? 600000))
+  const callId = nextCallId();
+  const timeoutMs = Math.max(1000, Number(opts.timeout ?? 600000));
   try {
-    const response = await requestBroker(discovery, '/agent/dispatch', {
-      callId,
-      params: {
-        agent: opts.agent || null,
-        taskType: opts.taskType || null,
-        mode: opts.mode || null,
-        preset: opts.preset || null,
-        cwd: opts.cwd || null,
-        prompt: String(prompt ?? ''),
-        timeout: timeoutMs,
+    const response = await requestBroker(
+      discovery,
+      '/agent/dispatch',
+      {
+        callId,
+        params: {
+          agent: opts.agent || null,
+          taskType: opts.taskType || null,
+          mode: opts.mode || null,
+          preset: opts.preset || null,
+          cwd: opts.cwd || null,
+          prompt: String(prompt ?? ''),
+          timeout: timeoutMs,
+        },
       },
-    }, {
-      // Small transport grace after the dispatch's own timeout/watchdog.
-      timeoutMs: timeoutMs + 5000,
-      signal: opts.signal || null,
-    })
-    return String(response?.result ?? '')
+      {
+        // Small transport grace after the dispatch's own timeout/watchdog.
+        timeoutMs: timeoutMs + 5000,
+        signal: opts.signal || null,
+      }
+    );
+    return String(response?.result ?? '');
   } catch (error) {
-    await cancelBrokerCall(discovery, callId, error?.message || 'agent broker request failed')
-    throw error
+    await cancelBrokerCall(discovery, callId, error?.message || 'agent broker request failed');
+    throw error;
   }
 }

@@ -27,15 +27,19 @@ const DEFAULT_BACKGROUND_ENV = {
 // on this tree ~1.5s of constants against ~0.4s of actual runtime work, so a
 // wall-clock budget fails on a busy machine while a genuinely slower runtime
 // still fits. Keep `maxMs` as the loose guard against a hung spawn.
-function runCase(name, args, {
-  env = {},
-  input = null,
-  expectStdout = null,
-  expectStderr = null,
-  maxMs = THRESHOLD_MS,
-  maxWorkMs = null,
-  workPattern = null,
-} = {}) {
+function runCase(
+  name,
+  args,
+  {
+    env = {},
+    input = null,
+    expectStdout = null,
+    expectStderr = null,
+    maxMs = THRESHOLD_MS,
+    maxWorkMs = null,
+    workPattern = null,
+  } = {}
+) {
   const startedAt = performance.now();
   const result = spawnSync(process.execPath, args, {
     cwd: root,
@@ -66,7 +70,9 @@ function runCase(name, args, {
     throw new Error(`${name} did not report a measured work time:\n${stdout.slice(0, 1000)}`);
   }
   if (workMs > maxWorkMs) {
-    throw new Error(`${name} runtime work exceeded ${maxWorkMs}ms (${workMs.toFixed(1)}ms, spawn wall ${ms.toFixed(1)}ms)`);
+    throw new Error(
+      `${name} runtime work exceeded ${maxWorkMs}ms (${workMs.toFixed(1)}ms, spawn wall ${ms.toFixed(1)}ms)`
+    );
   }
   return { name, ms: Math.round(ms * 10) / 10, workMs: Math.round(workMs * 10) / 10 };
 }
@@ -75,11 +81,20 @@ const rows = [
   runCase('help', ['src/cli.mjs', '--help'], {
     expectStdout: 'standalone mixdog CLI/TUI coding agent',
   }),
-  runCase('tui_import', ['--input-type=module', '-e', `
+  runCase('tui_import', [
+    '--input-type=module',
+    '-e',
+    `
     const mod = await import('./src/tui/dist/index.mjs');
     if (typeof mod.runTui !== 'function') throw new Error('runTui export missing');
-  `]),
-  runCase('runtime_tools', ['--input-type=module', '-e', `
+  `,
+  ]),
+  runCase(
+    'runtime_tools',
+    [
+      '--input-type=module',
+      '-e',
+      `
     const mod = await import('./src/mixdog-session-runtime.mjs');
     if (typeof mod.createMixdogSessionRuntime !== 'function') throw new Error('runtime export missing');
     const runtime = await mod.createMixdogSessionRuntime({ toolMode: 'full' });
@@ -116,10 +131,13 @@ const rows = [
     } finally {
       await runtime.close('runtime-tools-smoke', { waitForExit: false });
     }
-  `], {
-    env: FAST_BACKGROUND_ENV,
-    expectStdout: 'runtime_tools active=',
-  }),
+  `,
+    ],
+    {
+      env: FAST_BACKGROUND_ENV,
+      expectStdout: 'runtime_tools active=',
+    }
+  ),
   runCase('boot_profile', ['src/cli.mjs', '--help'], {
     env: { MIXDOG_BOOT_PROFILE: '1' },
     expectStdout: 'standalone mixdog CLI/TUI coding agent',
@@ -130,7 +148,12 @@ const rows = [
     input: '/quit\n',
     expectStdout: 'bye.',
   }),
-  runCase('runtime_idle_exit', ['--input-type=module', '-e', `
+  runCase(
+    'runtime_idle_exit',
+    [
+      '--input-type=module',
+      '-e',
+      `
     const bootStartedAt = performance.now();
     const { createMixdogSessionRuntime } = await import('./src/mixdog-session-runtime.mjs');
     const runtime = await createMixdogSessionRuntime({ toolMode: 'full' });
@@ -140,14 +163,22 @@ const rows = [
     await runtime.close('runtime-idle-exit-smoke', { waitForExit: false });
     const closeMs = performance.now() - startedAt;
     console.log('runtime_idle_exit work_ms=' + (bootMs + closeMs).toFixed(1) + ' boot_ms=' + bootMs.toFixed(1) + ' close_ms=' + closeMs.toFixed(1));
-  `], {
-    env: { ...DEFAULT_BACKGROUND_ENV, MIXDOG_BOOT_PROFILE: '1' },
-    expectStdout: 'runtime_idle_exit work_ms=',
-    expectStderr: 'runtime:prewarm-deferred',
-    maxWorkMs: 1_000,
-    workPattern: /runtime_idle_exit work_ms=([\d.]+)/,
-  }),
-  runCase('runtime_idle_exit_provider_optin', ['--input-type=module', '-e', `
+  `,
+    ],
+    {
+      env: { ...DEFAULT_BACKGROUND_ENV, MIXDOG_BOOT_PROFILE: '1' },
+      expectStdout: 'runtime_idle_exit work_ms=',
+      expectStderr: 'runtime:prewarm-deferred',
+      maxWorkMs: 1_000,
+      workPattern: /runtime_idle_exit work_ms=([\d.]+)/,
+    }
+  ),
+  runCase(
+    'runtime_idle_exit_provider_optin',
+    [
+      '--input-type=module',
+      '-e',
+      `
     const bootStartedAt = performance.now();
     const { createMixdogSessionRuntime } = await import('./src/mixdog-session-runtime.mjs');
     const runtime = await createMixdogSessionRuntime({ toolMode: 'full' });
@@ -157,18 +188,21 @@ const rows = [
     await runtime.close('runtime-provider-optin-exit-smoke', { waitForExit: false });
     const closeMs = performance.now() - startedAt;
     console.log('runtime_idle_exit_provider_optin ok work_ms=' + (bootMs + closeMs).toFixed(1));
-  `], {
-    env: {
-      ...DEFAULT_BACKGROUND_ENV,
-      MIXDOG_BOOT_PROFILE: '1',
-      MIXDOG_ENABLE_PROVIDER_WARMUP: '1',
-      MIXDOG_PROVIDER_WARMUP_DELAY_MS: '100',
-    },
-    expectStdout: 'runtime_idle_exit_provider_optin ok',
-    expectStderr: 'providers:warm-deferred',
-    maxWorkMs: 1_000,
-    workPattern: /runtime_idle_exit_provider_optin ok work_ms=([\d.]+)/,
-  }),
+  `,
+    ],
+    {
+      env: {
+        ...DEFAULT_BACKGROUND_ENV,
+        MIXDOG_BOOT_PROFILE: '1',
+        MIXDOG_ENABLE_PROVIDER_WARMUP: '1',
+        MIXDOG_PROVIDER_WARMUP_DELAY_MS: '100',
+      },
+      expectStdout: 'runtime_idle_exit_provider_optin ok',
+      expectStderr: 'providers:warm-deferred',
+      maxWorkMs: 1_000,
+      workPattern: /runtime_idle_exit_provider_optin ok work_ms=([\d.]+)/,
+    }
+  ),
 ];
 
 for (const row of rows) {

@@ -4,7 +4,14 @@
 // slash dispatcher instantiate here in one scope, preserving the original
 // order and the lazy-getter forward references between them.
 import { createThemeEffortPickers, themeNotice } from './theme-effort-pickers.mjs';
-import { clean, formatSessionMessageCount, formatSessionUpdatedAt, modelSwitchNotice, workflowDisplayName, workflowSwitchNotice } from './app-format.mjs';
+import {
+  clean,
+  formatSessionMessageCount,
+  formatSessionUpdatedAt,
+  modelSwitchNotice,
+  workflowDisplayName,
+  workflowSwitchNotice,
+} from './app-format.mjs';
 import { createResumePicker } from './resume-picker.mjs';
 import { createCoreMemoryPicker } from './core-memory-picker.mjs';
 import { parseMemoryCommand, parseMemoryCoreRows } from './input-parsers.mjs';
@@ -100,11 +107,7 @@ export function createAppPickers({
     getDisabledSkills: () => disabledSkills,
     setDisabledSkills,
   });
-  const {
-    openUpdatePicker,
-    openAutoClearPicker,
-    openProfilePicker,
-  } = createMaintenancePickers({
+  const { openUpdatePicker, openAutoClearPicker, openProfilePicker } = createMaintenancePickers({
     store,
     theme,
     formatDuration,
@@ -151,12 +154,7 @@ export function createAppPickers({
     modelSwitchNotice,
     openProviderSetupPicker,
   });
-  const {
-    openWebSearchPicker,
-    openAgentsPicker,
-    openWorkflowPicker,
-    openOutputStylePicker,
-  } = createRoutePickers({
+  const { openWebSearchPicker, openAgentsPicker, openWorkflowPicker, openOutputStylePicker } = createRoutePickers({
     store,
     state,
     surface,

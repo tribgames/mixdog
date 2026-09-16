@@ -5,13 +5,19 @@ import { createComputerExecutionPolicy } from './execution-policy.ts';
 
 const target = { id: 'hwnd:0x1', pid: 42, app: 'fixture', title: 'fixture' };
 const candidate = () => ({
-  version: 1, actions: ['capture'], windows: [target].map(({ id, pid }) => ({ id, pid })),
-  launchTargets: [], allowElevatedInput: false, expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  version: 1,
+  actions: ['capture'],
+  windows: [target].map(({ id, pid }) => ({ id, pid })),
+  launchTargets: [],
+  allowElevatedInput: false,
+  expiresAt: new Date(Date.now() + 60_000).toISOString(),
 });
 
 test('an in-process authorization gates dispatch, checks the current process, keeps host restrictions and never persists', async () => {
   let finish;
-  const stopped = new Promise((resolve) => { finish = resolve; });
+  const stopped = new Promise((resolve) => {
+    finish = resolve;
+  });
   const base = createComputerExecutionPolicy({ ...candidate(), actions: ['capture', 'list'] });
   const options = { base, stop: () => stopped, windows: async () => [target] };
   const settings = createComputerAuthorizationSettings(options);
@@ -40,15 +46,26 @@ test('an in-process authorization gates dispatch, checks the current process, ke
 
 test('without an authorization the launch policy alone applies; invalid and expired candidates fail closed without stopping work', async () => {
   let stops = 0;
-  const options = { base: createComputerExecutionPolicy(), stop: async () => { stops++; }, windows: async () => [target] };
+  const options = {
+    base: createComputerExecutionPolicy(),
+    stop: async () => {
+      stops++;
+    },
+    windows: async () => [target],
+  };
   const settings = createComputerAuthorizationSettings(options);
   assert.equal(settings.policy.restricted, false);
   settings.policy.assertAction({ action: 'list_windows' });
   settings.policy.assertAction({ action: 'click', window_id: 'hwnd:0x9' });
-  for (const value of [undefined, null, {}, { ...candidate(), actions: ['anything'] },
+  for (const value of [
+    undefined,
+    null,
+    {},
+    { ...candidate(), actions: ['anything'] },
     { ...candidate(), expiresAt: new Date(0).toISOString() },
     { ...candidate(), launchTargets: Array.from({ length: 128 }, (_, index) => `C:\\${index}${'x'.repeat(1000)}`) },
-    { ...candidate(), expiresAt: new Date(Date.now() + 48 * 3600_000).toISOString() }]) {
+    { ...candidate(), expiresAt: new Date(Date.now() + 48 * 3600_000).toISOString() },
+  ]) {
     await assert.rejects(settings.update(value), /policy_invalid/);
   }
   assert.equal(stops, 0);

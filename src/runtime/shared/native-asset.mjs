@@ -6,15 +6,18 @@
 
 import { createHash } from 'node:crypto';
 import {
-  chmodSync, createReadStream, existsSync, mkdirSync,
-  readFileSync, readdirSync, renameSync, rmSync,
+  chmodSync,
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { readJsonSafe } from './json-file.mjs';
-import {
-  downloadToFileWithRetry,
-  MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
-} from './bounded-download.mjs';
+import { downloadToFileWithRetry, MAX_NATIVE_BINARY_DOWNLOAD_BYTES } from './bounded-download.mjs';
 
 export const RELEASE_DOWNLOAD_BASE = 'https://github.com/tribgames/mixdog/releases/download';
 
@@ -82,14 +85,17 @@ export async function fetchRemoteManifest(url, { fetch: fetchFn = fetch, label =
 }
 
 export function createBinaryDownloader({ name, label }) {
-  return (url, destPath) => downloadToFileWithRetry(url, destPath, {
-    maxBytes: MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
-    label: `${name} binary download`,
-    httpLabel: `${label} asset`,
-    onRetry: ({ attempt, delayMs, error }) => {
-      process.stderr.write(`${label} download attempt ${attempt} failed (${error?.message}), retrying in ${delayMs}ms…\n`);
-    },
-  });
+  return (url, destPath) =>
+    downloadToFileWithRetry(url, destPath, {
+      maxBytes: MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
+      label: `${name} binary download`,
+      httpLabel: `${label} asset`,
+      onRetry: ({ attempt, delayMs, error }) => {
+        process.stderr.write(
+          `${label} download attempt ${attempt} failed (${error?.message}), retrying in ${delayMs}ms…\n`
+        );
+      },
+    });
 }
 
 // Remove stale binaries + tmp files sharing `prefix`, keeping the active one.
@@ -98,10 +104,16 @@ export function gcBinaryDir(dir, { keep, prefix }) {
     for (const name of readdirSync(dir)) {
       if (name === 'manifest.json' || name === keep) continue;
       if (name.startsWith(prefix)) {
-        try { rmSync(join(dir, name), { force: true }); } catch { /* best-effort */ }
+        try {
+          rmSync(join(dir, name), { force: true });
+        } catch {
+          /* best-effort */
+        }
       }
     }
-  } catch { /* dir may not exist yet */ }
+  } catch {
+    /* dir may not exist yet */
+  }
 }
 
 // Sync, network-free lookup of an already-installed binary.
@@ -122,17 +134,31 @@ export async function installVerifiedBinary({ dir, fileName, asset, download, la
   const destPath = join(dir, fileName);
   const expected = String(asset.sha256).toLowerCase();
   if (existsSync(destPath)) {
-    try { if (await sha256File(destPath) === expected) return destPath; } catch { /* re-download */ }
+    try {
+      if ((await sha256File(destPath)) === expected) return destPath;
+    } catch {
+      /* re-download */
+    }
   }
   const tmpPath = `${destPath}.tmp-${process.pid}-${Date.now()}`;
   await download(asset.url, tmpPath);
   const actual = await sha256File(tmpPath);
   if (actual !== expected) {
-    try { rmSync(tmpPath, { force: true }); } catch { /* best-effort */ }
+    try {
+      rmSync(tmpPath, { force: true });
+    } catch {
+      /* best-effort */
+    }
     throw new Error(`${label} sha256 mismatch for ${pkey}: expected ${asset.sha256}, got ${actual}`);
   }
   renameSync(tmpPath, destPath);
-  if (process.platform !== 'win32') { try { chmodSync(destPath, 0o755); } catch { /* best-effort */ } }
+  if (process.platform !== 'win32') {
+    try {
+      chmodSync(destPath, 0o755);
+    } catch {
+      /* best-effort */
+    }
+  }
   gcBinaryDir(dir, { keep: fileName, prefix: gcPrefix });
   return destPath;
 }
@@ -142,7 +168,11 @@ export function singleFlight(task) {
   let inflight = null;
   return (...args) => {
     if (inflight) return inflight;
-    inflight = Promise.resolve().then(() => task(...args)).finally(() => { inflight = null; });
+    inflight = Promise.resolve()
+      .then(() => task(...args))
+      .finally(() => {
+        inflight = null;
+      });
     return inflight;
   };
 }

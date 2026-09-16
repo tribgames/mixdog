@@ -1,16 +1,16 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
-import React, { act } from "react";
-import { createRoot } from "react-dom/client";
-import { JSDOM } from "jsdom";
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM("<!doctype html><html><body><main></main></body></html>", {
-  url: "https://mixdog.test/",
+const dom = new JSDOM('<!doctype html><html><body><main></main></body></html>', {
+  url: 'https://mixdog.test/',
 });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
-Object.defineProperty(globalThis, "navigator", {
+Object.defineProperty(globalThis, 'navigator', {
   configurable: true,
   value: dom.window.navigator,
 });
@@ -23,41 +23,41 @@ const {
   setRemoteConnectionState,
   shouldRunRemoteHeartbeat,
   subscribeRemoteConnectionState,
-} = await import("./remote-connection-state.ts");
-const { RemoteConnectionBanner } = await import("./RemoteConnectionBanner.tsx");
+} = await import('./remote-connection-state.ts');
+const { RemoteConnectionBanner } = await import('./RemoteConnectionBanner.tsx');
 
-test("the mobile heartbeat runs only while the page is foregrounded", () => {
-  assert.equal(shouldRunRemoteHeartbeat("visible"), true);
-  assert.equal(shouldRunRemoteHeartbeat("hidden"), false);
-  assert.equal(shouldRunRemoteHeartbeat("prerender"), false);
+test('the mobile heartbeat runs only while the page is foregrounded', () => {
+  assert.equal(shouldRunRemoteHeartbeat('visible'), true);
+  assert.equal(shouldRunRemoteHeartbeat('hidden'), false);
+  assert.equal(shouldRunRemoteHeartbeat('prerender'), false);
 });
 
-test("remote connection state publishes every lifecycle transition", () => {
+test('remote connection state publishes every lifecycle transition', () => {
   const states = [];
   const unsubscribe = subscribeRemoteConnectionState(() => {
     states.push(currentRemoteConnectionState());
   });
   try {
-    setRemoteConnectionState("connecting");
-    setRemoteConnectionState("connected");
-    setRemoteConnectionState("reconnecting");
+    setRemoteConnectionState('connecting');
+    setRemoteConnectionState('connected');
+    setRemoteConnectionState('reconnecting');
     clearRemoteConnectionState();
   } finally {
     unsubscribe();
   }
-  assert.deepEqual(states, ["connecting", "connected", "reconnecting", null]);
+  assert.deepEqual(states, ['connecting', 'connected', 'reconnecting', null]);
 });
 
-test("a transient disconnect carries no user-facing wording", () => {
+test('a transient disconnect carries no user-facing wording', () => {
   const error = remoteConnectionInterruptedError();
-  assert.equal(error.name, "RemoteConnectionInterruptedError");
-  assert.equal(error.code, "MIXDOG_REMOTE_CONNECTION_INTERRUPTED");
-  assert.equal(error.message, "");
+  assert.equal(error.name, 'RemoteConnectionInterruptedError');
+  assert.equal(error.code, 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED');
+  assert.equal(error.message, '');
 });
 
-test("only a reconnect past the threshold blocks the surface, and it says nothing", async () => {
+test('only a reconnect past the threshold blocks the surface, and it says nothing', async () => {
   clearRemoteConnectionState();
-  const mount = document.querySelector("main");
+  const mount = document.querySelector('main');
   const root = createRoot(mount);
   // The threshold timer is the whole contract here, so it is driven by hand
   // instead of waiting out ten real seconds.
@@ -83,37 +83,37 @@ test("only a reconnect past the threshold blocks the surface, and it says nothin
     await act(async () => {
       root.render(React.createElement(RemoteConnectionBanner));
     });
-    assert.equal(document.querySelector(".remote-connection-overlay"), null);
+    assert.equal(document.querySelector('.remote-connection-overlay'), null);
 
     // A short gap — every background return costs one — stays invisible.
     await act(async () => {
-      setRemoteConnectionState("reconnecting");
+      setRemoteConnectionState('reconnecting');
     });
-    assert.equal(document.querySelector(".remote-connection-overlay"), null);
+    assert.equal(document.querySelector('.remote-connection-overlay'), null);
     assert.ok(pendingDisconnect);
 
     // Recovering inside the window cancels the countdown instead of banking it.
     await act(async () => {
-      setRemoteConnectionState("connected");
+      setRemoteConnectionState('connected');
     });
     assert.equal(pendingDisconnect, null);
-    assert.equal(document.querySelector(".remote-connection-overlay"), null);
+    assert.equal(document.querySelector('.remote-connection-overlay'), null);
 
     await act(async () => {
-      setRemoteConnectionState("reconnecting");
+      setRemoteConnectionState('reconnecting');
     });
     await act(async () => {
       pendingDisconnect?.();
     });
-    const overlay = document.querySelector(".remote-connection-overlay");
+    const overlay = document.querySelector('.remote-connection-overlay');
     assert.ok(overlay);
-    assert.equal(overlay.textContent, "");
-    assert.equal(overlay.getAttribute("aria-label"), "Retry");
+    assert.equal(overlay.textContent, '');
+    assert.equal(overlay.getAttribute('aria-label'), 'Retry');
 
     await act(async () => {
-      setRemoteConnectionState("connected");
+      setRemoteConnectionState('connected');
     });
-    assert.equal(document.querySelector(".remote-connection-overlay"), null);
+    assert.equal(document.querySelector('.remote-connection-overlay'), null);
   } finally {
     window.setTimeout = realSetTimeout;
     window.clearTimeout = realClearTimeout;

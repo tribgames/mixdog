@@ -9,7 +9,10 @@ export const CODE_GRAPH_MAX_FILES = 10_000;
 export const CODE_GRAPH_FAST_PATH_MAX_BYTES = 8 * 1024 * 1024;
 export const CODE_GRAPH_WORKER_TIMEOUT_MS = 120_000;
 // Timeout for the native mixdog-graph binary child process (spawned per graph build).
-export const CODE_GRAPH_BINARY_TIMEOUT_MS = Math.max(1000, Number(process.env.MIXDOG_CODE_GRAPH_BINARY_TIMEOUT_MS) || 20000);
+export const CODE_GRAPH_BINARY_TIMEOUT_MS = Math.max(
+  1000,
+  Number(process.env.MIXDOG_CODE_GRAPH_BINARY_TIMEOUT_MS) || 20000
+);
 // Legacy single-file cache. Kept as a constant for the one-shot migration
 // path; new writes go into the per-cwd directory layout below.
 export const CODE_GRAPH_DISK_FILE = 'code-graph-cache.json';
@@ -21,7 +24,7 @@ export const CODE_GRAPH_DISK_DIR = 'code-graph-cache';
 export const CODE_GRAPH_DISK_MAX_ENTRIES = 24;
 export const CODE_GRAPH_DISK_MAX_BYTES = Math.max(
   1 * 1024 * 1024,
-  Math.floor((Number(process.env.MIXDOG_CODE_GRAPH_CACHE_MAX_MB) || 80) * 1024 * 1024),
+  Math.floor((Number(process.env.MIXDOG_CODE_GRAPH_CACHE_MAX_MB) || 80) * 1024 * 1024)
 );
 // Resident size of the in-memory mirror of those disk entries. The entry-count
 // cap above bounds the DISK set; it left MEMORY unbounded, because one indexed
@@ -30,7 +33,7 @@ export const CODE_GRAPH_DISK_MAX_BYTES = Math.max(
 // single JSON.parse on its next lookup.
 export const CODE_GRAPH_DISK_MEMORY_MAX_BYTES = Math.max(
   1 * 1024 * 1024,
-  Math.floor((Number(process.env.MIXDOG_CODE_GRAPH_DISK_MEMORY_MAX_MB) || 8) * 1024 * 1024),
+  Math.floor((Number(process.env.MIXDOG_CODE_GRAPH_DISK_MEMORY_MAX_MB) || 8) * 1024 * 1024)
 );
 // Reap writeFileAtomicSync debris only after this age (see _sweepCodeGraphCacheDir).
 // Younger .tmp files may belong to an in-flight persist still holding the sibling .lock;
@@ -45,14 +48,14 @@ export const RE_CALLS_CACHE_TMP = /^\.[0-9a-f]{16}\.calls\.json\.[0-9a-f]{24}\.t
 export const RE_CALLS_CACHE_LOCK = /^[0-9a-f]{16}\.calls\.json\.lock$/i;
 export const CODE_GRAPH_MEMORY_MAX_ENTRIES = Math.max(
   1,
-  Math.floor(Number(process.env.MIXDOG_CODE_GRAPH_MEMORY_MAX_ENTRIES) || 6),
+  Math.floor(Number(process.env.MIXDOG_CODE_GRAPH_MEMORY_MAX_ENTRIES) || 6)
 );
 // Total retained graph memory, including nodes, symbols, indexes and source
 // caches. The previous source-cache-only accounting left the much larger base
 // graph unbounded across the six-entry LRU.
 export const CODE_GRAPH_MEMORY_MAX_BYTES = Math.max(
   1 * 1024 * 1024,
-  Math.floor((Number(process.env.MIXDOG_CODE_GRAPH_MEMORY_MAX_MB) || 48) * 1024 * 1024),
+  Math.floor((Number(process.env.MIXDOG_CODE_GRAPH_MEMORY_MAX_MB) || 48) * 1024 * 1024)
 );
 // Bump when the per-symbol record SHAPE changes (e.g. adding endLine). The
 // version is folded into the cache signature so graphs built by an older
@@ -73,32 +76,75 @@ export const SYMBOL_SCHEMA_VERSION = 'sym-record-v2-unified-kinds';
 // contract, union, mixin, binding, arrow, generator, local-function, …) and no
 // language-specific special cases.
 export const SYMBOL_KINDS = new Set([
-  'module', 'namespace', 'package',
-  'class', 'struct', 'interface', 'trait', 'enum', 'enumMember',
-  'type', 'function', 'method', 'constructor',
-  'field', 'property', 'variable', 'constant',
-  'macro', 'event', 'protocol', 'impl',
+  'module',
+  'namespace',
+  'package',
+  'class',
+  'struct',
+  'interface',
+  'trait',
+  'enum',
+  'enumMember',
+  'type',
+  'function',
+  'method',
+  'constructor',
+  'field',
+  'property',
+  'variable',
+  'constant',
+  'macro',
+  'event',
+  'protocol',
+  'impl',
 ]);
 
 // Kinds whose outline children are MEMBERS of the symbol: `callees` of a type
 // reports what its methods call, and the outline nests those children under it.
 export const CONTAINER_SYMBOL_KINDS = new Set([
-  'module', 'namespace', 'package',
-  'class', 'struct', 'interface', 'trait', 'enum', 'protocol', 'impl',
+  'module',
+  'namespace',
+  'package',
+  'class',
+  'struct',
+  'interface',
+  'trait',
+  'enum',
+  'protocol',
+  'impl',
 ]);
 
 // Kinds that own a body a position can sit INSIDE — the enclosing-symbol
 // lookup prefers these over a container when both cover the same line.
-export const FUNCTION_LIKE_SYMBOL_KINDS = new Set([
-  'function', 'method', 'constructor',
-]);
+export const FUNCTION_LIKE_SYMBOL_KINDS = new Set(['function', 'method', 'constructor']);
 
 // Languages the native extractor emits `symbols`/`calls` for (`--langs`:
 // extract=true). A graph whose files are ALL outside this set legitimately has
 // no symbols; one INSIDE it with no symbols anywhere means the binary could not
 // extract, which is a capability failure, not an empty answer.
 export const EXTRACTION_SYMBOL_LANGS = new Set([
-  'javascript', 'typescript', 'python', 'go', 'rust', 'java', 'kotlin',
-  'csharp', 'ruby', 'php', 'swift', 'c', 'cpp', 'scala', 'bash', 'lua',
-  'dart', 'objc', 'elixir', 'zig', 'r', 'solidity', 'haskell', 'hcl',
+  'javascript',
+  'typescript',
+  'python',
+  'go',
+  'rust',
+  'java',
+  'kotlin',
+  'csharp',
+  'ruby',
+  'php',
+  'swift',
+  'c',
+  'cpp',
+  'scala',
+  'bash',
+  'lua',
+  'dart',
+  'objc',
+  'elixir',
+  'zig',
+  'r',
+  'solidity',
+  'haskell',
+  'hcl',
 ]);

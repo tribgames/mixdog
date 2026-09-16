@@ -58,11 +58,15 @@ async function runChild(mode, { onLease = () => {} } = {}) {
         },
       });
       const timer = setTimeout(() => {
-        try { child.kill(); } catch {}
+        try {
+          child.kill();
+        } catch {}
         reject(new Error('child spawn-lease probe timed out'));
       }, 20_000);
       let stderr = '';
-      child.stderr?.on('data', (chunk) => { stderr += String(chunk); });
+      child.stderr?.on('data', (chunk) => {
+        stderr += String(chunk);
+      });
       child.on('message', (message) => {
         if (message?.type === 'spawn-lease') {
           onLease(child, message);
@@ -70,7 +74,9 @@ async function runChild(mode, { onLease = () => {} } = {}) {
         }
         if (message?.type !== 'report') return;
         clearTimeout(timer);
-        try { child.kill(); } catch {}
+        try {
+          child.kill();
+        } catch {}
         resolve({ ...message.report, stderr });
       });
       child.on('error', reject);
@@ -100,15 +106,17 @@ test('a failed lease never latches a shard off the machine-wide budget', async (
     onLease: (child, message) => {
       leases += 1;
       // First lease fails the way a momentarily unreachable pool does.
-      child.send(leases === 1
-        ? {
-          type: 'spawn-lease-result',
-          leaseId: message.leaseId,
-          ok: false,
-          error: 'pool channel unavailable',
-          code: 'ELEASEFALLBACK',
-        }
-        : { type: 'spawn-lease-result', leaseId: message.leaseId, ok: true });
+      child.send(
+        leases === 1
+          ? {
+              type: 'spawn-lease-result',
+              leaseId: message.leaseId,
+              ok: false,
+              error: 'pool channel unavailable',
+              code: 'ELEASEFALLBACK',
+            }
+          : { type: 'spawn-lease-result', leaseId: message.leaseId, ok: true }
+      );
     },
   });
   assert.equal(report.enabled, true);

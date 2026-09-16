@@ -1,7 +1,7 @@
-import type { DesktopSessionSummary } from "../shared/contract";
-import { catalogStorageKey, catalogStorageScope } from "./catalog-storage-scope";
+import type { DesktopSessionSummary } from '../shared/contract';
+import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope';
 
-export const SESSION_CATALOG_STORAGE_KEY = "mixdog.desktop-session-catalog.v1";
+export const SESSION_CATALOG_STORAGE_KEY = 'mixdog.desktop-session-catalog.v1';
 const SESSION_CATALOG_LIMIT = 500;
 
 export interface CachedSessionCatalog {
@@ -11,7 +11,7 @@ export interface CachedSessionCatalog {
 }
 
 function text(value: unknown, limit: number): string {
-  return typeof value === "string" ? value.trim().slice(0, limit) : "";
+  return typeof value === 'string' ? value.trim().slice(0, limit) : '';
 }
 
 function finiteNumber(value: unknown, fallback = 0): number {
@@ -20,24 +20,20 @@ function finiteNumber(value: unknown, fallback = 0): number {
 }
 
 function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   const id = text(row.id, 256);
   if (!/^[A-Za-z0-9_-]+$/.test(id)) return null;
   const preview = text(row.preview, 1_024);
   const title = text(row.title, 1_024) || preview;
-  const classification: DesktopSessionSummary["classification"] =
-    row.classification === "project" ? "project" : "task";
+  const classification: DesktopSessionSummary['classification'] = row.classification === 'project' ? 'project' : 'task';
   const projectPath = text(row.projectPath, 32_768);
-  const sourceType = row.sourceType === "schedule" || row.sourceType === "webhook"
-    ? row.sourceType
-    : undefined;
+  const sourceType = row.sourceType === 'schedule' || row.sourceType === 'webhook' ? row.sourceType : undefined;
   const sourceName = text(row.sourceName, 1_024);
-  const sourceDelivery = row.sourceDelivery === "app"
-    || row.sourceDelivery === "channel"
-    || row.sourceDelivery === "both"
-    ? row.sourceDelivery
-    : undefined;
+  const sourceDelivery =
+    row.sourceDelivery === 'app' || row.sourceDelivery === 'channel' || row.sourceDelivery === 'both'
+      ? row.sourceDelivery
+      : undefined;
   const activityAt = finiteNumber(row.activityAt, Number.NaN);
 
   return {
@@ -60,9 +56,8 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
 }
 
 export function normalizeCachedSessionCatalog(value: unknown): CachedSessionCatalog {
-  const record = value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
+  const record =
+    value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
   if (record?.version !== 1) return { version: 1, updatedAt: 0, rows: [] };
   const rows: DesktopSessionSummary[] = [];
   const seen = new Set<string>();
@@ -82,7 +77,7 @@ export function normalizeCachedSessionCatalog(value: unknown): CachedSessionCata
 
 export function readCachedSessionCatalog(): DesktopSessionSummary[] {
   try {
-    const stored = JSON.parse(window.localStorage.getItem(catalogStorageKey(SESSION_CATALOG_STORAGE_KEY)) || "null");
+    const stored = JSON.parse(window.localStorage.getItem(catalogStorageKey(SESSION_CATALOG_STORAGE_KEY)) || 'null');
     return normalizeCachedSessionCatalog(stored).rows;
   } catch {
     return [];
@@ -124,6 +119,6 @@ export function flushCachedSessionCatalogWrite(): void {
   if (pending) writeCachedSessionCatalog(pending.rows, pending.scope);
 }
 
-if (typeof window !== "undefined") {
-  window.addEventListener("pagehide", flushCachedSessionCatalogWrite);
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushCachedSessionCatalogWrite);
 }

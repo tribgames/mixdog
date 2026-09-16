@@ -68,7 +68,12 @@ function base64urlEncode(data: Buffer): string {
 /** Accepts base64url and classic base64 alike: subscription JSON from a
  *  browser is base64url, but a hand-copied key can arrive padded. */
 function base64urlDecode(value: string): Buffer {
-  return Buffer.from(String(value || '').replace(/-/gu, '+').replace(/_/gu, '/'), 'base64');
+  return Buffer.from(
+    String(value || '')
+      .replace(/-/gu, '+')
+      .replace(/_/gu, '/'),
+    'base64'
+  );
 }
 
 function jwkCoordinate(jwk: Record<string, unknown>, name: 'x' | 'y'): Buffer {
@@ -82,11 +87,7 @@ function jwkCoordinate(jwk: Record<string, unknown>, name: 'x' | 'y'): Buffer {
 /** The uncompressed point form (0x04 ‖ X ‖ Y) every Web Push field uses. */
 function rawPublicKey(key: KeyObject): Buffer {
   const jwk = key.export({ format: 'jwk' }) as Record<string, unknown>;
-  return Buffer.concat([
-    Buffer.of(0x04),
-    jwkCoordinate(jwk, 'x'),
-    jwkCoordinate(jwk, 'y'),
-  ]);
+  return Buffer.concat([Buffer.of(0x04), jwkCoordinate(jwk, 'x'), jwkCoordinate(jwk, 'y')]);
 }
 
 function publicKeyFromRaw(raw: Buffer): KeyObject {
@@ -132,11 +133,15 @@ export function vapidAuthorizationHeader(input: {
   const audience = new URL(input.endpoint).origin;
   const issuedAt = Math.floor((input.nowMs ?? Date.now()) / 1000);
   const header = base64urlEncode(Buffer.from(JSON.stringify({ typ: 'JWT', alg: 'ES256' })));
-  const payload = base64urlEncode(Buffer.from(JSON.stringify({
-    aud: audience,
-    exp: issuedAt + VAPID_LIFETIME_SECONDS,
-    sub: input.subject,
-  })));
+  const payload = base64urlEncode(
+    Buffer.from(
+      JSON.stringify({
+        aud: audience,
+        exp: issuedAt + VAPID_LIFETIME_SECONDS,
+        sub: input.subject,
+      })
+    )
+  );
   const signingInput = Buffer.from(`${header}.${payload}`);
   // JWS wants the raw r‖s pair; Node's default DER encoding is rejected by
   // every push service with a bare 401.
@@ -153,7 +158,7 @@ export function vapidAuthorizationHeader(input: {
 export function encryptWebPushPayload(
   subscription: WebPushSubscription,
   plaintext: string | Buffer,
-  overrides?: { salt?: Buffer; localPrivateKey?: KeyObject; localPublicKey?: KeyObject },
+  overrides?: { salt?: Buffer; localPrivateKey?: KeyObject; localPublicKey?: KeyObject }
 ): Buffer {
   const body = Buffer.isBuffer(plaintext) ? plaintext : Buffer.from(plaintext, 'utf8');
   if (body.length > MAX_WEB_PUSH_PAYLOAD_BYTES) {
@@ -174,24 +179,10 @@ export function encryptWebPushPayload(
   const sharedSecret = diffieHellman({ privateKey: localPrivate, publicKey: userAgentPublic });
   // The key derivation is bound to BOTH public keys, so a payload encrypted
   // for one subscription cannot be replayed against another.
-  const keyInfo = Buffer.concat([
-    Buffer.from('WebPush: info\0', 'utf8'),
-    userAgentPublicRaw,
-    localPublicRaw,
-  ]);
+  const keyInfo = Buffer.concat([Buffer.from('WebPush: info\0', 'utf8'), userAgentPublicRaw, localPublicRaw]);
   const inputKeyMaterial = hkdf(authSecret, sharedSecret, keyInfo, 32);
-  const contentKey = hkdf(
-    salt,
-    inputKeyMaterial,
-    Buffer.from('Content-Encoding: aes128gcm\0', 'utf8'),
-    16,
-  );
-  const nonce = hkdf(
-    salt,
-    inputKeyMaterial,
-    Buffer.from('Content-Encoding: nonce\0', 'utf8'),
-    12,
-  );
+  const contentKey = hkdf(salt, inputKeyMaterial, Buffer.from('Content-Encoding: aes128gcm\0', 'utf8'), 16);
+  const nonce = hkdf(salt, inputKeyMaterial, Buffer.from('Content-Encoding: nonce\0', 'utf8'), 12);
   const cipher = createCipheriv('aes-128-gcm', contentKey, nonce);
   // 0x02 ends the padding of the LAST record; a lone record is always the last.
   const ciphertext = Buffer.concat([
@@ -201,13 +192,7 @@ export function encryptWebPushPayload(
   ]);
   const recordSize = Buffer.alloc(4);
   recordSize.writeUInt32BE(RECORD_SIZE, 0);
-  return Buffer.concat([
-    salt,
-    recordSize,
-    Buffer.of(localPublicRaw.length),
-    localPublicRaw,
-    ciphertext,
-  ]);
+  return Buffer.concat([salt, recordSize, Buffer.of(localPublicRaw.length), localPublicRaw, ciphertext]);
 }
 
 /** Post one encrypted notification. Network and protocol failures both resolve

@@ -15,11 +15,7 @@ import {
 import { isAbsolute, join, resolve } from 'node:path';
 import { clean } from './session-text.mjs';
 import { readJsonSafe } from './fs-utils.mjs';
-import {
-  pluginManifest,
-  pluginSkillsRoots,
-  resolveContainedPluginPath,
-} from '../runtime/shared/plugin-manifest.mjs';
+import { pluginManifest, pluginSkillsRoots, resolveContainedPluginPath } from '../runtime/shared/plugin-manifest.mjs';
 
 // Config keys must compare the same cwd spelling on read and write. Windows
 // paths are case-insensitive, so canonicalize their resolved form to lowercase.
@@ -40,13 +36,14 @@ export function readProjectMcpServers(cwd) {
   try {
     raw = JSON.parse(readFileSync(path, 'utf8'));
   } catch (error) {
-    process.stderr.write(`[mcp-client] Ignoring unparseable .mcp.json at ${path}: ${error?.message || String(error)}\n`);
+    process.stderr.write(
+      `[mcp-client] Ignoring unparseable .mcp.json at ${path}: ${error?.message || String(error)}\n`
+    );
     return {};
   }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-  const map = raw.mcpServers && typeof raw.mcpServers === 'object' && !Array.isArray(raw.mcpServers)
-    ? raw.mcpServers
-    : raw;
+  const map =
+    raw.mcpServers && typeof raw.mcpServers === 'object' && !Array.isArray(raw.mcpServers) ? raw.mcpServers : raw;
   if (!map || typeof map !== 'object' || Array.isArray(map)) return {};
   const out = {};
   for (const [name, cfg] of Object.entries(map)) {
@@ -103,7 +100,7 @@ function readProjectMcpDocument(cwd, allowMissing = false) {
     throw new Error(`cannot read ${path}: ${error?.message || String(error)}`);
   }
   if (!isPlainObject(raw)) throw new Error(`unexpected .mcp.json shape at ${path}`);
-  if (Object.prototype.hasOwnProperty.call(raw, 'mcpServers') && !isPlainObject(raw.mcpServers)) {
+  if (Object.hasOwn(raw, 'mcpServers') && !isPlainObject(raw.mcpServers)) {
     throw new Error(`unexpected .mcp.json shape at ${path}`);
   }
   const usesWrapper = isPlainObject(raw.mcpServers);
@@ -114,7 +111,11 @@ function readProjectMcpDocument(cwd, allowMissing = false) {
 
 function writeProjectMcpDocument(path, raw) {
   let mode = 0o644;
-  try { mode = statSync(path).mode; } catch { /* new file */ }
+  try {
+    mode = statSync(path).mode;
+  } catch {
+    /* new file */
+  }
   const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`;
   let fd = null;
   try {
@@ -127,9 +128,17 @@ function writeProjectMcpDocument(path, raw) {
     renameSync(tempPath, path);
   } catch (error) {
     if (fd !== null) {
-      try { closeSync(fd); } catch { /* best effort */ }
+      try {
+        closeSync(fd);
+      } catch {
+        /* best effort */
+      }
     }
-    try { unlinkSync(tempPath); } catch { /* best effort */ }
+    try {
+      unlinkSync(tempPath);
+    } catch {
+      /* best effort */
+    }
     throw error;
   }
 }
@@ -138,7 +147,7 @@ export function readProjectMcpServerConfig(cwd, name) {
   const { raw, usesWrapper } = readProjectMcpDocument(cwd);
   const map = usesWrapper ? raw.mcpServers : raw;
   const key = String(name || '').trim();
-  const entryKey = Object.prototype.hasOwnProperty.call(map, key)
+  const entryKey = Object.hasOwn(map, key)
     ? key
     : Object.keys(map).find((candidate) => String(candidate || '').trim() === key);
   return entryKey && isPlainObject(map[entryKey]) ? { name: entryKey, config: { ...map[entryKey] } } : null;
@@ -151,12 +160,12 @@ export function saveProjectMcpServer(cwd, { originalName = '', name, config }) {
   const original = String(originalName || '').trim();
   if (!target) throw new Error('MCP server name is required');
   const entryKey = original
-    ? (Object.prototype.hasOwnProperty.call(map, original)
+    ? Object.hasOwn(map, original)
       ? original
-      : Object.keys(map).find((candidate) => String(candidate || '').trim() === original))
+      : Object.keys(map).find((candidate) => String(candidate || '').trim() === original)
     : null;
   if (original && !entryKey) throw new Error(`MCP server not defined in ${path}: ${original}`);
-  if (target !== entryKey && Object.prototype.hasOwnProperty.call(map, target)) {
+  if (target !== entryKey && Object.hasOwn(map, target)) {
     throw new Error(`MCP server already exists in ${path}: ${target}`);
   }
   const existing = entryKey ? map[entryKey] : {};
@@ -205,7 +214,9 @@ export function countSkillFiles(root) {
         return;
       }
       if (st.isDirectory()) walk(skillsRoot);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   };
   for (const skillsRoot of pluginSkillsRoots(root)) countAt(skillsRoot);
   return count;
@@ -222,12 +233,7 @@ export function discoverPluginMcp(root) {
     const keys = Object.keys(mcp).filter((k) => isPlainObject(mcp[k]));
     if (keys.length) return { mcpScript: null, mcpInline: true };
   }
-  const candidates = [
-    '.mcp.json',
-    'scripts/run-mcp.mjs',
-    'mcp/server.mjs',
-    'server.mjs',
-  ];
+  const candidates = ['.mcp.json', 'scripts/run-mcp.mjs', 'mcp/server.mjs', 'server.mjs'];
   for (const rel of candidates) {
     const abs = resolveContainedPluginPath(root, rel);
     if (abs && existsSync(abs)) return { mcpScript: rel, mcpInline: false };
@@ -250,9 +256,7 @@ export function pluginMcpEnableScript(root, plugin = {}) {
 
 function substitutePluginRootTokens(value, root) {
   if (typeof value !== 'string') return value;
-  return value
-    .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, root)
-    .replace(/\$\{CODEX_PLUGIN_ROOT\}/g, root);
+  return value.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, root).replace(/\$\{CODEX_PLUGIN_ROOT\}/g, root);
 }
 
 function substitutePluginRootTokensDeep(value, root) {

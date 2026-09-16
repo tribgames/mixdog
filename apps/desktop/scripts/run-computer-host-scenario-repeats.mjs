@@ -4,10 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { optionValue } from './cli-args.mjs';
-import {
-  assertRepeatedScenariosPassed,
-  repeatRequiresPass,
-} from './computer-host-repeat-policy.mjs';
+import { assertRepeatedScenariosPassed, repeatRequiresPass } from './computer-host-repeat-policy.mjs';
 
 const argument = optionValue;
 
@@ -15,12 +12,10 @@ const repeatCount = Math.max(1, Number(argument('repeat')) || 10);
 const label = argument('label') || 'baseline';
 const initialDirectory = process.env.INIT_CWD || process.cwd();
 const output = resolve(
-  argument('output')
-    || join(initialDirectory, 'artifacts', 'computer-use', `scenario-repeat-${label}.json`),
+  argument('output') || join(initialDirectory, 'artifacts', 'computer-use', `scenario-repeat-${label}.json`)
 );
 const runDirectory = resolve(
-  argument('run-dir')
-    || join(initialDirectory, 'artifacts', 'computer-use', 'repeats', label),
+  argument('run-dir') || join(initialDirectory, 'artifacts', 'computer-use', 'repeats', label)
 );
 const requirePass = repeatRequiresPass();
 const only = argument('only');
@@ -59,9 +54,7 @@ const coreShards = [
     timeoutMs: 300_000,
   },
 ];
-const shards = only
-  ? [{ name: 'custom', only, timeoutMs: customTimeoutMs }]
-  : coreShards;
+const shards = only ? [{ name: 'custom', only, timeoutMs: customTimeoutMs }] : coreShards;
 
 function percentile(values, fraction) {
   if (!values.length) return 0;
@@ -104,21 +97,17 @@ for (let repeat = 1; repeat <= repeatCount; repeat += 1) {
     ]);
   }
   const repeatOutput = join(runDirectory, `${repeatLabel}.json`);
-  await runNode([
-    mergeRunner,
-    `--label=${repeatLabel}`,
-    `--output=${repeatOutput}`,
-    ...shardOutputs,
-  ]);
+  await runNode([mergeRunner, `--label=${repeatLabel}`, `--output=${repeatOutput}`, ...shardOutputs]);
   repeatReports.push(JSON.parse(await readFile(repeatOutput, 'utf8')));
   console.log(
-    `[${repeat}/${repeatCount}] ${repeatReports.at(-1).summary.passed}`
-      + `/${repeatReports.at(-1).summary.total} passed`,
+    `[${repeat}/${repeatCount}] ${repeatReports.at(-1).summary.passed}` +
+      `/${repeatReports.at(-1).summary.total} passed`
   );
 }
 
 const results = repeatReports.flatMap((report, repeatIndex) =>
-  report.results.map((result) => ({ repeat: repeatIndex + 1, ...result })));
+  report.results.map((result) => ({ repeat: repeatIndex + 1, ...result }))
+);
 const grouped = new Map();
 for (const result of results) {
   const group = grouped.get(result.id) || [];
@@ -138,17 +127,26 @@ const scenarioStats = [...grouped.entries()]
       skipped: group.filter((result) => result.status === 'skip').length,
       pass_rate: passed / group.length,
       false_positives: group.filter((result) => result.false_positive).length,
-      duration_p50_ms: percentile(group.map((result) => result.duration_ms), 0.5),
-      duration_p95_ms: percentile(group.map((result) => result.duration_ms), 0.95),
-      commands_p50: percentile(group.map((result) => result.commands), 0.5),
-      commands_p95: percentile(group.map((result) => result.commands), 0.95),
+      duration_p50_ms: percentile(
+        group.map((result) => result.duration_ms),
+        0.5
+      ),
+      duration_p95_ms: percentile(
+        group.map((result) => result.duration_ms),
+        0.95
+      ),
+      commands_p50: percentile(
+        group.map((result) => result.commands),
+        0.5
+      ),
+      commands_p95: percentile(
+        group.map((result) => result.commands),
+        0.95
+      ),
       commands_total: group.reduce((sum, result) => sum + result.commands, 0),
       observations_total: group.reduce((sum, result) => sum + result.observations, 0),
       mutations_total: group.reduce((sum, result) => sum + result.mutations, 0),
-      post_action_recaptures: group.reduce(
-        (sum, result) => sum + result.post_action_recaptures,
-        0,
-      ),
+      post_action_recaptures: group.reduce((sum, result) => sum + result.post_action_recaptures, 0),
       retries: group.reduce((sum, result) => sum + result.retries, 0),
     };
   });
@@ -204,18 +202,24 @@ const report = {
     skipped: results.filter((result) => result.status === 'skip').length,
     success_rate: results.length ? passed / results.length : 0,
     false_positives: results.filter((result) => result.false_positive).length,
-    flaky_scenarios: scenarioStats.filter(
-      (scenario) => scenario.failed > 0 || (scenario.passed > 0 && scenario.skipped > 0),
-    ).map((scenario) => scenario.id),
-    scenario_duration_p50_ms: percentile(results.map((result) => result.duration_ms), 0.5),
-    scenario_duration_p95_ms: percentile(results.map((result) => result.duration_ms), 0.95),
+    flaky_scenarios: scenarioStats
+      .filter((scenario) => scenario.failed > 0 || (scenario.passed > 0 && scenario.skipped > 0))
+      .map((scenario) => scenario.id),
+    scenario_duration_p50_ms: percentile(
+      results.map((result) => result.duration_ms),
+      0.5
+    ),
+    scenario_duration_p95_ms: percentile(
+      results.map((result) => result.duration_ms),
+      0.95
+    ),
     matrix_duration_p50_ms: percentile(
       repeatReports.map((reportItem) => reportItem.summary.duration_ms),
-      0.5,
+      0.5
     ),
     matrix_duration_p95_ms: percentile(
       repeatReports.map((reportItem) => reportItem.summary.duration_ms),
-      0.95,
+      0.95
     ),
     commands: sum('commands'),
     tool_calls: sum('commands') - sum('cleanup_commands'),
@@ -242,8 +246,8 @@ const report = {
 await mkdir(dirname(output), { recursive: true });
 await writeFile(output, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 console.log(
-  `Computer Use repeat matrix ${passed}/${results.length} passed;`
-    + ` p50=${report.summary.scenario_duration_p50_ms}ms`
-    + ` p95=${report.summary.scenario_duration_p95_ms}ms; ${output}`,
+  `Computer Use repeat matrix ${passed}/${results.length} passed;` +
+    ` p50=${report.summary.scenario_duration_p50_ms}ms` +
+    ` p95=${report.summary.scenario_duration_p95_ms}ms; ${output}`
 );
 assertRepeatedScenariosPassed(report.summary, requirePass);

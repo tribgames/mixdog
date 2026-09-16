@@ -70,14 +70,23 @@ function validateRangeMatrix(operation, area) {
   for (let index = 0; index < operation.values.length; index += 1) {
     const row = operation.values[index];
     if (!Array.isArray(row) || row.length !== area.columns) {
-      throw new Error(`XLSX set_range row ${index + 1} expected ${area.columns} value(s), received ${Array.isArray(row) ? row.length : 'a non-array'}`);
+      throw new Error(
+        `XLSX set_range row ${index + 1} expected ${area.columns} value(s), received ${Array.isArray(row) ? row.length : 'a non-array'}`
+      );
     }
   }
 }
 
 const PREFIXED_FUNCTIONS = Object.freeze(['TEXTJOIN', 'CONCAT', 'IFS', 'SWITCH', 'MAXIFS', 'MINIFS']);
 const SPILLING_FUNCTIONS = Object.freeze([
-  'XLOOKUP', 'XMATCH', 'SORTBY', 'SORT', 'FILTER', 'UNIQUE', 'SEQUENCE', 'RANDARRAY',
+  'XLOOKUP',
+  'XMATCH',
+  'SORTBY',
+  'SORT',
+  'FILTER',
+  'UNIQUE',
+  'SEQUENCE',
+  'RANDARRAY',
 ]);
 
 const SHEET_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_.]*$/;
@@ -94,32 +103,39 @@ function quoteSheetReferences(text, sheetNames) {
     .filter((name) => name && !SHEET_IDENTIFIER.test(name))
     .sort((left, right) => right.length - left.length);
   if (!names.length) return text;
-  return text.split(/("(?:[^"]|"")*")/).map((segment, index) => {
-    if (index % 2 === 1) return segment;
-    let output = segment;
-    for (const name of names) {
-      output = output.replace(
-        new RegExp(`(^|[^'A-Za-z0-9_.\\]])${escapeRegExp(name)}!`, 'g'),
-        (_match, lead) => `${lead}${quoteSheetName(name)}!`,
-      );
-    }
-    return output;
-  }).join('');
+  return text
+    .split(/("(?:[^"]|"")*")/)
+    .map((segment, index) => {
+      if (index % 2 === 1) return segment;
+      let output = segment;
+      for (const name of names) {
+        output = output.replace(
+          new RegExp(`(^|[^'A-Za-z0-9_.\\]])${escapeRegExp(name)}!`, 'g'),
+          (_match, lead) => `${lead}${quoteSheetName(name)}!`
+        );
+      }
+      return output;
+    })
+    .join('');
 }
 
 // Without a sheet list (Excel sessions): a multi-word token written straight
 // before `!` and a cell or range (`Data 2024!A1:A5`) can only be a sheet name
 // Excel would reject, so it is quoted. A token that starts with a cell
 // reference is left alone — `A1:C3 Sheet2!B2` is an intersection, not a name.
-const UNQUOTED_MULTIWORD_SHEET = /(^|[^'A-Za-z0-9_.!\]])([A-Za-z0-9_.]+(?: +[A-Za-z0-9_.]+)+)!(?=\$?[A-Z]{1,3}\$?\d|\$?[A-Z]{1,3}:|\$?\d+:)/gi;
+const UNQUOTED_MULTIWORD_SHEET =
+  /(^|[^'A-Za-z0-9_.!\]])([A-Za-z0-9_.]+(?: +[A-Za-z0-9_.]+)+)!(?=\$?[A-Z]{1,3}\$?\d|\$?[A-Z]{1,3}:|\$?\d+:)/gi;
 
 export function quoteUnquotedSheetReferences(formula) {
-  return String(formula ?? '').split(/("(?:[^"]|"")*")/).map((segment, index) => {
-    if (index % 2 === 1) return segment;
-    return segment.replace(UNQUOTED_MULTIWORD_SHEET, (match, lead, name) => (
-      /^[A-Z]{1,3}\d+(?:\s|$)/i.test(name) ? match : `${lead}${quoteSheetName(name)}!`
-    ));
-  }).join('');
+  return String(formula ?? '')
+    .split(/("(?:[^"]|"")*")/)
+    .map((segment, index) => {
+      if (index % 2 === 1) return segment;
+      return segment.replace(UNQUOTED_MULTIWORD_SHEET, (match, lead, name) =>
+        /^[A-Z]{1,3}\d+(?:\s|$)/i.test(name) ? match : `${lead}${quoteSheetName(name)}!`
+      );
+    })
+    .join('');
 }
 
 export function normalizeXlsxFormula(formula, { backend = '', sheetNames = null } = {}) {
@@ -128,12 +144,14 @@ export function normalizeXlsxFormula(formula, { backend = '', sheetNames = null 
   if (backend === 'mixdog-ooxml') {
     const spilling = new RegExp(`(?:^|[^A-Za-z0-9_.])(${SPILLING_FUNCTIONS.join('|')})\\s*\\(`, 'i').exec(text);
     if (spilling) {
-      throw new Error(`XLSX formula uses ${spilling[1].toUpperCase()}, which the portable recalculation engine cannot evaluate and would bake in as #NAME?; use INDEX/MATCH or precompute the values`);
+      throw new Error(
+        `XLSX formula uses ${spilling[1].toUpperCase()}, which the portable recalculation engine cannot evaluate and would bake in as #NAME?; use INDEX/MATCH or precompute the values`
+      );
     }
   }
   const prefixed = text.replace(
     new RegExp(`(^|[^A-Za-z0-9_.])(${PREFIXED_FUNCTIONS.join('|')})\\s*\\(`, 'gi'),
-    (_match, lead, name) => `${lead}_xlfn.${name.toUpperCase()}(`,
+    (_match, lead, name) => `${lead}_xlfn.${name.toUpperCase()}(`
   );
   return quoteUnquotedSheetReferences(quoteSheetReferences(prefixed, sheetNames));
 }
@@ -153,30 +171,43 @@ function splitSheetReference(text) {
 // rather than a stringified object in the error.
 function pivotValueFields(values) {
   const list = Array.isArray(values) ? values : values == null ? [] : [values];
-  return list.map((entry) => {
-    if (entry && typeof entry === 'object') {
-      const field = String(entry.field ?? entry.name ?? '').trim();
-      if (!field) {
-        throw new Error('XLSX add_pivot_table values entries need a field name: values:["매출"] or values:[{ field: "매출" }]');
+  return list
+    .map((entry) => {
+      if (entry && typeof entry === 'object') {
+        const field = String(entry.field ?? entry.name ?? '').trim();
+        if (!field) {
+          throw new Error(
+            'XLSX add_pivot_table values entries need a field name: values:["매출"] or values:[{ field: "매출" }]'
+          );
+        }
+        const aggregate = String(entry.function ?? entry.aggregation ?? 'sum')
+          .trim()
+          .toLowerCase();
+        if (aggregate !== 'sum') {
+          throw new Error(
+            `XLSX add_pivot_table totals its value fields; "${aggregate}" is not available. Precompute that column in the source range instead.`
+          );
+        }
+        return field;
       }
-      const aggregate = String(entry.function ?? entry.aggregation ?? 'sum').trim().toLowerCase();
-      if (aggregate !== 'sum') {
-        throw new Error(`XLSX add_pivot_table totals its value fields; "${aggregate}" is not available. Precompute that column in the source range instead.`);
-      }
-      return field;
-    }
-    return String(entry ?? '').trim();
-  }).filter(Boolean);
+      return String(entry ?? '').trim();
+    })
+    .filter(Boolean);
 }
 
 function normalizePivotFields(operation) {
-  for (const [field, owner] of [['source', 'sheet'], ['destination', 'destinationSheet']]) {
+  for (const [field, owner] of [
+    ['source', 'sheet'],
+    ['destination', 'destinationSheet'],
+  ]) {
     if (operation[field] == null) continue;
     const { sheet, reference } = splitSheetReference(operation[field]);
     if (!sheet) continue;
     const declared = String(operation[owner] ?? '').trim();
     if (declared && declared !== sheet) {
-      throw new Error(`XLSX add_pivot_table ${field} names sheet "${sheet}" but ${owner} is "${declared}"; name the sheet once.`);
+      throw new Error(
+        `XLSX add_pivot_table ${field} names sheet "${sheet}" but ${owner} is "${declared}"; name the sheet once.`
+      );
     }
     operation[field] = reference;
     operation[owner] = sheet;
@@ -187,7 +218,9 @@ function normalizePivotFields(operation) {
 // A dropdown names its choices — "서울,부산" — or points at the cells holding
 // them; anything that compares, calls, or tests is a rule the sheet evaluates.
 export function listValidationFormula(formula1) {
-  const text = String(formula1 ?? '').trim().replace(/^=/, '');
+  const text = String(formula1 ?? '')
+    .trim()
+    .replace(/^=/, '');
   if (!text) return false;
   if (/^"[^"]*"$/.test(text)) return true;
   if (/^(?:'[^']+'!|[A-Za-z_][\w.]*!)?\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?$/.test(text)) return true;
@@ -217,7 +250,9 @@ export function conditionalFormatKind(operation) {
   if (!declared) return 'expression';
   const kind = CONDITIONAL_FORMAT_KINDS[declared.toLowerCase().replace(/[^a-z]/g, '')];
   if (!kind) {
-    throw new Error(`XLSX add_conditional_format type must be expression, colorScale, or dataBar; received "${declared}".`);
+    throw new Error(
+      `XLSX add_conditional_format type must be expression, colorScale, or dataBar; received "${declared}".`
+    );
   }
   return kind;
 }
@@ -241,7 +276,9 @@ export function validateXlsxOperations(operations) {
     }
     if (op === 'sort_range') {
       if (!operation.range) throw new Error('XLSX sort_range requires range');
-      const order = String(operation.order ?? '').trim().toLowerCase();
+      const order = String(operation.order ?? '')
+        .trim()
+        .toLowerCase();
       if (order && !['asc', 'ascending', 'desc', 'descending'].includes(order)) {
         throw new Error(`XLSX sort_range order must be asc or desc; received "${operation.order}".`);
       }
@@ -250,10 +287,14 @@ export function validateXlsxOperations(operations) {
     if (op === 'add_conditional_format') {
       const kind = conditionalFormatKind(operation);
       if (kind === 'expression' && !String(operation.formula ?? '').trim()) {
-        throw new Error('XLSX add_conditional_format needs formula for a rule that picks cells, or type: \'colorScale\' / \'dataBar\' to shade every cell in the range by its value.');
+        throw new Error(
+          "XLSX add_conditional_format needs formula for a rule that picks cells, or type: 'colorScale' / 'dataBar' to shade every cell in the range by its value."
+        );
       }
       if (kind !== 'expression' && String(operation.formula ?? '').trim()) {
-        throw new Error(`XLSX add_conditional_format type: '${kind}' shades the range by value and takes no formula; drop formula, or use the default rule with it.`);
+        throw new Error(
+          `XLSX add_conditional_format type: '${kind}' shades the range by value and takes no formula; drop formula, or use the default rule with it.`
+        );
       }
       operation.type = kind;
     }
@@ -265,17 +306,18 @@ export function validateXlsxOperations(operations) {
       operation.type = listValidationFormula(operation.formula1) ? 'list' : 'custom';
     }
     if (op === 'set_style' && operation.cell) parseXlsxCell(operation.cell);
-    if (operation.range && [
-      'set_range',
-      'set_style',
-      'add_table',
-      'add_chart',
-      'add_conditional_format',
-      'add_validation',
-    ].includes(op)) {
+    if (
+      operation.range &&
+      ['set_range', 'set_style', 'add_table', 'add_chart', 'add_conditional_format', 'add_validation'].includes(op)
+    ) {
       // A chart's source may be several areas joined by commas, the way Excel's
       // Range("A7:A12,D7:D12") reads them; each one is a bounded range.
-      const parts = op === 'add_chart' ? String(operation.range).split(',').map((part) => part.trim()) : [operation.range];
+      const parts =
+        op === 'add_chart'
+          ? String(operation.range)
+              .split(',')
+              .map((part) => part.trim())
+          : [operation.range];
       const area = parseXlsxRange(parts[0]);
       for (const part of parts.slice(1)) parseXlsxRange(part);
       if (op === 'set_range') validateRangeMatrix(operation, area);

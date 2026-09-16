@@ -2,13 +2,16 @@ import { finished } from 'node:stream/promises';
 
 // Read bounded JSON while accounting for an optional process-wide byte budget.
 // The caller chooses whether a rejected body is drained or its socket closed.
-export function readJsonRequestBody(req, {
-  maxBytes,
-  reserve,
-  release,
-  tooLargeMessage = `request body exceeds the ${maxBytes} byte limit`,
-  destroyOnLimit = false,
-} = {}) {
+export function readJsonRequestBody(
+  req,
+  {
+    maxBytes,
+    reserve,
+    release,
+    tooLargeMessage = `request body exceeds the ${maxBytes} byte limit`,
+    destroyOnLimit = false,
+  } = {}
+) {
   return new Promise((resolve, reject) => {
     let chunks = [];
     let total = 0;
@@ -24,7 +27,11 @@ export function readJsonRequestBody(req, {
       if (reserved > 0) {
         const bytes = reserved;
         reserved = 0;
-        try { release?.(bytes); } catch (releaseError) { error ??= releaseError; }
+        try {
+          release?.(bytes);
+        } catch (releaseError) {
+          error ??= releaseError;
+        }
       }
       if (error) reject(error);
       else resolve(value);
@@ -35,7 +42,9 @@ export function readJsonRequestBody(req, {
       error.statusCode = statusCode;
       settle(error);
       if (destroyOnLimit) {
-        try { req.destroy(); } catch {}
+        try {
+          req.destroy();
+        } catch {}
       } else {
         req.resume();
       }
@@ -76,14 +85,16 @@ export function readJsonRequestBody(req, {
     // Node owns terminal-event ordering, including streams already marked
     // destroyed whose error/close events have not been delivered yet.
     void finished(req, { readable: true, writable: false, cleanup: true }).then(
-      () => { if (!settled) onEnd(); },
-      (error) => settle(error),
+      () => {
+        if (!settled) onEnd();
+      },
+      (error) => settle(error)
     );
     if (req.destroyed || req.readableEnded) {
-      settle(req.errored || Object.assign(
-        new Error('request body closed before end'),
-        { code: 'ERR_STREAM_PREMATURE_CLOSE' },
-      ));
+      settle(
+        req.errored ||
+          Object.assign(new Error('request body closed before end'), { code: 'ERR_STREAM_PREMATURE_CLOSE' })
+      );
       return;
     }
     const contentLength = Number(req.headers?.['content-length']);

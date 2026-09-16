@@ -31,13 +31,8 @@ function _detectFromSourceCheckout() {
     // src/lib/mixdog-debug.cjs → repo root two levels up. Use module.filename
     // instead of __dirname so esbuild's ESM TUI bundle does not emit a free
     // __dirname identifier (ReferenceError in node ESM).
-    const moduleDir = module && module.filename
-      ? path.dirname(module.filename)
-      : process.cwd();
-    const roots = [
-      path.resolve(moduleDir, '..', '..'),
-      process.cwd(),
-    ];
+    const moduleDir = module && module.filename ? path.dirname(module.filename) : process.cwd();
+    const roots = [path.resolve(moduleDir, '..', '..'), process.cwd()];
     _cachedFromSource = roots.some((root) => fs.existsSync(path.join(root, '.git')));
   } catch {
     _cachedFromSource = false;
@@ -54,7 +49,9 @@ function _detectFromSourceCheckout() {
  *   5. default: from-source checkout → 'dev', else  → 'ship'
  */
 function resolveMixdogMode() {
-  const raw = String(process.env.MIXDOG_MODE || '').trim().toLowerCase();
+  const raw = String(process.env.MIXDOG_MODE || '')
+    .trim()
+    .toLowerCase();
   if (raw === 'dev' || raw === 'development' || raw === 'debug') return 'dev';
   if (raw === 'ship' || raw === 'shipping' || raw === 'prod' || raw === 'production') return 'ship';
   if (isTruthyEnv(process.env.MIXDOG_SHIP)) return 'ship';
@@ -126,13 +123,14 @@ function isStalePluginLogSibling(name) {
 function pruneStalePluginDataLogSiblings(
   dataDir,
   maxSiblings = DEFAULT_STALE_LOG_SIBLING_MAX,
-  minAgeMs = DEFAULT_STALE_LOG_MIN_AGE_MS,
+  minAgeMs = DEFAULT_STALE_LOG_MIN_AGE_MS
 ) {
   if (!dataDir || maxSiblings < 1) return { removed: 0, kept: 0 };
   const now = Date.now();
   let entries;
   try {
-    entries = fs.readdirSync(dataDir, { withFileTypes: true })
+    entries = fs
+      .readdirSync(dataDir, { withFileTypes: true })
       .filter((e) => e.isFile() && isStalePluginLogSibling(e.name));
   } catch {
     return { removed: 0, kept: 0 };
@@ -144,7 +142,9 @@ function pruneStalePluginDataLogSiblings(
       const st = fs.statSync(p);
       if (now - st.mtimeMs < minAgeMs) continue;
       candidates.push({ path: p, mtimeMs: st.mtimeMs });
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   }
   if (candidates.length <= maxSiblings) {
     return { removed: 0, kept: candidates.length };
@@ -156,7 +156,9 @@ function pruneStalePluginDataLogSiblings(
     try {
       fs.unlinkSync(candidates[i].path);
       removed++;
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   }
   return { removed, kept: candidates.length - removed };
 }
@@ -172,7 +174,9 @@ function rotateBoundedLog(filePath, maxBytes, keepBytes) {
       const buf = fs.readFileSync(filePath);
       fs.writeFileSync(filePath, buf.subarray(Math.max(0, buf.length - keepBytes)));
     }
-  } catch { /* missing file ok */ }
+  } catch {
+    /* missing file ok */
+  }
 }
 
 // Shared bound for unbounded per-writer plugin logs (tool-events,
@@ -191,7 +195,9 @@ function appendSessionStartCriticalLog(dataDir, line) {
     fs.mkdirSync(dataDir, { recursive: true });
     rotateBoundedLog(p, SESSION_START_CRITICAL_MAX_BYTES, SESSION_START_CRITICAL_KEEP_BYTES);
     fs.appendFileSync(p, line.endsWith('\n') ? line : `${line}\n`);
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
 }
 
 module.exports = {

@@ -21,17 +21,15 @@ import {
   toolAggregateDetailFallback,
   toolGroupedDisplayFallback,
 } from '../session/tool-result-text.mjs';
-import {
-  parseBackgroundTaskEnvelope,
-} from '../session/agent-envelope.mjs';
-import {
-  resolveTuiRuntimeNotificationDelivery,
-} from '../session/notification-plan.mjs';
+import { parseBackgroundTaskEnvelope } from '../session/agent-envelope.mjs';
+import { resolveTuiRuntimeNotificationDelivery } from '../session/notification-plan.mjs';
 
 export const TUI_DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_TUI_DEBUG || ''));
 export const tuiDebug = (msg) => {
   if (!TUI_DEBUG) return;
-  try { process.stderr.write(`[tui] ${msg}\n`); } catch {}
+  try {
+    process.stderr.write(`[tui] ${msg}\n`);
+  } catch {}
 };
 
 export let _idSeq = 0;
@@ -57,7 +55,10 @@ export function cleanupStaleTranscriptSpillDirs({
         const ownerPid = Number(/^mixdog-transcript-(\d+)-/.exec(entry.name)?.[1]);
         let pidAlive = false;
         if (ownerPid > 0) {
-          try { process.kill(ownerPid, 0); pidAlive = true; } catch {}
+          try {
+            process.kill(ownerPid, 0);
+            pidAlive = true;
+          } catch {}
         }
         if (!pidAlive) {
           rmSync(path, { recursive: true, force: true });
@@ -99,7 +100,7 @@ export function createTranscriptSpillBuffer({
     writeFileSync(
       join(tmpdir(), `mixdog-transcript-owner-${process.pid}.json`),
       JSON.stringify({ pid: process.pid, nonce: TRANSCRIPT_PROCESS_NONCE }),
-      'utf8',
+      'utf8'
     );
   } catch {}
   cleanupStaleTranscriptSpillDirs();
@@ -124,7 +125,9 @@ export function createTranscriptSpillBuffer({
       const timer = heartbeatTimers.get(directory);
       if (timer) clearInterval(timer);
       heartbeatTimers.delete(directory);
-      try { rmSync(directory, { recursive: true, force: true }); } catch {}
+      try {
+        rmSync(directory, { recursive: true, force: true });
+      } catch {}
     }
   };
   const ensureSpillDir = () => {
@@ -133,18 +136,20 @@ export function createTranscriptSpillBuffer({
     writeFileSync(
       join(root, `mixdog-transcript-owner-${process.pid}.json`),
       JSON.stringify({ pid: process.pid, nonce: TRANSCRIPT_PROCESS_NONCE }),
-      'utf8',
+      'utf8'
     );
     spillDir = mkdtempSync(join(root, `mixdog-transcript-${process.pid}-${TRANSCRIPT_PROCESS_NONCE}-`));
     writeFileSync(
       join(spillDir, 'owner.json'),
       JSON.stringify({ pid: process.pid, nonce: TRANSCRIPT_PROCESS_NONCE }),
-      'utf8',
+      'utf8'
     );
     const heartbeat = join(spillDir, 'heartbeat');
     writeFileSync(heartbeat, String(Date.now()), 'utf8');
     const heartbeatTimer = setInterval(() => {
-      try { writeFileSync(heartbeat, String(Date.now()), 'utf8'); } catch {}
+      try {
+        writeFileSync(heartbeat, String(Date.now()), 'utf8');
+      } catch {}
     }, TRANSCRIPT_SPILL_HEARTBEAT_MS);
     heartbeatTimer.unref?.();
     heartbeatTimers.set(spillDir, heartbeatTimer);
@@ -168,8 +173,20 @@ export function createTranscriptSpillBuffer({
       const worker = workerFactory(workerSource);
       spillWorker = worker;
       workerSpawnCount += 1;
-      worker.stdout?.on?.('data', (chunk) => { try { process.stderr.write(chunk); } catch { /* best-effort */ } });
-      worker.stderr?.on?.('data', (chunk) => { try { process.stderr.write(chunk); } catch { /* best-effort */ } });
+      worker.stdout?.on?.('data', (chunk) => {
+        try {
+          process.stderr.write(chunk);
+        } catch {
+          /* best-effort */
+        }
+      });
+      worker.stderr?.on?.('data', (chunk) => {
+        try {
+          process.stderr.write(chunk);
+        } catch {
+          /* best-effort */
+        }
+      });
       worker.on('message', (result) => {
         if (spillWorker !== worker || result?.id !== activeWrite?.id) return;
         finishWrite(result?.ok === true, result?.error);
@@ -181,7 +198,9 @@ export function createTranscriptSpillBuffer({
         const failed = activeWrite;
         activeWrite = null;
         spillWorker = null;
-        try { worker.terminate?.(); } catch {}
+        try {
+          worker.terminate?.();
+        } catch {}
         if (failed) retryOrPin(failed, error?.message);
         pumpWrites();
       };
@@ -214,7 +233,9 @@ export function createTranscriptSpillBuffer({
     }
     if (!warningEmitted) {
       warningEmitted = true;
-      try { onWarning(`transcript spill write failed; history pinned in memory (${error || 'unknown error'})`); } catch {}
+      try {
+        onWarning(`transcript spill write failed; history pinned in memory (${error || 'unknown error'})`);
+      } catch {}
     }
   };
   const finishWrite = (ok, error) => {
@@ -255,16 +276,21 @@ export function createTranscriptSpillBuffer({
       tempPath,
       items: activeWrite.pendingItems,
     });
-    activeWriteTimer = setTimeout(() => {
-      if (!activeWrite || spillWorker !== worker) return;
-      const failed = activeWrite;
-      activeWrite = null;
-      activeWriteTimer = null;
-      spillWorker = null;
-      try { worker.terminate?.(); } catch {}
-      retryOrPin(failed, `write timed out after ${writeTimeoutMs}ms`);
-      pumpWrites();
-    }, Math.max(1, Number(writeTimeoutMs) || 5000));
+    activeWriteTimer = setTimeout(
+      () => {
+        if (!activeWrite || spillWorker !== worker) return;
+        const failed = activeWrite;
+        activeWrite = null;
+        activeWriteTimer = null;
+        spillWorker = null;
+        try {
+          worker.terminate?.();
+        } catch {}
+        retryOrPin(failed, `write timed out after ${writeTimeoutMs}ms`);
+        pumpWrites();
+      },
+      Math.max(1, Number(writeTimeoutMs) || 5000)
+    );
     activeWriteTimer.unref?.();
   };
   const encode = (items) => {
@@ -283,8 +309,12 @@ export function createTranscriptSpillBuffer({
   };
   const decode = (record) => record.pendingItems || JSON.parse(readFileSync(record.path, 'utf8'));
   return {
-    get hasOlder() { return cursor == null ? pages.length > 0 : cursor > 0; },
-    get hasNewer() { return cursor != null; },
+    get hasOlder() {
+      return cursor == null ? pages.length > 0 : cursor > 0;
+    },
+    get hasNewer() {
+      return cursor != null;
+    },
     reset() {
       const retained = [...snapshots].some((snapshot) => snapshot.spillDir === spillDir);
       const oldPages = pages.splice(0);
@@ -346,17 +376,23 @@ export function createTranscriptSpillBuffer({
       activeWrite = null;
       if (activeWriteTimer) clearTimeout(activeWriteTimer);
       activeWriteTimer = null;
-      try { spillWorker?.terminate(); } catch {}
+      try {
+        spillWorker?.terminate();
+      } catch {}
       spillWorker = null;
     },
-    get workerCount() { return workerSpawnCount; },
+    get workerCount() {
+      return workerSpawnCount;
+    },
     get pendingWriteCount() {
       return writeQueue.length + (activeWrite ? 1 : 0);
     },
     get pinnedPageCount() {
       return pages.filter((page) => page.pinned).length;
     },
-    get disabled() { return spillDisabled; },
+    get disabled() {
+      return spillDisabled;
+    },
     capLive(items) {
       let live = Array.isArray(items) ? items : [];
       if (spillDisabled) return live;
@@ -371,9 +407,8 @@ export function createTranscriptSpillBuffer({
       if (nextCursor < 0) return null;
       cursor = nextCursor;
       const restored = decode(pages[cursor]);
-      const following = cursor + 1 < pages.length
-        ? decode(pages[cursor + 1])
-        : (Array.isArray(liveItems) ? liveItems : []);
+      const following =
+        cursor + 1 < pages.length ? decode(pages[cursor + 1]) : Array.isArray(liveItems) ? liveItems : [];
       return [...restored, ...following.slice(0, TRANSCRIPT_RESTORE_OVERLAP_ITEMS)];
     },
     restoreNewer(liveItems) {
@@ -385,9 +420,8 @@ export function createTranscriptSpillBuffer({
       }
       cursor = nextCursor;
       const restored = decode(pages[cursor]);
-      const following = cursor + 1 < pages.length
-        ? decode(pages[cursor + 1])
-        : (Array.isArray(liveItems) ? liveItems : []);
+      const following =
+        cursor + 1 < pages.length ? decode(pages[cursor + 1]) : Array.isArray(liveItems) ? liveItems : [];
       return [...restored, ...following.slice(0, TRANSCRIPT_RESTORE_OVERLAP_ITEMS)];
     },
   };
@@ -410,13 +444,7 @@ export { parseBackgroundTaskEnvelope };
 // so importers/tests keep resolving resolveTuiRuntimeNotificationDelivery from session-local.mjs.
 export { resolveTuiRuntimeNotificationDelivery };
 
-export function replaceSessionItemsState({
-  state,
-  items,
-  itemIndexById,
-  preserveStreamingTail = false,
-  extra = {},
-}) {
+export function replaceSessionItemsState({ state, items, itemIndexById, preserveStreamingTail = false, extra = {} }) {
   const nextItems = Array.isArray(items) ? items : [];
   itemIndexById.clear();
   for (let i = 0; i < nextItems.length; i++) {

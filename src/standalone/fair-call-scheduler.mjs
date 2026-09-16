@@ -12,9 +12,7 @@ function schedulerError(message, statusCode = 503) {
 }
 
 function abortError(signal, fallback = 'scheduled call canceled') {
-  return signal?.reason instanceof Error
-    ? signal.reason
-    : schedulerError(String(signal?.reason || fallback), 499);
+  return signal?.reason instanceof Error ? signal.reason : schedulerError(String(signal?.reason || fallback), 499);
 }
 
 /**
@@ -75,7 +73,9 @@ export function createFairCallScheduler({
 
   function detach(item) {
     if (!item?.onAbort || !item.signal) return;
-    try { item.signal.removeEventListener('abort', item.onAbort); } catch {}
+    try {
+      item.signal.removeEventListener('abort', item.onAbort);
+    } catch {}
     item.onAbort = null;
   }
 
@@ -98,10 +98,9 @@ export function createFairCallScheduler({
     const displaced = borrower.queue.pop();
     queued = Math.max(0, queued - 1);
     detach(displaced);
-    displaced.reject(schedulerError(
-      `${name} queue rebalanced for another client; retry after running work completes`,
-      503,
-    ));
+    displaced.reject(
+      schedulerError(`${name} queue rebalanced for another client; retry after running work completes`, 503)
+    );
     maybeDeleteGroup(borrower);
     return true;
   }
@@ -110,10 +109,7 @@ export function createFairCallScheduler({
     const contenders = queuedGroups(group);
     if (contenders.length <= 1) return maxQueued;
     const totalWeight = contenders.reduce((sum, candidate) => sum + candidate.weight, 0);
-    return Math.max(
-      ownerFloor,
-      Math.floor(maxQueued * group.weight / Math.max(1, totalWeight)),
-    );
+    return Math.max(ownerFloor, Math.floor((maxQueued * group.weight) / Math.max(1, totalWeight)));
   }
 
   function pickGroup() {
@@ -188,14 +184,12 @@ export function createFairCallScheduler({
           scheduleDispatch();
         });
     }
-    const hasCompetitor = queuedGroups(group).some((candidate) =>
-      candidate !== group && candidate.queue.length > 0);
+    const hasCompetitor = queuedGroups(group).some((candidate) => candidate !== group && candidate.queue.length > 0);
     if (hasCompetitor && group.queue.length >= fairQueueLimit(group)) {
       maybeDeleteGroup(group);
-      return Promise.reject(schedulerError(
-        `${name} client queue is full; retry after this client's running work completes`,
-        429,
-      ));
+      return Promise.reject(
+        schedulerError(`${name} client queue is full; retry after this client's running work completes`, 429)
+      );
     }
     if (queued >= maxQueued && !rejectBorrowedTail(group)) {
       maybeDeleteGroup(group);
@@ -267,7 +261,11 @@ export function createFairCallScheduler({
     enqueue,
     close,
     snapshot,
-    get active() { return active; },
-    get queued() { return queued; },
+    get active() {
+      return active;
+    },
+    get queued() {
+      return queued;
+    },
   };
 }

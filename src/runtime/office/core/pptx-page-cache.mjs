@@ -34,24 +34,31 @@ export async function pptxPageSignatures(path) {
     for (const match of rels.matchAll(/<Relationship\b([^>]+)\/?>/g)) {
       if (xmlAttribute(match[1], 'TargetMode') === 'External') continue;
       const target = xmlDecode(xmlAttribute(match[1], 'Target') || '');
-      const resolved = target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join(posix.dirname(slide.path), target));
+      const resolved = target.startsWith('/')
+        ? target.slice(1)
+        : posix.normalize(posix.join(posix.dirname(slide.path), target));
       if (slideParts.has(resolved)) linked.push(resolved);
     }
     links.set(slide.path, linked);
   }
-  return slides.filter((slide) => !hidden.has(slide.path)).map((slide, index) => {
-    const dependencies = new Set();
-    const visit = (path) => {
-      if (dependencies.has(path)) return;
-      dependencies.add(path);
-      for (const linked of links.get(path) || []) visit(linked);
-    };
-    visit(slide.path);
-    return {
-      page: index + 1, slideId: slide.id,
-      signature: digest(JSON.stringify([seed, index, [...dependencies].sort().map((path) => [path, locals.get(path)])])),
-    };
-  });
+  return slides
+    .filter((slide) => !hidden.has(slide.path))
+    .map((slide, index) => {
+      const dependencies = new Set();
+      const visit = (path) => {
+        if (dependencies.has(path)) return;
+        dependencies.add(path);
+        for (const linked of links.get(path) || []) visit(linked);
+      };
+      visit(slide.path);
+      return {
+        page: index + 1,
+        slideId: slide.id,
+        signature: digest(
+          JSON.stringify([seed, index, [...dependencies].sort().map((path) => [path, locals.get(path)])])
+        ),
+      };
+    });
 }
 
 export async function reusablePptxPages(cache, signatures, request) {
@@ -60,7 +67,11 @@ export async function reusablePptxPages(cache, signatures, request) {
   for (const entry of signatures) {
     const prior = cache.pages.find((page) => page.slideId === entry.slideId && page.signature === entry.signature);
     if (!prior?.image?.data || !prior.image.path) continue;
-    try { await access(prior.image.path); } catch { continue; }
+    try {
+      await access(prior.image.path);
+    } catch {
+      continue;
+    }
     images.set(entry.page, { ...structuredClone(prior.image), page: entry.page });
   }
   return images;
@@ -68,6 +79,15 @@ export async function reusablePptxPages(cache, signatures, request) {
 
 export function completePageCoverage(total, pages) {
   const reviewedPages = [...new Set(pages)].sort((a, b) => a - b);
-  const remainingPages = Array.from({ length: total }, (_, index) => index + 1).filter((page) => !reviewedPages.includes(page));
-  return { mode: 'pages', total, reviewed: reviewedPages.length, reviewedPages, remainingPages, complete: remainingPages.length === 0 };
+  const remainingPages = Array.from({ length: total }, (_, index) => index + 1).filter(
+    (page) => !reviewedPages.includes(page)
+  );
+  return {
+    mode: 'pages',
+    total,
+    reviewed: reviewedPages.length,
+    reviewedPages,
+    remainingPages,
+    complete: remainingPages.length === 0,
+  };
 }

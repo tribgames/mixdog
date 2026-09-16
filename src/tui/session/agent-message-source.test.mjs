@@ -5,18 +5,21 @@ import { mergeSteeringEntries } from '../../runtime/agent/orchestrator/session/l
 import { restoreTranscriptItems } from './session-api-ext.mjs';
 
 test('restored Agent transcript preserves Lead message attribution', () => {
-  const items = restoreTranscriptItems([
-    {
-      role: 'user',
-      content: 'Review this change.',
-      meta: { transcript: { at: 1, sender: 'lead' } },
-    },
-    {
-      role: 'user',
-      content: 'Please explain the result.',
-      meta: { transcript: { at: 2, sender: 'user' } },
-    },
-  ], { sessionId: 'sess_agent' });
+  const items = restoreTranscriptItems(
+    [
+      {
+        role: 'user',
+        content: 'Review this change.',
+        meta: { transcript: { at: 1, sender: 'lead' } },
+      },
+      {
+        role: 'user',
+        content: 'Please explain the result.',
+        meta: { transcript: { at: 2, sender: 'user' } },
+      },
+    ],
+    { sessionId: 'sess_agent' }
+  );
 
   assert.equal(items.length, 2);
   assert.equal(items[0].kind, 'user');
@@ -28,10 +31,12 @@ test('restored Agent transcript preserves Lead message attribution', () => {
 });
 
 test('busy Agent steering keeps User attribution metadata', () => {
-  const merged = mergeSteeringEntries([{
-    id: 'desktop-message',
-    content: 'Can you clarify?',
-    transcriptMeta: { sender: 'user' },
-  }]);
+  const merged = mergeSteeringEntries([
+    {
+      id: 'desktop-message',
+      content: 'Can you clarify?',
+      transcriptMeta: { sender: 'user' },
+    },
+  ]);
   assert.deepEqual(merged.transcriptMeta, { sender: 'user' });
 });

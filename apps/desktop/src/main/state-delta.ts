@@ -26,7 +26,7 @@ interface SessionStateRetentionStore {
 export function releaseHiddenSessionStateEntries(
   visibleSessionIds: ReadonlySet<string>,
   stores: readonly SessionStateRetentionStore[],
-  beforeRelease?: (sessionId: string) => void,
+  beforeRelease?: (sessionId: string) => void
 ): string[] {
   const retained = new Set<string>();
   for (const store of stores) {
@@ -47,7 +47,7 @@ export function releaseHiddenSessionStateEntries(
 export function shouldPublishSessionState(
   sessionId: string,
   snapshot: unknown,
-  visibleSessionIds: ReadonlySet<string>,
+  visibleSessionIds: ReadonlySet<string>
 ): boolean {
   return snapshot === null || visibleSessionIds.has(sessionId);
 }
@@ -82,18 +82,12 @@ interface StreamingTailPatch {
   tail?: unknown;
 }
 
-function carryStreamingTailEpoch(
-  source: Record<PropertyKey, unknown>,
-  target: Record<string, unknown>,
-): void {
+function carryStreamingTailEpoch(source: Record<PropertyKey, unknown>, target: Record<string, unknown>): void {
   const epoch = source[STREAMING_TAIL_TEXT_EPOCH];
   if (Number.isSafeInteger(epoch)) target[STREAMING_TAIL_WIRE_EPOCH] = epoch;
 }
 
-function restoreStreamingTailEpoch(
-  source: Record<string, unknown>,
-  target: Record<string | symbol, unknown>,
-): void {
+function restoreStreamingTailEpoch(source: Record<string, unknown>, target: Record<string | symbol, unknown>): void {
   const epoch = source[STREAMING_TAIL_WIRE_EPOCH];
   delete target[STREAMING_TAIL_WIRE_EPOCH];
   if (Number.isSafeInteger(epoch)) {
@@ -120,10 +114,7 @@ function sameSnapshotField(before: unknown, after: unknown): boolean {
 /** Item-by-item reuse. Transcript items are appended and settled in place, so
  *  an unchanged prefix is the norm, and its identity is exactly what the delta
  *  encoders read to mean "the receiver already holds this". */
-function reconcileProjectionItems(
-  before: readonly unknown[],
-  after: readonly unknown[],
-): readonly unknown[] {
+function reconcileProjectionItems(before: readonly unknown[], after: readonly unknown[]): readonly unknown[] {
   let reusedAll = before.length === after.length;
   const items = after.map((item, index) => {
     const prior = index < before.length ? before[index] : undefined;
@@ -165,7 +156,7 @@ export function reconcileSessionProjection<T>(previous: T, next: T): T {
     merged[key] = value;
     identical = false;
   }
-  return identical ? previous : merged as T;
+  return identical ? previous : (merged as T);
 }
 
 function snapshotFieldsFrom(record: Record<string, unknown>): Record<string, unknown> {
@@ -180,9 +171,7 @@ function snapshotFieldsFrom(record: Record<string, unknown>): Record<string, unk
 
 function streamingTailFrom(record: Record<string, unknown> | null): Record<string, unknown> | null {
   const value = record?.streamingTail;
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 /** Wire marker for the compact frame shape. A live streaming frame is mostly
@@ -209,9 +198,7 @@ export interface SnapshotDeltaEncoderOptions {
   compact?: boolean;
 }
 
-export function createSnapshotDeltaEncoder(
-  options: SnapshotDeltaEncoderOptions = {},
-): SnapshotDeltaEncoder {
+export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions = {}): SnapshotDeltaEncoder {
   const compact = options.compact === true;
   let sentItems: readonly unknown[] | null = null;
   let sentStreamingTail: Record<string, unknown> | null = null;
@@ -234,14 +221,14 @@ export function createSnapshotDeltaEncoder(
     reset,
     encode(snapshot: unknown): unknown {
       const record = snapshot as Record<string, unknown> | null;
-      const items = record && Array.isArray(record.items) ? record.items as unknown[] : null;
+      const items = record && Array.isArray(record.items) ? (record.items as unknown[]) : null;
       if (!record || !items) {
         reset();
         return snapshot;
       }
       const streamingTail = streamingTailFrom(record);
       const epochValue = (record as Record<PropertyKey, unknown>)[STREAMING_TAIL_TEXT_EPOCH];
-      const streamingTailEpoch = Number.isSafeInteger(epochValue) ? epochValue as number : null;
+      const streamingTailEpoch = Number.isSafeInteger(epochValue) ? (epochValue as number) : null;
       revision += 1;
       if (sentItems) {
         const base = revision - 1;
@@ -277,8 +264,7 @@ export function createSnapshotDeltaEncoder(
         const changed: Record<string, unknown> = {};
         const removed: string[] = [];
         for (const [key, value] of Object.entries(nextFields)) {
-          if (!Object.hasOwn(previousFields, key)
-            || !sameSnapshotField(previousFields[key], value)) {
+          if (!Object.hasOwn(previousFields, key) || !sameSnapshotField(previousFields[key], value)) {
             changed[key] = value;
           }
         }
@@ -304,16 +290,17 @@ export function createSnapshotDeltaEncoder(
           // it survives only in-process. Where it does not, one prefix compare
           // proves the same thing; refusing to prove it ships the entire
           // streamed text again on every frame of the turn.
-          const appendProven = streamingTailEpoch !== null
-            ? streamingTailEpoch === sentStreamingTailEpoch
-            : sentStreamingTailEpoch === null && nextText.startsWith(previousText);
+          const appendProven =
+            streamingTailEpoch !== null
+              ? streamingTailEpoch === sentStreamingTailEpoch
+              : sentStreamingTailEpoch === null && nextText.startsWith(previousText);
           if (
-            previousTail
-            && streamingTail
-            && previousTail.id != null
-            && previousTail.id === streamingTail.id
-            && appendProven
-            && nextText.length >= previousText.length
+            previousTail &&
+            streamingTail &&
+            previousTail.id != null &&
+            previousTail.id === streamingTail.id &&
+            appendProven &&
+            nextText.length >= previousText.length
           ) {
             const tail = { ...streamingTail };
             delete tail.text;
@@ -451,7 +438,7 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
         record = expandCompactWire(raw);
         if (Object.hasOwn(record, STREAMING_TAIL_WIRE_EPOCH)) {
           const value = record[STREAMING_TAIL_WIRE_EPOCH];
-          retainedEpoch = Number.isSafeInteger(value) ? value as number : null;
+          retainedEpoch = Number.isSafeInteger(value) ? (value as number) : null;
         } else if (retainedEpoch !== null) {
           record[STREAMING_TAIL_WIRE_EPOCH] = retainedEpoch;
         }
@@ -465,9 +452,7 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
         delete snapshot.__statePatch;
         if (Array.isArray(snapshot.items)) {
           items = snapshot.items;
-          revision = Number.isSafeInteger(record.__itemsRevision)
-            ? record.__itemsRevision as number
-            : null;
+          revision = Number.isSafeInteger(record.__itemsRevision) ? (record.__itemsRevision as number) : null;
         } else {
           items = [];
           revision = null;
@@ -477,7 +462,7 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
         // A full snapshot re-establishes the epoch that later compact frames
         // will omit while it stays unchanged.
         const epoch = record[STREAMING_TAIL_WIRE_EPOCH];
-        retainedEpoch = Number.isSafeInteger(epoch) ? epoch as number : null;
+        retainedEpoch = Number.isSafeInteger(epoch) ? (epoch as number) : null;
         restoreStreamingTailEpoch(record, snapshot);
         return { ok: true, snapshot };
       }
@@ -486,40 +471,34 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
       // it means an older peer inlined whole fields, so the two readings must
       // stay apart.
       const compactFrame = record.__v === COMPACT_WIRE_VERSION;
-      const patchPrefix = Object.hasOwn(patch, 'prefix')
-        ? patch.prefix
-        : (compactFrame ? items.length : undefined);
-      const patchAppend = Object.hasOwn(patch, 'append')
-        ? patch.append
-        : (compactFrame ? [] : undefined);
+      const patchPrefix = Object.hasOwn(patch, 'prefix') ? patch.prefix : compactFrame ? items.length : undefined;
+      const patchAppend = Object.hasOwn(patch, 'append') ? patch.append : compactFrame ? [] : undefined;
       if (
-        revision === null
-        || patch.base !== revision
-        || !Number.isSafeInteger(patch.revision)
-        || !Number.isSafeInteger(patchPrefix)
-        || (patchPrefix as number) < 0
-        || (patchPrefix as number) > items.length
-        || !Array.isArray(patchAppend)
-        || (statePatch != null && (
-          (!compactFrame && (
-            statePatch.base !== revision
-            || statePatch.revision !== patch.revision
-            || !statePatch.changed
-            || !Array.isArray(statePatch.removed)
-          ))
-          || (statePatch.changed !== undefined && (
-            typeof statePatch.changed !== 'object'
-            || statePatch.changed === null
-            || Array.isArray(statePatch.changed)
-          ))
-          || (statePatch.removed !== undefined && !Array.isArray(statePatch.removed))
-        ))
+        revision === null ||
+        patch.base !== revision ||
+        !Number.isSafeInteger(patch.revision) ||
+        !Number.isSafeInteger(patchPrefix) ||
+        (patchPrefix as number) < 0 ||
+        (patchPrefix as number) > items.length ||
+        !Array.isArray(patchAppend) ||
+        (statePatch != null &&
+          ((!compactFrame &&
+            (statePatch.base !== revision ||
+              statePatch.revision !== patch.revision ||
+              !statePatch.changed ||
+              !Array.isArray(statePatch.removed))) ||
+            (statePatch.changed !== undefined &&
+              (typeof statePatch.changed !== 'object' ||
+                statePatch.changed === null ||
+                Array.isArray(statePatch.changed))) ||
+            (statePatch.removed !== undefined && !Array.isArray(statePatch.removed))))
       ) {
         return { ok: false };
       }
-      const nextItems = (patchPrefix as number) !== items.length || patchAppend.length > 0
-        ? items.slice(0, patchPrefix as number).concat(patchAppend)
-        : items;
+      const nextItems =
+        (patchPrefix as number) !== items.length || patchAppend.length > 0
+          ? items.slice(0, patchPrefix as number).concat(patchAppend)
+          : items;
       let nextStateFields: Record<string, unknown>;
       if (statePatch) {
         nextStateFields = { ...stateFields };
@@ -550,23 +529,25 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
         // exactly the length of the text this decoder already holds.
         const tailPrefix = Object.hasOwn(tailPatch, 'prefix')
           ? tailPatch.prefix
-          : (compactFrame ? previousText.length : undefined);
+          : compactFrame
+            ? previousText.length
+            : undefined;
         if (
-          !streamingTail
-          || !tail
-          || typeof tail !== 'object'
-          || Array.isArray(tail)
-          || streamingTail.id == null
-          || streamingTail.id !== (tail as Record<string, unknown>).id
-          || !Number.isSafeInteger(tailPrefix)
-          || (tailPrefix as number) < 0
-          || (tailPrefix as number) > previousText.length
-          || typeof tailPatch.append !== 'string'
+          !streamingTail ||
+          !tail ||
+          typeof tail !== 'object' ||
+          Array.isArray(tail) ||
+          streamingTail.id == null ||
+          streamingTail.id !== (tail as Record<string, unknown>).id ||
+          !Number.isSafeInteger(tailPrefix) ||
+          (tailPrefix as number) < 0 ||
+          (tailPrefix as number) > previousText.length ||
+          typeof tailPatch.append !== 'string'
         ) {
           return { ok: false };
         }
         nextStreamingTail = {
-          ...tail as Record<string, unknown>,
+          ...(tail as Record<string, unknown>),
           text: previousText.slice(0, tailPrefix as number) + tailPatch.append,
         };
       } else if (Object.hasOwn(record, 'streamingTail')) {

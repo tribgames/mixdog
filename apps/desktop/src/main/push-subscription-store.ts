@@ -44,7 +44,10 @@ const MAX_SUBSCRIPTIONS = 32;
 const MAX_LABEL_CHARS = 60;
 
 function sanitizeText(value: unknown, limit: number): string {
-  return String(value ?? '').replace(/\s+/gu, ' ').trim().slice(0, limit);
+  return String(value ?? '')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, limit);
 }
 
 /** Only a real https push endpoint is accepted: this desktop POSTs to whatever
@@ -79,12 +82,11 @@ function readStored(text: string | null): PushFileShape {
   if (!text) return empty;
   try {
     const parsed = JSON.parse(text) as Partial<PushFileShape>;
-    const keys = parsed?.keys && typeof parsed.keys.publicKey === 'string'
-      ? parsed.keys as WebPushKeys
-      : null;
+    const keys = parsed?.keys && typeof parsed.keys.publicKey === 'string' ? (parsed.keys as WebPushKeys) : null;
     const subscriptions = Array.isArray(parsed?.subscriptions)
       ? parsed.subscriptions.filter((entry): entry is StoredPushSubscription =>
-        Boolean(entry && typeof entry.endpoint === 'string' && typeof entry.p256dh === 'string'))
+          Boolean(entry && typeof entry.endpoint === 'string' && typeof entry.p256dh === 'string')
+        )
       : [];
     return { version: 1, keys, subscriptions: subscriptions.slice(0, MAX_SUBSCRIPTIONS) };
   } catch {
@@ -132,8 +134,9 @@ export function createPushSubscriptionStore(userDataPath: string): PushSubscript
       };
       // Re-subscribing replaces the old row: a browser may rotate its endpoint
       // at any time, and the stale one would keep failing until it expired.
-      const kept = current.subscriptions.filter((row) => row.endpoint !== endpoint
-        && !(entry.clientId && row.clientId === entry.clientId));
+      const kept = current.subscriptions.filter(
+        (row) => row.endpoint !== endpoint && !(entry.clientId && row.clientId === entry.clientId)
+      );
       const subscriptions = [...kept, entry].slice(-MAX_SUBSCRIPTIONS);
       await persist({ ...current, subscriptions });
       return entry;

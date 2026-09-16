@@ -22,21 +22,15 @@ import { traceHash, stableTraceStringify } from './trace-utils.mjs';
 // Opener strings (lowercased) used only for partial-tail hold detection —
 // so a sentinel split across text_delta chunk boundaries is still caught.
 const OPENERS = [
-    '<function_calls',
-    '<invoke',
-    '<function',            // Gemma-style; name= is gated at match time
+  '<function_calls',
+  '<invoke',
+  '<function', // Gemma-style; name= is gated at match time
 ];
 // OpenAI harmony / gpt-oss channel-syntax openers. Only consulted when a
 // caller opts in via `{ harmony: true }` (OpenAI-family stream parsers) so the
 // Anthropic path — and its regression tests — are byte-for-byte unaffected.
-const HARMONY_OPENERS = [
-    '<|channel|>',
-    '<|start|>',
-];
-const LONGEST_OPENER = Math.max(
-    ...OPENERS.map((o) => o.length),
-    ...HARMONY_OPENERS.map((o) => o.length),
-);
+const HARMONY_OPENERS = ['<|channel|>', '<|start|>'];
+const LONGEST_OPENER = Math.max(...OPENERS.map((o) => o.length), ...HARMONY_OPENERS.map((o) => o.length));
 
 // First *definite* leaked-tool-call sentinel. The bare `<function` opener is
 // boundary-gated to require a `name=` attribute so prose like
@@ -59,23 +53,23 @@ const HARMONY_SENTINEL_RE = /<\|(?:channel|start)\|>/i;
 // channel content ends with `<|end|>` / `<|return|>` — all three close a block
 // so benign channel text flushes promptly instead of stalling to stream end.
 const HARMONY_TERMINATOR_RE = /<\|call\|>|<\|end\|>|<\|return\|>/i;
-const HARMONY_RECIPIENT_RE = /to=functions\.([A-Za-z0-9_.\-]+)/i;
+const HARMONY_RECIPIENT_RE = /to=functions\.([A-Za-z0-9_.-]+)/i;
 const HARMONY_MESSAGE_RE = /<\|message\|>/i;
 
 function firstSentinelIndex(s, harmony) {
-    const m = SENTINEL_RE.exec(s);
-    let idx = m ? m.index : -1;
-    if (harmony) {
-        const hm = HARMONY_SENTINEL_RE.exec(s);
-        if (hm && (idx === -1 || hm.index < idx)) idx = hm.index;
-    }
-    return idx;
+  const m = SENTINEL_RE.exec(s);
+  let idx = m ? m.index : -1;
+  if (harmony) {
+    const hm = HARMONY_SENTINEL_RE.exec(s);
+    if (hm && (idx === -1 || hm.index < idx)) idx = hm.index;
+  }
+  return idx;
 }
 
 function isPrefixOfAnyOpener(tail, harmony) {
-    const t = tail.toLowerCase();
-    if (OPENERS.some((o) => o.startsWith(t))) return true;
-    return harmony ? HARMONY_OPENERS.some((o) => o.startsWith(t)) : false;
+  const t = tail.toLowerCase();
+  if (OPENERS.some((o) => o.startsWith(t))) return true;
+  return harmony ? HARMONY_OPENERS.some((o) => o.startsWith(t)) : false;
 }
 
 // --- Markdown code-fence / inline-code tracking (Fix 1) --------------------
@@ -87,10 +81,10 @@ function isPrefixOfAnyOpener(tail, harmony) {
 // closed in a later one persists). `advanceFenceState` folds a text slice into
 // the state; `isInCode` reports whether a position sits inside code.
 function initialFenceState() {
-    return { fenceChar: null, fenceLen: 0, inlineLen: 0, atLineStart: true };
+  return { fenceChar: null, fenceLen: 0, inlineLen: 0, atLineStart: true };
 }
 function isInCode(s) {
-    return !!s && (s.fenceChar !== null || s.inlineLen > 0);
+  return !!s && (s.fenceChar !== null || s.inlineLen > 0);
 }
 // Fold `text` into fence state and return the new state (input not mutated).
 // Fenced blocks (``` / ~~~ at line start, length ≥ 3) persist across lines
@@ -99,40 +93,45 @@ function isInCode(s) {
 // newline so a stray unmatched backtick in prose cannot poison later lines
 // (which would wrongly suppress a genuine leaked call).
 function advanceFenceState(state, text) {
-    let { fenceChar, fenceLen, inlineLen, atLineStart } = state || initialFenceState();
-    let i = 0;
-    while (i < text.length) {
-        const ch = text[i];
-        if (ch === '`' || ch === '~') {
-            let j = i;
-            while (j < text.length && text[j] === ch) j++;
-            const runLen = j - i;
-            if (fenceChar) {
-                if (ch === fenceChar && atLineStart && runLen >= fenceLen) {
-                    fenceChar = null; fenceLen = 0;
-                }
-            } else if (inlineLen) {
-                if (ch === '`' && runLen === inlineLen) inlineLen = 0;
-            } else if (atLineStart && runLen >= 3) {
-                fenceChar = ch; fenceLen = runLen;
-            } else if (ch === '`') {
-                inlineLen = runLen;
-            }
-            atLineStart = false;
-            i = j;
-            continue;
+  let { fenceChar, fenceLen, inlineLen, atLineStart } = state || initialFenceState();
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === '`' || ch === '~') {
+      let j = i;
+      while (j < text.length && text[j] === ch) j++;
+      const runLen = j - i;
+      if (fenceChar) {
+        if (ch === fenceChar && atLineStart && runLen >= fenceLen) {
+          fenceChar = null;
+          fenceLen = 0;
         }
-        if (ch === '\n') {
-            atLineStart = true;
-            inlineLen = 0; // inline spans do not cross lines here
-            i++;
-            continue;
-        }
-        if (atLineStart && (ch === ' ' || ch === '\t')) { i++; continue; }
-        atLineStart = false;
-        i++;
+      } else if (inlineLen) {
+        if (ch === '`' && runLen === inlineLen) inlineLen = 0;
+      } else if (atLineStart && runLen >= 3) {
+        fenceChar = ch;
+        fenceLen = runLen;
+      } else if (ch === '`') {
+        inlineLen = runLen;
+      }
+      atLineStart = false;
+      i = j;
+      continue;
     }
-    return { fenceChar, fenceLen, inlineLen, atLineStart };
+    if (ch === '\n') {
+      atLineStart = true;
+      inlineLen = 0; // inline spans do not cross lines here
+      i++;
+      continue;
+    }
+    if (atLineStart && (ch === ' ' || ch === '\t')) {
+      i++;
+      continue;
+    }
+    atLineStart = false;
+    i++;
+  }
+  return { fenceChar, fenceLen, inlineLen, atLineStart };
 }
 
 // Index from which the tail of `s` could be the *start* of a sentinel that
@@ -140,40 +139,45 @@ function advanceFenceState(state, text) {
 // from it onward must be held for the next chunk. Returns s.length when
 // nothing needs holding (normal text streams promptly).
 function partialTailIndex(s, harmony) {
-    const start = Math.max(0, s.length - LONGEST_OPENER);
-    for (let i = start; i < s.length; i++) {
-        if (isPrefixOfAnyOpener(s.slice(i), harmony)) return i;
-    }
-    return s.length;
+  const start = Math.max(0, s.length - LONGEST_OPENER);
+  for (let i = start; i < s.length; i++) {
+    if (isPrefixOfAnyOpener(s.slice(i), harmony)) return i;
+  }
+  return s.length;
 }
 
 // Coerce a leaked `<parameter>` value. apply_patch-style raw bodies and plain
 // strings pass through verbatim; JSON-looking scalars/objects are parsed so
 // the synthesized arguments match a native tool_use input shape.
 function coerceValue(raw) {
-    const trimmed = raw.trim();
-    if (trimmed === '') return raw;
-    const first = trimmed[0];
-    if ('{[0123456789tfn"-'.includes(first)) {
-        try { return JSON.parse(trimmed); } catch { /* fall through to raw */ }
+  const trimmed = raw.trim();
+  if (trimmed === '') return raw;
+  const first = trimmed[0];
+  if ('{[0123456789tfn"-'.includes(first)) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      /* fall through to raw */
     }
-    return raw;
+  }
+  return raw;
 }
 
 function parseParams(text) {
-    const out = {};
-    const re = /<(?:antml:)?parameter\b[^>]*\bname\s*=\s*["']?([^"'>\s]+)["']?[^>]*>([\s\S]*?)<\/(?:antml:)?parameter\s*>/gi;
-    let m;
-    while ((m = re.exec(text)) !== null) {
-        out[m[1]] = coerceValue(m[2]);
-    }
-    return out;
+  const out = {};
+  const re =
+    /<(?:antml:)?parameter\b[^>]*\bname\s*=\s*["']?([^"'>\s]+)["']?[^>]*>([\s\S]*?)<\/(?:antml:)?parameter\s*>/gi;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    out[m[1]] = coerceValue(m[2]);
+  }
+  return out;
 }
 
 function parseInvoke(text) {
-    const nameM = /<(?:antml:)?invoke\b[^>]*\bname\s*=\s*["']?([^"'>\s]+)["']?/i.exec(text);
-    if (!nameM) return null;
-    return { name: nameM[1], arguments: parseParams(text) };
+  const nameM = /<(?:antml:)?invoke\b[^>]*\bname\s*=\s*["']?([^"'>\s]+)["']?/i.exec(text);
+  if (!nameM) return null;
+  return { name: nameM[1], arguments: parseParams(text) };
 }
 
 // Match a COMPLETE harmony channel block starting at `idx` (which points at a
@@ -182,24 +186,24 @@ function parseInvoke(text) {
 // null when it is ordinary channel content (flushed as visible text). Returns
 // null (undecided → caller holds) until a terminator token has arrived.
 function matchCompleteHarmonyBlockAt(s, idx) {
-    const rest = s.slice(idx);
-    if (!/^<\|(?:channel|start)\|>/i.test(rest)) return null;
-    const termM = HARMONY_TERMINATOR_RE.exec(rest);
-    if (!termM) return null;
-    const end = idx + termM.index + termM[0].length;
-    const block = rest.slice(0, termM.index);
-    const recM = HARMONY_RECIPIENT_RE.exec(block);
-    if (!recM) return { end, call: null };
-    const msgM = HARMONY_MESSAGE_RE.exec(block);
-    let args = {};
-    if (msgM) {
-        const raw = block.slice(msgM.index + msgM[0].length).trim();
-        if (raw) {
-            const coerced = coerceValue(raw);
-            if (coerced && typeof coerced === 'object' && !Array.isArray(coerced)) args = coerced;
-        }
+  const rest = s.slice(idx);
+  if (!/^<\|(?:channel|start)\|>/i.test(rest)) return null;
+  const termM = HARMONY_TERMINATOR_RE.exec(rest);
+  if (!termM) return null;
+  const end = idx + termM.index + termM[0].length;
+  const block = rest.slice(0, termM.index);
+  const recM = HARMONY_RECIPIENT_RE.exec(block);
+  if (!recM) return { end, call: null };
+  const msgM = HARMONY_MESSAGE_RE.exec(block);
+  let args = {};
+  if (msgM) {
+    const raw = block.slice(msgM.index + msgM[0].length).trim();
+    if (raw) {
+      const coerced = coerceValue(raw);
+      if (coerced && typeof coerced === 'object' && !Array.isArray(coerced)) args = coerced;
     }
-    return { end, call: { name: recM[1], arguments: args } };
+  }
+  return { end, call: { name: recM[1], arguments: args } };
 }
 
 // Try to match a COMPLETE leaked block starting at `idx`. Returns
@@ -208,46 +212,46 @@ function matchCompleteHarmonyBlockAt(s, idx) {
 // but carries no parseable invoke). Returns null when the block has not
 // finished arriving yet (caller holds and waits for more chunks).
 function matchCompleteBlockAt(s, idx, harmony) {
-    const rest = s.slice(idx);
+  const rest = s.slice(idx);
 
-    // Harmony channel syntax (opt-in). Routed first because its opener token
-    // (`<|...|>`) never collides with the XML `<function...>` families below.
-    if (harmony && /^<\|(?:channel|start)\|>/i.test(rest)) {
-        return matchCompleteHarmonyBlockAt(s, idx);
-    }
+  // Harmony channel syntax (opt-in). Routed first because its opener token
+  // (`<|...|>`) never collides with the XML `<function...>` families below.
+  if (harmony && /^<\|(?:channel|start)\|>/i.test(rest)) {
+    return matchCompleteHarmonyBlockAt(s, idx);
+  }
 
-    // <function_calls> ... </function_calls> wrapper
-    const wm = /^<(?:antml:)?function_calls\b[^>]*>/i.exec(rest);
-    if (wm) {
-        const cm = /<\/(?:antml:)?function_calls\s*>/i.exec(rest);
-        if (!cm) return null;
-        const end = idx + cm.index + cm[0].length;
-        const inner = rest.slice(wm[0].length, cm.index);
-        return { end, call: parseInvoke(inner) };
-    }
+  // <function_calls> ... </function_calls> wrapper
+  const wm = /^<(?:antml:)?function_calls\b[^>]*>/i.exec(rest);
+  if (wm) {
+    const cm = /<\/(?:antml:)?function_calls\s*>/i.exec(rest);
+    if (!cm) return null;
+    const end = idx + cm.index + cm[0].length;
+    const inner = rest.slice(wm[0].length, cm.index);
+    return { end, call: parseInvoke(inner) };
+  }
 
-    // <invoke ...> ... </invoke>
-    const im = /^<(?:antml:)?invoke\b[^>]*>/i.exec(rest);
-    if (im) {
-        const cm = /<\/(?:antml:)?invoke\s*>/i.exec(rest);
-        if (!cm) return null;
-        const blockText = rest.slice(0, cm.index + cm[0].length);
-        return { end: idx + blockText.length, call: parseInvoke(blockText) };
-    }
+  // <invoke ...> ... </invoke>
+  const im = /^<(?:antml:)?invoke\b[^>]*>/i.exec(rest);
+  if (im) {
+    const cm = /<\/(?:antml:)?invoke\s*>/i.exec(rest);
+    if (!cm) return null;
+    const blockText = rest.slice(0, cm.index + cm[0].length);
+    return { end: idx + blockText.length, call: parseInvoke(blockText) };
+  }
 
-    // <function name="..."> ... </function>  (Gemma-style)
-    const fm = /^<(?:antml:)?function\b[^>]*\bname\s*=\s*["']?([^"'>\s]+)["']?[^>]*>/i.exec(rest);
-    if (fm) {
-        const cm = /<\/(?:antml:)?function\s*>/i.exec(rest);
-        if (!cm) return null;
-        const end = idx + cm.index + cm[0].length;
-        const inner = rest.slice(fm[0].length, cm.index);
-        return { end, call: fm[1] ? { name: fm[1], arguments: parseParams(inner) } : null };
-    }
+  // <function name="..."> ... </function>  (Gemma-style)
+  const fm = /^<(?:antml:)?function\b[^>]*\bname\s*=\s*["']?([^"'>\s]+)["']?[^>]*>/i.exec(rest);
+  if (fm) {
+    const cm = /<\/(?:antml:)?function\s*>/i.exec(rest);
+    if (!cm) return null;
+    const end = idx + cm.index + cm[0].length;
+    const inner = rest.slice(fm[0].length, cm.index);
+    return { end, call: fm[1] ? { name: fm[1], arguments: parseParams(inner) } : null };
+  }
 
-    // Sentinel matched (e.g. bare `antml:invoke` with no `<`) but no complete
-    // block form — leave undecided so the caller holds (or flushes on final).
-    return null;
+  // Sentinel matched (e.g. bare `antml:invoke` with no `<`) but no complete
+  // block form — leave undecided so the caller holds (or flushes on final).
+  return null;
 }
 
 /**
@@ -273,71 +277,75 @@ function matchCompleteBlockAt(s, idx, harmony) {
  *          back in on the next call).
  */
 export function scanLeakedToolCalls(buffer, { isKnownTool, final, harmony = false, fenceState = null }) {
-    let emit = '';
-    const calls = [];
-    const buf = buffer;
-    let pos = 0;
-    // Fix 1: fence state advances over EVERY consumed character in raw order,
-    // so `isInCode` at a sentinel reflects the running markdown context —
-    // including a fence opened in an earlier chunk (caller threads fenceState).
-    let fence = fenceState || initialFenceState();
-    // `asText` controls both whether the slice is emitted AND whether it
-    // advances markdown fence state. A recovered/SUPPRESSED tool-call block
-    // (asText=false) is hidden from the visible stream, so it must NOT feed the
-    // fence tracker either (Fix 2 follow-up / reviewer Medium): an unmatched
-    // backtick inside the hidden XML/harmony args would otherwise leave a fence
-    // "open" and wrongly suppress a subsequent REAL leaked call as in-code.
-    // Fence state only ever reflects text the user actually sees.
-    const consume = (to, asText) => {
-        if (asText) {
-            fence = advanceFenceState(fence, buf.slice(pos, to));
-            emit += buf.slice(pos, to);
-        }
-        pos = to;
-    };
-
-    while (pos < buf.length) {
-        const rel = firstSentinelIndex(buf.slice(pos), harmony);
-        if (rel === -1) {
-            if (final) { consume(buf.length, true); }
-            else {
-                const hold = partialTailIndex(buf.slice(pos), harmony);
-                consume(pos + hold, true);
-            }
-            break;
-        }
-        const idx = pos + rel;
-        // Plain text before the sentinel always streams as visible text.
-        consume(idx, true);
-        const inCode = isInCode(fence);
-        const block = matchCompleteBlockAt(buf, idx, harmony);
-        if (!block) {
-            // Opener present but block not fully arrived.
-            if (final) { consume(buf.length, true); break; }
-            if (inCode) {
-                // Inside a code fence / inline span: this can never become a
-                // real recovered call — emit the opener char and keep scanning
-                // instead of holding it (and the rest of the doc) to stream end.
-                consume(idx + 1, true);
-                continue;
-            }
-            // Outside code: hold from the opener for the next chunk.
-            break;
-        }
-        const { end, call } = block;
-        if (!inCode && call && call.name && isKnownTool(call.name)) {
-            // Recovered a real, known tool call OUTSIDE any code fence:
-            // suppress the tags from the visible stream and synthesize it.
-            consume(end, false);
-            calls.push({ name: call.name, arguments: call.arguments || {} });
-            continue;
-        }
-        // In code, unknown tool, or no parseable invoke: keep the block as
-        // ordinary visible text and continue scanning past it.
-        consume(end, true);
+  let emit = '';
+  const calls = [];
+  const buf = buffer;
+  let pos = 0;
+  // Fix 1: fence state advances over EVERY consumed character in raw order,
+  // so `isInCode` at a sentinel reflects the running markdown context —
+  // including a fence opened in an earlier chunk (caller threads fenceState).
+  let fence = fenceState || initialFenceState();
+  // `asText` controls both whether the slice is emitted AND whether it
+  // advances markdown fence state. A recovered/SUPPRESSED tool-call block
+  // (asText=false) is hidden from the visible stream, so it must NOT feed the
+  // fence tracker either (Fix 2 follow-up / reviewer Medium): an unmatched
+  // backtick inside the hidden XML/harmony args would otherwise leave a fence
+  // "open" and wrongly suppress a subsequent REAL leaked call as in-code.
+  // Fence state only ever reflects text the user actually sees.
+  const consume = (to, asText) => {
+    if (asText) {
+      fence = advanceFenceState(fence, buf.slice(pos, to));
+      emit += buf.slice(pos, to);
     }
+    pos = to;
+  };
 
-    return { emit, calls, rest: buf.slice(pos), fenceState: fence };
+  while (pos < buf.length) {
+    const rel = firstSentinelIndex(buf.slice(pos), harmony);
+    if (rel === -1) {
+      if (final) {
+        consume(buf.length, true);
+      } else {
+        const hold = partialTailIndex(buf.slice(pos), harmony);
+        consume(pos + hold, true);
+      }
+      break;
+    }
+    const idx = pos + rel;
+    // Plain text before the sentinel always streams as visible text.
+    consume(idx, true);
+    const inCode = isInCode(fence);
+    const block = matchCompleteBlockAt(buf, idx, harmony);
+    if (!block) {
+      // Opener present but block not fully arrived.
+      if (final) {
+        consume(buf.length, true);
+        break;
+      }
+      if (inCode) {
+        // Inside a code fence / inline span: this can never become a
+        // real recovered call — emit the opener char and keep scanning
+        // instead of holding it (and the rest of the doc) to stream end.
+        consume(idx + 1, true);
+        continue;
+      }
+      // Outside code: hold from the opener for the next chunk.
+      break;
+    }
+    const { end, call } = block;
+    if (!inCode && call && call.name && isKnownTool(call.name)) {
+      // Recovered a real, known tool call OUTSIDE any code fence:
+      // suppress the tags from the visible stream and synthesize it.
+      consume(end, false);
+      calls.push({ name: call.name, arguments: call.arguments || {} });
+      continue;
+    }
+    // In code, unknown tool, or no parseable invoke: keep the block as
+    // ordinary visible text and continue scanning past it.
+    consume(end, true);
+  }
+
+  return { emit, calls, rest: buf.slice(pos), fenceState: fence };
 }
 
 /**
@@ -354,28 +362,32 @@ export function scanLeakedToolCalls(buffer, { isKnownTool, final, harmony = fals
  * @returns {{ enabled:boolean, push:(delta:string, final?:boolean)=>{text:string,calls:Array<{name:string,arguments:object}>}, flush:()=>{text:string,calls:Array<{name:string,arguments:object}>} }}
  */
 export function createLeakGuard({ knownToolNames, harmony = false } = {}) {
-    const known = knownToolNames instanceof Set
-        ? knownToolNames
-        : new Set(Array.isArray(knownToolNames) ? knownToolNames : []);
-    const enabled = known.size > 0;
-    const isKnownTool = (name) => known.has(name);
-    let buffer = '';
-    // Running markdown fence/inline-code state threaded across chunks (Fix 1).
-    let fence = initialFenceState();
-    const run = (delta, final) => {
-        if (!enabled) return { text: delta || '', calls: [] };
-        buffer += delta || '';
-        if (!buffer && !final) return { text: '', calls: [] };
-        const { emit, calls, rest, fenceState } = scanLeakedToolCalls(buffer, { isKnownTool, final, harmony, fenceState: fence });
-        buffer = rest;
-        fence = fenceState;
-        return { text: emit, calls };
-    };
-    return {
-        enabled,
-        push: (delta, final = false) => run(delta, final),
-        flush: () => run('', true),
-    };
+  const known =
+    knownToolNames instanceof Set ? knownToolNames : new Set(Array.isArray(knownToolNames) ? knownToolNames : []);
+  const enabled = known.size > 0;
+  const isKnownTool = (name) => known.has(name);
+  let buffer = '';
+  // Running markdown fence/inline-code state threaded across chunks (Fix 1).
+  let fence = initialFenceState();
+  const run = (delta, final) => {
+    if (!enabled) return { text: delta || '', calls: [] };
+    buffer += delta || '';
+    if (!buffer && !final) return { text: '', calls: [] };
+    const { emit, calls, rest, fenceState } = scanLeakedToolCalls(buffer, {
+      isKnownTool,
+      final,
+      harmony,
+      fenceState: fence,
+    });
+    buffer = rest;
+    fence = fenceState;
+    return { text: emit, calls };
+  };
+  return {
+    enabled,
+    push: (delta, final = false) => run(delta, final),
+    flush: () => run('', true),
+  };
 }
 
 /**
@@ -390,52 +402,54 @@ export function createLeakGuard({ knownToolNames, harmony = false } = {}) {
  * behave identically.
  */
 export function toolCallFingerprint(name, args) {
-    let a = args;
-    if (a === null || typeof a !== 'object' || Array.isArray(a)) a = {};
-    return traceHash(stableTraceStringify({ name: name || '', args: a }));
+  let a = args;
+  if (a === null || typeof a !== 'object' || Array.isArray(a)) a = {};
+  return traceHash(stableTraceStringify({ name: name || '', args: a }));
 }
 // Ids minted locally when a call is recovered from text (`call_leaked_…`,
 // `toolu_leaked_…`, `gemini_leaked_…`). Such an id is not a server identity, so
 // a synthetic call can only be identified by its name+args fingerprint —
 // whereas a provider-assigned id IS the identity of a real call.
 function isLeakedSyntheticToolCallId(id) {
-    return typeof id === 'string' && id.includes('_leaked_');
+  return typeof id === 'string' && id.includes('_leaked_');
 }
 export function createToolCallDedupe() {
-    const seen = new Set();
-    const leaked = new Set();
-    const dispatchedIds = new Set();
-    return {
-        // True the first time this call should be dispatched.
-        //
-        // Identity depends on what the provider gave us:
-        //   - no id / a locally minted `_leaked_` id → the (name,args)
-        //     fingerprint, because that is all a text-recovered call has, and
-        //   - a provider-assigned id → the id itself. Parallel tool calls are
-        //     emitted with identical name+args and DIFFERENT ids; each one owns
-        //     a tool_result the next request must carry, so collapsing them by
-        //     fingerprint drops results and breaks the response chain.
-        // The cross-path guard survives: a native call whose fingerprint a
-        // synthetic leak already dispatched is still suppressed (once).
-        shouldDispatch(name, args, id = '') {
-            const fp = toolCallFingerprint(name, args);
-            const callId = typeof id === 'string' ? id : '';
-            if (!callId || isLeakedSyntheticToolCallId(callId)) {
-                if (seen.has(fp)) return false;
-                seen.add(fp);
-                leaked.add(fp);
-                return true;
-            }
-            if (dispatchedIds.has(callId)) return false;
-            dispatchedIds.add(callId);
-            // Claim (consume) one pending leak of the same shape: this native
-            // frame is that leak surfacing on the native path.
-            if (leaked.delete(fp)) return false;
-            seen.add(fp);
-            return true;
-        },
-        has(name, args) { return seen.has(toolCallFingerprint(name, args)); },
-    };
+  const seen = new Set();
+  const leaked = new Set();
+  const dispatchedIds = new Set();
+  return {
+    // True the first time this call should be dispatched.
+    //
+    // Identity depends on what the provider gave us:
+    //   - no id / a locally minted `_leaked_` id → the (name,args)
+    //     fingerprint, because that is all a text-recovered call has, and
+    //   - a provider-assigned id → the id itself. Parallel tool calls are
+    //     emitted with identical name+args and DIFFERENT ids; each one owns
+    //     a tool_result the next request must carry, so collapsing them by
+    //     fingerprint drops results and breaks the response chain.
+    // The cross-path guard survives: a native call whose fingerprint a
+    // synthetic leak already dispatched is still suppressed (once).
+    shouldDispatch(name, args, id = '') {
+      const fp = toolCallFingerprint(name, args);
+      const callId = typeof id === 'string' ? id : '';
+      if (!callId || isLeakedSyntheticToolCallId(callId)) {
+        if (seen.has(fp)) return false;
+        seen.add(fp);
+        leaked.add(fp);
+        return true;
+      }
+      if (dispatchedIds.has(callId)) return false;
+      dispatchedIds.add(callId);
+      // Claim (consume) one pending leak of the same shape: this native
+      // frame is that leak surfacing on the native path.
+      if (leaked.delete(fp)) return false;
+      seen.add(fp);
+      return true;
+    },
+    has(name, args) {
+      return seen.has(toolCallFingerprint(name, args));
+    },
+  };
 }
 
 /**
@@ -457,39 +471,42 @@ export function createToolCallDedupe() {
  * @returns {Array} the array with genuine duplicates removed.
  */
 export function dedupeToolCallList(calls) {
-    if (!Array.isArray(calls) || calls.length < 2) return calls;
-    // Fingerprints that reached the array through a provider-assigned id: a
-    // synthetic leak matching one of these is the same call, recovered twice.
-    const nativeFingerprints = new Set();
-    for (const call of calls) {
-        if (!call || typeof call !== 'object') continue;
-        if (!call.id || isLeakedSyntheticToolCallId(call.id)) continue;
-        nativeFingerprints.add(toolCallFingerprint(call.name, call.arguments));
+  if (!Array.isArray(calls) || calls.length < 2) return calls;
+  // Fingerprints that reached the array through a provider-assigned id: a
+  // synthetic leak matching one of these is the same call, recovered twice.
+  const nativeFingerprints = new Set();
+  for (const call of calls) {
+    if (!call || typeof call !== 'object') continue;
+    if (!call.id || isLeakedSyntheticToolCallId(call.id)) continue;
+    nativeFingerprints.add(toolCallFingerprint(call.name, call.arguments));
+  }
+  const seenIds = new Set();
+  const seenSyntheticFingerprints = new Set();
+  const out = [];
+  for (const call of calls) {
+    if (!call || typeof call !== 'object') {
+      out.push(call);
+      continue;
     }
-    const seenIds = new Set();
-    const seenSyntheticFingerprints = new Set();
-    const out = [];
-    for (const call of calls) {
-        if (!call || typeof call !== 'object') { out.push(call); continue; }
-        const id = typeof call.id === 'string' ? call.id : '';
-        if (id && !isLeakedSyntheticToolCallId(id)) {
-            if (seenIds.has(id)) continue;
-            seenIds.add(id);
-            out.push(call);
-            continue;
-        }
-        const fp = toolCallFingerprint(call.name, call.arguments);
-        if (nativeFingerprints.has(fp) || seenSyntheticFingerprints.has(fp)) continue;
-        seenSyntheticFingerprints.add(fp);
-        out.push(call);
+    const id = typeof call.id === 'string' ? call.id : '';
+    if (id && !isLeakedSyntheticToolCallId(id)) {
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+      out.push(call);
+      continue;
     }
-    return out.length === calls.length ? calls : out;
+    const fp = toolCallFingerprint(call.name, call.arguments);
+    if (nativeFingerprints.has(fp) || seenSyntheticFingerprints.has(fp)) continue;
+    seenSyntheticFingerprints.add(fp);
+    out.push(call);
+  }
+  return out.length === calls.length ? calls : out;
 }
 
 // Exposed for focused unit tests.
 export const _internals = {
-    firstSentinelIndex,
-    partialTailIndex,
-    matchCompleteBlockAt,
-    parseInvoke,
+  firstSentinelIndex,
+  partialTailIndex,
+  matchCompleteBlockAt,
+  parseInvoke,
 };

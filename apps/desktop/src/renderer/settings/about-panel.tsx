@@ -15,7 +15,8 @@ export function AboutPanel() {
   useEffect(() => {
     if (readGithubStarred()) return;
     let live = true;
-    void host?.githubStarStatus?.()
+    void host
+      ?.githubStarStatus?.()
       ?.then((status) => {
         if (!status) return;
         const confirmedStarred = rememberGithubStarred(status.starred === true);
@@ -23,7 +24,9 @@ export function AboutPanel() {
         setGhReady(status.available === true);
         setStarred(confirmedStarred);
       })
-      .catch(() => { /* retain the plain repository link */ });
+      .catch(() => {
+        /* retain the plain repository link */
+      });
     return () => {
       live = false;
     };
@@ -35,27 +38,49 @@ export function AboutPanel() {
       return;
     }
     setBusy(true);
-    void host.starGithub()
+    void host
+      .starGithub()
       .then((result) => setStarred(rememberGithubStarred(result?.starred === true)))
       .catch(() => open(MIXDOG_REPO_URL))
       .finally(() => setBusy(false));
   };
-  return <Group title="Community">
-    <ResourceRow title="GitHub" className="settings-about-row"
-      description="Source, releases, and discussions — a star helps mixdog grow."
-      actions={<>
-        <ActionButton disabled={busy || starred} onClick={star}>
-          {starred ? 'Starred ★' : busy ? 'Starring…' : ghReady ? 'Star ☆' : 'Star on GitHub ↗'}
-        </ActionButton>
-        <ActionButton disabled={busy} onClick={() => open(MIXDOG_REPO_URL)}>Open ↗</ActionButton>
-      </>} />
-    <ResourceRow title="Report an issue" className="settings-about-row"
-      description="Bug reports and feature requests."
-      actions={<ActionButton disabled={busy}
-        onClick={() => open(MIXDOG_ISSUES_URL)}>Issues ↗</ActionButton>} />
-    <ResourceRow title="Sponsor" className="settings-about-row"
-      description="Support mixdog development."
-      actions={<ActionButton disabled={busy}
-        onClick={() => open(MIXDOG_SPONSOR_URL)}>Ko-fi ↗</ActionButton>} />
-  </Group>;
+  return (
+    <Group title="Community">
+      <ResourceRow
+        title="GitHub"
+        className="settings-about-row"
+        description="Source, releases, and discussions — a star helps mixdog grow."
+        actions={
+          <>
+            <ActionButton disabled={busy || starred} onClick={star}>
+              {starred ? 'Starred ★' : busy ? 'Starring…' : ghReady ? 'Star ☆' : 'Star on GitHub ↗'}
+            </ActionButton>
+            <ActionButton disabled={busy} onClick={() => open(MIXDOG_REPO_URL)}>
+              Open ↗
+            </ActionButton>
+          </>
+        }
+      />
+      <ResourceRow
+        title="Report an issue"
+        className="settings-about-row"
+        description="Bug reports and feature requests."
+        actions={
+          <ActionButton disabled={busy} onClick={() => open(MIXDOG_ISSUES_URL)}>
+            Issues ↗
+          </ActionButton>
+        }
+      />
+      <ResourceRow
+        title="Sponsor"
+        className="settings-about-row"
+        description="Support mixdog development."
+        actions={
+          <ActionButton disabled={busy} onClick={() => open(MIXDOG_SPONSOR_URL)}>
+            Ko-fi ↗
+          </ActionButton>
+        }
+      />
+    </Group>
+  );
 }

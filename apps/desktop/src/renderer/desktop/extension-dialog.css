@@ -6,9 +6,15 @@
    facts, notes, previews, fields and the in-card action button. */
 
 /* Width ladder: compact prompts, read-mostly details, Markdown editors. */
-.extensions-dialog { --mx-editor-width: 640px; }
-.extensions-dialog[data-dialog-width="compact"] { --mx-editor-width: 520px; }
-.extensions-dialog[data-dialog-width="editor"] { --mx-editor-width: 800px; }
+.extensions-dialog {
+  --mx-editor-width: 640px;
+}
+.extensions-dialog[data-dialog-width="compact"] {
+  --mx-editor-width: 520px;
+}
+.extensions-dialog[data-dialog-width="editor"] {
+  --mx-editor-width: 800px;
+}
 
 /* Identity glyph on the title line: the list row's plate, so the card opens
    as a continuation of the row that was clicked. */
@@ -22,9 +28,12 @@
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+  box-shadow: inset 0 0 0 0.5px var(--mx-rail-item-outline);
 }
-.extensions-dialog > header > .extensions-dialog-icon > svg { width: 18px; height: 18px; }
+.extensions-dialog > header > .extensions-dialog-icon > svg {
+  width: 18px;
+  height: 18px;
+}
 
 /* Editors wrap body + footer in a form. The form is a plain flex column so
    the BODY scrolls and the footer rests on the card floor — this overrides
@@ -76,7 +85,9 @@
   padding: 12px var(--mx-dialog-inset) var(--mx-dialog-inset);
   background: transparent;
 }
-.extensions-dialog .extensions-dialog-actions > .error-notice { flex: 1 1 100%; }
+.extensions-dialog .extensions-dialog-actions > .error-notice {
+  flex: 1 1 100%;
+}
 
 /* ── Sections ─────────────────────────────────────────────────────────── */
 /* The Settings dialog's group head (user: 옵션쪽이랑 맞춰): 15px semibold
@@ -130,13 +141,17 @@
   list-style: none;
   cursor: pointer;
 }
-.extensions-section > summary::-webkit-details-marker { display: none; }
+.extensions-section > summary::-webkit-details-marker {
+  display: none;
+}
 .extensions-section > summary > svg {
   flex: 0 0 auto;
   color: var(--mx-icon-muted);
   transition: transform var(--mx-motion-ink);
 }
-.extensions-section[open] > summary > svg { transform: rotate(180deg); }
+.extensions-section[open] > summary > svg {
+  transform: rotate(180deg);
+}
 .extensions-section > summary:focus-visible {
   outline: 1px solid var(--mx-focus);
   outline-offset: 2px;
@@ -154,7 +169,7 @@
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
 .extensions-item {
   min-width: 0;
@@ -164,12 +179,23 @@
   align-items: center;
   column-gap: 12px;
   padding: 12px 0;
-  border-bottom: .5px solid var(--mx-border);
+  border-bottom: 0.5px solid var(--mx-border);
 }
-.extensions-item:last-child { border-bottom: 0; }
-.extensions-item:not(:has(> .extensions-item-icon)) { grid-template-columns: minmax(0, 1fr) auto; }
-.extensions-item-icon { display: grid; place-items: center; color: var(--mx-text-soft); }
-.extensions-item-icon > svg { width: 16px; height: 16px; }
+.extensions-item:last-child {
+  border-bottom: 0;
+}
+.extensions-item:not(:has(> .extensions-item-icon)) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.extensions-item-icon {
+  display: grid;
+  place-items: center;
+  color: var(--mx-text-soft);
+}
+.extensions-item-icon > svg {
+  width: 16px;
+  height: 16px;
+}
 .extensions-item-copy {
   min-width: 0;
   display: grid;
@@ -218,7 +244,7 @@
   align-items: center;
   gap: 5px;
   padding: 0 6px;
-  border: .5px solid var(--mx-border);
+  border: 0.5px solid var(--mx-border);
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
   background: var(--mx-hover);
@@ -247,10 +273,18 @@
   background: color-mix(in srgb, var(--mx-warning) 10%, transparent);
 }
 /* A dropdown on a row's trailing edge keeps a readable width. */
-.extensions-dialog-title-status { flex-shrink: 0; }
-.extensions-dialog > header:has(> .extensions-dialog-title-status) > h2 { flex: 0 1 auto; }
-.extensions-dialog-title-status + .schedules-dialog-header-actions { margin-left: auto; }
-.extensions-select.mx-select-root { min-width: 150px; }
+.extensions-dialog-title-status {
+  flex-shrink: 0;
+}
+.extensions-dialog > header:has(> .extensions-dialog-title-status) > h2 {
+  flex: 0 1 auto;
+}
+.extensions-dialog-title-status + .schedules-dialog-header-actions {
+  margin-left: auto;
+}
+.extensions-select.mx-select-root {
+  min-width: 150px;
+}
 
 /* ── The in-card action button ────────────────────────────────────────── */
 /* ONE plate for every action inside the body (Connect, Install, Delete,
@@ -274,7 +308,9 @@
   font-weight: var(--mx-weight-regular);
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color var(--mx-motion-ink), color var(--mx-motion-ink);
+  transition:
+    background-color var(--mx-motion-ink),
+    color var(--mx-motion-ink);
 }
 .extensions-action:hover:not(:disabled) {
   color: var(--mx-text);
@@ -288,9 +324,14 @@
   outline: 1px solid var(--mx-focus);
   outline-offset: 0;
 }
-.extensions-action:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.extensions-action:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
 .extensions-action.danger,
-.extensions-action.danger:hover:not(:disabled) { color: var(--mx-danger); }
+.extensions-action.danger:hover:not(:disabled) {
+  color: var(--mx-danger);
+}
 .extensions-action.danger:active:not(:disabled) {
   background: var(--mx-flat-press-danger);
   box-shadow: none;
@@ -305,7 +346,7 @@
   padding: 0 16px;
   border-radius: var(--mx-radius-md);
   background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
 .extensions-dialog-facts > div {
   min-width: 0;
@@ -315,9 +356,11 @@
   align-items: center;
   gap: 12px;
   padding: 10px 0;
-  border-bottom: .5px solid var(--mx-border);
+  border-bottom: 0.5px solid var(--mx-border);
 }
-.extensions-dialog-facts > div:last-child { border-bottom: 0; }
+.extensions-dialog-facts > div:last-child {
+  border-bottom: 0;
+}
 .extensions-dialog-facts dt {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
@@ -341,13 +384,17 @@
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-minor);
 }
-.extensions-note[data-tone="danger"] { color: var(--mx-danger); }
+.extensions-note[data-tone="danger"] {
+  color: var(--mx-danger);
+}
 .extensions-note code {
   color: var(--mx-text);
   font-family: var(--mx-font-mono);
   font-size: var(--mx-font-code);
 }
-.extensions-note .extensions-action { vertical-align: middle; }
+.extensions-note .extensions-action {
+  vertical-align: middle;
+}
 .extensions-preview {
   min-width: 0;
   display: grid;
@@ -355,7 +402,7 @@
   padding: 12px;
   border-radius: var(--mx-radius-md);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
 .extensions-preview > b {
   color: var(--mx-text);
@@ -380,7 +427,9 @@
 /* ── Fields ───────────────────────────────────────────────────────────── */
 /* Fields ride the dialog form grammar (schedules-field: 15px title, 13px
    note, 32px plate); only the extension-specific bits live here. */
-.extensions-dialog-body .schedules-field { min-width: 0; }
+.extensions-dialog-body .schedules-field {
+  min-width: 0;
+}
 /* Prose textareas (commit example, AI instructions) read in the UI face;
    Markdown fields keep their own mono skin (.workflows-md-field). */
 .extensions-dialog-body .schedules-field:not(.workflows-md-field) > textarea {
@@ -399,14 +448,25 @@
   font-size: var(--mx-font-meta);
 }
 /* "Applies to": one dropdown — Shared, or a single project. */
-.extensions-scope-select { min-width: 0; justify-self: stretch; }
-.extensions-scope-select .mx-select-trigger { width: 100%; }
+.extensions-scope-select {
+  min-width: 0;
+  justify-self: stretch;
+}
+.extensions-scope-select .mx-select-trigger {
+  width: 100%;
+}
 
 /* ── Header control slot (built-in features) ──────────────────────────── */
 /* placeholder → progress → Install/Retry → switch, in the order the
    feature's own status source allows; the slot never changes width. */
-.built-in-feature-control { display: flex; align-items: center; align-self: center; }
-.built-in-feature-control .mixdog-settings__switch span { height: 18px; }
+.built-in-feature-control {
+  display: flex;
+  align-items: center;
+  align-self: center;
+}
+.built-in-feature-control .mixdog-settings__switch span {
+  height: 18px;
+}
 .built-in-feature-control .mixdog-settings__switch span::after {
   width: 14px;
   height: 14px;
@@ -423,7 +483,9 @@
   box-shadow: var(--mx-switch-off);
   opacity: var(--mx-op-disabled);
 }
-.built-in-feature-control > .extensions-action { min-width: 62px; }
+.built-in-feature-control > .extensions-action {
+  min-width: 62px;
+}
 .built-in-feature-control > span:not([class]) {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
@@ -442,13 +504,15 @@
   font-size: var(--mx-font-micro);
   line-height: 1;
 }
-.built-in-feature-slot-progress > .built-in-feature-progress-bar { height: 4px; }
+.built-in-feature-slot-progress > .built-in-feature-progress-bar {
+  height: 4px;
+}
 .built-in-feature-progress-bar {
   height: 5px;
   overflow: hidden;
   border-radius: var(--mx-radius-pill);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border);
 }
 .built-in-feature-progress-bar > span {
   display: block;
@@ -467,10 +531,16 @@
   display: grid;
   gap: 10px;
   padding: 12px 0;
-  border-bottom: .5px solid var(--mx-border);
+  border-bottom: 0.5px solid var(--mx-border);
 }
-.local-provider-installation:last-child { border-bottom: 0; }
-.local-provider-installation > .extensions-item { min-height: 0; padding: 0; border-bottom: 0; }
+.local-provider-installation:last-child {
+  border-bottom: 0;
+}
+.local-provider-installation > .extensions-item {
+  min-height: 0;
+  padding: 0;
+  border-bottom: 0;
+}
 
 /* ── Add-kind choices (Skill / MCP) ───────────────────────────────────── */
 .extensions-create-options {
@@ -489,12 +559,14 @@
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+  box-shadow: inset 0 0 0 0.5px var(--mx-rail-item-outline);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.extensions-create-options > button:hover { background: var(--mx-hover); }
+.extensions-create-options > button:hover {
+  background: var(--mx-hover);
+}
 .extensions-create-options > button:focus-visible {
   outline: 1px solid var(--mx-focus);
   outline-offset: -1px;
@@ -522,8 +594,20 @@
 
 /* Respond to the card's usable width, not the application window. */
 @container sidebar-dialog (max-width: 440px) {
-  .extensions-dialog-facts > div { grid-template-columns: minmax(0, 1fr); gap: 4px; align-items: start; }
-  .extensions-item { grid-template-columns: auto minmax(0, 1fr); row-gap: 8px; }
-  .extensions-item:not(:has(> .extensions-item-icon)) { grid-template-columns: minmax(0, 1fr); }
-  .extensions-item-trailing { grid-column: 1 / -1; justify-content: flex-start; }
+  .extensions-dialog-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    align-items: start;
+  }
+  .extensions-item {
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: 8px;
+  }
+  .extensions-item:not(:has(> .extensions-item-icon)) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .extensions-item-trailing {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
 }

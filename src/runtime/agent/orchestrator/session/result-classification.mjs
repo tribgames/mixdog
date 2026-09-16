@@ -45,42 +45,41 @@
  * @returns {'normal' | 'error' | 'zero-match'}
  */
 const ZERO_MATCH_PREFIXES = [
-    '(no matches)',
-    '(no files found)',
-    '(no symbol matches',
-    '(no symbols)',
-    '(no references)',
-    '(no callers)',
-    '(no call sites)',
-    '(no imports)',
-    '(no dependents)',
-    '(no entries match filter)',
-    '(no lines in range',
+  '(no matches)',
+  '(no files found)',
+  '(no symbol matches',
+  '(no symbols)',
+  '(no references)',
+  '(no callers)',
+  '(no call sites)',
+  '(no imports)',
+  '(no dependents)',
+  '(no entries match filter)',
+  '(no lines in range',
 ];
 
-const READ_ONLY_NAVIGATION_TOOLS = new Set([
-    'find', 'glob', 'grep', 'list', 'read', 'code_graph',
-]);
+const READ_ONLY_NAVIGATION_TOOLS = new Set(['find', 'glob', 'grep', 'list', 'read', 'code_graph']);
 
-const NAVIGATION_MISS_RE = /\b(?:enoent|enotdir)\b|path does not exist|directory does not exist|no such (?:file|path)|not found at this path|file not found in graph/i;
+const NAVIGATION_MISS_RE =
+  /\b(?:enoent|enotdir)\b|path does not exist|directory does not exist|no such (?:file|path)|not found at this path|file not found in graph/i;
 
 export function isReadOnlyNavigationMiss(toolName, result) {
-    if (!READ_ONLY_NAVIGATION_TOOLS.has(String(toolName || '').toLowerCase())) return false;
-    if (typeof result !== 'string') return false;
-    if (/\b(?:eacces|eperm)\b|access is denied|permission denied|operation not permitted/i.test(result)) return false;
-    return NAVIGATION_MISS_RE.test(result);
+  if (!READ_ONLY_NAVIGATION_TOOLS.has(String(toolName || '').toLowerCase())) return false;
+  if (typeof result !== 'string') return false;
+  if (/\b(?:eacces|eperm)\b|access is denied|permission denied|operation not permitted/i.test(result)) return false;
+  return NAVIGATION_MISS_RE.test(result);
 }
 
 export function classifyResultKind(result, explicitSuccess = false, toolName = '') {
-    if (explicitSuccess === true) return 'normal';
-    if (typeof result !== 'string') return 'normal';
-    if (isReadOnlyNavigationMiss(toolName, result)) return 'zero-match';
-    const trimmed = result.trimStart();
-    if (/^error(?:\s+\[code\b|\s*:)/i.test(trimmed) || /^\[error/i.test(trimmed)) return 'error';
-    for (const prefix of ZERO_MATCH_PREFIXES) {
-        if (trimmed.startsWith(prefix)) return 'zero-match';
-    }
-    return 'normal';
+  if (explicitSuccess === true) return 'normal';
+  if (typeof result !== 'string') return 'normal';
+  if (isReadOnlyNavigationMiss(toolName, result)) return 'zero-match';
+  const trimmed = result.trimStart();
+  if (/^error(?:\s+\[code\b|\s*:)/i.test(trimmed) || /^\[error/i.test(trimmed)) return 'error';
+  for (const prefix of ZERO_MATCH_PREFIXES) {
+    if (trimmed.startsWith(prefix)) return 'zero-match';
+  }
+  return 'normal';
 }
 
 /**
@@ -92,14 +91,14 @@ export function classifyResultKind(result, explicitSuccess = false, toolName = '
  * @returns {boolean}
  */
 export function isShellFailureResult(result) {
-    if (typeof result !== 'string') return false;
-    const body = result.replace(/^(?:\s*⚠️[^\n]*\n)+/, '').trimStart();
-    if (/^error:\s*\[shell-tool-failed\]/i.test(body)) return true;
-    if (/^error:\s*\[shell-run-failed\]/i.test(body)) {
-        const header = body.split('\n', 1)[0] || '';
-        if (/\[exit code:/i.test(header)
-            && !/\[timeout:|\[signal:|timed out|aborted|interrupted/i.test(header)) return false;
-        return true;
-    }
-    return /^\[(?:timeout:|signal:)/i.test(body);
+  if (typeof result !== 'string') return false;
+  const body = result.replace(/^(?:\s*⚠️[^\n]*\n)+/, '').trimStart();
+  if (/^error:\s*\[shell-tool-failed\]/i.test(body)) return true;
+  if (/^error:\s*\[shell-run-failed\]/i.test(body)) {
+    const header = body.split('\n', 1)[0] || '';
+    if (/\[exit code:/i.test(header) && !/\[timeout:|\[signal:|timed out|aborted|interrupted/i.test(header))
+      return false;
+    return true;
+  }
+  return /^\[(?:timeout:|signal:)/i.test(body);
 }

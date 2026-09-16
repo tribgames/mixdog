@@ -1,5 +1,3 @@
-'use strict';
-
 // Runtime-worker client for the MACHINE-WIDE child-spawn budget.
 //
 // child-spawn-gate's semaphore was written for the single-process daemon; the
@@ -24,10 +22,7 @@ let _listening = false;
 let _channelLost = false;
 // Bounded patience for a busy/recovering daemon. Each expiry re-arms while the
 // link is alive, so IPC latency keeps shards on the machine-wide budget.
-const LEASE_WAIT_EXTENSIONS = Math.max(
-  0,
-  Math.floor(Number(process.env.MIXDOG_SPAWN_LEASE_WAIT_EXTENSIONS) || 3),
-);
+const LEASE_WAIT_EXTENSIONS = Math.max(0, Math.floor(Number(process.env.MIXDOG_SPAWN_LEASE_WAIT_EXTENSIONS) || 3));
 const LEASE_WARN_THROTTLE_MS = 30_000;
 let _lastLeaseWarnAt = 0;
 
@@ -37,10 +32,12 @@ function _warnSlowLease(budgetMs, extensionsLeft) {
   _lastLeaseWarnAt = now;
   try {
     process.stderr.write(
-      `[child-spawn-remote] machine spawn lease pending >${budgetMs}ms; staying on the daemon budget`
-      + ` (${extensionsLeft} extension(s) left)\n`,
+      `[child-spawn-remote] machine spawn lease pending >${budgetMs}ms; staying on the daemon budget` +
+        ` (${extensionsLeft} extension(s) left)\n`
     );
-  } catch { /* diagnostics only */ }
+  } catch {
+    /* diagnostics only */
+  }
 }
 
 function _fallbackError(reason) {
@@ -93,11 +90,13 @@ export function isSessionRuntimeWorkerProcess(env = process.env, pid = process.p
 }
 
 export function remoteSpawnLeasesEnabled(env = process.env) {
-  return !_channelLost
-    && isSessionRuntimeWorkerProcess(env)
-    && env.MIXDOG_DISABLE_MACHINE_SPAWN_BUDGET !== '1'
-    && typeof process.send === 'function'
-    && process.connected === true;
+  return (
+    !_channelLost &&
+    isSessionRuntimeWorkerProcess(env) &&
+    env.MIXDOG_DISABLE_MACHINE_SPAWN_BUDGET !== '1' &&
+    typeof process.send === 'function' &&
+    process.connected === true
+  );
 }
 
 /**
@@ -109,9 +108,9 @@ export function remoteSpawnLeasesEnabled(env = process.env) {
 export function acquireRemoteSpawnLease({ lane, ownerKey, signal, waitTimeoutMs }) {
   _ensureListener();
   if (signal?.aborted) {
-    return Promise.reject(signal.reason ?? Object.assign(
-      new Error('child-spawn-gate: aborted while queued'), { code: 'ABORT_ERR' },
-    ));
+    return Promise.reject(
+      signal.reason ?? Object.assign(new Error('child-spawn-gate: aborted while queued'), { code: 'ABORT_ERR' })
+    );
   }
   const leaseId = `lease-${process.pid}-${++_sequence}`;
   return new Promise((resolve, reject) => {
@@ -119,9 +118,16 @@ export function acquireRemoteSpawnLease({ lane, ownerKey, signal, waitTimeoutMs 
     let safety = null;
     let onAbort = null;
     const cleanup = () => {
-      if (safety) { clearTimeout(safety); safety = null; }
+      if (safety) {
+        clearTimeout(safety);
+        safety = null;
+      }
       if (onAbort && signal) {
-        try { signal.removeEventListener('abort', onAbort); } catch { /* teardown */ }
+        try {
+          signal.removeEventListener('abort', onAbort);
+        } catch {
+          /* teardown */
+        }
         onAbort = null;
       }
       _pending.delete(leaseId);
@@ -156,9 +162,9 @@ export function acquireRemoteSpawnLease({ lane, ownerKey, signal, waitTimeoutMs 
         // Cancels a queued lease (the pool aborts its waiter) or returns a
         // racing grant; either way the pool-side record settles exactly once.
         sendRelease();
-        fail(signal.reason ?? Object.assign(
-          new Error('child-spawn-gate: aborted while queued'), { code: 'ABORT_ERR' },
-        ));
+        fail(
+          signal.reason ?? Object.assign(new Error('child-spawn-gate: aborted while queued'), { code: 'ABORT_ERR' })
+        );
       };
       signal.addEventListener('abort', onAbort, { once: true });
     }
@@ -181,20 +187,26 @@ export function acquireRemoteSpawnLease({ lane, ownerKey, signal, waitTimeoutMs 
         // multiply the machine cap by the shard count. Fail this spawn instead;
         // only an actually lost IPC channel is allowed to use the bounded
         // process-local fallback lane.
-        fail(process.connected === true && !_channelLost
-          ? _leaseTimeoutError(`no lease response in ${budget}ms`)
-          : _fallbackError(`no lease response in ${budget}ms`));
+        fail(
+          process.connected === true && !_channelLost
+            ? _leaseTimeoutError(`no lease response in ${budget}ms`)
+            : _fallbackError(`no lease response in ${budget}ms`)
+        );
       }, budget);
       safety.unref?.();
     };
     armSafety();
-    const sent = safeIpcSend(process, {
-      type: 'spawn-lease',
-      leaseId,
-      lane,
-      ownerKey: String(ownerKey || ''),
-      waitTimeoutMs,
-    }, { onError: () => fail(_fallbackError('pool channel send failed')) });
+    const sent = safeIpcSend(
+      process,
+      {
+        type: 'spawn-lease',
+        leaseId,
+        lane,
+        ownerKey: String(ownerKey || ''),
+        waitTimeoutMs,
+      },
+      { onError: () => fail(_fallbackError('pool channel send failed')) }
+    );
     if (!sent) fail(_fallbackError('pool channel unavailable'));
   });
 }

@@ -12,9 +12,10 @@ async function persistRenderImages(raw, value, directory, prefix) {
   const metadata = value?.preview?.images || value?.images || [];
   const files = [];
   for (let index = 0; index < imageParts.length; index += 1) {
-    const pages = Array.isArray(metadata[index]?.pages) && metadata[index].pages.length
-      ? `pages-${metadata[index].pages.join('-')}`
-      : `page-${metadata[index]?.page || index + 1}`;
+    const pages =
+      Array.isArray(metadata[index]?.pages) && metadata[index].pages.length
+        ? `pages-${metadata[index].pages.join('-')}`
+        : `page-${metadata[index]?.page || index + 1}`;
     const path = join(directory, `${prefix}-${pages}.png`);
     await writeFile(path, Buffer.from(imageParts[index].source.data, 'base64'));
     files.push(path);
@@ -33,21 +34,29 @@ async function reviewPersisted({
   design: designRequest = {},
 }) {
   const reviewPath = join(directory, `.mixdog-review-${prefix}.${format}`);
-  const reopened = await office({
-    action: 'open',
-    path,
-    output: reviewPath,
-    mode: 'background',
-    design: designRequest,
-  }, directory, `reopen ${format} for review`);
+  const reopened = await office(
+    {
+      action: 'open',
+      path,
+      output: reviewPath,
+      mode: 'background',
+      design: designRequest,
+    },
+    directory,
+    `reopen ${format} for review`
+  );
   try {
-    const qa = await office({
-      action: 'qa',
-      session: reopened.value.session,
-      output,
-      task,
-      ...(auditProfile ? { auditProfile } : {}),
-    }, directory, `review ${format}`);
+    const qa = await office(
+      {
+        action: 'qa',
+        session: reopened.value.session,
+        output,
+        task,
+        ...(auditProfile ? { auditProfile } : {}),
+      },
+      directory,
+      `review ${format}`
+    );
     const images = await persistRenderImages(qa.raw, qa.value, directory, prefix);
     return { qa, images };
   } finally {
@@ -64,13 +73,62 @@ function contentModel() {
     decision: '성장 가속 0.9억원과 고객 유지 0.9억원 승인',
     period: '2026-07',
     facts: [
-      { id: 'revenue', label: '7월 매출', value: 5660, unit: '백만원', numberFormat: '#,##0', source: { document: '01-dashboard.xlsx', target: 'Source!B4' } },
-      { id: 'operating-profit', label: '7월 영업이익', value: 802, unit: '백만원', numberFormat: '#,##0', source: { document: '01-dashboard.xlsx', target: 'Source!C4' } },
-      { id: 'operating-margin', label: '영업이익률', value: 0.1417, unit: '%', numberFormat: '0.0%', source: { document: '01-dashboard.xlsx', target: 'Calculation!B4' } },
-      { id: 'churn', label: '고객 이탈률', value: 0.026, unit: '%', numberFormat: '0.0%', source: { document: '01-dashboard.xlsx', target: 'Source!E4' } },
-      { id: 'nps', label: 'NPS', value: 55, unit: '점', numberFormat: '0', source: { document: '01-dashboard.xlsx', target: 'Source!F4' } },
-      { id: 'growth-investment', label: '성장 가속 투자', value: 90, unit: '백만원', numberFormat: '#,##0', source: { document: '01-dashboard.xlsx', target: 'Calculation!B7' } },
-      { id: 'retention-investment', label: '고객 유지 투자', value: 90, unit: '백만원', numberFormat: '#,##0', source: { document: '01-dashboard.xlsx', target: 'Calculation!B8' } },
+      {
+        id: 'revenue',
+        label: '7월 매출',
+        value: 5660,
+        unit: '백만원',
+        numberFormat: '#,##0',
+        source: { document: '01-dashboard.xlsx', target: 'Source!B4' },
+      },
+      {
+        id: 'operating-profit',
+        label: '7월 영업이익',
+        value: 802,
+        unit: '백만원',
+        numberFormat: '#,##0',
+        source: { document: '01-dashboard.xlsx', target: 'Source!C4' },
+      },
+      {
+        id: 'operating-margin',
+        label: '영업이익률',
+        value: 0.1417,
+        unit: '%',
+        numberFormat: '0.0%',
+        source: { document: '01-dashboard.xlsx', target: 'Calculation!B4' },
+      },
+      {
+        id: 'churn',
+        label: '고객 이탈률',
+        value: 0.026,
+        unit: '%',
+        numberFormat: '0.0%',
+        source: { document: '01-dashboard.xlsx', target: 'Source!E4' },
+      },
+      {
+        id: 'nps',
+        label: 'NPS',
+        value: 55,
+        unit: '점',
+        numberFormat: '0',
+        source: { document: '01-dashboard.xlsx', target: 'Source!F4' },
+      },
+      {
+        id: 'growth-investment',
+        label: '성장 가속 투자',
+        value: 90,
+        unit: '백만원',
+        numberFormat: '#,##0',
+        source: { document: '01-dashboard.xlsx', target: 'Calculation!B7' },
+      },
+      {
+        id: 'retention-investment',
+        label: '고객 유지 투자',
+        value: 90,
+        unit: '백만원',
+        numberFormat: '#,##0',
+        source: { document: '01-dashboard.xlsx', target: 'Calculation!B8' },
+      },
     ],
     claims: [
       {
@@ -141,9 +199,18 @@ async function createWorkbook(directory, content) {
         ['7월', 5660, 802, 1082, 0.026, 55],
       ],
     },
-    ...['B2', 'C2', 'D2', 'E2', 'F2', 'B3', 'C3', 'D3', 'E3', 'F3', 'B4', 'C4', 'D4', 'E4', 'F4']
-      .map((cell) => ({ op: 'add_note', sheet: 'Source', cell, text: 'Source: 2026년 7월 benchmark brief input' })),
-    { op: 'set_style', sheet: 'Source', range: 'A1:F1', properties: { bold: true, color: 'FFFFFF', fillColor: '183028', horizontalAlignment: 'center' } },
+    ...['B2', 'C2', 'D2', 'E2', 'F2', 'B3', 'C3', 'D3', 'E3', 'F3', 'B4', 'C4', 'D4', 'E4', 'F4'].map((cell) => ({
+      op: 'add_note',
+      sheet: 'Source',
+      cell,
+      text: 'Source: 2026년 7월 benchmark brief input',
+    })),
+    {
+      op: 'set_style',
+      sheet: 'Source',
+      range: 'A1:F1',
+      properties: { bold: true, color: 'FFFFFF', fillColor: '183028', horizontalAlignment: 'center' },
+    },
     { op: 'set_style', sheet: 'Source', range: 'E2:E4', properties: { numberFormat: '0.0%' } },
     { op: 'autofit_range', sheet: 'Source', range: 'A:F' },
     { op: 'add_sheet', name: 'Calculation' },
@@ -171,7 +238,12 @@ async function createWorkbook(directory, content) {
     { op: 'set_formula', sheet: 'Calculation', cell: 'B9', formula: '=SUM(B7:B8)' },
     { op: 'add_note', sheet: 'Calculation', cell: 'B7', text: 'Source: 경영회의 투자 scenario input' },
     { op: 'add_note', sheet: 'Calculation', cell: 'B8', text: 'Source: 경영회의 투자 scenario input' },
-    { op: 'set_style', sheet: 'Calculation', range: 'A1:B1', properties: { bold: true, color: 'FFFFFF', fillColor: '183028' } },
+    {
+      op: 'set_style',
+      sheet: 'Calculation',
+      range: 'A1:B1',
+      properties: { bold: true, color: 'FFFFFF', fillColor: '183028' },
+    },
     { op: 'set_style', sheet: 'Calculation', range: 'B4:B5', properties: { numberFormat: '0.0%' } },
     { op: 'autofit_range', sheet: 'Calculation', range: 'A:B' },
     { op: 'add_sheet', name: 'Checks' },
@@ -188,11 +260,21 @@ async function createWorkbook(directory, content) {
     },
     { op: 'set_formula', sheet: 'Checks', cell: 'B2', formula: '=IF(Calculation!B2=Source!B4,"PASS","FAIL")' },
     { op: 'set_formula', sheet: 'Checks', cell: 'C2', formula: '=Calculation!B2-Source!B4' },
-    { op: 'set_formula', sheet: 'Checks', cell: 'B3', formula: '=IF(ABS(Calculation!B4-Source!C4/Source!B4)<0.000001,"PASS","FAIL")' },
+    {
+      op: 'set_formula',
+      sheet: 'Checks',
+      cell: 'B3',
+      formula: '=IF(ABS(Calculation!B4-Source!C4/Source!B4)<0.000001,"PASS","FAIL")',
+    },
     { op: 'set_formula', sheet: 'Checks', cell: 'C3', formula: '=Calculation!B4-Source!C4/Source!B4' },
     { op: 'set_formula', sheet: 'Checks', cell: 'B4', formula: '=IF(Calculation!B9=180,"PASS","FAIL")' },
     { op: 'set_formula', sheet: 'Checks', cell: 'C4', formula: '=Calculation!B9-180' },
-    { op: 'set_style', sheet: 'Checks', range: 'A1:C1', properties: { bold: true, color: 'FFFFFF', fillColor: '183028' } },
+    {
+      op: 'set_style',
+      sheet: 'Checks',
+      range: 'A1:C1',
+      properties: { bold: true, color: 'FFFFFF', fillColor: '183028' },
+    },
     { op: 'autofit_range', sheet: 'Checks', range: 'A:C' },
     { op: 'add_sheet', name: 'Dashboard' },
     {
@@ -216,11 +298,7 @@ async function createWorkbook(directory, content) {
         { factId: 'operating-margin', formula: '=Calculation!B4' },
         { factId: 'churn', formula: '=Calculation!B5' },
       ],
-      insights: [
-        '매출과 영업이익률이 3개월 연속 개선',
-        'NPS 55 유지',
-        '총 1.8억원을 성장과 고객 유지에 균등 배분',
-      ],
+      insights: ['매출과 영업이익률이 3개월 연속 개선', 'NPS 55 유지', '총 1.8억원을 성장과 고객 유지에 균등 배분'],
       decision: '성장 가속 0.9억원과 고객 유지 0.9억원을 함께 승인하고 월말에 성과를 재판정합니다.',
       gates: [
         { track: '성장 가속', release: '영업이익률 13.5% 이상', stop: '13.5% 미만' },
@@ -257,27 +335,34 @@ async function createWorkbook(directory, content) {
     { op: 'set_sheet_visibility', sheet: 'Calculation', visibility: 'hidden' },
     { op: 'set_sheet_visibility', sheet: 'Checks', visibility: 'hidden' },
   ];
-  const created = await office({
-    action: 'create',
-    path,
-    format: 'xlsx',
-    mode: 'background',
-    design: designRequest,
-    operations,
-  }, directory, 'create workbook');
-  const validation = await office({
-    action: 'validate',
-    session: created.value.session,
-    auditProfile: 'financial-model',
-    assertions: [
-      { kind: 'cell-value', sheet: 'Dashboard', cell: 'B14', equals: 5660 },
-      { kind: 'cell-value', sheet: 'Dashboard', cell: 'C14', equals: 802 },
-      { kind: 'cell-value', sheet: 'Calculation', cell: 'B9', equals: 180 },
-      { kind: 'no-errors' },
-    ],
-  }, directory, 'validate workbook');
-  const persistedDashboard = validation.value.native?.snapshot?.sheets
-    ?.find((sheet) => sheet.name === 'Dashboard');
+  const created = await office(
+    {
+      action: 'create',
+      path,
+      format: 'xlsx',
+      mode: 'background',
+      design: designRequest,
+      operations,
+    },
+    directory,
+    'create workbook'
+  );
+  const validation = await office(
+    {
+      action: 'validate',
+      session: created.value.session,
+      auditProfile: 'financial-model',
+      assertions: [
+        { kind: 'cell-value', sheet: 'Dashboard', cell: 'B14', equals: 5660 },
+        { kind: 'cell-value', sheet: 'Dashboard', cell: 'C14', equals: 802 },
+        { kind: 'cell-value', sheet: 'Calculation', cell: 'B9', equals: 180 },
+        { kind: 'no-errors' },
+      ],
+    },
+    directory,
+    'validate workbook'
+  );
+  const persistedDashboard = validation.value.native?.snapshot?.sheets?.find((sheet) => sheet.name === 'Dashboard');
   assert.deepEqual(persistedDashboard?.freezePanes, {
     frozen: true,
     splitRow: 12,
@@ -300,74 +385,85 @@ async function createWorkbook(directory, content) {
 async function createDocument(directory, content) {
   const path = join(directory, '02-decision-brief.docx');
   const designRequest = design(content, 'executive', 'decide');
-  const created = await office({
-    action: 'create',
-    path,
-    format: 'docx',
-    mode: 'background',
-    design: designRequest,
-    operations: [{
-      op: 'compose_document',
-      title: '7월 경영회의 의사결정 브리프',
-      subtitle: '성장 여력은 확보했습니다. 고객 유지와 함께 투자해야 합니다.',
-      claimId: 'investment-decision',
-      summary: '권고: 성장 가속 0.9억원과 고객 유지 0.9억원을 함께 승인합니다. 총 1.8억원을 30일 실행계획으로 관리합니다.',
-      meta: ['2026년 7월', '경영회의용', '단위: 백만원'],
-      sections: [
+  const created = await office(
+    {
+      action: 'create',
+      path,
+      format: 'docx',
+      mode: 'background',
+      design: designRequest,
+      operations: [
         {
-          kind: 'decision',
-          heading: '1. 결론과 요청사항',
-          paragraphs: [
-            '7월 매출은 5,660백만원, 영업이익은 802백만원으로 개선 흐름을 이어갔습니다. 영업이익률 14.2%는 성장 투자 여력을 뒷받침합니다.',
-            '동시에 고객 이탈률 2.6%와 NPS 55를 고려하면 성장만 단독 집행하기보다 고객 유지 투자를 병행하는 편이 안전합니다.',
+          op: 'compose_document',
+          title: '7월 경영회의 의사결정 브리프',
+          subtitle: '성장 여력은 확보했습니다. 고객 유지와 함께 투자해야 합니다.',
+          claimId: 'investment-decision',
+          summary:
+            '권고: 성장 가속 0.9억원과 고객 유지 0.9억원을 함께 승인합니다. 총 1.8억원을 30일 실행계획으로 관리합니다.',
+          meta: ['2026년 7월', '경영회의용', '단위: 백만원'],
+          sections: [
+            {
+              kind: 'decision',
+              heading: '1. 결론과 요청사항',
+              paragraphs: [
+                '7월 매출은 5,660백만원, 영업이익은 802백만원으로 개선 흐름을 이어갔습니다. 영업이익률 14.2%는 성장 투자 여력을 뒷받침합니다.',
+                '동시에 고객 이탈률 2.6%와 NPS 55를 고려하면 성장만 단독 집행하기보다 고객 유지 투자를 병행하는 편이 안전합니다.',
+              ],
+              bullets: [
+                '승인 요청: 성장 가속 90백만원',
+                '승인 요청: 고객 유지 90백만원',
+                '운영 원칙: 월말에 성과 gate를 다시 판정',
+              ],
+            },
+            {
+              kind: 'metrics',
+              heading: '2. 핵심 실적',
+              table: [
+                ['지표', '7월 실적', '판정'],
+                ['매출', '5,660백만원', '성장 여력 확보'],
+                ['영업이익', '802백만원', '수익성 개선'],
+                ['영업이익률', '14.2%', '계획 상회'],
+                ['고객 이탈률', '2.6%', '추가 개선 필요'],
+                ['NPS', '55', '유지'],
+              ],
+            },
+            {
+              kind: 'decision-gates',
+              heading: '3. 투자 release / stop gate',
+              paragraphs: ['두 트랙 모두 승인하되, 다음 월말에 정량 기준으로 계속 집행 여부를 다시 결정합니다.'],
+              table: [
+                ['트랙', 'Release', 'Stop'],
+                ['성장 가속 0.9억원', '매출 성장률 유지\n영업이익률 13.5% 이상', '영업이익률 13.5% 미만'],
+                ['고객 유지 0.9억원', '이탈률 2.4% 이하 경로\nNPS 55 유지', '이탈률 반등\nNPS 52 미만'],
+              ],
+            },
+            {
+              kind: 'roadmap',
+              heading: '4. 30일 실행계획',
+              paragraphs: ['Owner 확정 → leading indicator 점검 → 집행 재배분 → gate 판정의 네 단계로 운영합니다.'],
+              steps: [
+                { label: '1주차', title: 'Owner·예산 확정', detail: '성장 채널과 유지 캠페인의 책임자와 예산을 확정' },
+                { label: '2주차', title: 'Leading indicator', detail: 'cohort별 전환율·이탈률 조기 신호를 점검' },
+                { label: '3주차', title: '집행 재배분', detail: '저효율 집행을 중단하고 고효율 채널로 이동' },
+                { label: '4주차', title: 'Gate 재판정', detail: '월말 경영회의에 release / stop을 보고' },
+              ],
+              callout: '월말 경영회의에서 두 트랙의 release / stop을 정량 기준으로 다시 결정합니다.',
+              calloutLabel: 'NEXT DECISION',
+            },
           ],
-          bullets: [
-            '승인 요청: 성장 가속 90백만원',
-            '승인 요청: 고객 유지 90백만원',
-            '운영 원칙: 월말에 성과 gate를 다시 판정',
-          ],
-        },
-        {
-          kind: 'metrics',
-          heading: '2. 핵심 실적',
-          table: [
-            ['지표', '7월 실적', '판정'],
-            ['매출', '5,660백만원', '성장 여력 확보'],
-            ['영업이익', '802백만원', '수익성 개선'],
-            ['영업이익률', '14.2%', '계획 상회'],
-            ['고객 이탈률', '2.6%', '추가 개선 필요'],
-            ['NPS', '55', '유지'],
-          ],
-        },
-        {
-          kind: 'decision-gates',
-          heading: '3. 투자 release / stop gate',
-          paragraphs: ['두 트랙 모두 승인하되, 다음 월말에 정량 기준으로 계속 집행 여부를 다시 결정합니다.'],
-          table: [
-            ['트랙', 'Release', 'Stop'],
-            ['성장 가속 0.9억원', '매출 성장률 유지\n영업이익률 13.5% 이상', '영업이익률 13.5% 미만'],
-            ['고객 유지 0.9억원', '이탈률 2.4% 이하 경로\nNPS 55 유지', '이탈률 반등\nNPS 52 미만'],
-          ],
-        },
-        {
-          kind: 'roadmap',
-          heading: '4. 30일 실행계획',
-          paragraphs: ['Owner 확정 → leading indicator 점검 → 집행 재배분 → gate 판정의 네 단계로 운영합니다.'],
-          steps: [
-            { label: '1주차', title: 'Owner·예산 확정', detail: '성장 채널과 유지 캠페인의 책임자와 예산을 확정' },
-            { label: '2주차', title: 'Leading indicator', detail: 'cohort별 전환율·이탈률 조기 신호를 점검' },
-            { label: '3주차', title: '집행 재배분', detail: '저효율 집행을 중단하고 고효율 채널로 이동' },
-            { label: '4주차', title: 'Gate 재판정', detail: '월말 경영회의에 release / stop을 보고' },
-          ],
-          callout: '월말 경영회의에서 두 트랙의 release / stop을 정량 기준으로 다시 결정합니다.',
-          calloutLabel: 'NEXT DECISION',
+          footer: 'Source: 01-dashboard.xlsx / Dashboard',
+          pageNumbers: true,
         },
       ],
-      footer: 'Source: 01-dashboard.xlsx / Dashboard',
-      pageNumbers: true,
-    }],
-  }, directory, 'create document');
-  const validation = await office({ action: 'validate', session: created.value.session }, directory, 'validate document');
+    },
+    directory,
+    'create document'
+  );
+  const validation = await office(
+    { action: 'validate', session: created.value.session },
+    directory,
+    'validate document'
+  );
   await office({ action: 'close', session: created.value.session }, directory, 'close document');
   const { qa, images } = await reviewPersisted({
     path,
@@ -382,8 +478,12 @@ async function createDocument(directory, content) {
 }
 
 export async function runOfficeQualityLiveBenchmark({ output = '' } = {}) {
-  if (process.platform !== 'win32') throw new Error('Office quality live benchmark requires Windows and Microsoft Office');
-  const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+  if (process.platform !== 'win32')
+    throw new Error('Office quality live benchmark requires Windows and Microsoft Office');
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[-:TZ.]/g, '')
+    .slice(0, 14);
   const directory = resolve(output || join(tmpdir(), `mixdog-office-quality-${timestamp}`));
   await mkdir(directory, { recursive: true });
   const content = contentModel();
@@ -395,7 +495,9 @@ export async function runOfficeQualityLiveBenchmark({ output = '' } = {}) {
   } finally {
     resetOfficeSessionsForTest();
   }
-  const fingerprints = Object.values(results).map((entry) => entry.contentFingerprint).filter(Boolean);
+  const fingerprints = Object.values(results)
+    .map((entry) => entry.contentFingerprint)
+    .filter(Boolean);
   const crossAppConsistent = fingerprints.length === 2 && new Set(fingerprints).size === 1;
   const criticalCount = Object.values(results).reduce((total, entry) => total + entry.criticalIssues.length, 0);
   const report = {
@@ -410,16 +512,15 @@ export async function runOfficeQualityLiveBenchmark({ output = '' } = {}) {
     },
     crossAppConsistent,
     criticalCount,
-    automatedPass: crossAppConsistent
-      && criticalCount === 0
-      && Object.values(results).every((entry) => (
-        entry.qaOk
-        && entry.aestheticOk
-        && entry.validationOk
-        && entry.categorySpacing?.ok !== false
-      )),
+    automatedPass:
+      crossAppConsistent &&
+      criticalCount === 0 &&
+      Object.values(results).every(
+        (entry) => entry.qaOk && entry.aestheticOk && entry.validationOk && entry.categorySpacing?.ok !== false
+      ),
     results,
-    nextAction: 'Inspect every PNG, score content/design/layout/form/request fidelity, then apply one targeted polish batch per failing file.',
+    nextAction:
+      'Inspect every PNG, score content/design/layout/form/request fidelity, then apply one targeted polish batch per failing file.',
   };
   await writeFile(join(directory, 'quality-report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   return report;

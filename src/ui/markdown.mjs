@@ -134,9 +134,7 @@ function renderUnsafe(src, opts) {
     if (inFence) {
       const closeMatch = /^(\s*)([`~]+)\s*$/.exec(line);
       const markerRun = closeMatch?.[2] ?? '';
-      const closes =
-        markerRun.length >= fenceMarkerLen &&
-        [...markerRun].every((ch) => ch === fenceMarker);
+      const closes = markerRun.length >= fenceMarkerLen && [...markerRun].every((ch) => ch === fenceMarker);
       if (closes) {
         out.push(renderCodeBlock(fenceBuf, fenceLang, width));
         inFence = false;
@@ -227,10 +225,12 @@ function padCell(text, target, align) {
 /** Render a GFM table as an aligned, dim-ruled block (header row in bold). */
 function renderTable(rows, delimiterRow, width, defs) {
   const align = tableAlignments(delimiterRow);
-  const body = rows.map((row, rowIndex) => tableCells(row).map((cell) => {
-    const rendered = renderInline(cell, undefined, defs);
-    return rowIndex === 0 ? bold(rendered) : rendered;
-  }));
+  const body = rows.map((row, rowIndex) =>
+    tableCells(row).map((cell) => {
+      const rendered = renderInline(cell, undefined, defs);
+      return rowIndex === 0 ? bold(rendered) : rendered;
+    })
+  );
   const columns = body.reduce((max, cells) => Math.max(max, cells.length), 0);
   const widths = [];
   for (let column = 0; column < columns; column++) {
@@ -240,19 +240,23 @@ function renderTable(rows, delimiterRow, width, defs) {
   if (total > width) {
     // Too wide to align: fall back to one "header: value" block per row.
     const headers = body[0] ?? [];
-    return body.slice(1).map((cells) => cells
-      .map((cell, column) => `${dim(`${stripCellLabel(headers[column])}:`)} ${cell}`)
-      .join('\n')).join('\n\n');
+    return body
+      .slice(1)
+      .map((cells) => cells.map((cell, column) => `${dim(`${stripCellLabel(headers[column])}:`)} ${cell}`).join('\n'))
+      .join('\n\n');
   }
-  const line = (cells) => cells
-    .map((cell, column) => padCell(cell ?? '', widths[column], align[column] ?? 'left'))
-    .join(dim(' \u2502 '));
+  const line = (cells) =>
+    cells.map((cell, column) => padCell(cell ?? '', widths[column], align[column] ?? 'left')).join(dim(' \u2502 '));
   const rule = dim(widths.map((value) => '\u2500'.repeat(value)).join('\u2500\u253c\u2500'));
   return [line(body[0] ?? []), rule, ...body.slice(1).map(line)].join('\n');
 }
 
 function stripCellLabel(cell) {
-  return String(cell ?? '').replace(/\u001b\[[0-9;]*m/g, '').trim() || '-';
+  return (
+    String(cell ?? '')
+      .replace(/\u001b\[[0-9;]*m/g, '')
+      .trim() || '-'
+  );
 }
 
 function clampWidth(w) {
@@ -313,10 +317,7 @@ function renderLine(line, width, defs) {
 function renderCodeBlock(bufLines, lang, width) {
   const inner = bufLines.length ? bufLines : [''];
   const isDiff = isDiffFence(lang, inner);
-  const contentWidth = Math.max(
-    20,
-    Math.min(width, inner.reduce((m, l) => Math.max(m, l.length), 0) + 2),
-  );
+  const contentWidth = Math.max(20, Math.min(width, inner.reduce((m, l) => Math.max(m, l.length), 0) + 2));
   const labelPlain = lang ? ` ${lang} ` : '';
   const labelStyled = labelPlain ? PALETTE.fenceLabel(labelPlain) : '';
   const ruleLen = Math.max(0, contentWidth - visibleWidth(labelPlain));
@@ -338,7 +339,9 @@ function padVisible(text, targetWidth) {
 }
 
 function isDiffFence(lang, lines) {
-  const tag = String(lang ?? '').trim().toLowerCase();
+  const tag = String(lang ?? '')
+    .trim()
+    .toLowerCase();
   if (/^(diff|patch|udiff)$/.test(tag)) return true;
   let hunk = false;
   let delta = false;
@@ -392,9 +395,7 @@ function renderInline(text, state, defs) {
   // Images: ![alt](url) -> alt (url). Runs BEFORE links, otherwise the leading
   // "!" survived as literal prose in front of the label.
   s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, alt, url) => {
-    const label = alt.trim()
-      ? compose(underline, PALETTE.link)(renderInline(alt, st, defs))
-      : '';
+    const label = alt.trim() ? compose(underline, PALETTE.link)(renderInline(alt, st, defs)) : '';
     return label ? `${label} ${dim('(' + url + ')')}` : dim(url);
   });
 
@@ -411,7 +412,11 @@ function renderInline(text, state, defs) {
   const links = defs?.links;
   if (links && links.size) {
     const reference = (label, tag) => {
-      const url = links.get(String(tag || label).trim().toLowerCase());
+      const url = links.get(
+        String(tag || label)
+          .trim()
+          .toLowerCase()
+      );
       if (!url) return null;
       return `${compose(underline, PALETTE.link)(renderInline(label, st, defs))} ${dim('(' + url + ')')}`;
     };

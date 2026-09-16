@@ -70,10 +70,7 @@ test('compaction preserves exact duration and elapsed time instead of losing the
 test('a finished or missing Goal drops the pending reminder instead of re-reading it', () => {
   const finished = { id: 'sess_goal_reminder_done' };
   markPendingGoalReminder(finished);
-  assert.equal(
-    snapshotPendingGoalReminder(finished, { readGoal: () => goal({ status: 'complete' }) }),
-    null,
-  );
+  assert.equal(snapshotPendingGoalReminder(finished, { readGoal: () => goal({ status: 'complete' }) }), null);
   assert.equal(finished.pendingGoalReminder, undefined);
 
   const missing = { id: 'sess_goal_reminder_missing' };
@@ -121,7 +118,10 @@ test('a deadline warning carries the wrap-up contract and the live remaining tim
 test('an undelivered advance warning uses the authoritative stopped state at request preparation', () => {
   const session = { id: 'sess_goal_warning_expired' };
   const stopped = goal({
-    status: 'duration_reached', revision: 9, timeLimitMs: 60_000, timeUsedMs: 60_000,
+    status: 'duration_reached',
+    revision: 9,
+    timeLimitMs: 60_000,
+    timeUsedMs: 60_000,
   });
   markPendingGoalReminder(session, 'deadline-soon');
   const snapshot = snapshotPendingGoalReminder(session, { readGoal: () => stopped });
@@ -156,11 +156,14 @@ test('post-compact Goal state is prepended to the current user turn and leaves n
   const session = { id: 'sess_goal_inline' };
   markPendingGoalReminder(session);
   const snapshot = snapshotPendingGoalReminder(session, { readGoal: () => goal() });
-  const messages = prependGoalReminderToLatestUserMessage([
-    { role: 'user', content: 'older compact handoff' },
-    { role: 'assistant', content: 'recent answer' },
-    { role: 'user', content: 'current instruction' },
-  ], snapshot.content);
+  const messages = prependGoalReminderToLatestUserMessage(
+    [
+      { role: 'user', content: 'older compact handoff' },
+      { role: 'assistant', content: 'recent answer' },
+      { role: 'user', content: 'current instruction' },
+    ],
+    snapshot.content
+  );
   acknowledgePendingGoalReminder(session, snapshot.revision);
 
   assert.equal(messages[0].content, 'older compact handoff');
@@ -172,10 +175,9 @@ test('post-compact Goal state is prepended to the current user turn and leaves n
 
 test('Goal task lines carry mark, id, and kind for every task', () => {
   assert.deepEqual(goalTaskLines([]), ['- No durable tasks recorded yet.']);
-  assert.deepEqual(
-    goalTaskLines([{ id: 'task_9', text: 'Do <it>', status: 'pending', kind: 'work' }]),
-    ['- [ ] task_9 (work): Do &lt;it&gt;'],
-  );
+  assert.deepEqual(goalTaskLines([{ id: 'task_9', text: 'Do <it>', status: 'pending', kind: 'work' }]), [
+    '- [ ] task_9 (work): Do &lt;it&gt;',
+  ]);
   assert.equal(goalStateReminder(null), '');
 });
 
@@ -192,7 +194,8 @@ test('request preparation finds a paused Goal without any intake marker and does
   const paused = goal({ status: 'paused', revision: 7 });
   const before = structuredClone(paused);
   const snapshot = snapshotPendingGoalReminder(session, {
-    includePaused: true, readGoal: () => paused,
+    includePaused: true,
+    readGoal: () => paused,
   });
   assert.match(snapshot.content, /Status: paused/);
   assert.match(snapshot.content, /Revision: 7/);
@@ -202,7 +205,8 @@ test('request preparation finds a paused Goal without any intake marker and does
   // Answering a question is not a resume. The next actual request still needs
   // the durable state even though the prior marker was acknowledged.
   const next = snapshotPendingGoalReminder(session, {
-    includePaused: true, readGoal: () => paused,
+    includePaused: true,
+    readGoal: () => paused,
   });
   assert.ok(next.revision > snapshot.revision);
   assert.deepEqual(paused, before);
@@ -231,7 +235,8 @@ test('compaction and objective reminders retain the current paused-state recover
     const session = { id: `sess_goal_${reason}` };
     markPendingGoalReminder(session, reason);
     const snapshot = snapshotPendingGoalReminder(session, {
-      includePaused: true, readGoal: () => goal({ status: 'paused' }),
+      includePaused: true,
+      readGoal: () => goal({ status: 'paused' }),
     });
     assert.equal(snapshot.reason, reason);
     assert.match(snapshot.content, /The user paused this Goal/);

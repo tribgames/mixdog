@@ -4,11 +4,7 @@
  * flattening, session activity timestamps, and batch merging. Extracted from
  * session-local.mjs.
  */
-import {
-  agentJobResultText,
-  parseAgentJob,
-  parseSyntheticAgentMessage,
-} from './agent-envelope.mjs';
+import { agentJobResultText, parseAgentJob, parseSyntheticAgentMessage } from './agent-envelope.mjs';
 import { attachmentTextForPart, isAttachmentReference } from '../../runtime/attachments/store.mjs';
 
 const QUEUE_PRIORITY = { now: 0, next: 1, later: 2 };
@@ -40,10 +36,9 @@ export function isGoalQueuedEntry(entry) {
 
 export function isQueuedEntryEditable(entry) {
   const mode = entry?.mode || 'prompt';
-  return mode !== 'task-notification'
-    && mode !== 'pending-resume'
-    && !isGoalQueuedEntry(entry)
-    && entry?.isMeta !== true;
+  return (
+    mode !== 'task-notification' && mode !== 'pending-resume' && !isGoalQueuedEntry(entry) && entry?.isMeta !== true
+  );
 }
 
 export function isQueuedEntryVisible(entry) {
@@ -62,7 +57,12 @@ export function isSlashQueuedEntry(entry) {
 }
 
 function firstQueueLine(text) {
-  return String(text || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
+  return (
+    String(text || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean) || ''
+  );
 }
 
 export function shortTextFingerprint(text) {
@@ -85,13 +85,16 @@ export function notificationDisplayText(text) {
 export function promptContentText(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
-    return content.map((part) => {
-      if (typeof part === 'string') return part;
-      if (part?.type === 'text') return isAttachmentReference(part) ? attachmentTextForPart(part) : (part.text || '');
-      if (part?.type === 'image') return '[Image]';
-      if (part?.type === 'file') return '[File]';
-      return part?.text || '';
-    }).filter(Boolean).join('\n');
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part?.type === 'text') return isAttachmentReference(part) ? attachmentTextForPart(part) : part.text || '';
+        if (part?.type === 'image') return '[Image]';
+        if (part?.type === 'file') return '[File]';
+        return part?.text || '';
+      })
+      .filter(Boolean)
+      .join('\n');
   }
   return String(content ?? '');
 }
@@ -118,9 +121,7 @@ function hasModelVisibleConversation(session) {
 
 export function sessionActivityTimestamp(session, fallback = 0) {
   if (!hasModelVisibleConversation(session)) return 0;
-  return timestampMs(session?.lastUsedAt)
-    || timestampMs(session?.updatedAt)
-    || timestampMs(fallback);
+  return timestampMs(session?.lastUsedAt) || timestampMs(session?.updatedAt) || timestampMs(fallback);
 }
 
 export function promptDisplayText(content, options = {}) {
@@ -131,7 +132,10 @@ export function promptDisplayText(content, options = {}) {
 export function mergePromptContents(entries) {
   const batch = Array.isArray(entries) ? entries : [];
   if (batch.every((entry) => typeof entry?.content === 'string')) {
-    return batch.map((entry) => entry.content).filter((text) => String(text || '').trim()).join('\n');
+    return batch
+      .map((entry) => entry.content)
+      .filter((text) => String(text || '').trim())
+      .join('\n');
   }
   const parts = [];
   for (const entry of batch) {
@@ -143,14 +147,13 @@ export function mergePromptContents(entries) {
     }
     parts.push({ type: 'text', text: '\n' });
   }
-  while (parts.length && parts[parts.length - 1]?.type === 'text' && parts[parts.length - 1]?.text === '\n') parts.pop();
+  while (parts.length && parts[parts.length - 1]?.type === 'text' && parts[parts.length - 1]?.text === '\n')
+    parts.pop();
   // Collapse to a plain string only for an INLINE text part. An externalized
   // text part (attachmentRef, no .text — prompts over the 800B reference
   // threshold) must stay a parts array; collapsing it returned `undefined`
   // and the turn ran with an invisible prompt (silent empty worker turns).
-  return parts.length === 1 && parts[0]?.type === 'text' && typeof parts[0].text === 'string'
-    ? parts[0].text
-    : parts;
+  return parts.length === 1 && parts[0]?.type === 'text' && typeof parts[0].text === 'string' ? parts[0].text : parts;
 }
 
 export function mergePastedImages(entries) {
@@ -174,9 +177,7 @@ export function promptContentImageMeta(content, pastedImages) {
   const named = pastedImages && typeof pastedImages === 'object' ? Object.values(pastedImages) : [];
   return parts.map((part, index) => {
     const meta = named[index] && typeof named[index] === 'object' ? named[index] : null;
-    const data = typeof part.data === 'string'
-      ? part.data
-      : (typeof part.content === 'string' ? part.content : '');
+    const data = typeof part.data === 'string' ? part.data : typeof part.content === 'string' ? part.content : '';
     return {
       id: meta?.id ?? null,
       name: String(meta?.filename || `Image ${index + 1}`),
@@ -200,6 +201,8 @@ export function mergePastedTexts(entries) {
 
 export function callCommitCallbacks(entries) {
   for (const entry of entries || []) {
-    try { entry?.onCommitted?.(); } catch {}
+    try {
+      entry?.onCommitted?.();
+    } catch {}
   }
 }

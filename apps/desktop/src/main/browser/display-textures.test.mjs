@@ -10,16 +10,25 @@ function fixture() {
   const frames = createBrowserDisplayTextures({
     document: () => document,
     importTexture: (texture, released) => ({ release: released, texture }),
-    send: async (texture, session, id) => { sends.push({ texture, session, id }); },
+    send: async (texture, session, id) => {
+      sends.push({ texture, session, id });
+    },
   });
   frames.attach(guest);
   return {
-    guest, frames, sends,
-    navigate() { document = 'p1:2'; guest.emit('did-start-navigation', {}, 'new', false, true); },
+    guest,
+    frames,
+    sends,
+    navigate() {
+      document = 'p1:2';
+      guest.emit('did-start-navigation', {}, 'new', false, true);
+    },
     paint(width = 600, widgetType = 'frame') {
       const texture = {
         releases: 0,
-        release() { this.releases++; },
+        release() {
+          this.releases++;
+        },
         textureInfo: { widgetType, visibleRect: { width, height: 400 } },
       };
       guest.emit('paint', { texture });

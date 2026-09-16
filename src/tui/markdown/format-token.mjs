@@ -118,8 +118,7 @@ function repairAdjacentStrong(text) {
   const value = String(text ?? '');
   if (value.indexOf('**') === -1 && value.indexOf('__') === -1) return value;
   ADJACENT_STRONG_RE.lastIndex = 0;
-  return value.replace(ADJACENT_STRONG_RE, (_, starred, scored) =>
-    chalk.bold(starred ?? scored ?? ''));
+  return value.replace(ADJACENT_STRONG_RE, (_, starred, scored) => chalk.bold(starred ?? scored ?? ''));
 }
 
 // Raw HTML has no terminal rendering, but silently dropping the token deleted
@@ -276,7 +275,7 @@ export function looksLikeUnifiedDiff(text) {
 
 // `git diff --stat` rows. FILE: `<path> | <count> <+/-/ graph>` (count may be
 // `Bin`); SUMMARY: `N file(s) changed[, M insertion…][, K deletion…]`.
-const DIFF_STAT_FILE_RE = /^(\s*)(.+?)(\s+\|\s+)(Bin\b.*|\d+\s*[+\-]*)\s*$/;
+const DIFF_STAT_FILE_RE = /^(\s*)(.+?)(\s+\|\s+)(Bin\b.*|\d+\s*[+-]*)\s*$/;
 const DIFF_STAT_SUMMARY_RE = /^\s*\d+\s+files?\s+changed\b/;
 
 /** Color a `git diff --stat` file row: dim path/sep, green `+`, red `-`. */
@@ -285,7 +284,7 @@ function colorizeDiffStatLine(line, c) {
   if (m) {
     const [, indent, path, sep, tail] = m;
     // The tail is either `Bin …` or `<count> <graph>` where graph is +/-.
-    const countMatch = /^(\d+)(\s*)([+\-]*)\s*$/.exec(tail);
+    const countMatch = /^(\d+)(\s*)([+-]*)\s*$/.exec(tail);
     let coloredTail;
     if (countMatch) {
       const [, count, gap, bars] = countMatch;
@@ -319,7 +318,8 @@ export function colorizeDiffLine(line, c) {
 
 /** Color the `N files changed, M insertions(+), K deletions(-)` trailer. */
 function colorizeDiffStatTrailer(line, c) {
-  return line.replace(/(\d+)(\s+insertions?\(\+\))/g, (_, n, rest) => `${c.diffAdded(n)}${c.diffContext(rest)}`)
+  return line
+    .replace(/(\d+)(\s+insertions?\(\+\))/g, (_, n, rest) => `${c.diffAdded(n)}${c.diffContext(rest)}`)
     .replace(/(\d+)(\s+deletions?\(-\))/g, (_, n, rest) => `${c.diffRemoved(n)}${c.diffContext(rest)}`);
 }
 
@@ -396,43 +396,86 @@ const FAMILY_TO_HLJS = {
 };
 
 export const LANG_FAMILY = {
-  js: 'js', javascript: 'js', mjs: 'js', cjs: 'js',
-  ts: 'ts', typescript: 'ts', jsx: 'jsx', tsx: 'tsx',
-  json: 'json', json5: 'json',
-  bash: 'sh', sh: 'sh', shell: 'sh', zsh: 'sh',
-  python: 'py', py: 'py',
-  css: 'css', scss: 'css', less: 'css',
-  html: 'html', xml: 'html',
-  md: 'md', markdown: 'md',
-  go: 'go', golang: 'go',
-  rust: 'rust', rs: 'rust',
+  js: 'js',
+  javascript: 'js',
+  mjs: 'js',
+  cjs: 'js',
+  ts: 'ts',
+  typescript: 'ts',
+  jsx: 'jsx',
+  tsx: 'tsx',
+  json: 'json',
+  json5: 'json',
+  bash: 'sh',
+  sh: 'sh',
+  shell: 'sh',
+  zsh: 'sh',
+  python: 'py',
+  py: 'py',
+  css: 'css',
+  scss: 'css',
+  less: 'css',
+  html: 'html',
+  xml: 'html',
+  md: 'md',
+  markdown: 'md',
+  go: 'go',
+  golang: 'go',
+  rust: 'rust',
+  rs: 'rust',
   java: 'java',
-  c: 'c', cpp: 'c', 'c++': 'c', cc: 'c', h: 'c', hpp: 'c',
-  ruby: 'ruby', rb: 'ruby',
+  c: 'c',
+  cpp: 'c',
+  'c++': 'c',
+  cc: 'c',
+  h: 'c',
+  hpp: 'c',
+  ruby: 'ruby',
+  rb: 'ruby',
   sql: 'sql',
-  yaml: 'yaml', yml: 'yaml',
+  yaml: 'yaml',
+  yml: 'yaml',
   toml: 'toml',
-  kotlin: 'kotlin', kt: 'kotlin', kts: 'kotlin',
+  kotlin: 'kotlin',
+  kt: 'kotlin',
+  kts: 'kotlin',
   swift: 'swift',
   php: 'php',
-  csharp: 'csharp', cs: 'csharp', 'c#': 'csharp',
-  dockerfile: 'dockerfile', docker: 'dockerfile',
-  graphql: 'graphql', gql: 'graphql',
-  protobuf: 'protobuf', proto: 'protobuf',
+  csharp: 'csharp',
+  cs: 'csharp',
+  'c#': 'csharp',
+  dockerfile: 'dockerfile',
+  docker: 'dockerfile',
+  graphql: 'graphql',
+  gql: 'graphql',
+  protobuf: 'protobuf',
+  proto: 'protobuf',
   scala: 'scala',
   dart: 'dart',
   lua: 'lua',
-  perl: 'perl', pl: 'perl',
-  r: 'r', rl: 'r',
-  objc: 'objc', 'objective-c': 'objc', 'obj-c': 'objc',
-  powershell: 'powershell', ps1: 'powershell', ps: 'powershell', pwsh: 'powershell',
-  makefile: 'makefile', make: 'makefile',
+  perl: 'perl',
+  pl: 'perl',
+  r: 'r',
+  rl: 'r',
+  objc: 'objc',
+  'objective-c': 'objc',
+  'obj-c': 'objc',
+  powershell: 'powershell',
+  ps1: 'powershell',
+  ps: 'powershell',
+  pwsh: 'powershell',
+  makefile: 'makefile',
+  make: 'makefile',
   nginx: 'nginx',
   ini: 'ini',
   vim: 'vim',
-  haskell: 'haskell', hs: 'haskell',
-  elixir: 'elixir', ex: 'elixir', exs: 'elixir',
-  clojure: 'clojure', clj: 'clojure',
+  haskell: 'haskell',
+  hs: 'haskell',
+  elixir: 'elixir',
+  ex: 'elixir',
+  exs: 'elixir',
+  clojure: 'clojure',
+  clj: 'clojure',
 };
 
 const HIGHLIGHT_CACHE_MAX = 300;
@@ -580,11 +623,13 @@ function collectFlatBodyLines(text, codeBlock, bandWidth) {
 // per-character displayWidth loop of normalizeCodeText — column-accurate tab
 // stops are cosmetic and are restored when the block settles and re-renders.
 function normalizeCodePlain(text) {
-  return String(text ?? '')
-    .replace(/\r\n?/g, '\n')
-    .replace(/\t/g, '  ')
-    // C0 controls + DEL except LF → single space.
-    .replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ' ');
+  return (
+    String(text ?? '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/\t/g, '  ')
+      // C0 controls + DEL except LF → single space.
+      .replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ' ')
+  );
 }
 
 // Flat body for the streaming open block: color each line, wrapping only lines
@@ -595,7 +640,10 @@ function collectPlainBodyLines(text, codeBlock, bandWidth) {
   const max = Math.max(1, bandWidth);
   const lines = [];
   for (const line of String(text ?? '').split(EOL)) {
-    if (!line) { lines.push(''); continue; }
+    if (!line) {
+      lines.push('');
+      continue;
+    }
     if (line.length <= max && displayWidth(line) <= max) {
       lines.push(codeBlock(line));
     } else {
@@ -608,9 +656,13 @@ function collectPlainBodyLines(text, codeBlock, bandWidth) {
 function collectHighlightedBodyLines(text, hljsLang, bandWidth) {
   const highlighted = highlightCodeText(text, hljsLang);
   const { codeBlock } = colorizers();
-  const source = highlighted != null
-    ? highlighted
-    : String(text ?? '').split(EOL).map(codeBlock).join(EOL);
+  const source =
+    highlighted != null
+      ? highlighted
+      : String(text ?? '')
+          .split(EOL)
+          .map(codeBlock)
+          .join(EOL);
   const lines = [];
   for (const line of source.split(EOL)) {
     lines.push(...wrapCodeLine(line, bandWidth));
@@ -678,8 +730,19 @@ function numberToLetter(n) {
 }
 
 const ROMAN_VALUES = [
-  [1000, 'm'], [900, 'cm'], [500, 'd'], [400, 'cd'], [100, 'c'], [90, 'xc'],
-  [50, 'l'], [40, 'xl'], [10, 'x'], [9, 'ix'], [5, 'v'], [4, 'iv'], [1, 'i'],
+  [1000, 'm'],
+  [900, 'cm'],
+  [500, 'd'],
+  [400, 'cd'],
+  [100, 'c'],
+  [90, 'xc'],
+  [50, 'l'],
+  [40, 'xl'],
+  [10, 'x'],
+  [9, 'ix'],
+  [5, 'v'],
+  [4, 'iv'],
+  [1, 'i'],
 ];
 
 function numberToRoman(n) {
@@ -818,8 +881,8 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
             token.ordered ? Number(token.start || 1) + index : null,
             token,
             width,
-            depth,
-          ),
+            depth
+          )
         )
         .join(token.loose && depth === 0 ? EOL : '');
     case 'list_item':
@@ -840,9 +903,7 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
       return decodeEntities(token.text);
     case 'del':
       // GFM strikethrough (pair-only `~~`), rendered with the SGR 9 line.
-      return chalk.strikethrough(
-        (token.tokens ?? []).map((t) => formatToken(t, 0, null, parent)).join(''),
-      );
+      return chalk.strikethrough((token.tokens ?? []).map((t) => formatToken(t, 0, null, parent)).join(''));
     case 'def': {
       // A footnote definition carries body prose the reader needs; a link
       // reference definition ([1]: https://…) is plumbing and stays hidden.
@@ -872,17 +933,12 @@ function prefixLines(value, prefix) {
 function prefixFirstAndRest(value, firstPrefix, restPrefix) {
   const lines = String(value ?? '').split(EOL);
   if (lines.length === 0) return '';
-  return [
-    `${firstPrefix}${lines[0] ?? ''}`,
-    ...lines.slice(1).map((line) => `${restPrefix}${line}`),
-  ].join(EOL);
+  return [`${firstPrefix}${lines[0] ?? ''}`, ...lines.slice(1).map((line) => `${restPrefix}${line}`)].join(EOL);
 }
 
 function formatListItem(token, listBaseIndent, orderedListNumber, parent, depth = 0, width = 0) {
   const { listBullet } = colorizers();
-  const markerPlain = orderedListNumber === null
-    ? '-'
-    : `${getListNumber(depth, orderedListNumber)}.`;
+  const markerPlain = orderedListNumber === null ? '-' : `${getListNumber(depth, orderedListNumber)}.`;
   const marker = listBullet(markerPlain);
   // GFM task item: [ ]/[x] IS the item's meaning. marked strips the checkbox
   // from the item text, so without re-emitting it here a done and a pending

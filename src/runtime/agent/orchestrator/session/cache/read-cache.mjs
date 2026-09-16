@@ -17,143 +17,152 @@ const _reverseIdx = new Map();
 // When top-level options (off/lim/mode/n) are supplied, they are applied as
 // defaults to elements that don't specify their own.
 function _normalizeArrayElem(elem, cwd) {
-    if (typeof elem === 'string') {
-        const abs = _normalizeAbs(elem, cwd);
-        return abs ? { abs, off: '', lim: '', mode: '', n: '', line: '', context: '', full: '' } : null;
-    }
-    if (elem && typeof elem === 'object' && (typeof elem.path === 'string' || typeof elem.file_path === 'string')) {
-        const abs = _normalizeAbs(elem.path || elem.file_path, cwd);
-        if (!abs) return null;
-        return {
-            abs,
-            off: elem.offset ?? '',
-            lim: elem.limit ?? '',
-            mode: elem.mode ?? '',
-            n: elem.n ?? '',
-            line: elem.line ?? '',
-            context: elem.context ?? '',
-            full: elem.full ?? '',
-        };
-    }
-    return null;
+  if (typeof elem === 'string') {
+    const abs = _normalizeAbs(elem, cwd);
+    return abs ? { abs, off: '', lim: '', mode: '', n: '', line: '', context: '', full: '' } : null;
+  }
+  if (elem && typeof elem === 'object' && (typeof elem.path === 'string' || typeof elem.file_path === 'string')) {
+    const abs = _normalizeAbs(elem.path || elem.file_path, cwd);
+    if (!abs) return null;
+    return {
+      abs,
+      off: elem.offset ?? '',
+      lim: elem.limit ?? '',
+      mode: elem.mode ?? '',
+      n: elem.n ?? '',
+      line: elem.line ?? '',
+      context: elem.context ?? '',
+      full: elem.full ?? '',
+    };
+  }
+  return null;
 }
 
 function _normalizeArrayElemWithDefaults(elem, cwd, topOff, topLim, topMode, topN, topLine, topContext, topFull) {
-    const n = _normalizeArrayElem(elem, cwd);
-    if (!n) return null;
-    // Apply top-level options as defaults only when element did not specify its own.
-    return {
-        abs: n.abs,
-        off: n.off !== '' ? n.off : topOff,
-        lim: n.lim !== '' ? n.lim : topLim,
-        mode: n.mode !== '' ? n.mode : topMode,
-        n: n.n !== '' ? n.n : topN,
-        line: n.line !== '' ? n.line : topLine,
-        context: n.context !== '' ? n.context : topContext,
-        full: n.full !== '' ? n.full : topFull,
-    };
+  const n = _normalizeArrayElem(elem, cwd);
+  if (!n) return null;
+  // Apply top-level options as defaults only when element did not specify its own.
+  return {
+    abs: n.abs,
+    off: n.off !== '' ? n.off : topOff,
+    lim: n.lim !== '' ? n.lim : topLim,
+    mode: n.mode !== '' ? n.mode : topMode,
+    n: n.n !== '' ? n.n : topN,
+    line: n.line !== '' ? n.line : topLine,
+    context: n.context !== '' ? n.context : topContext,
+    full: n.full !== '' ? n.full : topFull,
+  };
 }
 
 // Build cache key and statsByAbs map for array-form path args.
 function _arrayKeyAndStats(args, cwd) {
-    const elems = args.path ?? args.file_path;
-    const offsetBase = Array.isArray(args.file_path) && !args.path ? 1 : 0;
-    const pages = args?.pages ?? '';
-    const full = args?.full ?? '';
-    // Top-level options applied as per-element defaults (C: array-form parity).
-    const topOff = args?.offset ?? '';
-    const topLim = args?.limit ?? '';
-    const topMode = args?.mode ?? '';
-    const topN = args?.n ?? '';
-    const topLine = args?.line ?? '';
-    const topContext = args?.context ?? '';
-    const topFull = args?.full ?? '';
-    const parts = [];
-    const statsByAbs = {};
-    for (const elem of elems) {
-        const n = _normalizeArrayElemWithDefaults(elem, cwd, topOff, topLim, topMode, topN, topLine, topContext, topFull);
-        if (!n) return null;
-        parts.push(`${n.abs}|o=${n.off}|l=${n.lim}|m=${n.mode}|n=${n.n}|line=${n.line}|ctx=${n.context}|f=${n.full}`);
-        if (!statsByAbs[n.abs]) statsByAbs[n.abs] = _statTuple(n.abs);
-    }
-    const key = `[ARR]${parts.join('||')}|p=${pages}|f=${full}|to=${topOff}|tl=${topLim}|tm=${topMode}|tn=${topN}|tline=${topLine}|tctx=${topContext}|tf=${topFull}|base=${offsetBase}`;
-    return { key, statsByAbs };
+  const elems = args.path ?? args.file_path;
+  const offsetBase = Array.isArray(args.file_path) && !args.path ? 1 : 0;
+  const pages = args?.pages ?? '';
+  const full = args?.full ?? '';
+  // Top-level options applied as per-element defaults (C: array-form parity).
+  const topOff = args?.offset ?? '';
+  const topLim = args?.limit ?? '';
+  const topMode = args?.mode ?? '';
+  const topN = args?.n ?? '';
+  const topLine = args?.line ?? '';
+  const topContext = args?.context ?? '';
+  const topFull = args?.full ?? '';
+  const parts = [];
+  const statsByAbs = {};
+  for (const elem of elems) {
+    const n = _normalizeArrayElemWithDefaults(elem, cwd, topOff, topLim, topMode, topN, topLine, topContext, topFull);
+    if (!n) return null;
+    parts.push(`${n.abs}|o=${n.off}|l=${n.lim}|m=${n.mode}|n=${n.n}|line=${n.line}|ctx=${n.context}|f=${n.full}`);
+    if (!statsByAbs[n.abs]) statsByAbs[n.abs] = _statTuple(n.abs);
+  }
+  const key = `[ARR]${parts.join('||')}|p=${pages}|f=${full}|to=${topOff}|tl=${topLim}|tm=${topMode}|tn=${topN}|tline=${topLine}|tctx=${topContext}|tf=${topFull}|base=${offsetBase}`;
+  return { key, statsByAbs };
 }
 
 function _keyFor(args, cwd) {
-    const p = args?.path ?? args?.file_path;
-    if (Array.isArray(p)) return null;
-    if (typeof p !== 'string') return null;
-    const abs = _normalizeAbs(p, cwd);
-    if (!abs) return null;
-    const usedFilePathAlias = typeof args?.file_path === 'string' && !args?.path;
-    const rawOff = args?.offset ?? '';
-    let off = rawOff;
-    if (usedFilePathAlias && rawOff !== '') {
-        const n = Number(rawOff);
-        off = Number.isFinite(n) ? Math.max(0, Math.trunc(n) - 1) : rawOff;
-    }
-    const lim = args?.limit ?? '';
-    const mode = args?.mode ?? '';
-    const n = args?.n ?? '';
-    const pages = args?.pages ?? '';
-    const full = args?.full ?? '';
-    const line = args?.line ?? '';
-    const context = args?.context ?? '';
-    // The body may be identical across aliases, but continuation coordinates
-    // are not. A cached result must retain its caller's coordinate contract.
-    return `${abs}|o=${off}|l=${lim}|m=${mode}|n=${n}|p=${pages}|f=${full}|line=${line}|ctx=${context}|base=${usedFilePathAlias ? 1 : 0}`;
+  const p = args?.path ?? args?.file_path;
+  if (Array.isArray(p)) return null;
+  if (typeof p !== 'string') return null;
+  const abs = _normalizeAbs(p, cwd);
+  if (!abs) return null;
+  const usedFilePathAlias = typeof args?.file_path === 'string' && !args?.path;
+  const rawOff = args?.offset ?? '';
+  let off = rawOff;
+  if (usedFilePathAlias && rawOff !== '') {
+    const n = Number(rawOff);
+    off = Number.isFinite(n) ? Math.max(0, Math.trunc(n) - 1) : rawOff;
+  }
+  const lim = args?.limit ?? '';
+  const mode = args?.mode ?? '';
+  const n = args?.n ?? '';
+  const pages = args?.pages ?? '';
+  const full = args?.full ?? '';
+  const line = args?.line ?? '';
+  const context = args?.context ?? '';
+  // The body may be identical across aliases, but continuation coordinates
+  // are not. A cached result must retain its caller's coordinate contract.
+  return `${abs}|o=${off}|l=${lim}|m=${mode}|n=${n}|p=${pages}|f=${full}|line=${line}|ctx=${context}|base=${usedFilePathAlias ? 1 : 0}`;
 }
 
 // Re-stat every path in statsByAbs; return true only if ALL match stored tuples.
 function _arrayStatsValid(statsByAbs) {
-    for (const [absPath, stored] of Object.entries(statsByAbs)) {
-        if (!_statEqual(stored, _statTuple(absPath))) return false;
-    }
-    return true;
+  for (const [absPath, stored] of Object.entries(statsByAbs)) {
+    if (!_statEqual(stored, _statTuple(absPath))) return false;
+  }
+  return true;
 }
 
 function _getOrCreate(sessionId) {
-    let m = _bySession.get(sessionId);
-    if (!m) { m = new Map(); _bySession.set(sessionId, m); }
-    return m;
+  let m = _bySession.get(sessionId);
+  if (!m) {
+    m = new Map();
+    _bySession.set(sessionId, m);
+  }
+  return m;
 }
 
 function _ridxRegister(sessionId, absPath, key) {
-    let ridx = _reverseIdx.get(sessionId);
-    if (!ridx) { ridx = new Map(); _reverseIdx.set(sessionId, ridx); }
-    let s = ridx.get(absPath);
-    if (!s) { s = new Set(); ridx.set(absPath, s); }
-    s.add(key);
+  let ridx = _reverseIdx.get(sessionId);
+  if (!ridx) {
+    ridx = new Map();
+    _reverseIdx.set(sessionId, ridx);
+  }
+  let s = ridx.get(absPath);
+  if (!s) {
+    s = new Set();
+    ridx.set(absPath, s);
+  }
+  s.add(key);
 }
 
 function _ridxPruneKey(sessionId, key) {
-    const ridx = _reverseIdx.get(sessionId);
-    if (!ridx) return;
-    for (const [absKey, keySet] of ridx) {
-        keySet.delete(key);
-        if (keySet.size === 0) ridx.delete(absKey);
-    }
+  const ridx = _reverseIdx.get(sessionId);
+  if (!ridx) return;
+  for (const [absKey, keySet] of ridx) {
+    keySet.delete(key);
+    if (keySet.size === 0) ridx.delete(absKey);
+  }
 }
 
 function _absFromKey(key) {
-    const idx = key.indexOf('|');
-    return idx === -1 ? key : key.slice(0, idx);
+  const idx = key.indexOf('|');
+  return idx === -1 ? key : key.slice(0, idx);
 }
 
 // Capture immediately before execution, after any mutation/approval barriers.
 // Deferred cache insertion must not label an old body with a newer file stat.
 export function captureReadCacheState({ args, cwd }) {
-    const key = _keyFor(args, cwd);
-    if (key === null && Array.isArray(args?.path ?? args?.file_path)) {
-        const parsed = _arrayKeyAndStats(args, cwd);
-        if (!parsed || Object.values(parsed.statsByAbs).some((stat) => !stat)) return null;
-        return { ...parsed, kind: 'array' };
-    }
-    if (!key) return null;
-    const abs = _absFromKey(key);
-    const stat = _statTuple(abs);
-    return stat ? { key, statsByAbs: { [abs]: stat }, kind: 'scalar' } : null;
+  const key = _keyFor(args, cwd);
+  if (key === null && Array.isArray(args?.path ?? args?.file_path)) {
+    const parsed = _arrayKeyAndStats(args, cwd);
+    if (!parsed || Object.values(parsed.statsByAbs).some((stat) => !stat)) return null;
+    return { ...parsed, kind: 'array' };
+  }
+  if (!key) return null;
+  const abs = _absFromKey(key);
+  const stat = _statTuple(abs);
+  return stat ? { key, statsByAbs: { [abs]: stat }, kind: 'scalar' } : null;
 }
 
 /**
@@ -163,36 +172,36 @@ export function captureReadCacheState({ args, cwd }) {
  * the full entry { content, firstToolUseId, ts }.
  */
 export function tryReadCached({ sessionId, args, cwd }) {
-    if (!sessionId) return null;
-    const key = _keyFor(args, cwd);
-    if (key === null && Array.isArray(args?.path ?? args?.file_path)) {
-        const parsed = _arrayKeyAndStats(args, cwd);
-        if (!parsed) return null;
-        const map = _bySession.get(sessionId);
-        if (!map) return null;
-        const entry = map.get(parsed.key);
-        if (!entry || entry.kind !== 'array') return null;
-        if (!_arrayStatsValid(entry.statsByAbs)) {
-            map.delete(parsed.key);
-            return null;
-        }
-        map.delete(parsed.key);
-        map.set(parsed.key, entry);
-        return { content: entry.content, firstToolUseId: entry.firstToolUseId || null, ts: entry.ts };
-    }
-    if (!key) return null;
+  if (!sessionId) return null;
+  const key = _keyFor(args, cwd);
+  if (key === null && Array.isArray(args?.path ?? args?.file_path)) {
+    const parsed = _arrayKeyAndStats(args, cwd);
+    if (!parsed) return null;
     const map = _bySession.get(sessionId);
     if (!map) return null;
-    const entry = map.get(key);
-    if (!entry) return null;
-    const fresh = _statTuple(_absFromKey(key));
-    if (!_statEqual(entry.stat, fresh)) {
-        map.delete(key);
-        return null;
+    const entry = map.get(parsed.key);
+    if (!entry || entry.kind !== 'array') return null;
+    if (!_arrayStatsValid(entry.statsByAbs)) {
+      map.delete(parsed.key);
+      return null;
     }
-    map.delete(key);
-    map.set(key, entry);
+    map.delete(parsed.key);
+    map.set(parsed.key, entry);
     return { content: entry.content, firstToolUseId: entry.firstToolUseId || null, ts: entry.ts };
+  }
+  if (!key) return null;
+  const map = _bySession.get(sessionId);
+  if (!map) return null;
+  const entry = map.get(key);
+  if (!entry) return null;
+  const fresh = _statTuple(_absFromKey(key));
+  if (!_statEqual(entry.stat, fresh)) {
+    map.delete(key);
+    return null;
+  }
+  map.delete(key);
+  map.set(key, entry);
+  return { content: entry.content, firstToolUseId: entry.firstToolUseId || null, ts: entry.ts };
 }
 
 /**
@@ -203,43 +212,51 @@ export function tryReadCached({ sessionId, args, cwd }) {
  * synchronous insertion for callers already holding the current body.
  */
 export function setReadCached({ sessionId, args, cwd, content, toolUseId, readState }) {
-    if (!sessionId) return;
-    if (typeof content !== 'string' || content.length === 0) return;
-    const parsed = captureReadCacheState({ args, cwd });
-    if (!parsed) return;
-    if (readState !== undefined && (
-        !readState
-        || readState.key !== parsed.key
-        || Object.entries(readState.statsByAbs).some(([abs, stat]) => !_statEqual(stat, parsed.statsByAbs[abs]))
-    )) return;
-    const key = parsed.key;
-    if (parsed.kind === 'array') {
-        const map = _getOrCreate(sessionId);
-        if (map.size >= MAX_PER_SESSION) {
-            const firstKey = map.keys().next().value;
-            if (firstKey) { map.delete(firstKey); _ridxPruneKey(sessionId, firstKey); }
-        }
-        map.set(parsed.key, {
-            kind: 'array',
-            content,
-            statsByAbs: parsed.statsByAbs,
-            ts: Date.now(),
-            firstToolUseId: toolUseId || null,
-        });
-        // Register every constituent abs path in the reverse index.
-        for (const absPath of Object.keys(parsed.statsByAbs)) {
-            _ridxRegister(sessionId, absPath, parsed.key);
-        }
-        return;
-    }
-    const fresh = parsed.statsByAbs[_absFromKey(key)];
+  if (!sessionId) return;
+  if (typeof content !== 'string' || content.length === 0) return;
+  const parsed = captureReadCacheState({ args, cwd });
+  if (!parsed) return;
+  if (
+    readState !== undefined &&
+    (!readState ||
+      readState.key !== parsed.key ||
+      Object.entries(readState.statsByAbs).some(([abs, stat]) => !_statEqual(stat, parsed.statsByAbs[abs])))
+  )
+    return;
+  const key = parsed.key;
+  if (parsed.kind === 'array') {
     const map = _getOrCreate(sessionId);
     if (map.size >= MAX_PER_SESSION) {
-        const firstKey = map.keys().next().value;
-        if (firstKey) { map.delete(firstKey); _ridxPruneKey(sessionId, firstKey); }
+      const firstKey = map.keys().next().value;
+      if (firstKey) {
+        map.delete(firstKey);
+        _ridxPruneKey(sessionId, firstKey);
+      }
     }
-    map.set(key, { content, stat: fresh, ts: Date.now(), firstToolUseId: toolUseId || null });
-    _ridxRegister(sessionId, _absFromKey(key), key);
+    map.set(parsed.key, {
+      kind: 'array',
+      content,
+      statsByAbs: parsed.statsByAbs,
+      ts: Date.now(),
+      firstToolUseId: toolUseId || null,
+    });
+    // Register every constituent abs path in the reverse index.
+    for (const absPath of Object.keys(parsed.statsByAbs)) {
+      _ridxRegister(sessionId, absPath, parsed.key);
+    }
+    return;
+  }
+  const fresh = parsed.statsByAbs[_absFromKey(key)];
+  const map = _getOrCreate(sessionId);
+  if (map.size >= MAX_PER_SESSION) {
+    const firstKey = map.keys().next().value;
+    if (firstKey) {
+      map.delete(firstKey);
+      _ridxPruneKey(sessionId, firstKey);
+    }
+  }
+  map.set(key, { content, stat: fresh, ts: Date.now(), firstToolUseId: toolUseId || null });
+  _ridxRegister(sessionId, _absFromKey(key), key);
 }
 
 /**
@@ -247,26 +264,26 @@ export function setReadCached({ sessionId, args, cwd, content, toolUseId, readSt
  * a mutation tool (apply_patch) touches the path.
  */
 export function invalidatePathForSession(sessionId, path, cwd) {
-    if (!sessionId) return;
-    const abs = _normalizeAbs(path, cwd);
-    if (!abs) return;
-    const map = _bySession.get(sessionId);
-    if (!map) return;
-    const ridx = _reverseIdx.get(sessionId);
-    const keys = ridx ? ridx.get(abs) : null;
-    if (keys && keys.size > 0) {
-        // O(1) lookup via reverse index.
-        const evicted = new Set(keys);
-        for (const k of evicted) map.delete(k);
-        keys.clear();
-        ridx.delete(abs);
-        // Clean evicted keys from other reverse-index sets; prune empty Sets.
-        for (const [absKey, keySet] of ridx) {
-            for (const k of evicted) keySet.delete(k);
-            if (keySet.size === 0) ridx.delete(absKey);
-        }
+  if (!sessionId) return;
+  const abs = _normalizeAbs(path, cwd);
+  if (!abs) return;
+  const map = _bySession.get(sessionId);
+  if (!map) return;
+  const ridx = _reverseIdx.get(sessionId);
+  const keys = ridx ? ridx.get(abs) : null;
+  if (keys && keys.size > 0) {
+    // O(1) lookup via reverse index.
+    const evicted = new Set(keys);
+    for (const k of evicted) map.delete(k);
+    keys.clear();
+    ridx.delete(abs);
+    // Clean evicted keys from other reverse-index sets; prune empty Sets.
+    for (const [absKey, keySet] of ridx) {
+      for (const k of evicted) keySet.delete(k);
+      if (keySet.size === 0) ridx.delete(absKey);
     }
-    // Index miss = entry has no path identity; no-op is correct.
+  }
+  // Index miss = entry has no path identity; no-op is correct.
 }
 
 /**
@@ -274,11 +291,11 @@ export function invalidatePathForSession(sessionId, path, cwd) {
  * Also clears scoped cache and counters for the session.
  */
 export function clearReadDedupSession(sessionId) {
-    if (!sessionId) return;
-    _bySession.delete(sessionId);
-    _reverseIdx.delete(sessionId);
-    clearScopedToolsForSession(sessionId);
-    clearScopedCounters(sessionId);
+  if (!sessionId) return;
+  _bySession.delete(sessionId);
+  _reverseIdx.delete(sessionId);
+  clearScopedToolsForSession(sessionId);
+  clearScopedCounters(sessionId);
 }
 
 /**
@@ -288,15 +305,15 @@ export function clearReadDedupSession(sessionId) {
  * snapshot can make a fresh read answer only "[file unchanged]".
  */
 export function resetReadStateAfterCompaction(sessionId) {
-    if (!sessionId) return;
-    _bySession.delete(sessionId);
-    _reverseIdx.delete(sessionId);
-    releaseReadSnapshotScope(sessionId, { deletePersisted: true, persist: false });
+  if (!sessionId) return;
+  _bySession.delete(sessionId);
+  _reverseIdx.delete(sessionId);
+  releaseReadSnapshotScope(sessionId, { deletePersisted: true, persist: false });
 }
 
 registerSessionPurgeHook((sessionId) => {
-    clearReadDedupSession(sessionId);
-    releaseReadSnapshotScope(sessionId, { deletePersisted: true, persist: false });
+  clearReadDedupSession(sessionId);
+  releaseReadSnapshotScope(sessionId, { deletePersisted: true, persist: false });
 });
 
 /**
@@ -305,53 +322,53 @@ registerSessionPurgeHook((sessionId) => {
  * Returns relative paths as written in the diff.
  */
 export function extractTouchedPathsFromPatch(patchText) {
-    if (typeof patchText !== 'string' || patchText.length === 0) return [];
-    const lines = patchText.split('\n');
-    const out = [];
-    const seen = new Set();
-    const stripPathMetadata = (rawPath) => {
-        let text = String(rawPath || '').trim();
-        if (!text) return '';
-        const tabIdx = text.indexOf('\t');
-        if (tabIdx !== -1) text = text.slice(0, tabIdx).trimEnd();
-        const quote = text[0];
-        if ((quote === '"' || quote === "'") && text.length > 1) {
-            const end = text.indexOf(quote, 1);
-            if (end > 0) text = text.slice(1, end);
-        }
-        return text;
-    };
-    const push = (rawPath) => {
-        let touched = stripPathMetadata(rawPath);
-        if (!touched || touched === '/dev/null') return;
-        touched = touched.replace(/^["']|["']$/g, '').replace(/\\/g, '/');
-        if (touched.startsWith('a/') || touched.startsWith('b/')) touched = touched.slice(2);
-        if (!touched || touched === '/dev/null' || seen.has(touched)) return;
-        seen.add(touched);
-        out.push(touched);
-    };
-    for (const line of lines) {
-        if (line.startsWith('*** Update File:')) push(line.slice('*** Update File:'.length));
-        else if (line.startsWith('*** Add File:')) push(line.slice('*** Add File:'.length));
-        else if (line.startsWith('*** Delete File:')) push(line.slice('*** Delete File:'.length));
+  if (typeof patchText !== 'string' || patchText.length === 0) return [];
+  const lines = patchText.split('\n');
+  const out = [];
+  const seen = new Set();
+  const stripPathMetadata = (rawPath) => {
+    let text = String(rawPath || '').trim();
+    if (!text) return '';
+    const tabIdx = text.indexOf('\t');
+    if (tabIdx !== -1) text = text.slice(0, tabIdx).trimEnd();
+    const quote = text[0];
+    if ((quote === '"' || quote === "'") && text.length > 1) {
+      const end = text.indexOf(quote, 1);
+      if (end > 0) text = text.slice(1, end);
     }
-    for (let i = 0; i < lines.length - 1; i += 1) {
-        const minus = lines[i];
-        const plus = lines[i + 1];
-        if (!minus.startsWith('--- ')) continue;
-        if (!plus.startsWith('+++ ')) continue;
-        const fromRaw = minus.slice(4).trim();
-        const toRaw = plus.slice(4).trim();
-        const fromStripped = fromRaw.startsWith('a/') ? fromRaw.slice(2) : fromRaw;
-        const toStripped = toRaw.startsWith('b/') ? toRaw.slice(2) : toRaw;
-        let touched;
-        if (toStripped === '/dev/null') {
-            touched = fromStripped === '/dev/null' ? null : fromStripped;
-        } else {
-            touched = toStripped;
-        }
-        push(touched);
-        i += 1;
+    return text;
+  };
+  const push = (rawPath) => {
+    let touched = stripPathMetadata(rawPath);
+    if (!touched || touched === '/dev/null') return;
+    touched = touched.replace(/^["']|["']$/g, '').replace(/\\/g, '/');
+    if (touched.startsWith('a/') || touched.startsWith('b/')) touched = touched.slice(2);
+    if (!touched || touched === '/dev/null' || seen.has(touched)) return;
+    seen.add(touched);
+    out.push(touched);
+  };
+  for (const line of lines) {
+    if (line.startsWith('*** Update File:')) push(line.slice('*** Update File:'.length));
+    else if (line.startsWith('*** Add File:')) push(line.slice('*** Add File:'.length));
+    else if (line.startsWith('*** Delete File:')) push(line.slice('*** Delete File:'.length));
+  }
+  for (let i = 0; i < lines.length - 1; i += 1) {
+    const minus = lines[i];
+    const plus = lines[i + 1];
+    if (!minus.startsWith('--- ')) continue;
+    if (!plus.startsWith('+++ ')) continue;
+    const fromRaw = minus.slice(4).trim();
+    const toRaw = plus.slice(4).trim();
+    const fromStripped = fromRaw.startsWith('a/') ? fromRaw.slice(2) : fromRaw;
+    const toStripped = toRaw.startsWith('b/') ? toRaw.slice(2) : toRaw;
+    let touched;
+    if (toStripped === '/dev/null') {
+      touched = fromStripped === '/dev/null' ? null : fromStripped;
+    } else {
+      touched = toStripped;
     }
-    return out;
+    push(touched);
+    i += 1;
+  }
+  return out;
 }

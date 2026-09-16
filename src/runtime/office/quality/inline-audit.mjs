@@ -70,21 +70,23 @@ export function summarizeOfficeAudit(issueList, { touched = [] } = {}) {
   // must answer.
   const actionable = normalized.filter((issue) => issue.severity !== 'info');
   const top = [...actionable]
-    .sort((left, right) => (
-      Number(isTouched(right)) - Number(isTouched(left))
-      || severityRank(left.severity) - severityRank(right.severity)
-      || String(left.path).localeCompare(String(right.path))
-    ))
+    .sort(
+      (left, right) =>
+        Number(isTouched(right)) - Number(isTouched(left)) ||
+        severityRank(left.severity) - severityRank(right.severity) ||
+        String(left.path).localeCompare(String(right.path))
+    )
     .slice(0, INLINE_AUDIT_TOP)
     .map(({ severity, code, path, message }) => ({ severity, code, path, message }));
   const locations = [...groups.values()]
     .filter((group) => group.error || group.warning)
-    .sort((left, right) => (
-      Number(touchedKeys.has(right.key)) - Number(touchedKeys.has(left.key))
-      || right.error - left.error
-      || right.warning - left.warning
-      || left.key.localeCompare(right.key)
-    ))
+    .sort(
+      (left, right) =>
+        Number(touchedKeys.has(right.key)) - Number(touchedKeys.has(left.key)) ||
+        right.error - left.error ||
+        right.warning - left.warning ||
+        left.key.localeCompare(right.key)
+    )
     .map(({ key, ...group }) => group);
   return {
     status: actionable.length ? 'fail' : 'pass',

@@ -27,7 +27,7 @@ export async function writeContactSheet(images, output, { width = 1600 } = {}) {
   const loaded = [];
   for (const page of pages) {
     const image = await loadImage(Buffer.from(page.data, 'base64'));
-    loaded.push({ page: Number(page.page), image, height: Math.round(image.height * cellW / image.width) });
+    loaded.push({ page: Number(page.page), image, height: Math.round((image.height * cellW) / image.width) });
   }
   const cellH = Math.max(...loaded.map((entry) => entry.height));
   const rows = Math.ceil(loaded.length / columns);
@@ -50,5 +50,12 @@ export async function writeContactSheet(images, output, { width = 1600 } = {}) {
   const stem = basename(output, extname(output));
   const path = join(dirname(output), `${stem}.mixdog-contact.png`);
   await writeFile(path, data);
-  return { path, width: sheet.width, height: sheet.height, pages: loaded.map((entry) => entry.page), mimeType: 'image/png', data: data.toString('base64') };
+  return {
+    path,
+    width: sheet.width,
+    height: sheet.height,
+    pages: loaded.map((entry) => entry.page),
+    mimeType: 'image/png',
+    data: data.toString('base64'),
+  };
 }

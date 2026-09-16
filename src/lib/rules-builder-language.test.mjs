@@ -19,7 +19,7 @@ function renderLeadPrompt(language) {
         agent: {
           profile: { language },
         },
-      }),
+      })
     );
     return rulesBuilder.buildInjectionContent({
       PLUGIN_ROOT: pluginRoot,

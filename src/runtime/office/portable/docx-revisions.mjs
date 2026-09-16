@@ -82,9 +82,8 @@ export function docxRevisionTree(xml) {
     span.text = revisionText(source.slice(span.innerStart, span.innerEnd));
     stack.length = depth;
   }
-  const closed = (spans) => spans
-    .filter((span) => span.end >= 0)
-    .map((span) => ({ ...span, children: closed(span.children) }));
+  const closed = (spans) =>
+    spans.filter((span) => span.end >= 0).map((span) => ({ ...span, children: closed(span.children) }));
   return closed(roots);
 }
 
@@ -192,22 +191,29 @@ function lineDiff(before, after) {
   while (head < before.length && head < after.length && before[head] === after[head]) head += 1;
   let tail = 0;
   while (
-    tail < before.length - head
-    && tail < after.length - head
-    && before[before.length - 1 - tail] === after[after.length - 1 - tail]
-  ) tail += 1;
+    tail < before.length - head &&
+    tail < after.length - head &&
+    before[before.length - 1 - tail] === after[after.length - 1 - tail]
+  )
+    tail += 1;
   return {
     paragraph: head + 1,
     removedLines: before.length - head - tail,
     addedLines: after.length - head - tail,
-    before: before.slice(head, before.length - tail).slice(0, 6).map(excerpt),
-    after: after.slice(head, after.length - tail).slice(0, 6).map(excerpt),
+    before: before
+      .slice(head, before.length - tail)
+      .slice(0, 6)
+      .map(excerpt),
+    after: after
+      .slice(head, after.length - tail)
+      .slice(0, 6)
+      .map(excerpt),
   };
 }
 
 const REDLINING_GUIDANCE = Object.freeze([
   'Turn track_changes on before editing; an edit made while it is off leaves no <w:ins>/<w:del> and reads as untracked.',
-  'To reject another author\'s insertion, nest a <w:del> inside their <w:ins> instead of editing its text; to restore their deletion, add a new <w:ins> after their <w:del>.',
+  "To reject another author's insertion, nest a <w:del> inside their <w:ins> instead of editing its text; to restore their deletion, add a new <w:ins> after their <w:del>.",
   'A tracked change from the source is recognised by author, date, and text; rewriting one of those turns it into a new change and reports the text it carried as missing.',
 ]);
 
@@ -220,24 +226,28 @@ export function auditDocxRedlining(currentXml, originalXml, { author = '' } = {}
   const modifiedTree = docxRevisionTree(currentXml);
   const modifiedSpans = flattenDocxRevisions(modifiedTree);
   const fresh = newRevisions(originalSpans, modifiedSpans);
-  const undone = withoutRevisions(String(currentXml || ''), modifiedTree, 0, String(currentXml || '').length, (span) => fresh.has(span));
+  const undone = withoutRevisions(String(currentXml || ''), modifiedTree, 0, String(currentXml || '').length, (span) =>
+    fresh.has(span)
+  );
   const before = paragraphLines(originalXml);
   const after = paragraphLines(undone);
   const untrackedEdits = before.join('\n') === after.join('\n') ? null : lineDiff(before, after);
   const expected = String(author || '').trim();
   const foreignAuthors = expected
     ? [...fresh]
-      .filter((span) => span.author !== expected)
-      .slice(0, 10)
-      .map((span) => ({
-        type: span.tag === 'ins' ? 'insertion' : 'deletion',
-        author: span.author,
-        text: excerpt(span.text),
-      }))
+        .filter((span) => span.author !== expected)
+        .slice(0, 10)
+        .map((span) => ({
+          type: span.tag === 'ins' ? 'insertion' : 'deletion',
+          author: span.author,
+          text: excerpt(span.text),
+        }))
     : [];
   const reasons = [];
   if (untrackedEdits) {
-    reasons.push(`${untrackedEdits.removedLines + untrackedEdits.addedLines} paragraph(s) differ from the source after undoing the new tracked changes: they were edited untracked, without <w:ins>/<w:del> (first at paragraph ${untrackedEdits.paragraph}).`);
+    reasons.push(
+      `${untrackedEdits.removedLines + untrackedEdits.addedLines} paragraph(s) differ from the source after undoing the new tracked changes: they were edited untracked, without <w:ins>/<w:del> (first at paragraph ${untrackedEdits.paragraph}).`
+    );
   }
   if (foreignAuthors.length) {
     reasons.push(`${foreignAuthors.length} new tracked change(s) carry an author other than "${expected}".`);
@@ -315,20 +325,40 @@ function lintStoryRevisions(part, source, add) {
     deletedInInsertion += count(masked, /<w:delText\b/g);
   }
   if (textInDeletion) {
-    add('error', 'text_in_deletion', `${textInDeletion} <w:t> element(s) sit inside <w:del>; deleted text must be <w:delText>.`, { count: textInDeletion, part });
+    add(
+      'error',
+      'text_in_deletion',
+      `${textInDeletion} <w:t> element(s) sit inside <w:del>; deleted text must be <w:delText>.`,
+      { count: textInDeletion, part }
+    );
   }
   if (instrInDeletion) {
-    add('error', 'instr_text_in_deletion', `${instrInDeletion} <w:instrText> element(s) sit inside <w:del>; use <w:delInstrText>.`, { count: instrInDeletion, part });
+    add(
+      'error',
+      'instr_text_in_deletion',
+      `${instrInDeletion} <w:instrText> element(s) sit inside <w:del>; use <w:delInstrText>.`,
+      { count: instrInDeletion, part }
+    );
   }
   if (deletedInInsertion) {
-    add('error', 'deleted_text_in_insertion', `${deletedInInsertion} <w:delText> element(s) sit inside <w:ins> without a <w:del>; deleted text inside an insertion needs its own <w:del>.`, { count: deletedInInsertion, part });
+    add(
+      'error',
+      'deleted_text_in_insertion',
+      `${deletedInInsertion} <w:delText> element(s) sit inside <w:ins> without a <w:del>; deleted text inside an insertion needs its own <w:del>.`,
+      { count: deletedInInsertion, part }
+    );
   }
   let unpreserved = 0;
   for (const node of source.matchAll(/<w:t\b([^>]*)>([\s\S]*?)<\/w:t>/g)) {
     if (/^[ \t\r\n]|[ \t\r\n]$/.test(xmlDecode(node[2])) && !/\bxml:space="preserve"/.test(node[1])) unpreserved += 1;
   }
   if (unpreserved) {
-    add('warning', 'whitespace_not_preserved', `${unpreserved} text element(s) start or end with a space but lack xml:space="preserve"; Word drops that space.`, { count: unpreserved, part });
+    add(
+      'warning',
+      'whitespace_not_preserved',
+      `${unpreserved} text element(s) start or end with a space but lack xml:space="preserve"; Word drops that space.`,
+      { count: unpreserved, part }
+    );
   }
   const ids = (pattern) => [...source.matchAll(pattern)].map((match) => match[1]);
   return {
@@ -367,7 +397,12 @@ export function lintDocxRevisions(parts, commentsXml = '') {
     }
     const unanchored = [...known].filter((id) => !references.has(id));
     if (unanchored.length) {
-      add('warning', 'comment_not_anchored', `${unanchored.length} comment(s) have no commentReference in the document body and stay invisible in Word.`, { ids: unanchored.slice(0, 10) });
+      add(
+        'warning',
+        'comment_not_anchored',
+        `${unanchored.length} comment(s) have no commentReference in the document body and stay invisible in Word.`,
+        { ids: unanchored.slice(0, 10) }
+      );
     }
   }
   if (mismatches.length) {
@@ -398,11 +433,7 @@ export function resolveDocxRevisions(documentXml, { resolution = 'accept', targe
       output += source.slice(cursor, span.start);
       cursor = span.end;
       const inner = rebuild(span.children, span.innerStart, span.innerEnd);
-      const addressed = wanted
-        ? span.id === wanted
-        : owner
-          ? span.author === owner
-          : (!target || target === mine);
+      const addressed = wanted ? span.id === wanted : owner ? span.author === owner : !target || target === mine;
       if (!addressed) {
         output += `${source.slice(span.start, span.innerStart)}${inner}${source.slice(span.innerEnd, span.end)}`;
         continue;
@@ -417,7 +448,8 @@ export function resolveDocxRevisions(documentXml, { resolution = 'accept', targe
   let xml = rebuild(tree, 0, source.length);
   // Move range markers only delimit the wrappers; once every wrapper (or
   // every wrapper of the reviewer) is resolved they would point at nothing.
-  if (!single) xml = xml.replace(new RegExp(`<w:move(?:From|To)Range(?:Start|End)\\b${revisionOwner(owner)}[^>]*\\/>`, 'g'), '');
+  if (!single)
+    xml = xml.replace(new RegExp(`<w:move(?:From|To)Range(?:Start|End)\\b${revisionOwner(owner)}[^>]*\\/>`, 'g'), '');
   return { xml, resolved };
 }
 
@@ -431,7 +463,7 @@ function restoreProperties(xml, tag, owner = '') {
   // has one.
   const pattern = new RegExp(
     `<w:${tag}(\\s[^>]*)?>((?:(?!<\\/w:${tag}>)[\\s\\S])*?)<w:${tag}Change\\b${owner}[^>]*>\\s*(?:<w:${tag}\\/>|<w:${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/w:${tag}>)\\s*<\\/w:${tag}Change>\\s*<\\/w:${tag}>`,
-    'g',
+    'g'
   );
   return xml.replace(pattern, (_, attrs = '', head, previous = '') => {
     if (tag !== 'pPr') return `<w:${tag}${attrs}>${previous}</w:${tag}>`;
@@ -453,16 +485,24 @@ function restoreProperties(xml, tag, owner = '') {
 export function resolveDocxPropertyChanges(documentXml, { resolution = 'accept', author = '' } = {}) {
   let xml = String(documentXml || '');
   const owner = revisionOwner(author);
-  const changes = count(xml, new RegExp(`${PROPERTY_CHANGE.source}${owner}`, 'g'))
-    + count(xml, new RegExp(`<w:numberingChange\\b${owner}`, 'g'));
+  const changes =
+    count(xml, new RegExp(`${PROPERTY_CHANGE.source}${owner}`, 'g')) +
+    count(xml, new RegExp(`<w:numberingChange\\b${owner}`, 'g'));
   if (!changes) return { xml, changes: 0 };
   if (resolution === 'reject') {
     // Run properties first: a paragraph mark's rPrChange sits inside the pPr
     // head that the pPr restoration keeps.
-    for (const tag of ['rPr', 'tcPr', 'trPr', 'tblPr', 'tblGrid', 'sectPr', 'pPr']) xml = restoreProperties(xml, tag, owner);
+    for (const tag of ['rPr', 'tcPr', 'trPr', 'tblPr', 'tblGrid', 'sectPr', 'pPr'])
+      xml = restoreProperties(xml, tag, owner);
   }
   xml = xml
-    .replace(new RegExp(`<w:(rPr|pPr|tblPr|trPr|tcPr|sectPr|tblGrid|numbering)Change\\b${owner}[^>]*>[\\s\\S]*?<\\/w:\\1Change>`, 'g'), '')
+    .replace(
+      new RegExp(
+        `<w:(rPr|pPr|tblPr|trPr|tcPr|sectPr|tblGrid|numbering)Change\\b${owner}[^>]*>[\\s\\S]*?<\\/w:\\1Change>`,
+        'g'
+      ),
+      ''
+    )
     .replace(new RegExp(`<w:(?:rPr|pPr|tblPr|trPr|tcPr|sectPr|tblGrid|numbering)Change\\b${owner}[^>]*\\/>`, 'g'), '');
   return { xml, changes };
 }

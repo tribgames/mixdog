@@ -71,7 +71,9 @@ export function normalizeCountMap(value = {}) {
 export { pluralize as plural };
 
 export function shellResultStatus(value) {
-  const match = String(value || '').match(/(?:^|\b)status:\s*(running|pending|queued|completed|failed|cancelled|canceled)\b/im);
+  const match = String(value || '').match(
+    /(?:^|\b)status:\s*(running|pending|queued|completed|failed|cancelled|canceled)\b/im
+  );
   return match ? String(match[1] || '').toLowerCase() : '';
 }
 
@@ -107,7 +109,12 @@ export function deriveToolOutcomeTone({
 export function displayTerminalStatus(value) {
   // 'exit' is a shell-only pseudo-status (command RAN but exited non-zero); it
   // is intentionally NOT a normalized terminal status so it never colors red.
-  if (String(value || '').trim().toLowerCase() === 'exit') return 'Exited';
+  if (
+    String(value || '')
+      .trim()
+      .toLowerCase() === 'exit'
+  )
+    return 'Exited';
   const status = normalizeTerminalStatus(value);
   if (status === 'running') return 'Running';
   if (status === 'completed') return 'Finished';
@@ -134,7 +141,7 @@ export function stripLeadingStatusMarkerFromText(text) {
 }
 
 export function shellResultElapsed(value) {
-  const match = String(value || '').match(/^\[elapsed:\s*(\d+)\s*ms\]/mi);
+  const match = String(value || '').match(/^\[elapsed:\s*(\d+)\s*ms\]/im);
   if (!match) return '';
   const elapsedMs = Number(match[1]);
   return Number.isFinite(elapsedMs) && elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
@@ -167,10 +174,18 @@ export function splitLineDeltaTokens(text) {
 export function isShellTool(normalizedName, label = '') {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
-  return n === 'shell' || n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait' || l === 'run';
+  return (
+    n === 'shell' || n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait' || l === 'run'
+  );
 }
 
-export function shellDisplayStatus({ pending = false, failedCount = 0, exitFailedCount = 0, isError = false, result = '' } = {}) {
+export function shellDisplayStatus({
+  pending = false,
+  failedCount = 0,
+  exitFailedCount = 0,
+  isError = false,
+  result = '',
+} = {}) {
   const status = shellResultStatus(result);
   if (pending || /^(running|pending|queued)$/.test(status)) return 'running';
   if (/^cancel/.test(status)) return 'cancelled';
@@ -200,13 +215,9 @@ export function isAgentTool(normalizedName) {
   return normalizedName === 'agent';
 }
 
-export const SKILL_SURFACE_NAMES = new Set([
-  'skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill',
-]);
+export const SKILL_SURFACE_NAMES = new Set(['skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill']);
 
-const BACKGROUND_TASK_TOOL_NAMES = new Set([
-  'web_search', 'shell', 'bash', 'bash_session', 'shell_command', 'task',
-]);
+const BACKGROUND_TASK_TOOL_NAMES = new Set(['web_search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']);
 
 export function isBackgroundTaskTool(normalizedName) {
   return BACKGROUND_TASK_TOOL_NAMES.has(String(normalizedName || '').toLowerCase());
@@ -295,7 +306,7 @@ export function agentActionSummary(args, summary) {
   if (!text) return '';
   const name = titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '');
   if (name && text === name) return '';
-  let rest = name && text.startsWith(`${name} · `) ? text.slice(name.length + 3).trim() : text;
+  const rest = name && text.startsWith(`${name} · `) ? text.slice(name.length + 3).trim() : text;
   // The agent/model/tag surface summary ("Heavy Worker · Opus 4.8") is now folded
   // into the header label itself ("Spawn Heavy Worker (Opus 4.8, tag)"), so drop
   // the model and tag tokens from the parenthesized summary to avoid showing
@@ -311,11 +322,15 @@ export function hasAgentResponseResult(value) {
   const text = String(value || '').trim();
   if (!text) return false;
   if (/^(?:undefined|null)$/i.test(text)) return false;
-  if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(text)) return false;
-  const isBridgeEnvelope = /^(?:agent task:|background task\b|agent message queued\b|agent close:)/i.test(text)
-    || /^(?:agents|tasks):\s*\d/i.test(text)
-    || /^\(no agents or tasks\)$/i.test(text)
-    || (/^task_id:\s*\S+/mi.test(text) && /^(?:surface|operation|status):\s*/mi.test(text));
+  if (
+    /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(text)
+  )
+    return false;
+  const isBridgeEnvelope =
+    /^(?:agent task:|background task\b|agent message queued\b|agent close:)/i.test(text) ||
+    /^(?:agents|tasks):\s*\d/i.test(text) ||
+    /^\(no agents or tasks\)$/i.test(text) ||
+    (/^task_id:\s*\S+/im.test(text) && /^(?:surface|operation|status):\s*/im.test(text));
   if (!isBridgeEnvelope) return true;
   let sawBlank = false;
   for (const line of text.split('\n')) {
@@ -326,8 +341,19 @@ export function hasAgentResponseResult(value) {
     }
     if (/^agent result\b/i.test(trimmed)) continue;
     if (/^(?:undefined|null)$/i.test(trimmed)) continue;
-    if (/^<\/?(?:final-answer|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
-    if (!sawBlank && /^(?:agent task|background task|agent message queued\b|agent close:|task_id|surface|operation|label|status|type|target|agent|preset|model|effort|fast|limits|started|finished|error|notification|queueDepth):?\s*/i.test(trimmed)) continue;
+    if (
+      /^<\/?(?:final-answer|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(
+        trimmed
+      )
+    )
+      continue;
+    if (
+      !sawBlank &&
+      /^(?:agent task|background task|agent message queued\b|agent close:|task_id|surface|operation|label|status|type|target|agent|preset|model|effort|fast|limits|started|finished|error|notification|queueDepth):?\s*/i.test(
+        trimmed
+      )
+    )
+      continue;
     if (!sawBlank && /^(?:agents|tasks):\s*/i.test(trimmed)) continue;
     if (/^\(no agents or tasks\)$/i.test(trimmed)) continue;
     if (!sawBlank && /^-\s+\S+/i.test(trimmed)) continue;
@@ -345,7 +371,13 @@ function parseBackgroundTaskResult(value) {
   const rest = allLines.slice(start + 1);
   const blank = rest.findIndex((line) => !line.trim());
   const headLines = blank >= 0 ? rest.slice(0, blank) : rest;
-  const body = blank >= 0 ? rest.slice(blank + 1).join('\n').trim() : '';
+  const body =
+    blank >= 0
+      ? rest
+          .slice(blank + 1)
+          .join('\n')
+          .trim()
+      : '';
   const fields = {};
   for (const line of headLines) {
     const match = /^([a-zA-Z][\w-]*):\s*(.*)$/.exec(line.trim());
@@ -363,7 +395,8 @@ function parseBackgroundTaskResult(value) {
     finishedAt: fields.finished || fields.finishedat || '',
     body,
     error,
-    hasResponse: Boolean(body) && !isBackgroundErrorOnlyBody(body, error) && !/^(running|pending|queued)$/i.test(status),
+    hasResponse:
+      Boolean(body) && !isBackgroundErrorOnlyBody(body, error) && !/^(running|pending|queued)$/i.test(status),
   };
 }
 
@@ -435,7 +468,14 @@ export function shouldPrefixSyncElapsed(normalizedName, label) {
 function backgroundTaskDisplayName(normalizedName, meta = {}) {
   const surface = String(meta.surface || normalizedName || '').toLowerCase();
   if (surface === 'web_search') return 'Web Search';
-  if (surface === 'shell' || surface === 'bash' || surface === 'bash_session' || surface === 'shell_command' || surface === 'task') return 'Shell';
+  if (
+    surface === 'shell' ||
+    surface === 'bash' ||
+    surface === 'bash_session' ||
+    surface === 'shell_command' ||
+    surface === 'task'
+  )
+    return 'Shell';
   return titleizeAgentName(surface || normalizedName || 'Task');
 }
 
@@ -449,9 +489,7 @@ export function backgroundTaskResultTitle(normalizedName, meta = {}) {
 export function backgroundTaskActionTitle(normalizedName, meta = {}) {
   const display = backgroundTaskDisplayName(normalizedName, meta);
   if (/^(running|pending|queued)$/i.test(meta.status || '')) {
-    return String(meta.type || '').toLowerCase() === 'progress'
-      ? `${display} progress`
-      : `Started ${display}`;
+    return String(meta.type || '').toLowerCase() === 'progress' ? `${display} progress` : `Started ${display}`;
   }
   if (meta.hasResponse) return backgroundTaskResultTitle(normalizedName, meta);
   return `${display} status`;
@@ -470,7 +508,11 @@ export function backgroundTaskDetail(meta = {}, elapsed = '', parsedArgs = {}) {
   const status = displayTerminalStatus(meta.status);
   if (status) parts.push(status);
   if (meta.taskId) parts.push(`task_id: ${meta.taskId}`);
-  const firstBodyLine = String(meta.body || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
+  const firstBodyLine =
+    String(meta.body || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean) || '';
   if (firstBodyLine && /^(running|pending|queued)$/i.test(meta.status || '')) parts.push(firstBodyLine);
   return prefixElapsed(parts.join(' · '), elapsed);
 }
@@ -480,19 +522,49 @@ export function isBackgroundTaskResponseArgs(normalizedName, args = {}) {
   const type = String(args?.type || args?.action || '').toLowerCase();
   const status = String(args?.status || '').toLowerCase();
   if (/^(running|pending|queued)$/i.test(status)) return false;
-  return type === 'result' || type === 'completion' || (/^(completed|cancelled|canceled)$/i.test(status) && Boolean(args?.task_id));
+  return (
+    type === 'result' ||
+    type === 'completion' ||
+    (/^(completed|cancelled|canceled)$/i.test(status) && Boolean(args?.task_id))
+  );
 }
 
 function isOutputDetailTool(normalizedName, label) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
-  return new Set([
-    'shell', 'bash', 'bash_session', 'shell_command', 'job_wait',
-    'read', 'view_image', 'read_mcp_resource',
-    'grep', 'glob', 'search_query', 'image_query', 'web_search', 'web_search_call', 'web_fetch', 'fetch',
-    'list', 'ls', 'code_graph',
-    'recall', 'recall_memory', 'search_memories', 'remember', 'save_memory', 'update_memory',
-  ]).has(n) || l === 'read' || l === 'search' || l === 'web search' || l === 'run';
+  return (
+    new Set([
+      'shell',
+      'bash',
+      'bash_session',
+      'shell_command',
+      'job_wait',
+      'read',
+      'view_image',
+      'read_mcp_resource',
+      'grep',
+      'glob',
+      'search_query',
+      'image_query',
+      'web_search',
+      'web_search_call',
+      'web_fetch',
+      'fetch',
+      'list',
+      'ls',
+      'code_graph',
+      'recall',
+      'recall_memory',
+      'search_memories',
+      'remember',
+      'save_memory',
+      'update_memory',
+    ]).has(n) ||
+    l === 'read' ||
+    l === 'search' ||
+    l === 'web search' ||
+    l === 'run'
+  );
 }
 
 export function genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError }) {
@@ -516,16 +588,13 @@ export function toolSearchLoadedSummary(resultText) {
     const text = String(resultText || '');
     const loaded = /^Loaded deferred tools:\s*(.+)$/m.exec(text)?.[1] || '';
     const already = /^Already active:\s*(.+)$/m.exec(text)?.[1] || '';
-    return [
-      ...(loaded ? [`Loaded: ${loaded}`] : []),
-      ...(already ? [`Already active: ${already}`] : []),
-    ].join(' · ');
+    return [...(loaded ? [`Loaded: ${loaded}`] : []), ...(already ? [`Already active: ${already}`] : [])].join(' · ');
   }
   const tools = parsed?.selected?.tools;
   if (!tools || typeof tools !== 'object') return '';
-  const uniqueNames = (names) => [...new Set((Array.isArray(names) ? names : [])
-    .map((name) => String(name || '').trim())
-    .filter(Boolean))];
+  const uniqueNames = (names) => [
+    ...new Set((Array.isArray(names) ? names : []).map((name) => String(name || '').trim()).filter(Boolean)),
+  ];
   const loaded = uniqueNames(tools.added);
   const already = uniqueNames(tools.already);
   return [
@@ -535,9 +604,7 @@ export function toolSearchLoadedSummary(resultText) {
 }
 
 export function agentTerminalDetail(status, isError, elapsed, error = '') {
-  const failureDetail = isError && error
-    ? backgroundTaskFailureStatusLabel(status, error, { surface: 'agent' })
-    : '';
+  const failureDetail = isError && error ? backgroundTaskFailureStatusLabel(status, error, { surface: 'agent' }) : '';
   if (failureDetail) return failureDetail;
   const s = String(status || '').toLowerCase();
   const word = /cancel/.test(s)
@@ -577,16 +644,29 @@ function clipPlain(text, maxChars) {
  */
 export function deriveToolCardModel(input = {}, options = {}) {
   const {
-    name = '', args = {}, result = null, rawResult = null,
-    isError = false, errorCount, callErrorCount, exitErrorCount,
-    count = 1, completedCount, startedAt = 0, completedAt = 0,
-    aggregate = false, categories = {}, doneCategories = null,
+    name = '',
+    args = {},
+    result = null,
+    rawResult = null,
+    isError = false,
+    errorCount,
+    callErrorCount,
+    exitErrorCount,
+    count = 1,
+    completedCount,
+    startedAt = 0,
+    completedAt = 0,
+    aggregate = false,
+    categories = {},
+    doneCategories = null,
     headerFinalized = true,
   } = input;
   const nowMs = Number(input.nowMs || Date.now());
   const truncate = typeof options.truncate === 'function' ? options.truncate : clipPlain;
-  const maxResultChars = Math.max(MIN_RESULT_LINE_CHARS,
-    Math.min(RESULT_LINE_HARD_MAX, Number(options.maxResultChars ?? RESULT_LINE_HARD_MAX)));
+  const maxResultChars = Math.max(
+    MIN_RESULT_LINE_CHARS,
+    Math.min(RESULT_LINE_HARD_MAX, Number(options.maxResultChars ?? RESULT_LINE_HARD_MAX))
+  );
 
   const groupCount = Math.max(1, Number(count || 1));
   const doneCount = Math.max(0, Math.min(groupCount, Number(completedCount ?? (result == null ? 0 : groupCount))));
@@ -598,7 +678,7 @@ export function deriveToolCardModel(input = {}, options = {}) {
   const hasRawResult = rawResult != null && Boolean(String(rawRt || '').trim());
   const startedAtMs = Number(startedAt || 0);
   const completedAtMs = Number(completedAt || 0);
-  const elapsedMs = startedAtMs ? Math.max(0, (pending ? nowMs : (completedAtMs || nowMs)) - startedAtMs) : 0;
+  const elapsedMs = startedAtMs ? Math.max(0, (pending ? nowMs : completedAtMs || nowMs) - startedAtMs) : 0;
   const elapsed = elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
   const failedCount = clampFailureCount(errorCount, groupCount, isError);
   const callFailedCount = clampFailureCount(callErrorCount, groupCount, false);
@@ -608,38 +688,61 @@ export function deriveToolCardModel(input = {}, options = {}) {
     const displayCategories = normalizeCountMap(categories || {});
     const normalizedDone = doneCategories ? normalizeCountMap(doneCategories) : displayCategories;
     const hasDoneCounts = Object.values(normalizedDone || {}).some(
-      (v) => (v && typeof v === 'object' ? Number(v.count || 0) : Number(v || 0)) > 0,
+      (v) => (v && typeof v === 'object' ? Number(v.count || 0) : Number(v || 0)) > 0
     );
     const displayDone = hasDoneCounts ? normalizedDone : displayCategories;
     const headerOrder = Array.isArray(args?.categoryOrder) ? args.categoryOrder : null;
-    const aggregateLoadingTargets = [...new Set(
-      (Array.isArray(args?.loadingTargets) ? args.loadingTargets : [])
-        .map((value) => String(value || '').trim())
-        .filter(Boolean),
-    )];
-    const labelText = safeInlineText(aggregateLoadingTargets.length
-      ? `${headerPending ? 'Loading' : 'Loaded'} ${aggregateLoadingTargets.join(', ')}`
-      : formatAggregateHeader(
-          (headerPending ? displayCategories : displayDone) || {},
-          { pending: headerPending, order: headerOrder },
-        ));
+    const aggregateLoadingTargets = [
+      ...new Set(
+        (Array.isArray(args?.loadingTargets) ? args.loadingTargets : [])
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+      ),
+    ];
+    const labelText = safeInlineText(
+      aggregateLoadingTargets.length
+        ? `${headerPending ? 'Loading' : 'Loaded'} ${aggregateLoadingTargets.join(', ')}`
+        : formatAggregateHeader((headerPending ? displayCategories : displayDone) || {}, {
+            pending: headerPending,
+            order: headerOrder,
+          })
+    );
     const detailText = hasResult ? safeInlineText(rt) : '';
     const terminalStatus = pending
       ? 'running'
-      : (resultTerminalStatus(rt) || (isError || failedCount > 0 ? 'failed' : 'completed'));
+      : resultTerminalStatus(rt) || (isError || failedCount > 0 ? 'failed' : 'completed');
     return {
-      aggregate: true, pending, headerPending, groupCount, doneCount, elapsed,
-      failedCount, callFailedCount, exitFailedCount, terminalStatus,
-      labelText, summaryText: '', headerFailureText: '',
+      aggregate: true,
+      pending,
+      headerPending,
+      groupCount,
+      doneCount,
+      elapsed,
+      failedCount,
+      callFailedCount,
+      exitFailedCount,
+      terminalStatus,
+      labelText,
+      summaryText: '',
+      headerFailureText: '',
       detailLine: detailText || (pending ? 'Running' : 'Finished'),
       detailIsPlaceholder: !detailText,
-      hasResult, hasRawResult,
+      hasResult,
+      hasRawResult,
       displayedResultBodyText: rt || '',
-      firstResultLine: detailText, totalLines: detailText ? 1 : 0,
-      resultSummary: detailText || null, toolArgPath: '',
-      normalizedName: '', label: '', parsedArgs: args,
-      isShellSurface: false, isSkillSurface: false, isAgentSurfaceCard: false,
-      isAgentResponse: false, isBackgroundResponse: false, isBackgroundMetadataResult: false,
+      firstResultLine: detailText,
+      totalLines: detailText ? 1 : 0,
+      resultSummary: detailText || null,
+      toolArgPath: '',
+      normalizedName: '',
+      label: '',
+      parsedArgs: args,
+      isShellSurface: false,
+      isSkillSurface: false,
+      isAgentSurfaceCard: false,
+      isAgentResponse: false,
+      isBackgroundResponse: false,
+      isBackgroundMetadataResult: false,
       backgroundMeta: null,
     };
   }
@@ -647,75 +750,84 @@ export function deriveToolCardModel(input = {}, options = {}) {
   const { label, summary, normalizedName, args: parsedArgs } = formatToolSurface(name, args);
   const isShellSurface = isShellTool(normalizedName, label);
   const isSkillSurface = SKILL_SURFACE_NAMES.has(String(normalizedName || '').toLowerCase());
-  const backgroundMeta = !pending && isBackgroundTaskTool(normalizedName)
-    ? resolveBackgroundTaskMeta(parsedArgs, rt || '')
-    : null;
+  const backgroundMeta =
+    !pending && isBackgroundTaskTool(normalizedName) ? resolveBackgroundTaskMeta(parsedArgs, rt || '') : null;
   const backgroundError = backgroundMeta?.error || parsedArgs?.error || '';
   const errorOnlyResult = Boolean(rt) && isBackgroundErrorOnlyBody(rt, backgroundError);
   const backgroundResultText = backgroundMeta?.hasResponse ? backgroundMeta.body : '';
-  const displayedResultText = backgroundResultText || (errorOnlyResult ? '' : (rt || ''));
+  const displayedResultText = backgroundResultText || (errorOnlyResult ? '' : rt || '');
   const hasDisplayResult = Boolean(String(displayedResultText || '').trim());
   const displayedResultBodyText = stripLeadingStatusMarkerFromText(displayedResultText);
   const hasDisplayBody = Boolean(String(displayedResultBodyText || '').trim());
   const lines = displayedResultBodyText ? displayedResultBodyText.split('\n') : [];
   const totalLines = lines.length;
-  const resultSummary = !pending && hasDisplayBody
-    ? summarizeToolResult(name, args, displayedResultBodyText, isError)
-    : null;
+  const resultSummary =
+    !pending && hasDisplayBody ? summarizeToolResult(name, args, displayedResultBodyText, isError) : null;
   const firstResultLine = hasDisplayResult ? String(lines[0] ?? '') : '';
   const shellStatus = isShellSurface
     ? shellDisplayStatus({ pending, failedCount, exitFailedCount, isError, result: displayedResultText })
     : '';
-  const shellElapsed = isShellSurface ? (shellResultElapsed(displayedResultText) || elapsed) : '';
+  const shellElapsed = isShellSurface ? shellResultElapsed(displayedResultText) || elapsed : '';
   const backgroundElapsed = backgroundMeta
     ? backgroundTaskElapsed(backgroundMeta, elapsed)
-    : (isBackgroundTaskTool(normalizedName) ? backgroundTaskElapsed(parsedArgs, elapsed) : '');
+    : isBackgroundTaskTool(normalizedName)
+      ? backgroundTaskElapsed(parsedArgs, elapsed)
+      : '';
   const toolArgPath = parsedArgs?.path ?? parsedArgs?.file_path ?? parsedArgs?.file ?? '';
   const imageDetail = normalizedName === 'view_image' && toolArgPath && !isError ? String(toolArgPath) : '';
   const isBackgroundResult = !pending && isBackgroundTaskTool(normalizedName) && Boolean(backgroundMeta);
-  const isBackgroundResponse = isBackgroundResult
-    && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgs(normalizedName, parsedArgs));
+  const isBackgroundResponse =
+    isBackgroundResult && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgs(normalizedName, parsedArgs));
   const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
   const backgroundMetadataFailureLabel = isBackgroundMetadataResult
     ? backgroundTaskFailureDetail(backgroundMeta, parsedArgs)
     : '';
-  const backgroundMetadataHeaderFailure = Boolean(backgroundMetadataFailureLabel) && !hasDisplayResult
-    ? backgroundMetadataFailureLabel
-    : '';
-  const agentHeaderFailure = !pending && isAgentTool(normalizedName) && isError && parsedArgs?.error && !hasDisplayResult
-    ? backgroundTaskFailureStatusLabel(parsedArgs?.status, parsedArgs?.error, { surface: 'agent' })
-    : '';
+  const backgroundMetadataHeaderFailure =
+    backgroundMetadataFailureLabel && !hasDisplayResult ? backgroundMetadataFailureLabel : '';
+  const agentHeaderFailure =
+    !pending && isAgentTool(normalizedName) && isError && parsedArgs?.error && !hasDisplayResult
+      ? backgroundTaskFailureStatusLabel(parsedArgs?.status, parsedArgs?.error, { surface: 'agent' })
+      : '';
   const headerFailureText = backgroundMetadataHeaderFailure || agentHeaderFailure || '';
-  const agentCompletionDetail = !pending && isAgentTool(normalizedName) && !agentHeaderFailure
-    ? agentTerminalDetail(parsedArgs?.status, isError, elapsed, parsedArgs?.error)
-    : '';
-  const agentDetail = !pending && isAgentTool(normalizedName) && !hasDisplayResult
-    ? agentCompletionDetail
-    : '';
-  const genericDetail = !pending && !isShellSurface && !agentDetail && !imageDetail && !resultSummary
-    ? genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError })
-    : '';
+  const agentCompletionDetail =
+    !pending && isAgentTool(normalizedName) && !agentHeaderFailure
+      ? agentTerminalDetail(parsedArgs?.status, isError, elapsed, parsedArgs?.error)
+      : '';
+  const agentDetail = !pending && isAgentTool(normalizedName) && !hasDisplayResult ? agentCompletionDetail : '';
+  const genericDetail =
+    !pending && !isShellSurface && !agentDetail && !imageDetail && !resultSummary
+      ? genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError })
+      : '';
   const terminalStatus = pending
     ? 'running'
-    : (shellStatus || normalizeTerminalStatus(backgroundMeta?.status) || normalizeTerminalStatus(parsedArgs?.status) || resultTerminalStatus(displayedResultText) || (isError || failedCount > 0 ? 'failed' : 'completed'));
-  const backgroundMetadataDetail = isBackgroundMetadataResult && !backgroundMetadataHeaderFailure
-    ? backgroundTaskDetail(backgroundMeta, backgroundElapsed, parsedArgs)
-    : '';
-  const backgroundResponseDetail = isBackgroundResponse && resultSummary
-    ? prefixElapsed(resultSummary, backgroundElapsed)
-    : resultSummary;
-  const syncElapsedDetail = !isBackgroundResponse && shouldPrefixSyncElapsed(normalizedName, label)
-    ? prefixElapsed(backgroundResponseDetail, elapsed)
-    : backgroundResponseDetail;
-  const nonShellDetail = backgroundMetadataDetail || (/^(Cancelled|Failed|Finished)$/i.test(resultSummary || '') && agentCompletionDetail
-    ? agentCompletionDetail
-    : syncElapsedDetail) || agentDetail || imageDetail || genericDetail;
-  const pendingDetailPlaceholder = pending && !isSkillSurface
-    ? (elapsed ? `Running · ${elapsed}` : 'Running')
-    : '';
-  const shellCollapsedSummary = isShellSurface && !pending && hasDisplayResult
-    ? (resultSummary || truncate(firstResultLine, Math.min(120, maxResultChars)))
-    : resultSummary;
+    : shellStatus ||
+      normalizeTerminalStatus(backgroundMeta?.status) ||
+      normalizeTerminalStatus(parsedArgs?.status) ||
+      resultTerminalStatus(displayedResultText) ||
+      (isError || failedCount > 0 ? 'failed' : 'completed');
+  const backgroundMetadataDetail =
+    isBackgroundMetadataResult && !backgroundMetadataHeaderFailure
+      ? backgroundTaskDetail(backgroundMeta, backgroundElapsed, parsedArgs)
+      : '';
+  const backgroundResponseDetail =
+    isBackgroundResponse && resultSummary ? prefixElapsed(resultSummary, backgroundElapsed) : resultSummary;
+  const syncElapsedDetail =
+    !isBackgroundResponse && shouldPrefixSyncElapsed(normalizedName, label)
+      ? prefixElapsed(backgroundResponseDetail, elapsed)
+      : backgroundResponseDetail;
+  const nonShellDetail =
+    backgroundMetadataDetail ||
+    (/^(Cancelled|Failed|Finished)$/i.test(resultSummary || '') && agentCompletionDetail
+      ? agentCompletionDetail
+      : syncElapsedDetail) ||
+    agentDetail ||
+    imageDetail ||
+    genericDetail;
+  const pendingDetailPlaceholder = pending && !isSkillSurface ? (elapsed ? `Running · ${elapsed}` : 'Running') : '';
+  const shellCollapsedSummary =
+    isShellSurface && !pending && hasDisplayResult
+      ? resultSummary || truncate(firstResultLine, Math.min(120, maxResultChars))
+      : resultSummary;
   const collapsedDetail = pending
     ? pendingDetailPlaceholder
     : isShellSurface
@@ -739,10 +851,9 @@ export function deriveToolCardModel(input = {}, options = {}) {
   } else if (isBackgroundMetadataResult && backgroundMetadataHeaderFailure) {
     detailLine = '';
   } else if (isAgentSurfaceCard) {
-    const agentDetailFallback = collapsedDetail
-      || (pending ? (pendingDetailPlaceholder || 'Running') : 'Finished');
-    const agentDetailLine = agentSurfaceBrief
-      || truncate(String(agentDetailFallback), Math.min(AGENT_SURFACE_BRIEF_MAX, maxResultChars));
+    const agentDetailFallback = collapsedDetail || (pending ? pendingDetailPlaceholder || 'Running' : 'Finished');
+    const agentDetailLine =
+      agentSurfaceBrief || truncate(String(agentDetailFallback), Math.min(AGENT_SURFACE_BRIEF_MAX, maxResultChars));
     const agentFailureText = /\b(Cancelled|Canceled|Failed)\b/i.test(agentSurfaceBrief || collapsedDetail || '');
     const keepAgentDetail = (isError || agentFailureText) && !(agentHeaderFailure && !agentSurfaceBrief);
     detailLine = keepAgentDetail ? agentDetailLine : '';
@@ -753,35 +864,62 @@ export function deriveToolCardModel(input = {}, options = {}) {
   else if (isBackgroundResponse) labelText = backgroundTaskResultTitle(normalizedName, backgroundMeta || parsedArgs);
   else if (isBackgroundMetadataResult) labelText = backgroundTaskActionTitle(normalizedName, backgroundMeta);
   else if (isShellSurface) labelText = shellHeader(shellStatus, groupCount, parsedArgs?.verifyShell === true);
-  else labelText = (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '')
-    || formatToolActionHeader(name, args, { pending: headerPending, count: groupCount });
+  else
+    labelText =
+      (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '') ||
+      formatToolActionHeader(name, args, { pending: headerPending, count: groupCount });
   labelText = safeInlineText(labelText);
-  const toolSearchSummary = !pending && normalizedName === 'load_tool' && hasResult
-    ? toolSearchLoadedSummary(displayedResultText)
-    : '';
-  const rawSummaryText = safeInlineText(isAgentResponse || isBackgroundResponse
-    ? ''
-    : toolSearchSummary || (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary));
+  const toolSearchSummary =
+    !pending && normalizedName === 'load_tool' && hasResult ? toolSearchLoadedSummary(displayedResultText) : '';
+  const rawSummaryText = safeInlineText(
+    isAgentResponse || isBackgroundResponse
+      ? ''
+      : toolSearchSummary || (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary)
+  );
   // Drop the parenthesized arg summary when it is a bare "<n> <unit>" count
   // that the header verb already spells out.
-  const summaryIsHeaderCount = rawSummaryText
-    && /^\d+\s+\S+$/.test(rawSummaryText)
-    && labelText.endsWith(rawSummaryText);
+  const summaryIsHeaderCount =
+    rawSummaryText && /^\d+\s+\S+$/.test(rawSummaryText) && labelText.endsWith(rawSummaryText);
   const loadingTargets = toolLoadingTargets(normalizedName, parsedArgs);
-  const summaryIsLoadingTargets = loadingTargets.length > 0
-    && rawSummaryText === loadingTargets.join(', ');
+  const summaryIsLoadingTargets = loadingTargets.length > 0 && rawSummaryText === loadingTargets.join(', ');
   const summaryText = summaryIsHeaderCount || summaryIsLoadingTargets ? '' : rawSummaryText;
 
   return {
-    aggregate: false, pending, headerPending, groupCount, doneCount, elapsed,
-    failedCount, callFailedCount, exitFailedCount, terminalStatus,
-    labelText, summaryText, headerFailureText,
-    detailLine, detailIsPlaceholder: Boolean(pendingDetailPlaceholder) && detailLine === pendingDetailPlaceholder,
-    hasResult, hasRawResult, hasDisplayResult, hasDisplayBody,
-    displayedResultBodyText, firstResultLine, totalLines, resultSummary,
-    shellCollapsedSummary, agentSurfaceBrief, toolArgPath: String(toolArgPath || ''),
-    normalizedName, label, parsedArgs,
-    isShellSurface, isSkillSurface, isAgentSurfaceCard, isAgentResponse,
-    isBackgroundResponse, isBackgroundMetadataResult, backgroundMeta,
+    aggregate: false,
+    pending,
+    headerPending,
+    groupCount,
+    doneCount,
+    elapsed,
+    failedCount,
+    callFailedCount,
+    exitFailedCount,
+    terminalStatus,
+    labelText,
+    summaryText,
+    headerFailureText,
+    detailLine,
+    detailIsPlaceholder: Boolean(pendingDetailPlaceholder) && detailLine === pendingDetailPlaceholder,
+    hasResult,
+    hasRawResult,
+    hasDisplayResult,
+    hasDisplayBody,
+    displayedResultBodyText,
+    firstResultLine,
+    totalLines,
+    resultSummary,
+    shellCollapsedSummary,
+    agentSurfaceBrief,
+    toolArgPath: String(toolArgPath || ''),
+    normalizedName,
+    label,
+    parsedArgs,
+    isShellSurface,
+    isSkillSurface,
+    isAgentSurfaceCard,
+    isAgentResponse,
+    isBackgroundResponse,
+    isBackgroundMetadataResult,
+    backgroundMeta,
   };
 }

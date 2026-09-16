@@ -1,8 +1,49 @@
 import { presentationSlides, renumberPresentationSlides } from './portable-pptx-package.mjs';
 import { resolvePptxTargets } from './pptx-targets.mjs';
-import { handleAddChart, handleSetChartAxis, handleSetChartData, handleSetChartDataLabels, handleSetChartSeries, handleSetChartTrendlineOrSetChartErrorBars } from './portable-pptx-charts.mjs';
-import { handleAddCommentOrDeleteComment, handleAddProvenance, handleAddSlide, handleApplyTheme, handleDeleteSlide, handleDuplicateSlide, handleFillTemplate, handleImportSlides, handleKeepSlides, handleMoveSlide, handleReplaceText, handleSetFooterOrSetSlideNumber, handleSetLayout, handleSetNotes, handleSetSlideBackground, handleSetSlideVisibility, handleSetTransition } from './portable-pptx-deck.mjs';
-import { handleAddAnimation, handleAddImage, handleAddMedia, handleAddTable, handleAddTextboxOrAddShape, handleAlignShapesOrDistributeShapes, handleCropImage, handleDeleteShape, handleFitText, handleGroupShapesOrUngroupShape, handleSetHyperlink, handleSetShape, handleSetTableDataOrReplaceImage, handleSetText, handleZOrder } from './portable-pptx-shapes.mjs';
+import {
+  handleAddChart,
+  handleSetChartAxis,
+  handleSetChartData,
+  handleSetChartDataLabels,
+  handleSetChartSeries,
+  handleSetChartTrendlineOrSetChartErrorBars,
+} from './portable-pptx-charts.mjs';
+import {
+  handleAddCommentOrDeleteComment,
+  handleAddProvenance,
+  handleAddSlide,
+  handleApplyTheme,
+  handleDeleteSlide,
+  handleDuplicateSlide,
+  handleFillTemplate,
+  handleImportSlides,
+  handleKeepSlides,
+  handleMoveSlide,
+  handleReplaceText,
+  handleSetFooterOrSetSlideNumber,
+  handleSetLayout,
+  handleSetNotes,
+  handleSetSlideBackground,
+  handleSetSlideVisibility,
+  handleSetTransition,
+} from './portable-pptx-deck.mjs';
+import {
+  handleAddAnimation,
+  handleAddImage,
+  handleAddMedia,
+  handleAddTable,
+  handleAddTextboxOrAddShape,
+  handleAlignShapesOrDistributeShapes,
+  handleCropImage,
+  handleDeleteShape,
+  handleFitText,
+  handleGroupShapesOrUngroupShape,
+  handleSetHyperlink,
+  handleSetShape,
+  handleSetTableDataOrReplaceImage,
+  handleSetText,
+  handleZOrder,
+} from './portable-pptx-shapes.mjs';
 export { inspectPptxTextBoxes } from './portable-pptx-core.mjs';
 
 const PPTX_OPERATIONS = Object.freeze({
@@ -53,11 +94,16 @@ const PPTX_OPERATIONS = Object.freeze({
   set_shape: handleSetShape,
 });
 
-
-
 // Operations that change which slide sits at which position; after them the
 // slide parts are renamed to their positions (see renumberPresentationSlides).
-const STRUCTURAL_OPERATIONS = new Set(['add_slide', 'delete_slide', 'move_slide', 'keep_slides', 'duplicate_slide', 'import_slides']);
+const STRUCTURAL_OPERATIONS = new Set([
+  'add_slide',
+  'delete_slide',
+  'move_slide',
+  'keep_slides',
+  'duplicate_slide',
+  'import_slides',
+]);
 
 export async function applyPptx(zip, operations) {
   const context = { zip, slides: await presentationSlides(zip) };
@@ -71,6 +117,6 @@ export async function applyPptx(zip, operations) {
     if (result) results.push(result);
     if (STRUCTURAL_OPERATIONS.has(op.op)) structural = true;
   }
-  if (structural && await renumberPresentationSlides(zip)) context.slides = await presentationSlides(zip);
+  if (structural && (await renumberPresentationSlides(zip))) context.slides = await presentationSlides(zip);
   return results;
 }

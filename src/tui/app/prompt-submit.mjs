@@ -3,18 +3,10 @@
 // text-entry prompts, slash commands, and the normal chat submit with
 // pasted image/text token expansion. Factory pattern (like the pickers):
 // re-created per render so it closes over the CURRENT prompt/panel state.
-import {
-  memoryCoreResultErrorText,
-  parseMcpServerInput,
-  parseSkillInput,
-} from './input-parsers.mjs';
+import { memoryCoreResultErrorText, parseMcpServerInput, parseSkillInput } from './input-parsers.mjs';
 import { projectNameFromPath } from './app-format.mjs';
 import { isPanelEpochCurrent, supersedePanelEpoch } from './panel-epoch.mjs';
-import {
-  buildPromptContentWithImages,
-  imageReferenceIds,
-  pastedTextReferenceIds,
-} from '../paste-attachments.mjs';
+import { buildPromptContentWithImages, imageReferenceIds, pastedTextReferenceIds } from '../paste-attachments.mjs';
 
 // In-flight prompt writes, tracked at MODULE scope: createPromptSubmit is
 // re-created on every render, so a closure flag resets mid-write and a second
@@ -70,11 +62,13 @@ export function createPromptSubmit({
   };
   const submitPrompt = (prompt, options) => {
     if (typeof store.submitAsync !== 'function') return store.submit(prompt, options);
-    void Promise.resolve(store.submitAsync(prompt, options)).then((accepted) => {
-      if (accepted === false) store.pushNotice('prompt was not accepted by the session service', 'error');
-    }).catch((error) => {
-      store.pushNotice(`prompt submit failed: ${error?.message || error}`, 'error');
-    });
+    void Promise.resolve(store.submitAsync(prompt, options))
+      .then((accepted) => {
+        if (accepted === false) store.pushNotice('prompt was not accepted by the session service', 'error');
+      })
+      .catch((error) => {
+        store.pushNotice(`prompt submit failed: ${error?.message || error}`, 'error');
+      });
     // Input clearing remains synchronous; the daemon ACK is responsible for
     // durable intake, while provider execution continues independently.
     return true;
@@ -150,7 +144,9 @@ export function createPromptSubmit({
             clearModelCaches('all');
             finishProviderSave(target, token);
           })
-          .catch((error) => failProviderSave(target, commandText, `api key save failed: ${error?.message || error}`, token));
+          .catch((error) =>
+            failProviderSave(target, commandText, `api key save failed: ${error?.message || error}`, token)
+          );
         return true;
       }
       if (providerPrompt.kind === 'openai-usage-session') {
@@ -166,7 +162,9 @@ export function createPromptSubmit({
         const token = beginProviderSave(target);
         void serviceCall('saveOpenAIUsageSessionKey', commandText)
           .then(() => finishProviderSave(target, token))
-          .catch((error) => failProviderSave(target, commandText, `OpenAI usage auth save failed: ${error?.message || error}`, token));
+          .catch((error) =>
+            failProviderSave(target, commandText, `OpenAI usage auth save failed: ${error?.message || error}`, token)
+          );
         return true;
       }
       if (providerPrompt.kind === 'oauth-code') {
@@ -179,8 +177,9 @@ export function createPromptSubmit({
           return false;
         }
         oauthSubmitRef.current = true;
-        setProviderPrompt((prompt) => prompt === providerPrompt ? { ...prompt, submitting: true } : prompt);
-        void providerPrompt.login?.completeCode(commandText)
+        setProviderPrompt((prompt) => (prompt === providerPrompt ? { ...prompt, submitting: true } : prompt));
+        void providerPrompt.login
+          ?.completeCode(commandText)
           .then(() => {
             const successReturn = providerPrompt.successReturn;
             const afterSave = providerPrompt.afterSave;
@@ -252,11 +251,13 @@ export function createPromptSubmit({
           const token = beginSettingsSave(target);
           void serviceCall('setCwd', commandText, {
             message: `Project set: ${projectNameFromPath(commandText)}`,
-          }).then(() => {
-            finishSettingsSave(token, () => openPanel(openSettingsPicker));
-          }).catch((error) => {
-            failSettingsSave(target, commandText, `project switch failed: ${error?.message || error}`, token);
-          });
+          })
+            .then(() => {
+              finishSettingsSave(token, () => openPanel(openSettingsPicker));
+            })
+            .catch((error) => {
+              failSettingsSave(target, commandText, `project switch failed: ${error?.message || error}`, token);
+            });
           return true;
         }
         if (settingsPrompt.kind === 'project-new') {
@@ -266,45 +267,51 @@ export function createPromptSubmit({
           }
           const target = settingsPrompt;
           const token = beginSettingsSave(target);
-          void serviceCall('inspectProjectPath', commandText).then((result) => {
-            const path = String(result?.path || commandText);
-            if (result?.directory === true) {
-              finishSettingsSave(token, () => openPanel(registerProject, path));
-              return;
-            }
-            if (result?.exists === true) {
-              failSettingsSave(target, commandText, `${path} is not a directory`, token, 'warn');
-              return;
-            }
-            endSettingsSave(token);
-            if (!isPanelEpochCurrent(token)) return;
-            supersedePanelEpoch();
-            setSettingsPrompt({
-              kind: 'project-create-confirm',
-              label: 'New project · Create folder?',
-              hint: `${path} does not exist. Type "y" to create it, or anything else to cancel.`,
-              pendingPath: path,
+          void serviceCall('inspectProjectPath', commandText)
+            .then((result) => {
+              const path = String(result?.path || commandText);
+              if (result?.directory === true) {
+                finishSettingsSave(token, () => openPanel(registerProject, path));
+                return;
+              }
+              if (result?.exists === true) {
+                failSettingsSave(target, commandText, `${path} is not a directory`, token, 'warn');
+                return;
+              }
+              endSettingsSave(token);
+              if (!isPanelEpochCurrent(token)) return;
+              supersedePanelEpoch();
+              setSettingsPrompt({
+                kind: 'project-create-confirm',
+                label: 'New project · Create folder?',
+                hint: `${path} does not exist. Type "y" to create it, or anything else to cancel.`,
+                pendingPath: path,
+              });
+            })
+            .catch((error) => {
+              failSettingsSave(target, commandText, `project path check failed: ${error?.message || error}`, token);
             });
-          }).catch((error) => {
-            failSettingsSave(target, commandText, `project path check failed: ${error?.message || error}`, token);
-          });
           return true;
         }
         if (settingsPrompt.kind === 'project-create-confirm') {
           const pendingPath = String(settingsPrompt.pendingPath || '');
-          const answer = String(commandText || '').trim().toLowerCase();
+          const answer = String(commandText || '')
+            .trim()
+            .toLowerCase();
           if (answer === 'y' || answer === 'yes') {
             const target = settingsPrompt;
             const token = beginSettingsSave(target);
-            void serviceCall('ensureProjectDirectory', pendingPath).then((created) => {
-              finishSettingsSave(token, () => openPanel(registerProject, created || pendingPath));
-            }).catch((error) => {
-              endSettingsSave(token);
-              store.pushNotice(`could not create folder: ${error?.message || error}`, 'error');
-              // The typed value here is only the y/n answer, so close rather
-              // than restore — but never close a surface we no longer own.
-              if (isPanelEpochCurrent(token)) setSettingsPrompt(null);
-            });
+            void serviceCall('ensureProjectDirectory', pendingPath)
+              .then((created) => {
+                finishSettingsSave(token, () => openPanel(registerProject, created || pendingPath));
+              })
+              .catch((error) => {
+                endSettingsSave(token);
+                store.pushNotice(`could not create folder: ${error?.message || error}`, 'error');
+                // The typed value here is only the y/n answer, so close rather
+                // than restore — but never close a surface we no longer own.
+                if (isPanelEpochCurrent(token)) setSettingsPrompt(null);
+              });
             return true;
           }
           setSettingsPrompt(null);
@@ -315,14 +322,16 @@ export function createPromptSubmit({
           const targetPath = String(settingsPrompt.projectPath || '');
           const target = settingsPrompt;
           const token = beginSettingsSave(target);
-          void serviceCall('renameProject', targetPath, commandText).then((updated) => {
-            if (updated) {
-              store.pushNotice(`project renamed to "${updated.name}"`, 'info');
-            }
-            finishSettingsSave(token, () => openPanel(openProjectPicker));
-          }).catch((error) => {
-            failSettingsSave(target, commandText, `rename failed: ${error?.message || error}`, token);
-          });
+          void serviceCall('renameProject', targetPath, commandText)
+            .then((updated) => {
+              if (updated) {
+                store.pushNotice(`project renamed to "${updated.name}"`, 'info');
+              }
+              finishSettingsSave(token, () => openPanel(openProjectPicker));
+            })
+            .catch((error) => {
+              failSettingsSave(target, commandText, `rename failed: ${error?.message || error}`, token);
+            });
           return true;
         }
         if (settingsPrompt.kind === 'system-shell') {
@@ -350,8 +359,13 @@ export function createPromptSubmit({
           // Empty is the documented reset to the built-in provider default.
           void serviceCall('setAutoClear', duration ? { provider, duration } : { provider, resetProvider: true })
             .then(() => {
-              store.pushNotice(duration ? `Auto-clear ${provider} default set to ${duration}` : `Auto-clear ${provider} default reset`, 'info');
-              finishSettingsSave(token, () => openPanel(openAutoClearPicker, { advanced: true, returnTo: target.returnTo }));
+              store.pushNotice(
+                duration ? `Auto-clear ${provider} default set to ${duration}` : `Auto-clear ${provider} default reset`,
+                'info'
+              );
+              finishSettingsSave(token, () =>
+                openPanel(openAutoClearPicker, { advanced: true, returnTo: target.returnTo })
+              );
             })
             .catch((error) => {
               failSettingsSave(target, duration, `autoclear failed: ${error?.message || error}`, token);
@@ -377,7 +391,8 @@ export function createPromptSubmit({
             store.pushNotice('plugin URL/path is required', 'warn');
             return false;
           }
-          void store.addPlugin?.(commandText)
+          void store
+            .addPlugin?.(commandText)
             .then(() => openPluginsPicker())
             .catch((e) => store.pushNotice(`plugin add failed: ${e?.message || e}`, 'error'));
           setSettingsPrompt(null);
@@ -389,7 +404,8 @@ export function createPromptSubmit({
             store.pushNotice(parsed.error, 'warn');
             return false;
           }
-          void store.addMcpServer?.(parsed.server)
+          void store
+            .addMcpServer?.(parsed.server)
             .then(() => openMcpServersPicker())
             .catch((e) => store.pushNotice(`mcp add failed: ${e?.message || e}`, 'error'));
           setSettingsPrompt(null);
@@ -401,7 +417,8 @@ export function createPromptSubmit({
             store.pushNotice(parsed.error, 'warn');
             return false;
           }
-          void store.addSkill?.(parsed.skill)
+          void store
+            .addSkill?.(parsed.skill)
             .then(() => openProjectSkillsPicker())
             .catch((e) => store.pushNotice(`skill add failed: ${e?.message || e}`, 'error'));
           setSettingsPrompt(null);
@@ -426,7 +443,11 @@ export function createPromptSubmit({
             return false;
           }
           setSettingsPrompt(null);
-          void store.memoryControl?.({ action: 'core', op: 'add', project_id: 'common', element: sentence, summary: sentence }, { silent: true })
+          void store
+            .memoryControl?.(
+              { action: 'core', op: 'add', project_id: 'common', element: sentence, summary: sentence },
+              { silent: true }
+            )
             .then((result) => {
               const errText = memoryCoreResultErrorText(result);
               store.pushNotice(errText || 'core memory added', errText ? 'error' : 'info');
@@ -454,9 +475,25 @@ export function createPromptSubmit({
           // would corrupt the entry (and re-embed/dedupe on the clobbered
           // value). Otherwise only `summary` is sent.
           const editArgs = settingsPrompt._singleSentence
-            ? { action: 'core', op: 'edit', id, index_revision: settingsPrompt._indexRevision, project_id: projectId, element: sentence, summary: sentence }
-            : { action: 'core', op: 'edit', id, index_revision: settingsPrompt._indexRevision, project_id: projectId, summary: sentence };
-          void store.memoryControl?.(editArgs, { silent: true })
+            ? {
+                action: 'core',
+                op: 'edit',
+                id,
+                index_revision: settingsPrompt._indexRevision,
+                project_id: projectId,
+                element: sentence,
+                summary: sentence,
+              }
+            : {
+                action: 'core',
+                op: 'edit',
+                id,
+                index_revision: settingsPrompt._indexRevision,
+                project_id: projectId,
+                summary: sentence,
+              };
+          void store
+            .memoryControl?.(editArgs, { silent: true })
             .then((result) => {
               const errText = memoryCoreResultErrorText(result);
               store.pushNotice(errText || 'core memory updated', errText ? 'error' : 'info');
@@ -471,14 +508,26 @@ export function createPromptSubmit({
         if (settingsPrompt.kind === 'core-delete-confirm') {
           const id = settingsPrompt._id;
           const projectId = settingsPrompt._projectId ?? 'common';
-          const answer = String(commandText || '').trim().toLowerCase();
+          const answer = String(commandText || '')
+            .trim()
+            .toLowerCase();
           setSettingsPrompt(null);
           if (answer !== 'y' && answer !== 'yes') {
             store.pushNotice('delete canceled', 'info');
             openMemoryCorePicker();
             return true;
           }
-          void store.memoryControl?.({ action: 'core', op: 'delete', id, index_revision: settingsPrompt._indexRevision, project_id: projectId }, { silent: true })
+          void store
+            .memoryControl?.(
+              {
+                action: 'core',
+                op: 'delete',
+                id,
+                index_revision: settingsPrompt._indexRevision,
+                project_id: projectId,
+              },
+              { silent: true }
+            )
             .then((result) => {
               const errText = memoryCoreResultErrorText(result);
               store.pushNotice(errText || 'core memory deleted', errText ? 'error' : 'info');
@@ -508,28 +557,36 @@ export function createPromptSubmit({
       return accepted;
     }
     const imageRefs = imageReferenceIds(text);
-    const imageSnapshot = Object.fromEntries(Object.entries(pastedImagesRef.current || {})
-      .filter(([id]) => imageRefs.has(Number(id))));
+    const imageSnapshot = Object.fromEntries(
+      Object.entries(pastedImagesRef.current || {}).filter(([id]) => imageRefs.has(Number(id)))
+    );
     const hasImageSnapshot = Object.keys(imageSnapshot).length > 0;
     // Expand folded [Pasted text #N +M lines] tokens back to their original
     // text at the same point buildPromptContentWithImages runs. Broken /
     // partially-deleted tokens do not match and are left as-is.
     const textRefs = pastedTextReferenceIds(text);
-    const textSnapshot = Object.fromEntries(Object.entries(pastedTextsRef.current || {})
-      .filter(([id]) => textRefs.has(Number(id))));
+    const textSnapshot = Object.fromEntries(
+      Object.entries(pastedTextsRef.current || {}).filter(([id]) => textRefs.has(Number(id)))
+    );
     const hasTextSnapshot = Object.keys(textSnapshot).length > 0;
     const content = buildPromptContentWithImages(text, imageSnapshot);
-    const imageRestoreMeta = Object.fromEntries(Object.entries(imageSnapshot).map(([id, image]) => {
-      const { content: _content, ...metadata } = image;
-      return [id, { ...metadata, sizeBytes: Math.floor((String(image.content || '').length * 3) / 4) }];
-    }));
+    const imageRestoreMeta = Object.fromEntries(
+      Object.entries(imageSnapshot).map(([id, image]) => {
+        const { content: _content, ...metadata } = image;
+        return [id, { ...metadata, sizeBytes: Math.floor((String(image.content || '').length * 3) / 4) }];
+      })
+    );
     const accepted = submitPrompt(content, {
-      ...((hasImageSnapshot || hasTextSnapshot) ? { displayText: text } : {}),
+      ...(hasImageSnapshot || hasTextSnapshot ? { displayText: text } : {}),
       pastedImages: imageRestoreMeta,
       pastedTexts: textSnapshot,
-      onCommitted: (hasImageSnapshot || hasTextSnapshot)
-        ? () => { clearPastedImagesSnapshot(imageSnapshot); clearPastedTextsSnapshot(textSnapshot); }
-        : null,
+      onCommitted:
+        hasImageSnapshot || hasTextSnapshot
+          ? () => {
+              clearPastedImagesSnapshot(imageSnapshot);
+              clearPastedTextsSnapshot(textSnapshot);
+            }
+          : null,
     });
     if (accepted) {
       armTranscriptFollow();

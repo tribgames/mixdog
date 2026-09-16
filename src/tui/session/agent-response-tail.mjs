@@ -25,13 +25,15 @@ function priorEntries(previous) {
   if (Array.isArray(previous?.agentResponseEntries) && previous.agentResponseEntries.length) {
     return previous.agentResponseEntries.map(responseEntry);
   }
-  return [responseEntry({
-    key: previous?.agentResponseKey,
-    rawResult: previous?.rawResult ?? previous?.result,
-    result: previous?.result,
-    hasBody: previous?.agentResponseHasBody,
-    isError: previous?.isError,
-  })];
+  return [
+    responseEntry({
+      key: previous?.agentResponseKey,
+      rawResult: previous?.rawResult ?? previous?.result,
+      result: previous?.result,
+      hasBody: previous?.agentResponseHasBody,
+      isError: previous?.isError,
+    }),
+  ];
 }
 
 export function appendAgentResponseTail(previous, response, now = Date.now()) {

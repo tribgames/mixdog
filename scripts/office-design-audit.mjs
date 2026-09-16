@@ -14,28 +14,28 @@ function pageFromPath(path, fallback) {
   return match ? Number(match[1]) : fallback;
 }
 
-export async function auditOfficeDesignImages(paths, {
-  format = 'pptx',
-} = {}) {
-  const images = await Promise.all(paths.map(async (path, index) => {
-    const absolute = resolve(path);
-    const data = await readFile(absolute);
-    return {
-      page: pageFromPath(absolute, index + 1),
-      path: absolute,
-      mimeType: 'image/png',
-      data: data.toString('base64'),
-    };
-  }));
+export async function auditOfficeDesignImages(paths, { format = 'pptx' } = {}) {
+  const images = await Promise.all(
+    paths.map(async (path, index) => {
+      const absolute = resolve(path);
+      const data = await readFile(absolute);
+      return {
+        page: pageFromPath(absolute, index + 1),
+        path: absolute,
+        mimeType: 'image/png',
+        data: data.toString('base64'),
+      };
+    })
+  );
   images.sort((left, right) => left.page - right.page);
   return reviewRenderedOfficePages(images, { format });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const format = argumentValue('--format') || 'pptx';
-  const paths = process.argv.slice(2).filter((entry, index, values) => (
-    entry !== '--format' && values[index - 1] !== '--format'
-  ));
+  const paths = process.argv
+    .slice(2)
+    .filter((entry, index, values) => entry !== '--format' && values[index - 1] !== '--format');
   if (!paths.length) throw new Error('Pass rendered page image paths to audit.');
   const report = await auditOfficeDesignImages(paths, { format });
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

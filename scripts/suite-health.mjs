@@ -66,8 +66,7 @@ function runSweep() {
         reportLines.push(`- ${label}: OK (${seconds}s)`);
         console.log(`${label}: OK (${seconds}s)`);
       } else {
-        const tail = `${child.stdout || ''}\n${child.stderr || ''}`
-          .trim().split('\n').slice(-25).join('\n');
+        const tail = `${child.stdout || ''}\n${child.stderr || ''}`.trim().split('\n').slice(-25).join('\n');
         failures.push(`- ${label}: FAILED (${seconds}s)\n\n\`\`\`\n${tail}\n\`\`\``);
         reportLines.push(`- ${label}: FAILED (${seconds}s)`);
         console.error(`${label}: FAILED (${seconds}s)\n${tail}`);

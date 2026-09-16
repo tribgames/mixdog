@@ -10,15 +10,13 @@ const projectWatches = new Map<string, ProjectWatchEntry>();
 let unsubscribeBridge: (() => void) | null = null;
 
 function watchKey(path: string): string {
-  const normalized = path.replace(/[\\/]+$/, "").replace(/\\/g, "/");
-  return navigator.platform.toLowerCase().includes("win")
-    ? normalized.toLocaleLowerCase()
-    : normalized;
+  const normalized = path.replace(/[\\/]+$/, '').replace(/\\/g, '/');
+  return navigator.platform.toLowerCase().includes('win') ? normalized.toLocaleLowerCase() : normalized;
 }
 
 function ensureBridge(): boolean {
   const subscribe = window.mixdogDesktop?.subscribeFolderChanges;
-  if (typeof subscribe !== "function") return false;
+  if (typeof subscribe !== 'function') return false;
   if (!unsubscribeBridge) {
     unsubscribeBridge = subscribe((changedPath) => {
       const entry = projectWatches.get(watchKey(changedPath));
@@ -29,12 +27,9 @@ function ensureBridge(): boolean {
   return true;
 }
 
-export function subscribeProjectFileChanges(
-  projectPath: string,
-  listener: ProjectFileChangeListener,
-): () => void {
+export function subscribeProjectFileChanges(projectPath: string, listener: ProjectFileChangeListener): () => void {
   const api = window.mixdogDesktop;
-  if (!projectPath || typeof api?.folderWatch !== "function" || !ensureBridge()) {
+  if (!projectPath || typeof api?.folderWatch !== 'function' || !ensureBridge()) {
     return () => {};
   }
   const key = watchKey(projectPath);

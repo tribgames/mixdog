@@ -11,15 +11,17 @@ const protocols = [
       { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
       { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'visible partial' } },
     ],
-    consume: (response, signal, onText) =>
-      parseSSEStream(response, signal, null, null, null, {}, onText),
+    consume: (response, signal, onText) => parseSSEStream(response, signal, null, null, null, {}, onText),
   },
   {
     name: 'Gemini REST',
     frames: [{ candidates: [{ content: { role: 'model', parts: [{ text: 'visible partial' }] } }] }],
-    consume: (response, signal, onText) => consumeGeminiRestStreamResponse(response, {
-      signal, onTextDelta: onText, label: 'fixture',
-    }),
+    consume: (response, signal, onText) =>
+      consumeGeminiRestStreamResponse(response, {
+        signal,
+        onTextDelta: onText,
+        label: 'fixture',
+      }),
   },
 ];
 
@@ -27,11 +29,14 @@ function openResponse(frames) {
   let cancelled = false;
   const body = new ReadableStream({
     start(controller) {
-      if (frames.length) controller.enqueue(new TextEncoder().encode(
-        frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(''),
-      ));
+      if (frames.length)
+        controller.enqueue(
+          new TextEncoder().encode(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(''))
+        );
     },
-    cancel() { cancelled = true; },
+    cancel() {
+      cancelled = true;
+    },
   });
   return { response: { body }, cancelled: () => cancelled };
 }

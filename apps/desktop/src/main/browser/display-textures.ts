@@ -16,8 +16,13 @@ export function createBrowserDisplayTextures(host: {
   send(texture: SharedTextureImported, sessionId: string, id: string): Promise<void>;
 }) {
   type Frame = {
-    id: string; document: string; width: number; height: number;
-    texture: OffscreenSharedTexture; retain(): void; release(): void;
+    id: string;
+    document: string;
+    width: number;
+    height: number;
+    texture: OffscreenSharedTexture;
+    retain(): void;
+    release(): void;
   };
   const frames = new WeakMap<WebContents, Frame>();
   const attached = new WeakSet<WebContents>();
@@ -35,13 +40,23 @@ export function createBrowserDisplayTextures(host: {
         if (!event.texture) return;
         clear(guest);
         const texture = event.texture;
-        if (texture.textureInfo.widgetType !== 'frame') { texture.release(); return; }
+        if (texture.textureInfo.widgetType !== 'frame') {
+          texture.release();
+          return;
+        }
         let references = 1;
         frames.set(guest, {
-          id: `gpu_${guest.id}_${++serial}`, document: host.document(guest),
-          width: texture.textureInfo.visibleRect.width, height: texture.textureInfo.visibleRect.height,
-          texture, retain() { references++; },
-          release() { if (--references === 0) texture.release(); },
+          id: `gpu_${guest.id}_${++serial}`,
+          document: host.document(guest),
+          width: texture.textureInfo.visibleRect.width,
+          height: texture.textureInfo.visibleRect.height,
+          texture,
+          retain() {
+            references++;
+          },
+          release() {
+            if (--references === 0) texture.release();
+          },
         });
       };
       const navigation = (_event: unknown, _url: string, _inPlace: boolean, main: boolean) => {
@@ -63,16 +78,30 @@ export function createBrowserDisplayTextures(host: {
       frame.retain();
       let released = false;
       return {
-        id: frame.id, width: frame.width, height: frame.height,
+        id: frame.id,
+        width: frame.width,
+        height: frame.height,
         async send(sessionId) {
           frame.retain();
           let imported: SharedTextureImported;
-          try { imported = host.importTexture(frame.texture, () => frame.release()); }
-          catch (error) { frame.release(); throw error; }
-          try { await host.send(imported, sessionId, frame.id); }
-          finally { imported.release(); }
+          try {
+            imported = host.importTexture(frame.texture, () => frame.release());
+          } catch (error) {
+            frame.release();
+            throw error;
+          }
+          try {
+            await host.send(imported, sessionId, frame.id);
+          } finally {
+            imported.release();
+          }
         },
-        release() { if (!released) { released = true; frame.release(); } },
+        release() {
+          if (!released) {
+            released = true;
+            frame.release();
+          }
+        },
       };
     },
   };

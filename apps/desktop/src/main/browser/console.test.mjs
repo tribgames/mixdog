@@ -42,7 +42,8 @@ test('console and network queries use literal case-insensitive substrings, not O
   console.record('info', 'ALPHA literal match');
   const network = new BrowserNetworkLedger();
   network.requestWillBeSent({
-    requestId: '1', type: 'Fetch',
+    requestId: '1',
+    type: 'Fetch',
     request: { method: 'GET', url: 'https://example.test/ALPHA', headers: {} },
   });
   assert.match(console.format('all', ' alpha ', 50), /1 shown of 1/);

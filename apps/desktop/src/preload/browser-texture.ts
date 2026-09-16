@@ -12,11 +12,16 @@ export function createBrowserTextureBridge() {
     frames.delete(sessionId);
   };
   sharedTexture.setSharedTextureReceiver(async ({ importedSharedTexture: imported }, sessionId: string, id: string) => {
-    if (!active.has(sessionId) || presented.get(sessionId) === id) { imported.release(); return; }
+    if (!active.has(sessionId) || presented.get(sessionId) === id) {
+      imported.release();
+      return;
+    }
     discard(sessionId);
     frames.set(sessionId, { id, imported });
   });
-  window.addEventListener('unload', () => { for (const sessionId of frames.keys()) discard(sessionId); });
+  window.addEventListener('unload', () => {
+    for (const sessionId of frames.keys()) discard(sessionId);
+  });
   return {
     browserPageFrame: (sessionId: string, previousId?: string) => {
       active.add(sessionId);

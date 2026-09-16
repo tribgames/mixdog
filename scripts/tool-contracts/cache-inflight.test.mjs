@@ -42,21 +42,30 @@ test('one subscriber abort must not cancel another subscriber', async () => {
   const first = new AbortController();
   const second = new AbortController();
   let computeAborted = false;
-  const compute = ({ signal }) => new Promise((resolve, reject) => {
-    const timer = setTimeout(() => resolve('survived-first-subscriber-abort'), 20);
-    signal.addEventListener('abort', () => {
-      computeAborted = true;
-      clearTimeout(timer);
-      reject(new Error('shared compute aborted'));
-    }, { once: true });
-  });
+  const compute = ({ signal }) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => resolve('survived-first-subscriber-abort'), 20);
+      signal.addEventListener(
+        'abort',
+        () => {
+          computeAborted = true;
+          clearTimeout(timer);
+          reject(new Error('shared compute aborted'));
+        },
+        { once: true }
+      );
+    });
   const a = runResultCacheInFlight(key, compute, { signal: first.signal, scopes: ['/scope/a'] });
   const b = runResultCacheInFlight(key, compute, { signal: second.signal, scopes: ['/scope/a'] });
   first.abort();
   let firstError = null;
-  try { await a; } catch (error) { firstError = error; }
+  try {
+    await a;
+  } catch (error) {
+    firstError = error;
+  }
   assert(/operation aborted/.test(String(firstError?.message || '')), 'aborted subscriber should reject');
-  assert(await b === 'survived-first-subscriber-abort', 'remaining subscriber should keep shared compute alive');
+  assert((await b) === 'survived-first-subscriber-abort', 'remaining subscriber should keep shared compute alive');
   assert(!computeAborted, 'one subscriber abort must not cancel another subscriber');
 });
 
@@ -64,18 +73,23 @@ test('unrelated invalidation preserves in-flight scoped computes', async () => {
   const key = `tool-contracts-inflight-scope-${Date.now()}-${Math.random()}`;
   let resolveCompute;
   let computeAborted = false;
-  const compute = ({ signal }) => new Promise((resolve, reject) => {
-    resolveCompute = resolve;
-    signal.addEventListener('abort', () => {
-      computeAborted = true;
-      reject(new Error('scoped compute aborted'));
-    }, { once: true });
-  });
+  const compute = ({ signal }) =>
+    new Promise((resolve, reject) => {
+      resolveCompute = resolve;
+      signal.addEventListener(
+        'abort',
+        () => {
+          computeAborted = true;
+          reject(new Error('scoped compute aborted'));
+        },
+        { once: true }
+      );
+    });
   const pending = runResultCacheInFlight(key, compute, { scopes: ['/scope/kept'] });
   await new Promise((resolve) => setImmediate(resolve));
   invalidateBuiltinResultCache(['/scope/unrelated']);
   resolveCompute('scope-survived');
-  assert(await pending === 'scope-survived', 'unrelated invalidation must not abort in-flight compute');
+  assert((await pending) === 'scope-survived', 'unrelated invalidation must not abort in-flight compute');
   assert(!computeAborted, 'unrelated invalidation must preserve in-flight scope');
 });
 
@@ -86,21 +100,33 @@ for (const global of [false, true]) {
     let finish;
     let computes = 0;
     let aborted = false;
-    const pending = runResultCacheInFlight(key, async ({ signal }) => {
-      computes++;
-      signal.addEventListener('abort', () => { aborted = true; });
-      await new Promise((resolve) => { finish = resolve; });
-      cacheSet(key, 'old-query-result', { scopes: [scope] });
-      return 'old-query-result';
-    }, { scopes: [scope] });
+    const pending = runResultCacheInFlight(
+      key,
+      async ({ signal }) => {
+        computes++;
+        signal.addEventListener('abort', () => {
+          aborted = true;
+        });
+        await new Promise((resolve) => {
+          finish = resolve;
+        });
+        cacheSet(key, 'old-query-result', { scopes: [scope] });
+        return 'old-query-result';
+      },
+      { scopes: [scope] }
+    );
     await new Promise((resolve) => setImmediate(resolve));
     for (let i = 0; i < 5; i++) invalidateBuiltinResultCache(global ? null : [scope]);
-    const newer = await runResultCacheInFlight(key, async () => {
-      cacheSet(key, 'new-query-result', { scopes: [scope] });
-      return 'new-query-result';
-    }, { scopes: [scope] });
+    const newer = await runResultCacheInFlight(
+      key,
+      async () => {
+        cacheSet(key, 'new-query-result', { scopes: [scope] });
+        return 'new-query-result';
+      },
+      { scopes: [scope] }
+    );
     finish();
-    assert(await pending === 'old-query-result', 'active query must finish its own snapshot');
+    assert((await pending) === 'old-query-result', 'active query must finish its own snapshot');
     assert(newer === 'new-query-result', 'a later query must use a fresh generation');
     assert(!aborted && computes === 1, 'invalidation must not restart the current query');
     assert(cacheGet(key) === 'new-query-result', 'old completion must not overwrite the newer cache');
@@ -111,16 +137,20 @@ for (const global of [false, true]) {
 test('cross-call stat single-flight computes once', async () => {
   const virtualPath = join(tmpdir(), `tool-contracts-stat-inflight-${process.pid}-${Date.now()}`);
   let computes = 0;
-  const values = await Promise.all(Array.from({ length: 8 }, () => runReadOnlyStatInFlight(
-    virtualPath,
-    async () => {
-      computes += 1;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      return { size: 7 };
-    },
-  )));
+  const values = await Promise.all(
+    Array.from({ length: 8 }, () =>
+      runReadOnlyStatInFlight(virtualPath, async () => {
+        computes += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return { size: 7 };
+      })
+    )
+  );
   assert(computes === 1, `cross-call stat single-flight should compute once, computed ${computes}`);
-  assert(values.every((value) => value.size === 7), 'cross-call stat single-flight should share the result');
+  assert(
+    values.every((value) => value.size === 7),
+    'cross-call stat single-flight should share the result'
+  );
 });
 
 test('user cancellation still stops an invalidated in-flight query', async () => {
@@ -128,13 +158,22 @@ test('user cancellation still stops an invalidated in-flight query', async () =>
   const key = `cancel-detached-${Date.now()}`;
   const controller = new AbortController();
   let stopped = false;
-  const pending = runResultCacheInFlight(key, ({ signal }) => new Promise((resolve, reject) => {
-    signal.addEventListener('abort', () => {
-      stopped = true;
-      cacheSet(key, 'must-not-cache', { scopes: [scope] });
-      reject(new Error('compute cancelled'));
-    }, { once: true });
-  }), { signal: controller.signal, scopes: [scope] });
+  const pending = runResultCacheInFlight(
+    key,
+    ({ signal }) =>
+      new Promise((resolve, reject) => {
+        signal.addEventListener(
+          'abort',
+          () => {
+            stopped = true;
+            cacheSet(key, 'must-not-cache', { scopes: [scope] });
+            reject(new Error('compute cancelled'));
+          },
+          { once: true }
+        );
+      }),
+    { signal: controller.signal, scopes: [scope] }
+  );
   const observed = pending.catch((error) => error);
   await new Promise((resolve) => setImmediate(resolve));
   invalidateBuiltinResultCache([scope]);
@@ -147,16 +186,20 @@ test('user cancellation still stops an invalidated in-flight query', async () =>
 test('cross-call read single-flight shares bytes until invalidated', async () => {
   const virtualPath = join(tmpdir(), `tool-contracts-read-inflight-${process.pid}-${Date.now()}`);
   let computes = 0;
-  const values = await Promise.all(Array.from({ length: 8 }, () => runRawContentInFlight(
-    virtualPath,
-    async () => {
-      computes += 1;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      return Buffer.from('shared-read');
-    },
-  )));
+  const values = await Promise.all(
+    Array.from({ length: 8 }, () =>
+      runRawContentInFlight(virtualPath, async () => {
+        computes += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return Buffer.from('shared-read');
+      })
+    )
+  );
   assert(computes === 1, `cross-call read single-flight should compute once, computed ${computes}`);
-  assert(values.every((value) => value.toString() === 'shared-read'), 'cross-call read single-flight should share bytes');
+  assert(
+    values.every((value) => value.toString() === 'shared-read'),
+    'cross-call read single-flight should share bytes'
+  );
   invalidateBuiltinResultCache([virtualPath]);
   await runRawContentInFlight(virtualPath, async () => {
     computes += 1;
@@ -167,14 +210,26 @@ test('cross-call read single-flight shares bytes until invalidated', async () =>
 
 test('provider cache strategy tiers and capabilities stay stable', () => {
   const publicStrategy = resolveCacheStrategy('worker');
-  assert(publicStrategy.tools === 'none', `Anthropic tools must not spend a cache_control BP: ${JSON.stringify(publicStrategy)}`);
+  assert(
+    publicStrategy.tools === 'none',
+    `Anthropic tools must not spend a cache_control BP: ${JSON.stringify(publicStrategy)}`
+  );
   // BP1~3 and the volatile message tail stay 1h; see resolveCacheStrategy.
-  assert(publicStrategy.system === '1h' && publicStrategy.tier3 === '1h' && publicStrategy.messages === '1h', `public cache tiers changed unexpectedly: ${JSON.stringify(publicStrategy)}`);
-  assert(cacheCapabilityForProvider('anthropic-oauth') === 'explicit-breakpoint', 'Anthropic OAuth should remain explicit-breakpoint');
+  assert(
+    publicStrategy.system === '1h' && publicStrategy.tier3 === '1h' && publicStrategy.messages === '1h',
+    `public cache tiers changed unexpectedly: ${JSON.stringify(publicStrategy)}`
+  );
+  assert(
+    cacheCapabilityForProvider('anthropic-oauth') === 'explicit-breakpoint',
+    'Anthropic OAuth should remain explicit-breakpoint'
+  );
   assert(cacheCapabilityForProvider('openai-oauth') === 'key-prefix', 'OpenAI OAuth should remain key-prefix');
   assert(cacheCapabilityForProvider('xai') === 'key-prefix', 'xAI should remain key-prefix');
   assert(cacheCapabilityForProvider('grok-oauth') === 'key-prefix', 'Grok OAuth should remain key-prefix');
-  assert(cacheCapabilityForProvider('gemini') === 'managed-explicit', 'Gemini should be provider-managed explicit cachedContents');
+  assert(
+    cacheCapabilityForProvider('gemini') === 'managed-explicit',
+    'Gemini should be provider-managed explicit cachedContents'
+  );
   assert(shouldMarkWarmForProvider('gemini') === true, 'Gemini provider-managed cache should count as warmable');
   assert(shouldRecordObservedForProvider('gemini') === false, 'Gemini is no longer implicit-observed only');
   assert(shouldRecordObservedForProvider('deepseek') === true, 'DeepSeek should remain observed-only');

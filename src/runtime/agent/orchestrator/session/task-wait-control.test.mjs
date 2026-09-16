@@ -6,11 +6,7 @@ import {
   beginInterruptibleTaskWait,
   interruptTaskWaitForSession,
 } from './task-wait-control.mjs';
-import {
-  cancelBackgroundTask,
-  getBackgroundTask,
-  registerBackgroundTask,
-} from '../../../shared/background-tasks.mjs';
+import { cancelBackgroundTask, getBackgroundTask, registerBackgroundTask } from '../../../shared/background-tasks.mjs';
 import { executeTaskTool } from '../tools/builtin/task-tool.mjs';
 
 test('user input interrupts only task waits in its session', () => {
@@ -57,15 +53,12 @@ test('task wait returns on user input without cancelling the background task', a
   });
   task.promise = new Promise(() => {});
 
-  const interruptTimer = setTimeout(
-    () => interruptTaskWaitForSession(sessionId),
-    20,
-  );
+  const interruptTimer = setTimeout(() => interruptTaskWaitForSession(sessionId), 20);
   const startedAt = Date.now();
   try {
     const result = await executeTaskTool(
       { action: 'wait', task_id: taskId, timeout_ms: 10_000 },
-      { sessionId, callerSessionId: sessionId, routingSessionId: sessionId },
+      { sessionId, callerSessionId: sessionId, routingSessionId: sessionId }
     );
 
     assert.ok(Date.now() - startedAt < 1_000, 'wait should return before its ceiling');

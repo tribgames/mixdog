@@ -16,7 +16,7 @@ export function titleModelPart(part) {
 function stripModelId(model) {
   const text = String(model || '').trim();
   if (!text) return '';
-  return text.includes('/') ? (text.split('/').filter(Boolean).at(-1) || text) : text;
+  return text.includes('/') ? text.split('/').filter(Boolean).at(-1) || text : text;
 }
 
 function normalizeDisplayHint(displayHint) {
@@ -37,9 +37,7 @@ export function canonicalModelDisplay(model, provider) {
 
   const gpt = raw.match(/^gpt-(\d+(?:\.\d+)?)(?:-(.+))?$/i);
   if (gpt) {
-    const suffix = gpt[2]
-      ? '-' + gpt[2].split('-').map(titleModelPart).filter(Boolean).join('-')
-      : '';
+    const suffix = gpt[2] ? '-' + gpt[2].split('-').map(titleModelPart).filter(Boolean).join('-') : '';
     return `GPT-${gpt[1]}${suffix}`;
   }
 
@@ -53,9 +51,7 @@ export function canonicalModelDisplay(model, provider) {
 
   const openaiO = raw.match(/^o(\d+(?:\.\d+)?)(?:-(.+))?$/i);
   if (openaiO) {
-    const tail = openaiO[2]
-      ? ' ' + openaiO[2].split('-').map(titleModelPart).filter(Boolean).join(' ')
-      : '';
+    const tail = openaiO[2] ? ' ' + openaiO[2].split('-').map(titleModelPart).filter(Boolean).join(' ') : '';
     return `O${openaiO[1]}${tail}`;
   }
 
@@ -147,7 +143,9 @@ export function gatewayBrandDisplay(raw) {
 // muse-spark-1.3-contributor is). Curated hints — user aliases and catalog
 // names with real extra meaning — win over the id-derived rule.
 function displayKey(text) {
-  return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
 }
 function isCuratedHint(hint, id) {
   return !!hint && !!id && displayKey(hint) !== displayKey(id);

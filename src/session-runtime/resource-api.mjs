@@ -1,15 +1,7 @@
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
-import {
-  clean,
-  toolResponseText,
-  isEmptyRecallText,
-  currentSessionRecallRows,
-} from './session-text.mjs';
-import {
-  publishGlobalExtensionChange,
-  subscribeGlobalExtensionChanges,
-} from './global-extensions.mjs';
+import { clean, toolResponseText, isEmptyRecallText, currentSessionRecallRows } from './session-text.mjs';
+import { publishGlobalExtensionChange, subscribeGlobalExtensionChanges } from './global-extensions.mjs';
 import {
   addPlugin as registryAddPlugin,
   removePlugin as registryRemovePlugin,
@@ -38,13 +30,30 @@ import {
 // and the runtime injects live state getters plus the closure callbacks.
 export function createResourceApi(deps) {
   const {
-    getConfig, getCurrentCwd,
-    cfgMod, hooks, STANDALONE_DATA_DIR,
-    saveConfigAndAdopt, connectConfiguredMcp, invalidatePreSessionToolSurface,
-    refreshEmptySessionToolPolicy, normalizeMcpServerInput, mcpStatus, getMcpServerConfig,
-    skillsStatus, skillContent, addGlobalSkill, saveSkillDocument, invalidateSkills,
-    getDisabledSkills, setDisabledSkills, pluginsStatus, getMemoryModule,
-    reloadFullConfig, flushSkillsSave, awaitKeychainPrewarm,
+    getConfig,
+    getCurrentCwd,
+    cfgMod,
+    hooks,
+    STANDALONE_DATA_DIR,
+    saveConfigAndAdopt,
+    connectConfiguredMcp,
+    invalidatePreSessionToolSurface,
+    refreshEmptySessionToolPolicy,
+    normalizeMcpServerInput,
+    mcpStatus,
+    getMcpServerConfig,
+    skillsStatus,
+    skillContent,
+    addGlobalSkill,
+    saveSkillDocument,
+    invalidateSkills,
+    getDisabledSkills,
+    setDisabledSkills,
+    pluginsStatus,
+    getMemoryModule,
+    reloadFullConfig,
+    flushSkillsSave,
+    awaitKeychainPrewarm,
   } = deps;
   // Per-server MCP toggle serialization. The synchronous config adopt in
   // setMcpServerEnabled has already made the intent durable; the heavy
@@ -58,8 +67,7 @@ export function createResourceApi(deps) {
     // Existing conversations retain their stable prompt/session identity.
     // Empty sessions can safely rebuild their policy in place; MCP has its own
     // first-turn/late-tool reconciliation against the live connection registry.
-    if ((kind === 'skills' || kind === 'plugins')
-      && typeof refreshEmptySessionToolPolicy === 'function') {
+    if ((kind === 'skills' || kind === 'plugins') && typeof refreshEmptySessionToolPolicy === 'function') {
       await refreshEmptySessionToolPolicy();
     }
   }
@@ -72,9 +80,7 @@ export function createResourceApi(deps) {
     await refreshGlobalExtensionSurface(kind);
   }
   const globalExtensionSubscription = subscribeGlobalExtensionChanges(refreshGlobalExtensionState);
-  const publishGlobalChange = (kind) => (
-    publishGlobalExtensionChange(kind, globalExtensionSubscription.id)
-  );
+  const publishGlobalChange = (kind) => publishGlobalExtensionChange(kind, globalExtensionSubscription.id);
   function scheduleMcpToggle(serverName, enabled) {
     const chain = mcpToggleChains.get(serverName) || { desired: enabled, running: null };
     chain.desired = enabled;
@@ -106,8 +112,9 @@ export function createResourceApi(deps) {
     const scope = extensionScopeProjects(scopes, kind, name);
     const inheritedScope = pluginId ? extensionScopeProjects(scopes, 'plugins', pluginId) : null;
     const cwd = getCurrentCwd();
-    const activeHere = (scope ? cwdWithinProjects(cwd, scope) : true)
-      && (inheritedScope ? cwdWithinProjects(cwd, inheritedScope) : true);
+    const activeHere =
+      (scope ? cwdWithinProjects(cwd, scope) : true) &&
+      (inheritedScope ? cwdWithinProjects(cwd, inheritedScope) : true);
     return { scope, inheritedScope, activeHere };
   }
   function decorateMcpStatus(status) {
@@ -153,8 +160,14 @@ export function createResourceApi(deps) {
   function isIdentityRecallQuery(query) {
     const q = clean(query).toLowerCase().replace(/\s+/g, '');
     if (!q) return false;
-    return /(?:\uB0B4\uAC00|\uB098\uB294|\uB098|\uC0AC\uC6A9\uC790|\uC720\uC800|user|my|me).*(?:\uB204\uAD6C|\uB204\uAD70|\uC815\uCCB4|\uC774\uB984|name|identity)|(?:whoami|whoami\?|whoami？)|who(?:am)?i|whoami/.test(q)
-      || /^(?:\uB098\uB204\uAD6C\uB0D0|\uB098\uB294\uB204\uAD6C\uB0D0|\uB0B4\uAC00\uB204\uAD6C\uB0D0|\uB0B4\uC774\uB984\uBB50|\uB0B4\uC774\uB984\uBB50\uC57C|whoami)$/i.test(q);
+    return (
+      /(?:\uB0B4\uAC00|\uB098\uB294|\uB098|\uC0AC\uC6A9\uC790|\uC720\uC800|user|my|me).*(?:\uB204\uAD6C|\uB204\uAD70|\uC815\uCCB4|\uC774\uB984|name|identity)|(?:whoami|whoami\?|whoami？)|who(?:am)?i|whoami/.test(
+        q
+      ) ||
+      /^(?:\uB098\uB204\uAD6C\uB0D0|\uB098\uB294\uB204\uAD6C\uB0D0|\uB0B4\uAC00\uB204\uAD6C\uB0D0|\uB0B4\uC774\uB984\uBB50|\uB0B4\uC774\uB984\uBB50\uC57C|whoami)$/i.test(
+        q
+      )
+    );
   }
   return {
     mcpStatus() {
@@ -206,19 +219,16 @@ export function createResourceApi(deps) {
     async saveMcpServer(input = {}) {
       const originalName = clean(input.originalName);
       const normalizedInput = normalizeMcpServerInput(input);
-      const name = originalName && clean(input.name) === originalName
-        ? originalName
-        : normalizedInput.name;
+      const name = originalName && clean(input.name) === originalName ? originalName : normalizedInput.name;
       const normalized = normalizedInput.config;
       const nextConfig = { ...getConfig() };
       delete nextConfig.mcpProjectOverrides;
-      const servers = nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object'
-        ? { ...nextConfig.mcpServers }
-        : {};
-      if (originalName && !Object.prototype.hasOwnProperty.call(servers, originalName)) {
+      const servers =
+        nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object' ? { ...nextConfig.mcpServers } : {};
+      if (originalName && !Object.hasOwn(servers, originalName)) {
         throw new Error(`MCP server not configured: ${originalName}`);
       }
-      if (name !== originalName && Object.prototype.hasOwnProperty.call(servers, name)) {
+      if (name !== originalName && Object.hasOwn(servers, name)) {
         throw new Error(`MCP server already exists: ${name}`);
       }
       const existing = originalName ? servers[originalName] : {};
@@ -235,10 +245,9 @@ export function createResourceApi(deps) {
       const serverName = clean(name);
       if (!serverName) throw new Error('MCP server name is required');
       const nextConfig = { ...getConfig() };
-      const current = nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object'
-        ? { ...nextConfig.mcpServers }
-        : {};
-      if (!Object.prototype.hasOwnProperty.call(current, serverName)) {
+      const current =
+        nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object' ? { ...nextConfig.mcpServers } : {};
+      if (!Object.hasOwn(current, serverName)) {
         throw new Error(`MCP server not configured: ${serverName}`);
       }
       delete current[serverName];
@@ -256,9 +265,8 @@ export function createResourceApi(deps) {
       const shadowRow = mcpStatus().servers.find((s) => s.name === serverName);
       if (!shadowRow) throw new Error(`MCP server not configured: ${serverName}`);
       const nextConfig = { ...getConfig() };
-      const servers = nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object'
-        ? { ...nextConfig.mcpServers }
-        : {};
+      const servers =
+        nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object' ? { ...nextConfig.mcpServers } : {};
       const current = servers[serverName];
       if (!current || typeof current !== 'object' || Array.isArray(current)) {
         throw new Error(`MCP server not configured: ${serverName}`);
@@ -288,8 +296,7 @@ export function createResourceApi(deps) {
       if (skill.originalName !== skill.name) {
         const disabled = getDisabledSkills?.().disabled;
         if (Array.isArray(disabled) && disabled.includes(skill.originalName)) {
-          setDisabledSkills?.(disabled.map((name) =>
-            name === skill.originalName ? skill.name : name));
+          setDisabledSkills?.(disabled.map((name) => (name === skill.originalName ? skill.name : name)));
           await flushSkillsSave?.();
         }
       }
@@ -347,9 +354,7 @@ export function createResourceApi(deps) {
       let changedMcp = false;
       const mcpServers = {};
       for (const [name, value] of Object.entries(nextConfig.mcpServers || {})) {
-        const config = value && typeof value === 'object' && !Array.isArray(value)
-          ? { ...value }
-          : value;
+        const config = value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : value;
         if (name === serverName || name.startsWith(prefix)) {
           changedMcp = true;
           if (config && typeof config === 'object' && !Array.isArray(config)) {
@@ -377,9 +382,9 @@ export function createResourceApi(deps) {
       const nextConfig = { ...getConfig() };
       const serverName = pluginMcpServerName(plugin);
       const prefix = `${serverName}--`;
-      const hasMatch = nextConfig.mcpServers && Object.keys(nextConfig.mcpServers).some(
-        (k) => k === serverName || k.startsWith(prefix)
-      );
+      const hasMatch =
+        nextConfig.mcpServers &&
+        Object.keys(nextConfig.mcpServers).some((k) => k === serverName || k.startsWith(prefix));
       if (hasMatch) {
         const current = { ...nextConfig.mcpServers };
         for (const k of Object.keys(current)) {
@@ -418,7 +423,12 @@ export function createResourceApi(deps) {
           cfg.env = {
             ...(cfg.env || {}),
             MIXDOG_PLUGIN_ROOT: root,
-            MIXDOG_PLUGIN_DATA: join(cfgMod.getPluginData?.() || STANDALONE_DATA_DIR, 'plugins', 'data', clean(plugin.id || plugin.name || serverName)),
+            MIXDOG_PLUGIN_DATA: join(
+              cfgMod.getPluginData?.() || STANDALONE_DATA_DIR,
+              'plugins',
+              'data',
+              clean(plugin.id || plugin.name || serverName)
+            ),
           };
           if (plugin.enabled === false) cfg._mixdogPluginDisabled = true;
           const key = keys.length === 1 ? serverName : `${serverName}--${serverKey}`;
@@ -427,7 +437,8 @@ export function createResourceApi(deps) {
         nextConfig.mcpServers = nextServers;
       } else {
         const scriptPath = resolveContainedPluginPath(root, script);
-        if (!scriptPath || !existsSync(scriptPath)) throw new Error(`plugin MCP script not found: ${join(root, script)}`);
+        if (!scriptPath || !existsSync(scriptPath))
+          throw new Error(`plugin MCP script not found: ${join(root, script)}`);
         nextConfig.mcpServers = {
           ...(nextConfig.mcpServers || {}),
           [serverName]: {
@@ -436,7 +447,12 @@ export function createResourceApi(deps) {
             cwd: root,
             env: {
               MIXDOG_PLUGIN_ROOT: root,
-              MIXDOG_PLUGIN_DATA: join(cfgMod.getPluginData?.() || STANDALONE_DATA_DIR, 'plugins', 'data', clean(plugin.id || plugin.name || serverName)),
+              MIXDOG_PLUGIN_DATA: join(
+                cfgMod.getPluginData?.() || STANDALONE_DATA_DIR,
+                'plugins',
+                'data',
+                clean(plugin.id || plugin.name || serverName)
+              ),
             },
             ...(plugin.enabled === false ? { _mixdogPluginDisabled: true } : {}),
           },
@@ -498,14 +514,16 @@ export function createResourceApi(deps) {
             cwd: currentCwd,
             messages,
           });
-          result = toolResponseText(await memoryMod.handleToolCall('recall', {
-            ...baseArgs,
-            sessionId: session.id,
-            currentSession: true,
-            projectScope: baseArgs.projectScope || 'all',
-            includeRaw: baseArgs.includeRaw !== false,
-            includeArchived: baseArgs.includeArchived !== false,
-          }));
+          result = toolResponseText(
+            await memoryMod.handleToolCall('recall', {
+              ...baseArgs,
+              sessionId: session.id,
+              currentSession: true,
+              projectScope: baseArgs.projectScope || 'all',
+              includeRaw: baseArgs.includeRaw !== false,
+              includeArchived: baseArgs.includeArchived !== false,
+            })
+          );
         }
       }
       if (isEmptyRecallText(result)) {

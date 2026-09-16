@@ -66,45 +66,47 @@ const getDb = createPgSchemaDb({
 // Row <-> def mapping
 // ---------------------------------------------------------------------------
 
-const ENDPOINT_COLS = 'name, description, channel_id, model, parser, secret, cwd, workflow, attachments, delivery, instructions, enabled, created_at, updated_at';
+const ENDPOINT_COLS =
+  'name, description, channel_id, model, parser, secret, cwd, workflow, attachments, delivery, instructions, enabled, created_at, updated_at';
 
 function rowToEndpoint(row) {
   if (!row) return null;
   return {
-    name:         row.name,
-    description:  row.description,
-    channelId:    row.channel_id,
-    model:        row.model,
-    parser:       row.parser,
-    cwd:          row.cwd,
-    workflow:     row.workflow,
-    attachments:  row.attachments || null,
-    delivery:     row.delivery || null,
+    name: row.name,
+    description: row.description,
+    channelId: row.channel_id,
+    model: row.model,
+    parser: row.parser,
+    cwd: row.cwd,
+    workflow: row.workflow,
+    attachments: row.attachments || null,
+    delivery: row.delivery || null,
     // Never project the plaintext secret through list/load config paths;
     // callers get a presence flag and must fetch the value via
     // readEndpointSecret (the single, explicit secret-read path).
-    secretSet:    Boolean(row.secret && String(row.secret).trim()),
+    secretSet: Boolean(row.secret && String(row.secret).trim()),
     instructions: row.instructions,
-    enabled:      row.enabled,
-    createdAt:    row.created_at,
-    updatedAt:    row.updated_at,
+    enabled: row.enabled,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
-const DELIVERY_COLS = 'endpoint, delivery_id, status, event, error, headers_summary, payload_preview, created_at, updated_at';
+const DELIVERY_COLS =
+  'endpoint, delivery_id, status, event, error, headers_summary, payload_preview, created_at, updated_at';
 
 function rowToDelivery(row) {
   if (!row) return null;
   return {
-    endpoint:       row.endpoint,
-    deliveryId:     row.delivery_id,
-    status:         row.status,
-    event:          row.event,
-    error:          row.error,
+    endpoint: row.endpoint,
+    deliveryId: row.delivery_id,
+    status: row.status,
+    event: row.event,
+    error: row.error,
     headersSummary: row.headers_summary,
     payloadPreview: row.payload_preview,
-    createdAt:      row.created_at,
-    updatedAt:      row.updated_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -183,7 +185,7 @@ export async function upsertEndpoint(def, { dataDir } = {}) {
        enabled      = EXCLUDED.enabled,
        updated_at   = now()
      RETURNING ${ENDPOINT_COLS}`,
-    params,
+    params
   );
   return rowToEndpoint(rows[0]);
 }
@@ -192,7 +194,7 @@ export async function setEndpointEnabled(name, enabled, { dataDir } = {}) {
   const db = await getDb(dataDir);
   const { rows } = await db.query(
     `UPDATE webhooks.endpoints SET enabled = $2, updated_at = now() WHERE name = $1 RETURNING ${ENDPOINT_COLS}`,
-    [name, !!enabled],
+    [name, !!enabled]
   );
   return rowToEndpoint(rows[0]);
 }
@@ -205,7 +207,7 @@ export async function deleteEndpoint(name, { dataDir } = {}) {
   const { rowCount } = await db.query(
     `WITH del AS (DELETE FROM webhooks.deliveries WHERE endpoint = $1 RETURNING 1)
      DELETE FROM webhooks.endpoints WHERE name = $1`,
-    [name],
+    [name]
   );
   return rowCount > 0;
 }
@@ -238,13 +240,13 @@ export async function claimDelivery(endpoint, deliveryId, fields = {}, { dataDir
      VALUES ($1,$2,$3,$4,$5,$6)
      ON CONFLICT (endpoint, delivery_id) DO NOTHING
      RETURNING ${DELIVERY_COLS}`,
-    params,
+    params
   );
   if (rows[0]) return { claimed: true, duplicate: false, row: rowToDelivery(rows[0]) };
   // Lost the race (or a prior claim exists): return the existing row.
   const { rows: existing } = await db.query(
     `SELECT ${DELIVERY_COLS} FROM webhooks.deliveries WHERE endpoint = $1 AND delivery_id = $2`,
-    [endpoint, deliveryId],
+    [endpoint, deliveryId]
   );
   return { claimed: false, duplicate: true, row: rowToDelivery(existing[0]) };
 }
@@ -264,7 +266,7 @@ export async function updateDeliveryStatus(endpoint, deliveryId, status, fields 
             updated_at = now()
       WHERE endpoint = $1 AND delivery_id = $2
       RETURNING ${DELIVERY_COLS}`,
-    [endpoint, deliveryId, status, fields.event ?? null, fields.error ?? null],
+    [endpoint, deliveryId, status, fields.event ?? null, fields.error ?? null]
   );
   return rowToDelivery(rows[0]);
 }

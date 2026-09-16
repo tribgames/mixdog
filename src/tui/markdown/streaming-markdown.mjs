@@ -29,11 +29,8 @@ export function windowPlainStreamingText(text, columns, maxRows, streamKey = nul
   const value = streamingLayoutText(text);
   const rowBudget = Math.max(0, Math.floor(Number(maxRows) || 0));
   const key = streamKey == null || streamKey === '' ? null : String(streamKey);
-  if (!value || rowBudget <= 0 || cachedStreamingHasMarkdownSyntax(
-    plainWindowSyntaxByStreamKey,
-    value,
-    key,
-  )) return value;
+  if (!value || rowBudget <= 0 || cachedStreamingHasMarkdownSyntax(plainWindowSyntaxByStreamKey, value, key))
+    return value;
   const width = Math.max(1, Math.floor(Number(columns) || 80));
   let rows = 0;
   let end = value.length;
@@ -82,9 +79,7 @@ function stableStateForText(text, previous) {
   if (!text) return { text: '', chunks: [] };
   if (text.startsWith(previous.text)) {
     const appended = text.substring(previous.text.length);
-    return appended
-      ? { text, chunks: [...previous.chunks, appended] }
-      : previous;
+    return appended ? { text, chunks: [...previous.chunks, appended] } : previous;
   }
   return { text, chunks: [text] };
 }

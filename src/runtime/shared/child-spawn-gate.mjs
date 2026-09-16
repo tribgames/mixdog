@@ -1,5 +1,3 @@
-'use strict';
-
 import { availableParallelism } from 'node:os';
 import { createOwnerFairGate } from './owner-fair-gate.mjs';
 import { currentToolExecutionOwner } from './tool-execution-owner.mjs';
@@ -31,7 +29,7 @@ function resolveDefaultChildSpawnLaneMaxInflight(
   laneName,
   env = process.env,
   platform = process.platform,
-  parallelism = availableParallelism(),
+  parallelism = availableParallelism()
 ) {
   const lane = _laneName(laneName);
   const key = lane.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
@@ -66,7 +64,10 @@ const LANE_ALIASES = new Map([
 ]);
 
 function _laneName(name) {
-  const clean = String(name || 'search').trim().toLowerCase() || 'search';
+  const clean =
+    String(name || 'search')
+      .trim()
+      .toLowerCase() || 'search';
   return LANE_ALIASES.get(clean) || clean;
 }
 
@@ -75,10 +76,12 @@ function _laneLimit(name) {
 }
 
 function _laneSetting(name, suffix, fallback) {
-  const key = _laneName(name).toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+  const key = _laneName(name)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_');
   return positiveInt(
     process.env[`MIXDOG_CHILD_SPAWN_${key}_${suffix}`],
-    positiveInt(process.env[`MIXDOG_CHILD_SPAWN_${suffix}`], fallback),
+    positiveInt(process.env[`MIXDOG_CHILD_SPAWN_${suffix}`], fallback)
   );
 }
 
@@ -111,17 +114,17 @@ const _lanes = new Map();
 function _lane(name) {
   const normalized = _laneName(name);
   let lane = _lanes.get(normalized);
-  if (!lane) { lane = _makeLane(normalized); _lanes.set(normalized, lane); }
+  if (!lane) {
+    lane = _makeLane(normalized);
+    _lanes.set(normalized, lane);
+  }
   return lane;
 }
 
 // Warn (once-throttled, stderr only) when a waiter sat in the queue longer
 // than this — a coarse signal that the cap is undersized for the load. Kept
 // intentionally quiet so a busy daemon does not spam stderr.
-const SLOW_WAIT_MS = Math.max(
-  1000,
-  Number(process.env.MIXDOG_CHILD_SPAWN_SLOW_MS) || 10000,
-);
+const SLOW_WAIT_MS = Math.max(1000, Number(process.env.MIXDOG_CHILD_SPAWN_SLOW_MS) || 10000);
 const SLOW_WARN_THROTTLE_MS = 30000;
 
 let _lastSlowWarnAt = 0;
@@ -133,10 +136,12 @@ function _warnLeaseFallback(error, laneName) {
   _lastFallbackWarnAt = now;
   try {
     process.stderr.write(
-      `[child-spawn-gate] lane=${laneName} machine spawn budget unavailable`
-      + ` (${error?.message || error}); using this process's bounded local lane\n`,
+      `[child-spawn-gate] lane=${laneName} machine spawn budget unavailable` +
+        ` (${error?.message || error}); using this process's bounded local lane\n`
     );
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 function _maybeWarnSlow(waitedMs, laneName, lane) {
@@ -146,10 +151,12 @@ function _maybeWarnSlow(waitedMs, laneName, lane) {
   _lastSlowWarnAt = now;
   try {
     process.stderr.write(
-      `[child-spawn-gate] lane=${laneName} queue wait ${waitedMs}ms (inflight cap=${lane.limit}, queued=${lane.queue.length}); `
-      + 'raise the lane-specific MIXDOG_CHILD_SPAWN_*_MAX_INFLIGHT if this persists\n',
+      `[child-spawn-gate] lane=${laneName} queue wait ${waitedMs}ms (inflight cap=${lane.limit}, queued=${lane.queue.length}); ` +
+        'raise the lane-specific MIXDOG_CHILD_SPAWN_*_MAX_INFLIGHT if this persists\n'
     );
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
@@ -207,17 +214,22 @@ function _acquireLocal(signal, normalizedLaneName, lane, ownerKey, waitTimeoutMs
     released = true;
     held.resolve();
   };
-  const running = lane.gate.run(ownerKey, async () => {
-    admitted.resolve(release);
-    await held.promise;
-  }, {
-    signal,
-    waitTimeoutMs,
-    onAdmit: (waitedMs) => _maybeWarnSlow(waitedMs, normalizedLaneName, {
-      limit: lane.limit,
-      queue: { length: lane.gate.queued },
-    }),
-  });
+  const running = lane.gate.run(
+    ownerKey,
+    async () => {
+      admitted.resolve(release);
+      await held.promise;
+    },
+    {
+      signal,
+      waitTimeoutMs,
+      onAdmit: (waitedMs) =>
+        _maybeWarnSlow(waitedMs, normalizedLaneName, {
+          limit: lane.limit,
+          queue: { length: lane.gate.queued },
+        }),
+    }
+  );
   running.catch((error) => admitted.reject(error));
   return admitted.promise;
 }

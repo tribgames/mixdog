@@ -20,20 +20,19 @@ export function snapshotHasActiveWork(snapshot: SessionSnapshot): boolean {
   // Mirrors the renderer's hasActiveSnapshotWork, plus background shell jobs:
   // an async command keeps running after the turn goes idle and dies with the
   // machine just the same.
-  const active = (value: unknown): boolean => Boolean(
-    value && typeof value === 'object' && (value as { active?: unknown }).active !== false,
-  );
+  const active = (value: unknown): boolean =>
+    Boolean(value && typeof value === 'object' && (value as { active?: unknown }).active !== false);
   // `shellJobs` is PANE-scoped (one session's own jobs); keep-awake is a
   // machine-wide concern, so the host-wide aggregate wins when present and the
   // pane field is only the fallback for older/remote frames.
   const shellJobs = (state.hostShellJobs ?? state.shellJobs) as { count?: unknown } | null | undefined;
   return Boolean(
-    state.busy
-    || state.commandBusy
-    || state.thinking
-    || active(state.spinner)
-    || active(state.commandStatus)
-    || (shellJobs && Number(shellJobs.count) > 0),
+    state.busy ||
+      state.commandBusy ||
+      state.thinking ||
+      active(state.spinner) ||
+      active(state.commandStatus) ||
+      (shellJobs && Number(shellJobs.count) > 0)
   );
 }
 
@@ -46,7 +45,7 @@ export class AgentAwakeService {
 
   constructor(
     private readonly blocker: PowerSaveBlockerLike,
-    private readonly now: () => number = Date.now,
+    private readonly now: () => number = Date.now
   ) {}
 
   setEnabled(enabled: boolean): void {
@@ -80,8 +79,7 @@ export class AgentAwakeService {
   }
 
   private shouldBlock(): boolean {
-    return this.enabled && this.working
-      && this.now() - this.lastWorkSignalAt <= AWAKE_STALE_AFTER_MS;
+    return this.enabled && this.working && this.now() - this.lastWorkSignalAt <= AWAKE_STALE_AFTER_MS;
   }
 
   private refresh(): void {
@@ -121,6 +119,8 @@ export class AgentAwakeService {
     this.blockerId = null;
     try {
       this.blocker.stop(id);
-    } catch { /* already released */ }
+    } catch {
+      /* already released */
+    }
   }
 }

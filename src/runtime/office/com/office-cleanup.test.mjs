@@ -13,10 +13,25 @@ function client() {
   child.exitCode = null;
   child.ref = () => {};
   child.unref = () => {};
-  child.kill = () => { throw new Error('No kill allowed without safe cleanup evidence'); };
+  child.kill = () => {
+    throw new Error('No kill allowed without safe cleanup evidence');
+  };
   let ends = 0;
-  child.stdin = { end: () => { ends++; } };
-  return { sessionId: 'test', child, pending: new Map(), stderr: '', readline: { close() {} }, get ends() { return ends; } };
+  child.stdin = {
+    end: () => {
+      ends++;
+    },
+  };
+  return {
+    sessionId: 'test',
+    child,
+    pending: new Map(),
+    stderr: '',
+    readline: { close() {} },
+    get ends() {
+      return ends;
+    },
+  };
 }
 
 test('cancellation drains an in-flight open through EOF and captures its late identity', async () => {
@@ -70,7 +85,9 @@ test('public Office cancellation preserves the underlying error detail', async (
   assert.ok(value.detail, 'cleanup/cancellation context must not be discarded by the public tool envelope');
 });
 
-test('PowerShell cleanup closes by format, preserves shared documents, and exposes failures', { skip: process.platform !== 'win32' }, async () => {
+test('PowerShell cleanup closes by format, preserves shared documents, and exposes failures', {
+  skip: process.platform !== 'win32',
+}, async () => {
   const path = fileURLToPath(new URL('./office-com-cleanup.ps1', import.meta.url)).replaceAll("'", "''");
   const script = `
 $ErrorActionPreference = 'Stop'
@@ -157,6 +174,10 @@ Check ($result.processExited -and -not $result.forcedProcessCleanup) 'a quitting
 Check ($result.ok -and $result.errors.Count -eq 0) 'a clean exit was reported as a cleanup failure'
 [Console]::Out.WriteLine('cleanup behavior passed')
 `;
-  const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { maxBuffer: 1024 * 1024 });
+  const { stdout } = await exec(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+    { maxBuffer: 1024 * 1024 }
+  );
   assert.match(stdout, /cleanup behavior passed/);
 });

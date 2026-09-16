@@ -1,4 +1,4 @@
-import type { DesktopBrowserOpenRequest } from "../shared/contract";
+import type { DesktopBrowserOpenRequest } from '../shared/contract';
 
 export type SessionBrowserPaneOwner = {
   leafId: string;
@@ -9,9 +9,7 @@ export type SessionBrowserRevealPlan = {
   leafId: string | null;
 };
 
-export function browserSurfaceRequestShouldReveal(
-  request: DesktopBrowserOpenRequest,
-): boolean {
+export function browserSurfaceRequestShouldReveal(request: DesktopBrowserOpenRequest): boolean {
   return request.hide !== true && request.reveal !== false;
 }
 
@@ -23,11 +21,9 @@ export function browserSurfaceRequestShouldReveal(
 export function browserSurfaceRevealPlan(
   owners: readonly SessionBrowserPaneOwner[],
   sessionId: string,
-  focusedLeafId: string,
+  focusedLeafId: string
 ): SessionBrowserRevealPlan {
   const matching = owners.filter((owner) => owner.sessionId === sessionId);
-  const leafId = matching.find((owner) => owner.leafId === focusedLeafId)?.leafId
-    ?? matching[0]?.leafId
-    ?? null;
+  const leafId = matching.find((owner) => owner.leafId === focusedLeafId)?.leafId ?? matching[0]?.leafId ?? null;
   return { leafId };
 }

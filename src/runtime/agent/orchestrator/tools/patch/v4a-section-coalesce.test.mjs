@@ -11,16 +11,22 @@ import { executePatchTool } from '../patch.mjs';
 import { closeNativePatchServerForTests } from './native-server.mjs';
 
 function makeDir() {
-    return mkdtempSync(join(tmpdir(), 'mixdog-v4a-coalesce-'));
+  return mkdtempSync(join(tmpdir(), 'mixdog-v4a-coalesce-'));
 }
 
 test('Delete + Add on one existing path rewrites the file', async (t) => {
-    const dir = makeDir();
-    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
-    const file = join(dir, 'algo.py');
-    writeFileSync(file, 'def map(grid):\n    return grid\n');
+  const dir = makeDir();
+  t.after(() => {
+    rmSync(dir, { recursive: true, force: true });
+    void closeNativePatchServerForTests?.();
+  });
+  const file = join(dir, 'algo.py');
+  writeFileSync(file, 'def map(grid):\n    return grid\n');
 
-    const result = String(await executePatchTool('apply_patch', {
+  const result = String(
+    await executePatchTool(
+      'apply_patch',
+      {
         base_path: dir,
         patch: `*** Begin Patch
 *** Delete File: algo.py
@@ -29,22 +35,29 @@ test('Delete + Add on one existing path rewrites the file', async (t) => {
 +    return [row[::-1] for row in grid]
 *** End Patch
 `,
-    }, dir, {}));
+      },
+      dir,
+      {}
+    )
+  );
 
-    assert.doesNotMatch(result, /conflicting operations target/);
-    assert.doesNotMatch(result, /^Error/);
-    assert.equal(
-        readFileSync(file, 'utf8'),
-        'def map(grid):\n    return [row[::-1] for row in grid]\n',
-    );
+  assert.doesNotMatch(result, /conflicting operations target/);
+  assert.doesNotMatch(result, /^Error/);
+  assert.equal(readFileSync(file, 'utf8'), 'def map(grid):\n    return [row[::-1] for row in grid]\n');
 });
 
 test('Delete + Add for a path that does not exist still creates the file', async (t) => {
-    const dir = makeDir();
-    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
-    const file = join(dir, 'fresh.txt');
+  const dir = makeDir();
+  t.after(() => {
+    rmSync(dir, { recursive: true, force: true });
+    void closeNativePatchServerForTests?.();
+  });
+  const file = join(dir, 'fresh.txt');
 
-    const result = String(await executePatchTool('apply_patch', {
+  const result = String(
+    await executePatchTool(
+      'apply_patch',
+      {
         base_path: dir,
         patch: `*** Begin Patch
 *** Delete File: fresh.txt
@@ -52,19 +65,29 @@ test('Delete + Add for a path that does not exist still creates the file', async
 +created
 *** End Patch
 `,
-    }, dir, {}));
+      },
+      dir,
+      {}
+    )
+  );
 
-    assert.doesNotMatch(result, /^Error/);
-    assert.equal(readFileSync(file, 'utf8'), 'created\n');
+  assert.doesNotMatch(result, /^Error/);
+  assert.equal(readFileSync(file, 'utf8'), 'created\n');
 });
 
 test('Update + Delete on one path is still refused without touching the file', async (t) => {
-    const dir = makeDir();
-    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
-    const file = join(dir, 'target.txt');
-    writeFileSync(file, 'aleph\nbravo\ndelta\n');
+  const dir = makeDir();
+  t.after(() => {
+    rmSync(dir, { recursive: true, force: true });
+    void closeNativePatchServerForTests?.();
+  });
+  const file = join(dir, 'target.txt');
+  writeFileSync(file, 'aleph\nbravo\ndelta\n');
 
-    const result = String(await executePatchTool('apply_patch', {
+  const result = String(
+    await executePatchTool(
+      'apply_patch',
+      {
         base_path: dir,
         patch: `*** Begin Patch
 *** Update File: target.txt
@@ -74,8 +97,12 @@ test('Update + Delete on one path is still refused without touching the file', a
 *** Delete File: target.txt
 *** End Patch
 `,
-    }, dir, {}));
+      },
+      dir,
+      {}
+    )
+  );
 
-    assert.match(result, /conflicting operations target/);
-    assert.equal(readFileSync(file, 'utf8'), 'aleph\nbravo\ndelta\n');
+  assert.match(result, /conflicting operations target/);
+  assert.equal(readFileSync(file, 'utf8'), 'aleph\nbravo\ndelta\n');
 });

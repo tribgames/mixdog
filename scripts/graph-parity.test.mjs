@@ -57,14 +57,22 @@ function runCli(args, { timeoutMs = 30_000 } = {}) {
     let stdout = '';
     let stderr = '';
     const timer = setTimeout(() => {
-      try { proc.kill(); } catch { /* ignore */ }
+      try {
+        proc.kill();
+      } catch {
+        /* ignore */
+      }
       if (process.platform === 'win32' && proc.pid) {
         spawn('taskkill', ['/pid', String(proc.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
       }
       reject(new Error(`CLI timed out after ${timeoutMs}ms\n${stderr}${stdout}`));
     }, timeoutMs);
-    proc.stdout.on('data', (c) => { stdout += c; });
-    proc.stderr.on('data', (c) => { stderr += c; });
+    proc.stdout.on('data', (c) => {
+      stdout += c;
+    });
+    proc.stderr.on('data', (c) => {
+      stderr += c;
+    });
     proc.on('close', (code) => {
       clearTimeout(timer);
       resolvePromise({ code, stdout, stderr });
@@ -74,12 +82,33 @@ function runCli(args, { timeoutMs = 30_000 } = {}) {
 
 test('parseArgs accepts binaries, jsonl, files, and thresholds', () => {
   const opts = parseArgs([
-    '--old', 'old.exe', '--new', 'new.exe', '--root', 'src',
-    '--files', 'a.js', 'b.ts', '--json', 'out.json',
-    '--max-symbol-loss', '2', '--max-import-diff', '3',
-    '--max-time-ratio', '1.25', '--runs', '5',
-    '--kind-map', 'kinds.json', '--tokens', '--max-token-loss', '4',
-    '--allow-new-languages', 'haskell,hcl', 'solidity',
+    '--old',
+    'old.exe',
+    '--new',
+    'new.exe',
+    '--root',
+    'src',
+    '--files',
+    'a.js',
+    'b.ts',
+    '--json',
+    'out.json',
+    '--max-symbol-loss',
+    '2',
+    '--max-import-diff',
+    '3',
+    '--max-time-ratio',
+    '1.25',
+    '--runs',
+    '5',
+    '--kind-map',
+    'kinds.json',
+    '--tokens',
+    '--max-token-loss',
+    '4',
+    '--allow-new-languages',
+    'haskell,hcl',
+    'solidity',
   ]);
   assert.equal(opts.old, 'old.exe');
   assert.equal(opts.new, 'new.exe');
@@ -97,11 +126,27 @@ test('parseArgs accepts binaries, jsonl, files, and thresholds', () => {
 
 test('matchSymbols classifies LOSS, ADDITION, KIND_CHANGE, COL_DRIFT', () => {
   const { loss, addition, kindChange, colDrift } = matchSymbols(
-    [sym('keep', 'function', 1, 1, 5), sym('gone', 'function', 2), sym('renamedKind', 'function', 3), sym('drift', 'function', 4, 1, 6)],
-    [sym('keep', 'function', 1, 1, 5), sym('added', 'class', 8), sym('renamedKind', 'method', 3), sym('drift', 'function', 4, 4, 9)],
+    [
+      sym('keep', 'function', 1, 1, 5),
+      sym('gone', 'function', 2),
+      sym('renamedKind', 'function', 3),
+      sym('drift', 'function', 4, 1, 6),
+    ],
+    [
+      sym('keep', 'function', 1, 1, 5),
+      sym('added', 'class', 8),
+      sym('renamedKind', 'method', 3),
+      sym('drift', 'function', 4, 4, 9),
+    ]
   );
-  assert.deepEqual(loss.map((s) => s.name), ['gone']);
-  assert.deepEqual(addition.map((s) => s.name), ['added']);
+  assert.deepEqual(
+    loss.map((s) => s.name),
+    ['gone']
+  );
+  assert.deepEqual(
+    addition.map((s) => s.name),
+    ['added']
+  );
   assert.equal(kindChange.length, 1);
   assert.equal(kindChange[0].old.kind, 'function');
   assert.equal(kindChange[0].new.kind, 'method');
@@ -154,7 +199,7 @@ test('compareWalks aggregates by language and counts import/scalar/file-only dif
     root: '.',
     manifestIdentical: true,
     timing: { oldMs: 10, newMs: 11, ratio: 1.1, runs: 3 },
-    reasons: evaluateGate(report, { maxSymbolLoss: 0, maxImportDiff: 0, maxTimeRatio: 1.10 }),
+    reasons: evaluateGate(report, { maxSymbolLoss: 0, maxImportDiff: 0, maxTimeRatio: 1.1 }),
   });
   assert.match(md, /## javascript/);
   assert.match(md, /## python/);
@@ -162,33 +207,36 @@ test('compareWalks aggregates by language and counts import/scalar/file-only dif
 });
 
 test('evaluateGate fails on LOSS, import diffs, time ratio, manifest, and one-sided files', () => {
-  const base = compareWalks([
-    rec({ rel: 'a.js', symbols: [sym('a', 'function', 1)] }),
-  ], [
-    rec({ rel: 'a.js', symbols: [sym('a', 'function', 1)] }),
-  ]);
-  assert.deepEqual(evaluateGate({ ...base, manifestIdentical: true }, { maxSymbolLoss: 0, maxImportDiff: 0, maxTimeRatio: 1.1 }), []);
+  const base = compareWalks(
+    [rec({ rel: 'a.js', symbols: [sym('a', 'function', 1)] })],
+    [rec({ rel: 'a.js', symbols: [sym('a', 'function', 1)] })]
+  );
+  assert.deepEqual(
+    evaluateGate({ ...base, manifestIdentical: true }, { maxSymbolLoss: 0, maxImportDiff: 0, maxTimeRatio: 1.1 }),
+    []
+  );
 
-  const loss = compareWalks([
-    rec({ symbols: [sym('a', 'function', 1), sym('b', 'function', 2)] }),
-  ], [
-    rec({ symbols: [sym('a', 'function', 1)] }),
-  ]);
+  const loss = compareWalks(
+    [rec({ symbols: [sym('a', 'function', 1), sym('b', 'function', 2)] })],
+    [rec({ symbols: [sym('a', 'function', 1)] })]
+  );
   assert.match(evaluateGate(loss, { maxSymbolLoss: 0 }).join('\n'), /LOSS 1/);
   assert.equal(evaluateGate(loss, { maxSymbolLoss: 1 }).length, 0);
 
-  const imports = compareWalks([
-    rec({ rawImports: ['a'] }),
-  ], [
-    rec({ rawImports: ['b'] }),
-  ]);
+  const imports = compareWalks([rec({ rawImports: ['a'] })], [rec({ rawImports: ['b'] })]);
   assert.match(evaluateGate(imports, { maxImportDiff: 0 }).join('\n'), /import diffs 2/);
   assert.equal(evaluateGate(imports, { maxImportDiff: 2 }).length, 0);
 
-  assert.match(evaluateGate({
-    ...base,
-    timing: { ratio: 1.2 },
-  }, { maxTimeRatio: 1.10 }).join('\n'), /time ratio/);
+  assert.match(
+    evaluateGate(
+      {
+        ...base,
+        timing: { ratio: 1.2 },
+      },
+      { maxTimeRatio: 1.1 }
+    ).join('\n'),
+    /time ratio/
+  );
 
   assert.match(evaluateGate({ ...base, manifestIdentical: false }, {}).join('\n'), /manifest/);
 
@@ -212,7 +260,9 @@ test('CLI jsonl mode: identical records exit 0', async () => {
 
 test('CLI jsonl mode: LOSS and import diffs exit 1; ADDITION-only does not', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'graph-parity-'));
-  const lossOld = writeJsonl(dir, 'loss-old.jsonl', [rec({ symbols: [sym('keep', 'function', 1), sym('gone', 'function', 2)] })]);
+  const lossOld = writeJsonl(dir, 'loss-old.jsonl', [
+    rec({ symbols: [sym('keep', 'function', 1), sym('gone', 'function', 2)] }),
+  ]);
   const lossNew = writeJsonl(dir, 'loss-new.jsonl', [rec({ symbols: [sym('keep', 'function', 1)] })]);
   const loss = await runCli(['--old-jsonl', lossOld, '--new-jsonl', lossNew]);
   assert.equal(loss.code, 1);
@@ -220,7 +270,9 @@ test('CLI jsonl mode: LOSS and import diffs exit 1; ADDITION-only does not', asy
   assert.match(loss.stdout, /\*\*FAIL\*\*/);
 
   const addOld = writeJsonl(dir, 'add-old.jsonl', [rec({ symbols: [sym('keep', 'function', 1)] })]);
-  const addNew = writeJsonl(dir, 'add-new.jsonl', [rec({ symbols: [sym('keep', 'function', 1), sym('extra', 'function', 2)] })]);
+  const addNew = writeJsonl(dir, 'add-new.jsonl', [
+    rec({ symbols: [sym('keep', 'function', 1), sym('extra', 'function', 2)] }),
+  ]);
   const addition = await runCli(['--old-jsonl', addOld, '--new-jsonl', addNew]);
   assert.equal(addition.code, 0, addition.stdout);
   assert.match(addition.stdout, /ADDITION/);
@@ -263,7 +315,9 @@ test('CLI jsonl mode: KIND_CHANGE, COL_DRIFT, one-sided files, thresholds, langu
   assert.equal(json.byLanguage.python.FILE_ONLY_OLD.count, 1);
   assert.equal(json.byLanguage.go.FILE_ONLY_NEW.count, 1);
 
-  const lossOld = writeJsonl(dir, 'thr-old.jsonl', [rec({ symbols: [sym('a', 'function', 1), sym('b', 'function', 2)] })]);
+  const lossOld = writeJsonl(dir, 'thr-old.jsonl', [
+    rec({ symbols: [sym('a', 'function', 1), sym('b', 'function', 2)] }),
+  ]);
   const lossNew = writeJsonl(dir, 'thr-new.jsonl', [rec({ symbols: [sym('a', 'function', 1)] })]);
   const allowed = await runCli(['--old-jsonl', lossOld, '--new-jsonl', lossNew, '--max-symbol-loss', '1']);
   assert.equal(allowed.code, 0);
@@ -272,7 +326,10 @@ test('CLI jsonl mode: KIND_CHANGE, COL_DRIFT, one-sided files, thresholds, langu
 });
 
 test('parseJsonl rejects malformed records', () => {
-  assert.deepEqual(parseJsonl('{"rel":"a.js","lang":"javascript"}\n\n').map((r) => r.rel), ['a.js']);
+  assert.deepEqual(
+    parseJsonl('{"rel":"a.js","lang":"javascript"}\n\n').map((r) => r.rel),
+    ['a.js']
+  );
   assert.throws(() => parseJsonl('{'), /invalid JSONL/);
   assert.throws(() => parseJsonl('{"lang":"javascript"}'), /missing string rel/);
 });
@@ -280,7 +337,7 @@ test('parseJsonl rejects malformed records', () => {
 test('missing symbols, empty walks, duplicate keys, and Windows rel separators', () => {
   const missing = compareWalks(
     [{ rel: 'a.js', lang: 'javascript', rawImports: [] }, rec({ rel: 'b.js', symbols: undefined })],
-    [rec({ rel: 'a.js', symbols: [sym('a', 'function', 1)] }), rec({ rel: 'b.js', symbols: [sym('b', 'function', 1)] })],
+    [rec({ rel: 'a.js', symbols: [sym('a', 'function', 1)] }), rec({ rel: 'b.js', symbols: [sym('b', 'function', 1)] })]
   );
   assert.equal(missing.totals.addition, 2);
   assert.equal(missing.totals.loss, 0);
@@ -298,16 +355,13 @@ test('missing symbols, empty walks, duplicate keys, and Windows rel separators',
   assert.deepEqual(emptyCliOld, []);
   assert.deepEqual(emptyCliNew, []);
 
-  const dups = matchSymbols(
-    [sym('dup', 'function', 1), sym('dup', 'function', 1)],
-    [sym('dup', 'function', 1)],
-  );
+  const dups = matchSymbols([sym('dup', 'function', 1), sym('dup', 'function', 1)], [sym('dup', 'function', 1)]);
   assert.equal(dups.loss.length, 1);
   assert.equal(dups.addition.length, 0);
 
   const kindFromDup = matchSymbols(
     [sym('dup', 'function', 1), sym('dup', 'method', 1)],
-    [sym('dup', 'function', 1), sym('dup', 'function', 1)],
+    [sym('dup', 'function', 1), sym('dup', 'function', 1)]
   );
   assert.equal(kindFromDup.kindChange.length, 1);
   assert.equal(kindFromDup.loss.length, 0);
@@ -315,7 +369,7 @@ test('missing symbols, empty walks, duplicate keys, and Windows rel separators',
 
   const mixedSeps = compareWalks(
     [rec({ rel: 'src\\pkg\\a.js', symbols: [sym('alpha', 'function', 1)] })],
-    [rec({ rel: 'src/pkg/a.js', symbols: [sym('alpha', 'function', 1)] })],
+    [rec({ rel: 'src/pkg/a.js', symbols: [sym('alpha', 'function', 1)] })]
   );
   assert.equal(mixedSeps.filesCompared, 1);
   assert.equal(mixedSeps.filesOnlyOld.length, 0);
@@ -356,8 +410,12 @@ test('CLI jsonl mode: empty output, missing symbols, backslash rels', async () =
   const missing = await runCli(['--old-jsonl', missOld, '--new-jsonl', missNew]);
   assert.equal(missing.code, 0, missing.stderr || missing.stdout);
 
-  const slashOld = writeJsonl(dir, 'slash-old.jsonl', [rec({ rel: 'src\\a.js', symbols: [sym('alpha', 'function', 1)] })]);
-  const slashNew = writeJsonl(dir, 'slash-new.jsonl', [rec({ rel: 'src/a.js', symbols: [sym('alpha', 'function', 1)] })]);
+  const slashOld = writeJsonl(dir, 'slash-old.jsonl', [
+    rec({ rel: 'src\\a.js', symbols: [sym('alpha', 'function', 1)] }),
+  ]);
+  const slashNew = writeJsonl(dir, 'slash-new.jsonl', [
+    rec({ rel: 'src/a.js', symbols: [sym('alpha', 'function', 1)] }),
+  ]);
   const slashes = await runCli(['--old-jsonl', slashOld, '--new-jsonl', slashNew]);
   assert.equal(slashes.code, 0, slashes.stderr || slashes.stdout);
   assert.match(slashes.stdout, /\*\*PASS\*\*/);
@@ -366,8 +424,15 @@ test('CLI jsonl mode: empty output, missing symbols, backslash rels', async () =
 test('missing binary exits non-zero without hanging', async () => {
   const started = Date.now();
   const result = await runCli(
-    ['--old', join(tmpdir(), 'no-such-mixdog-graph-old.exe'), '--new', join(tmpdir(), 'no-such-mixdog-graph-new.exe'), '--runs', '1'],
-    { timeoutMs: 10_000 },
+    [
+      '--old',
+      join(tmpdir(), 'no-such-mixdog-graph-old.exe'),
+      '--new',
+      join(tmpdir(), 'no-such-mixdog-graph-new.exe'),
+      '--runs',
+      '1',
+    ],
+    { timeoutMs: 10_000 }
   );
   const ms = Date.now() - started;
   assert.equal(result.code, 1);
@@ -390,7 +455,9 @@ test('parseKindMap reads --langs and per-language kinds objects', () => {
   const nested = parseKindMap({ javascript: { kinds: { class: 'class' } }, rust: { function: 'fn' } });
   assert.equal(nested.javascript.class, 'class');
   assert.equal(nested.rust.function, 'fn');
-  assert.deepEqual(parseLangsStdout('{"languages":[{"id":"hcl","kinds":{"block":"block"}}]}\n'), { hcl: { block: 'block' } });
+  assert.deepEqual(parseLangsStdout('{"languages":[{"id":"hcl","kinds":{"block":"block"}}]}\n'), {
+    hcl: { block: 'block' },
+  });
   assert.deepEqual(parseKindMap({ languages: [{ id: 'javascript' }] }), {});
   assert.deepEqual(parseLangsStdout('{"languages":[{"id":"javascript","extensions":["js"]}]}'), {});
   assert.equal(kindMapActive(parseLangsStdout('{"languages":[{"id":"javascript"}]}')), false);
@@ -398,28 +465,20 @@ test('parseKindMap reads --langs and per-language kinds objects', () => {
 
 test('kind map counts KIND_MAPPED; other remaps stay KIND_CHANGE; unmapped kinds fail', () => {
   const map = { javascript: { function: 'method', class: 'class' } };
-  const mapped = matchSymbols(
-    [sym('foo', 'function', 4)],
-    [sym('foo', 'method', 4)],
-    map.javascript,
-  );
+  const mapped = matchSymbols([sym('foo', 'function', 4)], [sym('foo', 'method', 4)], map.javascript);
   assert.equal(mapped.kindMapped.length, 1);
   assert.equal(mapped.kindChange.length, 0);
   assert.equal(mapped.kindMapped[0].old.kind, 'function');
   assert.equal(mapped.kindMapped[0].new.kind, 'method');
 
-  const unmappedChange = matchSymbols(
-    [sym('Bar', 'class', 1)],
-    [sym('Bar', 'interface', 1)],
-    map.javascript,
-  );
+  const unmappedChange = matchSymbols([sym('Bar', 'class', 1)], [sym('Bar', 'interface', 1)], map.javascript);
   assert.equal(unmappedChange.kindChange.length, 1);
   assert.equal(unmappedChange.kindMapped.length, 0);
 
   const report = compareWalks(
     [rec({ symbols: [sym('foo', 'function', 4), sym('Bar', 'class', 8), sym('miss', 'enum', 9)] })],
     [rec({ symbols: [sym('foo', 'method', 4), sym('Bar', 'class', 8), sym('miss', 'enum', 9)] })],
-    { kindMap: map },
+    { kindMap: map }
   );
   assert.equal(report.totals.kindMapped, 1);
   assert.equal(report.totals.kindChange, 0);
@@ -431,17 +490,13 @@ test('kind map counts KIND_MAPPED; other remaps stay KIND_CHANGE; unmapped kinds
   const unexpected = compareWalks(
     [rec({ symbols: [sym('foo', 'function', 4), sym('Bar', 'class', 1)] })],
     [rec({ symbols: [sym('foo', 'class', 4), sym('Bar', 'class', 1)] })],
-    { kindMap: map },
+    { kindMap: map }
   );
   assert.equal(unexpected.totals.kindChange, 1);
   assert.equal(unexpected.totals.kindMapped, 0);
   assert.match(evaluateGate(unexpected, {}).join('\n'), /KIND_CHANGE 1/);
 
-  const both = matchSymbols(
-    [sym('foo', 'function', 4, 1, 4)],
-    [sym('foo', 'method', 4, 8, 12)],
-    map.javascript,
-  );
+  const both = matchSymbols([sym('foo', 'function', 4, 1, 4)], [sym('foo', 'method', 4, 8, 12)], map.javascript);
   assert.equal(both.kindMapped.length, 1);
   assert.equal(both.colDrift.length, 1);
   assert.equal(both.kindChange.length, 0);
@@ -451,7 +506,7 @@ test('kind map counts KIND_MAPPED; other remaps stay KIND_CHANGE; unmapped kinds
   const shared = matchSymbols(
     [sym('foo', 'function', 4), sym('foo', 'class', 4)],
     [sym('foo', 'struct', 4), sym('foo', 'method', 4)],
-    { function: 'method', class: 'struct' },
+    { function: 'method', class: 'struct' }
   );
   assert.equal(shared.kindMapped.length, 2);
   assert.equal(shared.kindChange.length, 0);
@@ -469,7 +524,7 @@ test('kind map counts KIND_MAPPED; other remaps stay KIND_CHANGE; unmapped kinds
       rec({ rel: 'a.js', lang: 'javascript', symbols: [sym('foo', 'method', 1)] }),
       rec({ rel: 'a.py', lang: 'python', symbols: [sym('foo', 'function', 1)] }),
     ],
-    { kindMap: { javascript: { function: 'method' }, python: { function: 'function' } } },
+    { kindMap: { javascript: { function: 'method' }, python: { function: 'function' } } }
   );
   assert.equal(perLang.totals.kindMapped, 1);
   assert.equal(perLang.byLanguage.javascript.KIND_MAPPED.count, 1);
@@ -478,14 +533,18 @@ test('kind map counts KIND_MAPPED; other remaps stay KIND_CHANGE; unmapped kinds
 });
 
 test('additive exported/sig/parent/calls are ignored for equality and summarized', () => {
-  const oldRecords = [rec({
-    symbols: [sym('foo', 'function', 1)],
-    calls: undefined,
-  })];
-  const newRecords = [rec({
-    symbols: [{ ...sym('foo', 'function', 1), exported: true, sig: 'foo()', parent: 'Mod' }],
-    calls: [['foo', 2, 1, 0, '', '']],
-  })];
+  const oldRecords = [
+    rec({
+      symbols: [sym('foo', 'function', 1)],
+      calls: undefined,
+    }),
+  ];
+  const newRecords = [
+    rec({
+      symbols: [{ ...sym('foo', 'function', 1), exported: true, sig: 'foo()', parent: 'Mod' }],
+      calls: [['foo', 2, 1, 0, '', '']],
+    }),
+  ];
   const report = compareWalks(oldRecords, newRecords);
   assert.equal(report.totals.loss, 0);
   assert.equal(report.totals.addition, 0);
@@ -504,14 +563,18 @@ test('additive exported/sig/parent/calls are ignored for equality and summarized
 });
 
 test('--tokens compares declared symbol names only and fails on loss', () => {
-  const oldRecords = [rec({
-    symbols: [sym('Alpha', 'function', 1), sym('Beta', 'function', 2)],
-    tokens: ['Alpha', 'noiseInComment', 'Beta'],
-  })];
-  const newRecords = [rec({
-    symbols: [sym('Alpha', 'function', 1), sym('Beta', 'function', 2)],
-    tokens: ['Alpha', 'Beta'],
-  })];
+  const oldRecords = [
+    rec({
+      symbols: [sym('Alpha', 'function', 1), sym('Beta', 'function', 2)],
+      tokens: ['Alpha', 'noiseInComment', 'Beta'],
+    }),
+  ];
+  const newRecords = [
+    rec({
+      symbols: [sym('Alpha', 'function', 1), sym('Beta', 'function', 2)],
+      tokens: ['Alpha', 'Beta'],
+    }),
+  ];
   const noiseOnly = compareWalks(oldRecords, newRecords, { tokens: true });
   assert.equal(noiseOnly.totals.tokenLost, 0);
   assert.equal(noiseOnly.totals.tokenAdded, 0);
@@ -520,7 +583,7 @@ test('--tokens compares declared symbol names only and fails on loss', () => {
   const lost = compareWalks(
     [rec({ symbols: [sym('Alpha', 'function', 1)], tokens: ['Alpha', 'stray'] })],
     [rec({ symbols: [sym('Alpha', 'function', 1), sym('Gamma', 'function', 3)], tokens: ['Gamma'] })],
-    { tokens: true },
+    { tokens: true }
   );
   assert.equal(lost.totals.tokenLost, 1);
   assert.equal(lost.totals.tokenAdded, 1);
@@ -533,7 +596,7 @@ test('--tokens compares declared symbol names only and fails on loss', () => {
   const absentNew = compareWalks(
     [rec({ symbols: [sym('Alpha', 'function', 1)], tokens: ['Alpha'] })],
     [rec({ symbols: [sym('Alpha', 'function', 1)] })],
-    { tokens: true },
+    { tokens: true }
   );
   assert.equal(absentNew.totals.tokenLost, 0);
   assert.equal(absentNew.totals.tokenAdded, 0);
@@ -541,20 +604,24 @@ test('--tokens compares declared symbol names only and fails on loss', () => {
   const emptyNew = compareWalks(
     [rec({ symbols: [sym('Alpha', 'function', 1)], tokens: ['Alpha'] })],
     [rec({ symbols: [sym('Alpha', 'function', 1)], tokens: [] })],
-    { tokens: true },
+    { tokens: true }
   );
   assert.equal(emptyNew.totals.tokenLost, 1);
 
   const many = compareWalks(
-    [rec({
-      symbols: names.map((n, i) => sym(n, 'function', i + 1)),
-      tokens: names,
-    })],
-    [rec({
-      symbols: names.map((n, i) => sym(n, 'function', i + 1)),
-      tokens: [],
-    })],
-    { tokens: true },
+    [
+      rec({
+        symbols: names.map((n, i) => sym(n, 'function', i + 1)),
+        tokens: names,
+      }),
+    ],
+    [
+      rec({
+        symbols: names.map((n, i) => sym(n, 'function', i + 1)),
+        tokens: [],
+      }),
+    ],
+    { tokens: true }
   );
   assert.equal(many.totals.tokenLost, 6);
   assert.equal(many.byLanguage.javascript.TOKEN_LOSS.count, 6);
@@ -568,21 +635,24 @@ test('--allow-new-languages ignores files-only-new and extra manifest rows', () 
       rec({ rel: 'src/a.js', lang: 'javascript', symbols: [sym('a', 'function', 1)] }),
       rec({ rel: 'src/Token.sol', lang: 'solidity', symbols: [sym('Token', 'contract', 1)] }),
       rec({ rel: 'src/Main.hs', lang: 'haskell', symbols: [sym('main', 'function', 1)] }),
-    ],
+    ]
   );
   assert.deepEqual(report.filesOnlyNew, ['src/Main.hs', 'src/Token.sol']);
   assert.match(evaluateGate(report, {}).join('\n'), /files only on one side/);
   assert.deepEqual(evaluateGate(report, { allowNewLanguages: ['haskell', 'hcl', 'solidity'] }), []);
 
-  const oldMan = '{"rel":"src/a.js","lang":"javascript","fp":"aa","size":1}\n{"rel":"src/b.ts","lang":"typescript","fp":"bb","size":2}\n';
-  const newMan = '{"rel":"src/Main.hs","lang":"haskell","fp":"hh","size":3}\n{"rel":"src/Token.sol","lang":"solidity","fp":"ss","size":4}\n{"rel":"src/a.js","lang":"javascript","fp":"aa","size":1}\n{"rel":"src/b.ts","lang":"typescript","fp":"bb","size":2}\n';
+  const oldMan =
+    '{"rel":"src/a.js","lang":"javascript","fp":"aa","size":1}\n{"rel":"src/b.ts","lang":"typescript","fp":"bb","size":2}\n';
+  const newMan =
+    '{"rel":"src/Main.hs","lang":"haskell","fp":"hh","size":3}\n{"rel":"src/Token.sol","lang":"solidity","fp":"ss","size":4}\n{"rel":"src/a.js","lang":"javascript","fp":"aa","size":1}\n{"rel":"src/b.ts","lang":"typescript","fp":"bb","size":2}\n';
   const raw = compareManifests(oldMan, newMan, new Set());
   assert.equal(raw.identical, false);
   const allowed = compareManifests(oldMan, newMan, new Set(['haskell', 'hcl', 'solidity']));
   assert.equal(allowed.identical, true);
   assert.equal(allowed.newDropped.length, 2);
 
-  const drifted = '{"rel":"src/Main.hs","lang":"haskell","fp":"hh","size":3}\n{"rel":"src/a.js","lang":"javascript","fp":"CHANGED","size":1}\n{"rel":"src/b.ts","lang":"typescript","fp":"bb","size":2}\n';
+  const drifted =
+    '{"rel":"src/Main.hs","lang":"haskell","fp":"hh","size":3}\n{"rel":"src/a.js","lang":"javascript","fp":"CHANGED","size":1}\n{"rel":"src/b.ts","lang":"typescript","fp":"bb","size":2}\n';
   assert.equal(compareManifests(oldMan, drifted, new Set(['haskell', 'hcl', 'solidity'])).identical, false);
 
   const lostOther = compareWalks(
@@ -593,7 +663,7 @@ test('--allow-new-languages ignores files-only-new and extra manifest rows', () 
     [
       rec({ rel: 'src/a.js', lang: 'javascript', symbols: [sym('a', 'function', 1)] }),
       rec({ rel: 'src/Token.sol', lang: 'solidity', symbols: [sym('Token', 'contract', 1)] }),
-    ],
+    ]
   );
   const reasons = evaluateGate(lostOther, { allowNewLanguages: ['haskell', 'hcl', 'solidity'] });
   assert.match(reasons.join('\n'), /files only on one side: old=1 new=0/);
@@ -614,14 +684,22 @@ test('CLI jsonl: kind-map, tokens, allow-new-languages', async () => {
   const mapPath = join(dir, 'kinds.json');
   writeFileSync(mapPath, JSON.stringify({ javascript: { kinds: { function: 'method', class: 'class' } } }));
 
-  const mappedOld = writeJsonl(dir, 'map-old.jsonl', [rec({ symbols: [sym('foo', 'function', 4), sym('Bar', 'class', 1)] })]);
-  const mappedNew = writeJsonl(dir, 'map-new.jsonl', [rec({ symbols: [sym('foo', 'method', 4), sym('Bar', 'class', 1)] })]);
+  const mappedOld = writeJsonl(dir, 'map-old.jsonl', [
+    rec({ symbols: [sym('foo', 'function', 4), sym('Bar', 'class', 1)] }),
+  ]);
+  const mappedNew = writeJsonl(dir, 'map-new.jsonl', [
+    rec({ symbols: [sym('foo', 'method', 4), sym('Bar', 'class', 1)] }),
+  ]);
   const mapped = await runCli(['--old-jsonl', mappedOld, '--new-jsonl', mappedNew, '--kind-map', mapPath]);
   assert.equal(mapped.code, 0, mapped.stdout);
   assert.match(mapped.stdout, /KIND_MAPPED/);
 
-  const unmappedOld = writeJsonl(dir, 'unmap-old.jsonl', [rec({ symbols: [sym('foo', 'function', 4), sym('E', 'enum', 2)] })]);
-  const unmappedNew = writeJsonl(dir, 'unmap-new.jsonl', [rec({ symbols: [sym('foo', 'method', 4), sym('E', 'enum', 2)] })]);
+  const unmappedOld = writeJsonl(dir, 'unmap-old.jsonl', [
+    rec({ symbols: [sym('foo', 'function', 4), sym('E', 'enum', 2)] }),
+  ]);
+  const unmappedNew = writeJsonl(dir, 'unmap-new.jsonl', [
+    rec({ symbols: [sym('foo', 'method', 4), sym('E', 'enum', 2)] }),
+  ]);
   const unmapped = await runCli(['--old-jsonl', unmappedOld, '--new-jsonl', unmappedNew, '--kind-map', mapPath]);
   assert.equal(unmapped.code, 1);
   assert.match(unmapped.stdout, /unmapped kind/);
@@ -637,27 +715,37 @@ test('CLI jsonl: kind-map, tokens, allow-new-languages', async () => {
   const badShape = await runCli(['--old-jsonl', mappedOld, '--new-jsonl', mappedNew, '--kind-map', arrayMap]);
   assert.equal(badShape.code, 2);
 
-  const changeOld = writeJsonl(dir, 'chg-old.jsonl', [rec({ symbols: [sym('foo', 'function', 4), sym('Bar', 'class', 1)] })]);
-  const changeNew = writeJsonl(dir, 'chg-new.jsonl', [rec({ symbols: [sym('foo', 'class', 4), sym('Bar', 'class', 1)] })]);
+  const changeOld = writeJsonl(dir, 'chg-old.jsonl', [
+    rec({ symbols: [sym('foo', 'function', 4), sym('Bar', 'class', 1)] }),
+  ]);
+  const changeNew = writeJsonl(dir, 'chg-new.jsonl', [
+    rec({ symbols: [sym('foo', 'class', 4), sym('Bar', 'class', 1)] }),
+  ]);
   const changed = await runCli(['--old-jsonl', changeOld, '--new-jsonl', changeNew, '--kind-map', mapPath]);
   assert.equal(changed.code, 1);
   assert.match(changed.stdout, /KIND_CHANGE/);
 
-  const tokOld = writeJsonl(dir, 'tok-old.jsonl', [rec({
-    symbols: [sym('Alpha', 'function', 1)],
-    tokens: ['Alpha', 'commentWord'],
-  })]);
-  const tokNew = writeJsonl(dir, 'tok-new.jsonl', [rec({
-    symbols: [sym('Alpha', 'function', 1)],
-    tokens: [],
-  })]);
+  const tokOld = writeJsonl(dir, 'tok-old.jsonl', [
+    rec({
+      symbols: [sym('Alpha', 'function', 1)],
+      tokens: ['Alpha', 'commentWord'],
+    }),
+  ]);
+  const tokNew = writeJsonl(dir, 'tok-new.jsonl', [
+    rec({
+      symbols: [sym('Alpha', 'function', 1)],
+      tokens: [],
+    }),
+  ]);
   const tokFail = await runCli(['--old-jsonl', tokOld, '--new-jsonl', tokNew, '--tokens']);
   assert.equal(tokFail.code, 1);
   assert.match(tokFail.stdout, /TOKEN_LOSS/);
   const tokOk = await runCli(['--old-jsonl', tokOld, '--new-jsonl', tokNew, '--tokens', '--max-token-loss', '1']);
   assert.equal(tokOk.code, 0, tokOk.stdout);
 
-  const sideOld = writeJsonl(dir, 'sol-old.jsonl', [rec({ rel: 'a.js', lang: 'javascript', symbols: [sym('a', 'function', 1)] })]);
+  const sideOld = writeJsonl(dir, 'sol-old.jsonl', [
+    rec({ rel: 'a.js', lang: 'javascript', symbols: [sym('a', 'function', 1)] }),
+  ]);
   const sideNew = writeJsonl(dir, 'sol-new.jsonl', [
     rec({ rel: 'a.js', lang: 'javascript', symbols: [sym('a', 'function', 1)] }),
     rec({ rel: 'Token.sol', lang: 'solidity', symbols: [sym('Token', 'contract', 1)] }),
@@ -665,8 +753,12 @@ test('CLI jsonl: kind-map, tokens, allow-new-languages', async () => {
   const blocked = await runCli(['--old-jsonl', sideOld, '--new-jsonl', sideNew]);
   assert.equal(blocked.code, 1);
   const allowed = await runCli([
-    '--old-jsonl', sideOld, '--new-jsonl', sideNew,
-    '--allow-new-languages', 'haskell,hcl,solidity',
+    '--old-jsonl',
+    sideOld,
+    '--new-jsonl',
+    sideNew,
+    '--allow-new-languages',
+    'haskell,hcl,solidity',
   ]);
   assert.equal(allowed.code, 0, allowed.stdout);
   assert.match(allowed.stdout, /FILE_ONLY_NEW/);
@@ -683,7 +775,16 @@ test('auto kind-map: langs without kinds / failure inactive; identity allowed', 
     filesCompared: 0,
     filesOnlyOld: [],
     filesOnlyNew: [],
-    totals: { loss: 0, addition: 0, kindChange: 0, kindMapped: 0, colDrift: 0, importDiff: 0, scalar: 0, parseError: 0 },
+    totals: {
+      loss: 0,
+      addition: 0,
+      kindChange: 0,
+      kindMapped: 0,
+      colDrift: 0,
+      importDiff: 0,
+      scalar: 0,
+      parseError: 0,
+    },
     byLanguage: {},
     kindMapSource: empty.source,
     kindMapActive: false,
@@ -691,13 +792,24 @@ test('auto kind-map: langs without kinds / failure inactive; identity allowed', 
   });
   assert.match(emptyMd, /kind-map: inactive \(--langs produced no kinds\)/);
 
-  const failed = await loadKindMap({ new: 'graph' }, '.', async () => { throw new Error('boom'); });
+  const failed = await loadKindMap({ new: 'graph' }, '.', async () => {
+    throw new Error('boom');
+  });
   assert.equal(failed.source, 'langs-failed');
   const failMd = formatMarkdown({
     filesCompared: 0,
     filesOnlyOld: [],
     filesOnlyNew: [],
-    totals: { loss: 0, addition: 0, kindChange: 0, kindMapped: 0, colDrift: 0, importDiff: 0, scalar: 0, parseError: 0 },
+    totals: {
+      loss: 0,
+      addition: 0,
+      kindChange: 0,
+      kindMapped: 0,
+      colDrift: 0,
+      importDiff: 0,
+      scalar: 0,
+      parseError: 0,
+    },
     byLanguage: {},
     kindMapSource: failed.source,
     kindMapActive: false,
@@ -706,12 +818,14 @@ test('auto kind-map: langs without kinds / failure inactive; identity allowed', 
   assert.match(failMd, /kind-map: inactive \(--langs failed\)/);
 
   const mapped = await loadKindMap({ new: 'graph' }, '.', async () => ({
-    stdout: Buffer.from(JSON.stringify({
-      languages: [
-        { id: 'javascript', kinds: { function: 'method' } },
-        { id: 'python', kinds: { function: 'function' } },
-      ],
-    })),
+    stdout: Buffer.from(
+      JSON.stringify({
+        languages: [
+          { id: 'javascript', kinds: { function: 'method' } },
+          { id: 'python', kinds: { function: 'function' } },
+        ],
+      })
+    ),
   }));
   assert.equal(mapped.map.javascript.function, 'method');
   assert.equal(mapped.map.python.function, 'function');
@@ -721,7 +835,7 @@ test('auto kind-map: langs without kinds / failure inactive; identity allowed', 
 test('same-name LOSS+ADDITION on one file is a likely line move and still fails', () => {
   const report = compareWalks(
     [rec({ rel: 'src/a.js', symbols: [sym('foo', 'function', 10)] })],
-    [rec({ rel: 'src/a.js', symbols: [sym('foo', 'function', 20)] })],
+    [rec({ rel: 'src/a.js', symbols: [sym('foo', 'function', 20)] })]
   );
   assert.equal(report.totals.loss, 1);
   assert.equal(report.totals.addition, 1);
@@ -739,7 +853,7 @@ test('runProcess times out and kills a hung child', async () => {
   const started = Date.now();
   await assert.rejects(
     () => runProcess(process.execPath, ['-e', 'setInterval(() => {}, 1e9)'], { timeoutMs: 400 }),
-    /timed out after 400ms/,
+    /timed out after 400ms/
   );
   const ms = Date.now() - started;
   assert.ok(ms < 8_000, `hung child was not killed in time: ${ms}ms`);

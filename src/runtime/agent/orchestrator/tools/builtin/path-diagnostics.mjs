@@ -9,30 +9,34 @@ import { resolvePluginData, mixdogRoot } from '../../../../shared/plugin-paths.m
 // sibling differing only in case. Pure best-effort; any fs error returns
 // null so the caller falls back to the bare "not found" message.
 export function findSimilarFile(fullPath) {
-    try {
-        const dir = dirname(fullPath);
-        const base = basename(fullPath);
-        const stem = basename(fullPath, extname(fullPath));
-        const entries = readdirSync(dir);
-        const sameStem = entries.find((e) => e !== base && basename(e, extname(e)) === stem);
-        if (sameStem) return join(dir, sameStem);
-        const caseMatch = entries.find((e) => e !== base && e.toLowerCase() === base.toLowerCase());
-        if (caseMatch) return join(dir, caseMatch);
-        return null;
-    } catch { return null; }
+  try {
+    const dir = dirname(fullPath);
+    const base = basename(fullPath);
+    const stem = basename(fullPath, extname(fullPath));
+    const entries = readdirSync(dir);
+    const sameStem = entries.find((e) => e !== base && basename(e, extname(e)) === stem);
+    if (sameStem) return join(dir, sameStem);
+    const caseMatch = entries.find((e) => e !== base && e.toLowerCase() === base.toLowerCase());
+    if (caseMatch) return join(dir, caseMatch);
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export async function findSimilarFileAsync(fullPath) {
-    try {
-        const dir = dirname(fullPath);
-        const base = basename(fullPath);
-        const stem = basename(fullPath, extname(fullPath));
-        const entries = await readdir(dir);
-        const sameStem = entries.find((e) => e !== base && basename(e, extname(e)) === stem);
-        if (sameStem) return join(dir, sameStem);
-        const caseMatch = entries.find((e) => e !== base && e.toLowerCase() === base.toLowerCase());
-        return caseMatch ? join(dir, caseMatch) : null;
-    } catch { return null; }
+  try {
+    const dir = dirname(fullPath);
+    const base = basename(fullPath);
+    const stem = basename(fullPath, extname(fullPath));
+    const entries = await readdir(dir);
+    const sameStem = entries.find((e) => e !== base && basename(e, extname(e)) === stem);
+    if (sameStem) return join(dir, sameStem);
+    const caseMatch = entries.find((e) => e !== base && e.toLowerCase() === base.toLowerCase());
+    return caseMatch ? join(dir, caseMatch) : null;
+  } catch {
+    return null;
+  }
 }
 
 // Sibling listing for ENOENT diagnostics. Pure information extension —
@@ -41,15 +45,21 @@ export async function findSimilarFileAsync(fullPath) {
 // call. Measurement showed ENOENT recovery consistently runs read→glob/
 // list→read (4-call); siblings inline collapses that to read→read.
 export function listSiblings(dir, limit = 12) {
-    try {
-        return readdirSync(dir).filter((n) => !n.startsWith('.')).slice(0, limit);
-    } catch { return []; }
+  try {
+    return readdirSync(dir)
+      .filter((n) => !n.startsWith('.'))
+      .slice(0, limit);
+  } catch {
+    return [];
+  }
 }
 
 export async function listSiblingsAsync(dir, limit = 12) {
-    try {
-        return (await readdir(dir)).filter((n) => !n.startsWith('.')).slice(0, limit);
-    } catch { return []; }
+  try {
+    return (await readdir(dir)).filter((n) => !n.startsWith('.')).slice(0, limit);
+  } catch {
+    return [];
+  }
 }
 
 // Locate a missing file's basename ELSEWHERE under the search root. The most
@@ -68,56 +78,77 @@ export async function listSiblingsAsync(dir, limit = 12) {
 // an out-of-time walk as inconclusive rather than as a proven absence.
 const BASENAME_SCAN_DEADLINE_MS = 750;
 const BASENAME_SCAN_SKIP_DIRS = new Set([
-    'node_modules', '.git', '.hg', '.svn', 'dist', 'build', 'out',
-    'coverage', '.next', '.nuxt', '.turbo', '.cache', 'vendor',
-    'target', '.venv', 'venv', '__pycache__', '.idea', '.vscode',
+  'node_modules',
+  '.git',
+  '.hg',
+  '.svn',
+  'dist',
+  'build',
+  'out',
+  'coverage',
+  '.next',
+  '.nuxt',
+  '.turbo',
+  '.cache',
+  'vendor',
+  'target',
+  '.venv',
+  'venv',
+  '__pycache__',
+  '.idea',
+  '.vscode',
 ]);
 export function findFileByBasename(
-    searchRoot,
-    fullPath,
-    { limit = 3, maxDirs = 6000, deadlineMs = BASENAME_SCAN_DEADLINE_MS } = {},
+  searchRoot,
+  fullPath,
+  { limit = 3, maxDirs = 6000, deadlineMs = BASENAME_SCAN_DEADLINE_MS } = {}
 ) {
-    try {
-        if (typeof searchRoot !== 'string' || !searchRoot) return [];
-        const target = basename(fullPath).toLowerCase();
-        if (!target) return [];
-        const matches = [];
-        const queue = [searchRoot];
-        const stopAt = Date.now() + Math.max(1, deadlineMs);
-        let scanned = 0;
-        let expired = false;
-        while (queue.length && matches.length < limit && scanned < maxDirs) {
-            if (Date.now() >= stopAt) {
-                expired = true;
-                break;
-            }
-            const dir = queue.shift();
-            scanned++;
-            let entries;
-            try { entries = readdirSync(dir, { withFileTypes: true }); }
-            catch { continue; }
-            for (const ent of entries) {
-                const name = ent.name;
-                if (ent.isDirectory()) {
-                    if (name.startsWith('.') || BASENAME_SCAN_SKIP_DIRS.has(name)) continue;
-                    queue.push(join(dir, name));
-                } else if (ent.isFile() && name.toLowerCase() === target) {
-                    const hit = join(dir, name);
-                    if (hit !== fullPath) {
-                        // Return search-root-relative so the hint stays leak-safe
-                        // (no home / cache absolute) and is directly read-usable.
-                        matches.push(relative(searchRoot, hit));
-                        if (matches.length >= limit) break;
-                    }
-                }
-            }
+  try {
+    if (typeof searchRoot !== 'string' || !searchRoot) return [];
+    const target = basename(fullPath).toLowerCase();
+    if (!target) return [];
+    const matches = [];
+    const queue = [searchRoot];
+    const stopAt = Date.now() + Math.max(1, deadlineMs);
+    let scanned = 0;
+    let expired = false;
+    while (queue.length && matches.length < limit && scanned < maxDirs) {
+      if (Date.now() >= stopAt) {
+        expired = true;
+        break;
+      }
+      const dir = queue.shift();
+      scanned++;
+      let entries;
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const ent of entries) {
+        const name = ent.name;
+        if (ent.isDirectory()) {
+          if (name.startsWith('.') || BASENAME_SCAN_SKIP_DIRS.has(name)) continue;
+          queue.push(join(dir, name));
+        } else if (ent.isFile() && name.toLowerCase() === target) {
+          const hit = join(dir, name);
+          if (hit !== fullPath) {
+            // Return search-root-relative so the hint stays leak-safe
+            // (no home / cache absolute) and is directly read-usable.
+            matches.push(relative(searchRoot, hit));
+            if (matches.length >= limit) break;
+          }
         }
-        // Queue drained without hitting maxDirs/limit/deadline → the walk
-        // covered the whole (non-vendor, non-hidden) tree; a miss is
-        // conclusive. A walk that ran out of time proves nothing.
-        matches.exhaustive = queue.length === 0 && !expired;
-        return matches;
-    } catch { return []; }
+      }
+    }
+    // Queue drained without hitting maxDirs/limit/deadline → the walk
+    // covered the whole (non-vendor, non-hidden) tree; a miss is
+    // conclusive. A walk that ran out of time proves nothing.
+    matches.exhaustive = queue.length === 0 && !expired;
+    return matches;
+  } catch {
+    return [];
+  }
 }
 
 // Recover a hallucinated absolute-path PREFIX: models frequently request
@@ -132,80 +163,91 @@ export function findFileByBasename(
 // segments so a bare basename (which would match almost anything) never
 // counts as a hit. Capped iterations; pure best-effort, never throws.
 export function findBySuffixStrip(searchRoot, fullPath, { maxIterations = 12 } = {}) {
-    try {
-        if (typeof searchRoot !== 'string' || !searchRoot) return null;
-        if (typeof fullPath !== 'string' || !fullPath) return null;
-        // Containment guard: drop `.`/`..` and drive/UNC-ish segments outright.
-        // Tails are joined under searchRoot; a `..` segment could stat (and
-        // hint) outside the repo, so no relative-traversal token may survive.
-        const segments = fullPath.replace(/\\/g, '/').split('/')
-            .filter((s) => s && s !== '.' && s !== '..' && !/^[A-Za-z]:$/.test(s));
-        // Peel 0..N leading segments; each peel costs one stat. maxIterations
-        // bounds the number of stats (strict <), and tails shorter than 2
-        // segments never count as a hit.
-        const iterations = Math.min(Math.max(segments.length - 1, 0), Math.max(maxIterations, 0));
-        for (let i = 0; i < iterations; i++) {
-            const tail = segments.slice(i);
-            if (tail.length < 2) break;
-            const candidate = join(searchRoot, ...tail);
-            const rel = relative(searchRoot, candidate);
-            if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;
-            try {
-                const st = statSync(candidate);
-                if (st.isFile() || st.isDirectory()) {
-                    return rel.replace(/\\/g, '/');
-                }
-            } catch { /* miss this tail length, keep peeling */ }
+  try {
+    if (typeof searchRoot !== 'string' || !searchRoot) return null;
+    if (typeof fullPath !== 'string' || !fullPath) return null;
+    // Containment guard: drop `.`/`..` and drive/UNC-ish segments outright.
+    // Tails are joined under searchRoot; a `..` segment could stat (and
+    // hint) outside the repo, so no relative-traversal token may survive.
+    const segments = fullPath
+      .replace(/\\/g, '/')
+      .split('/')
+      .filter((s) => s && s !== '.' && s !== '..' && !/^[A-Za-z]:$/.test(s));
+    // Peel 0..N leading segments; each peel costs one stat. maxIterations
+    // bounds the number of stats (strict <), and tails shorter than 2
+    // segments never count as a hit.
+    const iterations = Math.min(Math.max(segments.length - 1, 0), Math.max(maxIterations, 0));
+    for (let i = 0; i < iterations; i++) {
+      const tail = segments.slice(i);
+      if (tail.length < 2) break;
+      const candidate = join(searchRoot, ...tail);
+      const rel = relative(searchRoot, candidate);
+      if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;
+      try {
+        const st = statSync(candidate);
+        if (st.isFile() || st.isDirectory()) {
+          return rel.replace(/\\/g, '/');
         }
-        return null;
-    } catch { return null; }
+      } catch {
+        /* miss this tail length, keep peeling */
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // Same as findFileByBasename but for directories sharing the missing path's
 // final segment name (e.g. guessed `src/shared` → the real `lib/shared`).
 export function findDirectoryByBasename(
-    searchRoot,
-    fullPath,
-    { limit = 3, maxDirs = 6000, deadlineMs = BASENAME_SCAN_DEADLINE_MS } = {},
+  searchRoot,
+  fullPath,
+  { limit = 3, maxDirs = 6000, deadlineMs = BASENAME_SCAN_DEADLINE_MS } = {}
 ) {
-    try {
-        if (typeof searchRoot !== 'string' || !searchRoot) return [];
-        const target = basename(fullPath).toLowerCase();
-        if (!target) return [];
-        const matches = [];
-        const queue = [searchRoot];
-        const stopAt = Date.now() + Math.max(1, deadlineMs);
-        let scanned = 0;
-        let expired = false;
-        while (queue.length && matches.length < limit && scanned < maxDirs) {
-            if (Date.now() >= stopAt) {
-                expired = true;
-                break;
+  try {
+    if (typeof searchRoot !== 'string' || !searchRoot) return [];
+    const target = basename(fullPath).toLowerCase();
+    if (!target) return [];
+    const matches = [];
+    const queue = [searchRoot];
+    const stopAt = Date.now() + Math.max(1, deadlineMs);
+    let scanned = 0;
+    let expired = false;
+    while (queue.length && matches.length < limit && scanned < maxDirs) {
+      if (Date.now() >= stopAt) {
+        expired = true;
+        break;
+      }
+      const dir = queue.shift();
+      scanned++;
+      let entries;
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const ent of entries) {
+        const name = ent.name;
+        if (ent.isDirectory()) {
+          if (name.toLowerCase() === target) {
+            const hit = join(dir, name);
+            const rel = relative(searchRoot, hit);
+            if (rel && !rel.startsWith('..') && !isAbsolute(rel)) {
+              matches.push(rel.replace(/\\/g, '/'));
+              if (matches.length >= limit) break;
             }
-            const dir = queue.shift();
-            scanned++;
-            let entries;
-            try { entries = readdirSync(dir, { withFileTypes: true }); }
-            catch { continue; }
-            for (const ent of entries) {
-                const name = ent.name;
-                if (ent.isDirectory()) {
-                    if (name.toLowerCase() === target) {
-                        const hit = join(dir, name);
-                        const rel = relative(searchRoot, hit);
-                        if (rel && !rel.startsWith('..') && !isAbsolute(rel)) {
-                            matches.push(rel.replace(/\\/g, '/'));
-                            if (matches.length >= limit) break;
-                        }
-                    }
-                    if (name.startsWith('.') || BASENAME_SCAN_SKIP_DIRS.has(name)) continue;
-                    queue.push(join(dir, name));
-                }
-            }
+          }
+          if (name.startsWith('.') || BASENAME_SCAN_SKIP_DIRS.has(name)) continue;
+          queue.push(join(dir, name));
         }
-        matches.exhaustive = queue.length === 0 && !expired;
-        return matches;
-    } catch { return []; }
+      }
+    }
+    matches.exhaustive = queue.length === 0 && !expired;
+    return matches;
+  } catch {
+    return [];
+  }
 }
 
 // Node's native fs errors embed the failing path wrapped in single quotes
@@ -232,50 +274,46 @@ export function findDirectoryByBasename(
 // More-specific prefixes are checked first so plugin-data wins over the
 // containing home directory.
 export function normalizeErrorMessage(msg, workDir) {
-    if (typeof msg !== 'string') return msg;
-    const home = homedir().replace(/\\/g, '/');
-    const pluginRoot = mixdogRoot().replace(/\\/g, '/');
-    const pluginData = resolvePluginData().replace(/\\/g, '/');
-    const runtimeDir = (process.env.MIXDOG_RUNTIME_ROOT || '').replace(/\\/g, '/');
-    const cwd = typeof workDir === 'string' && workDir ? workDir.replace(/\\/g, '/') : '';
+  if (typeof msg !== 'string') return msg;
+  const home = homedir().replace(/\\/g, '/');
+  const pluginRoot = mixdogRoot().replace(/\\/g, '/');
+  const pluginData = resolvePluginData().replace(/\\/g, '/');
+  const runtimeDir = (process.env.MIXDOG_RUNTIME_ROOT || '').replace(/\\/g, '/');
+  const cwd = typeof workDir === 'string' && workDir ? workDir.replace(/\\/g, '/') : '';
 
-    const redact = (raw) => {
-        const fwd = raw.replace(/\\/g, '/');
-        if (cwd) {
-            try {
-                const rel = relative(cwd, fwd);
-                if (rel && !rel.startsWith('..') && !isAbsolute(rel)) {
-                    return rel.replace(/\\/g, '/');
-                }
-            } catch { /* fall through */ }
+  const redact = (raw) => {
+    const fwd = raw.replace(/\\/g, '/');
+    if (cwd) {
+      try {
+        const rel = relative(cwd, fwd);
+        if (rel && !rel.startsWith('..') && !isAbsolute(rel)) {
+          return rel.replace(/\\/g, '/');
         }
-        if (runtimeDir && (fwd === runtimeDir || fwd.startsWith(runtimeDir + '/'))) {
-            return `<runtime>${fwd.slice(runtimeDir.length)}`;
-        }
-        if (pluginData && (fwd === pluginData || fwd.startsWith(pluginData + '/'))) {
-            return `<mixdog-data>${fwd.slice(pluginData.length)}`;
-        }
-        if (pluginRoot && (fwd === pluginRoot || fwd.startsWith(pluginRoot + '/'))) {
-            return `<mixdog-root>${fwd.slice(pluginRoot.length)}`;
-        }
-        if (home && (fwd === home || fwd.startsWith(home + '/'))) {
-            return `~${fwd.slice(home.length)}`;
-        }
-        return fwd;
-    };
+      } catch {
+        /* fall through */
+      }
+    }
+    if (runtimeDir && (fwd === runtimeDir || fwd.startsWith(runtimeDir + '/'))) {
+      return `<runtime>${fwd.slice(runtimeDir.length)}`;
+    }
+    if (pluginData && (fwd === pluginData || fwd.startsWith(pluginData + '/'))) {
+      return `<mixdog-data>${fwd.slice(pluginData.length)}`;
+    }
+    if (pluginRoot && (fwd === pluginRoot || fwd.startsWith(pluginRoot + '/'))) {
+      return `<mixdog-root>${fwd.slice(pluginRoot.length)}`;
+    }
+    if (home && (fwd === home || fwd.startsWith(home + '/'))) {
+      return `~${fwd.slice(home.length)}`;
+    }
+    return fwd;
+  };
 
-    // 1. Strip bare `file:///...` stack-frame URIs first so the inner path
-    //    survives the quoted-path pass that follows (URIs aren't quoted).
-    let out = msg.replace(
-        /file:\/\/\/([A-Za-z]:\/[^\s'"<>)\]]+|\/[^\s'"<>)\]]+)/g,
-        (_m, p) => redact(p),
-    );
+  // 1. Strip bare `file:///...` stack-frame URIs first so the inner path
+  //    survives the quoted-path pass that follows (URIs aren't quoted).
+  let out = msg.replace(/file:\/\/\/([A-Za-z]:\/[^\s'"<>)\]]+|\/[^\s'"<>)\]]+)/g, (_m, p) => redact(p));
 
-    // 2. Redact quoted drive-letter (Windows) and POSIX absolute paths.
-    out = out.replace(
-        /(['"])([A-Za-z]:[\\\/][^'"]+|\/[^'"]+)\1/g,
-        (_m, q, p) => `${q}${redact(p)}${q}`,
-    );
+  // 2. Redact quoted drive-letter (Windows) and POSIX absolute paths.
+  out = out.replace(/(['"])([A-Za-z]:[\\/][^'"]+|\/[^'"]+)\1/g, (_m, q, p) => `${q}${redact(p)}${q}`);
 
-    return out;
+  return out;
 }

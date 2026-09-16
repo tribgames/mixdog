@@ -1,14 +1,14 @@
-import assert from "node:assert/strict";
-import test from "node:test";
-import { fileURLToPath } from "node:url";
-import { build } from "esbuild";
-import puppeteer from "puppeteer-core";
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
+import puppeteer from 'puppeteer-core';
 
-test("quota tracks align across providers, start after the longest label and reset text ends at the row edge", async (t) => {
+test('quota tracks align across providers, start after the longest label and reset text ends at the row edge', async (t) => {
   const bundle = await build({
     stdin: {
-      resolveDir: fileURLToPath(new URL(".", import.meta.url)),
-      loader: "tsx",
+      resolveDir: fileURLToPath(new URL('.', import.meta.url)),
+      loader: 'tsx',
       contents: `
         import React from "react";
         import { createRoot } from "react-dom/client";
@@ -50,38 +50,38 @@ test("quota tracks align across providers, start after the longest label and res
     },
     bundle: true,
     write: false,
-    outfile: "sidebar-usage-layout.js",
-    format: "iife",
-    jsx: "automatic",
-    define: { "process.env.NODE_ENV": '"production"' },
+    outfile: 'sidebar-usage-layout.js',
+    format: 'iife',
+    jsx: 'automatic',
+    define: { 'process.env.NODE_ENV': '"production"' },
   });
   const styles = await build({
     stdin: {
-      resolveDir: fileURLToPath(new URL(".", import.meta.url)),
-      loader: "css",
+      resolveDir: fileURLToPath(new URL('.', import.meta.url)),
+      loader: 'css',
       contents: `
         @import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
         @import "./ui/tokens.css";
         @import "./desktop.css";
       `,
     },
-    outfile: "sidebar-usage-layout.css",
+    outfile: 'sidebar-usage-layout.css',
     bundle: true,
     write: false,
-    loader: { ".woff": "dataurl", ".woff2": "dataurl", ".ttf": "dataurl", ".svg": "dataurl" },
+    loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
   });
   const browser = await puppeteer.launch({
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: "chrome" }),
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
     headless: true,
   });
   t.after(() => browser.close());
   const page = await browser.newPage();
-  const renderError = new Promise((_, reject) => page.once("pageerror", reject));
+  const renderError = new Promise((_, reject) => page.once('pageerror', reject));
   await page.setContent('<!doctype html><html><head></head><body><div id="root"></div></body></html>');
   await page.addStyleTag({ content: styles.outputFiles[0].text });
-  await page.addStyleTag({ content: bundle.outputFiles.find((file) => file.path.endsWith(".css")).text });
-  await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith(".js")).text });
-  await Promise.race([page.waitForSelector(".sidebar-usage-meter > em"), renderError]);
+  await page.addStyleTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.css')).text });
+  await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
+  await Promise.race([page.waitForSelector('.sidebar-usage-meter > em'), renderError]);
 
   for (const width of [1363, 400]) {
     await page.setViewport({ width, height: 787 });
@@ -92,12 +92,12 @@ test("quota tracks align across providers, start after the longest label and res
         range.selectNodeContents(element);
         return range.getBoundingClientRect();
       };
-      const popup = document.querySelector(".rail-usage-popup");
+      const popup = document.querySelector('.rail-usage-popup');
       return {
         overflow: popup.scrollWidth - popup.clientWidth,
-        rows: [...document.querySelectorAll(".sidebar-usage-meter")].map((row) => {
+        rows: [...document.querySelectorAll('.sidebar-usage-meter')].map((row) => {
           const [label, track, percent, reset] = row.children;
-          const provider = row.closest(".sidebar-usage-row").getBoundingClientRect();
+          const provider = row.closest('.sidebar-usage-row').getBoundingClientRect();
           const bar = track.getBoundingClientRect();
           const fill = track.firstElementChild.getBoundingClientRect();
           return {
@@ -117,22 +117,24 @@ test("quota tracks align across providers, start after the longest label and res
       };
     });
     assert.equal(layout.overflow, 0, `popup fits at viewport ${width}`);
-    assert.deepEqual(layout.rows.map((row) => row.label),
-      ["7D", "5H", "7D", "7D FABLE", "7D SONNET", "BASIC", "API", "FLASH", "PRO"]);
+    assert.deepEqual(
+      layout.rows.map((row) => row.label),
+      ['7D', '5H', '7D', '7D FABLE', '7D SONNET', 'BASIC', 'API', 'FLASH', 'PRO']
+    );
     // The label column is only as wide as the longest label on screen, so the
     // track claims everything else (user: 앞쪽 글자 영역까지 최대한 확장).
     const widestLabel = Math.max(...layout.rows.map((row) => row.labelText));
-    assert.ok(Math.abs(layout.rows[0].left - layout.rows[0].rowLeft - (widestLabel + 6)) <= 2,
-      `track starts right after the longest label at viewport ${width}`);
+    assert.ok(
+      Math.abs(layout.rows[0].left - layout.rows[0].rowLeft - (widestLabel + 6)) <= 2,
+      `track starts right after the longest label at viewport ${width}`
+    );
     for (const row of layout.rows) {
       const context = `${row.label} at viewport ${width}`;
       assert.equal(row.left, layout.rows[0].left, `aligned track start: ${context}`);
       assert.equal(row.width, layout.rows[0].width, `equal track length: ${context}`);
       assert.ok(row.width >= 64, `usable track: ${context}`);
-      assert.ok(Math.abs(row.fill - row.width * row.percent / 100) < 1,
-        `usage percentage preserved: ${context}`);
-      assert.ok(Math.abs(row.resetRight - row.rowRight) < 1,
-        `reset time flush with the row edge: ${context}`);
+      assert.ok(Math.abs(row.fill - (row.width * row.percent) / 100) < 1, `usage percentage preserved: ${context}`);
+      assert.ok(Math.abs(row.resetRight - row.rowRight) < 1, `reset time flush with the row edge: ${context}`);
       assert.equal(row.labelClipped, false, `full label: ${context}`);
       assert.equal(row.resetClipped, false, `full reset time: ${context}`);
     }

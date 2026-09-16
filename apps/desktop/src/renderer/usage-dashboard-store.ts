@@ -15,11 +15,11 @@
 //               is dropped without publishing, persisting, or retrying.
 //   * request id — monotonic per request; only the owning request may release
 //               the pending slot, so an old finally cannot clear a newer one.
-import type { DesktopApi } from "../shared/contract";
-import { readGlobalCapabilities } from "./global-capability-reads";
-import { startVisibleRefreshCadence } from "./visible-refresh-cadence";
+import type { DesktopApi } from '../shared/contract';
+import { readGlobalCapabilities } from './global-capability-reads';
+import { startVisibleRefreshCadence } from './visible-refresh-cadence';
 
-export type UsageApi = Partial<Pick<DesktopApi, "invokeCapability" | "readCapabilities">>;
+export type UsageApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'readCapabilities'>>;
 export type UsageRecord = Record<string, unknown>;
 
 /** Lifecycle of the LIVE result, independent of what currently paints:
@@ -27,7 +27,7 @@ export type UsageRecord = Record<string, unknown>;
  *   loading     — a request or its bounded retry is outstanding, no live result
  *   ready       — a valid live dashboard was accepted
  *   unavailable — the request path settled without a usable dashboard */
-export type UsageDashboardStatus = "idle" | "loading" | "ready" | "unavailable";
+export type UsageDashboardStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
 
 export type UsageDashboardSnapshot = {
   dashboard: UsageRecord;
@@ -38,7 +38,7 @@ export type UsageDashboardSnapshot = {
   status: UsageDashboardStatus;
 };
 
-export const USAGE_DASHBOARD_CACHE_KEY = "mixdog.desktop.sidebar-usage.v1";
+export const USAGE_DASHBOARD_CACHE_KEY = 'mixdog.desktop.sidebar-usage.v1';
 export const USAGE_DASHBOARD_REFRESH_INTERVAL_MS = 5 * 60_000;
 /** A snapshot younger than this satisfies an open/prewarm without a request. */
 export const USAGE_DASHBOARD_TTL_MS = USAGE_DASHBOARD_REFRESH_INTERVAL_MS;
@@ -56,8 +56,8 @@ const MAX_WINDOW_KEYS = 16;
 const MAX_RESET_CREDITS = 24;
 const MAX_CREDIT_KEYS = 12;
 const MAX_STRING_LENGTH = 512;
-const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-const USAGE_TIMEOUT_CODE = "usage-timeout";
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const USAGE_TIMEOUT_CODE = 'usage-timeout';
 
 type Listener = (snapshot: UsageDashboardSnapshot) => void;
 
@@ -65,7 +65,7 @@ const EMPTY_SNAPSHOT: UsageDashboardSnapshot = {
   dashboard: {},
   refreshedAt: 0,
   loading: false,
-  status: "idle",
+  status: 'idle',
 };
 
 let host: Window | null = null;
@@ -86,16 +86,16 @@ const timers = new Set<number>();
 
 function scalarValue(value: unknown): unknown {
   if (value === null) return null;
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
-  if (typeof value === "string") return value.slice(0, MAX_STRING_LENGTH);
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'string') return value.slice(0, MAX_STRING_LENGTH);
   return undefined;
 }
 
 /** Scalar-only copy: nested objects, arrays, functions and prototype keys are
  *  dropped, so nothing unbounded can be serialized into localStorage. */
 function scalarRecord(value: unknown, maxKeys: number): UsageRecord | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const source = value as UsageRecord;
   const out: UsageRecord = {};
   let kept = 0;
@@ -170,9 +170,7 @@ function readCache(win: Window): UsageRecord {
   try {
     // The seed is validated exactly like a live response: a poisoned cache key
     // must not be able to inject anything the capability could not return.
-    return sanitizeUsageDashboard(
-      JSON.parse(win.localStorage.getItem(USAGE_DASHBOARD_CACHE_KEY) || "null"),
-    ) || {};
+    return sanitizeUsageDashboard(JSON.parse(win.localStorage.getItem(USAGE_DASHBOARD_CACHE_KEY) || 'null')) || {};
   } catch {
     return {};
   }
@@ -235,7 +233,7 @@ function retire(): void {
  *  fresh test DOM): the retired window's storage, timers and subscribers can
  *  never be adopted by the new one. */
 function ensureHost(): Window | null {
-  const active = typeof window === "undefined" ? null : window;
+  const active = typeof window === 'undefined' ? null : window;
   if (active === host) return active;
   retire();
   stopCadence();
@@ -244,41 +242,46 @@ function ensureHost(): Window | null {
   listeners = new Set();
   host = active;
   hostGeneration += 1;
-  snapshot = active
-    ? { dashboard: readCache(active), refreshedAt: 0, loading: false, status: "idle" }
-    : EMPTY_SNAPSHOT;
+  snapshot = active ? { dashboard: readCache(active), refreshedAt: 0, loading: false, status: 'idle' } : EMPTY_SNAPSHOT;
   return active;
 }
 
 function publish(next: UsageDashboardSnapshot): void {
   // Identity is the subscription contract (useSyncExternalStore): only a real
   // change may produce a new object.
-  if (next.dashboard === snapshot.dashboard
-    && next.refreshedAt === snapshot.refreshedAt
-    && next.loading === snapshot.loading
-    && next.status === snapshot.status) return;
+  if (
+    next.dashboard === snapshot.dashboard &&
+    next.refreshedAt === snapshot.refreshedAt &&
+    next.loading === snapshot.loading &&
+    next.status === snapshot.status
+  )
+    return;
   snapshot = next;
   for (const listener of [...listeners]) listener(snapshot);
 }
 
 function publishStatus(status: UsageDashboardStatus): void {
-  publish({ ...snapshot, status, loading: status === "loading" });
+  publish({ ...snapshot, status, loading: status === 'loading' });
 }
 
 /** Settled status when no request is outstanding: a live result keeps the
  *  surface ready, otherwise the first paint reaches a FINAL unavailable state
  *  instead of announcing loading forever. */
 function settledStatus(): UsageDashboardStatus {
-  return snapshot.refreshedAt > 0 ? "ready" : "unavailable";
+  return snapshot.refreshedAt > 0 ? 'ready' : 'unavailable';
 }
 
 export function withUsageTimeout<T>(promise: Promise<T>, delayMs: number, win: Window): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = trackTimeout(win, () => {
-      const error = new Error("Subscription usage refresh timed out.") as Error & { code?: string };
-      error.code = USAGE_TIMEOUT_CODE;
-      reject(error);
-    }, delayMs);
+    const timer = trackTimeout(
+      win,
+      () => {
+        const error = new Error('Subscription usage refresh timed out.') as Error & { code?: string };
+        error.code = USAGE_TIMEOUT_CODE;
+        reject(error);
+      },
+      delayMs
+    );
     promise.then(
       (value) => {
         clearTracked(win, timer);
@@ -287,7 +290,7 @@ export function withUsageTimeout<T>(promise: Promise<T>, delayMs: number, win: W
       (reason) => {
         clearTracked(win, timer);
         reject(reason);
-      },
+      }
     );
   });
 }
@@ -319,7 +322,7 @@ export function publishUsageDashboard(dashboard: unknown): boolean {
   if (!sanitized || rowCount(sanitized) === 0) return false;
   retire();
   writeCache(win, sanitized);
-  publish({ dashboard: sanitized, refreshedAt: Date.now(), loading: false, status: "ready" });
+  publish({ dashboard: sanitized, refreshedAt: Date.now(), loading: false, status: 'ready' });
   return true;
 }
 
@@ -333,26 +336,26 @@ export function publishUsageDashboard(dashboard: unknown): boolean {
 export function applyAccountUsageWindows(provider: string, windows: unknown): boolean {
   const win = ensureHost();
   if (!win) return false;
-  const id = String(provider || "");
-  const rows = Array.isArray(snapshot.dashboard.rows)
-    ? (snapshot.dashboard.rows as UsageRecord[])
-    : [];
-  const index = rows.findIndex((row) => String(row?.id || "") === id);
+  const id = String(provider || '');
+  const rows = Array.isArray(snapshot.dashboard.rows) ? (snapshot.dashboard.rows as UsageRecord[]) : [];
+  const index = rows.findIndex((row) => String(row?.id || '') === id);
   if (!id || index < 0) return false;
   const accountWindows = scalarRecordList(windows, MAX_WINDOWS, MAX_WINDOW_KEYS);
   const dashboard: UsageRecord = {
     ...snapshot.dashboard,
-    rows: rows.map((row, position) => (
-      position === index ? {
-        id: row.id,
-        label: row.label,
-        group: row.group,
-        authenticated: row.authenticated,
-        windows: accountWindows,
-        status: "checking",
-        updatedAt: null,
-      } : row
-    )),
+    rows: rows.map((row, position) =>
+      position === index
+        ? {
+            id: row.id,
+            label: row.label,
+            group: row.group,
+            authenticated: row.authenticated,
+            windows: accountWindows,
+            status: 'checking',
+            updatedAt: null,
+          }
+        : row
+    ),
   };
   writeCache(win, dashboard);
   publish({ ...snapshot, dashboard });
@@ -363,23 +366,29 @@ export function applyAccountUsageWindows(provider: string, windows: unknown): bo
  *  quotas or leaving its replacement on an indefinite loading message. */
 function finishUsageChecks(win: Window): void {
   const rows = snapshot.dashboard.rows as UsageRecord[] | undefined;
-  if (!rows?.some((row) => row.status === "checking")) return;
+  if (!rows?.some((row) => row.status === 'checking')) return;
   const dashboard: UsageRecord = {
     ...snapshot.dashboard,
-    rows: rows.map((row) => row.status === "checking" ? {
-      ...row,
-      status: Array.isArray(row.windows) && row.windows.length > 0 ? "partial" : "unavailable",
-    } : row),
+    rows: rows.map((row) =>
+      row.status === 'checking'
+        ? {
+            ...row,
+            status: Array.isArray(row.windows) && row.windows.length > 0 ? 'partial' : 'unavailable',
+          }
+        : row
+    ),
   };
   writeCache(win, dashboard);
   publish({ ...snapshot, dashboard });
 }
 
 function isFresh(): boolean {
-  return snapshot.refreshedAt > 0
-    && rowCount(snapshot.dashboard) > 0
-    && !(snapshot.dashboard.rows as UsageRecord[]).some((row) => row.status === "checking")
-    && Date.now() - snapshot.refreshedAt < USAGE_DASHBOARD_TTL_MS;
+  return (
+    snapshot.refreshedAt > 0 &&
+    rowCount(snapshot.dashboard) > 0 &&
+    !(snapshot.dashboard.rows as UsageRecord[]).some((row) => row.status === 'checking') &&
+    Date.now() - snapshot.refreshedAt < USAGE_DASHBOARD_TTL_MS
+  );
 }
 
 function failRefresh(win: Window, timedOut: boolean): void {
@@ -392,23 +401,29 @@ function failRefresh(win: Window, timedOut: boolean): void {
   // The retry belongs to the CURRENT store lifecycle, never to a captured API:
   // with no cadence holder left there is nothing to refresh for.
   const api = cadenceHolders > 0 ? cadenceApi : undefined;
-  const retryable = !retryUsed && retryTimer === null
-    && win.document?.visibilityState !== "hidden"
-    && typeof api?.invokeCapability === "function";
+  const retryable =
+    !retryUsed &&
+    retryTimer === null &&
+    win.document?.visibilityState !== 'hidden' &&
+    typeof api?.invokeCapability === 'function';
   if (retryable) {
     retryUsed = true;
     const generation = epoch;
-    retryTimer = trackTimeout(win, () => {
-      retryTimer = null;
-      if (host !== win || epoch !== generation || cadenceHolders === 0) return;
-      if (win.document?.visibilityState === "hidden") return;
-      // cadenceApi is read at FIRE time so a same-window API swap is honoured.
-      void refreshUsageDashboard(cadenceApi, { force: true, retry: true });
-    }, USAGE_DASHBOARD_RETRY_DELAY_MS);
+    retryTimer = trackTimeout(
+      win,
+      () => {
+        retryTimer = null;
+        if (host !== win || epoch !== generation || cadenceHolders === 0) return;
+        if (win.document?.visibilityState === 'hidden') return;
+        // cadenceApi is read at FIRE time so a same-window API swap is honoured.
+        void refreshUsageDashboard(cadenceApi, { force: true, retry: true });
+      },
+      USAGE_DASHBOARD_RETRY_DELAY_MS
+    );
   }
   // Preserve known quotas, but settle account-switch placeholders as unknown.
   finishUsageChecks(win);
-  publishStatus(retryable && snapshot.refreshedAt === 0 ? "loading" : settledStatus());
+  publishStatus(retryable && snapshot.refreshedAt === 0 ? 'loading' : settledStatus());
 }
 
 function acceptRefresh(win: Window, value: unknown): void {
@@ -429,7 +444,7 @@ function acceptRefresh(win: Window, value: unknown): void {
     refreshedAt: Date.now(),
     loading: false,
     // A well-formed but empty dashboard is a FINAL answer, not a load state.
-    status: rowCount(sanitized) > 0 ? "ready" : "unavailable",
+    status: rowCount(sanitized) > 0 ? 'ready' : 'unavailable',
   });
 }
 
@@ -442,25 +457,29 @@ async function runRefresh(
   api: UsageApi,
   id: number,
   generation: number,
-  providers: readonly string[] | undefined,
+  providers: readonly string[] | undefined
 ): Promise<void> {
   let result: unknown;
   try {
     result = await withUsageTimeout(
-      readGlobalCapabilities(api, [{
-        capability: "getUsageDashboard",
-        // Refresh provider quotas without repeating the slower keychain/local
-        // setup scan on every cadence tick. `refreshProviders` narrows the LIVE
-        // sweep to the provider whose credentials just changed, so an account
-        // switch is not paced by an unrelated provider's quota call.
-        args: [{
-          refresh: true,
-          refreshSetup: false,
-          ...(providers?.length ? { refreshProviders: [...providers] } : {}),
-        }],
-      }]),
+      readGlobalCapabilities(api, [
+        {
+          capability: 'getUsageDashboard',
+          // Refresh provider quotas without repeating the slower keychain/local
+          // setup scan on every cadence tick. `refreshProviders` narrows the LIVE
+          // sweep to the provider whose credentials just changed, so an account
+          // switch is not paced by an unrelated provider's quota call.
+          args: [
+            {
+              refresh: true,
+              refreshSetup: false,
+              ...(providers?.length ? { refreshProviders: [...providers] } : {}),
+            },
+          ],
+        },
+      ]),
       USAGE_DASHBOARD_REQUEST_TIMEOUT_MS,
-      win,
+      win
     );
   } catch (cause) {
     // A retired generation has no owner: no publish, no cache write, no retry.
@@ -478,7 +497,7 @@ async function runRefresh(
  *  provider that changed. Best effort and independent of the auth outcome. */
 export function refreshUsageDashboardAfterAuth(
   api: UsageApi | undefined,
-  providers?: readonly string[],
+  providers?: readonly string[]
 ): Promise<void> {
   ensureHost();
   retire();
@@ -489,14 +508,20 @@ export function refreshUsageDashboardAfterAuth(
  *  (cadence ticks and retries); everything else is stale-while-revalidate. */
 export function refreshUsageDashboard(
   api: UsageApi | undefined,
-  { force = false, retry = false, providers }: {
-    force?: boolean; retry?: boolean; providers?: readonly string[];
-  } = {},
+  {
+    force = false,
+    retry = false,
+    providers,
+  }: {
+    force?: boolean;
+    retry?: boolean;
+    providers?: readonly string[];
+  } = {}
 ): Promise<void> {
   const win = ensureHost();
   if (pending) return pending;
   if (!win) return Promise.resolve();
-  if (typeof api?.invokeCapability !== "function" && typeof api?.readCapabilities !== "function") {
+  if (typeof api?.invokeCapability !== 'function' && typeof api?.readCapabilities !== 'function') {
     // This host cannot serve usage at all. Settle the first paint instead of
     // leaving the surface on an indefinite Loading.
     finishUsageChecks(win);
@@ -516,10 +541,10 @@ export function refreshUsageDashboard(
     pending = null;
     // A pending bounded retry keeps the first paint in loading; nothing else
     // may leave the surface waiting forever.
-    if (snapshot.status === "loading" && retryTimer === null) publishStatus(settledStatus());
+    if (snapshot.status === 'loading' && retryTimer === null) publishStatus(settledStatus());
   });
   pending = request;
-  publishStatus(snapshot.refreshedAt > 0 ? "ready" : "loading");
+  publishStatus(snapshot.refreshedAt > 0 ? 'ready' : 'loading');
   return request;
 }
 
@@ -535,7 +560,7 @@ function scheduleRetirement(): void {
     stopCadence();
     cadenceApi = undefined;
     retire();
-    if (snapshot.status === "loading") publishStatus(settledStatus());
+    if (snapshot.status === 'loading') publishStatus(settledStatus());
   });
 }
 
@@ -547,17 +572,20 @@ export function holdUsageDashboardCadence(api: UsageApi | undefined): () => void
   cadenceHolders += 1;
   // A same-window API swap (host bridge replaced) becomes the cadence API, so
   // neither the cadence nor the retry can keep a retired bridge alive.
-  if (typeof api?.invokeCapability === "function" || typeof api?.readCapabilities === "function") cadenceApi = api;
-  if (win && releaseCadence === null
-    && (typeof cadenceApi?.invokeCapability === "function" || typeof cadenceApi?.readCapabilities === "function")) {
+  if (typeof api?.invokeCapability === 'function' || typeof api?.readCapabilities === 'function') cadenceApi = api;
+  if (
+    win &&
+    releaseCadence === null &&
+    (typeof cadenceApi?.invokeCapability === 'function' || typeof cadenceApi?.readCapabilities === 'function')
+  ) {
     releaseCadence = startVisibleRefreshCadence({
       win,
       intervalMs: USAGE_DASHBOARD_REFRESH_INTERVAL_MS,
-      refresh: (reason) => void refreshUsageDashboard(cadenceApi, { force: reason === "interval" }),
+      refresh: (reason) => void refreshUsageDashboard(cadenceApi, { force: reason === 'interval' }),
       onHidden: () => {
         if (retryTimer !== null) clearTracked(win, retryTimer);
         retryTimer = null;
-        if (!pending && snapshot.status === "loading") publishStatus(settledStatus());
+        if (!pending && snapshot.status === 'loading') publishStatus(settledStatus());
       },
     });
   }

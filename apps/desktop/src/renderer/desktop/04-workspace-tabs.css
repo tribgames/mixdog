@@ -16,9 +16,18 @@
   overflow-y: hidden !important;
   scrollbar-width: none;
 }
-.workspace-tabs.drag-scroll::-webkit-scrollbar { display: none; }
-.titlebar-leading, .workspace-tabs-shell, .topbar .titlebar-new { margin-top: 0; }
-.workspace-tabs-shell { position: relative; align-self: center; }
+.workspace-tabs.drag-scroll::-webkit-scrollbar {
+  display: none;
+}
+.titlebar-leading,
+.workspace-tabs-shell,
+.topbar .titlebar-new {
+  margin-top: 0;
+}
+.workspace-tabs-shell {
+  position: relative;
+  align-self: center;
+}
 /* Phone strip (user decision (a)): [brand mark][title pill][+][dock toggles]
    — the pill names the active tab in place of the tab run, and the + and
    toggles are the desktop's own. The old count switcher is retired. */
@@ -45,7 +54,9 @@
   font-weight: var(--mx-weight-medium);
   cursor: pointer;
 }
-.workspace-tab-compact-current > svg { flex: 0 0 auto; }
+.workspace-tab-compact-current > svg {
+  flex: 0 0 auto;
+}
 .workspace-tab-compact-current > span {
   min-width: 0;
   overflow: hidden;
@@ -63,7 +74,9 @@
   background: transparent;
   cursor: pointer;
 }
-.workspace-tab-home-mark { display: block; }
+.workspace-tab-home-mark {
+  display: block;
+}
 .titlebar-caption-space {
   /* WCO shells resolve env() to the real caption edge; plain browsers fall
      back to 100vw → a 0px reserve, so no phantom 138px strip off-Electron. */
@@ -90,9 +103,13 @@
   min-width: var(--workspace-tab-current-width, 30px);
   max-width: var(--workspace-tab-current-width, 160px);
   flex: 1 1 var(--workspace-tab-current-width, 160px);
-  transition: min-width var(--mx-motion-chrome), max-width var(--mx-motion-chrome),
-    flex-basis var(--mx-motion-chrome), padding-left var(--mx-motion-chrome),
-    padding-right var(--mx-motion-chrome), opacity var(--mx-motion-chrome);
+  transition:
+    min-width var(--mx-motion-chrome),
+    max-width var(--mx-motion-chrome),
+    flex-basis var(--mx-motion-chrome),
+    padding-left var(--mx-motion-chrome),
+    padding-right var(--mx-motion-chrome),
+    opacity var(--mx-motion-chrome);
   gap: 2px;
   padding: 0 6px 0 10px;
   border: 0;
@@ -111,7 +128,9 @@
 /* Crossover floor: the ACTIVE tab stops at the width that still
    fits favicon+close (the close button stays on the active tab at
    EVERY size); inactive cells keep giving width down to the sliver. */
-.workspace-tab.active { min-width: var(--workspace-tab-current-width, 56px); }
+.workspace-tab.active {
+  min-width: var(--workspace-tab-current-width, 56px);
+}
 /* Add and close share the run's own clock. A tab the strip has just gained
    starts at nothing and grows to its cell while its neighbours shrink, so the
    run's total never exceeds the strip and the leading tab is never clipped
@@ -146,7 +165,10 @@
   pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .workspace-tab, .workspace-tab-main { transition: none; }
+  .workspace-tab,
+  .workspace-tab-main {
+    transition: none;
+  }
 }
 /* Visibility ladder:
    1) inactive tabs drop the close button once contents fall under
@@ -157,13 +179,17 @@
    4) the ACTIVE tab keeps favicon + close to its floor
       (user: 선택탭 넓이 — icon+close fit at 56px); only its label yields. */
 @container (max-width: 84px) {
-  .workspace-tab:not(.active) .workspace-tab-close { display: none; }
+  .workspace-tab:not(.active) .workspace-tab-close {
+    display: none;
+  }
 }
 @container (max-width: 48px) {
   .workspace-tab-main span,
   /* Doubled class beats the later base `display: block` (the dot rode the
      sliver edge half-clipped — user: 레드닷 위치가 잘리네). */
-  .workspace-tab .workspace-tab-unread-dot { display: none; }
+  .workspace-tab .workspace-tab-unread-dot {
+    display: none;
+  }
   .workspace-tab:not(.active) .workspace-tab-main {
     flex: 1;
     justify-content: center;
@@ -173,7 +199,9 @@
   }
 }
 @container (max-width: 64px) {
-  .workspace-tab.active .workspace-tab-main span { display: none; }
+  .workspace-tab.active .workspace-tab-main span {
+    display: none;
+  }
 }
 /* Short dividers (8px inset, never full height) separate EVERY cell — the
    selected label included (user: 붙어있는 기본 테두리 구분). They frame the
@@ -181,7 +209,9 @@
 /* Tab DnD: the source tab stays in
    place; a text-only ghost label rides the cursor and a 2px accent border
    marks the insertion index between tabs (drop-target-left/right). */
-.workspace-tab.dragging { cursor: grabbing; }
+.workspace-tab.dragging {
+  cursor: grabbing;
+}
 .workspace-tab.drop-target-left::after,
 .workspace-tab.drop-target-right::before {
   content: "";
@@ -193,10 +223,16 @@
   pointer-events: none;
   z-index: 11;
 }
-.workspace-tab.drop-target-right::before { left: 0; }
+.workspace-tab.drop-target-right::before {
+  left: 0;
+}
 /* -2px joins the neighbor's drop-target-right line. */
-.workspace-tab.drop-target-left::after { right: -2px; }
-.workspace-tab:last-child.drop-target-left::after { right: 0; }
+.workspace-tab.drop-target-left::after {
+  right: -2px;
+}
+.workspace-tab:last-child.drop-target-left::after {
+  right: 0;
+}
 .workspace-tab-ghost {
   position: fixed;
   left: 0;
@@ -227,13 +263,19 @@
   pointer-events: none;
 }
 .workspace-tab:hover::before,
-.workspace-tab:focus-within::before { opacity: 0; }
+.workspace-tab:focus-within::before {
+  opacity: 0;
+}
 /* The selection keeps BOTH seams — its own right hairline and the left
    neighbor's — so the divider pair stays put even while either tab is
    hovered; the pair is the selection's boundary, not a hover affordance. */
 .workspace-tab.active::before,
-.workspace-tab:has(+ .workspace-tab.active)::before { opacity: 1; }
-.workspace-tab:active { cursor: grabbing; }
+.workspace-tab:has(+ .workspace-tab.active)::before {
+  opacity: 1;
+}
+.workspace-tab:active {
+  cursor: grabbing;
+}
 .workspace-tab:hover,
 .workspace-tab:focus-within {
   --workspace-tab-surface: var(--mx-tab-pill, var(--mx-bg-layer-1));
@@ -254,7 +296,9 @@
    tab both take the workspace sheet, so the label row flows straight into
    the transcript/editor. Tabs still read through ink steps, cell dividers,
    the hover pill, and the 2px active top band. */
-.pane-cell > .workspace-tabs-shell { background: var(--mx-workspace-sheet); }
+.pane-cell > .workspace-tabs-shell {
+  background: var(--mx-workspace-sheet);
+}
 .pane-cell .workspace-tab,
 .pane-cell .workspace-tab.active {
   --workspace-tab-surface: var(--mx-workspace-sheet);
@@ -286,18 +330,31 @@
 /* Keep the close affordance fully opaque for active and interaction states. */
 .workspace-tab.active .workspace-tab-close,
 .workspace-tab:hover .workspace-tab-close,
-.workspace-tab:focus-within .workspace-tab-close { opacity: 1; }
-.workspace-tab:focus-within { outline: 0; }
+.workspace-tab:focus-within .workspace-tab-close {
+  opacity: 1;
+}
+.workspace-tab:focus-within {
+  outline: 0;
+}
 .workspace-tab:has(> .workspace-tab-main:focus-visible),
 .workspace-tab:has(> .workspace-tab-close:focus-visible) {
   outline: 2px solid var(--mx-focus);
   outline-offset: 2px;
 }
-.workspace-tab-main:focus-visible, .workspace-tab-close:focus-visible { outline: 0; }
+.workspace-tab-main:focus-visible,
+.workspace-tab-close:focus-visible {
+  outline: 0;
+}
 /* The first-cell inset steps when the leading tab closes; it glides on the
    same clock as the widths instead of snapping once the ghost unmounts. */
-.workspace-tab-main { gap: 4px; padding: 0; transition: padding-left var(--mx-motion-chrome); }
-.workspace-tab:not(:first-child) > .workspace-tab-main { padding-left: 4px; }
+.workspace-tab-main {
+  gap: 4px;
+  padding: 0;
+  transition: padding-left var(--mx-motion-chrome);
+}
+.workspace-tab:not(:first-child) > .workspace-tab-main {
+  padding-left: 4px;
+}
 /* Glyph, spinner, X and + all sit on the cell centre line — no optical lift
    (user: 라벨 안의 아이콘이랑 스피너도 같은 선상에). */
 .workspace-tab-main > svg {
@@ -308,8 +365,14 @@
 }
 /* Tabs stay on the shared 13px item tier. Selection adds the 500 label
    weight; inactive tabs rest at 400 and remain readable through solid ink. */
-.workspace-tab-main span { font-size: var(--mx-font-item); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); }
-.workspace-tab.active .workspace-tab-main span { font-weight: var(--mx-weight-medium); }
+.workspace-tab-main span {
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+}
+.workspace-tab.active .workspace-tab-main span {
+  font-weight: var(--mx-weight-medium);
+}
 .workspace-tab-new {
   /* The HIT BOX fills the strip row and a full 34px column (user: +의
      상하좌우 패딩이 이상해서 누르기 힘들다 — a 28px box in the 35px row
@@ -341,13 +404,19 @@
   padding: 5px;
   border-radius: var(--mx-radius-md);
 }
-.workspace-tab-new svg { padding: 4px; }
+.workspace-tab-new svg {
+  padding: 4px;
+}
 /* Codicon add: native 16px grid, pixel-crisp like Chrome's own +. */
-.workspace-tab-new .codicon { font-size: 16px; }
+.workspace-tab-new .codicon {
+  font-size: 16px;
+}
 .workspace-tab-new:hover svg,
 .workspace-tab-new:hover .codicon,
 .workspace-tab-new:focus-visible svg,
-.workspace-tab-new:focus-visible .codicon { background: var(--mx-hover); }
+.workspace-tab-new:focus-visible .codicon {
+  background: var(--mx-hover);
+}
 .workspace-tab-new-menu {
   position: fixed;
   z-index: 10020;
@@ -373,7 +442,10 @@
   text-align: left;
 }
 .workspace-tab-new-menu > button:hover,
-.workspace-tab-new-menu > button:focus-visible { background: var(--mx-hover); outline: 0; }
+.workspace-tab-new-menu > button:focus-visible {
+  background: var(--mx-hover);
+  outline: 0;
+}
 .workspace-tab-new-menu > button > svg {
   flex: 0 0 15px;
   color: var(--mx-icon-muted);
@@ -439,7 +511,9 @@
   top: -1px;
 }
 /* Codicon close at its native 16px (tab grammar) — pixel-aligned. */
-.workspace-tab-close .codicon { font-size: 16px; }
+.workspace-tab-close .codicon {
+  font-size: 16px;
+}
 .workspace-tab-close:hover {
   color: var(--mx-text);
   background: var(--mx-hover);

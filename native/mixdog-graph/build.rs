@@ -15,7 +15,8 @@
 use std::path::PathBuf;
 
 fn bundle_rules(kind: &str, out_file: &str, count_env: &str) {
-    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let manifest_dir =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let rules_dir = manifest_dir.join("rules").join(kind);
     // Re-run when a rule file is added, removed, or edited. Watching the
     // directory covers add/remove; each file is watched for edits below.
@@ -30,7 +31,9 @@ fn bundle_rules(kind: &str, out_file: &str, count_env: &str) {
                     && path
                         .extension()
                         .and_then(|ext| ext.to_str())
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("yml") || ext.eq_ignore_ascii_case("yaml"))
+                        .is_some_and(|ext| {
+                            ext.eq_ignore_ascii_case("yml") || ext.eq_ignore_ascii_case("yaml")
+                        })
             })
             .collect(),
         // No directory yet (or unreadable): bundle nothing.

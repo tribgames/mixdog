@@ -45,8 +45,7 @@ test('first-visible code graph prewarm overlaps an active turn', async () => {
 
   assert.deepEqual(calls, [cwd]);
   assert.equal(
-    profiles.some(([event, detail]) =>
-      event === 'code-graph:prewarm-deferred' && detail?.reason === 'turn-active'),
-    false,
+    profiles.some(([event, detail]) => event === 'code-graph:prewarm-deferred' && detail?.reason === 'turn-active'),
+    false
   );
 });

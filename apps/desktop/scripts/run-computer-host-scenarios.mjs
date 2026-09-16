@@ -5,19 +5,14 @@ import { dirname, join, resolve } from 'node:path';
 
 import { optionValue } from './cli-args.mjs';
 import { computerSourceEsbuildPlugin } from './computer-source-assets.mjs';
-import {
-  bundleElectronEntry,
-  electronProcessEnv,
-  spawnElectron,
-  waitForChildExit,
-} from './electron-harness.mjs';
+import { bundleElectronEntry, electronProcessEnv, spawnElectron, waitForChildExit } from './electron-harness.mjs';
 
 const argument = optionValue;
 
 const label = argument('label') || 'baseline';
 const initialDirectory = process.env.INIT_CWD || process.cwd();
 const reportPath = resolve(
-  argument('output') || join(initialDirectory, 'artifacts', 'computer-use', `scenario-${label}.json`),
+  argument('output') || join(initialDirectory, 'artifacts', 'computer-use', `scenario-${label}.json`)
 );
 const requirePass = process.argv.includes('--require-pass');
 const only = argument('only');
@@ -54,9 +49,7 @@ try {
     } catch {
       return;
     }
-    const addition = progress.startsWith(emittedProgress)
-      ? progress.slice(emittedProgress.length)
-      : progress;
+    const addition = progress.startsWith(emittedProgress) ? progress.slice(emittedProgress.length) : progress;
     if (addition) process.stdout.write(addition);
     emittedProgress = progress;
   };
@@ -81,8 +74,8 @@ try {
   }
   const report = JSON.parse(await readFile(reportPath, 'utf8'));
   console.log(
-    `Computer Use scenarios ${report.summary.passed}/${report.summary.total} passed`
-      + ` (${report.summary.failed} failed, ${report.summary.skipped} skipped); ${reportPath}`,
+    `Computer Use scenarios ${report.summary.passed}/${report.summary.total} passed` +
+      ` (${report.summary.failed} failed, ${report.summary.skipped} skipped); ${reportPath}`
   );
   if (requirePass && report.summary.failed > 0) {
     throw new Error(`${report.summary.failed} Computer Use scenarios failed`);

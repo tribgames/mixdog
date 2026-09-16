@@ -57,7 +57,7 @@ export function createBrowserHitTarget(host: {
   async function guard(
     guest: WebContents,
     target: { backendNodeId?: number; objectId?: string; sessionId?: string },
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ) {
     const objects: Array<{ objectId: string; sessionId?: string; token: string }> = [];
     const originalUrl = guest.getURL();
@@ -71,43 +71,74 @@ export function createBrowserHitTarget(host: {
       let failed = false;
       for (const object of objects.reverse()) {
         try {
-          const response = await host.cdp.call<{ result?: { value?: { blocked?: boolean; expired?: boolean } }; exceptionDetails?: unknown }>(
-            guest, 'Runtime.callFunctionOn', {
-              objectId: object.objectId, functionDeclaration: BROWSER_HIT_GUARD,
-              arguments: [{ value: object.token }, { value: true }], returnByValue: true,
-            }, undefined, object,
+          const response = await host.cdp.call<{
+            result?: { value?: { blocked?: boolean; expired?: boolean } };
+            exceptionDetails?: unknown;
+          }>(
+            guest,
+            'Runtime.callFunctionOn',
+            {
+              objectId: object.objectId,
+              functionDeclaration: BROWSER_HIT_GUARD,
+              arguments: [{ value: object.token }, { value: true }],
+              returnByValue: true,
+            },
+            undefined,
+            object
           );
-          failed ||= !!response.exceptionDetails || !!response.result?.value?.blocked || !!response.result?.value?.expired;
-        } catch { failed = true; }
-        finally {
-          await host.cdp.call(guest, 'Runtime.releaseObject', { objectId: object.objectId }, undefined, object).catch(() => undefined);
+          failed ||=
+            !!response.exceptionDetails || !!response.result?.value?.blocked || !!response.result?.value?.expired;
+        } catch {
+          failed = true;
+        } finally {
+          await host.cdp
+            .call(guest, 'Runtime.releaseObject', { objectId: object.objectId }, undefined, object)
+            .catch(() => undefined);
         }
       }
       // Navigation destroys the old document's guard. The caller reports the
       // resulting page; do not turn a successful navigation into a retry hint.
-      if (check && failed && guest.getURL() === originalUrl && !guest.isLoading()) throw new Error('input target changed or could not be verified; input was not replayed, observe before continuing');
+      if (check && failed && guest.getURL() === originalUrl && !guest.isLoading())
+        throw new Error(
+          'input target changed or could not be verified; input was not replayed, observe before continuing'
+        );
     }
     try {
       let node = target;
       for (let depth = 0; depth < 32; depth++) {
-        const resolved = node.objectId ? { object: { objectId: node.objectId } }
+        const resolved = node.objectId
+          ? { object: { objectId: node.objectId } }
           : await host.cdp.call<{ object?: { objectId?: string } }>(
-            guest, 'DOM.resolveNode', { backendNodeId: node.backendNodeId }, signal, node,
-          );
+              guest,
+              'DOM.resolveNode',
+              { backendNodeId: node.backendNodeId },
+              signal,
+              node
+            );
         if (!resolved.object?.objectId) throw new Error('target detached before input');
         const object = { objectId: resolved.object.objectId, sessionId: node.sessionId, token: randomUUID() };
         objects.push(object);
         const armed = await host.cdp.call<{ exceptionDetails?: unknown }>(
-          guest, 'Runtime.callFunctionOn', {
-            objectId: object.objectId, functionDeclaration: BROWSER_HIT_GUARD,
-            arguments: [{ value: object.token }, { value: false }], returnByValue: true,
-          }, signal, object,
+          guest,
+          'Runtime.callFunctionOn',
+          {
+            objectId: object.objectId,
+            functionDeclaration: BROWSER_HIT_GUARD,
+            arguments: [{ value: object.token }, { value: false }],
+            returnByValue: true,
+          },
+          signal,
+          object
         );
         if (armed.exceptionDetails) throw new Error('could not arm input target check');
         const frame = node.sessionId ? host.frames(guest).get(node.sessionId) : undefined;
         if (!frame?.frameId) break;
         const owner = await host.cdp.call<{ backendNodeId?: number }>(
-          guest, 'DOM.getFrameOwner', { frameId: frame.frameId }, signal, { sessionId: frame.parentSessionId },
+          guest,
+          'DOM.getFrameOwner',
+          { frameId: frame.frameId },
+          signal,
+          { sessionId: frame.parentSessionId }
         );
         if (!owner.backendNodeId) throw new Error('could not verify parent frame target');
         node = { backendNodeId: owner.backendNodeId, sessionId: frame.parentSessionId };

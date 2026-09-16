@@ -21,7 +21,90 @@ import { TextEntryPanel } from '../components/TextEntryPanel.jsx';
 import { textEntryClearsByEmpty } from './text-entry-policy.mjs';
 import { Item } from '../components/TranscriptItem.jsx';
 export function renderAppView(ctx) {
-  const { PANEL_MAX_VISIBLE, acceptSlashPalette, activeSlashQuery, activeTools, agentRevision, cancelProviderPrompt, cancelSettingsPrompt, cancelSlashPalette, clearPromptHint, completeSlashPalette, contextPanel, cycleWorkflowFromPrompt, exiting, expandedOptionPanel, floatingPanelRows, frameColumns, gridSelectionActiveRef, guardHintWidth, handlePromptEscape, handlePromptHistoryNavigate, handlePromptInterrupt, handlePromptPaste, hasUserMessages, initialStatusLine, inputBoxHidden, inputHint, inputHintTone, liveSpinner, onPromptDraftChange, onSubmit, overlayHintAttachItemIndex, overlayHintBandRows, overlayHintFallbackRow, overlayHintOnLastItem, panelCloseMaskRows, panelInkMaskEpoch, panelTransitionClearRows, panelTransitionEpoch, picker, pickerOpenedFromEnterRef, pickerOpenedFromEnterTimerRef, pickerVisibleRows, promptBoxRectRef, promptBoxRows, promptDraft, promptDraftOverride, promptMetaVisible, promptMouseSelectionRef, promptSelectionRef, promptSpinnerColumns, promptValueRef, providerPrompt, queuedCompact, queuedVisible, renderedTranscriptItems, resizeEpoch, resizeState, restoreQueuedToPrompt, setSlashIndex, setTextEntryLayoutRows, settingsPrompt, showWelcomeBanner, slashCommands, slashIndex, slashPaletteOpen, state, statuslineStats, store, surface, toolApproval, toolOutputExpanded, transcriptContentHeight, transcriptGuardRows, transcriptMeasureRef, transcriptTailPinned, transcriptWindow, transientStatusWidth, tuiReady, usagePanel, viewportHeight, welcomePromptHintRows, welcomePromptHintText } = ctx; /* DESTRUCTURE */
+  const {
+    PANEL_MAX_VISIBLE,
+    acceptSlashPalette,
+    activeSlashQuery,
+    activeTools,
+    agentRevision,
+    cancelProviderPrompt,
+    cancelSettingsPrompt,
+    cancelSlashPalette,
+    clearPromptHint,
+    completeSlashPalette,
+    contextPanel,
+    cycleWorkflowFromPrompt,
+    exiting,
+    expandedOptionPanel,
+    floatingPanelRows,
+    frameColumns,
+    gridSelectionActiveRef,
+    guardHintWidth,
+    handlePromptEscape,
+    handlePromptHistoryNavigate,
+    handlePromptInterrupt,
+    handlePromptPaste,
+    hasUserMessages,
+    initialStatusLine,
+    inputBoxHidden,
+    inputHint,
+    inputHintTone,
+    liveSpinner,
+    onPromptDraftChange,
+    onSubmit,
+    overlayHintAttachItemIndex,
+    overlayHintBandRows,
+    overlayHintFallbackRow,
+    overlayHintOnLastItem,
+    panelCloseMaskRows,
+    panelInkMaskEpoch,
+    panelTransitionClearRows,
+    panelTransitionEpoch,
+    picker,
+    pickerOpenedFromEnterRef,
+    pickerOpenedFromEnterTimerRef,
+    pickerVisibleRows,
+    promptBoxRectRef,
+    promptBoxRows,
+    promptDraft,
+    promptDraftOverride,
+    promptMetaVisible,
+    promptMouseSelectionRef,
+    promptSelectionRef,
+    promptSpinnerColumns,
+    promptValueRef,
+    providerPrompt,
+    queuedCompact,
+    queuedVisible,
+    renderedTranscriptItems,
+    resizeEpoch,
+    resizeState,
+    restoreQueuedToPrompt,
+    setSlashIndex,
+    setTextEntryLayoutRows,
+    settingsPrompt,
+    showWelcomeBanner,
+    slashCommands,
+    slashIndex,
+    slashPaletteOpen,
+    state,
+    statuslineStats,
+    store,
+    surface,
+    toolApproval,
+    toolOutputExpanded,
+    transcriptContentHeight,
+    transcriptGuardRows,
+    transcriptMeasureRef,
+    transcriptTailPinned,
+    transcriptWindow,
+    transientStatusWidth,
+    tuiReady,
+    usagePanel,
+    viewportHeight,
+    welcomePromptHintRows,
+    welcomePromptHintText,
+  } = ctx; /* DESTRUCTURE */
   const promptInputControl = (
     <PromptInput
       onSubmit={onSubmit}
@@ -56,11 +139,7 @@ export function renderAppView(ctx) {
           if (total === 0) return 0;
           if (direction === 'home') return 0;
           if (direction === 'end') return total - 1;
-          const step = direction === 'left'
-            ? -1
-            : direction === 'right'
-              ? 1
-              : Number(direction) || 0;
+          const step = direction === 'left' ? -1 : direction === 'right' ? 1 : Number(direction) || 0;
           if (step === 1 || step === -1) return (index + step + total) % total;
           return Math.max(0, Math.min(total - 1, index + step));
         });
@@ -85,14 +164,33 @@ export function renderAppView(ctx) {
       {/* Empty-transcript header stays outside the bottom-anchored viewport and
           has its own reserved rows, so it cannot steal space from the input. */}
       {showWelcomeBanner ? (
-        <Box flexDirection="column" height={7} flexShrink={0} marginTop={3} marginBottom={1} backgroundColor={surfaceBackground()}>
-          <Text color={theme.text} bold>{centerLine('███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ██████╗ ', frameColumns)}</Text>
-          <Text color={theme.text} bold>{centerLine('████╗ ████║██║╚██╗██╔╝██╔══██╗██╔═══██╗██╔════╝ ', frameColumns)}</Text>
-          <Text color={theme.logo ?? theme.claude} bold>{centerLine('██╔████╔██║██║ ╚███╔╝ ██║  ██║██║   ██║██║  ███╗', frameColumns)}</Text>
-          <Text color={theme.logo ?? theme.claude} bold>{centerLine('██║╚██╔╝██║██║ ██╔██╗ ██║  ██║██║   ██║██║   ██║', frameColumns)}</Text>
-          <Text color={theme.logo ?? theme.claude} bold>{centerLine('██║ ╚═╝ ██║██║██╔╝ ██╗██████╔╝╚██████╔╝╚██████╔╝', frameColumns)}</Text>
+        <Box
+          flexDirection="column"
+          height={7}
+          flexShrink={0}
+          marginTop={3}
+          marginBottom={1}
+          backgroundColor={surfaceBackground()}
+        >
+          <Text color={theme.text} bold>
+            {centerLine('███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ██████╗ ', frameColumns)}
+          </Text>
+          <Text color={theme.text} bold>
+            {centerLine('████╗ ████║██║╚██╗██╔╝██╔══██╗██╔═══██╗██╔════╝ ', frameColumns)}
+          </Text>
+          <Text color={theme.logo ?? theme.claude} bold>
+            {centerLine('██╔████╔██║██║ ╚███╔╝ ██║  ██║██║   ██║██║  ███╗', frameColumns)}
+          </Text>
+          <Text color={theme.logo ?? theme.claude} bold>
+            {centerLine('██║╚██╔╝██║██║ ██╔██╗ ██║  ██║██║   ██║██║   ██║', frameColumns)}
+          </Text>
+          <Text color={theme.logo ?? theme.claude} bold>
+            {centerLine('██║ ╚═╝ ██║██║██╔╝ ██╗██████╔╝╚██████╔╝╚██████╔╝', frameColumns)}
+          </Text>
           <Box height={1} flexShrink={0} />
-          <Text color={theme.inactive}>{centerLine(`mixdog coding agent · v${localPackageVersion()} · ${state.cwd}`, frameColumns, 4)}</Text>
+          <Text color={theme.inactive}>
+            {centerLine(`mixdog coding agent · v${localPackageVersion()} · ${state.cwd}`, frameColumns, 4)}
+          </Text>
         </Box>
       ) : null}
 
@@ -120,7 +218,7 @@ export function renderAppView(ctx) {
           overflow="hidden"
           justifyContent="flex-end"
         >
-        {/* Wheel scroll: with the viewport bottom-anchored (flex-end), a NEGATIVE
+          {/* Wheel scroll: with the viewport bottom-anchored (flex-end), a NEGATIVE
             marginBottom pushes the transcript column DOWN past the bottom edge,
             bringing older content above the window into view (overflow hidden
             clips the newest rows that slide below). 0 = newest content pinned to
@@ -128,8 +226,13 @@ export function renderAppView(ctx) {
             stays fixed — so the scroll axis here is marginBottom, not marginTop.)
             scrollOffset is clamped ≥ 0 by the wheel handler; a new turn snaps it
             back to 0. */}
-        <Box flexDirection="column" width="100%" flexShrink={0} marginBottom={-transcriptWindow.effectiveScrollOffset}>
-           {/*
+          <Box
+            flexDirection="column"
+            width="100%"
+            flexShrink={0}
+            marginBottom={-transcriptWindow.effectiveScrollOffset}
+          >
+            {/*
              * Transcript windowing: render only the rows around the viewport rather
              * than the full state.items list. A cheap bottom spacer preserves the
              * same scroll coordinate when the visible window is in older history;
@@ -138,47 +241,53 @@ export function renderAppView(ctx) {
              * OVERSCAN: TRANSCRIPT_WINDOW_OVERSCAN_ROWS extra rows above the viewport so
              * fast wheel scrolls don't show a blank gap before re-render.
              */}
-           {renderedTranscriptItems.map((item, i, arr) => {
-             const measureRef = transcriptMeasureRef(item);
-             const attachOverlayHint = overlayHintOnLastItem && i === overlayHintAttachItemIndex;
-             const itemNode = (
-               <Item
-                 item={item}
-                 prevKind={i > 0
-                   ? arr[i - 1].kind
-                   : (state.transcriptViewItems || state.items)[transcriptWindow.startIndex - 1]?.kind ?? null}
-                 columns={frameColumns}
-                 toolOutputExpanded={toolOutputExpanded}
-                 rightMessage={attachOverlayHint ? inputHint : ''}
-                 rightTone={attachOverlayHint ? inputHintTone : 'info'}
-                 rightMessageWidth={attachOverlayHint ? (guardHintWidth || transientStatusWidth || 24) : 24}
-                 themeEpoch={state.themeEpoch || 0}
-                 streamingWindowRows={transcriptTailPinned && item.id === state.streamingTail?.id
-                   ? transcriptContentHeight + TRANSCRIPT_WINDOW_TAIL_OVERSCAN_ROWS
-                   : 0}
-               />
-             );
-             // When measured-rows is on, wrap each row in a zero-cost flex column
-             // whose ref exposes the row's REAL Yoga height to the harvest effect.
-             // The wrapper adds no rows of its own (it shrink-wraps the child) and
-             // is omitted entirely when the feature is disabled so the default
-             // render tree is byte-for-byte unchanged on the off path.
-             return measureRef ? (
-               <Box key={item.id} ref={measureRef} flexDirection="column" flexShrink={0}>
-                 {itemNode}
-               </Box>
-             ) : (
-               <React.Fragment key={item.id}>{itemNode}</React.Fragment>
-             );
-           })}
-           {transcriptWindow.bottomSpacerRows > 0 ? (
-             <Box height={transcriptWindow.bottomSpacerRows} flexShrink={0} />
-           ) : null}
-        </Box>
+            {renderedTranscriptItems.map((item, i, arr) => {
+              const measureRef = transcriptMeasureRef(item);
+              const attachOverlayHint = overlayHintOnLastItem && i === overlayHintAttachItemIndex;
+              const itemNode = (
+                <Item
+                  item={item}
+                  prevKind={
+                    i > 0
+                      ? arr[i - 1].kind
+                      : ((state.transcriptViewItems || state.items)[transcriptWindow.startIndex - 1]?.kind ?? null)
+                  }
+                  columns={frameColumns}
+                  toolOutputExpanded={toolOutputExpanded}
+                  rightMessage={attachOverlayHint ? inputHint : ''}
+                  rightTone={attachOverlayHint ? inputHintTone : 'info'}
+                  rightMessageWidth={attachOverlayHint ? guardHintWidth || transientStatusWidth || 24 : 24}
+                  themeEpoch={state.themeEpoch || 0}
+                  streamingWindowRows={
+                    transcriptTailPinned && item.id === state.streamingTail?.id
+                      ? transcriptContentHeight + TRANSCRIPT_WINDOW_TAIL_OVERSCAN_ROWS
+                      : 0
+                  }
+                />
+              );
+              // When measured-rows is on, wrap each row in a zero-cost flex column
+              // whose ref exposes the row's REAL Yoga height to the harvest effect.
+              // The wrapper adds no rows of its own (it shrink-wraps the child) and
+              // is omitted entirely when the feature is disabled so the default
+              // render tree is byte-for-byte unchanged on the off path.
+              return measureRef ? (
+                <Box key={item.id} ref={measureRef} flexDirection="column" flexShrink={0}>
+                  {itemNode}
+                </Box>
+              ) : (
+                <React.Fragment key={item.id}>{itemNode}</React.Fragment>
+              );
+            })}
+            {transcriptWindow.bottomSpacerRows > 0 ? (
+              <Box height={transcriptWindow.bottomSpacerRows} flexShrink={0} />
+            ) : null}
+          </Box>
         </Box>
         {welcomePromptHintRows > 0 ? (
           <Box height={1} flexShrink={0} width="100%" overflow="hidden">
-            <Text color={theme.inactive} wrap="truncate">{centerLine(welcomePromptHintText, frameColumns, 2)}</Text>
+            <Text color={theme.inactive} wrap="truncate">
+              {centerLine(welcomePromptHintText, frameColumns, 2)}
+            </Text>
           </Box>
         ) : null}
         {panelCloseMaskRows > 0 ? (
@@ -191,19 +300,51 @@ export function renderAppView(ctx) {
           />
         ) : null}
         {overlayHintBandRows > 0 ? (
-          <Box height={1} flexShrink={0} backgroundColor={surfaceBackground()} flexDirection="row" width="100%" overflow="hidden">
+          <Box
+            height={1}
+            flexShrink={0}
+            backgroundColor={surfaceBackground()}
+            flexDirection="row"
+            width="100%"
+            overflow="hidden"
+          >
             <Box flexGrow={1} flexShrink={1} overflow="hidden" />
-            <Box flexShrink={0} width={guardHintWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
-              <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
+            <Box
+              flexShrink={0}
+              width={guardHintWidth || 1}
+              marginLeft={1}
+              marginRight={1}
+              justifyContent="flex-end"
+              overflow="hidden"
+            >
+              <Text color={promptStatusColor(inputHintTone)} wrap="truncate">
+                {inputHint}
+              </Text>
             </Box>
           </Box>
         ) : null}
         {transcriptGuardRows > 0 ? (
-          <Box height={transcriptGuardRows} flexShrink={0} backgroundColor={surfaceBackground()} flexDirection="row" width="100%" overflow="hidden">
+          <Box
+            height={transcriptGuardRows}
+            flexShrink={0}
+            backgroundColor={surfaceBackground()}
+            flexDirection="row"
+            width="100%"
+            overflow="hidden"
+          >
             <Box flexGrow={1} flexShrink={1} overflow="hidden" />
             {overlayHintFallbackRow && overlayHintBandRows === 0 ? (
-              <Box flexShrink={0} width={guardHintWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
-                <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
+              <Box
+                flexShrink={0}
+                width={guardHintWidth || 1}
+                marginLeft={1}
+                marginRight={1}
+                justifyContent="flex-end"
+                overflow="hidden"
+              >
+                <Text color={promptStatusColor(inputHintTone)} wrap="truncate">
+                  {inputHint}
+                </Text>
               </Box>
             ) : null}
           </Box>
@@ -219,15 +360,40 @@ export function renderAppView(ctx) {
           bottom-aligned against the prompt. */}
       <Box flexDirection="column" flexShrink={0} width="100%" backgroundColor={surfaceBackground()}>
         {panelTransitionClearRows > 0 ? (
-          <Box height={panelTransitionClearRows} flexShrink={0} width="100%" overflow="hidden" backgroundColor={surfaceBackground()} />
+          <Box
+            height={panelTransitionClearRows}
+            flexShrink={0}
+            width="100%"
+            overflow="hidden"
+            backgroundColor={surfaceBackground()}
+          />
         ) : null}
         {floatingPanelRows > 0 ? (
-          <Box flexDirection="column" flexShrink={0} height={floatingPanelRows} overflow="hidden" justifyContent="flex-end" backgroundColor={surfaceBackground()}>
+          <Box
+            flexDirection="column"
+            flexShrink={0}
+            height={floatingPanelRows}
+            overflow="hidden"
+            justifyContent="flex-end"
+            backgroundColor={surfaceBackground()}
+          >
             {toolApproval ? (
               <Picker
                 items={[
-                  { value: 'deny', label: 'Deny', marker: '×', markerColor: theme.error, description: 'block this tool call' },
-                  { value: 'approve', label: 'Approve once', marker: '✓', markerColor: theme.success, description: 'run this tool call' },
+                  {
+                    value: 'deny',
+                    label: 'Deny',
+                    marker: '×',
+                    markerColor: theme.error,
+                    description: 'block this tool call',
+                  },
+                  {
+                    value: 'approve',
+                    label: 'Approve once',
+                    marker: '✓',
+                    markerColor: theme.success,
+                    description: 'run this tool call',
+                  },
                 ]}
                 onSelect={(value) => {
                   store.resolveToolApproval?.(toolApproval.id, {
@@ -239,7 +405,9 @@ export function renderAppView(ctx) {
                   store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'denied by user' });
                 }}
                 onKey={(input) => {
-                  const value = String(input || '').trim().toLowerCase();
+                  const value = String(input || '')
+                    .trim()
+                    .toLowerCase();
                   if (value === 'a' || value === 'y') {
                     store.resolveToolApproval?.(toolApproval.id, { approved: true, reason: 'approved by user' });
                   } else if (value === 'd' || value === 'n') {
@@ -333,25 +501,31 @@ export function renderAppView(ctx) {
                 // Remount on a restore so a repeated failed save re-seeds the
                 // editor even when the restored text is byte-identical.
                 key={`provider-prompt:${providerPrompt.restoreEpoch || 0}`}
-                title={providerPrompt.kind === 'api-key'
-                  ? `${providerPrompt.mode === 'replace' ? 'Replace' : 'Set'} API key · ${providerPrompt.label}`
-                  : providerPrompt.kind === 'oauth-code'
-                    ? providerPrompt.label
-                    : providerPrompt.kind === 'openai-usage-session'
-                      ? 'OpenAI Usage · Session Key'
-                      : `Base URL · ${providerPrompt.label}`}
-                hint={providerPrompt.kind === 'api-key'
-                  ? [
-                    providerPrompt.envName ? `Env: ${providerPrompt.envName}` : '',
-                    providerPrompt.source ? `Current: ${providerPrompt.source}` : '',
-                    providerPrompt.keyUrl ? `Get a key: ${providerPrompt.keyUrl}` : '',
-                    'Stored in the OS keychain.',
-                  ].filter(Boolean).join(' · ')
-                  : providerPrompt.kind === 'oauth-code'
-                    ? (providerPrompt.hint || 'Paste the browser code.')
-                    : providerPrompt.kind === 'openai-usage-session'
-                      ? 'Paste an OpenAI dashboard/session key for the undocumented credit lookup. It is stored in the OS keychain.'
-                      : `Default: ${providerPrompt.defaultURL}`}
+                title={
+                  providerPrompt.kind === 'api-key'
+                    ? `${providerPrompt.mode === 'replace' ? 'Replace' : 'Set'} API key · ${providerPrompt.label}`
+                    : providerPrompt.kind === 'oauth-code'
+                      ? providerPrompt.label
+                      : providerPrompt.kind === 'openai-usage-session'
+                        ? 'OpenAI Usage · Session Key'
+                        : `Base URL · ${providerPrompt.label}`
+                }
+                hint={
+                  providerPrompt.kind === 'api-key'
+                    ? [
+                        providerPrompt.envName ? `Env: ${providerPrompt.envName}` : '',
+                        providerPrompt.source ? `Current: ${providerPrompt.source}` : '',
+                        providerPrompt.keyUrl ? `Get a key: ${providerPrompt.keyUrl}` : '',
+                        'Stored in the OS keychain.',
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')
+                    : providerPrompt.kind === 'oauth-code'
+                      ? providerPrompt.hint || 'Paste the browser code.'
+                      : providerPrompt.kind === 'openai-usage-session'
+                        ? 'Paste an OpenAI dashboard/session key for the undocumented credit lookup. It is stored in the OS keychain.'
+                        : `Default: ${providerPrompt.defaultURL}`
+                }
                 detail={providerPrompt.detail || ''}
                 mask={providerPrompt.kind === 'api-key' || providerPrompt.kind === 'openai-usage-session'}
                 columns={frameColumns}
@@ -359,13 +533,15 @@ export function renderAppView(ctx) {
                 // is not lost with the failed round-trip (normally empty).
                 initialValue={providerPrompt.initialValue || ''}
                 actionLabel={providerPrompt.kind === 'oauth-code' ? 'continue' : 'save'}
-                promptLabel={providerPrompt.kind === 'api-key'
-                  ? 'API key > '
-                  : providerPrompt.kind === 'oauth-code'
-                    ? 'Paste code here if prompted > '
-                    : providerPrompt.kind === 'openai-usage-session'
-                      ? 'Session key > '
-                      : 'Base URL > '}
+                promptLabel={
+                  providerPrompt.kind === 'api-key'
+                    ? 'API key > '
+                    : providerPrompt.kind === 'oauth-code'
+                      ? 'Paste code here if prompted > '
+                      : providerPrompt.kind === 'openai-usage-session'
+                        ? 'Session key > '
+                        : 'Base URL > '
+                }
                 onSubmit={onSubmit}
                 onCancel={cancelProviderPrompt}
               />
@@ -381,40 +557,44 @@ export function renderAppView(ctx) {
                 multiline={settingsPrompt.kind === 'core-add' || settingsPrompt.kind === 'core-edit'}
                 maxContentRows={PANEL_MAX_VISIBLE}
                 onContentRowsChange={setTextEntryLayoutRows}
-                actionLabel={settingsPrompt.kind === 'skill-use'
-                  ? 'run'
-                  : settingsPrompt.kind === 'autoclear-provider'
-                    ? 'save'
-                  : settingsPrompt.kind === 'project-new'
-                    ? 'open'
-                    : settingsPrompt.kind === 'project-create-confirm'
-                      ? 'confirm'
-                      : settingsPrompt.kind === 'project-rename'
-                        ? 'rename'
-                        : settingsPrompt.kind === 'core-add'
-                          ? 'add'
-                          : settingsPrompt.kind === 'core-edit'
-                            ? 'save'
-                            : settingsPrompt.kind === 'core-delete-confirm'
-                              ? 'confirm'
-                        : 'save'}
-                promptLabel={settingsPrompt.kind === 'skill-use'
-                  ? 'Command > '
-                  : settingsPrompt.kind === 'autoclear-provider'
-                    ? 'Duration > '
-                  : settingsPrompt.kind === 'project-new'
-                    ? 'Path > '
-                    : settingsPrompt.kind === 'project-create-confirm'
-                      ? 'Create? (y/n) > '
-                      : settingsPrompt.kind === 'project-rename'
-                        ? 'Name > '
-                        : settingsPrompt.kind === 'core-add'
-                          ? 'Sentence > '
-                          : settingsPrompt.kind === 'core-edit'
-                            ? 'Sentence > '
-                            : settingsPrompt.kind === 'core-delete-confirm'
-                              ? 'Delete? (y/n) > '
-                        : 'Value > '}
+                actionLabel={
+                  settingsPrompt.kind === 'skill-use'
+                    ? 'run'
+                    : settingsPrompt.kind === 'autoclear-provider'
+                      ? 'save'
+                      : settingsPrompt.kind === 'project-new'
+                        ? 'open'
+                        : settingsPrompt.kind === 'project-create-confirm'
+                          ? 'confirm'
+                          : settingsPrompt.kind === 'project-rename'
+                            ? 'rename'
+                            : settingsPrompt.kind === 'core-add'
+                              ? 'add'
+                              : settingsPrompt.kind === 'core-edit'
+                                ? 'save'
+                                : settingsPrompt.kind === 'core-delete-confirm'
+                                  ? 'confirm'
+                                  : 'save'
+                }
+                promptLabel={
+                  settingsPrompt.kind === 'skill-use'
+                    ? 'Command > '
+                    : settingsPrompt.kind === 'autoclear-provider'
+                      ? 'Duration > '
+                      : settingsPrompt.kind === 'project-new'
+                        ? 'Path > '
+                        : settingsPrompt.kind === 'project-create-confirm'
+                          ? 'Create? (y/n) > '
+                          : settingsPrompt.kind === 'project-rename'
+                            ? 'Name > '
+                            : settingsPrompt.kind === 'core-add'
+                              ? 'Sentence > '
+                              : settingsPrompt.kind === 'core-edit'
+                                ? 'Sentence > '
+                                : settingsPrompt.kind === 'core-delete-confirm'
+                                  ? 'Delete? (y/n) > '
+                                  : 'Value > '
+                }
                 onSubmit={onSubmit}
                 onCancel={cancelSettingsPrompt}
               />
@@ -423,59 +603,68 @@ export function renderAppView(ctx) {
         ) : null}
         {!inputBoxHidden ? (
           <>
-          {promptMetaVisible ? (
-            <>
-              <Box
-                marginTop={0}
-                marginBottom={0}
-                height={1}
-                width="100%"
-                flexDirection="row"
-                backgroundColor={surfaceBackground()}
-              >
-                <Box flexGrow={1} flexShrink={1} overflow="hidden">
-                  {liveSpinner ? (
-                    <Spinner
-                      verb={liveSpinner.verb}
-                      startedAt={liveSpinner.startedAt}
-                      outputTokens={liveSpinner?.outputTokens ?? liveSpinner?.tokens ?? 0}
-                      thinking={!!(state.thinking || liveSpinner?.thinking)}
-                      thinkingActiveSince={liveSpinner?.thinkingSegmentStartedAt ?? 0}
-                      thinkingMs={liveSpinner?.thinkingAccumulatedMs ?? 0}
-                      effort={state.effort || ''}
-                      hasActiveTools={!!(activeTools?.explore?.count || activeTools?.web_search?.count)}
-                      paused={!!toolApproval}
-                      interruptible={!!(state.busy && state.spinner?.active)}
-                      mode={liveSpinner?.mode || 'responding'}
-                      columns={promptSpinnerColumns}
-                      marginTop={0}
-                    />
+            {promptMetaVisible ? (
+              <>
+                <Box
+                  marginTop={0}
+                  marginBottom={0}
+                  height={1}
+                  width="100%"
+                  flexDirection="row"
+                  backgroundColor={surfaceBackground()}
+                >
+                  <Box flexGrow={1} flexShrink={1} overflow="hidden">
+                    {liveSpinner ? (
+                      <Spinner
+                        verb={liveSpinner.verb}
+                        startedAt={liveSpinner.startedAt}
+                        outputTokens={liveSpinner?.outputTokens ?? liveSpinner?.tokens ?? 0}
+                        thinking={!!(state.thinking || liveSpinner?.thinking)}
+                        thinkingActiveSince={liveSpinner?.thinkingSegmentStartedAt ?? 0}
+                        thinkingMs={liveSpinner?.thinkingAccumulatedMs ?? 0}
+                        effort={state.effort || ''}
+                        hasActiveTools={!!(activeTools?.explore?.count || activeTools?.web_search?.count)}
+                        paused={!!toolApproval}
+                        interruptible={!!(state.busy && state.spinner?.active)}
+                        mode={liveSpinner?.mode || 'responding'}
+                        columns={promptSpinnerColumns}
+                        marginTop={0}
+                      />
+                    ) : null}
+                  </Box>
+                  {inputHint ? (
+                    <Box
+                      flexShrink={0}
+                      width={transientStatusWidth || 1}
+                      marginLeft={1}
+                      marginRight={1}
+                      justifyContent="flex-end"
+                      overflow="hidden"
+                    >
+                      <Text color={promptStatusColor(inputHintTone)} wrap="truncate">
+                        {inputHint}
+                      </Text>
+                    </Box>
                   ) : null}
                 </Box>
-                {inputHint ? (
-                  <Box flexShrink={0} width={transientStatusWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
-                    <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
-                  </Box>
-                ) : null}
-              </Box>
-              <Box height={1} width="100%" backgroundColor={surfaceBackground()} />
-            </>
-          ) : null}
-          {queuedVisible ? (
-            <QueuedCommands queued={state.queued} columns={frameColumns} compact={queuedCompact} />
-          ) : null}
-          <Box
-            marginTop={0}
-            width="100%"
-            height={promptBoxRows}
-            flexShrink={0}
-            borderStyle="round"
-            borderColor={theme.promptBorder}
-            backgroundColor={surfaceBackground()}
-            paddingX={1}
-          >
-            {promptInputControl}
-          </Box>
+                <Box height={1} width="100%" backgroundColor={surfaceBackground()} />
+              </>
+            ) : null}
+            {queuedVisible ? (
+              <QueuedCommands queued={state.queued} columns={frameColumns} compact={queuedCompact} />
+            ) : null}
+            <Box
+              marginTop={0}
+              width="100%"
+              height={promptBoxRows}
+              flexShrink={0}
+              borderStyle="round"
+              borderColor={theme.promptBorder}
+              backgroundColor={surfaceBackground()}
+              paddingX={1}
+            >
+              {promptInputControl}
+            </Box>
           </>
         ) : null}
         <StatusLine

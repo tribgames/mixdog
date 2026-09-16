@@ -38,11 +38,7 @@ export function readSingletonOwner(path) {
   return { owner, alive: isPidAlive(owner.pid) };
 }
 
-export function claimSingletonOwner(path, {
-  kind = 'runtime',
-  pid = process.pid,
-  meta = {},
-} = {}) {
+export function claimSingletonOwner(path, { kind = 'runtime', pid = process.pid, meta = {} } = {}) {
   const owner = {
     kind,
     pid,

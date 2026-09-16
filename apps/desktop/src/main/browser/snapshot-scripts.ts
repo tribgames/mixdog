@@ -28,11 +28,11 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
     snapshotId: String(options.snapshotId),
     maxElements: Math.min(
       MAX_SNAPSHOT_ELEMENTS,
-      Math.max(1, Math.trunc(options.maxElements || DEFAULT_SNAPSHOT_MAX_ELEMENTS)),
+      Math.max(1, Math.trunc(options.maxElements || DEFAULT_SNAPSHOT_MAX_ELEMENTS))
     ),
     textChars: Math.min(
       MAX_SNAPSHOT_TEXT_CHARS,
-      Math.max(200, Math.trunc(options.textChars || DEFAULT_SNAPSHOT_TEXT_CHARS)),
+      Math.max(200, Math.trunc(options.textChars || DEFAULT_SNAPSHOT_TEXT_CHARS))
     ),
     query: String(options.query || '').trim(),
     viewportOnly: options.viewportOnly === true,

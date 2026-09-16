@@ -1,7 +1,7 @@
 // Non-code text masker: blanks comment/string/regex bytes so downstream
 // identifier scans never match inside them. Byte-offset preserving (fills
 // with spaces, keeps newlines) so match.index maps back to the raw source.
-// Extracted verbatim from code-graph.mjs.
+
 import {
   _supportsHashComments,
   _supportsSlashComments,
@@ -86,7 +86,7 @@ function _stringInterpKind(lang, delim, src, quoteIndex) {
   // Kotlin templates work the same in "…" and in """…""" raw strings.
   if (lang === 'kotlin' && (delim === '"' || triple)) return 'dollar-brace';
   if (lang === 'bash' && delim === '"') return 'bash';
-  if (lang === 'python' && (triple || delim === '"' || delim === '\'')) {
+  if (lang === 'python' && (triple || delim === '"' || delim === "'")) {
     const prefix = _stringLiteralPrefix(src, quoteIndex, /[fFrRbBuU]/);
     return /[fF]/.test(prefix) ? 'brace' : null;
   }
@@ -118,8 +118,11 @@ function _handleInterpolationInString(src, out, i, frame, stack) {
   // Bare `$name` (kotlin template, bash expansion) is a real reference, so its
   // identifier bytes stay visible; only the `$` is masked. JS template literals
   // have no bare form — `$foo` there is literal text.
-  if ((kind === 'bash' || (kind === 'dollar-brace' && frame.lang === 'kotlin'))
-      && src[i] === '$' && _isWordStartChar(src[i + 1])) {
+  if (
+    (kind === 'bash' || (kind === 'dollar-brace' && frame.lang === 'kotlin')) &&
+    src[i] === '$' &&
+    _isWordStartChar(src[i + 1])
+  ) {
     if (src[i] !== '\n') out[i] = ' ';
     let j = i + 1;
     while (j < src.length && _isWordChar(src[j])) j += 1;
@@ -232,8 +235,8 @@ export function _maskNonCodeText(text, lang) {
       // string closes at the first `'`. Skip the escape consumption there so
       // `'\'` is not mis-read as an escaped quote. bash `"..."` and all other
       // langs keep backslash-escape handling.
-      const bashLiteralSingle = t.lang === 'bash' && d === '\'';
-      if (!bashLiteralSingle && src[i] === '\\' && (d === '\'' || d === '"' || d === '`')) {
+      const bashLiteralSingle = t.lang === 'bash' && d === "'";
+      if (!bashLiteralSingle && src[i] === '\\' && (d === "'" || d === '"' || d === '`')) {
         if (src[i] !== '\n') out[i] = ' ';
         if (i + 1 < src.length && src[i + 1] !== '\n') out[i + 1] = ' ';
         i += 2;
@@ -248,7 +251,7 @@ export function _maskNonCodeText(text, lang) {
       }
       // JS forbids a raw newline inside '...' or "..." — defensive reset. bash
       // quoted strings legally span newlines, so do NOT reset bash frames.
-      if (src[i] === '\n' && t.lang !== 'bash' && (d === '\'' || d === '"')) {
+      if (src[i] === '\n' && t.lang !== 'bash' && (d === "'" || d === '"')) {
         stack.pop();
         prevToken = 'value';
         i++;
@@ -293,7 +296,11 @@ export function _maskNonCodeText(text, lang) {
         prevToken = 'value';
         continue;
       }
-      if (src[i] === '"' || (_supportsSingleQuoteStrings(lang) && src[i] === '\'') || (_supportsBacktickStrings(lang) && src[i] === '`')) {
+      if (
+        src[i] === '"' ||
+        (_supportsSingleQuoteStrings(lang) && src[i] === "'") ||
+        (_supportsBacktickStrings(lang) && src[i] === '`')
+      ) {
         if (src[i] !== '\n') out[i] = ' ';
         stack.push({ kind: 'string', delim: src[i], lang, interp: _stringInterpKind(lang, src[i], src, i) });
         i++;
@@ -404,7 +411,11 @@ export function _maskNonCodeText(text, lang) {
       prevToken = 'value';
       continue;
     }
-    if (src[i] === '"' || (_supportsSingleQuoteStrings(lang) && src[i] === '\'') || (_supportsBacktickStrings(lang) && src[i] === '`')) {
+    if (
+      src[i] === '"' ||
+      (_supportsSingleQuoteStrings(lang) && src[i] === "'") ||
+      (_supportsBacktickStrings(lang) && src[i] === '`')
+    ) {
       if (src[i] !== '\n') out[i] = ' ';
       stack.push({ kind: 'string', delim: src[i], lang, interp: _stringInterpKind(lang, src[i], src, i) });
       i++;

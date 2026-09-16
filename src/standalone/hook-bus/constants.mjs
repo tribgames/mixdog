@@ -75,11 +75,7 @@ export const TOP_LEVEL_DECISION_EVENTS = new Set([
   'PreCompact',
 ]);
 
-export const PLAIN_STDOUT_CONTEXT_EVENTS = new Set([
-  'SessionStart',
-  'UserPromptSubmit',
-  'UserPromptExpansion',
-]);
+export const PLAIN_STDOUT_CONTEXT_EVENTS = new Set(['SessionStart', 'UserPromptSubmit', 'UserPromptExpansion']);
 
 export const SUPPORTED_HANDLER_TYPES = new Set(['command', 'http', 'mcp_tool', 'prompt']);
 

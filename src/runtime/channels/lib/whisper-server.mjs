@@ -48,10 +48,10 @@ const FIXED_PORT = (() => {
   const n = raw ? Number.parseInt(raw, 10) : NaN;
   return Number.isInteger(n) && n > 0 && n < 65536 ? n : 8771;
 })();
-const READY_TIMEOUT_MS = 120_000;   // model load + bind budget
-const READY_POLL_MS = 250;          // TCP probe cadence
-const PROBE_CONNECT_MS = 1_000;     // per TCP-connect attempt
-const STOP_GRACE_MS = 5_000;        // SIGTERM → SIGKILL escalation window
+const READY_TIMEOUT_MS = 120_000; // model load + bind budget
+const READY_POLL_MS = 250; // TCP probe cadence
+const PROBE_CONNECT_MS = 1_000; // per TCP-connect attempt
+const STOP_GRACE_MS = 5_000; // SIGTERM → SIGKILL escalation window
 const INFERENCE_PATH = '/inference'; // whisper-server default --inference-path
 // Idle release. Without it ONE transcription pins the loaded model for the whole
 // host-process lifetime (measured: ~325 MB working set, ~2.1 GB commit with the
@@ -75,15 +75,15 @@ const STATE = Object.freeze({
 // ── Singleton manager state ───────────────────────────────────────────────────
 const mgr = {
   state: STATE.STOPPED,
-  child: null,          // ChildProcess handle (non-detached)
-  port: null,           // selected port; must belong to the current child
+  child: null, // ChildProcess handle (non-detached)
+  port: null, // selected port; must belong to the current child
   host: null,
-  runtimeKey: null,     // exact contract fingerprint
-  contract: null,       // { serverCmd, modelPath, threadCount, host }
-  startPromise: null,   // in-flight ensureReady() start
-  inflight: new Set(),  // active transcribe AbortControllers
-  logTail: '',          // recent stdout/stderr for diagnostics
-  idleTimer: null,      // armed only while READY with nothing in flight
+  runtimeKey: null, // exact contract fingerprint
+  contract: null, // { serverCmd, modelPath, threadCount, host }
+  startPromise: null, // in-flight ensureReady() start
+  inflight: new Set(), // active transcribe AbortControllers
+  logTail: '', // recent stdout/stderr for diagnostics
+  idleTimer: null, // armed only while READY with nothing in flight
 };
 
 function runtimeKeyOf({ serverCmd, modelPath, threadCount, host }) {
@@ -96,9 +96,7 @@ function pidMetaPath() {
   // of the server binary's data root is brittle — instead key off serverCmd's
   // runtime root. We persist next to a stable per-user temp path derived from the
   // serverCmd so cleanup survives a manager-process restart.
-  const base = mgr.contract?.serverCmd
-    ? path.join(path.dirname(mgr.contract.serverCmd), '..', '..')
-    : process.cwd();
+  const base = mgr.contract?.serverCmd ? path.join(path.dirname(mgr.contract.serverCmd), '..', '..') : process.cwd();
   return path.join(base, 'whisper-server.pid.json');
 }
 
@@ -117,17 +115,25 @@ function writePidMeta() {
   try {
     fs.mkdirSync(path.dirname(pidMetaPath()), { recursive: true });
     fs.writeFileSync(pidMetaPath(), JSON.stringify(meta), 'utf8');
-  } catch { /* metadata is advisory cleanup state; non-fatal */ }
+  } catch {
+    /* metadata is advisory cleanup state; non-fatal */
+  }
 }
 
 function clearPidMeta() {
-  try { fs.rmSync(pidMetaPath(), { force: true }); } catch { /* non-fatal */ }
+  try {
+    fs.rmSync(pidMetaPath(), { force: true });
+  } catch {
+    /* non-fatal */
+  }
 }
 
 function readPidMeta() {
   try {
     return JSON.parse(fs.readFileSync(pidMetaPath(), 'utf8'));
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 // Read the live process command line for `pid`. This is the proof-of-ownership
@@ -145,18 +151,21 @@ function readProcessCommandLine(pid) {
     const sysRoot = process.env.SystemRoot || process.env.windir || 'C\u003a\\Windows';
     const wmic = path.join(sysRoot, 'System32', 'wbem', 'wmic.exe');
     try {
-      const r = spawnSync(
-        wmic,
-        ['process', 'where', `ProcessId=${pid}`, 'get', 'CommandLine', '/FORMAT:LIST'],
-        { encoding: 'utf8', windowsHide: true },
-      );
+      const r = spawnSync(wmic, ['process', 'where', `ProcessId=${pid}`, 'get', 'CommandLine', '/FORMAT:LIST'], {
+        encoding: 'utf8',
+        windowsHide: true,
+      });
       return r.stdout || '';
-    } catch { return ''; }
+    } catch {
+      return '';
+    }
   }
   try {
     const r = spawnSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8', windowsHide: true });
     return r.stdout || '';
-  } catch { return ''; }
+  } catch {
+    return '';
+  }
 }
 
 // Positive ownership check: the recorded pid must be alive AND its image must be
@@ -168,31 +177,37 @@ function readProcessCommandLine(pid) {
 // only a positive match licenses killing the stale child.
 function isOwnedWhisperServer(pid, { modelPath, port } = {}) {
   if (!pid || !Number.isInteger(pid)) return false;
-  try { process.kill(pid, 0); } catch { return false; } // not alive / not ours
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  } // not alive / not ours
   // 1) Image identity.
   let imageOk = false;
   if (IS_WIN) {
     try {
-      const r = spawnSync(
-        'tasklist',
-        ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'],
-        { encoding: 'utf8', windowsHide: true },
-      );
+      const r = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
+        encoding: 'utf8',
+        windowsHide: true,
+      });
       imageOk = /whisper-server\.exe/i.test(r.stdout || '');
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   } else {
     try {
       const r = spawnSync('ps', ['-p', String(pid), '-o', 'comm='], { encoding: 'utf8', windowsHide: true });
       imageOk = /whisper-server/i.test(r.stdout || '');
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }
   if (!imageOk) return false;
   // 2) Command-line contract proof. Fail closed if we cannot read the cmdline.
   const cmdline = readProcessCommandLine(pid);
   if (!cmdline) return false;
   const modelMatch = Boolean(modelPath) && cmdline.includes(modelPath);
-  const portMatch = Number.isInteger(port)
-    && new RegExp(`--port(?:\\s+|=)${port}(?!\\d)`).test(cmdline);
+  const portMatch = Number.isInteger(port) && new RegExp(`--port(?:\\s+|=)${port}(?!\\d)`).test(cmdline);
   return modelMatch || portMatch;
 }
 
@@ -201,10 +216,18 @@ function killPid(pid, force) {
   if (IS_WIN) {
     const args = ['/PID', String(pid), '/T'];
     if (force) args.push('/F');
-    try { spawnSync('taskkill', args, { windowsHide: true }); } catch { /* best-effort */ }
+    try {
+      spawnSync('taskkill', args, { windowsHide: true });
+    } catch {
+      /* best-effort */
+    }
     return;
   }
-  try { process.kill(pid, force ? 'SIGKILL' : 'SIGTERM'); } catch { /* best-effort */ }
+  try {
+    process.kill(pid, force ? 'SIGKILL' : 'SIGTERM');
+  } catch {
+    /* best-effort */
+  }
 }
 
 // Single TCP-connect probe. Resolves true when the socket accepts a connection
@@ -216,7 +239,9 @@ function probePort(host, port) {
     const finish = (ok) => {
       if (done) return;
       done = true;
-      try { sock.destroy(); } catch {}
+      try {
+        sock.destroy();
+      } catch {}
       resolve(ok);
     };
     sock.setTimeout(PROBE_CONNECT_MS);
@@ -242,17 +267,28 @@ async function applyLowPriorityOnce(child) {
     if (typeof setPriority === 'function') {
       // IDLE_PRIORITY_CLASS === 0x40 (64); pass both the symbolic and numeric
       // forms to tolerate the package's accepted argument shape.
-      try { setPriority(child.pid, 'idle'); }
-      catch { setPriority(child.pid, 0x40); }
+      try {
+        setPriority(child.pid, 'idle');
+      } catch {
+        setPriority(child.pid, 0x40);
+      }
     }
-  } catch { /* package/API absent → priority stays default; non-fatal */ }
+  } catch {
+    /* package/API absent → priority stays default; non-fatal */
+  }
 }
 
 function detachChildHandlers() {
   if (!mgr.child) return;
-  try { mgr.child.removeAllListeners(); } catch {}
-  try { mgr.child.stdout?.removeAllListeners(); } catch {}
-  try { mgr.child.stderr?.removeAllListeners(); } catch {}
+  try {
+    mgr.child.removeAllListeners();
+  } catch {}
+  try {
+    mgr.child.stdout?.removeAllListeners();
+  } catch {}
+  try {
+    mgr.child.stderr?.removeAllListeners();
+  } catch {}
 }
 
 function clearIdleTimer() {
@@ -275,7 +311,9 @@ function armIdleTimer() {
     mgr.state = STATE.STOPPING;
     void teardown('idle-timeout')
       .catch(() => {})
-      .finally(() => { mgr.state = STATE.STOPPED; });
+      .finally(() => {
+        mgr.state = STATE.STOPPED;
+      });
   }, IDLE_TIMEOUT_MS);
   mgr.idleTimer.unref?.();
 }
@@ -289,11 +327,21 @@ async function teardown(reason) {
   const child = mgr.child;
   const pid = child?.pid;
   // Abort all in-flight transcribe requests first.
-  for (const ctrl of mgr.inflight) { try { ctrl.abort(new Error(`whisper-server stopping: ${reason}`)); } catch {} }
+  for (const ctrl of mgr.inflight) {
+    try {
+      ctrl.abort(new Error(`whisper-server stopping: ${reason}`));
+    } catch {}
+  }
   mgr.inflight.clear();
   if (child && pid) {
     detachChildHandlers();
-    const exited = new Promise((resolve) => { try { child.once('exit', resolve); } catch { resolve(); } });
+    const exited = new Promise((resolve) => {
+      try {
+        child.once('exit', resolve);
+      } catch {
+        resolve();
+      }
+    });
     killPid(pid, false);
     const raced = await Promise.race([exited, delay(STOP_GRACE_MS, 'timeout')]);
     if (raced === 'timeout') {
@@ -320,7 +368,11 @@ function wireChildExit() {
   child.once('exit', () => {
     // Child death is an invariant violation. Mark DEAD then settle to STOPPED so
     // the next ensureReady() recreates the SAME contract (invariant repair).
-    for (const ctrl of mgr.inflight) { try { ctrl.abort(new Error('whisper-server exited')); } catch {} }
+    for (const ctrl of mgr.inflight) {
+      try {
+        ctrl.abort(new Error('whisper-server exited'));
+      } catch {}
+    }
     mgr.inflight.clear();
     detachChildHandlers();
     clearPidMeta();
@@ -351,19 +403,17 @@ async function startServer(contract) {
   if (meta && isOwnedWhisperServer(meta.pid, ownArgs)) {
     killPid(meta.pid, false);
     await delay(500);
-    if (isOwnedWhisperServer(meta.pid, ownArgs)) { killPid(meta.pid, true); await delay(500); }
+    if (isOwnedWhisperServer(meta.pid, ownArgs)) {
+      killPid(meta.pid, true);
+      await delay(500);
+    }
     clearPidMeta();
   }
   const port = await selectWhisperPort(host, FIXED_PORT);
   mgr.port = port;
 
   // ── Spawn ONCE: non-detached, cwd = dirname(serverCmd) for Windows DLL load. ──
-  const args = [
-    '--model', modelPath,
-    '--host', host,
-    '--port', String(port),
-    '-t', String(threadCount),
-  ];
+  const args = ['--model', modelPath, '--host', host, '--port', String(port), '-t', String(threadCount)];
   const child = spawn(serverCmd, args, {
     cwd: path.dirname(serverCmd), // resolve co-located CUDA/runtime DLLs
     detached: false,
@@ -388,13 +438,16 @@ async function startServer(contract) {
       if (printed !== port) {
         await teardown('port-contract-mismatch');
         mgr.state = STATE.DEAD;
-        throw new Error(
-          `whisper-server bound port ${printed} but contract requires ${port}`,
-        );
+        throw new Error(`whisper-server bound port ${printed} but contract requires ${port}`);
       }
     }
-    if (await probePort(host, port) && whisperListenerOwned(host, port, child.pid)
-        && mgr.child === child && child.exitCode === null && mgr.state === STATE.STARTING) {
+    if (
+      (await probePort(host, port)) &&
+      whisperListenerOwned(host, port, child.pid) &&
+      mgr.child === child &&
+      child.exitCode === null &&
+      mgr.state === STATE.STARTING
+    ) {
       mgr.port = port;
       mgr.state = STATE.READY;
       return;
@@ -438,15 +491,17 @@ export async function ensureReady({ serverCmd, modelPath, threadCount, host = '1
     mgr.state = STATE.STOPPED;
   }
 
-  mgr.startPromise = startServer(contract).catch(async (error) => {
-    await teardown('startup-failure');
-    mgr.state = STATE.STOPPED;
-    throw error;
-  }).finally(() => {
-    mgr.startPromise = null;
-    // A start that no transcription ever follows must not pin the model either.
-    armIdleTimer();
-  });
+  mgr.startPromise = startServer(contract)
+    .catch(async (error) => {
+      await teardown('startup-failure');
+      mgr.state = STATE.STOPPED;
+      throw error;
+    })
+    .finally(() => {
+      mgr.startPromise = null;
+      // A start that no transcription ever follows must not pin the model either.
+      armIdleTimer();
+    });
   return mgr.startPromise;
 }
 
@@ -467,8 +522,7 @@ export async function transcribe(wavPath, { language } = {}) {
   try {
     const data = await fs.promises.readFile(wavPath);
     // Re-check after file I/O: a replacement listener must never receive audio.
-    if (!mgr.child || mgr.state !== STATE.READY
-        || !whisperListenerOwned(host, port, mgr.child.pid)) {
+    if (!mgr.child || mgr.state !== STATE.READY || !whisperListenerOwned(host, port, mgr.child.pid)) {
       throw new Error('whisper-server listener ownership could not be verified');
     }
     const form = new FormData();
@@ -506,9 +560,11 @@ export async function transcribe(wavPath, { language } = {}) {
       //             falls through to startServer), so the NEXT ensureReady() rebuilds
       //             the SAME contract. There is no stuck-in-DEAD path: DEAD is only
       //             ever a momentary marker that always resolves to STOPPED.
-      mgr.state = STATE.DEAD;                       // transient: death detected
-      try { await teardown('transcribe-failure'); } catch {}
-      mgr.state = STATE.STOPPED;                    // resting: awaiting recreate
+      mgr.state = STATE.DEAD; // transient: death detected
+      try {
+        await teardown('transcribe-failure');
+      } catch {}
+      mgr.state = STATE.STOPPED; // resting: awaiting recreate
     }
     throw err;
   } finally {
@@ -524,5 +580,9 @@ export async function transcribe(wavPath, { language } = {}) {
 export async function stopVoiceWhisperServer() {
   if (mgr.state === STATE.STOPPED && !mgr.child) return;
   mgr.state = STATE.STOPPING;
-  try { await teardown('explicit-stop'); } finally { mgr.state = STATE.STOPPED; }
+  try {
+    await teardown('explicit-stop');
+  } finally {
+    mgr.state = STATE.STOPPED;
+  }
 }

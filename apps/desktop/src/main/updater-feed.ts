@@ -8,9 +8,7 @@ export function normalizeUpdaterDevFeed(value: unknown): string | null {
   } catch {
     return null;
   }
-  const loopback = url.hostname === '127.0.0.1'
-    || url.hostname === '::1'
-    || url.hostname === '[::1]';
+  const loopback = url.hostname === '127.0.0.1' || url.hostname === '::1' || url.hostname === '[::1]';
   if (url.protocol !== 'http:' || !loopback || url.username || url.password) return null;
   return url.toString();
 }

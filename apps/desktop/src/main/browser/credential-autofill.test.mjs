@@ -5,23 +5,34 @@ import { JSDOM } from 'jsdom';
 import { BROWSER_CREDENTIAL_AUTOFILL_FUNCTION, createBrowserCredentialFill } from './credential-autofill.ts';
 
 test('stored credential fill targets the current login form and emits framework events without returning secrets', async () => {
-  const dom = new JSDOM(`<!doctype html>
+  const dom = new JSDOM(
+    `<!doctype html>
     <form>
       <input id="identity" name="user_id" type="text">
       <input id="password" name="pw" type="password">
       <input id="new-password" type="password" autocomplete="new-password">
-    </form>`, {
-    runScripts: 'outside-only',
-    pretendToBeVisual: true,
-    url: 'https://accounts.example.test/login',
-  });
+    </form>`,
+    {
+      runScripts: 'outside-only',
+      pretendToBeVisual: true,
+      url: 'https://accounts.example.test/login',
+    }
+  );
   try {
     const events = [];
     for (const input of dom.window.document.querySelectorAll('input')) {
       input.getBoundingClientRect = () => ({
-        left: 10, top: 10, right: 210, bottom: 40,
-        width: 200, height: 30, x: 10, y: 10,
-        toJSON() { return this; },
+        left: 10,
+        top: 10,
+        right: 210,
+        bottom: 40,
+        width: 200,
+        height: 30,
+        x: 10,
+        y: 10,
+        toJSON() {
+          return this;
+        },
       });
       input.addEventListener('input', () => events.push(`${input.id}:input`));
       input.addEventListener('change', () => events.push(`${input.id}:change`));
@@ -37,12 +48,7 @@ test('stored credential fill targets the current login form and emits framework 
     assert.equal(result.usernameFilled, true);
     assert.equal(result.passwordFilled, true);
     assert.doesNotMatch(JSON.stringify(result), /fixture-user|fixture-password/);
-    assert.deepEqual(events, [
-      'identity:input',
-      'identity:change',
-      'password:input',
-      'password:change',
-    ]);
+    assert.deepEqual(events, ['identity:input', 'identity:change', 'password:input', 'password:change']);
   } finally {
     dom.window.close();
   }
@@ -55,22 +61,33 @@ test('stored credential cancellation reaches every CDP phase and prevents later 
     const sent = [];
     const guest = { getURL: () => 'https://fixture.example/login', isDestroyed: () => false };
     const service = createBrowserCredentialFill({
-      cdp: { call: async (target, method, _params, signal, options) => {
-        assert.equal(target, guest);
-        assert.equal(signal, controller.signal);
-        options.beforeDispatch();
-        sent.push(method);
-        if (sent.length === abortAt) controller.abort(reason);
-        return method === 'Page.getFrameTree' ? { frameTree: { frame: { id: 'main' } } }
-          : method === 'Page.createIsolatedWorld' ? { executionContextId: 7 }
-            : { result: { value: { usernameFilled: true, passwordFilled: true } } };
-      } },
-      rememberSecret() {}, forgetSecret() {}, redactText: (_guest, text) => text,
+      cdp: {
+        call: async (target, method, _params, signal, options) => {
+          assert.equal(target, guest);
+          assert.equal(signal, controller.signal);
+          options.beforeDispatch();
+          sent.push(method);
+          if (sent.length === abortAt) controller.abort(reason);
+          return method === 'Page.getFrameTree'
+            ? { frameTree: { frame: { id: 'main' } } }
+            : method === 'Page.createIsolatedWorld'
+              ? { executionContextId: 7 }
+              : { result: { value: { usernameFilled: true, passwordFilled: true } } };
+        },
+      },
+      rememberSecret() {},
+      forgetSecret() {},
+      redactText: (_guest, text) => text,
     });
     if (abortAt === 0) controller.abort(reason);
-    await assert.rejects(service.fillCredentialInGuest(
-      guest, { username: 'fixture-user', password: 'fixture-password' }, controller.signal,
-    ), error => error === reason);
+    await assert.rejects(
+      service.fillCredentialInGuest(
+        guest,
+        { username: 'fixture-user', password: 'fixture-password' },
+        controller.signal
+      ),
+      (error) => error === reason
+    );
     assert.equal(sent.length, abortAt);
   }
 });
@@ -79,20 +96,26 @@ test('navigation while preparing a stored login prevents secret input on the rep
   let url = 'https://fixture.example/login';
   const sent = [];
   const service = createBrowserCredentialFill({
-    cdp: { call: async (_guest, method, _params, _signal, options) => {
-      options.beforeDispatch();
-      sent.push(method);
-      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main' } } };
-      url = 'https://other.example/login';
-      return { executionContextId: 7 };
-    } },
+    cdp: {
+      call: async (_guest, method, _params, _signal, options) => {
+        options.beforeDispatch();
+        sent.push(method);
+        if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main' } } };
+        url = 'https://other.example/login';
+        return { executionContextId: 7 };
+      },
+    },
     rememberSecret: () => assert.fail('navigation must be refused before secret input'),
-    forgetSecret() {}, redactText: (_guest, text) => text,
+    forgetSecret() {},
+    redactText: (_guest, text) => text,
   });
-  await assert.rejects(service.fillCredentialInGuest(
-    { getURL: () => url, isDestroyed: () => false },
-    { username: 'fixture-user', password: 'fixture-password' },
-  ), /page changed.*input was not sent/);
+  await assert.rejects(
+    service.fillCredentialInGuest(
+      { getURL: () => url, isDestroyed: () => false },
+      { username: 'fixture-user', password: 'fixture-password' }
+    ),
+    /page changed.*input was not sent/
+  );
   assert.deepEqual(sent, ['Page.getFrameTree', 'Page.createIsolatedWorld']);
 });
 
@@ -102,7 +125,7 @@ test('credential input dispatch failures stop before writing and are not reporte
     const input = dom.window.document.querySelector('input');
     input.getBoundingClientRect = () => ({ width: 200, height: 30 });
     const events = [];
-    input.dispatchEvent = event => {
+    input.dispatchEvent = (event) => {
       events.push(event.type);
       if (event.type === 'beforeinput') throw new Error('input event rejected');
       return true;
@@ -120,17 +143,26 @@ test('credential script errors retain their reason without exposing a remembered
   const secret = 'private-fixture';
   const remembered = new Set();
   const service = createBrowserCredentialFill({
-    cdp: { call: async (_guest, method) => {
-      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main' } } };
-      if (method === 'Page.createIsolatedWorld') return { executionContextId: 1 };
-      return { exceptionDetails: { exception: { description: `input event rejected: ${secret}\nstack` } } };
-    } },
+    cdp: {
+      call: async (_guest, method) => {
+        if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main' } } };
+        if (method === 'Page.createIsolatedWorld') return { executionContextId: 1 };
+        return { exceptionDetails: { exception: { description: `input event rejected: ${secret}\nstack` } } };
+      },
+    },
     rememberSecret: (_guest, value) => remembered.add(value),
     forgetSecret: () => assert.fail('a failed dispatched fill must retain secret redaction'),
     redactText: (_guest, text) => text.replaceAll(secret, '[REDACTED]'),
   });
-  await assert.rejects(service.fillCredentialInGuest({
-    getURL: () => 'https://fixture.example/', isDestroyed: () => false,
-  }, { username: 'fixture-user', password: secret }), /^Error: input event rejected: \[REDACTED\]$/);
+  await assert.rejects(
+    service.fillCredentialInGuest(
+      {
+        getURL: () => 'https://fixture.example/',
+        isDestroyed: () => false,
+      },
+      { username: 'fixture-user', password: secret }
+    ),
+    /^Error: input event rejected: \[REDACTED\]$/
+  );
   assert.ok(remembered.has(secret));
 });

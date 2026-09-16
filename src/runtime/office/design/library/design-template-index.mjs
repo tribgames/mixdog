@@ -38,18 +38,20 @@ export async function inspectOfficeTemplate(path, { format = '' } = {}) {
   for (const { name, slide, part } of slideEntries) {
     const xml = await zip.file(name).async('string');
     const shapes = directPptxShapeBlocks(xml).map((block, index) => pptxShapeMetadata(block, index + 1));
-    const slots = shapes.flatMap((shape) => shape.slot ? [shape.slot] : []);
+    const slots = shapes.flatMap((shape) => (shape.slot ? [shape.slot] : []));
     const textChars = shapes.reduce((total, shape) => total + shape.text.length, 0);
-    const title = shapes.find((shape) => ['title', 'ctrTitle'].includes(shape.placeholderType))?.text
-      || shapes.find((shape) => shape.slot?.role === 'title')?.text
-      || '';
+    const title =
+      shapes.find((shape) => ['title', 'ctrTitle'].includes(shape.placeholderType))?.text ||
+      shapes.find((shape) => shape.slot?.role === 'title')?.text ||
+      '';
     const capabilities = [...new Set(shapes.map((shape) => shape.type).filter((type) => type !== 'text'))];
     sampleSlides.push({
       slide,
       part,
       title,
       textChars,
-      density: textChars > 340 || shapes.length > 16 ? 'dense' : textChars > 120 || shapes.length > 8 ? 'balanced' : 'light',
+      density:
+        textChars > 340 || shapes.length > 16 ? 'dense' : textChars > 120 || shapes.length > 8 ? 'balanced' : 'light',
       shapes,
       slots,
       capabilities,
@@ -72,7 +74,7 @@ export async function inspectOfficeTemplate(path, { format = '' } = {}) {
       layout: numberFromPath(name),
       name: xmlAttribute(common, 'name'),
       type: xmlAttribute(root, 'type'),
-      slots: shapes.flatMap((shape) => shape.slot ? [shape.slot] : []),
+      slots: shapes.flatMap((shape) => (shape.slot ? [shape.slot] : [])),
     });
   }
   const themeName = names.find((name) => /^ppt\/theme\/theme\d+\.xml$/i.test(name));
@@ -82,9 +84,13 @@ export async function inspectOfficeTemplate(path, { format = '' } = {}) {
     const root = /<a:theme\b[^>]*>/i.exec(xml)?.[0] || '';
     theme = {
       name: xmlAttribute(root, 'name'),
-      fonts: [...new Set([...xml.matchAll(/<a:(?:latin|ea|cs)\b[^>]*\btypeface="([^"]*)"/gi)]
-        .map((match) => xmlDecode(match[1]))
-        .filter(Boolean))],
+      fonts: [
+        ...new Set(
+          [...xml.matchAll(/<a:(?:latin|ea|cs)\b[^>]*\btypeface="([^"]*)"/gi)]
+            .map((match) => xmlDecode(match[1]))
+            .filter(Boolean)
+        ),
+      ],
     };
   }
   return {
@@ -94,7 +100,6 @@ export async function inspectOfficeTemplate(path, { format = '' } = {}) {
     coverage: officeTemplateCoverage(sampleSlides),
   };
 }
-
 
 function normalizeLocalMetadata(value, path) {
   if (!plainObject(value)) return {};
@@ -108,11 +113,7 @@ function normalizeLocalMetadata(value, path) {
   };
 }
 
-
-export async function indexOfficeTemplates({
-  dataDir,
-  config: configOverride = null,
-} = {}) {
+export async function indexOfficeTemplates({ dataDir, config: configOverride = null } = {}) {
   const paths = libraryPaths(dataDir);
   const config = await loadConfig(dataDir, configOverride);
   await mkdir(paths.templates, { recursive: true });
@@ -127,11 +128,12 @@ export async function indexOfficeTemplates({
     const sidecarPath = `${path}.mixdog.json`;
     const sidecarDetails = await stat(sidecarPath).catch(() => null);
     const previousEntry = previousByPath.get(canonical);
-    const unchanged = previousEntry
-      && Number(previousEntry.bytes) === details.size
-      && Number(previousEntry.mtimeMs) === details.mtimeMs
-      && Number(previousEntry.sidecarMtimeMs || 0) === Number(sidecarDetails?.mtimeMs || 0)
-      && Number(previousEntry.inspectionVersion || 0) === TEMPLATE_INSPECTOR_VERSION;
+    const unchanged =
+      previousEntry &&
+      Number(previousEntry.bytes) === details.size &&
+      Number(previousEntry.mtimeMs) === details.mtimeMs &&
+      Number(previousEntry.sidecarMtimeMs || 0) === Number(sidecarDetails?.mtimeMs || 0) &&
+      Number(previousEntry.inspectionVersion || 0) === TEMPLATE_INSPECTOR_VERSION;
     if (unchanged) {
       templates.push(previousEntry);
       continue;
@@ -154,23 +156,24 @@ export async function indexOfficeTemplates({
     }
     const autoLayouts = inspected.sampleSlides.map((sample) => {
       const sampleMetadata = metadata.samples.find((entry) => entry.slide === sample.slide);
-      const slots = sampleMetadata && Object.keys(sampleMetadata.roles).length
-        ? Object.entries(sampleMetadata.roles).map(([shapeIndex, role]) => {
-            const shape = sample.shapes.find((entry) => entry.shape === Number(shapeIndex));
-            if (!shape) {
-              throw new Error(`Office local template sample ${sample.slide} references missing shape ${shapeIndex}`);
-            }
-            return {
-              role,
-              type: shape.type,
-              shape: shape.shape,
-              ...(shape.placeholderType ? { placeholderType: shape.placeholderType } : {}),
-              ...(Number.isInteger(shape.placeholderIndex) ? { placeholderIndex: shape.placeholderIndex } : {}),
-              geometry: shape.geometry,
-              required: role === 'title',
-            };
-          })
-        : sample.slots;
+      const slots =
+        sampleMetadata && Object.keys(sampleMetadata.roles).length
+          ? Object.entries(sampleMetadata.roles).map(([shapeIndex, role]) => {
+              const shape = sample.shapes.find((entry) => entry.shape === Number(shapeIndex));
+              if (!shape) {
+                throw new Error(`Office local template sample ${sample.slide} references missing shape ${shapeIndex}`);
+              }
+              return {
+                role,
+                type: shape.type,
+                shape: shape.shape,
+                ...(shape.placeholderType ? { placeholderType: shape.placeholderType } : {}),
+                ...(Number.isInteger(shape.placeholderIndex) ? { placeholderIndex: shape.placeholderIndex } : {}),
+                geometry: shape.geometry,
+                required: role === 'title',
+              };
+            })
+          : sample.slots;
       return {
         id: sampleMetadata?.id || `${id}-slide-${sample.slide}`,
         format: 'pptx',
@@ -210,9 +213,9 @@ export async function indexOfficeTemplates({
       : autoLayouts;
     const indexedSampleSlides = inspected.sampleSlides.map((sample) => {
       const layout = layouts.find((entry) => entry.sourceSlide === sample.slide);
-      const titleShape = sample.shapes.find((shape) => (
+      const titleShape = sample.shapes.find((shape) =>
         layout?.slots.some((slot) => slot.role === 'title' && slot.shape === shape.shape)
-      ));
+      );
       return {
         ...sample,
         title: sample.title || titleShape?.text || '',
@@ -248,12 +251,9 @@ export async function indexOfficeTemplates({
     });
   }
   templates.sort((left, right) => left.id.localeCompare(right.id) || left.path.localeCompare(right.path));
-  const revision = sha256(JSON.stringify(templates.map((entry) => [
-    entry.id,
-    entry.path,
-    entry.sha256,
-    entry.sidecarMtimeMs,
-  ])));
+  const revision = sha256(
+    JSON.stringify(templates.map((entry) => [entry.id, entry.path, entry.sha256, entry.sidecarMtimeMs]))
+  );
   const changed = revision !== previous.revision;
   const index = {
     schemaVersion: SCHEMA_VERSION,
@@ -270,7 +270,6 @@ export async function indexOfficeTemplates({
   };
 }
 
-
 export async function readTemplateIndex(paths) {
   return await readJson(paths.templateIndex, {
     schemaVersion: SCHEMA_VERSION,
@@ -278,7 +277,6 @@ export async function readTemplateIndex(paths) {
     templates: [],
   });
 }
-
 
 export async function writeState(paths, state) {
   await writeJsonAtomic(paths.state, {

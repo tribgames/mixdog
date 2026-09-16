@@ -20,7 +20,9 @@ function fixture() {
   const registrySyncs = [];
   const api = createSettingsApi({
     getConfig: () => config,
-    saveConfigAndAdopt: (next) => { config = next; },
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
     setMemoryToolsEnabledInConfig,
     setModuleEnabledInConfig,
     setRecapEnabledInConfig,
@@ -29,8 +31,8 @@ function fixture() {
     memoryToolsEnabledFn: () => true,
     gitToolsEnabledFn: () => moduleEnabled(config, 'git', true),
     officeToolsEnabledFn: () => moduleEnabled(config, 'office', true),
-    localProviderEnabledFn: () => config.builtins?.localProvider?.installed === true
-      && moduleEnabled(config, 'localProvider', true),
+    localProviderEnabledFn: () =>
+      config.builtins?.localProvider?.installed === true && moduleEnabled(config, 'localProvider', true),
     getLocalProviderStatus: () => ({
       available: true,
       runtime: { installed: runtimeInstalled, version: 'test' },
@@ -40,11 +42,21 @@ function fixture() {
       prepared.push(name);
       if (name === 'localProvider') runtimeInstalled = true;
     },
-    prepareLocalProviderModel: async (modelId) => { installedModels.push(modelId); },
-    refreshLocalProviderCatalog: async () => { catalogRefreshes += 1; },
-    stopLocalProviderServer: async () => { stopped += 1; },
-    syncLocalProviderRegistry: async (enabled) => { registrySyncs.push(enabled); },
-    refreshEmptySessionToolPolicy: async () => { refreshes += 1; },
+    prepareLocalProviderModel: async (modelId) => {
+      installedModels.push(modelId);
+    },
+    refreshLocalProviderCatalog: async () => {
+      catalogRefreshes += 1;
+    },
+    stopLocalProviderServer: async () => {
+      stopped += 1;
+    },
+    syncLocalProviderRegistry: async (enabled) => {
+      registrySyncs.push(enabled);
+    },
+    refreshEmptySessionToolPolicy: async () => {
+      refreshes += 1;
+    },
   });
   return {
     api,
@@ -90,10 +102,7 @@ test('enabling a built-in tool marks it installed; install runs the adapter', as
 
 test('built-in tool setting rejects names outside the first-party registry', async () => {
   const state = fixture();
-  await assert.rejects(
-    state.api.setBuiltinToolEnabled('shell', false),
-    /git, office, tidy, or localProvider/,
-  );
+  await assert.rejects(state.api.setBuiltinToolEnabled('shell', false), /git, office, tidy, or localProvider/);
   assert.deepEqual(state.config(), {});
 });
 
@@ -170,10 +179,14 @@ test('disabling installed runtime built-ins preserves every install marker', asy
 test('local runtime activation preserves settings changed while preparation was pending', async () => {
   let config = { profile: { title: 'before' } };
   let finishInstall;
-  const pending = new Promise((resolve) => { finishInstall = resolve; });
+  const pending = new Promise((resolve) => {
+    finishInstall = resolve;
+  });
   const api = createSettingsApi({
     getConfig: () => config,
-    saveConfigAndAdopt: (next) => { config = next; },
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
     setModuleEnabledInConfig,
     getLocalProviderStatus: () => ({ runtime: { installed: false } }),
     prepareBuiltinFeature: () => pending,

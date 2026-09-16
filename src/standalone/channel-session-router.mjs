@@ -4,11 +4,7 @@ import { channelNotificationModelContent } from '../runtime/shared/channel-notif
  *  (daemon router, session runtime) matches the same wire name. */
 export const CHANNEL_NOTIFICATION_METHOD = 'notifications/claude/channel';
 
-export function createChannelSessionRouter({
-  getSessionService,
-  getSessionId,
-  log = () => {},
-} = {}) {
+export function createChannelSessionRouter({ getSessionService, getSessionId, log = () => {} } = {}) {
   return function routeChannelNotification(method, params = {}) {
     if (method !== CHANNEL_NOTIFICATION_METHOD) return false;
     const content = channelNotificationModelContent(params);
@@ -19,11 +15,13 @@ export function createChannelSessionRouter({
       log(`channel session delivery unavailable session=${sessionId || 'none'}`);
       return true;
     }
-    void Promise.resolve(service.submitSession({
-      sessionId,
-      prompt: content,
-      options: { source: 'channel' },
-    })).catch((error) => {
+    void Promise.resolve(
+      service.submitSession({
+        sessionId,
+        prompt: content,
+        options: { source: 'channel' },
+      })
+    ).catch((error) => {
       log(`channel session delivery failed session=${sessionId}: ${error?.message || error}`);
     });
     return true;

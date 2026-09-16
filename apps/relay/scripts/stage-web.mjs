@@ -6,15 +6,7 @@
 // every visitor (which also cuts the wait before the first byte). Build
 // filenames carry a content hash, so compressed output is reusable — a
 // redeploy only pays for the chunks that actually changed.
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -33,7 +25,16 @@ const compressBrotli = promisify(brotliCompress);
 
 // woff2/png/ico arrive compressed; re-encoding them only burns build time.
 const COMPRESSIBLE = new Set([
-  '.js', '.mjs', '.css', '.html', '.json', '.webmanifest', '.svg', '.txt', '.map', '.wasm',
+  '.js',
+  '.mjs',
+  '.css',
+  '.html',
+  '.json',
+  '.webmanifest',
+  '.svg',
+  '.txt',
+  '.map',
+  '.wasm',
 ]);
 const MIN_BYTES = 1024;
 // Below this the encoded copy is not worth the extra file (and the extra stat
@@ -63,7 +64,11 @@ async function encode(cacheName, cacheable, produce) {
   }
   const encoded = await produce();
   if (cacheable) {
-    try { writeFileSync(cachePath, encoded); } catch { /* cache is optional */ }
+    try {
+      writeFileSync(cachePath, encoded);
+    } catch {
+      /* cache is optional */
+    }
   }
   return encoded;
 }
@@ -79,12 +84,14 @@ async function precompress(file) {
   // every deploy upload for the vanishingly rare client that negotiates gzip
   // but not brotli — and the relay still answers that client from its
   // on-the-fly gzip path.
-  const brotliBody = await encode(`${cacheKey}.br`, cacheable, () => compressBrotli(raw, {
-    params: {
-      [constants.BROTLI_PARAM_QUALITY]: quality,
-      [constants.BROTLI_PARAM_SIZE_HINT]: raw.length,
-    },
-  }));
+  const brotliBody = await encode(`${cacheKey}.br`, cacheable, () =>
+    compressBrotli(raw, {
+      params: {
+        [constants.BROTLI_PARAM_QUALITY]: quality,
+        [constants.BROTLI_PARAM_SIZE_HINT]: raw.length,
+      },
+    })
+  );
   if (brotliBody.length < raw.length * KEEP_RATIO) {
     writeFileSync(`${file}.br`, brotliBody);
     stats.files += 1;
@@ -108,6 +115,6 @@ await mapPool(targets, CONCURRENCY, precompress);
 const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(2)}MB`;
 console.log(`[relay] staged web app -> ${webDir}`);
 console.log(
-  `[relay] precompressed ${stats.files} files: ${mb(stats.raw)} -> ${mb(stats.brotli)} brotli`
-  + ` (${stats.cacheHits} cache hits, ${((Date.now() - startedAt) / 1000).toFixed(1)}s)`,
+  `[relay] precompressed ${stats.files} files: ${mb(stats.raw)} -> ${mb(stats.brotli)} brotli` +
+    ` (${stats.cacheHits} cache hits, ${((Date.now() - startedAt) / 1000).toFixed(1)}s)`
 );

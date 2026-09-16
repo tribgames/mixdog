@@ -10,11 +10,7 @@ import {
   revertTurnWorktreePaths,
   revertTurnWorktreeSnapshot,
 } from './turn-worktree-snapshot.mjs';
-import {
-  loadSessionSnapshotRecords,
-  loadTurnSnapshotRecord,
-  saveTurnSnapshotRecord,
-} from './turn-snapshot-store.mjs';
+import { loadSessionSnapshotRecords, loadTurnSnapshotRecord, saveTurnSnapshotRecord } from './turn-snapshot-store.mjs';
 
 // Turn-scoped review registry.
 //
@@ -74,7 +70,11 @@ function pathKey(value) {
 }
 
 function displayPath(value) {
-  return clean(value).replace(/\\/g, '/').replace(/^[ab]\//, '') || 'unknown file';
+  return (
+    clean(value)
+      .replace(/\\/g, '/')
+      .replace(/^[ab]\//, '') || 'unknown file'
+  );
 }
 
 /** An owned path is the absolute file when the tool resolved one, otherwise
@@ -122,8 +122,7 @@ function checkpointObservedPaths(tracker) {
  *  attribution the session-wide Diff and the recorded revert scope share. */
 function sessionAttributedPaths(root, tracker) {
   const paths = ownedPathsUnder(root, tracker?.ownedPaths);
-  if (tracker?.worktreeSnapshot
-    && pathKey(tracker.worktreeSnapshot.root) === pathKey(root)) {
+  if (tracker?.worktreeSnapshot && pathKey(tracker.worktreeSnapshot.root) === pathKey(root)) {
     for (const path of checkpointObservedPaths(tracker)) paths.add(path);
   }
   return paths;
@@ -210,15 +209,7 @@ function renderTrackedPair(before, after) {
     return `${head}Binary files ${oldHeader} and ${newHeader} differ\n`;
   }
   try {
-    const generated = createTwoFilesPatch(
-      oldHeader,
-      newHeader,
-      oldText,
-      newText,
-      '',
-      '',
-      { context: 3, timeout: 100 },
-    );
+    const generated = createTwoFilesPatch(oldHeader, newHeader, oldText, newText, '', '', { context: 3, timeout: 100 });
     const headerStart = generated.search(/^--- /m);
     if (headerStart >= 0) return `${head}${generated.slice(headerStart).replace(/\n*$/, '\n')}`;
   } catch {
@@ -241,11 +232,11 @@ function refreshUnifiedDiff(tracker) {
   const pairedDestinations = new Set();
   for (const [destinationKey, originKey] of tracker.originByCurrentPath) {
     if (
-      destinationKey === originKey
-      || tracker.currentByPath.has(originKey)
-      || !tracker.currentByPath.has(destinationKey)
-      || !tracker.baselineByPath.has(originKey)
-      || tracker.baselineByPath.has(destinationKey)
+      destinationKey === originKey ||
+      tracker.currentByPath.has(originKey) ||
+      !tracker.currentByPath.has(destinationKey) ||
+      !tracker.baselineByPath.has(originKey) ||
+      tracker.baselineByPath.has(destinationKey)
     ) {
       continue;
     }
@@ -253,14 +244,13 @@ function refreshUnifiedDiff(tracker) {
     pairedDestinations.add(destinationKey);
   }
   const handled = new Set();
-  const allKeys = [...new Set([
-    ...tracker.baselineByPath.keys(),
-    ...tracker.currentByPath.keys(),
-  ])].sort((left, right) => {
-    const leftEntry = tracker.currentByPath.get(left) || tracker.baselineByPath.get(left);
-    const rightEntry = tracker.currentByPath.get(right) || tracker.baselineByPath.get(right);
-    return String(leftEntry?.displayPath || left).localeCompare(String(rightEntry?.displayPath || right));
-  });
+  const allKeys = [...new Set([...tracker.baselineByPath.keys(), ...tracker.currentByPath.keys()])].sort(
+    (left, right) => {
+      const leftEntry = tracker.currentByPath.get(left) || tracker.baselineByPath.get(left);
+      const rightEntry = tracker.currentByPath.get(right) || tracker.baselineByPath.get(right);
+      return String(leftEntry?.displayPath || left).localeCompare(String(rightEntry?.displayPath || right));
+    }
+  );
   const pairs = [];
   for (const key of allKeys) {
     if (!handled.add(key) || pairedDestinations.has(key)) continue;
@@ -279,7 +269,7 @@ function refreshUnifiedDiff(tracker) {
     if (samePath && sameContent(beforeContent, afterContent)) continue;
     const rendered = renderTrackedPair(
       before || { displayPath: after?.displayPath, content: null },
-      after || { displayPath: before?.displayPath, content: null },
+      after || { displayPath: before?.displayPath, content: null }
     );
     if (unifiedDiff.length + rendered.length > MAX_PATCH_BYTES) break;
     unifiedDiff += rendered;
@@ -340,16 +330,20 @@ async function currentTrackedContent(path) {
 }
 
 async function validateTrackedPair(pair, worktree) {
-  const beforePath = safeTrackedTarget(worktree, pair.before?.path || pair.before?.displayPath
-    || pair.after?.path || pair.after?.displayPath);
-  const afterPath = safeTrackedTarget(worktree, pair.after?.path || pair.after?.displayPath
-    || pair.before?.path || pair.before?.displayPath);
+  const beforePath = safeTrackedTarget(
+    worktree,
+    pair.before?.path || pair.before?.displayPath || pair.after?.path || pair.after?.displayPath
+  );
+  const afterPath = safeTrackedTarget(
+    worktree,
+    pair.after?.path || pair.after?.displayPath || pair.before?.path || pair.before?.displayPath
+  );
   const expectedAfter = pair.after?.content ?? null;
   const actualAfter = await currentTrackedContent(afterPath);
   if (!sameContent(actualAfter, expectedAfter)) {
     throw new Error('turn review revert refused because the file changed after this session edit');
   }
-  if (beforePath !== afterPath && await currentTrackedContent(beforePath) !== null) {
+  if (beforePath !== afterPath && (await currentTrackedContent(beforePath)) !== null) {
     throw new Error('turn review revert refused because the original path changed after this session edit');
   }
   return { beforePath, afterPath };
@@ -416,10 +410,7 @@ export function recordTurnDiffChanges(sessionId, changes = []) {
     // is not necessarily the repository root the scoped diff runs from.
     tracker.ownedPaths.add(ownedPathEntry(sourcePath, sourceDisplay));
     if (destinationPath) {
-      tracker.ownedPaths.add(ownedPathEntry(
-        destinationPath,
-        displayPath(raw?.newDisplayPath || destinationPath),
-      ));
+      tracker.ownedPaths.add(ownedPathEntry(destinationPath, displayPath(raw?.newDisplayPath || destinationPath)));
     }
     if (!destinationPath) {
       if (before === null && after !== null) {
@@ -488,12 +479,9 @@ export function recordTurnDiffChanges(sessionId, changes = []) {
 }
 
 function trimAgentReviews(turn) {
-  const retainedBytes = () => [...turn.agents.values()]
-    .reduce((total, review) => total + Buffer.byteLength(review.patch || '', 'utf8'), 0);
-  while (
-    turn.agents.size > MAX_AGENT_REVIEWS_PER_TURN
-    || retainedBytes() > MAX_AGENT_REVIEW_BYTES_PER_TURN
-  ) {
+  const retainedBytes = () =>
+    [...turn.agents.values()].reduce((total, review) => total + Buffer.byteLength(review.patch || '', 'utf8'), 0);
+  while (turn.agents.size > MAX_AGENT_REVIEWS_PER_TURN || retainedBytes() > MAX_AGENT_REVIEW_BYTES_PER_TURN) {
     const oldest = turn.agents.keys().next().value;
     if (oldest === undefined) break;
     turn.agents.delete(oldest);
@@ -571,9 +559,9 @@ export function beginAgentTurnReview(ownerSessionId, childSessionId, meta = {}) 
   if (!owner || !child || !turn) return null;
   const existingTracker = _diffTrackersBySession.get(child);
   if (
-    !existingTracker
-    || existingTracker.ownerSessionId !== owner
-    || existingTracker.ownerGeneration !== turn.generation
+    !existingTracker ||
+    existingTracker.ownerSessionId !== owner ||
+    existingTracker.ownerGeneration !== turn.generation
   ) {
     resetDiffTracker(child, {
       ownerSessionId: owner,
@@ -599,8 +587,8 @@ export function completeAgentTurnReview(handle, patches = []) {
   const turn = _turnsBySession.get(clean(handle.ownerSessionId));
   const key = clean(handle.sessionId) || handle.id;
   const tracker = _diffTrackersBySession.get(key);
-  const matchingTracker = tracker && tracker.ownerSessionId === clean(handle.ownerSessionId)
-    && tracker.ownerGeneration === handle.generation;
+  const matchingTracker =
+    tracker && tracker.ownerSessionId === clean(handle.ownerSessionId) && tracker.ownerGeneration === handle.generation;
   try {
     if (!turn || turn.generation !== handle.generation) return false;
     const prior = turn.agents.get(key);
@@ -653,7 +641,9 @@ async function persistTurnSnapshotRecord(ownerSessionId, tracker) {
       toolFiles: owned,
       sealed: true,
     });
-  } catch { /* the record adds to a review, it is never required by one */ }
+  } catch {
+    /* the record adds to a review, it is never required by one */
+  }
 }
 
 /** Freeze a completed Lead turn while retaining only its bounded review data. */
@@ -662,7 +652,9 @@ export async function completeTurnSnapshot(sessionId) {
   const tracker = _diffTrackersBySession.get(ownerSessionId);
   if (!tracker) return false;
   if (worktreeSnapshotUsable(tracker)) {
-    try { await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot); } catch {}
+    try {
+      await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot);
+    } catch {}
   }
   tracker.sealed = true;
   await persistTurnSnapshotRecord(ownerSessionId, tracker);
@@ -705,9 +697,10 @@ function recordedPathMatchesFile(owned, root, file) {
   if (!target) return false;
   const normalizedRoot = pathKey(root);
   const normalizedTarget = pathKey(target);
-  const relativeTarget = normalizedRoot && normalizedTarget.startsWith(`${normalizedRoot}/`)
-    ? normalizedTarget.slice(normalizedRoot.length + 1)
-    : normalizedTarget;
+  const relativeTarget =
+    normalizedRoot && normalizedTarget.startsWith(`${normalizedRoot}/`)
+      ? normalizedTarget.slice(normalizedRoot.length + 1)
+      : normalizedTarget;
   const normalizedOwned = pathKey(owned);
   return normalizedOwned === relativeTarget || normalizedOwned === normalizedTarget;
 }
@@ -766,9 +759,7 @@ async function revertFromRecord(worktree, ownerSessionId, file, expectedCheckpoi
   if (!resumed) return null;
   assertCheckpointMatches(expectedCheckpointId, resumed.record.checkpointId);
   const owned = resumed.record.toolFiles;
-  const targets = file
-    ? owned.filter((path) => recordedPathMatchesFile(path, resumed.record.root, file))
-    : owned;
+  const targets = file ? owned.filter((path) => recordedPathMatchesFile(path, resumed.record.root, file)) : owned;
   if (targets.length === 0) {
     throw new Error('turn review revert cannot attribute this file to the session');
   }
@@ -782,19 +773,17 @@ export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
   const ownerSessionId = clean(sessionId);
   const turn = _turnsBySession.get(ownerSessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
-  const isolatedWorktreeSnapshot = worktreeSnapshotUsable(tracker)
-    ? tracker.worktreeSnapshot
-    : null;
+  const isolatedWorktreeSnapshot = worktreeSnapshotUsable(tracker) ? tracker.worktreeSnapshot : null;
   if (isolatedWorktreeSnapshot && !tracker.sealed && options.refresh !== false) {
-    try { await refreshTurnWorktreeSnapshot(isolatedWorktreeSnapshot); } catch {}
+    try {
+      await refreshTurnWorktreeSnapshot(isolatedWorktreeSnapshot);
+    } catch {}
   }
   const snapshot = isolatedWorktreeSnapshot;
   // Without a usable baseline the review falls back to this session's own
   // mutations — including a worktree that has no Git repository at all, which
   // used to leave the bar with no revert mode whatsoever.
-  const trackedRevertAvailable = !snapshot
-    && tracker?.valid === true
-    && trackedPairs(tracker).length > 0;
+  const trackedRevertAvailable = !snapshot && tracker?.valid === true && trackedPairs(tracker).length > 0;
   if (!snapshot && !trackedRevertAvailable) {
     // Both in-memory sources are gone: the next turn replaced the tracker, the
     // turn cache evicted it, or the runtime restarted. The recorded baseline is
@@ -822,8 +811,7 @@ function scopeMatchesWorktree(scope, worktree, tracker) {
   if (trackedRoot) return root === trackedRoot;
   const requested = pathKey(resolve(clean(worktree) || '.')).replace(/[\\/]+$/, '');
   if (!root || !requested) return false;
-  return requested === root
-    || requested.startsWith(`${root}${process.platform === 'win32' ? '\\' : '/'}`);
+  return requested === root || requested.startsWith(`${root}${process.platform === 'win32' ? '\\' : '/'}`);
 }
 
 /** Return the net diff from this session's earliest retained baseline to the
@@ -842,7 +830,9 @@ export async function getSessionReviewDiff(_worktree, sessionId) {
   // edits only reach the checkpoint diff once it is refreshed, exactly as the
   // turn review bar does.
   if (worktreeSnapshotUsable(tracker) && !tracker.sealed) {
-    try { await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot); } catch {}
+    try {
+      await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot);
+    } catch {}
   }
   const ownedPaths = new Set(stored?.toolFiles || []);
   for (const path of sessionAttributedPaths(root, tracker)) ownedPaths.add(path);

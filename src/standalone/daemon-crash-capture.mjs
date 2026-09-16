@@ -82,14 +82,14 @@ function stamp(ms) {
 }
 
 function boundedMessage(value) {
-  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  const text = String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return text.length <= MESSAGE_MAX_CHARS ? text : `${text.slice(0, MESSAGE_MAX_CHARS)}…`;
 }
 
 function heapFlags(execArgv) {
-  return (Array.isArray(execArgv) ? execArgv : [])
-    .map((arg) => String(arg))
-    .filter((arg) => HEAP_FLAG_RE.test(arg));
+  return (Array.isArray(execArgv) ? execArgv : []).map((arg) => String(arg)).filter((arg) => HEAP_FLAG_RE.test(arg));
 }
 
 /**
@@ -105,7 +105,11 @@ function heapFlags(execArgv) {
 export function daemonCaptureBootState(boot, { pidAlive = isPidAlive } = {}) {
   let record = null;
   if (boot.recordPath) {
-    try { record = JSON.parse(fs.readFileSync(boot.recordPath, 'utf8')); } catch { record = null; }
+    try {
+      record = JSON.parse(fs.readFileSync(boot.recordPath, 'utf8'));
+    } catch {
+      record = null;
+    }
   }
   if (!record || typeof record !== 'object') return 'unknown';
   if (record.exitedAt) return 'completed';
@@ -169,21 +173,30 @@ function collectBoots(dir) {
       const stat = fs.statSync(full);
       size = stat.size;
       mtimeMs = stat.mtimeMs;
-    } catch { continue; }
+    } catch {
+      continue;
+    }
     const boot = boots.get(stem) || {
-      stem, files: [], bytes: 0, mtimeMs: 0, recordPath: null, rawPath: null, rawBytes: 0,
+      stem,
+      files: [],
+      bytes: 0,
+      mtimeMs: 0,
+      recordPath: null,
+      rawPath: null,
+      rawBytes: 0,
     };
     boot.files.push(full);
     boot.bytes += size;
     boot.mtimeMs = Math.max(boot.mtimeMs, mtimeMs);
     if (entry.name.endsWith('.json')) boot.recordPath = full;
-    else { boot.rawPath = full; boot.rawBytes = size; }
+    else {
+      boot.rawPath = full;
+      boot.rawBytes = size;
+    }
     boots.set(stem, boot);
   }
   return {
-    ordered: [...boots.values()].sort((a, b) => (
-      b.mtimeMs - a.mtimeMs || (a.stem < b.stem ? 1 : -1)
-    )),
+    ordered: [...boots.values()].sort((a, b) => b.mtimeMs - a.mtimeMs || (a.stem < b.stem ? 1 : -1)),
     temps,
   };
 }
@@ -210,7 +223,9 @@ export function pruneDaemonCrashCaptures({
     // Only a dead writer proves a temp is debris. A live (or unidentifiable)
     // writer keeps it: an unfinished atomic write is not garbage by age.
     if (!temp.writerPid || pidAlive(temp.writerPid)) continue;
-    try { fs.rmSync(temp.path, { force: true }); } catch {}
+    try {
+      fs.rmSync(temp.path, { force: true });
+    } catch {}
   }
   let removed = 0;
   let trimmed = 0;
@@ -248,7 +263,9 @@ export function pruneDaemonCrashCaptures({
       try {
         fs.rmSync(file, { force: true });
         removed += 1;
-      } catch { /* a locked capture simply stays */ }
+      } catch {
+        /* a locked capture simply stays */
+      }
     }
   }
   return { removed, trimmed, keptBoots, keptBytes, activeBoots, unknownBoots };
@@ -322,7 +339,11 @@ export function beginDaemonSpawnCapture({
           throw Object.assign(new Error('capture identity in use'), { code: 'EEXIST' });
         }
       } catch (error) {
-        if (fd !== null) { try { fs.closeSync(fd); } catch {} }
+        if (fd !== null) {
+          try {
+            fs.closeSync(fd);
+          } catch {}
+        }
         if (error?.code === 'EEXIST' && attempt < CAPTURE_ID_ATTEMPTS) continue;
         throw error;
       }
@@ -338,7 +359,9 @@ export function beginDaemonSpawnCapture({
     persist();
   } catch (error) {
     if (writeFd !== null) {
-      try { fs.closeSync(writeFd); } catch {}
+      try {
+        fs.closeSync(writeFd);
+      } catch {}
     }
     writeFd = null;
     capturePath = null;
@@ -353,7 +376,9 @@ export function beginDaemonSpawnCapture({
 
   function closeWriteFd() {
     if (writeFd === null) return;
-    try { fs.closeSync(writeFd); } catch {}
+    try {
+      fs.closeSync(writeFd);
+    } catch {}
     writeFd = null;
   }
 
@@ -363,19 +388,27 @@ export function beginDaemonSpawnCapture({
       // Atomic: a pruner reading this sidecar concurrently must never see a
       // half-written document and conclude the boot is dead.
       writeJsonAtomicSync(recordPath, record, { mode: 0o600 });
-    } catch { /* diagnostics are best effort */ }
+    } catch {
+      /* diagnostics are best effort */
+    }
   }
 
   function captureSize() {
     if (!capturePath) return 0;
-    try { return fs.statSync(capturePath).size; } catch { return 0; }
+    try {
+      return fs.statSync(capturePath).size;
+    } catch {
+      return 0;
+    }
   }
 
   function removeCapture() {
     removed = true;
     for (const file of [capturePath, recordPath]) {
       if (!file) continue;
-      try { fs.rmSync(file, { force: true }); } catch {}
+      try {
+        fs.rmSync(file, { force: true });
+      } catch {}
     }
   }
 
@@ -408,7 +441,9 @@ export function beginDaemonSpawnCapture({
       } finally {
         fs.closeSync(handle);
       }
-    } catch { return; }
+    } catch {
+      return;
+    }
     if (skipped > 0) log(`daemon stderr: skipped ${skipped} earlier byte(s), full text in ${capturePath}`);
     mirrorText(text);
   }
@@ -433,18 +468,15 @@ export function beginDaemonSpawnCapture({
     mirror();
     // A contender that lost the singleton claim exits 0 with nothing to say:
     // keeping a file per losing spawn would bury the boots that do matter.
-    const uninteresting = !record.ready
-      && record.exitCode === 0
-      && record.exitSignal === null
-      && record.stderrBytes === 0
-      && !record.error;
+    const uninteresting =
+      !record.ready && record.exitCode === 0 && record.exitSignal === null && record.stderrBytes === 0 && !record.error;
     if (uninteresting) removeCapture();
     else persist();
     log(
-      `daemon exit pid=${record.pid ?? '?'} code=${record.exitCode ?? '-'}`
-      + ` signal=${record.exitSignal ?? '-'} ready=${record.ready ? 1 : 0}`
-      + ` uptimeMs=${record.uptimeMs} stderrBytes=${record.stderrBytes}`
-      + (removed || !capturePath ? '' : ` capture=${capturePath}`),
+      `daemon exit pid=${record.pid ?? '?'} code=${record.exitCode ?? '-'}` +
+        ` signal=${record.exitSignal ?? '-'} ready=${record.ready ? 1 : 0}` +
+        ` uptimeMs=${record.uptimeMs} stderrBytes=${record.stderrBytes}` +
+        (removed || !capturePath ? '' : ` capture=${capturePath}`)
     );
   }
 
@@ -461,7 +493,9 @@ export function beginDaemonSpawnCapture({
       record.stderrBytes = captureSize();
       if (record.stderrBytes === 0 && capturePath) {
         // Nothing was ever written to fd 2: keep the record, drop the empty file.
-        try { fs.rmSync(capturePath, { force: true }); } catch {}
+        try {
+          fs.rmSync(capturePath, { force: true });
+        } catch {}
         record.stderrFile = null;
         capturePath = null;
       }
@@ -485,7 +519,9 @@ export function beginDaemonSpawnCapture({
     if (capturePath) log(`daemon crash capture pid=${record.pid ?? '?'} file=${capturePath}`);
     if (stderrStdio === 'pipe' && child?.stderr) {
       const stream = child.stderr;
-      const onData = (chunk) => { mirrorText(String(chunk || '')); };
+      const onData = (chunk) => {
+        mirrorText(String(chunk || ''));
+      };
       stream.on('data', onData);
       // Pipe delivery is independent of the IPC 'ready' message and of the
       // child's exit: bytes written before ready can still be in flight after
@@ -496,7 +532,9 @@ export function beginDaemonSpawnCapture({
       // this stream, so nothing here extends its lifetime.
       pipeDrained = new Promise((resolve) => {
         const finish = () => {
-          try { stream.off('data', onData); } catch {}
+          try {
+            stream.off('data', onData);
+          } catch {}
           resolve();
         };
         stream.once('end', finish);
@@ -515,9 +553,15 @@ export function beginDaemonSpawnCapture({
 
   return {
     stderrStdio,
-    get stem() { return stem; },
-    get capturePath() { return capturePath; },
-    get recordPath() { return recordPath; },
+    get stem() {
+      return stem;
+    },
+    get capturePath() {
+      return capturePath;
+    },
+    get recordPath() {
+      return recordPath;
+    },
     track,
     noteReady,
     noteExit,

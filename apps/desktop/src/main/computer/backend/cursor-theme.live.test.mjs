@@ -8,11 +8,15 @@ import test from 'node:test';
 import { MIXDOG_HOST_CSHARP } from './native-source.ts';
 
 test('real Windows cursor changes and restores after normal completion and worker-tree termination', {
-  skip: process.platform !== 'win32' || process.env.MIXDOG_CURSOR_LIVE_TEST !== '1', timeout: 45000,
+  skip: process.platform !== 'win32' || process.env.MIXDOG_CURSOR_LIVE_TEST !== '1',
+  timeout: 45000,
 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-cursor-live-'));
   try {
-    await writeFile(join(directory, 'native.cs'), MIXDOG_HOST_CSHARP + `
+    await writeFile(
+      join(directory, 'native.cs'),
+      MIXDOG_HOST_CSHARP +
+        `
 public static class CursorDigest {
   public static string Read() {
     var api = new MixWindowsCursorThemeApi();
@@ -27,8 +31,11 @@ public static class CursorDigest {
     } finally { api.Free(handle); }
   }
 }
-`);
-    await writeFile(join(directory, 'worker.ps1'), String.raw`
+`
+    );
+    await writeFile(
+      join(directory, 'worker.ps1'),
+      String.raw`
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 Add-Type -AssemblyName System.Drawing
@@ -38,8 +45,11 @@ $lease = [MixCursorTheme]::Begin()
 [IO.File]::WriteAllText((Join-Path $env:CURSOR_TEST_DIRECTORY 'active'), 'ready')
 Start-Sleep -Seconds 30
 $lease.Dispose()
-`);
-    await writeFile(join(directory, 'test.ps1'), String.raw`
+`
+    );
+    await writeFile(
+      join(directory, 'test.ps1'),
+      String.raw`
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 Add-Type -AssemblyName Accessibility
@@ -72,12 +82,17 @@ try {
   if (-not $worker.HasExited) { $worker.Kill(); $worker.WaitForExit() }
 }
 [Console]::WriteLine('CURSOR_REAL_RESTORATION_OK')
-`);
-    const result = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
-      { timeout: 35000, windowsHide: true, env: { ...process.env, CURSOR_TEST_DIRECTORY: directory } });
+`
+    );
+    const result = await promisify(execFile)(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
+      { timeout: 35000, windowsHide: true, env: { ...process.env, CURSOR_TEST_DIRECTORY: directory } }
+    );
     assert.match(result.stdout, /CURSOR_REAL_RESTORATION_OK/);
   } finally {
-    await rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
-      .catch(error => console.error('Test artifacts retained:', directory, error.code));
+    await rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch((error) =>
+      console.error('Test artifacts retained:', directory, error.code)
+    );
   }
 });

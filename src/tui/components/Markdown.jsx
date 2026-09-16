@@ -14,9 +14,7 @@
  */
 import React from 'react';
 import { Box, Text } from 'ink';
-import {
-  renderTokenAnsiSegments,
-} from '../markdown/render-ansi.mjs';
+import { renderTokenAnsiSegments } from '../markdown/render-ansi.mjs';
 import { resolveStreamingMarkdownParts } from '../markdown/streaming-markdown.mjs';
 import { AnsiText } from './AnsiText.jsx';
 import { MarkdownTable } from './MarkdownTable.jsx';
@@ -53,7 +51,9 @@ function renderMarkdownElements(content, trimPartialFences = false, tableWidth) 
       // defaultColor={theme.text} keeps ANSI resets on the same dark-theme
       // foreground instead of the terminal profile's default foreground.
       result.push(
-        <AnsiText key={`md_${idx++}`} defaultColor={theme.text}>{segment.ansi}</AnsiText>,
+        <AnsiText key={`md_${idx++}`} defaultColor={theme.text}>
+          {segment.ansi}
+        </AnsiText>
       );
     }
   }
@@ -66,11 +66,15 @@ export function Markdown({ children, themeEpoch = 0, trimPartialFences = false, 
       return renderMarkdownElements(children, trimPartialFences, columns);
     } catch {
       // Never throw into the render tree — fall back to raw text.
-      return [<Text key="md_0" color={theme.text}>{String(children ?? '')}</Text>];
+      return [
+        <Text key="md_0" color={theme.text}>
+          {String(children ?? '')}
+        </Text>,
+      ];
     }
-  // themeEpoch is a memo dep so a /theme switch re-renders to ANSI with the new
-  // md* colors (formatToken re-resolves its colorizers on the active theme).
-  // columns is a dep so a resize re-lays-out tables at the new forceWidth.
+    // themeEpoch is a memo dep so a /theme switch re-renders to ANSI with the new
+    // md* colors (formatToken re-resolves its colorizers on the active theme).
+    // columns is a dep so a resize re-lays-out tables at the new forceWidth.
   }, [children, themeEpoch, trimPartialFences, columns]);
 
   return (
@@ -80,25 +84,21 @@ export function Markdown({ children, themeEpoch = 0, trimPartialFences = false, 
   );
 }
 
-const StableMarkdownChunk = React.memo(function StableMarkdownChunk({
-  text,
-  themeEpoch,
-  columns,
-}) {
-  return <Markdown themeEpoch={themeEpoch} columns={columns}>{text}</Markdown>;
+const StableMarkdownChunk = React.memo(function StableMarkdownChunk({ text, themeEpoch, columns }) {
+  return (
+    <Markdown themeEpoch={themeEpoch} columns={columns}>
+      {text}
+    </Markdown>
+  );
 });
 
-export function StreamingMarkdown({
-  children,
-  themeEpoch = 0,
-  columns,
-  streamKey,
-  streaming = true,
-}) {
+export function StreamingMarkdown({ children, themeEpoch = 0, columns, streamKey, streaming = true }) {
   if (!streaming) {
     return (
       <Box flexDirection="column">
-        <Markdown themeEpoch={themeEpoch} columns={columns} trimPartialFences>{children}</Markdown>
+        <Markdown themeEpoch={themeEpoch} columns={columns} trimPartialFences>
+          {children}
+        </Markdown>
       </Box>
     );
   }
@@ -110,22 +110,23 @@ export function StreamingMarkdown({
     // identical visible text directly.
     return (
       <Box flexDirection="column">
-        <Text color={theme.text} wrap="wrap">{parts.unstableForRender}</Text>
+        <Text color={theme.text} wrap="wrap">
+          {parts.unstableForRender}
+        </Text>
       </Box>
     );
   }
-  const stableChunks = parts.stableChunks?.length
-    ? parts.stableChunks
-    : parts.stablePrefix ? [parts.stablePrefix] : [];
+  const stableChunks = parts.stableChunks?.length ? parts.stableChunks : parts.stablePrefix ? [parts.stablePrefix] : [];
   return (
     <Box flexDirection="column" gap={1}>
       {stableChunks.map((text, index) => (
-        <StableMarkdownChunk key={`stable-${index}`} text={text}
-          themeEpoch={themeEpoch} columns={columns} />
+        <StableMarkdownChunk key={`stable-${index}`} text={text} themeEpoch={themeEpoch} columns={columns} />
       ))}
-      {parts.unstableSuffix
-        ? <Markdown themeEpoch={themeEpoch} columns={columns} trimPartialFences>{parts.unstableForRender}</Markdown>
-        : null}
+      {parts.unstableSuffix ? (
+        <Markdown themeEpoch={themeEpoch} columns={columns} trimPartialFences>
+          {parts.unstableForRender}
+        </Markdown>
+      ) : null}
     </Box>
   );
 }

@@ -13,7 +13,10 @@ function fixture(command, pageText, snapshotResult = async () => ({ text: 'Obser
       documents: {
         pageText,
         observeChanges: async () => ({
-          latch: createBrowserChangeLatch(), close: async () => { closes++; },
+          latch: createBrowserChangeLatch(),
+          close: async () => {
+            closes++;
+          },
         }),
       },
       reply: { snapshotResult },
@@ -23,10 +26,7 @@ function fixture(command, pageText, snapshotResult = async () => ({ text: 'Obser
 }
 
 test('wait and expect use the same text and URL conditions, without reading text for a URL-only wait', async () => {
-  for (const expected of [
-    { text: 'SAVED', textGone: 'Loading', url: '/complete' },
-    { url: '/COMPLETE' },
-  ]) {
+  for (const expected of [{ text: 'SAVED', textGone: 'Loading', url: '/complete' }, { url: '/COMPLETE' }]) {
     const pageText = async () => {
       assert.ok(expected.text, 'URL-only conditions must not read inaccessible frame text');
       return 'Saved successfully';
@@ -40,10 +40,16 @@ test('wait and expect use the same text and URL conditions, without reading text
 });
 
 test('wait timeouts retain both observation and final snapshot failure reasons', async () => {
-  const f = fixture({ textGone: 'Saving', timeoutMs: 500 },
-    async () => { throw new Error('frame unavailable'); },
-    async () => { throw new Error('snapshot unavailable'); });
-  await assert.rejects(flowActions.wait(f.context), error => {
+  const f = fixture(
+    { textGone: 'Saving', timeoutMs: 500 },
+    async () => {
+      throw new Error('frame unavailable');
+    },
+    async () => {
+      throw new Error('snapshot unavailable');
+    }
+  );
+  await assert.rejects(flowActions.wait(f.context), (error) => {
     assert.match(error.message, /Wait timed out after 500ms/);
     assert.match(error.message, /Page observation failed: frame unavailable/);
     assert.match(error.message, /Final snapshot failed: snapshot unavailable/);
@@ -55,12 +61,16 @@ test('wait timeouts retain both observation and final snapshot failure reasons',
 test('wait cancellation preserves the reason and closes observation without taking a final snapshot', async () => {
   const controller = new AbortController();
   const reason = new Error('user takeover');
-  const f = fixture({ text: 'Saved' }, async () => {
-    controller.abort(reason);
-    throw reason;
-  }, async () => assert.fail('cancellation must not enter diagnostic snapshot recovery'));
+  const f = fixture(
+    { text: 'Saved' },
+    async () => {
+      controller.abort(reason);
+      throw reason;
+    },
+    async () => assert.fail('cancellation must not enter diagnostic snapshot recovery')
+  );
   f.context.signal = controller.signal;
-  await assert.rejects(flowActions.wait(f.context), error => error === reason);
+  await assert.rejects(flowActions.wait(f.context), (error) => error === reason);
   assert.equal(f.closes(), 1);
 });
 
@@ -106,7 +116,8 @@ test('wait preserves cancellation arriving with a successful read, cleanup, or f
     const controller = new AbortController();
     const reason = new Error(`cancel during ${phase}`);
     let snapshots = 0;
-    const f = fixture({ text: 'Saved', timeoutMs: 500, internalStep: phase === 'read' || phase === 'close' },
+    const f = fixture(
+      { text: 'Saved', timeoutMs: 500, internalStep: phase === 'read' || phase === 'close' },
       async () => {
         if (phase === 'read') controller.abort(reason);
         return phase === 'timeout-snapshot' ? 'Saving' : 'Saved';
@@ -115,19 +126,23 @@ test('wait preserves cancellation arriving with a successful read, cleanup, or f
         snapshots++;
         controller.abort(reason);
         return { text: 'Observed' };
-      });
+      }
+    );
     if (phase === 'close') {
       const observe = f.context.services.documents.observeChanges;
       f.context.services.documents.observeChanges = async () => {
         const observation = await observe();
         return {
           ...observation,
-          close: async () => { await observation.close(); controller.abort(reason); },
+          close: async () => {
+            await observation.close();
+            controller.abort(reason);
+          },
         };
       };
     }
     f.context.signal = controller.signal;
-    await assert.rejects(flowActions.wait(f.context), error => error === reason);
+    await assert.rejects(flowActions.wait(f.context), (error) => error === reason);
     assert.equal(f.closes(), 1);
     assert.equal(snapshots, phase.includes('snapshot') ? 1 : 0);
   }
@@ -140,17 +155,22 @@ test('pre-cancelled conditions and cancellation during a successful expect read 
   const f = fixture({ url: '/Complete' }, async () => assert.fail('cancelled read'));
   f.context.signal = controller.signal;
   f.context.services.documents.observeChanges = async () => assert.fail('cancelled observer setup');
-  await assert.rejects(flowActions.wait(f.context), error => error === reason);
+  await assert.rejects(flowActions.wait(f.context), (error) => error === reason);
   assert.equal(f.closes(), 0);
-  await assert.rejects(createBrowserSettle({}).postconditionMatchesGuest(
-    f.context.guest, { url: '/Complete' }, controller.signal,
-  ), error => error === reason);
+  await assert.rejects(
+    createBrowserSettle({}).postconditionMatchesGuest(f.context.guest, { url: '/Complete' }, controller.signal),
+    (error) => error === reason
+  );
 
   const reading = new AbortController();
   const settle = createBrowserSettle({
-    pageText: async () => { reading.abort(reason); return 'Saved'; },
+    pageText: async () => {
+      reading.abort(reason);
+      return 'Saved';
+    },
   });
-  await assert.rejects(settle.postconditionMatchesGuest(
-    f.context.guest, { text: 'Saved' }, reading.signal,
-  ), error => error === reason);
+  await assert.rejects(
+    settle.postconditionMatchesGuest(f.context.guest, { text: 'Saved' }, reading.signal),
+    (error) => error === reason
+  );
 });

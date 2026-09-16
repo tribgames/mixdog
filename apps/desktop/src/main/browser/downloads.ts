@@ -40,14 +40,12 @@ const WAIT_POLL_MS = 100;
 export const MAX_BROWSER_DOWNLOAD_BYTES = 500 * 1024 * 1024;
 export const MAX_BROWSER_SESSION_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 
-export function browserDownloadExceedsLimit(
-  received: number,
-  total: number,
-  sessionReceived = 0,
-): boolean {
-  return received > MAX_BROWSER_DOWNLOAD_BYTES
-    || total > MAX_BROWSER_DOWNLOAD_BYTES
-    || sessionReceived > MAX_BROWSER_SESSION_DOWNLOAD_BYTES;
+export function browserDownloadExceedsLimit(received: number, total: number, sessionReceived = 0): boolean {
+  return (
+    received > MAX_BROWSER_DOWNLOAD_BYTES ||
+    total > MAX_BROWSER_DOWNLOAD_BYTES ||
+    sessionReceived > MAX_BROWSER_SESSION_DOWNLOAD_BYTES
+  );
 }
 
 export function safeBrowserDownloadName(suggested: string): string {
@@ -67,7 +65,7 @@ export function browserDownloadSavePath(
   options: {
     exists?: (path: string) => boolean;
     now?: () => number;
-  } = {},
+  } = {}
 ): { file: string; path: string } {
   const file = safeBrowserDownloadName(suggested);
   const exists = options.exists || existsSync;
@@ -115,7 +113,7 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
       attach?: boolean;
       timeoutMs?: number;
     } = {},
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<{ text: string; file?: { mimeType: string; data: string; name: string } }> {
     signal?.throwIfAborted();
     // Pin the newest download once. Older completed files must not satisfy a
@@ -125,8 +123,8 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
       MAX_WAIT_MS,
       Math.max(
         MIN_WAIT_MS,
-        Number.isFinite(command.timeoutMs) ? Math.trunc(command.timeoutMs as number) : DEFAULT_WAIT_MS,
-      ),
+        Number.isFinite(command.timeoutMs) ? Math.trunc(command.timeoutMs as number) : DEFAULT_WAIT_MS
+      )
     );
     if (command.wait) {
       const startedAt = Date.now();
@@ -151,8 +149,10 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
     if (recorded.length === 0) return { text: 'No downloads this session.' };
     const lines = recorded.map((entry) => {
       const bytes = entry.total > 0 ? entry.total : entry.received;
-      return `- [${entry.id}] ${redactBrowserText(entry.file)} — ${entry.state}, ${Math.max(1, Math.round(bytes / 1024))} KB, ${entry.mimeType} → ${entry.path}\n`
-        + `  from ${redactBrowserUrl(entry.url)}`;
+      return (
+        `- [${entry.id}] ${redactBrowserText(entry.file)} — ${entry.state}, ${Math.max(1, Math.round(bytes / 1024))} KB, ${entry.mimeType} → ${entry.path}\n` +
+        `  from ${redactBrowserUrl(entry.url)}`
+      );
     });
     const result: { text: string; file?: { mimeType: string; data: string; name: string } } = {
       text: `Downloads this session (newest first):\n${lines.join('\n')}`,
@@ -174,7 +174,7 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
       if (!info.isFile()) throw new Error(`download ${selected.id} is not a readable file`);
       if (info.size > attachMaxBytes) {
         throw new Error(
-          `download ${selected.id} is ${info.size} bytes; inline attachment limit is ${attachMaxBytes} bytes. Use read with path ${selected.path}`,
+          `download ${selected.id} is ${info.size} bytes; inline attachment limit is ${attachMaxBytes} bytes. Use read with path ${selected.path}`
         );
       }
       data = Buffer.alloc(info.size);
@@ -227,14 +227,8 @@ export function createBrowserDownloadLedger(host: BrowserDownloadLedgerHost) {
     return downloadsBySession.get(sessionId) ?? [];
   }
 
-  function onWillDownload(
-    _event: Electron.Event,
-    item: Electron.DownloadItem,
-    webContents?: WebContents,
-  ): void {
-    const ownerSessionId = webContents
-      ? sessionIdForGuest(webContents) ?? defaultSessionId
-      : defaultSessionId;
+  function onWillDownload(_event: Electron.Event, item: Electron.DownloadItem, webContents?: WebContents): void {
+    const ownerSessionId = webContents ? (sessionIdForGuest(webContents) ?? defaultSessionId) : defaultSessionId;
     const destination = browserDownloadSavePath(downloadsDirectory(), item.getFilename());
     item.setSavePath(destination.path);
     const entry: TrackedBrowserDownload = {
@@ -266,17 +260,13 @@ export function createBrowserDownloadLedger(host: BrowserDownloadLedgerHost) {
     let sizeLimitExceeded = browserDownloadExceedsLimit(
       entry.received,
       entry.total,
-      downloadedBytesBySession.get(ownerSessionId) ?? 0,
+      downloadedBytesBySession.get(ownerSessionId) ?? 0
     );
     item.on('updated', () => {
       const received = item.getReceivedBytes();
       const sessionDownloadedBytes = recordReceived(received);
       entry.total = item.getTotalBytes();
-      if (!sizeLimitExceeded && browserDownloadExceedsLimit(
-        entry.received,
-        entry.total,
-        sessionDownloadedBytes,
-      )) {
+      if (!sizeLimitExceeded && browserDownloadExceedsLimit(entry.received, entry.total, sessionDownloadedBytes)) {
         sizeLimitExceeded = true;
         item.cancel();
       }
@@ -284,11 +274,7 @@ export function createBrowserDownloadLedger(host: BrowserDownloadLedgerHost) {
     item.once('done', (_doneEvent, state) => {
       const received = item.getReceivedBytes();
       const sessionDownloadedBytes = recordReceived(received);
-      sizeLimitExceeded ||= browserDownloadExceedsLimit(
-        received,
-        entry.total,
-        sessionDownloadedBytes,
-      );
+      sizeLimitExceeded ||= browserDownloadExceedsLimit(received, entry.total, sessionDownloadedBytes);
       entry.state = sizeLimitExceeded ? 'cancelled_size_limit' : state;
       entry.completedAt = Date.now();
     });

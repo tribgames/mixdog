@@ -15,13 +15,16 @@ function cachePath() {
 }
 
 function cacheKey(provider) {
-  return String(provider || '').trim().toLowerCase();
+  return String(provider || '')
+    .trim()
+    .toLowerCase();
 }
 
 function freshSnapshot(snapshot, ttlMs) {
   const cachedAt = num(snapshot?.cachedAt, 0);
   if (!cachedAt || Date.now() - cachedAt > ttlMs) return null;
-  if (snapshot?.balance || Array.isArray(snapshot?.quotaWindows) || snapshot?.tokenUsage || snapshot?.unavailable) return snapshot;
+  if (snapshot?.balance || Array.isArray(snapshot?.quotaWindows) || snapshot?.tokenUsage || snapshot?.unavailable)
+    return snapshot;
   return null;
 }
 
@@ -44,18 +47,22 @@ function writeCachedApiUsageSnapshot(provider, snapshot) {
   // latency impact on the request path.
   let next = null;
   try {
-    next = updateJsonAtomicSync(file, (curRaw) => {
-      const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
-      const snapshots = cur.snapshots && typeof cur.snapshots === 'object' ? cur.snapshots : {};
-      return {
-        version: 1,
-        updatedAt: Date.now(),
-        snapshots: {
-          ...snapshots,
-          [cacheKey(provider)]: snapshot,
-        },
-      };
-    }, { lock: true, fsyncDir: true, timeoutMs: 1000 }); // best-effort cache write: short lock timeout, don't block on contention
+    next = updateJsonAtomicSync(
+      file,
+      (curRaw) => {
+        const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
+        const snapshots = cur.snapshots && typeof cur.snapshots === 'object' ? cur.snapshots : {};
+        return {
+          version: 1,
+          updatedAt: Date.now(),
+          snapshots: {
+            ...snapshots,
+            [cacheKey(provider)]: snapshot,
+          },
+        };
+      },
+      { lock: true, fsyncDir: true, timeoutMs: 1000 }
+    ); // best-effort cache write: short lock timeout, don't block on contention
   } catch {}
   if (next) diskJsonCache.remember(file, next);
 }
@@ -197,7 +204,7 @@ function parseOpenAICreditGrants(data) {
   const activeExpiries = grants
     .map((grant) => num(grant?.expires_at ?? grant?.expiresAt, null))
     .filter((value) => value !== null && value > 0)
-    .map((value) => value < 10_000_000_000 ? value * 1000 : value);
+    .map((value) => (value < 10_000_000_000 ? value * 1000 : value));
   const nextExpiry = activeExpiries.length ? Math.min(...activeExpiries) : null;
   return {
     provider: 'openai',
@@ -208,13 +215,15 @@ function parseOpenAICreditGrants(data) {
       source: 'openai-credit-grants',
     },
     cachedAt: Date.now(),
-    ...(usedUsd !== null || limitUsd !== null ? {
-      creditGrants: {
-        usedUsd: usedUsd === null ? null : round(usedUsd, 4),
-        limitUsd: limitUsd === null ? null : round(limitUsd, 4),
-        nextExpiry,
-      },
-    } : {}),
+    ...(usedUsd !== null || limitUsd !== null
+      ? {
+          creditGrants: {
+            usedUsd: usedUsd === null ? null : round(usedUsd, 4),
+            limitUsd: limitUsd === null ? null : round(limitUsd, 4),
+            nextExpiry,
+          },
+        }
+      : {}),
   };
 }
 
@@ -270,20 +279,23 @@ async function fetchOpenAIDashboardUsageSnapshot(sessionKey) {
   try {
     const endDate = ymd(Date.now());
     const startDate = ymd(Date.now() - 31 * 24 * 60 * 60_000);
-    usage = await fetchJson(`https://api.openai.com/dashboard/billing/usage?start_date=${startDate}&end_date=${endDate}`, { headers });
+    usage = await fetchJson(
+      `https://api.openai.com/dashboard/billing/usage?start_date=${startDate}&end_date=${endDate}`,
+      { headers }
+    );
   } catch {
     usage = null;
   }
   const totalUsageCents = num(usage?.total_usage ?? usage?.totalUsage, null);
   const usedUsd = totalUsageCents === null ? null : totalUsageCents / 100;
   const limitUsd = num(
-    subscription?.hard_limit_usd
-      ?? subscription?.hardLimitUsd
-      ?? subscription?.system_hard_limit_usd
-      ?? subscription?.systemHardLimitUsd
-      ?? subscription?.soft_limit_usd
-      ?? subscription?.softLimitUsd,
-    null,
+    subscription?.hard_limit_usd ??
+      subscription?.hardLimitUsd ??
+      subscription?.system_hard_limit_usd ??
+      subscription?.systemHardLimitUsd ??
+      subscription?.soft_limit_usd ??
+      subscription?.softLimitUsd,
+    null
   );
   if (usedUsd === null && limitUsd === null) return null;
   const balance = {
@@ -380,7 +392,8 @@ function parseAnthropicCostReport(data) {
 
 async function fetchAnthropicCostSnapshot() {
   const keys = anthropicAdminKeys();
-  if (!keys.length) return unavailableSnapshot('anthropic', { message: 'Set ANTHROPIC_ADMIN_API_KEY for usage/cost report' });
+  if (!keys.length)
+    return unavailableSnapshot('anthropic', { message: 'Set ANTHROPIC_ADMIN_API_KEY for usage/cost report' });
   const start = new Date(Date.now() - 31 * 24 * 60 * 60_000).toISOString();
   const url = new URL('https://api.anthropic.com/v1/organizations/cost_report');
   url.searchParams.set('starting_at', start);
@@ -396,7 +409,10 @@ async function fetchAnthropicCostSnapshot() {
           ...(authMode === 'bearer' ? { Authorization: `Bearer ${key}` } : { 'x-api-key': key }),
         };
         const data = await fetchJson(url, { headers });
-        return parseAnthropicCostReport(data) || unavailableSnapshot('anthropic', { message: 'Anthropic cost report returned no usage data' });
+        return (
+          parseAnthropicCostReport(data) ||
+          unavailableSnapshot('anthropic', { message: 'Anthropic cost report returned no usage data' })
+        );
       } catch (err) {
         const status = num(err?.status, null);
         if (status === 401 || status === 403 || status === 404) {
@@ -417,19 +433,25 @@ async function fetchGeminiUsageSnapshot() {
     await fetchJson(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`, {
       headers: { Accept: 'application/json' },
     });
-    return unavailableSnapshot('gemini', { message: 'Gemini API key valid; balance/usage is AI Studio or Cloud Billing only' });
+    return unavailableSnapshot('gemini', {
+      message: 'Gemini API key valid; balance/usage is AI Studio or Cloud Billing only',
+    });
   } catch (err) {
     return unavailableSnapshot('gemini', err);
   }
 }
 
 function managementKey(provider) {
-  const id = cacheKey(provider).replace(/[^a-z0-9]/g, '_').toUpperCase();
+  const id = cacheKey(provider)
+    .replace(/[^a-z0-9]/g, '_')
+    .toUpperCase();
   return process.env[`${id}_MANAGEMENT_API_KEY`] || process.env.XAI_MANAGEMENT_API_KEY || '';
 }
 
 function teamId(provider) {
-  const id = cacheKey(provider).replace(/[^a-z0-9]/g, '_').toUpperCase();
+  const id = cacheKey(provider)
+    .replace(/[^a-z0-9]/g, '_')
+    .toUpperCase();
   return process.env[`${id}_TEAM_ID`] || process.env.XAI_TEAM_ID || '';
 }
 
@@ -441,9 +463,20 @@ function moneyNumber(value) {
     return num(stripped, null);
   }
   if (typeof value === 'object') {
-    const direct = value.usd ?? value.dollars ?? value.amountUsd ?? value.amount_usd
-      ?? value.availableUsd ?? value.available_usd ?? value.balanceUsd ?? value.balance_usd
-      ?? value.amount ?? value.value ?? value.balance ?? value.available ?? value.total;
+    const direct =
+      value.usd ??
+      value.dollars ??
+      value.amountUsd ??
+      value.amount_usd ??
+      value.availableUsd ??
+      value.available_usd ??
+      value.balanceUsd ??
+      value.balance_usd ??
+      value.amount ??
+      value.value ??
+      value.balance ??
+      value.available ??
+      value.total;
     const parsed = moneyNumber(direct);
     if (parsed !== null) return parsed;
     const cents = num(value.cents ?? value.amountCents ?? value.amount_cents ?? value.usd_cents, null);
@@ -457,7 +490,9 @@ function errorMessage(err) {
   const value = body?.error?.message ?? body?.error ?? body?.message ?? err?.message;
   if (typeof value === 'string') return value.trim();
   if (value && typeof value === 'object') {
-    try { return JSON.stringify(value).slice(0, 300); } catch {}
+    try {
+      return JSON.stringify(value).slice(0, 300);
+    } catch {}
   }
   return '';
 }
@@ -476,13 +511,13 @@ function unavailableSnapshot(provider, err) {
 
 function parseXaiPrepaidBalance(data) {
   const remainingUsd = moneyNumber(
-    data?.total
-      ?? data?.availableCredits
-      ?? data?.available_credits
-      ?? data?.creditBalance
-      ?? data?.credit_balance
-      ?? data?.balance
-      ?? data?.credits,
+    data?.total ??
+      data?.availableCredits ??
+      data?.available_credits ??
+      data?.creditBalance ??
+      data?.credit_balance ??
+      data?.balance ??
+      data?.credits
   );
   if (remainingUsd === null) return null;
   return {
@@ -500,26 +535,35 @@ function parseXaiPrepaidBalance(data) {
 async function fetchXaiUsageSnapshot() {
   const key = managementKey('xai');
   const team = teamId('xai');
-  if (!key || !team) return await fetchXaiPublicUsageSnapshot() || unavailableSnapshot('xai', { message: 'Set XAI_MANAGEMENT_API_KEY and XAI_TEAM_ID for prepaid balance' });
-  const data = await fetchJson(`https://management-api.x.ai/v1/billing/teams/${encodeURIComponent(team)}/prepaid/balance`, {
-    headers: authHeaders(key, { Accept: 'application/json' }),
-  });
+  if (!key || !team)
+    return (
+      (await fetchXaiPublicUsageSnapshot()) ||
+      unavailableSnapshot('xai', { message: 'Set XAI_MANAGEMENT_API_KEY and XAI_TEAM_ID for prepaid balance' })
+    );
+  const data = await fetchJson(
+    `https://management-api.x.ai/v1/billing/teams/${encodeURIComponent(team)}/prepaid/balance`,
+    {
+      headers: authHeaders(key, { Accept: 'application/json' }),
+    }
+  );
   return parseXaiPrepaidBalance(data);
 }
 
 async function fetchXaiPublicUsageSnapshot() {
   const key = getAgentApiKey('xai');
   if (!key) return null;
-  const urls = [
-    'https://api.x.ai/v1/usage',
-    'https://api.x.ai/v1/rate_limits',
-  ];
+  const urls = ['https://api.x.ai/v1/usage', 'https://api.x.ai/v1/rate_limits'];
   let firstError = null;
   for (const url of urls) {
     try {
       const data = await fetchJson(url, { headers: authHeaders(key, { Accept: 'application/json' }) });
       const parsed = parseXaiPrepaidBalance(data);
-      if (parsed) return { ...parsed, source: 'xai-public-usage-probe', balance: { ...parsed.balance, source: 'xai-public-usage-probe' } };
+      if (parsed)
+        return {
+          ...parsed,
+          source: 'xai-public-usage-probe',
+          balance: { ...parsed.balance, source: 'xai-public-usage-probe' },
+        };
       return unavailableSnapshot('xai', { message: `xAI public usage probe returned unsupported data from ${url}` });
     } catch (err) {
       firstError ||= err;

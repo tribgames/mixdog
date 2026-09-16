@@ -12,9 +12,8 @@
 // value that moves and comes back), which is what a reader perceives as
 // shaking, plus the text swaps that make a card change width.
 const argumentsList = process.argv.slice(2);
-const valueFor = (prefix) => argumentsList
-  .find((argument) => argument.startsWith(`${prefix}=`))
-  ?.slice(prefix.length + 1);
+const valueFor = (prefix) =>
+  argumentsList.find((argument) => argument.startsWith(`${prefix}=`))?.slice(prefix.length + 1);
 const port = Number(valueFor('--port') || 9342);
 const mode = argumentsList.find((argument) => !argument.startsWith('--')) || 'install';
 
@@ -40,11 +39,13 @@ const evaluate = async (expression) => {
   const id = nextId++;
   const result = await new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    socket.send(JSON.stringify({
-      id,
-      method: 'Runtime.evaluate',
-      params: { expression, awaitPromise: true, returnByValue: true },
-    }));
+    socket.send(
+      JSON.stringify({
+        id,
+        method: 'Runtime.evaluate',
+        params: { expression, awaitPromise: true, returnByValue: true },
+      })
+    );
   });
   if (result.exceptionDetails) {
     throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
@@ -161,7 +162,9 @@ if (mode === 'install') {
 }
 
 if (mode === 'now') {
-  console.log(JSON.stringify(await evaluate(`(() => {
+  console.log(
+    JSON.stringify(
+      await evaluate(`(() => {
     const state = window.__mixdogJitter;
     return {
       installed: Boolean(state) && !state.stop,
@@ -170,7 +173,11 @@ if (mode === 'now') {
       streaming: document.querySelectorAll('.message.streaming').length,
       toolCards: document.querySelectorAll('.tool-card').length,
     };
-  })()`), null, 1));
+  })()`),
+      null,
+      1
+    )
+  );
   socket.close();
   process.exit(0);
 }
@@ -228,8 +235,10 @@ const rowShake = [...rowSeries.entries()]
   .sort((left, right) => right.events.length - left.events.length);
 console.log(`rows with vertical reversals(>=3px): ${rowShake.length}`);
 for (const entry of rowShake.slice(0, 6)) {
-  const sample = entry.events.slice(0, 4)
-    .map((event) => `${event.t}ms ${event.from}->${event.to}`).join(', ');
+  const sample = entry.events
+    .slice(0, 4)
+    .map((event) => `${event.t}ms ${event.from}->${event.to}`)
+    .join(', ');
   console.log(`  row ${entry.index}: ${entry.events.length} reversals | ${sample}`);
 }
 
@@ -255,8 +264,10 @@ for (const [index, series] of cardSeries) {
     }
   }
   if (!widthReversals.length && !titleSwaps.length && !detailSwaps.length) continue;
-  console.log(`  card row=${index} titleWidthReversals=${widthReversals.length}`
-    + ` titleSwaps=${titleSwaps.length} detailSwaps=${detailSwaps.length}`);
+  console.log(
+    `  card row=${index} titleWidthReversals=${widthReversals.length}` +
+      ` titleSwaps=${titleSwaps.length} detailSwaps=${detailSwaps.length}`
+  );
   for (const swap of titleSwaps.slice(0, 6)) console.log(`    title  ${swap}`);
   for (const swap of detailSwaps.slice(0, 6)) console.log(`    detail ${swap}`);
   for (const event of widthReversals.slice(0, 4)) {

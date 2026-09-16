@@ -1,7 +1,7 @@
-import type { TranscriptItem } from "./desktop-types";
-import { asRecord } from "./text-format";
+import type { TranscriptItem } from './desktop-types';
+import { asRecord } from './text-format';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { classifyToolCategory } from "../../../../src/runtime/shared/tool-surface.mjs";
+import { classifyToolCategory } from '../../../../src/runtime/shared/tool-surface.mjs';
 
 /**
  * Composer-dock reservation rules (pure; see ComposerDock.tsx for the DOM).
@@ -17,23 +17,23 @@ import { classifyToolCategory } from "../../../../src/runtime/shared/tool-surfac
  *  aggregate card carries its categories as a count map, and a card that
  *  already published a uiDiff has touched files by definition. */
 export function toolTouchesFiles(item: TranscriptItem | null | undefined): boolean {
-  if (!item || item.kind !== "tool") return false;
-  if (typeof item.uiDiff === "string" && item.uiDiff) return true;
+  if (!item || item.kind !== 'tool') return false;
+  if (typeof item.uiDiff === 'string' && item.uiDiff) return true;
   const categories = asRecord(item.categories);
-  if (categories && Object.hasOwn(categories, "Patch")) return true;
-  return classifyToolCategory(String(item.name || "")) === "Patch";
+  if (categories && Object.hasOwn(categories, 'Patch')) return true;
+  return classifyToolCategory(String(item.name || '')) === 'Patch';
 }
 
 /** The current turn (everything after the last user row, plus the live tail)
  *  has touched files, so a review result is plausible. */
 export function turnTouchesFiles(
   items: readonly TranscriptItem[],
-  streamingTail: TranscriptItem | null | undefined,
+  streamingTail: TranscriptItem | null | undefined
 ): boolean {
   for (let index = items.length - 1; index >= 0; index--) {
     const item = items[index];
     if (!item) continue;
-    if (item.kind === "user") break;
+    if (item.kind === 'user') break;
     if (toolTouchesFiles(item)) return true;
   }
   return toolTouchesFiles(streamingTail);
@@ -76,6 +76,5 @@ export function reviewScopePending({
   settledScope: string;
   cached: boolean;
 }): boolean {
-  return active && hasTurnActivity && Boolean(sessionId)
-    && settledScope !== scopeKey && !cached;
+  return active && hasTurnActivity && Boolean(sessionId) && settledScope !== scopeKey && !cached;
 }

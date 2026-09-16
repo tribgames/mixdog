@@ -4,35 +4,34 @@ import { __mixdogMemoryLog } from './lib/memory-log.mjs';
 // V8 compile cache: the memory runtime is a separate long-lived child in
 // product mode. The standalone MCP entry uses the same module directly.
 try {
-  const { enableCompileCache } = await import('node:module')
-  enableCompileCache?.()
-} catch { /* launch-speed optimization only */ }
+  const { enableCompileCache } = await import('node:module');
+  enableCompileCache?.();
+} catch {
+  /* launch-speed optimization only */
+}
 
-import http from 'node:http'
-import os from 'node:os'
-import { performance } from 'node:perf_hooks'
-import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import http from 'node:http';
+import os from 'node:os';
+import { performance } from 'node:perf_hooks';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
+const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
-import { readPluginVersion, readMemoryCodeFingerprint } from './lib/memory-fingerprint.mjs'
-const PLUGIN_VERSION = readPluginVersion(PLUGIN_ROOT)
-const BOOT_MEMORY_CODE_FINGERPRINT = readMemoryCodeFingerprint(PLUGIN_ROOT)
+import { readPluginVersion, readMemoryCodeFingerprint } from './lib/memory-fingerprint.mjs';
+const PLUGIN_VERSION = readPluginVersion(PLUGIN_ROOT);
+const BOOT_MEMORY_CODE_FINGERPRINT = readMemoryCodeFingerprint(PLUGIN_ROOT);
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js'
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-import { TOOL_DEFS } from './tool-defs.mjs'
+import { TOOL_DEFS } from './tool-defs.mjs';
 
 // Static import (not the dynamic one in stop()) so the sync stop is available
 // inside a process 'exit' hook, where dynamic import() cannot run.
-import { stopPgForShutdownSync } from './lib/pg/supervisor.mjs'
+import { stopPgForShutdownSync } from './lib/pg/supervisor.mjs';
 
 import {
   openDatabase,
@@ -41,32 +40,52 @@ import {
   getMetaValue,
   setMetaValue,
   mergeMetaValue,
-} from './lib/memory.mjs'
-import { configureEmbedding, getEmbeddingDims, getEmbeddingDtype, getEmbeddingModelId, getKnownDimsForCurrentModel, primeEmbeddingDims, shutdownEmbeddingProvider, warmupEmbeddingProvider } from './lib/embedding-provider.mjs'
-import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs'
-import { runCycle1, runCycle2, parseInterval, flushEmbeddingDirty, flushRawEmbeddings } from './lib/memory-cycle.mjs'
-import { callAgentDispatch } from './lib/agent-ipc.mjs'
-import { cancelCoalescedCycleRetries, claimAndMarkScheduledCycle, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
-import { backfillCoreEmbeddings } from './lib/core-memory-store.mjs'
-import { drainEmbeddingReindex } from './lib/embedding-reindex.mjs'
-import { refreshCoreMemoryFile } from './lib/core-memory-file.mjs'
-import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver.mjs'
-import { openTraceDatabase, closeTraceDatabase, enqueueTraceEvents, insertAgentCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
-import { writeJsonAtomicSync } from '../shared/atomic-file.mjs'
-import { safeIpcSend } from '../shared/safe-ipc-send.mjs'
-import { resolvePluginData, mixdogHome } from '../shared/plugin-paths.mjs'
-import { scheduledCycle1Signature, scheduledCycle2Signature } from './lib/cycle-signatures.mjs'
-import { createTranscriptIngest } from './lib/transcript-ingest.mjs'
-import { createCycleLlmAdapters } from './lib/cycle-llm-adapters.mjs'
-import { createCycleScheduler } from './lib/cycle-scheduler.mjs'
-import { createQueryHandlers } from './lib/query-handlers.mjs'
-import { createSessionIngestRuntime } from './lib/session-ingest-runtime.mjs'
-import { createMemoryActionHandlers } from './lib/memory-action-handlers.mjs'
-import { createHttpRouter } from './lib/http-router.mjs'
-import { createMemoryPortAdvertiser } from './lib/memory-port-advertiser.mjs'
-import { createMemoryDaemonLifecycle } from './lib/memory-daemon-lifecycle.mjs'
-import { createLoopbackListener } from '../shared/loopback-listener.mjs'
-import { createMemoryServiceLifecycle } from './lib/memory-service-lifecycle.mjs'
+} from './lib/memory.mjs';
+import {
+  configureEmbedding,
+  getEmbeddingDims,
+  getEmbeddingDtype,
+  getEmbeddingModelId,
+  getKnownDimsForCurrentModel,
+  primeEmbeddingDims,
+  shutdownEmbeddingProvider,
+  warmupEmbeddingProvider,
+} from './lib/embedding-provider.mjs';
+import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs';
+import { runCycle1, runCycle2, parseInterval, flushEmbeddingDirty, flushRawEmbeddings } from './lib/memory-cycle.mjs';
+import { callAgentDispatch } from './lib/agent-ipc.mjs';
+import {
+  cancelCoalescedCycleRetries,
+  claimAndMarkScheduledCycle,
+  resolveCoalesceMaxRetries,
+  scheduleCoalescedCycleRetry,
+} from './lib/memory-cycle-requests.mjs';
+import { backfillCoreEmbeddings } from './lib/core-memory-store.mjs';
+import { drainEmbeddingReindex } from './lib/embedding-reindex.mjs';
+import { refreshCoreMemoryFile } from './lib/core-memory-file.mjs';
+import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver.mjs';
+import {
+  openTraceDatabase,
+  closeTraceDatabase,
+  enqueueTraceEvents,
+  insertAgentCalls,
+  registerTraceExitDrain,
+} from './lib/trace-store.mjs';
+import { writeJsonAtomicSync } from '../shared/atomic-file.mjs';
+import { safeIpcSend } from '../shared/safe-ipc-send.mjs';
+import { resolvePluginData, mixdogHome } from '../shared/plugin-paths.mjs';
+import { scheduledCycle1Signature, scheduledCycle2Signature } from './lib/cycle-signatures.mjs';
+import { createTranscriptIngest } from './lib/transcript-ingest.mjs';
+import { createCycleLlmAdapters } from './lib/cycle-llm-adapters.mjs';
+import { createCycleScheduler } from './lib/cycle-scheduler.mjs';
+import { createQueryHandlers } from './lib/query-handlers.mjs';
+import { createSessionIngestRuntime } from './lib/session-ingest-runtime.mjs';
+import { createMemoryActionHandlers } from './lib/memory-action-handlers.mjs';
+import { createHttpRouter } from './lib/http-router.mjs';
+import { createMemoryPortAdvertiser } from './lib/memory-port-advertiser.mjs';
+import { createMemoryDaemonLifecycle } from './lib/memory-daemon-lifecycle.mjs';
+import { createLoopbackListener } from '../shared/loopback-listener.mjs';
+import { createMemoryServiceLifecycle } from './lib/memory-service-lifecycle.mjs';
 import {
   readMainConfig,
   envFlagEnabled,
@@ -78,30 +97,34 @@ import {
   secondaryPgAdvertised as _secondaryPgAdvertised,
   assertSecondaryPgAttachable as _assertSecondaryPgAttachable,
 } from './lib/memory-config-flags.mjs';
-const IS_MEMORY_ENTRY = !!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+const IS_MEMORY_ENTRY = !!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 if (IS_MEMORY_ENTRY) {
-  process.removeAllListeners('warning')
-  process.on('warning', () => {})
-  try { os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL) } catch {}
+  process.removeAllListeners('warning');
+  process.on('warning', () => {});
+  try {
+    os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL);
+  } catch {}
 }
-const USE_ARG_DATA_DIR = IS_MEMORY_ENTRY
-const DATA_DIR = process.env.MIXDOG_DATA_DIR || (USE_ARG_DATA_DIR ? process.argv[2] : '') || resolvePluginData()
-const INTEGRATED_DAEMON_HOST = process.env.MIXDOG_DAEMON_HOST === '1' && !IS_MEMORY_ENTRY
+const USE_ARG_DATA_DIR = IS_MEMORY_ENTRY;
+const DATA_DIR = process.env.MIXDOG_DATA_DIR || (USE_ARG_DATA_DIR ? process.argv[2] : '') || resolvePluginData();
+const INTEGRATED_DAEMON_HOST = process.env.MIXDOG_DAEMON_HOST === '1' && !IS_MEMORY_ENTRY;
 if (!DATA_DIR) {
-  __mixdogMemoryLog('[memory-service] memory data dir not set and no explicit data dir provided\n')
-  process.exit(1)
+  __mixdogMemoryLog('[memory-service] memory data dir not set and no explicit data dir provided\n');
+  process.exit(1);
 }
-__mixdogMemoryLog(`[memory-service] DATA_DIR=${DATA_DIR}\n`)
-const MEMORY_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_MEMORY_PROFILE || process.env.MIXDOG_BOOT_PROFILE || ''))
-const MEMORY_PROFILE_START = performance.now()
+__mixdogMemoryLog(`[memory-service] DATA_DIR=${DATA_DIR}\n`);
+const MEMORY_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(
+  String(process.env.MIXDOG_MEMORY_PROFILE || process.env.MIXDOG_BOOT_PROFILE || '')
+);
+const MEMORY_PROFILE_START = performance.now();
 function memoryProfile(event, fields = {}) {
-  if (!MEMORY_PROFILE_ENABLED) return
-  const parts = [`[memory-profile] +${(performance.now() - MEMORY_PROFILE_START).toFixed(1)}ms`, event]
+  if (!MEMORY_PROFILE_ENABLED) return;
+  const parts = [`[memory-profile] +${(performance.now() - MEMORY_PROFILE_START).toFixed(1)}ms`, event];
   for (const [key, value] of Object.entries(fields || {})) {
-    if (value === undefined || value === null || value === '') continue
-    parts.push(`${key}=${String(value).replace(/\s+/g, '_')}`)
+    if (value === undefined || value === null || value === '') continue;
+    parts.push(`${key}=${String(value).replace(/\s+/g, '_')}`);
   }
-  __mixdogMemoryLog(`${parts.join(' ')}\n`)
+  __mixdogMemoryLog(`${parts.join(' ')}\n`);
 }
 
 import {
@@ -109,15 +132,15 @@ import {
   isPidAliveLocal,
   acquireLock as _acquireLock,
   releaseLock as _releaseLock,
-} from './lib/memory-process-lock.mjs'
+} from './lib/memory-process-lock.mjs';
 
 import {
   readServiceAdvert as _readServiceAdvert,
   writeServiceAdvert as _writeServiceAdvert,
-} from '../shared/service-discovery.mjs'
+} from '../shared/service-discovery.mjs';
 
-const MEMORY_SERVER_PID = parsePositivePid(process.env.MIXDOG_SERVER_PID) ?? process.pid
-const _isPidAliveLocal = isPidAliveLocal
+const MEMORY_SERVER_PID = parsePositivePid(process.env.MIXDOG_SERVER_PID) ?? process.pid;
+const _isPidAliveLocal = isPidAliveLocal;
 const _memoryPortAdvertiser = createMemoryPortAdvertiser({
   readServiceAdvert: _readServiceAdvert,
   writeServiceAdvert: _writeServiceAdvert,
@@ -125,11 +148,11 @@ const _memoryPortAdvertiser = createMemoryPortAdvertiser({
   isPidAliveLocal: _isPidAliveLocal,
   memoryServerPid: MEMORY_SERVER_PID,
   log: __mixdogMemoryLog,
-})
-const { advertiseMemoryPort } = _memoryPortAdvertiser
-const MEMORY_DAEMON_MODE = process.env.MIXDOG_MEMORY_DAEMON === '1'
-const MEMORY_IDLE_TTL_MS = Math.max(0, Number(process.env.MIXDOG_MEMORY_IDLE_TTL_MS) || 10 * 60_000)
-const MEMORY_CLIENT_GRACE_MS = Math.max(0, Number(process.env.MIXDOG_MEMORY_CLIENT_GRACE_MS) || 10_000)
+});
+const { advertiseMemoryPort } = _memoryPortAdvertiser;
+const MEMORY_DAEMON_MODE = process.env.MIXDOG_MEMORY_DAEMON === '1';
+const MEMORY_IDLE_TTL_MS = Math.max(0, Number(process.env.MIXDOG_MEMORY_IDLE_TTL_MS) || 10 * 60_000);
+const MEMORY_CLIENT_GRACE_MS = Math.max(0, Number(process.env.MIXDOG_MEMORY_CLIENT_GRACE_MS) || 10_000);
 const _daemonLifecycle = createMemoryDaemonLifecycle({
   daemonMode: MEMORY_DAEMON_MODE,
   idleTtlMs: MEMORY_IDLE_TTL_MS,
@@ -139,35 +162,35 @@ const _daemonLifecycle = createMemoryDaemonLifecycle({
   isStopping: () => _serviceLifecycle.isStopping(),
   stop,
   log: __mixdogMemoryLog,
-})
-const { touchDaemonIdleTimer, registerClient, deregisterClient } = _daemonLifecycle
+});
+const { touchDaemonIdleTimer, registerClient, deregisterClient } = _daemonLifecycle;
 
-const LOCK_FILE = path.join(DATA_DIR, '.memory-service.lock')
+const LOCK_FILE = path.join(DATA_DIR, '.memory-service.lock');
 
-const BASE_PORT = 3350
-const MAX_PORT = 3357
+const BASE_PORT = 3350;
+const MAX_PORT = 3357;
 
-let _traceDb = null
+let _traceDb = null;
 
-const MEMORY_INSTRUCTIONS_TEXT = ''
+const MEMORY_INSTRUCTIONS_TEXT = '';
 
 function acquireLock() {
-  return _acquireLock(LOCK_FILE, __mixdogMemoryLog)
+  return _acquireLock(LOCK_FILE, __mixdogMemoryLog);
 }
 
 function releaseLock() {
-  return _releaseLock(LOCK_FILE)
+  return _releaseLock(LOCK_FILE);
 }
 
-let db = null
-let mainConfig = null
+let db = null;
+let mainConfig = null;
 // NOTE: cycle tick timers + the cycle1 outer-coalesce in-flight tracker now
 // live inside the cycle scheduler factory (lib/cycle-scheduler.mjs). The
 // AUTHORITATIVE cycle1 guard is still memory-cycle.mjs:runCycle1; the
 // scheduler's outer layer coalesces simultaneous awaitCycle1Run callers.
-let _embeddingReindexController = null
-let _embeddingReindexPromise = null
-let _bootTimestamp = null
+let _embeddingReindexController = null;
+let _embeddingReindexPromise = null;
+let _bootTimestamp = null;
 // Boot-edge background warmup. ONNX session creation on the embedding worker
 // thread is CPU-heavy, so it must not overlap the worker's own init (DB open,
 // schema, cycle wiring). Previously this was gated behind a fixed setTimeout —
@@ -176,12 +199,12 @@ let _bootTimestamp = null
 // so it starts the instant boot's CPU-heavy work is done — no magic-number
 // delay. MIXDOG_EMBED_WARMUP=0 disables it (model loads lazily on first use).
 
-const TRANSCRIPT_OFFSETS_KEY = 'state.transcript_offsets'
-const CYCLE_LAST_RUN_KEY = 'state.cycle_last_run'
+const TRANSCRIPT_OFFSETS_KEY = 'state.transcript_offsets';
+const CYCLE_LAST_RUN_KEY = 'state.cycle_last_run';
 // Per-session durable high-water for untimestamped-repeat ordinals (one small
 // hash→next-ordinal map per session, only for identities that reached a
 // duplicate). Stored in the `meta` kv (entries schema untouched).
-const SESSION_INGEST_ORDINALS_KEY_PREFIX = 'state.session_ingest_ordinals.'
+const SESSION_INGEST_ORDINALS_KEY_PREFIX = 'state.session_ingest_ordinals.';
 
 // Transcript ingest cluster (extracted to lib/transcript-ingest.mjs). Live
 // db/config coupling is injected so index.mjs keeps lifecycle ownership.
@@ -192,13 +215,8 @@ const _transcriptIngest = createTranscriptIngest({
   projectsRoot: () => path.join(mixdogHome(), 'projects'),
   resolveProjectId,
   log: __mixdogMemoryLog,
-})
-const {
-  loadTranscriptOffsets,
-  ingestTranscriptFile,
-  cwdFromTranscriptPath,
-  parseTsToMs,
-} = _transcriptIngest
+});
+const { loadTranscriptOffsets, ingestTranscriptFile, cwdFromTranscriptPath, parseTsToMs } = _transcriptIngest;
 
 // Session ingest runtime (extracted to lib/session-ingest-runtime.mjs). Owns
 // the per-session chains, identity cache, and post-ingest raw-embedding flush
@@ -208,36 +226,40 @@ const _sessionIngest = createSessionIngestRuntime({
   log: __mixdogMemoryLog,
   parseTsToMs,
   loadOrdinalHighWater: async (sessionId) => {
-    const raw = await getMetaValue(db, `${SESSION_INGEST_ORDINALS_KEY_PREFIX}${sessionId}`, 'null')
-    try { return JSON.parse(raw) } catch { return null }
+    const raw = await getMetaValue(db, `${SESSION_INGEST_ORDINALS_KEY_PREFIX}${sessionId}`, 'null');
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
   },
   saveOrdinalHighWater: (sessionId, obj) =>
     setMetaValue(db, `${SESSION_INGEST_ORDINALS_KEY_PREFIX}${sessionId}`, JSON.stringify(obj)),
-})
-const { ingestSessionMessages } = _sessionIngest
+});
+const { ingestSessionMessages } = _sessionIngest;
 
 // DATA_DIR-bound wrappers over the extracted pure flag helpers (see
 // ./lib/memory-config-flags.mjs). The pg-attach check needs DATA_DIR, which is
 // module-local here.
 function secondaryPgAdvertised() {
-  return _secondaryPgAdvertised(DATA_DIR)
+  return _secondaryPgAdvertised(DATA_DIR);
 }
 
 function assertSecondaryPgAttachable() {
-  return _assertSecondaryPgAttachable(DATA_DIR)
+  return _assertSecondaryPgAttachable(DATA_DIR);
 }
 
 async function _initStore() {
-  const initStoreStartedAt = performance.now()
-  memoryProfile('init-store:start')
-  mainConfig = readMainConfig()
-  const embeddingConfig = mainConfig?.embedding
+  const initStoreStartedAt = performance.now();
+  memoryProfile('init-store:start');
+  mainConfig = readMainConfig();
+  const embeddingConfig = mainConfig?.embedding;
   if (embeddingConfig?.provider || embeddingConfig?.ollamaModel || embeddingConfig?.dtype) {
     await configureEmbedding({
       provider: embeddingConfig.provider,
       ollamaModel: embeddingConfig.ollamaModel,
       dtype: embeddingConfig.dtype,
-    })
+    });
   }
 
   // Persist embedding dims so warmup is off the boot critical path.
@@ -245,82 +267,84 @@ async function _initStore() {
   // prime the known dimensions, then run the model warmup later in the
   // background. If cycle1/recall needs embeddings first, that on-demand
   // call owns the same worker queue and the delayed warmup becomes a no-op.
-  const EMBEDDING_META_PATH = path.join(DATA_DIR, 'embedding-meta.json')
+  const EMBEDDING_META_PATH = path.join(DATA_DIR, 'embedding-meta.json');
   const metaKey = {
     provider: embeddingConfig?.provider ?? null,
     model: getEmbeddingModelId(),
     dtype: getEmbeddingDtype(),
     format: 'mixdog-embedding-v3',
-  }
-  let dimsResolved = null
+  };
+  let dimsResolved = null;
   try {
-    const saved = JSON.parse(fs.readFileSync(EMBEDDING_META_PATH, 'utf8'))
+    const saved = JSON.parse(fs.readFileSync(EMBEDDING_META_PATH, 'utf8'));
     if (saved.provider === metaKey.provider && saved.model === metaKey.model && saved.dtype === metaKey.dtype) {
-      dimsResolved = Number(saved.dims)
+      dimsResolved = Number(saved.dims);
     }
-  } catch { /* miss or missing — fall through */ }
+  } catch {
+    /* miss or missing — fall through */
+  }
 
   // Registry fallback: model with statically known dims bypasses measurement.
   // Delayed background warmup invariant-checks measured vs registry value;
   // mismatch throws and crashes the worker for fail-fast parity with the cold
   // path's boot-time degraded signal.
   if (dimsResolved == null) {
-    const known = getKnownDimsForCurrentModel()
-    if (known != null) dimsResolved = known
+    const known = getKnownDimsForCurrentModel();
+    if (known != null) dimsResolved = known;
   }
 
   if (dimsResolved) {
-    primeEmbeddingDims(dimsResolved)
-    assertSecondaryPgAttachable()
+    primeEmbeddingDims(dimsResolved);
+    assertSecondaryPgAttachable();
     // Known dimensions are enough to open the vector schema. Keep the ONNX
     // model completely off the boot path; the first relevant query starts it
     // on demand without blocking startup.
-    const openStartedAt = performance.now()
-    db = await openDatabase(DATA_DIR, dimsResolved, metaKey)
-    memoryProfile('open-db:done', { ms: (performance.now() - openStartedAt).toFixed(1), dims: dimsResolved })
+    const openStartedAt = performance.now();
+    db = await openDatabase(DATA_DIR, dimsResolved, metaKey);
+    memoryProfile('open-db:done', { ms: (performance.now() - openStartedAt).toFixed(1), dims: dimsResolved });
   } else {
     if (!embeddingWarmupCanStart()) {
-      throw new Error('memory-service: embedding dims unavailable while warmup is disabled')
+      throw new Error('memory-service: embedding dims unavailable while warmup is disabled');
     }
     // Cold path: meta missed AND model not registered. Sequential.
-    const warmupStartedAt = performance.now()
-    memoryProfile('embedding:cold-warmup:start')
-    await warmupEmbeddingProvider()
-    memoryProfile('embedding:cold-warmup:done', { ms: (performance.now() - warmupStartedAt).toFixed(1) })
-    dimsResolved = Number(getEmbeddingDims())
-    assertSecondaryPgAttachable()
-    const openStartedAt = performance.now()
-    db = await openDatabase(DATA_DIR, dimsResolved, metaKey)
-    memoryProfile('open-db:done', { ms: (performance.now() - openStartedAt).toFixed(1), dims: dimsResolved })
+    const warmupStartedAt = performance.now();
+    memoryProfile('embedding:cold-warmup:start');
+    await warmupEmbeddingProvider();
+    memoryProfile('embedding:cold-warmup:done', { ms: (performance.now() - warmupStartedAt).toFixed(1) });
+    dimsResolved = Number(getEmbeddingDims());
+    assertSecondaryPgAttachable();
+    const openStartedAt = performance.now();
+    db = await openDatabase(DATA_DIR, dimsResolved, metaKey);
+    memoryProfile('open-db:done', { ms: (performance.now() - openStartedAt).toFixed(1), dims: dimsResolved });
     try {
-      writeJsonAtomicSync(EMBEDDING_META_PATH, { ...metaKey, dims: dimsResolved }, { lock: true })
+      writeJsonAtomicSync(EMBEDDING_META_PATH, { ...metaKey, dims: dimsResolved }, { lock: true });
     } catch (e) {
-      __mixdogMemoryLog(`[memory-service] could not persist embedding-meta: ${e?.message || e}\n`)
+      __mixdogMemoryLog(`[memory-service] could not persist embedding-meta: ${e?.message || e}\n`);
     }
   }
 
-  if (!await isBootstrapComplete(db)) {
-    throw new Error('memory-service: bootstrap not complete after openDatabase')
+  if (!(await isBootstrapComplete(db))) {
+    throw new Error('memory-service: bootstrap not complete after openDatabase');
   }
   if (memoryLlmWorkerEnabled()) {
-    startLlmWorker()
+    startLlmWorker();
   } else {
-    __mixdogMemoryLog('[memory-service] secondary mode; skipping llm worker\n')
+    __mixdogMemoryLog('[memory-service] secondary mode; skipping llm worker\n');
   }
   // Provider/session/agent modules live once in the daemon. Memory
   // cycles cross the authenticated loopback broker instead of initializing a
   // second registry in this process.
-  _bootTimestamp = Date.now()
-  const offsetsStartedAt = performance.now()
-  await loadTranscriptOffsets()
-  memoryProfile('transcript-offsets:loaded', { ms: (performance.now() - offsetsStartedAt).toFixed(1) })
-  memoryProfile('init-store:done', { ms: (performance.now() - initStoreStartedAt).toFixed(1) })
+  _bootTimestamp = Date.now();
+  const offsetsStartedAt = performance.now();
+  await loadTranscriptOffsets();
+  memoryProfile('transcript-offsets:loaded', { ms: (performance.now() - offsetsStartedAt).toFixed(1) });
+  memoryProfile('init-store:done', { ms: (performance.now() - initStoreStartedAt).toFixed(1) });
 }
 
 async function getCycleLastRun() {
   try {
-    const raw = await getMetaValue(db, CYCLE_LAST_RUN_KEY, '{}')
-    const obj = JSON.parse(raw)
+    const raw = await getMetaValue(db, CYCLE_LAST_RUN_KEY, '{}');
+    const obj = JSON.parse(raw);
     return {
       cycle1: Number(obj.cycle1) || 0,
       cycle2: Number(obj.cycle2) || 0,
@@ -336,46 +360,50 @@ async function getCycleLastRun() {
       cycle1_autoRestart_attempt: Number(obj.cycle1_autoRestart_attempt) || 0,
       // Last cycle2 failure message; cleared to '' on success.
       cycle2_last_error: typeof obj.cycle2_last_error === 'string' ? obj.cycle2_last_error : '',
-    }
+    };
   } catch {
     return {
-      cycle1: 0, cycle2: 0, cycle1_autoRestart: 0,
-      cycle1_heartbeat: 0, cycle1_autoRestart_attempt: 0,
+      cycle1: 0,
+      cycle2: 0,
+      cycle1_autoRestart: 0,
+      cycle1_heartbeat: 0,
+      cycle1_autoRestart_attempt: 0,
       cycle2_last_error: '',
-    }
+    };
   }
 }
 
 async function setCycleLastRun(kind, ts) {
-  await mergeMetaValue(db, CYCLE_LAST_RUN_KEY, { [kind]: ts })
+  await mergeMetaValue(db, CYCLE_LAST_RUN_KEY, { [kind]: ts });
 }
 
 async function refreshCoreMemorySnapshot(reason = 'mutation') {
   try {
-    const result = await refreshCoreMemoryFile(db, DATA_DIR)
-    memoryProfile('core-memory:file-refreshed', { reason, revision: result.revision, written: result.written })
-    return result
+    const result = await refreshCoreMemoryFile(db, DATA_DIR);
+    memoryProfile('core-memory:file-refreshed', { reason, revision: result.revision, written: result.written });
+    return result;
   } catch (error) {
-    __mixdogMemoryLog(`[core-memory] file refresh failed (${reason}): ${error?.message || error}\n`)
-    return null
+    __mixdogMemoryLog(`[core-memory] file refresh failed (${reason}): ${error?.message || error}\n`);
+    return null;
   }
 }
-
 
 // ── Cycle scheduling cluster (extracted to lib/cycle-scheduler.mjs) ────────
 // The mutually-referential cycle machinery (health ledger, cycle1 outer
 // coalesce layer, scheduled enqueue/retry paths, checkCycles, tick loop) lives
 // in the factory below. index.mjs keeps lifecycle ownership by injecting live
 // getters (getDb/getConfig/setConfig) plus runners and LLM adapters.
-const CYCLE_STATE_FILE = path.join(DATA_DIR, 'memory-cycle-state.json')
+const CYCLE_STATE_FILE = path.join(DATA_DIR, 'memory-cycle-state.json');
 
-const _cycleLlmAdapters = createCycleLlmAdapters({ callAgentDispatch })
-const { getCycle1CallLlm, getCycle2CallLlm } = _cycleLlmAdapters
+const _cycleLlmAdapters = createCycleLlmAdapters({ callAgentDispatch });
+const { getCycle1CallLlm, getCycle2CallLlm } = _cycleLlmAdapters;
 
 const _cycleScheduler = createCycleScheduler({
   getDb: () => db,
   getConfig: () => mainConfig,
-  setConfig: (cfg) => { mainConfig = cfg },
+  setConfig: (cfg) => {
+    mainConfig = cfg;
+  },
   dataDir: DATA_DIR,
   log: __mixdogMemoryLog,
   getCycleLastRun,
@@ -395,28 +423,33 @@ const _cycleScheduler = createCycleScheduler({
   scheduledCycle1Signature,
   scheduledCycle2Signature,
   cycleStateFile: CYCLE_STATE_FILE,
-})
+});
 // Cycle1 run primitives + cycle2 finalize used by MCP action handlers below.
-const _startCycle1Run = _cycleScheduler.startCycle1Run
-const _awaitCycle1Run = _cycleScheduler.awaitCycle1Run
-const _finalizeCycle2Run = _cycleScheduler.finalizeCycle2Run
+const _startCycle1Run = _cycleScheduler.startCycle1Run;
+const _awaitCycle1Run = _cycleScheduler.awaitCycle1Run;
+const _finalizeCycle2Run = _cycleScheduler.finalizeCycle2Run;
 
 // Transcript watcher lifecycle stays in the facade (owns _transcriptIngest);
 // the cycle tick loop start/stop is delegated to the scheduler.
-let _transcriptWatcher = null
+let _transcriptWatcher = null;
 function _startCycles() {
-  _cycleScheduler.startCycles()
+  _cycleScheduler.startCycles();
 }
 
 function _stopCycles() {
-  _cycleScheduler.stopCycles()
-  if (_transcriptWatcher) { try { _transcriptWatcher.stop() } catch {} _transcriptWatcher = null }
+  _cycleScheduler.stopCycles();
+  if (_transcriptWatcher) {
+    try {
+      _transcriptWatcher.stop();
+    } catch {}
+    _transcriptWatcher = null;
+  }
 }
 
 function _startEmbeddingReindex() {
-  if (memorySecondaryMode() || _embeddingReindexPromise || !db) return
-  const controller = new AbortController()
-  _embeddingReindexController = controller
+  if (memorySecondaryMode() || _embeddingReindexPromise || !db) return;
+  const controller = new AbortController();
+  _embeddingReindexController = controller;
   const promise = drainEmbeddingReindex({
     flushEntries: ({ signal }) => flushEmbeddingDirty(db, { signal }),
     backfillCore: ({ signal }) => backfillCoreEmbeddings(DATA_DIR, { signal }),
@@ -426,32 +459,32 @@ function _startEmbeddingReindex() {
       if (summary.attempted > 0 || summary.coreFilled > 0) {
         __mixdogMemoryLog(
           `[memory-service] embedding reindex passes=${summary.passes} attempted=${summary.attempted} ` +
-          `ok=${summary.succeeded} failed=${summary.failed} core=${summary.coreFilled}\n`,
-        )
+            `ok=${summary.succeeded} failed=${summary.failed} core=${summary.coreFilled}\n`
+        );
       }
     })
     .catch((error) => {
       if (!controller.signal.aborted) {
-        __mixdogMemoryLog(`[memory-service] embedding reindex stopped: ${error?.message || error}\n`)
+        __mixdogMemoryLog(`[memory-service] embedding reindex stopped: ${error?.message || error}\n`);
       }
     })
     .finally(() => {
-      if (_embeddingReindexController === controller) _embeddingReindexController = null
-      if (_embeddingReindexPromise === promise) _embeddingReindexPromise = null
-    })
-  _embeddingReindexPromise = promise
+      if (_embeddingReindexController === controller) _embeddingReindexController = null;
+      if (_embeddingReindexPromise === promise) _embeddingReindexPromise = null;
+    });
+  _embeddingReindexPromise = promise;
 }
 
 async function _initRuntime(signal) {
-  const runtimeStartedAt = performance.now()
-  memoryProfile('runtime-init:start')
-  await _initStore()
-  signal.throwIfAborted()
-  memoryProfile('runtime-init:init-store-ready', { ms: (performance.now() - runtimeStartedAt).toFixed(1) })
+  const runtimeStartedAt = performance.now();
+  memoryProfile('runtime-init:start');
+  await _initStore();
+  signal.throwIfAborted();
+  memoryProfile('runtime-init:init-store-ready', { ms: (performance.now() - runtimeStartedAt).toFixed(1) });
   // First boot migrates existing PG core data; later boots reconcile any
   // crash window between a committed PG mutation and its atomic file refresh.
   // The snapshot is not part of memory readiness.
-  void refreshCoreMemorySnapshot('boot-migration')
+  void refreshCoreMemorySnapshot('boot-migration');
   // Memory module is always-on: the transcript watcher/ingest runs
   // unconditionally except in secondary mode (secondary attaches to a primary's
   // PG and must not double-ingest). The recap toggle only gates whether the
@@ -460,20 +493,20 @@ async function _initRuntime(signal) {
   // no-ops while recap is off). The env hard-override / secondary mode skip the
   // tick loop entirely.
   if (!memorySecondaryMode()) {
-    _transcriptWatcher = await _transcriptIngest.initTranscriptWatcher()
-    signal.throwIfAborted()
+    _transcriptWatcher = await _transcriptIngest.initTranscriptWatcher();
+    signal.throwIfAborted();
   } else {
-    __mixdogMemoryLog('[memory-service] secondary mode; skipping transcript watcher\n')
+    __mixdogMemoryLog('[memory-service] secondary mode; skipping transcript watcher\n');
   }
   if (!memorySecondaryMode() && !envFlagEnabled('MIXDOG_MEMORY_DISABLE_CYCLES')) {
-    const cyclesStartedAt = performance.now()
-    _startCycles()
-    memoryProfile('cycles:start:done', { ms: (performance.now() - cyclesStartedAt).toFixed(1) })
+    const cyclesStartedAt = performance.now();
+    _startCycles();
+    memoryProfile('cycles:start:done', { ms: (performance.now() - cyclesStartedAt).toFixed(1) });
   } else {
-    __mixdogMemoryLog('[memory-service] background cycle tick loop not started (secondary/env-disabled)\n')
+    __mixdogMemoryLog('[memory-service] background cycle tick loop not started (secondary/env-disabled)\n');
   }
-  _startEmbeddingReindex()
-  memoryProfile('runtime-init:done', { ms: (performance.now() - runtimeStartedAt).toFixed(1) })
+  _startEmbeddingReindex();
+  memoryProfile('runtime-init:done', { ms: (performance.now() - runtimeStartedAt).toFixed(1) });
 }
 
 const __queryHandlers = createQueryHandlers({
@@ -483,15 +516,9 @@ const __queryHandlers = createQueryHandlers({
   embeddingOnDemandCanStart,
   getBootTimestamp: () => _bootTimestamp,
   getTraceDb: () => _traceDb,
-})
-const {
-  readRawRowsInWindow,
-  recallSessionRows,
-  recallCoreRows,
-  handleSearch,
-  dumpSessionRootChunks,
-  entryStats,
-} = __queryHandlers
+});
+const { readRawRowsInWindow, recallSessionRows, recallCoreRows, handleSearch, dumpSessionRootChunks, entryStats } =
+  __queryHandlers;
 
 // ── Memory action + tool-call handlers (extracted to
 // lib/memory-action-handlers.mjs). The facade keeps db/scheduler ownership and
@@ -514,15 +541,15 @@ const _actionHandlers = createMemoryActionHandlers({
   getCycle2CallLlm,
   ingestTranscriptFile,
   cwdFromTranscriptPath,
-})
-const { handleMemoryAction, handleToolCall } = _actionHandlers
+});
+const { handleMemoryAction, handleToolCall } = _actionHandlers;
 
 const mcp = new Server(
   { name: 'mixdog-memory', version: PLUGIN_VERSION },
-  { capabilities: { tools: {} }, instructions: MEMORY_INSTRUCTIONS_TEXT },
-)
-mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_DEFS }))
-mcp.setRequestHandler(CallToolRequestSchema, (req) => handleToolCall(req.params.name, req.params.arguments ?? {}))
+  { capabilities: { tools: {} }, instructions: MEMORY_INSTRUCTIONS_TEXT }
+);
+mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_DEFS }));
+mcp.setRequestHandler(CallToolRequestSchema, (req) => handleToolCall(req.params.name, req.params.arguments ?? {}));
 
 // ── HTTP request router (extracted to lib/http-router.mjs). The facade owns
 // the http.Server + listen/stop lifecycle; the router builds the request
@@ -538,7 +565,9 @@ const _httpRouter = createHttpRouter({
   cycleScheduler: _cycleScheduler,
   getInitialized: () => _serviceLifecycle.getInitialized(),
   getInitPromise: () => _serviceLifecycle.getInitPromise(),
-  setBootTimestamp: (v) => { _bootTimestamp = v },
+  setBootTimestamp: (v) => {
+    _bootTimestamp = v;
+  },
   handleMemoryAction,
   handleToolCall,
   stop,
@@ -546,169 +575,178 @@ const _httpRouter = createHttpRouter({
   deregisterClient,
   getDraining: () => _serviceLifecycle.isStopping(),
   getTraceDb: () => _traceDb,
-  setTraceDb: (v) => { _traceDb = v },
+  setTraceDb: (v) => {
+    _traceDb = v;
+  },
   ingestTranscriptFile,
   getTranscriptOffset: (fp) => _transcriptIngest.getOffset(fp),
   parseTsToMs,
   refreshCoreMemoryFile: refreshCoreMemorySnapshot,
-})
-const buildSessionCoreMemoryPayload = _httpRouter.buildSessionCoreMemoryPayload
-const httpServer = http.createServer(_httpRouter.requestHandler)
+});
+const buildSessionCoreMemoryPayload = _httpRouter.buildSessionCoreMemoryPayload;
+const httpServer = http.createServer(_httpRouter.requestHandler);
 const _httpListener = createLoopbackListener({
   server: httpServer,
   basePort: BASE_PORT,
   maxPort: MAX_PORT,
   onListening: (port) => __mixdogMemoryLog(`[memory-service] HTTP listening on 127.0.0.1:${port}\n`),
   onError: (error, fatal) => {
-    __mixdogMemoryLog(`[memory-service] HTTP ${fatal ? 'fatal' : 'error'}: ${error?.message || error}\n`)
+    __mixdogMemoryLog(`[memory-service] HTTP ${fatal ? 'fatal' : 'error'}: ${error?.message || error}\n`);
   },
-})
+});
 const _serviceLifecycle = createMemoryServiceLifecycle({
   initialize: _initRuntime,
-  openListener: () => memorySecondaryMode() || INTEGRATED_DAEMON_HOST ? null : _httpListener.start(),
+  openListener: () => (memorySecondaryMode() || INTEGRATED_DAEMON_HOST ? null : _httpListener.start()),
   closeListener: _httpListener.stop,
   advertisePort: advertiseMemoryPort,
   withdraw: () => {
-    _memoryPortAdvertiser.reset()
-    _daemonLifecycle.reset()
+    _memoryPortAdvertiser.reset();
+    _daemonLifecycle.reset();
   },
   stopBackgroundWork: _stopBackgroundWork,
   shutdown: _stopRuntime,
   onStart: () => __mixdogMemoryLog(`[boot-time] tag=memory-init-start tMs=${Date.now()}\n`),
   onInitError: (error) => {
-    __mixdogMemoryLog(`[memory-service] runtime init failed: ${error?.stack || error?.message || error}\n`)
+    __mixdogMemoryLog(`[memory-service] runtime init failed: ${error?.stack || error?.message || error}\n`);
   },
   onReady: (port) => {
-    __mixdogMemoryLog(`[memory-service] init() complete (entries unified mode, version=${PLUGIN_VERSION})\n`)
+    __mixdogMemoryLog(`[memory-service] init() complete (entries unified mode, version=${PLUGIN_VERSION})\n`);
     if (process.env.MIXDOG_WORKER_MODE === '1' && process.send) {
-      safeIpcSend(process, { type: 'ready', port })
+      safeIpcSend(process, { type: 'ready', port });
     }
-    touchDaemonIdleTimer('init')
+    touchDaemonIdleTimer('init');
   },
-})
+});
 
-export { TOOL_DEFS, handleToolCall, buildSessionCoreMemoryPayload }
-export { MEMORY_INSTRUCTIONS_TEXT as instructions }
-export { acquireLock, releaseLock }
-export { cwdFromTranscriptPath }
+export { TOOL_DEFS, handleToolCall, buildSessionCoreMemoryPayload };
+export { MEMORY_INSTRUCTIONS_TEXT as instructions };
+export { acquireLock, releaseLock };
+export { cwdFromTranscriptPath };
 
 /** In-process write surface used by the unified channel/session daemon. */
 export async function appendEntry(data = {}) {
-  await init()
-  const role = String(data.role ?? 'user')
-  const content = String(data.content ?? '')
-  if (!content.trim()) return { error: 'content required' }
-  const sourceRef = String(data.sourceRef ?? `manual:${Date.now()}-${process.pid}`)
-  const sessionId = data.sessionId ?? null
-  const tsMs = parseTsToMs(data.ts ?? Date.now())
-  const projectId = resolveProjectScope(typeof data.cwd === 'string' && data.cwd ? data.cwd : null)
-  const result = await db.query(`
+  await init();
+  const role = String(data.role ?? 'user');
+  const content = String(data.content ?? '');
+  if (!content.trim()) return { error: 'content required' };
+  const sourceRef = String(data.sourceRef ?? `manual:${Date.now()}-${process.pid}`);
+  const sessionId = data.sessionId ?? null;
+  const tsMs = parseTsToMs(data.ts ?? Date.now());
+  const projectId = resolveProjectScope(typeof data.cwd === 'string' && data.cwd ? data.cwd : null);
+  const result = await db.query(
+    `
     INSERT INTO entries(ts, role, content, source_ref, session_id, project_id)
     VALUES ($1, $2, $3, $4, $5, $6)
     ON CONFLICT DO NOTHING
     RETURNING id
-  `, [tsMs, role, content, sourceRef, sessionId, projectId])
-  const insertedId = result.rows[0]?.id ?? null
+  `,
+    [tsMs, role, content, sourceRef, sessionId, projectId]
+  );
+  const insertedId = result.rows[0]?.id ?? null;
   return {
     ok: true,
     id: insertedId !== null ? Number(insertedId) : null,
     changes: Number(result.rowCount ?? result.affectedRows ?? 0),
-  }
+  };
 }
 
 /** In-process transcript ingest surface used by the unified daemon. */
 export async function ingestTranscript(filePath, { cwd } = {}) {
-  await init()
-  if (!filePath) return { error: 'filePath required' }
-  const ingested = await ingestTranscriptFile(filePath, { cwd })
-  return { ok: true, ingested }
+  await init();
+  if (!filePath) return { error: 'filePath required' };
+  const ingested = await ingestTranscriptFile(filePath, { cwd });
+  return { ok: true, ingested };
 }
 
 /** Direct trace sink for agent orchestration running in this daemon process. */
 export async function recordTraceEvents(events = []) {
-  await init()
-  if (!Array.isArray(events)) throw new TypeError('events must be an array')
-  if (events.length > 500) throw new RangeError('too many events (max 500)')
+  await init();
+  if (!Array.isArray(events)) throw new TypeError('events must be an array');
+  if (events.length > 500) throw new RangeError('too many events (max 500)');
   if (!_traceDb) {
-    _traceDb = await openTraceDatabase(DATA_DIR)
-    if (!_traceDb) return { ok: true, queued: 0, disabled: true }
-    registerTraceExitDrain(_traceDb)
+    _traceDb = await openTraceDatabase(DATA_DIR);
+    if (!_traceDb) return { ok: true, queued: 0, disabled: true };
+    registerTraceExitDrain(_traceDb);
   }
-  enqueueTraceEvents(_traceDb, events)
+  enqueueTraceEvents(_traceDb, events);
   void insertAgentCalls(_traceDb, events).catch((error) => {
-    __mixdogMemoryLog(`[trace] insertAgentCalls error: ${error?.message}\n`)
-  })
-  return { ok: true, queued: events.length }
+    __mixdogMemoryLog(`[trace] insertAgentCalls error: ${error?.message}\n`);
+  });
+  return { ok: true, queued: events.length };
 }
 export async function init() {
-  return _serviceLifecycle.init()
+  return _serviceLifecycle.init();
 }
 
 export async function stop() {
-  return _serviceLifecycle.stop()
+  return _serviceLifecycle.stop();
 }
 
 async function _stopBackgroundWork() {
-  _stopCycles()
-  _embeddingReindexController?.abort(new Error('memory service stopping'))
-  const reindexPromise = _embeddingReindexPromise
-  await Promise.allSettled([
-    stopLlmWorker(),
-    reindexPromise,
-  ])
-  await shutdownEmbeddingProvider()
+  _stopCycles();
+  _embeddingReindexController?.abort(new Error('memory service stopping'));
+  const reindexPromise = _embeddingReindexPromise;
+  await Promise.allSettled([stopLlmWorker(), reindexPromise]);
+  await shutdownEmbeddingProvider();
 }
 
 async function _stopRuntime() {
   if (_traceDb) {
-    try { await closeTraceDatabase(DATA_DIR) } catch {}
-    _traceDb = null
+    try {
+      await closeTraceDatabase(DATA_DIR);
+    } catch {}
+    _traceDb = null;
   }
-  await closeDatabase(DATA_DIR)
+  await closeDatabase(DATA_DIR);
   // Stop the PG postmaster after the connection pools have been drained.
   // closeDatabase() only ends the client pool; without this the child
   // postmaster keeps running after the unified daemon exits.
   if (!memorySecondaryMode()) {
-    const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs')
-    await stopPgForShutdown()
+    const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs');
+    await stopPgForShutdown();
   } else {
-    __mixdogMemoryLog('[memory-service] secondary mode; leaving shared PG running\n')
+    __mixdogMemoryLog('[memory-service] secondary mode; leaving shared PG running\n');
   }
-  db = null
-  mainConfig = null
-  _bootTimestamp = null
-  _transcriptIngest.resetOffsets()
-  _cycleScheduler.resetInFlight()
-  releaseLock()
+  db = null;
+  mainConfig = null;
+  _bootTimestamp = null;
+  _transcriptIngest.resetOffsets();
+  _cycleScheduler.resetInFlight();
+  releaseLock();
 }
 
 // Standalone MCP launcher path. Product mode imports this module into the
 // unified daemon; running the module directly owns stdio for MCP clients.
 if (IS_MEMORY_ENTRY) {
-  ;(async () => {
-    acquireLock()
-    process.on('exit', releaseLock)
-    let syncPgStopRequested = false
-    if (!memorySecondaryMode()) process.on('exit', () => {
-      if (syncPgStopRequested) {
-        try { stopPgForShutdownSync() } catch {}
-      }
-    })
+  (async () => {
+    acquireLock();
+    process.on('exit', releaseLock);
+    let syncPgStopRequested = false;
+    if (!memorySecondaryMode())
+      process.on('exit', () => {
+        if (syncPgStopRequested) {
+          try {
+            stopPgForShutdownSync();
+          } catch {}
+        }
+      });
     const stopFromSignal = () => {
-      syncPgStopRequested = true
-      stop().finally(() => process.exit(0))
-    }
-    process.on('SIGINT', stopFromSignal)
-    process.on('SIGTERM', stopFromSignal)
-    await init()
+      syncPgStopRequested = true;
+      stop().finally(() => process.exit(0));
+    };
+    process.on('SIGINT', stopFromSignal);
+    process.on('SIGTERM', stopFromSignal);
+    await init();
     if (!(process.env.MIXDOG_WORKER_MODE === '1' && process.send)) {
-      const transport = new StdioServerTransport()
-      await mcp.connect(transport)
-      await new Promise((resolve) => { mcp.onclose = resolve })
-      await stop()
+      const transport = new StdioServerTransport();
+      await mcp.connect(transport);
+      await new Promise((resolve) => {
+        mcp.onclose = resolve;
+      });
+      await stop();
     }
   })().catch((err) => {
-    __mixdogMemoryLog(`[memory-service] startup failed: ${err.stack || err.message}\n`)
-    process.exit(1)
-  })
+    __mixdogMemoryLog(`[memory-service] startup failed: ${err.stack || err.message}\n`);
+    process.exit(1);
+  });
 }

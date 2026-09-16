@@ -34,28 +34,36 @@ import {
   runShellCase,
 } from './_shared.mjs';
 
-
 test('Windows-sensitive Node re-execs keep their windows hidden', () => {
   const cli = source('src/cli.mjs');
   const jitRebuild = source('src/tui/dev/jit-rebuild.mjs');
 
-  assert.match(cli, /spawnSync\(process\.execPath, \[fileURLToPath\(import\.meta\.url\), \.\.\.argv\], \{\r?\n\s*stdio: 'inherit',\r?\n\s*env: \{ \.\.\.process\.env, MIXDOG_SWAP_REEXEC: '1' \},\r?\n\s*windowsHide: true,\r?\n\s*\}\)/);
-  assert.match(jitRebuild, /spawnSync\(process\.execPath, \[script\], \{\r?\n\s*stdio: process\.env\.MIXDOG_TUI_DEV_VERBOSE \? 'inherit' : 'ignore',\r?\n\s*windowsHide: true,\r?\n\s*\}\)/);
+  assert.match(
+    cli,
+    /spawnSync\(process\.execPath, \[fileURLToPath\(import\.meta\.url\), \.\.\.argv\], \{\r?\n\s*stdio: 'inherit',\r?\n\s*env: \{ \.\.\.process\.env, MIXDOG_SWAP_REEXEC: '1' \},\r?\n\s*windowsHide: true,\r?\n\s*\}\)/
+  );
+  assert.match(
+    jitRebuild,
+    /spawnSync\(process\.execPath, \[script\], \{\r?\n\s*stdio: process\.env\.MIXDOG_TUI_DEV_VERBOSE \? 'inherit' : 'ignore',\r?\n\s*windowsHide: true,\r?\n\s*\}\)/
+  );
 });
 
 test('child guardians re-exec Electron as Node without forwarding secrets', () => {
-  assert.deepEqual(childGuardianSpawnEnv({
-    PATH: 'fixture-path',
-    SystemRoot: 'C:\\Windows',
-    WINDIR: '',
-    ELECTRON_RUN_AS_NODE: '0',
-    MIXDOG_TEST_SECRET: 'must-not-forward',
-  }), {
-    PATH: 'fixture-path',
-    SystemRoot: 'C:\\Windows',
-    WINDIR: 'C:\\Windows',
-    ELECTRON_RUN_AS_NODE: '1',
-  });
+  assert.deepEqual(
+    childGuardianSpawnEnv({
+      PATH: 'fixture-path',
+      SystemRoot: 'C:\\Windows',
+      WINDIR: '',
+      ELECTRON_RUN_AS_NODE: '0',
+      MIXDOG_TEST_SECRET: 'must-not-forward',
+    }),
+    {
+      PATH: 'fixture-path',
+      SystemRoot: 'C:\\Windows',
+      WINDIR: 'C:\\Windows',
+      ELECTRON_RUN_AS_NODE: '1',
+    }
+  );
 });
 
 test('command-scoped child guardians can stop without killing a reusable child', { timeout: 10_000 }, async () => {
@@ -113,14 +121,20 @@ test('child guardians share one broker without coupling child lifetimes', { time
     assert.equal(second.stop(), true);
     // Same shared-broker caveat as above: full wind-down is only observable
     // when no other subsystem still holds a target.
-    assert.equal(await waitUntil(() => !_brokerTargetsForTest().some(
-      (t) => t.childPid === firstChild.pid || t.childPid === secondChild.pid,
-    )), true);
+    assert.equal(
+      await waitUntil(
+        () => !_brokerTargetsForTest().some((t) => t.childPid === firstChild.pid || t.childPid === secondChild.pid)
+      ),
+      true
+    );
     if (_brokerTargetsForTest().length === 0) {
-      assert.equal(await waitUntil(() => {
-        const pid = _sharedBrokerPidForTest();
-        return !pid || !pidAlive(pid);
-      }), true);
+      assert.equal(
+        await waitUntil(() => {
+          const pid = _sharedBrokerPidForTest();
+          return !pid || !pidAlive(pid);
+        }),
+        true
+      );
     }
   } finally {
     first?.stop?.();
@@ -146,8 +160,7 @@ test('a naturally exited child is removed from the parent guardian registry', { 
     if (_brokerTargetsForTest().length === 0) {
       assert.equal(await waitUntil(() => !pidAlive(guardian.pid)), true);
     }
-    assert.equal(guardian.stop(), false,
-      'natural child exit must clear the parent-side broker target');
+    assert.equal(guardian.stop(), false, 'natural child exit must clear the parent-side broker target');
   } finally {
     guardian?.stop?.();
     killIdleNode(child);
@@ -167,7 +180,10 @@ test('a naturally exited child is removed from the parent guardian registry', { 
 // (quoting/escaping), never to reinterpret the caller's command.
 // ---------------------------------------------------------------------------
 test('host family comes from the real spawn executable, never from an argument shape', () => {
-  assert.equal(_shellFamilyForSpawn({ shell: 'C:/Program Files/PowerShell/7/pwsh.exe', shellArg: '-Command' }), 'powershell');
+  assert.equal(
+    _shellFamilyForSpawn({ shell: 'C:/Program Files/PowerShell/7/pwsh.exe', shellArg: '-Command' }),
+    'powershell'
+  );
   assert.equal(_shellFamilyForSpawn({ shell: 'C:/Windows/System32/cmd.exe', shellArg: '/c' }), 'cmd');
   assert.equal(_shellFamilyForSpawn({ shell: '/bin/bash', shellArg: '-lc' }), 'bash');
   assert.equal(_shellFamilyForSpawn({ shell: 'C:/Program Files/Git/bin/bash.exe', shellArgs: ['-lc'] }), 'bash');
@@ -176,7 +192,10 @@ test('host family comes from the real spawn executable, never from an argument s
   assert.equal(_shellFamilyForSpawn({ shell: '/bin/sh', shellArg: '-c' }), 'posix');
   // The spawn target wins over contradictory caller metadata.
   assert.equal(_shellFamilyForSpawn({ shellType: 'cmd', shell: 'pwsh.exe', shellArg: '-Command' }), 'powershell');
-  assert.equal(_shellFamilyForSpawn({ shellType: 'powershell', shell: 'C:/Windows/System32/cmd.exe', shellArg: '/c' }), 'cmd');
+  assert.equal(
+    _shellFamilyForSpawn({ shellType: 'powershell', shell: 'C:/Windows/System32/cmd.exe', shellArg: '/c' }),
+    'cmd'
+  );
   // An ARGUMENT never classifies: only the executable receiving the command
   // text does, so a `/c` on an unknown binary stays unknown.
   assert.equal(_shellFamilyForSpawn({ shell: '/usr/bin/env', shellArg: 'bash' }), null);
@@ -197,7 +216,10 @@ test('the background result block renders its warning slot in order', () => {
   assert.ok(withWarning.includes('still running'));
   const withoutWarning = _backgroundResultLines({ taskBlock: '[task_id: job_x]', message: 'still running' });
   assert.equal(withoutWarning[0], '[task_id: job_x]');
-  assert.equal(withoutWarning.some((line) => line === SURVIVING_DESCENDANTS_WARNING), false);
+  assert.equal(
+    withoutWarning.some((line) => line === SURVIVING_DESCENDANTS_WARNING),
+    false
+  );
 });
 
 test('a real auto-backgrounded command leaves through the background result path', { timeout: 60_000 }, async () => {
@@ -206,20 +228,23 @@ test('a real auto-backgrounded command leaves through the background result path
   process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = '500';
   let taskId = null;
   try {
-    const raw = await executeBashTool(
-      { command: isWindows ? 'Start-Sleep -Seconds 20' : 'sleep 20' },
-      process.cwd(),
-      { sessionId: 'sess_autobg_render', callerSessionId: 'sess_autobg_render' },
-    );
+    const raw = await executeBashTool({ command: isWindows ? 'Start-Sleep -Seconds 20' : 'sleep 20' }, process.cwd(), {
+      sessionId: 'sess_autobg_render',
+      callerSessionId: 'sess_autobg_render',
+    });
     const rendered = normalizeToolEnvelope(raw)?.result ?? String(raw);
-    taskId = rendered.match(/^task_id:\s*(\S+)/m)?.[1]
-      || rendered.match(/\[task_id:\s*([^\]]+)\]/)?.[1]
-      || null;
+    taskId = rendered.match(/^task_id:\s*(\S+)/m)?.[1] || rendered.match(/\[task_id:\s*([^\]]+)\]/)?.[1] || null;
     assert.ok(taskId, `an auto-backgrounded command must return a task_id:\n${rendered}`);
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
     else process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = previous;
-    if (taskId) { try { killShellJob(taskId); } catch { /* best-effort */ } }
+    if (taskId) {
+      try {
+        killShellJob(taskId);
+      } catch {
+        /* best-effort */
+      }
+    }
   }
 });
 
@@ -231,7 +256,8 @@ const POSIX_CASES_PENDING = process.platform !== 'win32' && 'POSIX descendant ca
 
 for (const entry of DETACHING_SHELL_CASES) {
   test(`${entry.name}: a command that leaves descendants running is observed and cancellable`, {
-    timeout: 120_000, skip: POSIX_CASES_PENDING,
+    timeout: 120_000,
+    skip: POSIX_CASES_PENDING,
   }, async () => {
     const result = await runShellCase(entry, entry.detaching);
     const handle = result.descendants;
@@ -243,51 +269,59 @@ for (const entry of DETACHING_SHELL_CASES) {
     // keeps no live link to a process whose parent already exited) is reported
     // as unconfirmed instead of being claimed dead.
     if (handle.reachable) {
-      assert.equal(killed.terminated, true,
-        `${entry.name}: cancellation must leave no process behind, survivors=${killed.survivors.join(',')}`);
-      assert.equal(await waitUntil(() => !descendantsAlive(handle), 10_000), true,
-        `${entry.name}: no descendant may outlive the cancellation`);
+      assert.equal(
+        killed.terminated,
+        true,
+        `${entry.name}: cancellation must leave no process behind, survivors=${killed.survivors.join(',')}`
+      );
+      assert.equal(
+        await waitUntil(() => !descendantsAlive(handle), 10_000),
+        true,
+        `${entry.name}: no descendant may outlive the cancellation`
+      );
     } else {
-      assert.equal(process.platform, 'win32',
-        `${entry.name}: only Windows can lose the link to a re-parented descendant`);
+      assert.equal(
+        process.platform,
+        'win32',
+        `${entry.name}: only Windows can lose the link to a re-parented descendant`
+      );
       assert.ok(Array.isArray(killed.survivors));
     }
   });
 
   test(`${entry.name}: a command whose descendants all exit reports a plain completion`, {
-    timeout: 120_000, skip: POSIX_CASES_PENDING,
+    timeout: 120_000,
+    skip: POSIX_CASES_PENDING,
   }, async () => {
     const result = await runShellCase(entry, entry.finishing);
-    assert.equal(result.descendants, null,
-      `${entry.name}: nothing may be tracked when nothing survived:\n${JSON.stringify(result.descendants)}`);
+    assert.equal(
+      result.descendants,
+      null,
+      `${entry.name}: nothing may be tracked when nothing survived:\n${JSON.stringify(result.descendants)}`
+    );
     assert.equal(result.exitCode, 0);
   });
 }
 
 test('a finished command that left descendants is tracked and cancelled through the task tool', {
-  timeout: 120_000, skip: POSIX_CASES_PENDING,
+  timeout: 120_000,
+  skip: POSIX_CASES_PENDING,
 }, async () => {
   const isWindows = process.platform === 'win32';
-  const command = isWindows
-    ? 'Start-Process -NoNewWindow ping -ArgumentList "-n","30","127.0.0.1"'
-    : 'sleep 30 &';
+  const command = isWindows ? 'Start-Process -NoNewWindow ping -ArgumentList "-n","30","127.0.0.1"' : 'sleep 30 &';
   const sessionId = 'sess_descendants_tracked';
   const raw = await executeBashTool({ command }, process.cwd(), { sessionId, callerSessionId: sessionId });
   const rendered = normalizeToolEnvelope(raw)?.result ?? String(raw);
-  const taskId = rendered.match(/^task_id:\s*(\S+)/m)?.[1]
-    || rendered.match(/\[task_id:\s*([^\]]+)\]/)?.[1]
-    || null;
+  const taskId = rendered.match(/^task_id:\s*(\S+)/m)?.[1] || rendered.match(/\[task_id:\s*([^\]]+)\]/)?.[1] || null;
   assert.ok(
-    rendered.includes(SURVIVING_DESCENDANTS_WARNING)
-    || rendered.includes(SURVIVING_DESCENDANTS_UNREACHABLE_WARNING),
-    `a command that left descendants must say so:\n${rendered}`,
+    rendered.includes(SURVIVING_DESCENDANTS_WARNING) || rendered.includes(SURVIVING_DESCENDANTS_UNREACHABLE_WARNING),
+    `a command that left descendants must say so:\n${rendered}`
   );
   assert.ok(taskId, `surviving descendants must be tracked under a task_id:\n${rendered}`);
   assert.doesNotMatch(rendered, /shell-tool-failed/);
-  const cancelled = String(await executeTaskTool(
-    { action: 'cancel', task_id: taskId },
-    { sessionId, callerSessionId: sessionId },
-  ));
+  const cancelled = String(
+    await executeTaskTool({ action: 'cancel', task_id: taskId }, { sessionId, callerSessionId: sessionId })
+  );
   assert.match(cancelled, /cancelled|cancel-unconfirmed/);
   assert.doesNotMatch(cancelled, /task not found/);
 });

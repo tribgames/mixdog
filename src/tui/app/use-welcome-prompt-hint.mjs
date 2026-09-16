@@ -74,7 +74,8 @@ export function useWelcomePromptHint({ store, state, toastErrorSignature }) {
         }
         const webSearchProvider = String(webSearchRoute?.provider || '').trim();
         const webSearchModel = String(webSearchRoute?.model || '').trim();
-        const defaultWebSearchRoute = webSearchProvider.toLowerCase() === 'default' && webSearchModel.toLowerCase() === 'default';
+        const defaultWebSearchRoute =
+          webSearchProvider.toLowerCase() === 'default' && webSearchModel.toLowerCase() === 'default';
         if (defaultWebSearchRoute) {
           try {
             const models = await Promise.resolve(store.listProviderModels?.({ quick: true }) || []);
@@ -96,8 +97,12 @@ export function useWelcomePromptHint({ store, state, toastErrorSignature }) {
     };
     // Outer backstop: this effect is fire-and-forget, so ANY rejection from the
     // hint probes must die here instead of becoming an unhandled rejection.
-    void refreshConditionalWelcomeHint().catch(() => { /* hint stays generic */ });
-    return () => { alive = false; };
+    void refreshConditionalWelcomeHint().catch(() => {
+      /* hint stays generic */
+    });
+    return () => {
+      alive = false;
+    };
   }, [store, state.provider, state.model, state.workflow?.id, toastErrorSignature]);
 
   return {

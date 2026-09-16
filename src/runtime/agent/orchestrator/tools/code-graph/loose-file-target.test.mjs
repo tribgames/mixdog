@@ -15,11 +15,7 @@ test('an exact absolute file outside every project is a valid outline target', a
     const target = join(outside, 'headless_terminal.py');
     writeFileSync(target, PY);
     // cwd is THIS project; the anchor lives outside it and under no sentinel.
-    const out = String(await executeCodeGraphTool(
-      'code_graph',
-      { mode: 'symbols', files: target },
-      process.cwd(),
-    ));
+    const out = String(await executeCodeGraphTool('code_graph', { mode: 'symbols', files: target }, process.cwd()));
     assert.doesNotMatch(out, /Refusing to index an arbitrary tree/);
     assert.match(out, /is_alive/);
   } finally {
@@ -31,11 +27,7 @@ test('a sentinel-free working directory outlines its own files with an implicit 
   const root = mkdtempSync(join(tmpdir(), 'mixdog-implicit-cwd-'));
   try {
     writeFileSync(join(root, 'app.py'), PY);
-    const out = String(await executeCodeGraphTool(
-      'code_graph',
-      { mode: 'symbols', files: 'app.py' },
-      root,
-    ));
+    const out = String(await executeCodeGraphTool('code_graph', { mode: 'symbols', files: 'app.py' }, root));
     assert.doesNotMatch(out, /Refusing to index an arbitrary tree/);
     assert.match(out, /is_alive/);
   } finally {

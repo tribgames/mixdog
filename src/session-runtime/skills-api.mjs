@@ -13,7 +13,10 @@ import {
   validateSkillWhenToUse,
 } from '../runtime/shared/skill-document.mjs';
 import { clean } from './session-text.mjs';
-import { normalizeSkillToolDependencies, saveSkillToolDependencies } from '../runtime/shared/skill-tool-dependencies.mjs';
+import {
+  normalizeSkillToolDependencies,
+  saveSkillToolDependencies,
+} from '../runtime/shared/skill-tool-dependencies.mjs';
 import { loadSkillToolDependencies } from './skill-tool-loading.mjs';
 
 const DEFAULT_SKILL_BODY = '# Instructions\n\nDescribe how to use this skill.';
@@ -23,14 +26,14 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
 
   function skillsStatus() {
     const cwd = getCwd();
-    const skills = typeof contextMod.collectSkillsCached === 'function'
-      ? contextMod.collectSkillsCached(cwd)
-      : [];
-    const norm = (value) => String(value || '').replace(/\\/g, '/').toLowerCase();
+    const skills = typeof contextMod.collectSkillsCached === 'function' ? contextMod.collectSkillsCached(cwd) : [];
+    const norm = (value) =>
+      String(value || '')
+        .replace(/\\/g, '/')
+        .toLowerCase();
     const globalRoot = `${norm(globalSkillsRoot())}/`;
-    const sourceForSkill = (skill) => (
-      skill.source || (norm(skill.filePath).startsWith(globalRoot) ? 'global' : 'plugin')
-    );
+    const sourceForSkill = (skill) =>
+      skill.source || (norm(skill.filePath).startsWith(globalRoot) ? 'global' : 'plugin');
     // Owner: who installs, shows, and toggles this skill. Only user-global
     // skills stand on their own; a built-in skill rides its feature's Install
     // and toggle, a plugin skill rides the plugin's, so panels list those under
@@ -70,9 +73,8 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
   function skillContent(name) {
     const skillName = String(name || '').trim();
     if (!skillName) throw new Error('skill name is required');
-    const res = typeof contextMod.loadSkillResource === 'function'
-      ? contextMod.loadSkillResource(skillName, getCwd())
-      : null;
+    const res =
+      typeof contextMod.loadSkillResource === 'function' ? contextMod.loadSkillResource(skillName, getCwd()) : null;
     if (!res) throw new Error(`skill not found: ${skillName}`);
     return { ...res, name: skillName, source: res.source || 'global' };
   }
@@ -80,9 +82,8 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
   function skillToolContent(name, session = null, mode) {
     const skillName = String(name || '').trim();
     if (!skillName) throw new Error('skill name is required');
-    const missingFeature = typeof contextMod.skillMissingFeature === 'function'
-      ? contextMod.skillMissingFeature(skillName)
-      : null;
+    const missingFeature =
+      typeof contextMod.skillMissingFeature === 'function' ? contextMod.skillMissingFeature(skillName) : null;
     if (missingFeature) {
       return `Error: skill "${skillName}" needs the ${missingFeature} built-in feature, which is not installed or is switched off in Settings → Built-in`;
     }
@@ -94,7 +95,9 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
     // loops: the model-visible tool_result is the short stub and the SKILL.md
     // body is delivered ONCE as a separate injected user message.
     return loadSkillToolDependencies(
-      contextMod.buildSkillToolEnvelope(skill.name, skill.content, skill.dir, skill, session), session, mode,
+      contextMod.buildSkillToolEnvelope(skill.name, skill.content, skill.dir, skill, session),
+      session,
+      mode
     );
   }
 
@@ -103,8 +106,10 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
     const description = validateSkillDescription(input.description);
     const whenToUse = validateSkillWhenToUse(input.whenToUse);
     const body = String(input.instructions || input.body || DEFAULT_SKILL_BODY);
-    const dependencies = input.toolDependencies === undefined ? undefined
-      : normalizeSkillToolDependencies(input.toolDependencies, { strict: true });
+    const dependencies =
+      input.toolDependencies === undefined
+        ? undefined
+        : normalizeSkillToolDependencies(input.toolDependencies, { strict: true });
     const dir = join(globalSkillsRoot(), name);
     const filePath = join(dir, 'SKILL.md');
     if (existsSync(filePath)) throw new Error(`skill already exists: ${name}`);
@@ -119,9 +124,12 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
     const originalName = validateSkillName(input.originalName);
     const resource = contextMod.loadSkillResource?.(originalName, getCwd());
     if (!resource?.filePath) throw new Error(`skill not found: ${originalName}`);
-    const dependencies = input.toolDependencies === null ? null
-      : input.toolDependencies === undefined ? undefined
-      : normalizeSkillToolDependencies(input.toolDependencies, { strict: true });
+    const dependencies =
+      input.toolDependencies === null
+        ? null
+        : input.toolDependencies === undefined
+          ? undefined
+          : normalizeSkillToolDependencies(input.toolDependencies, { strict: true });
     if (input.dependenciesOnly === true) {
       if (dependencies === undefined) throw new Error('Skill tool dependencies are required.');
       saveSkillToolDependencies(resource.filePath, dependencies);
@@ -137,8 +145,9 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
     if (!resourceRelative || resourceRelative.startsWith('..') || isAbsolute(resourceRelative)) {
       throw new Error(`plugin skill is read-only: ${originalName}`);
     }
-    const collision = skillsStatus().skills.find((skill) =>
-      skill.name === name && skill.filePath !== resource.filePath);
+    const collision = skillsStatus().skills.find(
+      (skill) => skill.name === name && skill.filePath !== resource.filePath
+    );
     if (collision) throw new Error(`skill already exists: ${name}`);
 
     const currentDir = dirname(resource.filePath);
@@ -151,8 +160,12 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
     }
     const source = readFileSync(resource.filePath, 'utf8');
     const parsed = parseSkillDocument(source);
-    if (name === originalName && description === parsed.description && whenToUse === parsed.whenToUse
-      && body.trim() === parsed.body.trim()) {
+    if (
+      name === originalName &&
+      description === parsed.description &&
+      whenToUse === parsed.whenToUse &&
+      body.trim() === parsed.body.trim()
+    ) {
       if (dependencies !== undefined) saveSkillToolDependencies(resource.filePath, dependencies);
       contextMod.invalidateSkillsCache?.(getCwd());
       return { originalName, name, filePath: resource.filePath };

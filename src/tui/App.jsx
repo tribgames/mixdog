@@ -63,7 +63,10 @@ import {
   slashCommandForName,
   slashArgumentHint,
 } from './app/slash-commands.mjs';
-import { isCompletedTranscriptTailAppendedThisCommit, isLiveSpinnerMetaVisible } from './app/live-spinner-visibility.mjs';
+import {
+  isCompletedTranscriptTailAppendedThisCommit,
+  isLiveSpinnerMetaVisible,
+} from './app/live-spinner-visibility.mjs';
 import {
   parseMcpServerInput,
   parseSkillInput,
@@ -74,7 +77,13 @@ import {
 import { copyToClipboard } from './app/clipboard.mjs';
 import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './app/panel-epoch.mjs';
 import { createPanelSurface } from './app/panel-surface.mjs';
-import { wrappedTextRows, promptContentRows, wrappedDetailRows, textEntryReservedRows, queuedBandRows } from './app/text-layout.mjs';
+import {
+  wrappedTextRows,
+  promptContentRows,
+  wrappedDetailRows,
+  textEntryReservedRows,
+  queuedBandRows,
+} from './app/text-layout.mjs';
 import stringWidth from 'string-width';
 import { useMouseInput } from './app/use-mouse-input.mjs';
 import { useTranscriptScroll } from './app/use-transcript-scroll.mjs';
@@ -207,9 +216,7 @@ function panelSignatureFlags(signature) {
   const textToken = parts[PANEL_LAYOUT_SIG.TEXT] || '';
   return {
     slash: parts[PANEL_LAYOUT_SIG.SLASH] === 'slash',
-    pickerKind: pickerToken.startsWith('picker:')
-      ? pickerToken.slice('picker:'.length).split(':')[0]
-      : '',
+    pickerKind: pickerToken.startsWith('picker:') ? pickerToken.slice('picker:'.length).split(':')[0] : '',
     textKind: textToken.startsWith('text:') ? textToken.slice('text:'.length) : '',
   };
 }
@@ -375,9 +382,14 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
       // Enter-open time survives the rebuild instead of falling back to
       // 'auto' and hiding the row indexes.
       if (
-        resolved && typeof resolved === 'object' && !resolved.indexMode
-        && prev && typeof prev === 'object' && prev.indexMode
-        && prev._kind && prev._kind === resolved._kind
+        resolved &&
+        typeof resolved === 'object' &&
+        !resolved.indexMode &&
+        prev &&
+        typeof prev === 'object' &&
+        prev.indexMode &&
+        prev._kind &&
+        prev._kind === resolved._kind
       ) {
         return { ...resolved, indexMode: prev.indexMode };
       }
@@ -442,13 +454,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     if (livePickerRef.current?._projectInitialPending !== true) return;
     void projectPickerRef.current?.openProjectPicker({ initialEntry: true });
   }, [store]);
-  const {
-    beginNewProject,
-    registerProject,
-    enterProject,
-    beginRenameProject,
-    openProjectPicker,
-  } = projectPicker;
+  const { beginNewProject, registerProject, enterProject, beginRenameProject, openProjectPicker } = projectPicker;
   // getDisabledSkills is a remote call on a daemon-backed store, so it cannot
   // seed useState synchronously (the initializer used to capture a promise and
   // every skill looked enabled). Start empty and adopt the real set on mount.
@@ -461,21 +467,28 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
         const disabled = Array.isArray(result?.disabled) ? result.disabled : [];
         if (disabled.length) setDisabledSkillsInner(new Set(disabled));
       })
-      .catch(() => { /* skills stay enabled when the probe fails */ });
-    return () => { alive = false; };
+      .catch(() => {
+        /* skills stay enabled when the probe fails */
+      });
+    return () => {
+      alive = false;
+    };
   }, [store]);
-  const setDisabledSkills = useCallback((next) => {
-    setDisabledSkillsInner((current) => {
-      const base = current instanceof Set ? current : new Set(current);
-      const set = typeof next === 'function' ? next(base) : (next instanceof Set ? next : new Set(next));
-      try {
-        store.setDisabledSkills?.([...set]);
-      } catch (e) {
-        store.pushNotice(`skill disable persist failed: ${e?.message || e}`, 'error');
-      }
-      return set;
-    });
-  }, [store]);
+  const setDisabledSkills = useCallback(
+    (next) => {
+      setDisabledSkillsInner((current) => {
+        const base = current instanceof Set ? current : new Set(current);
+        const set = typeof next === 'function' ? next(base) : next instanceof Set ? next : new Set(next);
+        try {
+          store.setDisabledSkills?.([...set]);
+        } catch (e) {
+          store.pushNotice(`skill disable persist failed: ${e?.message || e}`, 'error');
+        }
+        return set;
+      });
+    },
+    [store]
+  );
   const toolApproval = state.toolApproval || null;
   const [promptDraft, setPromptDraft] = useState('');
   const [promptDraftOverride, setPromptDraftOverride] = useState(null);
@@ -519,12 +532,14 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     showSelectionCopyHint,
     clearPromptHint,
   } = usePromptHint();
-  const toastErrorSignature = useMemo(() => (
-    (state.toasts || [])
-      .filter((toast) => toast?.tone === 'error')
-      .map((toast) => `${toast.id || ''}:${toast.text || ''}`)
-      .join('|')
-  ), [state.toasts]);
+  const toastErrorSignature = useMemo(
+    () =>
+      (state.toasts || [])
+        .filter((toast) => toast?.tone === 'error')
+        .map((toast) => `${toast.id || ''}:${toast.text || ''}`)
+        .join('|'),
+    [state.toasts]
+  );
   // Welcome-screen starter tip + conditional setup hints:
   // app/use-welcome-prompt-hint.mjs.
   const {
@@ -544,7 +559,13 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   const workflowTabCycleRef = useRef({ pending: false, lastAt: 0 });
   const scrollFocusRef = useRef({});
   const onboardingStartedRef = useRef(false);
-  const onboardingRef = useRef({ defaultRoute: null, webSearchRoute: null, agentRoutes: {}, agents: [], providerModels: [] });
+  const onboardingRef = useRef({
+    defaultRoute: null,
+    webSearchRoute: null,
+    agentRoutes: {},
+    agents: [],
+    providerModels: [],
+  });
   const providerModelsCacheRef = useRef({ models: null, at: 0 });
   const webSearchModelsCacheRef = useRef({ models: null, at: 0 });
   const modelPickerRequestRef = useRef(0);
@@ -575,23 +596,38 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
       const seq = onboardingPrefetchSeqRef.current;
       try {
         const models = await Promise.resolve(store.listProviderModels?.() || []);
-        if (alive && seq === onboardingPrefetchSeqRef.current
-          && Array.isArray(models) && models.length > 0
-          && !Array.isArray(providerModelsCacheRef.current.models)) {
+        if (
+          alive &&
+          seq === onboardingPrefetchSeqRef.current &&
+          Array.isArray(models) &&
+          models.length > 0 &&
+          !Array.isArray(providerModelsCacheRef.current.models)
+        ) {
           providerModelsCacheRef.current = { models, at: Date.now() };
         }
-      } catch { /* prefetch is advisory; pickers fall back to their own load */ }
+      } catch {
+        /* prefetch is advisory; pickers fall back to their own load */
+      }
       if (!alive) return;
       try {
         const webSearchModels = await Promise.resolve(store.listWebSearchModels?.() || []);
-        if (alive && Array.isArray(webSearchModels) && webSearchModels.length > 0
-          && !Array.isArray(webSearchModelsCacheRef.current.models)) {
+        if (
+          alive &&
+          Array.isArray(webSearchModels) &&
+          webSearchModels.length > 0 &&
+          !Array.isArray(webSearchModelsCacheRef.current.models)
+        ) {
           webSearchModelsCacheRef.current = { models: webSearchModels, at: Date.now() };
         }
-      } catch { /* prefetch is advisory; /websearch falls back to its own load */ }
+      } catch {
+        /* prefetch is advisory; /websearch falls back to its own load */
+      }
     }, 1500);
     timer.unref?.();
-    return () => { alive = false; clearTimeout(timer); };
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
   }, [store]);
   // Picker/panel factories + slash dispatch: app/create-app-pickers.mjs.
   const {
@@ -670,7 +706,15 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   // bounds ({ lo:{x,y}, hi:{x,y}, kind:'word'|'line' }) so a subsequent drag
   // extends the selection whole-word/whole-line from that span. Null ⇔ an
   // ordinary char-drag selection.
-  const dragRef = useRef({ anchor: null, anchorScroll: 0, last: null, active: false, rect: null, region: null, anchorSpan: null });
+  const dragRef = useRef({
+    anchor: null,
+    anchorScroll: 0,
+    last: null,
+    active: false,
+    rect: null,
+    region: null,
+    anchorSpan: null,
+  });
   const transcriptViewportRef = useRef({ top: 0, bottom: 0 });
   const panelTransitionRef = useRef({ signature: '', reserve: 0, clearRows: 0, guardRows: 0, epoch: 0 });
   const panelCloseInkMaskRowsRef = useRef(0);
@@ -682,12 +726,15 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   const frameRowsRef = useRef(24);
   const STATUSLINE_BAND_ROWS = 3;
   const promptContentColumns = Math.max(1, frameColumns - 4);
-  const syncPromptLayoutRows = useCallback((value) => {
-    const text = String(value ?? '');
-    promptLayoutValueRef.current = text;
-    const nextRows = promptContentRows(text, promptContentColumns);
-    setPromptLayoutRows((prev) => (prev === nextRows ? prev : nextRows));
-  }, [promptContentColumns]);
+  const syncPromptLayoutRows = useCallback(
+    (value) => {
+      const text = String(value ?? '');
+      promptLayoutValueRef.current = text;
+      const nextRows = promptContentRows(text, promptContentColumns);
+      setPromptLayoutRows((prev) => (prev === nextRows ? prev : nextRows));
+    },
+    [promptContentColumns]
+  );
   useEffect(() => {
     syncPromptLayoutRows(promptLayoutValueRef.current);
   }, [syncPromptLayoutRows]);
@@ -769,9 +816,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     showSelectionCopyHint,
   });
 
-  useEffect(() => () => {
-    stopSmoothScroll();
-  }, [stopSmoothScroll]);
+  useEffect(
+    () => () => {
+      stopSmoothScroll();
+    },
+    [stopSmoothScroll]
+  );
 
   // SGR mouse handling: extracted to app/use-mouse-input.mjs (useMouseInput).
   const { settleStuckDrag } = useMouseInput({
@@ -802,7 +852,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     clearStitchBuffer,
   });
 
-
   // Item-count changes never infer follow permission from scrollTarget=0. A
   // first read-back input can be waiting one frame for committed row geometry;
   // only prompt submit, session reset, or an explicit return to bottom arms
@@ -824,12 +873,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   }, [state.items, resetTranscriptScroll]);
 
   // Exit + queued-restore + prompt history: app/use-prompt-queue-history.mjs.
-  const {
-    requestExit,
-    restoreQueuedToPrompt,
-    recentPromptHistory,
-    resetPromptHistoryNav,
-  } = usePromptQueueHistory({
+  const { requestExit, restoreQueuedToPrompt, recentPromptHistory, resetPromptHistoryNav } = usePromptQueueHistory({
     store,
     state,
     exit,
@@ -858,42 +902,38 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   });
 
   // PROMPT HANDLER cluster extracted to app/use-prompt-handlers.mjs.
-  const {
-    handlePromptPaste,
-    handlePromptHistoryNavigate,
-    handlePromptEscape,
-    handlePromptInterrupt,
-  } = usePromptHandlers({
-    store,
-    state,
-    promptValueRef,
-    pastedImagesRef,
-    nextPastedImageIdRef,
-    pastedTextsRef,
-    nextPastedTextIdRef,
-    promptHistoryNavRef,
-    promptHistoryDraftChangeRef,
-    setPastedImages,
-    setPastedTexts,
-    setPromptDraftOverride,
-    surface,
-    syncPromptLayoutRows,
-    showPromptHint,
-    clearPromptHint,
-    recentPromptHistory,
-    resetPromptHistoryNav,
-    restoreQueuedToPrompt,
-    openMessageSelector,
-    usagePanel,
-    closeUsagePanel,
-    contextPanel,
-    installPastedImages,
-    clearPastedImagesSnapshot,
-    registerPastedImage,
-    installPastedTexts,
-    clearPastedTextsSnapshot,
-    registerPastedText,
-  });
+  const { handlePromptPaste, handlePromptHistoryNavigate, handlePromptEscape, handlePromptInterrupt } =
+    usePromptHandlers({
+      store,
+      state,
+      promptValueRef,
+      pastedImagesRef,
+      nextPastedImageIdRef,
+      pastedTextsRef,
+      nextPastedTextIdRef,
+      promptHistoryNavRef,
+      promptHistoryDraftChangeRef,
+      setPastedImages,
+      setPastedTexts,
+      setPromptDraftOverride,
+      surface,
+      syncPromptLayoutRows,
+      showPromptHint,
+      clearPromptHint,
+      recentPromptHistory,
+      resetPromptHistoryNav,
+      restoreQueuedToPrompt,
+      openMessageSelector,
+      usagePanel,
+      closeUsagePanel,
+      contextPanel,
+      installPastedImages,
+      clearPastedImagesSnapshot,
+      registerPastedImage,
+      installPastedTexts,
+      clearPastedTextsSnapshot,
+      registerPastedText,
+    });
 
   // Ctrl+O toggles the global tool-output expansion, matching common terminal-chat
   // expectation that this is a view mode rather than a per-card hidden state.
@@ -962,7 +1002,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     state.clientHostPid,
   ]);
 
-
   useEffect(() => {
     if (onboardingStartedRef.current) return undefined;
     if (resolveOnboardingCompleted(store, onboardingCompleted) && !forceOnboarding) return undefined;
@@ -1006,18 +1045,23 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     pastedTextsRef,
   });
 
-  const activeSlashQuery = providerPrompt || settingsPrompt || toolApproval || contextPanel || usagePanel ? null : slashQuery(promptDraft);
+  const activeSlashQuery =
+    providerPrompt || settingsPrompt || toolApproval || contextPanel || usagePanel ? null : slashQuery(promptDraft);
   // "Slash mode" is live whenever a /token is being edited and no other
   // surface owns the floating area. The palette stays OPEN for the whole
   // slash session — including 0-match frames — so its 14-row layout never
   // unmounts/remounts per keystroke (fullscreen repaint flicker fix).
-  const slashModeLive = activeSlashQuery !== null
-    && !picker && !toolApproval && !contextPanel && !usagePanel && !exiting && !state.commandBusy;
+  const slashModeLive =
+    activeSlashQuery !== null &&
+    !picker &&
+    !toolApproval &&
+    !contextPanel &&
+    !usagePanel &&
+    !exiting &&
+    !state.commandBusy;
   const slashCommands = !slashModeLive
     ? []
-    : SLASH_COMMANDS
-      .filter((command) => slashCommandMatches(command, activeSlashQuery))
-      .sort(compareSlashCommands);
+    : SLASH_COMMANDS.filter((command) => slashCommandMatches(command, activeSlashQuery)).sort(compareSlashCommands);
   const slashPaletteOpen = slashModeLive && slashDismissedFor !== promptDraft;
   slashPaletteRef.current = { open: slashPaletteOpen, count: slashCommands.length };
   scrollFocusRef.current = {
@@ -1168,9 +1212,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     transcriptMeasureRef,
   } = useTranscriptWindow({
     items: state.transcriptViewItems || state.items,
-    structureRevision: state.transcriptViewItems
-      ? state.transcriptViewRevision
-      : state.structureRevision,
+    structureRevision: state.transcriptViewItems ? state.transcriptViewRevision : state.structureRevision,
     sessionKey: state.sessionId || '',
     // Historical pages are contiguous settled windows. Keep the independently
     // growing live tail hidden until paging forward reaches the live window.
@@ -1202,7 +1244,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     setMeasuredRowsVersion,
   });
   const cycleWorkflowFromPrompt = useCallback(() => {
-    if (slashPaletteOpen || toolApproval || picker || settingsPrompt || providerPrompt || contextPanel || usagePanel) return true;
+    if (slashPaletteOpen || toolApproval || picker || settingsPrompt || providerPrompt || contextPanel || usagePanel)
+      return true;
     const repeatGuardMs = 300;
     const cycleGuard = workflowTabCycleRef.current;
     const now = Date.now();
@@ -1228,7 +1271,13 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
           return null;
         }
         const activeIndex = workflows.findIndex((item) => item.active);
-        const currentIndex = activeIndex >= 0 ? activeIndex : Math.max(0, workflows.findIndex((item) => item.id === workflow.id));
+        const currentIndex =
+          activeIndex >= 0
+            ? activeIndex
+            : Math.max(
+                0,
+                workflows.findIndex((item) => item.id === workflow.id)
+              );
         const next = workflows[(currentIndex + 1 + workflows.length) % workflows.length];
         return store.setWorkflow?.(next.id);
       })
@@ -1244,7 +1293,18 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
         cycleGuard.lastAt = Date.now();
       });
     return true;
-  }, [slashPaletteOpen, toolApproval, picker, settingsPrompt, providerPrompt, contextPanel, usagePanel, state.commandBusy, state.workflow, store]);
+  }, [
+    slashPaletteOpen,
+    toolApproval,
+    picker,
+    settingsPrompt,
+    providerPrompt,
+    contextPanel,
+    usagePanel,
+    state.commandBusy,
+    state.workflow,
+    store,
+  ]);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
   // is a live column, so the live-frame line count ink relies on is accurate.

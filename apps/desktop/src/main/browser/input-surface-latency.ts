@@ -4,7 +4,9 @@ import type { WebContents } from 'electron';
 /** Measure renderer input through the production IPC/display path, not just
  * host acknowledgement. The marker is independently advanced by guest input. */
 export async function measureBrowserWheelToPixels(
-  guest: WebContents, shell: WebContents, log: (text: string) => void,
+  guest: WebContents,
+  shell: WebContents,
+  log: (text: string) => void
 ): Promise<void> {
   await guest.executeJavaScript(`(() => {
     const marker = document.createElement('div');
@@ -20,7 +22,8 @@ export async function measureBrowserWheelToPixels(
   const samples: number[] = [];
   try {
     for (let index = 0; index < 20; index++) {
-      samples.push(await shell.executeJavaScript(`new Promise((resolve, reject) => {
+      samples.push(
+        await shell.executeJavaScript(`new Promise((resolve, reject) => {
         const surface = document.querySelector('.browser-isolated-view');
         const image = surface.querySelector('.browser-isolated-pixels > :first-child');
         const canvas = document.createElement('canvas');
@@ -43,15 +46,18 @@ export async function measureBrowserWheelToPixels(
         surface.addEventListener('browser-frame-presented', loaded);
         image.dispatchEvent(new WheelEvent('wheel', {bubbles:true,cancelable:true,
           clientX:bounds.x+800,clientY:bounds.y+300,deltaY:${index < 10 ? 32 : -32}}));
-      })`));
+      })`)
+      );
     }
     assert.equal(await guest.executeJavaScript('window.wheelLatencyCount'), 50);
     const sorted = [...samples].sort((a, b) => a - b);
-    log(`renderer wheel-to-pixels benchmark ${JSON.stringify({
-      samples: samples.map(value => Number(value.toFixed(1))),
-      p50Ms: Number(sorted[Math.ceil(sorted.length * 0.5) - 1].toFixed(1)),
-      p95Ms: Number(sorted[Math.ceil(sorted.length * 0.95) - 1].toFixed(1)),
-    })}`);
+    log(
+      `renderer wheel-to-pixels benchmark ${JSON.stringify({
+        samples: samples.map((value) => Number(value.toFixed(1))),
+        p50Ms: Number(sorted[Math.ceil(sorted.length * 0.5) - 1].toFixed(1)),
+        p95Ms: Number(sorted[Math.ceil(sorted.length * 0.95) - 1].toFixed(1)),
+      })}`
+    );
   } finally {
     await guest.executeJavaScript(`window.removeEventListener('wheel', window.wheelLatencyListener);
       document.getElementById('wheel-latency-marker').remove()`);

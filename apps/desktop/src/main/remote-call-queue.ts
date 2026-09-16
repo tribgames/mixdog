@@ -5,15 +5,24 @@
 // mutations are barriers: reads after a write observe that write, and writes
 // never overtake an earlier operation or replay on recovery.
 const PARALLEL_READS = new Set([
-  'getSnapshot', 'listProjects', 'listSessions', 'listAgentPool',
-  'listProjectDir', 'readProjectFile', 'statProjectFile', 'searchProjectFiles',
+  'getSnapshot',
+  'listProjects',
+  'listSessions',
+  'listAgentPool',
+  'listProjectDir',
+  'readProjectFile',
+  'statProjectFile',
+  'searchProjectFiles',
   'previewDocumentPages',
-  'gitStatus', 'gitDiff', 'gitLog', 'gitBranches', 'gitShow', 'gitShowDiff',
+  'gitStatus',
+  'gitDiff',
+  'gitLog',
+  'gitBranches',
+  'gitShow',
+  'gitShowDiff',
 ]);
 
-const TERMINAL_METHODS = new Set([
-  'termEnsure', 'termProfiles', 'termWrite', 'termResize', 'termDispose',
-]);
+const TERMINAL_METHODS = new Set(['termEnsure', 'termProfiles', 'termWrite', 'termResize', 'termDispose']);
 
 export function createRemoteCallQueue(concurrency = 4) {
   const general = createCallLane(concurrency);
@@ -48,11 +57,14 @@ function createCallLane(concurrency: number) {
       queued.shift();
       active += 1;
       writing = !next.read;
-      void Promise.resolve().then(next.run).then(next.resolve, next.reject).finally(() => {
-        active -= 1;
-        writing = false;
-        pump();
-      });
+      void Promise.resolve()
+        .then(next.run)
+        .then(next.resolve, next.reject)
+        .finally(() => {
+          active -= 1;
+          writing = false;
+          pump();
+        });
       if (writing) return;
     }
   };

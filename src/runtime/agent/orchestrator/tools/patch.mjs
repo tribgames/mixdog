@@ -42,6 +42,12 @@ import {
   splitBufferLinesForPatch,
 } from './patch/matcher.mjs';
 
-const __patchTestHooks = { findFirstFailingUnifiedHunk, computeUnifiedChangeBand, collectUnifiedOps, unifiedOldLinesMatchAt, splitBufferLinesForPatch };
+const __patchTestHooks = {
+  findFirstFailingUnifiedHunk,
+  computeUnifiedChangeBand,
+  collectUnifiedOps,
+  unifiedOldLinesMatchAt,
+  splitBufferLinesForPatch,
+};
 
 scheduleNativePatchPrewarm();

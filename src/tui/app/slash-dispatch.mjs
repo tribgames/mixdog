@@ -56,18 +56,21 @@ export function createSlashDispatch({
 }) {
   const openSlashPanel = (command, title, open) => {
     const own = surface.claim();
-    if (!own.paint({
-      _kind: `slash-loading:${command}`,
-      title,
-      description: `Loading ${title.toLowerCase()}...`,
-      help: 'Esc Close',
-      indexMode: 'never',
-      pickerKey: `slash-loading:${command}`,
-      loading: true,
-      items: [],
-      onSelect: () => {},
-      onCancel: () => own.close(),
-    })) return;
+    if (
+      !own.paint({
+        _kind: `slash-loading:${command}`,
+        title,
+        description: `Loading ${title.toLowerCase()}...`,
+        help: 'Esc Close',
+        indexMode: 'never',
+        pickerKey: `slash-loading:${command}`,
+        loading: true,
+        items: [],
+        onSelect: () => {},
+        onCancel: () => own.close(),
+      })
+    )
+      return;
     const finishUnclaimedLoading = () => {
       // A real picker/context/usage surface supersedes this loading identity.
       // If the opener completed without painting (empty result or failure),
@@ -77,13 +80,10 @@ export function createSlashDispatch({
     try {
       const opening = open();
       if (opening && typeof opening.then === 'function') {
-        void Promise.resolve(opening).then(
-          finishUnclaimedLoading,
-          (error) => {
-            finishUnclaimedLoading();
-            store.pushNotice(`${title} panel failed: ${error?.message || error}`, 'error');
-          },
-        );
+        void Promise.resolve(opening).then(finishUnclaimedLoading, (error) => {
+          finishUnclaimedLoading();
+          store.pushNotice(`${title} panel failed: ${error?.message || error}`, 'error');
+        });
       } else {
         finishUnclaimedLoading();
       }
@@ -102,11 +102,15 @@ export function createSlashDispatch({
     switch (cmd) {
       case 'clear':
         if (state.busy || state.commandBusy) {
-          store.pushNotice(`wait for the current session command to finish before /${rawName === 'new' ? 'new' : 'clear'}`, 'warn');
+          store.pushNotice(
+            `wait for the current session command to finish before /${rawName === 'new' ? 'new' : 'clear'}`,
+            'warn'
+          );
           return false;
         }
         if (rawName === 'new') {
-          void store.newSession()
+          void store
+            .newSession()
             .then((created) => {
               if (created === false) {
                 store.pushNotice('new session is already running', 'warn');
@@ -118,7 +122,10 @@ export function createSlashDispatch({
             })
             .catch((e) => store.pushNotice(`new session failed: ${e?.message || e}`, 'error'));
         } else {
-          void store.clear().then(() => {}).catch((e) => store.pushNotice(`clear failed: ${e?.message || e}`, 'error'));
+          void store
+            .clear()
+            .then(() => {})
+            .catch((e) => store.pushNotice(`clear failed: ${e?.message || e}`, 'error'));
         }
         return true;
       case 'model':
@@ -131,8 +138,11 @@ export function createSlashDispatch({
           openSlashPanel('model', 'Model', () => openModelPicker({ refreshModels: true }));
           return true;
         }
-        void store.setModel(arg)
-          .then(ok => store.pushNotice(ok ? modelSwitchNotice() : 'Model switch is already running.', ok ? 'info' : 'warn'))
+        void store
+          .setModel(arg)
+          .then((ok) =>
+            store.pushNotice(ok ? modelSwitchNotice() : 'Model switch is already running.', ok ? 'info' : 'warn')
+          )
           .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
         return true;
       case 'websearch':
@@ -140,20 +150,25 @@ export function createSlashDispatch({
         // config save consumed by the NEXT web_search tool call). It never touches the
         // in-flight turn, and the same picker is already reachable mid-turn via
         // /settings, so blocking it here was inconsistent.
-        if (arg) store.pushNotice('/websearch sets the web-search provider/model; the web_search tool uses that model when called.', 'warn');
+        if (arg)
+          store.pushNotice(
+            '/websearch sets the web-search provider/model; the web_search tool uses that model when called.',
+            'warn'
+          );
         openSlashPanel('websearch', 'Web Search Model', () => openWebSearchPicker());
         return true;
       case 'agents':
-        openSlashPanel('agents', 'Agents', () => openAgentsPicker(
-          arg.trim().toLowerCase() === 'refresh' ? { refreshModels: true } : {},
-        ));
+        openSlashPanel('agents', 'Agents', () =>
+          openAgentsPicker(arg.trim().toLowerCase() === 'refresh' ? { refreshModels: true } : {})
+        );
         return true;
       case 'workflow':
         if (!arg) {
           openSlashPanel('workflow', 'Workflow', () => openWorkflowPicker());
           return true;
         }
-        void store.setWorkflow?.(arg.trim())
+        void store
+          .setWorkflow?.(arg.trim())
           .then((result) => {
             if (!result) {
               store.pushNotice('Workflow switch is already running.', 'warn');
@@ -183,7 +198,8 @@ export function createSlashDispatch({
             .catch((e) => store.pushNotice(`Couldn’t read output style: ${e?.message || e}`, 'error'));
           return true;
         }
-        void store.setOutputStyle?.(value)
+        void store
+          .setOutputStyle?.(value)
           .then((result) => {
             if (!result) {
               store.pushNotice('Output style switch is already running.', 'warn');
@@ -202,7 +218,9 @@ export function createSlashDispatch({
           return true;
         }
         let themes = [];
-        try { themes = store.listThemes?.() || []; } catch (e) {
+        try {
+          themes = store.listThemes?.() || [];
+        } catch (e) {
           store.pushNotice(`could not list themes: ${e?.message || e}`, 'error');
           return true;
         }
@@ -212,8 +230,9 @@ export function createSlashDispatch({
           store.pushNotice(`Theme: ${entry?.label || id || 'default'}`, 'info');
           return true;
         }
-        const match = themes.find((t) => t.id.toLowerCase() === lower)
-          || themes.find((t) => String(t.label || '').toLowerCase() === lower);
+        const match =
+          themes.find((t) => t.id.toLowerCase() === lower) ||
+          themes.find((t) => String(t.label || '').toLowerCase() === lower);
         if (!match) {
           const ids = themes.map((t) => t.id).join(', ');
           store.pushNotice(`usage: /theme [id]. Available: ${ids}`, 'warn');
@@ -236,13 +255,21 @@ export function createSlashDispatch({
           openSlashPanel('effort', 'Effort', () => openEffortPicker());
           return true;
         }
-        void store.setEffort(arg)
-          .then(result => store.pushNotice(result ? `Effort set to ${result}${pendingTurn}` : 'Effort switch is already running.', result ? 'info' : 'warn'))
+        void store
+          .setEffort(arg)
+          .then((result) =>
+            store.pushNotice(
+              result ? `Effort set to ${result}${pendingTurn}` : 'Effort switch is already running.',
+              result ? 'info' : 'warn'
+            )
+          )
           .catch((e) => store.pushNotice(`Couldn’t switch effort: ${e?.message || e}`, 'error'));
         return true;
       }
       case 'fast': {
-        const value = String(arg || '').trim().toLowerCase();
+        const value = String(arg || '')
+          .trim()
+          .toLowerCase();
         const setTo = value
           ? ['1', 'true', 'yes', 'on', 'enable', 'enabled'].includes(value)
             ? true
@@ -262,9 +289,9 @@ export function createSlashDispatch({
               return;
             }
             store.pushNotice(
-              `Fast mode ${enabled ? 'on' : 'off'} for ${state.provider}/${state.model}`
-              + (state.busy ? ' (applies from the next turn)' : ''),
-              'info',
+              `Fast mode ${enabled ? 'on' : 'off'} for ${state.provider}/${state.model}` +
+                (state.busy ? ' (applies from the next turn)' : ''),
+              'info'
             );
           })
           .catch((e) => store.pushNotice(`Couldn’t update fast mode: ${e?.message || e}`, 'error'));
@@ -302,7 +329,8 @@ export function createSlashDispatch({
           openSlashPanel('memory', 'Memory', () => openMemoryCorePicker({ returnTo: null }));
           return true;
         }
-        void store.memoryControl?.(parseMemoryCommand(arg))
+        void store
+          .memoryControl?.(parseMemoryCommand(arg))
           .catch((e) => store.pushNotice(`memory failed: ${e?.message || e}`, 'error'));
         return true;
       }
@@ -321,7 +349,7 @@ export function createSlashDispatch({
               ? store.setAutoClear?.({ enabled: true })
               : value === 'off' || value === 'disable' || value === 'disabled'
                 ? store.setAutoClear?.({ enabled: false })
-                : store.setAutoClear?.({ duration: value }),
+                : store.setAutoClear?.({ duration: value })
         )
           .then((next) => {
             if (!next) {
@@ -338,7 +366,8 @@ export function createSlashDispatch({
           store.pushNotice('wait for the current turn to finish before /compact', 'warn');
           return false;
         }
-        void store.compact()
+        void store
+          .compact()
           .then((r) => {
             if (!r) {
               store.pushNotice('Compact failed.', 'warn');
@@ -377,8 +406,9 @@ export function createSlashDispatch({
           return false;
         }
         if (arg) {
-          void store.resume(arg)
-            .then(ok => store.pushNotice(ok ? `Resumed ${arg}` : 'Couldn’t resume chat.', ok ? 'info' : 'warn'))
+          void store
+            .resume(arg)
+            .then((ok) => store.pushNotice(ok ? `Resumed ${arg}` : 'Couldn’t resume chat.', ok ? 'info' : 'warn'))
             .catch((e) => store.pushNotice(`Couldn’t resume chat: ${e?.message || e}`, 'error'));
         } else {
           openSlashPanel('resume', 'Resume', () => openResumePicker());
@@ -401,10 +431,7 @@ export function createSlashDispatch({
               store.pushNotice('nothing to inherit', 'warn');
               return;
             }
-            store.pushNotice(
-              `inherited ${result.messages} messages into ${result.sessionId}`,
-              'info',
-            );
+            store.pushNotice(`inherited ${result.messages} messages into ${result.sessionId}`, 'info');
           })
           .catch((e) => store.pushNotice(`inherit failed: ${e?.message || e}`, 'error'));
         return true;
@@ -423,8 +450,9 @@ export function createSlashDispatch({
           store.pushNotice('wait for the current command to finish before /doctor', 'warn');
           return false;
         }
-        void Promise.resolve(runDoctor?.())
-          .catch((e) => store.pushNotice(`doctor failed: ${e?.message || e}`, 'error'));
+        void Promise.resolve(runDoctor?.()).catch((e) =>
+          store.pushNotice(`doctor failed: ${e?.message || e}`, 'error')
+        );
         return true;
       case 'quit':
         requestExit();

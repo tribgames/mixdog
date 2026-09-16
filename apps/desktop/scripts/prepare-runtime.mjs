@@ -6,14 +6,8 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { createPackageWithOptions, listPackage, statFile } from '@electron/asar';
-import {
-  embeddingRuntimeTarget,
-  pruneEmbeddingRuntime,
-} from '../../../scripts/prune-embedding-runtime.mjs';
-import {
-  pruneDesktopPtyPackage,
-  pruneDesktopRuntime,
-} from '../../../scripts/prune-desktop-runtime.mjs';
+import { embeddingRuntimeTarget, pruneEmbeddingRuntime } from '../../../scripts/prune-embedding-runtime.mjs';
+import { pruneDesktopPtyPackage, pruneDesktopRuntime } from '../../../scripts/prune-desktop-runtime.mjs';
 import { nativeBinaryRunsOn } from '../../../scripts/native-binary-arch.mjs';
 import {
   downloadNativeTool,
@@ -21,10 +15,7 @@ import {
   nativeToolInstalledName,
 } from '../../../scripts/native-tool-download.mjs';
 import { runtimeDependencyCacheIdentity } from '../../../scripts/runtime-dependency-cache-key.mjs';
-import {
-  copyRuntimePackagePayload,
-  runtimePackageSource,
-} from './runtime-package-payload.mjs';
+import { copyRuntimePackagePayload, runtimePackageSource } from './runtime-package-payload.mjs';
 
 const execFileAsync = promisify(execFile);
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -44,17 +35,10 @@ const externalProcessArchivePaths = [
   'node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
 ];
 const externalProcessArchiveEntries = externalProcessArchivePaths.map((path) => `/${path}`);
-const desktopPtyPackageDir = join(
-  desktopDir,
-  'node_modules',
-  '@homebridge',
-  'node-pty-prebuilt-multiarch',
-);
+const desktopPtyPackageDir = join(desktopDir, 'node_modules', '@homebridge', 'node-pty-prebuilt-multiarch');
 const builderDesktopPtyDir = join(runtimeDir, 'desktop-node-pty');
 const desktopNativeToolsDir = join(runtimeDir, 'native-tools');
-const configuredBrowserImportNativeSourceDir = String(
-  process.env.MIXDOG_BROWSER_IMPORT_NATIVE_DIR ?? '',
-).trim();
+const configuredBrowserImportNativeSourceDir = String(process.env.MIXDOG_BROWSER_IMPORT_NATIVE_DIR ?? '').trim();
 let browserImportNativeSourceDir = '';
 const browserImportNativeFileNames = [
   'mixdog-browser-import.exe',
@@ -65,9 +49,7 @@ const browserImportNativeFileNames = [
 const runtimeManifestPath = join(runtimeDir, 'manifest.json');
 const preparedRuntimeSchema = 2;
 const configuredNpmCacheDir = String(process.env.MIXDOG_RUNTIME_NPM_CACHE ?? '').trim();
-const npmCacheDir = configuredNpmCacheDir
-  ? resolve(configuredNpmCacheDir)
-  : join(runtimeDir, 'npm-cache');
+const npmCacheDir = configuredNpmCacheDir ? resolve(configuredNpmCacheDir) : join(runtimeDir, 'npm-cache');
 const ownsNpmCache = !configuredNpmCacheDir;
 if (!ownsNpmCache && (npmCacheDir === runtimeDir || npmCacheDir.startsWith(`${runtimeDir}${sep}`))) {
   throw new Error('MIXDOG_RUNTIME_NPM_CACHE must point outside the disposable .runtime directory.');
@@ -86,19 +68,12 @@ const embeddingTarget = embeddingRuntimeTarget({
   platform: optionValue('platform') || undefined,
   arch: optionValue('arch') || undefined,
 });
-const configuredDependencyCacheDir = String(
-  process.env.MIXDOG_RUNTIME_DEPENDENCY_CACHE ?? '',
-).trim();
+const configuredDependencyCacheDir = String(process.env.MIXDOG_RUNTIME_DEPENDENCY_CACHE ?? '').trim();
 const dependencyCacheDir = configuredDependencyCacheDir
   ? resolve(configuredDependencyCacheDir)
   : join(desktopDir, '.cache', 'runtime-dependencies', embeddingTarget.key);
-if (
-  dependencyCacheDir === runtimeDir
-  || dependencyCacheDir.startsWith(`${runtimeDir}${sep}`)
-) {
-  throw new Error(
-    'MIXDOG_RUNTIME_DEPENDENCY_CACHE must point outside the disposable .runtime directory.',
-  );
+if (dependencyCacheDir === runtimeDir || dependencyCacheDir.startsWith(`${runtimeDir}${sep}`)) {
+  throw new Error('MIXDOG_RUNTIME_DEPENDENCY_CACHE must point outside the disposable .runtime directory.');
 }
 const dependencyCacheIdentity = await runtimeDependencyCacheIdentity(rootDir, embeddingTarget);
 let browserImportInputIdentity = null;
@@ -147,12 +122,7 @@ async function prepareBrowserImportNativeSource() {
   if (process.platform !== 'win32') {
     throw new Error('Building the Windows Chrome password importer requires a Windows host.');
   }
-  const outputDirectory = join(
-    desktopDir,
-    '.cache',
-    'browser-import',
-    embeddingTarget.key,
-  );
+  const outputDirectory = join(desktopDir, '.cache', 'browser-import', embeddingTarget.key);
   const sourceRoot = join(rootDir, 'native', 'mixdog-browser-import');
   const sourceFiles = [];
   async function collectSourceFiles(directory) {
@@ -181,9 +151,9 @@ async function prepareBrowserImportNativeSource() {
   try {
     const cached = JSON.parse(await readFile(cacheMarker, 'utf8'));
     if (
-      cached.schemaVersion === cacheIdentity.schemaVersion
-      && cached.target === cacheIdentity.target
-      && cached.sourceHash === cacheIdentity.sourceHash
+      cached.schemaVersion === cacheIdentity.schemaVersion &&
+      cached.target === cacheIdentity.target &&
+      cached.sourceHash === cacheIdentity.sourceHash
     ) {
       await Promise.all(browserImportNativeFileNames.map((name) => access(join(outputDirectory, name))));
       return outputDirectory;
@@ -192,24 +162,28 @@ async function prepareBrowserImportNativeSource() {
     if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
   }
   const buildScript = join(rootDir, 'native', 'mixdog-browser-import', 'build.ps1');
-  await execFileAsync('pwsh', [
-    '-NoLogo',
-    '-NoProfile',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-File',
-    buildScript,
-    '-Configuration',
-    'Release',
-    '-OutputDirectory',
-    outputDirectory,
-    '-TargetArchitecture',
-    embeddingTarget.arch,
-  ], {
-    cwd: rootDir,
-    windowsHide: true,
-    maxBuffer: 16 * 1024 * 1024,
-  });
+  await execFileAsync(
+    'pwsh',
+    [
+      '-NoLogo',
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      buildScript,
+      '-Configuration',
+      'Release',
+      '-OutputDirectory',
+      outputDirectory,
+      '-TargetArchitecture',
+      embeddingTarget.arch,
+    ],
+    {
+      cwd: rootDir,
+      windowsHide: true,
+      maxBuffer: 16 * 1024 * 1024,
+    }
+  );
   await writeFile(cacheMarker, `${JSON.stringify(cacheIdentity, null, 2)}\n`);
   return outputDirectory;
 }
@@ -239,9 +213,9 @@ async function readFileHeader(path, bytes = 4096) {
 async function assertTargetArchitecture(path, label) {
   if (await nativeBinaryRunsOn(await readFileHeader(path), embeddingTarget.arch)) return;
   throw new Error(
-    `${label} cannot run on ${embeddingTarget.key}: its header names another architecture. `
-    + `A runtime prepared on ${process.platform}-${process.arch} must still carry only `
-    + `${embeddingTarget.arch} binaries.`,
+    `${label} cannot run on ${embeddingTarget.key}: its header names another architecture. ` +
+      `A runtime prepared on ${process.platform}-${process.arch} must still carry only ` +
+      `${embeddingTarget.arch} binaries.`
   );
 }
 
@@ -259,11 +233,7 @@ async function desktopPtyNativeRoot() {
   // their active binding under build/Release instead. Validate only the root
   // the package loader can select for this target: the package intentionally
   // carries foreign Linux and Windows fallback payloads beside it.
-  const prebuildRoot = join(
-    builderDesktopPtyDir,
-    'prebuilds',
-    `${embeddingTarget.platform}-${embeddingTarget.arch}`,
-  );
+  const prebuildRoot = join(builderDesktopPtyDir, 'prebuilds', `${embeddingTarget.platform}-${embeddingTarget.arch}`);
   try {
     if ((await stat(prebuildRoot)).isDirectory()) return prebuildRoot;
   } catch (error) {
@@ -273,14 +243,11 @@ async function desktopPtyNativeRoot() {
 }
 
 async function resolveRuntimePackageManifest() {
-  const { stdout } = await runNpm(
-    ['pack', '--dry-run', '--json', '--ignore-scripts'],
-    {
-      cwd: rootDir,
-      maxBuffer: 16 * 1024 * 1024,
-      useRuntimeCache: false,
-    },
-  );
+  const { stdout } = await runNpm(['pack', '--dry-run', '--json', '--ignore-scripts'], {
+    cwd: rootDir,
+    maxBuffer: 16 * 1024 * 1024,
+    useRuntimeCache: false,
+  });
   const [manifest] = JSON.parse(stdout);
   if (!manifest?.files?.length) throw new Error('npm pack returned no Mixdog runtime files.');
   return manifest;
@@ -288,9 +255,7 @@ async function resolveRuntimePackageManifest() {
 
 async function runtimeInputFingerprint(manifest) {
   const packageFiles = [];
-  const sortedEntries = [...manifest.files].sort((left, right) => (
-    String(left.path).localeCompare(String(right.path))
-  ));
+  const sortedEntries = [...manifest.files].sort((left, right) => String(left.path).localeCompare(String(right.path)));
   for (const entry of sortedEntries) {
     const { source } = runtimePackageSource(rootDir, entry.path);
     packageFiles.push({
@@ -303,25 +268,27 @@ async function runtimeInputFingerprint(manifest) {
     readFile(join(rootDir, 'scripts', 'prune-desktop-runtime.mjs')),
     readFile(join(desktopDir, 'package-lock.json')),
   ]);
-  return sha256(JSON.stringify({
-    schemaVersion: preparedRuntimeSchema,
-    target: embeddingTarget.key,
-    dependencies: dependencyCacheIdentity,
-    preparationSha256: sha256(preparationSource),
-    desktopPruneSha256: sha256(desktopPruneSource),
-    desktopLockfileSha256: sha256(desktopLockfile),
-    browserImport: browserImportInputIdentity,
-    packageFiles,
-  }));
+  return sha256(
+    JSON.stringify({
+      schemaVersion: preparedRuntimeSchema,
+      target: embeddingTarget.key,
+      dependencies: dependencyCacheIdentity,
+      preparationSha256: sha256(preparationSource),
+      desktopPruneSha256: sha256(desktopPruneSource),
+      desktopLockfileSha256: sha256(desktopLockfile),
+      browserImport: browserImportInputIdentity,
+      packageFiles,
+    })
+  );
 }
 
 async function canReusePreparedRuntime(fingerprint) {
   try {
     const manifest = JSON.parse(await readFile(runtimeManifestPath, 'utf8'));
     if (
-      manifest.schemaVersion !== preparedRuntimeSchema
-      || manifest.target !== embeddingTarget.key
-      || manifest.fingerprint !== fingerprint
+      manifest.schemaVersion !== preparedRuntimeSchema ||
+      manifest.target !== embeddingTarget.key ||
+      manifest.fingerprint !== fingerprint
     ) {
       return false;
     }
@@ -335,9 +302,9 @@ async function canReusePreparedRuntime(fingerprint) {
         access(join(builderNativeModulesDir, ...path.split('/').slice(1))),
       ]),
       access(join(builderDesktopPtyDir, 'package.json')),
-      ...NATIVE_TOOL_KINDS.map((kind) => access(
-        join(desktopNativeToolsDir, nativeToolInstalledName(kind, embeddingTarget)),
-      )),
+      ...NATIVE_TOOL_KINDS.map((kind) =>
+        access(join(desktopNativeToolsDir, nativeToolInstalledName(kind, embeddingTarget)))
+      ),
       ...(browserImportInputIdentity
         ? browserImportNativeFileNames.map((name) => access(join(desktopNativeToolsDir, name)))
         : []),
@@ -362,16 +329,13 @@ async function canReusePreparedRuntime(fingerprint) {
  */
 async function prepareDesktopNativeTools() {
   const downloadDataDir = join(runtimeDir, 'native-downloads');
-  const sources = await Promise.all(NATIVE_TOOL_KINDS.map(
-    (kind) => downloadNativeTool(kind, embeddingTarget, downloadDataDir),
-  ));
+  const sources = await Promise.all(
+    NATIVE_TOOL_KINDS.map((kind) => downloadNativeTool(kind, embeddingTarget, downloadDataDir))
+  );
   await rm(desktopNativeToolsDir, { recursive: true, force: true });
   await mkdir(desktopNativeToolsDir, { recursive: true });
   for (const [index, kind] of NATIVE_TOOL_KINDS.entries()) {
-    const destination = join(
-      desktopNativeToolsDir,
-      nativeToolInstalledName(kind, embeddingTarget),
-    );
+    const destination = join(desktopNativeToolsDir, nativeToolInstalledName(kind, embeddingTarget));
     await cp(sources[index], destination);
     await assertTargetArchitecture(destination, `Native tool ${kind}`);
     // Executability belongs to the target's OS, not the machine that packed it.
@@ -396,15 +360,13 @@ async function prepareDesktopNativeTools() {
 async function restoreRuntimeDependencies() {
   if (!dependencyCacheIdentity) return false;
   try {
-    const manifest = JSON.parse(
-      await readFile(join(dependencyCacheDir, 'manifest.json'), 'utf8'),
-    );
+    const manifest = JSON.parse(await readFile(join(dependencyCacheDir, 'manifest.json'), 'utf8'));
     if (
-      manifest.schemaVersion !== dependencyCacheIdentity.schemaVersion
-      || manifest.target !== dependencyCacheIdentity.target
-      || manifest.host !== dependencyCacheIdentity.host
-      || manifest.nodeAbi !== dependencyCacheIdentity.nodeAbi
-      || manifest.fingerprint !== dependencyCacheIdentity.fingerprint
+      manifest.schemaVersion !== dependencyCacheIdentity.schemaVersion ||
+      manifest.target !== dependencyCacheIdentity.target ||
+      manifest.host !== dependencyCacheIdentity.host ||
+      manifest.nodeAbi !== dependencyCacheIdentity.nodeAbi ||
+      manifest.fingerprint !== dependencyCacheIdentity.fingerprint
     ) {
       return false;
     }
@@ -426,15 +388,8 @@ async function storeRuntimeDependencies() {
   try {
     await rm(temporaryCacheDir, { recursive: true, force: true });
     await mkdir(temporaryCacheDir, { recursive: true });
-    await cp(
-      join(stagingDir, 'node_modules'),
-      join(temporaryCacheDir, 'node_modules'),
-      { recursive: true },
-    );
-    await writeFile(
-      join(temporaryCacheDir, 'manifest.json'),
-      `${JSON.stringify(dependencyCacheIdentity, null, 2)}\n`,
-    );
+    await cp(join(stagingDir, 'node_modules'), join(temporaryCacheDir, 'node_modules'), { recursive: true });
+    await writeFile(join(temporaryCacheDir, 'manifest.json'), `${JSON.stringify(dependencyCacheIdentity, null, 2)}\n`);
     await rm(dependencyCacheDir, { recursive: true, force: true });
     await rename(temporaryCacheDir, dependencyCacheDir);
   } catch (error) {
@@ -476,16 +431,13 @@ async function prepareRuntime(manifest, fingerprint) {
       await cp(desktopPtyPackageDir, builderDesktopPtyDir, { recursive: true });
       const ptyPrune = await pruneDesktopPtyPackage(builderDesktopPtyDir, embeddingTarget);
       console.log(
-        `Pruned desktop node-pty from ${(ptyPrune.beforeBytes / 1024 / 1024).toFixed(1)} MiB `
-        + `to ${(ptyPrune.afterBytes / 1024 / 1024).toFixed(1)} MiB.`,
+        `Pruned desktop node-pty from ${(ptyPrune.beforeBytes / 1024 / 1024).toFixed(1)} MiB ` +
+          `to ${(ptyPrune.afterBytes / 1024 / 1024).toFixed(1)} MiB.`
       );
       // The package intentionally carries third_party/prebuild variants for
       // several platforms before pruning. Validate the one active payload that
       // remains for the packaged target.
-      await assertTreeTargetArchitecture(
-        await desktopPtyNativeRoot(),
-        'Desktop node-pty',
-      );
+      await assertTreeTargetArchitecture(await desktopPtyNativeRoot(), 'Desktop node-pty');
     });
     // The staging install only needs the production dependency tree. The repo's
     // postinstall (embedding prune + native asset fetch) is driven explicitly by
@@ -500,51 +452,51 @@ async function prepareRuntime(manifest, fingerprint) {
     await mkdir(join(stagingDir, 'scripts'), { recursive: true });
     await cp(
       join(rootDir, 'scripts', 'prune-embedding-runtime.mjs'),
-      join(stagingDir, 'scripts', 'prune-embedding-runtime.mjs'),
+      join(stagingDir, 'scripts', 'prune-embedding-runtime.mjs')
     );
 
-    let restoredDependencies = await timed(
-      'dependency-cache-restore',
-      () => restoreRuntimeDependencies(),
-    );
+    let restoredDependencies = await timed('dependency-cache-restore', () => restoreRuntimeDependencies());
     let prunedEmbedding;
     if (restoredDependencies) {
       try {
         // A restored tree must still pass the same completeness checks and
         // idempotent platform pruning as a fresh npm install.
-        prunedEmbedding = await timed(
-          'cached-dependency-validation',
-          () => pruneEmbeddingRuntime(stagingDir, embeddingTarget),
+        prunedEmbedding = await timed('cached-dependency-validation', () =>
+          pruneEmbeddingRuntime(stagingDir, embeddingTarget)
         );
         console.log(`Reused cached ${embeddingTarget.key} runtime dependencies.`);
       } catch (error) {
         console.warn(`Cached runtime dependencies failed validation: ${error?.message || error}`);
         await rm(join(stagingDir, 'node_modules'), {
-          recursive: true, force: true, maxRetries: 10, retryDelay: 250,
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 250,
         });
         restoredDependencies = false;
       }
     }
     if (!restoredDependencies) {
-      await timed('npm-ci', () => runNpm(['ci', '--omit=dev', '--no-audit', '--no-fund'], {
-        cwd: stagingDir,
-        env: {
-          MIXDOG_EMBED_TARGET_PLATFORM: embeddingTarget.platform,
-          MIXDOG_EMBED_TARGET_ARCH: embeddingTarget.arch,
-        },
-      }));
-      prunedEmbedding = await timed(
-        'dependency-prune',
-        () => pruneEmbeddingRuntime(stagingDir, embeddingTarget),
+      await timed('npm-ci', () =>
+        runNpm(['ci', '--omit=dev', '--no-audit', '--no-fund'], {
+          cwd: stagingDir,
+          env: {
+            MIXDOG_EMBED_TARGET_PLATFORM: embeddingTarget.platform,
+            MIXDOG_EMBED_TARGET_ARCH: embeddingTarget.arch,
+          },
+        })
       );
+      prunedEmbedding = await timed('dependency-prune', () => pruneEmbeddingRuntime(stagingDir, embeddingTarget));
       await timed('dependency-cache-store', () => storeRuntimeDependencies());
     }
 
-    await timed('runtime-package-copy', () => copyRuntimePackagePayload({
-      rootDir,
-      manifest,
-      destination: runtimePackageDir,
-    }));
+    await timed('runtime-package-copy', () =>
+      copyRuntimePackagePayload({
+        rootDir,
+        manifest,
+        destination: runtimePackageDir,
+      })
+    );
 
     const runtimePackage = JSON.parse(await readFile(join(stagingDir, 'package.json'), 'utf8'));
     runtimePackage.private = true;
@@ -552,15 +504,14 @@ async function prepareRuntime(manifest, fingerprint) {
     delete runtimePackage.scripts;
     delete runtimePackage.devDependencies;
     await writeFile(join(stagingDir, 'package.json'), `${JSON.stringify(runtimePackage, null, 2)}\n`);
-    const desktopPrune = await timed(
-      'production-payload-prune',
-      () => pruneDesktopRuntime(stagingDir, embeddingTarget),
+    const desktopPrune = await timed('production-payload-prune', () =>
+      pruneDesktopRuntime(stagingDir, embeddingTarget)
     );
     console.log(
-      `Removed ${desktopPrune.removedSourceFiles} source-only runtime files`
-      + `${desktopPrune.removedSharpWasm ? ' and the Sharp WASM fallback' : ''}`
-      + `; optimized ${((desktopPrune.removedTesseractBytes + desktopPrune.removedPdfBytes) / (1024 ** 2)).toFixed(1)} MiB`
-      + ' of unused OCR and PDF variants.',
+      `Removed ${desktopPrune.removedSourceFiles} source-only runtime files` +
+        `${desktopPrune.removedSharpWasm ? ' and the Sharp WASM fallback' : ''}` +
+        `; optimized ${((desktopPrune.removedTesseractBytes + desktopPrune.removedPdfBytes) / 1024 ** 2).toFixed(1)} MiB` +
+        ' of unused OCR and PDF variants.'
     );
 
     if (fastFullMode) {
@@ -572,16 +523,20 @@ async function prepareRuntime(manifest, fingerprint) {
       await rename(stagingDir, fastRuntimeDir);
       await writeFile(
         join(fastRuntimeDir, '.mixdog-fast-runtime.json'),
-        `${JSON.stringify({
-          schemaVersion: 1,
-          dependencyHash: fastRuntimeDependencyHash,
-          runtimeHash: fastRuntimeHash,
-        }, null, 2)}\n`,
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            dependencyHash: fastRuntimeDependencyHash,
+            runtimeHash: fastRuntimeHash,
+          },
+          null,
+          2
+        )}\n`
       );
       prepared = true;
       console.log(
-        `Prepared ${embeddingTarget.key} unpacked FastDirect runtime with `
-        + `${manifest.files.length} Mixdog package files.`,
+        `Prepared ${embeddingTarget.key} unpacked FastDirect runtime with ` +
+          `${manifest.files.length} Mixdog package files.`
       );
       return;
     }
@@ -612,24 +567,28 @@ async function prepareRuntime(manifest, fingerprint) {
           });
           return;
         } catch (error) {
-          const transient = ['ENOENT', 'EPERM', 'EBUSY', 'ENOTEMPTY', 'UNKNOWN']
-            .includes(error?.code);
+          const transient = ['ENOENT', 'EPERM', 'EBUSY', 'ENOTEMPTY', 'UNKNOWN'].includes(error?.code);
           if (!transient || attempt >= 5) throw error;
           console.warn(
-            `ASAR pack attempt ${attempt} failed with ${error.code} at `
-            + `${error.path || 'an unreported path'}; retrying from a clean archive.`,
+            `ASAR pack attempt ${attempt} failed with ${error.code} at ` +
+              `${error.path || 'an unreported path'}; retrying from a clean archive.`
           );
           await rm(runtimeArchive, { force: true, maxRetries: 10, retryDelay: 250 });
           await rm(runtimeSidecar, {
-            recursive: true, force: true, maxRetries: 10, retryDelay: 250,
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 250,
           });
-          await new Promise((done) => { setTimeout(done, 500 * attempt); });
+          await new Promise((done) => {
+            setTimeout(done, 500 * attempt);
+          });
         }
       }
     });
 
     const archiveEntries = new Set(
-      listPackage(runtimeArchive, { isPack: false }).map((entry) => entry.replaceAll('\\', '/')),
+      listPackage(runtimeArchive, { isPack: false }).map((entry) => entry.replaceAll('\\', '/'))
     );
     const ortArchiveRoot = relative(stagingDir, prunedEmbedding.ortRoot).replaceAll(sep, '/');
     const embeddingNapiRoot = `/${ortArchiveRoot}/bin/napi-v6`;
@@ -653,12 +612,13 @@ async function prepareRuntime(manifest, fingerprint) {
         throw new Error(`Runtime archive is incomplete: missing ${required}`);
       }
     }
-    const foreignEmbeddingBinary = [...archiveEntries].find((entry) => (
-      entry.startsWith(`${embeddingNapiRoot}/`)
-        && entry !== embeddingPlatformRoot
-        && entry !== embeddingBinaryRoot
-        && !entry.startsWith(`${embeddingBinaryRoot}/`)
-    ));
+    const foreignEmbeddingBinary = [...archiveEntries].find(
+      (entry) =>
+        entry.startsWith(`${embeddingNapiRoot}/`) &&
+        entry !== embeddingPlatformRoot &&
+        entry !== embeddingBinaryRoot &&
+        !entry.startsWith(`${embeddingBinaryRoot}/`)
+    );
     if (foreignEmbeddingBinary) {
       throw new Error(`Runtime archive contains a foreign embedding binary: ${foreignEmbeddingBinary}`);
     }
@@ -666,13 +626,10 @@ async function prepareRuntime(manifest, fingerprint) {
       throw new Error('Runtime archive contains unused onnxruntime-web payloads.');
     }
 
-    const nativeBinaryEntries = [...archiveEntries].filter(
-      (entry) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry),
+    const nativeBinaryEntries = [...archiveEntries].filter((entry) =>
+      /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry)
     );
-    const unpackedRuntimeEntries = [...new Set([
-      ...nativeBinaryEntries,
-      ...externalProcessArchiveEntries,
-    ])];
+    const unpackedRuntimeEntries = [...new Set([...nativeBinaryEntries, ...externalProcessArchiveEntries])];
     await timed('unpacked-runtime-mirror', async () => {
       for (const entry of unpackedRuntimeEntries) {
         const archivePath = entry.replace(/^\/+/, '');
@@ -701,32 +658,39 @@ async function prepareRuntime(manifest, fingerprint) {
     });
 
     const archive = await stat(runtimeArchive);
-    await writeFile(runtimeManifestPath, `${JSON.stringify({
-      schemaVersion: preparedRuntimeSchema,
-      target: embeddingTarget.key,
-      fingerprint,
-      runtimeArchiveBytes: archive.size,
-    }, null, 2)}\n`);
+    await writeFile(
+      runtimeManifestPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: preparedRuntimeSchema,
+          target: embeddingTarget.key,
+          fingerprint,
+          runtimeArchiveBytes: archive.size,
+        },
+        null,
+        2
+      )}\n`
+    );
     prepared = true;
     console.log(
       `Prepared ${embeddingTarget.key} runtime.asar with ${archiveEntries.size} entries, including ` +
-        `${manifest.files.length} Mixdog package files and ${unpackedRuntimeEntries.length} unpacked runtime file(s).`,
+        `${manifest.files.length} Mixdog package files and ${unpackedRuntimeEntries.length} unpacked runtime file(s).`
     );
   } finally {
     // `npm ci`, ASAR creation, or native mirroring can all fail after creating
     // hundreds of MiB. Always remove transient state; on failure also discard
     // the partial archive/sidecar so the next build starts from a clean slate.
     await timed('cleanup', async () => {
-      const cleanup = [
-        rm(stagingDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 }),
-      ];
+      const cleanup = [rm(stagingDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 })];
       if (ownsNpmCache) {
-        cleanup.push(rm(npmCacheDir, {
-          recursive: true,
-          force: true,
-          maxRetries: 5,
-          retryDelay: 250,
-        }));
+        cleanup.push(
+          rm(npmCacheDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 5,
+            retryDelay: 250,
+          })
+        );
       }
       await Promise.all(cleanup);
       if (!prepared) {
@@ -767,11 +731,13 @@ async function acquireRuntimeLock() {
     try {
       const handle = await open(runtimeLockPath, 'wx');
       try {
-        await handle.writeFile(JSON.stringify({
-          pid: process.pid,
-          target: embeddingTarget.key,
-          startedAt: new Date().toISOString(),
-        }));
+        await handle.writeFile(
+          JSON.stringify({
+            pid: process.pid,
+            target: embeddingTarget.key,
+            startedAt: new Date().toISOString(),
+          })
+        );
       } finally {
         await handle.close();
       }
@@ -795,35 +761,28 @@ async function acquireRuntimeLock() {
     }
     if (Date.now() >= deadline) {
       throw new Error(
-        `Runtime preparation is still held by pid ${holder?.pid ?? 'unknown'} `
-        + `after ${Math.round(runtimeLockTimeoutMs / 60000)} minutes: ${runtimeLockPath}`,
+        `Runtime preparation is still held by pid ${holder?.pid ?? 'unknown'} ` +
+          `after ${Math.round(runtimeLockTimeoutMs / 60000)} minutes: ${runtimeLockPath}`
       );
     }
     if (holder && holder.pid !== announcedHolder) {
       announcedHolder = holder.pid;
       console.log(`Waiting for the runtime preparation held by pid ${holder.pid}.`);
     }
-    await new Promise((done) => { setTimeout(done, 1000); });
+    await new Promise((done) => {
+      setTimeout(done, 1000);
+    });
   }
 }
 
 const preparationStartedAt = performance.now();
 const releaseRuntimeLock = await timed('preparation-lock', () => acquireRuntimeLock());
 try {
-  browserImportNativeSourceDir = await timed(
-    'browser-import-native',
-    () => prepareBrowserImportNativeSource(),
-  );
-  browserImportInputIdentity = await timed(
-    'browser-import-identity',
-    () => resolveBrowserImportInputIdentity(),
-  );
+  browserImportNativeSourceDir = await timed('browser-import-native', () => prepareBrowserImportNativeSource());
+  browserImportInputIdentity = await timed('browser-import-identity', () => resolveBrowserImportInputIdentity());
   const manifest = await timed('package-manifest', () => resolveRuntimePackageManifest());
-  const fingerprint = await timed(
-    'input-fingerprint',
-    () => runtimeInputFingerprint(manifest),
-  );
-  if (!fastFullMode && await timed('prepared-runtime-check', () => canReusePreparedRuntime(fingerprint))) {
+  const fingerprint = await timed('input-fingerprint', () => runtimeInputFingerprint(manifest));
+  if (!fastFullMode && (await timed('prepared-runtime-check', () => canReusePreparedRuntime(fingerprint)))) {
     console.log(`Reused prepared ${embeddingTarget.key} runtime.asar.`);
   } else {
     await prepareRuntime(manifest, fingerprint);

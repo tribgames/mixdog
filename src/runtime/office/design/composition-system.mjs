@@ -95,19 +95,53 @@ const FORMAT_CANDIDATES = Object.freeze({
 
 const PPTX_VARIANTS = Object.freeze({
   cover: Object.freeze([
-    Object.freeze({ variant: 'editorial-left', family: 'editorial', modes: ['conservative', 'strong-fit'], novelty: 0 }),
+    Object.freeze({
+      variant: 'editorial-left',
+      family: 'editorial',
+      modes: ['conservative', 'strong-fit'],
+      novelty: 0,
+    }),
     Object.freeze({ variant: 'minimal-focus', family: 'minimal', modes: ['strong-fit', 'divergent'], novelty: 1 }),
   ]),
   statement: Object.freeze([
-    Object.freeze({ variant: 'metric-statement', family: 'evidence', purposes: ['decide', 'monitor'], evidence: ['metrics'], novelty: 0 }),
-    Object.freeze({ variant: 'typographic-statement', family: 'typography', purposes: ['decide', 'explain'], evidence: ['narrative'], novelty: 1 }),
+    Object.freeze({
+      variant: 'metric-statement',
+      family: 'evidence',
+      purposes: ['decide', 'monitor'],
+      evidence: ['metrics'],
+      novelty: 0,
+    }),
+    Object.freeze({
+      variant: 'typographic-statement',
+      family: 'typography',
+      purposes: ['decide', 'explain'],
+      evidence: ['narrative'],
+      novelty: 1,
+    }),
   ]),
   metrics: Object.freeze([
-    Object.freeze({ variant: 'asymmetric-metrics', family: 'evidence', purposes: ['decide', 'monitor'], modes: ['conservative', 'strong-fit'], novelty: 0 }),
-    Object.freeze({ variant: 'metric-band', family: 'rhythm', purposes: ['monitor', 'explain'], modes: ['strong-fit', 'divergent'], novelty: 1 }),
+    Object.freeze({
+      variant: 'asymmetric-metrics',
+      family: 'evidence',
+      purposes: ['decide', 'monitor'],
+      modes: ['conservative', 'strong-fit'],
+      novelty: 0,
+    }),
+    Object.freeze({
+      variant: 'metric-band',
+      family: 'rhythm',
+      purposes: ['monitor', 'explain'],
+      modes: ['strong-fit', 'divergent'],
+      novelty: 1,
+    }),
   ]),
   comparison: Object.freeze([
-    Object.freeze({ variant: 'contrast-panels', family: 'comparison', modes: ['conservative', 'strong-fit'], novelty: 0 }),
+    Object.freeze({
+      variant: 'contrast-panels',
+      family: 'comparison',
+      modes: ['conservative', 'strong-fit'],
+      novelty: 0,
+    }),
     Object.freeze({ variant: 'aligned-evidence', family: 'evidence', modes: ['strong-fit', 'divergent'], novelty: 1 }),
   ]),
   process: Object.freeze([
@@ -115,8 +149,21 @@ const PPTX_VARIANTS = Object.freeze({
     Object.freeze({ variant: 'staggered-flow', family: 'rhythm', modes: ['strong-fit', 'divergent'], novelty: 1 }),
   ]),
   chart: Object.freeze([
-    Object.freeze({ variant: 'commentary-chart', family: 'evidence', purposes: ['decide', 'explain'], evidence: ['narrative'], novelty: 0 }),
-    Object.freeze({ variant: 'chart-led', family: 'data', purposes: ['monitor', 'compare'], evidence: ['chart'], modes: ['strong-fit', 'divergent'], novelty: 1 }),
+    Object.freeze({
+      variant: 'commentary-chart',
+      family: 'evidence',
+      purposes: ['decide', 'explain'],
+      evidence: ['narrative'],
+      novelty: 0,
+    }),
+    Object.freeze({
+      variant: 'chart-led',
+      family: 'data',
+      purposes: ['monitor', 'compare'],
+      evidence: ['chart'],
+      modes: ['strong-fit', 'divergent'],
+      novelty: 1,
+    }),
   ]),
   table: Object.freeze([
     Object.freeze({ variant: 'table-led', family: 'evidence', modes: ['conservative', 'strong-fit'], novelty: 0 }),
@@ -127,8 +174,21 @@ const PPTX_VARIANTS = Object.freeze({
     Object.freeze({ variant: 'visual-left', family: 'editorial', modes: ['strong-fit', 'divergent'], novelty: 1 }),
   ]),
   content: Object.freeze([
-    Object.freeze({ variant: 'evidence-right', family: 'evidence', purposes: ['decide', 'inspect'], evidence: ['visual'], novelty: 0 }),
-    Object.freeze({ variant: 'editorial-wide', family: 'typography', purposes: ['explain'], evidence: ['narrative'], modes: ['strong-fit', 'divergent'], novelty: 1 }),
+    Object.freeze({
+      variant: 'evidence-right',
+      family: 'evidence',
+      purposes: ['decide', 'inspect'],
+      evidence: ['visual'],
+      novelty: 0,
+    }),
+    Object.freeze({
+      variant: 'editorial-wide',
+      family: 'typography',
+      purposes: ['explain'],
+      evidence: ['narrative'],
+      modes: ['strong-fit', 'divergent'],
+      novelty: 1,
+    }),
   ]),
   closing: Object.freeze([
     Object.freeze({ variant: 'decision-left', family: 'decision', modes: ['conservative', 'strong-fit'], novelty: 0 }),
@@ -137,7 +197,9 @@ const PPTX_VARIANTS = Object.freeze({
 });
 
 function sha256(value) {
-  return createHash('sha256').update(JSON.stringify(stableValue(value))).digest('hex');
+  return createHash('sha256')
+    .update(JSON.stringify(stableValue(value)))
+    .digest('hex');
 }
 
 function bucket(value, boundaries = [0, 1, 3, 8]) {
@@ -162,12 +224,16 @@ function textCount(value) {
 }
 
 function normalizePurpose(value, fallback) {
-  const normalized = String(value || '').trim().toLowerCase();
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
   return PURPOSES.has(normalized) ? normalized : fallback;
 }
 
 function normalizeExpressionMode(value) {
-  const normalized = String(value || '').trim().toLowerCase();
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
   return EXPRESSION_MODES.has(normalized) ? normalized : 'strong-fit';
 }
 
@@ -190,15 +256,16 @@ function normalizedRecentCompositions(value) {
       purpose: String(entry.purpose || ''),
       expressionMode: String(entry.expressionMode || ''),
       compositionIds: Array.isArray(entry.compositionIds)
-        ? entry.compositionIds.map((id) => String(id || '')).filter(Boolean).slice(0, 64)
+        ? entry.compositionIds
+            .map((id) => String(id || ''))
+            .filter(Boolean)
+            .slice(0, 64)
         : [],
       createdAt: String(entry.createdAt || ''),
     }));
 }
 
-export function resolveOfficeCompositionContext(format, input = {}, {
-  recentCompositions = [],
-} = {}) {
+export function resolveOfficeCompositionContext(format, input = {}, { recentCompositions = [] } = {}) {
   const normalizedFormat = String(format || '').toLowerCase();
   const composition = plainObject(input.composition) ? input.composition : {};
   const fallbackPurpose = defaultPurpose(normalizedFormat, input);
@@ -213,18 +280,20 @@ function officeContentTopology(format, operation = {}, design = {}) {
   const sections = Array.isArray(operation.sections) ? operation.sections : [];
   const tableRows = Math.max(
     rowsOf(operation.table).length,
-    ...sections.map((section) => rowsOf(section?.table).length),
+    ...sections.map((section) => rowsOf(section?.table).length)
   );
   const metrics = Array.isArray(operation.metrics) ? operation.metrics.length : 0;
   const columns = Array.isArray(operation.columns) ? operation.columns.length : 0;
   const steps = Array.isArray(operation.steps) ? operation.steps.length : 0;
   const rows = Array.isArray(operation.rows) ? operation.rows.length : 0;
   const chartSeries = Array.isArray(operation.chart?.series) ? operation.chart.series.length : 0;
-  const paragraphs = textCount(operation.body)
-    + textCount(operation.bullets)
-    + sections.reduce((total, section) => (
-      total + textCount(section?.paragraphs || section?.body) + textCount(section?.bullets)
-    ), 0);
+  const paragraphs =
+    textCount(operation.body) +
+    textCount(operation.bullets) +
+    sections.reduce(
+      (total, section) => total + textCount(section?.paragraphs || section?.body) + textCount(section?.bullets),
+      0
+    );
   const facts = Array.isArray(design.content?.facts) ? design.content.facts.length : 0;
   const claims = Array.isArray(design.content?.claims) ? design.content.claims.length : 0;
   const evidence = [];
@@ -267,26 +336,23 @@ function officeContentTopology(format, operation = {}, design = {}) {
 }
 
 function recentPenalty(context, candidateId) {
-  return context.recentCompositions.slice(0, 8).reduce((total, entry, index) => (
-    entry.compositionIds.includes(candidateId)
-      ? total + Math.max(1, 4 - Math.floor(index / 2))
-      : total
-  ), 0);
+  return context.recentCompositions
+    .slice(0, 8)
+    .reduce(
+      (total, entry, index) =>
+        entry.compositionIds.includes(candidateId) ? total + Math.max(1, 4 - Math.floor(index / 2)) : total,
+      0
+    );
 }
 
 function stableTie(seed, id) {
-  return Number.parseInt(sha256(`${seed}\0${id}`).slice(0, 8), 16) / 0xFFFFFFFF;
+  return Number.parseInt(sha256(`${seed}\0${id}`).slice(0, 8), 16) / 0xffffffff;
 }
 
-function selectCandidate(candidates, {
-  context,
-  topology,
-  density,
-  seed,
-  usage,
-  explicitVariant = '',
-  layoutBias = [],
-}) {
+function selectCandidate(
+  candidates,
+  { context, topology, density, seed, usage, explicitVariant = '', layoutBias = [] }
+) {
   const evidence = new Set(topology.evidence);
   const ranked = candidates.map((candidate) => {
     const candidateId = String(candidate.id || candidate.variant || '');
@@ -322,9 +388,7 @@ function resolvedPptxKind(operation, topology) {
   return 'content';
 }
 
-export function planOfficeComposition(format, operation = {}, design = {}, {
-  usage = new Map(),
-} = {}) {
+export function planOfficeComposition(format, operation = {}, design = {}, { usage = new Map() } = {}) {
   const normalizedFormat = String(format || '').toLowerCase();
   const topology = officeContentTopology(normalizedFormat, operation, design);
   const context = {
@@ -332,8 +396,9 @@ export function planOfficeComposition(format, operation = {}, design = {}, {
     expressionMode: normalizeExpressionMode(operation.expressionMode || design.expressionMode),
     recentCompositions: normalizedRecentCompositions(design.recentCompositions),
   };
-  const seed = design.content?.fingerprint
-    || [design.intent, design.audience, design.signature, operation.title, topology.signature].join('|');
+  const seed =
+    design.content?.fingerprint ||
+    [design.intent, design.audience, design.signature, operation.title, topology.signature].join('|');
   if (normalizedFormat === 'pptx') {
     const kind = resolvedPptxKind(operation, topology);
     if (plainObject(operation.plan) && Array.isArray(operation.plan.regions)) {
@@ -369,26 +434,32 @@ export function planOfficeComposition(format, operation = {}, design = {}, {
       usage.set(result.id, (usage.get(result.id) || 0) + 1);
       return result;
     }
-    const explicitVariant = String(operation.variant || '').trim().toLowerCase();
+    const explicitVariant = String(operation.variant || '')
+      .trim()
+      .toLowerCase();
     const variants = PPTX_VARIANTS[kind] || PPTX_VARIANTS.content;
-    const candidates = explicitVariant && !variants.some((entry) => entry.variant === explicitVariant)
-      ? [...variants, { variant: explicitVariant, family: kind, novelty: 0 }]
-      : variants;
-    const selected = selectCandidate(candidates.map((entry) => ({
-      ...entry,
-      id: `${kind}:${entry.variant}`,
-      purposes: entry.purposes || [context.purpose],
-    })), {
-      context,
-      topology,
-      density: design.density,
-      seed,
-      usage,
-      explicitVariant,
-      layoutBias: Array.isArray(design.artDirection?.selected?.deck?.layoutBias)
-        ? design.artDirection.selected.deck.layoutBias
-        : [],
-    });
+    const candidates =
+      explicitVariant && !variants.some((entry) => entry.variant === explicitVariant)
+        ? [...variants, { variant: explicitVariant, family: kind, novelty: 0 }]
+        : variants;
+    const selected = selectCandidate(
+      candidates.map((entry) => ({
+        ...entry,
+        id: `${kind}:${entry.variant}`,
+        purposes: entry.purposes || [context.purpose],
+      })),
+      {
+        context,
+        topology,
+        density: design.density,
+        seed,
+        usage,
+        explicitVariant,
+        layoutBias: Array.isArray(design.artDirection?.selected?.deck?.layoutBias)
+          ? design.artDirection.selected.deck.layoutBias
+          : [],
+      }
+    );
     const result = {
       id: selected.candidateId,
       family: selected.candidate.family,
@@ -403,20 +474,24 @@ export function planOfficeComposition(format, operation = {}, design = {}, {
     usage.set(result.id, (usage.get(result.id) || 0) + 1);
     return result;
   }
-  const candidates = FORMAT_CANDIDATES[normalizedFormat] || [{
-    id: `${normalizedFormat || 'office'}-default`,
-    family: 'default',
-    purposes: [context.purpose],
-    modes: [context.expressionMode],
-    novelty: 0,
-  }];
+  const candidates = FORMAT_CANDIDATES[normalizedFormat] || [
+    {
+      id: `${normalizedFormat || 'office'}-default`,
+      family: 'default',
+      purposes: [context.purpose],
+      modes: [context.expressionMode],
+      novelty: 0,
+    },
+  ];
   const selected = selectCandidate(candidates, {
     context,
     topology,
     density: design.density,
     seed,
     usage,
-    explicitVariant: String(operation.variant || '').trim().toLowerCase(),
+    explicitVariant: String(operation.variant || '')
+      .trim()
+      .toLowerCase(),
   });
   const result = {
     id: selected.candidateId,
@@ -472,12 +547,15 @@ export function reviewOfficeCompositionSequence({
   const eligible = plans.filter((entry) => !['cover', 'closing'].includes(String(entry.kind || '')));
   const counts = new Map();
   for (const entry of eligible) counts.set(entry.id, (counts.get(entry.id) || 0) + 1);
-  const [repeatedId = '', repeatedCount = 0] = [...counts.entries()]
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0] || [];
-  const repeated = eligible.length >= 4 && repeatedCount / eligible.length >= 0.75
-    ? { id: repeatedId, count: repeatedCount, total: eligible.length }
-    : null;
-  const recentMatch = normalizedRecentCompositions(recentCompositions)
-    .find((entry) => entry.fingerprint && entry.fingerprint === summary.fingerprint) || null;
+  const [repeatedId = '', repeatedCount = 0] =
+    [...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0] || [];
+  const repeated =
+    eligible.length >= 4 && repeatedCount / eligible.length >= 0.75
+      ? { id: repeatedId, count: repeatedCount, total: eligible.length }
+      : null;
+  const recentMatch =
+    normalizedRecentCompositions(recentCompositions).find(
+      (entry) => entry.fingerprint && entry.fingerprint === summary.fingerprint
+    ) || null;
   return { summary, repeated, recentMatch };
 }

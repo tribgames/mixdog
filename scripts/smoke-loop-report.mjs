@@ -46,7 +46,10 @@ function parseStepCaps(values) {
     if (!raw) continue;
     const idx = raw.lastIndexOf('=');
     if (idx <= 0) throw new Error(`invalid --max-step-ms value: ${raw}`);
-    const name = raw.slice(0, idx).trim().replace(/^scripts\//, '');
+    const name = raw
+      .slice(0, idx)
+      .trim()
+      .replace(/^scripts\//, '');
     const cap = Number(raw.slice(idx + 1).trim());
     if (!name || !Number.isFinite(cap) || cap < 0) throw new Error(`invalid --max-step-ms value: ${raw}`);
     caps.set(name, cap);
@@ -123,7 +126,8 @@ const requireComplete = process.argv.includes('--require-complete');
 const rows = readRows(logPath);
 const startRows = rows.filter((row) => row?.type === 'start' && (pidArg == null || Number(row.pid) === pidArg));
 const start = startRows.at(-1);
-if (!start) throw new Error(pidArg == null ? 'no smoke loop start row found' : `no smoke loop start row found for pid ${pidArg}`);
+if (!start)
+  throw new Error(pidArg == null ? 'no smoke loop start row found' : `no smoke loop start row found for pid ${pidArg}`);
 
 const startIndex = rows.lastIndexOf(start);
 const runRows = rows.slice(startIndex).filter((row) => Number(row.pid) === Number(start.pid));
@@ -136,19 +140,14 @@ const stepMs = summarizeSteps(iterations);
 const rss = summarize(iterations.map((row) => Number(row.rss_mb)).filter(Number.isFinite));
 const startRss = Number(start.rss_mb);
 const lastRss = Number(last?.rss_mb);
-const rssGrowth = Number.isFinite(startRss) && Number.isFinite(lastRss)
-  ? Math.round((lastRss - startRss) * 10) / 10
-  : 0;
+const rssGrowth =
+  Number.isFinite(startRss) && Number.isFinite(lastRss) ? Math.round((lastRss - startRss) * 10) / 10 : 0;
 const elapsedMs = Number(last?.elapsed_ms || summaryRows.at(-1)?.elapsed_ms || 0);
 const durationMs = Number(start.duration_ms || 0);
 const remainingMs = durationMs > 0 ? Math.max(0, durationMs - elapsedMs) : null;
 const startTs = Date.parse(start.ts);
-const finishAt = durationMs > 0 && Number.isFinite(startTs)
-  ? new Date(startTs + durationMs).toISOString()
-  : null;
-const iterationsPerHour = elapsedMs > 0
-  ? Math.round((iterations.length / (elapsedMs / 3_600_000)) * 10) / 10
-  : 0;
+const finishAt = durationMs > 0 && Number.isFinite(startTs) ? new Date(startTs + durationMs).toISOString() : null;
+const iterationsPerHour = elapsedMs > 0 ? Math.round((iterations.length / (elapsedMs / 3_600_000)) * 10) / 10 : 0;
 const gaps = [];
 for (let i = 1; i < iterations.length; i += 1) {
   const prev = Date.parse(iterations[i - 1].ts);
@@ -162,10 +161,14 @@ const staleMs = Number.isFinite(lastTs) ? Date.now() - lastTs : null;
 const failures = [];
 if (errors.length > 0) failures.push(`errors=${errors.length}`);
 if (requireComplete && summaryRows.length === 0) failures.push('loop has no completed summary row');
-if (minIterations != null && iterations.length < minIterations) failures.push(`iterations ${iterations.length} < ${minIterations}`);
-if (minElapsedMs != null && elapsedMs < minElapsedMs) failures.push(`elapsed ${formatDuration(elapsedMs)} < ${formatDuration(minElapsedMs)}`);
-if (maxGapMs != null && gapSummary.max > maxGapMs) failures.push(`max gap ${formatDuration(gapSummary.max)} > ${formatDuration(maxGapMs)}`);
-if (maxStaleMs != null && staleMs != null && staleMs > maxStaleMs) failures.push(`latest iteration stale ${formatDuration(staleMs)} > ${formatDuration(maxStaleMs)}`);
+if (minIterations != null && iterations.length < minIterations)
+  failures.push(`iterations ${iterations.length} < ${minIterations}`);
+if (minElapsedMs != null && elapsedMs < minElapsedMs)
+  failures.push(`elapsed ${formatDuration(elapsedMs)} < ${formatDuration(minElapsedMs)}`);
+if (maxGapMs != null && gapSummary.max > maxGapMs)
+  failures.push(`max gap ${formatDuration(gapSummary.max)} > ${formatDuration(maxGapMs)}`);
+if (maxStaleMs != null && staleMs != null && staleMs > maxStaleMs)
+  failures.push(`latest iteration stale ${formatDuration(staleMs)} > ${formatDuration(maxStaleMs)}`);
 if (maxSmokeMs != null && smoke.max > maxSmokeMs) failures.push(`smoke max ${smoke.max}ms > ${maxSmokeMs}ms`);
 if (maxAvgSmokeMs != null && smoke.avg > maxAvgSmokeMs) failures.push(`smoke avg ${smoke.avg}ms > ${maxAvgSmokeMs}ms`);
 for (const [script, cap] of maxStepMs.entries()) {
@@ -173,7 +176,8 @@ for (const [script, cap] of maxStepMs.entries()) {
   if (stats && stats.max > cap) failures.push(`${script} max ${stats.max}ms > ${cap}ms`);
 }
 if (maxRssMb != null && rss.max > maxRssMb) failures.push(`rss max ${rss.max}MB > ${maxRssMb}MB`);
-if (maxRssGrowthMb != null && rssGrowth > maxRssGrowthMb) failures.push(`rss growth ${rssGrowth}MB > ${maxRssGrowthMb}MB`);
+if (maxRssGrowthMb != null && rssGrowth > maxRssGrowthMb)
+  failures.push(`rss growth ${rssGrowth}MB > ${maxRssGrowthMb}MB`);
 
 const report = {
   ok: failures.length === 0,
@@ -207,13 +211,17 @@ if (jsonMode) {
   console.log(JSON.stringify(report, null, 2));
 } else {
   console.log(`smoke loop report pid=${report.pid} ok=${report.ok}`);
-  console.log(`started=${report.started_at} finish=${report.finish_at || '-'} elapsed=${report.elapsed} remaining=${report.remaining || '-'} iterations=${report.iterations} rate=${iterationsPerHour}/h completed=${report.completed}`);
+  console.log(
+    `started=${report.started_at} finish=${report.finish_at || '-'} elapsed=${report.elapsed} remaining=${report.remaining || '-'} iterations=${report.iterations} rate=${iterationsPerHour}/h completed=${report.completed}`
+  );
   console.log(`smoke_ms min=${smoke.min} avg=${smoke.avg} max=${smoke.max}`);
   for (const [script, stats] of Object.entries(stepMs)) {
     console.log(`${script} min=${stats.min} avg=${stats.avg} max=${stats.max}`);
   }
   console.log(`rss_mb min=${rss.min} avg=${rss.avg} max=${rss.max} growth=${rssGrowth}`);
-  console.log(`gap_ms min=${gapSummary.min} avg=${gapSummary.avg} max=${gapSummary.max} stale=${staleMs == null ? '-' : staleMs}`);
+  console.log(
+    `gap_ms min=${gapSummary.min} avg=${gapSummary.avg} max=${gapSummary.max} stale=${staleMs == null ? '-' : staleMs}`
+  );
   console.log(`errors=${errors.length}`);
   if (failures.length) console.log(`failures: ${failures.join('; ')}`);
 }

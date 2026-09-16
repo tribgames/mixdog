@@ -18,39 +18,68 @@ export async function verifyPartitionedCookieImport() {
     { value: 'cross-ancestor', partitionKey: withAncestor },
     { value: 'other-top-level', partitionKey: otherSite },
   ].map((item) => ({
-    ...item, domain, name: '__Host-session', path: '/', secure: true, httpOnly: true, session: true, sameSite: 'none',
+    ...item,
+    domain,
+    name: '__Host-session',
+    path: '/',
+    secure: true,
+    httpOnly: true,
+    session: true,
+    sameSite: 'none',
   }));
 
   try {
     await otherJar.set({
-      url: `https://${domain}/`, name: 'untouched', value: 'other-context', secure: true,
+      url: `https://${domain}/`,
+      name: 'untouched',
+      value: 'other-context',
+      secure: true,
       partitionKey: sameSite,
     });
-    const count = await importBrowserCookies({ cookies: jar }, [
-      ...fixtures,
-      ...['chrome://whats-new', 'chrome-untrusted://new-tab-page'].map((topLevelSite) => ({
-        ...fixtures[1], name: 'internal-ui-state',
-        partitionKey: { topLevelSite, hasCrossSiteAncestor: true },
-      })),
-    ], async () => {});
+    const count = await importBrowserCookies(
+      { cookies: jar },
+      [
+        ...fixtures,
+        ...['chrome://whats-new', 'chrome-untrusted://new-tab-page'].map((topLevelSite) => ({
+          ...fixtures[1],
+          name: 'internal-ui-state',
+          partitionKey: { topLevelSite, hasCrossSiteAncestor: true },
+        })),
+      ],
+      async () => {}
+    );
     assert.equal(count, 4, 'browser-internal exclusions are neither failures nor imported web cookies');
     const imported = await jar.get({});
     assert.equal(imported.length, 4);
-    assert.deepEqual(imported.map((cookie) => cookie.value).sort(),
-      ['ordinary', 'same-site', 'cross-ancestor', 'other-top-level'].sort());
+    assert.deepEqual(
+      imported.map((cookie) => cookie.value).sort(),
+      ['ordinary', 'same-site', 'cross-ancestor', 'other-top-level'].sort()
+    );
     assert.equal((await jar.get({ partitionKey: null }))[0].value, 'ordinary');
     assert.equal((await jar.get({ partitionKey: sameSite }))[0].value, 'same-site');
     assert.equal((await jar.get({ partitionKey: withAncestor }))[0].value, 'cross-ancestor');
     assert.equal((await jar.get({ partitionKey: otherSite }))[0].value, 'other-top-level');
     assert.equal((await otherJar.get({})).length, 1, 'destination must not escape to another Session');
-    assert.equal((await jar.get({ url: 'https://child.widget.example.test/' })).length, 0,
-      'host-only partitioned cookies must not become domain cookies');
+    assert.equal(
+      (await jar.get({ url: 'https://child.widget.example.test/' })).length,
+      0,
+      'host-only partitioned cookies must not become domain cookies'
+    );
 
     // Capture and restore an actual OS-encrypted recovery snapshot.
     let sealed: Buffer | undefined;
-    await importBrowserCookies({ cookies: jar }, [{
-      ...fixtures[1], value: 'replacement',
-    }], async (existing) => { sealed = safeStorage.encryptString(JSON.stringify(existing)); });
+    await importBrowserCookies(
+      { cookies: jar },
+      [
+        {
+          ...fixtures[1],
+          value: 'replacement',
+        },
+      ],
+      async (existing) => {
+        sealed = safeStorage.encryptString(JSON.stringify(existing));
+      }
+    );
     assert.ok(sealed);
     assert.equal(sealed.includes(Buffer.from('same-site')), false);
     const backup = JSON.parse(safeStorage.decryptString(sealed)) as BrowserCookie[];
@@ -65,13 +94,23 @@ export async function verifyPartitionedCookieImport() {
     assert.equal((await jar.get({ partitionKey: withAncestor }))[0].value, 'cross-ancestor');
 
     // An Electron-only seam must refuse partition metadata, never discard it.
-    await assert.rejects(importBrowserCookies(other, [{
-      ...fixtures[1], name: 'must-not-widen',
-    }], async () => {}), (error: unknown) => {
-      assert.ok(error instanceof CookieImportError);
-      assert.equal(error.failed, 1);
-      return true;
-    });
+    await assert.rejects(
+      importBrowserCookies(
+        other,
+        [
+          {
+            ...fixtures[1],
+            name: 'must-not-widen',
+          },
+        ],
+        async () => {}
+      ),
+      (error: unknown) => {
+        assert.ok(error instanceof CookieImportError);
+        assert.equal(error.failed, 1);
+        return true;
+      }
+    );
     assert.equal((await otherJar.get({ name: 'must-not-widen' })).length, 0);
   } finally {
     await jar.dispose();

@@ -9,7 +9,9 @@ test('installation observers share work and verification never reports early com
   const root = join(tmpdir(), randomUUID());
   const descriptor = { phase: 'model', modelId: 'test-model' };
   let finish;
-  const gate = new Promise((resolve) => { finish = resolve; });
+  const gate = new Promise((resolve) => {
+    finish = resolve;
+  });
   let publish;
   let calls = 0;
   const operation = async (progress) => {
@@ -37,9 +39,12 @@ test('installation observers share work and verification never reports early com
 test('failed installation status remains readable and a retry starts new work', async () => {
   const root = join(tmpdir(), randomUUID());
   const descriptor = { phase: 'runtime' };
-  await assert.rejects(trackLocalInstallation(root, descriptor, async () => {
-    throw new Error('digest mismatch');
-  }), /digest mismatch/);
+  await assert.rejects(
+    trackLocalInstallation(root, descriptor, async () => {
+      throw new Error('digest mismatch');
+    }),
+    /digest mismatch/
+  );
   assert.equal(localProviderInstallStatus(root)[0].state, 'failed');
   assert.equal(localProviderInstallStatus(root)[0].error, 'digest mismatch');
   await trackLocalInstallation(root, descriptor, async () => 'recovered');
@@ -52,12 +57,15 @@ test('explicit cancellation targets one shared job, retains a paused receipt, an
   const root = join(tmpdir(), randomUUID());
   const descriptor = { phase: 'model', modelId: 'model' };
   let entered;
-  const started = new Promise((resolve) => { entered = resolve; });
-  const operation = (_publish, signal) => new Promise((_resolve, reject) => {
-    signal.throwIfAborted();
-    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
-    entered();
+  const started = new Promise((resolve) => {
+    entered = resolve;
   });
+  const operation = (_publish, signal) =>
+    new Promise((_resolve, reject) => {
+      signal.throwIfAborted();
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      entered();
+    });
   const first = trackLocalInstallation(root, descriptor, operation);
   const second = trackLocalInstallation(root, descriptor, operation);
   const failures = [assert.rejects(first, /paused by user/), assert.rejects(second, /paused by user/)];

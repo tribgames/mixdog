@@ -67,18 +67,12 @@ export function directOfficeStory(format, operations = [], design = {}) {
     .filter(({ operation }) => plainObject(operation) && operation.op === composeName);
   const content = design.content || null;
   const thesis = compact(
-    content?.decision
-      || content?.objective
-      || authored[0]?.operation?.title
-      || design.intent,
-    220,
+    content?.decision || content?.objective || authored[0]?.operation?.title || design.intent,
+    220
   );
   const motif = compact(
-    design.artDirection?.selected?.deck?.motif
-      || design.artDirection?.selected?.motif
-      || design.signature
-      || thesis,
-    160,
+    design.artDirection?.selected?.deck?.motif || design.artDirection?.selected?.motif || design.signature || thesis,
+    160
   );
   const briefs = authored.map(({ operation, operationIndex }, index) => {
     const role = narrativeRole(operation, index, authored.length);
@@ -91,13 +85,14 @@ export function directOfficeStory(format, operations = [], design = {}) {
       implication: compact(operation.takeaway || operation.subtitle || operation.body, 220),
       evidence,
       recommendedVisual: recommendedVisual(operation, role),
-      focalPoint: role === 'opening'
-        ? 'thesis'
-        : role === 'decision-close'
-          ? 'decision'
-          : evidence.evidenceKind === 'narrative'
-            ? 'message'
-            : 'evidence',
+      focalPoint:
+        role === 'opening'
+          ? 'thesis'
+          : role === 'decision-close'
+            ? 'decision'
+            : evidence.evidenceKind === 'narrative'
+              ? 'message'
+              : 'evidence',
       density: ['opening', 'decision-close'].includes(role) ? 'light' : 'balanced',
       motif,
     };

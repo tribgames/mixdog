@@ -24,24 +24,26 @@ import { appendAgentTrace } from '../../agent/orchestrator/agent-trace.mjs';
  */
 const _missingProviderWarned = new Set();
 function warnMissingProviderOnce(key) {
-    if (_missingProviderWarned.has(key)) return;
-    _missingProviderWarned.add(key);
-    try {
-        process.stderr.write(`[usage-log] provider missing on usage entry (model=${key}). audit the caller.\n`);
-    } catch { /* logging only */ }
+  if (_missingProviderWarned.has(key)) return;
+  _missingProviderWarned.add(key);
+  try {
+    process.stderr.write(`[usage-log] provider missing on usage entry (model=${key}). audit the caller.\n`);
+  } catch {
+    /* logging only */
+  }
 }
 
 export function logLlmCall(entry, opts = {}) {
-    try {
-        if (!entry.provider) warnMissingProviderOnce(entry.model || '?');
-        appendAgentTrace({
-            ts: entry.ts || Date.now(),
-            kind: 'usage',
-            ...entry,
-            payload: entry.payload ?? {},
-            maintenanceLog: opts.maintenance === true ? true : undefined,
-        });
-    } catch {
-        // Never let logging break the caller.
-    }
+  try {
+    if (!entry.provider) warnMissingProviderOnce(entry.model || '?');
+    appendAgentTrace({
+      ts: entry.ts || Date.now(),
+      kind: 'usage',
+      ...entry,
+      payload: entry.payload ?? {},
+      maintenanceLog: opts.maintenance === true ? true : undefined,
+    });
+  } catch {
+    // Never let logging break the caller.
+  }
 }

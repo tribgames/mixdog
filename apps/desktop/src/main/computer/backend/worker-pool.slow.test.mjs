@@ -10,8 +10,12 @@ test('retiring a host worker releases its session and process', { skip: process.
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-worker-pool-'));
   const retiredSessions = [];
   const pool = createWorkerPool({
-    dataDirectory: () => directory, isBridgeEnabled: () => false, isDisposed: () => false,
-    onSessionRetired: (sessionId) => { retiredSessions.push(sessionId); },
+    dataDirectory: () => directory,
+    isBridgeEnabled: () => false,
+    isDisposed: () => false,
+    onSessionRetired: (sessionId) => {
+      retiredSessions.push(sessionId);
+    },
   });
   try {
     const child = pool.ensurePowerShell('warm-up-race');
@@ -21,12 +25,18 @@ test('retiring a host worker releases its session and process', { skip: process.
     assert.deepEqual(retiredSessions, ['warm-up-race']);
     let timeout;
     try {
-      await Promise.race([exited, new Promise((_, reject) => {
-        timeout = setTimeout(() => reject(new Error('retired computer host worker did not exit')), 5_000);
-      })]);
-    } finally { clearTimeout(timeout); }
+      await Promise.race([
+        exited,
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('retired computer host worker did not exit')), 5_000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
   } finally {
-    pool.releaseSpareWorker(); pool.removeHostScript();
+    pool.releaseSpareWorker();
+    pool.removeHostScript();
     await rm(directory, { recursive: true, force: true });
   }
 });
@@ -35,21 +45,41 @@ test('a per-command timeout retires a stuck provider instead of waiting for the 
   skip: process.platform !== 'win32',
 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-worker-timeout-'));
-  const pool = createWorkerPool({ dataDirectory: () => directory, isBridgeEnabled: () => false, isDisposed: () => false });
+  const pool = createWorkerPool({
+    dataDirectory: () => directory,
+    isBridgeEnabled: () => false,
+    isDisposed: () => false,
+  });
   try {
-    await assert.rejects(pool.callPowerShell({
-      action: 'wait', duration: 1, session_id: 'provider-timeout', read_only: true,
-    }, 100), /computer_command_timeout: command exceeded 100ms/);
+    await assert.rejects(
+      pool.callPowerShell(
+        {
+          action: 'wait',
+          duration: 1,
+          session_id: 'provider-timeout',
+          read_only: true,
+        },
+        100
+      ),
+      /computer_command_timeout: command exceeded 100ms/
+    );
     assert.equal(pool.powerShellBySession.has('provider-timeout'), false);
   } finally {
-    pool.releaseSpareWorker(); pool.removeHostScript();
+    pool.releaseSpareWorker();
+    pool.removeHostScript();
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test('the completed warm-up worker replaces a duplicate refill worker', { skip: process.platform !== 'win32' }, async () => {
+test('the completed warm-up worker replaces a duplicate refill worker', {
+  skip: process.platform !== 'win32',
+}, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-worker-adoption-'));
-  const pool = createWorkerPool({ dataDirectory: () => directory, isBridgeEnabled: () => true, isDisposed: () => false });
+  const pool = createWorkerPool({
+    dataDirectory: () => directory,
+    isBridgeEnabled: () => true,
+    isDisposed: () => false,
+  });
   try {
     const warmed = pool.ensurePowerShell('warm-up-adoption');
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -58,7 +88,8 @@ test('the completed warm-up worker replaces a duplicate refill worker', { skip: 
     assert.equal(warmed.killed, false);
   } finally {
     for (const child of pool.powerShellBySession.values()) pool.retirePowerShell(child, new Error('test cleanup'));
-    pool.releaseSpareWorker(); pool.removeHostScript();
+    pool.releaseSpareWorker();
+    pool.removeHostScript();
     await rm(directory, { recursive: true, force: true });
   }
 });

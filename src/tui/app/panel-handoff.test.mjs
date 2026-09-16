@@ -12,7 +12,10 @@ import { createThemeEffortPickers } from './theme-effort-pickers.mjs';
 function deferred() {
   let resolve;
   let reject;
-  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
   return { promise, resolve, reject };
 }
 
@@ -64,13 +67,21 @@ function settingsDeps(host, store, opened = {}) {
     workflowDisplayName: () => 'Default',
     workflowSwitchNotice: () => 'workflow switched',
     themeNotice: () => 'theme set',
-    openModelPicker: (options) => { opened.model = options; },
+    openModelPicker: (options) => {
+      opened.model = options;
+    },
     openWebSearchPicker: noop,
     openAgentsPicker: noop,
-    openWorkflowPicker: (options) => { opened.workflow = options; },
-    openOutputStylePicker: (options) => { opened.outputStyle = options; },
+    openWorkflowPicker: (options) => {
+      opened.workflow = options;
+    },
+    openOutputStylePicker: (options) => {
+      opened.outputStyle = options;
+    },
     openProviderSetupPicker: noop,
-    openThemePicker: (options) => { opened.theme = options; },
+    openThemePicker: (options) => {
+      opened.theme = options;
+    },
     openAutoClearPicker: noop,
     openProfilePicker: noop,
     openMcpPicker: noop,
@@ -87,11 +98,9 @@ test('Settings paints its loading destination before the daemon snapshot settles
   host.setPicker({ title: 'Theme' });
   const snapshotGate = deferred();
   const opened = {};
-  const { openSettingsPicker } = createSettingsPicker(settingsDeps(
-    host,
-    { getSettingsSnapshot: () => snapshotGate.promise },
-    opened,
-  ));
+  const { openSettingsPicker } = createSettingsPicker(
+    settingsDeps(host, { getSettingsSnapshot: () => snapshotGate.promise }, opened)
+  );
 
   const opening = openSettingsPicker();
   assert.equal(host.current()?.title, 'Settings');
@@ -246,7 +255,10 @@ test('Theme selection hands directly to Settings without a null panel', () => {
   theme.onSelect(theme.items[0].value, theme.items[0]);
 
   const transitionPaints = host.painted.slice(paintedBefore);
-  assert.deepEqual(transitionPaints.map((panel) => panel?.title), ['Settings', 'Settings']);
+  assert.deepEqual(
+    transitionPaints.map((panel) => panel?.title),
+    ['Settings', 'Settings']
+  );
   assert.ok(transitionPaints.every(Boolean));
 });
 
@@ -267,11 +279,13 @@ test('slash option entry keeps a loading panel until the async picker paints', a
   const openGate = deferred();
   const { runSlashCommand } = workflowSlashDispatch(host, () => {
     const own = host.surface.claim();
-    return openGate.promise.then(() => own.paint({
-      title: 'Workflow',
-      description: 'Select active workflow.',
-      items: [{ value: 'solo', label: 'Solo' }],
-    }));
+    return openGate.promise.then(() =>
+      own.paint({
+        title: 'Workflow',
+        description: 'Select active workflow.',
+        items: [{ value: 'solo', label: 'Solo' }],
+      })
+    );
   });
 
   assert.equal(runSlashCommand('workflow'), true);
@@ -292,10 +306,12 @@ test('Esc on slash loading prevents the pending picker from appearing later', as
   const openGate = deferred();
   const { runSlashCommand } = workflowSlashDispatch(host, () => {
     const own = host.surface.claim();
-    return openGate.promise.then(() => own.paint({
-      title: 'Workflow',
-      items: [{ value: 'solo', label: 'Solo' }],
-    }));
+    return openGate.promise.then(() =>
+      own.paint({
+        title: 'Workflow',
+        items: [{ value: 'solo', label: 'Solo' }],
+      })
+    );
   });
 
   runSlashCommand('workflow');

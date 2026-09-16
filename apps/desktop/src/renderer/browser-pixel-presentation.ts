@@ -14,8 +14,10 @@ export function createBrowserPixelPresentation(host: {
   let metadataKey = '';
   let surface: { width: number; height: number } | undefined;
   const visibility = () => {
-    if (host.image.current) host.image.current.hidden = current?.surfaceWidth !== undefined
-      && (!surface || current.surfaceWidth !== surface.width || current.surfaceHeight !== surface.height);
+    if (host.image.current)
+      host.image.current.hidden =
+        current?.surfaceWidth !== undefined &&
+        (!surface || current.surfaceWidth !== surface.width || current.surfaceHeight !== surface.height);
   };
   return {
     async prepare(frame: DesktopBrowserPageFrame): Promise<void> {
@@ -40,9 +42,16 @@ export function createBrowserPixelPresentation(host: {
         const old = host.image.current;
         const canvas = old instanceof HTMLCanvasElement ? old : document.createElement('canvas');
         canvas.id = host.canvasId;
-        if (canvas !== old) { canvas.hidden = true; container.append(canvas); }
-        try { host.texture(frame.textureId, host.canvasId); }
-        catch (error) { if (canvas !== old) canvas.remove(); throw error; }
+        if (canvas !== old) {
+          canvas.hidden = true;
+          container.append(canvas);
+        }
+        try {
+          host.texture(frame.textureId, host.canvasId);
+        } catch (error) {
+          if (canvas !== old) canvas.remove();
+          throw error;
+        }
         container.replaceChildren(canvas);
         host.image.current = canvas;
         changed = true;

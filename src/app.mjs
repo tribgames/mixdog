@@ -3,10 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createBootProfiler } from './runtime/shared/boot-profile.mjs';
 import { ensureProcessListenerHeadroom } from './runtime/shared/process-listener-headroom.mjs';
-import {
-  classifyCliInvocation,
-  parseHeadlessExecCommand,
-} from './headless-command.mjs';
+import { classifyCliInvocation, parseHeadlessExecCommand } from './headless-command.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const bootProfile = createBootProfiler('app');
@@ -59,9 +56,7 @@ export async function run(argv = [], classifiedInvocation = null) {
   }
 
   if (invocation.kind === 'exec') {
-    const { validateExplicitPristineRoute } = await import(
-      './runtime/shared/pristine-execution.mjs'
-    );
+    const { validateExplicitPristineRoute } = await import('./runtime/shared/pristine-execution.mjs');
     const routeError = validateExplicitPristineRoute(opts);
     if (routeError) {
       process.stderr.write(`mixdog: ${routeError}\n`);
@@ -97,9 +92,7 @@ export async function run(argv = [], classifiedInvocation = null) {
   }
   const bundle = join(__dirname, 'tui', 'dist', 'index.mjs');
   if (!existsSync(bundle)) {
-    process.stderr.write(
-      'mixdog: TUI bundle not found. Build it with:\n  npm run build:tui\n',
-    );
+    process.stderr.write('mixdog: TUI bundle not found. Build it with:\n  npm run build:tui\n');
     return 1;
   }
   // Stale-bundle guard: a dist built before hot runtime sources caused weeks
@@ -133,7 +126,11 @@ export async function run(argv = [], classifiedInvocation = null) {
       const walk = (dir, depth) => {
         if (depth > MAX_DEPTH || visits >= MAX_VISITS) return;
         let entries;
-        try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+        try {
+          entries = readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return;
+        }
         for (const entry of entries) {
           if (visits >= MAX_VISITS) return;
           visits += 1;
@@ -145,23 +142,32 @@ export async function run(argv = [], classifiedInvocation = null) {
           try {
             const mtime = statSync(join(dir, entry.name)).mtimeMs;
             if (mtime > newest) newest = mtime;
-          } catch { /* unreadable file is not evidence of staleness */ }
+          } catch {
+            /* unreadable file is not evidence of staleness */
+          }
         }
       };
       walk(join(__dirname, 'tui'), 0);
       return newest;
     })();
-    const stale = tuiSourceNewestMtime > bundleMtime + 1_000
-      || hotSources.some((file) => {
-        try { return statSync(file).mtimeMs > bundleMtime + 1_000; } catch { return false; }
+    const stale =
+      tuiSourceNewestMtime > bundleMtime + 1_000 ||
+      hotSources.some((file) => {
+        try {
+          return statSync(file).mtimeMs > bundleMtime + 1_000;
+        } catch {
+          return false;
+        }
       });
     if (stale) {
       process.stderr.write(
-        'mixdog: TUI bundle is OLDER than runtime sources — behavior will not match the tree.\n'
-        + '  Rebuild with: npm run build:tui\n',
+        'mixdog: TUI bundle is OLDER than runtime sources — behavior will not match the tree.\n' +
+          '  Rebuild with: npm run build:tui\n'
       );
     }
-  } catch { /* advisory only */ }
+  } catch {
+    /* advisory only */
+  }
   const { runTui } = await import('./tui/dist/index.mjs');
   bootProfile('tui:imported');
   return await runTui(opts);

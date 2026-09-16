@@ -19,11 +19,10 @@ export function selectActiveBrowserGuest<T extends BrowserGuestCandidate>(
   guests: Iterable<T>,
   current: T | null,
   webContentsId: number,
-  active: boolean,
+  active: boolean
 ): T | null {
   const liveCurrent = current && !current.isDestroyed() ? current : null;
-  const guest = [...guests].find((candidate) =>
-    !candidate.isDestroyed() && candidate.id === webContentsId);
+  const guest = [...guests].find((candidate) => !candidate.isDestroyed() && candidate.id === webContentsId);
   if (!guest) return liveCurrent;
   if (active) return guest;
   return liveCurrent === guest ? null : liveCurrent;
@@ -36,13 +35,15 @@ export function selectAndRefreshActiveBrowserGuest<T extends RepaintableBrowserG
   guests: Iterable<T>,
   current: T | null,
   webContentsId: number,
-  active: boolean,
+  active: boolean
 ): T | null {
   const selected = selectActiveBrowserGuest(guests, current, webContentsId, active);
   if (active && selected?.id === webContentsId) {
     try {
       selected.invalidate();
-    } catch { /* guest teardown can race the renderer's foreground signal */ }
+    } catch {
+      /* guest teardown can race the renderer's foreground signal */
+    }
   }
   return selected;
 }
@@ -68,19 +69,17 @@ export function normalizeBackgroundTabName(raw: string, options: { required?: bo
 export function assertBackgroundTabCapacity(openTabs: number): void {
   if (openTabs >= MAX_BACKGROUND_TABS) {
     throw new Error(
-      `at most ${MAX_BACKGROUND_TABS} background tabs may be open; call list_tabs and close_tab before opening another`,
+      `at most ${MAX_BACKGROUND_TABS} background tabs may be open; call list_tabs and close_tab before opening another`
     );
   }
 }
 
-export function backgroundPageIdle(
-  lastUsedAt: number,
-  now = Date.now(),
-  idleMs = BACKGROUND_PAGE_IDLE_MS,
-): boolean {
-  return Number.isFinite(lastUsedAt)
-    && Number.isFinite(now)
-    && Number.isFinite(idleMs)
-    && idleMs >= 0
-    && now - lastUsedAt >= idleMs;
+export function backgroundPageIdle(lastUsedAt: number, now = Date.now(), idleMs = BACKGROUND_PAGE_IDLE_MS): boolean {
+  return (
+    Number.isFinite(lastUsedAt) &&
+    Number.isFinite(now) &&
+    Number.isFinite(idleMs) &&
+    idleMs >= 0 &&
+    now - lastUsedAt >= idleMs
+  );
 }

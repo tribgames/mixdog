@@ -19,8 +19,11 @@ function parsePort(value) {
 // the recorded pid is dead (stale daemon) so the caller reclaims + respawns.
 export function readChannelDiscovery(discoveryPath) {
   let raw;
-  try { raw = JSON.parse(readFileSync(discoveryPath, 'utf8')); }
-  catch { return null; }
+  try {
+    raw = JSON.parse(readFileSync(discoveryPath, 'utf8'));
+  } catch {
+    return null;
+  }
   const endpoint = raw?.endpoints?.channel;
   const port = parsePort(endpoint?.port);
   const pid = parsePid(raw?.pid);
@@ -29,10 +32,7 @@ export function readChannelDiscovery(discoveryPath) {
   return { port, pid, token: String(endpoint.token) };
 }
 
-function request({
-  port, method = 'GET', path = '/', token, body = null, timeoutMs = 10_000,
-  agent = undefined,
-}) {
+function request({ port, method = 'GET', path = '/', token, body = null, timeoutMs = 10_000, agent = undefined }) {
   return new Promise((resolve, reject) => {
     const payload = body == null ? null : JSON.stringify(body);
     let req = null;
@@ -49,51 +49,65 @@ function request({
     const lifecycleTimeout = () => {
       const error = new Error(`daemon request timed out: ${method} ${path}`);
       fail(error);
-      try { response?.destroy?.(error); } catch {}
-      try { req?.destroy?.(error); } catch {}
+      try {
+        response?.destroy?.(error);
+      } catch {}
+      try {
+        req?.destroy?.(error);
+      } catch {}
     };
     // http.request's timeout is socket-idle only. This deadline covers headers
     // and the entire response body so a truncated post-header response cannot
     // leave reconnect registration pending forever.
     const deadline = setTimeout(lifecycleTimeout, timeoutMs);
     deadline.unref?.();
-    req = http.request({
-      hostname: '127.0.0.1',
-      port,
-      path,
-      method,
-      agent,
-      headers: {
-        ...(token ? { 'X-Mixdog-Daemon-Token': token } : {}),
-        ...(payload
-          ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-          : {}),
+    req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path,
+        method,
+        agent,
+        headers: {
+          ...(token ? { 'X-Mixdog-Daemon-Token': token } : {}),
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+        },
+        timeout: timeoutMs,
       },
-      timeout: timeoutMs,
-    }, (res) => {
-      response = res;
-      if (settled) { try { res.resume?.(); } catch {} return; }
-      let data = '';
-      res.setEncoding('utf8');
-      res.on('data', (chunk) => { if (!settled) data += chunk; });
-      res.once('aborted', () => fail(new Error(`daemon response aborted: ${method} ${path}`)));
-      res.once('error', (error) => fail(error));
-      res.once('end', () => {
-        ended = true;
-        let parsed = null;
-        try { parsed = data ? JSON.parse(data) : null; } catch {}
-        if (res.statusCode && res.statusCode >= 400) {
-          const err = new Error(parsed?.error || data || `HTTP ${res.statusCode}`);
-          err.statusCode = res.statusCode;
-          fail(err);
+      (res) => {
+        response = res;
+        if (settled) {
+          try {
+            res.resume?.();
+          } catch {}
           return;
         }
-        finish(resolve, parsed ?? {});
-      });
-      res.once('close', () => {
-        if (!ended && !settled) fail(new Error(`daemon response closed before end: ${method} ${path}`));
-      });
-    });
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          if (!settled) data += chunk;
+        });
+        res.once('aborted', () => fail(new Error(`daemon response aborted: ${method} ${path}`)));
+        res.once('error', (error) => fail(error));
+        res.once('end', () => {
+          ended = true;
+          let parsed = null;
+          try {
+            parsed = data ? JSON.parse(data) : null;
+          } catch {}
+          if (res.statusCode && res.statusCode >= 400) {
+            const err = new Error(parsed?.error || data || `HTTP ${res.statusCode}`);
+            err.statusCode = res.statusCode;
+            fail(err);
+            return;
+          }
+          finish(resolve, parsed ?? {});
+        });
+        res.once('close', () => {
+          if (!ended && !settled) fail(new Error(`daemon response closed before end: ${method} ${path}`));
+        });
+      }
+    );
     req.on('error', fail);
     req.on('timeout', lifecycleTimeout);
     if (payload) req.write(payload);
@@ -105,7 +119,9 @@ export async function probeChannelHealth({ port, token, timeoutMs = 800 } = {}) 
   try {
     const health = await request({ port, token, path: '/health', timeoutMs });
     return health?.status === 'ok' ? health : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 // Attach to a live daemon described by `discovery` ({port, token}). Registers
@@ -123,13 +139,20 @@ export async function attachChannel({
   onFatal = () => {},
 } = {}) {
   const expectedPid = parsePid(discovery?.pid);
-  if (!discovery?.port || !discovery?.token || !expectedPid) throw new Error('daemon discovery {port, pid, token} required');
+  if (!discovery?.port || !discovery?.token || !expectedPid)
+    throw new Error('daemon discovery {port, pid, token} required');
   const { port, token: serverToken } = discovery;
   const callAgent = new http.Agent({
-    keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 16, maxFreeSockets: 4,
+    keepAlive: true,
+    keepAliveMsecs: 5_000,
+    maxSockets: 16,
+    maxFreeSockets: 4,
   });
   const controlAgent = new http.Agent({
-    keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 4, maxFreeSockets: 2,
+    keepAlive: true,
+    keepAliveMsecs: 5_000,
+    maxSockets: 4,
+    maxFreeSockets: 2,
   });
   const staleDiscoveryError = (reason) => {
     const err = new Error(reason);
@@ -156,7 +179,10 @@ export async function attachChannel({
       // Channel attachment observes the current owner and never claims the
       // manual routing seat merely by opening the transport.
       body: {
-        leadPid, cwd, passive: true, restoreSessionId,
+        leadPid,
+        cwd,
+        passive: true,
+        restoreSessionId,
         registrationId: initialRegistrationId,
       },
       timeoutMs: 3000,
@@ -196,34 +222,51 @@ export async function attachChannel({
   const MAX_RECONNECTS = 5;
   const STABLE_STREAM_MS = 5_000;
 
-  async function deregister(token, {
-    registrationId = null,
-    replaceToken = null,
-    preserveRemoteIntent = false,
-  } = {}) {
+  async function deregister(token, { registrationId = null, replaceToken = null, preserveRemoteIntent = false } = {}) {
     if (!token) return;
     try {
       await request({
-        port, token: serverToken, method: 'POST', path: '/client/deregister',
+        port,
+        token: serverToken,
+        method: 'POST',
+        path: '/client/deregister',
         body: {
           token,
-          ...(registrationId ? {
-            registrationId, replaceToken, leadPid, cwd, restoreSessionId,
-          } : {}),
+          ...(registrationId
+            ? {
+                registrationId,
+                replaceToken,
+                leadPid,
+                cwd,
+                restoreSessionId,
+              }
+            : {}),
           ...(preserveRemoteIntent ? { preserveRemoteIntent: true } : {}),
         },
         timeoutMs: 1500,
         agent: controlAgent,
       });
-    } catch { /* best-effort; daemon sweep reaps us */ }
+    } catch {
+      /* best-effort; daemon sweep reaps us */
+    }
   }
 
   function clearStableTimer() {
-    if (stableTimer) { try { clearTimeout(stableTimer); } catch {} stableTimer = null; }
+    if (stableTimer) {
+      try {
+        clearTimeout(stableTimer);
+      } catch {}
+      stableTimer = null;
+    }
   }
 
   function clearLivenessTimer() {
-    if (livenessTimer) { try { clearTimeout(livenessTimer); } catch {} livenessTimer = null; }
+    if (livenessTimer) {
+      try {
+        clearTimeout(livenessTimer);
+      } catch {}
+      livenessTimer = null;
+    }
   }
 
   function signalFatal(reason) {
@@ -231,12 +274,21 @@ export async function attachChannel({
     fatal = true;
     closed = true;
     lifecycle++;
-    if (reconnectTimer) { try { clearTimeout(reconnectTimer); } catch {} reconnectTimer = null; }
+    if (reconnectTimer) {
+      try {
+        clearTimeout(reconnectTimer);
+      } catch {}
+      reconnectTimer = null;
+    }
     clearStableTimer();
     clearLivenessTimer();
-    try { sseReq?.destroy?.(); } catch {}
+    try {
+      sseReq?.destroy?.();
+    } catch {}
     log(`sse stale endpoint (${reason}); signalling re-attach`);
-    try { onFatal(reason); } catch {}
+    try {
+      onFatal(reason);
+    } catch {}
   }
 
   // A stream ending can be a transient connection loss, but must not leave this
@@ -261,79 +313,97 @@ export async function attachChannel({
     // A liveness expiry is a transient stream loss (reconnect), not a dead
     // endpoint: keep the destroy() it triggers off the fatal path.
     let livenessLost = false;
-    const req = http.request({
-      hostname: '127.0.0.1',
-      port,
-      path: `/events?token=${encodeURIComponent(clientToken)}`,
-      method: 'GET',
-      headers: { Accept: 'text/event-stream', 'X-Mixdog-Daemon-Token': serverToken },
-    }, (res) => {
-      if (req !== sseReq || closed) { res.resume(); return; }
-      if (res.statusCode !== 200) {
-        res.resume();
-        // A token rejection means this port now belongs to a different daemon;
-        // re-read discovery now rather than re-registering against it.
-        if (res.statusCode === 401 || res.statusCode === 403) {
-          signalFatal('bad sse status ' + res.statusCode);
-        } else {
-          handleStreamLoss('bad sse status ' + res.statusCode);
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path: `/events?token=${encodeURIComponent(clientToken)}`,
+        method: 'GET',
+        headers: { Accept: 'text/event-stream', 'X-Mixdog-Daemon-Token': serverToken },
+      },
+      (res) => {
+        if (req !== sseReq || closed) {
+          res.resume();
+          return;
         }
-        return;
-      }
-      res.setEncoding('utf8');
-      // A bare 200 followed by an immediate end is not a stable stream. Only
-      // reset the bounded reconnect budget after this exact stream stays live.
-      clearStableTimer();
-      stableTimer = setTimeout(() => {
-        if (!closed && !fatal && req === sseReq) reconnectAttempts = 0;
-      }, STABLE_STREAM_MS);
-      stableTimer.unref?.();
-      const armLiveness = () => {
-        clearLivenessTimer();
-        livenessTimer = setTimeout(() => {
-          if (closed || fatal || req !== sseReq) return;
-          livenessLost = true;
-          handleStreamLoss(`sse liveness timeout after ${STREAM_LIVENESS_MS}ms`);
-          try { req.destroy(new Error('channel SSE liveness timeout')); } catch {}
-        }, STREAM_LIVENESS_MS);
-        livenessTimer.unref?.();
-      };
-      armLiveness();
-      let buf = '';
-      res.on('data', (chunk) => {
-        if (req !== sseReq || closed) return;
-        // Any byte, including a `: ka` keepalive comment, proves liveness.
-        armLiveness();
-        buf += chunk;
-        let idx;
-        while ((idx = buf.indexOf('\n\n')) >= 0) {
-          const raw = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          for (const line of raw.split('\n')) {
-            if (!line.startsWith('data:')) continue; // skip ': ka' keepalives
-            const json = line.slice(5).trim();
-            if (!json) continue;
-            let msg = null;
-            try { msg = JSON.parse(json); } catch { continue; }
-            if (msg?.type === 'notify') { try { onNotify(msg); } catch (e) { log(`onNotify threw: ${e?.message || e}`); } }
+        if (res.statusCode !== 200) {
+          res.resume();
+          // A token rejection means this port now belongs to a different daemon;
+          // re-read discovery now rather than re-registering against it.
+          if (res.statusCode === 401 || res.statusCode === 403) {
+            signalFatal('bad sse status ' + res.statusCode);
+          } else {
+            handleStreamLoss('bad sse status ' + res.statusCode);
           }
+          return;
         }
-      });
-      res.on('end', () => {
-        if (req === sseReq) {
-          clearStableTimer();
+        res.setEncoding('utf8');
+        // A bare 200 followed by an immediate end is not a stable stream. Only
+        // reset the bounded reconnect budget after this exact stream stays live.
+        clearStableTimer();
+        stableTimer = setTimeout(() => {
+          if (!closed && !fatal && req === sseReq) reconnectAttempts = 0;
+        }, STABLE_STREAM_MS);
+        stableTimer.unref?.();
+        const armLiveness = () => {
           clearLivenessTimer();
-          handleStreamLoss('sse ended');
-        }
-      });
-      res.on('error', () => {
-        if (req === sseReq) {
-          clearStableTimer();
-          clearLivenessTimer();
-          handleStreamLoss('sse error');
-        }
-      });
-    });
+          livenessTimer = setTimeout(() => {
+            if (closed || fatal || req !== sseReq) return;
+            livenessLost = true;
+            handleStreamLoss(`sse liveness timeout after ${STREAM_LIVENESS_MS}ms`);
+            try {
+              req.destroy(new Error('channel SSE liveness timeout'));
+            } catch {}
+          }, STREAM_LIVENESS_MS);
+          livenessTimer.unref?.();
+        };
+        armLiveness();
+        let buf = '';
+        res.on('data', (chunk) => {
+          if (req !== sseReq || closed) return;
+          // Any byte, including a `: ka` keepalive comment, proves liveness.
+          armLiveness();
+          buf += chunk;
+          let idx;
+          while ((idx = buf.indexOf('\n\n')) >= 0) {
+            const raw = buf.slice(0, idx);
+            buf = buf.slice(idx + 2);
+            for (const line of raw.split('\n')) {
+              if (!line.startsWith('data:')) continue; // skip ': ka' keepalives
+              const json = line.slice(5).trim();
+              if (!json) continue;
+              let msg = null;
+              try {
+                msg = JSON.parse(json);
+              } catch {
+                continue;
+              }
+              if (msg?.type === 'notify') {
+                try {
+                  onNotify(msg);
+                } catch (e) {
+                  log(`onNotify threw: ${e?.message || e}`);
+                }
+              }
+            }
+          }
+        });
+        res.on('end', () => {
+          if (req === sseReq) {
+            clearStableTimer();
+            clearLivenessTimer();
+            handleStreamLoss('sse ended');
+          }
+        });
+        res.on('error', () => {
+          if (req === sseReq) {
+            clearStableTimer();
+            clearLivenessTimer();
+            handleStreamLoss('sse error');
+          }
+        });
+      }
+    );
     req.on('error', () => {
       if (req !== sseReq || livenessLost) return;
       signalFatal('sse req error');
@@ -357,27 +427,37 @@ export async function attachChannel({
       // it so the reopened stream and subsequent calls target the live entry.
       // A reconnect is passive and must not claim the ownership seat.
       const generation = lifecycle;
-      const registrationId = reconnectRegistrationId ||= randomUUID();
-      const replaceToken = reconnectReplaceToken ||= clientToken;
+      const registrationId = (reconnectRegistrationId ||= randomUUID());
+      const replaceToken = (reconnectReplaceToken ||= clientToken);
       const registration = request({
-        port, token: serverToken, method: 'POST', path: '/client/register',
+        port,
+        token: serverToken,
+        method: 'POST',
+        path: '/client/register',
         body: {
-          leadPid, cwd, passive: true, replaceToken,
-          registrationId, restoreSessionId,
-        }, timeoutMs: 3000,
+          leadPid,
+          cwd,
+          passive: true,
+          replaceToken,
+          registrationId,
+          restoreSessionId,
+        },
+        timeoutMs: 3000,
         agent: controlAgent,
-      }).then(async (r) => {
-        const freshToken = r?.token;
-        if (!freshToken) return false;
-        if (closed || fatal || generation !== lifecycle) {
-          await deregister(freshToken);
-          return false;
-        }
-        clientToken = freshToken;
-        reconnectRegistrationId = null;
-        reconnectReplaceToken = null;
-        return true;
-      }).catch(() => false);
+      })
+        .then(async (r) => {
+          const freshToken = r?.token;
+          if (!freshToken) return false;
+          if (closed || fatal || generation !== lifecycle) {
+            await deregister(freshToken);
+            return false;
+          }
+          clientToken = freshToken;
+          reconnectRegistrationId = null;
+          reconnectReplaceToken = null;
+          return true;
+        })
+        .catch(() => false);
       reconnectRegistration = registration;
       void registration.finally(() => {
         if (reconnectRegistration === registration) reconnectRegistration = null;
@@ -423,10 +503,17 @@ export async function attachChannel({
     if (closePromise) return closePromise;
     closed = true;
     lifecycle++;
-    if (reconnectTimer) { try { clearTimeout(reconnectTimer); } catch {} reconnectTimer = null; }
+    if (reconnectTimer) {
+      try {
+        clearTimeout(reconnectTimer);
+      } catch {}
+      reconnectTimer = null;
+    }
     clearStableTimer();
     clearLivenessTimer();
-    try { sseReq?.destroy?.(); } catch {}
+    try {
+      sseReq?.destroy?.();
+    } catch {}
     // A re-register already in flight can mint a fresh token after close().
     // Await it so its stale branch deregisters that token before close resolves.
     const pendingRegistration = reconnectRegistration;

@@ -1,6 +1,6 @@
-import { useCallback, type RefObject } from "react";
-import type { editor } from "monaco-editor";
-import { reportEditorLoadStage } from "./renderer-load-metrics";
+import { useCallback, type RefObject } from 'react';
+import type { editor } from 'monaco-editor';
+import { reportEditorLoadStage } from './renderer-load-metrics';
 
 type Editor = editor.IStandaloneCodeEditor;
 type EditorModel = editor.ITextModel;
@@ -44,55 +44,58 @@ export function useEditorMountSession({
   renderAnsiOutput(model: EditorModel | null): void;
   notifyReady(): void;
 }) {
-  return useCallback((editorInstance: Editor) => {
-    editorRef.current = editorInstance;
-    armFonts();
-    const layoutHost = editorInstance.getDomNode()?.parentElement;
-    if (layoutHost && typeof ResizeObserver !== "undefined") {
-      editorLayoutObserver.current?.disconnect();
-      editorLayoutObserver.current = new ResizeObserver(() => {
+  return useCallback(
+    (editorInstance: Editor) => {
+      editorRef.current = editorInstance;
+      armFonts();
+      const layoutHost = editorInstance.getDomNode()?.parentElement;
+      if (layoutHost && typeof ResizeObserver !== 'undefined') {
+        editorLayoutObserver.current?.disconnect();
+        editorLayoutObserver.current = new ResizeObserver(() => {
+          scheduleEditorLayout(editorInstance, layoutHost);
+        });
+        editorLayoutObserver.current.observe(layoutHost);
+        editorLayoutSize.current = null;
         scheduleEditorLayout(editorInstance, layoutHost);
-      });
-      editorLayoutObserver.current.observe(layoutHost);
-      editorLayoutSize.current = null;
-      scheduleEditorLayout(editorInstance, layoutHost);
-    }
-    wireCommands(editorInstance);
-    const model = editorInstance.getModel();
-    if (model) bindModel(editorInstance, model);
-    const viewState = readViewState(viewStateKey);
-    if (viewState) {
-      try {
-        editorInstance.restoreViewState(viewState);
-      } catch {
-        // Stale Monaco state starts at the top.
       }
-    }
-    if (activeRef.current && focusedRef.current) {
-      requestAnimationFrame(() => editorInstance.focus());
-    }
-    if (model) markDirty(model.getValue() !== savedText.current);
-    renderAnsiOutput(model);
-    reportEditorLoadStage(projectPath, relPath, accessToken, "interactive", "", true);
-    notifyReady();
-  }, [
-    accessToken,
-    activeRef,
-    armFonts,
-    bindModel,
-    editorLayoutObserver,
-    editorLayoutSize,
-    editorRef,
-    focusedRef,
-    markDirty,
-    notifyReady,
-    projectPath,
-    readViewState,
-    relPath,
-    renderAnsiOutput,
-    savedText,
-    scheduleEditorLayout,
-    viewStateKey,
-    wireCommands,
-  ]);
+      wireCommands(editorInstance);
+      const model = editorInstance.getModel();
+      if (model) bindModel(editorInstance, model);
+      const viewState = readViewState(viewStateKey);
+      if (viewState) {
+        try {
+          editorInstance.restoreViewState(viewState);
+        } catch {
+          // Stale Monaco state starts at the top.
+        }
+      }
+      if (activeRef.current && focusedRef.current) {
+        requestAnimationFrame(() => editorInstance.focus());
+      }
+      if (model) markDirty(model.getValue() !== savedText.current);
+      renderAnsiOutput(model);
+      reportEditorLoadStage(projectPath, relPath, accessToken, 'interactive', '', true);
+      notifyReady();
+    },
+    [
+      accessToken,
+      activeRef,
+      armFonts,
+      bindModel,
+      editorLayoutObserver,
+      editorLayoutSize,
+      editorRef,
+      focusedRef,
+      markDirty,
+      notifyReady,
+      projectPath,
+      readViewState,
+      relPath,
+      renderAnsiOutput,
+      savedText,
+      scheduleEditorLayout,
+      viewStateKey,
+      wireCommands,
+    ]
+  );
 }

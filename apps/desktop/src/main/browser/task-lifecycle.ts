@@ -5,7 +5,10 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
   close(page: Page): void;
   canClose(page: Page): boolean;
   preserve?(page: Page): void;
-  surface(sessionId: string, request: { temporaryTurnId?: number; restoreTurnId?: number; retainTurnId?: number }): void;
+  surface(
+    sessionId: string,
+    request: { temporaryTurnId?: number; restoreTurnId?: number; retainTurnId?: number }
+  ): void;
 }) {
   type Turn = { previous: Page | null; revealed?: Page; retained?: boolean };
   const turns = new Map<string, Map<number, Turn>>();
@@ -34,12 +37,13 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
   function retain(page: Page): void {
     owned.delete(page);
     host.preserve?.(page);
-    for (const [sessionId, group] of turns) for (const [turnId, turn] of group) {
-      if (turn.revealed === page && !turn.retained) {
-        turn.retained = true;
-        host.surface(sessionId, { retainTurnId: turnId });
+    for (const [sessionId, group] of turns)
+      for (const [turnId, turn] of group) {
+        if (turn.revealed === page && !turn.retained) {
+          turn.retained = true;
+          host.surface(sessionId, { retainTurnId: turnId });
+        }
       }
-    }
   }
   function inherit(opener: Page, popup: Page): void {
     const owner = owned.get(opener);
@@ -63,7 +67,10 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
     let closed = 0;
     for (const [page, owner] of pages) {
       if (owned.get(page) !== owner) continue;
-      if (!page.isDestroyed()) { host.close(page); closed++; }
+      if (!page.isDestroyed()) {
+        host.close(page);
+        closed++;
+      }
       // Keep failed closes owned so a later cleanup can retry. Destruction
       // callbacks may also have retained or reassigned the page meanwhile.
       if (owned.get(page) === owner) owned.delete(page);

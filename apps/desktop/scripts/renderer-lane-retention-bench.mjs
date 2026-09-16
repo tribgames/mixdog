@@ -2,7 +2,8 @@
 // node --import tsx scripts/renderer-lane-retention-bench.mjs
 import { createSessionLaneStore } from '../src/renderer/session-lane-store.ts';
 const store = createSessionLaneStore({
-  maxEntries: 64, maxBytes: 64 * 1024,
+  maxEntries: 64,
+  maxBytes: 64 * 1024,
   decorator: { decorate: (snapshot) => snapshot, clear() {} },
 });
 for (let index = 0; index < 50; index += 1) {

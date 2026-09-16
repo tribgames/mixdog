@@ -1,7 +1,11 @@
 /**
  * src/tui/session/turn.mjs - lead TUI turn session runtime (createRunTurn). Extracted from session-local.mjs.
  */
-import { aggregateToolCategoryEntries, classifyToolCategory, isTaskWaitToolCall } from '../../runtime/shared/tool-surface.mjs';
+import {
+  aggregateToolCategoryEntries,
+  classifyToolCategory,
+  isTaskWaitToolCall,
+} from '../../runtime/shared/tool-surface.mjs';
 import { applyUsageDelta } from './session-stats.mjs';
 import { pickVerb, pickDoneVerb, compactEventLabel, compactEventDetail } from './labels.mjs';
 import { toolErrorDisplay } from './tool-result-text.mjs';
@@ -13,7 +17,10 @@ import { toolCallId, toolResultCallId, toolCallName, toolCallArgs } from './tool
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { TUI_FRAME_MS, yieldToRenderer } from './render-timing.mjs';
 import { aggregateBucketForCategory } from './tool-result-status.mjs';
-import { isTranscriptHiddenControlToolName, isTranscriptSkillToolName } from '../../runtime/shared/tool-execution-contract.mjs';
+import {
+  isTranscriptHiddenControlToolName,
+  isTranscriptSkillToolName,
+} from '../../runtime/shared/tool-execution-contract.mjs';
 import { createDeferredCardRegistry } from './turn-deferred-cards.mjs';
 import { createAggregateCardTracker } from './turn-aggregate-cards.mjs';
 
@@ -28,7 +35,9 @@ export function transcriptToolCallDisplayMode(name, args, builtinSkillNames = nu
   if (isTaskWaitToolCall(name, args)) return 'task-wait';
   if (isTranscriptHiddenControlToolName(name)) return 'hidden-control';
   if (builtinSkillNames?.size && isTranscriptSkillToolName(name)) {
-    const skill = String(args?.name || args?.skill || args?.skill_name || '').trim().toLowerCase();
+    const skill = String(args?.name || args?.skill || args?.skill_name || '')
+      .trim()
+      .toLowerCase();
     if (skill && builtinSkillNames.has(skill)) return 'hidden-control';
   }
   return 'visible';
@@ -41,10 +50,16 @@ async function builtinSkillNamesFor(runtime, calls) {
   try {
     const status = await Promise.resolve(runtime?.skillsStatus?.());
     const skills = Array.isArray(status?.skills) ? status.skills : [];
-    return new Set(skills
-      .filter((skill) => skill?.source === 'builtin')
-      .map((skill) => String(skill?.name || '').trim().toLowerCase())
-      .filter(Boolean));
+    return new Set(
+      skills
+        .filter((skill) => skill?.source === 'builtin')
+        .map((skill) =>
+          String(skill?.name || '')
+            .trim()
+            .toLowerCase()
+        )
+        .filter(Boolean)
+    );
   } catch {
     return null;
   }
@@ -55,45 +70,80 @@ function isUsageLimitError(error) {
   const status = Number(error?.httpStatus || error?.status || error?.response?.status || 0);
   if (error?.providerQuota === true || error?.quotaExceeded === true || status === 429) return true;
   const text = String(error?.message || error);
-  return /\brate[_ -]?limit\b|\bquota\b|too many requests|resource exhausted|insufficient_quota|quota_exceeded/i.test(text);
+  return /\brate[_ -]?limit\b|\bquota\b|too many requests|resource exhausted|insufficient_quota|quota_exceeded/i.test(
+    text
+  );
 }
 
 export function createRunTurn(bag) {
   const {
-    runtime, nextId, tuiDebug, flags, pending, itemIndexById, getState, set, flushEmit, flushEmitImmediate, pushItem, appendItems, patchItem, replaceItems, updateStreamingTail: updateStreamingTailFromStore, settleStreamingTail: settleStreamingTailFromStore, clearStreamingTail: clearStreamingTailFromStore, pushNotice, pushUserOrSyntheticItem, markToolCallActive, markToolCallDone, clearActiveToolSummary, agentStatusState, routeState, transcriptRouteMetadata, syncContextStats, denyAllToolApprovals, requestToolApproval, patchToolCardResult, flushToolResults, flushDeferredExecutionPendingResumeKick, drainPendingSteering,
+    runtime,
+    nextId,
+    tuiDebug,
+    flags,
+    pending,
+    itemIndexById,
+    getState,
+    set,
+    flushEmit,
+    flushEmitImmediate,
+    pushItem,
+    appendItems,
+    patchItem,
+    replaceItems,
+    updateStreamingTail: updateStreamingTailFromStore,
+    settleStreamingTail: settleStreamingTailFromStore,
+    clearStreamingTail: clearStreamingTailFromStore,
+    pushNotice,
+    pushUserOrSyntheticItem,
+    markToolCallActive,
+    markToolCallDone,
+    clearActiveToolSummary,
+    agentStatusState,
+    routeState,
+    transcriptRouteMetadata,
+    syncContextStats,
+    denyAllToolApprovals,
+    requestToolApproval,
+    patchToolCardResult,
+    flushToolResults,
+    flushDeferredExecutionPendingResumeKick,
+    drainPendingSteering,
   } = bag;
   // Small fallbacks keep isolated createRunTurn harnesses source-compatible;
   // the real session runtime supplies atomic implementations that also maintain revision.
-  const updateStreamingTail = updateStreamingTailFromStore || ((id, patch = {}, extra = {}) => {
-    set({
-      streamingTail: { ...(getState().streamingTail || {}), ...patch, kind: 'assistant', id, streaming: true },
-      ...extra,
+  const updateStreamingTail =
+    updateStreamingTailFromStore ||
+    ((id, patch = {}, extra = {}) => {
+      set({
+        streamingTail: { ...(getState().streamingTail || {}), ...patch, kind: 'assistant', id, streaming: true },
+        ...extra,
+      });
+      return true;
     });
-    return true;
-  });
-  const settleStreamingTail = settleStreamingTailFromStore || ((id, patch = {}) => {
-    const tail = getState().streamingTail;
-    if (!tail || tail.id !== id) return false;
-    pushItem({ ...tail, ...patch, kind: 'assistant', id, streaming: false });
-    set({ streamingTail: null });
-    return true;
-  });
-  const clearStreamingTail = clearStreamingTailFromStore || ((id = null) => {
-    if (id == null || getState().streamingTail?.id === id) set({ streamingTail: null });
-    return true;
-  });
+  const settleStreamingTail =
+    settleStreamingTailFromStore ||
+    ((id, patch = {}) => {
+      const tail = getState().streamingTail;
+      if (!tail || tail.id !== id) return false;
+      pushItem({ ...tail, ...patch, kind: 'assistant', id, streaming: false });
+      set({ streamingTail: null });
+      return true;
+    });
+  const clearStreamingTail =
+    clearStreamingTailFromStore ||
+    ((id = null) => {
+      if (id == null || getState().streamingTail?.id === id) set({ streamingTail: null });
+      return true;
+    });
 
-    async function runTurn(userText, options = {}) {
+  async function runTurn(userText, options = {}) {
     const turnIndex = getState().stats.turns || 0;
     const startedAt = Date.now();
     const completionVerb = pickDoneVerb(turnIndex);
     const baseTranscriptMeta = {
-      ...(flags.pendingTranscriptMeta
-        || transcriptRouteMetadata?.(startedAt)
-        || { at: startedAt }),
-      ...(options.transcriptMeta && typeof options.transcriptMeta === 'object'
-        ? options.transcriptMeta
-        : {}),
+      ...(flags.pendingTranscriptMeta || transcriptRouteMetadata?.(startedAt) || { at: startedAt }),
+      ...(options.transcriptMeta && typeof options.transcriptMeta === 'object' ? options.transcriptMeta : {}),
     };
     const turnTranscriptMeta = { ...baseTranscriptMeta, completionVerb };
     flags.pendingTranscriptMeta = null;
@@ -121,8 +171,22 @@ export function createRunTurn(bag) {
         ? options.discardExecutionPendingResumeKeys.slice()
         : [],
     };
-    set({ busy: true, lastTurn: null, spinner: { active: true, verb: pickVerb(turnIndex), startedAt, responseLength: 0, inputTokens: 0, outputTokens: 0, mode: 'requesting' } });
-    try { await bag.onGoalTurnStarted?.(); } catch {}
+    set({
+      busy: true,
+      lastTurn: null,
+      spinner: {
+        active: true,
+        verb: pickVerb(turnIndex),
+        startedAt,
+        responseLength: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        mode: 'requesting',
+      },
+    });
+    try {
+      await bag.onGoalTurnStarted?.();
+    } catch {}
 
     let assistantText = '';
     let currentAssistantId = null;
@@ -184,12 +248,22 @@ export function createRunTurn(bag) {
     let liveTailTimer = null;
     let lastLiveTailPatched = '';
     const clearLiveTailTimer = () => {
-      if (liveTailTimer) { clearInterval(liveTailTimer); liveTailTimer = null; }
+      if (liveTailTimer) {
+        clearInterval(liveTailTimer);
+        liveTailTimer = null;
+      }
     };
     liveTailTimer = setInterval(() => {
-      if (!isCurrentTurn()) { clearLiveTailTimer(); return; }
+      if (!isCurrentTurn()) {
+        clearLiveTailTimer();
+        return;
+      }
       let liveness = null;
-      try { liveness = runtime.getTurnLiveness?.(); } catch { return; }
+      try {
+        liveness = runtime.getTurnLiveness?.();
+      } catch {
+        return;
+      }
       if (!liveness || liveness.stage !== 'tool_running') return;
       const tail = typeof liveness.toolOutputTail === 'string' ? liveness.toolOutputTail : '';
       if (!tail || tail === lastLiveTailPatched) return;
@@ -212,14 +286,27 @@ export function createRunTurn(bag) {
     // Cards enter the transcript in call order once their headers are ready
     // (see turn-deferred-cards.mjs).
     const deferredCards = createDeferredCardRegistry({
-      isCurrentTurn, flags, pushItem, appendItems, getState, set, itemIndexById,
+      isCurrentTurn,
+      flags,
+      pushItem,
+      appendItems,
+      getState,
+      set,
+      itemIndexById,
     });
     const { appendItemsBatch } = deferredCards;
     flags.flushDeferredBeforeImmediatePush = () => deferredCards.flushAll();
     // Consecutive same-bucket calls merge into one aggregate card (see
     // turn-aggregate-cards.mjs).
     const aggregates = createAggregateCardTracker({
-      toolCards, cardByCallId, nextId, getState, set, patchItem, itemIndexById, markToolCallDone,
+      toolCards,
+      cardByCallId,
+      nextId,
+      getState,
+      set,
+      patchItem,
+      itemIndexById,
+      markToolCallDone,
       registerDeferredAggregate: deferredCards.registerAggregate,
     });
     const { finalizeToolHeaders, clearAggregateContinuation } = aggregates;
@@ -228,7 +315,9 @@ export function createRunTurn(bag) {
       if (flags.activePromptRestore) {
         if (!promptCommittedCallbackCalled && typeof flags.activePromptRestore.onCommitted === 'function') {
           promptCommittedCallbackCalled = true;
-          try { flags.activePromptRestore.onCommitted(); } catch {}
+          try {
+            flags.activePromptRestore.onCommitted();
+          } catch {}
         }
         flags.activePromptRestore.restorable = false;
         flags.activePromptRestore.committed = true;
@@ -241,10 +330,10 @@ export function createRunTurn(bag) {
     const ensureAssistant = (initialText = '') => {
       if (!currentAssistantId) {
         currentAssistantId = nextId();
-        const assistantAt = Number.isFinite(Number(turnTranscriptMeta.assistantAt))
-          && Number(turnTranscriptMeta.assistantAt) > 0
-          ? Number(turnTranscriptMeta.assistantAt)
-          : Date.now();
+        const assistantAt =
+          Number.isFinite(Number(turnTranscriptMeta.assistantAt)) && Number(turnTranscriptMeta.assistantAt) > 0
+            ? Number(turnTranscriptMeta.assistantAt)
+            : Date.now();
         turnTranscriptMeta.assistantAt = assistantAt;
         // Do NOT reset currentAssistantText here. The first onTextDelta has
         // already accumulated the opening chunk before this batched flush runs;
@@ -307,16 +396,16 @@ export function createRunTurn(bag) {
     // 16ms timer left every other terminal frame idle, so completed script lines
     // accumulated and then climbed into view in coarse two-step chunks.
     let _batchTimer = null;
-    let _pendingTextFlush = false;   // true when a text/spinner update is queued
-    let _pendingThinkFlush = false;  // true when a thinking update is queued
+    let _pendingTextFlush = false; // true when a text/spinner update is queued
+    let _pendingThinkFlush = false; // true when a thinking update is queued
     let _pendingThinkingLastEndedAt = 0;
     let compactingActive = false;
     // Incremental streaming-flush getState(): avoids rescanning the full accumulated
     // assistant text (lastIndexOf) and re-finding the row index on every flush.
-    let _streamScanLen = 0;        // chars of currentAssistantText already scanned for '\n'
-    let _lastNewlineIdx = -1;      // offset of the last completed-line '\n' found so far
-    let _emittedNewlineIdx = -2;   // newline offset backing _emittedVisibleText (-2 forces first compute)
-    let _emittedVisibleText = '';  // cached visible slice for the current newline offset
+    let _streamScanLen = 0; // chars of currentAssistantText already scanned for '\n'
+    let _lastNewlineIdx = -1; // offset of the last completed-line '\n' found so far
+    let _emittedNewlineIdx = -2; // newline offset backing _emittedVisibleText (-2 forces first compute)
+    let _emittedVisibleText = ''; // cached visible slice for the current newline offset
     // Session runtime-local streaming scalars. Neither responseLength nor thinkingText is
     // rendered per-token by any consumer: App reads getState().thinking only as a
     // boolean (App.jsx `!!(getState().thinking || liveSpinner?.thinking)`) and the
@@ -344,7 +433,7 @@ export function createRunTurn(bag) {
         _pendingTextFlush = false;
         // Show only COMPLETED lines while streaming. The in-progress trailing
         // line stays hidden until its '\n' arrives, so the visible text never
-  // grows a glyph at a time (no "Wh"→pause→"What happened…" partial reveal, no
+        // grows a glyph at a time (no "Wh"→pause→"What happened…" partial reveal, no
         // CJK-width reflow jitter). The final non-streaming patch
         // (streaming:false) always carries the full text, so the tail line that
         // never got a newline still lands once at finalize.
@@ -355,7 +444,10 @@ export function createRunTurn(bag) {
         // byte-identical to the last flush, so the slice below is skipped and
         // reused. Reveal semantics are unchanged: still only completed lines.
         const textLen = currentAssistantText.length;
-        if (textLen < _streamScanLen) { _streamScanLen = 0; _lastNewlineIdx = -1; }
+        if (textLen < _streamScanLen) {
+          _streamScanLen = 0;
+          _lastNewlineIdx = -1;
+        }
         for (let i = _streamScanLen; i < textLen; i++) {
           if (currentAssistantText.charCodeAt(i) === 10) _lastNewlineIdx = i;
         }
@@ -364,9 +456,7 @@ export function createRunTurn(bag) {
         if (_lastNewlineIdx === _emittedNewlineIdx) {
           streamingVisibleText = _emittedVisibleText;
         } else {
-          streamingVisibleText = _lastNewlineIdx >= 0
-            ? currentAssistantText.slice(0, _lastNewlineIdx + 1)
-            : '';
+          streamingVisibleText = _lastNewlineIdx >= 0 ? currentAssistantText.slice(0, _lastNewlineIdx + 1) : '';
           _emittedNewlineIdx = _lastNewlineIdx;
           _emittedVisibleText = streamingVisibleText;
         }
@@ -405,7 +495,13 @@ export function createRunTurn(bag) {
         const visibleLineChanged = patch.streamingTail !== undefined;
         const thinkingTransition = _publishedThinkingActive === true; // was thinking, now responding
         if (getState().spinner && (visibleLineChanged || thinkingTransition || _pendingThinkingLastEndedAt)) {
-          patch.spinner = { ...getState().spinner, responseLength: responseLengthVal, thinking: false, thinkingLastEndedAt: _pendingThinkingLastEndedAt || getState().spinner.thinkingLastEndedAt, mode: compactingActive ? 'compacting' : 'responding' };
+          patch.spinner = {
+            ...getState().spinner,
+            responseLength: responseLengthVal,
+            thinking: false,
+            thinkingLastEndedAt: _pendingThinkingLastEndedAt || getState().spinner.thinkingLastEndedAt,
+            mode: compactingActive ? 'compacting' : 'responding',
+          };
           _publishedThinkingActive = false;
         }
         if (patch.streamingTail) {
@@ -434,15 +530,34 @@ export function createRunTurn(bag) {
           // no-op: boolean unchanged
         } else {
           const responseLengthVal = assistantText.length + thinkingText.length;
-          const thinkingElapsedMs = accumulatedThinkingMs + (thinkingSegmentStartedAt ? Math.max(0, Date.now() - thinkingSegmentStartedAt) : 0);
+          const thinkingElapsedMs =
+            accumulatedThinkingMs + (thinkingSegmentStartedAt ? Math.max(0, Date.now() - thinkingSegmentStartedAt) : 0);
           // getState().thinking stays a truthy sentinel while active; consumers read it
           // as a boolean. Keep the value stable (thinkingText) so a late consumer
           // still sees real text, but only push on transition.
           const patch = { thinking: compactingActive ? null : thinkingText };
           if (getState().spinner) {
             patch.spinner = compactingActive
-              ? { ...getState().spinner, responseLength: responseLengthVal, thinking: false, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: getState().spinner.thinkingLastEndedAt || 0, mode: 'compacting' }
-              : { ...getState().spinner, responseLength: responseLengthVal, thinking: true, thinkingStartedAt, thinkingSegmentStartedAt, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: 0, mode: 'thinking' };
+              ? {
+                  ...getState().spinner,
+                  responseLength: responseLengthVal,
+                  thinking: false,
+                  thinkingAccumulatedMs: accumulatedThinkingMs,
+                  thinkingElapsedMs,
+                  thinkingLastEndedAt: getState().spinner.thinkingLastEndedAt || 0,
+                  mode: 'compacting',
+                }
+              : {
+                  ...getState().spinner,
+                  responseLength: responseLengthVal,
+                  thinking: true,
+                  thinkingStartedAt,
+                  thinkingSegmentStartedAt,
+                  thinkingAccumulatedMs: accumulatedThinkingMs,
+                  thinkingElapsedMs,
+                  thinkingLastEndedAt: 0,
+                  mode: 'thinking',
+                };
           }
           set(patch);
           _publishedThinkingActive = nextThinkingActive;
@@ -513,26 +628,20 @@ export function createRunTurn(bag) {
             const steeringIds = Array.isArray(steeringMeta?.ids)
               ? steeringMeta.ids.filter((id) => id !== undefined && id !== null)
               : [];
-            pushUserOrSyntheticItem(
-              value,
-              steeringIds[0],
-              'injected',
-              {
-                // Queue mode + execution provenance: a task notification is
-                // rendered as a tool card, never as an injected user bubble.
-                ...(steeringMeta?.mode === 'task-notification' ? { mode: 'task-notification' } : {}),
-                ...(steeringMeta?.execution && typeof steeringMeta.execution === 'object'
-                  ? { execution: steeringMeta.execution }
-                  : {}),
-                ...(Array.isArray(steeringMeta?.images) && steeringMeta.images.length
-                  ? { images: steeringMeta.images }
-                  : {}),
-                ...(typeof steeringMeta?.transcriptMeta?.sender === 'string'
-                  && steeringMeta.transcriptMeta.sender
-                  ? { sender: steeringMeta.transcriptMeta.sender }
-                  : {}),
-              },
-            );
+            pushUserOrSyntheticItem(value, steeringIds[0], 'injected', {
+              // Queue mode + execution provenance: a task notification is
+              // rendered as a tool card, never as an injected user bubble.
+              ...(steeringMeta?.mode === 'task-notification' ? { mode: 'task-notification' } : {}),
+              ...(steeringMeta?.execution && typeof steeringMeta.execution === 'object'
+                ? { execution: steeringMeta.execution }
+                : {}),
+              ...(Array.isArray(steeringMeta?.images) && steeringMeta.images.length
+                ? { images: steeringMeta.images }
+                : {}),
+              ...(typeof steeringMeta?.transcriptMeta?.sender === 'string' && steeringMeta.transcriptMeta.sender
+                ? { sender: steeringMeta.transcriptMeta.sender }
+                : {}),
+            });
           }
         },
         onToolCall: async (_iter, calls) => {
@@ -568,7 +677,18 @@ export function createRunTurn(bag) {
           }
           if (thinkingText && getState().thinking) {
             const thinkingLastEndedAt = closeThinkingSegment();
-            set({ thinking: null, spinner: getState().spinner ? { ...getState().spinner, thinking: false, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingLastEndedAt, mode: activeTaskWaitCallIds.size > 0 ? 'task-wait' : 'tool-use' } : getState().spinner });
+            set({
+              thinking: null,
+              spinner: getState().spinner
+                ? {
+                    ...getState().spinner,
+                    thinking: false,
+                    thinkingAccumulatedMs: accumulatedThinkingMs,
+                    thinkingLastEndedAt,
+                    mode: activeTaskWaitCallIds.size > 0 ? 'task-wait' : 'tool-use',
+                  }
+                : getState().spinner,
+            });
             _publishedThinkingActive = false;
           } else if (getState().spinner) {
             refreshTaskWaitSpinner();
@@ -663,7 +783,24 @@ export function createRunTurn(bag) {
                 count: Number(prevCategory?.count || 0) + Number(categoryEntry.count || 1),
               });
             }
-            aggregateCard.calls.set(callKey, { callId: callKey, name, args, category, summary: null, summarySeq: null, isError: false, isCallError: false, isExitError: false, exitCode: null, resultText: null, rawResultText: null, resolved: false, completedEarly: false, startedAt: Date.now(), completedAt: null });
+            aggregateCard.calls.set(callKey, {
+              callId: callKey,
+              name,
+              args,
+              category,
+              summary: null,
+              summarySeq: null,
+              isError: false,
+              isCallError: false,
+              isExitError: false,
+              exitCode: null,
+              resultText: null,
+              rawResultText: null,
+              resolved: false,
+              completedEarly: false,
+              startedAt: Date.now(),
+              completedAt: null,
+            });
             touchedAggregates.add(aggregateCard);
             const card = { itemId: aggregateCard.itemId, callId: callKey, done: false, aggregate: aggregateCard };
             if (callId) {
@@ -696,7 +833,9 @@ export function createRunTurn(bag) {
         },
         onToolResult: (message) => {
           if (!markTurnProgress('tool-result')) return;
-          try { options.onToolResult?.(message); } catch {}
+          try {
+            options.onToolResult?.(message);
+          } catch {}
           const callId = toolResultCallId(message);
           if (callId && !cardByCallId.has(callId) && !resultsDone.has(callId)) {
             earlyResultBuffer.set(callId, message);
@@ -810,11 +949,14 @@ export function createRunTurn(bag) {
             return;
           }
           if (value === 'requesting' || value === 'streaming') compactingActive = false;
-          const mode = value === 'requesting'
-            ? 'requesting'
-            : value === 'streaming'
-              ? (getState().spinner.thinking ? 'thinking' : 'responding')
-              : null;
+          const mode =
+            value === 'requesting'
+              ? 'requesting'
+              : value === 'streaming'
+                ? getState().spinner.thinking
+                  ? 'thinking'
+                  : 'responding'
+                : null;
           if (!mode || getState().spinner.mode === mode) return;
           set({ spinner: { ...getState().spinner, mode } });
         },
@@ -828,7 +970,10 @@ export function createRunTurn(bag) {
           // spinner.thinking:true from flushStreamBatch and resurrect the
           // indicator after we cleared it here.
           _pendingThinkFlush = false;
-          if (getState().thinking) { set({ thinking: null }); _publishedThinkingActive = false; } // collapse thinking panel immediately, no batch delay
+          if (getState().thinking) {
+            set({ thinking: null });
+            _publishedThinkingActive = false;
+          } // collapse thinking panel immediately, no batch delay
           assistantText += textChunk;
           currentAssistantText += textChunk;
           // Accumulate text and schedule a batched flush (≤1 render per
@@ -845,26 +990,31 @@ export function createRunTurn(bag) {
           if (reasoning) {
             closeThinkingSegment();
             _pendingThinkFlush = false;
-            if (getState().thinking) { set({ thinking: null }); _publishedThinkingActive = false; }
+            if (getState().thinking) {
+              set({ thinking: null });
+              _publishedThinkingActive = false;
+            }
           }
           if (!count) return reasoning === true;
           flushStreamBatch();
           assistantText = assistantText.slice(0, Math.max(0, assistantText.length - count));
-          currentAssistantText = currentAssistantText.slice(
-            0,
-            Math.max(0, currentAssistantText.length - count),
-          );
+          currentAssistantText = currentAssistantText.slice(0, Math.max(0, currentAssistantText.length - count));
           _streamScanLen = 0;
           _lastNewlineIdx = -1;
           _emittedNewlineIdx = -2;
           _emittedVisibleText = '';
           if (currentAssistantId) {
             if (currentAssistantText) {
-              updateStreamingTail(currentAssistantId, {
-                text: currentAssistantText,
-                at: getState().streamingTail?.at || Date.now(),
-                ...turnRouteMeta,
-              }, {}, { resetText: true });
+              updateStreamingTail(
+                currentAssistantId,
+                {
+                  text: currentAssistantText,
+                  at: getState().streamingTail?.at || Date.now(),
+                  ...turnRouteMeta,
+                },
+                {},
+                { resetText: true }
+              );
             } else {
               clearStreamingTail(currentAssistantId);
               currentAssistantId = null;
@@ -892,7 +1042,10 @@ export function createRunTurn(bag) {
           markPromptCommitted();
           closeThinkingSegment();
           _pendingThinkFlush = false; // see onTextDelta: prevent a stale think flush resurrecting the indicator
-          if (getState().thinking) { set({ thinking: null }); _publishedThinkingActive = false; }
+          if (getState().thinking) {
+            set({ thinking: null });
+            _publishedThinkingActive = false;
+          }
           assistantText += full;
           currentAssistantText += full;
           _pendingTextFlush = true;
@@ -922,7 +1075,10 @@ export function createRunTurn(bag) {
           const currentTurnInput = Math.max(0, getState().stats.inputTokens - inputBaseline);
           const currentTurnOutput = Math.max(0, getState().stats.outputTokens - outputBaseline);
           if (getState().spinner) {
-            set({ stats: { ...getState().stats }, spinner: { ...getState().spinner, inputTokens: currentTurnInput, outputTokens: currentTurnOutput } });
+            set({
+              stats: { ...getState().stats },
+              spinner: { ...getState().spinner, inputTokens: currentTurnInput, outputTokens: currentTurnOutput },
+            });
           } else {
             set({ stats: { ...getState().stats } });
           }
@@ -934,11 +1090,9 @@ export function createRunTurn(bag) {
         askResult = result;
         markPromptCommitted();
         if (result?.terminationReason === 'refusal') {
-          pushNotice(
-            'The model refused to respond (safety refusal) — retry or rephrase your prompt.',
-            'warn',
-            { transcript: true },
-          );
+          pushNotice('The model refused to respond (safety refusal) — retry or rephrase your prompt.', 'warn', {
+            transcript: true,
+          });
         }
 
         flushToolResults(session?.messages || [], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
@@ -1052,8 +1206,7 @@ export function createRunTurn(bag) {
           }
         }
         const producedTranscriptItem =
-          transcriptCompactedThisTurn
-          || getState().items.length + closingItems.length > itemsAtTurnStart;
+          transcriptCompactedThisTurn || getState().items.length + closingItems.length > itemsAtTurnStart;
         const reclaimed = cancelled && flags.activePromptRestore?.reclaimed === true;
         flags.activePromptRestore = null;
         const elapsedMs = Date.now() - startedAt;
@@ -1066,17 +1219,22 @@ export function createRunTurn(bag) {
         // a no-usage turn still estimates tokens from the final content.
         const finalAssistantLen = Math.max(assistantText.length, currentAssistantText.length);
         const finalResponseLength = finalAssistantLen + thinkingText.length;
-        const finalOutputTokens = Math.max(0, Number(getState().spinner?.outputTokens || 0), Math.round(finalResponseLength / 4));
-        const turnStatus = cancelled ? 'cancelled' : (failed ? 'failed' : 'done');
+        const finalOutputTokens = Math.max(
+          0,
+          Number(getState().spinner?.outputTokens || 0),
+          Math.round(finalResponseLength / 4)
+        );
+        const turnStatus = cancelled ? 'cancelled' : failed ? 'failed' : 'done';
         const resultContent = askResult?.content != null ? String(askResult.content).trim() : '';
         const assistantOutput = (currentAssistantText || assistantText || '').trim();
         // Suppress only true pending-resume no-ops: no transcript items added and no model output; cancelled/error turns and any visible turn stay marked.
-        const isNoOpTurn = turnFinishedNormally
-          && !cancelled
-          && toolCards.length === 0
-          && !resultContent
-          && !assistantOutput
-          && !producedTranscriptItem;
+        const isNoOpTurn =
+          turnFinishedNormally &&
+          !cancelled &&
+          toolCards.length === 0 &&
+          !resultContent &&
+          !assistantOutput &&
+          !producedTranscriptItem;
         if (!isNoOpTurn) {
           set({ stats: { ...getState().stats, turns: (getState().stats.turns || 0) + 1 } });
         }
@@ -1120,7 +1278,7 @@ export function createRunTurn(bag) {
     // terminal transcript/card mutations as one final snapshot.
     flushEmit?.();
     _publishedThinkingActive = false; // turn teardown cleared getState().thinking
-    const finalStatus = cancelled ? 'cancelled' : (failed ? 'failed' : 'done');
+    const finalStatus = cancelled ? 'cancelled' : failed ? 'failed' : 'done';
     try {
       await bag.onGoalTurnSettled?.({
         status: finalStatus,
@@ -1144,7 +1302,9 @@ export function createRunTurn(bag) {
         error: turnFailureDetail || null,
       });
     } catch {}
-    tuiDebug(`runTurn end turn=${turnIndex} status=${finalStatus} elapsedMs=${Date.now() - startedAt} pending=${pending.length}`);
+    tuiDebug(
+      `runTurn end turn=${turnIndex} status=${finalStatus} elapsedMs=${Date.now() - startedAt} pending=${pending.length}`
+    );
     return finalStatus;
   }
 

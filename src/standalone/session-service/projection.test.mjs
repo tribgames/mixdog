@@ -39,7 +39,11 @@ test('a failed runtime state read is logged without throwing again from the erro
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture();
   const entry = {
-    runtime: { getState: () => { throw new Error('state unavailable'); } },
+    runtime: {
+      getState: () => {
+        throw new Error('state unavailable');
+      },
+    },
     addressedSessionId: 'sess_unavailable',
     indexedSessionId: 'sess_unavailable',
     subscribers: new Set(['viewer']),

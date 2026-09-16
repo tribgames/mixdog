@@ -14,7 +14,9 @@ function owner(overrides = {}) {
   return {
     isDisposed: () => disposed,
     controlSessionId: () => controlSessionId,
-    setControlSessionId: (id) => { controlSessionId = id; },
+    setControlSessionId: (id) => {
+      controlSessionId = id;
+    },
     visibleSessionIds: () => visible,
     async readSession(sessionId) {
       reads.push(sessionId);
@@ -26,9 +28,15 @@ function owner(overrides = {}) {
       return { sessionId, items: [], queued: [] };
     },
     snapshotWithShellJobs: (_id, snapshot) => snapshot,
-    trackShellJobsEngineState: (snapshot) => { tracked.push(snapshot); },
-    onShellPublished: () => { shells += 1; },
-    dispose() { disposed = true; },
+    trackShellJobsEngineState: (snapshot) => {
+      tracked.push(snapshot);
+    },
+    onShellPublished: () => {
+      shells += 1;
+    },
+    dispose() {
+      disposed = true;
+    },
     visible,
     reads,
     tracked,
@@ -56,7 +64,9 @@ test('subscribe does not deliver the current snapshot until a later publish', ()
 test('a thrown session-state listener cannot prevent the next listener from receiving the frame', () => {
   const publication = new SessionHostPublication(owner());
   const seen = [];
-  publication.subscribeSessionStates(() => { throw new Error('listener failed'); });
+  publication.subscribeSessionStates(() => {
+    throw new Error('listener failed');
+  });
   publication.subscribeSessionStates((update) => seen.push(update.sessionId));
   publication.publishSession('lead', { sessionId: 'lead', items: [], queued: [] });
   assert.deepEqual(seen, ['lead']);
@@ -68,17 +78,24 @@ test('older revisions and same-revision patches do not roll the projection back'
   const updates = [];
   publication.subscribeSessionStates((update) => updates.push(update));
   const first = publication.applySessionResult('lead', {
-    sessionId: 'lead', revision: 2, full: { sessionId: 'lead', model: 'new', items: [], queued: [] },
+    sessionId: 'lead',
+    revision: 2,
+    full: { sessionId: 'lead', model: 'new', items: [], queued: [] },
   });
   assert.equal(first.model, 'new');
   assert.equal(updates.length, 1);
   const stale = publication.applySessionResult('lead', {
-    sessionId: 'lead', revision: 1, full: { sessionId: 'lead', model: 'old', items: [], queued: [] },
+    sessionId: 'lead',
+    revision: 1,
+    full: { sessionId: 'lead', model: 'old', items: [], queued: [] },
   });
   assert.equal(stale.model, 'new');
   assert.equal(updates.length, 1);
   const repeat = publication.applySessionResult('lead', {
-    sessionId: 'lead', revision: 2, baseRevision: 1, patch: { set: { fast: true } },
+    sessionId: 'lead',
+    revision: 2,
+    baseRevision: 1,
+    patch: { set: { fast: true } },
   });
   assert.equal(repeat.model, 'new');
   assert.equal(repeat.fast, undefined);
@@ -95,7 +112,10 @@ test('a crossed patch recovers by re-reading and does not publish an empty live 
   try {
     const held = lane.holdRead();
     const returned = publication.applySessionResult('lead', {
-      sessionId: 'lead', revision: 3, baseRevision: 1, patch: { set: { fast: true } },
+      sessionId: 'lead',
+      revision: 3,
+      baseRevision: 1,
+      patch: { set: { fast: true } },
     });
     assert.deepEqual(returned.items, []);
     assert.equal(updates.length, 0);
@@ -128,7 +148,9 @@ test('session-gone names idle reclaim as unloaded and other teardowns as gone', 
   const ends = [];
   publication.subscribeSessionStates((update) => ends.push(update.laneEnd));
   publication.handleSessionFrame({
-    type: 'session-gone', sessionId: 'lead', reason: 'idle and unwatched',
+    type: 'session-gone',
+    sessionId: 'lead',
+    reason: 'idle and unwatched',
   });
   publication.handleSessionFrame({ type: 'session-gone', sessionId: 'lead', reason: 'deleted' });
   assert.deepEqual(ends, ['unloaded', 'gone']);
@@ -141,7 +163,10 @@ test('a disposed host ignores frames', () => {
   publication.subscribeSessionStates((update) => updates.push(update));
   lane.dispose();
   publication.handleSessionFrame({
-    type: 'session-state', sessionId: 'lead', revision: 1, full: { sessionId: 'lead' },
+    type: 'session-state',
+    sessionId: 'lead',
+    revision: 1,
+    full: { sessionId: 'lead' },
   });
   assert.equal(updates.length, 0);
 });
@@ -167,9 +192,15 @@ test('remote session overlay republishes the shell and visible panes once', () =
   const states = [];
   publication.subscribe((snapshot) => shells.push(snapshot.remoteSessionId));
   publication.subscribeSessionStates((update) => states.push(update.snapshot.remoteSessionId));
-  publication.applySessionResult('lead', {
-    sessionId: 'lead', revision: 1, full: { sessionId: 'lead', items: [], queued: [] },
-  }, false);
+  publication.applySessionResult(
+    'lead',
+    {
+      sessionId: 'lead',
+      revision: 1,
+      full: { sessionId: 'lead', items: [], queued: [] },
+    },
+    false
+  );
   publication.publishShell({ sessionId: '', items: [], queued: [] });
   publication.applyRemoteSessionState({ enabled: true, sessionId: 'phone_1' });
   assert.equal(lane.shells(), 2);
@@ -184,7 +215,11 @@ test('resyncRequired and empty session ids do not apply a live frame', () => {
   const publication = new SessionHostPublication(lane);
   publication.handleSessionFrame({ type: 'session-state', sessionId: '', revision: 1, full: {} });
   publication.handleSessionFrame({
-    type: 'session-state', sessionId: 'lead', revision: 1, resyncRequired: true, full: { items: [] },
+    type: 'session-state',
+    sessionId: 'lead',
+    revision: 1,
+    resyncRequired: true,
+    full: { items: [] },
   });
   assert.deepEqual(lane.reads, ['lead']);
   assert.equal(publication.projections.size, 0);

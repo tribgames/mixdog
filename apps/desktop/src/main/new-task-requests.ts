@@ -5,7 +5,11 @@ import { writeSecretFile } from './secret-file';
 import { isSessionId } from './desktop-state';
 
 type Phase = 'reserved' | 'configured' | 'accepted';
-interface Receipt { signature: string; sessionId: string; phase: Phase }
+interface Receipt {
+  signature: string;
+  sessionId: string;
+  phase: Phase;
+}
 export interface NewTaskRequest {
   readonly sessionId: string;
   readonly phase: Phase;
@@ -22,13 +26,21 @@ export class NewTaskRequests {
   run<T>(id: string, input: unknown, execute: (request: NewTaskRequest) => Promise<T>): Promise<T> {
     const hash = (value: string) => createHash('sha256').update(value).digest('hex');
     const key = hash(id);
-    const signature = hash(JSON.stringify(input, (_key, value) =>
-      value && typeof value === 'object' && !Array.isArray(value)
-        ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, value[key]]))
-        : value));
+    const signature = hash(
+      JSON.stringify(input, (_key, value) =>
+        value && typeof value === 'object' && !Array.isArray(value)
+          ? Object.fromEntries(
+              Object.keys(value)
+                .sort()
+                .map((key) => [key, value[key]])
+            )
+          : value
+      )
+    );
     const existing = this.active.get(key);
     if (existing) {
-      if (existing.signature !== signature) return Promise.reject(new Error('Submission id was reused for different content.'));
+      if (existing.signature !== signature)
+        return Promise.reject(new Error('Submission id was reused for different content.'));
       return existing.promise as Promise<T>;
     }
     if (this.active.size >= 128) return Promise.reject(new Error('Too many new task requests are in progress.'));
@@ -40,10 +52,11 @@ export class NewTaskRequests {
         try {
           if ((await file.stat()).size > 4096) throw new Error('New task receipt is too large.');
           receipt = JSON.parse(await file.readFile('utf8')) as Receipt;
-        } finally { await file.close(); }
+        } finally {
+          await file.close();
+        }
         if (receipt.signature !== signature) throw new Error('Submission id was reused for different content.');
-        if (!isSessionId(receipt.sessionId)
-          || !['reserved', 'configured', 'accepted'].includes(receipt.phase)) {
+        if (!isSessionId(receipt.sessionId) || !['reserved', 'configured', 'accepted'].includes(receipt.phase)) {
           throw new Error('New task receipt is invalid.');
         }
       } catch (error) {
@@ -52,8 +65,12 @@ export class NewTaskRequests {
         await writeSecretFile(path, JSON.stringify(receipt));
       }
       return execute({
-        get sessionId() { return receipt.sessionId; },
-        get phase() { return receipt.phase; },
+        get sessionId() {
+          return receipt.sessionId;
+        },
+        get phase() {
+          return receipt.phase;
+        },
         async commit(phase) {
           const next = { ...receipt, phase };
           await writeSecretFile(path, JSON.stringify(next));
@@ -62,7 +79,11 @@ export class NewTaskRequests {
       });
     })();
     this.active.set(key, { signature, promise });
-    void promise.finally(() => { this.active.delete(key); }).catch(() => undefined);
+    void promise
+      .finally(() => {
+        this.active.delete(key);
+      })
+      .catch(() => undefined);
     return promise;
   }
 }

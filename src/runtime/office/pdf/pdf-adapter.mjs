@@ -35,7 +35,8 @@ import {
 export { createPdf } from './pdf-writer.mjs';
 export { lintPdfFormFields } from './pdf-forms.mjs';
 
-export const PDF_ENCRYPTED_HINT = "PDF is encrypted: write an unencrypted copy first with action:'secure' security:'decrypt' path password output:<copy.pdf>, then open that copy";
+export const PDF_ENCRYPTED_HINT =
+  "PDF is encrypted: write an unencrypted copy first with action:'secure' security:'decrypt' path password output:<copy.pdf>, then open that copy";
 const NO_TEXT_MARKER = '(no extractable text on this page)';
 // How much page text one audit call reads: the bound on its work, not on the
 // document. Past it the answer says how many pages it covered.
@@ -63,11 +64,12 @@ async function loadPdf(buffer, { allowEncrypted = false } = {}) {
 
 function selectedPages(document, operation) {
   const count = document.getPageCount();
-  const pages = Array.isArray(operation.pages) && operation.pages.length
-    ? operation.pages
-    : operation.page
-      ? [operation.page]
-      : Array.from({ length: count }, (_, index) => index + 1);
+  const pages =
+    Array.isArray(operation.pages) && operation.pages.length
+      ? operation.pages
+      : operation.page
+        ? [operation.page]
+        : Array.from({ length: count }, (_, index) => index + 1);
   return pages.map((page) => {
     const index = Number(page) - 1;
     if (!Number.isInteger(index) || index < 0 || index >= count) throw new Error(`PDF page out of range: ${page}`);
@@ -150,9 +152,10 @@ export async function snapshotPdf(path, options = {}) {
   const pageCount = structure.getPageCount();
   const offset = options.paged ? Math.max(0, Number(options.offset) || 0) : 0;
   const limit = options.paged ? Math.max(1, Number(options.limit) || 20) : pageCount;
-  const selected = Array.isArray(options.pages) && options.pages.length
-    ? options.pages.map(Number)
-    : Array.from({ length: Math.max(0, Math.min(limit, pageCount - offset)) }, (_, index) => offset + index + 1);
+  const selected =
+    Array.isArray(options.pages) && options.pages.length
+      ? options.pages.map(Number)
+      : Array.from({ length: Math.max(0, Math.min(limit, pageCount - offset)) }, (_, index) => offset + index + 1);
   for (const index of selected) {
     if (!Number.isInteger(index) || index < 1 || index > pageCount) throw new Error(`PDF page out of range: ${index}`);
   }
@@ -180,19 +183,34 @@ export async function snapshotPdf(path, options = {}) {
   while ((match = regex.exec(result.text || ''))) texts.set(Number(match[1]), match[2]);
   const pages = selected
     .filter((index) => passwordRequired || texts.has(index))
-    .map((index) => ({ path: `/page[${index}]`, index, text: (texts.get(index) ?? '').replace(/ {2,}/g, ' '), ...pageGeometry(structure, index) }));
+    .map((index) => ({
+      path: `/page[${index}]`,
+      index,
+      text: (texts.get(index) ?? '').replace(/ {2,}/g, ' '),
+      ...pageGeometry(structure, index),
+    }));
   // Strings and streams stay ciphered under ignoreEncryption, so the form and
   // attachment views of an encrypted file would be noise rather than data.
-  const fields = encrypted ? [] : structure.getForm().getFields().map((field, index) => describeFormField(field, structure, index));
+  const fields = encrypted
+    ? []
+    : structure
+        .getForm()
+        .getFields()
+        .map((field, index) => describeFormField(field, structure, index));
   const attachments = encrypted ? [] : pdfAttachments(structure);
   let outline = [];
   // The outline costs a second parse; a caller that only wants issues skips it.
   if (!encrypted && options.outline !== false) {
     try {
-      outline = (await extractPdfOutline(path)).entries.map((entry, index) => ({ path: `/outline[${index + 1}]`, ...entry }));
+      outline = (await extractPdfOutline(path)).entries.map((entry, index) => ({
+        path: `/outline[${index + 1}]`,
+        ...entry,
+      }));
     } catch {}
   }
-  const likelyScannedPages = passwordRequired ? [] : pages.filter((page) => page.text.includes(NO_TEXT_MARKER)).map((page) => page.index);
+  const likelyScannedPages = passwordRequired
+    ? []
+    : pages.filter((page) => page.text.includes(NO_TEXT_MARKER)).map((page) => page.index);
   return {
     format: 'pdf',
     ...result,
@@ -209,16 +227,18 @@ export async function snapshotPdf(path, options = {}) {
     ocrRequired: likelyScannedPages.length > 0,
     encrypted,
     ...(encrypted ? { passwordRequired, hint: PDF_ENCRYPTED_HINT } : {}),
-    ...(options.paged ? {
-      pagination: {
-        unit: 'page',
-        offset,
-        limit,
-        returned: pages.length,
-        total: pageCount,
-        nextOffset: !options.pages?.length && offset + pages.length < pageCount ? offset + pages.length : null,
-      },
-    } : {}),
+    ...(options.paged
+      ? {
+          pagination: {
+            unit: 'page',
+            offset,
+            limit,
+            returned: pages.length,
+            total: pageCount,
+            nextOffset: !options.pages?.length && offset + pages.length < pageCount ? offset + pages.length : null,
+          },
+        }
+      : {}),
   };
 }
 
@@ -250,7 +270,10 @@ function addOutlineEntries(document, entries) {
     const count = existing.lookupMaybe(PDFName.of('Count'), PDFNumber)?.asNumber() ?? 0;
     existing.set(PDFName.of('Count'), PDFNumber.of(Math.max(0, count) + entries.length));
   } else {
-    context.assign(rootRef, context.obj({ Type: 'Outlines', First: refs[0], Last: refs.at(-1), Count: entries.length }));
+    context.assign(
+      rootRef,
+      context.obj({ Type: 'Outlines', First: refs[0], Last: refs.at(-1), Count: entries.length })
+    );
     catalog.set(PDFName.of('Outlines'), rootRef);
   }
   return entries.length;
@@ -258,7 +281,8 @@ function addOutlineEntries(document, entries) {
 
 async function writeSibling(path, target, bytes) {
   const output = resolve(dirname(path), String(target));
-  if (output.toLowerCase() === resolve(path).toLowerCase()) throw new Error('output must differ from the document being edited');
+  if (output.toLowerCase() === resolve(path).toLowerCase())
+    throw new Error('output must differ from the document being edited');
   await mkdir(dirname(output), { recursive: true });
   await writeFile(output, bytes);
   return output;
@@ -284,8 +308,8 @@ function displayPointToUser(spin, width, height, x, y) {
 // the inverse of pdf.js's page transform; the four corners keep a rotated box honest.
 function displayToUser(transform, box) {
   const [a, b, c, d, e, f] = transform;
-  const det = (a * d) - (b * c);
-  const invert = ([X, Y]) => [((d * (X - e)) - (c * (Y - f))) / det, ((-b * (X - e)) + (a * (Y - f))) / det];
+  const det = a * d - b * c;
+  const invert = ([X, Y]) => [(d * (X - e) - c * (Y - f)) / det, (-b * (X - e) + a * (Y - f)) / det];
   const corners = [
     [box.x, box.top],
     [box.x + box.width, box.top],
@@ -341,10 +365,13 @@ async function targetBoxes(document, operation, measure = null) {
     regex: operation.regex === true,
   });
   if (!matches.length) {
-    const scope = selected.length === document.getPageCount()
-      ? 'the document'
-      : `page${selected.length > 1 ? 's' : ''} ${selected.map(({ index }) => index + 1).join(', ')}`;
-    throw new Error(`${operation.op} found no text matching "${find}" in ${scope}; check the snapshot text or pass page, x, y, width, height`);
+    const scope =
+      selected.length === document.getPageCount()
+        ? 'the document'
+        : `page${selected.length > 1 ? 's' : ''} ${selected.map(({ index }) => index + 1).join(', ')}`;
+    throw new Error(
+      `${operation.op} found no text matching "${find}" in ${scope}; check the snapshot text or pass page, x, y, width, height`
+    );
   }
   // A phrase that wraps comes back as one rect per line, and each is marked on
   // its own; `first` selects a match, so its lines stay together.
@@ -355,9 +382,10 @@ async function targetBoxes(document, operation, measure = null) {
     return rects.map((part) => {
       // The layout is measured on the page as displayed (rotation and crop box
       // applied); inverting the page's transform puts the box back into user space.
-      const rect = Array.isArray(page?.transform) && page.transform.length === 6
-        ? displayToUser(page.transform, part)
-        : { x: part.x, y: page.height - part.top - part.height, width: part.width, height: part.height };
+      const rect =
+        Array.isArray(page?.transform) && page.transform.length === 6
+          ? displayToUser(page.transform, part)
+          : { x: part.x, y: page.height - part.top - part.height, width: part.width, height: part.height };
       return { index, ...rect, text: match.text };
     });
   });
@@ -393,14 +421,18 @@ export async function applyPdfBatch(path, operations, context = {}) {
         const watermark = operation.op === 'watermark';
         const template = String(operation.text ?? '');
         if (!template.trim()) throw new Error(`${operation.op} needs text`);
-        const { font, fontPath, embedded } = await embedDocumentFont(document, { fontPath: operation.fontPath, text: template });
+        const { font, fontPath, embedded } = await embedDocumentFont(document, {
+          fontPath: operation.fontPath,
+          text: template,
+        });
         const size = Number(operation.size ?? (watermark ? 48 : 12));
         const opacity = Number(operation.opacity ?? (watermark ? 0.25 : 1));
         const angle = Number(operation.rotation ?? (watermark ? 45 : 0));
         const pageCount = document.getPageCount();
         const pages = [];
         const align = String(operation.align || (watermark ? 'center' : 'left')).toLowerCase();
-        if (!['left', 'center', 'right'].includes(align)) throw new Error(`${operation.op} align must be left, center, or right`);
+        if (!['left', 'center', 'right'].includes(align))
+          throw new Error(`${operation.op} align must be left, center, or right`);
         for (const { page, index } of selectedPages(document, operation)) {
           // {page} and {pages} number an existing file the way create's pageNumbers does.
           const text = template.replace(/\{page\}/g, String(index + 1)).replace(/\{pages\}/g, String(pageCount));
@@ -418,18 +450,15 @@ export async function applyPdfBatch(path, operations, context = {}) {
           // between the page margins when x is omitted.
           const spanX = textWidth * Math.cos((angle * Math.PI) / 180);
           const spanY = textWidth * Math.sin((angle * Math.PI) / 180);
-          const defaultX = align === 'center'
-            ? (displayWidth - spanX) / 2
-            : align === 'right'
-              ? displayWidth - 36 - spanX
-              : 36;
+          const defaultX =
+            align === 'center' ? (displayWidth - spanX) / 2 : align === 'right' ? displayWidth - 36 - spanX : 36;
           const defaultY = watermark ? (displayHeight - spanY) / 2 : 36;
           const placed = displayPointToUser(
             spin,
             page.getWidth(),
             page.getHeight(),
             operation.x === undefined || operation.x === null ? defaultX : Number(operation.x),
-            operation.y === undefined || operation.y === null ? defaultY : Number(operation.y),
+            operation.y === undefined || operation.y === null ? defaultY : Number(operation.y)
           );
           const { x, y } = placed;
           page.drawText(text, {
@@ -443,7 +472,13 @@ export async function applyPdfBatch(path, operations, context = {}) {
           });
           pages.push(index + 1);
         }
-        results.push({ op: operation.op, changed: pages.length > 0, pages, fontEmbedded: embedded, ...(fontPath ? { fontPath } : {}) });
+        results.push({
+          op: operation.op,
+          changed: pages.length > 0,
+          pages,
+          fontEmbedded: embedded,
+          ...(fontPath ? { fontPath } : {}),
+        });
         break;
       }
       case 'highlight': {
@@ -467,7 +502,14 @@ export async function applyPdfBatch(path, operations, context = {}) {
           });
           pages.add(box.index + 1);
         }
-        results.push({ op: operation.op, changed: true, marks: boxes.length, pages: [...pages], ...(operation.find ? { find: String(operation.find) } : {}), boxes: reportBoxes(boxes) });
+        results.push({
+          op: operation.op,
+          changed: true,
+          marks: boxes.length,
+          pages: [...pages],
+          ...(operation.find ? { find: String(operation.find) } : {}),
+          boxes: reportBoxes(boxes),
+        });
         break;
       }
       case 'add_link': {
@@ -475,16 +517,21 @@ export async function applyPdfBatch(path, operations, context = {}) {
         const url = String(operation.url ?? '').trim();
         const toPage = operation.toPage === undefined || operation.toPage === null ? null : Number(operation.toPage);
         if (!url && toPage === null && !autoUrls) throw new Error('add_link needs url, toPage, or urls:true');
-        if (url && !/^(https?:\/\/|mailto:)/i.test(url)) throw new Error(`add_link url must start with http://, https://, or mailto: (${url})`);
+        if (url && !/^(https?:\/\/|mailto:)/i.test(url))
+          throw new Error(`add_link url must start with http://, https://, or mailto: (${url})`);
         if (toPage !== null) selectedPages(document, { page: toPage });
         // urls:true finds every http(s) address in the text and points each at itself.
-        const request = autoUrls ? { ...operation, find: 'https?://[^\\s<>()"\']+', regex: true, wholeWord: false } : operation;
+        const request = autoUrls
+          ? { ...operation, find: 'https?://[^\\s<>()"\']+', regex: true, wholeWord: false }
+          : operation;
         let target;
         try {
           target = await targetBoxes(document, request, measure);
         } catch (error) {
           if (!autoUrls || !/found no text matching/.test(String(error?.message || ''))) throw error;
-          throw new Error(`add_link urls:true found no http(s) address in the selected pages; pass find or a box instead`);
+          throw new Error(
+            `add_link urls:true found no http(s) address in the selected pages; pass find or a box instead`
+          );
         }
         ({ document, measure } = target);
         const { boxes } = target;
@@ -522,7 +569,7 @@ export async function applyPdfBatch(path, operations, context = {}) {
         for (const { page, index } of selectedPages(document, operation)) {
           // Pixels become points one-to-one, so a photo would run off the page; keep it inside the margins unless sized.
           const width = Number(operation.width || Math.min(placed.width, page.getWidth() - 72));
-          const height = Number(operation.height || (placed.height * width / placed.width));
+          const height = Number(operation.height || (placed.height * width) / placed.width);
           page.drawImage(placed.image, {
             x: Number(operation.x || 0),
             y: Number(operation.y || 0),
@@ -544,7 +591,8 @@ export async function applyPdfBatch(path, operations, context = {}) {
       }
       case 'rotate_pages': {
         const delta = Number(operation.rotation ?? 90);
-        if (!Number.isInteger(delta) || delta % 90 !== 0) throw new Error(`PDF rotation must be a multiple of 90 degrees: ${operation.rotation}`);
+        if (!Number.isInteger(delta) || delta % 90 !== 0)
+          throw new Error(`PDF rotation must be a multiple of 90 degrees: ${operation.rotation}`);
         const pages = [];
         for (const { page, index } of selectedPages(document, operation)) {
           const current = page.getRotation().angle;
@@ -556,10 +604,18 @@ export async function applyPdfBatch(path, operations, context = {}) {
         break;
       }
       case 'delete_pages': {
-        const indexes = selectedPages(document, operation).map(({ index }) => index).sort((a, b) => b - a);
-        if (indexes.length >= document.getPageCount()) throw new Error('delete_pages cannot remove every page; use extract_pages or delete fewer pages');
+        const indexes = selectedPages(document, operation)
+          .map(({ index }) => index)
+          .sort((a, b) => b - a);
+        if (indexes.length >= document.getPageCount())
+          throw new Error('delete_pages cannot remove every page; use extract_pages or delete fewer pages');
         for (const index of indexes) document.removePage(index);
-        results.push({ op: operation.op, changed: indexes.length > 0, count: indexes.length, pageCount: document.getPageCount() });
+        results.push({
+          op: operation.op,
+          changed: indexes.length > 0,
+          count: indexes.length,
+          pageCount: document.getPageCount(),
+        });
         break;
       }
       case 'extract_pages': {
@@ -571,7 +627,14 @@ export async function applyPdfBatch(path, operations, context = {}) {
         if (operation.output) {
           // With an output the session document stays whole; the subset is a new file.
           const output = await writeSibling(path, operation.output, await next.save(SAVE_OPTIONS));
-          results.push({ op: operation.op, changed: true, documentChanged: false, output, count: indexes.length, pages });
+          results.push({
+            op: operation.op,
+            changed: true,
+            documentChanged: false,
+            output,
+            count: indexes.length,
+            pages,
+          });
         } else {
           document = next;
           results.push({ op: operation.op, changed: true, count: indexes.length, pages });
@@ -591,17 +654,33 @@ export async function applyPdfBatch(path, operations, context = {}) {
           copied.forEach((page) => part.addPage(page));
           const first = String(group[0] + 1).padStart(3, '0');
           const label = group.length === 1 ? first : `${first}-${String(group.at(-1) + 1).padStart(3, '0')}`;
-          const output = await writeSibling(path, resolve(directory, `${stem}-${label}.pdf`), await part.save(SAVE_OPTIONS));
+          const output = await writeSibling(
+            path,
+            resolve(directory, `${stem}-${label}.pdf`),
+            await part.save(SAVE_OPTIONS)
+          );
           files.push({ output, pages: group.map((index) => index + 1) });
         }
-        results.push({ op: operation.op, changed: files.length > 0, documentChanged: false, count: files.length, files });
+        results.push({
+          op: operation.op,
+          changed: files.length > 0,
+          documentChanged: false,
+          count: files.length,
+          files,
+        });
         break;
       }
       case 'fill_form': {
         const form = document.getForm();
         const filled = fillFormValues(form, operation.values);
-        const coverage = Object.values(operation.values || {}).flat().map((value) => String(value ?? '')).join(' ');
-        const { font, fontPath, embedded } = await embedDocumentFont(document, { fontPath: operation.fontPath, text: coverage });
+        const coverage = Object.values(operation.values || {})
+          .flat()
+          .map((value) => String(value ?? ''))
+          .join(' ');
+        const { font, fontPath, embedded } = await embedDocumentFont(document, {
+          fontPath: operation.fontPath,
+          text: coverage,
+        });
         form.updateFieldAppearances(font);
         // The appearances exist now, so the values can be measured against the
         // boxes that will show them before the document is handed on.
@@ -614,20 +693,33 @@ export async function applyPdfBatch(path, operations, context = {}) {
           flattened: Boolean(operation.flatten),
           fontEmbedded: embedded,
           ...(fontPath ? { fontPath } : {}),
-          ...(clipped.length ? {
-            clipped,
-            warning: `${clipped.length} value(s) do not fit their field box: ${clipped.map((entry) => entry.message).join(' ')}`,
-          } : {}),
+          ...(clipped.length
+            ? {
+                clipped,
+                warning: `${clipped.length} value(s) do not fit their field box: ${clipped.map((entry) => entry.message).join(' ')}`,
+              }
+            : {}),
         });
         break;
       }
       case 'add_form_field': {
-        const check = lintPdfFormFields([operation], document.getPages().map((entry) => [entry.getWidth(), entry.getHeight()]));
+        const check = lintPdfFormFields(
+          [operation],
+          document.getPages().map((entry) => [entry.getWidth(), entry.getHeight()])
+        );
         if (!check.ok) throw new Error(check.issues.map((issue) => issue.message).join(' '));
-        const { font } = await embedDocumentFont(document, { fontPath: operation.fontPath, text: fieldText(operation) });
+        const { font } = await embedDocumentFont(document, {
+          fontPath: operation.fontPath,
+          text: fieldText(operation),
+        });
         await addFormField(document, operation, font);
         document.getForm().updateFieldAppearances(font);
-        results.push({ op: operation.op, changed: true, name: operation.name, type: String(operation.type || 'text').toLowerCase() });
+        results.push({
+          op: operation.op,
+          changed: true,
+          name: operation.name,
+          type: String(operation.type || 'text').toLowerCase(),
+        });
         break;
       }
       case 'flatten_form': {
@@ -652,17 +744,27 @@ export async function applyPdfBatch(path, operations, context = {}) {
       }
       case 'extract_attachment': {
         const entries = attachmentEntries(document);
-        const wanted = entries.find((entry) => (
-          (operation.name != null && entry.name === String(operation.name))
-          || (operation.index != null && entry.index === Number(operation.index))
-        ));
+        const wanted = entries.find(
+          (entry) =>
+            (operation.name != null && entry.name === String(operation.name)) ||
+            (operation.index != null && entry.index === Number(operation.index))
+        );
         if (!wanted) {
-          throw new Error(`PDF has no attachment ${operation.name ?? operation.index ?? ''}; attachments: ${entries.map((entry) => entry.name).join(', ') || '(none)'}`);
+          throw new Error(
+            `PDF has no attachment ${operation.name ?? operation.index ?? ''}; attachments: ${entries.map((entry) => entry.name).join(', ') || '(none)'}`
+          );
         }
         const bytes = attachmentBytes(wanted.spec);
         if (!bytes) throw new Error(`Attachment ${wanted.name} has no embedded file stream`);
         const output = await writeSibling(path, operation.output || wanted.name || `attachment-${wanted.index}`, bytes);
-        results.push({ op: operation.op, changed: true, documentChanged: false, name: wanted.name, output, bytes: bytes.length });
+        results.push({
+          op: operation.op,
+          changed: true,
+          documentChanged: false,
+          name: wanted.name,
+          output,
+          bytes: bytes.length,
+        });
         break;
       }
       case 'compress': {
@@ -680,11 +782,21 @@ export async function applyPdfBatch(path, operations, context = {}) {
         const copy = await loadPdf(bytes);
         const fields = copy.getForm().getFields();
         const proposed = Array.isArray(operation.boxes) ? operation.boxes : [];
-        const labels = [...fields.map((field) => field.getName()), ...proposed.map((box) => String(box.label ?? ''))].join(' ');
+        const labels = [
+          ...fields.map((field) => field.getName()),
+          ...proposed.map((box) => String(box.label ?? '')),
+        ].join(' ');
         const { font } = await embedDocumentFont(copy, { text: `${labels} box 0123456789` });
         const ink = color('d32f2f');
         const outline = (page, box, label) => {
-          page.drawRectangle({ x: box.x, y: box.y, width: box.width, height: box.height, borderColor: ink, borderWidth: 1 });
+          page.drawRectangle({
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+            borderColor: ink,
+            borderWidth: 1,
+          });
           page.drawText(label, { x: box.x, y: box.y + box.height + 2, size: 7, font, color: ink });
         };
         let widgets = 0;
@@ -697,18 +809,34 @@ export async function applyPdfBatch(path, operations, context = {}) {
         });
         proposed.forEach((box, index) => {
           const rect = ['x', 'y', 'width', 'height'].map((key) => Number(box?.[key]));
-          if (!box?.page || rect.some((value) => !Number.isFinite(value))) throw new Error(`preview_fields boxes[${index}] needs page, x, y, width, height`);
+          if (!box?.page || rect.some((value) => !Number.isFinite(value)))
+            throw new Error(`preview_fields boxes[${index}] needs page, x, y, width, height`);
           const [{ page }] = selectedPages(copy, { page: box.page });
-          outline(page, { x: rect[0], y: rect[1], width: rect[2], height: rect[3] }, String(box.label ?? `box ${index + 1}`));
+          outline(
+            page,
+            { x: rect[0], y: rect[1], width: rect[2], height: rect[3] },
+            String(box.label ?? `box ${index + 1}`)
+          );
         });
         const written = await writeSibling(path, output, await copy.save(SAVE_OPTIONS));
-        results.push({ op: operation.op, changed: true, documentChanged: false, output: written, fields: fields.length, widgets, boxes: proposed.length });
+        results.push({
+          op: operation.op,
+          changed: true,
+          documentChanged: false,
+          output: written,
+          fields: fields.length,
+          widgets,
+          boxes: proposed.length,
+        });
         break;
       }
       case 'merge_pdf': {
-        const sources = Array.isArray(operation.sources) && operation.sources.length
-          ? operation.sources
-          : operation.path ? [operation.path] : [];
+        const sources =
+          Array.isArray(operation.sources) && operation.sources.length
+            ? operation.sources
+            : operation.path
+              ? [operation.path]
+              : [];
         if (!sources.length) throw new Error('merge_pdf needs sources:[path | { path, pages }] or path');
         let insertAt = null;
         if (operation.index != null) {
@@ -741,11 +869,18 @@ export async function applyPdfBatch(path, operations, context = {}) {
           });
         }
         const pagesAdded = merged.reduce((sum, entry) => sum + entry.pagesAdded, 0);
-        const bookmarks = operation.bookmarks === true
-          ? addOutlineEntries(document, merged
-              .filter((entry) => entry.pagesAdded > 0)
-              .map((entry) => ({ title: entry.title || basename(entry.path, extname(entry.path)), pageIndex: entry.at - 1 })))
-          : 0;
+        const bookmarks =
+          operation.bookmarks === true
+            ? addOutlineEntries(
+                document,
+                merged
+                  .filter((entry) => entry.pagesAdded > 0)
+                  .map((entry) => ({
+                    title: entry.title || basename(entry.path, extname(entry.path)),
+                    pageIndex: entry.at - 1,
+                  }))
+              )
+            : 0;
         results.push({
           op: operation.op,
           changed: pagesAdded > 0,
@@ -768,10 +903,22 @@ export async function applyPdfBatch(path, operations, context = {}) {
       case 'set_metadata': {
         const props = operation.properties || {};
         const applied = [];
-        if (props.title !== undefined) { document.setTitle(String(props.title)); applied.push('title'); }
-        if (props.author !== undefined) { document.setAuthor(String(props.author)); applied.push('author'); }
-        if (props.subject !== undefined) { document.setSubject(String(props.subject)); applied.push('subject'); }
-        if (props.creator !== undefined) { document.setCreator(String(props.creator)); applied.push('creator'); }
+        if (props.title !== undefined) {
+          document.setTitle(String(props.title));
+          applied.push('title');
+        }
+        if (props.author !== undefined) {
+          document.setAuthor(String(props.author));
+          applied.push('author');
+        }
+        if (props.subject !== undefined) {
+          document.setSubject(String(props.subject));
+          applied.push('subject');
+        }
+        if (props.creator !== undefined) {
+          document.setCreator(String(props.creator));
+          applied.push('creator');
+        }
         if (props.keywords !== undefined) {
           document.setKeywords(Array.isArray(props.keywords) ? props.keywords.map(String) : [String(props.keywords)]);
           applied.push('keywords');
@@ -783,8 +930,10 @@ export async function applyPdfBatch(path, operations, context = {}) {
         const from = Number(operation.page) - 1;
         const to = Number(operation.index) - 1;
         const count = document.getPageCount();
-        if (!Number.isInteger(from) || from < 0 || from >= count) throw new Error(`PDF page out of range: ${operation.page}`);
-        if (!Number.isInteger(to) || to < 0 || to >= count) throw new Error(`PDF destination page out of range: ${operation.index}`);
+        if (!Number.isInteger(from) || from < 0 || from >= count)
+          throw new Error(`PDF page out of range: ${operation.page}`);
+        if (!Number.isInteger(to) || to < 0 || to >= count)
+          throw new Error(`PDF destination page out of range: ${operation.index}`);
         const order = document.getPageIndices();
         const [moved] = order.splice(from, 1);
         order.splice(to, 0, moved);
@@ -827,7 +976,11 @@ export async function issuesPdf(path, options = {}) {
   // The audit reads the whole document, not the readable excerpt a snapshot
   // shows: bounded to 30K the text stopped a few pages in, and a scanned page
   // past that boundary went unreported under "ok, nothing found".
-  const snapshot = await snapshotPdf(path, { ...options, maxChars: options.maxChars || PDF_AUDIT_MAX_CHARS, outline: false });
+  const snapshot = await snapshotPdf(path, {
+    ...options,
+    maxChars: options.maxChars || PDF_AUDIT_MAX_CHARS,
+    outline: false,
+  });
   const issues = [];
   if (!snapshot.encrypted && snapshot.pages.length < snapshot.pageCount) {
     issues.push({
@@ -857,7 +1010,12 @@ export async function issuesPdf(path, options = {}) {
   }
   for (const field of snapshot.fields) {
     if (!field.name) {
-      issues.push({ severity: 'warning', code: 'unnamed_form_field', path: field.path, message: 'Form field has no name, so fill_form cannot address it.' });
+      issues.push({
+        severity: 'warning',
+        code: 'unnamed_form_field',
+        path: field.path,
+        message: 'Form field has no name, so fill_form cannot address it.',
+      });
     }
     const mark = ['checkbox', 'radio'].includes(field.type);
     const [minWidth, minHeight] = mark ? [8, 8] : [24, 12];
@@ -871,11 +1029,18 @@ export async function issuesPdf(path, options = {}) {
       });
     }
   }
-  const widgets = snapshot.fields.flatMap((field) => field.widgets.map((widget) => ({ ...widget, name: field.name, path: field.path })));
+  const widgets = snapshot.fields.flatMap((field) =>
+    field.widgets.map((widget) => ({ ...widget, name: field.name, path: field.path }))
+  );
   for (let left = 0; left < widgets.length; left += 1) {
     for (let right = left + 1; right < widgets.length; right += 1) {
       if (widgets[left].page === widgets[right].page && rectanglesOverlap(widgets[left], widgets[right])) {
-        issues.push({ severity: 'warning', code: 'overlapping_form_fields', path: widgets[left].path, message: `Form fields ${widgets[left].name} and ${widgets[right].name} overlap.` });
+        issues.push({
+          severity: 'warning',
+          code: 'overlapping_form_fields',
+          path: widgets[left].path,
+          message: `Form fields ${widgets[left].name} and ${widgets[right].name} overlap.`,
+        });
       }
     }
   }

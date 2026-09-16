@@ -25,7 +25,9 @@
   box-shadow: var(--mx-popup-shadow);
   animation: mx-menu-in var(--mx-motion-chrome);
 }
-.rail-usage-popup[data-state="closed"] { display: none; }
+.rail-usage-popup[data-state="closed"] {
+  display: none;
+}
 .sidebar-usage {
   display: grid;
   gap: 0;
@@ -36,7 +38,9 @@
 /* Every grid child clamps to the flyout track: `min-width: auto` let the
    list's min-content blow the 280px popup open and clip the right column
    (user: 다 틀어져 있다). */
-.sidebar-usage > * { min-width: 0; }
+.sidebar-usage > * {
+  min-width: 0;
+}
 /* Title row = .session-panel-header (09-sidebar-chrome.css): the popup only
    adds its bottom hairline and the panel's 12px text inset. Pin then + sit in
    the shared 28px action slot (user: 사이드 메뉴들이랑 크기·구성 통일). */
@@ -45,10 +49,16 @@
   padding: 0 4px 0 12px;
   border-bottom: 1px solid var(--mx-border-muted);
 }
-.sidebar-usage-heading.session-panel-header::after { display: none; }
+.sidebar-usage-heading.session-panel-header::after {
+  display: none;
+}
 /* Diagonal pushpin (user: 대각핀): a tilted pin reading. */
-.sidebar-usage-heading .sidebar-usage-pin svg { transform: rotate(45deg); }
-.sidebar-usage-heading .sidebar-usage-pin.is-active { color: var(--mx-text-accent); }
+.sidebar-usage-heading .sidebar-usage-pin svg {
+  transform: rotate(45deg);
+}
+.sidebar-usage-heading .sidebar-usage-pin.is-active {
+  color: var(--mx-text-accent);
+}
 /* The roster is ONE grid: label | track | percentage | reset. Every provider
    row and quota line subgrids these columns, so the label column is exactly
    as wide as the longest label on screen (capped at 84px) and every track
@@ -104,7 +114,9 @@
   height: 1px;
   background: color-mix(in srgb, var(--mx-border-muted) 72%, transparent);
 }
-.sidebar-usage-row:last-child::after { display: none; }
+.sidebar-usage-row:last-child::after {
+  display: none;
+}
 .sidebar-usage-provider-icon {
   display: grid;
   place-items: center;
@@ -112,9 +124,23 @@
   color: var(--mx-text);
   background: transparent;
 }
-.sidebar-usage-provider-icon { width: 20px; height: 20px; flex: 0 0 20px; }
-.sidebar-usage-provider-icon svg { width: var(--mx-icon-md); height: var(--mx-icon-md); }
-.sidebar-usage-line { grid-column: 1 / -1; min-width: 0; min-height: 20px; display: flex; align-items: center; gap: 6px; }
+.sidebar-usage-provider-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+}
+.sidebar-usage-provider-icon svg {
+  width: var(--mx-icon-md);
+  height: var(--mx-icon-md);
+}
+.sidebar-usage-line {
+  grid-column: 1 / -1;
+  min-width: 0;
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .sidebar-usage-line > b {
   min-width: 0;
   flex: 1;
@@ -200,8 +226,12 @@
   /* Same quiet/default → warning → danger ladder as the pinned rail meter. */
   background: color-mix(in srgb, var(--mx-text) 52%, transparent);
 }
-.sidebar-usage-meter.tone-warning > i > i { background: var(--mx-warning); }
-.sidebar-usage-meter.tone-danger > i > i { background: var(--mx-danger); }
+.sidebar-usage-meter.tone-warning > i > i {
+  background: var(--mx-warning);
+}
+.sidebar-usage-meter.tone-danger > i > i {
+  background: var(--mx-danger);
+}
 .sidebar-usage-meter > b {
   color: var(--mx-text);
   font-size: var(--mx-font-minor);
@@ -210,10 +240,18 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.sidebar-usage-meter.tone-warning > b { color: var(--mx-warning); }
-.sidebar-usage-meter.tone-danger > b { color: var(--mx-danger); }
-.sidebar-usage-meter-empty { grid-template-columns: minmax(0, 1fr); }
-.sidebar-usage-meter-empty > small { color: var(--mx-text-faint); }
+.sidebar-usage-meter.tone-warning > b {
+  color: var(--mx-warning);
+}
+.sidebar-usage-meter.tone-danger > b {
+  color: var(--mx-danger);
+}
+.sidebar-usage-meter-empty {
+  grid-template-columns: minmax(0, 1fr);
+}
+.sidebar-usage-meter-empty > small {
+  color: var(--mx-text-faint);
+}
 .sidebar-usage-error {
   margin: 0;
   padding: 0 12px 8px;
@@ -254,7 +292,9 @@
   font-size: var(--mx-font-micro);
   line-height: var(--mx-line-micro);
 }
-.sidebar-usage-reset-list { display: grid; }
+.sidebar-usage-reset-list {
+  display: grid;
+}
 .sidebar-usage-reset-row {
   min-width: 0;
   display: grid;
@@ -280,14 +320,20 @@
 }
 .sidebar-usage-reset-summary > small,
 .sidebar-usage-reset-confirmation p,
-.sidebar-usage-reset-notice { color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.sidebar-usage-reset-notice {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
 .sidebar-usage-reset-confirmation {
   grid-column: 1 / -1;
   display: grid;
   gap: 8px;
 }
 .sidebar-usage-reset-confirmation p,
-.sidebar-usage-reset-notice { margin: 0; }
+.sidebar-usage-reset-notice {
+  margin: 0;
+}
 .sidebar-usage-reset-row > button,
 .sidebar-usage-reset-actions button {
   min-height: 26px;
@@ -298,10 +344,25 @@
   background: var(--mx-hover);
   font-size: var(--mx-font-meta);
 }
-.sidebar-usage-reset-row > button { width: auto; min-width: 46px; justify-self: end; white-space: nowrap; }
-.sidebar-usage-reset-actions { display: flex; justify-content: flex-end; gap: 6px; margin-left: auto; }
-.sidebar-usage-reset-actions button:last-child { color: var(--mx-text-accent); background: var(--mx-pressed); }
-.sidebar-usage-reset-credit button:disabled { opacity: var(--mx-op-disabled); }
+.sidebar-usage-reset-row > button {
+  width: auto;
+  min-width: 46px;
+  justify-self: end;
+  white-space: nowrap;
+}
+.sidebar-usage-reset-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+.sidebar-usage-reset-actions button:last-child {
+  color: var(--mx-text-accent);
+  background: var(--mx-pressed);
+}
+.sidebar-usage-reset-credit button:disabled {
+  opacity: var(--mx-op-disabled);
+}
 .sidebar-usage-reset-notice {
   margin: 0;
   padding: 8px 12px;
@@ -314,10 +375,12 @@
   height: 10px;
   display: block;
   color: currentColor;
-  animation: spin .7s linear infinite;
+  animation: spin 0.7s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-update-loader { animation: none; }
+  .sidebar-update-loader {
+    animation: none;
+  }
 }
 /* Collapsed section heading keeps the unread signal visible. */
 .sidebar-heading-dot {
@@ -333,8 +396,13 @@
   background: var(--mx-accent);
 }
 .session-sidebar .standalone-group,
-.session-sidebar .project-group { max-height: none; overflow: visible; }
-.session-group { gap: 2px; }
+.session-sidebar .project-group {
+  max-height: none;
+  overflow: visible;
+}
+.session-group {
+  gap: 2px;
+}
 .session-group h2 {
   height: 28px;
   padding: 0;
@@ -344,12 +412,24 @@
   line-height: var(--mx-line-ui);
   letter-spacing: 0;
 }
-.session-list { gap: 1px; padding: 0; }
-.session-row-copy { display: block; gap: 0; }
-.session-row-copy { min-width: 0; flex: 1; overflow: hidden; }
+.session-list {
+  gap: 1px;
+  padding: 0;
+}
+.session-row-copy {
+  display: block;
+  gap: 0;
+}
+.session-row-copy {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
 /* Only a live row yields space to the trailing spinner. The 18px inset ends
    4px before its 12px glyph; settled titles keep the complete row width. */
-.session-row.working .session-row-copy { padding-right: 18px; }
+.session-row.working .session-row-copy {
+  padding-right: 18px;
+}
 .session-row-copy b {
   display: block;
   overflow: hidden;
@@ -386,11 +466,16 @@
 }
 /* The absolute dot no longer reserves flow space: unread rows keep the same
    text clearance the working rows use. */
-.session-row:has(.session-row-unread-dot) .session-row-copy { padding-right: 18px; }
+.session-row:has(.session-row-unread-dot) .session-row-copy {
+  padding-right: 18px;
+}
 /* Hovered rows swap the dot for the action cluster: the archive button
    rises exactly where the dot sat, so the two never fight for the edge. */
 .session-row:hover .session-row-unread-dot,
-.session-row:has(:focus-visible) .session-row-unread-dot { visibility: hidden; }
+.session-row:has(:focus-visible) .session-row-unread-dot {
+  visibility: hidden;
+}
 .session-row:hover .session-row-status,
-.session-row:has(:focus-visible) .session-row-status { visibility: hidden; }
-
+.session-row:has(:focus-visible) .session-row-status {
+  visibility: hidden;
+}

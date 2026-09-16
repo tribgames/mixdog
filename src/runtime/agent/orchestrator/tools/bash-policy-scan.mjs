@@ -12,8 +12,11 @@ function _decodeAnsiCQuotes(s) {
       .replace(/\\u([0-9a-fA-F]{1,4})/g, (_m, h) => String.fromCharCode(parseInt(h, 16)))
       .replace(/\\0([0-7]{1,3})/g, (_m, o) => String.fromCharCode(parseInt(o, 8)))
       .replace(/\\([0-7]{1,3})/g, (_m, o) => String.fromCharCode(parseInt(o, 8)))
-      .replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\r/g, '\r')
-      .replace(/\\\\/g, '\\').replace(/\\(['"])/g, '$1'),
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\r/g, '\r')
+      .replace(/\\\\/g, '\\')
+      .replace(/\\(['"])/g, '$1')
   );
 }
 
@@ -67,7 +70,5 @@ export function buildBashPolicyScanTargets(command) {
 }
 
 export function checkExecPolicyMessage(command) {
-  return formatExecPolicyBlockMessage(
-    evaluateExecPolicyFromTargets(buildBashPolicyScanTargets(command)),
-  );
+  return formatExecPolicyBlockMessage(evaluateExecPolicyFromTargets(buildBashPolicyScanTargets(command)));
 }

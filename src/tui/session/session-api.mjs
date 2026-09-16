@@ -7,7 +7,12 @@ import { isQueuedEntryEditable, promptDisplayText } from './queue-helpers.mjs';
 import { createSessionApiB } from './session-api-ext.mjs';
 import { buildDoctorReport } from '../app/doctor.mjs';
 import { recomputePromptHistory } from './prompt-history.mjs';
-import { appendPromptHistory, buildMergedPromptHistory, loadPromptHistory, promptHistoryKey } from '../prompt-history-store.mjs';
+import {
+  appendPromptHistory,
+  buildMergedPromptHistory,
+  loadPromptHistory,
+  promptHistoryKey,
+} from '../prompt-history-store.mjs';
 import { hydratePastedAttachments } from '../../runtime/attachments/store.mjs';
 import { abortGoalTurn } from './goal-turn-state.mjs';
 
@@ -20,7 +25,11 @@ export function createSessionApi(bag) {
   api.getSettingsSnapshot = async ({ heavy = true } = {}) => {
     const read = async (fn, ...args) => {
       if (typeof fn !== 'function') return null;
-      try { return await fn.call(api, ...args); } catch { return null; }
+      try {
+        return await fn.call(api, ...args);
+      } catch {
+        return null;
+      }
     };
     const snapshot = {
       autoClear: await read(api.getAutoClear),
@@ -47,7 +56,38 @@ export function createSessionApi(bag) {
 
 export function createSessionApiA(bag) {
   const {
-    runtime, nextId, flags, pending, listeners, getState, getPublishedState = getState, set, flushEmitImmediate, pushItem, patchItem, replaceItems, restoreOlderTranscript, restoreNewerTranscript, settleStreamingTail, clearStreamingTail, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, prioritizeQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick, discardExecutionPendingResume,
+    runtime,
+    nextId,
+    flags,
+    pending,
+    listeners,
+    getState,
+    getPublishedState = getState,
+    set,
+    flushEmitImmediate,
+    pushItem,
+    patchItem,
+    replaceItems,
+    restoreOlderTranscript,
+    restoreNewerTranscript,
+    settleStreamingTail,
+    clearStreamingTail,
+    pushNotice,
+    autoClearState,
+    agentStatusState,
+    routeState,
+    syncContextStats,
+    denyAllToolApprovals,
+    updateAgentJobCard,
+    requeueEntriesFront,
+    enqueue,
+    autoClearBeforeSubmit,
+    restoreQueued,
+    prioritizeQueued,
+    resetStatsAndSyncContext,
+    drain,
+    flushDeferredExecutionPendingResumeKick,
+    discardExecutionPendingResume,
   } = bag;
   // submitAsync may be awaiting auto-clear while the renderer already owns an
   // optimistic user row. Keep that intake addressable so Esc can reclaim it
@@ -60,7 +100,7 @@ export function createSessionApiA(bag) {
     // Prompt input queued while a turn is active keeps the default `next`
     // priority, so it is injected at the next tool/model boundary. Explicit
     // options.priority still wins.
-   const priority = options.priority;
+    const priority = options.priority;
     const intake = {
       text,
       queueOptions: {
@@ -89,7 +129,9 @@ export function createSessionApiA(bag) {
         bag.cancelQueuedGoalContinuations?.();
         bag.archiveCompletedGoalOnUserInput?.();
       }
-      try { runtime.interruptTaskWait?.('user-message'); } catch {}
+      try {
+        runtime.interruptTaskWait?.('user-message');
+      } catch {}
     }
     return accepted;
   };
@@ -115,9 +157,9 @@ export function createSessionApiA(bag) {
     // If autoClearBeforeSubmit rejects (e.g. compaction timeout throws), the
     // prompt must still be queued — swallow the rejection so enqueue always
     // runs and the submit is never silently lost.
-    void autoClearBeforeSubmit().catch(() => {}).then(
-      () => enqueueSubmission(intake),
-    );
+    void autoClearBeforeSubmit()
+      .catch(() => {})
+      .then(() => enqueueSubmission(intake));
     return true;
   };
   const submitAsync = async (text, options = {}) => {
@@ -134,15 +176,19 @@ export function createSessionApiA(bag) {
     if (!flags.autoClearRunning && !getState().commandBusy && !getState().busy) {
       void Promise.resolve(autoClearBeforeSubmit()).catch(() => {});
     }
-    return await Promise.resolve(enqueueSubmission(intake)) !== false;
+    return (await Promise.resolve(enqueueSubmission(intake))) !== false;
   };
   const submitAndWait = async (text, options = {}) => {
     let resolveSettled;
-    const settled = new Promise((resolve) => { resolveSettled = resolve; });
+    const settled = new Promise((resolve) => {
+      resolveSettled = resolve;
+    });
     const accepted = await submitAsync(text, {
       ...options,
       onSettled: (detail) => {
-        try { options.onSettled?.(detail); } catch {}
+        try {
+          options.onSettled?.(detail);
+        } catch {}
         resolveSettled(detail);
       },
     });
@@ -178,9 +224,7 @@ export function createSessionApiA(bag) {
       if (!target) return null;
       if (getState().busy || getState().commandBusy) return null;
       const items = getState().items || [];
-      const index = items.findIndex(
-        (item) => item?.kind === 'user' && String(item?.id) === target,
-      );
+      const index = items.findIndex((item) => item?.kind === 'user' && String(item?.id) === target);
       if (index < 0) return null;
       const text = String(items[index]?.text || '').trim();
       if (!text) return null;
@@ -199,8 +243,9 @@ export function createSessionApiA(bag) {
           lastTurn: null,
           // The prompt returns to the draft, so it must not ALSO sit in the
           // Up-arrow history — otherwise it shows up twice.
-          promptHistoryList: (getState().promptHistoryList || [])
-            .filter((entry) => promptHistoryKey(entry) !== restoreKey),
+          promptHistoryList: (getState().promptHistoryList || []).filter(
+            (entry) => promptHistoryKey(entry) !== restoreKey
+          ),
         });
         syncContextStats({ allowEstimated: true });
         set({ stats: { ...getState().stats } });
@@ -262,7 +307,8 @@ export function createSessionApiA(bag) {
       }
     },
     setToolMode: (m) => {
-      void runtime.setToolMode(m)
+      void runtime
+        .setToolMode(m)
         .then(() => {
           resetStatsAndSyncContext();
           set({ ...routeState(), toolMode: runtime.toolMode, stats: { ...getState().stats } });
@@ -280,9 +326,14 @@ export function createSessionApiA(bag) {
     checkForUpdate: (input = {}) => runtime.checkForUpdate?.(input),
     runUpdateNow: () => runtime.runUpdateNow?.(),
     getUpdateStatus: () => runtime.getUpdateStatus?.() || { phase: 'idle' },
-    getProfile: () => runtime.getProfile?.() || {
-      title: '', language: 'system', languages: [], experienceLevel: '', experienceLevels: [],
-    },
+    getProfile: () =>
+      runtime.getProfile?.() || {
+        title: '',
+        language: 'system',
+        languages: [],
+        experienceLevel: '',
+        experienceLevels: [],
+      },
     setProfile: (input = {}) => {
       const next = runtime.setProfile?.(input) || runtime.getProfile?.() || null;
       return next;
@@ -331,10 +382,12 @@ export function createSessionApiA(bag) {
       }
     },
     getToolModuleSettings: () => {
-      return runtime.getToolModuleSettings?.() || {
-        webSearch: { enabled: true },
-        memory: { enabled: true },
-      };
+      return (
+        runtime.getToolModuleSettings?.() || {
+          webSearch: { enabled: true },
+          memory: { enabled: true },
+        }
+      );
     },
     setWebSearchEnabled: async (enabled) => {
       if (getState().commandBusy) return null;
@@ -388,18 +441,22 @@ export function createSessionApiA(bag) {
     setLocalProviderIdleTtl: (seconds) => runtime.setLocalProviderIdleTtl(seconds),
     setLocalProviderContext: (modelId, tokens) => runtime.setLocalProviderContext(modelId, tokens),
     getLocalProviderModelDetails: (modelId) => runtime.getLocalProviderModelDetails(modelId),
-    startLocalProviderModelMaintenance: (modelId, operation) => runtime.startLocalProviderModelMaintenance(modelId, operation),
+    startLocalProviderModelMaintenance: (modelId, operation) =>
+      runtime.startLocalProviderModelMaintenance(modelId, operation),
     deleteLocalProviderModel: (token) => runtime.deleteLocalProviderModel(token),
     // Catalog reads and registration are advertised session actions; the
     // daemon resolves them by name on this surface (session-protocol.mjs).
     searchLocalProviderModels: (query) => runtime.searchLocalProviderModels(query),
     inspectHuggingFaceModel: (options) => runtime.inspectHuggingFaceModel(options),
-    registerHuggingFaceModel: (previewId, licenseAccepted) => runtime.registerHuggingFaceModel(previewId, licenseAccepted),
+    registerHuggingFaceModel: (previewId, licenseAccepted) =>
+      runtime.registerHuggingFaceModel(previewId, licenseAccepted),
     getChannelSettings: (options = {}) => {
-      return runtime.getChannelSettings?.(options) || {
-        enabled: true,
-        ...(options?.includeStatus === false ? {} : { status: runtime.getChannelWorkerStatus?.() }),
-      };
+      return (
+        runtime.getChannelSettings?.(options) || {
+          enabled: true,
+          ...(options?.includeStatus === false ? {} : { status: runtime.getChannelWorkerStatus?.() }),
+        }
+      );
     },
     setChannelsEnabled: async (enabled) => {
       if (getState().commandBusy) return null;
@@ -471,7 +528,7 @@ export function createSessionApiA(bag) {
       const missing = result.missing?.length ? `missing ${result.missing.join(', ')}` : '';
       pushNotice(
         [added, already, blocked, missing].filter(Boolean).join(' - ') || 'no tool changes',
-        result.blocked?.length || result.missing?.length ? 'warn' : 'info',
+        result.blocked?.length || result.missing?.length ? 'warn' : 'info'
       );
       return result;
     },
@@ -519,7 +576,7 @@ export function createSessionApiA(bag) {
         set({ ...routeState(), stats: { ...getState().stats } });
         pushNotice(
           `mcp reconnect: ${status?.connectedCount || 0}/${status?.configuredCount || 0} connected${status?.failedCount ? ` - ${status.failedCount} failed` : ''}`,
-          status?.failedCount ? 'warn' : 'info',
+          status?.failedCount ? 'warn' : 'info'
         );
         return status;
       } finally {
@@ -677,7 +734,10 @@ export function createSessionApiA(bag) {
         const result = await runtime.updatePlugin?.(plugin);
         resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...getState().stats } });
-        pushNotice(`plugin updated: ${result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin}`, 'info');
+        pushNotice(
+          `plugin updated: ${result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin}`,
+          'info'
+        );
         return result;
       } finally {
         set({ commandBusy: false });
@@ -690,8 +750,12 @@ export function createSessionApiA(bag) {
         const result = await runtime.setPluginEnabled?.(plugin, enabled);
         resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...getState().stats } });
-        pushNotice(`plugin ${enabled === false ? 'disabled' : 'enabled'}: ${
-          result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin}`, 'info');
+        pushNotice(
+          `plugin ${enabled === false ? 'disabled' : 'enabled'}: ${
+            result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin
+          }`,
+          'info'
+        );
         return result;
       } finally {
         set({ commandBusy: false });
@@ -704,7 +768,10 @@ export function createSessionApiA(bag) {
         const result = await runtime.removePlugin?.(plugin);
         resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...getState().stats } });
-        pushNotice(`plugin uninstalled: ${result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin}`, 'info');
+        pushNotice(
+          `plugin uninstalled: ${result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin}`,
+          'info'
+        );
         return result;
       } finally {
         set({ commandBusy: false });
@@ -765,7 +832,10 @@ export function createSessionApiA(bag) {
     recall: async (query, args = {}) => {
       if (getState().commandBusy) return null;
       const startedAt = Date.now();
-      set({ commandBusy: true, commandStatus: { active: true, verb: 'Recalling memory', startedAt, mode: 'recalling' } });
+      set({
+        commandBusy: true,
+        commandStatus: { active: true, verb: 'Recalling memory', startedAt, mode: 'recalling' },
+      });
       try {
         const result = await runtime.recall(query, args);
         pushNotice(String(result || '').trim() || '(empty recall result)', 'info');
@@ -777,7 +847,10 @@ export function createSessionApiA(bag) {
     runDoctor: async () => {
       if (getState().commandBusy) return null;
       const startedAt = Date.now();
-      set({ commandBusy: true, commandStatus: { active: true, verb: 'Running diagnostics', startedAt, mode: 'doctor' } });
+      set({
+        commandBusy: true,
+        commandStatus: { active: true, verb: 'Running diagnostics', startedAt, mode: 'doctor' },
+      });
       try {
         // Yield one event-loop turn so Ink paints the running indicator before
         // the (mostly synchronous) health checks run — same pattern as compact.
@@ -813,7 +886,11 @@ export function createSessionApiA(bag) {
             bag._scheduledCompactTimer = null;
             void compactCommand();
           } catch {
-            try { clearInterval(bag._scheduledCompactTimer); } catch { /* gone */ }
+            try {
+              clearInterval(bag._scheduledCompactTimer);
+            } catch {
+              /* gone */
+            }
             bag._scheduledCompactTimer = null;
           }
         }, 750);
@@ -821,7 +898,10 @@ export function createSessionApiA(bag) {
         return { changed: false, scheduled: true };
       }
       const startedAt = Date.now();
-      set({ commandBusy: true, commandStatus: { active: true, verb: 'Compacting conversation', startedAt, mode: 'compacting' } });
+      set({
+        commandBusy: true,
+        commandStatus: { active: true, verb: 'Compacting conversation', startedAt, mode: 'compacting' },
+      });
       try {
         // Give Ink one event-loop turn to paint the compacting spinner before
         // runtime.compact() starts synchronous session/transcript work (same
@@ -842,11 +922,11 @@ export function createSessionApiA(bag) {
           pushItem({
             kind: 'statusdone',
             id: nextId(),
-            label: result.error ? 'Compact failed' : (result.changed === false ? 'Compact checked' : 'Compact complete'),
+            label: result.error ? 'Compact failed' : result.changed === false ? 'Compact checked' : 'Compact complete',
             detail: compactEventDetail({
               stage: 'manual',
               trigger: 'manual',
-              status: result.error ? 'failed' : (result.changed === false ? 'no_change' : 'compacted'),
+              status: result.error ? 'failed' : result.changed === false ? 'no_change' : 'compacted',
               compactType: result.compactType,
               beforeTokens: result.beforeTokens,
               afterTokens: result.afterTokens,
@@ -887,7 +967,7 @@ export function createSessionApiA(bag) {
           intake.cancelled = true;
           const attachments = hydratePastedAttachments(
             intake.queueOptions.pastedImages,
-            intake.queueOptions.pastedTexts,
+            intake.queueOptions.pastedTexts
           );
           return {
             aborted: false,
@@ -911,9 +991,7 @@ export function createSessionApiA(bag) {
       // interrupting should just cancel the running turn and let the steering
       // prompt run next, NOT resurrect the in-flight prompt back into the draft.
       const hasPendingSteering = pending.some((entry) => isQueuedEntryEditable(entry));
-      const canRestore = options?.restorePrompt !== false
-        && restoreState?.restorable
-        && !hasPendingSteering;
+      const canRestore = options?.restorePrompt !== false && restoreState?.restorable && !hasPendingSteering;
       const restoreText = canRestore ? restoreState.text : '';
       const restorePastedImages = canRestore && restoreState?.pastedImages ? restoreState.pastedImages : null;
       const restorePastedTexts = canRestore && restoreState?.pastedTexts ? restoreState.pastedTexts : null;
@@ -921,17 +999,16 @@ export function createSessionApiA(bag) {
       // images never get committed (onCommitted won't fire) nor re-installed into
       // the draft, so hand them back for cleanup to avoid a stale `[Image #id]`
       // lingering in the paste snapshot.
-      const discardPastedImages = restoreState?.restorable && hasPendingSteering && restoreState?.pastedImages
-        ? restoreState.pastedImages
-        : null;
-      const discardPastedTexts = restoreState?.restorable && hasPendingSteering && restoreState?.pastedTexts
-        ? restoreState.pastedTexts
-        : null;
-      const requeueEntries = restoreState && !restoreState.committed && Array.isArray(restoreState.requeueEntries)
-        ? restoreState.requeueEntries.filter(
-          (entry) => entry?.abortDiscardOnAbort !== true && entry?.mode !== 'pending-resume',
-        )
-        : [];
+      const discardPastedImages =
+        restoreState?.restorable && hasPendingSteering && restoreState?.pastedImages ? restoreState.pastedImages : null;
+      const discardPastedTexts =
+        restoreState?.restorable && hasPendingSteering && restoreState?.pastedTexts ? restoreState.pastedTexts : null;
+      const requeueEntries =
+        restoreState && !restoreState.committed && Array.isArray(restoreState.requeueEntries)
+          ? restoreState.requeueEntries.filter(
+              (entry) => entry?.abortDiscardOnAbort !== true && entry?.mode !== 'pending-resume'
+            )
+          : [];
       const aborted = abortGoalTurn(runtime, flags, hasPendingSteering);
       if (restoreState) {
         if (aborted !== false && Array.isArray(restoreState.discardExecutionPendingResumeKeys)) {
@@ -943,8 +1020,9 @@ export function createSessionApiA(bag) {
           const patch = { spinner: null, thinking: null, lastTurn: null };
           if (restoreText) {
             const restoreKey = promptHistoryKey(restoreText);
-            patch.promptHistoryList = (getState().promptHistoryList || [])
-              .filter((entry) => promptHistoryKey(entry) !== restoreKey);
+            patch.promptHistoryList = (getState().promptHistoryList || []).filter(
+              (entry) => promptHistoryKey(entry) !== restoreKey
+            );
           }
           if (idSet.size > 0) {
             const items = getState().items.filter((item) => !idSet.has(item?.id));
@@ -974,7 +1052,9 @@ export function createSessionApiA(bag) {
           if (flags.disposed) return;
           if (getState().busy) return;
           if (pending.length > 0 && typeof drain === 'function') void drain();
-        } catch { /* best-effort */ }
+        } catch {
+          /* best-effort */
+        }
       }, 150);
       pendingAfterAbortKick.unref?.();
       const restored = hydratePastedAttachments(restorePastedImages, restorePastedTexts);
@@ -985,9 +1065,7 @@ export function createSessionApiA(bag) {
         discardPastedImages,
         pastedTexts: restored.pastedTexts,
         discardPastedTexts,
-        restoredSubmissionIds: restoreText
-          ? (restoreState?.submittedIds || []).map(String).filter(Boolean)
-          : [],
+        restoredSubmissionIds: restoreText ? (restoreState?.submittedIds || []).map(String).filter(Boolean) : [],
       };
     },
   };

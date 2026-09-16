@@ -22,11 +22,12 @@ export {
 
 export async function applyPortableOoxmlBatch(path, format, operations) {
   const zip = await loadPackage(path);
-  const results = format === 'docx'
-    ? await applyDocx(zip, operations)
-    : format === 'xlsx'
-      ? await applyXlsx(zip, operations)
-      : await applyPptx(zip, operations);
+  const results =
+    format === 'docx'
+      ? await applyDocx(zip, operations)
+      : format === 'xlsx'
+        ? await applyXlsx(zip, operations)
+        : await applyPptx(zip, operations);
   if (operations.some((operation) => ['delete_slide', 'replace_image', 'delete_shape'].includes(operation.op))) {
     await removeOrphanPackageParts(zip).catch(() => ({ removed: [] }));
   }

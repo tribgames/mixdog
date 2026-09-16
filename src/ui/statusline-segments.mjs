@@ -53,9 +53,11 @@ export function shellJobsStatus({ clientHostPid, sessionId } = {}) {
   const fresh = sameOwner && now - _shellJobsSegmentCache.at < SHELL_JOBS_SEGMENT_CACHE_MS;
   if (!fresh && !_shellJobsRefreshInFlight) {
     _shellJobsRefreshInFlight = true;
-    refreshShellJobsStatus(ownerPid).finally(() => { _shellJobsRefreshInFlight = false; });
+    refreshShellJobsStatus(ownerPid).finally(() => {
+      _shellJobsRefreshInFlight = false;
+    });
   }
-  const value = sameOwner ? (_shellJobsSegmentCache.value || EMPTY_SHELL_JOBS) : EMPTY_SHELL_JOBS;
+  const value = sameOwner ? _shellJobsSegmentCache.value || EMPTY_SHELL_JOBS : EMPTY_SHELL_JOBS;
   if (!scoped) return value;
   return (scope && value.sessions?.[scope]) || EMPTY_SHELL_JOBS_SESSION;
 }
@@ -75,7 +77,9 @@ export function memoryCycleStatus() {
   const now = Date.now();
   if (now - _memoryCycleSegmentCache.at >= MEMORY_CYCLE_SEGMENT_CACHE_MS && !_memoryCycleRefreshInFlight) {
     _memoryCycleRefreshInFlight = true;
-    refreshMemoryCycleStatus().finally(() => { _memoryCycleRefreshInFlight = false; });
+    refreshMemoryCycleStatus().finally(() => {
+      _memoryCycleRefreshInFlight = false;
+    });
   }
   return _memoryCycleSegmentCache.value;
 }
@@ -104,14 +108,20 @@ async function refreshMemoryCycleStatus() {
         if (pending > MEMORY_CYCLE_BACKLOG_WARN) value = { kind: 'backlog', pending };
       }
     }
-  } catch { value = null; }
+  } catch {
+    value = null;
+  }
   _memoryCycleSegmentCache = { at: Date.now(), value };
 }
 
 function pidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
-  try { process.kill(pid, 0); return true; }
-  catch (error) { return error?.code === 'EPERM'; } // EPERM = alive, no permission
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  } // EPERM = alive, no permission
 }
 
 async function refreshShellJobsStatus(ownerPid) {
@@ -163,7 +173,11 @@ async function refreshShellJobsStatus(ownerPid) {
     for (const id of ids) {
       const p = join(dir, `${id}.json`);
       let detail;
-      try { detail = JSON.parse(await readFile(p, 'utf-8')); } catch { continue; }
+      try {
+        detail = JSON.parse(await readFile(p, 'utf-8'));
+      } catch {
+        continue;
+      }
       if (!(await isShellJobAlive(detail, p, dir, id))) continue;
       // Owner-wide totals stay this process's own; session buckets take every
       // live job regardless of which host published it.
@@ -218,8 +232,12 @@ async function isShellJobAlive(detail, detailPath, dir, id) {
   try {
     const st = await stat(detailPath);
     const timeoutMs = Number(detail?.timeoutMs);
-    const enforced = detail?.timeoutEnforced === true
-      || await stat(join(dir, `${id}.enforced`)).then(() => true, () => false);
+    const enforced =
+      detail?.timeoutEnforced === true ||
+      (await stat(join(dir, `${id}.enforced`)).then(
+        () => true,
+        () => false
+      ));
     if (enforced && Number.isFinite(timeoutMs) && timeoutMs > 0 && Date.now() - st.mtimeMs > timeoutMs + 30 * 60_000) {
       return false;
     }

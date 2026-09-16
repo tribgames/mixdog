@@ -13,11 +13,7 @@ import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '.
 import { beginDaemonSpawnCapture } from './daemon-crash-capture.mjs';
 import { attachChannel, readChannelDiscovery, probeChannelHealth } from './channel-client.mjs';
 
-const CHANNEL_TOOLS = new Set([
-  'activate_channel_bridge',
-  'reload_config',
-  'rebind_current_transcript',
-]);
+const CHANNEL_TOOLS = new Set(['activate_channel_bridge', 'reload_config', 'rebind_current_transcript']);
 
 const WORKER_PRELOAD = fileURLToPath(new URL('./channel-worker-preload.cjs', import.meta.url));
 
@@ -37,24 +33,27 @@ function logLine(path, line) {
 const CHANNEL_WORKER_EXIT_CLEANUPS = new Set();
 let channelWorkerExitHookInstalled = false;
 
-export function pruneStaleChannelClientHeartbeats(clientDir, {
-  now = Date.now(),
-  maxAgeMs = 30_000,
-  pidAlive = isPidAlive,
-} = {}) {
+export function pruneStaleChannelClientHeartbeats(
+  clientDir,
+  { now = Date.now(), maxAgeMs = 30_000, pidAlive = isPidAlive } = {}
+) {
   let removed = 0;
   try {
     for (const name of readdirSync(clientDir)) {
       if (!/^\d+\.json$/.test(name)) continue;
       const target = join(clientDir, name);
       let row = null;
-      try { row = JSON.parse(readFileSync(target, 'utf8')); } catch {}
+      try {
+        row = JSON.parse(readFileSync(target, 'utf8'));
+      } catch {}
       const pid = Number(row?.pid);
       const updatedAt = Number(row?.updatedAt);
-      const stale = !Number.isInteger(pid) || pid <= 0
-        || !Number.isFinite(updatedAt)
-        || now - updatedAt > Math.max(5_000, Number(maxAgeMs) || 30_000)
-        || !pidAlive(pid);
+      const stale =
+        !Number.isInteger(pid) ||
+        pid <= 0 ||
+        !Number.isFinite(updatedAt) ||
+        now - updatedAt > Math.max(5_000, Number(maxAgeMs) || 30_000) ||
+        !pidAlive(pid);
       if (!stale) continue;
       try {
         rmSync(target, { force: true });
@@ -72,12 +71,16 @@ function registerChannelWorkerExitCleanup(cleanup) {
     channelWorkerExitHookInstalled = true;
     process.once('exit', () => {
       for (const fn of CHANNEL_WORKER_EXIT_CLEANUPS) {
-        try { fn(); } catch {}
+        try {
+          fn();
+        } catch {}
       }
       CHANNEL_WORKER_EXIT_CLEANUPS.clear();
     });
   }
-  return () => { CHANNEL_WORKER_EXIT_CLEANUPS.delete(cleanup); };
+  return () => {
+    CHANNEL_WORKER_EXIT_CLEANUPS.delete(cleanup);
+  };
 }
 
 export function createStandaloneChannelWorker({
@@ -116,11 +119,15 @@ export function createStandaloneChannelWorker({
         pruneStaleChannelClientHeartbeats(clientDir);
         clientDirReady = true;
       }
-      writeFile(clientPath, JSON.stringify({
-        pid: process.pid,
-        cwd,
-        updatedAt: Date.now(),
-      }), () => {});
+      writeFile(
+        clientPath,
+        JSON.stringify({
+          pid: process.pid,
+          cwd,
+          updatedAt: Date.now(),
+        }),
+        () => {}
+      );
     } catch {}
   }
 
@@ -134,7 +141,9 @@ export function createStandaloneChannelWorker({
       clearInterval(clientHeartbeatTimer);
       clientHeartbeatTimer = null;
     }
-    try { rmSync(clientPath, { force: true }); } catch {}
+    try {
+      rmSync(clientPath, { force: true });
+    } catch {}
   }
 
   function startClientHeartbeat() {
@@ -159,9 +168,7 @@ export function createStandaloneChannelWorker({
   // A session runtime may outlive the process that first spawned the machine
   // daemon. That process may be gone after daemon recovery, so callers that
   // own a live runtime can override the inherited identity.
-  const daemonLeadPid = Number(leadPid)
-    || Number(process.env.MIXDOG_SUPERVISOR_PID)
-    || process.pid;
+  const daemonLeadPid = Number(leadPid) || Number(process.env.MIXDOG_SUPERVISOR_PID) || process.pid;
   const discoveryPath = join(runtimeDir, 'daemon.json');
   const discoverChannel = () => readChannelDiscovery(discoveryPath);
   const daemonDelay = (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
@@ -173,7 +180,11 @@ export function createStandaloneChannelWorker({
     daemonClient = null;
     attachPromise = null;
     daemonPid = null;
-    if (client) { try { client.close(reason); } catch {} }
+    if (client) {
+      try {
+        client.close(reason);
+      } catch {}
+    }
   }
 
   function daemonEnv() {
@@ -230,9 +241,15 @@ export function createStandaloneChannelWorker({
       daemon.once('message', (message) => {
         if (message?.type !== 'ready') return;
         capture.noteReady();
-        try { daemon.disconnect?.(); } catch {}
-        try { daemon.unref?.(); } catch {}
-        try { daemon.stderr?.unref?.(); } catch {}
+        try {
+          daemon.disconnect?.();
+        } catch {}
+        try {
+          daemon.unref?.();
+        } catch {}
+        try {
+          daemon.stderr?.unref?.();
+        } catch {}
         done();
       });
       daemon.once('exit', done);
@@ -261,7 +278,11 @@ export function createStandaloneChannelWorker({
       leadPid: daemonLeadPid,
       cwd,
       restoreSessionId: typeof getSessionId === 'function' ? getSessionId() : null,
-      onNotify: (message) => { try { onNotify?.(message); } catch {} },
+      onNotify: (message) => {
+        try {
+          onNotify?.(message);
+        } catch {}
+      },
       onFatal: () => {
         fatalDuringAttach = true;
         invalidateDaemonClient('sse fatal', client);
@@ -309,7 +330,7 @@ export function createStandaloneChannelWorker({
               if (authRejections >= 5 || Date.now() >= deadline) {
                 throw new Error('channel service repeatedly rejected discovery authentication');
               }
-              await daemonDelay(Math.min(200 * (2 ** authRejections), 2_000));
+              await daemonDelay(Math.min(200 * 2 ** authRejections, 2_000));
               continue;
             }
           }
@@ -323,8 +344,9 @@ export function createStandaloneChannelWorker({
             timeoutMs: 3_000,
           });
           if (Number(health?.pid) === Number(discovery.pid)) {
-            try { return await doAttach(discovery, generation); }
-            catch (error) {
+            try {
+              return await doAttach(discovery, generation);
+            } catch (error) {
               if (!error?.daemonDiscoveryStale) throw error;
             }
           }
@@ -334,8 +356,11 @@ export function createStandaloneChannelWorker({
       }
     })();
     attachPromise = promise;
-    try { return await promise; }
-    finally { if (attachPromise === promise) attachPromise = null; }
+    try {
+      return await promise;
+    } finally {
+      if (attachPromise === promise) attachPromise = null;
+    }
   }
 
   function start() {
@@ -375,11 +400,20 @@ export function createStandaloneChannelWorker({
     attachPromise = null;
     daemonPid = null;
     stopPromise = Promise.all([
-      client ? client.close(reason, {
-        preserveRemoteIntent: options.preserveRemoteIntent === true,
-      }).then(() => true).catch(() => true) : Promise.resolve(false),
+      client
+        ? client
+            .close(reason, {
+              preserveRemoteIntent: options.preserveRemoteIntent === true,
+            })
+            .then(() => true)
+            .catch(() => true)
+        : Promise.resolve(false),
       Promise.resolve(inFlightAttach).catch(() => null),
-    ]).then(([detached]) => detached).finally(() => { stopPromise = null; });
+    ])
+      .then(([detached]) => detached)
+      .finally(() => {
+        stopPromise = null;
+      });
     return stopPromise;
   }
 

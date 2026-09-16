@@ -58,9 +58,7 @@ function parseDelimited(text, delimiter) {
 
 function serializeField(value, delimiter) {
   const text = value == null ? '' : String(value);
-  return /["\r\n]/.test(text) || text.includes(delimiter)
-    ? `"${text.replaceAll('"', '""')}"`
-    : text;
+  return /["\r\n]/.test(text) || text.includes(delimiter) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
 function serializeDelimited(rows, delimiter) {
@@ -114,12 +112,14 @@ function snapshotRows(path, format, rows, options = {}) {
     for (let column = 0; column < rows[row].length; column += 1) {
       const value = rows[row][column];
       if (value === '') continue;
-      if (bounds && (
-        row + 1 < bounds.start.row
-        || row + 1 > bounds.end.row
-        || column + 1 < bounds.start.column
-        || column + 1 > bounds.end.column
-      )) continue;
+      if (
+        bounds &&
+        (row + 1 < bounds.start.row ||
+          row + 1 > bounds.end.row ||
+          column + 1 < bounds.start.column ||
+          column + 1 > bounds.end.column)
+      )
+        continue;
       const ref = `${columnLabel(column + 1)}${row + 1}`;
       if (!paged || (totalCells >= offset && cells.length < limit)) {
         cells.push({
@@ -139,25 +139,29 @@ function snapshotRows(path, format, rows, options = {}) {
     path,
     delimiter: delimiterFor(format),
     sheetCount: 1,
-    sheets: [{
-      path: `/sheet[${name}]`,
-      name,
-      rows: rows.length,
-      columns,
-      cellCount: totalCells,
-      cells,
-    }],
-    ...(paged ? {
-      pagination: {
-        unit: 'populated-cell',
-        scope: `${name}${options.range ? `!${options.range}` : ''}`,
-        offset,
-        limit,
-        returned: cells.length,
-        total: totalCells,
-        nextOffset: offset + cells.length < totalCells ? offset + cells.length : null,
+    sheets: [
+      {
+        path: `/sheet[${name}]`,
+        name,
+        rows: rows.length,
+        columns,
+        cellCount: totalCells,
+        cells,
       },
-    } : {}),
+    ],
+    ...(paged
+      ? {
+          pagination: {
+            unit: 'populated-cell',
+            scope: `${name}${options.range ? `!${options.range}` : ''}`,
+            offset,
+            limit,
+            returned: cells.length,
+            total: totalCells,
+            nextOffset: offset + cells.length < totalCells ? offset + cells.length : null,
+          },
+        }
+      : {}),
   };
 }
 
@@ -183,20 +187,27 @@ export async function applyTabularBatch(path, format, operations) {
       const area = parseXlsxRange(operation.range);
       for (let row = 0; row < area.rows; row += 1) {
         for (let column = 0; column < area.columns; column += 1) {
-          setCell(rows, `${columnLabel(area.start.column + column)}${area.start.row + row}`, operation.values[row][column]);
+          setCell(
+            rows,
+            `${columnLabel(area.start.column + column)}${area.start.row + row}`,
+            operation.values[row][column]
+          );
         }
       }
       results.push({ op, changed: true, range: operation.range });
       continue;
     }
     if (op === 'append_row') {
-      rows.push((operation.values || []).map((value) => value == null ? '' : String(value)));
+      rows.push((operation.values || []).map((value) => (value == null ? '' : String(value))));
       results.push({ op, changed: true, row: rows.length });
       continue;
     }
     if (op === 'clear_cell') {
       const cell = parseXlsxCell(operation.cell);
-      const changed = cell.row <= rows.length && cell.column <= rows[cell.row - 1].length && rows[cell.row - 1][cell.column - 1] !== '';
+      const changed =
+        cell.row <= rows.length &&
+        cell.column <= rows[cell.row - 1].length &&
+        rows[cell.row - 1][cell.column - 1] !== '';
       if (changed) rows[cell.row - 1][cell.column - 1] = '';
       results.push({ op, changed, cell: cell.ref });
       continue;
@@ -268,8 +279,11 @@ export async function issuesTabular(path, format, options = {}) {
   // every well-formed row — the header included — read as broken.
   const tally = new Map();
   for (const width of widths) tally.set(width, (tally.get(width) || 0) + 1);
-  const expectedColumns = [...tally.entries()]
-    .sort((left, right) => right[1] - left[1] || (left[0] === widths[0] ? -1 : right[0] === widths[0] ? 1 : right[0] - left[0]))[0]?.[0] ?? 0;
+  const expectedColumns =
+    [...tally.entries()].sort(
+      (left, right) =>
+        right[1] - left[1] || (left[0] === widths[0] ? -1 : right[0] === widths[0] ? 1 : right[0] - left[0])
+    )[0]?.[0] ?? 0;
   for (let row = 0; row < rows.length; row += 1) {
     if (rows[row].length !== expectedColumns) {
       const extra = rows[row].length > expectedColumns;
@@ -277,17 +291,20 @@ export async function issuesTabular(path, format, options = {}) {
         severity: 'warning',
         code: 'ragged_row',
         path: `/row[${row + 1}]`,
-        message: `Row has ${rows[row].length} column(s); the file's rows are ${expectedColumns} wide.`
-          + `${extra ? ' An unquoted separator inside a value splits it into an extra column.' : ''}`,
+        message:
+          `Row has ${rows[row].length} column(s); the file's rows are ${expectedColumns} wide.` +
+          `${extra ? ' An unquoted separator inside a value splits it into an extra column.' : ''}`,
       });
     }
     for (let column = 0; column < rows[row].length; column += 1) {
-      if (bounds && (
-        row + 1 < bounds.start.row
-        || row + 1 > bounds.end.row
-        || column + 1 < bounds.start.column
-        || column + 1 > bounds.end.column
-      )) continue;
+      if (
+        bounds &&
+        (row + 1 < bounds.start.row ||
+          row + 1 > bounds.end.row ||
+          column + 1 < bounds.start.column ||
+          column + 1 > bounds.end.column)
+      )
+        continue;
       // A leading =, +, - or @ is how a spreadsheet is tricked into evaluating a
       // pasted value — but a negative figure starts the same way, and reporting
       // every one of them buries the one cell that actually carries a formula.
@@ -304,8 +321,20 @@ export async function issuesTabular(path, format, options = {}) {
     }
   }
   const validation = await validateTabular(path, format);
-  if (validation.invalidEncoding) issues.push({ severity: 'error', code: 'invalid_utf8', path: '/', message: 'File contains invalid UTF-8 replacement characters.' });
-  if (validation.nulBytes) issues.push({ severity: 'error', code: 'nul_byte', path: '/', message: `File contains ${validation.nulBytes} NUL byte(s).` });
+  if (validation.invalidEncoding)
+    issues.push({
+      severity: 'error',
+      code: 'invalid_utf8',
+      path: '/',
+      message: 'File contains invalid UTF-8 replacement characters.',
+    });
+  if (validation.nulBytes)
+    issues.push({
+      severity: 'error',
+      code: 'nul_byte',
+      path: '/',
+      message: `File contains ${validation.nulBytes} NUL byte(s).`,
+    });
   return {
     ok: validation.ok && !issues.some((issue) => issue.severity === 'error'),
     format,

@@ -1,6 +1,6 @@
-import { useLayoutEffect, type ReactNode, type RefObject } from "react";
-import { createPortal } from "react-dom";
-import { useSurfaceActive } from "./surface-activity";
+import { useLayoutEffect, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
+import { useSurfaceActive } from './surface-activity';
 
 /** Composer menus escape the input's stacking/paint containment, but keep
  * their React owner, selection refs, and textarea keyboard handling. */
@@ -9,8 +9,8 @@ export function ComposerPalette({
   panel,
   id,
   label,
-  className = "",
-  role = "listbox",
+  className = '',
+  role = 'listbox',
   children,
 }: {
   anchor: RefObject<HTMLElement | null>;
@@ -40,8 +40,10 @@ export function ComposerPalette({
       menu.style.width = `${menuWidth}px`;
       menu.style.bottom = `${window.innerHeight - menuBottom}px`;
       menu.style.maxHeight = `${Math.min(344, available)}px`;
-      menu.style.visibility = rect.width > 0 && rect.height > 0 && available > 0
-        && !input.closest('[inert], [aria-hidden="true"]') ? "visible" : "hidden";
+      menu.style.visibility =
+        rect.width > 0 && rect.height > 0 && available > 0 && !input.closest('[inert], [aria-hidden="true"]')
+          ? 'visible'
+          : 'hidden';
     };
     place();
     // Ancestor sizes can move an unchanged input (diff/goal close, split
@@ -50,27 +52,29 @@ export function ComposerPalette({
     const visibility = new MutationObserver(place);
     for (let node: HTMLElement | null = input; node; node = node.parentElement) {
       resize.observe(node);
-      visibility.observe(node, { attributes: true, attributeFilter: ["inert", "aria-hidden", "hidden", "class", "style"] });
+      visibility.observe(node, {
+        attributes: true,
+        attributeFilter: ['inert', 'aria-hidden', 'hidden', 'class', 'style'],
+      });
     }
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
-    visual?.addEventListener("resize", place);
-    visual?.addEventListener("scroll", place);
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    visual?.addEventListener('resize', place);
+    visual?.addEventListener('scroll', place);
     return () => {
       resize.disconnect();
       visibility.disconnect();
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
-      visual?.removeEventListener("resize", place);
-      visual?.removeEventListener("scroll", place);
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+      visual?.removeEventListener('resize', place);
+      visual?.removeEventListener('scroll', place);
     };
   }, [active, anchor, panel]);
   if (!active) return null;
   return createPortal(
-    <div ref={panel} id={id} className={`slash-palette ${className}`.trim()}
-      role={role} aria-label={label}>
+    <div ref={panel} id={id} className={`slash-palette ${className}`.trim()} role={role} aria-label={label}>
       {children}
     </div>,
-    document.body,
+    document.body
   );
 }

@@ -8,7 +8,9 @@ import { fileURLToPath } from 'node:url';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 
-test('managed server transcribes and restarts while the preferred port stays occupied', { timeout: 45_000 }, async (t) => {
+test('managed server transcribes and restarts while the preferred port stays occupied', {
+  timeout: 45_000,
+}, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mixdog-whisper-test-'));
   const foreign = net.createServer((socket) => socket.end());
   await new Promise((resolve) => foreign.listen(0, '127.0.0.1', resolve));

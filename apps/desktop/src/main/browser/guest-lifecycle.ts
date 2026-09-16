@@ -8,22 +8,11 @@ import { app, BrowserWindow } from 'electron';
 
 import { DESKTOP_IPC } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
-import {
-  BROWSER_PARTITION,
-  NAVIGATE_SETTLE_TIMEOUT_MS,
-  OFFSCREEN_VIEWPORT,
-} from './command';
+import { BROWSER_PARTITION, NAVIGATE_SETTLE_TIMEOUT_MS, OFFSCREEN_VIEWPORT } from './command';
 import { type BrowserGuestStateStore, pushBounded } from './guest-state';
-import {
-  type BrowserSessionRegistry,
-  DEFAULT_BROWSER_SESSION_ID,
-} from './session-registry';
+import { type BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID } from './session-registry';
 import { createBrowserPageOwner } from './page-owner';
-import {
-  assertBackgroundTabCapacity,
-  backgroundPageIdle,
-  normalizeBackgroundTabName,
-} from './tab-policy';
+import { assertBackgroundTabCapacity, backgroundPageIdle, normalizeBackgroundTabName } from './tab-policy';
 import type { BackgroundPage } from './tabs';
 import { type BrowserUrlPolicy, normalizePageUrl, normalizeRestoredPageUrl } from './url-policy';
 
@@ -52,16 +41,7 @@ export function browserSharedTextureRendering(): boolean {
 }
 
 export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
-  const {
-    window,
-    state,
-    sessions,
-    cdp,
-    urlPolicy,
-    bridgeWanted,
-    isBackgroundBusy,
-    waitForLoadSettle,
-  } = host;
+  const { window, state, sessions, cdp, urlPolicy, bridgeWanted, isBackgroundBusy, waitForLoadSettle } = host;
   const nextPopupIdsBySession = new Map<string, number>();
   type SavedPage = {
     name?: string;
@@ -104,10 +84,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
         normalizePageUrl(url, urlPolicy);
       } catch (error) {
         event.preventDefault();
-        pushBounded(
-          state.for(guest).networkFailures,
-          `Blocked page navigation: ${(error as Error).message}`,
-        );
+        pushBounded(state.for(guest).networkFailures, `Blocked page navigation: ${(error as Error).message}`);
       }
     };
     guest.on('will-navigate', blockUnsafeNavigation);
@@ -132,10 +109,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
           },
         };
       } catch (error) {
-        pushBounded(
-          state.for(guest).networkFailures,
-          `Blocked popup navigation: ${(error as Error).message}`,
-        );
+        pushBounded(state.for(guest).networkFailures, `Blocked popup navigation: ${(error as Error).message}`);
         return { action: 'deny' };
       }
     });
@@ -144,28 +118,20 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
       try {
         assertBackgroundTabCapacity(sessions.backgroundCount());
       } catch (error) {
-        pushBounded(
-          state.for(guest).networkFailures,
-          `Blocked popup creation: ${(error as Error).message}`,
-        );
-        try { child.destroy(); } catch { /* creation already failed */ }
+        pushBounded(state.for(guest).networkFailures, `Blocked popup creation: ${(error as Error).message}`);
+        try {
+          child.destroy();
+        } catch {
+          /* creation already failed */
+        }
         return;
       }
       const ownerSessionId = sessions.sessionIdForGuest(guest) ?? DEFAULT_BROWSER_SESSION_ID;
-      trackBackgroundPage(
-        ownerSessionId,
-        nextPopupTabName(ownerSessionId),
-        child,
-        'popup',
-        state.pageId(guest),
-      );
+      trackBackgroundPage(ownerSessionId, nextPopupTabName(ownerSessionId), child, 'popup', state.pageId(guest));
       host.onPopup?.(guest, child.webContents);
     });
     guest.on('render-process-gone', (_event, details) => {
-      state.markCrashed(
-        guest,
-        `renderer ${details.reason}${details.exitCode ? ` (exit ${details.exitCode})` : ''}`,
-      );
+      state.markCrashed(guest, `renderer ${details.reason}${details.exitCode ? ` (exit ${details.exitCode})` : ''}`);
     });
     guest.on('unresponsive', () => {
       state.for(guest).fault = 'page became unresponsive';
@@ -190,9 +156,9 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
   /** Bring CDP up ahead of the first command; a failure is a page diagnostic,
    *  not a host error. */
   function attachDebuggerEagerly(guest: WebContents): void {
-    void cdp.guestDebugger(guest).catch((error) => state.for(guest).console.recordError(
-      `CDP initialization failed: ${(error as Error).message}`,
-    ));
+    void cdp
+      .guestDebugger(guest)
+      .catch((error) => state.for(guest).console.recordError(`CDP initialization failed: ${(error as Error).message}`));
   }
 
   // A legacy/misconfigured renderer must not reintroduce the shared input tree.
@@ -203,26 +169,25 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     initialize: initializeGuest,
   });
 
-  function backgroundEntryByPageId(
-    sessionId: string,
-    pageId: string,
-  ): [string, BackgroundPage] | null {
+  function backgroundEntryByPageId(sessionId: string, pageId: string): [string, BackgroundPage] | null {
     for (const entry of sessions.backgroundPages(sessionId)) {
-      if (!entry[1].window.isDestroyed()
-        && state.pageId(entry[1].window.webContents).toLowerCase() === pageId.toLowerCase()) {
+      if (
+        !entry[1].window.isDestroyed() &&
+        state.pageId(entry[1].window.webContents).toLowerCase() === pageId.toLowerCase()
+      ) {
         return entry;
       }
     }
     return null;
   }
 
-  function destroyBackgroundPage(
-    sessionId: string,
-    name: string,
-    entry: BackgroundPage,
-  ): void {
+  function destroyBackgroundPage(sessionId: string, name: string, entry: BackgroundPage): void {
     if (!entry.window.isDestroyed()) {
-      try { entry.window.destroy(); } catch { /* teardown already won */ }
+      try {
+        entry.window.destroy();
+      } catch {
+        /* teardown already won */
+      }
     }
     sessions.deleteBackgroundPage(sessionId, name, entry);
   }
@@ -232,14 +197,21 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     if (restore && !restoringSessions.has(sessionId)) {
       const selected = sessions.currentGuest(sessionId);
       const save = (guest: WebContents, kind: SavedPage['kind'], name?: string, keepAlive?: boolean): SavedPage => ({
-        name, kind, keepAlive, url: guest.getURL() || 'about:blank',
-        active: guest === selected, zoom: guest.getZoomFactor(),
-        size: (BrowserWindow.fromWebContents(guest)?.getContentSize()
-          ?? [OFFSCREEN_VIEWPORT.width, OFFSCREEN_VIEWPORT.height]) as [number, number],
+        name,
+        kind,
+        keepAlive,
+        url: guest.getURL() || 'about:blank',
+        active: guest === selected,
+        zoom: guest.getZoomFactor(),
+        size: (BrowserWindow.fromWebContents(guest)?.getContentSize() ?? [
+          OFFSCREEN_VIEWPORT.width,
+          OFFSCREEN_VIEWPORT.height,
+        ]) as [number, number],
       });
       const pages = [
-        ...sessions.visibleGuests(sessionId).map(guest => save(guest, 'primary')),
-        ...[...sessions.backgroundPages(sessionId)].filter(([, page]) => !page.guest.isDestroyed())
+        ...sessions.visibleGuests(sessionId).map((guest) => save(guest, 'primary')),
+        ...[...sessions.backgroundPages(sessionId)]
+          .filter(([, page]) => !page.guest.isDestroyed())
           .map(([name, page]) => save(page.guest, page.kind, name, page.keepAlive)),
       ];
       if (pages.length) suspendedSessions.set(sessionId, pages);
@@ -259,52 +231,62 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     if (existing) return existing;
     const saved = suspendedSessions.get(sessionId);
     if (!saved) return Promise.resolve();
-    const work = Promise.resolve().then(async () => {
-      const urls = new Map(saved.map(page => [page, normalizeRestoredPageUrl(page.url, urlPolicy)]));
-      const backgrounds = saved.filter(page => page.kind !== 'primary');
-      if (backgrounds.length) {
-        assertBackgroundTabCapacity(sessions.backgroundCount() + backgrounds.length - 1);
-      }
-      const primary = await primaryPages.ensure(sessionId);
-      if (restoringSessions.get(sessionId) !== work || suspendedSessions.get(sessionId) !== saved) {
-        throw new Error('Browser page changed during restore.');
-      }
-      let selected = primary;
-      const apply = (guest: WebContents, page: SavedPage) => {
-        BrowserWindow.fromWebContents(guest)?.setContentSize(page.size[0], page.size[1]);
-        guest.setZoomFactor(page.zoom);
-        if (page.active) selected = guest;
-        // Restoration is a normal reload, not form/JS/opener resurrection.
-        // Admission still runs through the partition and navigation handlers.
-        void guest.loadURL(urls.get(page)!).catch(() => {});
-      };
-      const primaryState = saved.find(page => page.kind === 'primary');
-      if (primaryState) apply(primary, primaryState);
-      for (const page of backgrounds) {
-        const win = new BrowserWindow(offscreenWindowOptions());
-        const entry = trackBackgroundPage(sessionId, page.name!, win,
-          page.kind === 'popup' ? 'user' : page.kind as BackgroundPage['kind'], undefined, true);
-        // Commit a document before CDP may attach; otherwise its blank-page
-        // initialization aborts the URL reload we are trying to restore.
-        await entry.guest.loadURL('about:blank');
+    const work = Promise.resolve()
+      .then(async () => {
+        const urls = new Map(saved.map((page) => [page, normalizeRestoredPageUrl(page.url, urlPolicy)]));
+        const backgrounds = saved.filter((page) => page.kind !== 'primary');
+        if (backgrounds.length) {
+          assertBackgroundTabCapacity(sessions.backgroundCount() + backgrounds.length - 1);
+        }
+        const primary = await primaryPages.ensure(sessionId);
         if (restoringSessions.get(sessionId) !== work || suspendedSessions.get(sessionId) !== saved) {
           throw new Error('Browser page changed during restore.');
         }
-        entry.keepAlive = page.keepAlive || page.kind === 'popup';
-        apply(entry.guest, page);
-      }
-      sessions.selectGuest(sessionId, selected);
-      suspendedSessions.delete(sessionId);
-    }).catch(error => {
-      // Preserve descriptors for a retry, but release a partially recreated
-      // set. An obsolete restore may never tear down its successor.
-      if (restoringSessions.get(sessionId) === work) releaseSession(sessionId, true);
-      throw error;
-    });
+        let selected = primary;
+        const apply = (guest: WebContents, page: SavedPage) => {
+          BrowserWindow.fromWebContents(guest)?.setContentSize(page.size[0], page.size[1]);
+          guest.setZoomFactor(page.zoom);
+          if (page.active) selected = guest;
+          // Restoration is a normal reload, not form/JS/opener resurrection.
+          // Admission still runs through the partition and navigation handlers.
+          void guest.loadURL(urls.get(page)!).catch(() => {});
+        };
+        const primaryState = saved.find((page) => page.kind === 'primary');
+        if (primaryState) apply(primary, primaryState);
+        for (const page of backgrounds) {
+          const win = new BrowserWindow(offscreenWindowOptions());
+          const entry = trackBackgroundPage(
+            sessionId,
+            page.name!,
+            win,
+            page.kind === 'popup' ? 'user' : (page.kind as BackgroundPage['kind']),
+            undefined,
+            true
+          );
+          // Commit a document before CDP may attach; otherwise its blank-page
+          // initialization aborts the URL reload we are trying to restore.
+          await entry.guest.loadURL('about:blank');
+          if (restoringSessions.get(sessionId) !== work || suspendedSessions.get(sessionId) !== saved) {
+            throw new Error('Browser page changed during restore.');
+          }
+          entry.keepAlive = page.keepAlive || page.kind === 'popup';
+          apply(entry.guest, page);
+        }
+        sessions.selectGuest(sessionId, selected);
+        suspendedSessions.delete(sessionId);
+      })
+      .catch((error) => {
+        // Preserve descriptors for a retry, but release a partially recreated
+        // set. An obsolete restore may never tear down its successor.
+        if (restoringSessions.get(sessionId) === work) releaseSession(sessionId, true);
+        throw error;
+      });
     restoringSessions.set(sessionId, work);
-    void work.finally(() => {
-      if (restoringSessions.get(sessionId) === work) restoringSessions.delete(sessionId);
-    }).catch(() => {});
+    void work
+      .finally(() => {
+        if (restoringSessions.get(sessionId) === work) restoringSessions.delete(sessionId);
+      })
+      .catch(() => {});
     return work;
   }
 
@@ -321,9 +303,13 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
         sessions.deleteBackgroundPage(sessionId, name, entry);
         continue;
       }
-      if (entry.kind === 'agent' && !entry.keepAlive
-        && sessions.currentGuest(sessionId) !== entry.guest
-        && backgroundPageIdle(entry.lastUsedAt, now) && !isBackgroundBusy(sessionId, name)) {
+      if (
+        entry.kind === 'agent' &&
+        !entry.keepAlive &&
+        sessions.currentGuest(sessionId) !== entry.guest &&
+        backgroundPageIdle(entry.lastUsedAt, now) &&
+        !isBackgroundBusy(sessionId, name)
+      ) {
         destroyBackgroundPage(sessionId, name, entry);
       }
     }
@@ -345,7 +331,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     win: BrowserWindow,
     kind: BackgroundPage['kind'],
     openerPageId?: string,
-    deferDebugger = kind === 'popup',
+    deferDebugger = kind === 'popup'
   ): BackgroundPage {
     const entry: BackgroundPage = {
       window: win,
@@ -391,12 +377,9 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
 
   /** Visibility requests only affect the display client, never page ownership
    * or OS focus. Creation works even when the owning session is not mounted. */
-  async function ensureGuest(
-    sessionId: string,
-    options: { reveal?: boolean } = {},
-  ): Promise<WebContents> {
+  async function ensureGuest(sessionId: string, options: { reveal?: boolean } = {}): Promise<WebContents> {
     await restoreSession(sessionId);
-    const guest = sessions.liveGuest(sessionId) ?? await primaryPages.ensure(sessionId);
+    const guest = sessions.liveGuest(sessionId) ?? (await primaryPages.ensure(sessionId));
     if (options.reveal !== false) requestBrowserSurface(sessionId, true);
     return guest;
   }

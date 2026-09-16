@@ -7,12 +7,7 @@ export class SessionAttachmentPool {
   #reattachTimer = null;
   #liveViews = new Set();
 
-  constructor({
-    attachSession,
-    createProtocolClient,
-    ensureDaemon,
-    onIdle = () => {},
-  }) {
+  constructor({ attachSession, createProtocolClient, ensureDaemon, onIdle = () => {} }) {
     this.#attachSession = attachSession;
     this.#createProtocolClient = createProtocolClient;
     this.#ensureDaemon = ensureDaemon;

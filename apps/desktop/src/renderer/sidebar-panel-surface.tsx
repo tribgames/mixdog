@@ -1,4 +1,4 @@
-import { Component, useLayoutEffect, useRef, type ReactNode } from "react";
+import { Component, useLayoutEffect, useRef, type ReactNode } from 'react';
 
 /**
  * Shared lifecycle helpers for the rail destinations hosted in the session
@@ -29,13 +29,16 @@ export function useSidebarPanelDismiss(active: boolean, dismiss: () => void): vo
  * unavailable state with a retry that mounts a FRESH lazy component
  * (React.lazy caches a rejected loader forever).
  */
-export class SidebarPanelBoundary extends Component<{
-  label: string;
-  active: boolean;
-  onFailure?(error: unknown): void;
-  onRetry?(): void;
-  children: ReactNode;
-}, { failed: boolean }> {
+export class SidebarPanelBoundary extends Component<
+  {
+    label: string;
+    active: boolean;
+    onFailure?(error: unknown): void;
+    onRetry?(): void;
+    children: ReactNode;
+  },
+  { failed: boolean }
+> {
   state = { failed: false };
 
   static getDerivedStateFromError(): { failed: boolean } {
@@ -56,19 +59,22 @@ export class SidebarPanelBoundary extends Component<{
     const { active, label } = this.props;
     // Same surface grammar as a loaded pane: it can be presented, hidden, and
     // swapped like any other destination without special-casing.
-    return <div
-      className="schedules-pane sidebar-panel-unavailable stable-surface-preserved"
-      data-surface-active={active ? "true" : "false"}
-      inert={active ? undefined : true}
-      aria-hidden={active ? undefined : true}>
-      <div className="schedules-page">
-        <div className="schedules-empty" role="status">
-          <p>{label} could not be loaded.</p>
-          <button type="button" className="sidebar-panel-retry" onClick={this.retry}>
-            Retry
-          </button>
+    return (
+      <div
+        className="schedules-pane sidebar-panel-unavailable stable-surface-preserved"
+        data-surface-active={active ? 'true' : 'false'}
+        inert={active ? undefined : true}
+        aria-hidden={active ? undefined : true}
+      >
+        <div className="schedules-page">
+          <div className="schedules-empty" role="status">
+            <p>{label} could not be loaded.</p>
+            <button type="button" className="sidebar-panel-retry" onClick={this.retry}>
+              Retry
+            </button>
+          </div>
         </div>
       </div>
-    </div>;
+    );
   }
 }

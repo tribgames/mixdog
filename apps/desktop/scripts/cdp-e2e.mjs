@@ -3,35 +3,30 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  DESKTOP_READ_CAPABILITIES,
-} from '../src/shared/contract.ts';
-import {
-  SLASH_COMMANDS as desktopSlashCommands,
-} from '../src/renderer/slash-commands.ts';
+import { DESKTOP_READ_CAPABILITIES } from '../src/shared/contract.ts';
+import { SLASH_COMMANDS as desktopSlashCommands } from '../src/renderer/slash-commands.ts';
 import {
   SETTINGS_CATEGORIES,
   SETTINGS_ITEMS,
   categoryForSettingsItem,
 } from '../src/renderer/settings/settings-items.ts';
-import {
-  SLASH_COMMANDS as tuiSlashCommands,
-} from '../../../src/tui/app/slash-commands.mjs';
+import { SLASH_COMMANDS as tuiSlashCommands } from '../../../src/tui/app/slash-commands.mjs';
 
 const [webSocketUrl, projectPath] = process.argv.slice(2);
 if (!webSocketUrl || !projectPath) {
   throw new Error('Usage: node --import tsx scripts/cdp-e2e.mjs <webSocketUrl> <projectPath>');
 }
 
-const publicFields = (command) => Object.fromEntries(
-  ['name', 'usage', 'aliases', 'aliasUsage', 'showAliasUsage', 'params', 'description']
-    .filter((field) => Object.hasOwn(command, field))
-    .map((field) => [field, command[field]]),
-);
+const publicFields = (command) =>
+  Object.fromEntries(
+    ['name', 'usage', 'aliases', 'aliasUsage', 'showAliasUsage', 'params', 'description']
+      .filter((field) => Object.hasOwn(command, field))
+      .map((field) => [field, command[field]])
+  );
 assert.deepEqual(
   desktopSlashCommands.map(publicFields),
   tuiSlashCommands.map(publicFields),
-  'Desktop command inventory drifted from the TUI registry.',
+  'Desktop command inventory drifted from the TUI registry.'
 );
 
 async function largestStoredSessionId(sessionIds) {
@@ -86,25 +81,36 @@ class CdpClient {
         return;
       }
       if (message.method === 'Runtime.exceptionThrown') {
-        this.exceptions.push(message.params?.exceptionDetails?.exception?.description
-          || message.params?.exceptionDetails?.text || 'Unknown renderer exception');
+        this.exceptions.push(
+          message.params?.exceptionDetails?.exception?.description ||
+            message.params?.exceptionDetails?.text ||
+            'Unknown renderer exception'
+        );
       }
       if (message.method === 'Runtime.consoleAPICalled' && message.params?.type === 'error') {
-        this.consoleErrors.push((message.params.args || [])
-          .map((argument) => argument.value ?? argument.description ?? '')
-          .join(' '));
+        this.consoleErrors.push(
+          (message.params.args || []).map((argument) => argument.value ?? argument.description ?? '').join(' ')
+        );
       }
     });
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('CDP connection timed out.')), 15_000);
-      this.socket.addEventListener('open', () => {
-        clearTimeout(timer);
-        resolve();
-      }, { once: true });
-      this.socket.addEventListener('error', () => {
-        clearTimeout(timer);
-        reject(new Error('CDP websocket failed.'));
-      }, { once: true });
+      this.socket.addEventListener(
+        'open',
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true }
+      );
+      this.socket.addEventListener(
+        'error',
+        () => {
+          clearTimeout(timer);
+          reject(new Error('CDP websocket failed.'));
+        },
+        { once: true }
+      );
     });
     await this.request('Runtime.enable');
   }
@@ -122,11 +128,15 @@ class CdpClient {
   }
 
   async evaluate(expression, timeoutMs = 45_000) {
-    const result = await this.request('Runtime.evaluate', {
-      expression,
-      awaitPromise: true,
-      returnByValue: true,
-    }, timeoutMs);
+    const result = await this.request(
+      'Runtime.evaluate',
+      {
+        expression,
+        awaitPromise: true,
+        returnByValue: true,
+      },
+      timeoutMs
+    );
     if (result.exceptionDetails) {
       throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
     }
@@ -572,17 +582,19 @@ try {
   const startedAt = Date.now();
   const baselineSessionIds = await client.evaluate(`window.mixdogDesktop.listSessions().then((rows) =>
     rows.slice().sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)).map((row) => row.id))`);
-  const sessionAuditId = await largestStoredSessionId(baselineSessionIds) || baselineSessionIds[0] || '';
+  const sessionAuditId = (await largestStoredSessionId(baselineSessionIds)) || baselineSessionIds[0] || '';
   await client.evaluate(`window.mixdogDesktop.startProject(${JSON.stringify(projectPath)})`, 60_000);
 
   const settingRoutes = [];
   for (const command of desktopSlashCommands.filter((entry) => entry.settingsRow)) {
     const category = categoryForSettingsItem(command.settingsRow);
     const label = SETTINGS_CATEGORIES.find((entry) => entry.value === category)?.label;
-    settingRoutes.push(await client.evaluate(
-      `window.__mixdogE2e.settingsRoute(${JSON.stringify(command.name)}, ${JSON.stringify(label)})`,
-      60_000,
-    ));
+    settingRoutes.push(
+      await client.evaluate(
+        `window.__mixdogE2e.settingsRoute(${JSON.stringify(command.name)}, ${JSON.stringify(label)})`,
+        60_000
+      )
+    );
   }
 
   const surfaceTitles = {
@@ -599,18 +611,22 @@ try {
   const commandSurfaces = [];
   for (const command of desktopSlashCommands.filter((entry) => entry.surface)) {
     try {
-      commandSurfaces.push(await client.evaluate(
-        `window.__mixdogE2e.commandSurface(${JSON.stringify(command.name)}, ${JSON.stringify(surfaceTitles[command.surface])})`,
-        90_000,
-      ));
+      commandSurfaces.push(
+        await client.evaluate(
+          `window.__mixdogE2e.commandSurface(${JSON.stringify(command.name)}, ${JSON.stringify(surfaceTitles[command.surface])})`,
+          90_000
+        )
+      );
     } catch (reason) {
-      throw new Error(`/${command.name} command surface acceptance failed: ${reason instanceof Error ? reason.message : String(reason)}`);
+      throw new Error(
+        `/${command.name} command surface acceptance failed: ${reason instanceof Error ? reason.message : String(reason)}`
+      );
     }
   }
 
   const settingsAudit = await client.evaluate(
     `window.__mixdogE2e.auditSettings(${JSON.stringify(SETTINGS_CATEGORIES)})`,
-    180_000,
+    180_000
   );
   const project = await client.evaluate('window.__mixdogE2e.projectRoute()', 60_000);
   const resume = await client.evaluate('window.__mixdogE2e.resumeRoute()', 60_000);
@@ -625,23 +641,25 @@ try {
   const readCapabilities = DESKTOP_READ_CAPABILITIES.filter((capability) => capability !== 'skillContent');
   const capabilityResults = await client.evaluate(
     `window.mixdogDesktop.readCapabilities(${JSON.stringify(readCapabilities.map((capability) => ({ capability })))})`,
-    180_000,
+    180_000
   );
   assert.equal(capabilityResults.length, readCapabilities.length);
-  const capabilityFailures = capabilityResults.flatMap((result, index) => result.ok
-    ? []
-    : [{ capability: readCapabilities[index], error: result.error }]);
+  const capabilityFailures = capabilityResults.flatMap((result, index) =>
+    result.ok ? [] : [{ capability: readCapabilities[index], error: result.error }]
+  );
   assert.deepEqual(capabilityFailures, [], 'One or more real desktop capability reads failed.');
   const inputRetries = await client.evaluate('window.__mixdogE2e.inputRetries');
   const sessionTimeline = await client.evaluate(
     `window.__mixdogE2e.auditSessionTimeline(${JSON.stringify(sessionAuditId)})`,
-    90_000,
+    90_000
   );
   const heapUsage = await client.request('Runtime.getHeapUsage');
   const domCounters = await client.request('Memory.getDOMCounters');
-  const heapMegabytes = Object.fromEntries(Object.entries(heapUsage)
-    .filter(([, value]) => Number.isFinite(value))
-    .map(([key, value]) => [key, Math.round((value / 1024 / 1024) * 100) / 100]));
+  const heapMegabytes = Object.fromEntries(
+    Object.entries(heapUsage)
+      .filter(([, value]) => Number.isFinite(value))
+      .map(([key, value]) => [key, Math.round((value / 1024 / 1024) * 100) / 100])
+  );
   let afterGarbageCollection = null;
   if (process.env.MIXDOG_E2E_COLLECT_GC === '1') {
     await client.request('HeapProfiler.collectGarbage');
@@ -650,9 +668,11 @@ try {
       client.request('Memory.getDOMCounters'),
     ]);
     afterGarbageCollection = {
-      heapUsageMb: Object.fromEntries(Object.entries(collectedHeap)
-        .filter(([, value]) => Number.isFinite(value))
-        .map(([key, value]) => [key, Math.round((value / 1024 / 1024) * 100) / 100])),
+      heapUsageMb: Object.fromEntries(
+        Object.entries(collectedHeap)
+          .filter(([, value]) => Number.isFinite(value))
+          .map(([key, value]) => [key, Math.round((value / 1024 / 1024) * 100) / 100])
+      ),
       domCounters: collectedDom,
     };
   }

@@ -1,8 +1,19 @@
 // Canonical route order — the single surface order wherever tools serialize:
 // locator → path → content → symbol → read → edit → execute.
 export const ROUTE_TOOL_ORDER = Object.freeze([
-  'find', 'glob', 'list', 'grep', 'code_graph', 'read',
-  'edit', 'apply_patch', 'git', 'git_stage', 'github', 'shell', 'task',
+  'find',
+  'glob',
+  'list',
+  'grep',
+  'code_graph',
+  'read',
+  'edit',
+  'apply_patch',
+  'git',
+  'git_stage',
+  'github',
+  'shell',
+  'task',
 ]);
 
 // Measured call counts (3-day trace window); orders the unrouted tail and
@@ -26,25 +37,59 @@ export const MEASURED_TOOL_USAGE = Object.freeze({
 });
 
 export const DEFERRED_DEFAULT_FULL_TOOLS = Object.freeze([
-  'find', 'glob', 'list', 'grep', 'code_graph', 'read',
-  'edit', 'apply_patch', 'Skill', 'load_tool',
+  'find',
+  'glob',
+  'list',
+  'grep',
+  'code_graph',
+  'read',
+  'edit',
+  'apply_patch',
+  'Skill',
+  'load_tool',
 ]);
 export const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
-  'find', 'glob', 'list', 'grep', 'code_graph', 'read',
-  'Skill', 'load_tool',
+  'find',
+  'glob',
+  'list',
+  'grep',
+  'code_graph',
+  'read',
+  'Skill',
+  'load_tool',
 ]);
 export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
-  'find', 'glob', 'list', 'grep', 'code_graph', 'read',
+  'find',
+  'glob',
+  'list',
+  'grep',
+  'code_graph',
+  'read',
   // cwd / web_fetch demoted to the deferred manifest 2026-08:
   // 0 / 10 calls in a 3-day 7.6k-call trace window; they auto-load on
   // first direct call.
-  'edit', 'apply_patch', 'git', 'shell', 'task', 'agent',
-  'Skill', 'load_tool',
+  'edit',
+  'apply_patch',
+  'git',
+  'shell',
+  'task',
+  'agent',
+  'Skill',
+  'load_tool',
 ]);
 
 export const READONLY_TOOL_NAMES = new Set([
-  'read', 'list', 'grep', 'find', 'glob', 'code_graph', 'web_search',
-  'web_fetch', 'recall', 'memory', 'Skill',
+  'read',
+  'list',
+  'grep',
+  'find',
+  'glob',
+  'code_graph',
+  'web_search',
+  'web_fetch',
+  'recall',
+  'memory',
+  'Skill',
 ]);
 
 export const DEFERRED_SELECT_ALIASES = {

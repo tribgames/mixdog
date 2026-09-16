@@ -18,33 +18,47 @@ async function fixture(t) {
   const webContents = { mainFrame, isDestroyed: () => false, send() {} };
   const opened = [];
   let failure = '';
-  const remove = registerDesktopIpc({ webContents, isDestroyed: () => false }, {
-    subscribe: () => () => {},
-    subscribeSessionStates: () => () => {},
-    listProjects: async () => [],
-    invokeDesktopOperation: async (method, args) => projectFiles[method](...args),
-  }, {
-    app: { quit() {} },
-    ipcMain: {
-      handle: (channel, listener) => handlers.set(channel, listener),
-      removeHandler: (channel) => handlers.delete(channel),
-      on() {},
-      removeListener() {},
+  const remove = registerDesktopIpc(
+    { webContents, isDestroyed: () => false },
+    {
+      subscribe: () => () => {},
+      subscribeSessionStates: () => () => {},
+      listProjects: async () => [],
+      invokeDesktopOperation: async (method, args) => projectFiles[method](...args),
     },
-    dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
-    shell: {
-      openPath: async (file) => { opened.push(file); return failure; },
-      openExternal: async () => {},
-    },
-  });
+    {
+      app: { quit() {} },
+      ipcMain: {
+        handle: (channel, listener) => handlers.set(channel, listener),
+        removeHandler: (channel) => handlers.delete(channel),
+        on() {},
+        removeListener() {},
+      },
+      dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
+      shell: {
+        openPath: async (file) => {
+          opened.push(file);
+          return failure;
+        },
+        openExternal: async () => {},
+      },
+    }
+  );
   t.after(remove);
   const event = { sender: webContents, senderFrame: mainFrame };
   const handler = handlers.get(DESKTOP_IPC.openLocalFileLink);
   assert.equal(typeof handler, 'function');
   return {
-    directory, project, opened, handler, event, handlers,
+    directory,
+    project,
+    opened,
+    handler,
+    event,
+    handlers,
     invoke: (href, root = project) => handler(event, root, href),
-    fail: (message) => { failure = message; },
+    fail: (message) => {
+      failure = message;
+    },
   };
 }
 
@@ -84,11 +98,20 @@ test('external chat files use existing selected-file access for reading and savi
   assert.equal(initial.binary, false);
   await invoke(DESKTOP_IPC.statProjectFile, target.projectPath, target.relPath, target.accessToken);
   assert.equal(await f.invoke(target.relPath, target.projectPath), 'editor');
-  await invoke(DESKTOP_IPC.writeProjectFile, target.projectPath, target.relPath,
-    'export const value = 2;\n', initial.content, target.accessToken, initial.encoding);
+  await invoke(
+    DESKTOP_IPC.writeProjectFile,
+    target.projectPath,
+    target.relPath,
+    'export const value = 2;\n',
+    initial.content,
+    target.accessToken,
+    initial.encoding
+  );
   assert.equal((await read()).content, 'export const value = 2;\n');
-  await assert.rejects(invoke(DESKTOP_IPC.readProjectFile, target.projectPath, 'other.ts', target.accessToken),
-    /does not match/);
+  await assert.rejects(
+    invoke(DESKTOP_IPC.readProjectFile, target.projectPath, 'other.ts', target.accessToken),
+    /does not match/
+  );
   assert.deepEqual(f.opened, []);
 });
 
@@ -97,13 +120,22 @@ test('chat file IPC rejects traversal, network paths, schemes and malformed path
   const outside = join(f.directory, 'outside.pdf');
   await writeFile(outside, 'outside');
   for (const href of [
-    '../outside.pdf', '%2e%2e%2foutside.pdf',
-    outside, pathToFileURL(outside).href,
-    '//server/share/document.pdf', '\\\\server\\share\\document.pdf',
-    'file://server/share/document.pdf', 'https://example.com/document.pdf',
-    'javascript:alert(1)', 'data:text/plain,hello',
-    'C:relative.pdf', 'output/preview.pdf:run.exe',
-    'output/%00.pdf', 'output/%FF.pdf', '', 42,
+    '../outside.pdf',
+    '%2e%2e%2foutside.pdf',
+    outside,
+    pathToFileURL(outside).href,
+    '//server/share/document.pdf',
+    '\\\\server\\share\\document.pdf',
+    'file://server/share/document.pdf',
+    'https://example.com/document.pdf',
+    'javascript:alert(1)',
+    'data:text/plain,hello',
+    'C:relative.pdf',
+    'output/preview.pdf:run.exe',
+    'output/%00.pdf',
+    'output/%FF.pdf',
+    '',
+    42,
   ]) {
     await assert.rejects(async () => f.invoke(href), undefined, String(href));
   }
@@ -113,8 +145,24 @@ test('chat file IPC rejects traversal, network paths, schemes and malformed path
 
 test('chat file IPC never launches executables, shortcuts, macro-enabled or text files; it hands them to the editor', async (t) => {
   const f = await fixture(t);
-  for (const name of ['exe', 'cmd', 'bat', 'ps1', 'js', 'vbs', 'lnk', 'url', 'appref-ms', 'scf', 'pptm', 'md', 'json', 'ts']
-    .map((extension) => `output/payload.${extension}`).concat('output/Dockerfile')) {
+  for (const name of [
+    'exe',
+    'cmd',
+    'bat',
+    'ps1',
+    'js',
+    'vbs',
+    'lnk',
+    'url',
+    'appref-ms',
+    'scf',
+    'pptm',
+    'md',
+    'json',
+    'ts',
+  ]
+    .map((extension) => `output/payload.${extension}`)
+    .concat('output/Dockerfile')) {
     await writeFile(join(f.project, name), 'untrusted');
     assert.equal(await f.invoke(name), 'editor', name);
   }

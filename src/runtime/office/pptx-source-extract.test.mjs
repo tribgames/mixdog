@@ -28,7 +28,11 @@ await pres.writeFile({ fileName: OUTPUT });
 `;
 
 test('plain text becomes numbered line blocks bounded by the character budget', () => {
-  assert.deepEqual(fromPlainText('alpha\n\n  beta  \ngamma', DEFAULT_CHARS), ['[line 1] alpha', '[line 3] beta', '[line 4] gamma']);
+  assert.deepEqual(fromPlainText('alpha\n\n  beta  \ngamma', DEFAULT_CHARS), [
+    '[line 1] alpha',
+    '[line 3] beta',
+    '[line 4] gamma',
+  ]);
   assert.deepEqual(fromPlainText('one\ntwo\nthree', 4), ['[line 1] one', '[line 2] two']);
   assert.deepEqual(fromPlainText(''), []);
 });
@@ -37,9 +41,26 @@ test('a snapshot document is quoted with the locator each fact will cite', () =>
   const long = 'x'.repeat(BLOCK_CHARS + 50);
   const blocks = fromDocument({
     pages: [{ number: 3, text: 'Revenue  grew\n12 %' }],
-    slides: [{ index: 2, shapes: [{ text: 'Q4 plan' }, { text: '   ' }, { placeholder: true, name: 'Slide Number Placeholder 0', text: '2' }] }],
+    slides: [
+      {
+        index: 2,
+        shapes: [
+          { text: 'Q4 plan' },
+          { text: '   ' },
+          { placeholder: true, name: 'Slide Number Placeholder 0', text: '2' },
+        ],
+      },
+    ],
     blocks: [{ index: 1, text: long }],
-    sheets: [{ name: 'Sheet1', cells: [{ ref: 'B4', value: 10.5 }, { ref: 'C4', formula: '=B4*2' }] }],
+    sheets: [
+      {
+        name: 'Sheet1',
+        cells: [
+          { ref: 'B4', value: 10.5 },
+          { ref: 'C4', formula: '=B4*2' },
+        ],
+      },
+    ],
   });
   assert.deepEqual(blocks, [
     '[p3] Revenue grew 12 %',
@@ -48,7 +69,18 @@ test('a snapshot document is quoted with the locator each fact will cite', () =>
     '[Sheet1!B4] 10.5',
     '[Sheet1!C4] =B4*2',
   ]);
-  assert.deepEqual(fromDocument({ pages: [{ number: 1, text: 'a' }, { number: 2, text: 'b' }] }, 1), ['[p1] a']);
+  assert.deepEqual(
+    fromDocument(
+      {
+        pages: [
+          { number: 1, text: 'a' },
+          { number: 2, text: 'b' },
+        ],
+      },
+      1
+    ),
+    ['[p1] a']
+  );
   assert.deepEqual(fromDocument(null), []);
 });
 
@@ -60,7 +92,9 @@ test('extractSource reads text directly and office files through a portable sess
   assert.deepEqual(text.blocks, ['[line 1] # Brief', '[line 3] 운영비 1Q 10.5']);
 
   const deck = join(cwd, 'source.pptx');
-  const authored = value(await executeOfficeTool({ action: 'author', path: deck, script: DECK, mode: 'portable', render: false }, { cwd }));
+  const authored = value(
+    await executeOfficeTool({ action: 'author', path: deck, script: DECK, mode: 'portable', render: false }, { cwd })
+  );
   value(await executeOfficeTool({ action: 'close', session: authored.session }, { cwd }));
   const calls = [];
   const office = async (args, callCwd) => {
@@ -70,8 +104,14 @@ test('extractSource reads text directly and office files through a portable sess
   const extracted = await extractSource(deck, { cwd, office });
   assert.equal(extracted.kind, 'pptx');
   assert.deepEqual(calls, ['open', 'snapshot', 'close']);
-  assert.ok(extracted.blocks.some((block) => /^\[slide 1\] .*Retention rose/.test(block)), JSON.stringify(extracted.blocks));
-  assert.ok(extracted.blocks.some((block) => /^\[slide 2\] .*Guided setup/.test(block)), JSON.stringify(extracted.blocks));
+  assert.ok(
+    extracted.blocks.some((block) => /^\[slide 1\] .*Retention rose/.test(block)),
+    JSON.stringify(extracted.blocks)
+  );
+  assert.ok(
+    extracted.blocks.some((block) => /^\[slide 2\] .*Guided setup/.test(block)),
+    JSON.stringify(extracted.blocks)
+  );
   const report = formatExtract(extracted);
   assert.match(report, /^# .*source\.pptx — \d+ blocks/);
   assert.match(report, /\n# sources: .*source\.pptx$/);

@@ -6,10 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { childEnvironment } from './child-environment.ts';
-import {
-  nativeBrowserImporterPath,
-  resolvePackagedBrowserImporter,
-} from './browser/profile-import-native.ts';
+import { nativeBrowserImporterPath, resolvePackagedBrowserImporter } from './browser/profile-import-native.ts';
 
 test('daemon-owned desktop children never inherit service identity', () => {
   const source = {
@@ -58,10 +55,16 @@ test('packaged Markdown worker resolves DOM-dependent parsers through worker-saf
   const host = await readFile(new URL('../renderer/markdown-worker-host.ts', import.meta.url), 'utf8');
   assert.ok(vite.includes('find: /^hast-util-from-html-isomorphic$/'));
   assert.ok(vite.includes("'node_modules/hast-util-from-html-isomorphic/index.js'"));
-  assert.match(host, /event\.preventDefault\?\.\(\)/,
-    'fatal worker startup errors must not also surface as repeating window errors');
-  assert.match(host, /if \(this\.failure\) throw this\.failure;/,
-    'a fatal worker startup error must not recreate the same broken worker every publication');
+  assert.match(
+    host,
+    /event\.preventDefault\?\.\(\)/,
+    'fatal worker startup errors must not also surface as repeating window errors'
+  );
+  assert.match(
+    host,
+    /if \(this\.failure\) throw this\.failure;/,
+    'a fatal worker startup error must not recreate the same broken worker every publication'
+  );
 });
 
 test('a closed stdio pipe cannot crash the main process', async () => {
@@ -89,10 +92,7 @@ test('production desktop uses only the packaged daemon service adapter', async (
   const vite = await readFile(new URL('../../electron.vite.config.ts', import.meta.url), 'utf8');
   const builder = await readFile(new URL('../../electron-builder.yml', import.meta.url), 'utf8');
   const daemonBuild = await readFile(new URL('../../scripts/build-daemon.mjs', import.meta.url), 'utf8');
-  const runtimePreparation = await readFile(
-    new URL('../../scripts/prepare-runtime.mjs', import.meta.url),
-    'utf8',
-  );
+  const runtimePreparation = await readFile(new URL('../../scripts/prepare-runtime.mjs', import.meta.url), 'utf8');
   assert.equal(packageJson.scripts.start, 'npm run build && electron-vite preview --skipBuild');
   assert.doesNotMatch(vite, /'desktop-service':/);
   assert.match(daemonBuild, /src['"],\s*['"]main['"],\s*['"]desktop-service\.ts/);
@@ -106,7 +106,7 @@ test('production desktop uses only the packaged daemon service adapter', async (
   assert.doesNotMatch(
     main.slice(main.indexOf('registerDesktopIpc('), main.indexOf("diagnostics?.write('window-created'")),
     /\bsettingsStore\b/,
-    'product IPC settings use the daemon operation service',
+    'product IPC settings use the daemon operation service'
   );
   assert.doesNotMatch(service, /startRemoteBridge|resolveRemoteBridgePort|remoteBridge/);
   assert.match(service, /startRemoteRelay/);
@@ -117,24 +117,21 @@ test('production desktop uses only the packaged daemon service adapter', async (
   assert.match(builder, /files:\s+-\s*out\/\*\*/);
   assert.match(builder, /asarUnpack:[\s\S]*out\/main\/daemon\.cjs/);
   assert.match(builder, /asarUnpack:[\s\S]*out\/renderer\/\*\*/);
+  assert.match(builder, /asarUnpack:[\s\S]*node_modules\/@homebridge\/node-pty-prebuilt-multiarch\/\*\*/);
   assert.match(
     builder,
-    /asarUnpack:[\s\S]*node_modules\/@homebridge\/node-pty-prebuilt-multiarch\/\*\*/,
-  );
-  assert.match(
-    builder,
-    /from:\s*\.runtime\/desktop-node-pty\s+to:\s*app\.asar\.unpacked\/node_modules\/@homebridge\/node-pty-prebuilt-multiarch/,
+    /from:\s*\.runtime\/desktop-node-pty\s+to:\s*app\.asar\.unpacked\/node_modules\/@homebridge\/node-pty-prebuilt-multiarch/
   );
   assert.match(runtimePreparation, /desktop-node-pty/);
   assert.match(
     runtimePreparation,
     /join\(\s*builderDesktopPtyDir,\s*'prebuilds',\s*`\$\{embeddingTarget\.platform\}-\$\{embeddingTarget\.arch\}`/,
-    'Linux PTY validation must follow the package loader into its target prebuild directory',
+    'Linux PTY validation must follow the package loader into its target prebuild directory'
   );
   assert.match(
     runtimePreparation,
     /join\(builderDesktopPtyDir, 'build', 'Release'\)/,
-    'compiled PTY targets must retain their active build/Release fallback',
+    'compiled PTY targets must retain their active build/Release fallback'
   );
   assert.match(builder, /from:\s*\.runtime\/native-tools\s+to:\s*native-tools/);
   assert.match(main, /kind:\s*'graph',\s*names:\s*\['MIXDOG_GRAPH_BIN',\s*'MIXDOG_SEARCH_SERVER_BIN'\]/);
@@ -142,32 +139,23 @@ test('production desktop uses only the packaged daemon service adapter', async (
 });
 
 test('FastDirect staging ships the PTY package unpacked beside the archive', async () => {
-  const fastDirect = await readFile(
-    new URL('../../scripts/dev-fast-direct.mjs', import.meta.url),
-    'utf8',
-  );
+  const fastDirect = await readFile(new URL('../../scripts/dev-fast-direct.mjs', import.meta.url), 'utf8');
   assert.match(
     fastDirect,
-    /const ptyPackageSegments = \['node_modules', '@homebridge', 'node-pty-prebuilt-multiarch'\];/,
+    /const ptyPackageSegments = \['node_modules', '@homebridge', 'node-pty-prebuilt-multiarch'\];/
   );
   assert.match(fastDirect, /rm\(join\(stagingRoot, \.\.\.ptyPackageSegments\)/);
-  assert.match(
-    fastDirect,
-    /join\(artifactResources, 'app\.asar\.unpacked', \.\.\.ptyPackageSegments\)/,
-  );
+  assert.match(fastDirect, /join\(artifactResources, 'app\.asar\.unpacked', \.\.\.ptyPackageSegments\)/);
   assert.match(fastDirect, /'build', 'Release', 'pty\.node'/);
 });
 
 test('browser password import uses only packaged native-tools without a certificate dependency', async () => {
   const importer = await readFile(new URL('./browser/profile-import.ts', import.meta.url), 'utf8');
   const builder = await readFile(new URL('../../electron-builder.yml', import.meta.url), 'utf8');
-  const runtimePreparation = await readFile(
-    new URL('../../scripts/prepare-runtime.mjs', import.meta.url),
-    'utf8',
-  );
+  const runtimePreparation = await readFile(new URL('../../scripts/prepare-runtime.mjs', import.meta.url), 'utf8');
   const nativeBuild = await readFile(
     new URL('../../../../native/mixdog-browser-import/build.ps1', import.meta.url),
-    'utf8',
+    'utf8'
   );
   const chromeClose = importer
     .slice(importer.indexOf('export async function prepareChromeForImport('))
@@ -193,18 +181,27 @@ test('browser password import uses only packaged native-tools without a certific
       resourcesPath,
       requestedPath: expected,
     };
-    assert.equal(await resolvePackagedBrowserImporter({
-      ...environment,
-      isPackaged: false,
-    }), undefined);
-    assert.equal(await resolvePackagedBrowserImporter({
-      ...environment,
-      platform: 'linux',
-    }), undefined);
-    assert.equal(await resolvePackagedBrowserImporter({
-      ...environment,
-      requestedPath: foreign,
-    }), undefined);
+    assert.equal(
+      await resolvePackagedBrowserImporter({
+        ...environment,
+        isPackaged: false,
+      }),
+      undefined
+    );
+    assert.equal(
+      await resolvePackagedBrowserImporter({
+        ...environment,
+        platform: 'linux',
+      }),
+      undefined
+    );
+    assert.equal(
+      await resolvePackagedBrowserImporter({
+        ...environment,
+        requestedPath: foreign,
+      }),
+      undefined
+    );
     assert.equal(await resolvePackagedBrowserImporter(environment), undefined);
 
     await mkdir(nativeTools, { recursive: true });
@@ -225,24 +222,16 @@ test('browser password import uses only packaged native-tools without a certific
         resourcesPath,
         cwd: join(root, 'source'),
       }),
-      join(
-        root,
-        'source',
-        'native',
-        'mixdog-browser-import',
-        'target',
-        'release',
-        'mixdog-browser-import.exe',
-      ),
+      join(root, 'source', 'native', 'mixdog-browser-import', 'target', 'release', 'mixdog-browser-import.exe')
     );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
   assert.match(nativeTransport, /stdio:\s*\['pipe',\s*'pipe',\s*'pipe'\]/);
   assert.ok(
-    nativeTransport.indexOf('const exitCodePromise = new Promise<number>')
-      < nativeTransport.indexOf("child.stdin?.end(transportKey.toString('base64'))"),
-    'the native child exit listener must be attached before stdin can trigger a fast exit',
+    nativeTransport.indexOf('const exitCodePromise = new Promise<number>') <
+      nativeTransport.indexOf("child.stdin?.end(transportKey.toString('base64'))"),
+    'the native child exit listener must be attached before stdin can trigger a fast exit'
   );
   assert.match(nativeTransport, /const exitCode = await exitCodePromise/);
   assert.match(nativeTransport, /createDecipheriv\('aes-256-gcm'/);
@@ -255,19 +244,19 @@ test('browser password import uses only packaged native-tools without a certific
   assert.match(runtimePreparation, /'Release'/);
   assert.doesNotMatch(
     runtimePreparation,
-    /MIXDOG_BROWSER_IMPORT_SIGNER_SHA256|assertBrowserImportAuthenticode|Get-AuthenticodeSignature/,
+    /MIXDOG_BROWSER_IMPORT_SIGNER_SHA256|assertBrowserImportAuthenticode|Get-AuthenticodeSignature/
   );
   assert.match(
     nativeBuild,
-    /\$signatureValidationEnabled = 'pub const ENABLE_SIGNATURE_VALIDATION: bool = true;'[\s\S]*\$signatureValidationDisabled = 'pub const ENABLE_SIGNATURE_VALIDATION: bool = false;'[\s\S]*\$config\.Replace\(\s*\$signatureValidationEnabled,\s*\$signatureValidationDisabled\s*\)/,
+    /\$signatureValidationEnabled = 'pub const ENABLE_SIGNATURE_VALIDATION: bool = true;'[\s\S]*\$signatureValidationDisabled = 'pub const ENABLE_SIGNATURE_VALIDATION: bool = false;'[\s\S]*\$config\.Replace\(\s*\$signatureValidationEnabled,\s*\$signatureValidationDisabled\s*\)/
   );
   assert.doesNotMatch(
     nativeBuild,
-    /\.Replace\(\s*'pub const ENABLE_SIGNATURE_VALIDATION: bool = false;',\s*'pub const ENABLE_SIGNATURE_VALIDATION: bool = false;'/,
+    /\.Replace\(\s*'pub const ENABLE_SIGNATURE_VALIDATION: bool = false;',\s*'pub const ENABLE_SIGNATURE_VALIDATION: bool = false;'/
   );
   assert.doesNotMatch(
     nativeBuild,
-    /MIXDOG_BROWSER_IMPORT_SIGNER_SHA256|MIXDOG_CODE_SIGN|Get-AuthenticodeSignature|signtool/,
+    /MIXDOG_BROWSER_IMPORT_SIGNER_SHA256|MIXDOG_CODE_SIGN|Get-AuthenticodeSignature|signtool/
   );
   assert.match(nativeBuild, /LICENSE_GPL\.txt/);
 });
@@ -282,8 +271,10 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   const fastSnapshot = await readFile(new URL('../../scripts/dev-fast-snapshot.ps1', import.meta.url), 'utf8');
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
   assert.match(builder, /protocols:\s+name:\s*Mixdog\s+schemes:\s+-\s*mixdog/);
-  assert.match(packageJson.scripts['build:win'],
-    /electron-builder --win --x64 --publish never && npm run verify:update-metadata$/);
+  assert.match(
+    packageJson.scripts['build:win'],
+    /electron-builder --win --x64 --publish never && npm run verify:update-metadata$/
+  );
   assert.match(packageJson.scripts['update:dev'], /dev-update-windows\.ps1 -ViaUpdater$/);
   // The local deploy goes through the snapshot wrapper so a concurrent edit
   // cannot invalidate the build, and the wrapper still runs the same FastDirect
@@ -298,18 +289,17 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   assert.match(packageJson.scripts['update:dev:plan'], /dev-update-windows\.ps1 -ViaUpdater -DryRun$/);
   assert.match(
     devUpdate,
-    /Start-Process -FilePath \$npx[\s\S]*'electron-builder', '--dir', '--win', '--x64', '--publish', 'never'/,
+    /Start-Process -FilePath \$npx[\s\S]*'electron-builder', '--dir', '--win', '--x64', '--publish', 'never'/
   );
-  assert.match(devUpdate,
-    /installedUpdateMetadata[\s\S]*Copy-Item[\s\S]*verify-update-metadata\.mjs/);
+  assert.match(devUpdate, /installedUpdateMetadata[\s\S]*Copy-Item[\s\S]*verify-update-metadata\.mjs/);
   assert.match(devUpdate, /fast deploy failed; restoring the previous installation/);
   assert.match(
     devUpdate,
-    /Prepared FastDirect runtime is missing:[\s\S]*Backup-InstalledArtifact \$installedFastRuntime 'fast-runtime'[\s\S]*Install-PreparedArtifact \$fastRuntime \$installedFastRuntime/,
+    /Prepared FastDirect runtime is missing:[\s\S]*Backup-InstalledArtifact \$installedFastRuntime 'fast-runtime'[\s\S]*Install-PreparedArtifact \$fastRuntime \$installedFastRuntime/
   );
   assert.match(
     devUpdate,
-    /if \(\$Plan\.full\)[\s\S]*preparing production runtime\.asar for the complete fallback[\s\S]*--mode=fast-full/,
+    /if \(\$Plan\.full\)[\s\S]*preparing production runtime\.asar for the complete fallback[\s\S]*--mode=fast-full/
   );
   assert.match(devUpdate, /FastDirectWorker/);
   assert.match(devUpdate, /elapsedMs[\s\S]*timeline/);
@@ -332,7 +322,7 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   assert.match(builder, /nodeGypRebuild:\s*false/);
   assert.doesNotMatch(
     builder,
-    /(?:allowToChangeInstallationDirectory|runAfterFinish|shortcutName|uninstallDisplayName|createStartMenuShortcut|uninstallerIcon|include):/,
+    /(?:allowToChangeInstallationDirectory|runAfterFinish|shortcutName|uninstallDisplayName|createStartMenuShortcut|uninstallerIcon|include):/
   );
   assert.match(builder, /win:[\s\S]*icon:\s*build\/mixdog\.ico/);
   assert.match(builder, /extraResources:[\s\S]*from:\s*build\/mixdog\.ico\s+to:\s*mixdog\.ico/);
@@ -343,9 +333,14 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   assert.match(iconGenerator, /writeFile\(`\$\{buildDir\}\/mixdog\.ico`/);
   assert.match(iconGenerator, /writeFile\(`\$\{buildDir\}\/mixdog\.png`/);
   assert.match(installer, /CreateWindowExW[\s\S]*msctls_progress32/);
-  assert.match(installer,
-    /wscript\.exe[\s\S]*progress-driver\.vbs[\s\S]*progress-driver\.ps1[\s\S]*"\$MixdogProgressParent" "\$MixdogProgressStock" "\$MixdogProgressBar"/);
-  assert.match(installer, /Function MixdogInstFilesPre[\s\S]*SetLayeredWindowAttributes[\s\S]*ShowWindow \$HWNDPARENT 0/);
+  assert.match(
+    installer,
+    /wscript\.exe[\s\S]*progress-driver\.vbs[\s\S]*progress-driver\.ps1[\s\S]*"\$MixdogProgressParent" "\$MixdogProgressStock" "\$MixdogProgressBar"/
+  );
+  assert.match(
+    installer,
+    /Function MixdogInstFilesPre[\s\S]*SetLayeredWindowAttributes[\s\S]*ShowWindow \$HWNDPARENT 0/
+  );
   assert.match(installer, /!macro customInstall\s+Call MixdogProgressComplete/);
   assert.match(installer, /GetDlgItem \$MixdogProgressStock \$0 1004/);
   assert.match(installer, /SetWindowPos[\s\S]*-32000[\s\S]*-32000/);
@@ -359,7 +354,7 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   assert.match(devUpdate, /activating the installed app window[\s\S]*Wait-ForVisibleAppWindow -TimeoutSeconds 30/);
   await assert.rejects(
     access(new URL('../../build/progress-overlay.ps1', import.meta.url)),
-    (error) => error?.code === 'ENOENT',
+    (error) => error?.code === 'ENOENT'
   );
   const icon = await readFile(new URL('../../build/mixdog.ico', import.meta.url));
   assert.deepEqual([...icon.subarray(0, 4)], [0, 0, 1, 0]);
@@ -367,7 +362,13 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
 
 test('production entry has no capture side effects and capture harness is excluded', async () => {
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
-  const capture = (await Promise.all(['./capture-assertions.ts', './capture-host.ts', './capture-window.ts'].map((path) => readFile(new URL(path, import.meta.url), 'utf8')))).join('\n');
+  const capture = (
+    await Promise.all(
+      ['./capture-assertions.ts', './capture-host.ts', './capture-window.ts'].map((path) =>
+        readFile(new URL(path, import.meta.url), 'utf8')
+      )
+    )
+  ).join('\n');
   const adapter = await readFile(new URL('../renderer/capture-ui.mjs', import.meta.url), 'utf8');
   const options = await readFile(new URL('./window-options.ts', import.meta.url), 'utf8');
   const packageJson = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));
@@ -389,13 +390,16 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.doesNotMatch(capture, /railButtonCount\s*!==\s*14|railButtonCount,\s*14/);
   assert.match(capture, /async listSessions\(\): Promise<DesktopSessionSummary\[]>/);
   assert.match(capture, /new CaptureService/);
-  assert.match(capture, /registerDesktopIpc\(window,\s*host,\s*\{[\s\S]*?app,[\s\S]*?ipcMain,[\s\S]*?dialog,[\s\S]*?shell,[\s\S]*?updater:/);
+  assert.match(
+    capture,
+    /registerDesktopIpc\(window,\s*host,\s*\{[\s\S]*?app,[\s\S]*?ipcMain,[\s\S]*?dialog,[\s\S]*?shell,[\s\S]*?updater:/
+  );
   assert.match(capture, /console-message/);
   assert.match(capture, /Capture renderer preload bridge is missing/);
   assert.match(capture, /\.inline-error,\s*\[role="alert"\]/);
   assert.ok(
     capture.indexOf('desktopCapturer.getSources') < capture.indexOf('const rendererState ='),
-    'renderer validation must follow the desktopCapturer capture.',
+    'renderer validation must follow the desktopCapturer capture.'
   );
   const validationBoundaryStart = capture.indexOf('function validateAndDestroyRenderer');
   const validationBoundaryEnd = capture.indexOf('const CAPTURE_SETTINGS_VALUES');
@@ -407,17 +411,16 @@ test('production entry has no capture side effects and capture harness is exclud
   const artifactWrite = capture.indexOf('mkdirSync', validationCall);
   assert.ok(
     capture.indexOf('const nativeWindow = {') < capture.indexOf('const rendererState ='),
-    'BrowserWindow metadata must be collected before final renderer validation.',
+    'BrowserWindow metadata must be collected before final renderer validation.'
   );
   assert.ok(
-    validationCall < pixelWork && pixelWork < pngEncoding && pngEncoding < metadataWork
-      && metadataWork < artifactWrite,
-    'encoding, metadata, and artifact writes must follow renderer validation and destruction.',
+    validationCall < pixelWork && pixelWork < pngEncoding && pngEncoding < metadataWork && metadataWork < artifactWrite,
+    'encoding, metadata, and artifact writes must follow renderer validation and destruction.'
   );
   assert.doesNotMatch(validationBoundary, /\bawait\b/);
   assert.ok(
     validationBoundary.indexOf('destroyCaptureWindow(window);') < validationBoundary.indexOf('return {'),
-    'the validation boundary must destroy the renderer before returning zero-error metadata.',
+    'the validation boundary must destroy the renderer before returning zero-error metadata.'
   );
   assert.match(capture, /Capture renderer window is still live before artifact writes/);
   assert.match(capture, /if \(!window\.isDestroyed\(\)\) window\.destroy\(\);/);
@@ -449,9 +452,9 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(adapter, /stopCapturePostgresSync\(userData\)/);
   assert.match(adapter, /await killCaptureTree\(child\)/);
   assert.ok(
-    adapter.indexOf('stopCapturePostgresSync(userData);', adapter.indexOf('} finally {'))
-      < adapter.indexOf('await rm(userData', adapter.indexOf('} finally {')),
-    'capture PostgreSQL must stop before its isolated profile is removed.',
+    adapter.indexOf('stopCapturePostgresSync(userData);', adapter.indexOf('} finally {')) <
+      adapter.indexOf('await rm(userData', adapter.indexOf('} finally {')),
+    'capture PostgreSQL must stop before its isolated profile is removed.'
   );
   assert.match(adapter, /randomUUID\(\)/);
   assert.match(adapter, /metadata\.captureId,\s*captureId/);
@@ -493,7 +496,10 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(adapter, /metadata\.imageMeasuredSidebar\.right,\s*metadata\.domSidebarGeometry\.right - 1/);
   assert.match(adapter, /metadata\.imageMeasuredSidebar\.width,\s*metadata\.domSidebarGeometry\.width/);
   assert.match(adapter, /metadata\.imageMeasuredSidebar\.rightGap\.left,\s*metadata\.domSidebarGeometry\.right/);
-  assert.match(adapter, /metadata\.imageMeasuredSidebar\.rightGap\.right,\s*metadata\.domSidebarGeometry\.mainLeft - 1/);
+  assert.match(
+    adapter,
+    /metadata\.imageMeasuredSidebar\.rightGap\.right,\s*metadata\.domSidebarGeometry\.mainLeft - 1/
+  );
   assert.match(adapter, /metadata\.imageMeasuredSidebar\.rightGap\.width,\s*metadata\.domSidebarGeometry\.gap/);
   assert.equal(packageJson.scripts['capture:ui'], 'npm run build && node src/renderer/capture-ui.mjs');
   assert.match(builder, /!out\/main\/capture-window\.js/);
@@ -509,10 +515,12 @@ test('desktop source has no legacy host implementation or local fallback entry',
     './session-transport.ts',
     './index.ts',
   ];
-  const source = (await Promise.all(
-    sourceFiles.map((path) => readFile(new URL(path, import.meta.url), 'utf8')),
-  )).join('\n');
-  const legacyHostPattern = new RegExp(`\\b${['Engine', 'Host'].join('')}\\b|engine-host|engine-lifecycle|session-live-lanes`);
+  const source = (await Promise.all(sourceFiles.map((path) => readFile(new URL(path, import.meta.url), 'utf8')))).join(
+    '\n'
+  );
+  const legacyHostPattern = new RegExp(
+    `\\b${['Engine', 'Host'].join('')}\\b|engine-host|engine-lifecycle|session-live-lanes`
+  );
   assert.doesNotMatch(source, legacyHostPattern);
   assert.doesNotMatch(source, /session\.invoke|callDaemonSession/);
 });
@@ -547,10 +555,7 @@ test('runtime preparation reuses prepared output and persistent validated depend
   // package. A foreign binary otherwise publishes cleanly and fails only when
   // the user launches the app.
   assert.match(preparation, /assertTargetArchitecture\(destination,\s*`Native tool \$\{kind\}`\)/);
-  assert.match(
-    preparation,
-    /assertTreeTargetArchitecture\(\s*await desktopPtyNativeRoot\(\)/,
-  );
+  assert.match(preparation, /assertTreeTargetArchitecture\(\s*await desktopPtyNativeRoot\(\)/);
   assert.match(preparation, /assertTargetArchitecture\(source,\s*`Runtime addon \$\{entry\}`\)/);
   assert.match(preparation, /timed\('asar-create'/);
   assert.match(preparation, /finally\s*\{[\s\S]*rm\(stagingDir/);
@@ -601,4 +606,3 @@ test('production shell persists safe window state and installs native shortcuts'
   assert.match(menu, /togglefullscreen/);
   assert.doesNotMatch(menu, /openExternal|loadURL/);
 });
-

@@ -31,7 +31,9 @@ const PROBE_INTERVAL_MS = 5;
 const root = mkdtempSync(join(tmpdir(), 'mixdog-runtime-host-bench-'));
 const workerEntry = join(root, 'fixed-runtime-worker.mjs');
 
-writeFileSync(workerEntry, `
+writeFileSync(
+  workerEntry,
+  `
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 
 const records = new Map();
@@ -128,7 +130,9 @@ process.on('message', (message) => {
 });
 
 process.on('disconnect', () => process.exit(0));
-`, 'utf8');
+`,
+  'utf8'
+);
 
 function startLagProbe() {
   const samples = [];
@@ -142,14 +146,10 @@ function startLagProbe() {
     stop() {
       clearInterval(timer);
       const sorted = samples.sort((left, right) => left - right);
-      const at = (quantile) => sorted[Math.min(
-        Math.max(0, sorted.length - 1),
-        Math.floor(sorted.length * quantile),
-      )] ?? 0;
+      const at = (quantile) =>
+        sorted[Math.min(Math.max(0, sorted.length - 1), Math.floor(sorted.length * quantile))] ?? 0;
       return {
-        meanMs: sorted.length
-          ? sorted.reduce((sum, value) => sum + value, 0) / sorted.length
-          : 0,
+        meanMs: sorted.length ? sorted.reduce((sum, value) => sum + value, 0) / sorted.length : 0,
         p99Ms: at(0.99),
         maxMs: sorted.at(-1) ?? 0,
       };
@@ -184,7 +184,7 @@ async function measureDirect(fanout, delayMs, cpuMs = 0) {
   return {
     createMs,
     submitMs,
-    overheadMs: Math.max(0, submitMs - delayMs - (fanout * cpuMs)),
+    overheadMs: Math.max(0, submitMs - delayMs - fanout * cpuMs),
     eventLoop,
   };
 }
@@ -192,10 +192,9 @@ async function measureDirect(fanout, delayMs, cpuMs = 0) {
 async function measureHosted(host, fanout, delayMs, cpuMs = 0) {
   const probe = startLagProbe();
   const createStartedAt = performance.now();
-  const runtimes = await Promise.all(Array.from(
-    { length: fanout },
-    (_, index) => host.create({ sessionId: `hosted-${fanout}-${index}` }),
-  ));
+  const runtimes = await Promise.all(
+    Array.from({ length: fanout }, (_, index) => host.create({ sessionId: `hosted-${fanout}-${index}` }))
+  );
   const createMs = performance.now() - createStartedAt;
   const submitStartedAt = performance.now();
   await Promise.all(runtimes.map((runtime) => runtime.submitAsync({ delayMs, cpuMs })));
@@ -207,7 +206,7 @@ async function measureHosted(host, fanout, delayMs, cpuMs = 0) {
   return {
     createMs,
     submitMs,
-    overheadMs: Math.max(0, submitMs - delayMs - (fanout * cpuMs)),
+    overheadMs: Math.max(0, submitMs - delayMs - fanout * cpuMs),
     eventLoop,
     worker: host.workloads.worker,
   };
@@ -227,9 +226,7 @@ function createHost() {
 function median(values) {
   const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2
-    ? sorted[middle]
-    : (sorted[middle - 1] + sorted[middle]) / 2;
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 function rounded(value, digits = 3) {
@@ -248,9 +245,9 @@ function summarizePair(samples) {
     hostedCreateMedianMs: rounded(median(samples.map((sample) => sample.hosted.createMs))),
     directEventLoopMaxMs: rounded(Math.max(...samples.map((sample) => sample.direct.eventLoop.maxMs))),
     hostedClientEventLoopMaxMs: rounded(Math.max(...samples.map((sample) => sample.hosted.eventLoop.maxMs))),
-    hostedWorkerEventLoopMaxMs: rounded(Math.max(
-      ...samples.map((sample) => sample.hosted.worker?.eventLoop?.maxMs || 0),
-    )),
+    hostedWorkerEventLoopMaxMs: rounded(
+      Math.max(...samples.map((sample) => sample.hosted.worker?.eventLoop?.maxMs || 0))
+    ),
   };
 }
 
@@ -321,28 +318,24 @@ async function measureStability(host) {
     sessionsPerCycle: STABILITY_FANOUT,
     cycles,
     finalRuntimeCount: last?.runtimes ?? null,
-    rssDeltaMb: rounded(
-      ((last?.memory?.rss || 0) - (before?.memory?.rss || 0)) / (1024 * 1024),
-      1,
-    ),
-    heapUsedDeltaMb: rounded(
-      ((last?.memory?.heapUsed || 0) - (before?.memory?.heapUsed || 0)) / (1024 * 1024),
-      1,
-    ),
+    rssDeltaMb: rounded(((last?.memory?.rss || 0) - (before?.memory?.rss || 0)) / (1024 * 1024), 1),
+    heapUsedDeltaMb: rounded(((last?.memory?.heapUsed || 0) - (before?.memory?.heapUsed || 0)) / (1024 * 1024), 1),
   };
 }
 
 const host = createHost();
 
 try {
-  process.stdout.write(`${JSON.stringify({
-    type: 'config',
-    repeats: REPEATS,
-    ioFanouts: IO_FANOUTS,
-    ioDelaysMs: IO_DELAYS_MS,
-    cpuFanouts: CPU_FANOUTS,
-    cpuCostsMs: CPU_COSTS_MS,
-  })}\n`);
+  process.stdout.write(
+    `${JSON.stringify({
+      type: 'config',
+      repeats: REPEATS,
+      ioFanouts: IO_FANOUTS,
+      ioDelaysMs: IO_DELAYS_MS,
+      cpuFanouts: CPU_FANOUTS,
+      cpuCostsMs: CPU_COSTS_MS,
+    })}\n`
+  );
 
   const cold = await measureColdStart();
   process.stdout.write(`${JSON.stringify({ type: 'cold-start', ...cold })}\n`);
@@ -357,25 +350,29 @@ try {
   for (const delayMs of IO_DELAYS_MS) {
     for (const fanout of IO_FANOUTS) {
       const summary = await measurePair(host, fanout, delayMs, 0);
-      process.stdout.write(`${JSON.stringify({
-        type: 'warm-io',
-        delayMs,
-        fanout,
-        ...summary,
-      })}\n`);
+      process.stdout.write(
+        `${JSON.stringify({
+          type: 'warm-io',
+          delayMs,
+          fanout,
+          ...summary,
+        })}\n`
+      );
     }
   }
 
   for (const cpuMs of CPU_COSTS_MS) {
     for (const fanout of CPU_FANOUTS) {
       const summary = await measurePair(host, fanout, CPU_PROVIDER_DELAY_MS, cpuMs);
-      process.stdout.write(`${JSON.stringify({
-        type: 'cpu-postprocess',
-        providerDelayMs: CPU_PROVIDER_DELAY_MS,
-        cpuMsPerResponse: cpuMs,
-        fanout,
-        ...summary,
-      })}\n`);
+      process.stdout.write(
+        `${JSON.stringify({
+          type: 'cpu-postprocess',
+          providerDelayMs: CPU_PROVIDER_DELAY_MS,
+          cpuMsPerResponse: cpuMs,
+          fanout,
+          ...summary,
+        })}\n`
+      );
     }
   }
 

@@ -31,7 +31,9 @@ function tryOpenCandidates(candidates, index) {
   const [cmd, args] = candidates[index];
   try {
     const child = spawn(cmd, args, { stdio: 'ignore', ...detachedSpawnOpts });
-    child.on('error', () => { tryOpenCandidates(candidates, index + 1); });
+    child.on('error', () => {
+      tryOpenCandidates(candidates, index + 1);
+    });
     child.unref();
   } catch {
     tryOpenCandidates(candidates, index + 1);

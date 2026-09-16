@@ -12,11 +12,7 @@ const verifier = join(rootDir, 'scripts', 'verify-embedding-runtime.mjs');
 
 await Promise.all([access(runtimeRoot), access(verifier)]);
 
-const child = spawn(electron, [
-  verifier,
-  '--core',
-  `--runtime-root=${runtimeRoot}`,
-], {
+const child = spawn(electron, [verifier, '--core', `--runtime-root=${runtimeRoot}`], {
   env: {
     ...process.env,
     ELECTRON_RUN_AS_NODE: '1',

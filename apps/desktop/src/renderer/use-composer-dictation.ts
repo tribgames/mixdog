@@ -6,9 +6,9 @@ import {
   useEffect,
   useRef,
   useState,
-} from "react";
+} from 'react';
 
-type DictationState = "idle" | "recording" | "transcribing";
+type DictationState = 'idle' | 'recording' | 'transcribing';
 
 type DictationMeter = {
   context: AudioContext;
@@ -22,8 +22,8 @@ type VoiceStatus = { installed?: boolean };
 // per-frame level in state would re-render the whole composer (model pickers
 // included) for as long as the user keeps speaking.
 function startLevelMeter(stream: MediaStream, level: { current: number }): DictationMeter | null {
-  const Context = window.AudioContext
-    ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  const Context =
+    window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!Context) return null;
   try {
     const context = new Context();
@@ -60,8 +60,16 @@ function stopLevelMeter(meter: DictationMeter | null, level: { current: number }
   level.current = 0;
   if (!meter) return;
   window.cancelAnimationFrame(meter.frame);
-  try { meter.source.disconnect(); } catch { /* already disconnected */ }
-  try { meter.analyser.disconnect(); } catch { /* already disconnected */ }
+  try {
+    meter.source.disconnect();
+  } catch {
+    /* already disconnected */
+  }
+  try {
+    meter.analyser.disconnect();
+  } catch {
+    /* already disconnected */
+  }
   void Promise.resolve(meter.context.close()).catch(() => {
     // Closing the graph is best-effort during teardown.
   });
@@ -85,7 +93,7 @@ export function useComposerDictation({
   /** Fired when a take ended by `stopDictationAndSend` produced real text. */
   onTranscriptSubmit?(): void;
 }) {
-  const [dictationState, setDictationState] = useState<DictationState>("idle");
+  const [dictationState, setDictationState] = useState<DictationState>('idle');
   // Elapsed time backs the composer's recording overlay: the disc alone
   // never told the user how long the mic had been live (user-flagged).
   const [recordingSince, setRecordingSince] = useState(0);
@@ -102,10 +110,12 @@ export function useComposerDictation({
     let live = true;
     const refresh = () => {
       void Promise.resolve()
-        .then(() => window.mixdogDesktop.invokeCapability<VoiceStatus>({
-          capability: "getVoiceStatus",
-          args: [],
-        }))
+        .then(() =>
+          window.mixdogDesktop.invokeCapability<VoiceStatus>({
+            capability: 'getVoiceStatus',
+            args: [],
+          })
+        )
         .then((status) => {
           if (live) setDictationInstalled(status?.value?.installed === true);
         })
@@ -114,10 +124,10 @@ export function useComposerDictation({
         });
     };
     refresh();
-    window.addEventListener("mixdog:voice-runtime-changed", refresh);
+    window.addEventListener('mixdog:voice-runtime-changed', refresh);
     return () => {
       live = false;
-      window.removeEventListener("mixdog:voice-runtime-changed", refresh);
+      window.removeEventListener('mixdog:voice-runtime-changed', refresh);
     };
   }, []);
   const dictationSession = useRef<{
@@ -131,7 +141,7 @@ export function useComposerDictation({
   } | null>(null);
 
   const toggleDictation = useCallback(async () => {
-    if (dictationState === "transcribing" || transitioningRef.current) return;
+    if (dictationState === 'transcribing' || transitioningRef.current) return;
     const active = dictationSession.current;
     if (active) {
       try {
@@ -149,7 +159,7 @@ export function useComposerDictation({
       // connections that wait silently discarded the start of the utterance.
       if (!dictationInstalled) {
         requestVoiceInstall();
-        showNotice("Install voice transcription from Extensions first.");
+        showNotice('Install voice transcription from Extensions first.');
         return;
       }
       // Transcription needs intelligibility, not fidelity: engines resample to
@@ -165,9 +175,9 @@ export function useComposerDictation({
           noiseSuppression: true,
         },
       });
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
       const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 24_000 });
       const session = {
         recorder,
@@ -190,33 +200,30 @@ export function useComposerDictation({
           dictationSession.current = null;
           for (const track of session.stream.getTracks()) track.stop();
           if (session.cancelled || session.chunks.length === 0) {
-            setDictationState("idle");
+            setDictationState('idle');
             return;
           }
-          setDictationState("transcribing");
+          setDictationState('transcribing');
           try {
             const blob = new Blob(session.chunks, {
-              type: recorder.mimeType || "audio/webm",
+              type: recorder.mimeType || 'audio/webm',
             });
             const dataUrl = await new Promise<string>((resolve, reject) => {
               const reader = new FileReader();
-              reader.onerror = () => reject(
-                reader.error || new Error("Recorded audio could not be read."),
-              );
-              reader.onload = () => resolve(String(reader.result || ""));
+              reader.onerror = () => reject(reader.error || new Error('Recorded audio could not be read.'));
+              reader.onload = () => resolve(String(reader.result || ''));
               reader.readAsDataURL(blob);
             });
-            const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+            const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
             const result = await invokeResult(() =>
               window.mixdogDesktop.invokeCapability<string>({
-                capability: "transcribeAudio",
+                capability: 'transcribeAudio',
                 args: [{ data: base64, mimeType: blob.type }],
-              }));
-            const text = String(result?.value ?? "").trim();
+              })
+            );
+            const text = String(result?.value ?? '').trim();
             if (text) {
-              setDraft((current) => current
-                ? `${current}${/\s$/.test(current) ? "" : " "}${text}`
-                : text);
+              setDraft((current) => (current ? `${current}${/\s$/.test(current) ? '' : ' '}${text}` : text));
               // Editing a transcript needs the caret; sending it directly does
               // not (and must not reopen the mobile keyboard).
               if (!session.submitOnStop) {
@@ -228,7 +235,7 @@ export function useComposerDictation({
               if (session.submitOnStop) onTranscriptSubmit?.();
             }
           } finally {
-            setDictationState("idle");
+            setDictationState('idle');
           }
         })();
       };
@@ -242,19 +249,23 @@ export function useComposerDictation({
         }
       }, 120_000);
       setRecordingSince(Date.now());
-      setDictationState("recording");
+      setDictationState('recording');
     } catch (reason) {
-      const name = reason instanceof DOMException ? reason.name : "";
-      showNotice(name === "NotAllowedError"
-        ? ((window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer
-          ? "Microphone access is blocked. Allow microphone access for this site in your browser settings and reload."
-          : "Microphone access is blocked. Allow microphone access for desktop apps in Windows Settings → Privacy & security → Microphone.")
-        : name === "NotFoundError" || name === "OverconstrainedError"
-          ? "No microphone was detected. Connect one and try again."
-          : name === "NotReadableError"
-            ? "The microphone is busy in another app. Close it and try again."
-            : reason instanceof Error ? reason.message : String(reason));
-      setDictationState("idle");
+      const name = reason instanceof DOMException ? reason.name : '';
+      showNotice(
+        name === 'NotAllowedError'
+          ? (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer
+            ? 'Microphone access is blocked. Allow microphone access for this site in your browser settings and reload.'
+            : 'Microphone access is blocked. Allow microphone access for desktop apps in Windows Settings → Privacy & security → Microphone.'
+          : name === 'NotFoundError' || name === 'OverconstrainedError'
+            ? 'No microphone was detected. Connect one and try again.'
+            : name === 'NotReadableError'
+              ? 'The microphone is busy in another app. Close it and try again.'
+              : reason instanceof Error
+                ? reason.message
+                : String(reason)
+      );
+      setDictationState('idle');
     } finally {
       dictationPreparing.current = false;
     }
@@ -302,28 +313,28 @@ export function useComposerDictation({
   // composer's own Escape policy would otherwise clear the draft and Enter
   // would send it while the mic is still live.
   useEffect(() => {
-    if (dictationState !== "recording") return undefined;
+    if (dictationState !== 'recording') return undefined;
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.isComposing) return;
-      if (event.key === "Escape") {
+      if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
         cancelDictation();
         return;
       }
-      if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+      if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
         return;
       }
       event.preventDefault();
       event.stopPropagation();
       void toggleDictation();
     };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [cancelDictation, dictationState, toggleDictation]);
 
   useEffect(() => {
-    if (dictationState !== "recording" || !recordingSince) {
+    if (dictationState !== 'recording' || !recordingSince) {
       setRecordingElapsedMs(0);
       return;
     }
@@ -334,19 +345,22 @@ export function useComposerDictation({
     return () => window.clearInterval(timer);
   }, [dictationState, recordingSince]);
 
-  useEffect(() => () => {
-    const session = dictationSession.current;
-    if (!session) return;
-    session.cancelled = true;
-    stopLevelMeter(session.meter, dictationLevelRef);
-    session.meter = null;
-    try {
-      session.recorder.stop();
-    } catch {
-      // Teardown remains best-effort.
-    }
-    for (const track of session.stream.getTracks()) track.stop();
-  }, []);
+  useEffect(
+    () => () => {
+      const session = dictationSession.current;
+      if (!session) return;
+      session.cancelled = true;
+      stopLevelMeter(session.meter, dictationLevelRef);
+      session.meter = null;
+      try {
+        session.recorder.stop();
+      } catch {
+        // Teardown remains best-effort.
+      }
+      for (const track of session.stream.getTracks()) track.stop();
+    },
+    []
+  );
 
   return {
     dictationState,

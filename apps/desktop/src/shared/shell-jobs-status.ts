@@ -23,11 +23,13 @@ function shellJobRowKey(row: ShellJobStatusRowLike): string {
 
 export function shellJobsStatusEqual(
   previous: ShellJobsStatusLike | null | undefined,
-  next: ShellJobsStatusLike | null | undefined,
+  next: ShellJobsStatusLike | null | undefined
 ): boolean {
   if (previous === next) return true;
-  if (Number(previous?.count || 0) !== Number(next?.count || 0)
-    || String(previous?.elapsedLabel || '') !== String(next?.elapsedLabel || '')) {
+  if (
+    Number(previous?.count || 0) !== Number(next?.count || 0) ||
+    String(previous?.elapsedLabel || '') !== String(next?.elapsedLabel || '')
+  ) {
     return false;
   }
   const previousJobs = previous?.jobs || [];

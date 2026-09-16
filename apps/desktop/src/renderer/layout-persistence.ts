@@ -1,16 +1,13 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef } from 'react';
 
 interface PageHideTarget {
-  addEventListener(type: "pagehide", listener: () => void): void;
-  removeEventListener(type: "pagehide", listener: () => void): void;
+  addEventListener(type: 'pagehide', listener: () => void): void;
+  removeEventListener(type: 'pagehide', listener: () => void): void;
 }
 
-export function bindPageHideFlush(
-  target: PageHideTarget,
-  flush: () => void,
-): () => void {
-  target.addEventListener("pagehide", flush);
-  return () => target.removeEventListener("pagehide", flush);
+export function bindPageHideFlush(target: PageHideTarget, flush: () => void): () => void {
+  target.addEventListener('pagehide', flush);
+  return () => target.removeEventListener('pagehide', flush);
 }
 
 /** Debounced layout writers still commit their latest rendered value when a

@@ -82,37 +82,66 @@ function store(t) {
   return ledger;
 }
 function record(ledger, id, date) {
-  ledger.record([makeUsageRecord({
-    id, ts: new Date(date).getTime(), provider: 'openai', model: 'period-fixture',
-    inputTokens: 110, inputTokensInclusive: true, cacheReadTokens: 100, outputTokens: 1,
-    costUsd: 1, sourceType: 'lead', sessionId: id,
-  })]);
+  ledger.record([
+    makeUsageRecord({
+      id,
+      ts: new Date(date).getTime(),
+      provider: 'openai',
+      model: 'period-fixture',
+      inputTokens: 110,
+      inputTokensInclusive: true,
+      cacheReadTokens: 100,
+      outputTokens: 1,
+      costUsd: 1,
+      sourceType: 'lead',
+      sessionId: id,
+    }),
+  ]);
 }
 function stats(ledger, view, anchor) {
   const selected = period(view, anchor);
   return usageStatsSnapshot({
     rollup: ledger.rollup({
       hourlyDay: view === 'hour' ? selected.startDay : null,
-      fromDay: selected.startDay || undefined, toDay: selected.endDay,
+      fromDay: selected.startDay || undefined,
+      toDay: selected.endDay,
       ...(view === 'hour' ? { fromMs: selected.fromMs, toMs: selected.toMs } : {}),
     }),
-    period: selected, now, source: 'all',
+    period: selected,
+    now,
+    source: 'all',
   });
 }
 
 test('cards, providers, models and chart data share the trailing range and never invent future dates', (t) => {
   const ledger = store(t);
   const dates = [
-    '2025-01-01T00:00:00', '2025-12-31T23:59:59', '2026-01-01T00:00:00', '2026-03-31T23:59:59',
-    '2026-04-01T00:00:00', '2026-06-30T23:59:59', '2026-07-01T00:00:00',
-    '2026-07-20T12:00:00', '2026-08-31T23:59:59', '2026-09-01T00:00:00', '2026-09-13T00:59:59',
-    '2026-09-13T01:00:00', '2026-09-30T12:00:00', '2026-12-31T12:00:00',
+    '2025-01-01T00:00:00',
+    '2025-12-31T23:59:59',
+    '2026-01-01T00:00:00',
+    '2026-03-31T23:59:59',
+    '2026-04-01T00:00:00',
+    '2026-06-30T23:59:59',
+    '2026-07-01T00:00:00',
+    '2026-07-20T12:00:00',
+    '2026-08-31T23:59:59',
+    '2026-09-01T00:00:00',
+    '2026-09-13T00:59:59',
+    '2026-09-13T01:00:00',
+    '2026-09-30T12:00:00',
+    '2026-12-31T12:00:00',
   ];
   dates.forEach((date, i) => record(ledger, `request-${i}`, date));
   for (const [view, anchor, records] of [
-    ['hour', undefined, 2], ['7d', undefined, 2], ['day', undefined, 4], ['day', '2026-08-14', 1],
-    ['week', undefined, 7], ['week', '2026-06-15', 2],
-    ['month', undefined, 11], ['month', '2025-09-13', 1], ['all', undefined, 12],
+    ['hour', undefined, 2],
+    ['7d', undefined, 2],
+    ['day', undefined, 4],
+    ['day', '2026-08-14', 1],
+    ['week', undefined, 7],
+    ['week', '2026-06-15', 2],
+    ['month', undefined, 11],
+    ['month', '2025-09-13', 1],
+    ['all', undefined, 12],
   ]) {
     const result = stats(ledger, view, anchor);
     assert.equal(result.totals.turns, records, `${view}/${anchor}: records`);
@@ -120,9 +149,15 @@ test('cards, providers, models and chart data share the trailing range and never
     assert.equal(result.totals.costUsd, records);
     assert.equal(result.totals.sessions, records);
     assert.equal(result.providers[0].models[0].tokens, records * 111);
-    assert.equal(result.daily.reduce((sum, row) => sum + row.tokens, 0), records * 111);
+    assert.equal(
+      result.daily.reduce((sum, row) => sum + row.tokens, 0),
+      records * 111
+    );
     assert.equal(result.previous, null, 'no full-period comparison against an unfinished current period');
-    assert.equal(result.daily.some((row) => row.future || row.day > result.period.endDay), false);
+    assert.equal(
+      result.daily.some((row) => row.future || row.day > result.period.endDay),
+      false
+    );
   }
   const month = stats(ledger, 'day');
   assert.equal(month.daily.length, 30);
@@ -152,7 +187,10 @@ test('custom ranges validate explicit calendar dates and include both selected e
   assert.equal(result.totals.tokens, 222);
   assert.equal(result.totals.turns, 2);
   assert.equal(result.period.days, 3);
-  assert.deepEqual(result.daily.map((day) => day.day), ['2026-08-15', '2026-08-16', '2026-08-17']);
+  assert.deepEqual(
+    result.daily.map((day) => day.day),
+    ['2026-08-15', '2026-08-16', '2026-08-17']
+  );
   assert.equal(result.period.previousAnchor, null);
   assert.equal(result.period.nextAnchor, null);
   const custom = (startDay, endDay) => resolveUsageStatsPeriod({ view: 'custom', startDay, endDay, now });
@@ -168,21 +206,41 @@ test('rolling hours retain source precedence and leave timeless legacy usage in 
   const ledger = store(t);
   record(ledger, 'first-hour', '2026-09-13T00:59:59');
   record(ledger, 'second-hour', '2026-09-13T01:00:00');
-  ledger.record([makeUsageRecord({
-    id: 'overlapping-summary', ts: now, provider: 'openai', model: 'period-fixture',
-    inputTokens: 9999, outputTokens: 99, costUsd: 999, origin: 'gateway',
-  })]);
+  ledger.record([
+    makeUsageRecord({
+      id: 'overlapping-summary',
+      ts: now,
+      provider: 'openai',
+      model: 'period-fixture',
+      inputTokens: 9999,
+      outputTokens: 99,
+      costUsd: 999,
+      origin: 'gateway',
+    }),
+  ]);
   ledger.preserveLegacyDays({
-    '2026-09-13': { restored: true, models: {
-      'other/legacy': { provider: 'other', model: 'legacy', turns: 2, input: 20, output: 2, costUsd: 3 },
-    } },
+    '2026-09-13': {
+      restored: true,
+      models: {
+        'other/legacy': { provider: 'other', model: 'legacy', turns: 2, input: 20, output: 2, costUsd: 3 },
+      },
+    },
   });
   const result = stats(ledger, 'hour');
   assert.equal(result.hourly.length, 24);
-  assert.equal(result.hourly.some((hour) => hour.unknown), false);
+  assert.equal(
+    result.hourly.some((hour) => hour.unknown),
+    false
+  );
   assert.equal(result.totals.turns, 2);
-  assert.equal(result.hourly.reduce((sum, row) => sum + row.tokens, 0), result.totals.tokens);
-  assert.equal(result.hourly.reduce((sum, row) => sum + row.costUsd, 0), 2);
+  assert.equal(
+    result.hourly.reduce((sum, row) => sum + row.tokens, 0),
+    result.totals.tokens
+  );
+  assert.equal(
+    result.hourly.reduce((sum, row) => sum + row.costUsd, 0),
+    2
+  );
   assert.equal(stats(ledger, 'day').totals.turns, 4);
 });
 
@@ -192,13 +250,27 @@ test('the last 24 hours use exact timestamps for cards, models and hourly bands,
   t.mock.method(Date, 'now', () => clock);
   const start = clock - 24 * 60 * 60 * 1000;
   for (const [id, ts, sourceType] of [
-    ['before', start - 1, 'lead'], ['start', start, 'lead'],
+    ['before', start - 1, 'lead'],
+    ['start', start, 'lead'],
     ['background', start + 60 * 60 * 1000, 'native-web-search'],
-    ['now', clock, 'lead'], ['future', clock + 1, 'lead'],
+    ['now', clock, 'lead'],
+    ['future', clock + 1, 'lead'],
   ]) {
-    ledger.record([makeUsageRecord({ id, ts, provider: 'openai', model: 'boundary',
-      inputTokens: 110, inputTokensInclusive: true, cacheReadTokens: 100,
-      outputTokens: 1, costUsd: 1, sessionId: id, sourceType })]);
+    ledger.record([
+      makeUsageRecord({
+        id,
+        ts,
+        provider: 'openai',
+        model: 'boundary',
+        inputTokens: 110,
+        inputTokensInclusive: true,
+        cacheReadTokens: 100,
+        outputTokens: 1,
+        costUsd: 1,
+        sessionId: id,
+        sourceType,
+      }),
+    ]);
   }
   const api = createUsageStatsApi({ ledger: () => ledger, importHistory: async () => {} });
   const result = await api.getUsageStats({ view: 'hour' });
@@ -216,12 +288,24 @@ test('the last 24 hours use exact timestamps for cards, models and hourly bands,
   assert.equal(result.hourly[0].tokens, 111);
   assert.equal(result.hourly[1].tokens, 111);
   assert.equal(result.hourly.at(-1).tokens, 111);
-  assert.equal(result.hourly.reduce((sum, hour) => sum + hour.tokens, 0), 333);
-  assert.equal(result.hourly.reduce((sum, hour) => sum + hour.costUsd, 0), 3);
-  assert.equal(result.daily.reduce((sum, day) => sum + day.tokens, 0), 333);
+  assert.equal(
+    result.hourly.reduce((sum, hour) => sum + hour.tokens, 0),
+    333
+  );
+  assert.equal(
+    result.hourly.reduce((sum, hour) => sum + hour.costUsd, 0),
+    3
+  );
+  assert.equal(
+    result.daily.reduce((sum, day) => sum + day.tokens, 0),
+    333
+  );
   const conversation = await api.getUsageStats({ view: 'hour', source: 'conversation' });
   assert.equal(conversation.totals.turns, 2);
-  assert.equal(conversation.hourly.reduce((sum, hour) => sum + hour.tokens, 0), 222);
+  assert.equal(
+    conversation.hourly.reduce((sum, hour) => sum + hour.tokens, 0),
+    222
+  );
 });
 
 test('the hourly response clock includes timestamps retained during a slow historical import', async (t) => {
@@ -237,7 +321,10 @@ test('the hourly response clock includes timestamps retained during a slow histo
   });
   const result = await api.getUsageStats({ view: 'hour' });
   assert.equal(result.totals.tokens, 111);
-  assert.equal(result.hourly.reduce((sum, row) => sum + row.tokens, 0), 111);
+  assert.equal(
+    result.hourly.reduce((sum, row) => sum + row.tokens, 0),
+    111
+  );
 });
 
 test('rolling grids retain 24 elapsed hours across DST while monthly navigation stays calendar-based', () => {
@@ -248,8 +335,10 @@ test('rolling grids retain 24 elapsed hours across DST while monthly navigation 
     console.log(JSON.stringify([count('2026-03-08T12:00:00'),count('2026-11-01T12:00:00'),
       resolveUsageStatsPeriod({view:'day',anchor:'2026-03-01',now:new Date('2026-04-01T12:00:00').getTime()}).days]));
   `;
-  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script],
-    { env: { ...process.env, TZ: 'America/New_York' }, encoding: 'utf8' });
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    env: { ...process.env, TZ: 'America/New_York' },
+    encoding: 'utf8',
+  });
   assert.equal(child.status, 0, child.stderr);
   assert.deepEqual(JSON.parse(child.stdout), [24, 24, 30]);
 });

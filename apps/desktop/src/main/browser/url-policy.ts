@@ -14,15 +14,16 @@ export interface BrowserUrlPolicy {
 }
 
 function normalizedHostname(value: string): string {
-  return value.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
 }
 
 function isLoopbackHostname(hostname: string): boolean {
   const host = normalizedHostname(hostname);
-  return host === 'localhost'
-    || host.endsWith('.localhost')
-    || host === '::1'
-    || /^127(?:\.\d{1,3}){0,3}$/.test(host);
+  return host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127(?:\.\d{1,3}){0,3}$/.test(host);
 }
 
 function parseIpv4(hostname: string): number[] | null {
@@ -37,15 +38,17 @@ function isPrivateIpv4(hostname: string): boolean {
   const parts = parseIpv4(hostname);
   if (!parts) return false;
   const [a, b] = parts;
-  return a === 0
-    || a === 10
-    || a === 127
-    || (a === 100 && b >= 64 && b <= 127)
-    || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31)
-    || (a === 192 && b === 168)
-    || (a === 198 && (b === 18 || b === 19))
-    || a >= 224;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    a >= 224
+  );
 }
 
 function mappedIpv4(hostname: string): string | null {
@@ -66,20 +69,19 @@ export function isPrivateNetworkAddress(address: string): boolean {
   if (mapped) return isPrivateIpv4(mapped);
   if (isIP(host) === 4) return isPrivateIpv4(host);
   if (isIP(host) !== 6) return false;
-  return host === '::'
-    || host === '::1'
-    || /^(?:fc|fd)[0-9a-f]{2}:/i.test(host)
-    || /^fe[89ab][0-9a-f]:/i.test(host);
+  return host === '::' || host === '::1' || /^(?:fc|fd)[0-9a-f]{2}:/i.test(host) || /^fe[89ab][0-9a-f]:/i.test(host);
 }
 
 function isCloudMetadataHost(hostname: string): boolean {
   const host = mappedIpv4(hostname) || normalizedHostname(hostname);
-  return host === '169.254.169.254'
-    || host === '169.254.170.2'
-    || host === '100.100.100.200'
-    || host === 'metadata.google.internal'
-    || host === 'metadata.goog'
-    || host === 'fd00:ec2::254';
+  return (
+    host === '169.254.169.254' ||
+    host === '169.254.170.2' ||
+    host === '100.100.100.200' ||
+    host === 'metadata.google.internal' ||
+    host === 'metadata.goog' ||
+    host === 'fd00:ec2::254'
+  );
 }
 
 function allowedByDomainPolicy(hostname: string, allowedDomains: string[]): boolean {
@@ -93,11 +95,7 @@ function allowedByDomainPolicy(hostname: string, allowedDomains: string[]): bool
 
 /** Browser navigation stays on the web and cannot silently cross into a
  * private network. Loopback remains available for local web-app development. */
-function normalizeBrowserUrl(
-  raw: string,
-  policy: BrowserUrlPolicy,
-  rejectSecrets: boolean,
-): string {
+function normalizeBrowserUrl(raw: string, policy: BrowserUrlPolicy, rejectSecrets: boolean): string {
   const text = String(raw || '').trim();
   if (!text) throw new Error('navigate requires url');
   const candidate = /^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`;
@@ -120,9 +118,7 @@ function normalizeBrowserUrl(
   if (isCloudMetadataHost(host)) {
     throw new Error('navigation to cloud metadata endpoints is blocked');
   }
-  if (!policy.allowPrivateNetwork
-    && !isLoopbackHostname(host)
-    && isPrivateNetworkAddress(host)) {
+  if (!policy.allowPrivateNetwork && !isLoopbackHostname(host) && isPrivateNetworkAddress(host)) {
     throw new Error(`navigation to private or internal address ${host} is blocked`);
   }
   const allowedDomains = policy.allowedDomains?.map((domain) => domain.trim()).filter(Boolean) || [];
@@ -150,11 +146,7 @@ export function normalizeRestoredPageUrl(raw: string, policy: BrowserUrlPolicy =
   return raw === 'about:blank' ? raw : normalizePageUrl(raw, policy);
 }
 
-export function assertResolvedAddressAllowed(
-  address: string,
-  hostname: string,
-  policy: BrowserUrlPolicy = {},
-): void {
+export function assertResolvedAddressAllowed(address: string, hostname: string, policy: BrowserUrlPolicy = {}): void {
   if (isCloudMetadataHost(address)) {
     throw new Error(`navigation to ${hostname} resolved to a blocked cloud metadata endpoint`);
   }

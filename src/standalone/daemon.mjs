@@ -57,10 +57,7 @@ import { createChannelSessionRouter } from './channel-session-router.mjs';
 import { createSessionTransport } from './session-transport.mjs';
 import { createSessionService } from './session-service.mjs';
 import { createSessionProtocolClient } from './session-protocol.mjs';
-import {
-  listStoredActiveGoalSessionIds,
-  readStoredGoalSnapshot,
-} from '../session-runtime/goal-runtime.mjs';
+import { listStoredActiveGoalSessionIds, readStoredGoalSnapshot } from '../session-runtime/goal-runtime.mjs';
 import { createDaemonSessionRuntimeHost } from './session-runtime-host-factory.mjs';
 import { getStandaloneMemoryRuntime } from './memory-runtime-proxy.mjs';
 import { createBootPhaseProfiler } from './boot-phase-profiler.mjs';
@@ -133,11 +130,13 @@ function registerMemoryRuntimeLazy() {
       cwd: CWD,
     });
     log('memory runtime registered for lazy start');
-  } catch (e) { log(`memory.start setup failed (non-fatal): ${e?.message || e}`); }
+  } catch (e) {
+    log(`memory.start setup failed (non-fatal): ${e?.message || e}`);
+  }
 }
 
 function eventLoopStatus() {
-  const milliseconds = (value) => Number.isFinite(value) ? Math.round(value / 1e6) : 0;
+  const milliseconds = (value) => (Number.isFinite(value) ? Math.round(value / 1e6) : 0);
   return {
     eventLoopP95Ms: milliseconds(eventLoopDelay.percentile(95)),
     eventLoopP99Ms: milliseconds(eventLoopDelay.percentile(99)),
@@ -165,29 +164,75 @@ async function shutdown(reason, code = 0) {
     process.exit(code);
   }, SHUTDOWN_BUDGET_MS);
   forcedExit.unref?.();
-  try { setChannelNotifySink(null); } catch {}
-  try { await sessionService?.stop?.(reason); } catch (e) { log(`session service stop failed: ${e?.message || e}`); }
-  try { await sessionRuntimeHost?.close?.(reason); } catch (e) { log(`session runtime host stop failed: ${e?.message || e}`); }
+  try {
+    setChannelNotifySink(null);
+  } catch {}
+  try {
+    await sessionService?.stop?.(reason);
+  } catch (e) {
+    log(`session service stop failed: ${e?.message || e}`);
+  }
+  try {
+    await sessionRuntimeHost?.close?.(reason);
+  } catch (e) {
+    log(`session runtime host stop failed: ${e?.message || e}`);
+  }
   // Host-side Computer Use workers and target claims are reaped only on an
   // explicit release; the runtime's deferred timer is unref'd and never fires
   // once this process exits.
-  try { await releaseAllComputerSessions(); } catch (e) { log(`computer session release failed: ${e?.message || e}`); }
-  try { await localSessionBridge?.close?.(reason); } catch (e) { log(`local session bridge.close failed: ${e?.message || e}`); }
-  try { await sessionTransport?.stop?.(); } catch (e) { log(`session transport stop failed: ${e?.message || e}`); }
-  try { await channels?.stop?.(); } catch (e) { log(`channels.stop failed: ${e?.message || e}`); }
+  try {
+    await releaseAllComputerSessions();
+  } catch (e) {
+    log(`computer session release failed: ${e?.message || e}`);
+  }
+  try {
+    await localSessionBridge?.close?.(reason);
+  } catch (e) {
+    log(`local session bridge.close failed: ${e?.message || e}`);
+  }
+  try {
+    await sessionTransport?.stop?.();
+  } catch (e) {
+    log(`session transport stop failed: ${e?.message || e}`);
+  }
+  try {
+    await channels?.stop?.();
+  } catch (e) {
+    log(`channels.stop failed: ${e?.message || e}`);
+  }
   // The daemon only releases its client registration. The isolated memory
   // process shuts down after its last live client disappears.
-  try { await memoryRuntime?.stop?.(); } catch (e) { log(`memory.stop failed: ${e?.message || e}`); }
-  try { agentDispatchBroker?.close?.(reason); } catch (e) { log(`agent broker stop failed: ${e?.message || e}`); }
-  try { await closeProviderStreamJsonPool(reason); } catch (e) { log(`stream parser stop failed: ${e?.message || e}`); }
-  try { await transport?.stop?.(); } catch (e) { log(`transport.stop failed: ${e?.message || e}`); }
+  try {
+    await memoryRuntime?.stop?.();
+  } catch (e) {
+    log(`memory.stop failed: ${e?.message || e}`);
+  }
+  try {
+    agentDispatchBroker?.close?.(reason);
+  } catch (e) {
+    log(`agent broker stop failed: ${e?.message || e}`);
+  }
+  try {
+    await closeProviderStreamJsonPool(reason);
+  } catch (e) {
+    log(`stream parser stop failed: ${e?.message || e}`);
+  }
+  try {
+    await transport?.stop?.();
+  } catch (e) {
+    log(`transport.stop failed: ${e?.message || e}`);
+  }
   idleGc?.disarm();
   daemonTelemetry?.stop();
   eventLoopDelay.disable();
   for (const discoveryPath of [DAEMON_DISCOVERY_PATH]) {
-    try { rmSync(discoveryPath, { force: true }); } catch {}
+    try {
+      rmSync(discoveryPath, { force: true });
+    } catch {}
   }
-  try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {}
+  try {
+    releaseSingletonOwner(OWNER_PATH, process.pid);
+  } catch {}
   await flushDaemonLogs();
   process.exit(code);
 }
@@ -209,18 +254,25 @@ daemonTelemetry = createDaemonTelemetry({
   onInterval() {
     const status = eventLoopStatus();
     if (status.eventLoopP99Ms >= 250) {
-      log(`event-loop lag p95=${status.eventLoopP95Ms}ms p99=${status.eventLoopP99Ms}ms max=${status.eventLoopMaxMs}ms`);
+      log(
+        `event-loop lag p95=${status.eventLoopP95Ms}ms p99=${status.eventLoopP99Ms}ms max=${status.eventLoopMaxMs}ms`
+      );
     }
     // Legacy external runtime hosts may still report shard-local lag. The
     // production in-process host is already covered by daemon loop telemetry.
     const shards = sessionRuntimeHost?.status?.shards || [];
     const lagging = shards.filter((shard) => Number(shard?.lag?.p99Ms) >= 250 || shard?.degraded);
     if (lagging.length > 0) {
-      log(`session runtime shard lag ${lagging.map((shard) => (
-        `#${shard.index}${shard.degraded ? '(quarantined)' : ''}`
-        + ` p95=${shard.lag?.p95Ms ?? -1}ms p99=${shard.lag?.p99Ms ?? -1}ms`
-        + ` max=${shard.lag?.maxMs ?? -1}ms runtimes=${shard.runtimes}`
-      )).join(' ')}`);
+      log(
+        `session runtime shard lag ${lagging
+          .map(
+            (shard) =>
+              `#${shard.index}${shard.degraded ? '(quarantined)' : ''}` +
+              ` p95=${shard.lag?.p95Ms ?? -1}ms p99=${shard.lag?.p99Ms ?? -1}ms` +
+              ` max=${shard.lag?.maxMs ?? -1}ms runtimes=${shard.runtimes}`
+          )
+          .join(' ')}`
+      );
     }
     eventLoopDelay.reset();
   },
@@ -228,8 +280,7 @@ daemonTelemetry = createDaemonTelemetry({
 
 function daemonHasWorkInFlight() {
   const work = inFlightWork();
-  return work.activeCalls > 0 || work.queuedCalls > 0
-    || work.busySessions > 0 || work.busyMemoryAgents > 0;
+  return work.activeCalls > 0 || work.queuedCalls > 0 || work.busySessions > 0 || work.busyMemoryAgents > 0;
 }
 
 /** One process, two front doors (channels + sessions): an idle side must never
@@ -252,10 +303,11 @@ function maybeSelfShutdown(reason) {
     if (deferKey === _lastDeferredLog.key && now - _lastDeferredLog.at < 60_000) {
       _lastDeferredLog.suppressed += 1;
     } else {
-      const suffix = _lastDeferredLog.suppressed > 0
-        ? ` (+${_lastDeferredLog.suppressed} identical defers suppressed)`
-        : '';
-      log(`shutdown deferred (${reason}): channels=${channelClients} sessionClients=${sessionClients} remote=${remoteClients}${suffix}`);
+      const suffix =
+        _lastDeferredLog.suppressed > 0 ? ` (+${_lastDeferredLog.suppressed} identical defers suppressed)` : '';
+      log(
+        `shutdown deferred (${reason}): channels=${channelClients} sessionClients=${sessionClients} remote=${remoteClients}${suffix}`
+      );
       _lastDeferredLog = { key: deferKey, at: now, suppressed: 0 };
     }
     return;
@@ -275,10 +327,7 @@ function maybeSelfShutdown(reason) {
   // A turn in flight outlives every view — closing the app or the terminal is
   // not a reason to abandon work the daemon is still running.
   if (busySessions > 0 || busyMemoryAgents > 0) {
-    log(
-      `shutdown deferred (${reason}): busySessions=${busySessions}`
-      + ` memoryAgents=${busyMemoryAgents}`,
-    );
+    log(`shutdown deferred (${reason}): busySessions=${busySessions}` + ` memoryAgents=${busyMemoryAgents}`);
     if (!shutdownRecheckTimer) {
       shutdownRecheckTimer = setTimeout(() => {
         shutdownRecheckTimer = null;
@@ -306,10 +355,11 @@ function requestDaemonReplacement({ protocol, revision, version } = {}) {
   const versionOrder = compareRuntimeVersions(requested.version, runtimeVersion());
   if (revisionOrder < 0 || (revisionOrder === 0 && versionOrder <= 0)) return false;
   if (
-    replacementRequested
-    && requested.revision === replacementRequested.revision
-    && requested.version === replacementRequested.version
-  ) return true;
+    replacementRequested &&
+    requested.revision === replacementRequested.revision &&
+    requested.version === replacementRequested.version
+  )
+    return true;
   replacementRequested = requested;
   const reason = `daemon replacement by revision/build ${requested.revision}/${requested.version}`;
   log(`${reason} requested — preserving clients until live work settles`);
@@ -348,7 +398,11 @@ async function main() {
     process.exit(0);
   }
   bootPhases.mark('owner-claimed');
-  process.on('exit', () => { try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {} });
+  process.on('exit', () => {
+    try {
+      releaseSingletonOwner(OWNER_PATH, process.pid);
+    } catch {}
+  });
   registerMemoryRuntimeLazy();
   agentDispatchBroker = createAgentDispatchBroker({
     // Memory-cycle agents use the same lazy provider/orchestrator graph as
@@ -358,16 +412,18 @@ async function main() {
       return sessionRuntimeHost.agentDispatch(payload, options);
     },
     log,
-    onActivityChanged: () => { maybeSelfShutdown('memory agent activity changed'); },
+    onActivityChanged: () => {
+      maybeSelfShutdown('memory agent activity changed');
+    },
   });
   process.on('mixdog:turn-timing', (row = {}) => {
-    const ms = (value) => Number.isFinite(value) ? Math.round(value) : -1;
+    const ms = (value) => (Number.isFinite(value) ? Math.round(value) : -1);
     log(
-      `turn timing status=${row.status || 'unknown'} session=${row.sessionId || '-'}`
-      + ` e2e=${ms(row.endToEndTtftMs)}ms runtime=${ms(row.ttftMs)}ms`
-      + ` queue=${ms(row.queueMs)}ms route=${ms(row.routeMs)}ms`
-      + ` preflight=${ms(row.preflightMs)}ms mcp=${ms(row.mcpMs)}ms`
-      + ` provider=${ms(row.providerMs)}ms`,
+      `turn timing status=${row.status || 'unknown'} session=${row.sessionId || '-'}` +
+        ` e2e=${ms(row.endToEndTtftMs)}ms runtime=${ms(row.ttftMs)}ms` +
+        ` queue=${ms(row.queueMs)}ms route=${ms(row.routeMs)}ms` +
+        ` preflight=${ms(row.preflightMs)}ms mcp=${ms(row.mcpMs)}ms` +
+        ` provider=${ms(row.providerMs)}ms`
     );
   });
 
@@ -417,7 +473,9 @@ async function main() {
   const handleCall = async (name, args, ctx) => {
     const module = await ensureChannels();
     if (ctx && POINTER_TOOLS.has(name)) {
-      try { setOwnerContext({ leadPid: ctx.leadPid, cwd: ctx.cwd }); } catch {}
+      try {
+        setOwnerContext({ leadPid: ctx.leadPid, cwd: ctx.cwd });
+      } catch {}
     }
     return module.handleToolCallWithBridgeRetry(name, args || {});
   };
@@ -440,9 +498,13 @@ async function main() {
     },
     // Self-shutdown when the last attached TUI leaves (reuses the SSE/client
     // registry as the liveness signal).
-    onClientsEmpty: () => { maybeSelfShutdown('no live channel clients'); },
+    onClientsEmpty: () => {
+      maybeSelfShutdown('no live channel clients');
+    },
     // First channels client in: bring the channels runtime up (see startChannels).
-    onClientRegistered: () => { startChannels(); },
+    onClientRegistered: () => {
+      startChannels();
+    },
   });
   const routeChannelNotification = createChannelSessionRouter({
     getSessionService: () => sessionService,
@@ -454,10 +516,7 @@ async function main() {
     if (routeChannelNotification(method, params)) return;
     transport.notify(method, params);
   });
-  const { port, token } = await bootPhases.measure(
-    'channel-transport-start',
-    () => transport.start(),
-  );
+  const { port, token } = await bootPhases.measure('channel-transport-start', () => transport.start());
   // Memory-cycle agent dispatch is rare and initializes on first use. Eagerly
   // loading its provider graph here consumed the control loop before any
   // memory cycle requested it.
@@ -484,7 +543,9 @@ async function main() {
           if (closed) return;
           closed = true;
           localSessionClients.delete(clientToken);
-          try { sessionService.releaseClient(clientToken); } catch {}
+          try {
+            sessionService.releaseClient(clientToken);
+          } catch {}
           log(`${reason} (${clientToken})`);
         },
       });
@@ -493,13 +554,19 @@ async function main() {
       const targets = targetTokens ? new Set(targetTokens) : null;
       for (const [clientToken, client] of localSessionClients) {
         if (targets && !targets.has(clientToken)) continue;
-        try { client.onFrame(frame); } catch {}
+        try {
+          client.onFrame(frame);
+        } catch {}
       }
     },
     async close(reason = 'daemon shutdown') {
       for (const [clientToken, client] of localSessionClients) {
-        try { client.onFatal(reason); } catch {}
-        try { sessionService.releaseClient(clientToken); } catch {}
+        try {
+          client.onFatal(reason);
+        } catch {}
+        try {
+          sessionService.releaseClient(clientToken);
+        } catch {}
       }
       localSessionClients.clear();
     },
@@ -528,22 +595,26 @@ async function main() {
       import('./agent-tool.mjs'),
       import('../runtime/agent/orchestrator/config.mjs'),
       import('../runtime/agent/orchestrator/providers/registry.mjs'),
-    ]).then(([agentModule, cfgMod, reg]) => agentModule.createStandaloneAgent({
-      cfgMod,
-      reg,
-      mgr: sessionService.agentManager,
-      dataDir: cfgMod.getPluginData(),
-      cwd: CWD,
-      awaitKeychainPrewarm: async () => {},
-      isKeychainPrewarmReady: () => true,
-      sessionSurface: sessionService.agentSurface,
-      notifySessionCompletion(ownerSessionId, text, meta = {}) {
-        return sessionRuntimeHost?.notifySessionCompletion?.(ownerSessionId, text, meta) === true;
-      },
-    })).catch((error) => {
-      canonicalAgentToolPromise = null;
-      throw error;
-    });
+    ])
+      .then(([agentModule, cfgMod, reg]) =>
+        agentModule.createStandaloneAgent({
+          cfgMod,
+          reg,
+          mgr: sessionService.agentManager,
+          dataDir: cfgMod.getPluginData(),
+          cwd: CWD,
+          awaitKeychainPrewarm: async () => {},
+          isKeychainPrewarmReady: () => true,
+          sessionSurface: sessionService.agentSurface,
+          notifySessionCompletion(ownerSessionId, text, meta = {}) {
+            return sessionRuntimeHost?.notifySessionCompletion?.(ownerSessionId, text, meta) === true;
+          },
+        })
+      )
+      .catch((error) => {
+        canonicalAgentToolPromise = null;
+        throw error;
+      });
     return canonicalAgentToolPromise;
   }
   async function executeCanonicalAgentControl(args = {}, context = {}) {
@@ -556,14 +627,8 @@ async function main() {
       ownerSessionId: sessionService.rootOwnerSessionId(parentSessionId),
     };
     if (String(args?.type || '') === '__close_all') {
-      await tool.closeAll?.(
-        String(args?.reason || 'agent owner closed'),
-        { callerSessionId: parentSessionId || null },
-      );
-      await sessionService.cancelAgentDescendants(
-        parentSessionId,
-        String(args?.reason || 'agent owner closed'),
-      );
+      await tool.closeAll?.(String(args?.reason || 'agent owner closed'), { callerSessionId: parentSessionId || null });
+      await sessionService.cancelAgentDescendants(parentSessionId, String(args?.reason || 'agent owner closed'));
       return 'agent close all: ok';
     }
     return await tool.execute(args, scopedContext);
@@ -584,12 +649,13 @@ async function main() {
     // The modules every rail catalog request needs (session summaries,
     // projects, statusline segments) — warm them once the desktop is up so
     // the first Sessions/Projects click reads a hot module graph.
-    prewarmCatalogs: () => Promise.all([
-      desktopRuntime.loadSessionStore(),
-      desktopRuntime.loadProjects(),
-      desktopRuntime.loadStatuslineSegments(),
-      import('../runtime/agent/orchestrator/session/store.mjs'),
-    ]),
+    prewarmCatalogs: () =>
+      Promise.all([
+        desktopRuntime.loadSessionStore(),
+        desktopRuntime.loadProjects(),
+        desktopRuntime.loadStatuslineSegments(),
+        import('../runtime/agent/orchestrator/session/store.mjs'),
+      ]),
     measure: (phase, task) => bootPhases.measure(phase, task),
     log,
   });
@@ -605,15 +671,17 @@ async function main() {
     readStoredSession: async (sessionId, options = {}) => {
       const store = await desktopRuntime.loadSessionStore();
       if (typeof store.readStoredSessionTranscript !== 'function') return null;
-      return await store.readStoredSessionTranscript(sessionId, options) ?? null;
+      return (await store.readStoredSessionTranscript(sessionId, options)) ?? null;
     },
-    readStoredGoal: async (sessionId) => readStoredGoalSnapshot({
-      dataDir: DATA_DIR,
-      sessionId,
-    }),
-    listStoredActiveGoalSessionIds: async () => listStoredActiveGoalSessionIds({
-      dataDir: DATA_DIR,
-    }),
+    readStoredGoal: async (sessionId) =>
+      readStoredGoalSnapshot({
+        dataDir: DATA_DIR,
+        sessionId,
+      }),
+    listStoredActiveGoalSessionIds: async () =>
+      listStoredActiveGoalSessionIds({
+        dataDir: DATA_DIR,
+      }),
     listSessions: async (options = {}) => {
       if (options.includeAgentOnly === true) {
         // Agent discovery is metadata-only. Exact session reads/subscriptions
@@ -643,7 +711,9 @@ async function main() {
       localSessionBridge?.publish(frame, targetTokens);
       sessionTransport?.broadcast(frame, targetTokens);
     },
-    onExternalClientsChanged: () => { maybeSelfShutdown('remote clients changed'); },
+    onExternalClientsChanged: () => {
+      maybeSelfShutdown('remote clients changed');
+    },
     onDesktopReady: () => bootCoordinator.notifyDesktopReady(),
     log,
   });
@@ -684,27 +754,34 @@ async function main() {
       },
       ...eventLoopStatus(),
     }),
-    onClientsEmpty: () => { maybeSelfShutdown('no live session clients'); },
+    onClientsEmpty: () => {
+      maybeSelfShutdown('no live session clients');
+    },
     onClientRegistered: (client) => bootCoordinator.notifyClientRegistered(client),
-    onClientDropped: (token) => { try { sessionService.releaseClient(token); } catch {} },
+    onClientDropped: (token) => {
+      try {
+        sessionService.releaseClient(token);
+      } catch {}
+    },
     onUpgradeRequested: requestDaemonReplacement,
   });
-  const sessionEndpoint = await bootPhases.measure(
-    'session-transport-start',
-    () => sessionTransport.start(),
-  );
-  writeJsonAtomicSync(DAEMON_DISCOVERY_PATH, {
-    protocol: SESSION_PROTOCOL,
-    revision: SESSION_REVISION,
-    version: runtimeVersion(),
-    capabilityFingerprint: SESSION_CAPABILITY_FINGERPRINT,
-    pid: process.pid,
-    startedAt: Date.now(),
-    endpoints: {
-      channel: { port, token },
-      session: { port: sessionEndpoint.port, token: sessionEndpoint.token },
+  const sessionEndpoint = await bootPhases.measure('session-transport-start', () => sessionTransport.start());
+  writeJsonAtomicSync(
+    DAEMON_DISCOVERY_PATH,
+    {
+      protocol: SESSION_PROTOCOL,
+      revision: SESSION_REVISION,
+      version: runtimeVersion(),
+      capabilityFingerprint: SESSION_CAPABILITY_FINGERPRINT,
+      pid: process.pid,
+      startedAt: Date.now(),
+      endpoints: {
+        channel: { port, token },
+        session: { port: sessionEndpoint.port, token: sessionEndpoint.token },
+      },
     },
-  }, { compact: true, secret: true });
+    { compact: true, secret: true }
+  );
   bootPhases.mark('discovery-published');
   log(`session front door on 127.0.0.1:${sessionEndpoint.port}`);
 
@@ -752,7 +829,8 @@ async function main() {
   // messaging bridge up); with no intent on disk this is a no-op and the
   // channels graph stays dormant.
   if (transport.remoteIntentSessionId) {
-    void transport.restoreRemoteIntent()
+    void transport
+      .restoreRemoteIntent()
       .then((restored) => {
         if (!restored) log('remote intent restore declined (session unavailable)');
       })
@@ -760,8 +838,12 @@ async function main() {
   }
 }
 
-process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
-process.on('SIGINT', () => { void shutdown('SIGINT'); });
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM');
+});
+process.on('SIGINT', () => {
+  void shutdown('SIGINT');
+});
 process.on('message', (msg) => {
   if (msg && msg.type === 'shutdown') void shutdown('IPC shutdown');
 });

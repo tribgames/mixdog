@@ -1,25 +1,18 @@
 // Renderer consumption of the per-session live lanes (mixdog:session-state).
 // One process-wide store fans lane frames out per sessionId so a pane
 // subscribed to session A never re-renders for session B's traffic.
-import { useCallback, useRef, useSyncExternalStore } from "react";
+import { useCallback, useRef, useSyncExternalStore } from 'react';
 
-import type { DesktopSessionStateUpdate } from "../shared/contract";
-import { desktopAgentIdentity } from "../shared/agent-activity";
-import type { Snapshot, TranscriptItem } from "./desktop-types";
-import { estimateSessionSnapshotBytes } from "./app-session-snapshots";
-import { SessionLaneCache } from "./session-lane-cache";
-import { reportSessionReadFrame } from "./session-read-diagnostics";
-import {
-  sharedTranscriptSnapshotDecorator,
-  type TranscriptSnapshotDecorator,
-} from "./snapshot-transcript-decoration";
-import {
-  cancelLayoutFrame,
-  scheduleLayoutFrame,
-} from "./interaction-frame-scheduler";
+import type { DesktopSessionStateUpdate } from '../shared/contract';
+import { desktopAgentIdentity } from '../shared/agent-activity';
+import type { Snapshot, TranscriptItem } from './desktop-types';
+import { estimateSessionSnapshotBytes } from './app-session-snapshots';
+import { SessionLaneCache } from './session-lane-cache';
+import { reportSessionReadFrame } from './session-read-diagnostics';
+import { sharedTranscriptSnapshotDecorator, type TranscriptSnapshotDecorator } from './snapshot-transcript-decoration';
+import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 
-export type SessionLaneSource =
-  (listener: (update: DesktopSessionStateUpdate) => void) => () => void;
+export type SessionLaneSource = (listener: (update: DesktopSessionStateUpdate) => void) => () => void;
 
 export interface SessionLaneStore {
   get(sessionId: string): Snapshot | null;
@@ -49,50 +42,51 @@ const SESSION_LANE_ESTIMATE_INTERVAL_MS = 1_000;
 
 function queuedIdentity(snapshot: Snapshot): string {
   const queued = Array.isArray(snapshot.queued) ? snapshot.queued : [];
-  return queued.map((entry) => String(
-    (entry as { id?: unknown; key?: unknown })?.id
-      ?? (entry as { key?: unknown })?.key
-      ?? "",
-  )).join("\0");
+  return queued
+    .map((entry) => String((entry as { id?: unknown; key?: unknown })?.id ?? (entry as { key?: unknown })?.key ?? ''))
+    .join('\0');
 }
 
 function agentActivityIdentity(snapshot: Snapshot): string {
-  return (["agentWorkers", "agentJobs"] as const).flatMap((field) => {
-    const entries = Array.isArray(snapshot[field]) ? snapshot[field] : [];
-    return entries.map((entry, index) => [
-      field,
-      desktopAgentIdentity(entry) || index,
-      String(entry?.stage || ""),
-      String(entry?.status || ""),
-    ].join(":"));
-  }).join("\0");
+  return (['agentWorkers', 'agentJobs'] as const)
+    .flatMap((field) => {
+      const entries = Array.isArray(snapshot[field]) ? snapshot[field] : [];
+      return entries.map((entry, index) =>
+        [field, desktopAgentIdentity(entry) || index, String(entry?.stage || ''), String(entry?.status || '')].join(':')
+      );
+    })
+    .join('\0');
 }
 
 function shellActivityCount(snapshot: Snapshot): number {
   return Math.max(
     Math.max(0, Number(snapshot.shellJobs?.count) || 0),
-    Math.max(0, Number(snapshot.activeTools?.shell?.count) || 0),
+    Math.max(0, Number(snapshot.activeTools?.shell?.count) || 0)
   );
 }
 
 function surfacedToolActivityIdentity(snapshot: Snapshot): string {
-  return (["agent", "web_search", "shell"] as const).map((field) => {
-    const activity = snapshot.activeTools?.[field];
-    return `${field}:${Math.max(0, Number(activity?.count) || 0)}:${Number(activity?.startedAt) || 0}`;
-  }).join("\0");
+  return (['agent', 'web_search', 'shell'] as const)
+    .map((field) => {
+      const activity = snapshot.activeTools?.[field];
+      return `${field}:${Math.max(0, Number(activity?.count) || 0)}:${Number(activity?.startedAt) || 0}`;
+    })
+    .join('\0');
 }
 
 function laneUpdateIsUrgent(previous: Snapshot | null, next: Snapshot | null): boolean {
   if (!previous || !next) return true;
-  return previous.sessionId !== next.sessionId
-    || previous.busy !== next.busy
-    || previous.commandBusy !== next.commandBusy
-    || previous.commandStatus !== next.commandStatus
-    || previous.toolApproval !== next.toolApproval
-    || queuedIdentity(previous) !== queuedIdentity(next)
-    || agentActivityIdentity(previous) !== agentActivityIdentity(next)
-    || surfacedToolActivityIdentity(previous) !== surfacedToolActivityIdentity(next)
-    || shellActivityCount(previous) !== shellActivityCount(next);
+  return (
+    previous.sessionId !== next.sessionId ||
+    previous.busy !== next.busy ||
+    previous.commandBusy !== next.commandBusy ||
+    previous.commandStatus !== next.commandStatus ||
+    previous.toolApproval !== next.toolApproval ||
+    queuedIdentity(previous) !== queuedIdentity(next) ||
+    agentActivityIdentity(previous) !== agentActivityIdentity(next) ||
+    surfacedToolActivityIdentity(previous) !== surfacedToolActivityIdentity(next) ||
+    shellActivityCount(previous) !== shellActivityCount(next)
+  );
 }
 
 // Only the transcript's completeness is reconciled here:
@@ -115,8 +109,7 @@ function sameLaneRow(left?: TranscriptItem, right?: TranscriptItem): boolean {
   if (!left || !right) return false;
   if (left === right) return true;
   if (left.id != null && right.id != null) return String(left.id) === String(right.id);
-  return String(left.kind || "") === String(right.kind || "")
-    && String(left.text ?? "") === String(right.text ?? "");
+  return String(left.kind || '') === String(right.kind || '') && String(left.text ?? '') === String(right.text ?? '');
 }
 
 /** Index in `prior` where the incoming transcript window starts, or -1 when
@@ -143,30 +136,30 @@ function laneWindowOffset(prior: TranscriptItem[], next: TranscriptItem[]): numb
 // of them must not push the pane back to "unknown" while it keeps painting
 // the retained rows. Live/work fields are deliberately absent from this list.
 const LANE_PRESENTATION_FIELDS: ReadonlyArray<keyof Snapshot> = [
-  "stats",
-  "contextWindow",
-  "displayContextWindow",
-  "autoCompactTokenLimit",
-  "provider",
-  "model",
-  "effort",
-  "fast",
-  "fastCapable",
-  "modelParameters",
-  "contextPercent",
-  "workflow",
-  "currentProject",
-  "project",
-  "cwd",
-  "promptHistoryList",
-  "desktopSessionTitle",
+  'stats',
+  'contextWindow',
+  'displayContextWindow',
+  'autoCompactTokenLimit',
+  'provider',
+  'model',
+  'effort',
+  'fast',
+  'fastCapable',
+  'modelParameters',
+  'contextPercent',
+  'workflow',
+  'currentProject',
+  'project',
+  'cwd',
+  'promptHistoryList',
+  'desktopSessionTitle',
 ];
 
 function mergedLaneFrame(
   prior: Snapshot,
   next: Snapshot,
   items: TranscriptItem[],
-  retainedTurnModel: boolean,
+  retainedTurnModel: boolean
 ): Snapshot {
   const merged: Snapshot = { ...next, items };
   // The turn/failure model belongs to the transcript it was computed over:
@@ -179,7 +172,7 @@ function mergedLaneFrame(
   for (const field of LANE_PRESENTATION_FIELDS) {
     if (merged[field] == null && prior[field] != null) merged[field] = prior[field];
   }
-  if (!Object.prototype.hasOwnProperty.call(next, "goal") && prior.goal != null) {
+  if (!Object.hasOwn(next, 'goal') && prior.goal != null) {
     merged.goal = prior.goal;
   }
   return merged;
@@ -191,43 +184,43 @@ function mergedLaneFrame(
 // a frame blank a pane's model controls to "Select model" on every focus swap
 // (user report: 판 3개가 "모델 선택"으로 비었다). The last route a lane knew
 // for a session survives until a frame names a real one.
-function laneRouteText(snapshot: Snapshot | null, field: "provider" | "model" | "effort"): string {
+function laneRouteText(snapshot: Snapshot | null, field: 'provider' | 'model' | 'effort'): string {
   const value = snapshot?.[field];
-  return typeof value === "string" ? value.trim() : "";
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 export function laneFrameWithRetainedRoute(prior: Snapshot | null, next: Snapshot): Snapshot {
   if (!prior) return next;
-  const priorSessionId = String(prior.sessionId || "");
-  const nextSessionId = String(next.sessionId || "");
+  const priorSessionId = String(prior.sessionId || '');
+  const nextSessionId = String(next.sessionId || '');
   if (priorSessionId && nextSessionId && priorSessionId !== nextSessionId) return next;
-  const priorProvider = laneRouteText(prior, "provider");
-  const priorModel = laneRouteText(prior, "model");
-  const provider = laneRouteText(next, "provider") || priorProvider;
-  const model = laneRouteText(next, "model") || priorModel;
+  const priorProvider = laneRouteText(prior, 'provider');
+  const priorModel = laneRouteText(prior, 'model');
+  const provider = laneRouteText(next, 'provider') || priorProvider;
+  const model = laneRouteText(next, 'model') || priorModel;
   if (!provider || !model) return next;
   const merged: Snapshot = { ...next };
   let changed = false;
-  if (laneRouteText(next, "provider") !== provider) {
+  if (laneRouteText(next, 'provider') !== provider) {
     merged.provider = provider;
     changed = true;
   }
-  if (laneRouteText(next, "model") !== model) {
+  if (laneRouteText(next, 'model') !== model) {
     merged.model = model;
     changed = true;
   }
   // Effort/fast belong to the route they were chosen for: only a frame that
   // lands on the SAME provider+model may inherit them.
   if (provider === priorProvider && model === priorModel) {
-    if (!laneRouteText(next, "effort") && laneRouteText(prior, "effort")) {
-      merged.effort = laneRouteText(prior, "effort");
+    if (!laneRouteText(next, 'effort') && laneRouteText(prior, 'effort')) {
+      merged.effort = laneRouteText(prior, 'effort');
       changed = true;
     }
-    if (typeof next.fast !== "boolean" && typeof prior.fast === "boolean") {
+    if (typeof next.fast !== 'boolean' && typeof prior.fast === 'boolean') {
       merged.fast = prior.fast;
       changed = true;
     }
-    if (typeof next.fastCapable !== "boolean" && typeof prior.fastCapable === "boolean") {
+    if (typeof next.fastCapable !== 'boolean' && typeof prior.fastCapable === 'boolean') {
       merged.fastCapable = prior.fastCapable;
       changed = true;
     }
@@ -248,20 +241,22 @@ export function laneFrameWithRetainedRoute(prior: Snapshot | null, next: Snapsho
 // 컴팩트 이후에 컨텍스트 원형바가 동기화가 안됨). Only a frame that stays on
 // the SAME provider+model may inherit them, so a real model switch still drops
 // the previous window instead of painting it against a new one.
-const LANE_CONTEXT_WINDOW_FIELDS: ReadonlyArray<
-  "contextWindow" | "displayContextWindow" | "autoCompactTokenLimit"
-> = ["contextWindow", "displayContextWindow", "autoCompactTokenLimit"];
+const LANE_CONTEXT_WINDOW_FIELDS: ReadonlyArray<'contextWindow' | 'displayContextWindow' | 'autoCompactTokenLimit'> = [
+  'contextWindow',
+  'displayContextWindow',
+  'autoCompactTokenLimit',
+];
 
-export function laneFrameWithRetainedContextWindow(
-  prior: Snapshot | null,
-  next: Snapshot,
-): Snapshot {
+export function laneFrameWithRetainedContextWindow(prior: Snapshot | null, next: Snapshot): Snapshot {
   if (!prior) return next;
-  const priorSessionId = String(prior.sessionId || "");
-  const nextSessionId = String(next.sessionId || "");
+  const priorSessionId = String(prior.sessionId || '');
+  const nextSessionId = String(next.sessionId || '');
   if (priorSessionId && nextSessionId && priorSessionId !== nextSessionId) return next;
-  if (laneRouteText(prior, "provider") !== laneRouteText(next, "provider")
-    || laneRouteText(prior, "model") !== laneRouteText(next, "model")) return next;
+  if (
+    laneRouteText(prior, 'provider') !== laneRouteText(next, 'provider') ||
+    laneRouteText(prior, 'model') !== laneRouteText(next, 'model')
+  )
+    return next;
   let merged: Snapshot | null = null;
   for (const field of LANE_CONTEXT_WINDOW_FIELDS) {
     const value = Number(next[field]) || 0;
@@ -282,25 +277,19 @@ export function laneFrameWithRetainedContextWindow(
 // 셸이 있는데 호버하면 작업중인게 없다고 뜸). A host frame ALWAYS names the
 // bucket, empty ones included, so retaining the last known jobs for a frame
 // that omits the field entirely can never keep a finished shell on screen.
-export function laneFrameWithRetainedShellJobs(
-  prior: Snapshot | null,
-  next: Snapshot,
-): Snapshot {
+export function laneFrameWithRetainedShellJobs(prior: Snapshot | null, next: Snapshot): Snapshot {
   if (!prior) return next;
-  const priorSessionId = String(prior.sessionId || "");
-  const nextSessionId = String(next.sessionId || "");
+  const priorSessionId = String(prior.sessionId || '');
+  const nextSessionId = String(next.sessionId || '');
   if (priorSessionId && nextSessionId && priorSessionId !== nextSessionId) return next;
   if (next.shellJobs != null || prior.shellJobs == null) return next;
   return { ...next, shellJobs: prior.shellJobs };
 }
 
-export function laneFrameRetainingSettledRows(
-  prior: Snapshot | null,
-  next: Snapshot,
-): Snapshot {
+export function laneFrameRetainingSettledRows(prior: Snapshot | null, next: Snapshot): Snapshot {
   if (!prior) return next;
-  const priorSessionId = String(prior.sessionId || "");
-  const nextSessionId = String(next.sessionId || "");
+  const priorSessionId = String(prior.sessionId || '');
+  const nextSessionId = String(next.sessionId || '');
   if (priorSessionId && nextSessionId && priorSessionId !== nextSessionId) return next;
   const priorItems = laneTranscript(prior);
   if (!priorItems || priorItems.length === 0) return next;
@@ -316,36 +305,34 @@ export function laneFrameRetainingSettledRows(
 
 /** Host metadata travelling with one keyed lane frame. */
 export interface SessionLaneFrameProvenance {
-  frameSource: "live" | "replay";
+  frameSource: 'live' | 'replay';
   contentRevision?: number;
 }
 
 export type SessionLaneFrameDecision =
   | {
-    accept: false;
-    reason: "stale-replay" | "stale-live" | "duplicate-replay";
-    revision: number | null;
-  }
+      accept: false;
+      reason: 'stale-replay' | 'stale-live' | 'duplicate-replay';
+      revision: number | null;
+    }
   | {
-    accept: true;
-    snapshot: Snapshot;
-    revision: number | null;
-    reason: "authoritative" | "newer-generation" | "same-generation" | "adopted" | "aligned";
-  };
+      accept: true;
+      snapshot: Snapshot;
+      revision: number | null;
+      reason: 'authoritative' | 'newer-generation' | 'same-generation' | 'adopted' | 'aligned';
+    };
 
 function rejectedSessionLaneRevision(
   priorRevision: number | null,
-  provenance: SessionLaneFrameProvenance,
-): "stale-replay" | "stale-live" | "duplicate-replay" | null {
-  const revision = typeof provenance.contentRevision === "number"
-    ? provenance.contentRevision
-    : null;
+  provenance: SessionLaneFrameProvenance
+): 'stale-replay' | 'stale-live' | 'duplicate-replay' | null {
+  const revision = typeof provenance.contentRevision === 'number' ? provenance.contentRevision : null;
   if (revision === null || priorRevision === null) return null;
   if (revision < priorRevision) {
-    return provenance.frameSource === "replay" ? "stale-replay" : "stale-live";
+    return provenance.frameSource === 'replay' ? 'stale-replay' : 'stale-live';
   }
-  if (revision === priorRevision && provenance.frameSource === "replay") {
-    return "duplicate-replay";
+  if (revision === priorRevision && provenance.frameSource === 'replay') {
+    return 'duplicate-replay';
   }
   return null;
 }
@@ -356,12 +343,10 @@ function rejectedSessionLaneRevision(
  *  route/usage/work read-outs travelling with them). */
 export function staleSessionLaneReplay(
   priorRevision: number | null,
-  provenance: SessionLaneFrameProvenance,
-): "stale-replay" | "duplicate-replay" | null {
+  provenance: SessionLaneFrameProvenance
+): 'stale-replay' | 'duplicate-replay' | null {
   const rejected = rejectedSessionLaneRevision(priorRevision, provenance);
-  return rejected === "stale-replay" || rejected === "duplicate-replay"
-    ? rejected
-    : null;
+  return rejected === 'stale-replay' || rejected === 'duplicate-replay' ? rejected : null;
 }
 
 /** The host lane mixes owner publications with durable replays. Ordering is
@@ -370,18 +355,13 @@ export function decideSessionLaneFrame(
   prior: Snapshot | null,
   priorRevision: number | null,
   next: Snapshot,
-  provenance: SessionLaneFrameProvenance,
+  provenance: SessionLaneFrameProvenance
 ): SessionLaneFrameDecision {
-  const revision = typeof provenance.contentRevision === "number"
-    ? provenance.contentRevision
-    : null;
+  const revision = typeof provenance.contentRevision === 'number' ? provenance.contentRevision : null;
   // Host-only read-outs and the unresolved context denominator are restored
   // BEFORE any branch decides, so every accepted frame carries the pane's live
   // work and a gauge limit it can actually divide by.
-  let frame = laneFrameWithRetainedContextWindow(
-    prior,
-    laneFrameWithRetainedShellJobs(prior, next),
-  );
+  let frame = laneFrameWithRetainedContextWindow(prior, laneFrameWithRetainedShellJobs(prior, next));
   // Execution cwd owns the Project, including same-generation tool updates.
   // Never retain a legacy alias pointing links and UI at the previous cwd.
   if (frame.cwd && (frame.currentProject !== frame.cwd || frame.project !== frame.cwd)) {
@@ -398,14 +378,12 @@ export function decideSessionLaneFrame(
         accept: true,
         snapshot: laneFrameWithRetainedRoute(prior, frame),
         revision,
-        reason: "newer-generation",
+        reason: 'newer-generation',
       };
     }
     if (revision !== null && priorRevision !== null && revision === priorRevision) {
       const priorItems = laneTranscript(prior);
-      const snapshot = priorItems
-        ? mergedLaneFrame(prior, frame, priorItems, true)
-        : frame;
+      const snapshot = priorItems ? mergedLaneFrame(prior, frame, priorItems, true) : frame;
       // Same-generation OWNER frames still carry fresh busy/queue/tail state,
       // but their settled transcript is byte-for-byte the generation already
       // painted. Reuse its array identity so focus churn cannot remount rows.
@@ -413,12 +391,12 @@ export function decideSessionLaneFrame(
         accept: true,
         snapshot: laneFrameWithRetainedRoute(prior, snapshot),
         revision,
-        reason: "same-generation",
+        reason: 'same-generation',
       };
     }
   }
   const snapshot = laneFrameRetainingSettledRows(prior, frame);
-  const reason = snapshot === frame ? "adopted" : "aligned";
+  const reason = snapshot === frame ? 'adopted' : 'aligned';
   return {
     accept: true,
     snapshot: laneFrameWithRetainedRoute(prior, snapshot),
@@ -434,7 +412,7 @@ const laneDiagnosticAt = new Map<string, number>();
 function reportLaneDecision(
   sessionId: string,
   provenance: SessionLaneFrameProvenance,
-  decision: SessionLaneFrameDecision,
+  decision: SessionLaneFrameDecision
 ): void {
   const flag = (globalThis as { __mixdogLaneDiagnostics?: boolean }).__mixdogLaneDiagnostics;
   if (flag !== true) return;
@@ -448,8 +426,10 @@ function reportLaneDecision(
     laneDiagnosticAt.delete(oldest);
   }
   try {
-    window.mixdogDesktop?.perfLog?.(`lane-frame id=${sessionId} frame=${provenance.frameSource}`
-      + ` rev=${provenance.contentRevision ?? "-"} decision=${decision.reason}`);
+    window.mixdogDesktop?.perfLog?.(
+      `lane-frame id=${sessionId} frame=${provenance.frameSource}` +
+        ` rev=${provenance.contentRevision ?? '-'} decision=${decision.reason}`
+    );
   } catch {
     // Diagnostics never affect the lane.
   }
@@ -488,10 +468,8 @@ export function createSessionLaneStore({
     if (!bucket) return;
     for (const listener of [...bucket]) listener();
   };
-  const applyUpdate = (
-    update: DesktopSessionStateUpdate,
-  ): void => {
-    const sessionId = String(update?.sessionId || "");
+  const applyUpdate = (update: DesktopSessionStateUpdate): void => {
+    const sessionId = String(update?.sessionId || '');
     if (!sessionId) return;
     const readFrameStartedAt = performance.now();
     reportSessionReadFrame(update, 'received');
@@ -514,15 +492,13 @@ export function createSessionLaneStore({
     // An unnamed null is a baseline release, never a teardown — the decoder
     // baseline is dropped in preload and this cache is bounded by prune(), so
     // holding the frame costs nothing and keeps the pane painted.
-    if (!update.snapshot && update.laneEnd !== "gone" && prior) {
+    if (!update.snapshot && update.laneEnd !== 'gone' && prior) {
       reportSessionReadFrame(update, 'rejected');
       return;
     }
     const provenance: SessionLaneFrameProvenance = {
       frameSource: update.frameSource,
-      ...(typeof update.contentRevision === "number"
-        ? { contentRevision: update.contentRevision }
-        : {}),
+      ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
     };
     // Gate BEFORE touching the cache or decorating: a rejected replay must
     // leave the entry, its byte accounting and its listeners untouched, and
@@ -530,8 +506,11 @@ export function createSessionLaneStore({
     if (update.snapshot && priorSnapshot) {
       const rejected = rejectedSessionLaneRevision(prior?.revision ?? null, provenance);
       if (rejected) {
-        reportLaneDecision(sessionId, provenance,
-          { accept: false, reason: rejected, revision: prior?.revision ?? null });
+        reportLaneDecision(sessionId, provenance, {
+          accept: false,
+          reason: rejected,
+          revision: prior?.revision ?? null,
+        });
         reportSessionReadFrame(update, 'rejected');
         return;
       }
@@ -539,32 +518,23 @@ export function createSessionLaneStore({
     if (prior) snapshots.delete(sessionId);
     if (update.snapshot) {
       const incoming = decorator.decorate(update.snapshot);
-      const decision = decideSessionLaneFrame(
-        priorSnapshot,
-        prior?.revision ?? null,
-        incoming,
-        provenance,
-      );
+      const decision = decideSessionLaneFrame(priorSnapshot, prior?.revision ?? null, incoming, provenance);
       reportLaneDecision(sessionId, provenance, decision);
-      const snapshot = decision.accept ? decision.snapshot : priorSnapshot ?? incoming;
+      const snapshot = decision.accept ? decision.snapshot : (priorSnapshot ?? incoming);
       const now = Date.now();
       const subscribed = (listeners.get(sessionId)?.size || 0) > 0;
-      const refreshEstimate = !prior
-        || (!subscribed && now - prior.estimatedAt >= SESSION_LANE_ESTIMATE_INTERVAL_MS);
+      const refreshEstimate = !prior || (!subscribed && now - prior.estimatedAt >= SESSION_LANE_ESTIMATE_INTERVAL_MS);
       const bytes = refreshEstimate ? estimateSessionSnapshotBytes(snapshot) : prior.bytes;
       snapshots.set(sessionId, {
         snapshot,
         bytes,
         estimatedAt: refreshEstimate ? now : prior.estimatedAt,
-        revision: decision.accept
-          ? decision.revision
-          : prior?.revision ?? null,
+        revision: decision.accept ? decision.revision : (prior?.revision ?? null),
       });
     }
     snapshots.prune();
     const nextSnapshot = snapshots.get(sessionId)?.snapshot ?? null;
-    reportSessionReadFrame({ ...update, snapshot: nextSnapshot }, 'applied',
-      performance.now() - readFrameStartedAt);
+    reportSessionReadFrame({ ...update, snapshot: nextSnapshot }, 'applied', performance.now() - readFrameStartedAt);
     if ((listeners.get(sessionId)?.size || 0) === 0) {
       const key = notificationKeys.get(sessionId);
       if (key) cancelLayoutFrame(key);
@@ -614,7 +584,7 @@ export function createSessionLaneStore({
     },
     start(source = window.mixdogDesktop?.subscribeSessionState?.bind(window.mixdogDesktop)) {
       if (stop) return stop;
-      if (typeof source !== "function") return () => {};
+      if (typeof source !== 'function') return () => {};
       const unsubscribe = source(apply);
       const halt = (): void => {
         if (stop !== halt) return;
@@ -651,28 +621,24 @@ export function useSessionLane(
   sessionId: string,
   store: SessionLaneStore = defaultSessionLaneStore,
   isEqual: (left: Snapshot, right: Snapshot) => boolean = Object.is,
-  enabled = true,
+  enabled = true
 ): Snapshot | null {
   const cached = useRef<{ value: Snapshot | null } | null>(null);
   const subscribe = useCallback(
-    (listener: () => void) => (enabled && sessionId
-      ? store.subscribe(sessionId, listener)
-      : () => {}),
-    [enabled, sessionId, store],
+    (listener: () => void) => (enabled && sessionId ? store.subscribe(sessionId, listener) : () => {}),
+    [enabled, sessionId, store]
   );
-  const read = useCallback(
-    () => {
-      if (!enabled) return cached.current?.value ?? null;
-      const next = sessionId ? store.get(sessionId) : null;
-      const previous = cached.current;
-      if (previous && (
-        previous.value === next
-        || (previous.value !== null && next !== null && isEqual(previous.value, next))
-      )) return previous.value;
-      cached.current = { value: next };
-      return next;
-    },
-    [enabled, isEqual, sessionId, store],
-  );
+  const read = useCallback(() => {
+    if (!enabled) return cached.current?.value ?? null;
+    const next = sessionId ? store.get(sessionId) : null;
+    const previous = cached.current;
+    if (
+      previous &&
+      (previous.value === next || (previous.value !== null && next !== null && isEqual(previous.value, next)))
+    )
+      return previous.value;
+    cached.current = { value: next };
+    return next;
+  }, [enabled, isEqual, sessionId, store]);
   return useSyncExternalStore(subscribe, read);
 }

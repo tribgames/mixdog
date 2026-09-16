@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path';
 
 const graphBinary = resolve(
   'native/mixdog-graph/target/release',
-  process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph',
+  process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph'
 );
 // The real-binary cases need a build that emits symbol record v2; the packaged
 // default binary may be older, so point at the release build when it exists.
@@ -76,13 +76,20 @@ function typeFaceGraph() {
       rel: 'src/bridge/error-code.mjs',
       lang: 'javascript',
       text: IMPL_TEXT,
-      symbols: [sym('computerErrorCode', 'function', 1, 3, 17, { exported: true, sig: 'function computerErrorCode(error)' })],
+      symbols: [
+        sym('computerErrorCode', 'function', 1, 3, 17, { exported: true, sig: 'function computerErrorCode(error)' }),
+      ],
     },
     {
       rel: 'src/bridge/error-code.d.mts',
       lang: 'typescript',
       text: DTS_TEXT,
-      symbols: [sym('computerErrorCode', 'function', 1, 1, 17, { exported: true, sig: 'function computerErrorCode(error: unknown): string' })],
+      symbols: [
+        sym('computerErrorCode', 'function', 1, 1, 17, {
+          exported: true,
+          sig: 'function computerErrorCode(error: unknown): string',
+        }),
+      ],
     },
   ]);
 }
@@ -172,11 +179,21 @@ test('a scoped miss names the declaring file instead of calling the symbol a bui
       rel: 'src/mem/memory-extraction.mjs',
       lang: 'javascript',
       text: 'export function cleanMemoryText(text) {\n  return text.trim();\n}\n',
-      symbols: [sym('cleanMemoryText', 'function', 1, 3, 17, { exported: true, sig: 'function cleanMemoryText(text)' })],
+      symbols: [
+        sym('cleanMemoryText', 'function', 1, 3, 17, { exported: true, sig: 'function cleanMemoryText(text)' }),
+      ],
     },
   ]);
-  const out = await dispatch(graph, { mode: 'find_symbol', symbol: 'cleanMemoryText', file: 'src/mem/memory.mjs', body: false });
-  assert.match(out, /^declared outside the requested files: src\/mem\/memory-extraction\.mjs:1 \(javascript, export function\)$/m);
+  const out = await dispatch(graph, {
+    mode: 'find_symbol',
+    symbol: 'cleanMemoryText',
+    file: 'src/mem/memory.mjs',
+    body: false,
+  });
+  assert.match(
+    out,
+    /^declared outside the requested files: src\/mem\/memory-extraction\.mjs:1 \(javascript, export function\)$/m
+  );
   assert.match(out, /^\(the 1 hit\(s\) in the requested scope are imports\/references\)$/m);
   assert.doesNotMatch(out, /global\/builtin/);
 });
@@ -191,8 +208,16 @@ test('with no declaration in the graph the import specifier itself is resolved',
       rawImports: ['./memory-extraction.mjs'],
     },
   ]);
-  const out = await dispatch(graph, { mode: 'find_symbol', symbol: 'cleanMemoryText', file: 'src/mem/memory.mjs', body: false });
-  assert.match(out, /^declared outside the requested files: src\/mem\/memory-extraction\.mjs \(resolved from the import specifier\)$/m);
+  const out = await dispatch(graph, {
+    mode: 'find_symbol',
+    symbol: 'cleanMemoryText',
+    file: 'src/mem/memory.mjs',
+    body: false,
+  });
+  assert.match(
+    out,
+    /^declared outside the requested files: src\/mem\/memory-extraction\.mjs \(resolved from the import specifier\)$/m
+  );
   assert.doesNotMatch(out, /global\/builtin/);
 });
 
@@ -256,7 +281,10 @@ test('a bare or aliased specifier is reported as an unresolved import, never as 
     },
   ]);
   const out = await dispatch(graph, { mode: 'find_symbol', symbol: 'aliasFn', file: 'src/app/main.mjs', body: false });
-  assert.match(out, /^declared outside the requested files: imported from '@app\/tools' \(specifier does not resolve to a file of this project\)$/m);
+  assert.match(
+    out,
+    /^declared outside the requested files: imported from '@app\/tools' \(specifier does not resolve to a file of this project\)$/m
+  );
   assert.doesNotMatch(out, /global\/builtin/);
 });
 
@@ -269,13 +297,20 @@ test('a symbol no file declares or imports keeps the global/builtin wording', as
       symbols: [sym('use', 'variable', 1, 1, 14, { exported: true })],
     },
   ]);
-  const out = await dispatch(graph, { mode: 'find_symbol', symbol: 'structuredClone', file: 'src/mem/memory.mjs', body: false });
+  const out = await dispatch(graph, {
+    mode: 'find_symbol',
+    symbol: 'structuredClone',
+    file: 'src/mem/memory.mjs',
+    body: false,
+  });
   assert.match(out, /global\/builtin identifier/);
   assert.doesNotMatch(out, /declared outside the requested files/);
 });
 
 // ── real-binary end-to-end ─────────────────────────────────────────────────
-test('real binary: the implementation wins over its .d.mts and the scoped import is resolved', { skip: REAL_BINARY ? false : 'release mixdog-graph binary not built' }, async () => {
+test('real binary: the implementation wins over its .d.mts and the scoped import is resolved', {
+  skip: REAL_BINARY ? false : 'release mixdog-graph binary not built',
+}, async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-decl-rank-'));
   try {
     writeFileSync(join(root, 'package.json'), '{"name":"decl-rank-fixture"}\n');
@@ -284,31 +319,55 @@ test('real binary: the implementation wins over its .d.mts and the scoped import
     writeFileSync(join(root, 'src', 'error-code.d.mts'), DTS_TEXT);
     writeFileSync(
       join(root, 'src', 'memory.mjs'),
-      "import { cleanMemoryText } from './memory-extraction.mjs';\n\nexport const use = (t) => cleanMemoryText(t);\n",
+      "import { cleanMemoryText } from './memory-extraction.mjs';\n\nexport const use = (t) => cleanMemoryText(t);\n"
     );
     writeFileSync(
       join(root, 'src', 'memory-extraction.mjs'),
-      'export function cleanMemoryText(text) {\n  return text.trim();\n}\n',
+      'export function cleanMemoryText(text) {\n  return text.trim();\n}\n'
     );
 
-    const ranked = String(await executeCodeGraphTool('code_graph', {
-      mode: 'find_symbol', symbol: 'computerErrorCode', body: false, cwd: root,
-    }, root));
+    const ranked = String(
+      await executeCodeGraphTool(
+        'code_graph',
+        {
+          mode: 'find_symbol',
+          symbol: 'computerErrorCode',
+          body: false,
+          cwd: root,
+        },
+        root
+      )
+    );
     assert.match(ranked, /# best declaration candidate\nsrc\/error-code\.mjs:/);
     assert.doesNotMatch(ranked, /declarations found/);
     assert.match(ranked, /^type declaration: src\/error-code\.d\.mts:/m);
 
-    const scoped = String(await executeCodeGraphTool('code_graph', {
-      mode: 'find_symbol', symbol: 'cleanMemoryText', files: ['src/memory.mjs'], body: false, cwd: root,
-    }, root));
-    assert.match(scoped, /^declared outside the requested files: src\/memory-extraction\.mjs:1 \(javascript, export function\)$/m);
+    const scoped = String(
+      await executeCodeGraphTool(
+        'code_graph',
+        {
+          mode: 'find_symbol',
+          symbol: 'cleanMemoryText',
+          files: ['src/memory.mjs'],
+          body: false,
+          cwd: root,
+        },
+        root
+      )
+    );
+    assert.match(
+      scoped,
+      /^declared outside the requested files: src\/memory-extraction\.mjs:1 \(javascript, export function\)$/m
+    );
     assert.doesNotMatch(scoped, /global\/builtin/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('real binary: a dependency path is named but never indexed, and paths stay forward-slashed', { skip: REAL_BINARY ? false : 'release mixdog-graph binary not built' }, async () => {
+test('real binary: a dependency path is named but never indexed, and paths stay forward-slashed', {
+  skip: REAL_BINARY ? false : 'release mixdog-graph binary not built',
+}, async () => {
   const base = mkdtempSync(join(tmpdir(), 'mixdog-decl-vendor-'));
   const root = join(base, 'app');
   const outside = join(base, 'outside-pkg');
@@ -319,25 +378,48 @@ test('real binary: a dependency path is named but never indexed, and paths stay 
     writeFileSync(join(root, 'package.json'), '{"name":"decl-vendor-fixture"}\n');
     writeFileSync(
       join(root, 'src', 'main.mjs'),
-      "import { vendorFn } from '../node_modules/pkg/index.js';\n"
-      + "import { outsideFn } from '../../outside-pkg/out.mjs';\n\n"
-      + 'export const use = () => [vendorFn(), outsideFn()];\n',
+      "import { vendorFn } from '../node_modules/pkg/index.js';\n" +
+        "import { outsideFn } from '../../outside-pkg/out.mjs';\n\n" +
+        'export const use = () => [vendorFn(), outsideFn()];\n'
     );
     writeFileSync(join(root, 'node_modules', 'pkg', 'index.js'), 'export function vendorFn() {\n  return 2;\n}\n');
     writeFileSync(join(outside, 'out.mjs'), 'export function outsideFn() {\n  return 5;\n}\n');
 
     // node_modules: the path is the answer. A record (line + kind) would mean
     // a file of the dependency tree was parsed to produce it.
-    const vendor = String(await executeCodeGraphTool('code_graph', {
-      mode: 'find_symbol', symbol: 'vendorFn', files: ['src/main.mjs'], body: false, cwd: root,
-    }, root));
-    assert.match(vendor, /^declared outside the requested files: node_modules\/pkg\/index\.js \(resolved from the import specifier\)$/m);
+    const vendor = String(
+      await executeCodeGraphTool(
+        'code_graph',
+        {
+          mode: 'find_symbol',
+          symbol: 'vendorFn',
+          files: ['src/main.mjs'],
+          body: false,
+          cwd: root,
+        },
+        root
+      )
+    );
+    assert.match(
+      vendor,
+      /^declared outside the requested files: node_modules\/pkg\/index\.js \(resolved from the import specifier\)$/m
+    );
     assert.doesNotMatch(vendor, /node_modules\/pkg\/index\.js:\d/);
 
     // A target outside cwd is an absolute path — with no backslash, on any OS.
-    const away = String(await executeCodeGraphTool('code_graph', {
-      mode: 'find_symbol', symbol: 'outsideFn', files: ['src/main.mjs'], body: false, cwd: root,
-    }, root));
+    const away = String(
+      await executeCodeGraphTool(
+        'code_graph',
+        {
+          mode: 'find_symbol',
+          symbol: 'outsideFn',
+          files: ['src/main.mjs'],
+          body: false,
+          cwd: root,
+        },
+        root
+      )
+    );
     const awayLine = away.split('\n').find((line) => line.startsWith('declared outside the requested files:')) || '';
     assert.match(awayLine, /outside-pkg\/out\.mjs:1 \(javascript, export function\)$/);
     assert.doesNotMatch(awayLine, /\\/);

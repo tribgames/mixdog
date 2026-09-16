@@ -1,11 +1,7 @@
 // Anthropic model catalog + message conversion helpers, extracted from anthropic.mjs.
 import { createRequire } from 'node:module';
-import {
-  sleepWithAbort,
-} from './retry-classifier.mjs';
-import {
-  effortValuesForModel,
-} from './anthropic-effort.mjs';
+import { sleepWithAbort } from './retry-classifier.mjs';
+import { effortValuesForModel } from './anthropic-effort.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
 import {
@@ -21,21 +17,20 @@ export { _capabilitySupported, _defaultContextForModel, _prettyName };
 // for both Anthropic providers); re-exported here for existing importers.
 export { toAnthropicMessages };
 
-
 export const require = createRequire(import.meta.url);
 let _Anthropic = null;
 export function loadAnthropic() {
-    if (!_Anthropic) {
-        const mod = require('@anthropic-ai/sdk');
-        _Anthropic = mod.default || mod.Anthropic || mod;
-    }
-    return _Anthropic;
+  if (!_Anthropic) {
+    const mod = require('@anthropic-ai/sdk');
+    _Anthropic = mod.default || mod.Anthropic || mod;
+  }
+  return _Anthropic;
 }
 
 // Abort-aware mid-stream backoff sleep → shared sleepWithAbort
 // (retry-classifier.mjs). abortMessage preserves the prior fallback text.
 export function _midstreamSleepWithAbort(ms, signal) {
-    return sleepWithAbort(ms, signal, undefined, 'Anthropic mid-stream retry backoff aborted');
+  return sleepWithAbort(ms, signal, undefined, 'Anthropic mid-stream retry backoff aborted');
 }
 
 // 4-BP cache policy aligned with anthropic-oauth — system + tier3 +
@@ -49,72 +44,88 @@ export function _midstreamSleepWithAbort(ms, signal) {
 // that block; BP1/BP2 take the system TTL. Mirrors anthropic-oauth.mjs.
 
 export function buildSystemBlocks(systemMsgs, systemTtl, tier3Ttl) {
-    // systemMsgs is an array of { content, cacheTier }. Each non-empty element
-    // becomes its own content block: cacheTier:'tier3' (BP3 core) gets
-    // tier3Ttl, cacheTier:'env' (volatile session/project environment) is
-    // NEVER marked — it rides the messages-tail breakpoint so an environment
-    // change cannot invalidate the BP3 core write — and every other block
-    // (BP1/BP2) gets systemTtl. A null TTL leaves the block uncached.
-    const items = Array.isArray(systemMsgs)
-        ? systemMsgs
-            .map(m => ({
-                text: typeof m?.content === 'string' ? m.content.trim() : '',
-                tier: m?.cacheTier === 'tier3' ? 'tier3'
-                    : m?.cacheTier === 'env' ? 'env'
-                        : 'system',
-            }))
-            .filter(it => it.text)
-        : [];
-    // Anthropic caps cache_control breakpoints at 4 per request; defensively
-    // cap it here too so an unexpectedly large systemMsgs array can never
-    // mark more than 4 blocks (extras keep their text, just lose the
-    // cache_control breakpoint, not the block itself). Mirrors
-    // anthropic-oauth.mjs.
-    const MAX_SYSTEM_BREAKPOINTS = 4;
-    let bpCount = 0;
-    return items.map((it, index) => {
-        // Anthropic joins system text blocks with no separator; open every
-        // block after the first with a paragraph break so headings never glue
-        // onto the previous block's last line. Mirrors anthropic-oauth.mjs.
-        const block = { type: 'text', text: index ? `\n\n${it.text}` : it.text };
-        const ttl = it.tier === 'tier3' ? tier3Ttl : it.tier === 'env' ? null : systemTtl;
-        if (ttl && bpCount < MAX_SYSTEM_BREAKPOINTS) {
-            block.cache_control = ttl;
-            bpCount++;
-        }
-        return block;
-    });
+  // systemMsgs is an array of { content, cacheTier }. Each non-empty element
+  // becomes its own content block: cacheTier:'tier3' (BP3 core) gets
+  // tier3Ttl, cacheTier:'env' (volatile session/project environment) is
+  // NEVER marked — it rides the messages-tail breakpoint so an environment
+  // change cannot invalidate the BP3 core write — and every other block
+  // (BP1/BP2) gets systemTtl. A null TTL leaves the block uncached.
+  const items = Array.isArray(systemMsgs)
+    ? systemMsgs
+        .map((m) => ({
+          text: typeof m?.content === 'string' ? m.content.trim() : '',
+          tier: m?.cacheTier === 'tier3' ? 'tier3' : m?.cacheTier === 'env' ? 'env' : 'system',
+        }))
+        .filter((it) => it.text)
+    : [];
+  // Anthropic caps cache_control breakpoints at 4 per request; defensively
+  // cap it here too so an unexpectedly large systemMsgs array can never
+  // mark more than 4 blocks (extras keep their text, just lose the
+  // cache_control breakpoint, not the block itself). Mirrors
+  // anthropic-oauth.mjs.
+  const MAX_SYSTEM_BREAKPOINTS = 4;
+  let bpCount = 0;
+  return items.map((it, index) => {
+    // Anthropic joins system text blocks with no separator; open every
+    // block after the first with a paragraph break so headings never glue
+    // onto the previous block's last line. Mirrors anthropic-oauth.mjs.
+    const block = { type: 'text', text: index ? `\n\n${it.text}` : it.text };
+    const ttl = it.tier === 'tier3' ? tier3Ttl : it.tier === 'env' ? null : systemTtl;
+    if (ttl && bpCount < MAX_SYSTEM_BREAKPOINTS) {
+      block.cache_control = ttl;
+      bpCount++;
+    }
+    return block;
+  });
 }
 
 export const MODELS = [
-    { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', provider: 'anthropic', family: 'opus', contextWindow: 1000000 },
-    { id: 'claude-opus-4-7', name: 'Claude Opus 4.7', provider: 'anthropic', family: 'opus', contextWindow: 1000000 },
-    { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', provider: 'anthropic', family: 'opus', contextWindow: 1000000 },
-    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'anthropic', family: 'sonnet', contextWindow: 1000000 },
-    { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', provider: 'anthropic', family: 'haiku', contextWindow: 200000 },
+  { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', provider: 'anthropic', family: 'opus', contextWindow: 1000000 },
+  { id: 'claude-opus-4-7', name: 'Claude Opus 4.7', provider: 'anthropic', family: 'opus', contextWindow: 1000000 },
+  { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', provider: 'anthropic', family: 'opus', contextWindow: 1000000 },
+  {
+    id: 'claude-sonnet-4-6',
+    name: 'Claude Sonnet 4.6',
+    provider: 'anthropic',
+    family: 'sonnet',
+    contextWindow: 1000000,
+  },
+  {
+    id: 'claude-haiku-4-5-20251001',
+    name: 'Claude Haiku 4.5',
+    provider: 'anthropic',
+    family: 'haiku',
+    contextWindow: 200000,
+  },
 ];
 export const ANTHROPIC_VERSION = '2023-06-01';
 
 export function _normalizeAnthropicModel(raw, provider = 'anthropic') {
-    const id = raw?.id || raw?.name || raw?.model;
-    if (!id) return null;
-    const familyMatch = String(id).match(/^claude-([a-z]+)/i);
-    const family = familyMatch ? familyMatch[1].toLowerCase() : 'other';
-    const dated = /-\d{8}$/.test(String(id));
-    const versioned = !dated && /^claude-[a-z]+-\d+(?:-\d+)?$/i.test(String(id));
-    const effortValues = effortValuesForModel(raw?.capabilities, id);
-    return {
-        id,
-        display: raw?.display_name || raw?.displayName || raw?.display || _prettyName(id, family),
-        family,
-        provider,
-        contextWindow: raw?.context_window || raw?.max_context_window || raw?.max_input_tokens || raw?.input_token_limit || raw?.inputTokenLimit || _defaultContextForModel(id, family),
-        outputTokens: raw?.max_tokens || raw?.max_output_tokens || raw?.output_token_limit || raw?.outputTokenLimit || null,
-        tier: dated ? 'dated' : versioned ? 'version' : 'family',
-        latest: false,
-        supportsReasoning: effortValues.length > 0 || _capabilitySupported(raw?.capabilities?.thinking),
-        reasoningOptions: effortValues.length ? [{ type: 'effort', values: effortValues }] : [],
-    };
+  const id = raw?.id || raw?.name || raw?.model;
+  if (!id) return null;
+  const familyMatch = String(id).match(/^claude-([a-z]+)/i);
+  const family = familyMatch ? familyMatch[1].toLowerCase() : 'other';
+  const dated = /-\d{8}$/.test(String(id));
+  const versioned = !dated && /^claude-[a-z]+-\d+(?:-\d+)?$/i.test(String(id));
+  const effortValues = effortValuesForModel(raw?.capabilities, id);
+  return {
+    id,
+    display: raw?.display_name || raw?.displayName || raw?.display || _prettyName(id, family),
+    family,
+    provider,
+    contextWindow:
+      raw?.context_window ||
+      raw?.max_context_window ||
+      raw?.max_input_tokens ||
+      raw?.input_token_limit ||
+      raw?.inputTokenLimit ||
+      _defaultContextForModel(id, family),
+    outputTokens: raw?.max_tokens || raw?.max_output_tokens || raw?.output_token_limit || raw?.outputTokenLimit || null,
+    tier: dated ? 'dated' : versioned ? 'version' : 'family',
+    latest: false,
+    supportsReasoning: effortValues.length > 0 || _capabilitySupported(raw?.capabilities?.thinking),
+    reasoningOptions: effortValues.length ? [{ type: 'effort', values: effortValues }] : [],
+  };
 }
 // Family-based heuristic so new model ids (including custom user-configured
 // ones) resolve a sensible max_tokens without requiring a code change.
@@ -127,9 +138,9 @@ export function _normalizeAnthropicModel(raw, provider = 'anthropic') {
 // fall through to the shared static heuristic in anthropic-max-tokens.mjs.
 const ANTHROPIC_OAUTH_MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
 const _sharedOAuthModelCache = makeModelCache({
-    fileName: 'anthropic-oauth-models.json',
-    ttlMs: ANTHROPIC_OAUTH_MODEL_CACHE_TTL_MS,
-    version: 1,
+  fileName: 'anthropic-oauth-models.json',
+  ttlMs: ANTHROPIC_OAUTH_MODEL_CACHE_TTL_MS,
+  version: 1,
 });
 
 // In-memory mirror populated by this provider's own listModels() fetch.
@@ -138,33 +149,33 @@ const _sharedOAuthModelCache = makeModelCache({
 // resolveMaxTokens until an OAuth session runs. listModels() results flow in
 // here (memory only — the disk cache stays OAuth-owned/read-only for us).
 let _apiKeyCatalogMirror = null;
-export function _setApiKeyCatalogMirror(value) { _apiKeyCatalogMirror = value; }
+export function _setApiKeyCatalogMirror(value) {
+  _apiKeyCatalogMirror = value;
+}
 
 function _catalogOutputTokensFromSharedCache(model) {
-    if (!model) return null;
-    try {
-        const models = Array.isArray(_apiKeyCatalogMirror)
-            ? _apiKeyCatalogMirror
-            : _sharedOAuthModelCache.loadSync();
-        if (!Array.isArray(models)) return null;
-        const entry = models.find(m => m?.id === model);
-        const out = Number(entry?.outputTokens);
-        return Number.isFinite(out) && out > 0 ? out : null;
-    } catch {
-        return null;
-    }
+  if (!model) return null;
+  try {
+    const models = Array.isArray(_apiKeyCatalogMirror) ? _apiKeyCatalogMirror : _sharedOAuthModelCache.loadSync();
+    if (!Array.isArray(models)) return null;
+    const entry = models.find((m) => m?.id === model);
+    const out = Number(entry?.outputTokens);
+    return Number.isFinite(out) && out > 0 ? out : null;
+  } catch {
+    return null;
+  }
 }
 
 export function resolveMaxTokens(model) {
-    return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokensFromSharedCache });
+  return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokensFromSharedCache });
 }
 
 // Test-only escape hatch for scripts/anthropic-maxtokens-test.mjs.
 export const _test = {
-    resolveMaxTokens,
-    deferredAnthropicTools,
-    requestAnthropicTools,
-    sanitizeInputSchema: (schema, toolName) => sanitizeAnthropicInputSchema(schema, toolName, 'anthropic'),
+  resolveMaxTokens,
+  deferredAnthropicTools,
+  requestAnthropicTools,
+  sanitizeInputSchema: (schema, toolName) => sanitizeAnthropicInputSchema(schema, toolName, 'anthropic'),
 };
 
 // Anthropic forbids oneOf / allOf / anyOf at the TOP level of input_schema.
@@ -183,16 +194,16 @@ export const _test = {
 // only when the request actually carries tools (see _doSend). Mirrors
 // anthropic-oauth.mjs.
 export function deferredAnthropicTools(activeTools, messages, opts) {
-    return sharedDeferredAnthropicTools(activeTools, messages, opts, 'anthropic');
+  return sharedDeferredAnthropicTools(activeTools, messages, opts, 'anthropic');
 }
 export function requestAnthropicTools(tools, messages, opts) {
-    return sharedRequestAnthropicTools(tools, messages, opts, 'anthropic');
+  return sharedRequestAnthropicTools(tools, messages, opts, 'anthropic');
 }
 // Test-only: expose the lowering so the steering-provenance test can assert
 // the API-key provider keeps steering-tagged user turns distinct (mirrors
 // anthropic-oauth._buildRequestBodyForCacheSmoke coverage).
 export function _toAnthropicMessagesForTest(messages, availableTools) {
-    return toAnthropicMessages(messages, availableTools);
+  return toAnthropicMessages(messages, availableTools);
 }
 
 // Applies cache_control markers to the FINAL, already-sanitized Anthropic

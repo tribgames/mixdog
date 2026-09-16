@@ -5,7 +5,9 @@ import { createPolling } from '../host-harness-poll';
 /** Actual dialog UI and upload transport; the host fixture supplies a native
  * picker result so this never opens an OS dialog or reads user files. */
 export async function exerciseBrowserPrompts(
-  guest: WebContents, shell: WebContents, log: (message: string) => void,
+  guest: WebContents,
+  shell: WebContents,
+  log: (message: string) => void
 ): Promise<void> {
   const { eventually } = createPolling({ timeoutMs: 8000, intervalMs: 25 });
   const hasPrompt = () => shell.executeJavaScript(`Boolean(document.querySelector('.browser-page-prompt'))`);
@@ -18,7 +20,7 @@ export async function exerciseBrowserPrompts(
     for (const type of ['mousePressed', 'mouseReleased']) {
       await shell.debugger.sendCommand('Input.dispatchMouseEvent', { type, ...point, button: 'left', clickCount: 1 });
     }
-    await eventually(hasPrompt, value => !value);
+    await eventually(hasPrompt, (value) => !value);
   };
   const original = await guest.executeJavaScript(`document.getElementById('agent').value`);
   for (const type of ['alert', 'confirm', 'prompt']) {
@@ -32,24 +34,33 @@ export async function exerciseBrowserPrompts(
       await shell.debugger.sendCommand('Input.insertText', { text: '사용자 응답' });
     }
     await click(type !== 'confirm');
-    if (type !== 'alert') assert.equal(await guest.executeJavaScript('window.promptResult'),
-      type === 'confirm' ? false : '사용자 응답');
+    if (type !== 'alert')
+      assert.equal(await guest.executeJavaScript('window.promptResult'), type === 'confirm' ? false : '사용자 응답');
   }
   assert.equal(await guest.executeJavaScript(`document.getElementById('agent').value`), original);
-  await guest.executeJavaScript(`(() => {
+  await guest.executeJavaScript(
+    `(() => {
     const input = document.createElement('input');
     input.type = 'file'; input.id = 'fixture-upload'; document.body.append(input);
     input.click();
-  })()`, true);
+  })()`,
+    true
+  );
   await eventually(hasPrompt, Boolean);
   await click(true);
   assert.equal(await guest.executeJavaScript(`document.getElementById('fixture-upload').files[0].name`), 'chosen.txt');
-  assert.equal(await guest.executeJavaScript(`document.getElementById('fixture-upload').files[0].text()`), 'browser upload fixture');
+  assert.equal(
+    await guest.executeJavaScript(`document.getElementById('fixture-upload').files[0].text()`),
+    'browser upload fixture'
+  );
   await guest.executeJavaScript(`document.getElementById('fixture-upload').click()`, true);
   await eventually(hasPrompt, Boolean);
   await click(false);
-  assert.equal(await guest.executeJavaScript(`document.getElementById('fixture-upload').files[0].name`), 'chosen.txt',
-    'cancelling a picker must preserve a previously selected file');
+  assert.equal(
+    await guest.executeJavaScript(`document.getElementById('fixture-upload').files[0].name`),
+    'chosen.txt',
+    'cancelling a picker must preserve a previously selected file'
+  );
   await guest.executeJavaScript(`document.getElementById('fixture-upload').remove()`);
   log('human alert/confirm/prompt answers and file selection/cancel passed without editing the page input');
 }

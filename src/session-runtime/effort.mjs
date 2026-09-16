@@ -55,7 +55,9 @@ export const EFFORT_FALLBACKS = {
 };
 
 export function normalizeToolMode(mode) {
-  const value = String(mode || '').trim().toLowerCase();
+  const value = String(mode || '')
+    .trim()
+    .toLowerCase();
   return TOOL_MODES.has(value) ? value : 'full';
 }
 
@@ -96,7 +98,7 @@ export function effortOptionsFor(provider, model) {
   // catalog-empty models only, never a filter that narrows catalog values.
   if (reasoningOptionValues.length) return normalizeCatalogValues(reasoningOptionValues);
   if (declared.length) return normalizeCatalogValues(declared);
-  if (Object.prototype.hasOwnProperty.call(EFFORT_BY_FAMILY, family)) {
+  if (Object.hasOwn(EFFORT_BY_FAMILY, family)) {
     return [...EFFORT_BY_FAMILY[family]];
   }
   return providerAllowed ? [...providerAllowed] : [];

@@ -1,39 +1,52 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef } from 'react';
 
-import type { DesktopBrowserOpenRequest } from "../shared/contract";
+import type { DesktopBrowserOpenRequest } from '../shared/contract';
 import {
   browserSurfaceRequestShouldReveal,
   browserSurfaceRevealPlan,
   type SessionBrowserPaneOwner,
-} from "./session-browser-policy";
-import type { useSessionPaneSurfaces } from "./use-session-pane-surfaces";
+} from './session-browser-policy';
+import type { useSessionPaneSurfaces } from './use-session-pane-surfaces';
 
 type BrowserSurfaceRequests = {
   owners: readonly SessionBrowserPaneOwner[];
   focusedLeafId: string;
-  surfaces: Pick<ReturnType<typeof useSessionPaneSurfaces>,
-    "browserSurfaces" | "pendingBrowserAutoReveal" | "setSessionSideSurface" | "hideBrowserSurface"
-    | "beginTemporaryBrowserSurface" | "browserAutoRevealSuppressed">;
+  surfaces: Pick<
+    ReturnType<typeof useSessionPaneSurfaces>,
+    | 'browserSurfaces'
+    | 'pendingBrowserAutoReveal'
+    | 'setSessionSideSurface'
+    | 'hideBrowserSurface'
+    | 'beginTemporaryBrowserSurface'
+    | 'browserAutoRevealSuppressed'
+  >;
   prefetch(): Promise<unknown>;
-  select(leafId: string, surface: "browser"): void;
-  temporarySelect?(leafId: string, surface: "browser"): () => void;
+  select(leafId: string, surface: 'browser'): void;
+  temporarySelect?(leafId: string, surface: 'browser'): () => void;
 };
 
 /** Agent visibility requests never release the persistent browser root. */
 export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) {
   const { owners, focusedLeafId, surfaces, prefetch, select } = options;
   const { browserSurfaces, pendingBrowserAutoReveal, setSessionSideSurface, hideBrowserSurface } = surfaces;
-  const temporary = useRef(new Map<string, {
-    turnId: number; releaseSurface(): void; releaseDock?: () => void;
-  }>());
+  const temporary = useRef(
+    new Map<
+      string,
+      {
+        turnId: number;
+        releaseSurface(): void;
+        releaseDock?: () => void;
+      }
+    >()
+  );
   const reveal = (sessionId: string, leafId: string) => {
     const entry = temporary.current.get(sessionId);
     if (entry && options.temporarySelect) {
-      entry.releaseDock ??= options.temporarySelect(leafId, "browser");
-    } else select(leafId, "browser");
+      entry.releaseDock ??= options.temporarySelect(leafId, 'browser');
+    } else select(leafId, 'browser');
   };
   const handleRequest = (request: DesktopBrowserOpenRequest) => {
-    const sessionId = String(request?.sessionId || "").trim();
+    const sessionId = String(request?.sessionId || '').trim();
     if (!sessionId) return;
     if (request.retainTurnId !== undefined) {
       if (temporary.current.get(sessionId)?.turnId === request.retainTurnId) {
@@ -72,13 +85,15 @@ export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) 
       const entry = temporary.current.get(sessionId);
       if (entry && entry.turnId > turnId) return;
       if (entry) entry.turnId = turnId;
-      else temporary.current.set(sessionId, {
-        turnId, releaseSurface: surfaces.beginTemporaryBrowserSurface(sessionId),
-      });
+      else
+        temporary.current.set(sessionId, {
+          turnId,
+          releaseSurface: surfaces.beginTemporaryBrowserSurface(sessionId),
+        });
     } else {
       // Explicit open is a handoff, so the user's new layout is retained.
       temporary.current.delete(sessionId);
-      setSessionSideSurface(sessionId, "browser");
+      setSessionSideSurface(sessionId, 'browser');
     }
     const plan = browserSurfaceRevealPlan(owners, sessionId, focusedLeafId);
     if (plan.leafId) {
@@ -90,9 +105,13 @@ export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) 
   };
   const requestRef = useRef(handleRequest);
   requestRef.current = handleRequest;
-  useEffect(() => window.mixdogDesktop?.onBrowserOpenRequested?.((request) => {
-    requestRef.current(request);
-  }), []);
+  useEffect(
+    () =>
+      window.mixdogDesktop?.onBrowserOpenRequested?.((request) => {
+        requestRef.current(request);
+      }),
+    []
+  );
   useEffect(() => {
     for (const sessionId of pendingBrowserAutoReveal.current) {
       if (surfaces.browserAutoRevealSuppressed.current.has(sessionId)) {

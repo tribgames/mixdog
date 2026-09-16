@@ -5,10 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import {
-  LOCAL_PROVIDER_MANIFEST,
-  localProviderCatalogStatus,
-} from './catalog.mjs';
+import { LOCAL_PROVIDER_MANIFEST, localProviderCatalogStatus } from './catalog.mjs';
 import { downloadVerifiedLocalAsset } from './asset-installer.mjs';
 import { resolveSessionContextMeta } from '../agent/orchestrator/session/manager/context-meta.mjs';
 
@@ -18,7 +15,7 @@ test('Local Provider manifest pins complete HTTPS assets with matching aggregate
   const platform = LOCAL_PROVIDER_MANIFEST.runtime.platforms['win32-x64-nvidia'];
   assert.equal(
     platform.downloadBytes,
-    platform.assets.reduce((total, asset) => total + asset.size, 0),
+    platform.assets.reduce((total, asset) => total + asset.size, 0)
   );
   for (const asset of [...platform.assets, ...LOCAL_PROVIDER_MANIFEST.models]) {
     assert.equal(new URL(asset.url).protocol, 'https:');
@@ -86,18 +83,22 @@ test('verified downloads resume partial files and publish only after SHA-256 suc
   const progress = [];
   writeFileSync(`${destination}.part`, prefix);
   try {
-    await downloadVerifiedLocalAsset({
-      name: 'asset.bin',
-      url: 'https://assets.example/asset.bin',
-      size: payload.length,
-      sha256: sha256(payload),
-    }, destination, {
-      onProgress: (value) => progress.push(value),
-      fetchFn: async (_url, options) => {
-        seenRanges.push(options.headers.Range);
-        return new Response(payload.subarray(prefix.length), { status: 206 });
+    await downloadVerifiedLocalAsset(
+      {
+        name: 'asset.bin',
+        url: 'https://assets.example/asset.bin',
+        size: payload.length,
+        sha256: sha256(payload),
       },
-    });
+      destination,
+      {
+        onProgress: (value) => progress.push(value),
+        fetchFn: async (_url, options) => {
+          seenRanges.push(options.headers.Range);
+          return new Response(payload.subarray(prefix.length), { status: 206 });
+        },
+      }
+    );
     assert.deepEqual(seenRanges, [`bytes=${prefix.length}-`]);
     assert.deepEqual(readFileSync(destination), payload);
     assert.equal(progress.at(-2).stage, 'verifying');
@@ -113,15 +114,19 @@ test('verified downloads reject a digest mismatch without publishing the destina
   const payload = Buffer.from('tampered');
   try {
     await assert.rejects(
-      downloadVerifiedLocalAsset({
-        name: 'asset.bin',
-        url: 'https://assets.example/asset.bin',
-        size: payload.length,
-        sha256: '0'.repeat(64),
-      }, destination, {
-        fetchFn: async () => new Response(payload, { status: 200 }),
-      }),
-      /SHA-256 mismatch/,
+      downloadVerifiedLocalAsset(
+        {
+          name: 'asset.bin',
+          url: 'https://assets.example/asset.bin',
+          size: payload.length,
+          sha256: '0'.repeat(64),
+        },
+        destination,
+        {
+          fetchFn: async () => new Response(payload, { status: 200 }),
+        }
+      ),
+      /SHA-256 mismatch/
     );
     assert.throws(() => readFileSync(destination));
     assert.throws(() => readFileSync(`${destination}.part`));
@@ -152,23 +157,35 @@ test('a partial download is allowed when only the remaining bytes fit on disk', 
   const prefix = payload.subarray(0, 25);
   writeFileSync(`${destination}.part`, prefix);
   try {
-    await downloadVerifiedLocalAsset({
-      name: 'asset.bin', url: 'https://assets.example/model',
-      size: payload.length, sha256: sha256(payload),
-    }, destination, {
-      checkDiskSpace: (_path, bytes) => {
-        if (bytes > payload.length - prefix.length) throw new Error('not enough free disk space');
+    await downloadVerifiedLocalAsset(
+      {
+        name: 'asset.bin',
+        url: 'https://assets.example/model',
+        size: payload.length,
+        sha256: sha256(payload),
       },
-      fetchFn: async () => new Response(payload.subarray(prefix.length), { status: 206 }),
-    });
+      destination,
+      {
+        checkDiskSpace: (_path, bytes) => {
+          if (bytes > payload.length - prefix.length) throw new Error('not enough free disk space');
+        },
+        fetchFn: async () => new Response(payload.subarray(prefix.length), { status: 206 }),
+      }
+    );
     // Once verified, no new disk allocation or network request is necessary.
-    await downloadVerifiedLocalAsset({
-      name: 'asset.bin', url: 'https://assets.example/model',
-      size: payload.length, sha256: sha256(payload),
-    }, destination, {
-      checkDiskSpace: () => assert.fail('an installed asset needs no download space'),
-      fetchFn: () => assert.fail('an installed asset needs no download'),
-    });
+    await downloadVerifiedLocalAsset(
+      {
+        name: 'asset.bin',
+        url: 'https://assets.example/model',
+        size: payload.length,
+        sha256: sha256(payload),
+      },
+      destination,
+      {
+        checkDiskSpace: () => assert.fail('an installed asset needs no download space'),
+        fetchFn: () => assert.fail('an installed asset needs no download'),
+      }
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -181,17 +198,32 @@ test('a server declining Range cannot bypass the full-download disk check', asyn
   writeFileSync(`${destination}.part`, payload.subarray(0, 5));
   let cancelled = false;
   try {
-    await assert.rejects(downloadVerifiedLocalAsset({
-      name: 'asset.bin', url: 'https://assets.example/model',
-      size: payload.length, sha256: sha256(payload),
-    }, destination, {
-      checkDiskSpace: (_path, bytes) => {
-        if (bytes === payload.length) throw new Error('disk space changed');
-      },
-      fetchFn: async () => new Response(new ReadableStream({
-        cancel() { cancelled = true; },
-      }), { status: 200 }),
-    }), /disk space changed/);
+    await assert.rejects(
+      downloadVerifiedLocalAsset(
+        {
+          name: 'asset.bin',
+          url: 'https://assets.example/model',
+          size: payload.length,
+          sha256: sha256(payload),
+        },
+        destination,
+        {
+          checkDiskSpace: (_path, bytes) => {
+            if (bytes === payload.length) throw new Error('disk space changed');
+          },
+          fetchFn: async () =>
+            new Response(
+              new ReadableStream({
+                cancel() {
+                  cancelled = true;
+                },
+              }),
+              { status: 200 }
+            ),
+        }
+      ),
+      /disk space changed/
+    );
     assert.equal(cancelled, true);
     assert.throws(() => readFileSync(destination));
   } finally {
@@ -206,16 +238,32 @@ test('download cancellation closes the stream and preserves partial bytes for a 
   const controller = new AbortController();
   let cancelled = false;
   try {
-    const asset = { name: 'asset.bin', url: 'https://assets.example/model', size: payload.length, sha256: sha256(payload) };
+    const asset = {
+      name: 'asset.bin',
+      url: 'https://assets.example/model',
+      size: payload.length,
+      sha256: sha256(payload),
+    };
     writeFileSync(`${destination}.part`, payload.subarray(0, 8));
-    await assert.rejects(downloadVerifiedLocalAsset(asset, destination, {
-      signal: controller.signal,
-      fetchFn: async () => new Response(new ReadableStream({
-        start(stream) { stream.enqueue(payload.subarray(8, 12)); },
-        cancel() { cancelled = true; },
-      }), { status: 206 }),
-      onProgress: () => setImmediate(() => controller.abort(new Error('user cancelled download'))),
-    }), /abort|cancel/i);
+    await assert.rejects(
+      downloadVerifiedLocalAsset(asset, destination, {
+        signal: controller.signal,
+        fetchFn: async () =>
+          new Response(
+            new ReadableStream({
+              start(stream) {
+                stream.enqueue(payload.subarray(8, 12));
+              },
+              cancel() {
+                cancelled = true;
+              },
+            }),
+            { status: 206 }
+          ),
+        onProgress: () => setImmediate(() => controller.abort(new Error('user cancelled download'))),
+      }),
+      /abort|cancel/i
+    );
     assert.equal(cancelled, true);
     assert.throws(() => readFileSync(destination));
     const partial = readFileSync(`${destination}.part`);

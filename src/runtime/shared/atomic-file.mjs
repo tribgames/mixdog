@@ -78,9 +78,7 @@ function _runAdaptiveFileIo(run) {
 const RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST']);
 
 export function renameWithRetrySync(src, dst, opts = {}) {
-  const backoffs = Array.isArray(opts.backoffs) && opts.backoffs.length > 0
-    ? opts.backoffs
-    : DEFAULT_BACKOFFS_MS;
+  const backoffs = Array.isArray(opts.backoffs) && opts.backoffs.length > 0 ? opts.backoffs : DEFAULT_BACKOFFS_MS;
   let lastErr = null;
   for (let attempt = 0; attempt <= backoffs.length; attempt++) {
     try {
@@ -97,9 +95,7 @@ export function renameWithRetrySync(src, dst, opts = {}) {
 }
 
 async function renameWithRetry(src, dst, opts = {}) {
-  const backoffs = Array.isArray(opts.backoffs) && opts.backoffs.length > 0
-    ? opts.backoffs
-    : DEFAULT_BACKOFFS_MS;
+  const backoffs = Array.isArray(opts.backoffs) && opts.backoffs.length > 0 ? opts.backoffs : DEFAULT_BACKOFFS_MS;
   let lastErr = null;
   for (let attempt = 0; attempt <= backoffs.length; attempt++) {
     try {
@@ -121,7 +117,11 @@ export function writeFileAtomicSync(filePath, data, opts = {}) {
     mkdirSync(dir, { recursive: true });
     const tmp = join(dir, `.${basename(filePath)}.${randomBytes(12).toString('hex')}.tmp`);
     try {
-      const writeOpts = { encoding: opts.encoding || 'utf8', flag: 'wx', mode: opts.mode !== undefined ? opts.mode : 0o600 };
+      const writeOpts = {
+        encoding: opts.encoding || 'utf8',
+        flag: 'wx',
+        mode: opts.mode !== undefined ? opts.mode : 0o600,
+      };
       writeFileSync(tmp, data, writeOpts);
       // Secure the file before publication. Rename and hard links retain this
       // file's ACL; resetting permissions afterward would expose a published
@@ -135,7 +135,9 @@ export function writeFileAtomicSync(filePath, data, opts = {}) {
         } catch (err) {
           if (!['EPERM', 'ENOTSUP', 'EINVAL'].includes(err?.code)) throw err;
         } finally {
-          try { if (fd !== null) closeSync(fd); } catch {}
+          try {
+            if (fd !== null) closeSync(fd);
+          } catch {}
         }
       }
       if (opts.createOnly === true) {
@@ -148,11 +150,15 @@ export function writeFileAtomicSync(filePath, data, opts = {}) {
         try {
           linkSync(tmp, filePath);
         } catch (err) {
-          try { unlinkSync(tmp); } catch {}
+          try {
+            unlinkSync(tmp);
+          } catch {}
           if (err?.code === 'EEXIST') return false;
           throw err;
         }
-        try { unlinkSync(tmp); } catch {}
+        try {
+          unlinkSync(tmp);
+        } catch {}
       } else {
         try {
           renameWithRetrySync(tmp, filePath, opts);
@@ -168,14 +174,16 @@ export function writeFileAtomicSync(filePath, data, opts = {}) {
           // rename's fully-atomic-swap guarantee for THIS write. Default
           // behavior (throw) is unchanged for every other caller.
           if (
-            opts.renameFallback === 'truncate'
-            && opts.secret !== true
-            && process.platform === 'win32'
-            && RETRY_CODES.has(err?.code)
+            opts.renameFallback === 'truncate' &&
+            opts.secret !== true &&
+            process.platform === 'win32' &&
+            RETRY_CODES.has(err?.code)
           ) {
             const data = readFileSync(tmp);
             writeFileSync(filePath, data, { mode: opts.mode !== undefined ? opts.mode : 0o600 });
-            try { unlinkSync(tmp); } catch {}
+            try {
+              unlinkSync(tmp);
+            } catch {}
           } else {
             throw err;
           }
@@ -189,12 +197,16 @@ export function writeFileAtomicSync(filePath, data, opts = {}) {
         } catch (err) {
           if (!['EPERM', 'ENOTSUP', 'EINVAL', 'EACCES'].includes(err?.code)) throw err;
         } finally {
-          try { if (dfd !== null) closeSync(dfd); } catch {}
+          try {
+            if (dfd !== null) closeSync(dfd);
+          } catch {}
         }
       }
       return true;
     } catch (err) {
-      try { if (existsSync(tmp)) unlinkSync(tmp); } catch {}
+      try {
+        if (existsSync(tmp)) unlinkSync(tmp);
+      } catch {}
       throw err;
     }
   };
@@ -218,18 +230,22 @@ function recoverJsonMutationRead(error) {
 
 export function updateJsonAtomicSync(filePath, mutator, opts = {}) {
   const { lock: _lock, ...writeOpts } = opts;
-  return withFileLockSync(`${filePath}.lock`, () => {
-    let cur = null;
-    try {
-      cur = JSON.parse(readFileSync(filePath, 'utf8'));
-    } catch (error) {
-      cur = recoverJsonMutationRead(error);
-    }
-    const next = mutator(cur);
-    if (next === undefined) return cur;
-    writeJsonAtomicSync(filePath, next, { ...writeOpts, lock: false });
-    return next;
-  }, opts);
+  return withFileLockSync(
+    `${filePath}.lock`,
+    () => {
+      let cur = null;
+      try {
+        cur = JSON.parse(readFileSync(filePath, 'utf8'));
+      } catch (error) {
+        cur = recoverJsonMutationRead(error);
+      }
+      const next = mutator(cur);
+      if (next === undefined) return cur;
+      writeJsonAtomicSync(filePath, next, { ...writeOpts, lock: false });
+      return next;
+    },
+    opts
+  );
 }
 
 // ── Async atomic file write ─────────────────────────────────────────
@@ -243,7 +259,11 @@ export async function writeFileAtomicAsync(filePath, data, opts = {}) {
     await mkdirAsync(dir, { recursive: true });
     const tmp = join(dir, `.${basename(filePath)}.${randomBytes(12).toString('hex')}.tmp`);
     try {
-      const writeOpts = { encoding: opts.encoding || 'utf8', flag: 'wx', mode: opts.mode !== undefined ? opts.mode : 0o600 };
+      const writeOpts = {
+        encoding: opts.encoding || 'utf8',
+        flag: 'wx',
+        mode: opts.mode !== undefined ? opts.mode : 0o600,
+      };
       await writeFileAsync(tmp, data, writeOpts);
       // Both publication paths retain the secured file's existing ACL.
       if (opts.secret === true) await _enforceOwnerOnlyAclWin32Async(tmp, { fresh: true });
@@ -255,18 +275,24 @@ export async function writeFileAtomicAsync(filePath, data, opts = {}) {
         } catch (err) {
           if (!['EPERM', 'ENOTSUP', 'EINVAL'].includes(err?.code)) throw err;
         } finally {
-          try { if (fd !== null) await fd.close(); } catch {}
+          try {
+            if (fd !== null) await fd.close();
+          } catch {}
         }
       }
       if (opts.createOnly === true) {
         try {
           await linkAsync(tmp, filePath);
         } catch (err) {
-          try { await unlinkAsync(tmp); } catch {}
+          try {
+            await unlinkAsync(tmp);
+          } catch {}
           if (err?.code === 'EEXIST') return false;
           throw err;
         }
-        try { await unlinkAsync(tmp); } catch {}
+        try {
+          await unlinkAsync(tmp);
+        } catch {}
       } else {
         await renameWithRetry(tmp, filePath, opts);
       }
@@ -278,12 +304,16 @@ export async function writeFileAtomicAsync(filePath, data, opts = {}) {
         } catch (err) {
           if (!['EPERM', 'ENOTSUP', 'EINVAL', 'EACCES'].includes(err?.code)) throw err;
         } finally {
-          try { if (dfd !== null) await dfd.close(); } catch {}
+          try {
+            if (dfd !== null) await dfd.close();
+          } catch {}
         }
       }
       return true;
     } catch (err) {
-      try { await unlinkAsync(tmp); } catch {}
+      try {
+        await unlinkAsync(tmp);
+      } catch {}
       throw err;
     }
   };
@@ -305,16 +335,20 @@ export function writeJsonAtomicAsync(filePath, value, opts = {}) {
 // or rename retry sleeps on the host event loop.
 export async function updateJsonAtomic(filePath, mutator, opts = {}) {
   const { lock: _lock, ...writeOpts } = opts;
-  return withFileLock(`${filePath}.lock`, async () => {
-    let cur = null;
-    try {
-      cur = JSON.parse(await readFileAsync(filePath, 'utf8'));
-    } catch (error) {
-      cur = recoverJsonMutationRead(error);
-    }
-    const next = mutator(cur);
-    if (next === undefined) return cur;
-    await writeJsonAtomicAsync(filePath, next, { ...writeOpts, lock: false });
-    return next;
-  }, opts);
+  return withFileLock(
+    `${filePath}.lock`,
+    async () => {
+      let cur = null;
+      try {
+        cur = JSON.parse(await readFileAsync(filePath, 'utf8'));
+      } catch (error) {
+        cur = recoverJsonMutationRead(error);
+      }
+      const next = mutator(cur);
+      if (next === undefined) return cur;
+      await writeJsonAtomicAsync(filePath, next, { ...writeOpts, lock: false });
+      return next;
+    },
+    opts
+  );
 }

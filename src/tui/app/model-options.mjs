@@ -1,9 +1,9 @@
 /*
  * model-options.mjs — pure model/route label, ordering, and picker-item helpers.
  *
- * Extracted verbatim from App.jsx. No React, no engine state — every function
- * is a pure transform over model records / route objects. Depends only on the
- * shared theme palette and the displayModelName formatter.
+ * No React, no engine state — every function is a pure transform over model
+ * records / route objects. Depends only on the shared theme palette and the
+ * displayModelName formatter.
  */
 import { theme } from '../theme.mjs';
 import { displayModelName } from '../../ui/model-display.mjs';
@@ -12,11 +12,20 @@ export const parsedModelVersion = (id) => {
   const text = String(id || '').toLowerCase();
   const claude = text.match(/^claude-[a-z]+-(\d+)(?:[-.](\d+))?/);
   if (claude) return [Number(claude[1]) || 0, Number(claude[2]) || 0];
-  const compact = text.match(/(?:^|[-_])(?:o|gpt|grok|qwen|llama|mistral|gemma|phi|glm)(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/);
-  if (compact) return compact.slice(1).filter((v) => v != null).map((v) => Number(v) || 0);
+  const compact = text.match(
+    /(?:^|[-_])(?:o|gpt|grok|qwen|llama|mistral|gemma|phi|glm)(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/
+  );
+  if (compact)
+    return compact
+      .slice(1)
+      .filter((v) => v != null)
+      .map((v) => Number(v) || 0);
   const generic = text.match(/(?:^|[-_v])(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/);
   if (!generic) return [];
-  return generic.slice(1).filter((v) => v != null).map((v) => Number(v) || 0);
+  return generic
+    .slice(1)
+    .filter((v) => v != null)
+    .map((v) => Number(v) || 0);
 };
 
 export const releaseTime = (m) => {
@@ -114,9 +123,7 @@ export const formatContextWindow = (tokens) => {
   const mega = unit * unit;
   if (n >= mega) {
     const m = n / mega;
-    const label = Number.isInteger(m)
-      ? m.toFixed(0)
-      : m.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+    const label = Number.isInteger(m) ? m.toFixed(0) : m.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
     return `${label}M Context`;
   }
   return `${Math.round(n / unit)}k Context`;
@@ -198,10 +205,11 @@ export const providerDisplayRank = (provider) => {
   return ranks[key] ?? 900;
 };
 
-export const titleCaseOption = (value) => String(value || '')
-  .split(/([\s_-]+)/)
-  .map((part) => /^[\s_-]+$/.test(part) ? part : `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`)
-  .join('');
+export const titleCaseOption = (value) =>
+  String(value || '')
+    .split(/([\s_-]+)/)
+    .map((part) => (/^[\s_-]+$/.test(part) ? part : `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`))
+    .join('');
 
 export const effortDisplayLabel = (value) => {
   const text = String(value || '').trim();
@@ -212,22 +220,14 @@ export const effortDisplayLabel = (value) => {
 
 export const fastDisplayLabel = (enabled = true) => `Fast ${enabled ? 'On' : 'Off'}`;
 
-export const modelDescription = (m) => [
-  String(m?.description || '').trim(),
-  m.fastCapable ? 'Fast Available' : '',
-].filter(Boolean).join(' · ');
+export const modelDescription = (m) =>
+  [String(m?.description || '').trim(), m.fastCapable ? 'Fast Available' : ''].filter(Boolean).join(' · ');
 
-export const modelRecordDisplayName = (model) => displayModelName(
-  model?.id,
-  model?.provider,
-  model?.display || model?.name,
-);
+export const modelRecordDisplayName = (model) =>
+  displayModelName(model?.id, model?.provider, model?.display || model?.name);
 
-export const routeModelDisplayName = (route) => displayModelName(
-  route?.model,
-  route?.provider,
-  route?.modelDisplay || '',
-);
+export const routeModelDisplayName = (route) =>
+  displayModelName(route?.model, route?.provider, route?.modelDisplay || '');
 
 export const groupModelsByProvider = (models) => {
   const providers = new Map();
@@ -250,9 +250,8 @@ export const buildModelProviderItems = (models, currentRoute = null) => {
   const { providers, orderedProviders } = groupModelsByProvider(models);
   return orderedProviders.map((provider) => {
     const providerModels = providers.get(provider) || [];
-    const currentModel = currentRoute?.provider === provider
-      ? providerModels.find((model) => model.id === currentRoute.model)
-      : null;
+    const currentModel =
+      currentRoute?.provider === provider ? providerModels.find((model) => model.id === currentRoute.model) : null;
     return {
       value: `provider:${provider}`,
       label: providerDisplayName(provider),
@@ -288,25 +287,23 @@ export const routeLabel = (route) => {
     routeModelDisplayName(route),
     route.effort ? effortDisplayLabel(route.effort) : '',
     route.fast ? 'Fast' : '',
-  ].filter(Boolean).join(' · ');
+  ]
+    .filter(Boolean)
+    .join(' · ');
 };
 
 export const routeModelLabel = (route) => {
   if (!route?.model) return '(unset)';
-  return [
-    routeModelDisplayName(route),
-    route.effort ? effortDisplayLabel(route.effort) : '',
-    route.fast ? 'Fast' : '',
-  ].filter(Boolean).join(' · ');
+  return [routeModelDisplayName(route), route.effort ? effortDisplayLabel(route.effort) : '', route.fast ? 'Fast' : '']
+    .filter(Boolean)
+    .join(' · ');
 };
 
 export const agentModelProfile = (route) => {
   if (!route?.model) return '';
-  return [
-    routeModelDisplayName(route),
-    route.effort ? effortDisplayLabel(route.effort) : '',
-    route.fast ? 'Fast' : '',
-  ].filter(Boolean).join(' · ');
+  return [routeModelDisplayName(route), route.effort ? effortDisplayLabel(route.effort) : '', route.fast ? 'Fast' : '']
+    .filter(Boolean)
+    .join(' · ');
 };
 
 export const agentModelParts = (route) => [
@@ -342,7 +339,7 @@ export const modelScore = (model, slot) => {
 export const chooseRecommendedModel = (models, slot, fallbackRoute) => {
   if (!Array.isArray(models) || models.length === 0) return null;
   const sorted = models.slice().sort((a, b) => modelScore(b, slot) - modelScore(a, slot));
-  return sorted[0] ? routeFromModel(sorted[0]) : (fallbackRoute || null);
+  return sorted[0] ? routeFromModel(sorted[0]) : fallbackRoute || null;
 };
 
 export const buildWorkflowDefaults = (models, defaultRoute) => ({

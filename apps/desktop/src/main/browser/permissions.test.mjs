@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  clearBrowserPermissionHandlers,
-  lockDownBrowserPermissions,
-} from './permissions.ts';
+import { clearBrowserPermissionHandlers, lockDownBrowserPermissions } from './permissions.ts';
 
 test('Browser Use denies site and physical-device permissions by default', () => {
   const handlers = {};

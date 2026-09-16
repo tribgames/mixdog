@@ -1,8 +1,4 @@
-import {
-  DEFAULT_STUDIO_OPTIONS,
-  type MediaKind,
-  type StudioOptions,
-} from './studio-support';
+import { DEFAULT_STUDIO_OPTIONS, type MediaKind, type StudioOptions } from './studio-support';
 
 const DRAFT_METADATA_KEY = 'mixdog.studio-draft.v1';
 const DATABASE_NAME = 'mixdog-studio-cache';
@@ -33,9 +29,7 @@ export interface StudioReferenceStore {
 }
 
 function record(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 function boundedString(value: unknown, fallback: string, maximum: number): string {
@@ -52,28 +46,19 @@ export function normalizeStudioDraftMetadata(value: unknown): StudioDraftMetadat
     laneId: boundedString(draft.laneId, '', 512).trim(),
     model: boundedString(draft.model, '', 512).trim(),
     options: {
-      aspectRatio: boundedString(
-        rawOptions?.aspectRatio,
-        DEFAULT_STUDIO_OPTIONS.aspectRatio,
-        128,
-      ),
-      resolution: boundedString(
-        rawOptions?.resolution,
-        DEFAULT_STUDIO_OPTIONS.resolution,
-        128,
-      ),
+      aspectRatio: boundedString(rawOptions?.aspectRatio, DEFAULT_STUDIO_OPTIONS.aspectRatio, 128),
+      resolution: boundedString(rawOptions?.resolution, DEFAULT_STUDIO_OPTIONS.resolution, 128),
       size: boundedString(rawOptions?.size, DEFAULT_STUDIO_OPTIONS.size, 128),
       quality: boundedString(rawOptions?.quality, DEFAULT_STUDIO_OPTIONS.quality, 128),
-      duration: Number.isFinite(duration) && duration > 0 && duration <= 300
-        ? duration
-        : DEFAULT_STUDIO_OPTIONS.duration,
+      duration:
+        Number.isFinite(duration) && duration > 0 && duration <= 300 ? duration : DEFAULT_STUDIO_OPTIONS.duration,
     },
     prompt: boundedString(draft.prompt, '', MAX_PROMPT_CHARS),
   };
 }
 
 export function readStudioDraftMetadata(
-  storage: Pick<Storage, 'getItem'> = window.localStorage,
+  storage: Pick<Storage, 'getItem'> = window.localStorage
 ): StudioDraftMetadata | null {
   try {
     const raw = storage.getItem(DRAFT_METADATA_KEY);
@@ -85,7 +70,7 @@ export function readStudioDraftMetadata(
 
 export function writeStudioDraftMetadata(
   value: StudioDraftMetadata,
-  storage: Pick<Storage, 'setItem'> = window.localStorage,
+  storage: Pick<Storage, 'setItem'> = window.localStorage
 ): void {
   try {
     const draft = normalizeStudioDraftMetadata(value);
@@ -97,22 +82,24 @@ export function writeStudioDraftMetadata(
 
 export function normalizeStudioReferences(value: unknown): StudioCachedReference[] {
   const payload = record(value);
-  const rows = Array.isArray(value)
-    ? value
-    : Array.isArray(payload?.references) ? payload.references : [];
-  return rows.flatMap((candidate) => {
-    const reference = record(candidate);
-    const base64 = reference?.base64;
-    const mime = reference?.mime;
-    if (typeof base64 !== 'string'
-      || !base64
-      || base64.length > MAX_REFERENCE_BASE64_CHARS
-      || typeof mime !== 'string'
-      || !/^image\/[-+.a-z0-9]+$/i.test(mime)) {
-      return [];
-    }
-    return [{ base64, mime }];
-  }).slice(0, MAX_REFERENCE_COUNT);
+  const rows = Array.isArray(value) ? value : Array.isArray(payload?.references) ? payload.references : [];
+  return rows
+    .flatMap((candidate) => {
+      const reference = record(candidate);
+      const base64 = reference?.base64;
+      const mime = reference?.mime;
+      if (
+        typeof base64 !== 'string' ||
+        !base64 ||
+        base64.length > MAX_REFERENCE_BASE64_CHARS ||
+        typeof mime !== 'string' ||
+        !/^image\/[-+.a-z0-9]+$/i.test(mime)
+      ) {
+        return [];
+      }
+      return [{ base64, mime }];
+    })
+    .slice(0, MAX_REFERENCE_COUNT);
 }
 
 let databasePromise: Promise<IDBDatabase> | null = null;
@@ -153,9 +140,7 @@ const indexedDbReferenceStore: StudioReferenceStore = {
   async read(key) {
     const db = await database();
     return await new Promise((resolve, reject) => {
-      const request = db.transaction(REFERENCE_STORE, 'readonly')
-        .objectStore(REFERENCE_STORE)
-        .get(key);
+      const request = db.transaction(REFERENCE_STORE, 'readonly').objectStore(REFERENCE_STORE).get(key);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -183,13 +168,12 @@ const indexedDbReferenceStore: StudioReferenceStore = {
 };
 
 function assetReferencesKey(assetId: string): string {
-  return `asset:${String(assetId || '').trim().slice(0, 512)}`;
+  return `asset:${String(assetId || '')
+    .trim()
+    .slice(0, 512)}`;
 }
 
-async function readReferences(
-  key: string,
-  store: StudioReferenceStore,
-): Promise<StudioCachedReference[]> {
+async function readReferences(key: string, store: StudioReferenceStore): Promise<StudioCachedReference[]> {
   try {
     return normalizeStudioReferences(await store.read(key));
   } catch {
@@ -200,7 +184,7 @@ async function readReferences(
 async function writeReferences(
   key: string,
   references: StudioCachedReference[],
-  store: StudioReferenceStore,
+  store: StudioReferenceStore
 ): Promise<void> {
   try {
     const normalized = normalizeStudioReferences(references);
@@ -215,21 +199,21 @@ async function writeReferences(
 }
 
 export function readStudioDraftReferences(
-  store: StudioReferenceStore = indexedDbReferenceStore,
+  store: StudioReferenceStore = indexedDbReferenceStore
 ): Promise<StudioCachedReference[]> {
   return readReferences(DRAFT_REFERENCES_KEY, store);
 }
 
 export function writeStudioDraftReferences(
   references: StudioCachedReference[],
-  store: StudioReferenceStore = indexedDbReferenceStore,
+  store: StudioReferenceStore = indexedDbReferenceStore
 ): Promise<void> {
   return writeReferences(DRAFT_REFERENCES_KEY, references, store);
 }
 
 export function readStudioAssetReferences(
   assetId: string,
-  store: StudioReferenceStore = indexedDbReferenceStore,
+  store: StudioReferenceStore = indexedDbReferenceStore
 ): Promise<StudioCachedReference[]> {
   return readReferences(assetReferencesKey(assetId), store);
 }
@@ -237,14 +221,14 @@ export function readStudioAssetReferences(
 export function writeStudioAssetReferences(
   assetId: string,
   references: StudioCachedReference[],
-  store: StudioReferenceStore = indexedDbReferenceStore,
+  store: StudioReferenceStore = indexedDbReferenceStore
 ): Promise<void> {
   return writeReferences(assetReferencesKey(assetId), references, store);
 }
 
 export async function removeStudioAssetReferences(
   assetId: string,
-  store: StudioReferenceStore = indexedDbReferenceStore,
+  store: StudioReferenceStore = indexedDbReferenceStore
 ): Promise<void> {
   try {
     await store.remove(assetReferencesKey(assetId));

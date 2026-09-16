@@ -9,13 +9,16 @@ test('remote intent matches only its own session and cwd', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-remote-intent-'));
   const path = join(dir, 'channel-remote-intent.json');
   try {
-    writeFileSync(path, JSON.stringify({
-      version: 1,
-      sessionId: 'sess_link',
-      transcriptPath: join(dir, 'sess_link.jsonl'),
-      cwd: dir,
-      updatedAt: Date.now(),
-    }));
+    writeFileSync(
+      path,
+      JSON.stringify({
+        version: 1,
+        sessionId: 'sess_link',
+        transcriptPath: join(dir, 'sess_link.jsonl'),
+        cwd: dir,
+        updatedAt: Date.now(),
+      })
+    );
     assert.equal(readRemoteIntent(path)?.sessionId, 'sess_link');
     assert.equal(remoteIntentMatchesSession('sess_link', dir, path), true);
     assert.equal(remoteIntentMatchesSession('sess_other', dir, path), false);

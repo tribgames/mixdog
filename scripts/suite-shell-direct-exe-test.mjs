@@ -26,10 +26,7 @@ const WIN_PS = { platform: 'win32', shellType: 'powershell' };
 
 test('tokenizeDirectArgv keeps Windows paths and quoted args', () => {
   assert.deepEqual(tokenizeDirectArgv('git status'), ['git', 'status']);
-  assert.deepEqual(
-    tokenizeDirectArgv('C:\\foo\\bar.exe -e "a b"'),
-    ['C:\\foo\\bar.exe', '-e', 'a b'],
-  );
+  assert.deepEqual(tokenizeDirectArgv('C:\\foo\\bar.exe -e "a b"'), ['C:\\foo\\bar.exe', '-e', 'a b']);
   assert.equal(tokenizeDirectArgv('node -e "oops'), null);
 });
 
@@ -49,18 +46,44 @@ test('planDirectExeSpawn is Windows+pwsh and real .exe only', () => {
     assert.ok(hit);
     assert.equal(hit.exe.toLowerCase(), join(dir, 'git.exe').toLowerCase());
     assert.deepEqual(hit.argv, ['status']);
-    assert.equal(planDirectExeSpawn('git status', {
-      ...WIN_PS, cwd: dir, pathValue: dir, env: { MIXDOG_SHELL_DIRECT_EXE: '0' },
-    }), null);
-    assert.equal(planDirectExeSpawn('git status', {
-      platform: 'linux', shellType: 'powershell', cwd: dir, pathValue: dir, env: {},
-    }), null);
-    assert.equal(planDirectExeSpawn('git status', {
-      platform: 'win32', shellType: 'posix', cwd: dir, pathValue: dir, env: {},
-    }), null);
-    assert.equal(planDirectExeSpawn('git status && git diff', {
-      ...WIN_PS, cwd: dir, pathValue: dir, env: {},
-    }), null);
+    assert.equal(
+      planDirectExeSpawn('git status', {
+        ...WIN_PS,
+        cwd: dir,
+        pathValue: dir,
+        env: { MIXDOG_SHELL_DIRECT_EXE: '0' },
+      }),
+      null
+    );
+    assert.equal(
+      planDirectExeSpawn('git status', {
+        platform: 'linux',
+        shellType: 'powershell',
+        cwd: dir,
+        pathValue: dir,
+        env: {},
+      }),
+      null
+    );
+    assert.equal(
+      planDirectExeSpawn('git status', {
+        platform: 'win32',
+        shellType: 'posix',
+        cwd: dir,
+        pathValue: dir,
+        env: {},
+      }),
+      null
+    );
+    assert.equal(
+      planDirectExeSpawn('git status && git diff', {
+        ...WIN_PS,
+        cwd: dir,
+        pathValue: dir,
+        env: {},
+      }),
+      null
+    );
   });
 });
 

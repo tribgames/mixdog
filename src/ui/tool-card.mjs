@@ -33,7 +33,11 @@ export function renderToolCard(call) {
   const name = String(call?.name ?? 'tool');
   let args = call?.arguments;
   if (typeof args === 'string') {
-    try { args = JSON.parse(args); } catch { args = { _raw: args }; }
+    try {
+      args = JSON.parse(args);
+    } catch {
+      args = { _raw: args };
+    }
   }
   if (!args || typeof args !== 'object') args = {};
 

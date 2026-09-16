@@ -1,4 +1,3 @@
-'use strict';
 // PowerShell inline-command normalization + policy-scan extraction. Extracted
 // verbatim from shell-command.mjs (behavior-preserving). shell-command.mjs
 // re-exports _maybeEncodePowerShellCommand / extractPowerShellCommandInner so
@@ -16,14 +15,19 @@
 // flags (NoProfile, NonInteractive, WindowStyle, ExecutionPolicy, Sta,
 // Mta, NoLogo, NoExit) are recognised so they don't break the match.
 // Single-quoted -Command '<body>' is also covered.
-const _POWERSHELL_FLAGS_RE = /\s+-(?:NoProfile|NonInteractive|WindowStyle\s+\S+|ExecutionPolicy\s+\S+|Sta|Mta|NoLogo|NoExit)/.source;
+const _POWERSHELL_FLAGS_RE =
+  /\s+-(?:NoProfile|NonInteractive|WindowStyle\s+\S+|ExecutionPolicy\s+\S+|Sta|Mta|NoLogo|NoExit)/.source;
 const _POWERSHELL_DOUBLE_RE = new RegExp(
-  '\\b(powershell(?:\\.exe)?|pwsh(?:\\.exe)?)((?:' + _POWERSHELL_FLAGS_RE + ')*)\\s+(?:-Command|-c)\\s+"((?:[^"\\\\]|\\\\.|"")+?)"(?=\\s|$|;|&&|\\|\\|)',
-  'gi',
+  '\\b(powershell(?:\\.exe)?|pwsh(?:\\.exe)?)((?:' +
+    _POWERSHELL_FLAGS_RE +
+    ')*)\\s+(?:-Command|-c)\\s+"((?:[^"\\\\]|\\\\.|"")+?)"(?=\\s|$|;|&&|\\|\\|)',
+  'gi'
 );
 const _POWERSHELL_SINGLE_RE = new RegExp(
-  "\\b(powershell(?:\\.exe)?|pwsh(?:\\.exe)?)((?:" + _POWERSHELL_FLAGS_RE + ")*)\\s+(?:-Command|-c)\\s+'((?:[^'\\\\]|\\\\.|'')+?)'(?=\\s|$|;|&&|\\|\\|)",
-  'gi',
+  '\\b(powershell(?:\\.exe)?|pwsh(?:\\.exe)?)((?:' +
+    _POWERSHELL_FLAGS_RE +
+    ")*)\\s+(?:-Command|-c)\\s+'((?:[^'\\\\]|\\\\.|'')+?)'(?=\\s|$|;|&&|\\|\\|)",
+  'gi'
 );
 
 export function _maybeEncodePowerShellCommand(command) {
@@ -39,11 +43,7 @@ export function _maybeEncodePowerShellCommand(command) {
       // outer-shell wrappers commonly use backslash form. Without
       // backslash unescape, `pwsh -Command "Get-Process \"foo\""` would
       // base64-encode the literal backslash, breaking inside PowerShell.
-      const unescaped = body
-        .replace(/""/g, '"')
-        .replace(/''/g, "'")
-        .replace(/\\"/g, '"')
-        .replace(/\\'/g, "'");
+      const unescaped = body.replace(/""/g, '"').replace(/''/g, "'").replace(/\\"/g, '"').replace(/\\'/g, "'");
       const encoded = Buffer.from(unescaped, 'utf16le').toString('base64');
       const trimmedFlags = (flags || '').replace(/\s+/g, ' ').trim();
       return `${exe}${trimmedFlags ? ' ' + trimmedFlags : ''} -EncodedCommand ${encoded}`;

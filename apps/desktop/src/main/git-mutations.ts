@@ -11,11 +11,7 @@ import {
   type GitIgnoreScope,
   type GitResetMode,
 } from './git-contract.mjs';
-import {
-  run,
-  runWithInput,
-  scrubGitCredentials,
-} from './git-runner';
+import { run, runWithInput, scrubGitCredentials } from './git-runner';
 import { currentGitOperation, gitStatus, hasHead } from './git-status';
 
 export {
@@ -52,31 +48,24 @@ export { publicGitRemoteUrl, scrubGitCredentials } from './git-runner';
 const branchOperations = createGitBranchOperations({ run, currentGitOperation, gitStatus });
 const { checkedBranchName } = branchOperations;
 
-export const {
-  gitBranches,
-  gitCheckoutBranch,
-  gitCreateBranch,
-  gitRenameBranch,
-  gitDeleteBranch,
-  gitMergeBranch,
-} = branchOperations;
+export const { gitBranches, gitCheckoutBranch, gitCreateBranch, gitRenameBranch, gitDeleteBranch, gitMergeBranch } =
+  branchOperations;
 
-export async function gitApplyPatch(
-  cwd: string,
-  path: string,
-  patch: string,
-  reverse = false,
-): Promise<void> {
+export async function gitApplyPatch(cwd: string, path: string, patch: string, reverse = false): Promise<void> {
   if (!patch.trim()) throw new TypeError('A Git patch is required.');
-  await runWithInput(cwd, [
-    'apply',
-    '--cached',
-    '--recount',
-    '--whitespace=nowarn',
-    ...(reverse ? ['--reverse'] : []),
-    `--include=${path}`,
-    '-',
-  ], patch);
+  await runWithInput(
+    cwd,
+    [
+      'apply',
+      '--cached',
+      '--recount',
+      '--whitespace=nowarn',
+      ...(reverse ? ['--reverse'] : []),
+      `--include=${path}`,
+      '-',
+    ],
+    patch
+  );
 }
 
 export async function gitStage(cwd: string, paths: string[]): Promise<void> {
@@ -109,19 +98,18 @@ function ignoredExtension(normalized: string): string {
   return name.slice(dot);
 }
 
-export async function gitIgnore(
-  cwd: string,
-  path: string,
-  scope: GitIgnoreScope = 'file',
-): Promise<void> {
+export async function gitIgnore(cwd: string, path: string, scope: GitIgnoreScope = 'file'): Promise<void> {
   const ignoreScope = requiredGitIgnoreScope(scope);
-  const normalized = String(path || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  const normalized = String(path || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
   if (!normalized || normalized.includes('\0') || normalized.split('/').includes('..')) {
     throw new TypeError('Git ignore path is invalid.');
   }
-  const pattern = ignoreScope === 'extension'
-    ? `*${escapedIgnoreLiteral(ignoredExtension(normalized))}`
-    : `/${escapedIgnoreLiteral(normalized)}`;
+  const pattern =
+    ignoreScope === 'extension'
+      ? `*${escapedIgnoreLiteral(ignoredExtension(normalized))}`
+      : `/${escapedIgnoreLiteral(normalized)}`;
   const repositoryRoot = (await run(cwd, ['rev-parse', '--show-toplevel'])).trim();
   const ignorePath = join(repositoryRoot || cwd, '.gitignore');
   let current = '';
@@ -145,9 +133,7 @@ export const gitCommitPaths = createGitCommitPaths(gitStatus);
 
 export function gitAmend(cwd: string, message = ''): Promise<string> {
   const trimmed = message.trim();
-  return run(cwd, trimmed
-    ? ['commit', '--amend', '-m', trimmed]
-    : ['commit', '--amend', '--no-edit']);
+  return run(cwd, trimmed ? ['commit', '--amend', '-m', trimmed] : ['commit', '--amend', '--no-edit']);
 }
 
 export function gitUndoLastCommit(cwd: string): Promise<string> {
@@ -202,7 +188,7 @@ export async function gitRevertFile(
   cwd: string,
   path: string,
   untracked: boolean,
-  mode: 'worktree' | 'all' = 'all',
+  mode: 'worktree' | 'all' = 'all'
 ): Promise<void> {
   if (untracked) {
     await run(cwd, ['clean', '-f', '-d', '--', path]);
@@ -236,7 +222,9 @@ export async function gitPush(cwd: string): Promise<string> {
 
 function readableRemoteError(reason: unknown): Error {
   const message = scrubGitCredentials(reason instanceof Error ? reason.message : String(reason));
-  if (/authentication failed|could not read username|terminal prompts disabled|permission denied|publickey/i.test(message)) {
+  if (
+    /authentication failed|could not read username|terminal prompts disabled|permission denied|publickey/i.test(message)
+  ) {
     return new Error('Git authentication is required. Sign in with your Git credential helper and retry.');
   }
   return new Error(message);
@@ -287,51 +275,54 @@ export async function gitAbortOperation(cwd: string): Promise<string> {
 async function assertNoOperationInProgress(cwd: string, action: string): Promise<void> {
   const inFlight = await currentGitOperation(cwd);
   if (inFlight) {
-    throw new Error(
-      `A ${inFlight} is already in progress. Continue or abort it before ${action}.`,
-    );
+    throw new Error(`A ${inFlight} is already in progress. Continue or abort it before ${action}.`);
   }
 }
 
 async function assertCleanWorktree(cwd: string, action: string): Promise<void> {
   const dirty = (await gitStatus(cwd)).files.map((file) => file.path);
   if (dirty.length) {
-    throw new Error([
-      `Uncommitted changes would be overwritten by ${action}`,
-      `: ${dirty.slice(0, 10).join(', ')}`,
-      '. Commit or stash them first.',
-    ].join(''));
+    throw new Error(
+      [
+        `Uncommitted changes would be overwritten by ${action}`,
+        `: ${dirty.slice(0, 10).join(', ')}`,
+        '. Commit or stash them first.',
+      ].join('')
+    );
   }
 }
 
 async function conflictedPaths(cwd: string): Promise<string[]> {
   const names = await run(cwd, ['diff', '--name-only', '--diff-filter=U']).catch(() => '');
-  return names.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return names
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 async function checkedCommit(cwd: string, value: string): Promise<string> {
   const hash = requiredCommitHash(value);
-  const shadowingRef = (await run(cwd, [
-    'rev-parse', '--verify', '--quiet', '--symbolic-full-name', hash,
-  ]).catch(() => '')).trim();
+  const shadowingRef = (
+    await run(cwd, ['rev-parse', '--verify', '--quiet', '--symbolic-full-name', hash]).catch(() => '')
+  ).trim();
   if (!shadowingRef) {
-    const resolved = (await run(cwd, ['rev-parse', '--verify', '--quiet', `${hash}^{commit}`])
-      .catch(() => '')).trim();
+    const resolved = (await run(cwd, ['rev-parse', '--verify', '--quiet', `${hash}^{commit}`]).catch(() => '')).trim();
     if (resolved) return resolved;
   }
   const candidates = (await run(cwd, ['rev-parse', `--disambiguate=${hash}`]).catch(() => ''))
-    .split(/\s+/).map((line) => line.trim()).filter(Boolean);
+    .split(/\s+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   const commits: string[] = [];
   for (const candidate of candidates) {
-    const peeled = (await run(cwd, ['rev-parse', '--verify', '--quiet', `${candidate}^{commit}`])
-      .catch(() => '')).trim();
+    const peeled = (
+      await run(cwd, ['rev-parse', '--verify', '--quiet', `${candidate}^{commit}`]).catch(() => '')
+    ).trim();
     if (peeled && !commits.includes(peeled)) commits.push(peeled);
   }
   if (commits.length === 1) return commits[0];
   if (commits.length > 1) {
-    throw new TypeError(
-      `Commit name ${hash} is ambiguous: ${commits.map((sha) => sha.slice(0, 12)).join(', ')}.`,
-    );
+    throw new TypeError(`Commit name ${hash} is ambiguous: ${commits.map((sha) => sha.slice(0, 12)).join(', ')}.`);
   }
   throw new TypeError(`No commit named ${hash} in this repository.`);
 }
@@ -358,18 +349,23 @@ async function sequencerFailure(
   operation: 'cherry-pick' | 'revert',
   verb: string,
   commit: string,
-  reason: unknown,
+  reason: unknown
 ): Promise<Error> {
   const message = reason instanceof Error ? reason.message : String(reason);
-  const conflicted = /conflict/i.test(message)
-    || await currentGitOperation(cwd).then((live) => live === operation).catch(() => false);
+  const conflicted =
+    /conflict/i.test(message) ||
+    (await currentGitOperation(cwd)
+      .then((live) => live === operation)
+      .catch(() => false));
   if (!conflicted) return reason instanceof Error ? reason : new Error(message);
   const files = await conflictedPaths(cwd);
-  return new Error([
-    `${verb} ${commit.slice(0, 8)} hit conflicts`,
-    files.length ? ` in ${files.length} file(s): ${files.slice(0, 10).join(', ')}` : '',
-    `. Resolve them, then continue or abort the ${operation}.`,
-  ].join(''));
+  return new Error(
+    [
+      `${verb} ${commit.slice(0, 8)} hit conflicts`,
+      files.length ? ` in ${files.length} file(s): ${files.slice(0, 10).join(', ')}` : '',
+      `. Resolve them, then continue or abort the ${operation}.`,
+    ].join('')
+  );
 }
 
 export const GIT_RESET_DIRTY_CODE = 'git-reset-dirty-worktree';
@@ -378,7 +374,7 @@ export async function gitResetToCommit(
   cwd: string,
   value: string,
   mode: GitResetMode,
-  confirmedDirty = false,
+  confirmedDirty = false
 ): Promise<string> {
   const reset = requiredGitResetMode(mode);
   const commit = await checkedCommit(cwd, value);
@@ -388,11 +384,13 @@ export async function gitResetToCommit(
   } else if (reset === 'mixed' && !confirmedDirty) {
     const dirty = (await gitStatus(cwd)).files.map((file) => file.path);
     if (dirty.length) {
-      const refusal: Error & { code?: string } = new Error([
-        `A --mixed reset rewrites the index, so ${action} unstages uncommitted work`,
-        `: ${dirty.slice(0, 10).join(', ')}`,
-        '. Confirm the reset to run it anyway.',
-      ].join(''));
+      const refusal: Error & { code?: string } = new Error(
+        [
+          `A --mixed reset rewrites the index, so ${action} unstages uncommitted work`,
+          `: ${dirty.slice(0, 10).join(', ')}`,
+          '. Confirm the reset to run it anyway.',
+        ].join('')
+      );
       refusal.code = GIT_RESET_DIRTY_CODE;
       throw refusal;
     }
@@ -402,7 +400,7 @@ export async function gitResetToCommit(
 
 export async function gitRevertCommit(cwd: string, value: string): Promise<string> {
   const commit = await checkedCommit(cwd, value);
-  const mainline = await commitParentCount(cwd, commit) > 1 ? ['-m', '1'] : [];
+  const mainline = (await commitParentCount(cwd, commit)) > 1 ? ['-m', '1'] : [];
   try {
     return await run(cwd, ['revert', '--no-edit', ...mainline, commit]);
   } catch (reason) {
@@ -428,7 +426,7 @@ export async function gitCherryPickCommit(cwd: string, value: string): Promise<s
   const action = `cherry-picking ${commit.slice(0, 8)}`;
   await assertNoOperationInProgress(cwd, action);
   await assertCleanWorktree(cwd, action);
-  const mainline = await commitParentCount(cwd, commit) > 1 ? ['-m', '1'] : [];
+  const mainline = (await commitParentCount(cwd, commit)) > 1 ? ['-m', '1'] : [];
   try {
     return await runCherryPick(cwd, [...mainline, commit]);
   } catch (reason) {
@@ -454,11 +452,7 @@ export async function gitCheckoutCommit(cwd: string, value: string): Promise<str
   return `HEAD is now at ${commit.slice(0, 8)} (detached).`;
 }
 
-export async function gitCreateBranchAtCommit(
-  cwd: string,
-  value: string,
-  at: string,
-): Promise<string> {
+export async function gitCreateBranchAtCommit(cwd: string, value: string, at: string): Promise<string> {
   const branch = await checkedBranchName(cwd, value);
   const commit = await checkedCommit(cwd, at);
   return run(cwd, ['switch', '-c', branch, commit]);

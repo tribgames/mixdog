@@ -30,9 +30,9 @@
 import { denseTokenFloor, structuredTokenFloor } from './token-estimate-floors.mjs';
 
 function readSafetyMultiplier() {
-    const raw = Number(process.env.MIXDOG_TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
-    if (Number.isFinite(raw)) return Math.min(2.0, Math.max(1.0, raw));
-    return 1.0;
+  const raw = Number(process.env.MIXDOG_TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
+  if (Number.isFinite(raw)) return Math.min(2.0, Math.max(1.0, raw));
+  return 1.0;
 }
 const TOKEN_ESTIMATE_SAFETY_MULTIPLIER = readSafetyMultiplier();
 
@@ -47,38 +47,38 @@ export const UNCALIBRATED_ESTIMATE_MARGIN = 1.1;
 
 /** Per-code-point token-cost weight. Tuned to overcount, not match exactly. */
 function codePointTokenWeight(cp) {
-    // ASCII (latin letters, digits, punctuation, whitespace, control): the one
-    // region where chars/4 is roughly right — keep the cheap 0.25/char cost.
-    if (cp < 0x80) return 0.25;
-    // Hangul syllables + Jamo + compatibility Jamo. Korean is the worst case
-    // for chars/4: a single syllable frequently costs 1.5–3 BPE tokens, and
-    // rarer syllables fall back to multi-byte splits. Weight high for safety.
-    if (cp >= 0xAC00 && cp <= 0xD7A3) return 1.5;
-    if (cp >= 0x1100 && cp <= 0x11FF) return 1.5;
-    if (cp >= 0x3130 && cp <= 0x318F) return 1.5;
-    if (cp >= 0xA960 && cp <= 0xA97F) return 1.5;
-    if (cp >= 0xD7B0 && cp <= 0xD7FF) return 1.5;
-    // Hiragana / Katakana / Katakana phonetic extensions.
-    if (cp >= 0x3040 && cp <= 0x30FF) return 1.2;
-    if (cp >= 0x31F0 && cp <= 0x31FF) return 1.2;
-    // CJK unified ideographs (incl. Ext A) + compatibility ideographs.
-    if (cp >= 0x3400 && cp <= 0x4DBF) return 1.2;
-    if (cp >= 0x4E00 && cp <= 0x9FFF) return 1.2;
-    if (cp >= 0xF900 && cp <= 0xFAFF) return 1.2;
-    // CJK Extension B and beyond (supplementary ideographic plane).
-    if (cp >= 0x20000 && cp <= 0x2FA1F) return 1.2;
-    // Emoji / pictographs / dingbats / symbols — these explode under BPE
-    // (surrogate pairs, ZWJ sequences, variation selectors), so weight highest.
-    if (cp >= 0x2600 && cp <= 0x27BF) return 2.0;
-    if (cp >= 0x1F000 && cp <= 0x1FAFF) return 2.0;
-    if (cp >= 0x2190 && cp <= 0x21FF) return 1.5; // arrows
-    if (cp >= 0x2300 && cp <= 0x23FF) return 1.5; // technical symbols
-    // Latin-1 supplement / extended latin / IPA — pricier than ASCII (often a
-    // token per accented char) but cheaper than CJK.
-    if (cp < 0x0400) return 0.6;
-    // Everything else non-ASCII (Cyrillic, Greek, Arabic, Hebrew, Thai, …):
-    // multi-byte UTF-8, typically ~0.5–1 token/char. Stay conservative.
-    return 0.8;
+  // ASCII (latin letters, digits, punctuation, whitespace, control): the one
+  // region where chars/4 is roughly right — keep the cheap 0.25/char cost.
+  if (cp < 0x80) return 0.25;
+  // Hangul syllables + Jamo + compatibility Jamo. Korean is the worst case
+  // for chars/4: a single syllable frequently costs 1.5–3 BPE tokens, and
+  // rarer syllables fall back to multi-byte splits. Weight high for safety.
+  if (cp >= 0xac00 && cp <= 0xd7a3) return 1.5;
+  if (cp >= 0x1100 && cp <= 0x11ff) return 1.5;
+  if (cp >= 0x3130 && cp <= 0x318f) return 1.5;
+  if (cp >= 0xa960 && cp <= 0xa97f) return 1.5;
+  if (cp >= 0xd7b0 && cp <= 0xd7ff) return 1.5;
+  // Hiragana / Katakana / Katakana phonetic extensions.
+  if (cp >= 0x3040 && cp <= 0x30ff) return 1.2;
+  if (cp >= 0x31f0 && cp <= 0x31ff) return 1.2;
+  // CJK unified ideographs (incl. Ext A) + compatibility ideographs.
+  if (cp >= 0x3400 && cp <= 0x4dbf) return 1.2;
+  if (cp >= 0x4e00 && cp <= 0x9fff) return 1.2;
+  if (cp >= 0xf900 && cp <= 0xfaff) return 1.2;
+  // CJK Extension B and beyond (supplementary ideographic plane).
+  if (cp >= 0x20000 && cp <= 0x2fa1f) return 1.2;
+  // Emoji / pictographs / dingbats / symbols — these explode under BPE
+  // (surrogate pairs, ZWJ sequences, variation selectors), so weight highest.
+  if (cp >= 0x2600 && cp <= 0x27bf) return 2.0;
+  if (cp >= 0x1f000 && cp <= 0x1faff) return 2.0;
+  if (cp >= 0x2190 && cp <= 0x21ff) return 1.5; // arrows
+  if (cp >= 0x2300 && cp <= 0x23ff) return 1.5; // technical symbols
+  // Latin-1 supplement / extended latin / IPA — pricier than ASCII (often a
+  // token per accented char) but cheaper than CJK.
+  if (cp < 0x0400) return 0.6;
+  // Everything else non-ASCII (Cyrillic, Greek, Arabic, Hebrew, Thai, …):
+  // multi-byte UTF-8, typically ~0.5–1 token/char. Stay conservative.
+  return 0.8;
 }
 
 /**
@@ -87,11 +87,11 @@ function codePointTokenWeight(cp) {
  * floors, then applies the safety multiplier.
  */
 export function estimateTokens(text) {
-    const s = String(text ?? '');
-    if (s.length === 0) return 0;
-    let weighted = 0;
-    for (const ch of s) weighted += codePointTokenWeight(ch.codePointAt(0));
-    const denseAsciiFloor = Math.max(denseTokenFloor(s), structuredTokenFloor(s));
-    const asciiFloor = s.length / 4; // never below the legacy chars/4 lower bound
-    return Math.ceil(Math.max(weighted, asciiFloor, denseAsciiFloor) * TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
+  const s = String(text ?? '');
+  if (s.length === 0) return 0;
+  let weighted = 0;
+  for (const ch of s) weighted += codePointTokenWeight(ch.codePointAt(0));
+  const denseAsciiFloor = Math.max(denseTokenFloor(s), structuredTokenFloor(s));
+  const asciiFloor = s.length / 4; // never below the legacy chars/4 lower bound
+  return Math.ceil(Math.max(weighted, asciiFloor, denseAsciiFloor) * TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
 }

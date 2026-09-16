@@ -21,18 +21,21 @@ test('browser postconditions normalize bounded waits and match text plus URL wit
     url: '/complete',
     timeoutMs: 20_000,
   });
-  assert.equal(browserPostconditionMatches(expected, {
-    text: 'Saved successfully',
-    url: 'https://example.test/complete?locale=ko',
-  }), true);
-  assert.equal(browserPostconditionMatches(expected, {
-    text: 'Loading — Saved successfully',
-    url: 'https://example.test/complete',
-  }), false);
   assert.equal(
-    describeBrowserPostcondition(expected),
-    'text "Saved" and textGone "Loading" and url "/complete"',
+    browserPostconditionMatches(expected, {
+      text: 'Saved successfully',
+      url: 'https://example.test/complete?locale=ko',
+    }),
+    true
   );
+  assert.equal(
+    browserPostconditionMatches(expected, {
+      text: 'Loading — Saved successfully',
+      url: 'https://example.test/complete',
+    }),
+    false
+  );
+  assert.equal(describeBrowserPostcondition(expected), 'text "Saved" and textGone "Loading" and url "/complete"');
 });
 
 test('browser postconditions reject empty contracts and bound explicit settle delays', () => {
@@ -45,9 +48,15 @@ test('browser postconditions reject empty contracts and bound explicit settle de
 });
 
 test('an unobserved document cannot satisfy text absence, while URL-only checks need no text', () => {
-  assert.equal(browserPostconditionMatches({ textGone: 'Saving' }, { text: null, url: 'https://example.test/' }), false);
+  assert.equal(
+    browserPostconditionMatches({ textGone: 'Saving' }, { text: null, url: 'https://example.test/' }),
+    false
+  );
   assert.equal(browserPostconditionMatches({ text: 'Saved' }, { text: null, url: 'https://example.test/' }), false);
   assert.equal(browserPostconditionMatches({ textGone: 'Saving' }, { text: '', url: 'https://example.test/' }), true);
-  assert.equal(browserPostconditionMatches({ url: '/COMPLETE' }, { text: null, url: 'https://example.test/complete' }), true);
+  assert.equal(
+    browserPostconditionMatches({ url: '/COMPLETE' }, { text: null, url: 'https://example.test/complete' }),
+    true
+  );
   assert.equal(browserPostconditionMatches({ text: 'SAVED', textGone: 'LOADING' }, { text: 'Saved', url: '' }), true);
 });

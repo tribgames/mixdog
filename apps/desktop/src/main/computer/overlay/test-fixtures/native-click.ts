@@ -40,6 +40,7 @@ public static class OverlayClickFixture {
 [OverlayClickFixture]::Click(${windowId}, ${point.x}, ${point.y}, ${process.pid})
 `;
   await promisify(execFile)('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
-    windowsHide: true, timeout: 8_000,
+    windowsHide: true,
+    timeout: 8_000,
   });
 }

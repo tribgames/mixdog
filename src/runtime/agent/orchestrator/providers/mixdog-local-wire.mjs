@@ -19,7 +19,5 @@ export function toLocalProviderMessages(messages) {
       conversation.push(message);
     }
   }
-  return instructions.length
-    ? [{ role: 'system', content: instructions.join('\n\n') }, ...conversation]
-    : conversation;
+  return instructions.length ? [{ role: 'system', content: instructions.join('\n\n') }, ...conversation] : conversation;
 }

@@ -8,15 +8,15 @@ test('agent job lifecycle publishes status immediately and after terminal settle
   let publications = 0;
   const flow = createSpawnFlow({
     mgr: { closeSession() {} },
-    notifyStatusChange: () => { publications += 1; },
+    notifyStatusChange: () => {
+      publications += 1;
+    },
   });
 
-  const job = flow.startJob(
-    'spawn',
-    { tag: 'status-test' },
-    async () => ({ content: 'done' }),
-    { callerSessionId: 'lead-test', clientHostPid: process.pid },
-  );
+  const job = flow.startJob('spawn', { tag: 'status-test' }, async () => ({ content: 'done' }), {
+    callerSessionId: 'lead-test',
+    clientHostPid: process.pid,
+  });
 
   assert.equal(job.status, 'running');
   assert.equal(publications, 1);
@@ -38,20 +38,15 @@ test('agent job completion uses immutable caller owner and never invokes stale n
     },
   });
 
-  const job = flow.startJob(
-    'spawn',
-    { tag: 'owner-test' },
-    async () => ({ content: 'owner handoff' }),
-    {
-      callerSessionId: 'lead-owner',
-      routingSessionId: 'wrong-lead',
-      clientHostPid: process.pid,
-      notifyFn() {
-        staleCalls += 1;
-        return true;
-      },
+  const job = flow.startJob('spawn', { tag: 'owner-test' }, async () => ({ content: 'owner handoff' }), {
+    callerSessionId: 'lead-owner',
+    routingSessionId: 'wrong-lead',
+    clientHostPid: process.pid,
+    notifyFn() {
+      staleCalls += 1;
+      return true;
     },
-  );
+  });
 
   await job.promise;
   assert.equal(staleCalls, 0);
@@ -87,17 +82,24 @@ test('a user-cancelled Agent turn settles the worker row as cancelled, not error
   });
   const job = { taskId: 'task-agent-cancelled', status: 'cancelled' };
 
-  await assert.rejects(flow.runSpawn({
-    args: {},
-    tag: 'cancelled-worker',
-    session: { id: 'sess_cancelled_worker' },
-    agent: 'worker',
-    preset: { provider: 'test-provider', model: 'test-model' },
-    presetName: 'worker-route',
-    workerCwd: 'C:\\Project\\tree',
-    prompt: 'cancel me',
-    watchdogPolicy: null,
-  }, { callerSessionId: 'sess_lead' }, job), /cancelled by agent close/);
+  await assert.rejects(
+    flow.runSpawn(
+      {
+        args: {},
+        tag: 'cancelled-worker',
+        session: { id: 'sess_cancelled_worker' },
+        agent: 'worker',
+        preset: { provider: 'test-provider', model: 'test-model' },
+        presetName: 'worker-route',
+        workerCwd: 'C:\\Project\\tree',
+        prompt: 'cancel me',
+        watchdogPolicy: null,
+      },
+      { callerSessionId: 'sess_lead' },
+      job
+    ),
+    /cancelled by agent close/
+  );
 
   assert.equal(updates.at(-1).status, 'cancelled');
   assert.equal(updates.at(-1).stage, 'cancelled');

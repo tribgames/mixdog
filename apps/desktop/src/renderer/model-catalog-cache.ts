@@ -22,11 +22,13 @@ function effortOptions(value: unknown): DesktopModelOption['effortOptions'] {
 
 function stringRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>).flatMap(([key, entry]) => {
-    const normalizedKey = key.trim();
-    const normalizedValue = typeof entry === 'string' ? entry.trim() : '';
-    return normalizedKey && normalizedValue ? [[normalizedKey, normalizedValue]] : [];
-  }));
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).flatMap(([key, entry]) => {
+      const normalizedKey = key.trim();
+      const normalizedValue = typeof entry === 'string' ? entry.trim() : '';
+      return normalizedKey && normalizedValue ? [[normalizedKey, normalizedValue]] : [];
+    })
+  );
 }
 
 function stringArray(value: unknown): string[] {
@@ -44,17 +46,21 @@ function parameterOptions(value: unknown): DesktopModelOption['modelParameterOpt
     const kind = parameter.kind === 'boolean' ? 'boolean' : parameter.kind === 'enum' ? 'enum' : null;
     const options = Array.isArray(parameter.options)
       ? parameter.options.flatMap((raw) => {
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
-        const option = raw as Record<string, unknown>;
-        const optionValue = String(option.value || '').trim();
-        const optionLabel = String(option.label || optionValue).trim();
-        const contextWindow = Number(option.contextWindow);
-        return optionValue && optionLabel ? [{
-          value: optionValue,
-          label: optionLabel,
-          ...(Number.isFinite(contextWindow) && contextWindow > 0 ? { contextWindow } : {}),
-        }] : [];
-      })
+          if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+          const option = raw as Record<string, unknown>;
+          const optionValue = String(option.value || '').trim();
+          const optionLabel = String(option.label || optionValue).trim();
+          const contextWindow = Number(option.contextWindow);
+          return optionValue && optionLabel
+            ? [
+                {
+                  value: optionValue,
+                  label: optionLabel,
+                  ...(Number.isFinite(contextWindow) && contextWindow > 0 ? { contextWindow } : {}),
+                },
+              ]
+            : [];
+        })
       : [];
     return id && label && kind && options.length ? [{ id, label, kind, options }] : [];
   });
@@ -75,9 +81,7 @@ function modelOption(value: unknown): DesktopModelOption | null {
     provider,
     model,
     display: String(option.display || model).trim() || model,
-    ...(typeof option.created === 'number' && Number.isFinite(option.created)
-      ? { created: option.created }
-      : {}),
+    ...(typeof option.created === 'number' && Number.isFinite(option.created) ? { created: option.created } : {}),
     ...(typeof option.releaseDate === 'string' ? { releaseDate: option.releaseDate } : {}),
     ...(typeof option.contextWindow === 'number' && Number.isFinite(option.contextWindow)
       ? { contextWindow: option.contextWindow }
@@ -110,25 +114,27 @@ function modelOption(value: unknown): DesktopModelOption | null {
 export function readCachedModelCatalog(): CachedModelCatalog {
   try {
     const stored = JSON.parse(window.localStorage.getItem(catalogStorageKey(MODEL_CATALOG_STORAGE_KEY)) || 'null');
-    const record = stored && typeof stored === 'object' && !Array.isArray(stored)
-      ? stored as Record<string, unknown>
-      : {};
+    const record =
+      stored && typeof stored === 'object' && !Array.isArray(stored) ? (stored as Record<string, unknown>) : {};
     const models = Array.isArray(record.models)
-      ? record.models.map(modelOption).filter((entry): entry is DesktopModelOption => entry !== null)
-        .slice(0, MODEL_CATALOG_LIMIT)
+      ? record.models
+          .map(modelOption)
+          .filter((entry): entry is DesktopModelOption => entry !== null)
+          .slice(0, MODEL_CATALOG_LIMIT)
       : [];
     return {
       models,
-      updatedAt: typeof record.updatedAt === 'number' && Number.isFinite(record.updatedAt)
-        ? record.updatedAt
-        : 0,
+      updatedAt: typeof record.updatedAt === 'number' && Number.isFinite(record.updatedAt) ? record.updatedAt : 0,
     };
   } catch {
     return { models: [], updatedAt: 0 };
   }
 }
 
-export function writeCachedModelCatalog(models: DesktopModelOption[], scope = catalogStorageScope()): CachedModelCatalog {
+export function writeCachedModelCatalog(
+  models: DesktopModelOption[],
+  scope = catalogStorageScope()
+): CachedModelCatalog {
   const catalog = { models: normalizeModelCatalog(models), updatedAt: Date.now() };
   try {
     window.localStorage.setItem(catalogStorageKey(MODEL_CATALOG_STORAGE_KEY, scope), JSON.stringify(catalog));
@@ -200,28 +206,36 @@ export function invalidateSharedModelCatalogRequest(): void {
 export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest {
   const scope = catalogStorageScope();
   const current = sharedModelCatalogRequest;
-  if (current
-    && current.api === api
-    && current.scope === scope
-    && Date.now() - current.startedAt < SHARED_MODEL_CATALOG_MAX_AGE_MS) {
+  if (
+    current &&
+    current.api === api &&
+    current.scope === scope &&
+    Date.now() - current.startedAt < SHARED_MODEL_CATALOG_MAX_AGE_MS
+  ) {
     return current;
   }
   const generation = ++catalogGeneration;
   const isCurrent = () => generation === catalogGeneration && scope === catalogStorageScope();
-  const quick = Promise.resolve().then(() =>
-    api.listProviderModels?.({ quick: true }) ?? [])
+  const quick = Promise.resolve()
+    .then(() => api.listProviderModels?.({ quick: true }) ?? [])
     .then(normalizeModelCatalog);
   const quickSettled = quick.catch(() => []);
-  const full = quickSettled.then(() =>
-    api.listProviderModels?.({ quick: false }) ?? [])
-    .then((models) => isCurrent()
-      ? writeCachedModelCatalog(Array.isArray(models) ? models : [], scope).models
-      : normalizeModelCatalog(models));
+  const full = quickSettled
+    .then(() => api.listProviderModels?.({ quick: false }) ?? [])
+    .then((models) =>
+      isCurrent()
+        ? writeCachedModelCatalog(Array.isArray(models) ? models : [], scope).models
+        : normalizeModelCatalog(models)
+    );
   const setup = api.invokeCapability
-    ? quickSettled.then(() => api.invokeCapability<unknown>({
-        capability: 'getProviderSetup',
-        args: [],
-      })).then((result) => result.value)
+    ? quickSettled
+        .then(() =>
+          api.invokeCapability<unknown>({
+            capability: 'getProviderSetup',
+            args: [],
+          })
+        )
+        .then((result) => result.value)
     : Promise.resolve(null);
   const request: SharedModelCatalogRequest = {
     api,

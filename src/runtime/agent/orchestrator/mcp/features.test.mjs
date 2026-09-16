@@ -46,18 +46,14 @@ test('resources and prompts become callable MCP feature tools', async () => {
       resources: true,
     });
 
-    const resources = await executeMcpTool(
-      'mcp__catalog__mixdog_list_resources',
-      { cursor: 'next-page' },
-      { scopeId },
-    );
+    const resources = await executeMcpTool('mcp__catalog__mixdog_list_resources', { cursor: 'next-page' }, { scopeId });
     assert.match(resources, /file:\/\/\/guide\.md/);
     assert.deepEqual(calls, [['listResources', { cursor: 'next-page' }]]);
 
     const prompt = await executeMcpTool(
       'mcp__catalog__mixdog_get_prompt',
       { name: 'review', arguments: { depth: 'deep' } },
-      { scopeId },
+      { scopeId }
     );
     assert.match(prompt, /review:deep/);
   } finally {

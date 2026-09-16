@@ -19,7 +19,9 @@ export async function spawnShellWithRetry({ shell, argv, spawnOptions, shellArg,
         if (native) {
           await new Promise((resolveSpawn, rejectSpawn) => {
             const timer = setTimeout(() => {
-              try { native.child.kill(); } catch {}
+              try {
+                native.child.kill();
+              } catch {}
               rejectSpawn(Object.assign(new Error('native spawn timeout'), { code: 'ETIMEDOUT' }));
             }, 15_000);
             const onSpawn = () => {
@@ -42,18 +44,21 @@ export async function spawnShellWithRetry({ shell, argv, spawnOptions, shellArg,
         });
       } catch (err) {
         try {
-          console.error('[shell-spawn-retry] ' + JSON.stringify({
-            code: (err && err.code) || null,
-            syscall: (err && err.syscall) || null,
-            shell,
-            cwd,
-            activeSpawnCount: activeShellSpawns,
-          }));
-        } catch { /* logging must never mask the spawn error */ }
-        const canRetry = err && err.code === 'EPERM'
-          && process.platform === 'win32'
-          && isPowerShell
-          && attempt < delays.length;
+          console.error(
+            '[shell-spawn-retry] ' +
+              JSON.stringify({
+                code: (err && err.code) || null,
+                syscall: (err && err.syscall) || null,
+                shell,
+                cwd,
+                activeSpawnCount: activeShellSpawns,
+              })
+          );
+        } catch {
+          /* logging must never mask the spawn error */
+        }
+        const canRetry =
+          err && err.code === 'EPERM' && process.platform === 'win32' && isPowerShell && attempt < delays.length;
         if (!canRetry) throw err;
         await new Promise((r) => setTimeout(r, delays[attempt++]));
       }

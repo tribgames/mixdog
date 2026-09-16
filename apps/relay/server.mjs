@@ -38,17 +38,10 @@ import {
 } from './lib/static-http.mjs';
 import { parseMediaRequest } from './lib/media-http.mjs';
 import { createRendererReadiness } from './lib/renderer-readiness.mjs';
-import {
-  decodeRelayBinaryFrame,
-  encodeRelayBinaryFrame,
-} from './lib/relay-binary-frame.mjs';
+import { decodeRelayBinaryFrame, encodeRelayBinaryFrame } from './lib/relay-binary-frame.mjs';
 import { isRoutingId } from './lib/ids.mjs';
 import { RateLimiter } from './lib/rate-limit.mjs';
-import {
-  DeviceStore,
-  clientProfile,
-  readDeviceCredentials,
-} from './lib/device-store.mjs';
+import { DeviceStore, clientProfile, readDeviceCredentials } from './lib/device-store.mjs';
 import {
   INGRESS_FREE_WINDOW_BYTES,
   INGRESS_RESERVATION_BYTES,
@@ -197,13 +190,15 @@ export function browserSocketOriginAllowed(request) {
   try {
     const parsed = new URL(origin);
     const protocol = request?.socket?.encrypted ? 'https:' : 'http:';
-    return parsed.protocol === protocol
-      && parsed.host.toLowerCase() === host.toLowerCase()
-      && parsed.pathname === '/'
-      && !parsed.search
-      && !parsed.hash
-      && !parsed.username
-      && !parsed.password;
+    return (
+      parsed.protocol === protocol &&
+      parsed.host.toLowerCase() === host.toLowerCase() &&
+      parsed.pathname === '/' &&
+      !parsed.search &&
+      !parsed.hash &&
+      !parsed.username &&
+      !parsed.password
+    );
   } catch {
     return false;
   }
@@ -223,7 +218,13 @@ function authenticateLeg(store, registerLimiter, unauthorizedLimiter, request, d
 // Hop-by-hop / transport headers stay on this hop; signature headers and the
 // rest forward verbatim so local HMAC verification sees the sender's bytes.
 const HOOK_DROP_HEADERS = new Set([
-  'host', 'connection', 'content-length', 'transfer-encoding', 'keep-alive', 'upgrade', 'te',
+  'host',
+  'connection',
+  'content-length',
+  'transfer-encoding',
+  'keep-alive',
+  'upgrade',
+  'te',
 ]);
 
 function handleHookRequest(liveHooks, hookLimiter, maxPending, request, response) {
@@ -242,9 +243,14 @@ function handleHookRequest(liveHooks, hookLimiter, maxPending, request, response
   // Device-keyed alone lets one source spread a burst across ids; the caller
   // bucket is what bounds the total an unauthenticated peer can push in.
   if (!hookLimiter.allow(`device:${match[1]}`) || !hookLimiter.allow(`ip:${clientIp(request)}`)) {
-    response.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' })
+    response
+      .writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' })
       .end('{"error":"rate limited"}');
-    try { request.destroy(); } catch { /* already gone */ }
+    try {
+      request.destroy();
+    } catch {
+      /* already gone */
+    }
     return;
   }
   const entry = liveHooks.get(match[1]);
@@ -257,11 +263,16 @@ function handleHookRequest(liveHooks, hookLimiter, maxPending, request, response
   // Bodies still streaming in count too — measuring only `pending` lets any
   // number of slow uploads arrive together and pass the cap before the first
   // one lands.
-  if (entry.pending.size + (entry.inflight || 0) >= maxPending
-    || entry.socket.bufferedAmount > HOOK_SOCKET_BUFFER_LIMIT_BYTES) {
-    response.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '1' })
-      .end('{"error":"agent busy"}');
-    try { request.destroy(); } catch { /* already gone */ }
+  if (
+    entry.pending.size + (entry.inflight || 0) >= maxPending ||
+    entry.socket.bufferedAmount > HOOK_SOCKET_BUFFER_LIMIT_BYTES
+  ) {
+    response.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '1' }).end('{"error":"agent busy"}');
+    try {
+      request.destroy();
+    } catch {
+      /* already gone */
+    }
     return;
   }
   entry.inflight = (entry.inflight || 0) + 1;
@@ -282,13 +293,22 @@ function handleHookRequest(liveHooks, hookLimiter, maxPending, request, response
       releaseSlot();
       try {
         response.writeHead(413, { 'Content-Type': 'application/json' }).end('{"error":"payload too large"}');
-      } catch { /* client vanished */ }
-      try { request.destroy(); } catch { /* already gone */ }
+      } catch {
+        /* client vanished */
+      }
+      try {
+        request.destroy();
+      } catch {
+        /* already gone */
+      }
       return;
     }
     chunks.push(chunk);
   });
-  request.on('error', () => { aborted = true; releaseSlot(); });
+  request.on('error', () => {
+    aborted = true;
+    releaseSlot();
+  });
   // A caller that hangs up mid-body must give its reservation back.
   request.on('close', releaseSlot);
   request.on('end', () => {
@@ -305,26 +325,32 @@ function handleHookRequest(liveHooks, hookLimiter, maxPending, request, response
       if (entry.pending.delete(id)) {
         try {
           response.writeHead(504, { 'Content-Type': 'application/json' }).end('{"error":"agent timeout"}');
-        } catch { /* client vanished */ }
+        } catch {
+          /* client vanished */
+        }
       }
     }, HOOK_TIMEOUT_MS);
     timer.unref?.();
     entry.pending.set(id, { response, timer });
     try {
-      entry.socket.send(JSON.stringify({
-        type: 'http',
-        id,
-        method: request.method,
-        path: (match[2] || '/') + url.search,
-        headers,
-        body: chunks.length ? Buffer.concat(chunks).toString('base64') : '',
-      }));
+      entry.socket.send(
+        JSON.stringify({
+          type: 'http',
+          id,
+          method: request.method,
+          path: (match[2] || '/') + url.search,
+          headers,
+          body: chunks.length ? Buffer.concat(chunks).toString('base64') : '',
+        })
+      );
     } catch {
       clearTimeout(timer);
       if (entry.pending.delete(id)) {
         try {
           response.writeHead(502, { 'Content-Type': 'application/json' }).end('{"error":"agent unreachable"}');
-        } catch { /* client vanished */ }
+        } catch {
+          /* client vanished */
+        }
       }
     }
   });
@@ -335,7 +361,9 @@ function failHookPending(entry) {
     clearTimeout(timer);
     try {
       response.writeHead(502, { 'Content-Type': 'application/json' }).end('{"error":"agent disconnected"}');
-    } catch { /* client vanished */ }
+    } catch {
+      /* client vanished */
+    }
   }
   entry.pending.clear();
 }
@@ -345,45 +373,62 @@ function runHookLeg(liveHooks, deviceId, socket, options = {}) {
   trackLegIngress(socket, rawSocket, { ...ingress, limit: MAX_HOOK_BODY_BYTES });
   const previous = liveHooks.get(deviceId);
   if (previous) {
-    try { previous.socket.close(4000, 'superseded'); } catch { /* already gone */ }
+    try {
+      previous.socket.close(4000, 'superseded');
+    } catch {
+      /* already gone */
+    }
     failHookPending(previous);
   }
   const entry = { socket, pending: new Map(), inflight: 0 };
   liveHooks.set(deviceId, entry);
   socket.isAlive = true;
-  socket.on('pong', () => { socket.isAlive = true; });
-  socket.on('error', () => { /* surfaced as close */ });
-  socket.on('message', guarded('hook frame', (raw) => {
-    noteIngressDelivery(socket);
+  socket.on('pong', () => {
     socket.isAlive = true;
-    let frame;
-    try { frame = JSON.parse(raw.toString()); } catch { return; }
-    if (frame.type !== 'http-response' || typeof frame.id !== 'string') return;
-    const pending = entry.pending.get(frame.id);
-    if (!pending) return;
-    entry.pending.delete(frame.id);
-    clearTimeout(pending.timer);
-    const status = Number.isInteger(frame.status) && frame.status >= 100 && frame.status <= 599
-      ? frame.status : 502;
-    let body;
-    try {
-      body = decodeHookResponseBody(frame.body);
-    } catch {
+  });
+  socket.on('error', () => {
+    /* surfaced as close */
+  });
+  socket.on(
+    'message',
+    guarded('hook frame', (raw) => {
+      noteIngressDelivery(socket);
+      socket.isAlive = true;
+      let frame;
       try {
-        pending.response.writeHead(502, { 'Content-Type': 'application/json' })
-          .end('{"error":"invalid agent response"}');
-      } catch { /* client vanished */ }
-      return;
-    }
-    const rawContentType = typeof frame.headers?.['content-type'] === 'string'
-      ? frame.headers['content-type'] : '';
-    const contentType = /^[\x20-\x7e]{1,200}$/.test(rawContentType)
-      ? rawContentType : 'application/json';
-    try {
-      pending.response.writeHead(status, { 'Content-Type': contentType, 'Content-Length': body.length });
-      pending.response.end(body);
-    } catch { /* client vanished */ }
-  }));
+        frame = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      if (frame.type !== 'http-response' || typeof frame.id !== 'string') return;
+      const pending = entry.pending.get(frame.id);
+      if (!pending) return;
+      entry.pending.delete(frame.id);
+      clearTimeout(pending.timer);
+      const status = Number.isInteger(frame.status) && frame.status >= 100 && frame.status <= 599 ? frame.status : 502;
+      let body;
+      try {
+        body = decodeHookResponseBody(frame.body);
+      } catch {
+        try {
+          pending.response
+            .writeHead(502, { 'Content-Type': 'application/json' })
+            .end('{"error":"invalid agent response"}');
+        } catch {
+          /* client vanished */
+        }
+        return;
+      }
+      const rawContentType = typeof frame.headers?.['content-type'] === 'string' ? frame.headers['content-type'] : '';
+      const contentType = /^[\x20-\x7e]{1,200}$/.test(rawContentType) ? rawContentType : 'application/json';
+      try {
+        pending.response.writeHead(status, { 'Content-Type': contentType, 'Content-Length': body.length });
+        pending.response.end(body);
+      } catch {
+        /* client vanished */
+      }
+    })
+  );
   socket.on('close', () => {
     releaseIngressLeg(socket);
     if (liveHooks.get(deviceId)?.socket !== socket) return;
@@ -431,7 +476,8 @@ function handleMediaRequest(store, liveDesktops, unauthorizedLimiter, request, r
   const deviceId = token ? store.deviceIdForClientToken(token) : null;
   if (!deviceId) {
     if (!unauthorizedLimiter.allow(clientIp(request))) {
-      response.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '60' })
+      response
+        .writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '60' })
         .end('Too many requests.');
       return;
     }
@@ -467,12 +513,12 @@ function handleMediaRequest(store, liveDesktops, unauthorizedLimiter, request, r
   // capability bit from the leg turns that into an instant downgrade to the
   // RPC payload.
   if (!entry.mediaLane) {
-    response.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' })
-      .end('Desktop media lane unsupported.');
+    response.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Desktop media lane unsupported.');
     return;
   }
   if (entry.media.size >= MAX_MEDIA_STREAMS) {
-    response.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '1' })
+    response
+      .writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '1' })
       .end('Too many media streams.');
     return;
   }
@@ -489,19 +535,25 @@ function handleMediaRequest(store, liveDesktops, unauthorizedLimiter, request, r
     abortMediaUpstream(entry, id);
   });
   try {
-    entry.socket.send(JSON.stringify({
-      type: 'media-request',
-      id,
-      assetId: target.assetId,
-      variant: target.variant,
-      method: request.method,
-      range: String(request.headers.range || ''),
-      ifNoneMatch: String(request.headers['if-none-match'] || ''),
-    }));
+    entry.socket.send(
+      JSON.stringify({
+        type: 'media-request',
+        id,
+        assetId: target.assetId,
+        variant: target.variant,
+        method: request.method,
+        range: String(request.headers.range || ''),
+        ifNoneMatch: String(request.headers['if-none-match'] || ''),
+      })
+    );
   } catch {
     clearTimeout(pending.timer);
     if (entry.media.delete(id)) {
-      try { response.writeHead(502).end(); } catch { /* client vanished */ }
+      try {
+        response.writeHead(502).end();
+      } catch {
+        /* client vanished */
+      }
     }
   }
 }
@@ -509,7 +561,11 @@ function handleMediaRequest(store, liveDesktops, unauthorizedLimiter, request, r
 /** Tell the desktop to stop reading for a request this relay gave up on. */
 function abortMediaUpstream(entry, id) {
   if (entry.socket.readyState !== entry.socket.OPEN) return;
-  try { entry.socket.send(JSON.stringify({ type: 'media-abort', id })); } catch { /* gone */ }
+  try {
+    entry.socket.send(JSON.stringify({ type: 'media-abort', id }));
+  } catch {
+    /* gone */
+  }
 }
 
 /** (Re)arm the expiry for one proxied stream; every frame pushes it out. */
@@ -520,7 +576,9 @@ function armMediaTimer(entry, id, pending, ms) {
     try {
       if (!pending.head) pending.response.writeHead(504);
       pending.response.end();
-    } catch { /* client vanished */ }
+    } catch {
+      /* client vanished */
+    }
     abortMediaUpstream(entry, id);
   }, ms);
   pending.timer.unref?.();
@@ -552,9 +610,7 @@ function safeMediaContentType(value) {
 }
 
 export function mediaResponseHeaders(supplied) {
-  const source = supplied && typeof supplied === 'object' && !Array.isArray(supplied)
-    ? supplied
-    : {};
+  const source = supplied && typeof supplied === 'object' && !Array.isArray(supplied) ? supplied : {};
   const headers = {
     // Nothing on this lane is a document: no scripts, no framing, no sniffing
     // a gallery file into active content at the relay origin.
@@ -583,32 +639,50 @@ function forwardMediaFrame(entry, message) {
   if (message.type === 'media-head') {
     pending.head = true;
     armMediaTimer(entry, id, pending, MEDIA_STALL_TIMEOUT_MS);
-    const status = Number.isInteger(message.status) && message.status >= 100 && message.status <= 599
-      ? message.status : 502;
+    const status =
+      Number.isInteger(message.status) && message.status >= 100 && message.status <= 599 ? message.status : 502;
     try {
       pending.response.writeHead(status, mediaResponseHeaders(message.headers));
-    } catch { /* client vanished */ }
+    } catch {
+      /* client vanished */
+    }
     return;
   }
   if (message.type === 'media-chunk' && typeof message.data === 'string') {
     if (!pending.head) return;
     armMediaTimer(entry, id, pending, MEDIA_STALL_TIMEOUT_MS);
-    try { pending.response.write(Buffer.from(message.data, 'base64')); } catch { /* client vanished */ }
+    try {
+      pending.response.write(Buffer.from(message.data, 'base64'));
+    } catch {
+      /* client vanished */
+    }
     const buffered = pending.response.writableLength || 0;
     if (buffered > MEDIA_KILL_BUFFER_BYTES) {
       entry.media.delete(id);
       clearTimeout(pending.timer);
-      try { pending.response.destroy(); } catch { /* already gone */ }
+      try {
+        pending.response.destroy();
+      } catch {
+        /* already gone */
+      }
       abortMediaUpstream(entry, id);
       return;
     }
     if (!pending.paused && buffered > MEDIA_PAUSE_BUFFER_BYTES) {
       pending.paused = true;
-      try { entry.socket.send(JSON.stringify({ type: 'media-pause', id })); } catch { /* gone */ }
+      try {
+        entry.socket.send(JSON.stringify({ type: 'media-pause', id }));
+      } catch {
+        /* gone */
+      }
       pending.response.once('drain', () => {
         pending.paused = false;
         if (entry.media.get(id) !== pending) return;
-        try { entry.socket.send(JSON.stringify({ type: 'media-resume', id })); } catch { /* gone */ }
+        try {
+          entry.socket.send(JSON.stringify({ type: 'media-resume', id }));
+        } catch {
+          /* gone */
+        }
       });
     }
     return;
@@ -619,7 +693,9 @@ function forwardMediaFrame(entry, message) {
     try {
       if (!pending.head) pending.response.writeHead(502);
       pending.response.end();
-    } catch { /* client vanished */ }
+    } catch {
+      /* client vanished */
+    }
   }
 }
 
@@ -631,7 +707,9 @@ function failMediaPending(entry) {
     try {
       if (!pending.head) pending.response.writeHead(503);
       pending.response.end();
-    } catch { /* client vanished */ }
+    } catch {
+      /* client vanished */
+    }
   }
   entry.media.clear();
 }
@@ -639,8 +717,10 @@ function failMediaPending(entry) {
 export function decodeHookResponseBody(value) {
   const encoded = value == null ? '' : String(value);
   const maximumEncoded = Math.ceil(MAX_HOOK_RESPONSE_BODY_BYTES / 3) * 4;
-  if (encoded.length > maximumEncoded
-    || (encoded && !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded))) {
+  if (
+    encoded.length > maximumEncoded ||
+    (encoded && !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded))
+  ) {
     throw new Error('invalid hook response body');
   }
   const body = encoded ? Buffer.from(encoded, 'base64') : Buffer.alloc(0);
@@ -720,10 +800,12 @@ async function handleClientRegistration(store, unauthorizedLimiter, request, res
       return;
     }
     store.touchClient(access.deviceId, clientId, profile);
-    response.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-    }).end(JSON.stringify({ clientId }));
+    response
+      .writeHead(200, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+      })
+      .end(JSON.stringify({ clientId }));
     return;
   }
   const registered = store.registerClient(access.deviceId, clientId, profile);
@@ -731,11 +813,13 @@ async function handleClientRegistration(store, unauthorizedLimiter, request, res
     response.writeHead(409).end();
     return;
   }
-  response.writeHead(200, {
-    'Content-Type': 'application/json',
-    'Cache-Control': 'no-store',
-    ...pairingCookieHeaders(registered.token, request),
-  }).end(JSON.stringify({ clientId, token: registered.token }));
+  response
+    .writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      ...pairingCookieHeaders(registered.token, request),
+    })
+    .end(JSON.stringify({ clientId, token: registered.token }));
 }
 
 /**
@@ -749,7 +833,8 @@ async function handleClientRegistration(store, unauthorizedLimiter, request, res
 async function handleClaimRequest(context, request, response) {
   const { store, liveDesktops, claims, unauthorizedLimiter } = context;
   const json = (status, body) => {
-    response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+    response
+      .writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
       .end(JSON.stringify(body));
   };
   let url;
@@ -802,10 +887,12 @@ async function handleClaimRequest(context, request, response) {
   const deviceId = String(body?.deviceId || '');
   const clientId = String(body?.clientId || '');
   const publicKey = String(body?.publicKey || '');
-  if (!isRoutingId(deviceId)
-    || !isRoutingId(clientId)
-    || !/^[A-Za-z0-9_-]{86,88}$/.test(publicKey)
-    || !store.isKnown(deviceId)) {
+  if (
+    !isRoutingId(deviceId) ||
+    !isRoutingId(clientId) ||
+    !/^[A-Za-z0-9_-]{86,88}$/.test(publicKey) ||
+    !store.isKnown(deviceId)
+  ) {
     if (!unauthorizedLimiter.allow(clientIp(request))) {
       response.writeHead(429, { 'Retry-After': '60' }).end();
       return;
@@ -823,10 +910,12 @@ async function handleClaimRequest(context, request, response) {
   // instead of raising a second prompt on the desktop. A different key is a
   // different container and does get its own request.
   for (const [id, pending] of claims) {
-    if (pending.status === 'pending'
-      && pending.deviceId === deviceId
-      && pending.clientId === clientId
-      && pending.publicKey === publicKey) {
+    if (
+      pending.status === 'pending' &&
+      pending.deviceId === deviceId &&
+      pending.clientId === clientId &&
+      pending.publicKey === publicKey
+    ) {
       json(202, { claimId: id });
       return;
     }
@@ -838,9 +927,11 @@ async function handleClaimRequest(context, request, response) {
     if (pending.deviceId === deviceId) deviceClaims += 1;
     if (pending.source === source) sourceClaims += 1;
   }
-  if (claims.size >= MAX_PENDING_CLAIMS
-    || deviceClaims >= MAX_PENDING_CLAIMS_PER_DEVICE
-    || sourceClaims >= MAX_PENDING_CLAIMS_PER_SOURCE) {
+  if (
+    claims.size >= MAX_PENDING_CLAIMS ||
+    deviceClaims >= MAX_PENDING_CLAIMS_PER_DEVICE ||
+    sourceClaims >= MAX_PENDING_CLAIMS_PER_SOURCE
+  ) {
     json(503, { status: 'busy' });
     return;
   }
@@ -860,14 +951,16 @@ async function handleClaimRequest(context, request, response) {
     expiresAt,
   });
   try {
-    entry.socket.send(JSON.stringify({
-      type: 'client-claim',
-      claimId: id,
-      clientId,
-      publicKey,
-      expiresAt,
-      ...profile,
-    }));
+    entry.socket.send(
+      JSON.stringify({
+        type: 'client-claim',
+        claimId: id,
+        clientId,
+        publicKey,
+        expiresAt,
+        ...profile,
+      })
+    );
   } catch {
     claims.delete(id);
     json(503, { status: 'offline' });
@@ -939,7 +1032,8 @@ function serveStatic(rendererDir, store, unauthorizedLimiter, request, response)
     // Bounded probing: a scanner hammering the gate gets throttled instead of
     // buying unlimited token guesses and log noise.
     if (!unauthorizedLimiter.allow(clientIp(request))) {
-      response.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '60' })
+      response
+        .writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '60' })
         .end('Too many requests.');
       return;
     }
@@ -947,7 +1041,8 @@ function serveStatic(rendererDir, store, unauthorizedLimiter, request, response)
     return;
   }
   if (!rendererDir) {
-    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+    response
+      .writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
       .end('Mixdog relay: no RENDERER_DIR configured; this relay only forwards WebSocket traffic.');
     return;
   }
@@ -960,8 +1055,7 @@ function serveStatic(rendererDir, store, unauthorizedLimiter, request, response)
     // must point back at that same route.
     if (route.rest === '/manifest.webmanifest') {
       const manifest = resolveStaticTarget(rendererDir, route.rest);
-      if (manifest.status === 200
-        && sendDeviceManifest(request, response, manifest.target, route.deviceId)) return;
+      if (manifest.status === 200 && sendDeviceManifest(request, response, manifest.target, route.deviceId)) return;
       response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found.');
       return;
     }
@@ -982,12 +1076,17 @@ function serveStatic(rendererDir, store, unauthorizedLimiter, request, response)
     response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found.');
     return;
   }
-  sendStaticFile(request, response, resolved.target, mergeCookieHeaders(
-    persistQueryToken ? pairingCookieHeaders(queryToken, request) : {},
-    // A root asset request proves the container still belongs to this route;
-    // refreshing the cookie keeps a long-lived install from aging out of it.
-    routeAllowed && !route ? deviceCookieHeaders(routeDevice, request) : {},
-  ));
+  sendStaticFile(
+    request,
+    response,
+    resolved.target,
+    mergeCookieHeaders(
+      persistQueryToken ? pairingCookieHeaders(queryToken, request) : {},
+      // A root asset request proves the container still belongs to this route;
+      // refreshing the cookie keeps a long-lived install from aging out of it.
+      routeAllowed && !route ? deviceCookieHeaders(routeDevice, request) : {}
+    )
+  );
 }
 
 export async function startRelay({
@@ -1033,10 +1132,7 @@ export async function startRelay({
   const hookLimiter = new RateLimiter(HOOK_RATE_LIMIT, HOOK_RATE_WINDOW_MS);
   const registerLimiter = new RateLimiter(REGISTER_RATE_LIMIT, REGISTER_RATE_WINDOW_MS);
   const unauthorizedLimiter = new RateLimiter(UNAUTHORIZED_RATE_LIMIT, UNAUTHORIZED_RATE_WINDOW_MS);
-  const phoneConnectLimiter = new RateLimiter(
-    MAX_PHONE_CONNECTIONS_PER_MINUTE,
-    PHONE_CONNECT_RATE_WINDOW_MS,
-  );
+  const phoneConnectLimiter = new RateLimiter(MAX_PHONE_CONNECTIONS_PER_MINUTE, PHONE_CONNECT_RATE_WINDOW_MS);
   // An async handler settles outside the synchronous guard below, so it gets
   // its own terminator: no unhandled rejection, and the caller still answers.
   const failRequest = (request, response, label) => (error) => {
@@ -1044,11 +1140,14 @@ export async function startRelay({
     try {
       if (response.headersSent) response.end();
       else {
-        response.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
-          .end('Internal error.');
+        response.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Internal error.');
       }
     } catch {
-      try { request.destroy(); } catch { /* already gone */ }
+      try {
+        request.destroy();
+      } catch {
+        /* already gone */
+      }
     }
   };
   const rendererReadiness = createRendererReadiness(rendererDir);
@@ -1059,10 +1158,12 @@ export async function startRelay({
         return;
       }
       const ready = rendererReadiness();
-      response.writeHead(ready.statusCode, {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-store',
-      }).end(request.method === 'HEAD' ? undefined : JSON.stringify(ready.body));
+      response
+        .writeHead(ready.statusCode, {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+        })
+        .end(request.method === 'HEAD' ? undefined : JSON.stringify(ready.body));
       return;
     }
     // Public webhook ingress bypasses the pairing-token gate: callers are
@@ -1073,18 +1174,17 @@ export async function startRelay({
       return;
     }
     if ((request.url || '').startsWith('/client/register')) {
-      handleClientRegistration(store, unauthorizedLimiter, request, response)
-        .catch(failRequest(request, response, 'client registration'));
+      handleClientRegistration(store, unauthorizedLimiter, request, response).catch(
+        failRequest(request, response, 'client registration')
+      );
       return;
     }
     // Approval handoff: the only surface a credential-less container may use,
     // and it grants nothing without the desktop's answer.
     if ((request.url || '').startsWith('/claim')) {
-      handleClaimRequest(
-        { store, liveDesktops, claims, unauthorizedLimiter },
-        request,
-        response,
-      ).catch(failRequest(request, response, 'claim request'));
+      handleClaimRequest({ store, liveDesktops, claims, unauthorizedLimiter }, request, response).catch(
+        failRequest(request, response, 'claim request')
+      );
       return;
     }
     // Media is a byte lane: it answers before the app shell so a gallery tile
@@ -1104,10 +1204,13 @@ export async function startRelay({
     } catch (error) {
       console.error('[relay] request failed:', error?.message || error);
       try {
-        response.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
-          .end('Internal error.');
+        response.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Internal error.');
       } catch {
-        try { request.destroy(); } catch { /* already gone */ }
+        try {
+          request.destroy();
+        } catch {
+          /* already gone */
+        }
       }
     }
   };
@@ -1120,9 +1223,10 @@ export async function startRelay({
   // transcript at all. WebSockets are the product here and the first boot is
   // paid once per deploy, so the listener stays on the transport where the
   // legs are known to survive until that failure is understood.
-  const server = tlsCert && tlsKey
-    ? createTlsServer({ cert: readFileSync(tlsCert), key: readFileSync(tlsKey) }, handler)
-    : createServer(handler);
+  const server =
+    tlsCert && tlsKey
+      ? createTlsServer({ cert: readFileSync(tlsCert), key: readFileSync(tlsKey) }, handler)
+      : createServer(handler);
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: maxPayloadBytes,
@@ -1144,7 +1248,11 @@ export async function startRelay({
 
   const sendJson = (socket, payload) => {
     if (socket && socket.readyState === socket.OPEN) {
-      try { socket.send(JSON.stringify(payload)); } catch { /* peer vanished */ }
+      try {
+        socket.send(JSON.stringify(payload));
+      } catch {
+        /* peer vanished */
+      }
     }
   };
 
@@ -1158,7 +1266,11 @@ export async function startRelay({
     if (previous) {
       if (previous.offlineTimer) clearTimeout(previous.offlineTimer);
       previous.offlineTimer = null;
-      try { previous.socket.close(4000, 'superseded'); } catch { /* already gone */ }
+      try {
+        previous.socket.close(4000, 'superseded');
+      } catch {
+        /* already gone */
+      }
       failMediaPending(previous);
       // A desktop/VPS redial is a transport event, not a browser-session
       // event. Keep phone sockets attached and re-announce them to the new
@@ -1212,20 +1324,22 @@ export async function startRelay({
         rejectLeg(denied);
         return;
       }
-      wss.handleUpgrade(request, rawSocket, head, (socket) => runDesktopLeg(
-        {
-          store,
-          sendJson,
-          attachDesktop,
-          liveDesktops,
-          claims,
-          maxFrameBytes,
-          ingress: legIngress,
-          rawSocket,
-        },
-        deviceId,
-        socket,
-      ));
+      wss.handleUpgrade(request, rawSocket, head, (socket) =>
+        runDesktopLeg(
+          {
+            store,
+            sendJson,
+            attachDesktop,
+            liveDesktops,
+            claims,
+            maxFrameBytes,
+            ingress: legIngress,
+            rawSocket,
+          },
+          deviceId,
+          socket
+        )
+      );
       return;
     }
     if (url.pathname === '/ws') {
@@ -1245,7 +1359,11 @@ export async function startRelay({
           return;
         }
         wss.handleUpgrade(request, rawSocket, head, (socket) => {
-          try { socket.close(4005, 'pairing rescan required'); } catch { /* already gone */ }
+          try {
+            socket.close(4005, 'pairing rescan required');
+          } catch {
+            /* already gone */
+          }
         });
         return;
       }
@@ -1266,18 +1384,14 @@ export async function startRelay({
         return;
       }
       store.touchClient(deviceId, access.clientId);
-      wss.handleUpgrade(request, rawSocket, head, (socket) => runClientLeg(
-        entry,
-        sendJson,
-        socket,
-        access.clientId,
-        {
+      wss.handleUpgrade(request, rawSocket, head, (socket) =>
+        runClientLeg(entry, sendJson, socket, access.clientId, {
           maxFrameBytes,
           inflightCeiling: maxInflightBytes,
           ingress: legIngress,
           rawSocket,
-        },
-      ));
+        })
+      );
       return;
     }
     if (url.pathname === '/hookleg') {
@@ -1289,12 +1403,9 @@ export async function startRelay({
         rejectLeg(denied);
         return;
       }
-      wss.handleUpgrade(request, rawSocket, head, (socket) => runHookLeg(
-        liveHooks,
-        deviceId,
-        socket,
-        { ingress: legIngress, rawSocket },
-      ));
+      wss.handleUpgrade(request, rawSocket, head, (socket) =>
+        runHookLeg(liveHooks, deviceId, socket, { ingress: legIngress, rawSocket })
+      );
       return;
     }
     rawSocket.destroy();
@@ -1306,7 +1417,11 @@ export async function startRelay({
       handleUpgrade(request, rawSocket, head);
     } catch (error) {
       console.error('[relay] websocket upgrade failed:', error?.message || error);
-      try { rawSocket.destroy(); } catch { /* already gone */ }
+      try {
+        rawSocket.destroy();
+      } catch {
+        /* already gone */
+      }
     }
   });
 
@@ -1337,7 +1452,11 @@ async function finishRelayStart({ server, wss, store, liveDesktops, liveHooks, p
       // box memory pinned by a peer that went quiet mid-frame.
       if (ingress?.holding && Date.now() - ingress.progressAt > INGRESS_STALL_TIMEOUT_MS) {
         releaseIngressLeg(ws);
-        try { ws.close(4008, 'slow producer'); } catch { /* already gone */ }
+        try {
+          ws.close(4008, 'slow producer');
+        } catch {
+          /* already gone */
+        }
         continue;
       }
       // A leg parked for ingress admission is not being READ, so it cannot
@@ -1346,7 +1465,11 @@ async function finishRelayStart({ server, wss, store, liveDesktops, liveHooks, p
       if (ingress?.waiting) {
         if (Date.now() - ingress.waitingSince > INGRESS_WAIT_TIMEOUT_MS) {
           releaseIngressLeg(ws);
-          try { ws.close(4009, 'relay busy'); } catch { /* already gone */ }
+          try {
+            ws.close(4009, 'relay busy');
+          } catch {
+            /* already gone */
+          }
         }
         continue;
       }
@@ -1354,11 +1477,19 @@ async function finishRelayStart({ server, wss, store, liveDesktops, liveHooks, p
         // A terminate reaches the peer as a bare 1006 that names nobody, so the
         // sweep says here that IT was the one that cut a silent leg.
         console.log('[relay] sweep terminated a leg that missed its ping window');
-        try { ws.terminate(); } catch { /* already gone */ }
+        try {
+          ws.terminate();
+        } catch {
+          /* already gone */
+        }
         continue;
       }
       ws.isAlive = false;
-      try { ws.ping(); } catch { /* surfaced as close */ }
+      try {
+        ws.ping();
+      } catch {
+        /* surfaced as close */
+      }
     }
   }, 10_000);
   heartbeat.unref?.();
@@ -1371,15 +1502,27 @@ async function finishRelayStart({ server, wss, store, liveDesktops, liveHooks, p
     clearInterval(heartbeat);
     for (const entry of liveDesktops.values()) {
       if (entry.offlineTimer) clearTimeout(entry.offlineTimer);
-      try { entry.socket.terminate(); } catch { /* already gone */ }
+      try {
+        entry.socket.terminate();
+      } catch {
+        /* already gone */
+      }
       for (const phone of entry.clients.values()) {
-        try { phone.terminate(); } catch { /* already gone */ }
+        try {
+          phone.terminate();
+        } catch {
+          /* already gone */
+        }
       }
     }
     liveDesktops.clear();
     for (const entry of liveHooks.values()) {
       failHookPending(entry);
-      try { entry.socket.terminate(); } catch { /* already gone */ }
+      try {
+        entry.socket.terminate();
+      } catch {
+        /* already gone */
+      }
     }
     liveHooks.clear();
     // Flush any debounced device registration before the process goes away.
@@ -1390,21 +1533,22 @@ async function finishRelayStart({ server, wss, store, liveDesktops, liveHooks, p
   return { port: boundPort, store, close };
 }
 
-const invokedDirectly = Boolean(process.argv[1])
-  && import.meta.url === pathToFileURL(process.argv[1]).href;
+const invokedDirectly = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedDirectly) {
   const port = Number(process.env.PORT || 9800);
   const dataDir = process.env.DATA_DIR || './data';
   const rendererDir = process.env.RENDERER_DIR || '';
   const tlsCert = process.env.TLS_CERT || '';
   const tlsKey = process.env.TLS_KEY || '';
-  startRelay({ port, dataDir, rendererDir, tlsCert, tlsKey }).then((relay) => {
-    const scheme = tlsCert && tlsKey ? 'https' : 'http';
-    console.log(`[relay] ${scheme} listening on :${relay.port} (renderer: ${rendererDir || 'none'})`);
-  }).catch((error) => {
-    console.error('[relay] failed to start:', error.message);
-    process.exit(1);
-  });
+  startRelay({ port, dataDir, rendererDir, tlsCert, tlsKey })
+    .then((relay) => {
+      const scheme = tlsCert && tlsKey ? 'https' : 'http';
+      console.log(`[relay] ${scheme} listening on :${relay.port} (renderer: ${rendererDir || 'none'})`);
+    })
+    .catch((error) => {
+      console.error('[relay] failed to start:', error.message);
+      process.exit(1);
+    });
 }
 
 function runDesktopLeg(context, deviceId, socket) {
@@ -1421,14 +1565,16 @@ function runDesktopLeg(context, deviceId, socket) {
   const entry = attachDesktop(deviceId, socket);
   let revoked = false;
   socket.isAlive = true;
-  socket.on('pong', () => { socket.isAlive = true; });
-  socket.on('error', () => { /* surfaced as close */ });
+  socket.on('pong', () => {
+    socket.isAlive = true;
+  });
+  socket.on('error', () => {
+    /* surfaced as close */
+  });
   // The wire form has to travel with the refusal: a binary frame is read by the
   // binary decoder that routes it, a text frame by JSON.parse. Dropping it here
   // sent binary bytes through the JSON reader, which fails and names nobody.
-  socket.oversizeSignal = (bytes, limit, raw, binary) => (
-    signalDesktopOversize(socket, bytes, limit, raw, binary)
-  );
+  socket.oversizeSignal = (bytes, limit, raw, binary) => signalDesktopOversize(socket, bytes, limit, raw, binary);
   trackLegIngress(socket, rawSocket, { ...ingress, limit: maxFrameBytes });
   // Publish what THIS connection enforces, and re-publish whenever a
   // declaration moves it. Both come from this socket's own leg state, so the
@@ -1449,166 +1595,189 @@ function runDesktopLeg(context, deviceId, socket) {
   for (const clientId of entry.clients.keys()) {
     sendJson(socket, { type: 'client-open', clientId });
   }
-  socket.on('message', guarded('desktop frame', (raw, isBinary) => {
-    // Bookkeeping first: a message that is not acted on still has to give its
-    // ingress reservation back.
-    const announced = noteIngressDelivery(socket);
-    if (revoked) return;
-    // A superseded leg goes on draining whatever was already on the wire. It
-    // may answer for itself, but nothing it says belongs to the connection that
-    // replaced it: this device's routing, and its declaration, are the live
-    // socket's alone.
-    if (liveDesktops.get(deviceId)?.socket !== socket) return;
-    socket.isAlive = true;
-    // Oversize is answered ON this leg and the leg stays open: cutting it here
-    // reaches every attached phone as a relay outage over one bad frame.
-    if (rejectOversizeFrame(socket, raw, maxFrameBytes, announced, isBinary)) return;
-    if (isBinary) {
-      const frame = decodeRelayBinaryFrame(raw);
-      if (!frame) return;
-      const phone = entry.clients.get(frame.clientId);
-      // Admission is per phone leg, so a congested phone slows nothing but
-      // itself — this desktop socket is never paused for one consumer.
-      if (phone) sendToPhone(phone, frame.data, frame.droppable);
-      return;
-    }
-    let message;
-    try { message = JSON.parse(raw.toString()); } catch { return; }
-    if (message.type === 'revoke-device') {
-      const removed = store.revoke(deviceId);
-      if (!removed) {
-        // Unknown device, or the removal could not be persisted. Report the
-        // failure and keep the leg: closing it as revoked would tell the user
-        // the credential is gone while it still authenticates after a restart.
-        sendJson(socket, { type: 'device-revoked', ok: false });
+  socket.on(
+    'message',
+    guarded('desktop frame', (raw, isBinary) => {
+      // Bookkeeping first: a message that is not acted on still has to give its
+      // ingress reservation back.
+      const announced = noteIngressDelivery(socket);
+      if (revoked) return;
+      // A superseded leg goes on draining whatever was already on the wire. It
+      // may answer for itself, but nothing it says belongs to the connection that
+      // replaced it: this device's routing, and its declaration, are the live
+      // socket's alone.
+      if (liveDesktops.get(deviceId)?.socket !== socket) return;
+      socket.isAlive = true;
+      // Oversize is answered ON this leg and the leg stays open: cutting it here
+      // reaches every attached phone as a relay outage over one bad frame.
+      if (rejectOversizeFrame(socket, raw, maxFrameBytes, announced, isBinary)) return;
+      if (isBinary) {
+        const frame = decodeRelayBinaryFrame(raw);
+        if (!frame) return;
+        const phone = entry.clients.get(frame.clientId);
+        // Admission is per phone leg, so a congested phone slows nothing but
+        // itself — this desktop socket is never paused for one consumer.
+        if (phone) sendToPhone(phone, frame.data, frame.droppable);
         return;
       }
-      revoked = true;
-      for (const phone of entry.clients.values()) {
-        try { phone.close(4003, 'pairing revoked'); } catch { /* already gone */ }
-      }
-      const finish = () => {
-        try { socket.close(4003, 'device revoked'); } catch { /* already gone */ }
-      };
+      let message;
       try {
-        socket.send(JSON.stringify({ type: 'device-revoked', ok: true }), finish);
+        message = JSON.parse(raw.toString());
       } catch {
-        finish();
-      }
-      return;
-    }
-    if (message.type === 'set-client-token' && typeof message.token === 'string' && message.token.length >= 16) {
-      store.setClientToken(deviceId, message.token);
-      return;
-    }
-    // The approval itself. Only the desktop the claim named may answer it, and
-    // only then does a credential exist for that container.
-    if (message.type === 'claim-approve' && typeof message.claimId === 'string') {
-      const claim = claims?.get(message.claimId);
-      if (!claim || claim.deviceId !== deviceId || claim.status !== 'pending') return;
-      if (claim.expiresAt <= Date.now()) {
-        claims.delete(claim.id);
         return;
       }
-      const registered = store.registerClient(deviceId, claim.clientId, claim.profile);
-      if (!registered) {
-        claim.status = 'denied';
-        return;
-      }
-      claim.token = registered.token;
-      claim.sealed = message.sealed ?? null;
-      claim.status = 'approved';
-      return;
-    }
-    if (message.type === 'claim-deny' && typeof message.claimId === 'string') {
-      const claim = claims?.get(message.claimId);
-      if (claim && claim.deviceId === deviceId) claim.status = 'denied';
-      return;
-    }
-    if (message.type === 'list-clients' && typeof message.requestId === 'string') {
-      const online = new Set(
-        [...entry.clients.values()].map((phone) => phone.browserClientId).filter(Boolean),
-      );
-      sendJson(socket, {
-        type: 'clients-list',
-        requestId: message.requestId,
-        clients: store.listClients(deviceId, online),
-      });
-      return;
-    }
-    if (message.type === 'revoke-client'
-      && typeof message.requestId === 'string'
-      && typeof message.clientId === 'string') {
-      const removed = store.revokeClient(deviceId, message.clientId);
-      // Only a credential that is actually gone closes its browser: a failed
-      // persist leaves the pairing valid, and closing it as revoked would tell
-      // the user something the store did not do.
-      if (removed) {
+      if (message.type === 'revoke-device') {
+        const removed = store.revoke(deviceId);
+        if (!removed) {
+          // Unknown device, or the removal could not be persisted. Report the
+          // failure and keep the leg: closing it as revoked would tell the user
+          // the credential is gone while it still authenticates after a restart.
+          sendJson(socket, { type: 'device-revoked', ok: false });
+          return;
+        }
+        revoked = true;
         for (const phone of entry.clients.values()) {
-          if (phone.browserClientId !== message.clientId) continue;
-          try { phone.close(4003, 'pairing revoked'); } catch { /* already gone */ }
+          try {
+            phone.close(4003, 'pairing revoked');
+          } catch {
+            /* already gone */
+          }
+        }
+        const finish = () => {
+          try {
+            socket.close(4003, 'device revoked');
+          } catch {
+            /* already gone */
+          }
+        };
+        try {
+          socket.send(JSON.stringify({ type: 'device-revoked', ok: true }), finish);
+        } catch {
+          finish();
+        }
+        return;
+      }
+      if (message.type === 'set-client-token' && typeof message.token === 'string' && message.token.length >= 16) {
+        store.setClientToken(deviceId, message.token);
+        return;
+      }
+      // The approval itself. Only the desktop the claim named may answer it, and
+      // only then does a credential exist for that container.
+      if (message.type === 'claim-approve' && typeof message.claimId === 'string') {
+        const claim = claims?.get(message.claimId);
+        if (!claim || claim.deviceId !== deviceId || claim.status !== 'pending') return;
+        if (claim.expiresAt <= Date.now()) {
+          claims.delete(claim.id);
+          return;
+        }
+        const registered = store.registerClient(deviceId, claim.clientId, claim.profile);
+        if (!registered) {
+          claim.status = 'denied';
+          return;
+        }
+        claim.token = registered.token;
+        claim.sealed = message.sealed ?? null;
+        claim.status = 'approved';
+        return;
+      }
+      if (message.type === 'claim-deny' && typeof message.claimId === 'string') {
+        const claim = claims?.get(message.claimId);
+        if (claim && claim.deviceId === deviceId) claim.status = 'denied';
+        return;
+      }
+      if (message.type === 'list-clients' && typeof message.requestId === 'string') {
+        const online = new Set([...entry.clients.values()].map((phone) => phone.browserClientId).filter(Boolean));
+        sendJson(socket, {
+          type: 'clients-list',
+          requestId: message.requestId,
+          clients: store.listClients(deviceId, online),
+        });
+        return;
+      }
+      if (
+        message.type === 'revoke-client' &&
+        typeof message.requestId === 'string' &&
+        typeof message.clientId === 'string'
+      ) {
+        const removed = store.revokeClient(deviceId, message.clientId);
+        // Only a credential that is actually gone closes its browser: a failed
+        // persist leaves the pairing valid, and closing it as revoked would tell
+        // the user something the store did not do.
+        if (removed) {
+          for (const phone of entry.clients.values()) {
+            if (phone.browserClientId !== message.clientId) continue;
+            try {
+              phone.close(4003, 'pairing revoked');
+            } catch {
+              /* already gone */
+            }
+          }
+        }
+        sendJson(socket, {
+          type: 'client-revoked',
+          requestId: message.requestId,
+          ok: removed,
+        });
+        return;
+      }
+      // Capability announcement, sent before the leg does anything else. It is
+      // ONE bit per lane, not a version number: the relay never branches on a
+      // desktop version, it only answers "this host serves media" or not.
+      if (message.type === 'desktop-lanes') {
+        entry.mediaLane = message.media === true;
+        // What THIS leg's receiver accepts, and whether it can take a text
+        // payload inside the binary envelope. Both are per connection and both
+        // are written to the state of the socket that said them: one relay-wide
+        // constant is version skew waiting to disconnect somebody, and one
+        // per-device value is the previous connection speaking for this one.
+        declareUplinkLeg(socket.uplinkLeg, message.maxPayloadBytes, message.textFrames === 1);
+        // Answer the declaration on the connection it was made on: the leg now
+        // knows which envelope its text will actually travel in, and the ceilings
+        // that go with it.
+        publishCapabilities();
+        return;
+      }
+      if (message.type === 'frame' && typeof message.data === 'string') {
+        const phone = entry.clients.get(String(message.clientId || ''));
+        if (phone) sendToPhone(phone, message.data, message.droppable === true);
+        return;
+      }
+      if (message.type === 'close-client') {
+        const phone = entry.clients.get(String(message.clientId || ''));
+        if (phone) {
+          const reason = String(message.reason || 'desktop rejected client').slice(0, 120);
+          try {
+            phone.close(4004, reason);
+          } catch {
+            /* already gone */
+          }
+        }
+        return;
+      }
+      // Media proxy frames: head, body chunks, then end. The relay only
+      // forwards them; the desktop owns status, headers and byte windows so
+      // both remote surfaces cache and seek by identical rules.
+      if (typeof message.type === 'string' && message.type.startsWith('media-')) {
+        forwardMediaFrame(entry, message);
+        return;
+      }
+      if (message.type === 'broadcast' && typeof message.data === 'string') {
+        // A full snapshot (phone join, resync answer) IS the recovery frame:
+        // dropping it for a busy leg would leave nothing to recover with.
+        const droppable = message.critical !== true;
+        // Fan-out is parallel and non-blocking: each leg answers for its own
+        // queue (drop, or cut when it stopped draining), and the box-level
+        // ceiling is what stops a fan-out from adding up to the heap. That
+        // ceiling is filled by this loop itself — no flush callback can run
+        // before it ends — so a leg the box cannot carry right now is deferred
+        // with a resync hint, never closed: it is healthy, it just arrived late
+        // in the iteration order.
+        for (const phone of entry.clients.values()) {
+          sendToPhone(phone, message.data, droppable, 'defer');
         }
       }
-      sendJson(socket, {
-        type: 'client-revoked',
-        requestId: message.requestId,
-        ok: removed,
-      });
-      return;
-    }
-    // Capability announcement, sent before the leg does anything else. It is
-    // ONE bit per lane, not a version number: the relay never branches on a
-    // desktop version, it only answers "this host serves media" or not.
-    if (message.type === 'desktop-lanes') {
-      entry.mediaLane = message.media === true;
-      // What THIS leg's receiver accepts, and whether it can take a text
-      // payload inside the binary envelope. Both are per connection and both
-      // are written to the state of the socket that said them: one relay-wide
-      // constant is version skew waiting to disconnect somebody, and one
-      // per-device value is the previous connection speaking for this one.
-      declareUplinkLeg(socket.uplinkLeg, message.maxPayloadBytes, message.textFrames === 1);
-      // Answer the declaration on the connection it was made on: the leg now
-      // knows which envelope its text will actually travel in, and the ceilings
-      // that go with it.
-      publishCapabilities();
-      return;
-    }
-    if (message.type === 'frame' && typeof message.data === 'string') {
-      const phone = entry.clients.get(String(message.clientId || ''));
-      if (phone) sendToPhone(phone, message.data, message.droppable === true);
-      return;
-    }
-    if (message.type === 'close-client') {
-      const phone = entry.clients.get(String(message.clientId || ''));
-      if (phone) {
-        const reason = String(message.reason || 'desktop rejected client').slice(0, 120);
-        try { phone.close(4004, reason); } catch { /* already gone */ }
-      }
-      return;
-    }
-    // Media proxy frames: head, body chunks, then end. The relay only
-    // forwards them; the desktop owns status, headers and byte windows so
-    // both remote surfaces cache and seek by identical rules.
-    if (typeof message.type === 'string' && message.type.startsWith('media-')) {
-      forwardMediaFrame(entry, message);
-      return;
-    }
-    if (message.type === 'broadcast' && typeof message.data === 'string') {
-      // A full snapshot (phone join, resync answer) IS the recovery frame:
-      // dropping it for a busy leg would leave nothing to recover with.
-      const droppable = message.critical !== true;
-      // Fan-out is parallel and non-blocking: each leg answers for its own
-      // queue (drop, or cut when it stopped draining), and the box-level
-      // ceiling is what stops a fan-out from adding up to the heap. That
-      // ceiling is filled by this loop itself — no flush callback can run
-      // before it ends — so a leg the box cannot carry right now is deferred
-      // with a resync hint, never closed: it is healthy, it just arrived late
-      // in the iteration order.
-      for (const phone of entry.clients.values()) {
-        sendToPhone(phone, message.data, droppable, 'defer');
-      }
-    }
-  }));
+    })
+  );
   socket.on('close', () => {
     releaseLeg(socket);
     releaseIngressLeg(socket);
@@ -1626,7 +1795,11 @@ function runDesktopLeg(context, deviceId, socket) {
         entry.offlineTimer = null;
         if (liveDesktops.get(deviceId)?.socket !== socket) return;
         for (const phone of entry.clients.values()) {
-          try { phone.close(4002, 'desktop offline'); } catch { /* already gone */ }
+          try {
+            phone.close(4002, 'desktop offline');
+          } catch {
+            /* already gone */
+          }
         }
         liveDesktops.delete(deviceId);
       }, 45_000);
@@ -1685,43 +1858,54 @@ function runClientLeg(entry, sendJson, socket, browserClientId = null, options =
   const legOpenedAt = Date.now();
   sendJson(entry.socket, { type: 'client-open', clientId });
   socket.isAlive = true;
-  socket.on('pong', () => { socket.isAlive = true; });
-  socket.on('error', () => { /* surfaced as close */ });
-  socket.on('message', guarded('phone frame', (raw, isBinary) => {
-    const announced = noteIngressDelivery(socket);
+  socket.on('pong', () => {
     socket.isAlive = true;
-    const path = legPath();
-    // The ceiling this phone is held to is the one its message can actually be
-    // DELIVERED under: this relay's policy, bounded by what the desktop leg
-    // accepts once the routing envelope is on it. Past that is a payload error
-    // for this phone, never a reason to drop the socket its session runs on.
-    // Inside it, the enveloped frame fits that leg's declared capacity by
-    // arithmetic, so admission needs no second opinion after the fact.
-    const limit = isBinary ? path.binary : path.text;
-    if (rejectOversizeFrame(socket, raw, limit, announced)) return;
-    if (isBinary) {
-      sendUplink(socket, path.desktop, encodeRelayBinaryFrame({ clientId, data: raw }));
-      return;
-    }
-    const text = raw.toString();
-    // Phone liveness probe: answered at the relay — reaching this hop is the
-    // question being asked (a dead desktop closes this leg outright).
-    if (text.startsWith('{"ping"')) {
-      try { socket.send('{"pong":1}'); } catch { /* surfaced as close */ }
-      return;
-    }
-    // Backpressure is charged to this leg only: it stops being read while its
-    // own frames are outstanding, and resumes on its own flush.
-    //
-    // A leg that decodes text inside the binary envelope gets it there: that
-    // envelope is a fixed header, so a message within policy is still within
-    // policy on the wire. JSON escaping can make no such promise, which is why
-    // the text ceiling above is a worst case wherever JSON is the only option.
-    const envelope = path.textFrames
-      ? encodeRelayBinaryFrame({ clientId, data: raw, text: true })
-      : JSON.stringify({ type: 'frame', clientId, data: text });
-    sendUplink(socket, path.desktop, envelope);
-  }));
+  });
+  socket.on('error', () => {
+    /* surfaced as close */
+  });
+  socket.on(
+    'message',
+    guarded('phone frame', (raw, isBinary) => {
+      const announced = noteIngressDelivery(socket);
+      socket.isAlive = true;
+      const path = legPath();
+      // The ceiling this phone is held to is the one its message can actually be
+      // DELIVERED under: this relay's policy, bounded by what the desktop leg
+      // accepts once the routing envelope is on it. Past that is a payload error
+      // for this phone, never a reason to drop the socket its session runs on.
+      // Inside it, the enveloped frame fits that leg's declared capacity by
+      // arithmetic, so admission needs no second opinion after the fact.
+      const limit = isBinary ? path.binary : path.text;
+      if (rejectOversizeFrame(socket, raw, limit, announced)) return;
+      if (isBinary) {
+        sendUplink(socket, path.desktop, encodeRelayBinaryFrame({ clientId, data: raw }));
+        return;
+      }
+      const text = raw.toString();
+      // Phone liveness probe: answered at the relay — reaching this hop is the
+      // question being asked (a dead desktop closes this leg outright).
+      if (text.startsWith('{"ping"')) {
+        try {
+          socket.send('{"pong":1}');
+        } catch {
+          /* surfaced as close */
+        }
+        return;
+      }
+      // Backpressure is charged to this leg only: it stops being read while its
+      // own frames are outstanding, and resumes on its own flush.
+      //
+      // A leg that decodes text inside the binary envelope gets it there: that
+      // envelope is a fixed header, so a message within policy is still within
+      // policy on the wire. JSON escaping can make no such promise, which is why
+      // the text ceiling above is a worst case wherever JSON is the only option.
+      const envelope = path.textFrames
+        ? encodeRelayBinaryFrame({ clientId, data: raw, text: true })
+        : JSON.stringify({ type: 'frame', clientId, data: text });
+      sendUplink(socket, path.desktop, envelope);
+    })
+  );
   socket.on('close', (code, reason) => {
     releaseLeg(socket);
     releaseIngressLeg(socket);
@@ -1732,8 +1916,10 @@ function runClientLeg(entry, sendJson, socket, browserClientId = null, options =
     // that loop are visible. The code names who hung up: 1000 'background' is
     // the app's own foreground gate, 1001/1006 is the link or the browser
     // discarding the page, and 4xxx is this relay's own guard.
-    console.log(`[relay] phone leg closed client=${clientId.slice(0, 8)}`
-      + ` code=${code} reason=${String(reason || '').slice(0, 60)}`
-      + ` lived=${Date.now() - legOpenedAt}ms`);
+    console.log(
+      `[relay] phone leg closed client=${clientId.slice(0, 8)}` +
+        ` code=${code} reason=${String(reason || '').slice(0, 60)}` +
+        ` lived=${Date.now() - legOpenedAt}ms`
+    );
   });
 }

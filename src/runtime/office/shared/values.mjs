@@ -11,7 +11,11 @@ export function clone(value) {
 export function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
   if (!plainObject(value)) return value;
-  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableValue(value[key])]));
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, stableValue(value[key])])
+  );
 }
 
 export function sha256(value) {
@@ -23,7 +27,10 @@ export function clamp(value, minimum = 0, maximum = 1) {
 }
 
 export function compact(value, maximum = 120) {
-  return String(value || '').trim().replace(/\s+/g, ' ').slice(0, maximum);
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, maximum);
 }
 
 export function imageBuffer(image) {

@@ -48,7 +48,12 @@ const CHECKLIST_RULES = Object.freeze({
     {
       id: 'print-readability',
       label: 'Rendered worksheets use the page area at a readable scale.',
-      codes: ['worksheet_print_too_small', 'worksheet_print_fit_missing', 'drawing_outside_print_area', 'drawing_overlap'],
+      codes: [
+        'worksheet_print_too_small',
+        'worksheet_print_fit_missing',
+        'drawing_outside_print_area',
+        'drawing_overlap',
+      ],
     },
     {
       id: 'ink-legibility',
@@ -75,12 +80,7 @@ const CHECKLIST_RULES = Object.freeze({
     {
       id: 'visual-evidence',
       label: 'Content slides use subject-specific native evidence instead of generic repetition.',
-      codes: [
-        'meaningful_visual_missing',
-        'native_evidence_too_weak',
-        'repetitive_composition',
-        'card_grid_overuse',
-      ],
+      codes: ['meaningful_visual_missing', 'native_evidence_too_weak', 'repetitive_composition', 'card_grid_overuse'],
     },
     {
       id: 'source-provenance',
@@ -113,7 +113,10 @@ function normalizedChecklistItem(value, index) {
   }
   if (!plainObject(value)) return null;
   return {
-    id: String(value.id || `task-${index + 1}`).trim().toLowerCase().replace(/[^a-z0-9가-힣]+/g, '-'),
+    id: String(value.id || `task-${index + 1}`)
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9가-힣]+/g, '-'),
     label: String(value.label || value.text || value.id || `Task check ${index + 1}`).trim(),
     required: value.required !== false,
     manual: true,
@@ -159,9 +162,10 @@ export function evaluateOfficeChecklist({
       label: 'Every page or slide has a rendered image; visual acceptance is recorded separately.',
       required: true,
       status: visualCoverage?.complete === true && Number(visualCoverage.total) > 0 ? 'pass' : 'fail',
-      evidence: visualCoverage?.complete === true && Number(visualCoverage.total) > 0
-        ? [`${visualCoverage.reviewed}/${visualCoverage.total}`]
-        : ['visual coverage is incomplete'],
+      evidence:
+        visualCoverage?.complete === true && Number(visualCoverage.total) > 0
+          ? [`${visualCoverage.reviewed}/${visualCoverage.total}`]
+          : ['visual coverage is incomplete'],
     });
   }
   const custom = (Array.isArray(checklist) ? checklist : [])
@@ -175,12 +179,14 @@ export function evaluateOfficeChecklist({
   const items = [...defaults, ...custom];
   const checklistIssues = custom
     .filter((entry) => entry.required && entry.status !== 'pass')
-    .map((entry) => issue(
-      entry.status === 'pending' ? 'checklist_item_pending' : 'checklist_item_failed',
-      `/checklist/${entry.id}`,
-      `Required task checklist item is ${entry.status}: ${entry.label}`,
-      'checklist-review',
-    ));
+    .map((entry) =>
+      issue(
+        entry.status === 'pending' ? 'checklist_item_pending' : 'checklist_item_failed',
+        `/checklist/${entry.id}`,
+        `Required task checklist item is ${entry.status}: ${entry.label}`,
+        'checklist-review'
+      )
+    );
   const passed = items.filter((entry) => entry.status === 'pass').length;
   const failed = items.filter((entry) => entry.status === 'fail').length;
   const pending = items.filter((entry) => entry.status === 'pending').length;

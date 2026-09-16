@@ -23,7 +23,7 @@ export async function resolveMediaFileTarget(
   host: Pick<DesktopService, 'invokeCapability'>,
   assetId: string,
   variant: string,
-  options: { generate?: boolean } = {},
+  options: { generate?: boolean } = {}
 ): Promise<MediaFileTarget | null> {
   const key = targetKey(assetId, variant);
   const cached = mediaFileTargets.get(key);
@@ -32,10 +32,13 @@ export async function resolveMediaFileTarget(
     mediaFileTargets.set(key, cached);
     return cached;
   }
-  const result = await host.invokeCapability('resolveMediaFile', [assetId, {
-    variant,
-    ...options,
-  }]);
+  const result = await host.invokeCapability('resolveMediaFile', [
+    assetId,
+    {
+      variant,
+      ...options,
+    },
+  ]);
   const file = (result as { value?: unknown } | null)?.value as {
     path?: unknown;
     mime?: unknown;

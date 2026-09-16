@@ -15,13 +15,10 @@ import { executeBuiltinTool } from '../../src/runtime/agent/orchestrator/tools/b
 const ajv = new Ajv({ strict: false, validateFormats: false });
 
 test('find query constraints agree between the public schema, Gemini wire and runtime', () => {
-  const tool = BUILTIN_TOOLS.find(tool => tool.name === 'find');
+  const tool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');
   const original = structuredClone(tool);
   const wire = toGeminiTools([tool]).functionDeclarations[0];
-  const validators = [
-    ajv.compile(tool.inputSchema),
-    ajv.compile(wire.parametersJsonSchema || wire.parameters),
-  ];
+  const validators = [ajv.compile(tool.inputSchema), ajv.compile(wire.parametersJsonSchema || wire.parameters)];
   for (const [args, expected] of [
     [{ query: '' }, false],
     [{ query: ' \t\n' }, false],
@@ -49,7 +46,9 @@ test('invalid find queries stay errors and explain discovery without silently ch
 
 test('setup rejects missing reset values and unrelated action fields before accessing the runtime', async () => {
   const executor = createSetupToolExecutor({
-    getApi() { assert.fail('invalid input must not access the runtime'); },
+    getApi() {
+      assert.fail('invalid input must not access the runtime');
+    },
   });
   const cases = [
     [{ action: 'set_system_shell' }, /command is required/],
@@ -68,11 +67,26 @@ test('setup rejects missing reset values and unrelated action fields before acce
 test('setup preserves explicit resets, scopes and documented optional fields on the first call', async () => {
   const calls = [];
   const facade = {
-    setSystemShell(value) { calls.push(['shell', value]); return value; },
-    setExtensionScope(...args) { calls.push(['scope', ...args]); return {}; },
-    setAutoUpdate(enabled) { calls.push(['update', enabled]); return { enabled }; },
-    inspectHuggingFaceModel(value) { calls.push(['inspect', value]); return {}; },
-    reconnectMcp() { calls.push(['reconnect']); return {}; },
+    setSystemShell(value) {
+      calls.push(['shell', value]);
+      return value;
+    },
+    setExtensionScope(...args) {
+      calls.push(['scope', ...args]);
+      return {};
+    },
+    setAutoUpdate(enabled) {
+      calls.push(['update', enabled]);
+      return { enabled };
+    },
+    inspectHuggingFaceModel(value) {
+      calls.push(['inspect', value]);
+      return {};
+    },
+    reconnectMcp() {
+      calls.push(['reconnect']);
+      return {};
+    },
   };
   const executor = createSetupToolExecutor({ getApi: () => facade });
   const cases = [
@@ -104,7 +118,8 @@ test('Gemini preserves MCP reference definitions and rejects values outside thei
     const schema = {
       type: 'object',
       properties: { count: { $ref: `#/${keyword}/count` } },
-      required: ['count'], additionalProperties: false,
+      required: ['count'],
+      additionalProperties: false,
       [keyword]: { count: { type: 'integer', minimum: 1 } },
     };
     const original = structuredClone(schema);
@@ -134,7 +149,8 @@ test('Gemini retains a recursive reference rather than dereferencing or dropping
 
 test('Anthropic allOf retains required fields and intersections instead of treating them as alternatives', () => {
   const schema = {
-    type: 'object', additionalProperties: false,
+    type: 'object',
+    additionalProperties: false,
     properties: { path: { type: 'string' }, count: { type: 'integer', minimum: 1 } },
     required: ['path'],
     allOf: [
@@ -148,10 +164,15 @@ test('Anthropic allOf retains required fields and intersections instead of treat
   const sourceAccepts = ajv.compile(schema);
   const wireAccepts = ajv.compile(wire);
   for (const [args, expected] of [
-    [{ path: 'file', count: 1 }, true], [{ path: 'file', count: 3 }, true],
-    [{ path: 'file', count: 0 }, false], [{ path: 'file', count: 4 }, false],
-    [{ path: '', count: 1 }, false], [{ path: 'file' }, false], [{ count: 1 }, false],
-    [{ path: 'file', count: '2' }, false], [{ path: 'file', count: 1, extra: true }, false],
+    [{ path: 'file', count: 1 }, true],
+    [{ path: 'file', count: 3 }, true],
+    [{ path: 'file', count: 0 }, false],
+    [{ path: 'file', count: 4 }, false],
+    [{ path: '', count: 1 }, false],
+    [{ path: 'file' }, false],
+    [{ count: 1 }, false],
+    [{ path: 'file', count: '2' }, false],
+    [{ path: 'file', count: 1, extra: true }, false],
   ]) {
     assert.equal(sourceAccepts(args), expected);
     assert.equal(wireAccepts(args), expected, JSON.stringify(args));
@@ -160,10 +181,12 @@ test('Anthropic allOf retains required fields and intersections instead of treat
 });
 
 test('Grok normalizes nested array and map schemas without interpreting data-valued keywords', () => {
-  const alternatives = { anyOf: [
-    { type: 'string', minLength: 1 },
-    { type: 'array', items: { type: 'string' } },
-  ] };
+  const alternatives = {
+    anyOf: [
+      { type: 'string', minLength: 1 },
+      { type: 'array', items: { type: 'string' } },
+    ],
+  };
   const schema = {
     type: 'object',
     properties: {

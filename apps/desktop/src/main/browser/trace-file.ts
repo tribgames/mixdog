@@ -13,23 +13,32 @@ function sanitize(value: unknown, redact: (text: string) => string, depth = 0): 
   if (typeof value === 'string') return redact(value);
   if (Array.isArray(value)) return value.slice(0, 10_000).map((entry) => sanitize(entry, redact, depth + 1));
   if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
-    redact(key),
-    /cookie|authorization|password|passwd|secret|token|api.?key/i.test(key)
-      ? '[REDACTED]' : sanitize(entry, redact, depth + 1),
-  ]));
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      redact(key),
+      /cookie|authorization|password|passwd|secret|token|api.?key/i.test(key)
+        ? '[REDACTED]'
+        : sanitize(entry, redact, depth + 1),
+    ])
+  );
 }
 
 export class BrowserTraceExport {
   private events: string[] = [];
   private bytes = 0;
   private dropped = 0;
-  constructor(private readonly redact: (text: string) => string = redactBrowserText, private readonly maxBytes = MAX_TRACE_BYTES) {}
+  constructor(
+    private readonly redact: (text: string) => string = redactBrowserText,
+    private readonly maxBytes = MAX_TRACE_BYTES
+  ) {}
 
   add(events: unknown): void {
     if (!Array.isArray(events)) return;
     for (const event of events) {
-      if (this.bytes >= this.maxBytes) { this.dropped++; continue; }
+      if (this.bytes >= this.maxBytes) {
+        this.dropped++;
+        continue;
+      }
       const raw = JSON.stringify(event);
       if (!raw || Buffer.byteLength(raw) > this.maxBytes - this.bytes) {
         this.dropped++;
@@ -37,7 +46,10 @@ export class BrowserTraceExport {
       }
       const encoded = JSON.stringify(sanitize(event, this.redact));
       const size = Buffer.byteLength(encoded) + 1;
-      if (this.bytes + size > this.maxBytes) { this.dropped++; continue; }
+      if (this.bytes + size > this.maxBytes) {
+        this.dropped++;
+        continue;
+      }
       this.events.push(encoded);
       this.bytes += size;
     }
@@ -58,7 +70,8 @@ export class BrowserTraceExport {
     }
     const data = this.serialize();
     const bytes = Buffer.byteLength(data);
-    if (used + bytes > MAX_TRACE_STORE_BYTES) throw new Error('browser trace store is full; preserve or remove old traces before recording again');
+    if (used + bytes > MAX_TRACE_STORE_BYTES)
+      throw new Error('browser trace store is full; preserve or remove old traces before recording again');
     const path = join(directory, `trace-${randomUUID()}.json`);
     writeFileSync(path, data, { flag: 'wx', mode: 0o600 });
     return { path, bytes };

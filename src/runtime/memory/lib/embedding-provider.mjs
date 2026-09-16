@@ -4,236 +4,249 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
  * embedding-provider.mjs — Embedding provider with worker_threads isolation.
  */
 
-import { Worker } from 'worker_threads'
-import { join } from 'path'
-import { fileURLToPath } from 'url'
-import { writeProfilePoint } from './model-profile.mjs'
-import { createCompactVectorCache } from './compact-vector-cache.mjs'
+import { Worker } from 'worker_threads';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
+import { writeProfilePoint } from './model-profile.mjs';
+import { createCompactVectorCache } from './compact-vector-cache.mjs';
 import {
   getConfiguredEmbeddingModelId,
   getDefaultEmbeddingDtype,
   getKnownEmbeddingDims,
   normalizeEmbeddingDtype,
   normalizeEmbeddingInputType,
-} from './embedding-model-config.mjs'
+} from './embedding-model-config.mjs';
 
-const MODEL_ID = getConfiguredEmbeddingModelId()
+const MODEL_ID = getConfiguredEmbeddingModelId();
 
 // Static dims registry — bypasses first-boot measurement for registered models.
 // Validated against measured dims inside warmupEmbeddingProvider; mismatch throws.
-const KNOWN_MODEL_DIMS = { [MODEL_ID]: getKnownEmbeddingDims(MODEL_ID) }
+const KNOWN_MODEL_DIMS = { [MODEL_ID]: getKnownEmbeddingDims(MODEL_ID) };
 
-let worker = null
-let _restartCount = 0
-let _lastRestartMs = 0
-const MAX_RESTART_BACKOFF_MS = 30_000
-let cachedDims = null
-let _modelReady = false
-let _device = 'cpu'
-let _configuredDtype = getDefaultEmbeddingDtype(MODEL_ID)
-let _configurePromise = null
-let _warmupPromise = null
-let _embedCallCount = 0
-let _msgId = 0
-const _pending = new Map()
-const retiringWorkers = new WeakSet()
-const EMBED_STEADY_SAMPLE_EVERY = 20
+let worker = null;
+let _restartCount = 0;
+let _lastRestartMs = 0;
+const MAX_RESTART_BACKOFF_MS = 30_000;
+let cachedDims = null;
+let _modelReady = false;
+let _device = 'cpu';
+let _configuredDtype = getDefaultEmbeddingDtype(MODEL_ID);
+let _configurePromise = null;
+let _warmupPromise = null;
+let _embedCallCount = 0;
+let _msgId = 0;
+const _pending = new Map();
+const retiringWorkers = new WeakSet();
+const EMBED_STEADY_SAMPLE_EVERY = 20;
 const queryEmbeddingCache = createCompactVectorCache({
   maxEntries: 1000,
   maxBytes: 8 * 1024 * 1024,
-})
+});
 
-const WORKER_PATH = join(fileURLToPath(import.meta.url), '..', 'embedding-worker.mjs')
+const WORKER_PATH = join(fileURLToPath(import.meta.url), '..', 'embedding-worker.mjs');
 
 export function embeddingWorkerExecArgv(execArgv = process.execArgv) {
   return (Array.isArray(execArgv) ? execArgv : []).filter((arg) => {
-    const value = String(arg)
-    if (value.startsWith('--input-type')) return false
-    return !/^--(?:max-old-space-size|max-semi-space-size|initial-old-space-size)(?:=|$)/.test(value)
-  })
+    const value = String(arg);
+    if (value.startsWith('--input-type')) return false;
+    return !/^--(?:max-old-space-size|max-semi-space-size|initial-old-space-size)(?:=|$)/.test(value);
+  });
 }
 
 function cacheEmbedding(key, vector) {
-  queryEmbeddingCache.set(key, vector)
+  queryEmbeddingCache.set(key, vector);
 }
 
 function getCachedEmbedding(key) {
-  return queryEmbeddingCache.get(key)
+  return queryEmbeddingCache.get(key);
 }
 
 function embeddingCacheKey(text, inputType, dtype = _configuredDtype) {
-  return `${MODEL_ID}\n${dtype}\n${normalizeEmbeddingInputType(inputType)}\n${text}`
+  return `${MODEL_ID}\n${dtype}\n${normalizeEmbeddingInputType(inputType)}\n${text}`;
 }
 
 function ensureWorker() {
-  if (worker) return worker
-  const now = Date.now()
+  if (worker) return worker;
+  const now = Date.now();
   if (_restartCount > 0) {
-    const backoffMs = Math.min(1000 * Math.pow(2, _restartCount - 1), MAX_RESTART_BACKOFF_MS)
-    const elapsed = now - _lastRestartMs
+    const backoffMs = Math.min(1000 * 2 ** (_restartCount - 1), MAX_RESTART_BACKOFF_MS);
+    const elapsed = now - _lastRestartMs;
     if (elapsed < backoffMs) {
-      throw new Error(`embed worker in restart backoff (${Math.ceil((backoffMs - elapsed) / 1000)}s remaining)`)
+      throw new Error(`embed worker in restart backoff (${Math.ceil((backoffMs - elapsed) / 1000)}s remaining)`);
     }
   }
-  _lastRestartMs = now
-  const execArgv = embeddingWorkerExecArgv()
+  _lastRestartMs = now;
+  const execArgv = embeddingWorkerExecArgv();
   const created = new Worker(WORKER_PATH, {
-    env: { ...process.env }, execArgv, workerData: { dtype: _configuredDtype },
-  })
-  worker = created
+    env: { ...process.env },
+    execArgv,
+    workerData: { dtype: _configuredDtype },
+  });
+  worker = created;
   const rejectWorkerPending = (error) => {
     for (const [id, pending] of _pending) {
-      if (pending.worker !== created) continue
-      _pending.delete(id)
-      pending.reject(error)
+      if (pending.worker !== created) continue;
+      _pending.delete(id);
+      pending.reject(error);
     }
-  }
+  };
   created.on('message', (msg) => {
     if (msg.type === 'log') {
       // Worker-thread stdio forwarded via IPC (see embedding-worker.mjs
       // header): route through the parent's guardable stderr so TUI runs
       // file it instead of tearing the terminal frame.
-      try { process.stderr.write(String(msg.chunk ?? '')) } catch { /* best-effort */ }
-      return
+      try {
+        process.stderr.write(String(msg.chunk ?? ''));
+      } catch {
+        /* best-effort */
+      }
+      return;
     }
     if (msg.type === 'profile') {
-      writeProfilePoint(msg.record)
-      return
+      writeProfilePoint(msg.record);
+      return;
     }
     if (msg.type === 'idle-dispose') {
-      _modelReady = false
-      _device = 'cpu'
-      const reason = String(msg.reason || 'idle timeout')
-      __mixdogMemoryLog(`[embed] ${reason} — model disposed; retiring worker thread\n`)
-      writeProfilePoint({ phase: 'post-idle', model: MODEL_ID, device: msg.device, dtype: msg.dtype, note: reason })
+      _modelReady = false;
+      _device = 'cpu';
+      const reason = String(msg.reason || 'idle timeout');
+      __mixdogMemoryLog(`[embed] ${reason} — model disposed; retiring worker thread\n`);
+      writeProfilePoint({ phase: 'post-idle', model: MODEL_ID, device: msg.device, dtype: msg.dtype, note: reason });
       // A request can be posted after the worker's idle timer starts disposal
       // but before this notification reaches the parent. Do not terminate that
       // worker out from under the accepted request; its next idle cycle will
       // retire it after the request finishes.
-      const hasAcceptedRequest = [..._pending.values()]
-        .some((pending) => pending.worker === created)
+      const hasAcceptedRequest = [..._pending.values()].some((pending) => pending.worker === created);
       if (hasAcceptedRequest) {
-        __mixdogMemoryLog(`[embed] ${reason} — worker retirement deferred for accepted request\n`)
-        return
+        __mixdogMemoryLog(`[embed] ${reason} — worker retirement deferred for accepted request\n`);
+        return;
       }
       // ORT's native allocator does not reliably return model pages when only
       // InferenceSession.dispose() runs on Windows. Ending the worker thread is
       // the actual native-memory boundary; the next recall lazily creates a
       // fresh worker while cached dimensions remain available.
-      if (worker === created) worker = null
-      retiringWorkers.add(created)
-      void created.terminate().catch(() => {})
-      return
+      if (worker === created) worker = null;
+      retiringWorkers.add(created);
+      void created.terminate().catch(() => {});
+      return;
     }
-    const pending = _pending.get(msg.id)
-    if (!pending) return
-    _pending.delete(msg.id)
+    const pending = _pending.get(msg.id);
+    if (!pending) return;
+    _pending.delete(msg.id);
     if (msg.type === 'error') {
-      pending.reject(new Error(msg.message))
+      pending.reject(new Error(msg.message));
     } else {
-      pending.resolve(msg)
+      pending.resolve(msg);
     }
-  })
+  });
   created.on('error', (err) => {
-    __mixdogMemoryLog(`[embed] worker error: ${err?.message || err}\n`)
-    rejectWorkerPending(err)
-    if (worker === created) worker = null
-    _modelReady = false
-    _restartCount++
-  })
+    __mixdogMemoryLog(`[embed] worker error: ${err?.message || err}\n`);
+    rejectWorkerPending(err);
+    if (worker === created) worker = null;
+    _modelReady = false;
+    _restartCount++;
+  });
   created.on('exit', (code) => {
-    const retired = retiringWorkers.has(created)
-    retiringWorkers.delete(created)
-    const exitError = new Error(`Worker exited with code ${code}`)
+    const retired = retiringWorkers.has(created);
+    retiringWorkers.delete(created);
+    const exitError = new Error(`Worker exited with code ${code}`);
     if (!retired && code !== 0) {
-      __mixdogMemoryLog(`[embed] worker exited with code ${code}\n`)
-      _restartCount++
+      __mixdogMemoryLog(`[embed] worker exited with code ${code}\n`);
+      _restartCount++;
     } else if (!retired) {
-      _restartCount = 0
+      _restartCount = 0;
     }
-    rejectWorkerPending(exitError)
-    if (worker === created) worker = null
-    _modelReady = false
-  })
-  return created
+    rejectWorkerPending(exitError);
+    if (worker === created) worker = null;
+    _modelReady = false;
+  });
+  return created;
 }
 
-const EMBED_WORKER_TIMEOUT_MS = 60_000
-const EMBED_WORKER_COLD_TIMEOUT_MS = 180_000
+const EMBED_WORKER_TIMEOUT_MS = 60_000;
+const EMBED_WORKER_COLD_TIMEOUT_MS = 180_000;
 
 function embeddingWorkerTimeout(action) {
   return !_modelReady && ['warmup', 'embed', 'embed-batch'].includes(action)
     ? EMBED_WORKER_COLD_TIMEOUT_MS
-    : EMBED_WORKER_TIMEOUT_MS
+    : EMBED_WORKER_TIMEOUT_MS;
 }
 
 function sendToWorker(action, extra = {}, timeoutMs = embeddingWorkerTimeout(action)) {
-  const w = ensureWorker()
-  const id = ++_msgId
+  const w = ensureWorker();
+  const id = ++_msgId;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      _pending.delete(id)
-      __mixdogMemoryLog(`[embed] worker ${action} timed out — terminating worker\n`)
+      _pending.delete(id);
+      __mixdogMemoryLog(`[embed] worker ${action} timed out — terminating worker\n`);
       // Retire the worker this request was actually posted to. Reading the
       // module-level `worker` here killed whatever worker happened to be
       // current — after a restart that is a healthy replacement, so one stuck
       // request cascaded into terminating its successor.
       if (worker === w) {
-        worker = null
-        _modelReady = false
-        _restartCount++
+        worker = null;
+        _modelReady = false;
+        _restartCount++;
       }
-      w.terminate().catch(() => {})
-      reject(new Error(`embed worker ${action} timed out after ${timeoutMs}ms`))
-    }, timeoutMs)
+      w.terminate().catch(() => {});
+      reject(new Error(`embed worker ${action} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
     _pending.set(id, {
       worker: w,
-      resolve: (v) => { clearTimeout(timer); resolve(v) },
-      reject: (e) => { clearTimeout(timer); reject(e) },
-    })
+      resolve: (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      reject: (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    });
     try {
-      w.postMessage({ id, action, ...extra })
+      w.postMessage({ id, action, ...extra });
     } catch (postErr) {
-      clearTimeout(timer)
-      _pending.delete(id)
-      reject(postErr)
+      clearTimeout(timer);
+      _pending.delete(id);
+      reject(postErr);
     }
-  })
+  });
 }
 
 export function configureEmbedding(config = {}) {
-  const dtype = normalizeEmbeddingDtype(MODEL_ID, config.dtype ?? process.env.MIXDOG_EMBED_DTYPE)
-  if (dtype === _configuredDtype) return _configurePromise
-  const previousDtype = _configuredDtype
-  cachedDims = null
-  _modelReady = false
-  _device = 'cpu'
-  _configuredDtype = dtype
-  queryEmbeddingCache.clear()
+  const dtype = normalizeEmbeddingDtype(MODEL_ID, config.dtype ?? process.env.MIXDOG_EMBED_DTYPE);
+  if (dtype === _configuredDtype) return _configurePromise;
+  const previousDtype = _configuredDtype;
+  cachedDims = null;
+  _modelReady = false;
+  _device = 'cpu';
+  _configuredDtype = dtype;
+  queryEmbeddingCache.clear();
   if (worker) {
     const pending = sendToWorker('configure', { dtype }).catch((error) => {
-      if (_configurePromise === pending) _configuredDtype = previousDtype
-      throw error
-    })
-    _configurePromise = pending
-    const clear = () => { if (_configurePromise === pending) _configurePromise = null }
-    pending.then(clear, clear)
-    return pending
+      if (_configurePromise === pending) _configuredDtype = previousDtype;
+      throw error;
+    });
+    _configurePromise = pending;
+    const clear = () => {
+      if (_configurePromise === pending) _configurePromise = null;
+    };
+    pending.then(clear, clear);
+    return pending;
   }
-  return null
+  return null;
 }
 
 export function primeEmbeddingDims(dims) {
-  const n = Number(dims)
-  if (Number.isFinite(n) && n > 0) cachedDims = n
+  const n = Number(dims);
+  if (Number.isFinite(n) && n > 0) cachedDims = n;
 }
 
 export function getEmbeddingModelId() {
-  return MODEL_ID
+  return MODEL_ID;
 }
 
 export function getEmbeddingDtype() {
-  return _configuredDtype
+  return _configuredDtype;
 }
 
 // Metadata only: opening Extensions must never load a model or start a worker.
@@ -244,60 +257,58 @@ export function getEmbeddingInfo() {
     dimensions: cachedDims || getKnownDimsForCurrentModel(),
     device: _modelReady ? _device : '',
     engine: 'Transformers.js · ONNX Runtime',
-  }
+  };
 }
 
 export function getKnownDimsForCurrentModel() {
-  return KNOWN_MODEL_DIMS[MODEL_ID] ?? null
+  return KNOWN_MODEL_DIMS[MODEL_ID] ?? null;
 }
 
 export function isEmbeddingModelReady() {
-  return _modelReady && Boolean(cachedDims)
+  return _modelReady && Boolean(cachedDims);
 }
 
 export function getEmbeddingDims() {
-  if (!cachedDims) throw new Error('embedding dims not yet measured — warmup required')
-  return cachedDims
+  if (!cachedDims) throw new Error('embedding dims not yet measured — warmup required');
+  return cachedDims;
 }
 
 async function runEmbeddingWarmup() {
-  if (_modelReady && cachedDims) return true
-  const dtype = _configuredDtype
-  const result = await sendToWorker('warmup')
-  if (!result.dims) throw new Error('warmup returned no dims — model output missing')
-  const known = KNOWN_MODEL_DIMS[MODEL_ID]
+  if (_modelReady && cachedDims) return true;
+  const dtype = _configuredDtype;
+  const result = await sendToWorker('warmup');
+  if (!result.dims) throw new Error('warmup returned no dims — model output missing');
+  const known = KNOWN_MODEL_DIMS[MODEL_ID];
   if (known != null && known !== result.dims) {
-    throw new Error(
-      `embedding dims invariant violation: model=${MODEL_ID} expected=${known} measured=${result.dims}`,
-    )
+    throw new Error(`embedding dims invariant violation: model=${MODEL_ID} expected=${known} measured=${result.dims}`);
   }
-  cachedDims = result.dims
+  cachedDims = result.dims;
   if (dtype === _configuredDtype) {
-    _modelReady = true
-    _device = result.device || 'cpu'
+    _modelReady = true;
+    _device = result.device || 'cpu';
   }
-  return true
+  return true;
 }
 
 export function warmupEmbeddingProvider() {
-  if (_configurePromise) return _configurePromise.then(() => warmupEmbeddingProvider())
-  if (_modelReady && cachedDims) return Promise.resolve(true)
+  if (_configurePromise) return _configurePromise.then(() => warmupEmbeddingProvider());
+  if (_modelReady && cachedDims) return Promise.resolve(true);
   if (!_warmupPromise) {
     _warmupPromise = runEmbeddingWarmup().finally(() => {
-      _warmupPromise = null
-    })
+      _warmupPromise = null;
+    });
   }
-  return _warmupPromise
+  return _warmupPromise;
 }
 
 export async function embedText(text, options = {}) {
-  const clean = String(text ?? '').trim()
-  if (!clean) return []
-  const inputType = normalizeEmbeddingInputType(options?.inputType)
-  const dtype = _configuredDtype
-  const cacheKey = embeddingCacheKey(clean, inputType, dtype)
-  const cached = getCachedEmbedding(cacheKey)
-  if (cached) return [...cached]
+  const clean = String(text ?? '').trim();
+  if (!clean) return [];
+  const inputType = normalizeEmbeddingInputType(options?.inputType);
+  const dtype = _configuredDtype;
+  const cacheKey = embeddingCacheKey(clean, inputType, dtype);
+  const cached = getCachedEmbedding(cacheKey);
+  if (cached) return [...cached];
 
   // Interactive query embeds pass { priority: true } so the worker can
   // queue-jump them ahead of background flush embed-batch work.
@@ -305,23 +316,23 @@ export async function embedText(text, options = {}) {
     text: clean,
     inputType,
     priority: options?.priority === true,
-  })
-  if (!result.dims) throw new Error(`embed result missing dims (model=${MODEL_ID})`)
-  const resultDims = result.dims
+  });
+  if (!result.dims) throw new Error(`embed result missing dims (model=${MODEL_ID})`);
+  const resultDims = result.dims;
   if (cachedDims && resultDims !== cachedDims) {
-    throw new Error(`embed vector dims mismatch: expected ${cachedDims}, got ${resultDims}`)
+    throw new Error(`embed vector dims mismatch: expected ${cachedDims}, got ${resultDims}`);
   }
-  cachedDims = resultDims
+  cachedDims = resultDims;
   if (dtype === _configuredDtype) {
-    _modelReady = true
-    _device = result.device || 'cpu'
+    _modelReady = true;
+    _device = result.device || 'cpu';
   }
-  const vector = result.vector
+  const vector = result.vector;
   if (!Array.isArray(vector) || vector.length !== cachedDims) {
-    throw new Error(`embed vector length mismatch: expected ${cachedDims}, got ${vector?.length}`)
+    throw new Error(`embed vector length mismatch: expected ${cachedDims}, got ${vector?.length}`);
   }
-  cacheEmbedding(cacheKey, vector)
-  _embedCallCount++
+  cacheEmbedding(cacheKey, vector);
+  _embedCallCount++;
   if (_embedCallCount % EMBED_STEADY_SAMPLE_EVERY === 0) {
     writeProfilePoint({
       phase: 'steady',
@@ -330,9 +341,9 @@ export async function embedText(text, options = {}) {
       dtype: result.dtype,
       wallMs: result.wallMs,
       note: `sample@${_embedCallCount}`,
-    })
+    });
   }
-  return vector
+  return vector;
 }
 
 /**
@@ -344,59 +355,60 @@ export async function embedText(text, options = {}) {
  * one batched run replaces N sequential runs.
  */
 export async function embedTexts(texts, options = {}) {
-  if (!Array.isArray(texts)) throw new Error('embedTexts requires an array')
-  const inputType = normalizeEmbeddingInputType(options?.inputType)
-  const dtype = _configuredDtype
-  const cleaned = texts.map(t => String(t ?? '').trim())
-  const missing = []
+  if (!Array.isArray(texts)) throw new Error('embedTexts requires an array');
+  const inputType = normalizeEmbeddingInputType(options?.inputType);
+  const dtype = _configuredDtype;
+  const cleaned = texts.map((t) => String(t ?? '').trim());
+  const missing = [];
   for (const t of cleaned) {
-    if (!t) continue
-    const key = embeddingCacheKey(t, inputType, dtype)
-    if (!queryEmbeddingCache.has(key)) missing.push(t)
+    if (!t) continue;
+    const key = embeddingCacheKey(t, inputType, dtype);
+    if (!queryEmbeddingCache.has(key)) missing.push(t);
   }
-  if (missing.length === 0) return cleaned.map(t => {
-    if (!t) return []
-    return [...queryEmbeddingCache.get(embeddingCacheKey(t, inputType, dtype))]
-  })
-  const result = await sendToWorker('embed-batch', { texts: missing, inputType })
-  if (!result.dims) throw new Error(`embed-batch result missing dims (model=${MODEL_ID})`)
-  const resultDims = result.dims
+  if (missing.length === 0)
+    return cleaned.map((t) => {
+      if (!t) return [];
+      return [...queryEmbeddingCache.get(embeddingCacheKey(t, inputType, dtype))];
+    });
+  const result = await sendToWorker('embed-batch', { texts: missing, inputType });
+  if (!result.dims) throw new Error(`embed-batch result missing dims (model=${MODEL_ID})`);
+  const resultDims = result.dims;
   if (cachedDims && resultDims !== cachedDims) {
-    throw new Error(`embed-batch vector dims mismatch: expected ${cachedDims}, got ${resultDims}`)
+    throw new Error(`embed-batch vector dims mismatch: expected ${cachedDims}, got ${resultDims}`);
   }
-  cachedDims = resultDims
+  cachedDims = resultDims;
   if (dtype === _configuredDtype) {
-    _modelReady = true
-    _device = result.device || _device
+    _modelReady = true;
+    _device = result.device || _device;
   }
   if (!Array.isArray(result.vectors) || result.vectors.length !== missing.length) {
-    throw new Error(`embed-batch vectors count mismatch: expected ${missing.length}, got ${result.vectors?.length}`)
+    throw new Error(`embed-batch vectors count mismatch: expected ${missing.length}, got ${result.vectors?.length}`);
   }
   for (let i = 0; i < missing.length; i++) {
-    const vec = result.vectors[i]
+    const vec = result.vectors[i];
     if (!Array.isArray(vec) || vec.length !== cachedDims) {
-      throw new Error(`embed-batch vector length mismatch at idx ${i}: expected ${cachedDims}, got ${vec?.length}`)
+      throw new Error(`embed-batch vector length mismatch at idx ${i}: expected ${cachedDims}, got ${vec?.length}`);
     }
-    cacheEmbedding(embeddingCacheKey(missing[i], inputType, dtype), vec)
+    cacheEmbedding(embeddingCacheKey(missing[i], inputType, dtype), vec);
   }
-  _embedCallCount += missing.length
-  return cleaned.map(t => {
-    if (!t) return []
-    const cached = queryEmbeddingCache.get(embeddingCacheKey(t, inputType, dtype))
-    return cached ? [...cached] : []
-  })
+  _embedCallCount += missing.length;
+  return cleaned.map((t) => {
+    if (!t) return [];
+    const cached = queryEmbeddingCache.get(embeddingCacheKey(t, inputType, dtype));
+    return cached ? [...cached] : [];
+  });
 }
 
 export async function shutdownEmbeddingProvider() {
-  const activeWorker = worker
-  worker = null
-  _warmupPromise = null
-  _modelReady = false
-  cachedDims = null
-  queryEmbeddingCache.clear()
-  if (!activeWorker) return
-  const shutdownError = new Error('embedding provider shut down')
-  for (const [, pending] of _pending) pending.reject(shutdownError)
-  _pending.clear()
-  await activeWorker.terminate()
+  const activeWorker = worker;
+  worker = null;
+  _warmupPromise = null;
+  _modelReady = false;
+  cachedDims = null;
+  queryEmbeddingCache.clear();
+  if (!activeWorker) return;
+  const shutdownError = new Error('embedding provider shut down');
+  for (const [, pending] of _pending) pending.reject(shutdownError);
+  _pending.clear();
+  await activeWorker.terminate();
 }

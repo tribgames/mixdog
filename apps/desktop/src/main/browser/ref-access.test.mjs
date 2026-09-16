@@ -2,16 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 
-import {
-  browserRefElementSource,
-  checkedBrowserRefResult,
-  createBrowserRefAccess,
-} from './ref-access.ts';
+import { browserRefElementSource, checkedBrowserRefResult, createBrowserRefAccess } from './ref-access.ts';
 import { isBrowserStaleRefError } from './ref-recovery.ts';
 
 function fixture(t, ax) {
   const dom = new JSDOM('<input id="field" value="old">', {
-    runScripts: 'outside-only', url: 'https://fixture.example/',
+    runScripts: 'outside-only',
+    url: 'https://fixture.example/',
   });
   t.after(() => dom.window.close());
   const { window } = dom;
@@ -58,9 +55,8 @@ test('a detached or unknown ref is refused as stale before any declaration runs'
   const f = fixture(t, false);
   f.field.remove();
   for (const ref of ['ref', 'never-observed']) {
-    await assert.rejects(
-      f.access.callRef({}, ref, 'function() { this.value = "written"; return true; }'),
-      (error) => isBrowserStaleRefError(error),
+    await assert.rejects(f.access.callRef({}, ref, 'function() { this.value = "written"; return true; }'), (error) =>
+      isBrowserStaleRefError(error)
     );
   }
   assert.equal(f.field.value, 'old', 'a stale ref never receives the declaration');
@@ -71,11 +67,11 @@ test('a page-side refusal names the ref only when a fresh snapshot answers it', 
   assert.deepEqual(checkedBrowserRefResult({ value: 'kept' }, 'p1-s1-e1'), { value: 'kept' });
   assert.throws(
     () => checkedBrowserRefResult({ error: 'stale' }, 'p1-s1-e1'),
-    /^Error: ref p1-s1-e1 is stale or unknown; take a fresh snapshot first$/,
+    /^Error: ref p1-s1-e1 is stale or unknown; take a fresh snapshot first$/
   );
   assert.throws(
     () => checkedBrowserRefResult({ error: 'element is not editable' }, 'p1-s1-e1'),
-    /^Error: element is not editable$/,
+    /^Error: element is not editable$/
   );
   assert.ok(isBrowserStaleRefError(new Error('ref p1-s1-e1 is stale or unknown; take a fresh snapshot first')));
 });

@@ -30,7 +30,9 @@ function cleanPathText(value) {
     text = text.slice(1, -1);
   }
   if (text.startsWith('file://')) {
-    try { text = decodeURIComponent(new URL(text).pathname); } catch {}
+    try {
+      text = decodeURIComponent(new URL(text).pathname);
+    } catch {}
     if (process.platform === 'win32') text = text.replace(/^\/+([A-Za-z]:)/, '$1').replace(/\//g, '\\');
   }
   if (process.platform !== 'win32') {
@@ -45,15 +47,20 @@ function mimeForPath(path) {
 
 function execFileBuffer(cmd, args, options = {}) {
   return new Promise((resolve) => {
-    execFile(cmd, args, {
-      windowsHide: true,
-      encoding: 'buffer',
-      maxBuffer: 16 * 1024 * 1024,
-      timeout: 5000,
-      ...options,
-    }, (error, stdout, stderr) => {
-      resolve({ ok: !error, code: error?.code ?? 0, stdout, stderr, error });
-    });
+    execFile(
+      cmd,
+      args,
+      {
+        windowsHide: true,
+        encoding: 'buffer',
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: 5000,
+        ...options,
+      },
+      (error, stdout, stderr) => {
+        resolve({ ok: !error, code: error?.code ?? 0, stdout, stderr, error });
+      }
+    );
   });
 }
 
@@ -125,7 +132,9 @@ function isImagePathText(value) {
 
 export function splitPastedImagePathCandidates(text) {
   const out = [];
-  const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+  const lines = String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n');
   for (let li = 0; li < lines.length; li += 1) {
     const line = lines[li];
     const chunks = line.split(/ (?=\/|~\/|\.\.?\/|[A-Za-z]:\\|file:\/\/)/g);
@@ -142,11 +151,11 @@ export function splitPastedImagePathCandidates(text) {
 // Exported for the desktop engine capability surface (resizeImage): the GUI
 // composer routes its attachments through this SAME pipeline so desktop and
 // TUI submit byte-identical image payloads.
-export async function imageAttachmentFromBuffer(buffer, mimeType, {
-  filename = 'Pasted image',
-  sourcePath = '',
-  provider = '',
-} = {}) {
+export async function imageAttachmentFromBuffer(
+  buffer,
+  mimeType,
+  { filename = 'Pasted image', sourcePath = '', provider = '' } = {}
+) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error('image is empty');
   const ext = (mimeType || 'image/png').split('/')[1] || 'png';
   const resized = await resizeImageBuffer(buffer, ext, { profile: imageProfileForProvider(provider) });
@@ -161,7 +170,9 @@ export async function imageAttachmentFromBuffer(buffer, mimeType, {
     };
   }
   if (buffer.length > MAX_IMAGE_BYTES_WITHOUT_RESIZE) {
-    throw new Error(`image is ${(buffer.length / 1024 / 1024).toFixed(1)}MB; install optional sharp support or resize it first`);
+    throw new Error(
+      `image is ${(buffer.length / 1024 / 1024).toFixed(1)}MB; install optional sharp support or resize it first`
+    );
   }
   const data = buffer.toString('base64');
   if (data.length > API_IMAGE_MAX_BASE64_SIZE) {
@@ -195,7 +206,8 @@ export async function readImageAttachmentFromPath(rawPath, cwd = process.cwd(), 
 async function readClipboardImageToTempFile() {
   const out = tempPngPath();
   if (process.platform === 'win32') {
-    const ps = '$p=$env:MIXDOG_CLIPBOARD_IMAGE_PATH; Add-Type -AssemblyName System.Drawing; $img=Get-Clipboard -Format Image; if ($null -eq $img) { exit 2 }; $img.Save($p, [System.Drawing.Imaging.ImageFormat]::Png)';
+    const ps =
+      '$p=$env:MIXDOG_CLIPBOARD_IMAGE_PATH; Add-Type -AssemblyName System.Drawing; $img=Get-Clipboard -Format Image; if ($null -eq $img) { exit 2 }; $img.Save($p, [System.Drawing.Imaging.ImageFormat]::Png)';
     const r = await execFileBuffer('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', ps], {
       env: { ...process.env, MIXDOG_CLIPBOARD_IMAGE_PATH: out },
     });
@@ -223,7 +235,9 @@ export async function readClipboardImageAttachment({ provider = '' } = {}) {
     const buffer = await readFileAsync(file);
     return await imageAttachmentFromBuffer(buffer, 'image/png', { provider });
   } finally {
-    try { unlinkSync(file); } catch {}
+    try {
+      unlinkSync(file);
+    } catch {}
   }
 }
 
@@ -233,10 +247,17 @@ export async function readClipboardImageAttachment({ provider = '' } = {}) {
 // round-trips through base64 so non-ASCII survives the console codepage.
 export async function readClipboardText() {
   if (process.platform === 'win32') {
-    const ps = '$t=Get-Clipboard -Raw; if ($null -eq $t) { exit 2 }; [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($t)))';
-    const r = await execFileBuffer('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', ps], { timeout: 3000 });
+    const ps =
+      '$t=Get-Clipboard -Raw; if ($null -eq $t) { exit 2 }; [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($t)))';
+    const r = await execFileBuffer('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', ps], {
+      timeout: 3000,
+    });
     if (!r.ok || !r.stdout?.length) return '';
-    try { return Buffer.from(r.stdout.toString('ascii').trim(), 'base64').toString('utf8'); } catch { return ''; }
+    try {
+      return Buffer.from(r.stdout.toString('ascii').trim(), 'base64').toString('utf8');
+    } catch {
+      return '';
+    }
   }
   if (process.platform === 'darwin') {
     const r = await execFileBuffer('pbpaste', [], { timeout: 3000 });

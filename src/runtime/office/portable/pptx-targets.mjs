@@ -5,10 +5,13 @@ import { shapeIdentity } from './pptx-relations.mjs';
 export async function resolvePptxTargets({ zip, slides }, operation) {
   const op = { ...operation };
   if (op.slideId != null) {
-    const matches = slides.map((slide, index) => ({ slide, index })).filter(({ slide }) => String(slide.id) === String(op.slideId));
+    const matches = slides
+      .map((slide, index) => ({ slide, index }))
+      .filter(({ slide }) => String(slide.id) === String(op.slideId));
     if (matches.length !== 1) throw new Error(`PPTX slideId ${op.slideId} is missing or ambiguous`);
     const slide = matches[0].index + 1;
-    if (op.slide != null && Number(op.slide) !== slide) throw new Error('PPTX slide and slideId identify different pages');
+    if (op.slide != null && Number(op.slide) !== slide)
+      throw new Error('PPTX slide and slideId identify different pages');
     op.slide = slide;
     delete op.slideId;
   }
@@ -18,11 +21,13 @@ export async function resolvePptxTargets({ zip, slides }, operation) {
     const xml = await zipText(zip, slide.path);
     const tree = containerInner(xml, 'p:spTree');
     const shapes = topLevelElements(tree?.inner || '', ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
-    const matches = shapes.map((shape, index) => ({ ...shapeIdentity(shape.xml), index }))
+    const matches = shapes
+      .map((shape, index) => ({ ...shapeIdentity(shape.xml), index }))
       .filter((shape) => String(shape.shapeId) === String(op.shapeId));
     if (matches.length !== 1) throw new Error(`PPTX shapeId ${op.shapeId} is missing or ambiguous`);
     const shape = matches[0].index + 1;
-    if (op.shape != null && Number(op.shape) !== shape) throw new Error('PPTX shape and shapeId identify different elements');
+    if (op.shape != null && Number(op.shape) !== shape)
+      throw new Error('PPTX shape and shapeId identify different elements');
     op.shape = shape;
     delete op.shapeId;
   }

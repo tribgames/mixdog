@@ -18,7 +18,7 @@ export class BrowserPerformanceTrace {
   constructor(
     private readonly maxEvents = 200_000,
     private readonly maxNames = 2_000,
-    private readonly raw?: BrowserTraceExport,
+    private readonly raw?: BrowserTraceExport
   ) {}
 
   add(events: unknown): void {
@@ -33,13 +33,9 @@ export class BrowserPerformanceTrace {
       this.#events += 1;
       const event = raw as Record<string, unknown>;
       const requestedName = String(event.name || '(unnamed)').slice(0, 120);
-      const name = this.#aggregates.has(requestedName)
-        || this.#aggregates.size < this.maxNames
-        ? requestedName
-        : '(other)';
-      const durationUs = Number.isFinite(Number(event.dur))
-        ? Math.max(0, Number(event.dur))
-        : 0;
+      const name =
+        this.#aggregates.has(requestedName) || this.#aggregates.size < this.maxNames ? requestedName : '(other)';
+      const durationUs = Number.isFinite(Number(event.dur)) ? Math.max(0, Number(event.dur)) : 0;
       const aggregate = this.#aggregates.get(name) || { count: 0, durationUs: 0 };
       aggregate.count += 1;
       aggregate.durationUs += durationUs;
@@ -49,8 +45,7 @@ export class BrowserPerformanceTrace {
 
   summary(endedAt = Date.now(), limit = 25): string {
     const top = [...this.#aggregates.entries()]
-      .sort((left, right) => right[1].durationUs - left[1].durationUs
-        || right[1].count - left[1].count)
+      .sort((left, right) => right[1].durationUs - left[1].durationUs || right[1].count - left[1].count)
       .slice(0, Math.max(1, limit));
     const lines = [
       `Trace duration: ${Math.max(0, endedAt - this.startedAt)}ms`,
@@ -93,7 +88,7 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
   async function performanceResult(
     guest: WebContents,
     command: { operation?: string; reload?: boolean; saveTrace?: boolean },
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<{ text: string }> {
     const operation = String(command.operation || 'metrics').toLowerCase();
     if (operation === 'metrics') {
@@ -102,7 +97,7 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
         guest,
         'Performance.getMetrics',
         {},
-        signal,
+        signal
       );
       return { text: formatPerformanceMetrics(result.metrics || []) };
     }
@@ -111,7 +106,9 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
         throw new Error('a performance trace is already running for this page');
       }
       let resolveComplete = () => {};
-      const complete = new Promise<void>((resolve) => { resolveComplete = resolve; });
+      const complete = new Promise<void>((resolve) => {
+        resolveComplete = resolve;
+      });
       if (command.saveTrace && !host.traceDirectory) throw new Error('browser trace export is unavailable');
       const raw = command.saveTrace
         ? new BrowserTraceExport((value) => host.redactText?.(guest, value) ?? value)
@@ -125,11 +122,16 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
       tracesByGuest.set(guest, active);
       let tracingStarted = false;
       try {
-        await cdp.call(guest, 'Tracing.start', {
-          categories: 'devtools.timeline,v8.execute,blink.user_timing,loading,disabled-by-default-v8.cpu_profiler',
-          options: 'sampling-frequency=10000',
-          transferMode: 'ReportEvents',
-        }, signal);
+        await cdp.call(
+          guest,
+          'Tracing.start',
+          {
+            categories: 'devtools.timeline,v8.execute,blink.user_timing,loading,disabled-by-default-v8.cpu_profiler',
+            options: 'sampling-frequency=10000',
+            transferMode: 'ReportEvents',
+          },
+          signal
+        );
         tracingStarted = true;
         if (command.reload) {
           guest.reload();
@@ -144,9 +146,9 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
             tracesByGuest.delete(guest);
           } catch (cleanupError) {
             throw new Error(
-              `${error instanceof Error ? error.message : String(error)}; `
-              + `trace cleanup also failed (${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}). `
-              + 'Run performance with operation:"stop" to retry cleanup.',
+              `${error instanceof Error ? error.message : String(error)}; ` +
+                `trace cleanup also failed (${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}). ` +
+                'Run performance with operation:"stop" to retry cleanup.'
             );
           }
         } else {
@@ -185,13 +187,21 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
   return { performanceResult };
 }
 
-export function formatPerformanceMetrics(
-  metrics: Array<{ name?: string; value?: number }>,
-): string {
+export function formatPerformanceMetrics(metrics: Array<{ name?: string; value?: number }>): string {
   const preferred = [
-    'Timestamp', 'Documents', 'Frames', 'JSEventListeners', 'Nodes',
-    'LayoutCount', 'RecalcStyleCount', 'LayoutDuration', 'RecalcStyleDuration',
-    'ScriptDuration', 'TaskDuration', 'JSHeapUsedSize', 'JSHeapTotalSize',
+    'Timestamp',
+    'Documents',
+    'Frames',
+    'JSEventListeners',
+    'Nodes',
+    'LayoutCount',
+    'RecalcStyleCount',
+    'LayoutDuration',
+    'RecalcStyleDuration',
+    'ScriptDuration',
+    'TaskDuration',
+    'JSHeapUsedSize',
+    'JSHeapTotalSize',
   ];
   const values = new Map(metrics.map((metric) => [String(metric.name || ''), Number(metric.value)]));
   const lines = preferred.flatMap((name) => {

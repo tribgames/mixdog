@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  browserQueryMatchesLine,
-  parseBrowserQuery,
-  rankBrowserSemanticMatch,
-} from './semantic-query.ts';
+import { browserQueryMatchesLine, parseBrowserQuery, rankBrowserSemanticMatch } from './semantic-query.ts';
 
 test('keywords match with OR and an all-keyword match outranks a partial one', () => {
   const partial = rankBrowserSemanticMatch('technical details', { role: 'button', name: 'Details' });
@@ -21,11 +17,15 @@ test('keywords match with OR and an all-keyword match outranks a partial one', (
 
 test('a single keyword behaves as the substring filter did, including href normalisation', () => {
   const byHref = rankBrowserSemanticMatch('download', {
-    role: 'link', name: 'Release asset', href: 'https://example.test/downloads/latest?token=download',
+    role: 'link',
+    name: 'Release asset',
+    href: 'https://example.test/downloads/latest?token=download',
   });
   assert.equal(byHref.field, 'href');
   const onlyInSearch = rankBrowserSemanticMatch('download', {
-    role: 'link', name: 'Sign in', href: 'https://example.test/login?return_to=%2Fissues%3Fq%3Ddownload',
+    role: 'link',
+    name: 'Sign in',
+    href: 'https://example.test/login?return_to=%2Fissues%3Fq%3Ddownload',
   });
   assert.equal(onlyInSearch, null);
   const verbatim = rankBrowserSemanticMatch('save', { role: 'button', name: 'Save' });

@@ -25,23 +25,40 @@ import {
 import { rebuildDeferredToolSurfaceForProvider } from './tool-catalog.mjs';
 export { shouldRecreateEmptySessionForRouteChange } from './session-route-policy.mjs';
 
-// Model/route/web-search-route selection + mutation surface. Extracted verbatim from
-// the runtime API object; stateless helpers are imported directly and the
-// runtime injects live getters/setters for the mutable config/route/webSearchRoute/
-// session locals plus the closure callbacks (config adopt/save, effort refresh,
-// provider registry, statusline).
+// Model/route/web-search-route selection + mutation surface. Stateless helpers
+// are imported directly and the runtime injects live getters/setters for the
+// mutable config/route/webSearchRoute/session locals plus the closure
+// callbacks (config adopt/save, effort refresh, provider registry, statusline).
 export function createModelRouteApi(deps) {
   const {
-    getConfig, getRoute, setRouteState, getSession, setSession,
-    getConfigHasSecrets, getWebSearchRouteState, setWebSearchRouteState,
-    cfgMod, reg, mgr, statusRoutes,
-    resolveRoute, webSearchCapableFor, lookupModelMeta,
-    adoptConfig, saveConfigAndAdopt, ensureFullConfig, awaitKeychainPrewarm,
+    getConfig,
+    getRoute,
+    setRouteState,
+    getSession,
+    setSession,
+    getConfigHasSecrets,
+    getWebSearchRouteState,
+    setWebSearchRouteState,
+    cfgMod,
+    reg,
+    mgr,
+    statusRoutes,
+    resolveRoute,
+    webSearchCapableFor,
+    lookupModelMeta,
+    adoptConfig,
+    saveConfigAndAdopt,
+    ensureFullConfig,
+    awaitKeychainPrewarm,
     ensureProvidersReady,
-    persistLeadRoute, refreshRouteEffort,
-    refreshStatuslineUsageSnapshot, scheduleStatuslineUsageRefresh,
-    invalidateContextStatusCache, invalidateProviderCaches,
-    createCurrentSession, invalidatePreSessionToolSurface,
+    persistLeadRoute,
+    refreshRouteEffort,
+    refreshStatuslineUsageSnapshot,
+    scheduleStatuslineUsageRefresh,
+    invalidateContextStatusCache,
+    invalidateProviderCaches,
+    createCurrentSession,
+    invalidatePreSessionToolSurface,
     collectWebSearchProviderModels,
   } = deps;
   function persistAdoptedModelSettings(route) {
@@ -65,9 +82,10 @@ export function createModelRouteApi(deps) {
   return {
     getWebSearchRoute() {
       // Unset === the default marker route (follow Main), never "unconfigured".
-      const webSearchRoute = normalizeWebSearchRouteConfig(getConfig().webSearchRoute)
-        || normalizeWebSearchRouteConfig(getWebSearchRouteState())
-        || normalizeWebSearchRouteConfig({
+      const webSearchRoute =
+        normalizeWebSearchRouteConfig(getConfig().webSearchRoute) ||
+        normalizeWebSearchRouteConfig(getWebSearchRouteState()) ||
+        normalizeWebSearchRouteConfig({
           provider: WEB_SEARCH_DEFAULT_PROVIDER,
           model: WEB_SEARCH_DEFAULT_MODEL,
         });
@@ -81,10 +99,10 @@ export function createModelRouteApi(deps) {
       let selectedRoute = clean(next?.provider)
         ? normalizeWebSearchRouteConfig(next)
         : normalizeWebSearchRouteConfig({
-          provider: WEB_SEARCH_DEFAULT_PROVIDER,
-          model: WEB_SEARCH_DEFAULT_MODEL,
-          ...(next?.toolType ? { toolType: next.toolType } : {}),
-        });
+            provider: WEB_SEARCH_DEFAULT_PROVIDER,
+            model: WEB_SEARCH_DEFAULT_MODEL,
+            ...(next?.toolType ? { toolType: next.toolType } : {}),
+          });
       if (!selectedRoute) throw new Error('web search route requires provider and model');
       if (isDefaultWebSearchRouteConfig(selectedRoute)) {
         await awaitKeychainPrewarm();
@@ -117,12 +135,7 @@ export function createModelRouteApi(deps) {
       // bucket belongs to the MAIN route alone, so a web-search model pick that
       // happens to match Main must not rewrite Main's saved effort/fast.
       const effort = coerceEffortFor(selectedRoute.provider, modelMeta, selectedRoute.effort);
-      const fastCapable = fastCapableFor(
-        selectedRoute.provider,
-        modelMeta,
-        effort,
-        selectedRoute.modelParameters,
-      );
+      const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta, effort, selectedRoute.modelParameters);
       selectedRoute = {
         ...selectedRoute,
         ...(effort ? { effort } : {}),
@@ -154,24 +167,26 @@ export function createModelRouteApi(deps) {
       let selectedRoute = resolveRoute(getConfig(), requested);
       await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
       const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
-      if (!providerExplicitlyRequested
-        && !selectedRoute.preset
-        && !modelMetaLooksResolved(modelMeta)
-        && !getModelMetadataSync(selectedRoute.model, selectedRoute.provider)) {
+      if (
+        !providerExplicitlyRequested &&
+        !selectedRoute.preset &&
+        !modelMetaLooksResolved(modelMeta) &&
+        !getModelMetadataSync(selectedRoute.model, selectedRoute.provider)
+      ) {
         throw new Error(`unknown model: ${selectedRoute.provider}/${selectedRoute.model}`);
       }
       const fastCapable = fastCapableFor(
         selectedRoute.provider,
         modelMeta,
         selectedRoute.effort,
-        selectedRoute.modelParameters,
+        selectedRoute.modelParameters
       );
       selectedRoute = { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };
-      adoptConfig(saveModelSettings(cfgMod, selectedRoute, { fastCapable, baseConfig: getConfig() }), { hasSecrets: getConfigHasSecrets() });
+      adoptConfig(saveModelSettings(cfgMod, selectedRoute, { fastCapable, baseConfig: getConfig() }), {
+        hasSecrets: getConfigHasSecrets(),
+      });
       const leadRoute = persistAdoptedModelSettings(selectedRoute);
-      setRouteState(resolveRoute(getConfig(), leadRoute
-        ? { model: workflowPresetId('lead') }
-        : selectedRoute));
+      setRouteState(resolveRoute(getConfig(), leadRoute ? { model: workflowPresetId('lead') } : selectedRoute));
       await refreshRouteEffort(modelMeta);
       refreshStatuslineUsageSnapshot(getRoute());
       scheduleStatuslineUsageRefresh();
@@ -188,9 +203,11 @@ export function createModelRouteApi(deps) {
         if (applyToCurrentSession) applySessionTuning();
         return getRoute();
       }
-      if (shouldRecreateEmptySessionForRouteChange(session, applyToCurrentSession)
-        && session?.id
-        && typeof createCurrentSession === 'function') {
+      if (
+        shouldRecreateEmptySessionForRouteChange(session, applyToCurrentSession) &&
+        session?.id &&
+        typeof createCurrentSession === 'function'
+      ) {
         // If the boot create is still finishing SessionStart/deferred-surface
         // work, drain that promise first. Otherwise createCurrentSession()
         // would return the old in-flight promise after we tombstone/null the
@@ -247,19 +264,23 @@ export function createModelRouteApi(deps) {
         getRoute().provider,
         modelMeta,
         getRoute().effectiveEffort || getRoute().effort,
-        getRoute().modelParameters,
+        getRoute().modelParameters
       );
       if (enabled && !fastCapable) {
         throw new Error(`fast mode is not available for ${getRoute().provider}/${getRoute().model}`);
       }
-      setRouteState(resolveRoute(getConfig(), {
-        provider: getRoute().provider,
-        model: getRoute().model,
-        effort: getRoute().effort,
-        fast: fastCapable ? enabled : false,
-        modelParameters: getRoute().modelParameters,
-      }));
-      adoptConfig(saveModelSettings(cfgMod, getRoute(), { fastCapable, baseConfig: getConfig() }), { hasSecrets: getConfigHasSecrets() });
+      setRouteState(
+        resolveRoute(getConfig(), {
+          provider: getRoute().provider,
+          model: getRoute().model,
+          effort: getRoute().effort,
+          fast: fastCapable ? enabled : false,
+          modelParameters: getRoute().modelParameters,
+        })
+      );
+      adoptConfig(saveModelSettings(cfgMod, getRoute(), { fastCapable, baseConfig: getConfig() }), {
+        hasSecrets: getConfigHasSecrets(),
+      });
       const leadRoute = persistAdoptedModelSettings(getRoute());
       if (leadRoute) setRouteState(resolveRoute(getConfig(), { model: workflowPresetId('lead') }));
       await refreshRouteEffort(modelMeta);
@@ -273,13 +294,10 @@ export function createModelRouteApi(deps) {
       const normalized = normalizeEffortInput(value);
       setRouteState({ ...getRoute(), effort: normalized });
       const modelMeta = await lookupModelMeta(getRoute().provider, getRoute().model);
-      const fastCapable = fastCapableFor(
-        getRoute().provider,
-        modelMeta,
-        normalized,
-        getRoute().modelParameters,
-      );
-      adoptConfig(saveModelSettings(cfgMod, getRoute(), { fastCapable, baseConfig: getConfig() }), { hasSecrets: getConfigHasSecrets() });
+      const fastCapable = fastCapableFor(getRoute().provider, modelMeta, normalized, getRoute().modelParameters);
+      adoptConfig(saveModelSettings(cfgMod, getRoute(), { fastCapable, baseConfig: getConfig() }), {
+        hasSecrets: getConfigHasSecrets(),
+      });
       const leadRoute = persistAdoptedModelSettings(getRoute());
       if (leadRoute) {
         setRouteState(resolveRoute(getConfig(), { model: workflowPresetId('lead') }));

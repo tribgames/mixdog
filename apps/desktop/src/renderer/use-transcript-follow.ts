@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type MutableRefObject,
-  type RefObject,
-} from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react';
 
 /**
  * Transcript auto-scroll + session scroll-gesture grammar.
@@ -25,13 +18,13 @@ export const BOTTOM_THRESHOLD_PX = 10;
 // A virtualized transcript must have exactly one geometry authority.
 // Browser anchoring and virtual-core both compensate rows that resize above
 // the viewport, so enabling both makes upward reader motion oscillate.
-export const TRANSCRIPT_OVERFLOW_ANCHOR = "none";
+export const TRANSCRIPT_OVERFLOW_ANCHOR = 'none';
 // Re-attaching tolerates more slack than releasing does: while a turn streams,
 // the tail keeps moving away between the reader's last scroll frame and this
 // handler, so a deliberate scroll back down lands tens of px above a bottom
 // that has already grown.
 const REATTACH_THRESHOLD_PX = 32;
-const SCROLL_KEYS = ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "];
+const SCROLL_KEYS = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '];
 // A release must be a real upward move, not sub-pixel reflow noise. Fractional
 // row heights under a parallel stream deliver 1px scrollTop wobble that is not
 // reader intent; a plain scroll listener never sees it because it does not
@@ -82,10 +75,7 @@ export function grewWhileAtBottom({
 }
 
 /** Scrollbar / empty padding: the event target IS the overflow root. */
-function isTranscriptChromeTarget(
-  root: EventTarget | null,
-  target: EventTarget | null,
-): boolean {
+function isTranscriptChromeTarget(root: EventTarget | null, target: EventTarget | null): boolean {
   return root != null && target === root;
 }
 
@@ -160,7 +150,7 @@ export function wheelShouldReleaseFollow({
  *  live layout. */
 export function boundaryGestureReached(
   metrics: { scrollTop: number; scrollHeight: number; clientHeight: number },
-  delta: number,
+  delta: number
 ): boolean {
   const max = metrics.scrollHeight - metrics.clientHeight;
   if (max <= 1) return true;
@@ -183,19 +173,20 @@ export function programmaticWriteMatches({
   windowMs?: number;
 }): boolean {
   const rounded = Math.round(top);
-  return writes.some((entry) =>
-    now - entry.time < windowMs && Math.abs(rounded - entry.top) < 2);
+  return writes.some((entry) => now - entry.time < windowMs && Math.abs(rounded - entry.top) < 2);
 }
 
 function reportRelease(reason: string, element: HTMLElement, previousTop: number): void {
   try {
     window.mixdogDesktop?.perfLog?.(
-      `transcript-follow-release reason=${reason}`
-      + ` top=${Math.round(element.scrollTop)}`
-      + ` delta=${Math.round(element.scrollTop - previousTop)}`
-      + ` distance=${Math.round(element.scrollHeight - element.clientHeight - element.scrollTop)}`,
+      `transcript-follow-release reason=${reason}` +
+        ` top=${Math.round(element.scrollTop)}` +
+        ` delta=${Math.round(element.scrollTop - previousTop)}` +
+        ` distance=${Math.round(element.scrollHeight - element.clientHeight - element.scrollTop)}`
     );
-  } catch { /* diagnostics only */ }
+  } catch {
+    /* diagnostics only */
+  }
 }
 
 type WheelLike = {
@@ -225,14 +216,11 @@ function normalizeWheelDelta(event: WheelLike): number {
 
 function boundaryTarget(root: HTMLElement, target: EventTarget | null): HTMLElement {
   const current = target instanceof Element ? target : null;
-  const nested = current?.closest<HTMLElement>("[data-scrollable]");
+  const nested = current?.closest<HTMLElement>('[data-scrollable]');
   return nested && nested !== root ? nested : root;
 }
 
-function shouldMarkBoundaryGesture(
-  target: HTMLElement,
-  delta: number,
-): boolean {
+function shouldMarkBoundaryGesture(target: HTMLElement, delta: number): boolean {
   return boundaryGestureReached(target, delta);
 }
 
@@ -330,13 +318,16 @@ export function useTranscriptFollow({
   const jumpPinUntil = useRef(0);
   const jumpPinSettled = useRef(0);
 
-  const publish = useCallback((next: boolean) => {
-    followingRef.current = next;
-    // The timeline anchor is part of the same decision, not a consequence of
-    // the re-render that follows it.
-    setAnchorBottomRef?.current?.(next);
-    setFollowing((current) => (current === next ? current : next));
-  }, [setAnchorBottomRef]);
+  const publish = useCallback(
+    (next: boolean) => {
+      followingRef.current = next;
+      // The timeline anchor is part of the same decision, not a consequence of
+      // the re-render that follows it.
+      setAnchorBottomRef?.current?.(next);
+      setFollowing((current) => (current === next ? current : next));
+    },
+    [setAnchorBottomRef]
+  );
 
   const cancelJumpPin = useCallback(() => {
     if (jumpPinFrame.current) window.cancelAnimationFrame(jumpPinFrame.current);
@@ -369,7 +360,9 @@ export function useTranscriptFollow({
         lastTop.current = element.scrollTop;
         lastScrollHeight.current = element.scrollHeight;
         lastDistance.current = distanceFromBottom(element);
-      } catch { /* layout only */ }
+      } catch {
+        /* layout only */
+      }
     } else {
       lastTop.current = 0;
       lastScrollHeight.current = 0;
@@ -394,24 +387,19 @@ export function useTranscriptFollow({
     pointerDragging.current = false;
     chromeScroll.current = false;
   }, []);
-  const hasGesture = useCallback(
-    () => Date.now() - gestureAt.current < GESTURE_WINDOW_MS,
-    [],
-  );
+  const hasGesture = useCallback(() => Date.now() - gestureAt.current < GESTURE_WINDOW_MS, []);
   const markReaderMotion = useCallback(() => {
     readerMotionAt.current = Date.now();
   }, []);
   const hasReaderScroll = useCallback(
     () => hasGesture() || Date.now() - readerMotionAt.current < READER_SCROLL_IDLE_MS,
-    [hasGesture],
+    [hasGesture]
   );
   const markProgrammaticScroll = useCallback((top: number, intended?: number) => {
     const time = Date.now();
-    const queue = programmatic.current.filter(
-      (entry) => time - entry.time < PROGRAMMATIC_WINDOW_MS,
-    );
+    const queue = programmatic.current.filter((entry) => time - entry.time < PROGRAMMATIC_WINDOW_MS);
     queue.push({ top: Math.round(top), time });
-    if (typeof intended === "number" && Number.isFinite(intended)) {
+    if (typeof intended === 'number' && Number.isFinite(intended)) {
       queue.push({ top: Math.round(intended), time });
     }
     programmatic.current = queue.slice(-PROGRAMMATIC_MEMORY);
@@ -419,55 +407,62 @@ export function useTranscriptFollow({
 
   const isProgrammatic = useCallback((element: HTMLElement) => {
     const time = Date.now();
-    const queue = programmatic.current.filter(
-      (entry) => time - entry.time < PROGRAMMATIC_WINDOW_MS,
-    );
+    const queue = programmatic.current.filter((entry) => time - entry.time < PROGRAMMATIC_WINDOW_MS);
     programmatic.current = queue;
     if (!queue.length) return false;
     return programmaticWriteMatches({ writes: queue, top: element.scrollTop, now: time });
   }, []);
 
-  const scrollToBottom = useCallback((force: boolean) => {
-    const element = viewport.current;
-    if (!element) return;
-    if (force && !followingRef.current) publish(true);
-    if (!force && !followingRef.current) return;
-    if (distanceFromBottom(element) < 2) return;
-    scrollToEndRef?.current?.("auto");
-  }, [publish, scrollToEndRef, viewport]);
+  const scrollToBottom = useCallback(
+    (force: boolean) => {
+      const element = viewport.current;
+      if (!element) return;
+      if (force && !followingRef.current) publish(true);
+      if (!force && !followingRef.current) return;
+      if (distanceFromBottom(element) < 2) return;
+      scrollToEndRef?.current?.('auto');
+    },
+    [publish, scrollToEndRef, viewport]
+  );
 
-  const stop = useCallback((reason = "gesture", previousTop = 0) => {
-    const element = viewport.current;
-    if (!element) return;
-    if (!canScroll(element)) {
-      publish(true);
-      return;
-    }
-    if (!followingRef.current) return;
-    reportRelease(reason, element, previousTop);
-    publish(false);
-  }, [publish, viewport]);
+  const stop = useCallback(
+    (reason = 'gesture', previousTop = 0) => {
+      const element = viewport.current;
+      if (!element) return;
+      if (!canScroll(element)) {
+        publish(true);
+        return;
+      }
+      if (!followingRef.current) return;
+      reportRelease(reason, element, previousTop);
+      publish(false);
+    },
+    [publish, viewport]
+  );
 
-  const pause = useCallback(() => stop("pause"), [stop]);
+  const pause = useCallback(() => stop('pause'), [stop]);
 
   const updateScrollState = useCallback((element: HTMLDivElement) => {
     const max = element.scrollHeight - element.clientHeight;
     const distance = max - element.scrollTop;
     const overflow = max > 1;
     const jump = overflow && distance > Math.max(400, element.clientHeight);
-    setShowJump((current) => current === jump ? current : jump);
+    setShowJump((current) => (current === jump ? current : jump));
   }, []);
 
-  const scheduleScrollState = useCallback((element: HTMLDivElement) => {
-    scrollStateTarget.current = element;
-    if (scrollStateFrame.current) return;
-    scrollStateFrame.current = window.requestAnimationFrame(() => {
-      scrollStateFrame.current = 0;
-      const target = scrollStateTarget.current;
-      scrollStateTarget.current = null;
-      if (target) updateScrollState(target);
-    });
-  }, [updateScrollState]);
+  const scheduleScrollState = useCallback(
+    (element: HTMLDivElement) => {
+      scrollStateTarget.current = element;
+      if (scrollStateFrame.current) return;
+      scrollStateFrame.current = window.requestAnimationFrame(() => {
+        scrollStateFrame.current = 0;
+        const target = scrollStateTarget.current;
+        scrollStateTarget.current = null;
+        if (target) updateScrollState(target);
+      });
+    },
+    [updateScrollState]
+  );
 
   const handleScroll = useCallback(() => {
     const element = viewport.current;
@@ -500,13 +495,15 @@ export function useTranscriptFollow({
       // reader's offset is never rolled back; the tail is regained by the next
       // append instead of a jump.
       const distance = distanceFromBottom(element);
-      if (!canScroll(element)
-        || distance < BOTTOM_THRESHOLD_PX
+      if (
+        !canScroll(element) ||
+        distance < BOTTOM_THRESHOLD_PX ||
         // A DOWNWARD arrival re-attaches from a wider band: while a turn
         // streams, the bottom keeps moving away between the reader's last
         // scroll frame and this handler, so the ten-pixel band alone could
         // never be met on the way back.
-        || (element.scrollTop > previousTop && distance <= reattachBand(element))) {
+        (element.scrollTop > previousTop && distance <= reattachBand(element))
+      ) {
         publish(true);
       }
       return;
@@ -515,71 +512,79 @@ export function useTranscriptFollow({
     // the next 250ms would then unlock follow (user: 스크립트 클릭하면
     // 오토스크롤·줄바꿈이 풀린다). Selection autoscroll is the exception —
     // pointerDragging is armed only after a real 4px drag.
-    if (readerScrollShouldReleaseFollow({
-      programmatic: programmaticScroll,
-      chromePointer: chromeScroll.current,
-      upwardMove: previousTop - element.scrollTop,
-    })) {
-      stop("scroll", previousTop);
+    if (
+      readerScrollShouldReleaseFollow({
+        programmatic: programmaticScroll,
+        chromePointer: chromeScroll.current,
+        upwardMove: previousTop - element.scrollTop,
+      })
+    ) {
+      stop('scroll', previousTop);
     }
-  }, [
-    hasReaderScroll,
-    isProgrammatic,
-    markGesture,
-    markReaderMotion,
-    publish,
-    scheduleScrollState,
-    stop,
-    viewport,
-  ]);
+  }, [hasReaderScroll, isProgrammatic, markGesture, markReaderMotion, publish, scheduleScrollState, stop, viewport]);
 
-  const handleWheel = useCallback((event: WheelLike) => {
-    const root = event.currentTarget;
-    const delta = normalizeWheelDelta(event);
-    if (!delta) return;
-    const target = boundaryTarget(root, event.target);
-    // One boundary decision drives BOTH marks. Testing "is there any nested
-    // scroller?" separately kept follow armed for an upward wheel at a nested
-    // scroller's leading edge: the gesture was marked, the transcript scrolled
-    // up by chaining, and the end anchor then fought the reader every frame.
-    const transcriptReached = target === root || shouldMarkBoundaryGesture(target, delta);
-    if (!transcriptReached) return;
-    markGesture();
-    // Wheel rule: an upward wheel is explicit intent
-    // and releases immediately, however small it is. Re-attaching is the side
-    // that carries the slack (reattachBand).
-    if (wheelShouldReleaseFollow({ delta, transcriptReached })) {
-      stop("wheel", lastTop.current);
-    }
-  }, [markGesture, stop]);
+  const handleWheel = useCallback(
+    (event: WheelLike) => {
+      const root = event.currentTarget;
+      const delta = normalizeWheelDelta(event);
+      if (!delta) return;
+      const target = boundaryTarget(root, event.target);
+      // One boundary decision drives BOTH marks. Testing "is there any nested
+      // scroller?" separately kept follow armed for an upward wheel at a nested
+      // scroller's leading edge: the gesture was marked, the transcript scrolled
+      // up by chaining, and the end anchor then fought the reader every frame.
+      const transcriptReached = target === root || shouldMarkBoundaryGesture(target, delta);
+      if (!transcriptReached) return;
+      markGesture();
+      // Wheel rule: an upward wheel is explicit intent
+      // and releases immediately, however small it is. Re-attaching is the side
+      // that carries the slack (reattachBand).
+      if (wheelShouldReleaseFollow({ delta, transcriptReached })) {
+        stop('wheel', lastTop.current);
+      }
+    },
+    [markGesture, stop]
+  );
 
-  const handlePointerDown = useCallback((event: PointerLike) => {
-    const root = event.currentTarget;
-    pointerDragging.current = false;
-    chromeScroll.current = isTranscriptChromeTarget(root, event.target);
-    if (chromeScroll.current) markGesture();
-    pointerGesture.current = event.clientX === undefined || event.clientY === undefined
-      ? undefined
-      : { x: event.clientX, y: event.clientY };
-  }, [markGesture]);
+  const handlePointerDown = useCallback(
+    (event: PointerLike) => {
+      const root = event.currentTarget;
+      pointerDragging.current = false;
+      chromeScroll.current = isTranscriptChromeTarget(root, event.target);
+      if (chromeScroll.current) markGesture();
+      pointerGesture.current =
+        event.clientX === undefined || event.clientY === undefined ? undefined : { x: event.clientX, y: event.clientY };
+    },
+    [markGesture]
+  );
 
-  const handlePointerMove = useCallback((event: PointerLike) => {
-    if (event.buttons !== 1) return;
-    const root = event.currentTarget;
-    const start = pointerGesture.current;
-    if (start && event.clientX !== undefined && event.clientY !== undefined
-      && Math.hypot(event.clientX - start.x, event.clientY - start.y) >= POINTER_DRAG_PX) {
-      pointerDragging.current = true;
-      pointerGesture.current = undefined;
-    }
-    if (!pointerDragging.current) return;
-    if (!pointerShouldReleaseFollow({
-      distance: distanceFromBottom(root),
-      upwardMove: lastTop.current - root.scrollTop,
-    })) return;
-    markGesture();
-    stop("selection", lastTop.current);
-  }, [markGesture, stop]);
+  const handlePointerMove = useCallback(
+    (event: PointerLike) => {
+      if (event.buttons !== 1) return;
+      const root = event.currentTarget;
+      const start = pointerGesture.current;
+      if (
+        start &&
+        event.clientX !== undefined &&
+        event.clientY !== undefined &&
+        Math.hypot(event.clientX - start.x, event.clientY - start.y) >= POINTER_DRAG_PX
+      ) {
+        pointerDragging.current = true;
+        pointerGesture.current = undefined;
+      }
+      if (!pointerDragging.current) return;
+      if (
+        !pointerShouldReleaseFollow({
+          distance: distanceFromBottom(root),
+          upwardMove: lastTop.current - root.scrollTop,
+        })
+      )
+        return;
+      markGesture();
+      stop('selection', lastTop.current);
+    },
+    [markGesture, stop]
+  );
 
   const handlePointerUp = useCallback(() => {
     pointerDragging.current = false;
@@ -587,41 +592,46 @@ export function useTranscriptFollow({
     chromeScroll.current = false;
   }, []);
 
-  const handleSelectionAutoScroll = useCallback((delta: number) => {
-    if (!Number.isFinite(delta) || delta === 0) return;
-    // Claim reader ownership before TranscriptList writes scrollTop so the
-    // virtual end anchor cannot pull against that write in the same frame.
-    markGesture();
-    if (selectionAutoScrollShouldReleaseFollow(delta)) {
-      stop("selection", lastTop.current);
-    }
-  }, [markGesture, stop]);
+  const handleSelectionAutoScroll = useCallback(
+    (delta: number) => {
+      if (!Number.isFinite(delta) || delta === 0) return;
+      // Claim reader ownership before TranscriptList writes scrollTop so the
+      // virtual end anchor cannot pull against that write in the same frame.
+      markGesture();
+      if (selectionAutoScrollShouldReleaseFollow(delta)) {
+        stop('selection', lastTop.current);
+      }
+    },
+    [markGesture, stop]
+  );
 
   const handleTouchStart = useCallback((event: TouchLike) => {
     touchGesture.current = event.touches[0]?.clientY;
   }, []);
 
-  const handleTouchMove = useCallback((event: TouchLike) => {
-    const next = event.touches[0]?.clientY;
-    const previous = touchGesture.current;
-    touchGesture.current = next;
-    if (next === undefined || previous === undefined) return;
-    const delta = previous - next;
-    if (!delta) return;
-    const target = boundaryTarget(event.currentTarget, event.target);
-    const transcriptReached = target === event.currentTarget
-      || shouldMarkBoundaryGesture(target, delta);
-    if (transcriptReached) {
-      markGesture();
-      // Wheel intent releases synchronously before Chromium's first scroll
-      // frame; touch must do the same. Keeping the end anchor alive until the
-      // later scroll event lets row measurement and followOnAppend reverse the
-      // finger's movement, producing the mobile up/down scrollbar shake.
-      if (touchMoveShouldReleaseFollow({ delta, transcriptReached })) {
-        stop("touch", lastTop.current);
+  const handleTouchMove = useCallback(
+    (event: TouchLike) => {
+      const next = event.touches[0]?.clientY;
+      const previous = touchGesture.current;
+      touchGesture.current = next;
+      if (next === undefined || previous === undefined) return;
+      const delta = previous - next;
+      if (!delta) return;
+      const target = boundaryTarget(event.currentTarget, event.target);
+      const transcriptReached = target === event.currentTarget || shouldMarkBoundaryGesture(target, delta);
+      if (transcriptReached) {
+        markGesture();
+        // Wheel intent releases synchronously before Chromium's first scroll
+        // frame; touch must do the same. Keeping the end anchor alive until the
+        // later scroll event lets row measurement and followOnAppend reverse the
+        // finger's movement, producing the mobile up/down scrollbar shake.
+        if (touchMoveShouldReleaseFollow({ delta, transcriptReached })) {
+          stop('touch', lastTop.current);
+        }
       }
-    }
-  }, [markGesture, stop]);
+    },
+    [markGesture, stop]
+  );
 
   const handleTouchEnd = useCallback(() => {
     touchGesture.current = undefined;
@@ -632,19 +642,18 @@ export function useTranscriptFollow({
     // unlocked wrap/follow whenever the reader copied a live script line.
   }, []);
 
-  const handleKeyDown = useCallback((event: {
-    key: string;
-    target?: EventTarget | null;
-    currentTarget?: HTMLDivElement;
-  }) => {
-    if (!SCROLL_KEYS.includes(event.key)) return;
-    const root = event.currentTarget ?? viewport.current;
-    if (!root || boundaryTarget(root, event.target ?? root) !== root) return;
-    markGesture();
-    if (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home") {
-      stop("key", lastTop.current);
-    }
-  }, [markGesture, stop, viewport]);
+  const handleKeyDown = useCallback(
+    (event: { key: string; target?: EventTarget | null; currentTarget?: HTMLDivElement }) => {
+      if (!SCROLL_KEYS.includes(event.key)) return;
+      const root = event.currentTarget ?? viewport.current;
+      if (!root || boundaryTarget(root, event.target ?? root) !== root) return;
+      markGesture();
+      if (event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Home') {
+        stop('key', lastTop.current);
+      }
+    },
+    [markGesture, stop, viewport]
+  );
 
   // Chromium's wheel/fling animation keeps writing scrollTop after the click,
   // and it cannot be cancelled from JS — so the tail is simply re-taken every
@@ -669,7 +678,7 @@ export function useTranscriptFollow({
         }
       } else {
         jumpPinSettled.current = 0;
-        scrollToEndRef?.current?.("auto");
+        scrollToEndRef?.current?.('auto');
       }
       jumpPinFrame.current = window.requestAnimationFrame(step);
     };
@@ -687,15 +696,7 @@ export function useTranscriptFollow({
     startJumpPin();
     const element = viewport.current;
     if (element) scheduleScrollState(element);
-  }, [
-    cancelJumpPin,
-    clearReaderGesture,
-    publish,
-    scheduleScrollState,
-    scrollToBottom,
-    startJumpPin,
-    viewport,
-  ]);
+  }, [cancelJumpPin, clearReaderGesture, publish, scheduleScrollState, scrollToBottom, startJumpPin, viewport]);
   // Session ENTRY only re-arms following; it must not write scrollTop. The
   // virtual timeline already resolves its end position (initialOffset +
   // scrollToEnd), and a raw `scrollTop = scrollHeight` here made entry carry
@@ -724,7 +725,7 @@ export function useTranscriptFollow({
     element.style.overflowAnchor = TRANSCRIPT_OVERFLOW_ANCHOR;
     // Chromium always provides ResizeObserver. The renderer's jsdom harness
     // intentionally omits it in tests that do not exercise layout delivery.
-    if (typeof ResizeObserver !== "function") return undefined;
+    if (typeof ResizeObserver !== 'function') return undefined;
     let viewportHeight = Math.round(element.getBoundingClientRect().height);
     // Seed the growth baseline with the height already on screen so the first
     // observation cannot report the whole transcript as this commit's growth.
@@ -821,10 +822,13 @@ export function useTranscriptFollow({
     viewport,
   ]);
 
-  useEffect(() => () => {
-    if (scrollStateFrame.current) window.cancelAnimationFrame(scrollStateFrame.current);
-    if (jumpPinFrame.current) window.cancelAnimationFrame(jumpPinFrame.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (scrollStateFrame.current) window.cancelAnimationFrame(scrollStateFrame.current);
+      if (jumpPinFrame.current) window.cancelAnimationFrame(jumpPinFrame.current);
+    },
+    []
+  );
 
   return {
     following,

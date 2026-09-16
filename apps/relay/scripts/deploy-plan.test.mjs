@@ -4,29 +4,27 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  decideDeployPlan,
-  fingerprint,
-  rendererInputs,
-  rendererManifestForFingerprint,
-} from './deploy-plan.mjs';
+import { decideDeployPlan, fingerprint, rendererInputs, rendererManifestForFingerprint } from './deploy-plan.mjs';
 
 const renderer = { hash: 'renderer-1' };
 const relay = { hash: 'relay-1' };
 
 test('an unchanged live deployment skips build, stage, and upload', () => {
-  assert.deepEqual(decideDeployPlan({
-    previous: { schemaVersion: 1, rendererHash: renderer.hash, relayHash: relay.hash },
-    renderer,
-    relay,
-    outputFresh: false,
-  }), {
-    rendererChanged: false,
-    relayChanged: false,
-    rendererBuild: false,
-    stageRenderer: false,
-    deploy: false,
-  });
+  assert.deepEqual(
+    decideDeployPlan({
+      previous: { schemaVersion: 1, rendererHash: renderer.hash, relayHash: relay.hash },
+      renderer,
+      relay,
+      outputFresh: false,
+    }),
+    {
+      rendererChanged: false,
+      relayChanged: false,
+      rendererBuild: false,
+      stageRenderer: false,
+      deploy: false,
+    }
+  );
 });
 
 test('a relay-only change uploads no renderer', () => {

@@ -29,8 +29,10 @@ const GENERATED_TITLE_NOISE = Object.freeze([
 // Provider/runtime media envelopes are transport metadata, never user-facing
 // title text. Keep the match narrow enough that a literal prompt such as
 // "[Image: artistic direction]" remains untouched.
-const MEDIA_DISPLAY_BLOCK = /\[(Image|Video)(?:\s*#?\d+(?:\s*:[^\]\r\n]*)?|\s+source:\s*[^\]\r\n]+|:\s*(?=[^\]\r\n]*(?:source:|\d{1,6}\s*[x×]\s*\d{1,6}|displayed\s+at\b|duration\b))[^\]\r\n]+)\]/gi;
-const LEGACY_MEDIA_PREFIX = /^\s*.+?\.(png|jpe?g|gif|webp|bmp|avif|mp4|mov|m4v|webm|mkv|avi)\s+\d{1,6}\s*[x×]\s*\d{1,6}(?:\s*,?\s*displayed\s+at\s+\d{1,6}\s*[x×]\s*\d{1,6})?\s*(?:…|\.\.\.)?\s*/i;
+const MEDIA_DISPLAY_BLOCK =
+  /\[(Image|Video)(?:\s*#?\d+(?:\s*:[^\]\r\n]*)?|\s+source:\s*[^\]\r\n]+|:\s*(?=[^\]\r\n]*(?:source:|\d{1,6}\s*[x×]\s*\d{1,6}|displayed\s+at\b|duration\b))[^\]\r\n]+)\]/gi;
+const LEGACY_MEDIA_PREFIX =
+  /^\s*.+?\.(png|jpe?g|gif|webp|bmp|avif|mp4|mov|m4v|webm|mkv|avi)\s+\d{1,6}\s*[x×]\s*\d{1,6}(?:\s*,?\s*displayed\s+at\s+\d{1,6}\s*[x×]\s*\d{1,6})?\s*(?:…|\.\.\.)?\s*/i;
 const COMPACTED_EVENT_LINE = /^\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\]\s+([a-z]+):\s*(.*)$/i;
 // Reply/session-transition envelopes can lead the visible prompt after a
 // restart. They are navigation metadata, not the task itself, and otherwise
@@ -39,7 +41,8 @@ const COMPACTED_EVENT_LINE = /^\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\]\s+([a-z]+):
 // excerpt; a truncated metadata title with no trailing text only loses the
 // timestamp prefix and is repaired later from the full durable preview.
 const SESSION_REFERENCE_PREFIX = /^\s*(?:확인\s*)?\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/i;
-const SESSION_REFERENCE_QUOTE = /^\s*(?:확인\s*)?\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*[\s\S]{0,160}?(?:…|\.\.\.)\s*(?=\S)/i;
+const SESSION_REFERENCE_QUOTE =
+  /^\s*(?:확인\s*)?\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*[\s\S]{0,160}?(?:…|\.\.\.)\s*(?=\S)/i;
 const SESSION_REFERENCE_DEICTIC = /^(?:이거|이게|그거)\s*/;
 
 function stripSessionReference(value) {
@@ -78,8 +81,11 @@ export function isMediaSessionTitlePlaceholder(value) {
  */
 export function compactedSessionTitle(value, fallback = '') {
   const source = String(value ?? '');
-  if (!/^a previous model worked on this task\b/i.test(source.trimStart())
-    && !source.includes('<prior-compacted-context>')) return String(fallback);
+  if (
+    !/^a previous model worked on this task\b/i.test(source.trimStart()) &&
+    !source.includes('<prior-compacted-context>')
+  )
+    return String(fallback);
   const lines = source.split(/\r?\n/);
   const entries = [];
   for (let index = 0; index < lines.length; index += 1) {
@@ -89,10 +95,13 @@ export function compactedSessionTitle(value, fallback = '') {
     const parts = [match[3].replace(/\s+#\d+\s*$/, '')];
     for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
       const line = lines[cursor];
-      if (COMPACTED_EVENT_LINE.test(line)
-        || /^<\/?prior-compacted-context>/i.test(line)
-        || /^\[context compacted\b/i.test(line)
-        || /^session_id=/i.test(line)) break;
+      if (
+        COMPACTED_EVENT_LINE.test(line) ||
+        /^<\/?prior-compacted-context>/i.test(line) ||
+        /^\[context compacted\b/i.test(line) ||
+        /^session_id=/i.test(line)
+      )
+        break;
       parts.push(line);
     }
     const displayText = parts.join('\n').trim();
@@ -109,19 +118,22 @@ export function compactedSessionTitle(value, fallback = '') {
       title,
     });
   }
-  entries.sort((left, right) => left.at.localeCompare(right.at)
-    || left.id - right.id || left.index - right.index);
-  return entries.find((entry) => !isMediaSessionTitlePlaceholder(entry.title))?.title
-    || entries[0]?.title
-    || String(fallback);
+  entries.sort((left, right) => left.at.localeCompare(right.at) || left.id - right.id || left.index - right.index);
+  return (
+    entries.find((entry) => !isMediaSessionTitlePlaceholder(entry.title))?.title ||
+    entries[0]?.title ||
+    String(fallback)
+  );
 }
 
 export function stripSessionEnvelope(value) {
-  return String(value ?? '')
-    .replace(/^# Session\r?\n(?:(?:Cwd|Model|Workflow):[^\r\n]*(?:\r?\n|$))+(?:\r?\n)?/i, '')
-    .replace(/^#\s*Session\s+Cwd:\s+.*?\s+Model:\s+.*?\s+Workflow:\s+\S+\s*/i, '')
-    // Truncated previews may cut the envelope mid-way: strip progressively.
-    .replace(/^#\s*Session\s+Cwd:\s+\S+(?:\s+Model:\s+\S*)?(?:\s+Workflow:\s+\S*)?\s*/i, '');
+  return (
+    String(value ?? '')
+      .replace(/^# Session\r?\n(?:(?:Cwd|Model|Workflow):[^\r\n]*(?:\r?\n|$))+(?:\r?\n)?/i, '')
+      .replace(/^#\s*Session\s+Cwd:\s+.*?\s+Model:\s+.*?\s+Workflow:\s+\S+\s*/i, '')
+      // Truncated previews may cut the envelope mid-way: strip progressively.
+      .replace(/^#\s*Session\s+Cwd:\s+\S+(?:\s+Model:\s+\S*)?(?:\s+Workflow:\s+\S*)?\s*/i, '')
+  );
 }
 
 export function stripInjectedDisplayText(value) {
@@ -196,13 +208,14 @@ export function promptTitle(prompt, displayText = '') {
   const mediaPart = Array.isArray(prompt)
     ? prompt.find((part) => part?.type === 'image' || part?.type === 'video')
     : null;
-  const attachmentFallback = mediaPart?.type === 'video'
-    ? '[Video]'
-    : mediaPart?.type === 'image'
-      ? '[Image]'
-    : Array.isArray(prompt) && prompt.some((part) => part?.type === 'file')
-      ? '[File]'
-      : '';
+  const attachmentFallback =
+    mediaPart?.type === 'video'
+      ? '[Video]'
+      : mediaPart?.type === 'image'
+        ? '[Image]'
+        : Array.isArray(prompt) && prompt.some((part) => part?.type === 'file')
+          ? '[File]'
+          : '';
   if (displayText) {
     const visibleTitle = generatedSessionTitle(displayText, '');
     if (visibleTitle) return visibleTitle;

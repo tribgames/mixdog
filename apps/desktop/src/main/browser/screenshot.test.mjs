@@ -18,28 +18,29 @@ test('validated Chromium screenshots preserve encoded bytes without a second los
   const options = normalizeScreenshotOptions({ format: 'jpeg' });
   const decode = () => ({ getSize: () => ({ width: 320, height: 240 }) });
   assert.deepEqual(validatedScreenshot(jpeg, options, decode), {
-    data: jpeg, width: 320, height: 240, mimeType: 'image/jpeg', fullPage: false,
+    data: jpeg,
+    width: 320,
+    height: 240,
+    mimeType: 'image/jpeg',
+    fullPage: false,
   });
   assert.equal(validatedScreenshot(jpeg, normalizeScreenshotOptions({ format: 'png' }), decode), null);
-  assert.equal(validatedScreenshot(jpeg, options, () => ({ getSize: () => ({ width: 0, height: 0 }) })), null);
+  assert.equal(
+    validatedScreenshot(jpeg, options, () => ({ getSize: () => ({ width: 0, height: 0 }) })),
+    null
+  );
   assert.equal(validatedScreenshot(Buffer.from('invalid').toString('base64'), options, decode), null);
 });
 
 test('browser screenshot options reject invalid format and PNG quality combinations', () => {
   assert.throws(() => normalizeScreenshotOptions({ format: 'webp' }), /jpeg or png/);
-  assert.throws(
-    () => normalizeScreenshotOptions({ format: 'png', quality: 80 }),
-    /supported only with format=jpeg/,
-  );
+  assert.throws(() => normalizeScreenshotOptions({ format: 'png', quality: 80 }), /supported only with format=jpeg/);
 });
 
 test('full-page screenshots apply the pixel ceiling after page zoom', async () => {
   assert.throws(
-    () => assertFullPageOutputBounds(
-      { x: 0, y: 0, width: 5_000, height: 4_000 },
-      2,
-    ),
-    /full-page screenshot is too large \(10000x8000\)/,
+    () => assertFullPageOutputBounds({ x: 0, y: 0, width: 5_000, height: 4_000 }, 2),
+    /full-page screenshot is too large \(10000x8000\)/
   );
 });
 
@@ -56,9 +57,9 @@ test('Browser Use screenshot encoding has a bounded payload budget', () => {
 
 test('full-page capture anchors fixed and sticky elements in flow and restores their inline style', () => {
   const dom = new JSDOM(
-    '<!doctype html><header id="top" style="position: fixed !important; top: 0">Top</header>'
-    + '<nav id="side" style="position: sticky">Side</nav><main id="body">Body</main>',
-    { runScripts: 'outside-only' },
+    '<!doctype html><header id="top" style="position: fixed !important; top: 0">Top</header>' +
+      '<nav id="side" style="position: sticky">Side</nav><main id="body">Body</main>',
+    { runScripts: 'outside-only' }
   );
   try {
     const { window } = dom;

@@ -24,7 +24,9 @@ function createHarness({ enqueueResult = true } = {}) {
     listeners: new Set(),
     getState: () => state,
     getPublishedState: () => state,
-    set: (patch) => { state = { ...state, ...patch }; },
+    set: (patch) => {
+      state = { ...state, ...patch };
+    },
     flushEmitImmediate() {},
     pushItem() {},
     patchItem() {},

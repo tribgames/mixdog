@@ -2,8 +2,12 @@ import { topLevelElements, xmlEncode, xmlDecode } from './portable-xml.mjs';
 import { paragraphFormatXml, wordRunProperties } from './portable-docx-xml.mjs';
 
 const ORDERS = {
-  pPr: 'pStyle keepNext keepLines pageBreakBefore framePr widowControl numPr suppressLineNumbers pBdr shd tabs suppressAutoHyphens kinsoku wordWrap overflowPunct topLinePunct autoSpaceDE autoSpaceDN bidi adjustRightInd snapToGrid spacing ind contextualSpacing mirrorIndents suppressOverlap jc textDirection textAlignment textboxTightWrap outlineLvl divId cnfStyle rPr sectPr pPrChange'.split(' '),
-  rPr: 'rStyle rFonts b bCs i iCs caps smallCaps strike dstrike outline shadow emboss imprint noProof snapToGrid vanish webHidden color spacing w kern position sz szCs highlight u effect bdr shd fitText vertAlign rtl cs em lang eastAsianLayout specVanish oMath rPrChange'.split(' '),
+  pPr: 'pStyle keepNext keepLines pageBreakBefore framePr widowControl numPr suppressLineNumbers pBdr shd tabs suppressAutoHyphens kinsoku wordWrap overflowPunct topLinePunct autoSpaceDE autoSpaceDN bidi adjustRightInd snapToGrid spacing ind contextualSpacing mirrorIndents suppressOverlap jc textDirection textAlignment textboxTightWrap outlineLvl divId cnfStyle rPr sectPr pPrChange'.split(
+    ' '
+  ),
+  rPr: 'rStyle rFonts b bCs i iCs caps smallCaps strike dstrike outline shadow emboss imprint noProof snapToGrid vanish webHidden color spacing w kern position sz szCs highlight u effect bdr shd fitText vertAlign rtl cs em lang eastAsianLayout specVanish oMath rPrChange'.split(
+    ' '
+  ),
 };
 
 function elements(xml) {
@@ -39,9 +43,10 @@ export function patchWordFormat(xml, owner, tag, patch) {
   const order = ORDERS[tag] || [];
   for (const entry of elements(patch)) {
     const index = entries.findIndex((value) => value.name === entry.name);
-    const value = index >= 0 && ['w:spacing', 'w:rFonts', 'w:lang', 'w:ind'].includes(entry.name)
-      ? mergeAttributes(entries[index].xml, entry.xml, entry.name)
-      : entry.xml;
+    const value =
+      index >= 0 && ['w:spacing', 'w:rFonts', 'w:lang', 'w:ind'].includes(entry.name)
+        ? mergeAttributes(entries[index].xml, entry.xml, entry.name)
+        : entry.xml;
     if (index >= 0) entries[index].xml = value;
     else {
       const rank = order.indexOf(entry.name.slice(2));
@@ -76,8 +81,14 @@ export function formatFirstBodyPhrase(documentXml, find, properties) {
       const content = inner.slice(rPr.length);
       const textOnly = /^(?:\s*<w:t\b[^>]*>[\s\S]*?<\/w:t>\s*)+$/.test(content);
       return {
-        start: match.index, end: match.index + match[0].length, xml: match[0], open, rPr,
-        text: textOnly ? [...content.matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g)].map((m) => xmlDecode(m[1])).join('') : '\0',
+        start: match.index,
+        end: match.index + match[0].length,
+        xml: match[0],
+        open,
+        rPr,
+        text: textOnly
+          ? [...content.matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g)].map((m) => xmlDecode(m[1])).join('')
+          : '\0',
       };
     });
     const joined = runs.map((run) => run.text).join('');
@@ -95,9 +106,15 @@ export function formatFirstBodyPhrase(documentXml, find, properties) {
       const from = Math.max(0, start - offset);
       const to = Math.min(run.text.length, end - offset);
       offset += run.text.length;
-      if (to <= from) { result += run.xml; continue; }
+      if (to <= from) {
+        result += run.xml;
+        continue;
+      }
       const updated = patchWordFormat(run.xml, 'r', 'rPr', patch);
-      if (updated === run.xml) { result += run.xml; continue; }
+      if (updated === run.xml) {
+        result += run.xml;
+        continue;
+      }
       changed = true;
       if (from) result += textRun(run, run.text.slice(0, from));
       result += patchWordFormat(textRun(run, run.text.slice(from, to)), 'r', 'rPr', patch);

@@ -34,22 +34,10 @@ function distribution(values) {
   };
 }
 
-const modelPath = arg(
-  'model',
-  'artifacts/computer-use/computer-schema-sequence-guided-full.json',
-);
-const hostPath = arg(
-  'host',
-  'apps/desktop/artifacts/computer-use/scenario-repeat-further-optimized-v5.json',
-);
-const sequencePath = arg(
-  'sequence',
-  'artifacts/computer-use/sequence-performance-final.json',
-);
-const outputPath = resolve(arg(
-  'output',
-  'artifacts/computer-use/computer-task-cost-final.json',
-));
+const modelPath = arg('model', 'artifacts/computer-use/computer-schema-sequence-guided-full.json');
+const hostPath = arg('host', 'apps/desktop/artifacts/computer-use/scenario-repeat-further-optimized-v5.json');
+const sequencePath = arg('sequence', 'artifacts/computer-use/sequence-performance-final.json');
+const outputPath = resolve(arg('output', 'artifacts/computer-use/computer-task-cost-final.json'));
 
 const model = load(modelPath);
 const host = load(hostPath);
@@ -59,9 +47,7 @@ const totalInputTokens = rows.map((row) => row.usage?.inputTokens);
 const mainInputTokens = rows.map((row) => row.usage?.mainInputTokens);
 const warmupInputTokens = rows.map((row) => row.usage?.warmupInputTokens);
 const cachedTokens = rows.map((row) => row.usage?.cachedTokens);
-const uncachedTokens = rows.map((row) => (
-  Number(row.usage?.inputTokens || 0) - Number(row.usage?.cachedTokens || 0)
-));
+const uncachedTokens = rows.map((row) => Number(row.usage?.inputTokens || 0) - Number(row.usage?.cachedTokens || 0));
 const outputTokens = rows.map((row) => row.usage?.outputTokens);
 const modelLatency = rows.map((row) => row.duration_ms);
 const totalRuns = Number(host.total_runs || 0);

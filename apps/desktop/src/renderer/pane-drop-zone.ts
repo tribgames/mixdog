@@ -1,9 +1,6 @@
-import type { PaneDropZone } from "./pane-workspace-state";
+import type { PaneDropZone } from './pane-workspace-state';
 
-export type PaneDropRect = Pick<
-  DOMRect,
-  "left" | "right" | "top" | "bottom" | "width" | "height"
->;
+export type PaneDropRect = Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'>;
 export type PaneHierarchyCandidate = {
   path: string;
   rect: PaneDropRect;
@@ -25,39 +22,34 @@ export function paneInnerDropZone(
   rect: PaneDropRect,
   x: number,
   y: number,
-  groupDrag = false,
-): PaneDropZone | "center" {
+  groupDrag = false
+): PaneDropZone | 'center' {
   const nx = (x - rect.left) / Math.max(1, rect.width);
   const ny = (y - rect.top) / Math.max(1, rect.height);
   const edgeX = groupDrag ? 0.3 : 0.15;
   const edgeY = groupDrag ? 0.1 : 0.15;
-  if (nx > edgeX && nx < 1 - edgeX && ny > edgeY && ny < 1 - edgeY) return "center";
-  if (nx < 1 / 3) return "left";
-  if (nx > 2 / 3) return "right";
-  return ny < 0.5 ? "top" : "bottom";
+  if (nx > edgeX && nx < 1 - edgeX && ny > edgeY && ny < 1 - edgeY) return 'center';
+  if (nx < 1 / 3) return 'left';
+  if (nx > 2 / 3) return 'right';
+  return ny < 0.5 ? 'top' : 'bottom';
 }
 
 /** Resolve only the physical workspace edge. Which TREE node owns that edge
  *  is selected separately from real pane rectangles, never viewport bands. */
-export function paneOuterDropZone(
-  rect: PaneDropRect,
-  x: number,
-  y: number,
-): PaneDropZone | null {
-  if (rect.width <= 0 || rect.height <= 0
-    || x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return null;
+export function paneOuterDropZone(rect: PaneDropRect, x: number, y: number): PaneDropZone | null {
+  if (rect.width <= 0 || rect.height <= 0 || x < rect.left || x > rect.right || y < rect.top || y > rect.bottom)
+    return null;
   const horizontalReach = edgeReach(rect.width);
   const verticalReach = edgeReach(rect.height);
   const candidates: Array<{ zone: PaneDropZone; distance: number; reach: number }> = [
-    { zone: "left", distance: x - rect.left, reach: horizontalReach },
-    { zone: "right", distance: rect.right - x, reach: horizontalReach },
-    { zone: "top", distance: y - rect.top, reach: verticalReach },
-    { zone: "bottom", distance: rect.bottom - y, reach: verticalReach },
+    { zone: 'left', distance: x - rect.left, reach: horizontalReach },
+    { zone: 'right', distance: rect.right - x, reach: horizontalReach },
+    { zone: 'top', distance: y - rect.top, reach: verticalReach },
+    { zone: 'bottom', distance: rect.bottom - y, reach: verticalReach },
   ];
   let nearest: { zone: PaneDropZone; distance: number } | null = null;
   for (const candidate of candidates) {
-    if (candidate.distance > candidate.reach
-      || (nearest && candidate.distance >= nearest.distance)) continue;
+    if (candidate.distance > candidate.reach || (nearest && candidate.distance >= nearest.distance)) continue;
     nearest = candidate;
   }
   return nearest?.zone ?? null;
@@ -71,34 +63,46 @@ export function paneHierarchyDropTarget(
   zone: PaneDropZone,
   x: number,
   y: number,
-  candidates: readonly PaneHierarchyCandidate[],
+  candidates: readonly PaneHierarchyCandidate[]
 ): PaneHierarchyCandidate | null {
   const epsilon = 3;
-  const depth = (path: string): number => path ? path.split(".").length : 0;
+  const depth = (path: string): number => (path ? path.split('.').length : 0);
   const touchesEdge = (rect: PaneDropRect): boolean => {
     switch (zone) {
-      case "left": return Math.abs(rect.left - panel.left) <= epsilon;
-      case "right": return Math.abs(rect.right - panel.right) <= epsilon;
-      case "top": return Math.abs(rect.top - panel.top) <= epsilon;
-      case "bottom": return Math.abs(rect.bottom - panel.bottom) <= epsilon;
+      case 'left':
+        return Math.abs(rect.left - panel.left) <= epsilon;
+      case 'right':
+        return Math.abs(rect.right - panel.right) <= epsilon;
+      case 'top':
+        return Math.abs(rect.top - panel.top) <= epsilon;
+      case 'bottom':
+        return Math.abs(rect.bottom - panel.bottom) <= epsilon;
     }
   };
   const containsAlong = (rect: PaneDropRect): boolean =>
-    zone === "left" || zone === "right"
+    zone === 'left' || zone === 'right'
       ? y >= rect.top - epsilon && y <= rect.bottom + epsilon
       : x >= rect.left - epsilon && x <= rect.right + epsilon;
   const centerDistance = (rect: PaneDropRect): number =>
-    zone === "left" || zone === "right"
+    zone === 'left' || zone === 'right'
       ? Math.abs(y - (rect.top + rect.height / 2))
       : Math.abs(x - (rect.left + rect.width / 2));
   const panelCenterDistance = centerDistance(panel);
-  const panelCrossSize = zone === "left" || zone === "right" ? panel.height : panel.width;
+  const panelCrossSize = zone === 'left' || zone === 'right' ? panel.height : panel.width;
   const inRootCenterRail = panelCenterDistance <= Math.min(48, panelCrossSize * 0.12);
-  return candidates
-    .filter((candidate) => candidate.rect.width > 0 && candidate.rect.height > 0
-      && touchesEdge(candidate.rect) && containsAlong(candidate.rect))
-    .sort((left, right) => centerDistance(left.rect) - centerDistance(right.rect)
-      || (inRootCenterRail
-        ? depth(left.path) - depth(right.path)
-        : depth(right.path) - depth(left.path)))[0] ?? null;
+  return (
+    candidates
+      .filter(
+        (candidate) =>
+          candidate.rect.width > 0 &&
+          candidate.rect.height > 0 &&
+          touchesEdge(candidate.rect) &&
+          containsAlong(candidate.rect)
+      )
+      .sort(
+        (left, right) =>
+          centerDistance(left.rect) - centerDistance(right.rect) ||
+          (inRootCenterRail ? depth(left.path) - depth(right.path) : depth(right.path) - depth(left.path))
+      )[0] ?? null
+  );
 }

@@ -39,15 +39,13 @@ const MODIFIER_GRAMMAR = new Map<string, string>([
   ['shift', '+'],
 ]);
 
-const LEGACY_NAMED_KEYS = new Set([
-  ...KEY_ALIASES.values(),
-  'NUMLOCK',
-  'CAPSLOCK',
-  'SCROLLLOCK',
-]);
+const LEGACY_NAMED_KEYS = new Set([...KEY_ALIASES.values(), 'NUMLOCK', 'CAPSLOCK', 'SCROLLLOCK']);
 
 function canonicalToken(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s_-]+/g, '');
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
 }
 
 function normalizedKeyToken(value: string): string {
@@ -92,8 +90,7 @@ function validLegacyNamedKey(value: string): boolean {
   const match = value.trim().match(/^([A-Za-z]+[0-9]*)(?:\s+([0-9]{1,3}))?$/);
   if (!match) return false;
   const token = match[1].toUpperCase();
-  const validToken = LEGACY_NAMED_KEYS.has(token)
-    || /^F(?:[1-9]|1[0-9]|2[0-4])$/.test(token);
+  const validToken = LEGACY_NAMED_KEYS.has(token) || /^F(?:[1-9]|1[0-9]|2[0-4])$/.test(token);
   if (!validToken) return false;
   if (!match[2]) return true;
   const repeat = Number(match[2]);

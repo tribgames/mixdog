@@ -54,8 +54,11 @@ export function schemaValueError(value, schema, path) {
       if (extras.length) return `${path} does not accept field(s): ${extras.join(', ')}`;
     }
     for (const [name, item] of Object.entries(value)) {
-      const field = Object.hasOwn(properties, name) ? properties[name]
-        : (typeof schema.additionalProperties === 'object' ? schema.additionalProperties : {});
+      const field = Object.hasOwn(properties, name)
+        ? properties[name]
+        : typeof schema.additionalProperties === 'object'
+          ? schema.additionalProperties
+          : {};
       const error = schemaValueError(item, field, `${path}.${name}`);
       if (error) return error;
     }

@@ -16,7 +16,10 @@ test('an independent key progresses while one queue is held and then recovers fr
   });
   const failed = assert.rejects(first, (error) => error === failure);
   await entered.promise;
-  const second = run('a', () => { events.push('second'); return 2; });
+  const second = run('a', () => {
+    events.push('second');
+    return 2;
+  });
   assert.equal(await run('b', () => 3), 3);
   assert.deepEqual(events, []);
   release.resolve();

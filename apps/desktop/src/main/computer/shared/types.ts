@@ -132,7 +132,8 @@ export interface CaptureFrame {
 
 export interface PixelUnavailable {
   code: 'pixel_unavailable';
-  reason: 'capture_source_unavailable'
+  reason:
+    | 'capture_source_unavailable'
     | 'empty_frame'
     | 'blank_black_frame'
     | 'blank_white_frame'

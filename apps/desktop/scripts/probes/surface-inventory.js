@@ -19,4 +19,4 @@
     bodyClass: document.body.className,
     rootChildren: [...(document.getElementById('root')?.children || [])].map((node) => node.className),
   };
-})()
+})();

@@ -20,18 +20,18 @@ async function post(endpoint, path, body) {
   return value;
 }
 
-function writeIntent(path, {
-  sessionId = 'session_restart',
-  cwd = process.cwd(),
-} = {}) {
+function writeIntent(path, { sessionId = 'session_restart', cwd = process.cwd() } = {}) {
   const transcriptPath = join(tmpdir(), `${sessionId}.jsonl`);
-  writeFileSync(path, JSON.stringify({
-    version: 1,
-    sessionId,
-    transcriptPath,
-    cwd,
-    updatedAt: Date.now(),
-  }));
+  writeFileSync(
+    path,
+    JSON.stringify({
+      version: 1,
+      sessionId,
+      transcriptPath,
+      cwd,
+      updatedAt: Date.now(),
+    })
+  );
   return transcriptPath;
 }
 
@@ -40,17 +40,25 @@ test('restored binding and manual ON share one ordered binding lifetime', { time
   const intentPath = join(dir, 'channel-remote-intent.json');
   writeIntent(intentPath);
   let releaseRestore;
-  const restored = new Promise((resolve) => { releaseRestore = resolve; });
+  const restored = new Promise((resolve) => {
+    releaseRestore = resolve;
+  });
   let enterRestore;
-  const entered = new Promise((resolve) => { enterRestore = resolve; });
+  const entered = new Promise((resolve) => {
+    enterRestore = resolve;
+  });
   let releaseManual;
-  const manuallyActivated = new Promise((resolve) => { releaseManual = resolve; });
+  const manuallyActivated = new Promise((resolve) => {
+    releaseManual = resolve;
+  });
   let activeBinding = null;
   const transport = createChannelTransport({
     remoteIntentPath: intentPath,
     handleCall: async (_name, args) => {
-      if (args.restore) { enterRestore(); await restored; }
-      else await manuallyActivated;
+      if (args.restore) {
+        enterRestore();
+        await restored;
+      } else await manuallyActivated;
       activeBinding = args.sessionId;
       return { ok: true };
     },
@@ -236,7 +244,7 @@ test('daemon replacement keeps compatible channel clients live until handoff com
         name: 'must_not_run',
         args: { sessionId: 'session_drain' },
       }),
-      /daemon is draining/,
+      /daemon is draining/
     );
     assert.equal(calls.filter((call) => call.name === 'must_not_run').length, 0);
   } finally {

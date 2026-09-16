@@ -18,18 +18,26 @@ async function isolatedProgram(script, files = {}) {
     for (const [name, content] of Object.entries({ ...files, 'test.ps1': script })) {
       await writeFile(join(directory, name), content);
     }
-    const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')], {
-      windowsHide: true, timeout: 30_000,
-      env: { ...process.env, AUDIT_DIRECTORY: directory },
-    });
+    const { stdout } = await exec(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
+      {
+        windowsHide: true,
+        timeout: 30_000,
+        env: { ...process.env, AUDIT_DIRECTORY: directory },
+      }
+    );
     return stdout.trim();
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 test('resident native program parses and its C# compiles without touching the desktop', {
   skip: process.platform !== 'win32',
 }, async () => {
-  const output = await isolatedProgram(String.raw`
+  const output = await isolatedProgram(
+    String.raw`
 $ErrorActionPreference = 'Stop'
 $tokens = $null; $errors = $null
 [void][System.Management.Automation.Language.Parser]::ParseFile(
@@ -40,14 +48,17 @@ Add-Type -AssemblyName System.Drawing
 Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
   [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
 [Console]::WriteLine('compiled')
-`, { 'host.ps1': powershellHostProgram(), 'native.cs': MIXDOG_HOST_CSHARP });
+`,
+    { 'host.ps1': powershellHostProgram(), 'native.cs': MIXDOG_HOST_CSHARP }
+  );
   assert.equal(output, 'compiled');
 });
 
 test('native typing retains a completed preparatory click when text input is unsupported', {
   skip: process.platform !== 'win32',
 }, async () => {
-  const output = await isolatedProgram(String.raw`
+  const output = await isolatedProgram(
+    String.raw`
 $ErrorActionPreference = 'Stop'
 foreach ($source in @('input.ps1','runtime.ps1')) {
   $tokens = $null; $errors = $null
@@ -84,7 +95,9 @@ foreach ($point in @($false, $true)) {
   $rows += @{clicks=[MixWin32]::Clicks;result=$result}
 }
 $rows | ConvertTo-Json -Compress -Depth 6
-`, { 'input.ps1': PS_INPUT, 'runtime.ps1': PS_RUNTIME });
+`,
+    { 'input.ps1': PS_INPUT, 'runtime.ps1': PS_RUNTIME }
+  );
   const rows = JSON.parse(output);
   assert.equal(rows[0].clicks, 0);
   assert.equal(rows[0].result.delivery_accepted, false);
@@ -98,7 +111,8 @@ $rows | ConvertTo-Json -Compress -Depth 6
 test('native authority and drag endpoint guards reject before any desktop effect', {
   skip: process.platform !== 'win32',
 }, async () => {
-  const output = await isolatedProgram(String.raw`
+  const output = await isolatedProgram(
+    String.raw`
 $ErrorActionPreference = 'Stop'
 Add-Type @"
 using System;
@@ -137,9 +151,14 @@ foreach ($mode in @('expired','process','endpoint','allowed')) {
   $results += @{mode=$mode; sent=$sent; error=$failure}
 }
 $results | ConvertTo-Json -Compress
-`, { 'authorization.ps1': PS_AUTHORIZATION, 'input.ps1': PS_INPUT });
+`,
+    { 'authorization.ps1': PS_AUTHORIZATION, 'input.ps1': PS_INPUT }
+  );
   const rows = JSON.parse(output);
-  assert.deepEqual(rows.map((row) => row.sent), [false, false, false, true]);
+  assert.deepEqual(
+    rows.map((row) => row.sent),
+    [false, false, false, true]
+  );
   assert.match(rows[0].error, /policy_expired/);
   assert.match(rows[1].error, /policy_denied/);
   assert.match(rows[2].error, /target_mismatch/);
@@ -148,7 +167,8 @@ $results | ConvertTo-Json -Compress
 test('all foreground native actions keep one intervention scope even on failure, while reads do not acquire one', {
   skip: process.platform !== 'win32',
 }, async () => {
-  const output = await isolatedProgram(String.raw`
+  const output = await isolatedProgram(
+    String.raw`
 $ErrorActionPreference = 'Stop'
 Add-Type @"
 public static class MixInputObservation {
@@ -179,14 +199,17 @@ if ([MixInputObservation]::Depth -ne 0 -or [MixInputObservation]::Starts -ne 1 -
   throw 'input scope leaked or read acquired an input scope'
 }
 [Console]::WriteLine('scoped')
-`, { 'runtime.ps1': PS_RUNTIME });
+`,
+    { 'runtime.ps1': PS_RUNTIME }
+  );
   assert.equal(output, 'scoped');
 });
 
 test('foreground feedback reports completed theme restoration and restores on body failure', {
   skip: process.platform !== 'win32',
 }, async () => {
-  const output = await isolatedProgram(String.raw`
+  const output = await isolatedProgram(
+    String.raw`
 $ErrorActionPreference='Stop'
 Add-Type @'
 using System;
@@ -242,14 +265,17 @@ if ($script:sent -or [MixInputObservation]::Depth -ne 0 -or
   throw 'expired authority dispatched input or leaked its cleanup scope'
 }
 [Console]::WriteLine('FEEDBACK_RESTORED')
-`, { 'input.ps1': PS_INPUT });
+`,
+    { 'input.ps1': PS_INPUT }
+  );
   assert.equal(output, 'FEEDBACK_RESTORED');
 });
 
 test('detached watchdog launcher runs with a hidden console and no desktop input', {
   skip: process.platform !== 'win32',
 }, async () => {
-  const output = await isolatedProgram(String.raw`
+  const output = await isolatedProgram(
+    String.raw`
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing
@@ -262,14 +288,17 @@ $clock=[Diagnostics.Stopwatch]::StartNew()
 while (-not [IO.File]::Exists($receipt) -and $clock.ElapsedMilliseconds -lt 5000) { Start-Sleep -Milliseconds 25 }
 if (-not [IO.File]::Exists($receipt)) { throw 'detached watchdog did not start' }
 [Console]::WriteLine([IO.File]::ReadAllText($receipt))
-`, { 'native.cs': MIXDOG_HOST_CSHARP });
+`,
+    { 'native.cs': MIXDOG_HOST_CSHARP }
+  );
   assert.equal(output, 'ready');
 });
 
 test('background key grammar is completely validated before any target input', {
   skip: process.platform !== 'win32',
 }, async () => {
-  const output = await isolatedProgram(String.raw`
+  const output = await isolatedProgram(
+    String.raw`
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing
@@ -288,14 +317,17 @@ foreach($keys in @('a^c','a{BROKEN}','a{ENTER','a{ENTER 101}')) {
   }
 }
 [Console]::WriteLine('BACKGROUND_PREFLIGHT_OK')
-`, { 'native.cs': MIXDOG_HOST_CSHARP });
+`,
+    { 'native.cs': MIXDOG_HOST_CSHARP }
+  );
   assert.equal(output, 'BACKGROUND_PREFLIGHT_OK');
 });
 
 test('native background failures distinguish unsupported preflight from possibly partial delivery', {
   skip: process.platform !== 'win32',
 }, async () => {
-  const output = await isolatedProgram(String.raw`
+  const output = await isolatedProgram(
+    String.raw`
 $ErrorActionPreference='Stop'
 . (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
 $results=@()
@@ -303,7 +335,9 @@ foreach($code in @('background_unsupported','background_target_hung','background
   $results+=Native-BackgroundFailure 'key' ([Exception]::new($code + '|fixture failure')) 'hwnd:0x1'
 }
 [Console]::WriteLine(($results | ConvertTo-Json -Compress -Depth 4))
-`, { 'input.ps1': PS_INPUT });
+`,
+    { 'input.ps1': PS_INPUT }
+  );
   const rows = JSON.parse(output);
   assert.equal(rows[0].delivery_accepted, false);
   assert.notEqual(rows[0].input_may_have_executed, true);
@@ -317,14 +351,19 @@ foreach($code in @('background_unsupported','background_target_hung','background
 test('background press lifetimes release once after uncertain delivery and preserve cleanup failure', {
   skip: process.platform !== 'win32',
 }, async () => {
-  const output = await isolatedProgram(String.raw`
+  const output = await isolatedProgram(
+    String.raw`
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing
 Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
   [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
 [Console]::WriteLine([ReleaseFixture]::Run())
-`, { 'native.cs': MIXDOG_HOST_CSHARP + String.raw`
+`,
+    {
+      'native.cs':
+        MIXDOG_HOST_CSHARP +
+        String.raw`
 public static class ReleaseFixture {
   public static string Run() {
     foreach(string scenario in new string[] {"success", "rejected", "press_unknown", "held_failure", "release_failure", "both_fail"}) {
@@ -353,14 +392,17 @@ public static class ReleaseFixture {
     return "BACKGROUND_RELEASE_OK";
   }
 }
-` });
+`,
+    }
+  );
   assert.equal(output, 'BACKGROUND_RELEASE_OK');
 });
 
 test('background cleanup uncertainty reaches the safety guard instead of ordinary mode escalation', {
   skip: process.platform !== 'win32',
 }, async () => {
-  const output = await isolatedProgram(String.raw`
+  const output = await isolatedProgram(
+    String.raw`
 $ErrorActionPreference='Stop'
 . (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
 try {
@@ -370,6 +412,8 @@ try {
   if ($_.Exception.Message -notmatch '^input_cleanup_unconfirmed:') { throw }
 }
 [Console]::WriteLine('CLEANUP_GUARD_OK')
-`, { 'input.ps1': PS_INPUT });
+`,
+    { 'input.ps1': PS_INPUT }
+  );
   assert.equal(output, 'CLEANUP_GUARD_OK');
 });

@@ -14,35 +14,20 @@ export interface NativeBrowserImporterEnvironment {
   resourcesPath: string;
 }
 
-export function nativeBrowserImporterPath(
-  environment: NativeBrowserImporterEnvironment & { cwd: string },
-): string {
-  const fileName = environment.platform === 'win32'
-    ? 'mixdog-browser-import.exe'
-    : 'mixdog-browser-import';
+export function nativeBrowserImporterPath(environment: NativeBrowserImporterEnvironment & { cwd: string }): string {
+  const fileName = environment.platform === 'win32' ? 'mixdog-browser-import.exe' : 'mixdog-browser-import';
   if (environment.isPackaged) {
     return join(environment.resourcesPath, 'native-tools', fileName);
   }
-  return join(
-    environment.cwd,
-    'native',
-    'mixdog-browser-import',
-    'target',
-    'release',
-    fileName,
-  );
+  return join(environment.cwd, 'native', 'mixdog-browser-import', 'target', 'release', fileName);
 }
 
 export async function resolvePackagedBrowserImporter(
-  environment: NativeBrowserImporterEnvironment & { requestedPath?: string },
+  environment: NativeBrowserImporterEnvironment & { requestedPath?: string }
 ): Promise<NativeBrowserImporter | undefined> {
   if (!environment.isPackaged || environment.platform !== 'win32') return undefined;
   if (!environment.requestedPath) return undefined;
-  const expected = resolve(
-    environment.resourcesPath,
-    'native-tools',
-    'mixdog-browser-import.exe',
-  );
+  const expected = resolve(environment.resourcesPath, 'native-tools', 'mixdog-browser-import.exe');
   if (resolve(environment.requestedPath).toLowerCase() !== expected.toLowerCase()) {
     return undefined;
   }
@@ -52,6 +37,8 @@ export async function resolvePackagedBrowserImporter(
   }
   return {
     executable: expected,
-    sha256: createHash('sha256').update(await readFile(expected)).digest('hex'),
+    sha256: createHash('sha256')
+      .update(await readFile(expected))
+      .digest('hex'),
   };
 }

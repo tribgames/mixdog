@@ -48,9 +48,16 @@
 }
 /* The workspace tab already labels Studio on desktop. Phones restore this
    row only for the drawer reopen control because their tab strip is hidden. */
-.studio-header { display: none; }
-.studio-topbar > .studio-kind { grid-column: 2; }
-.studio-topbar > .studio-density { grid-column: 3; justify-self: end; }
+.studio-header {
+  display: none;
+}
+.studio-topbar > .studio-kind {
+  grid-column: 2;
+}
+.studio-topbar > .studio-density {
+  grid-column: 3;
+  justify-self: end;
+}
 /* Right slot holds the side-panel toggle; a loose child fell to a new row. */
 .studio-topbar-tools {
   grid-column: 3;
@@ -70,7 +77,11 @@
   border-radius: var(--mx-radius-pill);
   background: var(--mx-bg-layer-1);
 }
-.studio-density input { flex: 1 1 auto; min-width: 0; width: 100%; }
+.studio-density input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
 .studio-folder {
   display: grid;
   place-items: center;
@@ -83,7 +94,10 @@
   background: var(--mx-bg-layer-1);
   cursor: pointer;
 }
-.studio-folder:hover { color: var(--mx-text); background: var(--mx-hover); }
+.studio-folder:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
 /* Studio is a full-height tab surface. Its result list reaches the pane floor
    while the composer floats over it. */
 .studio-root {
@@ -99,7 +113,10 @@
   container-type: inline-size;
 }
 /* Surface re-entry restarts CSS animations for the shared chat dock. */
-.utility-dock[data-entering='true'] { animation: none; transition: none; }
+.utility-dock[data-entering="true"] {
+  animation: none;
+  transition: none;
+}
 /* Range controls follow the app ink instead of the OS accent (user: 색이 튄다). */
 .studio-density input[type="range"],
 .studio-duration input[type="range"] {
@@ -107,8 +124,14 @@
   accent-color: var(--mx-text);
   cursor: pointer;
 }
-.studio-duration-slot { display: inline-flex; align-items: center; }
-.studio-duration-slot[data-empty="true"] { visibility: hidden; pointer-events: none; }
+.studio-duration-slot {
+  display: inline-flex;
+  align-items: center;
+}
+.studio-duration-slot[data-empty="true"] {
+  visibility: hidden;
+  pointer-events: none;
+}
 .studio-results {
   min-height: 0;
   flex: 1;
@@ -144,7 +167,9 @@
   flex: 0 0 auto;
   min-width: 0;
 }
-.studio-tile .studio-tile-open { height: 100%; }
+.studio-tile .studio-tile-open {
+  height: 100%;
+}
 .studio-blank {
   height: 100%;
   display: grid;
@@ -154,7 +179,12 @@
   color: var(--mx-text-faint);
   text-align: center;
 }
-.studio-blank p { max-width: 380px; margin: 0; font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
+.studio-blank p {
+  max-width: 380px;
+  margin: 0;
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
 .studio-tile {
   position: relative;
   margin: 0;
@@ -171,17 +201,26 @@
   border: 0;
   border-radius: var(--mx-radius-xl);
   background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
   cursor: pointer;
 }
-.studio-tile.selected .studio-tile-open { box-shadow: inset 0 0 0 1px var(--mx-border-strong); }
+.studio-tile.selected .studio-tile-open {
+  box-shadow: inset 0 0 0 1px var(--mx-border-strong);
+}
 .studio-tile-open img,
-.studio-tile-open video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.studio-tile-open video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .studio-thumbnail-image {
   opacity: 0;
   transition: opacity var(--mx-motion-chrome);
 }
-.studio-thumbnail-image[data-ready='true'] { opacity: 1; }
+.studio-thumbnail-image[data-ready="true"] {
+  opacity: 1;
+}
 .studio-thumbnail-loading {
   position: absolute;
   z-index: 0;
@@ -192,8 +231,17 @@
   pointer-events: none;
 }
 /* Hover clip sits on top of its own still. */
-.studio-tile-open video { position: absolute; inset: 0; z-index: 1; }
-.studio-tile-glyph { display: grid; place-items: center; height: 100%; color: var(--mx-icon-muted); }
+.studio-tile-open video {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.studio-tile-glyph {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--mx-icon-muted);
+}
 .studio-tile-badge {
   position: absolute;
   left: 8px;
@@ -209,7 +257,11 @@
   font-size: var(--mx-font-micro);
   letter-spacing: var(--mx-tracking-wide);
 }
-.studio-tile figcaption { display: grid; gap: 2px; padding: 0 2px; }
+.studio-tile figcaption {
+  display: grid;
+  gap: 2px;
+  padding: 0 2px;
+}
 .studio-tile figcaption b {
   overflow: hidden;
   display: -webkit-box;
@@ -219,8 +271,13 @@
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-meta);
 }
-.studio-tile figcaption small { color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
-.studio-tile[data-hidden="true"] { display: none; }
+.studio-tile figcaption small {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+}
+.studio-tile[data-hidden="true"] {
+  display: none;
+}
 /* One compact circular delete control in the tile's top-right corner. */
 .studio-tile-actions {
   position: absolute;
@@ -243,12 +300,21 @@
   background: var(--mx-media-scrim);
   cursor: pointer;
 }
-.studio-tile-actions button:hover { background: var(--mx-media-scrim-hover); }
+.studio-tile-actions button:hover {
+  background: var(--mx-media-scrim-hover);
+}
 /* Destructive action stays red in both themes. */
-.studio-tile-actions .studio-tile-remove { color: var(--mx-danger); }
-.studio-tile-actions .studio-tile-remove:hover { background: var(--mx-media-danger); color: var(--mx-on-media); }
+.studio-tile-actions .studio-tile-remove {
+  color: var(--mx-danger);
+}
+.studio-tile-actions .studio-tile-remove:hover {
+  background: var(--mx-media-danger);
+  color: var(--mx-on-media);
+}
 .studio-tile:hover .studio-tile-actions,
-.studio-tile-actions:focus-within { opacity: 1; }
+.studio-tile-actions:focus-within {
+  opacity: 1;
+}
 /* Pending slot: reserves the result's place with a quiet plate. */
 .studio-tile--pending .studio-tile-open {
   display: grid;
@@ -262,8 +328,8 @@
 .studio-pending-reference {
   position: absolute;
   inset: 0;
-  opacity: .42;
-  filter: saturate(.72);
+  opacity: 0.42;
+  filter: saturate(0.72);
 }
 .studio-pending-prompt {
   position: relative;
@@ -282,24 +348,30 @@
   line-height: 1.35;
   text-align: center;
 }
-.studio-tile--pending[data-size="compact"] .studio-pending-prompt { -webkit-line-clamp: 2; }
-.studio-tile--pending[data-size="tiny"] .studio-pending-prompt { display: none; }
+.studio-tile--pending[data-size="compact"] .studio-pending-prompt {
+  -webkit-line-clamp: 2;
+}
+.studio-tile--pending[data-size="tiny"] .studio-pending-prompt {
+  display: none;
+}
 /* The sweep is a transform-only overlay: animating the tile's own background
    repainted it every frame and the keyframe wrap popped the band back
    (user: 섬네일 애니가 튄다 / 가볍게). It enters and leaves fully off the tile,
    so the loop is seamless, and the band is faint enough to read as breathing. */
 .studio-tile--pending .studio-tile-open::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   /* Wider, softer falloff on a near-vertical axis: the steep narrow band read
      as a hard streak crossing the plate (user: 흐르는 거 더 깔끔하게). */
-  background: linear-gradient(94deg,
+  background: linear-gradient(
+    94deg,
     transparent 8%,
     color-mix(in srgb, var(--mx-text) 5%, transparent) 34%,
     color-mix(in srgb, var(--mx-text) 9%, transparent) 50%,
     color-mix(in srgb, var(--mx-text) 5%, transparent) 66%,
-    transparent 92%);
+    transparent 92%
+  );
   transform: translate3d(-100%, 0, 0);
   /* Slow glide with a beat of rest between passes, so the loop reads as one
      deliberate breath instead of a treadmill. */
@@ -307,8 +379,13 @@
   pointer-events: none;
 }
 @keyframes studio-pending {
-  0%, 10% { transform: translate3d(-100%, 0, 0); }
-  100% { transform: translate3d(100%, 0, 0); }
+  0%,
+  10% {
+    transform: translate3d(-100%, 0, 0);
+  }
+  100% {
+    transform: translate3d(100%, 0, 0);
+  }
 }
 /* Status and Cancel share ONE header row. As opposing absolute corners they
    overlapped on a narrow slot (user: 제너레이트와 캔슬이 겹침), so the status
@@ -325,7 +402,11 @@
   gap: 6px;
   pointer-events: none;
 }
-.studio-tile--pending[data-size="tiny"] .studio-pending-head { top: 5px; left: 5px; right: 5px; }
+.studio-tile--pending[data-size="tiny"] .studio-pending-head {
+  top: 5px;
+  left: 5px;
+  right: 5px;
+}
 /* Spinner only (user): the percentage and the clock live on the rail below. */
 .studio-pending-chip {
   display: inline-grid;
@@ -338,8 +419,13 @@
   box-shadow: var(--mx-button);
   pointer-events: auto;
 }
-.studio-tile--pending:not([data-size="wide"]) .studio-pending-cancel { gap: 0; padding: 0 6px; }
-.studio-tile--pending:not([data-size="wide"]) .studio-pending-cancel span { display: none; }
+.studio-tile--pending:not([data-size="wide"]) .studio-pending-cancel {
+  gap: 0;
+  padding: 0 6px;
+}
+.studio-tile--pending:not([data-size="wide"]) .studio-pending-cancel span {
+  display: none;
+}
 /* Status foot: elapsed clock and percentage over the rail. */
 .studio-pending-foot {
   position: absolute;
@@ -360,8 +446,14 @@
   line-height: 12px;
 }
 /* A tiny slot has no room for the numbers; the rail still reads. */
-.studio-tile--pending[data-size="tiny"] .studio-pending-foot { left: 6px; right: 6px; bottom: 6px; }
-.studio-tile--pending[data-size="tiny"] .studio-pending-meta { display: none; }
+.studio-tile--pending[data-size="tiny"] .studio-pending-foot {
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+}
+.studio-tile--pending[data-size="tiny"] .studio-pending-meta {
+  display: none;
+}
 /* Pending progress rail, last line of the foot. */
 .studio-pending-bar {
   height: 4px;
@@ -386,8 +478,12 @@
   animation: studio-pending-idle 1.8s ease-in-out infinite;
 }
 @keyframes studio-pending-idle {
-  0% { transform: translate3d(-100%, 0, 0); }
-  100% { transform: translate3d(300%, 0, 0); }
+  0% {
+    transform: translate3d(-100%, 0, 0);
+  }
+  100% {
+    transform: translate3d(300%, 0, 0);
+  }
 }
 /* Failed run keeps its slot: the reason and the retry live on the tile. */
 .studio-tile--failed .studio-tile-open {
@@ -396,7 +492,9 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-danger) 38%, transparent);
 }
 /* A failed slot is a static plate: the sweep overlay has no business there. */
-.studio-tile--failed .studio-tile-open::after { content: none; }
+.studio-tile--failed .studio-tile-open::after {
+  content: none;
+}
 .studio-failed-body {
   display: grid;
   gap: 8px;
@@ -416,7 +514,10 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-.studio-failed-actions { display: flex; gap: 6px; }
+.studio-failed-actions {
+  display: flex;
+  gap: 6px;
+}
 .studio-failed-actions button {
   display: inline-flex;
   align-items: center;
@@ -431,7 +532,9 @@
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
 }
-.studio-failed-actions button:hover { background: var(--mx-hover); }
+.studio-failed-actions button:hover {
+  background: var(--mx-hover);
+}
 .studio-pending-cancel {
   display: inline-flex;
   align-items: center;
@@ -445,7 +548,9 @@
      tile's delete action (user: 중단은 빨간 계통). */
   color: var(--mx-danger);
   background: var(--mx-bg-base);
-  box-shadow: var(--mx-button), inset 0 0 0 1px color-mix(in srgb, var(--mx-danger) 34%, transparent);
+  box-shadow:
+    var(--mx-button),
+    inset 0 0 0 1px color-mix(in srgb, var(--mx-danger) 34%, transparent);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
@@ -455,14 +560,25 @@
   color: var(--mx-grey-50);
   background: color-mix(in srgb, var(--mx-danger) 72%, transparent);
 }
-.studio-spinner { animation: studio-spin 1.1s linear infinite; }
+.studio-spinner {
+  animation: studio-spin 1.1s linear infinite;
+}
 @keyframes studio-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .studio-tile--pending .studio-tile-open::after, .studio-spinner { animation: none; }
+  .studio-tile--pending .studio-tile-open::after,
+  .studio-spinner {
+    animation: none;
+  }
   /* A still sliver would read as a stalled run: fill the rail instead. */
-  .studio-pending-bar--idle > span { width: 100%; animation: none; opacity: var(--mx-op-disabled); }
+  .studio-pending-bar--idle > span {
+    width: 100%;
+    animation: none;
+    opacity: var(--mx-op-disabled);
+  }
 }
 /* Composer parity with the session chat lives in the single canonical
    .studio-composer textarea / -bar rules further down (one owner — two
@@ -479,12 +595,32 @@
   background: transparent;
   cursor: pointer;
 }
-.studio-attach:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
-.studio-attach:disabled { opacity: var(--mx-op-disabled); cursor: default; }
-.studio-refs { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 0; }
-.studio-ref { position: relative; width: 44px; height: 44px; cursor: grab; }
-.studio-ref:active { cursor: grabbing; }
-.studio-ref[data-dragging="true"] { opacity: .5; }
+.studio-attach:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.studio-attach:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.studio-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 12px 0;
+}
+.studio-ref {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  cursor: grab;
+}
+.studio-ref:active {
+  cursor: grabbing;
+}
+.studio-ref[data-dragging="true"] {
+  opacity: 0.5;
+}
 .studio-ref[data-drop-position]::before {
   content: "";
   position: absolute;
@@ -495,8 +631,12 @@
   border-radius: 1px;
   background: var(--mx-accent);
 }
-.studio-ref[data-drop-position="before"]::before { left: -4px; }
-.studio-ref[data-drop-position="after"]::before { right: -4px; }
+.studio-ref[data-drop-position="before"]::before {
+  left: -4px;
+}
+.studio-ref[data-drop-position="after"]::before {
+  right: -4px;
+}
 .studio-ref-open {
   display: block;
   width: 100%;
@@ -511,7 +651,13 @@
   outline-offset: 2px;
   border-radius: var(--mx-radius-md);
 }
-.studio-ref img { width: 100%; height: 100%; object-fit: cover; border-radius: var(--mx-radius-md); display: block; }
+.studio-ref img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--mx-radius-md);
+  display: block;
+}
 .studio-ref-remove {
   position: absolute;
   z-index: 2;
@@ -549,8 +695,13 @@
   display: grid;
   gap: 6px;
 }
-.studio-status { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
-.studio-status-error { color: var(--mx-danger); }
+.studio-status {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
+.studio-status-error {
+  color: var(--mx-danger);
+}
 .studio-model-id,
 .studio-model-description {
   display: block;
@@ -558,7 +709,9 @@
   font-size: var(--mx-font-minor);
   overflow-wrap: anywhere;
 }
-.studio-model-description { white-space: normal; }
+.studio-model-description {
+  white-space: normal;
+}
 .studio-composer {
   /* Match the session form's block flow. Its inline textarea line box plus
      footer is the rendered chat-card height; grid tracks made Studio shorter. */
@@ -589,7 +742,9 @@
   resize: none;
   outline: none;
 }
-.studio-composer textarea::placeholder { color: var(--mx-text-faint); }
+.studio-composer textarea::placeholder {
+  color: var(--mx-text-faint);
+}
 /* Neutral accents app-wide (user: 파란 강조/선택 톤 제거). Native controls,
    text selection, and focus rings follow the app ink instead of the OS blue. */
 :root {
@@ -597,19 +752,27 @@
   /* Focus ring token feeds every :focus-visible shadow in the shell. */
   --mx-focus: var(--mx-border-strong);
 }
-::selection { color: var(--mx-bg-base); background: var(--mx-text); }
+::selection {
+  color: var(--mx-bg-base);
+  background: var(--mx-text);
+}
 /* Android Chromium paints the IME's composing syllable with the ::selection
    COLOR but not its background, so the inverted ink above rendered each
    composing character invisible on the dark surface (user: 타이핑한 글자가
    투명이 됨). Editable fields on touch devices keep their own ink and take a
    translucent highlight that reads for both selection and composition. */
 @media (pointer: coarse) {
-  input::selection, textarea::selection {
+  input::selection,
+  textarea::selection {
     color: var(--mx-text);
     background: color-mix(in srgb, var(--mx-text) 28%, transparent);
   }
 }
-.studio-composer[data-dropping="true"] { box-shadow: var(--mx-raised), inset 0 0 0 1.5px var(--mx-border-strong); }
+.studio-composer[data-dropping="true"] {
+  box-shadow:
+    var(--mx-raised),
+    inset 0 0 0 1.5px var(--mx-border-strong);
+}
 .dock-terminal-surface[data-dropping="true"],
 .pane-cell[data-file-dropping="true"] .pane-surface-stack {
   box-shadow: inset 0 0 0 1.5px var(--mx-border-strong);
@@ -632,9 +795,20 @@
      pane and clipped the send button (user: 입력창이 잘린다). */
   min-width: 0;
 }
-.studio-composer-spacer { flex: 1; }
-.studio-kind { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--mx-radius-pill); background: var(--mx-bg-layer-1); }
-.studio-kind[data-empty="true"] { visibility: hidden; pointer-events: none; }
+.studio-composer-spacer {
+  flex: 1;
+}
+.studio-kind {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-bg-layer-1);
+}
+.studio-kind[data-empty="true"] {
+  visibility: hidden;
+  pointer-events: none;
+}
 .studio-kind button {
   display: inline-flex;
   align-items: center;
@@ -652,7 +826,11 @@
   text-transform: capitalize;
   cursor: pointer;
 }
-.studio-kind button.active { color: var(--mx-text); background: var(--mx-bg-base); box-shadow: var(--mx-button); }
+.studio-kind button.active {
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+}
 .studio-pill-select .mx-select-trigger {
   height: 28px;
   /* Chat-composer grammar (user): frameless natural-width value + chevron,
@@ -669,12 +847,24 @@
   font-weight: var(--mx-weight-regular);
 }
 .studio-pill-select .mx-select-trigger:hover:not(:disabled),
-.studio-pill-select .mx-select-trigger[aria-expanded="true"]:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.studio-pill-select .mx-select-trigger[aria-expanded="true"]:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
 /* Truncate only the trigger: the open menu must size to its longest label so
    provider names never read as "Grok Imagine (…". */
-.studio-pill-select .mx-select-value { max-width: 148px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.studio-pill-select .mx-select-menu { min-width: max-content; }
-.studio-pill-select .mx-select-menu .mx-select-option { white-space: nowrap; }
+.studio-pill-select .mx-select-value {
+  max-width: 148px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-pill-select .mx-select-menu {
+  min-width: max-content;
+}
+.studio-pill-select .mx-select-menu .mx-select-option {
+  white-space: nowrap;
+}
 .studio-model-trigger {
   display: inline-flex;
   align-items: center;
@@ -694,9 +884,15 @@
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
 }
-.studio-model-trigger:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.studio-model-trigger:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
 .studio-model-trigger:hover:not(:disabled),
-.studio-model-trigger[aria-expanded="true"]:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.studio-model-trigger[aria-expanded="true"]:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
 /* Model menu: wide enough that no row truncates, trigger stays fixed width. */
 .studio-model-select .mx-select-trigger {
   height: 28px;
@@ -713,11 +909,23 @@
   font-weight: var(--mx-weight-regular);
 }
 .studio-model-select .mx-select-trigger:hover:not(:disabled),
-.studio-model-select .mx-select-trigger[aria-expanded="true"]:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
-.studio-model-select .mx-select-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.studio-model-select .mx-select-menu { min-width: 240px; }
+.studio-model-select .mx-select-trigger[aria-expanded="true"]:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.studio-model-select .mx-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-model-select .mx-select-menu {
+  min-width: 240px;
+}
 /* Anchored model popover: own width, provider headings, opens upward. */
-.studio-model-menu { position: relative; display: inline-flex; }
+.studio-model-menu {
+  position: relative;
+  display: inline-flex;
+}
 .studio-model-panel {
   position: fixed;
   z-index: 950;
@@ -733,7 +941,9 @@
   transform-origin: bottom left;
   animation: route-sheet-morph-in var(--mx-motion-slow) var(--mx-ease-emphasized) both;
 }
-.studio-model-panel > * { animation: route-sheet-content-in var(--mx-motion-chrome) 40ms both; }
+.studio-model-panel > * {
+  animation: route-sheet-content-in var(--mx-motion-chrome) 40ms both;
+}
 /* Codex-style pill: expands to the panel width while open. */
 .studio-model-trigger[data-morph] {
   max-width: none;
@@ -746,7 +956,7 @@
 .studio-model-panel section + section {
   margin-top: 6px;
   padding-top: 6px;
-  border-top: .5px solid var(--mx-border-muted);
+  border-top: 0.5px solid var(--mx-border-muted);
 }
 .studio-model-panel h4 {
   margin: 4px 8px 5px;
@@ -771,7 +981,9 @@
   font-size: var(--mx-font-ui);
   text-align: left;
   cursor: pointer;
-  transition: background var(--mx-motion-ink), box-shadow var(--mx-motion-ink);
+  transition:
+    background var(--mx-motion-ink),
+    box-shadow var(--mx-motion-ink);
 }
 .studio-model-panel button:hover,
 .studio-model-panel button:focus-visible {
@@ -793,7 +1005,10 @@
 }
 /* The panel is portalled to the viewport, so on a phone it must fit one:
    the component clamps its left edge, this caps the box itself. */
-.studio-model-panel { max-width: calc(100vw - 16px); max-height: min(320px, 60vh); }
+.studio-model-panel {
+  max-width: calc(100vw - 16px);
+  max-height: min(320px, 60vh);
+}
 /* The generation controls ride one strip; the send action sits outside it,
    exactly like the chat composer's route strip and send button. */
 /* The strip SCROLLS instead of clipping the model picker at ANY width — the
@@ -809,14 +1024,26 @@
   overflow-y: hidden;
   scrollbar-width: none;
 }
-.studio-composer-controls::-webkit-scrollbar { display: none; }
-.studio-composer-controls > * { flex: 0 0 auto; }
+.studio-composer-controls::-webkit-scrollbar {
+  display: none;
+}
+.studio-composer-controls > * {
+  flex: 0 0 auto;
+}
 @media (max-width: 700px) {
   /* The desktop trigger is a fixed 156px slot so pills never shift; a phone
      has no room for that — truncate the model name instead. */
-  .studio-model-trigger { min-width: 0; max-width: 132px; }
-  .studio-composer-spacer { display: none; }
-  .studio-generate { flex: 0 0 auto; margin-left: 6px; }
+  .studio-model-trigger {
+    min-width: 0;
+    max-width: 132px;
+  }
+  .studio-composer-spacer {
+    display: none;
+  }
+  .studio-generate {
+    flex: 0 0 auto;
+    margin-left: 6px;
+  }
 }
 /* Keep Studio controls on the loaded Latin UI face and skip text-affecting
    hover transitions. The mounted control row can then repaint in place when
@@ -832,9 +1059,19 @@
 .studio-model-trigger,
 .studio-pill-select .mx-select-trigger,
 .studio-model-select .mx-select-trigger,
-.studio-kind button { transition: none; }
-.studio-duration { display: inline-flex; align-items: center; gap: 6px; color: var(--mx-text); font-size: var(--mx-font-minor); }
-.studio-duration input { width: 88px; }
+.studio-kind button {
+  transition: none;
+}
+.studio-duration {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+}
+.studio-duration input {
+  width: 88px;
+}
 .studio-generate {
   display: inline-flex;
   align-items: center;
@@ -850,13 +1087,25 @@
   background: var(--mx-bg-contrast);
   cursor: pointer;
 }
-.studio-generate svg.lucide { stroke-width: 1.75px; }
+.studio-generate svg.lucide {
+  stroke-width: 1.75px;
+}
 .studio-generate:hover:not(:disabled) {
   background: linear-gradient(var(--mx-contrast-hover), var(--mx-contrast-hover)), var(--mx-bg-contrast);
 }
-.studio-generate:focus-visible { outline: 0; box-shadow: 0 0 0 1px var(--mx-border-strong); }
-.studio-generate:disabled { opacity: var(--mx-op-disabled); cursor: default; }
-.studio-generate.is-busy { color: var(--mx-text); background: var(--mx-bg-layer-1); box-shadow: inset 0 0 0 .5px var(--mx-border-muted); }
+.studio-generate:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 1px var(--mx-border-strong);
+}
+.studio-generate:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.studio-generate.is-busy {
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+}
 .desktop-boot-gate {
   position: relative;
   width: 100%;
@@ -873,7 +1122,9 @@
   min-height: 0;
 }
 .desktop-boot-gate[data-ready="false"] > .desktop-boot-gate-content,
-.desktop-boot-gate[data-ready="false"] > .desktop-boot-gate-content * { visibility: hidden; }
+.desktop-boot-gate[data-ready="false"] > .desktop-boot-gate-content * {
+  visibility: hidden;
+}
 .desktop-boot-cover {
   position: absolute;
   z-index: 1000;
@@ -883,7 +1134,10 @@
   opacity: 1;
   transition: opacity var(--mx-motion-ink);
 }
-.desktop-boot-cover[data-leaving="true"] { opacity: 0; pointer-events: none; }
+.desktop-boot-cover[data-leaving="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
 .desktop-boot-cover > .desktop-loading-surface {
   border-radius: 0;
   box-shadow: none;
@@ -895,12 +1149,20 @@
   animation: desktop-boot-brand-in var(--mx-motion-slow) 20ms var(--mx-ease-standard) both;
 }
 @keyframes desktop-boot-brand-in {
-  from { opacity: 0; }
-  to { opacity: .08; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.08;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .desktop-boot-cover { transition: none; }
-  .desktop-boot-gate[data-brand-handoff] .welcome-logo { animation: none; }
+  .desktop-boot-cover {
+    transition: none;
+  }
+  .desktop-boot-gate[data-brand-handoff] .welcome-logo {
+    animation: none;
+  }
 }
 /* Detail view: media on the stage, metadata and actions in a side rail. */
 .studio-detail {
@@ -936,7 +1198,9 @@
   overflow: hidden;
   border-radius: var(--mx-radius-xl);
   background: var(--mx-workspace-sheet);
-  box-shadow: var(--mx-overlay), inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow:
+    var(--mx-overlay),
+    inset 0 0 0 0.5px var(--mx-border-muted);
 }
 .studio-detail-stage {
   display: grid;
@@ -984,23 +1248,44 @@
   padding: 16px;
   overflow: hidden;
   background: var(--mx-bg-base);
-  box-shadow: inset .5px 0 0 var(--mx-border-muted);
+  box-shadow: inset 0.5px 0 0 var(--mx-border-muted);
   animation: studio-side-in var(--mx-motion-chrome);
 }
 @keyframes studio-detail-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes studio-stage-in {
-  from { opacity: 0; transform: scale(.985); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 @keyframes studio-side-in {
-  from { transform: translateX(12px); opacity: 0; }
-  to { transform: none; opacity: 1; }
+  from {
+    transform: translateX(12px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .studio-detail, .studio-detail-stage img, .studio-detail-stage video, .studio-detail-side { animation: none; }
+  .studio-detail,
+  .studio-detail-stage img,
+  .studio-detail-stage video,
+  .studio-detail-side {
+    animation: none;
+  }
 }
 .studio-detail-side > header {
   display: flex;
@@ -1008,7 +1293,9 @@
   align-items: center;
   justify-content: space-between;
 }
-.studio-detail-side > header b { font-size: var(--mx-font-ui); }
+.studio-detail-side > header b {
+  font-size: var(--mx-font-ui);
+}
 .studio-detail-close {
   display: grid;
   place-items: center;
@@ -1029,7 +1316,7 @@
   padding: 12px;
   border-radius: var(--mx-radius-lg);
   background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
 .studio-detail-block-head {
   display: flex;
@@ -1051,7 +1338,11 @@
   font-size: var(--mx-font-meta);
   cursor: pointer;
 }
-.studio-detail-block p { margin: 0; font-size: var(--mx-font-minor); line-height: var(--mx-line-minor); }
+.studio-detail-block p {
+  margin: 0;
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
+}
 /* Prompt shares the DETAILS block card: the old full-bleed band pushed its
    head row (label + copy) against the strip edges. */
 .studio-detail-prompt {
@@ -1062,14 +1353,26 @@
   overflow: hidden;
   cursor: default;
 }
-.studio-detail-prompt[data-open='true'] {
+.studio-detail-prompt[data-open="true"] {
   display: block;
   max-height: 72px;
   overflow-y: auto;
 }
-.studio-detail-block dl { margin: 0; display: grid; gap: 6px; }
-.studio-detail-block dl > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.studio-detail-block dt { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.studio-detail-block dl {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.studio-detail-block dl > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.studio-detail-block dt {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
 .studio-detail-block dd {
   margin: 0;
   max-width: 170px;
@@ -1078,7 +1381,12 @@
   white-space: nowrap;
   font-size: var(--mx-font-meta);
 }
-.studio-detail-actions { display: grid; flex: 0 0 auto; gap: 6px; margin-top: auto; }
+.studio-detail-actions {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 6px;
+  margin-top: auto;
+}
 .studio-detail-actions button {
   display: inline-flex;
   align-items: center;
@@ -1089,15 +1397,23 @@
   border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
   background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
 }
-.studio-detail-primary { color: var(--mx-bg-base) !important; background: var(--mx-text) !important; box-shadow: none !important; }
-.studio-detail-danger { color: var(--mx-danger) !important; }
+.studio-detail-primary {
+  color: var(--mx-bg-base) !important;
+  background: var(--mx-text) !important;
+  box-shadow: none !important;
+}
+.studio-detail-danger {
+  color: var(--mx-danger) !important;
+}
 /* Stage close shows when the detail card stacks (narrow pane). */
-.studio-detail-stage-close { display: none; }
+.studio-detail-stage-close {
+  display: none;
+}
 
 /* Stack in a split pane: a short-but-wide 2×2 still clips a side rail. */
 @container studio-detail (max-width: 899px) or (max-height: 559px) {
@@ -1106,7 +1422,9 @@
     grid-template-rows: minmax(0, 1fr) auto;
     border-radius: var(--mx-radius-xl);
     background: var(--mx-bg-base);
-    box-shadow: var(--mx-overlay), inset 0 0 0 .5px var(--mx-border-muted);
+    box-shadow:
+      var(--mx-overlay),
+      inset 0 0 0 0.5px var(--mx-border-muted);
   }
   .studio-detail-stage {
     position: relative;
@@ -1152,9 +1470,11 @@
     /* The rounded card frame owns the shape now: a second sheet curve here
        stacked a 16px arc inside the 12px card corner. */
     border-radius: 0;
-    box-shadow: inset 0 .5px 0 var(--mx-border-muted);
+    box-shadow: inset 0 0.5px 0 var(--mx-border-muted);
   }
-  .studio-detail-side > header { display: none; }
+  .studio-detail-side > header {
+    display: none;
+  }
   .studio-detail-block {
     padding: 0;
     background: none;
@@ -1164,18 +1484,26 @@
     padding: 10px 12px;
     border-radius: var(--mx-radius-lg);
     background: var(--mx-bg-layer-1);
-    box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+    box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
   }
-  .studio-detail-block + .studio-detail-block .studio-detail-block-head { display: none; }
-  .studio-detail-block dl { display: flex; flex-wrap: wrap; gap: 6px; }
+  .studio-detail-block + .studio-detail-block .studio-detail-block-head {
+    display: none;
+  }
+  .studio-detail-block dl {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
   .studio-detail-block dl > div {
     gap: 6px;
     padding: 5px 10px;
     border-radius: var(--mx-radius-pill);
     background: var(--mx-bg-layer-1);
-    box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+    box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
   }
-  .studio-detail-block dd { max-width: 150px; }
+  .studio-detail-block dd {
+    max-width: 150px;
+  }
   .studio-detail-prompt {
     display: -webkit-box;
     -webkit-box-orient: vertical;
@@ -1183,7 +1511,7 @@
     max-height: 36px;
     overflow: hidden;
   }
-  .studio-detail-prompt[data-open='true'] {
+  .studio-detail-prompt[data-open="true"] {
     display: block;
     max-height: 36px;
     overflow-y: auto;
@@ -1202,4 +1530,3 @@
     white-space: nowrap;
   }
 }
-

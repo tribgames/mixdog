@@ -53,26 +53,34 @@ export function parseBridgeDiscovery(value: unknown): BridgeDiscoveryRecord | nu
   const pid = Number(parsed.pid || 0);
   const generation = Number(parsed.generation || 0);
   const startedAt = Number(parsed.startedAt || 0);
-  if (version !== BRIDGE_DISCOVERY_VERSION
-    || !Number.isInteger(port) || port <= 0 || port > 65_535
-    || !token
-    || !Number.isInteger(pid) || pid < 0
-    || !Number.isInteger(generation) || generation < 0
-    || !Number.isFinite(startedAt) || startedAt < 0) return null;
+  if (
+    version !== BRIDGE_DISCOVERY_VERSION ||
+    !Number.isInteger(port) ||
+    port <= 0 ||
+    port > 65_535 ||
+    !token ||
+    !Number.isInteger(pid) ||
+    pid < 0 ||
+    !Number.isInteger(generation) ||
+    generation < 0 ||
+    !Number.isFinite(startedAt) ||
+    startedAt < 0
+  )
+    return null;
   return { version, port, token, pid, generation, startedAt };
 }
 
-export function sameBridgeDiscovery(
-  left: BridgeDiscoveryRecord | null,
-  right: BridgeDiscoveryRecord | null,
-): boolean {
-  return Boolean(left && right
-    && left.version === right.version
-    && left.port === right.port
-    && left.token === right.token
-    && left.pid === right.pid
-    && left.generation === right.generation
-    && left.startedAt === right.startedAt);
+export function sameBridgeDiscovery(left: BridgeDiscoveryRecord | null, right: BridgeDiscoveryRecord | null): boolean {
+  return Boolean(
+    left &&
+      right &&
+      left.version === right.version &&
+      left.port === right.port &&
+      left.token === right.token &&
+      left.pid === right.pid &&
+      left.generation === right.generation &&
+      left.startedAt === right.startedAt
+  );
 }
 
 export function bridgeDiscoveryPublicIdentity(record: BridgeDiscoveryRecord): Omit<BridgeDiscoveryRecord, 'token'> {
@@ -80,22 +88,19 @@ export function bridgeDiscoveryPublicIdentity(record: BridgeDiscoveryRecord): Om
   return identity;
 }
 
-function samePublicIdentity(
-  record: BridgeDiscoveryRecord,
-  value: unknown,
-): boolean {
+function samePublicIdentity(record: BridgeDiscoveryRecord, value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const identity = value as Partial<Omit<BridgeDiscoveryRecord, 'token'>>;
-  return Number(identity.version) === record.version
-    && Number(identity.port) === record.port
-    && Number(identity.pid) === record.pid
-    && Number(identity.generation) === record.generation
-    && Number(identity.startedAt) === record.startedAt;
+  return (
+    Number(identity.version) === record.version &&
+    Number(identity.port) === record.port &&
+    Number(identity.pid) === record.pid &&
+    Number(identity.generation) === record.generation &&
+    Number(identity.startedAt) === record.startedAt
+  );
 }
 
-export async function probeBridgeDiscovery(
-  record: BridgeDiscoveryRecord,
-): Promise<BridgeDiscoveryProbeOutcome> {
+export async function probeBridgeDiscovery(record: BridgeDiscoveryRecord): Promise<BridgeDiscoveryProbeOutcome> {
   return await new Promise<BridgeDiscoveryProbeOutcome>((resolve) => {
     let settled = false;
     let responseText = '';
@@ -106,42 +111,43 @@ export async function probeBridgeDiscovery(
       if (deadline) clearTimeout(deadline);
       resolve(outcome);
     };
-    const probe = request({
-      host: '127.0.0.1',
-      port: record.port,
-      path: '/health',
-      method: 'GET',
-      headers: { authorization: `Bearer ${record.token}` },
-      agent: false,
-    }, (response) => {
-      response.setEncoding('utf8');
-      response.once('aborted', () => finish('inconclusive'));
-      response.once('error', () => finish('inconclusive'));
-      response.once('close', () => {
-        if (!response.complete) finish('inconclusive');
-      });
-      response.on('data', (chunk: string) => {
-        responseText += chunk;
-        if (Buffer.byteLength(responseText) > MAX_HEALTH_RESPONSE_BYTES) {
-          probe.destroy();
-          finish('inconclusive');
-        }
-      });
-      response.on('end', () => {
-        if (response.statusCode !== 200) {
-          finish('inconclusive');
-          return;
-        }
-        try {
-          const payload = JSON.parse(responseText) as { ok?: boolean; identity?: unknown };
-          finish(payload.ok === true && samePublicIdentity(record, payload.identity)
-            ? 'live'
-            : 'inconclusive');
-        } catch {
-          finish('inconclusive');
-        }
-      });
-    });
+    const probe = request(
+      {
+        host: '127.0.0.1',
+        port: record.port,
+        path: '/health',
+        method: 'GET',
+        headers: { authorization: `Bearer ${record.token}` },
+        agent: false,
+      },
+      (response) => {
+        response.setEncoding('utf8');
+        response.once('aborted', () => finish('inconclusive'));
+        response.once('error', () => finish('inconclusive'));
+        response.once('close', () => {
+          if (!response.complete) finish('inconclusive');
+        });
+        response.on('data', (chunk: string) => {
+          responseText += chunk;
+          if (Buffer.byteLength(responseText) > MAX_HEALTH_RESPONSE_BYTES) {
+            probe.destroy();
+            finish('inconclusive');
+          }
+        });
+        response.on('end', () => {
+          if (response.statusCode !== 200) {
+            finish('inconclusive');
+            return;
+          }
+          try {
+            const payload = JSON.parse(responseText) as { ok?: boolean; identity?: unknown };
+            finish(payload.ok === true && samePublicIdentity(record, payload.identity) ? 'live' : 'inconclusive');
+          } catch {
+            finish('inconclusive');
+          }
+        });
+      }
+    );
     deadline = setTimeout(() => {
       probe.destroy();
       finish('inconclusive');

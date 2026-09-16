@@ -17,5 +17,5 @@ export const CODEX_OAUTH_ORIGINATOR = 'codex_cli_rs';
  * version, so the query always carries the version the transports report.
  */
 export function codexModelsUrl(clientVersion) {
-    return `${CODEX_BACKEND_BASE}/models?client_version=${clientVersion}`;
+  return `${CODEX_BACKEND_BASE}/models?client_version=${clientVersion}`;
 }

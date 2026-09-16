@@ -13,20 +13,23 @@ import {
 // Strip BOM + normalize CRLF→LF only. Idempotent and structural — no
 // hunk metadata is rewritten.
 export function prepareInput(patchStr) {
-  return String(patchStr).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+  return String(patchStr)
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n');
 }
 
 function isApplyPatchEnvelope(patchStr) {
   const text = prepareInput(patchStr).trimStart();
-  return text.startsWith('*** Begin Patch')
-    || text.startsWith('*** Add File:')
-    || text.startsWith('*** Update File:')
-    || text.startsWith('*** Delete File:');
+  return (
+    text.startsWith('*** Begin Patch') ||
+    text.startsWith('*** Add File:') ||
+    text.startsWith('*** Update File:') ||
+    text.startsWith('*** Delete File:')
+  );
 }
 
 export function isV4APatchInput(patchStr, format) {
-  return String(format || '').toLowerCase() === 'v4a'
-    || isApplyPatchEnvelope(patchStr);
+  return String(format || '').toLowerCase() === 'v4a' || isApplyPatchEnvelope(patchStr);
 }
 
 // Absorb malformed-but-unambiguous patch openings that models emit instead of
@@ -98,17 +101,21 @@ export function hasUnifiedBareV4AHunk(patchStr) {
 
 function isUnifiedHunkCountError(err) {
   const message = String(err?.message || err || '');
-  return /Hunk at line .*more lines than expected|Hunk at line .*less lines than expected|expected \d+ old lines|line count did not match/i.test(message);
+  return /Hunk at line .*more lines than expected|Hunk at line .*less lines than expected|expected \d+ old lines|line count did not match/i.test(
+    message
+  );
 }
 
 export function canFallbackCountedUnified(patchStr, requestedFormat, err) {
   if (requestedFormat === 'unified') return false;
   if (isV4APatchInput(patchStr, requestedFormat)) return false;
   const text = prepareInput(patchStr);
-  return /^--- /m.test(text)
-    && /^\+\+\+ /m.test(text)
-    && UNIFIED_HUNK_HEADER_RE.test(text.split('\n').find((line) => line.startsWith('@@')) || '')
-    && isUnifiedHunkCountError(err);
+  return (
+    /^--- /m.test(text) &&
+    /^\+\+\+ /m.test(text) &&
+    UNIFIED_HUNK_HEADER_RE.test(text.split('\n').find((line) => line.startsWith('@@')) || '') &&
+    isUnifiedHunkCountError(err)
+  );
 }
 
 function stripPatchPathMetadata(rawPath) {
@@ -139,7 +146,9 @@ function normaliseV4APath(rawPath) {
 }
 
 function normaliseV4AAnchor(rawAnchor) {
-  return String(rawAnchor || '').replace(/\s*@@\s*$/, '').trim();
+  return String(rawAnchor || '')
+    .replace(/\s*@@\s*$/, '')
+    .trim();
 }
 
 function stripV4AMovePathHeader(line) {
@@ -150,8 +159,7 @@ export function isV4AEndOfFileMarker(rawLine) {
   const text = String(rawLine || '').trim();
   if (text === V4A_EOF_MARKER) return true;
   // Models close the marker like Begin/End Patch (`*** End of File ***`).
-  return text.startsWith(V4A_EOF_MARKER)
-    && /^[\s*]*$/.test(text.slice(V4A_EOF_MARKER.length));
+  return text.startsWith(V4A_EOF_MARKER) && /^[\s*]*$/.test(text.slice(V4A_EOF_MARKER.length));
 }
 
 function v4aEnsureUpdateHunk(current, pendingAnchors) {
@@ -352,7 +360,7 @@ function parseUnifiedAsV4APatch(patchStr, { label, resolveAnchor }) {
     finishFile();
     const oldIsNull = DEV_NULL.test(oldPath || '');
     const newIsNull = DEV_NULL.test(newPath || '');
-    const kind = oldIsNull ? 'add' : (newIsNull ? 'delete' : 'update');
+    const kind = oldIsNull ? 'add' : newIsNull ? 'delete' : 'update';
     const path = kind === 'add' ? newPath : oldPath;
     current = { kind, path: normaliseV4APath(path), hunks: [], lines: [] };
     files.push(current);
@@ -360,7 +368,12 @@ function parseUnifiedAsV4APatch(patchStr, { label, resolveAnchor }) {
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
-    if (rawLine.startsWith('diff --git ') || rawLine.startsWith('index ') || rawLine.startsWith('new file mode ') || rawLine.startsWith('deleted file mode ')) {
+    if (
+      rawLine.startsWith('diff --git ') ||
+      rawLine.startsWith('index ') ||
+      rawLine.startsWith('new file mode ') ||
+      rawLine.startsWith('deleted file mode ')
+    ) {
       continue;
     }
     if (rawLine.startsWith('--- ')) {

@@ -6,15 +6,7 @@
  * file name into the same directory and keeps ownership through the same
  * probe-and-reclaim heartbeat.
  */
-import {
-  chmodSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  utimesSync,
-  writeFileSync,
-} from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -34,9 +26,11 @@ const MAX_REQUEST_BYTES = 256 * 1024;
  *  MIXDOG_BRIDGE_DISCOVERY_DIR so it never claims the shared data dir's tool
  *  surface, otherwise the shared `~/.mixdog/data`. */
 export function bridgeDiscoveryDirectory(): string {
-  return process.env.MIXDOG_BRIDGE_DISCOVERY_DIR
-    || process.env.MIXDOG_DATA_DIR
-    || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
+  return (
+    process.env.MIXDOG_BRIDGE_DISCOVERY_DIR ||
+    process.env.MIXDOG_DATA_DIR ||
+    join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data')
+  );
 }
 
 export interface DiscoveryHost {
@@ -91,17 +85,21 @@ export function createBridgeDiscovery(host: DiscoveryHost) {
       renameSync(temporaryPath, path);
       try {
         chmodSync(path, 0o600);
-      } catch { /* Windows ACLs: the per-user data dir is already private */ }
+      } catch {
+        /* Windows ACLs: the per-user data dir is already private */
+      }
     } finally {
       try {
         unlinkSync(temporaryPath);
-      } catch { /* renamed or already gone */ }
+      } catch {
+        /* renamed or already gone */
+      }
     }
     return sameBridgeDiscovery(readDiscoverySnapshot(path).record, record);
   }
 
   async function maintainDiscovery(
-    record: BridgeDiscoveryRecord,
+    record: BridgeDiscoveryRecord
   ): Promise<'owned' | 'occupied' | 'inconclusive' | 'lost' | 'superseded'> {
     if (!sameBridgeDiscovery(activeDiscovery, record)) return 'superseded';
     const path = ensureDiscoveryPath();
@@ -162,14 +160,14 @@ export function createBridgeDiscovery(host: DiscoveryHost) {
   }
 
   async function writeDiscovery(
-    record: BridgeDiscoveryRecord,
+    record: BridgeDiscoveryRecord
   ): Promise<'owned' | 'occupied' | 'inconclusive' | 'lost' | 'superseded'> {
     activeDiscovery = record;
     return await maintainDiscovery(record);
   }
 
   async function heartbeatDiscovery(
-    record: BridgeDiscoveryRecord,
+    record: BridgeDiscoveryRecord
   ): Promise<'owned' | 'occupied' | 'inconclusive' | 'lost' | 'superseded'> {
     return await maintainDiscovery(record);
   }
@@ -181,7 +179,9 @@ export function createBridgeDiscovery(host: DiscoveryHost) {
     try {
       const current = readDiscoverySnapshot(discoveryPath);
       if (sameBridgeDiscovery(current.record, record)) unlinkSync(discoveryPath);
-    } catch { /* replaced or already gone */ }
+    } catch {
+      /* replaced or already gone */
+    }
     discoveryPath = null;
   }
 

@@ -47,9 +47,9 @@ function createSearchRuntime(t, id, model) {
     ensureFullConfig: () => rt.config,
     awaitKeychainPrewarm: readiness.awaitKeychainPrewarm,
     ensureProvidersReady: readiness.ensureProvidersReady,
-    ensureProviderEnabled: config => config.providers,
-    normalizeWebSearchProviderId: value => value,
-    normalizeWebSearchRouteConfig: value => value,
+    ensureProviderEnabled: (config) => config.providers,
+    normalizeWebSearchProviderId: (value) => value,
+    normalizeWebSearchRouteConfig: (value) => value,
     isDefaultWebSearchRouteConfig: () => false,
     isWebSearchCapableProvider: () => true,
     webSearchCapableFor: () => true,
@@ -57,20 +57,23 @@ function createSearchRuntime(t, id, model) {
   const dispose = setInternalToolsProvider({
     scopeId: session.mcpScopeId,
     tools: [{ name: 'web_search', inputSchema: { type: 'object', properties: {} } }],
-    executor: (name, args, callerCtx) => dispatchWebSearchRuntimeTool(name, args, callerCtx, {
-      getWebSearchModule: async () => ({
-        handleToolCall: (_name, input, options) => options.nativeWebSearch(input),
+    executor: (name, args, callerCtx) =>
+      dispatchWebSearchRuntimeTool(name, args, callerCtx, {
+        getWebSearchModule: async () => ({
+          handleToolCall: (_name, input, options) => options.nativeWebSearch(input),
+        }),
+        getCurrentCwd: () => session.cwd,
+        getSession: () => session,
+        notifyFnForSession: () => () => {},
+        runNativeWebSearch,
       }),
-      getCurrentCwd: () => session.cwd,
-      getSession: () => session,
-      notifyFnForSession: () => () => {},
-      runNativeWebSearch,
-    }),
   });
   t.after(dispose);
   const lifecycle = createLifecycleApi({
     getSession: () => null,
-    setCloseRequested: value => { rt.closeRequested = value; },
+    setCloseRequested: (value) => {
+      rt.closeRequested = value;
+    },
     disposeInternalTools: dispose,
     prewarmTimers: {},
     warmupTimers: {},
@@ -82,7 +85,7 @@ function createSearchRuntime(t, id, model) {
     getMemoryModPromise: () => null,
     invalidateContextStatusCache() {},
     clearRuntimeNotifications() {},
-    withTeardownDeadline: async pending => await pending,
+    withTeardownDeadline: async (pending) => await pending,
   });
   return { rt, session, requests, lifecycle };
 }
@@ -91,12 +94,20 @@ test('a newer runtime closing cannot break another session native web search', a
   const active = createSearchRuntime(t, 'active', 'grok-4.6');
   const newer = createSearchRuntime(t, 'newer', 'grok-4.5');
   const controller = new AbortController();
-  const search = runtime => executeTool(
-    'web_search', { prompt: 'scope regression' }, runtime.session.cwd,
-    runtime.session.id, runtime.session, { signal: controller.signal },
-  );
+  const search = (runtime) =>
+    executeTool(
+      'web_search',
+      { prompt: 'scope regression' },
+      runtime.session.cwd,
+      runtime.session.id,
+      runtime.session,
+      { signal: controller.signal }
+    );
   const initial = await Promise.all([search(active), search(newer)]);
-  assert.deepEqual(initial.map(text => JSON.parse(text).content), ['active:grok-4.6', 'newer:grok-4.5']);
+  assert.deepEqual(
+    initial.map((text) => JSON.parse(text).content),
+    ['active:grok-4.6', 'newer:grok-4.5']
+  );
   await newer.lifecycle.close('idle-eviction', { keepBackgroundWork: true });
   assert.equal(newer.rt.closeRequested, true);
   assert.deepEqual(getInternalTools(newer.session.mcpScopeId), []);
@@ -105,10 +116,7 @@ test('a newer runtime closing cannot break another session native web search', a
   assert.equal(active.requests.length, 2);
   assert.equal(newer.requests.length, 1);
   assert.equal(active.requests[1].signal, controller.signal);
-  await assert.rejects(
-    executeInternalTool('web_search', {}, { scopeId: newer.session.mcpScopeId }),
-    /not registered/,
-  );
+  await assert.rejects(executeInternalTool('web_search', {}, { scopeId: newer.session.mcpScopeId }), /not registered/);
   controller.abort(new Error('search cancelled'));
   await assert.rejects(search(active), /search cancelled/);
   assert.equal(active.requests.length, 2);

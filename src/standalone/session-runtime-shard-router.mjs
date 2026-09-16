@@ -1,5 +1,3 @@
-'use strict';
-
 // Deterministic routing for the session runtime SHARD host.
 //
 // One child process owning every session runtime, every agent dispatch, every
@@ -73,7 +71,11 @@ export function selectShardIndex(key, shardCount, isPlaceable = () => true) {
   const order = shardProbeOrder(key, shardCount);
   for (const index of order) {
     let ok = true;
-    try { ok = isPlaceable(index) !== false; } catch { ok = true; }
+    try {
+      ok = isPlaceable(index) !== false;
+    } catch {
+      ok = true;
+    }
     if (ok) return index;
   }
   return order[0];
@@ -115,8 +117,12 @@ export function createShardOwnership() {
       if (existing.refs <= 0) owners.delete(id);
       return existing.index;
     },
-    get size() { return owners.size; },
-    entries() { return [...owners].map(([key, value]) => ({ key, ...value })); },
+    get size() {
+      return owners.size;
+    },
+    entries() {
+      return [...owners].map(([key, value]) => ({ key, ...value }));
+    },
   };
 }
 

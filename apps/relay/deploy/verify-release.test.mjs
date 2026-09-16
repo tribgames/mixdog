@@ -12,12 +12,13 @@ import { createRendererReadiness, inspectRenderer } from '../lib/renderer-readin
 import { verifyRelease } from './verify-release.mjs';
 
 const version = 'a'.repeat(64);
-const html = '<!doctype html><head>'
-  + `<meta name="mixdog-shell-version" content="${version}">`
-  + '<meta name="mixdog-shell-assets" content="assets/main-12345678.js">'
-  + '<script type="module" src="./assets/main-12345678.js"></script>'
-  + '<link rel="stylesheet" href="./assets/style-12345678.css">'
-  + '</head><body></body>';
+const html =
+  '<!doctype html><head>' +
+  `<meta name="mixdog-shell-version" content="${version}">` +
+  '<meta name="mixdog-shell-assets" content="assets/main-12345678.js">' +
+  '<script type="module" src="./assets/main-12345678.js"></script>' +
+  '<link rel="stylesheet" href="./assets/style-12345678.css">' +
+  '</head><body></body>';
 const expectedIndex = createHash('sha256').update(html).digest('hex');
 
 async function rendererFixture(root) {
@@ -31,7 +32,8 @@ async function rendererFixture(root) {
     'icon.svg': '<svg xmlns="http://www.w3.org/2000/svg"/>',
     'sw.js': 'importScripts("/sw-shell.js");',
     'sw-shell.js': 'void 0;',
-  })) await writeFile(join(root, name), body);
+  }))
+    await writeFile(join(root, name), body);
 }
 
 test('deployed renderer and WebSocket gates verify without registering any device', async () => {
@@ -102,9 +104,18 @@ for (const mode of ['missing-route', 'foreign-origin-accepted']) {
   test(`healthy HTTP cannot hide a broken WebSocket gate: ${mode}`, async () => {
     const server = createServer((request, response) => {
       response.setHeader('content-type', 'application/json');
-      response.end(JSON.stringify(request.url === '/healthz' ? { status: 'ok' } : {
-        status: 'ready', indexSha256: expectedIndex, version, assets: 8,
-      }));
+      response.end(
+        JSON.stringify(
+          request.url === '/healthz'
+            ? { status: 'ok' }
+            : {
+                status: 'ready',
+                indexSha256: expectedIndex,
+                version,
+                assets: 8,
+              }
+        )
+      );
     });
     const wss = new WebSocketServer({ noServer: true });
     server.on('upgrade', (request, socket, head) => {
@@ -117,9 +128,13 @@ for (const mode of ['missing-route', 'foreign-origin-accepted']) {
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
     try {
-      await assert.rejects(verifyRelease({
-        origin: `http://127.0.0.1:${server.address().port}`, expectedIndex,
-      }), mode === 'missing-route' ? /HTTP 404/ : /accepted a foreign origin/);
+      await assert.rejects(
+        verifyRelease({
+          origin: `http://127.0.0.1:${server.address().port}`,
+          expectedIndex,
+        }),
+        mode === 'missing-route' ? /HTTP 404/ : /accepted a foreign origin/
+      );
     } finally {
       for (const socket of wss.clients) socket.terminate();
       await new Promise((resolve) => wss.close(resolve));

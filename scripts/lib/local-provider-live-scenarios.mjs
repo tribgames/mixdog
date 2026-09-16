@@ -4,8 +4,12 @@ export async function completeToolConversation({ send, messages, tools, executeT
     const result = await send(transcript, tools);
     if (result.truncated) throw new Error(`Tool conversation was truncated: ${JSON.stringify(result).slice(0, 2000)}`);
     if (!result.toolCalls?.length) return { result, toolSteps: step };
-    transcript.push({ role: 'assistant', content: result.content,
-      toolCalls: result.toolCalls, reasoningContent: result.reasoningContent });
+    transcript.push({
+      role: 'assistant',
+      content: result.content,
+      toolCalls: result.toolCalls,
+      reasoningContent: result.reasoningContent,
+    });
     for (const tool of result.toolCalls) {
       transcript.push({ role: 'tool', toolCallId: tool.id, content: await executeTool(tool) });
     }
@@ -15,8 +19,13 @@ export async function completeToolConversation({ send, messages, tools, executeT
 
 export function assertResponseContains(result, expected) {
   if (typeof result?.content !== 'string' || !result.content.includes(expected)) {
-    throw new Error(`Model response did not include ${JSON.stringify(expected)}: ${JSON.stringify({
-      content: result?.content, toolCalls: result?.toolCalls, stopReason: result?.stopReason, truncated: result?.truncated,
-    }).slice(0, 3000)}`);
+    throw new Error(
+      `Model response did not include ${JSON.stringify(expected)}: ${JSON.stringify({
+        content: result?.content,
+        toolCalls: result?.toolCalls,
+        stopReason: result?.stopReason,
+        truncated: result?.truncated,
+      }).slice(0, 3000)}`
+    );
   }
 }

@@ -1,8 +1,5 @@
 import { sanitizeToolPairs } from '../context-utils.mjs';
-import {
-    isInternalRuntimeNotificationText,
-    promptContentText,
-} from './prompt-utils.mjs';
+import { isInternalRuntimeNotificationText, promptContentText } from './prompt-utils.mjs';
 import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
 
 const INTERRUPT_MESSAGE = '[Request interrupted by user]';
@@ -24,427 +21,421 @@ const INTERRUPTED_TOOL_RESULT = 'Cancelled';
 const USER_CANCEL_ABORT_REASONS = new Set(['cli-abort', 'user-cancel', 'turn-abort']);
 
 function assistantToolCallIds(message) {
-    if (!message || message.role !== 'assistant') return [];
-    const ids = [];
-    const seen = new Set();
-    const add = (id) => {
-        if (!id || seen.has(id)) return;
-        seen.add(id);
-        ids.push(id);
-    };
-    for (const call of Array.isArray(message.toolCalls) ? message.toolCalls : []) add(call?.id);
-    for (const blocks of [message.assistantBlocks, message.content]) {
-        if (!Array.isArray(blocks)) continue;
-        for (const block of blocks) {
-            if (block?.type === 'tool_use') add(block.id);
-        }
+  if (!message || message.role !== 'assistant') return [];
+  const ids = [];
+  const seen = new Set();
+  const add = (id) => {
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    ids.push(id);
+  };
+  for (const call of Array.isArray(message.toolCalls) ? message.toolCalls : []) add(call?.id);
+  for (const blocks of [message.assistantBlocks, message.content]) {
+    if (!Array.isArray(blocks)) continue;
+    for (const block of blocks) {
+      if (block?.type === 'tool_use') add(block.id);
     }
-    return ids;
+  }
+  return ids;
 }
 
 function provisionalUserTurnIndex(messages, currentUserContent) {
-    const currentText = promptContentText(currentUserContent);
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-        const message = messages[i];
-        if (message?.role !== 'user') continue;
-        if (message.content === currentUserContent
-            || promptContentText(message.content) === currentText) {
-            return i;
-        }
+  const currentText = promptContentText(currentUserContent);
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message?.role !== 'user') continue;
+    if (message.content === currentUserContent || promptContentText(message.content) === currentText) {
+      return i;
     }
-    return -1;
+  }
+  return -1;
 }
 
 function rewindProvisionalUserTurn(messages, currentUserContent) {
-    const index = provisionalUserTurnIndex(messages, currentUserContent);
-    if (index >= 0) {
-            // Remove the provisional user turn plus pre-send hooks appended
-            // after it, while retaining any compaction rewrite before it.
-        messages.splice(index);
-    }
-    return messages;
+  const index = provisionalUserTurnIndex(messages, currentUserContent);
+  if (index >= 0) {
+    // Remove the provisional user turn plus pre-send hooks appended
+    // after it, while retaining any compaction rewrite before it.
+    messages.splice(index);
+  }
+  return messages;
 }
 
 function finalizeInterruptedTurn({
-    turnOutgoing,
-    currentUserContent,
-    responseStarted,
-    partialAssistantContent,
-    partialReasoningContent,
-    observedToolCalls,
-    observedToolResults,
-    phase,
-    abortReason,
+  turnOutgoing,
+  currentUserContent,
+  responseStarted,
+  partialAssistantContent,
+  partialReasoningContent,
+  observedToolCalls,
+  observedToolResults,
+  phase,
+  abortReason,
 }) {
-    const messages = filterModelVisibleSessionMessages(turnOutgoing).slice();
-    // Null/unknown reasons keep the legacy rewind (status quo for wrapped
-    // aborts without a closeReason enum); named non-user reasons preserve.
-    const userCancelled = abortReason == null
-        || USER_CANCEL_ABORT_REASONS.has(abortReason);
-    // A turn cancelled while the model was only thinking
-    // produced no model-visible message, so the provisional user turn is
-    // rewound and the prompt goes back to the input box. Anything the model
-    // actually said or did — committed messages from this turn, buffered text,
-    // tool calls/results — keeps the turn (reasoning alone does not).
-    const producedOutput = String(partialAssistantContent || '').trim() !== ''
-        || observedToolCalls.size > 0
-        || observedToolResults.size > 0
-        || (() => {
-            const index = provisionalUserTurnIndex(messages, currentUserContent);
-            return index >= 0 && index < messages.length - 1;
-        })();
-    const preserveResponse = responseStarted
-        && !isInternalRuntimeNotificationText(currentUserContent)
-        && (producedOutput || !userCancelled);
-    if (!preserveResponse) {
-        if (!userCancelled) {
-            return {
-                messages,
-                responsePreserved: false,
-                userTurnPreserved: true,
-            };
-        }
-        return {
-            messages: rewindProvisionalUserTurn(messages, currentUserContent),
-            responsePreserved: false,
-            userTurnPreserved: false,
-        };
+  const messages = filterModelVisibleSessionMessages(turnOutgoing).slice();
+  // Null/unknown reasons keep the legacy rewind (status quo for wrapped
+  // aborts without a closeReason enum); named non-user reasons preserve.
+  const userCancelled = abortReason == null || USER_CANCEL_ABORT_REASONS.has(abortReason);
+  // A turn cancelled while the model was only thinking
+  // produced no model-visible message, so the provisional user turn is
+  // rewound and the prompt goes back to the input box. Anything the model
+  // actually said or did — committed messages from this turn, buffered text,
+  // tool calls/results — keeps the turn (reasoning alone does not).
+  const producedOutput =
+    String(partialAssistantContent || '').trim() !== '' ||
+    observedToolCalls.size > 0 ||
+    observedToolResults.size > 0 ||
+    (() => {
+      const index = provisionalUserTurnIndex(messages, currentUserContent);
+      return index >= 0 && index < messages.length - 1;
+    })();
+  const preserveResponse =
+    responseStarted && !isInternalRuntimeNotificationText(currentUserContent) && (producedOutput || !userCancelled);
+  if (!preserveResponse) {
+    if (!userCancelled) {
+      return {
+        messages,
+        responsePreserved: false,
+        userTurnPreserved: true,
+      };
     }
+    return {
+      messages: rewindProvisionalUserTurn(messages, currentUserContent),
+      responsePreserved: false,
+      userTurnPreserved: false,
+    };
+  }
 
-    const representedToolCallIds = new Set();
-    for (const message of messages) {
-        for (const id of assistantToolCallIds(message)) representedToolCallIds.add(id);
-    }
-    const unrepresentedCalls = [...observedToolCalls.values()]
-        .filter(({ call }) => call?.id && !representedToolCallIds.has(call.id))
-        .map(({ call }) => ({ ...call }));
-    const assistantContent = String(partialAssistantContent || '');
-    const reasoningContent = String(partialReasoningContent || '');
-    if (assistantContent || reasoningContent || unrepresentedCalls.length > 0) {
-        messages.push({
-            role: 'assistant',
-            content: assistantContent,
-            ...(reasoningContent ? { reasoningContent } : {}),
-            ...(unrepresentedCalls.length > 0 ? { toolCalls: unrepresentedCalls } : {}),
-        });
-    }
+  const representedToolCallIds = new Set();
+  for (const message of messages) {
+    for (const id of assistantToolCallIds(message)) representedToolCallIds.add(id);
+  }
+  const unrepresentedCalls = [...observedToolCalls.values()]
+    .filter(({ call }) => call?.id && !representedToolCallIds.has(call.id))
+    .map(({ call }) => ({ ...call }));
+  const assistantContent = String(partialAssistantContent || '');
+  const reasoningContent = String(partialReasoningContent || '');
+  if (assistantContent || reasoningContent || unrepresentedCalls.length > 0) {
+    messages.push({
+      role: 'assistant',
+      content: assistantContent,
+      ...(reasoningContent ? { reasoningContent } : {}),
+      ...(unrepresentedCalls.length > 0 ? { toolCalls: unrepresentedCalls } : {}),
+    });
+  }
 
-    const representedToolResultIds = new Set(
-        messages
-            .filter((message) => message?.role === 'tool' && message.toolCallId)
-            .map((message) => message.toolCallId),
-    );
-    for (const result of observedToolResults.values()) {
-        if (!result?.toolCallId || representedToolResultIds.has(result.toolCallId)) continue;
-        messages.push({
-            role: 'tool',
-            content: result.content == null ? '' : result.content,
-            toolCallId: result.toolCallId,
-            ...(result.toolKind ? { toolKind: result.toolKind } : {}),
-        });
-        representedToolResultIds.add(result.toolCallId);
-    }
+  const representedToolResultIds = new Set(
+    messages.filter((message) => message?.role === 'tool' && message.toolCallId).map((message) => message.toolCallId)
+  );
+  for (const result of observedToolResults.values()) {
+    if (!result?.toolCallId || representedToolResultIds.has(result.toolCallId)) continue;
+    messages.push({
+      role: 'tool',
+      content: result.content == null ? '' : result.content,
+      toolCallId: result.toolCallId,
+      ...(result.toolKind ? { toolKind: result.toolKind } : {}),
+    });
+    representedToolResultIds.add(result.toolCallId);
+  }
 
-    const allToolCallIds = [];
-    for (const message of messages) {
-        for (const id of assistantToolCallIds(message)) {
-            if (!allToolCallIds.includes(id)) allToolCallIds.push(id);
-        }
+  const allToolCallIds = [];
+  for (const message of messages) {
+    for (const id of assistantToolCallIds(message)) {
+      if (!allToolCallIds.includes(id)) allToolCallIds.push(id);
     }
-    for (const callId of allToolCallIds) {
-        if (representedToolResultIds.has(callId)) continue;
-        const observed = observedToolCalls.get(callId);
-        const executionStarted = phase === 'tools' || observed?.eagerStarted === true;
-        messages.push({
-            role: 'tool',
-            content: INTERRUPTED_TOOL_RESULT,
-            toolCallId: callId,
-            toolKind: 'error',
-        });
-        representedToolResultIds.add(callId);
-    }
+  }
+  for (const callId of allToolCallIds) {
+    if (representedToolResultIds.has(callId)) continue;
+    const observed = observedToolCalls.get(callId);
+    const executionStarted = phase === 'tools' || observed?.eagerStarted === true;
+    messages.push({
+      role: 'tool',
+      content: INTERRUPTED_TOOL_RESULT,
+      toolCallId: callId,
+      toolKind: 'error',
+    });
+    representedToolResultIds.add(callId);
+  }
 
-    const pairedMessages = sanitizeToolPairs(messages);
-    // The synthetic marker is omitted when a queued user submission
-    // interrupted the active request; that queued message is the boundary.
-    if (abortReason !== 'interrupt' && abortReason !== 'provider-error') {
-        pairedMessages.push({
-            role: 'user',
-            content: abortReason === 'process-crash'
-                ? PROCESS_RESTART_INTERRUPT_MESSAGE
-                : userCancelled
-                    ? (phase === 'tools' ? INTERRUPT_MESSAGE_FOR_TOOL_USE : INTERRUPT_MESSAGE)
-                    : SESSION_INTERRUPT_MESSAGE,
-        });
-    }
-    return { messages: pairedMessages, responsePreserved: true, userTurnPreserved: true };
+  const pairedMessages = sanitizeToolPairs(messages);
+  // The synthetic marker is omitted when a queued user submission
+  // interrupted the active request; that queued message is the boundary.
+  if (abortReason !== 'interrupt' && abortReason !== 'provider-error') {
+    pairedMessages.push({
+      role: 'user',
+      content:
+        abortReason === 'process-crash'
+          ? PROCESS_RESTART_INTERRUPT_MESSAGE
+          : userCancelled
+            ? phase === 'tools'
+              ? INTERRUPT_MESSAGE_FOR_TOOL_USE
+              : INTERRUPT_MESSAGE
+            : SESSION_INTERRUPT_MESSAGE,
+    });
+  }
+  return { messages: pairedMessages, responsePreserved: true, userTurnPreserved: true };
 }
 
 export function createTurnInterruptionTracker() {
-    let responseStarted = false;
-    let partialAssistantContent = '';
-    let tombstonedAssistantContent = '';
-    let partialReasoningContent = '';
-    let phase = 'streaming';
-    const observedToolCalls = new Map();
-    const observedToolResults = new Map();
-    // Epochs make the checkpoint journal's delta encoding sound WITHOUT
-    // comparing whole buffers on every flush: an epoch bump means "this buffer
-    // changed in a way that is not a plain append", so the encoder falls back
-    // to a full (still small) set record instead of an append record.
-    let textEpoch = 0;
-    let reasoningEpoch = 0;
-    let tombEpoch = 0;
-    let callsEpoch = 0;
+  let responseStarted = false;
+  let partialAssistantContent = '';
+  let tombstonedAssistantContent = '';
+  let partialReasoningContent = '';
+  let phase = 'streaming';
+  const observedToolCalls = new Map();
+  const observedToolResults = new Map();
+  // Epochs make the checkpoint journal's delta encoding sound WITHOUT
+  // comparing whole buffers on every flush: an epoch bump means "this buffer
+  // changed in a way that is not a plain append", so the encoder falls back
+  // to a full (still small) set record instead of an append record.
+  let textEpoch = 0;
+  let reasoningEpoch = 0;
+  let tombEpoch = 0;
+  let callsEpoch = 0;
 
-    return {
-        recordTextDelta(chunk) {
-            const value = String(chunk ?? '');
-            if (!value) return;
-            responseStarted = true;
-            // The replayed attempt has started producing its OWN text, so the
-            // retracted tail it replaces is no longer what the user is looking
-            // at. Dropping it here keeps exactly one copy of the opening
-            // instead of one per retry (a 3-retry stall used to persist four
-            // copies of the same first sentence). Reference agents never
-            // commit a replayed attempt's discarded stream at all; the
-            // tombstone exists only for the window between a retraction and
-            // its replacement.
-            if (tombstonedAssistantContent) {
-                tombstonedAssistantContent = '';
-                tombEpoch += 1;
-            }
-            partialAssistantContent += value;
+  return {
+    recordTextDelta(chunk) {
+      const value = String(chunk ?? '');
+      if (!value) return;
+      responseStarted = true;
+      // The replayed attempt has started producing its OWN text, so the
+      // retracted tail it replaces is no longer what the user is looking
+      // at. Dropping it here keeps exactly one copy of the opening
+      // instead of one per retry (a 3-retry stall used to persist four
+      // copies of the same first sentence). Reference agents never
+      // commit a replayed attempt's discarded stream at all; the
+      // tombstone exists only for the window between a retraction and
+      // its replacement.
+      if (tombstonedAssistantContent) {
+        tombstonedAssistantContent = '';
+        tombEpoch += 1;
+      }
+      partialAssistantContent += value;
+    },
+    tombstoneText(chars) {
+      const count = Math.max(0, Number(chars) || 0);
+      if (!count) return;
+      const cutAt = Math.max(0, partialAssistantContent.length - count);
+      // REPLACE, never accumulate: consecutive retractions belong to
+      // successive attempts at the SAME answer, so keeping the earlier
+      // tombstone alongside the newer one is what multiplied the visible
+      // text across retries.
+      tombstonedAssistantContent = partialAssistantContent.slice(cutAt);
+      partialAssistantContent = partialAssistantContent.slice(0, cutAt);
+      textEpoch += 1;
+      tombEpoch += 1;
+    },
+    restoreTombstonedText() {
+      if (!tombstonedAssistantContent) return false;
+      // Append-only for the partial buffer (no textEpoch bump); only the
+      // tombstone side is structurally reset.
+      partialAssistantContent += tombstonedAssistantContent;
+      tombstonedAssistantContent = '';
+      tombEpoch += 1;
+      return true;
+    },
+    hasResponseStarted() {
+      return responseStarted;
+    },
+    recordReasoningDelta(chunk) {
+      const value = String(chunk ?? '');
+      if (!value) return;
+      responseStarted = true;
+      partialReasoningContent += value;
+    },
+    recordAssistantText(text) {
+      const value = String(text ?? '');
+      if (!value.trim()) return;
+      responseStarted = true;
+      // Buffered providers report the whole segment here; streaming
+      // providers already accumulated the same segment via text deltas.
+      if (!partialAssistantContent.trim()) partialAssistantContent += value;
+    },
+    markAssistantMessageCommitted() {
+      partialAssistantContent = '';
+      tombstonedAssistantContent = '';
+      partialReasoningContent = '';
+      observedToolCalls.clear();
+      textEpoch += 1;
+      reasoningEpoch += 1;
+      tombEpoch += 1;
+      callsEpoch += 1;
+    },
+    recordToolCalls(calls, { eagerStarted = false } = {}) {
+      for (const call of Array.isArray(calls) ? calls : []) {
+        if (!call?.id) continue;
+        responseStarted = true;
+        const prior = observedToolCalls.get(call.id);
+        observedToolCalls.set(call.id, {
+          call: { ...call },
+          eagerStarted: prior?.eagerStarted === true || eagerStarted === true,
+        });
+      }
+    },
+    recordToolResult(message) {
+      const callId = message?.toolCallId;
+      if (!callId) return;
+      responseStarted = true;
+      if (message.__earlyNotify === true) {
+        observedToolResults.set(callId, {
+          role: 'tool',
+          content: message.content == null ? '' : message.content,
+          toolCallId: callId,
+          toolKind: message.toolKind || (message.isError ? 'error' : null),
+        });
+      } else {
+        // The authoritative result is already present in outgoing.
+        observedToolResults.delete(callId);
+      }
+    },
+    markProviderSendStarted() {
+      phase = 'streaming';
+    },
+    markToolPhaseStarted() {
+      phase = 'tools';
+      responseStarted = true;
+    },
+    snapshot() {
+      return {
+        responseStarted,
+        // A reset acknowledged by the UI temporarily tombstones text.
+        // A process crash cannot complete that replacement, so retain
+        // the same visible bytes the normal error path restores.
+        partialAssistantContent: partialAssistantContent + tombstonedAssistantContent,
+        partialReasoningContent,
+        phase,
+        observedToolCalls: [...observedToolCalls.entries()],
+        observedToolResults: [...observedToolResults.entries()],
+      };
+    },
+    /**
+     * Delta against an opaque cursor from a previous call (null = seed).
+     * The checkpoint journal uses this instead of snapshot() so a flush
+     * serializes only what changed: appended text/reasoning, newly observed
+     * tool calls/results, and phase/responseStarted transitions. Cost is
+     * O(new bytes + observed tool entries), never O(turn).
+     * Returns { changed, delta, cursor }.
+     */
+    journalDelta(cursor) {
+      const prev = cursor && typeof cursor === 'object' ? cursor : null;
+      const prevCalls = prev?.calls instanceof Map ? prev.calls : new Map();
+      const prevResults = prev?.results instanceof Map ? prev.results : new Map();
+      const delta = {};
+      let changed = false;
+      if (prev ? prev.responseStarted !== responseStarted : responseStarted) {
+        delta.rs = responseStarted;
+        changed = true;
+      }
+      if (prev ? prev.phase !== phase : phase !== 'streaming') {
+        delta.ph = phase;
+        changed = true;
+      }
+      if (!prev || prev.textEpoch !== textEpoch || partialAssistantContent.length < prev.textLen) {
+        if (prev || partialAssistantContent) {
+          delta.ts = partialAssistantContent;
+          changed = true;
+        }
+      } else if (partialAssistantContent.length > prev.textLen) {
+        delta.ta = partialAssistantContent.slice(prev.textLen);
+        changed = true;
+      }
+      if (!prev || prev.reasoningEpoch !== reasoningEpoch || partialReasoningContent.length < prev.reasoningLen) {
+        if (prev || partialReasoningContent) {
+          delta.qs = partialReasoningContent;
+          changed = true;
+        }
+      } else if (partialReasoningContent.length > prev.reasoningLen) {
+        delta.qa = partialReasoningContent.slice(prev.reasoningLen);
+        changed = true;
+      }
+      if (!prev || prev.tombEpoch !== tombEpoch) {
+        if (prev || tombstonedAssistantContent) {
+          delta.tb = tombstonedAssistantContent;
+          changed = true;
+        }
+      }
+      // A cleared call map is a structural reset: journal the clear and
+      // re-emit whatever was recorded after it.
+      const callsReset = Boolean(prev) && prev.callsEpoch !== callsEpoch;
+      if (callsReset) {
+        delta.cc = true;
+        changed = true;
+      }
+      const callSet = [];
+      for (const [id, entry] of observedToolCalls) {
+        if (!callsReset && prevCalls.get(id) === entry) continue;
+        callSet.push([id, entry]);
+      }
+      if (callSet.length > 0) {
+        delta.cs = callSet;
+        changed = true;
+      }
+      const resultSet = [];
+      for (const [id, entry] of observedToolResults) {
+        if (prevResults.get(id) === entry) continue;
+        resultSet.push([id, entry]);
+      }
+      if (resultSet.length > 0) {
+        delta.os = resultSet;
+        changed = true;
+      }
+      const resultDeleted = [];
+      for (const id of prevResults.keys()) {
+        if (!observedToolResults.has(id)) resultDeleted.push(id);
+      }
+      if (resultDeleted.length > 0) {
+        delta.od = resultDeleted;
+        changed = true;
+      }
+      return {
+        changed,
+        delta,
+        cursor: {
+          responseStarted,
+          phase,
+          textEpoch,
+          textLen: partialAssistantContent.length,
+          reasoningEpoch,
+          reasoningLen: partialReasoningContent.length,
+          tombEpoch,
+          callsEpoch,
+          calls: new Map(observedToolCalls),
+          results: new Map(observedToolResults),
         },
-        tombstoneText(chars) {
-            const count = Math.max(0, Number(chars) || 0);
-            if (!count) return;
-            const cutAt = Math.max(0, partialAssistantContent.length - count);
-            // REPLACE, never accumulate: consecutive retractions belong to
-            // successive attempts at the SAME answer, so keeping the earlier
-            // tombstone alongside the newer one is what multiplied the visible
-            // text across retries.
-            tombstonedAssistantContent = partialAssistantContent.slice(cutAt);
-            partialAssistantContent = partialAssistantContent.slice(
-                0,
-                cutAt,
-            );
-            textEpoch += 1;
-            tombEpoch += 1;
-        },
-        restoreTombstonedText() {
-            if (!tombstonedAssistantContent) return false;
-            // Append-only for the partial buffer (no textEpoch bump); only the
-            // tombstone side is structurally reset.
-            partialAssistantContent += tombstonedAssistantContent;
-            tombstonedAssistantContent = '';
-            tombEpoch += 1;
-            return true;
-        },
-        hasResponseStarted() {
-            return responseStarted;
-        },
-        recordReasoningDelta(chunk) {
-            const value = String(chunk ?? '');
-            if (!value) return;
-            responseStarted = true;
-            partialReasoningContent += value;
-        },
-        recordAssistantText(text) {
-            const value = String(text ?? '');
-            if (!value.trim()) return;
-            responseStarted = true;
-            // Buffered providers report the whole segment here; streaming
-            // providers already accumulated the same segment via text deltas.
-            if (!partialAssistantContent.trim()) partialAssistantContent += value;
-        },
-        markAssistantMessageCommitted() {
-            partialAssistantContent = '';
-            tombstonedAssistantContent = '';
-            partialReasoningContent = '';
-            observedToolCalls.clear();
-            textEpoch += 1;
-            reasoningEpoch += 1;
-            tombEpoch += 1;
-            callsEpoch += 1;
-        },
-        recordToolCalls(calls, { eagerStarted = false } = {}) {
-            for (const call of Array.isArray(calls) ? calls : []) {
-                if (!call?.id) continue;
-                responseStarted = true;
-                const prior = observedToolCalls.get(call.id);
-                observedToolCalls.set(call.id, {
-                    call: { ...call },
-                    eagerStarted: prior?.eagerStarted === true || eagerStarted === true,
-                });
-            }
-        },
-        recordToolResult(message) {
-            const callId = message?.toolCallId;
-            if (!callId) return;
-            responseStarted = true;
-            if (message.__earlyNotify === true) {
-                observedToolResults.set(callId, {
-                    role: 'tool',
-                    content: message.content == null ? '' : message.content,
-                    toolCallId: callId,
-                    toolKind: message.toolKind || (message.isError ? 'error' : null),
-                });
-            } else {
-                // The authoritative result is already present in outgoing.
-                observedToolResults.delete(callId);
-            }
-        },
-        markProviderSendStarted() {
-            phase = 'streaming';
-        },
-        markToolPhaseStarted() {
-            phase = 'tools';
-            responseStarted = true;
-        },
-        snapshot() {
-            return {
-                responseStarted,
-                // A reset acknowledged by the UI temporarily tombstones text.
-                // A process crash cannot complete that replacement, so retain
-                // the same visible bytes the normal error path restores.
-                partialAssistantContent: partialAssistantContent + tombstonedAssistantContent,
-                partialReasoningContent,
-                phase,
-                observedToolCalls: [...observedToolCalls.entries()],
-                observedToolResults: [...observedToolResults.entries()],
-            };
-        },
-        /**
-         * Delta against an opaque cursor from a previous call (null = seed).
-         * The checkpoint journal uses this instead of snapshot() so a flush
-         * serializes only what changed: appended text/reasoning, newly observed
-         * tool calls/results, and phase/responseStarted transitions. Cost is
-         * O(new bytes + observed tool entries), never O(turn).
-         * Returns { changed, delta, cursor }.
-         */
-        journalDelta(cursor) {
-            const prev = cursor && typeof cursor === 'object' ? cursor : null;
-            const prevCalls = prev?.calls instanceof Map ? prev.calls : new Map();
-            const prevResults = prev?.results instanceof Map ? prev.results : new Map();
-            const delta = {};
-            let changed = false;
-            if (prev ? prev.responseStarted !== responseStarted : responseStarted) {
-                delta.rs = responseStarted;
-                changed = true;
-            }
-            if (prev ? prev.phase !== phase : phase !== 'streaming') {
-                delta.ph = phase;
-                changed = true;
-            }
-            if (!prev || prev.textEpoch !== textEpoch
-                || partialAssistantContent.length < prev.textLen) {
-                if (prev || partialAssistantContent) {
-                    delta.ts = partialAssistantContent;
-                    changed = true;
-                }
-            } else if (partialAssistantContent.length > prev.textLen) {
-                delta.ta = partialAssistantContent.slice(prev.textLen);
-                changed = true;
-            }
-            if (!prev || prev.reasoningEpoch !== reasoningEpoch
-                || partialReasoningContent.length < prev.reasoningLen) {
-                if (prev || partialReasoningContent) {
-                    delta.qs = partialReasoningContent;
-                    changed = true;
-                }
-            } else if (partialReasoningContent.length > prev.reasoningLen) {
-                delta.qa = partialReasoningContent.slice(prev.reasoningLen);
-                changed = true;
-            }
-            if (!prev || prev.tombEpoch !== tombEpoch) {
-                if (prev || tombstonedAssistantContent) {
-                    delta.tb = tombstonedAssistantContent;
-                    changed = true;
-                }
-            }
-            // A cleared call map is a structural reset: journal the clear and
-            // re-emit whatever was recorded after it.
-            const callsReset = Boolean(prev) && prev.callsEpoch !== callsEpoch;
-            if (callsReset) {
-                delta.cc = true;
-                changed = true;
-            }
-            const callSet = [];
-            for (const [id, entry] of observedToolCalls) {
-                if (!callsReset && prevCalls.get(id) === entry) continue;
-                callSet.push([id, entry]);
-            }
-            if (callSet.length > 0) {
-                delta.cs = callSet;
-                changed = true;
-            }
-            const resultSet = [];
-            for (const [id, entry] of observedToolResults) {
-                if (prevResults.get(id) === entry) continue;
-                resultSet.push([id, entry]);
-            }
-            if (resultSet.length > 0) {
-                delta.os = resultSet;
-                changed = true;
-            }
-            const resultDeleted = [];
-            for (const id of prevResults.keys()) {
-                if (!observedToolResults.has(id)) resultDeleted.push(id);
-            }
-            if (resultDeleted.length > 0) {
-                delta.od = resultDeleted;
-                changed = true;
-            }
-            return {
-                changed,
-                delta,
-                cursor: {
-                    responseStarted,
-                    phase,
-                    textEpoch,
-                    textLen: partialAssistantContent.length,
-                    reasoningEpoch,
-                    reasoningLen: partialReasoningContent.length,
-                    tombEpoch,
-                    callsEpoch,
-                    calls: new Map(observedToolCalls),
-                    results: new Map(observedToolResults),
-                },
-            };
-        },
-        finalize({ turnOutgoing, currentUserContent, abortReason = null }) {
-            return finalizeInterruptedTurn({
-                turnOutgoing,
-                currentUserContent,
-                responseStarted,
-                partialAssistantContent,
-                partialReasoningContent,
-                observedToolCalls,
-                observedToolResults,
-                phase,
-                abortReason,
-            });
-        },
-    };
+      };
+    },
+    finalize({ turnOutgoing, currentUserContent, abortReason = null }) {
+      return finalizeInterruptedTurn({
+        turnOutgoing,
+        currentUserContent,
+        responseStarted,
+        partialAssistantContent,
+        partialReasoningContent,
+        observedToolCalls,
+        observedToolResults,
+        phase,
+        abortReason,
+      });
+    },
+  };
 }
 
 export function finalizeTurnInterruptionSnapshot({
+  turnOutgoing,
+  currentUserContent,
+  snapshot,
+  abortReason = 'process-crash',
+}) {
+  const source = snapshot && typeof snapshot === 'object' ? snapshot : {};
+  return finalizeInterruptedTurn({
     turnOutgoing,
     currentUserContent,
-    snapshot,
-    abortReason = 'process-crash',
-}) {
-    const source = snapshot && typeof snapshot === 'object' ? snapshot : {};
-    return finalizeInterruptedTurn({
-        turnOutgoing,
-        currentUserContent,
-        responseStarted: source.responseStarted === true,
-        partialAssistantContent: String(source.partialAssistantContent || ''),
-        partialReasoningContent: String(source.partialReasoningContent || ''),
-        observedToolCalls: new Map(Array.isArray(source.observedToolCalls) ? source.observedToolCalls : []),
-        observedToolResults: new Map(Array.isArray(source.observedToolResults) ? source.observedToolResults : []),
-        phase: source.phase === 'tools' ? 'tools' : 'streaming',
-        abortReason,
-    });
+    responseStarted: source.responseStarted === true,
+    partialAssistantContent: String(source.partialAssistantContent || ''),
+    partialReasoningContent: String(source.partialReasoningContent || ''),
+    observedToolCalls: new Map(Array.isArray(source.observedToolCalls) ? source.observedToolCalls : []),
+    observedToolResults: new Map(Array.isArray(source.observedToolResults) ? source.observedToolResults : []),
+    phase: source.phase === 'tools' ? 'tools' : 'streaming',
+    abortReason,
+  });
 }

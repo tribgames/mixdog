@@ -6,13 +6,15 @@
 // 들어가면 레이아웃 시프트가 심하다). main.tsx installs the marker
 // synchronously BEFORE React renders, so the phone lays out correctly
 // exactly once.
-import { isRemoteBrowserRenderer } from "./remote-ui-projection";
+import { isRemoteBrowserRenderer } from './remote-ui-projection';
 
 export function isIOSWebSurface(): boolean {
   if (!isRemoteBrowserRenderer()) return false;
   try {
-    return /iPad|iPhone|iPod/iu.test(navigator.userAgent)
-      || (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1);
+    return (
+      /iPad|iPhone|iPod/iu.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
+    );
   } catch {
     return false;
   }
@@ -25,8 +27,7 @@ export function isMobileRemoteSurface(): boolean {
     if (/Android/i.test(navigator.userAgent) && /Mobile/i.test(navigator.userAgent)) {
       return true;
     }
-    return (navigator.maxTouchPoints || 0) > 0
-      && Math.min(window.screen.width, window.screen.height) < 768;
+    return (navigator.maxTouchPoints || 0) > 0 && Math.min(window.screen.width, window.screen.height) < 768;
   } catch {
     return false;
   }
@@ -35,8 +36,10 @@ export function isMobileRemoteSurface(): boolean {
 export function isInstalledWebAppSurface(): boolean {
   if (!isRemoteBrowserRenderer()) return false;
   try {
-    return window.matchMedia?.("(display-mode: standalone)").matches === true
-      || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+    return (
+      window.matchMedia?.('(display-mode: standalone)').matches === true ||
+      (navigator as Navigator & { standalone?: boolean }).standalone === true
+    );
   } catch {
     return false;
   }
@@ -55,8 +58,8 @@ function orientedDeviceWidth(): number {
   const width = Number(screen?.width) || 0;
   const height = Number(screen?.height) || 0;
   if (!width || !height) return 0;
-  const orientation = String(screen?.orientation?.type ?? "");
-  const landscape = orientation ? orientation.startsWith("landscape") : width > height;
+  const orientation = String(screen?.orientation?.type ?? '');
+  const landscape = orientation ? orientation.startsWith('landscape') : width > height;
   return landscape ? Math.max(width, height) : Math.min(width, height);
 }
 
@@ -72,7 +75,7 @@ export function mobileSurfaceScale(): number {
   if (!isMobileRemoteSurface()) return 1;
   try {
     // device-width boot: layout px ARE device dp.
-    if (document.documentElement.dataset.mixdogProjection !== "desktop") return 1;
+    if (document.documentElement.dataset.mixdogProjection !== 'desktop') return 1;
     const layout = Number(document.documentElement.clientWidth) || 0;
     const device = orientedDeviceWidth();
     if (!layout || !device) return 1;
@@ -92,34 +95,34 @@ export function installMobileSurfaceMarker(): () => void {
   let frame = 0;
   let appliedMobile: boolean | null = null;
   let appliedIOS: boolean | null = null;
-  let appliedScale = "";
+  let appliedScale = '';
   const apply = (): void => {
     const root = document.documentElement;
     if (!isMobileRemoteSurface()) {
       if (appliedMobile === false) return;
       appliedMobile = false;
       appliedIOS = null;
-      appliedScale = "";
-      root.removeAttribute("data-mixdog-mobile-tabs");
-      root.removeAttribute("data-mixdog-ios-web");
-      root.style.removeProperty("--mx-device-scale");
+      appliedScale = '';
+      root.removeAttribute('data-mixdog-mobile-tabs');
+      root.removeAttribute('data-mixdog-ios-web');
+      root.style.removeProperty('--mx-device-scale');
       return;
     }
     const ios = isIOSWebSurface();
     const scale = String(mobileSurfaceScale());
-    if (appliedMobile !== true) root.setAttribute("data-mixdog-mobile-tabs", "");
+    if (appliedMobile !== true) root.setAttribute('data-mixdog-mobile-tabs', '');
     if (appliedIOS !== ios) {
-      if (ios) root.setAttribute("data-mixdog-ios-web", "");
-      else root.removeAttribute("data-mixdog-ios-web");
+      if (ios) root.setAttribute('data-mixdog-ios-web', '');
+      else root.removeAttribute('data-mixdog-ios-web');
     }
-    if (appliedScale !== scale) root.style.setProperty("--mx-device-scale", scale);
+    if (appliedScale !== scale) root.style.setProperty('--mx-device-scale', scale);
     appliedMobile = true;
     appliedIOS = ios;
     appliedScale = scale;
   };
   const sync = (): void => {
     if (frame !== 0) return;
-    if (typeof window.requestAnimationFrame !== "function") {
+    if (typeof window.requestAnimationFrame !== 'function') {
       apply();
       return;
     }
@@ -130,16 +133,16 @@ export function installMobileSurfaceMarker(): () => void {
   };
   apply();
   const visual = window.visualViewport;
-  window.addEventListener("resize", sync);
-  window.addEventListener("orientationchange", sync);
-  window.addEventListener("pageshow", sync);
-  visual?.addEventListener("resize", sync);
+  window.addEventListener('resize', sync);
+  window.addEventListener('orientationchange', sync);
+  window.addEventListener('pageshow', sync);
+  visual?.addEventListener('resize', sync);
   return () => {
     if (frame !== 0) window.cancelAnimationFrame?.(frame);
     frame = 0;
-    window.removeEventListener("resize", sync);
-    window.removeEventListener("orientationchange", sync);
-    window.removeEventListener("pageshow", sync);
-    visual?.removeEventListener("resize", sync);
+    window.removeEventListener('resize', sync);
+    window.removeEventListener('orientationchange', sync);
+    window.removeEventListener('pageshow', sync);
+    visual?.removeEventListener('resize', sync);
   };
 }

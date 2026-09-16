@@ -41,7 +41,10 @@ function conversationText(content) {
 // Canonical project-slug mapping for `<mixdogHome>/projects/<slug>` transcript
 // dirs (originally shared with the retired channel session-discovery).
 function cwdToProjectSlug(cwd) {
-  return resolve(cwd).replace(/\\/g, '/').replace(/^([A-Za-z]):/, '$1-').replace(/\//g, '-');
+  return resolve(cwd)
+    .replace(/\\/g, '/')
+    .replace(/^([A-Za-z]):/, '$1-')
+    .replace(/\//g, '-');
 }
 
 export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {}) {
@@ -62,7 +65,11 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
     const msg = err && err.message ? err.message : String(err);
     if (seenErrors.has(msg)) return;
     seenErrors.add(msg);
-    try { process.stderr.write(`mixdog: transcript-writer: ${msg}\n`); } catch { /* stderr broken */ }
+    try {
+      process.stderr.write(`mixdog: transcript-writer: ${msg}\n`);
+    } catch {
+      /* stderr broken */
+    }
   }
 
   let projectDirReady = false;
@@ -111,7 +118,9 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
       try {
         renameSync(transcriptPath, rotatedPath);
         lastKnownSize = 0;
-      } catch (err) { logOnce(err); }
+      } catch (err) {
+        logOnce(err);
+      }
     } catch (err) {
       logOnce(err);
     }
@@ -122,9 +131,11 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
     // growth alone could have crossed the rotate threshold, or the last
     // known size plus tracked growth is already at/over the threshold
     // (catches a file that was already large when this process attached).
-    if (!sizeChecked
-      || bytesSinceCheck >= ROTATE_CHECK_BYTE_STRIDE
-      || lastKnownSize + bytesSinceCheck >= TRANSCRIPT_ROTATE_BYTES) {
+    if (
+      !sizeChecked ||
+      bytesSinceCheck >= ROTATE_CHECK_BYTE_STRIDE ||
+      lastKnownSize + bytesSinceCheck >= TRANSCRIPT_ROTATE_BYTES
+    ) {
       statAndMaybeRotate();
     }
   }
@@ -135,9 +146,10 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
     try {
       // Every row carries the session cwd: the memory watcher and backfill
       // read it from the first rows to scope entries to a project.
-      const stampedEntry = entry?.timestamp != null || entry?.ts != null
-        ? { ...entry, cwd: resolvedCwd }
-        : { ...entry, cwd: resolvedCwd, timestamp: formatUtcTimestamp() };
+      const stampedEntry =
+        entry?.timestamp != null || entry?.ts != null
+          ? { ...entry, cwd: resolvedCwd }
+          : { ...entry, cwd: resolvedCwd, timestamp: formatUtcTimestamp() };
       const line = `${JSON.stringify(stampedEntry)}\n`;
       appendBuffered(transcriptPath, line);
       bytesSinceCheck += Buffer.byteLength(line);
@@ -196,15 +208,18 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
   function writeSessionRecord() {
     try {
       mkdirSync(dirname(sessionRecordPath), { recursive: true });
-      writeFileSync(sessionRecordPath, JSON.stringify({
-        sessionId,
-        cwd: resolvedCwd,
-        transcriptPath,
-        startedAt,
-        updatedAt: Date.now(),
-        kind: 'interactive',
-        entrypoint: 'cli',
-      }));
+      writeFileSync(
+        sessionRecordPath,
+        JSON.stringify({
+          sessionId,
+          cwd: resolvedCwd,
+          transcriptPath,
+          startedAt,
+          updatedAt: Date.now(),
+          kind: 'interactive',
+          entrypoint: 'cli',
+        })
+      );
     } catch (err) {
       logOnce(err);
     }
@@ -217,7 +232,7 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
   }
 
   function appendAssistant(text) {
-    const value = typeof text === 'string' ? text : (text == null ? '' : String(text));
+    const value = typeof text === 'string' ? text : text == null ? '' : String(text);
     if (!value.trim()) return;
     appendLine({
       type: 'assistant',
@@ -230,7 +245,7 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
   // sides of the conversation (user rows were previously never written,
   // leaving recall unable to reconstruct recent sessions).
   function appendUser(text) {
-    const value = typeof text === 'string' ? text : (text == null ? '' : String(text));
+    const value = typeof text === 'string' ? text : text == null ? '' : String(text);
     if (!value.trim()) return;
     appendLine({
       type: 'user',

@@ -34,7 +34,8 @@ import { localPackageVersion } from '../runtime/shared/update-checker.mjs';
 // Trailing `\x1b[>0s` restores XTSHIFTESCAPE (shift-to-select-extend) to its
 // terminal default; MOUSE_TRACKING_ON opts into `\x1b[>1s`, so every mouse/alt
 // screen teardown that emits this reset also undoes that opt-in.
-const TERMINAL_MODE_RESET = '\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[>0s\x1b[?25h';
+const TERMINAL_MODE_RESET =
+  '\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[>0s\x1b[?25h';
 const TERMINAL_OSC_RESET_BG = '\x1b]111\x07';
 const TERMINAL_MODE_RESET_HIDDEN_CURSOR = TERMINAL_MODE_RESET.replace('\x1b[?25h', '\x1b[?25l');
 // Trailing `\x1b[>1s` is XTSHIFTESCAPE: terminals that support it forward
@@ -60,7 +61,8 @@ const ALT_SCROLL_RESTORE = '\x1b[?1007h';
 // synchronously at raw-mode-on (no query); here we just pop/disable them on
 // exit. POP_KITTY / DISABLE_MODIFY_OTHER_KEYS come from keyboard-protocol.mjs.
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
-const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
+const BOOT_PROFILE_START =
+  globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
 const EXIT_WAIT_TIMEOUT_MS = positiveIntEnv('MIXDOG_TUI_EXIT_WAIT_MS', 2500);
 const EXIT_HARD_DELAY_MS = positiveIntEnv('MIXDOG_TUI_HARD_EXIT_DELAY_MS', 500);
 const EXIT_HARD_ENABLED = !/^(0|false|no|off)$/i.test(String(process.env.MIXDOG_TUI_HARD_EXIT || '1'));
@@ -85,14 +87,24 @@ function installTuiLoopProbe() {
   let last = performance.now();
   const timer = setInterval(() => {
     const now = performance.now();
-    const drift = (now - last) - LOOP_PROBE_INTERVAL_MS;
+    const drift = now - last - LOOP_PROBE_INTERVAL_MS;
     last = now;
     if (drift > LOOP_PROBE_DRIFT_THRESHOLD_MS) {
-      try { process.stderr.write(`[mixdog-loop] stall=${drift.toFixed(0)}ms\n`); } catch { /* ignore */ }
+      try {
+        process.stderr.write(`[mixdog-loop] stall=${drift.toFixed(0)}ms\n`);
+      } catch {
+        /* ignore */
+      }
     }
   }, LOOP_PROBE_INTERVAL_MS);
   timer.unref?.();
-  return () => { try { clearInterval(timer); } catch { /* ignore */ } };
+  return () => {
+    try {
+      clearInterval(timer);
+    } catch {
+      /* ignore */
+    }
+  };
 }
 
 // Lightweight render-frame profiler. Patched Ink calls options.onRender with the
@@ -113,7 +125,11 @@ function perfLog(event, fields = {}) {
     if (value === undefined || value === null || value === '') continue;
     parts.push(`${key}=${String(value).replace(/\s+/g, '_')}`);
   }
-  try { process.stderr.write(`${parts.join(' ')}\n`); } catch { /* ignore */ }
+  try {
+    process.stderr.write(`${parts.join(' ')}\n`);
+  } catch {
+    /* ignore */
+  }
 }
 
 function installTuiPerfProbe() {
@@ -145,7 +161,11 @@ function installTuiPerfProbe() {
   }, PERF_STALL_INTERVAL_MS);
   timer.unref?.();
   return () => {
-    try { clearInterval(timer); } catch { /* ignore */ }
+    try {
+      clearInterval(timer);
+    } catch {
+      /* ignore */
+    }
   };
 }
 
@@ -156,7 +176,9 @@ function makeRenderProfiler() {
   // renderInteractiveFrame/stdout write, so defer the ack one macrotask: the
   // split continuation then resumes after the frame has been emitted, not while
   // it can still coalesce with the same write. Profiling stays gated on PERF.
-  const ackRenderedFrame = () => { scheduleRenderFrameAck(); };
+  const ackRenderedFrame = () => {
+    scheduleRenderFrameAck();
+  };
   if (!PERF_ENABLED) return ackRenderedFrame;
   let count = 0;
   let sum = 0;
@@ -190,7 +212,11 @@ function makeRenderProfiler() {
         maxGapMs: maxGap.toFixed(1),
         slow16: slow,
       });
-      count = 0; sum = 0; max = 0; slow = 0; maxGap = 0;
+      count = 0;
+      sum = 0;
+      max = 0;
+      slow = 0;
+      maxGap = 0;
     }
   };
 }
@@ -203,7 +229,9 @@ function bootProfile(event, fields = {}) {
     if (value === undefined || value === null || value === '') continue;
     parts.push(`${key}=${String(value).replace(/\s+/g, '_')}`);
   }
-  try { process.stderr.write(`${parts.join(' ')}\n`); } catch {}
+  try {
+    process.stderr.write(`${parts.join(' ')}\n`);
+  } catch {}
 }
 
 function tuiExitDebug(event, fields = {}) {
@@ -213,7 +241,11 @@ function tuiExitDebug(event, fields = {}) {
     if (value === undefined || value === null || value === '') continue;
     parts.push(`${key}=${String(value).replace(/\s+/g, '_')}`);
   }
-  try { process.stderr.write(`${parts.join(' ')}\n`); } catch { /* ignore */ }
+  try {
+    process.stderr.write(`${parts.join(' ')}\n`);
+  } catch {
+    /* ignore */
+  }
 }
 
 function describeActiveHandle(handle) {
@@ -221,8 +253,10 @@ function describeActiveHandle(handle) {
   const parts = [handle.constructor?.name || typeof handle];
   if (typeof handle.pid === 'number') parts.push(`pid=${handle.pid}`);
   if (typeof handle.fd === 'number') parts.push(`fd=${handle.fd}`);
-  if (handle.remoteAddress || handle.remotePort) parts.push(`remote=${handle.remoteAddress || '?'}:${handle.remotePort || '?'}`);
-  if (handle.localAddress || handle.localPort) parts.push(`local=${handle.localAddress || '?'}:${handle.localPort || '?'}`);
+  if (handle.remoteAddress || handle.remotePort)
+    parts.push(`remote=${handle.remoteAddress || '?'}:${handle.remotePort || '?'}`);
+  if (handle.localAddress || handle.localPort)
+    parts.push(`local=${handle.localAddress || '?'}:${handle.localPort || '?'}`);
   if (handle.killed === true) parts.push('killed=true');
   return parts.join(':');
 }
@@ -258,15 +292,21 @@ function scheduleHardExit(code = 0) {
   if (!EXIT_HARD_ENABLED) return;
   const timer = setTimeout(() => {
     dumpActiveHandles('hard-exit');
-    try { process.stdout.write(`${TERMINAL_MODE_RESET}${TERMINAL_OSC_RESET_BG}`); } catch { /* ignore */ }
+    try {
+      process.stdout.write(`${TERMINAL_MODE_RESET}${TERMINAL_OSC_RESET_BG}`);
+    } catch {
+      /* ignore */
+    }
     process.exit(code);
   }, EXIT_HARD_DELAY_MS);
   timer.unref?.();
 }
 
 function resolveTuiStderrLogPath() {
-  return process.env.MIXDOG_TUI_STDERR_LOG
-    || join(process.env.MIXDOG_RUNTIME_ROOT || join(tmpdir(), 'mixdog'), 'mixdog-tui.stderr.log');
+  return (
+    process.env.MIXDOG_TUI_STDERR_LOG ||
+    join(process.env.MIXDOG_RUNTIME_ROOT || join(tmpdir(), 'mixdog'), 'mixdog-tui.stderr.log')
+  );
 }
 
 /** `rgb(r,g,b)` → supported RGB SGR prefix ('' when unparsable). */
@@ -291,7 +331,8 @@ function paintBootSplash() {
     const rows = Math.max(1, Number(process.stdout.rows) || 24);
     const windowsLikeTerminal = process.platform === 'win32' || Boolean(process.env.WT_SESSION);
     const frameCols = Math.max(1, cols - (windowsLikeTerminal ? 1 : 0));
-    const center = (s, reserve = 0) => `${' '.repeat(Math.max(0, Math.floor((frameCols - reserve - displayWidth(s)) / 2)))}${s}`;
+    const center = (s, reserve = 0) =>
+      `${' '.repeat(Math.max(0, Math.floor((frameCols - reserve - displayWidth(s)) / 2)))}${s}`;
     const logo = [
       '███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ██████╗ ',
       '████╗ ████║██║╚██╗██╔╝██╔══██╗██╔═══██╗██╔════╝ ',
@@ -318,7 +359,9 @@ function paintBootSplash() {
     process.stdout.write(out);
 
     return { stop: () => {} };
-  } catch { /* cosmetic only — never block boot */ }
+  } catch {
+    /* cosmetic only — never block boot */
+  }
   return { stop: () => {} };
 }
 
@@ -367,7 +410,11 @@ function installTuiStderrGuard() {
   if (process.env.MIXDOG_TUI_ALLOW_STDERR === '1') return () => {};
   const originalWrite = process.stderr.write.bind(process.stderr);
   const logPath = resolveTuiStderrLogPath();
-  try { mkdirSync(dirname(logPath), { recursive: true }); } catch { /* ignore */ }
+  try {
+    mkdirSync(dirname(logPath), { recursive: true });
+  } catch {
+    /* ignore */
+  }
   // One-shot bound before the append stream opens: this TUI process never
   // passes through the channels-worker rotation path, so cap it writer-side.
   rotateBoundedLog(logPath, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES);
@@ -379,14 +426,18 @@ function installTuiStderrGuard() {
     logStream = null;
   }
 
-  process.stderr.write = ((chunk, encoding, callback) => {
+  process.stderr.write = (chunk, encoding, callback) => {
     const done = typeof encoding === 'function' ? encoding : callback;
     const enc = typeof encoding === 'string' ? encoding : undefined;
     try {
       if (logStream) {
         logStream.write(Buffer.isBuffer(chunk) ? chunk : String(chunk ?? ''), enc, () => {
           if (typeof done === 'function') {
-            try { done(); } catch { /* ignore */ }
+            try {
+              done();
+            } catch {
+              /* ignore */
+            }
           }
         });
         return true;
@@ -396,14 +447,22 @@ function installTuiStderrGuard() {
       // while the fullscreen TUI owns the terminal.
     }
     if (typeof done === 'function') {
-      try { done(); } catch { /* ignore */ }
+      try {
+        done();
+      } catch {
+        /* ignore */
+      }
     }
     return true;
-  });
+  };
 
   return () => {
     process.stderr.write = originalWrite;
-    try { logStream?.end(); } catch { /* ignore */ }
+    try {
+      logStream?.end();
+    } catch {
+      /* ignore */
+    }
   };
 }
 
@@ -429,7 +488,11 @@ function installTuiConsoleGuard() {
   for (const m of methods) {
     original.set(m, console[m]);
     console[m] = (...args) => {
-      try { process.stderr.write(`[console.${m}] ${format(...args)}\n`); } catch { /* ignore */ }
+      try {
+        process.stderr.write(`[console.${m}] ${format(...args)}\n`);
+      } catch {
+        /* ignore */
+      }
     };
   }
   return () => {
@@ -445,7 +508,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
   if (!process.stdin.isTTY) {
     process.stderr.write(
       'mixdog: the TUI needs an interactive terminal (TTY).\n' +
-        'Run it directly in a terminal, or use --plain for the readline REPL.\n',
+        'Run it directly in a terminal, or use --plain for the readline REPL.\n'
     );
     return 1;
   }
@@ -465,9 +528,11 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
       process.stdout.write(
         // Pop kitty + disable modifyOtherKeys BEFORE leaving the alt screen.
         // Both are no-ops if nothing was enabled, so this is always safe.
-        `${TERMINAL_MODE_RESET}${ALT_SCROLL_RESTORE}\x1b[0 q${POP_KITTY}${DISABLE_MODIFY_OTHER_KEYS}\x1b[?1049l${TERMINAL_MODE_RESET}${TERMINAL_OSC_RESET_BG}`,
+        `${TERMINAL_MODE_RESET}${ALT_SCROLL_RESTORE}\x1b[0 q${POP_KITTY}${DISABLE_MODIFY_OTHER_KEYS}\x1b[?1049l${TERMINAL_MODE_RESET}${TERMINAL_OSC_RESET_BG}`
       );
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   };
 
   // Enter the alternate screen buffer before session/runtime boot so no stale
@@ -475,7 +540,9 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
   // real Ink frame may still arrive after createSessionRuntime(), but the user
   // sees a clean fullscreen surface immediately instead of the previous terminal
   // contents bleeding through the bottom status area.
-  process.stdout.write(`${TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[?1049h${TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[2J\x1b[H`);
+  process.stdout.write(
+    `${TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[?1049h${TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[2J\x1b[H`
+  );
 
   // Use a blinking BAR cursor (DECSCUSR 5) — a thin caret behind the text, not a
   // fat block. PromptInput parks this hardware cursor at the insertion point via
@@ -491,14 +558,20 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
   // Session runtime startup is independent from palette selection. Start it now and
   // overlap its runtime import/config work with the theme read, while still
   // awaiting the theme before the first React frame.
-  const storeOutcomePromise = createSessionRuntime({ provider, model, toolMode, remote })
-    .then((store) => ({ store, error: null }), (error) => ({ store: null, error }));
+  const storeOutcomePromise = createSessionRuntime({ provider, model, toolMode, remote }).then(
+    (store) => ({ store, error: null }),
+    (error) => ({ store: null, error })
+  );
 
   // Apply the persisted UI theme (ui.theme in mixdog-config.json) before the
   // first React frame so the whole tree paints in the chosen palette. Unknown
   // or missing values leave the default Mixdog dark palette in place; a failed
   // config read never blocks boot.
-  try { await loadThemeSettingFromConfig(); } catch { /* default theme stays */ }
+  try {
+    await loadThemeSettingFromConfig();
+  } catch {
+    /* default theme stays */
+  }
   emitTerminalBackground(theme.background);
 
   // Static splash + loading spinner while createSessionRuntime() warms up
@@ -517,7 +590,9 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     // picker's most-recent-first order. Unregistered folders are ignored.
     try {
       await store.touchProjectSelected(store.getState?.()?.cwd || process.cwd());
-    } catch { /* best-effort recency */ }
+    } catch {
+      /* best-effort recency */
+    }
     // The palette lives in THIS process: on a daemon-backed store the session runtime's
     // theme methods would run inside the daemon, so the picker saw a promise
     // instead of the list and a switch repainted nothing here. Bind the three
@@ -530,8 +605,9 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
       store.getTheme = () => getThemeSetting();
       store.setTheme = (id, options = {}) => {
         const applied = setThemeSetting(id, options);
-        void Promise.resolve(remoteSetTheme?.(id, { ...options, persist: false }))
-          .catch(() => { /* the local palette is already applied */ });
+        void Promise.resolve(remoteSetTheme?.(id, { ...options, persist: false })).catch(() => {
+          /* the local palette is already applied */
+        });
         return applied;
       };
     }
@@ -541,7 +617,11 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     stopPerfProbe();
     stopLoopProbe();
     restoreTerminal();
-    try { process.off('exit', restoreTerminal); } catch { /* ignore */ }
+    try {
+      process.off('exit', restoreTerminal);
+    } catch {
+      /* ignore */
+    }
     restoreConsole();
     restoreStderr();
     process.stderr.write(`mixdog: ${error?.message || error}\n`);
@@ -560,7 +640,9 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     if (onboardingStatus && typeof onboardingStatus === 'object') {
       onboardingCompleted = onboardingStatus.completed === true;
     }
-  } catch { /* status probe failed → treat as completed */ }
+  } catch {
+    /* status probe failed → treat as completed */
+  }
   // Stop the spinner BEFORE ink mounts so no stray splash write can land
   // between (or after) ink's first frames.
   splash.stop();
@@ -612,7 +694,11 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
       void signalCleanup.run('stdio-dead', {
         code: 1,
         shouldExit: true,
-        error: err || new Error(`stdio ${event} (source: ${stream === process.stdin ? 'stdin' : stream === process.stdout ? 'stdout' : 'stderr'})`),
+        error:
+          err ||
+          new Error(
+            `stdio ${event} (source: ${stream === process.stdin ? 'stdin' : stream === process.stdout ? 'stdout' : 'stderr'})`
+          ),
       });
     };
     stream.on(event, handler);
@@ -643,7 +729,16 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     // its clear-frame → write → relative re-render dance, which scrolls the
     // alt screen one line per stray console line (the streaming newline
     // bounce). See installTuiConsoleGuard.
-    const instance = render(<App store={store} forceOnboarding={forceOnboarding === true} onboardingCompleted={onboardingCompleted} />, { exitOnCtrlC: false, maxFps: TUI_RENDER_FPS, incrementalRendering: true, patchConsole: false, onRender: makeRenderProfiler() });
+    const instance = render(
+      <App store={store} forceOnboarding={forceOnboarding === true} onboardingCompleted={onboardingCompleted} />,
+      {
+        exitOnCtrlC: false,
+        maxFps: TUI_RENDER_FPS,
+        incrementalRendering: true,
+        patchConsole: false,
+        onRender: makeRenderProfiler(),
+      }
+    );
     bootProfile('render:mounted', { ms: (performance.now() - startedAt).toFixed(1) });
     const { waitUntilExit } = instance;
     // [mixdog fork] Hand the ink renderer's drag-selection setter to the store so
@@ -679,7 +774,11 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     stopPerfProbe();
     stopLoopProbe();
     for (const [stream, event, handler] of stdioDeathListeners.splice(0)) {
-      try { stream.off(event, handler); } catch { /* ignore */ }
+      try {
+        stream.off(event, handler);
+      } catch {
+        /* ignore */
+      }
     }
     signalCleanup.uninstall();
     try {

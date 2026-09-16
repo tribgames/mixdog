@@ -42,13 +42,13 @@ import {
   clampTranscriptSelectionPoint,
   nearestTranscriptSelectionRow,
   transcriptSelectionPointerRegion,
-} from "./transcript-selection-caret";
+} from './transcript-selection-caret';
 
 export {
   clampTranscriptSelectionPoint,
   nearestTranscriptSelectionRow,
   transcriptSelectionPointerRegion,
-} from "./transcript-selection-caret";
+} from './transcript-selection-caret';
 
 export type TranscriptSelectionEndpoint = { key: unknown; index: number };
 export type TranscriptSelectionPin = {
@@ -56,7 +56,7 @@ export type TranscriptSelectionPin = {
   focus: TranscriptSelectionEndpoint;
 };
 
-const ROW_SELECTOR = ".transcript-virtual-row";
+const ROW_SELECTOR = '.transcript-virtual-row';
 
 /** How far each inward attempt steps along the line and how many are made:
  *  enough to clear a row's horizontal padding and the floating jump pill. */
@@ -71,7 +71,7 @@ export function transcriptSelectionPrimaryButtonDown(buttons: number): boolean {
 
 function isTextFieldElement(element: Element | null): boolean {
   if (!(element instanceof HTMLElement)) return false;
-  return element.tagName === "TEXTAREA" || element.tagName === "INPUT" || element.isContentEditable;
+  return element.tagName === 'TEXTAREA' || element.tagName === 'INPUT' || element.isContentEditable;
 }
 
 export interface TranscriptSelectionDragOptions {
@@ -86,9 +86,7 @@ export interface TranscriptSelectionDragOptions {
 }
 
 /** Attach the observer to a mounted viewport; the return value detaches it. */
-export function attachTranscriptSelectionDrag(
-  options: TranscriptSelectionDragOptions,
-): () => void {
+export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOptions): () => void {
   const { root, rowKeyAt, setPin, onAutoScroll } = options;
 
   let selecting = false;
@@ -109,8 +107,8 @@ export function attachTranscriptSelectionDrag(
    *  exception, so CSS can make it the only selectable surface. */
   const markSelecting = (active: boolean) => {
     if (active) {
-      document.documentElement.dataset.transcriptSelecting = "true";
-      root.dataset.transcriptSelectionRoot = "true";
+      document.documentElement.dataset.transcriptSelecting = 'true';
+      root.dataset.transcriptSelectionRoot = 'true';
     } else {
       delete document.documentElement.dataset.transcriptSelecting;
       delete root.dataset.transcriptSelectionRoot;
@@ -124,18 +122,13 @@ export function attachTranscriptSelectionDrag(
    *  밖으로 드래그한 커서가 나가면 커서포인트를 잃어 드래그가 뒤집혀). */
   const contentBox = (): DOMRect => {
     const rect = root.getBoundingClientRect();
-    return new DOMRect(
-      rect.left + root.clientLeft,
-      rect.top + root.clientTop,
-      root.clientWidth,
-      root.clientHeight,
-    );
+    return new DOMRect(rect.left + root.clientLeft, rect.top + root.clientTop, root.clientWidth, root.clientHeight);
   };
-  const pointerRegion = (view: DOMRect) => transcriptSelectionPointerRegion(
-    lastPointer.x, lastPointer.y, view.left, view.top, view.right, view.bottom);
+  const pointerRegion = (view: DOMRect) =>
+    transcriptSelectionPointerRegion(lastPointer.x, lastPointer.y, view.left, view.top, view.right, view.bottom);
   const pointerOutsideVertically = (): boolean => {
     const region = pointerRegion(contentBox());
-    return region === "above" || region === "below";
+    return region === 'above' || region === 'below';
   };
 
   // Outside-viewport correction (see the header). One rAF loop per gesture
@@ -143,10 +136,11 @@ export function attachTranscriptSelectionDrag(
   // inside or the gesture finishes.
   let outsideFrame = 0;
   /** Mounted rows that carry text, as boxes; turn gaps never take a caret. */
-  const textRowBoxes = (): DOMRect[] => Array.from(root.querySelectorAll<HTMLElement>(ROW_SELECTOR))
-    .filter((row) => (row.textContent ?? "").trim().length > 0)
-    .map((row) => row.getBoundingClientRect())
-    .filter((rect) => rect.height > 0);
+  const textRowBoxes = (): DOMRect[] =>
+    Array.from(root.querySelectorAll<HTMLElement>(ROW_SELECTOR))
+      .filter((row) => (row.textContent ?? '').trim().length > 0)
+      .map((row) => row.getBoundingClientRect())
+      .filter((rect) => rect.height > 0);
   /** Chromium resolves the range itself only while the pointer is over a
    *  row; anywhere else inside the scroller (gaps, padding, the jump pill)
    *  it falls back to a boundary row. */
@@ -161,14 +155,19 @@ export function attachTranscriptSelectionDrag(
     // A new selection elsewhere before the final frame belongs to that surface.
     if (!endpointForNode(selection.anchorNode)) return;
     const point = clampTranscriptSelectionPoint(
-      lastPointer.x, lastPointer.y, view.left, view.top, view.right, view.bottom);
+      lastPointer.x,
+      lastPointer.y,
+      view.left,
+      view.top,
+      view.right,
+      view.bottom
+    );
     const row = nearestTranscriptSelectionRow(textRowBoxes(), point.y);
     if (!row) return;
     // Keep the column, land inside the row's box, then walk in from its
     // horizontal padding (or the pill floating over it) until the caret
     // resolves to a row.
-    const target = clampTranscriptSelectionPoint(
-      point.x, point.y, row.left, row.top, row.right, row.bottom);
+    const target = clampTranscriptSelectionPoint(point.x, point.y, row.left, row.top, row.right, row.bottom);
     const inward = target.x > (row.left + row.right) / 2 ? -1 : 1;
     for (let attempt = 0; attempt < INWARD_ATTEMPTS; attempt += 1) {
       const caret = caretFromPoint(target.x + inward * attempt * INWARD_STEP_PX, target.y);
@@ -182,7 +181,7 @@ export function attachTranscriptSelectionDrag(
     outsideFrame = 0;
     if (!selecting) return;
     const view = contentBox();
-    const needsCorrection = pointerRegion(view) !== "inside" || !rowUnderPointer();
+    const needsCorrection = pointerRegion(view) !== 'inside' || !rowUnderPointer();
     if (needsCorrection) extendToNearestRowCaret(view);
     if (finishing) finishSelection();
     else if (needsCorrection) outsideFrame = window.requestAnimationFrame(syncOutside);
@@ -280,21 +279,21 @@ export function attachTranscriptSelectionDrag(
     onAutoScroll(delta);
   };
 
-  root.addEventListener("pointerdown", handlePointerDown, true);
-  root.addEventListener("scroll", handleScroll, { passive: true });
-  document.addEventListener("pointermove", handlePointerMove, true);
-  document.addEventListener("pointerup", handlePointerUp, true);
-  document.addEventListener("pointercancel", requestFinish, true);
-  document.addEventListener("selectionchange", syncPin);
-  window.addEventListener("blur", requestFinish);
+  root.addEventListener('pointerdown', handlePointerDown, true);
+  root.addEventListener('scroll', handleScroll, { passive: true });
+  document.addEventListener('pointermove', handlePointerMove, true);
+  document.addEventListener('pointerup', handlePointerUp, true);
+  document.addEventListener('pointercancel', requestFinish, true);
+  document.addEventListener('selectionchange', syncPin);
+  window.addEventListener('blur', requestFinish);
   return () => {
-    root.removeEventListener("pointerdown", handlePointerDown, true);
-    root.removeEventListener("scroll", handleScroll);
-    document.removeEventListener("pointermove", handlePointerMove, true);
-    document.removeEventListener("pointerup", handlePointerUp, true);
-    document.removeEventListener("pointercancel", requestFinish, true);
-    document.removeEventListener("selectionchange", syncPin);
-    window.removeEventListener("blur", requestFinish);
+    root.removeEventListener('pointerdown', handlePointerDown, true);
+    root.removeEventListener('scroll', handleScroll);
+    document.removeEventListener('pointermove', handlePointerMove, true);
+    document.removeEventListener('pointerup', handlePointerUp, true);
+    document.removeEventListener('pointercancel', requestFinish, true);
+    document.removeEventListener('selectionchange', syncPin);
+    window.removeEventListener('blur', requestFinish);
     selecting = false;
     finishing = false;
     seed = null;

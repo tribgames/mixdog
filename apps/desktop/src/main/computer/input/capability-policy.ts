@@ -1,6 +1,6 @@
 export function shouldRecordVisualOnlyCapabilityMiss(
   semanticAccessibilityAvailable: boolean,
-  accessibilityError: string,
+  accessibilityError: string
 ): boolean {
   return !semanticAccessibilityAvailable && !accessibilityError;
 }
@@ -9,7 +9,7 @@ export function captureAccessibilityError(
   visualOnlyCacheHit: boolean,
   responseOk: boolean,
   requestError: string,
-  responseError: string,
+  responseError: string
 ): string {
   if (visualOnlyCacheHit || responseOk) return '';
   return requestError || responseError || 'capture accessibility snapshot failed';
@@ -18,10 +18,9 @@ export function captureAccessibilityError(
 export function shouldRunCaptureOcr(
   ocrFallbackEnabled: boolean,
   semanticAccessibilityAvailable: boolean,
-  explicitlyRequested: boolean,
+  explicitlyRequested: boolean
 ): boolean {
-  return ocrFallbackEnabled
-    && (explicitlyRequested || !semanticAccessibilityAvailable);
+  return ocrFallbackEnabled && (explicitlyRequested || !semanticAccessibilityAvailable);
 }
 
 export interface VisualOnlyCapability {
@@ -32,10 +31,7 @@ export interface VisualOnlyCapability {
 export function createVisualOnlyCapabilityStore(maxEntries = 128) {
   const byTarget = new Map<string, VisualOnlyCapability>();
   return {
-    resolve(
-      targetKey: string,
-      now: number,
-    ): { capability?: VisualOnlyCapability; cacheHit: boolean } {
+    resolve(targetKey: string, now: number): { capability?: VisualOnlyCapability; cacheHit: boolean } {
       const capability = byTarget.get(targetKey);
       const cacheHit = Boolean(capability && capability.expiresAt > now);
       if (capability) {
@@ -88,21 +84,20 @@ export function createOcrCapturePreferenceStore() {
         bySession.delete(oldest);
       }
     },
-    resolve(
-      sessionId: string,
-      override: Partial<OcrCapturePreference>,
-    ): OcrCapturePreference {
+    resolve(sessionId: string, override: Partial<OcrCapturePreference>): OcrCapturePreference {
       const remembered = bySession.get(sessionId);
       if (remembered) {
         bySession.delete(sessionId);
         bySession.set(sessionId, remembered);
       }
       const includeOcr = override.includeOcr ?? remembered?.includeOcr ?? false;
-      return includeOcr ? {
-        includeOcr,
-        ocrLanguage: override.ocrLanguage ?? remembered?.ocrLanguage,
-        maxOcrWords: override.maxOcrWords ?? remembered?.maxOcrWords,
-      } : { includeOcr: false };
+      return includeOcr
+        ? {
+            includeOcr,
+            ocrLanguage: override.ocrLanguage ?? remembered?.ocrLanguage,
+            maxOcrWords: override.maxOcrWords ?? remembered?.maxOcrWords,
+          }
+        : { includeOcr: false };
     },
     release(sessionId: string): void {
       bySession.delete(sessionId);

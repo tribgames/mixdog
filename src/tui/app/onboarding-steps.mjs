@@ -10,12 +10,7 @@
  */
 import { theme } from '../theme.mjs';
 import { WEB_SEARCH_DEFAULT_ROUTE, isWebSearchDefaultRoute } from './app-format.mjs';
-import {
-  normalizeModelOptions,
-  modelDescription,
-  agentModelParts,
-  routeFromModel,
-} from './model-options.mjs';
+import { normalizeModelOptions, modelDescription, agentModelParts, routeFromModel } from './model-options.mjs';
 
 export function createOnboardingSteps({
   store,
@@ -47,7 +42,7 @@ export function createOnboardingSteps({
       .then(() => store.skipOnboarding?.())
       .then(
         () => store.pushNotice('Setup skipped. Run `mixdog --onboarding` to set up later.', 'info'),
-        (e) => store.pushNotice(`Couldn’t save skip: ${e?.message || e}`, 'error'),
+        (e) => store.pushNotice(`Couldn’t save skip: ${e?.message || e}`, 'error')
       );
   };
 
@@ -67,17 +62,25 @@ export function createOnboardingSteps({
             providerModelsCacheRef.current = { models, at: Date.now() };
           }
         })
-        .catch(() => { /* Step 2 falls back to its own load on entry. */ });
+        .catch(() => {
+          /* Step 2 falls back to its own load on entry. */
+        });
     }
     if (!Array.isArray(onboardingRef.current.agents) || onboardingRef.current.agents.length === 0) {
       // Remote call on a daemon-backed store: resolve it instead of mapping the
       // promise (which silently left the roster empty).
       void Promise.resolve(store.listAgents?.())
         .then((list) => {
-          const roster = (Array.isArray(list) ? list : []).map((a) => ({ id: a.id, label: a.label || a.id, description: a.description || '' }));
+          const roster = (Array.isArray(list) ? list : []).map((a) => ({
+            id: a.id,
+            label: a.label || a.id,
+            description: a.description || '',
+          }));
           if (roster.length) onboardingRef.current.agents = roster;
         })
-        .catch(() => { /* Step 2 retries on entry. */ });
+        .catch(() => {
+          /* Step 2 retries on entry. */
+        });
     }
   };
 
@@ -95,7 +98,9 @@ export function createOnboardingSteps({
     let preloadedSetup = null;
     try {
       preloadedSetup = await store.getProviderSetup?.();
-    } catch { /* openProviderSetupPicker will show its loading frame + error. */ }
+    } catch {
+      /* openProviderSetupPicker will show its loading frame + error. */
+    }
     if (!own.owns()) return;
     void openProviderSetupPicker({
       title: 'First Run · Step 1/4 · Provider Auth',
@@ -105,7 +110,9 @@ export function createOnboardingSteps({
         buttons: [{ value: 'next', label: 'Next ▶' }],
         // Keep Step 1 visible while Step 2's async model load runs; the next
         // step replaces the picker itself, so no blank frame in between.
-        onConfirm: () => { void openOnboardingWorkflowStep(); },
+        onConfirm: () => {
+          void openOnboardingWorkflowStep();
+        },
       },
       onCancel: onboardingWarnReopen,
     });
@@ -145,21 +152,27 @@ export function createOnboardingSteps({
     // override are sent; untouched agents are left out so the session never
     // overwrites them (they follow the Main Model dynamically at runtime).
     if (defaultRoute) {
-      void store.completeOnboarding?.({
-        defaultRoute,
-        ...(hasOverrides ? { agentRoutes: { ...overrides } } : {}),
-        ...(webSearchRoute ? { webSearchRoute } : {}),
-      }).then(done).catch(failed);
+      void store
+        .completeOnboarding?.({
+          defaultRoute,
+          ...(hasOverrides ? { agentRoutes: { ...overrides } } : {}),
+          ...(webSearchRoute ? { webSearchRoute } : {}),
+        })
+        .then(done)
+        .catch(failed);
       return;
     }
     // Branch 2 — Main unset but some Web Search/agent picks exist: partial persist.
     // Only the explicit overrides are sent (no defaultRoute); the
     // session skips agents lacking a route and marks onboarding complete.
     if (hasOverrides || webSearchRoute) {
-      void store.completeOnboarding?.({
-        ...(hasOverrides ? { agentRoutes: { ...overrides } } : {}),
-        ...(webSearchRoute ? { webSearchRoute } : {}),
-      }).then(done).catch(failed);
+      void store
+        .completeOnboarding?.({
+          ...(hasOverrides ? { agentRoutes: { ...overrides } } : {}),
+          ...(webSearchRoute ? { webSearchRoute } : {}),
+        })
+        .then(done)
+        .catch(failed);
       return;
     }
     // Branch 3 — nothing configured: mark done only, leave config untouched.
@@ -208,18 +221,16 @@ export function createOnboardingSteps({
     // route (or none); agents show their explicit override only (unset = none,
     // so we don't falsely mark the Main Model row on an untouched agent).
     const currentRoute = isLead
-      ? (onboardingRef.current.defaultRoute || null)
+      ? onboardingRef.current.defaultRoute || null
       : isWebSearch
-        ? (onboardingRef.current.webSearchRoute || null)
-        : (overrides[target] || null);
+        ? onboardingRef.current.webSearchRoute || null
+        : overrides[target] || null;
     const routeMatchesModel = (route, m) => route?.provider === m.provider && route?.model === m.id;
     // Non-lead targets get a leading "Default" row that makes the target follow
     // the Main Model at runtime. For agents this clears the override (null);
     // for Web Search this stores the WEB_SEARCH_DEFAULT marker route. "Default"
     // is pre-marked when the target is unset (agent) or on the web-search marker.
-    const isDefaultSelected = isWebSearch
-      ? (!currentRoute || isWebSearchDefaultRoute(currentRoute))
-      : !currentRoute;
+    const isDefaultSelected = isWebSearch ? !currentRoute || isWebSearchDefaultRoute(currentRoute) : !currentRoute;
     const isUnset = isDefaultSelected;
     const modelItems = models.map((m) => ({
       value: `${m.provider}:${m.id}`,
@@ -243,9 +254,7 @@ export function createOnboardingSteps({
           ...modelItems,
         ];
     const matchIdx = models.findIndex((m) => routeMatchesModel(currentRoute, m));
-    const initialIndex = isLead
-      ? Math.max(0, matchIdx)
-      : (isUnset || matchIdx < 0 ? 0 : matchIdx + 1);
+    const initialIndex = isLead ? Math.max(0, matchIdx) : isUnset || matchIdx < 0 ? 0 : matchIdx + 1;
     const label = isLead
       ? 'Main'
       : isWebSearch
@@ -326,7 +335,11 @@ export function createOnboardingSteps({
     // active starter/custom agents. Each defaults to Main unless overridden.
     if (!Array.isArray(onboardingRef.current.agents) || onboardingRef.current.agents.length === 0) {
       try {
-        onboardingRef.current.agents = ((await store.listAgents?.()) || []).map((a) => ({ id: a.id, label: a.label || a.id, description: a.description || '' }));
+        onboardingRef.current.agents = ((await store.listAgents?.()) || []).map((a) => ({
+          id: a.id,
+          label: a.label || a.id,
+          description: a.description || '',
+        }));
       } catch (e) {
         onboardingRef.current.agents = [];
         store.pushNotice(`could not list agents: ${e?.message || e}`, 'warn');
@@ -359,7 +372,11 @@ export function createOnboardingSteps({
           label: 'Web Search',
           // Marker route = follow Main Model → show a hint, not 'default/default'.
           metaParts: isWebSearchDefaultRoute(webSearchRoute)
-            ? [{ text: '(follows main)', width: 17 }, { text: '', width: 6 }, { text: '', width: 4 }]
+            ? [
+                { text: '(follows main)', width: 17 },
+                { text: '', width: 6 },
+                { text: '', width: 4 },
+              ]
             : agentModelParts(webSearchRoute),
           description: 'native web-search model',
           _action: 'slot',

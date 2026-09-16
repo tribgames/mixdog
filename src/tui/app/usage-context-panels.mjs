@@ -1,4 +1,8 @@
-import { contextMeasurementStats, measuredContextUsage, contextMeasurementLabel } from '../../ui/context-measurement.mjs';
+import {
+  contextMeasurementStats,
+  measuredContextUsage,
+  contextMeasurementLabel,
+} from '../../ui/context-measurement.mjs';
 
 // /usage and /context panel builders, extracted from App.jsx. Follows the
 // createRoutePickers factory pattern: called each render with the current
@@ -32,12 +36,13 @@ export function createUsageContextPanels({
     });
     setTimeout(() => {
       if (!dashboardOwn.owns()) return;
-      void store.getUsageDashboard?.({
-        refresh,
-        onUpdate: (dashboard) => {
-          if (dashboard) dashboardOwn.paint(dashboard);
-        },
-      })
+      void store
+        .getUsageDashboard?.({
+          refresh,
+          onUpdate: (dashboard) => {
+            if (dashboard) dashboardOwn.paint(dashboard);
+          },
+        })
         .then((dashboard) => {
           if (!dashboardOwn.owns()) return;
           if (!dashboard) {
@@ -85,14 +90,19 @@ export function createUsageContextPanels({
     const messages = context.messages || {};
     const request = context.request || {};
     const schemaBreakdown = request.toolSchemaBreakdown || {};
-    const schemaTokensFor = (buckets) => buckets.reduce(
-      (sum, bucket) => sum + Number(schemaBreakdown?.[bucket]?.tokens || 0),
-      0,
-    );
+    const schemaTokensFor = (buckets) =>
+      buckets.reduce((sum, bucket) => sum + Number(schemaBreakdown?.[bucket]?.tokens || 0), 0);
     const builtInToolSchemaTokens = schemaTokensFor(['code', 'web', 'mutation', 'channels', 'setup', 'other']);
     const mcpToolSchemaTokens = schemaTokensFor(['mcp']);
     const compaction = context.compaction || {};
-    const windowTokens = Number(context.effectiveContextWindow || context.contextWindow || state.contextWindow || context.rawContextWindow || state.rawContextWindow || 0);
+    const windowTokens = Number(
+      context.effectiveContextWindow ||
+        context.contextWindow ||
+        state.contextWindow ||
+        context.rawContextWindow ||
+        state.rawContextWindow ||
+        0
+    );
     const rawWindowTokens = Number(context.rawContextWindow || state.rawContextWindow || windowTokens || 0);
     // Compaction boundary/trigger are sourced from the runtime contextStatus
     // (context.compaction). Fall back to the visible window for the boundary
@@ -127,10 +137,8 @@ export function createUsageContextPanels({
         ? usage.lastUncachedInputTokens
         : Math.max(Number(usage.lastInputTokens || 0) - cachedRead - cacheWrite, 0)
     );
-    const cacheDenom = Number(usage.lastContextTokens || 0) || (cachedRead + freshInput + cacheWrite);
-    const cacheHitRate = cacheDenom > 0
-      ? `${((cachedRead / cacheDenom) * 100).toFixed(0)}%`
-      : 'N/A';
+    const cacheDenom = Number(usage.lastContextTokens || 0) || cachedRead + freshInput + cacheWrite;
+    const cacheHitRate = cacheDenom > 0 ? `${((cachedRead / cacheDenom) * 100).toFixed(0)}%` : 'N/A';
     const cacheWriteLabel = cacheWrite > 0 ? ` · ${fmt(cacheWrite)} write` : '';
     const contextSource = contextMeasurementLabel(measured.source);
     const lastApiLabel = context.lastApiRequestStale ? 'last API request (pre-compact)' : 'last API request';
@@ -148,17 +156,17 @@ export function createUsageContextPanels({
     const compactState = compactRunning
       ? 'Compacting conversation'
       : compactInterrupted
-      ? 'Compact interrupted'
-      : autoClearFailed
-      ? `auto-clear skipped${compaction.lastClearCompactError ? `: ${compaction.lastClearCompactError}` : ''}`
-      : autoClearStage
-      ? 'Auto-clear complete'
-      : compaction.lastChanged
-      ? (compactReactive ? 'Compact complete (overflow recovery)' : 'Compact complete')
-      : 'Compact checked';
-    const compactDescription = compactDuration
-      ? `${compactState} · ${compactDuration}`
-      : compactState;
+        ? 'Compact interrupted'
+        : autoClearFailed
+          ? `auto-clear skipped${compaction.lastClearCompactError ? `: ${compaction.lastClearCompactError}` : ''}`
+          : autoClearStage
+            ? 'Auto-clear complete'
+            : compaction.lastChanged
+              ? compactReactive
+                ? 'Compact complete (overflow recovery)'
+                : 'Compact complete'
+              : 'Compact checked';
+    const compactDescription = compactDuration ? `${compactState} · ${compactDuration}` : compactState;
     const compactPressure = Number(compaction.pressureTokens || compaction.currentEstimatedTokens || 0);
     const compactReserve = Number(compaction.reserveTokens || 0);
     const contextRows = [
@@ -253,7 +261,10 @@ export function createUsageContextPanels({
             if (compactBoundary && compactTrigger) return Math.max(0, compactBoundary - compactTrigger);
             return null;
           })(),
-          pressureTokens: Number(compaction.lastPressureTokens || compaction.pressureTokens || compaction.currentEstimatedTokens || 0) || null,
+          pressureTokens:
+            Number(
+              compaction.lastPressureTokens || compaction.pressureTokens || compaction.currentEstimatedTokens || 0
+            ) || null,
           reserveTokens: Number(compaction.reserveTokens || 0) || null,
           lastChanged: compaction.lastChanged === true,
         },

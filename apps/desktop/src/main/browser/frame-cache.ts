@@ -15,7 +15,9 @@ export function createBrowserFrameCacheStore() {
     const existing = states.get(guest);
     if (existing) return existing;
     const state: BrowserFrameCache = {
-      epoch: 0, targets: '', contexts: new Map(),
+      epoch: 0,
+      targets: '',
+      contexts: new Map(),
       invalidate() {
         state.epoch++;
         state.frames = undefined;
@@ -23,11 +25,18 @@ export function createBrowserFrameCacheStore() {
       },
     };
     const message = (_event: unknown, method: string) => {
-      if ([
-        'Page.frameAttached', 'Page.frameDetached', 'Page.frameNavigated',
-        'Runtime.executionContextDestroyed', 'Runtime.executionContextsCleared',
-        'Target.attachedToTarget', 'Target.detachedFromTarget',
-      ].includes(method)) state.invalidate();
+      if (
+        [
+          'Page.frameAttached',
+          'Page.frameDetached',
+          'Page.frameNavigated',
+          'Runtime.executionContextDestroyed',
+          'Runtime.executionContextsCleared',
+          'Target.attachedToTarget',
+          'Target.detachedFromTarget',
+        ].includes(method)
+      )
+        state.invalidate();
     };
     debuggerPort.on('message', message);
     debuggerPort.on('detach', state.invalidate);

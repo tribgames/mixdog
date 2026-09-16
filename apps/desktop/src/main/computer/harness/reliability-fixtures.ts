@@ -50,7 +50,10 @@ try {
 }
 `;
 
-export function startManagedFixture(kind: 'wpf' | 'excel', directory: string): {
+export function startManagedFixture(
+  kind: 'wpf' | 'excel',
+  directory: string
+): {
   child: ChildProcess;
   state(): string;
   windowId(): string;
@@ -62,15 +65,34 @@ export function startManagedFixture(kind: 'wpf' | 'excel', directory: string): {
   const program = join(directory, `${kind}-fixture.ps1`);
   writeFileSync(program, `$ErrorActionPreference = 'Stop'\n${kind === 'wpf' ? WPF : EXCEL}`, 'utf8');
   let errors = '';
-  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', program], {
-    windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'],
-    env: { ...process.env, MIXDOG_FIXTURE_STATE: state, MIXDOG_FIXTURE_STOP: stop },
+  const child = spawn(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', program],
+    {
+      windowsHide: true,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      env: { ...process.env, MIXDOG_FIXTURE_STATE: state, MIXDOG_FIXTURE_STOP: stop },
+    }
+  );
+  child.stderr?.on('data', (chunk) => {
+    errors = (errors + String(chunk)).slice(-4096);
   });
-  child.stderr?.on('data', (chunk) => { errors = (errors + String(chunk)).slice(-4096); });
   return {
     child,
-    state: () => { try { return readFileSync(state, 'utf8'); } catch { return ''; } },
-    windowId: () => { try { return readFileSync(`${state}.hwnd`, 'utf8'); } catch { return ''; } },
+    state: () => {
+      try {
+        return readFileSync(state, 'utf8');
+      } catch {
+        return '';
+      }
+    },
+    windowId: () => {
+      try {
+        return readFileSync(`${state}.hwnd`, 'utf8');
+      } catch {
+        return '';
+      }
+    },
     stop: () => writeFileSync(stop, ''),
     errors: () => errors,
   };

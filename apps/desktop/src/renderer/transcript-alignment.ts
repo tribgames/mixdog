@@ -1,22 +1,22 @@
-import type { TranscriptItem } from "./desktop-types";
+import type { TranscriptItem } from './desktop-types';
 
 const itemText = (item: TranscriptItem): string =>
-  typeof item.text === "string" ? item.text : item.text == null ? "" : String(item.text);
+  typeof item.text === 'string' ? item.text : item.text == null ? '' : String(item.text);
 
 export const hasOwnId = (item: TranscriptItem): boolean => item.id !== undefined && item.id !== null;
 export const sameRowId = (a: TranscriptItem, b: TranscriptItem): boolean =>
   hasOwnId(a) && hasOwnId(b) && String(a.id) === String(b.id);
 
 function sameRowContent(a: TranscriptItem, b: TranscriptItem): boolean {
-  return a.kind === b.kind && itemText(a) === itemText(b)
-    && String(a.name ?? "") === String(b.name ?? "");
+  return a.kind === b.kind && itemText(a) === itemText(b) && String(a.name ?? '') === String(b.name ?? '');
 }
 
 export function alignedRow(a: TranscriptItem, b: TranscriptItem): boolean {
   if (a.kind !== b.kind) return false;
-  if (a.kind === "tool") return String(a.name ?? "") === String(b.name ?? "");
-  if (a.kind === "user" || a.kind === "assistant") {
-    const at = itemText(a), bt = itemText(b);
+  if (a.kind === 'tool') return String(a.name ?? '') === String(b.name ?? '');
+  if (a.kind === 'user' || a.kind === 'assistant') {
+    const at = itemText(a),
+      bt = itemText(b);
     return at === bt || (at.length > 0 && bt.length > 0 && (at.startsWith(bt) || bt.startsWith(at)));
   }
   return true;
@@ -43,24 +43,27 @@ function better(candidate: AlignmentCandidate, best: AlignmentCandidate | null, 
  * bounds prove that no unevaluated offset can outrank the current candidate. */
 export function findTranscriptAlignment(
   previous: readonly TranscriptItem[],
-  incoming: readonly TranscriptItem[],
+  incoming: readonly TranscriptItem[]
 ): AlignmentCandidate | null {
   const shorter = incoming.length < previous.length;
   const signatures = new WeakMap<TranscriptItem, string>();
   const signature = (item: TranscriptItem): string => {
     let value = signatures.get(item);
     if (value === undefined) {
-      value = [item.kind, item.status, item.label, item.tone, item.verb,
-        item.count, item.completedCount, item.detail].map((part) => String(part ?? "")).join("\u0001");
+      value = [item.kind, item.status, item.label, item.tone, item.verb, item.count, item.completedCount, item.detail]
+        .map((part) => String(part ?? ''))
+        .join('\u0001');
       signatures.set(item, value);
     }
     return value;
   };
   const candidateAt = (offset: number): AlignmentCandidate | null => {
     const span = Math.min(previous.length - offset, incoming.length);
-    let idMatches = 0, strongMatches = 0;
+    let idMatches = 0,
+      strongMatches = 0;
     for (let index = 0; index < span; index += 1) {
-      const a = previous[offset + index], b = incoming[index];
+      const a = previous[offset + index],
+        b = incoming[index];
       if (a !== b && !alignedRow(a, b)) return null;
       if (sameRowId(a, b)) idMatches += 1;
       if (a === b || (sameRowContent(a, b) && signature(a) === signature(b))) strongMatches += 1;

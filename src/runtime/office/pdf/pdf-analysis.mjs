@@ -1,21 +1,8 @@
 import { createRequire } from 'node:module';
-import {
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import {
-  DOMMatrix,
-  ImageData,
-  Path2D,
-} from '@napi-rs/canvas';
-import {
-  PDFDocument,
-  rgb,
-} from 'pdf-lib';
+import { DOMMatrix, ImageData, Path2D } from '@napi-rs/canvas';
+import { PDFDocument, rgb } from 'pdf-lib';
 import sharp from 'sharp';
 import { resolvedPdfJs } from '../../attachments/pdfjs-runtime.mjs';
 import { embedDocumentFont, fontCovers } from './pdf-fonts.mjs';
@@ -31,10 +18,12 @@ function installPdfGlobals() {
 }
 
 function selectedPages(total, pages) {
-  const values = Array.isArray(pages) && pages.length
-    ? [...new Set(pages.map(Number))]
-    : Array.from({ length: total }, (_, index) => index + 1);
-  if (values.length > MAX_PDF_ANALYSIS_PAGES) throw new Error(`PDF analysis accepts at most ${MAX_PDF_ANALYSIS_PAGES} pages per call`);
+  const values =
+    Array.isArray(pages) && pages.length
+      ? [...new Set(pages.map(Number))]
+      : Array.from({ length: total }, (_, index) => index + 1);
+  if (values.length > MAX_PDF_ANALYSIS_PAGES)
+    throw new Error(`PDF analysis accepts at most ${MAX_PDF_ANALYSIS_PAGES} pages per call`);
   for (const page of values) {
     if (!Number.isInteger(page) || page < 1 || page > total) throw new Error(`PDF page out of range: ${page}`);
   }
@@ -61,7 +50,7 @@ const MAX_SHAPES_PER_PAGE = 2000;
 const round2 = (value) => Number(Number(value).toFixed(2));
 const near = (left, right, tolerance = 0.5) => Math.abs(left - right) <= tolerance;
 // pdf.js's own applyTransform mutates its argument in place, so map points here.
-const applyPoint = ([x, y], m) => [(x * m[0]) + (y * m[2]) + m[4], (x * m[1]) + (y * m[3]) + m[5]];
+const applyPoint = ([x, y], m) => [x * m[0] + y * m[2] + m[4], x * m[1] + y * m[3] + m[5]];
 
 // pdf.js packs a path as codes with their coordinates: 0 moveTo (x y),
 // 1 lineTo (x y), 2 curveTo (six numbers), 3 quadraticCurveTo (four), 4 closePath.
@@ -97,8 +86,22 @@ function pathSubpaths(data) {
 // checkbox. Coordinates share the text items' top-left origin.
 async function pageShapes(pdfjs, page, viewport) {
   const { OPS, Util } = pdfjs;
-  const strokeOps = new Set([OPS.stroke, OPS.closeStroke, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke]);
-  const fillOps = new Set([OPS.fill, OPS.eoFill, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke]);
+  const strokeOps = new Set([
+    OPS.stroke,
+    OPS.closeStroke,
+    OPS.fillStroke,
+    OPS.eoFillStroke,
+    OPS.closeFillStroke,
+    OPS.closeEOFillStroke,
+  ]);
+  const fillOps = new Set([
+    OPS.fill,
+    OPS.eoFill,
+    OPS.fillStroke,
+    OPS.eoFillStroke,
+    OPS.closeFillStroke,
+    OPS.closeEOFillStroke,
+  ]);
   const operators = await page.getOperatorList();
   const lines = [];
   const boxes = [];
@@ -131,11 +134,18 @@ async function pageShapes(pdfjs, page, viewport) {
         const height = Math.max(...ys) - top;
         if (points.length === 2) {
           if (stroked && (near(height, 0, 1) || near(width, 0, 1))) {
-            lines.push({ x1: round2(points[0][0]), y1: round2(points[0][1]), x2: round2(points[1][0]), y2: round2(points[1][1]) });
+            lines.push({
+              x1: round2(points[0][0]),
+              y1: round2(points[0][1]),
+              x2: round2(points[1][0]),
+              y2: round2(points[1][1]),
+            });
           }
           continue;
         }
-        const closed = points.length === 4 || (points.length === 5 && near(points[0][0], points[4][0]) && near(points[0][1], points[4][1]));
+        const closed =
+          points.length === 4 ||
+          (points.length === 5 && near(points[0][0], points[4][0]) && near(points[0][1], points[4][1]));
         if (!closed) continue;
         const axisAligned = points.slice(0, 4).every((point, position) => {
           const next = points[(position + 1) % 4];
@@ -143,9 +153,19 @@ async function pageShapes(pdfjs, page, viewport) {
         });
         if (!axisAligned) continue;
         if (filled && height <= 1.5 && width > 6) {
-          lines.push({ x1: round2(x), y1: round2(top + (height / 2)), x2: round2(x + width), y2: round2(top + (height / 2)) });
+          lines.push({
+            x1: round2(x),
+            y1: round2(top + height / 2),
+            x2: round2(x + width),
+            y2: round2(top + height / 2),
+          });
         } else if (filled && width <= 1.5 && height > 6) {
-          lines.push({ x1: round2(x + (width / 2)), y1: round2(top), x2: round2(x + (width / 2)), y2: round2(top + height) });
+          lines.push({
+            x1: round2(x + width / 2),
+            y1: round2(top),
+            x2: round2(x + width / 2),
+            y2: round2(top + height),
+          });
         } else if (width >= 2 && height >= 2) {
           boxes.push({
             x: round2(x),
@@ -188,7 +208,8 @@ async function pageLinks(document, page, viewport) {
     if (annotation.unsafeUrl || annotation.url) entry.url = String(annotation.unsafeUrl || annotation.url);
     else if (annotation.dest) {
       try {
-        const destination = typeof annotation.dest === 'string' ? await document.getDestination(annotation.dest) : annotation.dest;
+        const destination =
+          typeof annotation.dest === 'string' ? await document.getDestination(annotation.dest) : annotation.dest;
         const target = Array.isArray(destination) ? destination[0] : null;
         if (target && typeof target === 'object') entry.page = (await document.getPageIndex(target)) + 1;
         else if (Number.isInteger(target)) entry.page = target + 1;
@@ -201,12 +222,10 @@ async function pageLinks(document, page, viewport) {
   return links;
 }
 
-export async function extractPdfTextLayout(path, {
-  pages = null,
-  maxItems = 20_000,
-  shapes = true,
-  signal = null,
-} = {}) {
+export async function extractPdfTextLayout(
+  path,
+  { pages = null, maxItems = 20_000, shapes = true, signal = null } = {}
+) {
   const { pdfjs, document } = await openPdfJs(path);
   try {
     const output = [];
@@ -274,12 +293,16 @@ export async function extractPdfTextLayout(path, {
         });
         if (truncated) break;
       } finally {
-        try { page.cleanup?.(); } catch {}
+        try {
+          page.cleanup?.();
+        } catch {}
       }
     }
     return { pageCount: document.numPages, pages: output, truncated };
   } finally {
-    try { await document.destroy?.(); } catch {}
+    try {
+      await document.destroy?.();
+    } catch {}
   }
 }
 
@@ -358,11 +381,13 @@ function clusterRows(items, tolerance = 3) {
   }
   return rows.map((row) => ({
     top: Number(row.top.toFixed(2)),
-    cells: row.cells.sort((left, right) => left.x - right.x).map((item) => ({
-      text: item.text,
-      x: item.x,
-      width: item.width,
-    })),
+    cells: row.cells
+      .sort((left, right) => left.x - right.x)
+      .map((item) => ({
+        text: item.text,
+        x: item.x,
+        width: item.width,
+      })),
   }));
 }
 
@@ -370,8 +395,8 @@ function clusterRows(items, tolerance = 3) {
 // without a space unless the PDF left a gap between them.
 function textInBox(items, box) {
   const inside = items.filter((item) => {
-    const centerX = item.x + (item.width / 2);
-    const centerY = item.top + (item.height / 2);
+    const centerX = item.x + item.width / 2;
+    const centerY = item.top + item.height / 2;
     return centerX >= box.x && centerX <= box.x + box.width && centerY >= box.top && centerY <= box.top + box.height;
   });
   const lines = [];
@@ -382,19 +407,28 @@ function textInBox(items, box) {
       lines.push(line);
     }
     const gap = line.end == null ? 0 : item.x - line.end;
-    line.text += (line.text && gap > 1 && !line.text.endsWith(' ') && !item.text.startsWith(' ') ? ' ' : '') + item.text;
+    line.text +=
+      (line.text && gap > 1 && !line.text.endsWith(' ') && !item.text.startsWith(' ') ? ' ' : '') + item.text;
     line.end = item.x + item.width;
   }
-  return lines.map((line) => line.text.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
+  return lines
+    .map((line) => line.text.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n');
 }
 
 // A bordered table is its cell rectangles: rows are boxes sharing a top edge,
 // and consecutive rows with the same column edges form one table. Text is
 // assigned by containment, so wrapped cells and blank cells come out right.
 function ruledTables(page) {
-  const cells = (page.boxes || []).filter((box) => (
-    !box.checkbox && box.width >= 8 && box.height >= 6 && box.width < page.width * 0.98 && box.height < page.height * 0.5
-  ));
+  const cells = (page.boxes || []).filter(
+    (box) =>
+      !box.checkbox &&
+      box.width >= 8 &&
+      box.height >= 6 &&
+      box.width < page.width * 0.98 &&
+      box.height < page.height * 0.5
+  );
   if (cells.length < 4) return [];
   const rows = [];
   for (const cell of [...cells].sort((left, right) => left.top - right.top || left.x - right.x)) {
@@ -472,7 +506,9 @@ async function pdfImageBuffer(image) {
   if (![1, 2, 3, 4].includes(channels)) return null;
   return await sharp(Buffer.from(image.data), {
     raw: { width: image.width, height: image.height, channels },
-  }).png().toBuffer();
+  })
+    .png()
+    .toBuffer();
 }
 
 function resolvedPdfObject(objects, name) {
@@ -485,10 +521,7 @@ function resolvedPdfObject(objects, name) {
   });
 }
 
-export async function extractPdfImages(path, {
-  pages = null,
-  signal = null,
-} = {}) {
+export async function extractPdfImages(path, { pages = null, signal = null } = {}) {
   const { pdfjs, document } = await openPdfJs(path);
   const { OPS, Util } = pdfjs;
   const images = [];
@@ -516,7 +549,12 @@ export async function extractPdfImages(path, {
           // An image paints the unit square under the current transform, so its
           // corners under that transform are where it sits on the page.
           const full = Util.transform(viewport.transform, ctm);
-          const corners = [[0, 0], [1, 0], [0, 1], [1, 1]].map((point) => applyPoint(point, full));
+          const corners = [
+            [0, 0],
+            [1, 0],
+            [0, 1],
+            [1, 1],
+          ].map((point) => applyPoint(point, full));
           const xs = corners.map((point) => point[0]);
           const ys = corners.map((point) => point[1]);
           const placement = {
@@ -530,9 +568,7 @@ export async function extractPdfImages(path, {
             seen.get(key).placements += 1;
             continue;
           }
-          const image = fn === OPS.paintInlineImageXObject
-            ? args[0]
-            : await resolvedPdfObject(page.objs, args[0]);
+          const image = fn === OPS.paintInlineImageXObject ? args[0] : await resolvedPdfObject(page.objs, args[0]);
           const data = await pdfImageBuffer(image);
           if (!data) continue;
           const entry = {
@@ -549,7 +585,9 @@ export async function extractPdfImages(path, {
           images.push(entry);
         }
       } finally {
-        try { page.cleanup?.(); } catch {}
+        try {
+          page.cleanup?.();
+        } catch {}
       }
     }
     return {
@@ -559,7 +597,9 @@ export async function extractPdfImages(path, {
       _images: images,
     };
   } finally {
-    try { await document.destroy?.(); } catch {}
+    try {
+      await document.destroy?.();
+    } catch {}
   }
 }
 
@@ -575,7 +615,8 @@ export async function extractPdfOutline(path, { maxEntries = 500 } = {}) {
         try {
           let dest = item.dest;
           if (typeof dest === 'string') dest = await document.getDestination(dest);
-          if (Array.isArray(dest) && dest[0] && typeof dest[0] === 'object') page = (await document.getPageIndex(dest[0])) + 1;
+          if (Array.isArray(dest) && dest[0] && typeof dest[0] === 'object')
+            page = (await document.getPageIndex(dest[0])) + 1;
         } catch {}
         entries.push({ title: String(item.title || ''), page, level, ...(item.url ? { url: item.url } : {}) });
         await walk(item.items, level + 1);
@@ -584,7 +625,9 @@ export async function extractPdfOutline(path, { maxEntries = 500 } = {}) {
     await walk(await document.getOutline(), 1);
     return { entries, truncated: entries.length >= maxEntries };
   } finally {
-    try { await document.destroy?.(); } catch {}
+    try {
+      await document.destroy?.();
+    } catch {}
   }
 }
 
@@ -593,12 +636,24 @@ export async function extractPdfOutline(path, { maxEntries = 500 } = {}) {
 // reader accepts both: taking the first data row as a header dropped that word
 // and left every lookup undefined, which is an empty result, not an error.
 const OCR_TSV_COLUMNS = Object.freeze([
-  'level', 'page_num', 'block_num', 'par_num', 'line_num', 'word_num',
-  'left', 'top', 'width', 'height', 'conf', 'text',
+  'level',
+  'page_num',
+  'block_num',
+  'par_num',
+  'line_num',
+  'word_num',
+  'left',
+  'top',
+  'width',
+  'height',
+  'conf',
+  'text',
 ]);
 
 function ocrTsvRows(value) {
-  const lines = String(value || '').split(/\r?\n/).filter((line) => line.trim());
+  const lines = String(value || '')
+    .split(/\r?\n/)
+    .filter((line) => line.trim());
   if (!lines.length) return { at: {}, rows: [] };
   const first = lines[0].split('\t');
   const headed = first.includes('text') && first.includes('conf');
@@ -651,7 +706,10 @@ export function ocrTextLines(value, plainText = '') {
     group.words.push(word);
     groups.set(key, group);
   }
-  const spoken = String(plainText || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const spoken = String(plainText || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   const compact = (line) => line.replace(/\s+/g, '');
   return [...groups.values()].map((group, index) => {
     const words = group.words.slice().sort((left, right) => left.left - right.left);
@@ -737,10 +795,7 @@ export async function pdfOcrReadiness(dataDir) {
   };
 }
 
-export async function ocrPdf(path, operation, {
-  dataDir,
-  signal = null,
-} = {}) {
+export async function ocrPdf(path, operation, { dataDir, signal = null } = {}) {
   const source = await readFile(path);
   const document = await PDFDocument.load(source, {
     ignoreEncryption: false,
@@ -777,8 +832,9 @@ export async function ocrPdf(path, operation, {
       temporaryImages.push(image.path);
       const recognized = await worker.recognize(image.path, {}, { text: true, tsv: true, blocks: true });
       const lines = ocrTextLines(recognized.data.tsv, recognized.data.text);
-      const words = (lines.length ? lines.flatMap((line) => line.words) : parseOcrBlocks(recognized.data.blocks))
-        .filter((word) => word.confidence >= Number(operation.minConfidence ?? 40));
+      const words = (
+        lines.length ? lines.flatMap((line) => line.words) : parseOcrBlocks(recognized.data.blocks)
+      ).filter((word) => word.confidence >= Number(operation.minConfidence ?? 40));
       recognizedPages.push({ pageNumber, image, lines, words });
       text += `${text ? '\n\n' : ''}--- Page ${pageNumber} ---\n${recognized.data.text || ''}`;
     }
@@ -844,7 +900,9 @@ export async function ocrPdf(path, operation, {
       pages,
       languages,
       wordCount,
-      ...(skippedWords ? { skippedWords, skippedReason: 'no installed font has glyphs for these words; pass fontPath to keep them' } : {}),
+      ...(skippedWords
+        ? { skippedWords, skippedReason: 'no installed font has glyphs for these words; pass fontPath to keep them' }
+        : {}),
       averageConfidence: wordCount ? Number((totalConfidence / wordCount).toFixed(2)) : 0,
       text,
       searchableTextLayer: wordCount > 0,

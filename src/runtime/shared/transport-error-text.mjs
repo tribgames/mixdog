@@ -10,20 +10,43 @@
 const MAX_CAUSE_DEPTH = 8;
 
 const LOST_CODES = new Set([
-  'ECONNRESET', 'EPIPE', 'ECONNABORTED', 'ENETRESET', 'EPROTO',
-  'UND_ERR_SOCKET', 'UND_ERR_DESTROYED', 'UND_ERR_CLOSED', 'UND_ERR_ABORTED',
-  'ERR_STREAM_DESTROYED', 'ERR_STREAM_PREMATURE_CLOSE',
-  'ERR_HTTP2_STREAM_ERROR', 'ERR_HTTP2_SESSION_ERROR', 'ERR_HTTP2_INVALID_SESSION',
-  'ERR_HTTP2_GOAWAY_SESSION', 'ERR_HTTP2_STREAM_CANCEL',
+  'ECONNRESET',
+  'EPIPE',
+  'ECONNABORTED',
+  'ENETRESET',
+  'EPROTO',
+  'UND_ERR_SOCKET',
+  'UND_ERR_DESTROYED',
+  'UND_ERR_CLOSED',
+  'UND_ERR_ABORTED',
+  'ERR_STREAM_DESTROYED',
+  'ERR_STREAM_PREMATURE_CLOSE',
+  'ERR_HTTP2_STREAM_ERROR',
+  'ERR_HTTP2_SESSION_ERROR',
+  'ERR_HTTP2_INVALID_SESSION',
+  'ERR_HTTP2_GOAWAY_SESSION',
+  'ERR_HTTP2_STREAM_CANCEL',
 ]);
 const UNREACHABLE_CODES = new Set([
-  'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'ENETDOWN', 'EADDRNOTAVAIL',
-  'ENOTFOUND', 'EAI_AGAIN', 'EAI_NODATA', 'EAI_FAIL', 'EAI_NONAME',
+  'ECONNREFUSED',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'ENETDOWN',
+  'EADDRNOTAVAIL',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'EAI_NODATA',
+  'EAI_FAIL',
+  'EAI_NONAME',
   'UND_ERR_CONNECT',
 ]);
 const TIMEOUT_CODES = new Set([
-  'ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ERR_SOCKET_CONNECTION_TIMEOUT',
-  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT',
+  'ETIMEDOUT',
+  'ESOCKETTIMEDOUT',
+  'ERR_SOCKET_CONNECTION_TIMEOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
 ]);
 const TLS_CODE_RE = /^(?:UNABLE_TO_|CERT_|DEPTH_ZERO_SELF_SIGNED|SELF_SIGNED_CERT|ERR_TLS_|HOSTNAME_MISMATCH)/;
 const UNAVAILABLE_STATUSES = new Set([502, 503, 504, 521, 522, 523, 524]);
@@ -34,8 +57,10 @@ const UNAVAILABLE_STATUSES = new Set([502, 503, 504, 521, 522, 523, 524]);
 // never reads as a provider disconnect.
 const LOST_BARE_MESSAGE_RE = /^(?:terminated|socket hang up|other side closed|connection error\.?)$/i;
 const FETCH_BARE_MESSAGE_RE = /^(?:fetch failed|failed to fetch|couldn'?t fetch\.?|load failed|network error)$/i;
-const LOST_PHRASE_RE = /\b(?:socket hang up|other side closed|connection (?:was )?reset(?: by peer)?|network unreachable|premature close|stream (?:was )?destroyed)\b/i;
-const UNREACHABLE_PHRASE_RE = /\b(?:connection refused|getaddrinfo|dns lookup failed|host (?:not found|unreachable))\b/i;
+const LOST_PHRASE_RE =
+  /\b(?:socket hang up|other side closed|connection (?:was )?reset(?: by peer)?|network unreachable|premature close|stream (?:was )?destroyed)\b/i;
+const UNREACHABLE_PHRASE_RE =
+  /\b(?:connection refused|getaddrinfo|dns lookup failed|host (?:not found|unreachable))\b/i;
 const TIMEOUT_PHRASE_RE = /\b(?:connect(?:ion)? timed? ?out|headers timeout|body timeout)\b/i;
 const GATEWAY_STATUS_MESSAGE_RE = /\b(?:API|HTTP(?: fallback)?)\s+(50[234]|52[1-4])\b/;
 
@@ -83,13 +108,35 @@ export function classifyTransportError(error) {
     const item = chain[index];
     const itemCode = String(item?.code || '').toUpperCase();
     const itemName = String(item?.name || '');
-    if (itemCode && TLS_CODE_RE.test(itemCode)) { kind = 'tls'; code = itemCode; break; }
-    if (LOST_CODES.has(itemCode)) { kind = 'lost'; code = itemCode; break; }
-    if (UNREACHABLE_CODES.has(itemCode)) { kind = 'unreachable'; code = itemCode; break; }
-    if (TIMEOUT_CODES.has(itemCode)) { kind = 'timeout'; code = itemCode; break; }
-    if (itemName === 'SocketError') { kind = 'lost'; code = itemCode; break; }
+    if (itemCode && TLS_CODE_RE.test(itemCode)) {
+      kind = 'tls';
+      code = itemCode;
+      break;
+    }
+    if (LOST_CODES.has(itemCode)) {
+      kind = 'lost';
+      code = itemCode;
+      break;
+    }
+    if (UNREACHABLE_CODES.has(itemCode)) {
+      kind = 'unreachable';
+      code = itemCode;
+      break;
+    }
+    if (TIMEOUT_CODES.has(itemCode)) {
+      kind = 'timeout';
+      code = itemCode;
+      break;
+    }
+    if (itemName === 'SocketError') {
+      kind = 'lost';
+      code = itemCode;
+      break;
+    }
     if (itemName === 'ConnectTimeoutError' || itemName === 'HeadersTimeoutError' || itemName === 'BodyTimeoutError') {
-      kind = 'timeout'; code = itemCode; break;
+      kind = 'timeout';
+      code = itemCode;
+      break;
     }
   }
   if (!kind) {
@@ -101,10 +148,22 @@ export function classifyTransportError(error) {
   if (!kind) {
     for (const message of messages) {
       if (!message) continue;
-      if (LOST_BARE_MESSAGE_RE.test(message) || LOST_PHRASE_RE.test(message)) { kind = 'lost'; break; }
-      if (UNREACHABLE_PHRASE_RE.test(message)) { kind = 'unreachable'; break; }
-      if (TIMEOUT_PHRASE_RE.test(message)) { kind = 'timeout'; break; }
-      if (FETCH_BARE_MESSAGE_RE.test(message)) { kind = 'unreachable'; break; }
+      if (LOST_BARE_MESSAGE_RE.test(message) || LOST_PHRASE_RE.test(message)) {
+        kind = 'lost';
+        break;
+      }
+      if (UNREACHABLE_PHRASE_RE.test(message)) {
+        kind = 'unreachable';
+        break;
+      }
+      if (TIMEOUT_PHRASE_RE.test(message)) {
+        kind = 'timeout';
+        break;
+      }
+      if (FETCH_BARE_MESSAGE_RE.test(message)) {
+        kind = 'unreachable';
+        break;
+      }
     }
   }
   if (!kind) return null;

@@ -78,123 +78,192 @@ const POLISH_GUIDANCE = Object.freeze({
   blank_page: 'Remove the accidental page or rebalance preceding content so the page has a clear purpose.',
   sparse_page: 'Rebalance sections, tables, and page breaks instead of padding the page with decoration.',
   broken_chart: 'Rebuild the native chart from source-bound data, save, close, and verify the series after reopen.',
-  empty_chart: 'Populate the chart embedded workbook from the cited source range, then verify seriesCount after reopen.',
-  formula_error: 'Trace the formula to its source cells, fix the calculation, recalculate, and verify the displayed value.',
-  unquoted_sheet_reference: "Quote the sheet name in the reference ('My Sheet'!B5); an unquoted multi-word name evaluates to #VALUE!.",
-  external_link_reference: 'Copy the linked value into a sourced input cell and reference that cell; the external workbook is not available here.',
-  percentage_stored_as_whole: 'Store the percentage as a fraction (0.15 for 15%) or change the number format; a whole number under a % format renders ×100.',
-  number_stored_as_text: 'Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number.',
+  empty_chart:
+    'Populate the chart embedded workbook from the cited source range, then verify seriesCount after reopen.',
+  formula_error:
+    'Trace the formula to its source cells, fix the calculation, recalculate, and verify the displayed value.',
+  unquoted_sheet_reference:
+    "Quote the sheet name in the reference ('My Sheet'!B5); an unquoted multi-word name evaluates to #VALUE!.",
+  external_link_reference:
+    'Copy the linked value into a sourced input cell and reference that cell; the external workbook is not available here.',
+  percentage_stored_as_whole:
+    'Store the percentage as a fraction (0.15 for 15%) or change the number format; a whole number under a % format renders ×100.',
+  number_stored_as_text:
+    'Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number.',
   header_not_frozen: 'Freeze the header row (freeze_panes) so the column names stay in view while the reader scrolls.',
-  numeric_column_unformatted: 'Give the numeric column an explicit number format (#,##0, 0.0%, yyyy-mm-dd) through set_style or columnFormats.',
+  numeric_column_unformatted:
+    'Give the numeric column an explicit number format (#,##0, 0.0%, yyyy-mm-dd) through set_style or columnFormats.',
   year_with_thousands_separator: 'Format year cells as text or 0 so 2024 does not render as 2,024.',
-  inline_constant_in_formula: 'Move the constant into its own labelled assumption cell and reference it from the formula.',
-  unguarded_division: 'Wrap the division in IFERROR or guard the denominator with IF so a zero input does not spread #DIV/0!.',
-  formula_pattern_inconsistency: 'Copy the row or column pattern back over the odd cell, or document why this period is computed differently.',
-  formula_reads_beyond_data: 'Point the reference at the populated cell it was meant to read; snapshot the range and check the value the formula pulls.',
-  formula_inconsistency: 'Replace the hardcoded value with the formula its neighbours use, or move the override into an assumption cell.',
-  rogue_hardcode: 'Replace the pasted result with the formula that produces it, or mark the cell as an input with its source.',
-  input_cells_unmarked: 'Mark input cells (blue font, or a fill where the reader edits) and add a short legend naming the convention.',
+  inline_constant_in_formula:
+    'Move the constant into its own labelled assumption cell and reference it from the formula.',
+  unguarded_division:
+    'Wrap the division in IFERROR or guard the denominator with IF so a zero input does not spread #DIV/0!.',
+  formula_pattern_inconsistency:
+    'Copy the row or column pattern back over the odd cell, or document why this period is computed differently.',
+  formula_reads_beyond_data:
+    'Point the reference at the populated cell it was meant to read; snapshot the range and check the value the formula pulls.',
+  formula_inconsistency:
+    'Replace the hardcoded value with the formula its neighbours use, or move the override into an assumption cell.',
+  rogue_hardcode:
+    'Replace the pasted result with the formula that produces it, or mark the cell as an input with its source.',
+  input_cells_unmarked:
+    'Mark input cells (blue font, or a fill where the reader edits) and add a short legend naming the convention.',
   chart_includes_total_row: 'Separate comparison rows from total or subtotal rows and narrow the chart source range.',
-  worksheet_print_too_small: 'Recompose the sheet for one-page-wide reading; move support data off the dashboard if needed.',
-  worksheet_print_fit_missing: 'Set a deliberate print area, landscape orientation when useful, and one-page-wide fitting.',
-  drawing_outside_print_area: 'Set a print area that contains the chart or picture (set_page_setup with fitToContent, or an explicit printArea); an export otherwise splits or drops it.',
-  drawing_overlap: 'Anchor the second chart or picture below or beside the first (its cell past the rows or columns the first one spans — a 230 pt chart covers about 15 rows); one drawing over another hides both.',
-  label_truncated: 'Widen the column (autofit_range) or shorten the label; the cell beside it has content, so the reader sees only part of the text.',
-  protected_input_locked: 'Unlock the entry range (set_style with properties { locked: false }) before protect_sheet; a protected sheet locks every cell by default, so the form cannot be filled in.',
+  worksheet_print_too_small:
+    'Recompose the sheet for one-page-wide reading; move support data off the dashboard if needed.',
+  worksheet_print_fit_missing:
+    'Set a deliberate print area, landscape orientation when useful, and one-page-wide fitting.',
+  drawing_outside_print_area:
+    'Set a print area that contains the chart or picture (set_page_setup with fitToContent, or an explicit printArea); an export otherwise splits or drops it.',
+  drawing_overlap:
+    'Anchor the second chart or picture below or beside the first (its cell past the rows or columns the first one spans — a 230 pt chart covers about 15 rows); one drawing over another hides both.',
+  label_truncated:
+    'Widen the column (autofit_range) or shorten the label; the cell beside it has content, so the reader sees only part of the text.',
+  protected_input_locked:
+    'Unlock the entry range (set_style with properties { locked: false }) before protect_sheet; a protected sheet locks every cell by default, so the form cannot be filled in.',
   heading_hierarchy_missing: 'Create a clear title and heading hierarchy that matches the document reading path.',
   orphan_heading: 'Keep the heading with the paragraph or table it introduces.',
   short_table_split: 'Keep the short table together or move it intact to the next page.',
   shape_overlap: 'Move or resize the reported shapes while preserving a consistent alignment grid.',
   text_overflow: 'Shorten the copy or enlarge the text area before reducing type size.',
   small_font: 'Reduce content density or split the slide; keep presentation body text at least 12 pt.',
-  meaningful_visual_missing: 'Replace generic text blocks with a chart, table, image, or subject-specific diagram that proves the claim.',
+  meaningful_visual_missing:
+    'Replace generic text blocks with a chart, table, image, or subject-specific diagram that proves the claim.',
   native_evidence_too_weak: 'Add source-bound native evidence to the slides carrying material claims.',
-  art_direction_candidates_missing: 'Create three subject-specific art directions, select one, and carry its palette, typography, motif, and image treatment through the deck.',
-  flat_visual_rhythm: 'Vary background roles, density, focal scale, and evidence treatment while preserving the selected art direction.',
+  art_direction_candidates_missing:
+    'Create three subject-specific art directions, select one, and carry its palette, typography, motif, and image treatment through the deck.',
+  flat_visual_rhythm:
+    'Vary background roles, density, focal scale, and evidence treatment while preserving the selected art direction.',
   font_family_overuse: 'Restyle the slide with fontRole display, body, and data only; drop every extra typeface.',
-  unsafe_font_family: 'Replace the reported typefaces with the deck typography roles; Aptos, Segoe UI, Consolas, and similar faces substitute unpredictably.',
-  accent_hue_overuse: 'Recolor cards, labels, and chips to palette roles so one accent dominates and at most one secondary hue remains.',
-  emphasis_mismatch: 'Enlarge the evidence or thesis the brief names as primary and shrink the element that currently outweighs it.',
+  unsafe_font_family:
+    'Replace the reported typefaces with the deck typography roles; Aptos, Segoe UI, Consolas, and similar faces substitute unpredictably.',
+  accent_hue_overuse:
+    'Recolor cards, labels, and chips to palette roles so one accent dominates and at most one secondary hue remains.',
+  emphasis_mismatch:
+    'Enlarge the evidence or thesis the brief names as primary and shrink the element that currently outweighs it.',
   low_visual_contrast: 'Increase figure-ground contrast without adding decoration; verify the rendered page again.',
   repeated_layout_grammar: 'Replace repeated spatial grammar with a different evidence-led composition.',
-  consecutive_composition_repeat: 'Change the structure where the meaning changes (a different relationship takes a different kit structure), or merge the pages that say the same thing; a deliberate series declares design.review.allowRepetition.',
-  repeated_render_composition: 'Recompose the repeated slides so their rendered reading paths and evidence structures are visibly distinct.',
-  slide_visual_density_low: 'Add claim-bearing evidence or strengthen the focal hierarchy instead of filling the slide with ornament.',
-  visual_role_variety_low: 'Use at least three evidence roles across the deck, such as image, chart, process, comparison, table, or typographic statement.',
-  creative_direction_missing: 'Define the thesis, narrative arc, evidence map, motif, and per-slide creative brief before authoring the deck.',
+  consecutive_composition_repeat:
+    'Change the structure where the meaning changes (a different relationship takes a different kit structure), or merge the pages that say the same thing; a deliberate series declares design.review.allowRepetition.',
+  repeated_render_composition:
+    'Recompose the repeated slides so their rendered reading paths and evidence structures are visibly distinct.',
+  slide_visual_density_low:
+    'Add claim-bearing evidence or strengthen the focal hierarchy instead of filling the slide with ornament.',
+  visual_role_variety_low:
+    'Use at least three evidence roles across the deck, such as image, chart, process, comparison, table, or typographic statement.',
+  creative_direction_missing:
+    'Define the thesis, narrative arc, evidence map, motif, and per-slide creative brief before authoring the deck.',
   semantic_visual_plan_missing: 'Assign a semantic visual treatment that directly explains the slide claim.',
-  generic_visual_treatment: 'Replace the generic chart, table, process, metric, or comparison treatment with a subject-specific annotated visual.',
+  generic_visual_treatment:
+    'Replace the generic chart, table, process, metric, or comparison treatment with a subject-specific annotated visual.',
   default_chart_treatment: 'Add decision-relevant annotations, native data labels, and a commentary rail to the chart.',
   raw_table_slide: 'Convert the raw table into a scorecard, decision matrix, or proportional allocation field.',
-  under_composed_structure: 'Strengthen the focal evidence and supporting visual hierarchy instead of leaving the canvas structurally empty.',
-  under_composed_slide: 'Recompose the slide so the rendered canvas carries a deliberate focal field and supporting evidence.',
-  frontier_aesthetic_score_low: 'Raise contrast, palette discipline, role-aware composition, and deck rhythm before release.',
-  opening_closing_grammar_repeat: 'Give the closing a distinct decision grammar instead of repeating the opening composition.',
-  narrative_arc_weak: 'Rebuild the sequence around distinct opening, proof, choice, execution, and decision-close beats.',
-  worksheet_visual_clutter: 'Separate the decision dashboard from supporting calculations and simplify the visible grid.',
+  under_composed_structure:
+    'Strengthen the focal evidence and supporting visual hierarchy instead of leaving the canvas structurally empty.',
+  under_composed_slide:
+    'Recompose the slide so the rendered canvas carries a deliberate focal field and supporting evidence.',
+  frontier_aesthetic_score_low:
+    'Raise contrast, palette discipline, role-aware composition, and deck rhythm before release.',
+  opening_closing_grammar_repeat:
+    'Give the closing a distinct decision grammar instead of repeating the opening composition.',
+  narrative_arc_weak:
+    'Rebuild the sequence around distinct opening, proof, choice, execution, and decision-close beats.',
+  worksheet_visual_clutter:
+    'Separate the decision dashboard from supporting calculations and simplify the visible grid.',
   repetitive_composition: 'Choose a different semantic layout that matches this slide’s evidence and role.',
-  recent_composition_repeat: 'Recompose the document-level hierarchy and evidence sequence while preserving the Brand kit tokens and facts.',
+  recent_composition_repeat:
+    'Recompose the document-level hierarchy and evidence sequence while preserving the Brand kit tokens and facts.',
   card_grid_overuse: 'Replace repeated cards with one dominant hierarchy, comparison, process, chart, or table.',
   number_without_source: 'Add a source note that identifies the workbook cell, range, or external document.',
-  number_without_fact: 'Add the figure to the brief facts line with its source (F<n> <value> — <source>), or remove it from the slide.',
+  number_without_fact:
+    'Add the figure to the brief facts line with its source (F<n> <value> — <source>), or remove it from the slide.',
   facts_missing: 'Write the brief facts line: every figure the deck shows, each with a source, before authoring again.',
-  fact_without_locator: 'Advisory: the brief names sources, so each fact cites where to open it — a page, a cell, a section, or a URL; say so in the line if a figure comes from somewhere else.',
-  facts_illustrative: 'Advisory: the brief declares the figures illustrative (facts: sample); say so in the delivery and never present them as measured.',
-  plan_promise_missing: 'Advisory: the slide does not seem to carry what its plan line names; keep it if the composition is deliberate, else update the plan line or the slide.',
+  fact_without_locator:
+    'Advisory: the brief names sources, so each fact cites where to open it — a page, a cell, a section, or a URL; say so in the line if a figure comes from somewhere else.',
+  facts_illustrative:
+    'Advisory: the brief declares the figures illustrative (facts: sample); say so in the delivery and never present them as measured.',
+  plan_promise_missing:
+    'Advisory: the slide does not seem to carry what its plan line names; keep it if the composition is deliberate, else update the plan line or the slide.',
   plan_count_mismatch: 'Advisory: the slide plan and the deck disagree on the slide count; update whichever is stale.',
   // Package faults PowerPoint refuses (script-authored charts).
-  chart_stacked_label_position: 'Set dataLabelPosition to ctr, inEnd, or inBase on the stacked chart; outEnd makes PowerPoint refuse the file.',
-  chart_axis_undeclared: 'Give the combo chart valAxes and catAxes with two entries each, or drop secondaryValAxis / secondaryCatAxis from the series; PowerPoint discards the chart otherwise.',
+  chart_stacked_label_position:
+    'Set dataLabelPosition to ctr, inEnd, or inBase on the stacked chart; outEnd makes PowerPoint refuse the file.',
+  chart_axis_undeclared:
+    'Give the combo chart valAxes and catAxes with two entries each, or drop secondaryValAxis / secondaryCatAxis from the series; PowerPoint discards the chart otherwise.',
   // Editability (a slide, not a picture of one).
-  text_fragmentation: 'Merge the stacked single-line text boxes into one text box with paragraphs (breakLine between items) so the copy reflows and edits as a unit.',
-  dead_vector_chart: 'Replace the rectangles with a native chart (addChart / the kit chart()) so the values stay editable and re-sortable.',
+  text_fragmentation:
+    'Merge the stacked single-line text boxes into one text box with paragraphs (breakLine between items) so the copy reflows and edits as a unit.',
+  dead_vector_chart:
+    'Replace the rectangles with a native chart (addChart / the kit chart()) so the values stay editable and re-sortable.',
   // Text fit and placement (portable review).
   text_clipped: 'Enlarge the box or shorten the copy; text cut at a box edge is always visible to the reader.',
   text_box_too_narrow: 'Widen the text box so lines wrap at a readable measure instead of one or two words per line.',
   shape_out_of_bounds: 'Move or resize the shape inside the 13.33 × 7.5 canvas; nothing past the edge is shown.',
   shapes_too_close: 'Open the gap between the shapes to at least 0.3 in, or merge them into one block.',
-  vertical_imbalance: 'Move the content down into the field or enlarge the containers so the canvas is filled with intent, not a hollow bottom.',
+  vertical_imbalance:
+    'Move the content down into the field or enlarge the containers so the canvas is filled with intent, not a hollow bottom.',
   stat_label_detached: 'Bring the label to within 36 pt of its numeral so the pair reads as one unit.',
-  low_contrast: 'Raise the text or its field to 4.5:1 (3:1 at 18 pt or bold 14 pt): the on-dark ink on a dark fill, a darker ink on a light one, or a scrim under text on a picture.',
+  low_contrast:
+    'Raise the text or its field to 4.5:1 (3:1 at 18 pt or bold 14 pt): the on-dark ink on a dark fill, a darker ink on a light one, or a scrim under text on a picture.',
   font_unavailable: 'Use a face from the safe list so the fit review and the recipient render the same widths.',
   placeholder_text: 'Replace or delete the leftover template wording; placeholder copy never ships.',
   unfilled_token: 'Fill or remove the unresolved template token before finalize.',
-  literal_bullet: 'Remove the typed bullet character and give the paragraph list formatting (listKind on append_text, or set_list) so the marker is real.',
-  newline_in_text: 'Split the text at the newline into separate paragraphs; a newline inside a paragraph renders as a space.',
+  literal_bullet:
+    'Remove the typed bullet character and give the paragraph list formatting (listKind on append_text, or set_list) so the marker is real.',
+  newline_in_text:
+    'Split the text at the newline into separate paragraphs; a newline inside a paragraph renders as a space.',
   image_aspect_distorted: 'Crop the picture to the frame ratio (the kit picture() does) instead of stretching it.',
   // Structure and render review (pptx).
-  content_touches_page_edge: 'Pull the content inside the safe margin; nothing sits against the canvas edge unless it bleeds on purpose (a picture, a band).',
+  content_touches_page_edge:
+    'Pull the content inside the safe margin; nothing sits against the canvas edge unless it bleeds on purpose (a picture, a band).',
   edge_margin: 'Keep at least 0.5 in between content and the canvas edge, or make the element a deliberate bleed.',
-  axis_drift: 'Snap the element to the axis its neighbours share (the kit mid()/band() of the same spans() result), or move it clear enough that the offset reads as a decision.',
-  cjk_letter_spacing: 'Drop charSpacing on the Hangul or CJK run (the kit kicker() adds tracking to Latin only); tracking separates the syllables of a word.',
-  peer_gap_uneven: 'Place the row from one set of columns (the kit spans() result) so every gap is the same, or make the odd gap large enough to read as a break between groups.',
+  axis_drift:
+    'Snap the element to the axis its neighbours share (the kit mid()/band() of the same spans() result), or move it clear enough that the offset reads as a decision.',
+  cjk_letter_spacing:
+    'Drop charSpacing on the Hangul or CJK run (the kit kicker() adds tracking to Latin only); tracking separates the syllables of a word.',
+  peer_gap_uneven:
+    'Place the row from one set of columns (the kit spans() result) so every gap is the same, or make the odd gap large enough to read as a break between groups.',
   text_spacing_tight: 'Raise the line spacing to at least 1.05× the size (the kit leading: dense 1.4, body 1.5).',
-  dense_paragraph: 'Split the paragraph, cut the copy, or give it a slide of its own as prose; a wall of text is not evidence.',
+  dense_paragraph:
+    'Split the paragraph, cut the copy, or give it a slide of its own as prose; a wall of text is not evidence.',
   heading_hierarchy_jump: 'Restore the skipped heading level so the outline reads in order.',
   worksheet_hierarchy_missing: 'Give the sheet a title row, labelled headers, and one reading order before the data.',
-  theme_background_drift: 'Use only the ladder backgrounds (paper, paperAlt, dark, darkAlt); recolor the drifting slide.',
-  theme_body_backgrounds: 'Keep body slides on the paper ladder; a dark field is a beat (cover, section, statement), not a body page.',
-  excessive_slide_text: 'Cut the copy to the reading mode\'s budget (composition.md §4) or split the slide.',
+  theme_background_drift:
+    'Use only the ladder backgrounds (paper, paperAlt, dark, darkAlt); recolor the drifting slide.',
+  theme_body_backgrounds:
+    'Keep body slides on the paper ladder; a dark field is a beat (cover, section, statement), not a body page.',
+  excessive_slide_text: "Cut the copy to the reading mode's budget (composition.md §4) or split the slide.",
   decorative_stripe: 'Remove the ornamental bar; a stripe that encodes nothing is decoration (composition.md §10).',
   // Visual critique contract (finalize).
-  visual_critique_incomplete: 'Give every slide five 1-5 scores, a slide-specific note of 40+ characters, and three checks derived from its plan line.',
+  visual_critique_incomplete:
+    'Give every slide five 1-5 scores, a slide-specific note of 40+ characters, and three checks derived from its plan line.',
   visual_critique_missing_slide: 'Add the critique entry for the slide the finalize call left out.',
   visual_critique_invalid_slide: 'Point each critique entry at an existing slide index, once.',
-  visual_critique_needs_polish: 'Apply the listed fixes and failed checks in the script, author again, and critique the slide again.',
-  visual_critique_repeated_note: 'Write each note from that slide\'s own content; a copied note is not a review.',
+  visual_critique_needs_polish:
+    'Apply the listed fixes and failed checks in the script, author again, and critique the slide again.',
+  visual_critique_repeated_note: "Write each note from that slide's own content; a copied note is not a review.",
   // Composer-plan review (frontier).
-  adaptive_layout_selection_missing: 'Decide each slide\'s composition move from its relationship and job (composition.md §0-§2) and name it in the plan.',
-  layout_capacity_overflow: 'Cut or split the content that exceeds the structure\'s capacity; never shrink the type to fit.',
+  adaptive_layout_selection_missing:
+    "Decide each slide's composition move from its relationship and job (composition.md §0-§2) and name it in the plan.",
+  layout_capacity_overflow:
+    "Cut or split the content that exceeds the structure's capacity; never shrink the type to fit.",
   layout_whitespace_mismatch: 'Match the air to the role: beats breathe, evidence slides fill the field.',
   layout_visual_imbalance: 'Rebalance the slide so the focal element and its support share the canvas by weight.',
-  generic_motif_selected: 'Replace the generic motif with the style\'s own device, tied to the subject.',
-  reference_genome_missing: 'Select and record the visual style the deck follows (direction.md §3-§4) before composing.',
-  visual_reference_selection_missing: 'Select and record the visual style the deck follows (direction.md §3-§4) before composing.',
-  source_specific_asset_missing: 'Add the subject-specific asset (picture, diagram, chart from the source) where the plan promised one.',
-  adaptive_layout_rhythm_flat: 'Alternate composition moves and densities across adjacent slides so the deck has rhythm.',
-  beat_share_high: 'Keep the dark or field pages for the cover, the section marks, and the closing; give every other page its chart, table, picture, or structure at half the canvas.',
-  consecutive_beats: 'Replace the middle beat of the run with the content page it stands in for, or merge the three into one section mark.',
-  page_underfill: 'Give the page its payload: a chart, table, picture, or structure with the readings beside it (composition.md §8) — or fold the sentence into the page it introduces.',
+  generic_motif_selected: "Replace the generic motif with the style's own device, tied to the subject.",
+  reference_genome_missing:
+    'Select and record the visual style the deck follows (direction.md §3-§4) before composing.',
+  visual_reference_selection_missing:
+    'Select and record the visual style the deck follows (direction.md §3-§4) before composing.',
+  source_specific_asset_missing:
+    'Add the subject-specific asset (picture, diagram, chart from the source) where the plan promised one.',
+  adaptive_layout_rhythm_flat:
+    'Alternate composition moves and densities across adjacent slides so the deck has rhythm.',
+  beat_share_high:
+    'Keep the dark or field pages for the cover, the section marks, and the closing; give every other page its chart, table, picture, or structure at half the canvas.',
+  consecutive_beats:
+    'Replace the middle beat of the run with the content page it stands in for, or merge the three into one section mark.',
+  page_underfill:
+    'Give the page its payload: a chart, table, picture, or structure with the readings beside it (composition.md §8) — or fold the sentence into the page it introduces.',
   post_save_reopen_missing: 'Reopen the saved file and verify the review evidence after saving.',
   visual_coverage_incomplete: 'Render and inspect every page before finalize; the visual coverage must be complete.',
 });
@@ -227,14 +296,11 @@ export function normalizeOfficeReviewIssues(entries = []) {
   return output;
 }
 
-export function buildOfficePolishPlan({
-  format = '',
-  issues = [],
-} = {}) {
+export function buildOfficePolishPlan({ format = '', issues = [] } = {}) {
   const normalized = normalizeOfficeReviewIssues(issues);
   const targets = new Map();
   for (const issue of normalized) {
-    if (issue.severity === 'info') continue;   // advisory: the author's call, not a polish target
+    if (issue.severity === 'info') continue; // advisory: the author's call, not a polish target
     const path = String(issue.path || '/');
     const current = targets.get(path) || {
       path,
@@ -244,15 +310,16 @@ export function buildOfficePolishPlan({
     };
     if (issue.severity === 'error') current.severity = 'error';
     if (!current.codes.includes(issue.code)) current.codes.push(issue.code);
-    const guidance = POLISH_GUIDANCE[issue.code]
-      || `Correct ${issue.code} at ${path}, then render and inspect the affected page again.`;
+    const guidance =
+      POLISH_GUIDANCE[issue.code] ||
+      `Correct ${issue.code} at ${path}, then render and inspect the affected page again.`;
     if (!current.actions.includes(guidance)) current.actions.push(guidance);
     targets.set(path, current);
   }
-  const ordered = [...targets.values()].sort((left, right) => (
-    Number(right.severity === 'error') - Number(left.severity === 'error')
-    || left.path.localeCompare(right.path)
-  ));
+  const ordered = [...targets.values()].sort(
+    (left, right) =>
+      Number(right.severity === 'error') - Number(left.severity === 'error') || left.path.localeCompare(right.path)
+  );
   return {
     format: String(format || '').toLowerCase(),
     status: ordered.length ? 'needs-polish' : 'pass',
@@ -265,11 +332,7 @@ export function buildOfficePolishPlan({
   };
 }
 
-export function evaluateOfficeSubmissionGate({
-  issues = [],
-  persisted = null,
-  visualCoverage = null,
-} = {}) {
+export function evaluateOfficeSubmissionGate({ issues = [], persisted = null, visualCoverage = null } = {}) {
   const normalized = normalizeOfficeReviewIssues(issues);
   const blocking = normalized.filter((issue) => issue.severity === 'error');
   if (persisted === false) {

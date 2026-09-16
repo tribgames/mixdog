@@ -11,7 +11,9 @@ function fixture(activeMax) {
   });
   return {
     scheduler,
-    admit() { dispatches.shift()?.(); },
+    admit() {
+      dispatches.shift()?.();
+    },
   };
 }
 
@@ -22,13 +24,19 @@ for (const activeMax of [1, Infinity]) {
       const controller = new AbortController();
       const reason = new Error('canceled before invocation');
       let calls = 0;
-      const pending = scheduler.enqueue('owner', () => { calls += 1; }, { signal: controller.signal });
+      const pending = scheduler.enqueue(
+        'owner',
+        () => {
+          calls += 1;
+        },
+        { signal: controller.signal }
+      );
       admit();
       if (stopping === 'abort') controller.abort(reason);
       else scheduler.close('transport stopped');
-      await assert.rejects(pending, (error) => stopping === 'abort'
-        ? error === reason
-        : error.statusCode === 503 && error.message === 'transport stopped');
+      await assert.rejects(pending, (error) =>
+        stopping === 'abort' ? error === reason : error.statusCode === 503 && error.message === 'transport stopped'
+      );
       await setImmediate();
       assert.equal(calls, 0);
       assert.equal(scheduler.active, 0);
@@ -43,11 +51,15 @@ for (const activeMax of [1, Infinity]) {
     const controller = new AbortController();
     const entered = Promise.withResolvers();
     const finish = Promise.withResolvers();
-    const pending = scheduler.enqueue('owner', async () => {
-      entered.resolve();
-      await finish.promise;
-      return 'completed';
-    }, { signal: controller.signal });
+    const pending = scheduler.enqueue(
+      'owner',
+      async () => {
+        entered.resolve();
+        await finish.promise;
+        return 'completed';
+      },
+      { signal: controller.signal }
+    );
     admit();
     await entered.promise;
     controller.abort(new Error('late cancellation'));

@@ -12,19 +12,18 @@ export async function walkTemplateDirectory(root, output, depth = 0) {
     const path = join(root, entry.name);
     if (entry.isDirectory()) await walkTemplateDirectory(path, output, depth + 1);
     else if (
-      entry.isFile()
-      && !/\.mixdog-edit\.[^.]+$/i.test(entry.name)
-      && TEMPLATE_FORMATS[extname(entry.name).toLowerCase()]
-    ) output.push(path);
+      entry.isFile() &&
+      !/\.mixdog-edit\.[^.]+$/i.test(entry.name) &&
+      TEMPLATE_FORMATS[extname(entry.name).toLowerCase()]
+    )
+      output.push(path);
   }
 }
-
 
 export function xmlAttribute(source, name) {
   const match = new RegExp(`\\b${name}="([^"]*)"`, 'i').exec(String(source || ''));
   return match ? xmlDecode(match[1]) : '';
 }
-
 
 function xmlTexts(source) {
   return [...String(source || '').matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/gi)]
@@ -32,9 +31,10 @@ function xmlTexts(source) {
     .filter(Boolean);
 }
 
-
 function pptxPartPath(target) {
-  const raw = String(target || '').replaceAll('\\', '/').replace(/^\/+/, '');
+  const raw = String(target || '')
+    .replaceAll('\\', '/')
+    .replace(/^\/+/, '');
   const segments = (raw.startsWith('ppt/') ? raw : `ppt/${raw}`).split('/');
   const normalized = [];
   for (const segment of segments) {
@@ -44,7 +44,6 @@ function pptxPartPath(target) {
   }
   return normalized.join('/');
 }
-
 
 export async function pptxSlideEntries(zip) {
   const names = Object.keys(zip.files);
@@ -62,7 +61,7 @@ export async function pptxSlideEntries(zip) {
   const targetsById = new Map(
     [...relationshipsXml.matchAll(/<(?:\w+:)?Relationship\b[^>]*\/?>/gi)]
       .map((match) => [xmlAttribute(match[0], 'Id'), xmlAttribute(match[0], 'Target')])
-      .filter(([id, target]) => id && /(?:^|\/)slides\/slide\d+\.xml$/i.test(target)),
+      .filter(([id, target]) => id && /(?:^|\/)slides\/slide\d+\.xml$/i.test(target))
   );
   const ordered = [...presentationXml.matchAll(/<(?:\w+:)?sldId\b[^>]*\/?>/gi)]
     .map((match) => ({
@@ -70,9 +69,7 @@ export async function pptxSlideEntries(zip) {
       name: pptxPartPath(targetsById.get(xmlAttribute(match[0], 'r:id'))),
     }))
     .filter((entry) => zip.file(entry.name));
-  const slideEntries = ordered.length
-    ? ordered
-    : fallback.map((name) => ({ relationshipId: '', name }));
+  const slideEntries = ordered.length ? ordered : fallback.map((name) => ({ relationshipId: '', name }));
   return slideEntries.map((entry, index) => ({
     ...entry,
     slide: index + 1,
@@ -80,31 +77,21 @@ export async function pptxSlideEntries(zip) {
   }));
 }
 
-
 function xmlSetAttribute(source, name, value) {
   const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return String(source).replace(
-    new RegExp(`(\\b${escaped}=")[^"]*(")`, 'i'),
-    `$1${String(value)}$2`,
-  );
+  return String(source).replace(new RegExp(`(\\b${escaped}=")[^"]*(")`, 'i'), `$1${String(value)}$2`);
 }
-
 
 function relationshipType(block, suffix) {
   return xmlAttribute(block, 'Type').toLowerCase().endsWith(`/${suffix.toLowerCase()}`);
 }
 
-
 function ensureContentTypeOverride(xml, partName, contentType) {
   if (!xml || new RegExp(`\\bPartName="${String(partName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'i').test(xml)) {
     return xml;
   }
-  return xml.replace(
-    /<\/Types>/i,
-    `<Override PartName="${partName}" ContentType="${contentType}"/></Types>`,
-  );
+  return xml.replace(/<\/Types>/i, `<Override PartName="${partName}" ContentType="${contentType}"/></Types>`);
 }
-
 
 export async function createPptxSlideSelection(sourcePath, slides, outputPath) {
   const selected = (Array.isArray(slides) ? slides : []).map(Number);
@@ -121,13 +108,12 @@ export async function createPptxSlideSelection(sourcePath, slides, outputPath) {
   if (!presentationFile || !relationshipsFile) throw new Error('PPTX presentation relationships are missing');
   const presentationXml = await presentationFile.async('string');
   const relationshipsXml = await relationshipsFile.async('string');
-  const relationshipBlocks = [...relationshipsXml.matchAll(/<(?:\w+:)?Relationship\b[^>]*\/?>/gi)]
-    .map((match) => match[0]);
+  const relationshipBlocks = [...relationshipsXml.matchAll(/<(?:\w+:)?Relationship\b[^>]*\/?>/gi)].map(
+    (match) => match[0]
+  );
   const slideRelationshipIds = entries.map((entry) => entry.relationshipId).filter(Boolean);
   const nonSlideRelationshipIds = new Set(
-    relationshipBlocks
-      .filter((block) => !relationshipType(block, 'slide'))
-      .map((block) => xmlAttribute(block, 'Id')),
+    relationshipBlocks.filter((block) => !relationshipType(block, 'slide')).map((block) => xmlAttribute(block, 'Id'))
   );
   const relationshipIds = [];
   let nextRelationshipId = 2;
@@ -144,17 +130,17 @@ export async function createPptxSlideSelection(sourcePath, slides, outputPath) {
     const entry = entries[slide - 1];
     const slideXml = await zip.file(entry.name).async('string');
     const slideRelationshipsPath = `ppt/slides/_rels/slide${entry.part}.xml.rels`;
-    const slideRelationshipsXml = await zip.file(slideRelationshipsPath)?.async('string') || '';
+    const slideRelationshipsXml = (await zip.file(slideRelationshipsPath)?.async('string')) || '';
     const notesRelationship = [...slideRelationshipsXml.matchAll(/<(?:\w+:)?Relationship\b[^>]*\/?>/gi)]
       .map((match) => match[0])
       .find((block) => relationshipType(block, 'notesSlide'));
     const notesTarget = notesRelationship ? xmlAttribute(notesRelationship, 'Target') : '';
     const notesPart = Number(/notesSlide(\d+)\.xml$/i.exec(notesTarget)?.[1] || 0);
     const notesXml = notesPart
-      ? await zip.file(`ppt/notesSlides/notesSlide${notesPart}.xml`)?.async('string') || ''
+      ? (await zip.file(`ppt/notesSlides/notesSlide${notesPart}.xml`)?.async('string')) || ''
       : '';
     const notesRelationshipsXml = notesPart
-      ? await zip.file(`ppt/notesSlides/_rels/notesSlide${notesPart}.xml.rels`)?.async('string') || ''
+      ? (await zip.file(`ppt/notesSlides/_rels/notesSlide${notesPart}.xml.rels`)?.async('string')) || ''
       : '';
     selectedParts.push({
       slideXml,
@@ -172,29 +158,29 @@ export async function createPptxSlideSelection(sourcePath, slides, outputPath) {
     .join('');
   const nextPresentationXml = presentationXml.replace(
     slideListPattern,
-    `<${presentationPrefix}sldIdLst>${slideIds}</${presentationPrefix}sldIdLst>`,
+    `<${presentationPrefix}sldIdLst>${slideIds}</${presentationPrefix}sldIdLst>`
   );
   const slideRelationships = relationshipIds
-    .map((id, index) => `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${index + 1}.xml"/>`)
+    .map(
+      (id, index) =>
+        `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${index + 1}.xml"/>`
+    )
     .join('');
   const nextRelationshipsXml = relationshipsXml
-    .replace(/<(?:\w+:)?Relationship\b[^>]*\/?>/gi, (block) => (
-      relationshipType(block, 'slide') ? '' : block
-    ))
+    .replace(/<(?:\w+:)?Relationship\b[^>]*\/?>/gi, (block) => (relationshipType(block, 'slide') ? '' : block))
     .replace(/<\/Relationships>/i, `${slideRelationships}</Relationships>`);
   zip.file('ppt/presentation.xml', nextPresentationXml);
   zip.file('ppt/_rels/presentation.xml.rels', nextRelationshipsXml);
-  let contentTypesXml = await zip.file('[Content_Types].xml')?.async('string') || '';
+  let contentTypesXml = (await zip.file('[Content_Types].xml')?.async('string')) || '';
   for (let index = 0; index < selectedParts.length; index += 1) {
     const target = index + 1;
     const part = selectedParts[index];
     zip.file(`ppt/slides/slide${target}.xml`, part.slideXml);
     if (part.slideRelationshipsXml) {
-      const slideRels = part.slideRelationshipsXml.replace(
-        /<(?:\w+:)?Relationship\b[^>]*\/?>/gi,
-        (block) => relationshipType(block, 'notesSlide')
+      const slideRels = part.slideRelationshipsXml.replace(/<(?:\w+:)?Relationship\b[^>]*\/?>/gi, (block) =>
+        relationshipType(block, 'notesSlide')
           ? xmlSetAttribute(block, 'Target', `../notesSlides/notesSlide${target}.xml`)
-          : block,
+          : block
       );
       zip.file(`ppt/slides/_rels/slide${target}.xml.rels`, slideRels);
     } else {
@@ -203,21 +189,18 @@ export async function createPptxSlideSelection(sourcePath, slides, outputPath) {
     contentTypesXml = ensureContentTypeOverride(
       contentTypesXml,
       `/ppt/slides/slide${target}.xml`,
-      'application/vnd.openxmlformats-officedocument.presentationml.slide+xml',
+      'application/vnd.openxmlformats-officedocument.presentationml.slide+xml'
     );
     if (part.notesXml) {
       zip.file(`ppt/notesSlides/notesSlide${target}.xml`, part.notesXml);
-      const notesRels = part.notesRelationshipsXml.replace(
-        /<(?:\w+:)?Relationship\b[^>]*\/?>/gi,
-        (block) => relationshipType(block, 'slide')
-          ? xmlSetAttribute(block, 'Target', `../slides/slide${target}.xml`)
-          : block,
+      const notesRels = part.notesRelationshipsXml.replace(/<(?:\w+:)?Relationship\b[^>]*\/?>/gi, (block) =>
+        relationshipType(block, 'slide') ? xmlSetAttribute(block, 'Target', `../slides/slide${target}.xml`) : block
       );
       if (notesRels) zip.file(`ppt/notesSlides/_rels/notesSlide${target}.xml.rels`, notesRels);
       contentTypesXml = ensureContentTypeOverride(
         contentTypesXml,
         `/ppt/notesSlides/notesSlide${target}.xml`,
-        'application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml',
+        'application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml'
       );
     }
   }
@@ -229,11 +212,14 @@ export async function createPptxSlideSelection(sourcePath, slides, outputPath) {
   }
   await mkdir(dirname(outputPath), { recursive: true });
   try {
-    await writeFile(outputPath, await zip.generateAsync({
-      type: 'nodebuffer',
-      compression: 'DEFLATE',
-      compressionOptions: { level: 6 },
-    }));
+    await writeFile(
+      outputPath,
+      await zip.generateAsync({
+        type: 'nodebuffer',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 },
+      })
+    );
   } catch (error) {
     await rm(outputPath, { force: true }).catch(() => {});
     throw error;
@@ -245,7 +231,6 @@ export async function createPptxSlideSelection(sourcePath, slides, outputPath) {
     count: selected.length,
   };
 }
-
 
 export function directPptxShapeBlocks(xml) {
   const tree = /<p:spTree\b[^>]*>([\s\S]*?)<\/p:spTree>/i.exec(String(xml || ''))?.[1] || '';
@@ -282,7 +267,6 @@ export function directPptxShapeBlocks(xml) {
   return output;
 }
 
-
 function tokenSlotRole(text) {
   const token = /\{\{([A-Z0-9_]+)\}\}/.exec(String(text || ''))?.[1] || '';
   if (!token) return '';
@@ -294,7 +278,6 @@ function tokenSlotRole(text) {
   if (step) return `step-${step[2].toLowerCase()}-${step[1]}`;
   return token.toLowerCase().replaceAll('_', '-');
 }
-
 
 export function pptxShapeMetadata(block, shape) {
   const cNvPr = /<p:cNvPr\b[^>]*>/i.exec(block.xml)?.[0] || '';
@@ -333,20 +316,21 @@ export function pptxShapeMetadata(block, shape) {
     placeholderType,
     ...(Number.isInteger(placeholderIndex) ? { placeholderIndex } : {}),
     geometry,
-    ...(role ? {
-      slot: {
-        role,
-        type,
-        shape,
-        ...(placeholderType ? { placeholderType } : {}),
-        ...(Number.isInteger(placeholderIndex) ? { placeholderIndex } : {}),
-        geometry,
-        required: ['title'].includes(role),
-      },
-    } : {}),
+    ...(role
+      ? {
+          slot: {
+            role,
+            type,
+            shape,
+            ...(placeholderType ? { placeholderType } : {}),
+            ...(Number.isInteger(placeholderIndex) ? { placeholderIndex } : {}),
+            geometry,
+            required: ['title'].includes(role),
+          },
+        }
+      : {}),
   };
 }
-
 
 export function inferPptxSampleKind(sample, total) {
   const roles = new Set(sample.slots.map((slot) => slot.role));
@@ -361,14 +345,14 @@ export function inferPptxSampleKind(sample, total) {
   return 'content';
 }
 
-
 function numberedRoleGroups(slots, prefix) {
-  return new Set((slots || []).flatMap((slot) => {
-    const match = new RegExp(`^${prefix}-(?:value|label|detail|title|body)-(\\d+)$`).exec(String(slot.role || ''));
-    return match ? [Number(match[1])] : [];
-  })).size;
+  return new Set(
+    (slots || []).flatMap((slot) => {
+      const match = new RegExp(`^${prefix}-(?:value|label|detail|title|body)-(\\d+)$`).exec(String(slot.role || ''));
+      return match ? [Number(match[1])] : [];
+    })
+  ).size;
 }
-
 
 export function pptxSampleCapacity(sample) {
   const slots = Array.isArray(sample?.slots) ? sample.slots : [];
@@ -379,14 +363,17 @@ export function pptxSampleCapacity(sample) {
     metricGroups: numberedRoleGroups(slots, 'metric'),
     columnGroups: numberedRoleGroups(slots, 'column'),
     stepGroups: numberedRoleGroups(slots, 'step'),
-    textArea: Math.round(slots
-      .filter((slot) => slot.type === 'text')
-      .reduce((total, slot) => (
-        total + Math.max(0, Number(slot.geometry?.width) || 0) * Math.max(0, Number(slot.geometry?.height) || 0)
-      ), 0)),
+    textArea: Math.round(
+      slots
+        .filter((slot) => slot.type === 'text')
+        .reduce(
+          (total, slot) =>
+            total + Math.max(0, Number(slot.geometry?.width) || 0) * Math.max(0, Number(slot.geometry?.height) || 0),
+          0
+        )
+    ),
   };
 }
-
 
 export function officeTemplateCoverage(sampleSlides = []) {
   const samples = Array.isArray(sampleSlides) ? sampleSlides : [];
@@ -416,8 +403,9 @@ export function officeTemplateCoverage(sampleSlides = []) {
       table: capabilities.includes('table'),
       diagram: capabilities.includes('diagram'),
     },
-    complete: recommendedKinds.every((kind) => kinds.includes(kind))
-      && recommendedDensities.every((density) => densities.includes(density))
-      && ['image', 'chart', 'table'].every((capability) => capabilities.includes(capability)),
+    complete:
+      recommendedKinds.every((kind) => kinds.includes(kind)) &&
+      recommendedDensities.every((density) => densities.includes(density)) &&
+      ['image', 'chart', 'table'].every((capability) => capabilities.includes(capability)),
   };
 }

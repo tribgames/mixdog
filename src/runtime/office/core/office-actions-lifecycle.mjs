@@ -27,22 +27,22 @@ function blocksFinalize(issue, { failOn, authored }) {
 export async function save(session) {
   if (session.transaction) throw new Error('Commit or roll back the active Office transaction before saving');
   if (isMicrosoftOfficeSession(session)) {
-    const result = await callMicrosoftOffice({
-      action: 'save',
-      session: session.id,
-      format: session.format,
-      mode: session.mode,
-      path: session.target,
-    }, { signal: session.activeSignal || null });
+    const result = await callMicrosoftOffice(
+      {
+        action: 'save',
+        session: session.id,
+        format: session.format,
+        mode: session.mode,
+        path: session.target,
+      },
+      { signal: session.activeSignal || null }
+    );
     if (!result.ok) throw new Error(result.error || 'Microsoft Office save failed');
   }
   return { ok: true, session: session.id, saved: true, path: session.target };
 }
 
-export async function closeSession(session, {
-  save: shouldSave = false,
-  signal = null,
-} = {}) {
+export async function closeSession(session, { save: shouldSave = false, signal = null } = {}) {
   if (session.transaction) throw new Error('Commit or roll back the active Office transaction before closing');
   let cleanup = null;
   if (isMicrosoftOfficeSession(session)) {
@@ -79,8 +79,7 @@ export async function finalize(session, args, cwd, signal) {
   };
   const authored = session.authored === true || session.design?.authoring === 'native';
   const failOn = String(args.failOn || (session.created && !authored ? 'warning' : 'error')).toLowerCase();
-  const requiresVisualReview = session.format === 'pptx'
-    && session.designState?.requiresVisualReview === true;
+  const requiresVisualReview = session.format === 'pptx' && session.designState?.requiresVisualReview === true;
   const recalculation = await timedStep('recalculation', () => recalculateForReview(session, signal));
   if (recalculation?.needed && !recalculation.recalculated) {
     return {
@@ -94,16 +93,20 @@ export async function finalize(session, args, cwd, signal) {
       nextAction: recalculation.reason || 'Open the workbook in Microsoft Office background mode and finalize again.',
     };
   }
-  const reviewed = args.review === false ? null : await timedStep('review', async () => await qa(session, args, cwd, { reuseRender: true }));
+  const reviewed =
+    args.review === false
+      ? null
+      : await timedStep('review', async () => await qa(session, args, cwd, { reuseRender: true }));
   const reviewImages = Array.isArray(reviewed?._images) ? reviewed._images : [];
   const review = reviewed ? { ...reviewed } : null;
-  const visualCritique = session.format === 'pptx'
-    ? reviewPptxVisualCritique({
-        critique: args.design?.critique,
-        pageCount: Number(review?.preview?.pageCount || session.designState?.renderedPageCount || 0),
-        requireChecks: session.authoredBrief?.present === true,
-      })
-    : null;
+  const visualCritique =
+    session.format === 'pptx'
+      ? reviewPptxVisualCritique({
+          critique: args.design?.critique,
+          pageCount: Number(review?.preview?.pageCount || session.designState?.renderedPageCount || 0),
+          requireChecks: session.authoredBrief?.present === true,
+        })
+      : null;
   if (review && visualCritique) review.visualCritique = visualCritique;
   const reviewToken = session.designState?.reviewToken || '';
   const visualReviewAcknowledged = pptxVisualReviewAcknowledged({
@@ -117,10 +120,13 @@ export async function finalize(session, args, cwd, signal) {
   });
   if (session.format === 'pptx' && review?.review?.quality) {
     const quality = review.review.quality;
-    Object.assign(quality, assessPresentationAcceptance(quality.evidence, {
-      acknowledged: visualReviewAcknowledged,
-      critique: visualCritique,
-    }));
+    Object.assign(
+      quality,
+      assessPresentationAcceptance(quality.evidence, {
+        acknowledged: visualReviewAcknowledged,
+        critique: visualCritique,
+      })
+    );
   }
   const documentVisualReview = reviewDocumentPages(session.format, args.design, {
     ...session.designState,
@@ -129,16 +135,19 @@ export async function finalize(session, args, cwd, signal) {
   if (documentVisualReview && review) {
     review.visualReview = documentVisualReview;
     if (review.review?.quality) {
-      Object.assign(review.review.quality, assessDocumentAcceptance(
-        review.review.quality.evidence, documentVisualReview,
-      ));
+      Object.assign(
+        review.review.quality,
+        assessDocumentAcceptance(review.review.quality.evidence, documentVisualReview)
+      );
     }
   }
   if (review) delete review._images;
   const issuesAfter = review?.issuesAfter || [];
   const blockingIssues = issuesAfter.filter((issue) => blocksFinalize(issue, { failOn, authored }));
   const advisoryIssues = authored
-    ? issuesAfter.filter((issue) => !blockingIssues.includes(issue) && ['error', 'warning'].includes(String(issue?.severity || '')))
+    ? issuesAfter.filter(
+        (issue) => !blockingIssues.includes(issue) && ['error', 'warning'].includes(String(issue?.severity || ''))
+      )
     : [];
   if (review && authored) review.advisoryIssues = advisoryIssues;
   if (blockingIssues.length) {
@@ -168,7 +177,8 @@ export async function finalize(session, args, cwd, signal) {
       recalculation,
       review,
       stepMetrics,
-      nextAction: 'Recalculation found formula errors; recalculation.errorSummary lists the cells by error type. Trace each to its inputs, fix the formula, then finalize again.',
+      nextAction:
+        'Recalculation found formula errors; recalculation.errorSummary lists the cells by error type. Trace each to its inputs, fix the formula, then finalize again.',
       _images: reviewImages,
     };
   }
@@ -184,7 +194,8 @@ export async function finalize(session, args, cwd, signal) {
       stepMetrics,
       reviewToken,
       visualCritique,
-      nextAction: 'Inspect every rendered slide and submit one distinct critique per slide with verdict, hierarchy, balance, legibility, cohesion, evidence, note, and fixes. Polish any failed slide, render again if changed, then finalize with the review token.',
+      nextAction:
+        'Inspect every rendered slide and submit one distinct critique per slide with verdict, hierarchy, balance, legibility, cohesion, evidence, note, and fixes. Polish any failed slide, render again if changed, then finalize with the review token.',
       _images: reviewImages,
     };
   }
@@ -205,8 +216,7 @@ export async function finalize(session, args, cwd, signal) {
     };
   }
   const saved = await timedStep('save', async () => {
-    const reuseSavedBatch = args.__alreadySaved === true
-      && Number(reviewed?.fixesApplied || 0) === 0;
+    const reuseSavedBatch = args.__alreadySaved === true && Number(reviewed?.fixesApplied || 0) === 0;
     if (reuseSavedBatch) {
       return {
         ok: true,
@@ -218,12 +228,16 @@ export async function finalize(session, args, cwd, signal) {
     }
     return save(session);
   });
-  const validation = await timedStep('validation', async () => await validate(session, {
-    ...args,
-    __postSave: isMicrosoftOfficeSession(session) && session.mode === 'background',
-    __skipNative: false,
-    __skipNativeIssues: false,
-  }));
+  const validation = await timedStep(
+    'validation',
+    async () =>
+      await validate(session, {
+        ...args,
+        __postSave: isMicrosoftOfficeSession(session) && session.mode === 'background',
+        __skipNative: false,
+        __skipNativeIssues: false,
+      })
+  );
   if (!validation.ok) {
     return {
       ok: false,
@@ -240,10 +254,7 @@ export async function finalize(session, args, cwd, signal) {
       _images: reviewImages,
     };
   }
-  const composition = summarizeOfficeCompositions(
-    session.format,
-    session.designState?.compositions || [],
-  );
+  const composition = summarizeOfficeCompositions(session.format, session.designState?.compositions || []);
   const closed = await timedStep('close', async () => await closeSession(session, { save: false, signal }));
   let compositionHistory = null;
   let compositionHistoryWarning = '';

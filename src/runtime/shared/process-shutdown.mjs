@@ -1,10 +1,4 @@
-'use strict';
-
-import {
-  finishProcessLifecycle,
-  finishProcessLifecycleAsync,
-  recordCatchableFatal,
-} from './process-lifecycle.mjs';
+import { finishProcessLifecycle, finishProcessLifecycleAsync, recordCatchableFatal } from './process-lifecycle.mjs';
 
 const SIGNAL_EXIT_CODES = {
   SIGINT: 130,
@@ -17,7 +11,9 @@ function errorText(error) {
 }
 
 function writeStderr(line) {
-  try { process.stderr.write(`${line}\n`); } catch {}
+  try {
+    process.stderr.write(`${line}\n`);
+  } catch {}
 }
 
 function signalExitCode(signal, fallback = 1) {
@@ -68,21 +64,23 @@ export function installProcessSignalCleanup({
 
   const removeHandlers = () => {
     for (const [event, handler] of handlers.splice(0)) {
-      try { process.removeListener(event, handler); } catch {}
+      try {
+        process.removeListener(event, handler);
+      } catch {}
     }
   };
 
   const hardExit = (code) => {
-    try { restoreTerminal?.('forced-cleanup', { code }); } catch {}
+    try {
+      restoreTerminal?.('forced-cleanup', { code });
+    } catch {}
     finishProcessLifecycle('forced-cleanup', code);
-    try { process.exit(code); } catch {}
+    try {
+      process.exit(code);
+    } catch {}
   };
 
-  const run = async (reason = 'process-exit', {
-    code = 0,
-    shouldExit = false,
-    error = null,
-  } = {}) => {
+  const run = async (reason = 'process-exit', { code = 0, shouldExit = false, error = null } = {}) => {
     if (running) {
       if (shouldExit) hardExit(code);
       return false;
@@ -102,9 +100,15 @@ export function installProcessSignalCleanup({
       log(`[${name}] ${reason}: ${errorText(error)}`);
     }
 
-    try { globalThis.__mixdogShutdownProviderAdmission?.(reason); } catch {}
-    try { globalThis.__mixdogDrainProviderConnections?.(reason); } catch {}
-    try { beforeCleanup?.(reason, { code, error }); } catch (cleanupError) {
+    try {
+      globalThis.__mixdogShutdownProviderAdmission?.(reason);
+    } catch {}
+    try {
+      globalThis.__mixdogDrainProviderConnections?.(reason);
+    } catch {}
+    try {
+      beforeCleanup?.(reason, { code, error });
+    } catch (cleanupError) {
       cleanupFailed = true;
       if (typeof log === 'function') log(`[${name}] cleanup failed: ${errorText(cleanupError)}`);
     }
@@ -116,7 +120,9 @@ export function installProcessSignalCleanup({
       cleanupFailed = true;
       if (typeof log === 'function') log(`[${name}] cleanup failed: ${errorText(cleanupError)}`);
     }
-    try { afterCleanup?.(reason, { code, error }); } catch (cleanupError) {
+    try {
+      afterCleanup?.(reason, { code, error });
+    } catch (cleanupError) {
       cleanupFailed = true;
       if (typeof log === 'function') log(`[${name}] cleanup failed: ${errorText(cleanupError)}`);
     }
@@ -128,9 +134,11 @@ export function installProcessSignalCleanup({
     if (shouldExit) {
       await finishProcessLifecycleAsync(
         cleanupFailed ? 'forced-cleanup' : error ? 'catchable-fatal-error' : 'clean-shutdown',
-        code,
+        code
       );
-      try { process.exit(code); } catch {}
+      try {
+        process.exit(code);
+      } catch {}
     }
     return true;
   };
@@ -153,11 +161,15 @@ export function installProcessSignalCleanup({
     add('uncaughtException', (error) => {
       // Run terminal restoration synchronously, before the async cleanup path
       // or its hard-exit fallback can be interrupted by another fatal error.
-      try { restoreTerminal?.('uncaughtException', { code: 1, error }); } catch {}
+      try {
+        restoreTerminal?.('uncaughtException', { code: 1, error });
+      } catch {}
       void run('uncaughtException', { code: 1, shouldExit: exit, error });
     });
     add('unhandledRejection', (error) => {
-      try { restoreTerminal?.('unhandledRejection', { code: 1, error }); } catch {}
+      try {
+        restoreTerminal?.('unhandledRejection', { code: 1, error });
+      } catch {}
       void run('unhandledRejection', { code: 1, shouldExit: exit, error });
     });
   }

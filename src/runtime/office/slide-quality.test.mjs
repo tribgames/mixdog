@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { resolveImageLayout } from './portable/image-layout.mjs';
-import { measureTextBlock, measureTextWidth, reviewCjkTracking, reviewTextBoxFit, reviewVerticalBalance, wrapParagraph } from './portable/text-metrics.mjs';
+import {
+  measureTextBlock,
+  measureTextWidth,
+  reviewCjkTracking,
+  reviewTextBoxFit,
+  reviewVerticalBalance,
+  wrapParagraph,
+} from './portable/text-metrics.mjs';
 import { isAdvisoryOfficeIssue } from './quality/quality-pipeline.mjs';
 import { OFFICE_SKILL_ROUTING, TOOL_DEFS } from './tool-defs.mjs';
 
@@ -17,7 +24,7 @@ test('Office Use routes every format to its built-in skill', () => {
 
 // PowerPoint (probe 2026-09-04) lays every face out at 1.2 em per single line: Noto Sans KR,
 // Noto Serif KR, Malgun Gothic, Arial, and Calibri all read BoundHeight / lines / size = 1.200.
-test('measured line pitch is PowerPoint\'s 1.2 em for Hangul and Latin faces alike', () => {
+test("measured line pitch is PowerPoint's 1.2 em for Hangul and Latin faces alike", () => {
   for (const fontName of ['Noto Serif KR', 'Malgun Gothic', 'Arial']) {
     const single = measureTextBlock([{ text: '한 줄', fontName, fontSize: 20 }], { width: 0 });
     assert.equal(single.lines, 1);
@@ -61,36 +68,44 @@ test('a closing mark never starts a wrapped line and an opening mark never ends 
 test('a run with no break opportunity wraps and overflows the way the renderer lays it out', () => {
   const font = { fontName: 'Arial', fontSize: 65, bold: true };
   const figure = '47,210';
-  const measure = measureTextWidth(figure, font) * 0.83;   // the column the stat band gave it
+  const measure = measureTextWidth(figure, font) * 0.83; // the column the stat band gave it
   const lines = wrapParagraph(figure, measure, font);
   assert.equal(lines.length, 2);
   assert.equal(lines.join(''), figure);
   const block = measureTextBlock([{ text: figure, fontName: 'Arial', fontSize: 65, bold: true }], { width: measure });
   assert.equal(block.lines, 2);
   assert.ok(block.longestRun > measure, `${block.longestRun} vs ${measure}`);
-  const issues = reviewTextBoxFit([{
-    slide: 3,
-    shape: 4,
-    left: 40,
-    top: 120,
-    width: measure,
-    height: 81,
-    insetLeft: 0,
-    insetRight: 0,
-    insetTop: 0,
-    insetBottom: 0,
-    paragraphs: [{ text: figure, fontName: 'Arial', fontSize: 65, bold: true }],
-  }], { isFontAvailable: () => true, slideWidth: 960, slideHeight: 540 });
+  const issues = reviewTextBoxFit(
+    [
+      {
+        slide: 3,
+        shape: 4,
+        left: 40,
+        top: 120,
+        width: measure,
+        height: 81,
+        insetLeft: 0,
+        insetRight: 0,
+        insetTop: 0,
+        insetBottom: 0,
+        paragraphs: [{ text: figure, fontName: 'Arial', fontSize: 65, bold: true }],
+      },
+    ],
+    { isFontAvailable: () => true, slideWidth: 960, slideHeight: 540 }
+  );
   assert.equal(issues.find((issue) => issue.code === 'text_overflow')?.lines, 2);
   assert.match(issues.find((issue) => issue.code === 'text_box_too_narrow')?.message || '', /breaks mid-word/);
 });
 
-test('Hangul in a Latin face measures in PowerPoint\'s East Asian fallback, not a half-width substitute', () => {
-  const hangul = '슬라이드유형을고르던아키타입함수카탈로그를없앴다';   // no spaces: a space stays in the Latin face
+test("Hangul in a Latin face measures in PowerPoint's East Asian fallback, not a half-width substitute", () => {
+  const hangul = '슬라이드유형을고르던아키타입함수카탈로그를없앴다'; // no spaces: a space stays in the Latin face
   const latinFace = measureTextWidth(hangul, { fontName: 'Arial', fontSize: 18 });
   const eastAsian = measureTextWidth(hangul, { fontName: 'Malgun Gothic', fontSize: 18 });
   const noto = measureTextWidth(hangul, { fontName: 'Noto Sans KR', fontSize: 18 });
-  assert.ok(Math.abs(latinFace - eastAsian) < 0.5 || Math.abs(latinFace - noto) < 0.5, `${latinFace} vs ${eastAsian} / ${noto}`);
+  assert.ok(
+    Math.abs(latinFace - eastAsian) < 0.5 || Math.abs(latinFace - noto) < 0.5,
+    `${latinFace} vs ${eastAsian} / ${noto}`
+  );
   const mixed = measureTextWidth('abc 가나다', { fontName: 'Arial', fontSize: 18 });
   const latinOnly = measureTextWidth('abc ', { fontName: 'Arial', fontSize: 18 });
   assert.ok(mixed > latinOnly + eastAsian * 0.05, 'the CJK run adds fallback width to the Latin run');
@@ -126,8 +141,8 @@ test('image layout covers a frame with focus-aware source cropping', () => {
   });
   assert.equal(centered.crop.left, 0);
   assert.equal(centered.crop.right, 0);
-  assert.ok(Math.abs(centered.crop.top - (1 / 3)) < 1e-9);
-  assert.ok(Math.abs(centered.crop.bottom - (1 / 3)) < 1e-9);
+  assert.ok(Math.abs(centered.crop.top - 1 / 3) < 1e-9);
+  assert.ok(Math.abs(centered.crop.bottom - 1 / 3) < 1e-9);
 
   const topFocused = resolveImageLayout({
     sourceWidth: 100,
@@ -138,21 +153,26 @@ test('image layout covers a frame with focus-aware source cropping', () => {
     focusY: 0,
   });
   assert.equal(topFocused.crop.top, 0);
-  assert.ok(Math.abs(topFocused.crop.bottom - (2 / 3)) < 1e-9);
+  assert.ok(Math.abs(topFocused.crop.bottom - 2 / 3) < 1e-9);
 });
 
 test('a text box narrower than its reading measure is reported once', () => {
   const sentence = '정시 출고율 하락분의 대부분은 대전 허브의 야간 인력 부족에서 나왔습니다.';
-  const review = (width) => reviewTextBoxFit([{
-    slide: 2,
-    shape: 4,
-    left: 40,
-    top: 40,
-    width,
-    height: 400,
-    paragraphs: [{ text: sentence, fontName: 'Malgun Gothic', fontSize: 13 }],
-  }], { isFontAvailable: () => true, slideWidth: 960, slideHeight: 540 })
-    .filter((issue) => issue.code === 'text_box_too_narrow');
+  const review = (width) =>
+    reviewTextBoxFit(
+      [
+        {
+          slide: 2,
+          shape: 4,
+          left: 40,
+          top: 40,
+          width,
+          height: 400,
+          paragraphs: [{ text: sentence, fontName: 'Malgun Gothic', fontSize: 13 }],
+        },
+      ],
+      { isFontAvailable: () => true, slideWidth: 960, slideHeight: 540 }
+    ).filter((issue) => issue.code === 'text_box_too_narrow');
   // 84 pt of measure for 13 pt text leaves one or two words a line.
   const narrow = review(84);
   assert.equal(narrow.length, 1);
@@ -162,23 +182,33 @@ test('a text box narrower than its reading measure is reported once', () => {
 });
 
 test('text review reports an unavailable presentation font', () => {
-  const issues = reviewTextBoxFit([{
-    slide: 2,
-    shape: 4,
-    left: 20,
-    top: 20,
-    width: 500,
-    height: 100,
-    paragraphs: [{ text: 'Launch readiness', fontName: 'Brand Sans', fontSize: 18 }],
-  }], {
-    isFontAvailable: () => false,
-  });
-  assert.deepEqual(issues.filter((issue) => issue.code === 'font_unavailable'), [{
-    code: 'font_unavailable',
-    path: '/slide[2]/shape[4]',
-    message: 'Font "Brand Sans" is not installed, so PowerPoint may substitute it and change the layout.',
-    font: 'Brand Sans',
-  }]);
+  const issues = reviewTextBoxFit(
+    [
+      {
+        slide: 2,
+        shape: 4,
+        left: 20,
+        top: 20,
+        width: 500,
+        height: 100,
+        paragraphs: [{ text: 'Launch readiness', fontName: 'Brand Sans', fontSize: 18 }],
+      },
+    ],
+    {
+      isFontAvailable: () => false,
+    }
+  );
+  assert.deepEqual(
+    issues.filter((issue) => issue.code === 'font_unavailable'),
+    [
+      {
+        code: 'font_unavailable',
+        path: '/slide[2]/shape[4]',
+        message: 'Font "Brand Sans" is not installed, so PowerPoint may substitute it and change the layout.',
+        font: 'Brand Sans',
+      },
+    ]
+  );
 });
 
 // A body that stops halfway down still measures a full canvas from its
@@ -207,10 +237,17 @@ test('a hollow band between the body and the footer is reported; a filled one is
   // Slide 2 carries the same content plus the evidence the band was missing.
   const boxes = [...slide(1), ...slide(2), box(2, 320, 150, 14, '지연 사유 · 야간 처리량 · 인력 계획')];
   const bounds = boxes.map(({ slide: index, top, height, left, width }) => ({
-    slide: index, top, height, left, width,
+    slide: index,
+    top,
+    height,
+    left,
+    width,
   }));
   const issues = reviewVerticalBalance(bounds, { slideWidth: 960, slideHeight: 540, boxes });
-  assert.deepEqual(issues.map((issue) => issue.path), ['/slide[1]']);
+  assert.deepEqual(
+    issues.map((issue) => issue.path),
+    ['/slide[1]']
+  );
   assert.equal(issues[0].code, 'vertical_imbalance');
   assert.equal(issues[0].hollowBand, 192);
   assert.equal(issues[0].hollowTop, 292);

@@ -6,7 +6,6 @@ import { browserQueryMatchesLine, parseBrowserQuery } from './semantic-query';
 import { browserRenderCheckpoint } from './render-checkpoint';
 import { observeBrowserDocumentChanges } from './document-changes';
 
-
 export const BROWSER_DOCUMENT_ROOTS = `function() {
   const roots = [document];
   let scanned = 0;
@@ -66,7 +65,7 @@ export const BROWSER_OBSERVATION_REVISION = `(() => {
 export function browserDocumentChanged(
   before: string | undefined,
   after: string | undefined,
-  options: { includeScroll?: boolean } = {},
+  options: { includeScroll?: boolean } = {}
 ): boolean | undefined {
   if (!before || !after) return undefined;
   const left = before.split('|');
@@ -93,7 +92,10 @@ export function filterBrowserReadLines(text: string, query: string): string {
     if (!browserQueryMatchesLine(plan, line)) return;
     for (let i = Math.max(0, index - 2); i <= Math.min(lines.length - 1, index + 2); i++) matches.add(i);
   });
-  return [...matches].sort((a, b) => a - b).map((i) => lines[i]).join('\n');
+  return [...matches]
+    .sort((a, b) => a - b)
+    .map((i) => lines[i])
+    .join('\n');
 }
 
 export function createBrowserDocuments(host: BrowserFrameHost) {
@@ -121,9 +123,17 @@ export function createBrowserDocuments(host: BrowserFrameHost) {
     };
   }
 
-  async function extractPage(guest: WebContents, selector: string, attributes: string[], limit: number, signal?: AbortSignal) {
+  async function extractPage(
+    guest: WebContents,
+    selector: string,
+    attributes: string[],
+    limit: number,
+    signal?: AbortSignal
+  ) {
     type Row = { text: string; name: string; attributes: Record<string, string> };
-    const frames = await collect<{ rows: Row[]; total: number }>(guest, `(() => {
+    const frames = await collect<{ rows: Row[]; total: number }>(
+      guest,
+      `(() => {
       const rows = [];
       let total = 0;
       const compact = (value, max) => String(value ?? '').replace(/\\s+/g, ' ').trim().slice(0, max);
@@ -144,8 +154,13 @@ export function createBrowserDocuments(host: BrowserFrameHost) {
         }
       }
       return {rows, total};
-    })()`, signal);
-    return { rows: frames.flatMap((frame) => frame.rows).slice(0, limit), total: frames.reduce((sum, frame) => sum + frame.total, 0) };
+    })()`,
+      signal
+    );
+    return {
+      rows: frames.flatMap((frame) => frame.rows).slice(0, limit),
+      total: frames.reduce((sum, frame) => sum + frame.total, 0),
+    };
   }
   async function revision(guest: WebContents, signal?: AbortSignal) {
     return (await collect<string>(guest, BROWSER_OBSERVATION_REVISION, signal)).join('|');

@@ -27,7 +27,11 @@ export const navigationActions = defineBrowserActions({
     state.invalidateInteraction(guest);
     const stopNavigation = () => {
       if (!guest.isDestroyed() && guest.isLoading()) {
-        try { guest.stop(); } catch { /* teardown can race cancellation */ }
+        try {
+          guest.stop();
+        } catch {
+          /* teardown can race cancellation */
+        }
       }
     };
     signal?.addEventListener('abort', stopNavigation, { once: true });
@@ -45,15 +49,9 @@ export const navigationActions = defineBrowserActions({
     });
     load.catch(() => undefined);
     try {
-      const navigation = cdp.bounded(
-        load,
-        NAVIGATE_SETTLE_TIMEOUT_MS,
-        'navigation',
-        signal,
-        stopNavigation,
-      ).then(
+      const navigation = cdp.bounded(load, NAVIGATE_SETTLE_TIMEOUT_MS, 'navigation', signal, stopNavigation).then(
         () => ({ done: true as const, error: null }),
-        (error: unknown) => ({ done: true as const, error }),
+        (error: unknown) => ({ done: true as const, error })
       );
       for (;;) {
         const next = await Promise.race([
@@ -87,9 +85,7 @@ export const navigationActions = defineBrowserActions({
 
 /** Only the backward step is a gesture: a forward move is a `navigate` to the
  *  URL the earlier snapshot already showed. */
-async function goBack(
-  { guest, actionSnapshot, services }: BrowserActionContext,
-): Promise<BrowserCommandResult> {
+async function goBack({ guest, actionSnapshot, services }: BrowserActionContext): Promise<BrowserCommandResult> {
   const history = guest.navigationHistory;
   if (!history.canGoBack()) {
     return { text: 'Cannot go back: no earlier history entry.' };

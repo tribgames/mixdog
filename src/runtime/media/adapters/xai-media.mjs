@@ -109,7 +109,11 @@ export async function generateVideo({ lane, model, prompt, options = {}, referen
       };
     }
     if (data?.status === 'failed' || data?.status === 'expired') {
-      throw mediaError(`xAI video ${data.status}${data?.error?.code ? `: ${data.error.code}` : ''}`, 'MEDIA_UPSTREAM_FAILED', 502);
+      throw mediaError(
+        `xAI video ${data.status}${data?.error?.code ? `: ${data.error.code}` : ''}`,
+        'MEDIA_UPSTREAM_FAILED',
+        502
+      );
     }
   }
 }

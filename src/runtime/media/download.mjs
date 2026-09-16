@@ -3,12 +3,10 @@ import { readResponseBuffer } from '../shared/bounded-download.mjs';
 import { assertPublicUrl, pinnedFetch } from '../web-search/lib/ssrf-guard.mjs';
 
 export const MAX_GENERATED_MEDIA_BYTES = 256 * 1024 * 1024;
-const MAX_GENERATED_MEDIA_BASE64_CHARS =
-  Math.ceil(MAX_GENERATED_MEDIA_BYTES / 3) * 4 + 4;
+const MAX_GENERATED_MEDIA_BASE64_CHARS = Math.ceil(MAX_GENERATED_MEDIA_BYTES / 3) * 4 + 4;
 
 export function decodeBase64Media(value, label = 'generated media') {
-  if (typeof value !== 'string' || !value
-    || value.length > MAX_GENERATED_MEDIA_BASE64_CHARS) {
+  if (typeof value !== 'string' || !value || value.length > MAX_GENERATED_MEDIA_BASE64_CHARS) {
     throw mediaError(`${label} exceeds the media size limit`, 'MEDIA_RESULT_TOO_LARGE', 502);
   }
   const bytes = Buffer.from(value, 'base64');
@@ -26,12 +24,7 @@ function redirectTarget(response, currentUrl) {
 
 export async function downloadPublicMedia(
   input,
-  {
-    signal,
-    label = 'generated media',
-    maxBytes = MAX_GENERATED_MEDIA_BYTES,
-    fetchImpl = pinnedFetch,
-  } = {},
+  { signal, label = 'generated media', maxBytes = MAX_GENERATED_MEDIA_BYTES, fetchImpl = pinnedFetch } = {}
 ) {
   let url = String(input || '');
   for (let hops = 0; hops <= 5; hops++) {
@@ -43,11 +36,7 @@ export async function downloadPublicMedia(
       continue;
     }
     if (!response.ok) {
-      throw mediaError(
-        `${label} download failed (${response.status})`,
-        'MEDIA_UPSTREAM_FAILED',
-        response.status,
-      );
+      throw mediaError(`${label} download failed (${response.status})`, 'MEDIA_UPSTREAM_FAILED', response.status);
     }
     return readResponseBuffer(response, { maxBytes, label });
   }
@@ -61,10 +50,12 @@ export function geminiMediaDownloadUrl(input) {
   } catch {
     throw mediaError('Veo returned an invalid video URI', 'MEDIA_UPSTREAM_FAILED', 502);
   }
-  if (url.protocol !== 'https:'
-    || url.hostname.toLowerCase() !== 'generativelanguage.googleapis.com'
-    || url.username
-    || url.password) {
+  if (
+    url.protocol !== 'https:' ||
+    url.hostname.toLowerCase() !== 'generativelanguage.googleapis.com' ||
+    url.username ||
+    url.password
+  ) {
     throw mediaError('Veo returned an untrusted video URI', 'MEDIA_UPSTREAM_FAILED', 502);
   }
   url.searchParams.set('alt', 'media');
@@ -73,13 +64,7 @@ export function geminiMediaDownloadUrl(input) {
 
 export async function downloadGeminiMedia(
   input,
-  {
-    key,
-    signal,
-    label = 'Veo video',
-    maxBytes = MAX_GENERATED_MEDIA_BYTES,
-    fetchImpl = pinnedFetch,
-  } = {},
+  { key, signal, label = 'Veo video', maxBytes = MAX_GENERATED_MEDIA_BYTES, fetchImpl = pinnedFetch } = {}
 ) {
   const url = geminiMediaDownloadUrl(input);
   assertPublicUrl(url);
@@ -92,11 +77,7 @@ export async function downloadGeminiMedia(
     throw mediaError(`${label} download redirect was rejected`, 'MEDIA_UPSTREAM_FAILED', 502);
   }
   if (!response.ok) {
-    throw mediaError(
-      `${label} download failed (${response.status})`,
-      'MEDIA_UPSTREAM_FAILED',
-      response.status,
-    );
+    throw mediaError(`${label} download failed (${response.status})`, 'MEDIA_UPSTREAM_FAILED', response.status);
   }
   return readResponseBuffer(response, { maxBytes, label });
 }

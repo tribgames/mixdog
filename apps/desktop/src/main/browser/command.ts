@@ -48,7 +48,7 @@ export const POSTCONDITION_ACTIONS: ReadonlySet<string> = new Set(BROWSER_POSTCO
 /** Pure observations can overlap. Snapshot-producing observations also write
  *  the ref/visual generation and therefore require the page's exclusive lane. */
 export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(
-  BROWSER_OBSERVATION_ACTIONS.filter((action) => !['snapshot', 'locate', 'wait'].includes(action)),
+  BROWSER_OBSERVATION_ACTIONS.filter((action) => !['snapshot', 'locate', 'wait'].includes(action))
 );
 /** Gestures a sequence may chain. The runtime schema is the authority; the
  *  host re-checks so a malformed bridge call can never drive an odd action. */
@@ -58,14 +58,21 @@ export const TABLESS_ACTIONS: ReadonlySet<string> = new Set(['list_tabs', 'downl
 /** Actions that may run while a JavaScript dialog blocks the page. Anything
  *  else would queue behind the dialog and fire after it closes, so the host
  *  refuses it up front instead of dispatching a ghost gesture. */
-export const DIALOG_TOLERANT_ACTIONS: ReadonlySet<string> = new Set([
-  'handle_dialog', 'status', 'console', 'network',
-]);
+export const DIALOG_TOLERANT_ACTIONS: ReadonlySet<string> = new Set(['handle_dialog', 'status', 'console', 'network']);
 /** Gestures whose reply says when the page did not react to them. Navigation
  *  and evaluation change the page by definition, so they are left out. */
 export const EFFECT_REPORT_ACTIONS: ReadonlySet<string> = new Set([
-  'click', 'fill', 'type', 'select', 'hover', 'drag', 'upload',
-  'handle_dialog', 'press', 'scroll', 'sequence',
+  'click',
+  'fill',
+  'type',
+  'select',
+  'hover',
+  'drag',
+  'upload',
+  'handle_dialog',
+  'press',
+  'scroll',
+  'sequence',
 ]);
 
 export interface BrowserCommand {
@@ -235,7 +242,9 @@ export interface BrowserSnapshotResultOptions {
 }
 
 export function normalizeBrowserAction(command: Pick<BrowserCommand, 'action'>): string {
-  return String(command.action || '').trim().toLowerCase();
+  return String(command.action || '')
+    .trim()
+    .toLowerCase();
 }
 
 /** How much page text a snapshot may carry; evaluate replies keep it short
@@ -246,21 +255,11 @@ export function snapshotTextLimit(command: BrowserCommand): number {
   }
   return Math.min(
     READ_MAX_CHARS,
-    Math.max(
-      1,
-      Number.isFinite(command.maxChars)
-        ? Math.trunc(command.maxChars as number)
-        : SNAPSHOT_TEXT_CHARS,
-    ),
+    Math.max(1, Number.isFinite(command.maxChars) ? Math.trunc(command.maxChars as number) : SNAPSHOT_TEXT_CHARS)
   );
 }
 
 /** Clamp a caller-supplied integer into [min, max], falling back when absent. */
-export function boundedInteger(
-  value: unknown,
-  fallback: number,
-  min: number,
-  max: number,
-): number {
+export function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Number.isFinite(value) ? Math.trunc(value as number) : fallback));
 }

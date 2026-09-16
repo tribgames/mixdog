@@ -408,13 +408,19 @@ pub(crate) fn selected_scan_files(root: &Path, files: &[String]) -> Result<Vec<S
         let candidate = Path::new(raw);
         let (path, rel) = if candidate.is_absolute() {
             let normalized = normalize_absolute_selection(candidate).ok_or_else(|| {
-                format!("path is outside scan root ({}): escapes the filesystem root", raw)
+                format!(
+                    "path is outside scan root ({}): escapes the filesystem root",
+                    raw
+                )
             })?;
             let rel = rel_path(root, &normalized)?;
             (normalized, rel)
         } else {
             let parts = normalize_relative_selection(candidate).ok_or_else(|| {
-                format!("path is outside scan root ({}): not a file under the root", raw)
+                format!(
+                    "path is outside scan root ({}): not a file under the root",
+                    raw
+                )
             })?;
             let mut path = root.to_path_buf();
             for part in &parts {
@@ -516,8 +522,7 @@ struct ScanArgs {
     fix: bool,
 }
 
-const USAGE: &str =
-    "usage: mixdog-graph <cwd> --scan --rules <path|-> [--files <rel>...] [--fix]";
+const USAGE: &str = "usage: mixdog-graph <cwd> --scan --rules <path|-> [--files <rel>...] [--fix]";
 
 fn parse_args(args: &[String]) -> Result<ScanArgs, String> {
     let mut rules: Option<String> = None;
@@ -637,7 +642,9 @@ mod tests {
     }
 
     fn rule_yaml(id: &str, language: &str, rule: &str) -> String {
-        format!("id: {id}\nlanguage: {language}\nseverity: warning\nmessage: hit\nrule:\n  {rule}\n")
+        format!(
+            "id: {id}\nlanguage: {language}\nseverity: warning\nmessage: hit\nrule:\n  {rule}\n"
+        )
     }
 
     // One match, and its byte offsets must slice exactly the matched text out
@@ -730,13 +737,7 @@ mod tests {
             "pattern: foo($A)",
             "foo(1)",
         );
-        assert_single_match(
-            "a.r",
-            "x <- foo(1)\n",
-            "r",
-            "pattern: foo($A)",
-            "foo(1)",
-        );
+        assert_single_match("a.r", "x <- foo(1)\n", "r", "pattern: foo($A)", "foo(1)");
     }
 
     #[test]
@@ -986,8 +987,8 @@ mod tests {
         assert_eq!(files[0].lang.id(), "typescript");
         assert_eq!(files[1].lang.id(), "python");
 
-        let selected = selected_scan_files(&dir, &["sub/b.py".into(), "notes.txt".into()])
-            .expect("selection");
+        let selected =
+            selected_scan_files(&dir, &["sub/b.py".into(), "notes.txt".into()]).expect("selection");
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].rel, "sub/b.py");
 
@@ -1096,7 +1097,7 @@ pub fn run_langs() -> Result<(), String> {
         calls_format: crate::calls::CALLS_FORMAT,
         rule_errors: crate::outline::rule_errors().to_vec(),
     })
-        .map_err(|err| format!("serialize failed for languages: {err}"))?;
+    .map_err(|err| format!("serialize failed for languages: {err}"))?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     writeln!(handle, "{line}").map_err(|err| format!("stdout write failed: {err}"))

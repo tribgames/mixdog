@@ -8,7 +8,7 @@ import {
   Keyboard,
   PenLine,
   Plug,
-  Settings,
+  type Settings,
   SlidersHorizontal,
   Smartphone,
   Sparkles,
@@ -26,7 +26,7 @@ import { CapabilitySettings, getCachedCapabilitySettings, preloadCapabilitySetti
 import { preloadConnectionInfo } from './connection-info';
 import { preloadGitPanelInfo } from './git-panel-info';
 import {
-  SETTINGS_ITEMS,
+  type SETTINGS_ITEMS,
   categoryForSettingsItem,
   settingsCategoriesForSurface,
   settingsCategoryForSurface,
@@ -34,16 +34,12 @@ import {
 } from './settings-items';
 import './settings.css';
 
-export type SettingsSection = typeof SETTINGS_ITEMS[number]['value'];
+export type SettingsSection = (typeof SETTINGS_ITEMS)[number]['value'];
 
 type SettingsApi = Partial<DesktopApi>;
 
 export function preloadSettings(api: SettingsApi): Promise<unknown> {
-  return Promise.all([
-    preloadCapabilitySettings(api),
-    preloadGitPanelInfo(api),
-    preloadConnectionInfo(api),
-  ]);
+  return Promise.all([preloadCapabilitySettings(api), preloadGitPanelInfo(api), preloadConnectionInfo(api)]);
 }
 
 export { preloadConnectionInfo };
@@ -88,14 +84,12 @@ export function SettingsView({
   onCompose,
   onClose,
 }: SettingsViewProps) {
-  const remoteSettings = Boolean(
-    (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer,
-  );
+  const remoteSettings = Boolean((window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer);
   const visibleCategories = settingsCategoriesForSurface(remoteSettings);
   const resolveCategory = (next: SettingsCategory): SettingsCategory =>
     settingsCategoryForSurface(next, remoteSettings);
   const [category, setCategory] = useState<SettingsCategory>(
-    resolveCategory(initialSection ? categoryForSettingsItem(initialSection) : 'general'),
+    resolveCategory(initialSection ? categoryForSettingsItem(initialSection) : 'general')
   );
   const dialogRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -165,10 +159,13 @@ export function SettingsView({
     priorFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
     const background = Array.from(document.body.children)
-      .filter((element): element is HTMLElement => element instanceof HTMLElement
-        && !element.matches('.mx-toast-region')
-        && element !== dialog
-        && !element.contains(dialog))
+      .filter(
+        (element): element is HTMLElement =>
+          element instanceof HTMLElement &&
+          !element.matches('.mx-toast-region') &&
+          element !== dialog &&
+          !element.contains(dialog)
+      )
       .map((element) => ({
         element,
         inert: element.inert,
@@ -199,9 +196,11 @@ export function SettingsView({
     const stamped = (window as unknown as Record<string, unknown>).__mixdogSettingsOpenAt;
     if (typeof stamped !== 'number') return;
     delete (window as unknown as Record<string, unknown>).__mixdogSettingsOpenAt;
-    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-      window.mixdogDesktop?.perfLog?.(`settings-open paint=${(performance.now() - stamped).toFixed(0)}ms`);
-    }));
+    window.requestAnimationFrame(() =>
+      window.requestAnimationFrame(() => {
+        window.mixdogDesktop?.perfLog?.(`settings-open paint=${(performance.now() - stamped).toFixed(0)}ms`);
+      })
+    );
   }, [open, coldHydrating]);
 
   useEffect(() => {
@@ -211,7 +210,7 @@ export function SettingsView({
       const nestedDialog = dialog?.querySelector<HTMLElement>('[data-settings-nested-dialog]') || null;
       if (event.key === 'Escape') {
         const openPortaledMenu = Array.from(
-          dialog?.querySelectorAll<HTMLElement>('[role="combobox"][aria-expanded="true"][aria-controls]') || [],
+          dialog?.querySelectorAll<HTMLElement>('[role="combobox"][aria-expanded="true"][aria-controls]') || []
         ).some((trigger) => {
           const menu = document.getElementById(trigger.getAttribute('aria-controls') || '');
           return menu?.matches('.mx-menu[role="listbox"]');
@@ -232,9 +231,10 @@ export function SettingsView({
       if (!dialog) return;
       const focusRoot = nestedDialog || dialog;
       const queried = Array.from(focusRoot.querySelectorAll<HTMLElement>(FOCUSABLE));
-      const controls = !nestedDialog && closeRef.current
-        ? [closeRef.current, ...queried.filter((control) => control !== closeRef.current)]
-        : queried;
+      const controls =
+        !nestedDialog && closeRef.current
+          ? [closeRef.current, ...queried.filter((control) => control !== closeRef.current)]
+          : queried;
       if (!controls.length) {
         event.preventDefault();
         focusRoot.focus();
@@ -255,58 +255,86 @@ export function SettingsView({
   }, [open, onClose]);
 
   return createPortal(
-    <div className="mixdog-settings-layer stable-surface-preserved"
+    <div
+      className="mixdog-settings-layer stable-surface-preserved"
       data-surface-active={open ? 'true' : 'false'}
-      inert={open ? undefined : true} aria-hidden={open ? undefined : true}
+      inert={open ? undefined : true}
+      aria-hidden={open ? undefined : true}
       onPointerDown={(event) => {
-      if (event.target !== event.currentTarget) return;
-      requestClose();
-    }}>
-    {/* A CLOSED settings dialog stays mounted for a warm reopen, so it must
+        if (event.target !== event.currentTarget) return;
+        requestClose();
+      }}
+    >
+      {/* A CLOSED settings dialog stays mounted for a warm reopen, so it must
         stop claiming to be modal — the workbench keymap treats any live
         aria-modal dialog as the owner of every keystroke. */}
-    <section ref={dialogRef} className="mixdog-settings mixdog-settings-v2" role="dialog"
-      aria-modal={open ? 'true' : 'false'}
-      aria-labelledby="mixdog-settings-title" tabIndex={-1}>
-      <aside className="mixdog-settings__rail" aria-label={t('Settings categories')}>
-        <nav>
-          {/* One flat, evenly spaced list (user decision): the category
+      <section
+        ref={dialogRef}
+        className="mixdog-settings mixdog-settings-v2"
+        role="dialog"
+        aria-modal={open ? 'true' : 'false'}
+        aria-labelledby="mixdog-settings-title"
+        tabIndex={-1}
+      >
+        <aside className="mixdog-settings__rail" aria-label={t('Settings categories')}>
+          <nav>
+            {/* One flat, evenly spaced list (user decision): the category
               headings AND the gaps between their blocks are gone — twelve
               short rows read better as a single run. `group` survives in the
               data purely as the authoring order. */}
-          <div className="mixdog-settings__rail-group">
-            {visibleCategories.map((item) => {
-              const Icon = CATEGORY_ICONS[item.value];
-              return <button type="button" key={item.value}
-                className={category === item.value ? 'active' : ''}
-                aria-label={t(item.label)}
-                aria-current={category === item.value ? 'page' : undefined}
-                onClick={() => setCategory(item.value)}>
-                <Icon aria-hidden="true" size={16} /><span>{t(item.label)}</span>
-              </button>;
-            })}
-          </div>
-        </nav>
-        {/* No brand/version footer (user decision): the nav ends with its
+            <div className="mixdog-settings__rail-group">
+              {visibleCategories.map((item) => {
+                const Icon = CATEGORY_ICONS[item.value];
+                return (
+                  <button
+                    type="button"
+                    key={item.value}
+                    className={category === item.value ? 'active' : ''}
+                    aria-label={t(item.label)}
+                    aria-current={category === item.value ? 'page' : undefined}
+                    onClick={() => setCategory(item.value)}
+                  >
+                    <Icon aria-hidden="true" size={16} />
+                    <span>{t(item.label)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+          {/* No brand/version footer (user decision): the nav ends with its
             last category. */}
-      </aside>
-      <div className="mixdog-settings__panel">
-        <header className="mixdog-settings__header">
-          <div className="mixdog-settings__header-title">
-            <h1 id="mixdog-settings-title">{t(visibleCategories.find((item) => item.value === category)?.label || 'Settings')}</h1>
-          </div>
-          <button ref={closeRef} type="button" className="mixdog-settings__close" onClick={requestClose}
-            aria-label={t('Close settings')}><X aria-hidden="true" size={16} className="mixdog-settings__close-x" /><ArrowLeft aria-hidden="true" size={16} className="mixdog-settings__close-back" /></button>
-        </header>
-        <div ref={bodyRef} className="mixdog-settings__body">
-          <div className="mixdog-settings__category-stage">
-            <CapabilitySettings api={api} category={category} onCompose={onCompose}
-              onOpenCategory={(next) => setCategory(resolveCategory(next))} />
+        </aside>
+        <div className="mixdog-settings__panel">
+          <header className="mixdog-settings__header">
+            <div className="mixdog-settings__header-title">
+              <h1 id="mixdog-settings-title">
+                {t(visibleCategories.find((item) => item.value === category)?.label || 'Settings')}
+              </h1>
+            </div>
+            <button
+              ref={closeRef}
+              type="button"
+              className="mixdog-settings__close"
+              onClick={requestClose}
+              aria-label={t('Close settings')}
+            >
+              <X aria-hidden="true" size={16} className="mixdog-settings__close-x" />
+              <ArrowLeft aria-hidden="true" size={16} className="mixdog-settings__close-back" />
+            </button>
+          </header>
+          <div ref={bodyRef} className="mixdog-settings__body">
+            <div className="mixdog-settings__category-stage">
+              <CapabilitySettings
+                api={api}
+                category={category}
+                onCompose={onCompose}
+                onOpenCategory={(next) => setCategory(resolveCategory(next))}
+              />
+            </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
     </div>,
-    document.body,
+    document.body
   );
 }

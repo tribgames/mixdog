@@ -180,10 +180,7 @@ export class BrowserGuestStateStore {
 
   /** Text bound for the caller, minus the page's known secrets. */
   redactText(guest: WebContents, value: unknown): string {
-    return redactBrowserKnownSecrets(
-      redactBrowserText(value),
-      this.states.get(guest)?.sensitiveValues || [],
-    );
+    return redactBrowserKnownSecrets(redactBrowserText(value), this.states.get(guest)?.sensitiveValues || []);
   }
 
   slot<K extends OptionalKeys>(key: K): GuestSlot<NonNullable<BrowserGuestState[K]>> {
@@ -206,10 +203,7 @@ export class BrowserGuestStateStore {
 /** The identity every input, display frame and approval binds itself to:
  *  which page, and which document generation inside that page. A reload or
  *  navigation retires it, so nothing observed before can act afterwards. */
-export function browserDocumentId(
-  state: Pick<BrowserGuestStateStore, 'pageId' | 'for'>,
-  guest: WebContents,
-): string {
+export function browserDocumentId(state: Pick<BrowserGuestStateStore, 'pageId' | 'for'>, guest: WebContents): string {
   return `${state.pageId(guest)}:${state.for(guest).documentGeneration}`;
 }
 

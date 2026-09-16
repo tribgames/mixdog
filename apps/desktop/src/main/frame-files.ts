@@ -32,28 +32,33 @@ function pruneFrames(directory: string, protectedPath?: string): void {
         const info = statSync(path);
         modifiedAt = info.mtimeMs;
         bytes = info.size;
-      } catch { /* removed between listing and stat */ }
+      } catch {
+        /* removed between listing and stat */
+      }
       return { path, modifiedAt, bytes };
     })
-    .sort((left, right) => (
-      Number(right.path === protectedPath) - Number(left.path === protectedPath)
-      || right.modifiedAt - left.modifiedAt
-    ));
+    .sort(
+      (left, right) =>
+        Number(right.path === protectedPath) - Number(left.path === protectedPath) || right.modifiedAt - left.modifiedAt
+    );
   let retainedBytes = 0;
   files.forEach((entry, index) => {
-    const keep = index < FRAME_MAX_FILES
-      && retainedBytes + entry.bytes <= FRAME_MAX_TOTAL_BYTES;
+    const keep = index < FRAME_MAX_FILES && retainedBytes + entry.bytes <= FRAME_MAX_TOTAL_BYTES;
     if (keep) {
       retainedBytes += entry.bytes;
       return;
     }
-    try { unlinkSync(entry.path); } catch { /* another run already removed it */ }
+    try {
+      unlinkSync(entry.path);
+    } catch {
+      /* another run already removed it */
+    }
   });
 }
 
 function decodedBase64Bytes(data: string): number {
   const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
-  return Math.max(0, Math.floor(data.length * 3 / 4) - padding);
+  return Math.max(0, Math.floor((data.length * 3) / 4) - padding);
 }
 
 export function frameImageFitsFileBudget(data: string): boolean {
@@ -74,18 +79,17 @@ function frameFileExtension(mimeType: string): string {
 }
 
 function frameFileName(sessionId: string, frameId: string, extension: string): string {
-  const session = String(sessionId || 'session').replace(/[^\w.-]+/g, '_').slice(0, 60)
-    || 'session';
+  const session =
+    String(sessionId || 'session')
+      .replace(/[^\w.-]+/g, '_')
+      .slice(0, 60) || 'session';
   const stamp = String(frameId || Date.now().toString(36))
-    .replace(/[^\w.-]+/g, '_').slice(0, 40);
+    .replace(/[^\w.-]+/g, '_')
+    .slice(0, 40);
   return `${session}-${stamp}.${extension}`;
 }
 
-function writeFrameFile(
-  directory: string,
-  name: string,
-  bytes: Buffer,
-): PersistedFrame {
+function writeFrameFile(directory: string, name: string, bytes: Buffer): PersistedFrame {
   const path = join(directory, name);
   writeFileSync(path, bytes);
   pruneFrames(directory, path);
@@ -96,15 +100,11 @@ function persistBoundedFrame(
   directory: string,
   sessionId: string,
   frameId: string,
-  image: { mimeType: string; data: string },
+  image: { mimeType: string; data: string }
 ): PersistedFrame | undefined {
   const bytes = decodeFrameImage(image.data);
   if (!bytes) return undefined;
-  return writeFrameFile(
-    directory,
-    frameFileName(sessionId, frameId, frameFileExtension(image.mimeType)),
-    bytes,
-  );
+  return writeFrameFile(directory, frameFileName(sessionId, frameId, frameFileExtension(image.mimeType)), bytes);
 }
 
 function ensureFrameDirectory(scope: 'computer' | 'browser'): string {
@@ -117,7 +117,7 @@ function persistFrame(
   scope: 'computer' | 'browser',
   sessionId: string,
   frameId: string,
-  image: { mimeType: string; data: string },
+  image: { mimeType: string; data: string }
 ): PersistedFrame | undefined {
   try {
     return persistBoundedFrame(ensureFrameDirectory(scope), sessionId, frameId, image);
@@ -130,7 +130,7 @@ export function persistFrameImage(
   scope: 'computer' | 'browser',
   sessionId: string,
   frameId: string,
-  image: { mimeType: string; data: string },
+  image: { mimeType: string; data: string }
 ): PersistedFrame | undefined {
   return persistFrame(scope, sessionId, frameId, image);
 }

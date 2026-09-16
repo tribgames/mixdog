@@ -10,7 +10,6 @@ function tableBorders(colors) {
   };
 }
 
-
 function tableWidths(columns, variant) {
   if (columns <= 1) return [480];
   if (columns === 2) return variant === 'roadmap' ? [86, 394] : [150, 330];
@@ -22,7 +21,6 @@ function tableWidths(columns, variant) {
   if (columns === 5 && variant === 'scorecard') return [96, 96, 96, 96, 96];
   return Array.from({ length: columns }, () => 480 / columns);
 }
-
 
 function pushTable(output, state, values, design, variant) {
   const columns = Math.max(1, ...values.map((row) => row.length));
@@ -65,13 +63,9 @@ function pushTable(output, state, values, design, variant) {
   return { table, columns };
 }
 
-
 // emphasis: 'inverse' (the dark field) · 'accent' · a state tone ('positive' | 'warning' | 'critical' | 'informative'):
 // the label sits on the state's weak field in its text color, so a verdict reads the same as in a deck's badge.
-export function addDocxDecisionCallout(output, state, text, design, {
-  label = '',
-  emphasis = 'inverse',
-} = {}) {
+export function addDocxDecisionCallout(output, state, text, design, { label = '', emphasis = 'inverse' } = {}) {
   const caption = label || presetLabels(text).recommendation;
   const colors = design.tokens.colors;
   const tone = STATE_ROLES.includes(emphasis) && colors[`${emphasis}Weak`] && colors[`${emphasis}Text`] ? emphasis : '';
@@ -197,21 +191,22 @@ export function addDocxMetricStrip(output, state, metrics, design) {
   return true;
 }
 
-
 export function addDocxRoadmap(output, state, steps, design) {
-  const parsed = (Array.isArray(steps) ? steps : []).map((entry, index) => {
-    if (entry && typeof entry === 'object') {
-      const title = String(entry.title || '');
-      const detail = String(entry.detail || entry.body || '');
-      return [
-        String(entry.label || entry.phase || entry.week || String(index + 1).padStart(2, '0')),
-        [title, detail].filter(Boolean).join('\n'),
-      ];
-    }
-    const text = String(entry || '');
-    const match = /^([^:：]{1,18})[:：]\s*(.+)$/.exec(text);
-    return match ? [match[1], match[2]] : [String(index + 1).padStart(2, '0'), text];
-  }).filter((row) => row[1]);
+  const parsed = (Array.isArray(steps) ? steps : [])
+    .map((entry, index) => {
+      if (entry && typeof entry === 'object') {
+        const title = String(entry.title || '');
+        const detail = String(entry.detail || entry.body || '');
+        return [
+          String(entry.label || entry.phase || entry.week || String(index + 1).padStart(2, '0')),
+          [title, detail].filter(Boolean).join('\n'),
+        ];
+      }
+      const text = String(entry || '');
+      const match = /^([^:：]{1,18})[:：]\s*(.+)$/.exec(text);
+      return match ? [match[1], match[2]] : [String(index + 1).padStart(2, '0'), text];
+    })
+    .filter((row) => row[1]);
   if (!parsed.length) return false;
   const colors = design.tokens.colors;
   const { table } = pushTable(output, state, parsed, design, 'roadmap');
@@ -247,15 +242,10 @@ export function addDocxRoadmap(output, state, steps, design) {
   return true;
 }
 
-
 export function addDocxSectionTable(output, state, values, design, variant = 'default') {
   if (!values.length) return false;
   const colors = design.tokens.colors;
-  const resolvedVariant = variant === 'decision-gates'
-    ? 'gates'
-    : variant === 'metrics'
-      ? 'metrics'
-      : variant;
+  const resolvedVariant = variant === 'decision-gates' ? 'gates' : variant === 'metrics' ? 'metrics' : variant;
   if (resolvedVariant === 'metrics' && values.length > 2) {
     const metricRows = values.slice(1, 6).filter((row) => Array.isArray(row) && row.length >= 3);
     if (metricRows.length >= 3) {
@@ -344,18 +334,18 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
         properties: {
           // A release gate is a positive state, a stop gate a critical one: the state fields and words, never a literal tint.
           fillColor: releaseCell
-            ? (colors.positiveWeak || colors.surface)
+            ? colors.positiveWeak || colors.surface
             : stopCell
-              ? (colors.criticalWeak || colors.surface2 || colors.surface)
+              ? colors.criticalWeak || colors.surface2 || colors.surface
               : row % 2 === 0
                 ? colors.canvas
                 : colors.surface,
           color: metricValue
             ? colors.accent
             : releaseCell
-              ? (colors.positiveText || colors.accent)
+              ? colors.positiveText || colors.accent
               : stopCell
-                ? (colors.criticalText || colors.accent2)
+                ? colors.criticalText || colors.accent2
                 : colors.ink,
           bold: column === 1 || metricValue,
           verticalAlignment: 'center',

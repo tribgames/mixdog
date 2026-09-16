@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store";
-import { getSidePanelMode, sidePanelLayout, subscribeSidePanelMode, type SidePanelMode } from "./side-panel-preferences";
-import type { CommandSurface as CommandSurfaceName } from "./slash-commands";
-import type { SettingsSection as SettingsViewSection } from "./settings/SettingsView";
-import { useBottomPanelState } from "./BottomPanel";
-import { desktopFeatureEnabled } from "./desktop-feature-config";
-import { DEFAULT_PROBLEMS_PANEL_FILTER, type ProblemsPanelFilter } from "./WorkbenchProblems";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
+import {
+  getSidePanelMode,
+  sidePanelLayout,
+  subscribeSidePanelMode,
+  type SidePanelMode,
+} from './side-panel-preferences';
+import type { CommandSurface as CommandSurfaceName } from './slash-commands';
+import type { SettingsSection as SettingsViewSection } from './settings/SettingsView';
+import { useBottomPanelState } from './BottomPanel';
+import { desktopFeatureEnabled } from './desktop-feature-config';
+import { DEFAULT_PROBLEMS_PANEL_FILTER, type ProblemsPanelFilter } from './WorkbenchProblems';
 import {
   createExtensionsPane,
   createProjectsPane,
@@ -13,24 +18,24 @@ import {
   createWebhooksPane,
   loadSidebarPanelModule,
   type SidebarPanelKey,
-} from "./app-shell-components";
-import { useSidePanelOpenFlip } from "./app-side-panel-flip";
-import { usePageHideFlush } from "./layout-persistence";
-import { useResponsiveShellBands } from "./use-responsive-shell-bands";
+} from './app-shell-components';
+import { useSidePanelOpenFlip } from './app-side-panel-flip';
+import { usePageHideFlush } from './layout-persistence';
+import { useResponsiveShellBands } from './use-responsive-shell-bands';
 
-const SIDEBAR_OPEN_KEY = "mixdog.desktop-sidebar-open.v1";
+const SIDEBAR_OPEN_KEY = 'mixdog.desktop-sidebar-open.v1';
 
 export function useAppShellPanels(activeBottomPanelPaneId: string) {
   const preferredSidePanelMode = useSyncExternalStore(
     subscribeSidePanelMode,
     getSidePanelMode,
-    (): SidePanelMode => "close-both",
+    (): SidePanelMode => 'close-both'
   );
   // Narrow web/desktop windows use the both-folding policy; the layout now
   // depends only on available resolution, never device or pointer type.
   const { narrowShell, bottomSheetBand } = useResponsiveShellBands();
   const responsiveSidePanels = narrowShell;
-  const activeSidePanelMode = responsiveSidePanels ? "close-both" : preferredSidePanelMode;
+  const activeSidePanelMode = responsiveSidePanels ? 'close-both' : preferredSidePanelMode;
   const activeSidePanelLayout = sidePanelLayout(activeSidePanelMode);
   // Chrome-like responsive side panels (user decision): crossing into the
   // narrow band changes the panels' MODE (inline → overlay drawer), never
@@ -43,14 +48,14 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   const narrowShellRef = useRef(narrowShell);
   narrowShellRef.current = narrowShell;
   const [sidebarOpen, setSidebarOpen] = useState(() => {
-    if (!desktopFeatureEnabled("sessions")) return false;
+    if (!desktopFeatureEnabled('sessions')) return false;
     if (activeSidePanelLayout.sidebarLockedOpen) return true;
     try {
       if (responsiveSidePanels) return false;
       // Default layout starts MINIMIZED on both edges (user decision): only
       // an explicit stored "true" (the user opened it before) restores an
       // open sidebar. The right dock already defaults to closed.
-      return window.localStorage.getItem(SIDEBAR_OPEN_KEY) === "true";
+      return window.localStorage.getItem(SIDEBAR_OPEN_KEY) === 'true';
     } catch {
       return false;
     }
@@ -59,8 +64,11 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   const persistSidebarState = useCallback(() => {
     if (narrowShell || wasNarrowShell.current) return;
     desktopSidebarOpen.current = sidebarOpen;
-    try { window.localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen)); }
-    catch { /* layout persistence is a convenience only */ }
+    try {
+      window.localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen));
+    } catch {
+      /* layout persistence is a convenience only */
+    }
   }, [narrowShell, sidebarOpen]);
   usePageHideFlush(persistSidebarState);
   useEffect(() => {
@@ -78,39 +86,32 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsViewSection | null>(null);
   const [commandSurface, setCommandSurface] = useState<CommandSurfaceName | null>(null);
-  const [commandSurfaceSessionId, setCommandSurfaceSessionId] = useState("");
+  const [commandSurfaceSessionId, setCommandSurfaceSessionId] = useState('');
   const commandSurfaceLane = useSessionLane(commandSurfaceSessionId, defaultSessionLaneStore);
   // The session travels WITH the open request. The clear used to live here
   // unconditionally, so a caller that had just named its pane session saw it
   // wiped inside the same batch and /context read the blank control session
   // instead (user: /context가 0으로 나온다). A surface that owns no
   // conversation simply passes nothing.
-  const openConversationCommandSurface = useCallback((
-    surface: CommandSurfaceName,
-    sessionId = "",
-  ) => {
-    if (surface === "usage" && !desktopFeatureEnabled("usage")) return;
+  const openConversationCommandSurface = useCallback((surface: CommandSurfaceName, sessionId = '') => {
+    if (surface === 'usage' && !desktopFeatureEnabled('usage')) return;
     setSettingsOpen(false);
-    setCommandSurfaceSessionId(
-      surface === "context" || surface === "inherit" ? sessionId : "");
+    setCommandSurfaceSessionId(surface === 'context' || surface === 'inherit' ? sessionId : '');
     setCommandSurface(surface);
   }, []);
   // The right dock is now PER-PANE state (pane-side-dock.tsx); this hook
   // keeps the window-level drawer, bottom panel, and rail surfaces only.
   const bottomPanel = useBottomPanelState(activeBottomPanelPaneId);
-  const [problemsFilter, setProblemsFilter] = useState<ProblemsPanelFilter>(
-    () => ({ ...DEFAULT_PROBLEMS_PANEL_FILTER }),
-  );
+  const [problemsFilter, setProblemsFilter] = useState<ProblemsPanelFilter>(() => ({
+    ...DEFAULT_PROBLEMS_PANEL_FILTER,
+  }));
   const [problemsCollapseNonce, setProblemsCollapseNonce] = useState(0);
   // View Transition update callbacks can land a frame after the click. Keep
   // the user's latest intent separately so rapid toggles never read a stale
   // rendered state or let an older close completion reverse the newest input.
   const sidebarOpenIntent = useRef(sidebarOpen);
-  const [sidebarMotion, setSidebarMotion] = useState<"animated" | "instant">("animated");
-  const applySidebarOpen = useCallback((
-    open: boolean,
-    motion: "animated" | "instant" = "animated",
-  ) => {
+  const [sidebarMotion, setSidebarMotion] = useState<'animated' | 'instant'>('animated');
+  const applySidebarOpen = useCallback((open: boolean, motion: 'animated' | 'instant' = 'animated') => {
     sidebarOpenIntent.current = open;
     setSidebarMotion(motion);
     setSidebarOpen(open);
@@ -120,19 +121,22 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   // sheet would overlap it (dock ≤940px, drawer ≤760px), opening either
   // side folds the bottom panel, mirroring the bottom-panel toggle that
   // folds the sheets. Wide inline layouts coexist untouched.
-  const dismissBottomPanelForSheet = useCallback((band: "dock" | "drawer") => {
-    const query = band === "dock" ? "(max-width: 940px)" : "(max-width: 760px)";
-    if (window.matchMedia?.(query).matches === true && bottomPanel.open) {
-      bottomPanel.setOpen(false);
-    }
-  }, [bottomPanel]);
+  const dismissBottomPanelForSheet = useCallback(
+    (band: 'dock' | 'drawer') => {
+      const query = band === 'dock' ? '(max-width: 940px)' : '(max-width: 760px)';
+      if (window.matchMedia?.(query).matches === true && bottomPanel.open) {
+        bottomPanel.setOpen(false);
+      }
+    },
+    [bottomPanel]
+  );
   const appliedSidePanelMode = useRef(activeSidePanelMode);
   useEffect(() => {
     // Existing installs retain their last folding state on launch. A mode
     // CHANGE applies immediately; navigation applies the same exact policy.
     if (appliedSidePanelMode.current === activeSidePanelMode) return;
     appliedSidePanelMode.current = activeSidePanelMode;
-    applySidebarOpen(activeSidePanelLayout.sidebarOpen && desktopFeatureEnabled("sessions"));
+    applySidebarOpen(activeSidePanelLayout.sidebarOpen && desktopFeatureEnabled('sessions'));
     // The dock half of the policy applies inside usePaneSideDocks.
   }, [activeSidePanelMode]);
   // Manual toggles ALWAYS win (user: a dead open/close button reads as a
@@ -148,8 +152,8 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   const openSidebar = useCallback(() => {
     if (sidebarOpenIntent.current) return;
     sidebarOpenIntent.current = true;
-    dismissBottomPanelForSheet("drawer");
-    beginSidePanelOpen("sidebar", () => applySidebarOpen(true));
+    dismissBottomPanelForSheet('drawer');
+    beginSidePanelOpen('sidebar', () => applySidebarOpen(true));
   }, [applySidebarOpen, beginSidePanelOpen, dismissBottomPanelForSheet]);
   // Toggle spam queues expensive panel mounts and replays them after the
   // clicks stop (user: 연타하면 예약되어서 여러 번 열린다): clicks inside
@@ -160,29 +164,31 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   // 것처럼 다시 열려).
   const lastSidePanelToggle = useRef(0);
   const sidePanelToggleReady = useCallback((stamp?: number) => {
-    const now = typeof stamp === "number" && stamp > 0 ? stamp : performance.now();
-    if (lastSidePanelToggle.current > 0
-      && now - lastSidePanelToggle.current < 220) return false;
+    const now = typeof stamp === 'number' && stamp > 0 ? stamp : performance.now();
+    if (lastSidePanelToggle.current > 0 && now - lastSidePanelToggle.current < 220) return false;
     lastSidePanelToggle.current = now;
     return true;
   }, []);
-  const toggleSidebar = useCallback((event?: { timeStamp?: number }) => {
-    if (!sidebarOpenIntent.current && !desktopFeatureEnabled("sessions")) return;
-    if (!sidePanelToggleReady(event?.timeStamp)) return;
-    const nextOpen = !sidebarOpenIntent.current;
-    sidebarOpenIntent.current = nextOpen;
-    if (nextOpen) {
-      dismissBottomPanelForSheet("drawer");
-      beginSidePanelOpen("sidebar", () => applySidebarOpen(true));
-    } else {
-      beginSidePanelClose("sidebar", () => applySidebarOpen(false));
-    }
-  }, [applySidebarOpen, beginSidePanelClose, beginSidePanelOpen, dismissBottomPanelForSheet, sidePanelToggleReady]);
+  const toggleSidebar = useCallback(
+    (event?: { timeStamp?: number }) => {
+      if (!sidebarOpenIntent.current && !desktopFeatureEnabled('sessions')) return;
+      if (!sidePanelToggleReady(event?.timeStamp)) return;
+      const nextOpen = !sidebarOpenIntent.current;
+      sidebarOpenIntent.current = nextOpen;
+      if (nextOpen) {
+        dismissBottomPanelForSheet('drawer');
+        beginSidePanelOpen('sidebar', () => applySidebarOpen(true));
+      } else {
+        beginSidePanelClose('sidebar', () => applySidebarOpen(false));
+      }
+    },
+    [applySidebarOpen, beginSidePanelClose, beginSidePanelOpen, dismissBottomPanelForSheet, sidePanelToggleReady]
+  );
   // Expanding the bottom panel in the sheet band dismisses the overlay
   // drawer — last press wins. The right dock lives INSIDE each pane now, so
   // it no longer competes with the bottom panel as a window sheet.
   const dismissSheetsForBottomPanel = useCallback(() => {
-    if (window.matchMedia?.("(max-width: 940px)").matches !== true) return;
+    if (window.matchMedia?.('(max-width: 940px)').matches !== true) return;
     if (narrowShellRef.current && sidebarOpenIntent.current) applySidebarOpen(false);
   }, [applySidebarOpen]);
   const toggleBottomPanel = useCallback(() => {
@@ -200,11 +206,11 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     if (wasNarrowShell.current === narrowShell) return;
     wasNarrowShell.current = narrowShell;
     if (narrowShell) {
-      if (sidebarOpenIntent.current) applySidebarOpen(false, "instant");
+      if (sidebarOpenIntent.current) applySidebarOpen(false, 'instant');
       return;
     }
     if (desktopSidebarOpen.current !== sidebarOpenIntent.current) {
-      applySidebarOpen(desktopSidebarOpen.current, "instant");
+      applySidebarOpen(desktopSidebarOpen.current, 'instant');
     }
   }, [narrowShell, applySidebarOpen]);
   // Bottom panel band (≤940px = the width where it becomes an overlay
@@ -220,20 +226,18 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     if (wasBottomSheetBand.current === bottomSheetBand) return;
     wasBottomSheetBand.current = bottomSheetBand;
     if (bottomSheetBand) {
-      if (bottomPanel.open) bottomPanel.setOpen(false, "instant");
+      if (bottomPanel.open) bottomPanel.setOpen(false, 'instant');
       return;
     }
     if (desktopBottomPanelOpen.current !== bottomPanel.open) {
-      bottomPanel.setOpen(desktopBottomPanelOpen.current, "instant");
+      bottomPanel.setOpen(desktopBottomPanelOpen.current, 'instant');
     }
   }, [bottomSheetBand, bottomPanel]);
   // Rail destinations pre-mount hidden after boot and stay mounted while the
   // sidebar remains open. Their shared reference cache coalesces hydration, so
   // this constructs rows, route controls and overflow options without issuing
   // duplicate provider/catalog requests.
-  const [mountedSidebarPanels, setMountedSidebarPanels] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  const [mountedSidebarPanels, setMountedSidebarPanels] = useState<ReadonlySet<string>>(() => new Set());
   const mountSidebarPanel = useCallback((panel: string) => {
     setMountedSidebarPanels((current) => {
       if (current.has(panel)) return current;
@@ -244,23 +248,23 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   // panel's lazy chunk must have RESOLVED, otherwise a fast swap would only
   // reveal the Suspense fallback (null) as an empty panel. A rejected chunk
   // never lands here, so that destination keeps the safe settle path.
-  const [loadedSidebarPanels, setLoadedSidebarPanels] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  const [loadedSidebarPanels, setLoadedSidebarPanels] = useState<ReadonlySet<string>>(() => new Set());
   const trackSidebarPanelModule = useCallback((panel: string, load: Promise<unknown>) => {
-    void load.then(() => {
-      setLoadedSidebarPanels((current) => {
-        if (current.has(panel)) return current;
-        return new Set([...current, panel]);
+    void load
+      .then(() => {
+        setLoadedSidebarPanels((current) => {
+          if (current.has(panel)) return current;
+          return new Set([...current, panel]);
+        });
+      })
+      .catch(() => {
+        /* an unresolved chunk simply stays cold */
       });
-    }).catch(() => { /* an unresolved chunk simply stays cold */ });
   }, []);
   // A rejected chunk is reported by the panel-local boundary. The destination
   // then presents a compact unavailable state (it has real content to show)
   // but never counts as warm, so it keeps the safe settle path.
-  const [failedSidebarPanels, setFailedSidebarPanels] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  const [failedSidebarPanels, setFailedSidebarPanels] = useState<ReadonlySet<string>>(() => new Set());
   const [sidebarPanes, setSidebarPanes] = useState(() => ({
     schedules: createSchedulesPane(),
     webhooks: createWebhooksPane(),
@@ -273,30 +277,35 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
       return new Set([...current, panel]);
     });
   }, []);
-  const retrySidebarPanel = useCallback((panel: SidebarPanelKey) => {
-    // A fresh lazy component is the only way back from a rejected loader.
-    setSidebarPanes((current) => panel === "schedules"
-      ? { ...current, schedules: createSchedulesPane() }
-      : panel === "webhooks"
-        ? { ...current, webhooks: createWebhooksPane() }
-        : panel === "projects"
-          ? { ...current, projects: createProjectsPane() }
-          : { ...current, extensions: createExtensionsPane() });
-    setFailedSidebarPanels((current) => {
-      if (!current.has(panel)) return current;
-      const next = new Set(current);
-      next.delete(panel);
-      return next;
-    });
-    trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
-  }, [trackSidebarPanelModule]);
+  const retrySidebarPanel = useCallback(
+    (panel: SidebarPanelKey) => {
+      // A fresh lazy component is the only way back from a rejected loader.
+      setSidebarPanes((current) =>
+        panel === 'schedules'
+          ? { ...current, schedules: createSchedulesPane() }
+          : panel === 'webhooks'
+            ? { ...current, webhooks: createWebhooksPane() }
+            : panel === 'projects'
+              ? { ...current, projects: createProjectsPane() }
+              : { ...current, extensions: createExtensionsPane() }
+      );
+      setFailedSidebarPanels((current) => {
+        if (!current.has(panel)) return current;
+        const next = new Set(current);
+        next.delete(panel);
+        return next;
+      });
+      trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
+    },
+    [trackSidebarPanelModule]
+  );
   // Scheduled-tasks panel (rail → Schedules): lives in the session-panel
   // area, so navigation leaves it alone (user decision).
   const [schedulesOpen, setSchedulesOpen] = useState(false);
   const openSchedules = useCallback(() => {
-    if (!desktopFeatureEnabled("schedules")) return;
-    mountSidebarPanel("schedules");
-    trackSidebarPanelModule("schedules", loadSidebarPanelModule.schedules());
+    if (!desktopFeatureEnabled('schedules')) return;
+    mountSidebarPanel('schedules');
+    trackSidebarPanelModule('schedules', loadSidebarPanelModule.schedules());
     setSchedulesOpen(true);
     setWebhooksOpen(false);
     setProjectsOpen(false);
@@ -306,18 +315,18 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   // (user decision — moved out of the settings dialog).
   const [webhooksOpen, setWebhooksOpen] = useState(false);
   const openWebhooks = useCallback(() => {
-    if (!desktopFeatureEnabled("webhooks")) return;
-    mountSidebarPanel("webhooks");
-    trackSidebarPanelModule("webhooks", loadSidebarPanelModule.webhooks());
+    if (!desktopFeatureEnabled('webhooks')) return;
+    mountSidebarPanel('webhooks');
+    trackSidebarPanelModule('webhooks', loadSidebarPanelModule.webhooks());
     setWebhooksOpen(true);
     setSchedulesOpen(false);
     setProjectsOpen(false);
     openSidebar();
   }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   const openProjects = useCallback(() => {
-    if (!desktopFeatureEnabled("projects")) return;
-    mountSidebarPanel("projects");
-    trackSidebarPanelModule("projects", loadSidebarPanelModule.projects());
+    if (!desktopFeatureEnabled('projects')) return;
+    mountSidebarPanel('projects');
+    trackSidebarPanelModule('projects', loadSidebarPanelModule.projects());
     setProjectsOpen(true);
     setSchedulesOpen(false);
     setWebhooksOpen(false);
@@ -341,7 +350,7 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   const closeActiveRailPanel = useCallback(() => {
     closeSidebarPanels();
     sidebarOpenIntent.current = false;
-    beginSidePanelClose("sidebar", () => applySidebarOpen(false));
+    beginSidePanelClose('sidebar', () => applySidebarOpen(false));
   }, [applySidebarOpen, beginSidePanelClose, closeSidebarPanels]);
   return {
     applySidebarOpen,

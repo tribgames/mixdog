@@ -19,8 +19,8 @@ const READ_SNAPSHOT_FILES_PER_SCOPE_LIMIT = 1024;
 const READ_SNAPSHOT_REDIRECTS_PER_SCOPE_LIMIT = 256;
 
 function snapshotPathKey(fullPath) {
-    const value = String(fullPath || '');
-    return process.platform === 'win32' ? value.toLowerCase() : value;
+  const value = String(fullPath || '');
+  return process.platform === 'win32' ? value.toLowerCase() : value;
 }
 
 // ── Disk-persisted snapshot store ────────────────────────────────────────
@@ -28,32 +28,39 @@ function snapshotPathKey(fullPath) {
 // `${PLUGIN_DATA}/read-snapshots/`. Hydration is lazy (first scope access);
 // flush is debounced and drained synchronously on process exit.
 const SNAPSHOT_DIR = (() => {
-    try {
-        const dataDir = resolvePluginData();
-        if (!dataDir) return null;
-        const dir = join(dataDir, 'read-snapshots');
-        // R4 data-at-rest: snapshot entries reveal which files an actor
-        // has read; clamp dir to owner-only on POSIX (advisory on Windows).
-        if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
-        return dir;
-    } catch { return null; }
+  try {
+    const dataDir = resolvePluginData();
+    if (!dataDir) return null;
+    const dir = join(dataDir, 'read-snapshots');
+    // R4 data-at-rest: snapshot entries reveal which files an actor
+    // has read; clamp dir to owner-only on POSIX (advisory on Windows).
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+    return dir;
+  } catch {
+    return null;
+  }
 })();
 
 const SNAPSHOT_STALE_MS = 30 * 24 * 60 * 60 * 1000;
 (function sweepStaleSnapshotScopes() {
-    if (!SNAPSHOT_DIR) return;
-    let entries;
-    try { entries = readdirSync(SNAPSHOT_DIR); }
-    catch { return; }
-    const now = Date.now();
-    for (const name of entries) {
-        if (!name.endsWith('.json')) continue;
-        const full = join(SNAPSHOT_DIR, name);
-        try {
-            const st = statSync(full);
-            if ((now - st.mtimeMs) > SNAPSHOT_STALE_MS) unlinkSync(full);
-        } catch { /* missing / race — skip */ }
+  if (!SNAPSHOT_DIR) return;
+  let entries;
+  try {
+    entries = readdirSync(SNAPSHOT_DIR);
+  } catch {
+    return;
+  }
+  const now = Date.now();
+  for (const name of entries) {
+    if (!name.endsWith('.json')) continue;
+    const full = join(SNAPSHOT_DIR, name);
+    try {
+      const st = statSync(full);
+      if (now - st.mtimeMs > SNAPSHOT_STALE_MS) unlinkSync(full);
+    } catch {
+      /* missing / race — skip */
     }
+  }
 })();
 
 const PERSIST_DEBOUNCE_MS = 500;
@@ -61,9 +68,11 @@ const persistPending = new Map(); // scopeKey → Timeout
 const scopeHydrated = new Set();
 
 function snapshotScopeFilePath(scopeKey) {
-    if (!SNAPSHOT_DIR) return null;
-    const safe = String(scopeKey).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 200);
-    return join(SNAPSHOT_DIR, `${safe}.json`);
+  if (!SNAPSHOT_DIR) return null;
+  const safe = String(scopeKey)
+    .replace(/[^A-Za-z0-9._-]/g, '_')
+    .slice(0, 200);
+  return join(SNAPSHOT_DIR, `${safe}.json`);
 }
 
 // R3 H1: persisted snapshots are read-back from disk on lazy hydration and
@@ -74,42 +83,44 @@ function snapshotScopeFilePath(scopeKey) {
 // surfaced — the model will simply be forced to re-read before edit.
 const MAX_RANGES_PER_ENTRY = 4096;
 function isValidPersistedSnapshotEntry(snap) {
-    if (!snap || typeof snap !== 'object' || Array.isArray(snap)) return false;
-    if (!Number.isFinite(snap.mtimeMs)) return false;
-    if (!Number.isFinite(snap.size) || snap.size < 0) return false;
-    if (snap.ctimeMs !== undefined && !Number.isFinite(snap.ctimeMs)) return false;
-    if (snap.contentHash !== undefined && snap.contentHash !== null) {
-        if (typeof snap.contentHash !== 'string') return false;
-        if (!/^[a-f0-9]{1,128}$/i.test(snap.contentHash)) return false;
-    }
-    if (snap.ranges !== undefined) {
-        if (!Array.isArray(snap.ranges)) return false;
-        if (snap.ranges.length > MAX_RANGES_PER_ENTRY) return false;
-    }
-    if (snap.rangeHashes !== undefined) {
-        if (!Array.isArray(snap.rangeHashes)) return false;
-        if (snap.rangeHashes.length > MAX_RANGES_PER_ENTRY) return false;
-    }
-    if (snap.rangeHash !== undefined && snap.rangeHash !== null && typeof snap.rangeHash !== 'string') return false;
-    if (snap.grepOnly !== undefined && typeof snap.grepOnly !== 'boolean') return false;
-    return true;
+  if (!snap || typeof snap !== 'object' || Array.isArray(snap)) return false;
+  if (!Number.isFinite(snap.mtimeMs)) return false;
+  if (!Number.isFinite(snap.size) || snap.size < 0) return false;
+  if (snap.ctimeMs !== undefined && !Number.isFinite(snap.ctimeMs)) return false;
+  if (snap.contentHash !== undefined && snap.contentHash !== null) {
+    if (typeof snap.contentHash !== 'string') return false;
+    if (!/^[a-f0-9]{1,128}$/i.test(snap.contentHash)) return false;
+  }
+  if (snap.ranges !== undefined) {
+    if (!Array.isArray(snap.ranges)) return false;
+    if (snap.ranges.length > MAX_RANGES_PER_ENTRY) return false;
+  }
+  if (snap.rangeHashes !== undefined) {
+    if (!Array.isArray(snap.rangeHashes)) return false;
+    if (snap.rangeHashes.length > MAX_RANGES_PER_ENTRY) return false;
+  }
+  if (snap.rangeHash !== undefined && snap.rangeHash !== null && typeof snap.rangeHash !== 'string') return false;
+  if (snap.grepOnly !== undefined && typeof snap.grepOnly !== 'boolean') return false;
+  return true;
 }
 
 function loadScopeFromDisk(scopeKey) {
-    const path = snapshotScopeFilePath(scopeKey);
-    if (!path || !existsSync(path)) return new Map();
-    try {
-        const raw = readFileSync(path, 'utf-8');
-        const obj = _reviveInfinitySentinels(JSON.parse(raw));
-        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return new Map();
-        const map = new Map();
-        for (const [fp, snap] of Object.entries(obj)) {
-            if (typeof fp !== 'string' || !fp) continue;
-            if (!isValidPersistedSnapshotEntry(snap)) continue;
-            map.set(fp, snap);
-        }
-        return map;
-    } catch { return new Map(); }
+  const path = snapshotScopeFilePath(scopeKey);
+  if (!path || !existsSync(path)) return new Map();
+  try {
+    const raw = readFileSync(path, 'utf-8');
+    const obj = _reviveInfinitySentinels(JSON.parse(raw));
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return new Map();
+    const map = new Map();
+    for (const [fp, snap] of Object.entries(obj)) {
+      if (typeof fp !== 'string' || !fp) continue;
+      if (!isValidPersistedSnapshotEntry(snap)) continue;
+      map.set(fp, snap);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
 }
 
 // JSON cannot represent Infinity (it serializes to null), which silently turns
@@ -119,241 +130,254 @@ function loadScopeFromDisk(scopeKey) {
 // clone (does NOT mutate the live in-memory snapshot objects).
 const INFINITY_SENTINEL = '__mixdog_Infinity_sentinel__';
 function _withInfinitySentinels(value) {
-    if (value === Infinity) return INFINITY_SENTINEL;
-    if (Array.isArray(value)) return value.map(_withInfinitySentinels);
-    if (value && typeof value === 'object') {
-        const out = {};
-        for (const [k, v] of Object.entries(value)) out[k] = _withInfinitySentinels(v);
-        return out;
-    }
-    return value;
+  if (value === Infinity) return INFINITY_SENTINEL;
+  if (Array.isArray(value)) return value.map(_withInfinitySentinels);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = _withInfinitySentinels(v);
+    return out;
+  }
+  return value;
 }
 function _reviveInfinitySentinels(value) {
-    if (value === INFINITY_SENTINEL) return Infinity;
-    if (Array.isArray(value)) return value.map(_reviveInfinitySentinels);
-    if (value && typeof value === 'object') {
-        const out = {};
-        for (const [k, v] of Object.entries(value)) out[k] = _reviveInfinitySentinels(v);
-        return out;
-    }
-    return value;
+  if (value === INFINITY_SENTINEL) return Infinity;
+  if (Array.isArray(value)) return value.map(_reviveInfinitySentinels);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = _reviveInfinitySentinels(v);
+    return out;
+  }
+  return value;
 }
 
 function persistScopeSync(scopeKey, { exitDrain = false } = {}) {
-    const path = snapshotScopeFilePath(scopeKey);
-    if (!path) return;
-    const readFiles = readFilesByScope.get(scopeKey);
-    if (!readFiles || readFiles.size === 0) {
-        // Empty scope: remove on-disk file so it doesn't grow stale.
-        try { if (existsSync(path)) unlinkSync(path); } catch {}
-        return;
-    }
-    const obj = {};
-    for (const [fp, snap] of readFiles.entries()) obj[fp] = snap;
+  const path = snapshotScopeFilePath(scopeKey);
+  if (!path) return;
+  const readFiles = readFilesByScope.get(scopeKey);
+  if (!readFiles || readFiles.size === 0) {
+    // Empty scope: remove on-disk file so it doesn't grow stale.
     try {
-        writeJsonAtomicSync(path, _withInfinitySentinels(obj), {
-            compact: true,
-            lock: true,
-            // Try-once (timeoutMs:0): scheduleScopePersist fires this from the
-            // debounced timer on the lead/TUI main process after every read/grep
-            // tool. withFileLockSync's Atomics.wait would block the loop on
-            // cross-process contention; best-effort — a busy lock just drops
-            // this flush (the next read re-schedules, exit-drain still writes).
-            // Exit drain uses a short blocking wait instead so the final flush
-            // is not silently dropped under contention (loop no longer matters).
-            timeoutMs: exitDrain ? 1000 : 0,
-            mode: 0o600,
-            fsync: false,
-            fsyncDir: false,
-        });
+      if (existsSync(path)) unlinkSync(path);
     } catch {}
+    return;
+  }
+  const obj = {};
+  for (const [fp, snap] of readFiles.entries()) obj[fp] = snap;
+  try {
+    writeJsonAtomicSync(path, _withInfinitySentinels(obj), {
+      compact: true,
+      lock: true,
+      // Try-once (timeoutMs:0): scheduleScopePersist fires this from the
+      // debounced timer on the lead/TUI main process after every read/grep
+      // tool. withFileLockSync's Atomics.wait would block the loop on
+      // cross-process contention; best-effort — a busy lock just drops
+      // this flush (the next read re-schedules, exit-drain still writes).
+      // Exit drain uses a short blocking wait instead so the final flush
+      // is not silently dropped under contention (loop no longer matters).
+      timeoutMs: exitDrain ? 1000 : 0,
+      mode: 0o600,
+      fsync: false,
+      fsyncDir: false,
+    });
+  } catch {}
 }
 
-export function releaseReadSnapshotScope(scope, {
-    deletePersisted = false,
-    persist = !deletePersisted,
-} = {}) {
-    const scopeKey = readScopeKey(scope);
-    if (scopeKey === null) return false;
-    const timer = persistPending.get(scopeKey);
-    if (timer) {
-        try { clearTimeout(timer); } catch {}
-        persistPending.delete(scopeKey);
-    }
-    if (persist && readFilesByScope.has(scopeKey)) {
-        try { persistScopeSync(scopeKey, { exitDrain: true }); } catch {}
-    }
-    const released = readFilesByScope.delete(scopeKey)
-        || readRedirectsByScope.has(scopeKey)
-        || scopeHydrated.has(scopeKey);
-    readRedirectsByScope.delete(scopeKey);
-    scopeHydrated.delete(scopeKey);
-    if (deletePersisted) {
-        const path = snapshotScopeFilePath(scopeKey);
-        try { if (path && existsSync(path)) unlinkSync(path); } catch {}
-    }
-    return released;
+export function releaseReadSnapshotScope(scope, { deletePersisted = false, persist = !deletePersisted } = {}) {
+  const scopeKey = readScopeKey(scope);
+  if (scopeKey === null) return false;
+  const timer = persistPending.get(scopeKey);
+  if (timer) {
+    try {
+      clearTimeout(timer);
+    } catch {}
+    persistPending.delete(scopeKey);
+  }
+  if (persist && readFilesByScope.has(scopeKey)) {
+    try {
+      persistScopeSync(scopeKey, { exitDrain: true });
+    } catch {}
+  }
+  const released =
+    readFilesByScope.delete(scopeKey) || readRedirectsByScope.has(scopeKey) || scopeHydrated.has(scopeKey);
+  readRedirectsByScope.delete(scopeKey);
+  scopeHydrated.delete(scopeKey);
+  if (deletePersisted) {
+    const path = snapshotScopeFilePath(scopeKey);
+    try {
+      if (path && existsSync(path)) unlinkSync(path);
+    } catch {}
+  }
+  return released;
 }
 
 function pruneReadSnapshotScopes(protectedScopeKey) {
-    while (readFilesByScope.size > READ_SNAPSHOT_SCOPE_CACHE_LIMIT) {
-        let oldest = readFilesByScope.keys().next().value;
-        if (oldest === protectedScopeKey) {
-            oldest = [...readFilesByScope.keys()].find((key) => key !== protectedScopeKey);
-        }
-        if (oldest === undefined) break;
-        releaseReadSnapshotScope(oldest);
+  while (readFilesByScope.size > READ_SNAPSHOT_SCOPE_CACHE_LIMIT) {
+    let oldest = readFilesByScope.keys().next().value;
+    if (oldest === protectedScopeKey) {
+      oldest = [...readFilesByScope.keys()].find((key) => key !== protectedScopeKey);
     }
+    if (oldest === undefined) break;
+    releaseReadSnapshotScope(oldest);
+  }
 }
 
 function dropRedirectsToPath(scopeKey, fullPath) {
-    const redirects = readRedirectsByScope.get(scopeKey);
-    if (!redirects) return;
-    const droppedKey = snapshotPathKey(fullPath);
-    for (const [requestedKey, targetPath] of redirects) {
-        if (requestedKey === droppedKey || snapshotPathKey(targetPath) === droppedKey) {
-            redirects.delete(requestedKey);
-        }
+  const redirects = readRedirectsByScope.get(scopeKey);
+  if (!redirects) return;
+  const droppedKey = snapshotPathKey(fullPath);
+  for (const [requestedKey, targetPath] of redirects) {
+    if (requestedKey === droppedKey || snapshotPathKey(targetPath) === droppedKey) {
+      redirects.delete(requestedKey);
     }
-    if (redirects.size === 0) readRedirectsByScope.delete(scopeKey);
+  }
+  if (redirects.size === 0) readRedirectsByScope.delete(scopeKey);
 }
 
 export function rememberReadSnapshot(fullPath, snapshot, scope, knownReadFiles = null) {
-    const scopeKey = readScopeKey(scope);
-    const readFiles = knownReadFiles || readFilesForScope(scope);
-    readFiles.delete(fullPath);
-    readFiles.set(fullPath, snapshot);
-    while (readFiles.size > READ_SNAPSHOT_FILES_PER_SCOPE_LIMIT) {
-        const oldest = readFiles.keys().next().value;
-        if (oldest === undefined) break;
-        readFiles.delete(oldest);
-        if (scopeKey !== null) dropRedirectsToPath(scopeKey, oldest);
-    }
-    return readFiles;
+  const scopeKey = readScopeKey(scope);
+  const readFiles = knownReadFiles || readFilesForScope(scope);
+  readFiles.delete(fullPath);
+  readFiles.set(fullPath, snapshot);
+  while (readFiles.size > READ_SNAPSHOT_FILES_PER_SCOPE_LIMIT) {
+    const oldest = readFiles.keys().next().value;
+    if (oldest === undefined) break;
+    readFiles.delete(oldest);
+    if (scopeKey !== null) dropRedirectsToPath(scopeKey, oldest);
+  }
+  return readFiles;
 }
 
 export function deleteReadSnapshotPathEverywhere(fullPath) {
-    for (const [scopeKey, readFiles] of readFilesByScope.entries()) {
-        if (readFiles.delete(fullPath)) scheduleScopePersist(scopeKey);
+  for (const [scopeKey, readFiles] of readFilesByScope.entries()) {
+    if (readFiles.delete(fullPath)) scheduleScopePersist(scopeKey);
+  }
+  const deletedKey = snapshotPathKey(fullPath);
+  for (const redirects of readRedirectsByScope.values()) {
+    for (const [requestedKey, targetPath] of redirects.entries()) {
+      if (requestedKey === deletedKey || snapshotPathKey(targetPath) === deletedKey) {
+        redirects.delete(requestedKey);
+      }
     }
-    const deletedKey = snapshotPathKey(fullPath);
-    for (const redirects of readRedirectsByScope.values()) {
-        for (const [requestedKey, targetPath] of redirects.entries()) {
-            if (requestedKey === deletedKey || snapshotPathKey(targetPath) === deletedKey) {
-                redirects.delete(requestedKey);
-            }
-        }
-    }
-    if (!SNAPSHOT_DIR) return;
-    let entries;
-    try { entries = readdirSync(SNAPSHOT_DIR); }
-    catch { return; }
-    for (const name of entries) {
-        if (!name.endsWith('.json')) continue;
-        const p = join(SNAPSHOT_DIR, name);
-        try {
-            const obj = JSON.parse(readFileSync(p, 'utf-8'));
-            if (!obj || typeof obj !== 'object' || !Object.prototype.hasOwnProperty.call(obj, fullPath)) continue;
-            delete obj[fullPath];
-            if (Object.keys(obj).length === 0) unlinkSync(p);
-            else {
-                writeJsonAtomicSync(p, obj, {
-                    compact: true,
-                    lock: true,
-                    mode: 0o600,
-                    fsync: false,
-                    fsyncDir: false,
-                });
-            }
-        } catch {}
-    }
+  }
+  if (!SNAPSHOT_DIR) return;
+  let entries;
+  try {
+    entries = readdirSync(SNAPSHOT_DIR);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    if (!name.endsWith('.json')) continue;
+    const p = join(SNAPSHOT_DIR, name);
+    try {
+      const obj = JSON.parse(readFileSync(p, 'utf-8'));
+      if (!obj || typeof obj !== 'object' || !Object.hasOwn(obj, fullPath)) continue;
+      delete obj[fullPath];
+      if (Object.keys(obj).length === 0) unlinkSync(p);
+      else {
+        writeJsonAtomicSync(p, obj, {
+          compact: true,
+          lock: true,
+          mode: 0o600,
+          fsync: false,
+          fsyncDir: false,
+        });
+      }
+    } catch {}
+  }
 }
 
 export function scheduleScopePersist(scopeKey) {
-    if (scopeKey === null || scopeKey === undefined) return;
-    if (persistPending.has(scopeKey)) return;
-    const t = setTimeout(() => {
-        persistPending.delete(scopeKey);
-        try { persistScopeSync(scopeKey); } catch {}
-    }, PERSIST_DEBOUNCE_MS);
-    if (t.unref) t.unref();
-    persistPending.set(scopeKey, t);
+  if (scopeKey === null || scopeKey === undefined) return;
+  if (persistPending.has(scopeKey)) return;
+  const t = setTimeout(() => {
+    persistPending.delete(scopeKey);
+    try {
+      persistScopeSync(scopeKey);
+    } catch {}
+  }, PERSIST_DEBOUNCE_MS);
+  if (t.unref) t.unref();
+  persistPending.set(scopeKey, t);
 }
 
 function flushAllScopesSync() {
-    for (const [key, timer] of persistPending) {
-        try { clearTimeout(timer); } catch {}
-        try { persistScopeSync(key, { exitDrain: true }); } catch {}
-    }
-    persistPending.clear();
+  for (const [key, timer] of persistPending) {
+    try {
+      clearTimeout(timer);
+    } catch {}
+    try {
+      persistScopeSync(key, { exitDrain: true });
+    } catch {}
+  }
+  persistPending.clear();
 }
 process.on('exit', flushAllScopesSync);
 
 export function readScopeKey(scope) {
-    return scope ? String(scope) : null;
+  return scope ? String(scope) : null;
 }
 
 export function recordReadPathRedirect(requestedFullPath, targetFullPath, scope) {
-    const scopeKey = readScopeKey(scope);
-    if (scopeKey === null) return false;
-    const requested = String(requestedFullPath || '');
-    const target = String(targetFullPath || '');
-    if (!requested || !target || snapshotPathKey(requested) === snapshotPathKey(target)) return false;
-    // The redirect is trusted only after the target produced a scoped read
-    // snapshot. A search/list-only redirect cannot authorize a later edit.
-    if (!readFilesForScope(scope).has(target)) return false;
-    let redirects = readRedirectsByScope.get(scopeKey);
-    if (!redirects) {
-        redirects = new Map();
-        readRedirectsByScope.set(scopeKey, redirects);
-    }
-    redirects.delete(snapshotPathKey(requested));
-    redirects.set(snapshotPathKey(requested), target);
-    while (redirects.size > READ_SNAPSHOT_REDIRECTS_PER_SCOPE_LIMIT) {
-        const oldest = redirects.keys().next().value;
-        if (oldest === undefined) break;
-        redirects.delete(oldest);
-    }
-    return true;
+  const scopeKey = readScopeKey(scope);
+  if (scopeKey === null) return false;
+  const requested = String(requestedFullPath || '');
+  const target = String(targetFullPath || '');
+  if (!requested || !target || snapshotPathKey(requested) === snapshotPathKey(target)) return false;
+  // The redirect is trusted only after the target produced a scoped read
+  // snapshot. A search/list-only redirect cannot authorize a later edit.
+  if (!readFilesForScope(scope).has(target)) return false;
+  let redirects = readRedirectsByScope.get(scopeKey);
+  if (!redirects) {
+    redirects = new Map();
+    readRedirectsByScope.set(scopeKey, redirects);
+  }
+  redirects.delete(snapshotPathKey(requested));
+  redirects.set(snapshotPathKey(requested), target);
+  while (redirects.size > READ_SNAPSHOT_REDIRECTS_PER_SCOPE_LIMIT) {
+    const oldest = redirects.keys().next().value;
+    if (oldest === undefined) break;
+    redirects.delete(oldest);
+  }
+  return true;
 }
 
 export function resolveReadPathRedirect(requestedFullPath, scope) {
-    const scopeKey = readScopeKey(scope);
-    if (scopeKey === null) return null;
-    const redirects = readRedirectsByScope.get(scopeKey);
-    if (!redirects) return null;
-    const requestedKey = snapshotPathKey(requestedFullPath);
-    const target = redirects.get(requestedKey);
-    if (!target) return null;
-    // Fail closed if the proving snapshot was cleared after a mutation.
-    if (!readFilesForScope(scope).has(target)) {
-        redirects.delete(requestedKey);
-        return null;
-    }
-    return target;
+  const scopeKey = readScopeKey(scope);
+  if (scopeKey === null) return null;
+  const redirects = readRedirectsByScope.get(scopeKey);
+  if (!redirects) return null;
+  const requestedKey = snapshotPathKey(requestedFullPath);
+  const target = redirects.get(requestedKey);
+  if (!target) return null;
+  // Fail closed if the proving snapshot was cleared after a mutation.
+  if (!readFilesForScope(scope).has(target)) {
+    redirects.delete(requestedKey);
+    return null;
+  }
+  return target;
 }
 
 export function readFilesForScope(scope) {
-    const key = readScopeKey(scope);
-    if (key === null) {
-        // No scope id: fail-closed. Return a fresh ephemeral Map that is
-        // never cached in readFilesByScope, never hydrated, never
-        // persisted to disk. Writes are dropped on the floor, lookups
-        // return undefined → edit-gate cannot pass without a real scoped
-        // read. Closes the cross-session bypass via __global__.json.
-        return new Map();
-    }
-    let readFiles = readFilesByScope.get(key);
-    if (!readFiles) {
-        // Lazy hydrate: pull persisted snapshots for this scope from disk
-        // on first access. Subsequent gets stay in-memory.
-        readFiles = scopeHydrated.has(key) ? new Map() : loadScopeFromDisk(key);
-        scopeHydrated.add(key);
-        readFilesByScope.set(key, readFiles);
-        pruneReadSnapshotScopes(key);
-    } else {
-        readFilesByScope.delete(key);
-        readFilesByScope.set(key, readFiles);
-    }
-    return readFiles;
+  const key = readScopeKey(scope);
+  if (key === null) {
+    // No scope id: fail-closed. Return a fresh ephemeral Map that is
+    // never cached in readFilesByScope, never hydrated, never
+    // persisted to disk. Writes are dropped on the floor, lookups
+    // return undefined → edit-gate cannot pass without a real scoped
+    // read. Closes the cross-session bypass via __global__.json.
+    return new Map();
+  }
+  let readFiles = readFilesByScope.get(key);
+  if (!readFiles) {
+    // Lazy hydrate: pull persisted snapshots for this scope from disk
+    // on first access. Subsequent gets stay in-memory.
+    readFiles = scopeHydrated.has(key) ? new Map() : loadScopeFromDisk(key);
+    scopeHydrated.add(key);
+    readFilesByScope.set(key, readFiles);
+    pruneReadSnapshotScopes(key);
+  } else {
+    readFilesByScope.delete(key);
+    readFilesByScope.set(key, readFiles);
+  }
+  return readFiles;
 }

@@ -7,7 +7,9 @@ import { SessionHost } from './session-host.ts';
 
 function deferred() {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 
@@ -20,15 +22,31 @@ test('route replies cannot rewind streamed selections and baseline gaps recover 
   const reads = [];
   const updates = [];
   const id = 'session_route_order';
-  const old = { sessionId: id, model: 'gpt-old', provider: 'openai', effort: 'low', fast: false, items: [], queued: [], busy: true };
+  const old = {
+    sessionId: id,
+    model: 'gpt-old',
+    provider: 'openai',
+    effort: 'low',
+    fast: false,
+    items: [],
+    queued: [],
+    busy: true,
+  };
   const selected = { ...old, model: 'gpt-new', effort: 'high', fast: true };
   let current = old;
   let revision = 1;
-  const unsupported = async () => { throw new Error('unexpected call'); };
+  const unsupported = async () => {
+    throw new Error('unexpected call');
+  };
   const client = {
-    list: unsupported, create: unsupported,
-    async subscribe() { return { sessionId: id, revision, full: current }; },
-    async unsubscribe() { return {}; },
+    list: unsupported,
+    create: unsupported,
+    async subscribe() {
+      return { sessionId: id, revision, full: current };
+    },
+    async unsubscribe() {
+      return {};
+    },
     async read(params) {
       reads.push(params);
       return { sessionId: id, revision, full: current };
@@ -38,17 +56,30 @@ test('route replies cannot rewind streamed selections and baseline gaps recover 
       configured = deferred();
       return configured.promise;
     },
-    submit: unsupported, abort: unsupported, approve: unsupported,
+    submit: unsupported,
+    abort: unsupported,
+    approve: unsupported,
     async close() {},
   };
   try {
-    host = await SessionHost.create({
-      userDataPath, packaged: false, resourcesPath: userDataPath, appPath: userDataPath,
-    }, {
-      async attachSessionClient(next) { hooks = next; return client; },
-      loadProjects: unsupported, loadSessionStore: unsupported,
-      loadStatuslineSegments: unsupported, executeCodeGraphTool: unsupported,
-    });
+    host = await SessionHost.create(
+      {
+        userDataPath,
+        packaged: false,
+        resourcesPath: userDataPath,
+        appPath: userDataPath,
+      },
+      {
+        async attachSessionClient(next) {
+          hooks = next;
+          return client;
+        },
+        loadProjects: unsupported,
+        loadSessionStore: unsupported,
+        loadStatuslineSegments: unsupported,
+        executeCodeGraphTool: unsupported,
+      }
+    );
     host.subscribeSessionStates((update) => updates.push(update));
     await host.setVisibleSessions([id]);
     const first = host.setModelRoute({ provider: 'openai', model: 'gpt-new' }, id);
@@ -77,8 +108,11 @@ test('route replies cannot rewind streamed selections and baseline gaps recover 
 
     const rejected = host.setModelRoute({ provider: 'openai', model: 'gpt-rejected' }, id);
     configured.resolve({ sessionId: id, revision, full: current, value: false });
-    await assert.rejects(rejected, /Model change was not applied/,
-      'a busy-command refusal must not be acknowledged as a successful model selection');
+    await assert.rejects(
+      rejected,
+      /Model change was not applied/,
+      'a busy-command refusal must not be acknowledged as a successful model selection'
+    );
   } finally {
     await host?.dispose();
     await rm(userDataPath, { recursive: true, force: true });
@@ -97,14 +131,30 @@ test('a reply or lane frame repeating the projection revision never re-reads the
   const reads = [];
   const updates = [];
   const id = 'session_reply_order';
-  const base = { sessionId: id, model: 'gpt', provider: 'openai', effort: 'low', fast: false, items: [], queued: [], busy: false };
+  const base = {
+    sessionId: id,
+    model: 'gpt',
+    provider: 'openai',
+    effort: 'low',
+    fast: false,
+    items: [],
+    queued: [],
+    busy: false,
+  };
   let current = base;
   let revision = 1;
-  const unsupported = async () => { throw new Error('unexpected call'); };
+  const unsupported = async () => {
+    throw new Error('unexpected call');
+  };
   const client = {
-    list: unsupported, create: unsupported,
-    async subscribe() { return { sessionId: id, revision, full: current }; },
-    async unsubscribe() { return {}; },
+    list: unsupported,
+    create: unsupported,
+    async subscribe() {
+      return { sessionId: id, revision, full: current };
+    },
+    async unsubscribe() {
+      return {};
+    },
     async read(params) {
       reads.push(params);
       return { sessionId: id, revision, full: current };
@@ -113,17 +163,30 @@ test('a reply or lane frame repeating the projection revision never re-reads the
       configured = deferred();
       return configured.promise;
     },
-    submit: unsupported, abort: unsupported, approve: unsupported,
+    submit: unsupported,
+    abort: unsupported,
+    approve: unsupported,
     async close() {},
   };
   try {
-    host = await SessionHost.create({
-      userDataPath, packaged: false, resourcesPath: userDataPath, appPath: userDataPath,
-    }, {
-      async attachSessionClient(next) { hooks = next; return client; },
-      loadProjects: unsupported, loadSessionStore: unsupported,
-      loadStatuslineSegments: unsupported, executeCodeGraphTool: unsupported,
-    });
+    host = await SessionHost.create(
+      {
+        userDataPath,
+        packaged: false,
+        resourcesPath: userDataPath,
+        appPath: userDataPath,
+      },
+      {
+        async attachSessionClient(next) {
+          hooks = next;
+          return client;
+        },
+        loadProjects: unsupported,
+        loadSessionStore: unsupported,
+        loadStatuslineSegments: unsupported,
+        executeCodeGraphTool: unsupported,
+      }
+    );
     host.subscribeSessionStates((update) => updates.push(update));
     await host.setVisibleSessions([id]);
 
@@ -145,7 +208,13 @@ test('a reply or lane frame repeating the projection revision never re-reads the
     configured.resolve({ sessionId: id, revision: 3, baseRevision: 2, patch: { set: { fast: false } } });
     assert.equal((await second).fast, false);
     const applied = updates.length;
-    hooks.onFrame({ type: 'session-state', sessionId: id, revision: 3, baseRevision: 2, patch: { set: { fast: false } } });
+    hooks.onFrame({
+      type: 'session-state',
+      sessionId: id,
+      revision: 3,
+      baseRevision: 2,
+      patch: { set: { fast: false } },
+    });
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(reads.length, 0, 'a lane frame repeating the applied revision is not a crossed baseline');
     assert.equal(updates.length, applied);

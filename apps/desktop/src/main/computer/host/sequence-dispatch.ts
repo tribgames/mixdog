@@ -7,28 +7,34 @@ import type { ComputerCommand, PowerShellResponse } from '../shared/types';
 
 export function canBatchSequenceInput(command: ComputerCommand, windowId?: string): boolean {
   // Foreground recovery and Electron insertText retain their existing owners.
-  return Boolean(windowId)
-    && command.delivery !== 'foreground'
-    && !(command.action === 'type' && !command.ref && electronWindowForNativeId(windowId));
+  return (
+    Boolean(windowId) &&
+    command.delivery !== 'foreground' &&
+    !(command.action === 'type' && !command.ref && electronWindowForNativeId(windowId))
+  );
 }
 
 export function sequenceStepRequest(step: Record<string, unknown>): Record<string, unknown> {
   return {
-    action: 'sequence_step', delivery: 'background',
-    session_id: step.session_id, read_only: step.read_only, step,
+    action: 'sequence_step',
+    delivery: 'background',
+    session_id: step.session_id,
+    read_only: step.read_only,
+    step,
   };
 }
 
-export function readSequenceStep(
-  payload: PowerShellResponse['result'],
-  windowId: string,
-  roundtripMs: number,
-) {
-  if (!payload?.step_result || typeof payload.step_result !== 'object'
-    || Array.isArray(payload.step_result)
-    || !Array.isArray(payload.windows_before) || !Array.isArray(payload.windows_after)
-    || typeof payload.settle_delay_ms !== 'number' || !Number.isFinite(payload.settle_delay_ms)
-    || payload.settle_delay_ms < 0) {
+export function readSequenceStep(payload: PowerShellResponse['result'], windowId: string, roundtripMs: number) {
+  if (
+    !payload?.step_result ||
+    typeof payload.step_result !== 'object' ||
+    Array.isArray(payload.step_result) ||
+    !Array.isArray(payload.windows_before) ||
+    !Array.isArray(payload.windows_after) ||
+    typeof payload.settle_delay_ms !== 'number' ||
+    !Number.isFinite(payload.settle_delay_ms) ||
+    payload.settle_delay_ms < 0
+  ) {
     throw new Error('sequence_observation_unavailable: incomplete native step reply; input will not be retried');
   }
   const result = payload.step_result as NonNullable<PowerShellResponse['result']>;

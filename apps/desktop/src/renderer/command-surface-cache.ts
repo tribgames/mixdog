@@ -38,8 +38,12 @@ function statsCache(api: SurfaceApi): StatsCache {
   let cache = statsDataCache.get(api);
   if (!cache) {
     cache = {
-      revision: 0, acceptedRevision: -1, pending: null,
-      listeners: new Set(), holders: 0, release: null,
+      revision: 0,
+      acceptedRevision: -1,
+      pending: null,
+      listeners: new Set(),
+      holders: 0,
+      release: null,
     };
     statsDataCache.set(api, cache);
   }
@@ -95,7 +99,9 @@ export function hasStatsDataCache(api: SurfaceApi): boolean {
 export function subscribeStatsDataCache(api: SurfaceApi, listener: () => void): () => void {
   const cache = statsCache(api);
   cache.listeners.add(listener);
-  return () => { cache.listeners.delete(listener); };
+  return () => {
+    cache.listeners.delete(listener);
+  };
 }
 
 /** Opening and background warmup share one read, including changes that arrive
@@ -106,15 +112,20 @@ export function refreshStatsDataCache(api: SurfaceApi): Promise<Record<string, u
   cache.pending = (async () => {
     while (true) {
       const revision = cache.revision;
-      const [value] = await readGlobalCapabilities(api, [{
-        capability: 'getUsageStats', args: [{ view: 'hour' }],
-      }]);
+      const [value] = await readGlobalCapabilities(api, [
+        {
+          capability: 'getUsageStats',
+          args: [{ view: 'hour' }],
+        },
+      ]);
       if (revision !== cache.revision) continue;
       const data = { getUsageStats: value };
       setStatsDataCache(api, data);
       return data;
     }
-  })().finally(() => { cache.pending = null; });
+  })().finally(() => {
+    cache.pending = null;
+  });
   return cache.pending;
 }
 
@@ -134,8 +145,13 @@ export function holdStatsDataCache(api: SurfaceApi): () => void {
       if (!snapshot?.stats) return;
       const stats = record(snapshot.stats);
       const signature = JSON.stringify([
-        stats.inputTokens, stats.outputTokens, stats.cachedTokens,
-        stats.cacheWriteTokens, stats.promptTokens, stats.costUsd, stats.turns,
+        stats.inputTokens,
+        stats.outputTokens,
+        stats.cachedTokens,
+        stats.cacheWriteTokens,
+        stats.promptTokens,
+        stats.costUsd,
+        stats.turns,
       ]);
       if (signatures.get(sessionId) === signature) return;
       signatures.set(sessionId, signature);
@@ -161,4 +177,3 @@ export function holdStatsDataCache(api: SurfaceApi): () => void {
     }
   };
 }
-

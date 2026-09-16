@@ -25,7 +25,11 @@ export function _nearestEnclosingSymbol(node, sourceText, lineNumber, col = null
   };
   const candidates = symbols
     .filter(inRange)
-    .sort((a, b) => (Number(b.line ?? b.startLine) - Number(a.line ?? a.startLine)) || ((Number(b.startCol) || 0) - (Number(a.startCol) || 0)));
+    .sort(
+      (a, b) =>
+        Number(b.line ?? b.startLine) - Number(a.line ?? a.startLine) ||
+        (Number(b.startCol) || 0) - (Number(a.startCol) || 0)
+    );
   const fn = candidates.find((item) => FUNCTION_LIKE.has(String(item.kind || '').toLowerCase()));
   return fn || candidates[0] || null;
 }

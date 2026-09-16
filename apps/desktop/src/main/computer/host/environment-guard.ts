@@ -7,7 +7,7 @@ interface EventSource {
 export function bindComputerEnvironmentGuard(
   power: EventSource,
   displays: EventSource,
-  invalidate: (reason: string) => void,
+  invalidate: (reason: string) => void
 ): () => void {
   const subscriptions: Array<[EventSource, string, (...args: any[]) => void]> = [];
   const bind = (source: EventSource, event: string, listener: (...args: any[]) => void) => {

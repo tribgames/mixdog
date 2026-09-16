@@ -15,7 +15,9 @@ test('memory handler injects action=core for public schema calls', async () => {
   });
   await dispatchMemoryToolCall('memory', { op: 'list' });
   if (dispatchedMemoryArgs?.action !== 'core' || dispatchedMemoryArgs?.op !== 'list') {
-    throw new Error(`memory handler must inject action=core for the public schema: ${JSON.stringify(dispatchedMemoryArgs)}`);
+    throw new Error(
+      `memory handler must inject action=core for the public schema: ${JSON.stringify(dispatchedMemoryArgs)}`
+    );
   }
   await dispatchMemoryToolCall('memory', { action: 'status' });
   if (dispatchedMemoryArgs?.action !== 'status') {
@@ -36,8 +38,15 @@ test('cross-session recall merge: starve prevention, dedupe, sort, passthrough',
   ];
   const sessionFlood = Array.from({ length: 20 }, (_, i) => ({ id: 1000 + i, retrievalScore: 0, ts: 200 + i }));
   const mergedImportance = mergeSessionRowsIntoGlobal(globalHits, sessionFlood, { sort: 'importance' });
-  if (mergedImportance.slice(0, 2).map((r) => r.id).join(',') !== '1,2') {
-    throw new Error(`session merge must not starve global first page under importance: ${JSON.stringify(mergedImportance.slice(0, 3))}`);
+  if (
+    mergedImportance
+      .slice(0, 2)
+      .map((r) => r.id)
+      .join(',') !== '1,2'
+  ) {
+    throw new Error(
+      `session merge must not starve global first page under importance: ${JSON.stringify(mergedImportance.slice(0, 3))}`
+    );
   }
   if (mergedImportance.length !== globalHits.length + sessionFlood.length) {
     throw new Error('session merge must append all non-duplicate session rows');
@@ -58,7 +67,7 @@ test('cross-session recall merge: starve prevention, dedupe, sort, passthrough',
   const mergedDate = mergeSessionRowsIntoGlobal(
     [{ id: 1, retrievalScore: 0.9, ts: 100 }],
     [{ id: 2, retrievalScore: 0, ts: 999 }],
-    { sort: 'date' },
+    { sort: 'date' }
   );
   if (Number(mergedDate[0].id) !== 2) {
     throw new Error(`session merge under date sort must order by ts desc: ${JSON.stringify(mergedDate)}`);

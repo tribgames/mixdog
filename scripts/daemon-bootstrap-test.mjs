@@ -18,35 +18,43 @@ test('a client waits for the live singleton winner to publish discovery', async 
     const { mkdirSync } = await import('node:fs');
     mkdirSync(runtimeRoot, { recursive: true });
     mkdirSync(dataDir, { recursive: true });
-    writeFileSync(join(dataDir, 'daemon-owner.json'), JSON.stringify({
-      kind: 'mixdog-daemon',
-      pid: process.pid,
-      claimedAt: new Date().toISOString(),
-    }));
+    writeFileSync(
+      join(dataDir, 'daemon-owner.json'),
+      JSON.stringify({
+        kind: 'mixdog-daemon',
+        pid: process.pid,
+        claimedAt: new Date().toISOString(),
+      })
+    );
     const wire = await import('../src/standalone/session-wire.mjs');
     const client = await import(`../src/standalone/session-client.mjs?bootstrap=${Date.now()}`);
     const publish = new Promise((resolve, reject) => {
       setTimeout(() => {
         server = http.createServer((_req, res) => {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            status: 'ok',
-            pid: process.pid,
-            protocol: wire.SESSION_PROTOCOL,
-            revision: wire.SESSION_REVISION,
-            version: wire.runtimeVersion(),
-            capabilityFingerprint: wire.SESSION_CAPABILITY_FINGERPRINT,
-          }));
+          res.end(
+            JSON.stringify({
+              status: 'ok',
+              pid: process.pid,
+              protocol: wire.SESSION_PROTOCOL,
+              revision: wire.SESSION_REVISION,
+              version: wire.runtimeVersion(),
+              capabilityFingerprint: wire.SESSION_CAPABILITY_FINGERPRINT,
+            })
+          );
         });
         server.once('error', reject);
         server.listen(0, '127.0.0.1', () => {
           const address = server.address();
-          writeFileSync(join(runtimeRoot, 'daemon.json'), JSON.stringify({
-            pid: process.pid,
-            endpoints: {
-              session: { port: address.port, token: 'bootstrap-test-token' },
-            },
-          }));
+          writeFileSync(
+            join(runtimeRoot, 'daemon.json'),
+            JSON.stringify({
+              pid: process.pid,
+              endpoints: {
+                session: { port: address.port, token: 'bootstrap-test-token' },
+              },
+            })
+          );
           resolve();
         });
       }, 120);

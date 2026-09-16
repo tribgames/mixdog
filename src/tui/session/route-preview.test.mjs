@@ -6,7 +6,10 @@ import { createSessionApiB } from './session-api-ext.mjs';
 function deferred() {
   let resolve;
   let reject;
-  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
   return { promise, resolve, reject };
 }
 
@@ -19,7 +22,9 @@ function createRouteHarness(setRoute, extra = {}) {
   const api = createSessionApiB({
     runtime: { setRoute },
     getState: () => state,
-    set: (patch) => { state = { ...state, ...patch }; },
+    set: (patch) => {
+      state = { ...state, ...patch };
+    },
     flushEmitImmediate: () => {},
     routeState: () => ({ ...live }),
     syncContextStats: () => {},
@@ -28,7 +33,9 @@ function createRouteHarness(setRoute, extra = {}) {
   return {
     api,
     state: () => state,
-    publishLiveRoute: (next) => { live = { ...next }; },
+    publishLiveRoute: (next) => {
+      live = { ...next };
+    },
   };
 }
 
@@ -45,7 +52,10 @@ test('a chosen model reaches the surface before the runtime write settles', asyn
   assert.equal(harness.state().fast, false);
 
   harness.publishLiveRoute({
-    provider: 'anthropic-oauth', model: 'claude-opus-5', effort: 'xhigh', fast: false,
+    provider: 'anthropic-oauth',
+    model: 'claude-opus-5',
+    effort: 'xhigh',
+    fast: false,
   });
   gate.resolve({ provider: 'anthropic-oauth', model: 'claude-opus-5' });
   await pending;
@@ -87,12 +97,15 @@ test('a failed model change restores the route that was live before it', async (
 test('rapid model choices stay immediate while every write is serialized during a turn', async () => {
   const calls = [];
   const secondStarted = deferred();
-  const harness = createRouteHarness((next) => {
-    const gate = deferred();
-    calls.push({ next, gate });
-    if (calls.length === 2) secondStarted.resolve();
-    return gate.promise;
-  }, { busy: true });
+  const harness = createRouteHarness(
+    (next) => {
+      const gate = deferred();
+      calls.push({ next, gate });
+      if (calls.length === 2) secondStarted.resolve();
+      return gate.promise;
+    },
+    { busy: true }
+  );
   const firstRoute = { provider: 'openai-oauth', model: 'gpt-first' };
   const lastRoute = { provider: 'anthropic-oauth', model: 'claude-last' };
   const first = harness.api.setRoute(firstRoute);
@@ -116,9 +129,12 @@ test('rapid model choices stay immediate while every write is serialized during 
 });
 
 test('a model choice does not bypass an unrelated session command', async () => {
-  const harness = createRouteHarness(() => {
-    assert.fail('the runtime must not be called while another command owns the session');
-  }, { commandBusy: true });
+  const harness = createRouteHarness(
+    () => {
+      assert.fail('the runtime must not be called while another command owns the session');
+    },
+    { commandBusy: true }
+  );
   assert.equal(await harness.api.setRoute({ provider: 'openai-oauth', model: 'gpt-blocked' }), false);
   assert.equal(harness.state().model, 'gpt-5');
   assert.equal(harness.state().commandBusy, true);

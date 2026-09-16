@@ -25,8 +25,7 @@ const titleBarDims = new WeakMap<object, DesktopTitleBarDim>();
 // charge so the renderer's prefers-color-scheme tracking stays truthful.
 // Namespace access instead of a named import: in plain-node test contexts the
 // electron package resolves to a path string and has no nativeTheme export.
-const nativeTheme: NativeTheme | undefined =
-  (electron as { nativeTheme?: NativeTheme }).nativeTheme;
+const nativeTheme: NativeTheme | undefined = (electron as { nativeTheme?: NativeTheme }).nativeTheme;
 
 function pinNativeThemeSource(source: 'system' | 'light' | 'dark'): void {
   if (nativeTheme) nativeTheme.themeSource = source;
@@ -50,7 +49,7 @@ const defaultTitleBarOverlay = Object.freeze(titleBarOverlay());
 function currentTitleBarOverlay(window: DesktopTitleBarWindow) {
   const base = titleBarOverlay(
     titleBarThemes.get(window as object) ?? false,
-    titleBarZoomFactors.get(window as object) ?? 1,
+    titleBarZoomFactors.get(window as object) ?? 1
   );
   const dim = titleBarDims.get(window as object);
   // The band pixels are the DOM's own (transparent overlay), so a scrim dims
@@ -65,27 +64,19 @@ function themeId(value: unknown): string {
   return record.id === undefined ? themeId(record.value) : String(record.id);
 }
 
-export function setDesktopTitleBarTheme(
-  window: DesktopTitleBarWindow,
-  value: unknown,
-  systemPreference = false,
-): void {
+export function setDesktopTitleBarTheme(window: DesktopTitleBarWindow, value: unknown, systemPreference = false): void {
   const resolved = themeId(value);
   const light = resolved === 'light';
   titleBarThemes.set(window as object, light);
   pinNativeThemeSource(systemPreference ? 'system' : light ? 'light' : 'dark');
-  window.setBackgroundColor(light
-    ? DESKTOP_LIGHT_BACKGROUND_COLOR
-    : DESKTOP_BACKGROUND_COLOR);
+  window.setBackgroundColor(light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR);
   // Remember the applied band for the NEXT launch: the window constructor
   // reads it so a light-theme start never flashes the dark default band
   // (user-reported titlebar/tab pop right after launch).
   if (titleBarThemePersistPath) {
-    writeFile(
-      titleBarThemePersistPath,
-      systemPreference ? 'system' : light ? 'light' : 'dark',
-      () => { /* best effort */ },
-    );
+    writeFile(titleBarThemePersistPath, systemPreference ? 'system' : light ? 'light' : 'dark', () => {
+      /* best effort */
+    });
   }
   if (process.platform !== 'win32') return;
   window.setTitleBarOverlay(currentTitleBarOverlay(window));
@@ -95,10 +86,7 @@ export function setDesktopTitleBarTheme(
  *  fullscreen modal used to dim everything EXCEPT the min/max/close band
  *  (user: 딤드도 안 먹고 색도 튀던데). The renderer sends the composited
  *  scrim-over-band colors while a modal is open; null restores the theme. */
-export function setDesktopTitleBarDim(
-  window: DesktopTitleBarWindow,
-  dim: DesktopTitleBarDim | null,
-): void {
+export function setDesktopTitleBarDim(window: DesktopTitleBarWindow, dim: DesktopTitleBarDim | null): void {
   if (dim) titleBarDims.set(window as object, dim);
   else titleBarDims.delete(window as object);
   if (process.platform !== 'win32') return;
@@ -123,8 +111,7 @@ export function initialTitleBarWindowOverrides(): Partial<BrowserWindowConstruct
   // Pin DWM's frame theme BEFORE the window exists so even the first enlarge
   // never exposes the OS light brush under the default dark band.
   pinNativeThemeSource(persisted === 'system' || persisted === 'light' ? persisted : 'dark');
-  const light = persisted === 'light' ||
-    (persisted === 'system' && !nativeThemePrefersDark());
+  const light = persisted === 'light' || (persisted === 'system' && !nativeThemePrefersDark());
   if (!light) return {};
   return {
     backgroundColor: DESKTOP_LIGHT_BACKGROUND_COLOR,
@@ -172,10 +159,10 @@ export const DESKTOP_WINDOW_OPTIONS = Object.freeze({
   autoHideMenuBar: true,
   titleBarStyle: 'hidden',
   ...(process.platform === 'win32'
-    // `hidden` + Window Controls Overlay already provides the custom chrome.
-    // Retaining the native frame keeps Windows' DWM maximize/restore path and
-    // avoids the white edge exposed by fully frameless BrowserWindows.
-    ? { frame: true, titleBarOverlay: defaultTitleBarOverlay }
+    ? // `hidden` + Window Controls Overlay already provides the custom chrome.
+      // Retaining the native frame keeps Windows' DWM maximize/restore path and
+      // avoids the white edge exposed by fully frameless BrowserWindows.
+      { frame: true, titleBarOverlay: defaultTitleBarOverlay }
     : { titleBarOverlay: false }),
   backgroundColor: DESKTOP_BACKGROUND_COLOR,
   webPreferences,

@@ -7,15 +7,18 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const run = promisify(execFile);
-const binary = resolve('native/mixdog-graph/target/release', process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph');
+const binary = resolve(
+  'native/mixdog-graph/target/release',
+  process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph'
+);
 
 test('invalid source encoding is isolated and remains visible on cached graph queries', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'mixdog-graph-encoding-'));
-    try {
-        await writeFile(join(root, 'package.json'), '{}');
-        await writeFile(join(root, 'valid.mjs'), 'export function GraphEncodingNeedle() { return 1; }\n');
-        await writeFile(join(root, 'invalid.cs'), Buffer.from([47, 47, 32, 233, 10]));
-        const script = `
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-graph-encoding-'));
+  try {
+    await writeFile(join(root, 'package.json'), '{}');
+    await writeFile(join(root, 'valid.mjs'), 'export function GraphEncodingNeedle() { return 1; }\n');
+    await writeFile(join(root, 'invalid.cs'), Buffer.from([47, 47, 32, 233, 10]));
+    const script = `
             import assert from 'node:assert/strict';
             import { writeFile } from 'node:fs/promises';
             import { join } from 'node:path';
@@ -45,10 +48,11 @@ test('invalid source encoding is isolated and remains visible on cached graph qu
             assert.equal(repaired.nodes.get('invalid.cs').parseError, '');
             assert.ok(repaired.nodes.get('invalid.cs').symbols.some((s) => s.name === 'EncodingRepaired'));
         `;
-        await run(process.execPath, ['--input-type=module', '-e', script, root, binary], {
-            cwd: process.cwd(), maxBuffer: 2 * 1024 * 1024,
-        });
-    } finally {
-        await rm(root, { recursive: true, force: true });
-    }
+    await run(process.execPath, ['--input-type=module', '-e', script, root, binary], {
+      cwd: process.cwd(),
+      maxBuffer: 2 * 1024 * 1024,
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

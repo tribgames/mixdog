@@ -53,7 +53,7 @@ function resolveSilentForSeconds(now, snapshot, runtime) {
     snapshot?.toolStartedAt || 0,
     runtime?.toolStartedAt || 0,
     snapshot?.askStartedAt || 0,
-    runtime?.askStartedAt || 0,
+    runtime?.askStartedAt || 0
   );
   return positiveSeconds(now, last);
 }
@@ -73,9 +73,10 @@ export function buildAgentTaskProgressFields({
   const workerStage = stage;
   const silentFor = resolveSilentForSeconds(now, snapshot, runtime);
   const watchdog = formatAgentWatchdogSummary(policy, snapshot);
-  const queued = Number.isFinite(Number(queuedFollowups)) && Number(queuedFollowups) > 0
-    ? Math.floor(Number(queuedFollowups))
-    : null;
+  const queued =
+    Number.isFinite(Number(queuedFollowups)) && Number(queuedFollowups) > 0
+      ? Math.floor(Number(queuedFollowups))
+      : null;
 
   const lastProgress = describeLastProgress({
     stage,
@@ -131,10 +132,7 @@ function describeLastProgress({ stage, snapshot, runtime, silentFor, lastToolCal
         : 'model reasoning (hidden; no visible output yet)';
     }
     if (snapshot?.hasFirstSemantic) return 'model active (no visible output yet)';
-    const streamSilent = positiveSeconds(
-      now,
-      snapshot?.lastStreamDeltaAt || runtime?.lastStreamDeltaAt || 0,
-    );
+    const streamSilent = positiveSeconds(now, snapshot?.lastStreamDeltaAt || runtime?.lastStreamDeltaAt || 0);
     if (streamSilent != null && streamSilent >= 5) {
       return `streaming (no stream delta for ${streamSilent}s)`;
     }
@@ -153,16 +151,7 @@ function describeLastProgress({ stage, snapshot, runtime, silentFor, lastToolCal
   return stage;
 }
 
-function describeAgentDiagnostic({
-  taskStatus,
-  sessionStatus,
-  stage,
-  snapshot,
-  silentFor,
-  queued,
-  policy,
-  now,
-}) {
+function describeAgentDiagnostic({ taskStatus, sessionStatus, stage, snapshot, silentFor, queued, policy, now }) {
   const normalizedTask = cleanStage(taskStatus).toLowerCase();
   if (normalizedTask === 'cancelled' || normalizedTask === 'canceled') return 'task cancelled';
   if (normalizedTask === 'failed' || normalizedTask === 'error') return 'task failed';
@@ -196,10 +185,7 @@ function describeAgentDiagnostic({
         : 'hidden reasoning active; no visible output yet';
     }
     if (snapshot?.hasFirstSemantic) return 'model active; no visible output yet';
-    const streamSilent = positiveSeconds(
-      now,
-      snapshot?.lastStreamDeltaAt || 0,
-    );
+    const streamSilent = positiveSeconds(now, snapshot?.lastStreamDeltaAt || 0);
     if (streamSilent != null && streamSilent >= 5) {
       return `streaming, no visible output yet (${streamSilent}s)`;
     }
@@ -213,7 +199,7 @@ function describeAgentDiagnostic({
     const abortErr = evaluateAgentWatchdogAbort(
       snapshot || { stage, lastProgressAt: now - silentFor * 1000 },
       now,
-      policy,
+      policy
     );
     if (abortErr) return `stale: ${abortErr.message.replace(/^agent /i, '')}`;
   }

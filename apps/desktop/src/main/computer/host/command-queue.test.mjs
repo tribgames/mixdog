@@ -14,16 +14,29 @@ function fixture(t, overrides = {}) {
   const execution = createExecutionState();
   const calls = [];
   const host = createSessionLifecycle({
-    coordinator, execution, powerShellBySession: new Map(), workerLastUsedAt: new Map(),
-    retirePowerShell() {}, callPowerShell: async () => ({ ok: true }),
-    cancelElevatedSession: async () => true, elevatedSessionIds: () => [],
+    coordinator,
+    execution,
+    powerShellBySession: new Map(),
+    workerLastUsedAt: new Map(),
+    retirePowerShell() {},
+    callPowerShell: async () => ({ ok: true }),
+    cancelElevatedSession: async () => true,
+    elevatedSessionIds: () => [],
     sessionIdFor: (command) => command.session_id,
-    releaseSessionState() {}, invalidateWorkerGeneration() {}, releaseCaptureSession() {},
+    releaseSessionState() {},
+    invalidateWorkerGeneration() {},
+    releaseCaptureSession() {},
     cleanupInput: async () => true,
-    runCommand: async (command) => { calls.push(command.action); return { text: command.action }; },
+    runCommand: async (command) => {
+      calls.push(command.action);
+      return { text: command.action };
+    },
     recaptureRequiredReply: async (command, error) => {
       const payload = buildRecaptureRequiredPayload(command.action, error, {
-        ok: true, action: 'capture', window_id: 'hwnd:0x1', frame_id: 'fresh',
+        ok: true,
+        action: 'capture',
+        window_id: 'hwnd:0x1',
+        frame_id: 'fresh',
       });
       if (!payload) return null;
       calls.push('recapture');
@@ -31,7 +44,10 @@ function fixture(t, overrides = {}) {
     },
     ...overrides,
   });
-  t.after(async () => { await host.stopAllComputerSessions(); coordinator.reset(); });
+  t.after(async () => {
+    await host.stopAllComputerSessions();
+    coordinator.reset();
+  });
   return { coordinator, execution, host, calls };
 }
 
@@ -45,8 +61,10 @@ test('a dispatched menu timeout survives worker cancellation without replay or r
       throw new Error('computer_command_timeout: menu provider did not respond');
     },
   });
-  await assert.rejects(f.host.executeSerialized({ action: 'invoke_menu', session_id: 'a' }),
-    /computer_command_timeout: menu provider did not respond/);
+  await assert.rejects(
+    f.host.executeSerialized({ action: 'invoke_menu', session_id: 'a' }),
+    /computer_command_timeout: menu provider did not respond/
+  );
   await f.host.waitForCleanup();
   assert.equal(dispatched, 1);
   assert.deepEqual(f.calls, []);
@@ -72,28 +90,42 @@ test('failed or interrupted recovery preserves the original error and never publ
       },
       recordDiagnostic: (_session, record) => diagnostics.push(record),
     });
-    await assert.rejects(f.host.executeSerialized({ action: 'invoke_menu', session_id: 'a' }),
-      /menu_path_not_found: fixture menu is unavailable/);
+    await assert.rejects(
+      f.host.executeSerialized({ action: 'invoke_menu', session_id: 'a' }),
+      /menu_path_not_found: fixture menu is unavailable/
+    );
     assert.equal(dispatched, 1);
-    assert.ok(diagnostics.some(record => record.stage === 'recovery' && record.ok === false));
+    assert.ok(diagnostics.some((record) => record.stage === 'recovery' && record.ok === false));
   }
 });
 
-test('background semantic focus guards cannot interrupt another session pointer and remain background', { timeout: 3000 }, async (t) => {
+test('background semantic focus guards cannot interrupt another session pointer and remain background', {
+  timeout: 3000,
+}, async (t) => {
   let release;
   const events = [];
   let f;
   f = fixture(t, {
-    runCommand: async command => {
-      events.push([command.session_id, f.coordinator.snapshot().activities.find(row => row.sessionId === command.session_id)?.mode]);
-      if (command.session_id === 'pointer') await new Promise(resolve => { release = resolve; });
+    runCommand: async (command) => {
+      events.push([
+        command.session_id,
+        f.coordinator.snapshot().activities.find((row) => row.sessionId === command.session_id)?.mode,
+      ]);
+      if (command.session_id === 'pointer')
+        await new Promise((resolve) => {
+          release = resolve;
+        });
       return { text: 'done' };
     },
   });
   const pointer = f.host.executeSerialized({ action: 'click', delivery: 'foreground', session_id: 'pointer' });
   await turn();
-  const command = { action: 'sequence', delivery: 'background', session_id: 'semantic',
-    steps: [{ action: 'invoke', ref: 's1:e0' }] };
+  const command = {
+    action: 'sequence',
+    delivery: 'background',
+    session_id: 'semantic',
+    steps: [{ action: 'invoke', ref: 's1:e0' }],
+  };
   const semantic = f.host.executeSerialized(command);
   await turn();
   assert.deepEqual(events, [['pointer', 'foreground']]);
@@ -107,14 +139,19 @@ test('background semantic focus guards cannot interrupt another session pointer 
 });
 
 for (const reason of ['user_pause', 'user_input_active']) {
-  test(`${reason} retains FIFO work without holding the resume drain or replaying stale input`, { timeout: 3000 }, async (t) => {
+  test(`${reason} retains FIFO work without holding the resume drain or replaying stale input`, {
+    timeout: 3000,
+  }, async (t) => {
     const f = fixture(t);
     const first = f.host.executeSerialized({ action: 'capture', session_id: 'a' });
     const second = f.host.executeSerialized({ action: 'click', session_id: 'a', window_id: 'hwnd:0x1' });
     const third = f.host.executeSerialized({ action: 'clipboard_read', session_id: 'a' });
     f.host.takeOverComputer(reason);
     let settled = false;
-    const results = Promise.all([first, second, third]).then((value) => { settled = true; return value; });
+    const results = Promise.all([first, second, third]).then((value) => {
+      settled = true;
+      return value;
+    });
     await f.host.waitForCleanup();
     await turn();
     assert.equal(settled, false);
@@ -128,7 +165,9 @@ for (const reason of ['user_pause', 'user_input_active']) {
   });
 }
 
-test('work admitted during a pause is visible to Stop and must refresh its target on resume', { timeout: 3000 }, async (t) => {
+test('work admitted during a pause is visible to Stop and must refresh its target on resume', {
+  timeout: 3000,
+}, async (t) => {
   const f = fixture(t);
   f.coordinator.pauseForUser('user_pause', ['a']);
   const pending = f.host.executeSerialized({ action: 'type', session_id: 'b', window_id: 'hwnd:0x1' });
@@ -143,7 +182,12 @@ test('work admitted during a pause is visible to Stop and must refresh its targe
 
 test('Stop cancels parked work even while its pause cleanup is still pending', { timeout: 3000 }, async (t) => {
   let clean;
-  const f = fixture(t, { cleanupInput: () => new Promise((resolve) => { clean = resolve; }) });
+  const f = fixture(t, {
+    cleanupInput: () =>
+      new Promise((resolve) => {
+        clean = resolve;
+      }),
+  });
   const one = f.host.executeSerialized({ action: 'capture', session_id: 'a' });
   const two = f.host.executeSerialized({ action: 'type', session_id: 'a' });
   const results = Promise.allSettled([one, two]);
@@ -151,21 +195,34 @@ test('Stop cancels parked work even while its pause cleanup is still pending', {
   await turn();
   const stopped = f.host.stopAllComputerSessions();
   await turn();
-  assert.deepEqual((await results).map((result) => result.status), ['rejected', 'rejected']);
+  assert.deepEqual(
+    (await results).map((result) => result.status),
+    ['rejected', 'rejected']
+  );
   assert.deepEqual(f.calls, []);
   clean(true);
   await stopped;
 });
 
-test('a queued foreground request yields its lane to cleanup instead of blocking resume', { timeout: 3000 }, async (t) => {
+test('a queued foreground request yields its lane to cleanup instead of blocking resume', {
+  timeout: 3000,
+}, async (t) => {
   let finish;
   const f = fixture(t, {
-    runCommand: () => new Promise((resolve) => { finish = () => resolve({ text: 'late result' }); }),
+    runCommand: () =>
+      new Promise((resolve) => {
+        finish = () => resolve({ text: 'late result' });
+      }),
   });
   const first = f.host.executeSerialized({ action: 'capture', session_id: 'a', delivery: 'foreground' });
   const firstResult = first.catch((error) => error);
   await turn();
-  const second = f.host.executeSerialized({ action: 'click', session_id: 'b', delivery: 'foreground', window_id: 'hwnd:0x1' });
+  const second = f.host.executeSerialized({
+    action: 'click',
+    session_id: 'b',
+    delivery: 'foreground',
+    window_id: 'hwnd:0x1',
+  });
   await turn();
   f.host.takeOverComputer('user_pause');
   finish();
@@ -183,8 +240,11 @@ test('lost callers cancel only their parked queue and release its admission budg
   const cancelled = Promise.allSettled(a);
   const b = f.host.executeSerialized({ action: 'capture', session_id: 'b' });
   await f.host.abortComputerSession({ action: 'session_abort', session_id: 'a' });
-  assert.equal(f.coordinator.snapshot().takeoverReason, 'user_input_active',
-    'caller cancellation must not turn an idle-resumable pause into global Stop');
+  assert.equal(
+    f.coordinator.snapshot().takeoverReason,
+    'user_input_active',
+    'caller cancellation must not turn an idle-resumable pause into global Stop'
+  );
   assert.ok((await cancelled).every((result) => result.status === 'rejected'));
   await f.host.resumeAfterTakeover(f.coordinator.snapshot().takeoverGeneration);
   assert.equal((await b).text, 'capture');
@@ -203,12 +263,21 @@ test('settled commands retain task activity until explicit execution end', async
   assert.equal((await f.host.executeSerialized({ action: 'capture', session_id: 'a' })).text, 'capture');
 });
 
-test('a long pause frees the native queue but retains pending task activity without replay', { timeout: 3000 }, async (t) => {
+test('a long pause frees the native queue but retains pending task activity without replay', {
+  timeout: 3000,
+}, async (t) => {
   const f = fixture(t, { pauseWaitMs: 15 });
   f.coordinator.pauseForUser('user_input_active', ['a']);
-  const result = JSON.parse((await f.host.executeSerialized({
-    action: 'type', session_id: 'a', window_id: 'hwnd:0x1', text: 'private input',
-  })).text);
+  const result = JSON.parse(
+    (
+      await f.host.executeSerialized({
+        action: 'type',
+        session_id: 'a',
+        window_id: 'hwnd:0x1',
+        text: 'private input',
+      })
+    ).text
+  );
   assert.equal(result.status, 'paused');
   assert.equal(result.completed, false);
   assert.equal(result.fresh_capture_required, true);
@@ -226,15 +295,23 @@ test('a long pause frees the native queue but retains pending task activity with
   assert.equal(computerUseOverlayPresentation(f.coordinator.snapshot()).visible, false);
 });
 
-test('idle resume recovers transient observation loss, returns fresh evidence and hides settled work', { timeout: 3000 }, async (t) => {
+test('idle resume recovers transient observation loss, returns fresh evidence and hides settled work', {
+  timeout: 3000,
+}, async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
   const f = fixture(t);
   let sequence = 0;
   let lastInput = 0;
   const manager = createComputerUserWait({
-    coordinator: f.coordinator, now: () => Date.now(), enabled: () => true,
+    coordinator: f.coordinator,
+    now: () => Date.now(),
+    enabled: () => true,
     observe: async () => ({
-      ready: Date.now() > 500, monitor: 'fixture', sequence, held: false, idleMs: Date.now() - lastInput,
+      ready: Date.now() > 500,
+      monitor: 'fixture',
+      sequence,
+      held: false,
+      idleMs: Date.now() - lastInput,
     }),
     resume: (generation, signal, recheck) => f.host.resumeAfterTakeover(generation, signal, recheck),
   });
@@ -246,7 +323,9 @@ test('idle resume recovers transient observation loss, returns fresh evidence an
   f.coordinator.pauseForUser('user_input_active', ['a']);
   const pending = f.host.executeSerialized({ action: 'click', session_id: 'a', window_id: 'hwnd:0x1' });
   let settled = false;
-  pending.then(() => { settled = true; });
+  pending.then(() => {
+    settled = true;
+  });
   for (let i = 0; i < 8; i++) await tick();
   sequence++;
   lastInput = Date.now();
@@ -265,7 +344,9 @@ test('idle resume recovers transient observation loss, returns fresh evidence an
 });
 
 for (const reason of ['user_input_active', 'user_pause']) {
-  test(`${reason} parks in-flight sequence progress until cleanup and resume, without replay`, { timeout: 3000 }, async (t) => {
+  test(`${reason} parks in-flight sequence progress until cleanup and resume, without replay`, {
+    timeout: 3000,
+  }, async (t) => {
     let dispatch;
     let f;
     let inputCalls = 0;
@@ -273,16 +354,23 @@ for (const reason of ['user_input_active', 'user_pause']) {
       runCommand: async () => {
         inputCalls++;
         f.execution.executionContext.getStore().progress = { completed: 1, inFlight: 1 };
-        await new Promise((resolve) => { dispatch = resolve; });
+        await new Promise((resolve) => {
+          dispatch = resolve;
+        });
         throw new Error('computer_session_aborted: worker retired during input');
       },
     });
     const request = f.host.executeSerialized({
-      action: 'sequence', session_id: 'a', window_id: 'hwnd:0x1', delivery: 'foreground',
+      action: 'sequence',
+      session_id: 'a',
+      window_id: 'hwnd:0x1',
+      delivery: 'foreground',
       steps: [{ action: 'click' }, { action: 'type', text: 'private text' }, { action: 'key', keys: '{ENTER}' }],
     });
     let settled = false;
-    request.then(() => { settled = true; });
+    request.then(() => {
+      settled = true;
+    });
     await turn();
     f.host.takeOverComputer(reason);
     dispatch();
@@ -294,7 +382,10 @@ for (const reason of ['user_input_active', 'user_pause']) {
     const result = JSON.parse((await request).text);
     assert.equal(result.ok, true);
     assert.equal(result.status, 'resumed');
-    assert.deepEqual(result.steps.map((step) => step.status), ['succeeded', 'uncertain', 'pending']);
+    assert.deepEqual(
+      result.steps.map((step) => step.status),
+      ['succeeded', 'uncertain', 'pending']
+    );
     assert.deepEqual(result.pending_work, { completed_steps: 1, uncertain_step: 2, pending_steps: [3] });
     assert.equal(result.observation.frame_id, 'fresh');
     assert.equal(result.input_replayed, false);
@@ -306,7 +397,10 @@ for (const reason of ['user_input_active', 'user_pause']) {
 test('Stop cancels an in-flight mutation parked after user intervention', { timeout: 3000 }, async (t) => {
   let dispatch;
   const f = fixture(t, {
-    runCommand: () => new Promise((resolve) => { dispatch = () => resolve({ text: 'late' }); }),
+    runCommand: () =>
+      new Promise((resolve) => {
+        dispatch = () => resolve({ text: 'late' });
+      }),
   });
   const request = f.host.executeSerialized({ action: 'type', session_id: 'a', window_id: 'hwnd:0x1' });
   const result = request.catch((error) => error);
@@ -320,7 +414,9 @@ test('Stop cancels an in-flight mutation parked after user intervention', { time
   assert.deepEqual(f.calls, []);
 });
 
-test('recovery failure survives worker cancellation and remains blocked rather than replayed', { timeout: 3000 }, async (t) => {
+test('recovery failure survives worker cancellation and remains blocked rather than replayed', {
+  timeout: 3000,
+}, async (t) => {
   let f;
   f = fixture(t, {
     runCommand: async () => {
@@ -331,7 +427,7 @@ test('recovery failure survives worker cancellation and remains blocked rather t
   });
   await assert.rejects(
     f.host.executeSerialized({ action: 'sequence', session_id: 'a', window_id: 'hwnd:0x1' }),
-    /input_recovery_unconfirmed/,
+    /input_recovery_unconfirmed/
   );
   await f.host.waitForCleanup();
   assert.equal(f.coordinator.snapshot().takeoverReason, 'input_recovery_unconfirmed');
@@ -339,22 +435,33 @@ test('recovery failure survives worker cancellation and remains blocked rather t
   assert.deepEqual(f.calls, []);
 });
 
-test('native interruption inside a sequence reaches the pending queue instead of a failed tool reply', { timeout: 3000 }, async (t) => {
+test('native interruption inside a sequence reaches the pending queue instead of a failed tool reply', {
+  timeout: 3000,
+}, async (t) => {
   let f;
   const dispatched = [];
   f = fixture(t, {
     runCommand: async (command) => {
       const state = f.execution.executionContext.getStore();
-      await executeComputerSequenceSteps(command.steps, command.window_id, async (_, index) => {
-        state.progress = { completed: index, inFlight: index };
-        dispatched.push(index);
-        return index === 0 ? { ok: true } : { ok: false, code: 'user_input_active' };
-      }, (completed) => { state.progress = { completed }; });
+      await executeComputerSequenceSteps(
+        command.steps,
+        command.window_id,
+        async (_, index) => {
+          state.progress = { completed: index, inFlight: index };
+          dispatched.push(index);
+          return index === 0 ? { ok: true } : { ok: false, code: 'user_input_active' };
+        },
+        (completed) => {
+          state.progress = { completed };
+        }
+      );
       throw new Error('unexpected sequence completion');
     },
   });
   const request = f.host.executeSerialized({
-    action: 'sequence', session_id: 'a', window_id: 'hwnd:0x1',
+    action: 'sequence',
+    session_id: 'a',
+    window_id: 'hwnd:0x1',
     steps: [{ action: 'click' }, { action: 'type' }, { action: 'key' }],
   });
   await turn();
@@ -363,6 +470,9 @@ test('native interruption inside a sequence reaches the pending queue instead of
   await f.host.resumeAfterTakeover(f.coordinator.snapshot().takeoverGeneration);
   const result = JSON.parse((await request).text);
   assert.equal(result.status, 'resumed');
-  assert.deepEqual(result.steps.map((step) => step.status), ['succeeded', 'uncertain', 'pending']);
+  assert.deepEqual(
+    result.steps.map((step) => step.status),
+    ['succeeded', 'uncertain', 'pending']
+  );
   assert.deepEqual(dispatched, [0, 1]);
 });

@@ -2,12 +2,12 @@
 // its last transcript immediately instead of an empty frame while the session
 // re-attaches. Bounded by BOTH count and estimated retained JS bytes so six
 // unusually large transcripts cannot pin the renderer heap indefinitely.
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from 'react';
 
-import type { SessionSnapshot } from "../shared/contract";
-import type { Snapshot } from "./desktop-types";
-import type { DesktopSnapshotStore } from "./desktop-snapshot-store";
-import { RendererLruCache } from "./renderer-lru-cache";
+import type { SessionSnapshot } from '../shared/contract';
+import type { Snapshot } from './desktop-types';
+import type { DesktopSnapshotStore } from './desktop-snapshot-store';
+import { RendererLruCache } from './renderer-lru-cache';
 
 const SESSION_SNAPSHOT_CACHE_LIMIT = 6;
 const SESSION_SNAPSHOT_CACHE_BYTE_LIMIT = 16 * 1024 * 1024;
@@ -17,10 +17,10 @@ const MAX_ESTIMATED_VALUE_BYTES = SESSION_SNAPSHOT_CACHE_BYTE_LIMIT + 1;
 const valueByteEstimates = new WeakMap<object, number>();
 
 function estimateValueBytes(value: unknown, seen: Set<object>, depth = 0): number {
-  if (typeof value === "string") return value.length * 2 + 16;
-  if (typeof value === "number" || typeof value === "bigint") return 8;
-  if (typeof value === "boolean") return 4;
-  if (value == null || typeof value !== "object") return 0;
+  if (typeof value === 'string') return value.length * 2 + 16;
+  if (typeof value === 'number' || typeof value === 'bigint') return 8;
+  if (typeof value === 'boolean') return 4;
+  if (value == null || typeof value !== 'object') return 0;
   const cached = valueByteEstimates.get(value);
   if (cached !== undefined) return cached;
   if (seen.has(value)) return 0;
@@ -45,10 +45,7 @@ function estimateValueBytes(value: unknown, seen: Set<object>, depth = 0): numbe
 }
 
 export function estimateSessionSnapshotBytes(snapshot: Snapshot): number {
-  return Math.min(
-    MAX_ESTIMATED_VALUE_BYTES,
-    SNAPSHOT_BASE_BYTES + estimateValueBytes(snapshot, new Set()),
-  );
+  return Math.min(MAX_ESTIMATED_VALUE_BYTES, SNAPSHOT_BASE_BYTES + estimateValueBytes(snapshot, new Set()));
 }
 
 let snapshotCacheSequence = 0;
@@ -79,9 +76,9 @@ export function createSessionSnapshotCache({
   });
   return {
     remember(next) {
-      const value = next && typeof next === "object" ? next as Snapshot : null;
+      const value = next && typeof next === 'object' ? (next as Snapshot) : null;
       if (!value) return;
-      const sessionId = String(value.sessionId || "");
+      const sessionId = String(value.sessionId || '');
       if (!sessionId) return;
       // The live snapshot store already owns the current frame. Keeping a
       // second reference to an individually oversized transcript buys no safe
@@ -94,8 +91,12 @@ export function createSessionSnapshotCache({
     forget(sessionId) {
       entries.delete(sessionId);
     },
-    registerBudget() { entries.register(); },
-    dispose() { entries.dispose(); },
+    registerBudget() {
+      entries.register();
+    },
+    dispose() {
+      entries.dispose();
+    },
   };
 }
 

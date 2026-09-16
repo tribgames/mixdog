@@ -14,9 +14,7 @@ import {
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-renderer-delta-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const paths = Object.fromEntries(
-    ['base', 'current', 'delta', 'output'].map((name) => [name, join(root, name)]),
-  );
+  const paths = Object.fromEntries(['base', 'current', 'delta', 'output'].map((name) => [name, join(root, name)]));
   await Promise.all([mkdir(paths.base), mkdir(paths.current)]);
   return paths;
 }
@@ -81,7 +79,7 @@ test('renderer reconstruction rejects a mismatched reused base file', async (t) 
       manifest: JSON.parse(await readFile(manifestPath, 'utf8')),
       outputDir: paths.output,
     }),
-    /failed verification/,
+    /failed verification/
   );
 });
 
@@ -113,9 +111,13 @@ test('hardlinked reconstruction never mutates the installed base', async (t) => 
 });
 
 test('renderer manifests reject traversal paths', () => {
-  assert.throws(() => validateRendererManifest({
-    schemaVersion: 1,
-    treeHash: '0'.repeat(64),
-    files: [{ path: '../escape.js', size: 1, sha256: '0'.repeat(64) }],
-  }), /Unsafe renderer manifest path/);
+  assert.throws(
+    () =>
+      validateRendererManifest({
+        schemaVersion: 1,
+        treeHash: '0'.repeat(64),
+        files: [{ path: '../escape.js', size: 1, sha256: '0'.repeat(64) }],
+      }),
+    /Unsafe renderer manifest path/
+  );
 });

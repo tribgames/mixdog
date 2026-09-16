@@ -32,10 +32,18 @@ export function createMaintenancePickers({
     // Async: both reads are remote calls on a daemon-backed store, so the sync
     // versions rendered every row from an unresolved promise.
     const readSettings = async () => {
-      try { return (await store.getUpdateSettings?.()) || {}; } catch { return {}; }
+      try {
+        return (await store.getUpdateSettings?.()) || {};
+      } catch {
+        return {};
+      }
     };
     const readStatus = async () => {
-      try { return (await store.getUpdateStatus?.()) || { phase: 'idle' }; } catch { return { phase: 'idle' }; }
+      try {
+        return (await store.getUpdateStatus?.()) || { phase: 'idle' };
+      } catch {
+        return { phase: 'idle' };
+      }
     };
     const render = async ({ checking = false } = {}) => {
       const [upd, status] = await Promise.all([readSettings(), readStatus()]);
@@ -43,10 +51,8 @@ export function createMaintenancePickers({
       // After a successful in-place install the running process is still the
       // old version; surface the pending version so "Current" doesn't look
       // stale/broken until restart.
-      const installedVersion = status.phase === 'installed' ? (status.version || upd.latestVersion || null) : null;
-      const latestMeta = checking || status.phase === 'checking'
-        ? 'checking…'
-        : (upd.latestVersion || 'unknown');
+      const installedVersion = status.phase === 'installed' ? status.version || upd.latestVersion || null : null;
+      const latestMeta = checking || status.phase === 'checking' ? 'checking…' : upd.latestVersion || 'unknown';
       const items = [
         {
           value: 'current',
@@ -86,11 +92,11 @@ export function createMaintenancePickers({
               value: 'update-now',
               label: installedVersion
                 ? `v${installedVersion} installed — restart to apply`
-                : (status.phase === 'installing'
+                : status.phase === 'installing'
                   ? 'Installing…'
-                  : (upd.updateAvailable
+                  : upd.updateAvailable
                     ? `Update to v${upd.latestVersion || 'latest'}`
-                    : 'Update now')),
+                    : 'Update now',
             },
           ],
           onConfirm: (button) => {
@@ -113,8 +119,9 @@ export function createMaintenancePickers({
     // Every render() is an async daemon read; a detached call would surface a
     // failed read as an unhandled rejection (fatal for the TUI process).
     const rerender = (opts = {}) => {
-      void Promise.resolve(render(opts))
-        .catch((e) => store.pushNotice(`update panel failed: ${e?.message || e}`, 'error'));
+      void Promise.resolve(render(opts)).catch((e) =>
+        store.pushNotice(`update panel failed: ${e?.message || e}`, 'error')
+      );
     };
     // Deferred repaint bound to the claim AT ACTION TIME: a check/install that
     // settles after Esc must not re-open the Update panel.
@@ -193,14 +200,19 @@ export function createMaintenancePickers({
       return `${value}ms`;
     };
     const readCurrent = async () => {
-      try { return (await store.getAutoClear?.()) || null; } catch { return null; }
+      try {
+        return (await store.getAutoClear?.()) || null;
+      } catch {
+        return null;
+      }
     };
     const applyAutoClear = (patch = {}) => {
       // Bound to the claim on this keypress: a write acking after Esc must not
       // re-open the Auto-clear panel.
       const settled = own.defer(() => {
-        void Promise.resolve(render())
-          .catch((e) => store.pushNotice(`auto-clear panel failed: ${e?.message || e}`, 'error'));
+        void Promise.resolve(render()).catch((e) =>
+          store.pushNotice(`auto-clear panel failed: ${e?.message || e}`, 'error')
+        );
       });
       void Promise.resolve(store.setAutoClear?.(patch))
         .then((next) => {
@@ -208,7 +220,10 @@ export function createMaintenancePickers({
             store.pushNotice('autoclear unavailable', 'warn');
             return;
           }
-          store.pushNotice(next.enabled ? `autoclear on · idle ${formatDuration(next.idleMs)}` : 'autoclear off', 'info');
+          store.pushNotice(
+            next.enabled ? `autoclear on · idle ${formatDuration(next.idleMs)}` : 'autoclear off',
+            'info'
+          );
         })
         .catch((e) => store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error'))
         .finally(settled);
@@ -308,8 +323,9 @@ export function createMaintenancePickers({
     setSettingsPrompt(null);
     own.context(null);
     closeUsagePanel();
-    return Promise.resolve(options.advanced === true ? renderAdvanced() : render())
-      .catch((e) => store.pushNotice(`auto-clear panel failed: ${e?.message || e}`, 'error'));
+    return Promise.resolve(options.advanced === true ? renderAdvanced() : render()).catch((e) =>
+      store.pushNotice(`auto-clear panel failed: ${e?.message || e}`, 'error')
+    );
   };
 
   const openProfilePicker = async (options = {}) => {
@@ -323,19 +339,21 @@ export function createMaintenancePickers({
     } catch {
       profile = null;
     }
-    const languages = Array.isArray(profile?.languages) && profile.languages.length
-      ? profile.languages
-      : [{ id: 'system', label: 'System (locale)' }];
+    const languages =
+      Array.isArray(profile?.languages) && profile.languages.length
+        ? profile.languages
+        : [{ id: 'system', label: 'System (locale)' }];
     const currentLangId = profile?.language || 'system';
     const currentLang = languages.find((lang) => lang.id === currentLangId) || languages[0];
-    const experienceLevels = Array.isArray(profile?.experienceLevels) && profile.experienceLevels.length
-      ? profile.experienceLevels
-      : [
-          { id: 'beginner', label: 'Beginner' },
-          { id: 'vibe-coder', label: 'Vibe coder' },
-          { id: 'junior', label: 'Junior' },
-          { id: 'expert', label: 'Expert' },
-        ];
+    const experienceLevels =
+      Array.isArray(profile?.experienceLevels) && profile.experienceLevels.length
+        ? profile.experienceLevels
+        : [
+            { id: 'beginner', label: 'Beginner' },
+            { id: 'vibe-coder', label: 'Vibe coder' },
+            { id: 'junior', label: 'Junior' },
+            { id: 'expert', label: 'Expert' },
+          ];
     const currentExperienceLevelId = profile?.experienceLevel || '';
     const currentExperienceLevel = experienceLevels.find((level) => level.id === currentExperienceLevelId) || null;
     const titleValue = String(profile?.title || '').trim();
@@ -344,12 +362,17 @@ export function createMaintenancePickers({
     // cannot escape as an unhandled rejection).
     // Bound to the claim when the cycle keypress builds its chain: a setProfile
     // that acks after Esc must not re-open the Profile panel.
-    const reopenProfile = () => own.defer(() => {
-      void Promise.resolve(openProfilePicker({ returnTo }))
-        .catch((e) => store.pushNotice(`profile panel failed: ${e?.message || e}`, 'error'));
-    });
+    const reopenProfile = () =>
+      own.defer(() => {
+        void Promise.resolve(openProfilePicker({ returnTo })).catch((e) =>
+          store.pushNotice(`profile panel failed: ${e?.message || e}`, 'error')
+        );
+      });
     const cycleLanguage = (direction = 1) => {
-      const idx = Math.max(0, languages.findIndex((lang) => lang.id === currentLangId));
+      const idx = Math.max(
+        0,
+        languages.findIndex((lang) => lang.id === currentLangId)
+      );
       const next = languages[(idx + direction + languages.length) % languages.length];
       void Promise.resolve(store.setProfile?.({ language: next.id }))
         .then(() => store.pushNotice(`Language set to ${next.label}`, 'info'))
@@ -358,9 +381,12 @@ export function createMaintenancePickers({
     };
     const cycleExperienceLevel = (direction = 1) => {
       const idx = experienceLevels.findIndex((level) => level.id === currentExperienceLevelId);
-      const nextIdx = idx < 0
-        ? (direction < 0 ? experienceLevels.length - 1 : 0)
-        : (idx + direction + experienceLevels.length) % experienceLevels.length;
+      const nextIdx =
+        idx < 0
+          ? direction < 0
+            ? experienceLevels.length - 1
+            : 0
+          : (idx + direction + experienceLevels.length) % experienceLevels.length;
       const next = experienceLevels[nextIdx];
       void Promise.resolve(store.setProfile?.({ experienceLevel: next.id }))
         .then(() => store.pushNotice(`Experience level set to ${next.label}`, 'info'))

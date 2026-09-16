@@ -7,11 +7,7 @@ export function toolCallId(call) {
 }
 
 export function toolResultCallId(message) {
-  return message?.toolCallId
-    ?? message?.tool_call_id
-    ?? message?.tool_use_id
-    ?? message?.call_id
-    ?? message?.id;
+  return message?.toolCallId ?? message?.tool_call_id ?? message?.tool_use_id ?? message?.call_id ?? message?.id;
 }
 
 export function toolCallName(call) {

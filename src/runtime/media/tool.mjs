@@ -10,8 +10,22 @@ import { clean } from '../shared/clean.mjs';
 const POLL_MS = 750;
 const TIMEOUT_MS = Object.freeze({ image: 180_000, video: 900_000 });
 // OpenAI's image lane takes pixel sizes, not ratios; the placement still speaks in ratios.
-const OPENAI_SIZE = Object.freeze({ '16:9': '1536x1024', '4:3': '1536x1024', '3:2': '1536x1024', '9:16': '1024x1536', '3:4': '1024x1536', '2:3': '1024x1536', '1:1': '1024x1024' });
-const IMAGE_MIME = Object.freeze({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' });
+const OPENAI_SIZE = Object.freeze({
+  '16:9': '1536x1024',
+  '4:3': '1536x1024',
+  '3:2': '1536x1024',
+  '9:16': '1024x1536',
+  '3:4': '1024x1536',
+  '2:3': '1024x1536',
+  '1:1': '1024x1024',
+});
+const IMAGE_MIME = Object.freeze({
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+});
 const MAX_REFERENCE_BYTES = 12 * 1024 * 1024;
 
 let graph = null;
@@ -62,16 +76,23 @@ function modelControls(lane, kind, modelId) {
   const spec = lane[kind];
   const entry = spec?.models.find((model) => model.id === modelId);
   if (!entry) return null;
-  return { id: entry.id, label: entry.label, controls: entry.controls, ...(entry.description ? { description: entry.description } : {}) };
+  return {
+    id: entry.id,
+    label: entry.label,
+    controls: entry.controls,
+    ...(entry.description ? { description: entry.description } : {}),
+  };
 }
 
 /** Narrowing catalog: nothing → lanes; kind → lanes with model ids (+ the remembered lane/model); kind + model → one model's controls. */
 export function listMediaCatalog(lanes, { kind = '', model = '' } = {}, remembered = null) {
   const signedIn = lanes.filter((lane) => lane.authenticated);
   const signedOut = lanes.filter((lane) => !lane.authenticated).map((lane) => lane.id);
-  const catalogErrors = lanes.filter((lane) => lane.catalogError)
+  const catalogErrors = lanes
+    .filter((lane) => lane.catalogError)
     .map((lane) => ({ lane: lane.id, error: lane.catalogError, code: lane.catalogErrorCode }));
-  const catalogWarnings = lanes.filter((lane) => lane.catalogWarning)
+  const catalogWarnings = lanes
+    .filter((lane) => lane.catalogWarning)
     .map((lane) => ({ lane: lane.id, warning: lane.catalogWarning }));
   const diagnostics = {
     ...(catalogErrors.length ? { catalogErrors } : {}),
@@ -85,7 +106,12 @@ export function listMediaCatalog(lanes, { kind = '', model = '' } = {}, remember
   if (!model) {
     return {
       kind,
-      lanes: rows.map((lane) => ({ id: lane.id, label: lane.label, defaultModel: lane[kind].defaultModel, models: lane[kind].models.map((entry) => entry.id) })),
+      lanes: rows.map((lane) => ({
+        id: lane.id,
+        label: lane.label,
+        defaultModel: lane[kind].defaultModel,
+        models: lane[kind].models.map((entry) => entry.id),
+      })),
       // What a generate without lane/model will run on — the caller reads that
       // model's controls instead of guessing from the first lane.
       ...(remembered?.lane ? { remembered: { lane: remembered.lane, model: remembered.model || '' } } : {}),
@@ -93,7 +119,9 @@ export function listMediaCatalog(lanes, { kind = '', model = '' } = {}, remember
       ...diagnostics,
     };
   }
-  const matches = rows.map((lane) => ({ lane: lane.id, ...modelControls(lane, kind, model) })).filter((entry) => entry.id);
+  const matches = rows
+    .map((lane) => ({ lane: lane.id, ...modelControls(lane, kind, model) }))
+    .filter((entry) => entry.id);
   if (!matches.length) {
     throw new MediaToolError(`model "${model}" is not available for ${kind} on a signed-in lane`, {
       available: rows.flatMap((lane) => lane[kind].models.map((entry) => `${lane.id}/${entry.id}`)),
@@ -116,16 +144,22 @@ function pickLane(lanes, kind, requested, remembered = null) {
     const lane = available.find((entry) => entry.id === requested);
     const unavailable = lanes.find((entry) => entry.id === requested && entry.catalogError);
     if (unavailable) throw new MediaToolError(unavailable.catalogError, { lanes: catalog });
-    if (!lane) throw new MediaToolError(`lane "${requested}" is not signed in or does not generate ${kind}`, { lanes: catalog });
+    if (!lane)
+      throw new MediaToolError(`lane "${requested}" is not signed in or does not generate ${kind}`, { lanes: catalog });
     return { lane, laneSource: 'requested' };
   }
   if (!available.length) {
     const failures = lanes.filter((lane) => lane.catalogError);
     if (failures.length) throw new MediaToolError(failures.map((lane) => lane.catalogError).join('\n'), { lanes: [] });
-    throw new MediaToolError(`No signed-in lane generates ${kind} (Settings → Providers). Use user-supplied files or continue without media.`, { lanes: [] });
+    throw new MediaToolError(
+      `No signed-in lane generates ${kind} (Settings → Providers). Use user-supplied files or continue without media.`,
+      { lanes: [] }
+    );
   }
   const rememberedLane = remembered?.lane ? available.find((entry) => entry.id === remembered.lane) : null;
-  return rememberedLane ? { lane: rememberedLane, laneSource: 'remembered' } : { lane: available[0], laneSource: 'first' };
+  return rememberedLane
+    ? { lane: rememberedLane, laneSource: 'remembered' }
+    : { lane: available[0], laneSource: 'first' };
 }
 
 function readRemembered(defaults, kind) {
@@ -144,21 +178,34 @@ function allowed(controls, key) {
 function validateChoice(controls, key, value, label) {
   const list = allowed(controls, key);
   if (!value) return;
-  if (!list || !list.includes(value)) throw new MediaToolError(`${label} "${value}" is not supported by this model${list ? `; use one of ${list.join(', ')}` : ''}`);
+  if (!list || !list.includes(value))
+    throw new MediaToolError(
+      `${label} "${value}" is not supported by this model${list ? `; use one of ${list.join(', ')}` : ''}`
+    );
 }
 
 /** Lane-native options from the tool's placement vocabulary, validated against the model's controls. */
-export function buildOptions(lane, kind, controls, { aspect = '', resolution = '', duration = null, quality = '' } = {}) {
+export function buildOptions(
+  lane,
+  kind,
+  controls,
+  { aspect = '', resolution = '', duration = null, quality = '' } = {}
+) {
   const options = {};
   if (lane.id === 'openai-oauth') {
     if (!allowed(controls, 'size')) {
-      if ([aspect, resolution, quality].some(value => value && value !== 'auto')) {
-        throw new MediaToolError('ChatGPT selects image output settings; explicit size and quality are not supported on this connection.');
+      if ([aspect, resolution, quality].some((value) => value && value !== 'auto')) {
+        throw new MediaToolError(
+          'ChatGPT selects image output settings; explicit size and quality are not supported on this connection.'
+        );
       }
       return options;
     }
     const size = aspect ? OPENAI_SIZE[aspect] : 'auto';
-    if (aspect && !size) throw new MediaToolError(`aspect "${aspect}" has no size on ${lane.id}; use one of ${Object.keys(OPENAI_SIZE).join(', ')}`);
+    if (aspect && !size)
+      throw new MediaToolError(
+        `aspect "${aspect}" has no size on ${lane.id}; use one of ${Object.keys(OPENAI_SIZE).join(', ')}`
+      );
     validateChoice(controls, 'size', size, 'size');
     options.size = size || 'auto';
     if (quality) validateChoice(controls, 'quality', quality, 'quality');
@@ -182,9 +229,12 @@ export function buildOptions(lane, kind, controls, { aspect = '', resolution = '
   if (kind === 'video' && duration != null) {
     const seconds = Number(duration);
     const durations = allowed(controls, 'durations');
-    const range = Array.isArray(controls?.durationRange) && controls.durationRange.length === 2 ? controls.durationRange : null;
-    if (durations && !durations.includes(seconds)) throw new MediaToolError(`duration ${seconds}s is not supported; use one of ${durations.join(', ')}`);
-    if (range && (seconds < range[0] || seconds > range[1])) throw new MediaToolError(`duration ${seconds}s is outside ${range[0]}-${range[1]}s`);
+    const range =
+      Array.isArray(controls?.durationRange) && controls.durationRange.length === 2 ? controls.durationRange : null;
+    if (durations && !durations.includes(seconds))
+      throw new MediaToolError(`duration ${seconds}s is not supported; use one of ${durations.join(', ')}`);
+    if (range && (seconds < range[0] || seconds > range[1]))
+      throw new MediaToolError(`duration ${seconds}s is outside ${range[0]}-${range[1]}s`);
     options.duration = seconds;
   }
   return options;
@@ -195,14 +245,16 @@ async function readReferences(paths, cwd, controls) {
   if (!list.length) return [];
   const cap = Number(controls?.maxReferences) || 0;
   if (cap === 0) throw new MediaToolError('this model takes no reference images');
-  if (list.length > cap) throw new MediaToolError(`this model takes at most ${cap} reference image(s); ${list.length} given`);
+  if (list.length > cap)
+    throw new MediaToolError(`this model takes at most ${cap} reference image(s); ${list.length} given`);
   const references = [];
   for (const entry of list) {
     const file = fullPath(entry, cwd);
     const mime = IMAGE_MIME[extname(file).toLowerCase()];
     if (!mime) throw new MediaToolError(`reference "${entry}" is not a png/jpg/webp/gif image`);
     const bytes = await readFile(file);
-    if (bytes.length > MAX_REFERENCE_BYTES) throw new MediaToolError(`reference "${entry}" exceeds ${MAX_REFERENCE_BYTES / 1024 / 1024} MB`);
+    if (bytes.length > MAX_REFERENCE_BYTES)
+      throw new MediaToolError(`reference "${entry}" exceeds ${MAX_REFERENCE_BYTES / 1024 / 1024} MB`);
     references.push({ base64: bytes.toString('base64'), mime });
   }
   return references;
@@ -236,7 +288,10 @@ async function generate(args, { cwd, signal, deps }) {
   const kind = clean(args.kind);
   if (!MEDIA_KINDS.includes(kind)) throw new MediaToolError(`generate requires kind: ${MEDIA_KINDS.join(' | ')}`);
   const prompt = clean(args.prompt);
-  if (!prompt) throw new MediaToolError('generate requires prompt: the subject, the treatment, the mood, the framing, and what must not appear');
+  if (!prompt)
+    throw new MediaToolError(
+      'generate requires prompt: the subject, the treatment, the mood, the framing, and what must not appear'
+    );
   const requestedPath = clean(args.path);
   if (!requestedPath) throw new MediaToolError('generate requires path: where to write the file');
   const target = fullPath(requestedPath, cwd);
@@ -246,20 +301,32 @@ async function generate(args, { cwd, signal, deps }) {
   const spec = lane[kind];
   // The remembered model only applies on the remembered lane and only while
   // that lane still lists it; otherwise the lane default is the safe choice.
-  const rememberedModel = laneSource === 'remembered' && remembered.model && spec.models.some((entry) => entry.id === remembered.model)
-    ? remembered.model
-    : '';
+  const rememberedModel =
+    laneSource === 'remembered' && remembered.model && spec.models.some((entry) => entry.id === remembered.model)
+      ? remembered.model
+      : '';
   const modelId = clean(args.model) || rememberedModel || spec.defaultModel;
   const model = modelControls(lane, kind, modelId);
-  if (!model) throw new MediaToolError(`model "${modelId}" is not available on ${lane.id} for ${kind}`, { available: spec.models.map((entry) => entry.id) });
+  if (!model)
+    throw new MediaToolError(`model "${modelId}" is not available on ${lane.id} for ${kind}`, {
+      available: spec.models.map((entry) => entry.id),
+    });
   const options = buildOptions(lane, kind, model.controls, {
-    aspect: clean(args.aspect), resolution: clean(args.resolution), duration: args.duration ?? null, quality: clean(args.quality),
+    aspect: clean(args.aspect),
+    resolution: clean(args.resolution),
+    duration: args.duration ?? null,
+    quality: clean(args.quality),
   });
   const references = await readReferences(args.references, cwd, model.controls);
   const started = await jobs.startMediaJob({ lane: lane.id, kind, model: modelId, prompt, options, references });
   const base = { lane: lane.id, model: modelId, laneSource, options, referenceCount: references.length, prompt };
   if (args.wait === false) {
-    return { ok: true, ...jobView(started), ...base, nextAction: `Poll media status job:${started.id} path:${requestedPath}; the file is written when status is done.` };
+    return {
+      ok: true,
+      ...jobView(started),
+      ...base,
+      nextAction: `Poll media status job:${started.id} path:${requestedPath}; the file is written when status is done.`,
+    };
   }
   const deadline = Date.now() + TIMEOUT_MS[kind];
   let job = started;
@@ -269,7 +336,10 @@ async function generate(args, { cwd, signal, deps }) {
       throw new MediaToolError('generation canceled');
     }
     if (Date.now() > deadline) {
-      throw new MediaToolError(`generation is still running after ${TIMEOUT_MS[kind] / 1000}s on ${lane.id}; poll media status job:${job.id}`, { job: job.id });
+      throw new MediaToolError(
+        `generation is still running after ${TIMEOUT_MS[kind] / 1000}s on ${lane.id}; poll media status job:${job.id}`,
+        { job: job.id }
+      );
     }
     await new Promise((done) => setTimeout(done, POLL_MS));
     job = jobs.getMediaJob(job.id) || job;
@@ -306,17 +376,34 @@ async function cancel(args, { deps }) {
 export async function executeMediaTool(args = {}, { cwd = process.cwd(), signal = null, deps = null } = {}) {
   const action = clean(args.action).toLowerCase();
   try {
-    if (!MEDIA_ACTIONS.includes(action)) throw new MediaToolError(`Unsupported media action "${action}"; use ${MEDIA_ACTIONS.join(', ')}`);
+    if (!MEDIA_ACTIONS.includes(action))
+      throw new MediaToolError(`Unsupported media action "${action}"; use ${MEDIA_ACTIONS.join(', ')}`);
     if (action === 'list') {
       const { lanes, defaults } = await mediaGraph(deps);
       const kind = clean(args.kind);
-      return mediaToolResult({ ok: true, ...listMediaCatalog(await lanes.listMediaLanes(), { kind, model: clean(args.model) }, readRemembered(defaults, kind)) });
+      return mediaToolResult({
+        ok: true,
+        ...listMediaCatalog(
+          await lanes.listMediaLanes(),
+          { kind, model: clean(args.model) },
+          readRemembered(defaults, kind)
+        ),
+      });
     }
     if (action === 'generate') return mediaToolResult(await generate(args, { cwd, signal, deps }));
     if (action === 'status') return mediaToolResult(await status(args, { cwd, deps }));
     return mediaToolResult(await cancel(args, { deps }));
   } catch (error) {
     const extra = error instanceof MediaToolError ? error.extra : {};
-    return mediaToolResult({ ok: false, action, error: error?.message || String(error), ...(error?.code ? { code: error.code } : {}), ...extra }, true);
+    return mediaToolResult(
+      {
+        ok: false,
+        action,
+        error: error?.message || String(error),
+        ...(error?.code ? { code: error.code } : {}),
+        ...extra,
+      },
+      true
+    );
   }
 }

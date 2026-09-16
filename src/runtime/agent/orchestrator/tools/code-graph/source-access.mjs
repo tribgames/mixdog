@@ -1,5 +1,6 @@
 // Per-node source-text accessors with fingerprint-keyed runtime caching:
-// raw text, raw lines, masked lines. Extracted verbatim from code-graph.mjs.
+// raw text, raw lines, masked lines.
+
 import { readFileSync } from 'node:fs';
 import { toDisplayPath } from '../builtin/path-utils.mjs';
 import { _maskNonCodeText } from './text-mask.mjs';
@@ -22,7 +23,13 @@ export function _getSourceTextForNode(graph, node, fallbackText = null) {
   }
   let text = '';
   let readOk = false;
-  try { text = readFileSync(node.abs, 'utf8'); readOk = true; } catch { text = ''; readOk = false; }
+  try {
+    text = readFileSync(node.abs, 'utf8');
+    readOk = true;
+  } catch {
+    text = '';
+    readOk = false;
+  }
   if (readOk) {
     graph?._sourceTextCache?.set(node.rel, {
       fingerprint: node.fingerprint || '',
@@ -75,7 +82,8 @@ export function _appendSameBasenameHint(message, normFile, graph) {
       if (matches.length >= 3) break;
     }
   }
-  const why = ' — the file exists on disk but is not indexed (excluded dir like dist/vendor, unsupported type, or graph file cap); use grep/read on it directly.';
+  const why =
+    ' — the file exists on disk but is not indexed (excluded dir like dist/vendor, unsupported type, or graph file cap); use grep/read on it directly.';
   if (!matches.length) return `${message}${why}`;
   return `${message}${why} If you meant the indexed source, same filename is indexed at: ${matches.map((m) => `"${m}"`).join(', ')}.`;
 }

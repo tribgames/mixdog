@@ -23,10 +23,7 @@ import type {
   DesktopServiceMethod,
   SerializableDesktopServiceOptions,
 } from './desktop-service-contract';
-import type {
-  DesktopServiceInbound,
-  DesktopServiceOutbound,
-} from './desktop-service-protocol';
+import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
 import { filterSessionIds } from './desktop-state';
 import { longRunningRequestTimeout } from './local-provider-install-timeout';
 import { createSnapshotDeltaDecoder, releaseHiddenSessionStateEntries } from './state-delta';
@@ -76,19 +73,17 @@ const DEFAULT_FAILURE_NOTICE_DELAY_MS = 10_000;
 const PROCESS_FAILURE_TOAST_ID = 'service-connection-stopped';
 
 function displayExitCode(code: number): string {
-  if (
-    process.platform === 'win32'
-    && Number.isSafeInteger(code)
-    && code >= 0x80000000
-    && code <= 0xffffffff
-  ) {
+  if (process.platform === 'win32' && Number.isSafeInteger(code) && code >= 0x80000000 && code <= 0xffffffff) {
     return `0x${code.toString(16).padStart(8, '0').toUpperCase()}`;
   }
   return String(code);
 }
 
 class DesktopTransportExitError extends Error {
-  constructor(readonly exitCode: number, cause?: Error) {
+  constructor(
+    readonly exitCode: number,
+    cause?: Error
+  ) {
     super(cause?.message || `Mixdog service transport exited with code ${displayExitCode(exitCode)}.`);
     this.name = 'DesktopTransportExitError';
     if (cause) this.cause = cause;
@@ -106,9 +101,7 @@ export class DesktopServiceClient implements DesktopService {
   private readonly listeners = new Set<(snapshot: SessionSnapshot) => void>();
   private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
   private readonly agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
-  private readonly desktopEventListeners = new Set<
-    (event: { name: string; value: unknown }) => void
-  >();
+  private readonly desktopEventListeners = new Set<(event: { name: string; value: unknown }) => void>();
   private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   private readonly sessionStateDecoders = new Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>();
   private readonly pending = new Map<number, PendingRequest>();
@@ -204,16 +197,12 @@ export class DesktopServiceClient implements DesktopService {
     transport.on('diagnostic', (event: unknown, details: unknown) => {
       this.options.onDiagnostic?.(
         String(event || 'desktop-transport-diagnostic'),
-        details && typeof details === 'object'
-          ? details as Record<string, unknown>
-          : {},
+        details && typeof details === 'object' ? (details as Record<string, unknown>) : {}
       );
     });
-    transport.on('exit', (code: unknown, cause: unknown) => this.handleExit(
-      transport,
-      Number(code) || 0,
-      cause instanceof Error ? cause : undefined,
-    ));
+    transport.on('exit', (code: unknown, cause: unknown) =>
+      this.handleExit(transport, Number(code) || 0, cause instanceof Error ? cause : undefined)
+    );
     try {
       transport.postMessage({ kind: 'init', options: this.options.sessionOptions() });
     } catch (error) {
@@ -259,8 +248,11 @@ export class DesktopServiceClient implements DesktopService {
   private announceServiceReady(): void {
     this.options.onServiceReady?.({ generation: this.generation });
     if (this.visibleSessionIds.length === 0) return;
-    void this.sendRequest<boolean>('setVisibleSessions', [this.visibleSessionIds, ++this.visibleSessionVersion])
-      .catch(() => { /* renderer registration remains cached for the next restart */ });
+    void this.sendRequest<boolean>('setVisibleSessions', [this.visibleSessionIds, ++this.visibleSessionVersion]).catch(
+      () => {
+        /* renderer registration remains cached for the next restart */
+      }
+    );
   }
 
   private handleMessage(transport: DesktopTransport, value: unknown): void {
@@ -358,11 +350,12 @@ export class DesktopServiceClient implements DesktopService {
       else decoder = createSnapshotDeltaDecoder();
       this.sessionStateDecoders.set(sessionId, decoder);
       const decoded = decoder.decode(message.wire);
-      reportTranscriptRead(sessionId, message.readTraceId,
-        decoded.ok ? 'main-received' : 'main-resync');
+      reportTranscriptRead(sessionId, message.readTraceId, decoded.ok ? 'main-received' : 'main-resync');
       if (!decoded.ok) {
         decoder.reset();
-        try { transport.postMessage({ kind: 'session-state-resync', sessionId }); } catch {}
+        try {
+          transport.postMessage({ kind: 'session-state-resync', sessionId });
+        } catch {}
         return;
       }
       if (message.wire === null) this.sessionStateDecoders.delete(sessionId);
@@ -372,9 +365,7 @@ export class DesktopServiceClient implements DesktopService {
         ...(message.readTraceId ? { readTraceId: message.readTraceId } : {}),
         frameSource: message.frameSource,
         ...(message.laneEnd ? { laneEnd: message.laneEnd } : {}),
-        ...(typeof message.contentRevision === 'number'
-          ? { contentRevision: message.contentRevision }
-          : {}),
+        ...(typeof message.contentRevision === 'number' ? { contentRevision: message.contentRevision } : {}),
       };
       for (const listener of this.sessionStateListeners) listener(update);
       return;
@@ -405,18 +396,9 @@ export class DesktopServiceClient implements DesktopService {
     this.rejectPending(error);
     if (this.disposing || this.disposed) return;
     this.consecutiveExitCount += 1;
-    const baseDelayMs = Math.max(
-      0,
-      this.options.restartBaseDelayMs ?? DEFAULT_RESTART_BASE_DELAY_MS,
-    );
-    const maxDelayMs = Math.max(
-      baseDelayMs,
-      this.options.restartMaxDelayMs ?? DEFAULT_RESTART_MAX_DELAY_MS,
-    );
-    const restartDelayMs = Math.min(
-      maxDelayMs,
-      baseDelayMs * (2 ** Math.min(this.consecutiveExitCount - 1, 10)),
-    );
+    const baseDelayMs = Math.max(0, this.options.restartBaseDelayMs ?? DEFAULT_RESTART_BASE_DELAY_MS);
+    const maxDelayMs = Math.max(baseDelayMs, this.options.restartMaxDelayMs ?? DEFAULT_RESTART_MAX_DELAY_MS);
+    const restartDelayMs = Math.min(maxDelayMs, baseDelayMs * 2 ** Math.min(this.consecutiveExitCount - 1, 10));
     this.nextRestartAt = Date.now() + restartDelayMs;
     this.options.onDiagnostic?.('desktop-transport-exit', {
       code,
@@ -475,9 +457,7 @@ export class DesktopServiceClient implements DesktopService {
   private snapshotWithBootstrap(snapshot: SessionSnapshot): SessionSnapshot {
     const bootstrap = this.bootstrapSnapshot;
     if (!bootstrap || typeof bootstrap !== 'object') return snapshot;
-    const state = snapshot && typeof snapshot === 'object'
-      ? snapshot as Record<string, unknown>
-      : {};
+    const state = snapshot && typeof snapshot === 'object' ? (snapshot as Record<string, unknown>) : {};
     if (String(state.provider || '').trim() && String(state.model || '').trim()) {
       this.bootstrapSnapshot = null;
       return snapshot;
@@ -491,10 +471,7 @@ export class DesktopServiceClient implements DesktopService {
   private scheduleProcessFailure(): void {
     this.recovering = true;
     if (this.failureNoticeTimer) return;
-    const delayMs = Math.max(
-      0,
-      this.options.failureNoticeDelayMs ?? DEFAULT_FAILURE_NOTICE_DELAY_MS,
-    );
+    const delayMs = Math.max(0, this.options.failureNoticeDelayMs ?? DEFAULT_FAILURE_NOTICE_DELAY_MS);
     if (delayMs === 0) {
       this.publish(this.processFailureSnapshot(this.cachedSnapshot));
       return;
@@ -516,18 +493,16 @@ export class DesktopServiceClient implements DesktopService {
     if (!snapshot || typeof snapshot !== 'object') return snapshot;
     const previous = snapshot as Record<string, unknown>;
     const existingToasts = Array.isArray(previous.toasts) ? previous.toasts : [];
-    const toasts = existingToasts.filter((toast) => (
-      !toast || typeof toast !== 'object'
-      || (toast as Record<string, unknown>).id !== PROCESS_FAILURE_TOAST_ID
-    ));
+    const toasts = existingToasts.filter(
+      (toast) =>
+        !toast || typeof toast !== 'object' || (toast as Record<string, unknown>).id !== PROCESS_FAILURE_TOAST_ID
+    );
     if (toasts.length === existingToasts.length) return snapshot;
     return { ...previous, toasts } as SessionSnapshot;
   }
 
   private processFailureSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
-    const previous = snapshot && typeof snapshot === 'object'
-      ? snapshot as Record<string, unknown>
-      : {};
+    const previous = snapshot && typeof snapshot === 'object' ? (snapshot as Record<string, unknown>) : {};
     const existingToasts = Array.isArray(previous.toasts) ? previous.toasts : [];
     return {
       ...previous,
@@ -536,10 +511,10 @@ export class DesktopServiceClient implements DesktopService {
       busy: false,
       commandBusy: false,
       toasts: [
-        ...existingToasts.filter((toast) => (
-          !toast || typeof toast !== 'object'
-          || (toast as Record<string, unknown>).id !== PROCESS_FAILURE_TOAST_ID
-        )),
+        ...existingToasts.filter(
+          (toast) =>
+            !toast || typeof toast !== 'object' || (toast as Record<string, unknown>).id !== PROCESS_FAILURE_TOAST_ID
+        ),
         {
           id: PROCESS_FAILURE_TOAST_ID,
           tone: 'error',
@@ -550,11 +525,7 @@ export class DesktopServiceClient implements DesktopService {
     } as SessionSnapshot;
   }
 
-  private async invoke<T>(
-    method: DesktopServiceMethod,
-    args: unknown[] = [],
-    timeoutMs?: number,
-  ): Promise<T> {
+  private async invoke<T>(method: DesktopServiceMethod, args: unknown[] = [], timeoutMs?: number): Promise<T> {
     await this.start();
     return await this.sendRequest<T>(method, args, timeoutMs);
   }
@@ -571,13 +542,11 @@ export class DesktopServiceClient implements DesktopService {
   private sendRequest<T>(
     method: DesktopServiceMethod,
     args: unknown[],
-    timeoutMs = this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+    timeoutMs = this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
   ): Promise<T> {
     const transport = this.transport;
     if (!transport) {
-      return Promise.reject(
-        this.lastExitError ?? new Error('Mixdog service is unavailable.'),
-      );
+      return Promise.reject(this.lastExitError ?? new Error('Mixdog service is unavailable.'));
     }
     const id = this.nextRequestId++;
     return new Promise<T>((resolve, reject) => {
@@ -642,25 +611,14 @@ export class DesktopServiceClient implements DesktopService {
     relPath: string,
     content: string,
     expectedContent: string,
-    encoding?: import('./project-files').ProjectTextEncoding,
+    encoding?: import('./project-files').ProjectTextEncoding
   ): Promise<unknown> {
-    return this.invoke('writeProjectTextFile', [
-      projectPath,
-      relPath,
-      content,
-      expectedContent,
-      encoding,
-    ]);
+    return this.invoke('writeProjectTextFile', [projectPath, relPath, content, expectedContent, encoding]);
   }
   statProjectFile(projectPath: string, relPath: string): Promise<unknown> {
     return this.invokeRead('statProjectFile', [projectPath, relPath]);
   }
-  createProjectEntry(
-    projectPath: string,
-    relDir: string,
-    name: string,
-    directory: boolean,
-  ): Promise<unknown> {
+  createProjectEntry(projectPath: string, relDir: string, name: string, directory: boolean): Promise<unknown> {
     return this.invoke('createProjectEntry', [projectPath, relDir, name, directory]);
   }
   renameProjectEntry(projectPath: string, relPath: string, newName: string): Promise<unknown> {
@@ -675,11 +633,7 @@ export class DesktopServiceClient implements DesktopService {
   projectEntryPath(projectPath: string, relPath: string): Promise<string> {
     return this.invokeRead('projectEntryPath', [projectPath, relPath]);
   }
-  codeGraphQuery(
-    projectPath: string,
-    mode: 'find_symbol' | 'references' | 'symbols',
-    query: string,
-  ): Promise<unknown> {
+  codeGraphQuery(projectPath: string, mode: 'find_symbol' | 'references' | 'symbols', query: string): Promise<unknown> {
     return this.invokeRead('codeGraphQuery', [projectPath, mode, query]);
   }
   async listSessions(): Promise<DesktopSessionSummary[]> {
@@ -692,11 +646,7 @@ export class DesktopServiceClient implements DesktopService {
     this.cachedSessions = Array.isArray(sessions) ? sessions.slice() : [];
     return this.cachedSessions.slice();
   }
-  markSessionRead(
-    sessionId: string,
-    messageCount: number,
-    consumedUnread = false,
-  ): Promise<boolean> {
+  markSessionRead(sessionId: string, messageCount: number, consumedUnread = false): Promise<boolean> {
     return this.invoke('markSessionRead', [sessionId, messageCount, consumedUnread]);
   }
   async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
@@ -719,63 +669,44 @@ export class DesktopServiceClient implements DesktopService {
     return this.invoke('deleteSession', [sessionId]);
   }
   prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean> {
-    return this.invokeRead('prefetchSession', [
-      sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : []),
-    ]);
+    return this.invokeRead('prefetchSession', [sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : [])]);
   }
   setVisibleSessions(sessionIds: string[]): Promise<boolean> {
     this.visibleSessionIds = filterSessionIds(sessionIds);
     const visible = new Set(this.visibleSessionIds);
-    releaseHiddenSessionStateEntries(
-      visible,
-      [this.sessionStateDecoders],
-      (sessionId) => this.sessionStateDecoders.get(sessionId)?.reset(),
+    releaseHiddenSessionStateEntries(visible, [this.sessionStateDecoders], (sessionId) =>
+      this.sessionStateDecoders.get(sessionId)?.reset()
     );
     return this.invokeRead('setVisibleSessions', [this.visibleSessionIds, ++this.visibleSessionVersion]);
   }
-  searchProjectFiles(
-    projectIdOrWorkspaceId: string,
-    query: string,
-    limit = 50,
-  ): Promise<string[]> {
+  searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit = 50): Promise<string[]> {
     return this.invokeRead('searchProjectFiles', [projectIdOrWorkspaceId, query, limit]);
   }
   async submitNewTask(
     prompt: DesktopPromptContent,
     options: DesktopSubmitOptions = {},
-    draft: DesktopNewTaskDraft = {},
+    draft: DesktopNewTaskDraft = {}
   ): Promise<DesktopNewTaskSubmitResult> {
-    const result = await this.invoke<DesktopNewTaskSubmitResult>(
-      'submitNewTask',
-      [prompt, options, draft],
-    );
+    const result = await this.invoke<DesktopNewTaskSubmitResult>('submitNewTask', [prompt, options, draft]);
     return result;
   }
   inheritSession(
     sourceSessionId: string,
-    route?: DesktopModelSelection | null,
+    route?: DesktopModelSelection | null
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
-    return this.invoke(
-      'inheritSession',
-      [sourceSessionId, route ?? null],
-      INHERIT_SESSION_TIMEOUT_MS,
-    );
+    return this.invoke('inheritSession', [sourceSessionId, route ?? null], INHERIT_SESSION_TIMEOUT_MS);
   }
   submitToSession(
     sessionId: string,
     prompt: DesktopPromptContent,
-    options: DesktopSubmitOptions = {},
+    options: DesktopSubmitOptions = {}
   ): Promise<boolean> {
     return this.invoke('submitToSession', [sessionId, prompt, options]);
   }
   abortSession(sessionId: string, options: DesktopAbortOptions = {}): Promise<unknown> {
     return this.invoke('abortSession', [sessionId, options]);
   }
-  resolveToolApprovalForSession(
-    sessionId: string,
-    id: string,
-    decision: ToolApprovalDecision,
-  ): Promise<boolean> {
+  resolveToolApprovalForSession(sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean> {
     return this.invoke('resolveToolApprovalForSession', [sessionId, id, decision]);
   }
   listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
@@ -790,17 +721,11 @@ export class DesktopServiceClient implements DesktopService {
   invokeCapability<T = unknown>(
     capability: DesktopCapability,
     args: unknown[] = [],
-    sessionId?: string,
+    sessionId?: string
   ): Promise<DesktopCapabilityResult<T>> {
-    return this.invoke('invokeCapability', [
-      capability,
-      args,
-      sessionId,
-    ], longRunningRequestTimeout(capability, args));
+    return this.invoke('invokeCapability', [capability, args, sessionId], longRunningRequestTimeout(capability, args));
   }
-  readCapabilities(
-    requests: ReadonlyArray<DesktopCapabilityReadRequest>,
-  ): Promise<DesktopCapabilityReadResult[]> {
+  readCapabilities(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]> {
     return this.invokeRead('readCapabilities', [requests]);
   }
   invokeDesktopOperation(method: string, args: unknown[] = []): Promise<unknown> {
@@ -814,15 +739,21 @@ export class DesktopServiceClient implements DesktopService {
     if (!transport) {
       // Pre-ready (or mid-restart): fall back to the request lane, which waits
       // for the transport instead of dropping the input.
-      void this.invoke('invokeDesktopOperation', [method, args]).catch(() => { /* input lost */ });
+      void this.invoke('invokeDesktopOperation', [method, args]).catch(() => {
+        /* input lost */
+      });
       return;
     }
     try {
       transport.postMessage({ kind: 'notify', method: 'invokeDesktopOperation', args: [method, args] });
-    } catch { /* the next keystroke re-syncs */ }
+    } catch {
+      /* the next keystroke re-syncs */
+    }
   }
   perfLog(line: string): void {
-    void this.invoke('perfLog', [line]).catch(() => { /* diagnostics only */ });
+    void this.invoke('perfLog', [line]).catch(() => {
+      /* diagnostics only */
+    });
   }
 
   async dispose(): Promise<void> {
@@ -849,7 +780,11 @@ export class DesktopServiceClient implements DesktopService {
     this.sessionStateListeners.clear();
     this.visibleSessionIds = [];
     if (transport) {
-      try { await transport.close(); } catch { /* process exit is the fallback */ }
+      try {
+        await transport.close();
+      } catch {
+        /* process exit is the fallback */
+      }
     }
   }
 }

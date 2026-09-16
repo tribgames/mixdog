@@ -11,10 +11,7 @@ import {
   MAX_CAPTURE_AFTER_DELAY_MS,
   MAX_OCR_WORDS,
 } from '../shared/common';
-import {
-  launchTransitionConfirmsTarget,
-  type ComputerWindowTransition,
-} from '../shared/window-transition';
+import { launchTransitionConfirmsTarget, type ComputerWindowTransition } from '../shared/window-transition';
 import type {
   CaptureFrame,
   ComputerCommand,
@@ -32,25 +29,28 @@ export { evaluateVerifyPredicate, type VerifyStatus } from './verify-predicate';
 
 const OCR_LANGUAGE_TAG_PATTERN = /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/;
 
-export function assertOcrLanguageTag(
-  value: unknown,
-  field = 'ocr_language',
-): void {
+export function assertOcrLanguageTag(value: unknown, field = 'ocr_language'): void {
   if (value === undefined || value === null) return;
-  if (typeof value !== 'string'
-    || value.length < 2
-    || value.length > 64
-    || value !== value.trim()
-    || !OCR_LANGUAGE_TAG_PATTERN.test(value)) {
-    throw new Error(
-      `${field} must be a 2-64 character BCP-47 language tag such as ko or en-US`,
-    );
+  if (
+    typeof value !== 'string' ||
+    value.length < 2 ||
+    value.length > 64 ||
+    value !== value.trim() ||
+    !OCR_LANGUAGE_TAG_PATTERN.test(value)
+  ) {
+    throw new Error(`${field} must be a 2-64 character BCP-47 language tag such as ko or en-US`);
   }
 }
 
 export function framePoint(frame: CaptureFrame, x: number, y: number): { x: number; y: number } {
-  if (!Number.isInteger(x) || !Number.isInteger(y)
-    || x < 0 || y < 0 || x >= frame.captureWidth || y >= frame.captureHeight) {
+  if (
+    !Number.isInteger(x) ||
+    !Number.isInteger(y) ||
+    x < 0 ||
+    y < 0 ||
+    x >= frame.captureWidth ||
+    y >= frame.captureHeight
+  ) {
     throw new Error(`frame coordinates must be inside 0..${frame.captureWidth - 1},0..${frame.captureHeight - 1}`);
   }
   return {
@@ -64,7 +64,7 @@ export function screenshotInteger(
   fallback: number,
   minimum: number,
   maximum: number,
-  label: string,
+  label: string
 ): number {
   if (value === undefined) return fallback;
   if (!Number.isInteger(value) || value < minimum || value > maximum) {
@@ -76,19 +76,15 @@ export function screenshotInteger(
 /** The post-action capture accepts exactly the bounds the capture itself
  *  enforces, and is rejected before the mutation runs rather than after. */
 export function assertCaptureAfterOptions(command: ComputerCommand): void {
-  assertOcrLanguageTag(
-    command.capture_after_ocr_language,
-    'capture_after_ocr_language',
-  );
+  assertOcrLanguageTag(command.capture_after_ocr_language, 'capture_after_ocr_language');
   screenshotInteger(
     command.capture_delay_ms,
     DEFAULT_CAPTURE_AFTER_DELAY_MS,
     0,
     MAX_CAPTURE_AFTER_DELAY_MS,
-    'capture_delay_ms',
+    'capture_delay_ms'
   );
-  if (command.capture_after_mode
-    && !['state', 'som', 'vision', 'ax'].includes(command.capture_after_mode)) {
+  if (command.capture_after_mode && !['state', 'som', 'vision', 'ax'].includes(command.capture_after_mode)) {
     throw new Error('capture_after_mode must be state, som, vision, or ax');
   }
   screenshotInteger(
@@ -96,7 +92,7 @@ export function assertCaptureAfterOptions(command: ComputerCommand): void {
     DEFAULT_CAPTURE_MAX_ELEMENTS,
     1,
     1_000,
-    'capture_after_max_elements',
+    'capture_after_max_elements'
   );
   if (command.capture_after_include_ocr && command.capture_after_mode === 'ax') {
     throw new Error('capture_after_include_ocr requires capture_after_mode state, som, or vision');
@@ -107,7 +103,7 @@ export function assertCaptureAfterOptions(command: ComputerCommand): void {
       DEFAULT_OCR_MAX_WORDS,
       1,
       MAX_OCR_WORDS,
-      'capture_after_max_ocr_words',
+      'capture_after_max_ocr_words'
     );
   }
 }
@@ -115,7 +111,7 @@ export function assertCaptureAfterOptions(command: ComputerCommand): void {
 export function pixelUnavailable(
   reason: PixelUnavailable['reason'],
   message: string,
-  details: Partial<PixelUnavailable> = {},
+  details: Partial<PixelUnavailable> = {}
 ): PixelUnavailable {
   return {
     code: 'pixel_unavailable',
@@ -136,37 +132,38 @@ export function captureMode(command: ComputerCommand): 'state' | 'som' | 'vision
 export function frameElements(
   elements: ComputerElementRecord[],
   frame?: CaptureFrame,
-  compact = false,
+  compact = false
 ): Array<Record<string, unknown>> {
   const rendered = (
     element: ComputerElementRecord,
     bounds: [number, number, number, number],
     center: [number, number],
-    screenBounds?: [number, number, number, number],
-  ): Record<string, unknown> => compact ? {
-    mark: element.mark,
-    ref: element.ref,
-    source: element.source,
-    role: element.role,
-    name: element.name,
-    ...(element.value ? { value: element.value } : {}),
-    ...(element.state ? { state: element.state } : {}),
-    enabled: element.enabled,
-    bounds,
-    actions: element.actions,
-  } : {
-    ...element,
-    bounds,
-    center,
-    ...(screenBounds ? { screen_bounds: screenBounds } : {}),
-  };
+    screenBounds?: [number, number, number, number]
+  ): Record<string, unknown> =>
+    compact
+      ? {
+          mark: element.mark,
+          ref: element.ref,
+          source: element.source,
+          role: element.role,
+          name: element.name,
+          ...(element.value ? { value: element.value } : {}),
+          ...(element.state ? { state: element.state } : {}),
+          enabled: element.enabled,
+          bounds,
+          actions: element.actions,
+        }
+      : {
+          ...element,
+          bounds,
+          center,
+          ...(screenBounds ? { screen_bounds: screenBounds } : {}),
+        };
   return elements.flatMap((element) => {
     if (!frame) {
-      return [rendered(
-        element,
-        [element.x, element.y, element.width, element.height],
-        [element.center_x, element.center_y],
-      )];
+      return [
+        rendered(element, [element.x, element.y, element.width, element.height], [element.center_x, element.center_y]),
+      ];
     }
     const x = Math.round(((element.x - frame.originX) * frame.captureWidth) / frame.physicalWidth);
     const y = Math.round(((element.y - frame.originY) * frame.captureHeight) / frame.physicalHeight);
@@ -179,23 +176,22 @@ export function frameElements(
     const clippedY = Math.max(0, y);
     const clippedWidth = Math.max(1, Math.min(frame.captureWidth - clippedX, width - (clippedX - x)));
     const clippedHeight = Math.max(1, Math.min(frame.captureHeight - clippedY, height - (clippedY - y)));
-    return [rendered(
-      {
-        ...element,
-        x: clippedX,
-        y: clippedY,
-        width: clippedWidth,
-        height: clippedHeight,
-        center_x: clippedX + Math.round(clippedWidth / 2),
-        center_y: clippedY + Math.round(clippedHeight / 2),
-      },
-      [clippedX, clippedY, clippedWidth, clippedHeight],
-      [
-        clippedX + Math.round(clippedWidth / 2),
-        clippedY + Math.round(clippedHeight / 2),
-      ],
-      [element.x, element.y, element.width, element.height],
-    )];
+    return [
+      rendered(
+        {
+          ...element,
+          x: clippedX,
+          y: clippedY,
+          width: clippedWidth,
+          height: clippedHeight,
+          center_x: clippedX + Math.round(clippedWidth / 2),
+          center_y: clippedY + Math.round(clippedHeight / 2),
+        },
+        [clippedX, clippedY, clippedWidth, clippedHeight],
+        [clippedX + Math.round(clippedWidth / 2), clippedY + Math.round(clippedHeight / 2)],
+        [element.x, element.y, element.width, element.height]
+      ),
+    ];
   });
 }
 
@@ -206,49 +202,51 @@ export function normalizeOcrWords(value: unknown): OcrWordRecord[] {
     const row = raw as Record<string, unknown>;
     const text = String(row.text || '');
     if (!text) return [];
-    return [{
-      text,
-      line: Number(row.line) || 0,
-      x: Number(row.x) || 0,
-      y: Number(row.y) || 0,
-      width: Number(row.width) || 0,
-      height: Number(row.height) || 0,
-      center_x: Number(row.center_x) || 0,
-      center_y: Number(row.center_y) || 0,
-    }];
+    return [
+      {
+        text,
+        line: Number(row.line) || 0,
+        x: Number(row.x) || 0,
+        y: Number(row.y) || 0,
+        width: Number(row.width) || 0,
+        height: Number(row.height) || 0,
+        center_x: Number(row.center_x) || 0,
+        center_y: Number(row.center_y) || 0,
+      },
+    ];
   });
 }
 
-export function hasSemanticAccessibilityTarget(
-  elements: ComputerElementRecord[],
-  frame?: CaptureFrame,
-): boolean {
-  const containerRoles = new Set([
-    'Window', 'Pane', 'Document', 'Group', 'Custom', 'Image', 'Text',
-  ]);
-  const actionableElements = elements.filter((element) =>
-    element.enabled
-    && element.width > 1
-    && element.height > 1
-    && !containerRoles.has(element.role)
-    && element.actions.length > 0);
+export function hasSemanticAccessibilityTarget(elements: ComputerElementRecord[], frame?: CaptureFrame): boolean {
+  const containerRoles = new Set(['Window', 'Pane', 'Document', 'Group', 'Custom', 'Image', 'Text']);
+  const actionableElements = elements.filter(
+    (element) =>
+      element.enabled &&
+      element.width > 1 &&
+      element.height > 1 &&
+      !containerRoles.has(element.role) &&
+      element.actions.length > 0
+  );
   if (!actionableElements.length) return false;
 
   const largestElementArea = elements.reduce(
     (largest, element) => Math.max(largest, element.width * element.height),
-    0,
+    0
   );
   const contentSurfaceRoles = new Set(['Document', 'Custom', 'Image']);
-  const dominantContentSurfaces = elements.filter((element) =>
-    contentSurfaceRoles.has(element.role)
-    && element.width > 1
-    && element.height > 1
-    && element.width * element.height * 2 >= largestElementArea);
+  const dominantContentSurfaces = elements.filter(
+    (element) =>
+      contentSurfaceRoles.has(element.role) &&
+      element.width > 1 &&
+      element.height > 1 &&
+      element.width * element.height * 2 >= largestElementArea
+  );
   if (!dominantContentSurfaces.length) {
     if (frame) {
       const menuStripBottom = frame.originY + Math.max(64, frame.physicalHeight * 0.12);
-      const confinedToMenuStrip = actionableElements.every((element) =>
-        element.y + element.height / 2 <= menuStripBottom);
+      const confinedToMenuStrip = actionableElements.every(
+        (element) => element.y + element.height / 2 <= menuStripBottom
+      );
       if (confinedToMenuStrip) return false;
     }
     return true;
@@ -257,21 +255,26 @@ export function hasSemanticAccessibilityTarget(
   return actionableElements.some((element) => {
     const centerX = element.x + element.width / 2;
     const centerY = element.y + element.height / 2;
-    return dominantContentSurfaces.some((surface) =>
-      centerX >= surface.x
-      && centerY >= surface.y
-      && centerX <= surface.x + surface.width
-      && centerY <= surface.y + surface.height);
+    return dominantContentSurfaces.some(
+      (surface) =>
+        centerX >= surface.x &&
+        centerY >= surface.y &&
+        centerX <= surface.x + surface.width &&
+        centerY <= surface.y + surface.height
+    );
   });
 }
 
 export function normalizeGroundingText(value: string): string {
-  return value.normalize('NFKC').toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
+  return value
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '');
 }
 
 export function dedupeOcrWords(
   words: OcrWordRecord[],
-  accessibilityElements: Array<Record<string, unknown>>,
+  accessibilityElements: Array<Record<string, unknown>>
 ): OcrWordRecord[] {
   const labelled = accessibilityElements.flatMap((element) => {
     const text = normalizeGroundingText(`${String(element.name || '')} ${String(element.value || '')}`);
@@ -296,7 +299,7 @@ export function dedupeOcrWords(
 
 export function captureIdentityMap(
   elements: ComputerElementRecord[],
-  refIdentities: Map<string, string> = new Map(),
+  refIdentities: Map<string, string> = new Map()
 ): Map<string, string> {
   const identities = new Map<string, string>();
   const occurrences = new Map<string, number>();
@@ -308,7 +311,7 @@ export function captureIdentityMap(
     const identity = occurrence > 1 ? `${base}#${occurrence}` : base;
     identities.set(
       identity,
-      `${element.value ?? ''}\u0000${element.state ?? ''}\u0000${element.enabled === false ? 'disabled' : 'enabled'}`,
+      `${element.value ?? ''}\u0000${element.state ?? ''}\u0000${element.enabled === false ? 'disabled' : 'enabled'}`
     );
     if (element.ref) refIdentities.set(element.ref, identity);
   }
@@ -318,33 +321,35 @@ export function captureIdentityMap(
 export function captureAfterImageIsRedundant(
   command: ComputerCommand,
   metadata: Record<string, unknown>,
-  targetIdentity?: string,
+  targetIdentity?: string
 ): boolean {
-  if (command.include_ocr
-    || command.capture_after_include_ocr
-    || Number(metadata.ocr_elements || 0) > 0) return false;
+  if (command.include_ocr || command.capture_after_include_ocr || Number(metadata.ocr_elements || 0) > 0) return false;
   if (!command.ref || !['invoke', 'set_value', 'toggle'].includes(command.action)) return false;
   if (metadata.pixel_status !== 'available') return false;
   const mode = String(metadata.mode || 'state');
   if (mode !== 'state') return false;
   if (Number(metadata.returned_elements || 0) < CAPTURE_IMAGE_SKIP_MIN_ELEMENTS) return false;
-  const changes = metadata.changes as {
-    added?: { count?: number };
-    removed?: { count?: number };
-    updated?: { count?: number; sample?: string[] };
-  } | undefined;
+  const changes = metadata.changes as
+    | {
+        added?: { count?: number };
+        removed?: { count?: number };
+        updated?: { count?: number; sample?: string[] };
+      }
+    | undefined;
   if (!changes || !targetIdentity) return false;
   // Only an update to an established semantic identity is strong enough to
   // replace pixels. Added/removed rows and updates to unrelated controls can be
   // late tree initialization or a transition unrelated to the requested action.
-  return Number(changes.updated?.count || 0) > 0
-    && Array.isArray(changes.updated?.sample)
-    && changes.updated.sample.includes(targetIdentity);
+  return (
+    Number(changes.updated?.count || 0) > 0 &&
+    Array.isArray(changes.updated?.sample) &&
+    changes.updated.sample.includes(targetIdentity)
+  );
 }
 
 export function summarizeCaptureChanges(
   previous: Map<string, string>,
-  current: Map<string, string>,
+  current: Map<string, string>
 ): Record<string, unknown> {
   const added: string[] = [];
   const removed: string[] = [];
@@ -371,43 +376,41 @@ export function summarizeCaptureChanges(
   };
 }
 
-
 export function transitionConfirmsSemanticAction(
   action: string,
   result: Record<string, unknown>,
   transition: ComputerWindowTransition | null,
   targetWindowId: string | undefined,
-  launchTarget = '',
+  launchTarget = ''
 ): boolean {
   if (result.verified === true || !transition) return false;
   if (action === 'launch') return launchTransitionConfirmsTarget(transition, launchTarget);
   if (action !== 'invoke' || !targetWindowId) return false;
-  const semanticPath = ['uia_invoke', 'uia_selection', 'msaa_default_action']
-    .includes(String(result.path || ''));
+  const semanticPath = ['uia_invoke', 'uia_selection', 'msaa_default_action'].includes(String(result.path || ''));
   if (!semanticPath) return false;
-  return transition.closed_windows.some((window) => window.id === targetWindowId)
-    || transition.changed_windows.some((window) => window.id === targetWindowId)
-    || transition.next_target !== undefined;
+  return (
+    transition.closed_windows.some((window) => window.id === targetWindowId) ||
+    transition.changed_windows.some((window) => window.id === targetWindowId) ||
+    transition.next_target !== undefined
+  );
 }
 
 export function shouldUseOcrFallback(
   mode: string,
   semanticAccessibilityAvailable: boolean,
-  explicitlyRequested: boolean,
+  explicitlyRequested: boolean
 ): boolean {
-  return explicitlyRequested
-    || (!semanticAccessibilityAvailable && (mode === 'state' || mode === 'som'));
+  return explicitlyRequested || (!semanticAccessibilityAvailable && (mode === 'state' || mode === 'som'));
 }
 
 export function recommendedRecovery(
   effect: string,
   code: string | undefined,
   delivery: string,
-  transition: ComputerWindowTransition | null,
+  transition: ComputerWindowTransition | null
 ): 'switch_target' | 'recapture' | 'user' | undefined {
   if (transition?.next_target) return 'switch_target';
-  if (code === 'target_mismatch' || code === 'stale_target' || code === 'stale_frame'
-    || code === 'user_input_active') {
+  if (code === 'target_mismatch' || code === 'stale_target' || code === 'stale_frame' || code === 'user_input_active') {
     return 'recapture';
   }
   if (code === 'foreground_unavailable' || code === 'foreground_changed') {
@@ -415,8 +418,7 @@ export function recommendedRecovery(
   }
   // A native browser window is a user-selected session. Delivery failure does
   // not authorize replacing it with the app's separate browser session.
-  if (delivery === 'background'
-    && (effect === 'suspected_noop' || code?.startsWith('background_'))) {
+  if (delivery === 'background' && (effect === 'suspected_noop' || code?.startsWith('background_'))) {
     return 'recapture';
   }
   return undefined;

@@ -38,22 +38,27 @@ function normalizedJobs(value: unknown): DesktopShellJobRow[] {
     const row = entry as Record<string, unknown>;
     const taskId = String(row.taskId || row.task_id || '').trim();
     if (!taskId) return [];
-    return [{
-      taskId,
-      command: String(row.command || '').trim(),
-      cwd: String(row.cwd || '').trim(),
-      startedAt: typeof row.startedAt === 'number' || typeof row.startedAt === 'string'
-        ? row.startedAt
-        : null,
-    }];
+    return [
+      {
+        taskId,
+        command: String(row.command || '').trim(),
+        cwd: String(row.cwd || '').trim(),
+        startedAt: typeof row.startedAt === 'number' || typeof row.startedAt === 'string' ? row.startedAt : null,
+      },
+    ];
   });
 }
 
-function normalizedStatus(value: {
-  count?: unknown;
-  elapsedLabel?: unknown;
-  jobs?: unknown;
-} | null | undefined): ShellJobsStatus {
+function normalizedStatus(
+  value:
+    | {
+        count?: unknown;
+        elapsedLabel?: unknown;
+        jobs?: unknown;
+      }
+    | null
+    | undefined
+): ShellJobsStatus {
   return {
     count: Math.max(0, Number(value?.count) || 0),
     elapsedLabel: String(value?.elapsedLabel || ''),
@@ -67,11 +72,13 @@ function normalizedSessions(value: unknown): Map<string, ShellJobsStatus> {
   for (const [sessionId, bucket] of Object.entries(value as Record<string, unknown>)) {
     const id = String(sessionId || '').trim();
     if (!id) continue;
-    const status = normalizedStatus(bucket as {
-      count?: unknown;
-      elapsedLabel?: unknown;
-      jobs?: unknown;
-    });
+    const status = normalizedStatus(
+      bucket as {
+        count?: unknown;
+        elapsedLabel?: unknown;
+        jobs?: unknown;
+      }
+    );
     if (status.count > 0) sessions.set(id, status);
   }
   return sessions;
@@ -79,7 +86,7 @@ function normalizedSessions(value: unknown): Map<string, ShellJobsStatus> {
 
 function movedSessionIds(
   previous: ReadonlyMap<string, ShellJobsStatus>,
-  next: ReadonlyMap<string, ShellJobsStatus>,
+  next: ReadonlyMap<string, ShellJobsStatus>
 ): string[] {
   const moved: string[] = [];
   for (const [sessionId, status] of next) {
@@ -94,12 +101,7 @@ function movedSessionIds(
   return moved;
 }
 
-export function createShellJobsPoller({
-  getEngineState,
-  moduleUrl,
-  loadModule,
-  onChange,
-}: ShellJobsPollerOptions) {
+export function createShellJobsPoller({ getEngineState, moduleUrl, loadModule, onChange }: ShellJobsPollerOptions) {
   let timer: NodeJS.Timeout | null = null;
   let delayMs = 0;
   let status: ShellJobsStatus = EMPTY_STATUS;
@@ -113,10 +115,13 @@ export function createShellJobsPoller({
     if (!state) return;
     if (timer) clearTimeout(timer);
     delayMs = shellJobsPollDelay(state, status.count);
-    timer = setTimeout(() => {
-      timer = null;
-      void poll();
-    }, immediate ? 0 : delayMs);
+    timer = setTimeout(
+      () => {
+        timer = null;
+        void poll();
+      },
+      immediate ? 0 : delayMs
+    );
     timer.unref?.();
   }
 
@@ -132,7 +137,7 @@ export function createShellJobsPoller({
     try {
       modulePromise ??= loadModule
         ? loadModule()
-        : import(/* @vite-ignore */ moduleUrl()) as Promise<StatuslineSegmentsModule>;
+        : (import(/* @vite-ignore */ moduleUrl()) as Promise<StatuslineSegmentsModule>);
       const module = await modulePromise;
       const value = module.shellJobsStatus({ clientHostPid: ownerPid });
       const next = normalizedStatus(value);
@@ -154,7 +159,9 @@ export function createShellJobsPoller({
   return {
     /** Host-wide aggregate: keep-awake and the CLI statusline own the process,
      *  not one pane. */
-    get status(): ShellJobsStatus { return status; },
+    get status(): ShellJobsStatus {
+      return status;
+    },
     /** One session's own jobs. A blank id (New task pane) owns nothing. */
     statusFor(sessionId: string): ShellJobsStatus {
       const id = String(sessionId || '').trim();

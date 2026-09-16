@@ -2,23 +2,25 @@
 // focus across panes, and report what changed.
 (async () => {
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const snapshot = () => [...document.querySelectorAll('.pane-leaf')].map((leaf, index) => {
-    const surface = leaf.querySelector('.pane-chat-surface');
-    const text = surface?.textContent?.replace(/\s+/g, ' ').trim() || '';
-    const route = [...leaf.querySelectorAll('button')]
-      .map((node) => node.textContent?.trim() || '')
-      .find((value) => /Opus|Sonnet|Claude|모델/.test(value)) || '';
-    const scroller = leaf.querySelector('[class*="scroll"]');
-    return {
-      index,
-      focused: Boolean(leaf.closest('.pane-cell')?.className.includes('is-focused')),
-      chars: text.length,
-      head: text.slice(0, 40),
-      tail: text.slice(-40),
-      route,
-      scrollTop: Math.round(scroller?.scrollTop || 0),
-    };
-  });
+  const snapshot = () =>
+    [...document.querySelectorAll('.pane-leaf')].map((leaf, index) => {
+      const surface = leaf.querySelector('.pane-chat-surface');
+      const text = surface?.textContent?.replace(/\s+/g, ' ').trim() || '';
+      const route =
+        [...leaf.querySelectorAll('button')]
+          .map((node) => node.textContent?.trim() || '')
+          .find((value) => /Opus|Sonnet|Claude|모델/.test(value)) || '';
+      const scroller = leaf.querySelector('[class*="scroll"]');
+      return {
+        index,
+        focused: Boolean(leaf.closest('.pane-cell')?.className.includes('is-focused')),
+        chars: text.length,
+        head: text.slice(0, 40),
+        tail: text.slice(-40),
+        route,
+        scrollTop: Math.round(scroller?.scrollTop || 0),
+      };
+    });
   const before = snapshot();
   const leaves = [...document.querySelectorAll('.pane-leaf')];
   const click = async (leaf) => {
@@ -46,4 +48,4 @@
       scrollDelta: pane.scrollTop - (before[index]?.scrollTop ?? 0),
     })),
   };
-})()
+})();

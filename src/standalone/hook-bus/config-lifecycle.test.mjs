@@ -25,26 +25,32 @@ async function fixture(t) {
     t.mock.restoreAll();
     syncBuiltinESMExports();
     for (const bus of buses) {
-      try { bus.flushRules(); } catch {}
+      try {
+        bus.flushRules();
+      } catch {}
     }
     if (previous === undefined) delete process.env.MIXDOG_HOOKS_FILE;
     else process.env.MIXDOG_HOOKS_FILE = previous;
     await rm(root, { recursive: true, force: true });
   });
   return {
-    root, data, project, path,
+    root,
+    data,
+    project,
+    path,
     write: (value) => writeFile(path, JSON.stringify(value)),
     read: async () => JSON.parse(await readFile(path, 'utf8')),
     bus(options = {}) {
       const bus = createStandaloneHookBus({
         dataDir: data,
-        mcpToolRunner: async ({ name }) => JSON.stringify({
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            permissionDecision: name === 'fixture_yes' ? 'ask' : 'deny',
-            permissionDecisionReason: name,
-          },
-        }),
+        mcpToolRunner: async ({ name }) =>
+          JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: name === 'fixture_yes' ? 'ask' : 'deny',
+              permissionDecisionReason: name,
+            },
+          }),
         ...options,
       });
       buses.push(bus);
@@ -60,13 +66,20 @@ for (const initiallyTrusted of [true, false]) {
     delete process.env.MIXDOG_HOOKS_FILE;
     await writeFile(join(f.project, '.mixdog/hooks.json'), JSON.stringify(standard()));
     const trustPath = join(f.data, 'config.json');
-    const setTrust = (trusted) => writeFile(trustPath, JSON.stringify({
-      trustedProjects: trusted ? [f.project] : [],
-    }));
+    const setTrust = (trusted) =>
+      writeFile(
+        trustPath,
+        JSON.stringify({
+          trustedProjects: trusted ? [f.project] : [],
+        })
+      );
     await setTrust(initiallyTrusted);
     let calls = 0;
     const bus = f.bus({
-      mcpToolRunner: async () => { calls++; return '{}'; },
+      mcpToolRunner: async () => {
+        calls++;
+        return '{}';
+      },
     });
     await f.run(bus);
     assert.equal(calls, initiallyTrusted ? 1 : 0);

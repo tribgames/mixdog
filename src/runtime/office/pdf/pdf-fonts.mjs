@@ -20,12 +20,17 @@ const SYSTEM_UNICODE_FONTS = Object.freeze([
   '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
 ]);
 
-export const PDF_FONT_HINT = 'pass fontPath pointing to a Unicode TrueType/OpenType font (Windows: C:\\Windows\\Fonts\\malgun.ttf) or set MIXDOG_OCR_FONT';
+export const PDF_FONT_HINT =
+  'pass fontPath pointing to a Unicode TrueType/OpenType font (Windows: C:\\Windows\\Fonts\\malgun.ttf) or set MIXDOG_OCR_FONT';
 
 /** Readable Unicode fonts in preference order: the explicit path, the MIXDOG_OCR_FONT override, then the platform list. */
 export async function unicodeFontCandidates(explicit = '') {
   const found = [];
-  for (const candidate of [explicit ? resolve(String(explicit)) : '', process.env.MIXDOG_OCR_FONT, ...SYSTEM_UNICODE_FONTS].filter(Boolean)) {
+  for (const candidate of [
+    explicit ? resolve(String(explicit)) : '',
+    process.env.MIXDOG_OCR_FONT,
+    ...SYSTEM_UNICODE_FONTS,
+  ].filter(Boolean)) {
     try {
       await access(candidate);
       found.push(candidate);
@@ -46,16 +51,17 @@ export function uncoveredCharacters(font, text, limit = 6) {
   for (const char of String(text || '')) {
     const codePoint = char.codePointAt(0);
     if (codePoint <= 32 || seen.has(char)) continue;
-    const covered = typeof face?.hasGlyphForCodePoint === 'function'
-      ? face.hasGlyphForCodePoint(codePoint)
-      : (() => {
-        try {
-          font.encodeText(char);
-          return true;
-        } catch {
-          return false;
-        }
-      })();
+    const covered =
+      typeof face?.hasGlyphForCodePoint === 'function'
+        ? face.hasGlyphForCodePoint(codePoint)
+        : (() => {
+            try {
+              font.encodeText(char);
+              return true;
+            } catch {
+              return false;
+            }
+          })();
     if (covered) continue;
     seen.add(char);
     missing.push(char);
@@ -96,11 +102,10 @@ export function fontCovers(font, text) {
  * Unicode face that covers it. Throws a hint instead of pdf-lib's WinAnsi
  * error when no face does.
  */
-export async function embedDocumentFont(document, {
-  fontPath = '',
-  text = '',
-  standard = StandardFonts.Helvetica,
-} = {}) {
+export async function embedDocumentFont(
+  document,
+  { fontPath = '', text = '', standard = StandardFonts.Helvetica } = {}
+) {
   if (!fontPath) {
     const builtin = await document.embedFont(standard);
     if (fontCovers(builtin, text)) return { font: builtin, fontPath: '', embedded: false };
@@ -131,7 +136,9 @@ export async function embedDocumentFont(document, {
   // font hunt: an emoji or a rare ideograph no installed face carries is removed
   // or replaced in the text, while a missing script really does want another font.
   const missing = widest ? describeUncovered(uncoveredCharacters(widest, text)) : '';
-  throw new Error(`PDF text carries ${missing ? `${missing} — ` : 'characters '}no installed font covers`
-    + `${missing ? '' : ' and the standard PDF fonts cannot encode'}.`
-    + ` Replace or remove ${missing ? 'those characters' : 'them'}, or ${PDF_FONT_HINT}.`);
+  throw new Error(
+    `PDF text carries ${missing ? `${missing} — ` : 'characters '}no installed font covers` +
+      `${missing ? '' : ' and the standard PDF fonts cannot encode'}.` +
+      ` Replace or remove ${missing ? 'those characters' : 'them'}, or ${PDF_FONT_HINT}.`
+  );
 }

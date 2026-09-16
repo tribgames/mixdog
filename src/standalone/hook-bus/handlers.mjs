@@ -51,7 +51,7 @@ function resolveHeaderValue(value, allowed) {
   if (typeof value !== 'string') return String(value ?? '');
   return value.replace(/\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g, (_m, braced, bare) => {
     const name = braced || bare;
-    return allowed.has(name) ? (process.env[name] || '') : '';
+    return allowed.has(name) ? process.env[name] || '' : '';
   });
 }
 
@@ -59,9 +59,12 @@ function resolveHeaderValue(value, allowed) {
 // hosts unless the handler explicitly opts in (allowPrivateHosts) or the host
 // is on the handler's allowedHosts list.
 function isPrivateHostname(host) {
-  let h = String(host || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
-  h = h.replace(/\.$/, '');            // strip trailing dot (localhost.)
-  h = h.replace(/^::ffff:/, '');       // unmap IPv4-mapped IPv6 (::ffff:127.0.0.1)
+  let h = String(host || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
+  h = h.replace(/\.$/, ''); // strip trailing dot (localhost.)
+  h = h.replace(/^::ffff:/, ''); // unmap IPv4-mapped IPv6 (::ffff:127.0.0.1)
   if (!h) return true;
   if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local')) return true;
   if (h === '::1' || h === '::' || h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) return true;
@@ -88,12 +91,20 @@ function validateHttpUrl(handler) {
     return { error: `blocked non-http(s) hook URL scheme: ${url.protocol}` };
   }
   const allowedHosts = Array.isArray(handler.allowedHosts)
-    ? handler.allowedHosts.map((x) => String(x || '').trim().toLowerCase()).filter(Boolean)
+    ? handler.allowedHosts
+        .map((x) =>
+          String(x || '')
+            .trim()
+            .toLowerCase()
+        )
+        .filter(Boolean)
     : [];
   const host = url.hostname.toLowerCase();
   const allowPrivate = allowedHosts.includes(host) || handler.allowPrivateHosts === true;
   if (!allowPrivate && isPrivateHostname(host)) {
-    return { error: `blocked hook URL to private/loopback host: ${url.hostname} (set allowPrivateHosts or allowedHosts to opt in)` };
+    return {
+      error: `blocked hook URL to private/loopback host: ${url.hostname} (set allowPrivateHosts or allowedHosts to opt in)`,
+    };
   }
   if (!allowPrivate) {
     try {
@@ -107,11 +118,12 @@ function validateHttpUrl(handler) {
 
 export const MAX_HTTP_HOOK_RESPONSE_BYTES = MAX_BUFFER_BYTES;
 
-export async function runHttpHandler(handler, payload, eventName, {
-  publicFetch = pinnedFetch,
-  privateFetch = globalThis.fetch,
-  signal,
-} = {}) {
+export async function runHttpHandler(
+  handler,
+  payload,
+  eventName,
+  { publicFetch = pinnedFetch, privateFetch = globalThis.fetch, signal } = {}
+) {
   throwIfAborted(signal);
   const checked = validateHttpUrl(handler);
   if (checked.error) {
@@ -119,7 +131,13 @@ export async function runHttpHandler(handler, payload, eventName, {
   }
   const requestFetch = checked.allowPrivate ? privateFetch : publicFetch;
   if (typeof requestFetch !== 'function') {
-    return { exitCode: -1, stdout: '', stderr: 'fetch is not available', timedOut: false, spawnError: new Error('fetch is not available') };
+    return {
+      exitCode: -1,
+      stdout: '',
+      stderr: 'fetch is not available',
+      timedOut: false,
+      spawnError: new Error('fetch is not available'),
+    };
   }
   const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
   const controller = new AbortController();
@@ -141,12 +159,20 @@ export async function runHttpHandler(handler, payload, eventName, {
       signal: requestSignal,
       redirect: 'error',
     });
-    const text = (await readResponseBuffer(response, {
-      maxBytes: MAX_HTTP_HOOK_RESPONSE_BYTES,
-      label: 'HTTP hook response',
-    })).toString('utf8');
+    const text = (
+      await readResponseBuffer(response, {
+        maxBytes: MAX_HTTP_HOOK_RESPONSE_BYTES,
+        label: 'HTTP hook response',
+      })
+    ).toString('utf8');
     if (!response.ok) {
-      return { exitCode: 1, stdout: text, stderr: `HTTP ${response.status} ${response.statusText}`.trim(), timedOut: false, spawnError: null };
+      return {
+        exitCode: 1,
+        stdout: text,
+        stderr: `HTTP ${response.status} ${response.statusText}`.trim(),
+        timedOut: false,
+        spawnError: null,
+      };
     }
     return { exitCode: 0, stdout: text, stderr: '', timedOut: false, spawnError: null };
   } catch (error) {
@@ -154,7 +180,7 @@ export async function runHttpHandler(handler, payload, eventName, {
     return {
       exitCode: -1,
       stdout: '',
-      stderr: aborted ? `HTTP hook timed out: ${handler.url}` : (error?.message || String(error)),
+      stderr: aborted ? `HTTP hook timed out: ${handler.url}` : error?.message || String(error),
       timedOut: aborted,
       spawnError: aborted ? null : error,
     };
@@ -171,7 +197,13 @@ export async function runMcpToolHandler(handler, payload, eventName, mcpToolRunn
     name = `mcp__${String(handler.server).trim()}__${name}`;
   }
   if (!name) {
-    return { exitCode: -1, stdout: '', stderr: 'mcp_tool handler missing tool name', timedOut: false, spawnError: null };
+    return {
+      exitCode: -1,
+      stdout: '',
+      stderr: 'mcp_tool handler missing tool name',
+      timedOut: false,
+      spawnError: null,
+    };
   }
   let timer = null;
   // Losing the race is not cancellation: without this signal the tool call kept
@@ -179,19 +211,23 @@ export async function runMcpToolHandler(handler, payload, eventName, mcpToolRunn
   const controller = new AbortController();
   const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   try {
-    const runPromise = Promise.resolve(mcpToolRunner({
-      name,
-      args: payload,
-      signal: requestSignal,
-      timeoutMs,
-    }));
+    const runPromise = Promise.resolve(
+      mcpToolRunner({
+        name,
+        args: payload,
+        signal: requestSignal,
+        timeoutMs,
+      })
+    );
     // The abandoned call still settles somewhere; keep its rejection handled.
     runPromise.catch(() => {});
     const text = await Promise.race([
       runAbortable(signal, () => runPromise),
       new Promise((_r, reject) => {
         timer = setTimeout(() => {
-          try { controller.abort(new Error(`mcp_tool hook timed out: ${name}`)); } catch {}
+          try {
+            controller.abort(new Error(`mcp_tool hook timed out: ${name}`));
+          } catch {}
           reject(new Error(`mcp_tool hook timed out: ${name}`));
         }, timeoutMs);
         // No unref: this timer must keep the event loop alive so the race can
@@ -302,8 +338,7 @@ export function parseHandlerOutput(run, eventName) {
     if (typeof json.additionalContext === 'string') out.additionalContext = limitText(json.additionalContext);
 
     const hso = json.hookSpecificOutput;
-    const hsoMatches = hso && typeof hso === 'object'
-      && (!hso.hookEventName || hso.hookEventName === eventName);
+    const hsoMatches = hso && typeof hso === 'object' && (!hso.hookEventName || hso.hookEventName === eventName);
     if (hsoMatches) {
       if (typeof hso.additionalContext === 'string') out.additionalContext = limitText(hso.additionalContext);
       if (hso.updatedInput && typeof hso.updatedInput === 'object' && !Array.isArray(hso.updatedInput)) {
@@ -321,7 +356,11 @@ export function parseHandlerOutput(run, eventName) {
           out.block = true;
           out.reason = out.reason || limitText(hso.decision.reason || `denied by ${eventName} hook`);
         }
-        if (hso.decision.updatedInput && typeof hso.decision.updatedInput === 'object' && !Array.isArray(hso.decision.updatedInput)) {
+        if (
+          hso.decision.updatedInput &&
+          typeof hso.decision.updatedInput === 'object' &&
+          !Array.isArray(hso.decision.updatedInput)
+        ) {
           out.updatedInput = hso.decision.updatedInput;
         }
       }

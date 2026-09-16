@@ -18,8 +18,10 @@ import {
 const OLE_COMPOUND_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
 
 function templateTokenMatches(text) {
-  return [...String(text || '').matchAll(new RegExp(TEMPLATE_TOKEN_SOURCE, 'gu'))]
-    .map((match) => ({ raw: match[0], key: match[1] }));
+  return [...String(text || '').matchAll(new RegExp(TEMPLATE_TOKEN_SOURCE, 'gu'))].map((match) => ({
+    raw: match[0],
+    key: match[1],
+  }));
 }
 
 export async function fillTemplateParts(zip, parts, tag, operation, { replace = replaceAcrossRuns } = {}) {
@@ -30,7 +32,9 @@ export async function fillTemplateParts(zip, parts, tag, operation, { replace = 
   const filled = {};
   for (const part of parts) {
     let xml = await zipText(zip, part);
-    const variants = new Map(templateTokenMatches(paragraphTexts(xml, tag).join('')).map((match) => [match.raw, match.key]));
+    const variants = new Map(
+      templateTokenMatches(paragraphTexts(xml, tag).join('')).map((match) => [match.raw, match.key])
+    );
     let changed = false;
     for (const [raw, key] of variants) {
       if (!Object.hasOwn(tokens, key)) continue;
@@ -54,8 +58,10 @@ export async function fillTemplateParts(zip, parts, tag, operation, { replace = 
   // Nothing filled while placeholders remain means the supplied names and the
   // document's do not meet; "no change" alone would leave the caller guessing.
   if (!Object.keys(filled).length && unfilledTokens.length) {
-    throw new Error(`fill_template changed nothing: the document carries ${unfilledTokens.map((key) => `{{${key}}}`).join(', ')}`
-      + ` and tokens named ${Object.keys(tokens).join(', ') || 'nothing'}`);
+    throw new Error(
+      `fill_template changed nothing: the document carries ${unfilledTokens.map((key) => `{{${key}}}`).join(', ')}` +
+        ` and tokens named ${Object.keys(tokens).join(', ') || 'nothing'}`
+    );
   }
   return {
     op: 'fill_template',
@@ -78,8 +84,10 @@ export async function loadPackage(path) {
     // often arrives renamed to .docx. Nothing is damaged about it, so the
     // repair advice sends the caller after a file that does not exist.
     if (data.subarray(0, 8).equals(OLE_COMPOUND_MAGIC)) {
-      throw new Error(`${path} is a legacy Office file (.doc/.xls/.ppt), not an Office Open XML package.`
-        + ' Open it in Microsoft Office and save a copy as .docx/.xlsx/.pptx, then work on that copy.');
+      throw new Error(
+        `${path} is a legacy Office file (.doc/.xls/.ppt), not an Office Open XML package.` +
+          ' Open it in Microsoft Office and save a copy as .docx/.xlsx/.pptx, then work on that copy.'
+      );
     }
     // A truncated or damaged file reaches here as a ZIP internal message that
     // names neither the file nor a way forward; the caller needs both. The
@@ -90,17 +98,17 @@ export async function loadPackage(path) {
       .replace(/\s*see https?:\/\/\S+/gi, '')
       .trim()
       .replace(/[\s:]+$/, '');
-    throw new Error(`${path} is not a readable Office package (${reason}).`
-      + ' The file is damaged or incomplete: ask for an intact copy, or open it in Microsoft Office and save a fresh file.');
+    throw new Error(
+      `${path} is not a readable Office package (${reason}).` +
+        ' The file is damaged or incomplete: ask for an intact copy, or open it in Microsoft Office and save a fresh file.'
+    );
   }
 }
-
 
 export async function zipText(zip, path) {
   const file = zip.file(path);
   return file ? await file.async('string') : '';
 }
-
 
 export async function savePackage(zip, path) {
   const data = await zip.generateAsync({
@@ -111,7 +119,6 @@ export async function savePackage(zip, path) {
   });
   await writeFile(path, data);
 }
-
 
 export function relationshipMap(xml) {
   const map = new Map();
@@ -126,23 +133,21 @@ export function relationshipMap(xml) {
   return map;
 }
 
-
 export const PIXELS_TO_POINTS = 0.75;
-
 
 export function imagePixelSize(data) {
   if (data.length > 24 && data.readUInt32BE(0) === 0x89504e47) {
     return { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
   }
-  if (data.length > 4 && data[0] === 0xFF && data[1] === 0xD8) {
+  if (data.length > 4 && data[0] === 0xff && data[1] === 0xd8) {
     let offset = 2;
     while (offset + 9 < data.length) {
-      if (data[offset] !== 0xFF) {
+      if (data[offset] !== 0xff) {
         offset += 1;
         continue;
       }
       const marker = data[offset + 1];
-      if (marker >= 0xC0 && marker <= 0xCF && ![0xC4, 0xC8, 0xCC].includes(marker)) {
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
         return { height: data.readUInt16BE(offset + 5), width: data.readUInt16BE(offset + 7) };
       }
       const length = data.readUInt16BE(offset + 2);
@@ -156,12 +161,10 @@ export function imagePixelSize(data) {
   return null;
 }
 
-
 export function nextRelationshipId(rels) {
   const ids = [...rels.matchAll(/\bId="rId(\d+)"/g)].map((match) => Number(match[1]));
   return `rId${Math.max(0, ...ids) + 1}`;
 }
-
 
 export const PACKAGE_RELATIONSHIP_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
 
@@ -184,13 +187,11 @@ export async function ensureContentTypeOverride(zip, part, type) {
   zip.file(path, xml.replace('</Types>', `<Override PartName="${part}" ContentType="${type}"/></Types>`));
 }
 
-
 export async function removeContentTypeOverride(zip, part) {
   const path = '[Content_Types].xml';
   const xml = await zipText(zip, path);
   zip.file(path, xml.replace(new RegExp(`<Override\\b[^>]*\\bPartName="${tagPattern(part)}"[^>]*\\/>`), ''));
 }
-
 
 export async function ensureDefaultContentType(zip, extension, type) {
   const path = '[Content_Types].xml';
@@ -198,7 +199,6 @@ export async function ensureDefaultContentType(zip, extension, type) {
   if (new RegExp(`<Default\\b[^>]*\\bExtension="${extension}"`, 'i').test(xml)) return;
   zip.file(path, xml.replace(/<Types\b[^>]*>/, `$&<Default Extension="${extension}" ContentType="${type}"/>`));
 }
-
 
 export async function addPackageRelationship(zip, relsPath, type, target, mode = '') {
   const existing = await zipText(zip, relsPath);
@@ -212,12 +212,12 @@ export async function addPackageRelationship(zip, relsPath, type, target, mode =
   }
   const xml = existing || `${XML_HEADER}<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"></Relationships>`;
   const id = nextRelationshipId(xml);
-  const relationship = `<Relationship Id="${id}" Type="${type}" Target="${xmlEncode(target)}"`
-    + `${mode ? ` TargetMode="${mode}"` : ''}/>`;
+  const relationship =
+    `<Relationship Id="${id}" Type="${type}" Target="${xmlEncode(target)}"` +
+    `${mode ? ` TargetMode="${mode}"` : ''}/>`;
   zip.file(relsPath, xml.replace('</Relationships>', `${relationship}</Relationships>`));
   return id;
 }
-
 
 export async function removePackageRelationship(zip, relsPath, id) {
   const xml = await zipText(zip, relsPath);
@@ -225,11 +225,9 @@ export async function removePackageRelationship(zip, relsPath, id) {
   zip.file(relsPath, xml.replace(new RegExp(`<Relationship\\b[^>]*\\bId="${tagPattern(id)}"[^>]*\\/>`), ''));
 }
 
-
 export function partRelationshipPath(part) {
   return `${posix.dirname(part)}/_rels/${posix.basename(part)}.rels`;
 }
-
 
 export function provenanceCitation(source) {
   if (!source) return '';
@@ -243,7 +241,6 @@ export function provenanceCitation(source) {
   return `${presetLabels([document, target, source.label]).source}: ${target ? `${document}#${target}` : document}`;
 }
 
-
 function partNaming(path) {
   const base = posix.basename(path);
   const match = /^([A-Za-z_]+?)\d*\.([A-Za-z0-9]+)$/.exec(base);
@@ -255,30 +252,28 @@ function partNaming(path) {
   };
 }
 
-
 function nextAvailablePart(zip, directory, prefix, extension) {
   let ordinal = 1;
   while (zip.file(`${directory}/${prefix}${ordinal}.${extension}`)) ordinal += 1;
   return `${directory}/${prefix}${ordinal}.${extension}`;
 }
 
-
 async function partDigest(archive, path) {
   const file = archive.file(path);
   if (!file) return '';
-  return createHash('sha1').update(await file.async('nodebuffer')).digest('hex');
+  return createHash('sha1')
+    .update(await file.async('nodebuffer'))
+    .digest('hex');
 }
-
 
 async function findMatchingPart(zip, pattern, digest) {
   if (!digest) return '';
   for (const name of Object.keys(zip.files)) {
     if (!pattern.test(name)) continue;
-    if (await partDigest(zip, name) === digest) return name;
+    if ((await partDigest(zip, name)) === digest) return name;
   }
   return '';
 }
-
 
 async function copyPartContentType(source, zip, sourcePath, targetPath) {
   const types = await zipText(source, '[Content_Types].xml');
@@ -292,7 +287,6 @@ async function copyPartContentType(source, zip, sourcePath, targetPath) {
   if (fallback) await ensureDefaultContentType(zip, extension, xmlAttribute(fallback[0], 'ContentType'));
 }
 
-
 async function importPartTree(source, zip, sourcePath, cache) {
   if (cache.has(sourcePath)) return cache.get(sourcePath);
   const file = source.file(sourcePath);
@@ -304,7 +298,7 @@ async function importPartTree(source, zip, sourcePath, cache) {
   const reused = await findMatchingPart(
     zip,
     new RegExp(`^${tagPattern(directory)}/${tagPattern(naming.prefix)}\\d*\\.${tagPattern(naming.extension)}$`, 'i'),
-    digest,
+    digest
   );
   if (reused) {
     cache.set(sourcePath, reused);
@@ -318,12 +312,11 @@ async function importPartTree(source, zip, sourcePath, cache) {
   if (relationships) {
     zip.file(
       partRelationshipPath(targetPath),
-      await rewriteImportedRelationships(source, zip, sourcePath, targetPath, relationships, cache),
+      await rewriteImportedRelationships(source, zip, sourcePath, targetPath, relationships, cache)
     );
   }
   return targetPath;
 }
-
 
 // Parts a slide owns rather than shares: a chart carries its own data, a
 // diagram its own nodes. A picture, a theme, or a layout is the same object on
@@ -355,7 +348,11 @@ export async function clonePartTree(zip, sourcePath, cache = new Map()) {
     const target = xmlDecode(raw);
     if (!target) continue;
     const absolute = target.startsWith('/');
-    const cloned = await clonePartTree(zip, absolute ? target.slice(1) : posix.normalize(posix.join(directory, target)), cache);
+    const cloned = await clonePartTree(
+      zip,
+      absolute ? target.slice(1) : posix.normalize(posix.join(directory, target)),
+      cache
+    );
     if (!cloned) continue;
     const rewrittenTarget = absolute ? `/${cloned}` : posix.relative(posix.dirname(targetPath), cloned);
     output = output.replace(block, block.replace(`Target="${raw}"`, `Target="${xmlEncode(rewrittenTarget)}"`));
@@ -364,9 +361,9 @@ export async function clonePartTree(zip, sourcePath, cache = new Map()) {
   return targetPath;
 }
 
-
 // The relationships a copied slide must own outright before it is editable on
 // its own: everything else stays shared with the slide it was copied from.
+
 export async function cloneOwnedSlideParts(zip, relationshipsPath) {
   const xml = await zipText(zip, relationshipsPath);
   if (!xml) return [];
@@ -377,13 +374,21 @@ export async function cloneOwnedSlideParts(zip, relationshipsPath) {
   for (const match of xml.matchAll(/<Relationship\b[^>]*?\/>/g)) {
     const block = match[0];
     if (/\bTargetMode="External"/i.test(block)) continue;
-    if (!/\/(chart|chartEx|diagramData|diagramLayout|diagramColors|diagramQuickStyle|diagramDrawing)$/
-      .test(xmlAttribute(block, 'Type'))) continue;
+    if (
+      !/\/(chart|chartEx|diagramData|diagramLayout|diagramColors|diagramQuickStyle|diagramDrawing)$/.test(
+        xmlAttribute(block, 'Type')
+      )
+    )
+      continue;
     const raw = xmlAttribute(block, 'Target');
     const target = xmlDecode(raw);
     if (!target) continue;
     const absolute = target.startsWith('/');
-    const cloned = await clonePartTree(zip, absolute ? target.slice(1) : posix.normalize(posix.join(owner, target)), cache);
+    const cloned = await clonePartTree(
+      zip,
+      absolute ? target.slice(1) : posix.normalize(posix.join(owner, target)),
+      cache
+    );
     if (!cloned) continue;
     copied.push(cloned);
     const rewrittenTarget = absolute ? `/${cloned}` : posix.relative(owner, cloned);
@@ -392,7 +397,6 @@ export async function cloneOwnedSlideParts(zip, relationshipsPath) {
   if (copied.length) zip.file(relationshipsPath, output);
   return copied;
 }
-
 
 export async function rewriteImportedRelationships(source, zip, sourceOwner, targetOwner, relationships, cache) {
   const sourceDirectory = posix.dirname(sourceOwner);
@@ -404,9 +408,7 @@ export async function rewriteImportedRelationships(source, zip, sourceOwner, tar
     const type = xmlAttribute(block, 'Type');
     const target = xmlDecode(xmlAttribute(block, 'Target'));
     if (!target) continue;
-    const resolved = target.startsWith('/')
-      ? target.slice(1)
-      : posix.normalize(posix.join(sourceDirectory, target));
+    const resolved = target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join(sourceDirectory, target));
     if (type.endsWith('/notesSlide')) {
       output = output.replace(block, '');
       continue;
@@ -416,10 +418,12 @@ export async function rewriteImportedRelationships(source, zip, sourceOwner, tar
       mapped = await findMatchingPart(
         zip,
         /^ppt\/slideLayouts\/slideLayout\d+\.xml$/,
-        await partDigest(source, resolved),
+        await partDigest(source, resolved)
       );
       if (!mapped) {
-        throw new Error('portable import_slides requires the deck to be seeded from the same template; create the presentation from this template first');
+        throw new Error(
+          'portable import_slides requires the deck to be seeded from the same template; create the presentation from this template first'
+        );
       }
     } else if (type.endsWith('/slide')) {
       mapped = cache.get(`slide:${resolved}`) || '';
@@ -432,24 +436,21 @@ export async function rewriteImportedRelationships(source, zip, sourceOwner, tar
     }
     output = output.replace(
       block,
-      block.replace(/\bTarget="[^"]*"/, `Target="${xmlEncode(posix.relative(targetDirectory, mapped))}"`),
+      block.replace(/\bTarget="[^"]*"/, `Target="${xmlEncode(posix.relative(targetDirectory, mapped))}"`)
     );
   }
   return output;
 }
 
-
 export const CHART_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.drawingml.chart+xml';
 
 export const WORKBOOK_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
 
 export function relationshipOwner(relPath) {
   if (relPath === '_rels/.rels') return '';
   const match = /^(.*)\/_rels\/([^/]+)\.rels$/i.exec(relPath);
   return match ? `${match[1]}/${match[2]}` : '';
 }
-
 
 export function relationshipTarget(relPath, target) {
   let decoded = xmlDecode(target).split('#')[0].split('?')[0];

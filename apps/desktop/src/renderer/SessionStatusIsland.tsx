@@ -70,7 +70,11 @@ function shellCommandLabel(command: string): string {
 // agents and background shells share a single slot left of the context gauge,
 // and the hover popover keeps the per-task breakdown. Separate Agent and
 // Shell chips grew the island to three slots for one turn's work.
-export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange }: {
+export function LiveWorkIndicator({
+  snapshot,
+  open: controlledOpen,
+  onOpenChange,
+}: {
   snapshot: Snapshot;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -78,8 +82,7 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
   const agents = liveAgentRows(snapshot);
   // A tool call publishes its count before the worker row lands; the larger
   // of the two is the honest number.
-  const agentCount = Math.max(agents.length,
-    Math.max(0, Number(snapshot.activeTools?.agent?.count) || 0));
+  const agentCount = Math.max(agents.length, Math.max(0, Number(snapshot.activeTools?.agent?.count) || 0));
   const shells = liveShellRows(snapshot);
   // Every command still running surfaces here — foreground and background
   // alike (user: 실제 호출할때 나오고 종료될때 사라지게). The runtime publishes
@@ -87,9 +90,7 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
   const shellCount = Math.max(liveShellCount(snapshot), shells.length);
   const total = agentCount + shellCount;
   const clock = useActivityClock(total > 0);
-  const elapsed = (startedAt: number) => startedAt
-    ? formatWorkElapsed(clock - startedAt) || '0s'
-    : '';
+  const elapsed = (startedAt: number) => (startedAt ? formatWorkElapsed(clock - startedAt) || '0s' : '');
   // Every row carries BOTH cells, empty ones included: the card lays its
   // label/value pair out on one shared grid, so a missing value cell would
   // slide the next row's label into the value column.
@@ -112,11 +113,12 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
       label: agent.role,
       // A cancel that could not be confirmed keeps its row — the process may
       // still be alive — but it says so instead of borrowing the work timer.
-      detail: agent.state === 'cancel-unconfirmed'
-        ? t('Cancel unconfirmed')
-        : agent.queued
-          ? t('Queued')
-          : elapsed(agent.turnStartedAt || agent.startedAt) || agent.status,
+      detail:
+        agent.state === 'cancel-unconfirmed'
+          ? t('Cancel unconfirmed')
+          : agent.queued
+            ? t('Queued')
+            : elapsed(agent.turnStartedAt || agent.startedAt) || agent.status,
       ...(agent.state === 'cancel-unconfirmed'
         ? { title: t('Cancel was delivered, but the process could not be confirmed stopped.') }
         : {}),
@@ -152,7 +154,7 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
       detail: String(snapshot.shellJobs?.elapsedLabel || ''),
     });
   }
-  const groups = ([
+  const groups = [
     {
       kind: 'agent' as const,
       label: agentCount === 1 ? t('Agent') : t('Agents'),
@@ -165,7 +167,7 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
       count: shellCount,
       rows: rows.filter((row) => row.kind === 'shell'),
     },
-  ]).filter((group) => group.rows.length > 0);
+  ].filter((group) => group.rows.length > 0);
   // A coarse pointer has no hover to read the card with, so there a tap opens
   // the same card the desktop shows on hover, and the next pointer landing
   // outside it — or Escape, or hardware back — puts it away again. The shared
@@ -183,9 +185,10 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
     if (!target.id || stopping.has(key)) return;
     setStopping((current) => new Set(current).add(key));
     try {
-      const request = target.kind === 'agent'
-        ? { capability: 'agentControl' as const, args: [{ type: 'cancel', tag: target.id }] }
-        : { capability: 'taskControl' as const, args: [{ action: 'cancel', task_id: target.id }] };
+      const request =
+        target.kind === 'agent'
+          ? { capability: 'agentControl' as const, args: [{ type: 'cancel', tag: target.id }] }
+          : { capability: 'taskControl' as const, args: [{ action: 'cancel', task_id: target.id }] };
       const result = await window.mixdogDesktop.invokeCapability({
         ...request,
         ...(ownerSessionId ? { sessionId: ownerSessionId } : {}),
@@ -196,13 +199,12 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
       // SURVIVING_DESCENDANTS_UNREACHABLE_WARNING), and a silent return would
       // read as a successful cancel.
       if (desktopCancelOutcome(result?.value) === 'unconfirmed') {
-        showDesktopToast(
-          t('Cancel was delivered, but the process could not be confirmed stopped.'),
-          'warn',
-        );
+        showDesktopToast(t('Cancel was delivered, but the process could not be confirmed stopped.'), 'warn');
       }
     } catch (reason) {
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', { scope: `${ownerSessionId}:cancel:${key}` });
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
+        scope: `${ownerSessionId}:cancel:${key}`,
+      });
     } finally {
       setStopping((current) => {
         const next = new Set(current);
@@ -211,52 +213,73 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
       });
     }
   };
-  return <div className="session-work-indicator" {...popover.hostProps}
-    data-active={total > 0 ? 'true' : 'false'}
-    data-open={open ? 'true' : 'false'}>
-    {/* One fixed-width glyph keeps the capsule stable; the card carries detail. */}
-    <button type="button" {...popover.triggerProps}
-      aria-expanded={open}
-      aria-label={t('Background activity: {{count}} running', { count: total })}>
-      <span className="session-work-icon-stack" aria-hidden="true">
-        <Activity className="session-work-icon session-work-icon-base" size={18} />
-        <Activity className="session-work-icon session-work-icon-glow" size={18} />
-      </span>
-    </button>
-    {/* The card is ALWAYS mounted (user: 그냥 아예 안 나왔거든): an idle hover
+  return (
+    <div
+      className="session-work-indicator"
+      {...popover.hostProps}
+      data-active={total > 0 ? 'true' : 'false'}
+      data-open={open ? 'true' : 'false'}
+    >
+      {/* One fixed-width glyph keeps the capsule stable; the card carries detail. */}
+      <button
+        type="button"
+        {...popover.triggerProps}
+        aria-expanded={open}
+        aria-label={t('Background activity: {{count}} running', { count: total })}
+      >
+        <span className="session-work-icon-stack" aria-hidden="true">
+          <Activity className="session-work-icon session-work-icon-base" size={18} />
+          <Activity className="session-work-icon session-work-icon-glow" size={18} />
+        </span>
+      </button>
+      {/* The card is ALWAYS mounted (user: 그냥 아예 안 나왔거든): an idle hover
         used to answer with nothing at all, so the slot read as dead chrome. */}
-    <div className="live-work-popover" role="tooltip">
-      {rows.length
-        ? groups.map((group) => <section className="live-work-group"
-          data-kind={group.kind} key={group.kind}>
-          {/* Text only (user: TASK 아일랜드 버튼에 왼쪽 아이콘 빼주고): the
+      <div className="live-work-popover" role="tooltip">
+        {rows.length ? (
+          groups.map((group) => (
+            <section className="live-work-group" data-kind={group.kind} key={group.kind}>
+              {/* Text only (user: TASK 아일랜드 버튼에 왼쪽 아이콘 빼주고): the
               group name already says agent or shell, so a leading glyph only
               pushed the label off the column its own rows start on. */}
-          <header className="live-work-group-header">
-            <span>{group.label}</span>
-            <b>{group.count}</b>
-          </header>
-          {group.rows.map((row) => <div className="live-work-row" key={row.key}>
+              <header className="live-work-group-header">
+                <span>{group.label}</span>
+                <b>{group.count}</b>
+              </header>
+              {group.rows.map((row) => (
+                <div className="live-work-row" key={row.key}>
+                  <div className="live-work-copy">
+                    <span title={row.title}>{row.label}</span>
+                    {row.meta && <small title={row.meta}>{row.meta}</small>}
+                  </div>
+                  <time>{row.detail}</time>
+                  {row.stop && (
+                    <button
+                      type="button"
+                      className="live-work-stop"
+                      disabled={stopping.has(`${row.stop.kind}:${row.stop.id}`)}
+                      aria-label={t('Stop')}
+                      title={t('Stop')}
+                      onClick={() => {
+                        void stop(row.stop as { kind: 'agent' | 'shell'; id: string });
+                      }}
+                    >
+                      <MxIcon name="stop" size={12} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </section>
+          ))
+        ) : (
+          <div className="live-work-row" key="idle">
             <div className="live-work-copy">
-              <span title={row.title}>{row.label}</span>
-              {row.meta && <small title={row.meta}>{row.meta}</small>}
+              <span>{t('No background work')}</span>
             </div>
-            <time>{row.detail}</time>
-            {row.stop && <button type="button" className="live-work-stop"
-                disabled={stopping.has(`${row.stop.kind}:${row.stop.id}`)}
-                aria-label={t('Stop')} title={t('Stop')}
-                onClick={() => { void stop(row.stop as { kind: 'agent' | 'shell'; id: string }); }}>
-              <MxIcon name="stop" size={12} />
-            </button>}
-          </div>)}
-        </section>)
-        : <div className="live-work-row" key="idle">
-          <div className="live-work-copy">
-            <span>{t('No background work')}</span>
           </div>
-        </div>}
+        )}
+      </div>
     </div>
-  </div>;
+  );
 }
 
 // ONE translucent capsule pinned to the transcript's top-right corner (user:
@@ -283,27 +306,36 @@ export function SessionStatusIsland({
   const [contextOpen, setContextOpen] = useState(false);
   const sessionId = String(snapshot.sessionId || '');
   useEffect(() => setContextOpen(false), [sessionId]);
-  return <div className="session-status-island">
-    <ContextUsageIndicator snapshot={snapshot}
-      open={contextOpen} onOpenChange={setContextOpen}
-      onInherit={onInherit} />
-    {onToggleDock && <button type="button"
-      className="session-dock-toggle session-status-dock-toggle"
-      aria-pressed={dockOpen}
-      aria-label={t(dockOpen ? 'Close {{label}}' : 'Open {{label}}', {
-        label: t('utility panel'),
-      })}
-      data-tooltip={t(dockOpen ? 'Close {{label}}' : 'Open {{label}}', {
-        label: t('utility panel'),
-      })}
-      onClick={() => {
-        setContextOpen(false);
-        onToggleDock();
-      }}>
-      {/* Island voice is lucide line work (user: 아이콘 크기가 전혀 안 맞아 —
+  return (
+    <div className="session-status-island">
+      <ContextUsageIndicator
+        snapshot={snapshot}
+        open={contextOpen}
+        onOpenChange={setContextOpen}
+        onInherit={onInherit}
+      />
+      {onToggleDock && (
+        <button
+          type="button"
+          className="session-dock-toggle session-status-dock-toggle"
+          aria-pressed={dockOpen}
+          aria-label={t(dockOpen ? 'Close {{label}}' : 'Open {{label}}', {
+            label: t('utility panel'),
+          })}
+          data-tooltip={t(dockOpen ? 'Close {{label}}' : 'Open {{label}}', {
+            label: t('utility panel'),
+          })}
+          onClick={() => {
+            setContextOpen(false);
+            onToggleDock();
+          }}
+        >
+          {/* Island voice is lucide line work (user: 아이콘 크기가 전혀 안 맞아 —
           채워진 거 말고 선으로 된 아이콘): the filled 16px codicon font glyph
           read heavier, brighter and off-size beside the 18px stroke marks. */}
-      <PanelRight size={20} aria-hidden="true" />
-    </button>}
-  </div>;
+          <PanelRight size={20} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
 }

@@ -7,16 +7,28 @@ const supersample = 4;
 // 23-B OS mark: near-black tile, three titanium arcs, and a silver star core.
 const tile = [7, 8, 11];
 const titanium = [
-  [[255, 255, 255], [203, 213, 225], [255, 255, 255]],
-  [[241, 245, 249], [148, 163, 184], [241, 245, 249]],
-  [[226, 232, 240], [100, 116, 139], [226, 232, 240]],
+  [
+    [255, 255, 255],
+    [203, 213, 225],
+    [255, 255, 255],
+  ],
+  [
+    [241, 245, 249],
+    [148, 163, 184],
+    [241, 245, 249],
+  ],
+  [
+    [226, 232, 240],
+    [100, 116, 139],
+    [226, 232, 240],
+  ],
 ];
 
 let crcTable;
 function crc32(buffer) {
   crcTable ??= Array.from({ length: 256 }, (_, n) => {
     let c = n;
-    for (let k = 0; k < 8; k += 1) c = (c & 1) ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
     return c >>> 0;
   });
   let crc = 0xffffffff;
@@ -73,10 +85,7 @@ function insideRoundedSquareInset(x, y, size, inset) {
 function rotatePoint(x, y, angle) {
   const cosine = Math.cos(angle);
   const sine = Math.sin(angle);
-  return [
-    128 + (x - 128) * cosine + (y - 128) * sine,
-    128 - (x - 128) * sine + (y - 128) * cosine,
-  ];
+  return [128 + (x - 128) * cosine + (y - 128) * sine, 128 - (x - 128) * sine + (y - 128) * cosine];
 }
 
 function arcSample(x, y, size, rotation) {
@@ -85,8 +94,8 @@ function arcSample(x, y, size, rotation) {
   const dx = localX - 128;
   const dy = localY - 128;
   const angle = Math.atan2(dy, dx);
-  const start = -100 * Math.PI / 180;
-  const end = -20 * Math.PI / 180;
+  const start = (-100 * Math.PI) / 180;
+  const end = (-20 * Math.PI) / 180;
   const radius = 68;
   const halfWidth = 14;
   const startX = 128 + radius * Math.cos(start);
@@ -112,7 +121,7 @@ function insidePolygon(x, y, points) {
   for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
     const [xi, yi] = points[i];
     const [xj, yj] = points[j];
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
   }
   return inside;
 }
@@ -131,15 +140,21 @@ function renderIcon(size) {
         const scale = size / 256;
         const pointX = iconX / scale;
         const pointY = iconY / scale;
-        let color = insideRoundedSquareInset(iconX, iconY, size, 2.5 * scale)
-          ? tile
-          : [148, 163, 184];
+        let color = insideRoundedSquareInset(iconX, iconY, size, 2.5 * scale) ? tile : [148, 163, 184];
         for (let arc = 0; arc < 3; arc += 1) {
-          const sample = arcSample(iconX, iconY, size, arc * 120 * Math.PI / 180);
+          const sample = arcSample(iconX, iconY, size, (arc * 120 * Math.PI) / 180);
           if (sample !== null) color = gradientColor(titanium[arc], sample);
         }
-        const star = [[128, 112], [133, 123], [144, 128], [133, 133],
-          [128, 144], [123, 133], [112, 128], [123, 123]];
+        const star = [
+          [128, 112],
+          [133, 123],
+          [144, 128],
+          [133, 133],
+          [128, 144],
+          [123, 133],
+          [112, 128],
+          [123, 123],
+        ];
         if (insidePolygon(pointX, pointY, star)) color = [241, 245, 249];
         if (Math.hypot(pointX - 128, pointY - 128) <= 3.5) color = tile;
         if (Math.hypot(pointX - 128, pointY - 128) <= 1.5) color = [255, 255, 255];
@@ -158,7 +173,7 @@ function renderIcon(size) {
       let alpha = 0;
       for (let sampleY = 0; sampleY < supersample; sampleY += 1) {
         for (let sampleX = 0; sampleX < supersample; sampleX += 1) {
-          const highOffset = (((y * supersample + sampleY) * highSize) + x * supersample + sampleX) * 4;
+          const highOffset = ((y * supersample + sampleY) * highSize + x * supersample + sampleX) * 4;
           red += highPixels[highOffset];
           green += highPixels[highOffset + 1];
           blue += highPixels[highOffset + 2];

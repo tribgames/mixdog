@@ -1,22 +1,17 @@
-import type {
-  BrowserWindow,
-  IpcMain,
-  IpcMainEvent,
-  IpcMainInvokeEvent,
-} from 'electron';
+import type { BrowserWindow, IpcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import { DESKTOP_IPC } from '../shared/contract';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import { TerminalDataBufferer } from './terminal-data-buffer';
 import { requiredString } from './ipc-validation';
 
-type Handle = (
-  channel: string,
-  listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown,
-) => void;
+type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
 
 export interface DesktopTerminalHost {
-  ensure(id: string | null, cwd: string | null, profile?: TerminalSpawnProfile | string | null):
-    { id: string; replay: string } | Promise<{ id: string; replay: string }>;
+  ensure(
+    id: string | null,
+    cwd: string | null,
+    profile?: TerminalSpawnProfile | string | null
+  ): { id: string; replay: string } | Promise<{ id: string; replay: string }>;
   write(id: string, data: string): void;
   resize(id: string, cols: number, rows: number): void;
   pauseOutput?(id: string): void;
@@ -50,19 +45,23 @@ export function registerTerminalIpc({
     },
     5,
     256 * 1024,
-    terminals ? {
-      pause: (id) => terminals.pauseOutput?.(id),
-      resume: (id) => terminals.resumeOutput?.(id),
-    } : undefined,
-    32 * 1024,
+    terminals
+      ? {
+          pause: (id) => terminals.pauseOutput?.(id),
+          resume: (id) => terminals.resumeOutput?.(id),
+        }
+      : undefined,
+    32 * 1024
   );
 
   if (terminals) {
-    handle(DESKTOP_IPC.termEnsure, (_event, id, cwd, profile) => terminals.ensure(
-      typeof id === 'string' && id ? id : null,
-      typeof cwd === 'string' && cwd ? cwd : null,
-      typeof profile === 'string' && profile ? profile : null,
-    ));
+    handle(DESKTOP_IPC.termEnsure, (_event, id, cwd, profile) =>
+      terminals.ensure(
+        typeof id === 'string' && id ? id : null,
+        typeof cwd === 'string' && cwd ? cwd : null,
+        typeof profile === 'string' && profile ? profile : null
+      )
+    );
     handle(DESKTOP_IPC.termProfiles, () => invokeDesktopOperation('termProfiles', []));
     handle(DESKTOP_IPC.termDispose, (_event, id) => {
       const terminalId = requiredString(id, 'terminal id', 128);
@@ -79,11 +78,7 @@ export function registerTerminalIpc({
     if (!validSender(event)) return;
     terminals?.resize(String(id || ''), Number(cols), Number(rows));
   };
-  const onAcknowledge = (
-    event: IpcMainEvent,
-    id: unknown,
-    charCount: unknown,
-  ): void => {
+  const onAcknowledge = (event: IpcMainEvent, id: unknown, charCount: unknown): void => {
     if (!validSender(event)) return;
     dataBuffer.acknowledge(String(id || ''), Number(charCount));
   };

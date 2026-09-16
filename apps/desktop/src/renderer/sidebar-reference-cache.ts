@@ -12,18 +12,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { invalidateSharedModelCatalogRequest } from './model-catalog-cache';
 
-import type {
-  DesktopApi,
-  DesktopCapability,
-  DesktopModelOption,
-  DesktopProjectSummary,
-} from '../shared/contract';
+import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { record, rows } from './record-utils';
 
 type RecordValue = Record<string, unknown>;
 
-export type SidebarReferenceApi =
-  Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
+export type SidebarReferenceApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
 
 export interface SidebarReferenceValues {
   channelSetup: RecordValue;
@@ -92,11 +86,7 @@ const DEFAULTS: SidebarReferenceValues = {
 // usable at all, so the setup snapshot and BOTH model catalogs go untrue
 // together. The stored web-search route is a user choice and only its own
 // mutation invalidates it.
-const PROVIDER_KEYS: readonly SidebarReferenceKey[] = [
-  'providerSetup',
-  'quickProviderModels',
-  'webSearchModels',
-];
+const PROVIDER_KEYS: readonly SidebarReferenceKey[] = ['providerSetup', 'quickProviderModels', 'webSearchModels'];
 
 // Which cached keys a mutation makes untrue. Anything not listed falls back to
 // the caller's own panel keys, so an unmapped capability still refreshes.
@@ -136,15 +126,14 @@ function message(reason: unknown): string {
 async function capability<T>(
   api: SidebarReferenceApi,
   name: DesktopCapability,
-  args: unknown[] = [],
+  args: unknown[] = []
 ): Promise<T | undefined> {
   if (!api.invokeCapability) return undefined;
   const result = await api.invokeCapability<T>({ capability: name, args });
   return result?.value;
 }
 
-type Loader<K extends SidebarReferenceKey> =
-  (api: SidebarReferenceApi) => Promise<SidebarReferenceValues[K]>;
+type Loader<K extends SidebarReferenceKey> = (api: SidebarReferenceApi) => Promise<SidebarReferenceValues[K]>;
 
 const LOADERS: { [K in SidebarReferenceKey]: Loader<K> } = {
   channelSetup: async (api) => record(await capability(api, 'getChannelSetup')),
@@ -258,9 +247,10 @@ export function adoptSidebarReferenceHost(api: SidebarReferenceApi | undefined):
   entries.clear();
   failures.clear();
   for (const key of SIDEBAR_REFERENCE_KEYS) bumpGeneration(key);
-  if (affected.length) queueMicrotask(() => {
-    for (const key of affected) notify(key);
-  });
+  if (affected.length)
+    queueMicrotask(() => {
+      for (const key of affected) notify(key);
+    });
   return true;
 }
 
@@ -288,7 +278,7 @@ export function readSidebarReference<K extends SidebarReferenceKey>(key: K): Sid
 }
 
 export function readSidebarReferenceValues<K extends SidebarReferenceKey>(
-  keys: readonly K[],
+  keys: readonly K[]
 ): Pick<SidebarReferenceValues, K> {
   const values: Partial<SidebarReferenceValues> = {};
   for (const key of keys) values[key] = readSidebarReference(key) as never;
@@ -296,10 +286,7 @@ export function readSidebarReferenceValues<K extends SidebarReferenceKey>(
 }
 
 /** Publish a known-good value without a round trip (post-mutation update). */
-export function updateSidebarReference<K extends SidebarReferenceKey>(
-  key: K,
-  value: SidebarReferenceValues[K],
-): void {
+export function updateSidebarReference<K extends SidebarReferenceKey>(key: K, value: SidebarReferenceValues[K]): void {
   bumpGeneration(key);
   entries.set(key, { value, updatedAt: clock(), invalid: false });
   failures.delete(key);
@@ -328,7 +315,7 @@ export function invalidateSidebarReference(...keys: SidebarReferenceKey[]): void
 
 export function sidebarReferenceKeysForMutation(
   mutation: string,
-  fallback: readonly SidebarReferenceKey[] = [],
+  fallback: readonly SidebarReferenceKey[] = []
 ): SidebarReferenceKey[] {
   const mapped = MUTATION_KEYS[mutation];
   return [...(mapped ?? fallback)];
@@ -389,7 +376,7 @@ export interface SidebarReferenceLoadOutcome {
 export async function loadSidebarReferences(
   api: SidebarReferenceApi | undefined,
   keys: readonly SidebarReferenceKey[],
-  options: { force?: boolean; onlyIfBound?: boolean } = {},
+  options: { force?: boolean; onlyIfBound?: boolean } = {}
 ): Promise<SidebarReferenceLoadOutcome> {
   // Provenance gate: a caller that was created for an earlier host (a mutation
   // completion resolving after a host swap) must not re-adopt it.
@@ -409,10 +396,7 @@ export async function loadSidebarReferences(
 }
 
 /** Boot prewarm: fill every sidebar reference key once, best effort. */
-export function subscribeSidebarReferences(
-  keys: readonly SidebarReferenceKey[],
-  listener: () => void,
-): () => void {
+export function subscribeSidebarReferences(keys: readonly SidebarReferenceKey[], listener: () => void): () => void {
   for (const key of keys) {
     let set = listeners.get(key);
     if (!set) {
@@ -438,15 +422,14 @@ export function resetSidebarReferenceCache(options: { now?: () => number } = {})
   clock = options.now ?? (() => Date.now());
 }
 
-function sameProjects(
-  left: readonly DesktopProjectSummary[],
-  right: readonly DesktopProjectSummary[],
-): boolean {
-  return left.length === right.length && left.every((row, index) => {
-    const other = right[index];
-    return Boolean(other) && row.path === other.path && row.name === other.name
-      && row.alias === other.alias;
-  });
+function sameProjects(left: readonly DesktopProjectSummary[], right: readonly DesktopProjectSummary[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((row, index) => {
+      const other = right[index];
+      return Boolean(other) && row.path === other.path && row.name === other.name && row.alias === other.alias;
+    })
+  );
 }
 
 /**
@@ -482,7 +465,7 @@ export interface SidebarReferenceState<K extends SidebarReferenceKey> {
 export function sidebarReferencesLoading(
   available: boolean,
   settled: boolean,
-  keys: readonly SidebarReferenceKey[],
+  keys: readonly SidebarReferenceKey[]
 ): boolean {
   return available && !settled && keys.some((key) => !hasSidebarReference(key));
 }
@@ -495,7 +478,7 @@ export function sidebarReferencesLoading(
 export function useSidebarReferences<K extends SidebarReferenceKey>(
   api: SidebarReferenceApi | undefined,
   keys: readonly K[],
-  active = true,
+  active = true
 ): SidebarReferenceState<K> {
   const available = Boolean(api?.invokeCapability);
   const [revision, setRevision] = useState(0);
@@ -527,28 +510,40 @@ export function useSidebarReferences<K extends SidebarReferenceKey>(
     return readSidebarReferenceValues(keys);
   }, [api, keys, revision]);
 
-  const refresh = useCallback(async (options?: { force?: boolean }) => {
-    // `onlyIfBound` is the provenance gate: a refresh captured for host A (a
-    // mutation completing after the app rebound to host B) must not re-adopt A.
-    const outcome = await loadSidebarReferences(api, keys, { ...options, onlyIfBound: true });
-    if (!mounted.current || outcome.superseded) return;
-    // Values re-render through the cache subscription; only the host-scoped
-    // status is owned here, and an unchanged status keeps its object so the
-    // revalidation effect below cannot feed itself.
-    setStatus((previous) => (previous.host === api && previous.settled && previous.error === outcome.error
-      ? previous
-      : { host: api, settled: true, error: outcome.error }));
-  }, [api, keys]);
+  const refresh = useCallback(
+    async (options?: { force?: boolean }) => {
+      // `onlyIfBound` is the provenance gate: a refresh captured for host A (a
+      // mutation completing after the app rebound to host B) must not re-adopt A.
+      const outcome = await loadSidebarReferences(api, keys, { ...options, onlyIfBound: true });
+      if (!mounted.current || outcome.superseded) return;
+      // Values re-render through the cache subscription; only the host-scoped
+      // status is owned here, and an unchanged status keeps its object so the
+      // revalidation effect below cannot feed itself.
+      setStatus((previous) =>
+        previous.host === api && previous.settled && previous.error === outcome.error
+          ? previous
+          : { host: api, settled: true, error: outcome.error }
+      );
+    },
+    [api, keys]
+  );
 
-  const completeMutation = useCallback(async (mutation: string) => {
-    if (!isSidebarReferenceHost(api)) return;
-    invalidateSidebarReference(...sidebarReferenceKeysForMutation(mutation, keys));
-    await refresh();
-  }, [api, keys, refresh]);
+  const completeMutation = useCallback(
+    async (mutation: string) => {
+      if (!isSidebarReferenceHost(api)) return;
+      invalidateSidebarReference(...sidebarReferenceKeysForMutation(mutation, keys));
+      await refresh();
+    },
+    [api, keys, refresh]
+  );
 
-  useEffect(() => subscribeSidebarReferences(keys, () => {
-    if (mounted.current) setRevision((value) => value + 1);
-  }), [keys]);
+  useEffect(
+    () =>
+      subscribeSidebarReferences(keys, () => {
+        if (mounted.current) setRevision((value) => value + 1);
+      }),
+    [keys]
+  );
   useEffect(() => {
     // Hidden panels hydrate too: App pre-mounts rail destinations so the first
     // click is a warm, atomic reveal.

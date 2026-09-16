@@ -39,16 +39,16 @@ export function createCompletionWakeScheduler({ getCurrentSessionId, getTurnApi 
         const delayMs = Math.max(0, Date.now() - queuedAt);
         if (delayMs >= WAKE_DELAY_REPORT_MS) {
           process.stderr.write(
-            `[notification] delayed completion wake sessionId=${ownerSessionId}`
-            + ` executionId=${executionId || 'unknown'} queuedMs=${delayMs}\n`,
+            `[notification] delayed completion wake sessionId=${ownerSessionId}` +
+              ` executionId=${executionId || 'unknown'} queuedMs=${delayMs}\n`
           );
         }
         await turnApi.ask('', { submittedAt: queuedAt });
       } catch (err) {
         try {
           process.stderr.write(
-            `[notification] completion wake failed sessionId=${ownerSessionId}`
-            + ` executionId=${executionId || 'unknown'} err=${err?.message || err}\n`,
+            `[notification] completion wake failed sessionId=${ownerSessionId}` +
+              ` executionId=${executionId || 'unknown'} err=${err?.message || err}\n`
           );
         } catch {}
       } finally {
@@ -67,7 +67,9 @@ function emitToListeners(source, content, meta = {}) {
   for (const listener of [...source]) {
     try {
       if (listener(event) === true) handled = true;
-    } catch { /* a broken listener never blocks the rest */ }
+    } catch {
+      /* a broken listener never blocks the rest */
+    }
   }
   return { handled, modelVisibleDelivered: event.modelVisibleDelivered === true };
 }
@@ -87,8 +89,11 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued }) {
     const { handled } = emitToListeners(targetListeners, content, meta);
     if (handled) return true;
     if (typeof mgr.enqueuePendingMessage !== 'function') return false;
-    try { return mgr.enqueuePendingMessage(targetSessionId, content) > 0; }
-    catch { return false; }
+    try {
+      return mgr.enqueuePendingMessage(targetSessionId, content) > 0;
+    } catch {
+      return false;
+    }
   }
 
   // UI-only delivery: reaches the session's attached surfaces (TUI/Desktop
@@ -131,7 +136,9 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued }) {
           executionId: meta?.execution_id || null,
           enqueuedAt: entry.enqueuedAt,
         });
-      } catch { /* wake-up is best-effort; the durable queue remains authoritative */ }
+      } catch {
+        /* wake-up is best-effort; the durable queue remains authoritative */
+      }
     }
     return true;
   }
@@ -161,18 +168,26 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued }) {
           executionId: meta?.execution_id,
           text: modelVisibleToolCompletionMessage(text, ownerMeta),
         });
-      } catch { /* registry is best-effort */ }
+      } catch {
+        /* registry is best-effort */
+      }
     }
-    const mustQueue = !handled || shouldMirrorCompletionToPendingQueue({
-      callerSessionId: targetSessionId,
-      modelVisibleDelivered,
-      hasEnqueue: typeof mgr.enqueuePendingMessage === 'function',
-      text,
-      meta: ownerMeta,
-    });
+    const mustQueue =
+      !handled ||
+      shouldMirrorCompletionToPendingQueue({
+        callerSessionId: targetSessionId,
+        modelVisibleDelivered,
+        hasEnqueue: typeof mgr.enqueuePendingMessage === 'function',
+        text,
+        meta: ownerMeta,
+      });
     let enqueued = false;
     if (mustQueue && typeof mgr.enqueuePendingMessage === 'function') {
-      try { enqueued = enqueueCompletion(targetSessionId, text, ownerMeta, 'owner'); } catch { /* best-effort */ }
+      try {
+        enqueued = enqueueCompletion(targetSessionId, text, ownerMeta, 'owner');
+      } catch {
+        /* best-effort */
+      }
     }
     return enqueued || handled;
   }

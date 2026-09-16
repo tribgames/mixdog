@@ -79,20 +79,21 @@ try {
   const toolEvents = [];
   const askOptions = {
     onAssistantToolCallObserved: (call) => toolEvents.push({ kind: 'call', name: call?.name || call?.tool || '?' }),
-    onToolResult: (message) => toolEvents.push({
-      kind: 'result',
-      name: message?.name || message?.tool || '?',
-      preview: String(message?.content ?? message?.output ?? '').slice(0, 200),
-    }),
+    onToolResult: (message) =>
+      toolEvents.push({
+        kind: 'result',
+        name: message?.name || message?.tool || '?',
+        preview: String(message?.content ?? message?.output ?? '').slice(0, 200),
+      }),
   };
   const ask1 = await runtime.ask(
-    'Delegate one task via the agent tool. If `agent` is not directly callable, first call '
-    + `load_tool with names=['agent'] to activate it. Then call agent with exactly type=spawn, agent=${WORKER_AGENT} and prompt `
-    + "'Read package.json in the current repo and reply with exactly the value of its name field, one word, nothing else.' "
-    + 'Do NOT set provider/model/effort (routing decides). Do not use read/grep/shell yourself. '
-    + 'After the spawn tool call returns, reply with exactly: SPAWNED. '
-    + 'Only if activating AND calling the agent tool both fail, reply exactly: AGENT_UNAVAILABLE',
-    askOptions,
+    'Delegate one task via the agent tool. If `agent` is not directly callable, first call ' +
+      `load_tool with names=['agent'] to activate it. Then call agent with exactly type=spawn, agent=${WORKER_AGENT} and prompt ` +
+      "'Read package.json in the current repo and reply with exactly the value of its name field, one word, nothing else.' " +
+      'Do NOT set provider/model/effort (routing decides). Do not use read/grep/shell yourself. ' +
+      'After the spawn tool call returns, reply with exactly: SPAWNED. ' +
+      'Only if activating AND calling the agent tool both fail, reply exactly: AGENT_UNAVAILABLE',
+    askOptions
   );
   const spawnReply = String(ask1?.result?.content || '');
   process.stdout.write(`turn1 tools: ${JSON.stringify(toolEvents)}\n`);
@@ -111,45 +112,71 @@ try {
     scope = status.agentScope || scope;
     const workers = status.agentWorkers || [];
     if (!sawWorkerRow && workers.length > 0) sawWorkerRow = workers[0];
-    terminalJob = (status.agentJobs || []).find(
-      (job) => /completed|failed|cancelled/i.test(String(job.status)),
-    ) || null;
+    terminalJob =
+      (status.agentJobs || []).find((job) => /completed|failed|cancelled/i.test(String(job.status))) || null;
     if (!terminalJob) await sleep(300);
   }
-  process.stdout.write(`final status surface: ${JSON.stringify({
-    workers: lastStatus?.agentWorkers || [],
-    jobs: lastStatus?.agentJobs || [],
-  }).slice(0, 1_500)}\n`);
-  check(Boolean(sawWorkerRow), 'worker visible on the session agent status surface',
-    sawWorkerRow ? `tag=${sawWorkerRow.tag} stage=${sawWorkerRow.stage}` : 'never appeared');
+  process.stdout.write(
+    `final status surface: ${JSON.stringify({
+      workers: lastStatus?.agentWorkers || [],
+      jobs: lastStatus?.agentJobs || [],
+    }).slice(0, 1_500)}\n`
+  );
+  check(
+    Boolean(sawWorkerRow),
+    'worker visible on the session agent status surface',
+    sawWorkerRow ? `tag=${sawWorkerRow.tag} stage=${sawWorkerRow.stage}` : 'never appeared'
+  );
   check(Boolean(terminalJob), 'agent job reached a terminal state');
-  check(terminalJob?.status === 'completed', 'agent job completed without error',
-    `status=${terminalJob?.status} error=${terminalJob?.error || 'none'}`);
-  check(Boolean(terminalJob?.provider && terminalJob?.model), 'routing rules resolved the worker route',
-    `agent=${terminalJob?.agent} route=${terminalJob?.provider}/${terminalJob?.model} preset=${terminalJob?.preset || '-'}`);
-  check(scope?.sessionId === runtime.id, 'agent status surface is scoped to the owner session',
-    `scope=${JSON.stringify(scope)} lead=${runtime.id}`);
+  check(
+    terminalJob?.status === 'completed',
+    'agent job completed without error',
+    `status=${terminalJob?.status} error=${terminalJob?.error || 'none'}`
+  );
+  check(
+    Boolean(terminalJob?.provider && terminalJob?.model),
+    'routing rules resolved the worker route',
+    `agent=${terminalJob?.agent} route=${terminalJob?.provider}/${terminalJob?.model} preset=${terminalJob?.preset || '-'}`
+  );
+  check(
+    scope?.sessionId === runtime.id,
+    'agent status surface is scoped to the owner session',
+    `scope=${JSON.stringify(scope)} lead=${runtime.id}`
+  );
   await sleep(500);
-  check(notifications.length > 0, 'owner received the completion notification',
-    `count=${notifications.length}`);
+  check(notifications.length > 0, 'owner received the completion notification', `count=${notifications.length}`);
 
   // Mirror the surface's notification injection into the next Lead turn.
-  const notifText = notifications.map((event) => {
-    try { return typeof event === 'string' ? event : JSON.stringify(event); } catch { return String(event); }
-  }).join('\n').slice(0, 4_000);
+  const notifText = notifications
+    .map((event) => {
+      try {
+        return typeof event === 'string' ? event : JSON.stringify(event);
+      } catch {
+        return String(event);
+      }
+    })
+    .join('\n')
+    .slice(0, 4_000);
   const ask2 = await runtime.ask(
-    `Agent completion notification:\n${notifText}\n\n`
-    + 'Reply with exactly: WORKER_SAID=<the worker\'s one-word answer from the notification>',
-    {},
+    `Agent completion notification:\n${notifText}\n\n` +
+      "Reply with exactly: WORKER_SAID=<the worker's one-word answer from the notification>",
+    {}
   );
   const finalReply = String(ask2?.result?.content || '');
-  check(/WORKER_SAID=\s*mixdog/i.test(finalReply), 'Lead surfaced the worker result',
-    finalReply.slice(0, 160));
+  check(/WORKER_SAID=\s*mixdog/i.test(finalReply), 'Lead surfaced the worker result', finalReply.slice(0, 160));
 
   process.stdout.write(`verdict: ${failures.length === 0 ? 'PASS' : `FAIL (${failures.join('; ')})`}\n`);
   process.exitCode = failures.length === 0 ? 0 : 1;
 } finally {
-  try { await runtime?.stop?.('lead-e2e-probe-exit'); } catch { /* teardown */ }
-  try { rmSync(ROOT, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch { /* temp */ }
+  try {
+    await runtime?.stop?.('lead-e2e-probe-exit');
+  } catch {
+    /* teardown */
+  }
+  try {
+    rmSync(ROOT, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {
+    /* temp */
+  }
 }
 process.exit(process.exitCode || 0);

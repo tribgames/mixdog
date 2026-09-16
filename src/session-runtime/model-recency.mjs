@@ -7,10 +7,21 @@ function parsedProviderModelVersion(id) {
   const text = clean(id).toLowerCase();
   const claude = text.match(/^claude-[a-z]+-(\d+)(?:[-.](\d+))?/);
   if (claude) return [Number(claude[1]) || 0, Number(claude[2]) || 0];
-  const compact = text.match(/(?:^|[-_])(?:o|gpt|grok|qwen|llama|mistral|gemma|phi|glm)(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/);
-  if (compact) return compact.slice(1).filter((v) => v != null).map((v) => Number(v) || 0);
+  const compact = text.match(
+    /(?:^|[-_])(?:o|gpt|grok|qwen|llama|mistral|gemma|phi|glm)(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/
+  );
+  if (compact)
+    return compact
+      .slice(1)
+      .filter((v) => v != null)
+      .map((v) => Number(v) || 0);
   const generic = text.match(/(?:^|[-_v])(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/);
-  return generic ? generic.slice(1).filter((v) => v != null).map((v) => Number(v) || 0) : [];
+  return generic
+    ? generic
+        .slice(1)
+        .filter((v) => v != null)
+        .map((v) => Number(v) || 0)
+    : [];
 }
 
 function compareProviderModelVersion(a, b) {
@@ -36,12 +47,13 @@ function providerModelReleaseTime(model) {
     return created < 1_000_000_000_000 ? created * 1000 : created;
   }
   const dated = clean(model?.id).match(/(?:^|-)(\d{4})(\d{2})(\d{2})(?:$|-)/);
-  return dated ? (Date.parse(`${dated[1]}-${dated[2]}-${dated[3]}`) || 0) : 0;
+  return dated ? Date.parse(`${dated[1]}-${dated[2]}-${dated[3]}`) || 0 : 0;
 }
 
 function isClaudeProviderModel(model) {
-  return clean(model?.provider).toLowerCase().includes('anthropic')
-    && /^claude-[a-z]+-/.test(clean(model?.id).toLowerCase());
+  return (
+    clean(model?.provider).toLowerCase().includes('anthropic') && /^claude-[a-z]+-/.test(clean(model?.id).toLowerCase())
+  );
 }
 
 function compareProviderModelRecency(a, b) {
@@ -83,7 +95,12 @@ export function isSelectableLlmModel(model) {
   const text = `${id} ${display}`;
   if (!id) return false;
   if (mode && !['chat', 'completion', 'responses', 'messages'].includes(mode)) return false;
-  if (/(^|[-_\s])(image|images|video|videos|audio|tts|stt|speech|embed|embedding|embeddings|rerank|reranker|realtime|moderation|imagine)([-_\s]|$)/i.test(text)) return false;
+  if (
+    /(^|[-_\s])(image|images|video|videos|audio|tts|stt|speech|embed|embedding|embeddings|rerank|reranker|realtime|moderation|imagine)([-_\s]|$)/i.test(
+      text
+    )
+  )
+    return false;
   if (/(^|[-_\s])(dall[-_\s]?e|sora|imagen)([-_\s]|$)/i.test(text)) return false;
   return true;
 }
@@ -117,9 +134,8 @@ export function providerModelCacheRow(name, m, webSearchCapableFor) {
     fastEfforts: Array.isArray(m.fastEfforts) ? m.fastEfforts : undefined,
     modelParameterOptions: Array.isArray(m.modelParameterOptions) ? m.modelParameterOptions : [],
     parameterVariants: Array.isArray(m.parameterVariants) ? m.parameterVariants : [],
-    defaultModelParameters: m.defaultModelParameters && typeof m.defaultModelParameters === 'object'
-      ? m.defaultModelParameters
-      : {},
+    defaultModelParameters:
+      m.defaultModelParameters && typeof m.defaultModelParameters === 'object' ? m.defaultModelParameters : {},
     defaultEffort: m.defaultEffort || null,
     defaultFast: m.defaultFast === true,
     supportsMaxMode: m.supportsMaxMode === true,

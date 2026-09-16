@@ -64,8 +64,10 @@ import {
 
 function formatNativeFailureContext(parsed, basePath, failedPath = '', options = {}) {
   const entries = Array.isArray(parsed) ? parsed : [];
-  const entry = entries.find((candidate) => classifyEntry(candidate) !== 'create' && nativeFailureMatchesEntry(candidate, failedPath))
-    || entries.find((candidate) => classifyEntry(candidate) !== 'create');
+  const entry =
+    entries.find(
+      (candidate) => classifyEntry(candidate) !== 'create' && nativeFailureMatchesEntry(candidate, failedPath)
+    ) || entries.find((candidate) => classifyEntry(candidate) !== 'create');
   const headerName = entry?.oldFileName;
   const displayPath = headerName ? normalizeOutputPath(stripDiffPrefix(headerName)) : '';
   const fuzz = Number.isFinite(options?.fuzz) && options.fuzz > 0 ? Math.floor(options.fuzz) : 0;
@@ -78,10 +80,10 @@ function formatNativeFailureContext(parsed, basePath, failedPath = '', options =
     sourceLines = splitTextLinesForPatch(raw.toString('utf8'));
   } catch {}
   const failingHunk = sourceByteLines ? findFirstFailingUnifiedHunk(entry, sourceByteLines, fuzz) : null;
-  const failingDetail = (failingHunk && sourceByteLines)
-    ? firstFailingUnifiedHunkLineDetail(sourceByteLines, failingHunk)
-    : null;
-  const expected = failingDetail || firstMeaningfulUnifiedHunkLine(failingHunk) || firstMeaningfulUnifiedEntryLine(entry);
+  const failingDetail =
+    failingHunk && sourceByteLines ? firstFailingUnifiedHunkLineDetail(sourceByteLines, failingHunk) : null;
+  const expected =
+    failingDetail || firstMeaningfulUnifiedHunkLine(failingHunk) || firstMeaningfulUnifiedEntryLine(entry);
   if (!entry || !expected?.line) return '';
   const expectedText = JSON.stringify(compactPatchPreviewLine(expected.line));
   let nearest = '';
@@ -92,10 +94,7 @@ function formatNativeFailureContext(parsed, basePath, failedPath = '', options =
     if (wantNorm) {
       for (let i = 0; i < sourceLines.length; i++) {
         if (sourceLines[i] === expected.line) break; // exact match exists; not a normalization issue
-        if (
-          sourceLines[i].trim() !== expected.line.trim()
-          && normalizeTypographic(sourceLines[i]) === wantNorm
-        ) {
+        if (sourceLines[i].trim() !== expected.line.trim() && normalizeTypographic(sourceLines[i]) === wantNorm) {
           normalizeHint = `context matches after Unicode normalization at line ${i + 1} — source may contain typographic dashes/quotes/NBSP`;
           break;
         }
@@ -109,7 +108,17 @@ function formatNativeFailureContext(parsed, basePath, failedPath = '', options =
 // engine. Throws on any native error; on success returns the formatted
 // human-readable response string. Never silently falls back to JS — the
 // caller MUST surface throws as `Error: ...` strings.
-export async function dispatchNativePatch({ entries, basePath, nativePatchStr, fuzz, rejectPartial, dryRun, readStateScope, signal, parsed }) {
+export async function dispatchNativePatch({
+  entries,
+  basePath,
+  nativePatchStr,
+  fuzz,
+  rejectPartial,
+  dryRun,
+  readStateScope,
+  signal,
+  parsed,
+}) {
   const nativeStart = performance.now();
   // Pre-write identity of every target. The read-snapshot recorder needs it to
   // decide whether the session's earlier full read still described this file
@@ -126,7 +135,11 @@ export async function dispatchNativePatch({ entries, basePath, nativePatchStr, f
   }
   if (!dryRun) {
     for (const entry of entries || []) {
-      try { preMutationStats.set(entry.fullPath, lstatSync(entry.fullPath)); } catch { /* absent target */ }
+      try {
+        preMutationStats.set(entry.fullPath, lstatSync(entry.fullPath));
+      } catch {
+        /* absent target */
+      }
     }
   }
   // Body-knowledge proof for the "[file unchanged]" fast path. A stat captured
@@ -152,7 +165,9 @@ export async function dispatchNativePatch({ entries, basePath, nativePatchStr, f
           eol: detectDominantEol(text),
         });
         bodyProofs.set(entry.fullPath, hashText(joinTextLinesForPatch(updated)));
-      } catch { /* no proof — the fast path stays off for this file */ }
+      } catch {
+        /* no proof — the fast path stays off for this file */
+      }
     }
   }
   let stats;
@@ -166,9 +181,11 @@ export async function dispatchNativePatch({ entries, basePath, nativePatchStr, f
     // absent targets are created and a target written by the uncertain first
     // attempt is replaced with identical desired content. Updates/deletes stay
     // fail-closed because replay after an uncertain write is not idempotent.
-    if (err?.code === NATIVE_PATCH_TRANSPORT_DEAD
-      && entries.length > 0
-      && entries.every((entry) => entry.kind === 'create')) {
+    if (
+      err?.code === NATIVE_PATCH_TRANSPORT_DEAD &&
+      entries.length > 0 &&
+      entries.every((entry) => entry.kind === 'create')
+    ) {
       const recovered = await dispatchJsPatchEntries({
         rows: entries,
         parsed,
@@ -228,7 +245,7 @@ export async function dispatchNativePatch({ entries, basePath, nativePatchStr, f
         const snapshotMeta = {
           source: 'apply_patch_native',
           isPartialView: false,
-          preMutationStat: observationConsistent ? (preMutationStats.get(entry.fullPath) || null) : null,
+          preMutationStat: observationConsistent ? preMutationStats.get(entry.fullPath) || null : null,
         };
         if (observationConsistent && observedStat) snapshotMeta.st = observedStat;
         if (contentHash) snapshotMeta.contentHash = contentHash;
@@ -255,7 +272,9 @@ export async function dispatchNativePatch({ entries, basePath, nativePatchStr, f
     );
   }
   if (patchTraceEnabled()) {
-    process.stderr.write(`[patch-native] applied files=${writtenEntries.length} partial=${stats.partial ? 1 : 0} ms=${stats.totalMs.toFixed(3)}\n`);
+    process.stderr.write(
+      `[patch-native] applied files=${writtenEntries.length} partial=${stats.partial ? 1 : 0} ms=${stats.totalMs.toFixed(3)}\n`
+    );
   }
   scheduleNativePatchIdleClose();
   const verb = dryRun ? 'checked' : 'applied';
@@ -276,12 +295,16 @@ export async function dispatchNativePatch({ entries, basePath, nativePatchStr, f
     if (added > 0) parts.push(`+${added}`);
     if (removed > 0) parts.push(`-${removed}`);
     const detail = parts.join('/');
-    lines.push(detail
-      ? `  OK ${kindLabel(entry.kind)} ${entry.displayPath} — ${detail}`
-      : `  OK ${kindLabel(entry.kind)} ${entry.displayPath}`);
+    lines.push(
+      detail
+        ? `  OK ${kindLabel(entry.kind)} ${entry.displayPath} — ${detail}`
+        : `  OK ${kindLabel(entry.kind)} ${entry.displayPath}`
+    );
   }
   for (const f of stats.failures || []) {
-    lines.push(`  SKIP ${f.path || '(unknown)'} — ${f.reason}${formatNativeFailureContext(parsed, basePath, f.path, { fuzz })}`);
+    lines.push(
+      `  SKIP ${f.path || '(unknown)'} — ${f.reason}${formatNativeFailureContext(parsed, basePath, f.path, { fuzz })}`
+    );
   }
   return lines.join('\n');
 }
@@ -302,8 +325,10 @@ function unifiedHunkEofIntent(hunk) {
     if (typeof raw !== 'string' || raw.length === 0) continue;
     const tag = raw[0];
     if (tag === '\\') {
-      if (lastSide === 'context') { oldNoNewline = true; newNoNewline = true; }
-      else if (lastSide === 'old') oldNoNewline = true;
+      if (lastSide === 'context') {
+        oldNoNewline = true;
+        newNoNewline = true;
+      } else if (lastSide === 'old') oldNoNewline = true;
       else if (lastSide === 'new') newNoNewline = true;
       continue;
     }
@@ -318,17 +343,18 @@ function unifiedHunkEofIntent(hunk) {
 // Same recovery shape the native failure path emits: expected line, nearest
 // candidate, and a bounded verbatim excerpt of the current file.
 function unifiedHunkMissMessage(displayPath, hunk, sourceLines) {
-  const detail = firstFailingUnifiedHunkLineDetail(sourceLines, hunk)
-    || firstMeaningfulUnifiedHunkLine(hunk);
+  const detail = firstFailingUnifiedHunkLineDetail(sourceLines, hunk) || firstMeaningfulUnifiedHunkLine(hunk);
   const expected = detail?.line || '';
   const preferred = Number.isFinite(detail?.preferredLine) ? detail.preferredLine : 0;
   const nearest = expected ? nearestPatchLineHint(sourceLines, expected, preferred) : '';
   const excerpt = formatPatchSourceExcerpt(sourceLines, preferred, (hunk?.lines || []).length);
-  return `apply_patch: hunk context not found in ${displayPath}`
-    + (expected ? `; expected first old/context line: ${JSON.stringify(compactPatchPreviewLine(expected))}` : '')
-    + (nearest ? `; ${nearest}` : '')
-    + '; use exact current lines, no stubs.'
-    + excerpt;
+  return (
+    `apply_patch: hunk context not found in ${displayPath}` +
+    (expected ? `; expected first old/context line: ${JSON.stringify(compactPatchPreviewLine(expected))}` : '') +
+    (nearest ? `; ${nearest}` : '') +
+    '; use exact current lines, no stubs.' +
+    excerpt
+  );
 }
 
 // Apply already-parsed UNIFIED hunks with their declared coordinates: each
@@ -364,13 +390,11 @@ function applyUnifiedHunksToLines(sourceLines, hunks, { fuzz, displayPath, eol }
   assertSafeReplacementPlan(replacements, `apply_patch: ${displayPath}`);
   for (let i = replacements.length - 1; i >= 0; i--) {
     const rep = replacements[i];
-    const oldTerms = Array.isArray(lines.terminators)
-      ? lines.terminators.slice(rep.start, rep.start + rep.oldLen)
-      : [];
+    const oldTerms = Array.isArray(lines.terminators) ? lines.terminators.slice(rep.start, rep.start + rep.oldLen) : [];
     const newTerms = terminatorsForUnifiedOps(
       rep.ops,
       oldTerms,
-      localTerminatorForWindow(lines, rep.start, rep.oldLen),
+      localTerminatorForWindow(lines, rep.start, rep.oldLen)
     );
     spliceTextLinesForPatch(lines, rep.start, rep.oldLen, rep.newLines, newTerms);
     // Explicit markers win in BOTH directions; a hunk that is silent about the
@@ -386,7 +410,7 @@ function lstatRegularPatchFile(fullPath, displayPath) {
   const st = lstatSync(fullPath);
   if (isSpecialFileStat(st)) {
     throw new Error(
-      `apply_patch: cannot patch special file (FIFO / character / block device / socket): ${normalizeOutputPath(displayPath)}`,
+      `apply_patch: cannot patch special file (FIFO / character / block device / socket): ${normalizeOutputPath(displayPath)}`
     );
   }
   return st;
@@ -409,13 +433,13 @@ function resolvePatchWriteTarget(fullPath, displayPath, lst) {
     snapshotStat = statSync(fullPath);
   } catch (err) {
     throw new Error(
-      `apply_patch: symlink target missing or unreadable: ${normalizeOutputPath(displayPath)}`
-      + ` (${err?.code || err?.message || String(err)})`,
+      `apply_patch: symlink target missing or unreadable: ${normalizeOutputPath(displayPath)}` +
+        ` (${err?.code || err?.message || String(err)})`
     );
   }
   if (isSpecialFileStat(snapshotStat)) {
     throw new Error(
-      `apply_patch: cannot patch special file (FIFO / character / block device / socket): ${normalizeOutputPath(displayPath)}`,
+      `apply_patch: cannot patch special file (FIFO / character / block device / socket): ${normalizeOutputPath(displayPath)}`
     );
   }
   if (!snapshotStat.isFile()) {
@@ -428,12 +452,14 @@ function assertAddTargetAbsent(fullPath, displayPath) {
   try {
     lstatSync(fullPath);
     throw new Error(
-      `apply_patch: Add File target already exists: ${normalizeOutputPath(displayPath)}; read it and use Update File instead`,
+      `apply_patch: Add File target already exists: ${normalizeOutputPath(displayPath)}; read it and use Update File instead`
     );
   } catch (err) {
     if (err?.code === 'ENOENT') return;
     if (/^apply_patch:/.test(err?.message || '')) throw err;
-    throw new Error(`apply_patch: create target unreadable: ${normalizeOutputPath(displayPath)} (${err?.code || err?.message || String(err)})`);
+    throw new Error(
+      `apply_patch: create target unreadable: ${normalizeOutputPath(displayPath)} (${err?.code || err?.message || String(err)})`
+    );
   }
 }
 
@@ -471,7 +497,7 @@ async function applyJsParsedEntry(entry, basePath, { dryRun, fuzzy, readStateSco
       } catch (err) {
         if (err?.code === 'ESTALE_TARGET') {
           throw new Error(
-            `apply_patch: Add File target appeared during creation: ${normalizeOutputPath(displayPath)}; read it and use Update File instead`,
+            `apply_patch: Add File target appeared during creation: ${normalizeOutputPath(displayPath)}; read it and use Update File instead`
           );
         }
         throw err;
@@ -516,17 +542,21 @@ async function applyJsParsedEntry(entry, basePath, { dryRun, fuzzy, readStateSco
     try {
       await atomicWrite(writePath, content, {
         sessionId: readStateScope,
-        expectedTargetSnapshot: snapshotStat ? {
-          exists: true,
-          size: snapshotStat.size,
-          mtimeMs: snapshotStat.mtimeMs,
-          ctimeMs: snapshotStat.ctimeMs,
-          ino: snapshotStat.ino,
-        } : undefined,
+        expectedTargetSnapshot: snapshotStat
+          ? {
+              exists: true,
+              size: snapshotStat.size,
+              mtimeMs: snapshotStat.mtimeMs,
+              ctimeMs: snapshotStat.ctimeMs,
+              ino: snapshotStat.ino,
+            }
+          : undefined,
       });
     } catch (err) {
       if (err?.code === 'ESTALE_TARGET') {
-        throw new Error(`apply_patch: ${normalizeOutputPath(displayPath)} changed on disk during the patch; re-read it and retry`);
+        throw new Error(
+          `apply_patch: ${normalizeOutputPath(displayPath)} changed on disk during the patch; re-read it and retry`
+        );
       }
       throw err;
     }
@@ -568,9 +598,11 @@ export async function dispatchJsPatchEntries({ rows, parsed, basePath, dryRun, f
     if (added > 0) parts.push(`+${countLabel(added, 'Line')}`);
     if (removed > 0) parts.push(`-${countLabel(removed, 'Line')}`);
     const detail = parts.join(' · ');
-    lines.push(detail
-      ? `  OK ${kindLabel(entry.kind)} ${entry.displayPath} — ${detail}`
-      : `  OK ${kindLabel(entry.kind)} ${entry.displayPath}`);
+    lines.push(
+      detail
+        ? `  OK ${kindLabel(entry.kind)} ${entry.displayPath} — ${detail}`
+        : `  OK ${kindLabel(entry.kind)} ${entry.displayPath}`
+    );
   }
   return lines.join('\n');
 }

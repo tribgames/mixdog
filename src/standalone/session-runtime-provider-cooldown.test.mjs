@@ -50,10 +50,7 @@ test('a disabled fast pool replays as a terminal disable', () => {
   fastMode.clearFastModeCooldown();
   try {
     const now = Date.now();
-    assert.equal(
-      applyProviderCooldown(fastMode, { untilMs: 0, disabledReason: 'overage unavailable' }, now),
-      true,
-    );
+    assert.equal(applyProviderCooldown(fastMode, { untilMs: 0, disabledReason: 'overage unavailable' }, now), true);
     assert.equal(fastMode.fastModeDisabledReason(), 'overage unavailable');
     assert.equal(fastMode.fastModeAvailable(now), false);
     const observed = readProviderCooldown(fastMode, now);
@@ -66,7 +63,7 @@ test('a disabled fast pool replays as a terminal disable', () => {
 test('replayed state is not echoed back as a new local discovery', () => {
   const known = mergeKnownProviderCooldown(
     { untilMs: 0, disabledReason: null },
-    { untilMs: 10_000, disabledReason: null },
+    { untilMs: 10_000, disabledReason: null }
   );
   assert.equal(known.untilMs, 10_000);
   assert.equal(providerCooldownAdvanced(known, { untilMs: 10_000 }), false);
@@ -75,6 +72,6 @@ test('replayed state is not echoed back as a new local discovery', () => {
   assert.equal(providerCooldownAdvanced(known, { untilMs: 0, disabledReason: 'off' }), true);
   assert.equal(
     providerCooldownAdvanced({ ...known, disabledReason: 'off' }, { untilMs: 0, disabledReason: 'off' }),
-    false,
+    false
   );
 });

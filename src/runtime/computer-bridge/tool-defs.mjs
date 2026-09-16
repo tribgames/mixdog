@@ -1,7 +1,4 @@
-import {
-  COMPUTER_INPUT_SCHEMA,
-  COMPUTER_OBSERVATION_ACTIONS,
-} from './action-schema.mjs';
+import { COMPUTER_INPUT_SCHEMA, COMPUTER_OBSERVATION_ACTIONS } from './action-schema.mjs';
 
 // Contract only: what the host enforces (call cadence, exact targets, ref
 // expiry, which actions are observation-only). Policy, mode selection,

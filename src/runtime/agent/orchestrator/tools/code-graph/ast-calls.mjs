@@ -82,7 +82,10 @@ export function _astCalls(node) {
   let usable = true;
   for (const item of raw) {
     const call = _normalizeCallTuple(item);
-    if (!call) { usable = false; break; }
+    if (!call) {
+      usable = false;
+      break;
+    }
     out.push(call);
   }
   const result = usable ? out : null;
@@ -122,8 +125,9 @@ function _astOwnedSymbolNames(node, symbolName) {
   const target = String(symbolName || '');
   const owned = new Set([target]);
   const symbols = Array.isArray(node?.symbols) ? node.symbols : [];
-  const containers = symbols.filter((symbol) => symbol?.name === target
-    && CONTAINER_SYMBOL_KINDS.has(String(symbol.kind || '')));
+  const containers = symbols.filter(
+    (symbol) => symbol?.name === target && CONTAINER_SYMBOL_KINDS.has(String(symbol.kind || ''))
+  );
   if (!containers.length) return owned;
   const parentOf = _symbolParentIndex(node);
   for (const symbol of symbols) {
@@ -252,11 +256,12 @@ function _astReachableTargetRels(graph, targetRels, name) {
 // Node order: the cheap reachability/scope filters run BEFORE `_astCalls`, so
 // a query normalizes the call arrays of the declaring files and their
 // importers only — never of every node in the graph.
-export function _astCallerCallSites(graph, symbol, targetRels, {
-  language = null,
-  fileRel = null,
-  scopeRelPrefix = null,
-} = {}) {
+export function _astCallerCallSites(
+  graph,
+  symbol,
+  targetRels,
+  { language = null, fileRel = null, scopeRelPrefix = null } = {}
+) {
   const name = String(symbol || '');
   const out = [];
   const roots = (Array.isArray(targetRels) ? targetRels : [targetRels]).filter(Boolean);
@@ -279,11 +284,13 @@ export function _astCallerCallSites(graph, symbol, targetRels, {
   }
   // Grouped by (file, inSymbol) — the caller identity a consumer reads —
   // then by position inside that group.
-  out.sort((a, b) =>
-    String(a.node.rel).localeCompare(String(b.node.rel))
-    || String(a.call.inSymbol).localeCompare(String(b.call.inSymbol))
-    || (a.call.line - b.call.line)
-    || (a.call.col - b.call.col));
+  out.sort(
+    (a, b) =>
+      String(a.node.rel).localeCompare(String(b.node.rel)) ||
+      String(a.call.inSymbol).localeCompare(String(b.call.inSymbol)) ||
+      a.call.line - b.call.line ||
+      a.call.col - b.call.col
+  );
   return out;
 }
 

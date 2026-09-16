@@ -4,12 +4,17 @@ import test from 'node:test';
 
 registerHooks({
   resolve(specifier, context, next) {
-    return specifier === 'electron' ? {
-      url: 'data:text/javascript,' + encodeURIComponent(`
+    return specifier === 'electron'
+      ? {
+          url:
+            'data:text/javascript,' +
+            encodeURIComponent(`
         export const BrowserWindow = { fromWebContents: guest => guest.owner };
         export const nativeImage = { createFromBuffer: () => globalThis.screenshotFixtureImage };
-      `), shortCircuit: true,
-    } : next(specifier, context);
+      `),
+          shortCircuit: true,
+        }
+      : next(specifier, context);
   },
 });
 const { createBrowserScreenshotService } = await import('./screenshot.ts');
@@ -27,7 +32,8 @@ function fixture({ cdpCapture, nativeCapture, layout, resize } = {}) {
   const calls = [];
   let size = [320, 240];
   const guest = {
-    invalidate() {}, getZoomFactor: () => 1,
+    invalidate() {},
+    getZoomFactor: () => 1,
     owner: {
       isDestroyed: () => false,
       getContentSize: () => size,
@@ -42,27 +48,33 @@ function fixture({ cdpCapture, nativeCapture, layout, resize } = {}) {
       return nativeCapture ? nativeCapture() : image;
     },
   };
-  const cdp = { call: async (_guest, method, params) => {
-    if (method === 'Page.captureScreenshot') {
-      calls.push('CDP');
-      return cdpCapture ? cdpCapture() : { data: bytes.toString('base64') };
-    }
-    if (method === 'Page.getLayoutMetrics') return { cssContentSize: { width: 800, height: 600 } };
-    assert.equal(method, 'Runtime.evaluate');
-    const phase = params.expression === FULL_PAGE_LAYOUT_PREPARE ? 'prepare' : 'restore';
-    assert.ok([FULL_PAGE_LAYOUT_PREPARE, FULL_PAGE_LAYOUT_RESTORE].includes(params.expression));
-    calls.push(phase);
-    return layout ? layout(phase) : {};
-  } };
+  const cdp = {
+    call: async (_guest, method, params) => {
+      if (method === 'Page.captureScreenshot') {
+        calls.push('CDP');
+        return cdpCapture ? cdpCapture() : { data: bytes.toString('base64') };
+      }
+      if (method === 'Page.getLayoutMetrics') return { cssContentSize: { width: 800, height: 600 } };
+      assert.equal(method, 'Runtime.evaluate');
+      const phase = params.expression === FULL_PAGE_LAYOUT_PREPARE ? 'prepare' : 'restore';
+      assert.ok([FULL_PAGE_LAYOUT_PREPARE, FULL_PAGE_LAYOUT_RESTORE].includes(params.expression));
+      calls.push(phase);
+      return layout ? layout(phase) : {};
+    },
+  };
   return { guest, calls, size: () => size, service: createBrowserScreenshotService(cdp, 100, 100) };
 }
 
 test('screenshot fallback keeps both engine failure reasons, without hiding them as empty captures', async () => {
   const f = fixture({
-    cdpCapture: () => { throw new Error('CDP transport failed'); },
-    nativeCapture: () => { throw new Error('native surface failed'); },
+    cdpCapture: () => {
+      throw new Error('CDP transport failed');
+    },
+    nativeCapture: () => {
+      throw new Error('native surface failed');
+    },
   });
-  await assert.rejects(f.service.capture(f.guest, false), error => {
+  await assert.rejects(f.service.capture(f.guest, false), (error) => {
     assert.ok(error instanceof AggregateError);
     assert.match(error.message, /CDP: CDP transport failed/);
     assert.match(error.message, /native: native surface failed/);
@@ -74,11 +86,19 @@ test('screenshot fallback keeps both engine failure reasons, without hiding them
 
 test('screenshot fallback preserves foreground and background preferences and accepts valid recovery', async () => {
   for (const background of [false, true]) {
-    const f = fixture(background ? {
-      nativeCapture: () => { throw new Error('native unavailable'); },
-    } : {
-      cdpCapture: () => { throw new Error('CDP unavailable'); },
-    });
+    const f = fixture(
+      background
+        ? {
+            nativeCapture: () => {
+              throw new Error('native unavailable');
+            },
+          }
+        : {
+            cdpCapture: () => {
+              throw new Error('CDP unavailable');
+            },
+          }
+    );
     assert.equal((await f.service.capture(f.guest, background)).data, bytes.toString('base64'));
     assert.deepEqual(f.calls, background ? ['native', 'CDP'] : ['CDP', 'native']);
   }
@@ -90,23 +110,32 @@ test('screenshot fallback preserves foreground and background preferences and ac
 test('screenshot cancellation never starts a fallback engine', async () => {
   const controller = new AbortController();
   const reason = new Error('cancelled screenshot');
-  const f = fixture({ cdpCapture: () => { controller.abort(reason); throw reason; } });
-  await assert.rejects(f.service.capture(f.guest, false, {}, controller.signal), error => error === reason);
+  const f = fixture({
+    cdpCapture: () => {
+      controller.abort(reason);
+      throw reason;
+    },
+  });
+  await assert.rejects(f.service.capture(f.guest, false, {}, controller.signal), (error) => error === reason);
   assert.deepEqual(f.calls, ['CDP']);
   const cancelledBeforeStart = fixture();
-  await assert.rejects(cancelledBeforeStart.service.capture(
-    cancelledBeforeStart.guest, false, { fullPage: true }, controller.signal,
-  ), error => error === reason);
+  await assert.rejects(
+    cancelledBeforeStart.service.capture(cancelledBeforeStart.guest, false, { fullPage: true }, controller.signal),
+    (error) => error === reason
+  );
   assert.deepEqual(cancelledBeforeStart.calls, [], 'a pre-cancelled capture must not prepare or restore layout');
 });
 
 test('full-page layout preparation failures stop capture and still attempt restoration', async () => {
   for (const inBand of [false, true]) {
-    const f = fixture({ layout: phase => {
-      if (phase !== 'prepare') return {};
-      if (inBand) return { exceptionDetails: { text: 'Uncaught', exception: { description: 'layout script failed' } } };
-      throw new Error('layout transport failed');
-    } });
+    const f = fixture({
+      layout: (phase) => {
+        if (phase !== 'prepare') return {};
+        if (inBand)
+          return { exceptionDetails: { text: 'Uncaught', exception: { description: 'layout script failed' } } };
+        throw new Error('layout transport failed');
+      },
+    });
     await assert.rejects(f.service.capture(f.guest, false, { fullPage: true }), /layout (script|transport) failed/);
     assert.deepEqual(f.calls, ['prepare', 'restore']);
   }
@@ -119,12 +148,12 @@ test('full-page restoration errors are reported even after capture success, pres
         if (failCapture) throw new Error('CDP capture failed');
         return { data: bytes.toString('base64') };
       },
-      layout: phase => {
+      layout: (phase) => {
         if (phase === 'restore') throw new Error('layout restore failed');
         return {};
       },
     });
-    await assert.rejects(f.service.capture(f.guest, false, { fullPage: true }), error => {
+    await assert.rejects(f.service.capture(f.guest, false, { fullPage: true }), (error) => {
       assert.match(error.message, /layout restoration failed/);
       assert.match(error.message, /layout restore failed/);
       if (failCapture) assert.match(error.message, /CDP capture failed/);
@@ -142,9 +171,11 @@ test('viewport restoration failure is terminal and preserves a failed capture in
         if (failCapture) throw new Error('native capture failed');
         return image;
       },
-      resize: width => { if (width === 320) throw new Error('viewport reset failed'); },
+      resize: (width) => {
+        if (width === 320) throw new Error('viewport reset failed');
+      },
     });
-    await assert.rejects(f.service.capture(f.guest, true, { fullPage: true }), error => {
+    await assert.rejects(f.service.capture(f.guest, true, { fullPage: true }), (error) => {
       assert.match(error.message, /viewport restoration failed.*viewport reset failed/);
       if (failCapture) assert.match(error.message, /native capture failed/);
       assert.equal(error.errors.length, failCapture ? 2 : 1);
@@ -157,7 +188,9 @@ test('viewport restoration failure is terminal and preserves a failed capture in
 
 test('native capture failure permits a fallback only after the original viewport is restored', async () => {
   const f = fixture({
-    nativeCapture: () => { throw new Error('native capture failed'); },
+    nativeCapture: () => {
+      throw new Error('native capture failed');
+    },
     cdpCapture: () => {
       assert.deepEqual(f.size(), [320, 240]);
       return { data: bytes.toString('base64') };
@@ -173,28 +206,43 @@ test('full-page cancellation restores the viewport without dispatching a late ca
     const controller = new AbortController();
     const reason = new Error(`cancel during ${phase}`);
     const f = fixture({
-      resize: width => { if (phase === 'resize' && width === 800) controller.abort(reason); },
-      nativeCapture: () => { controller.abort(reason); throw reason; },
+      resize: (width) => {
+        if (phase === 'resize' && width === 800) controller.abort(reason);
+      },
+      nativeCapture: () => {
+        controller.abort(reason);
+        throw reason;
+      },
     });
-    await assert.rejects(f.service.capture(f.guest, true, { fullPage: true }, controller.signal),
-      error => error === reason);
+    await assert.rejects(
+      f.service.capture(f.guest, true, { fullPage: true }, controller.signal),
+      (error) => error === reason
+    );
     assert.deepEqual(f.size(), [320, 240]);
     assert.deepEqual(f.calls, [
-      'prepare', 'resize:800x600', ...(phase === 'capture' ? ['native'] : []), 'resize:320x240', 'restore',
+      'prepare',
+      'resize:800x600',
+      ...(phase === 'capture' ? ['native'] : []),
+      'resize:320x240',
+      'restore',
     ]);
   }
 });
 
 test('simultaneous viewport and layout restoration failures retain the original capture error', async () => {
   const f = fixture({
-    nativeCapture: () => { throw new Error('native capture failed'); },
-    resize: width => { if (width === 320) throw new Error('viewport reset failed'); },
-    layout: phase => {
+    nativeCapture: () => {
+      throw new Error('native capture failed');
+    },
+    resize: (width) => {
+      if (width === 320) throw new Error('viewport reset failed');
+    },
+    layout: (phase) => {
       if (phase === 'restore') throw new Error('layout reset failed');
       return {};
     },
   });
-  await assert.rejects(f.service.capture(f.guest, true, { fullPage: true }), error => {
+  await assert.rejects(f.service.capture(f.guest, true, { fullPage: true }), (error) => {
     assert.match(error.message, /native capture failed/);
     assert.match(error.message, /viewport reset failed/);
     assert.match(error.message, /layout reset failed/);

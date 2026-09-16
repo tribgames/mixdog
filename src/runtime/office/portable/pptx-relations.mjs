@@ -12,7 +12,8 @@ export function relationOptions(relation) {
   const value = { id: relation.id, role: relation.role };
   for (const key of ['label', 'group', 'row', 'column']) {
     if (relation[key] == null) continue;
-    if (!validId(String(relation[key]))) throw new Error(`RELATE ${key} must be a non-empty identifier of at most 100 characters`);
+    if (!validId(String(relation[key])))
+      throw new Error(`RELATE ${key} must be a non-empty identifier of at most 100 characters`);
     value[key] = String(relation[key]);
   }
   return { objectName: PREFIX + encodeURIComponent(JSON.stringify(value)) };
@@ -49,12 +50,23 @@ export function independentTextUnit(box, shapes, index = relationIndex(shapes)) 
   const relation = box.relation;
   if (!relation || index.get(relation.id) !== box) return false;
   if (relation.role === 'value') return index.get(relation.label)?.relation?.role === 'label';
-  if (relation.role === 'label') return shapes.some((shape) =>
-    shape.relation?.role === 'value' && shape.relation.label === relation.id && index.get(shape.relation.id) === shape);
+  if (relation.role === 'label')
+    return shapes.some(
+      (shape) =>
+        shape.relation?.role === 'value' &&
+        shape.relation.label === relation.id &&
+        index.get(shape.relation.id) === shape
+    );
   if (relation.role === 'table-cell' && relation.group && relation.row && relation.column) {
-    return shapes.some((shape) => shape !== box && shape.relation?.role === 'table-cell'
-      && shape.relation.group === relation.group && shape.relation.row === relation.row
-      && shape.relation.column && shape.relation.column !== relation.column);
+    return shapes.some(
+      (shape) =>
+        shape !== box &&
+        shape.relation?.role === 'table-cell' &&
+        shape.relation.group === relation.group &&
+        shape.relation.row === relation.row &&
+        shape.relation.column &&
+        shape.relation.column !== relation.column
+    );
   }
   return false;
 }
@@ -62,7 +74,7 @@ export function independentTextUnit(box, shapes, index = relationIndex(shapes)) 
 export function rectangleGap(a, b) {
   return Math.hypot(
     Math.max(0, a.left - b.left - b.width, b.left - a.left - a.width),
-    Math.max(0, a.top - b.top - b.height, b.top - a.top - a.height),
+    Math.max(0, a.top - b.top - b.height, b.top - a.top - a.height)
   );
 }
 
@@ -73,20 +85,32 @@ export function reviewDeclaredRelations(shapes, maximumGap) {
     const relation = box.relation;
     const path = `/slide[${box.slide}]/shape[${box.shape}]`;
     if (box.relationError || (relation && index.get(relation.id) === null)) {
-      issues.push({ code: 'shape_relation_invalid', path, message: box.relationError || `Duplicate relationship id: ${relation.id}` });
+      issues.push({
+        code: 'shape_relation_invalid',
+        path,
+        message: box.relationError || `Duplicate relationship id: ${relation.id}`,
+      });
     }
     if (relation?.role !== 'value') continue;
     const label = index.get(relation.label);
     if (!label || label.relation?.role !== 'label') {
-      issues.push({ code: 'shape_relation_invalid', path, message: `Value ${relation.id} has no unique label ${relation.label || '(missing)'}.` });
+      issues.push({
+        code: 'shape_relation_invalid',
+        path,
+        message: `Value ${relation.id} has no unique label ${relation.label || '(missing)'}.`,
+      });
       continue;
     }
     const gap = rectangleGap(box, label);
-    if (gap > maximumGap) issues.push({
-      code: 'stat_label_detached', path, confidence: 'declared',
-      message: `Value ${relation.id} and its declared label ${relation.label} are ${Math.round(gap)}pt apart; review their association.`,
-      gap: Math.round(gap), shapes: [box.shape, label.shape],
-    });
+    if (gap > maximumGap)
+      issues.push({
+        code: 'stat_label_detached',
+        path,
+        confidence: 'declared',
+        message: `Value ${relation.id} and its declared label ${relation.label} are ${Math.round(gap)}pt apart; review their association.`,
+        gap: Math.round(gap),
+        shapes: [box.shape, label.shape],
+      });
   }
   return issues;
 }

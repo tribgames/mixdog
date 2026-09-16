@@ -4,12 +4,13 @@
 // button or by the keyboard (Menu / Shift+F10), dismissed by Escape, an
 // outside click, a resize or a scroll. The per-row "…" trigger buttons the
 // dock used to carry are gone; this menu replaces them.
-import { Check } from "lucide-react";
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { Check } from 'lucide-react';
+import type React from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
-import { t } from "./i18n";
-import { useMobileBack } from "./mobile-back";
+import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 
 export interface ScmContextMenuItem {
   /** Stable semantic action identity; labels and enabled state may update in place. */
@@ -21,7 +22,7 @@ export interface ScmContextMenuItem {
   separatorBefore?: boolean;
   /** Renders the item as a radio entry (View & Sort). */
   checked?: boolean;
-  checkRole?: "menuitemradio" | "menuitemcheckbox";
+  checkRole?: 'menuitemradio' | 'menuitemcheckbox';
   /** Tooltip; on a DISABLED item this is the reason it cannot run yet. */
   title?: string;
 }
@@ -48,18 +49,12 @@ export function elementMenuPoint(element: Element | null): { x: number; y: numbe
 
 /** True for the two shortcuts every platform maps to "open the context menu". */
 export function isContextMenuKey(event: { key: string; shiftKey: boolean }): boolean {
-  return event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey);
+  return event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey);
 }
 
-export function ScmContextMenu({
-  state,
-  onClose,
-}: {
-  state: ScmContextMenuState | null;
-  onClose(): void;
-}) {
+export function ScmContextMenu({ state, onClose }: { state: ScmContextMenuState | null; onClose(): void }) {
   const panel = useRef<HTMLDivElement>(null);
-  const [style, setStyle] = useState<React.CSSProperties>({ position: "fixed", left: 0, top: 0 });
+  const [style, setStyle] = useState<React.CSSProperties>({ position: 'fixed', left: 0, top: 0 });
   const open = Boolean(state);
   const x = state?.x ?? 0;
   const y = state?.y ?? 0;
@@ -74,14 +69,10 @@ export function ScmContextMenu({
     const height = surface?.scrollHeight || surface?.offsetHeight || 0;
     const viewportWidth = window.innerWidth || 0;
     const viewportHeight = window.innerHeight || 0;
-    const left = width && viewportWidth
-      ? Math.max(8, Math.min(x, viewportWidth - width - 8))
-      : x;
-    const top = height && viewportHeight && y + height > viewportHeight - 8
-      ? Math.max(8, y - height)
-      : y;
+    const left = width && viewportWidth ? Math.max(8, Math.min(x, viewportWidth - width - 8)) : x;
+    const top = height && viewportHeight && y + height > viewportHeight - 8 ? Math.max(8, y - height) : y;
     setStyle({
-      position: "fixed",
+      position: 'fixed',
       left,
       top,
       ...(viewportHeight ? { maxHeight: Math.max(120, viewportHeight - 16) } : {}),
@@ -92,30 +83,35 @@ export function ScmContextMenu({
     if (!open) return undefined;
     // Keyboard users land ON the menu; closing hands focus back to the row.
     const previous = document.activeElement as HTMLElement | null;
-    queueMicrotask(() => panel.current
-      ?.querySelector<HTMLButtonElement>("[role='menuitem']:not(:disabled),"
-        + " [role='menuitemradio']:not(:disabled), [role='menuitemcheckbox']:not(:disabled)")?.focus());
+    queueMicrotask(() =>
+      panel.current
+        ?.querySelector<HTMLButtonElement>(
+          "[role='menuitem']:not(:disabled)," +
+            " [role='menuitemradio']:not(:disabled), [role='menuitemcheckbox']:not(:disabled)"
+        )
+        ?.focus()
+    );
     const dismiss = (event: Event) => {
       if (panel.current?.contains(event.target as Node)) return;
       onClose();
     };
     const keydown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== 'Escape') return;
       // The dock's other Escape handlers (branch panel, row selection) must
       // not fire on the keystroke that only closed this menu.
       event.stopPropagation();
       onClose();
     };
     const close = () => onClose();
-    document.addEventListener("pointerdown", dismiss, true);
-    document.addEventListener("keydown", keydown, true);
-    window.addEventListener("resize", close);
-    window.addEventListener("scroll", close, true);
+    document.addEventListener('pointerdown', dismiss, true);
+    document.addEventListener('keydown', keydown, true);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
     return () => {
-      document.removeEventListener("pointerdown", dismiss, true);
-      document.removeEventListener("keydown", keydown, true);
-      window.removeEventListener("resize", close);
-      window.removeEventListener("scroll", close, true);
+      document.removeEventListener('pointerdown', dismiss, true);
+      document.removeEventListener('keydown', keydown, true);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
       if (previous?.isConnected) previous.focus?.();
     };
   }, [onClose, open]);
@@ -126,16 +122,19 @@ export function ScmContextMenu({
   if (!state) return null;
 
   const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>(
-      "[role='menuitem']:not(:disabled), [role='menuitemradio']:not(:disabled), [role='menuitemcheckbox']:not(:disabled)") || [])];
+    const entries = [
+      ...(panel.current?.querySelectorAll<HTMLButtonElement>(
+        "[role='menuitem']:not(:disabled), [role='menuitemradio']:not(:disabled), [role='menuitemcheckbox']:not(:disabled)"
+      ) || []),
+    ];
     if (!entries.length) return;
     const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
     let next = -1;
-    if (event.key === "ArrowDown") next = (current + 1) % entries.length;
-    else if (event.key === "ArrowUp") next = (current - 1 + entries.length) % entries.length;
-    else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = entries.length - 1;
-    else if (event.key === "Tab") {
+    if (event.key === 'ArrowDown') next = (current + 1) % entries.length;
+    else if (event.key === 'ArrowUp') next = (current - 1 + entries.length) % entries.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = entries.length - 1;
+    else if (event.key === 'Tab') {
       onClose();
       return;
     } else return;
@@ -143,27 +142,39 @@ export function ScmContextMenu({
     entries[next]?.focus();
   };
 
-  return createPortal(<div className="dock-scm-context-menu" role="menu" ref={panel}
-    aria-label={state.label} style={style} onKeyDown={onMenuKeyDown}
-    onContextMenu={(event) => event.preventDefault()}>
-    {state.items.map((item) => <button type="button" key={item.id}
-      data-action-id={item.id}
-      role={item.checked === undefined ? "menuitem" : item.checkRole ?? "menuitemradio"}
-      aria-checked={item.checked}
-      className={[
-        item.danger ? "danger" : "",
-        item.separatorBefore ? "menu-separator" : "",
-      ].filter(Boolean).join(" ") || undefined}
-      disabled={item.disabled}
-      title={item.title ? t(item.title) : undefined}
-      onClick={() => {
-        onClose();
-        item.onSelect?.();
-      }}>
-      <span className="dock-scm-context-check">
-        {item.checked && <Check size={12} aria-hidden="true" />}
-      </span>
-      <span className="dock-scm-context-label">{t(item.label)}</span>
-    </button>)}
-  </div>, document.body);
+  return createPortal(
+    <div
+      className="dock-scm-context-menu"
+      role="menu"
+      ref={panel}
+      aria-label={state.label}
+      style={style}
+      onKeyDown={onMenuKeyDown}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      {state.items.map((item) => (
+        <button
+          type="button"
+          key={item.id}
+          data-action-id={item.id}
+          role={item.checked === undefined ? 'menuitem' : (item.checkRole ?? 'menuitemradio')}
+          aria-checked={item.checked}
+          className={
+            [item.danger ? 'danger' : '', item.separatorBefore ? 'menu-separator' : ''].filter(Boolean).join(' ') ||
+            undefined
+          }
+          disabled={item.disabled}
+          title={item.title ? t(item.title) : undefined}
+          onClick={() => {
+            onClose();
+            item.onSelect?.();
+          }}
+        >
+          <span className="dock-scm-context-check">{item.checked && <Check size={12} aria-hidden="true" />}</span>
+          <span className="dock-scm-context-label">{t(item.label)}</span>
+        </button>
+      ))}
+    </div>,
+    document.body
+  );
 }

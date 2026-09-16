@@ -6,12 +6,12 @@ import { isBuiltinTool } from '../../tools/builtin.mjs';
 import { isInternalTool } from '../../internal-tools.mjs';
 import { loadSkillToolDependencies } from '../../../../../session-runtime/skill-tool-loading.mjs';
 import {
-    collectSkillsCached,
-    loadSkillResource,
-    buildSkillToolEnvelope,
-    filterSkillsExcludingDisabled,
-    isSkillDisabled,
-    skillMissingFeature,
+  collectSkillsCached,
+  loadSkillResource,
+  buildSkillToolEnvelope,
+  filterSkillsExcludingDisabled,
+  isSkillDisabled,
+  skillMissingFeature,
 } from '../../context/collect.mjs';
 
 // Eager-dispatch: tools with readOnlyHint:true in their declaration are safe
@@ -23,22 +23,22 @@ import {
 // are O(1) instead of O(N) tools.find scans.
 const _eagerNameSetByTools = new WeakMap();
 export function isEagerDispatchable(name, tools) {
-    if (!Array.isArray(tools)) return false;
-    let set = _eagerNameSetByTools.get(tools);
-    if (set === undefined) {
-        set = new Set();
-        for (const t of tools) {
-            if (t?.annotations?.readOnlyHint === true && typeof t.name === 'string') {
-                set.add(t.name);
-                // `tool_search` is the legacy provider/runtime call name for the
-                // active `load_tool` schema; both must share eager semantics.
-                if (t.name === 'load_tool') set.add('tool_search');
-                else if (t.name === 'tool_search') set.add('load_tool');
-            }
-        }
-        _eagerNameSetByTools.set(tools, set);
+  if (!Array.isArray(tools)) return false;
+  let set = _eagerNameSetByTools.get(tools);
+  if (set === undefined) {
+    set = new Set();
+    for (const t of tools) {
+      if (t?.annotations?.readOnlyHint === true && typeof t.name === 'string') {
+        set.add(t.name);
+        // `tool_search` is the legacy provider/runtime call name for the
+        // active `load_tool` schema; both must share eager semantics.
+        if (t.name === 'load_tool') set.add('tool_search');
+        else if (t.name === 'tool_search') set.add('load_tool');
+      }
     }
-    return set.has(name);
+    _eagerNameSetByTools.set(tools, set);
+  }
+  return set.has(name);
 }
 
 // Full dispatch policy: EVERY valid tool call in an assistant turn is queued
@@ -48,146 +48,151 @@ export function isEagerDispatchable(name, tools) {
 // isEagerDispatchable above remains the READ-ONLY classifier used for dedup
 // eligibility, steering, and post-mutation result invalidation.
 export function isParallelDispatchable(name) {
-    return typeof name === 'string' && name.length > 0;
+  return typeof name === 'string' && name.length > 0;
 }
 
 const SINGLE_CALL_PER_TURN_TOOL_NAMES = new Set(['computer']);
 
 export function isSingleCallPerTurnTool(name) {
-    return SINGLE_CALL_PER_TURN_TOOL_NAMES.has(name);
+  return SINGLE_CALL_PER_TURN_TOOL_NAMES.has(name);
 }
 
 // Read-only is necessary but not sufficient for result deduplication. Loader
 // calls mutate the active session tool surface and must execute on every
 // explicit invocation so repeats can truthfully report `alreadyActive`.
 export function isToolCallDedupEligible(name, tools) {
-    return name !== 'load_tool'
-        && name !== 'tool_search'
-        && isEagerDispatchable(name, tools);
+  return name !== 'load_tool' && name !== 'tool_search' && isEagerDispatchable(name, tools);
 }
 export function messagesArrayChanged(before, after) {
-    if (!Array.isArray(before) || !Array.isArray(after)) return before !== after;
-    if (before.length !== after.length) return true;
-    for (let i = 0; i < before.length; i += 1) {
-        if (before[i] !== after[i]) return true;
-    }
-    return false;
+  if (!Array.isArray(before) || !Array.isArray(after)) return before !== after;
+  if (before.length !== after.length) return true;
+  for (let i = 0; i < before.length; i += 1) {
+    if (before[i] !== after[i]) return true;
+  }
+  return false;
 }
 
 const SKILL_TOOL_NAMES = new Set(['Skill', 'skills_list', 'skill_view']);
 const SPECIAL_TOOL_NAMES = new Set(['apply_patch', 'code_graph']);
 
 export function getToolKind(name, scopeId = null) {
-    if (SKILL_TOOL_NAMES.has(name)) return 'skill';
-    if (SPECIAL_TOOL_NAMES.has(name)) return 'builtin';
-    if (isMcpTool(name)) return 'mcp';
-    if (isInternalTool(name, scopeId)) return 'internal';
-    if (isBuiltinTool(name)) return 'builtin';
-    return 'builtin';
+  if (SKILL_TOOL_NAMES.has(name)) return 'skill';
+  if (SPECIAL_TOOL_NAMES.has(name)) return 'builtin';
+  if (isMcpTool(name)) return 'mcp';
+  if (isInternalTool(name, scopeId)) return 'internal';
+  if (isBuiltinTool(name)) return 'builtin';
+  return 'builtin';
 }
 export function buildSkillsListResponse(cwd) {
-    const skills = filterSkillsExcludingDisabled(collectSkillsCached(cwd), null, cwd);
-    const entries = skills.map(s => ({ name: s.name, description: s.description || '' }));
-    return JSON.stringify({ skills: entries });
+  const skills = filterSkillsExcludingDisabled(collectSkillsCached(cwd), null, cwd);
+  const entries = skills.map((s) => ({ name: s.name, description: s.description || '' }));
+  return JSON.stringify({ skills: entries });
 }
 export function viewSkill(cwd, name, session = null) {
-    const skillName = String(name || '').trim();
-    if (!skillName) return 'Error: skill name is required';
-    const missingFeature = skillMissingFeature(skillName);
-    if (missingFeature) {
-        return `Error: skill "${skillName}" needs the ${missingFeature} built-in feature, which is not installed or is switched off in Settings → Built-in`;
-    }
-    if (isSkillDisabled(skillName)) return `Error: skill "${skillName}" is disabled`;
-    const res = loadSkillResource(skillName, cwd);
-    if (!res) return `Error: skill "${skillName}" not found`;
-    // Return the general tool envelope: the model-visible tool_result is the
-    // short stub (`Loaded skill: <name>`) and the full SKILL.md body is
-    // delivered ONCE as a separate injected role:'user' message (newMessages).
-    return loadSkillToolDependencies(buildSkillToolEnvelope(skillName, res.content, res.dir, res, session), session);
+  const skillName = String(name || '').trim();
+  if (!skillName) return 'Error: skill name is required';
+  const missingFeature = skillMissingFeature(skillName);
+  if (missingFeature) {
+    return `Error: skill "${skillName}" needs the ${missingFeature} built-in feature, which is not installed or is switched off in Settings → Built-in`;
+  }
+  if (isSkillDisabled(skillName)) return `Error: skill "${skillName}" is disabled`;
+  const res = loadSkillResource(skillName, cwd);
+  if (!res) return `Error: skill "${skillName}" not found`;
+  // Return the general tool envelope: the model-visible tool_result is the
+  // short stub (`Loaded skill: <name>`) and the full SKILL.md body is
+  // delivered ONCE as a separate injected role:'user' message (newMessages).
+  return loadSkillToolDependencies(buildSkillToolEnvelope(skillName, res.content, res.dir, res, session), session);
 }
 
 /** Normalize PostToolUse hook override values (legacy MCP text envelopes only). */
 export function normalizeHookUpdatedToolOutput(value) {
-    if (typeof value === 'string') return value;
-    if (value == null) return '';
-    if (typeof value === 'object' && Array.isArray(value.content)) {
-        const hasNonText = value.content.some((c) => c && typeof c === 'object' && c.type && c.type !== 'text');
-        if (hasNonText) return value;
-        return value.content
-            .map((c) => (c?.type === 'text' ? c.text || '' : JSON.stringify(c)))
-            .join('\n');
-    }
-    return value;
+  if (typeof value === 'string') return value;
+  if (value == null) return '';
+  if (typeof value === 'object' && Array.isArray(value.content)) {
+    const hasNonText = value.content.some((c) => c && typeof c === 'object' && c.type && c.type !== 'text');
+    if (hasNonText) return value;
+    return value.content.map((c) => (c?.type === 'text' ? c.text || '' : JSON.stringify(c))).join('\n');
+  }
+  return value;
 }
 
 export function resolveToolResultAfterHook(originalResult, hookResult) {
-    if (!hookResult || typeof hookResult !== 'object' || hookResult.updatedToolOutput === undefined) {
-        return originalResult;
-    }
-    const updated = normalizeHookUpdatedToolOutput(hookResult.updatedToolOutput);
-    return updated === undefined ? originalResult : updated;
+  if (!hookResult || typeof hookResult !== 'object' || hookResult.updatedToolOutput === undefined) {
+    return originalResult;
+  }
+  const updated = normalizeHookUpdatedToolOutput(hookResult.updatedToolOutput);
+  return updated === undefined ? originalResult : updated;
 }
 
 export function parseNativeToolSearchPayload(toolName, result) {
-    if (!['load_tool', 'tool_search', 'Skill', 'skill_view'].includes(toolName) || typeof result !== 'string') return null;
-    try {
-        const parsed = JSON.parse(result);
-        const native = parsed?.nativeToolSearch;
-        if (!native || typeof native !== 'object') return null;
-        const rawToolReferences = Array.isArray(native.toolReferences) ? native.toolReferences : [];
-        const toolReferences = rawToolReferences
-            .filter((name) => typeof name === 'string')
-            .map((name) => name.trim())
-            .filter(Boolean);
-        const rawOpenaiTools = Array.isArray(native.openaiTools) ? native.openaiTools : [];
-        const openaiTools = rawOpenaiTools.filter((tool) => (
-            tool
-            && typeof tool === 'object'
-            && !Array.isArray(tool)
-            && typeof tool.name === 'string'
-            && tool.name.trim()
-            && (tool.type === undefined || typeof tool.type === 'string')
-        ));
-        const provider = typeof native.provider === 'string' ? native.provider.trim().toLowerCase() : '';
-        if (!toolReferences.length && !openaiTools.length && !provider) return null;
-        const baseSummary = typeof native.summary === 'string' && native.summary
-            ? native.summary
-            : `Loaded deferred tools: ${toolReferences.join(', ') || openaiTools.map((tool) => tool.name).filter(Boolean).join(', ')}`;
-        const selectedTools = parsed?.selected?.tools;
-        const missing = Array.isArray(selectedTools?.missing)
-            ? selectedTools.missing.map((name) => String(name || '').trim()).filter(Boolean)
-            : [];
-        const blocked = Array.isArray(selectedTools?.blocked)
-            ? selectedTools.blocked
-                .map((entry) => {
-                    if (entry && typeof entry === 'object') {
-                        const name = String(entry.name || '').trim();
-                        if (!name) return '';
-                        const reason = String(entry.reason || '').trim();
-                        return reason ? `${name} (${reason})` : name;
-                    }
-                    return String(entry || '').trim();
-                })
-                .filter(Boolean)
-            : [];
-        const extraLines = [];
-        if (missing.length) extraLines.push(`missing: ${missing.join(', ')}`);
-        if (blocked.length) extraLines.push(`blocked: ${blocked.join(', ')}`);
-        const summary = extraLines.length ? `${baseSummary}\n${extraLines.join('; ')}` : baseSummary;
-        return {
-            provider,
-            toolReferences,
-            openaiTools,
-            summary,
-        };
-    } catch {
-        return null;
-    }
+  if (!['load_tool', 'tool_search', 'Skill', 'skill_view'].includes(toolName) || typeof result !== 'string')
+    return null;
+  try {
+    const parsed = JSON.parse(result);
+    const native = parsed?.nativeToolSearch;
+    if (!native || typeof native !== 'object') return null;
+    const rawToolReferences = Array.isArray(native.toolReferences) ? native.toolReferences : [];
+    const toolReferences = rawToolReferences
+      .filter((name) => typeof name === 'string')
+      .map((name) => name.trim())
+      .filter(Boolean);
+    const rawOpenaiTools = Array.isArray(native.openaiTools) ? native.openaiTools : [];
+    const openaiTools = rawOpenaiTools.filter(
+      (tool) =>
+        tool &&
+        typeof tool === 'object' &&
+        !Array.isArray(tool) &&
+        typeof tool.name === 'string' &&
+        tool.name.trim() &&
+        (tool.type === undefined || typeof tool.type === 'string')
+    );
+    const provider = typeof native.provider === 'string' ? native.provider.trim().toLowerCase() : '';
+    if (!toolReferences.length && !openaiTools.length && !provider) return null;
+    const baseSummary =
+      typeof native.summary === 'string' && native.summary
+        ? native.summary
+        : `Loaded deferred tools: ${
+            toolReferences.join(', ') ||
+            openaiTools
+              .map((tool) => tool.name)
+              .filter(Boolean)
+              .join(', ')
+          }`;
+    const selectedTools = parsed?.selected?.tools;
+    const missing = Array.isArray(selectedTools?.missing)
+      ? selectedTools.missing.map((name) => String(name || '').trim()).filter(Boolean)
+      : [];
+    const blocked = Array.isArray(selectedTools?.blocked)
+      ? selectedTools.blocked
+          .map((entry) => {
+            if (entry && typeof entry === 'object') {
+              const name = String(entry.name || '').trim();
+              if (!name) return '';
+              const reason = String(entry.reason || '').trim();
+              return reason ? `${name} (${reason})` : name;
+            }
+            return String(entry || '').trim();
+          })
+          .filter(Boolean)
+      : [];
+    const extraLines = [];
+    if (missing.length) extraLines.push(`missing: ${missing.join(', ')}`);
+    if (blocked.length) extraLines.push(`blocked: ${blocked.join(', ')}`);
+    const summary = extraLines.length ? `${baseSummary}\n${extraLines.join('; ')}` : baseSummary;
+    return {
+      provider,
+      toolReferences,
+      openaiTools,
+      summary,
+    };
+  } catch {
+    return null;
+  }
 }
 export function formatMissingToolApprovalUiDenial(toolName, askReason) {
-    const reason = String(askReason || 'approval requested by hook').trim();
-    const name = String(toolName || 'tool');
-    return `Error: tool "${name}" denied by hook: approval required but no approval UI is available${reason ? ` (${reason})` : ''}`;
+  const reason = String(askReason || 'approval requested by hook').trim();
+  const name = String(toolName || 'tool');
+  return `Error: tool "${name}" denied by hook: approval required but no approval UI is available${reason ? ` (${reason})` : ''}`;
 }
 
 /**
@@ -195,52 +200,54 @@ export function formatMissingToolApprovalUiDenial(toolName, askReason) {
  * Returns `{ denial }` when the tool must not run; otherwise `{ approval }`.
  */
 export async function resolvePreToolAskApproval({
-    toolName,
-    args,
-    cwd,
-    sessionId,
-    toolCallId,
-    askReason,
-    toolApprovalHook,
+  toolName,
+  args,
+  cwd,
+  sessionId,
+  toolCallId,
+  askReason,
+  toolApprovalHook,
 }) {
-    const name = String(toolName || 'tool');
-    const reason = String(askReason || 'approval requested by hook').trim();
-    if (typeof toolApprovalHook !== 'function') {
-        return { denial: formatMissingToolApprovalUiDenial(name, reason) };
-    }
-    let approval;
-    try {
-        approval = await toolApprovalHook({
-            name,
-            args,
-            cwd,
-            sessionId,
-            toolCallId: toolCallId || null,
-            reason,
-        });
-    } catch (error) {
-        const detail = error?.message || String(error || 'approval failed');
-        return { denial: `Error: tool "${name}" denied by hook: ${detail}` };
-    }
-    if (!approvalGranted(approval)) {
-        const detail = approvalReason(approval, reason || 'not approved');
-        return { denial: `Error: tool "${name}" denied by hook: ${detail}` };
-    }
-    return { approval };
+  const name = String(toolName || 'tool');
+  const reason = String(askReason || 'approval requested by hook').trim();
+  if (typeof toolApprovalHook !== 'function') {
+    return { denial: formatMissingToolApprovalUiDenial(name, reason) };
+  }
+  let approval;
+  try {
+    approval = await toolApprovalHook({
+      name,
+      args,
+      cwd,
+      sessionId,
+      toolCallId: toolCallId || null,
+      reason,
+    });
+  } catch (error) {
+    const detail = error?.message || String(error || 'approval failed');
+    return { denial: `Error: tool "${name}" denied by hook: ${detail}` };
+  }
+  if (!approvalGranted(approval)) {
+    const detail = approvalReason(approval, reason || 'not approved');
+    return { denial: `Error: tool "${name}" denied by hook: ${detail}` };
+  }
+  return { approval };
 }
 
 export function approvalGranted(value) {
-    if (value === true) return true;
-    if (!value || typeof value !== 'object') return false;
-    if (value.approved === true || value.allow === true || value.allowed === true) return true;
-    const decision = String(value.decision || value.action || value.result || '').trim().toLowerCase();
-    return decision === 'approve' || decision === 'approved' || decision === 'allow' || decision === 'yes';
+  if (value === true) return true;
+  if (!value || typeof value !== 'object') return false;
+  if (value.approved === true || value.allow === true || value.allowed === true) return true;
+  const decision = String(value.decision || value.action || value.result || '')
+    .trim()
+    .toLowerCase();
+  return decision === 'approve' || decision === 'approved' || decision === 'allow' || decision === 'yes';
 }
 
 export function approvalReason(value, fallback = '') {
-    if (value && typeof value === 'object') {
-        const reason = String(value.reason || value.message || '').trim();
-        if (reason) return reason;
-    }
-    return fallback;
+  if (value && typeof value === 'object') {
+    const reason = String(value.reason || value.message || '').trim();
+    if (reason) return reason;
+  }
+  return fallback;
 }

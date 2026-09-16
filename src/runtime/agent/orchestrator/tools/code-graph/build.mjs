@@ -11,14 +11,12 @@
 // no module imports its own path. The URL below is resolved against THIS
 // module's dir (tools/code-graph/), so it walks one level up to reach the
 // worker at tools/.
-import {
-  isAbsolute,
-  relative as pathRelative,
-  resolve as pathResolve,
-  win32 as pathWin32,
-} from 'node:path';
+import { isAbsolute, relative as pathRelative, resolve as pathResolve, win32 as pathWin32 } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { acquire as acquireChildSpawnSlot, hasSpareCapacity as childSpawnHasSpareCapacity } from '../../../../shared/child-spawn-gate.mjs';
+import {
+  acquire as acquireChildSpawnSlot,
+  hasSpareCapacity as childSpawnHasSpareCapacity,
+} from '../../../../shared/child-spawn-gate.mjs';
 import {
   canonicalGraphCwd as _canonicalGraphCwd,
   codeGraphCache as _codeGraphCache,
@@ -32,11 +30,7 @@ import {
   CODE_GRAPH_WORKER_TIMEOUT_MS,
   SYMBOL_SCHEMA_VERSION,
 } from './constants.mjs';
-import {
-  _computeGraphSignature,
-  _deserializeGraph,
-  _attachGraphRuntimeCaches,
-} from './graph-model.mjs';
+import { _computeGraphSignature, _deserializeGraph, _attachGraphRuntimeCaches } from './graph-model.mjs';
 import { _touchCodeGraphCache, _setCodeGraphCache } from './memory-cache.mjs';
 import {
   ensureDiskCodeGraphLoaded,
@@ -72,19 +66,22 @@ function _normalizedExcludedPrefixes(cwd, excludedProjectRoots) {
   const windows = _usesWindowsPathSemantics(cwd);
   const relative = windows ? pathWin32.relative : pathRelative;
   const resolve = windows ? pathWin32.resolve : pathResolve;
-  return [...new Set((excludedProjectRoots || []).map((root) => {
-    let rel = relative(cwd, resolve(root)).replace(/\\/g, '/').replace(/\/+$/, '');
-    if (windows) rel = rel.toLowerCase();
-    const absolute = windows ? pathWin32.isAbsolute(rel) : isAbsolute(rel);
-    return rel && !rel.startsWith('../') && !absolute ? rel : null;
-  }).filter(Boolean))].sort();
+  return [
+    ...new Set(
+      (excludedProjectRoots || [])
+        .map((root) => {
+          let rel = relative(cwd, resolve(root)).replace(/\\/g, '/').replace(/\/+$/, '');
+          if (windows) rel = rel.toLowerCase();
+          const absolute = windows ? pathWin32.isAbsolute(rel) : isAbsolute(rel);
+          return rel && !rel.startsWith('../') && !absolute ? rel : null;
+        })
+        .filter(Boolean)
+    ),
+  ].sort();
 }
 
 // Exported for the focused pre-cap exclusion regression.
-function _scopeCodeGraphManifest(manifest, cwd, {
-  excludedProjectRoots = [],
-  maxFiles = CODE_GRAPH_MAX_FILES,
-} = {}) {
+function _scopeCodeGraphManifest(manifest, cwd, { excludedProjectRoots = [], maxFiles = CODE_GRAPH_MAX_FILES } = {}) {
   const prefixes = _normalizedExcludedPrefixes(cwd, excludedProjectRoots);
   const windows = _usesWindowsPathSemantics(cwd);
   const excluded = (rel) => {
@@ -92,8 +89,9 @@ function _scopeCodeGraphManifest(manifest, cwd, {
     const comparable = windows ? normalized.toLowerCase() : normalized;
     return prefixes.some((prefix) => comparable === prefix || comparable.startsWith(`${prefix}/`));
   };
-  const scoped = (Array.isArray(manifest) ? manifest : [])
-    .filter((meta) => meta && typeof meta.rel === 'string' && !excluded(meta.rel));
+  const scoped = (Array.isArray(manifest) ? manifest : []).filter(
+    (meta) => meta && typeof meta.rel === 'string' && !excluded(meta.rel)
+  );
   const cap = Math.max(1, Math.floor(Number(maxFiles) || CODE_GRAPH_MAX_FILES));
   return {
     manifest: scoped,
@@ -235,7 +233,7 @@ export function _postCodeGraphWorkerSuccess(
   graph,
   postMessage,
   drainCache = drainCodeGraphCacheStrict,
-  { cache = true } = {},
+  { cache = true } = {}
 ) {
   if (cache) drainCache();
   postMessage({ ok: true, signature: graph.signature, graph });
@@ -243,14 +241,8 @@ export function _postCodeGraphWorkerSuccess(
 
 // Structured keys avoid both separator collisions inside roots/prefixes and
 // collisions between scoped and ordinary builds.
-function _codeGraphInflightKey(graphCwd, {
-  scoped = false,
-  maxFiles = CODE_GRAPH_MAX_FILES,
-  prefixes = [],
-} = {}) {
-  return scoped
-    ? JSON.stringify(['scope', graphCwd, maxFiles, prefixes])
-    : JSON.stringify(['root', graphCwd]);
+function _codeGraphInflightKey(graphCwd, { scoped = false, maxFiles = CODE_GRAPH_MAX_FILES, prefixes = [] } = {}) {
+  return scoped ? JSON.stringify(['scope', graphCwd, maxFiles, prefixes]) : JSON.stringify(['root', graphCwd]);
 }
 
 // Keep the existing binary protocol while bounding Windows command-line size.
@@ -260,10 +252,7 @@ async function _runGraphFilesChunked(
   absRoot,
   rels,
   reusedMetas,
-  {
-    maxArgChars = CODE_GRAPH_FILES_ARG_MAX_CHARS,
-    runGraphFiles = _runGraphFiles,
-  } = {},
+  { maxArgChars = CODE_GRAPH_FILES_ARG_MAX_CHARS, runGraphFiles = _runGraphFiles } = {}
 ) {
   const budget = Math.max(1, Math.floor(Number(maxArgChars) || CODE_GRAPH_FILES_ARG_MAX_CHARS));
   const chunks = [];
@@ -294,10 +283,12 @@ async function _runGraphFilesChunked(
       }
       const next = { ...previous, ...rec };
       for (const field of ['resolvedImports', 'importedBy']) {
-        next[field] = [...new Set([
-          ...(Array.isArray(previous[field]) ? previous[field] : []),
-          ...(Array.isArray(rec[field]) ? rec[field] : []),
-        ])];
+        next[field] = [
+          ...new Set([
+            ...(Array.isArray(previous[field]) ? previous[field] : []),
+            ...(Array.isArray(rec[field]) ? rec[field] : []),
+          ]),
+        ];
       }
       merged.set(rec.rel, next);
     }
@@ -317,7 +308,9 @@ function _prewarmCodeGraph(cwd, build = buildCodeGraphAsync) {
   // Reuse the buildCodeGraphAsync single-flight path. Fire-and-forget, and
   // best-effort: skip a fresh worker spawn when the child-spawn gate is busy
   // so this warm never queues ahead of real code_graph/find queries.
-  build(cwd, null, { bestEffort: true }).catch(() => { /* best-effort */ });
+  build(cwd, null, { bestEffort: true }).catch(() => {
+    /* best-effort */
+  });
 }
 
 export function prewarmCodeGraph(cwd) {
@@ -326,15 +319,21 @@ export function prewarmCodeGraph(cwd) {
 
 export function prewarmCodeGraphSymbols(cwd, symbols, { language = null } = {}) {
   if (!cwd) return;
-  const wanted = (Array.isArray(symbols) ? symbols : [symbols])
-    .map((s) => String(s || '').trim())
-    .filter(Boolean);
-  buildCodeGraphAsync(cwd, null, { bestEffort: true }).then((graph) => {
-    if (!graph) return;
-    for (const symbol of wanted) {
-      try { _lookupCandidateNodes(graph, symbol, language); } catch { /* best-effort */ }
-    }
-  }).catch(() => { /* best-effort */ });
+  const wanted = (Array.isArray(symbols) ? symbols : [symbols]).map((s) => String(s || '').trim()).filter(Boolean);
+  buildCodeGraphAsync(cwd, null, { bestEffort: true })
+    .then((graph) => {
+      if (!graph) return;
+      for (const symbol of wanted) {
+        try {
+          _lookupCandidateNodes(graph, symbol, language);
+        } catch {
+          /* best-effort */
+        }
+      }
+    })
+    .catch(() => {
+      /* best-effort */
+    });
 }
 
 export function prewarmCodeGraphIfProject(cwd) {
@@ -347,11 +346,11 @@ export function prewarmCodeGraphIfProject(cwd) {
   return true;
 }
 
-export async function buildCodeGraphAsync(cwd, signal = null, {
-  bestEffort = false,
-  excludedProjectRoots = [],
-  maxFiles = CODE_GRAPH_MAX_FILES,
-} = {}) {
+export async function buildCodeGraphAsync(
+  cwd,
+  signal = null,
+  { bestEffort = false, excludedProjectRoots = [], maxFiles = CODE_GRAPH_MAX_FILES } = {}
+) {
   if (signal?.aborted) throw new Error('aborted');
   const graphCwd = _canonicalGraphCwd(cwd);
   const prefixes = _normalizedExcludedPrefixes(graphCwd, excludedProjectRoots);
@@ -373,50 +372,55 @@ export async function buildCodeGraphAsync(cwd, signal = null, {
     });
     const cleanup = () => {
       if (onAbort) {
-        try { signal.removeEventListener('abort', onAbort); } catch {}
+        try {
+          signal.removeEventListener('abort', onAbort);
+        } catch {}
         onAbort = null;
       }
     };
     return Promise.race([existing, abortP]).then(
-      (v) => { cleanup(); return v; },
-      (e) => { cleanup(); throw e; },
+      (v) => {
+        cleanup();
+        return v;
+      },
+      (e) => {
+        cleanup();
+        throw e;
+      }
     );
   }
   // Non-competing prewarm: the signature-validation manifest also needs a
   // child-spawn slot, so warmers skip before either it or a Worker can queue.
   if (bestEffort && !childSpawnHasSpareCapacity('code-graph')) return null;
-  const promise = _retryCodeGraphBuildAfterInvalidation(async () => {
-    const genAtStart = _getCodeGraphGen(graphCwd);
-    // Loading the compact disk manifest/one candidate entry is synchronous but
-    // bounded I/O. Do not run a manifest at all when no disk candidate exists:
-    // cold/dirty misses remain entirely on the existing Worker path.
-    if (scoped) {
-      return _spawnCodeGraphWorker(
-        cwd, graphCwd, genAtStart, signal, null, null, null,
-        { buildOptions: scopeOptions, cacheResult: false },
-      );
-    }
-    return _prepareDiskCodeGraphFastPath({
-      graphCwd,
-      runFastPath: (diskProbe) => _runDiskCodeGraphFastPath({
+  const promise = _retryCodeGraphBuildAfterInvalidation(
+    async () => {
+      const genAtStart = _getCodeGraphGen(graphCwd);
+      // Loading the compact disk manifest/one candidate entry is synchronous but
+      // bounded I/O. Do not run a manifest at all when no disk candidate exists:
+      // cold/dirty misses remain entirely on the existing Worker path.
+      if (scoped) {
+        return _spawnCodeGraphWorker(cwd, graphCwd, genAtStart, signal, null, null, null, {
+          buildOptions: scopeOptions,
+          cacheResult: false,
+        });
+      }
+      return _prepareDiskCodeGraphFastPath({
         graphCwd,
-        diskProbe,
-        genAtStart,
-        signal,
-        loadDiskEntry: () => getDiskCodeGraphEntry(graphCwd),
-        consumeDirty: () => _consumeCodeGraphDirtyPaths(graphCwd),
-        spawnWorker: (preAcquiredRelease, manifest, signature) => _spawnCodeGraphWorker(
-          cwd,
-          graphCwd,
-          genAtStart,
-          signal,
-          preAcquiredRelease,
-          manifest,
-          signature,
-        ),
-      }),
-    });
-  }, { signal });
+        runFastPath: (diskProbe) =>
+          _runDiskCodeGraphFastPath({
+            graphCwd,
+            diskProbe,
+            genAtStart,
+            signal,
+            loadDiskEntry: () => getDiskCodeGraphEntry(graphCwd),
+            consumeDirty: () => _consumeCodeGraphDirtyPaths(graphCwd),
+            spawnWorker: (preAcquiredRelease, manifest, signature) =>
+              _spawnCodeGraphWorker(cwd, graphCwd, genAtStart, signal, preAcquiredRelease, manifest, signature),
+          }),
+      });
+    },
+    { signal }
+  );
   _inflightAsyncBuilds.set(inflightKey, promise);
   try {
     return await promise;
@@ -442,7 +446,7 @@ export function _spawnCodeGraphWorker(
     setDiskCache = _setDiskCodeGraphEntry,
     buildOptions = null,
     cacheResult = true,
-  } = {},
+  } = {}
 ) {
   let _worker = null;
   return new Promise((resolve, reject) => {
@@ -453,12 +457,22 @@ export function _spawnCodeGraphWorker(
     const settle = (val) => {
       if (settled) return;
       settled = true;
-      if (timeout) { clearTimeout(timeout); timeout = null; }
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
       if (_onSignalAbort && signal) {
-        try { signal.removeEventListener('abort', _onSignalAbort); } catch {}
+        try {
+          signal.removeEventListener('abort', _onSignalAbort);
+        } catch {}
         _onSignalAbort = null;
       }
-      if (_releaseSlot) { try { _releaseSlot(); } catch {} _releaseSlot = null; }
+      if (_releaseSlot) {
+        try {
+          _releaseSlot();
+        } catch {}
+        _releaseSlot = null;
+      }
       // The graph has already arrived, so the worker has nothing left to run.
       // It cannot exit on its own either: reading its piped stdout/stderr
       // below keeps the underlying MessagePort ref'd for the worker's whole
@@ -469,60 +483,95 @@ export function _spawnCodeGraphWorker(
       if (_worker) {
         const finished = _worker;
         _worker = null;
-        try { void finished.terminate(); } catch { /* already down */ }
+        try {
+          void finished.terminate();
+        } catch {
+          /* already down */
+        }
       }
       if (val instanceof Error) reject(val);
       else resolve(val);
     };
-    (preAcquiredRelease ? Promise.resolve(preAcquiredRelease) : acquireChildSpawnSlot(signal || null, 'code-graph')).then((release) => {
-      _releaseSlot = release;
-      if (settled) { release(); _releaseSlot = null; return; }
-      if (signal?.aborted) { settle(new Error('aborted')); return; }
-      const workerUrl = new URL('../code-graph-prewarm-worker.mjs', import.meta.url);
-      try {
-        _worker = createWorker(workerUrl, {
-          workerData: { cwd, manifest, signature, buildOptions },
-          execArgv: [],
-        });
-        _worker.stdout?.on?.('data', (chunk) => { try { process.stderr.write(chunk); } catch { /* best-effort */ } });
-        _worker.stderr?.on?.('data', (chunk) => { try { process.stderr.write(chunk); } catch { /* best-effort */ } });
-      } catch (e) {
-        settle(e instanceof Error ? e : new Error(String(e)));
-        return;
-      }
-      const w = _worker;
-      timeout = setTimeout(() => {
-        try { _worker?.terminate(); } catch {}
-        settle(new Error(`code-graph worker timed out after ${CODE_GRAPH_WORKER_TIMEOUT_MS}ms for cwd=${graphCwd}`));
-      }, CODE_GRAPH_WORKER_TIMEOUT_MS);
-      timeout.unref?.();
-      if (signal) {
-        _onSignalAbort = () => {
-          try { _worker?.terminate(); } catch {}
+    (preAcquiredRelease
+      ? Promise.resolve(preAcquiredRelease)
+      : acquireChildSpawnSlot(signal || null, 'code-graph')
+    ).then(
+      (release) => {
+        _releaseSlot = release;
+        if (settled) {
+          release();
+          _releaseSlot = null;
+          return;
+        }
+        if (signal?.aborted) {
           settle(new Error('aborted'));
-        };
-        signal.addEventListener('abort', _onSignalAbort, { once: true });
-      }
-      w.once('message', (msg) => {
+          return;
+        }
+        const workerUrl = new URL('../code-graph-prewarm-worker.mjs', import.meta.url);
         try {
-          if (msg && msg.ok && msg.graph && typeof msg.signature === 'string') {
-            const genStillCurrent = getGeneration(graphCwd) === genAtStart;
-            if (genStillCurrent && cacheResult) {
-              setMemoryCache(graphCwd, { ts: Date.now(), signature: msg.signature, graph: msg.graph });
-              // The Worker strictly persisted this graph before posting
-              // success. Adopt it in the main process without scheduling a
-              // redundant flush that can race the next Worker on the same
-              // manifest lock.
-              setDiskCache(graphCwd, msg.graph, { persist: false });
+          _worker = createWorker(workerUrl, {
+            workerData: { cwd, manifest, signature, buildOptions },
+            execArgv: [],
+          });
+          _worker.stdout?.on?.('data', (chunk) => {
+            try {
+              process.stderr.write(chunk);
+            } catch {
+              /* best-effort */
             }
-            settle(genStillCurrent ? msg.graph : codeGraphBuildInvalidatedError());
-          } else {
-            settle(_codeGraphWorkerFailure(msg));
+          });
+          _worker.stderr?.on?.('data', (chunk) => {
+            try {
+              process.stderr.write(chunk);
+            } catch {
+              /* best-effort */
+            }
+          });
+        } catch (e) {
+          settle(e instanceof Error ? e : new Error(String(e)));
+          return;
+        }
+        const w = _worker;
+        timeout = setTimeout(() => {
+          try {
+            _worker?.terminate();
+          } catch {}
+          settle(new Error(`code-graph worker timed out after ${CODE_GRAPH_WORKER_TIMEOUT_MS}ms for cwd=${graphCwd}`));
+        }, CODE_GRAPH_WORKER_TIMEOUT_MS);
+        timeout.unref?.();
+        if (signal) {
+          _onSignalAbort = () => {
+            try {
+              _worker?.terminate();
+            } catch {}
+            settle(new Error('aborted'));
+          };
+          signal.addEventListener('abort', _onSignalAbort, { once: true });
+        }
+        w.once('message', (msg) => {
+          try {
+            if (msg && msg.ok && msg.graph && typeof msg.signature === 'string') {
+              const genStillCurrent = getGeneration(graphCwd) === genAtStart;
+              if (genStillCurrent && cacheResult) {
+                setMemoryCache(graphCwd, { ts: Date.now(), signature: msg.signature, graph: msg.graph });
+                // The Worker strictly persisted this graph before posting
+                // success. Adopt it in the main process without scheduling a
+                // redundant flush that can race the next Worker on the same
+                // manifest lock.
+                setDiskCache(graphCwd, msg.graph, { persist: false });
+              }
+              settle(genStillCurrent ? msg.graph : codeGraphBuildInvalidatedError());
+            } else {
+              settle(_codeGraphWorkerFailure(msg));
+            }
+          } catch (e) {
+            settle(e instanceof Error ? e : new Error(String(e)));
           }
-        } catch (e) { settle(e instanceof Error ? e : new Error(String(e))); }
-      });
-      w.once('error', (e) => settle(e instanceof Error ? e : new Error(String(e))));
-    }, (e) => settle(e instanceof Error ? e : new Error(String(e))));
+        });
+        w.once('error', (e) => settle(e instanceof Error ? e : new Error(String(e))));
+      },
+      (e) => settle(e instanceof Error ? e : new Error(String(e)))
+    );
   });
 }
 
@@ -532,16 +581,25 @@ export function _spawnCodeGraphWorker(
  * buildCodeGraphAsync (worker-thread isolated) or the code_graph / find_symbol
  * tools, never this synchronous form on the main event loop.
  */
-export async function _buildCodeGraph(cwd, {
-  manifest: suppliedManifest = null,
-  signature: suppliedSignature = null,
-  excludedProjectRoots = [],
-  maxFiles = CODE_GRAPH_MAX_FILES,
-  cache = true,
-} = {}) {
+export async function _buildCodeGraph(
+  cwd,
+  {
+    manifest: suppliedManifest = null,
+    signature: suppliedSignature = null,
+    excludedProjectRoots = [],
+    maxFiles = CODE_GRAPH_MAX_FILES,
+    cache = true,
+  } = {}
+) {
   const now = Date.now();
   let _tp = performance.now();
-  const _trace = (label) => { if (process.env.MIXDOG_GRAPH_TRACE) { const n = performance.now(); process.stderr.write(`[cg-trace] ${label}=${(n - _tp).toFixed(0)}ms\n`); _tp = n; } };
+  const _trace = (label) => {
+    if (process.env.MIXDOG_GRAPH_TRACE) {
+      const n = performance.now();
+      process.stderr.write(`[cg-trace] ${label}=${(n - _tp).toFixed(0)}ms\n`);
+      _tp = n;
+    }
+  };
   const graphCwd = _canonicalGraphCwd(cwd);
   const absRoot = graphCwd;
   const _genAtStart = _getCodeGraphGen(graphCwd);
@@ -560,9 +618,7 @@ export async function _buildCodeGraph(cwd, {
   await awaitCallsWireProbe(absRoot);
   const scoped = _scopeCodeGraphManifest(unscopedManifest, absRoot, { excludedProjectRoots, maxFiles });
   const manifest = scoped.manifest;
-  const signature = typeof suppliedSignature === 'string'
-    ? suppliedSignature
-    : _graphSignatureForCapability(manifest);
+  const signature = typeof suppliedSignature === 'string' ? suppliedSignature : _graphSignatureForCapability(manifest);
   if (!Array.isArray(suppliedManifest)) _trace('manifest+sig');
   const { truncated, indexed } = scoped;
 
@@ -694,7 +750,14 @@ export async function _buildCodeGraph(cwd, {
     }
   }
   _trace('assemble');
-  const graph = _attachGraphRuntimeCaches({ cwd: graphCwd, nodes, reverse, schemaVersion: SYMBOL_SCHEMA_VERSION, builtAt: now, signature });
+  const graph = _attachGraphRuntimeCaches({
+    cwd: graphCwd,
+    nodes,
+    reverse,
+    schemaVersion: SYMBOL_SCHEMA_VERSION,
+    builtAt: now,
+    signature,
+  });
   graph.truncated = Boolean(truncated);
   for (const info of fileInfos) {
     if (typeof info.sourceText === 'string') {

@@ -2,17 +2,8 @@
 // Symbol search / callers / callees / references / impact query layer over a
 // built graph. Pure over {graph,cwd,args}; owns no cache state. Extracted
 // verbatim from code-graph.mjs.
-import {
-  _graphRel,
-  _getSourceTextForNode,
-  _getSourceLinesForNode,
-} from './source-access.mjs';
-import {
-  _astCallerCallSites,
-  _astFileCallSites,
-  _astCallDisplayCol,
-  _astRelInScope,
-} from './ast-calls.mjs';
+import { _graphRel, _getSourceTextForNode, _getSourceLinesForNode } from './source-access.mjs';
+import { _astCallerCallSites, _astFileCallSites, _astCallDisplayCol, _astRelInScope } from './ast-calls.mjs';
 import {
   _unicodeBoundaryPattern,
   _lookupCandidateNodes,
@@ -21,11 +12,7 @@ import {
 } from './symbol-index.mjs';
 import { CODE_GRAPH_MAX_FILES } from './constants.mjs';
 import { _inferSpanEndByIndent } from './span.mjs';
-import {
-  _toByteColumn,
-  _symbolPathForPosition,
-  _symbolPathForSymbol,
-} from './text-columns.mjs';
+import { _toByteColumn, _symbolPathForPosition, _symbolPathForSymbol } from './text-columns.mjs';
 
 import {
   _cheapReferenceSearch,
@@ -42,7 +29,10 @@ export function _formatFullSymbolBody(srcText, startLine, endLine) {
   const all = String(srcText || '').split('\n');
   const start = Math.max(1, Number(startLine) || 1);
   const end = Math.min(all.length, Math.max(start, Number(endLine) || start));
-  return all.slice(start - 1, end).map((line, index) => `${start + index}: ${line}`).join('\n');
+  return all
+    .slice(start - 1, end)
+    .map((line, index) => `${start + index}: ${line}`)
+    .join('\n');
 }
 
 function _parseReferenceEntries(referenceText) {
@@ -81,7 +71,10 @@ export function _impactSourceNodes(node, graph, targetSymbol = '') {
   const symbols = targetSymbol ? [targetSymbol] : _collectImpactSymbols(node).slice(0, 8);
   const out = [];
   const seen = new Set();
-  for (const candidate of [node, ...symbols.flatMap((symbol) => _lookupCandidateNodes(graph, symbol, node?.lang || null))]) {
+  for (const candidate of [
+    node,
+    ...symbols.flatMap((symbol) => _lookupCandidateNodes(graph, symbol, node?.lang || null)),
+  ]) {
     if (!candidate?.rel || seen.has(candidate.rel)) continue;
     seen.add(candidate.rel);
     out.push(candidate);
@@ -98,15 +91,16 @@ function _buildImpactSummary(node, graph, cwd, targetSymbol = '') {
   const externalCallers = new Set();
   let externalReferences = 0;
   for (const symbol of symbols) {
-    const refs = _parseReferenceEntries(_cheapReferenceSearch(graph, symbol, cwd, { language: node.lang }))
-      .filter((entry) => entry.file !== node.rel);
+    const refs = _parseReferenceEntries(_cheapReferenceSearch(graph, symbol, cwd, { language: node.lang })).filter(
+      (entry) => entry.file !== node.rel
+    );
     if (refs.length === 0) continue;
     const callers = [...new Set(refs.map((entry) => entry.file))].sort();
     for (const caller of callers) externalCallers.add(caller);
     externalReferences += refs.length;
     symbolImpact.push({ symbol, references: refs.length, callers });
   }
-  symbolImpact.sort((a, b) => (b.references - a.references) || a.symbol.localeCompare(b.symbol));
+  symbolImpact.sort((a, b) => b.references - a.references || a.symbol.localeCompare(b.symbol));
   return {
     imports,
     dependents,
@@ -174,13 +168,12 @@ export function _formatImpact(node, graph, cwd, targetSymbol = '') {
   return lines.join('\n');
 }
 
-export function _findSymbolAcrossGraph(graph, symbol, cwd, {
-  language = null,
-  limit = 5,
-  fileRel = null,
-  body = true,
-  outsideDeclaration = null,
-} = {}) {
+export function _findSymbolAcrossGraph(
+  graph,
+  symbol,
+  cwd,
+  { language = null, limit = 5, fileRel = null, body = true, outsideDeclaration = null } = {}
+) {
   const allHits = _findSymbolHits(graph, symbol, { language });
   const hits = fileRel ? allHits.filter((h) => h.rel === fileRel) : allHits;
   const outsideLine = outsideDeclaration
@@ -193,7 +186,9 @@ export function _findSymbolAcrossGraph(graph, symbol, cwd, {
     const lines = [`(no symbol matches in cwd=${cwd}${scopeNote})`];
     lines.push(`graph: nodes=${nodeCount}${language ? `, language=${language}` : ''}`);
     if (graph?.truncated) {
-      lines.push(`WARN: graph truncated at CODE_GRAPH_MAX_FILES=${CODE_GRAPH_MAX_FILES} — symbol may exist in an un-indexed file. Re-run with a narrower cwd.`);
+      lines.push(
+        `WARN: graph truncated at CODE_GRAPH_MAX_FILES=${CODE_GRAPH_MAX_FILES} — symbol may exist in an un-indexed file. Re-run with a narrower cwd.`
+      );
     }
     const lowerSym = symbol.toLowerCase();
     const ciHits = [];
@@ -227,8 +222,9 @@ export function _findSymbolAcrossGraph(graph, symbol, cwd, {
   // and filing it under the primary would hide a genuine second declaration
   // behind an association that does not exist.
   const implDeclHits = declHits.filter((h) => !_isTypeDeclarationRel(h.rel));
-  const typeDeclHits = declHits.filter((h) => _isTypeDeclarationRel(h.rel)
-    && implDeclHits.some((impl) => _isTypeFaceOf(impl.rel, h.rel)));
+  const typeDeclHits = declHits.filter(
+    (h) => _isTypeDeclarationRel(h.rel) && implDeclHits.some((impl) => _isTypeFaceOf(impl.rel, h.rel))
+  );
   const rivalDecls = declHits.filter((h) => !typeDeclHits.includes(h));
   const declCount = rivalDecls.length;
   const typeFaces = typeDeclHits;
@@ -244,15 +240,19 @@ export function _findSymbolAcrossGraph(graph, symbol, cwd, {
     lines.push('');
   }
   if (primary?.declarationLike) {
-    lines.push(graph?.truncated
-      ? '# best declaration candidate (GRAPH TRUNCATED — may not be canonical; re-run with a narrower cwd to confirm)'
-      : '# best declaration candidate');
+    lines.push(
+      graph?.truncated
+        ? '# best declaration candidate (GRAPH TRUNCATED — may not be canonical; re-run with a narrower cwd to confirm)'
+        : '# best declaration candidate'
+    );
     const multi = declCount > 1 ? `, declarations=${declCount}` : '';
     const namePath = primary.namePath ? `, path=${primary.namePath}` : '';
     // Record facts first: the unified kind and the export marker describe WHAT
     // was found before the position describes where.
     const facts = _formatSymbolFacts(primary);
-    lines.push(`${_formatSymbolHitLocation(primary)} (${primary.lang}${facts ? `, ${facts}` : ''}, matches=${primary.matchCount}${multi}${namePath})`);
+    lines.push(
+      `${_formatSymbolHitLocation(primary)} (${primary.lang}${facts ? `, ${facts}` : ''}, matches=${primary.matchCount}${multi}${namePath})`
+    );
     if (primary.symbolSig) lines.push(`signature: ${primary.symbolSig}`);
     let bodyEmitted = false;
     if (body === true && Number.isFinite(Number(primary.line))) {
@@ -286,29 +286,35 @@ export function _findSymbolAcrossGraph(graph, symbol, cwd, {
     lines.push('');
   }
   lines.push('# candidates');
-  lines.push(...topHits.map((hit, idx) => {
-    const kind = hit.declarationLike ? 'decl' : 'ref';
-    const facts = _formatSymbolFacts(hit);
-    const suffix = hit.content ? ` — ${hit.content.slice(0, 100)}` : '';
-    const namePath = hit.namePath ? ` path=${hit.namePath}` : '';
-    return `${idx + 1}. ${_formatSymbolHitLocation(hit)} [${kind}${facts ? `, ${facts}` : ''}, ${hit.lang}, matches=${hit.matchCount}]${namePath}${suffix}`;
-  }));
+  lines.push(
+    ...topHits.map((hit, idx) => {
+      const kind = hit.declarationLike ? 'decl' : 'ref';
+      const facts = _formatSymbolFacts(hit);
+      const suffix = hit.content ? ` — ${hit.content.slice(0, 100)}` : '';
+      const namePath = hit.namePath ? ` path=${hit.namePath}` : '';
+      return `${idx + 1}. ${_formatSymbolHitLocation(hit)} [${kind}${facts ? `, ${facts}` : ''}, ${hit.lang}, matches=${hit.matchCount}]${namePath}${suffix}`;
+    })
+  );
   if (declCount === 0 && hits.length > 0) {
     lines.push('');
     // "global/builtin" is a verdict about the whole graph, so it may only be
     // said when the graph really knows no declaration and nothing in the scope
     // imports one. Inside a file/files scope the usual truth is the opposite:
     // the hits are the import, and the declaration is one hop away.
-    lines.push(outsideLine
-      ? `${outsideLine}\n(the ${hits.length} hit(s) in the requested scope are imports/references)`
-      : `(no user declaration found; likely a global/builtin identifier — all ${hits.length} hits are references)`);
+    lines.push(
+      outsideLine
+        ? `${outsideLine}\n(the ${hits.length} hit(s) in the requested scope are imports/references)`
+        : `(no user declaration found; likely a global/builtin identifier — all ${hits.length} hits are references)`
+    );
   }
   const _nodeCount = graph?.nodes?.size ?? 0;
   const truncatedSuffix = graph?.truncated
     ? ` [WARN: graph truncated at CODE_GRAPH_MAX_FILES=${CODE_GRAPH_MAX_FILES} — some files not indexed]`
     : '';
   const fileScopeSuffix = fileRel ? ` file=${fileRel}` : '';
-  lines.push(`\n# scope: cwd=${cwd} graph=${_nodeCount}-nodes${language ? ` language=${language}` : ''}${fileScopeSuffix}${truncatedSuffix}`);
+  lines.push(
+    `\n# scope: cwd=${cwd} graph=${_nodeCount}-nodes${language ? ` language=${language}` : ''}${fileScopeSuffix}${truncatedSuffix}`
+  );
   return lines.join('\n');
 }
 
@@ -333,16 +339,20 @@ function _referenceKind(line, symbol, lang = null) {
   const escaped = String(symbol || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (!escaped) return 'reference';
   const text = String(line || '');
-  if (new RegExp(
-    `\\b(?:` +
-      `function|class|interface|type|enum|record|struct|union` +
-      `|namespace|module|package|trait|impl|object` +
-      `|const|let|var|val|typedef` +
-      `|def|fn|fun` +
-    `)\\s+${escaped}\\b`,
-  ).test(text)) return 'declaration';
+  if (
+    new RegExp(
+      `\\b(?:` +
+        `function|class|interface|type|enum|record|struct|union` +
+        `|namespace|module|package|trait|impl|object` +
+        `|const|let|var|val|typedef` +
+        `|def|fn|fun` +
+        `)\\s+${escaped}\\b`
+    ).test(text)
+  )
+    return 'declaration';
   if (new RegExp(`\\bfunc(?:\\s*\\([^)]*\\))?\\s+${escaped}\\b`).test(text)) return 'declaration';
-  if (new RegExp(`\\bimport\\b[\\s\\S]*${_unicodeBoundaryPattern(escaped, lang, symbol)}`, 'u').test(text)) return 'import';
+  if (new RegExp(`\\bimport\\b[\\s\\S]*${_unicodeBoundaryPattern(escaped, lang, symbol)}`, 'u').test(text))
+    return 'import';
   if (new RegExp(`${_unicodeBoundaryPattern(escaped, lang, symbol)}\\s*\\(`, 'u').test(text)) return 'call';
   return 'reference';
 }
@@ -363,13 +373,13 @@ function _astCallerPath(node, call) {
     if (item?.name !== name) return false;
     const start = Number(item.startLine ?? item.line);
     const end = Number(item.endLine);
-    return Number.isFinite(start) && Number.isFinite(end)
-      && start <= call.line && end >= call.line;
+    return Number.isFinite(start) && Number.isFinite(end) && start <= call.line && end >= call.line;
   });
   if (!covering.length) return name;
   // Innermost of several same-name spans: the one that starts last.
   const innermost = covering.reduce((best, item) =>
-    (Number(item.startLine ?? item.line) > Number(best.startLine ?? best.line) ? item : best));
+    Number(item.startLine ?? item.line) > Number(best.startLine ?? best.line) ? item : best
+  );
   return _symbolPathForSymbol(node, innermost) || name;
 }
 
@@ -412,8 +422,9 @@ function _astReferenceCallEntries(graph, symbol, referenceText) {
 // (file, inSymbol) by _astCallerCallSites.
 function _astCallerEntries(graph, symbol, targetRels, scope) {
   if (!targetRels?.length) return [];
-  return _astCallerCallSites(graph, symbol, targetRels, scope)
-    .map(({ node, call }) => _astEntryFromCall(graph, node, call));
+  return _astCallerCallSites(graph, symbol, targetRels, scope).map(({ node, call }) =>
+    _astEntryFromCall(graph, node, call)
+  );
 }
 
 // references only: the identifier USAGES that are not call sites — a type
@@ -445,11 +456,13 @@ function _textReferenceEntries(graph, symbol, referenceText) {
 }
 
 function _sortEntries(entries, { groupByCaller = false } = {}) {
-  return entries.sort((a, b) =>
-    String(a.file).localeCompare(String(b.file))
-    || (groupByCaller ? String(a.caller || '').localeCompare(String(b.caller || '')) : 0)
-    || (a.line - b.line)
-    || (a.col - b.col));
+  return entries.sort(
+    (a, b) =>
+      String(a.file).localeCompare(String(b.file)) ||
+      (groupByCaller ? String(a.caller || '').localeCompare(String(b.caller || '')) : 0) ||
+      a.line - b.line ||
+      a.col - b.col
+  );
 }
 
 export function _formatReferenceDetails(graph, symbol, referenceText, { limit = 200 } = {}) {
@@ -458,8 +471,9 @@ export function _formatReferenceDetails(graph, symbol, referenceText, { limit = 
   // latter.
   const astEntries = _astReferenceCallEntries(graph, symbol, referenceText);
   const astPositions = new Set(astEntries.map((entry) => `${entry.file}\u0000${entry.line}\u0000${entry.col}`));
-  const textEntries = _textReferenceEntries(graph, symbol, referenceText)
-    .filter((entry) => !astPositions.has(`${entry.file}\u0000${entry.line}\u0000${entry.col}`));
+  const textEntries = _textReferenceEntries(graph, symbol, referenceText).filter(
+    (entry) => !astPositions.has(`${entry.file}\u0000${entry.line}\u0000${entry.col}`)
+  );
   const detailed = _sortEntries([...textEntries, ...astEntries]);
   if (!detailed.length) return '(no references)';
   const shown = detailed.slice(0, limit);
@@ -474,17 +488,14 @@ export function _formatReferenceDetails(graph, symbol, referenceText, { limit = 
 // `targetRels` are the files the symbol is DECLARED in — the anchors of the
 // caller rule. Every row is an AST call site; no declaration anchor means no
 // call sites, never a text guess.
-export function _formatCallerReferences(graph, symbol, {
-  limit = 200,
-  targetRels = null,
-  language = null,
-  fileRel = null,
-  scopeRelPrefix = null,
-} = {}) {
-  const callSites = _sortEntries(
-    _astCallerEntries(graph, symbol, targetRels, { language, fileRel, scopeRelPrefix }),
-    { groupByCaller: true },
-  );
+export function _formatCallerReferences(
+  graph,
+  symbol,
+  { limit = 200, targetRels = null, language = null, fileRel = null, scopeRelPrefix = null } = {}
+) {
+  const callSites = _sortEntries(_astCallerEntries(graph, symbol, targetRels, { language, fileRel, scopeRelPrefix }), {
+    groupByCaller: true,
+  });
   if (!callSites.length) return '(no callers)';
   const format = (entry) => {
     const caller = entry.caller ? `\tcaller=${entry.caller}` : '';
@@ -510,15 +521,11 @@ export function _formatCallerReferences(graph, symbol, {
 // query answers about the declaration the caller pointed at.
 const _AST_TARGET_RELS_MAX = 16;
 
-export function _astCallerTargetRels(graph, symbol, language = null, {
-  fileRel = null,
-  scopeRelPrefix = null,
-} = {}) {
+export function _astCallerTargetRels(graph, symbol, language = null, { fileRel = null, scopeRelPrefix = null } = {}) {
   const hits = _findSymbolHits(graph, symbol, { language });
   if (!hits.length) return [];
-  const scoped = (fileRel || scopeRelPrefix)
-    ? hits.filter((hit) => _astRelInScope(hit.rel, fileRel, scopeRelPrefix))
-    : [];
+  const scoped =
+    fileRel || scopeRelPrefix ? hits.filter((hit) => _astRelInScope(hit.rel, fileRel, scopeRelPrefix)) : [];
   const pool = scoped.length ? scoped : hits;
   const declaring = pool.filter((hit) => hit.declarationLike);
   // No declaration-like hit at all → the top-ranked hit is the best anchor
@@ -532,17 +539,19 @@ function _callerNamesOf(graph, symbol, language, { fileRel = null, scopeRelPrefi
   const leaves = new Map();
   // Every level of the transitive walk uses the same rule as depth=1.
   const targetRels = _astCallerTargetRels(graph, symbol, language, { fileRel, scopeRelPrefix });
-  const entries = _sortEntries(
-    _astCallerEntries(graph, symbol, targetRels, { language, fileRel, scopeRelPrefix }),
-    { groupByCaller: true },
-  );
+  const entries = _sortEntries(_astCallerEntries(graph, symbol, targetRels, { language, fileRel, scopeRelPrefix }), {
+    groupByCaller: true,
+  });
   for (const e of entries) {
     if (e.caller && e.caller !== symbol) {
       if (!byName.has(e.caller)) byName.set(e.caller, { name: e.caller, loc: `${e.file}:${e.line}`, leaf: false });
     } else if (!e.caller) {
       const loc = `${e.file}:${e.line}`;
       if (!leaves.has(loc)) {
-        const snippet = String(e.lineText || 'call').replace(/\s+/g, ' ').trim().slice(0, 48);
+        const snippet = String(e.lineText || 'call')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 48);
         leaves.set(loc, { name: `«${snippet}»`, loc, leaf: true });
       }
     }
@@ -552,7 +561,12 @@ function _callerNamesOf(graph, symbol, language, { fileRel = null, scopeRelPrefi
   return [...byName.values(), ...leafList];
 }
 
-export function _formatTransitiveCallers(graph, rootSymbol, cwd, { language = null, depth = 2, pageSize = 100, page = 1, hardMax = 1000, fileRel = null, scopeRelPrefix = null } = {}) {
+export function _formatTransitiveCallers(
+  graph,
+  rootSymbol,
+  cwd,
+  { language = null, depth = 2, pageSize = 100, page = 1, hardMax = 1000, fileRel = null, scopeRelPrefix = null } = {}
+) {
   const expanded = new Set();
   const collected = [];
   let overflow = false;
@@ -564,7 +578,10 @@ export function _formatTransitiveCallers(graph, rootSymbol, cwd, { language = nu
     }
     expanded.add(symbol);
     for (const entry of _callerNamesOf(graph, symbol, language, { fileRel, scopeRelPrefix })) {
-      if (collected.length >= hardMax) { overflow = true; return; }
+      if (collected.length >= hardMax) {
+        overflow = true;
+        return;
+      }
       collected.push({ indent: level + 1, label: `${entry.name}\t${entry.loc}` });
       if (!entry.leaf) walk(entry.name, level + 1);
     }
@@ -581,16 +598,20 @@ export function _formatTransitiveCallers(graph, rootSymbol, cwd, { language = nu
     return `# transitive callers of ${rootSymbol} (depth=${depth}) — page ${pg} is past the end (total ${total}${overflow ? '+' : ''} node(s); last page is ${lastPage}).`;
   }
   const slice = collected.slice(start, start + size);
-  const hasMore = overflow || (start + slice.length) < total;
+  const hasMore = overflow || start + slice.length < total;
   const lines = [
     `# transitive callers of ${rootSymbol} (depth=${depth}) — page ${pg}, nodes ${start + 1}-${start + slice.length} of ${total}${overflow ? '+' : ''}; INDENTED children are ITS callers`,
     rootSymbol,
     ...slice.map((e) => `${'  '.repeat(e.indent)}${e.label}`),
   ];
   if (hasMore) {
-    lines.push(`# NEXT — more callers remain; re-run callers with the SAME symbol + depth + page:${pg + 1} for the next ${size} node(s). Every node carries file:line — do NOT grep/read.`);
+    lines.push(
+      `# NEXT — more callers remain; re-run callers with the SAME symbol + depth + page:${pg + 1} for the next ${size} node(s). Every node carries file:line — do NOT grep/read.`
+    );
   } else {
-    lines.push(`# END — complete caller set delivered (page ${pg} of ${lastPage}): named callers PLUS timer/event/module-level call sites (the «…» leaves), each with file:line. No further callers/grep/read is needed.`);
+    lines.push(
+      `# END — complete caller set delivered (page ${pg} of ${lastPage}): named callers PLUS timer/event/module-level call sites (the «…» leaves), each with file:line. No further callers/grep/read is needed.`
+    );
   }
   return lines.join('\n');
 }

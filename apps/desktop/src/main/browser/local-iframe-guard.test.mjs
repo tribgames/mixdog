@@ -6,8 +6,12 @@ test('a local iframe lookup cannot send input after navigation, tab switch, dial
   for (const reason of ['navigation', 'tab switch', 'dialog', 'cancellation']) {
     let finishLookup;
     let lookupEntered;
-    const entered = new Promise(resolve => { lookupEntered = resolve; });
-    const lookup = new Promise(resolve => { finishLookup = resolve; });
+    const entered = new Promise((resolve) => {
+      lookupEntered = resolve;
+    });
+    const lookup = new Promise((resolve) => {
+      finishLookup = resolve;
+    });
     const controller = new AbortController();
     let rejected = false;
     const sent = [];
@@ -30,9 +34,15 @@ test('a local iframe lookup cannot send input after navigation, tab switch, dial
         },
       },
     });
-    const work = dispatch({ isOffscreen: () => true }, 'Input.dispatchMouseEvent',
-      { type: 'mousePressed', x: 30.5, y: 40.5 }, controller.signal,
-      () => { if (rejected) throw new Error(reason); });
+    const work = dispatch(
+      { isOffscreen: () => true },
+      'Input.dispatchMouseEvent',
+      { type: 'mousePressed', x: 30.5, y: 40.5 },
+      controller.signal,
+      () => {
+        if (rejected) throw new Error(reason);
+      }
+    );
     await entered;
     if (reason === 'cancellation') controller.abort(new Error(reason));
     else rejected = true;

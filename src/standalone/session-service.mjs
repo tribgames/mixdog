@@ -9,10 +9,7 @@
 //
 // The session runtime factory is injected by the daemon entry.
 import { randomUUID } from 'node:crypto';
-import {
-  SESSION_CONFIGURE_ACTION_SET,
-  SESSION_READ_ACTION_SET,
-} from './session-protocol.mjs';
+import { SESSION_CONFIGURE_ACTION_SET, SESSION_READ_ACTION_SET } from './session-protocol.mjs';
 import { DesktopServiceRegistry } from './desktop-service-registry.mjs';
 import { createSessionServiceApi } from './session-service-api.mjs';
 import { sanitizeForWire } from './session-wire-values.mjs';
@@ -20,14 +17,8 @@ import { createAgentTree, SESSION_ID_PATTERN } from './session-service/agent-tre
 import { createProjectCatalog } from './session-service/project-catalog.mjs';
 import { createSessionProjection } from './session-service/projection.mjs';
 import { createStoredSessionReader } from './session-service/stored-reader.mjs';
-import {
-  materializePromptSubmission,
-  preparePromptSubmissionForProvider,
-} from '../runtime/attachments/store.mjs';
-import {
-  cancelBackgroundTasks,
-  hasActiveBackgroundTasks,
-} from '../runtime/shared/background-tasks.mjs';
+import { materializePromptSubmission, preparePromptSubmissionForProvider } from '../runtime/attachments/store.mjs';
+import { cancelBackgroundTasks, hasActiveBackgroundTasks } from '../runtime/shared/background-tasks.mjs';
 
 const EXTERNAL_SESSION_ACTIONS = new Set([
   ...SESSION_READ_ACTION_SET,
@@ -65,10 +56,10 @@ export function createSessionService({
   // snapshots remain the durable contract. Seed the shared projection clock
   // above the prior wall-clock epoch so a reconnect accepts the new daemon.
   const configuredRevisionEpoch = Number(process.env.MIXDOG_SESSION_REVISION_EPOCH);
-  const revisionEpoch = Number.isSafeInteger(configuredRevisionEpoch)
-    && configuredRevisionEpoch >= 0
-    ? configuredRevisionEpoch
-    : Math.floor(Date.now() * 1_000);
+  const revisionEpoch =
+    Number.isSafeInteger(configuredRevisionEpoch) && configuredRevisionEpoch >= 0
+      ? configuredRevisionEpoch
+      : Math.floor(Date.now() * 1_000);
 
   // One daemon-owned execution entry per live session. Entries are never
   // addressed by clients; sessionId is the only identity outside this module.
@@ -89,9 +80,10 @@ export function createSessionService({
   // whose last view left is RETAINED while it is busy and evicted only after it
   // has been idle and unwatched for this long. With a view release no longer
   // destroying anything, this sweep is the ONLY reclaim path besides shutdown.
-  const IDLE_EVICT_MS = Number(idleEvictMs) > 0
-    ? Number(idleEvictMs)
-    : Math.max(60_000, Number(process.env.MIXDOG_SESSION_IDLE_EVICT_MS) || 5 * 60_000);
+  const IDLE_EVICT_MS =
+    Number(idleEvictMs) > 0
+      ? Number(idleEvictMs)
+      : Math.max(60_000, Number(process.env.MIXDOG_SESSION_IDLE_EVICT_MS) || 5 * 60_000);
   const EVICT_SWEEP_MS = Number(evictSweepMs) > 0 ? Number(evictSweepMs) : 30_000;
   // The wire projection (snapshotCache / itemCache / fieldCache /
   // publishedSnapshot) is a SECOND full copy of the transcript, held per
@@ -100,10 +92,7 @@ export function createSessionService({
   // memory. An idle watched session now drops its projection and rebuilds it
   // as one full frame on the next change. The runtime, its workers and any
   // background work are untouched: this is a cache reclaim, not an eviction.
-  const PROJECTION_IDLE_MS = Math.max(
-    15_000,
-    Number(process.env.MIXDOG_SESSION_PROJECTION_IDLE_MS) || 90_000,
-  );
+  const PROJECTION_IDLE_MS = Math.max(15_000, Number(process.env.MIXDOG_SESSION_PROJECTION_IDLE_MS) || 90_000);
   let evictTimer = null;
 
   // ── Cross-client subscriptions ──────────────────────────────────────────────
@@ -143,7 +132,7 @@ export function createSessionService({
     const token = subscriberToken(ctx);
     if (!token) return;
     let tokens = pendingViewers.get(sessionId);
-    if (!tokens) pendingViewers.set(sessionId, tokens = new Set());
+    if (!tokens) pendingViewers.set(sessionId, (tokens = new Set()));
     tokens.add(token);
   }
 
@@ -193,8 +182,9 @@ export function createSessionService({
   }
 
   function stateBusy(state) {
-    return state?.busy === true || state?.commandBusy === true
-      || (Array.isArray(state?.queued) && state.queued.length > 0);
+    return (
+      state?.busy === true || state?.commandBusy === true || (Array.isArray(state?.queued) && state.queued.length > 0)
+    );
   }
 
   function updateEntryBusy(entry, state) {
@@ -245,7 +235,10 @@ export function createSessionService({
           continue;
         }
         if (!entry.retainedAt) continue;
-        if (sessionBusy(entry)) { entry.retainedAt = now; continue; }
+        if (sessionBusy(entry)) {
+          entry.retainedAt = now;
+          continue;
+        }
         if (now - entry.retainedAt < IDLE_EVICT_MS) continue;
         // Eviction is a MEMORY reclaim, never a user teardown: the runtime's
         // agent workers and background jobs are daemon-owned work that must
@@ -344,18 +337,30 @@ export function createSessionService({
       sessionProfile: params.sessionProfile ?? null,
     });
     const entry = {
-      runtime, cwd: params.cwd || process.cwd(), timer: null, disposed: false,
-      unsubscribe: null, subscribers: new Set(), reservedOnly: false, lastPublishedAt: 0,
-      indexedSessionId: '', addressedSessionId: '', busy: null,
-      headless: !subscriberToken(ctx), retainedAt: null,
+      runtime,
+      cwd: params.cwd || process.cwd(),
+      timer: null,
+      disposed: false,
+      unsubscribe: null,
+      subscribers: new Set(),
+      reservedOnly: false,
+      lastPublishedAt: 0,
+      indexedSessionId: '',
+      addressedSessionId: '',
+      busy: null,
+      headless: !subscriberToken(ctx),
+      retainedAt: null,
       revision: revisionEpoch,
     };
     try {
       assertAvailable(entry);
       sessions.add(entry);
       let initialState;
-      try { initialState = runtime.getState?.() || {}; }
-      catch { initialState = { busy: true }; }
+      try {
+        initialState = runtime.getState?.() || {};
+      } catch {
+        initialState = { busy: true };
+      }
       indexSessionEntry(entry, initialState.sessionId);
       updateEntryBusy(entry, initialState);
       addSubscriber(entry, ctx);
@@ -388,9 +393,11 @@ export function createSessionService({
     if (owner) return Promise.resolve(owner);
     const inFlight = sessionLoads.get(sessionId);
     if (inFlight) return inFlight;
-    const loading = Promise.resolve().then(create).finally(() => {
-      if (sessionLoads.get(sessionId) === loading) sessionLoads.delete(sessionId);
-    });
+    const loading = Promise.resolve()
+      .then(create)
+      .finally(() => {
+        if (sessionLoads.get(sessionId) === loading) sessionLoads.delete(sessionId);
+      });
     sessionLoads.set(sessionId, loading);
     return loading;
   }
@@ -409,7 +416,7 @@ export function createSessionService({
     entry.headless = true;
     let resumed = false;
     try {
-      resumed = await entry.runtime.resume?.(sessionId, hints.resumeOptions || undefined) === true;
+      resumed = (await entry.runtime.resume?.(sessionId, hints.resumeOptions || undefined)) === true;
       assertAvailable(entry);
     } catch (err) {
       await destroy(entry, 'session load failed');
@@ -453,9 +460,7 @@ export function createSessionService({
     const ownsPlaceholder = !pendingViewers.has(id);
     if (ownsPlaceholder) pendingViewers.set(id, placeholder);
     const clearPlaceholder = () => {
-      if (ownsPlaceholder
-        && pendingViewers.get(id) === placeholder
-        && placeholder.size === 0) {
+      if (ownsPlaceholder && pendingViewers.get(id) === placeholder && placeholder.size === 0) {
         pendingViewers.delete(id);
       }
     };
@@ -495,8 +500,7 @@ export function createSessionService({
     if (acquiredOwner) return acquiredOwner;
     if (external?.runtime?.externalAction === true) return external;
     return getOrCreateSessionEntry(sessionId, async () => {
-      if (typeof sessionExists === 'function'
-        && await sessionExists(sessionId) !== true) {
+      if (typeof sessionExists === 'function' && (await sessionExists(sessionId)) !== true) {
         // A session may have been created while the durable check was in
         // flight. Reuse that owner, but never materialize an unknown address
         // merely because a stale pane subscribed to it.
@@ -527,9 +531,10 @@ export function createSessionService({
     log,
   });
 
-  async function runSessionAction({
-    sessionId, action, args = [], open: openHints = {}, baseRevision = null,
-  } = {}, allowedActions) {
+  async function runSessionAction(
+    { sessionId, action, args = [], open: openHints = {}, baseRevision = null } = {},
+    allowedActions
+  ) {
     assertAvailable();
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
@@ -550,13 +555,14 @@ export function createSessionService({
     assertAvailable(entry);
     // Keep one compact record that the action reached the service without
     // serializing transcripts/catalogs into the daemon log.
-    const valueSummary = value === null || value === undefined
-      ? String(value)
-      : typeof value === 'object'
-        ? Array.isArray(value)
-          ? `array(${value.length})`
-          : `object${Array.isArray(value.items) ? ` items=${value.items.length}` : ''}`
-        : String(value).replace(/\s+/g, ' ').slice(0, 160);
+    const valueSummary =
+      value === null || value === undefined
+        ? String(value)
+        : typeof value === 'object'
+          ? Array.isArray(value)
+            ? `array(${value.length})`
+            : `object${Array.isArray(value.items) ? ` items=${value.items.length}` : ''}`
+          : String(value).replace(/\s+/g, ' ').slice(0, 160);
     log(`session action ${name} session=${id} result=${valueSummary}`);
     const step = advance(entry);
     if (step.changed) {
@@ -583,9 +589,7 @@ export function createSessionService({
       // of the ordinary session catalog returned over the public transport.
       includeAgentOnly: false,
     });
-    const remoteSession = typeof getRemoteSessionState === 'function'
-      ? await getRemoteSessionState()
-      : null;
+    const remoteSession = typeof getRemoteSessionState === 'function' ? await getRemoteSessionState() : null;
     return {
       sessions: sanitizeForWire(Array.isArray(sessions) ? sessions : []),
       remoteSession: sanitizeForWire(remoteSession) ?? null,
@@ -627,12 +631,7 @@ export function createSessionService({
   // dispose. The client addresses a durable session id instead of a
   // client-owned session runtime handle.
 
-  function sessionResult(
-    entry,
-    step,
-    baseRevision = null,
-    extra = {},
-  ) {
+  function sessionResult(entry, step, baseRevision = null, extra = {}) {
     return {
       sessionId: currentSessionId(entry),
       reservedOnly: entry.reservedOnly === true,
@@ -645,10 +644,10 @@ export function createSessionService({
     assertAvailable();
     const requestedId = String(params.sessionId || '').trim();
     if (requestedId && !SESSION_ID_PATTERN.test(requestedId)) throw new TypeError('sessionId is invalid');
-    const reservedSessionId = requestedId
-      || `sess_daemon_${Date.now()}_${randomUUID().replaceAll('-', '')}`;
+    const reservedSessionId = requestedId || `sess_daemon_${Date.now()}_${randomUUID().replaceAll('-', '')}`;
     const entry = await getOrCreateSessionEntry(reservedSessionId, () =>
-      createReservedSession(params, ctx, reservedSessionId));
+      createReservedSession(params, ctx, reservedSessionId)
+    );
     assertAvailable(entry);
     addSubscriber(entry, ctx);
     return sessionResult(entry, advance(entry));
@@ -695,7 +694,10 @@ export function createSessionService({
   async function readSession(params = {}, ctx = null) {
     assertAvailable();
     const {
-      sessionId, open: openHints = {}, baseRevision = null, baseSyncRevision = null,
+      sessionId,
+      open: openHints = {},
+      baseRevision = null,
+      baseSyncRevision = null,
       baseProjectionStamp = null,
     } = params;
     if (params.action != null) {
@@ -704,9 +706,7 @@ export function createSessionService({
     }
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
-    const live = liveEntryForView(id)
-      || externalEntryForView(id)
-      || await bindExternalSessionView(id);
+    const live = liveEntryForView(id) || externalEntryForView(id) || (await bindExternalSessionView(id));
     assertAvailable(live);
     if (live) {
       return liveSessionReadResult(live, params, id, baseRevision);
@@ -737,17 +737,13 @@ export function createSessionService({
   }
 
   async function subscribeSession(
-    {
-      sessionId, open: openHints = {}, baseRevision = null, baseSyncRevision = null,
-    } = {},
-    ctx = null,
+    { sessionId, open: openHints = {}, baseRevision = null, baseSyncRevision = null } = {},
+    ctx = null
   ) {
     assertAvailable();
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
-    const live = liveEntryForView(id)
-      || externalEntryForView(id)
-      || await bindExternalSessionView(id);
+    const live = liveEntryForView(id) || externalEntryForView(id) || (await bindExternalSessionView(id));
     assertAvailable(live);
     if (live) {
       addSubscriber(live, ctx);
@@ -813,9 +809,7 @@ export function createSessionService({
     return { sessionId: id, unsubscribed: true };
   }
 
-  async function submitSession({
-    sessionId, prompt, options = {}, open: openHints = {}, baseRevision = null,
-  } = {}) {
+  async function submitSession({ sessionId, prompt, options = {}, open: openHints = {}, baseRevision = null } = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const entry = await entryForSession(id, openHints || {});
@@ -823,22 +817,23 @@ export function createSessionService({
     if (typeof target !== 'function') throw new TypeError('session runtime must implement submitAsync');
     const intake = await preparePromptSubmissionForProvider(
       materializePromptSubmission(prompt, options || {}),
-      entry.runtime.provider || entry.runtime.session?.provider || '',
+      entry.runtime.provider || entry.runtime.session?.provider || ''
     );
     // Await intake only: submitAsync resolves once the prompt is represented by
     // the queue/user row, while provider execution remains daemon-owned and
     // detached.
-    const submissionOptions = entry.runtime.externalAction === true
-      ? {
-          ...intake.options,
-          transcriptMeta: {
-            ...(intake.options?.transcriptMeta && typeof intake.options.transcriptMeta === 'object'
-              ? intake.options.transcriptMeta
-              : {}),
-            sender: 'user',
-          },
-        }
-      : intake.options;
+    const submissionOptions =
+      entry.runtime.externalAction === true
+        ? {
+            ...intake.options,
+            transcriptMeta: {
+              ...(intake.options?.transcriptMeta && typeof intake.options.transcriptMeta === 'object'
+                ? intake.options.transcriptMeta
+                : {}),
+              sender: 'user',
+            },
+          }
+        : intake.options;
     const accepted = await Promise.resolve(target.call(entry.runtime, intake.prompt, submissionOptions));
     const firstSubmit = accepted === true && entry.reservedOnly;
     if (accepted === true) {
@@ -848,12 +843,7 @@ export function createSessionService({
     if (step.changed) publishStep(entry, step);
     retainUnwatched(entry, 'headless session submit');
     log(`session submit session=${id} accepted=${accepted === true}`);
-    return sessionResult(
-      entry,
-      step,
-      baseRevision,
-      { accepted: accepted === true },
-    );
+    return sessionResult(entry, step, baseRevision, { accepted: accepted === true });
   }
 
   async function materializeSession(sessionId, openHints = {}) {
@@ -900,10 +890,7 @@ export function createSessionService({
     return { found: sessionIds.length, resumed, skipped, failed };
   }
 
-  async function abortSession({
-    sessionId, open: openHints = {}, options = {},
-    baseRevision = null,
-  } = {}) {
+  async function abortSession({ sessionId, open: openHints = {}, options = {}, baseRevision = null } = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const entry = await entryForSession(id, openHints || {});
@@ -911,13 +898,21 @@ export function createSessionService({
     if (typeof target !== 'function') throw new TypeError('session action abort is unavailable');
     const state = entry.runtime.getState?.() || {};
     const parentId = String(state.parentSessionId || state.ownerSessionId || '').trim();
-    const isLegacyAgentChild = String(state.owner || '').trim().toLowerCase() === 'agent'
-      && String(state.agent || '').trim().toLowerCase() !== 'lead'
-      && parentId
-      && parentId !== id;
-    const abortsAgentTurn = agentTree.hasAgentSession(id)
-      || String(state.visibility || '').trim().toLowerCase() === 'agent-only'
-      || isLegacyAgentChild;
+    const isLegacyAgentChild =
+      String(state.owner || '')
+        .trim()
+        .toLowerCase() === 'agent' &&
+      String(state.agent || '')
+        .trim()
+        .toLowerCase() !== 'lead' &&
+      parentId &&
+      parentId !== id;
+    const abortsAgentTurn =
+      agentTree.hasAgentSession(id) ||
+      String(state.visibility || '')
+        .trim()
+        .toLowerCase() === 'agent-only' ||
+      isLegacyAgentChild;
     let rawResult;
     try {
       rawResult = target.call(entry.runtime, options || {});
@@ -935,9 +930,7 @@ export function createSessionService({
       }
     }
     rawResult = await rawResult;
-    const abortResult = rawResult && typeof rawResult === 'object'
-      ? rawResult
-      : { aborted: rawResult === true };
+    const abortResult = rawResult && typeof rawResult === 'object' ? rawResult : { aborted: rawResult === true };
     const step = advance(entry);
     if (step.changed) publishStep(entry, step);
     retainUnwatched(entry, 'headless session abort');
@@ -964,9 +957,7 @@ export function createSessionService({
     agentManager,
   } = agentTree;
 
-  async function approveSession({
-    sessionId, approvalId, decision, open: openHints = {}, baseRevision = null,
-  } = {}) {
+  async function approveSession({ sessionId, approvalId, decision, open: openHints = {}, baseRevision = null } = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const entry = await entryForSession(id, openHints || {});
@@ -981,19 +972,20 @@ export function createSessionService({
     return sessionResult(entry, step, baseRevision, { approved: approved === true });
   }
 
-  async function destroy(
-    entry,
-    reason,
-    { keepBackgroundWork = false, announce = true } = {},
-  ) {
+  async function destroy(entry, reason, { keepBackgroundWork = false, announce = true } = {}) {
     if (!entry || entry.disposed) return entry?.disposePromise || { ok: true };
     // Disposal must use the address already owned by this entry, not ask a
     // failed runtime for fresh state or accidentally address its replacement.
     const sessionId = String(entry.addressedSessionId || entry.indexedSessionId || '');
     entry.disposed = true;
     releaseProjection(entry);
-    if (entry.timer) { clearTimeout(entry.timer); entry.timer = null; }
-    try { entry.unsubscribe?.(); } catch {}
+    if (entry.timer) {
+      clearTimeout(entry.timer);
+      entry.timer = null;
+    }
+    try {
+      entry.unsubscribe?.();
+    } catch {}
     sessions.delete(entry);
     stopEvictionSweepIfIdle();
     if (entry.indexedSessionId && sessionsById.get(entry.indexedSessionId) === entry) {
@@ -1004,16 +996,22 @@ export function createSessionService({
     // never receive a delayed teardown belonging to this old runtime.
     if (sessionId) desktopServices.notifySessionRuntimeReleased(sessionId, reason);
     if (announce && sessionId) {
-      onFrame({
-        type: 'session-gone',
-        key: `session-state:${sessionId}`,
-        sessionId,
-        reason,
-      }, entry.subscribers);
+      onFrame(
+        {
+          type: 'session-gone',
+          key: `session-state:${sessionId}`,
+          sessionId,
+          reason,
+        },
+        entry.subscribers
+      );
     }
     const disposal = (async () => {
-      try { await entry.runtime.dispose?.(reason, { keepBackgroundWork }); }
-      catch (err) { log(`session dispose failed session=${sessionId}: ${err?.message || err}`); }
+      try {
+        await entry.runtime.dispose?.(reason, { keepBackgroundWork });
+      } catch (err) {
+        log(`session dispose failed session=${sessionId}: ${err?.message || err}`);
+      }
       log(`session disposed session=${sessionId || '(creating)'} (${reason})`);
       return { ok: true };
     })();
@@ -1028,11 +1026,16 @@ export function createSessionService({
     if (stopPromise) return stopPromise;
     closed = true;
     stopPromise = Promise.resolve().then(async () => {
-      try { unsubscribeExternalSessionStates(); } catch {}
+      try {
+        unsubscribeExternalSessionStates();
+      } catch {}
       externalViewEntries.clear();
       pendingViewers.clear();
       agentTree.clear();
-      if (evictTimer) { clearInterval(evictTimer); evictTimer = null; }
+      if (evictTimer) {
+        clearInterval(evictTimer);
+        evictTimer = null;
+      }
       await desktopServices.dispose(reason);
       for (const entry of [...sessions]) await destroy(entry, reason);
       // Retired entries have already left the address map, but their resource

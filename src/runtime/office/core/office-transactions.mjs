@@ -3,9 +3,28 @@ import { extname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { callMicrosoftOffice, detectMicrosoftOffice, openMicrosoftOfficeSession } from '../com/com-adapter.mjs';
-import { defaultOfficeDataDir, listOfficeJournals, readOfficeJournal, removeOfficeJournal, writeOfficeJournal } from './journal.mjs';
-import { OfficeConflictError, documentFingerprint, documentSessionKey, documentSessions, isInteractiveOfficeSession, isMicrosoftOfficeSession, sessions } from './office-core.mjs';
-import { diffDocuments, documentSnapshotFingerprint, operationChangeKind, operationDocumentPaths } from './office-documents.mjs';
+import {
+  defaultOfficeDataDir,
+  listOfficeJournals,
+  readOfficeJournal,
+  removeOfficeJournal,
+  writeOfficeJournal,
+} from './journal.mjs';
+import {
+  OfficeConflictError,
+  documentFingerprint,
+  documentSessionKey,
+  documentSessions,
+  isInteractiveOfficeSession,
+  isMicrosoftOfficeSession,
+  sessions,
+} from './office-core.mjs';
+import {
+  diffDocuments,
+  documentSnapshotFingerprint,
+  operationChangeKind,
+  operationDocumentPaths,
+} from './office-documents.mjs';
 import { exists, snapshot } from './office-sessions.mjs';
 
 export function recordTransactionOperations(transaction, format, operations, results) {
@@ -25,7 +44,6 @@ export function recordTransactionOperations(transaction, format, operations, res
   });
   transaction.operationChanges = [...changes.values()];
 }
-
 
 function mergeTransactionDiff(diff, operationChanges, limit = 500) {
   const merged = {
@@ -53,19 +71,13 @@ function mergeTransactionDiff(diff, operationChanges, limit = 500) {
   return merged;
 }
 
-
 export function transactionDocumentDiff(transaction, currentDocument) {
-  return mergeTransactionDiff(
-    diffDocuments(transaction.beforeDocument, currentDocument),
-    transaction.operationChanges,
-  );
+  return mergeTransactionDiff(diffDocuments(transaction.beforeDocument, currentDocument), transaction.operationChanges);
 }
-
 
 function transactionCheckpointPath(session) {
   return join(tmpdir(), `mixdog-office-transaction-${session.id}-${randomUUID()}${extname(session.target)}`);
 }
-
 
 export async function captureSessionState(session, checkpoint = '') {
   let fingerprintPath = session.target;
@@ -74,15 +86,19 @@ export async function captureSessionState(session, checkpoint = '') {
     const needsFileCopy = ['xlsx', 'pptx'].includes(session.format);
     const temporaryCheckpoint = !checkpoint && needsFileCopy ? transactionCheckpointPath(session) : '';
     const snapshotPath = checkpoint || temporaryCheckpoint;
-    const result = await callMicrosoftOffice({
-      action: snapshotPath ? 'checkpoint' : 'snapshot',
-      session: session.id,
-      format: session.format,
-      mode: session.mode,
-      path: session.target,
-      ...(snapshotPath ? { output: snapshotPath } : {}),
-    }, { signal: session.activeSignal || null });
-    if (!result.ok) throw new Error(result.error || `Microsoft Office ${snapshotPath ? 'checkpoint' : 'snapshot'} failed`);
+    const result = await callMicrosoftOffice(
+      {
+        action: snapshotPath ? 'checkpoint' : 'snapshot',
+        session: session.id,
+        format: session.format,
+        mode: session.mode,
+        path: session.target,
+        ...(snapshotPath ? { output: snapshotPath } : {}),
+      },
+      { signal: session.activeSignal || null }
+    );
+    if (!result.ok)
+      throw new Error(result.error || `Microsoft Office ${snapshotPath ? 'checkpoint' : 'snapshot'} failed`);
     try {
       document = result.value;
       const fileBackedFingerprint = ['xlsx', 'pptx'].includes(session.format);
@@ -106,7 +122,6 @@ export async function captureSessionState(session, checkpoint = '') {
   };
 }
 
-
 export function transactionView(transaction, diff = transaction.diff) {
   return {
     id: transaction.id,
@@ -116,7 +131,6 @@ export function transactionView(transaction, diff = transaction.diff) {
     diff,
   };
 }
-
 
 function officeJournalRecord(session) {
   const transaction = session.transaction;
@@ -157,20 +171,17 @@ function officeJournalRecord(session) {
   };
 }
 
-
 export async function persistOfficeTransaction(session) {
   if (!session.transaction) return;
   const record = officeJournalRecord(session);
   session.transaction.journalPath = await writeOfficeJournal(record, session.dataDir);
 }
 
-
 async function clearOfficeTransactionArtifacts(session, transaction) {
   await removeOfficeJournal(transaction.id, session.dataDir).catch(() => {});
   await rm(transaction.checkpoint, { force: true }).catch(() => {});
   if (transaction.baselinePdf) await rm(transaction.baselinePdf, { force: true }).catch(() => {});
 }
-
 
 function officeJournalSummary(record) {
   const transaction = record.transaction || {};
@@ -193,7 +204,6 @@ function officeJournalSummary(record) {
   };
 }
 
-
 export async function assertTransactionUnchanged(session) {
   const transaction = session.transaction;
   if (!transaction) return null;
@@ -208,12 +218,12 @@ export async function assertTransactionUnchanged(session) {
       expectedFingerprint: transaction.expectedFingerprint,
       actualFingerprint: current.fingerprint,
       externalDiff: diffDocuments(transaction.currentDocument, current.document),
-      message: 'The document changed outside Mixdog after the last transaction operation. Commit and rollback are blocked to avoid overwriting user edits.',
+      message:
+        'The document changed outside Mixdog after the last transaction operation. Commit and rollback are blocked to avoid overwriting user edits.',
     });
   }
   return current;
 }
-
 
 export async function beginTransaction(session) {
   if (session.transaction) throw new Error(`Office transaction already active: ${session.transaction.id}`);
@@ -222,14 +232,17 @@ export async function beginTransaction(session) {
   let baselinePdf = '';
   if (isMicrosoftOfficeSession(session) && isInteractiveOfficeSession(session) && session.format === 'docx') {
     baselinePdf = join(tmpdir(), `mixdog-office-transaction-${session.id}-${randomUUID()}-before.pdf`);
-    const rendered = await callMicrosoftOffice({
-      action: 'render',
-      session: session.id,
-      format: session.format,
-      mode: session.mode,
-      path: session.target,
-      output: baselinePdf,
-    }, { signal: session.activeSignal || null });
+    const rendered = await callMicrosoftOffice(
+      {
+        action: 'render',
+        session: session.id,
+        format: session.format,
+        mode: session.mode,
+        path: session.target,
+        output: baselinePdf,
+      },
+      { signal: session.activeSignal || null }
+    );
     if (!rendered.ok) baselinePdf = '';
   }
   const transaction = {
@@ -264,7 +277,6 @@ export async function beginTransaction(session) {
   };
 }
 
-
 export async function commitTransaction(session) {
   if (!session.transaction) throw new Error('No active Office transaction to commit');
   const transaction = session.transaction;
@@ -287,7 +299,6 @@ export async function commitTransaction(session) {
   };
 }
 
-
 export async function rollbackTransaction(session) {
   if (!session.transaction) throw new Error('No active Office transaction to roll back');
   const transaction = session.transaction;
@@ -297,25 +308,30 @@ export async function rollbackTransaction(session) {
   transaction.phase = 'rolling_back';
   await persistOfficeTransaction(session);
   if (isMicrosoftOfficeSession(session)) {
-    const result = await callMicrosoftOffice({
-      action: 'rollback',
-      session: session.id,
-      format: session.format,
-      mode: session.mode,
-      path: session.target,
-      checkpoint: transaction.checkpoint,
-      undoUnits: transaction.undoUnits,
-    }, { signal: session.activeSignal || null });
+    const result = await callMicrosoftOffice(
+      {
+        action: 'rollback',
+        session: session.id,
+        format: session.format,
+        mode: session.mode,
+        path: session.target,
+        checkpoint: transaction.checkpoint,
+        undoUnits: transaction.undoUnits,
+      },
+      { signal: session.activeSignal || null }
+    );
     if (!result.ok) throw new Error(result.error || 'Microsoft Office rollback failed');
   } else {
     await copyFile(transaction.checkpoint, session.target);
   }
-  session.snapshotCache = null;   // the checkpoint restored the document behind the snapshot version
+  session.snapshotCache = null; // the checkpoint restored the document behind the snapshot version
   const restored = await captureSessionState(session);
   const remainingDiff = diffDocuments(transaction.beforeDocument, restored.document);
   const fingerprintRestored = restored.fingerprint === transaction.beforeFingerprint;
   if (remainingDiff.summary.total > 0) {
-    throw new Error(`Office rollback verification failed: fingerprintRestored=${fingerprintRestored}; diff=${JSON.stringify(remainingDiff)}`);
+    throw new Error(
+      `Office rollback verification failed: fingerprintRestored=${fingerprintRestored}; diff=${JSON.stringify(remainingDiff)}`
+    );
   }
   session.transaction = null;
   await clearOfficeTransactionArtifacts(session, transaction);
@@ -332,16 +348,13 @@ export async function rollbackTransaction(session) {
   };
 }
 
-
 export async function pendingOfficeTransactions(dataDir) {
   return (await listOfficeJournals(dataDir)).map(officeJournalSummary);
 }
 
-
 export async function initializeOfficeTransactions(dataDir = defaultOfficeDataDir()) {
   return await pendingOfficeTransactions(dataDir);
 }
-
 
 export async function recoverOfficeTransaction(args, dataDir) {
   const id = String(args.transaction || '').trim();
@@ -349,10 +362,12 @@ export async function recoverOfficeTransaction(args, dataDir) {
   // suggests to someone holding a damaged file: the answer says so and names
   // the call that lists what can actually be recovered.
   if (!id) {
-    throw new Error('recover finishes an interrupted Office transaction and needs its transaction id.'
-      + ' Call office with {"action":"transactions"} to list pending ones.'
-      + ' A damaged document is a different matter: it cannot be repaired here — ask for an intact copy,'
-      + ' or open it in Microsoft Office and save a fresh file.');
+    throw new Error(
+      'recover finishes an interrupted Office transaction and needs its transaction id.' +
+        ' Call office with {"action":"transactions"} to list pending ones.' +
+        ' A damaged document is a different matter: it cannot be repaired here — ask for an intact copy,' +
+        ' or open it in Microsoft Office and save a fresh file.'
+    );
   }
   const strategy = String(args.strategy || '').toLowerCase();
   if (!['commit', 'rollback', 'discard'].includes(strategy)) {
@@ -406,7 +421,7 @@ export async function recoverOfficeTransaction(args, dataDir) {
         message: 'Reopen the exact document in Microsoft Office before rolling back this transaction.',
       };
     }
-  } else if (!await exists(savedSession.target)) {
+  } else if (!(await exists(savedSession.target))) {
     return {
       ok: false,
       code: 'document_missing',
@@ -435,7 +450,5 @@ export async function recoverOfficeTransaction(args, dataDir) {
   }
   sessions.set(session.id, session);
   documentSessions.set(documentSessionKey(session.target), session.id);
-  return strategy === 'commit'
-    ? await commitTransaction(session)
-    : await rollbackTransaction(session);
+  return strategy === 'commit' ? await commitTransaction(session) : await rollbackTransaction(session);
 }

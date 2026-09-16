@@ -10,10 +10,10 @@
 // mod+, settings · mod+B left sidebar · alt+mod+B right utility dock ·
 // mod+J panel · ctrl+` and mod+T toggle the terminal panel ·
 // shift+mod+F find in files · mod+W and ctrl+Q close.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef } from 'react';
 
-import type { WorkspaceTab } from "./navigation";
-import { modalDialogPresented } from "./surface-input-focus";
+import type { WorkspaceTab } from './navigation';
+import { modalDialogPresented } from './surface-input-focus';
 
 export interface WorkspaceShortcutActions {
   tabs: WorkspaceTab[];
@@ -32,7 +32,7 @@ export interface WorkspaceShortcutActions {
   /** Move focus to the previous/next pane in visual row-major order. */
   focusSiblingPane: (offset: number) => void;
   /** Move focus to the nearest pane directly above/below. */
-  focusVerticalPane: (direction: "up" | "down") => void;
+  focusVerticalPane: (direction: 'up' | 'down') => void;
   navigateBack: () => void;
   navigateForward: () => void;
 }
@@ -49,15 +49,13 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       const index = tabs.findIndex((tab) => tab.key === activeTabKey);
       if (index < 0) return;
       const nextIndex = index + offset;
-      const next = crossPaneBoundary
-        ? tabs[nextIndex]
-        : tabs[(nextIndex + tabs.length) % tabs.length];
+      const next = crossPaneBoundary ? tabs[nextIndex] : tabs[(nextIndex + tabs.length) % tabs.length];
       if (next) navigateTab(next);
       else if (crossPaneBoundary) actionsRef.current.focusSiblingPane(offset);
     };
     const closeActiveTab = () => {
       // The workspace handles keyboard and pointer close through one path.
-      window.dispatchEvent(new window.CustomEvent("mixdog:close-active-tab"));
+      window.dispatchEvent(new window.CustomEvent('mixdog:close-active-tab'));
     };
     /** The keymap itself: returns the command for an event, or null. */
     const resolve = (event: globalThis.KeyboardEvent) => {
@@ -65,40 +63,40 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       if (!mod) return null;
       const key = event.key.toLowerCase();
       const plain = !event.shiftKey && !event.altKey;
-      if (plain && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-        const offset = event.key === "ArrowLeft" ? -1 : 1;
+      if (plain && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        const offset = event.key === 'ArrowLeft' ? -1 : 1;
         return () => cycleTab(offset, true);
       }
-      if (plain && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
-        const direction = event.key === "ArrowUp" ? "up" : "down";
+      if (plain && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+        const direction = event.key === 'ArrowUp' ? 'up' : 'down';
         return () => actionsRef.current.focusVerticalPane(direction);
       }
-      if (plain && (event.key === "PageUp" || event.key === "PageDown")) {
-        const offset = event.key === "PageDown" ? 1 : -1;
+      if (plain && (event.key === 'PageUp' || event.key === 'PageDown')) {
+        const offset = event.key === 'PageDown' ? 1 : -1;
         return () => cycleTab(offset);
       }
-      if (event.key === "Tab" && !event.altKey) {
+      if (event.key === 'Tab' && !event.altKey) {
         const offset = event.shiftKey ? -1 : 1;
         return () => actionsRef.current.openTabSwitcher(offset);
       }
-      if (key === "p" && !event.altKey) {
+      if (key === 'p' && !event.altKey) {
         return event.shiftKey
           ? () => actionsRef.current.openCommandPalette()
           : () => actionsRef.current.openQuickAccess();
       }
-      if (key === "f" && event.shiftKey && !event.altKey) {
+      if (key === 'f' && event.shiftKey && !event.altKey) {
         return () => actionsRef.current.openFindInFiles();
       }
       // Ctrl+B = left side bar, Ctrl+Alt+B = right utility dock (user).
-      if (key === "b" && plain) return () => actionsRef.current.toggleSidebar();
-      if (key === "b" && event.altKey && !event.shiftKey) {
+      if (key === 'b' && plain) return () => actionsRef.current.toggleSidebar();
+      if (key === 'b' && event.altKey && !event.shiftKey) {
         return () => actionsRef.current.toggleDock();
       }
       if (!plain) return null;
-      if (key === "n") return () => actionsRef.current.startTask();
-      if (key === ",") return () => actionsRef.current.openSettings();
-      if (key === "j") return () => actionsRef.current.togglePanel();
-      if (key === "w" || key === "q") return closeActiveTab;
+      if (key === 'n') return () => actionsRef.current.startTask();
+      if (key === ',') return () => actionsRef.current.openSettings();
+      if (key === 'j') return () => actionsRef.current.togglePanel();
+      if (key === 'w' || key === 'q') return closeActiveTab;
       return null;
     };
     const onShortcutCapture = (event: globalThis.KeyboardEvent) => {
@@ -119,30 +117,30 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       event.stopImmediatePropagation();
       run();
     };
-    window.addEventListener("keydown", onShortcutCapture, true);
+    window.addEventListener('keydown', onShortcutCapture, true);
     // Event routes for surfaces that reach the workbench without a keystroke
     // (Monaco commands inside a modal diff, menus, mouse back/forward).
     const onCycle = (event: Event) => {
       const offset = Number((event as CustomEvent).detail) || 1;
       cycleTab(offset);
     };
-    window.addEventListener("mixdog:cycle-tab", onCycle);
+    window.addEventListener('mixdog:cycle-tab', onCycle);
     const onSwitcher = (event: Event) => {
       const offset = Number((event as CustomEvent).detail) || 1;
       actionsRef.current.openTabSwitcher(offset);
     };
-    window.addEventListener("mixdog:tab-switcher", onSwitcher);
+    window.addEventListener('mixdog:tab-switcher', onSwitcher);
     const onNavigateHistory = (event: Event) => {
       const offset = Number((event as CustomEvent).detail) || -1;
       if (offset < 0) actionsRef.current.navigateBack();
       else actionsRef.current.navigateForward();
     };
-    window.addEventListener("mixdog:navigate-history", onNavigateHistory);
+    window.addEventListener('mixdog:navigate-history', onNavigateHistory);
     return () => {
-      window.removeEventListener("keydown", onShortcutCapture, true);
-      window.removeEventListener("mixdog:cycle-tab", onCycle);
-      window.removeEventListener("mixdog:tab-switcher", onSwitcher);
-      window.removeEventListener("mixdog:navigate-history", onNavigateHistory);
+      window.removeEventListener('keydown', onShortcutCapture, true);
+      window.removeEventListener('mixdog:cycle-tab', onCycle);
+      window.removeEventListener('mixdog:tab-switcher', onSwitcher);
+      window.removeEventListener('mixdog:navigate-history', onNavigateHistory);
     };
   }, []);
 }

@@ -22,7 +22,7 @@ export function createBrowserPageOwner(host: {
       entry = { window, ready: window.loadURL('about:blank').then(() => host.initialize(guest)) };
       pages.set(sessionId, entry);
       const owned = entry;
-      entry.ready = entry.ready.catch(error => {
+      entry.ready = entry.ready.catch((error) => {
         if (pages.get(sessionId) === owned) pages.delete(sessionId);
         if (!window.isDestroyed()) window.destroy();
         throw error;

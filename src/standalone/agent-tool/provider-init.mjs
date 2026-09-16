@@ -61,8 +61,11 @@ export function createProviderInit(reg, providerChainGateMs) {
   }
   function providerInitSignature(provider, effectiveProviders) {
     let body;
-    try { body = JSON.stringify(effectiveProviders); }
-    catch { body = String(Date.now()); } // unserializable → force a fresh init
+    try {
+      body = JSON.stringify(effectiveProviders);
+    } catch {
+      body = String(Date.now());
+    } // unserializable → force a fresh init
     return `${provider}\u0000${body}`;
   }
   function gateOnPrior(prior) {
@@ -70,10 +73,24 @@ export function createProviderInit(reg, providerChainGateMs) {
     if (!(PROVIDER_CHAIN_GATE_MS > 0)) return settled;
     return new Promise((resolve) => {
       let done = false;
-      const finish = () => { if (!done) { done = true; resolve(); } };
+      const finish = () => {
+        if (!done) {
+          done = true;
+          resolve();
+        }
+      };
       const timer = setTimeout(finish, PROVIDER_CHAIN_GATE_MS);
       timer.unref?.();
-      settled.then(() => { clearTimeout(timer); finish(); }, () => { clearTimeout(timer); finish(); });
+      settled.then(
+        () => {
+          clearTimeout(timer);
+          finish();
+        },
+        () => {
+          clearTimeout(timer);
+          finish();
+        }
+      );
     });
   }
   function ensureProvider(config, provider) {
@@ -96,10 +113,16 @@ export function createProviderInit(reg, providerChainGateMs) {
     s.latestSig = sigKey;
     const prevReady = s.ready;
     let resolveReady;
-    const readyPromise = new Promise((r) => { resolveReady = r; });
+    const readyPromise = new Promise((r) => {
+      resolveReady = r;
+    });
     s.ready = { gen, promise: readyPromise, resolve: resolveReady };
     if (prevReady && prevReady.gen < gen) {
-      try { prevReady.resolve(readyPromise); } catch { /* already settled */ }
+      try {
+        prevReady.resolve(readyPromise);
+      } catch {
+        /* already settled */
+      }
     }
     // Serialize the ACTUAL init behind the prior chain link (gated so a hung
     // prior cannot wedge the chain). A superseded gen's chain link settles
@@ -131,10 +154,12 @@ export function createProviderInit(reg, providerChainGateMs) {
     // for this provider completes), not just the chain link — so a superseded
     // caller blocks until the newest config is live (goal d). chainLink is
     // awaited first so a registry init error surfaces to this caller.
-    const callerPromise = chainLink.then(() => readyPromise).finally(() => {
-      const cur = _providerInitPending.get(provider);
-      if (cur && cur.promise === callerPromise) _providerInitPending.delete(provider);
-    });
+    const callerPromise = chainLink
+      .then(() => readyPromise)
+      .finally(() => {
+        const cur = _providerInitPending.get(provider);
+        if (cur && cur.promise === callerPromise) _providerInitPending.delete(provider);
+      });
     _providerInitPending.set(provider, { sigKey, promise: callerPromise });
     return callerPromise;
   }

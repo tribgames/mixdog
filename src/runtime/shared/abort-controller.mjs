@@ -10,6 +10,10 @@ const DEFAULT_MAX_LISTENERS = 50;
 
 export function createAbortController(maxListeners = DEFAULT_MAX_LISTENERS) {
   const controller = new AbortController();
-  try { setMaxListeners(maxListeners, controller.signal); } catch { /* node < 19 fallback */ }
+  try {
+    setMaxListeners(maxListeners, controller.signal);
+  } catch {
+    /* node < 19 fallback */
+  }
   return controller;
 }

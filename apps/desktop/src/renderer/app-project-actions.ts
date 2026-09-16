@@ -4,10 +4,10 @@
 // NEW TASK draft staging that used to live here is gone.
 // Plain factory (no hooks): the actions are rebuilt each render exactly as the
 // inline closures were, so they always see current props/state.
-import type { DesktopProjectSummary, SessionSnapshot } from "../shared/contract";
-import type { NavigationSelection } from "./navigation";
-import type { Project, Snapshot } from "./desktop-types";
-import { displayProject } from "./text-format";
+import type { DesktopProjectSummary, SessionSnapshot } from '../shared/contract';
+import type { NavigationSelection } from './navigation';
+import type { Project, Snapshot } from './desktop-types';
+import { displayProject } from './text-format';
 
 export interface ProjectActionDeps {
   projects: DesktopProjectSummary[];
@@ -25,40 +25,46 @@ export interface ProjectActionDeps {
 
 export function createProjectActions(deps: ProjectActionDeps) {
   const {
-    projects, invoke, applySnapshot, activateSelection, synchronizeActualHost,
-    closeSidebarForNavigation, refreshProjects, refreshSessionsBestEffort,
+    projects,
+    invoke,
+    applySnapshot,
+    activateSelection,
+    synchronizeActualHost,
+    closeSidebarForNavigation,
+    refreshProjects,
+    refreshSessionsBestEffort,
     beginNavigation,
   } = deps;
 
   // The engine may canonicalize the requested folder (symlinks, casing); the
   // selection must follow the path it actually entered.
   const canonicalProject = (value: SessionSnapshot, fallback: string) => {
-    const state = value && typeof value === "object" ? value as Snapshot : null;
+    const state = value && typeof value === 'object' ? (value as Snapshot) : null;
     return String(state?.currentProject || state?.project || fallback);
   };
 
   const projectTitle = (projectPath: string) => {
     const summary = projects.find((item) => item.path === projectPath);
-    return summary?.alias?.trim() || summary?.name?.trim()
-      || displayProject(projectPath).name || "Project";
+    return summary?.alias?.trim() || summary?.name?.trim() || displayProject(projectPath).name || 'Project';
   };
 
   const enterProject = (next: SessionSnapshot, requested: Project) => {
     applySnapshot(next);
     const projectPath = canonicalProject(next, requested);
-    activateSelection({ kind: "project", path: projectPath }, projectTitle(projectPath));
+    activateSelection({ kind: 'project', path: projectPath }, projectTitle(projectPath));
   };
 
   // A failed navigation leaves the engine wherever it actually is; resynchronize
   // instead of keeping the optimistic selection.
-  const navigate = (action: () => Promise<void>) => invoke(async () => {
-    try {
-      await action();
-    } catch (reason) {
-      await synchronizeActualHost();
-      throw reason;
-    }
-  });
+  const navigate = (action: () => Promise<void>) =>
+    invoke(async () => {
+      try {
+        await action();
+      } catch (reason) {
+        await synchronizeActualHost();
+        throw reason;
+      }
+    });
 
   return {
     startProject(project: Project) {

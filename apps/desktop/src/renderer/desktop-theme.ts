@@ -1,5 +1,5 @@
 // The canonical registry is JavaScript shared with the TUI and bundled by Vite.
-// @ts-ignore -- the source .mjs intentionally has no separate declaration file.
+// @ts-expect-error -- the source .mjs intentionally has no separate declaration file.
 import { DEFAULT_THEME_ID, THEME_ALIASES, THEME_ORDER, THEME_REGISTRY } from '../../../../src/tui/themes/index.mjs';
 
 import { refreshTitleBarDim } from './titlebar-dim';
@@ -13,7 +13,7 @@ const aliases = THEME_ALIASES as Record<string, string>;
 function themeId(value: unknown): string {
   if (typeof value === 'string') return value.trim();
   if (!value || typeof value !== 'object') return '';
-  return String('id' in value ? (value as { id?: unknown }).id ?? '' : '');
+  return String('id' in value ? ((value as { id?: unknown }).id ?? '') : '');
 }
 
 function cssVariables(palette: ThemePalette): Record<string, string> {
@@ -100,9 +100,7 @@ function suppressThemeSwapTransitions(root: HTMLElement): void {
 // The default dark theme is fully defined by desktop.css. Other palettes,
 // including light, must inject their semantic surface tokens.
 function builtinTheme(resolved: string): boolean {
-  return resolved === DEFAULT_THEME_ID
-    || resolved === 'dark'
-    || resolved === 'light';
+  return resolved === DEFAULT_THEME_ID || resolved === 'dark' || resolved === 'light';
 }
 
 // Android standalone browsers reuse theme-color for both system bars. Keep
@@ -161,13 +159,16 @@ export function themePreviewPalette(value: unknown): Record<string, string> | nu
 
 export function applyDesktopThemePreference(preference: DesktopThemePreference): string {
   systemPreferenceActive = preference === 'system';
-  const resolved = preference === 'white'
-    ? 'light'
-    : preference === 'system' && typeof window.matchMedia === 'function'
-      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? DEFAULT_THEME_ID : 'light')
-      : preference !== 'system' && preference !== 'dark' && registry[preference]
-        ? preference
-        : DEFAULT_THEME_ID;
+  const resolved =
+    preference === 'white'
+      ? 'light'
+      : preference === 'system' && typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? DEFAULT_THEME_ID
+          : 'light'
+        : preference !== 'system' && preference !== 'dark' && registry[preference]
+          ? preference
+          : DEFAULT_THEME_ID;
   return applyDesktopTheme(resolved);
 }
 
@@ -187,24 +188,29 @@ export function applyDesktopTheme(value: unknown): string {
   const requested = themeId(value);
   const resolved = registry[requested]
     ? requested
-    : (registry[aliases[requested]] ? aliases[requested] : DEFAULT_THEME_ID);
+    : registry[aliases[requested]]
+      ? aliases[requested]
+      : DEFAULT_THEME_ID;
   const root = document.documentElement;
   suppressThemeSwapTransitions(root);
   root.dataset.mixdogTheme = resolved;
   root.style.colorScheme = resolved === 'light' ? 'light' : 'dark';
-  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-    ?.setAttribute('content', pwaSystemBarColor());
+  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', pwaSystemBarColor());
   // The Windows caption overlay (min/max/close) is native chrome: its symbol
   // color lives in the MAIN process. Without this notification a light theme
   // kept white symbols on a near-white band — the buttons "disappeared".
   try {
-    (window as unknown as {
-      mixdogDesktop?: { applyTitleBarTheme?: (theme: string, systemPreference?: boolean) => Promise<void> };
-    }).mixdogDesktop?.applyTitleBarTheme?.(resolved, systemPreferenceActive)?.catch?.(() => undefined);
-  } catch { /* theme application must never fail on bridge absence */ }
-  const variables = cssVariables(
-    registry[resolved]?.palette ?? registry[DEFAULT_THEME_ID].palette,
-  );
+    (
+      window as unknown as {
+        mixdogDesktop?: { applyTitleBarTheme?: (theme: string, systemPreference?: boolean) => Promise<void> };
+      }
+    ).mixdogDesktop
+      ?.applyTitleBarTheme?.(resolved, systemPreferenceActive)
+      ?.catch?.(() => undefined);
+  } catch {
+    /* theme application must never fail on bridge absence */
+  }
+  const variables = cssVariables(registry[resolved]?.palette ?? registry[DEFAULT_THEME_ID].palette);
   // Always clear previous inline overrides first so switching back to a
   // css-native theme cannot leave stale palette values behind.
   for (const name of Object.keys(variables)) root.style.removeProperty(name);

@@ -4,14 +4,16 @@ import type { CapabilityApi, RecordValue } from './capability-data';
 
 export function localProviderInstallation(status: RecordValue, phase: string, modelId?: string): RecordValue {
   const entries = Array.isArray(status.installations) ? status.installations.map(record) : [];
-  return entries.find((entry) => entry.phase === phase && entry.state === 'running'
-    && (!modelId || entry.modelId === modelId)) || {};
+  return (
+    entries.find(
+      (entry) => entry.phase === phase && entry.state === 'running' && (!modelId || entry.modelId === modelId)
+    ) || {}
+  );
 }
 
 export function installationPercent(installation: RecordValue): number | null {
   const value = installation.percent;
-  return typeof value === 'number' && Number.isFinite(value)
-    ? Math.max(0, Math.min(100, Math.round(value))) : null;
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : null;
 }
 
 // Read independently of the pending installation command. A slow download
@@ -36,7 +38,9 @@ export function useLocalProviderStatus(api: CapabilityApi, snapshot: unknown, ac
         }
         const status = record(value).localProvider;
         if (!disposed && status && typeof status === 'object') setLive(record(status));
-      } catch { /* a status read failure is not an installation failure */ }
+      } catch {
+        /* a status read failure is not an installation failure */
+      }
       if (!disposed) timer = setTimeout(poll, 1_000);
     };
     void poll();

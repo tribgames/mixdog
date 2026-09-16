@@ -14,10 +14,14 @@ test('boot phase profiler records monotonic marks, completions, and failures', a
 
   profiler.mark('daemon-main');
   now = 110;
-  const value = await profiler.measure('session-import', async () => {
-    now = 145;
-    return 7;
-  }, { lane: 'daemon' });
+  const value = await profiler.measure(
+    'session-import',
+    async () => {
+      now = 145;
+      return 7;
+    },
+    { lane: 'daemon' }
+  );
   assert.equal(value, 7);
 
   now = 150;
@@ -26,7 +30,7 @@ test('boot phase profiler records monotonic marks, completions, and failures', a
       now = 180;
       throw new TypeError('unavailable');
     }),
-    TypeError,
+    TypeError
   );
 
   assert.deepEqual(lines, [

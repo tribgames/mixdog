@@ -1,10 +1,6 @@
 import { readFile, stat } from 'fs/promises';
 import { extname } from 'path';
-import {
-  API_IMAGE_MAX_BASE64_SIZE,
-  imageMetadataText,
-  resizeImageBuffer,
-} from './read-image-resize.mjs';
+import { API_IMAGE_MAX_BASE64_SIZE, imageMetadataText, resizeImageBuffer } from './read-image-resize.mjs';
 
 // Image extensions that Read renders as image blocks.
 const IMAGE_MIME = {
@@ -41,10 +37,18 @@ export async function readImageAsContent(fullPath, displayPath, preflightStat = 
   const mimeType = imageMimeForPath(fullPath);
   if (!mimeType) return null;
   let st;
-  try { st = preflightStat || await stat(fullPath); } catch { return null; }
+  try {
+    st = preflightStat || (await stat(fullPath));
+  } catch {
+    return null;
+  }
 
   let buf;
-  try { buf = await readFile(fullPath); } catch { return null; }
+  try {
+    buf = await readFile(fullPath);
+  } catch {
+    return null;
+  }
   if (buf.length === 0) {
     return {
       content: [{ type: 'text', text: `Error: image "${displayPath}" is empty (0 bytes).` }],
@@ -61,10 +65,12 @@ export async function readImageAsContent(fullPath, displayPath, preflightStat = 
   } catch (error) {
     if (error?.code !== 'INVALID_IMAGE_DATA') throw error;
     return {
-      content: [{
-        type: 'text',
-        text: `Error: image "${displayPath}" is invalid or corrupt and was not attached.`,
-      }],
+      content: [
+        {
+          type: 'text',
+          text: `Error: image "${displayPath}" is invalid or corrupt and was not attached.`,
+        },
+      ],
       isError: true,
     };
   }
@@ -79,10 +85,12 @@ export async function readImageAsContent(fullPath, displayPath, preflightStat = 
   // --- Legacy fallback (sharp unavailable) ---
   if (st.size > MAX_IMAGE_BYTES) {
     return {
-      content: [{
-        type: 'text',
-        text: `Error: image "${displayPath}" is ${st.size} bytes, over the ${MAX_IMAGE_BYTES}-byte inline-view cap (image resizing unavailable: install the optional "sharp" dependency to auto-downsample). Convert/resize before reading.`,
-      }],
+      content: [
+        {
+          type: 'text',
+          text: `Error: image "${displayPath}" is ${st.size} bytes, over the ${MAX_IMAGE_BYTES}-byte inline-view cap (image resizing unavailable: install the optional "sharp" dependency to auto-downsample). Convert/resize before reading.`,
+        },
+      ],
       isError: true,
     };
   }
@@ -90,10 +98,12 @@ export async function readImageAsContent(fullPath, displayPath, preflightStat = 
   const data = buf.toString('base64');
   if (data.length > API_IMAGE_MAX_BASE64_SIZE) {
     return {
-      content: [{
-        type: 'text',
-        text: `Error: image "${displayPath}" base64 size ${data.length} exceeds the ${API_IMAGE_MAX_BASE64_SIZE}-byte API limit (image resizing unavailable). Resize before reading.`,
-      }],
+      content: [
+        {
+          type: 'text',
+          text: `Error: image "${displayPath}" base64 size ${data.length} exceeds the ${API_IMAGE_MAX_BASE64_SIZE}-byte API limit (image resizing unavailable). Resize before reading.`,
+        },
+      ],
       isError: true,
     };
   }

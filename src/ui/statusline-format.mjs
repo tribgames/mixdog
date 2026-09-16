@@ -83,7 +83,7 @@ export function formatContextSegment(ctxPct, cols, source = 'pending') {
 }
 
 function makeBar(pct, cells) {
-  let filled = Math.floor((Number(pct) || 0) * cells / 100);
+  let filled = Math.floor(((Number(pct) || 0) * cells) / 100);
   if (filled < 0) filled = 0;
   if (filled > cells) filled = cells;
   if (pct >= 1 && filled === 0) filled = 1;

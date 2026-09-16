@@ -1,9 +1,4 @@
-import {
-  activeElapsedMs,
-  assertSessionId,
-  normalizeDeadlineWarnedMs,
-  stopActiveClock,
-} from './goal-state.mjs';
+import { activeElapsedMs, assertSessionId, normalizeDeadlineWarnedMs, stopActiveClock } from './goal-state.mjs';
 
 function normalizeDeadlineWarningMs(value) {
   const thresholds = (Array.isArray(value) ? value : [value])
@@ -36,8 +31,8 @@ export function createGoalDeadlines({ now, readRecord, withMutation, commit, onS
   };
 
   const expiredProjection = (goal, at) => {
-    if (!goal || goal.status !== 'active' || !(goal.timeLimitMs > 0)
-      || activeElapsedMs(goal, at) < goal.timeLimitMs) return false;
+    if (!goal || goal.status !== 'active' || !(goal.timeLimitMs > 0) || activeElapsedMs(goal, at) < goal.timeLimitMs)
+      return false;
     stopActiveClock(goal, at);
     goal.status = 'duration_reached';
     goal.timeUsedMs = Math.max(goal.timeUsedMs, goal.timeLimitMs);
@@ -54,7 +49,9 @@ export function createGoalDeadlines({ now, readRecord, withMutation, commit, onS
         if (closed) return;
         const current = readRecord(id).goal;
         if (expiredProjection(current, now())) await commit(id, current);
-      }).catch(onStorageError).finally(() => expiryPending.delete(id));
+      })
+        .catch(onStorageError)
+        .finally(() => expiryPending.delete(id));
     }
     return goal;
   };
@@ -108,7 +105,9 @@ export function createGoalDeadlines({ now, readRecord, withMutation, commit, onS
       current.warningRevision = Math.max(0, Math.floor(Number(current.warningRevision) || 0)) + 1;
       current.updatedAt = now();
       await commit(id, current);
-    }).catch(onStorageError).finally(() => warningPending.delete(id));
+    })
+      .catch(onStorageError)
+      .finally(() => warningPending.delete(id));
   };
 
   function armDeadline(sessionId) {
@@ -120,7 +119,11 @@ export function createGoalDeadlines({ now, readRecord, withMutation, commit, onS
     const remainingMs = Math.max(0, goal.timeLimitMs - activeElapsedMs(goal, at));
     if (remainingMs <= 0) {
       queueMicrotask(() => {
-        try { limitIfExpired(sessionId); } catch (error) { onStorageError(error); }
+        try {
+          limitIfExpired(sessionId);
+        } catch (error) {
+          onStorageError(error);
+        }
       });
       return;
     }
@@ -128,21 +131,33 @@ export function createGoalDeadlines({ now, readRecord, withMutation, commit, onS
     if (warnings?.crossedMs) {
       const thresholdMs = warnings.crossedMs;
       queueMicrotask(() => {
-        try { deliverDeadlineWarning(sessionId, thresholdMs); } catch (error) { onStorageError(error); }
+        try {
+          deliverDeadlineWarning(sessionId, thresholdMs);
+        } catch (error) {
+          onStorageError(error);
+        }
       });
     } else if (warnings?.nextDelayMs > 0) {
       // Preserve the timer rounding margin used by the runtime.
       const delay = Math.min(remainingMs, warnings.nextDelayMs + 250);
       const warningTimer = setTimeout(() => {
         warningTimers.delete(sessionId);
-        try { deliverDeadlineWarning(sessionId); } catch (error) { onStorageError(error); }
+        try {
+          deliverDeadlineWarning(sessionId);
+        } catch (error) {
+          onStorageError(error);
+        }
       }, delay);
       warningTimer.unref?.();
       warningTimers.set(sessionId, warningTimer);
     }
     const timer = setTimeout(() => {
       deadlineTimers.delete(sessionId);
-      try { limitIfExpired(sessionId); } catch (error) { onStorageError(error); }
+      try {
+        limitIfExpired(sessionId);
+      } catch (error) {
+        onStorageError(error);
+      }
     }, remainingMs);
     timer.unref?.();
     deadlineTimers.set(sessionId, timer);

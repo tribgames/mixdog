@@ -6,7 +6,10 @@ export function createBrowserDisplayHealth() {
   let since: number | undefined;
   let geometry = '';
   return {
-    recovered() { since = undefined; geometry = ''; },
+    recovered() {
+      since = undefined;
+      geometry = '';
+    },
     failed(error: unknown, now: number, nextGeometry: string): string {
       const transition = browserPageTransition(error, 'capture');
       if (since === undefined || (transition && geometry !== nextGeometry)) since = now;
@@ -14,7 +17,9 @@ export function createBrowserDisplayHealth() {
       if (now - since < (transition ? 10_000 : 2500)) return '';
       return transition
         ? 'Browser display did not recover after the page changed.'
-        : error instanceof Error ? error.message : String(error);
+        : error instanceof Error
+          ? error.message
+          : String(error);
     },
   };
 }

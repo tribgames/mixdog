@@ -1,5 +1,3 @@
-'use strict';
-
 import { isDangerousDeleteTarget as _isDangerousDeleteTarget } from './shell-policy-danger-target.mjs';
 export { isDangerousDeleteTarget } from './shell-policy-danger-target.mjs';
 // Shell execution security policy — shared constants used by both
@@ -11,15 +9,23 @@ export { isDangerousDeleteTarget } from './shell-policy-danger-target.mjs';
 
 // Shells whose `-c` payloads must be recursively scanned for destructive
 // commands. Expand when a new shell interpreter is supported.
-export const SHELL_NAMES = new Set([
-  'bash', 'sh', 'zsh', 'dash', 'ksh', 'ash',
-]);
+export const SHELL_NAMES = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'ash']);
 
 // Wrapper programs that transparently exec their first non-option argument.
 // We peel these (and their option args) before reading the real command name.
 export const WRAPPER_NAMES = new Set([
-  'env', 'sudo', 'doas', 'nice', 'stdbuf', 'chronic', 'time', 'timeout',
-  'nohup', 'setpriv', 'ionice', 'taskset',
+  'env',
+  'sudo',
+  'doas',
+  'nice',
+  'stdbuf',
+  'chronic',
+  'time',
+  'timeout',
+  'nohup',
+  'setpriv',
+  'ionice',
+  'taskset',
 ]);
 
 // Hard-block patterns used by the native shell command runner.
@@ -37,8 +43,10 @@ export const WRAPPER_NAMES = new Set([
 // (no zero-width iteration) so the nested quantifier cannot backtrack-blow.
 const _WRAP_CHAIN =
   '(?:' +
-    '(?:[A-Za-z_]\\w*=\\S*\\s+)' +
-    '|(?:(?:' + [...WRAPPER_NAMES].join('|') + ')\\s+(?:(?:[-+]\\S*|\\d+[smhd]?|\\d+m\\d+s?)\\s+)*)' +
+  '(?:[A-Za-z_]\\w*=\\S*\\s+)' +
+  '|(?:(?:' +
+  [...WRAPPER_NAMES].join('|') +
+  ')\\s+(?:(?:[-+]\\S*|\\d+[smhd]?|\\d+m\\d+s?)\\s+)*)' +
   ')*';
 const _CMD_START = '(?:^|[;&|\\n(){}]\\s*|\\$[\\({]\\s*|[<>]\\(\\s*|`\\s*)' + _WRAP_CHAIN;
 // Wrapper chain for the token-level rm guard. Same shape as _WRAP_CHAIN
@@ -47,8 +55,10 @@ const _CMD_START = '(?:^|[;&|\\n(){}]\\s*|\\$[\\({]\\s*|[<>]\\(\\s*|`\\s*)' + _W
 // see `sudo rm -r -f /`, `env X=1 rm -r -f ~`, `timeout 5 rm -rf /`, etc.
 const _RM_WRAP_CHAIN =
   '(?:' +
-    '(?:[A-Za-z_]\\w*=\\S*\\s+)' +
-    '|(?:(?:' + [...WRAPPER_NAMES, 'command'].join('|') + ')\\s+(?:(?:[-+]\\S*|\\d+[smhd]?|\\d+m\\d+s?)\\s+)*)' +
+  '(?:[A-Za-z_]\\w*=\\S*\\s+)' +
+  '|(?:(?:' +
+  [...WRAPPER_NAMES, 'command'].join('|') +
+  ')\\s+(?:(?:[-+]\\S*|\\d+[smhd]?|\\d+m\\d+s?)\\s+)*)' +
   ')*';
 const BLOCKED_PATTERNS = [
   // Recursive deletes (bash `rm -rf`, PowerShell `Remove-Item -Recurse -Force`,
@@ -85,7 +95,8 @@ const BLOCKED_PATTERNS = [
 // flag no longer make the regex miss and skip decoding. Widening the option
 // whitelist only makes more payloads get decoded + re-scanned; it never lets
 // a previously-blocked command through.
-const _ENCODED_CMD_RE = /(?:^|\s)(?:powershell(?:\.exe)?|pwsh(?:\.exe)?)\s+(?:[-/](?:NoP(?:rofile)?|NoL(?:ogo)?|NonI(?:nteractive)?|Sta|Mta|(?:ExecutionPolicy|Ep|Ex)\s+\S+|(?:WindowStyle|Win|W)\s+\S+|(?:InputFormat|Inp|If)\s+\S+|(?:OutputFormat|Out|Of)\s+\S+|Command|(?:File|Fi)\s+\S+|(?:Version|Ver)\s+\S+)\s+)*[-/](?:EncodedCommand|enc|e)\s+["']?([A-Za-z0-9+/=]+)["']?/gi;
+const _ENCODED_CMD_RE =
+  /(?:^|\s)(?:powershell(?:\.exe)?|pwsh(?:\.exe)?)\s+(?:[-/](?:NoP(?:rofile)?|NoL(?:ogo)?|NonI(?:nteractive)?|Sta|Mta|(?:ExecutionPolicy|Ep|Ex)\s+\S+|(?:WindowStyle|Win|W)\s+\S+|(?:InputFormat|Inp|If)\s+\S+|(?:OutputFormat|Out|Of)\s+\S+|Command|(?:File|Fi)\s+\S+|(?:Version|Ver)\s+\S+)\s+)*[-/](?:EncodedCommand|enc|e)\s+["']?([A-Za-z0-9+/=]+)["']?/gi;
 function _decodePowerShellEncodedCommand(command) {
   const cmd = String(command || '');
   // Scan ALL -EncodedCommand occurrences (quoted or unquoted) so a chained
@@ -97,7 +108,9 @@ function _decodePowerShellEncodedCommand(command) {
     try {
       const buf = Buffer.from(m[1], 'base64');
       decoded.push(buf.toString('utf16le'));
-    } catch { /* skip bad base64 */ }
+    } catch {
+      /* skip bad base64 */
+    }
   }
   return decoded.length > 0 ? decoded.join('\n') : null;
 }
@@ -116,7 +129,10 @@ export function decodePowerShellEncodedCommand(command) {
 // root, home, or $HOME — independent of flag order or extra options.
 function _rmRecursiveForceUnsafe(command) {
   const text = String(command || '');
-  const RM_RE = new RegExp('(?:^|[;&|\\n(){}]\\s*|\\$[\\({]\\s*|`\\s*)' + _RM_WRAP_CHAIN + '\\brm\\s+([^|;&\\n`)]+)', 'gi');
+  const RM_RE = new RegExp(
+    '(?:^|[;&|\\n(){}]\\s*|\\$[\\({]\\s*|`\\s*)' + _RM_WRAP_CHAIN + '\\brm\\s+([^|;&\\n`)]+)',
+    'gi'
+  );
   for (const m of text.matchAll(RM_RE)) {
     const args = m[1].split(/\s+/).filter(Boolean);
     let recursive = false;
@@ -124,10 +140,22 @@ function _rmRecursiveForceUnsafe(command) {
     const targets = [];
     let endOfOpts = false;
     for (const arg of args) {
-      if (endOfOpts) { targets.push(arg); continue; }
-      if (arg === '--') { endOfOpts = true; continue; }
-      if (arg === '--recursive') { recursive = true; continue; }
-      if (arg === '--force') { force = true; continue; }
+      if (endOfOpts) {
+        targets.push(arg);
+        continue;
+      }
+      if (arg === '--') {
+        endOfOpts = true;
+        continue;
+      }
+      if (arg === '--recursive') {
+        recursive = true;
+        continue;
+      }
+      if (arg === '--force') {
+        force = true;
+        continue;
+      }
       if (/^-[a-zA-Z]+$/.test(arg)) {
         if (/[rR]/.test(arg)) recursive = true;
         if (/[fF]/.test(arg)) force = true;
@@ -162,12 +190,27 @@ function _removeItemRecursiveForceUnsafe(command) {
     for (let i = 0; i < toks.length; i += 1) {
       const low = toks[i].toLowerCase();
       if (low.startsWith('-')) {
-        if (/^-r(ec(urse)?)?$/.test(low)) { recursive = true; continue; }
-        if (/^-r(ec(urse)?)?:\$true$/i.test(low)) { recursive = true; continue; }
-        if (/^-fo(rce)?$/.test(low)) { force = true; continue; }
-        if (/^-fo(rce)?:\$true$/i.test(low)) { force = true; continue; }
+        if (/^-r(ec(urse)?)?$/.test(low)) {
+          recursive = true;
+          continue;
+        }
+        if (/^-r(ec(urse)?)?:\$true$/i.test(low)) {
+          recursive = true;
+          continue;
+        }
+        if (/^-fo(rce)?$/.test(low)) {
+          force = true;
+          continue;
+        }
+        if (/^-fo(rce)?:\$true$/i.test(low)) {
+          force = true;
+          continue;
+        }
         if (low === '-path' || low === '-literalpath' || low === '-lp') {
-          if (toks[i + 1] !== undefined) { targets.push(toks[i + 1]); i += 1; }
+          if (toks[i + 1] !== undefined) {
+            targets.push(toks[i + 1]);
+            i += 1;
+          }
           continue;
         }
         continue; // unrelated switch
@@ -199,11 +242,12 @@ function _cmdRecursiveDeleteUnsafe(command) {
     let recursive = false;
     const targets = [];
     for (const tk of toks) {
-      if (tk.startsWith('/')) {            // cmd switch: /s /q /f /a …
+      if (tk.startsWith('/')) {
+        // cmd switch: /s /q /f /a …
         if (/^\/s/i.test(tk)) recursive = true;
         continue;
       }
-      if (tk.startsWith('-')) continue;    // stray POSIX-style flag
+      if (tk.startsWith('-')) continue; // stray POSIX-style flag
       targets.push(tk);
     }
     if (!recursive) continue;
@@ -282,7 +326,10 @@ function _parseWmicProcessFields(command) {
   if (!m) return [...WMIC_PROCESS_DEFAULT_FIELDS];
   const fields = [];
   for (const raw of m[1].split(/[,\s]+/)) {
-    const key = raw.trim().replace(/[^A-Za-z0-9_]/g, '').toLowerCase();
+    const key = raw
+      .trim()
+      .replace(/[^A-Za-z0-9_]/g, '')
+      .toLowerCase();
     const field = WMIC_PROCESS_FIELD_MAP.get(key);
     if (field && !fields.includes(field)) fields.push(field);
   }
@@ -308,17 +355,14 @@ export function maybeRewriteWmicProcessCommand(command) {
   if (!/\bwmic(?:\.exe)?\s+process\b/i.test(text)) return null;
   if (!/\bget\b/i.test(text)) {
     return {
-      error: 'wmic process commands are disabled because WMIC can stall for minutes; use PowerShell Get-CimInstance/Get-Process instead.',
+      error:
+        'wmic process commands are disabled because WMIC can stall for minutes; use PowerShell Get-CimInstance/Get-Process instead.',
     };
   }
 
   const normalized = text.replace(/\\"/g, '"');
-  const names = [...normalized.matchAll(/\bname\s*=\s*['"]([^'"]+)['"]/ig)]
-    .map(m => m[1])
-    .filter(Boolean);
-  const pids = [...normalized.matchAll(/\bprocessid\s*=\s*(\d+)/ig)]
-    .map(m => Number(m[1]))
-    .filter(Number.isFinite);
+  const names = [...normalized.matchAll(/\bname\s*=\s*['"]([^'"]+)['"]/gi)].map((m) => m[1]).filter(Boolean);
+  const pids = [...normalized.matchAll(/\bprocessid\s*=\s*(\d+)/gi)].map((m) => Number(m[1])).filter(Number.isFinite);
   const fields = _parseWmicProcessFields(normalized);
 
   const filters = [];

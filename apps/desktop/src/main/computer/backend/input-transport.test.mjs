@@ -5,9 +5,12 @@ import { MIXDOG_INPUT_TRANSPORT_CSHARP } from './native-source.ts';
 import { ABORT_CLEANUP_PROGRAM } from './program.ts';
 
 test('checked input releases only partial held input and acknowledges every cleanup failure', {
-  skip: process.platform !== 'win32', timeout: 30000,
+  skip: process.platform !== 'win32',
+  timeout: 30000,
 }, async () => {
-  const fixture = MIXDOG_INPUT_TRANSPORT_CSHARP + `
+  const fixture =
+    MIXDOG_INPUT_TRANSPORT_CSHARP +
+    `
 public static class TransportFixture {
   static int calls, downs, ups;
   static bool held, rejectRelease;
@@ -89,15 +92,27 @@ Add-Type -TypeDefinition ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64S
 [TransportFixture]::Run()
 Add-Type -TypeDefinition ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedAbort}')))
 [Console]::WriteLine('CHECKED_TRANSPORT_OK')`;
-  const child = execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-    '$source=[Console]::In.ReadToEnd(); & ([scriptblock]::Create($source))'],
-  { windowsHide: true, timeout: 20000 });
+  const child = execFile(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      '$source=[Console]::In.ReadToEnd(); & ([scriptblock]::Create($source))',
+    ],
+    { windowsHide: true, timeout: 20000 }
+  );
   const completed = new Promise((resolve, reject) => {
-    let stdout = '', stderr = '';
-    child.stdout.on('data', chunk => { stdout += chunk; });
-    child.stderr.on('data', chunk => { stderr += chunk; });
+    let stdout = '',
+      stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
     child.once('error', reject);
-    child.once('close', code => code === 0 ? resolve(stdout) : reject(new Error(stderr)));
+    child.once('close', (code) => (code === 0 ? resolve(stdout) : reject(new Error(stderr))));
   });
   child.stdin.end(script);
   assert.match(await completed, /CHECKED_TRANSPORT_OK/);

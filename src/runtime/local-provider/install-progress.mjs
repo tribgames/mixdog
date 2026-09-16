@@ -22,7 +22,14 @@ export function trackLocalInstallation(dataDir, { phase, modelId }, operation, o
   let entry = operations.get(key);
   if (!entry?.promise) {
     entry = {
-      status: { jobId: randomUUID(), phase, modelId: modelId || null, state: 'running', stage: 'preparing', percent: null },
+      status: {
+        jobId: randomUUID(),
+        phase,
+        modelId: modelId || null,
+        state: 'running',
+        stage: 'preparing',
+        percent: null,
+      },
       listeners: new Set(),
       promise: null,
       controller: new AbortController(),
@@ -31,28 +38,46 @@ export function trackLocalInstallation(dataDir, { phase, modelId }, operation, o
     const publish = (update) => {
       entry.status = { ...entry.status, ...update, updatedAt: Date.now() };
       for (const listener of entry.listeners) {
-        try { listener({ ...entry.status }); } catch { /* observer only */ }
+        try {
+          listener({ ...entry.status });
+        } catch {
+          /* observer only */
+        }
       }
     };
     entry.publish = publish;
-    entry.promise = Promise.resolve().then(() => operation((progress) => {
-      publish({ ...progress, percent: Number.isFinite(progress.percent) ? Math.min(99, progress.percent) : null });
-    }, entry.controller.signal)).then((result) => {
-      publish({ state: 'complete', stage: 'complete', percent: 100 });
-      return result;
-    }, (error) => {
-      publish(entry.controller.signal.aborted
-        ? { state: 'paused', stage: 'paused', error: null }
-        : { state: 'failed', error: String(error?.message || error) });
-      throw error;
-    }).finally(() => {
-      entry.promise = null;
-      entry.listeners.clear();
-    });
+    entry.promise = Promise.resolve()
+      .then(() =>
+        operation((progress) => {
+          publish({ ...progress, percent: Number.isFinite(progress.percent) ? Math.min(99, progress.percent) : null });
+        }, entry.controller.signal)
+      )
+      .then(
+        (result) => {
+          publish({ state: 'complete', stage: 'complete', percent: 100 });
+          return result;
+        },
+        (error) => {
+          publish(
+            entry.controller.signal.aborted
+              ? { state: 'paused', stage: 'paused', error: null }
+              : { state: 'failed', error: String(error?.message || error) }
+          );
+          throw error;
+        }
+      )
+      .finally(() => {
+        entry.promise = null;
+        entry.listeners.clear();
+      });
   }
   if (typeof onProgress === 'function') {
     entry.listeners.add(onProgress);
-    try { onProgress({ ...entry.status }); } catch { /* observer only */ }
+    try {
+      onProgress({ ...entry.status });
+    } catch {
+      /* observer only */
+    }
   }
   return entry.promise;
 }

@@ -14,8 +14,12 @@ const directory = await mkdtemp(join(tmpdir(), 'mixdog-transcript-screen-'));
 const previous = Array.from({ length: 2000 }, (_, id) => ({ kind: 'statusdone', id: `old-${id}`, status: 'done' }));
 const incoming = previous.slice(-500).map((item, id) => ({ ...item, id: `disk-${id}` }));
 const alignment = {};
-for (const [name, find] of process.argv.includes('--screen-only') ? []
-  : [['before', legacyAlignment], ['after', findTranscriptAlignment]]) {
+for (const [name, find] of process.argv.includes('--screen-only')
+  ? []
+  : [
+      ['before', legacyAlignment],
+      ['after', findTranscriptAlignment],
+    ]) {
   const samples = [];
   for (let i = 0; i < 5; i++) {
     const start = performance.now();
@@ -26,8 +30,15 @@ for (const [name, find] of process.argv.includes('--screen-only') ? []
   alignment[name] = samples;
 }
 await build({
-  configFile: false, root: here, base: './', logLevel: 'warn',
-  define: { 'process.env.NODE_ENV': '"production"', 'process.env': '{}', 'process.platform': JSON.stringify(process.platform) },
+  configFile: false,
+  root: here,
+  base: './',
+  logLevel: 'warn',
+  define: {
+    'process.env.NODE_ENV': '"production"',
+    'process.env': '{}',
+    'process.platform': JSON.stringify(process.platform),
+  },
   build: { outDir: directory, emptyOutDir: false, minify: true },
 });
 const env = { ...process.env };

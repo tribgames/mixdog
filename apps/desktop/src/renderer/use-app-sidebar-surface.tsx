@@ -1,13 +1,13 @@
-import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { DesktopProjectSummary } from "../shared/contract";
-import { SidebarPanelBoundary } from "./sidebar-panel-surface";
-import type { SidebarPanelKey } from "./app-shell-components";
-import type { ExtensionsSection } from "./extension-sections";
-import type { ProjectsSection } from "./project-sections";
-import type { useAppShellPanels } from "./use-app-shell-panels";
-import { useStableEvent } from "./use-stable-event";
-import type { SidebarViewGroup } from "./sidebar-view-layout";
-import { InitialSurface } from "./InitialSurface";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { DesktopProjectSummary } from '../shared/contract';
+import { SidebarPanelBoundary } from './sidebar-panel-surface';
+import type { SidebarPanelKey } from './app-shell-components';
+import type { ExtensionsSection } from './extension-sections';
+import type { ProjectsSection } from './project-sections';
+import type { useAppShellPanels } from './use-app-shell-panels';
+import { useStableEvent } from './use-stable-event';
+import type { SidebarViewGroup } from './sidebar-view-layout';
+import { InitialSurface } from './InitialSurface';
 
 type ShellPanels = ReturnType<typeof useAppShellPanels>;
 
@@ -47,7 +47,7 @@ export function useAppSidebarSurface({
   loadedSidebarPanels: ReadonlySet<string>;
   failedSidebarPanels: ReadonlySet<string>;
   mountedSidebarPanels: ReadonlySet<string>;
-  sidebarPanes: ShellPanels["sidebarPanes"];
+  sidebarPanes: ShellPanels['sidebarPanes'];
   markSidebarPanelFailed(panel: SidebarPanelKey): void;
   retrySidebarPanel(panel: SidebarPanelKey): void;
   runningAutomationNames: { schedule: Set<string>; webhook: Set<string> };
@@ -67,17 +67,18 @@ export function useAppSidebarSurface({
   renameProject(path: string, alias: string): unknown;
   removeProject(path: string): unknown;
 }) {
-  type SidebarSurface = "sessions" | "schedules" | "webhooks" | "projects";
-  const requestedSidebarSurface: SidebarSurface = schedulesOpen ? "schedules"
-    : webhooksOpen ? "webhooks"
-    : projectsOpen ? "projects"
-    : "sessions";
+  type SidebarSurface = 'sessions' | 'schedules' | 'webhooks' | 'projects';
+  const requestedSidebarSurface: SidebarSurface = schedulesOpen
+    ? 'schedules'
+    : webhooksOpen
+      ? 'webhooks'
+      : projectsOpen
+        ? 'projects'
+        : 'sessions';
   const sidebarGroupFor = (surface: SidebarSurface): readonly SidebarPanelKey[] =>
-    surface === "sessions"
-      ? []
-      : viewGroups.find((group) => group.includes(surface)) ?? [surface];
+    surface === 'sessions' ? [] : (viewGroups.find((group) => group.includes(surface)) ?? [surface]);
   const requestedSidebarGroup = sidebarGroupFor(requestedSidebarSurface);
-  const sidebarPanel = requestedSidebarSurface === "sessions" ? null : requestedSidebarSurface;
+  const sidebarPanel = requestedSidebarSurface === 'sessions' ? null : requestedSidebarSurface;
   // The sidebar subtree owns every visited panel's DOM and state, so it stays
   // mounted (inert + aria-hidden + zero width via .sidebar-collapsed / the
   // narrow drawer transform) once it has been opened: collapsing must not
@@ -96,24 +97,27 @@ export function useAppSidebarSurface({
   // request IS the presentation and flips in the click's own commit, because
   // an artificial settle window there only reads as input lag (user: 좌측
   // 메뉴 전환이 느리다).
-  const warmSidebarSurfaces = useRef<ReadonlySet<SidebarSurface>>(new Set(["sessions"]));
-  const [laggedSidebarSurface, setLaggedSidebarSurface] = useState<SidebarSurface>("sessions");
-  const requestedSidebarPanelReady = requestedSidebarSurface === "sessions"
-    || requestedSidebarGroup.every((panel) =>
-      (loadedSidebarPanels.has(panel)
-        // A failed chunk still has content to present: the panel-local
-        // unavailable state. It is presentable, never warm.
-        || failedSidebarPanels.has(panel))
-      && mountedSidebarPanels.has(panel));
+  const warmSidebarSurfaces = useRef<ReadonlySet<SidebarSurface>>(new Set(['sessions']));
+  const [laggedSidebarSurface, setLaggedSidebarSurface] = useState<SidebarSurface>('sessions');
+  const requestedSidebarPanelReady =
+    requestedSidebarSurface === 'sessions' ||
+    requestedSidebarGroup.every(
+      (panel) =>
+        (loadedSidebarPanels.has(panel) ||
+          // A failed chunk still has content to present: the panel-local
+          // unavailable state. It is presentable, never warm.
+          failedSidebarPanels.has(panel)) &&
+        mountedSidebarPanels.has(panel)
+    );
   // A resolved module whose pane is already mounted hidden is just as ready
   // as a previously presented destination: both can become visible in this
   // click's own commit. Projects is prepared this way after boot so its rows
   // and overflow options never first-mount in front of the user.
-  const requestedSidebarSurfaceWarm = sidebarTreeMounted
-    && (warmSidebarSurfaces.current.has(requestedSidebarSurface)
-      || (requestedSidebarSurface !== "sessions"
-        && requestedSidebarGroup.every((panel) =>
-          loadedSidebarPanels.has(panel) && mountedSidebarPanels.has(panel))));
+  const requestedSidebarSurfaceWarm =
+    sidebarTreeMounted &&
+    (warmSidebarSurfaces.current.has(requestedSidebarSurface) ||
+      (requestedSidebarSurface !== 'sessions' &&
+        requestedSidebarGroup.every((panel) => loadedSidebarPanels.has(panel) && mountedSidebarPanels.has(panel))));
   const presentedSidebarSurface: SidebarSurface = requestedSidebarSurfaceWarm
     ? requestedSidebarSurface
     : laggedSidebarSurface;
@@ -149,27 +153,18 @@ export function useAppSidebarSurface({
   useLayoutEffect(() => {
     if (!sidebarTreeMounted) {
       // The panel trees died with their host: nothing may claim to be warm.
-      warmSidebarSurfaces.current = new Set(["sessions"]);
+      warmSidebarSurfaces.current = new Set(['sessions']);
       return;
     }
     // Warm means committed usable content: the panel is mounted, its module
     // resolved, and it has actually been presented inside the open sidebar.
-    if (!sidebarOpen || presentedSidebarSurface === "sessions") return;
+    if (!sidebarOpen || presentedSidebarSurface === 'sessions') return;
     const presentedGroup = sidebarGroupFor(presentedSidebarSurface);
     if (!presentedGroup.every((panel) => loadedSidebarPanels.has(panel))) return;
     if (!presentedGroup.every((panel) => mountedSidebarPanels.has(panel))) return;
     if (warmSidebarSurfaces.current.has(presentedSidebarSurface)) return;
-    warmSidebarSurfaces.current = new Set([
-      ...warmSidebarSurfaces.current,
-      presentedSidebarSurface,
-    ]);
-  }, [
-    loadedSidebarPanels,
-    mountedSidebarPanels,
-    presentedSidebarSurface,
-    sidebarOpen,
-    sidebarTreeMounted,
-  ]);
+    warmSidebarSurfaces.current = new Set([...warmSidebarSurfaces.current, presentedSidebarSurface]);
+  }, [loadedSidebarPanels, mountedSidebarPanels, presentedSidebarSurface, sidebarOpen, sidebarTreeMounted]);
   // ACTIVE is the panel lifecycle the panes themselves see. A hidden sidebar
   // has no active destination: rail panels portal their editors to
   // document.body, where the sidebar's inert/aria-hidden does not reach, so a
@@ -177,18 +172,22 @@ export function useAppSidebarSurface({
   // request is unchanged. Panels close only their dialogs on deactivation and
   // keep list/filter state.
   const presentedSidebarGroup = sidebarGroupFor(presentedSidebarSurface);
-  const presentedSidebarPanel = presentedSidebarSurface === "sessions"
-    ? null
-    : presentedSidebarGroup[0] ?? presentedSidebarSurface;
+  const presentedSidebarPanel =
+    presentedSidebarSurface === 'sessions' ? null : (presentedSidebarGroup[0] ?? presentedSidebarSurface);
   const SchedulesPane = sidebarPanes.schedules;
   const WebhooksPane = sidebarPanes.webhooks;
   const ProjectsPane = sidebarPanes.projects;
   const ExtensionsPane = sidebarPanes.extensions;
-  const sidebarPanelTitle = presentedSidebarPanel === "schedules" ? "Schedules"
-    : presentedSidebarPanel === "webhooks" ? "Webhooks"
-    : presentedSidebarPanel === "projects" ? "Projects"
-    : presentedSidebarPanel === "extensions" ? "Extensions"
-    : "";
+  const sidebarPanelTitle =
+    presentedSidebarPanel === 'schedules'
+      ? 'Schedules'
+      : presentedSidebarPanel === 'webhooks'
+        ? 'Webhooks'
+        : presentedSidebarPanel === 'projects'
+          ? 'Projects'
+          : presentedSidebarPanel === 'extensions'
+            ? 'Extensions'
+            : '';
   // Stable sidebar handlers + memoised panel children: SessionSidebar, its
   // rows, and every rail panel are memoised, but fresh inline closures and a
   // fresh children fragment on every App render defeated those boundaries —
@@ -212,7 +211,7 @@ export function useAppSidebarSurface({
   });
   const projectsCreate = useStableEvent(async (path: string, name?: string) => {
     const host = window.mixdogDesktop;
-    if (!host) throw new Error("Desktop bridge is unavailable.");
+    if (!host) throw new Error('Desktop bridge is unavailable.');
     await host.addProject(path);
     if (name) await host.renameProject(path, name);
     await refreshProjects();
@@ -221,38 +220,55 @@ export function useAppSidebarSurface({
   // and edits projects; NEW TASK is minted from its own entries only.
   const projectsRename = useStableEvent((path: string, alias: string) => void renameProject(path, alias));
   const projectsRemove = useStableEvent((path: string) => void removeProject(path));
-  const renderSidebarPanel = (
-    panel: SidebarPanelKey,
-    active: boolean,
-  ): React.ReactNode => {
+  const renderSidebarPanel = (panel: SidebarPanelKey, active: boolean): React.ReactNode => {
     if (!mountedSidebarPanels.has(panel)) return null;
-    const label = panel === "schedules" ? "Schedules"
-      : panel === "webhooks" ? "Webhooks"
-      : panel === "projects" ? "Projects"
-      : "Extensions";
-    const content = panel === "schedules"
-      ? <SchedulesPane active={active} runningNames={runningAutomationNames.schedule} />
-        : panel === "webhooks"
-          ? <WebhooksPane active={active} runningNames={runningAutomationNames.webhook} />
-          : panel === "extensions"
-            ? <ExtensionsPane active={active} section={extensionsSection}
-                onSectionChange={onExtensionsSectionChange} />
-            : <ProjectsPane active={active}
-                section={projectsSection} onSectionChange={onProjectsSectionChange}
-                projects={projects} projectsReady={projectsReady} selectedProjectPath={selectedProjectPath}
-                onChooseFolder={async () => (await window.mixdogDesktop?.chooseProject()) ?? null}
-                onCreateProject={projectsCreate}
-                onRename={projectsRename}
-                onRemove={projectsRemove}
-                onMemoryControl={async (input) => (await window.mixdogDesktop.invokeCapability({
-                  capability: 'memoryControl',
-                  args: [input, { silent: true }],
-                })).value} />;
-    return <SidebarPanelBoundary label={label} active={active}
-      onFailure={() => markSidebarPanelFailed(panel)}
-      onRetry={() => retrySidebarPanel(panel)}>
-      <Suspense fallback={<InitialSurface />}>{content}</Suspense>
-    </SidebarPanelBoundary>;
+    const label =
+      panel === 'schedules'
+        ? 'Schedules'
+        : panel === 'webhooks'
+          ? 'Webhooks'
+          : panel === 'projects'
+            ? 'Projects'
+            : 'Extensions';
+    const content =
+      panel === 'schedules' ? (
+        <SchedulesPane active={active} runningNames={runningAutomationNames.schedule} />
+      ) : panel === 'webhooks' ? (
+        <WebhooksPane active={active} runningNames={runningAutomationNames.webhook} />
+      ) : panel === 'extensions' ? (
+        <ExtensionsPane active={active} section={extensionsSection} onSectionChange={onExtensionsSectionChange} />
+      ) : (
+        <ProjectsPane
+          active={active}
+          section={projectsSection}
+          onSectionChange={onProjectsSectionChange}
+          projects={projects}
+          projectsReady={projectsReady}
+          selectedProjectPath={selectedProjectPath}
+          onChooseFolder={async () => (await window.mixdogDesktop?.chooseProject()) ?? null}
+          onCreateProject={projectsCreate}
+          onRename={projectsRename}
+          onRemove={projectsRemove}
+          onMemoryControl={async (input) =>
+            (
+              await window.mixdogDesktop.invokeCapability({
+                capability: 'memoryControl',
+                args: [input, { silent: true }],
+              })
+            ).value
+          }
+        />
+      );
+    return (
+      <SidebarPanelBoundary
+        label={label}
+        active={active}
+        onFailure={() => markSidebarPanelFailed(panel)}
+        onRetry={() => retrySidebarPanel(panel)}
+      >
+        <Suspense fallback={<InitialSurface />}>{content}</Suspense>
+      </SidebarPanelBoundary>
+    );
   };
 
   return {

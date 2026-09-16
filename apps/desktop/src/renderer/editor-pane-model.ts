@@ -1,10 +1,10 @@
-import type { Range } from "monaco-editor";
+import type { Range } from 'monaco-editor';
 
-import type { DesktopEditorBackup } from "../shared/contract";
-import type { DesktopFilePreviewKind } from "../shared/file-preview";
-import type { EditorOutlineItem } from "./editor-language-store";
-import { CALL_HIERARCHY_LAYOUT_KEY } from "./editor-monaco-providers";
-import { recordOf } from "./editor-lsp-conversion";
+import type { DesktopEditorBackup } from '../shared/contract';
+import type { DesktopFilePreviewKind } from '../shared/file-preview';
+import type { EditorOutlineItem } from './editor-language-store';
+import { CALL_HIERARCHY_LAYOUT_KEY } from './editor-monaco-providers';
+import { recordOf } from './editor-lsp-conversion';
 
 export interface FilePreview {
   url: string;
@@ -15,40 +15,40 @@ export interface FilePreview {
 }
 
 export function parseEditorQuickDiffStripes(diffText: string) {
-  const stripes: Array<{ line: number; kind: "add" | "mod" | "del" }> = [];
+  const stripes: Array<{ line: number; kind: 'add' | 'mod' | 'del' }> = [];
   let newLine = 0;
   let plus: number[] = [];
   let minus = 0;
   const flush = () => {
     const paired = Math.min(minus, plus.length);
     for (let index = 0; index < plus.length; index += 1) {
-      stripes.push({ line: plus[index], kind: index < paired ? "mod" : "add" });
+      stripes.push({ line: plus[index], kind: index < paired ? 'mod' : 'add' });
     }
     if (minus > paired) {
-      stripes.push({ line: Math.max(1, plus.at(-1) ?? newLine), kind: "del" });
+      stripes.push({ line: Math.max(1, plus.at(-1) ?? newLine), kind: 'del' });
     }
     plus = [];
     minus = 0;
   };
-  for (const raw of String(diffText || "").split("\n")) {
+  for (const raw of String(diffText || '').split('\n')) {
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
     if (hunk) {
       flush();
       newLine = Number(hunk[1]) - 1;
       continue;
     }
-    if (raw.startsWith("+++") || raw.startsWith("---")) continue;
-    if (raw.startsWith("+")) {
+    if (raw.startsWith('+++') || raw.startsWith('---')) continue;
+    if (raw.startsWith('+')) {
       newLine += 1;
       plus.push(newLine);
       continue;
     }
-    if (raw.startsWith("-")) {
+    if (raw.startsWith('-')) {
       minus += 1;
       continue;
     }
     flush();
-    if (raw.startsWith(" ")) newLine += 1;
+    if (raw.startsWith(' ')) newLine += 1;
   }
   flush();
   return stripes;
@@ -96,7 +96,7 @@ export interface BreadcrumbFileItem {
 
 export type BreadcrumbPickerState =
   | {
-      kind: "files";
+      kind: 'files';
       anchor: BreadcrumbPickerAnchor;
       directory: string;
       selectedRelPath: string;
@@ -106,16 +106,13 @@ export type BreadcrumbPickerState =
       error: string;
     }
   | {
-      kind: "symbols";
+      kind: 'symbols';
       anchor: BreadcrumbPickerAnchor;
       rows: EditorOutlineItem[];
       activeIndex: number;
     };
 
-export function breadcrumbPickerAnchor(
-  node: HTMLElement,
-  sourceIndex: number,
-): BreadcrumbPickerAnchor {
+export function breadcrumbPickerAnchor(node: HTMLElement, sourceIndex: number): BreadcrumbPickerAnchor {
   const rect = node.getBoundingClientRect();
   const maxInnerWidth = Math.max(240, window.innerWidth - 8);
   const width = Math.min(maxInnerWidth, Math.max(240, window.innerWidth / 4.17));
@@ -132,23 +129,28 @@ export function breadcrumbPickerAnchor(
 
 export function editorLanguageLabel(languageId: string): string {
   switch (languageId) {
-    case "typescript": return "TypeScript";
-    case "javascript": return "JavaScript";
-    case "plaintext": return "Plain Text";
-    case "json": return "JSON";
-    case "html": return "HTML";
-    case "css": return "CSS";
-    case "cpp": return "C++";
+    case 'typescript':
+      return 'TypeScript';
+    case 'javascript':
+      return 'JavaScript';
+    case 'plaintext':
+      return 'Plain Text';
+    case 'json':
+      return 'JSON';
+    case 'html':
+      return 'HTML';
+    case 'css':
+      return 'CSS';
+    case 'cpp':
+      return 'C++';
     default:
-      return languageId
-        ? languageId[0].toLocaleUpperCase() + languageId.slice(1)
-        : "Plain Text";
+      return languageId ? languageId[0].toLocaleUpperCase() + languageId.slice(1) : 'Plain Text';
   }
 }
 
 export function readCallHierarchyLayout(): CallHierarchyLayout {
   try {
-    const value = recordOf(JSON.parse(window.localStorage.getItem(CALL_HIERARCHY_LAYOUT_KEY) || "{}"));
+    const value = recordOf(JSON.parse(window.localStorage.getItem(CALL_HIERARCHY_LAYOUT_KEY) || '{}'));
     return {
       ratio: Math.max(0.35, Math.min(0.85, Number(value?.ratio) || 0.7)),
       height: Math.max(8, Math.min(40, Number(value?.height) || 17)),

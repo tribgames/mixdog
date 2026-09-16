@@ -2,8 +2,8 @@
 // its project-relative path grammar, and every pure transition that loading,
 // refresh and auto-reveal apply to that map. No React and no IPC here, so
 // explorer-tree-model.test.mjs pins the ordering rules directly.
-import type { DesktopDirEntry } from "../shared/contract";
-import { sortExplorerEntries } from "./explorer-logic";
+import type { DesktopDirEntry } from '../shared/contract';
+import { sortExplorerEntries } from './explorer-logic';
 
 /** One directory level. `entries` stays undefined until it has been listed. */
 export interface ExplorerDirState {
@@ -34,7 +34,7 @@ export interface ExplorerRow {
 
 /** Parent directory of a rel path; the project root answers "". */
 export function explorerParentRel(rel: string): string {
-  return rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+  return rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
 }
 
 /** Child rel path; the root parent contributes no leading separator. */
@@ -44,15 +44,11 @@ export function explorerChildRel(parentRel: string, name: string): string {
 
 /** Absolute path of a rel entry (Copy path / Shift+Alt+C). */
 export function explorerAbsolutePath(projectPath: string, rel: string): string {
-  return `${projectPath.replace(/[\\/]+$/, "")}/${rel}`;
+  return `${projectPath.replace(/[\\/]+$/, '')}/${rel}`;
 }
 
 /** Merge a partial state into one directory; unseen directories start collapsed. */
-export function patchExplorerDir(
-  dirs: ExplorerDirs,
-  rel: string,
-  next: Partial<ExplorerDirState>,
-): ExplorerDirs {
+export function patchExplorerDir(dirs: ExplorerDirs, rel: string, next: Partial<ExplorerDirState>): ExplorerDirs {
   const map = new Map(dirs);
   map.set(rel, { expanded: false, ...map.get(rel), ...next });
   return map;
@@ -61,10 +57,7 @@ export function patchExplorerDir(
 /** Refresh apply: fresh listings replace the directories the tree still knows.
  *  A directory that disappeared while the listings were in flight is skipped
  *  instead of being resurrected without its expansion state. */
-export function withExplorerDirEntries(
-  dirs: ExplorerDirs,
-  listings: readonly ExplorerDirListing[],
-): ExplorerDirs {
+export function withExplorerDirEntries(dirs: ExplorerDirs, listings: readonly ExplorerDirListing[]): ExplorerDirs {
   const next = new Map(dirs);
   for (const listing of listings) {
     const existing = next.get(listing.rel);
@@ -78,7 +71,7 @@ export function withExplorerDirEntries(
 export function withChangedExplorerDirEntries(
   dirs: ExplorerDirs,
   rel: string,
-  entries: DesktopDirEntry[],
+  entries: DesktopDirEntry[]
 ): ExplorerDirs {
   const existing = dirs.get(rel);
   if (!existing?.entries || JSON.stringify(existing.entries) === JSON.stringify(entries)) return dirs;
@@ -87,14 +80,12 @@ export function withChangedExplorerDirEntries(
 
 /** Directories a full refresh re-lists: the root plus everything expanded. */
 export function explorerRefreshTargets(dirs: ExplorerDirs): string[] {
-  return [...dirs.entries()]
-    .filter(([rel, state]) => rel === "" || state.expanded)
-    .map(([rel]) => rel);
+  return [...dirs.entries()].filter(([rel, state]) => rel === '' || state.expanded).map(([rel]) => rel);
 }
 
 /** Collapse All enablement: some non-root directory is currently expanded. */
 export function explorerHasExpandedDirs(dirs: ExplorerDirs): boolean {
-  return [...dirs.entries()].some(([rel, state]) => rel !== "" && state.expanded);
+  return [...dirs.entries()].some(([rel, state]) => rel !== '' && state.expanded);
 }
 
 /** Collapse All: every non-root directory folds. An already folded tree keeps
@@ -103,7 +94,7 @@ export function collapseExplorerDirs(dirs: ExplorerDirs): ExplorerDirs {
   let changedAny = false;
   const next = new Map(dirs);
   for (const [rel, state] of next) {
-    if (rel === "" || !state.expanded) continue;
+    if (rel === '' || !state.expanded) continue;
     next.set(rel, { ...state, expanded: false });
     changedAny = true;
   }
@@ -119,8 +110,13 @@ export function explorerVisibleRows(dirs: ExplorerDirs): ExplorerRow[] {
     if (!state?.expanded) return;
     if (state.error) {
       out.push({
-        rel: `${rel}\u0000error`, name: state.error, dir: false,
-        level, parentRel: rel, expanded: false, error: state.error,
+        rel: `${rel}\u0000error`,
+        name: state.error,
+        dir: false,
+        level,
+        parentRel: rel,
+        expanded: false,
+        error: state.error,
       });
       return;
     }
@@ -132,7 +128,7 @@ export function explorerVisibleRows(dirs: ExplorerDirs): ExplorerRow[] {
       if (entry.dir && expanded) walk(childRel, level + 1);
     }
   };
-  walk("", 0);
+  walk('', 0);
   return out;
 }
 
@@ -142,19 +138,17 @@ export function explorerVisibleRows(dirs: ExplorerDirs): ExplorerRow[] {
  *  - `pending`: an ancestor listing is already in flight, so nothing to do.
  *  - `blocked`: an ancestor failed to list, so the reveal is abandoned.
  *  - `ready`: every ancestor is open and the row itself can be revealed. */
-export type ExplorerRevealStep =
-  | { kind: "load" | "expand"; rel: string }
-  | { kind: "pending" | "blocked" | "ready" };
+export type ExplorerRevealStep = { kind: 'load' | 'expand'; rel: string } | { kind: 'pending' | 'blocked' | 'ready' };
 
 export function explorerRevealStep(dirs: ExplorerDirs, rel: string): ExplorerRevealStep {
-  const segments = rel.split("/");
-  let cursor = "";
+  const segments = rel.split('/');
+  let cursor = '';
   for (let index = 0; index < segments.length - 1; index += 1) {
     cursor = explorerChildRel(cursor, segments[index]);
     const state = dirs.get(cursor);
-    if (!state?.entries) return state?.expanded ? { kind: "pending" } : { kind: "load", rel: cursor };
-    if (state.error) return { kind: "blocked" };
-    if (!state.expanded) return { kind: "expand", rel: cursor };
+    if (!state?.entries) return state?.expanded ? { kind: 'pending' } : { kind: 'load', rel: cursor };
+    if (state.error) return { kind: 'blocked' };
+    if (!state.expanded) return { kind: 'expand', rel: cursor };
   }
-  return { kind: "ready" };
+  return { kind: 'ready' };
 }

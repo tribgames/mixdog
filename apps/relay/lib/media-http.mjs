@@ -75,15 +75,7 @@ export function parseRange(header, size) {
  * }} input
  */
 export function mediaResponsePlan(input) {
-  const {
-    size,
-    mime,
-    assetId,
-    variant,
-    rangeHeader,
-    ifNoneMatch,
-    cacheControl = CACHE_CONTROL,
-  } = input;
+  const { size, mime, assetId, variant, rangeHeader, ifNoneMatch, cacheControl = CACHE_CONTROL } = input;
   const etag = mediaEtag(assetId, variant, size);
   const headers = {
     'Content-Type': mime || 'application/octet-stream',

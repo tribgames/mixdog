@@ -3,16 +3,9 @@ import { resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
-import {
-  DesktopSettingsStore,
-  desktopSettingsFromConfig,
-  settingsConfigModuleUrl,
-} from './settings-store.ts';
+import { DesktopSettingsStore, desktopSettingsFromConfig, settingsConfigModuleUrl } from './settings-store.ts';
 import { registerDesktopIpc } from './ipc.ts';
-import {
-  requiredDesktopCapabilityRequest,
-  requiredDesktopSettingKey,
-} from './ipc-validation.ts';
+import { requiredDesktopCapabilityRequest, requiredDesktopSettingKey } from './ipc-validation.ts';
 import { DESKTOP_IPC } from '../shared/contract.ts';
 
 test('settings config URL follows development and packaged runtime layouts', () => {
@@ -21,11 +14,11 @@ test('settings config URL follows development and packaged runtime layouts', () 
   const root = (...segments) => resolve(sep, ...segments);
   assert.match(
     fileURLToPath(settingsConfigModuleUrl(false, root('resources'), root('repo', 'apps', 'desktop'))),
-    /repo[\\/]src[\\/]runtime[\\/]shared[\\/]config\.mjs$/,
+    /repo[\\/]src[\\/]runtime[\\/]shared[\\/]config\.mjs$/
   );
   assert.match(
     fileURLToPath(settingsConfigModuleUrl(true, root('resources'), root('ignored'))),
-    /resources[\\/]runtime\.asar[\\/]node_modules[\\/]mixdog[\\/]src[\\/]runtime[\\/]shared[\\/]config\.mjs$/,
+    /resources[\\/]runtime\.asar[\\/]node_modules[\\/]mixdog[\\/]src[\\/]runtime[\\/]shared[\\/]config\.mjs$/
   );
 });
 
@@ -41,23 +34,26 @@ test('desktop settings read the canonical agent section and desktop defaults', (
     computerInstalled: false,
     browserInstalled: false,
   });
-  assert.deepEqual(desktopSettingsFromConfig({
-    agent: {
-      autoClear: { enabled: false },
-      compaction: { auto: false },
-    },
-    desktop: { keepAwake: false },
-  }), {
-    autoClear: false,
-    autoCompact: false,
-    keepAwake: false,
-    usagePinned: false,
-    computerControl: false,
-    computerObserveOnly: false,
-    browserControl: false,
-    computerInstalled: false,
-    browserInstalled: false,
-  });
+  assert.deepEqual(
+    desktopSettingsFromConfig({
+      agent: {
+        autoClear: { enabled: false },
+        compaction: { auto: false },
+      },
+      desktop: { keepAwake: false },
+    }),
+    {
+      autoClear: false,
+      autoCompact: false,
+      keepAwake: false,
+      usagePinned: false,
+      computerControl: false,
+      computerObserveOnly: false,
+      browserControl: false,
+      computerInstalled: false,
+      browserInstalled: false,
+    }
+  );
 });
 
 test('a control that is already on grandfathers its install marker', () => {
@@ -167,52 +163,80 @@ test('IPC accepts only the runtime-backed setting keys', () => {
 });
 
 test('desktop capability validation exposes Recap and rejects the retired Memory toggle API', () => {
-  assert.deepEqual(requiredDesktopCapabilityRequest({
-    capability: 'setRecapEnabled',
-    args: [false],
-  }), {
-    capability: 'setRecapEnabled',
-    args: [false],
-  });
-  assert.deepEqual(requiredDesktopCapabilityRequest({
-    capability: 'getRecapSettings',
-  }), {
-    capability: 'getRecapSettings',
-    args: [],
-  });
-  assert.throws(() => requiredDesktopCapabilityRequest({
-    capability: 'setRecapEnabled',
-    args: ['off'],
-  }), /requires a boolean/);
-  assert.throws(() => requiredDesktopCapabilityRequest({
-    capability: 'setMemoryEnabled',
-    args: [false],
-  }), /unavailable/);
+  assert.deepEqual(
+    requiredDesktopCapabilityRequest({
+      capability: 'setRecapEnabled',
+      args: [false],
+    }),
+    {
+      capability: 'setRecapEnabled',
+      args: [false],
+    }
+  );
+  assert.deepEqual(
+    requiredDesktopCapabilityRequest({
+      capability: 'getRecapSettings',
+    }),
+    {
+      capability: 'getRecapSettings',
+      args: [],
+    }
+  );
+  assert.throws(
+    () =>
+      requiredDesktopCapabilityRequest({
+        capability: 'setRecapEnabled',
+        args: ['off'],
+      }),
+    /requires a boolean/
+  );
+  assert.throws(
+    () =>
+      requiredDesktopCapabilityRequest({
+        capability: 'setMemoryEnabled',
+        args: [false],
+      }),
+    /unavailable/
+  );
 });
 
 test('desktop capability validation accepts explicit voice enablement only', () => {
-  assert.deepEqual(requiredDesktopCapabilityRequest({
-    capability: 'toggleVoice',
-    args: [true],
-  }), {
-    capability: 'toggleVoice',
-    args: [true],
-  });
-  assert.deepEqual(requiredDesktopCapabilityRequest({
-    capability: 'toggleVoice',
-    args: [false],
-  }), {
-    capability: 'toggleVoice',
-    args: [false],
-  });
-  assert.throws(() => requiredDesktopCapabilityRequest({
-    capability: 'toggleVoice',
-    args: [],
-  }), /invalid number of arguments/);
-  assert.throws(() => requiredDesktopCapabilityRequest({
-    capability: 'toggleVoice',
-    args: ['on'],
-  }), /requires a boolean/);
+  assert.deepEqual(
+    requiredDesktopCapabilityRequest({
+      capability: 'toggleVoice',
+      args: [true],
+    }),
+    {
+      capability: 'toggleVoice',
+      args: [true],
+    }
+  );
+  assert.deepEqual(
+    requiredDesktopCapabilityRequest({
+      capability: 'toggleVoice',
+      args: [false],
+    }),
+    {
+      capability: 'toggleVoice',
+      args: [false],
+    }
+  );
+  assert.throws(
+    () =>
+      requiredDesktopCapabilityRequest({
+        capability: 'toggleVoice',
+        args: [],
+      }),
+    /invalid number of arguments/
+  );
+  assert.throws(
+    () =>
+      requiredDesktopCapabilityRequest({
+        capability: 'toggleVoice',
+        args: ['on'],
+      }),
+    /requires a boolean/
+  );
 });
 
 test('updateSetting IPC enforces sender, key, boolean, success, and store rejection', async () => {
@@ -234,40 +258,38 @@ test('updateSetting IPC enforces sender, key, boolean, success, and store reject
       return { autoClear: true, autoCompact: enabled };
     },
   };
-  const remove = registerDesktopIpc(window, {
-    subscribe: () => () => {},
-    subscribeSessionStates: () => () => {},
-  }, {
-    app: { quit() {} },
-    ipcMain: {
-      handle: (channel, listener) => handlers.set(channel, listener),
-      removeHandler: (channel) => handlers.delete(channel),
-      on: () => {},
-      removeListener: () => {},
+  const remove = registerDesktopIpc(
+    window,
+    {
+      subscribe: () => () => {},
+      subscribeSessionStates: () => () => {},
     },
-    dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
-    shell: { openPath: async () => '', openExternal: async () => {} },
-    settingsStore,
-    onDesktopSettingsChanged: (settings) => changed.push(settings),
-  });
+    {
+      app: { quit() {} },
+      ipcMain: {
+        handle: (channel, listener) => handlers.set(channel, listener),
+        removeHandler: (channel) => handlers.delete(channel),
+        on: () => {},
+        removeListener: () => {},
+      },
+      dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
+      shell: { openPath: async () => '', openExternal: async () => {} },
+      settingsStore,
+      onDesktopSettingsChanged: (settings) => changed.push(settings),
+    }
+  );
   const invoke = (event, ...args) => handlers.get(DESKTOP_IPC.updateSetting)(event, ...args);
   const validEvent = { sender: webContents, senderFrame: mainFrame };
 
-  assert.throws(
-    () => invoke({ sender: {}, senderFrame: mainFrame }, 'autoCompact', true),
-    /rejected/,
-  );
+  assert.throws(() => invoke({ sender: {}, senderFrame: mainFrame }, 'autoCompact', true), /rejected/);
   assert.throws(() => invoke(validEvent, 'homeAccess', true), /setting key is invalid/);
   assert.throws(() => invoke(validEvent, 'autoCompact', 'yes'), /enabled must be a boolean/);
-  assert.deepEqual(
-    await invoke(validEvent, 'autoCompact', false),
-    { autoClear: true, autoCompact: false },
-  );
-  await assert.rejects(
-    invoke(validEvent, 'autoClear', false),
-    /config write rejected/,
-  );
-  assert.deepEqual(writes, [['autoCompact', false], ['autoClear', false]]);
+  assert.deepEqual(await invoke(validEvent, 'autoCompact', false), { autoClear: true, autoCompact: false });
+  await assert.rejects(invoke(validEvent, 'autoClear', false), /config write rejected/);
+  assert.deepEqual(writes, [
+    ['autoCompact', false],
+    ['autoClear', false],
+  ]);
   // The change hook fires only after a SUCCESSFUL write, with the saved value.
   assert.deepEqual(changed, [{ autoClear: true, autoCompact: false }]);
   remove();

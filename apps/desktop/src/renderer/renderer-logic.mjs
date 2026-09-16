@@ -95,8 +95,8 @@ export function reconcileTurnFailures(_previous, items, _toasts, scope = '') {
     // are intentionally not converted to failures; TranscriptRow renders those
     // as interrupted. Before turndone exists, an explicit transcript error may
     // still surface a pending failure. Ephemeral UI toasts never affect either.
-    if (outcome.terminalStatus === 'failed'
-      || (!outcome.terminalStatus && outcome.explicitFailure)) failed.push(turnKey);
+    if (outcome.terminalStatus === 'failed' || (!outcome.terminalStatus && outcome.explicitFailure))
+      failed.push(turnKey);
   }
 
   const current = {
@@ -112,7 +112,6 @@ export function reconcileTurnFailures(_previous, items, _toasts, scope = '') {
     },
   };
 }
-
 
 export function shouldNavigatePromptHistory({
   key = '',
@@ -148,11 +147,7 @@ export function shouldNavigatePromptHistory({
 // itself. Latch state is per Shift hold, never time-based: it arms on a shifted
 // printable keydown and clears on release (or on any unshifted keydown, which
 // proves the hold ended even if the keyup was lost to focus changes).
-export function nextComposerShiftLatch(latched = false, {
-  type = 'keydown',
-  key = '',
-  shiftKey = false,
-} = {}) {
+export function nextComposerShiftLatch(latched = false, { type = 'keydown', key = '', shiftKey = false } = {}) {
   if (type === 'keyup') return key === 'Shift' ? false : Boolean(latched);
   if (!shiftKey) return false;
   if (String(key).length === 1) return true;
@@ -175,39 +170,26 @@ export function isComposerNewlineChord({
   return Boolean(shiftKey) && !shiftLatched;
 }
 
-export function shouldInterruptPrompt({
-  turnBusy = false,
-  pendingSubmissionId = '',
-  draftMode = false,
-} = {}) {
+export function shouldInterruptPrompt({ turnBusy = false, pendingSubmissionId = '', draftMode = false } = {}) {
   return Boolean(turnBusy || (!draftMode && String(pendingSubmissionId || '').trim()));
 }
 
-export function shouldBlockPromptSubmit({
-  submitting = false,
-  draftMode = false,
-  slashCommand = false,
-} = {}) {
+export function shouldBlockPromptSubmit({ submitting = false, draftMode = false, slashCommand = false } = {}) {
   // An existing session accepts another prompt into the same engine queue
   // immediately. Only draft materialization and slash commands need a single
   // acknowledgement owner.
   return Boolean(submitting && (draftMode || slashCommand));
 }
 
-export function hasSendablePromptContent({
-  text = '',
-  attachments = [],
-} = {}) {
-  return Boolean(String(text || '').trim()
-    || (Array.isArray(attachments) && attachments.some((attachment) =>
-      attachment && (!attachment.token || attachment.chipOnly === true))));
+export function hasSendablePromptContent({ text = '', attachments = [] } = {}) {
+  return Boolean(
+    String(text || '').trim() ||
+      (Array.isArray(attachments) &&
+        attachments.some((attachment) => attachment && (!attachment.token || attachment.chipOnly === true)))
+  );
 }
 
-export function shouldStopComposerGeneration({
-  turnBusy = false,
-  text = '',
-  attachments = [],
-} = {}) {
+export function shouldStopComposerGeneration({ turnBusy = false, text = '', attachments = [] } = {}) {
   return Boolean(turnBusy && !hasSendablePromptContent({ text, attachments }));
 }
 
@@ -259,27 +241,28 @@ export function normalizeApplyPatch(value) {
     if (!match) continue;
     const [, operation, fileName] = match;
     const body = [];
-    for (index += 1; index < lines.length && !/^\*\*\* (?:Add|Delete|Update|End) (?:File:|Patch)/.test(lines[index]); index += 1) {
+    for (
+      index += 1;
+      index < lines.length && !/^\*\*\* (?:Add|Delete|Update|End) (?:File:|Patch)/.test(lines[index]);
+      index += 1
+    ) {
       if (!/^\*\*\* Move to: /.test(lines[index])) body.push(lines[index]);
     }
     index -= 1;
     const oldName = operation === 'Add' ? '/dev/null' : `a/${fileName}`;
     const newName = operation === 'Delete' ? '/dev/null' : `b/${fileName}`;
-    const mode = operation === 'Add'
-      ? 'new file mode 100644'
-      : operation === 'Delete' ? 'deleted file mode 100644' : '';
+    const mode =
+      operation === 'Add' ? 'new file mode 100644' : operation === 'Delete' ? 'deleted file mode 100644' : '';
     let patchBody = body.join('\n').replace(/\n+$/, '');
     if (operation === 'Add' && patchBody && !/^@@/m.test(patchBody)) {
       const added = patchBody.split('\n').filter((line) => line.startsWith('+')).length;
       patchBody = `@@ -0,0 +1,${added} @@\n${patchBody}`;
     }
-    sections.push([
-      `diff --git a/${fileName} b/${fileName}`,
-      mode,
-      `--- ${oldName}`,
-      `+++ ${newName}`,
-      patchBody,
-    ].filter(Boolean).join('\n'));
+    sections.push(
+      [`diff --git a/${fileName} b/${fileName}`, mode, `--- ${oldName}`, `+++ ${newName}`, patchBody]
+        .filter(Boolean)
+        .join('\n')
+    );
   }
   return sections.length ? sections.join('\n') : input;
 }
@@ -311,7 +294,10 @@ function renderablePatch(section, hunks) {
       newStart = Number(declared[3]) + Number(declared[4] ?? 1);
       return hunk;
     }
-    const context = head.replace(/^@@+\s*/, '').replace(/\s*@@\s*$/, '').trim();
+    const context = head
+      .replace(/^@@+\s*/, '')
+      .replace(/\s*@@\s*$/, '')
+      .trim();
     const rewritten = [
       `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${context ? ` ${context}` : ''}`,
       ...body,
@@ -383,16 +369,18 @@ export function parseUnifiedDiff(patch) {
   for (let match = marker.exec(normalized); match; match = marker.exec(normalized)) starts.push(match.index);
   if (starts.length === 0) {
     const plainHeader = /^---\s.+\n\+\+\+\s.+$/gm;
-    for (let match = plainHeader.exec(normalized); match; match = plainHeader.exec(normalized)) starts.push(match.index);
+    for (let match = plainHeader.exec(normalized); match; match = plainHeader.exec(normalized))
+      starts.push(match.index);
   }
-  const sections = starts.length === 0
-    ? [normalized]
-    : [
-      ...(starts[0] > 0 && hasLeadingDiffContent(normalized.slice(0, starts[0]))
-        ? [normalized.slice(0, starts[0])]
-        : []),
-      ...starts.map((start, index) => normalized.slice(start, starts[index + 1] ?? normalized.length)),
-    ];
+  const sections =
+    starts.length === 0
+      ? [normalized]
+      : [
+          ...(starts[0] > 0 && hasLeadingDiffContent(normalized.slice(0, starts[0]))
+            ? [normalized.slice(0, starts[0])]
+            : []),
+          ...starts.map((start, index) => normalized.slice(start, starts[index + 1] ?? normalized.length)),
+        ];
   return sections.map(parseFileSection);
 }
 
@@ -412,18 +400,26 @@ registerInputPriority(['glob'], ['pattern', 'glob', 'path', 'head_limit', 'offse
 registerInputPriority(['find'], ['query', 'fuzzy', 'path', 'head_limit']);
 registerInputPriority(['list', 'ls'], ['path', 'dir', 'head_limit', 'offset']);
 registerInputPriority(['explore'], ['query', 'cwd']);
-registerInputPriority(['search_query', 'web_search', 'image_query'],
-  ['query', 'site', 'type', 'maxResults', 'contextSize', 'locale']);
+registerInputPriority(
+  ['search_query', 'web_search', 'image_query'],
+  ['query', 'site', 'type', 'maxResults', 'contextSize', 'locale']
+);
 registerInputPriority(['web_fetch'], ['url', 'uri', 'maxLength', 'startIndex']);
 registerInputPriority(['fetch'], ['url', 'uri', 'channel', 'limit']);
 registerInputPriority(['code_graph'], ['mode', 'symbols', 'files', 'depth', 'limit', 'page', 'body']);
-registerInputPriority(['agent', 'bridge'],
-  ['type', 'agent', 'tag', 'task_id', 'sessionId', 'cwd', 'message', 'prompt', 'context', 'file']);
+registerInputPriority(
+  ['agent', 'bridge'],
+  ['type', 'agent', 'tag', 'task_id', 'sessionId', 'cwd', 'message', 'prompt', 'context', 'file']
+);
 registerInputPriority(['task'], ['action', 'task_id', 'timeout_ms']);
-registerInputPriority(['recall', 'search_memories'],
-  ['query', 'period', 'category', 'limit', 'projectScope', 'sort', 'id']);
-registerInputPriority(['memory', 'remember', 'save_memory', 'update_memory'],
-  ['action', 'op', 'query', 'text', 'value']);
+registerInputPriority(
+  ['recall', 'search_memories'],
+  ['query', 'period', 'category', 'limit', 'projectScope', 'sort', 'id']
+);
+registerInputPriority(
+  ['memory', 'remember', 'save_memory', 'update_memory'],
+  ['action', 'op', 'query', 'text', 'value']
+);
 registerInputPriority(['load_tool'], ['names', 'select']);
 registerInputPriority(['skill', 'use_skill', 'skill_execute', 'skill_view'], ['name', 'skill', 'skill_name']);
 registerInputPriority(['reply'], ['channel', 'channelId', 'text', 'files']);
@@ -431,9 +427,7 @@ registerInputPriority(['cwd'], ['action', 'path']);
 
 // Fields whose bulk payload is rendered elsewhere (the diff view) or is
 // pure noise in a key/value grid.
-const TOOL_INPUT_HIDDEN = new Map([
-  ['apply_patch', ['patch']],
-]);
+const TOOL_INPUT_HIDDEN = new Map([['apply_patch', ['patch']]]);
 
 const TOOL_INPUT_LONG_VALUE = 96;
 const TOOL_INPUT_MAX_ROWS = 32;
@@ -454,7 +448,11 @@ function compactObjectValue(value) {
   if (entries.length > 0 && entries.every(([, v]) => isInputScalar(v))) {
     return entries.map(([k, v]) => `${k}: ${v}`).join(' · ');
   }
-  try { return JSON.stringify(value); } catch { return String(value); }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 export function toolInputRows(name, args) {
@@ -533,11 +531,7 @@ export function createSessionScopedSnapshotGate(scopeSessionId) {
 // task draft), so no session is restored. A stale or not-yet-confirmed stored
 // id also stays on New task: a partial startup catalog must never make the
 // engine's unrelated current session steal the user's selection.
-export function startupRestorePlan({
-  storedSessionId = '',
-  storedSessionKnown = false,
-  engineSessionId = '',
-} = {}) {
+export function startupRestorePlan({ storedSessionId = '', storedSessionKnown = false, engineSessionId = '' } = {}) {
   const stored = String(storedSessionId || '');
   const engine = String(engineSessionId || '');
   if (stored && storedSessionKnown === true) {

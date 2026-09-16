@@ -7,9 +7,13 @@ export const MAX_VIEW_BASELINE_BYTES = 8 * 1024 * 1024;
 export function readViewBaselineOffer(value: unknown): Set<string> | null {
   if (!value || typeof value !== 'object') return null;
   const offer = value as { version?: unknown; keys?: unknown };
-  if (offer.version !== 1 || !Array.isArray(offer.keys)
-    || offer.keys.length > MAX_VIEW_BASELINES
-    || offer.keys.some((key) => typeof key !== 'string' || !/^[a-f0-9]{64}$/.test(key))) return null;
+  if (
+    offer.version !== 1 ||
+    !Array.isArray(offer.keys) ||
+    offer.keys.length > MAX_VIEW_BASELINES ||
+    offer.keys.some((key) => typeof key !== 'string' || !/^[a-f0-9]{64}$/.test(key))
+  )
+    return null;
   return new Set(offer.keys as string[]);
 }
 
@@ -17,10 +21,7 @@ export function readViewBaselineOffer(value: unknown): Set<string> | null {
  * stay pinned until that recovery finishes so incoming full baselines cannot
  * evict a reference which is already in flight. Strings isolate the cached
  * baseline from downstream decoder/renderer mutation. */
-export function createRemoteViewBaselineCache(
-  maxBytes = MAX_VIEW_BASELINE_BYTES,
-  now: () => number = Date.now,
-) {
+export function createRemoteViewBaselineCache(maxBytes = MAX_VIEW_BASELINE_BYTES, now: () => number = Date.now) {
   const entries = new Map<string, { text: string; expires: number }>();
   let bytes = 0;
   let pinned = new Map<string, { text: string; expires: number }>();
@@ -36,7 +37,9 @@ export function createRemoteViewBaselineCache(
       const advertised = pinned;
       return {
         offer: { version: 1, keys: [...advertised.keys()] },
-        finish: () => { if (pinned === advertised) pinned = new Map(); },
+        finish: () => {
+          if (pinned === advertised) pinned = new Map();
+        },
       };
     },
     restore(payload: unknown): Record<string, unknown> {
@@ -64,8 +67,8 @@ export function createRemoteViewBaselineCache(
         text = entry.text;
       }
       const frame = JSON.parse(text) as Record<string, unknown>;
-      if (!['state', 'sessions', 'agentPool', 'sessionState'].includes(String(frame.event))
-        && frame.e !== 'S') throw new Error('Unexpected view baseline event.');
+      if (!['state', 'sessions', 'agentPool', 'sessionState'].includes(String(frame.event)) && frame.e !== 'S')
+        throw new Error('Unexpected view baseline event.');
       if (!Object.hasOwn(value, 'frame')) {
         const entry = entries.get(value.key);
         // Renew only a successfully reused, still-retained entry. A pinned

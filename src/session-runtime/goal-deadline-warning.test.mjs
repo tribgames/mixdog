@@ -11,9 +11,8 @@ const MINUTE_MS = 60 * 1000;
 // Delivery joins the runtime's mutation queue and writes the record, so the
 // durable warning lands a turn later than the read that crossed it.
 const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
-const warningRevisions = (events) => events
-  .map((event) => Number(event?.goal?.warningRevision) || 0)
-  .filter((revision) => revision > 0);
+const warningRevisions = (events) =>
+  events.map((event) => Number(event?.goal?.warningRevision) || 0).filter((revision) => revision > 0);
 
 // The default writer pays for a file lock and Windows ACL work on every write;
 // these tests need the same write ordering, not the same syscalls.
@@ -116,11 +115,13 @@ for (const action of ['time', 'edit']) {
       assert.equal(runtime.snapshot('sess_goal_extend').warningRevision, 1);
 
       const extended = await runtime.control('sess_goal_extend', {
-        action, objective: 'Finish the objective', duration: '3h',
+        action,
+        objective: 'Finish the objective',
+        duration: '3h',
       });
       assert.equal(extended.goal.timeLimitMs, 3 * HOUR_MS);
       assert.equal(extended.goal.status, 'active');
-      clock += (3 * HOUR_MS - extended.goal.timeUsedMs) - 9 * MINUTE_MS;
+      clock += 3 * HOUR_MS - extended.goal.timeUsedMs - 9 * MINUTE_MS;
       runtime.snapshot('sess_goal_extend');
       await settle();
       assert.equal(runtime.snapshot('sess_goal_extend').warningRevision, 2);
@@ -137,13 +138,17 @@ test('objective-only edits do not repeat an already delivered deadline warning',
   const runtime = createGoalRuntime({ dataDir, now: () => clock, writeGoalRecord });
   try {
     await runtime.control('sess_goal_edit', {
-      action: 'create', objective: 'Finish the objective', timeLimitMs: HOUR_MS,
+      action: 'create',
+      objective: 'Finish the objective',
+      timeLimitMs: HOUR_MS,
     });
     clock += HOUR_MS - 9 * MINUTE_MS;
     runtime.snapshot('sess_goal_edit');
     await settle();
     await runtime.control('sess_goal_edit', {
-      action: 'edit', objective: 'Clarify the objective', timeLimitMs: HOUR_MS,
+      action: 'edit',
+      objective: 'Clarify the objective',
+      timeLimitMs: HOUR_MS,
     });
     await settle();
     assert.equal(runtime.snapshot('sess_goal_edit').warningRevision, 1);

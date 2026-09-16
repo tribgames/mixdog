@@ -1,15 +1,6 @@
-import type {
-  DesktopApi,
-  DesktopEditorBackup,
-  DesktopTextFileEncoding,
-} from "../shared/contract";
-import { filePreviewTypeForPath } from "../shared/file-preview";
-import {
-  beginEditorLoad,
-  editorLoadKey,
-  ensureEditorLoad,
-  reportEditorLoadStage,
-} from "./renderer-load-metrics";
+import type { DesktopApi, DesktopEditorBackup, DesktopTextFileEncoding } from '../shared/contract';
+import { filePreviewTypeForPath } from '../shared/file-preview';
+import { beginEditorLoad, editorLoadKey, ensureEditorLoad, reportEditorLoadStage } from './renderer-load-metrics';
 
 export interface EditorFileLoad {
   content: string;
@@ -27,10 +18,12 @@ export interface EditorFileHydration {
 export interface EditorBackupResolution {
   content: string;
   savedContent: string;
-  recovery: (DesktopEditorBackup & {
-    diskChanged: boolean;
-    restored: boolean;
-  }) | null;
+  recovery:
+    | (DesktopEditorBackup & {
+        diskChanged: boolean;
+        restored: boolean;
+      })
+    | null;
   discardBackup: boolean;
 }
 
@@ -56,18 +49,14 @@ export function normalizeEditorModelText(content: string): string {
   }
   const total = cr + lf + crlf;
   if (!total) return content;
-  const eol = cr + crlf > total / 2 ? "\r\n" : "\n";
-  if ((eol === "\r\n" && cr === 0 && lf === 0)
-    || (eol === "\n" && cr === 0 && crlf === 0)) {
+  const eol = cr + crlf > total / 2 ? '\r\n' : '\n';
+  if ((eol === '\r\n' && cr === 0 && lf === 0) || (eol === '\n' && cr === 0 && crlf === 0)) {
     return content;
   }
   return content.replace(/\r\n|\r|\n/g, eol);
 }
 
-export function resolveEditorBackup(
-  diskContent: string,
-  backup: DesktopEditorBackup | null,
-): EditorBackupResolution {
+export function resolveEditorBackup(diskContent: string, backup: DesktopEditorBackup | null): EditorBackupResolution {
   const savedContent = normalizeEditorModelText(diskContent);
   if (!backup) {
     return { content: savedContent, savedContent, recovery: null, discardBackup: false };
@@ -102,7 +91,7 @@ const PRIMED_FILE_LIMIT = 24;
 const primedEditorFiles = new Map<string, PrimedEditorFile>();
 
 function now(): number {
-  return typeof performance !== "undefined" ? performance.now() : Date.now();
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }
 
 function delay(ms: number): Promise<void> {
@@ -114,13 +103,13 @@ async function readEditorFile(
   projectPath: string,
   relPath: string,
   accessToken: string | undefined,
-  retryMissing: boolean,
+  retryMissing: boolean
 ): Promise<EditorFileLoad> {
   const reader = api.readProjectFile;
-  if (!reader) throw new Error("Desktop file access is unavailable.");
+  if (!reader) throw new Error('Desktop file access is unavailable.');
   const startedAt = now();
   let lastError: unknown;
-  const delays = retryMissing ? NEW_FILE_READ_RETRY_DELAYS_MS : [0] as const;
+  const delays = retryMissing ? NEW_FILE_READ_RETRY_DELAYS_MS : ([0] as const);
   for (const delayMs of delays) {
     if (delayMs > 0) await delay(delayMs);
     try {
@@ -129,8 +118,8 @@ async function readEditorFile(
         projectPath,
         relPath,
         accessToken,
-        "file-read",
-        `read=${Math.max(0, now() - startedAt).toFixed(1)}ms bytes=${result.content.length}`,
+        'file-read',
+        `read=${Math.max(0, now() - startedAt).toFixed(1)}ms bytes=${result.content.length}`
       );
       return result;
     } catch (reason) {
@@ -148,13 +137,14 @@ function startEditorFileHydration(
   relPath: string,
   accessToken: string | undefined,
   retryMissing: boolean,
-  includeBackup: boolean,
+  includeBackup: boolean
 ): Promise<EditorFileHydration> {
   ensureEditorLoad(projectPath, relPath, accessToken);
   const file = readEditorFile(api, projectPath, relPath, accessToken, retryMissing);
-  const backup = includeBackup && api.readEditorBackup
-    ? api.readEditorBackup(projectPath, relPath, accessToken).catch(() => null)
-    : Promise.resolve(null);
+  const backup =
+    includeBackup && api.readEditorBackup
+      ? api.readEditorBackup(projectPath, relPath, accessToken).catch(() => null)
+      : Promise.resolve(null);
   return Promise.all([file, backup]).then(([loaded, recovered]) => ({
     file: loaded,
     backup: recovered,
@@ -177,7 +167,7 @@ export function primeEditorFileLoad(
   api: DesktopApi | undefined,
   projectPath: string,
   relPath: string,
-  accessToken?: string,
+  accessToken?: string
 ): Promise<EditorFileHydration> | null {
   if (!api?.readProjectFile || filePreviewTypeForPath(relPath)) return null;
   beginEditorLoad(projectPath, relPath, accessToken);
@@ -185,14 +175,7 @@ export function primeEditorFileLoad(
   const key = editorLoadKey(projectPath, relPath, accessToken);
   const existing = primedEditorFiles.get(key);
   if (existing) return existing.promise;
-  const promise = startEditorFileHydration(
-    api,
-    projectPath,
-    relPath,
-    accessToken,
-    true,
-    true,
-  ).catch((error) => {
+  const promise = startEditorFileHydration(api, projectPath, relPath, accessToken, true, true).catch((error) => {
     if (primedEditorFiles.get(key)?.promise === promise) primedEditorFiles.delete(key);
     throw error;
   });
@@ -207,7 +190,7 @@ export function takeEditorFileLoad(
   relPath: string,
   accessToken: string | undefined,
   retryMissing: boolean,
-  includeBackup: boolean,
+  includeBackup: boolean
 ): Promise<EditorFileHydration> {
   const key = editorLoadKey(projectPath, relPath, accessToken);
   const primed = primedEditorFiles.get(key);
@@ -216,12 +199,5 @@ export function takeEditorFileLoad(
     return primed.promise;
   }
   primedEditorFiles.delete(key);
-  return startEditorFileHydration(
-    api,
-    projectPath,
-    relPath,
-    accessToken,
-    retryMissing,
-    includeBackup,
-  );
+  return startEditorFileHydration(api, projectPath, relPath, accessToken, retryMissing, includeBackup);
 }

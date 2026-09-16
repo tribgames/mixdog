@@ -2,7 +2,16 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const defaultTestPath = fileURLToPath(new URL('../src/runtime/office/office-live-runtime.test.mjs', import.meta.url));
-export const liveProfiles = Object.freeze(['excel', 'word', 'powerpoint', 'author', 'attach', 'contract', 'compat', 'all']);
+export const liveProfiles = Object.freeze([
+  'excel',
+  'word',
+  'powerpoint',
+  'author',
+  'attach',
+  'contract',
+  'compat',
+  'all',
+]);
 
 export const liveTestHelp = `실제 Office 검증은 실행 범위를 지정해 주세요.
   npm run test:office:live -- <excel|word|powerpoint|author|attach|contract>

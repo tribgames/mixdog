@@ -8,12 +8,15 @@ import test from 'node:test';
 import { PS_INPUT } from './ps-input.ts';
 
 test('pointer modifiers apply to the gesture and all owned keys release after partial failure', {
-  skip: process.platform !== 'win32', timeout: 20000,
+  skip: process.platform !== 'win32',
+  timeout: 20000,
 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-pointer-modifiers-'));
   try {
     await writeFile(join(directory, 'input.ps1'), PS_INPUT);
-    await writeFile(join(directory, 'test.ps1'), String.raw`
+    await writeFile(
+      join(directory, 'test.ps1'),
+      String.raw`
 $ErrorActionPreference='Stop'
 Add-Type @'
 using System;
@@ -39,10 +42,13 @@ foreach($scenario in @('normal','down_failure','gesture_failure','release_failur
   $results+=@{scenario=$scenario; events=@([MixWin32]::Events); error=$failure}
 }
 [Console]::WriteLine(($results | ConvertTo-Json -Compress -Depth 4))
-`);
-    const result = await promisify(execFile)('powershell.exe',
+`
+    );
+    const result = await promisify(execFile)(
+      'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
-      { timeout: 15000, windowsHide: true, env: { ...process.env, FIXTURE_DIRECTORY: directory } });
+      { timeout: 15000, windowsHide: true, env: { ...process.env, FIXTURE_DIRECTORY: directory } }
+    );
     const rows = JSON.parse(result.stdout.trim());
     assert.deepEqual(rows[0].events, ['down17', 'down16', 'gesture', 'up16', 'up17']);
     assert.deepEqual(rows[1].events, ['down17', 'down16', 'up17']);
@@ -50,5 +56,7 @@ foreach($scenario in @('normal','down_failure','gesture_failure','release_failur
     assert.match(rows[2].error, /user_input_active/);
     assert.deepEqual(rows[3].events, rows[0].events);
     assert.match(rows[3].error, /input_cleanup_unconfirmed/);
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

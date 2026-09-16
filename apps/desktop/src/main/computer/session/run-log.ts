@@ -28,12 +28,20 @@ function pruneComputerRunLogs(directory: string): void {
     .map((name) => {
       const path = join(directory, name);
       let modifiedAt = 0;
-      try { modifiedAt = statSync(path).mtimeMs; } catch { modifiedAt = 0; }
+      try {
+        modifiedAt = statSync(path).mtimeMs;
+      } catch {
+        modifiedAt = 0;
+      }
       return { path, modifiedAt };
     })
     .sort((left, right) => right.modifiedAt - left.modifiedAt);
   for (const stale of files.slice(RUN_LOG_MAX_FILES)) {
-    try { unlinkSync(stale.path); } catch { /* another run already removed it */ }
+    try {
+      unlinkSync(stale.path);
+    } catch {
+      /* another run already removed it */
+    }
   }
 }
 
@@ -50,7 +58,11 @@ export function appendComputerRunRecord(sessionId: string, record: Record<string
     }
     let written = 0;
     let newFile = false;
-    try { written = statSync(path).size; } catch { newFile = true; }
+    try {
+      written = statSync(path).size;
+    } catch {
+      newFile = true;
+    }
     const line = `${JSON.stringify({ at: new Date().toISOString(), session: id, ...record })}\n`;
     const lineBytes = Buffer.byteLength(line);
     if (written + lineBytes > RUN_LOG_MAX_BYTES) return;
@@ -64,7 +76,7 @@ export function appendComputerRunRecord(sessionId: string, record: Record<string
 export function computerRunRecord(
   command: ComputerCommand,
   startedAt: number,
-  result?: ComputerCommandResult,
+  result?: ComputerCommandResult
 ): Record<string, unknown> {
   const record: Record<string, unknown> = {
     action: String(command.action || ''),
@@ -94,8 +106,15 @@ export function computerRunRecord(
     if (diagnostic.capture_attempts) record.capture_attempts = diagnostic.capture_attempts;
     if (diagnostic.step_timings) record.step_timings = diagnostic.step_timings;
     for (const key of [
-      'effect', 'verified', 'goal_verified', 'code', 'path', 'escalation',
-      'window_id', 'pixel_status', 'accessibility_status',
+      'effect',
+      'verified',
+      'goal_verified',
+      'code',
+      'path',
+      'escalation',
+      'window_id',
+      'pixel_status',
+      'accessibility_status',
     ]) {
       const value = payload[key];
       if (value !== undefined && (typeof value !== 'object' || value === null)) record[key] = value;

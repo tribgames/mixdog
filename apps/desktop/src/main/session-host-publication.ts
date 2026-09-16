@@ -36,24 +36,19 @@ function sessionIdOf(value: unknown): string {
   return id;
 }
 
-function statePatch(
-  snapshot: SessionSnapshot,
-  patch: Record<string, unknown>,
-): SessionSnapshot {
+function statePatch(snapshot: SessionSnapshot, patch: Record<string, unknown>): SessionSnapshot {
   const base = snapshot && typeof snapshot === 'object' ? snapshot : {};
-  const set = patch.set && typeof patch.set === 'object' && !Array.isArray(patch.set)
-    ? patch.set as Record<string, unknown>
-    : {};
+  const set =
+    patch.set && typeof patch.set === 'object' && !Array.isArray(patch.set)
+      ? (patch.set as Record<string, unknown>)
+      : {};
   const next: Record<string, unknown> = { ...base, ...set };
-  const append = patch.itemsAppend && typeof patch.itemsAppend === 'object'
-    ? patch.itemsAppend as Record<string, unknown>
-    : null;
+  const append =
+    patch.itemsAppend && typeof patch.itemsAppend === 'object' ? (patch.itemsAppend as Record<string, unknown>) : null;
   if (append) {
     const items = Array.isArray(base.items) ? base.items : [];
     const from = Math.max(0, Math.floor(Number(append.from) || 0));
-    next.items = items.slice(0, from).concat(
-      Array.isArray(append.values) ? append.values : [],
-    );
+    next.items = items.slice(0, from).concat(Array.isArray(append.values) ? append.values : []);
   }
   for (const key of Array.isArray(patch.remove) ? patch.remove : []) {
     if (typeof key === 'string') delete next[key];
@@ -63,7 +58,11 @@ function statePatch(
 
 function emitIsolated<T>(listeners: Set<(value: T) => void>, value: T): void {
   for (const listener of [...listeners]) {
-    try { listener(value); } catch { /* a presentation listener owns its failure */ }
+    try {
+      listener(value);
+    } catch {
+      /* a presentation listener owns its failure */
+    }
   }
 }
 
@@ -111,15 +110,9 @@ export class SessionHostPublication {
   }
 
   applyRemoteSessionState(value: unknown): void {
-    const state = value && typeof value === 'object'
-      ? value as Record<string, unknown>
-      : {};
+    const state = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
     const candidate = String(state.sessionId || '');
-    const next = state.enabled === true
-      && candidate.length <= 256
-      && isSessionId(candidate)
-      ? candidate
-      : '';
+    const next = state.enabled === true && candidate.length <= 256 && isSessionId(candidate) ? candidate : '';
     if (next === this.remoteSessionId) return;
     this.remoteSessionId = next;
     if (this.shellSnapshot) this.publishShell(this.shellSnapshot);
@@ -141,15 +134,15 @@ export class SessionHostPublication {
     sessionId: string,
     snapshot: SessionSnapshot,
     frameSource: DesktopSessionFrameSource = 'live',
-    readTraceId?: string,
+    readTraceId?: string
   ): void {
-    const visibleSnapshot = this.snapshotWithRemoteSession(
-      this.owner.snapshotWithShellJobs(sessionId, snapshot),
-    );
+    const visibleSnapshot = this.snapshotWithRemoteSession(this.owner.snapshotWithShellJobs(sessionId, snapshot));
     for (const listener of [...this.sessionStateListeners]) {
       try {
         listener({
-          sessionId, snapshot: visibleSnapshot, frameSource,
+          sessionId,
+          snapshot: visibleSnapshot,
+          frameSource,
           ...(readTraceId ? { readTraceId } : {}),
         });
       } catch {
@@ -169,7 +162,7 @@ export class SessionHostPublication {
   applySessionResult(
     sessionId: string,
     value: Record<string, unknown> | null | undefined,
-    publish = true,
+    publish = true
   ): SessionSnapshot {
     const id = sessionIdOf(value?.sessionId || sessionId);
     const prior = this.projections.get(id);
@@ -181,19 +174,18 @@ export class SessionHostPublication {
       return this.snapshotWithRemoteSession(prior.snapshot);
     }
     let snapshot = prior?.snapshot ?? null;
-    if (value && Object.prototype.hasOwnProperty.call(value, 'full')) {
+    if (value && Object.hasOwn(value, 'full')) {
       const full = value.full;
-      const rebuilt = full && typeof full === 'object'
-        ? { ...(full as Record<string, unknown>), sessionId: id } as SessionSnapshot
-        : null;
+      const rebuilt =
+        full && typeof full === 'object'
+          ? ({ ...(full as Record<string, unknown>), sessionId: id } as SessionSnapshot)
+          : null;
       // A stored read carries no baseline, so it always answers FULL — and a
       // visible cold view is re-read on a one second clock. Folding the fresh
       // parse onto the retained projection keeps the object identity that every
       // delta encoder downstream reads as "already sent".
       if (rebuilt) {
-        snapshot = prior?.snapshot
-          ? reconcileSessionProjection(prior.snapshot, rebuilt)
-          : rebuilt;
+        snapshot = prior?.snapshot ? reconcileSessionProjection(prior.snapshot, rebuilt) : rebuilt;
       }
     } else if (value?.patch && typeof value.patch === 'object') {
       // The live lane usually delivers the same revision BEFORE the action
@@ -206,8 +198,9 @@ export class SessionHostPublication {
       }
       if (!prior || Number(value.baseRevision) !== prior.revision) {
         this.recoverMissingSessionBaseline(id);
-        return this.snapshotWithRemoteSession(prior?.snapshot
-          ?? { sessionId: id, items: [], queued: [] } as SessionSnapshot);
+        return this.snapshotWithRemoteSession(
+          prior?.snapshot ?? ({ sessionId: id, items: [], queued: [] } as SessionSnapshot)
+        );
       }
       snapshot = statePatch(prior.snapshot, value.patch as Record<string, unknown>);
     }
@@ -225,16 +218,15 @@ export class SessionHostPublication {
     const nextRevision = Number.isFinite(revision) ? revision : (prior?.revision ?? 0);
     // Publishing a projection that did not move repaints nothing and costs a
     // whole transcript on the relay leg: the reader already holds this frame.
-    const unmoved = prior !== undefined
-      && prior.snapshot === snapshot
-      && prior.revision === nextRevision;
+    const unmoved = prior !== undefined && prior.snapshot === snapshot && prior.revision === nextRevision;
     // Only a stored projection names a stamp; a live frame clears it so the
     // next cold refresh (after the owner lets go) reads a full body again.
-    const projectionStamp = typeof value?.projectionStamp === 'string' && value.projectionStamp
-      ? value.projectionStamp
-      : value?.unchanged === true
-        ? prior?.projectionStamp
-        : undefined;
+    const projectionStamp =
+      typeof value?.projectionStamp === 'string' && value.projectionStamp
+        ? value.projectionStamp
+        : value?.unchanged === true
+          ? prior?.projectionStamp
+          : undefined;
     this.projections.set(id, {
       revision: nextRevision,
       snapshot,
@@ -263,9 +255,12 @@ export class SessionHostPublication {
     if (this.owner.isDisposed() || this.recoveringSessionIds.has(sessionId)) return;
     this.recoveringSessionIds.add(sessionId);
     console.error(`[mixdog-lane] missing baseline session=${sessionId} — re-reading`);
-    void this.owner.readSession(sessionId)
+    void this.owner
+      .readSession(sessionId)
       .catch(() => undefined)
-      .finally(() => { this.recoveringSessionIds.delete(sessionId); });
+      .finally(() => {
+        this.recoveringSessionIds.delete(sessionId);
+      });
   }
 
   handleSessionFrame(frame: Record<string, unknown>): void {
@@ -291,11 +286,11 @@ export class SessionHostPublication {
       // made the renderer drop its cached lane and repaint a live task as an
       // empty New Task (user: 진행중인 TASK창이 갑자기 NEWTASK처럼 아예
       // 비어버린다). Name the reason so only a real teardown clears a pane.
-      const laneEnd: DesktopSessionLaneEnd = String(frame.reason || '') === 'idle and unwatched'
-        ? 'unloaded'
-        : 'gone';
+      const laneEnd: DesktopSessionLaneEnd = String(frame.reason || '') === 'idle and unwatched' ? 'unloaded' : 'gone';
       for (const listener of [...this.sessionStateListeners]) {
-        try { listener({ sessionId, snapshot: null, frameSource: 'live', laneEnd }); } catch {}
+        try {
+          listener({ sessionId, snapshot: null, frameSource: 'live', laneEnd });
+        } catch {}
       }
       return;
     }
@@ -306,8 +301,7 @@ export class SessionHostPublication {
     // the lane frame that follows is the same state and must not read as a
     // crossed baseline.
     if (prior && frame.patch && Number(frame.revision) === prior.revision) return;
-    if (frame.resyncRequired === true
-      || (frame.patch && (!prior || Number(frame.baseRevision) !== prior.revision))) {
+    if (frame.resyncRequired === true || (frame.patch && (!prior || Number(frame.baseRevision) !== prior.revision))) {
       void this.owner.readSession(sessionId).catch(() => undefined);
       return;
     }

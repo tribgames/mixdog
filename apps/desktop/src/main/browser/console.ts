@@ -18,7 +18,9 @@ const LEVEL_RANK: Record<BrowserConsoleLevel, number> = {
 };
 
 function normalizeRecordedLevel(value: unknown): BrowserConsoleLevel {
-  const level = String(value || '').trim().toLowerCase();
+  const level = String(value || '')
+    .trim()
+    .toLowerCase();
   if (level === 'debug' || level === 'verbose') return 'debug';
   if (level === 'info' || level === 'log') return 'info';
   if (level === 'warning' || level === 'warn') return 'warning';
@@ -27,7 +29,9 @@ function normalizeRecordedLevel(value: unknown): BrowserConsoleLevel {
 }
 
 function normalizeFilterLevel(value: unknown): BrowserConsoleLevel | 'all' {
-  const level = String(value || 'error').trim().toLowerCase();
+  const level = String(value || 'error')
+    .trim()
+    .toLowerCase();
   if (level === 'all') return 'all';
   if (level === 'debug' || level === 'info' || level === 'warning' || level === 'error') {
     return level;
@@ -51,9 +55,10 @@ export class BrowserConsoleLedger {
     const sanitized = this.#sanitize(clipped);
     this.#entries.push({
       level: normalizeRecordedLevel(level),
-      text: sanitized.length > MAX_CONSOLE_ENTRY_CHARS
-        ? `${sanitized.slice(0, MAX_CONSOLE_ENTRY_CHARS)} [truncated]`
-        : sanitized,
+      text:
+        sanitized.length > MAX_CONSOLE_ENTRY_CHARS
+          ? `${sanitized.slice(0, MAX_CONSOLE_ENTRY_CHARS)} [truncated]`
+          : sanitized,
       seq: this.#nextSeq++,
     });
     if (this.#entries.length > 200) this.#entries.splice(0, this.#entries.length - 200);
@@ -73,30 +78,24 @@ export class BrowserConsoleLedger {
   /** Errors logged since the last report, then marked reported: a page's
    *  old errors are said once, not on every reply. */
   newErrors(limit: number): string[] {
-    const fresh = this.#entries.filter((entry) => (
-      entry.level === 'error' && entry.seq > this.#reportedErrorSeq
-    ));
+    const fresh = this.#entries.filter((entry) => entry.level === 'error' && entry.seq > this.#reportedErrorSeq);
     if (fresh.length) this.#reportedErrorSeq = fresh[fresh.length - 1].seq;
     return fresh.slice(-Math.max(1, limit)).map((entry) => entry.text);
   }
 
   format(rawLevel: unknown, rawQuery: unknown, rawLimit: unknown): string {
     const level = normalizeFilterLevel(rawLevel);
-    const query = String(rawQuery || '').trim().toLowerCase();
-    const limit = Math.min(
-      200,
-      Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(Number(rawLimit)) : 50),
-    );
+    const query = String(rawQuery || '')
+      .trim()
+      .toLowerCase();
+    const limit = Math.min(200, Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(Number(rawLimit)) : 50));
     const minimum = level === 'all' ? -1 : LEVEL_RANK[level];
-    const matching = this.#entries.filter((entry) => (
-      LEVEL_RANK[entry.level] >= minimum
-      && (!query || entry.text.toLowerCase().includes(query))
-    ));
+    const matching = this.#entries.filter(
+      (entry) => LEVEL_RANK[entry.level] >= minimum && (!query || entry.text.toLowerCase().includes(query))
+    );
     const selected: BrowserConsoleEntry[] = [];
     let reportChars = 0;
-    for (let index = matching.length - 1;
-      index >= Math.max(0, matching.length - limit);
-      index -= 1) {
+    for (let index = matching.length - 1; index >= Math.max(0, matching.length - limit); index -= 1) {
       const entry = matching[index];
       const chars = entry.text.length + entry.level.length + 8;
       if (selected.length && reportChars + chars > MAX_CONSOLE_REPORT_CHARS) break;

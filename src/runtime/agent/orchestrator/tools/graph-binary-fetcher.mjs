@@ -30,7 +30,8 @@ import {
 const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('./graph-manifest.json', import.meta.url));
 
 // GitHub raw fallback — only consulted when neither cached nor bundled exists.
-const MANIFEST_URL = 'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/agent/orchestrator/tools/graph-manifest.json';
+const MANIFEST_URL =
+  'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/agent/orchestrator/tools/graph-manifest.json';
 
 const LABEL = '[graph-fetcher]';
 const RELEASE_ASSET = { name: 'mixdog-graph', tagPrefix: 'graph-v' };
@@ -92,10 +93,10 @@ export const ensureGraphBinary = singleFlight(async (dataDir, options = {}) => {
     // actionable message instead of a cryptic crash downstream.
     const supported = Object.keys(manifest.assets || {}).join(', ') || '(none)';
     throw new Error(
-      `${LABEL} no prebuilt mixdog-graph binary for platform ${pkey} `
-      + `(unsupported platform/arch — there is no JS parsing fallback). `
-      + `Supported platforms: ${supported}. `
-      + `Build it locally: cargo build --release in native/mixdog-graph.`,
+      `${LABEL} no prebuilt mixdog-graph binary for platform ${pkey} ` +
+        `(unsupported platform/arch — there is no JS parsing fallback). ` +
+        `Supported platforms: ${supported}. ` +
+        `Build it locally: cargo build --release in native/mixdog-graph.`
     );
   }
   return installVerifiedBinary({

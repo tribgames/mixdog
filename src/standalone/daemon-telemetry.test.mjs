@@ -26,7 +26,9 @@ function fixture(overrides = {}) {
       busySessions: 3,
       busyMemoryAgents: 4,
     }),
-    onInterval() { intervalTicks.push('lag'); },
+    onInterval() {
+      intervalTicks.push('lag');
+    },
     now: () => new Date('2026-04-08T12:34:56.000Z'),
     pid: 12156,
     memoryUsage: () => ({
@@ -38,11 +40,21 @@ function fixture(overrides = {}) {
     }),
     heapStatistics: () => ({ heap_size_limit: 768 * MB }),
     setIntervalFn(fn, ms) {
-      const timer = { fn, ms, unrefed: false, cleared: false, unref() { this.unrefed = true; } };
+      const timer = {
+        fn,
+        ms,
+        unrefed: false,
+        cleared: false,
+        unref() {
+          this.unrefed = true;
+        },
+      };
       timers.push(timer);
       return timer;
     },
-    clearIntervalFn(timer) { timer.cleared = true; },
+    clearIntervalFn(timer) {
+      timer.cleared = true;
+    },
     ...overrides,
   });
   return { telemetry, lines, timers, intervalTicks };
@@ -60,10 +72,16 @@ function runNode(args, { timeoutMs = 10_000 } = {}) {
     let stderr = '';
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk) => { stdout += chunk; });
-    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
     const timer = setTimeout(() => {
-      try { child.kill(); } catch {}
+      try {
+        child.kill();
+      } catch {}
       reject(new Error(`timed out: ${stderr || stdout}`));
     }, timeoutMs);
     child.on('error', (error) => {
@@ -152,9 +170,18 @@ test('session bodies, tokens, and env never enter the record or log line', () =>
   });
   const line = formatDaemonTelemetry(record, 'boot');
   assert.deepEqual(Object.keys(record), [
-    'ts', 'pid', 'rssBytes', 'heapUsedBytes', 'heapTotalBytes', 'heapLimitBytes',
-    'externalBytes', 'arrayBufferBytes', 'activeCalls', 'queuedCalls',
-    'busySessions', 'busyMemoryAgents',
+    'ts',
+    'pid',
+    'rssBytes',
+    'heapUsedBytes',
+    'heapTotalBytes',
+    'heapLimitBytes',
+    'externalBytes',
+    'arrayBufferBytes',
+    'activeCalls',
+    'queuedCalls',
+    'busySessions',
+    'busyMemoryAgents',
   ]);
   assert.equal(line.includes('SECRET_TRANSCRIPT'), false);
   assert.equal(line.includes('sekrit-token'), false);
@@ -196,7 +223,9 @@ test('the production timer is a single 30s unrefed loop that samples then runs o
 
 test('a getWork failure still emits memory fields and does not throw into the timer', () => {
   const { telemetry, lines } = fixture({
-    getWork: () => { throw new Error('session body leaked'); },
+    getWork: () => {
+      throw new Error('session body leaked');
+    },
   });
   const record = telemetry.emit('boot');
   assert.equal(record.rssBytes, 747 * MB);

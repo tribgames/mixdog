@@ -15,7 +15,9 @@ for (const itemCount of [200, 2_000, 20_000]) {
     sessionId: 'projection_bench',
     busy: false,
     items: Array.from({ length: itemCount }, (_, id) => ({
-      id, kind: 'assistant', text: `message ${id} ${'x'.repeat(400)}`,
+      id,
+      kind: 'assistant',
+      text: `message ${id} ${'x'.repeat(400)}`,
     })),
     queued: [{ id: 'next', text: 'next prompt', submittedAt: 1 }],
     streamingTail: { id: 'live', kind: 'assistant', text: '' },
@@ -28,9 +30,13 @@ for (const itemCount of [200, 2_000, 20_000]) {
     }),
   });
   try {
-    await service.handleCall('session.create', { sessionId: state.sessionId }, {
-      clientToken: 'projection-bench',
-    });
+    await service.handleCall(
+      'session.create',
+      { sessionId: state.sessionId },
+      {
+        clientToken: 'projection-bench',
+      }
+    );
     const samples = [];
     for (let sample = 0; sample < 4; sample += 1) {
       globalThis.gc?.();
@@ -52,11 +58,12 @@ for (const itemCount of [200, 2_000, 20_000]) {
         }
       }
       const used = process.cpuUsage(cpu);
-      if (sample > 0) samples.push({
-        wallMs: +(performance.now() - started).toFixed(2),
-        cpuMs: +((used.user + used.system) / 1_000).toFixed(2),
-        historyArrays,
-      });
+      if (sample > 0)
+        samples.push({
+          wallMs: +(performance.now() - started).toFixed(2),
+          cpuMs: +((used.user + used.system) / 1_000).toFixed(2),
+          historyArrays,
+        });
     }
     samples.sort((a, b) => a.wallMs - b.wallMs);
     console.log(JSON.stringify({ itemCount, updates: 500, median: samples[1], samples }));

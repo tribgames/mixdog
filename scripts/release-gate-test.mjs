@@ -39,13 +39,15 @@ function patchFixture() {
   return {
     version: VERSION,
     _comment: 'test fixture',
-    assets: Object.fromEntries(Object.entries(PATCH_PLATFORMS).map(([platform, filename]) => [
-      platform,
-      {
-        url: `https://github.com/tribgames/mixdog/releases/download/patch-v${VERSION}/${filename}`,
-        sha256,
-      },
-    ])),
+    assets: Object.fromEntries(
+      Object.entries(PATCH_PLATFORMS).map(([platform, filename]) => [
+        platform,
+        {
+          url: `https://github.com/tribgames/mixdog/releases/download/patch-v${VERSION}/${filename}`,
+          sha256,
+        },
+      ])
+    ),
   };
 }
 
@@ -56,14 +58,16 @@ function runtimeFixture() {
     release_tag: 'runtime-v1.2.3',
     pg: { major: 16, minor: 4 },
     pgvector: { version: '0.8.2' },
-    assets: Object.fromEntries(Object.keys(PATCH_PLATFORMS).map((platform) => [
-      platform,
-      {
-        url: `https://github.com/tribgames/mixdog/releases/download/runtime-v1.2.3/mixdog-runtime-${platform}-pg16.4-pgvector0.8.2.tar.gz`,
-        sha256,
-        size: bytes.length,
-      },
-    ])),
+    assets: Object.fromEntries(
+      Object.keys(PATCH_PLATFORMS).map((platform) => [
+        platform,
+        {
+          url: `https://github.com/tribgames/mixdog/releases/download/runtime-v1.2.3/mixdog-runtime-${platform}-pg16.4-pgvector0.8.2.tar.gz`,
+          sha256,
+          size: bytes.length,
+        },
+      ])
+    ),
   };
 }
 
@@ -71,13 +75,15 @@ function graphFixture() {
   return {
     version: GRAPH_VERSION,
     _comment: 'test fixture',
-    assets: Object.fromEntries(Object.entries(GRAPH_PLATFORMS).map(([platform, filename]) => [
-      platform,
-      {
-        url: `https://github.com/tribgames/mixdog/releases/download/graph-v${GRAPH_VERSION}/${filename}`,
-        sha256,
-      },
-    ])),
+    assets: Object.fromEntries(
+      Object.entries(GRAPH_PLATFORMS).map(([platform, filename]) => [
+        platform,
+        {
+          url: `https://github.com/tribgames/mixdog/releases/download/graph-v${GRAPH_VERSION}/${filename}`,
+          sha256,
+        },
+      ])
+    ),
   };
 }
 
@@ -85,13 +91,15 @@ function spawnFixture() {
   return {
     version: VERSION,
     _comment: 'test fixture',
-    assets: Object.fromEntries(Object.entries(SPAWN_PLATFORMS).map(([platform, filename]) => [
-      platform,
-      {
-        url: `https://github.com/tribgames/mixdog/releases/download/spawn-v${VERSION}/${filename}`,
-        sha256,
-      },
-    ])),
+    assets: Object.fromEntries(
+      Object.entries(SPAWN_PLATFORMS).map(([platform, filename]) => [
+        platform,
+        {
+          url: `https://github.com/tribgames/mixdog/releases/download/spawn-v${VERSION}/${filename}`,
+          sha256,
+        },
+      ])
+    ),
   };
 }
 
@@ -105,29 +113,20 @@ test('accepts independent strict patch, runtime, app, and graph versions', () =>
 test('rejects stale Cargo version, partial schema, and wrong patch tag URL', () => {
   assert.throws(
     () => validatePatchManifest(patchFixture(), '[package]\nversion = "1.2.2"\n'),
-    /does not match manifest version/,
+    /does not match manifest version/
   );
 
   const partial = patchFixture();
   delete partial.assets['linux-arm64'];
-  assert.throws(
-    () => validatePatchManifest(partial, `[package]\nversion = "${VERSION}"\n`),
-    /keys must be exactly/,
-  );
+  assert.throws(() => validatePatchManifest(partial, `[package]\nversion = "${VERSION}"\n`), /keys must be exactly/);
 
   const wrongTag = patchFixture();
   wrongTag.assets['linux-x64'].url = wrongTag.assets['linux-x64'].url.replace('patch-v1.2.3', 'patch-v1.2.2');
-  assert.throws(
-    () => validatePatchManifest(wrongTag, `[package]\nversion = "${VERSION}"\n`),
-    /patch-v1\.2\.3/,
-  );
+  assert.throws(() => validatePatchManifest(wrongTag, `[package]\nversion = "${VERSION}"\n`), /patch-v1\.2\.3/);
 
   const extraPatch = patchFixture();
   extraPatch.assets['freebsd-x64'] = extraPatch.assets['linux-x64'];
-  assert.throws(
-    () => validatePatchManifest(extraPatch, `[package]\nversion = "${VERSION}"\n`),
-    /keys must be exactly/,
-  );
+  assert.throws(() => validatePatchManifest(extraPatch, `[package]\nversion = "${VERSION}"\n`), /keys must be exactly/);
 
   const extraRuntime = runtimeFixture();
   extraRuntime.assets['freebsd-x64'] = extraRuntime.assets['linux-x64'];
@@ -136,7 +135,6 @@ test('rejects stale Cargo version, partial schema, and wrong patch tag URL', () 
   const noncanonicalRuntime = runtimeFixture();
   noncanonicalRuntime.assets['linux-x64'].url = 'https://example.com/runtime.tar.gz';
   assert.throws(() => validateRuntimeManifest(noncanonicalRuntime), /runtime asset URL must be/);
-
 });
 
 test('rejects stale, noncanonical, partial, and malformed graph manifests', () => {
@@ -152,24 +150,18 @@ test('rejects stale, noncanonical, partial, and malformed graph manifests', () =
   ]) {
     const noncanonical = graphFixture();
     noncanonical.assets['linux-x64'].url = replacement;
-    assert.throws(
-      () => validateGraphManifest(noncanonical, { version: APP_VERSION }),
-      /graph asset URL must be/,
-    );
+    assert.throws(() => validateGraphManifest(noncanonical, { version: APP_VERSION }), /graph asset URL must be/);
   }
 
   const malformedDigest = graphFixture();
   malformedDigest.assets['win32-x64'].sha256 = 'not-a-digest';
-  assert.throws(
-    () => validateGraphManifest(malformedDigest, { version: APP_VERSION }),
-    /invalid graph asset sha256/,
-  );
+  assert.throws(() => validateGraphManifest(malformedDigest, { version: APP_VERSION }), /invalid graph asset sha256/);
 
   const malformedVersion = graphFixture();
   malformedVersion.version = '0.1';
   assert.throws(
     () => validateGraphManifest(malformedVersion, { version: APP_VERSION }),
-    /not strict MAJOR\.MINOR\.PATCH/,
+    /not strict MAJOR\.MINOR\.PATCH/
   );
 });
 
@@ -184,7 +176,7 @@ test('downloads local fixture responses, retries, and checks sha256 without netw
         return new Response(bytes);
       },
       retryDelay: async () => {},
-    },
+    }
   );
   assert.equal(calls, 2);
 
@@ -198,9 +190,9 @@ test('downloads local fixture responses, retries, and checks sha256 without netw
           return new Response(bytes);
         },
         retryDelay: async () => {},
-      },
+      }
     ),
-    /verification failed after 3 attempts: sha256 mismatch/,
+    /verification failed after 3 attempts: sha256 mismatch/
   );
   assert.equal(calls, 3);
 });
@@ -219,7 +211,7 @@ test('cancels an undeclared-size patch stream immediately at the absolute ceilin
         cancellations += 1;
       },
     },
-    { highWaterMark: 0 },
+    { highWaterMark: 0 }
   );
 
   await assert.rejects(
@@ -229,12 +221,14 @@ test('cancels an undeclared-size patch stream immediately at the absolute ceilin
         attempts: 1,
         maxAssetBytes: 5,
         fetchImpl: async (_url, { signal }) => {
-          signal.addEventListener('abort', () => { aborts += 1; });
+          signal.addEventListener('abort', () => {
+            aborts += 1;
+          });
           return { ok: true, status: 200, body: stream };
         },
-      },
+      }
     ),
-    /byte ceiling exceeded \(5 bytes\)/,
+    /byte ceiling exceeded \(5 bytes\)/
   );
   assert.equal(chunksProduced, 2);
   assert.equal(cancellations, 1);
@@ -255,7 +249,7 @@ test('cancels immediately when a stream exceeds its declared size below the abso
         cancellations += 1;
       },
     },
-    { highWaterMark: 0 },
+    { highWaterMark: 0 }
   );
 
   await assert.rejects(
@@ -265,12 +259,14 @@ test('cancels immediately when a stream exceeds its declared size below the abso
         attempts: 1,
         maxAssetBytes: 10,
         fetchImpl: async (_url, { signal }) => {
-          signal.addEventListener('abort', () => { aborts += 1; });
+          signal.addEventListener('abort', () => {
+            aborts += 1;
+          });
           return { ok: true, status: 200, body: stream };
         },
-      },
+      }
     ),
-    /byte ceiling exceeded \(5 bytes\)/,
+    /byte ceiling exceeded \(5 bytes\)/
   );
   assert.equal(chunksProduced, 2);
   assert.equal(cancellations, 1);
@@ -284,8 +280,12 @@ test('full guard reads deterministic fixtures and downloads every declared asset
   const graph = graphFixture();
   const spawn = spawnFixture();
   const expectedUrls = new Set(
-    [...Object.values(patch.assets), ...Object.values(runtime.assets), ...Object.values(graph.assets), ...Object.values(spawn.assets)]
-      .map(({ url }) => url),
+    [
+      ...Object.values(patch.assets),
+      ...Object.values(runtime.assets),
+      ...Object.values(graph.assets),
+      ...Object.values(spawn.assets),
+    ].map(({ url }) => url)
   );
   const paths = {
     patchManifestPath: join(dir, 'patch.json'),
@@ -328,7 +328,7 @@ test('full guard reads deterministic fixtures and downloads every declared asset
 });
 
 // ==== from deploy-workflow-test.mjs ====
-const workflow = name => readFile(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8');
+const workflow = (name) => readFile(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8');
 
 test('Deploy is the one-click release entry with incremental native workers', async () => {
   const deploy = await workflow('deploy.yml');
@@ -344,32 +344,43 @@ test('Deploy is the one-click release entry with incremental native workers', as
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/spawn-release\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/release\.yml/);
   assert.match(deploy, /changedSince\(`\$\{tagPrefix\}\$\{manifestVersion\}`/);
-  assert.match(deploy, /import \{ RELEASE_CRITICAL_PATHS \} from '\.\/scripts\/release-paths\.mjs'/,
-    'deploy must consume the single-source critical path list');
-  assert.match(deploy, /run_critical: \$\{\{ needs\.plan\.outputs\.run_critical == 'true' \}\}/,
-    'release validate must honor the gate-verified critical skip');
+  assert.match(
+    deploy,
+    /import \{ RELEASE_CRITICAL_PATHS \} from '\.\/scripts\/release-paths\.mjs'/,
+    'deploy must consume the single-source critical path list'
+  );
+  assert.match(
+    deploy,
+    /run_critical: \$\{\{ needs\.plan\.outputs\.run_critical == 'true' \}\}/,
+    'release validate must honor the gate-verified critical skip'
+  );
   assert.match(deploy, /const preBumped = !currentTagExists && !currentReleaseExists/);
   assert.match(deploy, /const appVersion = resume \|\| preBumped/);
   assert.match(deploy, /needs\.runtime\.result == 'success' \|\| needs\.runtime\.result == 'skipped'/);
   assert.match(deploy, /needs\.voice\.result == 'success' \|\| needs\.voice\.result == 'skipped'/);
-  assert.match(deploy,
-    /always\(\) && needs\.plan\.result == 'success' && needs\.prepare-app\.result == 'success'/);
-  assert.match(deploy,
+  assert.match(deploy, /always\(\) && needs\.plan\.result == 'success' && needs\.prepare-app\.result == 'success'/);
+  assert.match(
+    deploy,
     /IS_DRAFT=\$\(gh release view "\$TAG" --json isDraft --jq '\.isDraft' 2>\/dev\/null \|\| true\)[\s\S]*if \[\[ "\$IS_DRAFT" == "false" \]\][\s\S]*Published tag \$\{TAG\} is immutable/,
-    'only a published release may make its tag immutable; a hidden draft must remain recoverable');
-  assert.match(deploy,
+    'only a published release may make its tag immutable; a hidden draft must remain recoverable'
+  );
+  assert.match(
+    deploy,
     /'isDraft', '--jq', '\.isDraft'[\s\S]*result\.stdout\.trim\(\) === 'false'/,
-    'a hidden draft must remain resumable instead of consuming a release version');
+    'a hidden draft must remain resumable instead of consuming a release version'
+  );
   assert.match(deploy, /Moving unpublished recovery tag \$\{TAG\}/);
   // The resumed version's heading carries its date, so the fold keeps the whole heading line and
   // appends the notes under it instead of replacing the bare `## vX.Y.Z` text.
-  assert.match(deploy,
+  assert.match(
+    deploy,
     /const unreleasedPattern = \/\^## Unreleased[\s\S]*else if \(unreleasedBody\)[\s\S]*const escaped = versionHeading\.replace[\s\S]*text\.replace\(new RegExp\(`\^\$\{escaped\}\[\^\\\\n\]\*\$`, 'm'\), \(heading\) => `\$\{heading\}\\n\\n\$\{unreleasedBody\}`\)/,
-    'an unpublished same-version recovery must fold its notes under that release\'s dated heading');
+    "an unpublished same-version recovery must fold its notes under that release's dated heading"
+  );
   for (const bump of ['patch', 'minor', 'major']) {
     assert.equal(
       packageJson.scripts[`release:${bump}`],
-      `gh workflow run deploy.yml --ref main -f bump=${bump} -f native=auto`,
+      `gh workflow run deploy.yml --ref main -f bump=${bump} -f native=auto`
     );
   }
 });
@@ -383,7 +394,8 @@ test('release path selection classifies desktop, runtime, and critical paths', (
     'package-lock.json',
     'scripts/native-binary-arch.test.mjs',
     'scripts/release-paths.mjs',
-  ]) assert.match(path, desktop, `desktop gate must select ${path}`);
+  ])
+    assert.match(path, desktop, `desktop gate must select ${path}`);
   for (const path of ['docs/guide.md', 'apps/relay/src/index.ts', 'scripts/session-bench.mjs']) {
     assert.doesNotMatch(path, desktop, `desktop gate must skip ${path}`);
   }
@@ -400,7 +412,8 @@ test('release path selection classifies desktop, runtime, and critical paths', (
     'scripts/test.mjs',
     'scripts/release-paths.mjs',
     'package.json',
-  ]) assert.match(path, runtime, `runtime gate must select ${path}`);
+  ])
+    assert.match(path, runtime, `runtime gate must select ${path}`);
   for (const path of ['docs/testing.md', 'apps/desktop/src/main/index.ts', 'apps/relay/src/index.ts']) {
     assert.doesNotMatch(path, runtime, `runtime gate must skip ${path}`);
   }
@@ -413,11 +426,9 @@ test('the weekly suite-health sweep runs the opt-out catalog and reports failure
   const sweep = await workflow('suite-health.yml');
   assert.match(sweep, /schedule:[\s\S]*cron:/, 'the sweep must run on a schedule');
   assert.match(sweep, /workflow_dispatch:/);
-  assert.match(sweep, /node scripts\/suite-health\.mjs/,
-    'the sweep must execute the opt-out suite enumeration');
+  assert.match(sweep, /node scripts\/suite-health\.mjs/, 'the sweep must execute the opt-out suite enumeration');
   assert.match(sweep, /issues:\s*write/);
-  assert.match(sweep, /suite-health-report\.md/,
-    'a failed sweep must surface as a tracked issue');
+  assert.match(sweep, /suite-health-report\.md/, 'a failed sweep must surface as a tracked issue');
 });
 
 test('application release overlaps gates and publishes one exact hidden draft', async () => {
@@ -437,27 +448,46 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   // A suite that guards a contract must run in CI: tool-smoke stayed
   // local-only and silently drifted three contracts behind the runtime. The
   // gate runs the discovered default lane, so a new file joins by existing.
-  assert.match(automaticGate, /runtime:[\s\S]*npm run build:spawn:test[\s\S]*run:\s*npm test\b/,
-    'the runtime gate must build the spawn test binary and run the default lane');
-  assert.match(automaticGate, /runtime-slow:[\s\S]*npm run test:slow/,
-    'the slow lane must run beside the default lane');
-  assert.match(automaticGate, /desktop-tests:[\s\S]*lane:\s*fast[\s\S]*lane:\s*slow[\s\S]*runner:\s*windows-latest/,
-    'the desktop lanes must run as separate legs with a Windows Computer Use leg');
-  assert.match(automaticGate, /npm run test:daemon:e2e --prefix apps\/desktop/,
-    'the built daemon must be verified end to end where it is built');
+  assert.match(
+    automaticGate,
+    /runtime:[\s\S]*npm run build:spawn:test[\s\S]*run:\s*npm test\b/,
+    'the runtime gate must build the spawn test binary and run the default lane'
+  );
+  assert.match(
+    automaticGate,
+    /runtime-slow:[\s\S]*npm run test:slow/,
+    'the slow lane must run beside the default lane'
+  );
+  assert.match(
+    automaticGate,
+    /desktop-tests:[\s\S]*lane:\s*fast[\s\S]*lane:\s*slow[\s\S]*runner:\s*windows-latest/,
+    'the desktop lanes must run as separate legs with a Windows Computer Use leg'
+  );
+  assert.match(
+    automaticGate,
+    /npm run test:daemon:e2e --prefix apps\/desktop/,
+    'the built daemon must be verified end to end where it is built'
+  );
   assert.match(automaticGate, /needs\.changes\.outputs\.desktop == 'true'/);
   assert.match(automaticGate, /needs\.changes\.outputs\.graph == 'true'/);
-  assert.match(release,
-    /identity:[\s\S]*Verify release tag matches package version/);
+  assert.match(release, /identity:[\s\S]*Verify release tag matches package version/);
   assert.match(release, /validate:[\s\S]*needs:\s*identity[\s\S]*fetch-depth:\s*0/);
-  assert.match(release,
+  assert.match(
+    release,
     /validate:[\s\S]*Verify bundled release assets[\s\S]*Verify changed source-critical release invariants[\s\S]*if: inputs\.run_critical[\s\S]*npm run build:spawn:test\s*\n\s*npm test\b/,
-    'the deploy gate re-runs the default lane only when the gate did not cover it');
-  assert.doesNotMatch(release, /Install ripgrep|apt-get[^\n]*ripgrep/,
-    'the native search backend must not pay for a system ripgrep install');
-  assert.doesNotMatch(release, /\n  release-invariants:/);
-  assert.doesNotMatch(release, /test:release-focused:\$\{\{ matrix\.group \}\}/,
-    'the four focused groups stay out of the deploy gate');
+    'the deploy gate re-runs the default lane only when the gate did not cover it'
+  );
+  assert.doesNotMatch(
+    release,
+    /Install ripgrep|apt-get[^\n]*ripgrep/,
+    'the native search backend must not pay for a system ripgrep install'
+  );
+  assert.doesNotMatch(release, /\n {2}release-invariants:/);
+  assert.doesNotMatch(
+    release,
+    /test:release-focused:\$\{\{ matrix\.group \}\}/,
+    'the four focused groups stay out of the deploy gate'
+  );
   assert.match(release, /desktop-build:[\s\S]*name:\s*build-desktop-once/);
   assert.doesNotMatch(release, /desktop-build:\s*\n(?:[^\n]*\n){0,3}\s*needs:/);
   assert.doesNotMatch(release, /name:\s*Execute code graph from a clean cache/);
@@ -467,78 +497,102 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   // The key's version prefix is deliberately bumpable: what must hold is the
   // version-neutral manifest digest and the absence of the lock file, not a
   // particular generation number.
-  assert.match(release,
-    /Restore unchanged desktop output[\s\S]*desktop-out-v\d+-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/);
+  assert.match(
+    release,
+    /Restore unchanged desktop output[\s\S]*desktop-out-v\d+-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/
+  );
   const desktopOutKey = release.match(/desktop-out-v\d+-[\s\S]*?\) \}\}/)?.[0] || '';
   assert.ok(desktopOutKey, 'the desktop output cache key must be present');
-  assert.doesNotMatch(desktopOutKey, /package-lock\.json/,
-    'the lock file reaches this key only through the version-neutral digest');
-  assert.match(automaticGate,
-    /name:\s*Reuse or warm the release desktop output cache[\s\S]*desktop-out-v\d+-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/);
-  assert.match(automaticGate, /name:\s*Build desktop[\s\S]*steps\.desktop-out\.outputs\.cache-hit != 'true'/,
-    'an unchanged desktop bundle must not be rebuilt by the gate');
+  assert.doesNotMatch(
+    desktopOutKey,
+    /package-lock\.json/,
+    'the lock file reaches this key only through the version-neutral digest'
+  );
+  assert.match(
+    automaticGate,
+    /name:\s*Reuse or warm the release desktop output cache[\s\S]*desktop-out-v\d+-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/
+  );
+  assert.match(
+    automaticGate,
+    /name:\s*Build desktop[\s\S]*steps\.desktop-out\.outputs\.cache-hit != 'true'/,
+    'an unchanged desktop bundle must not be rebuilt by the gate'
+  );
   assert.match(automaticGate, /manifest-cache-key\.mjs/);
   assert.match(desktopPackage, /manifest-cache-key\.mjs/);
   // Actions are SHA-pinned with the release as a trailing comment, so the
   // major version is asserted through that comment. Matching a bare `@v7` tag
   // could never succeed here and left the check permanently red.
-  assert.match(release,
-    /name:\s*Stage common desktop output[\s\S]*actions\/upload-artifact@[0-9a-f]{40} # v7/);
+  assert.match(release, /name:\s*Stage common desktop output[\s\S]*actions\/upload-artifact@[0-9a-f]{40} # v7/);
   assert.doesNotMatch(release, /desktop-runtime\.yml|desktop-runtime-(?:win32|darwin|linux)/);
   assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-package\.yml/g) || []).length, 4);
   for (const packageJob of ['windows', 'darwin-arm64', 'linux-x64', 'linux-arm64']) {
-    assert.match(release, new RegExp(
-      `desktop-${packageJob}:[\\s\\S]*?needs:\\s*\\[desktop-build, prepare-github-release\\][\\s\\S]*?uses:\\s*\\.\\/\\.github\\/workflows\\/desktop-package\\.yml`,
-    ));
+    assert.match(
+      release,
+      new RegExp(
+        `desktop-${packageJob}:[\\s\\S]*?needs:\\s*\\[desktop-build, prepare-github-release\\][\\s\\S]*?uses:\\s*\\.\\/\\.github\\/workflows\\/desktop-package\\.yml`
+      )
+    );
   }
-  assert.match(release,
-    /prepare-github-release:[\s\S]*needs:\s*\[identity\][\s\S]*draft:\s*true/);
-  assert.match(desktopPackage,
-    /name:\s*Download common desktop output[\s\S]*actions\/download-artifact@[0-9a-f]{40} # v8/);
+  assert.match(release, /prepare-github-release:[\s\S]*needs:\s*\[identity\][\s\S]*draft:\s*true/);
+  assert.match(
+    desktopPackage,
+    /name:\s*Download common desktop output[\s\S]*actions\/download-artifact@[0-9a-f]{40} # v8/
+  );
   assert.doesNotMatch(desktopPackage, /Download prepared platform runtime|desktop-runtime-\$\{\{ inputs\.platform/);
   assert.match(desktopPackage, /name:\s*Restore Electron downloads[\s\S]*ELECTRON_BUILDER_CACHE/);
   assert.match(desktopPackage, /name:\s*Resolve package and runtime cache keys/);
   assert.match(desktopPackage, /name:\s*Restore pruned runtime dependencies/);
   assert.match(desktopPackage, /name:\s*Restore prepared runtime archive/);
-  assert.match(desktopPackage,
-    /name:\s*Restore prepared runtime archive[\s\S]*id:\s*prepared-runtime/);
+  assert.match(desktopPackage, /name:\s*Restore prepared runtime archive[\s\S]*id:\s*prepared-runtime/);
   // The prepared runtime is saved the moment it exists, not in a post step
   // that a later packaging failure would skip: a failed Windows job used to
   // discard five minutes of preparation and the retry paid it again.
-  assert.match(desktopPackage,
-    /name:\s*Restore prepared runtime archive[\s\S]*actions\/cache\/restore@/);
-  assert.match(desktopPackage,
-    /name:\s*Save prepared runtime archive[\s\S]*actions\/cache\/save@[\s\S]*cache-primary-key/);
-  assert.ok(
-    desktopPackage.indexOf('name: Prepare platform runtime')
-      < desktopPackage.indexOf('name: Save prepared runtime archive')
-    && desktopPackage.indexOf('name: Save prepared runtime archive')
-      < desktopPackage.indexOf('name: Build Windows installer'),
-    'the prepared runtime must be saved before any packaging step can fail',
+  assert.match(desktopPackage, /name:\s*Restore prepared runtime archive[\s\S]*actions\/cache\/restore@/);
+  assert.match(
+    desktopPackage,
+    /name:\s*Save prepared runtime archive[\s\S]*actions\/cache\/save@[\s\S]*cache-primary-key/
   );
-  assert.doesNotMatch(desktopPackage, /npm run test:packaging/,
-    'source-shape packaging invariants run in the gate, not after a full package build');
+  assert.ok(
+    desktopPackage.indexOf('name: Prepare platform runtime') <
+      desktopPackage.indexOf('name: Save prepared runtime archive') &&
+      desktopPackage.indexOf('name: Save prepared runtime archive') <
+        desktopPackage.indexOf('name: Build Windows installer'),
+    'the prepared runtime must be saved before any packaging step can fail'
+  );
+  assert.doesNotMatch(
+    desktopPackage,
+    /npm run test:packaging/,
+    'source-shape packaging invariants run in the gate, not after a full package build'
+  );
   // The Chrome password importer build (~230s of Rust on Windows) is keyed
   // on its own source and restored before prepare-runtime, whose marker
   // check then skips the build; the save follows preparation directly.
-  assert.match(desktopPackage,
-    /name:\s*Restore built browser importer[\s\S]*actions\/cache\/restore@[\s\S]*apps\/desktop\/\.cache\/browser-import[\s\S]*hashFiles\('native\/mixdog-browser-import\/\*\*'/);
+  assert.match(
+    desktopPackage,
+    /name:\s*Restore built browser importer[\s\S]*actions\/cache\/restore@[\s\S]*apps\/desktop\/\.cache\/browser-import[\s\S]*hashFiles\('native\/mixdog-browser-import\/\*\*'/
+  );
   assert.ok(
-    desktopPackage.indexOf('name: Restore built browser importer')
-      < desktopPackage.indexOf('name: Prepare platform runtime')
-    && desktopPackage.indexOf('name: Prepare platform runtime')
-      < desktopPackage.indexOf('name: Save built browser importer')
-    && desktopPackage.indexOf('name: Save built browser importer')
-      < desktopPackage.indexOf('name: Build Windows installer'),
-    'the browser importer cache must bracket runtime preparation',
+    desktopPackage.indexOf('name: Restore built browser importer') <
+      desktopPackage.indexOf('name: Prepare platform runtime') &&
+      desktopPackage.indexOf('name: Prepare platform runtime') <
+        desktopPackage.indexOf('name: Save built browser importer') &&
+      desktopPackage.indexOf('name: Save built browser importer') <
+        desktopPackage.indexOf('name: Build Windows installer'),
+    'the browser importer cache must bracket runtime preparation'
   );
   const preparedRuntimeKey = desktopPackage.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '';
   assert.ok(preparedRuntimeKey, 'the prepared runtime cache key must be present');
-  assert.doesNotMatch(preparedRuntimeKey, /hashFiles\([^)]*package(?:-lock)?\.json/,
-    'the manifests reach this key only through the version-neutral digest');
+  assert.doesNotMatch(
+    preparedRuntimeKey,
+    /hashFiles\([^)]*package(?:-lock)?\.json/,
+    'the manifests reach this key only through the version-neutral digest'
+  );
   assert.match(desktopPackage, /name:\s*Restore stable desktop npm downloads/);
   assert.match(desktopPackage, /dependency-lock-cache-key\.mjs/);
-  assert.match(desktopPackage, /runtime-dependency-cache-key\.mjs[\s\S]*--platform=\$\{\{ inputs\.platform \}\} --arch=\$\{\{ inputs\.arch \}\}/);
+  assert.match(
+    desktopPackage,
+    /runtime-dependency-cache-key\.mjs[\s\S]*--platform=\$\{\{ inputs\.platform \}\} --arch=\$\{\{ inputs\.arch \}\}/
+  );
   assert.match(desktopPackage, /MIXDOG_RUNTIME_DEPENDENCY_CACHE/);
   assert.match(desktopPackage, /key:\s*desktop-\$\{\{ steps\.runtime-dependencies\.outputs\.key \}\}/);
   assert.match(desktopPackage, /MIXDOG_RUNTIME_NPM_CACHE="?\$\(npm config get cache\)"?/);
@@ -550,13 +604,17 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.doesNotMatch(desktopPackage, /name:\s*Stage (?:Windows|macOS|Linux)/);
   assert.doesNotMatch(release, /name:\s*Download staged desktop packages/);
   assert.equal((desktopPackage.match(/^\s*gh release upload/gm) || []).length, 1);
-  assert.match(desktopPackage,
-    /name:\s*Smoke and upload verified Windows assets in parallel[\s\S]*upload-release-assets\.sh "\$\{assets\[@\]\}" &[\s\S]*npm run verify:packaged-runtime[\s\S]*wait "\$upload_pid"/);
+  assert.match(
+    desktopPackage,
+    /name:\s*Smoke and upload verified Windows assets in parallel[\s\S]*upload-release-assets\.sh "\$\{assets\[@\]\}" &[\s\S]*npm run verify:packaged-runtime[\s\S]*wait "\$upload_pid"/
+  );
   // A recovery run meets the earlier attempt's macOS assets on the draft;
   // `gh release upload --clobber` raced GitHub's asset delete and failed with
   // 422 "already exists", so both macOS architectures go through the script.
-  assert.match(desktopPackage,
-    /name:\s*Upload verified macOS assets to hidden draft[\s\S]*?upload-release-assets\.sh "\$\{assets\[@\]\}"/);
+  assert.match(
+    desktopPackage,
+    /name:\s*Upload verified macOS assets to hidden draft[\s\S]*?upload-release-assets\.sh "\$\{assets\[@\]\}"/
+  );
   assert.doesNotMatch(desktopPackage, /inputs\.arch \}\}" == x64/);
   assert.match(desktopPackage, /RELEASE_ID:\s*\$\{\{ inputs\.release_id \}\}/);
   assert.match(uploadScript, /--http1\.1/);
@@ -570,21 +628,30 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.match(release, /name:\s*Verify complete hidden release/);
   assert.match(release, /Hidden release asset set is not exact/);
   assert.ok(
-    release.indexOf('name: Publish staged npm package') > release.indexOf('name: Verify complete hidden release'),
+    release.indexOf('name: Publish staged npm package') > release.indexOf('name: Verify complete hidden release')
   );
   assert.ok(
-    release.indexOf('name: Publish one complete GitHub release') > release.indexOf('name: Publish staged npm package'),
+    release.indexOf('name: Publish one complete GitHub release') > release.indexOf('name: Publish staged npm package')
   );
   assert.match(release, /npm publish \.\/staged-npm\/\*\.tgz --provenance --access public/);
   assert.match(release, /-F draft=false -f make_latest=true/);
-  assert.match(release,
-    /stage-relay:[\s\S]*needs:\s*\[identity,\s*desktop-build\][\s\S]*Restore renderer precompression cache[\s\S]*Stage production relay artifact/);
-  assert.match(release,
-    /deploy-relay:[\s\S]*needs:\s*\[publish,\s*stage-relay\][\s\S]*Download staged production relay/);
-  assert.match(release, /publish:[\s\S]*Publish staged npm package[\s\S]*Publish one complete GitHub release[\s\S]*deploy-relay:/);
+  assert.match(
+    release,
+    /stage-relay:[\s\S]*needs:\s*\[identity,\s*desktop-build\][\s\S]*Restore renderer precompression cache[\s\S]*Stage production relay artifact/
+  );
+  assert.match(
+    release,
+    /deploy-relay:[\s\S]*needs:\s*\[publish,\s*stage-relay\][\s\S]*Download staged production relay/
+  );
+  assert.match(
+    release,
+    /publish:[\s\S]*Publish staged npm package[\s\S]*Publish one complete GitHub release[\s\S]*deploy-relay:/
+  );
   assert.match(release, /name:\s*Atomically deploy and verify production/);
-  assert.ok(release.includes("awk '{print \\$1}'"),
-    'the remote hash command must preserve awk $1 without expanding a shell positional parameter');
+  assert.ok(
+    release.includes("awk '{print \\$1}'"),
+    'the remote hash command must preserve awk $1 without expanding a shell positional parameter'
+  );
   assert.equal(release.includes("awk '{print \\\\$1}'"), false);
   assert.match(release, /secrets\.RELAY_SSH_KEY/);
   assert.match(release, /vars\.RELAY_DOMAIN/);
@@ -604,16 +671,20 @@ test('application release overlaps gates and publishes one exact hidden draft', 
 
 test('release timing report flags material regressions and renders the slowest steps', () => {
   const jobs = (seconds) => ({
-    jobs: [{
-      name: 'release / desktop-darwin-x64',
-      started_at: '2026-01-01T00:00:00Z',
-      completed_at: `2026-01-01T00:01:${String(seconds).padStart(2, '0')}Z`,
-      steps: [{
-        name: 'Build desktop package',
+    jobs: [
+      {
+        name: 'release / desktop-darwin-x64',
         started_at: '2026-01-01T00:00:00Z',
-        completed_at: `2026-01-01T00:00:${String(seconds).padStart(2, '0')}Z`,
-      }],
-    }],
+        completed_at: `2026-01-01T00:01:${String(seconds).padStart(2, '0')}Z`,
+        steps: [
+          {
+            name: 'Build desktop package',
+            started_at: '2026-01-01T00:00:00Z',
+            completed_at: `2026-01-01T00:00:${String(seconds).padStart(2, '0')}Z`,
+          },
+        ],
+      },
+    ],
   });
   const report = buildReleaseTimingReport(jobs(40), jobs(20));
   assert.equal(report.regressions.length, 1);
@@ -646,9 +717,7 @@ advisoryTest('desktop production dependencies contain only main-process runtime 
 });
 
 test('native release workflows are reusable and unchanged runtime platforms stay skipped', async () => {
-  const voiceConfig = JSON.parse(
-    await readFile(new URL('./voice-runtime-config.json', import.meta.url), 'utf8'),
-  );
+  const voiceConfig = JSON.parse(await readFile(new URL('./voice-runtime-config.json', import.meta.url), 'utf8'));
   const [runtime, voice, patch, graph, spawn] = await Promise.all([
     workflow('build-runtime.yml'),
     workflow('build-voice-runtime.yml'),
@@ -658,14 +727,12 @@ test('native release workflows are reusable and unchanged runtime platforms stay
   ]);
   for (const worker of [runtime, voice, patch, graph, spawn]) assert.match(worker, /workflow_call:/);
   assert.match(runtime, /needs\.build\.result == 'skipped' && inputs\.refresh_manifest/);
-  assert.doesNotMatch(runtime,
-    /needs\.build\.result == 'success' \|\| needs\.build\.result == 'skipped'\)\s*\}\}/);
-  assert.ok(voiceConfig.platforms.some(platform => platform.key === 'linux-arm64'));
+  assert.doesNotMatch(runtime, /needs\.build\.result == 'success' \|\| needs\.build\.result == 'skipped'\)\s*\}\}/);
+  assert.ok(voiceConfig.platforms.some((platform) => platform.key === 'linux-arm64'));
   assert.match(voice, /draft:\s*true[\s\S]*Verify complete hidden release[\s\S]*draft:\s*false/);
   assert.match(voice, /make_latest:\s*false/);
   assert.match(patch, /ref:\s*refs\/tags\/\$\{\{ inputs\.tag \|\| github\.ref_name \}\}/);
-  assert.match(patch,
-    /test:[\s\S]*cargo build --release --locked --target x86_64-unknown-linux-gnu/);
+  assert.match(patch, /test:[\s\S]*cargo build --release --locked --target x86_64-unknown-linux-gnu/);
   assert.match(patch, /build:[\s\S]*needs:\s*gate/);
   assert.doesNotMatch(patch, /max-parallel:/);
   assert.match(patch, /manifest:[\s\S]*needs:\s*\[test,\s*build\]/);
@@ -673,20 +740,30 @@ test('native release workflows are reusable and unchanged runtime platforms stay
   assert.match(graph, /workflow_dispatch\|workflow_call/);
   assert.doesNotMatch(graph, /max-parallel:/);
   assert.equal((graph.match(/cargo test --locked --manifest-path native\/mixdog-graph\/Cargo\.toml/g) || []).length, 1);
-  assert.equal((graph.match(/mozilla-actions\/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba/g) || []).length, 2);
+  assert.equal(
+    (graph.match(/mozilla-actions\/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba/g) || []).length,
+    2
+  );
   assert.match(graph, /SCCACHE_GHA_VERSION:\s*graph-primary-v1-\$\{\{ matrix\.pkey \}\}/);
   assert.match(graph, /SCCACHE_GHA_VERSION:\s*graph-comparison-v1-\$\{\{ matrix\.pkey \}\}/);
-  for (const [name, worker] of [['graph', graph], ['spawn', spawn]]) {
+  for (const [name, worker] of [
+    ['graph', graph],
+    ['spawn', spawn],
+  ]) {
     assert.match(worker, /rebuild:[\s\S]*name:\s*build-\$\{\{ matrix\.pkey \}\}-comparison/);
     assert.match(worker, /prepare:[\s\S]*needs:\s*\[gate,\s*test,\s*build,\s*rebuild\]/);
-    assert.match(worker,
-      new RegExp(`pattern:\\s*rebuild-${name}-\\*-\\$\\{\\{ github\\.run_attempt \\}\\}`));
+    assert.match(worker, new RegExp(`pattern:\\s*rebuild-${name}-\\*-\\$\\{\\{ github\\.run_attempt \\}\\}`));
     assert.match(worker, /cmp "_release\/\$asset" "_repro\/\$asset"/);
-    assert.match(worker,
-      new RegExp(`^concurrency:\\s*\\n\\s*group:\\s*${name}-release-\\$\\{\\{ inputs\\.tag \\|\\| github\\.ref_name \\}\\}`, 'm'));
+    assert.match(
+      worker,
+      new RegExp(
+        `^concurrency:\\s*\\n\\s*group:\\s*${name}-release-\\$\\{\\{ inputs\\.tag \\|\\| github\\.ref_name \\}\\}`,
+        'm'
+      )
+    );
     assert.match(worker, new RegExp(`sync:[\\s\\S]*group:\\s*${name}-release-finalize`));
   }
-  assert.doesNotMatch(graph, /^  publish:/m);
+  assert.doesNotMatch(graph, /^ {2}publish:/m);
 });
 
 advisoryTest('runtime platform smoke restores npm downloads on every runner', async () => {
@@ -701,9 +778,7 @@ const ROOT = dirname(fileURLToPath(new URL('../package.json', import.meta.url)))
 const STRICT_VERSION = /^\d+\.\d+\.\d+$/;
 
 function protocolFromSource(source, label) {
-  const value = Number(
-    source.match(/SESSION_PROTOCOL\s*=\s*(\d+)/)?.[1],
-  );
+  const value = Number(source.match(/SESSION_PROTOCOL\s*=\s*(\d+)/)?.[1]);
   assert.ok(Number.isInteger(value) && value > 0, `${label} has no valid session protocol`);
   return value;
 }
@@ -728,16 +803,13 @@ test('project versions stay synchronized and the development protocol is valid',
       assert.equal(
         value.packages[''].version,
         currentVersion,
-        `${relativePath} root lock package version is not synchronized`,
+        `${relativePath} root lock package version is not synchronized`
       );
     }
   }
 
   const protocolPath = 'src/standalone/session-wire.mjs';
-  const currentProtocol = protocolFromSource(
-    readFileSync(join(ROOT, protocolPath), 'utf8'),
-    protocolPath,
-  );
+  const currentProtocol = protocolFromSource(readFileSync(join(ROOT, protocolPath), 'utf8'), protocolPath);
   assert.ok(currentProtocol > 0);
 });
 
@@ -750,7 +822,7 @@ test('npm package declares the published native platform families', () => {
 test('the checked-in runtime manifest satisfies the release schema', async () => {
   const runtimeSource = await readFile(
     new URL('../src/runtime/memory/data/runtime-manifest.json', import.meta.url),
-    'utf8',
+    'utf8'
   );
   const runtime = JSON.parse(runtimeSource);
   assert.equal(validateRuntimeManifest(runtime).release_tag, runtime.release_tag);

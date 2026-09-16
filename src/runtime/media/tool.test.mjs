@@ -6,20 +6,42 @@ import { join } from 'node:path';
 import { buildOptions, executeMediaTool, listMediaCatalog } from './tool.mjs';
 import { MEDIA_ACTIONS, TOOL_DEFS } from './tool-defs.mjs';
 
-const controls = (extra = {}) => ({ aspectRatio: ['16:9', '1:1', '9:16'], resolution: ['1k', '2k'], maxReferences: 2, ...extra });
+const controls = (extra = {}) => ({
+  aspectRatio: ['16:9', '1:1', '9:16'],
+  resolution: ['1k', '2k'],
+  maxReferences: 2,
+  ...extra,
+});
 
 const LANES = [
   {
-    id: 'lane-a', label: 'Lane A', authenticated: true, kinds: ['image', 'video'],
+    id: 'lane-a',
+    label: 'Lane A',
+    authenticated: true,
+    kinds: ['image', 'video'],
     image: { defaultModel: 'a-image', models: [{ id: 'a-image', label: 'A image', controls: controls() }] },
-    video: { defaultModel: 'a-video', models: [{ id: 'a-video', label: 'A video', controls: { aspectRatio: ['16:9'], durations: [5, 8], maxReferences: 1 } }] },
+    video: {
+      defaultModel: 'a-video',
+      models: [
+        { id: 'a-video', label: 'A video', controls: { aspectRatio: ['16:9'], durations: [5, 8], maxReferences: 1 } },
+      ],
+    },
   },
   {
-    id: 'lane-b', label: 'Lane B', authenticated: true, kinds: ['image'],
-    image: { defaultModel: 'b-image', models: [{ id: 'b-image', label: 'B image', controls: controls({ maxReferences: 0 }) }] },
+    id: 'lane-b',
+    label: 'Lane B',
+    authenticated: true,
+    kinds: ['image'],
+    image: {
+      defaultModel: 'b-image',
+      models: [{ id: 'b-image', label: 'B image', controls: controls({ maxReferences: 0 }) }],
+    },
   },
   {
-    id: 'lane-out', label: 'Signed out', authenticated: false, kinds: ['image'],
+    id: 'lane-out',
+    label: 'Signed out',
+    authenticated: false,
+    kinds: ['image'],
     image: { defaultModel: 'x', models: [{ id: 'x', label: 'x', controls: controls() }] },
   },
 ];
@@ -42,7 +64,13 @@ function fakeGraph({ outcome = 'done', lanes = LANES, remembered = null } = {}) 
       getMediaJob: (id) => {
         const job = jobs.get(id);
         if (job && job.status === 'running') {
-          Object.assign(job, outcome === 'done' ? { status: 'done', assetId: 'asset-1' } : { status: 'failed', error: 'provider said no' }, { endedAt: Date.now() });
+          Object.assign(
+            job,
+            outcome === 'done'
+              ? { status: 'done', assetId: 'asset-1' }
+              : { status: 'failed', error: 'provider said no' },
+            { endedAt: Date.now() }
+          );
         }
         return job;
       },
@@ -66,19 +94,28 @@ test('media is one deferred tool whose description names no lane', () => {
   assert.ok(JSON.stringify(TOOL_DEFS[0]).length < 3000);
 });
 
-test('list narrows: lanes → models for a kind → one model\'s controls, signed-out lanes only named', () => {
+test("list narrows: lanes → models for a kind → one model's controls, signed-out lanes only named", () => {
   const summary = listMediaCatalog(LANES);
-  assert.deepEqual(summary.lanes.map((lane) => lane.id), ['lane-a', 'lane-b']);
+  assert.deepEqual(
+    summary.lanes.map((lane) => lane.id),
+    ['lane-a', 'lane-b']
+  );
   assert.deepEqual(summary.signedOut, ['lane-out']);
   assert.equal(summary.lanes[0].image, 'a-image');
   assert.ok(!('models' in summary.lanes[0]));
 
   const video = listMediaCatalog(LANES, { kind: 'video' });
-  assert.deepEqual(video.lanes.map((lane) => lane.id), ['lane-a']);
+  assert.deepEqual(
+    video.lanes.map((lane) => lane.id),
+    ['lane-a']
+  );
   assert.deepEqual(video.lanes[0].models, ['a-video']);
 
   const model = listMediaCatalog(LANES, { kind: 'image', model: 'b-image' });
-  assert.deepEqual(model.models.map((entry) => entry.lane), ['lane-b']);
+  assert.deepEqual(
+    model.models.map((entry) => entry.lane),
+    ['lane-b']
+  );
   assert.deepEqual(model.models[0].controls.aspectRatio, ['16:9', '1:1', '9:16']);
 
   assert.throws(() => listMediaCatalog(LANES, { kind: 'image', model: 'nope' }), /not available/);
@@ -86,12 +123,20 @@ test('list narrows: lanes → models for a kind → one model\'s controls, signe
 
 test('buildOptions validates against the model controls', () => {
   const lane = LANES[0];
-  assert.deepEqual(buildOptions(lane, 'image', controls(), { aspect: '16:9' }), { aspectRatio: '16:9', resolution: '2k' });
+  assert.deepEqual(buildOptions(lane, 'image', controls(), { aspect: '16:9' }), {
+    aspectRatio: '16:9',
+    resolution: '2k',
+  });
   assert.throws(() => buildOptions(lane, 'image', controls(), { aspect: '4:3' }), /aspect "4:3" is not supported/);
-  assert.throws(() => buildOptions(lane, 'video', lane.video.models[0].controls, { duration: 12 }), /duration 12s is not supported/);
+  assert.throws(
+    () => buildOptions(lane, 'video', lane.video.models[0].controls, { duration: 12 }),
+    /duration 12s is not supported/
+  );
   assert.deepEqual(buildOptions(lane, 'video', lane.video.models[0].controls, { duration: 8 }), { duration: 8 });
   const openai = { id: 'openai-oauth' };
-  assert.deepEqual(buildOptions(openai, 'image', { size: ['1536x1024', 'auto'] }, { aspect: '16:9' }), { size: '1536x1024' });
+  assert.deepEqual(buildOptions(openai, 'image', { size: ['1536x1024', 'auto'] }, { aspect: '16:9' }), {
+    size: '1536x1024',
+  });
   assert.deepEqual(buildOptions(openai, 'image', { maxReferences: 5 }, {}), {});
   assert.throws(() => buildOptions(openai, 'image', { maxReferences: 5 }, { quality: 'high' }), /not supported/);
   assert.throws(() => buildOptions(lane, 'image', { aspectRatio: ['1:1'] }, { resolution: '4k' }), /not supported/);
@@ -102,10 +147,12 @@ test('generate picks the first signed-in lane, waits, and copies the asset to pa
   await writeFile(graph.assetPath, Buffer.from('png-bytes'));
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-media-tool-'));
   try {
-    const result = parse(await executeMediaTool(
-      { action: 'generate', kind: 'image', prompt: 'an open notebook by a window', path: 'cover', aspect: '16:9' },
-      { cwd, deps: graph },
-    ));
+    const result = parse(
+      await executeMediaTool(
+        { action: 'generate', kind: 'image', prompt: 'an open notebook by a window', path: 'cover', aspect: '16:9' },
+        { cwd, deps: graph }
+      )
+    );
     assert.equal(result.ok, true);
     assert.equal(result.lane, 'lane-a');
     assert.equal(result.model, 'a-image');
@@ -123,10 +170,10 @@ test('generate follows the remembered lane/model when none is passed, and falls 
   const followed = fakeGraph({ remembered: { kind: 'image', lane: 'lane-b', model: 'b-image' } });
   await writeFile(followed.assetPath, Buffer.from('png-bytes'));
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-media-remembered-'));
-  const generate = (deps, extra = {}) => executeMediaTool(
-    { action: 'generate', kind: 'image', prompt: 'x', path: 'x.png', ...extra },
-    { cwd, deps },
-  ).then(parse);
+  const generate = (deps, extra = {}) =>
+    executeMediaTool({ action: 'generate', kind: 'image', prompt: 'x', path: 'x.png', ...extra }, { cwd, deps }).then(
+      parse
+    );
   try {
     const remembered = await generate(followed);
     assert.equal(remembered.lane, 'lane-b');
@@ -135,7 +182,9 @@ test('generate follows the remembered lane/model when none is passed, and falls 
 
     const listed = parse(await executeMediaTool({ action: 'list', kind: 'image' }, { deps: followed }));
     assert.deepEqual(listed.remembered, { lane: 'lane-b', model: 'b-image' });
-    assert.ok(!('remembered' in parse(await executeMediaTool({ action: 'list', kind: 'image' }, { deps: fakeGraph() }))));
+    assert.ok(
+      !('remembered' in parse(await executeMediaTool({ action: 'list', kind: 'image' }, { deps: fakeGraph() })))
+    );
 
     const explicit = await generate(followed, { lane: 'lane-a' });
     assert.equal(explicit.lane, 'lane-a');
@@ -160,18 +209,25 @@ test('generate follows the remembered lane/model when none is passed, and falls 
 });
 
 test('generate rejects a lane that is not signed in and reports what is, and fails clearly with no lane', async () => {
-  const wrongLane = parse(await executeMediaTool(
-    { action: 'generate', kind: 'image', prompt: 'x', path: 'x.png', lane: 'lane-out' },
-    { deps: fakeGraph() },
-  ));
+  const wrongLane = parse(
+    await executeMediaTool(
+      { action: 'generate', kind: 'image', prompt: 'x', path: 'x.png', lane: 'lane-out' },
+      { deps: fakeGraph() }
+    )
+  );
   assert.equal(wrongLane.ok, false);
   assert.match(wrongLane.error, /not signed in/);
-  assert.deepEqual(wrongLane.lanes.map((lane) => lane.id), ['lane-a', 'lane-b']);
+  assert.deepEqual(
+    wrongLane.lanes.map((lane) => lane.id),
+    ['lane-a', 'lane-b']
+  );
 
-  const none = parse(await executeMediaTool(
-    { action: 'generate', kind: 'video', prompt: 'x', path: 'x.mp4' },
-    { deps: fakeGraph({ lanes: [LANES[1]] }) },
-  ));
+  const none = parse(
+    await executeMediaTool(
+      { action: 'generate', kind: 'video', prompt: 'x', path: 'x.mp4' },
+      { deps: fakeGraph({ lanes: [LANES[1]] }) }
+    )
+  );
   assert.equal(none.ok, false);
   assert.match(none.error, /No signed-in lane generates video/);
   assert.deepEqual(none.lanes, []);
@@ -182,16 +238,20 @@ test('references are capped by the model and a failed job surfaces the provider 
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-media-ref-'));
   try {
     await writeFile(join(cwd, 'ref.png'), Buffer.from('ref'));
-    const capped = parse(await executeMediaTool(
-      { action: 'generate', kind: 'image', prompt: 'x', path: 'x.png', lane: 'lane-b', references: ['ref.png'] },
-      { cwd, deps: graph },
-    ));
+    const capped = parse(
+      await executeMediaTool(
+        { action: 'generate', kind: 'image', prompt: 'x', path: 'x.png', lane: 'lane-b', references: ['ref.png'] },
+        { cwd, deps: graph }
+      )
+    );
     assert.match(capped.error, /takes no reference images/);
 
-    const failed = parse(await executeMediaTool(
-      { action: 'generate', kind: 'image', prompt: 'x', path: 'x.png', references: ['ref.png'] },
-      { cwd, deps: graph },
-    ));
+    const failed = parse(
+      await executeMediaTool(
+        { action: 'generate', kind: 'image', prompt: 'x', path: 'x.png', references: ['ref.png'] },
+        { cwd, deps: graph }
+      )
+    );
     assert.equal(failed.ok, false);
     assert.match(failed.error, /provider said no/);
     assert.equal(failed.job, 'job-1');
@@ -205,17 +265,26 @@ test('wait:false returns a job id; status writes the file when done; cancel stop
   await writeFile(graph.assetPath, Buffer.from('clip'));
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-media-async-'));
   try {
-    const started = parse(await executeMediaTool(
-      { action: 'generate', kind: 'video', prompt: 'x', path: 'clip.mp4', duration: 5, wait: false },
-      { cwd, deps: graph },
-    ));
+    const started = parse(
+      await executeMediaTool(
+        { action: 'generate', kind: 'video', prompt: 'x', path: 'clip.mp4', duration: 5, wait: false },
+        { cwd, deps: graph }
+      )
+    );
     assert.equal(started.status, 'running');
     assert.match(started.nextAction, /status job:job-1/);
-    const done = parse(await executeMediaTool({ action: 'status', job: started.job, path: 'clip.mp4' }, { cwd, deps: graph }));
+    const done = parse(
+      await executeMediaTool({ action: 'status', job: started.job, path: 'clip.mp4' }, { cwd, deps: graph })
+    );
     assert.equal(done.status, 'done');
     assert.equal(done.output, join(cwd, 'clip.mp4'));
 
-    const second = parse(await executeMediaTool({ action: 'generate', kind: 'video', prompt: 'y', path: 'y.mp4', wait: false }, { cwd, deps: graph }));
+    const second = parse(
+      await executeMediaTool(
+        { action: 'generate', kind: 'video', prompt: 'y', path: 'y.mp4', wait: false },
+        { cwd, deps: graph }
+      )
+    );
     const canceled = parse(await executeMediaTool({ action: 'cancel', job: second.job }, { deps: graph }));
     assert.equal(canceled.status, 'canceled');
 

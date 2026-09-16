@@ -10,7 +10,9 @@ const CLIENT_URL = new URL('./session-runtime-agent-control-client.mjs', import.
 test('runtime shard Agent client sends serializable context and receives the routed result', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mixdog-agent-control-client-'));
   const entry = join(dir, 'client.mjs');
-  await writeFile(entry, `
+  await writeFile(
+    entry,
+    `
 process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID = String(process.pid);
 const client = await import(${JSON.stringify(CLIENT_URL)});
 const value = await client.executeRemoteAgentControl(
@@ -23,7 +25,9 @@ const value = await client.executeRemoteAgentControl(
   },
 );
 process.send({ type: 'report', value });
-`, 'utf8');
+`,
+    'utf8'
+  );
 
   try {
     const observed = await new Promise((resolve, reject) => {
@@ -32,7 +36,9 @@ process.send({ type: 'report', value });
         env: { ...process.env },
       });
       const timer = setTimeout(() => {
-        try { child.kill(); } catch {}
+        try {
+          child.kill();
+        } catch {}
         reject(new Error('agent control client test timed out'));
       }, 10_000);
       child.on('message', (message) => {
@@ -59,7 +65,9 @@ process.send({ type: 'report', value });
         }
         if (message?.type !== 'report') return;
         clearTimeout(timer);
-        try { child.kill(); } catch {}
+        try {
+          child.kill();
+        } catch {}
         resolve(message.value);
       });
       child.on('error', reject);

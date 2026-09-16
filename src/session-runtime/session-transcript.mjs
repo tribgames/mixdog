@@ -7,17 +7,18 @@ import { createTranscriptWriter } from '../runtime/shared/transcript-writer.mjs'
 import { mixdogHome } from '../runtime/shared/plugin-paths.mjs';
 import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
 
-export function createSessionTranscript({
-  getSession,
-  getCwd,
-}) {
+export function createSessionTranscript({ getSession, getCwd }) {
   let writer = null;
   let writerKey = '';
 
   return {
-    get transcriptWriter() { return writer; },
+    get transcriptWriter() {
+      return writer;
+    },
     // Session+cwd identity of the current writer binding.
-    get transcriptKey() { return writerKey; },
+    get transcriptKey() {
+      return writerKey;
+    },
     ensureSessionTranscriptWriter,
   };
 
@@ -45,8 +46,14 @@ export function createSessionTranscript({
         return false;
       }
     }
-    try { writer?.ensureConversationBackfill(session.messages); } catch { /* best-effort */ }
-    try { writer?.ensureTranscriptFile(); } catch (error) {
+    try {
+      writer?.ensureConversationBackfill(session.messages);
+    } catch {
+      /* best-effort */
+    }
+    try {
+      writer?.ensureTranscriptFile();
+    } catch (error) {
       process.stderr.write(`mixdog: transcript-writer: ensureTranscriptFile failed: ${error?.message || error}\n`);
     }
     return writer != null;

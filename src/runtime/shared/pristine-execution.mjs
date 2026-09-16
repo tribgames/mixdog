@@ -1,33 +1,16 @@
 import { createHash } from 'node:crypto';
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { replaceProviderAuthBindings } from './provider-auth-binding.mjs';
-import {
-  AGENT_PROVIDER_ENV_ALIASES,
-  getAgentApiKey,
-} from './provider-api-key.mjs';
+import { AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey } from './provider-api-key.mjs';
 import { clean } from './clean.mjs';
 
-const contractPath = fileURLToPath(
-  new URL('./pristine-execution-contract.json', import.meta.url),
-);
-const patchManifestPath = fileURLToPath(
-  new URL('../agent/orchestrator/tools/patch-manifest.json', import.meta.url),
-);
+const contractPath = fileURLToPath(new URL('./pristine-execution-contract.json', import.meta.url));
+const patchManifestPath = fileURLToPath(new URL('../agent/orchestrator/tools/patch-manifest.json', import.meta.url));
 
-const PRISTINE_EXECUTION_CONTRACT = Object.freeze(
-  JSON.parse(readFileSync(contractPath, 'utf8')),
-);
+const PRISTINE_EXECUTION_CONTRACT = Object.freeze(JSON.parse(readFileSync(contractPath, 'utf8')));
 
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
@@ -74,13 +57,15 @@ function buildMinimalPristineConfig({ provider, model, effort, fast } = {}) {
     agent: {
       ...cloneJson(PRISTINE_EXECUTION_CONTRACT.agentDefaults),
       providers: { [selectedProvider]: providerConfig },
-      presets: [{
-        id: 'exec-explicit-route',
-        name: 'EXEC EXPLICIT ROUTE',
-        type: 'agent',
-        tools: 'full',
-        ...route,
-      }],
+      presets: [
+        {
+          id: 'exec-explicit-route',
+          name: 'EXEC EXPLICIT ROUTE',
+          type: 'agent',
+          tools: 'full',
+          ...route,
+        },
+      ],
       default: 'exec-explicit-route',
       workflow: { active: 'headless' },
       workflowRoutes: {},
@@ -95,11 +80,7 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function createSelectedProviderPristineLoader({
-  config,
-  provider,
-  apiKey = null,
-} = {}) {
+function createSelectedProviderPristineLoader({ config, provider, apiKey = null } = {}) {
   const selectedProvider = clean(provider);
   const runtimeConfig = cloneJson(config?.agent || {});
   const selectedConfig = {
@@ -113,9 +94,7 @@ function createSelectedProviderPristineLoader({
 
 function hostDataDir(env) {
   if (clean(env.MIXDOG_DATA_DIR)) return resolve(env.MIXDOG_DATA_DIR);
-  const home = clean(env.MIXDOG_HOME)
-    ? resolve(env.MIXDOG_HOME)
-    : join(homedir(), '.mixdog');
+  const home = clean(env.MIXDOG_HOME) ? resolve(env.MIXDOG_HOME) : join(homedir(), '.mixdog');
   return join(home, 'data');
 }
 
@@ -124,11 +103,7 @@ function patchPlatformKey() {
   return `${os}-${process.arch}`;
 }
 
-function seedVerifiedPatchBinaryCache(
-  sourceDataDir,
-  dataDir,
-  { manifestPath = patchManifestPath } = {},
-) {
+function seedVerifiedPatchBinaryCache(sourceDataDir, dataDir, { manifestPath = patchManifestPath } = {}) {
   try {
     const sourcePatchDir = join(sourceDataDir, 'patch-bin');
     const manifestBytes = readFileSync(manifestPath);
@@ -157,15 +132,7 @@ function seedVerifiedPatchBinaryCache(
   }
 }
 
-function auditDocument({
-  provider,
-  model,
-  effort,
-  fast,
-  configBytes,
-  authMode,
-  catalogCount,
-}) {
+function auditDocument({ provider, model, effort, fast, configBytes, authMode, catalogCount }) {
   const contract = PRISTINE_EXECUTION_CONTRACT;
   return {
     schemaVersion: contract.schemaVersion,
@@ -182,9 +149,7 @@ function auditDocument({
       hostConfigRead: false,
       ...Object.fromEntries(contract.personalStateCounters.map((name) => [name, 0])),
     },
-    featuresEnabled: Object.fromEntries(
-      contract.disabledFeatures.map((name) => [name, false]),
-    ),
+    featuresEnabled: Object.fromEntries(contract.disabledFeatures.map((name) => [name, false])),
   };
 }
 
@@ -228,14 +193,14 @@ export function createPristineExecutionBoundary({
   const touchedKeys = new Set();
   const setEnv = (name, value) => {
     if (!touchedKeys.has(name)) {
-      originalEnv.set(name, Object.prototype.hasOwnProperty.call(env, name) ? env[name] : undefined);
+      originalEnv.set(name, Object.hasOwn(env, name) ? env[name] : undefined);
       touchedKeys.add(name);
     }
     env[name] = String(value);
   };
   const unsetEnv = (name) => {
     if (!touchedKeys.has(name)) {
-      originalEnv.set(name, Object.prototype.hasOwnProperty.call(env, name) ? env[name] : undefined);
+      originalEnv.set(name, Object.hasOwn(env, name) ? env[name] : undefined);
       touchedKeys.add(name);
     }
     delete env[name];
@@ -278,9 +243,7 @@ export function createPristineExecutionBoundary({
       }
     }
     const inheritedExecutionEnv = Object.fromEntries(
-      [...approvedNames]
-        .filter((name) => hostEnv[name] !== undefined)
-        .map((name) => [name, hostEnv[name]]),
+      [...approvedNames].filter((name) => hostEnv[name] !== undefined).map((name) => [name, hostEnv[name]])
     );
     const selectedProvider = clean(provider);
     const oauth = contract.oauthProviders[selectedProvider];

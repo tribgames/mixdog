@@ -11,13 +11,26 @@ function fixture(t) {
   const options = { dataDir, now: () => clock };
   const runtime = createGoalRuntime(options);
   const sessionId = 'execution';
-  const control = args => runtime.control(sessionId, args);
-  const call = async args => JSON.parse(await runtime.executeTool('goal', args, { sessionId }));
-  t.after(async () => { await runtime.close(); rmSync(dataDir, { recursive: true, force: true }); });
-  return { runtime, dataDir, options, sessionId, control, call, advance: ms => { clock += ms; } };
+  const control = (args) => runtime.control(sessionId, args);
+  const call = async (args) => JSON.parse(await runtime.executeTool('goal', args, { sessionId }));
+  t.after(async () => {
+    await runtime.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+  return {
+    runtime,
+    dataDir,
+    options,
+    sessionId,
+    control,
+    call,
+    advance: (ms) => {
+      clock += ms;
+    },
+  };
 }
 
-test('maximum time allows early verified completion without a ceremonial task row', async t => {
+test('maximum time allows early verified completion without a ceremonial task row', async (t) => {
   const f = fixture(t);
   const created = await f.control({ command: 'Deliver a single verified result --time 1h' });
   assert.equal(created.goal.timeMode, 'max');
@@ -27,7 +40,7 @@ test('maximum time allows early verified completion without a ceremonial task ro
   assert.ok(complete.remaining_ms > 0);
 });
 
-test('new sustained durations and unversioned stored durations retain their full commitment', async t => {
+test('new sustained durations and unversioned stored durations retain their full commitment', async (t) => {
   const f = fixture(t);
   await f.control({ command: 'Improve approved work --time 1h --time-mode duration' });
   await assert.rejects(f.call({ action: 'complete' }), /before the requested duration/);
@@ -39,10 +52,13 @@ test('new sustained durations and unversioned stored durations retain their full
   const restored = createGoalRuntime(f.options);
   t.after(() => restored.close());
   assert.equal(restored.snapshot(f.sessionId).timeMode, 'duration');
-  await assert.rejects(restored.executeTool('goal', { action: 'complete' }, { sessionId: f.sessionId }), /before the requested duration/);
+  await assert.rejects(
+    restored.executeTool('goal', { action: 'complete' }, { sessionId: f.sessionId }),
+    /before the requested duration/
+  );
 });
 
-test('time exhaustion stops continuations and cannot silently become an unlimited resume', async t => {
+test('time exhaustion stops continuations and cannot silently become an unlimited resume', async (t) => {
   const f = fixture(t);
   await f.control({ command: 'Deliver work --time 1m' });
   await f.runtime.startTurn(f.sessionId);
@@ -56,12 +72,15 @@ test('time exhaustion stops continuations and cannot silently become an unlimite
   assert.equal(f.runtime.continuation(f.sessionId).run, true);
 });
 
-test('model waiting requires every remaining task to depend on the user and a reason', async t => {
+test('model waiting requires every remaining task to depend on the user and a reason', async (t) => {
   const f = fixture(t);
-  const created = (await f.call({
-    action: 'create', objective: 'Deliver approved work',
-    tasks: [{ text: 'Implementation', status: 'pending', kind: 'work' }],
-  })).goal;
+  const created = (
+    await f.call({
+      action: 'create',
+      objective: 'Deliver approved work',
+      tasks: [{ text: 'Implementation', status: 'pending', kind: 'work' }],
+    })
+  ).goal;
   await assert.rejects(f.call({ action: 'pause', blocker: 'Choose an option' }), /continue available work/);
   await f.call({ action: 'update_tasks', updates: [{ id: created.tasks[0].id, status: 'awaiting_approval' }] });
   await assert.rejects(f.call({ action: 'pause' }), /blocker is required/);
@@ -72,7 +91,7 @@ test('model waiting requires every remaining task to depend on the user and a re
   assert.equal(f.runtime.snapshot(f.sessionId).timeUsedMs, 0);
 });
 
-test('blocking audit counts distinct consecutive turns, survives restart, and ignores duplicate reports', async t => {
+test('blocking audit counts distinct consecutive turns, survives restart, and ignores duplicate reports', async (t) => {
   const f = fixture(t);
   await f.control({ command: 'Deliver work' });
   for (let turn = 1; turn <= 2; turn++) {
@@ -88,19 +107,29 @@ test('blocking audit counts distinct consecutive turns, survives restart, and ig
   const restored = createGoalRuntime(f.options);
   t.after(() => restored.close());
   await restored.startTurn(f.sessionId);
-  const blocked = JSON.parse(await restored.executeTool('goal', {
-    action: 'block', blocker: 'External credentials unavailable',
-  }, { sessionId: f.sessionId }));
+  const blocked = JSON.parse(
+    await restored.executeTool(
+      'goal',
+      {
+        action: 'block',
+        blocker: 'External credentials unavailable',
+      },
+      { sessionId: f.sessionId }
+    )
+  );
   assert.equal(blocked.goal.status, 'blocked');
   assert.equal(restored.continuation(f.sessionId).run, false);
 });
 
-test('stop preserves unfinished work across restart and archives it before a replacement goal', async t => {
+test('stop preserves unfinished work across restart and archives it before a replacement goal', async (t) => {
   const f = fixture(t);
-  const created = (await f.call({
-    action: 'create', objective: 'Original objective',
-    tasks: [{ text: 'Unfinished deliverable', status: 'in_progress', kind: 'work' }],
-  })).goal;
+  const created = (
+    await f.call({
+      action: 'create',
+      objective: 'Original objective',
+      tasks: [{ text: 'Unfinished deliverable', status: 'in_progress', kind: 'work' }],
+    })
+  ).goal;
   const stopped = (await f.control({ action: 'stop', expectedGoalId: created.id })).goal;
   assert.equal(stopped.status, 'stopped');
   assert.equal(stopped.tasks[0].status, 'in_progress');
@@ -114,49 +143,73 @@ test('stop preserves unfinished work across restart and archives it before a rep
   assert.equal(restored.snapshot(f.sessionId), null);
   assert.equal(restored.continuation(f.sessionId).reason, 'missing');
   await restored.control(f.sessionId, { command: 'New objective' });
-  const history = JSON.parse(readFileSync(join(f.dataDir, 'goals', 'history', f.sessionId, `${created.id}.json`), 'utf8'));
+  const history = JSON.parse(
+    readFileSync(join(f.dataDir, 'goals', 'history', f.sessionId, `${created.id}.json`), 'utf8')
+  );
   assert.equal(history.goal.status, 'stopped');
   assert.deepEqual(history.goal.tasks, stopped.tasks);
 });
 
-test('goal editing preserves progress and rejects stale editor saves atomically', async t => {
+test('goal editing preserves progress and rejects stale editor saves atomically', async (t) => {
   const f = fixture(t);
-  const created = (await f.call({
-    action: 'create', objective: 'Original scope',
-    tasks: [{ text: 'Completed milestone', status: 'completed', kind: 'work' }],
-  })).goal;
-  const edit = (await f.control({
-    action: 'edit', expectedGoalId: created.id, revision: created.revision,
-    objective: 'Expanded scope', timeMode: 'duration', timeLimitMs: 60_000,
-  })).goal;
+  const created = (
+    await f.call({
+      action: 'create',
+      objective: 'Original scope',
+      tasks: [{ text: 'Completed milestone', status: 'completed', kind: 'work' }],
+    })
+  ).goal;
+  const edit = (
+    await f.control({
+      action: 'edit',
+      expectedGoalId: created.id,
+      revision: created.revision,
+      objective: 'Expanded scope',
+      timeMode: 'duration',
+      timeLimitMs: 60_000,
+    })
+  ).goal;
   assert.deepEqual(edit.tasks, created.tasks);
   assert.equal(edit.needsTaskReview, true);
-  await assert.rejects(f.control({ action: 'edit', objective: 'Stale scope', revision: created.revision }), /changed while editing/);
+  await assert.rejects(
+    f.control({ action: 'edit', objective: 'Stale scope', revision: created.revision }),
+    /changed while editing/
+  );
   assert.equal(f.runtime.snapshot(f.sessionId).objective, 'Expanded scope');
 });
 
 for (const priorStatus of ['paused', 'duration_reached', 'active']) {
-  test(`an approved additional round updates a ${priorStatus} Goal's time and checklist atomically`, async t => {
+  test(`an approved additional round updates a ${priorStatus} Goal's time and checklist atomically`, async (t) => {
     const f = fixture(t);
     const hour = 3_600_000;
-    const created = (await f.call({
-      action: 'create', objective: 'Expand revenue research without production changes',
-      time_limit_minutes: 180, time_mode: 'duration',
-      tasks: Array.from({ length: 11 }, (_, i) => ({
-        text: `Verified milestone ${i + 1}`, status: 'completed', kind: 'work',
-      })),
-    })).goal;
+    const created = (
+      await f.call({
+        action: 'create',
+        objective: 'Expand revenue research without production changes',
+        time_limit_minutes: 180,
+        time_mode: 'duration',
+        tasks: Array.from({ length: 11 }, (_, i) => ({
+          text: `Verified milestone ${i + 1}`,
+          status: 'completed',
+          kind: 'work',
+        })),
+      })
+    ).goal;
     f.advance(priorStatus === 'active' ? hour : 3 * hour);
     if (priorStatus === 'paused') await f.runtime.settleTurn(f.sessionId, { status: 'cancelled' });
     if (priorStatus === 'duration_reached') await f.runtime.settleTurn(f.sessionId, { status: 'done' });
     const before = (await f.call({ action: 'status' })).goal;
     assert.equal(before.status, priorStatus);
     const events = [];
-    f.runtime.subscribe(event => events.push(event));
-    const resumed = (await f.call({
-      action: 'resume', revision: before.revision, time_limit_minutes: 300,
-      tasks: [{ text: 'Find new matched revenue samples and another period', status: 'in_progress', kind: 'work' }],
-    })).goal;
+    f.runtime.subscribe((event) => events.push(event));
+    const resumed = (
+      await f.call({
+        action: 'resume',
+        revision: before.revision,
+        time_limit_minutes: 300,
+        tasks: [{ text: 'Find new matched revenue samples and another period', status: 'in_progress', kind: 'work' }],
+      })
+    ).goal;
     assert.equal(events.length, 1);
     assert.equal(resumed.id, created.id);
     assert.equal(resumed.status, 'active');
@@ -168,18 +221,31 @@ for (const priorStatus of ['paused', 'duration_reached', 'active']) {
     assert.equal(resumed.tasksTotal, 12);
     assert.deepEqual(resumed.tasks.slice(0, 11), created.tasks);
     assert.equal(f.runtime.continuation(f.sessionId).run, true);
-    assert.equal(JSON.parse(readFileSync(join(f.dataDir, 'goals', `${f.sessionId}.json`), 'utf8')).goal.timeLimitMs, resumed.timeLimitMs);
+    assert.equal(
+      JSON.parse(readFileSync(join(f.dataDir, 'goals', `${f.sessionId}.json`), 'utf8')).goal.timeLimitMs,
+      resumed.timeLimitMs
+    );
   });
 }
 
-test('resume changes a time mode only when supplied and preserves a plain continuation budget', async t => {
+test('resume changes a time mode only when supplied and preserves a plain continuation budget', async (t) => {
   const f = fixture(t);
-  await f.call({ action: 'create', objective: 'Continue approved work', time_limit_minutes: 180, time_mode: 'duration' });
+  await f.call({
+    action: 'create',
+    objective: 'Continue approved work',
+    time_limit_minutes: 180,
+    time_mode: 'duration',
+  });
   f.advance(60_000);
   const paused = (await f.control({ action: 'pause' })).goal;
-  const resumed = (await f.call({
-    action: 'resume', revision: paused.revision, time_limit_minutes: 300, time_mode: 'max',
-  })).goal;
+  const resumed = (
+    await f.call({
+      action: 'resume',
+      revision: paused.revision,
+      time_limit_minutes: 300,
+      time_mode: 'max',
+    })
+  ).goal;
   assert.equal(resumed.timeMode, 'max');
   assert.equal(resumed.remainingMs, 300 * 60_000);
   f.advance(60_000);
@@ -190,7 +256,7 @@ test('resume changes a time mode only when supplied and preserves a plain contin
   assert.equal(continued.remainingMs, 299 * 60_000);
 });
 
-test('invalid or stale additional-round mutations cannot partially extend time or append tasks', async t => {
+test('invalid or stale additional-round mutations cannot partially extend time or append tasks', async (t) => {
   const f = fixture(t);
   await f.call({ action: 'create', objective: 'Keep approved work', time_limit_minutes: 180 });
   f.advance(60_000);
@@ -203,35 +269,49 @@ test('invalid or stale additional-round mutations cannot partially extend time o
     [{ time_limit_minutes: 300, revision: before.revision - 1 }, /stale Goal revision/],
     [{ time_limit_minutes: 300, updates: [{ id: 'missing-task', status: 'completed' }] }, /unknown.*task/i],
   ]) {
-    await assert.rejects(f.call({
-      action: 'resume', revision: before.revision,
-      tasks: [{ text: 'New round', status: 'in_progress', kind: 'work' }],
-      ...changes,
-    }), error);
+    await assert.rejects(
+      f.call({
+        action: 'resume',
+        revision: before.revision,
+        tasks: [{ text: 'New round', status: 'in_progress', kind: 'work' }],
+        ...changes,
+      }),
+      error
+    );
     assert.deepEqual(f.runtime.snapshot(f.sessionId), before);
   }
 });
 
-test('a new round after completion archives the prior evidence and starts its own budget', async t => {
+test('a new round after completion archives the prior evidence and starts its own budget', async (t) => {
   const f = fixture(t);
-  const created = (await f.call({
-    action: 'create', objective: 'Prior research', time_limit_minutes: 180,
-    tasks: [{ text: 'Verified result with retained evidence', status: 'completed', kind: 'work' }],
-  })).goal;
+  const created = (
+    await f.call({
+      action: 'create',
+      objective: 'Prior research',
+      time_limit_minutes: 180,
+      tasks: [{ text: 'Verified result with retained evidence', status: 'completed', kind: 'work' }],
+    })
+  ).goal;
   f.advance(60_000);
   await f.call({ action: 'complete' });
   const completed = f.runtime.snapshot(f.sessionId);
-  const next = (await f.call({
-    action: 'create', objective: 'Additional research', time_limit_minutes: 300,
-    tasks: [{ text: 'New research scope', status: 'in_progress', kind: 'work' }],
-  })).goal;
+  const next = (
+    await f.call({
+      action: 'create',
+      objective: 'Additional research',
+      time_limit_minutes: 300,
+      tasks: [{ text: 'New research scope', status: 'in_progress', kind: 'work' }],
+    })
+  ).goal;
   assert.notEqual(next.id, created.id);
   assert.equal(next.timeLimitMs, 300 * 60_000);
   assert.equal(next.timeUsedMs, 0);
   assert.equal(next.remainingMs, 300 * 60_000);
   assert.equal(next.tasksCompleted, 0);
   assert.equal(next.tasksTotal, 1);
-  const archived = JSON.parse(readFileSync(join(f.dataDir, 'goals', 'history', f.sessionId, `${created.id}.json`), 'utf8')).goal;
+  const archived = JSON.parse(
+    readFileSync(join(f.dataDir, 'goals', 'history', f.sessionId, `${created.id}.json`), 'utf8')
+  ).goal;
   assert.equal(archived.status, 'complete');
   assert.equal(archived.timeUsedMs, completed.timeUsedMs);
   assert.deepEqual(archived.tasks, completed.tasks);

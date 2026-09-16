@@ -14,23 +14,32 @@ test('channel inbound submits directly to its pinned session without a UI client
     }),
   });
 
-  assert.equal(route('notifications/claude/channel', {
-    content: 'discord inbound',
-    meta: { instruction: 'answer discord inbound' },
-  }), true);
+  assert.equal(
+    route('notifications/claude/channel', {
+      content: 'discord inbound',
+      meta: { instruction: 'answer discord inbound' },
+    }),
+    true
+  );
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(calls, [{
-    sessionId: 'sess_linked',
-    prompt: 'answer discord inbound',
-    options: { source: 'channel' },
-  }]);
+  assert.deepEqual(calls, [
+    {
+      sessionId: 'sess_linked',
+      prompt: 'answer discord inbound',
+      options: { source: 'channel' },
+    },
+  ]);
 });
 
 test('channel router consumes only channel inbound notifications', () => {
   let calls = 0;
   const route = createChannelSessionRouter({
     getSessionId: () => 'sess_linked',
-    getSessionService: () => ({ submitSession() { calls += 1; } }),
+    getSessionService: () => ({
+      submitSession() {
+        calls += 1;
+      },
+    }),
   });
   assert.equal(route('notifications/mixdog/remote', { state: 'acquired' }), false);
   assert.equal(calls, 0);

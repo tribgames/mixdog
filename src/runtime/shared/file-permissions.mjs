@@ -14,7 +14,11 @@ function systemToolPath(name) {
 function currentUserSid(output) {
   // whoami /user /fo csv /nh returns one quoted name,SID record. Read the
   // identity field, not a SID-shaped display name or an assumed authority.
-  return String(output).trim().match(/^"(?:[^"]|"")*","(S-\d+(?:-\d+)+)"$/)?.[1] || null;
+  return (
+    String(output)
+      .trim()
+      .match(/^"(?:[^"]|"")*","(S-\d+(?:-\d+)+)"$/)?.[1] || null
+  );
 }
 
 function unresolvedUserError() {

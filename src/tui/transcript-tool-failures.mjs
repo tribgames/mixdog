@@ -61,7 +61,9 @@ export function isFullyFailedToolBatch(item) {
   const explicit = Number(item.errorCount);
   const failed = Number.isFinite(explicit)
     ? Math.max(0, Math.min(count, Math.floor(explicit)))
-    : item.isError ? count : 0;
+    : item.isError
+      ? count
+      : 0;
   return done >= count && failed >= count;
 }
 

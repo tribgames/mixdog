@@ -22,9 +22,7 @@ export function nonNegativeNumber(value: unknown): number {
 
 export function resolveContextUsage(input: ContextUsageInput) {
   const used = nonNegativeNumber(input.usedTokens);
-  const limit = nonNegativeNumber(
-    input.contextWindow || input.displayContextWindow || input.rawContextWindow,
-  );
+  const limit = nonNegativeNumber(input.contextWindow || input.displayContextWindow || input.rawContextWindow);
   if (!used || !limit) return null;
   const percent = contextPercent(used, limit);
   return { used, limit, percent };
@@ -35,7 +33,12 @@ export function resolveContextDisplayUsage(input: ContextDisplayUsageInput) {
     ...input,
     stats: String(input.sessionId || '').trim() ? input.stats : {},
   }) as {
-    used: number | null; limit: number; percent: number | null; known: boolean;
-    source: 'last_api_request' | 'pending' | 'unavailable'; updatedAt: number | null; estimated: false;
+    used: number | null;
+    limit: number;
+    percent: number | null;
+    known: boolean;
+    source: 'last_api_request' | 'pending' | 'unavailable';
+    updatedAt: number | null;
+    estimated: false;
   };
 }

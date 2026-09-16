@@ -1,17 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 // react-markdown and the remark/unified ecosystem are heavy; they load as a
 // separate lazy chunk (MarkdownBody) so the first paint never pays for them.
-import {
-  ArrowDown
-} from "lucide-react";
+import { ArrowDown } from 'lucide-react';
 import type {
   DesktopAbortOptions,
   DesktopModelSelection,
@@ -19,44 +9,38 @@ import type {
   DesktopPromptContent,
   DesktopSubmitOptions,
   DesktopWorkflowState,
-  SessionSnapshot
-} from "../shared/contract";
-import { t } from "./i18n";
-import { ErrorNotice } from "./ErrorNotice";
-import {
-  approvalInstanceKey,
-  transcriptTurnKeys
-} from "./renderer-logic.mjs";
-import {
-  type CommandSurface as CommandSurfaceName,
-  type SettingsSection
-} from "./slash-commands";
+  SessionSnapshot,
+} from '../shared/contract';
+import { t } from './i18n';
+import { ErrorNotice } from './ErrorNotice';
+import { approvalInstanceKey, transcriptTurnKeys } from './renderer-logic.mjs';
+import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 
-import { ApprovalCard } from "./ApprovalCard";
-import { Composer, ProjectContextSelector, WorkflowSelect } from "./Composer";
-import { BrandTile } from "./WorkspaceEmptyState";
-import { EMPTY_TRANSCRIPT_ITEMS, type RecordValue, type Snapshot, type TranscriptItem } from "./desktop-types";
-import { ComposerDock } from "./ComposerDock";
-import { asRecord } from "./text-format";
-import { TranscriptList } from "./TranscriptList";
-import { MarkdownOpenFileContext, MarkdownProjectContext } from "./MarkdownLink";
+import { ApprovalCard } from './ApprovalCard';
+import { Composer, ProjectContextSelector, WorkflowSelect } from './Composer';
+import { BrandTile } from './WorkspaceEmptyState';
+import { EMPTY_TRANSCRIPT_ITEMS, type RecordValue, type Snapshot, type TranscriptItem } from './desktop-types';
+import { ComposerDock } from './ComposerDock';
+import { asRecord } from './text-format';
+import { TranscriptList } from './TranscriptList';
+import { MarkdownOpenFileContext, MarkdownProjectContext } from './MarkdownLink';
 import {
   appendLiveTranscriptRows,
   isCompletionTranscriptItem,
   projectSettledTranscriptRows,
   turnPromptText,
   type TranscriptRowModel,
-} from "./transcript-rows";
+} from './transcript-rows';
 import {
   nextDraftTranscriptNamespace,
   rememberTranscriptRowNamespace,
   readTranscriptVirtualSnapshot,
   transcriptRowNamespace,
-} from "./transcript-virtual-cache";
-import { useTranscriptHistory } from "./use-transcript-history";
-import { LiveActivity, resetToolDisclosureScope, ToolActivityGroup, TranscriptRow } from "./TranscriptView";
-import { useTranscriptFollow } from "./use-transcript-follow";
-import { useTranscriptReveal } from "./use-transcript-reveal";
+} from './transcript-virtual-cache';
+import { useTranscriptHistory } from './use-transcript-history';
+import { LiveActivity, resetToolDisclosureScope, ToolActivityGroup, TranscriptRow } from './TranscriptView';
+import { useTranscriptFollow } from './use-transcript-follow';
+import { useTranscriptReveal } from './use-transcript-reveal';
 import {
   desktopPromptDisplayText,
   nextDesktopSubmissionId,
@@ -66,9 +50,9 @@ import {
   settledUserRowCount,
   unsettledQueueEntries,
   type PendingPromptItem,
-} from "./conversation-prompt-items";
+} from './conversation-prompt-items';
 
-export type { PendingPromptItem } from "./conversation-prompt-items";
+export type { PendingPromptItem } from './conversation-prompt-items';
 export {
   desktopPromptDisplayText,
   nextDesktopSubmissionId,
@@ -77,7 +61,7 @@ export {
   promptWaitsBehindActiveTurn,
   settledUserRowCount,
   unsettledQueueEntries,
-} from "./conversation-prompt-items";
+} from './conversation-prompt-items';
 
 export function Conversation({
   snapshot,
@@ -101,7 +85,7 @@ export function Conversation({
   activeProjectLabel,
   onSelectProject,
   draftMode = false,
-  draftId = "",
+  draftId = '',
   draftModelSelection,
   draftWorkflow,
   onDraftModelSelection,
@@ -211,9 +195,7 @@ export function Conversation({
   } = useTranscriptFollow({
     viewport,
     content,
-    sessionKey: draftMode
-      ? "new-task"
-      : String(routeSnapshot.sessionId || "new-task"),
+    sessionKey: draftMode ? 'new-task' : String(routeSnapshot.sessionId || 'new-task'),
     contentMounted: !transcriptPending || timelineMounted.current,
     setAnchorBottomRef: setTranscriptAnchorBottomRef,
     scrollToEndRef,
@@ -228,23 +210,36 @@ export function Conversation({
   draftModeRef.current = draftMode;
   // Pane-local session runtime addressing: abort and tool approvals always target the
   // session THIS surface renders, never the globally active route.
-  const routeSessionIdRef = useRef("");
-  routeSessionIdRef.current = String(routeSnapshot.sessionId || "");
-  const visibleWarmPaintHandoff = warmPaintHandoff
-    && !suppressDraftSubmitPaintHandoff.current;
+  const routeSessionIdRef = useRef('');
+  routeSessionIdRef.current = String(routeSnapshot.sessionId || '');
+  const visibleWarmPaintHandoff = warmPaintHandoff && !suppressDraftSubmitPaintHandoff.current;
   useEffect(() => {
     if (!draftMode && !warmPaintHandoff) {
       suppressDraftSubmitPaintHandoff.current = false;
     }
   }, [draftMode, warmPaintHandoff]);
   const composerActions = useRef({
-    submit, invokeResult, applySnapshot, onNewTask, onResumeSession,
-    onOpenSessions, onOpenProjects, onOpenSettings, onOpenCommandSurface,
+    submit,
+    invokeResult,
+    applySnapshot,
+    onNewTask,
+    onResumeSession,
+    onOpenSessions,
+    onOpenProjects,
+    onOpenSettings,
+    onOpenCommandSurface,
     onClearToNewTask,
   });
   composerActions.current = {
-    submit, invokeResult, applySnapshot, onNewTask, onResumeSession,
-    onOpenSessions, onOpenProjects, onOpenSettings, onOpenCommandSurface,
+    submit,
+    invokeResult,
+    applySnapshot,
+    onNewTask,
+    onResumeSession,
+    onOpenSessions,
+    onOpenProjects,
+    onOpenSettings,
+    onOpenCommandSurface,
     onClearToNewTask,
   };
   // TUI parity: a prompt only reads as "Queued" when it actually waits behind
@@ -259,8 +254,8 @@ export function Conversation({
     const rows: Array<{ id: string; text: string }> = [];
     for (let index = settledItems.length - 1; index >= 0 && rows.length < 20; index -= 1) {
       const item = settledItems[index];
-      if (!item || item.kind !== "user" || item.id == null) continue;
-      const text = String(item.text || "").trim();
+      if (!item || item.kind !== 'user' || item.id == null) continue;
+      const text = String(item.text || '').trim();
       if (!text) continue;
       rows.push({ id: String(item.id), text });
     }
@@ -278,18 +273,14 @@ export function Conversation({
   // A tail whose id already settled before the final item is a delayed lane
   // publication. It must not reopen old output or leave a synthetic Thinking
   // row behind after the actual turn has moved on.
-  const activeStreamingTail = streamingTail
-    && (tailSettledIndex < 0 || tailSettledIndex === settledItems.length - 1)
-    ? streamingTail
-    : null;
+  const activeStreamingTail =
+    streamingTail && (tailSettledIndex < 0 || tailSettledIndex === settledItems.length - 1) ? streamingTail : null;
   const tailAppended = Boolean(activeStreamingTail) && tailSettledIndex < 0;
   const liveItemCount = settledItems.length + (tailAppended ? 1 : 0);
-  const transcriptSessionKey = draftMode
-    ? 'new-task'
-    : String(routeSnapshot.sessionId || 'new-task');
+  const transcriptSessionKey = draftMode ? 'new-task' : String(routeSnapshot.sessionId || 'new-task');
   const requestEarlierTranscript = useTranscriptHistory(
-    draftMode ? "" : String(routeSnapshot.sessionId || ""),
-    settledItems.length,
+    draftMode ? '' : String(routeSnapshot.sessionId || ''),
+    settledItems.length
   );
   const previousTranscriptSessionKey = useRef(transcriptSessionKey);
   // A pane's OWN draft -> session promotion must NOT rebuild the timeline. The
@@ -298,8 +289,8 @@ export function Conversation({
   // key. Keying them by the session key remounted the list mid-turn, dropped
   // every measured row, and repainted the first prompt from the flat estimate
   // (user: 첫 프롬 입력 후 화면이 툭 튀고 말풍선이 엉뚱한 위치로 튄다).
-  const transcriptIdentity = useRef("");
-  const transcriptIdentitySource = useRef("");
+  const transcriptIdentity = useRef('');
+  const transcriptIdentitySource = useRef('');
   // Set on the promotion render, where the submit marker is still armed, and
   // consumed by the effect below; never cleared in render, so a repeated
   // render of the same commit cannot lose it.
@@ -309,9 +300,10 @@ export function Conversation({
   // whose Markdown-readiness flag lags one tick would otherwise discard every
   // measured row exactly like a remount.
   if (transcriptIdentitySource.current !== transcriptSessionKey) {
-    const ownPromotion = transcriptIdentitySource.current === 'new-task'
-      && transcriptSessionKey !== 'new-task'
-      && suppressDraftSubmitPaintHandoff.current;
+    const ownPromotion =
+      transcriptIdentitySource.current === 'new-task' &&
+      transcriptSessionKey !== 'new-task' &&
+      suppressDraftSubmitPaintHandoff.current;
     transcriptIdentitySource.current = transcriptSessionKey;
     if (ownPromotion) {
       promotedOwnDraft.current = true;
@@ -319,12 +311,11 @@ export function Conversation({
       // key, so the draft's namespace outlives this mount.
       rememberTranscriptRowNamespace(transcriptSessionKey, transcriptIdentity.current);
     } else {
-      transcriptIdentity.current = transcriptSessionKey === 'new-task'
-        ? nextDraftTranscriptNamespace()
-        : transcriptRowNamespace(transcriptSessionKey);
-      timelineMounted.current = Boolean(
-        readTranscriptVirtualSnapshot(transcriptSessionKey)?.measurements?.length,
-      );
+      transcriptIdentity.current =
+        transcriptSessionKey === 'new-task'
+          ? nextDraftTranscriptNamespace()
+          : transcriptRowNamespace(transcriptSessionKey);
+      timelineMounted.current = Boolean(readTranscriptVirtualSnapshot(transcriptSessionKey)?.measurements?.length);
     }
   }
   const showTranscriptTimeline = !transcriptPending || timelineMounted.current;
@@ -334,7 +325,7 @@ export function Conversation({
   // expansions from an earlier visit reopened them "randomly"). Idempotent
   // render-time module-map mutation; focus swaps keep the same key and do
   // not reset.
-  const disclosureVisitKey = useRef("");
+  const disclosureVisitKey = useRef('');
   if (disclosureVisitKey.current !== transcriptSessionKey) {
     disclosureVisitKey.current = transcriptSessionKey;
     resetToolDisclosureScope(transcriptSessionKey);
@@ -358,23 +349,22 @@ export function Conversation({
   // transcript (user report).
   const unsettledSessionQueue = useMemo(
     () => unsettledQueueEntries(snapshot.queued, settledItems),
-    [settledItems, snapshot.queued],
+    [settledItems, snapshot.queued]
   );
   const sessionQueuedIdKey = useMemo(
-    () => unsettledSessionQueue
-      .map((entry) => String(asRecord(entry)?.id ?? ""))
-      .join("\u0000"),
-    [unsettledSessionQueue],
+    () => unsettledSessionQueue.map((entry) => String(asRecord(entry)?.id ?? '')).join('\u0000'),
+    [unsettledSessionQueue]
   );
   const sessionQueuedIds = useMemo(
-    () => new Set(sessionQueuedIdKey.split("\u0000").filter(Boolean)),
-    [sessionQueuedIdKey],
+    () => new Set(sessionQueuedIdKey.split('\u0000').filter(Boolean)),
+    [sessionQueuedIdKey]
   );
   const pendingPromptItems = useMemo(
-    () => pendingPromptTranscriptItems(optimisticPrompts, settledItems)
-      .filter((item) => item.queuedBehindTurn !== true
-        || !sessionQueuedIds.has(String(item.id))),
-    [sessionQueuedIds, optimisticPrompts, settledItems],
+    () =>
+      pendingPromptTranscriptItems(optimisticPrompts, settledItems).filter(
+        (item) => item.queuedBehindTurn !== true || !sessionQueuedIds.has(String(item.id))
+      ),
+    [sessionQueuedIds, optimisticPrompts, settledItems]
   );
   // A prompt submitted BEHIND an active turn belongs to the reserved list from
   // its FIRST frame. Keying its transcript row on the session runtime's queue
@@ -385,15 +375,15 @@ export function Conversation({
   // session runtime reuses for the queue entry.
   const transcriptPendingPromptItems = useMemo(
     () => pendingPromptItems.filter((item) => item.queuedBehindTurn !== true),
-    [pendingPromptItems],
+    [pendingPromptItems]
   );
   const localQueuedPrompts = useMemo(
     () => pendingPromptItems.filter((item) => item.queuedBehindTurn === true),
-    [pendingPromptItems],
+    [pendingPromptItems]
   );
   const pendingPromptIds = useMemo(
     () => transcriptPendingPromptItems.map((item) => item.id),
-    [transcriptPendingPromptItems],
+    [transcriptPendingPromptItems]
   );
   // The composer's reserved list = the session runtime queue plus the submits it has not
   // published yet. Local entries carry the submission id, so the session runtime entry
@@ -401,9 +391,7 @@ export function Conversation({
   const composerQueued = useMemo(() => {
     const sessionQueue = unsettledSessionQueue;
     if (localQueuedPrompts.length === 0) return sessionQueue;
-    const published = new Set(sessionQueue
-      .map((entry) => String(asRecord(entry)?.id ?? ""))
-      .filter(Boolean));
+    const published = new Set(sessionQueue.map((entry) => String(asRecord(entry)?.id ?? '')).filter(Boolean));
     const local = localQueuedPrompts
       .filter((item) => !published.has(String(item.id)))
       .map((item) => ({
@@ -425,10 +413,8 @@ export function Conversation({
   // turn's review bar/reservation remains fixed above the composer while the
   // next response begins streaming.
   const reviewItems = useMemo(
-    () => transcriptPendingPromptItems.length > 0
-      ? [...settledItems, ...transcriptPendingPromptItems]
-      : settledItems,
-    [settledItems, transcriptPendingPromptItems],
+    () => (transcriptPendingPromptItems.length > 0 ? [...settledItems, ...transcriptPendingPromptItems] : settledItems),
+    [settledItems, transcriptPendingPromptItems]
   );
   // Close previous-turn chrome with the optimistic row. The goal owns a
   // separate snapshot lane, so its mask must survive transcript settlement;
@@ -436,8 +422,7 @@ export function Conversation({
   const goalSubmitScopeRef = useRef(transcriptSessionKey);
   goalSubmitScopeRef.current = transcriptSessionKey;
   const goalSubmission = useRef<{ id: string; scope: string } | null>(null);
-  const goalSubmissionId = goalSubmission.current?.scope === transcriptSessionKey
-    ? goalSubmission.current.id : "";
+  const goalSubmissionId = goalSubmission.current?.scope === transcriptSessionKey ? goalSubmission.current.id : '';
   useEffect(() => {
     if (previousTranscriptSessionKey.current === transcriptSessionKey) return;
     previousTranscriptSessionKey.current = transcriptSessionKey;
@@ -454,10 +439,12 @@ export function Conversation({
     // Neither host acknowledgement nor queue publication is settlement: the
     // optimistic card is dropped from state only once its own durable row is
     // in the transcript.
-    const acknowledged = new Set(settledItems
-      .map((item) => item?.id)
-      .filter((id) => id !== undefined && id !== null)
-      .map(String));
+    const acknowledged = new Set(
+      settledItems
+        .map((item) => item?.id)
+        .filter((id) => id !== undefined && id !== null)
+        .map(String)
+    );
     if (acknowledged.size === 0) return;
     setOptimisticPrompts((current) => {
       const next = current.filter((item) => !acknowledged.has(String(item.id)));
@@ -467,74 +454,76 @@ export function Conversation({
   // A same-id live item replaces the last settled row in the projection. Its
   // selector-driven renderer still updates independently, but now occupies the
   // same virtual row and measurement path as settled output.
-  const tailReplacesLastSettled = Boolean(activeStreamingTail)
-    && tailSettledIndex === settledItems.length - 1;
+  const tailReplacesLastSettled = Boolean(activeStreamingTail) && tailSettledIndex === settledItems.length - 1;
   const settledRowItems = useMemo(
     () => (tailReplacesLastSettled ? settledItems.slice(0, -1) : settledItems),
-    [settledItems, tailReplacesLastSettled],
+    [settledItems, tailReplacesLastSettled]
   );
-  const failedTurns = useMemo(
-    () => new Set(snapshot.failedTurnKeys || []),
-    [snapshot.failedTurnKeys],
-  );
+  const failedTurns = useMemo(() => new Set(snapshot.failedTurnKeys || []), [snapshot.failedTurnKeys]);
   const precomputedTurnKeys = Array.isArray(snapshot.transcriptTurnKeys)
-    ? snapshot.transcriptTurnKeys as string[]
+    ? (snapshot.transcriptTurnKeys as string[])
     : null;
-  const settledTurnKeys = useMemo(() => (
-    precomputedTurnKeys?.length === settledItems.length
-      ? precomputedTurnKeys
-      : transcriptTurnKeys(settledItems)
-  ), [precomputedTurnKeys, settledItems]);
+  const settledTurnKeys = useMemo(
+    () =>
+      precomputedTurnKeys?.length === settledItems.length ? precomputedTurnKeys : transcriptTurnKeys(settledItems),
+    [precomputedTurnKeys, settledItems]
+  );
   // ONE projection owns visibility, completion folding, and failed-turn status
   // rows, so the virtual list never carries invisible or zero-height rows.
   // The settled half re-runs only when settled items change; each streaming
   // tick appends the live tail onto the memoized settled rows instead of
   // re-projecting the whole transcript.
-  const settledProjection = useMemo(() => projectSettledTranscriptRows({
-    sessionKey: transcriptIdentity.current,
-    items: settledRowItems,
-    turnKeys: settledTurnKeys,
-    failedTurns,
-  }), [failedTurns, settledRowItems, settledTurnKeys, transcriptSessionKey]);
-  const transcriptRows = useMemo(() => appendLiveTranscriptRows({
-    sessionKey: transcriptIdentity.current,
-    settled: settledProjection,
-    pendingItems: transcriptPendingPromptItems,
-    liveItem: activeStreamingTail,
-    thinking: Boolean(
-      snapshot.busy
-      || snapshot.commandBusy
-      || activeStreamingTail
-      || optimisticActivityStartedAt
-    ),
-  }), [
-    optimisticActivityStartedAt,
-    settledProjection,
-    transcriptPendingPromptItems,
-    snapshot.busy,
-    snapshot.commandBusy,
-    activeStreamingTail,
-  ]);
+  const settledProjection = useMemo(
+    () =>
+      projectSettledTranscriptRows({
+        sessionKey: transcriptIdentity.current,
+        items: settledRowItems,
+        turnKeys: settledTurnKeys,
+        failedTurns,
+      }),
+    [failedTurns, settledRowItems, settledTurnKeys, transcriptSessionKey]
+  );
+  const transcriptRows = useMemo(
+    () =>
+      appendLiveTranscriptRows({
+        sessionKey: transcriptIdentity.current,
+        settled: settledProjection,
+        pendingItems: transcriptPendingPromptItems,
+        liveItem: activeStreamingTail,
+        thinking: Boolean(snapshot.busy || snapshot.commandBusy || activeStreamingTail || optimisticActivityStartedAt),
+      }),
+    [
+      optimisticActivityStartedAt,
+      settledProjection,
+      transcriptPendingPromptItems,
+      snapshot.busy,
+      snapshot.commandBusy,
+      activeStreamingTail,
+    ]
+  );
   const completionAnimationKeyByItem = useMemo(() => {
     const keys = new Map<TranscriptItem, string>();
     settledItems.forEach((item, index) => {
-      if (item?.kind !== "statusdone" && item?.kind !== "turndone") return;
+      if (item?.kind !== 'statusdone' && item?.kind !== 'turndone') return;
       const id = item.id;
-      keys.set(item, id !== undefined && id !== null
-        ? `${transcriptSessionKey}:${String(id)}`
-        : `${transcriptSessionKey}:${item.kind}:${index}`);
+      keys.set(
+        item,
+        id !== undefined && id !== null
+          ? `${transcriptSessionKey}:${String(id)}`
+          : `${transcriptSessionKey}:${item.kind}:${index}`
+      );
     });
     return keys;
   }, [settledItems, transcriptSessionKey]);
   const currentCompletionAnimationKeys = useMemo(
     () => new Set(completionAnimationKeyByItem.values()),
-    [completionAnimationKeyByItem],
+    [completionAnimationKeyByItem]
   );
   const transcriptHydrated = settledItems.length > 0;
   const transcriptRevealed = useTranscriptReveal({
     identity: transcriptIdentity.current,
     enabled: showTranscriptTimeline && transcriptRows.length > 0,
-    draft: draftMode || transcriptSessionKey === "new-task",
+    draft: draftMode || transcriptSessionKey === 'new-task',
     viewport,
     content,
     hasScrollGesture: hasTranscriptScrollGesture,
@@ -551,11 +540,10 @@ export function Conversation({
     hydrated: transcriptHydrated,
     keys: new Set(currentCompletionAnimationKeys),
   });
-  const freshCompletionAnimationKeys = seenCompletionFrame.current.sessionKey === transcriptSessionKey
-    && seenCompletionFrame.current.hydrated
-    ? new Set([...currentCompletionAnimationKeys]
-      .filter((key) => !seenCompletionFrame.current.keys.has(key)))
-    : new Set<string>();
+  const freshCompletionAnimationKeys =
+    seenCompletionFrame.current.sessionKey === transcriptSessionKey && seenCompletionFrame.current.hydrated
+      ? new Set([...currentCompletionAnimationKeys].filter((key) => !seenCompletionFrame.current.keys.has(key)))
+      : new Set<string>();
   useLayoutEffect(() => {
     const seen = seenCompletionFrame.current;
     if (seen.sessionKey !== transcriptSessionKey) {
@@ -576,7 +564,7 @@ export function Conversation({
   }, [resumeFollow]);
   // A session route change resumes at the latest row. Measurement
   // snapshots survive re-entry, but a stale per-session scroll offset does not.
-  const armedFollowSessionKey = useRef("");
+  const armedFollowSessionKey = useRef('');
   useLayoutEffect(() => {
     if (armedFollowSessionKey.current === transcriptSessionKey) return;
     armedFollowSessionKey.current = transcriptSessionKey;
@@ -595,7 +583,7 @@ export function Conversation({
   // only re-arms on a scroll event or a VIEWPORT resize, and a compaction
   // shrinks the CONTENT, so auto-scroll stayed released for the rest of the
   // session (user: 컴팩트 상황에서 자동스크롤이 풀린다).
-  const transcriptSwapRef = useRef({ sessionKey: "", count: 0 });
+  const transcriptSwapRef = useRef({ sessionKey: '', count: 0 });
   useLayoutEffect(() => {
     const count = settledItems.length;
     const previous = transcriptSwapRef.current;
@@ -619,25 +607,19 @@ export function Conversation({
     if (element.scrollHeight - element.clientHeight > 1) return;
     armFollow();
   }, [armFollow, following, transcriptRows, viewport]);
-  const shouldAnchorTranscriptBottom = following
-    || armedFollowSessionKey.current !== transcriptSessionKey;
+  const shouldAnchorTranscriptBottom = following || armedFollowSessionKey.current !== transcriptSessionKey;
   // Submit re-arms follow. The new row is an append, so virtual-core's
   // followOnAppend is the only end write.
   const armFollowOnSubmitRef = useRef(armFollow);
   armFollowOnSubmitRef.current = armFollow;
-  const composerSubmit = useCallback(async (
-    content: DesktopPromptContent,
-    options?: DesktopSubmitOptions,
-  ) => {
+  const composerSubmit = useCallback(async (content: DesktopPromptContent, options?: DesktopSubmitOptions) => {
     const submittedAt = Number(options?.submittedAt);
-    const trackedSubmittedAt = Number.isFinite(submittedAt) && submittedAt > 0
-      ? submittedAt
-      : Date.now();
-    const submissionId = String(options?.id || "").trim() || nextDesktopSubmissionId();
+    const trackedSubmittedAt = Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : Date.now();
+    const submissionId = String(options?.id || '').trim() || nextDesktopSubmissionId();
     const images = pendingPromptImages(options);
     const optimistic: PendingPromptItem = {
       id: submissionId,
-      kind: "user",
+      kind: 'user',
       text: desktopPromptDisplayText(content, options),
       pending: true,
       accepted: false,
@@ -654,55 +636,54 @@ export function Conversation({
     if (!queuedBehindTurnAtSubmit.current) {
       goalSubmission.current = { id: submissionId, scope: goalSubmitScopeRef.current };
     }
-    setOptimisticPrompts((current) => [
-      ...current.filter((item) => item.id !== submissionId),
-      optimistic,
-    ]);
+    setOptimisticPrompts((current) => [...current.filter((item) => item.id !== submissionId), optimistic]);
     window.mixdogDesktop?.perfLog?.(`prompt-submit phase=renderer-queued id=${submissionId}`);
     armFollowOnSubmitRef.current();
     const acceptedStartedAt = performance.now();
     let accepted: unknown;
     try {
-      accepted = await composerActions.current.invokeResult(
-        () => composerActions.current.submit(content, {
+      accepted = await composerActions.current.invokeResult(() =>
+        composerActions.current.submit(content, {
           ...options,
           id: submissionId,
           submittedAt: trackedSubmittedAt,
-        }),
+        })
       );
     } catch (error) {
       if (materializingDraft) suppressDraftSubmitPaintHandoff.current = false;
       if (goalSubmission.current?.id === submissionId) goalSubmission.current = null;
-      setOptimisticPrompts((current) =>
-        current.filter((item) => String(item.id) !== submissionId));
+      setOptimisticPrompts((current) => current.filter((item) => String(item.id) !== submissionId));
       throw error;
     }
     if (accepted !== true && materializingDraft) {
       suppressDraftSubmitPaintHandoff.current = false;
     }
     if (accepted !== true && goalSubmission.current?.id === submissionId) goalSubmission.current = null;
-    setOptimisticPrompts((current) => current.flatMap((item) => {
-      if (String(item.id) !== submissionId) return [item];
-      return accepted === true ? [{ ...item, accepted: true }] : [];
-    }));
+    setOptimisticPrompts((current) =>
+      current.flatMap((item) => {
+        if (String(item.id) !== submissionId) return [item];
+        return accepted === true ? [{ ...item, accepted: true }] : [];
+      })
+    );
     window.mixdogDesktop?.perfLog?.(
-      `prompt-submit phase=renderer-host-ack id=${submissionId}`
-      + ` accepted=${accepted === true ? 1 : 0}`
-      + ` wait=${(performance.now() - acceptedStartedAt).toFixed(0)}ms`,
+      `prompt-submit phase=renderer-host-ack id=${submissionId}` +
+        ` accepted=${accepted === true ? 1 : 0}` +
+        ` wait=${(performance.now() - acceptedStartedAt).toFixed(0)}ms`
     );
     return accepted;
   }, []);
   const composerAbort = useCallback(
-    (options: DesktopAbortOptions = {}) => composerActions.current.invokeResult(() => {
-      const host = window.mixdogDesktop;
-      const sessionId = routeSessionIdRef.current;
-      return sessionId ? host.abortSession(sessionId, options) : { aborted: false };
-    }),
-    [],
+    (options: DesktopAbortOptions = {}) =>
+      composerActions.current.invokeResult(() => {
+        const host = window.mixdogDesktop;
+        const sessionId = routeSessionIdRef.current;
+        return sessionId ? host.abortSession(sessionId, options) : { aborted: false };
+      }),
+    []
   );
   const composerInvokeResult = useCallback(
     <T,>(action: () => T | Promise<T>) => composerActions.current.invokeResult(action),
-    [],
+    []
   );
   const composerQueuedRestored = useCallback((ids: string[]) => {
     if (ids.length === 0) return;
@@ -714,7 +695,7 @@ export function Conversation({
   }, []);
   const composerApplySnapshot = useCallback(
     (next: SessionSnapshot | null) => composerActions.current.applySnapshot(next),
-    [],
+    []
   );
   const composerOnNewTask = useCallback(() => composerActions.current.onNewTask(), []);
   // A session pane's /clear · /new addresses ITS OWN session (pane-local
@@ -728,14 +709,14 @@ export function Conversation({
   const composerOnOpenProjects = useCallback(() => composerActions.current.onOpenProjects(), []);
   const composerOnOpenSettings = useCallback(
     (section?: SettingsSection | null) => composerActions.current.onOpenSettings(section),
-    [],
+    []
   );
   const composerOnOpenCommandSurface = useCallback(
     (surface: CommandSurfaceName) => composerActions.current.onOpenCommandSurface(surface),
-    [],
+    []
   );
 
-  const disclosureScope = String(routeSnapshot.sessionId || "new-task");
+  const disclosureScope = String(routeSnapshot.sessionId || 'new-task');
   const retryDisabled = Boolean(snapshot.busy) || transitioning;
   // Session retry: resubmit the failed turn's original user prompt through the
   // normal composer submit path.
@@ -744,268 +725,370 @@ export function Conversation({
     if (text) void composerSubmit(text);
   };
   const renderTranscriptRow = (row: TranscriptRowModel) => {
-    if (row._tag === "TurnGap") {
+    if (row._tag === 'TurnGap') {
       return <div className="transcript-turn-gap" aria-hidden="true" />;
     }
-    if (row._tag === "Error") {
-      const retryKey = [...row.failures].reverse().find((failure) =>
-        turnPromptText(settledItems, settledTurnKeys, failure.turnKey))?.turnKey;
-      return <ErrorNotice
-        errors={row.failures.map(({ item }) => item?.errorDetails || item?.detail || item?.message || item?.text || item?.label || t("Failed"))}
-        onRetry={!readOnly && retryKey ? () => retryTurn(retryKey) : undefined}
-        retryDisabled={retryDisabled} role="status" />;
+    if (row._tag === 'Error') {
+      const retryKey = [...row.failures]
+        .reverse()
+        .find((failure) => turnPromptText(settledItems, settledTurnKeys, failure.turnKey))?.turnKey;
+      return (
+        <ErrorNotice
+          errors={row.failures.map(
+            ({ item }) =>
+              item?.errorDetails || item?.detail || item?.message || item?.text || item?.label || t('Failed')
+          )}
+          onRetry={!readOnly && retryKey ? () => retryTurn(retryKey) : undefined}
+          retryDisabled={retryDisabled}
+          role="status"
+        />
+      );
     }
-    if (row._tag === "Thinking") {
-      return <div className="live-activity-slot" data-busy="true">
-        <LiveActivity snapshot={snapshot}
-          optimisticStartedAt={optimisticActivityStartedAt} />
-      </div>;
+    if (row._tag === 'Thinking') {
+      return (
+        <div className="live-activity-slot" data-busy="true">
+          <LiveActivity snapshot={snapshot} optimisticStartedAt={optimisticActivityStartedAt} />
+        </div>
+      );
     }
-    if (row._tag === "UserMessage") {
-      return <TranscriptRow item={row.item}
-        disclosureScope={disclosureScope}
-        attachedUser={row.attachedUser} />;
+    if (row._tag === 'UserMessage') {
+      return <TranscriptRow item={row.item} disclosureScope={disclosureScope} attachedUser={row.attachedUser} />;
     }
-    if (row._tag === "ToolActivity") {
+    if (row._tag === 'ToolActivity') {
       return <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} />;
     }
     if (row.live) {
-      return streamingTailSlot ?? <div className="transcript-live-part"
-        data-streaming-tail="true">
-        <TranscriptRow item={row.item} disclosureScope={disclosureScope} />
-      </div>;
+      return (
+        streamingTailSlot ?? (
+          <div className="transcript-live-part" data-streaming-tail="true">
+            <TranscriptRow item={row.item} disclosureScope={disclosureScope} />
+          </div>
+        )
+      );
     }
     const animated = isCompletionTranscriptItem(row.item) ? row.item : row.completion;
-    return <TranscriptRow item={row.item} completion={row.completion}
-      completionAnimate={animated
-        ? freshCompletionAnimationKeys.has(completionAnimationKeyByItem.get(animated) || "")
-        : false}
-      disclosureScope={disclosureScope} />;
+    return (
+      <TranscriptRow
+        item={row.item}
+        completion={row.completion}
+        completionAnimate={
+          animated ? freshCompletionAnimationKeys.has(completionAnimationKeyByItem.get(animated) || '') : false
+        }
+        disclosureScope={disclosureScope}
+      />
+    );
   };
 
   return (
-    <section className={`conversation${readOnly ? " conversation-read-only" : ""}`} ref={conversation}
-      onKeyDownCapture={readOnly ? undefined : (event) => {
-        const transcriptKey = event.key === "PageUp" || event.key === "PageDown"
-          || event.key === "Home" || event.key === "End";
-        const target = event.target as HTMLElement | null;
-        const editingHomeOrEnd = (event.key === "Home" || event.key === "End")
-          && Boolean(target?.closest('textarea, input, select, [contenteditable="true"]'));
-        const paletteOpen = Boolean(event.currentTarget.querySelector(
-          '[data-composer-palette-open="true"], [role="listbox"]',
-        ));
-        const nestedScroller = target?.closest<HTMLElement>("[data-scrollable]");
-        if (transcriptKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
-          && !editingHomeOrEnd && !paletteOpen && !nestedScroller) {
-          const element = viewport.current;
-          if (element) {
-            event.preventDefault();
-            handleTranscriptKeyDown({ key: event.key });
-            if (event.key === "PageUp" || event.key === "PageDown") {
-              const direction = event.key === "PageDown" ? 1 : -1;
-              element.scrollBy({ top: Math.round(element.clientHeight * 0.9) * direction, behavior: "auto" });
-            } else {
-              element.scrollTo({ top: event.key === "Home" ? 0 : element.scrollHeight, behavior: "auto" });
+    <section
+      className={`conversation${readOnly ? ' conversation-read-only' : ''}`}
+      ref={conversation}
+      onKeyDownCapture={
+        readOnly
+          ? undefined
+          : (event) => {
+              const transcriptKey =
+                event.key === 'PageUp' || event.key === 'PageDown' || event.key === 'Home' || event.key === 'End';
+              const target = event.target as HTMLElement | null;
+              const editingHomeOrEnd =
+                (event.key === 'Home' || event.key === 'End') &&
+                Boolean(target?.closest('textarea, input, select, [contenteditable="true"]'));
+              const paletteOpen = Boolean(
+                event.currentTarget.querySelector('[data-composer-palette-open="true"], [role="listbox"]')
+              );
+              const nestedScroller = target?.closest<HTMLElement>('[data-scrollable]');
+              if (
+                transcriptKey &&
+                !event.ctrlKey &&
+                !event.metaKey &&
+                !event.altKey &&
+                !event.shiftKey &&
+                !editingHomeOrEnd &&
+                !paletteOpen &&
+                !nestedScroller
+              ) {
+                const element = viewport.current;
+                if (element) {
+                  event.preventDefault();
+                  handleTranscriptKeyDown({ key: event.key });
+                  if (event.key === 'PageUp' || event.key === 'PageDown') {
+                    const direction = event.key === 'PageDown' ? 1 : -1;
+                    element.scrollBy({ top: Math.round(element.clientHeight * 0.9) * direction, behavior: 'auto' });
+                  } else {
+                    element.scrollTo({ top: event.key === 'Home' ? 0 : element.scrollHeight, behavior: 'auto' });
+                  }
+                }
+                return;
+              }
+              // Typing must always land in the composer: a printable key (or the
+              // IME "Process" key starting a Korean composition) pressed while
+              // focus sits on the transcript or tool chrome refocuses the input
+              // BEFORE the character/composition commits, so keystrokes are never
+              // silently dropped (user: 간헐적으로 채팅 입력이 안 됨).
+              if (event.ctrlKey || event.metaKey || event.altKey) return;
+              if (event.key.length !== 1 && event.key !== 'Process') return;
+              if (!target || typeof target.closest !== 'function') return;
+              if (target.closest('textarea, input, select, [contenteditable="true"]')) return;
+              event.currentTarget
+                .querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Mixdog"]')
+                ?.focus({ preventScroll: true });
             }
-          }
-          return;
-        }
-        // Typing must always land in the composer: a printable key (or the
-        // IME "Process" key starting a Korean composition) pressed while
-        // focus sits on the transcript or tool chrome refocuses the input
-        // BEFORE the character/composition commits, so keystrokes are never
-        // silently dropped (user: 간헐적으로 채팅 입력이 안 됨).
-        if (event.ctrlKey || event.metaKey || event.altKey) return;
-        if (event.key.length !== 1 && event.key !== "Process") return;
-        if (!target || typeof target.closest !== "function") return;
-        if (target.closest('textarea, input, select, [contenteditable="true"]')) return;
-        event.currentTarget
-          .querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Mixdog"]')
-          ?.focus({ preventScroll: true });
-      }}>
+      }
+    >
       <div className="transcript-shell">
-      <div className="transcript" ref={viewport} role="log" aria-label={t("Conversation transcript")}
-        style={transcriptRevealed ? undefined : { visibility: "hidden" }}
-        data-session-key={transcriptSessionKey}
-        data-following={following ? "true" : "false"}
-        aria-live="polite" aria-relevant="additions" aria-atomic="false"
-        aria-busy={Boolean(snapshot.busy || snapshot.commandBusy)} tabIndex={0}
-        // The thread is a READING surface: a mouse drag may extend the
-        // selection, but it must never pick the text (or a code block, tool
-        // output, image chip) up and carry it as a native drag payload
-        // (user). Capture refuses the drag for every descendant, so no row
-        // needs its own guard.
-        onDragStartCapture={(event) => event.preventDefault()}
-        // Chromium defers a press that lands INSIDE the live selection: it
-        // waits for a drag it is no longer allowed to start, so the next
-        // drag-select is swallowed (user: 연속 드래그 시 한 번씩 씹힘).
-        // Collapsing the selection first makes every press begin a fresh
-        // range; shift-extend and the right-click menu keep theirs.
-        onMouseDownCapture={(event) => {
-          if (event.button !== 0 || event.shiftKey) return;
-          const target = event.target as HTMLElement | null;
-          if (target?.closest?.('input, textarea, [contenteditable="true"]')) return;
-          const selection = window.getSelection();
-          if (selection && !selection.isCollapsed) selection.removeAllRanges();
-        }}
-        onScroll={(event) => {
-          handleTranscriptScroll();
-          if (event.currentTarget.scrollTop <= 320) requestEarlierTranscript();
-        }}
-        onWheel={handleTranscriptWheel}
-        onPointerDown={handleTranscriptPointerDown}
-        onPointerMove={handleTranscriptPointerMove}
-        onPointerUp={handleTranscriptPointerUp}
-        onPointerCancel={handleTranscriptPointerUp}
-        onTouchStart={handleTranscriptTouchStart}
-        onTouchMove={handleTranscriptTouchMove}
-        onTouchEnd={handleTranscriptTouchEnd}
-        onTouchCancel={handleTranscriptTouchEnd}
-        onClick={handleTranscriptInteraction}
-        onKeyDown={handleTranscriptKeyDown}>
-        <div className="thread">
-          {/* An empty draft carries only the centered brand watermark;
+        <div
+          className="transcript"
+          ref={viewport}
+          role="log"
+          aria-label={t('Conversation transcript')}
+          style={transcriptRevealed ? undefined : { visibility: 'hidden' }}
+          data-session-key={transcriptSessionKey}
+          data-following={following ? 'true' : 'false'}
+          aria-live="polite"
+          aria-relevant="additions"
+          aria-atomic="false"
+          aria-busy={Boolean(snapshot.busy || snapshot.commandBusy)}
+          tabIndex={0}
+          // The thread is a READING surface: a mouse drag may extend the
+          // selection, but it must never pick the text (or a code block, tool
+          // output, image chip) up and carry it as a native drag payload
+          // (user). Capture refuses the drag for every descendant, so no row
+          // needs its own guard.
+          onDragStartCapture={(event) => event.preventDefault()}
+          // Chromium defers a press that lands INSIDE the live selection: it
+          // waits for a drag it is no longer allowed to start, so the next
+          // drag-select is swallowed (user: 연속 드래그 시 한 번씩 씹힘).
+          // Collapsing the selection first makes every press begin a fresh
+          // range; shift-extend and the right-click menu keep theirs.
+          onMouseDownCapture={(event) => {
+            if (event.button !== 0 || event.shiftKey) return;
+            const target = event.target as HTMLElement | null;
+            if (target?.closest?.('input, textarea, [contenteditable="true"]')) return;
+            const selection = window.getSelection();
+            if (selection && !selection.isCollapsed) selection.removeAllRanges();
+          }}
+          onScroll={(event) => {
+            handleTranscriptScroll();
+            if (event.currentTarget.scrollTop <= 320) requestEarlierTranscript();
+          }}
+          onWheel={handleTranscriptWheel}
+          onPointerDown={handleTranscriptPointerDown}
+          onPointerMove={handleTranscriptPointerMove}
+          onPointerUp={handleTranscriptPointerUp}
+          onPointerCancel={handleTranscriptPointerUp}
+          onTouchStart={handleTranscriptTouchStart}
+          onTouchMove={handleTranscriptTouchMove}
+          onTouchEnd={handleTranscriptTouchEnd}
+          onTouchCancel={handleTranscriptTouchEnd}
+          onClick={handleTranscriptInteraction}
+          onKeyDown={handleTranscriptKeyDown}
+        >
+          <div className="thread">
+            {/* An empty draft carries only the centered brand watermark;
               shortcuts live solely on the fully empty
               workspace; secondary surfaces keep the quiet letterpress).
               Sessions and transitions never show it. */}
-          {(((draftMode || (!routeSnapshot.sessionId && Boolean(activeProjectPath)))
-            && itemCount === 0 && transcriptPendingPromptItems.length === 0
-            && !activeStreamingTail && !transitioning) || visibleWarmPaintHandoff) && (
-            <div className={`thread-welcome thread-welcome-task${visibleWarmPaintHandoff
-              ? " thread-welcome-paint-handoff" : ""}`} aria-hidden="true">
-              <span className="welcome-logo"><BrandTile crop /></span>
-            </div>
-          )}
-          {/* ONE mount per session, always with the real rows: a placeholder
+            {(((draftMode || (!routeSnapshot.sessionId && Boolean(activeProjectPath))) &&
+              itemCount === 0 &&
+              transcriptPendingPromptItems.length === 0 &&
+              !activeStreamingTail &&
+              !transitioning) ||
+              visibleWarmPaintHandoff) && (
+              <div
+                className={`thread-welcome thread-welcome-task${
+                  visibleWarmPaintHandoff ? ' thread-welcome-paint-handoff' : ''
+                }`}
+                aria-hidden="true"
+              >
+                <span className="welcome-logo">
+                  <BrandTile crop />
+                </span>
+              </div>
+            )}
+            {/* ONE mount per session, always with the real rows: a placeholder
               shell mounted first made the virtual core resolve its end anchor
               against an empty list and again on the 0 -> N row swap — the
               visible up/down bounce on entering a session. */}
-          <MarkdownProjectContext.Provider value={String(
-            routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || "",
-          )}>
-          <MarkdownOpenFileContext.Provider value={onOpenFile ?? null}>
-          {showTranscriptTimeline && <TranscriptList key={transcriptIdentity.current} sessionKey={transcriptSessionKey}
-            rows={transcriptRows} viewport={viewport} content={content}
-            shouldAnchorBottom={shouldAnchorTranscriptBottom}
-            markProgrammaticScroll={markTranscriptProgrammaticScroll}
-            hasScrollGesture={hasTranscriptScrollGesture}
-            onSelectionAutoScroll={handleTranscriptSelectionAutoScroll}
-            setAnchorBottomRef={setTranscriptAnchorBottomRef}
-            scrollToEndRef={scrollToEndRef} renderRow={renderTranscriptRow} />}
-          </MarkdownOpenFileContext.Provider>
-          </MarkdownProjectContext.Provider>
+            <MarkdownProjectContext.Provider
+              value={String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '')}
+            >
+              <MarkdownOpenFileContext.Provider value={onOpenFile ?? null}>
+                {showTranscriptTimeline && (
+                  <TranscriptList
+                    key={transcriptIdentity.current}
+                    sessionKey={transcriptSessionKey}
+                    rows={transcriptRows}
+                    viewport={viewport}
+                    content={content}
+                    shouldAnchorBottom={shouldAnchorTranscriptBottom}
+                    markProgrammaticScroll={markTranscriptProgrammaticScroll}
+                    hasScrollGesture={hasTranscriptScrollGesture}
+                    onSelectionAutoScroll={handleTranscriptSelectionAutoScroll}
+                    setAnchorBottomRef={setTranscriptAnchorBottomRef}
+                    scrollToEndRef={scrollToEndRef}
+                    renderRow={renderTranscriptRow}
+                  />
+                )}
+              </MarkdownOpenFileContext.Provider>
+            </MarkdownProjectContext.Provider>
+          </div>
         </div>
-      </div>
-      {showJump && itemCount > 0 && <button type="button" className="jump-to-latest"
-        onPointerDown={(event) => {
-          if (!event.isPrimary || event.button !== 0) return;
-          // A live wheel/fling can cancel the later click. Take the tail on the
-          // press itself so the jump also stops the remaining scroll frames.
-          event.preventDefault();
-          jumpToLatest();
-        }}
-        // Native keyboard activation has no pointerdown and reports detail 0.
-        onClick={(event) => {
-          if (event.detail === 0) jumpToLatest();
-        }}
-        aria-label={t("Jump to latest message")}>
-        <ArrowDown size={14} />{t("Jump to latest")}
-      </button>}
+        {showJump && itemCount > 0 && (
+          <button
+            type="button"
+            className="jump-to-latest"
+            onPointerDown={(event) => {
+              if (!event.isPrimary || event.button !== 0) return;
+              // A live wheel/fling can cancel the later click. Take the tail on the
+              // press itself so the jump also stops the remaining scroll frames.
+              event.preventDefault();
+              jumpToLatest();
+            }}
+            // Native keyboard activation has no pointerdown and reports detail 0.
+            onClick={(event) => {
+              if (event.detail === 0) jumpToLatest();
+            }}
+            aria-label={t('Jump to latest message')}
+          >
+            <ArrowDown size={14} />
+            {t('Jump to latest')}
+          </button>
+        )}
       </div>
       {/* Everything above the input (Goal, progress, approval, context bar,
           review) lives in the dock, which owns how each slot's geometry
           commits against the transcript viewport. */}
-      {!readOnly && <ComposerDock
-        onOpenFile={onOpenFile}
-        goalIsland={goalIsland}
-        goalSubmissionId={goalSubmissionId}
-        runtimeProgress={runtimeProgressSlot ?? (Boolean(asRecord(snapshot.progressHint)?.text)
-          ? <div className="runtime-progress" role="status">
-            {String(asRecord(snapshot.progressHint)?.text)}
-          </div>
-          : null)}
-        approval={snapshot.toolApproval
-          ? <ApprovalCard key={approvalInstanceKey(snapshot.toolApproval.id)}
-            approval={snapshot.toolApproval}
-            resolve={(approved) => {
-              const host = window.mixdogDesktop;
-              const sessionId = routeSessionIdRef.current;
-              const approvalId = String(snapshot.toolApproval?.id || "");
-              return sessionId
-                ? host.resolveToolApprovalForSession(sessionId, approvalId, { approved })
-                : Promise.resolve(false);
-            }} />
-          : null}
-        showProjectSelector={showProjectSelector}
-        softCollapseContextBar={suppressDraftSubmitPaintHandoff}
-        contextBar={<>
-          <ProjectContextSelector projects={projects}
-            activePath={activeProjectPath} activeLabel={activeProjectLabel}
-            disabled={transitioning || Boolean(snapshot.busy)}
-            onClear={onClearProject} onSelect={onSelectProject} />
-          <WorkflowSelect workflow={(draftWorkflow || routeSnapshot.workflow as RecordValue | null) ?? null}
-            disabled={transitioning || (!draftMode && Boolean(routeSnapshot.busy || routeSnapshot.commandBusy))}
-            invokeResult={composerInvokeResult} applySnapshot={composerApplySnapshot}
-            onDraftChange={onDraftWorkflow} />
-        </>}
-        reviewItems={reviewItems}
-        reviewStreamingTail={activeStreamingTail}
-        reviewTurnLive={Boolean(snapshot.busy || snapshot.commandBusy
-          || activeStreamingTail || optimisticActivityStartedAt)}
-        reviewActive={reviewActive}
-        reviewBusy={Boolean(snapshot.busy || routeSnapshot.commandBusy)}
-        reviewSessionId={draftMode ? "" : String(sessionAddress || routeSnapshot.sessionId || "")}
-        reviewCwd={String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || "")}>
-        <Composer
-          turnBusy={Boolean(snapshot.busy)}
-          commandBusy={!draftMode && Boolean(routeSnapshot.commandBusy)}
-          transitioning={transitioning}
-          focusRequest={composerFocusRequest}
-          historyScope={draftMode ? `new-task:${activeProjectPath || 'local'}`
-            : String(routeSnapshot.sessionId || routeSnapshot.currentProject ||
-              routeSnapshot.project || routeSnapshot.cwd || 'new-task')}
-          identityScope={draftMode ? `draft:${draftId || 'default'}`
-            : String(routeSnapshot.sessionId || routeSnapshot.currentProject ||
-              routeSnapshot.project || routeSnapshot.cwd || 'new-task')}
-          recoveryScope={transcriptIdentity.current}
-          projectScope={draftMode ? activeProjectPath
-            : String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '')}
-          sessionId={draftMode ? '' : String(routeSnapshot.sessionId || '')}
-          hasConversation={itemCount > 0
-            || (Array.isArray(snapshot.queued) && snapshot.queued.length > 0)}
-          promptHistoryList={routeSnapshot.promptHistoryList}
-          provider={String(draftModelSelection?.provider || routeSnapshot.provider || "")}
-          model={String(draftModelSelection?.model || routeSnapshot.model || "")}
-          effort={String(draftModelSelection?.effort ?? routeSnapshot.effort ?? "")}
-          fast={draftModelSelection?.fast ?? Boolean(routeSnapshot.fast)}
-          fastCapable={Boolean(routeSnapshot.fastCapable)}
-          modelParameters={draftModelSelection?.modelParameters
-            || routeSnapshot.modelParameters as Record<string, string> | undefined}
-          contextPercent={draftModelSelection?.contextPercent
-            ?? (Number(routeSnapshot.contextPercent) || undefined)}
-          draftMode={draftMode}
-          onDraftModelSelection={onDraftModelSelection}
-          onRoutePreferenceApplied={onRoutePreferenceApplied}
-          modelAside={contextIndicator}
-          queued={composerQueued}
-          hiddenQueueIds={pendingPromptIds}
-          pendingSubmissionIds={pendingPromptIds}
-          onQueuedRestored={composerQueuedRestored}
-          userMessages={composerUserMessages}
-          submit={composerSubmit}
-          abort={composerAbort}
-          invokeResult={composerInvokeResult}
-          applySnapshot={composerApplySnapshot}
-          onNewTask={composerOnNewTask}
-          onClearToNewTask={onClearToNewTask ? composerOnClearToNewTask : undefined}
-          onResumeSession={composerOnResumeSession}
-          onOpenSessions={composerOnOpenSessions}
-          onOpenProjects={composerOnOpenProjects}
-          onOpenSettings={composerOnOpenSettings}
-          onOpenCommandSurface={composerOnOpenCommandSurface}
-          paneActive={reviewActive}
-          dropTargetRef={conversation} />
-      </ComposerDock>}
+      {!readOnly && (
+        <ComposerDock
+          onOpenFile={onOpenFile}
+          goalIsland={goalIsland}
+          goalSubmissionId={goalSubmissionId}
+          runtimeProgress={
+            runtimeProgressSlot ??
+            (asRecord(snapshot.progressHint)?.text ? (
+              <div className="runtime-progress" role="status">
+                {String(asRecord(snapshot.progressHint)?.text)}
+              </div>
+            ) : null)
+          }
+          approval={
+            snapshot.toolApproval ? (
+              <ApprovalCard
+                key={approvalInstanceKey(snapshot.toolApproval.id)}
+                approval={snapshot.toolApproval}
+                resolve={(approved) => {
+                  const host = window.mixdogDesktop;
+                  const sessionId = routeSessionIdRef.current;
+                  const approvalId = String(snapshot.toolApproval?.id || '');
+                  return sessionId
+                    ? host.resolveToolApprovalForSession(sessionId, approvalId, { approved })
+                    : Promise.resolve(false);
+                }}
+              />
+            ) : null
+          }
+          showProjectSelector={showProjectSelector}
+          softCollapseContextBar={suppressDraftSubmitPaintHandoff}
+          contextBar={
+            <>
+              <ProjectContextSelector
+                projects={projects}
+                activePath={activeProjectPath}
+                activeLabel={activeProjectLabel}
+                disabled={transitioning || Boolean(snapshot.busy)}
+                onClear={onClearProject}
+                onSelect={onSelectProject}
+              />
+              <WorkflowSelect
+                workflow={(draftWorkflow || (routeSnapshot.workflow as RecordValue | null)) ?? null}
+                disabled={transitioning || (!draftMode && Boolean(routeSnapshot.busy || routeSnapshot.commandBusy))}
+                invokeResult={composerInvokeResult}
+                applySnapshot={composerApplySnapshot}
+                onDraftChange={onDraftWorkflow}
+              />
+            </>
+          }
+          reviewItems={reviewItems}
+          reviewStreamingTail={activeStreamingTail}
+          reviewTurnLive={Boolean(
+            snapshot.busy || snapshot.commandBusy || activeStreamingTail || optimisticActivityStartedAt
+          )}
+          reviewActive={reviewActive}
+          reviewBusy={Boolean(snapshot.busy || routeSnapshot.commandBusy)}
+          reviewSessionId={draftMode ? '' : String(sessionAddress || routeSnapshot.sessionId || '')}
+          reviewCwd={String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '')}
+        >
+          <Composer
+            turnBusy={Boolean(snapshot.busy)}
+            commandBusy={!draftMode && Boolean(routeSnapshot.commandBusy)}
+            transitioning={transitioning}
+            focusRequest={composerFocusRequest}
+            historyScope={
+              draftMode
+                ? `new-task:${activeProjectPath || 'local'}`
+                : String(
+                    routeSnapshot.sessionId ||
+                      routeSnapshot.currentProject ||
+                      routeSnapshot.project ||
+                      routeSnapshot.cwd ||
+                      'new-task'
+                  )
+            }
+            identityScope={
+              draftMode
+                ? `draft:${draftId || 'default'}`
+                : String(
+                    routeSnapshot.sessionId ||
+                      routeSnapshot.currentProject ||
+                      routeSnapshot.project ||
+                      routeSnapshot.cwd ||
+                      'new-task'
+                  )
+            }
+            recoveryScope={transcriptIdentity.current}
+            projectScope={
+              draftMode
+                ? activeProjectPath
+                : String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '')
+            }
+            sessionId={draftMode ? '' : String(routeSnapshot.sessionId || '')}
+            hasConversation={itemCount > 0 || (Array.isArray(snapshot.queued) && snapshot.queued.length > 0)}
+            promptHistoryList={routeSnapshot.promptHistoryList}
+            provider={String(draftModelSelection?.provider || routeSnapshot.provider || '')}
+            model={String(draftModelSelection?.model || routeSnapshot.model || '')}
+            effort={String(draftModelSelection?.effort ?? routeSnapshot.effort ?? '')}
+            fast={draftModelSelection?.fast ?? Boolean(routeSnapshot.fast)}
+            fastCapable={Boolean(routeSnapshot.fastCapable)}
+            modelParameters={
+              draftModelSelection?.modelParameters ||
+              (routeSnapshot.modelParameters as Record<string, string> | undefined)
+            }
+            contextPercent={draftModelSelection?.contextPercent ?? (Number(routeSnapshot.contextPercent) || undefined)}
+            draftMode={draftMode}
+            onDraftModelSelection={onDraftModelSelection}
+            onRoutePreferenceApplied={onRoutePreferenceApplied}
+            modelAside={contextIndicator}
+            queued={composerQueued}
+            hiddenQueueIds={pendingPromptIds}
+            pendingSubmissionIds={pendingPromptIds}
+            onQueuedRestored={composerQueuedRestored}
+            userMessages={composerUserMessages}
+            submit={composerSubmit}
+            abort={composerAbort}
+            invokeResult={composerInvokeResult}
+            applySnapshot={composerApplySnapshot}
+            onNewTask={composerOnNewTask}
+            onClearToNewTask={onClearToNewTask ? composerOnClearToNewTask : undefined}
+            onResumeSession={composerOnResumeSession}
+            onOpenSessions={composerOnOpenSessions}
+            onOpenProjects={composerOnOpenProjects}
+            onOpenSettings={composerOnOpenSettings}
+            onOpenCommandSurface={composerOnOpenCommandSurface}
+            paneActive={reviewActive}
+            dropTargetRef={conversation}
+          />
+        </ComposerDock>
+      )}
     </section>
   );
 }

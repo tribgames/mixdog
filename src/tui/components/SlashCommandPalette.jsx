@@ -14,9 +14,7 @@ const MAX_VISIBLE = 8;
 const COMMAND_LABEL_WIDTH = 18;
 const SLASH_HELP = '↑/↓ select · ←/→ change · Enter run · Esc cancel';
 const SLASH_DESCRIPTION = 'Type to filter · Enter runs the highlighted command.';
-const ACRONYM_LABELS = new Map([
-  ['mcp', 'MCP'],
-]);
+const ACRONYM_LABELS = new Map([['mcp', 'MCP']]);
 
 function truncateText(value, width) {
   const text = String(value || '');
@@ -39,15 +37,24 @@ function padCells(value, width) {
 function queryMatchesAlias(command, query) {
   const needle = String(query || '').toLowerCase();
   if (!needle) return false;
-  return (command?.aliases || []).some((alias) => String(alias || '').toLowerCase().startsWith(needle));
+  return (command?.aliases || []).some((alias) =>
+    String(alias || '')
+      .toLowerCase()
+      .startsWith(needle)
+  );
 }
 
 function commandDisplayLabel(command, query) {
   const usage = String(command?.usage || command?.name || '').replace(/^\/+/, '');
-  const aliasText = command?.showAliasUsage !== false && queryMatchesAlias(command, query) && Array.isArray(command?.aliasUsage) && command.aliasUsage.length > 0
-    ? ` (${command.aliasUsage.join(', ')})`
-    : '';
-  const label = ACRONYM_LABELS.get(usage.toLowerCase()) || (usage ? `${usage.charAt(0).toUpperCase()}${usage.slice(1)}` : usage);
+  const aliasText =
+    command?.showAliasUsage !== false &&
+    queryMatchesAlias(command, query) &&
+    Array.isArray(command?.aliasUsage) &&
+    command.aliasUsage.length > 0
+      ? ` (${command.aliasUsage.join(', ')})`
+      : '';
+  const label =
+    ACRONYM_LABELS.get(usage.toLowerCase()) || (usage ? `${usage.charAt(0).toUpperCase()}${usage.slice(1)}` : usage);
   return `${label}${aliasText}`;
 }
 
@@ -55,7 +62,7 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
   const total = commands.length;
   const half = Math.floor(MAX_VISIBLE / 2);
   let start = Math.max(0, selectedIndex - half);
-  let end = Math.min(total, start + MAX_VISIBLE);
+  const end = Math.min(total, start + MAX_VISIBLE);
   if (end - start < MAX_VISIBLE && start > 0) {
     start = Math.max(0, end - MAX_VISIBLE);
   }
@@ -74,22 +81,22 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%">
-      <Box
-        flexDirection="column"
-        borderStyle="round"
-        borderColor={theme.promptBorder}
-        paddingX={1}
-        width="100%"
-      >
+      <Box flexDirection="column" borderStyle="round" borderColor={theme.promptBorder} paddingX={1} width="100%">
         <Box flexDirection="row" justifyContent="space-between">
-          <Text color={theme.panelTitle} wrap="truncate">{title}</Text>
-          <Text color={theme.subtle} wrap="truncate">{help}</Text>
+          <Text color={theme.panelTitle} wrap="truncate">
+            {title}
+          </Text>
+          <Text color={theme.subtle} wrap="truncate">
+            {help}
+          </Text>
         </Box>
         <Text> </Text>
         <Text color={theme.subtle}>{description || ' '}</Text>
         <Text> </Text>
         {noMatches ? (
-          <Text color={theme.subtle} wrap="truncate">No matching commands</Text>
+          <Text color={theme.subtle} wrap="truncate">
+            No matching commands
+          </Text>
         ) : null}
         {visible.map((item, index) => (
           <CommandRow
@@ -116,9 +123,7 @@ const CommandRow = React.memo(function CommandRow({ command, isSelected, labelWi
 
   return (
     <Box flexDirection="row" width="100%" backgroundColor={isSelected ? theme.selectionBackground : undefined}>
-      <Text color={rowText}>
-        {padCells(label, labelWidth)}
-      </Text>
+      <Text color={rowText}>{padCells(label, labelWidth)}</Text>
       {description ? (
         <Text color={rowText}>
           {'  '}

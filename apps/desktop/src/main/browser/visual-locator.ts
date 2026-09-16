@@ -16,11 +16,10 @@ export interface BrowserVisualLocatorPayload {
   total: number;
 }
 
-export function browserVisualLocatorExpression(
-  rawQuery: string,
-  maxCandidates = 20,
-): string {
-  const query = String(rawQuery || '').trim().toLowerCase();
+export function browserVisualLocatorExpression(rawQuery: string, maxCandidates = 20): string {
+  const query = String(rawQuery || '')
+    .trim()
+    .toLowerCase();
   const maximum = Math.min(50, Math.max(1, Math.trunc(maxCandidates)));
   return `(() => {
     const query = ${JSON.stringify(query)};

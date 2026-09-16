@@ -28,7 +28,8 @@ import {
 } from '../../../shared/native-asset.mjs';
 
 const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('./patch-manifest.json', import.meta.url));
-const MANIFEST_URL = 'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/agent/orchestrator/tools/patch-manifest.json';
+const MANIFEST_URL =
+  'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/agent/orchestrator/tools/patch-manifest.json';
 
 const LABEL = '[patch-fetcher]';
 const RELEASE_ASSET = { name: 'mixdog-patch', tagPrefix: 'patch-v' };
@@ -66,8 +67,7 @@ function selectLocalManifest(dataDir, options = {}) {
   if (bundled) {
     // The installed manifest is the minimum policy. A cache may advance it,
     // but only with a strict newer semver and a trusted, fully hashed asset.
-    if (compareManifestVersions(cachedManifest, bundled) === 1
-      && validCachedUpgrade(cachedManifest, platformKey())) {
+    if (compareManifestVersions(cachedManifest, bundled) === 1 && validCachedUpgrade(cachedManifest, platformKey())) {
       return cachedManifest;
     }
     return bundled;
@@ -109,10 +109,10 @@ export const ensurePatchBinary = singleFlight(async (dataDir, options = {}) => {
     // actionable message instead of a cryptic crash downstream.
     const supported = Object.keys(manifest.assets || {}).join(', ') || '(none)';
     throw new Error(
-      `${LABEL} no prebuilt mixdog-patch binary for platform ${pkey} `
-      + `(unsupported platform/arch — apply_patch is native-only, no JS apply fallback). `
-      + `Supported platforms: ${supported}. `
-      + `Build it locally: cargo build --release in native/mixdog-patch.`,
+      `${LABEL} no prebuilt mixdog-patch binary for platform ${pkey} ` +
+        `(unsupported platform/arch — apply_patch is native-only, no JS apply fallback). ` +
+        `Supported platforms: ${supported}. ` +
+        `Build it locally: cargo build --release in native/mixdog-patch.`
     );
   }
   return installVerifiedBinary({

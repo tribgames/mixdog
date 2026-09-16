@@ -69,9 +69,7 @@ export function createModelPicker({
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     const returnLabel = String(options.returnLabel || 'Agents');
     const returnOnNestedCancel = options.returnOnNestedCancel === true;
-    const handoffPanel = options.handoffPanel && typeof options.handoffPanel === 'object'
-      ? options.handoffPanel
-      : null;
+    const handoffPanel = options.handoffPanel && typeof options.handoffPanel === 'object' ? options.handoffPanel : null;
     const cancelModelPicker = () => {
       modelPickerClosed = true;
       if (returnTo) returnTo();
@@ -80,9 +78,7 @@ export function createModelPicker({
     const paintModelPicker = (panel) => own.paint(panel);
     const cacheRef = options.cacheRef === 'webSearch' ? webSearchModelsCacheRef : providerModelsCacheRef;
     const loadModels = typeof options.loadModels === 'function' ? options.loadModels : store.listProviderModels;
-    let providerModels = Array.isArray(cacheRef.current.models)
-      ? cacheRef.current.models
-      : [];
+    let providerModels = Array.isArray(cacheRef.current.models) ? cacheRef.current.models : [];
     let refreshModelsPromise = null;
     let renderedQuickModels = false;
     if (!providerModels.length || options.refreshModels === true) {
@@ -118,11 +114,12 @@ export function createModelPicker({
     // the catalog can't drift stale. Never applies to the web-search cache (its own
     // quick paths refresh differently) or explicit refreshModels opens.
     const cacheAt = Number(cacheRef.current.at) || 0;
-    const cacheIsStale = providerModels.length > 0
-      && options.refreshModels !== true
-      && options.cacheRef !== 'webSearch'
-      && !refreshModelsPromise
-      && (Date.now() - cacheAt) > MODEL_CACHE_TTL_MS;
+    const cacheIsStale =
+      providerModels.length > 0 &&
+      options.refreshModels !== true &&
+      options.cacheRef !== 'webSearch' &&
+      !refreshModelsPromise &&
+      Date.now() - cacheAt > MODEL_CACHE_TTL_MS;
 
     if (!providerModels || providerModels.length === 0) {
       store.pushNotice(options.emptyNotice || 'no provider models available; open /providers to sign in', 'warn');
@@ -138,7 +135,7 @@ export function createModelPicker({
       return;
     }
 
-    let models = normalizeModelOptions(providerModels);
+    const models = normalizeModelOptions(providerModels);
     const activeRoute = options.currentRoute || {
       provider: state.provider,
       model: state.model,
@@ -162,16 +159,30 @@ export function createModelPicker({
           }
           return allowed[0] || null;
         };
-        const effortItemsFor = (model) => Array.isArray(model?.effortOptions) && model.effortOptions.length > 0
-          ? model.effortOptions
-          : [];
-        const modelEffortValues = (model) => effortItemsFor(model).map((effort) => effort.value).filter(Boolean);
+        const effortItemsFor = (model) =>
+          Array.isArray(model?.effortOptions) && model.effortOptions.length > 0 ? model.effortOptions : [];
+        const modelEffortValues = (model) =>
+          effortItemsFor(model)
+            .map((effort) => effort.value)
+            .filter(Boolean);
         const modelDefaultEffort = (model) => {
           const values = modelEffortValues(model);
           if (!values.length) return null;
           const currentRoute = options.currentRoute || null;
-          if (currentRoute?.provider === model.provider && currentRoute?.model === model.id && currentRoute.effort && values.includes(currentRoute.effort)) return currentRoute.effort;
-          if (model.provider === state.provider && model.id === state.model && state.effort && values.includes(state.effort)) return state.effort;
+          if (
+            currentRoute?.provider === model.provider &&
+            currentRoute?.model === model.id &&
+            currentRoute.effort &&
+            values.includes(currentRoute.effort)
+          )
+            return currentRoute.effort;
+          if (
+            model.provider === state.provider &&
+            model.id === state.model &&
+            state.effort &&
+            values.includes(state.effort)
+          )
+            return state.effort;
           if (model.savedEffort && values.includes(model.savedEffort)) return model.savedEffort;
           if (model.defaultEffort && values.includes(model.defaultEffort)) return model.defaultEffort;
           return preferredEffort(values);
@@ -197,17 +208,20 @@ export function createModelPicker({
           const key = modelKey(model);
           if (selectedModelParameters.has(key)) return selectedModelParameters.get(key);
           const currentRoute = options.currentRoute || null;
-          const current = currentRoute?.provider === model.provider && currentRoute?.model === model.id
-            ? currentRoute.modelParameters
-            : null;
+          const current =
+            currentRoute?.provider === model.provider && currentRoute?.model === model.id
+              ? currentRoute.modelParameters
+              : null;
           const saved = model.savedModelParameters || {};
           const defaults = { ...(model.defaultModelParameters || {}), ...saved, ...(current || {}) };
-          const values = Object.fromEntries((model.modelParameterOptions || []).flatMap((parameter) => {
-            const selected = parameter.options?.some((option) => option.value === defaults[parameter.id])
-              ? defaults[parameter.id]
-              : parameter.options?.[0]?.value;
-            return selected ? [[parameter.id, selected]] : [];
-          }));
+          const values = Object.fromEntries(
+            (model.modelParameterOptions || []).flatMap((parameter) => {
+              const selected = parameter.options?.some((option) => option.value === defaults[parameter.id])
+                ? defaults[parameter.id]
+                : parameter.options?.[0]?.value;
+              return selected ? [[parameter.id, selected]] : [];
+            })
+          );
           selectedModelParameters.set(key, values);
           return values;
         };
@@ -216,29 +230,26 @@ export function createModelPicker({
           const defaultWindow = modelContextWindow(model);
           const maxWindow = Math.max(defaultWindow, Number(model?.maxContextWindow) || 0);
           if (!maxWindow) return null;
-          const defaultPercent = Math.max(
-            10,
-            Math.min(100, Math.round((defaultWindow / maxWindow) * 10) * 10),
-          );
+          const defaultPercent = Math.max(10, Math.min(100, Math.round((defaultWindow / maxWindow) * 10) * 10));
           if (!selectedContextPercent.has(key)) {
             const currentRoute = options.currentRoute || null;
-            const requested = currentRoute?.provider === model.provider && currentRoute?.model === model.id
-              ? currentRoute.contextPercent
-              : model.provider === state.provider && model.id === state.model
-                ? state.contextPercent
-                : model.savedContextPercent;
-            const percent = Number.isFinite(Number(requested)) && Number(requested) > 0
-              ? Math.max(10, Math.min(100, Math.round(Number(requested) / 10) * 10))
-              : defaultPercent;
+            const requested =
+              currentRoute?.provider === model.provider && currentRoute?.model === model.id
+                ? currentRoute.contextPercent
+                : model.provider === state.provider && model.id === state.model
+                  ? state.contextPercent
+                  : model.savedContextPercent;
+            const percent =
+              Number.isFinite(Number(requested)) && Number(requested) > 0
+                ? Math.max(10, Math.min(100, Math.round(Number(requested) / 10) * 10))
+                : defaultPercent;
             selectedContextPercent.set(key, percent);
           }
           const percent = selectedContextPercent.get(key);
           return {
             percent,
             defaultPercent,
-            tokens: percent === defaultPercent
-              ? defaultWindow
-              : Math.floor(maxWindow * percent / 100),
+            tokens: percent === defaultPercent ? defaultWindow : Math.floor((maxWindow * percent) / 100),
           };
         };
         const changeContext = (model, direction = 1) => {
@@ -252,9 +263,12 @@ export function createModelPicker({
           if (!model?.fastCapable) return false;
           if (Array.isArray(model.parameterVariants) && model.parameterVariants.length) {
             const parameters = modelParametersFor(model);
-            return model.parameterVariants.some((variant) => variant.fast === 'true'
-              && (!effort || !variant.effort || variant.effort === effort)
-              && Object.entries(parameters).every(([key, value]) => !variant[key] || variant[key] === value));
+            return model.parameterVariants.some(
+              (variant) =>
+                variant.fast === 'true' &&
+                (!effort || !variant.effort || variant.effort === effort) &&
+                Object.entries(parameters).every(([key, value]) => !variant[key] || variant[key] === value)
+            );
           }
           const fastEfforts = Array.isArray(model.fastEfforts) ? model.fastEfforts : [];
           return fastEfforts.length === 0 || fastEfforts.includes(effort || '');
@@ -262,8 +276,14 @@ export function createModelPicker({
         const modelDefaultFast = (model) => {
           if (!fastAvailableFor(model)) return false;
           const currentRoute = options.currentRoute || null;
-          if (currentRoute?.provider === model.provider && currentRoute?.model === model.id && typeof currentRoute.fast === 'boolean') return currentRoute.fast;
-          if (model.provider === state.provider && model.id === state.model && typeof state.fast === 'boolean') return state.fast;
+          if (
+            currentRoute?.provider === model.provider &&
+            currentRoute?.model === model.id &&
+            typeof currentRoute.fast === 'boolean'
+          )
+            return currentRoute.fast;
+          if (model.provider === state.provider && model.id === state.model && typeof state.fast === 'boolean')
+            return state.fast;
           if (typeof model.savedFast === 'boolean') return model.savedFast;
           return model.fastPreferred === true;
         };
@@ -326,23 +346,24 @@ export function createModelPicker({
           const fastCapable = fastAvailableFor(model);
           const fastOn = fastCapable && getSelectedFast(model);
           const fastLine = fastCapable
-            ? { glyph: fastOn ? '●' : '○', color: fastOn ? theme.fastMode : theme.inactive, text: `${fastDisplayLabel(fastOn)} · Tab Toggle` }
+            ? {
+                glyph: fastOn ? '●' : '○',
+                color: fastOn ? theme.fastMode : theme.inactive,
+                text: `${fastDisplayLabel(fastOn)} · Tab Toggle`,
+              }
             : null;
           const parameterLines = (model?.modelParameterOptions || [])
             .filter((parameter) => parameter.id !== 'context')
             .map((parameter) => {
-            const value = modelParametersFor(model)[parameter.id] || '';
-            return {
-              glyph: '◇',
-              color: theme.inactive,
-              text: `${parameter.label}: ${parameter.options?.find((option) => option.value === value)?.label || value} · T Toggle`,
-            };
-          });
-          if (!values.length) return [
-            ...(contextLine ? [contextLine] : []),
-            ...(fastLine ? [fastLine] : []),
-            ...parameterLines,
-          ];
+              const value = modelParametersFor(model)[parameter.id] || '';
+              return {
+                glyph: '◇',
+                color: theme.inactive,
+                text: `${parameter.label}: ${parameter.options?.find((option) => option.value === value)?.label || value} · T Toggle`,
+              };
+            });
+          if (!values.length)
+            return [...(contextLine ? [contextLine] : []), ...(fastLine ? [fastLine] : []), ...parameterLines];
           let selectedEffort = getSelectedEffort(model);
           if (!values.includes(selectedEffort)) {
             selectedEffort = modelDefaultEffort(model);
@@ -376,7 +397,8 @@ export function createModelPicker({
           renderProviderModels();
         };
         const applyModel = (item) => {
-          const selected = item?._model || models.find((m) => m.provider === item?._provider && m.id === item?._modelId);
+          const selected =
+            item?._model || models.find((m) => m.provider === item?._provider && m.id === item?._modelId);
           if (!selected) return;
           modelPickerClosed = true;
           const effort = coerceEffort(selected);
@@ -385,9 +407,7 @@ export function createModelPicker({
             provider: selected.provider,
             model: selected.id,
             ...(effort ? { effort } : {}),
-            ...(contextSelectionFor(selected)
-              ? { contextPercent: contextSelectionFor(selected).percent }
-              : {}),
+            ...(contextSelectionFor(selected) ? { contextPercent: contextSelectionFor(selected).percent } : {}),
             ...(selected.fastCapable ? { fast: fastCapable && getSelectedFast(selected) } : {}),
             ...((selected.modelParameterOptions || []).length ? { modelParameters: modelParametersFor(selected) } : {}),
           };
@@ -418,7 +438,8 @@ export function createModelPicker({
           handBackSurface();
           markModelCatalogStale();
           store.pushNotice(modelSwitchNotice(), 'info');
-          void store.setRoute(routeInput)
+          void store
+            .setRoute(routeInput)
             .then((ok) => {
               if (ok === false) store.pushNotice('Model switch is already running', 'warn');
             })
@@ -431,16 +452,17 @@ export function createModelPicker({
           const providerModelInitialIndex = Math.max(
             0,
             providerModelItems.findIndex(
-              (item) => item._provider === activeRoute?.provider && item._modelId === activeRoute?.model,
-            ),
+              (item) => item._provider === activeRoute?.provider && item._modelId === activeRoute?.model
+            )
           );
           paintModelPicker({
             title: providerDisplayName(provider),
             description: options.modelDescription || 'Select a model. Adjust Effort with ←/→.',
             footer: (item) => modelFooter(item?._model),
-            help: returnOnNestedCancel && returnTo
-              ? `↑/↓ Select · ←/→ Effort · C/Shift+C Context · Tab Fast · T Thinking · Enter Save · Esc ${returnLabel}`
-              : '↑/↓ Select · ←/→ Effort · C/Shift+C Context · Tab Fast · T Thinking · Enter Save · Esc Back',
+            help:
+              returnOnNestedCancel && returnTo
+                ? `↑/↓ Select · ←/→ Effort · C/Shift+C Context · Tab Fast · T Thinking · Enter Save · Esc ${returnLabel}`
+                : '↑/↓ Select · ←/→ Effort · C/Shift+C Context · Tab Fast · T Thinking · Enter Save · Esc Back',
             indexMode: 'always',
             initialIndex: providerModelInitialIndex,
             pickerKey: `model-picker:provider-models:${provider}`,
@@ -466,7 +488,10 @@ export function createModelPicker({
               const definition = (model.modelParameterOptions || []).find((parameter) => parameter.id === wanted);
               if (!definition?.options?.length) return;
               const parameters = modelParametersFor(model);
-              const current = Math.max(0, definition.options.findIndex((option) => option.value === parameters[wanted]));
+              const current = Math.max(
+                0,
+                definition.options.findIndex((option) => option.value === parameters[wanted])
+              );
               parameters[wanted] = definition.options[(current + 1) % definition.options.length].value;
               selectedModelParameters.set(modelKey(model), { ...parameters });
               if (!fastAvailableFor(model)) selectedFast.set(modelKey(model), false);
@@ -484,7 +509,7 @@ export function createModelPicker({
       const providerHighlight = highlightProvider || activeRoute?.provider || null;
       const providerInitialIndex = Math.max(
         0,
-        providerItems.findIndex((item) => item._provider === providerHighlight),
+        providerItems.findIndex((item) => item._provider === providerHighlight)
       );
       paintModelPicker({
         title: options.title || 'Model',

@@ -17,7 +17,9 @@ export function createProgressWatchdogRegistry({ mgr }) {
 
   function stopTimerIfIdle() {
     if (watched.size > 0 || !timer) return;
-    try { clearInterval(timer); } catch {}
+    try {
+      clearInterval(timer);
+    } catch {}
     timer = null;
   }
 
@@ -29,9 +31,8 @@ export function createProgressWatchdogRegistry({ mgr }) {
       return;
     }
     const now = Date.now();
-    const snapshot = typeof mgr.getSessionProgressSnapshot === 'function'
-      ? mgr.getSessionProgressSnapshot(sessionId)
-      : null;
+    const snapshot =
+      typeof mgr.getSessionProgressSnapshot === 'function' ? mgr.getSessionProgressSnapshot(sessionId) : null;
     // Turn boundary: askStartedAt is re-stamped by markSessionAskStart for
     // EVERY turn of one askSession call, including the follow-up turns drained
     // from the pending-message queue. The sweep already reads this snapshot, so
@@ -39,7 +40,11 @@ export function createProgressWatchdogRegistry({ mgr }) {
     const askStartedAt = Number(snapshot?.askStartedAt || 0);
     if (askStartedAt > 0 && askStartedAt !== state.lastAskStartedAt) {
       state.lastAskStartedAt = askStartedAt;
-      try { state.onTurnStart?.(askStartedAt); } catch { /* bookkeeping only */ }
+      try {
+        state.onTurnStart?.(askStartedAt);
+      } catch {
+        /* bookkeeping only */
+      }
     }
     const sess = typeof mgr.getSession === 'function' ? mgr.getSession(sessionId) : null;
     const iteration = typeof sess?.lastIterationIndex === 'number' ? sess.lastIterationIndex : null;
@@ -53,7 +58,11 @@ export function createProgressWatchdogRegistry({ mgr }) {
       const signature = `${iteration ?? ''}:${messages}`;
       if (signature !== state.lastProgressSignature) {
         state.lastProgressSignature = signature;
-        try { state.onProgress({ iteration, messages }); } catch { /* bookkeeping only */ }
+        try {
+          state.onProgress({ iteration, messages });
+        } catch {
+          /* bookkeeping only */
+        }
       }
     }
     const abortErr = snapshot ? evaluateAgentWatchdogAbort(snapshot, now, watchdogPolicy) : null;
@@ -65,7 +74,11 @@ export function createProgressWatchdogRegistry({ mgr }) {
       // the shared interval and disabled watchdog coverage for every session.
       let reported = 0;
       if (typeof mgr.getSessionLastProgressAt === 'function') {
-        try { reported = Number(mgr.getSessionLastProgressAt(sessionId)) || 0; } catch { reported = 0; }
+        try {
+          reported = Number(mgr.getSessionLastProgressAt(sessionId)) || 0;
+        } catch {
+          reported = 0;
+        }
       }
       const last = reported || anchorTs;
       if (watchdogPolicy.idleStaleMs > 0 && now - last > watchdogPolicy.idleStaleMs) {
@@ -101,7 +114,11 @@ export function createProgressWatchdogRegistry({ mgr }) {
     timer = setInterval(() => {
       // One session's failure must never cancel the sweep for the others.
       for (const state of [...watched.values()]) {
-        try { check(state); } catch { /* watchdog is best-effort */ }
+        try {
+          check(state);
+        } catch {
+          /* watchdog is best-effort */
+        }
       }
     }, WATCHDOG_SWEEP_INTERVAL_MS);
     timer.unref?.();
@@ -112,12 +129,16 @@ export function createProgressWatchdogRegistry({ mgr }) {
      *  policy is off or the manager cannot link an abort signal. */
     start(sessionId, watchdogPolicy, agent = null, { onTurnStart = null, onProgress = null } = {}) {
       if (!sessionId || !agentWatchdogPolicyActive(watchdogPolicy)) return null;
-      if (typeof mgr.getSessionProgressSnapshot !== 'function'
-        && typeof mgr.getSessionLastProgressAt !== 'function') return null;
+      if (typeof mgr.getSessionProgressSnapshot !== 'function' && typeof mgr.getSessionLastProgressAt !== 'function')
+        return null;
       if (typeof mgr.linkParentSignalToSession !== 'function') return null;
       const controller = new AbortController();
       const anchorTs = Date.now();
-      try { mgr.linkParentSignalToSession(sessionId, controller.signal); } catch { return null; }
+      try {
+        mgr.linkParentSignalToSession(sessionId, controller.signal);
+      } catch {
+        return null;
+      }
       const state = {
         sessionId,
         watchdogPolicy,

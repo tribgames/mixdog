@@ -25,7 +25,12 @@ const browserAccepts = (args) => {
 
 test('setup refuses malformed or misspelled fields before reaching the settings facade', async () => {
   let facadeReads = 0;
-  const executor = createSetupToolExecutor({ getApi: () => { facadeReads++; return {}; } });
+  const executor = createSetupToolExecutor({
+    getApi: () => {
+      facadeReads++;
+      return {};
+    },
+  });
   for (const args of [
     { action: 'set_route', route: { model: 'model-id', fast: 'true' } },
     { action: 'set_route', route: { model: 'model-id', effrot: 'high' } },
@@ -48,11 +53,22 @@ test('setup refuses malformed or misspelled fields before reaching the settings 
 
 test('setup forwards valid false values, inheritance and open MCP configuration unchanged', async () => {
   const calls = [];
-  const executor = createSetupToolExecutor({ getApi: () => ({
-    async setRoute(route) { calls.push(['route', route]); return route; },
-    async setAgentRoute(agent, route) { calls.push(['agent', agent, route]); return route; },
-    async addMcpServer(server) { calls.push(['mcp', server]); return { name: server.name }; },
-  }) });
+  const executor = createSetupToolExecutor({
+    getApi: () => ({
+      async setRoute(route) {
+        calls.push(['route', route]);
+        return route;
+      },
+      async setAgentRoute(agent, route) {
+        calls.push(['agent', agent, route]);
+        return route;
+      },
+      async addMcpServer(server) {
+        calls.push(['mcp', server]);
+        return { name: server.name };
+      },
+    }),
+  });
   await executor.execute({ action: 'set_route', route: { model: 'model-id', fast: false } });
   await executor.execute({ action: 'set_agent_route', agent: 'worker', route: { provider: '' } });
   const server = { name: 'fixture', type: 'stdio', command: 'fixture', args: [], env: { CUSTOM_FIELD: 'value' } };
@@ -70,14 +86,28 @@ test('setup names distinguish built-in toggles from Memory installation and togg
   assert.match(note, /install_builtin also accepts memory/);
   assert.match(note, /set_memory_enabled/);
   const calls = [];
-  const executor = createSetupToolExecutor({ getApi: () => ({
-    async setMemoryToolsEnabled(enabled) { calls.push(['memory', enabled]); return {}; },
-    async installBuiltinFeature(name) { calls.push(['install', name]); return {}; },
-  }) });
+  const executor = createSetupToolExecutor({
+    getApi: () => ({
+      async setMemoryToolsEnabled(enabled) {
+        calls.push(['memory', enabled]);
+        return {};
+      },
+      async installBuiltinFeature(name) {
+        calls.push(['install', name]);
+        return {};
+      },
+    }),
+  });
   await executor.execute({ action: 'set_memory_enabled', enabled: false });
   await executor.execute({ action: 'install_builtin', name: 'memory' });
-  await assert.rejects(executor.execute({ action: 'set_builtin_enabled', name: 'memory', enabled: false }), /name must be one of/);
-  assert.deepEqual(calls, [['memory', false], ['install', 'memory']]);
+  await assert.rejects(
+    executor.execute({ action: 'set_builtin_enabled', name: 'memory', enabled: false }),
+    /name must be one of/
+  );
+  assert.deepEqual(calls, [
+    ['memory', false],
+    ['install', 'memory'],
+  ]);
 });
 
 test('computer action ordering is visible before composing a multi-action call', () => {
@@ -85,11 +115,17 @@ test('computer action ordering is visible before composing a multi-action call',
   assert.match(act.properties.input.properties.actions.description, /only type\/key\/wait/);
   assert.match(act.properties.input.properties.actions.description, /without targets/);
   assert.match(act.properties.input.properties.actions.description, /total ≤10s/);
-  const args = { action: 'act', input: { window_id: 'hwnd:0x1', actions: [
-    { type: 'click', ref: 'ref:1' },
-    { type: 'type', text: 'Value' },
-    { type: 'key', keys: '{ENTER}' },
-  ] } };
+  const args = {
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x1',
+      actions: [
+        { type: 'click', ref: 'ref:1' },
+        { type: 'type', text: 'Value' },
+        { type: 'key', keys: '{ENTER}' },
+      ],
+    },
+  };
   accepts(COMPUTER_INPUT_SCHEMA, args);
   assert.equal(validateComputerToolArgs(args), null);
   args.input.actions[1] = { type: 'click', ref: 'ref:2' };
@@ -105,12 +141,21 @@ test('screenshot and select-sequence descriptions give the accepted first-call c
     { action: 'snapshot', input: { mode: 'visual', format: 'jpeg', quality: 80 } },
     { action: 'snapshot', input: { mode: 'visual', format: 'pdf' } },
     { action: 'select', input: { ref: 'p1-s1-e1' } },
-    { action: 'sequence', input: { steps: [
-      { action: 'click', ref: 'p1-s1-e1' },
-      { action: 'select', ref: 'p1-s1-e2', values: ['KR'] },
-    ] } },
-  ]) browserAccepts(args);
-  assert.deepEqual(browser.find((tool) => tool.name === 'browser_devtools').inputSchema.properties.input.properties.format.enum, ['jpeg', 'png']);
+    {
+      action: 'sequence',
+      input: {
+        steps: [
+          { action: 'click', ref: 'p1-s1-e1' },
+          { action: 'select', ref: 'p1-s1-e2', values: ['KR'] },
+        ],
+      },
+    },
+  ])
+    browserAccepts(args);
+  assert.deepEqual(
+    browser.find((tool) => tool.name === 'browser_devtools').inputSchema.properties.input.properties.format.enum,
+    ['jpeg', 'png']
+  );
   assert.equal(validateBrowserToolArgs({ action: 'snapshot', input: { mode: 'visual', quality: 80 } }).ok, false);
   assert.equal(validateBrowserToolArgs({ action: 'snapshot', input: { mode: 'both', format: 'pdf' } }).ok, false);
 });
@@ -130,10 +175,15 @@ test('browser string guards agree with the schema on BMP and astral text', () =>
     browserAccepts({ action: 'fill', input: { fields: [{ ref: 'p1-s1-e1', values: [character.repeat(4096)] }] } });
     browserAccepts({ action: 'click', input: { ref: 'p1-s1-e1', expect: { text: character.repeat(10000) } } });
     browserAccepts({ action: 'extract', input: { selector: 'a', attributes: [character.repeat(60)] } });
-    browserAccepts({ action: 'sequence', input: { steps: [
-      { action: 'fill', savedAccount: character.repeat(320) },
-      { action: 'press', key: 'Enter' },
-    ] } });
+    browserAccepts({
+      action: 'sequence',
+      input: {
+        steps: [
+          { action: 'fill', savedAccount: character.repeat(320) },
+          { action: 'press', key: 'Enter' },
+        ],
+      },
+    });
     const tooLong = { action: 'click', input: { target: { name: character.repeat(501) } } };
     assert.equal(ajv.validate(browserSchema, tooLong), false);
     assert.equal(validateBrowserToolArgs(tooLong).ok, false);
@@ -147,9 +197,10 @@ test('computer Unicode text respects schema bounds without increasing the native
   args.input.expect[0].present += '😀';
   assert.equal(ajv.validate(COMPUTER_INPUT_SCHEMA, args), false);
   assert.match(validateComputerToolArgs(args), /4096/);
-  const type = { action: 'act', input: { window_id: 'hwnd:0x1', delivery: 'background', actions: [
-    { type: 'type', text: '😀'.repeat(30000) },
-  ] } };
+  const type = {
+    action: 'act',
+    input: { window_id: 'hwnd:0x1', delivery: 'background', actions: [{ type: 'type', text: '😀'.repeat(30000) }] },
+  };
   accepts(COMPUTER_INPUT_SCHEMA, type);
   assert.equal(validateComputerToolArgs(type), null);
   type.input.delivery = 'foreground';
@@ -161,13 +212,25 @@ test('computer Unicode text respects schema bounds without increasing the native
 });
 
 test('Goal describes the retained-task total without weakening the cap', () => {
-  assert.match(GOAL_TOOL_DEFS[0].inputSchema.properties.tasks.description, /Max 20 total, including completed\/dropped/);
-  const previous = normalizeGoalTasks(Array.from({ length: 19 }, (_, i) => ({
-    text: `Task ${i}`, status: i % 2 ? 'completed' : 'dropped', kind: 'work',
-  })), [], { strict: true });
+  assert.match(
+    GOAL_TOOL_DEFS[0].inputSchema.properties.tasks.description,
+    /Max 20 total, including completed\/dropped/
+  );
+  const previous = normalizeGoalTasks(
+    Array.from({ length: 19 }, (_, i) => ({
+      text: `Task ${i}`,
+      status: i % 2 ? 'completed' : 'dropped',
+      kind: 'work',
+    })),
+    [],
+    { strict: true }
+  );
   const added = { text: 'New work', status: 'pending', kind: 'work' };
   assert.equal(patchGoalTasks(previous, { tasks: [added] }).length, 20);
-  assert.throws(() => patchGoalTasks(previous, { tasks: [added, { ...added, text: 'Overflow' }] }), /at most 20 entries/);
+  assert.throws(
+    () => patchGoalTasks(previous, { tasks: [added, { ...added, text: 'Overflow' }] }),
+    /at most 20 entries/
+  );
 });
 
 test('report round-two context change without confusing characters with tokens', (t) => {

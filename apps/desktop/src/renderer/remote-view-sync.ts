@@ -21,25 +21,32 @@ export function createRemoteViewSync(options: {
     const revision = requested;
     running = true;
     options.state('syncing');
-    void options.synchronize().then(() => {
-      if (!active || epoch !== generation) return;
-      completed = revision;
-      retryDelay = 250;
-      if (completed === requested) {
-        options.state('connected');
-        for (const waiter of waiting) waiter.resolve();
-        waiting.clear();
-      }
-    }).catch((error) => {
-      if (!active || epoch !== generation) return;
-      options.error(error);
-      retry = setTimeout(() => { retry = null; pump(); }, retryDelay);
-      retryDelay = Math.min(10_000, retryDelay * 2);
-    }).finally(() => {
-      if (epoch !== generation) return;
-      running = false;
-      pump();
-    });
+    void options
+      .synchronize()
+      .then(() => {
+        if (!active || epoch !== generation) return;
+        completed = revision;
+        retryDelay = 250;
+        if (completed === requested) {
+          options.state('connected');
+          for (const waiter of waiting) waiter.resolve();
+          waiting.clear();
+        }
+      })
+      .catch((error) => {
+        if (!active || epoch !== generation) return;
+        options.error(error);
+        retry = setTimeout(() => {
+          retry = null;
+          pump();
+        }, retryDelay);
+        retryDelay = Math.min(10_000, retryDelay * 2);
+      })
+      .finally(() => {
+        if (epoch !== generation) return;
+        running = false;
+        pump();
+      });
   };
   const ready = (): Promise<void> => {
     if (!active) return Promise.reject(options.interrupted());

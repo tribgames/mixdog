@@ -1,7 +1,6 @@
 import { clean } from './clean.mjs';
 
-export const TOOL_SYNC_EXECUTION_CONTRACT =
-  'Returns final results in this call.';
+export const TOOL_SYNC_EXECUTION_CONTRACT = 'Returns final results in this call.';
 
 export const TOOL_ASYNC_EXECUTION_CONTRACT =
   'Runs sync inline by default; async returns a background task_id and delivers a completion notification.';
@@ -32,7 +31,7 @@ function notificationResultBody(text) {
 }
 
 export function backgroundTaskHeaderStatus(text) {
-  const match = /^status:\s*(\S+)/mi.exec(String(text || ''));
+  const match = /^status:\s*(\S+)/im.exec(String(text || ''));
   return clean(match?.[1]).toLowerCase();
 }
 
@@ -56,7 +55,7 @@ export function shouldPersistModelVisibleToolCompletion(text, meta = {}) {
     return Boolean(notificationResultBody(message));
   }
 
-  if (/^(?:agent task:|task_id:)/mi.test(message)) {
+  if (/^(?:agent task:|task_id:)/im.test(message)) {
     if (NON_PERSISTENT_TOOL_STATUSES.has(metaStatus)) return false;
     if (!TERMINAL_TOOL_STATUSES.has(metaStatus)) return false;
     return Boolean(notificationResultBody(message));
@@ -65,7 +64,8 @@ export function shouldPersistModelVisibleToolCompletion(text, meta = {}) {
   return false;
 }
 
-const BRACKETED_SHELL_STATUS_RE = /^\[status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled|error|timeout|done|success)\]/im;
+const BRACKETED_SHELL_STATUS_RE =
+  /^\[status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled|error|timeout|done|success)\]/im;
 
 export function isBracketedShellNotificationEnvelope(text) {
   const value = String(text ?? '').trim();
@@ -78,14 +78,18 @@ export function isInternalRuntimeNotificationText(text) {
   const value = String(text ?? '').trim();
   if (!value) return false;
   if (isBracketedShellNotificationEnvelope(value)) return true;
-  if (/^background task\b/i.test(value)
-    && /^task_id:\s*\S+/mi.test(value)
-    && /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b/mi.test(value)) {
+  if (
+    /^background task\b/i.test(value) &&
+    /^task_id:\s*\S+/im.test(value) &&
+    /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b/im.test(value)
+  ) {
     return true;
   }
-  if (/^task_id:\s*\S+/mi.test(value)
-    && /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b/mi.test(value)
-    && /^(?:surface|operation|type|target|role|agent|preset|model|effort|fast|notification):\s*/mi.test(value)) {
+  if (
+    /^task_id:\s*\S+/im.test(value) &&
+    /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b/im.test(value) &&
+    /^(?:surface|operation|type|target|role|agent|preset|model|effort|fast|notification):\s*/im.test(value)
+  ) {
     return true;
   }
   return false;
@@ -106,23 +110,12 @@ export function normalizeToolNotifyContext(context = {}) {
 }
 
 export function toolCompletionInstruction({ surface = 'tool', id, status, detail } = {}) {
-  const label = surface === 'shell'
-    ? 'shell task'
-    : surface === 'agent'
-      ? 'agent task'
-      : `${surface} execution`;
+  const label = surface === 'shell' ? 'shell task' : surface === 'agent' ? 'agent task' : `${surface} execution`;
   const statusText = status ? ` (${status}${detail ? `, ${detail}` : ''})` : '';
   return `Async ${label} ${id || ''}${statusText} finished.`;
 }
 
-function toolCompletionMeta({
-  surface = 'tool',
-  id,
-  status,
-  resultType,
-  instruction,
-  context,
-} = {}) {
+function toolCompletionMeta({ surface = 'tool', id, status, resultType, instruction, context } = {}) {
   const ctx = normalizeToolNotifyContext(context);
   return {
     type: resultType || `${surface}_completion`,
@@ -131,7 +124,9 @@ function toolCompletionMeta({
     status: status || null,
     instruction: instruction || toolCompletionInstruction({ surface, id, status }),
     ...(ctx.callerSessionId ? { caller_session_id: ctx.callerSessionId } : {}),
-    ...(ctx.routingSessionId && ctx.routingSessionId !== ctx.callerSessionId ? { routing_session_id: ctx.routingSessionId } : {}),
+    ...(ctx.routingSessionId && ctx.routingSessionId !== ctx.callerSessionId
+      ? { routing_session_id: ctx.routingSessionId }
+      : {}),
     ...(ctx.clientHostPid ? { client_host_pid: String(ctx.clientHostPid) } : {}),
   };
 }
@@ -201,7 +196,9 @@ const TRANSCRIPT_SKILL_TOOL_RE = /^(?:skill|skill_view|use_skill|skill_execute)$
 const BUILTIN_SKILL_RESULT_RE = /^Loaded built-in skill:/i;
 
 function normalizeTranscriptToolName(name) {
-  return clean(name).toLowerCase().replace(/^functions\./, '');
+  return clean(name)
+    .toLowerCase()
+    .replace(/^functions\./, '');
 }
 
 export function isTranscriptHiddenControlToolName(name) {
@@ -233,10 +230,8 @@ export function isTranscriptHiddenToolItem(item) {
 // is a user-visible crash-recovery marker showing where a force-killed turn
 // stopped, and the restored transcript must keep that row
 // (scripts/turn-checkpoint-crash-test.mjs).
-const INTERNAL_TRANSCRIPT_INTERRUPT_RE =
-  /^\[request interrupted by user(?: for tool use)?\]$/i;
-const TRANSCRIPT_CANCELLED_STATUS_RE =
-  /^\[request interrupted(?: by process restart)?\]$/i;
+const INTERNAL_TRANSCRIPT_INTERRUPT_RE = /^\[request interrupted by user(?: for tool use)?\]$/i;
+const TRANSCRIPT_CANCELLED_STATUS_RE = /^\[request interrupted(?: by process restart)?\]$/i;
 
 // Crash/implicit interruption markers remain in model-visible history for
 // recovery, but every human transcript renders them as a Cancelled status row.
@@ -254,12 +249,14 @@ export function isTranscriptCancelledStatusText(text) {
 export function isInternalTranscriptDisplayText(text) {
   const value = String(text ?? '').trim();
   if (!value) return false;
-  if (INTERNAL_TRANSCRIPT_CONTEXT_RE.test(value)
-    || INTERNAL_TRANSCRIPT_SYNTHETIC_RE.test(value)
-    || INTERNAL_TRANSCRIPT_INTERRUPT_RE.test(value)
-    || isInternalRuntimeNotificationText(value)
-    || isModelVisibleToolCompletionWrapper(value)
-    || isLikelyToolCompletionWrapper(value)) {
+  if (
+    INTERNAL_TRANSCRIPT_CONTEXT_RE.test(value) ||
+    INTERNAL_TRANSCRIPT_SYNTHETIC_RE.test(value) ||
+    INTERNAL_TRANSCRIPT_INTERRUPT_RE.test(value) ||
+    isInternalRuntimeNotificationText(value) ||
+    isModelVisibleToolCompletionWrapper(value) ||
+    isLikelyToolCompletionWrapper(value)
+  ) {
     return true;
   }
   if (INTERNAL_TRANSCRIPT_ASYNC_HEAD_RE.test(value) && !/\bResult:\s*(?:\r?\n|$)/i.test(value)) {
@@ -270,7 +267,8 @@ export function isInternalTranscriptDisplayText(text) {
   const preamble = value.slice(0, resultSplit.index).trim();
   const instructionLike = MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(preamble);
   if (!instructionLike) return false;
-  const normalizedBody = value.slice(resultSplit.index + resultSplit[0].length)
+  const normalizedBody = value
+    .slice(resultSplit.index + resultSplit[0].length)
     .split(/\r?\n/)
     .map((line) => line.replace(/^>\s?/, ''))
     .join('\n')
@@ -288,16 +286,15 @@ export function modelVisibleToolCompletionMessage(text, meta = {}) {
   const status = clean(meta?.status);
   const header = `Async ${type}${id ? ` ${id}` : ''}${status ? ` ${status}` : ''} finished.`;
   const MODEL_VISIBLE_RESULT_BODY_MAX = 12_000;
-  const bounded = message.length > MODEL_VISIBLE_RESULT_BODY_MAX
-    ? `${message.slice(0, MODEL_VISIBLE_RESULT_BODY_MAX)}\n\n[result truncated for model context]`
-    : message;
-  const quoted = bounded.split(/\r?\n/).map((line) => `> ${line}`).join('\n');
-  return [
-    instruction || header,
-    '',
-    'Result:',
-    quoted,
-  ].join('\n');
+  const bounded =
+    message.length > MODEL_VISIBLE_RESULT_BODY_MAX
+      ? `${message.slice(0, MODEL_VISIBLE_RESULT_BODY_MAX)}\n\n[result truncated for model context]`
+      : message;
+  const quoted = bounded
+    .split(/\r?\n/)
+    .map((line) => `> ${line}`)
+    .join('\n');
+  return [instruction || header, '', 'Result:', quoted].join('\n');
 }
 
 // Shared enqueue-fallback helper used by both the synchronous fallback path and
@@ -311,7 +308,9 @@ function tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id) 
     return enq !== false && enq !== 0;
   } catch (err) {
     try {
-      process.stderr.write(`[${logPrefix}] async completion fallback enqueue failed: id=${id || 'unknown'} err=${err?.message || err}\n`);
+      process.stderr.write(
+        `[${logPrefix}] async completion fallback enqueue failed: id=${id || 'unknown'} err=${err?.message || err}\n`
+      );
     } catch {}
   }
   return false;
@@ -361,20 +360,24 @@ export function notifyToolCompletion({
           // whether that rescue (or the notifyFn itself) actually delivered, so
           // a caller can un-mark and retry when nothing landed. The truthy
           // resolve path never enqueues, preserving exact-once delivery.
-          Promise.resolve(notifyResult).then((settled) => {
-            if (settled === false || settled === 0) {
+          Promise.resolve(notifyResult)
+            .then((settled) => {
+              if (settled === false || settled === 0) {
+                const rescued = tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
+                if (typeof onSettled === 'function') onSettled(rescued);
+              } else if (typeof onSettled === 'function') {
+                onSettled(true);
+              }
+            })
+            .catch((err) => {
+              try {
+                process.stderr.write(
+                  `[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`
+                );
+              } catch {}
               const rescued = tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
               if (typeof onSettled === 'function') onSettled(rescued);
-            } else if (typeof onSettled === 'function') {
-              onSettled(true);
-            }
-          }).catch((err) => {
-            try {
-              process.stderr.write(`[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`);
-            } catch {}
-            const rescued = tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
-            if (typeof onSettled === 'function') onSettled(rescued);
-          });
+            });
           return true;
         }
         // Synchronous non-false result → confirmed delivered now.
@@ -382,7 +385,9 @@ export function notifyToolCompletion({
       }
     } catch (err) {
       try {
-        process.stderr.write(`[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`);
+        process.stderr.write(
+          `[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`
+        );
       } catch {}
     }
   }

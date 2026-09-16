@@ -16,12 +16,15 @@ test('local normalization preserves instruction text and conversation without mu
   const saved = structuredClone(history);
   assert.deepEqual(toLocalProviderMessages(history), [
     { role: 'system', content: 'base\n\nprofile\n\nruntime instructions' },
-    history[2], history[4],
+    history[2],
+    history[4],
   ]);
   assert.deepEqual(history, saved);
-  assert.throws(() => toLocalProviderMessages([
-    { role: 'system', content: [{ type: 'image_url', image_url: { url: 'not-text' } }] },
-  ]), /text only/);
+  assert.throws(
+    () =>
+      toLocalProviderMessages([{ role: 'system', content: [{ type: 'image_url', image_url: { url: 'not-text' } }] }]),
+    /text only/
+  );
 });
 
 test('local provider streams a tool call and consumes its result with a strict single-system endpoint', async () => {
@@ -38,33 +41,57 @@ test('local provider streams a tool call and consumes its result with a strict s
       return;
     }
     const followup = body.messages.at(-1).role === 'tool';
-    const delta = followup ? { content: 'The result is 42.' } : {
-      tool_calls: [{ index: 0, id: 'call_local', type: 'function', function: { name: 'lookup', arguments: '{"key":"answer"}' } }],
-    };
+    const delta = followup
+      ? { content: 'The result is 42.' }
+      : {
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call_local',
+              type: 'function',
+              function: { name: 'lookup', arguments: '{"key":"answer"}' },
+            },
+          ],
+        };
     res.writeHead(200, { 'content-type': 'text/event-stream' });
-    res.end(`data: ${JSON.stringify({
-      id: 'local-response', model: body.model,
-      choices: [{ index: 0, delta, finish_reason: followup ? 'stop' : 'tool_calls' }],
-      usage: { prompt_tokens: 20, completion_tokens: 8 },
-    })}\n\ndata: [DONE]\n\n`);
+    res.end(
+      `data: ${JSON.stringify({
+        id: 'local-response',
+        model: body.model,
+        choices: [{ index: 0, delta, finish_reason: followup ? 'stop' : 'tool_calls' }],
+        usage: { prompt_tokens: 20, completion_tokens: 8 },
+      })}\n\ndata: [DONE]\n\n`
+    );
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const seenSignals = [];
-  const provider = new MixdogLocalProvider({}, {
-    ensureServer: async (_model, { signal }) => {
-      seenSignals.push(signal);
-      return { baseURL: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'test-key' };
-    },
-  });
+  const provider = new MixdogLocalProvider(
+    {},
+    {
+      ensureServer: async (_model, { signal }) => {
+        seenSignals.push(signal);
+        return { baseURL: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'test-key' };
+      },
+    }
+  );
   const controller = new AbortController();
   const signal = controller.signal;
   const messages = ['base', 'profile', 'workflow', 'environment'].map((content) => ({ role: 'system', content }));
   messages.push({ role: 'user', content: 'Look up the answer.' });
-  const tools = [{ name: 'lookup', description: 'Read a value', inputSchema: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] } }];
+  const tools = [
+    {
+      name: 'lookup',
+      description: 'Read a value',
+      inputSchema: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] },
+    },
+  ];
   const dispatched = [];
   try {
-    const first = await provider.send(messages, 'test-local', tools, { signal, onToolCall: (call) => dispatched.push(call) });
+    const first = await provider.send(messages, 'test-local', tools, {
+      signal,
+      onToolCall: (call) => dispatched.push(call),
+    });
     assert.equal(first.toolCalls.length, 1);
     assert.equal(dispatched.length, 1);
     assert.equal(first.toolCalls[0].name, 'lookup');
@@ -92,7 +119,10 @@ test('local provider streams a tool call and consumes its result with a strict s
 
 test('cancelled local sends never start a model server', async () => {
   const provider = new MixdogLocalProvider({}, { ensureServer: () => assert.fail('must not start') });
-  await assert.rejects(provider.send([], 'test', [], {
-    signal: AbortSignal.abort(new Error('cancelled')),
-  }), /cancelled/);
+  await assert.rejects(
+    provider.send([], 'test', [], {
+      signal: AbortSignal.abort(new Error('cancelled')),
+    }),
+    /cancelled/
+  );
 });

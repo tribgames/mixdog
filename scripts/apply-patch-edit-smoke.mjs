@@ -33,9 +33,11 @@ try {
   const reviewSession = `apply-patch-review-${process.pid}`;
   await beginTurnSnapshot(tmp, reviewSession);
 
-  const editResult = await executePatchTool('apply_patch', {
-    base_path: tmp,
-    patch: `*** Begin Patch
+  const editResult = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: tmp,
+      patch: `*** Begin Patch
 *** Update File: target.txt
 @@
  alpha
@@ -47,38 +49,50 @@ try {
 +second line
 *** End Patch
 `,
-  }, tmp, { sessionId: reviewSession, toolCallId: 'review-edit' });
+    },
+    tmp,
+    { sessionId: reviewSession, toolCallId: 'review-edit' }
+  );
   assertOk('apply_patch edit', editResult);
   const editUiDiff = takeApplyPatchUiDiff('review-edit');
-  assert(/target\.txt/.test(String(editUiDiff)) && /created\.txt/.test(String(editUiDiff)),
-    `apply_patch did not publish the committed turn diff:\n${editUiDiff}`);
+  assert(
+    /target\.txt/.test(String(editUiDiff)) && /created\.txt/.test(String(editUiDiff)),
+    `apply_patch did not publish the committed turn diff:\n${editUiDiff}`
+  );
 
   assert(
     readFileSync(join(tmp, 'target.txt'), 'utf8') === 'alpha\nbravo\ngamma\n',
-    'apply_patch update did not write the expected target.txt contents',
+    'apply_patch update did not write the expected target.txt contents'
   );
   assert(
     readFileSync(join(tmp, 'created.txt'), 'utf8') === 'created by apply_patch smoke\nsecond line\n',
-    'apply_patch add did not write the expected created.txt contents',
+    'apply_patch add did not write the expected created.txt contents'
   );
-  const nestedAdd = await executePatchTool('apply_patch', {
-    base_path: tmp,
-    patch: `*** Begin Patch
+  const nestedAdd = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: tmp,
+      patch: `*** Begin Patch
 *** Add File: missing/parents/direct-created.txt
 +created without preflight
 *** End Patch
 `,
-  }, tmp, {});
+    },
+    tmp,
+    {}
+  );
   assertOk('apply_patch direct nested Add File', nestedAdd);
   assert(
     readFileSync(join(tmp, 'missing', 'parents', 'direct-created.txt'), 'utf8') === 'created without preflight\n',
-    'Add File did not create its missing parent directories',
+    'Add File did not create its missing parent directories'
   );
 
   writeFileSync(join(tmp, 'decorated.txt'), 'before decorated\n', 'utf8');
-  const decoratedResult = await executePatchTool('apply_patch', {
-    base_path: tmp,
-    patch: `*** Begin Patch ***
+  const decoratedResult = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: tmp,
+      patch: `*** Begin Patch ***
 *** Update File: decorated.txt ***
 @@
 -before decorated
@@ -86,24 +100,34 @@ try {
 *** End of File ***
 *** End Patch ***
 `,
-  }, tmp, {});
+    },
+    tmp,
+    {}
+  );
   assertOk('apply_patch decorated control markers', decoratedResult);
   assert(
     readFileSync(join(tmp, 'decorated.txt'), 'utf8') === 'after decorated\n',
-    'apply_patch treated trailing marker punctuation as part of the file path',
+    'apply_patch treated trailing marker punctuation as part of the file path'
   );
 
-  const deleteResult = await executePatchTool('apply_patch', {
-    base_path: tmp,
-    patch: `*** Begin Patch
+  const deleteResult = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: tmp,
+      patch: `*** Begin Patch
 *** Delete File: created.txt
 *** End Patch
 `,
-  }, tmp, { sessionId: reviewSession, toolCallId: 'review-delete' });
+    },
+    tmp,
+    { sessionId: reviewSession, toolCallId: 'review-delete' }
+  );
   assertOk('apply_patch delete', deleteResult);
   const deleteUiDiff = takeApplyPatchUiDiff('review-delete');
-  assert(/target\.txt/.test(String(deleteUiDiff)) && !/created\.txt/.test(String(deleteUiDiff)),
-    `add-then-delete did not cancel from the turn diff:\n${deleteUiDiff}`);
+  assert(
+    /target\.txt/.test(String(deleteUiDiff)) && !/created\.txt/.test(String(deleteUiDiff)),
+    `add-then-delete did not cancel from the turn diff:\n${deleteUiDiff}`
+  );
 
   let deleteMissing = false;
   try {
@@ -114,9 +138,11 @@ try {
   }
   assert(deleteMissing, 'apply_patch delete left created.txt on disk');
   writeFileSync(join(tmp, 'rename-source.txt'), 'before rename\n', 'utf8');
-  const renameResult = await executePatchTool('apply_patch', {
-    base_path: tmp,
-    patch: `*** Begin Patch
+  const renameResult = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: tmp,
+      patch: `*** Begin Patch
 *** Update File: rename-source.txt
 *** Move to: nested/rename-destination.txt
 @@
@@ -124,21 +150,28 @@ try {
 +after rename
 *** End Patch
 `,
-  }, tmp, { sessionId: reviewSession, toolCallId: 'review-rename' });
+    },
+    tmp,
+    { sessionId: reviewSession, toolCallId: 'review-rename' }
+  );
   assertOk('apply_patch model-surface rename', renameResult);
   assert(!existsSync(join(tmp, 'rename-source.txt')), 'apply_patch rename left the source on disk');
   assert(
     readFileSync(join(tmp, 'nested', 'rename-destination.txt'), 'utf8') === 'after rename\n',
-    'apply_patch rename did not write the destination contents',
+    'apply_patch rename did not write the destination contents'
   );
   const review = await getTurnReviewDiff(tmp, reviewSession);
-  assert(review.authoritative === true && /-beta/.test(review.patch) && /\+bravo/.test(review.patch),
-    `turn review did not retain the first-before/latest-after diff:\n${review.patch}`);
+  assert(
+    review.authoritative === true && /-beta/.test(review.patch) && /\+bravo/.test(review.patch),
+    `turn review did not retain the first-before/latest-after diff:\n${review.patch}`
+  );
 
   writeFileSync(join(tmp, 'partial-blocker.txt'), 'present\n', 'utf8');
-  const partialResult = await executePatchTool('apply_patch', {
-    base_path: tmp,
-    patch: `*** Begin Patch
+  const partialResult = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: tmp,
+      patch: `*** Begin Patch
 *** Update File: partial-blocker.txt
 @@
 -missing
@@ -153,28 +186,35 @@ try {
 +must survive
 *** End Patch
 `,
-  }, tmp, {});
+    },
+    tmp,
+    {}
+  );
   assert(/^Error[\s:]/.test(String(partialResult)), `file-level partial patch unexpectedly passed:\n${partialResult}`);
-  assert(/file-level partial/i.test(String(partialResult))
-    && /Retry only the rejected files/i.test(String(partialResult))
-    && /current file lines/i.test(String(partialResult)),
-  `apply_patch must report committed and rejected files with current context:\n${partialResult}`);
+  assert(
+    /file-level partial/i.test(String(partialResult)) &&
+      /Retry only the rejected files/i.test(String(partialResult)) &&
+      /current file lines/i.test(String(partialResult)),
+    `apply_patch must report committed and rejected files with current context:\n${partialResult}`
+  );
   assert(
     readFileSync(join(tmp, 'target.txt'), 'utf8') === 'alpha\ntemporary\ngamma\n',
-    'apply_patch did not commit a valid file after an earlier stale file',
+    'apply_patch did not commit a valid file after an earlier stale file'
   );
   assert(
     readFileSync(join(tmp, 'rollback-created.txt'), 'utf8') === 'must survive\n',
-    'apply_patch did not commit a valid Add File after an earlier stale file',
+    'apply_patch did not commit a valid Add File after an earlier stale file'
   );
   assert(
     readFileSync(join(tmp, 'partial-blocker.txt'), 'utf8') === 'present\n',
-    'apply_patch failure changed the failing target',
+    'apply_patch failure changed the failing target'
   );
 
-  const duplicateTargetResult = await executePatchTool('apply_patch', {
-    base_path: tmp,
-    patch: `*** Begin Patch
+  const duplicateTargetResult = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: tmp,
+      patch: `*** Begin Patch
 *** Update File: target.txt
 @@
 -alpha
@@ -185,14 +225,21 @@ try {
 +delta
 *** End Patch
 `,
-  }, tmp, {});
+    },
+    tmp,
+    {}
+  );
   assertOk('apply_patch repeated plain Update File sections', duplicateTargetResult);
-  assert(readFileSync(join(tmp, 'target.txt'), 'utf8') === 'aleph\ntemporary\ndelta\n',
-    'repeated plain Update File sections were not merged');
+  assert(
+    readFileSync(join(tmp, 'target.txt'), 'utf8') === 'aleph\ntemporary\ndelta\n',
+    'repeated plain Update File sections were not merged'
+  );
 
-  const conflictingTargetResult = await executePatchTool('apply_patch', {
-    base_path: tmp,
-    patch: `*** Begin Patch
+  const conflictingTargetResult = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: tmp,
+      patch: `*** Begin Patch
 *** Update File: target.txt
 @@
 -bravo
@@ -200,77 +247,120 @@ try {
 *** Delete File: target.txt
 *** End Patch
 `,
-  }, tmp, {});
-  assert(/^Error[\s:]/.test(String(conflictingTargetResult))
-    && /conflicting operations target/i.test(String(conflictingTargetResult)),
-  `apply_patch must reject conflicting operations for one target:\n${conflictingTargetResult}`);
-  assert(readFileSync(join(tmp, 'target.txt'), 'utf8') === 'aleph\ntemporary\ndelta\n',
-    'conflicting-target rejection changed the file');
+    },
+    tmp,
+    {}
+  );
+  assert(
+    /^Error[\s:]/.test(String(conflictingTargetResult)) &&
+      /conflicting operations target/i.test(String(conflictingTargetResult)),
+    `apply_patch must reject conflicting operations for one target:\n${conflictingTargetResult}`
+  );
+  assert(
+    readFileSync(join(tmp, 'target.txt'), 'utf8') === 'aleph\ntemporary\ndelta\n',
+    'conflicting-target rejection changed the file'
+  );
 
   const canonicalDir = join(tmp, 'actual', 'nested');
   mkdirSync(canonicalDir, { recursive: true });
   const canonicalTarget = join(canonicalDir, 'redirected.txt');
   writeFileSync(canonicalTarget, 'before redirect\n', 'utf8');
   const redirectSession = `apply-patch-redirect-${process.pid}`;
-  const redirectedRead = await executeBuiltinTool('read', {
-    path: 'wrong/nested/redirected.txt',
-  }, tmp, { sessionId: redirectSession });
-  assert(/^\[path absent\]/i.test(String(redirectedRead)), `read must report the missing literal path:\n${redirectedRead}`);
-  assert(readFileSync(canonicalTarget, 'utf8') === 'before redirect\n',
-    'reading a missing path changed the suggested file');
-  await executeBuiltinTool('read', {
-    path: 'actual/nested/redirected.txt',
-  }, tmp, { sessionId: redirectSession });
-  const redirectedPatch = await executePatchTool('apply_patch', {
-    base_path: tmp,
-    patch: `*** Begin Patch
+  const redirectedRead = await executeBuiltinTool(
+    'read',
+    {
+      path: 'wrong/nested/redirected.txt',
+    },
+    tmp,
+    { sessionId: redirectSession }
+  );
+  assert(
+    /^\[path absent\]/i.test(String(redirectedRead)),
+    `read must report the missing literal path:\n${redirectedRead}`
+  );
+  assert(
+    readFileSync(canonicalTarget, 'utf8') === 'before redirect\n',
+    'reading a missing path changed the suggested file'
+  );
+  await executeBuiltinTool(
+    'read',
+    {
+      path: 'actual/nested/redirected.txt',
+    },
+    tmp,
+    { sessionId: redirectSession }
+  );
+  const redirectedPatch = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: tmp,
+      patch: `*** Begin Patch
 *** Update File: actual/nested/redirected.txt
 @@
 -before redirect
 +after redirect
 *** End Patch
 `,
-  }, tmp, { sessionId: redirectSession });
+    },
+    tmp,
+    { sessionId: redirectSession }
+  );
   assertOk('apply_patch explicit read-confirmed path', redirectedPatch);
-  assert(readFileSync(canonicalTarget, 'utf8') === 'after redirect\n',
-    'apply_patch did not modify the explicit read-confirmed path');
-  assert(!existsSync(join(tmp, 'wrong', 'nested', 'redirected.txt')),
-    'apply_patch created or modified the original missing guessed path');
+  assert(
+    readFileSync(canonicalTarget, 'utf8') === 'after redirect\n',
+    'apply_patch did not modify the explicit read-confirmed path'
+  );
+  assert(
+    !existsSync(join(tmp, 'wrong', 'nested', 'redirected.txt')),
+    'apply_patch created or modified the original missing guessed path'
+  );
 
   const uniqueTargetDir = join(tmp, 'actual', 'unique');
   mkdirSync(uniqueTargetDir, { recursive: true });
   const uniqueTarget = join(uniqueTargetDir, 'unique-target.txt');
   writeFileSync(uniqueTarget, 'before unique redirect\n', 'utf8');
-  const uniqueRedirectPatch = await executePatchTool('apply_patch', {
-    base_path: tmp,
-    patch: `*** Begin Patch
+  const uniqueRedirectPatch = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: tmp,
+      patch: `*** Begin Patch
 *** Update File: guessed/unique-target.txt
 @@
 -before unique redirect
 +after unique redirect
 *** End Patch
 `,
-  }, tmp, {});
+    },
+    tmp,
+    {}
+  );
   assertOk('apply_patch unique missing-path redirect', uniqueRedirectPatch);
-  assert(readFileSync(uniqueTarget, 'utf8') === 'after unique redirect\n',
-    'apply_patch did not relocate a missing target with one unique basename');
-  assert(!existsSync(join(tmp, 'guessed', 'unique-target.txt')),
-    'apply_patch wrote the original missing guessed path');
+  assert(
+    readFileSync(uniqueTarget, 'utf8') === 'after unique redirect\n',
+    'apply_patch did not relocate a missing target with one unique basename'
+  );
+  assert(!existsSync(join(tmp, 'guessed', 'unique-target.txt')), 'apply_patch wrote the original missing guessed path');
 
   const overwriteTarget = join(tmp, 'add-overwrite.txt');
   writeFileSync(overwriteTarget, 'old add content\n', 'utf8');
-  const overwriteAdd = await executePatchTool('apply_patch', {
-    base_path: tmp,
-    patch: `*** Begin Patch
+  const overwriteAdd = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: tmp,
+      patch: `*** Begin Patch
 *** Add File: add-overwrite.txt
 +new add content
 *** End Patch
 `,
-  }, tmp, {});
-  assert(/^Error[\s:]/.test(String(overwriteAdd)) && /Add File target already exists/i.test(String(overwriteAdd)),
-    `Add File unexpectedly replaced an existing target:\n${overwriteAdd}`);
-  assert(readFileSync(overwriteTarget, 'utf8') === 'old add content\n',
-    'Add File changed an existing regular file');
+    },
+    tmp,
+    {}
+  );
+  assert(
+    /^Error[\s:]/.test(String(overwriteAdd)) && /Add File target already exists/i.test(String(overwriteAdd)),
+    `Add File unexpectedly replaced an existing target:\n${overwriteAdd}`
+  );
+  assert(readFileSync(overwriteTarget, 'utf8') === 'old add content\n', 'Add File changed an existing regular file');
 
   // A native server that died between requests (idle watchdog, panic, external
   // kill) must never take THIS process down: an unhandled EPIPE on the child's
@@ -288,7 +378,12 @@ try {
     const exited = once(doomed.child, 'exit');
     doomed.child.kill('SIGKILL');
     let capTimer = null;
-    await Promise.race([exited, new Promise((resolve) => { capTimer = setTimeout(resolve, 2000); })]);
+    await Promise.race([
+      exited,
+      new Promise((resolve) => {
+        capTimer = setTimeout(resolve, 2000);
+      }),
+    ]);
     if (capTimer) clearTimeout(capTimer);
   }
   let deadError = null;
@@ -298,19 +393,25 @@ try {
     deadError = err;
   }
   assert(deadError, 'a dead native patch server must reject instead of crashing the host');
-  const revived = await executePatchTool('apply_patch', {
-    base_path: tmp,
-    patch: `*** Begin Patch
+  const revived = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: tmp,
+      patch: `*** Begin Patch
 *** Update File: revived.txt
 @@
 -before respawn
 +after respawn
 *** End Patch
 `,
-  }, tmp);
+    },
+    tmp
+  );
   assertOk('apply_patch after the native server died', revived);
-  assert(readFileSync(revivedPath, 'utf8') === 'after respawn\n',
-    'apply_patch did not respawn the native server after its death');
+  assert(
+    readFileSync(revivedPath, 'utf8') === 'after respawn\n',
+    'apply_patch did not respawn the native server after its death'
+  );
 
   const corpusPath = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'patch-replay-corpus.json');
   const corpus = JSON.parse(readFileSync(corpusPath, 'utf8'));
@@ -333,8 +434,7 @@ try {
       } else {
         assert(failed, `corpus ${rec.id} should reject:\n${result}`);
         if (rec.expect_error) {
-          assert(new RegExp(rec.expect_error, 'i').test(String(result)),
-            `corpus ${rec.id} error mismatch:\n${result}`);
+          assert(new RegExp(rec.expect_error, 'i').test(String(result)), `corpus ${rec.id} error mismatch:\n${result}`);
         }
       }
     } finally {

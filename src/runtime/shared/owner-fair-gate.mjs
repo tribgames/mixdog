@@ -43,17 +43,19 @@ export function createOwnerFairGate({
     maxWaitMs: 0,
   };
 
-  function run(ownerKey, task, {
-    signal = null,
-    weight = 1,
-    waitTimeoutMs: callWaitTimeoutMs = defaultWaitTimeoutMs,
-    onAdmit = null,
-  } = {}) {
+  function run(
+    ownerKey,
+    task,
+    { signal = null, weight = 1, waitTimeoutMs: callWaitTimeoutMs = defaultWaitTimeoutMs, onAdmit = null } = {}
+  ) {
     if (typeof task !== 'function') return Promise.reject(new TypeError(`${name} task must be a function`));
-    const owner = String(ownerKey || currentToolExecutionOwner() || 'anonymous').trim().slice(0, 240) || 'anonymous';
+    const owner =
+      String(ownerKey || currentToolExecutionOwner() || 'anonymous')
+        .trim()
+        .slice(0, 240) || 'anonymous';
     const queuedAt = now();
     const timeoutMs = Math.max(0, Math.floor(Number(callWaitTimeoutMs) || 0));
-    const controller = (signal || timeoutMs > 0) ? new AbortController() : null;
+    const controller = signal || timeoutMs > 0 ? new AbortController() : null;
     let timer = null;
     let started = false;
     let timeoutError = null;
@@ -65,7 +67,9 @@ export function createOwnerFairGate({
         timer = null;
       }
       if (onAbort && signal) {
-        try { signal.removeEventListener('abort', onAbort); } catch {}
+        try {
+          signal.removeEventListener('abort', onAbort);
+        } catch {}
         onAbort = null;
       }
     };
@@ -85,27 +89,35 @@ export function createOwnerFairGate({
       }, timeoutMs);
     }
 
-    const promise = scheduler.enqueue(owner, async () => {
-      started = true;
-      cleanupQueueWait();
-      const waitedMs = Math.max(0, now() - queuedAt);
-      stats.admitted += 1;
-      stats.totalWaitMs += waitedMs;
-      stats.maxWaitMs = Math.max(stats.maxWaitMs, waitedMs);
-      try { onAdmit?.(waitedMs); } catch {}
-      return task();
-    }, {
-      weight,
-      signal: controller?.signal || signal,
-    });
-
-    return promise.catch((error) => {
-      if (!started) {
-        stats.rejected += 1;
-        if (timeoutError && error === timeoutError) stats.timedOut += 1;
+    const promise = scheduler.enqueue(
+      owner,
+      async () => {
+        started = true;
+        cleanupQueueWait();
+        const waitedMs = Math.max(0, now() - queuedAt);
+        stats.admitted += 1;
+        stats.totalWaitMs += waitedMs;
+        stats.maxWaitMs = Math.max(stats.maxWaitMs, waitedMs);
+        try {
+          onAdmit?.(waitedMs);
+        } catch {}
+        return task();
+      },
+      {
+        weight,
+        signal: controller?.signal || signal,
       }
-      throw error;
-    }).finally(cleanupQueueWait);
+    );
+
+    return promise
+      .catch((error) => {
+        if (!started) {
+          stats.rejected += 1;
+          if (timeoutError && error === timeoutError) stats.timedOut += 1;
+        }
+        throw error;
+      })
+      .finally(cleanupQueueWait);
   }
 
   function snapshot() {
@@ -124,7 +136,11 @@ export function createOwnerFairGate({
     run,
     close: (reason) => scheduler.close(reason),
     snapshot,
-    get active() { return scheduler.active; },
-    get queued() { return scheduler.queued; },
+    get active() {
+      return scheduler.active;
+    },
+    get queued() {
+      return scheduler.queued;
+    },
   };
 }

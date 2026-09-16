@@ -14,24 +14,34 @@ function nearest(name, names) {
   const wanted = String(name || '').toLowerCase();
   const parts = wanted.split(/[-_ ]+/).filter(Boolean);
   const compact = wanted.replace(/[-_ ]/g, '');
-  const scored = names.map((candidate) => {
-    let score = 0;
-    const flat = candidate.replace(/-/g, '');
-    if (candidate.includes(wanted) || wanted.includes(candidate) || flat.includes(compact) || compact.includes(flat)) score += 3;
-    for (const part of parts) if (candidate.split('-').includes(part)) score += 2; else if (candidate.includes(part)) score += 1;
-    return { candidate, score };
-  }).filter((entry) => entry.score > 0).sort((a, b) => b.score - a.score || a.candidate.localeCompare(b.candidate));
+  const scored = names
+    .map((candidate) => {
+      let score = 0;
+      const flat = candidate.replace(/-/g, '');
+      if (candidate.includes(wanted) || wanted.includes(candidate) || flat.includes(compact) || compact.includes(flat))
+        score += 3;
+      for (const part of parts)
+        if (candidate.split('-').includes(part)) score += 2;
+        else if (candidate.includes(part)) score += 1;
+      return { candidate, score };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.candidate.localeCompare(b.candidate));
   return scored.slice(0, 8).map((entry) => entry.candidate);
 }
 
 function iconMarkup(name) {
   const { icons: table } = icons();
-  const key = String(name || '').trim().toLowerCase();
+  const key = String(name || '')
+    .trim()
+    .toLowerCase();
   const markup = table[key];
   if (markup) return markup;
   const names = Object.keys(table);
   const hint = nearest(key, names);
-  throw new Error(`ICON('${name}') is not in the icon set (${names.length} Lucide icons).${hint.length ? ` Nearest: ${hint.join(', ')}.` : ''} ICON.names lists them all.`);
+  throw new Error(
+    `ICON('${name}') is not in the icon set (${names.length} Lucide icons).${hint.length ? ` Nearest: ${hint.join(', ')}.` : ''} ICON.names lists them all.`
+  );
 }
 
 // Whole SVG at a pixel size: stroke icons take the color as stroke.

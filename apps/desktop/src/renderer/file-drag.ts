@@ -1,15 +1,12 @@
-import type {
-  DesktopApi,
-  DesktopLocalPathEntry,
-} from "../shared/contract";
-import { localFileMimeTypeForPath } from "../shared/local-files";
+import type { DesktopApi, DesktopLocalPathEntry } from '../shared/contract';
+import { localFileMimeTypeForPath } from '../shared/local-files';
 
-export const MIXDOG_PROJECT_PATHS_MIME = "application/x-mixdog-project-paths";
-export const MIXDOG_ABSOLUTE_PATHS_MIME = "application/x-mixdog-folder-paths";
+export const MIXDOG_PROJECT_PATHS_MIME = 'application/x-mixdog-project-paths';
+export const MIXDOG_ABSOLUTE_PATHS_MIME = 'application/x-mixdog-folder-paths';
 
 export type MixdogFileDragPayload =
-  | { kind: "project"; projectPath: string; paths: string[] }
-  | { kind: "absolute"; paths: string[] };
+  | { kind: 'project'; projectPath: string; paths: string[] }
+  | { kind: 'absolute'; paths: string[] };
 
 function transferTypes(transfer: DataTransfer): string[] {
   return Array.from(transfer.types ?? []);
@@ -17,17 +14,23 @@ function transferTypes(transfer: DataTransfer): string[] {
 
 function cleanStringPaths(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.map(String).map((path) => path.trim()).filter(Boolean))].slice(0, 100);
+  return [
+    ...new Set(
+      value
+        .map(String)
+        .map((path) => path.trim())
+        .filter(Boolean)
+    ),
+  ].slice(0, 100);
 }
 
 export function dataTransferHasPathPayload(transfer: DataTransfer): boolean {
   const types = transferTypes(transfer);
-  return types.includes(MIXDOG_PROJECT_PATHS_MIME)
-    || types.includes(MIXDOG_ABSOLUTE_PATHS_MIME);
+  return types.includes(MIXDOG_PROJECT_PATHS_MIME) || types.includes(MIXDOG_ABSOLUTE_PATHS_MIME);
 }
 
 export function dataTransferHasLocalFiles(transfer: DataTransfer): boolean {
-  return transferTypes(transfer).includes("Files") || dataTransferHasPathPayload(transfer);
+  return transferTypes(transfer).includes('Files') || dataTransferHasPathPayload(transfer);
 }
 
 /** Everything a composer can accept as an attachment drop. Desktop shells
@@ -38,7 +41,7 @@ export function dataTransferHasLocalFiles(transfer: DataTransfer): boolean {
 export function dataTransferHasDroppableFiles(transfer: DataTransfer): boolean {
   if (dataTransferHasLocalFiles(transfer)) return true;
   for (const item of Array.from(transfer.items ?? [])) {
-    if (item.kind === "file") return true;
+    if (item.kind === 'file') return true;
   }
   return false;
 }
@@ -46,20 +49,18 @@ export function dataTransferHasDroppableFiles(transfer: DataTransfer): boolean {
 export function readFileDragPayload(transfer: DataTransfer): MixdogFileDragPayload | null {
   if (transferTypes(transfer).includes(MIXDOG_PROJECT_PATHS_MIME)) {
     try {
-      const value = JSON.parse(transfer.getData(MIXDOG_PROJECT_PATHS_MIME) || "{}");
-      const projectPath = String(value?.projectPath || "").trim();
+      const value = JSON.parse(transfer.getData(MIXDOG_PROJECT_PATHS_MIME) || '{}');
+      const projectPath = String(value?.projectPath || '').trim();
       const paths = cleanStringPaths(value?.paths);
-      if (projectPath && paths.length) return { kind: "project", projectPath, paths };
+      if (projectPath && paths.length) return { kind: 'project', projectPath, paths };
     } catch {
       return null;
     }
   }
   if (transferTypes(transfer).includes(MIXDOG_ABSOLUTE_PATHS_MIME)) {
     try {
-      const paths = cleanStringPaths(JSON.parse(
-        transfer.getData(MIXDOG_ABSOLUTE_PATHS_MIME) || "[]",
-      ));
-      if (paths.length) return { kind: "absolute", paths };
+      const paths = cleanStringPaths(JSON.parse(transfer.getData(MIXDOG_ABSOLUTE_PATHS_MIME) || '[]'));
+      if (paths.length) return { kind: 'absolute', paths };
     } catch {
       return null;
     }
@@ -68,22 +69,22 @@ export function readFileDragPayload(transfer: DataTransfer): MixdogFileDragPaylo
 }
 
 function joinProjectPath(root: string, rel: string): string {
-  const cleanRel = rel.replace(/\\/g, "/").replace(/^\/+/, "");
-  if (!cleanRel || cleanRel.split("/").includes("..") || /^[A-Za-z]:/.test(cleanRel)) return "";
-  const separator = root.includes("\\") ? "\\" : "/";
-  return `${root.replace(/[\\/]+$/, "")}${separator}${cleanRel.replace(/\//g, separator)}`;
+  const cleanRel = rel.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!cleanRel || cleanRel.split('/').includes('..') || /^[A-Za-z]:/.test(cleanRel)) return '';
+  const separator = root.includes('\\') ? '\\' : '/';
+  return `${root.replace(/[\\/]+$/, '')}${separator}${cleanRel.replace(/\//g, separator)}`;
 }
 
 export function absolutePathsForDragPayload(payload: MixdogFileDragPayload | null): string[] {
   if (!payload) return [];
-  if (payload.kind === "absolute") return payload.paths;
+  if (payload.kind === 'absolute') return payload.paths;
   return payload.paths.map((path) => joinProjectPath(payload.projectPath, path)).filter(Boolean);
 }
 
 export function droppedLocalPaths(transfer: DataTransfer): string[] {
   const custom = absolutePathsForDragPayload(readFileDragPayload(transfer));
   const native = Array.from(transfer.files ?? [])
-    .map((file) => window.mixdogDesktop?.folderPathForFile?.(file) || "")
+    .map((file) => window.mixdogDesktop?.folderPathForFile?.(file) || '')
     .filter(Boolean);
   return [...new Set([...custom, ...native])].slice(0, 100);
 }
@@ -91,7 +92,7 @@ export function droppedLocalPaths(transfer: DataTransfer): string[] {
 export async function localFilesFromPaths(
   api: DesktopApi,
   paths: string[],
-  limit = 8,
+  limit = 8
 ): Promise<{
   files: File[];
   directories: DesktopLocalPathEntry[];
@@ -126,9 +127,11 @@ export async function localFilesFromPaths(
       for (let index = 0; index < binary.length; index += 1) {
         bytes[index] = binary.charCodeAt(index);
       }
-      files.push(new File([bytes], loaded.name, {
-        type: loaded.mimeType || localFileMimeTypeForPath(loaded.name),
-      }));
+      files.push(
+        new File([bytes], loaded.name, {
+          type: loaded.mimeType || localFileMimeTypeForPath(loaded.name),
+        })
+      );
     } catch (reason) {
       errors.push(reason instanceof Error ? reason.message : String(reason));
     }
@@ -139,7 +142,7 @@ export async function localFilesFromPaths(
 export async function materializeDroppedFiles(
   api: DesktopApi,
   transfer: DataTransfer,
-  limit = 8,
+  limit = 8
 ): Promise<{
   files: File[];
   directories: DesktopLocalPathEntry[];
@@ -147,20 +150,16 @@ export async function materializeDroppedFiles(
 }> {
   const native = Array.from(transfer.files ?? []).slice(0, limit);
   if (native.length) return { files: native, directories: [], errors: [] };
-  return localFilesFromPaths(
-    api,
-    absolutePathsForDragPayload(readFileDragPayload(transfer)),
-    limit,
-  );
+  return localFilesFromPaths(api, absolutePathsForDragPayload(readFileDragPayload(transfer)), limit);
 }
 
 function quoteTerminalPath(path: string): string {
-  if (/^[A-Za-z]:[\\/]/.test(path) || path.includes("\\")) {
+  if (/^[A-Za-z]:[\\/]/.test(path) || path.includes('\\')) {
     return `"${path.replace(/"/g, '""')}"`;
   }
   return `'${path.replace(/'/g, "'\\''")}'`;
 }
 
 export function terminalPathText(paths: string[]): string {
-  return paths.map(quoteTerminalPath).join(" ");
+  return paths.map(quoteTerminalPath).join(' ');
 }

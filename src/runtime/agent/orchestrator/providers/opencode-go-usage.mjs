@@ -10,7 +10,8 @@ const LIVE_TTL_MS = 5 * 60_000;
 const STALE_TTL_MS = 60 * 60_000;
 const BASE_URL = 'https://opencode.ai';
 const WORKSPACES_SERVER_ID = 'def39973159c7f0483d8793a822b8dbb10d067e12c65455fcb4608459ba0234f';
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36';
+const USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36';
 const LIMITS_USD = Object.freeze({
   rolling: { label: '5H', limitUsd: 12 },
   weekly: { label: '7D', limitUsd: 30 },
@@ -51,11 +52,13 @@ function freshSnapshot(snapshot, ttlMs) {
 }
 
 function workspaceIdFromConfig(config = {}) {
-  return clean(process.env.OPENCODE_WORKSPACE_ID)
-    || clean(process.env.OPENCODE_GO_WORKSPACE_ID)
-    || clean(process.env.MIXDOG_OPENCODE_WORKSPACE_ID)
-    || clean(config?.providers?.['opencode-go']?.workspaceId)
-    || clean(config?.providers?.['opencode-go']?.workspace_id);
+  return (
+    clean(process.env.OPENCODE_WORKSPACE_ID) ||
+    clean(process.env.OPENCODE_GO_WORKSPACE_ID) ||
+    clean(process.env.MIXDOG_OPENCODE_WORKSPACE_ID) ||
+    clean(config?.providers?.['opencode-go']?.workspaceId) ||
+    clean(config?.providers?.['opencode-go']?.workspace_id)
+  );
 }
 
 function normalizeCookie(raw) {
@@ -78,7 +81,10 @@ function cookieHeader(authCookie) {
   return `auth=${authCookie}`;
 }
 
-function requestHeaders(authCookie, { accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', referer = BASE_URL } = {}) {
+function requestHeaders(
+  authCookie,
+  { accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', referer = BASE_URL } = {}
+) {
   return {
     Accept: accept,
     Cookie: cookieHeader(authCookie),
@@ -130,15 +136,15 @@ function windowFromUsage(kind, raw) {
   const limit = LIMITS_USD[kind];
   if (!limit || !raw || typeof raw !== 'object') return null;
   let usagePercent = num(
-    raw.usagePercent
-      ?? raw.usage_percent
-      ?? raw.usedPercent
-      ?? raw.used_percent
-      ?? raw.percentUsed
-      ?? raw.percent
-      ?? raw.utilizationPercent
-      ?? raw.utilization_percent,
-    null,
+    raw.usagePercent ??
+      raw.usage_percent ??
+      raw.usedPercent ??
+      raw.used_percent ??
+      raw.percentUsed ??
+      raw.percent ??
+      raw.utilizationPercent ??
+      raw.utilization_percent,
+    null
   );
   if (usagePercent === null) {
     const used = num(raw.used ?? raw.usage ?? raw.consumed, null);
@@ -150,17 +156,17 @@ function windowFromUsage(kind, raw) {
   // 0.1%), matching `used/limit*100` above. Do not scale 0~1 values: the old
   // `<= 1 → ×100` heuristic turned real 0.1% readings into 10%.
   const resetInSec = num(
-    raw.resetInSec
-      ?? raw.resetInSeconds
-      ?? raw.resetSeconds
-      ?? raw.reset_sec
-      ?? raw.reset_in_sec
-      ?? raw.resetsInSec
-      ?? raw.resetsInSeconds
-      ?? raw.resets_in_seconds,
-    null,
+    raw.resetInSec ??
+      raw.resetInSeconds ??
+      raw.resetSeconds ??
+      raw.reset_sec ??
+      raw.reset_in_sec ??
+      raw.resetsInSec ??
+      raw.resetsInSeconds ??
+      raw.resets_in_seconds,
+    null
   );
-  const usedUsd = round(limit.limitUsd * Math.max(0, usagePercent) / 100, 4);
+  const usedUsd = round((limit.limitUsd * Math.max(0, usagePercent)) / 100, 4);
   const remainingUsd = round(Math.max(0, limit.limitUsd - usedUsd), 4);
   return {
     label: limit.label,
@@ -278,10 +284,13 @@ async function fetchWorkspaceId(authCookie, { signal } = {}) {
   });
   const text = await res.text();
   if (!res.ok) {
-    const err = new Error(res.status === 401 || res.status === 403
-      ? 'OpenCode Go console auth failed'
-      : `OpenCode Go workspace lookup failed (${res.status})`);
-    err.code = res.status === 401 || res.status === 403 ? 'OPENCODE_GO_USAGE_AUTH_FAILED' : 'OPENCODE_GO_USAGE_FETCH_FAILED';
+    const err = new Error(
+      res.status === 401 || res.status === 403
+        ? 'OpenCode Go console auth failed'
+        : `OpenCode Go workspace lookup failed (${res.status})`
+    );
+    err.code =
+      res.status === 401 || res.status === 403 ? 'OPENCODE_GO_USAGE_AUTH_FAILED' : 'OPENCODE_GO_USAGE_FETCH_FAILED';
     throw err;
   }
   const [workspaceId] = parseWorkspaceIds(text);
@@ -314,10 +323,13 @@ export async function fetchOpenCodeGoUsageSnapshot(config = {}, { force = false 
       headers: requestHeaders(authCookie, { referer: `${BASE_URL}/workspace/${workspaceId}` }),
     });
     if (!res.ok) {
-      const err = new Error(res.status === 401 || res.status === 403
-        ? 'OpenCode Go console auth failed'
-        : `OpenCode Go console usage fetch failed (${res.status})`);
-      err.code = res.status === 401 || res.status === 403 ? 'OPENCODE_GO_USAGE_AUTH_FAILED' : 'OPENCODE_GO_USAGE_FETCH_FAILED';
+      const err = new Error(
+        res.status === 401 || res.status === 403
+          ? 'OpenCode Go console auth failed'
+          : `OpenCode Go console usage fetch failed (${res.status})`
+      );
+      err.code =
+        res.status === 401 || res.status === 403 ? 'OPENCODE_GO_USAGE_AUTH_FAILED' : 'OPENCODE_GO_USAGE_FETCH_FAILED';
       throw err;
     }
     const html = await res.text();

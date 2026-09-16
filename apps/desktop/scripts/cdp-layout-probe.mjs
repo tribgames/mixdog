@@ -1,7 +1,6 @@
 const argumentsList = process.argv.slice(2);
-const valueFor = (prefix) => argumentsList
-  .find((argument) => argument.startsWith(`${prefix}=`))
-  ?.slice(prefix.length + 1);
+const valueFor = (prefix) =>
+  argumentsList.find((argument) => argument.startsWith(`${prefix}=`))?.slice(prefix.length + 1);
 const port = Number(valueFor('--port') || 9342);
 const repair = argumentsList.includes('--repair');
 const exercisePanel = argumentsList.includes('--exercise-panel');
@@ -20,14 +19,22 @@ class CdpClient {
   async connect() {
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('CDP connection timed out.')), 10_000);
-      this.socket.addEventListener('open', () => {
-        clearTimeout(timer);
-        resolve();
-      }, { once: true });
-      this.socket.addEventListener('error', () => {
-        clearTimeout(timer);
-        reject(new Error('CDP websocket failed.'));
-      }, { once: true });
+      this.socket.addEventListener(
+        'open',
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true }
+      );
+      this.socket.addEventListener(
+        'error',
+        () => {
+          clearTimeout(timer);
+          reject(new Error('CDP websocket failed.'));
+        },
+        { once: true }
+      );
     });
     this.socket.addEventListener('message', (event) => {
       const message = JSON.parse(String(event.data));
@@ -70,14 +77,13 @@ class CdpClient {
   }
 }
 
-const targets = await fetch(`http://127.0.0.1:${port}/json/list`)
-  .then((response) => {
-    if (!response.ok) throw new Error(`CDP target list failed with HTTP ${response.status}.`);
-    return response.json();
-  });
-const target = targets.find((candidate) =>
-  candidate.type === 'page' && /127\.0\.0\.1|localhost/.test(candidate.url))
-  ?? targets.find((candidate) => candidate.type === 'page');
+const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => {
+  if (!response.ok) throw new Error(`CDP target list failed with HTTP ${response.status}.`);
+  return response.json();
+});
+const target =
+  targets.find((candidate) => candidate.type === 'page' && /127\.0\.0\.1|localhost/.test(candidate.url)) ??
+  targets.find((candidate) => candidate.type === 'page');
 if (!target?.webSocketDebuggerUrl) {
   throw new Error(`No renderer page is available on CDP port ${port}.`);
 }
@@ -85,7 +91,8 @@ if (!target?.webSocketDebuggerUrl) {
 const client = new CdpClient(target.webSocketDebuggerUrl);
 await client.connect();
 
-const readMetrics = () => client.evaluate(`(() => {
+const readMetrics = () =>
+  client.evaluate(`(() => {
   const rect = (node) => {
     if (!node) return null;
     const bounds = node.getBoundingClientRect();
@@ -144,8 +151,7 @@ try {
   let after = await readMetrics();
   let nativeResynchronized = false;
   const surfaceIsDetached = () =>
-    Math.abs(after.outerWidth - after.innerWidth) > 96
-    || Math.abs(after.outerHeight - after.innerHeight) > 96;
+    Math.abs(after.outerWidth - after.innerWidth) > 96 || Math.abs(after.outerHeight - after.innerHeight) > 96;
   if (repair && surfaceIsDetached()) {
     // Chromium can retain the old 800x600 content surface even after the
     // emulation override is gone. Nudge the REAL BrowserWindow bounds and put
@@ -188,33 +194,30 @@ try {
   const widthMismatch = Math.abs(after.outerWidth - after.innerWidth) > 96;
   const heightMismatch = Math.abs(after.outerHeight - after.innerHeight) > 96;
   const controlsAreRightAligned = Boolean(
-    after.controls
-    && after.controls.x > after.innerWidth / 2
-    && after.controls.right <= after.innerWidth
+    after.controls && after.controls.x > after.innerWidth / 2 && after.controls.right <= after.innerWidth
   );
-  const dockWidthIsBounded = !after.dock
-    || (after.dock.width >= 300 && after.dock.width <= 560);
+  const dockWidthIsBounded = !after.dock || (after.dock.width >= 300 && after.dock.width <= 560);
   const opened = panelExercise?.opened;
-  const panelUsesMainWidth = !opened
-    || Boolean(
-      opened.panel
-      && opened.main
-      && Math.abs(opened.panel.x - opened.main.x) <= 2
-      && Math.abs(opened.panel.right - opened.main.right) <= 2
-      && Math.abs(opened.panel.bottom - opened.main.bottom) <= 2
+  const panelUsesMainWidth =
+    !opened ||
+    Boolean(
+      opened.panel &&
+        opened.main &&
+        Math.abs(opened.panel.x - opened.main.x) <= 2 &&
+        Math.abs(opened.panel.right - opened.main.right) <= 2 &&
+        Math.abs(opened.panel.bottom - opened.main.bottom) <= 2
     );
-  const valid = !widthMismatch
-    && !heightMismatch
-    && after.mainDirection === 'column'
-    && controlsAreRightAligned
-    && dockWidthIsBounded
-    && panelUsesMainWidth;
+  const valid =
+    !widthMismatch &&
+    !heightMismatch &&
+    after.mainDirection === 'column' &&
+    controlsAreRightAligned &&
+    dockWidthIsBounded &&
+    panelUsesMainWidth;
   const report = {
     valid,
     nativeResynchronized,
-    repaired: repair && (
-      before.innerWidth !== after.innerWidth || before.innerHeight !== after.innerHeight
-    ),
+    repaired: repair && (before.innerWidth !== after.innerWidth || before.innerHeight !== after.innerHeight),
     before,
     after,
     panelExercise,

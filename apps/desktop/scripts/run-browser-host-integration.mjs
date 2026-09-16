@@ -20,7 +20,7 @@ await withTempWorkspace('mixdog-browser-host-integration-', async (staging) => {
         process.argv.includes('--cdp-lifecycle')
           ? '../src/main/browser/cdp-lifecycle.integration.ts'
           : '../src/main/browser/host.integration.ts',
-        import.meta.url,
+        import.meta.url
       ),
       outfile: output,
       plugins: [computerSourceEsbuildPlugin()],
@@ -43,8 +43,8 @@ await withTempWorkspace('mixdog-browser-host-integration-', async (staging) => {
       process.stdout.write(progress);
       progressPrinted = true;
     }
-    const successMarker = env.MIXDOG_BROWSER_MOUSE_PROBE_ONLY === '1'
-      ? 'mouse dispatch probe passed' : 'integration passed';
+    const successMarker =
+      env.MIXDOG_BROWSER_MOUSE_PROBE_ONLY === '1' ? 'mouse dispatch probe passed' : 'integration passed';
     if (exitCode !== 0 || !progress.includes(successMarker)) {
       throw new Error(`browser host integration failed before its success marker (exit ${exitCode})`);
     }

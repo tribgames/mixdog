@@ -25,7 +25,6 @@ export async function workbookSheets(zip) {
   return sheets;
 }
 
-
 export async function sharedStrings(zip) {
   const xml = await zipText(zip, 'xl/sharedStrings.xml');
   if (!xml) return [];
@@ -36,7 +35,6 @@ export async function sharedStrings(zip) {
   return strings;
 }
 
-
 // A stored numeric literal is the number it encodes; anything else (a date
 // serial written as text, an unexpected token) stays exactly as the file wrote
 // it rather than being coerced into a number the sheet does not hold.
@@ -45,7 +43,6 @@ const NUMERIC_CELL_LITERAL = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 function numericCellValue(raw) {
   return NUMERIC_CELL_LITERAL.test(raw) ? Number(raw) : raw;
 }
-
 
 function snapshotRangeBounds(reference) {
   const match = /^([^:]+):([^:]+)$/.exec(String(reference || '').trim());
@@ -59,7 +56,6 @@ function snapshotRangeBounds(reference) {
     endCol: columnNumber(end.col),
   };
 }
-
 
 export function* iterateSheetCells(xml) {
   const regex = /<c\b([^>]*?\br="([A-Z]+\d+)"[^>]*?)\/>|<c\b([^>]*\br="([A-Z]+\d+)"[^>]*)>([\s\S]*?)<\/c>/g;
@@ -99,7 +95,13 @@ export function cellRecords(xml, strings, options = null) {
     if (bounds) {
       const parsed = parseCellRef(ref);
       const column = columnNumber(parsed.col);
-      if (parsed.row < bounds.startRow || parsed.row > bounds.endRow || column < bounds.startCol || column > bounds.endCol) continue;
+      if (
+        parsed.row < bounds.startRow ||
+        parsed.row > bounds.endRow ||
+        column < bounds.startCol ||
+        column > bounds.endCol
+      )
+        continue;
     }
     const body = cell.body;
     const type = /\bt="([^"]+)"/.exec(attrs)?.[1] || '';
@@ -114,10 +116,14 @@ export function cellRecords(xml, strings, options = null) {
       // number reads as a number for the same reason: Excel hands 1240 back as
       // 1240, and a value compared against a model's own arithmetic must not
       // depend on which backend opened the workbook.
-      value = type === 's' ? strings[Number(raw)] ?? raw
-        : type === 'b' && raw !== '' ? raw === '1'
-          : type === '' || type === 'n' ? numericCellValue(raw)
-            : raw;
+      value =
+        type === 's'
+          ? (strings[Number(raw)] ?? raw)
+          : type === 'b' && raw !== ''
+            ? raw === '1'
+            : type === '' || type === 'n'
+              ? numericCellValue(raw)
+              : raw;
     }
     // Style index 0 is the workbook default; only an explicit style is reported.
     const styleIndex = Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? 0);
@@ -132,11 +138,13 @@ export function cellRecords(xml, strings, options = null) {
       // formula whose result is the empty string (IF(C7=0,"",…)) is written as
       // <v></v> by Excel and LibreOffice alike, and that is a computed value,
       // not a workbook waiting for its first recalculation.
-      ...(formula ? {
-        formula,
-        cachedValue: raw === '' ? (type === 'str' && /<v(?:\s[^>]*)?>/.test(body) ? '' : null) : value,
-        cacheState: raw === '' && !(type === 'str' && /<v(?:\s[^>]*)?>/.test(body)) ? 'missing' : 'present',
-      } : {}),
+      ...(formula
+        ? {
+            formula,
+            cachedValue: raw === '' ? (type === 'str' && /<v(?:\s[^>]*)?>/.test(body) ? '' : null) : value,
+            cacheState: raw === '' && !(type === 'str' && /<v(?:\s[^>]*)?>/.test(body)) ? 'missing' : 'present',
+          }
+        : {}),
       ...(style ? { style } : {}),
     };
     if (formula) {
@@ -148,7 +156,6 @@ export function cellRecords(xml, strings, options = null) {
   }
   return paged ? { records, total, formulaCount, formulaCacheMissing } : records;
 }
-
 
 // Formula totals for one sheet without materializing its cells. A snapshot that
 // returns a single page still has to state the workbook's calculation state
@@ -165,12 +172,10 @@ export function sheetFormulaTotals(xml) {
   return { formulaCount, formulaCacheMissing };
 }
 
-
 export function booleanXmlAttribute(attributes, name) {
   const value = new RegExp(`\\b${name}="([^"]+)"`, 'i').exec(attributes)?.[1] || '';
   return /^(?:1|true|on)$/i.test(value);
 }
-
 
 export function workbookCalculation(xml) {
   const attributes = /<calcPr\b([^>]*)\/?>/i.exec(xml)?.[1] || '';
@@ -180,7 +185,6 @@ export function workbookCalculation(xml) {
     forceFullCalc: booleanXmlAttribute(attributes, 'forceFullCalc'),
   };
 }
-
 
 export function formulaReferences(formula, currentSheet) {
   const references = [];
@@ -197,13 +201,11 @@ export function formulaReferences(formula, currentSheet) {
   return references;
 }
 
-
 export function parseCellRef(ref) {
   const match = /^([A-Z]+)([1-9]\d*)$/i.exec(String(ref || '').trim());
   if (!match) throw new Error(`Invalid cell reference: ${ref}`);
   return { col: match[1].toUpperCase(), row: Number(match[2]), ref: `${match[1].toUpperCase()}${match[2]}` };
 }
-
 
 function cellXml(ref, value, formula = '', style = '') {
   const styled = style === '' ? '' : ` s="${style}"`;
@@ -216,12 +218,10 @@ function cellXml(ref, value, formula = '', style = '') {
   return `<c r="${ref}"${styled} t="inlineStr"><is><t${/^\s|\s$/.test(String(value ?? '')) ? ' xml:space="preserve"' : ''}>${xmlEncode(value ?? '')}</t></is></c>`;
 }
 
-
 export function existingCellStyle(xml, ref) {
   const match = new RegExp(`<c\\b([^>]*\\br="${ref}"[^>]*?)(?:\\/>|>)`, 'i').exec(xml);
-  return match ? (/\bs="(\d+)"/.exec(match[1])?.[1] || '') : '';
+  return match ? /\bs="(\d+)"/.exec(match[1])?.[1] || '' : '';
 }
-
 
 export function forceWorkbookRecalculation(xml) {
   if (/<calcPr\b/i.test(xml)) {
@@ -235,7 +235,6 @@ export function forceWorkbookRecalculation(xml) {
   }
   return xml.replace(/<\/workbook>/i, '<calcPr calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>');
 }
-
 
 function setRowCell(rowXml, ref, column, cell) {
   const attrs = /^<row\b([^>]*?)(?:\/>|>)/.exec(rowXml)?.[1] || '';
@@ -252,12 +251,10 @@ function setRowCell(rowXml, ref, column, cell) {
   return `<row${attrs}>${body.slice(0, position)}${cell}${body.slice(position)}</row>`;
 }
 
-
 export function setCellInSheet(xml, ref, value, formula = '') {
   const parsed = parseCellRef(ref);
   return placeCellInSheet(xml, parsed.ref, cellXml(parsed.ref, value, formula, existingCellStyle(xml, parsed.ref)));
 }
-
 
 // The sheet as rows of cells, parsed once. Writing cell by cell means rebuilding
 // the whole worksheet string for each one, which turns a few thousand rows into
@@ -333,7 +330,11 @@ export function setCellStylesInSheet(xml, entries) {
         xml: body ? `<c${attrs}>${body}</c>` : `<c${attrs}/>`,
       });
     } else {
-      row.cells.set(column, { ref: parsed.ref, attrs: ` r="${parsed.ref}" s="${style}"`, xml: `<c r="${parsed.ref}" s="${style}"/>` });
+      row.cells.set(column, {
+        ref: parsed.ref,
+        attrs: ` r="${parsed.ref}" s="${style}"`,
+        xml: `<c r="${parsed.ref}" s="${style}"/>`,
+      });
     }
     rows.set(parsed.row, row);
   }
@@ -352,7 +353,6 @@ export function cellStyleIndexes(xml, refs) {
   return indexes;
 }
 
-
 export function setCellStyleInSheet(xml, ref, styleIndex) {
   const parsed = parseCellRef(ref);
   const pattern = new RegExp(`<c\\b([^>]*\\br="${parsed.ref}"[^>]*?)(\\/>|>[\\s\\S]*?<\\/c>)`, 'i');
@@ -364,15 +364,16 @@ export function setCellStyleInSheet(xml, ref, styleIndex) {
   return placeCellInSheet(xml, parsed.ref, `<c r="${parsed.ref}" s="${styleIndex}"/>`);
 }
 
-
 function placeCellInSheet(xml, ref, cell) {
   const parsed = parseCellRef(ref);
   const column = columnNumber(parsed.col);
   const sheetData = /<sheetData(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/sheetData>)/.exec(xml);
   if (!sheetData) throw new Error('Worksheet is missing sheetData');
   const inner = containerBody(sheetData[0], 'sheetData');
-  const rows = elementSpans(inner, 'row')
-    .map((span) => ({ ...span, index: Number(/\br="(\d+)"/.exec(span.attrs)?.[1] || 0) }));
+  const rows = elementSpans(inner, 'row').map((span) => ({
+    ...span,
+    index: Number(/\br="(\d+)"/.exec(span.attrs)?.[1] || 0),
+  }));
   const existing = rows.find((row) => row.index === parsed.row);
   let nextInner;
   if (existing) {
@@ -385,11 +386,9 @@ function placeCellInSheet(xml, ref, cell) {
   return `${xml.slice(0, sheetData.index)}<sheetData>${nextInner}</sheetData>${xml.slice(sheetData.index + sheetData[0].length)}`;
 }
 
-
 export function columnNumber(label) {
   return [...String(label || '').toUpperCase()].reduce((value, char) => value * 26 + char.charCodeAt(0) - 64, 0);
 }
-
 
 export function columnLabel(number) {
   let value = Math.max(1, Math.trunc(Number(number) || 1));
@@ -401,7 +400,6 @@ export function columnLabel(number) {
   }
   return output;
 }
-
 
 export function expandRange(range) {
   const match = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i.exec(String(range || '').trim());

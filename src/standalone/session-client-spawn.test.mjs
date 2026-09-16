@@ -43,7 +43,9 @@ test('the session launcher records the daemon exit and mirrors boot stderr once'
   writeFileSync(entry, STUB_DAEMON);
   const logs = [];
   let resolveExit;
-  const exitLogged = new Promise((resolve) => { resolveExit = resolve; });
+  const exitLogged = new Promise((resolve) => {
+    resolveExit = resolve;
+  });
   await spawnDaemonCandidate({
     cwd: root,
     timeoutMs: 20_000,
@@ -53,20 +55,17 @@ test('the session launcher records the daemon exit and mirrors boot stderr once'
       if (line.startsWith('daemon exit ')) resolveExit(line);
     },
   });
-  assert.ok(logs.some((line) => line.startsWith('daemon ready at=')), 'the ready handshake is logged');
+  assert.ok(
+    logs.some((line) => line.startsWith('daemon ready at=')),
+    'the ready handshake is logged'
+  );
 
-  const exitLine = await Promise.race([
-    exitLogged,
-    delay(20_000).then(() => null),
-  ]);
+  const exitLine = await Promise.race([exitLogged, delay(20_000).then(() => null)]);
   assert.ok(exitLine, `the launcher logged the daemon exit: ${logs.join(' | ')}`);
   assert.match(exitLine, /code=7 signal=- ready=1 uptimeMs=\d+/);
 
   // Boot diagnostics survive the switch from a pipe to a capture file, once.
-  assert.equal(
-    logs.filter((line) => line.includes('stub daemon boot diagnostic')).length,
-    1,
-  );
+  assert.equal(logs.filter((line) => line.includes('stub daemon boot diagnostic')).length, 1);
 
   const captureDir = join(dataDir, 'daemon-crash');
   const recordName = readdirSync(captureDir).find((name) => name.endsWith('.json'));

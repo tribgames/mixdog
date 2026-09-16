@@ -9,9 +9,21 @@ const revision = (dom, scrollY = 0) => `1700000000:${dom + 3}:800:600:0:${scroll
 
 function payload(snapshotId, elements, url = 'https://fixture.example/app') {
   return {
-    snapshotId, url, title: 'Fixture', scrollY: 0, scrollHeight: 900, viewportHeight: 600, viewportWidth: 800,
-    elements, totalElements: elements.length, scanned: elements.length, scanCapped: false,
-    crossOriginFrames: 0, headings: [], text: 'x'.repeat(700), query: '',
+    snapshotId,
+    url,
+    title: 'Fixture',
+    scrollY: 0,
+    scrollHeight: 900,
+    viewportHeight: 600,
+    viewportWidth: 800,
+    elements,
+    totalElements: elements.length,
+    scanned: elements.length,
+    scanCapped: false,
+    crossOriginFrames: 0,
+    headings: [],
+    text: 'x'.repeat(700),
+    query: '',
   };
 }
 
@@ -26,7 +38,9 @@ function fixture(nextRevision, nextPayload, matches = true) {
       state.for(guest).refSet = { ...createBrowserRefSet(nextPayload), revision: nextRevision };
       return nextPayload;
     },
-    captureScreenshot: async () => { throw new Error('unused'); },
+    captureScreenshot: async () => {
+      throw new Error('unused');
+    },
     bindVisualGrounding: () => {},
     downloadsForGuest: () => [],
   });
@@ -40,25 +54,35 @@ const before = payload('p1-s1', [
 const baseline = () => ({ ...createBrowserRefSet(before), revision: revision(4) });
 
 test('a gesture the page ignored is reported as no observable change; scroll is judged by position', async () => {
-  const same = payload('p1-s2', before.elements.map((el) => ({ ...el, ref: el.ref.replace('s1', 's2') })));
+  const same = payload(
+    'p1-s2',
+    before.elements.map((el) => ({ ...el, ref: el.ref.replace('s1', 's2') }))
+  );
   const ignored = fixture(revision(4), same);
   const result = await ignored.reply.snapshotResult(ignored.guest, { action: 'click' }, undefined, {
-    settleAction: true, baseline: baseline(),
+    settleAction: true,
+    baseline: baseline(),
   });
-  assert.match(result.text, /^No observable change: the document, URL, and control values are the same as before this click/);
+  assert.match(
+    result.text,
+    /^No observable change: the document, URL, and control values are the same as before this click/
+  );
   const reacted = fixture(revision(5), same);
   const changed = await reacted.reply.snapshotResult(reacted.guest, { action: 'click' }, undefined, {
-    settleAction: true, baseline: baseline(),
+    settleAction: true,
+    baseline: baseline(),
   });
   assert.doesNotMatch(changed.text, /No observable change/);
   const scrolled = fixture(revision(4, 400), same);
   const scroll = await scrolled.reply.snapshotResult(scrolled.guest, { action: 'scroll' }, undefined, {
-    settleAction: true, baseline: baseline(),
+    settleAction: true,
+    baseline: baseline(),
   });
   assert.doesNotMatch(scroll.text, /No observable change/);
   const observed = fixture(revision(4), same);
   const plain = await observed.reply.snapshotResult(observed.guest, { action: 'snapshot' }, undefined, {
-    settleAction: false, baseline: baseline(),
+    settleAction: false,
+    baseline: baseline(),
   });
   assert.doesNotMatch(plain.text, /No observable change/, 'an observation is not a gesture');
 });
@@ -71,7 +95,8 @@ test('brief replies list only new or changed elements and trim the text', async 
   ]);
   const f = fixture(revision(6), after);
   const result = await f.reply.snapshotResult(f.guest, { action: 'fill', brief: true }, undefined, {
-    settleAction: true, baseline: baseline(),
+    settleAction: true,
+    baseline: baseline(),
   });
   assert.match(result.text, /Brief reply: 2 changed or new element\(s\); 1 unchanged omitted/);
   assert.match(result.text, /\[p1-s2-e2\] textbox "Email" value="ada@example.test"/);
@@ -81,7 +106,8 @@ test('brief replies list only new or changed elements and trim the text', async 
   assert.match(result.text, /use a known target directly/);
   assert.match(result.text, /Visible text \(first 500 of 700 chars/);
   const full = await f.reply.snapshotResult(f.guest, { action: 'fill' }, undefined, {
-    settleAction: true, baseline: baseline(),
+    settleAction: true,
+    baseline: baseline(),
   });
   assert.match(full.text, /\[p1-s2-e1\] button "Save"/);
 });
@@ -90,13 +116,18 @@ test('an already-true postcondition is a warning with an inconclusive outcome, a
   const after = payload('p1-s2', []);
   const f = fixture(revision(9), after);
   const result = await f.reply.snapshotResult(f.guest, { action: 'click', expect: { text: 'x' } }, undefined, {
-    settleAction: true, preexistingPostcondition: true, expected: { text: 'x', textGone: '', url: '', timeoutMs: 500 },
+    settleAction: true,
+    preexistingPostcondition: true,
+    expected: { text: 'x', textGone: '', url: '', timeoutMs: 500 },
   });
   assert.equal(result.outcome, 'inconclusive');
   assert.match(result.text, /already true before this action, so it proves nothing/);
   const recovery = f.reply.refRecoveryFor(f.guest);
   recovery.resolvedTargets.push('button "Save" -> p1-s2-e1');
-  assert.match(f.reply.decorateRecovery({ text: 'body' }, recovery).text, /^Target resolved before input dispatch: button "Save" -> p1-s2-e1\n\nbody$/);
+  assert.match(
+    f.reply.decorateRecovery({ text: 'body' }, recovery).text,
+    /^Target resolved before input dispatch: button "Save" -> p1-s2-e1\n\nbody$/
+  );
 });
 
 test('brief comparison survives a narrowed target observation without changing effect detection', async () => {
@@ -115,8 +146,9 @@ test('brief comparison survives a narrowed target observation without changing e
   const failed = fixture(revision(6), after, false);
   await assert.rejects(
     failed.reply.snapshotResult(failed.guest, { action: 'click', brief: true }, undefined, {
-      ...options, expected: { text: 'missing', textGone: '', url: '', timeoutMs: 0 },
+      ...options,
+      expected: { text: 'missing', textGone: '', url: '', timeoutMs: 0 },
     }),
-    /Postcondition failed[\s\S]*1 changed or new element\(s\); 1 unchanged omitted/,
+    /Postcondition failed[\s\S]*1 changed or new element\(s\); 1 unchanged omitted/
   );
 });

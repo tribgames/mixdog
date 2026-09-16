@@ -1,9 +1,9 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
-import { usagePinStackFits, usagePinStackHeight } from "./rail-usage-pin-room.ts";
+import { usagePinStackFits, usagePinStackHeight } from './rail-usage-pin-room.ts';
 
-test("the pinned usage stack folds to the glyph once the rail runs short", () => {
+test('the pinned usage stack folds to the glyph once the rail runs short', () => {
   // Three brand rows: 17 padding + 3×34 + 2×10 = 139.
   assert.equal(usagePinStackHeight(3), 139);
   assert.equal(usagePinStackHeight(0), 0);

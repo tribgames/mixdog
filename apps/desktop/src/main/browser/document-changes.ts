@@ -10,8 +10,13 @@ export function createBrowserChangeLatch() {
   let version = 0;
   const listeners = new Set<() => void>();
   return {
-    get version() { return version; },
-    notify() { version++; for (const listener of [...listeners]) listener(); },
+    get version() {
+      return version;
+    },
+    notify() {
+      version++;
+      for (const listener of [...listeners]) listener();
+    },
     wait(since: number, ms: number, signal?: AbortSignal): Promise<void> {
       signal?.throwIfAborted();
       if (version !== since) return Promise.resolve();
@@ -38,39 +43,63 @@ export async function observeBrowserDocumentChanges(
   collect: <T>(guest: WebContents, expression: string, signal?: AbortSignal) => Promise<T[]>,
   roots: string,
   guest: WebContents,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) {
   const id = String(++nextId);
   const latch = createBrowserChangeLatch();
   const port = await host.cdp.guestDebugger(guest);
   const message = (_event: unknown, method: string, params: { name?: string; payload?: string }) => {
-    if ((method === 'Runtime.bindingCalled' && params.name === binding && params.payload === id)
-      || method === 'Page.frameNavigated' || method === 'Page.frameAttached'
-      || method === 'Page.frameDetached' || method === 'Page.navigatedWithinDocument') latch.notify();
+    if (
+      (method === 'Runtime.bindingCalled' && params.name === binding && params.payload === id) ||
+      method === 'Page.frameNavigated' ||
+      method === 'Page.frameAttached' ||
+      method === 'Page.frameDetached' ||
+      method === 'Page.navigatedWithinDocument'
+    )
+      latch.notify();
   };
   port.on('message', message);
   const close = async () => {
     port.removeListener('message', message);
     // A document that disappeared cannot be cleaned; the lease also bounds
     // observers in a detached or otherwise inaccessible execution context.
-    await collect(guest, `(() => {
+    await collect(
+      guest,
+      `(() => {
       const state = globalThis.__mixdogWaitObserver;
       if (state?.id === ${JSON.stringify(id)}) state.close();
       return true;
-    })()`, AbortSignal.timeout(500)).catch(() => undefined);
+    })()`,
+      AbortSignal.timeout(500)
+    ).catch(() => undefined);
   };
   try {
-    const targets = [undefined, ...[...host.sessions(guest)]
-      .filter(([, target]) => target.type === 'iframe').map(([sessionId]) => sessionId)];
+    const targets = [
+      undefined,
+      ...[...host.sessions(guest)].filter(([, target]) => target.type === 'iframe').map(([sessionId]) => sessionId),
+    ];
     if (targets.length > 32) throw new Error('too many frame targets for a complete observation');
     const read = createBrowserReadPool();
-    await settleBrowserReads(targets.map(async (sessionId) => {
-      await host.sessions(guest).get(sessionId || '')?.ready;
-      await read(() => host.cdp.call(guest, 'Runtime.addBinding', {
-        name: binding, executionContextName: 'mixdog-observation',
-      }, signal, { sessionId }));
-    }));
-    await collect(guest, `(() => {
+    await settleBrowserReads(
+      targets.map(async (sessionId) => {
+        await host.sessions(guest).get(sessionId || '')?.ready;
+        await read(() =>
+          host.cdp.call(
+            guest,
+            'Runtime.addBinding',
+            {
+              name: binding,
+              executionContextName: 'mixdog-observation',
+            },
+            signal,
+            { sessionId }
+          )
+        );
+      })
+    );
+    await collect(
+      guest,
+      `(() => {
       globalThis.__mixdogWaitObserver?.close();
       const notify = () => globalThis[${JSON.stringify(binding)}](${JSON.stringify(id)});
       const observer = new MutationObserver(notify);
@@ -89,7 +118,9 @@ export async function observeBrowserDocumentChanges(
       document.addEventListener('input', notify, true);
       document.addEventListener('change', notify, true);
       return true;
-    })()`, signal);
+    })()`,
+      signal
+    );
   } catch (error) {
     await close();
     if (signal?.aborted) throw signal.reason || error;

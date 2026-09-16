@@ -1,15 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import {
-  access,
-  copyFile,
-  lstat,
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
+import { access, copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
@@ -21,8 +12,7 @@ const MAX_UNTRACKED_FILE_BYTES = 2 * 1024 * 1024;
 // cleaner could remove the only copy of a turn's revert source. Keep them with
 // the rest of the runtime data (same resolution as
 // session-runtime/runtime-paths.mjs; shared code cannot import that layer).
-const DATA_DIR = process.env.MIXDOG_DATA_DIR
-  || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
+const DATA_DIR = process.env.MIXDOG_DATA_DIR || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
 const SNAPSHOT_ROOT = join(DATA_DIR, 'turn-worktree-snapshots-v1');
 // A baseline tree is unreachable by design (no commit, no ref), so collection
 // is what bounds how long a review stays revertible.
@@ -44,13 +34,10 @@ function commandError(args, stderr, code) {
   return error;
 }
 
-function runGit(args, {
-  cwd,
-  input = '',
-  timeoutMs = COMMAND_TIMEOUT_MS,
-  maxBytes = COMMAND_MAX_BYTES,
-  allowFailure = false,
-} = {}) {
+function runGit(
+  args,
+  { cwd, input = '', timeoutMs = COMMAND_TIMEOUT_MS, maxBytes = COMMAND_MAX_BYTES, allowFailure = false } = {}
+) {
   return new Promise((resolvePromise, rejectPromise) => {
     const hasInput = (typeof input === 'string' || Buffer.isBuffer(input)) && input.length > 0;
     const child = spawn('git', args, {
@@ -74,7 +61,9 @@ function runGit(args, {
     const timer = setTimeout(() => {
       const error = new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`);
       error.code = 'ETIMEDOUT';
-      try { child.kill(); } catch {}
+      try {
+        child.kill();
+      } catch {}
       finish(error);
     }, timeoutMs);
     timer.unref?.();
@@ -85,7 +74,9 @@ function runGit(args, {
       if (stdoutBytes + stderrBytes > maxBytes) {
         const error = new Error(`git ${args.join(' ')} exceeded ${maxBytes} output bytes`);
         error.code = 'EMAXBUFFER';
-        try { child.kill(); } catch {}
+        try {
+          child.kill();
+        } catch {}
         finish(error);
         return;
       }
@@ -114,7 +105,9 @@ function runGit(args, {
       // A short-lived git command can close before Node flushes stdin. Keep
       // that transport race inside this promise instead of emitting an
       // unhandled EPIPE that terminates the entire release validator.
-      child.stdin.on('error', (error) => { stdinError = error; });
+      child.stdin.on('error', (error) => {
+        stdinError = error;
+      });
       child.stdin.end(input);
     }
   });
@@ -157,16 +150,23 @@ function stateForRoot(root) {
 
 function withStateLock(state, task) {
   const next = state.lock.then(task, task);
-  state.lock = next.then(() => undefined, () => undefined);
+  state.lock = next.then(
+    () => undefined,
+    () => undefined
+  );
   return next;
 }
 
 function shadowArgs(state, args) {
   return [
-    '-c', 'core.autocrlf=false',
-    '-c', 'core.quotepath=false',
-    '--git-dir', state.gitDir,
-    '--work-tree', state.root,
+    '-c',
+    'core.autocrlf=false',
+    '-c',
+    'core.quotepath=false',
+    '--git-dir',
+    state.gitDir,
+    '--work-tree',
+    state.root,
     ...args,
   ];
 }
@@ -222,22 +222,22 @@ async function refreshSourceTracked(state, { force = false } = {}) {
     } catch {}
   }
   if (!force && state.sourceIndexIdentity === identity) return;
-  const result = await runGit([
-    '-c', 'core.quotepath=false',
-    'ls-files', '--cached', '-z',
-  ], {
+  const result = await runGit(['-c', 'core.quotepath=false', 'ls-files', '--cached', '-z'], {
     cwd: state.root,
     allowFailure: true,
   });
   if (result.code !== 0) return;
   state.sourceTracked = new Set(
-    result.stdout.split('\0').map((value) => pathKey(value)).filter(Boolean),
+    result.stdout
+      .split('\0')
+      .map((value) => pathKey(value))
+      .filter(Boolean)
   );
   state.sourceIndexIdentity = identity;
 }
 
 async function ensureState(state) {
-  if (state.initialized && await exists(join(state.gitDir, 'config'))) return;
+  if (state.initialized && (await exists(join(state.gitDir, 'config')))) return;
   await mkdir(SNAPSHOT_ROOT, { recursive: true });
   if (!(await exists(join(state.gitDir, 'config')))) {
     // Migrate the short-lived prototype layout (`git init <dir>` created
@@ -248,22 +248,26 @@ async function ensureState(state) {
     await runGit(['init', '--bare', state.gitDir], { cwd: state.root });
     // One atomic config write replaces nine serial `git config` processes on
     // Windows. The shadow repository has no refs or user-authored config.
-    await writeFile(join(state.gitDir, 'config'), [
-      '[core]',
-      '\trepositoryformatversion = 0',
-      '\tbare = false',
-      '\tautocrlf = false',
-      '\tlongpaths = true',
-      '\tsymlinks = true',
-      '\tfsmonitor = false',
-      '\tuntrackedCache = true',
-      '[feature]',
-      '\tmanyFiles = true',
-      '[index]',
-      '\tversion = 4',
-      '\tthreads = true',
-      '',
-    ].join('\n'), 'utf8');
+    await writeFile(
+      join(state.gitDir, 'config'),
+      [
+        '[core]',
+        '\trepositoryformatversion = 0',
+        '\tbare = false',
+        '\tautocrlf = false',
+        '\tlongpaths = true',
+        '\tsymlinks = true',
+        '\tfsmonitor = false',
+        '\tuntrackedCache = true',
+        '[feature]',
+        '\tmanyFiles = true',
+        '[index]',
+        '\tversion = 4',
+        '\tthreads = true',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
   }
   await Promise.all([syncSourceExclude(state), syncAlternates(state)]);
   // Seed once per process, then keep this index synchronized with the live
@@ -279,7 +283,7 @@ async function resetShadowIndex(state) {
   state.sourceIndexPath ??= await sourceGitPath(state.root, 'index');
   const sourceIndex = state.sourceIndexPath;
   const target = join(state.gitDir, 'index');
-  if (sourceIndex && await exists(sourceIndex)) {
+  if (sourceIndex && (await exists(sourceIndex))) {
     const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
     await copyFile(sourceIndex, temporary);
     await rm(target, { force: true }).catch(() => {});
@@ -300,14 +304,19 @@ async function changedWorktreePaths(state) {
       cwd: state.root,
     }),
   ]);
-  const trackedPaths = tracked.stdout.split('\0').map((value) => value.trim()).filter(Boolean);
-  const untrackedPaths = untracked.stdout.split('\0').map((value) => value.trim()).filter(Boolean);
+  const trackedPaths = tracked.stdout
+    .split('\0')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const untrackedPaths = untracked.stdout
+    .split('\0')
+    .map((value) => value.trim())
+    .filter(Boolean);
   const sourceTrackedPaths = trackedPaths.filter((value) => state.sourceTracked.has(pathKey(value)));
   const shadowTrackedKeys = new Set(trackedPaths.map((value) => pathKey(value)));
-  const changedUntracked = [...new Set([
-    ...trackedPaths.filter((value) => !state.sourceTracked.has(pathKey(value))),
-    ...untrackedPaths,
-  ])];
+  const changedUntracked = [
+    ...new Set([...trackedPaths.filter((value) => !state.sourceTracked.has(pathKey(value))), ...untrackedPaths]),
+  ];
   // Snapshot bound: never hash a newly-created multi-MB
   // build artifact just to power a review bar. Existing tracked files remain
   // exact; only large untracked blobs are omitted.
@@ -343,13 +352,7 @@ async function captureTreeUnlocked(state) {
   await ensureState(state);
   const { paths, excludedUntracked } = await changedWorktreePaths(state);
   if (paths.length > 0) {
-    await runGit(shadowArgs(state, [
-      'add',
-      '--all',
-      '--sparse',
-      '--pathspec-from-file=-',
-      '--pathspec-file-nul',
-    ]), {
+    await runGit(shadowArgs(state, ['add', '--all', '--sparse', '--pathspec-from-file=-', '--pathspec-file-nul']), {
       cwd: state.root,
       input: `${paths.join('\0')}\0`,
     });
@@ -358,12 +361,7 @@ async function captureTreeUnlocked(state) {
     // A small untracked file may already live in the persistent shadow index
     // from an earlier turn. If it later grows past the bound, remove only its
     // index entry so neither hashing nor turn-relative restore sees stale data.
-    await runGit(shadowArgs(state, [
-      'update-index',
-      '--force-remove',
-      '-z',
-      '--stdin',
-    ]), {
+    await runGit(shadowArgs(state, ['update-index', '--force-remove', '-z', '--stdin']), {
       cwd: state.root,
       input: `${excludedUntracked.join('\0')}\0`,
     });
@@ -375,13 +373,13 @@ async function captureTreeUnlocked(state) {
 function parseNameStatus(text) {
   const out = new Map();
   const tokens = String(text || '').split('\0');
-  for (let index = 0; index < tokens.length;) {
+  for (let index = 0; index < tokens.length; ) {
     const rawStatus = tokens[index++] || '';
     if (!rawStatus) continue;
     const code = rawStatus[0] || 'M';
     const oldPath = tokens[index++] || '';
     if (!oldPath) continue;
-    const newPath = code === 'R' || code === 'C' ? (tokens[index++] || '') : oldPath;
+    const newPath = code === 'R' || code === 'C' ? tokens[index++] || '' : oldPath;
     if (!newPath) continue;
     out.set(pathKey(newPath), {
       path: newPath.replace(/\\/g, '/'),
@@ -441,12 +439,7 @@ async function diffTreesUnlocked(state, baselineTree, currentTree, paths = null)
   let patch = '';
   let patchTruncated = false;
   try {
-    const result = await runGit(shadowArgs(state, [
-      'diff',
-      '--no-ext-diff',
-      '--unified=3',
-      ...rangeArgs,
-    ]), {
+    const result = await runGit(shadowArgs(state, ['diff', '--no-ext-diff', '--unified=3', ...rangeArgs]), {
       cwd: state.root,
       maxBytes: PATCH_MAX_BYTES + 256 * 1024,
     });
@@ -459,18 +452,20 @@ async function diffTreesUnlocked(state, baselineTree, currentTree, paths = null)
   const statuses = parseNameStatus(nameStatus.stdout);
   const stats = parseNumstat(numstat.stdout);
   const keys = [...new Set([...statuses.keys(), ...stats.keys()])];
-  const files = keys.map((key) => {
-    const status = statuses.get(key) || {};
-    const stat = stats.get(key) || {};
-    return {
-      path: status.path || stat.path || key,
-      oldPath: status.oldPath || stat.oldPath || null,
-      status: status.status || 'M',
-      additions: stat.additions ?? null,
-      deletions: stat.deletions ?? null,
-      binary: stat.binary === true,
-    };
-  }).sort((left, right) => left.path.localeCompare(right.path));
+  const files = keys
+    .map((key) => {
+      const status = statuses.get(key) || {};
+      const stat = stats.get(key) || {};
+      return {
+        path: status.path || stat.path || key,
+        oldPath: status.oldPath || stat.oldPath || null,
+        status: status.status || 'M',
+        additions: stat.additions ?? null,
+        deletions: stat.deletions ?? null,
+        binary: stat.binary === true,
+      };
+    })
+    .sort((left, right) => left.path.localeCompare(right.path));
   return { patch, files, patchTruncated, currentTree };
 }
 
@@ -555,12 +550,7 @@ export async function refreshTurnWorktreeSnapshot(snapshot) {
   return await withStateLock(snapshot.state, async () => {
     const currentTree = await captureTreeUnlocked(snapshot.state);
     if (currentTree === snapshot.currentTree) return snapshot;
-    const review = await diffTreesUnlocked(
-      snapshot.state,
-      snapshot.baselineTree,
-      currentTree,
-      snapshot.scopePaths,
-    );
+    const review = await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths);
     Object.assign(snapshot, review);
     return snapshot;
   });
@@ -578,21 +568,12 @@ function safeRelativePath(root, value) {
 }
 
 async function restorePathFromTree(snapshot, rel) {
-  const listed = await runGit(shadowArgs(snapshot.state, [
-    'ls-tree',
-    '-z',
-    '--name-only',
-    snapshot.baselineTree,
-    '--',
-    rel,
-  ]), { cwd: snapshot.root });
+  const listed = await runGit(
+    shadowArgs(snapshot.state, ['ls-tree', '-z', '--name-only', snapshot.baselineTree, '--', rel]),
+    { cwd: snapshot.root }
+  );
   if (listed.stdout.split('\0').some((value) => value === rel)) {
-    await runGit(shadowArgs(snapshot.state, [
-      'checkout',
-      snapshot.baselineTree,
-      '--',
-      rel,
-    ]), { cwd: snapshot.root });
+    await runGit(shadowArgs(snapshot.state, ['checkout', snapshot.baselineTree, '--', rel]), { cwd: snapshot.root });
     return;
   }
   const target = resolve(snapshot.root, rel);
@@ -610,12 +591,10 @@ async function revertPathsUnlocked(snapshot, targets) {
     await restorePathFromTree(snapshot, target);
   }
   const currentTree = await captureTreeUnlocked(snapshot.state);
-  Object.assign(snapshot, await diffTreesUnlocked(
-    snapshot.state,
-    snapshot.baselineTree,
-    currentTree,
-    snapshot.scopePaths,
-  ));
+  Object.assign(
+    snapshot,
+    await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths)
+  );
   return snapshot;
 }
 
@@ -623,10 +602,12 @@ export async function revertTurnWorktreeFile(snapshot, value) {
   if (!snapshot?.state || !snapshot.baselineTree) throw new Error('turn worktree snapshot is unavailable');
   return await withStateLock(snapshot.state, async () => {
     const rel = safeRelativePath(snapshot.root, value);
-    const entry = snapshot.files.find((file) =>
-      pathKey(file.path) === pathKey(rel) || pathKey(file.oldPath) === pathKey(rel));
-    const targets = [...new Set([entry?.path || rel, entry?.oldPath].filter(Boolean))]
-      .map((target) => safeRelativePath(snapshot.root, target));
+    const entry = snapshot.files.find(
+      (file) => pathKey(file.path) === pathKey(rel) || pathKey(file.oldPath) === pathKey(rel)
+    );
+    const targets = [...new Set([entry?.path || rel, entry?.oldPath].filter(Boolean))].map((target) =>
+      safeRelativePath(snapshot.root, target)
+    );
     return await revertPathsUnlocked(snapshot, targets);
   });
 }
@@ -637,10 +618,9 @@ export async function revertTurnWorktreeSnapshot(snapshot) {
     // Resolve and validate every path before the first mutation. Renames and
     // copies contribute both sides so the worktree returns to the exact
     // turn-start tree rather than leaving a destination behind.
-    const targets = [...new Set(snapshot.files
-      .flatMap((file) => [file.path, file.oldPath])
-      .filter(Boolean))]
-      .map((target) => safeRelativePath(snapshot.root, target));
+    const targets = [...new Set(snapshot.files.flatMap((file) => [file.path, file.oldPath]).filter(Boolean))].map(
+      (target) => safeRelativePath(snapshot.root, target)
+    );
     return await revertPathsUnlocked(snapshot, targets);
   });
 }

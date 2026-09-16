@@ -28,7 +28,10 @@ export function parseRecallOutput(text) {
     if (SESSION_HEADER_RE.test(line)) {
       groupIndex += 1;
       group = groupIndex;
-      groupLabel = line.replace(/^##\s+session\s+/i, '').split(/\s+\(/, 1)[0].trim();
+      groupLabel = line
+        .replace(/^##\s+session\s+/i, '')
+        .split(/\s+\(/, 1)[0]
+        .trim();
       current = null;
       headers.push({ text: line, group, label: groupLabel });
       continue;
@@ -154,13 +157,15 @@ export function scorePageAfter(previousParsed, currentParsed) {
   const previousHeads = groupHeads(previousParsed);
   const currentHeads = groupHeads(currentParsed);
   const previousLabels = new Set((previousParsed?.headers || []).map((header) => header.label).filter(Boolean));
-  const duplicateGroups = (currentParsed?.headers || [])
-    .filter((header) => header.label && previousLabels.has(header.label));
+  const duplicateGroups = (currentParsed?.headers || []).filter(
+    (header) => header.label && previousLabels.has(header.label)
+  );
   const previousLast = previousHeads.at(-1) || null;
   const currentFirst = currentHeads[0] || null;
-  const inverted = previousLast?.timestampMs != null
-    && currentFirst?.timestampMs != null
-    && currentFirst.timestampMs > previousLast.timestampMs;
+  const inverted =
+    previousLast?.timestampMs != null &&
+    currentFirst?.timestampMs != null &&
+    currentFirst.timestampMs > previousLast.timestampMs;
   return {
     ok: duplicateGroups.length === 0 && !inverted,
     duplicateGroups,
@@ -184,11 +189,11 @@ export function scoreWithinPeriod(items, temporal, toleranceMs = 60_000) {
   const endMs = Number(temporal?.endMs);
   const hasStart = Number.isFinite(startMs);
   const hasEnd = Number.isFinite(endMs);
-  const offenders = items.filter((item) => (
-    item.timestampMs !== null
-    && ((hasStart && item.timestampMs < startMs - toleranceMs)
-      || (hasEnd && item.timestampMs > endMs + toleranceMs))
-  ));
+  const offenders = items.filter(
+    (item) =>
+      item.timestampMs !== null &&
+      ((hasStart && item.timestampMs < startMs - toleranceMs) || (hasEnd && item.timestampMs > endMs + toleranceMs))
+  );
   return { checked: items.filter((item) => item.timestampMs !== null).length, offenders, ok: offenders.length === 0 };
 }
 
@@ -199,12 +204,15 @@ export function evaluateCase(kase, outcome, quality, recency, allContain, within
   const allowEmpty = expectObj.allowEmpty === true;
   const minResults = Number.isInteger(expectObj.minResults)
     ? Math.max(0, expectObj.minResults)
-    : (expectKind === 'empty' || allowEmpty ? 0 : 1);
+    : expectKind === 'empty' || allowEmpty
+      ? 0
+      : 1;
   const maxResults = Number.isInteger(expectObj.maxResults) ? Math.max(0, expectObj.maxResults) : null;
   if (outcome.isError) warnings.push('error result');
   if (outcome.ms > 3000) warnings.push(`latency ${outcome.ms}ms > 3000ms`);
   if (outcome.count < minResults) warnings.push(`expected at least ${minResults} result(s), got ${outcome.count}`);
-  if (maxResults !== null && outcome.count > maxResults) warnings.push(`expected at most ${maxResults} result(s), got ${outcome.count}`);
+  if (maxResults !== null && outcome.count > maxResults)
+    warnings.push(`expected at most ${maxResults} result(s), got ${outcome.count}`);
   if (expectKind === 'empty' && outcome.count > 0) warnings.push(`expected empty but got ${outcome.count} result(s)`);
   if (allContain) {
     for (const item of allContain.offenders) {
@@ -214,15 +222,19 @@ export function evaluateCase(kase, outcome, quality, recency, allContain, within
   if (quality) {
     for (const row of quality.perSubstring) {
       if (!row.hit) {
-        warnings.push(row.rank === null
-          ? `topNContains miss: "${row.needle}" not found in results`
-          : `topNContains miss: "${row.needle}" found at rank ${row.rank} > topN ${quality.n}`);
+        warnings.push(
+          row.rank === null
+            ? `topNContains miss: "${row.needle}" not found in results`
+            : `topNContains miss: "${row.needle}" found at rank ${row.rank} > topN ${quality.n}`
+        );
       }
     }
   }
   if (recency && !recency.ordered && recency.firstViolation) {
     const violation = recency.firstViolation;
-    warnings.push(`recencyOrdered violation (${violation.scope || 'global'}): ${violation.cur} newer than prior ${violation.prev}`);
+    warnings.push(
+      `recencyOrdered violation (${violation.scope || 'global'}): ${violation.cur} newer than prior ${violation.prev}`
+    );
   }
   if (withinPeriod) {
     for (const item of withinPeriod.offenders) {
@@ -234,7 +246,9 @@ export function evaluateCase(kase, outcome, quality, recency, allContain, within
       warnings.push(`pageOrder duplicate session: "${header.label}"`);
     }
     if (pageOrder.inverted) {
-      warnings.push(`pageOrder inversion: page starts at ${pageOrder.currentFirst?.timestampText} after prior page ended at ${pageOrder.previousLast?.timestampText}`);
+      warnings.push(
+        `pageOrder inversion: page starts at ${pageOrder.currentFirst?.timestampText} after prior page ended at ${pageOrder.previousLast?.timestampText}`
+      );
     }
   }
   return { status: warnings.length ? 'WARN' : 'PASS', warnings };

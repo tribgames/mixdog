@@ -32,10 +32,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.model-route-label-effort { color: var(--mx-text-muted); }
-.model-route-label-fast { color: var(--mx-text-accent); }
-.route-editor > .model-trigger > svg { flex: 0 0 auto; }
-.route-editor > .model-trigger { padding-right: 4px; }
+.model-route-label-effort {
+  color: var(--mx-text-muted);
+}
+.model-route-label-fast {
+  color: var(--mx-text-accent);
+}
+.route-editor > .model-trigger > svg {
+  flex: 0 0 auto;
+}
+.route-editor > .model-trigger {
+  padding-right: 4px;
+}
 .route-sheet,
 .route-sheet-flyout {
   --route-popover-x: 0;
@@ -96,10 +104,16 @@
 .route-sheet[data-state="open"] > * {
   animation: route-sheet-content-in var(--mx-motion-chrome) 45ms both;
 }
-.route-sheet[data-state="closing"] { animation-name: route-sheet-morph-out; }
+.route-sheet[data-state="closing"] {
+  animation-name: route-sheet-morph-out;
+}
 /* The sheet anchors to the pill's LEFT edge, so it grows rightwards with it. */
-.route-sheet[data-placement="above"] { transform-origin: bottom left; }
-.route-sheet[data-placement="below"] { transform-origin: top left; }
+.route-sheet[data-placement="above"] {
+  transform-origin: bottom left;
+}
+.route-sheet[data-placement="below"] {
+  transform-origin: top left;
+}
 /* Codex-style pill: while the sheet is open the trigger expands to the sheet
    width (inline width per frame drives the transition); the chevron slides
    to the pill's right edge. */
@@ -121,34 +135,76 @@
   position: relative;
   z-index: 2;
 }
-.route-controls:has(> .route-editor > .model-trigger[data-morph]) { overflow: visible; }
+.route-controls:has(> .route-editor > .model-trigger[data-morph]) {
+  overflow: visible;
+}
 @keyframes route-sheet-morph-in {
-  from { opacity: .35; transform: scale(var(--route-morph-sx, .9), var(--route-morph-sy, .7)); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0.35;
+    transform: scale(var(--route-morph-sx, 0.9), var(--route-morph-sy, 0.7));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 @keyframes route-sheet-morph-out {
-  from { opacity: 1; transform: none; }
-  to { opacity: 0; transform: scale(var(--route-morph-sx, .9), var(--route-morph-sy, .7)); }
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(var(--route-morph-sx, 0.9), var(--route-morph-sy, 0.7));
+  }
 }
 @keyframes route-sheet-content-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes route-popover-in {
-  from { opacity: 0; transform: translate(var(--route-popover-x), var(--route-popover-y)) scale(.97); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translate(var(--route-popover-x), var(--route-popover-y)) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 @keyframes route-popover-out {
-  from { opacity: 1; transform: none; }
-  to { opacity: 0; transform: translate(var(--route-popover-x), var(--route-popover-y)) scale(.99); }
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translate(var(--route-popover-x), var(--route-popover-y)) scale(0.99);
+  }
 }
 @keyframes route-flyout-in-above {
-  from { opacity: 0; transform: translateY(7px) scaleX(.985) scaleY(.92); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(7px) scaleX(0.985) scaleY(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 @keyframes route-flyout-in-below {
-  from { opacity: 0; transform: translateY(-7px) scaleX(.985) scaleY(.92); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(-7px) scaleX(0.985) scaleY(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .route-sheet-row,
 .route-sheet-option {
@@ -185,8 +241,16 @@
   background: var(--mx-hover);
 }
 .route-sheet-row:disabled,
-.route-sheet-option:disabled { opacity: var(--mx-op-disabled); cursor: default; }
-.route-sheet-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.route-sheet-option:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.route-sheet-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .route-sheet-value {
   min-width: 0;
   overflow: hidden;
@@ -196,8 +260,17 @@
   white-space: nowrap;
 }
 .route-sheet-row svg,
-.route-sheet-option svg { flex: 0 0 auto; color: var(--mx-text-muted); }
-.route-sheet-option span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.route-sheet-option svg {
+  flex: 0 0 auto;
+  color: var(--mx-text-muted);
+}
+.route-sheet-option span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .route-selection-check,
 .route-sheet-option .route-selection-check {
   width: 16px;
@@ -222,7 +295,10 @@
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
 }
-.route-sheet-option--rich { min-height: 48px; padding-block: 5px; }
+.route-sheet-option--rich {
+  min-height: 48px;
+  padding-block: 5px;
+}
 .route-sheet-option .route-sheet-option-copy {
   min-width: 0;
   flex: 1;
@@ -238,7 +314,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.route-sheet-option-copy > small { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+.route-sheet-option-copy > small {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
 /* Studio duration slider pane (continuous ranges have no discrete options). */
 .route-sheet-slider {
   display: flex;
@@ -247,8 +326,14 @@
   min-height: 36px;
   padding: 2px 10px 6px;
 }
-.route-sheet-slider input { flex: 1; min-width: 0; }
-.route-sheet-slider span { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+.route-sheet-slider input {
+  flex: 1;
+  min-width: 0;
+}
+.route-sheet-slider span {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
 /* Context pane: value header with inline default/reset, 10%-snap slider. */
 .route-context-head {
   display: flex;
@@ -256,8 +341,14 @@
   gap: 6px;
   padding: 2px 10px 0;
 }
-.route-context-head strong { font-size: 15px; font-weight: 600; }
-.route-context-head small { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+.route-context-head strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.route-context-head small {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
 /* "1M · Default" tail: plain muted text at rest, a click restores default. */
 .route-context-reset {
   margin-left: auto;
@@ -269,8 +360,14 @@
   font-size: var(--mx-font-minor);
   cursor: pointer;
 }
-.route-context-reset:hover { color: var(--mx-text); background: var(--mx-hover); }
-.route-context-slider { display: flex; padding: 6px 10px 4px; }
+.route-context-reset:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.route-context-slider {
+  display: flex;
+  padding: 6px 10px 4px;
+}
 .route-context-slider input {
   flex: 1;
   min-width: 0;
@@ -278,10 +375,19 @@
   accent-color: var(--mx-text);
   cursor: pointer;
 }
-.route-context-slider input:disabled { cursor: default; opacity: 0.5; }
+.route-context-slider input:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
 .route-sheet,
-.route-sheet-flyout { overflow: auto; overscroll-behavior: contain; }
-.route-sheet-flyout--model { overflow: hidden; padding: 0; }
+.route-sheet-flyout {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.route-sheet-flyout--model {
+  overflow: hidden;
+  padding: 0;
+}
 .model-catalog-panel,
 .model-catalog-panel .model-catalog-body,
 .model-catalog-panel .pane-surface-gate,
@@ -292,17 +398,43 @@
   display: flex;
   flex-direction: column;
 }
-.model-catalog-panel { width: 100%; overflow: hidden; }
-.model-catalog-panel .model-catalog-body > .pane-surface-gate { min-height: 0; }
-.model-catalog-panel .model-catalog-list { gap: 8px; padding: 8px; }
-.model-catalog-panel .model-search { min-height: 32px; padding: 6px 8px; }
-.model-catalog-panel .model-list { min-height: 0; flex: 1 1 auto; overflow: auto; gap: 10px; padding: 0; }
+.model-catalog-panel {
+  width: 100%;
+  overflow: hidden;
+}
+.model-catalog-panel .model-catalog-body > .pane-surface-gate {
+  min-height: 0;
+}
+.model-catalog-panel .model-catalog-list {
+  gap: 8px;
+  padding: 8px;
+}
+.model-catalog-panel .model-search {
+  min-height: 32px;
+  padding: 6px 8px;
+}
+.model-catalog-panel .model-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  gap: 10px;
+  padding: 0;
+}
 /* Codex-style embedded catalog: flat single-line rows — no cards, no
    descriptions; the check mark alone marks the active route. */
-.model-catalog-panel .model-list { gap: 6px; }
-.model-catalog-panel .model-group { gap: 2px; }
-.model-catalog-panel .model-items { gap: 1px; }
-.model-catalog-panel .model-group h3 { min-height: 26px; padding: 4px 4px 2px; }
+.model-catalog-panel .model-list {
+  gap: 6px;
+}
+.model-catalog-panel .model-group {
+  gap: 2px;
+}
+.model-catalog-panel .model-items {
+  gap: 1px;
+}
+.model-catalog-panel .model-group h3 {
+  min-height: 26px;
+  padding: 4px 4px 2px;
+}
 /* Keep compact brand headers pinned, but paint the flyout surface beneath
    them so scrolling rows never show through the header. */
 .model-catalog-panel .model-group--provider h3 {
@@ -334,7 +466,9 @@
   font-weight: var(--mx-weight-regular);
   padding-bottom: 0;
 }
-.model-catalog-panel .model-row-copy > small { display: none; }
+.model-catalog-panel .model-row-copy > small {
+  display: none;
+}
 .model-catalog-panel .list-item-selected-icon {
   width: auto;
   height: auto;
@@ -357,7 +491,10 @@
   min-width: 28px;
   flex: 0 0 28px;
 }
-.send-button { flex: 0 0 28px; margin-left: 0; }
+.send-button {
+  flex: 0 0 28px;
+  margin-left: 0;
+}
 /* Stop affordance stays a STATIC filled square sized like the send arrow —
    the old breathing pulse (scale to 1.12) made the glyph read oversized
    next to the send state (user decision). */
@@ -383,7 +520,11 @@
   overflow-y: hidden;
   scrollbar-color: var(--mx-scrollbar-thumb) transparent;
 }
-.composer-attachments > div { position: relative; flex: 0 0 auto; box-sizing: border-box; }
+.composer-attachments > div {
+  position: relative;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+}
 .composer-attachments > div.image {
   width: 64px;
   max-width: 64px;
@@ -450,7 +591,9 @@
 }
 .composer-attachments > div.image:hover .attachment-remove,
 .composer-attachments > div.image:focus-within .attachment-remove,
-.composer-attachments > div.image .attachment-remove:focus-visible { opacity: 1; }
+.composer-attachments > div.image .attachment-remove:focus-visible {
+  opacity: 1;
+}
 .composer-error,
 .composer-notice {
   /* Banner ABOVE the input card: full column width, card-language radius. */
@@ -466,7 +609,9 @@
   gap: 8px;
 }
 .composer-error > span,
-.composer-notice > span { flex: 1 1 auto; }
+.composer-notice > span {
+  flex: 1 1 auto;
+}
 .composer-banner-close {
   flex: 0 0 auto;
   display: grid;
@@ -481,9 +626,16 @@
   cursor: pointer;
   opacity: var(--mx-op-secondary);
 }
-.composer-banner-close:hover { opacity: 1; background: var(--mx-hover); }
-.composer-error { box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 25%, transparent); }
-.composer-notice { box-shadow: inset 0 0 0 .5px var(--mx-border); }
+.composer-banner-close:hover {
+  opacity: 1;
+  background: var(--mx-hover);
+}
+.composer-error {
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-danger) 25%, transparent);
+}
+.composer-notice {
+  box-shadow: inset 0 0 0 0.5px var(--mx-border);
+}
 .task-drop-overlay {
   inset: 6px;
   border-color: var(--mx-focus);
@@ -506,7 +658,10 @@
   gap: 7px;
   background: var(--mx-bg-layer-1);
 }
-.slash-palette button { width: 100%; text-align: left; }
+.slash-palette button {
+  width: 100%;
+  text-align: left;
+}
 .slash-palette button:focus-visible {
   outline: 0;
   background: var(--mx-hover);
@@ -520,7 +675,10 @@
 }
 
 .mx-select-trigger {
-  transition: background var(--mx-motion-ink), outline-color var(--mx-motion-ink), box-shadow var(--mx-motion-ink);
+  transition:
+    background var(--mx-motion-ink),
+    outline-color var(--mx-motion-ink),
+    box-shadow var(--mx-motion-ink);
 }
 .mx-select-trigger:focus-visible {
   outline: 1px solid var(--mx-focus);
@@ -530,22 +688,38 @@
   box-sizing: border-box;
   overscroll-behavior: contain;
 }
-.mx-menu-item { box-sizing: border-box; user-select: none; }
+.mx-menu-item {
+  box-sizing: border-box;
+  user-select: none;
+}
 .mx-menu-item[aria-selected="true"] {
   color: var(--mx-text);
   font-weight: var(--mx-weight-regular);
 }
-.mx-menu-item[aria-selected="true"] svg { color: var(--mx-icon); }
-.mx-menu-item:disabled { pointer-events: none; opacity: var(--mx-op-disabled); }
+.mx-menu-item[aria-selected="true"] svg {
+  color: var(--mx-icon);
+}
+.mx-menu-item:disabled {
+  pointer-events: none;
+  opacity: var(--mx-op-disabled);
+}
 
-.command-surface { outline: 0; }
+.command-surface {
+  outline: 0;
+}
 .command-surface[data-surface="context"] {
   width: min(680px, calc(100vw - 32px));
   height: auto;
   /* Stable frame (user: 작은 프레임에서 튀며 생성): the loading state keeps
      the dialog at its settled height so content arrival never resizes it. */
-  min-height: min(380px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
-  max-height: min(560px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
+  min-height: min(
+    380px,
+    calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px))
+  );
+  max-height: min(
+    560px,
+    calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px))
+  );
   border-radius: var(--mx-radius-xl);
 }
 /* ONE frame (user: 프레임이 내측과 바깥쪽 두 개인데 내측만 남긴 원프레임으로,
@@ -562,7 +736,10 @@
   box-shadow: var(--mx-popup-shadow);
 }
 .command-surface[data-surface="context"] .mixdog-settings__panel {
-  max-height: min(560px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
+  max-height: min(
+    560px,
+    calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px))
+  );
   background: transparent;
 }
 /* The title bar becomes the card's first band: it lets the frame's gradient
@@ -570,7 +747,7 @@
    sections, with its text on the sections' 22px column. */
 .command-surface[data-surface="context"] .mixdog-settings__header {
   padding: 0 12px 0 22px;
-  border-bottom: .5px solid var(--mx-border-muted);
+  border-bottom: 0.5px solid var(--mx-border-muted);
   background: transparent;
 }
 .command-surface[data-surface="context"] .mixdog-settings__body {
@@ -584,15 +761,30 @@
   box-shadow: none;
 }
 /* The body inset is gone, so the loading line brings its own. */
-.command-surface[data-surface="context"] .settings-loading { padding: 22px; }
-.command-surface .mixdog-settings__body { gap: 28px; }
-.command-surface .mixdog-settings__header h1 { flex: 1 1 auto; }
-.command-surface-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.command-surface[data-surface="context"] .settings-loading {
+  padding: 22px;
+}
+.command-surface .mixdog-settings__body {
+  gap: 28px;
+}
+.command-surface .mixdog-settings__header h1 {
+  flex: 1 1 auto;
+}
+.command-surface-header-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 /* /inherit readings: three label/value bands, the same row grammar the context
    card next door uses. Loose baseline rows pushed every value onto the card's
    far edge, so a short number floated a column away from its own label
    (user: ui레이아웃이 이상하다). */
-.command-surface-facts { display: grid; gap: 4px; margin: 0; }
+.command-surface-facts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
 .command-surface-facts > div {
   min-width: 0;
   min-height: 34px;
@@ -603,7 +795,7 @@
   padding: 6px 10px;
   border-radius: var(--mx-radius-md);
   background: color-mix(in srgb, var(--mx-bg-layer-1) 72%, transparent);
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-border-muted) 76%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-border-muted) 76%, transparent);
 }
 .command-surface-facts dt {
   min-width: 0;
@@ -634,7 +826,10 @@
 .command-surface[data-surface="inherit"] {
   width: min(400px, calc(100vw - 32px));
   height: auto;
-  max-height: min(560px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
+  max-height: min(
+    560px,
+    calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px))
+  );
   border: var(--mx-popup-border);
   border-radius: var(--mx-popup-radius-card);
   background: var(--mx-popup-bg);
@@ -646,7 +841,7 @@
 }
 .command-surface[data-surface="inherit"] .mixdog-settings__header {
   padding: 0 12px 0 20px;
-  border-bottom: .5px solid var(--mx-border-muted);
+  border-bottom: 0.5px solid var(--mx-border-muted);
   background: transparent;
 }
 /* The bands carry their own inset, and the reserved scrollbar gutter goes with
@@ -658,7 +853,10 @@
   overflow-y: auto;
   scrollbar-gutter: auto;
 }
-.inherit-surface { min-width: 0; display: grid; }
+.inherit-surface {
+  min-width: 0;
+  display: grid;
+}
 .inherit-surface-body {
   min-width: 0;
   display: grid;
@@ -679,7 +877,7 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 16px;
-  border-top: .5px solid var(--mx-border-muted);
+  border-top: 0.5px solid var(--mx-border-muted);
 }
 .inherit-surface-actions > button {
   min-height: 30px;
@@ -700,14 +898,18 @@
 .inherit-surface-actions > button.inherit-surface-cancel {
   color: var(--mx-text);
   background: transparent;
-  box-shadow: inset 0 0 0 .5px var(--mx-border-strong);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-strong);
   font-weight: var(--mx-weight-regular);
 }
 .inherit-surface-actions > button.inherit-surface-cancel:hover:not(:disabled) {
   background: var(--mx-hover);
 }
-.inherit-surface-actions > button:hover:not(:disabled) { background: var(--mx-flat-hover-contrast); }
-.inherit-surface-actions > button:active:not(:disabled) { background: var(--mx-flat-press-contrast); }
+.inherit-surface-actions > button:hover:not(:disabled) {
+  background: var(--mx-flat-hover-contrast);
+}
+.inherit-surface-actions > button:active:not(:disabled) {
+  background: var(--mx-flat-press-contrast);
+}
 .command-surface .settings-section-heading p {
   display: block;
   margin: 5px 0 0;
@@ -715,12 +917,18 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-.command-surface .settings-group-body { min-width: 0; overflow: hidden; }
+.command-surface .settings-group-body {
+  min-width: 0;
+  overflow: hidden;
+}
 .command-surface .settings-resource {
   min-width: 0;
   align-items: center;
 }
-.command-surface .settings-resource > div:first-child { min-width: 0; flex: 1; }
+.command-surface .settings-resource > div:first-child {
+  min-width: 0;
+  flex: 1;
+}
 .command-surface .settings-resource p {
   margin: 6px 0 0;
   overflow-wrap: anywhere;
@@ -751,17 +959,37 @@
   outline-offset: 0;
   box-shadow: none;
 }
-.command-surface button:disabled { opacity: var(--mx-op-disabled); cursor: not-allowed; }
-.command-surface .settings-loading { margin: 0; }
+.command-surface button:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: not-allowed;
+}
+.command-surface .settings-loading {
+  margin: 0;
+}
 
 @media (max-width: 640px) {
-  .composer textarea { padding-inline: 12px; }
-  .studio-composer textarea { padding-inline: 12px; }
-  .route-controls { max-width: calc(100% - 56px); }
-  .command-surface .mixdog-settings__body { padding: 20px 16px 24px; }
-  .command-surface .settings-group-body { padding-inline: 14px; }
-  .command-surface .settings-resource { align-items: stretch; flex-direction: column; }
-  .command-surface .settings-resource-actions { justify-content: flex-start; }
+  .composer textarea {
+    padding-inline: 12px;
+  }
+  .studio-composer textarea {
+    padding-inline: 12px;
+  }
+  .route-controls {
+    max-width: calc(100% - 56px);
+  }
+  .command-surface .mixdog-settings__body {
+    padding: 20px 16px 24px;
+  }
+  .command-surface .settings-group-body {
+    padding-inline: 14px;
+  }
+  .command-surface .settings-resource {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .command-surface .settings-resource-actions {
+    justify-content: flex-start;
+  }
 }
 
 /* Context usage surfaces: isolated from transcript, settings, and composer ownership. */
@@ -783,7 +1011,7 @@
   flex: 0 1 auto;
   margin-left: auto;
   padding: 2px;
-  border: .5px solid color-mix(in srgb, var(--mx-border-strong) 5%, transparent);
+  border: 0.5px solid color-mix(in srgb, var(--mx-border-strong) 5%, transparent);
   border-radius: var(--mx-radius-pill);
   background: color-mix(in srgb, var(--mx-bg-base) 4%, transparent);
   overflow: visible;
@@ -802,7 +1030,8 @@
   background: transparent;
   cursor: pointer;
 }
-.session-dock-toggle:hover, .session-dock-toggle:focus-visible {
+.session-dock-toggle:hover,
+.session-dock-toggle:focus-visible {
   background: var(--mx-hover);
 }
 /* Inside the status island the toggle follows its lucide neighbors' voice
@@ -813,7 +1042,9 @@
    inks 18 of its 24-unit grid, so an 18px box drew a 13.5px rect beside
    the pulse's 15px span and the 19px gauge ring and read one optical step
    small (user: 지금도 살짝 안 맞아). A 20px box lands the rect at 15px. */
-.session-status-island .session-status-dock-toggle { color: var(--mx-text-muted); }
+.session-status-island .session-status-dock-toggle {
+  color: var(--mx-text-muted);
+}
 .session-status-island .session-status-dock-toggle svg.lucide {
   width: var(--mx-icon-xl);
   height: var(--mx-icon-xl);
@@ -824,13 +1055,17 @@
   color: var(--mx-text);
   background: transparent;
 }
-.session-status-island .session-status-dock-toggle[aria-pressed="true"] { color: var(--mx-text); }
+.session-status-island .session-status-dock-toggle[aria-pressed="true"] {
+  color: var(--mx-text);
+}
 /* The context gauge dims when a session has no usage to report yet. */
 .session-context-indicator[data-active="false"] > button {
   color: var(--mx-text-faint);
-  opacity: .45;
+  opacity: 0.45;
 }
-.session-context-indicator > button:disabled { cursor: default; }
+.session-context-indicator > button:disabled {
+  cursor: default;
+}
 .session-status-island > .session-work-indicator,
 .session-status-island > .session-context-indicator {
   /* Both cards anchor to the island itself, not to either 28px slot, so their
@@ -858,7 +1093,11 @@
   cursor: pointer;
 }
 .session-context-indicator > button:hover,
-.session-context-indicator > button:focus-visible { color: var(--mx-text); background: transparent; outline: none; }
+.session-context-indicator > button:focus-visible {
+  color: var(--mx-text);
+  background: transparent;
+  outline: none;
+}
 .session-context-indicator[data-open="true"] > button {
   color: var(--mx-text);
   background: transparent;
@@ -867,16 +1106,32 @@
 /* The 28px button already centers the 20px ring (place-items: center); an
    extra optical nudge left the gauge 1px below the capsule's center inside
    the round island plate (user: 컨텍스트 버튼 상하 정렬). */
-.session-context-indicator svg { width: 20px; height: 20px; transform: rotate(-90deg); }
-.session-context-indicator circle { fill: none; stroke-width: 2; }
-.session-context-indicator .context-usage-track { stroke: var(--mx-text-faint); }
-.session-context-indicator .context-usage-value { stroke: var(--mx-text); stroke-linecap: round; }
+.session-context-indicator svg {
+  width: 20px;
+  height: 20px;
+  transform: rotate(-90deg);
+}
+.session-context-indicator circle {
+  fill: none;
+  stroke-width: 2;
+}
+.session-context-indicator .context-usage-track {
+  stroke: var(--mx-text-faint);
+}
+.session-context-indicator .context-usage-value {
+  stroke: var(--mx-text);
+  stroke-linecap: round;
+}
 /* Quota tone (user: 한도처럼 %따라서 색): the filled arc crosses into warning
    at 70% and danger at 90% — the same thresholds the usage meters use, so a
    context window that is running out reads at a glance. The popover's own
    percentage follows the ring. */
-.session-context-indicator[data-tone="warning"] .context-usage-value { stroke: var(--mx-warning); }
-.session-context-indicator[data-tone="danger"] .context-usage-value { stroke: var(--mx-danger); }
+.session-context-indicator[data-tone="warning"] .context-usage-value {
+  stroke: var(--mx-warning);
+}
+.session-context-indicator[data-tone="danger"] .context-usage-value {
+  stroke: var(--mx-danger);
+}
 .session-context-indicator[data-tone="warning"] .context-popover-header b {
   color: var(--mx-warning);
 }
@@ -906,7 +1161,10 @@
   opacity: 0;
   visibility: hidden;
   transform: translateY(-2px);
-  transition: opacity var(--mx-motion-ink), transform var(--mx-motion-ink), visibility var(--mx-motion-fast);
+  transition:
+    opacity var(--mx-motion-ink),
+    transform var(--mx-motion-ink),
+    visibility var(--mx-motion-fast);
   pointer-events: none;
 }
 .session-context-indicator[data-open="true"] .session-context-popover {
@@ -946,7 +1204,9 @@
   padding-block: 0;
   color: var(--mx-text-muted);
 }
-.context-popover-header > span { font-weight: var(--mx-weight-semibold); }
+.context-popover-header > span {
+  font-weight: var(--mx-weight-semibold);
+}
 .session-context-popover span {
   color: var(--mx-text);
   font-size: var(--mx-font-minor);
@@ -961,4 +1221,3 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-

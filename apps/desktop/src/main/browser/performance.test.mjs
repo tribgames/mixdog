@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  BrowserPerformanceTrace,
-  createBrowserPerformanceCommands,
-  formatPerformanceMetrics,
-} from './performance.ts';
+import { BrowserPerformanceTrace, createBrowserPerformanceCommands, formatPerformanceMetrics } from './performance.ts';
 import { createBrowserSettle } from './settle.ts';
 
 test('browser performance trace aggregates event counts and durations', () => {
@@ -67,7 +63,7 @@ test('performance trace setup ends tracing when reload settlement fails', async 
 
   await assert.rejects(
     performanceCommands.performanceResult(guest, { operation: 'start', reload: true }),
-    /fixture settle failure/,
+    /fixture settle failure/
   );
   assert.deepEqual(methods, ['Tracing.start', 'Tracing.end']);
   assert.equal(traces.has(guest), false);
@@ -92,7 +88,7 @@ test('performance trace setup keeps its ledger when cleanup must be retried', as
 
   await assert.rejects(
     performanceCommands.performanceResult(guest, { operation: 'start', reload: true }),
-    /trace cleanup also failed.*operation:"stop"/,
+    /trace cleanup also failed.*operation:"stop"/
   );
   assert.equal(traces.has(guest), true);
 });
@@ -132,11 +128,7 @@ test('browser load settle closes completion and cancellation registration races'
     removeListener() {},
   };
   const cancelledAt = performance.now();
-  await settle.waitForLoadSettle(
-    cancelledDuringRegistration,
-    1_000,
-    controller.signal,
-  );
+  await settle.waitForLoadSettle(cancelledDuringRegistration, 1_000, controller.signal);
   assert.ok(performance.now() - cancelledAt < 100);
 });
 
@@ -159,8 +151,5 @@ test('browser sequence step settling propagates cancellation instead of absorbin
     loadTimeoutMs: 1_000,
   });
 
-  await assert.rejects(
-    settle.stepSettleResult({}, controller.signal),
-    /fixture sequence cancelled/,
-  );
+  await assert.rejects(settle.stepSettleResult({}, controller.signal), /fixture sequence cancelled/);
 });

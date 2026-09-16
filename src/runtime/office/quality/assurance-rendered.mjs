@@ -68,9 +68,7 @@ async function renderedPageMetric(image) {
   const verticalSpan = maxY >= minY ? (maxY - minY + step) / canvas.height : 0;
   const leftMargin = maxX >= minX ? minX / canvas.width : 1;
   const rightMargin = maxX >= minX ? Math.max(0, canvas.width - maxX - step) / canvas.width : 1;
-  const bodyVerticalSpan = bodyMaxY >= bodyMinY
-    ? (bodyMaxY - bodyMinY + step) / (bodyBottom - bodyTop)
-    : 0;
+  const bodyVerticalSpan = bodyMaxY >= bodyMinY ? (bodyMaxY - bodyMinY + step) / (bodyBottom - bodyTop) : 0;
   return {
     page: imagePages(image)[0],
     width: canvas.width,
@@ -89,17 +87,21 @@ async function renderedPageMetric(image) {
 // print reads at the size the author set, however little of the page it uses.
 export function isSmallWorksheetDocument(document) {
   const sheets = Array.isArray(document?.sheets) ? document.sheets : [];
-  return sheets.length > 0 && sheets.every((sheet) => (
-    (Number(sheet?.rows) || 0) < 40 && (Number(sheet?.columns) || 0) < 12
-    && (Number(sheet?.pageSetup?.zoom) || 100) >= 100
-  ));
+  return (
+    sheets.length > 0 &&
+    sheets.every(
+      (sheet) =>
+        (Number(sheet?.rows) || 0) < 40 &&
+        (Number(sheet?.columns) || 0) < 12 &&
+        (Number(sheet?.pageSetup?.zoom) || 100) >= 100
+    )
+  );
 }
 
-export async function reviewRenderedOfficePages(images = [], {
-  format = '',
-  pageRoles = {},
-  smallWorksheet = false,
-} = {}) {
+export async function reviewRenderedOfficePages(
+  images = [],
+  { format = '', pageRoles = {}, smallWorksheet = false } = {}
+) {
   const normalized = String(format || '').toLowerCase();
   const pageImages = renderedPageImages(images);
   const pages = [];
@@ -110,58 +112,49 @@ export async function reviewRenderedOfficePages(images = [], {
     pages.push(metric);
     if (!['docx', 'xlsx', 'pdf'].includes(normalized)) continue;
     if (metric.inkCoverage < 0.0015) {
-      issues.push(issue(
-        'blank_page',
-        `/page[${metric.page}]`,
-        'Rendered page is effectively blank.',
-        'render-review',
-      ));
+      issues.push(issue('blank_page', `/page[${metric.page}]`, 'Rendered page is effectively blank.', 'render-review'));
       continue;
     }
-    if (
-      normalized === 'docx'
-      && (metric.leftMargin < 0.002 || metric.rightMargin < 0.002)
-    ) {
-      issues.push(issue(
-        'content_touches_page_edge',
-        `/page[${metric.page}]`,
-        'Rendered document content touches a horizontal page edge and may be clipped.',
-        'render-review',
-      ));
-    }
-    if (
-      ['docx', 'pdf'].includes(normalized)
-      && metric.page > 1
-      && (
-        (metric.inkCoverage < 0.025 && metric.verticalSpan < 0.22)
-        || (
-          metric.bodyVerticalSpan < 0.34
-          && metric.lowerBodyInkRatio < 0.08
+    if (normalized === 'docx' && (metric.leftMargin < 0.002 || metric.rightMargin < 0.002)) {
+      issues.push(
+        issue(
+          'content_touches_page_edge',
+          `/page[${metric.page}]`,
+          'Rendered document content touches a horizontal page edge and may be clipped.',
+          'render-review'
         )
-      )
-    ) {
-      issues.push(issue(
-        'sparse_page',
-        `/page[${metric.page}]`,
-        `Rendered body spans ${(metric.bodyVerticalSpan * 100).toFixed(1)}% of the body region; inspect paragraph flow and intentional whitespace.`,
-        'render-review',
-      ));
+      );
     }
     if (
-      normalized === 'xlsx'
-      && !smallWorksheet
-      && metric.inkCoverage < 0.095
-      && (
-        (metric.horizontalSpan < 0.7 && metric.verticalSpan < 0.5)
-        || (metric.height > metric.width * 1.2 && metric.verticalSpan < 0.3)
-      )
+      ['docx', 'pdf'].includes(normalized) &&
+      metric.page > 1 &&
+      ((metric.inkCoverage < 0.025 && metric.verticalSpan < 0.22) ||
+        (metric.bodyVerticalSpan < 0.34 && metric.lowerBodyInkRatio < 0.08))
     ) {
-      issues.push(issue(
-        'worksheet_print_too_small',
-        `/page[${metric.page}]`,
-        'Worksheet content is scaled into a small area of the rendered page.',
-        'render-review',
-      ));
+      issues.push(
+        issue(
+          'sparse_page',
+          `/page[${metric.page}]`,
+          `Rendered body spans ${(metric.bodyVerticalSpan * 100).toFixed(1)}% of the body region; inspect paragraph flow and intentional whitespace.`,
+          'render-review'
+        )
+      );
+    }
+    if (
+      normalized === 'xlsx' &&
+      !smallWorksheet &&
+      metric.inkCoverage < 0.095 &&
+      ((metric.horizontalSpan < 0.7 && metric.verticalSpan < 0.5) ||
+        (metric.height > metric.width * 1.2 && metric.verticalSpan < 0.3))
+    ) {
+      issues.push(
+        issue(
+          'worksheet_print_too_small',
+          `/page[${metric.page}]`,
+          'Worksheet content is scaled into a small area of the rendered page.',
+          'render-review'
+        )
+      );
     }
   }
   const aesthetics = await reviewRenderedOfficeAesthetics(pageImages, {

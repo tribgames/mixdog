@@ -39,7 +39,9 @@ export function beginInterruptibleTaskWait(sessionId, parentSignal = null) {
   if (parentSignal) {
     if (parentSignal.aborted) onParentAbort();
     else {
-      try { parentSignal.addEventListener('abort', onParentAbort, { once: true }); } catch {}
+      try {
+        parentSignal.addEventListener('abort', onParentAbort, { once: true });
+      } catch {}
     }
   }
 
@@ -52,7 +54,9 @@ export function beginInterruptibleTaskWait(sessionId, parentSignal = null) {
       if (disposed) return;
       disposed = true;
       if (parentSignal) {
-        try { parentSignal.removeEventListener('abort', onParentAbort); } catch {}
+        try {
+          parentSignal.removeEventListener('abort', onParentAbort);
+        } catch {}
       }
       waiters.delete(waiter);
       if (waiters.size === 0) waitersBySession.delete(key);
@@ -68,7 +72,9 @@ export function interruptTaskWaitForSession(sessionId, reason = 'user-message') 
     if (waiter.controller.signal.aborted) continue;
     waiter.interruptedByUser = true;
     interrupted += 1;
-    try { waiter.controller.abort(reason); } catch {}
+    try {
+      waiter.controller.abort(reason);
+    } catch {}
   }
   return interrupted;
 }

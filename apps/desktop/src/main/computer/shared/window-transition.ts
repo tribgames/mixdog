@@ -22,7 +22,8 @@ export interface ComputerWindowTransition {
   focused_before: string;
   focused_after: string;
   next_target?: ComputerWindowRecord;
-  next_target_reason?: 'owned_window_opened'
+  next_target_reason?:
+    | 'owned_window_opened'
     | 'single_same_process_window_opened'
     | 'launched_process_window'
     | 'launched_app_opened'
@@ -30,9 +31,7 @@ export interface ComputerWindowTransition {
     | 'launched_app_existing';
 }
 
-const CONFIRMED_LAUNCH_TRANSITIONS = new Set<
-  NonNullable<ComputerWindowTransition['next_target_reason']>
->([
+const CONFIRMED_LAUNCH_TRANSITIONS = new Set<NonNullable<ComputerWindowTransition['next_target_reason']>>([
   'launched_process_window',
   'launched_app_opened',
   'launched_app_focused',
@@ -54,7 +53,7 @@ function normalizedAppName(value: unknown): string {
 
 export function launchTransitionConfirmsTarget(
   transition: ComputerWindowTransition | null,
-  launchTarget: string,
+  launchTarget: string
 ): boolean {
   const reason = transition?.next_target_reason;
   const nextTarget = transition?.next_target;
@@ -62,22 +61,22 @@ export function launchTransitionConfirmsTarget(
   if (CONFIRMED_LAUNCH_TRANSITIONS.has(reason)) return true;
   if (reason !== 'launched_app_existing') return false;
 
-  const target = text(launchTarget).trim().replace(/^["']|["']$/g, '');
+  const target = text(launchTarget)
+    .trim()
+    .replace(/^["']|["']$/g, '');
   const isWindowsPath = /^[a-z]:[\\/]/i.test(target);
   if (!isWindowsPath && /^[a-z][a-z0-9+.-]*:/i.test(target)) return false;
   const normalizedTarget = target.replaceAll('\\', '/');
   const leaf = normalizedTarget.split('/').pop()?.normalize('NFKC').toLocaleLowerCase() || '';
   if (!leaf) return false;
-  if (/\.(?:exe|com)$/i.test(leaf)
-    || (!normalizedTarget.includes('/') && !leaf.includes('.'))) {
+  if (/\.(?:exe|com)$/i.test(leaf) || (!normalizedTarget.includes('/') && !leaf.includes('.'))) {
     return true;
   }
 
   const title = nextTarget.title.normalize('NFKC').toLocaleLowerCase();
   const extensionAt = leaf.lastIndexOf('.');
   const stem = extensionAt > 0 ? leaf.slice(0, extensionAt) : leaf;
-  return [leaf, stem].some((candidate) =>
-    candidate.length >= 3 && title.includes(candidate));
+  return [leaf, stem].some((candidate) => candidate.length >= 3 && title.includes(candidate));
 }
 
 export function normalizeComputerWindowRecords(value: unknown): ComputerWindowRecord[] {
@@ -110,7 +109,7 @@ export function normalizeComputerWindowRecords(value: unknown): ComputerWindowRe
 function ownerChainContains(
   candidateId: string,
   expectedOwnerId: string,
-  windowsById: Map<string, ComputerWindowRecord>,
+  windowsById: Map<string, ComputerWindowRecord>
 ): boolean {
   const visited = new Set<string>();
   let current = windowsById.get(candidateId);
@@ -123,20 +122,20 @@ function ownerChainContains(
 }
 
 function changed(before: ComputerWindowRecord, after: ComputerWindowRecord): boolean {
-  return before.title !== after.title
-    || before.ownerId !== after.ownerId
-    || before.focused !== after.focused
-    || before.minimized !== after.minimized
-    || before.maximized !== after.maximized
-    || before.x !== after.x
-    || before.y !== after.y
-    || before.width !== after.width
-    || before.height !== after.height;
+  return (
+    before.title !== after.title ||
+    before.ownerId !== after.ownerId ||
+    before.focused !== after.focused ||
+    before.minimized !== after.minimized ||
+    before.maximized !== after.maximized ||
+    before.x !== after.x ||
+    before.y !== after.y ||
+    before.width !== after.width ||
+    before.height !== after.height
+  );
 }
 
-function uniquePreferred(
-  candidates: ComputerWindowRecord[],
-): ComputerWindowRecord | undefined {
+function uniquePreferred(candidates: ComputerWindowRecord[]): ComputerWindowRecord | undefined {
   if (candidates.length === 1) return candidates[0];
   const focused = candidates.filter((candidate) => candidate.focused);
   return focused.length === 1 ? focused[0] : undefined;
@@ -144,7 +143,7 @@ function uniquePreferred(
 
 function preferredSuccessor(
   candidates: ComputerWindowRecord[],
-  targetStillPresent: boolean,
+  targetStillPresent: boolean
 ): ComputerWindowRecord | undefined {
   const focused = candidates.filter((candidate) => candidate.focused);
   if (focused.length === 1) return focused[0];
@@ -156,32 +155,24 @@ export function computeComputerWindowTransition(
   after: ComputerWindowRecord[],
   targetWindowId: string,
   targetPid = 0,
-  targetApp = '',
+  targetApp = ''
 ): ComputerWindowTransition {
   const beforeById = new Map(before.map((window) => [window.id, window]));
   const afterById = new Map(after.map((window) => [window.id, window]));
-  const contextPid = targetPid > 0
-    ? targetPid
-    : beforeById.get(targetWindowId)?.pid || afterById.get(targetWindowId)?.pid || 0;
+  const contextPid =
+    targetPid > 0 ? targetPid : beforeById.get(targetWindowId)?.pid || afterById.get(targetWindowId)?.pid || 0;
   const contextApp = normalizedAppName(targetApp);
-  const belongsToTarget = (
-    window: ComputerWindowRecord,
-    windowsById: Map<string, ComputerWindowRecord>,
-  ): boolean => window.id === targetWindowId
-    || (contextPid > 0 && window.pid === contextPid)
-    || (!targetWindowId && Boolean(contextApp)
-      && normalizedAppName(window.app) === contextApp)
-    || (Boolean(targetWindowId) && ownerChainContains(window.id, targetWindowId, windowsById));
+  const belongsToTarget = (window: ComputerWindowRecord, windowsById: Map<string, ComputerWindowRecord>): boolean =>
+    window.id === targetWindowId ||
+    (contextPid > 0 && window.pid === contextPid) ||
+    (!targetWindowId && Boolean(contextApp) && normalizedAppName(window.app) === contextApp) ||
+    (Boolean(targetWindowId) && ownerChainContains(window.id, targetWindowId, windowsById));
   const allOpened = after.filter((window) => !beforeById.has(window.id));
   const opened = allOpened.filter((window) => belongsToTarget(window, afterById));
-  const closed = before.filter(
-    (window) => !afterById.has(window.id) && belongsToTarget(window, beforeById),
-  );
+  const closed = before.filter((window) => !afterById.has(window.id) && belongsToTarget(window, beforeById));
   const changedWindows = after.filter((window) => {
     const previous = beforeById.get(window.id);
-    return previous && belongsToTarget(window, afterById)
-      ? changed(previous, window)
-      : false;
+    return previous && belongsToTarget(window, afterById) ? changed(previous, window) : false;
   });
   const transition: ComputerWindowTransition = {
     observed: true,
@@ -193,17 +184,14 @@ export function computeComputerWindowTransition(
   };
 
   if (!targetWindowId && (targetPid > 0 || Boolean(contextApp))) {
-    const launchedProcessTarget = uniquePreferred(
-      opened.filter((window) => targetPid > 0 && window.pid === targetPid),
-    );
+    const launchedProcessTarget = uniquePreferred(opened.filter((window) => targetPid > 0 && window.pid === targetPid));
     if (launchedProcessTarget) {
       transition.next_target = launchedProcessTarget;
       transition.next_target_reason = 'launched_process_window';
       return transition;
     }
     const launchedAppTarget = uniquePreferred(
-      opened.filter((window) =>
-        Boolean(contextApp) && normalizedAppName(window.app) === contextApp),
+      opened.filter((window) => Boolean(contextApp) && normalizedAppName(window.app) === contextApp)
     );
     if (launchedAppTarget) {
       transition.next_target = launchedAppTarget;
@@ -211,19 +199,20 @@ export function computeComputerWindowTransition(
       return transition;
     }
     const focusedBefore = transition.focused_before;
-    const focusedAppTarget = after.find((window) =>
-      window.focused
-      && window.id !== focusedBefore
-      && Boolean(contextApp)
-      && normalizedAppName(window.app) === contextApp);
+    const focusedAppTarget = after.find(
+      (window) =>
+        window.focused &&
+        window.id !== focusedBefore &&
+        Boolean(contextApp) &&
+        normalizedAppName(window.app) === contextApp
+    );
     if (focusedAppTarget) {
       transition.next_target = focusedAppTarget;
       transition.next_target_reason = 'launched_app_focused';
       return transition;
     }
     const existingAppTarget = uniquePreferred(
-      after.filter((window) =>
-        Boolean(contextApp) && normalizedAppName(window.app) === contextApp),
+      after.filter((window) => Boolean(contextApp) && normalizedAppName(window.app) === contextApp)
     );
     if (existingAppTarget) {
       transition.next_target = existingAppTarget;
@@ -245,9 +234,9 @@ export function computeComputerWindowTransition(
 
   const targetBefore = beforeById.get(targetWindowId);
   if (!targetBefore?.pid) return transition;
-  const sameProcess = opened.filter((window) =>
-    window.pid === targetBefore.pid
-    && !ownerChainContains(window.id, targetWindowId, afterById));
+  const sameProcess = opened.filter(
+    (window) => window.pid === targetBefore.pid && !ownerChainContains(window.id, targetWindowId, afterById)
+  );
   const processTarget = uniquePreferred(sameProcess);
   if (processTarget) {
     transition.next_target = processTarget;
@@ -256,17 +245,13 @@ export function computeComputerWindowTransition(
   return transition;
 }
 
-export function relatedWindowIdsForFrame(
-  windows: ComputerWindowRecord[],
-  targetWindowId: string,
-): string[] {
+export function relatedWindowIdsForFrame(windows: ComputerWindowRecord[], targetWindowId: string): string[] {
   if (!targetWindowId) return [];
   const windowsById = new Map(windows.map((window) => [window.id, window]));
   return [
     targetWindowId,
     ...windows
-      .filter((window) => window.id !== targetWindowId
-        && ownerChainContains(window.id, targetWindowId, windowsById))
+      .filter((window) => window.id !== targetWindowId && ownerChainContains(window.id, targetWindowId, windowsById))
       .map((window) => window.id),
   ];
 }

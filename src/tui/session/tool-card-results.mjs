@@ -79,11 +79,7 @@ export function createToolCardResults({
     // Only a provider-marked invocation failure contributes to failure count,
     // red state, or Failed aggregate copy. Tool-reported HTTP/domain/status
     // outcomes remain successful calls with their raw/semantic result detail.
-    const { exitCode, isExitError, isCallError, isError, text } = toolResultDisplay(
-      message,
-      rawText,
-      card?.name,
-    );
+    const { exitCode, isExitError, isCallError, isError, text } = toolResultDisplay(message, rawText, card?.name);
 
     if (aggregate && card.itemId === aggregate.itemId) {
       if (!callRec) return false;
@@ -93,14 +89,24 @@ export function createToolCardResults({
         return false;
       }
       applyAggregateCallFields(callRec, aggregate, {
-        isError, isCallError, isExitError, exitCode, text, rawText, message,
+        isError,
+        isCallError,
+        isExitError,
+        exitCode,
+        text,
+        rawText,
+        message,
       });
       callRec.resolved = true;
       const allCalls = [...aggregate.calls.values()];
       const completed = allCalls.filter((r) => r.resolved).length;
       const currentItem = itemById(card.itemId);
       const earlyCompleted = allCalls.filter((r) => r.resolved || r.completedEarly).length;
-      const visualCompleted = Math.max(completed, earlyCompleted, Math.min(allCalls.length, Number(currentItem?.completedCount || 0)));
+      const visualCompleted = Math.max(
+        completed,
+        earlyCompleted,
+        Math.min(allCalls.length, Number(currentItem?.completedCount || 0))
+      );
       patchToolItem(card.itemId, {
         ...aggregateResultPatch(aggregate, allCalls, completed),
         rawResult: aggregateRawResult(allCalls) || null,
@@ -115,7 +121,14 @@ export function createToolCardResults({
     }
 
     // Non-aggregate (legacy agent-job cards, etc.)
-    const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, callErrors: 0, exitErrors: 0, results: [] };
+    const group = toolGroups.get(card.itemId) || {
+      count: 1,
+      completed: 0,
+      errors: 0,
+      callErrors: 0,
+      exitErrors: 0,
+      results: [],
+    };
     group.completed = Math.min(group.count, group.completed + 1);
     group.errors += isError ? 1 : 0;
     group.callErrors = (group.callErrors || 0) + (isCallError ? 1 : 0);
@@ -166,7 +179,14 @@ export function createToolCardResults({
     return true;
   }
 
-  const flushToolResults = (messages, toolCards, cardByCallId, toolGroups, done, { finalize = false, cancelled = false } = {}) => {
+  const flushToolResults = (
+    messages,
+    toolCards,
+    cardByCallId,
+    toolGroups,
+    done,
+    { finalize = false, cancelled = false } = {}
+  ) => {
     const results = [];
     for (const m of messages || []) {
       if (!m || m.role !== 'tool') continue;
@@ -260,7 +280,18 @@ export function createToolCardResults({
         resultText = withCancelledResultMarker(resultText, currentItem);
       }
       // liveOutput: null — the settled result supersedes any streamed tail.
-      patchToolItem(card.itemId, { result: resultText, text: resultText, isError: group.errors > 0, errorCount: group.errors, callErrorCount: group.callErrors || 0, exitErrorCount: group.exitErrors || 0, count: group.count, completedCount: group.completed, completedAt: Date.now(), liveOutput: null });
+      patchToolItem(card.itemId, {
+        result: resultText,
+        text: resultText,
+        isError: group.errors > 0,
+        errorCount: group.errors,
+        callErrorCount: group.callErrors || 0,
+        exitErrorCount: group.exitErrors || 0,
+        count: group.count,
+        completedCount: group.completed,
+        completedAt: Date.now(),
+        liveOutput: null,
+      });
       card.done = true;
       if (card.callId) done.add(card.callId);
     }

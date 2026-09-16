@@ -1,5 +1,4 @@
-// Worker → parent IPC bridge. Extracted verbatim from channels/index.mjs
-// (behavior-preserving). Groups the notify-to-parent path and the
+// Worker → parent IPC bridge. Groups the notify-to-parent path and the
 // worker → parent → memory call bridge. Bound to live getters
 // (getInstanceId) so runtime identity stays consistent.
 import { safeIpcSend } from '../../shared/safe-ipc-send.mjs';
@@ -9,7 +8,7 @@ function normalizeChannelNotifyParams(method, params) {
     const m = {};
     for (const [k, v] of Object.entries(params.meta)) {
       if (v === undefined || v === null) continue;
-      m[k] = k === 'silent_to_agent' ? (v === true || v === 'true') : String(v);
+      m[k] = k === 'silent_to_agent' ? v === true || v === 'true' : String(v);
     }
     return { ...params, meta: m };
   }
@@ -35,19 +34,32 @@ function createParentBridge({ getInstanceId, ipcProcess = process }) {
     // router / agentNotify consume (=== true) before the zod boundary.
     const outParams = normalizeChannelNotifyParams(method, params);
     if (_notifySink) {
-      try { _notifySink(method, outParams); }
-      catch (err) { try { process.stderr.write(`mixdog channels: notify sink failed: ${err && err.message || err}\n`); } catch {} }
+      try {
+        _notifySink(method, outParams);
+      } catch (err) {
+        try {
+          process.stderr.write(`mixdog channels: notify sink failed: ${(err && err.message) || err}\n`);
+        } catch {}
+      }
       return;
     }
     if (!ipcProcess?.send || ipcProcess.connected !== true) {
-      try { process.stderr.write(`mixdog channels: notify dropped (no IPC channel): ${method}\n`); } catch {}
+      try {
+        process.stderr.write(`mixdog channels: notify dropped (no IPC channel): ${method}\n`);
+      } catch {}
       return;
     }
-    safeIpcSend(ipcProcess, { type: 'notify', method, params: outParams }, {
-      onError: (err) => {
-        try { process.stderr.write(`mixdog channels: notify IPC send failed: ${err && err.message || err}\n`); } catch {}
-      },
-    });
+    safeIpcSend(
+      ipcProcess,
+      { type: 'notify', method, params: outParams },
+      {
+        onError: (err) => {
+          try {
+            process.stderr.write(`mixdog channels: notify IPC send failed: ${(err && err.message) || err}\n`);
+          } catch {}
+        },
+      }
+    );
   }
 
   // ── Memory worker bridge (worker → parent → memory) ─────────────────
@@ -82,12 +94,22 @@ function createParentBridge({ getInstanceId, ipcProcess = process }) {
         reject(new Error(`memory_call ${action} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
       _memoryCallPending.set(callId, {
-        resolve: (v) => { clearTimeout(timer); resolve(v); },
-        reject: (e) => { clearTimeout(timer); reject(e); },
+        resolve: (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        reject: (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
       });
-      safeIpcSend(ipcProcess, { type: 'memory_call_request', callId, action, args: args || {} }, {
-        onError: (error) => failMemoryCall(callId, error),
-      });
+      safeIpcSend(
+        ipcProcess,
+        { type: 'memory_call_request', callId, action, args: args || {} },
+        {
+          onError: (error) => failMemoryCall(callId, error),
+        }
+      );
     });
   }
 

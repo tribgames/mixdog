@@ -17,7 +17,17 @@ import { measureTextBlock } from '../../src/runtime/office/portable/text-metrics
 function tightWidth(shape) {
   if (shape.table) return shape.width;
   const size = Number(shape.font?.size) || 18;
-  const measured = measureTextBlock([{ text: String(shape.text), fontName: shape.font?.name || 'Noto Sans KR', fontSize: size, bold: Boolean(shape.font?.bold) }], { width: shape.width });
+  const measured = measureTextBlock(
+    [
+      {
+        text: String(shape.text),
+        fontName: shape.font?.name || 'Noto Sans KR',
+        fontSize: size,
+        bold: Boolean(shape.font?.bold),
+      },
+    ],
+    { width: shape.width }
+  );
   return Math.min(shape.width, Math.max(size, measured.width + 4));
 }
 
@@ -26,7 +36,7 @@ if (!deck || !prefix || !out) {
   console.error('usage: node scripts/office/aesthetics-probe.mjs <deck.pptx> <page-image-prefix> <out-dir>');
   process.exit(1);
 }
-const CANVAS = { width: 960, height: 540 };   // 13.33 × 7.5 in, in points — the snapshot's unit
+const CANVAS = { width: 960, height: 540 }; // 13.33 × 7.5 in, in points — the snapshot's unit
 const snapshot = await snapshotPortableOoxml(resolve(deck), 'pptx', {});
 const slides = snapshot?.slides || snapshot?.document?.slides || [];
 if (!slides.length) throw new Error(`no slides read from ${deck}`);
@@ -39,20 +49,31 @@ for (const slide of slides) {
   const target = join(out, 'slide_images', `${stem}.png`);
   await copyFile(source, target);
   const { width, height } = await sharp(target).metadata();
-  const sx = width / CANVAS.width, sy = height / CANVAS.height;
+  const sx = width / CANVAS.width,
+    sy = height / CANVAS.height;
   // Text carriers only: text boxes and native tables. Charts draw their own labels; pictures and fields carry none.
   const boxes = (slide.shapes || [])
-    .filter((shape) => String(shape.text || '').trim() && !shape.chart && [shape.left, shape.top, shape.width, shape.height].every(Number.isFinite))
+    .filter(
+      (shape) =>
+        String(shape.text || '').trim() &&
+        !shape.chart &&
+        [shape.left, shape.top, shape.width, shape.height].every(Number.isFinite)
+    )
     .map((shape) => ({
       label: 'text',
       score: 1,
       coordinate: [
-        Math.max(0, Math.round(shape.left * sx)), Math.max(0, Math.round(shape.top * sy)),
-        Math.min(width, Math.round((shape.left + tightWidth(shape)) * sx)), Math.min(height, Math.round((shape.top + shape.height) * sy)),
+        Math.max(0, Math.round(shape.left * sx)),
+        Math.max(0, Math.round(shape.top * sy)),
+        Math.min(width, Math.round((shape.left + tightWidth(shape)) * sx)),
+        Math.min(height, Math.round((shape.top + shape.height) * sy)),
       ],
     }))
     .filter((box) => box.coordinate[2] - box.coordinate[0] > 2 && box.coordinate[3] - box.coordinate[1] > 2);
-  await writeFile(join(out, 'detection', `${stem}.json`), JSON.stringify({ source: 'pptx-snapshot', image: `${stem}.png`, boxes }, null, 2));
+  await writeFile(
+    join(out, 'detection', `${stem}.json`),
+    JSON.stringify({ source: 'pptx-snapshot', image: `${stem}.png`, boxes }, null, 2)
+  );
   total += boxes.length;
   console.log(`${stem}: ${boxes.length} text regions (${width}×${height})`);
 }

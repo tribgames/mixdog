@@ -15,7 +15,7 @@ async function findMetadataFiles(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) {
-      files.push(...await findMetadataFiles(path));
+      files.push(...(await findMetadataFiles(path)));
     } else if (entry.isFile() && entry.name === 'app-update.yml') {
       files.push(path);
     }

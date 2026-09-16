@@ -8,11 +8,13 @@ import { AgentEditorDialog, RouteEditorDialog } from './workflow-dialogs.tsx';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const route = { provider: 'openai', model: 'test-model' };
-const models = [{
-  ...route,
-  display: 'Test model',
-  effortOptions: [],
-}];
+const models = [
+  {
+    ...route,
+    display: 'Test model',
+    effortOptions: [],
+  },
+];
 
 function harness(t) {
   const dom = new JSDOM('<!doctype html><html><body><main></main></body></html>', {
@@ -68,7 +70,9 @@ for (const editor of editors) {
         busy: false,
         onCancel() {},
         onSave() {},
-        onToggle(enabled, selection) { toggles.push({ enabled, selection }); },
+        onToggle(enabled, selection) {
+          toggles.push({ enabled, selection });
+        },
       };
       await render(React.createElement(editor.component, props));
 

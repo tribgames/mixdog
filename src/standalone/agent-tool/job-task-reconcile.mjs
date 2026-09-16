@@ -25,18 +25,21 @@ import { reconcileBackgroundTask } from '../../runtime/shared/background-tasks.m
 export function reconcileJobTerminalResult(job, value) {
   if (!job?.taskId) return;
   try {
-    reconcileBackgroundTask(job.taskId, value.error
-      ? {
-          status: 'failed',
-          result: value,
-          error: value.error,
-          terminalReason: 'agent-empty-final',
-        }
-      : {
-          status: 'completed',
-          result: value,
-          terminalReason: 'agent-terminal-result',
-        });
+    reconcileBackgroundTask(
+      job.taskId,
+      value.error
+        ? {
+            status: 'failed',
+            result: value,
+            error: value.error,
+            terminalReason: 'agent-empty-final',
+          }
+        : {
+            status: 'completed',
+            result: value,
+            terminalReason: 'agent-terminal-result',
+          }
+    );
   } catch {}
 }
 
@@ -69,9 +72,7 @@ export function reconcileJobFinally(job, finalStatus) {
     reconcileBackgroundTask(job.taskId, {
       status: finalStatus === 'error' ? 'failed' : 'completed',
       result: job._terminalResultValue,
-      ...(finalStatus === 'error' && job._terminalResultValue?.error
-        ? { error: job._terminalResultValue.error }
-        : {}),
+      ...(finalStatus === 'error' && job._terminalResultValue?.error ? { error: job._terminalResultValue.error } : {}),
       terminalReason: 'agent-finally-reconcile',
     });
   } catch {}

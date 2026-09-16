@@ -1,4 +1,3 @@
-
 import type {
   DesktopApi,
   DesktopCapability,
@@ -6,7 +5,7 @@ import type {
   DesktopModelOption,
   DesktopReadCapability,
   DesktopUpdaterState,
-  SessionSnapshot
+  SessionSnapshot,
 } from '../../shared/contract';
 import { providerDisplayName } from '../provider-display';
 import { uiFormatLocale } from '../i18n';
@@ -17,12 +16,31 @@ import type { SettingsCategory } from './settings-items';
 export type CapabilityCategory = SettingsCategory | 'builtins';
 
 export type RecordValue = Record<string, unknown>;
-export type CapabilityApi = Partial<Pick<DesktopApi,
-  'invokeCapability' | 'readCapabilities' | 'listProviderModels' | 'setModelRoute' | 'setFast' | 'getSnapshot'
-  | 'subscribeState' | 'getUpdaterState' | 'subscribeUpdaterState' | 'checkForDesktopUpdate'
-  | 'showDesktopUpdate' | 'getRemoteAccessInfo' | 'rotateRemoteAccess' | 'revokeRemoteAccessClient'
-  | 'readSettings' | 'updateSetting' | 'gitCliStatus' | 'installGitCli'
-  | 'libreOfficeStatus' | 'installLibreOffice'>>;
+export type CapabilityApi = Partial<
+  Pick<
+    DesktopApi,
+    | 'invokeCapability'
+    | 'readCapabilities'
+    | 'listProviderModels'
+    | 'setModelRoute'
+    | 'setFast'
+    | 'getSnapshot'
+    | 'subscribeState'
+    | 'getUpdaterState'
+    | 'subscribeUpdaterState'
+    | 'checkForDesktopUpdate'
+    | 'showDesktopUpdate'
+    | 'getRemoteAccessInfo'
+    | 'rotateRemoteAccess'
+    | 'revokeRemoteAccessClient'
+    | 'readSettings'
+    | 'updateSetting'
+    | 'gitCliStatus'
+    | 'installGitCli'
+    | 'libreOfficeStatus'
+    | 'installLibreOffice'
+  >
+>;
 
 export interface CapabilitySettingsProps {
   api: CapabilityApi;
@@ -48,7 +66,7 @@ export interface PanelContext {
     key?: string,
     refresh?: boolean,
     silent?: boolean,
-    errorMode?: 'toast' | 'throw',
+    errorMode?: 'toast' | 'throw'
   ): Promise<T | undefined>;
   route(model: DesktopModelOption): Promise<void>;
   setFast(enabled: boolean): Promise<void>;
@@ -76,12 +94,20 @@ export interface SettingsConfirmation {
 // chunks and paints as each returns, so a slow getter (channel setup probes a
 // live worker) belongs at the end instead of blocking the opening screen.
 export const SECTION_READS: ReadonlyArray<readonly [string, DesktopCapability, unknown[]?]> = [
-  ['profile', 'getProfile'], ['theme', 'getTheme'], ['autoClear', 'getAutoClear'],
+  ['profile', 'getProfile'],
+  ['theme', 'getTheme'],
+  ['autoClear', 'getAutoClear'],
   ['compaction', 'getCompactionSettings'],
-  ['outputStyles', 'listOutputStyles'], ['providerSetup', 'getProviderSetup'],
-  ['recap', 'getRecapSettings'], ['toolModules', 'getToolModuleSettings'], ['update', 'getUpdateSettings'],
-  ['updateStatus', 'getUpdateStatus'], ['mcp', 'mcpStatus'], ['plugins', 'pluginsStatus'],
-  ['skills', 'skillsStatus'], ['disabledSkills', 'getDisabledSkills'],
+  ['outputStyles', 'listOutputStyles'],
+  ['providerSetup', 'getProviderSetup'],
+  ['recap', 'getRecapSettings'],
+  ['toolModules', 'getToolModuleSettings'],
+  ['update', 'getUpdateSettings'],
+  ['updateStatus', 'getUpdateStatus'],
+  ['mcp', 'mcpStatus'],
+  ['plugins', 'pluginsStatus'],
+  ['skills', 'skillsStatus'],
+  ['disabledSkills', 'getDisabledSkills'],
   ['voice', 'getVoiceStatus'],
 ];
 
@@ -121,7 +147,9 @@ function trace(event: string, detail: Record<string, unknown> = {}): void {
     const host = window as unknown as { __mixdogSettingsTrace?: unknown[] };
     host.__mixdogSettingsTrace ??= [];
     host.__mixdogSettingsTrace.push({ at: Date.now(), event, ...detail });
-  } catch { /* tracing never breaks settings */ }
+  } catch {
+    /* tracing never breaks settings */
+  }
 }
 
 interface CapabilitySettingsCacheEntry {
@@ -148,7 +176,7 @@ async function readAllCapabilitySettings(
   api: CapabilityApi,
   force: boolean,
   previous?: CachedCapabilitySettings,
-  onPartial?: (data: Record<string, unknown>) => void,
+  onPartial?: (data: Record<string, unknown>) => void
 ): Promise<CachedCapabilitySettings> {
   if (!api.invokeCapability && !api.readCapabilities) {
     return { data: previous?.data || {}, error: '', loadedAt: Date.now() };
@@ -156,7 +184,7 @@ async function readAllCapabilitySettings(
   const next: Record<string, unknown> = { ...(previous?.data || {}) };
   let loadError = '';
   const loadedSections = new Set<string>(
-    Array.isArray(previous?.data[LOADED_SECTIONS_KEY]) ? previous.data[LOADED_SECTIONS_KEY] as string[] : [],
+    Array.isArray(previous?.data[LOADED_SECTIONS_KEY]) ? (previous.data[LOADED_SECTIONS_KEY] as string[]) : []
   );
   // A read that failed (engine still booting on the very first open) must not
   // cache as an authoritative "nothing configured": it stays unloaded so the
@@ -181,25 +209,33 @@ async function readAllCapabilitySettings(
     key,
     request: {
       capability: capability as DesktopReadCapability,
-      args: force && capability === 'listWebSearchModels'
-        ? [{ ...record(args[0]), force: true }]
-        : force && capability === 'getProviderSetup'
-          ? [{ refresh: true }]
-          : [...args],
+      args:
+        force && capability === 'listWebSearchModels'
+          ? [{ ...record(args[0]), force: true }]
+          : force && capability === 'getProviderSetup'
+            ? [{ refresh: true }]
+            : [...args],
     } satisfies DesktopCapabilityReadRequest,
   }));
   const readIndividually = async () => {
     if (!api.invokeCapability) return;
-    await Promise.all(prepared.map(async ({ key, request }) => {
-      try {
-        publish(key, (await api.invokeCapability!({
-          capability: request.capability,
-          args: request.args,
-        }))?.value);
-      } catch (reason) {
-        publish(key, { error: reason instanceof Error ? reason.message : String(reason) }, false);
-      }
-    }));
+    await Promise.all(
+      prepared.map(async ({ key, request }) => {
+        try {
+          publish(
+            key,
+            (
+              await api.invokeCapability!({
+                capability: request.capability,
+                args: request.args,
+              })
+            )?.value
+          );
+        } catch (reason) {
+          publish(key, { error: reason instanceof Error ? reason.message : String(reason) }, false);
+        }
+      })
+    );
   };
   const loadReads = async () => {
     if (!api.readCapabilities) {
@@ -212,22 +248,30 @@ async function readAllCapabilitySettings(
     // 반응성) — sending them one after another let a slow getter (provider
     // setup, MCP/plugin/skill status) hold back every group queued behind it.
     try {
-      const chunks: typeof prepared[] = [];
+      const chunks: (typeof prepared)[] = [];
       for (let index = 0; index < prepared.length; index += READ_BATCH_SIZE) {
         chunks.push(prepared.slice(index, index + READ_BATCH_SIZE));
       }
-      await Promise.all(chunks.map(async (chunk) => {
-        trace('chunk-start', { keys: chunk.map((entry) => entry.key) });
-        const results = await api.readCapabilities!(chunk.map((entry) => entry.request));
-        trace('chunk-done', { keys: chunk.map((entry) => entry.key), ok: results.map((entry) => entry?.ok === true) });
-        chunk.forEach((entry, position) => {
-          const result = results[position];
-          publish(entry.key, result?.ok
-            ? result.value
-            : { error: result && 'error' in result ? result.error : 'Capability read did not return a result.' },
-          result?.ok === true);
-        });
-      }));
+      await Promise.all(
+        chunks.map(async (chunk) => {
+          trace('chunk-start', { keys: chunk.map((entry) => entry.key) });
+          const results = await api.readCapabilities!(chunk.map((entry) => entry.request));
+          trace('chunk-done', {
+            keys: chunk.map((entry) => entry.key),
+            ok: results.map((entry) => entry?.ok === true),
+          });
+          chunk.forEach((entry, position) => {
+            const result = results[position];
+            publish(
+              entry.key,
+              result?.ok
+                ? result.value
+                : { error: result && 'error' in result ? result.error : 'Capability read did not return a result.' },
+              result?.ok === true
+            );
+          });
+        })
+      );
     } catch (reason) {
       trace('chunk-failed', { error: reason instanceof Error ? reason.message : String(reason) });
       if (api.invokeCapability) {
@@ -241,33 +285,47 @@ async function readAllCapabilitySettings(
     loadReads(),
     (async () => {
       try {
-        publish('models', await api.listProviderModels?.({
-          quick: false,
-        }) || []);
+        publish(
+          'models',
+          (await api.listProviderModels?.({
+            quick: false,
+          })) || []
+        );
       } catch (reason) {
         publish('models', previous?.data.models || []);
         loadError = reason instanceof Error ? reason.message : String(reason);
       }
     })(),
-    api.getSnapshot?.().then((snapshot) => publish('snapshot', snapshot || null))
+    api
+      .getSnapshot?.()
+      .then((snapshot) => publish('snapshot', snapshot || null))
       .catch(() => publish('snapshot', previous?.data.snapshot || null)) || Promise.resolve(),
   ]);
   // One bounded retry for whatever failed while the engine was still coming up,
   // so a transient boot error never leaves a section permanently "empty".
   if (failed.size > 0 && api.invokeCapability) {
-    await new Promise((resolve) => { setTimeout(resolve, 300); });
-    await Promise.all([...failed].map(async (key) => {
-      const entry = prepared.find((candidate) => candidate.key === key);
-      if (!entry) return;
-      try {
-        publish(key, (await api.invokeCapability!({
-          capability: entry.request.capability,
-          args: entry.request.args,
-        }))?.value);
-      } catch {
-        // Keep the failure visible as a loading section rather than as "none".
-      }
-    }));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 300);
+    });
+    await Promise.all(
+      [...failed].map(async (key) => {
+        const entry = prepared.find((candidate) => candidate.key === key);
+        if (!entry) return;
+        try {
+          publish(
+            key,
+            (
+              await api.invokeCapability!({
+                capability: entry.request.capability,
+                args: entry.request.args,
+              })
+            )?.value
+          );
+        } catch {
+          // Keep the failure visible as a loading section rather than as "none".
+        }
+      })
+    );
   }
   return { data: next, error: loadError, loadedAt: Date.now() };
 }
@@ -275,7 +333,7 @@ async function readAllCapabilitySettings(
 export function preloadCapabilitySettings(
   api: CapabilityApi,
   force = false,
-  onPartial?: (data: Record<string, unknown>) => void,
+  onPartial?: (data: Record<string, unknown>) => void
 ): Promise<CachedCapabilitySettings> {
   const entry = settingsCacheEntry(api);
   if (entry.inFlight) {
@@ -288,12 +346,15 @@ export function preloadCapabilitySettings(
     onPartial?.(partial);
   });
   entry.inFlight = request;
-  void request.then((value) => {
-    entry.value = value;
-    if (entry.inFlight === request) entry.inFlight = undefined;
-  }, () => {
-    if (entry.inFlight === request) entry.inFlight = undefined;
-  });
+  void request.then(
+    (value) => {
+      entry.value = value;
+      if (entry.inFlight === request) entry.inFlight = undefined;
+    },
+    () => {
+      if (entry.inFlight === request) entry.inFlight = undefined;
+    }
+  );
   return request;
 }
 
@@ -339,7 +400,8 @@ export function formatDuration(value: unknown): string {
   const minutes = Math.floor((milliseconds % 3_600_000) / 60_000);
   const seconds = Math.floor((milliseconds % 60_000) / 1_000);
   if (days > 0) return `${uiTimeUnit(days, 'day')} ${uiTimeUnit(hours, 'hour')} ${uiTimeUnit(minutes, 'minute')}`;
-  if (hours > 0) return `${uiTimeUnit(hours, 'hour')} ${uiTimeUnit(minutes, 'minute')} ${uiTimeUnit(seconds, 'second')}`;
+  if (hours > 0)
+    return `${uiTimeUnit(hours, 'hour')} ${uiTimeUnit(minutes, 'minute')} ${uiTimeUnit(seconds, 'second')}`;
   return `${uiTimeUnit(minutes, 'minute')} ${uiTimeUnit(seconds, 'second')}`;
 }
 

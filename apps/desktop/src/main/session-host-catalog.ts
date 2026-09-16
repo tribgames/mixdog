@@ -51,7 +51,7 @@ export class SessionHostCatalog {
     options: {
       directory(): string;
       watch?: typeof import('node:fs').watch;
-    },
+    }
   ) {
     this.watcher = new RecoveringStoreWatcher({
       directory: options.directory,
@@ -90,15 +90,17 @@ export class SessionHostCatalog {
       this.coldViewTimer = null;
       return;
     }
-    await Promise.allSettled(cold.map(async (sessionId) => {
-      if (this.refreshingColdSessionIds.has(sessionId)) return;
-      this.refreshingColdSessionIds.add(sessionId);
-      try {
-        await this.owner.readSession(sessionId);
-      } finally {
-        this.refreshingColdSessionIds.delete(sessionId);
-      }
-    }));
+    await Promise.allSettled(
+      cold.map(async (sessionId) => {
+        if (this.refreshingColdSessionIds.has(sessionId)) return;
+        this.refreshingColdSessionIds.add(sessionId);
+        try {
+          await this.owner.readSession(sessionId);
+        } finally {
+          this.refreshingColdSessionIds.delete(sessionId);
+        }
+      })
+    );
   }
 
   ensureStoreWatcher(): void {

@@ -18,9 +18,7 @@ export interface RemoteAccessDescriptor {
 const qrSvg = (value: string): Promise<string> =>
   QRCode.toString(value, { type: 'svg', margin: 1, width: 220, color: { dark: '#141414', light: '#f2f2f2' } });
 
-export async function buildRemoteAccessInfo(
-  descriptor: RemoteAccessDescriptor,
-): Promise<DesktopRemoteAccessInfo> {
+export async function buildRemoteAccessInfo(descriptor: RemoteAccessDescriptor): Promise<DesktopRemoteAccessInfo> {
   const { relay } = descriptor;
   // The QR carries a ROUTE to this desktop, no credential: it opens the
   // install guide, and access is granted by approving the request the
@@ -36,7 +34,7 @@ export async function buildRemoteAccessInfo(
 
 export async function showRemoteAccessWindow(
   info: DesktopRemoteAccessInfo,
-  parent?: BrowserWindow | null,
+  parent?: BrowserWindow | null
 ): Promise<void> {
   const { BrowserWindow: ElectronBrowserWindow } = await import('electron');
   const browserQr = info.relayBrowserQrSvg;

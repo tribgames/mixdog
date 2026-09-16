@@ -7,6 +7,7 @@ export function ensureProcessListenerHeadroom(min = 64) {
     const current = process.getMaxListeners();
     if (current === 0 || current >= min) return;
     process.setMaxListeners(min);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
-

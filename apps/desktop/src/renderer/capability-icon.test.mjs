@@ -12,10 +12,27 @@ function icon(name, kind = 'skill', size = 16) {
 
 test('all built-in capabilities and shipped skills render self-contained scalable artwork', () => {
   const features = ['git', 'memory', 'browser', 'computer', 'office', 'localProvider', 'voice', 'tidy'];
-  const skills = ['browser-use', 'computer-use', 'memory-management', 'local-provider',
-    'history-recall', 'goal-management', 'skill-creator', 'setup', 'pdf', 'pptx', 'docx', 'xlsx', 'image', 'video',
-    'code-tidy'];
-  for (const [kind, names] of [['builtin', features], ['skill', skills]]) {
+  const skills = [
+    'browser-use',
+    'computer-use',
+    'memory-management',
+    'local-provider',
+    'history-recall',
+    'goal-management',
+    'skill-creator',
+    'setup',
+    'pdf',
+    'pptx',
+    'docx',
+    'xlsx',
+    'image',
+    'video',
+    'code-tidy',
+  ];
+  for (const [kind, names] of [
+    ['builtin', features],
+    ['skill', skills],
+  ]) {
     for (const name of names) {
       const node = icon(name, kind, 24);
       assert.equal(node.getAttribute('viewBox'), '0 0 24 24', name);
@@ -29,13 +46,18 @@ test('all built-in capabilities and shipped skills render self-contained scalabl
 });
 
 test('feature and bundled skill share artwork while document types remain visually distinct', () => {
-  for (const [feature, skill] of [['memory', 'memory-management'], ['browser', 'browser-use'],
-    ['computer', 'computer-use'], ['localProvider', 'local-provider'], ['tidy', 'code-tidy']]) {
+  for (const [feature, skill] of [
+    ['memory', 'memory-management'],
+    ['browser', 'browser-use'],
+    ['computer', 'computer-use'],
+    ['localProvider', 'local-provider'],
+    ['tidy', 'code-tidy'],
+  ]) {
     assert.equal(icon(feature, 'builtin').outerHTML, icon(skill).outerHTML);
   }
-  const docs = ['pdf', 'pptx', 'docx', 'xlsx'].map(name => icon(name));
-  assert.equal(new Set(docs.map(node => node.innerHTML)).size, 4);
-  assert.equal(new Set(docs.map(node => node.style.color)).size, 4);
+  const docs = ['pdf', 'pptx', 'docx', 'xlsx'].map((name) => icon(name));
+  assert.equal(new Set(docs.map((node) => node.innerHTML)).size, 4);
+  assert.equal(new Set(docs.map((node) => node.style.color)).size, 4);
 });
 
 test('unknown and object-property skill names safely render the generic artwork', () => {

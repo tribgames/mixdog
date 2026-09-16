@@ -21,11 +21,16 @@ export async function probeMouseFocus(guest: WebContents, progress: (message: st
         await guest.executeJavaScript('window.__mixdogMouseProbe.eventAt = 0');
         const started = Date.now();
         await guest.debugger.sendCommand('Input.dispatchMouseEvent', {
-          type: 'mouseMoved', x: 600 + samples.length * 3, y: 350,
-          button: 'none', buttons: 0,
+          type: 'mouseMoved',
+          x: 600 + samples.length * 3,
+          y: 350,
+          button: 'none',
+          buttons: 0,
         });
         const ackMs = Date.now() - started;
-        const event = await guest.executeJavaScript('({ at: window.__mixdogMouseProbe.eventAt, trusted: window.__mixdogMouseProbe.trusted })');
+        const event = await guest.executeJavaScript(
+          '({ at: window.__mixdogMouseProbe.eventAt, trusted: window.__mixdogMouseProbe.trusted })'
+        );
         assert.ok(event.at >= started, 'the trusted movement must arrive before its acknowledgement');
         assert.equal(event.trusted, true);
         assert.equal(owner.isVisible(), visible);

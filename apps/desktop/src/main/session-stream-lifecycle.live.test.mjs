@@ -36,32 +36,37 @@ async function controlledProvider(t) {
   let sequence = 0;
   const server = createServer(async (request, response) => {
     if (request.method === 'HEAD') return void response.end();
-    if (request.method === 'POST'
-      && (request.url === '/v1/approval' || request.url === '/v1/approval-rewrite')) {
+    if (request.method === 'POST' && (request.url === '/v1/approval' || request.url === '/v1/approval-rewrite')) {
       request.resume();
       response.setHeader('content-type', 'application/json');
-      response.end(JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'ask',
-          permissionDecisionReason: 'isolated fixture approval',
-          ...(request.url === '/v1/approval-rewrite' ? {
-            updatedInput: {
-              file_path: 'fixture-rewritten.txt',
-              old_string: '',
-              new_string: 'isolated approved payload\n',
-            },
-          } : {}),
-        },
-      }));
+      response.end(
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'ask',
+            permissionDecisionReason: 'isolated fixture approval',
+            ...(request.url === '/v1/approval-rewrite'
+              ? {
+                  updatedInput: {
+                    file_path: 'fixture-rewritten.txt',
+                    old_string: '',
+                    new_string: 'isolated approved payload\n',
+                  },
+                }
+              : {}),
+          },
+        })
+      );
       return;
     }
     if (request.method === 'GET' && request.url === '/v1/models') {
       response.setHeader('content-type', 'application/json');
-      response.end(JSON.stringify({
-        object: 'list',
-        data: [{ id: 'deepseek-v4-pro', object: 'model', owned_by: 'fixture' }],
-      }));
+      response.end(
+        JSON.stringify({
+          object: 'list',
+          data: [{ id: 'deepseek-v4-pro', object: 'model', owned_by: 'fixture' }],
+        })
+      );
       return;
     }
     if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
@@ -75,32 +80,47 @@ async function controlledProvider(t) {
       const id = `chatcmpl-fixture-${++sequence}`;
       if (body.stream !== true) {
         response.setHeader('content-type', 'application/json');
-        response.end(JSON.stringify({
-          id, object: 'chat.completion', model: body.model,
-          choices: [{
-            index: 0,
-            message: { role: 'assistant', content: 'Fixture title' },
-            finish_reason: 'stop',
-          }],
-          usage: { prompt_tokens: 100, completion_tokens: 5, total_tokens: 105 },
-        }));
+        response.end(
+          JSON.stringify({
+            id,
+            object: 'chat.completion',
+            model: body.model,
+            choices: [
+              {
+                index: 0,
+                message: { role: 'assistant', content: 'Fixture title' },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: { prompt_tokens: 100, completion_tokens: 5, total_tokens: 105 },
+          })
+        );
         return;
       }
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.flushHeaders();
       const closed = Promise.withResolvers();
       response.once('close', () => closed.resolve({ ended: response.writableEnded }));
-      const send = (delta, finishReason = null) => response.write(`data: ${JSON.stringify({
-        id, object: 'chat.completion.chunk', model: body.model,
-        choices: [{ index: 0, delta, finish_reason: finishReason }],
-        ...(finishReason ? {
-          usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
-        } : {}),
-      })}\n\n`);
+      const send = (delta, finishReason = null) =>
+        response.write(
+          `data: ${JSON.stringify({
+            id,
+            object: 'chat.completion.chunk',
+            model: body.model,
+            choices: [{ index: 0, delta, finish_reason: finishReason }],
+            ...(finishReason
+              ? {
+                  usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
+                }
+              : {}),
+          })}\n\n`
+        );
       const stream = {
         body,
         closed: closed.promise,
-        write(content) { send({ content }); },
+        write(content) {
+          send({ content });
+        },
         complete(content) {
           if (content) send({ content });
           send({}, 'stop');
@@ -109,12 +129,14 @@ async function controlledProvider(t) {
         callTool(name, args) {
           const toolId = `${id}-tool`;
           send({
-            tool_calls: [{
-              index: 0,
-              id: toolId,
-              type: 'function',
-              function: { name, arguments: JSON.stringify(args) },
-            }],
+            tool_calls: [
+              {
+                index: 0,
+                id: toolId,
+                type: 'function',
+                function: { name, arguments: JSON.stringify(args) },
+              },
+            ],
           });
           send({}, 'tool_calls');
           response.end('data: [DONE]\n\n');
@@ -154,7 +176,9 @@ async function isolatedDaemon(t, root, environment) {
     windowsHide: true,
   });
   let output = '';
-  const collect = (chunk) => { output = `${output}${chunk}`.slice(-24_000); };
+  const collect = (chunk) => {
+    output = `${output}${chunk}`.slice(-24_000);
+  };
   child.stdout.on('data', collect);
   child.stderr.on('data', collect);
   const exited = once(child, 'exit');
@@ -164,8 +188,9 @@ async function isolatedDaemon(t, root, environment) {
     await bounded(exited, 'isolated daemon shutdown', 20_000);
   };
   t.after(async () => {
-    try { await stop(); }
-    catch (error) {
+    try {
+      await stop();
+    } catch (error) {
       t.diagnostic(output);
       child.kill();
       await exited;
@@ -173,13 +198,17 @@ async function isolatedDaemon(t, root, environment) {
     }
   });
   try {
-    await bounded(new Promise((resolve, reject) => {
-      child.on('message', (message) => {
-        if (message?.type === 'ready') resolve();
-      });
-      child.once('exit', (code) => reject(new Error(`daemon exited before ready: ${code}`)));
-      child.once('error', reject);
-    }), 'isolated daemon ready', 30_000);
+    await bounded(
+      new Promise((resolve, reject) => {
+        child.on('message', (message) => {
+          if (message?.type === 'ready') resolve();
+        });
+        child.once('exit', (code) => reject(new Error(`daemon exited before ready: ${code}`)));
+        child.once('error', reject);
+      }),
+      'isolated daemon ready',
+      30_000
+    );
     const discovery = readSessionDiscovery(join(root, 'runtime/daemon.json'));
     assert.ok(discovery?.port && discovery?.token);
     assert.equal(discovery.pid, child.pid);
@@ -192,11 +221,12 @@ async function isolatedDaemon(t, root, environment) {
 
 async function desktopView(t, root, daemon) {
   const client = new DesktopServiceClient({
-    connect: () => new SessionTransport(serviceModuleUrl, root, async () => ({
-      // Use the real HTTP/SSE client but never discover or spawn the user's daemon.
-      ensureDaemon: async () => daemon.discovery,
-      attachSession,
-    })),
+    connect: () =>
+      new SessionTransport(serviceModuleUrl, root, async () => ({
+        // Use the real HTTP/SSE client but never discover or spawn the user's daemon.
+        ensureDaemon: async () => daemon.discovery,
+        attachSession,
+      })),
     sessionOptions: () => ({
       userDataPath: join(root, 'profile'),
       packaged: false,
@@ -226,26 +256,30 @@ async function desktopView(t, root, daemon) {
       };
       waiters.add(check);
       check();
-      try { return await bounded(pending.promise, 'desktop session snapshot'); }
-      catch (error) {
+      try {
+        return await bounded(pending.promise, 'desktop session snapshot');
+      } catch (error) {
         const state = snapshots.get(sessionId);
-        t.diagnostic(JSON.stringify({
-          sessionId, busy: state?.busy, items: state?.items,
-          streamingTail: state?.streamingTail,
-        }));
+        t.diagnostic(
+          JSON.stringify({
+            sessionId,
+            busy: state?.busy,
+            items: state?.items,
+            streamingTail: state?.streamingTail,
+          })
+        );
         t.diagnostic(await readFile(join(root, 'data/daemon.log'), 'utf8').catch(String));
         throw error;
+      } finally {
+        waiters.delete(check);
       }
-      finally { waiters.delete(check); }
     },
   };
 }
 
-const contains = (snapshot, text) => snapshot.items?.some(
-  (item) => String(item.text || '').includes(text),
-);
-const displays = (snapshot, text) => contains(snapshot, text)
-  || String(snapshot.streamingTail?.text || '').includes(text);
+const contains = (snapshot, text) => snapshot.items?.some((item) => String(item.text || '').includes(text));
+const displays = (snapshot, text) =>
+  contains(snapshot, text) || String(snapshot.streamingTail?.text || '').includes(text);
 
 // Requires the current plain-Node desktop service bundle (npm run build:fast).
 // Only inference is controlled; desktop projection, RPC/SSE, provider parsing,
@@ -259,22 +293,23 @@ async function isolatedDesktopFixture(t) {
   t.after(async () => {
     const errors = [];
     while (cleanup.length) {
-      try { await cleanup.pop()(); }
-      catch (error) { errors.push(error); }
+      try {
+        await cleanup.pop()();
+      } catch (error) {
+        errors.push(error);
+      }
     }
     if (errors.length) throw new AggregateError(errors, 'Isolated fixture cleanup failed');
   });
   const root = await mkdtemp(join(tmpdir(), 'mixdog-desktop-stream-lifecycle-'));
   scope.after(() => rm(root, { recursive: true, force: true }));
-  await Promise.all(['runtime', 'data', 'home', 'profile'].map(
-    (directory) => mkdir(join(root, directory)),
-  ));
+  await Promise.all(['runtime', 'data', 'home', 'profile'].map((directory) => mkdir(join(root, directory))));
   const provider = await controlledProvider(scope);
-  const environment = Object.fromEntries(Object.entries(process.env).filter(
-    ([name]) => !name.startsWith('MIXDOG_')
-      && !name.startsWith('ELECTRON_')
-      && !name.endsWith('_API_KEY'),
-  ));
+  const environment = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([name]) => !name.startsWith('MIXDOG_') && !name.startsWith('ELECTRON_') && !name.endsWith('_API_KEY')
+    )
+  );
   Object.assign(environment, {
     MIXDOG_RUNTIME_ROOT: join(root, 'runtime'),
     MIXDOG_DATA_DIR: join(root, 'data'),
@@ -287,16 +322,24 @@ async function isolatedDesktopFixture(t) {
     MIXDOG_DAEMON_HOST: '1',
     DEEPSEEK_API_KEY: 'isolated-fixture-key',
   });
-  await writeFile(join(root, 'data/mixdog-config.json'), JSON.stringify({
-    agent: {
-      onboarding: { completed: true, version: 1 },
-      providers: { deepseek: { enabled: true, baseURL: provider.baseURL } },
-      presets: [{
-        id: 'fixture', name: 'Fixture', provider: 'deepseek', model: 'deepseek-v4-pro',
-      }],
-      default: 'fixture',
-    },
-  }));
+  await writeFile(
+    join(root, 'data/mixdog-config.json'),
+    JSON.stringify({
+      agent: {
+        onboarding: { completed: true, version: 1 },
+        providers: { deepseek: { enabled: true, baseURL: provider.baseURL } },
+        presets: [
+          {
+            id: 'fixture',
+            name: 'Fixture',
+            provider: 'deepseek',
+            model: 'deepseek-v4-pro',
+          },
+        ],
+        default: 'fixture',
+      },
+    })
+  );
   return {
     root,
     provider,
@@ -313,8 +356,9 @@ test('desktop streaming survives view replacement, cancels, and restores after d
   let daemon = await fixture.start();
   let view = await fixture.view(daemon);
   const first = await view.client.submitNewTask(
-    'fixture:first', { id: 'fixture-first' },
-    { route: { provider: 'deepseek', model: 'deepseek-v4-pro' } },
+    'fixture:first',
+    { id: 'fixture-first' },
+    { route: { provider: 'deepseek', model: 'deepseek-v4-pro' } }
   );
   assert.equal(first.accepted, true);
   const id = first.sessionId;
@@ -353,8 +397,7 @@ test('desktop streaming survives view replacement, cancels, and restores after d
   daemon = await fixture.start();
   view = await fixture.view(daemon);
   await view.client.setVisibleSessions([id]);
-  const restored = await view.snapshot(id, (state) =>
-    !state.busy && contains(state, 'fixture shutdown partial γ'));
+  const restored = await view.snapshot(id, (state) => !state.busy && contains(state, 'fixture shutdown partial γ'));
   assert.ok(contains(restored, 'unfinished suffix'));
   for (const text of ['fixture:first', 'fixture partial α', 'fixture:second', 'fixture completed β']) {
     assert.ok(contains(restored, text), `restored transcript must retain ${text}`);
@@ -381,7 +424,7 @@ test('a native read tool result reaches the real provider continuation and resto
   const submitted = await view.client.submitNewTask(
     'Read fixture.txt with the read tool, then report its contents.',
     { id: 'fixture-native-read' },
-    { projectPath: root, route: { provider: 'deepseek', model: 'deepseek-v4-pro' } },
+    { projectPath: root, route: { provider: 'deepseek', model: 'deepseek-v4-pro' } }
   );
   assert.equal(submitted.accepted, true);
   await view.client.setVisibleSessions([submitted.sessionId]);
@@ -389,21 +432,25 @@ test('a native read tool result reaches the real provider continuation and resto
   assert.ok(request.body.tools.some((tool) => tool.function?.name === 'read'));
   const toolId = request.callTool('read', { file_path: 'fixture.txt', offset: 1, limit: 10 });
   const continuation = await provider.next();
-  assert.ok(continuation.body.messages.some((message) =>
-    message.role === 'tool' && message.tool_call_id === toolId
-      && JSON.stringify(message.content).includes(payload)),
-  'the provider continuation must contain the actual local read result');
+  assert.ok(
+    continuation.body.messages.some(
+      (message) =>
+        message.role === 'tool' && message.tool_call_id === toolId && JSON.stringify(message.content).includes(payload)
+    ),
+    'the provider continuation must contain the actual local read result'
+  );
   continuation.complete('fixture tool completion');
-  await view.snapshot(submitted.sessionId, (state) =>
-    !state.busy && contains(state, 'fixture tool completion'));
+  await view.snapshot(submitted.sessionId, (state) => !state.busy && contains(state, 'fixture tool completion'));
   await view.client.dispose();
   await daemon.stop();
 
   daemon = await fixture.start();
   view = await fixture.view(daemon);
   await view.client.setVisibleSessions([submitted.sessionId]);
-  const restored = await view.snapshot(submitted.sessionId, (state) =>
-    !state.busy && contains(state, 'fixture tool completion'));
+  const restored = await view.snapshot(
+    submitted.sessionId,
+    (state) => !state.busy && contains(state, 'fixture tool completion')
+  );
   assert.ok(restored.items.some((item) => item.kind === 'tool'));
   await view.client.dispose();
   await daemon.stop();
@@ -421,25 +468,32 @@ for (const { decision, rewrite = false } of [
   }, async (t) => {
     const fixture = await isolatedDesktopFixture(t);
     const { root, provider } = fixture;
-    await writeFile(join(root, 'data/hooks.json'), JSON.stringify({
-      hooks: {
-        PreToolUse: [{
-          matcher: 'edit',
-          hooks: [{
-            type: 'http',
-            url: `${provider.baseURL}/${rewrite ? 'approval-rewrite' : 'approval'}`,
-            allowPrivateHosts: true,
-          }],
-        }],
-      },
-    }));
+    await writeFile(
+      join(root, 'data/hooks.json'),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'edit',
+              hooks: [
+                {
+                  type: 'http',
+                  url: `${provider.baseURL}/${rewrite ? 'approval-rewrite' : 'approval'}`,
+                  allowPrivateHosts: true,
+                },
+              ],
+            },
+          ],
+        },
+      })
+    );
     const daemon = await fixture.start();
     let view = await fixture.view(daemon);
     await view.client.addProject(root);
     const submitted = await view.client.submitNewTask(
       'Create fixture-output.txt after approval.',
       { id: `fixture-approval-${decision}` },
-      { projectPath: root, route: { provider: 'deepseek', model: 'deepseek-v4-pro' } },
+      { projectPath: root, route: { provider: 'deepseek', model: 'deepseek-v4-pro' } }
     );
     assert.equal(submitted.accepted, true);
     const id = submitted.sessionId;
@@ -471,13 +525,16 @@ for (const { decision, rewrite = false } of [
       assert.equal(await view.client.resolveToolApprovalForSession(id, approvalId, { approved: true }), false);
       await assert.rejects(readFile(outputPath), { code: 'ENOENT' });
     } else {
-      assert.equal(await view.client.resolveToolApprovalForSession(id, approvalId, {
-        approved: decision === 'approve',
-        reason: 'fixture decision',
-      }), true);
+      assert.equal(
+        await view.client.resolveToolApprovalForSession(id, approvalId, {
+          approved: decision === 'approve',
+          reason: 'fixture decision',
+        }),
+        true
+      );
       const continuation = await provider.next();
       const result = continuation.body.messages.find(
-        (message) => message.role === 'tool' && message.tool_call_id === toolId,
+        (message) => message.role === 'tool' && message.tool_call_id === toolId
       );
       assert.ok(result, 'the provider must receive the resolved tool result');
       if (decision === 'approve') {
@@ -487,8 +544,10 @@ for (const { decision, rewrite = false } of [
         await assert.rejects(readFile(outputPath), { code: 'ENOENT' });
       }
       continuation.complete(`fixture ${decision} complete`);
-      await view.snapshot(id, (state) => !state.busy && !state.toolApproval
-        && contains(state, `fixture ${decision} complete`));
+      await view.snapshot(
+        id,
+        (state) => !state.busy && !state.toolApproval && contains(state, `fixture ${decision} complete`)
+      );
     }
     if (rewrite) await assert.rejects(readFile(join(root, 'fixture-output.txt')), { code: 'ENOENT' });
     await view.client.dispose();

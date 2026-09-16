@@ -7,7 +7,15 @@ const dom = new JSDOM('<!doctype html><html><body><main></main></body></html>', 
   url: 'https://mixdog.test/',
   pretendToBeVisual: true,
 });
-for (const name of ['window', 'document', 'HTMLElement', 'HTMLInputElement', 'Node', 'MutationObserver', 'CustomEvent']) {
+for (const name of [
+  'window',
+  'document',
+  'HTMLElement',
+  'HTMLInputElement',
+  'Node',
+  'MutationObserver',
+  'CustomEvent',
+]) {
   globalThis[name] = name === 'window' ? dom.window : name === 'document' ? dom.window.document : dom.window[name];
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -20,7 +28,10 @@ test.after(() => dom.window.close());
 function deferred() {
   let resolve;
   let reject;
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
   return { promise, resolve, reject };
 }
 
@@ -29,7 +40,10 @@ const profile = {
   title: 'Before',
   experienceLevel: 'beginner',
   language: 'system',
-  languages: [{ id: 'system', label: 'System' }, { id: 'ko', label: 'Korean' }],
+  languages: [
+    { id: 'system', label: 'System' },
+    { id: 'ko', label: 'Korean' },
+  ],
 };
 
 async function mount(t, { step = 0, reads = {}, ...overrides } = {}) {
@@ -40,7 +54,13 @@ async function mount(t, { step = 0, reads = {}, ...overrides } = {}) {
     getProviderSetup: { api: [], oauth: [] },
     listWebSearchModels: [],
     listAgents: [],
-    listOutputStyles: { styles: [{ id: 'simple', label: 'Simple' }, { id: 'detailed', label: 'Detailed' }], current: { id: 'simple' } },
+    listOutputStyles: {
+      styles: [
+        { id: 'simple', label: 'Simple' },
+        { id: 'detailed', label: 'Detailed' },
+      ],
+      current: { id: 'simple' },
+    },
     getProfile: profile,
     listWorkflows: [],
     getAutoClear: { enabled: true },
@@ -51,14 +71,28 @@ async function mount(t, { step = 0, reads = {}, ...overrides } = {}) {
     readCapabilities: async (requests) => requests.map(({ capability }) => ({ ok: true, value: values[capability] })),
     getSnapshot: async () => ({ provider: model.provider, model: model.model }),
     listProviderModels: async () => [model],
-    invokeCapability: async (request) => { calls.push(request); return { value: {} }; },
+    invokeCapability: async (request) => {
+      calls.push(request);
+      return { value: {} };
+    },
     ...overrides,
   };
   window.mixdogDesktop = api;
   let completed = 0;
   const root = createRoot(document.querySelector('main'));
-  t.after(async () => { await act(async () => root.unmount()); });
-  await act(async () => root.render(React.createElement(OnboardingWizard, { api, onDone: () => { completed += 1; } })));
+  t.after(async () => {
+    await act(async () => root.unmount());
+  });
+  await act(async () =>
+    root.render(
+      React.createElement(OnboardingWizard, {
+        api,
+        onDone: () => {
+          completed += 1;
+        },
+      })
+    )
+  );
   return { api, calls, completed: () => completed };
 }
 
@@ -95,7 +129,12 @@ async function typeTitle(value) {
 test('profile saving blocks conflicting controls and retains the saved language after failure', async (t) => {
   const save = deferred();
   const calls = [];
-  await mount(t, { invokeCapability: async (request) => { calls.push(request); return save.promise; } });
+  await mount(t, {
+    invokeCapability: async (request) => {
+      calls.push(request);
+      return save.promise;
+    },
+  });
   await choose('Response language', 'Korean');
   const language = document.querySelector('[aria-label="Response language"]');
   assert.equal(language.disabled, true);
@@ -111,11 +150,23 @@ test('profile saving blocks conflicting controls and retains the saved language 
 test('Ctrl+Enter commits the focused profile title before leaving the step', async (t) => {
   const save = deferred();
   const calls = [];
-  await mount(t, { invokeCapability: async (request) => { calls.push(request); return save.promise; } });
+  await mount(t, {
+    invokeCapability: async (request) => {
+      calls.push(request);
+      return save.promise;
+    },
+  });
   const input = await typeTitle('After');
-  await act(async () => input.dispatchEvent(new window.KeyboardEvent('keydown', {
-    key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true,
-  })));
+  await act(async () =>
+    input.dispatchEvent(
+      new window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      })
+    )
+  );
   assert.deepEqual(calls[0], { capability: 'setProfile', args: [{ title: 'After' }] });
   assert.match(document.querySelector('h1').textContent, /Make it yours/);
   await act(async () => save.resolve({ value: {} }));
@@ -127,10 +178,13 @@ test('Ctrl+Enter commits the focused profile title before leaving the step', asy
 test('failed output saves leave the selected style unchanged and allow retry', async (t) => {
   const save = deferred();
   let attempts = 0;
-  await mount(t, { step: 7, invokeCapability: async () => {
-    attempts += 1;
-    return attempts === 1 ? save.promise : { value: {} };
-  } });
+  await mount(t, {
+    step: 7,
+    invokeCapability: async () => {
+      attempts += 1;
+      return attempts === 1 ? save.promise : { value: {} };
+    },
+  });
   const choices = [...document.querySelectorAll('.onboarding-choice-grid button')];
   await click(choices[1]);
   assert.equal(choices[1].disabled, true);
@@ -145,7 +199,11 @@ test('failed output saves leave the selected style unchanged and allow retry', a
 test('saved agent models are visible and Same as Main explicitly clears the override on finish', async (t) => {
   const { calls, completed } = await mount(t, {
     step: 2,
-    reads: { listAgents: [{ id: 'explore', label: 'Explore', workflowSlot: true, route: { provider: 'test', model: 'saved' } }] },
+    reads: {
+      listAgents: [
+        { id: 'explore', label: 'Explore', workflowSlot: true, route: { provider: 'test', model: 'saved' } },
+      ],
+    },
   });
   assert.match(document.querySelector('[aria-label="Explore model"]').textContent, /saved/);
   await choose('Explore model', 'Same as Main');
@@ -157,11 +215,14 @@ test('saved agent models are visible and Same as Main explicitly clears the over
 
 test('model catalog errors are visible and retry replaces the empty catalog', async (t) => {
   let attempts = 0;
-  await mount(t, { step: 2, listProviderModels: async () => {
-    attempts += 1;
-    if (attempts === 1) throw new Error('Catalog offline');
-    return [model];
-  } });
+  await mount(t, {
+    step: 2,
+    listProviderModels: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('Catalog offline');
+      return [model];
+    },
+  });
   assert.match(document.body.textContent, /Catalog offline/);
   await click(button('Retry'));
   assert.doesNotMatch(document.body.textContent, /Catalog offline/);
@@ -213,7 +274,9 @@ test('remote pairing explains a stalled relay instead of leaving a permanent loa
     }
     return original.call(window, callback, delay, ...args);
   };
-  t.after(() => { window.setTimeout = original; });
+  t.after(() => {
+    window.setTimeout = original;
+  });
   await mount(t, { step: 8, getRemoteAccessInfo: async () => null });
   for (let i = 0; i < 4; i += 1) {
     assert.ok(scheduled.length, 'Expected a bounded retry interval');

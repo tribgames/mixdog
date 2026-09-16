@@ -73,7 +73,8 @@ test('successful retained references renew expiry without reviving evicted or cl
 
 test('reconnect references only identical full baselines and rebuilds a usable delta decoder', async () => {
   let snapshot = {
-    sessionId: 'session', streamingTail: null,
+    sessionId: 'session',
+    streamingTail: null,
     items: [{ id: 'one', text: 'unchanged transcript '.repeat(500) }],
   };
   const sessions = [{ id: 'session', title: 'session' }];
@@ -87,23 +88,36 @@ test('reconnect references only identical full baselines and rebuilds a usable d
     replaySessionStates: async (_ids, deliver) => deliver([{ sessionId: 'session', snapshot, frameSource: 'replay' }]),
   };
   const makeState = () => ({
-    visibleSessionIds: new Set(), compactWire: false, listDelta: true,
+    visibleSessionIds: new Set(),
+    compactWire: false,
+    listDelta: true,
     sessionStateEncoders: new Map(),
     sessionsEncoder: createKeyedListDeltaEncoder((row) => row.id),
     agentPoolEncoder: createKeyedListDeltaEncoder((row) => row.sessionId),
-    stateLane: createRemoteStateLane(false, async () => { throw new Error('Baseline bypassed synchronization.'); }),
+    stateLane: createRemoteStateLane(false, async () => {
+      throw new Error('Baseline bypassed synchronization.');
+    }),
   });
   const cache = createRemoteViewBaselineCache();
   const sync = async (state, offer = cache.begin()) => {
     const frames = [];
     const restored = [];
     try {
-      await registerAndSynchronizeRelayViews(host, 'client', state, [['session'], offer.offer], () => true, async (frame) => {
-        frames.push(frame);
-        restored.push(frame.event === 'viewBaseline' ? cache.restore(frame.payload) : frame);
-      });
+      await registerAndSynchronizeRelayViews(
+        host,
+        'client',
+        state,
+        [['session'], offer.offer],
+        () => true,
+        async (frame) => {
+          frames.push(frame);
+          restored.push(frame.event === 'viewBaseline' ? cache.restore(frame.payload) : frame);
+        }
+      );
       return { frames, restored };
-    } finally { offer.finish(); }
+    } finally {
+      offer.finish();
+    }
   };
   const first = await sync(makeState());
   assert.equal(first.frames.length, 4);
@@ -120,13 +134,25 @@ test('reconnect references only identical full baselines and rebuilds a usable d
   assert.deepEqual(decoder.decode(patch).snapshot, snapshot);
   const changed = await sync(makeState());
   assert.ok(changed.frames.some((frame) => frame.payload.frame?.event === 'sessionState'));
-  assert.ok(changed.frames.some((frame) => !Object.hasOwn(frame.payload, 'frame')), 'unchanged catalogs still reuse bytes');
+  assert.ok(
+    changed.frames.some((frame) => !Object.hasOwn(frame.payload, 'frame')),
+    'unchanged catalogs still reuse bytes'
+  );
   const legacy = await sync(makeState(), { offer: undefined, finish() {} });
   assert.ok(legacy.frames.every((frame) => frame.event !== 'viewBaseline'));
   const failed = makeState();
-  await assert.rejects(registerAndSynchronizeRelayViews(
-    host, 'client', failed, [['session'], { version: 1, keys: [] }], () => true,
-    async () => { throw new Error('socket failed'); },
-  ), /socket failed/);
+  await assert.rejects(
+    registerAndSynchronizeRelayViews(
+      host,
+      'client',
+      failed,
+      [['session'], { version: 1, keys: [] }],
+      () => true,
+      async () => {
+        throw new Error('socket failed');
+      }
+    ),
+    /socket failed/
+  );
   assert.equal(failed.syncing, false);
 });

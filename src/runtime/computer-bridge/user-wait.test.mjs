@@ -14,9 +14,14 @@ test('user wait accepts only a bounded timeout and cannot smuggle a resume grant
 
 test('ref clicks preserve click intent and the explicitly requested delivery', () => {
   for (const delivery of ['foreground', 'background']) {
-    const command = toComputerHostCommand({ action: 'act', input: {
-      window_id: 'hwnd:0x1', delivery, actions: [{ type: 'click', ref: 's1:e0' }],
-    } });
+    const command = toComputerHostCommand({
+      action: 'act',
+      input: {
+        window_id: 'hwnd:0x1',
+        delivery,
+        actions: [{ type: 'click', ref: 's1:e0' }],
+      },
+    });
     assert.equal(command.delivery, delivery);
     assert.equal(command.steps[0].action, 'click');
     assert.equal(command.steps[0].ref, 's1:e0');

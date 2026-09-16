@@ -11,7 +11,12 @@ import { PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug
 function fixture(overrides = {}) {
   const batches = [];
   const stderrRows = [];
-  const stderr = { write: (value) => { stderrRows.push(value); return true; } };
+  const stderr = {
+    write: (value) => {
+      stderrRows.push(value);
+      return true;
+    },
+  };
   const stdout = { write: () => true };
   const consoleTarget = {};
   const logger = createDaemonLog({
@@ -19,7 +24,9 @@ function fixture(overrides = {}) {
     fileSystem: {
       mkdir: async () => {},
       stat: async () => ({ size: 0 }),
-      appendFile: async (_path, batch) => { batches.push(batch); },
+      appendFile: async (_path, batch) => {
+        batches.push(batch);
+      },
     },
     stderr,
     stdout,
@@ -44,7 +51,9 @@ test('the ready handoff writes every daemon line to exactly one sink', async () 
 test('slow disk backpressure bounds queued data instead of growing a chain of batches', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let release;
-  const gate = new Promise((resolve) => { release = resolve; });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
   const batches = [];
   const f = fixture({
     fileSystem: {
@@ -116,8 +125,18 @@ test('redirected streams preserve callbacks and bounded console formatting', asy
   f.logger.enableFileLogging();
   f.logger.installRedirect();
   let callbacks = 0;
-  assert.equal(f.stderr.write('raw stderr\n', () => { callbacks += 1; }), true);
-  assert.equal(f.stdout.write('raw stdout\n', 'utf8', () => { callbacks += 1; }), true);
+  assert.equal(
+    f.stderr.write('raw stderr\n', () => {
+      callbacks += 1;
+    }),
+    true
+  );
+  assert.equal(
+    f.stdout.write('raw stdout\n', 'utf8', () => {
+      callbacks += 1;
+    }),
+    true
+  );
   f.consoleTarget.warn({ long: 'x'.repeat(20_000) });
   await f.logger.flush();
   assert.equal(callbacks, 2);

@@ -1,5 +1,8 @@
-import crypto from 'node:crypto'
-import { isInternalRuntimeNotificationText, isModelVisibleToolCompletionWrapper } from '../../shared/tool-execution-contract.mjs'
+import crypto from 'node:crypto';
+import {
+  isInternalRuntimeNotificationText,
+  isModelVisibleToolCompletionWrapper,
+} from '../../shared/tool-execution-contract.mjs';
 
 // Side-effect-free helpers for fresh-context ingest_session hydration.
 // Extracted from memory/index.mjs so the pure logic (stable identity, sensitive
@@ -9,48 +12,52 @@ import { isInternalRuntimeNotificationText, isModelVisibleToolCompletionWrapper 
 // Roles we persist from an in-memory session transcript (conversation only).
 // Map provider/runtime spellings onto canonical roles; only user/assistant are
 // kept so the Memory handoff does not duplicate protected system prefix.
-const INGEST_SESSION_ROLES = new Set(['user', 'assistant'])
+const INGEST_SESSION_ROLES = new Set(['user', 'assistant']);
 
 export function normalizeIngestRole(role) {
-  const raw = String(role || '').trim().toLowerCase()
-  if (!raw) return null
-  if (raw === 'human') return 'user'
-  if (raw === 'ai' || raw === 'model') return 'assistant'
-  if (raw === 'tool_result' || raw === 'function' || raw === 'tool-result') return null
-  return INGEST_SESSION_ROLES.has(raw) ? raw : null
+  const raw = String(role || '')
+    .trim()
+    .toLowerCase();
+  if (!raw) return null;
+  if (raw === 'human') return 'user';
+  if (raw === 'ai' || raw === 'model') return 'assistant';
+  if (raw === 'tool_result' || raw === 'function' || raw === 'tool-result') return null;
+  return INGEST_SESSION_ROLES.has(raw) ? raw : null;
 }
 
 // Extract the first textual content block from a message content field.
 export function firstTextContent(content) {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
   for (const item of content) {
-    if (typeof item === 'string') return item
-    if (item?.type === 'text' && typeof item.text === 'string') return item.text
+    if (typeof item === 'string') return item;
+    if (item?.type === 'text' && typeof item.text === 'string') return item.text;
   }
-  return ''
+  return '';
 }
 
 function allTextContent(content) {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
   return content
     .map((item) => {
-      if (typeof item === 'string') return item
-      return item?.type === 'text' && typeof item.text === 'string' ? item.text : ''
+      if (typeof item === 'string') return item;
+      return item?.type === 'text' && typeof item.text === 'string' ? item.text : '';
     })
     .filter(Boolean)
-    .join('\n')
+    .join('\n');
 }
 
 // Collect durable tool-call / tool-result ids for identity + pairing.
 function toolIdentityIds(m) {
-  const ids = []
+  const ids = [];
   if (Array.isArray(m?.toolCalls)) {
-    for (const tc of m.toolCalls) { if (tc?.id) ids.push(String(tc.id)) }
+    for (const tc of m.toolCalls) {
+      if (tc?.id) ids.push(String(tc.id));
+    }
   }
-  if (m?.toolCallId) ids.push(String(m.toolCallId))
-  return ids
+  if (m?.toolCallId) ids.push(String(m.toolCallId));
+  return ids;
 }
 
 // Build a stable, content-derived source_ref for a session message so the
@@ -64,21 +71,22 @@ function toolIdentityIds(m) {
 // Two textually identical untimestamped plain messages intentionally dedupe to
 // one row (stable dedupe preferred over positional separation).
 export function stableSessionSourceRef(sessionId, m, role, content, ordinal) {
-  const toolIds = toolIdentityIds(m)
+  const toolIds = toolIdentityIds(m);
   // Only an ORIGINAL, caller-supplied timestamp counts as durable identity.
-  const rawTs = m?.ts ?? m?.timestamp
-  const originalTs = (typeof rawTs === 'number' && Number.isFinite(rawTs)) || (typeof rawTs === 'string' && rawTs.trim())
-    ? String(rawTs)
-    : ''
+  const rawTs = m?.ts ?? m?.timestamp;
+  const originalTs =
+    (typeof rawTs === 'number' && Number.isFinite(rawTs)) || (typeof rawTs === 'string' && rawTs.trim())
+      ? String(rawTs)
+      : '';
   // Untimestamped, textually-identical turns previously collapsed to one row
   // (same hash). Fold a stable ORDINAL (caller-supplied turn/index) into the
   // identity so genuine repeats persist as distinct rows. The ordinal is only
   // used when no durable original ts exists — a timestamped turn keeps its
   // compaction-stable identity independent of array position.
-  const ordinalPart = originalTs ? '' : (Number.isFinite(Number(ordinal)) ? String(Math.floor(Number(ordinal))) : '')
-  const identity = [role, originalTs, ordinalPart, toolIds.join(','), content].join('\u0000')
-  const hash = crypto.createHash('sha256').update(identity).digest('hex').slice(0, 24)
-  return `session:${sessionId}:${hash}`
+  const ordinalPart = originalTs ? '' : Number.isFinite(Number(ordinal)) ? String(Math.floor(Number(ordinal))) : '';
+  const identity = [role, originalTs, ordinalPart, toolIds.join(','), content].join('\u0000');
+  const hash = crypto.createHash('sha256').update(identity).digest('hex').slice(0, 24);
+  return `session:${sessionId}:${hash}`;
 }
 
 // Monotonic source_turn allocator for ingest_session. source_turn must be a
@@ -90,43 +98,52 @@ export function stableSessionSourceRef(sessionId, m, role, content, ordinal) {
 // their original turn and must NOT advance the counter, so the caller only
 // invokes next() when a row was truly inserted.
 export function createIngestTurnAllocator(prevMaxTurn = 0) {
-  let turn = Number.isFinite(Number(prevMaxTurn)) ? Math.max(0, Math.floor(Number(prevMaxTurn))) : 0
+  let turn = Number.isFinite(Number(prevMaxTurn)) ? Math.max(0, Math.floor(Number(prevMaxTurn))) : 0;
   return {
-    peekNext() { return turn + 1 },
-    next() { turn += 1; return turn },
-    current() { return turn },
-  }
+    peekNext() {
+      return turn + 1;
+    },
+    next() {
+      turn += 1;
+      return turn;
+    },
+    current() {
+      return turn;
+    },
+  };
 }
 
 // Sensitive tool-arg key matcher (mirrors compact.mjs SENSITIVE_TOOL_ARG_KEY_RE):
 // api_key/authorization/auth/cookie/credential/password/secret/token, etc.
-const SENSITIVE_ARG_KEY_RE = /(?:^|[_-])(?:api[_-]?key|authorization|auth|cookie|credential|passwd|password|refresh[_-]?token|secret|token)(?:$|[_-])/i
-const SENSITIVE_KEY_WORD = '(?:api[_-]?key|authorization|auth|cookie|credential|passwd|password|refresh[_-]?token|secret|token)'
+const SENSITIVE_ARG_KEY_RE =
+  /(?:^|[_-])(?:api[_-]?key|authorization|auth|cookie|credential|passwd|password|refresh[_-]?token|secret|token)(?:$|[_-])/i;
+const SENSITIVE_KEY_WORD =
+  '(?:api[_-]?key|authorization|auth|cookie|credential|passwd|password|refresh[_-]?token|secret|token)';
 // Full key matcher: the sensitive WORD may carry a prefix and/or suffix segment
 // joined by `_`/`-` so prefixed variants like `access_token`, `access-token`,
 // `x-api-key`, and `bearer_token` are matched as whole keys (not just the bare
 // word at key start). Mirrors compact.mjs SENSITIVE_TOOL_ARG_KEY_FULL.
-const SENSITIVE_KEY_FULL = `(?:[A-Za-z0-9_-]*[_-])?${SENSITIVE_KEY_WORD}(?:[_-][A-Za-z0-9_-]*)?`
-const TOOL_ARG_MAX_CHARS = 400
+const SENSITIVE_KEY_FULL = `(?:[A-Za-z0-9_-]*[_-])?${SENSITIVE_KEY_WORD}(?:[_-][A-Za-z0-9_-]*)?`;
+const TOOL_ARG_MAX_CHARS = 400;
 
 // Recursively redact sensitive values by key. Sensitive keys collapse to
 // [redacted] regardless of value shape so nested secrets never survive.
 function redactToolArgValue(value, key = '', depth = 0) {
-  if (SENSITIVE_ARG_KEY_RE.test(String(key || ''))) return '[redacted]'
-  if (value == null) return value
-  if (typeof value === 'bigint') return String(value)
+  if (SENSITIVE_ARG_KEY_RE.test(String(key || ''))) return '[redacted]';
+  if (value == null) return value;
+  if (typeof value === 'bigint') return String(value);
   // Defense-in-depth: a non-sensitive KEY can still carry a secret embedded in
   // its string VALUE (e.g. `{ headers: "authorization: Bearer ..." }`). Run raw
   // key:value redaction on string values so embedded secrets never survive.
-  if (typeof value === 'string') return redactRawArgString(value)
-  if (typeof value !== 'object') return value
-  if (depth >= 4) return Array.isArray(value) ? `[array:${value.length}]` : '[object]'
+  if (typeof value === 'string') return redactRawArgString(value);
+  if (typeof value !== 'object') return value;
+  if (depth >= 4) return Array.isArray(value) ? `[array:${value.length}]` : '[object]';
   if (Array.isArray(value)) {
-    return value.slice(0, 8).map((item, idx) => redactToolArgValue(item, String(idx), depth + 1))
+    return value.slice(0, 8).map((item, idx) => redactToolArgValue(item, String(idx), depth + 1));
   }
-  const out = {}
-  for (const k of Object.keys(value)) out[k] = redactToolArgValue(value[k], k, depth + 1)
-  return out
+  const out = {};
+  for (const k of Object.keys(value)) out[k] = redactToolArgValue(value[k], k, depth + 1);
+  return out;
 }
 
 // Redact `key: value` / `key=value` pairs inside a raw (non-JSON) arg string.
@@ -134,58 +151,65 @@ function redactToolArgValue(value, key = '', depth = 0) {
 // key — including spaces, `Bearer ` prefixes, quoted values with internal
 // spaces, and `;`-separated cookie pairs — so no secret fragment leaks.
 function redactRawArgString(text) {
-  const keyRe = new RegExp(`((?:^|[\\s,{(])["']?${SENSITIVE_KEY_FULL}["']?\\s*[:=]\\s*)`, 'gi')
-  let out = ''
-  let last = 0
-  let match
+  const keyRe = new RegExp(`((?:^|[\\s,{(])["']?${SENSITIVE_KEY_FULL}["']?\\s*[:=]\\s*)`, 'gi');
+  let out = '';
+  let last = 0;
+  let match;
   while ((match = keyRe.exec(text)) !== null) {
-    const prefixEnd = match.index + match[0].length
-    out += text.slice(last, prefixEnd)
+    const prefixEnd = match.index + match[0].length;
+    out += text.slice(last, prefixEnd);
     // Determine where the secret value ends. Quoted values run to the closing
     // quote; unquoted values run to the next separator that ends a field. For
     // Authorization we also swallow a leading `Bearer `/`Basic ` scheme word so
     // nothing after it survives.
-    let i = prefixEnd
-    const quote = text[i] === '"' || text[i] === "'" ? text[i] : ''
+    let i = prefixEnd;
+    const quote = text[i] === '"' || text[i] === "'" ? text[i] : '';
     if (quote) {
-      i += 1
-      while (i < text.length && text[i] !== quote) i += 1
-      if (i < text.length) i += 1 // include closing quote
+      i += 1;
+      while (i < text.length && text[i] !== quote) i += 1;
+      if (i < text.length) i += 1; // include closing quote
     } else {
       // Unquoted: stop at a comma, closing brace/paren, or newline. Spaces and
       // `;` inside the value are part of the secret (Bearer tokens, cookies).
-      while (i < text.length && !/[,)}\n]/.test(text[i])) i += 1
+      while (i < text.length && !/[,)}\n]/.test(text[i])) i += 1;
     }
-    out += '[redacted]'
-    last = i
-    keyRe.lastIndex = i
+    out += '[redacted]';
+    last = i;
+    keyRe.lastIndex = i;
   }
-  out += text.slice(last)
-  return out
+  out += text.slice(last);
+  return out;
 }
 
 // Produce a readable, redacted, length-capped string for tool-call arguments.
 // Object/JSON args are walked key-by-key so nested secrets are caught; a raw
 // non-JSON string has its key:value secret pairs redacted before truncation.
 function redactToolArgString(rawArgs) {
-  if (rawArgs == null) return ''
-  let parsed = rawArgs
+  if (rawArgs == null) return '';
+  let parsed = rawArgs;
   if (typeof rawArgs === 'string') {
-    const trimmed = rawArgs.trim()
+    const trimmed = rawArgs.trim();
     if (/^[[{]/.test(trimmed)) {
-      try { parsed = JSON.parse(trimmed) } catch { parsed = trimmed }
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        parsed = trimmed;
+      }
     } else {
-      parsed = trimmed
+      parsed = trimmed;
     }
   }
-  let out
+  let out;
   if (parsed && typeof parsed === 'object') {
-    try { out = JSON.stringify(redactToolArgValue(parsed)) }
-    catch { out = '[unserializable args]' }
+    try {
+      out = JSON.stringify(redactToolArgValue(parsed));
+    } catch {
+      out = '[unserializable args]';
+    }
   } else {
-    out = redactRawArgString(String(parsed))
+    out = redactRawArgString(String(parsed));
   }
-  return out.slice(0, TOOL_ARG_MAX_CHARS)
+  return out.slice(0, TOOL_ARG_MAX_CHARS);
 }
 
 // Build a readable, role-aware content string for a session message so the
@@ -193,24 +217,24 @@ function redactToolArgString(rawArgs) {
 // (not just plain text). Keeps valid tool-call/tool-result pairing legible by
 // tagging each with its toolCallId, while redacting sensitive argument values.
 export function sessionMessageContent(m) {
-  const parts = []
-  const base = firstTextContent(m?.content)
-  if (base && base.trim()) parts.push(base.trim())
+  const parts = [];
+  const base = firstTextContent(m?.content);
+  if (base && base.trim()) parts.push(base.trim());
   if (m?.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
     for (const tc of m.toolCalls.slice(0, 8)) {
-      const name = tc?.name || tc?.function?.name || tc?.id || 'tool'
-      const id = tc?.id ? ` id=${tc.id}` : ''
-      const argStr = redactToolArgString(tc?.arguments ?? tc?.function?.arguments)
-      parts.push(`[tool_call ${name}${id}]${argStr ? ` ${argStr}` : ''}`)
+      const name = tc?.name || tc?.function?.name || tc?.id || 'tool';
+      const id = tc?.id ? ` id=${tc.id}` : '';
+      const argStr = redactToolArgString(tc?.arguments ?? tc?.function?.arguments);
+      parts.push(`[tool_call ${name}${id}]${argStr ? ` ${argStr}` : ''}`);
     }
   }
-  const isTool = m?.role === 'tool' || normalizeIngestRole(m?.role) === 'tool'
+  const isTool = m?.role === 'tool' || normalizeIngestRole(m?.role) === 'tool';
   if (isTool && m?.toolCallId && parts.length) {
-    parts[0] = `[tool_result id=${m.toolCallId}] ${parts[0]}`
+    parts[0] = `[tool_result id=${m.toolCallId}] ${parts[0]}`;
   } else if (isTool && m?.toolCallId) {
-    parts.push(`[tool_result id=${m.toolCallId}]`)
+    parts.push(`[tool_result id=${m.toolCallId}]`);
   }
-  return parts.join('\n')
+  return parts.join('\n');
 }
 
 // ── Pure-conversation ingest shaping ──────────────────────────────────────
@@ -228,7 +252,7 @@ export function sessionMessageContent(m) {
 // importing it into the memory layer would create a layering dependency (memory
 // → orchestrator) and risk a boot-time cycle. Keeping only the durable anchor
 // recognizes both legacy and current summary instructions.
-const SUMMARY_PREFIX_INGEST = 'A previous model worked on this task and produced the compacted handoff summary below.'
+const SUMMARY_PREFIX_INGEST = 'A previous model worked on this task and produced the compacted handoff summary below.';
 
 // Anchored strip of the deterministic user-turn prefix envelopes that
 // manager.mjs prepends to the SINGLE real user message (manager.mjs:3166-3201
@@ -237,16 +261,16 @@ const SUMMARY_PREFIX_INGEST = 'A previous model worked on this task and produced
 // removes the EXACT shapes manager.mjs produces. A `# Task` / `# Session` etc.
 // appearing mid-message in the human's own text is never touched. When in
 // doubt the rules UNDER-strip (leave content) rather than delete human text.
-const LEADING_NAMED_SECTIONS = ['Project Instructions', 'Additional context', 'Prefetch']
+const LEADING_NAMED_SECTIONS = ['Project Instructions', 'Additional context', 'Prefetch'];
 
 function stripLeadingNamedSection(text, heading) {
   return text
     .replace(new RegExp(`^# ${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n[\\s\\S]*?(?=\\n# |$)`), '')
-    .replace(/^\n+/, '')
+    .replace(/^\n+/, '');
 }
 
 function stripUserTurnPrefixEnvelopes(text) {
-  let out = String(text ?? '')
+  let out = String(text ?? '');
   // Leading `# Session` block (buildSessionStartBlock: `# Session\nCwd: ...
   //    \nModel: ...\nWorkflow: ...`, joined by prefixSessionStartContent with a
   //    trailing `\n\n`). FIELD-ANCHORED: only strip when the line(s) right after
@@ -256,14 +280,14 @@ function stripUserTurnPrefixEnvelopes(text) {
   //    heading followed by free prose in any language (e.g. `meeting notes`) does NOT match
   //    — its next line is not a `Cwd:/Model:/Workflow:` field — so it is
   //    preserved verbatim (zero-loss). Anchored ^.
-  out = out.replace(/^# Session\n(?:(?:Cwd|Model|Workflow): [^\n]*\n)+(?:\n|$)/, '')
+  out = out.replace(/^# Session\n(?:(?:Cwd|Model|Workflow): [^\n]*\n)+(?:\n|$)/, '');
   // Named manager.mjs sections are the same start-anchored shape: heading, body
   // to the next `# ` boundary, then the blank-line separator. Project
   // Instructions / Additional context / Prefetch share that grammar; `# Task`
   // is only the marker line.
-  for (const heading of LEADING_NAMED_SECTIONS) out = stripLeadingNamedSection(out, heading)
-  out = out.replace(/^# Task\n/, '')
-  return out
+  for (const heading of LEADING_NAMED_SECTIONS) out = stripLeadingNamedSection(out, heading);
+  out = out.replace(/^# Task\n/, '');
+  return out;
 }
 
 // Ingest-only message shaper: returns ONLY the human/model prose text, NEVER
@@ -272,12 +296,12 @@ function stripUserTurnPrefixEnvelopes(text) {
 // remains. The <system-reminder> block is left in place here because
 // cleanMemoryText already removes it downstream (text-utils.cjs:28).
 export function sessionMessageContentForIngest(m) {
-  const base = allTextContent(m?.content)
-  if (!base) return ''
+  const base = allTextContent(m?.content);
+  if (!base) return '';
   if (normalizeIngestRole(m?.role) === 'user') {
-    return stripUserTurnPrefixEnvelopes(base)
+    return stripUserTurnPrefixEnvelopes(base);
   }
-  return base
+  return base;
 }
 
 // Head-line shape of toolCompletionInstruction() as persisted by
@@ -286,13 +310,13 @@ export function sessionMessageContentForIngest(m) {
 // mirrored via the notify-wrapper's own quoting, so it misses this unquoted
 // persisted form. The instruction head alone is a sufficient, unambiguous
 // fingerprint (only the runtime ever emits this exact phrase).
-const UNQUOTED_TOOL_COMPLETION_HEAD_RE = /^Async .+ finished\./i
+const UNQUOTED_TOOL_COMPLETION_HEAD_RE = /^Async .+ finished\./i;
 
 // Exported so memory.mjs's one-time cleanup (ensureCurrentSchemaExtensions)
 // can confirm SQL-prefiltered candidate rows with the SAME predicate the live
 // ingest filter uses, rather than re-deriving the regex.
 export function isUnquotedToolCompletionHead(text) {
-  return UNQUOTED_TOOL_COMPLETION_HEAD_RE.test(String(text ?? '').trimStart())
+  return UNQUOTED_TOOL_COMPLETION_HEAD_RE.test(String(text ?? '').trimStart());
 }
 
 // Row-exclusion predicate for ingest_session. Synthetic / non-conversation
@@ -301,43 +325,43 @@ export function isUnquotedToolCompletionHead(text) {
 // not conversation. Mirrors the predicates in manager.mjs / compact.mjs but is
 // reimplemented locally to avoid a memory→orchestrator layering dependency.
 function isExcludedUserIngestText(m, text) {
-  const trimmedStart = text.trimStart()
-  const metaSource = String(m?.meta?.source || '')
+  const trimmedStart = text.trimStart();
+  const metaSource = String(m?.meta?.source || '');
   // `Reference files:` synthetic user rows (manager.mjs isReferenceFilesMessage).
-  if (/^Reference files:\s*/i.test(trimmedStart)) return true
+  if (/^Reference files:\s*/i.test(trimmedStart)) return true;
   // Attachment-only placeholder rows (e.g. Discord provider discord.mjs:724
   // `"(attachment)"` fallback when a message carries no text, only files).
-  if (text.trim() === '(attachment)') return true
+  if (text.trim() === '(attachment)') return true;
   // Compaction summary user rows (compact.mjs isSummaryMessage / SUMMARY_PREFIX).
-  if (metaSource === 'compact-summary') return true
-  if (text.startsWith(SUMMARY_PREFIX_INGEST) && /\nmessages=\d+\s+(?:sha256=|compact_type=)/.test(text)) return true
+  if (metaSource === 'compact-summary') return true;
+  if (text.startsWith(SUMMARY_PREFIX_INGEST) && /\nmessages=\d+\s+(?:sha256=|compact_type=)/.test(text)) return true;
   // Injected Skill-body user rows (context/collect.mjs buildSkillToolEnvelope).
   // The full SKILL.md body is delivered as ONE role:'user' message flagged
   // `meta:'skill'` inside a `<skill>` envelope. Mirrors compact/messages.mjs
   // isInjectedSkillBodyMessage; the meta marker and the content prefix are
   // both honoured so a tail rebuild that drops meta still excludes the body.
-  if (m?.meta === 'skill' || trimmedStart.startsWith('<skill>')) return true
-  if (['compact-active-turn-continuation', 'compact-execution-recovery'].includes(metaSource)) return true
-  if (text.includes('<active-turn-continuation>')) return true
+  if (m?.meta === 'skill' || trimmedStart.startsWith('<skill>')) return true;
+  if (['compact-active-turn-continuation', 'compact-execution-recovery'].includes(metaSource)) return true;
+  if (text.includes('<active-turn-continuation>')) return true;
   // Internal runtime nudge `[mixdog-runtime] ...` user rows and other
   // internal runtime notifications (tool-execution-contract), including both
   // quoted and unquoted tool-completion wrappers.
-  if (/^\[mixdog-runtime\]/.test(trimmedStart)) return true
-  if (isInternalRuntimeNotificationText(text)) return true
-  if (isModelVisibleToolCompletionWrapper(text)) return true
-  if (isUnquotedToolCompletionHead(text)) return true
-  return false
+  if (/^\[mixdog-runtime\]/.test(trimmedStart)) return true;
+  if (isInternalRuntimeNotificationText(text)) return true;
+  if (isModelVisibleToolCompletionWrapper(text)) return true;
+  if (isUnquotedToolCompletionHead(text)) return true;
+  return false;
 }
 
 export function shouldExcludeIngestMessage(m) {
-  if (!m || typeof m !== 'object') return true
-  const role = normalizeIngestRole(m?.role)
-  const text = firstTextContent(m?.content)
-  if (role === 'user') return isExcludedUserIngestText(m, text)
+  if (!m || typeof m !== 'object') return true;
+  const role = normalizeIngestRole(m?.role);
+  const text = firstTextContent(m?.content);
+  if (role === 'user') return isExcludedUserIngestText(m, text);
   // Protected-context `.` ack assistant rows (compact.mjs isProtectedContextAckMessage):
   // a bare `.` with no tool calls. cleanMemoryText leaves a lone `.` non-empty
   // (no \p{L}\p{N}), so it would otherwise survive the empty-skip — exclude it.
-  return role === 'assistant' && text.trim() === '.' && !Array.isArray(m?.toolCalls)
+  return role === 'assistant' && text.trim() === '.' && !Array.isArray(m?.toolCalls);
 }
 
 // Project a live session transcript to the exact fields ingest_session can
@@ -349,25 +373,23 @@ export function shouldExcludeIngestMessage(m) {
 // stableSessionSourceRef; the owner-side ingest pipeline still performs the
 // canonical shaping/cleaning exactly once.
 export function projectSessionMessagesForIngest(messages) {
-  if (!Array.isArray(messages)) return []
-  const projected = []
+  if (!Array.isArray(messages)) return [];
+  const projected = [];
   for (const m of messages) {
-    if (!m || typeof m !== 'object') continue
-    const role = normalizeIngestRole(m.role)
-    if (!role || shouldExcludeIngestMessage(m)) continue
-    const content = sessionMessageContentForIngest(m)
-    if (!content || !content.trim()) continue
-    const next = { role, content }
-    if (Object.prototype.hasOwnProperty.call(m, 'ts')) next.ts = m.ts
-    if (Object.prototype.hasOwnProperty.call(m, 'timestamp')) next.timestamp = m.timestamp
-    if (m.toolCallId) next.toolCallId = m.toolCallId
+    if (!m || typeof m !== 'object') continue;
+    const role = normalizeIngestRole(m.role);
+    if (!role || shouldExcludeIngestMessage(m)) continue;
+    const content = sessionMessageContentForIngest(m);
+    if (!content || !content.trim()) continue;
+    const next = { role, content };
+    if (Object.hasOwn(m, 'ts')) next.ts = m.ts;
+    if (Object.hasOwn(m, 'timestamp')) next.timestamp = m.timestamp;
+    if (m.toolCallId) next.toolCallId = m.toolCallId;
     if (Array.isArray(m.toolCalls)) {
-      const ids = m.toolCalls
-        .filter(tc => tc?.id)
-        .map(tc => ({ id: tc.id }))
-      if (ids.length > 0) next.toolCalls = ids
+      const ids = m.toolCalls.filter((tc) => tc?.id).map((tc) => ({ id: tc.id }));
+      if (ids.length > 0) next.toolCalls = ids;
     }
-    projected.push(next)
+    projected.push(next);
   }
-  return projected
+  return projected;
 }

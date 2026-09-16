@@ -114,10 +114,16 @@ await pres.writeFile({ fileName: OUTPUT });
 try {
   const authored = value(await executeOfficeTool({ action: 'author', path: output, script, overwrite: true }, { cwd }));
   const { logs, render, ...summary } = authored;
-  process.stdout.write(`${JSON.stringify({ ...summary, render: render ? { pageCount: render.pageCount, output: render.output, images: render.images?.map((image) => image.path) } : null, logs }, null, 2)}\n`);
+  process.stdout.write(
+    `${JSON.stringify({ ...summary, render: render ? { pageCount: render.pageCount, output: render.output, images: render.images?.map((image) => image.path) } : null, logs }, null, 2)}\n`
+  );
   if (authored.session) {
-    const finalized = value(await executeOfficeTool({ action: 'finalize', session: authored.session, design: { reviewed: true } }, { cwd }));
-    process.stdout.write(`${JSON.stringify({ ok: finalized.ok, reason: finalized.reason, blockingIssues: finalized.blockingIssues, advisoryIssues: finalized.review?.advisoryIssues?.map((issue) => `${issue.severity}:${issue.code}`), validation: finalized.validation?.ok, quality: finalized.review?.quality?.score }, null, 2)}\n`);
+    const finalized = value(
+      await executeOfficeTool({ action: 'finalize', session: authored.session, design: { reviewed: true } }, { cwd })
+    );
+    process.stdout.write(
+      `${JSON.stringify({ ok: finalized.ok, reason: finalized.reason, blockingIssues: finalized.blockingIssues, advisoryIssues: finalized.review?.advisoryIssues?.map((issue) => `${issue.severity}:${issue.code}`), validation: finalized.validation?.ok, quality: finalized.review?.quality?.score }, null, 2)}\n`
+    );
   }
 } finally {
   resetOfficeSessionsForTest();

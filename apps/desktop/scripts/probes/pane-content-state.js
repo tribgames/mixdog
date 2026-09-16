@@ -17,9 +17,10 @@
       .filter(Boolean)
       .slice(0, 3);
     const composer = leaf.querySelector('textarea');
-    const routeLabel = [...leaf.querySelectorAll('button')]
-      .map((node) => node.textContent?.trim() || '')
-      .find((text) => text.includes('Opus') || text.includes('모델') || text.includes('Claude')) || '';
+    const routeLabel =
+      [...leaf.querySelectorAll('button')]
+        .map((node) => node.textContent?.trim() || '')
+        .find((text) => text.includes('Opus') || text.includes('모델') || text.includes('Claude')) || '';
     return {
       index,
       focused: Boolean(cell?.className.includes('is-focused')),
@@ -31,4 +32,4 @@
       emptyState: Boolean(surface?.textContent?.trim().length === 0),
     };
   });
-})()
+})();

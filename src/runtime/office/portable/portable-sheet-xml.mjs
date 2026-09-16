@@ -4,16 +4,45 @@ import { columnLabel, columnNumber, parseCellRef } from './portable-cells.mjs';
 import { containerBody, elementSpans, setXmlAttribute, xmlAttribute } from './portable-xml.mjs';
 
 const WORKSHEET_SECTIONS = Object.freeze([
-  'sheetPr', 'dimension', 'sheetViews', 'sheetFormatPr', 'cols', 'sheetData',
-  'sheetCalcPr', 'sheetProtection', 'protectedRanges', 'scenarios', 'autoFilter',
-  'sortState', 'dataConsolidate', 'customSheetViews', 'mergeCells', 'phoneticPr',
-  'conditionalFormatting', 'dataValidations', 'hyperlinks', 'printOptions',
-  'pageMargins', 'pageSetup', 'headerFooter', 'rowBreaks', 'colBreaks',
-  'customProperties', 'cellWatches', 'ignoredErrors', 'smartTags', 'drawing',
-  'legacyDrawing', 'legacyDrawingHF', 'picture', 'oleObjects', 'controls',
-  'webPublishItems', 'tableParts', 'extLst',
+  'sheetPr',
+  'dimension',
+  'sheetViews',
+  'sheetFormatPr',
+  'cols',
+  'sheetData',
+  'sheetCalcPr',
+  'sheetProtection',
+  'protectedRanges',
+  'scenarios',
+  'autoFilter',
+  'sortState',
+  'dataConsolidate',
+  'customSheetViews',
+  'mergeCells',
+  'phoneticPr',
+  'conditionalFormatting',
+  'dataValidations',
+  'hyperlinks',
+  'printOptions',
+  'pageMargins',
+  'pageSetup',
+  'headerFooter',
+  'rowBreaks',
+  'colBreaks',
+  'customProperties',
+  'cellWatches',
+  'ignoredErrors',
+  'smartTags',
+  'drawing',
+  'legacyDrawing',
+  'legacyDrawingHF',
+  'picture',
+  'oleObjects',
+  'controls',
+  'webPublishItems',
+  'tableParts',
+  'extLst',
 ]);
-
 
 // Excel names take letters of any script, digits, underscores and periods, but
 // no spaces or punctuation, and may not start with a digit or read as a cell
@@ -23,14 +52,12 @@ export function safeWorkbookTableName(value) {
   const cleaned = String(value || '')
     .replace(/\s+/g, '_')
     .replace(/[^\p{L}\p{N}_.]/gu, '');
-  const named = /^[\p{L}_]/u.test(cleaned) ? cleaned : (cleaned ? `_${cleaned}` : '');
+  const named = /^[\p{L}_]/u.test(cleaned) ? cleaned : cleaned ? `_${cleaned}` : '';
   const bounded = named.slice(0, 255);
   if (!bounded) return 'Table1';
   // R, C, and anything shaped like A1 are reserved; Excel refuses the workbook.
   return /^(?:[RrCc]|[A-Za-z]{1,3}\d{1,7})$/.test(bounded) ? `_${bounded}` : bounded;
 }
-
-
 
 // Why a name Excel refuses is refused here. A defined name is written into
 // formulas by the caller, so repairing it silently would break those formulas:
@@ -49,18 +76,13 @@ export function workbookDefinedNameFault(value) {
   return '';
 }
 
-
 export function worksheetSection(xml, name) {
   return new RegExp(`<${name}\\b[^>]*?(?:\\/>|>[\\s\\S]*?<\\/${name}>)`).exec(xml);
 }
 
-
-
 export function upsertWorksheetSection(xml, name, element) {
   const existing = worksheetSection(xml, name);
-  const base = existing
-    ? `${xml.slice(0, existing.index)}${xml.slice(existing.index + existing[0].length)}`
-    : xml;
+  const base = existing ? `${xml.slice(0, existing.index)}${xml.slice(existing.index + existing[0].length)}` : xml;
   if (!element) return base;
   const position = WORKSHEET_SECTIONS.indexOf(name);
   for (const candidate of WORKSHEET_SECTIONS.slice(position + 1)) {
@@ -70,16 +92,11 @@ export function upsertWorksheetSection(xml, name, element) {
   return base.replace(/<\/worksheet>\s*$/, `${element}</worksheet>`);
 }
 
-
-
 export function mergedRanges(xml) {
   const section = worksheetSection(xml, 'mergeCells');
   if (!section) return [];
-  return [...section[0].matchAll(/<mergeCell\b[^>]*\bref="([^"]+)"[^>]*\/>/g)]
-    .map((match) => match[1].toUpperCase());
+  return [...section[0].matchAll(/<mergeCell\b[^>]*\bref="([^"]+)"[^>]*\/>/g)].map((match) => match[1].toUpperCase());
 }
-
-
 
 export function writeMergedRanges(xml, ranges) {
   const unique = [...new Set(ranges)];
@@ -89,28 +106,25 @@ export function writeMergedRanges(xml, ranges) {
   return upsertWorksheetSection(xml, 'mergeCells', element);
 }
 
-
-
 function renumberWorksheetRow(rowXml, index) {
   const open = /^<row\b([^>]*?)(\/>|>)/.exec(rowXml);
   if (!open) return rowXml;
   const attrs = setXmlAttribute(open[1], 'r', index);
   if (open[2] === '/>') return `<row${attrs}/>`;
-  const body = containerBody(rowXml, 'row')
-    .replace(/(<c\b[^>]*?\br=")([A-Z]+)\d+(")/g, (_match, lead, column, tail) => `${lead}${column}${index}${tail}`);
+  const body = containerBody(rowXml, 'row').replace(
+    /(<c\b[^>]*?\br=")([A-Z]+)\d+(")/g,
+    (_match, lead, column, tail) => `${lead}${column}${index}${tail}`
+  );
   return `<row${attrs}>${body}</row>`;
 }
-
-
 
 function replaceSheetData(xml, inner) {
   const sheetData = /<sheetData(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/sheetData>)/.exec(xml);
   if (!sheetData) throw new Error('Worksheet is missing sheetData');
-  return `${xml.slice(0, sheetData.index)}<sheetData>${inner}</sheetData>`
-    + xml.slice(sheetData.index + sheetData[0].length);
+  return (
+    `${xml.slice(0, sheetData.index)}<sheetData>${inner}</sheetData>` + xml.slice(sheetData.index + sheetData[0].length)
+  );
 }
-
-
 
 export function shiftWorksheetRows(xml, from, count) {
   const sheetData = /<sheetData(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/sheetData>)/.exec(xml);
@@ -126,8 +140,6 @@ export function shiftWorksheetRows(xml, from, count) {
   }
   return replaceSheetData(xml, kept.join(''));
 }
-
-
 
 export function shiftWorksheetColumns(xml, from, count) {
   const sheetData = /<sheetData(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/sheetData>)/.exec(xml);
@@ -153,8 +165,6 @@ export function shiftWorksheetColumns(xml, from, count) {
   return replaceSheetData(xml, rows.join(''));
 }
 
-
-
 export function appendWorksheetSection(xml, name, element) {
   const existing = [...xml.matchAll(new RegExp(`<${name}\\b[^>]*?(?:\\/>|>[\\s\\S]*?<\\/${name}>)`, 'g'))];
   if (!existing.length) return upsertWorksheetSection(xml, name, element);
@@ -163,8 +173,6 @@ export function appendWorksheetSection(xml, name, element) {
   return `${xml.slice(0, position)}${element}${xml.slice(position)}`;
 }
 
-
-
 // A scale or a bar states its own colors inside the rule: the low end, the
 // optional middle, and the high end for a scale; one bar color otherwise.
 // Excel's defaults are a red-to-green scale and a blue bar; a caller that
@@ -172,33 +180,39 @@ export function appendWorksheetSection(xml, name, element) {
 export function conditionalScaleRule(kind, options = {}, priority = 1) {
   const color = (value, fallback) => normalizeColor(value) || fallback;
   if (kind === 'dataBar') {
-    return `<cfRule type="dataBar" priority="${priority}"><dataBar>`
-      + '<cfvo type="min"/><cfvo type="max"/>'
-      + `<color rgb="${color(options.color || options.fillColor, 'FF638EC6')}"/>`
-      + '</dataBar></cfRule>';
+    return (
+      `<cfRule type="dataBar" priority="${priority}"><dataBar>` +
+      '<cfvo type="min"/><cfvo type="max"/>' +
+      `<color rgb="${color(options.color || options.fillColor, 'FF638EC6')}"/>` +
+      '</dataBar></cfRule>'
+    );
   }
   const middle = normalizeColor(options.midColor);
-  return `<cfRule type="colorScale" priority="${priority}"><colorScale>`
-    + '<cfvo type="min"/>'
-    + (middle ? '<cfvo type="percentile" val="50"/>' : '')
-    + '<cfvo type="max"/>'
-    + `<color rgb="${color(options.minColor, 'FFF8696B')}"/>`
-    + (middle ? `<color rgb="${middle}"/>` : '')
-    + `<color rgb="${color(options.maxColor, 'FF63BE7B')}"/>`
-    + '</colorScale></cfRule>';
+  return (
+    `<cfRule type="colorScale" priority="${priority}"><colorScale>` +
+    '<cfvo type="min"/>' +
+    (middle ? '<cfvo type="percentile" val="50"/>' : '') +
+    '<cfvo type="max"/>' +
+    `<color rgb="${color(options.minColor, 'FFF8696B')}"/>` +
+    (middle ? `<color rgb="${middle}"/>` : '') +
+    `<color rgb="${color(options.maxColor, 'FF63BE7B')}"/>` +
+    '</colorScale></cfRule>'
+  );
 }
 
 export function appendDifferentialFormat(stylesXml, { color = '', fillColor = '' }) {
   const font = normalizeColor(color);
   const fill = normalizeColor(fillColor);
-  const dxf = '<dxf>'
-    + (font ? `<font><color rgb="${font}"/></font>` : '')
-    + (fill ? `<fill><patternFill><bgColor rgb="${fill}"/></patternFill></fill>` : '')
-    + '</dxf>';
+  const dxf =
+    '<dxf>' +
+    (font ? `<font><color rgb="${font}"/></font>` : '') +
+    (fill ? `<fill><patternFill><bgColor rgb="${fill}"/></patternFill></fill>` : '') +
+    '</dxf>';
   const section = /<dxfs\b[^>]*?(?:\/>|>[\s\S]*?<\/dxfs>)/.exec(stylesXml);
-  const items = section && !section[0].endsWith('/>')
-    ? [...section[0].matchAll(/<dxf>[\s\S]*?<\/dxf>/g)].map((match) => match[0])
-    : [];
+  const items =
+    section && !section[0].endsWith('/>')
+      ? [...section[0].matchAll(/<dxf>[\s\S]*?<\/dxf>/g)].map((match) => match[0])
+      : [];
   const found = items.indexOf(dxf);
   if (found >= 0) return { xml: stylesXml, id: found };
   items.push(dxf);
@@ -212,24 +226,17 @@ export function appendDifferentialFormat(stylesXml, { color = '', fillColor = ''
   return { xml: stylesXml.replace('</styleSheet>', `${element}</styleSheet>`), id: items.length - 1 };
 }
 
-
-
 export function mergedCellAnchor(xml, reference) {
   const parsed = parseCellRef(reference);
   const column = columnNumber(parsed.col);
   for (const entry of mergedRanges(xml)) {
     const area = parseAreaRange(entry);
-    if (
-      area.startCol <= column && column <= area.endCol
-      && area.startRow <= parsed.row && parsed.row <= area.endRow
-    ) {
+    if (area.startCol <= column && column <= area.endCol && area.startRow <= parsed.row && parsed.row <= area.endRow) {
       return area.startCol === column && area.startRow === parsed.row;
     }
   }
   return true;
 }
-
-
 
 export function sheetViewParts(view) {
   const open = /^<sheetView\b([^>]*?)(\/>|>)/.exec(view);
@@ -240,24 +247,16 @@ export function sheetViewParts(view) {
   };
 }
 
-
-
 export function composeSheetView(attrs, body) {
   return body ? `<sheetView${attrs}>${body}</sheetView>` : `<sheetView${attrs}/>`;
 }
 
-
-
 export function updateSheetView(xml, mutate) {
   const section = worksheetSection(xml, 'sheetViews');
-  const current = section
-    ? /<sheetView\b[^>]*?(?:\/>|>[\s\S]*?<\/sheetView>)/.exec(section[0])?.[0] || ''
-    : '';
+  const current = section ? /<sheetView\b[^>]*?(?:\/>|>[\s\S]*?<\/sheetView>)/.exec(section[0])?.[0] || '' : '';
   const next = mutate(current || '<sheetView workbookViewId="0"/>');
   return upsertWorksheetSection(xml, 'sheetViews', `<sheetViews>${next}</sheetViews>`);
 }
-
-
 
 export function freezePaneXml(row, column) {
   const ySplit = Math.max(0, (Number(row) || 0) - 1);
@@ -265,14 +264,16 @@ export function freezePaneXml(row, column) {
   if (!ySplit && !xSplit) return '';
   const topLeft = `${columnLabel(xSplit + 1)}${ySplit + 1}`;
   const activePane = ySplit && xSplit ? 'bottomRight' : ySplit ? 'bottomLeft' : 'topRight';
-  return `<pane${xSplit ? ` xSplit="${xSplit}"` : ''}${ySplit ? ` ySplit="${ySplit}"` : ''}`
-    + ` topLeftCell="${topLeft}" activePane="${activePane}" state="frozen"/>`;
+  return (
+    `<pane${xSplit ? ` xSplit="${xSplit}"` : ''}${ySplit ? ` ySplit="${ySplit}"` : ''}` +
+    ` topLeftCell="${topLeft}" activePane="${activePane}" state="frozen"/>`
+  );
 }
 
-
-
 export function parseAreaRange(range) {
-  const text = String(range || '').trim().toUpperCase();
+  const text = String(range || '')
+    .trim()
+    .toUpperCase();
   const columns = /^([A-Z]+):([A-Z]+)$/.exec(text);
   if (columns) {
     return { startCol: columnNumber(columns[1]), endCol: columnNumber(columns[2]), startRow: 0, endRow: 0 };
@@ -298,24 +299,24 @@ export function parseAreaRange(range) {
   // A sheet-qualified reference is a near miss, not a malformed range: say
   // where the sheet belongs instead of reporting the whole string as unusable.
   if (String(range).includes('!')) {
-    throw new Error(`Range "${range}" carries a sheet name; pass the cells alone (A1:D25) and name the sheet in the operation's sheet field`);
+    throw new Error(
+      `Range "${range}" carries a sheet name; pass the cells alone (A1:D25) and name the sheet in the operation's sheet field`
+    );
   }
   throw new Error(`Unsupported range: ${range}`);
 }
 
-
-
 export function displayWidth(text) {
   let width = 0;
   for (const character of String(text ?? '')) {
-    width += /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(character)
+    width += /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(
+      character
+    )
       ? 2
       : 1;
   }
   return width;
 }
-
-
 
 // Excel prints a number through its format, so the characters a column has to
 // hold are the digits it renders plus every literal the format carries — a ₩
@@ -379,7 +380,7 @@ export function formattedNumberWidth(value, format = '') {
   const code = String(format || '').trim();
   if (!code || /^general$/i.test(code) || code === '@') return displayWidth(String(number));
   const sections = formatSections(code);
-  const chosen = number < 0 ? (sections[1] ?? sections[0]) : (number === 0 ? (sections[2] ?? sections[0]) : sections[0]);
+  const chosen = number < 0 ? (sections[1] ?? sections[0]) : number === 0 ? (sections[2] ?? sections[0]) : sections[0];
   const section = chosen ?? '';
   if (DATE_TOKENS.test(section.replace(/"[^"]*"/g, ''))) return dateWidth(section);
   let literals = '';
@@ -455,7 +456,7 @@ export function formattedNumberWidth(value, format = '') {
     }
     literals += char;
   }
-  const scaled = Math.abs(number) * (100 ** percent) / (1000 ** thousands);
+  const scaled = (Math.abs(number) * 100 ** percent) / 1000 ** thousands;
   const rounded = Number(scaled.toFixed(Math.min(20, decimals)));
   const digits = Math.max(String(Math.trunc(rounded)).length, zeroPlaces, 1);
   let width = digits + displayWidth(literals);
@@ -496,8 +497,6 @@ export function writeColumnWidths(xml, widths) {
   return upsertWorksheetSection(xml, 'cols', `<cols>${body}</cols>`);
 }
 
-
-
 // What the sheet does not show: a filtered or outlined row, a working column.
 // An appearance check that measures one reports a defect no reader can see, and
 // a reader that quotes one answers with data the workbook withheld.
@@ -520,7 +519,6 @@ export function hiddenSheetAreas(xml) {
   return { rows, columns };
 }
 
-
 // A hidden column keeps its width and its values; only the sheet stops showing
 // it. The declarations are stored per range, so each target column is written
 // as its own entry rather than splitting someone else's range by hand.
@@ -538,8 +536,10 @@ export function writeColumnVisibility(xml, columns, visible) {
     }
   }
   for (const column of columns) {
-    const attrs = (entries.get(column) || ` min="${column}" max="${column}" width="9.14" customWidth="1"`)
-      .replace(/\s*\bhidden="[^"]*"/, '');
+    const attrs = (entries.get(column) || ` min="${column}" max="${column}" width="9.14" customWidth="1"`).replace(
+      /\s*\bhidden="[^"]*"/,
+      ''
+    );
     entries.set(column, visible ? attrs : setXmlAttribute(attrs, 'hidden', '1'));
   }
   const body = [...entries.entries()]
@@ -549,12 +549,9 @@ export function writeColumnVisibility(xml, columns, visible) {
   return upsertWorksheetSection(xml, 'cols', `<cols>${body}</cols>`);
 }
 
-
 export function quoteSheetName(name) {
   return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : `'${String(name).replace(/'/g, "''")}'`;
 }
-
-
 
 export function absoluteRange(range) {
   return String(range)
@@ -562,8 +559,6 @@ export function absoluteRange(range) {
     .map((part) => part.replace(/^([A-Za-z]+)(\d+)$/, '$$$1$$$2'))
     .join(':');
 }
-
-
 
 export function upsertDefinedName(xml, entry, matches) {
   const section = /<definedNames\b[^>]*?(?:\/>|>[\s\S]*?<\/definedNames>)/.exec(xml);

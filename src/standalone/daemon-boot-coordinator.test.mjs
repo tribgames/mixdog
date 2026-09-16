@@ -5,7 +5,9 @@ import { createDaemonBootCoordinator } from './daemon-boot-coordinator.mjs';
 
 function deferred() {
   let resolve;
-  const promise = new Promise((accept) => { resolve = accept; });
+  const promise = new Promise((accept) => {
+    resolve = accept;
+  });
   return { promise, resolve };
 }
 
@@ -50,7 +52,9 @@ test('ordinary session registration opens the background lane after registration
   const events = [];
   const coordinator = createDaemonBootCoordinator({
     schedule: (task) => scheduled.push(task),
-    prewarmKeychain: async () => { events.push('keychain'); },
+    prewarmKeychain: async () => {
+      events.push('keychain');
+    },
     recoverActiveGoals: async () => {
       events.push('recovery');
       return { found: 0, resumed: 0, skipped: 0, failed: 0 };
@@ -72,7 +76,9 @@ test('catalog prewarm follows recovery behind its delay and never fails the lane
     schedule: (task) => scheduled.push(task),
     delay: (task, ms) => delayed.push({ task, ms }),
     catalogDelayMs: 1_500,
-    prewarmKeychain: async () => { events.push('keychain'); },
+    prewarmKeychain: async () => {
+      events.push('keychain');
+    },
     recoverActiveGoals: async () => {
       events.push('recovery');
       return { found: 0, resumed: 0, skipped: 0, failed: 0 };

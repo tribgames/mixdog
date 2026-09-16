@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
-import { dirname } from "path";
-import { writeJsonAtomicSync } from "../../shared/atomic-file.mjs";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
+import { dirname } from 'path';
+import { writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
 function ensureDir(dirPath) {
   mkdirSync(dirPath, { recursive: true });
 }
@@ -8,20 +8,20 @@ function removeFileIfExists(filePath) {
   try {
     unlinkSync(filePath);
   } catch (err) {
-    if (err.code !== "ENOENT") {
+    if (err.code !== 'ENOENT') {
       throw err;
     }
   }
 }
 function readJsonFile(filePath, fallback) {
   try {
-    return JSON.parse(readFileSync(filePath, "utf8"));
+    return JSON.parse(readFileSync(filePath, 'utf8'));
   } catch {
     return fallback;
   }
 }
 function readJsonFileStrict(filePath) {
-  const raw = readFileSync(filePath, "utf8");
+  const raw = readFileSync(filePath, 'utf8');
   return JSON.parse(raw);
 }
 function writeTextFile(filePath, value) {
@@ -58,11 +58,4 @@ class JsonStateFile {
     return this.write(draft);
   }
 }
-export {
-  JsonStateFile,
-  ensureDir,
-  readJsonFile,
-  removeFileIfExists,
-  writeJsonFile,
-  writeTextFile
-};
+export { JsonStateFile, ensureDir, readJsonFile, removeFileIfExists, writeJsonFile, writeTextFile };

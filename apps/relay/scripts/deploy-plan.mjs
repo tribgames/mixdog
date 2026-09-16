@@ -1,11 +1,5 @@
 import { createHash } from 'node:crypto';
-import {
-  mkdir,
-  readFile,
-  readdir,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { rendererDependencyFiles } from './renderer-dependencies.mjs';
@@ -18,7 +12,8 @@ const schemaVersion = 1;
 const defaultStatePath = join(relayDir, '.cache', 'deploy-state.json');
 const defaultPlanPath = join(relayDir, '.cache', 'deploy-plan.json');
 const desktopPackageManifest = join(desktopDir, 'package.json');
-const ignoredSource = /(?:^|[\\/])(?:node_modules|out|dist|target|\.cache|\.runtime)(?:[\\/]|$)|(?:^|[\\/]).*\.(?:test|spec)\.[^.]+$/i;
+const ignoredSource =
+  /(?:^|[\\/])(?:node_modules|out|dist|target|\.cache|\.runtime)(?:[\\/]|$)|(?:^|[\\/]).*\.(?:test|spec)\.[^.]+$/i;
 
 export const rendererInputs = [
   join(desktopDir, 'src', 'renderer'),
@@ -39,10 +34,14 @@ const relayInputs = [
 ];
 
 function parseArgs(argv) {
-  return Object.fromEntries(argv.map((entry) => {
-    const match = /^--([^=]+)=(.*)$/s.exec(entry);
-    return match ? [match[1], match[2]] : ['', ''];
-  }).filter(([name]) => name));
+  return Object.fromEntries(
+    argv
+      .map((entry) => {
+        const match = /^--([^=]+)=(.*)$/s.exec(entry);
+        return match ? [match[1], match[2]] : ['', ''];
+      })
+      .filter(([name]) => name)
+  );
 }
 
 async function walkFiles(input, files = [], knownType = '') {
@@ -82,9 +81,7 @@ export function rendererManifestForFingerprint(manifest) {
 export async function fingerprint(inputs, { followImports = false } = {}) {
   const initial = [];
   for (const input of inputs) await walkFiles(input, initial);
-  const files = followImports
-    ? await rendererDependencyFiles(initial)
-    : [...new Set(initial)];
+  const files = followImports ? await rendererDependencyFiles(initial) : [...new Set(initial)];
   files.sort((left, right) => left.localeCompare(right));
   const details = new Array(files.length);
   await mapPool(files, 16, async (file, index) => {
@@ -92,11 +89,10 @@ export async function fingerprint(inputs, { followImports = false } = {}) {
     details[index] = {
       file,
       metadata,
-      contents: resolve(file) === desktopPackageManifest
-        ? Buffer.from(JSON.stringify(
-          rendererManifestForFingerprint(JSON.parse(contents.toString('utf8'))),
-        ))
-        : contents,
+      contents:
+        resolve(file) === desktopPackageManifest
+          ? Buffer.from(JSON.stringify(rendererManifestForFingerprint(JSON.parse(contents.toString('utf8')))))
+          : contents,
     };
   });
   const hash = createHash('sha256');
@@ -122,20 +118,14 @@ async function readJson(path) {
 
 async function rendererOutputFresh(newestMtimeMs) {
   try {
-    return (await stat(join(desktopDir, 'out', 'renderer', 'index.html'))).mtimeMs
-      >= newestMtimeMs;
+    return (await stat(join(desktopDir, 'out', 'renderer', 'index.html'))).mtimeMs >= newestMtimeMs;
   } catch (error) {
     if (error?.code === 'ENOENT') return false;
     throw error;
   }
 }
 
-export function decideDeployPlan({
-  previous,
-  renderer,
-  relay,
-  outputFresh,
-}) {
+export function decideDeployPlan({ previous, renderer, relay, outputFresh }) {
   const currentState = previous?.schemaVersion === schemaVersion ? previous : null;
   const rendererChanged = currentState?.rendererHash !== renderer.hash;
   const relayChanged = currentState?.relayHash !== relay.hash;
@@ -174,12 +164,19 @@ async function commitPlan(statePath, planPath) {
     throw new Error('Live deploy plan is missing or incompatible.');
   }
   await mkdir(dirname(statePath), { recursive: true });
-  await writeFile(statePath, `${JSON.stringify({
-    schemaVersion,
-    rendererHash: plan.renderer.hash,
-    relayHash: plan.relay.hash,
-    deployedAt: new Date().toISOString(),
-  }, null, 2)}\n`);
+  await writeFile(
+    statePath,
+    `${JSON.stringify(
+      {
+        schemaVersion,
+        rendererHash: plan.renderer.hash,
+        relayHash: plan.relay.hash,
+        deployedAt: new Date().toISOString(),
+      },
+      null,
+      2
+    )}\n`
+  );
 }
 
 async function main() {

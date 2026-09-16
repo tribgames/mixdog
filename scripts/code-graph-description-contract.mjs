@@ -2,9 +2,14 @@ const FILE_MODES = ['overview', 'imports', 'dependents', 'related', 'impact'];
 const SYMBOL_MODES = ['find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees'];
 const EXACT_MODES = ['find_symbol', 'references', 'callers', 'callees'];
 const KEYWORD_MODES = ['symbol_search', 'search'];
-const NEGATION = /\b(?:no|not|never|without|cannot|won['’]t|ain['’]t|(?:is|are|was|were|do|does|did|has|have|had|can|could|would|should|must)(?:\s+not|n['’]t)|will\s+not|fail(?:s|ed|ing)?\s+to)\b/i;
+const NEGATION =
+  /\b(?:no|not|never|without|cannot|won['’]t|ain['’]t|(?:is|are|was|were|do|does|did|has|have|had|can|could|would|should|must)(?:\s+not|n['’]t)|will\s+not|fail(?:s|ed|ing)?\s+to)\b/i;
 
-const clauses = (text) => String(text || '').split(/[.;]\s*/).map((part) => part.trim()).filter(Boolean);
+const clauses = (text) =>
+  String(text || '')
+    .split(/[.;]\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const includesTerm = (text, term) => {
   if (/^[a-z_][a-z0-9_]*$/i.test(term)) {
@@ -13,17 +18,14 @@ const includesTerm = (text, term) => {
   return text.toLowerCase().includes(term.toLowerCase());
 };
 const includesAll = (text, terms) => terms.every((term) => includesTerm(text, term));
-const hasPositiveClause = (text, terms) => clauses(text).some((clause) => !NEGATION.test(clause) && includesAll(clause, terms));
-const hasModeClause = (text, label, modes, target = null) => (
-  hasPositiveClause(text, [label, ...modes, ...(target ? [target] : [])])
-);
-const hasContradictoryTargetAssignment = (text) => (
-  hasPositiveClause(text, [...FILE_MODES, 'symbols[]'])
-  || hasPositiveClause(text, [...SYMBOL_MODES, 'files[]'])
-);
-const removeIdentifier = (text, identifier) => (
-  text.replace(new RegExp(`(?<![a-z0-9_])${escapeRegExp(identifier)}(?![a-z0-9_])`, 'gi'), '')
-);
+const hasPositiveClause = (text, terms) =>
+  clauses(text).some((clause) => !NEGATION.test(clause) && includesAll(clause, terms));
+const hasModeClause = (text, label, modes, target = null) =>
+  hasPositiveClause(text, [label, ...modes, ...(target ? [target] : [])]);
+const hasContradictoryTargetAssignment = (text) =>
+  hasPositiveClause(text, [...FILE_MODES, 'symbols[]']) || hasPositiveClause(text, [...SYMBOL_MODES, 'files[]']);
+const removeIdentifier = (text, identifier) =>
+  text.replace(new RegExp(`(?<![a-z0-9_])${escapeRegExp(identifier)}(?![a-z0-9_])`, 'gi'), '');
 
 const CODE_GRAPH_EQUIVALENT_DESCRIPTION_PROBES = [
   {
@@ -69,8 +71,14 @@ const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
     name: 'contracted negated file assignment',
     mutate: (parts) => ({
       ...parts,
-      description: parts.description.replace(/file modes (?:take|use) files\[\]/i, "file modes aren't assigned files[]"),
-      filesDescription: String(parts.filesDescription || '').replace(/required for file modes/i, 'not required for file modes'),
+      description: parts.description.replace(
+        /file modes (?:take|use) files\[\]/i,
+        "file modes aren't assigned files[]"
+      ),
+      filesDescription: String(parts.filesDescription || '').replace(
+        /required for file modes/i,
+        'not required for file modes'
+      ),
     }),
   },
   {
@@ -86,7 +94,10 @@ const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
     allPositiveProbes: true,
     mutate: (parts) => ({
       ...parts,
-      description: parts.description.replace(/keywords(?::|\s+(?:use|route through|select|via))/i, "keywords won't use"),
+      description: parts.description.replace(
+        /keywords(?::|\s+(?:use|route through|select|via))/i,
+        "keywords won't use"
+      ),
     }),
   },
   {
@@ -135,20 +146,20 @@ const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
 
 function hasCodeGraphDescriptionContract({ description, modeDescription, filesDescription, symbolsDescription }) {
   return (
-    (hasPositiveClause(description, ['file modes', 'files[]'])
-      || hasPositiveClause(filesDescription, ['required for file modes']))
-    && (hasPositiveClause(description, ['symbol modes', 'symbols[]'])
-      || hasPositiveClause(symbolsDescription, ['required for symbol modes']))
-    && hasPositiveClause(description, ['exact identifiers', ...EXACT_MODES])
-    && hasPositiveClause(description, ['keywords', ...KEYWORD_MODES])
-    && !hasContradictoryTargetAssignment(description)
-    && hasModeClause(modeDescription, 'file modes', FILE_MODES)
-    && hasPositiveClause(modeDescription, ['symbols with files', 'files[]', 'file outline'])
-    && !hasContradictoryTargetAssignment(modeDescription)
-    && !hasContradictoryTargetAssignment(filesDescription)
-    && hasPositiveClause(symbolsDescription, ['exact identifiers'])
-    && hasPositiveClause(symbolsDescription, ['keywords'])
-    && !hasContradictoryTargetAssignment(symbolsDescription)
+    (hasPositiveClause(description, ['file modes', 'files[]']) ||
+      hasPositiveClause(filesDescription, ['required for file modes'])) &&
+    (hasPositiveClause(description, ['symbol modes', 'symbols[]']) ||
+      hasPositiveClause(symbolsDescription, ['required for symbol modes'])) &&
+    hasPositiveClause(description, ['exact identifiers', ...EXACT_MODES]) &&
+    hasPositiveClause(description, ['keywords', ...KEYWORD_MODES]) &&
+    !hasContradictoryTargetAssignment(description) &&
+    hasModeClause(modeDescription, 'file modes', FILE_MODES) &&
+    hasPositiveClause(modeDescription, ['symbols with files', 'files[]', 'file outline']) &&
+    !hasContradictoryTargetAssignment(modeDescription) &&
+    !hasContradictoryTargetAssignment(filesDescription) &&
+    hasPositiveClause(symbolsDescription, ['exact identifiers']) &&
+    hasPositiveClause(symbolsDescription, ['keywords']) &&
+    !hasContradictoryTargetAssignment(symbolsDescription)
   );
 }
 

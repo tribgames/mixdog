@@ -16,21 +16,18 @@ export function gitCacheKey(cwd: string): string {
 export async function mapWithConcurrency<T, R>(
   values: readonly T[],
   limit: number,
-  mapper: (value: T) => Promise<R>,
+  mapper: (value: T) => Promise<R>
 ): Promise<R[]> {
   if (values.length === 0) return [];
   const results = new Array<R>(values.length);
   let nextIndex = 0;
-  const workers = Array.from(
-    { length: Math.min(Math.max(1, limit), values.length) },
-    async () => {
-      while (nextIndex < values.length) {
-        const index = nextIndex;
-        nextIndex += 1;
-        results[index] = await mapper(values[index]);
-      }
-    },
-  );
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(values[index]);
+    }
+  });
   await Promise.all(workers);
   return results;
 }
@@ -82,13 +79,15 @@ export async function untrackedPatch(cwd: string, path: string): Promise<string>
     const lines = text.split('\n');
     if (lines.at(-1) === '') lines.pop();
     if (!lines.length) return '';
-    return [
-      `diff --git a/${path} b/${path}`,
-      '--- /dev/null',
-      `+++ b/${path}`,
-      `@@ -0,0 +1,${lines.length} @@`,
-      ...lines.map((line) => `+${line}`),
-    ].join('\n') + '\n';
+    return (
+      [
+        `diff --git a/${path} b/${path}`,
+        '--- /dev/null',
+        `+++ b/${path}`,
+        `@@ -0,0 +1,${lines.length} @@`,
+        ...lines.map((line) => `+${line}`),
+      ].join('\n') + '\n'
+    );
   } catch {
     return '';
   }

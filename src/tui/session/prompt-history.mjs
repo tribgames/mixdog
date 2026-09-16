@@ -8,7 +8,10 @@
  */
 export const PROMPT_HISTORY_LIMIT = 50;
 
-export const promptHistoryKey = (value) => String(value || '').trim().replace(/\s+/g, ' ');
+export const promptHistoryKey = (value) =>
+  String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ');
 
 export function recomputePromptHistory(sourceItems, limit = PROMPT_HISTORY_LIMIT) {
   const items = Array.isArray(sourceItems) ? sourceItems : [];

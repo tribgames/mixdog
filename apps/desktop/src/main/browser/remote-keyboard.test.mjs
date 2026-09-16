@@ -18,19 +18,30 @@ function fixture() {
   const cdp = {
     waitForInitialDocument: async () => {},
     guestDebugger: async () => ({}),
-    sendCdpInput: async (_guest, _debugger, method, params) => { calls.push({ method, params }); },
+    sendCdpInput: async (_guest, _debugger, method, params) => {
+      calls.push({ method, params });
+    },
   };
   const remote = createBrowserRemoteControl({
-    state, cdp,
+    state,
+    cdp,
     ensureGuest: async () => guest,
     revision: async () => revision,
     captureScreenshot: async () => ({ data: pixels, width: 100, height: 50, mimeType: 'image/jpeg' }),
   });
   return {
-    state, calls, cdp, remote,
+    state,
+    calls,
+    cdp,
+    remote,
     guest: () => guest,
-    changeImage: () => { pixels = 'blinking caret'; revision = 'typed value'; },
-    replaceGuest: () => { guest = { ...guest }; },
+    changeImage: () => {
+      pixels = 'blinking caret';
+      revision = 'typed value';
+    },
+    replaceGuest: () => {
+      guest = { ...guest };
+    },
   };
 }
 
@@ -44,7 +55,10 @@ test('remote text and keys continue through changing pixels and consumed image f
     await f.remote.remoteBrowserControl('s', { type: 'text', text, ...identity });
   }
   await f.remote.remoteBrowserControl('s', { type: 'key', key: 'Backspace', ...identity });
-  assert.deepEqual(f.calls.filter((call) => call.method === 'Input.insertText').map((call) => call.params.text), ['a', '@', '한']);
+  assert.deepEqual(
+    f.calls.filter((call) => call.method === 'Input.insertText').map((call) => call.params.text),
+    ['a', '@', '한']
+  );
   assert.ok(f.calls.some((call) => call.method === 'Input.dispatchKeyEvent' && call.params.key === 'Backspace'));
   const next = await f.remote.remoteBrowserFrame('s');
   assert.equal(next.documentId, frame.documentId);
@@ -54,16 +68,26 @@ test('remote keyboard input from an old page, destroyed page, crash, or dialog i
   for (const change of [
     (f) => f.state.beginDocument(f.guest()),
     (f) => f.replaceGuest(),
-    (f) => { f.guest().isDestroyed = () => true; },
+    (f) => {
+      f.guest().isDestroyed = () => true;
+    },
     (f) => f.state.markCrashed(f.guest(), 'renderer gone'),
-    (f) => { f.state.for(f.guest()).pendingDialog = { type: 'alert' }; },
+    (f) => {
+      f.state.for(f.guest()).pendingDialog = { type: 'alert' };
+    },
   ]) {
     const f = fixture();
     const frame = await f.remote.remoteBrowserFrame('s');
     change(f);
-    await assert.rejects(f.remote.remoteBrowserControl('s', {
-      type: 'text', text: 'not sent', frameId: frame.frameId, documentId: frame.documentId,
-    }), /page changed|dialog is blocking/);
+    await assert.rejects(
+      f.remote.remoteBrowserControl('s', {
+        type: 'text',
+        text: 'not sent',
+        frameId: frame.frameId,
+        documentId: frame.documentId,
+      }),
+      /page changed|dialog is blocking/
+    );
     assert.deepEqual(f.calls, []);
   }
 });
@@ -71,14 +95,25 @@ test('remote keyboard input from an old page, destroyed page, crash, or dialog i
 test('navigation during keyboard attachment and during frame capture cannot retarget input', async () => {
   const f = fixture();
   const frame = await f.remote.remoteBrowserFrame('s');
-  f.cdp.guestDebugger = async () => { f.state.beginDocument(f.guest()); return {}; };
-  await assert.rejects(f.remote.remoteBrowserControl('s', {
-    type: 'text', text: 'not sent', frameId: frame.frameId, documentId: frame.documentId,
-  }), /page changed/);
+  f.cdp.guestDebugger = async () => {
+    f.state.beginDocument(f.guest());
+    return {};
+  };
+  await assert.rejects(
+    f.remote.remoteBrowserControl('s', {
+      type: 'text',
+      text: 'not sent',
+      frameId: frame.frameId,
+      documentId: frame.documentId,
+    }),
+    /page changed/
+  );
   assert.deepEqual(f.calls, []);
 
   const remote = createBrowserRemoteControl({
-    state: f.state, cdp: f.cdp, ensureGuest: async () => f.guest(),
+    state: f.state,
+    cdp: f.cdp,
+    ensureGuest: async () => f.guest(),
     captureScreenshot: async () => {
       f.state.beginDocument(f.guest());
       return { data: 'same pixels', width: 100, height: 50, mimeType: 'image/jpeg' };

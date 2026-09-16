@@ -81,19 +81,18 @@ function Harness({
   const selectionLayoutRef = React.useRef(null);
   const contentRef = React.useRef(null);
   const tailRef = React.useRef(null);
-  const streamingTail = React.useMemo(() => ({
-    id: streamId,
-    kind: 'assistant',
-    text,
-    streaming: true,
-  }), [text]);
+  const streamingTail = React.useMemo(
+    () => ({
+      id: streamId,
+      kind: 'assistant',
+      text,
+      streaming: true,
+    }),
+    [text]
+  );
   const transcriptItems = React.useMemo(() => [...history, streamingTail], [history, streamingTail]);
 
-  const {
-    transcriptWindow,
-    renderedTranscriptItems,
-    transcriptMeasureRef,
-  } = useTranscriptWindow({
+  const { transcriptWindow, renderedTranscriptItems, transcriptMeasureRef } = useTranscriptWindow({
     items: history,
     structureRevision: 1,
     sessionKey,
@@ -126,10 +125,13 @@ function Harness({
   });
 
   const tailHookRef = transcriptMeasureRef(streamingTail);
-  const combinedTailRef = React.useCallback((element) => {
-    tailHookRef?.(element);
-    tailRef.current = element;
-  }, [tailHookRef]);
+  const combinedTailRef = React.useCallback(
+    (element) => {
+      tailHookRef?.(element);
+      tailRef.current = element;
+    },
+    [tailHookRef]
+  );
 
   React.useLayoutEffect(() => {
     const geometry = transcriptGeomRef.current || {};
@@ -142,7 +144,7 @@ function Harness({
     const frame = {
       commit: ++commit,
       step,
-      char: text.at(-1) === '\n' ? '\\n' : (text.at(-1) || ''),
+      char: text.at(-1) === '\n' ? '\\n' : text.at(-1) || '',
       totalRows: transcriptWindow.totalRows,
       renderScrollOffset,
       visibleTopIndexed,
@@ -159,8 +161,16 @@ function Harness({
     };
     if (recordFrame) frames.push(frame);
     onFrame(frame);
-  }, [step, text, viewRows, measuredRowsVersion, transcriptWindow.totalRows, transcriptWindow.effectiveScrollOffset,
-    transcriptAnchorRef, transcriptGeomRef]);
+  }, [
+    step,
+    text,
+    viewRows,
+    measuredRowsVersion,
+    transcriptWindow.totalRows,
+    transcriptWindow.effectiveScrollOffset,
+    transcriptAnchorRef,
+    transcriptGeomRef,
+  ]);
 
   return (
     <Box flexDirection="column" width={COLUMNS} height={viewRows} overflow="hidden" justifyContent="flex-end">
@@ -184,9 +194,9 @@ function Harness({
             </Box>
           );
         })}
-        {transcriptWindow.bottomSpacerRows > 0
-          ? <Box height={transcriptWindow.bottomSpacerRows} flexShrink={0} />
-          : null}
+        {transcriptWindow.bottomSpacerRows > 0 ? (
+          <Box height={transcriptWindow.bottomSpacerRows} flexShrink={0} />
+        ) : null}
       </Box>
     </Box>
   );
@@ -217,40 +227,27 @@ function AssistantSettleHeightProbe({ text, streaming, assistantId, onHeight }) 
   }, [onHeight, streaming, text]);
   return (
     <Box ref={ref} width={COLUMNS} flexDirection="column">
-      <AssistantMessage
-        text={text}
-        streaming={streaming}
-        columns={COLUMNS}
-        assistantId={assistantId}
-      />
+      <AssistantMessage text={text} streaming={streaming} columns={COLUMNS} assistantId={assistantId} />
     </Box>
   );
 }
 
 async function assertAssistantSettleHeight(text, assistantId) {
   let latestHeight = 0;
-  const onHeight = (height) => { latestHeight = height; };
+  const onHeight = (height) => {
+    latestHeight = height;
+  };
   const stdout = fakeTty(COLUMNS, VIEW_ROWS);
   const stderr = fakeTty(COLUMNS, VIEW_ROWS);
   const stdin = fakeTty(COLUMNS, VIEW_ROWS);
   const instance = render(
-    <AssistantSettleHeightProbe
-      text={text}
-      streaming
-      assistantId={assistantId}
-      onHeight={onHeight}
-    />,
-    { stdout, stderr, stdin, interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
+    <AssistantSettleHeightProbe text={text} streaming assistantId={assistantId} onHeight={onHeight} />,
+    { stdout, stderr, stdin, interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 }
   );
   await settle(instance);
   const streamingHeight = latestHeight;
   instance.rerender(
-    <AssistantSettleHeightProbe
-      text={text}
-      streaming={false}
-      assistantId={assistantId}
-      onHeight={onHeight}
-    />,
+    <AssistantSettleHeightProbe text={text} streaming={false} assistantId={assistantId} onHeight={onHeight} />
   );
   await settle(instance);
   const settledHeight = latestHeight;
@@ -258,11 +255,13 @@ async function assertAssistantSettleHeight(text, assistantId) {
   await instance.waitUntilExit();
   instance.cleanup();
   if (settledHeight !== streamingHeight) {
-    throw new Error(`assistant markdown changed height on settle: ${JSON.stringify({
-      assistantId,
-      streamingHeight,
-      settledHeight,
-    })}`);
+    throw new Error(
+      `assistant markdown changed height on settle: ${JSON.stringify({
+        assistantId,
+        streamingHeight,
+        settledHeight,
+      })}`
+    );
   }
 }
 
@@ -296,11 +295,7 @@ function assertStreamingMarkdownPartsCache() {
 }
 
 function assertDeepToolAnchorToggleRoundTrip() {
-  const items = [
-    { id: 'before-tool' },
-    { id: 'expanded-tool' },
-    { id: 'after-tool' },
-  ];
+  const items = [{ id: 'before-tool' }, { id: 'expanded-tool' }, { id: 'after-tool' }];
   const anchor = { id: 'expanded-tool', offset: 15 };
   const viewRows = 8;
   const geometries = [
@@ -323,8 +318,10 @@ function assertDeepToolAnchorToggleRoundTrip() {
       visibleTop: totalRows - viewRows - scrollOffset,
     };
   });
-  if (positions.some(({ visibleTop }) => visibleTop !== 25)
-    || positions[0].scrollOffset !== positions[2].scrollOffset) {
+  if (
+    positions.some(({ visibleTop }) => visibleTop !== 25) ||
+    positions[0].scrollOffset !== positions[2].scrollOffset
+  ) {
     throw new Error(`deep tool anchor moved across expand/collapse: ${JSON.stringify(positions)}`);
   }
 }
@@ -367,26 +364,32 @@ let previousSettled = null;
 for (const [step, list] of [...byStep.entries()].sort((a, b) => a[0] - b[0])) {
   const first = list[0];
   const settled = list.at(-1);
-  if (previousSettled
-    && first.visibleTopPhysical !== previousSettled.visibleTopPhysical
-    && settled.visibleTopPhysical === previousSettled.visibleTopPhysical) {
+  if (
+    previousSettled &&
+    first.visibleTopPhysical !== previousSettled.visibleTopPhysical &&
+    settled.visibleTopPhysical === previousSettled.visibleTopPhysical
+  ) {
     dips.push({ previous: previousSettled, transient: first, corrected: settled });
   }
   previousSettled = settled;
 }
 
 const print = (label, frame) => {
-  console.log(`${label} c${frame.commit} step=${frame.step} char=${JSON.stringify(frame.char)}`
-    + ` totalRows=${frame.totalRows} renderScrollOffset=${frame.renderScrollOffset}`
-    + ` visibleTop=${frame.visibleTopPhysical} indexedTop=${frame.visibleTopIndexed}`
-    + ` physicalRows=${frame.physicalRows} tail(index/yoga)=${frame.tailIndexedRows}/${frame.tailYogaRows}`
-    + ` mountedDelta=${frame.mountedDelta}`
-    + ` suppressMeasured=${frame.suppressMeasured ? 1 : 0}`
-    + ` measuredVersion=${frame.measuredRowsVersion}`
-    + ` target=${frame.scrollTarget} following=${frame.following ? 1 : 0} anchor=${frame.anchor}`);
+  console.log(
+    `${label} c${frame.commit} step=${frame.step} char=${JSON.stringify(frame.char)}` +
+      ` totalRows=${frame.totalRows} renderScrollOffset=${frame.renderScrollOffset}` +
+      ` visibleTop=${frame.visibleTopPhysical} indexedTop=${frame.visibleTopIndexed}` +
+      ` physicalRows=${frame.physicalRows} tail(index/yoga)=${frame.tailIndexedRows}/${frame.tailYogaRows}` +
+      ` mountedDelta=${frame.mountedDelta}` +
+      ` suppressMeasured=${frame.suppressMeasured ? 1 : 0}` +
+      ` measuredVersion=${frame.measuredRowsVersion}` +
+      ` target=${frame.scrollTarget} following=${frame.following ? 1 : 0} anchor=${frame.anchor}`
+  );
 };
 
-console.log(`# scrolled-up fenced-script frame repro columns=${COLUMNS} viewRows=${VIEW_ROWS} initialScroll=${INITIAL_SCROLL}`);
+console.log(
+  `# scrolled-up fenced-script frame repro columns=${COLUMNS} viewRows=${VIEW_ROWS} initialScroll=${INITIAL_SCROLL}`
+);
 console.log(`# append-only characters=${SCRIPT.length} commits=${frames.length} dip-snap events=${dips.length}`);
 for (const event of dips.slice(0, 4)) {
   print('before   ', event.previous);
@@ -417,7 +420,15 @@ const pinnedInstance = render(
     recordFrame={false}
     onFrame={(frame) => pinnedFrames.push(frame)}
   />,
-  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
+  {
+    stdout: fakeTty(COLUMNS, VIEW_ROWS),
+    stderr: fakeTty(COLUMNS, VIEW_ROWS),
+    stdin: fakeTty(COLUMNS, VIEW_ROWS),
+    interactive: true,
+    patchConsole: false,
+    exitOnCtrlC: false,
+    maxFps: 1000,
+  }
 );
 await settle(pinnedInstance);
 for (let step = 2; step <= SCRIPT.length; step++) {
@@ -431,7 +442,7 @@ for (let step = 2; step <= SCRIPT.length; step++) {
       following
       recordFrame={false}
       onFrame={(frame) => pinnedFrames.push(frame)}
-    />,
+    />
   );
   await settle(pinnedInstance);
 }
@@ -446,10 +457,12 @@ let previousPinned = null;
 for (const frame of pinnedSettledByStep.values()) {
   const physicalDelta = previousPinned ? frame.physicalRows - previousPinned.physicalRows : 0;
   const indexedDelta = previousPinned ? frame.totalRows - previousPinned.totalRows : 0;
-  if (frame.mountedDelta !== 0
-    || frame.visibleTopPhysical !== frame.visibleTopIndexed
-    || physicalDelta < 0
-    || physicalDelta !== indexedDelta) {
+  if (
+    frame.mountedDelta !== 0 ||
+    frame.visibleTopPhysical !== frame.visibleTopIndexed ||
+    physicalDelta < 0 ||
+    physicalDelta !== indexedDelta
+  ) {
     pinnedGeometryFaults.push({
       previous: previousPinned,
       current: frame,
@@ -459,14 +472,18 @@ for (const frame of pinnedSettledByStep.values()) {
   }
   previousPinned = frame;
 }
-console.log(`# bottom-pinned fenced-script frames=${pinnedFrames.length} geometry-faults=${pinnedGeometryFaults.length}`);
+console.log(
+  `# bottom-pinned fenced-script frames=${pinnedFrames.length} geometry-faults=${pinnedGeometryFaults.length}`
+);
 for (const fault of pinnedGeometryFaults.slice(0, 4)) {
   if (fault.previous) print('before   ', fault.previous);
   print('fault    ', fault.current);
   console.log(`delta physical/indexed=${fault.physicalDelta}/${fault.indexedDelta}\n`);
 }
 if (pinnedGeometryFaults.length > 0) {
-  throw new Error(`expected one geometry authority while a bottom-pinned fenced script streams; observed ${pinnedGeometryFaults.length} faults`);
+  throw new Error(
+    `expected one geometry authority while a bottom-pinned fenced script streams; observed ${pinnedGeometryFaults.length} faults`
+  );
 }
 
 // Structural append repro: generated tool/status rows join the settled prefix
@@ -496,28 +513,35 @@ const appendBaseProps = {
   recordFrame: false,
   onFrame: (frame) => appendFrames.push(frame),
 };
-const appendInstance = render(
-  <Harness {...appendBaseProps} step={0} history={HISTORY} />,
-  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
-);
+const appendInstance = render(<Harness {...appendBaseProps} step={0} history={HISTORY} />, {
+  stdout: fakeTty(COLUMNS, VIEW_ROWS),
+  stderr: fakeTty(COLUMNS, VIEW_ROWS),
+  stdin: fakeTty(COLUMNS, VIEW_ROWS),
+  interactive: true,
+  patchConsole: false,
+  exitOnCtrlC: false,
+  maxFps: 1000,
+});
 await settle(appendInstance);
 const framesBeforeAppend = appendFrames.length;
-appendInstance.rerender(
-  <Harness {...appendBaseProps} step={1} history={[...HISTORY, appendedTool]} />,
-);
+appendInstance.rerender(<Harness {...appendBaseProps} step={1} history={[...HISTORY, appendedTool]} />);
 await settle(appendInstance);
 appendInstance.unmount();
 await appendInstance.waitUntilExit();
 appendInstance.cleanup();
 const generatedRowFrames = appendFrames.slice(framesBeforeAppend);
 const generatedRowSettled = generatedRowFrames.at(-1);
-if (!generatedRowFrames.length
-  || generatedRowFrames.some((frame) => frame.renderScrollOffset !== 0)
-  || generatedRowFrames.some((frame) => frame.suppressMeasured)
-  || !generatedRowSettled
-  || generatedRowSettled.visibleTopPhysical !== generatedRowSettled.visibleTopIndexed
-  || generatedRowSettled.mountedDelta !== 0) {
-  throw new Error(`bottom-follow generated row did not settle in one pinned geometry: ${JSON.stringify(generatedRowFrames)}`);
+if (
+  !generatedRowFrames.length ||
+  generatedRowFrames.some((frame) => frame.renderScrollOffset !== 0) ||
+  generatedRowFrames.some((frame) => frame.suppressMeasured) ||
+  !generatedRowSettled ||
+  generatedRowSettled.visibleTopPhysical !== generatedRowSettled.visibleTopIndexed ||
+  generatedRowSettled.mountedDelta !== 0
+) {
+  throw new Error(
+    `bottom-follow generated row did not settle in one pinned geometry: ${JSON.stringify(generatedRowFrames)}`
+  );
 }
 
 // Popup/picker geometry must not count as transcript interaction. While a
@@ -532,24 +556,43 @@ const popupFollowProps = {
   recordFrame: false,
   onFrame: (frame) => popupFollowFrames.push(frame),
 };
-const popupFollowInstance = render(
-  <Harness {...popupFollowProps} text="popup follow seed" step={0} />,
-  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
-);
+const popupFollowInstance = render(<Harness {...popupFollowProps} text="popup follow seed" step={0} />, {
+  stdout: fakeTty(COLUMNS, VIEW_ROWS),
+  stderr: fakeTty(COLUMNS, VIEW_ROWS),
+  stdin: fakeTty(COLUMNS, VIEW_ROWS),
+  interactive: true,
+  patchConsole: false,
+  exitOnCtrlC: false,
+  maxFps: 1000,
+});
 await settle(popupFollowInstance);
 const popupFramesStart = popupFollowFrames.length;
 popupFollowInstance.rerender(
-  <Harness {...popupFollowProps} text={'popup follow seed\npanel opened output'} step={1}
-    viewRows={VIEW_ROWS - 2} floatingPanelRows={2} />,
+  <Harness
+    {...popupFollowProps}
+    text={'popup follow seed\npanel opened output'}
+    step={1}
+    viewRows={VIEW_ROWS - 2}
+    floatingPanelRows={2}
+  />
 );
 await settle(popupFollowInstance);
 popupFollowInstance.rerender(
-  <Harness {...popupFollowProps} text={'popup follow seed\npanel opened output\npanel browsing output'} step={2}
-    viewRows={VIEW_ROWS - 2} floatingPanelRows={2} />,
+  <Harness
+    {...popupFollowProps}
+    text={'popup follow seed\npanel opened output\npanel browsing output'}
+    step={2}
+    viewRows={VIEW_ROWS - 2}
+    floatingPanelRows={2}
+  />
 );
 await settle(popupFollowInstance);
 popupFollowInstance.rerender(
-  <Harness {...popupFollowProps} text={'popup follow seed\npanel opened output\npanel browsing output\npanel closed output'} step={3} />,
+  <Harness
+    {...popupFollowProps}
+    text={'popup follow seed\npanel opened output\npanel browsing output\npanel closed output'}
+    step={3}
+  />
 );
 await settle(popupFollowInstance);
 popupFollowInstance.unmount();
@@ -557,13 +600,13 @@ await popupFollowInstance.waitUntilExit();
 popupFollowInstance.cleanup();
 const popupActiveFrames = popupFollowFrames.slice(popupFramesStart);
 const popupFinalFrame = popupActiveFrames.at(-1);
-if (!popupActiveFrames.length
-  || popupActiveFrames.some((frame) => !frame.following
-    || frame.renderScrollOffset !== 0
-    || frame.suppressMeasured)
-  || !popupFinalFrame
-  || popupFinalFrame.visibleTopPhysical !== popupFinalFrame.visibleTopIndexed
-  || popupFinalFrame.mountedDelta !== 0) {
+if (
+  !popupActiveFrames.length ||
+  popupActiveFrames.some((frame) => !frame.following || frame.renderScrollOffset !== 0 || frame.suppressMeasured) ||
+  !popupFinalFrame ||
+  popupFinalFrame.visibleTopPhysical !== popupFinalFrame.visibleTopIndexed ||
+  popupFinalFrame.mountedDelta !== 0
+) {
   throw new Error(`popup interaction interrupted bottom follow: ${JSON.stringify(popupActiveFrames)}`);
 }
 
@@ -580,7 +623,15 @@ const layoutTransitionInstance = render(
     onFrame={(frame) => layoutTransitionFrames.push(frame)}
     onScrollStateDispatch={(next) => layoutTransitionStateDispatches.push(next)}
   />,
-  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
+  {
+    stdout: fakeTty(COLUMNS, VIEW_ROWS),
+    stderr: fakeTty(COLUMNS, VIEW_ROWS),
+    stdin: fakeTty(COLUMNS, VIEW_ROWS),
+    interactive: true,
+    patchConsole: false,
+    exitOnCtrlC: false,
+    maxFps: 1000,
+  }
 );
 await settle(layoutTransitionInstance);
 const dispatchesBeforeLayoutTransition = layoutTransitionStateDispatches.length;
@@ -597,7 +648,7 @@ layoutTransitionInstance.rerender(
     recordFrame={false}
     onFrame={(frame) => layoutTransitionFrames.push(frame)}
     onScrollStateDispatch={(next) => layoutTransitionStateDispatches.push(next)}
-  />,
+  />
 );
 await settle(layoutTransitionInstance);
 layoutTransitionInstance.unmount();
@@ -607,10 +658,14 @@ const transitionFrames = layoutTransitionFrames.slice(framesBeforeLayoutTransiti
 const transitionTopRows = new Set(transitionFrames.map((frame) => frame.visibleTopPhysical));
 const transitionStateDispatches = layoutTransitionStateDispatches.slice(dispatchesBeforeLayoutTransition);
 if (!transitionFrames.length || transitionTopRows.size !== 1) {
-  throw new Error(`layout + transcript transition did not keep one anchored top row: ${JSON.stringify(transitionFrames)}`);
+  throw new Error(
+    `layout + transcript transition did not keep one anchored top row: ${JSON.stringify(transitionFrames)}`
+  );
 }
 if (transitionStateDispatches.length > 0) {
-  throw new Error(`anchored layout + transcript transition fed its resolved offset back into React state: ${JSON.stringify(transitionStateDispatches)}`);
+  throw new Error(
+    `anchored layout + transcript transition fed its resolved offset back into React state: ${JSON.stringify(transitionStateDispatches)}`
+  );
 }
 
 const SELECTION_STREAM_ID = 'released-selection-tail';
@@ -630,7 +685,15 @@ const selectionInstance = render(
     }}
     onFrame={(frame) => selectionFrames.push(frame)}
   />,
-  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
+  {
+    stdout: fakeTty(COLUMNS, VIEW_ROWS),
+    stderr: fakeTty(COLUMNS, VIEW_ROWS),
+    stdin: fakeTty(COLUMNS, VIEW_ROWS),
+    interactive: true,
+    patchConsole: false,
+    exitOnCtrlC: false,
+    maxFps: 1000,
+  }
 );
 await settle(selectionInstance);
 const harvestsBeforeGrowth = selectionHarvests.length;
@@ -647,7 +710,7 @@ selectionInstance.rerender(
       if (rect && options?.rememberText === false) selectionHarvests.push({ y1: rect.y1, y2: rect.y2 });
     }}
     onFrame={(frame) => selectionFrames.push(frame)}
-  />,
+  />
 );
 await settle(selectionInstance);
 selectionInstance.unmount();
@@ -659,27 +722,26 @@ if (!growthFrames.some((frame) => frame.scrollTarget > 1)) {
 }
 const growthHarvests = selectionHarvests.slice(harvestsBeforeGrowth);
 const initialRenderOffset = selectionFrames[framesBeforeGrowth - 1]?.renderScrollOffset ?? 0;
-const maxGrowthRenderOffset = Math.max(
-  initialRenderOffset,
-  ...growthFrames.map((frame) => frame.renderScrollOffset),
-);
+const maxGrowthRenderOffset = Math.max(initialRenderOffset, ...growthFrames.map((frame) => frame.renderScrollOffset));
 const maxExpectedSelectionY = releasedSelection.y1 + maxGrowthRenderOffset - initialRenderOffset;
 const doubleCountedHarvest = growthHarvests.find(
-  (harvest) => harvest.y1 > maxExpectedSelectionY || harvest.y2 > maxExpectedSelectionY,
+  (harvest) => harvest.y1 > maxExpectedSelectionY || harvest.y2 > maxExpectedSelectionY
 );
 const finalHarvest = growthHarvests.at(-1);
 if (
-  doubleCountedHarvest
-  || !finalHarvest
-  || finalHarvest.y1 !== releasedSelection.y1
-  || finalHarvest.y2 !== releasedSelection.y2
+  doubleCountedHarvest ||
+  !finalHarvest ||
+  finalHarvest.y1 !== releasedSelection.y1 ||
+  finalHarvest.y2 !== releasedSelection.y2
 ) {
-  throw new Error(`released selection harvested wrong row during anchored growth: ${JSON.stringify({
-    doubleCountedHarvest,
-    finalHarvest,
-    expectedFinal: releasedSelection,
-    maxExpectedSelectionY,
-  })}`);
+  throw new Error(
+    `released selection harvested wrong row during anchored growth: ${JSON.stringify({
+      doubleCountedHarvest,
+      finalHarvest,
+      expectedFinal: releasedSelection,
+      maxExpectedSelectionY,
+    })}`
+  );
 }
 
 const SESSION_SWITCH_STREAM_ID = 'session-switch-tail';
@@ -694,7 +756,15 @@ const sessionSwitchInstance = render(
     recordFrame={false}
     onFrame={(frame) => sessionSwitchFrames.push(frame)}
   />,
-  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
+  {
+    stdout: fakeTty(COLUMNS, VIEW_ROWS),
+    stderr: fakeTty(COLUMNS, VIEW_ROWS),
+    stdin: fakeTty(COLUMNS, VIEW_ROWS),
+    interactive: true,
+    patchConsole: false,
+    exitOnCtrlC: false,
+    maxFps: 1000,
+  }
 );
 await settle(sessionSwitchInstance);
 const framesBeforeSessionSwitch = sessionSwitchFrames.length;
@@ -707,23 +777,24 @@ sessionSwitchInstance.rerender(
     sessionKey="session-after"
     recordFrame={false}
     onFrame={(frame) => sessionSwitchFrames.push(frame)}
-  />,
+  />
 );
 await settle(sessionSwitchInstance);
 sessionSwitchInstance.unmount();
 await sessionSwitchInstance.waitUntilExit();
 sessionSwitchInstance.cleanup();
 const switchedFrames = sessionSwitchFrames.slice(framesBeforeSessionSwitch);
-const staleSessionGeometry = switchedFrames.find((frame) =>
-  frame.renderScrollOffset !== 0
-  || frame.scrollTarget !== 0
-  || frame.following !== true
-  || frame.anchor !== '-');
+const staleSessionGeometry = switchedFrames.find(
+  (frame) =>
+    frame.renderScrollOffset !== 0 || frame.scrollTarget !== 0 || frame.following !== true || frame.anchor !== '-'
+);
 if (!switchedFrames.length || staleSessionGeometry) {
-  throw new Error(`session switch reused outgoing transcript geometry: ${JSON.stringify({
-    switchedFrames,
-    staleSessionGeometry,
-  })}`);
+  throw new Error(
+    `session switch reused outgoing transcript geometry: ${JSON.stringify({
+      switchedFrames,
+      staleSessionGeometry,
+    })}`
+  );
 }
 
 // Compaction repro: the reader is anchored in history when a mid-turn compaction
@@ -740,15 +811,20 @@ const compactionProps = {
   recordFrame: false,
   onFrame: (frame) => compactionFrames.push(frame),
 };
-const compactionInstance = render(
-  <Harness {...compactionProps} text={SCRIPT} step={0} history={HISTORY} />,
-  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
-);
+const compactionInstance = render(<Harness {...compactionProps} text={SCRIPT} step={0} history={HISTORY} />, {
+  stdout: fakeTty(COLUMNS, VIEW_ROWS),
+  stderr: fakeTty(COLUMNS, VIEW_ROWS),
+  stdin: fakeTty(COLUMNS, VIEW_ROWS),
+  interactive: true,
+  patchConsole: false,
+  exitOnCtrlC: false,
+  maxFps: 1000,
+});
 await settle(compactionInstance);
 // One growth commit first: the anchor is captured by the row-delta effect, not
 // at mount (the first commit has no previous geometry to compare against).
 compactionInstance.rerender(
-  <Harness {...compactionProps} text={`${SCRIPT}\nreading while the turn streams`} step={1} history={HISTORY} />,
+  <Harness {...compactionProps} text={`${SCRIPT}\nreading while the turn streams`} step={1} history={HISTORY} />
 );
 await settle(compactionInstance);
 const anchoredBeforeCompaction = compactionFrames.at(-1);
@@ -759,7 +835,7 @@ compactionInstance.rerender(
     text={`${SCRIPT}\nreading while the turn streams`}
     step={2}
     history={[{ id: 'compaction-status', kind: 'notice', tone: 'plain', text: 'Compact complete' }]}
-  />,
+  />
 );
 await settle(compactionInstance);
 compactionInstance.unmount();
@@ -770,15 +846,19 @@ const compactedSettled = compactedFrames.at(-1);
 if (!anchoredBeforeCompaction || anchoredBeforeCompaction.anchor === '-') {
   throw new Error(`compaction repro never anchored before the trim: ${JSON.stringify(anchoredBeforeCompaction)}`);
 }
-if (!compactedFrames.length
-  || !compactedSettled
-  || compactedSettled.following !== true
-  || compactedSettled.scrollTarget !== 0
-  || compactedSettled.anchor !== '-') {
-  throw new Error(`compaction left the transcript locked to a deleted anchor: ${JSON.stringify({
-    anchoredBeforeCompaction,
-    compactedFrames,
-  })}`);
+if (
+  !compactedFrames.length ||
+  !compactedSettled ||
+  compactedSettled.following !== true ||
+  compactedSettled.scrollTarget !== 0 ||
+  compactedSettled.anchor !== '-'
+) {
+  throw new Error(
+    `compaction left the transcript locked to a deleted anchor: ${JSON.stringify({
+      anchoredBeforeCompaction,
+      compactedFrames,
+    })}`
+  );
 }
 
 // Auto-scroll rule (a viewport that cannot scroll clears
@@ -793,18 +873,23 @@ const noOverflowProps = {
   recordFrame: false,
   onFrame: (frame) => noOverflowFrames.push(frame),
 };
-const noOverflowInstance = render(
-  <Harness {...noOverflowProps} text={SCRIPT} step={0} history={HISTORY} />,
-  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
-);
+const noOverflowInstance = render(<Harness {...noOverflowProps} text={SCRIPT} step={0} history={HISTORY} />, {
+  stdout: fakeTty(COLUMNS, VIEW_ROWS),
+  stderr: fakeTty(COLUMNS, VIEW_ROWS),
+  stdin: fakeTty(COLUMNS, VIEW_ROWS),
+  interactive: true,
+  patchConsole: false,
+  exitOnCtrlC: false,
+  maxFps: 1000,
+});
 await settle(noOverflowInstance);
 noOverflowInstance.rerender(
-  <Harness {...noOverflowProps} text={`${SCRIPT}\nstill reading history`} step={1} history={HISTORY} />,
+  <Harness {...noOverflowProps} text={`${SCRIPT}\nstill reading history`} step={1} history={HISTORY} />
 );
 await settle(noOverflowInstance);
 const framesBeforeShrink = noOverflowFrames.length;
 noOverflowInstance.rerender(
-  <Harness {...noOverflowProps} streamId="no-overflow-short-tail" text="short tail" step={2} history={[]} />,
+  <Harness {...noOverflowProps} streamId="no-overflow-short-tail" text="short tail" step={2} history={[]} />
 );
 await settle(noOverflowInstance);
 await settle(noOverflowInstance);
@@ -813,14 +898,7 @@ await noOverflowInstance.waitUntilExit();
 noOverflowInstance.cleanup();
 const shrunkFrames = noOverflowFrames.slice(framesBeforeShrink);
 const shrunkSettled = shrunkFrames.at(-1);
-if (!shrunkFrames.length
-  || !shrunkSettled
-  || shrunkSettled.following !== true
-  || shrunkSettled.scrollTarget !== 0) {
+if (!shrunkFrames.length || !shrunkSettled || shrunkSettled.following !== true || shrunkSettled.scrollTarget !== 0) {
   throw new Error(`a transcript that no longer overflows kept auto-scroll released: ${JSON.stringify(shrunkFrames)}`);
 }
 console.log('tui-transcript-jitter-harness: ok');
-
-
-
-

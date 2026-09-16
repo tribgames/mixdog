@@ -31,7 +31,8 @@ export function fromPlainText(text, limit = DEFAULT_CHARS) {
 }
 
 // Page chrome — slide number, footer, and date placeholders — is not source material.
-const isPageChrome = (shape) => Boolean(shape?.placeholder) && /slide ?number|footer|date/i.test(String(shape?.name || ''));
+const isPageChrome = (shape) =>
+  Boolean(shape?.placeholder) && /slide ?number|footer|date/i.test(String(shape?.name || ''));
 
 // A snapshot document — pages (PDF), slides (PPTX), blocks or paragraphs (DOCX),
 // sheets (XLSX) — as blocks prefixed with the locator the facts line quotes.
@@ -39,7 +40,9 @@ export function fromDocument(document, limit = DEFAULT_CHARS) {
   const out = [];
   let used = 0;
   const push = (locator, text) => {
-    const body = String(text ?? '').replace(/\s+/g, ' ').trim();
+    const body = String(text ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
     if (!body || used >= limit) return;
     out.push(`[${locator}] ${body.slice(0, BLOCK_CHARS)}`);
     used += Math.min(body.length, BLOCK_CHARS);
@@ -87,7 +90,7 @@ export async function extractSource(target, { chars = DEFAULT_CHARS, cwd = proce
   if (!OFFICE_EXTENSIONS.includes(extension)) {
     return { source, path, kind: 'text', blocks: fromPlainText(await readFile(path, 'utf8'), limit) };
   }
-  const call = office || await defaultOffice();
+  const call = office || (await defaultOffice());
   const opened = await call({ action: 'open', path, mode: 'portable', snapshotAfter: false }, cwd);
   try {
     const snapshot = await call({ action: 'snapshot', session: opened.session, limit: 200, maxChars: 100_000 }, cwd);

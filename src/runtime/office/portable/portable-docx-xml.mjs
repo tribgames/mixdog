@@ -7,8 +7,6 @@ function pointsToTwips(value) {
   return Math.max(1, Math.round(Number(value) * 20));
 }
 
-
-
 // A Word table with no borders and no style is invisible on the page: the
 // rendered document shows three loose columns of text, and nothing says the
 // rows belong together. Unless the caller styles the table themselves, it gets
@@ -32,11 +30,13 @@ export function wordTableProperties(properties = {}, { totalWidth = 0 } = {}) {
   // single rule on top drew a full grid.
   const perSide = sides.some((side) => borders[side] !== undefined);
   const borderXml = Object.keys(borders).length
-    ? `<w:tblBorders>${sides.map((side) => {
-        const value = perSide ? borders[side] : borders;
-        if (!value || typeof value !== 'object' || value.enabled === false) return '';
-        return `<w:${side} w:val="${xmlEncode(value.style || 'single')}" w:sz="${Math.max(1, Number(value.size) || 4)}" w:space="${Math.max(0, Number(value.space) || 0)}" w:color="${xmlEncode(String(value.color || 'auto').replace(/^#/, ''))}"/>`;
-      }).join('')}</w:tblBorders>`
+    ? `<w:tblBorders>${sides
+        .map((side) => {
+          const value = perSide ? borders[side] : borders;
+          if (!value || typeof value !== 'object' || value.enabled === false) return '';
+          return `<w:${side} w:val="${xmlEncode(value.style || 'single')}" w:sz="${Math.max(1, Number(value.size) || 4)}" w:space="${Math.max(0, Number(value.space) || 0)}" w:color="${xmlEncode(String(value.color || 'auto').replace(/^#/, ''))}"/>`;
+        })
+        .join('')}</w:tblBorders>`
     : '';
   return [
     properties.style ? `<w:tblStyle w:val="${xmlEncode(docxStyleId(properties.style))}"/>` : '',
@@ -46,16 +46,18 @@ export function wordTableProperties(properties = {}, { totalWidth = 0 } = {}) {
     totalWidth > 0 ? `<w:tblW w:w="${Math.round(totalWidth)}" w:type="dxa"/>` : '<w:tblW w:w="0" w:type="auto"/>',
     properties.alignment ? `<w:jc w:val="${xmlEncode(properties.alignment)}"/>` : '',
     borderXml,
-    properties.shading ? `<w:shd w:val="clear" w:color="auto" w:fill="${xmlEncode(String(properties.shading).replace(/^#/, ''))}"/>` : '',
+    properties.shading
+      ? `<w:shd w:val="clear" w:color="auto" w:fill="${xmlEncode(String(properties.shading).replace(/^#/, ''))}"/>`
+      : '',
   ].join('');
 }
-
-
 
 export function wordCellProperties(properties = {}) {
   return [
     properties.width ? `<w:tcW w:w="${pointsToTwips(properties.width)}" w:type="dxa"/>` : '',
-    properties.fillColor ? `<w:shd w:val="clear" w:color="auto" w:fill="${xmlEncode(String(properties.fillColor).replace(/^#/, ''))}"/>` : '',
+    properties.fillColor
+      ? `<w:shd w:val="clear" w:color="auto" w:fill="${xmlEncode(String(properties.fillColor).replace(/^#/, ''))}"/>`
+      : '',
     properties.verticalAlignment ? `<w:vAlign w:val="${xmlEncode(properties.verticalAlignment)}"/>` : '',
   ].join('');
 }
@@ -64,8 +66,17 @@ export function wordCellProperties(properties = {}) {
 // the "after" column head) replaces only the properties it names; the width and
 // the vertical alignment the table was written with stay.
 const CELL_PROPERTY_ORDER = Object.freeze([
-  'w:tcW', 'w:gridSpan', 'w:vMerge', 'w:tcBorders', 'w:shd', 'w:noWrap', 'w:tcMar',
-  'w:textDirection', 'w:tcFitText', 'w:vAlign', 'w:hideMark',
+  'w:tcW',
+  'w:gridSpan',
+  'w:vMerge',
+  'w:tcBorders',
+  'w:shd',
+  'w:noWrap',
+  'w:tcMar',
+  'w:textDirection',
+  'w:tcFitText',
+  'w:vAlign',
+  'w:hideMark',
 ]);
 
 export function mergeWordCellProperties(cellXml, properties = {}) {
@@ -78,11 +89,12 @@ export function mergeWordCellProperties(cellXml, properties = {}) {
     const index = CELL_PROPERTY_ORDER.indexOf(tag);
     return index === -1 ? CELL_PROPERTY_ORDER.length : index;
   };
-  const inner = [...merged.entries()].sort(([left], [right]) => rank(left) - rank(right)).map(([, xml]) => xml).join('');
+  const inner = [...merged.entries()]
+    .sort(([left], [right]) => rank(left) - rank(right))
+    .map(([, xml]) => xml)
+    .join('');
   return replaceWordProperties(cellXml, 'tc', 'tcPr', inner);
 }
-
-
 
 // A table's text formatting belongs on every cell run and paragraph, the way the
 // Word backend applies it to the table range. Without it the portable file leaves
@@ -99,10 +111,11 @@ function wordTableRunProperties(properties = {}, { bold = false } = {}) {
       : '',
     bold ? '<w:b/><w:bCs/>' : '',
     properties.color ? `<w:color w:val="${xmlEncode(String(properties.color).replace(/^#/, ''))}"/>` : '',
-    Number.isFinite(size) && size > 0 ? `<w:sz w:val="${Math.round(size * 2)}"/><w:szCs w:val="${Math.round(size * 2)}"/>` : '',
+    Number.isFinite(size) && size > 0
+      ? `<w:sz w:val="${Math.round(size * 2)}"/><w:szCs w:val="${Math.round(size * 2)}"/>`
+      : '',
   ].join('');
 }
-
 
 // Every cell of a row shares one minimum line height: a Latin-only figure
 // beside a Hangul label otherwise takes its own face's shorter line and sits
@@ -117,12 +130,23 @@ function wordTableParagraphProperties(properties = {}) {
   ].join('');
 }
 
-
 // A column's text alignment is the justification of the paragraphs in its cells.
-const WORD_JUSTIFICATION = Object.freeze({ left: 'left', center: 'center', centre: 'center', right: 'right', justify: 'both' });
+const WORD_JUSTIFICATION = Object.freeze({
+  left: 'left',
+  center: 'center',
+  centre: 'center',
+  right: 'right',
+  justify: 'both',
+});
 
 export function wordJustification(alignment) {
-  return WORD_JUSTIFICATION[String(alignment || '').trim().toLowerCase()] || '';
+  return (
+    WORD_JUSTIFICATION[
+      String(alignment || '')
+        .trim()
+        .toLowerCase()
+    ] || ''
+  );
 }
 
 // Sets one justification on every paragraph of a cell, replacing the one it had.
@@ -162,10 +186,14 @@ export function wordTableXml(operation) {
   const runProperties = wordTableRunProperties(operation.properties);
   // The header row is set apart by weight, on both backends, unless the caller
   // says otherwise; a header a reader cannot tell from the data is not one.
-  const headerBold = rows > 1 && operation.properties?.headerBold !== false && operation.properties?.repeatHeader !== false;
+  const headerBold =
+    rows > 1 && operation.properties?.headerBold !== false && operation.properties?.repeatHeader !== false;
   const headerRunProperties = headerBold ? wordTableRunProperties(operation.properties, { bold: true }) : runProperties;
   const paragraphProperties = wordTableParagraphProperties(operation.properties);
-  const grid = Array.from({ length: columns }, (_, column) => `<w:gridCol${widths[column] ? ` w:w="${pointsToTwips(widths[column])}"` : ''}/>`).join('');
+  const grid = Array.from(
+    { length: columns },
+    (_, column) => `<w:gridCol${widths[column] ? ` w:w="${pointsToTwips(widths[column])}"` : ''}/>`
+  ).join('');
   // The first row is the table's header: a table that breaks across pages
   // carries it onto every continuation page, the way a reader expects, unless
   // the caller says the row is data.
@@ -175,32 +203,37 @@ export function wordTableXml(operation) {
       row === 0 && repeatHeader ? '<w:tblHeader/>' : '',
       heights[row] ? `<w:trHeight w:val="${pointsToTwips(heights[row])}" w:hRule="atLeast"/>` : '',
     ].join('');
-    return `<w:tr>${rowProperties ? `<w:trPr>${rowProperties}</w:trPr>` : ''}${Array.from({ length: columns }, (_, column) => {
-    const text = String(values[row]?.[column] ?? '');
-    const width = widths[column] ? `<w:tcW w:w="${pointsToTwips(widths[column])}" w:type="dxa"/>` : '';
-    // A cell written with line breaks keeps them: Word collapses a literal
-    // newline inside one text element, so a step's title and its date used to
-    // run together on a single line.
-    const runs = text.split(/\r?\n/).map((line, lineIndex) => (
-      `${lineIndex ? '<w:br/>' : ''}<w:t${/^\s|\s$/.test(line) ? ' xml:space="preserve"' : ''}>${xmlEncode(line)}</w:t>`
-    )).join('');
-    // Schema order inside pPr: style and spacing before justification.
-    const cellParagraphProperties = `${paragraphProperties}${justifications[column] ? `<w:jc w:val="${justifications[column]}"/>` : ''}`;
-    const cellRunProperties = row === 0 ? headerRunProperties : runProperties;
-    // Cells sit on their bottom edge: a Latin-only figure ("+3.0%") beside a Hangul one ("1,000건") takes a
-    // shorter line in every renderer, and top-aligned the two read on different baselines. Bottom-aligned,
-    // one row shares one baseline; set_table_cell_style verticalAlignment overrides per cell.
-    return `<w:tc><w:tcPr>${width}<w:vAlign w:val="bottom"/></w:tcPr><w:p>${cellParagraphProperties ? `<w:pPr>${cellParagraphProperties}</w:pPr>` : ''}<w:r>${cellRunProperties ? `<w:rPr>${cellRunProperties}</w:rPr>` : ''}${runs}</w:r></w:p></w:tc>`;
-    }).join('')}</w:tr>`;
+    return `<w:tr>${rowProperties ? `<w:trPr>${rowProperties}</w:trPr>` : ''}${Array.from(
+      { length: columns },
+      (_, column) => {
+        const text = String(values[row]?.[column] ?? '');
+        const width = widths[column] ? `<w:tcW w:w="${pointsToTwips(widths[column])}" w:type="dxa"/>` : '';
+        // A cell written with line breaks keeps them: Word collapses a literal
+        // newline inside one text element, so a step's title and its date used to
+        // run together on a single line.
+        const runs = text
+          .split(/\r?\n/)
+          .map(
+            (line, lineIndex) =>
+              `${lineIndex ? '<w:br/>' : ''}<w:t${/^\s|\s$/.test(line) ? ' xml:space="preserve"' : ''}>${xmlEncode(line)}</w:t>`
+          )
+          .join('');
+        // Schema order inside pPr: style and spacing before justification.
+        const cellParagraphProperties = `${paragraphProperties}${justifications[column] ? `<w:jc w:val="${justifications[column]}"/>` : ''}`;
+        const cellRunProperties = row === 0 ? headerRunProperties : runProperties;
+        // Cells sit on their bottom edge: a Latin-only figure ("+3.0%") beside a Hangul one ("1,000건") takes a
+        // shorter line in every renderer, and top-aligned the two read on different baselines. Bottom-aligned,
+        // one row shares one baseline; set_table_cell_style verticalAlignment overrides per cell.
+        return `<w:tc><w:tcPr>${width}<w:vAlign w:val="bottom"/></w:tcPr><w:p>${cellParagraphProperties ? `<w:pPr>${cellParagraphProperties}</w:pPr>` : ''}<w:r>${cellRunProperties ? `<w:rPr>${cellRunProperties}</w:rPr>` : ''}${runs}</w:r></w:p></w:tc>`;
+      }
+    ).join('')}</w:tr>`;
   }).join('');
-  const totalWidth = widths.length === columns
-    ? widths.reduce((sum, width) => sum + pointsToTwips(width), 0)
-    : 0;
-  return `<w:tbl><w:tblPr>${wordTableProperties(operation.properties, { totalWidth })}</w:tblPr>`
-    + `<w:tblGrid>${grid}</w:tblGrid>${body}</w:tbl>`;
+  const totalWidth = widths.length === columns ? widths.reduce((sum, width) => sum + pointsToTwips(width), 0) : 0;
+  return (
+    `<w:tbl><w:tblPr>${wordTableProperties(operation.properties, { totalWidth })}</w:tblPr>` +
+    `<w:tblGrid>${grid}</w:tblGrid>${body}</w:tbl>`
+  );
 }
-
-
 
 export function insertDocxBlockAt(documentXml, block, paragraphNumber) {
   if (!paragraphNumber) return appendDocxBlock(documentXml, block);
@@ -211,8 +244,6 @@ export function insertDocxBlockAt(documentXml, block, paragraphNumber) {
   const inner = `${model.body.inner.slice(0, paragraph.end)}${block}${model.body.inner.slice(paragraph.end)}`;
   return `${documentXml.slice(0, model.body.start)}${inner}${documentXml.slice(model.body.end)}`;
 }
-
-
 
 const WORD_STYLE_IDS = Object.freeze({
   'heading 1': 'Heading1',
@@ -226,31 +257,45 @@ const WORD_STYLE_IDS = Object.freeze({
   'intense quote': 'IntenseQuote',
 });
 
-
-
 export function docxStyleId(name) {
   const raw = String(name || '').trim();
   if (!raw) return '';
   return WORD_STYLE_IDS[raw.toLowerCase()] || raw.replace(/\s+/g, '');
 }
 
-
-
 // Word keeps run properties in a fixed order and honours the last value it
 // reads: appending a colour beside the one already there leaves the old ink
 // winning, so a restyled cell must replace the property it sets, in place.
 const RUN_PROPERTY_ORDER = Object.freeze([
-  'w:rStyle', 'w:rFonts', 'w:b', 'w:bCs', 'w:i', 'w:iCs', 'w:caps', 'w:smallCaps',
-  'w:strike', 'w:dstrike', 'w:vanish', 'w:color', 'w:spacing', 'w:w', 'w:kern', 'w:position',
-  'w:sz', 'w:szCs', 'w:highlight', 'w:u', 'w:vertAlign', 'w:rtl', 'w:lang',
+  'w:rStyle',
+  'w:rFonts',
+  'w:b',
+  'w:bCs',
+  'w:i',
+  'w:iCs',
+  'w:caps',
+  'w:smallCaps',
+  'w:strike',
+  'w:dstrike',
+  'w:vanish',
+  'w:color',
+  'w:spacing',
+  'w:w',
+  'w:kern',
+  'w:position',
+  'w:sz',
+  'w:szCs',
+  'w:highlight',
+  'w:u',
+  'w:vertAlign',
+  'w:rtl',
+  'w:lang',
 ]);
-
 
 function runPropertyElements(xml) {
   const matches = String(xml || '').matchAll(/<(w:[A-Za-z]+)\b[^>]*?(?:\/>|>[\s\S]*?<\/\1>)/g);
   return [...matches].map((match) => ({ tag: match[1], xml: match[0] }));
 }
-
 
 export function mergeWordRunProperties(existing, overrides) {
   const merged = new Map();
@@ -267,7 +312,6 @@ export function mergeWordRunProperties(existing, overrides) {
     .join('');
 }
 
-
 export function applyWordRunFormat(xml, runFormat) {
   if (!runFormat) return xml;
   return String(xml).replace(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g, (run) => {
@@ -279,12 +323,13 @@ export function applyWordRunFormat(xml, runFormat) {
   });
 }
 
-
 export function wordRunProperties(properties = {}) {
   const size = Number(properties.size ?? properties.fontSize);
   const half = Number.isFinite(size) && size > 0 ? Math.max(2, Math.round(size * 2)) : 0;
   return [
-    properties.name || properties.nameEastAsia ? `<w:rFonts${properties.name ? ` w:ascii="${xmlEncode(properties.name)}" w:hAnsi="${xmlEncode(properties.name)}"` : ''}${properties.nameEastAsia ? ` w:eastAsia="${xmlEncode(properties.nameEastAsia)}"` : ''}/>` : '',
+    properties.name || properties.nameEastAsia
+      ? `<w:rFonts${properties.name ? ` w:ascii="${xmlEncode(properties.name)}" w:hAnsi="${xmlEncode(properties.name)}"` : ''}${properties.nameEastAsia ? ` w:eastAsia="${xmlEncode(properties.nameEastAsia)}"` : ''}/>`
+      : '',
     properties.bold !== undefined ? `<w:b w:val="${properties.bold ? '1' : '0'}"/>` : '',
     properties.italic !== undefined ? `<w:i w:val="${properties.italic ? '1' : '0'}"/>` : '',
     properties.underline !== undefined ? `<w:u w:val="${properties.underline ? 'single' : 'none'}"/>` : '',
@@ -296,25 +341,21 @@ export function wordRunProperties(properties = {}) {
   ].join('');
 }
 
-
-
 export function wordParagraph(text, { alignment = '', style = '' } = {}) {
   const properties = [
     style ? `<w:pStyle w:val="${xmlEncode(style)}"/>` : '',
     alignment ? `<w:jc w:val="${xmlEncode(alignment)}"/>` : '',
   ].join('');
   const value = String(text ?? '');
-  return `<w:p>${properties ? `<w:pPr>${properties}</w:pPr>` : ''}`
-    + `<w:r><w:t${/^\s|\s$/.test(value) ? ' xml:space="preserve"' : ''}>${xmlEncode(value)}</w:t></w:r></w:p>`;
+  return (
+    `<w:p>${properties ? `<w:pPr>${properties}</w:pPr>` : ''}` +
+    `<w:r><w:t${/^\s|\s$/.test(value) ? ' xml:space="preserve"' : ''}>${xmlEncode(value)}</w:t></w:r></w:p>`
+  );
 }
-
-
 
 export function blankTableCells(xml) {
   return xml.replace(/(<w:t(?:\s[^>]*)?>)[\s\S]*?(<\/w:t>)/g, '$1$2');
 }
-
-
 
 export function rewriteTableColumns(tableXml, columnIndex, mode) {
   const grid = /<w:tblGrid(?:\s[^>]*)?>[\s\S]*?<\/w:tblGrid>/.exec(tableXml);
@@ -345,7 +386,6 @@ export function rewriteTableColumns(tableXml, columnIndex, mode) {
   });
 }
 
-
 export function tableRows(tableXml) {
   const inner = containerInner(tableXml, 'w:tbl');
   if (!inner) return [];
@@ -356,13 +396,11 @@ export function tableRows(tableXml) {
   }));
 }
 
-
 function tableRowCells(rowXml) {
   const inner = containerInner(rowXml, 'w:tr');
   if (!inner) return [];
   return topLevelElements(inner.inner, ['w:tc']).map((cell) => cell.xml);
 }
-
 
 export function tableRowMatches(tableXml) {
   return tableRows(tableXml).map((row) => {
@@ -371,7 +409,6 @@ export function tableRowMatches(tableXml) {
     return match;
   });
 }
-
 
 export function rowCellMatches(rowXml) {
   const inner = containerInner(rowXml, 'w:tr');
@@ -382,7 +419,6 @@ export function rowCellMatches(rowXml) {
     return match;
   });
 }
-
 
 function mapTableRows(tableXml, transform) {
   const rows = tableRows(tableXml);
@@ -395,8 +431,6 @@ function mapTableRows(tableXml, transform) {
   }
   return output + tableXml.slice(cursor);
 }
-
-
 
 export function docxTables(current) {
   const body = containerInner(current, 'w:body');
@@ -415,21 +449,18 @@ export function docxTable(current, number) {
   return match;
 }
 
-
-
 export function replaceDocxTable(current, table, nextTable) {
   return `${current.slice(0, table.index)}${nextTable}${current.slice(table.index + table[0].length)}`;
 }
 
-
-
 export function replaceWordProperties(xml, owner, propertyTag, value) {
   const pattern = new RegExp(`<w:${propertyTag}(?:\\s[^>]*)?>[\\s\\S]*?<\\/w:${propertyTag}>`);
   if (pattern.test(xml)) return xml.replace(pattern, `<w:${propertyTag}>${value}</w:${propertyTag}>`);
-  return xml.replace(new RegExp(`<w:${owner}(?:\\s[^>]*)?>`), (open) => `${open}<w:${propertyTag}>${value}</w:${propertyTag}>`);
+  return xml.replace(
+    new RegExp(`<w:${owner}(?:\\s[^>]*)?>`),
+    (open) => `${open}<w:${propertyTag}>${value}</w:${propertyTag}>`
+  );
 }
-
-
 
 export function paragraphFormatXml(properties = {}, numbering = null) {
   const border = properties.border || null;
@@ -437,24 +468,36 @@ export function paragraphFormatXml(properties = {}, numbering = null) {
   return [
     properties.keepWithNext !== undefined ? `<w:keepNext w:val="${properties.keepWithNext ? '1' : '0'}"/>` : '',
     properties.keepTogether !== undefined ? `<w:keepLines w:val="${properties.keepTogether ? '1' : '0'}"/>` : '',
-    properties.pageBreakBefore !== undefined ? `<w:pageBreakBefore w:val="${properties.pageBreakBefore ? '1' : '0'}"/>` : '',
+    properties.pageBreakBefore !== undefined
+      ? `<w:pageBreakBefore w:val="${properties.pageBreakBefore ? '1' : '0'}"/>`
+      : '',
     properties.widowControl !== undefined ? `<w:widowControl w:val="${properties.widowControl ? '1' : '0'}"/>` : '',
     numbering
-      ? `<w:numPr><w:ilvl w:val="${Math.max(0, Math.min(2, Number(numbering.level) || 0))}"/>`
-        + `<w:numId w:val="${numbering.numId}"/></w:numPr>`
+      ? `<w:numPr><w:ilvl w:val="${Math.max(0, Math.min(2, Number(numbering.level) || 0))}"/>` +
+        `<w:numId w:val="${numbering.numId}"/></w:numPr>`
       : '',
     // The gap between a rule and the text is Word's own default per side (4 pt beside, 1 pt above or below),
     // the distance Word applies through COM; a callout's left rule otherwise touches its label.
-    border ? `<w:pBdr><w:${xmlEncode(border.side || 'bottom')} w:val="${xmlEncode(border.style || 'single')}" w:sz="${Math.max(1, Number(border.size) || 4)}" w:space="${Math.max(0, Number.isFinite(Number(border.space)) && border.space !== undefined && border.space !== null && border.space !== '' ? Number(border.space) : (['left', 'right'].includes(String(border.side || 'bottom')) ? 4 : 1))}" w:color="${xmlEncode(String(border.color || 'auto').replace(/^#/, ''))}"/></w:pBdr>` : '',
+    border
+      ? `<w:pBdr><w:${xmlEncode(border.side || 'bottom')} w:val="${xmlEncode(border.style || 'single')}" w:sz="${Math.max(1, Number(border.size) || 4)}" w:space="${Math.max(0, Number.isFinite(Number(border.space)) && border.space !== undefined && border.space !== null && border.space !== '' ? Number(border.space) : ['left', 'right'].includes(String(border.side || 'bottom')) ? 4 : 1)}" w:color="${xmlEncode(String(border.color || 'auto').replace(/^#/, ''))}"/></w:pBdr>`
+      : '',
     // A paragraph's own field (a callout, a summary band) and its indents (a quote set in from the margin),
     // in points like every other distance here; Word reads the same fill and indents through COM.
-    properties.shading ? `<w:shd w:val="clear" w:color="auto" w:fill="${xmlEncode(String(properties.shading).replace(/^#/, ''))}"/>` : '',
-    properties.tabStops !== undefined ? `<w:tabs>${tabs.map((tab) => `<w:tab w:val="${xmlEncode(tab.alignment || 'left')}" w:pos="${pointsToTwips(tab.position || 0)}"${tab.leader ? ` w:leader="${xmlEncode(tab.leader)}"` : ''}/>`).join('')}</w:tabs>` : '',
-    (properties.spacingBefore !== undefined || properties.spacingAfter !== undefined || properties.lineSpacing !== undefined)
+    properties.shading
+      ? `<w:shd w:val="clear" w:color="auto" w:fill="${xmlEncode(String(properties.shading).replace(/^#/, ''))}"/>`
+      : '',
+    properties.tabStops !== undefined
+      ? `<w:tabs>${tabs.map((tab) => `<w:tab w:val="${xmlEncode(tab.alignment || 'left')}" w:pos="${pointsToTwips(tab.position || 0)}"${tab.leader ? ` w:leader="${xmlEncode(tab.leader)}"` : ''}/>`).join('')}</w:tabs>`
+      : '',
+    properties.spacingBefore !== undefined ||
+    properties.spacingAfter !== undefined ||
+    properties.lineSpacing !== undefined
       ? `<w:spacing${properties.spacingBefore !== undefined ? ` w:before="${Math.max(0, Math.round(Number(properties.spacingBefore) * 20))}"` : ''}${properties.spacingAfter !== undefined ? ` w:after="${Math.max(0, Math.round(Number(properties.spacingAfter) * 20))}"` : ''}${properties.lineSpacing !== undefined ? ` w:line="${Math.max(1, Math.round(Number(properties.lineSpacing) * 20))}" w:lineRule="atLeast"` : ''}/>`
       : '',
     // w:ind follows w:spacing in the schema's pPr sequence; a validator refuses the other order.
-    (properties.indentLeft !== undefined || properties.indentRight !== undefined || properties.indentFirstLine !== undefined)
+    properties.indentLeft !== undefined ||
+    properties.indentRight !== undefined ||
+    properties.indentFirstLine !== undefined
       ? `<w:ind${properties.indentLeft !== undefined ? ` w:left="${Math.max(0, Math.round(Number(properties.indentLeft) * 20))}"` : ''}${properties.indentRight !== undefined ? ` w:right="${Math.max(0, Math.round(Number(properties.indentRight) * 20))}"` : ''}${properties.indentFirstLine !== undefined ? ` w:firstLine="${Math.max(0, Math.round(Number(properties.indentFirstLine) * 20))}"` : ''}/>`
       : '',
     properties.alignment ? `<w:jc w:val="${xmlEncode(properties.alignment)}"/>` : '',

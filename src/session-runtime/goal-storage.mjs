@@ -92,13 +92,22 @@ export function readGoalRecordFile(path, sessionId, normalizeGoal, at) {
   }
   try {
     const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== 'object' || !Object.hasOwn(parsed, 'goal') || parsed.version !== GOAL_FILE_VERSION) {
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      !Object.hasOwn(parsed, 'goal') ||
+      parsed.version !== GOAL_FILE_VERSION
+    ) {
       throw new Error('unsupported or invalid Goal record');
     }
-    if (parsed.goal !== null && (typeof parsed.goal !== 'object' || Array.isArray(parsed.goal))) throw new Error('invalid Goal value');
+    if (parsed.goal !== null && (typeof parsed.goal !== 'object' || Array.isArray(parsed.goal)))
+      throw new Error('invalid Goal value');
     return { version: GOAL_FILE_VERSION, goal: normalizeGoal(parsed.goal, sessionId, at) };
   } catch (cause) {
-    throw new Error(`cannot read Goal record ${path}: ${cause.message}; original file preserved, repair or explicitly clear it before creating a Goal`, { cause });
+    throw new Error(
+      `cannot read Goal record ${path}: ${cause.message}; original file preserved, repair or explicitly clear it before creating a Goal`,
+      { cause }
+    );
   }
 }
 
@@ -145,7 +154,9 @@ export function createGoalStorage({ pathFor, normalizeGoal, now, writeRecord = w
   };
   return {
     read,
-    forget(id) { cache.delete(id); },
+    forget(id) {
+      cache.delete(id);
+    },
     async write(id, record) {
       const snapshot = structuredClone(record);
       writing.add(id);

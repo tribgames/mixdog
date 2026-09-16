@@ -5,7 +5,10 @@ import { measureBrowserSurfaceLoad } from './input-surface-load';
 
 /** Fixture-only input acknowledgement and visible-pixel latency measurements. */
 export async function measureBrowserPresentation(
-  host: BrowserHost, guest: WebContents, shell: WebContents, log: (text: string) => void,
+  host: BrowserHost,
+  guest: WebContents,
+  shell: WebContents,
+  log: (text: string) => void
 ): Promise<void> {
   await guest.executeJavaScript(`window.presentationAnimation = setInterval(() => {
     document.body.style.backgroundColor = 'rgb(' + (Date.now() % 255) + ', 80, 100)';
@@ -16,7 +19,7 @@ export async function measureBrowserPresentation(
     document.querySelector('.browser-isolated-view').addEventListener('browser-frame-presented', window.presentationListener);
   })()`);
   const started = performance.now();
-  await new Promise(resolve => setTimeout(resolve, 1500));
+  await new Promise((resolve) => setTimeout(resolve, 1500));
   const elapsed = performance.now() - started;
   const loads = await shell.executeJavaScript(`(() => {
     document.querySelector('.browser-isolated-view').removeEventListener('browser-frame-presented', window.presentationListener);
@@ -43,19 +46,21 @@ export async function measureBrowserPresentation(
     for (let index = 0; index < 6; index++) {
       const start = performance.now();
       await host.browserPageControl('visible-session', {
-        type: 'text', text: 'p', documentId: frame.documentId,
+        type: 'text',
+        text: 'p',
+        documentId: frame.documentId,
       });
       samples.push(performance.now() - start);
       for (;;) {
         const next = await host.browserPageFrame('visible-session');
         assert.ok(next.image);
         const pixels = nativeImage.createFromBuffer(Buffer.from(next.image.data, 'base64')).toBitmap();
-        const x = Math.floor(8 * next.width / next.viewportWidth);
-        const y = Math.floor(8 * next.height / next.viewportHeight);
+        const x = Math.floor((8 * next.width) / next.viewportWidth);
+        const y = Math.floor((8 * next.height) / next.viewportHeight);
         const offset = (y * next.width + x) * 4;
         if (pixels[offset + 2] === index + 21 && pixels[offset + 1] === 80 && pixels[offset] === 100) break;
         assert.ok(performance.now() - start < 2000, 'input must reach the displayed pixels');
-        await new Promise(resolve => setTimeout(resolve, 16));
+        await new Promise((resolve) => setTimeout(resolve, 16));
       }
       visible.push(performance.now() - start);
     }
@@ -65,13 +70,16 @@ export async function measureBrowserPresentation(
       document.getElementById('presentation-marker').remove();
     })()`);
   }
-  const p95 = (values: number[]) => Number([...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1].toFixed(1));
-  log(`presentation benchmark ${JSON.stringify({
-    decodedFramesPerSecond: Number((loads * 1000 / elapsed).toFixed(2)),
-    inputAcknowledgementMs: samples.map(value => Number(value.toFixed(1))),
-    inputToPixelsMs: visible.map(value => Number(value.toFixed(1))),
-    inputAcknowledgementP95Ms: p95(samples),
-    inputToPixelsP95Ms: p95(visible),
-  })}`);
+  const p95 = (values: number[]) =>
+    Number([...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1].toFixed(1));
+  log(
+    `presentation benchmark ${JSON.stringify({
+      decodedFramesPerSecond: Number(((loads * 1000) / elapsed).toFixed(2)),
+      inputAcknowledgementMs: samples.map((value) => Number(value.toFixed(1))),
+      inputToPixelsMs: visible.map((value) => Number(value.toFixed(1))),
+      inputAcknowledgementP95Ms: p95(samples),
+      inputToPixelsP95Ms: p95(visible),
+    })}`
+  );
   await measureBrowserSurfaceLoad(host, guest, shell, log);
 }

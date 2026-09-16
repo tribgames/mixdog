@@ -10,7 +10,8 @@ export const MAX_ISSUES_PER_CODE = 100;
 
 // The General format under any Excel UI language (Korean G/표준, Japanese
 // G/標準, German Standard): a number that carries no format at all.
-export const GENERAL_FORMAT = /^(?:general|g\/표준|g\/標準|standard|standaard|général|generale|estándar|padrão|общий|常规|通用格式)?$/i;
+export const GENERAL_FORMAT =
+  /^(?:general|g\/표준|g\/標準|standard|standaard|général|generale|estándar|padrão|общий|常规|通用格式)?$/i;
 
 export function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -75,12 +76,9 @@ export function isMarkedInputStyle(style) {
   if (!style || typeof style !== 'object') return false;
   const color = style.color;
   const fill = style.fillColor;
-  const coloredFont = typeof color === 'number'
-    ? color !== 0
-    : Boolean(color) && !/^(?:FF)?000000$/i.test(String(color));
-  const filled = typeof fill === 'number'
-    ? fill !== 16777215
-    : Boolean(fill) && !/^(?:FF)?FFFFFF$/i.test(String(fill));
+  const coloredFont =
+    typeof color === 'number' ? color !== 0 : Boolean(color) && !/^(?:FF)?000000$/i.test(String(color));
+  const filled = typeof fill === 'number' ? fill !== 16777215 : Boolean(fill) && !/^(?:FF)?FFFFFF$/i.test(String(fill));
   return coloredFont || filled;
 }
 
@@ -130,13 +128,15 @@ export function mergedAreas(sheet) {
 }
 
 export function insideArea(areas, at) {
-  return areas.some((area) => at.row >= area.startRow && at.row <= area.endRow
-    && at.column >= area.startCol && at.column <= area.endCol);
+  return areas.some(
+    (area) => at.row >= area.startRow && at.row <= area.endRow && at.column >= area.startCol && at.column <= area.endCol
+  );
 }
 
 export function insideTableBody(areas, at) {
-  return areas.some((area) => at.row > area.startRow && at.row <= area.endRow
-    && at.column >= area.startCol && at.column <= area.endCol);
+  return areas.some(
+    (area) => at.row > area.startRow && at.row <= area.endRow && at.column >= area.startCol && at.column <= area.endCol
+  );
 }
 
 // Notes reach the audit two ways: a portable cell carries `note`, an Excel

@@ -9,7 +9,7 @@ export interface BrowserRefAccessHost {
     ref: string,
     functionDeclaration: string,
     args: unknown[],
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<{ handled: false } | { handled: true; value: T }>;
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
 }
@@ -26,9 +26,9 @@ export function browserRefElementSource(ref: string): string {
  *  names the ref, because only staleness is answered by a fresh snapshot. */
 export function checkedBrowserRefResult<T extends { error?: string }>(result: T, ref: string): T {
   if (result?.error) {
-    throw new Error(result.error === 'stale'
-      ? `ref ${ref} is stale or unknown; take a fresh snapshot first`
-      : result.error);
+    throw new Error(
+      result.error === 'stale' ? `ref ${ref} is stale or unknown; take a fresh snapshot first` : result.error
+    );
   }
   return result;
 }
@@ -39,31 +39,38 @@ export function createBrowserRefAccess(host: BrowserRefAccessHost) {
     ref: string,
     declaration: string,
     args: unknown[] = [],
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<T> {
     const result = await host.callAccessibilityRef<T>(guest, ref, declaration, args, signal);
     if (result.handled) return result.value;
-    return host.evaluate<T>(guest, `(() => {
+    return host.evaluate<T>(
+      guest,
+      `(() => {
       ${browserRefElementSource(ref)}
       return (${declaration}).apply(element, ${JSON.stringify(args)});
-    })()`, signal);
+    })()`,
+      signal
+    );
   }
 
   /** Only this read-only preflight may be repeated to recover a stale ref. */
-  async function prepareRef(
-    guest: WebContents,
-    ref: string,
-    signal?: AbortSignal,
-    editable = false,
-  ): Promise<string> {
+  async function prepareRef(guest: WebContents, ref: string, signal?: AbortSignal, editable = false): Promise<string> {
     const connected = await callRef<boolean>(
-      guest, ref, 'function() { return Boolean(this && this.isConnected); }', [], signal,
+      guest,
+      ref,
+      'function() { return Boolean(this && this.isConnected); }',
+      [],
+      signal
     );
     if (!connected) throw new Error(`ref ${ref} is stale or detached; take a fresh snapshot`);
     if (editable) {
       await waitForBrowserActionable(async () => {
         const error = await callRef<string>(
-          guest, ref, `function() { return (${BROWSER_EDITABILITY_CHECK})(this); }`, [], signal,
+          guest,
+          ref,
+          `function() { return (${BROWSER_EDITABILITY_CHECK})(this); }`,
+          [],
+          signal
         );
         if (error === 'stale') throw new Error(`ref ${ref} is stale or detached; take a fresh snapshot`);
         if (error) throw new BrowserActionabilityError(error, 'not-editable');

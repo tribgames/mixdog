@@ -4,11 +4,7 @@ import { JSDOM } from 'jsdom';
 
 import { BrowserGuestStateStore } from './guest-state.ts';
 import { createBrowserRefSet } from './ref-recovery.ts';
-import {
-  createBrowserTargetResolver,
-  normalizeBrowserTarget,
-  selectBrowserTarget,
-} from './target-resolve.ts';
+import { createBrowserTargetResolver, normalizeBrowserTarget, selectBrowserTarget } from './target-resolve.ts';
 
 const element = (ref, role, name, extra = {}) => ({ ref, role, name, tag: 'ax', ...extra });
 
@@ -18,7 +14,8 @@ test('target normalisation rejects empty, unknown, and ill-typed specs', () => {
   assert.throws(() => normalizeBrowserTarget({ name: 'x', nth: 0 }), /nth must be an integer/);
   assert.throws(() => normalizeBrowserTarget({ role: 'button', exact: true }), /exact applies to target.name/);
   assert.deepEqual(normalizeBrowserTarget({ role: ' Button ', name: '  Save  changes ' }), {
-    role: 'button', name: 'Save changes',
+    role: 'button',
+    name: 'Save changes',
   });
 });
 
@@ -44,22 +41,24 @@ test('selection insists on one match, prefers the verbatim name, and lists candi
   assert.equal(selectBrowserTarget({ name: 'save as', exact: false }, elements).ref, 'p1-s2-e1');
   assert.throws(
     () => selectBrowserTarget({ name: 'save' }, elements),
-    (error) => /matched 3 elements/.test(error.message)
-      && /\[p1-s2-e1\] button "Save as draft"/.test(error.message)
-      && /\[p1-s2-e2\] button "Save"/.test(error.message)
-      && /\[p1-s2-e3\] link "Save" href=https:\/\/example.test\/save/.test(error.message),
+    (error) =>
+      /matched 3 elements/.test(error.message) &&
+      /\[p1-s2-e1\] button "Save as draft"/.test(error.message) &&
+      /\[p1-s2-e2\] button "Save"/.test(error.message) &&
+      /\[p1-s2-e3\] link "Save" href=https:\/\/example.test\/save/.test(error.message)
   );
   assert.throws(
     () => selectBrowserTarget({ role: 'button', name: 'publish' }, elements, { unfiltered: 12 }),
-    /no element matched target button "publish" among 12 candidate element\(s\). Elements with role button: "Save as draft", "Save"/,
+    /no element matched target button "publish" among 12 candidate element\(s\). Elements with role button: "Save as draft", "Save"/
   );
+  assert.throws(() => selectBrowserTarget({ role: 'button', name: 'save', nth: 5 }, elements), /only 2 matched/);
   assert.throws(
-    () => selectBrowserTarget({ role: 'button', name: 'save', nth: 5 }, elements),
-    /only 2 matched/,
-  );
-  assert.throws(
-    () => selectBrowserTarget({ role: 'button', name: 'save', exact: true }, elements.filter((e) => e.ref !== 'p1-s2-e2')),
-    /no element matched/,
+    () =>
+      selectBrowserTarget(
+        { role: 'button', name: 'save', exact: true },
+        elements.filter((e) => e.ref !== 'p1-s2-e2')
+      ),
+    /no element matched/
   );
 });
 
@@ -71,17 +70,11 @@ test('exact names distinguish case and match the whole normalized name', () => {
   ];
   assert.equal(selectBrowserTarget({ name: 'Save', exact: true }, elements).ref, 'p1-s2-e1');
   assert.equal(selectBrowserTarget({ name: 'SAVE', exact: true }, elements).ref, 'p1-s2-e2');
-  assert.throws(
-    () => selectBrowserTarget({ name: 'Save', exact: true }, elements.slice(1)),
-    /no element matched/,
-  );
-  assert.throws(
-    () => selectBrowserTarget({ name: 'save', exact: true }, elements),
-    /no element matched/,
-  );
+  assert.throws(() => selectBrowserTarget({ name: 'Save', exact: true }, elements.slice(1)), /no element matched/);
+  assert.throws(() => selectBrowserTarget({ name: 'save', exact: true }, elements), /no element matched/);
   assert.equal(
     selectBrowserTarget(normalizeBrowserTarget({ name: '  Save  as draft ', exact: true }), elements).ref,
-    'p1-s2-e3',
+    'p1-s2-e3'
   );
   assert.equal(selectBrowserTarget({ name: 'sAvE aS' }, elements).ref, 'p1-s2-e3');
 });
@@ -92,10 +85,7 @@ test('exact names preserve ambiguity and nth only counts case-sensitive matches'
     element('p1-s2-e2', 'button', 'SAVE'),
     element('p1-s2-e3', 'button', 'Save'),
   ];
-  assert.throws(
-    () => selectBrowserTarget({ name: 'Save', exact: true }, elements),
-    /matched 2 elements/,
-  );
+  assert.throws(() => selectBrowserTarget({ name: 'Save', exact: true }, elements), /matched 2 elements/);
   assert.equal(selectBrowserTarget({ name: 'Save', exact: true, nth: 2 }, elements).ref, 'p1-s2-e3');
 });
 
@@ -104,8 +94,12 @@ function resolverFixture({ ax = true, elements, unfiltered = elements.length, do
   const state = new BrowserGuestStateStore();
   const captured = [];
   const payload = {
-    snapshotId: 'p1-s2', url: 'https://example.test/', viewportWidth: 800, viewportHeight: 600,
-    elements, unfilteredElements: unfiltered,
+    snapshotId: 'p1-s2',
+    url: 'https://example.test/',
+    viewportWidth: 800,
+    viewportHeight: 600,
+    elements,
+    unfilteredElements: unfiltered,
   };
   const cdpCalls = [];
   const resolver = createBrowserTargetResolver({
@@ -151,7 +145,10 @@ test('a lone named target narrows the observation with its name and resolves thr
   assert.equal(resolved.description, 'checkbox "agree"');
   assert.equal(f.captured[0].query, 'agree');
   const many = await f.resolver.resolveTargetRefs(f.guest, [{ name: 'cancel' }, { name: 'agree' }]);
-  assert.deepEqual(many.map((entry) => entry.ref), ['p1-s2-e1', 'p1-s2-e2']);
+  assert.deepEqual(
+    many.map((entry) => entry.ref),
+    ['p1-s2-e1', 'p1-s2-e2']
+  );
   assert.equal(f.captured[1].query, undefined, 'a batch resolves against one unfiltered observation');
 });
 
@@ -179,10 +176,7 @@ test('an ambiguous target is rejected immediately instead of selecting a transie
   const resolver = createBrowserTargetResolver({
     captureSnapshotPayload: async () => {
       captures++;
-      return { elements: [
-        element('p1-s1-e1', 'button', 'Continue'),
-        element('p1-s1-e2', 'button', 'Continue'),
-      ] };
+      return { elements: [element('p1-s1-e1', 'button', 'Continue'), element('p1-s1-e2', 'button', 'Continue')] };
     },
   });
   await assert.rejects(resolver.resolveTargetRefs({}, [{ role: 'button', name: 'Continue' }]), /matched 2 elements/);
@@ -196,7 +190,7 @@ test('a selector target reuses the AX ref for a known node and mints one for an 
   assert.equal(known.ref, 'p1-s2-e2');
   await assert.rejects(
     f.resolver.resolveTargetRefs(f.guest, [{ selector: 'div.row' }]),
-    /matched 2 elements[\s\S]*\[p1-s2-t\d+\] div "consent"/,
+    /matched 2 elements[\s\S]*\[p1-s2-t\d+\] div "consent"/
   );
   const [minted] = await f.resolver.resolveTargetRefs(f.guest, [{ selector: 'div.row', nth: 2 }]);
   assert.equal(f.state.for(f.guest).accessibilityRefs.refs.get(minted.ref).backendNodeId, 900);
@@ -205,12 +199,15 @@ test('a selector target reuses the AX ref for a known node and mints one for an 
 });
 
 test('without an AX tree a selector resolves through the page-side ref table', async () => {
-  const dom = new JSDOM('<button id="one">Cancel</button><div id="two" title="Consent row"></div>', { runScripts: 'outside-only' });
+  const dom = new JSDOM('<button id="one">Cancel</button><div id="two" title="Consent row"></div>', {
+    runScripts: 'outside-only',
+  });
   try {
     const elements = [element('p1-s2-e1', 'button', 'Cancel')];
     const f = resolverFixture({ ax: false, elements, dom });
     dom.window.__mixdogAgentSnapshot = {
-      id: 'p1-s2', refs: new Map([['p1-s2-e1', { element: dom.window.document.querySelector('#one'), frames: [] }]]),
+      id: 'p1-s2',
+      refs: new Map([['p1-s2-e1', { element: dom.window.document.querySelector('#one'), frames: [] }]]),
     };
     const [known] = await f.resolver.resolveTargetRefs(f.guest, [{ selector: '#one' }]);
     assert.equal(known.ref, 'p1-s2-e1');
@@ -227,14 +224,19 @@ test('without an AX tree a selector resolves through the page-side ref table', a
 
 for (const ax of [true, false]) {
   test(`batched CSS targets keep distinct elements and reuse overlapping matches (${ax ? 'AX' : 'DOM'})`, async () => {
-    const dom = new JSDOM('<input id="first" data-key="a  b"><input id="second" data-key="a b">', { runScripts: 'outside-only' });
+    const dom = new JSDOM('<input id="first" data-key="a  b"><input id="second" data-key="a b">', {
+      runScripts: 'outside-only',
+    });
     try {
       const nodes = [dom.window.document.querySelector('#first'), dom.window.document.querySelector('#second')];
       dom.window.__mixdogAgentSnapshot = { id: 'p1-s2', refs: new Map() };
       const f = resolverFixture({
-        ax, elements: [], dom,
-        selectorNodes: selector => [...dom.window.document.querySelectorAll(selector)].map(node => nodes.indexOf(node) + 101),
-        describeNode: id => ({ backendNodeId: id, nodeName: 'INPUT', attributes: ['id', nodes[id - 101].id] }),
+        ax,
+        elements: [],
+        dom,
+        selectorNodes: (selector) =>
+          [...dom.window.document.querySelectorAll(selector)].map((node) => nodes.indexOf(node) + 101),
+        describeNode: (id) => ({ backendNodeId: id, nodeName: 'INPUT', attributes: ['id', nodes[id - 101].id] }),
       });
       const resolved = await f.resolver.resolveTargetRefs(f.guest, [
         { selector: '[data-key="a  b"]' },
@@ -258,26 +260,38 @@ for (const ax of [true, false]) {
   });
 
   test(`CSS matching refuses truncated uniqueness and still supports the limit boundary (${ax ? 'AX' : 'DOM'})`, async () => {
-    const dom = new JSDOM(Array.from({ length: 51 }, (_, i) => (
-      `<button id="b${i}" aria-label="${i === 0 || i === 50 ? 'Delete' : `Other ${i}`}"></button>`
-    )).join(''), { runScripts: 'outside-only' });
+    const dom = new JSDOM(
+      Array.from(
+        { length: 51 },
+        (_, i) => `<button id="b${i}" aria-label="${i === 0 || i === 50 ? 'Delete' : `Other ${i}`}"></button>`
+      ).join(''),
+      { runScripts: 'outside-only' }
+    );
     try {
       const nodes = [...dom.window.document.querySelectorAll('button')];
-      const elements = nodes.map((node, index) => element(`p1-s2-e${index + 1}`, 'button', node.getAttribute('aria-label')));
+      const elements = nodes.map((node, index) =>
+        element(`p1-s2-e${index + 1}`, 'button', node.getAttribute('aria-label'))
+      );
       dom.window.__mixdogAgentSnapshot = {
-        id: 'p1-s2', refs: new Map(elements.map((el, i) => [el.ref, { element: nodes[i], frames: [] }])),
+        id: 'p1-s2',
+        refs: new Map(elements.map((el, i) => [el.ref, { element: nodes[i], frames: [] }])),
       };
       const f = resolverFixture({
-        ax, elements, dom,
-        selectorNodes: selector => [...dom.window.document.querySelectorAll(selector)].map(node => nodes.indexOf(node) + 1),
-        describeNode: id => ({ backendNodeId: id, nodeName: 'BUTTON' }),
+        ax,
+        elements,
+        dom,
+        selectorNodes: (selector) =>
+          [...dom.window.document.querySelectorAll(selector)].map((node) => nodes.indexOf(node) + 1),
+        describeNode: (id) => ({ backendNodeId: id, nodeName: 'BUTTON' }),
       });
       for (const target of [
         { selector: 'button', name: 'Delete', exact: true },
         { selector: 'button', nth: 51 },
       ]) {
-        await assert.rejects(f.resolver.resolveTargetRefs(f.guest, [target]),
-          /matched 51 elements, exceeding the limit of 50; narrow target\.selector/);
+        await assert.rejects(
+          f.resolver.resolveTargetRefs(f.guest, [target]),
+          /matched 51 elements, exceeding the limit of 50; narrow target\.selector/
+        );
       }
       assert.equal(f.captured.length, 2, 'overflow is final, not an actionability retry');
       assert.ok(!f.cdpCalls.includes('DOM.describeNode'), 'overflow stops before per-node work');
@@ -285,11 +299,20 @@ for (const ax of [true, false]) {
       assert.equal(dom.window.__mixdogAgentSnapshot.refs.size, elements.length);
       const [atLimit] = await f.resolver.resolveTargetRefs(f.guest, [{ selector: 'button:not(#b50)', nth: 50 }]);
       assert.equal(atLimit.ref, elements[49].ref);
-      const [narrowed] = await f.resolver.resolveTargetRefs(f.guest, [{ selector: '#b50', name: 'Delete', exact: true }]);
+      const [narrowed] = await f.resolver.resolveTargetRefs(f.guest, [
+        { selector: '#b50', name: 'Delete', exact: true },
+      ]);
       assert.equal(narrowed.ref, elements[50].ref);
-      await assert.rejects(f.resolver.resolveTargetRefs(f.guest, [{
-        selector: '#b0, #b50', name: 'Delete', exact: true,
-      }]), /matched 2 elements/);
+      await assert.rejects(
+        f.resolver.resolveTargetRefs(f.guest, [
+          {
+            selector: '#b0, #b50',
+            name: 'Delete',
+            exact: true,
+          },
+        ]),
+        /matched 2 elements/
+      );
     } finally {
       dom.window.close();
     }

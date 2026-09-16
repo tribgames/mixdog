@@ -23,8 +23,9 @@ export function typingTargetProbe(point?: { x: number; y: number }): string {
 }
 
 export async function waitForElectronTypingTarget(
-  window: BrowserWindow, point: { x: number; y: number } | undefined,
-  assertAllowed: () => Promise<unknown>,
+  window: BrowserWindow,
+  point: { x: number; y: number } | undefined,
+  assertAllowed: () => Promise<unknown>
 ): Promise<boolean> {
   const deadline = performance.now() + 500;
   do {
@@ -38,13 +39,18 @@ export async function waitForElectronTypingTarget(
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const ready = await Promise.race([
-        window.webContents.executeJavaScript(typingTargetProbe(relative)).then((value) => value === true, () => false),
+        window.webContents.executeJavaScript(typingTargetProbe(relative)).then(
+          (value) => value === true,
+          () => false
+        ),
         new Promise<boolean>((resolve) => {
           timer = setTimeout(() => resolve(false), Math.max(0, deadline - performance.now()));
         }),
       ]);
       if (ready) return true;
-    } finally { if (timer) clearTimeout(timer); }
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     if (performance.now() >= deadline) return false;
     await new Promise((resolve) => setTimeout(resolve, Math.min(25, deadline - performance.now())));
   } while (performance.now() < deadline);

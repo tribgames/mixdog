@@ -1,8 +1,8 @@
 // Native mixdog-graph binary runner — single source of truth for per-file
-// parsing. NO JS parse fallback: absent binary throws. Extracted verbatim
-// from code-graph.mjs, except _graphBinaryPath's local-build relative path,
-// which gains one extra `../` because this module sits one directory deeper
-// (tools/code-graph/ vs tools/). The resolved absolute path is unchanged.
+// parsing. NO JS parse fallback: absent binary throws.
+// _graphBinaryPath's local-build relative path gains one extra `../` because
+// this module sits one directory deeper (tools/code-graph/ vs tools/). The
+// resolved absolute path is unchanged.
 import { resolve as pathResolve, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -32,14 +32,22 @@ function _graphBinaryPath() {
   if (existsSync(localBuild)) return localBuild;
   const installed = packageNativeToolPath('graph');
   if (existsSync(installed)) return installed;
-  try { return findCachedGraphBinary(getPluginData()); } catch { return null; }
+  try {
+    return findCachedGraphBinary(getPluginData());
+  } catch {
+    return null;
+  }
 }
 
 // Public resolver for consumers outside the graph build (the resident
 // native-search-client duck-types this exact name). Returns an absolute
 // path or null; never throws.
 export function graphBinaryPath() {
-  try { return _graphBinaryPath() || null; } catch { return null; }
+  try {
+    return _graphBinaryPath() || null;
+  } catch {
+    return null;
+  }
 }
 
 async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null, signal = null, { requireRel = true } = {}) {
@@ -52,8 +60,8 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null, signa
       binPath = await ensureGraphBinary(getPluginData());
     } catch (err) {
       throw new Error(
-        `[code-graph] mixdog-graph binary unavailable and could not be fetched: ${err?.message || err}. `
-        + 'Build it (cargo build --release in native/mixdog-graph) or check network/release manifest.',
+        `[code-graph] mixdog-graph binary unavailable and could not be fetched: ${err?.message || err}. ` +
+          'Build it (cargo build --release in native/mixdog-graph) or check network/release manifest.'
       );
     }
   }
@@ -67,177 +75,196 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null, signa
   // signature validation both hold their slot in buildCodeGraphAsync; worker
   // threads do not share module-level state with the main thread, so acquiring
   // here would create an independent semaphore that cannot coordinate with rg.
-  const _spawnOnce = () => new Promise((resolve, reject) => {
-    // When stdinLines is supplied (--files mode), stream one JSON object per
-    // line to the child's STDIN — the reused nodes' metadata — so Rust can
-    // resolve imports across the WHOLE tree (fresh + reused) while only
-    // full-parsing the changed subset passed as argv.
-    const wantsStdin = Array.isArray(stdinLines);
-    const proc = spawn(binPath, [absRoot, ...extraArgs], {
-      stdio: [wantsStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-      // windowsHide: native code-graph binary is a console exe; without this each
-      // call flashes a console window when spawned under the detached daemon.
-      windowsHide: true,
-    });
-    const chunks = [];
-    let stderrText = '';
-    const STDERR_CAP = 8 * 1024;
-    let settled = false;
-    let timedOut = false;
-    let aborted = false;
+  const _spawnOnce = () =>
+    new Promise((resolve, reject) => {
+      // When stdinLines is supplied (--files mode), stream one JSON object per
+      // line to the child's STDIN — the reused nodes' metadata — so Rust can
+      // resolve imports across the WHOLE tree (fresh + reused) while only
+      // full-parsing the changed subset passed as argv.
+      const wantsStdin = Array.isArray(stdinLines);
+      const proc = spawn(binPath, [absRoot, ...extraArgs], {
+        stdio: [wantsStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+        // windowsHide: native code-graph binary is a console exe; without this each
+        // call flashes a console window when spawned under the detached daemon.
+        windowsHide: true,
+      });
+      const chunks = [];
+      let stderrText = '';
+      const STDERR_CAP = 8 * 1024;
+      let settled = false;
+      let timedOut = false;
+      let aborted = false;
 
-    // ── timeout + kill helpers (mirrors rg-runner's _killRgProc/_escalateRgKill) ──
-    let timeoutTimer = null;
-    let killGraceTimer = null;
-    let forceSettleTimer = null;
+      // ── timeout + kill helpers (mirrors rg-runner's _killRgProc/_escalateRgKill) ──
+      let timeoutTimer = null;
+      let killGraceTimer = null;
+      let forceSettleTimer = null;
 
-    const _procGone = () => proc.exitCode != null || proc.signalCode != null;
+      const _procGone = () => proc.exitCode != null || proc.signalCode != null;
 
-    const _escalateKill = () => {
-      if (_procGone()) return;
-      const pid = proc.pid;
-      if (!pid) return;
-      try {
-        if (process.platform === 'win32') {
-          spawn('taskkill', ['/pid', String(pid), '/t', '/f'], {
-            windowsHide: true,
-            stdio: 'ignore',
-          });
-        } else {
-          try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+      const _escalateKill = () => {
+        if (_procGone()) return;
+        const pid = proc.pid;
+        if (!pid) return;
+        try {
+          if (process.platform === 'win32') {
+            spawn('taskkill', ['/pid', String(pid), '/t', '/f'], {
+              windowsHide: true,
+              stdio: 'ignore',
+            });
+          } else {
+            try {
+              proc.kill('SIGKILL');
+            } catch {
+              /* ignore */
+            }
+          }
+        } catch {
+          /* ignore */
         }
-      } catch { /* ignore */ }
-    };
+      };
 
-    const _killProc = () => {
-      if (_procGone()) return;
-      try { proc.kill('SIGTERM'); } catch { /* ignore */ }
-      if (killGraceTimer) {
-        clearTimeout(killGraceTimer);
-        killGraceTimer = null;
-      }
-      killGraceTimer = setTimeout(() => {
-        killGraceTimer = null;
-        _escalateKill();
-      }, 3000);
-      if (killGraceTimer.unref) killGraceTimer.unref();
-    };
+      const _killProc = () => {
+        if (_procGone()) return;
+        try {
+          proc.kill('SIGTERM');
+        } catch {
+          /* ignore */
+        }
+        if (killGraceTimer) {
+          clearTimeout(killGraceTimer);
+          killGraceTimer = null;
+        }
+        killGraceTimer = setTimeout(() => {
+          killGraceTimer = null;
+          _escalateKill();
+        }, 3000);
+        if (killGraceTimer.unref) killGraceTimer.unref();
+      };
 
-    const _clearTimers = () => {
-      if (timeoutTimer) {
-        clearTimeout(timeoutTimer);
+      const _clearTimers = () => {
+        if (timeoutTimer) {
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+        }
+        if (killGraceTimer) {
+          clearTimeout(killGraceTimer);
+          killGraceTimer = null;
+        }
+        if (forceSettleTimer) {
+          clearTimeout(forceSettleTimer);
+          forceSettleTimer = null;
+        }
+        if (onAbort && signal) {
+          try {
+            signal.removeEventListener('abort', onAbort);
+          } catch {
+            /* ignore */
+          }
+          onAbort = null;
+        }
+      };
+      let onAbort = null;
+
+      // Arm timeout — unref so it doesn't keep the process alive. On timeout we
+      // start SIGTERM→grace→force-kill but do NOT settle yet: the promise stays
+      // pending until the child's 'close' fires (so the build worker — and the
+      // main-thread gate slot it holds — is only released once the process is
+      // actually gone). A separate force-settle deadline guarantees the promise
+      // still resolves if 'close' never arrives. Mirrors rg-runner exactly.
+      timeoutTimer = setTimeout(() => {
         timeoutTimer = null;
+        timedOut = true;
+        _killProc();
+        // Hard backstop: if 'close' never fires after the kill escalation,
+        // escalate again and settle so we never hang (and never release the
+        // gate while the child is provably still alive without a final attempt).
+        if (forceSettleTimer) clearTimeout(forceSettleTimer);
+        forceSettleTimer = setTimeout(() => {
+          forceSettleTimer = null;
+          if (settled) return;
+          _escalateKill();
+          settled = true;
+          _clearTimers();
+          reject(new Error(`[code-graph] mixdog-graph timed out after ${timeoutMs}ms`));
+        }, 5000);
+        if (forceSettleTimer.unref) forceSettleTimer.unref();
+      }, timeoutMs);
+      if (timeoutTimer.unref) timeoutTimer.unref();
+      if (signal) {
+        onAbort = () => {
+          aborted = true;
+          _killProc();
+        };
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
       }
-      if (killGraceTimer) {
-        clearTimeout(killGraceTimer);
-        killGraceTimer = null;
-      }
-      if (forceSettleTimer) {
-        clearTimeout(forceSettleTimer);
-        forceSettleTimer = null;
-      }
-      if (onAbort && signal) {
-        try { signal.removeEventListener('abort', onAbort); } catch { /* ignore */ }
-        onAbort = null;
-      }
-    };
-    let onAbort = null;
 
-    // Arm timeout — unref so it doesn't keep the process alive. On timeout we
-    // start SIGTERM→grace→force-kill but do NOT settle yet: the promise stays
-    // pending until the child's 'close' fires (so the build worker — and the
-    // main-thread gate slot it holds — is only released once the process is
-    // actually gone). A separate force-settle deadline guarantees the promise
-    // still resolves if 'close' never arrives. Mirrors rg-runner exactly.
-    timeoutTimer = setTimeout(() => {
-      timeoutTimer = null;
-      timedOut = true;
-      _killProc();
-      // Hard backstop: if 'close' never fires after the kill escalation,
-      // escalate again and settle so we never hang (and never release the
-      // gate while the child is provably still alive without a final attempt).
-      if (forceSettleTimer) clearTimeout(forceSettleTimer);
-      forceSettleTimer = setTimeout(() => {
-        forceSettleTimer = null;
+      proc.stdout.on('data', (c) => chunks.push(c));
+      proc.stderr.on('data', (c) => {
+        if (stderrText.length >= STDERR_CAP) return;
+        const piece = c.toString('utf8');
+        const room = STDERR_CAP - stderrText.length;
+        stderrText += piece.length > room ? piece.slice(0, room) : piece;
+      });
+      proc.on('error', (err) => {
         if (settled) return;
-        _escalateKill();
         settled = true;
         _clearTimers();
-        reject(new Error(`[code-graph] mixdog-graph timed out after ${timeoutMs}ms`));
-      }, 5000);
-      if (forceSettleTimer.unref) forceSettleTimer.unref();
-    }, timeoutMs);
-    if (timeoutTimer.unref) timeoutTimer.unref();
-    if (signal) {
-      onAbort = () => {
-        aborted = true;
-        _killProc();
-      };
-      if (signal.aborted) onAbort();
-      else signal.addEventListener('abort', onAbort, { once: true });
-    }
-
-    proc.stdout.on('data', (c) => chunks.push(c));
-    proc.stderr.on('data', (c) => {
-      if (stderrText.length >= STDERR_CAP) return;
-      const piece = c.toString('utf8');
-      const room = STDERR_CAP - stderrText.length;
-      stderrText += piece.length > room ? piece.slice(0, room) : piece;
-    });
-    proc.on('error', (err) => {
-      if (settled) return;
-      settled = true;
-      _clearTimers();
-      reject(err);
-    });
-    if (wantsStdin) {
-      proc.stdin.on('error', () => { /* child may close stdin early; ignore EPIPE */ });
-      proc.stdin.write(stdinLines.length ? `${stdinLines.join('\n')}\n` : '');
-      proc.stdin.end();
-    }
-    proc.on('close', (code) => {
-      if (settled) return;
-      settled = true;
-      _clearTimers();
-      if (timedOut) {
-        // Our timeout kill won the race: the child is gone now, so the gate
-        // slot releases here (not at timeout-fire time). Report as a timeout.
-        reject(new Error(`[code-graph] mixdog-graph timed out after ${timeoutMs}ms`));
-        return;
+        reject(err);
+      });
+      if (wantsStdin) {
+        proc.stdin.on('error', () => {
+          /* child may close stdin early; ignore EPIPE */
+        });
+        proc.stdin.write(stdinLines.length ? `${stdinLines.join('\n')}\n` : '');
+        proc.stdin.end();
       }
-      if (aborted) {
-        reject(new Error('aborted'));
-        return;
-      }
-      if (code !== 0) {
-        reject(new Error(`[code-graph] mixdog-graph exited ${code}: ${stderrText.trim().slice(0, 200)}`));
-        return;
-      }
-      const out = [];
-      const buf = Buffer.concat(chunks).toString('utf8');
-      let lineNumber = 0;
-      for (const line of buf.split('\n')) {
-        lineNumber += 1;
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const rec = JSON.parse(trimmed);
-          // Capability modes (--langs) answer with a single table object that
-          // has no `rel`; only per-file record modes require it.
-          if (!rec || (requireRel && typeof rec.rel !== 'string')) {
-            throw new Error('record is missing string rel');
-          }
-          out.push(rec);
-        } catch (error) {
-          reject(new Error(
-            `[code-graph] mixdog-graph emitted invalid JSONL at line ${lineNumber}: ${error?.message || error}`,
-          ));
+      proc.on('close', (code) => {
+        if (settled) return;
+        settled = true;
+        _clearTimers();
+        if (timedOut) {
+          // Our timeout kill won the race: the child is gone now, so the gate
+          // slot releases here (not at timeout-fire time). Report as a timeout.
+          reject(new Error(`[code-graph] mixdog-graph timed out after ${timeoutMs}ms`));
           return;
         }
-      }
-      resolve(out);
+        if (aborted) {
+          reject(new Error('aborted'));
+          return;
+        }
+        if (code !== 0) {
+          reject(new Error(`[code-graph] mixdog-graph exited ${code}: ${stderrText.trim().slice(0, 200)}`));
+          return;
+        }
+        const out = [];
+        const buf = Buffer.concat(chunks).toString('utf8');
+        let lineNumber = 0;
+        for (const line of buf.split('\n')) {
+          lineNumber += 1;
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const rec = JSON.parse(trimmed);
+            // Capability modes (--langs) answer with a single table object that
+            // has no `rel`; only per-file record modes require it.
+            if (!rec || (requireRel && typeof rec.rel !== 'string')) {
+              throw new Error('record is missing string rel');
+            }
+            out.push(rec);
+          } catch (error) {
+            reject(
+              new Error(
+                `[code-graph] mixdog-graph emitted invalid JSONL at line ${lineNumber}: ${error?.message || error}`
+              )
+            );
+            return;
+          }
+        }
+        resolve(out);
+      });
     });
-  });
 
   // Outer call with one EAGAIN retry (mirrors rg-runner runRg / runRgWindowedLines).
   try {
@@ -289,7 +316,11 @@ let _callsWireProbeKey = null;
 const CALLS_WIRE_PROBE_MAX_WAIT_MS = 3_000;
 
 function _currentGraphBinaryKey() {
-  try { return _graphBinaryPath() || ''; } catch { return ''; }
+  try {
+    return _graphBinaryPath() || '';
+  } catch {
+    return '';
+  }
 }
 
 async function _probeCallsWireFormat(absRoot) {
@@ -377,7 +408,9 @@ export function _noteCallsWireFromRecords(records, key = _currentGraphBinaryKey(
   return false;
 }
 
-export function _callsWireV2Enabled() { return _callsWireV2; }
+export function _callsWireV2Enabled() {
+  return _callsWireV2;
+}
 
 // Cache-signature token for the call-site capability. Manifest fingerprints
 // only change when FILES change, so a graph indexed by a binary without the v2
@@ -399,8 +432,8 @@ export function callsCapabilityHint() {
   const binPath = graphBinaryPath() || '(no mixdog-graph binary resolved)';
   return _callsWireV2Enabled()
     ? `no indexed file of this project carries call data (binary: ${binPath}) — the graph re-indexes on the next query`
-    : `binary ${binPath} does not advertise callsFormat: ${CALLS_WIRE_FORMAT} — rebuild the native graph binary `
-      + '(cargo build --release in native/mixdog-graph) or update the packaged native tool, then re-run';
+    : `binary ${binPath} does not advertise callsFormat: ${CALLS_WIRE_FORMAT} — rebuild the native graph binary ` +
+        '(cargo build --release in native/mixdog-graph) or update the packaged native tool, then re-run';
 }
 
 /**
@@ -412,15 +445,15 @@ export function callsCapabilityHint() {
 export function callsCapabilityError(mode, cwd) {
   const binPath = graphBinaryPath() || '(no mixdog-graph binary resolved)';
   const capability = _callsWireV2Enabled()
-    ? `\`${binPath} <cwd> --langs\` advertises callsFormat: ${CALLS_WIRE_FORMAT}, but no indexed file of this project carries call data`
-      + ' (cached graph built by an older binary, or a project of languages the extractor does not parse)'
+    ? `\`${binPath} <cwd> --langs\` advertises callsFormat: ${CALLS_WIRE_FORMAT}, but no indexed file of this project carries call data` +
+      ' (cached graph built by an older binary, or a project of languages the extractor does not parse)'
     : `\`${binPath} <cwd> --langs\` does not advertise callsFormat: ${CALLS_WIRE_FORMAT} — this binary cannot emit call sites`;
   return new Error(
-    `code_graph ${mode}: no AST call sites are available for '${cwd}', and call analysis has no text fallback.\n`
-    + `binary: ${binPath}\n`
-    + `capability: ${capability}\n`
-    + 'remedy: rebuild the native graph binary (cargo build --release in native/mixdog-graph) or update the packaged '
-    + 'native tool, then re-run — the graph re-indexes itself on the next query.',
+    `code_graph ${mode}: no AST call sites are available for '${cwd}', and call analysis has no text fallback.\n` +
+      `binary: ${binPath}\n` +
+      `capability: ${capability}\n` +
+      'remedy: rebuild the native graph binary (cargo build --release in native/mixdog-graph) or update the packaged ' +
+      'native tool, then re-run — the graph re-indexes itself on the next query.'
   );
 }
 
@@ -433,21 +466,23 @@ export function callsCapabilityError(mode, cwd) {
  */
 export function symbolsCapabilityHint() {
   const binPath = graphBinaryPath() || '(no mixdog-graph binary resolved)';
-  return `no indexed file of this project carries native symbols (binary: ${binPath}) — rebuild the native graph `
-    + 'binary (cargo build --release in native/mixdog-graph) or update the packaged native tool; the graph '
-    + 're-indexes itself on the next query';
+  return (
+    `no indexed file of this project carries native symbols (binary: ${binPath}) — rebuild the native graph ` +
+    'binary (cargo build --release in native/mixdog-graph) or update the packaged native tool; the graph ' +
+    're-indexes itself on the next query'
+  );
 }
 
 export function symbolsCapabilityError(mode, cwd) {
   const binPath = graphBinaryPath() || '(no mixdog-graph binary resolved)';
   return new Error(
-    `code_graph ${mode}: no native symbols are available for '${cwd}', and symbol analysis has no text fallback.\n`
-    + `binary: ${binPath}\n`
-    + `capability: \`${binPath} <cwd> --langs\` lists the languages that emit symbols; this project's indexed files `
-    + 'are extraction languages, yet not one of them carries a symbol record (cached graph built by an older binary, '
-    + 'or a binary that cannot extract)\n'
-    + 'remedy: rebuild the native graph binary (cargo build --release in native/mixdog-graph) or update the packaged '
-    + 'native tool, then re-run — the graph re-indexes itself on the next query.',
+    `code_graph ${mode}: no native symbols are available for '${cwd}', and symbol analysis has no text fallback.\n` +
+      `binary: ${binPath}\n` +
+      `capability: \`${binPath} <cwd> --langs\` lists the languages that emit symbols; this project's indexed files ` +
+      'are extraction languages, yet not one of them carries a symbol record (cached graph built by an older binary, ' +
+      'or a binary that cannot extract)\n' +
+      'remedy: rebuild the native graph binary (cargo build --release in native/mixdog-graph) or update the packaged ' +
+      'native tool, then re-run — the graph re-indexes itself on the next query.'
   );
 }
 
@@ -475,16 +510,18 @@ export async function _runGraphWalk(absRoot) {
 // {rel, resolvedImports, importedBy}.
 export async function _runGraphFiles(absRoot, rels, reusedMetas, signal = null) {
   const lines = Array.isArray(reusedMetas)
-    ? reusedMetas.map((m) => JSON.stringify({
-        rel: m.rel,
-        lang: m.lang,
-        parseError: m.parseError || '',
-        rawImports: Array.isArray(m.rawImports) ? m.rawImports : [],
-        packageName: m.packageName || '',
-        namespaceName: m.namespaceName || '',
-        goPackageName: m.goPackageName || '',
-        topLevelTypes: Array.isArray(m.topLevelTypes) ? m.topLevelTypes : [],
-      }))
+    ? reusedMetas.map((m) =>
+        JSON.stringify({
+          rel: m.rel,
+          lang: m.lang,
+          parseError: m.parseError || '',
+          rawImports: Array.isArray(m.rawImports) ? m.rawImports : [],
+          packageName: m.packageName || '',
+          namespaceName: m.namespaceName || '',
+          goPackageName: m.goPackageName || '',
+          topLevelTypes: Array.isArray(m.topLevelTypes) ? m.topLevelTypes : [],
+        })
+      )
     : [];
   const key = _currentGraphBinaryKey();
   const probe = _ensureCallsWireProbe(absRoot);
@@ -511,12 +548,8 @@ export function _fileInfoFromRustRecord(rec, absRoot) {
     parseError: typeof rec.parseError === 'string' ? rec.parseError : '',
     sourceText: null,
     rawImports: Array.isArray(rec.rawImports) ? rec.rawImports : [],
-    resolvedImports: Array.isArray(rec.resolvedImports)
-      ? rec.resolvedImports.filter((v) => typeof v === 'string')
-      : [],
-    importedBy: Array.isArray(rec.importedBy)
-      ? rec.importedBy.filter((v) => typeof v === 'string')
-      : [],
+    resolvedImports: Array.isArray(rec.resolvedImports) ? rec.resolvedImports.filter((v) => typeof v === 'string') : [],
+    importedBy: Array.isArray(rec.importedBy) ? rec.importedBy.filter((v) => typeof v === 'string') : [],
     packageName: typeof rec.packageName === 'string' ? rec.packageName : '',
     namespaceName: typeof rec.namespaceName === 'string' ? rec.namespaceName : '',
     goPackageName: typeof rec.goPackageName === 'string' ? rec.goPackageName : '',

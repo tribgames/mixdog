@@ -54,9 +54,7 @@ export function titleCaseMcpServer(server) {
   return String(server || '')
     .split(/[_\s-]+/)
     .filter(Boolean)
-    .map((part) => (part === part.toLowerCase()
-      ? `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`
-      : part))
+    .map((part) => (part === part.toLowerCase() ? `${part.slice(0, 1).toUpperCase()}${part.slice(1)}` : part))
     .join(' ');
 }
 
@@ -110,7 +108,10 @@ export function displayToolPath(path) {
 }
 
 export function compactParts(parts) {
-  return parts.filter((part) => part != null && String(part).trim()).map((part) => String(part).trim()).join(STATUS_SEPARATOR);
+  return parts
+    .filter((part) => part != null && String(part).trim())
+    .map((part) => String(part).trim())
+    .join(STATUS_SEPARATOR);
 }
 
 export function compactSlash(left, right) {
@@ -146,10 +147,19 @@ export function splitToolSearchSelection(value) {
 }
 
 function toolSearchTargetKind(value) {
-  const lower = String(value || '').trim().toLowerCase();
+  const lower = String(value || '')
+    .trim()
+    .toLowerCase();
   if (!lower) return '';
   if (lower.startsWith('mcp__') || lower.includes('_mcp_') || lower.includes('mcp')) return 'MCP';
-  if (lower === 'skill' || lower.startsWith('skill:') || lower.startsWith('skill_') || lower.startsWith('skills_') || lower.includes('skill')) return 'Skills';
+  if (
+    lower === 'skill' ||
+    lower.startsWith('skill:') ||
+    lower.startsWith('skill_') ||
+    lower.startsWith('skills_') ||
+    lower.includes('skill')
+  )
+    return 'Skills';
   return 'Tools';
 }
 
@@ -184,17 +194,19 @@ export function displayToolSearchTarget(value) {
 }
 
 export function titleizeToolName(name) {
-  return stripToolPrefix(name)
-    .split(/[_\s-]+/)
-    .filter(Boolean)
-    .map((part) => {
-      const lower = part.toLowerCase();
-      if (lower === 'ui') return 'UI';
-      if (lower === 'mcp') return 'MCP';
-      if (lower === 'id') return 'ID';
-      return `${lower.slice(0, 1).toUpperCase()}${lower.slice(1)}`;
-    })
-    .join(' ') || 'Tool';
+  return (
+    stripToolPrefix(name)
+      .split(/[_\s-]+/)
+      .filter(Boolean)
+      .map((part) => {
+        const lower = part.toLowerCase();
+        if (lower === 'ui') return 'UI';
+        if (lower === 'mcp') return 'MCP';
+        if (lower === 'id') return 'ID';
+        return `${lower.slice(0, 1).toUpperCase()}${lower.slice(1)}`;
+      })
+      .join(' ') || 'Tool'
+  );
 }
 
 const AGENT_DISPLAY_NAMES = new Map([
@@ -230,9 +242,7 @@ export function displayAgentName(value) {
 
 export function displayModelName(model, provider, displayHint) {
   const text = String(model ?? '').trim();
-  const modelId = text
-    ? (text.includes('/') ? (text.split('/').filter(Boolean).at(-1) || text) : text)
-    : '';
+  const modelId = text ? (text.includes('/') ? text.split('/').filter(Boolean).at(-1) || text : text) : '';
   const shown = sharedDisplayModelName(modelId, provider, displayHint);
   return shown || modelId;
 }
@@ -310,14 +320,24 @@ export function patchFileCount(args = {}) {
 export function codeGraphLabel(args) {
   const mode = String(args.mode || args.action || '').toLowerCase();
   if (mode === 'prewarm' || mode === 'index' || mode === 'build' || mode === 'refresh') return 'Setup';
-  if (mode === 'search' || mode === 'find_symbol' || mode === 'references' || mode === 'callers' || mode === 'callees') return 'Search';
+  if (mode === 'search' || mode === 'find_symbol' || mode === 'references' || mode === 'callers' || mode === 'callees')
+    return 'Search';
   return 'Read';
 }
 
 export function codeGraphSummary(args, max) {
   return compactParts([
     args.mode || args.action || '',
-    truncateToolText(firstText(args.symbol, Array.isArray(args.symbols) ? args.symbols.join(', ') : '', args.file, args.path, args.query), max),
+    truncateToolText(
+      firstText(
+        args.symbol,
+        Array.isArray(args.symbols) ? args.symbols.join(', ') : '',
+        args.file,
+        args.path,
+        args.query
+      ),
+      max
+    ),
   ]);
 }
 

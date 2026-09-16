@@ -29,7 +29,7 @@ export async function readProbeSash(window: BrowserWindow): Promise<SashGeometry
 export async function dragProbeSash(
   window: BrowserWindow,
   initialSash: SashGeometry,
-  sleep: (ms: number) => Promise<unknown>,
+  sleep: (ms: number) => Promise<unknown>
 ): Promise<void> {
   const debug = window.webContents.debugger;
   const wasAttached = debug.isAttached();
@@ -50,9 +50,7 @@ export async function dragProbeSash(
           if (!current) break;
           geometry = current;
           const step = Math.max(4, 12 - attempt * 4);
-          requested = direction > 0
-            ? Math.min(targetX, geometry.x + step)
-            : Math.max(targetX, geometry.x - step);
+          requested = direction > 0 ? Math.min(targetX, geometry.x + step) : Math.max(targetX, geometry.x - step);
           await debug.sendCommand('Input.dispatchMouseEvent', {
             type: 'mouseMoved',
             x: geometry.x,
@@ -95,11 +93,13 @@ export async function dragProbeSash(
         }
         if (!next || Math.abs(next.x - geometry.x) < 1) {
           if (Math.abs(targetX - geometry.x) <= 4.5) break;
-          throw new Error(`width probe: pane sash stalled ${JSON.stringify({
-            from: geometry.x,
-            requested,
-            actual: next?.x,
-          })}`);
+          throw new Error(
+            `width probe: pane sash stalled ${JSON.stringify({
+              from: geometry.x,
+              requested,
+              actual: next?.x,
+            })}`
+          );
         }
         geometry = next;
       }
@@ -112,10 +112,12 @@ export async function dragProbeSash(
     await moveTo(start);
     const restored = await readProbeSash(window);
     if (!restored || Math.abs(restored.x - start) > 2) {
-      throw new Error(`width probe: pane sash did not restore ${JSON.stringify({
-        start,
-        restored,
-      })}`);
+      throw new Error(
+        `width probe: pane sash did not restore ${JSON.stringify({
+          start,
+          restored,
+        })}`
+      );
     }
     await debug.sendCommand('Input.dispatchMouseEvent', {
       type: 'mouseMoved',

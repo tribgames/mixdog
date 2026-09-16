@@ -10,8 +10,12 @@
   min-height: 0;
   overflow: hidden;
 }
-.pane-split-row { flex-direction: row; }
-.pane-split-column { flex-direction: column; }
+.pane-split-row {
+  flex-direction: row;
+}
+.pane-split-column {
+  flex-direction: column;
+}
 .pane-split-cell {
   display: flex;
   min-width: 0;
@@ -56,8 +60,12 @@
   z-index: 5;
   background: transparent;
 }
-.pane-split-row > .pane-resize-handle { cursor: col-resize; }
-.pane-split-column > .pane-resize-handle { cursor: row-resize; }
+.pane-split-row > .pane-resize-handle {
+  cursor: col-resize;
+}
+.pane-split-column > .pane-resize-handle {
+  cursor: row-resize;
+}
 .pane-resize-handle::before {
   content: "";
   position: absolute;
@@ -85,7 +93,10 @@
   z-index: 2;
   pointer-events: none;
   background: var(--mx-border-structure);
-  transition: background var(--mx-motion-chrome), width var(--mx-motion-chrome), height var(--mx-motion-chrome);
+  transition:
+    background var(--mx-motion-chrome),
+    width var(--mx-motion-chrome),
+    height var(--mx-motion-chrome);
 }
 .pane-split-row > .pane-resize-handle::after {
   top: 0;
@@ -165,7 +176,9 @@
   /* Exit mirrors the entry (user: 열리고 닫힐 때 부드럽게). The panel used to
      unmount on close, so CSS never had an element left to animate; it is now
      held for the sheet clock with data-state="closed" and slides back out. */
-  .bottom-panel { transition: transform var(--mx-sheet-motion); }
+  .bottom-panel {
+    transition: transform var(--mx-sheet-motion);
+  }
   .bottom-panel[data-state="closed"] {
     transform: translateY(calc(100% + 16px));
     animation: none;
@@ -184,7 +197,9 @@
   }
 }
 @keyframes bottom-sheet-in {
-  from { transform: translateY(calc(100% + 16px)); }
+  from {
+    transform: translateY(calc(100% + 16px));
+  }
 }
 /* Responsive band crossings are layout corrections, not user gestures.
    Explicitly suppress both inline and sheet opening animations for them. */
@@ -289,7 +304,7 @@
   align-items: center;
   justify-content: flex-end;
   padding: 0 6px 0 12px;
-  border-bottom: .5px solid var(--mx-border-muted);
+  border-bottom: 0.5px solid var(--mx-border-muted);
   color: var(--mx-text-muted);
   background: var(--mx-window-band);
 }
@@ -330,7 +345,10 @@
 }
 .problems-panel-actions > button:hover,
 .problems-panel-actions > button[aria-pressed="true"],
-.problems-panel-filter > button:hover { color: var(--mx-text); background: var(--mx-hover); }
+.problems-panel-filter > button:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
 .problems-panel-filter {
   /* Preferred width with a hard shrink floor: in a narrow pane the filter
      gives way first so tabs, counters, and the "…" menu all stay visible. */
@@ -350,7 +368,9 @@
   width: 100%;
   flex: 1 1 auto;
 }
-.problems-panel-filter:focus-within { border-color: var(--mx-focus); }
+.problems-panel-filter:focus-within {
+  border-color: var(--mx-focus);
+}
 .problems-panel-filter input {
   min-width: 0;
   flex: 1;
@@ -368,7 +388,9 @@
   padding-inline: 4px !important;
   font-size: var(--mx-font-micro);
 }
-.problems-filter-toggle[data-severity="error"] svg { color: var(--mx-danger); }
+.problems-filter-toggle[data-severity="error"] svg {
+  color: var(--mx-danger);
+}
 /* The "…" trigger sits on the same 24px control grammar as its siblings. */
 .problems-panel-actions .row-overflow-trigger {
   width: 24px;
@@ -382,10 +404,20 @@
   background: transparent;
   cursor: pointer;
 }
-.problems-panel-actions .row-overflow-trigger:hover { color: var(--mx-text); background: var(--mx-hover); }
-.problems-panel-actions .row-overflow-trigger svg { width: 16px; height: 16px; }
-.problems-filter-toggle[data-severity="warning"] svg { color: var(--mx-warning); }
-.problems-filter-toggle[data-severity="info"] svg { color: var(--mx-focus); }
+.problems-panel-actions .row-overflow-trigger:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.problems-panel-actions .row-overflow-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+.problems-filter-toggle[data-severity="warning"] svg {
+  color: var(--mx-warning);
+}
+.problems-filter-toggle[data-severity="info"] svg {
+  color: var(--mx-focus);
+}
 .bottom-panel-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -438,15 +470,24 @@
 .problem-tree-row:hover,
 .problem-tree-row:focus-visible,
 .problem-table-row:hover,
-.problem-table-row:focus-visible { background: var(--mx-hover); outline: 0; }
+.problem-table-row:focus-visible {
+  background: var(--mx-hover);
+  outline: 0;
+}
 .problems-file-row {
   height: 22px;
   gap: 5px;
   padding: 0 10px;
   font-size: var(--mx-font-minor);
 }
-.problems-file-row[aria-expanded="true"] > svg:first-child { transform: rotate(90deg); }
-.problems-file-row b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.problems-file-row[aria-expanded="true"] > svg:first-child {
+  transform: rotate(90deg);
+}
+.problems-file-row b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .problems-file-row small {
   min-width: 0;
   overflow: hidden;
@@ -466,11 +507,19 @@
   padding: 1px 8px 1px 31px;
   font-size: var(--mx-font-minor);
 }
-.problem-tree-row > svg { flex: 0 0 auto; }
-.problem-tree-row[data-severity="1"] > svg { color: var(--mx-danger); }
-.problem-tree-row[data-severity="2"] > svg { color: var(--mx-warning); }
+.problem-tree-row > svg {
+  flex: 0 0 auto;
+}
+.problem-tree-row[data-severity="1"] > svg {
+  color: var(--mx-danger);
+}
+.problem-tree-row[data-severity="2"] > svg {
+  color: var(--mx-warning);
+}
 .problem-tree-row[data-severity="3"] > svg,
-.problem-tree-row[data-severity="4"] > svg { color: var(--mx-focus); }
+.problem-tree-row[data-severity="4"] > svg {
+  color: var(--mx-focus);
+}
 .problem-tree-row > span {
   min-width: 0;
   flex: 1;
@@ -486,9 +535,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.problem-tree-row b { font-weight: var(--mx-weight-regular); }
-.problem-tree-row small { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
-.problem-tree-row em { color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-style: normal; }
+.problem-tree-row b {
+  font-weight: var(--mx-weight-regular);
+}
+.problem-tree-row small {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.problem-tree-row em {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-style: normal;
+}
 .problem-quick-fix {
   width: 22px;
   height: 20px;
@@ -503,12 +561,16 @@
   opacity: 0;
 }
 .problem-tree-row:hover .problem-quick-fix,
-.problem-tree-row:focus-within .problem-quick-fix { opacity: 1; }
-.problem-quick-fix:hover { background: var(--mx-hover); }
+.problem-tree-row:focus-within .problem-quick-fix {
+  opacity: 1;
+}
+.problem-quick-fix:hover {
+  background: var(--mx-hover);
+}
 .problems-table-header,
 .problem-table-row {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(140px, .45fr) 90px;
+  grid-template-columns: minmax(240px, 1fr) minmax(140px, 0.45fr) 90px;
 }
 .problems-table-header {
   height: 24px;
@@ -518,9 +580,22 @@
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
 }
-.problem-table-row { min-height: 24px; padding: 0 10px; font-size: var(--mx-font-minor); }
-.problem-table-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.problem-table-row > span:first-child { display: flex; align-items: center; gap: 6px; }
+.problem-table-row {
+  min-height: 24px;
+  padding: 0 10px;
+  font-size: var(--mx-font-minor);
+}
+.problem-table-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.problem-table-row > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 
 /* Pane cells: chrome around each leaf inside the split workspace.
    A two-column grid: the strip and surface stack fill column one and the
@@ -540,9 +615,18 @@
      descendants (Monaco context menus) to the cell. The dock host MEASURES
      this cell directly (ResizeObserver), so no container query is needed. */
 }
-.pane-cell > .workspace-tabs-shell { grid-column: 1; grid-row: 1; }
-.pane-cell > .pane-surface-stack { grid-column: 1; grid-row: 2; }
-.pane-cell > .pane-side-dock { grid-column: 2; grid-row: 1 / -1; }
+.pane-cell > .workspace-tabs-shell {
+  grid-column: 1;
+  grid-row: 1;
+}
+.pane-cell > .pane-surface-stack {
+  grid-column: 1;
+  grid-row: 2;
+}
+.pane-cell > .pane-side-dock {
+  grid-column: 2;
+  grid-row: 1 / -1;
+}
 
 /* ── Per-pane right dock ──
    The former window-level right side panel now belongs to each pane (user:
@@ -585,8 +669,15 @@
   white-space: nowrap;
   overflow: hidden;
 }
-.pane-side-dock-title > svg { flex: 0 0 auto; color: var(--mx-text-muted); }
-.pane-side-dock-title > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pane-side-dock-title > svg {
+  flex: 0 0 auto;
+  color: var(--mx-text-muted);
+}
+.pane-side-dock-title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* Fold affordance (user: 오버레이까지 되는 판에 X가 있어야): the X folds the
    unit; re-clicking the active icon does the same. */
 .pane-side-dock-close {
@@ -605,7 +696,10 @@
   background: transparent;
   cursor: pointer;
 }
-.pane-side-dock-close:hover { color: var(--mx-text); background: var(--mx-hover); }
+.pane-side-dock-close:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
 .pane-side-dock-main {
   position: relative;
   flex: 1 1 auto;
@@ -684,7 +778,9 @@
   overflow: hidden;
   background: var(--mx-workspace-sheet);
 }
-.workbench-side-surface-slot[data-surface-active="true"] { z-index: 2; }
+.workbench-side-surface-slot[data-surface-active="true"] {
+  z-index: 2;
+}
 
 /* Narrow pane: even the minimum unit would crush the conversation below its
    360px floor, so the WHOLE unit — header, panel, browser, diff pair — floats
@@ -774,10 +870,14 @@
   font-size: var(--mx-font-minor);
   cursor: pointer;
 }
-.pane-dock-diff-back > button:hover { color: var(--mx-text); }
+.pane-dock-diff-back > button:hover {
+  color: var(--mx-text);
+}
 /* The phone keeps its fixed right sheet; the pair column has no place in
    that band. */
-html[data-mixdog-mobile-tabs] .pane-dock-diff-column { display: none; }
+html[data-mixdog-mobile-tabs] .pane-dock-diff-column {
+  display: none;
+}
 /* ── Left sidebar diff column ──
    Source Control on the LEFT opens its diff paired to the RIGHT of the
    sidebar (user: 왼쪽 소스컨트롤도 우측 확장 스타일), the same column grammar
@@ -831,8 +931,14 @@ html[data-mixdog-mobile-tabs] .pane-dock-diff-column { display: none; }
   width: 8px;
   cursor: col-resize;
 }
-html[data-mixdog-mobile-tabs] .sidebar-diff-column { display: none; }
-@media (max-width: 760px) { .sidebar-diff-column { display: none; } }
+html[data-mixdog-mobile-tabs] .sidebar-diff-column {
+  display: none;
+}
+@media (max-width: 760px) {
+  .sidebar-diff-column {
+    display: none;
+  }
+}
 .pane-surface-stack {
   position: relative;
   display: flex;
@@ -936,10 +1042,20 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column { display: none; }
   font: inherit;
   cursor: pointer;
 }
-.pane-placeholder-title { font-size: var(--mx-font-body); opacity: var(--mx-op-soft); }
-.pane-placeholder-hint { font-size: var(--mx-font-meta); opacity: var(--mx-op-dim); }
-.pane-placeholder:hover .pane-placeholder-hint { opacity: var(--mx-op-soft); }
-.pane-placeholder[data-restoring="true"] { cursor: default; }
+.pane-placeholder-title {
+  font-size: var(--mx-font-body);
+  opacity: var(--mx-op-soft);
+}
+.pane-placeholder-hint {
+  font-size: var(--mx-font-meta);
+  opacity: var(--mx-op-dim);
+}
+.pane-placeholder:hover .pane-placeholder-hint {
+  opacity: var(--mx-op-soft);
+}
+.pane-placeholder[data-restoring="true"] {
+  cursor: default;
+}
 
 /* Non-focused panes sit on the same floating workspace sheet as the
    interactive surface — bare band-colored cells read as dead black panes. */
@@ -978,11 +1094,17 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column { display: none; }
      high-contrast-only affordance), 150ms fade-in per fresh overlay and a
      70ms glide between zones. The element remounts per pane, so the
      highlight never slides across panes. */
-  transition: left 70ms ease-out, top 70ms ease-out,
-    width 70ms ease-out, height 70ms ease-out, opacity var(--mx-motion-chrome);
+  transition:
+    left 70ms ease-out,
+    top 70ms ease-out,
+    width 70ms ease-out,
+    height 70ms ease-out,
+    opacity var(--mx-motion-chrome);
 }
 @starting-style {
-  .pane-drop-overlay { opacity: 0; }
+  .pane-drop-overlay {
+    opacity: 0;
+  }
 }
 /* Foreign-strip insertion caret (tabs-drop index feedback). */
 .pane-drop-overlay.pane-drop-insert {
@@ -1027,7 +1149,9 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column { display: none; }
   flex: 0 0 auto;
   min-width: 0;
 }
-.pane-strip-row > .workspace-tabs-shell { flex: 1 1 auto; }
+.pane-strip-row > .workspace-tabs-shell {
+  flex: 1 1 auto;
+}
 /* Workspace scrollbars follow the shell-wide square grammar (desktop.css). */
 
 /* Empty-state card for a parked non-session pane (draft / project / file). */
@@ -1050,7 +1174,9 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column { display: none; }
   min-height: 0;
   overflow: hidden;
 }
-.pane-carousel > .pane-carousel-item { display: none; }
+.pane-carousel > .pane-carousel-item {
+  display: none;
+}
 .pane-carousel > .pane-carousel-item[data-carousel-active="true"] {
   /* The template itself comes from the .pane-cell grid rule. */
   display: grid;
@@ -1058,4 +1184,8 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column { display: none; }
   min-width: 0;
   min-height: 0;
 }
-.main-panel > .pane-carousel { flex: 1 1 auto; min-width: 0; min-height: 0; }
+.main-panel > .pane-carousel {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}

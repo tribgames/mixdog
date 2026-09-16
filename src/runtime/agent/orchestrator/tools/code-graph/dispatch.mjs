@@ -1,7 +1,15 @@
 // Tool dispatch layer: codeGraph (mode router), findSymbolTool,
 // executeCodeGraphTool (entry with cwd re-rooting + batch fan-out + abort
-// race), isCodeGraphTool. Extracted verbatim from code-graph.mjs.
-import { resolve as pathResolve, isAbsolute, relative as pathRelative, basename as pathBasename, dirname as pathDirname, extname } from 'node:path';
+// race), isCodeGraphTool.
+
+import {
+  resolve as pathResolve,
+  isAbsolute,
+  relative as pathRelative,
+  basename as pathBasename,
+  dirname as pathDirname,
+  extname,
+} from 'node:path';
 import { homedir as osHomedir } from 'node:os';
 
 import { existsSync, statSync } from 'node:fs';
@@ -9,10 +17,7 @@ import { normalizeInputPath, toDisplayPath } from '../builtin/path-utils.mjs';
 import { findFileByBasename } from '../builtin/path-diagnostics.mjs';
 import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../code-graph-tool-defs.mjs';
-import {
-  CODE_GRAPH_OUTPUT_MAX_BYTES,
-  capLineOrientedToolOutput,
-} from '../builtin/tool-output-limit.mjs';
+import { CODE_GRAPH_OUTPUT_MAX_BYTES, capLineOrientedToolOutput } from '../builtin/tool-output-limit.mjs';
 import { CODE_GRAPH_MAX_FILES } from './constants.mjs';
 import { _graphRel, _appendSameBasenameHint } from './source-access.mjs';
 import {
@@ -96,7 +101,14 @@ const CODE_GRAPH_CALL_ONLY_MODES = new Set(['callers', 'callees']);
 // one of them: it still reports files, languages and imports, so it carries the
 // capability hint instead of failing.
 const CODE_GRAPH_SYMBOL_ONLY_MODES = new Set(['symbols', 'find_symbol', 'symbol_search']);
-const CODE_GRAPH_BATCHABLE_MODES = new Set(['symbol', 'find_symbol', 'symbol_search', 'callers', 'callees', 'references']);
+const CODE_GRAPH_BATCHABLE_MODES = new Set([
+  'symbol',
+  'find_symbol',
+  'symbol_search',
+  'callers',
+  'callees',
+  'references',
+]);
 const CODE_GRAPH_FILE_BATCHABLE_MODES = new Set(['imports', 'dependents', 'related', 'impact', 'symbols', 'overview']);
 const CODE_GRAPH_BATCH_CONCURRENCY = 20;
 
@@ -131,22 +143,30 @@ function _outlineLanguageForPath(file) {
 async function _mapWithConcurrency(values, mapper) {
   const out = new Array(values.length);
   let cursor = 0;
-  await Promise.all(Array.from({ length: Math.min(CODE_GRAPH_BATCH_CONCURRENCY, values.length) }, async () => {
-    while (cursor < values.length) {
-      const index = cursor++;
-      out[index] = await mapper(values[index], index);
-    }
-  }));
+  await Promise.all(
+    Array.from({ length: Math.min(CODE_GRAPH_BATCH_CONCURRENCY, values.length) }, async () => {
+      while (cursor < values.length) {
+        const index = cursor++;
+        out[index] = await mapper(values[index], index);
+      }
+    })
+  );
   return out;
 }
 
 function _collectGraphSymbolList(args) {
-  const split = (s) => String(s || '').split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
-  const list = [...new Set([
-    ...(Array.isArray(args?.symbols) ? args.symbols.map((s) => String(s || '').trim()).filter(Boolean) : []),
-    ...(typeof args?.symbols === 'string' ? split(args.symbols) : []),
-    ...(typeof args?.symbol === 'string' ? split(args.symbol) : []),
-  ])];
+  const split = (s) =>
+    String(s || '')
+      .split(/[,\s]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+  const list = [
+    ...new Set([
+      ...(Array.isArray(args?.symbols) ? args.symbols.map((s) => String(s || '').trim()).filter(Boolean) : []),
+      ...(typeof args?.symbols === 'string' ? split(args.symbols) : []),
+      ...(typeof args?.symbol === 'string' ? split(args.symbol) : []),
+    ]),
+  ];
   return list;
 }
 
@@ -172,12 +192,12 @@ function _filterSymbolOutline(node, args) {
 // graph is a single scoped file it can only resolve the import specifier to a
 // path, so the target file is indexed on its own (one binary run, cached by
 // source hash) to recover the line and the record facts.
-async function _resolveOutsideDeclaration(graph, symbol, cwd, {
-  language = null,
-  fileRel = null,
-  scopeRelPrefix = null,
-  signal = null,
-} = {}) {
+async function _resolveOutsideDeclaration(
+  graph,
+  symbol,
+  cwd,
+  { language = null, fileRel = null, scopeRelPrefix = null, signal = null } = {}
+) {
   const outside = _declarationOutsideScope(graph, symbol, { language, fileRel, scopeRelPrefix });
   if (!outside?.viaImport || !outside.abs) return outside;
   if (!_outlineLanguageForPath(outside.abs)) return outside;
@@ -185,15 +205,18 @@ async function _resolveOutsideDeclaration(graph, symbol, cwd, {
   // reading a record out of node_modules would index a tree nobody asked for.
   if (_isVendorPath(outside.abs)) return outside;
   let isFile = false;
-  try { isFile = statSync(outside.abs).isFile(); } catch { isFile = false; }
+  try {
+    isFile = statSync(outside.abs).isFile();
+  } catch {
+    isFile = false;
+  }
   // An import that points at a path this process cannot index still names the
   // file the caller must open; the note says it was resolved from the
   // specifier rather than read out of a record.
   if (!isFile) return outside;
   const targetGraph = await _buildExactFileGraph(pathDirname(outside.abs), outside.abs, signal);
   const targetNode = targetGraph?.nodes?.get(_graphRel(outside.abs, pathDirname(outside.abs)));
-  const declared = (Array.isArray(targetNode?.symbols) ? targetNode.symbols : [])
-    .find((item) => item?.name === symbol);
+  const declared = (Array.isArray(targetNode?.symbols) ? targetNode.symbols : []).find((item) => item?.name === symbol);
   if (!declared) return outside;
   return {
     rel: outside.rel,
@@ -218,12 +241,14 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
   // Name-only "symbols" calls (symbols[]/symbol without a file) are symbol
   // lookups, not a file outline — absorb into symbol_search instead of
   // erroring "file not found in graph: (missing file)".
-  if (mode === 'symbols'
-      && !String(args?.file || '').trim()
-      && !String(args?.files || '').trim()
-      && ((Array.isArray(args?.symbols) && args.symbols.length)
-        || (typeof args?.symbols === 'string' && args.symbols.trim())
-        || String(args?.symbol || '').trim())) {
+  if (
+    mode === 'symbols' &&
+    !String(args?.file || '').trim() &&
+    !String(args?.files || '').trim() &&
+    ((Array.isArray(args?.symbols) && args.symbols.length) ||
+      (typeof args?.symbols === 'string' && args.symbols.trim()) ||
+      String(args?.symbol || '').trim())
+  ) {
     if (!args.symbol && typeof args.symbols === 'string' && args.symbols.trim()) {
       args = { ...args, symbol: args.symbols };
       delete args.symbols;
@@ -232,7 +257,11 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
   }
 
   if (mode === 'prewarm') {
-    const _splitMulti = (s) => String(s || '').split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
+    const _splitMulti = (s) =>
+      String(s || '')
+        .split(/[,\s]+/)
+        .map((t) => t.trim())
+        .filter(Boolean);
     const fromSymbolsArr = Array.isArray(args?.symbols)
       ? args.symbols.map((s) => String(s || '').trim()).filter(Boolean)
       : [];
@@ -252,13 +281,15 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
   // the full graph path.
   if (mode === 'symbols' && !options.graph) {
     const normFile = normalizeInputPath(args?.file);
-    const abs = normFile
-      ? (isAbsolute(normFile) ? pathResolve(normFile) : pathResolve(cwd, normFile))
-      : null;
+    const abs = normFile ? (isAbsolute(normFile) ? pathResolve(normFile) : pathResolve(cwd, normFile)) : null;
     const lang = abs ? _outlineLanguageForPath(abs) : null;
     let isFile = false;
     if (abs && lang) {
-      try { isFile = statSync(abs).isFile(); } catch { isFile = false; }
+      try {
+        isFile = statSync(abs).isFile();
+      } catch {
+        isFile = false;
+      }
     }
     if (isFile) {
       if (signal?.aborted) throw new Error('aborted');
@@ -274,9 +305,11 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
     }
   }
 
-  const graph = options.graph || await buildCodeGraphAsync(cwd, signal, {
-    excludedProjectRoots: options?.excludedProjectRoots,
-  });
+  const graph =
+    options.graph ||
+    (await buildCodeGraphAsync(cwd, signal, {
+      excludedProjectRoots: options?.excludedProjectRoots,
+    }));
   collectGraphParseWarnings(graph, options);
   if (!graph || graph.nodes.size === 0) {
     throw new Error(`code_graph: cwd '${cwd}' is not an indexed/known project root or contains zero eligible files`);
@@ -302,32 +335,44 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
   if (CODE_GRAPH_SYMBOL_ONLY_MODES.has(mode) && !_graphHasNativeSymbols(graph) && _graphExpectsNativeSymbols(graph)) {
     throw symbolsCapabilityError(mode, cwd);
   }
-  const symbolsNote = (mode === 'overview' && !_graphHasNativeSymbols(graph) && _graphExpectsNativeSymbols(graph))
-    ? `\n\nnote: no outline is shown for these files — ${symbolsCapabilityHint()}`
-    : '';
+  const symbolsNote =
+    mode === 'overview' && !_graphHasNativeSymbols(graph) && _graphExpectsNativeSymbols(graph)
+      ? `\n\nnote: no outline is shown for these files — ${symbolsCapabilityHint()}`
+      : '';
   const normFile = normalizeInputPath(args?.file);
   const abs = normFile ? (isAbsolute(normFile) ? pathResolve(normFile) : pathResolve(cwd, normFile)) : null;
   let fileIsDirectory = false;
   if (abs) {
-    try { fileIsDirectory = statSync(abs).isDirectory(); } catch { fileIsDirectory = false; }
+    try {
+      fileIsDirectory = statSync(abs).isDirectory();
+    } catch {
+      fileIsDirectory = false;
+    }
   }
   const rel = abs && !fileIsDirectory ? _graphRel(abs, cwd) : null;
-  const scopeRelPrefix = abs && fileIsDirectory
-    ? (() => {
-        const r = _graphRel(abs, cwd).replace(/\\/g, '/').replace(/\/+$/, '');
-        return (!r || r === '.') ? null : `${r}/`;
-      })()
-    : null;
+  const scopeRelPrefix =
+    abs && fileIsDirectory
+      ? (() => {
+          const r = _graphRel(abs, cwd).replace(/\\/g, '/').replace(/\/+$/, '');
+          return !r || r === '.' ? null : `${r}/`;
+        })()
+      : null;
   const node = rel ? graph.nodes.get(rel) : null;
 
   if (mode === 'overview') {
-    if (rel && !node) return _appendSameBasenameHint(`Error: code_graph overview: file not found in graph: ${normFile}`, normFile, graph);
+    if (rel && !node)
+      return _appendSameBasenameHint(
+        `Error: code_graph overview: file not found in graph: ${normFile}`,
+        normFile,
+        graph
+      );
     if (node) return `${_buildExplainerFileSummary(node, graph, cwd, { depth: args?.depth })}${symbolsNote}`;
     // A directory anchor is a SCOPE: counting the whole repository under it
     // reported totals the caller never asked for.
     const scopedNodes = scopeRelPrefix
-      ? [...graph.nodes.values()].filter((n) => n.rel === scopeRelPrefix.slice(0, -1)
-        || n.rel.startsWith(scopeRelPrefix))
+      ? [...graph.nodes.values()].filter(
+          (n) => n.rel === scopeRelPrefix.slice(0, -1) || n.rel.startsWith(scopeRelPrefix)
+        )
       : [...graph.nodes.values()];
     if (scopeRelPrefix && scopedNodes.length === 0) {
       return `(no indexed files under ${scopeRelPrefix})`;
@@ -345,13 +390,20 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
       lines.push(`${lang}\t${count}`);
     }
     if (graph?.truncated) {
-      lines.push(`WARN: graph truncated at CODE_GRAPH_MAX_FILES=${CODE_GRAPH_MAX_FILES} — some files under cwd were not indexed`);
+      lines.push(
+        `WARN: graph truncated at CODE_GRAPH_MAX_FILES=${CODE_GRAPH_MAX_FILES} — some files under cwd were not indexed`
+      );
     }
     return `${lines.join('\n')}${symbolsNote}`;
   }
 
   if (mode === 'imports') {
-    if (!node) return _appendSameBasenameHint(`Error: code_graph imports: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
+    if (!node)
+      return _appendSameBasenameHint(
+        `Error: code_graph imports: file not found in graph: ${normFile || '(missing file)'}`,
+        normFile,
+        graph
+      );
     const GRAPH_LIST_CAP = 200;
     const resolvedAll = node.resolvedImports.map((p) => _graphRel(p, cwd));
     const rawAll = node.rawImports;
@@ -361,7 +413,9 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
     if (resolved.length) parts.push(resolved.join('\n'));
     if (raw.length) parts.push(`# raw\n${raw.join('\n')}`);
     if (resolvedAll.length > resolved.length || rawAll.length > raw.length) {
-      parts.push(`[truncated — showing first ${GRAPH_LIST_CAP} of ${resolvedAll.length} resolved / ${rawAll.length} raw imports]`);
+      parts.push(
+        `[truncated — showing first ${GRAPH_LIST_CAP} of ${resolvedAll.length} resolved / ${rawAll.length} raw imports]`
+      );
     }
     return parts.join('\n\n') || '(no imports)';
   }
@@ -373,11 +427,11 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
     // (1) Symbol inference runs ONLY when no `file` arg was supplied at all —
     // an explicit file (even a directory that yields no rel) is never overridden.
     if (!depRel && !normFile) {
-      const symCandidates = [
-        ...(Array.isArray(args?.symbols) ? args.symbols : []),
-        args?.symbol,
-      ].map((s) => String(s || '').trim()).filter(Boolean);
-      const KNOWN_SRC_EXT = /\.(mjs|cjs|js|jsx|mts|cts|ts|tsx|json|py|pyi|go|rb|rs|java|kt|kts|c|h|cc|cpp|cxx|hpp|hxx|hh|cs|php|swift|scala|sc|sh|bash|zsh|lua|dart|m|mm|ex|exs|zig|r)$/i;
+      const symCandidates = [...(Array.isArray(args?.symbols) ? args.symbols : []), args?.symbol]
+        .map((s) => String(s || '').trim())
+        .filter(Boolean);
+      const KNOWN_SRC_EXT =
+        /\.(mjs|cjs|js|jsx|mts|cts|ts|tsx|json|py|pyi|go|rb|rs|java|kt|kts|c|h|cc|cpp|cxx|hpp|hxx|hh|cs|php|swift|scala|sc|sh|bash|zsh|lua|dart|m|mm|ex|exs|zig|r)$/i;
       // (2) Symbol lookup FIRST — dotted names (e.g. obj.method) resolve here
       // before any path classification.
       for (const s of symCandidates) {
@@ -388,7 +442,8 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
         // (3) Deterministic pick: defining hit, else first by sorted rel.
         const sorted = [...pool].sort((a, b) => String(a.rel).localeCompare(String(b.rel)));
         const primary = sorted.find((h) => h.declarationLike) || sorted[0];
-        depRel = primary.rel; depNorm = primary.rel;
+        depRel = primary.rel;
+        depNorm = primary.rel;
         subNote = `# note: dependents resolved from symbol '${s}' → ${primary.rel}`;
         const others = [...new Set(sorted.map((h) => h.rel))].filter((r) => r !== primary.rel);
         if (others.length) subNote += `\n# note: '${s}' also defined in: ${others.join(', ')}`;
@@ -402,7 +457,8 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
           const pAbs = isAbsolute(pathLike) ? pathResolve(pathLike) : pathResolve(cwd, pathLike);
           const pRel = _graphRel(pAbs, cwd);
           if (graph.nodes.get(pRel)) {
-            depRel = pRel; depNorm = pathLike;
+            depRel = pRel;
+            depNorm = pathLike;
             subNote = `# note: treated symbol '${pathLike}' as file`;
           }
         }
@@ -410,22 +466,25 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
       // (4) Nothing resolved → actionable hint naming the attempted values,
       // with a distinct message when no symbol was supplied at all.
       if (!depRel) {
-        throw new Error(symCandidates.length
-          ? `code_graph dependents: dependents needs file:<path>; got symbol only (tried: ${symCandidates.join(', ')})`
-          : 'code_graph dependents: "file" is required (no file or symbol supplied)');
+        throw new Error(
+          symCandidates.length
+            ? `code_graph dependents: dependents needs file:<path>; got symbol only (tried: ${symCandidates.join(', ')})`
+            : 'code_graph dependents: "file" is required (no file or symbol supplied)'
+        );
       }
     }
     const depFileNode = depRel ? graph.nodes.get(depRel) : null;
-    if (!depFileNode) return _appendSameBasenameHint(`Error: code_graph dependents: file not found in graph: ${depNorm || '(missing file)'}`, depNorm, graph);
+    if (!depFileNode)
+      return _appendSameBasenameHint(
+        `Error: code_graph dependents: file not found in graph: ${depNorm || '(missing file)'}`,
+        depNorm,
+        graph
+      );
     const GRAPH_LIST_CAP = 200;
     const depsAll = [...(graph.reverse.get(depRel) || [])].sort();
     if (!depsAll.length) return '(no dependents)';
     const deps = depsAll.slice(0, GRAPH_LIST_CAP);
-    await _prewarmSourceTextNodes(
-      graph,
-      deps.map((dep) => graph.nodes.get(dep)).filter(Boolean),
-      { signal },
-    );
+    await _prewarmSourceTextNodes(graph, deps.map((dep) => graph.nodes.get(dep)).filter(Boolean), { signal });
     const basename = depRel.split('/').pop();
     const stem = basename.replace(/\.[^/.]+$/, '');
     const enriched = deps.map((dep) => {
@@ -438,7 +497,12 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
       for (let i = 0; i < linesArr.length; i++) {
         const ln = linesArr[i];
         if (!/(?:^|\W)(?:import|require)\b|\bfrom\s*['"]/.test(ln)) continue;
-        if (ln.includes(`/${basename}`) || ln.includes(`/${stem}`) || ln.includes(`'${basename}'`) || ln.includes(`"${basename}"`)) {
+        if (
+          ln.includes(`/${basename}`) ||
+          ln.includes(`/${stem}`) ||
+          ln.includes(`'${basename}'`) ||
+          ln.includes(`"${basename}"`)
+        ) {
           return `${dep}:${i + 1}`;
         }
       }
@@ -452,12 +516,22 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
   }
 
   if (mode === 'related') {
-    if (!node) return _appendSameBasenameHint(`Error: code_graph related: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
+    if (!node)
+      return _appendSameBasenameHint(
+        `Error: code_graph related: file not found in graph: ${normFile || '(missing file)'}`,
+        normFile,
+        graph
+      );
     return _formatRelated(node, graph, cwd);
   }
 
   if (mode === 'impact') {
-    if (!node) return _appendSameBasenameHint(`Error: code_graph impact: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
+    if (!node)
+      return _appendSameBasenameHint(
+        `Error: code_graph impact: file not found in graph: ${normFile || '(missing file)'}`,
+        normFile,
+        graph
+      );
     const targetSymbol = String(args?.symbol || '').trim();
     await _prewarmSourceTextNodes(graph, [node], { signal });
     await _prewarmSourceTextNodes(graph, _impactSourceNodes(node, graph, targetSymbol), { signal });
@@ -468,7 +542,12 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
     const symbol = String(args?.symbol || '').trim();
     if (!symbol) throw new Error('code_graph callees: "symbol" is required.');
     const explicitLanguage = String(args?.language || '').trim() || null;
-    if (rel && !node) return _appendSameBasenameHint(`Error: code_graph callees: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
+    if (rel && !node)
+      return _appendSameBasenameHint(
+        `Error: code_graph callees: file not found in graph: ${normFile || '(missing file)'}`,
+        normFile,
+        graph
+      );
     const allHits = _findSymbolHits(graph, symbol, { language: explicitLanguage });
     const hits = rel ? allHits.filter((h) => h.rel === rel) : allHits;
     const declHit = hits.find((h) => h.declarationLike) || hits[0];
@@ -492,7 +571,12 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
   }
 
   if (mode === 'symbols') {
-    if (!node) return _appendSameBasenameHint(`Error: code_graph symbols: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
+    if (!node)
+      return _appendSameBasenameHint(
+        `Error: code_graph symbols: file not found in graph: ${normFile || '(missing file)'}`,
+        normFile,
+        graph
+      );
     // Record-only: no source read, so an outline costs nothing beyond the graph.
     return _filterSymbolOutline(node, args);
   }
@@ -502,15 +586,18 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
     if (!symbol) throw new Error('code_graph find_symbol: "symbol" is required.');
     const language = String(args?.language || '').trim() || null;
     const limit = Math.max(1, Math.min(50, Number(args?.limit || 20)));
-    if (rel && !node) return _appendSameBasenameHint(`Error: code_graph find_symbol: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
+    if (rel && !node)
+      return _appendSameBasenameHint(
+        `Error: code_graph find_symbol: file not found in graph: ${normFile || '(missing file)'}`,
+        normFile,
+        graph
+      );
     if (args?.body !== false) {
       const hits = _findSymbolHits(graph, symbol, { language });
       const primary = hits.find((hit) => hit.declarationLike) || hits[0];
-      await _prewarmSourceTextNodes(
-        graph,
-        [primary?.rel ? graph.nodes.get(primary.rel) : null].filter(Boolean),
-        { signal },
-      );
+      await _prewarmSourceTextNodes(graph, [primary?.rel ? graph.nodes.get(primary.rel) : null].filter(Boolean), {
+        signal,
+      });
     }
     return _findSymbolAcrossGraph(graph, symbol, cwd, {
       language,
@@ -533,14 +620,18 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
       ? args.symbols.map((s) => String(s || '').trim()).filter(Boolean)
       : [];
     const keyword = String(args?.symbol || '').trim();
-    const keywords = symbolsList.length ? symbolsList : (keyword ? [keyword] : []);
+    const keywords = symbolsList.length ? symbolsList : keyword ? [keyword] : [];
     if (!keywords.length) throw new Error('code_graph symbol_search: "symbol" (or "symbols[]") is required.');
     // Native graph symbols answer without source text at all: nodes without
     // them have no keyword matches to contribute, so nothing is read here.
     // Honour the file/directory anchor: symbol_search used to scan the whole
     // graph even when the caller scoped the call.
     if (rel && !node) {
-      return _appendSameBasenameHint(`Error: code_graph symbol_search: file not found in graph: ${normFile}`, normFile, graph);
+      return _appendSameBasenameHint(
+        `Error: code_graph symbol_search: file not found in graph: ${normFile}`,
+        normFile,
+        graph
+      );
     }
     if (keywords.length === 1) {
       return _searchSymbolsByKeyword(graph, keywords[0], cwd, { language, limit, fileRel: rel, scopeRelPrefix });
@@ -564,29 +655,44 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
     if (explicitLanguage) {
       const langHasFiles = [...graph.nodes.values()].some((n) => n.lang === explicitLanguage);
       if (!langHasFiles) {
-        throw new Error(`code_graph references: language '${explicitLanguage}' has no adapter topLevelTypes and is not in supportedRegexLangs for this project`);
+        throw new Error(
+          `code_graph references: language '${explicitLanguage}' has no adapter topLevelTypes and is not in supportedRegexLangs for this project`
+        );
       }
     }
     const narrowedByCaller = Boolean(rel || scopeRelPrefix || explicitLanguage);
     if (node) await _prewarmSourceTextNodes(graph, [node], { signal });
     const resolved = _resolveReferenceLanguageNode(graph, symbol, rel, cwd, explicitLanguage);
     if (rel && resolved.kind === 'file-not-found') {
-      return _appendSameBasenameHint(`Error: code_graph references: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
+      return _appendSameBasenameHint(
+        `Error: code_graph references: file not found in graph: ${normFile || '(missing file)'}`,
+        normFile,
+        graph
+      );
     }
     if (rel && resolved.kind === 'symbol-not-present') {
       return `Error: code_graph references: symbol "${symbol}" not found in ${normFile || rel}`;
     }
     const resolvedNode = resolved.kind === 'ok' ? resolved.node : null;
-    const lang = explicitLanguage
-      || ((narrowedByCaller && resolvedNode) ? resolvedNode.lang : null);
+    const lang = explicitLanguage || (narrowedByCaller && resolvedNode ? resolvedNode.lang : null);
     const rawLimit = Number(args?.limit);
-    const userLimit = Number.isFinite(rawLimit) && rawLimit > 0
-      ? Math.min(500, Math.floor(rawLimit))
-      : null;
+    const userLimit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(500, Math.floor(rawLimit)) : null;
     const _refNodes = await _prewarmReferenceSourceText(graph, symbol, lang, { signal });
-    const refResult = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, fileRel: rel, scopeRelPrefix, nodes: _refNodes });
-    const detailedReferences = _formatReferenceDetails(graph, symbol, refResult, userLimit ? { limit: userLimit } : undefined);
-    const references = narrowedByCaller ? detailedReferences : _augmentNoHitDiagnostic(detailedReferences, '(no references)', graph, cwd, symbol);
+    const refResult = _cheapReferenceSearch(graph, symbol, cwd, {
+      language: lang,
+      fileRel: rel,
+      scopeRelPrefix,
+      nodes: _refNodes,
+    });
+    const detailedReferences = _formatReferenceDetails(
+      graph,
+      symbol,
+      refResult,
+      userLimit ? { limit: userLimit } : undefined
+    );
+    const references = narrowedByCaller
+      ? detailedReferences
+      : _augmentNoHitDiagnostic(detailedReferences, '(no references)', graph, cwd, symbol);
     const declaration = _findSymbolAcrossGraph(graph, symbol, cwd, {
       language: lang,
       limit: 1,
@@ -614,18 +720,19 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
     if (node) await _prewarmSourceTextNodes(graph, [node], { signal });
     const resolved = _resolveReferenceLanguageNode(graph, symbol, rel, cwd, explicitLanguage);
     if (rel && resolved.kind === 'file-not-found') {
-      return _appendSameBasenameHint(`Error: code_graph callers: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
+      return _appendSameBasenameHint(
+        `Error: code_graph callers: file not found in graph: ${normFile || '(missing file)'}`,
+        normFile,
+        graph
+      );
     }
     if (rel && resolved.kind === 'symbol-not-present') {
       return `Error: code_graph callers: symbol "${symbol}" not found in ${normFile || rel}`;
     }
     const resolvedNode = resolved.kind === 'ok' ? resolved.node : null;
-    const lang = explicitLanguage
-      || ((narrowedByCaller && resolvedNode) ? resolvedNode.lang : null);
+    const lang = explicitLanguage || (narrowedByCaller && resolvedNode ? resolvedNode.lang : null);
     const rawLimit = Number(args?.limit);
-    const userLimit = Number.isFinite(rawLimit) && rawLimit > 0
-      ? Math.min(500, Math.floor(rawLimit))
-      : null;
+    const userLimit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(500, Math.floor(rawLimit)) : null;
     // Rendered call rows quote their source line; prewarm the candidate files
     // so those reads are async and batched instead of sync per row.
     await _prewarmReferenceSourceText(graph, symbol, lang, { signal });
@@ -660,7 +767,11 @@ export async function codeGraph(args, cwd, signal = null, options = {}) {
 
 async function findSymbolTool(args, cwd, signal = null, options = {}) {
   if (args?.mode === 'prewarm') {
-    const _splitMulti = (s) => String(s || '').split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
+    const _splitMulti = (s) =>
+      String(s || '')
+        .split(/[,\s]+/)
+        .map((t) => t.trim())
+        .filter(Boolean);
     const fromSymbolsArr = Array.isArray(args?.symbols)
       ? args.symbols.map((s) => String(s || '').trim()).filter(Boolean)
       : [];
@@ -675,14 +786,19 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
   const abs = normFile ? (isAbsolute(normFile) ? pathResolve(normFile) : pathResolve(cwd, normFile)) : null;
   let exactFile = false;
   if (abs && _outlineLanguageForPath(abs)) {
-    try { exactFile = statSync(abs).isFile(); } catch { exactFile = false; }
+    try {
+      exactFile = statSync(abs).isFile();
+    } catch {
+      exactFile = false;
+    }
   }
   const graph = exactFile
     ? await _buildExactFileGraph(cwd, abs, signal)
     : await buildCodeGraphAsync(cwd, signal, {
         excludedProjectRoots: options?.excludedProjectRoots,
       });
-  if (!graph) throw new Error(`find_symbol: cwd '${cwd}' is not an indexed/known project root or contains zero eligible files`);
+  if (!graph)
+    throw new Error(`find_symbol: cwd '${cwd}' is not an indexed/known project root or contains zero eligible files`);
   collectGraphParseWarnings(graph, options);
   // Symbol lookups have no text fallback (see codeGraph above). An exact-file
   // graph is exempt: one file that declares nothing is an answer, not a
@@ -711,11 +827,9 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
   if (args?.body !== false) {
     const hits = _findSymbolHits(graph, symbol, { language });
     const primary = hits.find((hit) => hit.declarationLike) || hits[0];
-    await _prewarmSourceTextNodes(
-      graph,
-      [primary?.rel ? graph.nodes.get(primary.rel) : null].filter(Boolean),
-      { signal },
-    );
+    await _prewarmSourceTextNodes(graph, [primary?.rel ? graph.nodes.get(primary.rel) : null].filter(Boolean), {
+      signal,
+    });
   }
   return _findSymbolAcrossGraph(graph, symbol, cwd, {
     language,
@@ -733,10 +847,16 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
 async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options = {}) {
   if (!cwd) throw new Error('find_symbol/code_graph requires cwd — caller did not provide a working directory');
   args = _normalizeGraphFileArgs(args);
-  const baseCwd = (args && typeof args.cwd === 'string' && args.cwd.trim()) ? args.cwd.trim() : cwd;
-  const symbolMode = ['find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees', 'symbols'].includes(args?.mode);
-  if (symbolMode && typeof args?.file === 'string' && args.file.trim()
-      && pathResolve(baseCwd, args.file.trim()) === pathResolve(baseCwd)) {
+  const baseCwd = args && typeof args.cwd === 'string' && args.cwd.trim() ? args.cwd.trim() : cwd;
+  const symbolMode = ['find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees', 'symbols'].includes(
+    args?.mode
+  );
+  if (
+    symbolMode &&
+    typeof args?.file === 'string' &&
+    args.file.trim() &&
+    pathResolve(baseCwd, args.file.trim()) === pathResolve(baseCwd)
+  ) {
     args = { ...args };
     delete args.file;
   }
@@ -745,7 +865,7 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
     delete args.files;
     delete args.file;
   }
-  const fileArg = (args && typeof args.file === 'string' && args.file.trim()) ? args.file.trim() : '';
+  const fileArg = args && typeof args.file === 'string' && args.file.trim() ? args.file.trim() : '';
   const hasAggregateFileArgs = _hasAggregateFileArgs(args);
   let effectiveCwd = baseCwd;
   // An explicit `cwd` argument is a deliberate target: honour whatever root it
@@ -756,18 +876,14 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
   const filesystemRootCwd = !baseProjectRoot && _isFilesystemRootPath(baseCwd);
   const aggregateFilesAtBase = _collectGraphFileList(args);
   const rawModeAtBase = String(args?.mode || '').trim();
-  const exactDotFederation = aggregateFilesAtBase.length === 1
-    && aggregateFilesAtBase[0] === '.'
-    && ROOT_FEDERATED_MODES.has(rawModeAtBase);
-  const parentDotFederation = !baseProjectRoot
-    && !filesystemRootCwd
-    && exactDotFederation;
+  const exactDotFederation =
+    aggregateFilesAtBase.length === 1 && aggregateFilesAtBase[0] === '.' && ROOT_FEDERATED_MODES.has(rawModeAtBase);
+  const parentDotFederation = !baseProjectRoot && !filesystemRootCwd && exactDotFederation;
   // Trusted graph targets living UNDER a sentinel-free cwd. Self is filtered
   // out: federating a directory into itself would recurse forever.
   const trustedRootsAtBase = baseProjectRoot
     ? []
-    : collectTrustedCodeGraphRoots(baseCwd)
-      .filter((root) => pathResolve(root) !== pathResolve(baseCwd));
+    : collectTrustedCodeGraphRoots(baseCwd).filter((root) => pathResolve(root) !== pathResolve(baseCwd));
   // Trust registration is a ROUTING PREFERENCE, not an admission gate. A
   // sentinel-free cwd whose children are obvious project roots (a refs/ folder
   // of checkouts, a multi-repo parent) is answerable: federate over those
@@ -778,20 +894,22 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
   // when registration yields nothing.
   const federationRootsAtBase = trustedRootsAtBase.length
     ? trustedRootsAtBase
-    : (baseProjectRoot
+    : baseProjectRoot
       ? []
-      : _childProjectRoots(baseCwd, { cap: CODE_GRAPH_DISCOVERED_FEDERATION_CAP })
-        .filter((root) => pathResolve(root) !== pathResolve(baseCwd)));
+      : _childProjectRoots(baseCwd, { cap: CODE_GRAPH_DISCOVERED_FEDERATION_CAP }).filter(
+          (root) => pathResolve(root) !== pathResolve(baseCwd)
+        );
   // A sentinel-free cwd (multi-repo parent, vendored reference tree) is still
   // routable when trusted project roots live under it — federate over those
   // instead of refusing the call outright.
-  const sentinelFreeFederation = !baseProjectRoot
-    && !filesystemRootCwd
-    && !parentDotFederation
-    && !fileArg
-    && !hasAggregateFileArgs
-    && ROOT_FEDERATED_MODES.has(rawModeAtBase)
-    && federationRootsAtBase.length > 0;
+  const sentinelFreeFederation =
+    !baseProjectRoot &&
+    !filesystemRootCwd &&
+    !parentDotFederation &&
+    !fileArg &&
+    !hasAggregateFileArgs &&
+    ROOT_FEDERATED_MODES.has(rawModeAtBase) &&
+    federationRootsAtBase.length > 0;
   if (filesystemRootCwd || parentDotFederation || sentinelFreeFederation) {
     // A filesystem root stays on the REGISTERED set only: fanning out over
     // every project directory on a whole drive is a different cost class than
@@ -824,23 +942,23 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
       }
       const projectArgs = { ...args };
       delete projectArgs.cwd;
-      const sections = await Promise.all(routed.map(async ({ file, abs, root }) => {
-        const excludedProjectRoots = trustedRoots.filter((candidate) => candidate !== root
-          && owningTrustedCodeGraphRoot(candidate, [root]) === root);
-        let body;
-        try {
-          body = await executeCodeGraphTool(
-            name,
-            { ...projectArgs, file: abs, files: undefined },
-            root,
-            signal,
-            { ...options, excludedProjectRoots },
+      const sections = await Promise.all(
+        routed.map(async ({ file, abs, root }) => {
+          const excludedProjectRoots = trustedRoots.filter(
+            (candidate) => candidate !== root && owningTrustedCodeGraphRoot(candidate, [root]) === root
           );
-        } catch (err) {
-          body = `Error: ${err?.message || String(err)}`;
-        }
-        return `# ${rawMode} ${file}\n# project ${formatFederatedProjectLabel(root)}\n${body}`;
-      }));
+          let body;
+          try {
+            body = await executeCodeGraphTool(name, { ...projectArgs, file: abs, files: undefined }, root, signal, {
+              ...options,
+              excludedProjectRoots,
+            });
+          } catch (err) {
+            body = `Error: ${err?.message || String(err)}`;
+          }
+          return `# ${rawMode} ${file}\n# project ${formatFederatedProjectLabel(root)}\n${body}`;
+        })
+      );
       return sections.join('\n\n');
     }
     if (trustedRoots.length && canFederate) {
@@ -850,24 +968,24 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
         delete projectArgs.file;
         delete projectArgs.files;
       }
-      const runOne = async (root, nextArgs) => executeCodeGraphTool(
-        name,
-        nextArgs,
-        root,
-        signal,
-        {
+      const runOne = async (root, nextArgs) =>
+        executeCodeGraphTool(name, nextArgs, root, signal, {
           ...options,
-          excludedProjectRoots: trustedRoots.filter((candidate) => candidate !== root
-            && owningTrustedCodeGraphRoot(candidate, [root]) === root),
-        },
+          excludedProjectRoots: trustedRoots.filter(
+            (candidate) => candidate !== root && owningTrustedCodeGraphRoot(candidate, [root]) === root
+          ),
+        });
+      const federationWork = _runCodeGraphFederation(trustedRoots, runOne, projectArgs).then((sections) =>
+        sections.join('\n\n')
       );
-      const federationWork = _runCodeGraphFederation(trustedRoots, runOne, projectArgs)
-        .then((sections) => sections.join('\n\n'));
       if (federationWork) {
         if (!signal) return federationWork;
         let onAbort = null;
         const abortP = new Promise((_, reject) => {
-          if (signal.aborted) { reject(new Error('aborted')); return; }
+          if (signal.aborted) {
+            reject(new Error('aborted'));
+            return;
+          }
           onAbort = () => reject(new Error('aborted'));
           signal.addEventListener('abort', onAbort, { once: true });
         });
@@ -889,10 +1007,12 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
     // An implicit cwd walks under the same home/temp boundary the base-root
     // resolution above already uses; only an explicit `cwd` may adopt a
     // sentinel found there.
-    const aggregateRoot = _resolveAggregateFileProjectRoot(args, baseCwd, {
-      stopAtUserBoundary: !explicitCwdArg,
-    }) || _resolveBoundedSentinelFreeAggregateRootForTest(args, baseCwd)
-      || _boundedExactFileAggregateRoot(args, baseCwd);
+    const aggregateRoot =
+      _resolveAggregateFileProjectRoot(args, baseCwd, {
+        stopAtUserBoundary: !explicitCwdArg,
+      }) ||
+      _resolveBoundedSentinelFreeAggregateRootForTest(args, baseCwd) ||
+      _boundedExactFileAggregateRoot(args, baseCwd);
     const relocated = aggregateRoot ? null : _relocateAggregateAnchorsUnderChildProject(args, baseCwd);
     if (!aggregateRoot && !relocated) {
       // Name the projects that DO sit under this cwd: the refusal is only
@@ -901,11 +1021,11 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
         .filter((root) => pathResolve(root) !== pathResolve(baseCwd))
         .map((root) => `"${pathBasename(root)}"`);
       throw new Error(
-        `${name}: cwd '${baseCwd}' is not inside a project and aggregate file anchors do not all `
-        + `exist under exactly one detectable project root. Refusing to index an arbitrary tree.`
-        + (candidates.length
-          ? ` Project roots under this cwd: ${candidates.join(', ')} — anchor the call inside one of them.`
-          : ''),
+        `${name}: cwd '${baseCwd}' is not inside a project and aggregate file anchors do not all ` +
+          `exist under exactly one detectable project root. Refusing to index an arbitrary tree.` +
+          (candidates.length
+            ? ` Project roots under this cwd: ${candidates.join(', ')} — anchor the call inside one of them.`
+            : '')
       );
     }
     effectiveCwd = relocated ? relocated.root : aggregateRoot;
@@ -922,7 +1042,11 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
       return `Error: ${name}: file not found: ${fileArg}${hint}`;
     }
     let fileArgIsDirectory = false;
-    try { fileArgIsDirectory = statSync(abs).isDirectory(); } catch { fileArgIsDirectory = false; }
+    try {
+      fileArgIsDirectory = statSync(abs).isDirectory();
+    } catch {
+      fileArgIsDirectory = false;
+    }
     const rel = pathRelative(pathResolve(baseCwd), abs);
     const insideCwd = rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));
     if (!insideCwd) {
@@ -931,12 +1055,15 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
         // Implicit walk, so it stops at the home/temp boundary like every other
         // guessed root: without that, a loose file under %TEMP% adopts a stray
         // home-directory package.json and indexes the whole user profile.
-        const fileRoot = (fileArgIsDirectory
-          ? _findDirProjectRoot(abs, { stopAtUserBoundary: true })
-          : _resolveFileProjectRoot(abs, { stopAtUserBoundary: true }))
-          || (fileArgIsDirectory ? null : _boundedExactFileRoot(abs));
+        const fileRoot =
+          (fileArgIsDirectory
+            ? _findDirProjectRoot(abs, { stopAtUserBoundary: true })
+            : _resolveFileProjectRoot(abs, { stopAtUserBoundary: true })) ||
+          (fileArgIsDirectory ? null : _boundedExactFileRoot(abs));
         if (!fileRoot) {
-          throw new Error(`find_symbol: file '${fileArg}' is outside cwd '${baseCwd}' and has no detectable project root (no package.json/.git ancestor). Provide an explicit cwd.`);
+          throw new Error(
+            `find_symbol: file '${fileArg}' is outside cwd '${baseCwd}' and has no detectable project root (no package.json/.git ancestor). Provide an explicit cwd.`
+          );
         }
         effectiveCwd = fileRoot;
       }
@@ -957,18 +1084,23 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
       // boundary — name it, so the refusal reads as a deliberate rule rather
       // than a missing project.
       const boundaryRoot = _findDirProjectRoot(effectiveCwd);
-      const unbounded = filesystemRootCwd
-        || _isFilesystemRootPath(effectiveCwd)
-        || pathResolve(effectiveCwd) === pathResolve(osHomedir());
+      const unbounded =
+        filesystemRootCwd ||
+        _isFilesystemRootPath(effectiveCwd) ||
+        pathResolve(effectiveCwd) === pathResolve(osHomedir());
       if (unbounded || childRoots.length > 1) {
-        const listed = childRoots.slice(0, 5).map((root) => `"${pathBasename(root)}"`).join(', ');
+        const listed = childRoots
+          .slice(0, 5)
+          .map((root) => `"${pathBasename(root)}"`)
+          .join(', ');
         throw new Error(
-          `${name}: cwd '${effectiveCwd}' is not inside a project (no `
-          + `${_PROJECT_ROOT_SENTINELS.join('/')} at it or any ancestor)`
-          + `${childRoots.length > 1 ? ` and holds ${childRoots.length} separate project roots (${listed})` : ''}. `
-          + `${boundaryRoot ? `The nearest sentinel is at '${boundaryRoot}' (home/temp), which is never auto-adopted. ` : ''}`
-          + `Refusing to index an arbitrary tree. Run 'cwd set <repo>', or pass an explicit `
-          + `'cwd' (repo root) or a 'file' anchor.`);
+          `${name}: cwd '${effectiveCwd}' is not inside a project (no ` +
+            `${_PROJECT_ROOT_SENTINELS.join('/')} at it or any ancestor)` +
+            `${childRoots.length > 1 ? ` and holds ${childRoots.length} separate project roots (${listed})` : ''}. ` +
+            `${boundaryRoot ? `The nearest sentinel is at '${boundaryRoot}' (home/temp), which is never auto-adopted. ` : ''}` +
+            `Refusing to index an arbitrary tree. Run 'cwd set <repo>', or pass an explicit ` +
+            `'cwd' (repo root) or a 'file' anchor.`
+        );
       }
     }
   }
@@ -980,47 +1112,57 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
         // symbols mode cannot supply — it was silently ignored and models
         // fell back to large reads. Honor it via find_symbol, which batches
         // symbols[] and respects the file scope.
-        if (String(args?.mode || '').trim() === 'symbols'
-            && args?.body === true
-            && _collectGraphSymbolList(args).length) {
+        if (
+          String(args?.mode || '').trim() === 'symbols' &&
+          args?.body === true &&
+          _collectGraphSymbolList(args).length
+        ) {
           args = { ...args, mode: 'find_symbol' };
         }
         const rawMode = String(args?.mode || '').trim();
         const batchMode = rawMode === 'search' ? 'symbol_search' : rawMode;
         const declModes = new Set(['symbol', 'find_symbol']);
-        const dispatchRaw = (a) => (declModes.has(rawMode)
-          ? findSymbolTool(_stripEmptyArgs(a), effectiveCwd, signal, options)
-          : codeGraph(a, effectiveCwd, signal, options));
+        const dispatchRaw = (a) =>
+          declModes.has(rawMode)
+            ? findSymbolTool(_stripEmptyArgs(a), effectiveCwd, signal, options)
+            : codeGraph(a, effectiveCwd, signal, options);
         // `files` is documented as an optional SCOPE for the symbol modes, but
         // only the file-mode branch below normalized it — so find_symbol /
         // symbol_search / references / callers / callees silently answered for
         // the whole repository. Apply the scope here: a single entry becomes
         // the `file` anchor, several entries fan out per file.
-        const symbolScopeFiles = (CODE_GRAPH_BATCHABLE_MODES.has(batchMode)
-          && !(typeof args?.file === 'string' && args.file.trim()))
-          ? _collectGraphFileList(args)
-          : [];
-        const dispatchOne = symbolScopeFiles.length === 0
-          ? dispatchRaw
-          : (symbolScopeFiles.length === 1
-            ? (a) => dispatchRaw({ ...a, file: symbolScopeFiles[0], files: undefined })
-            : async (a) => {
-              const scoped = await _mapWithConcurrency(symbolScopeFiles, async (f) => {
-                let body;
-                try { body = await dispatchRaw({ ...a, file: f, files: undefined }); }
-                catch (e) { body = `Error: ${e?.message || String(e)}`; }
-                return `# file ${f}\n${body}`;
-              });
-              return scoped.join('\n\n');
-            });
+        const symbolScopeFiles =
+          CODE_GRAPH_BATCHABLE_MODES.has(batchMode) && !(typeof args?.file === 'string' && args.file.trim())
+            ? _collectGraphFileList(args)
+            : [];
+        const dispatchOne =
+          symbolScopeFiles.length === 0
+            ? dispatchRaw
+            : symbolScopeFiles.length === 1
+              ? (a) => dispatchRaw({ ...a, file: symbolScopeFiles[0], files: undefined })
+              : async (a) => {
+                  const scoped = await _mapWithConcurrency(symbolScopeFiles, async (f) => {
+                    let body;
+                    try {
+                      body = await dispatchRaw({ ...a, file: f, files: undefined });
+                    } catch (e) {
+                      body = `Error: ${e?.message || String(e)}`;
+                    }
+                    return `# file ${f}\n${body}`;
+                  });
+                  return scoped.join('\n\n');
+                };
         if (CODE_GRAPH_BATCHABLE_MODES.has(batchMode)) {
           const symbolList = _collectGraphSymbolList(args);
           if (symbolList.length > 1) {
             return (async () => {
               const sections = await _mapWithConcurrency(symbolList, async (sym) => {
                 let body;
-                try { body = await dispatchOne({ ...args, symbol: sym, symbols: undefined }); }
-                catch (e) { body = `Error: ${e?.message || String(e)}`; }
+                try {
+                  body = await dispatchOne({ ...args, symbol: sym, symbols: undefined });
+                } catch (e) {
+                  body = `Error: ${e?.message || String(e)}`;
+                }
                 return `# ${batchMode} ${sym}\n${body}`;
               });
               return sections.join('\n\n');
@@ -1036,8 +1178,11 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
             return (async () => {
               const sections = await _mapWithConcurrency(fileList, async (f) => {
                 let body;
-                try { body = await dispatchOne({ ...args, file: f, files: undefined }); }
-                catch (e) { body = `Error: ${e?.message || String(e)}`; }
+                try {
+                  body = await dispatchOne({ ...args, file: f, files: undefined });
+                } catch (e) {
+                  body = `Error: ${e?.message || String(e)}`;
+                }
                 return `# ${batchMode} ${f}\n${body}`;
               });
               return sections.join('\n\n');
@@ -1049,7 +1194,8 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
         }
         return dispatchOne(args);
       }
-      default: throw new Error(`Unknown code-graph tool: ${name}`);
+      default:
+        throw new Error(`Unknown code-graph tool: ${name}`);
     }
   })().finally(() => {
     _pruneCodeGraphMemoryCache();
@@ -1058,19 +1204,30 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
   if (!signal) return _work;
   let onAbort = null;
   const abortP = new Promise((_, reject) => {
-    if (signal.aborted) { reject(new Error('aborted')); return; }
+    if (signal.aborted) {
+      reject(new Error('aborted'));
+      return;
+    }
     onAbort = () => reject(new Error('aborted'));
     signal.addEventListener('abort', onAbort, { once: true });
   });
   const cleanup = () => {
     if (onAbort) {
-      try { signal.removeEventListener('abort', onAbort); } catch {}
+      try {
+        signal.removeEventListener('abort', onAbort);
+      } catch {}
       onAbort = null;
     }
   };
   return Promise.race([_work, abortP]).then(
-    (v) => { cleanup(); return v; },
-    (e) => { cleanup(); throw e; },
+    (v) => {
+      cleanup();
+      return v;
+    },
+    (e) => {
+      cleanup();
+      throw e;
+    }
   );
 }
 
@@ -1103,14 +1260,11 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
   const warnings = new Map();
   const raw = await executeCodeGraphToolRaw(name, args, cwd, signal, { ...options, _parseWarnings: warnings });
   const result = warnings.size
-    ? `[warning] ${warnings.size} source file(s) could not be indexed; graph results are partial:\n`
-      + [...warnings.values()].slice(0, 5).join('\n') + `\n${raw}`
+    ? `[warning] ${warnings.size} source file(s) could not be indexed; graph results are partial:\n` +
+      [...warnings.values()].slice(0, 5).join('\n') +
+      `\n${raw}`
     : raw;
-  return capLineOrientedToolOutput(
-    result,
-    CODE_GRAPH_OUTPUT_MAX_BYTES,
-    (kept) => _codeGraphBudgetFooter(args, kept),
-  );
+  return capLineOrientedToolOutput(result, CODE_GRAPH_OUTPUT_MAX_BYTES, (kept) => _codeGraphBudgetFooter(args, kept));
 }
 
 export function isCodeGraphTool(name) {

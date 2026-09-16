@@ -4,11 +4,15 @@
 export class ComputerCleanupBarrier {
   private readonly pending = new Map<string, number>();
   private failed = false;
-  get blocked(): boolean { return this.pending.size > 0 || this.failed; }
+  get blocked(): boolean {
+    return this.pending.size > 0 || this.failed;
+  }
   get state(): 'pending' | 'failed' | 'ready' {
     return this.pending.size > 0 ? 'pending' : this.failed ? 'failed' : 'ready';
   }
-  has(sessionId: string): boolean { return this.pending.has(sessionId); }
+  has(sessionId: string): boolean {
+    return this.pending.has(sessionId);
+  }
   /** Releases the failure latch once nothing is pending; false while cleanup still runs. */
   clear(): boolean {
     if (this.pending.size > 0) return false;
@@ -17,7 +21,9 @@ export class ComputerCleanupBarrier {
   }
   assertClear(): void {
     if (this.blocked) {
-      throw new Error('computer_cleanup_pending: worker termination and input cleanup must be confirmed before new input or resume; ask the user to press Stop for verified cleanup recovery');
+      throw new Error(
+        'computer_cleanup_pending: worker termination and input cleanup must be confirmed before new input or resume; ask the user to press Stop for verified cleanup recovery'
+      );
     }
   }
   begin(sessionId: string): (confirmed: boolean) => void {

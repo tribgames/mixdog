@@ -13,11 +13,7 @@ export function electronProcessEnv(extra = {}) {
   return env;
 }
 
-export function spawnElectron(entry, {
-  env = electronProcessEnv(),
-  args = [],
-  stdio = 'inherit',
-} = {}) {
+export function spawnElectron(entry, { env = electronProcessEnv(), args = [], stdio = 'inherit' } = {}) {
   return spawn(electron, [entry, ...args], {
     env,
     stdio,
@@ -25,15 +21,18 @@ export function spawnElectron(entry, {
   });
 }
 
-export function waitForChildExit(child, {
-  timeoutMs = 0,
-  timeoutMessage,
-  onTimeout = 'reject',
-  rejectOnSignal = true,
-  signalMessage = (signal) => `process was terminated by ${signal}`,
-  fallbackCode = 1,
-  onTimedOut,
-} = {}) {
+export function waitForChildExit(
+  child,
+  {
+    timeoutMs = 0,
+    timeoutMessage,
+    onTimeout = 'reject',
+    rejectOnSignal = true,
+    signalMessage = (signal) => `process was terminated by ${signal}`,
+    fallbackCode = 1,
+    onTimedOut,
+  } = {}
+) {
   return new Promise((resolve, reject) => {
     let settled = false;
     let timedOut = false;
@@ -43,14 +42,17 @@ export function waitForChildExit(child, {
       if (timer) clearTimeout(timer);
       callback(value);
     };
-    const timer = timeoutMs > 0 ? setTimeout(() => {
-      timedOut = true;
-      onTimedOut?.();
-      child.kill();
-      if (onTimeout === 'reject') {
-        finish(reject, new Error(timeoutMessage || `process exceeded ${timeoutMs}ms`));
-      }
-    }, timeoutMs) : null;
+    const timer =
+      timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            onTimedOut?.();
+            child.kill();
+            if (onTimeout === 'reject') {
+              finish(reject, new Error(timeoutMessage || `process exceeded ${timeoutMs}ms`));
+            }
+          }, timeoutMs)
+        : null;
     child.once('error', (error) => finish(reject, error));
     child.once('exit', (code, signal) => {
       if (signal && rejectOnSignal && !timedOut) {

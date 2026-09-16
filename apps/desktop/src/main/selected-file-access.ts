@@ -1,12 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
-import {
-  basename,
-  dirname,
-  relative,
-  resolve,
-  sep,
-} from 'node:path';
+import { basename, dirname, relative, resolve, sep } from 'node:path';
 import type { DesktopLocalPathEntry } from '../shared/contract';
 import { absoluteLocalPath } from './local-files';
 import { requiredString } from './ipc-validation';
@@ -67,10 +61,7 @@ export class SelectedFileAccess {
 
   async #persist(grants: Map<string, string>): Promise<void> {
     if (!this.#storePath) return;
-    await writeSecretFile(
-      this.#storePath,
-      serializeSelectedFileGrants(grants),
-    );
+    await writeSecretFile(this.#storePath, serializeSelectedFileGrants(grants));
   }
 
   async describe(paths: unknown): Promise<DesktopLocalPathEntry[]> {
@@ -91,17 +82,12 @@ export class SelectedFileAccess {
         size: Number(info.size) || 0,
       };
       if (!row.dir) {
-        const normalizedFile = process.platform === 'win32'
-          ? absolutePath.toLocaleLowerCase()
-          : absolutePath;
+        const normalizedFile = process.platform === 'win32' ? absolutePath.toLocaleLowerCase() : absolutePath;
         const owner = projects
           .map((project) => ({ project, root: resolve(project.path) }))
           .filter(({ root }) => {
-            const normalizedRoot = process.platform === 'win32'
-              ? root.toLocaleLowerCase()
-              : root;
-            return normalizedFile.startsWith(normalizedRoot + sep)
-              || normalizedFile === normalizedRoot;
+            const normalizedRoot = process.platform === 'win32' ? root.toLocaleLowerCase() : root;
+            return normalizedFile.startsWith(normalizedRoot + sep) || normalizedFile === normalizedRoot;
           })
           .sort((left, right) => right.root.length - left.root.length)[0];
         if (owner) {
@@ -138,19 +124,17 @@ export class SelectedFileAccess {
   async requireGrant(
     accessToken: unknown,
     projectPath: unknown,
-    relPath: unknown,
+    relPath: unknown
   ): Promise<{ root: string; rel: string; absolute: string }> {
     await this.#load();
     const token = requiredString(accessToken, 'file access token', 128);
     const granted = this.#grants.get(selectedFileGrantKey(token));
     if (!granted) throw new Error('The selected-file permission is unavailable.');
-    const requested = resolve(
-      requiredString(projectPath, 'projectPath'),
-      requiredString(relPath, 'relPath'),
-    );
-    const same = process.platform === 'win32'
-      ? requested.toLocaleLowerCase() === granted.toLocaleLowerCase()
-      : requested === granted;
+    const requested = resolve(requiredString(projectPath, 'projectPath'), requiredString(relPath, 'relPath'));
+    const same =
+      process.platform === 'win32'
+        ? requested.toLocaleLowerCase() === granted.toLocaleLowerCase()
+        : requested === granted;
     if (!same) throw new Error('The selected-file permission does not match this path.');
     return { root: dirname(granted), rel: basename(granted), absolute: granted };
   }

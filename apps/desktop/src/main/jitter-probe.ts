@@ -12,12 +12,7 @@
 import { writeFileSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import type { BrowserWindow } from 'electron';
-import {
-  assistantMarkdown,
-  coldHistoryItems,
-  paragraph,
-  probeItems,
-} from './jitter-probe-fixtures';
+import { assistantMarkdown, coldHistoryItems, paragraph, probeItems } from './jitter-probe-fixtures';
 import {
   beginPaintFrameProbe,
   contentMotion,
@@ -26,24 +21,15 @@ import {
   type PaintFrameSample,
   type RowSample,
 } from './jitter-probe-metrics';
-import {
-  WIDTH_TRACE_COLLECT_SCRIPT,
-  WIDTH_TRACE_INSTALL_SCRIPT,
-} from './jitter-probe-width-scripts';
+import { WIDTH_TRACE_COLLECT_SCRIPT, WIDTH_TRACE_INSTALL_SCRIPT } from './jitter-probe-width-scripts';
 import { dragProbeSash, readProbeSash } from './jitter-probe-sash';
-import {
-  clickProbeSession,
-  COLLECT_SWITCH_FRAMES_SCRIPT,
-} from './jitter-probe-session';
+import { clickProbeSession, COLLECT_SWITCH_FRAMES_SCRIPT } from './jitter-probe-session';
 
 interface ProbeDeps {
   window: BrowserWindow;
   stateChannel: string;
   baseSnapshot: Record<string, unknown>;
-  prepareRemoteResume(
-    stored: Record<string, unknown>,
-    live: Record<string, unknown>,
-  ): void;
+  prepareRemoteResume(stored: Record<string, unknown>, live: Record<string, unknown>): void;
   prepareColdResume(snapshot: Record<string, unknown>): void;
   /** Host publish path (state + per-session channels); the select pass
    *  pushes its fixture through it so the session lane accepts the frame. */
@@ -76,9 +62,7 @@ export async function runJitterProbe({
   // scrollTop, and how far the reader's row moves per rewrap step.
   const widthMode = process.env.MIXDOG_JITTER_PROBE === 'width';
   if (entryMode) {
-    await window.webContents.executeJavaScript(
-      'window.__mixdogMarkdownPreloadDelayMs = 1200; true',
-    );
+    await window.webContents.executeJavaScript('window.__mixdogMarkdownPreloadDelayMs = 1200; true');
   }
 
   // The workspace renders the ACTIVE TAB's route; open a task tab first (same
@@ -116,7 +100,11 @@ export async function runJitterProbe({
   if (process.env.MIXDOG_JITTER_PROBE === 'select') {
     const { runSelectionProbe } = await import('./jitter-probe-selection');
     return runSelectionProbe({
-      window, baseSnapshot, prepareColdResume, send: publish ?? send, outPath,
+      window,
+      baseSnapshot,
+      prepareColdResume,
+      send: publish ?? send,
+      outPath,
     });
   }
 
@@ -208,15 +196,20 @@ export async function runJitterProbe({
       const report = await window.webContents.executeJavaScript(WIDTH_TRACE_COLLECT_SCRIPT);
       return { label, setup, ...(report as Record<string, unknown>) };
     };
-    const reading = await sweep('reading', `(() => {
+    const reading = await sweep(
+      'reading',
+      `(() => {
       const node = [...document.querySelectorAll('.transcript')]
         .find((candidate) => candidate.getBoundingClientRect().height > 0);
       node.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -120 }));
       node.scrollTop = Math.round((node.scrollHeight - node.clientHeight) * 0.5);
       node.dispatchEvent(new Event('scroll', { bubbles: true }));
       return true;
-    })()`);
-    const following = await sweep('following', `(() => {
+    })()`
+    );
+    const following = await sweep(
+      'following',
+      `(() => {
       const node = [...document.querySelectorAll('.transcript')]
         .find((candidate) => candidate.getBoundingClientRect().height > 0
           && candidate.querySelectorAll('.transcript-virtual-row').length > 3);
@@ -225,7 +218,8 @@ export async function runJitterProbe({
       node.scrollTop = node.scrollHeight - node.clientHeight;
       node.dispatchEvent(new Event('scroll', { bubbles: true }));
       return true;
-    })()`);
+    })()`
+    );
     // Create a real row split through the product shortcut, then drive its
     // physical resize handle with Electron input events. This crosses the
     // md frame/inset boundary in both directions without changing the
@@ -260,7 +254,9 @@ export async function runJitterProbe({
       const report = await window.webContents.executeJavaScript(WIDTH_TRACE_COLLECT_SCRIPT);
       return { label, setup, ...(report as Record<string, unknown>) };
     };
-    const sashReading = await sashSweep('sash-reading', `(() => {
+    const sashReading = await sashSweep(
+      'sash-reading',
+      `(() => {
       const node = [...document.querySelectorAll('.transcript')]
         .find((candidate) => candidate.getBoundingClientRect().height > 0
           && candidate.querySelectorAll('.transcript-virtual-row').length > 3);
@@ -268,8 +264,11 @@ export async function runJitterProbe({
       node.scrollTop = Math.round((node.scrollHeight - node.clientHeight) * 0.5);
       node.dispatchEvent(new Event('scroll', { bubbles: true }));
       return true;
-    })()`);
-    const sashFollowing = await sashSweep('sash-following', `(() => {
+    })()`
+    );
+    const sashFollowing = await sashSweep(
+      'sash-following',
+      `(() => {
       const node = [...document.querySelectorAll('.transcript')]
         .find((candidate) => candidate.getBoundingClientRect().height > 0
           && candidate.querySelectorAll('.transcript-virtual-row').length > 3);
@@ -278,7 +277,8 @@ export async function runJitterProbe({
       node.scrollTop = node.scrollHeight - node.clientHeight;
       node.dispatchEvent(new Event('scroll', { bubbles: true }));
       return true;
-    })()`);
+    })()`
+    );
     const summary = {
       widthSweeps: [reading, following],
       sashSweeps: [sashReading, sashFollowing],
@@ -286,15 +286,12 @@ export async function runJitterProbe({
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, JSON.stringify({ summary }, null, 1));
     console.log(`[jitter-probe] ${JSON.stringify(summary)}`);
-    const followReports = [following, sashFollowing]
-      .map((report) => report as unknown as Record<string, unknown>);
+    const followReports = [following, sashFollowing].map((report) => report as unknown as Record<string, unknown>);
     const unstableFollow = followReports.filter((report) => {
       const sash = String(report.label).startsWith('sash-');
       const writes = Number(report.writes);
       const reversals = Number(report.scrollReversals);
-      const writeStacks = Array.isArray(report.writeStacks)
-        ? report.writeStacks.map(String)
-        : [];
+      const writeStacks = Array.isArray(report.writeStacks) ? report.writeStacks.map(String) : [];
       // The content observer may resolve the discrete 768px row-inset
       // reflow with ONE pin per crossing, and the down-then-up window sweep
       // crosses that breakpoint twice. The pin lands in the same pre-paint
@@ -304,19 +301,21 @@ export async function runJitterProbe({
       // means two scroll authorities are competing.
       const stableWrites = sash
         ? writes === 0 && reversals === 0
-        : (writes === 0 && reversals === 0)
-          || (writes <= 2
+        : (writes === 0 && reversals === 0) ||
+          (writes <= 2 &&
             // Each observer write can yield two sampled direction changes:
             // pre-write → requested scrollHeight → Chromium-clamped bottom.
-            && reversals <= 2 * writes
-            && writeStacks.length === 1
-            && writeStacks[0].includes('ResizeObserver.'));
-      return !stableWrites
-        || Number(report.maxNarrowBottomDistance) > 2
+            reversals <= 2 * writes &&
+            writeStacks.length === 1 &&
+            writeStacks[0].includes('ResizeObserver.'));
+      return (
+        !stableWrites ||
+        Number(report.maxNarrowBottomDistance) > 2 ||
         // The window sweep crosses the discrete 768px row-inset transition.
         // The content transaction may expose its one-way 24px rewrap for one
         // frame, but the actual pane drag and reported <=520px range stay strict.
-        || Number(report.maxBottomDistance) > (sash ? 2 : 24);
+        Number(report.maxBottomDistance) > (sash ? 2 : 24)
+      );
     });
     if (unstableFollow.length > 0) {
       throw new Error(`width probe: active follow unstable ${JSON.stringify(unstableFollow)}`);
@@ -325,8 +324,7 @@ export async function runJitterProbe({
   }
 
   if (switchMode) {
-    const clickSession = (id: string, waitMs: number) =>
-      clickProbeSession(window, id, waitMs);
+    const clickSession = (id: string, waitMs: number) => clickProbeSession(window, id, waitMs);
     // Warm B into the renderer snapshot cache, leave for A, then start a
     // delayed B resume and choose C before it settles. The old defect painted
     // cached B under C's title for up to 90ms.
@@ -358,9 +356,11 @@ export async function runJitterProbe({
       await new Promise((resolve) => setTimeout(resolve, 700));
       return true;
     })()`);
-    const switchFrames = await window.webContents.executeJavaScript(
-      COLLECT_SWITCH_FRAMES_SCRIPT,
-    ) as Array<{ t: number; title: string; transcript: string }>;
+    const switchFrames = (await window.webContents.executeJavaScript(COLLECT_SWITCH_FRAMES_SCRIPT)) as Array<{
+      t: number;
+      title: string;
+      transcript: string;
+    }>;
     const wrongSessionFrames = switchFrames.filter((frame) => {
       const title = /Switch ([ABC])/.exec(frame.title)?.[1] || '';
       const transcript = /Switch ([ABC]) transcript/.exec(frame.transcript)?.[1] || '';
@@ -372,7 +372,7 @@ export async function runJitterProbe({
     // at a different off-bottom anchor, then A↔B is repeated while counting
     // actual scroll writes. A route commit must expose its saved section in
     // one write and one frame — no index pre-scroll or pending retry.
-    const foregroundScroll = await window.webContents.executeJavaScript(`(async () => {
+    const foregroundScroll = (await window.webContents.executeJavaScript(`(async () => {
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const transcriptFor = (id) => [...document.querySelectorAll('.transcript')]
         .find((node) => node.getAttribute('data-session-key') === id
@@ -397,7 +397,7 @@ export async function runJitterProbe({
         const entry = rows[0];
         return entry ? {
           index: entry.row.getAttribute('data-index') || '',
-          text: (entry.row.textContent || '').replace(/\s+/g, '').slice(0, 120),
+          text: (entry.row.textContent || '').replace(/s+/g, '').slice(0, 120),
           offset: entry.box.top - box.top,
         } : null;
       };
@@ -490,7 +490,7 @@ export async function runJitterProbe({
           (total, entry) => total + entry.missingAnchorFrames, 0),
         anchorMismatchCount: switches.filter((entry) => !entry.anchorTextMatches).length,
       };
-    })()`) as {
+    })()`)) as {
       baseline: Record<string, unknown>;
       switches: unknown[];
       maxWrites: number;
@@ -507,7 +507,7 @@ export async function runJitterProbe({
     // upload. Measure both the DOM frame sequence and the actual presented
     // pixels from the click, without the streaming probe's entry exclusion.
     await clickSession('probe_switch_b', 900);
-    const warmSetup = await window.webContents.executeJavaScript(`(async () => {
+    const warmSetup = (await window.webContents.executeJavaScript(`(async () => {
       const visibleTranscript = () => [...document.querySelectorAll('.transcript')]
         .find((node) => node.getBoundingClientRect().height > 0);
       const transcript = visibleTranscript();
@@ -604,14 +604,14 @@ export async function runJitterProbe({
           viewportHeight: window.innerHeight,
         },
       };
-    })()`) as {
+    })()`)) as {
       preflight: Record<string, unknown>;
       paintBounds: PaintProbeBounds;
     };
     const paintProbe = beginPaintFrameProbe(window, warmSetup.paintBounds);
     await sleep(80);
     paintProbe.mark('new-task');
-    const parked = await window.webContents.executeJavaScript(`(async () => {
+    const parked = (await window.webContents.executeJavaScript(`(async () => {
       const probe = window.__warmReentryProbe;
       const tabByText = (text) => [...document.querySelectorAll('.workspace-tab')]
         .find((tab) => (tab.textContent || '').toLowerCase().includes(text.toLowerCase()));
@@ -625,7 +625,7 @@ export async function runJitterProbe({
         scriptConnected: probe.script.isConnected,
         rowConnected: probe.scriptRow.isConnected,
       };
-    })()`) as Record<string, unknown>;
+    })()`)) as Record<string, unknown>;
     paintProbe.mark('reentry');
     let warmResult: {
       frames: number;
@@ -643,7 +643,7 @@ export async function runJitterProbe({
     };
     let paintFrames: PaintFrameSample[];
     try {
-      warmResult = await window.webContents.executeJavaScript(`(async () => {
+      warmResult = (await window.webContents.executeJavaScript(`(async () => {
       const probe = window.__warmReentryProbe;
       const visibleTranscript = () => [...document.querySelectorAll('.transcript')]
         .find((node) => node.getBoundingClientRect().height > 0);
@@ -690,7 +690,7 @@ export async function runJitterProbe({
         firstStableMs: firstStable ? firstStable.t - probe.returnAt : null,
         samples: probe.samples,
       };
-      })()`) as typeof warmResult;
+      })()`)) as typeof warmResult;
     } finally {
       paintFrames = paintProbe.stop();
     }
@@ -704,7 +704,7 @@ export async function runJitterProbe({
     // Studio → long task must return to the exact same virtual section. Unlike
     // New Task, Studio is an opaque utility surface in the same pane; measure
     // the script row itself so a stable outer slot cannot hide row/cache drift.
-    const studioReentry = await window.webContents.executeJavaScript(`(async () => {
+    const studioReentry = (await window.webContents.executeJavaScript(`(async () => {
       const visibleTranscript = () => [...document.querySelectorAll('.transcript')]
         .find((node) => node.getBoundingClientRect().height > 0);
       const transcript = visibleTranscript();
@@ -816,7 +816,7 @@ export async function runJitterProbe({
           )),
         samples: probe.samples,
       };
-    })()`) as {
+    })()`)) as {
       frames: number;
       baselineRowHeight: number;
       baselineScriptHeight: number;
@@ -833,7 +833,7 @@ export async function runJitterProbe({
       samples: unknown[];
     };
 
-    const probePanelToggle = async (selector: string) => (
+    const probePanelToggle = async (selector: string) =>
       window.webContents.executeJavaScript(`(async () => {
         const selector = ${JSON.stringify(selector)};
         const button = document.querySelector(selector);
@@ -864,35 +864,33 @@ export async function runJitterProbe({
         await new Promise((resolve) => setTimeout(resolve, 360));
         cancelAnimationFrame(raf);
         return frames;
-      })()`) as Promise<Array<{
-        t: number;
-        phase: string;
-        left: number | null;
-        width: number | null;
-        animations: number;
-      }>>
-    );
+      })()`) as Promise<
+        Array<{
+          t: number;
+          phase: string;
+          left: number | null;
+          width: number | null;
+          animations: number;
+        }>
+      >;
     const summarizePanel = (samples: Awaited<ReturnType<typeof probePanelToggle>>) => {
-      const activeIndexes = samples
-        .map((sample, index) => sample.phase ? index : -1)
-        .filter((index) => index >= 0);
+      const activeIndexes = samples.map((sample, index) => (sample.phase ? index : -1)).filter((index) => index >= 0);
       const first = samples[0];
       const last = samples.at(-1);
       const lastActiveIndex = activeIndexes.at(-1) ?? -1;
       const anchor = lastActiveIndex >= 0 ? samples[lastActiveIndex] : null;
       const post = lastActiveIndex >= 0 ? samples.slice(lastActiveIndex + 1) : [];
-      const delta = (sample: typeof first, other: typeof first) => Math.max(
-        Math.abs(Number(sample.left) - Number(other.left)),
-        Math.abs(Number(sample.width) - Number(other.width)),
-      );
+      const delta = (sample: typeof first, other: typeof first) =>
+        Math.max(
+          Math.abs(Number(sample.left) - Number(other.left)),
+          Math.abs(Number(sample.width) - Number(other.width))
+        );
       return {
         phase: activeIndexes.length ? samples[activeIndexes[0]].phase : '',
         activeFrames: activeIndexes.length,
         animatedFrames: samples.filter((sample) => sample.phase && sample.animations > 0).length,
         geometryDelta: first && last ? delta(first, last) : 0,
-        postHandoverShift: anchor && post.length
-          ? Math.max(...post.map((sample) => delta(anchor, sample)))
-          : 0,
+        postHandoverShift: anchor && post.length ? Math.max(...post.map((sample) => delta(anchor, sample))) : 0,
       };
     };
     const panels = [];
@@ -917,47 +915,47 @@ export async function runJitterProbe({
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, JSON.stringify({ summary: switchSummary, switchFrames }, null, 1));
     console.log(`[jitter-probe] ${JSON.stringify(switchSummary)}`);
-    const panelsPass = panels.every((panel) =>
-      panel.geometryDelta >= 20
-      && panel.postHandoverShift <= 1);
-    if (wrongSessionFrames.length > 0
-      || finalSwitchFrame?.title !== 'Switch C'
-      || !finalSwitchFrame?.transcript.includes('Switch C transcript')
-      || foregroundScroll.maxWrites > 1
-      || foregroundScroll.maxTotalWrites > 1
-      || foregroundScroll.maxScrollDrift > 1
-      || foregroundScroll.maxFrameScrollDrift > 1
-      || foregroundScroll.maxAnchorOffsetDrift > 1
-      || foregroundScroll.missingAnchorFrames > 0
-      || foregroundScroll.anchorMismatchCount > 0
-      || warmReentry.frames < 10
-      || !warmReentry.conversationSame
-      || !warmReentry.scriptSame
-      || warmReentry.maxScrollDrift > 1
-      || warmReentry.maxSpaceDrift > 1
-      || warmReentry.missingScriptFrames > 0
-      || warmReentry.layoutShift > 0.001
-      || warmReentry.handoffFrames > 1
-      || warmReentry.firstStableMs === null
-      || warmReentry.firstStableMs > 50
+    const panelsPass = panels.every((panel) => panel.geometryDelta >= 20 && panel.postHandoverShift <= 1);
+    if (
+      wrongSessionFrames.length > 0 ||
+      finalSwitchFrame?.title !== 'Switch C' ||
+      !finalSwitchFrame?.transcript.includes('Switch C transcript') ||
+      foregroundScroll.maxWrites > 1 ||
+      foregroundScroll.maxTotalWrites > 1 ||
+      foregroundScroll.maxScrollDrift > 1 ||
+      foregroundScroll.maxFrameScrollDrift > 1 ||
+      foregroundScroll.maxAnchorOffsetDrift > 1 ||
+      foregroundScroll.missingAnchorFrames > 0 ||
+      foregroundScroll.anchorMismatchCount > 0 ||
+      warmReentry.frames < 10 ||
+      !warmReentry.conversationSame ||
+      !warmReentry.scriptSame ||
+      warmReentry.maxScrollDrift > 1 ||
+      warmReentry.maxSpaceDrift > 1 ||
+      warmReentry.missingScriptFrames > 0 ||
+      warmReentry.layoutShift > 0.001 ||
+      warmReentry.handoffFrames > 1 ||
+      warmReentry.firstStableMs === null ||
+      warmReentry.firstStableMs > 50 ||
       // Frame subscription reports presentation changes, not idle vsyncs:
       // each static baseline legitimately contributes one compositor frame.
-      || warmReentry.paint.sessionFrames < 1
-      || warmReentry.paint.newTaskFrames < 1
-      || warmReentry.paint.reentryFrames < 2
-      || warmReentry.paint.maxBrightnessExcursion > 0.06
-      || warmReentry.paint.firstStablePaintFrame === null
-      || warmReentry.paint.firstStablePaintFrame > 3
-      || studioReentry.frames < 10
-      || !studioReentry.conversationSame
-      || !studioReentry.rowSame
-      || !studioReentry.scriptSame
-      || studioReentry.missingRowFrames > 0
-      || studioReentry.maxRowHeightDrift > 1
-      || studioReentry.maxScriptHeightDrift > 1
-      || studioReentry.maxScrollDrift > 1
-      || studioReentry.maxSpaceDrift > 1
-      || !panelsPass) {
+      warmReentry.paint.sessionFrames < 1 ||
+      warmReentry.paint.newTaskFrames < 1 ||
+      warmReentry.paint.reentryFrames < 2 ||
+      warmReentry.paint.maxBrightnessExcursion > 0.06 ||
+      warmReentry.paint.firstStablePaintFrame === null ||
+      warmReentry.paint.firstStablePaintFrame > 3 ||
+      studioReentry.frames < 10 ||
+      !studioReentry.conversationSame ||
+      !studioReentry.rowSame ||
+      !studioReentry.scriptSame ||
+      studioReentry.missingRowFrames > 0 ||
+      studioReentry.maxRowHeightDrift > 1 ||
+      studioReentry.maxScriptHeightDrift > 1 ||
+      studioReentry.maxScrollDrift > 1 ||
+      studioReentry.maxSpaceDrift > 1 ||
+      !panelsPass
+    ) {
       throw new Error(`Switch/panel jitter probe failed: ${JSON.stringify(switchSummary)}`);
     }
     return { reversals: 0, ...switchSummary } as unknown as { reversals: number };
@@ -997,7 +995,7 @@ export async function runJitterProbe({
       return nodes.sort((a, b) => b.scrollHeight - a.scrollHeight)[0];
     })()`;
     const press = async (label: string, key: string, focusExpression = `${pickKeysTranscript}`) => {
-      const before = await window.webContents.executeJavaScript(`(() => {
+      const before = (await window.webContents.executeJavaScript(`(() => {
         const el = ${pickKeysTranscript};
         if (!el) return null;
         const focusTarget = ${focusExpression};
@@ -1017,7 +1015,7 @@ export async function runJitterProbe({
           focused: document.activeElement === el,
           activeElement: String(document.activeElement?.className || document.activeElement?.tagName || ''),
         };
-      })()`) as {
+      })()`)) as {
         scrollTop: number;
         scrollHeight: number;
         clientHeight: number;
@@ -1030,12 +1028,12 @@ export async function runJitterProbe({
       if (key === 'Space') window.webContents.sendInputEvent({ type: 'char', keyCode: ' ' });
       window.webContents.sendInputEvent({ type: 'keyUp', keyCode: key });
       await sleep(1_200);
-      const samples = await window.webContents.executeJavaScript(`(() => {
+      const samples = (await window.webContents.executeJavaScript(`(() => {
         const w = window;
         cancelAnimationFrame(w.__keys.raf);
         w.__keys.raf = 0;
         return w.__keys.samples;
-      })()`) as Array<{ t: number; st: number }>;
+      })()`)) as Array<{ t: number; st: number }>;
       const tops = samples.map((sample) => sample.st);
       const peak = tops.length ? Math.max(...tops) : 0;
       const settled = tops.length ? tops[tops.length - 1] : 0;
@@ -1117,7 +1115,7 @@ export async function runJitterProbe({
     const spaceComposer = await press(
       'space-composer-focus',
       'Space',
-      `document.querySelector('.composer textarea, .composer-region textarea, textarea')`,
+      `document.querySelector('.composer textarea, .composer-region textarea, textarea')`
     );
     await window.webContents.executeJavaScript(`(async () => {
       const el = ${pickKeysTranscript};
@@ -1138,7 +1136,7 @@ export async function runJitterProbe({
             const rect = node.getBoundingClientRect();
             return rect.top >= box.top && rect.bottom <= box.bottom;
           }) || null;
-      })()`,
+      })()`
     );
     streaming = false;
     await streamPump;
@@ -1156,34 +1154,41 @@ export async function runJitterProbe({
       spaceToolHeader: strip(spaceToolHeader),
     };
     mkdirSync(dirname(outPath), { recursive: true });
-    writeFileSync(outPath, JSON.stringify({
-      summary: keysSummary,
-      keySamples: {
-        spaceFromTop: spaceFromTop.samples,
-        spaceAgain: spaceAgain.samples,
-        pageDown: pageDown.samples,
-        spaceStreaming: spaceStreaming.samples,
-        spaceStreamingAgain: spaceStreamingAgain.samples,
-        spaceComposer: spaceComposer.samples,
-        spaceToolHeader: spaceToolHeader.samples,
-      },
-    }, null, 1));
+    writeFileSync(
+      outPath,
+      JSON.stringify(
+        {
+          summary: keysSummary,
+          keySamples: {
+            spaceFromTop: spaceFromTop.samples,
+            spaceAgain: spaceAgain.samples,
+            pageDown: pageDown.samples,
+            spaceStreaming: spaceStreaming.samples,
+            spaceStreamingAgain: spaceStreamingAgain.samples,
+            spaceComposer: spaceComposer.samples,
+            spaceToolHeader: spaceToolHeader.samples,
+          },
+        },
+        null,
+        1
+      )
+    );
     console.log(`[jitter-probe] ${JSON.stringify(keysSummary)}`);
     return { reversals: 0, ...keysSummary } as unknown as { reversals: number };
   }
 
   if (entryMode) {
-  // ── Phase A: COLD FIRST ENTRY into a session that already has history ────
-  // Runs before every other phase on purpose: this is the user's "최초 진입"
-  // — no cached row heights, and the markdown/diff chunks are as cold as they
-  // are right after launch. The transcript must land bottom-pinned and hold
-  // still while the estimated rows are re-measured.
-  const coldStamp = Date.now() % 100_000;
-  const coldItems = coldHistoryItems(84, coldStamp);
-  // Pick the transcript of the VISIBLE route: background tabs keep their own
-  // (taller, scrolled-away) transcript mounted. Prewarm rows live in a hidden
-  // sibling container, so only DIRECT children of the virtual space count.
-  const pickTranscript = `(() => {
+    // ── Phase A: COLD FIRST ENTRY into a session that already has history ────
+    // Runs before every other phase on purpose: this is the user's "최초 진입"
+    // — no cached row heights, and the markdown/diff chunks are as cold as they
+    // are right after launch. The transcript must land bottom-pinned and hold
+    // still while the estimated rows are re-measured.
+    const coldStamp = Date.now() % 100_000;
+    const coldItems = coldHistoryItems(84, coldStamp);
+    // Pick the transcript of the VISIBLE route: background tabs keep their own
+    // (taller, scrolled-away) transcript mounted. Prewarm rows live in a hidden
+    // sibling container, so only DIRECT children of the virtual space count.
+    const pickTranscript = `(() => {
     const nodes = [...document.querySelectorAll('.transcript')]
       .filter((node) => node.getBoundingClientRect().height > 0);
     if (nodes.length === 0) return null;
@@ -1194,7 +1199,7 @@ export async function runJitterProbe({
       }))
       .sort((a, b) => b.rows - a.rows || b.node.scrollHeight - a.node.scrollHeight)[0].node;
   })()`;
-  const install = `(() => {
+    const install = `(() => {
     const w = window;
     if (w.__entry && w.__entry.raf) cancelAnimationFrame(w.__entry.raf);
     w.__entry = { samples: [], raf: 0 };
@@ -1276,54 +1281,58 @@ export async function runJitterProbe({
     w.__entry.raf = requestAnimationFrame(sample);
     return true;
   })()`;
-  const stop = `(() => {
+    const stop = `(() => {
     const w = window;
     cancelAnimationFrame(w.__entry.raf);
     w.__entry.raf = 0;
     return w.__entry.samples;
   })()`;
 
-  // Enter through the real resume path: a snapshot pushed for a foreign
-  // session id never reaches the visible route.
-  const coldSnapshot = {
-    ...baseSnapshot,
-    toasts: [],
-    sessionId: 'probe_session_cold',
-    busy: true,
-    spinner: {
-      active: true,
-      mode: 'responding',
-      startedAt: Date.now(),
-    },
-    items: coldItems,
-    streamingTail: null,
-  };
-  const delayedReviewItems = coldItems.map((item) => item.id === `cold-${coldStamp}-tool-tail`
-    ? {
-        ...item,
-        result: `${String(item.result || '')}
+    // Enter through the real resume path: a snapshot pushed for a foreign
+    // session id never reaches the visible route.
+    const coldSnapshot = {
+      ...baseSnapshot,
+      toasts: [],
+      sessionId: 'probe_session_cold',
+      busy: true,
+      spinner: {
+        active: true,
+        mode: 'responding',
+        startedAt: Date.now(),
+      },
+      items: coldItems,
+      streamingTail: null,
+    };
+    const delayedReviewItems = coldItems.map((item) =>
+      item.id === `cold-${coldStamp}-tool-tail`
+        ? {
+            ...item,
+            result: `${String(item.result || '')}
 diff --git a/src/probe.ts b/src/probe.ts
 --- a/src/probe.ts
 +++ b/src/probe.ts
 @@ -1 +1 @@
 -const stable = false;
 +const stable = true;`,
-      }
-    : item);
-  const delayedReviewSnapshot = {
-    ...coldSnapshot,
-    items: delayedReviewItems,
-  };
-  const queuedSnapshot = {
-    ...delayedReviewSnapshot,
-    queued: [{
-      id: `cold-${coldStamp}-queued-followup`,
-      text: 'queued follow-up geometry probe',
-    }],
-  };
-  prepareColdResume(coldSnapshot);
-  await window.webContents.executeJavaScript(install);
-  const coldClick = await window.webContents.executeJavaScript(`(async () => {
+          }
+        : item
+    );
+    const delayedReviewSnapshot = {
+      ...coldSnapshot,
+      items: delayedReviewItems,
+    };
+    const queuedSnapshot = {
+      ...delayedReviewSnapshot,
+      queued: [
+        {
+          id: `cold-${coldStamp}-queued-followup`,
+          text: 'queued follow-up geometry probe',
+        },
+      ],
+    };
+    prepareColdResume(coldSnapshot);
+    await window.webContents.executeJavaScript(install);
+    const coldClick = (await window.webContents.executeJavaScript(`(async () => {
     const row = document.querySelector('[data-session-id="probe_session_cold"]');
     if (!(row instanceof HTMLElement)) throw new Error('Missing cold probe session row');
     row.click();
@@ -1333,60 +1342,56 @@ diff --git a/src/probe.ts b/src/probe.ts
       errors: [...document.querySelectorAll('.inline-error, .runtime-progress')]
         .map((node) => node.textContent.slice(0, 120)),
     };
-  })()`) as Record<string, unknown>;
-  // The route is now bound to the cold session id, so the history batch
-  // lands through the normal state push (one commit, like a real resume).
-  send(coldSnapshot);
-  // Cover the 6s worker-review poll as well as any delayed renderer idle work.
-  await sleep(5_800);
-  // A worker-only diff becomes known late without adding a transcript row.
-  // The bottom stack must grow once, retain the followed bottom, preserve the
-  // thinking gap, and never cover transcript content.
-  send(delayedReviewSnapshot);
-  await sleep(1_200);
-  const entrySamples = await window.webContents.executeJavaScript(stop) as RowSample[];
-  const firstReviewFrame = entrySamples.findIndex((sample) => Number(sample.review?.height || 0) > 0);
-  const entry = contentMotion(firstReviewFrame > 0
-    ? entrySamples.slice(0, firstReviewFrame)
-    : entrySamples);
-  const delayedReviewSamples = firstReviewFrame >= 0
-    ? entrySamples.slice(Math.max(0, firstReviewFrame - 2))
-    : [];
-  const visibleReviewSamples = delayedReviewSamples.filter((sample) => sample.review);
-  const settledReviewSamples = visibleReviewSamples.slice(-5);
-  const thinkingGaps = visibleReviewSamples
-    .map((sample) => sample.review?.thinkingGap)
-    .filter((value): value is number => Number.isFinite(value));
-  const composerGaps = visibleReviewSamples
-    .map((sample) => sample.review?.composerGap)
-    .filter((value): value is number => Number.isFinite(value));
-  const settledThinkingGaps = settledReviewSamples
-    .map((sample) => sample.review?.thinkingGap)
-    .filter((value): value is number => Number.isFinite(value));
-  const settledComposerGaps = settledReviewSamples
-    .map((sample) => sample.review?.composerGap)
-    .filter((value): value is number => Number.isFinite(value));
-  const delayedReview = {
-    appeared: firstReviewFrame > 0
-      && entrySamples.slice(0, firstReviewFrame).some((sample) => !sample.review),
-    height: firstReviewFrame >= 0 ? Number(entrySamples[firstReviewFrame].review?.height || 0) : 0,
-    maxOverlap: delayedReviewSamples.length
-      ? Math.max(...delayedReviewSamples.map((sample) => Number(sample.review?.overlap || 0)))
-      : Number.MAX_SAFE_INTEGER,
-    minThinkingGap: thinkingGaps.length ? Math.min(...thinkingGaps) : null,
-    minComposerGap: composerGaps.length ? Math.min(...composerGaps) : null,
-    settledThinkingGap: settledThinkingGaps.length ? Math.min(...settledThinkingGaps) : null,
-    settledComposerGap: settledComposerGaps.length ? Math.min(...settledComposerGaps) : null,
-    settledMaxDistance: settledReviewSamples.length
-      ? Math.max(...settledReviewSamples.map((sample) => sample.dist))
-      : Number.MAX_SAFE_INTEGER,
-    // The rAF sampler forces the new layout before ResizeObserver callbacks.
-    // One raw sample may therefore precede the same-frame pre-paint pin.
-    correctionFrames: visibleReviewSamples.findIndex((sample) =>
-      sample.dist <= 8 && Number(sample.review?.thinkingGap) >= 18),
-    motion: contentMotion(delayedReviewSamples),
-  };
-  const entryDiag = await window.webContents.executeJavaScript(`(() => {
+  })()`)) as Record<string, unknown>;
+    // The route is now bound to the cold session id, so the history batch
+    // lands through the normal state push (one commit, like a real resume).
+    send(coldSnapshot);
+    // Cover the 6s worker-review poll as well as any delayed renderer idle work.
+    await sleep(5_800);
+    // A worker-only diff becomes known late without adding a transcript row.
+    // The bottom stack must grow once, retain the followed bottom, preserve the
+    // thinking gap, and never cover transcript content.
+    send(delayedReviewSnapshot);
+    await sleep(1_200);
+    const entrySamples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
+    const firstReviewFrame = entrySamples.findIndex((sample) => Number(sample.review?.height || 0) > 0);
+    const entry = contentMotion(firstReviewFrame > 0 ? entrySamples.slice(0, firstReviewFrame) : entrySamples);
+    const delayedReviewSamples = firstReviewFrame >= 0 ? entrySamples.slice(Math.max(0, firstReviewFrame - 2)) : [];
+    const visibleReviewSamples = delayedReviewSamples.filter((sample) => sample.review);
+    const settledReviewSamples = visibleReviewSamples.slice(-5);
+    const thinkingGaps = visibleReviewSamples
+      .map((sample) => sample.review?.thinkingGap)
+      .filter((value): value is number => Number.isFinite(value));
+    const composerGaps = visibleReviewSamples
+      .map((sample) => sample.review?.composerGap)
+      .filter((value): value is number => Number.isFinite(value));
+    const settledThinkingGaps = settledReviewSamples
+      .map((sample) => sample.review?.thinkingGap)
+      .filter((value): value is number => Number.isFinite(value));
+    const settledComposerGaps = settledReviewSamples
+      .map((sample) => sample.review?.composerGap)
+      .filter((value): value is number => Number.isFinite(value));
+    const delayedReview = {
+      appeared: firstReviewFrame > 0 && entrySamples.slice(0, firstReviewFrame).some((sample) => !sample.review),
+      height: firstReviewFrame >= 0 ? Number(entrySamples[firstReviewFrame].review?.height || 0) : 0,
+      maxOverlap: delayedReviewSamples.length
+        ? Math.max(...delayedReviewSamples.map((sample) => Number(sample.review?.overlap || 0)))
+        : Number.MAX_SAFE_INTEGER,
+      minThinkingGap: thinkingGaps.length ? Math.min(...thinkingGaps) : null,
+      minComposerGap: composerGaps.length ? Math.min(...composerGaps) : null,
+      settledThinkingGap: settledThinkingGaps.length ? Math.min(...settledThinkingGaps) : null,
+      settledComposerGap: settledComposerGaps.length ? Math.min(...settledComposerGaps) : null,
+      settledMaxDistance: settledReviewSamples.length
+        ? Math.max(...settledReviewSamples.map((sample) => sample.dist))
+        : Number.MAX_SAFE_INTEGER,
+      // The rAF sampler forces the new layout before ResizeObserver callbacks.
+      // One raw sample may therefore precede the same-frame pre-paint pin.
+      correctionFrames: visibleReviewSamples.findIndex(
+        (sample) => sample.dist <= 8 && Number(sample.review?.thinkingGap) >= 18
+      ),
+      motion: contentMotion(delayedReviewSamples),
+    };
+    const entryDiag = (await window.webContents.executeJavaScript(`(() => {
     const el = ${pickTranscript};
     const shell = el?.closest('.conversation') || document;
     return {
@@ -1404,124 +1409,118 @@ diff --git a/src/probe.ts b/src/probe.ts
       clientHeight: el ? Math.round(el.clientHeight) : 0,
       dist: el ? Math.round(el.scrollHeight - el.scrollTop - el.clientHeight) : null,
     };
-  })()`) as Record<string, unknown>;
-  Object.assign(entryDiag, { click: coldClick });
+  })()`)) as Record<string, unknown>;
+    Object.assign(entryDiag, { click: coldClick });
 
-  const toggleReview = async (label: string, targetExpanded: boolean) => {
-    await window.webContents.executeJavaScript(install);
-    // Preserve several collapsed/expanded baseline frames before the click.
-    await sleep(100);
-    const clicked = await window.webContents.executeJavaScript(`(() => {
+    const toggleReview = async (label: string, targetExpanded: boolean) => {
+      await window.webContents.executeJavaScript(install);
+      // Preserve several collapsed/expanded baseline frames before the click.
+      await sleep(100);
+      const clicked = (await window.webContents.executeJavaScript(`(() => {
       const el = ${pickTranscript};
       const summary = el?.closest('.conversation')?.querySelector('.turn-review-summary');
       if (!(summary instanceof HTMLElement)) return false;
       const expanded = summary.getAttribute('aria-expanded') === 'true';
       if (expanded !== ${targetExpanded ? 'true' : 'false'}) summary.click();
       return true;
-    })()`) as boolean;
-    await sleep(700);
-    const samples = await window.webContents.executeJavaScript(stop) as RowSample[];
-    const expanded = await window.webContents.executeJavaScript(`(() => {
+    })()`)) as boolean;
+      await sleep(700);
+      const samples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
+      const expanded = (await window.webContents.executeJavaScript(`(() => {
       const el = ${pickTranscript};
       return el?.closest('.conversation')?.querySelector('.turn-review-summary')
         ?.getAttribute('aria-expanded') === 'true';
-    })()`) as boolean;
-    const reviewSamples = samples.filter((sample) => sample.review);
-    const settledSamples = reviewSamples.slice(-5);
-    const thinkingGap = reviewSamples
-      .map((sample) => sample.review?.thinkingGap)
-      .filter((value): value is number => Number.isFinite(value));
-    const composerGap = reviewSamples
-      .map((sample) => sample.review?.composerGap)
-      .filter((value): value is number => Number.isFinite(value));
-    const settledThinkingGap = settledSamples
-      .map((sample) => sample.review?.thinkingGap)
-      .filter((value): value is number => Number.isFinite(value));
-    const settledComposerGap = settledSamples
-      .map((sample) => sample.review?.composerGap)
-      .filter((value): value is number => Number.isFinite(value));
-    return {
-      label,
-      clicked,
-      expanded,
-      maxOverlap: reviewSamples.length
-        ? Math.max(...reviewSamples.map((sample) => Number(sample.review?.overlap || 0)))
-        : Number.MAX_SAFE_INTEGER,
-      minThinkingGap: thinkingGap.length ? Math.min(...thinkingGap) : null,
-      minComposerGap: composerGap.length ? Math.min(...composerGap) : null,
-      settledThinkingGap: settledThinkingGap.length ? Math.min(...settledThinkingGap) : null,
-      settledComposerGap: settledComposerGap.length ? Math.min(...settledComposerGap) : null,
-      settledMaxDistance: settledSamples.length
-        ? Math.max(...settledSamples.map((sample) => sample.dist))
-        : Number.MAX_SAFE_INTEGER,
-      followingAfter: samples.at(-1)?.following ?? null,
-      finalDistance: samples.at(-1)?.dist ?? null,
-      motion: contentMotion(samples),
-      samples,
+    })()`)) as boolean;
+      const reviewSamples = samples.filter((sample) => sample.review);
+      const settledSamples = reviewSamples.slice(-5);
+      const thinkingGap = reviewSamples
+        .map((sample) => sample.review?.thinkingGap)
+        .filter((value): value is number => Number.isFinite(value));
+      const composerGap = reviewSamples
+        .map((sample) => sample.review?.composerGap)
+        .filter((value): value is number => Number.isFinite(value));
+      const settledThinkingGap = settledSamples
+        .map((sample) => sample.review?.thinkingGap)
+        .filter((value): value is number => Number.isFinite(value));
+      const settledComposerGap = settledSamples
+        .map((sample) => sample.review?.composerGap)
+        .filter((value): value is number => Number.isFinite(value));
+      return {
+        label,
+        clicked,
+        expanded,
+        maxOverlap: reviewSamples.length
+          ? Math.max(...reviewSamples.map((sample) => Number(sample.review?.overlap || 0)))
+          : Number.MAX_SAFE_INTEGER,
+        minThinkingGap: thinkingGap.length ? Math.min(...thinkingGap) : null,
+        minComposerGap: composerGap.length ? Math.min(...composerGap) : null,
+        settledThinkingGap: settledThinkingGap.length ? Math.min(...settledThinkingGap) : null,
+        settledComposerGap: settledComposerGap.length ? Math.min(...settledComposerGap) : null,
+        settledMaxDistance: settledSamples.length
+          ? Math.max(...settledSamples.map((sample) => sample.dist))
+          : Number.MAX_SAFE_INTEGER,
+        followingAfter: samples.at(-1)?.following ?? null,
+        finalDistance: samples.at(-1)?.dist ?? null,
+        motion: contentMotion(samples),
+        samples,
+      };
     };
-  };
-  const reviewExpand = await toggleReview('review-expand', true);
-  const reviewCollapse = await toggleReview('review-collapse', false);
-  const toggleQueue = async (
-    label: string,
-    nextSnapshot: Record<string, unknown>,
-    targetVisible: boolean,
-  ) => {
-    await window.webContents.executeJavaScript(install);
-    await sleep(100);
-    send(nextSnapshot);
-    await sleep(700);
-    const samples = await window.webContents.executeJavaScript(stop) as RowSample[];
-    const baseline = samples.slice(0, Math.min(5, samples.length));
-    const settled = samples.slice(-5);
-    const visibleBefore = baseline.some((sample) => Number(sample.queueHeight || 0) > 0);
-    const visibleAfter = settled.some((sample) => Number(sample.queueHeight || 0) > 0);
-    return {
-      label,
-      targetVisible,
-      transitioned: targetVisible
-        ? !visibleBefore && visibleAfter
-        : visibleBefore && !visibleAfter,
-      finalHeight: Number(samples.at(-1)?.queueHeight || 0),
-      followingAfter: samples.at(-1)?.following ?? null,
-      finalDistance: samples.at(-1)?.dist ?? null,
-      motion: contentMotion(samples),
-      samples,
+    const reviewExpand = await toggleReview('review-expand', true);
+    const reviewCollapse = await toggleReview('review-collapse', false);
+    const toggleQueue = async (label: string, nextSnapshot: Record<string, unknown>, targetVisible: boolean) => {
+      await window.webContents.executeJavaScript(install);
+      await sleep(100);
+      send(nextSnapshot);
+      await sleep(700);
+      const samples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
+      const baseline = samples.slice(0, Math.min(5, samples.length));
+      const settled = samples.slice(-5);
+      const visibleBefore = baseline.some((sample) => Number(sample.queueHeight || 0) > 0);
+      const visibleAfter = settled.some((sample) => Number(sample.queueHeight || 0) > 0);
+      return {
+        label,
+        targetVisible,
+        transitioned: targetVisible ? !visibleBefore && visibleAfter : visibleBefore && !visibleAfter,
+        finalHeight: Number(samples.at(-1)?.queueHeight || 0),
+        followingAfter: samples.at(-1)?.following ?? null,
+        finalDistance: samples.at(-1)?.dist ?? null,
+        motion: contentMotion(samples),
+        samples,
+      };
     };
-  };
-  const queueMount = await toggleQueue('queue-mount', queuedSnapshot, true);
-  const queueUnmount = await toggleQueue('queue-unmount', delayedReviewSnapshot, false);
-  prepareColdResume(delayedReviewSnapshot);
+    const queueMount = await toggleQueue('queue-mount', queuedSnapshot, true);
+    const queueUnmount = await toggleQueue('queue-unmount', delayedReviewSnapshot, false);
+    prepareColdResume(delayedReviewSnapshot);
 
-  // Re-entry: leave the session and come back. Everything the first visit
-  // resolved asynchronously (worker review bar, row heights) must now be
-  // known up front, so the second entry may not move at all.
-  await window.webContents.executeJavaScript(`(async () => {
+    // Re-entry: leave the session and come back. Everything the first visit
+    // resolved asynchronously (worker review bar, row heights) must now be
+    // known up front, so the second entry may not move at all.
+    await window.webContents.executeJavaScript(`(async () => {
     const link = document.querySelector('button[aria-label="New task"]');
     if (link instanceof HTMLElement) link.click();
     await new Promise((resolve) => setTimeout(resolve, 700));
     return true;
   })()`);
-  await window.webContents.executeJavaScript(install);
-  await window.webContents.executeJavaScript(`(async () => {
+    await window.webContents.executeJavaScript(install);
+    await window.webContents.executeJavaScript(`(async () => {
     const row = document.querySelector('[data-session-id="probe_session_cold"]');
     if (!(row instanceof HTMLElement)) throw new Error('Missing cold probe session row');
     row.click();
     await new Promise((resolve) => setTimeout(resolve, 400));
     return true;
   })()`);
-  send(delayedReviewSnapshot);
-  await sleep(2_000);
-  const reentrySamples = await window.webContents.executeJavaScript(stop) as RowSample[];
-  const reentry = contentMotion(reentrySamples);
+    send(delayedReviewSnapshot);
+    await sleep(2_000);
+    const reentrySamples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
+    const reentry = contentMotion(reentrySamples);
 
-  // ── Phase B: tool-card expand / collapse ────────────────────────────────
-  // The toggled card's own top must not move, and neither may the rest of
-  // the visible transcript (user: 도구 사용 표기 펼침/접힘도 같은 출렁임).
-  const toggle = async (label: string, pinned: boolean, targetExpanded: boolean) => {
-    // Select (and if needed scroll to) the subject card BEFORE sampling, so
-    // the recorded frames contain only the toggle's own motion.
-    const prepared = await window.webContents.executeJavaScript(`(async () => {
+    // ── Phase B: tool-card expand / collapse ────────────────────────────────
+    // The toggled card's own top must not move, and neither may the rest of
+    // the visible transcript (user: 도구 사용 표기 펼침/접힘도 같은 출렁임).
+    const toggle = async (label: string, pinned: boolean, targetExpanded: boolean) => {
+      // Select (and if needed scroll to) the subject card BEFORE sampling, so
+      // the recorded frames contain only the toggle's own motion.
+      const prepared = (await window.webContents.executeJavaScript(`(async () => {
       const el = ${pickTranscript};
       if (!el) return false;
       let box = el.getBoundingClientRect();
@@ -1542,10 +1541,10 @@ diff --git a/src/probe.ts b/src/probe.ts
       }
       window.__entryHeader = header || null;
       return Boolean(header);
-    })()`) as boolean;
-    await sleep(300);
-    await window.webContents.executeJavaScript(install);
-    const clicked = await window.webContents.executeJavaScript(`(() => {
+    })()`)) as boolean;
+      await sleep(300);
+      await window.webContents.executeJavaScript(install);
+      const clicked = (await window.webContents.executeJavaScript(`(() => {
       const el = ${pickTranscript};
       const header = window.__entryHeader;
       if (!el || !header || !header.isConnected) return null;
@@ -1573,20 +1572,20 @@ diff --git a/src/probe.ts b/src/probe.ts
         header.click();
       }
       return { before, open };
-    })()`) as {
-      before: {
-        top: number;
-        scrollTop: number;
-        scrollHeight: number;
-        spaceHeight: number;
-        rowHeight: number;
-        cardHeight: number;
-      };
-      open: boolean;
-    } | null;
-    await sleep(1_000);
-    const samples = await window.webContents.executeJavaScript(stop) as RowSample[];
-    const card = await window.webContents.executeJavaScript(`(() => {
+    })()`)) as {
+        before: {
+          top: number;
+          scrollTop: number;
+          scrollHeight: number;
+          spaceHeight: number;
+          rowHeight: number;
+          cardHeight: number;
+        };
+        open: boolean;
+      } | null;
+      await sleep(1_000);
+      const samples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
+      const card = (await window.webContents.executeJavaScript(`(() => {
       const el = ${pickTranscript};
       const card = window.__entryCard;
       if (!el || !card || !card.isConnected) return null;
@@ -1602,103 +1601,91 @@ diff --git a/src/probe.ts b/src/probe.ts
         rowHeight: Math.round(row?.getBoundingClientRect().height || 0),
         cardHeight: Math.round(card.getBoundingClientRect().height),
       };
-    })()`) as {
-      top: number;
-      open: string;
-      subjectKey: string;
-      scrollTop: number;
-      scrollHeight: number;
-      spaceHeight: number;
-      rowHeight: number;
-      cardHeight: number;
-    } | null;
-    const scrollDelta = clicked && card ? card.scrollTop - clicked.before.scrollTop : null;
-    const scrollHeightDelta = clicked && card
-      ? card.scrollHeight - clicked.before.scrollHeight
-      : null;
-    const spaceHeightDelta = clicked && card
-      ? card.spaceHeight - clicked.before.spaceHeight
-      : null;
-    const rowHeightDelta = clicked && card
-      ? card.rowHeight - clicked.before.rowHeight
-      : null;
-    const cardHeightDelta = clicked && card
-      ? card.cardHeight - clicked.before.cardHeight
-      : null;
-    return {
-      label,
-      prepared,
-      clicked: Boolean(clicked),
-      targetExpanded,
-      subjectKey: card?.subjectKey ?? null,
-      cardShift: clicked && card ? card.top - clicked.before.top : null,
-      openAfter: card?.open ?? null,
-      scrollDelta,
-      scrollHeightDelta,
-      spaceHeightDelta,
-      rowHeightDelta,
-      cardHeightDelta,
-      scrollError: scrollDelta === null || scrollHeightDelta === null
-        ? null
-        : scrollDelta - (pinned ? scrollHeightDelta : 0),
-      rowGeometryError: rowHeightDelta === null || cardHeightDelta === null
-        ? null
-        : rowHeightDelta - cardHeightDelta,
-      spaceGeometryError: spaceHeightDelta === null || cardHeightDelta === null
-        ? null
-        : spaceHeightDelta - cardHeightDelta,
-      followingAfter: samples.at(-1)?.following ?? null,
-      finalDistance: samples.at(-1)?.dist ?? null,
-      motion: contentMotion(samples),
-      samples,
+    })()`)) as {
+        top: number;
+        open: string;
+        subjectKey: string;
+        scrollTop: number;
+        scrollHeight: number;
+        spaceHeight: number;
+        rowHeight: number;
+        cardHeight: number;
+      } | null;
+      const scrollDelta = clicked && card ? card.scrollTop - clicked.before.scrollTop : null;
+      const scrollHeightDelta = clicked && card ? card.scrollHeight - clicked.before.scrollHeight : null;
+      const spaceHeightDelta = clicked && card ? card.spaceHeight - clicked.before.spaceHeight : null;
+      const rowHeightDelta = clicked && card ? card.rowHeight - clicked.before.rowHeight : null;
+      const cardHeightDelta = clicked && card ? card.cardHeight - clicked.before.cardHeight : null;
+      return {
+        label,
+        prepared,
+        clicked: Boolean(clicked),
+        targetExpanded,
+        subjectKey: card?.subjectKey ?? null,
+        cardShift: clicked && card ? card.top - clicked.before.top : null,
+        openAfter: card?.open ?? null,
+        scrollDelta,
+        scrollHeightDelta,
+        spaceHeightDelta,
+        rowHeightDelta,
+        cardHeightDelta,
+        scrollError:
+          scrollDelta === null || scrollHeightDelta === null ? null : scrollDelta - (pinned ? scrollHeightDelta : 0),
+        rowGeometryError: rowHeightDelta === null || cardHeightDelta === null ? null : rowHeightDelta - cardHeightDelta,
+        spaceGeometryError:
+          spaceHeightDelta === null || cardHeightDelta === null ? null : spaceHeightDelta - cardHeightDelta,
+        followingAfter: samples.at(-1)?.following ?? null,
+        finalDistance: samples.at(-1)?.dist ?? null,
+        motion: contentMotion(samples),
+        samples,
+      };
     };
-  };
-  // Pinned pass first (the common case: the newest tool card at the bottom of
-  // a followed transcript), then the scrolled-up reading case.
-  const pinnedExpand = await toggle('pinned-expand', true, true);
-  await window.webContents.executeJavaScript(`(async () => {
+    // Pinned pass first (the common case: the newest tool card at the bottom of
+    // a followed transcript), then the scrolled-up reading case.
+    const pinnedExpand = await toggle('pinned-expand', true, true);
+    await window.webContents.executeJavaScript(`(async () => {
     const link = document.querySelector('button[aria-label="New task"]');
     if (link instanceof HTMLElement) link.click();
     await new Promise((resolve) => setTimeout(resolve, 700));
     return true;
   })()`);
-  await window.webContents.executeJavaScript(install);
-  await window.webContents.executeJavaScript(`(async () => {
+    await window.webContents.executeJavaScript(install);
+    await window.webContents.executeJavaScript(`(async () => {
     const row = document.querySelector('[data-session-id="probe_session_cold"]');
     if (!(row instanceof HTMLElement)) throw new Error('Missing cold probe session row');
     row.click();
     await new Promise((resolve) => setTimeout(resolve, 400));
     return true;
   })()`);
-  send(delayedReviewSnapshot);
-  await sleep(1_200);
-  const expandedReentrySamples = await window.webContents.executeJavaScript(stop) as RowSample[];
-  const expandedReentry = contentMotion(expandedReentrySamples);
-  const expandedReentryOpenTools = await window.webContents.executeJavaScript(
-    `document.querySelectorAll('.tool-card[data-open="true"]').length`,
-  ) as number;
-  const pinnedCollapse = await toggle('pinned-collapse', true, false);
-  const pinnedExpandAgain = await toggle('pinned-expand-again', true, true);
-  await window.webContents.executeJavaScript(install);
-  send({
-    ...delayedReviewSnapshot,
-    items: [
-      ...delayedReviewItems,
-      {
-        id: `cold-${coldStamp}-append-after-toggle`,
-        kind: 'assistant',
-        text: 'follow remains pinned after a tool disclosure changes height',
-      },
-    ],
-  });
-  await sleep(700);
-  const pinnedAppendSamples = await window.webContents.executeJavaScript(stop) as RowSample[];
-  const pinnedAppend = {
-    followingAfter: pinnedAppendSamples.at(-1)?.following ?? null,
-    finalDistance: pinnedAppendSamples.at(-1)?.dist ?? null,
-    motion: contentMotion(pinnedAppendSamples),
-  };
-  await window.webContents.executeJavaScript(`(async () => {
+    send(delayedReviewSnapshot);
+    await sleep(1_200);
+    const expandedReentrySamples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
+    const expandedReentry = contentMotion(expandedReentrySamples);
+    const expandedReentryOpenTools = (await window.webContents.executeJavaScript(
+      `document.querySelectorAll('.tool-card[data-open="true"]').length`
+    )) as number;
+    const pinnedCollapse = await toggle('pinned-collapse', true, false);
+    const pinnedExpandAgain = await toggle('pinned-expand-again', true, true);
+    await window.webContents.executeJavaScript(install);
+    send({
+      ...delayedReviewSnapshot,
+      items: [
+        ...delayedReviewItems,
+        {
+          id: `cold-${coldStamp}-append-after-toggle`,
+          kind: 'assistant',
+          text: 'follow remains pinned after a tool disclosure changes height',
+        },
+      ],
+    });
+    await sleep(700);
+    const pinnedAppendSamples = (await window.webContents.executeJavaScript(stop)) as RowSample[];
+    const pinnedAppend = {
+      followingAfter: pinnedAppendSamples.at(-1)?.following ?? null,
+      finalDistance: pinnedAppendSamples.at(-1)?.dist ?? null,
+      motion: contentMotion(pinnedAppendSamples),
+    };
+    await window.webContents.executeJavaScript(`(async () => {
     const el = ${pickTranscript};
     if (!el) return false;
     el.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }));
@@ -1706,17 +1693,17 @@ diff --git a/src/probe.ts b/src/probe.ts
     await new Promise((resolve) => setTimeout(resolve, 500));
     return true;
   })()`);
-  const expand = await toggle('expand', false, true);
-  const collapse = await toggle('collapse', false, false);
-  const toggleSamples = {
-    reviewExpand: reviewExpand.samples,
-    reviewCollapse: reviewCollapse.samples,
-    pinnedExpand: pinnedExpand.samples,
-    pinnedCollapse: pinnedCollapse.samples,
-    pinnedAppend: pinnedAppendSamples,
-    expand: expand.samples,
-    collapse: collapse.samples,
-  };
+    const expand = await toggle('expand', false, true);
+    const collapse = await toggle('collapse', false, false);
+    const toggleSamples = {
+      reviewExpand: reviewExpand.samples,
+      reviewCollapse: reviewCollapse.samples,
+      pinnedExpand: pinnedExpand.samples,
+      pinnedCollapse: pinnedCollapse.samples,
+      pinnedAppend: pinnedAppendSamples,
+      expand: expand.samples,
+      collapse: collapse.samples,
+    };
 
     const { samples: _pe, ...pinnedExpandOnly } = pinnedExpand;
     const { samples: _pc, ...pinnedCollapseOnly } = pinnedCollapse;
@@ -1750,15 +1737,22 @@ diff --git a/src/probe.ts b/src/probe.ts
       toolToggleCollapse: collapseOnly,
     };
     mkdirSync(dirname(outPath), { recursive: true });
-    writeFileSync(outPath, JSON.stringify({
-      summary: entrySummary,
-      entrySamples,
-      reentrySamples,
-      expandedReentrySamples,
-      queueMountSamples: queueMount.samples,
-      queueUnmountSamples: queueUnmount.samples,
-      toggleSamples,
-    }, null, 1));
+    writeFileSync(
+      outPath,
+      JSON.stringify(
+        {
+          summary: entrySummary,
+          entrySamples,
+          reentrySamples,
+          expandedReentrySamples,
+          queueMountSamples: queueMount.samples,
+          queueUnmountSamples: queueUnmount.samples,
+          toggleSamples,
+        },
+        null,
+        1
+      )
+    );
     console.log(`[jitter-probe] ${JSON.stringify(entrySummary)}`);
     return {
       reversals: Math.max(
@@ -1774,7 +1768,7 @@ diff --git a/src/probe.ts b/src/probe.ts
         pinnedExpandAgain.motion.reversals,
         pinnedCollapse.motion.reversals,
         expand.motion.reversals,
-        collapse.motion.reversals,
+        collapse.motion.reversals
       ),
       ...entrySummary,
     } as unknown as { reversals: number };
@@ -1803,9 +1797,8 @@ diff --git a/src/probe.ts b/src/probe.ts
   // Rows from here on were created by the owner AFTER the viewer's last
   // visit persisted its restore ids — the live frame re-identifies them.
   const OWNER_REMAP_FROM = 45;
-  const ownerItems = () => items.map((item, index) => (
-    index >= OWNER_REMAP_FROM ? { ...item, id: `own-${String(item.id)}` } : item
-  ));
+  const ownerItems = () =>
+    items.map((item, index) => (index >= OWNER_REMAP_FROM ? { ...item, id: `own-${String(item.id)}` } : item));
 
   // Phase 0.5: previous visit. The viewer has ALREADY displayed session B
   // under its first-seen (restore) ids and navigated away. The later live
@@ -1917,14 +1910,12 @@ diff --git a/src/probe.ts b/src/probe.ts
   // belongs to the projected timeline (including TurnGap rows), not `items`.
   // Capture the actual live row index before completion so the same visible
   // assistant must remain the tail anchor throughout settlement.
-  const finishStart = await window.webContents.executeJavaScript(
-    'window.__jitter.samples.length',
-  ) as number;
-  const completedVisibleTailIndex = await window.webContents.executeJavaScript(`(() => {
+  const finishStart = (await window.webContents.executeJavaScript('window.__jitter.samples.length')) as number;
+  const completedVisibleTailIndex = (await window.webContents.executeJavaScript(`(() => {
     const row = document.querySelector('.transcript-live-part')?.closest('.transcript-virtual-row');
     const index = row?.getAttribute('data-index');
     return index == null ? null : Number(index);
-  })()`) as number | null;
+  })()`)) as number | null;
   if (!Number.isInteger(completedVisibleTailIndex)) {
     throw new Error('Missing projected live tail before completion settlement');
   }
@@ -1955,7 +1946,7 @@ diff --git a/src/probe.ts b/src/probe.ts
   // entry/stream/settlement metrics (it used to count as partial/off-bottom
   // frames and fail the probe assertions spuriously).
   await window.webContents.executeJavaScript(
-    '(() => { const w = window; cancelAnimationFrame(w.__jitter.raf); return w.__jitter.samples.length; })()',
+    '(() => { const w = window; cancelAnimationFrame(w.__jitter.raf); return w.__jitter.samples.length; })()'
   );
 
   // Phase 4: first-scroll-to-top jank (user report: entering a session and
@@ -1970,14 +1961,11 @@ diff --git a/src/probe.ts b/src/probe.ts
     ...sessionB(),
     busy: true,
     spinner: null,
-    items: [
-      ...ownerItems(),
-      { ...tail(), streaming: false },
-    ],
+    items: [...ownerItems(), { ...tail(), streaming: false }],
     streamingTail: null,
   });
   await sleep(600);
-  const scrollPasses = await window.webContents.executeJavaScript(`(async () => {
+  const scrollPasses = (await window.webContents.executeJavaScript(`(async () => {
     // The workspace may have navigated off the probe session between phases —
     // re-enter it, then measure the transcript that actually has content.
     const row = document.querySelector('[data-session-id="probe_session_b"]');
@@ -2033,15 +2021,13 @@ diff --git a/src/probe.ts b/src/probe.ts
     await new Promise((resolve) => setTimeout(resolve, 120));
     const pass2 = stats(await passUp());
     return { pass1, pass2, diag };
-  })()`) as {
+  })()`)) as {
     pass1: Record<string, number>;
     pass2: Record<string, number>;
     diag: Record<string, number | null>;
   } | null;
 
-  const report = await window.webContents.executeJavaScript(
-    'window.__jitter.samples',
-  ) as Array<{
+  const report = (await window.webContents.executeJavaScript('window.__jitter.samples')) as Array<{
     t: number;
     st: number;
     dist: number;
@@ -2060,8 +2046,7 @@ diff --git a/src/probe.ts b/src/probe.ts
   // viewport. That entry-layout behaviour is what the `entry` pass measures;
   // this pass is about follow stability WHILE STREAMING.
   const ENTRY_SETTLE_MS = 400;
-  const firstTailFrame = report.findIndex((sample, index) =>
-    index < finishStart && sample.tailIndex != null);
+  const firstTailFrame = report.findIndex((sample, index) => index < finishStart && sample.tailIndex != null);
   let activeStart = Math.min(finishStart, 5);
   if (firstTailFrame >= 0) {
     const settleUntil = report[firstTailFrame].t + ENTRY_SETTLE_MS;
@@ -2089,18 +2074,16 @@ diff --git a/src/probe.ts b/src/probe.ts
   }
   const distances = active.map((sample) => sample.dist);
   const finish = report.slice(finishStart);
-  const finishTailTops = finish
-    .map((sample) => sample.tailTop)
-    .filter((value): value is number => value != null);
+  const finishTailTops = finish.map((sample) => sample.tailTop).filter((value): value is number => value != null);
   const finishBodyBottoms = finish
     .map((sample) => sample.tailBodyBottom)
     .filter((value): value is number => value != null);
-  const finishMaxTailShift = finishTailTops.length > 0
-    ? Math.max(...finishTailTops) - Math.min(...finishTailTops)
-    : Number.MAX_SAFE_INTEGER;
-  const finishMaxBodyShift = finishBodyBottoms.length > 0
-    ? Math.max(...finishBodyBottoms) - Math.min(...finishBodyBottoms)
-    : Number.MAX_SAFE_INTEGER;
+  const finishMaxTailShift =
+    finishTailTops.length > 0 ? Math.max(...finishTailTops) - Math.min(...finishTailTops) : Number.MAX_SAFE_INTEGER;
+  const finishMaxBodyShift =
+    finishBodyBottoms.length > 0
+      ? Math.max(...finishBodyBottoms) - Math.min(...finishBodyBottoms)
+      : Number.MAX_SAFE_INTEGER;
   const summary = {
     frames: active.length,
     reversals,
@@ -2115,17 +2098,24 @@ diff --git a/src/probe.ts b/src/probe.ts
     finishOffBottomFrames: finish.filter((sample) => sample.dist > 8).length,
     finishMissingTailFrames: finish.filter((sample) => sample.tailIndex == null).length,
     finishWrongTailFrames: finish.filter(
-      (sample) => sample.tailIndex != null && sample.tailIndex !== completedVisibleTailIndex,
+      (sample) => sample.tailIndex != null && sample.tailIndex !== completedVisibleTailIndex
     ).length,
     scrollToTopPass1: scrollPasses?.pass1 ?? null,
     scrollToTopPass2: scrollPasses?.pass2 ?? null,
     scrollToTopDiag: scrollPasses?.diag ?? null,
   };
   mkdirSync(dirname(outPath), { recursive: true });
-  writeFileSync(outPath, JSON.stringify({
-    summary,
-    samples: report,
-  }, null, 1));
+  writeFileSync(
+    outPath,
+    JSON.stringify(
+      {
+        summary,
+        samples: report,
+      },
+      null,
+      1
+    )
+  );
   console.log(`[jitter-probe] ${JSON.stringify(summary)}`);
   return summary;
 }

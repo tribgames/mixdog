@@ -72,15 +72,24 @@ test('unknown-state and measurement timestamp changes repaint header-only frames
     sessionId: 'same-session',
     stats: { currentContextTokens: null, currentContextSource: 'pending', currentContextUpdatedAt: null },
   };
-  assert.equal(desktopHeaderSnapshotsEqual(snapshot, {
-    ...snapshot, stats: { ...snapshot.stats, currentContextSource: 'unavailable' },
-  }), false);
+  assert.equal(
+    desktopHeaderSnapshotsEqual(snapshot, {
+      ...snapshot,
+      stats: { ...snapshot.stats, currentContextSource: 'unavailable' },
+    }),
+    false
+  );
   const measured = {
-    ...snapshot, stats: { currentContextTokens: 8281, currentContextSource: 'last_api_request', currentContextUpdatedAt: 1000 },
+    ...snapshot,
+    stats: { currentContextTokens: 8281, currentContextSource: 'last_api_request', currentContextUpdatedAt: 1000 },
   };
-  assert.equal(desktopHeaderSnapshotsEqual(measured, {
-    ...measured, stats: { ...measured.stats, currentContextUpdatedAt: 2000 },
-  }), false);
+  assert.equal(
+    desktopHeaderSnapshotsEqual(measured, {
+      ...measured,
+      stats: { ...measured.stats, currentContextUpdatedAt: 2000 },
+    }),
+    false
+  );
 });
 
 test('a model switch repaints the context card and offers session inheritance', (context) => {
@@ -111,9 +120,10 @@ test('a model switch repaints the context card and offers session inheritance', 
   };
   const switched = { ...spoken, model: 'claude-sonnet-4-6' };
   assert.equal(desktopHeaderSnapshotsEqual(spoken, switched), false);
-  const cardText = (snapshot) => JSDOM.fragment(renderToStaticMarkup(
-    React.createElement(ContextUsageIndicator, { snapshot, onInherit: async () => {} }),
-  )).textContent;
+  const cardText = (snapshot) =>
+    JSDOM.fragment(
+      renderToStaticMarkup(React.createElement(ContextUsageIndicator, { snapshot, onInherit: async () => {} }))
+    ).textContent;
   assert.ok(cardText(switched).includes(t('Inherit session')));
   assert.ok(cardText(spoken).includes(t('Compact context')));
 });

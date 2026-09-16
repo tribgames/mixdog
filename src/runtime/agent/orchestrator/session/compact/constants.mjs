@@ -1,21 +1,22 @@
 // Shared Compact constants. compact.mjs re-exports this small public surface.
 import {
-    DEFAULT_COMPACTION_BUFFER_TOKENS,
-    DEFAULT_COMPACTION_BUFFER_RATIO,
-    MAX_COMPACTION_BUFFER_RATIO,
-    normalizeCompactionBufferRatio,
-    compactionBufferTokensForBoundary,
+  DEFAULT_COMPACTION_BUFFER_TOKENS,
+  DEFAULT_COMPACTION_BUFFER_RATIO,
+  MAX_COMPACTION_BUFFER_RATIO,
+  normalizeCompactionBufferRatio,
+  compactionBufferTokensForBoundary,
 } from '../context-utils.mjs';
 
 export {
-    DEFAULT_COMPACTION_BUFFER_TOKENS,
-    DEFAULT_COMPACTION_BUFFER_RATIO,
-    MAX_COMPACTION_BUFFER_RATIO,
-    normalizeCompactionBufferRatio,
-    compactionBufferTokensForBoundary,
+  DEFAULT_COMPACTION_BUFFER_TOKENS,
+  DEFAULT_COMPACTION_BUFFER_RATIO,
+  MAX_COMPACTION_BUFFER_RATIO,
+  normalizeCompactionBufferRatio,
+  compactionBufferTokensForBoundary,
 };
 
-export const SUMMARY_PREFIX_ANCHOR = 'A previous model worked on this task and produced the compacted handoff summary below.';
+export const SUMMARY_PREFIX_ANCHOR =
+  'A previous model worked on this task and produced the compacted handoff summary below.';
 export const SUMMARY_PREFIX = `${SUMMARY_PREFIX_ANCHOR} Build on the work already done and avoid duplicating it. The summary covers the session; retained requests and execution records follow it. Actual tool outcomes take precedence over plans or older claims in the summary.`;
 export const SUMMARY_OUTPUT_TOKENS = 4_096;
 // Default total post-compact context target, including request/tool overhead.
@@ -27,7 +28,7 @@ export const SUMMARY_OUTPUT_TOKENS = 4_096;
 export const CONTEXT_SHARE_RATIO = 0.25;
 export const DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 90;
 export const COMPACT_TARGET_MIN_TOKENS = 4_000;
-export const COMPACT_SAFETY_PERCENT = 1.00;
+export const COMPACT_SAFETY_PERCENT = 1.0;
 // Floor for the handoff cap so small-context models still get a usable slice.
 export const HANDOFF_TOKEN_CAP_FLOOR_TOKENS = 2_048;
 // Minimum room the generated summary needs after the mandatory (system +
@@ -40,12 +41,14 @@ export const HANDOFF_TOKEN_CAP_FLOOR_TOKENS = 2_048;
 export const COMPACT_SUMMARY_MIN_ROOM_TOKENS = 4_000;
 
 export function compactDebugEnabled() {
-    return String(process.env.MIXDOG_COMPACT_DEBUG || '').trim() === '1';
+  return String(process.env.MIXDOG_COMPACT_DEBUG || '').trim() === '1';
 }
 
 export function compactDebugLog(scope, details = {}) {
-    if (!compactDebugEnabled()) return;
-    try {
-        process.stderr.write(`[compact] ${scope} ${JSON.stringify(details)}\n`);
-    } catch { /* best-effort diagnostics only */ }
+  if (!compactDebugEnabled()) return;
+  try {
+    process.stderr.write(`[compact] ${scope} ${JSON.stringify(details)}\n`);
+  } catch {
+    /* best-effort diagnostics only */
+  }
 }

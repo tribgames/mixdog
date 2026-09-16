@@ -93,7 +93,9 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
     }
     const next = await runtimePromise;
     if (closed) {
-      try { await next.close('cli-exit'); } catch {}
+      try {
+        await next.close('cli-exit');
+      } catch {}
       if (runtime === next) runtime = null;
       throw new Error('runtime closed');
     }
@@ -103,7 +105,9 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
   const closeRuntime = async (reason = 'cli-exit') => {
     if (closed) return;
     closed = true;
-    try { rl?.close(); } catch {}
+    try {
+      rl?.close();
+    } catch {}
     const pendingRuntime = runtime || (runtimePromise ? await runtimePromise.catch(() => null) : null);
     if (pendingRuntime) await pendingRuntime.close(reason);
   };
@@ -121,7 +125,11 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
   const signalCleanup = installProcessSignalCleanup({
     name: 'mixdog-repl',
     timeoutMs: 6500,
-    beforeCleanup: () => { try { stdout.write('\n'); } catch {} },
+    beforeCleanup: () => {
+      try {
+        stdout.write('\n');
+      } catch {}
+    },
     cleanup: closeRuntime,
   });
   rl.on('SIGINT', () => {
@@ -212,43 +220,40 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
       };
       try {
         const runtime = await ensureRuntime();
-        const { result } = await runtime.ask(
-          line,
-          {
-            onToolCall: async (_iter, calls) => {
-              for (const c of calls || []) {
-                flushStream();
-                printedToolCard = true;
-                const lead = atLineStart ? '' : '\n';
-                stdout.write(lead + (await renderToolCardLazy(c)) + '\n');
-                atLineStart = true;
-              }
-          },
-            onTextDelta: (chunk) => {
-              printedAny = true;
-              streamedChunks.push(chunk);
-              streamedTextDirty = true;
-              queueStreamChunk(chunk);
-              atLineStart = chunk.endsWith('\n');
-            },
-            onTextReset: ({ chars } = {}) => {
-              const count = Math.max(0, Number(chars) || 0);
-              if (!count || !colorEnabled() || printedToolCard) return false;
+        const { result } = await runtime.ask(line, {
+          onToolCall: async (_iter, calls) => {
+            for (const c of calls || []) {
               flushStream();
-              streamedText = currentStreamedText();
-              const remaining = streamedText.slice(0, Math.max(0, streamedText.length - count));
-              eraseStreamedBlock(streamedText);
-              streamedText = remaining;
-              streamedChunks = remaining ? [remaining] : [];
-              streamedTextDirty = false;
-              if (remaining) stdout.write(remaining);
-              printedAny = !!remaining;
-              atLineStart = !remaining || remaining.endsWith('\n');
-              return true;
-            },
-            onUsageDelta: (delta) => applyUsageDelta(stats, delta),
+              printedToolCard = true;
+              const lead = atLineStart ? '' : '\n';
+              stdout.write(lead + (await renderToolCardLazy(c)) + '\n');
+              atLineStart = true;
+            }
           },
-        );
+          onTextDelta: (chunk) => {
+            printedAny = true;
+            streamedChunks.push(chunk);
+            streamedTextDirty = true;
+            queueStreamChunk(chunk);
+            atLineStart = chunk.endsWith('\n');
+          },
+          onTextReset: ({ chars } = {}) => {
+            const count = Math.max(0, Number(chars) || 0);
+            if (!count || !colorEnabled() || printedToolCard) return false;
+            flushStream();
+            streamedText = currentStreamedText();
+            const remaining = streamedText.slice(0, Math.max(0, streamedText.length - count));
+            eraseStreamedBlock(streamedText);
+            streamedText = remaining;
+            streamedChunks = remaining ? [remaining] : [];
+            streamedTextDirty = false;
+            if (remaining) stdout.write(remaining);
+            printedAny = !!remaining;
+            atLineStart = !remaining || remaining.endsWith('\n');
+            return true;
+          },
+          onUsageDelta: (delta) => applyUsageDelta(stats, delta),
+        });
         flushStream();
 
         streamedText = currentStreamedText();
@@ -272,7 +277,7 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
             stdout.write('\n');
           } else if (!printedAny) {
             // Nothing streamed live (provider without onTextDelta) — render once.
-            stdout.write(await renderMarkdownLazy(finalText) + '\n');
+            stdout.write((await renderMarkdownLazy(finalText)) + '\n');
           } else if (printedToolCard) {
             // Tool cards are printed after the streamed text. Erasing only the
             // streamed text from the current cursor position would clear/move
@@ -286,14 +291,18 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
         }
 
         // Per-turn statusline footer.
-        stdout.write('\n' + (await renderStatuslineLazy({
-          provider: runtime.provider,
-          model: runtime.model,
-          cwd,
-          stats,
-          contextWindow: runtime.contextWindow,
-          rawContextWindow: runtime.rawContextWindow,
-        })) + '\n');
+        stdout.write(
+          '\n' +
+            (await renderStatuslineLazy({
+              provider: runtime.provider,
+              model: runtime.model,
+              cwd,
+              stats,
+              contextWindow: runtime.contextWindow,
+              rawContextWindow: runtime.rawContextWindow,
+            })) +
+            '\n'
+        );
       } catch (error) {
         let displayError = error;
         try {
@@ -337,7 +346,7 @@ function printBanner(providerName, model, cwd, toolMode) {
  * Conservative: if the math is off we still leave a readable transcript.
  */
 function eraseStreamedBlock(streamedText) {
-  const cols = (stdout.columns && stdout.columns > 0) ? stdout.columns : 80;
+  const cols = stdout.columns && stdout.columns > 0 ? stdout.columns : 80;
   let rows = 0;
   for (const seg of String(streamedText).split('\n')) {
     rows += Math.max(1, Math.ceil((seg.length || 1) / cols));
@@ -375,14 +384,16 @@ async function handleSlash(line, ctx) {
         // Clear screen + scrollback and home the cursor.
         stdout.write(colorEnabled() ? '\x1b[2J\x1b[3J\x1b[H' : '\n');
         stdout.write(dim('conversation reset.') + '\n');
-        stdout.write((await renderStatuslineLazy({
-          provider: runtime.provider,
-          model: runtime.model,
-          cwd: ctx.cwd,
-          stats: ctx.stats,
-          contextWindow: runtime.contextWindow,
-          rawContextWindow: runtime.rawContextWindow,
-        })) + '\n');
+        stdout.write(
+          (await renderStatuslineLazy({
+            provider: runtime.provider,
+            model: runtime.model,
+            cwd: ctx.cwd,
+            stats: ctx.stats,
+            contextWindow: runtime.contextWindow,
+            rawContextWindow: runtime.rawContextWindow,
+          })) + '\n'
+        );
       }
       return;
 
@@ -406,7 +417,11 @@ async function handleSlash(line, ctx) {
           stdout.write(yellow('nothing to compact') + '\n');
           return;
         }
-        stdout.write(green(`✓ compacted context: ${r.beforeMessages}→${r.afterMessages} messages, context ${r.beforeTokens}→${r.afterTokens}`) + '\n');
+        stdout.write(
+          green(
+            `✓ compacted context: ${r.beforeMessages}→${r.afterMessages} messages, context ${r.beforeTokens}→${r.afterTokens}`
+          ) + '\n'
+        );
       }
       return;
 

@@ -32,7 +32,9 @@ export async function runAbortable(signal, task, fallback) {
     const finish = (callback, value) => {
       if (settled) return;
       settled = true;
-      try { signal.removeEventListener('abort', onAbort); } catch {}
+      try {
+        signal.removeEventListener('abort', onAbort);
+      } catch {}
       callback(value);
     };
     const onAbort = () => finish(reject, abortReason(signal, fallback));
@@ -43,7 +45,7 @@ export async function runAbortable(signal, task, fallback) {
     }
     underlying.then(
       (value) => finish(resolve, value),
-      (error) => finish(reject, error),
+      (error) => finish(reject, error)
     );
   });
 }

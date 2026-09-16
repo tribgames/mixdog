@@ -4,7 +4,14 @@ import assert from 'node:assert/strict';
 import { catalogRelevantStoreEntry } from './session-host';
 
 test('only catalog-bearing data directory entries trigger a store rescan', () => {
-  for (const name of ['sessions', 'sessions\\abc.json', 'session-summaries.json', 'agent-workers.json', 'lead-workers.json', 'turn-checkpoints']) {
+  for (const name of [
+    'sessions',
+    'sessions\\abc.json',
+    'session-summaries.json',
+    'agent-workers.json',
+    'lead-workers.json',
+    'turn-checkpoints',
+  ]) {
     assert.equal(catalogRelevantStoreEntry(name), true, name);
   }
   for (const name of [

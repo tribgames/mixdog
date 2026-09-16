@@ -245,8 +245,7 @@ fn manifest_files_walk_and_search_remain_jsonl() {
         let optional: std::collections::BTreeSet<&str> =
             ["exported", "sig", "parent"].into_iter().collect();
         assert!(
-            keys.difference(&required)
-                .all(|key| optional.contains(key)),
+            keys.difference(&required).all(|key| optional.contains(key)),
             "unknown symbol field: {symbol}"
         );
         assert!(symbol["name"].is_string() && symbol["kind"].is_string());
@@ -1471,7 +1470,11 @@ fn calls_are_known_empty_when_parsed_and_absent_when_not_extracted() {
     fs::write(root.join("src/quiet.ts"), "export const answer = 42;\n").unwrap();
     // Not decodable as UTF-8: the record carries a parseError and nothing was
     // parsed, so `calls` must stay unknown.
-    fs::write(root.join("src/broken.ts"), [0xffu8, 0xfe, 0x00, 0x66].as_slice()).unwrap();
+    fs::write(
+        root.join("src/broken.ts"),
+        [0xffu8, 0xfe, 0x00, 0x66].as_slice(),
+    )
+    .unwrap();
 
     let walk = run(&root, &[], None);
     let find = |rel: &str| {
@@ -1482,7 +1485,10 @@ fn calls_are_known_empty_when_parsed_and_absent_when_not_extracted() {
 
     // Parsed, no call sites → known empty.
     assert_eq!(find("src/quiet.ts")["calls"], serde_json::json!([]));
-    assert_eq!(find("java/com/acme/User.java")["calls"], serde_json::json!([]));
+    assert_eq!(
+        find("java/com/acme/User.java")["calls"],
+        serde_json::json!([])
+    );
     // Parsed, one call site — wire v2: [name, line, col, kind, recv, inSymbol]
     // with kind 0 = call, and no endCol (it is col + name length).
     assert_eq!(
@@ -1546,10 +1552,7 @@ fn call_tuple_to_object(call: &serde_json::Value) -> serde_json::Value {
     object.insert("name".into(), name.into());
     object.insert("line".into(), tuple[1].clone());
     object.insert("col".into(), tuple[2].clone());
-    object.insert(
-        "endCol".into(),
-        (col + name.chars().count() as u64).into(),
-    );
+    object.insert("endCol".into(), (col + name.chars().count() as u64).into());
     object.insert("kind".into(), kind.into());
     if !recv.is_empty() {
         object.insert("recv".into(), recv.into());
@@ -1608,10 +1611,7 @@ fn call_fixtures_match_expected_calls_exactly() {
             continue;
         };
 
-        let rel = format!(
-            "{lang}/{}",
-            sample.file_name().unwrap().to_string_lossy()
-        );
+        let rel = format!("{lang}/{}", sample.file_name().unwrap().to_string_lossy());
         let records = run(&root, &["--files", &rel], Some(""));
         let record = records
             .iter()
@@ -1773,10 +1773,7 @@ fn haskell_modules_resolve_by_walking_up_the_source_dirs() {
     );
     // Two ancestors up: `app/deep` and `app` hold nothing, so the module is
     // only found once the walk reaches the root and tries its `src/`.
-    assert_eq!(
-        resolved(&walk, "app/deep/Far.hs"),
-        vec!["src/Acme/Util.hs"]
-    );
+    assert_eq!(resolved(&walk, "app/deep/Far.hs"), vec!["src/Acme/Util.hs"]);
     // An external package resolves to nothing at all.
     assert!(resolved(&walk, "src/Acme/Internal/Helper.hs").is_empty());
 
@@ -1802,10 +1799,7 @@ fn hcl_local_module_sources_resolve_to_every_tf_in_the_directory() {
         serde_json::json!(["main.tf"])
     );
     // Registry/remote sources stay raw imports with no resolution.
-    let raw = walk
-        .iter()
-        .find(|value| value["rel"] == "main.tf")
-        .unwrap()["rawImports"]
+    let raw = walk.iter().find(|value| value["rel"] == "main.tf").unwrap()["rawImports"]
         .as_array()
         .unwrap()
         .iter()
@@ -1853,7 +1847,10 @@ export function run(): void {
         .collect();
 
     for present in ["helper", "label", "url", "run", "interpolated"] {
-        assert!(tokens.contains(&present), "{present} missing from {tokens:?}");
+        assert!(
+            tokens.contains(&present),
+            "{present} missing from {tokens:?}"
+        );
     }
     for absent in ["commentOnly", "stringOnly", "mentions", "https"] {
         assert!(!tokens.contains(&absent), "{absent} present in {tokens:?}");
@@ -1882,11 +1879,7 @@ fn package_and_namespace_come_from_the_declaration_node() {
         "// package com.decoy.commented;\npackage com.acme.app;\npublic class A {}\n",
     )
     .unwrap();
-    fs::write(
-        root.join("a.kt"),
-        "package com.acme.kt\nclass K\n",
-    )
-    .unwrap();
+    fs::write(root.join("a.kt"), "package com.acme.kt\nclass K\n").unwrap();
     fs::write(
         root.join("scoped.cs"),
         "namespace Acme.Scoped;\npublic class S {}\n",

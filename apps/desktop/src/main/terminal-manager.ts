@@ -60,9 +60,8 @@ export class TerminalReplayBuffer {
     if (this.retainedChars <= 0 || this.head >= this.chunks.length) return '';
     const parts: string[] = [];
     for (let index = this.head; index < this.chunks.length; index += 1) {
-      const chunk = index === this.head && this.headOffset > 0
-        ? this.chunks[index].slice(this.headOffset)
-        : this.chunks[index];
+      const chunk =
+        index === this.head && this.headOffset > 0 ? this.chunks[index].slice(this.headOffset) : this.chunks[index];
       if (chunk) parts.push(chunk);
     }
     return parts.length === 1 ? parts[0] : parts.join('');
@@ -98,15 +97,15 @@ export class TerminalManager {
    * later terminal in this service to the first failure, so the view's retry
    * loop can never recover without restarting the whole daemon. */
   private loadPtyBindings(): Promise<typeof import('@homebridge/node-pty-prebuilt-multiarch')> {
-    const pending: Promise<typeof import('@homebridge/node-pty-prebuilt-multiarch')> =
-      this.ptyModule ??= import('@homebridge/node-pty-prebuilt-multiarch')
-        .catch((error: unknown) => {
-          if (this.ptyModule === pending) this.ptyModule = null;
-          throw new Error(
-            'The terminal service could not load its PTY bindings: '
-            + (error instanceof Error ? error.message : String(error)),
-          );
-        });
+    const pending: Promise<typeof import('@homebridge/node-pty-prebuilt-multiarch')> = (this.ptyModule ??= import(
+      '@homebridge/node-pty-prebuilt-multiarch'
+    ).catch((error: unknown) => {
+      if (this.ptyModule === pending) this.ptyModule = null;
+      throw new Error(
+        'The terminal service could not load its PTY bindings: ' +
+          (error instanceof Error ? error.message : String(error))
+      );
+    }));
     return pending;
   }
 
@@ -114,7 +113,7 @@ export class TerminalManager {
   async ensure(
     id: string | null,
     cwd: string | null,
-    profile?: TerminalSpawnProfile | null,
+    profile?: TerminalSpawnProfile | null
   ): Promise<{ id: string; replay: string }> {
     if (this.disposed) throw new Error('Terminal manager is disposed.');
     if (id) {
@@ -127,8 +126,7 @@ export class TerminalManager {
     const nextId = requestedId || `term_${process.pid}_${++this.sequence}`;
     // A resolved shell profile (user picked one in the terminal strip) wins;
     // otherwise the platform default stands as before.
-    const shell = profile?.path
-      || (process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || 'bash');
+    const shell = profile?.path || (process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || 'bash');
     const env = childEnvironment(profile?.env ?? {});
     const pty = spawn(shell, profile?.args ?? [], {
       name: 'xterm-256color',
@@ -168,7 +166,11 @@ export class TerminalManager {
     const safeCols = Math.max(2, Math.min(500, Math.floor(cols) || 80));
     const safeRows = Math.max(2, Math.min(200, Math.floor(rows) || 24));
     if (entry && !entry.disposed) {
-      try { entry.pty.resize(safeCols, safeRows); } catch { /* racing exit */ }
+      try {
+        entry.pty.resize(safeCols, safeRows);
+      } catch {
+        /* racing exit */
+      }
     }
   }
 
@@ -204,11 +206,19 @@ export class TerminalManager {
     const entry = this.terminals.get(id);
     if (!entry) return;
     if (entry.outputPaused) {
-      try { (entry.pty as IPty & { resume?(): void }).resume?.(); } catch { /* racing exit */ }
+      try {
+        (entry.pty as IPty & { resume?(): void }).resume?.();
+      } catch {
+        /* racing exit */
+      }
       entry.outputPaused = false;
     }
     entry.disposed = true;
-    try { entry.pty.kill(); } catch { /* already gone */ }
+    try {
+      entry.pty.kill();
+    } catch {
+      /* already gone */
+    }
     this.terminals.delete(id);
   }
 
@@ -216,11 +226,19 @@ export class TerminalManager {
     this.disposed = true;
     for (const entry of this.terminals.values()) {
       if (entry.outputPaused) {
-        try { (entry.pty as IPty & { resume?(): void }).resume?.(); } catch { /* racing exit */ }
+        try {
+          (entry.pty as IPty & { resume?(): void }).resume?.();
+        } catch {
+          /* racing exit */
+        }
         entry.outputPaused = false;
       }
       entry.disposed = true;
-      try { entry.pty.kill(); } catch { /* already gone */ }
+      try {
+        entry.pty.kill();
+      } catch {
+        /* already gone */
+      }
     }
     this.terminals.clear();
     this.listeners.clear();

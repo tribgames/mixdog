@@ -16,27 +16,27 @@ async function writeIdentity(path: string): Promise<RelayE2EEServerIdentity> {
   return identity;
 }
 
-export async function loadOrCreateRelayE2EEIdentity(
-  userDataPath: string,
-): Promise<RelayE2EEServerIdentity> {
+export async function loadOrCreateRelayE2EEIdentity(userDataPath: string): Promise<RelayE2EEServerIdentity> {
   const path = join(userDataPath, RELAY_E2EE_IDENTITY_FILE);
-  return withFileLock(`${path}.lock`, async () => {
-    const text = await readSecretFile(path);
-    if (text) {
-      try {
-        const identity = JSON.parse(text) as RelayE2EEServerIdentity;
-        if (await validateRelayE2EEServerIdentity(identity)) return identity;
-      } catch {
-        // Replace corrupt or pre-release material instead of weakening the link.
+  return withFileLock(
+    `${path}.lock`,
+    async () => {
+      const text = await readSecretFile(path);
+      if (text) {
+        try {
+          const identity = JSON.parse(text) as RelayE2EEServerIdentity;
+          if (await validateRelayE2EEServerIdentity(identity)) return identity;
+        } catch {
+          // Replace corrupt or pre-release material instead of weakening the link.
+        }
       }
-    }
-    return writeIdentity(path);
-  }, { secret: true });
+      return writeIdentity(path);
+    },
+    { secret: true }
+  );
 }
 
-export async function rotateRelayE2EEIdentity(
-  userDataPath: string,
-): Promise<RelayE2EEServerIdentity> {
+export async function rotateRelayE2EEIdentity(userDataPath: string): Promise<RelayE2EEServerIdentity> {
   const path = join(userDataPath, RELAY_E2EE_IDENTITY_FILE);
   return withFileLock(`${path}.lock`, () => writeIdentity(path), { secret: true });
 }

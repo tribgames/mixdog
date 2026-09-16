@@ -31,7 +31,8 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
     },
   };
   const runtimeA = await createMixdogSessionRuntime({
-    ...options, cwd: cwdA,
+    ...options,
+    cwd: cwdA,
     desktopSession: { classification: 'project', projectPath: cwdA },
   });
   const runtimeB = await createMixdogSessionRuntime({ ...options, cwd: cwdB });
@@ -57,23 +58,11 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
   // call still belongs to runtimeA and must neither report nor mutate B.
   const callerSession = runtimeA.session;
   callerSession.messages.push({ role: 'user', content: 'Keep this conversation across reentry.' });
-  const getResult = JSON.parse(await executeTool(
-    'cwd',
-    {},
-    cwdA,
-    callerSession.id,
-    callerSession,
-  ));
+  const getResult = JSON.parse(await executeTool('cwd', {}, cwdA, callerSession.id, callerSession));
   assert.equal(getResult.cwd, cwdA);
   assert.equal(getResult.sessionId, callerSession.id);
 
-  const setResult = JSON.parse(await executeTool(
-    'cwd',
-    { path: cwdNext },
-    cwdA,
-    callerSession.id,
-    callerSession,
-  ));
+  const setResult = JSON.parse(await executeTool('cwd', { path: cwdNext }, cwdA, callerSession.id, callerSession));
   assert.equal(setResult.cwd, cwdNext);
   assert.equal(setResult.sessionId, callerSession.id);
   assert.equal(runtimeA.cwd, cwdNext);
@@ -83,13 +72,16 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
   assert.equal(process.env.MIXDOG_SESSION_CWD, 'process-global-must-not-change');
 
   drainSessionStore();
-  const persisted = JSON.parse(readFileSync(join(process.env.MIXDOG_DATA_DIR, 'sessions', `${callerSession.id}.json`), 'utf8'));
+  const persisted = JSON.parse(
+    readFileSync(join(process.env.MIXDOG_DATA_DIR, 'sessions', `${callerSession.id}.json`), 'utf8')
+  );
   assert.equal(persisted.cwd, cwdNext);
   assert.deepEqual(persisted.desktopSession, callerSession.desktopSession);
   assert.ok(persisted.messages.some((message) => message.content === 'Keep this conversation across reentry.'));
   await runtimeA.close('cwd-routing-reentry', { waitForExit: false });
   restored = await createMixdogSessionRuntime({
-    ...options, cwd: cwdA,
+    ...options,
+    cwd: cwdA,
     desktopSession: { classification: 'project', projectPath: cwdA },
   });
   await restored.resume(callerSession.id);

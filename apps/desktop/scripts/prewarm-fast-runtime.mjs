@@ -46,7 +46,9 @@ const files = [];
 for (const root of roots) await listFiles(root, files);
 const startedAt = Date.now();
 let cursor = 0;
-await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
-  while (cursor < files.length) await touchFile(files[cursor++]);
-}));
+await Promise.all(
+  Array.from({ length: CONCURRENCY }, async () => {
+    while (cursor < files.length) await touchFile(files[cursor++]);
+  })
+);
 console.log(`prewarmed ${files.length} files in ${Date.now() - startedAt}ms`);

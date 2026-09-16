@@ -1,16 +1,12 @@
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 
-import {
-  createBootSurfaceBarrier,
-  desktopBootCoverTimeoutAllowed,
-  markBootStage,
-} from "./boot-metrics";
-import { DesktopLoadingSurface } from "./RendererRecovery";
-import { t } from "./i18n";
-import { RemoteConnectionBanner } from "./RemoteConnectionBanner";
-import { currentRemoteConnectionState, subscribeRemoteConnectionState } from "./remote-connection-state";
-import { remoteSurface } from "./shell-viewport";
+import { createBootSurfaceBarrier, desktopBootCoverTimeoutAllowed, markBootStage } from './boot-metrics';
+import { DesktopLoadingSurface } from './RendererRecovery';
+import { t } from './i18n';
+import { RemoteConnectionBanner } from './RemoteConnectionBanner';
+import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
+import { remoteSurface } from './shell-viewport';
 
 const SURFACE_FONT_WAIT_MAX_MS = 300;
 const STARTUP_SURFACE_FALLBACK_MS = 1_200;
@@ -19,16 +15,14 @@ const DESKTOP_BOOT_BRAND_FADE_MS = 100;
 
 function useStartupSurfaceReady(startupDelayMs: number | undefined): boolean {
   const host = window as typeof window & { __mixdogWindowShown?: boolean };
-  const [ready, setReady] = useState(
-    () => startupDelayMs === undefined || host.__mixdogWindowShown === true,
-  );
+  const [ready, setReady] = useState(() => startupDelayMs === undefined || host.__mixdogWindowShown === true);
   useLayoutEffect(() => {
     if (ready || startupDelayMs === undefined) return undefined;
     let delayTimer = 0;
     let fallbackTimer = 0;
     let frame = 0;
     const activate = () => {
-      window.removeEventListener("mixdog:window-shown", activate);
+      window.removeEventListener('mixdog:window-shown', activate);
       window.clearTimeout(fallbackTimer);
       window.clearTimeout(delayTimer);
       // Electron emits mixdog:window-shown only after two visible composed
@@ -48,12 +42,12 @@ function useStartupSurfaceReady(startupDelayMs: number | undefined): boolean {
     };
     if (host.__mixdogWindowShown) activate();
     else {
-      window.addEventListener("mixdog:window-shown", activate, { once: true });
+      window.addEventListener('mixdog:window-shown', activate, { once: true });
       // Browser/LAN clients have no Electron main process to emit the event.
       fallbackTimer = window.setTimeout(activate, STARTUP_SURFACE_FALLBACK_MS);
     }
     return () => {
-      window.removeEventListener("mixdog:window-shown", activate);
+      window.removeEventListener('mixdog:window-shown', activate);
       window.clearTimeout(delayTimer);
       window.clearTimeout(fallbackTimer);
       if (frame) window.cancelAnimationFrame(frame);
@@ -83,21 +77,22 @@ function scheduleStableSurfaceCommit(commit: () => void): () => void {
   let cancelled = false;
   let frame = 0;
   let fontTimer = 0;
-  const requestFrame = typeof window.requestAnimationFrame === "function"
-    ? window.requestAnimationFrame.bind(window)
-    : (callback: FrameRequestCallback) => window.setTimeout(
-        () => callback(typeof performance === "undefined" ? Date.now() : performance.now()),
-        16,
-      );
-  const cancelFrame = typeof window.cancelAnimationFrame === "function"
-    ? window.cancelAnimationFrame.bind(window)
-    : window.clearTimeout.bind(window);
-  const nextFrame = () => new Promise<void>((resolve) => {
-    frame = requestFrame(() => {
-      frame = 0;
-      resolve();
+  const requestFrame =
+    typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame.bind(window)
+      : (callback: FrameRequestCallback) =>
+          window.setTimeout(() => callback(typeof performance === 'undefined' ? Date.now() : performance.now()), 16);
+  const cancelFrame =
+    typeof window.cancelAnimationFrame === 'function'
+      ? window.cancelAnimationFrame.bind(window)
+      : window.clearTimeout.bind(window);
+  const nextFrame = () =>
+    new Promise<void>((resolve) => {
+      frame = requestFrame(() => {
+        frame = 0;
+        resolve();
+      });
     });
-  });
   void (async () => {
     // First let the hidden incoming surface run layout and request every font
     // subset it actually uses. FontFaceSet.ready called before that frame only
@@ -114,7 +109,9 @@ function scheduleStableSurfaceCommit(commit: () => void): () => void {
           }),
         ]);
       }
-    } catch { /* font readiness remains a cosmetic guard */ }
+    } catch {
+      /* font readiness remains a cosmetic guard */
+    }
     if (fontTimer) {
       window.clearTimeout(fontTimer);
       fontTimer = 0;
@@ -134,10 +131,7 @@ function scheduleStableSurfaceCommit(commit: () => void): () => void {
   };
 }
 
-function useStableSurfaceReveal(
-  ready: boolean,
-  transitionKey: string | number = "",
-): boolean {
+function useStableSurfaceReveal(ready: boolean, transitionKey: string | number = ''): boolean {
   // Readiness is a cold-start contract, not a background-refresh state. Once
   // this exact surface key has been revealed, transient loading caused by a
   // dropdown, filter, or refresh must preserve its DOM instead of replaying a
@@ -154,10 +148,9 @@ function useStableSurfaceReveal(
       return undefined;
     }
     if (!ready || reveal.revealed) return undefined;
-    return scheduleStableSurfaceCommit(() => setReveal((current) =>
-      Object.is(current.key, transitionKey)
-        ? { ...current, revealed: true }
-        : current));
+    return scheduleStableSurfaceCommit(() =>
+      setReveal((current) => (Object.is(current.key, transitionKey) ? { ...current, revealed: true } : current))
+    );
   }, [ready, reveal.revealed, sameKey, transitionKey]);
   return revealed;
 }
@@ -172,7 +165,7 @@ export function DesktopBootGate({
   ready,
   restorePending = false,
   enabled = true,
-  label = t("Starting Mixdog…"),
+  label = t('Starting Mixdog…'),
   children,
 }: {
   ready: boolean;
@@ -185,27 +178,26 @@ export function DesktopBootGate({
   const connectionState = useSyncExternalStore(
     subscribeRemoteConnectionState,
     currentRemoteConnectionState,
-    () => null,
+    () => null
   );
-  const connectionReady = !remote || connectionState === "connected";
+  const connectionReady = !remote || connectionState === 'connected';
   const barrierRef = useRef<ReturnType<typeof createBootSurfaceBarrier> | null>(null);
   barrierRef.current ||= createBootSurfaceBarrier();
   const barrier = barrierRef.current;
-  const surfaces = useSyncExternalStore(
-    barrier.subscribe,
-    barrier.getSnapshot,
-    barrier.getSnapshot,
-  );
+  const surfaces = useSyncExternalStore(barrier.subscribe, barrier.getSnapshot, barrier.getSnapshot);
   const windowShown = useStartupSurfaceReady(0);
   const [armed, setArmed] = useState(!enabled && !remote);
   const [timedOut, setTimedOut] = useState(false);
   const [handoffComplete, setHandoffComplete] = useState(!enabled && !remote);
   const [coverLeaving, setCoverLeaving] = useState(false);
-  const revealRequested = connectionReady && ((!enabled && !remote) || (!remote && timedOut)
-    // Surface barriers resolve after their first real paint. The opaque cover
-    // can begin fading immediately; main's later two-visible-frame signal still
-    // owns deferred prewarms, but no longer serializes the visual handoff.
-    || (armed && ready && surfaces.pending === 0));
+  const revealRequested =
+    connectionReady &&
+    ((!enabled && !remote) ||
+      (!remote && timedOut) ||
+      // Surface barriers resolve after their first real paint. The opaque cover
+      // can begin fading immediately; main's later two-visible-frame signal still
+      // owns deferred prewarms, but no longer serializes the visual handoff.
+      (armed && ready && surfaces.pending === 0));
   // Generic surface switches wait for fonts plus three composed frames. Every
   // boot surface has already crossed the paint barrier above, and the cover
   // itself still fades out, so repeating that sequence only extends the splash.
@@ -218,14 +210,14 @@ export function DesktopBootGate({
     if (revealRequested && !revealed) setRevealed(true);
   }, [revealRequested, revealed]);
   useEffect(() => {
-    if (remote || !enabled || !windowShown || revealed
-      || !desktopBootCoverTimeoutAllowed(restorePending)) return undefined;
+    if (remote || !enabled || !windowShown || revealed || !desktopBootCoverTimeoutAllowed(restorePending))
+      return undefined;
     const timer = window.setTimeout(() => setTimedOut(true), DESKTOP_BOOT_COVER_MAX_MS);
     return () => window.clearTimeout(timer);
   }, [remote, enabled, restorePending, revealed, windowShown]);
   useEffect(() => {
     if (timedOut) {
-      markBootStage("desktop-boot-timeout", surfaces.pendingKeys.join(","));
+      markBootStage('desktop-boot-timeout', surfaces.pendingKeys.join(','));
     }
   }, [surfaces.pendingKeys, timedOut]);
   useEffect(() => {
@@ -235,42 +227,45 @@ export function DesktopBootGate({
       setCoverLeaving(false);
       return undefined;
     }
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
       setHandoffComplete(true);
       return undefined;
     }
     setCoverLeaving(true);
-    const timer = window.setTimeout(
-      () => setHandoffComplete(true),
-      DESKTOP_BOOT_BRAND_FADE_MS,
-    );
+    const timer = window.setTimeout(() => setHandoffComplete(true), DESKTOP_BOOT_BRAND_FADE_MS);
     return () => window.clearTimeout(timer);
   }, [handoffComplete, revealed, revealRequested]);
   useEffect(() => {
     if (!revealed) return;
     barrier.seal();
-    (window as typeof window & { __mixdogDesktopRevealed?: boolean })
-      .__mixdogDesktopRevealed = true;
-    markBootStage("desktop-revealed", timedOut ? "timeout" : "ready");
+    (window as typeof window & { __mixdogDesktopRevealed?: boolean }).__mixdogDesktopRevealed = true;
+    markBootStage('desktop-revealed', timedOut ? 'timeout' : 'ready');
   }, [barrier, revealed, timedOut]);
   useEffect(() => () => barrier.dispose(), [barrier]);
 
-  return <div className="desktop-boot-gate"
-    data-ready={handoffComplete ? "true" : "false"}
-    data-brand-handoff={handoffComplete ? (enabled ? "desktop" : "browser") : undefined}
-    data-timeout={timedOut ? "true" : undefined}
-    data-pending={enabled && !handoffComplete ? surfaces.pending : undefined}>
-    <div className="desktop-boot-gate-content"
-      inert={!handoffComplete ? true : undefined}
-      aria-hidden={!handoffComplete ? true : undefined}>
-      {children}
+  return (
+    <div
+      className="desktop-boot-gate"
+      data-ready={handoffComplete ? 'true' : 'false'}
+      data-brand-handoff={handoffComplete ? (enabled ? 'desktop' : 'browser') : undefined}
+      data-timeout={timedOut ? 'true' : undefined}
+      data-pending={enabled && !handoffComplete ? surfaces.pending : undefined}
+    >
+      <div
+        className="desktop-boot-gate-content"
+        inert={!handoffComplete ? true : undefined}
+        aria-hidden={!handoffComplete ? true : undefined}
+      >
+        {children}
+      </div>
+      {!handoffComplete && (
+        <div className="desktop-boot-cover" data-leaving={coverLeaving ? 'true' : undefined}>
+          <DesktopLoadingSurface label={label} brand />
+          {remote && <RemoteConnectionBanner boot />}
+        </div>
+      )}
     </div>
-    {!handoffComplete && <div className="desktop-boot-cover"
-      data-leaving={coverLeaving ? "true" : undefined}>
-      <DesktopLoadingSurface label={label} brand />
-      {remote && <RemoteConnectionBanner boot />}
-    </div>}
-  </div>;
+  );
 }
 
 /**
@@ -291,14 +286,19 @@ export function PaneSurfaceGate({
   children: ReactNode;
 }) {
   const revealed = useStableSurfaceReveal(ready, transitionKey);
-  return <div className="pane-surface-gate" data-ready={revealed ? "true" : "false"}>
-    <div className="pane-surface-gate-content" aria-hidden={revealed ? undefined : true}>
-      {children}
+  return (
+    <div className="pane-surface-gate" data-ready={revealed ? 'true' : 'false'}>
+      <div className="pane-surface-gate-content" aria-hidden={revealed ? undefined : true}>
+        {children}
+      </div>
+      {!revealed &&
+        (fallback ? (
+          <div className="pane-surface-placeholder">{fallback}</div>
+        ) : (
+          <DesktopLoadingSurface label={label} />
+        ))}
     </div>
-    {!revealed && (fallback
-      ? <div className="pane-surface-placeholder">{fallback}</div>
-      : <DesktopLoadingSurface label={label} />)}
-  </div>;
+  );
 }
 
 /** Overlay form for layout-sensitive trees (Conversation/virtualizer) that
@@ -315,11 +315,17 @@ export function PaneSurfaceCover({
   showSpinner?: boolean;
 }) {
   const revealed = useStableSurfaceReveal(ready, transitionKey);
-  return revealed ? null : <div className="pane-surface-cover">
-    {showSpinner
-      ? <DesktopLoadingSurface label={label} />
-      : <span className="sr-only" role="status">{label}</span>}
-  </div>;
+  return revealed ? null : (
+    <div className="pane-surface-cover">
+      {showSpinner ? (
+        <DesktopLoadingSurface label={label} />
+      ) : (
+        <span className="sr-only" role="status">
+          {label}
+        </span>
+      )}
+    </div>
+  );
 }
 
 type PersistentSurfaceScroll = { top: number; left: number };
@@ -336,17 +342,15 @@ type PersistentSurfaceScroll = { top: number; left: number };
 function movePersistentPaneHost(
   host: HTMLElement,
   target: HTMLElement,
-  scrollOffsets: Map<Element, PersistentSurfaceScroll>,
+  scrollOffsets: Map<Element, PersistentSurfaceScroll>
 ): void {
   const focused = document.activeElement;
-  const refocus = focused instanceof HTMLElement && host.contains(focused)
-    ? focused
-    : null;
+  const refocus = focused instanceof HTMLElement && host.contains(focused) ? focused : null;
   const mover = target as HTMLElement & {
     moveBefore?: (node: Node, child: Node | null) => void;
   };
   let moved = false;
-  if (host.isConnected && typeof mover.moveBefore === "function") {
+  if (host.isConnected && typeof mover.moveBefore === 'function') {
     try {
       mover.moveBefore(host, null);
       moved = true;
@@ -375,7 +379,7 @@ function movePersistentPaneHost(
  */
 export function PersistentPanePortal({
   targetId,
-  className = "",
+  className = '',
   onPointerDownCapture,
   children,
 }: {
@@ -385,8 +389,8 @@ export function PersistentPanePortal({
   children: ReactNode;
 }) {
   const [host] = useState(() => {
-    const element = document.createElement("div");
-    element.className = `persistent-pane-surface${className ? ` ${className}` : ""}`;
+    const element = document.createElement('div');
+    element.className = `persistent-pane-surface${className ? ` ${className}` : ''}`;
     return element;
   });
   const [attached, setAttached] = useState(false);
@@ -404,8 +408,8 @@ export function PersistentPanePortal({
     };
     // scroll does not bubble; a capture listener on the host still sees every
     // scroller inside the portal subtree.
-    host.addEventListener("scroll", remember, true);
-    return () => host.removeEventListener("scroll", remember, true);
+    host.addEventListener('scroll', remember, true);
+    return () => host.removeEventListener('scroll', remember, true);
   }, [host, scrollOffsets]);
   useLayoutEffect(() => {
     let observer: MutationObserver | null = null;
@@ -439,8 +443,8 @@ export function PersistentPanePortal({
   // an unfocused pane still routes focus to the pane that visibly contains it.
   useLayoutEffect(() => {
     if (!onPointerDownCapture) return undefined;
-    host.addEventListener("pointerdown", onPointerDownCapture, true);
-    return () => host.removeEventListener("pointerdown", onPointerDownCapture, true);
+    host.addEventListener('pointerdown', onPointerDownCapture, true);
+    return () => host.removeEventListener('pointerdown', onPointerDownCapture, true);
   }, [host, onPointerDownCapture]);
   useLayoutEffect(() => () => host.remove(), [host]);
   return attached ? createPortal(children, host) : null;

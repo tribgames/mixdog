@@ -27,14 +27,15 @@ test('Maintainer Fast off survives save and route reload', async () => {
       fastCapable: true,
       fastEfforts: ['low'],
     }),
-    saveConfigAndAdopt: (next) => { config = next; },
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
     ensureProvidersReady: async () => {},
     agentRouteFromConfig: helpers.agentRouteFromConfig,
   });
 
   const saved = await api.setAgentRoute('maintainer', route);
-  const reloaded = createWorkflowRouteHelpers({ findPreset: () => null })
-    .agentRouteFromConfig(config, 'maintainer');
+  const reloaded = createWorkflowRouteHelpers({ findPreset: () => null }).agentRouteFromConfig(config, 'maintainer');
 
   assert.equal(saved.fast, false);
   assert.equal(config.agents.maintainer.fast, false);
@@ -47,10 +48,14 @@ test('Web Search Fast off survives save and route reload', async () => {
   const api = createModelRouteApi({
     getConfig: () => config,
     getWebSearchRouteState: () => webSearchRoute,
-    setWebSearchRouteState: (next) => { webSearchRoute = next; },
+    setWebSearchRouteState: (next) => {
+      webSearchRoute = next;
+    },
     lookupModelMeta: async () => ({ id: 'gpt-5.6-sol', provider: 'openai-oauth' }),
     webSearchCapableFor: () => true,
-    saveConfigAndAdopt: (next) => { config = next; },
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
     ensureFullConfig: () => config,
     awaitKeychainPrewarm: async () => {},
     ensureProvidersReady: async () => {},

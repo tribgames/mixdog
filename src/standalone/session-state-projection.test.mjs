@@ -14,7 +14,8 @@ test('tail-only updates do not resend the settled history or queued prompts', ()
   };
   const previous = projectSessionState(entry, source);
   const next = projectSessionState(entry, {
-    ...source, streamingTail: { id: 'tail', text: 'second' },
+    ...source,
+    streamingTail: { id: 'tail', text: 'second' },
   });
   const patch = diffSessionState(previous, next);
   assert.deepEqual(patch, {
@@ -56,16 +57,17 @@ test('removed or unrepresentable fields release source and wire objects', {
     const refs = (() => {
       const source = { items: [{ text: 'removed row' }], extra: { text: 'temporary' } };
       const wire = projectSessionState(entry, source);
-      return [source.items[0], source.extra, wire.items[0], wire.extra]
-        .map((value) => new WeakRef(value));
+      return [source.items[0], source.extra, wire.items[0], wire.extra].map((value) => new WeakRef(value));
     })();
     projectSessionState(entry, next);
     for (let round = 0; round < 3; round += 1) {
       await setImmediate();
       globalThis.gc();
     }
-    assert.ok(refs.every((ref) => ref.deref() === undefined),
-      'removed transcript/field objects must be collectable while the entry stays alive');
+    assert.ok(
+      refs.every((ref) => ref.deref() === undefined),
+      'removed transcript/field objects must be collectable while the entry stays alive'
+    );
     // Keep the owner alive across collection; this is not just entry teardown.
     assert.deepEqual(projectSessionState(entry, next), projectSessionState({}, next));
   }

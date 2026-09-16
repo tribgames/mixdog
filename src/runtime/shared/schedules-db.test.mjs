@@ -7,7 +7,9 @@ const execCalls = [];
 let failFor = null;
 let failError = null;
 const db = {
-  exec: async (sql) => { execCalls.push(sql); },
+  exec: async (sql) => {
+    execCalls.push(sql);
+  },
   query: async () => ({ rows: [], rowCount: 0 }),
 };
 const pool = { name: 'schedules-pool' };
@@ -49,7 +51,10 @@ test('omitted schedules dataDir uses resolvePluginData and retries the same fail
   failFor = '/sched-fail';
   failError = boom;
   const lockBefore = lockCalls.length;
-  await assert.rejects(() => listSchedules({ dataDir: '/sched-fail' }), (error) => error === boom);
+  await assert.rejects(
+    () => listSchedules({ dataDir: '/sched-fail' }),
+    (error) => error === boom
+  );
   assert.equal(lockCalls.length, lockBefore);
   failFor = null;
   await listSchedules({ dataDir: '/sched-fail' });

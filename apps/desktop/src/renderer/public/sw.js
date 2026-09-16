@@ -3,9 +3,9 @@
 // replaying one made the browser try to brotli-decode plain JavaScript and the
 // app failed to boot on its next visit (user: Importing a module script
 // failed).
-const ASSET_CACHE = "mixdog-assets-v2";
-importScripts("/sw-shell.js");
-importScripts("/ui-language.js");
+const ASSET_CACHE = 'mixdog-assets-v2';
+importScripts('/sw-shell.js');
+importScripts('/ui-language.js');
 // A few deploys' worth of chunks; the oldest entries are evicted first.
 const MAX_ASSET_ENTRIES = 400;
 // One page boot requests several hashed chunks together. Trimming after every
@@ -23,9 +23,9 @@ const HASHED_ASSET = /^\/assets\/.+-[A-Za-z0-9_-]{8,}\.[^./]+$/;
 // 드래그해도 첨부되지 않는다). The payload is retained HERE, in the app's own
 // cache, so a shared screenshot never travels to the relay — it enters the
 // composer exactly like one attached inside the app.
-const SHARE_CACHE = "mixdog-share-v1";
-const SHARE_ENTRY_PREFIX = "/__mixdog-share__/";
-const SHARE_INDEX_NAME = "index.json";
+const SHARE_CACHE = 'mixdog-share-v1';
+const SHARE_ENTRY_PREFIX = '/__mixdog-share__/';
+const SHARE_INDEX_NAME = 'index.json';
 const MAX_SHARED_FILES = 8;
 // A payload no intake ever claimed (share cancelled, app closed before it
 // booted) expires instead of sitting in storage forever.
@@ -38,47 +38,48 @@ const SHARE_TARGET_PATH = /^\/(?:d\/[^/]+\/)?share-target$/;
 // localStorage, and the app cannot see what a tapped notification did while
 // it was not running, so both meet in the app's own cache. The renderer half
 // is push-notification-bridge.ts, which mirrors these names.
-const APP_STATE_CACHE = "mixdog-app-state-v1";
-const APP_SCOPE_ENTRY = "/__mixdog-app__/scope";
-const UI_LANGUAGE_ENTRY = "/__mixdog-app__/ui-language";
-const NOTIFICATION_CLICK_ENTRY = "/__mixdog-app__/notification-click";
+const APP_STATE_CACHE = 'mixdog-app-state-v1';
+const APP_SCOPE_ENTRY = '/__mixdog-app__/scope';
+const UI_LANGUAGE_ENTRY = '/__mixdog-app__/ui-language';
+const NOTIFICATION_CLICK_ENTRY = '/__mixdog-app__/notification-click';
 // A tap the app never came back for stops meaning anything.
 const NOTIFICATION_CLICK_TTL_MS = 10 * 60 * 1000;
-const OPEN_SESSION_MESSAGE = "mixdog:open-session";
+const OPEN_SESSION_MESSAGE = 'mixdog:open-session';
 
 // The one sentence this worker composes itself. Everything else in a
 // notification is the session's own text. The DEVICE showing it owns the
 // language: the desktop that sent the push has a UI language of its own, and
 // on a phone it is routinely not this one (user: 노티파이 다국어).
 const TURN_FINISHED_TEXT = {
-  de: "Arbeit abgeschlossen.",
-  en: "Finished working.",
-  es: "Trabajo terminado.",
-  fr: "Travail terminé.",
-  it: "Lavoro completato.",
-  ja: "作業が完了しました。",
-  ko: "작업을 마쳤습니다.",
-  "pt-BR": "Trabalho concluído.",
-  ru: "Работа завершена.",
-  vi: "Đã hoàn tất công việc.",
-  "zh-CN": "工作已完成。",
-  "zh-TW": "工作已完成。",
+  de: 'Arbeit abgeschlossen.',
+  en: 'Finished working.',
+  es: 'Trabajo terminado.',
+  fr: 'Travail terminé.',
+  it: 'Lavoro completato.',
+  ja: '作業が完了しました。',
+  ko: '작업을 마쳤습니다.',
+  'pt-BR': 'Trabalho concluído.',
+  ru: 'Работа завершена.',
+  vi: 'Đã hoàn tất công việc.',
+  'zh-CN': '工作已完成。',
+  'zh-TW': '工作已完成。',
 };
 
-self.addEventListener("install", () => {
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
-self.addEventListener("activate", (event) => {
-  event.waitUntil((async () => {
-    for (const name of await caches.keys()) {
-      if (name !== ASSET_CACHE && name !== SHELL_CACHE && name !== SHARE_CACHE
-        && name !== APP_STATE_CACHE) {
-        await caches.delete(name);
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      for (const name of await caches.keys()) {
+        if (name !== ASSET_CACHE && name !== SHELL_CACHE && name !== SHARE_CACHE && name !== APP_STATE_CACHE) {
+          await caches.delete(name);
+        }
       }
-    }
-    await self.clients.claim();
-  })());
+      await self.clients.claim();
+    })()
+  );
 });
 
 async function trimCache(cache) {
@@ -92,9 +93,11 @@ function scheduleAssetCacheTrim(cache) {
   if (cacheTrimMaintenance) return cacheTrimMaintenance;
   cacheTrimMaintenance = new Promise((resolve) => {
     setTimeout(resolve, CACHE_TRIM_DEBOUNCE_MS);
-  }).then(() => trimCache(cache)).finally(() => {
-    cacheTrimMaintenance = null;
-  });
+  })
+    .then(() => trimCache(cache))
+    .finally(() => {
+      cacheTrimMaintenance = null;
+    });
   return cacheTrimMaintenance;
 }
 
@@ -106,8 +109,8 @@ function scheduleAssetCacheTrim(cache) {
 // original response.
 function storableCopy(response) {
   const headers = new Headers(response.headers);
-  headers.delete("content-encoding");
-  headers.delete("content-length");
+  headers.delete('content-encoding');
+  headers.delete('content-length');
   return new Response(response.clone().body, {
     status: response.status,
     statusText: response.statusText,
@@ -126,10 +129,11 @@ async function cacheFirst(request) {
   // Only a real same-origin success may be retained. A 401 from the pairing
   // gate or an opaque response would otherwise pin itself for the lifetime of
   // the installed app.
-  if (response.ok && response.type === "basic") {
+  if (response.ok && response.type === 'basic') {
     // Return the original response immediately. The extending fetch event owns
     // the streamed clone until cache.put and one coalesced trim complete.
-    maintenance = cache.put(request, storableCopy(response))
+    maintenance = cache
+      .put(request, storableCopy(response))
       .then(() => scheduleAssetCacheTrim(cache))
       .catch(() => undefined);
   }
@@ -154,9 +158,12 @@ function appStateRequest(entry) {
 async function writeAppState(entry, value) {
   try {
     const cache = await caches.open(APP_STATE_CACHE);
-    await cache.put(appStateRequest(entry), new Response(value, {
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    }));
+    await cache.put(
+      appStateRequest(entry),
+      new Response(value, {
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      })
+    );
   } catch {
     // A container that refuses storage keeps the defaults below.
   }
@@ -166,9 +173,9 @@ async function readAppState(entry) {
   try {
     const cache = await caches.open(APP_STATE_CACHE);
     const stored = await cache.match(appStateRequest(entry));
-    return stored ? (await stored.text()).trim() : "";
+    return stored ? (await stored.text()).trim() : '';
   } catch {
-    return "";
+    return '';
   }
 }
 
@@ -178,8 +185,8 @@ async function readAppState(entry) {
  *  opening "/" from a notification lands on the pairing gate instead of the
  *  app (user: 눌러도 동작이 안 된다). */
 function appScopePath(pathname) {
-  const match = /^\/d\/[^/]+\//.exec(String(pathname || ""));
-  return match ? match[0] : "/";
+  const match = /^\/d\/[^/]+\//.exec(String(pathname || ''));
+  return match ? match[0] : '/';
 }
 
 /** Which language this device says a notification should speak. The app's own
@@ -187,16 +194,16 @@ function appScopePath(pathname) {
  *  language rather than English. */
 async function notificationLanguage() {
   const stored = await readAppState(UI_LANGUAGE_ENTRY);
-  const system = self.navigator?.languages?.length
-    ? self.navigator.languages : [self.navigator?.language || ""];
+  const system = self.navigator?.languages?.length ? self.navigator.languages : [self.navigator?.language || ''];
   return selectUiLanguage(stored, system);
 }
 
 function shareToken() {
-  const value = self.crypto && typeof self.crypto.randomUUID === "function"
-    ? self.crypto.randomUUID()
-    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  return value.replace(/[^a-zA-Z0-9-]/g, "");
+  const value =
+    self.crypto && typeof self.crypto.randomUUID === 'function'
+      ? self.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return value.replace(/[^a-zA-Z0-9-]/g, '');
 }
 
 /** Retire payloads past their claim window before adding another. */
@@ -229,19 +236,21 @@ async function pruneSharedPayloads(cache) {
  *  app trades for the files. */
 async function receiveSharedPayload(request) {
   const url = new URL(request.url);
-  const shell = new URL(url.pathname.replace(/share-target$/, ""), url.origin);
+  const shell = new URL(url.pathname.replace(/share-target$/, ''), url.origin);
   try {
     const form = await request.formData();
-    const files = form.getAll("files")
-      .filter((entry) => entry && typeof entry === "object"
-        && typeof entry.arrayBuffer === "function" && entry.size > 0)
+    const files = form
+      .getAll('files')
+      .filter(
+        (entry) => entry && typeof entry === 'object' && typeof entry.arrayBuffer === 'function' && entry.size > 0
+      )
       .slice(0, MAX_SHARED_FILES);
     // A shared link or note carries its own meaning; it becomes composer text.
-    const text = ["title", "text", "url"]
+    const text = ['title', 'text', 'url']
       .map((field) => form.get(field))
-      .map((value) => (typeof value === "string" ? value.trim() : ""))
+      .map((value) => (typeof value === 'string' ? value.trim() : ''))
       .filter(Boolean)
-      .join(" ")
+      .join(' ')
       .trim();
     if (files.length || text) {
       const cache = await caches.open(SHARE_CACHE);
@@ -251,22 +260,25 @@ async function receiveSharedPayload(request) {
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
         const entry = sharedEntryUrl(token, String(index));
-        await cache.put(sharedEntryRequest(entry), new Response(file, {
-          headers: { "Content-Type": file.type || "application/octet-stream" },
-        }));
+        await cache.put(
+          sharedEntryRequest(entry),
+          new Response(file, {
+            headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          })
+        );
         entries.push({
           url: entry,
           name: file.name || `shared-${index + 1}`,
-          type: file.type || "",
+          type: file.type || '',
         });
       }
       await cache.put(
         sharedEntryRequest(sharedEntryUrl(token, SHARE_INDEX_NAME)),
         new Response(JSON.stringify({ createdAt: Date.now(), text, files: entries }), {
-          headers: { "Content-Type": "application/json" },
-        }),
+          headers: { 'Content-Type': 'application/json' },
+        })
       );
-      shell.searchParams.set("shared", token);
+      shell.searchParams.set('shared', token);
     }
   } catch {
     // A share this worker cannot read still opens the app rather than an
@@ -275,7 +287,7 @@ async function receiveSharedPayload(request) {
   return Response.redirect(shell.toString(), 303);
 }
 
-self.addEventListener("fetch", (event) => {
+self.addEventListener('fetch', (event) => {
   const request = event.request;
   let url;
   try {
@@ -284,22 +296,23 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (url.origin !== self.location.origin) return;
-  if (request.method === "POST" && SHARE_TARGET_PATH.test(url.pathname)) {
-    const shell = new URL(url.pathname.replace(/share-target$/, ""), url.origin).toString();
-    event.respondWith(receiveSharedPayload(request)
-      .catch(() => Response.redirect(shell, 303)));
+  if (request.method === 'POST' && SHARE_TARGET_PATH.test(url.pathname)) {
+    const shell = new URL(url.pathname.replace(/share-target$/, ''), url.origin).toString();
+    event.respondWith(receiveSharedPayload(request).catch(() => Response.redirect(shell, 303)));
     return;
   }
-  if (request.method !== "GET") return;
-  if (request.mode === "navigate") {
+  if (request.method !== 'GET') return;
+  if (request.mode === 'navigate') {
     const operation = shellFirst(request);
     event.respondWith(operation.then((result) => result.response).catch(() => fetch(request)));
     // Every launch re-states where the app lives, so a notification opened
     // months later still targets the route this install was made from.
-    event.waitUntil(Promise.all([
-      operation.then((result) => result.maintenance).catch(() => undefined),
-      writeAppState(APP_SCOPE_ENTRY, appScopePath(url.pathname)),
-    ]));
+    event.waitUntil(
+      Promise.all([
+        operation.then((result) => result.maintenance).catch(() => undefined),
+        writeAppState(APP_SCOPE_ENTRY, appScopePath(url.pathname)),
+      ])
+    );
     return;
   }
   if (!HASHED_ASSET.test(url.pathname)) {
@@ -315,19 +328,15 @@ self.addEventListener("fetch", (event) => {
     }
     return result;
   });
-  event.respondWith(operation
-    .then((result) => result.response)
-    .catch(() => fetch(request)));
-  event.waitUntil(operation
-    .then((result) => result.maintenance)
-    .catch(() => undefined));
+  event.respondWith(operation.then((result) => result.response).catch(() => fetch(request)));
+  event.waitUntil(operation.then((result) => result.maintenance).catch(() => undefined));
 });
 
 // Web Push. This is the ONLY path that reaches an installed web app whose
 // relay socket is gone: the OS wakes this worker even when the app was swiped
 // away. The desktop that owns the session encrypts the payload for this
 // subscription alone, so the push service delivering it cannot read a word.
-self.addEventListener("push", (event) => {
+self.addEventListener('push', (event) => {
   // userVisibleOnly is enforced by the browser: every delivery MUST end in a
   // visible notification, so a malformed payload still shows something rather
   // than costing the app its push permission.
@@ -337,64 +346,59 @@ self.addEventListener("push", (event) => {
   } catch {
     payload = null;
   }
-  const title = (payload && typeof payload.title === "string" && payload.title.trim())
-    || "Mixdog";
-  const supplied = payload && typeof payload.body === "string" ? payload.body.trim() : "";
-  const sessionId = payload && payload.data && typeof payload.data.sessionId === "string"
-    ? payload.data.sessionId
-    : "";
-  event.waitUntil((async () => {
-    // What the session actually said travels verbatim; only the stand-in for
-    // a turn that produced no text is spoken in this device's language.
-    const body = supplied
-      || TURN_FINISHED_TEXT[await notificationLanguage()]
-      || TURN_FINISHED_TEXT.en;
-    await self.registration.showNotification(title, {
-      body,
-      icon: "/mixdog-192.png",
-      badge: "/mixdog-192.png",
-      // One session collapses onto one notification instead of stacking a row
-      // per finished turn, and the replacement re-alerts.
-      tag: sessionId ? `session:${sessionId}` : "mixdog",
-      renotify: Boolean(sessionId),
-      data: { sessionId },
-    });
-  })());
+  const title = (payload && typeof payload.title === 'string' && payload.title.trim()) || 'Mixdog';
+  const supplied = payload && typeof payload.body === 'string' ? payload.body.trim() : '';
+  const sessionId = payload && payload.data && typeof payload.data.sessionId === 'string' ? payload.data.sessionId : '';
+  event.waitUntil(
+    (async () => {
+      // What the session actually said travels verbatim; only the stand-in for
+      // a turn that produced no text is spoken in this device's language.
+      const body = supplied || TURN_FINISHED_TEXT[await notificationLanguage()] || TURN_FINISHED_TEXT.en;
+      await self.registration.showNotification(title, {
+        body,
+        icon: '/mixdog-192.png',
+        badge: '/mixdog-192.png',
+        // One session collapses onto one notification instead of stacking a row
+        // per finished turn, and the replacement re-alerts.
+        tag: sessionId ? `session:${sessionId}` : 'mixdog',
+        renotify: Boolean(sessionId),
+        data: { sessionId },
+      });
+    })()
+  );
 });
 
 // Tapping the notification opens the session it came from. An app that is
 // still resident is focused and told where to go; a closed one is launched.
-self.addEventListener("notificationclick", (event) => {
+self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const sessionId = event.notification.data && typeof event.notification.data.sessionId === "string"
-    ? event.notification.data.sessionId
-    : "";
-  event.waitUntil((async () => {
-    // Park it FIRST. focus() can hand the tap to a document the phone
-    // discarded while the app sat in the background: that document is still
-    // rebuilding when the message below arrives, has no listener yet, and the
-    // tap does nothing at all (user: 눌러도 동작이 안 되냐). The app claims
-    // this on boot, the same way a shared payload travels.
-    if (sessionId) {
-      await writeAppState(
-        NOTIFICATION_CLICK_ENTRY,
-        JSON.stringify({ sessionId, createdAt: Date.now() }),
-      );
-    }
-    const windows = await self.clients.matchAll({
-      type: "window",
-      includeUncontrolled: true,
-    });
-    for (const client of windows) {
-      if (!client.url.startsWith(self.location.origin)) continue;
-      await client.focus().catch(() => undefined);
-      client.postMessage({ type: OPEN_SESSION_MESSAGE, sessionId: sessionId || null });
-      return;
-    }
-    // The route this install was made from, never the bare origin.
-    const scope = (await readAppState(APP_SCOPE_ENTRY)) || "/";
-    await self.clients.openWindow(sessionId
-      ? `${scope}?session=${encodeURIComponent(sessionId)}`
-      : scope);
-  })());
+  const sessionId =
+    event.notification.data && typeof event.notification.data.sessionId === 'string'
+      ? event.notification.data.sessionId
+      : '';
+  event.waitUntil(
+    (async () => {
+      // Park it FIRST. focus() can hand the tap to a document the phone
+      // discarded while the app sat in the background: that document is still
+      // rebuilding when the message below arrives, has no listener yet, and the
+      // tap does nothing at all (user: 눌러도 동작이 안 되냐). The app claims
+      // this on boot, the same way a shared payload travels.
+      if (sessionId) {
+        await writeAppState(NOTIFICATION_CLICK_ENTRY, JSON.stringify({ sessionId, createdAt: Date.now() }));
+      }
+      const windows = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+      for (const client of windows) {
+        if (!client.url.startsWith(self.location.origin)) continue;
+        await client.focus().catch(() => undefined);
+        client.postMessage({ type: OPEN_SESSION_MESSAGE, sessionId: sessionId || null });
+        return;
+      }
+      // The route this install was made from, never the bare origin.
+      const scope = (await readAppState(APP_SCOPE_ENTRY)) || '/';
+      await self.clients.openWindow(sessionId ? `${scope}?session=${encodeURIComponent(sessionId)}` : scope);
+    })()
+  );
 });

@@ -15,10 +15,10 @@ import { resetProviderAdmissionCooldowns } from '../runtime/agent/orchestrator/p
 import { getProvider } from '../runtime/agent/orchestrator/providers/registry.mjs';
 import { fetchOAuthUsageSnapshot } from '../runtime/agent/orchestrator/providers/oauth-usage.mjs';
 
-// Provider auth / catalog / preset surface. Extracted verbatim from the runtime
-// API object; the stateless admin helpers are imported directly and the runtime
-// injects the closure-owned config/cache callbacks. `isKnownProvider` is
-// re-imported here from provider-admin (same binding the runtime uses).
+// Provider auth / catalog / preset surface. The stateless admin helpers are
+// imported directly and the runtime injects the closure-owned config/cache
+// callbacks. `isKnownProvider` is re-imported here from provider-admin (same
+// binding the runtime uses).
 export function createProviderAuthApi({
   cfgMod,
   getConfig,
@@ -45,7 +45,9 @@ export function createProviderAuthApi({
           warmProviderModelCache();
         })
         .catch(() => {});
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
 
   // Auth mutation = the user changed credentials (re-login / account switch /
@@ -53,7 +55,11 @@ export function createProviderAuthApi({
   // credentials, so release it immediately — otherwise a quota cooldown from
   // the previous account silently blocks the fresh account until restart.
   function releaseAdmissionCooldowns() {
-    try { resetProviderAdmissionCooldowns(); } catch { /* best-effort */ }
+    try {
+      resetProviderAdmissionCooldowns();
+    } catch {
+      /* best-effort */
+    }
   }
 
   // One in-flight usage sweep per provider; a reopened picker reuses it.
@@ -71,8 +77,10 @@ export function createProviderAuthApi({
       { provider: providerId, model: '', accountId },
       provider.forAccount(accountId),
       () => {},
-      { force: true },
-    ).catch(() => { /* usage display must not affect the switch itself */ });
+      { force: true }
+    ).catch(() => {
+      /* usage display must not affect the switch itself */
+    });
   }
 
   return {
@@ -89,9 +97,16 @@ export function createProviderAuthApi({
           try {
             await awaitKeychainPrewarm();
             for (let offset = 0; offset < pool.accounts.length; offset += 4) {
-              await Promise.all(pool.accounts.slice(offset, offset + 4).map((account) =>
-                fetchOAuthUsageSnapshot({ provider: providerId, accountId: account.id },
-                  provider.forAccount(account.id)).catch(() => null)));
+              await Promise.all(
+                pool.accounts
+                  .slice(offset, offset + 4)
+                  .map((account) =>
+                    fetchOAuthUsageSnapshot(
+                      { provider: providerId, accountId: account.id },
+                      provider.forAccount(account.id)
+                    ).catch(() => null)
+                  )
+              );
             }
           } finally {
             accountUsageSweeps.delete(providerId);
@@ -184,18 +199,20 @@ export function createProviderAuthApi({
           }
           return completed;
         }),
-        ...(typeof result.completeCode === 'function' ? {
-          completeCode: async (code) => {
-            const completed = await result.completeCode(code);
-            await awaitKeychainPrewarm();
-            reloadFullConfig();
-            invalidateProviderCaches();
-            releaseAdmissionCooldowns();
-            refreshProviderCatalogsSoon();
-            warmProviderModelCache();
-            return completed;
-          },
-        } : {}),
+        ...(typeof result.completeCode === 'function'
+          ? {
+              completeCode: async (code) => {
+                const completed = await result.completeCode(code);
+                await awaitKeychainPrewarm();
+                reloadFullConfig();
+                invalidateProviderCaches();
+                releaseAdmissionCooldowns();
+                refreshProviderCatalogsSoon();
+                warmProviderModelCache();
+                return completed;
+              },
+            }
+          : {}),
       };
     },
     saveProviderApiKey(providerId, secret) {

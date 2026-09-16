@@ -11,5 +11,5 @@ export {
   isChannelBridgeActive,
   isChannelsDegraded,
   start,
-  stop
-} from "./lib/worker-main.mjs";
+  stop,
+} from './lib/worker-main.mjs';

@@ -14,11 +14,15 @@ export async function recalculateForReview(session, signal, calculate = recalcul
     const ranges = Array.isArray(session.autofitRanges) ? session.autofitRanges : [];
     if (ranges.length) {
       try {
-        const refit = await applyPortableOoxmlBatch(session.target, 'xlsx', ranges.map((entry) => ({
-          op: 'autofit_range',
-          ...(entry.sheet ? { sheet: entry.sheet } : {}),
-          range: entry.range,
-        })));
+        const refit = await applyPortableOoxmlBatch(
+          session.target,
+          'xlsx',
+          ranges.map((entry) => ({
+            op: 'autofit_range',
+            ...(entry.sheet ? { sheet: entry.sheet } : {}),
+            range: entry.range,
+          }))
+        );
         result.refittedColumns = refit.reduce((total, entry) => total + Number(entry.columns || 0), 0);
       } catch (error) {
         result.refitError = String(error?.message || error);

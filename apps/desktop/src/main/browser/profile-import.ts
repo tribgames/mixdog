@@ -1,12 +1,6 @@
 import { createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import {
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { DatabaseSync, backup } from 'node:sqlite';
@@ -18,11 +12,7 @@ import {
   resolvePackagedBrowserImporter,
   type NativeBrowserImporter,
 } from './profile-import-native';
-import {
-  CookieImportError,
-  importBrowserCookies,
-  parseBrowserCookieReport,
-} from './profile-import-cookies';
+import { CookieImportError, importBrowserCookies, parseBrowserCookieReport } from './profile-import-cookies';
 export type { BrowserImportCookie } from './profile-import-cookies';
 
 const CHROME_SOURCE_ID = 'chrome';
@@ -164,9 +154,7 @@ function maskedCredentialLabel(username: string): string {
   const at = value.lastIndexOf('@');
   if (at > 0 && at < value.length - 1) {
     const local = value.slice(0, at);
-    const masked = local.length < 3
-      ? `${local[0] || ''}•••`
-      : `${local[0]}•••${local.at(-1)}`;
+    const masked = local.length < 3 ? `${local[0] || ''}•••` : `${local[0]}•••${local.at(-1)}`;
     return `${masked}@${value.slice(at + 1)}`;
   }
   if (value.length < 3) return '저장된 계정';
@@ -192,13 +180,7 @@ function chromeUserDataDirectory(): string {
 }
 
 async function browserProcessIds(tasklist: string, imageName: string): Promise<number[]> {
-  const { stdout } = await execFileAsync(tasklist, [
-    '/FI',
-    `IMAGENAME eq ${imageName}`,
-    '/FO',
-    'CSV',
-    '/NH',
-  ], {
+  const { stdout } = await execFileAsync(tasklist, ['/FI', `IMAGENAME eq ${imageName}`, '/FO', 'CSV', '/NH'], {
     windowsHide: true,
     timeout: 5_000,
     maxBuffer: 256 * 1024,
@@ -210,9 +192,11 @@ async function browserProcessIds(tasklist: string, imageName: string): Promise<n
     .filter((pid) => Number.isInteger(pid) && pid > 0);
 }
 
-export async function prepareChromeForImport(target: BrowserProcessCloseTarget = {
-  imageName: 'chrome.exe',
-}): Promise<void> {
+export async function prepareChromeForImport(
+  target: BrowserProcessCloseTarget = {
+    imageName: 'chrome.exe',
+  }
+): Promise<void> {
   if (process.platform !== 'win32') return;
   if (!/^[a-zA-Z0-9._-]{1,120}\.exe$/i.test(target.imageName)) {
     throw new Error('Browser process identity is invalid.');
@@ -221,13 +205,7 @@ export async function prepareChromeForImport(target: BrowserProcessCloseTarget =
   const tasklist = join(systemRoot, 'System32', 'tasklist.exe');
   const initialProcessIds = await browserProcessIds(tasklist, target.imageName);
   if (!initialProcessIds.length) return;
-  const powershell = join(
-    systemRoot,
-    'System32',
-    'WindowsPowerShell',
-    'v1.0',
-    'powershell.exe',
-  );
+  const powershell = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const closeScript = String.raw`
 $ErrorActionPreference = 'Stop'
 Add-Type @'
@@ -259,32 +237,25 @@ $processIds = [uint32[]](ConvertFrom-Json -InputObject $env:MIXDOG_BROWSER_IMPOR
 `;
   let closeRequestFailed = false;
   try {
-    await execFileAsync(powershell, [
-      '-NoLogo',
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-Command',
-      closeScript,
-    ], {
-      windowsHide: true,
-      timeout: 10_000,
-      maxBuffer: 256 * 1024,
-      env: {
-        ...process.env,
-        MIXDOG_BROWSER_IMPORT_PROCESS_IDS: JSON.stringify(initialProcessIds),
-      },
-    });
+    await execFileAsync(
+      powershell,
+      ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', closeScript],
+      {
+        windowsHide: true,
+        timeout: 10_000,
+        maxBuffer: 256 * 1024,
+        env: {
+          ...process.env,
+          MIXDOG_BROWSER_IMPORT_PROCESS_IDS: JSON.stringify(initialProcessIds),
+        },
+      }
+    );
   } catch {
     closeRequestFailed = true;
     // A process can disappear while its top-level windows are enumerated. The
     // bounded wait below is the source of truth and never force-terminates it.
   }
-  const deadline = Date.now() + Math.max(
-    1_000,
-    Math.min(120_000, target.timeoutMs ?? CHROME_CLOSE_TIMEOUT_MS),
-  );
+  const deadline = Date.now() + Math.max(1_000, Math.min(120_000, target.timeoutMs ?? CHROME_CLOSE_TIMEOUT_MS));
   while (Date.now() < deadline) {
     if (!(await browserProcessIds(tasklist, target.imageName)).length) return;
     await new Promise((resolveWait) => setTimeout(resolveWait, 200));
@@ -296,7 +267,9 @@ $processIds = [uint32[]](ConvertFrom-Json -InputObject $env:MIXDOG_BROWSER_IMPOR
 }
 
 async function sha256File(path: string): Promise<string> {
-  return createHash('sha256').update(await readFile(path)).digest('hex');
+  return createHash('sha256')
+    .update(await readFile(path))
+    .digest('hex');
 }
 
 function exactProfileDirectory(userDataDirectory: string, profileId: string): string {
@@ -339,12 +312,8 @@ function chromeTimeToUnixMilliseconds(value: unknown): number {
   return Math.max(0, Math.trunc(micros / 1_000 - CHROME_EPOCH_OFFSET_MS));
 }
 
-async function readEncryptedChildJson(
-  executable: string,
-  args: string[],
-  expectedSha256: string,
-): Promise<unknown> {
-  if (await sha256File(executable) !== expectedSha256) {
+async function readEncryptedChildJson(executable: string, args: string[], expectedSha256: string): Promise<unknown> {
+  if ((await sha256File(executable)) !== expectedSha256) {
     throw new Error('Native browser importer changed after signature verification.');
   }
   const transportKey = randomBytes(32);
@@ -388,8 +357,7 @@ async function readEncryptedChildJson(
     if (stdoutBytes > NATIVE_OUTPUT_LIMIT) throw new Error('Native browser importer returned too much data.');
     if (exitCode !== 0) {
       throw new Error(
-        Buffer.concat(stderr).toString('utf8').trim()
-        || `Native browser importer exited with code ${exitCode}.`,
+        Buffer.concat(stderr).toString('utf8').trim() || `Native browser importer exited with code ${exitCode}.`
       );
     }
     const envelope = JSON.parse(Buffer.concat(stdout).toString('utf8')) as Record<string, unknown>;
@@ -426,12 +394,10 @@ export class BrowserProfileImportService {
     return this.options.chromeUserDataDirectory || chromeUserDataDirectory();
   }
 
-  private async nativeImporter(
-    item: 'passwords' | 'cookies',
-  ): Promise<NativeBrowserImporter | undefined> {
+  private async nativeImporter(item: 'passwords' | 'cookies'): Promise<NativeBrowserImporter | undefined> {
     if (
-      (item === 'passwords' && this.options.readNativeCredentials)
-      || (item === 'cookies' && this.options.readNativeCookies)
+      (item === 'passwords' && this.options.readNativeCredentials) ||
+      (item === 'cookies' && this.options.readNativeCookies)
     ) {
       return { executable: '[test seam]', sha256: '' };
     }
@@ -445,8 +411,9 @@ export class BrowserProfileImportService {
 
   async sources(): Promise<BrowserImportSource[]> {
     if (process.platform !== 'win32') return [];
-    const chromeExecutable = chromeExecutableCandidates(this.options.chromeExecutablePath)
-      .find((candidate) => existsSync(candidate));
+    const chromeExecutable = chromeExecutableCandidates(this.options.chromeExecutablePath).find((candidate) =>
+      existsSync(candidate)
+    );
     const userData = this.chromeUserData();
     const localStatePath = join(userData, 'Local State');
     if (!chromeExecutable || !existsSync(localStatePath)) return [];
@@ -462,9 +429,7 @@ export class BrowserProfileImportService {
       .map(([profileId, value]) => ({
         id: profileId,
         name: String(value?.name || profileId).trim() || profileId,
-        ...(String(value?.user_name || '').trim()
-          ? { accountEmail: String(value?.user_name || '').trim() }
-          : {}),
+        ...(String(value?.user_name || '').trim() ? { accountEmail: String(value?.user_name || '').trim() } : {}),
       }))
       .sort((left, right) => left.name.localeCompare(right.name));
     if (!profiles.length) return [];
@@ -482,21 +447,23 @@ export class BrowserProfileImportService {
     const cookieSupportReason = !cookieImporter
       ? 'The native cookie importer is not installed in this build.'
       : undefined;
-    return [{
-      id: CHROME_SOURCE_ID,
-      name: 'Google Chrome',
-      profiles,
-      supports: {
-        passwords: passwordSupport,
-        cookies: cookieSupport,
-        history: true,
+    return [
+      {
+        id: CHROME_SOURCE_ID,
+        name: 'Google Chrome',
+        profiles,
+        supports: {
+          passwords: passwordSupport,
+          cookies: cookieSupport,
+          history: true,
+        },
+        supportReasons: {
+          ...(passwordSupportReason ? { passwords: passwordSupportReason } : {}),
+          ...(cookieSupportReason ? { cookies: cookieSupportReason } : {}),
+        },
+        ...(passwordSupportReason ? { passwordSupportReason } : {}),
       },
-      supportReasons: {
-        ...(passwordSupportReason ? { passwords: passwordSupportReason } : {}),
-        ...(cookieSupportReason ? { cookies: cookieSupportReason } : {}),
-      },
-      ...(passwordSupportReason ? { passwordSupportReason } : {}),
-    }];
+    ];
   }
 
   async searchHistory(query: string, limit = HISTORY_SEARCH_LIMIT): Promise<BrowserHistoryEntry[]> {
@@ -505,9 +472,9 @@ export class BrowserProfileImportService {
     try {
       const entries = JSON.parse(await readFile(this.historyFile, 'utf8')) as BrowserHistoryEntry[];
       return entries
-        .filter((entry) =>
-          entry.url.toLowerCase().includes(normalized)
-          || entry.title.toLowerCase().includes(normalized))
+        .filter(
+          (entry) => entry.url.toLowerCase().includes(normalized) || entry.title.toLowerCase().includes(normalized)
+        )
         .slice(0, Math.max(1, Math.min(30, Math.trunc(limit))));
     } catch {
       return [];
@@ -534,19 +501,22 @@ export class BrowserProfileImportService {
     url: string,
     account: string,
     use: (credential: Readonly<BrowserCredentialValue>) => Promise<T>,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<T> {
     signal?.throwIfAborted();
     const origin = secureOrigin(url);
     if (!origin) throw new Error('Stored credentials are available only on secure HTTPS pages.');
     const wanted = account.trim();
     if (!wanted) throw new Error('savedAccount requires the account name or its masked label.');
-    const candidates = (await this.readCredentialVault(signal))
-      .filter((credential) => secureOrigin(credential.url) === origin);
+    const candidates = (await this.readCredentialVault(signal)).filter(
+      (credential) => secureOrigin(credential.url) === origin
+    );
     if (!candidates.length) throw new Error(`No stored login for ${origin}.`);
-    const matches = candidates.filter((credential) =>
-      credential.username.trim().toLowerCase() === wanted.toLowerCase()
-      || maskedCredentialLabel(credential.username) === wanted);
+    const matches = candidates.filter(
+      (credential) =>
+        credential.username.trim().toLowerCase() === wanted.toLowerCase() ||
+        maskedCredentialLabel(credential.username) === wanted
+    );
     // Chrome keeps one row per sign-in URL, so the same account can appear
     // more than once for one origin; identical usernames are one login.
     const usernames = new Set(matches.map((credential) => credential.username.trim().toLowerCase()));
@@ -554,23 +524,24 @@ export class BrowserProfileImportService {
     const labels = [...new Set(candidates.map((credential) => maskedCredentialLabel(credential.username)))]
       .sort()
       .join(', ');
-    throw new Error(matches.length
-      ? `savedAccount "${wanted}" matches several stored logins for ${origin}; stored: ${labels}`
-      : `savedAccount "${wanted}" is not a stored login for ${origin}; stored: ${labels}`);
+    throw new Error(
+      matches.length
+        ? `savedAccount "${wanted}" matches several stored logins for ${origin}; stored: ${labels}`
+        : `savedAccount "${wanted}" is not a stored login for ${origin}; stored: ${labels}`
+    );
   }
 
   async useCredential<T>(
     url: string,
     credentialId: string,
     use: (credential: Readonly<BrowserCredentialValue>) => Promise<T>,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<T> {
     signal?.throwIfAborted();
     const origin = secureOrigin(url);
     if (!origin) throw new Error('Stored credentials are available only on secure HTTPS pages.');
     if (!/^[a-f0-9]{24}$/.test(credentialId)) throw new Error('Stored credential id is invalid.');
-    const credential = (await this.readCredentialVault(signal))
-      .find((candidate) => candidate.id === credentialId);
+    const credential = (await this.readCredentialVault(signal)).find((candidate) => candidate.id === credentialId);
     if (!credential || secureOrigin(credential.url) !== origin) {
       throw new Error('The stored credential does not match the current page origin.');
     }
@@ -597,10 +568,10 @@ export class BrowserProfileImportService {
       signal?.throwIfAborted();
       throw new Error('The stored browser credential vault could not be opened.');
     }
-    const entries = parsed && typeof parsed === 'object'
-      && Array.isArray((parsed as { credentials?: unknown }).credentials)
-      ? (parsed as { credentials: unknown[] }).credentials
-      : [];
+    const entries =
+      parsed && typeof parsed === 'object' && Array.isArray((parsed as { credentials?: unknown }).credentials)
+        ? (parsed as { credentials: unknown[] }).credentials
+        : [];
     if (entries.length > 100_000) throw new Error('Stored browser credential vault is too large.');
     return entries.flatMap((entry) => {
       if (!entry || typeof entry !== 'object') return [];
@@ -610,45 +581,44 @@ export class BrowserProfileImportService {
       const username = String(value.username || '');
       const password = String(value.password || '');
       if (!/^[a-f0-9]{24}$/.test(id) || !secureOrigin(url) || !username || !password) return [];
-      return [{
-        id,
-        url,
-        username,
-        password,
-        note: typeof value.note === 'string' ? value.note : '',
-      }];
+      return [
+        {
+          id,
+          url,
+          username,
+          password,
+          note: typeof value.note === 'string' ? value.note : '',
+        },
+      ];
     });
   }
 
   async importProfile(
     request: BrowserImportRequest,
-    onProgress: (progress: BrowserImportProgress) => void,
+    onProgress: (progress: BrowserImportProgress) => void
   ): Promise<BrowserImportResult> {
     if (this.activeJobId) throw new Error('Another browser import is already running.');
     this.activeJobId = request.jobId || 'pending';
     try {
       const items = uniqueItems(request.items);
-    if (!items.length) throw new Error('Select at least one browser data type to import.');
-    const sources = await this.sources();
-    const source = sources.find((candidate) => candidate.id === request.sourceId);
-    const profile = source?.profiles.find((candidate) => candidate.id === request.profileId);
-    if (!source || !profile) throw new Error('The selected Chrome profile is no longer available.');
-    for (const item of items) {
-      if (!source.supports[item]) throw new Error(`${item} import is unavailable in this build.`);
-    }
-    if (
-      (items.includes('passwords') || items.includes('cookies'))
-      && !request.administratorApproved
-    ) {
-      throw new Error('Password and cookie import require explicit administrator approval.');
-    }
+      if (!items.length) throw new Error('Select at least one browser data type to import.');
+      const sources = await this.sources();
+      const source = sources.find((candidate) => candidate.id === request.sourceId);
+      const profile = source?.profiles.find((candidate) => candidate.id === request.profileId);
+      if (!source || !profile) throw new Error('The selected Chrome profile is no longer available.');
+      for (const item of items) {
+        if (!source.supports[item]) throw new Error(`${item} import is unavailable in this build.`);
+      }
+      if ((items.includes('passwords') || items.includes('cookies')) && !request.administratorApproved) {
+        throw new Error('Password and cookie import require explicit administrator approval.');
+      }
       await (this.options.prepareChromeForImport || prepareChromeForImport)();
       const counts: Record<BrowserImportItem, number> = {
-      passwords: 0,
-      cookies: 0,
-      history: 0,
-    };
-    const errors: Partial<Record<BrowserImportItem, string>> = {};
+        passwords: 0,
+        cookies: 0,
+        history: 0,
+      };
+      const errors: Partial<Record<BrowserImportItem, string>> = {};
       for (const item of items) onProgress({ jobId: request.jobId, item, state: 'running' });
       // Passwords and cookies both drive the elevated helper over a single
       // fixed-name pipe, so items must run sequentially. Running them together
@@ -656,11 +626,12 @@ export class BrowserProfileImportService {
       // and fail — which is why a combined import dropped only the second item.
       for (const item of items) {
         try {
-          const count = item === 'cookies'
-            ? await this.importCookies(profile.id)
-            : item === 'history'
-              ? await this.importHistory(profile.id, request.jobId)
-              : await this.importPasswords(profile.id);
+          const count =
+            item === 'cookies'
+              ? await this.importCookies(profile.id)
+              : item === 'history'
+                ? await this.importHistory(profile.id, request.jobId)
+                : await this.importPasswords(profile.id);
           counts[item] = count;
           onProgress({ jobId: request.jobId, item, state: 'completed', count });
         } catch (error) {
@@ -681,18 +652,23 @@ export class BrowserProfileImportService {
       ? await this.options.readNativeCookies(profileId)
       : await this.readNativeCookies(profileId);
     const report = parseBrowserCookieReport(output);
-    return await importBrowserCookies({ cookies: this.options.cookieJar || this.options.partition.cookies }, report.cookies, async (existing) => {
-      if (!safeStorage.isEncryptionAvailable()) {
-        throw new Error('Windows credential encryption is unavailable; cookie import was not started.');
-      }
-      const backupDirectory = join(this.options.userDataDirectory, 'browser-import-backups');
-      await mkdir(backupDirectory, { recursive: true });
-      await writeFile(
-        join(backupDirectory, `cookies-${Date.now()}-${randomUUID()}.bin`),
-        safeStorage.encryptString(JSON.stringify({ version: 1, cookies: existing })),
-        { mode: 0o600, flag: 'wx' },
-      );
-    }, report.failures);
+    return await importBrowserCookies(
+      { cookies: this.options.cookieJar || this.options.partition.cookies },
+      report.cookies,
+      async (existing) => {
+        if (!safeStorage.isEncryptionAvailable()) {
+          throw new Error('Windows credential encryption is unavailable; cookie import was not started.');
+        }
+        const backupDirectory = join(this.options.userDataDirectory, 'browser-import-backups');
+        await mkdir(backupDirectory, { recursive: true });
+        await writeFile(
+          join(backupDirectory, `cookies-${Date.now()}-${randomUUID()}.bin`),
+          safeStorage.encryptString(JSON.stringify({ version: 1, cookies: existing })),
+          { mode: 0o600, flag: 'wx' }
+        );
+      },
+      report.failures
+    );
   }
 
   private async readNativeCookies(profileId: string): Promise<unknown> {
@@ -700,14 +676,11 @@ export class BrowserProfileImportService {
     if (!importer) {
       throw new Error('The packaged native browser importer is not installed.');
     }
-    const output = await readEncryptedChildJson(importer.executable, [
-      'import-cookies',
-      '--browser',
-      'chrome',
-      '--profile',
-      profileId,
-      '--json',
-    ], importer.sha256);
+    const output = await readEncryptedChildJson(
+      importer.executable,
+      ['import-cookies', '--browser', 'chrome', '--profile', profileId, '--json'],
+      importer.sha256
+    );
     return output;
   }
 
@@ -732,12 +705,14 @@ export class BrowserProfileImportService {
         `);
         statement.setReadBigInts(true);
         const rows = statement.all(BigInt(HISTORY_LIMIT)) as Array<Record<string, unknown>>;
-        imported = rows.map((row) => ({
-          url: String(row.url || ''),
-          title: String(row.title || ''),
-          lastVisitAt: chromeTimeToUnixMilliseconds(row.last_visit_time),
-          visitCount: Math.max(0, Number(row.visit_count) || 0),
-        })).filter((entry) => Boolean(entry.url));
+        imported = rows
+          .map((row) => ({
+            url: String(row.url || ''),
+            title: String(row.title || ''),
+            lastVisitAt: chromeTimeToUnixMilliseconds(row.last_visit_time),
+            visitCount: Math.max(0, Number(row.visit_count) || 0),
+          }))
+          .filter((entry) => Boolean(entry.url));
       } finally {
         database.close();
       }
@@ -775,27 +750,21 @@ export class BrowserProfileImportService {
     }
     const output = this.options.readNativeCredentials
       ? await this.options.readNativeCredentials(profileId)
-      : await readEncryptedChildJson(nativeImporter.executable, [
-        'import-passwords',
-        '--browser',
-        'chrome',
-        '--profile',
-        profileId,
-        '--json',
-      ], nativeImporter.sha256);
+      : await readEncryptedChildJson(
+          nativeImporter.executable,
+          ['import-passwords', '--browser', 'chrome', '--profile', profileId, '--json'],
+          nativeImporter.sha256
+        );
     if (!Array.isArray(output)) throw new Error('Native password importer returned an invalid result.');
     if (output.length > 100_000) throw new Error('Native password importer returned too many credentials.');
     const credentials = output
       .map((entry) => entry as NativeCredential)
-      .filter((entry) =>
-        typeof entry.url === 'string'
-        && typeof entry.username === 'string'
-        && typeof entry.password === 'string')
+      .filter(
+        (entry) =>
+          typeof entry.url === 'string' && typeof entry.username === 'string' && typeof entry.password === 'string'
+      )
       .map((entry) => ({
-        id: createHash('sha256')
-          .update(`${entry.url}\0${entry.username}`)
-          .digest('hex')
-          .slice(0, 24),
+        id: createHash('sha256').update(`${entry.url}\0${entry.username}`).digest('hex').slice(0, 24),
         url: String(entry.url),
         username: String(entry.username),
         password: String(entry.password),

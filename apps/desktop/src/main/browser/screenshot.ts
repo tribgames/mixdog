@@ -29,15 +29,10 @@ export interface BrowserScreenshotCapture {
   fullPage: boolean;
 }
 
-function encodeImage(
-  image: Electron.NativeImage,
-  options: BrowserScreenshotOptions,
-): BrowserScreenshotCapture | null {
+function encodeImage(image: Electron.NativeImage, options: BrowserScreenshotOptions): BrowserScreenshotCapture | null {
   const size = image.getSize();
   if (size.width < 1 || size.height < 1) return null;
-  const data = options.format === 'png'
-    ? image.toPNG()
-    : image.toJPEG(options.quality);
+  const data = options.format === 'png' ? image.toPNG() : image.toJPEG(options.quality);
   if (!browserScreenshotBytesFitBudget(data.length)) return null;
   return {
     data: data.toString('base64'),
@@ -51,23 +46,23 @@ function encodeImage(
 /** A failed rollback is terminal: a different capture engine cannot repair it. */
 class BrowserScreenshotRestoreError extends AggregateError {
   constructor(surface: 'viewport' | 'layout', failures: unknown[]) {
-    super(failures, `full-page screenshot ${surface} restoration failed; `
-      + failures.map(failure => failure instanceof Error ? failure.message : String(failure)).join('; '));
+    super(
+      failures,
+      `full-page screenshot ${surface} restoration failed; ` +
+        failures.map((failure) => (failure instanceof Error ? failure.message : String(failure))).join('; ')
+    );
     this.name = 'BrowserScreenshotRestoreError';
   }
 }
 
 function coversRect(capture: BrowserScreenshotCapture | null, rect?: Rectangle): boolean {
-  return Boolean(
-    capture
-    && (!rect || (capture.width >= rect.width && capture.height >= rect.height)),
-  );
+  return Boolean(capture && (!rect || (capture.width >= rect.width && capture.height >= rect.height)));
 }
 
 export function createBrowserScreenshotService(
   cdp: BrowserCdpPort,
   screenshotTimeoutMs: number,
-  nativeTimeoutMs: number,
+  nativeTimeoutMs: number
 ) {
   const slow = { timeoutMs: screenshotTimeoutMs };
   async function anchorPinnedLayout(guest: WebContents, prepare: boolean, signal?: AbortSignal): Promise<void> {
@@ -77,7 +72,7 @@ export function createBrowserScreenshotService(
       guest,
       'Runtime.evaluate',
       { expression: prepare ? FULL_PAGE_LAYOUT_PREPARE : FULL_PAGE_LAYOUT_RESTORE, returnByValue: true },
-      signal,
+      signal
     );
     if (response.exceptionDetails) {
       throw new Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text);
@@ -99,7 +94,7 @@ export function createBrowserScreenshotService(
     guest: WebContents,
     options: BrowserScreenshotOptions,
     fullPageClip?: Rectangle,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<BrowserScreenshotCapture | null> {
     const scale = fullPageClip ? guest.getZoomFactor() : 1;
     const expectedRect = fullPageClip ? scaledScreenshotRect(fullPageClip, scale) : undefined;
@@ -109,13 +104,15 @@ export function createBrowserScreenshotService(
       {
         format: options.format,
         ...(options.format === 'jpeg' ? { quality: options.quality } : {}),
-        ...(fullPageClip ? {
-          captureBeyondViewport: true,
-          clip: { ...fullPageClip, scale },
-        } : {}),
+        ...(fullPageClip
+          ? {
+              captureBeyondViewport: true,
+              clip: { ...fullPageClip, scale },
+            }
+          : {}),
       },
       signal,
-      slow,
+      slow
     );
     const capture = shot.data
       ? validatedScreenshot(shot.data, options, (bytes) => nativeImage.createFromBuffer(bytes))
@@ -128,12 +125,10 @@ export function createBrowserScreenshotService(
     options: BrowserScreenshotOptions,
     fullPageClip?: Rectangle,
     background = false,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<BrowserScreenshotCapture | null> {
     if (fullPageClip && !background) return null;
-    const expectedRect = fullPageClip
-      ? scaledScreenshotRect(fullPageClip, guest.getZoomFactor())
-      : undefined;
+    const expectedRect = fullPageClip ? scaledScreenshotRect(fullPageClip, guest.getZoomFactor()) : undefined;
     const owner = fullPageClip && background ? BrowserWindow.fromWebContents(guest) : null;
     const originalSize = owner && !owner.isDestroyed() ? owner.getContentSize() : null;
     const failures: unknown[] = [];
@@ -141,7 +136,11 @@ export function createBrowserScreenshotService(
       if (owner && originalSize && expectedRect) {
         owner.setContentSize(expectedRect.width, expectedRect.height);
         await pause(50, signal);
-        try { guest.invalidate(); } catch { /* teardown can reject repaint */ }
+        try {
+          guest.invalidate();
+        } catch {
+          /* teardown can reject repaint */
+        }
       }
       signal?.throwIfAborted();
       let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -157,7 +156,7 @@ export function createBrowserScreenshotService(
         new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(
             () => reject(new Error('capturePage timed out')),
-            fullPageClip ? screenshotTimeoutMs : nativeTimeoutMs,
+            fullPageClip ? screenshotTimeoutMs : nativeTimeoutMs
           );
         }),
       ]).finally(() => {
@@ -189,7 +188,7 @@ export function createBrowserScreenshotService(
       quality?: unknown;
       fullPage?: unknown;
     } = {},
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<BrowserScreenshotCapture> {
     const options = normalizeScreenshotOptions(rawOptions);
     signal?.throwIfAborted();
@@ -197,13 +196,17 @@ export function createBrowserScreenshotService(
     try {
       if (options.fullPage) await anchorPinnedLayout(guest, true, signal);
       const fullPageClip = options.fullPage ? await fullPageRect(guest, signal) : undefined;
-      try { guest.invalidate(); } catch { /* teardown can reject repaint */ }
+      try {
+        guest.invalidate();
+      } catch {
+        /* teardown can reject repaint */
+      }
       const engines = {
         CDP: () => captureViaCdp(guest, options, fullPageClip, signal),
         native: () => captureViaNative(guest, options, fullPageClip, background, signal),
       };
       const errors: Error[] = [];
-      for (const name of background ? ['native', 'CDP'] as const : ['CDP', 'native'] as const) {
+      for (const name of background ? (['native', 'CDP'] as const) : (['CDP', 'native'] as const)) {
         try {
           signal?.throwIfAborted();
           const data = await engines[name]();
@@ -213,10 +216,12 @@ export function createBrowserScreenshotService(
         } catch (error) {
           if (error instanceof BrowserScreenshotRestoreError) throw error;
           if (signal?.aborted) throw signal.reason || error;
-          errors.push(new Error(`${name}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }));
+          errors.push(
+            new Error(`${name}: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+          );
         }
       }
-      throw new AggregateError(errors, `screenshot capture failed; ${errors.map(error => error.message).join('; ')}`);
+      throw new AggregateError(errors, `screenshot capture failed; ${errors.map((error) => error.message).join('; ')}`);
     } catch (error) {
       failures.push(error);
       throw error;

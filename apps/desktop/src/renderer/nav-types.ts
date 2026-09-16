@@ -1,34 +1,34 @@
 export type NavigationSelection =
-  | { kind: "new"; draftId?: string }
-  | { kind: "project"; path: string }
-  | { kind: "session"; id: string; title?: string }
-  | { kind: "file"; project: string; rel: string; accessToken?: string };
+  | { kind: 'new'; draftId?: string }
+  | { kind: 'project'; path: string }
+  | { kind: 'session'; id: string; title?: string }
+  | { kind: 'file'; project: string; rel: string; accessToken?: string };
 
 /** Pane-only surfaces do not participate in the focused chat engine route.
  * They still use the same tab/split/persistence model as task and file tabs. */
 export type WorkspaceSelection =
   | NavigationSelection
-  | { kind: "studio"; id: string }
-  | { kind: "terminal"; id: string; cwd?: string }
+  | { kind: 'studio'; id: string }
+  | { kind: 'terminal'; id: string; cwd?: string }
   | {
-    kind: "pull-request";
-    project: string;
-    number: number;
-    title?: string;
-    mode: "overview" | "changes";
-    instanceId?: string;
-  }
+      kind: 'pull-request';
+      project: string;
+      number: number;
+      title?: string;
+      mode: 'overview' | 'changes';
+      instanceId?: string;
+    }
   | {
-    kind: "diff";
-    project: string;
-    rel: string;
-    /** `session`: the file's slice of one session's review diff (the Session
-     *  Diff dock rows open here, in the same left diff column Source Control
-     *  uses); `hash` carries the session id. */
-    source: "staged" | "unstaged" | "commit" | "session";
-    hash?: string;
-    untracked?: boolean;
-  };
+      kind: 'diff';
+      project: string;
+      rel: string;
+      /** `session`: the file's slice of one session's review diff (the Session
+       *  Diff dock rows open here, in the same left diff column Source Control
+       *  uses); `hash` carries the session id. */
+      source: 'staged' | 'unstaged' | 'commit' | 'session';
+      hash?: string;
+      untracked?: boolean;
+    };
 
 export interface WorkspaceTab {
   key: string;
@@ -41,7 +41,7 @@ export interface WorkspaceTab {
 
 export function nextWorkspaceTabAfterClose(
   tabs: readonly WorkspaceTab[],
-  closingKey: string,
+  closingKey: string
 ): WorkspaceTab | undefined {
   const index = tabs.findIndex((tab) => tab.key === closingKey);
   if (index < 0) return undefined;

@@ -5,7 +5,11 @@ import { updateJsonAtomicSync } from './atomic-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
 export const ACCOUNT_PROVIDERS = Object.freeze([
-  'openai-oauth', 'anthropic-oauth', 'grok-oauth', 'cursor-oauth', 'antigravity-oauth',
+  'openai-oauth',
+  'anthropic-oauth',
+  'grok-oauth',
+  'cursor-oauth',
+  'antigravity-oauth',
 ]);
 const MAX_ACCOUNTS = 20;
 const file = () => join(resolvePluginData(), 'provider-accounts.json');
@@ -39,8 +43,9 @@ function validate(raw) {
 }
 
 function read() {
-  try { return validate(JSON.parse(readFileSync(file(), 'utf8'))); }
-  catch (error) {
+  try {
+    return validate(JSON.parse(readFileSync(file(), 'utf8')));
+  } catch (error) {
     if (error.code === 'ENOENT') return validate(null);
     throw error;
   }
@@ -74,24 +79,29 @@ function update(provider, mutate) {
   requireAccountProvider(provider);
   // Read failures must not be interpreted as an empty account roster.
   read();
-  const result = updateJsonAtomicSync(file(), (raw) => {
-    const state = validate(raw);
-    const pool = state.providers[provider] || { accounts: [], selectedId: null, auto: true };
-    mutate(pool);
-    state.providers[provider] = pool;
-    return validate(state);
-  }, { mode: 0o600, secret: true, fsyncDir: true });
+  const result = updateJsonAtomicSync(
+    file(),
+    (raw) => {
+      const state = validate(raw);
+      const pool = state.providers[provider] || { accounts: [], selectedId: null, auto: true };
+      mutate(pool);
+      state.providers[provider] = pool;
+      return validate(state);
+    },
+    { mode: 0o600, secret: true, fsyncDir: true }
+  );
   return normalizeLabels(result.providers[provider]);
 }
 
 export function providerAccountPath(provider, id) {
   requireAccountProvider(provider);
   requireAccountId(id);
-  return id === 'default' ? null
-    : join(resolvePluginData(), 'provider-accounts', provider, `${id}.json`);
+  return id === 'default' ? null : join(resolvePluginData(), 'provider-accounts', provider, `${id}.json`);
 }
 
-export function newProviderAccountId() { return randomUUID(); }
+export function newProviderAccountId() {
+  return randomUUID();
+}
 
 export function registerProviderAccount(provider, id, { label = '', includeDefault = false } = {}) {
   requireAccountId(id);
@@ -108,28 +118,43 @@ export function registerProviderAccount(provider, id, { label = '', includeDefau
 }
 
 export function changeProviderAccounts(provider, change) {
-  if (!change || typeof change !== 'object' || Array.isArray(change)
-    || Object.keys(change).some((key) => !['selectedId', 'order', 'auto', 'rename'].includes(key))) {
+  if (
+    !change ||
+    typeof change !== 'object' ||
+    Array.isArray(change) ||
+    Object.keys(change).some((key) => !['selectedId', 'order', 'auto', 'rename'].includes(key))
+  ) {
     throw new TypeError('Invalid provider account change.');
   }
   return update(provider, (pool) => {
     if (change.rename !== undefined) {
       const rename = change.rename;
-      if (!rename || typeof rename !== 'object' || typeof rename.label !== 'string'
-        || !rename.label.trim() || rename.label.length > 80) throw new TypeError('Invalid account name.');
+      if (
+        !rename ||
+        typeof rename !== 'object' ||
+        typeof rename.label !== 'string' ||
+        !rename.label.trim() ||
+        rename.label.length > 80
+      )
+        throw new TypeError('Invalid account name.');
       const account = pool.accounts.find((row) => row.id === rename.id);
       if (!account) throw new Error('Account is no longer connected.');
       account.label = rename.label.trim();
     }
     if (change.selectedId !== undefined) {
       requireAccountId(change.selectedId);
-      if (!pool.accounts.some((row) => row.id === change.selectedId)) throw new Error('Account is no longer connected.');
+      if (!pool.accounts.some((row) => row.id === change.selectedId))
+        throw new Error('Account is no longer connected.');
       pool.selectedId = change.selectedId;
     }
     if (change.order !== undefined) {
       const ids = pool.accounts.map((row) => row.id);
-      if (!Array.isArray(change.order) || change.order.length !== ids.length
-        || new Set(change.order).size !== ids.length || change.order.some((id) => !ids.includes(id))) {
+      if (
+        !Array.isArray(change.order) ||
+        change.order.length !== ids.length ||
+        new Set(change.order).size !== ids.length ||
+        change.order.some((id) => !ids.includes(id))
+      ) {
         throw new TypeError('Account order must contain every connected account exactly once.');
       }
       pool.accounts = change.order.map((id) => pool.accounts.find((row) => row.id === id));
@@ -177,8 +202,9 @@ export function blockProviderAccount(provider, id, until) {
 
 export function providerAccountExhausted(row, now = Date.now()) {
   if (row?.blockedUntil > now) return true;
-  return (row?.usage?.windows || []).some((window) =>
-    window.usedPct >= 100 && (window.resetAt ? window.resetAt > now : now - row.usage.checkedAt < 60_000));
+  return (row?.usage?.windows || []).some(
+    (window) => window.usedPct >= 100 && (window.resetAt ? window.resetAt > now : now - row.usage.checkedAt < 60_000)
+  );
 }
 
 export function chooseProviderAccount(pool, excluded = new Set(), now = Date.now()) {

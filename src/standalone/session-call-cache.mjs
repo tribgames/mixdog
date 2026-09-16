@@ -6,7 +6,10 @@ function estimateRetainedBytes(value, limit) {
   let result = 0;
   const finish = (bytes) => {
     stack.pop();
-    if (!stack.length) { result = bytes; return; }
+    if (!stack.length) {
+      result = bytes;
+      return;
+    }
     const parent = stack[stack.length - 1];
     parent.bytes += parent.overhead + bytes;
     parent.afterChild = true;
@@ -16,17 +19,28 @@ function estimateRetainedBytes(value, limit) {
     if (!frame.iterator) {
       const value = frame.value;
       const type = typeof value;
-      if (type === 'string') { finish(Math.min(frame.limit, value.length * 2 + 16)); continue; }
-      if (type === 'number' || type === 'bigint') { finish(8); continue; }
-      if (type === 'boolean' || value == null) { finish(4); continue; }
-      if (type !== 'object' || seen.has(value)) { finish(0); continue; }
+      if (type === 'string') {
+        finish(Math.min(frame.limit, value.length * 2 + 16));
+        continue;
+      }
+      if (type === 'number' || type === 'bigint') {
+        finish(8);
+        continue;
+      }
+      if (type === 'boolean' || value == null) {
+        finish(4);
+        continue;
+      }
+      if (type !== 'object' || seen.has(value)) {
+        finish(0);
+        continue;
+      }
       seen.add(value);
       frame.array = Array.isArray(value);
       frame.bytes = frame.array ? 32 : 64;
       frame.iterator = frame.array ? value.values() : Object.entries(value)[Symbol.iterator]();
     }
-    const next = frame.afterChild && frame.bytes >= frame.limit
-      ? { done: true } : frame.iterator.next();
+    const next = frame.afterChild && frame.bytes >= frame.limit ? { done: true } : frame.iterator.next();
     if (next.done) {
       seen.delete(frame.value);
       finish(Math.min(frame.limit, frame.bytes));
@@ -88,8 +102,8 @@ export function createSessionCallCache({
     if (records.size > maxEntries && at - pressureLoggedAt > 60_000) {
       pressureLoggedAt = at;
       log(
-        `session call dedup cache above its entry budget (${records.size}/${maxEntries});`
-        + ' every remaining entry is still inside its retry TTL',
+        `session call dedup cache above its entry budget (${records.size}/${maxEntries});` +
+          ' every remaining entry is still inside its retry TTL'
       );
     }
   }
@@ -97,31 +111,42 @@ export function createSessionCallCache({
   function track(key, promise, signature) {
     if (closed) return;
     const record = {
-      promise, signature, at: now(), settled: false, settledAt: 0,
-      resultDropped: false, bytes: 0, timer: null,
+      promise,
+      signature,
+      at: now(),
+      settled: false,
+      settledAt: 0,
+      resultDropped: false,
+      bytes: 0,
+      timer: null,
     };
     records.set(key, record);
     prune();
-    promise.then((result) => {
-      if (records.get(key) !== record || closed) return;
-      try {
-        record.bytes = estimateRetainedBytes(result, maxBytes + 1);
-        retainedBytes += record.bytes;
-      } catch {
-        // An unreadable result cannot be retained within a byte budget. Keep
-        // its mutation identity, without altering the original call outcome.
-        record.resultDropped = true;
-        record.promise = null;
-      }
-    }, () => {}).then(() => {
-      if (records.get(key) !== record || closed) return;
-      record.settled = true;
-      record.settledAt = now();
-      prune();
-      if (records.get(key) !== record) return;
-      record.timer = setTimer(() => remove(key, record), ttlMs);
-      record.timer.unref?.();
-    });
+    promise
+      .then(
+        (result) => {
+          if (records.get(key) !== record || closed) return;
+          try {
+            record.bytes = estimateRetainedBytes(result, maxBytes + 1);
+            retainedBytes += record.bytes;
+          } catch {
+            // An unreadable result cannot be retained within a byte budget. Keep
+            // its mutation identity, without altering the original call outcome.
+            record.resultDropped = true;
+            record.promise = null;
+          }
+        },
+        () => {}
+      )
+      .then(() => {
+        if (records.get(key) !== record || closed) return;
+        record.settled = true;
+        record.settledAt = now();
+        prune();
+        if (records.get(key) !== record) return;
+        record.timer = setTimer(() => remove(key, record), ttlMs);
+        record.timer.unref?.();
+      });
   }
 
   function close() {
@@ -133,7 +158,11 @@ export function createSessionCallCache({
     get: (key) => records.get(key),
     track,
     close,
-    get size() { return records.size; },
-    get bytes() { return retainedBytes; },
+    get size() {
+      return records.size;
+    },
+    get bytes() {
+      return retainedBytes;
+    },
   };
 }

@@ -3,8 +3,9 @@
 //   node scripts/dom-eval.mjs --port=9342 scripts/probes/pane-submit-probe.js
 (async () => {
   // The composer label is localized, so anchor on the pane chat surface.
-  const areas = [...document.querySelectorAll('textarea')]
-    .filter((element) => element.closest('.pane-chat-surface') && element.getClientRects().length > 0);
+  const areas = [...document.querySelectorAll('textarea')].filter(
+    (element) => element.closest('.pane-chat-surface') && element.getClientRects().length > 0
+  );
   const cellOf = (element) => element.closest('.pane-cell');
   const describe = (element) => {
     const cell = cellOf(element);
@@ -24,10 +25,10 @@
     return (tab?.textContent || leaf?.querySelector('[role="tab"]')?.textContent || '').trim();
   };
   const background = areas.filter((element) => !cellOf(element)?.className.includes('is-focused'));
-  const target = background.find((element) => activeTabText(element)
-      && !activeTabText(element).startsWith('New task'))
-    || background[0]
-    || areas[areas.length - 1];
+  const target =
+    background.find((element) => activeTabText(element) && !activeTabText(element).startsWith('New task')) ||
+    background[0] ||
+    areas[areas.length - 1];
   const text = `probe-${Date.now()}`;
   const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
   target.focus();
@@ -35,9 +36,16 @@
   target.dispatchEvent(new Event('input', { bubbles: true }));
   await new Promise((resolve) => setTimeout(resolve, 300));
   const beforeValue = target.value;
-  target.dispatchEvent(new KeyboardEvent('keydown', {
-    key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true,
-  }));
+  target.dispatchEvent(
+    new KeyboardEvent('keydown', {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+      cancelable: true,
+    })
+  );
   await new Promise((resolve) => setTimeout(resolve, 4000));
   const alerts = [...document.querySelectorAll('[role="alert"], .toast, .error-banner, .surface-error')]
     .map((node) => node.textContent?.trim())
@@ -56,4 +64,4 @@
     painted,
     alerts,
   };
-})()
+})();

@@ -14,26 +14,23 @@ export function mergeQueuedRestoreText(queuedText = '', currentText = '') {
  */
 export function mergeQueuedRestoreDraft(queuedText = '', currentDraft = {}) {
   const queued = String(queuedText ?? '');
-  const currentValue = typeof currentDraft === 'string'
-    ? currentDraft
-    : String(currentDraft?.value ?? '');
+  const currentValue = typeof currentDraft === 'string' ? currentDraft : String(currentDraft?.value ?? '');
   const includeQueued = Boolean(queued.trim());
   const includeCurrent = Boolean(currentValue.trim());
   const separator = includeQueued && includeCurrent ? '\n' : '';
   const value = `${includeQueued ? queued : ''}${separator}${includeCurrent ? currentValue : ''}`;
   const prefixLength = includeQueued ? queued.length + separator.length : 0;
-  const rawCursor = typeof currentDraft === 'object' && Number.isFinite(currentDraft?.cursor)
-    ? currentDraft.cursor
-    : currentValue.length;
-  const currentCursor = includeCurrent
-    ? Math.max(0, Math.min(currentValue.length, rawCursor))
-    : 0;
-  const rawAnchor = typeof currentDraft === 'object' && Number.isFinite(currentDraft?.selectionAnchor)
-    ? currentDraft.selectionAnchor
-    : null;
-  const selectionAnchor = includeCurrent && rawAnchor !== null
-    ? prefixLength + Math.max(0, Math.min(currentValue.length, rawAnchor))
-    : null;
+  const rawCursor =
+    typeof currentDraft === 'object' && Number.isFinite(currentDraft?.cursor)
+      ? currentDraft.cursor
+      : currentValue.length;
+  const currentCursor = includeCurrent ? Math.max(0, Math.min(currentValue.length, rawCursor)) : 0;
+  const rawAnchor =
+    typeof currentDraft === 'object' && Number.isFinite(currentDraft?.selectionAnchor)
+      ? currentDraft.selectionAnchor
+      : null;
+  const selectionAnchor =
+    includeCurrent && rawAnchor !== null ? prefixLength + Math.max(0, Math.min(currentValue.length, rawAnchor)) : null;
   return {
     value,
     cursor: prefixLength + currentCursor,
@@ -50,8 +47,8 @@ export function queuedRestoreProjection(entries = [], selectedId = '') {
   return {
     count: selected.length,
     ids: selected.map((entry) => String(entry?.id ?? '')).filter(Boolean),
-    text: selected.map((entry) =>
-      String(entry?.displayText ?? entry?.text ?? entry?.prompt ?? ''))
+    text: selected
+      .map((entry) => String(entry?.displayText ?? entry?.text ?? entry?.prompt ?? ''))
       .filter((text) => text.trim())
       .join('\n'),
   };
@@ -67,25 +64,19 @@ export function queuedRestorePrefix(queuedText = '', currentText = '') {
   return merged.slice(0, Math.max(0, merged.length - (current.trim() ? current.length : 0)));
 }
 
-export function replaceQueuedRestorePrefix(
-  optimisticPrefix = '',
-  authoritativePrefix = '',
-  currentDraft = {},
-) {
+export function replaceQueuedRestorePrefix(optimisticPrefix = '', authoritativePrefix = '', currentDraft = {}) {
   const optimistic = String(optimisticPrefix ?? '');
   const authoritative = String(authoritativePrefix ?? '');
-  const value = typeof currentDraft === 'string'
-    ? currentDraft
-    : String(currentDraft?.value ?? '');
+  const value = typeof currentDraft === 'string' ? currentDraft : String(currentDraft?.value ?? '');
   if (optimistic && !value.startsWith(optimistic)) {
     return {
       value,
-      cursor: typeof currentDraft === 'object' && Number.isFinite(currentDraft?.cursor)
-        ? currentDraft.cursor
-        : value.length,
-      selectionAnchor: typeof currentDraft === 'object' && Number.isFinite(currentDraft?.selectionAnchor)
-        ? currentDraft.selectionAnchor
-        : null,
+      cursor:
+        typeof currentDraft === 'object' && Number.isFinite(currentDraft?.cursor) ? currentDraft.cursor : value.length,
+      selectionAnchor:
+        typeof currentDraft === 'object' && Number.isFinite(currentDraft?.selectionAnchor)
+          ? currentDraft.selectionAnchor
+          : null,
       replaced: false,
     };
   }
@@ -96,13 +87,14 @@ export function replaceQueuedRestorePrefix(
       ? Math.min(authoritative.length, bounded)
       : bounded + authoritative.length - optimistic.length;
   };
-  const cursor = typeof currentDraft === 'object' && Number.isFinite(currentDraft?.cursor)
-    ? remap(currentDraft.cursor)
-    : nextValue.length;
-  const selectionAnchor = typeof currentDraft === 'object'
-    && Number.isFinite(currentDraft?.selectionAnchor)
-    ? remap(currentDraft.selectionAnchor)
-    : null;
+  const cursor =
+    typeof currentDraft === 'object' && Number.isFinite(currentDraft?.cursor)
+      ? remap(currentDraft.cursor)
+      : nextValue.length;
+  const selectionAnchor =
+    typeof currentDraft === 'object' && Number.isFinite(currentDraft?.selectionAnchor)
+      ? remap(currentDraft.selectionAnchor)
+      : null;
   return { value: nextValue, cursor, selectionAnchor, replaced: true };
 }
 

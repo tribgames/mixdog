@@ -24,11 +24,12 @@ export function classifyPromptEscape({
 
   const current = Number(now);
   const previous = Number(lastClearPressAt);
-  const repeated = Number.isFinite(current)
-    && Number.isFinite(previous)
-    && previous > 0
-    && current >= previous
-    && current - previous <= PROMPT_ESCAPE_CLEAR_WINDOW_MS;
+  const repeated =
+    Number.isFinite(current) &&
+    Number.isFinite(previous) &&
+    previous > 0 &&
+    current >= previous &&
+    current - previous <= PROMPT_ESCAPE_CLEAR_WINDOW_MS;
   const armed = Number.isFinite(current) && current > 0 ? current : 1;
 
   // With an empty draft, a double press opens the message selector so a
@@ -40,7 +41,5 @@ export function classifyPromptEscape({
       : { action: 'arm-select', nextClearPressAt: armed };
   }
 
-  return repeated
-    ? { action: 'clear', nextClearPressAt: 0 }
-    : { action: 'arm-clear', nextClearPressAt: armed };
+  return repeated ? { action: 'clear', nextClearPressAt: 0 } : { action: 'arm-clear', nextClearPressAt: armed };
 }

@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createCursorDiagnostics } from './cursor-diagnostics.ts';
 
-test('cursor diagnostics retain bounded counters, not input content, and coalesce writes', async t => {
+test('cursor diagnostics retain bounded counters, not input content, and coalesce writes', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const saved = [];
-  const diagnostics = createCursorDiagnostics(async value => saved.push(value));
+  const diagnostics = createCursorDiagnostics(async (value) => saved.push(value));
   for (let i = 0; i < 100; i++) diagnostics.record('received');
   diagnostics.record('private title with spaces');
   diagnostics.record('source_generated', 70);
@@ -18,7 +18,9 @@ test('cursor diagnostics retain bounded counters, not input content, and coalesc
 });
 
 test('diagnostic write failure cannot throw into input delivery', async () => {
-  const diagnostics = createCursorDiagnostics(async () => { throw new Error('disk unavailable'); });
+  const diagnostics = createCursorDiagnostics(async () => {
+    throw new Error('disk unavailable');
+  });
   diagnostics.record('render_failed');
   await assert.doesNotReject(diagnostics.flush());
   assert.equal(diagnostics.snapshot().counts.render_failed, 1);

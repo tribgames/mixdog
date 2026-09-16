@@ -21,21 +21,26 @@ export function createCursorDiagnostics(save: (value: object) => Promise<void>) 
       if (!(stage in counts) && Object.keys(counts).length >= 32) return;
       counts[stage] = Math.min(1_000_000, (counts[stage] || 0) + amount);
       if (!timer) {
-        timer = setTimeout(() => { void flush(); }, 500);
+        timer = setTimeout(() => {
+          void flush();
+        }, 500);
         timer.unref?.();
       }
     },
-    snapshot, flush,
+    snapshot,
+    flush,
   };
 }
 
 let path = '';
-const diagnostics = createCursorDiagnostics(async value => {
+const diagnostics = createCursorDiagnostics(async (value) => {
   if (!path) return;
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.tmp`;
   await writeFile(temporary, JSON.stringify(value), { mode: 0o600 });
   await rename(temporary, path);
 });
-export function configureCursorDiagnostics(filePath: string) { path = filePath; }
+export function configureCursorDiagnostics(filePath: string) {
+  path = filePath;
+}
 export const recordCursorDiagnostic = diagnostics.record;

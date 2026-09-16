@@ -1,15 +1,16 @@
 import { statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { listProjects } from '../../../../../standalone/projects.mjs';
-import {
-  explicitSessionCwd,
-  readLastSessionCwd,
-} from '../../../../shared/user-cwd.mjs';
+import { explicitSessionCwd, readLastSessionCwd } from '../../../../shared/user-cwd.mjs';
 import { listCachedCodeGraphRoots } from './disk-cache.mjs';
 import { _findDirProjectRoot } from './project-root.mjs';
 
 function isDirectory(path) {
-  try { return statSync(path).isDirectory(); } catch { return false; }
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 export function _isFilesystemRootPath(value) {
@@ -48,18 +49,18 @@ function _pathIsWithin(root, candidate) {
  * recent session selection, and cache manifests. Dependencies are injectable
  * to keep trust-source and Windows/Unix semantics tests hermetic.
  */
-export function collectTrustedCodeGraphRoots(filesystemRoot, {
-  registered = () => listProjects().map((entry) => entry.path),
-  selected = () => [
-    explicitSessionCwd(),
-    readLastSessionCwd(),
-  ],
-  cached = listCachedCodeGraphRoots,
-  directory = isDirectory,
-  // Selected paths are promoted to their nearest project root — but a home or
-  // temp sentinel must not widen a selected subfolder into the whole profile.
-  projectRoot = (dir) => _findDirProjectRoot(dir, { stopAtUserBoundary: true }),
-} = {}) {
+export function collectTrustedCodeGraphRoots(
+  filesystemRoot,
+  {
+    registered = () => listProjects().map((entry) => entry.path),
+    selected = () => [explicitSessionCwd(), readLastSessionCwd()],
+    cached = listCachedCodeGraphRoots,
+    directory = isDirectory,
+    // Selected paths are promoted to their nearest project root — but a home or
+    // temp sentinel must not widen a selected subfolder into the whole profile.
+    projectRoot = (dir) => _findDirProjectRoot(dir, { stopAtUserBoundary: true }),
+  } = {}
+) {
   const root = resolve(filesystemRoot);
   const rows = [
     ...registered().map((path) => ({ path, detect: false })),
@@ -70,7 +71,11 @@ export function collectTrustedCodeGraphRoots(filesystemRoot, {
   for (const row of rows) {
     if (!row.path) continue;
     let candidate;
-    try { candidate = resolve(row.path); } catch { continue; }
+    try {
+      candidate = resolve(row.path);
+    } catch {
+      continue;
+    }
     if (!directory(candidate) || _isFilesystemRootPath(candidate) || !_pathIsWithin(root, candidate)) continue;
     // A selected directory inside a sentinel project belongs to the nearest
     // project graph. Explicit registrations and cache keys remain exact roots

@@ -1,85 +1,92 @@
-import { recallReadQuery } from './memory-recall-read-query.mjs'
+import { recallReadQuery } from './memory-recall-read-query.mjs';
 
-import {
-  VALID_CATEGORY,
-  appendProjectScopeClause,
-} from './memory-recall-scope-filter.mjs'
-import { compareRecallNewestFirst } from './recall-order.mjs'
-import { RECALL_WINDOW_CAP } from './recall-limits.mjs'
+import { VALID_CATEGORY, appendProjectScopeClause } from './memory-recall-scope-filter.mjs';
+import { compareRecallNewestFirst } from './recall-order.mjs';
+import { RECALL_WINDOW_CAP } from './recall-limits.mjs';
 
-const VALID_STATUS_SET = new Set(['pending', 'active', 'archived'])
+const VALID_STATUS_SET = new Set(['pending', 'active', 'archived']);
 
 export async function retrieveEntries(db, filters = {}) {
-  const where = []
-  const params = []
+  const where = [];
+  const params = [];
 
   // is_root filter (default: true)
-  const isRoot = filters.is_root === undefined ? true : Boolean(filters.is_root)
-  where.push(`is_root = $${params.length + 1}`)
-  params.push(isRoot ? 1 : 0)
+  const isRoot = filters.is_root === undefined ? true : Boolean(filters.is_root);
+  where.push(`is_root = $${params.length + 1}`);
+  params.push(isRoot ? 1 : 0);
 
   if (filters.session_id != null) {
-    const sid = String(filters.session_id).trim()
-    if (sid) { where.push(`session_id = $${params.length + 1}`); params.push(sid) }
+    const sid = String(filters.session_id).trim();
+    if (sid) {
+      where.push(`session_id = $${params.length + 1}`);
+      params.push(sid);
+    }
   }
 
   // projectScope filter: 'common' → project_id IS NULL only;
   // specific slug → project_id IS NULL OR project_id = slug;
   // 'all' or undefined → no filter (full pool).
   if (typeof filters.projectScope === 'string') {
-    appendProjectScopeClause(where, params, filters.projectScope)
+    appendProjectScopeClause(where, params, filters.projectScope);
   }
 
-  const tsFrom = Number(filters.ts_from)
-  if (Number.isFinite(tsFrom)) { where.push(`ts >= $${params.length + 1}`); params.push(tsFrom) }
-  const tsTo = Number(filters.ts_to)
-  if (Number.isFinite(tsTo)) { where.push(`ts <= $${params.length + 1}`); params.push(tsTo) }
+  const tsFrom = Number(filters.ts_from);
+  if (Number.isFinite(tsFrom)) {
+    where.push(`ts >= $${params.length + 1}`);
+    params.push(tsFrom);
+  }
+  const tsTo = Number(filters.ts_to);
+  if (Number.isFinite(tsTo)) {
+    where.push(`ts <= $${params.length + 1}`);
+    params.push(tsTo);
+  }
 
   if (filters.category != null) {
     const cats = (Array.isArray(filters.category) ? filters.category : [filters.category])
-      .map(c => String(c).trim().toLowerCase())
-      .filter(c => VALID_CATEGORY.has(c))
+      .map((c) => String(c).trim().toLowerCase())
+      .filter((c) => VALID_CATEGORY.has(c));
     if (cats.length > 0) {
-      const ph = cats.map((_, i) => `$${params.length + 1 + i}`).join(',')
-      where.push(`category IN (${ph})`)
-      params.push(...cats)
+      const ph = cats.map((_, i) => `$${params.length + 1 + i}`).join(',');
+      where.push(`category IN (${ph})`);
+      params.push(...cats);
     }
   }
 
   if (filters.status != null) {
-    const statusVal = String(filters.status).trim().toLowerCase()
+    const statusVal = String(filters.status).trim().toLowerCase();
     if (VALID_STATUS_SET.has(statusVal)) {
-      where.push(`status = $${params.length + 1}`)
-      params.push(statusVal)
+      where.push(`status = $${params.length + 1}`);
+      params.push(statusVal);
     }
   }
 
   // R11 reviewer H2: exclude archived leakage in temporal augment paths.
   if (Array.isArray(filters.excludeStatuses) && filters.excludeStatuses.length > 0) {
     const exc = filters.excludeStatuses
-      .map(s => String(s).trim().toLowerCase())
-      .filter(s => VALID_STATUS_SET.has(s))
+      .map((s) => String(s).trim().toLowerCase())
+      .filter((s) => VALID_STATUS_SET.has(s));
     if (exc.length > 0) {
-      const ph = exc.map((_, i) => `$${params.length + 1 + i}`).join(',')
-      where.push(`(status IS NULL OR status NOT IN (${ph}))`)
-      params.push(...exc)
+      const ph = exc.map((_, i) => `$${params.length + 1 + i}`).join(',');
+      where.push(`(status IS NULL OR status NOT IN (${ph}))`);
+      params.push(...exc);
     }
   }
 
   // R11 reviewer M3: orphan raw chunks (chunk_root IS NULL) for narrow-window
   // raw merging — prevents classified-member chunks from duplicating their root.
   if (filters.chunkRootNull === true) {
-    where.push(`chunk_root IS NULL`)
+    where.push(`chunk_root IS NULL`);
   }
 
-  const limit = Math.max(1, Math.min(RECALL_WINDOW_CAP, Number(filters.limit ?? 50)))
-  const offset = Math.max(0, Number(filters.offset ?? 0))
-  const sort = String(filters.sort ?? 'importance').trim().toLowerCase()
-  const orderBy = sort === 'date'
-    ? 'ts DESC, source_turn DESC NULLS LAST, id DESC'
-    : 'score DESC NULLS LAST, ts DESC, id DESC'
+  const limit = Math.max(1, Math.min(RECALL_WINDOW_CAP, Number(filters.limit ?? 50)));
+  const offset = Math.max(0, Number(filters.offset ?? 0));
+  const sort = String(filters.sort ?? 'importance')
+    .trim()
+    .toLowerCase();
+  const orderBy =
+    sort === 'date' ? 'ts DESC, source_turn DESC NULLS LAST, id DESC' : 'score DESC NULLS LAST, ts DESC, id DESC';
 
-  params.push(limit, offset)
+  params.push(limit, offset);
   // Deduplicate the entire filtered domain before paging. NOT MATERIALIZED
   // lets PostgreSQL use the entry indexes for both sides without copying all
   // matching history into a temporary result or loading it into JavaScript.
@@ -99,28 +106,40 @@ export async function retrieveEntries(db, filters = {}) {
                       AND representative.project_id IS NOT DISTINCT FROM candidate.project_id
                   )
                ORDER BY ${orderBy}
-               LIMIT $${params.length - 1} OFFSET $${params.length}`
+               LIMIT $${params.length - 1} OFFSET $${params.length}`;
 
-  const rows = (await recallReadQuery(db, sql, params)).rows
-  if (sort === 'date') rows.sort(compareRecallNewestFirst)
+  const rows = (await recallReadQuery(db, sql, params)).rows;
+  if (sort === 'date') rows.sort(compareRecallNewestFirst);
 
   if (filters.includeMembers && rows.length > 0) {
-    const rootIds = rows.map(r => r.id)
-    const memRes = (await recallReadQuery(
-      db,
-      `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, project_id, chunk_root
+    const rootIds = rows.map((r) => r.id);
+    const memRes = (
+      await recallReadQuery(
+        db,
+        `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, project_id, chunk_root
        FROM entries WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
        ORDER BY chunk_root, ts ASC, id ASC`,
-      [rootIds],
-    )).rows
-    const byRoot = new Map()
+        [rootIds]
+      )
+    ).rows;
+    const byRoot = new Map();
     for (const m of memRes) {
-      const rid = Number(m.chunk_root)
-      if (!byRoot.has(rid)) byRoot.set(rid, [])
-      byRoot.get(rid).push({ id: m.id, ts: m.ts, role: m.role, content: m.content, source_ref: m.source_ref, session_id: m.session_id, source_turn: m.source_turn, time_source: m.time_source, project_id: m.project_id })
+      const rid = Number(m.chunk_root);
+      if (!byRoot.has(rid)) byRoot.set(rid, []);
+      byRoot.get(rid).push({
+        id: m.id,
+        ts: m.ts,
+        role: m.role,
+        content: m.content,
+        source_ref: m.source_ref,
+        session_id: m.session_id,
+        source_turn: m.source_turn,
+        time_source: m.time_source,
+        project_id: m.project_id,
+      });
     }
-    for (const r of rows) r.members = byRoot.get(Number(r.id)) || []
+    for (const r of rows) r.members = byRoot.get(Number(r.id)) || [];
   }
 
-  return rows
+  return rows;
 }

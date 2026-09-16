@@ -1,54 +1,46 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DesktopModelOption, DesktopModelSelection, SessionSnapshot } from "../shared/contract";
-import {
-  beginBootSurface,
-  reportBootSurfaceReady,
-  reportBootSurfaceStage,
-} from "./boot-metrics";
-import { routePreferenceStore } from "./app-route-preference";
-import { useModelSelection } from "./use-model-selection";
-import { type RecordValue } from "./desktop-types";
-import { t } from "./i18n";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { DesktopModelOption, DesktopModelSelection, SessionSnapshot } from '../shared/contract';
+import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
+import { routePreferenceStore } from './app-route-preference';
+import { useModelSelection } from './use-model-selection';
+import type { RecordValue } from './desktop-types';
+import { t } from './i18n';
 import {
   SHARED_MODEL_CATALOG_MAX_AGE_MS,
   readCachedModelCatalog,
   requestModelCatalog,
   subscribeModelCatalogInvalidation,
-} from "./model-catalog-cache";
-import { preferredModelParameters } from "./model-route-utils";
-import { RouteEditor } from "./RouteEditor";
-import { OpenSelect } from "./OpenSelect";
-import { InitialSurface } from "./InitialSurface";
-import {
-  modelContextWindow,
-  modelDisplayName,
-  modelFastAvailable,
-  modelMaxContextWindow,
-} from "./provider-display";
-import { shouldShowFastControl } from "./renderer-logic.mjs";
-import { type SettingsSection } from "./slash-commands";
-import { asRecord } from "./text-format";
+} from './model-catalog-cache';
+import { preferredModelParameters } from './model-route-utils';
+import { RouteEditor } from './RouteEditor';
+import { OpenSelect } from './OpenSelect';
+import { InitialSurface } from './InitialSurface';
+import { modelContextWindow, modelDisplayName, modelFastAvailable, modelMaxContextWindow } from './provider-display';
+import { shouldShowFastControl } from './renderer-logic.mjs';
+import type { SettingsSection } from './slash-commands';
+import { asRecord } from './text-format';
 
-// @ts-ignore -- shared TUI source has no declaration file.
-import { normalizeModelOptions as normalizeTuiModelOptions } from "../../../../src/tui/app/model-options.mjs";
+// @ts-expect-error -- shared TUI source has no declaration file.
+import { normalizeModelOptions as normalizeTuiModelOptions } from '../../../../src/tui/app/model-options.mjs';
 
-export function providerSetupEntries(value: unknown): Array<RecordValue & { group: "api" | "oauth" | "local" }> {
+export function providerSetupEntries(value: unknown): Array<RecordValue & { group: 'api' | 'oauth' | 'local' }> {
   const setup = asRecord(value);
-  return (["api", "oauth", "local"] as const).flatMap((group) => {
+  return (['api', 'oauth', 'local'] as const).flatMap((group) => {
     const rows = setup?.[group];
-    return Array.isArray(rows) ? rows.map(asRecord)
-      .filter((row): row is RecordValue => Boolean(row))
-      .map((row) => ({ ...row, group } as RecordValue & { group: typeof group })) : [];
+    return Array.isArray(rows)
+      ? rows
+          .map(asRecord)
+          .filter((row): row is RecordValue => Boolean(row))
+          .map((row) => ({ ...row, group }) as RecordValue & { group: typeof group })
+      : [];
   });
 }
 
 export function providerSetupState(value: unknown, provider: string) {
-  const entry = providerSetupEntries(value)
-    .find((row) => String(row.id || row.provider || "") === provider);
+  const entry = providerSetupEntries(value).find((row) => String(row.id || row.provider || '') === provider);
   if (!entry) return { known: false, configured: false };
-  const configured = entry.group === "local"
-    ? entry.detected === true && entry.enabled === true
-    : entry.authenticated === true;
+  const configured =
+    entry.group === 'local' ? entry.detected === true && entry.enabled === true : entry.authenticated === true;
   return {
     known: true,
     configured,
@@ -63,7 +55,11 @@ export let workflowOptionsCache: { at: number; options: WorkflowOption[] } | nul
 // remaining TTL window.
 // Model-style trigger for changing the active session workflow.
 export const WorkflowSelect = memo(function WorkflowSelect({
-  workflow, disabled, invokeResult, applySnapshot, onDraftChange,
+  workflow,
+  disabled,
+  invokeResult,
+  applySnapshot,
+  onDraftChange,
 }: {
   workflow?: RecordValue | null;
   disabled: boolean;
@@ -71,21 +67,19 @@ export const WorkflowSelect = memo(function WorkflowSelect({
   applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onDraftChange?: (workflow: { id: string; name: string }) => void;
 }) {
-  const [options, setOptions] = useState<WorkflowOption[]>(
-    workflowOptionsCache?.options || [],
-  );
+  const [options, setOptions] = useState<WorkflowOption[]>(workflowOptionsCache?.options || []);
   const [optionsSettled, setOptionsSettled] = useState(Boolean(workflowOptionsCache));
   const [switching, setSwitching] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const switchGuard = useRef(false);
-  beginBootSurface("workflow-controls", "catalog");
+  beginBootSurface('workflow-controls', 'catalog');
   const workflowReady = optionsSettled || Boolean(workflow?.id);
   // A known inherited label can paint immediately. An unknown cold catalog
   // reserves the control instead of adding it to an already visible row.
   useEffect(() => {
-    reportBootSurfaceStage("workflow-controls", "catalog", "module");
+    reportBootSurfaceStage('workflow-controls', 'catalog', 'module');
     if (!workflowReady) return;
-    reportBootSurfaceReady("workflow-controls", "catalog", "shell");
+    reportBootSurfaceReady('workflow-controls', 'catalog', 'shell');
   }, [workflowReady]);
   useEffect(() => {
     if (workflowOptionsCache && Date.now() - workflowOptionsCache.at < 300_000) {
@@ -117,7 +111,9 @@ export const WorkflowSelect = memo(function WorkflowSelect({
         if (!cancelled) setOptionsSettled(true);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [reloadNonce]);
   // On a phone the first read can land before the relay leg is up, and an
   // empty result was final: the picker settled to nothing and REMOVED itself
@@ -139,7 +135,7 @@ export const WorkflowSelect = memo(function WorkflowSelect({
   }, []);
   useEffect(() => {
     if (!optionsSettled) return;
-    reportBootSurfaceStage("workflow-controls", "catalog", "data");
+    reportBootSurfaceStage('workflow-controls', 'catalog', 'data');
   }, [optionsSettled]);
   // A fresh desktop draft intentionally has no workflow override: the engine
   // will use its configured active workflow. Preserve listWorkflows.active so
@@ -160,10 +156,12 @@ export const WorkflowSelect = memo(function WorkflowSelect({
     switchGuard.current = true;
     setSwitching(true);
     try {
-      const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<string>({
-        capability: 'setWorkflow',
-        args: [id],
-      }));
+      const result = await invokeResult(() =>
+        window.mixdogDesktop.invokeCapability<string>({
+          capability: 'setWorkflow',
+          args: [id],
+        })
+      );
       if (result !== undefined) applySnapshot(result.snapshot);
     } finally {
       switchGuard.current = false;
@@ -171,41 +169,61 @@ export const WorkflowSelect = memo(function WorkflowSelect({
     }
   };
   if (options.length === 0 && !workflow?.id) {
-    return optionsSettled ? null : <div className="composer-route-workflow">
-      <InitialSurface variant="control" />
-    </div>;
+    return optionsSettled ? null : (
+      <div className="composer-route-workflow">
+        <InitialSurface variant="control" />
+      </div>
+    );
   }
-  const displayOptions = options.length ? options : [{
-    value: String(workflow?.id), label: String(workflow?.name || workflow?.id),
-  }];
-  return <div className="composer-route-workflow">
-    <OpenSelect variant="route" className="workflow-context-select"
-      ariaLabel="Workflow" disabled={disabled || switching || !optionsSettled}
-      value={selectedId}
-      displayValue={String(workflow?.name || selected?.label || selectedId)}
-      onChange={(value) => void changeWorkflow(value)}
-      options={displayOptions} />
-  </div>;
+  const displayOptions = options.length
+    ? options
+    : [
+        {
+          value: String(workflow?.id),
+          label: String(workflow?.name || workflow?.id),
+        },
+      ];
+  return (
+    <div className="composer-route-workflow">
+      <OpenSelect
+        variant="route"
+        className="workflow-context-select"
+        ariaLabel="Workflow"
+        disabled={disabled || switching || !optionsSettled}
+        value={selectedId}
+        displayValue={String(workflow?.name || selected?.label || selectedId)}
+        onChange={(value) => void changeWorkflow(value)}
+        options={displayOptions}
+      />
+    </div>
+  );
 });
 
 /** The context slider owns the window whenever it is available, so a
  *  provider's own context-window parameter (Cursor 272K/1M) never travels with
  *  a route: Cursor derives its variant from selectedContextWindow, and a stale
  *  272k parameter alongside a raised window has no valid max-mode variant. */
-function routeModelParameters(
-  parameters: Record<string, string>,
-  maxContextWindow: number,
-): Record<string, string> {
+function routeModelParameters(parameters: Record<string, string>, maxContextWindow: number): Record<string, string> {
   if (!(maxContextWindow > 0)) return parameters;
   return Object.fromEntries(Object.entries(parameters).filter(([id]) => id !== 'context'));
 }
 
 export const ModelSelector = memo(function ModelSelector({
-  provider: sourceProvider, model: sourceModel, effort: sourceEffort, fast: sourceFast,
-  fastCapable: sourceFastCapable, modelParameters: sourceModelParameters,
-  contextPercent: sourceContextPercent, modelDisabled, tuningDisabled,
-  invokeResult, applySnapshot, onOpenSettings, onDraftSelection,
-  onRoutePreferenceApplied, sessionId,
+  provider: sourceProvider,
+  model: sourceModel,
+  effort: sourceEffort,
+  fast: sourceFast,
+  fastCapable: sourceFastCapable,
+  modelParameters: sourceModelParameters,
+  contextPercent: sourceContextPercent,
+  modelDisabled,
+  tuningDisabled,
+  invokeResult,
+  applySnapshot,
+  onOpenSettings,
+  onDraftSelection,
+  onRoutePreferenceApplied,
+  sessionId,
 }: {
   provider: string;
   model: string;
@@ -228,14 +246,12 @@ export const ModelSelector = memo(function ModelSelector({
   const [cachedCatalog] = useState(readCachedModelCatalog);
   const [models, setModels] = useState<DesktopModelOption[]>(cachedCatalog.models);
   const [providerSetup, setProviderSetup] = useState<unknown>(null);
-  const [catalogError, setCatalogError] = useState("");
-  const [providerSetupError, setProviderSetupError] = useState("");
+  const [catalogError, setCatalogError] = useState('');
+  const [providerSetupError, setProviderSetupError] = useState('');
   const [catalogLoaded, setCatalogLoaded] = useState(cachedCatalog.models.length > 0);
-  const [startupCatalogSettled, setStartupCatalogSettled] = useState(
-    cachedCatalog.models.length > 0,
-  );
+  const [startupCatalogSettled, setStartupCatalogSettled] = useState(cachedCatalog.models.length > 0);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
-  const { selection, begin, settle } = useModelSelection(sessionId || "", {
+  const { selection, begin, settle } = useModelSelection(sessionId || '', {
     provider: sourceProvider,
     model: sourceModel,
     effort: sourceEffort,
@@ -243,14 +259,14 @@ export const ModelSelector = memo(function ModelSelector({
     modelParameters: sourceModelParameters,
     contextPercent: sourceContextPercent,
   });
-  const { provider, model, effort = "", fast = false, modelParameters, contextPercent } = selection;
+  const { provider, model, effort = '', fast = false, modelParameters, contextPercent } = selection;
   const catalogInFlight = useRef<Promise<void> | null>(null);
   // Newest request wins. An older reply may land after a newer choice, so only
   // the current token may publish its snapshot; useModelSelection already
   // ignores a stale settle.
   const latestRouteToken = useRef(0);
-  const modelBootKey = `${provider || "none"}:${model || "none"}`;
-  beginBootSurface("model-controls", modelBootKey);
+  const modelBootKey = `${provider || 'none'}:${model || 'none'}`;
+  beginBootSurface('model-controls', modelBootKey);
   // An in-flight write no longer locks the controls. The selection is previewed
   // locally the moment it is clicked, so disabling the picker until the runtime
   // replied only made it look frozen — and swallowed the next click.
@@ -263,119 +279,123 @@ export const ModelSelector = memo(function ModelSelector({
       if (option?.provider && option?.model) unique.set(`${option.provider}:${option.model}`, option);
     }
     const normalized = normalizeTuiModelOptions(
-      [...unique.values()].map((option) => ({ ...option, id: option.model })),
+      [...unique.values()].map((option) => ({ ...option, id: option.model }))
     ) as Array<DesktopModelOption & { id?: string }>;
     return normalized.map((entry) => {
       const { id: _id, ...option } = entry;
       return option as DesktopModelOption;
     });
   }, [models]);
-  const selected = catalogModels.find((option) =>
-    option.provider === provider && option.model === model);
+  const selected = catalogModels.find((option) => option.provider === provider && option.model === model);
   // The picker list is trimmed (family limits) and starts empty on a cold
   // catalog, so a perfectly valid route — a schedule/webhook session opened
   // right after it ran — could not be named from it (user: 세션 생성 시 쓴
   // 모델이 그대로 표기되게). The RAW catalog answers those cases.
-  const known = selected || models.find((option) =>
-    option.provider === provider && option.model === model);
+  const known = selected || models.find((option) => option.provider === provider && option.model === model);
   const awaitingRoute = !known && !startupCatalogSettled;
   useEffect(() => {
-    reportBootSurfaceStage("model-controls", modelBootKey, "module");
-    if (!awaitingRoute) reportBootSurfaceReady("model-controls", modelBootKey, "shell");
+    reportBootSurfaceStage('model-controls', modelBootKey, 'module');
+    if (!awaitingRoute) reportBootSurfaceReady('model-controls', modelBootKey, 'shell');
   }, [awaitingRoute, modelBootKey]);
   const fastCapable = known?.fastCapable ?? sourceFastCapable;
   const selectedModelParameters = preferredModelParameters(known, modelParameters || {});
   const defaultContextWindow = known ? modelContextWindow(known) : 0;
   const maxContextWindow = known ? modelMaxContextWindow(known) : 0;
-  const contextDefaultPercent = maxContextWindow > 0
-    ? Math.max(10, Math.min(100, Math.round((defaultContextWindow / maxContextWindow) * 10) * 10))
-    : 100;
-  const normalizedContextPercent = Math.max(10, Math.min(100,
-    Math.round((Number(contextPercent) || Number(known?.savedContextPercent) || contextDefaultPercent) / 10) * 10));
-  const contextTokens = normalizedContextPercent === contextDefaultPercent
-    ? defaultContextWindow
-    : Math.floor(maxContextWindow * normalizedContextPercent / 100);
+  const contextDefaultPercent =
+    maxContextWindow > 0
+      ? Math.max(10, Math.min(100, Math.round((defaultContextWindow / maxContextWindow) * 10) * 10))
+      : 100;
+  const normalizedContextPercent = Math.max(
+    10,
+    Math.min(
+      100,
+      Math.round((Number(contextPercent) || Number(known?.savedContextPercent) || contextDefaultPercent) / 10) * 10
+    )
+  );
+  const contextTokens =
+    normalizedContextPercent === contextDefaultPercent
+      ? defaultContextWindow
+      : Math.floor((maxContextWindow * normalizedContextPercent) / 100);
   const routedModelParameters = routeModelParameters(selectedModelParameters, maxContextWindow);
   const fastControlVisible = shouldShowFastControl(fastCapable, known?.fastCapable);
-  const fastAvailable = fastControlVisible
-    && modelFastAvailable(known, effort, selectedModelParameters);
+  const fastAvailable = fastControlVisible && modelFastAvailable(known, effort, selectedModelParameters);
   const selectableModels = useMemo(() => {
     if (providerSetup == null || providerSetupError) return catalogModels;
     return catalogModels.filter((option) => providerSetupState(providerSetup, option.provider).configured);
   }, [catalogModels, providerSetup, providerSetupError]);
   // A route the loaded catalog does not know at all stays "Select model": an
   // unknown/retired persisted id must never read as a selectable model.
-  const triggerModel = known
-    ? modelDisplayName(known.model, known.provider, known.display || "")
-    : t("Select model");
+  const triggerModel = known ? modelDisplayName(known.model, known.provider, known.display || '') : t('Select model');
 
-  const loadCatalog = useCallback(async (force = false) => {
-    if (!force && catalogInFlight.current) return catalogInFlight.current;
-    const api = window.mixdogDesktop;
-    if (!api?.listProviderModels) {
-      setCatalogLoaded(true);
-      setStartupCatalogSettled(true);
-      return;
-    }
-    const request = (async () => {
-      setCatalogRefreshing(true);
-      setCatalogError("");
-      setProviderSetupError("");
-      const shared = requestModelCatalog(api);
-      const setupRequest = shared.setup
-        .then((setup) => { if (shared.isCurrent()) setProviderSetup(setup); })
-        .catch((reason) => {
-          if (!shared.isCurrent()) return;
-          console.warn("[model-catalog] provider setup refresh failed", reason);
-          setProviderSetupError("unavailable");
-        });
-      const fullRequest = shared.full
-        .then((full) => {
-          if (!shared.isCurrent() || !Array.isArray(full)) return;
-          setModels(full);
-          setCatalogError("");
-        })
-        .catch((reason) => {
-          if (!shared.isCurrent()) return;
-          // The quick or persisted catalog stays usable. A background refresh
-          // failure must not become a boot-time error surface.
-          console.warn("[model-catalog] full catalog refresh failed", reason);
-        })
-        .finally(() => {
-          if (!shared.isCurrent()) return;
-          setCatalogRefreshing(false);
-          setStartupCatalogSettled(true);
-        });
-      try {
-        const quick = await shared.quick;
-        if (shared.isCurrent() && Array.isArray(quick) && quick.length > 0) {
-          setModels((current) => {
-            const merged = new Map(current.map((option) => [
-              `${option.provider}:${option.model}`,
-              option,
-            ]));
-            for (const option of quick) {
-              merged.set(`${option.provider}:${option.model}`, option);
-            }
-            return [...merged.values()];
-          });
-        }
-      } catch (reason) {
-        if (!shared.isCurrent()) return;
-        console.warn("[model-catalog] quick catalog refresh failed", reason);
-        setCatalogError(reason instanceof Error ? reason.message : String(reason || "Model catalog failed."));
-      } finally {
-        if (shared.isCurrent()) {
-          setCatalogLoaded(true);
-        }
+  const loadCatalog = useCallback(
+    async (force = false) => {
+      if (!force && catalogInFlight.current) return catalogInFlight.current;
+      const api = window.mixdogDesktop;
+      if (!api?.listProviderModels) {
+        setCatalogLoaded(true);
+        setStartupCatalogSettled(true);
+        return;
       }
-      void Promise.allSettled([fullRequest, setupRequest]);
-    })().finally(() => {
-      if (catalogInFlight.current === request) catalogInFlight.current = null;
-    });
-    catalogInFlight.current = request;
-    return request;
-  }, [invokeResult]);
+      const request = (async () => {
+        setCatalogRefreshing(true);
+        setCatalogError('');
+        setProviderSetupError('');
+        const shared = requestModelCatalog(api);
+        const setupRequest = shared.setup
+          .then((setup) => {
+            if (shared.isCurrent()) setProviderSetup(setup);
+          })
+          .catch((reason) => {
+            if (!shared.isCurrent()) return;
+            console.warn('[model-catalog] provider setup refresh failed', reason);
+            setProviderSetupError('unavailable');
+          });
+        const fullRequest = shared.full
+          .then((full) => {
+            if (!shared.isCurrent() || !Array.isArray(full)) return;
+            setModels(full);
+            setCatalogError('');
+          })
+          .catch((reason) => {
+            if (!shared.isCurrent()) return;
+            // The quick or persisted catalog stays usable. A background refresh
+            // failure must not become a boot-time error surface.
+            console.warn('[model-catalog] full catalog refresh failed', reason);
+          })
+          .finally(() => {
+            if (!shared.isCurrent()) return;
+            setCatalogRefreshing(false);
+            setStartupCatalogSettled(true);
+          });
+        try {
+          const quick = await shared.quick;
+          if (shared.isCurrent() && Array.isArray(quick) && quick.length > 0) {
+            setModels((current) => {
+              const merged = new Map(current.map((option) => [`${option.provider}:${option.model}`, option]));
+              for (const option of quick) {
+                merged.set(`${option.provider}:${option.model}`, option);
+              }
+              return [...merged.values()];
+            });
+          }
+        } catch (reason) {
+          if (!shared.isCurrent()) return;
+          console.warn('[model-catalog] quick catalog refresh failed', reason);
+          setCatalogError(reason instanceof Error ? reason.message : String(reason || 'Model catalog failed.'));
+        } finally {
+          if (shared.isCurrent()) {
+            setCatalogLoaded(true);
+          }
+        }
+        void Promise.allSettled([fullRequest, setupRequest]);
+      })().finally(() => {
+        if (catalogInFlight.current === request) catalogInFlight.current = null;
+      });
+      catalogInFlight.current = request;
+      return request;
+    },
+    [invokeResult]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -397,13 +417,17 @@ export const ModelSelector = memo(function ModelSelector({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => subscribeModelCatalogInvalidation(() => {
-    void loadCatalog(true);
-  }), [loadCatalog]);
+  useEffect(
+    () =>
+      subscribeModelCatalogInvalidation(() => {
+        void loadCatalog(true);
+      }),
+    [loadCatalog]
+  );
 
   useEffect(() => {
     if (model && !startupCatalogSettled) return;
-    reportBootSurfaceStage("model-controls", modelBootKey, "data");
+    reportBootSurfaceStage('model-controls', modelBootKey, 'data');
   }, [model, modelBootKey, startupCatalogSettled]);
 
   const route = async (selection: DesktopModelSelection) => {
@@ -416,9 +440,7 @@ export const ModelSelector = memo(function ModelSelector({
     latestRouteToken.current = token;
     let applied = false;
     try {
-      const next = await invokeResult(
-        () => window.mixdogDesktop.setModelRoute(selection, sessionId),
-      );
+      const next = await invokeResult(() => window.mixdogDesktop.setModelRoute(selection, sessionId));
       if (next) {
         applied = next.provider === selection.provider && next.model === selection.model;
         settle(token, next);
@@ -436,37 +458,41 @@ export const ModelSelector = memo(function ModelSelector({
     const values = option.effortOptions.map((entry) => entry.value);
     const sameModel = option.provider === provider && option.model === model;
     const remembered = routePreferenceStore.get(option.provider, option.model);
-    const nextEffort = sameModel && effort && values.includes(effort)
-      ? effort
-      : remembered?.effort && values.includes(remembered.effort)
-        ? remembered.effort
-      : option.savedEffort && values.includes(option.savedEffort)
-        ? option.savedEffort
-        : ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra'].find((value) => values.includes(value)) || values[0];
+    const nextEffort =
+      sameModel && effort && values.includes(effort)
+        ? effort
+        : remembered?.effort && values.includes(remembered.effort)
+          ? remembered.effort
+          : option.savedEffort && values.includes(option.savedEffort)
+            ? option.savedEffort
+            : ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra'].find((value) => values.includes(value)) ||
+              values[0];
     const requestedFast = option.fastCapable
       ? sameModel
         ? displayedFast
         : typeof remembered?.fast === 'boolean'
           ? remembered.fast
-        : typeof option.savedFast === 'boolean'
-          ? option.savedFast
-          : option.fastPreferred
+          : typeof option.savedFast === 'boolean'
+            ? option.savedFast
+            : option.fastPreferred
       : undefined;
     const nextModelParameters = preferredModelParameters(
       option,
-      sameModel ? selectedModelParameters : remembered?.modelParameters || {},
+      sameModel ? selectedModelParameters : remembered?.modelParameters || {}
     );
     const optionDefaultWindow = modelContextWindow(option);
     const optionMaxWindow = modelMaxContextWindow(option);
-    const optionDefaultPercent = optionMaxWindow > 0
-      ? Math.max(10, Math.min(100, Math.round((optionDefaultWindow / optionMaxWindow) * 10) * 10))
-      : 100;
+    const optionDefaultPercent =
+      optionMaxWindow > 0
+        ? Math.max(10, Math.min(100, Math.round((optionDefaultWindow / optionMaxWindow) * 10) * 10))
+        : 100;
     const nextContextPercent = sameModel
       ? normalizedContextPercent
       : Number(remembered?.contextPercent) || Number(option.savedContextPercent) || optionDefaultPercent;
-    const nextFast = requestedFast === undefined
-      ? undefined
-      : modelFastAvailable(option, nextEffort, nextModelParameters) && requestedFast;
+    const nextFast =
+      requestedFast === undefined
+        ? undefined
+        : modelFastAvailable(option, nextEffort, nextModelParameters) && requestedFast;
     return route({
       provider: option.provider,
       model: option.model,
@@ -540,17 +566,21 @@ export const ModelSelector = memo(function ModelSelector({
       return;
     }
     const token = begin({
-      provider, model, effort,
+      provider,
+      model,
+      effort,
       ...(nextFast === undefined ? {} : { fast: nextFast }),
     });
     latestRouteToken.current = token;
     let accepted = false;
     try {
-      const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<string | false>({
-        capability: 'setEffort',
-        args: [effort],
-        ...(sessionId ? { sessionId } : {}),
-      }));
+      const result = await invokeResult(() =>
+        window.mixdogDesktop.invokeCapability<string | false>({
+          capability: 'setEffort',
+          args: [effort],
+          ...(sessionId ? { sessionId } : {}),
+        })
+      );
       if (result !== undefined && result.value !== false) {
         settle(token, result.snapshot);
         accepted = true;
@@ -598,32 +628,49 @@ export const ModelSelector = memo(function ModelSelector({
     });
   };
 
-  if (awaitingRoute) return <div className="route-controls">
-    <InitialSurface variant="control" />
-  </div>;
-  return <div className="route-controls">
-    <RouteEditor models={selectableModels} provider={provider} model={model}
-      triggerModel={triggerModel} effort={effort}
-      effortOptions={known?.effortOptions || []}
-      fast={displayedFast} fastVisible={fastControlVisible} fastAvailable={fastAvailable}
-      contextVisible={maxContextWindow > 0}
-      contextPercent={normalizedContextPercent}
-      contextDefaultPercent={contextDefaultPercent}
-      contextTokens={contextTokens}
-      contextMaxTokens={maxContextWindow}
-      contextDefaultTokens={defaultContextWindow}
-      modelParameterOptions={known?.modelParameterOptions || []}
-      modelParameters={selectedModelParameters}
-      catalogLoaded={catalogLoaded} catalogRefreshing={catalogRefreshing}
-      catalogError={catalogError} providerSetupError={providerSetupError}
-      modelDisabled={modelUnavailable} tuningDisabled={tuningUnavailable}
-      tooltip={catalogLoaded && selectableModels.length === 0 ? t("Add a provider to load models") : t("Choose model")}
-      onSelectModel={chooseModel}
-      onChangeEffort={(value) => void changeEffort(value)}
-      onChangeFast={(enabled) => void changeFast(enabled)}
-      onChangeContext={(value) => void changeContext(value)}
-      onChangeModelParameter={(id, value) => void changeModelParameter(id, value)}
-      onOpenProviders={() => onOpenSettings("providers")}
-      onOpenModelPane={() => void loadCatalog()} />
-  </div>;
+  if (awaitingRoute)
+    return (
+      <div className="route-controls">
+        <InitialSurface variant="control" />
+      </div>
+    );
+  return (
+    <div className="route-controls">
+      <RouteEditor
+        models={selectableModels}
+        provider={provider}
+        model={model}
+        triggerModel={triggerModel}
+        effort={effort}
+        effortOptions={known?.effortOptions || []}
+        fast={displayedFast}
+        fastVisible={fastControlVisible}
+        fastAvailable={fastAvailable}
+        contextVisible={maxContextWindow > 0}
+        contextPercent={normalizedContextPercent}
+        contextDefaultPercent={contextDefaultPercent}
+        contextTokens={contextTokens}
+        contextMaxTokens={maxContextWindow}
+        contextDefaultTokens={defaultContextWindow}
+        modelParameterOptions={known?.modelParameterOptions || []}
+        modelParameters={selectedModelParameters}
+        catalogLoaded={catalogLoaded}
+        catalogRefreshing={catalogRefreshing}
+        catalogError={catalogError}
+        providerSetupError={providerSetupError}
+        modelDisabled={modelUnavailable}
+        tuningDisabled={tuningUnavailable}
+        tooltip={
+          catalogLoaded && selectableModels.length === 0 ? t('Add a provider to load models') : t('Choose model')
+        }
+        onSelectModel={chooseModel}
+        onChangeEffort={(value) => void changeEffort(value)}
+        onChangeFast={(enabled) => void changeFast(enabled)}
+        onChangeContext={(value) => void changeContext(value)}
+        onChangeModelParameter={(id, value) => void changeModelParameter(id, value)}
+        onOpenProviders={() => onOpenSettings('providers')}
+        onOpenModelPane={() => void loadCatalog()}
+      />
+    </div>
+  );
 });

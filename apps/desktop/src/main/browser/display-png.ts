@@ -54,7 +54,7 @@ export async function encodeBrowserDisplayPng(image: NativeImage): Promise<Buffe
   // wide-gamut bitmap as sRGB. No pixel or geometry comes from this sample.
   const profile = image.crop({ x: 0, y: 0, width: 1, height: 1 }).toPNG({ scaleFactor });
   const metadata: Buffer[] = [];
-  for (let offset = 8; offset + 12 <= profile.length;) {
+  for (let offset = 8; offset + 12 <= profile.length; ) {
     const end = offset + 12 + profile.readUInt32BE(offset);
     if (end > profile.length) throw new Error('Browser display colour profile is invalid.');
     if (colorChunks.has(profile.toString('ascii', offset + 4, offset + 8))) {
@@ -68,5 +68,11 @@ export async function encodeBrowserDisplayPng(image: NativeImage): Promise<Buffe
   header[8] = 8;
   header[9] = 6; // 8-bit RGBA, non-interlaced.
   const pixels = await compress(rows, { level: 1 });
-  return Buffer.concat([signature, chunk('IHDR', header), ...metadata, chunk('IDAT', pixels), chunk('IEND', Buffer.alloc(0))]);
+  return Buffer.concat([
+    signature,
+    chunk('IHDR', header),
+    ...metadata,
+    chunk('IDAT', pixels),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
 }

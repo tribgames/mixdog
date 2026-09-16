@@ -13,7 +13,14 @@ import {
   safeId,
   writeJsonAtomic,
 } from './design-library-core.mjs';
-import { fetchWithTimeout, loadCachedPack, materializePack, packSummary, responseBytes, verifyOfficeDesignPackEnvelope } from './design-library-pack.mjs';
+import {
+  fetchWithTimeout,
+  loadCachedPack,
+  materializePack,
+  packSummary,
+  responseBytes,
+  verifyOfficeDesignPackEnvelope,
+} from './design-library-pack.mjs';
 import { indexOfficeTemplates, readTemplateIndex, writeState } from './design-template-index.mjs';
 import { clone, plainObject, sha256 } from '../../shared/values.mjs';
 
@@ -44,9 +51,7 @@ export async function syncOfficeDesignLibrary({
   };
   let templateIndex;
   try {
-    templateIndex = indexTemplates
-      ? await indexOfficeTemplates({ dataDir, config })
-      : await readTemplateIndex(paths);
+    templateIndex = indexTemplates ? await indexOfficeTemplates({ dataDir, config }) : await readTemplateIndex(paths);
   } catch (error) {
     templateIndex = await readTemplateIndex(paths);
     addWarning(`Office template index was not updated: ${error?.message || String(error)}`);
@@ -104,9 +109,8 @@ export async function syncOfficeDesignLibrary({
       throw new Error(`Office design pack channel ${verified.pack.channel} does not match ${config.channel}`);
     }
     const currentIsSamePack = activePack?.id === verified.pack.id;
-    const shouldActivate = !activePack
-      || !currentIsSamePack
-      || compareOfficeDesignVersions(verified.pack.version, activePack.version) > 0;
+    const shouldActivate =
+      !activePack || !currentIsSamePack || compareOfficeDesignVersions(verified.pack.version, activePack.version) > 0;
     if (shouldActivate) {
       await materializePack(envelope, verified, paths, fetchImpl, signal);
       activePack = await loadCachedPack(paths, config, verified.pack.id, verified.pack.version);
@@ -148,11 +152,9 @@ export async function syncOfficeDesignLibrary({
   }
 }
 
-
 function bindingPath(paths, documentPath) {
   return join(paths.bindings, `${sha256(canonicalPath(documentPath))}.json`);
 }
-
 
 async function readOfficeDesignBinding(dataDir, documentPath) {
   const paths = libraryPaths(dataDir);
@@ -160,7 +162,6 @@ async function readOfficeDesignBinding(dataDir, documentPath) {
   if (!binding || canonicalPath(binding.documentPath) !== canonicalPath(documentPath)) return null;
   return binding;
 }
-
 
 export async function persistOfficeDesignBinding(dataDir, documentPath, binding) {
   if (!binding) return null;
@@ -175,7 +176,6 @@ export async function persistOfficeDesignBinding(dataDir, documentPath, binding)
   return record;
 }
 
-
 function normalizedCompositionRecord(value) {
   if (!plainObject(value)) return null;
   const fingerprint = String(value.fingerprint || '');
@@ -187,20 +187,22 @@ function normalizedCompositionRecord(value) {
     profile: String(value.profile || ''),
     purpose: String(value.purpose || ''),
     expressionMode: String(value.expressionMode || ''),
-    compositionIds: [...new Set((Array.isArray(value.compositionIds) ? value.compositionIds : [])
-      .map((entry) => String(entry || '').trim())
-      .filter(Boolean))].slice(0, 64),
+    compositionIds: [
+      ...new Set(
+        (Array.isArray(value.compositionIds) ? value.compositionIds : [])
+          .map((entry) => String(entry || '').trim())
+          .filter(Boolean)
+      ),
+    ].slice(0, 64),
     documentKey: String(value.documentKey || ''),
     createdAt: String(value.createdAt || ''),
   };
 }
 
-
-export async function readOfficeCompositionHistory(dataDir, {
-  format = '',
-  limit = 24,
-  excludeDocumentPath = '',
-} = {}) {
+export async function readOfficeCompositionHistory(
+  dataDir,
+  { format = '', limit = 24, excludeDocumentPath = '' } = {}
+) {
   const paths = libraryPaths(dataDir);
   const store = await readJson(paths.compositionHistory, { records: [] });
   const normalizedFormat = String(format || '').toLowerCase();
@@ -214,16 +216,10 @@ export async function readOfficeCompositionHistory(dataDir, {
     .slice(0, Math.max(1, Math.min(MAX_COMPOSITION_HISTORY, Number(limit) || 24)));
 }
 
-
-export async function recordOfficeCompositionHistory(dataDir, {
-  documentPath,
-  format,
-  profile = '',
-  purpose = '',
-  expressionMode = '',
-  fingerprint,
-  compositionIds = [],
-} = {}) {
+export async function recordOfficeCompositionHistory(
+  dataDir,
+  { documentPath, format, profile = '', purpose = '', expressionMode = '', fingerprint, compositionIds = [] } = {}
+) {
   const paths = libraryPaths(dataDir);
   const documentKey = sha256(canonicalPath(documentPath));
   const record = normalizedCompositionRecord({
@@ -250,17 +246,18 @@ export async function recordOfficeCompositionHistory(dataDir, {
   return record;
 }
 
-
 function findTemplate(templates, selector, format) {
   const wanted = String(selector || '').trim();
   if (!wanted) return null;
   const canonical = isAbsolute(wanted) ? canonicalPath(wanted) : '';
-  return templates.find((template) => (
-    template.format === format
-    && (template.id === wanted.toLowerCase() || (canonical && canonicalPath(template.path) === canonical))
-  )) || null;
+  return (
+    templates.find(
+      (template) =>
+        template.format === format &&
+        (template.id === wanted.toLowerCase() || (canonical && canonicalPath(template.path) === canonical))
+    ) || null
+  );
 }
-
 
 function layoutCandidates(pack, template, format) {
   const templates = pack?.templates || [];
@@ -268,12 +265,8 @@ function layoutCandidates(pack, template, format) {
     const owner = templates.find((entry) => entry.id === layout.templateId);
     return owner ? { ...layout, templatePath: owner.path } : layout;
   });
-  return [
-    ...packLayouts,
-    ...(template?.layouts || []),
-  ].filter((layout) => layout.format === format).map(clone);
+  return [...packLayouts, ...(template?.layouts || [])].filter((layout) => layout.format === format).map(clone);
 }
-
 
 function bindingFor({ pack, template, format, source }) {
   return {
@@ -289,12 +282,10 @@ function bindingFor({ pack, template, format, source }) {
   };
 }
 
-
 async function exactPack(paths, config, binding) {
   if (!binding?.packId || !binding?.packVersion) return null;
   return await loadCachedPack(paths, config, binding.packId, binding.packVersion);
 }
-
 
 export async function resolveOfficeDesignLibrary({
   dataDir,
@@ -316,10 +307,11 @@ export async function resolveOfficeDesignLibrary({
   });
   const config = await loadConfig(dataDir, configOverride);
   const explicitUpgrade = request?.upgradeLibrary === true;
-  const currentBinding = !created && !explicitUpgrade
-    ? await readOfficeDesignBinding(dataDir, documentPath)
-      || (sourcePath ? await readOfficeDesignBinding(dataDir, sourcePath) : null)
-    : null;
+  const currentBinding =
+    !created && !explicitUpgrade
+      ? (await readOfficeDesignBinding(dataDir, documentPath)) ||
+        (sourcePath ? await readOfficeDesignBinding(dataDir, sourcePath) : null)
+      : null;
   if (currentBinding) {
     let pack = null;
     let warning = '';
@@ -330,11 +322,13 @@ export async function resolveOfficeDesignLibrary({
     }
     const index = await readTemplateIndex(paths);
     const allTemplates = [...(pack?.templates || []), ...(index.templates || [])];
-    const template = allTemplates.find((entry) => (
-      entry.id === currentBinding.templateId
-      && entry.version === currentBinding.templateVersion
-      && entry.format === normalizedFormat
-    )) || null;
+    const template =
+      allTemplates.find(
+        (entry) =>
+          entry.id === currentBinding.templateId &&
+          entry.version === currentBinding.templateVersion &&
+          entry.format === normalizedFormat
+      ) || null;
     if (currentBinding.templateId && !template) {
       warning ||= 'Pinned Office template version changed or is unavailable; the existing document remains unchanged.';
     }
@@ -365,12 +359,7 @@ export async function resolveOfficeDesignLibrary({
     if (!request.packId || !request.packVersion) {
       throw new Error('Office design pack selection requires both packId and packVersion');
     }
-    pack = await loadCachedPack(
-      paths,
-      config,
-      safeId(request.packId, 'requested packId'),
-      String(request.packVersion),
-    );
+    pack = await loadCachedPack(paths, config, safeId(request.packId, 'requested packId'), String(request.packVersion));
     if (!pack) throw new Error(`Requested Office design pack is not cached: ${request.packId}@${request.packVersion}`);
   }
   const allTemplates = [...(pack?.templates || []), ...(synced.templates.templates || [])];
@@ -380,11 +369,7 @@ export async function resolveOfficeDesignLibrary({
   if (explicitSelector && !template) {
     throw new Error(`Office design template is not indexed or does not match ${normalizedFormat}: ${selector}`);
   }
-  const source = template
-    ? template.source
-    : pack
-      ? 'remote-pack'
-      : 'mixdog-starter';
+  const source = template ? template.source : pack ? 'remote-pack' : 'mixdog-starter';
   const binding = bindingFor({
     pack,
     template,
@@ -405,11 +390,7 @@ export async function resolveOfficeDesignLibrary({
   };
 }
 
-
-export async function inspectOfficeDesignLibrary({
-  dataDir,
-  config: configOverride = null,
-} = {}) {
+export async function inspectOfficeDesignLibrary({ dataDir, config: configOverride = null } = {}) {
   const paths = libraryPaths(dataDir);
   const config = await loadConfig(dataDir, configOverride);
   const state = await readJson(paths.state, {});

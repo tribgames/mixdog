@@ -17,8 +17,12 @@ function run(command, args) {
     let stderr = '';
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk) => { stdout += chunk; });
-    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
     child.once('error', reject);
     child.once('close', (code) => {
       if (code === 0) resolve({ stdout, stderr });
@@ -36,25 +40,20 @@ export async function qpdfAvailable() {
   }
 }
 
-export async function securePdf({
-  input,
-  output,
-  mode,
-  password = '',
-  ownerPassword = '',
-}) {
-  if (!await qpdfAvailable()) {
-    throw new Error('PDF encryption/decryption requires qpdf on PATH (or MIXDOG_QPDF_PATH) and it is not installed (Windows: winget install qpdf; macOS: brew install qpdf; Debian/Ubuntu: apt install qpdf); tell the user the file was left as is');
+export async function securePdf({ input, output, mode, password = '', ownerPassword = '' }) {
+  if (!(await qpdfAvailable())) {
+    throw new Error(
+      'PDF encryption/decryption requires qpdf on PATH (or MIXDOG_QPDF_PATH) and it is not installed (Windows: winget install qpdf; macOS: brew install qpdf; Debian/Ubuntu: apt install qpdf); tell the user the file was left as is'
+    );
   }
   const samePath = input.toLowerCase() === output.toLowerCase();
-  const target = samePath
-    ? join(dirname(output), `.mixdog-qpdf-${randomUUID()}.pdf`)
-    : output;
+  const target = samePath ? join(dirname(output), `.mixdog-qpdf-${randomUUID()}.pdf`) : output;
   const responsePath = join(dirname(target), `.mixdog-qpdf-${randomUUID()}.args`);
   const quote = (value) => `"${String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
-  const args = mode === 'encrypt'
-    ? ['--encrypt', password, ownerPassword || password, '256', '--', input, target]
-    : [`--password=${password}`, '--decrypt', input, target];
+  const args =
+    mode === 'encrypt'
+      ? ['--encrypt', password, ownerPassword || password, '256', '--', input, target]
+      : [`--password=${password}`, '--decrypt', input, target];
   await writeFile(responsePath, `${args.map(quote).join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
   try {
     await run(QPDF, [`@${responsePath}`]);

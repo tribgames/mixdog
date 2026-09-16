@@ -29,15 +29,29 @@ process.on('SIGINT', cleanup);
 process.stdin.on('data', (buf) => {
   const s = buf.toString('utf8');
   if (s === 'q' || s === '\x03') return cleanup();
-  let m; MOUSE.lastIndex = 0;
+  let m;
+  MOUSE.lastIndex = 0;
   let sawMouse = false;
   while ((m = MOUSE.exec(s)) !== null) {
     sawMouse = true;
     const b = Number(m[1]);
     const mods = [b & 4 ? 'shift' : '', b & 8 ? 'alt' : '', b & 16 ? 'ctrl' : ''].filter(Boolean).join('+') || 'none';
     const base = b & ~(4 | 8 | 16);
-    const kind = base === 64 ? 'wheel-up' : base === 65 ? 'wheel-down' : base === 0 ? 'left' : base === 2 ? 'right' : (b & 32) ? 'motion' : `btn${base}`;
-    process.stdout.write(`button=${b} base=${base} kind=${kind} mods=${mods} x=${m[2]} y=${m[3]} ${m[4] === 'M' ? 'press' : 'release'}\n`);
+    const kind =
+      base === 64
+        ? 'wheel-up'
+        : base === 65
+          ? 'wheel-down'
+          : base === 0
+            ? 'left'
+            : base === 2
+              ? 'right'
+              : b & 32
+                ? 'motion'
+                : `btn${base}`;
+    process.stdout.write(
+      `button=${b} base=${base} kind=${kind} mods=${mods} x=${m[2]} y=${m[3]} ${m[4] === 'M' ? 'press' : 'release'}\n`
+    );
   }
   if (!sawMouse && s.startsWith('\x1b')) {
     process.stdout.write(`non-mouse escape: ${JSON.stringify(s)}\n`);

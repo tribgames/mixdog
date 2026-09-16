@@ -30,27 +30,27 @@ let _cooldownUntilMs = 0;
 let _disabledReason = null;
 
 function _headerValue(headers, name) {
-    if (!headers) return null;
-    const lower = name.toLowerCase();
-    if (typeof headers.get === 'function') return headers.get(name) ?? headers.get(lower);
-    for (const [key, value] of Object.entries(headers)) {
-        if (String(key).toLowerCase() === lower) return Array.isArray(value) ? value[0] : value;
-    }
-    return null;
+  if (!headers) return null;
+  const lower = name.toLowerCase();
+  if (typeof headers.get === 'function') return headers.get(name) ?? headers.get(lower);
+  for (const [key, value] of Object.entries(headers)) {
+    if (String(key).toLowerCase() === lower) return Array.isArray(value) ? value[0] : value;
+  }
+  return null;
 }
 
 /** True when a request may still ask for `speed: 'fast'`. */
 export function fastModeAvailable(now = Date.now()) {
-    return _disabledReason === null && now >= _cooldownUntilMs;
+  return _disabledReason === null && now >= _cooldownUntilMs;
 }
 
 export function fastModeCooldownRemainingMs(now = Date.now()) {
-    if (_disabledReason !== null) return Number.POSITIVE_INFINITY;
-    return Math.max(0, _cooldownUntilMs - now);
+  if (_disabledReason !== null) return Number.POSITIVE_INFINITY;
+  return Math.max(0, _cooldownUntilMs - now);
 }
 
 export function fastModeDisabledReason() {
-    return _disabledReason;
+  return _disabledReason;
 }
 
 /**
@@ -64,35 +64,35 @@ export function fastModeDisabledReason() {
  *   'disabled'  — overage unavailable; fast mode is off for this process.
  */
 export function noteFastModeCapacityError(err, { fast = false, now = Date.now() } = {}) {
-    if (!fast) return 'ignored';
-    const status = Number(err?.httpStatus || err?.status || err?.response?.status || 0);
-    if (status !== 429 && status !== 529) return 'ignored';
+  if (!fast) return 'ignored';
+  const status = Number(err?.httpStatus || err?.status || err?.response?.status || 0);
+  if (status !== 429 && status !== 529) return 'ignored';
 
-    const headers = err?.headers || err?.response?.headers || err?.data?.responseHeaders || null;
-    const overageReason = _headerValue(headers, OVERAGE_DISABLED_HEADER);
-    if (overageReason != null && String(overageReason) !== '') {
-        _disabledReason = String(overageReason);
-        return 'disabled';
-    }
+  const headers = err?.headers || err?.response?.headers || err?.data?.responseHeaders || null;
+  const overageReason = _headerValue(headers, OVERAGE_DISABLED_HEADER);
+  if (overageReason != null && String(overageReason) !== '') {
+    _disabledReason = String(overageReason);
+    return 'disabled';
+  }
 
-    const retryAfterMs = Number(err?.retryAfterMs);
-    const hasWindow = Number.isFinite(retryAfterMs) && retryAfterMs >= 0;
-    if (hasWindow && retryAfterMs < SHORT_RETRY_THRESHOLD_MS) return 'retry-fast';
+  const retryAfterMs = Number(err?.retryAfterMs);
+  const hasWindow = Number.isFinite(retryAfterMs) && retryAfterMs >= 0;
+  if (hasWindow && retryAfterMs < SHORT_RETRY_THRESHOLD_MS) return 'retry-fast';
 
-    const cooldownMs = Math.max(hasWindow ? retryAfterMs : DEFAULT_COOLDOWN_MS, MIN_COOLDOWN_MS);
-    _cooldownUntilMs = Math.max(_cooldownUntilMs, now + cooldownMs);
-    return 'downgrade';
+  const cooldownMs = Math.max(hasWindow ? retryAfterMs : DEFAULT_COOLDOWN_MS, MIN_COOLDOWN_MS);
+  _cooldownUntilMs = Math.max(_cooldownUntilMs, now + cooldownMs);
+  return 'downgrade';
 }
 
 /** Manual re-enable (user action) and test seam. */
 export function clearFastModeCooldown() {
-    _cooldownUntilMs = 0;
-    _disabledReason = null;
+  _cooldownUntilMs = 0;
+  _disabledReason = null;
 }
 
 export const _FAST_MODE_POLICY = Object.freeze({
-    OVERAGE_DISABLED_HEADER,
-    SHORT_RETRY_THRESHOLD_MS,
-    MIN_COOLDOWN_MS,
-    DEFAULT_COOLDOWN_MS,
+  OVERAGE_DISABLED_HEADER,
+  SHORT_RETRY_THRESHOLD_MS,
+  MIN_COOLDOWN_MS,
+  DEFAULT_COOLDOWN_MS,
 });

@@ -82,10 +82,14 @@ function argValue(name, fallback = null) {
   const hit = process.argv.find((a) => a.startsWith(pref));
   return hit ? hit.slice(pref.length) : fallback;
 }
-function hasFlag(name) { return process.argv.includes(name); }
+function hasFlag(name) {
+  return process.argv.includes(name);
+}
 
 function resolveModelOpts(modelArg, providerArg) {
-  const key = String(modelArg || '').trim().toLowerCase();
+  const key = String(modelArg || '')
+    .trim()
+    .toLowerCase();
   if (MODEL_ALIASES[key] && !providerArg) return { ...MODEL_ALIASES[key] };
   return { provider: providerArg || null, model: modelArg || null };
 }
@@ -98,7 +102,9 @@ function readUnifiedConfig(dataDir) {
   try {
     const unified = JSON.parse(readFileSync(join(dataDir, 'mixdog-config.json'), 'utf8'));
     return unified && typeof unified === 'object' ? unified : {};
-  } catch { return {}; }
+  } catch {
+    return {};
+  }
 }
 
 function gitPathForRule(relFromSrc) {
@@ -146,7 +152,9 @@ function authArtifactNamesForSandbox(realDataDir, provider) {
       if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
       if (/oauth/i.test(entry.name) || /credentials/i.test(entry.name)) names.add(entry.name);
     }
-  } catch { /* missing real data dir */ }
+  } catch {
+    /* missing real data dir */
+  }
   return [...names];
 }
 
@@ -252,7 +260,9 @@ function readRows(path) {
     if (!line) continue;
     try {
       rows.push(JSON.parse(line));
-    } catch { /* tail */ }
+    } catch {
+      /* tail */
+    }
   }
   return rows;
 }
@@ -301,15 +311,16 @@ function inferSessionMeta(rows) {
   return {
     session_id: sessionId(last),
     parent_session_id: field(preset, 'parent_session_id') || field(preset, 'parentSessionId') || null,
-    agent: field(preset, 'agent') || field(tool, 'agent') || field(usage, 'sourceName') || field(last, 'sourceName') || null,
+    agent:
+      field(preset, 'agent') || field(tool, 'agent') || field(usage, 'sourceName') || field(last, 'sourceName') || null,
     min_ts: tsValues.length ? Math.min(...tsValues) : null,
     max_ts: tsValues.length ? Math.max(...tsValues) : null,
   };
 }
 
 function selectSessionFamily(sessionMetas, query) {
-  const selected = sessionMetas.find((m) => m.session_id === query)
-    || sessionMetas.find((m) => m.session_id.startsWith(query));
+  const selected =
+    sessionMetas.find((m) => m.session_id === query) || sessionMetas.find((m) => m.session_id.startsWith(query));
   if (!selected) return [];
   const root = selected.parent_session_id
     ? sessionMetas.find((m) => m.session_id === selected.parent_session_id) || selected
@@ -346,7 +357,7 @@ function roleOf(agent) {
   const a = String(agent || '').toLowerCase();
   if (!a) return 'other';
   if (a === 'lead' || a === 'main') return 'lead';
-  if (a.includes('review')) return 'reviewer';   // reviewer before worker (heavy-worker matches 'worker')
+  if (a.includes('review')) return 'reviewer'; // reviewer before worker (heavy-worker matches 'worker')
   if (a.includes('worker')) return 'worker';
   return 'other';
 }
@@ -380,7 +391,12 @@ function emptyRoleSplit(dataDir) {
   return {
     tracePath: join(dataDir, 'history', 'agent-trace.jsonl'),
     session_ids: [],
-    byRole: { lead: emptyRoleBucket(), worker: emptyRoleBucket(), reviewer: emptyRoleBucket(), other: emptyRoleBucket() },
+    byRole: {
+      lead: emptyRoleBucket(),
+      worker: emptyRoleBucket(),
+      reviewer: emptyRoleBucket(),
+      other: emptyRoleBucket(),
+    },
     total: { prompt_tokens: 0, output_tokens: 0, total_tokens: 0, usage_rows: 0 },
   };
 }
@@ -392,9 +408,11 @@ function mathTaskCompleted(taskCwd) {
   } catch {
     return false;
   }
-  return source !== INITIAL_MATH_JS
-    && /export\s+function\s+add\s*\(\s*a\s*,\s*b\s*\)\s*\{\s*return\s+a\s*\+\s*b\s*;?\s*\}/.test(source)
-    && /export\s+function\s+mul\s*\(\s*a\s*,\s*b\s*\)\s*\{\s*return\s+a\s*\*\s*b\s*;?\s*\}/.test(source);
+  return (
+    source !== INITIAL_MATH_JS &&
+    /export\s+function\s+add\s*\(\s*a\s*,\s*b\s*\)\s*\{\s*return\s+a\s*\+\s*b\s*;?\s*\}/.test(source) &&
+    /export\s+function\s+mul\s*\(\s*a\s*,\s*b\s*\)\s*\{\s*return\s+a\s*\*\s*b\s*;?\s*\}/.test(source)
+  );
 }
 
 function splitTokensByRole(dataDir, rootSessionId) {
@@ -413,7 +431,12 @@ function splitTokensByRole(dataDir, rootSessionId) {
   // to 'other'. Pin the root to 'lead' explicitly. Worker/reviewer children go
   // through session-builder -> traceAgentPreset, so their agent is recorded.
   if (treeIds.has(rootSessionId)) roleBySession.set(rootSessionId, 'lead');
-  const byRole = { lead: emptyRoleBucket(), worker: emptyRoleBucket(), reviewer: emptyRoleBucket(), other: emptyRoleBucket() };
+  const byRole = {
+    lead: emptyRoleBucket(),
+    worker: emptyRoleBucket(),
+    reviewer: emptyRoleBucket(),
+    other: emptyRoleBucket(),
+  };
   const usageRows = rows.filter((r) => r.kind === 'usage_raw' && treeIds.has(sessionId(r)));
   for (const r of usageRows) {
     const role = roleBySession.get(sessionId(r)) || 'other';
@@ -437,14 +460,17 @@ function splitTokensByRole(dataDir, rootSessionId) {
 export function validateLeadRun({ taskCwd, run, split }) {
   const reasons = [];
   if (!run.ok) reasons.push('child did not return a successful benchmark result');
-  if (!mathTaskCompleted(taskCwd)) reasons.push('math.js does not contain the approved add and preserved mul implementation');
+  if (!mathTaskCompleted(taskCwd))
+    reasons.push('math.js does not contain the approved add and preserved mul implementation');
   if ((split?.byRole?.worker?.usage_rows || 0) < 1) reasons.push('worker participation/usage is missing');
   if ((split?.byRole?.reviewer?.usage_rows || 0) < 1) reasons.push('reviewer participation/usage is missing');
   return { valid: reasons.length === 0, reasons };
 }
 
 export function leadModeExitCode(runsMeta, perVariant) {
-  const allValid = ['A', 'B'].every((variant) => runsMeta[variant].length > 0 && runsMeta[variant].every((run) => run.valid));
+  const allValid = ['A', 'B'].every(
+    (variant) => runsMeta[variant].length > 0 && runsMeta[variant].every((run) => run.valid)
+  );
   const anyUsage = ['A', 'B'].some((variant) => perVariant[variant].some((split) => split.total.usage_rows > 0));
   return allValid && anyUsage ? 0 : 1;
 }
@@ -521,7 +547,9 @@ export function buildLiveLeadDriver({
     `await drainAgentTrace();`,
     `const benchResult = JSON.stringify({ text: String(result?.text || result?.content || '').trim(), sessionId });`,
     `process.stdout.write(${JSON.stringify(CHILD_RESULT_START)} + benchResult + ${JSON.stringify(CHILD_RESULT_END)} + '\\n', () => process.exit(0));`,
-  ].filter(Boolean).join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 export function parseLiveLeadResult(stdout) {
@@ -551,7 +579,8 @@ export function runLiveLeadDelegation({
   runtimeUrls = null,
 }) {
   const runtimeUrl = runtimeUrls?.runtimeUrl || pathToFileURL(join(pluginRoot, 'mixdog-session-runtime.mjs')).href;
-  const traceUrl = runtimeUrls?.traceUrl || pathToFileURL(join(pluginRoot, 'runtime/agent/orchestrator/agent-trace-io.mjs')).href;
+  const traceUrl =
+    runtimeUrls?.traceUrl || pathToFileURL(join(pluginRoot, 'runtime/agent/orchestrator/agent-trace-io.mjs')).href;
   const driver = buildLiveLeadDriver({
     runtimeUrl,
     traceUrl,
@@ -610,7 +639,9 @@ function runLeadMode({ route, effort, fast, repeat, jsonMode, leadPrompt }) {
       for (const variant of ['A', 'B']) {
         const taskCwd = prepareTaskCwd(sandboxRoot);
         const dataDir = prepareDataDir(sandboxRoot, `${variant}-r${i}`, realDataDir, userUnified, route.provider);
-        process.stderr.write(`[internal-comms-bench] lead run ${i + 1}/${repeat} variant=${variant} ${route.provider}/${route.model}\n`);
+        process.stderr.write(
+          `[internal-comms-bench] lead run ${i + 1}/${repeat} variant=${variant} ${route.provider}/${route.model}\n`
+        );
         const run = runLiveLeadDelegation({
           pluginRoot: pluginRoots[variant],
           dataDir,
@@ -640,9 +671,13 @@ function runLeadMode({ route, effort, fast, repeat, jsonMode, leadPrompt }) {
           },
         };
         runsMeta[variant].push(meta);
-        process.stderr.write(`[internal-comms-bench]   -> ${validation.valid ? 'ok' : 'FAIL'} ${Math.round(run.ms / 1000)}s session=${run.sessionId || '(none)'} total=${split.total.total_tokens} lead=${split.byRole.lead.total_tokens} worker=${split.byRole.worker.total_tokens} reviewer=${split.byRole.reviewer.total_tokens} other=${split.byRole.other.total_tokens}${validation.valid ? '' : ` reasons=${validation.reasons.join('; ')}`}\n`);
+        process.stderr.write(
+          `[internal-comms-bench]   -> ${validation.valid ? 'ok' : 'FAIL'} ${Math.round(run.ms / 1000)}s session=${run.sessionId || '(none)'} total=${split.total.total_tokens} lead=${split.byRole.lead.total_tokens} worker=${split.byRole.worker.total_tokens} reviewer=${split.byRole.reviewer.total_tokens} other=${split.byRole.other.total_tokens}${validation.valid ? '' : ` reasons=${validation.reasons.join('; ')}`}\n`
+        );
         if (!validation.valid && (run.stdout || run.stderr || run.error)) {
-          process.stderr.write(`[internal-comms-bench] child diagnostics variant=${variant} stdout=${JSON.stringify(run.stdout)} stderr=${JSON.stringify(run.stderr)} error=${JSON.stringify(run.error)}\n`);
+          process.stderr.write(
+            `[internal-comms-bench] child diagnostics variant=${variant} stdout=${JSON.stringify(run.stdout)} stderr=${JSON.stringify(run.stderr)} error=${JSON.stringify(run.error)}\n`
+          );
         }
         if (!validation.valid) {
           invalidRun = { variant, index: i, reasons: validation.reasons };
@@ -655,7 +690,9 @@ function runLeadMode({ route, effort, fast, repeat, jsonMode, leadPrompt }) {
   }
 
   if (invalidRun) {
-    process.stderr.write(`[internal-comms-bench] aborting before aggregation: invalid variant=${invalidRun.variant} run=${invalidRun.index + 1} reasons=${invalidRun.reasons.join('; ')}\n`);
+    process.stderr.write(
+      `[internal-comms-bench] aborting before aggregation: invalid variant=${invalidRun.variant} run=${invalidRun.index + 1} reasons=${invalidRun.reasons.join('; ')}\n`
+    );
     process.exit(1);
     return;
   }
@@ -674,29 +711,44 @@ function runLeadMode({ route, effort, fast, repeat, jsonMode, leadPrompt }) {
   }
 
   if (jsonMode) {
-    console.log(JSON.stringify({
-      mode: 'lead',
-      route,
-      repeat,
-      prompt: leadPrompt,
-      runs: runsMeta,
-      variants: { A: { label: 'prior_verbose@HEAD', ...aggA }, B: { label: 'optimized_on_disk', ...aggB } },
-      delta_B_vs_A: { median: deltaMedian, mean: deltaMean },
-      note: 'single runs are noise-dominated; median+mean over --repeat N reduce run-to-run noise.',
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          mode: 'lead',
+          route,
+          repeat,
+          prompt: leadPrompt,
+          runs: runsMeta,
+          variants: { A: { label: 'prior_verbose@HEAD', ...aggA }, B: { label: 'optimized_on_disk', ...aggB } },
+          delta_B_vs_A: { median: deltaMedian, mean: deltaMean },
+          note: 'single runs are noise-dominated; median+mean over --repeat N reduce run-to-run noise.',
+        },
+        null,
+        2
+      )
+    );
   } else {
     console.log(`lead-mode multi-agent ${route.provider}/${route.model} repeat=${repeat}`);
     console.log('NOTE: single runs are noise-dominated; use --repeat N to stabilize (median+mean shown).');
-    for (const [id, agg] of [['A', aggA], ['B', aggB]]) {
-      console.log(`variant ${id} (${id === 'A' ? 'prior_verbose@HEAD' : 'optimized_on_disk'}) per-role tokens median/mean over ${repeat} run(s):`);
+    for (const [id, agg] of [
+      ['A', aggA],
+      ['B', aggB],
+    ]) {
+      console.log(
+        `variant ${id} (${id === 'A' ? 'prior_verbose@HEAD' : 'optimized_on_disk'}) per-role tokens median/mean over ${repeat} run(s):`
+      );
       for (const role of ROLES) {
         const r = agg.byRole[role];
         console.log(`  ${role.padEnd(9)} med=${Math.round(r.median)} mean=${Math.round(r.mean)}`);
       }
       console.log(`  ${'total'.padEnd(9)} med=${Math.round(agg.total.median)} mean=${Math.round(agg.total.mean)}`);
     }
-    console.log('delta B-vs-A (median): ' + [...ROLES, 'total'].map((r) => `${r}=${fmtDeltaEntry(deltaMedian[r])}`).join(' '));
-    console.log('delta B-vs-A (mean):   ' + [...ROLES, 'total'].map((r) => `${r}=${fmtDeltaEntry(deltaMean[r])}`).join(' '));
+    console.log(
+      'delta B-vs-A (median): ' + [...ROLES, 'total'].map((r) => `${r}=${fmtDeltaEntry(deltaMedian[r])}`).join(' ')
+    );
+    console.log(
+      'delta B-vs-A (mean):   ' + [...ROLES, 'total'].map((r) => `${r}=${fmtDeltaEntry(deltaMean[r])}`).join(' ')
+    );
   }
 
   process.exit(leadModeExitCode(runsMeta, perVariant));
@@ -734,7 +786,9 @@ Usage:
 function main() {
   const jsonMode = hasFlag('--json');
   const doRun = hasFlag('--run');
-  const mode = String(argValue('--mode', 'worker') || 'worker').trim().toLowerCase();
+  const mode = String(argValue('--mode', 'worker') || 'worker')
+    .trim()
+    .toLowerCase();
   const repeat = Math.max(1, Number.parseInt(argValue('--repeat', '1'), 10) || 1);
   const prompt = argValue('--prompt', mode === 'lead' ? DEFAULT_LEAD_PROMPT : DEFAULT_WORKER_PROMPT);
   const cli = resolveModelOpts(argValue('--model', doRun ? 'grok' : null), argValue('--provider', null));
@@ -747,18 +801,26 @@ function main() {
     const aSum = sum(ruleStats.map((r) => r.a_chars));
     const bSum = sum(ruleStats.map((r) => r.b_chars));
     if (jsonMode) {
-      console.log(JSON.stringify({
-        mode: 'usage',
-        run_mode: mode,
-        repeat,
-        rule_files: RULE_FILES,
-        rule_stats: ruleStats,
-        rule_chars: { A: aSum, B: bSum },
-        liveCommand: 'node scripts/internal-comms-bench.mjs --run --model grok',
-        liveLeadCommand: 'node scripts/internal-comms-bench.mjs --run --mode lead --repeat 3 --model grok',
-      }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            mode: 'usage',
+            run_mode: mode,
+            repeat,
+            rule_files: RULE_FILES,
+            rule_stats: ruleStats,
+            rule_chars: { A: aSum, B: bSum },
+            liveCommand: 'node scripts/internal-comms-bench.mjs --run --model grok',
+            liveLeadCommand: 'node scripts/internal-comms-bench.mjs --run --mode lead --repeat 3 --model grok',
+          },
+          null,
+          2
+        )
+      );
     } else {
-      process.stdout.write(`[internal-comms-bench] rule chars A(prior@HEAD)=${aSum} B(on-disk)=${bSum} (${RULE_FILES.length} files); mode=${mode} repeat=${repeat}\n`);
+      process.stdout.write(
+        `[internal-comms-bench] rule chars A(prior@HEAD)=${aSum} B(on-disk)=${bSum} (${RULE_FILES.length} files); mode=${mode} repeat=${repeat}\n`
+      );
     }
     process.exit(0);
   }
@@ -797,16 +859,18 @@ function main() {
       const usage = run.sessionId
         ? sumUsageForSession(dataDir, run.sessionId)
         : {
-          session_ids: [],
-          prompt_tokens: 0,
-          output_tokens: 0,
-          cached_tokens: 0,
-          usage_rows: 0,
-          tracePath: join(dataDir, 'history', 'agent-trace.jsonl'),
-        };
+            session_ids: [],
+            prompt_tokens: 0,
+            output_tokens: 0,
+            cached_tokens: 0,
+            usage_rows: 0,
+            tracePath: join(dataDir, 'history', 'agent-trace.jsonl'),
+          };
       usage.total_tokens = usage.prompt_tokens + usage.output_tokens;
       results[variant] = { ...run, usage };
-      process.stderr.write(`[internal-comms-bench]   -> ${run.ok ? 'ok' : 'FAIL'} ${Math.round(run.ms / 1000)}s session=${run.sessionId || '(none)'} tokens=${usage.total_tokens}\n`);
+      process.stderr.write(
+        `[internal-comms-bench]   -> ${run.ok ? 'ok' : 'FAIL'} ${Math.round(run.ms / 1000)}s session=${run.sessionId || '(none)'} tokens=${usage.total_tokens}\n`
+      );
     }
   } finally {
     rmSync(sandboxRoot, { recursive: true, force: true });
@@ -822,25 +886,43 @@ function main() {
   };
 
   if (jsonMode) {
-    console.log(JSON.stringify({
-      mode: 'live',
-      route,
-      prompt,
-      variants: {
-        A: { label: 'prior_verbose@HEAD', run: { ok: results.A.ok, ms: results.A.ms, sessionId: results.A.sessionId }, usage: a },
-        B: { label: 'optimized_on_disk', run: { ok: results.B.ok, ms: results.B.ms, sessionId: results.B.sessionId }, usage: b },
-      },
-      delta_B_vs_A: delta,
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          mode: 'live',
+          route,
+          prompt,
+          variants: {
+            A: {
+              label: 'prior_verbose@HEAD',
+              run: { ok: results.A.ok, ms: results.A.ms, sessionId: results.A.sessionId },
+              usage: a,
+            },
+            B: {
+              label: 'optimized_on_disk',
+              run: { ok: results.B.ok, ms: results.B.ms, sessionId: results.B.sessionId },
+              usage: b,
+            },
+          },
+          delta_B_vs_A: delta,
+        },
+        null,
+        2
+      )
+    );
   } else {
     console.log(`live worker ${route.provider}/${route.model}`);
     for (const id of ['A', 'B']) {
       const u = results[id].usage;
-      console.log(`variant ${id}: ${results[id].ok ? 'ok' : 'FAIL'} prompt=${u.prompt_tokens} output=${u.output_tokens} total=${u.total_tokens} sessions=${(u.session_ids || []).length}`);
+      console.log(
+        `variant ${id}: ${results[id].ok ? 'ok' : 'FAIL'} prompt=${u.prompt_tokens} output=${u.output_tokens} total=${u.total_tokens} sessions=${(u.session_ids || []).length}`
+      );
     }
     const pct = delta.pct_total_B_vs_A;
     const pctStr = pct == null ? 'n/a' : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
-    console.log(`delta B-vs-A: prompt=${delta.prompt_tokens >= 0 ? '+' : ''}${delta.prompt_tokens} output=${delta.output_tokens >= 0 ? '+' : ''}${delta.output_tokens} total=${delta.total_tokens >= 0 ? '+' : ''}${delta.total_tokens} (${pctStr})`);
+    console.log(
+      `delta B-vs-A: prompt=${delta.prompt_tokens >= 0 ? '+' : ''}${delta.prompt_tokens} output=${delta.output_tokens >= 0 ? '+' : ''}${delta.output_tokens} total=${delta.total_tokens >= 0 ? '+' : ''}${delta.total_tokens} (${pctStr})`
+    );
   }
 
   const ok = results.A?.ok && results.B?.ok && (a.usage_rows > 0 || b.usage_rows > 0);

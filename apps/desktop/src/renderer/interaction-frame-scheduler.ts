@@ -9,30 +9,38 @@ type FrameRequest = (callback: FrameRequestCallback) => number;
 type FrameCancel = (handle: number) => void;
 
 function defaultRequestFrame(callback: FrameRequestCallback): number {
-  if (typeof globalThis.requestAnimationFrame === "function") {
+  if (typeof globalThis.requestAnimationFrame === 'function') {
     return globalThis.requestAnimationFrame(callback);
   }
-  const browserWindow = (globalThis as {
-    window?: { requestAnimationFrame?: FrameRequest };
-  }).window;
-  if (typeof browserWindow?.requestAnimationFrame === "function") {
+  const browserWindow = (
+    globalThis as {
+      window?: { requestAnimationFrame?: FrameRequest };
+    }
+  ).window;
+  if (typeof browserWindow?.requestAnimationFrame === 'function') {
     return browserWindow.requestAnimationFrame(callback);
   }
   return globalThis.setTimeout(
-    () => callback(typeof performance === "undefined" ? Date.now() : performance.now()),
-    16,
+    () => callback(typeof performance === 'undefined' ? Date.now() : performance.now()),
+    16
   ) as unknown as number;
 }
 
 function defaultCancelFrame(handle: number): void {
-  if (typeof globalThis.cancelAnimationFrame === "function") {
+  if (typeof globalThis.cancelAnimationFrame === 'function') {
     globalThis.cancelAnimationFrame(handle);
-  } else if (typeof (globalThis as {
-    window?: { cancelAnimationFrame?: FrameCancel };
-  }).window?.cancelAnimationFrame === "function") {
-    (globalThis as {
-      window: { cancelAnimationFrame: FrameCancel };
-    }).window.cancelAnimationFrame(handle);
+  } else if (
+    typeof (
+      globalThis as {
+        window?: { cancelAnimationFrame?: FrameCancel };
+      }
+    ).window?.cancelAnimationFrame === 'function'
+  ) {
+    (
+      globalThis as {
+        window: { cancelAnimationFrame: FrameCancel };
+      }
+    ).window.cancelAnimationFrame(handle);
   } else {
     globalThis.clearTimeout(handle);
   }
@@ -45,8 +53,8 @@ export function createFrameCoordinator({
   requestFrame = defaultRequestFrame,
   cancelFrame = defaultCancelFrame,
   onError = (error: unknown) => {
-    if (typeof globalThis.reportError === "function") globalThis.reportError(error);
-    else console.error("[mixdog-renderer] scheduled frame failed", error);
+    if (typeof globalThis.reportError === 'function') globalThis.reportError(error);
+    else console.error('[mixdog-renderer] scheduled frame failed', error);
   },
 }: {
   requestFrame?: FrameRequest;
@@ -61,8 +69,14 @@ export function createFrameCoordinator({
     const pending = [...jobs.values()];
     jobs.clear();
     for (const work of pending) {
-      try { work(); } catch (error) {
-        try { onError(error); } catch { /* Diagnostics must not strand sibling panes. */ }
+      try {
+        work();
+      } catch (error) {
+        try {
+          onError(error);
+        } catch {
+          /* Diagnostics must not strand sibling panes. */
+        }
       }
     }
   };
@@ -96,9 +110,6 @@ export function createFrameCoordinator({
 }
 
 export const layoutFrameCoordinator = createFrameCoordinator();
-export const scheduleLayoutFrame = (key: object, work: () => void): void =>
-  layoutFrameCoordinator.schedule(key, work);
-export const flushLayoutFrame = (key: object): void =>
-  layoutFrameCoordinator.flush(key);
-export const cancelLayoutFrame = (key: object): void =>
-  layoutFrameCoordinator.cancel(key);
+export const scheduleLayoutFrame = (key: object, work: () => void): void => layoutFrameCoordinator.schedule(key, work);
+export const flushLayoutFrame = (key: object): void => layoutFrameCoordinator.flush(key);
+export const cancelLayoutFrame = (key: object): void => layoutFrameCoordinator.cancel(key);

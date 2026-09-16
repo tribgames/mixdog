@@ -3,8 +3,8 @@
 // drag-and-drop — plus the naming a nested "a/b/c" creation resolves to. The
 // IPC and the retry bookkeeping live here; the pane keeps the selection,
 // expansion and error surfacing that follow a mutation.
-import type { DesktopApi } from "../shared/contract";
-import { explorerChildRel, explorerParentRel } from "./explorer-tree-model";
+import type { DesktopApi } from '../shared/contract';
+import { explorerChildRel, explorerParentRel } from './explorer-tree-model';
 
 /** Raw failure text. The explorer deliberately shows the message the main
  *  process sent (the offending path, the permission detail) instead of
@@ -29,20 +29,17 @@ interface ExplorerEntryRequest {
 /** Entries a copy/move may actually touch: never onto itself, never into its
  *  own subtree, and a move into the folder an entry already lives in is a
  *  no-op (a copy there is not — it makes the "name copy" duplicate). */
-export function explorerTransferRels(
-  rels: readonly string[],
-  targetDirRel: string,
-  copy: boolean,
-): string[] {
-  return rels.filter((rel) => targetDirRel !== rel
-    && !targetDirRel.startsWith(`${rel}/`)
-    && (copy || explorerParentRel(rel) !== targetDirRel));
+export function explorerTransferRels(rels: readonly string[], targetDirRel: string, copy: boolean): string[] {
+  return rels.filter(
+    (rel) =>
+      targetDirRel !== rel && !targetDirRel.startsWith(`${rel}/`) && (copy || explorerParentRel(rel) !== targetDirRel)
+  );
 }
 
 /** Copy/move into `targetDirRel`, one entry at a time so the main process
  *  never races two file operations over the same tree. */
 export async function transferExplorerEntries(
-  request: ExplorerEntryRequest & { targetDirRel: string; copy: boolean },
+  request: ExplorerEntryRequest & { targetDirRel: string; copy: boolean }
 ): Promise<ExplorerBatchResult> {
   const { api, projectPath, rels, targetDirRel, copy } = request;
   const failed: string[] = [];
@@ -61,22 +58,25 @@ export async function transferExplorerEntries(
 
 /** Recycle-bin delete of a whole selection: every entry is attempted, so one
  *  locked file never keeps the rest of the selection on disk. */
-export async function trashExplorerEntries(
-  request: ExplorerEntryRequest,
-): Promise<ExplorerBatchResult> {
+export async function trashExplorerEntries(request: ExplorerEntryRequest): Promise<ExplorerBatchResult> {
   const { api, projectPath, rels } = request;
-  const results = await Promise.allSettled(rels.map((rel) =>
-    Promise.resolve(api?.trashProjectEntry?.(projectPath, rel))));
-  const rejection = results.find((result) => result.status === "rejected");
+  const results = await Promise.allSettled(
+    rels.map((rel) => Promise.resolve(api?.trashProjectEntry?.(projectPath, rel)))
+  );
+  const rejection = results.find((result) => result.status === 'rejected');
   return {
-    failed: results.flatMap((result, index) => result.status === "rejected" ? [rels[index]] : []),
-    firstError: rejection?.status === "rejected" ? rejection.reason : undefined,
+    failed: results.flatMap((result, index) => (result.status === 'rejected' ? [rels[index]] : [])),
+    firstError: rejection?.status === 'rejected' ? rejection.reason : undefined,
   };
 }
 
 /** Where a created name lands: the entry itself is the last segment, and a
  *  nested "a/b/c" name also reveals every folder it introduced on the way. */
-export function explorerCreatedEntry(parentRel: string, name: string, dir: boolean): {
+export function explorerCreatedEntry(
+  parentRel: string,
+  name: string,
+  dir: boolean
+): {
   finalRel: string;
   expandRels: string[];
 } {
@@ -87,5 +87,5 @@ export function explorerCreatedEntry(parentRel: string, name: string, dir: boole
     cursor = explorerChildRel(cursor, segment);
     expandRels.push(cursor);
   }
-  return { finalRel: [parentRel, ...segments].filter(Boolean).join("/"), expandRels };
+  return { finalRel: [parentRel, ...segments].filter(Boolean).join('/'), expandRels };
 }

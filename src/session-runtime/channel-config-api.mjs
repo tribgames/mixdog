@@ -12,15 +12,10 @@ import {
 import { getSchedule } from '../runtime/shared/schedules-db.mjs';
 import { runScheduleSession } from '../runtime/shared/schedule-session-run.mjs';
 
-// Webhook/schedule config surface. Extracted verbatim from the runtime
-// API object; the mutating admin helpers are imported directly here and the
-// runtime injects only the closure-owned callbacks (channel worker handle,
-// soft reload).
-export function createChannelConfigApi({
-  channels,
-  reloadChannelsSoon,
-  ensureAutomationRuntime = () => {},
-}) {
+// Webhook/schedule config surface. The mutating admin helpers are imported
+// directly here and the runtime injects only the closure-owned callbacks
+// (channel worker handle, soft reload).
+export function createChannelConfigApi({ channels, reloadChannelsSoon, ensureAutomationRuntime = () => {} }) {
   return {
     async getChannelSetup() {
       return channelSetup();

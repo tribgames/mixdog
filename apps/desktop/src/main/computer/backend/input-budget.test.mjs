@@ -9,12 +9,19 @@ import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS as maximum } from '../../../../../..
 
 test('foreground typing budgets are checked before dispatch without reducing background values', () => {
   for (const [delivery, length, accepted] of [
-    ['foreground', maximum, true], ['foreground', maximum + 1, false], ['background', 30_000, true],
+    ['foreground', maximum, true],
+    ['foreground', maximum + 1, false],
+    ['background', 30_000, true],
   ]) {
     const text = 'x'.repeat(length);
-    const error = validateComputerToolArgs({ action: 'act', input: {
-      window_id: 'hwnd:0x1', delivery, actions: [{ type: 'type', text }],
-    } });
+    const error = validateComputerToolArgs({
+      action: 'act',
+      input: {
+        window_id: 'hwnd:0x1',
+        delivery,
+        actions: [{ type: 'type', text }],
+      },
+    });
     const nativeCommand = { action: 'type', delivery, window_id: 'hwnd:0x1', text };
     if (accepted) {
       assert.equal(error, null);
@@ -27,7 +34,8 @@ test('foreground typing budgets are checked before dispatch without reducing bac
 });
 
 test('the native typing guard refuses excess text before resolving any window', {
-  skip: process.platform !== 'win32', timeout: 10_000,
+  skip: process.platform !== 'win32',
+  timeout: 10_000,
 }, async () => {
   const script = String.raw`
 $ErrorActionPreference='Stop'
@@ -55,9 +63,11 @@ try { Do-Type @{delivery='foreground';window_id='hwnd:0x1';text=('x'*($script:Ma
 catch { $message=$_.Exception.Message }
 @{message=$message;targetResolved=$script:targetResolved} | ConvertTo-Json -Compress
 `;
-  const execution = promisify(execFile)('powershell.exe', [
-    '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64'),
-  ], { windowsHide: true, timeout: 8_000 });
+  const execution = promisify(execFile)(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+    { windowsHide: true, timeout: 8_000 }
+  );
   execution.child.stdin.end(powershellHostProgram());
   const { stdout } = await execution;
   const result = JSON.parse(stdout.trim());

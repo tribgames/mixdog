@@ -6,7 +6,12 @@ import { clean, hasOwn } from './session-text.mjs';
 import { modelSupportsServiceTier } from '../runtime/agent/orchestrator/providers/model-service-tiers.mjs';
 
 const FAST_CAPABLE_PROVIDERS = new Set([
-  'anthropic', 'anthropic-oauth', 'openai', 'openai-oauth', 'cursor-oauth', 'cursor-api',
+  'anthropic',
+  'anthropic-oauth',
+  'openai',
+  'openai-oauth',
+  'cursor-oauth',
+  'cursor-api',
 ]);
 export const LAZY_SECRET_PROVIDERS = new Set(['openai-oauth', 'anthropic-oauth', 'grok-oauth']);
 
@@ -18,9 +23,7 @@ export function routeFastKey(provider, model) {
 
 function openAiDirectModelSupportsFast(model) {
   const id = clean(model?.id || model);
-  return /^gpt-5\.5(?:-\d{4}|$)/.test(id)
-    || /^gpt-5\.4(?:-\d{4}|$)/.test(id)
-    || /^gpt-5\.4-mini(?:-\d{4}|$)/.test(id);
+  return /^gpt-5\.5(?:-\d{4}|$)/.test(id) || /^gpt-5\.4(?:-\d{4}|$)/.test(id) || /^gpt-5\.4-mini(?:-\d{4}|$)/.test(id);
 }
 
 function openAiModelSupportsHostedWebSearch(model) {
@@ -34,8 +37,7 @@ function openAiModelSupportsHostedWebSearch(model) {
   ].map((tool) => clean(tool?.type || tool?.name || tool).toLowerCase());
   if (tools.some((tool) => tool === 'web_search' || tool === 'web_search_preview')) return true;
   if (/codex|image|audio|tts|stt|embedding|rerank|moderation|search-preview/.test(id)) return false;
-  return /^gpt-(5(?:\.|$|-)|4\.1(?:-|$)|4o(?:-|$)|4\.5(?:-|$))/.test(id)
-    || /^o[34](?:-|$)/.test(id);
+  return /^gpt-(5(?:\.|$|-)|4\.1(?:-|$)|4o(?:-|$)|4\.5(?:-|$))/.test(id) || /^o[34](?:-|$)/.test(id);
 }
 
 function grokModelSupportsHostedWebSearch(model) {
@@ -75,10 +77,12 @@ export function fastCapableFor(provider, model, effort = null, modelParameters =
     const selectedEffort = clean(effort);
     if (Array.isArray(model?.parameterVariants) && model.parameterVariants.length) {
       const parameters = modelParameters && typeof modelParameters === 'object' ? modelParameters : {};
-      return model.parameterVariants.some((variant) => variant?.fast === 'true'
-        && (!selectedEffort || !variant.effort || clean(variant.effort) === selectedEffort)
-        && Object.entries(parameters).every(([key, value]) =>
-          !variant?.[key] || clean(variant[key]) === clean(value)));
+      return model.parameterVariants.some(
+        (variant) =>
+          variant?.fast === 'true' &&
+          (!selectedEffort || !variant.effort || clean(variant.effort) === selectedEffort) &&
+          Object.entries(parameters).every(([key, value]) => !variant?.[key] || clean(variant[key]) === clean(value))
+      );
     }
     return !selectedEffort || fastEfforts.length === 0 || fastEfforts.includes(selectedEffort);
   }
@@ -121,9 +125,11 @@ export function saveModelSettings(cfgMod, route, { fastCapable = true, baseConfi
   if (fastCapable) nextSetting.fast = route.fast === true;
   else nextSetting.fast = false;
   if (route.modelParameters && typeof route.modelParameters === 'object') {
-    nextSetting.modelParameters = Object.fromEntries(Object.entries(route.modelParameters)
-      .map(([key, value]) => [clean(key), clean(value)])
-      .filter(([key, value]) => key && value));
+    nextSetting.modelParameters = Object.fromEntries(
+      Object.entries(route.modelParameters)
+        .map(([key, value]) => [clean(key), clean(value)])
+        .filter(([key, value]) => key && value)
+    );
   } else {
     delete nextSetting.modelParameters;
   }

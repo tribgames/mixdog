@@ -3,19 +3,19 @@
 export function watchBrowserForegroundReturns(
   browserWindow: Window,
   browserDocument: Document,
-  report: () => void,
+  report: () => void
 ): () => void {
   const reportVisibleReturn = () => {
-    if (browserDocument.visibilityState === "hidden") return;
+    if (browserDocument.visibilityState === 'hidden') return;
     report();
   };
-  browserWindow.addEventListener("focus", reportVisibleReturn);
-  browserWindow.addEventListener("pageshow", reportVisibleReturn);
-  browserDocument.addEventListener("visibilitychange", reportVisibleReturn);
+  browserWindow.addEventListener('focus', reportVisibleReturn);
+  browserWindow.addEventListener('pageshow', reportVisibleReturn);
+  browserDocument.addEventListener('visibilitychange', reportVisibleReturn);
   return () => {
-    browserWindow.removeEventListener("focus", reportVisibleReturn);
-    browserWindow.removeEventListener("pageshow", reportVisibleReturn);
-    browserDocument.removeEventListener("visibilitychange", reportVisibleReturn);
+    browserWindow.removeEventListener('focus', reportVisibleReturn);
+    browserWindow.removeEventListener('pageshow', reportVisibleReturn);
+    browserDocument.removeEventListener('visibilitychange', reportVisibleReturn);
   };
 }
 
@@ -24,8 +24,8 @@ export function watchBrowserForegroundReturns(
  * from the offscreen parking host; two frames cross the layout/compositor
  * boundary without reloading or replacing the guest. */
 export function scheduleBrowserForegroundRepaint(
-  browserWindow: Pick<Window, "requestAnimationFrame" | "cancelAnimationFrame">,
-  report: () => void,
+  browserWindow: Pick<Window, 'requestAnimationFrame' | 'cancelAnimationFrame'>,
+  report: () => void
 ): () => void {
   let layoutFrame = 0;
   let paintFrame = 0;

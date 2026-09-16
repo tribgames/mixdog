@@ -30,23 +30,13 @@ let pendingRenderAcks = [];
 let renderAckSeq = 0;
 let lastRenderFrameAt = 0;
 
-export const renderFrameDelay = (
-  lastFrameAt,
-  currentTime,
-  frameMs = TUI_FRAME_MS,
-) => {
+export const renderFrameDelay = (lastFrameAt, currentTime, frameMs = TUI_FRAME_MS) => {
   if (!(lastFrameAt > 0)) return frameMs;
   return Math.max(0, frameMs - Math.max(0, currentTime - lastFrameAt));
 };
 
-export const scheduleRenderAlignedStoreFlush = (
-  callback,
-  frameMs = TUI_FRAME_MS,
-) => {
-  const timer = setTimeout(
-    callback,
-    renderFrameDelay(lastRenderFrameAt, performance.now(), frameMs),
-  );
+export const scheduleRenderAlignedStoreFlush = (callback, frameMs = TUI_FRAME_MS) => {
+  const timer = setTimeout(callback, renderFrameDelay(lastRenderFrameAt, performance.now(), frameMs));
   timer.unref?.();
   return timer;
 };
@@ -77,72 +67,72 @@ export const yieldToRenderer = ({ frames = 1 } = {}) => {
   // for an acknowledgement that exists only in another process.
   if (!hasRenderFrameSource()) return new Promise((resolve) => setImmediate(resolve));
   return new Promise((resolve) => {
-  const minSeq = renderAckSeq;
-  let remainingFrames = Math.max(1, Math.floor(Number(frames) || 1));
-  let settled = false;
-  let sawRealFrame = false;
-  let timer = null;
-  let releaseClosedListener = () => {};
-  const finish = () => {
-    if (settled) return;
-    settled = true;
-    if (timer) clearTimeout(timer);
-    releaseClosedListener();
-    const idx = pendingRenderAcks.indexOf(onFrame);
-    if (idx !== -1) pendingRenderAcks.splice(idx, 1);
-    resolve();
-  };
-  releaseClosedListener = onRenderFrameSourcesClosed(finish);
-  const onTimeout = () => {
-    if (settled) return;
-    // A render has already reached onRender and scheduled its deferred
-    // post-write ack, but the event loop may run expired timers before the
-    // check-phase setImmediate. Do NOT let the first-frame hang guard beat that
-    // queued real-frame ack; keep waiting for it so frames:2 cannot collapse to
-    // zero/one actual paints under a slow preamble render.
-    if (!sawRealFrame && renderAckSeq > minSeq) {
-      // Yield exactly one check phase: a legitimate queued notifyRenderFrame(seq)
-      // was scheduled before this timeout callback and should run first. If it is
-      // lost/skipped, this follow-up finishes the hang guard instead of
-      // re-arming forever.
-      setImmediate(() => {
-        if (!settled && !sawRealFrame) finish();
-      });
-      return;
-    }
-    finish();
-  };
-  const armWait = () => {
-    if (settled) return;
-    if (!pendingRenderAcks.includes(onFrame)) pendingRenderAcks.push(onFrame);
-    if (timer) clearTimeout(timer);
-    // Before the FIRST real frame, the timer is only a long hang guard for
-    // no-ack/no-render paths. After at least one frame painted, the timer becomes
-    // a short "settle idle" fallback: if no follow-up measurement/correction
-    // render arrives within roughly four 60fps frames, treat the preamble as
-    // stable instead of forcing a visible 250ms pause before the tool card.
-    timer = setTimeout(onTimeout, sawRealFrame ? RENDER_SETTLE_IDLE_MS : RENDER_ACK_HANG_GUARD_MS);
-  };
-  const onFrame = (seq = 0) => {
-    if (settled) return;
-    if (seq <= minSeq) {
+    const minSeq = renderAckSeq;
+    let remainingFrames = Math.max(1, Math.floor(Number(frames) || 1));
+    let settled = false;
+    let sawRealFrame = false;
+    let timer = null;
+    let releaseClosedListener = () => {};
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      releaseClosedListener();
+      const idx = pendingRenderAcks.indexOf(onFrame);
+      if (idx !== -1) pendingRenderAcks.splice(idx, 1);
+      resolve();
+    };
+    releaseClosedListener = onRenderFrameSourcesClosed(finish);
+    const onTimeout = () => {
+      if (settled) return;
+      // A render has already reached onRender and scheduled its deferred
+      // post-write ack, but the event loop may run expired timers before the
+      // check-phase setImmediate. Do NOT let the first-frame hang guard beat that
+      // queued real-frame ack; keep waiting for it so frames:2 cannot collapse to
+      // zero/one actual paints under a slow preamble render.
+      if (!sawRealFrame && renderAckSeq > minSeq) {
+        // Yield exactly one check phase: a legitimate queued notifyRenderFrame(seq)
+        // was scheduled before this timeout callback and should run first. If it is
+        // lost/skipped, this follow-up finishes the hang guard instead of
+        // re-arming forever.
+        setImmediate(() => {
+          if (!settled && !sawRealFrame) finish();
+        });
+        return;
+      }
+      finish();
+    };
+    const armWait = () => {
+      if (settled) return;
       if (!pendingRenderAcks.includes(onFrame)) pendingRenderAcks.push(onFrame);
-      return;
-    }
-    sawRealFrame = true;
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
-    const idx = pendingRenderAcks.indexOf(onFrame);
-    if (idx !== -1) pendingRenderAcks.splice(idx, 1);
-    remainingFrames -= 1;
-    if (remainingFrames <= 0) finish();
-    else armWait();
-  };
-  // Count real render acks as frames. The pre-first-frame timeout is a hang
-  // guard, while the post-first-frame timeout is an idle-settle fallback so a
-  // missing second frame does not add a quarter-second tool-card delay.
-  armWait();
+      if (timer) clearTimeout(timer);
+      // Before the FIRST real frame, the timer is only a long hang guard for
+      // no-ack/no-render paths. After at least one frame painted, the timer becomes
+      // a short "settle idle" fallback: if no follow-up measurement/correction
+      // render arrives within roughly four 60fps frames, treat the preamble as
+      // stable instead of forcing a visible 250ms pause before the tool card.
+      timer = setTimeout(onTimeout, sawRealFrame ? RENDER_SETTLE_IDLE_MS : RENDER_ACK_HANG_GUARD_MS);
+    };
+    const onFrame = (seq = 0) => {
+      if (settled) return;
+      if (seq <= minSeq) {
+        if (!pendingRenderAcks.includes(onFrame)) pendingRenderAcks.push(onFrame);
+        return;
+      }
+      sawRealFrame = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      const idx = pendingRenderAcks.indexOf(onFrame);
+      if (idx !== -1) pendingRenderAcks.splice(idx, 1);
+      remainingFrames -= 1;
+      if (remainingFrames <= 0) finish();
+      else armWait();
+    };
+    // Count real render acks as frames. The pre-first-frame timeout is a hang
+    // guard, while the post-first-frame timeout is an idle-settle fallback so a
+    // missing second frame does not add a quarter-second tool-card delay.
+    armWait();
   });
 };

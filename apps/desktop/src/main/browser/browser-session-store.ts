@@ -146,7 +146,9 @@ export function createBrowserSessionStore(host: BrowserSessionStoreHost) {
     } catch {
       return 0;
     }
-    const discard = async () => { await rm(file, { force: true }).catch(() => undefined); };
+    const discard = async () => {
+      await rm(file, { force: true }).catch(() => undefined);
+    };
     const text = await decrypt(sealed).catch(() => null);
     if (!text) {
       await discard();
@@ -159,8 +161,7 @@ export function createBrowserSessionStore(host: BrowserSessionStoreHost) {
       await discard();
       return 0;
     }
-    if (typeof parsed?.savedAt !== 'number' || now() - parsed.savedAt > MAX_AGE_MS
-      || !Array.isArray(parsed.cookies)) {
+    if (typeof parsed?.savedAt !== 'number' || now() - parsed.savedAt > MAX_AGE_MS || !Array.isArray(parsed.cookies)) {
       await discard();
       return 0;
     }

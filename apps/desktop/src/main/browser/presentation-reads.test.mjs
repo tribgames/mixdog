@@ -3,22 +3,34 @@ import test from 'node:test';
 import { createBrowserPresentationReads } from './presentation-reads.ts';
 
 const frame = (frameId = 'frame-1') => ({
-  frameId, documentId: 'p1:1', webContentsId: 1, width: 800, height: 600,
-  viewportWidth: 800, viewportHeight: 600, url: 'https://example.test',
-  title: 'Page', loading: false, canGoBack: false, canGoForward: false,
+  frameId,
+  documentId: 'p1:1',
+  webContentsId: 1,
+  width: 800,
+  height: 600,
+  viewportWidth: 800,
+  viewportHeight: 600,
+  url: 'https://example.test',
+  title: 'Page',
+  loading: false,
+  canGoBack: false,
+  canGoForward: false,
   image: { mimeType: 'image/jpeg', data: 'pixels' },
 });
 
 test('concurrent display readers share a capture but retain their own image-delta baselines', async () => {
   const captures = [];
   const display = createBrowserPresentationReads({
-    bounded: work => work,
-    capture: session => new Promise(resolve => captures.push({ session, resolve })),
+    bounded: (work) => work,
+    capture: (session) => new Promise((resolve) => captures.push({ session, resolve })),
   });
   const a = display.read('owner', 'frame-1');
   const b = display.read('owner');
   const other = display.read('other');
-  assert.deepEqual(captures.map(value => value.session), ['owner', 'other']);
+  assert.deepEqual(
+    captures.map((value) => value.session),
+    ['owner', 'other']
+  );
   captures[0].resolve(frame());
   captures[1].resolve(frame('other-frame'));
   const [unchanged, fresh, independent] = await Promise.all([a, b, other]);
@@ -30,8 +42,8 @@ test('concurrent display readers share a capture but retain their own image-delt
 test('releasing or disposing a display rejects late pixels without cancelling a reopened session', async () => {
   const captures = [];
   const display = createBrowserPresentationReads({
-    bounded: work => work,
-    capture: (session, signal) => new Promise(resolve => captures.push({ session, signal, resolve })),
+    bounded: (work) => work,
+    capture: (session, signal) => new Promise((resolve) => captures.push({ session, signal, resolve })),
   });
   const old = display.read('owner');
   const cancelled = assert.rejects(old, /page changed during capture/);
@@ -60,7 +72,7 @@ test('release at the delivery boundary refuses a completed capture and leaves a 
     let count = 0;
     display = createBrowserPresentationReads({
       capture: async () => frame(`frame-${++count}`),
-      bounded: async work => {
+      bounded: async (work) => {
         const value = await work;
         if (first) {
           first = false;

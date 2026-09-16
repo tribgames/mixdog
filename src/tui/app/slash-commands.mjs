@@ -1,22 +1,52 @@
 /**
  * slash-commands.mjs — the /command registry plus the pure string/matching
- * helpers that operate on it. Extracted verbatim from App.jsx (behavior-
- * preserving): no hooks, no App state, no closures — plain data + pure fns.
+ * helpers that operate on it. No hooks, no App state, no closures — plain
+ * data + pure fns.
  */
 export const SLASH_COMMANDS = [
   { name: 'clear', usage: '/clear', aliases: ['new'], aliasUsage: ['new'], description: 'Start a fresh chat' },
-  { name: 'project', usage: '/project', aliases: ['projects'], aliasUsage: ['projects'], showAliasUsage: false, params: '[path]', description: 'Switch working directory (project)' },
+  {
+    name: 'project',
+    usage: '/project',
+    aliases: ['projects'],
+    aliasUsage: ['projects'],
+    showAliasUsage: false,
+    params: '[path]',
+    description: 'Switch working directory (project)',
+  },
   { name: 'compact', usage: '/compact', description: 'Compact older conversation context' },
-  { name: 'goal', usage: '/goal', params: '[objective --time 1h --time-mode max|status|pause|resume|edit|stop]', description: 'Run and manage a durable session Goal' },
-  { name: 'autoclear', usage: '/autoclear', params: '[on|off|duration]', description: 'Reduce cache-miss cost after long idle gaps' },
+  {
+    name: 'goal',
+    usage: '/goal',
+    params: '[objective --time 1h --time-mode max|status|pause|resume|edit|stop]',
+    description: 'Run and manage a durable session Goal',
+  },
+  {
+    name: 'autoclear',
+    usage: '/autoclear',
+    params: '[on|off|duration]',
+    description: 'Reduce cache-miss cost after long idle gaps',
+  },
   { name: 'resume', usage: '/resume', params: '[id]', description: 'Resume a saved chat' },
   { name: 'context', usage: '/context', description: 'Show current context surface' },
-  { name: 'inherit', usage: '/inherit', description: 'Carry this conversation into a new session on the current model' },
+  {
+    name: 'inherit',
+    usage: '/inherit',
+    description: 'Carry this conversation into a new session on the current model',
+  },
   { name: 'usage', usage: '/usage', params: '[refresh]', description: 'Show total provider quota / balance' },
   { name: 'model', usage: '/model', params: '[name|refresh]', description: 'Switch model for subsequent turns' },
   { name: 'websearch', usage: '/websearch', description: 'Set the web search provider/model' },
   { name: 'workflow', usage: '/workflow', params: '[name]', description: 'Switch the active workflow' },
-  { name: 'outputstyle', usage: '/OutputStyle', aliases: ['output-style', 'style'], aliasUsage: ['style'], showAliasUsage: false, params: '[name]', description: 'Switch Lead output style' },
+  {
+    name: 'outputstyle',
+    usage: '/OutputStyle',
+    aliases: ['output-style', 'style'],
+    aliasUsage: ['style'],
+    showAliasUsage: false,
+    params: '[name]',
+    description: 'Switch Lead output style',
+  },
   { name: 'theme', usage: '/theme', params: '[id]', description: 'Change the TUI color theme' },
   { name: 'agents', usage: '/agents', params: '[refresh]', description: 'Show available workflow agents' },
   { name: 'effort', usage: '/effort', params: '[level]', description: 'Set reasoning effort for the current model' },
@@ -26,7 +56,14 @@ export const SLASH_COMMANDS = [
   { name: 'memory', usage: '/memory', params: '[status|core ...]', description: 'List and edit core memories' },
   { name: 'plugins', usage: '/plugins', description: 'Manage local plugin integrations' },
   { name: 'providers', usage: '/providers', description: 'Manage auth, API keys, OAuth, and local endpoints' },
-  { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings' },
+  {
+    name: 'settings',
+    usage: '/setting',
+    aliases: ['setting', 'config'],
+    aliasUsage: ['settings', 'config'],
+    showAliasUsage: false,
+    description: 'Open runtime settings',
+  },
   { name: 'profile', usage: '/profile', description: 'Set your title, development experience, and response language' },
   { name: 'update', usage: '/update', description: 'Check version and update mixdog' },
   { name: 'doctor', usage: '/doctor', description: 'Diagnose installation health' },
@@ -42,8 +79,17 @@ export function slashQuery(value) {
 export function slashCommandMatches(command, query) {
   const needle = String(query || '').toLowerCase();
   if (!needle) return true;
-  if (String(command?.name || '').toLowerCase().startsWith(needle)) return true;
-  return (command?.aliases || []).some((alias) => String(alias || '').toLowerCase().startsWith(needle));
+  if (
+    String(command?.name || '')
+      .toLowerCase()
+      .startsWith(needle)
+  )
+    return true;
+  return (command?.aliases || []).some((alias) =>
+    String(alias || '')
+      .toLowerCase()
+      .startsWith(needle)
+  );
 }
 
 export function compareSlashCommands(a, b) {

@@ -2,13 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createBrowserCommandQueue } from './command-queue.ts';
 
-test('a human picker keeps foreground automation paused beyond the idle interval without locking other pages', async t => {
+test('a human picker keeps foreground automation paused beyond the idle interval without locking other pages', async (t) => {
   let now = 0;
   t.mock.method(performance, 'now', () => now);
   const queue = createBrowserCommandQueue({
-    chains: new Map(), pendingReads: new Map(), sessionId: command => command.session_id,
-    backgroundEntryByPageId: () => null, readOnlyActions: new Set(),
-    commandTimeoutMs: 1000, bounded: async work => work, run: async () => ({ text: 'ran' }),
+    chains: new Map(),
+    pendingReads: new Map(),
+    sessionId: (command) => command.session_id,
+    backgroundEntryByPageId: () => null,
+    readOnlyActions: new Set(),
+    commandTimeoutMs: 1000,
+    bounded: async (work) => work,
+    run: async () => ({ text: 'ran' }),
   });
   const command = { session_id: 'owner', action: 'click' };
   const release = queue.holdLocal(command);

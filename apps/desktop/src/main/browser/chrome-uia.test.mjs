@@ -154,10 +154,7 @@ test('selects Chrome native allow by structural surface and button geometry', ()
     }),
   ];
   assert.equal(chromeConsentAllowRef(elements), 'allow');
-  assert.equal(
-    chromeOwnedConsentAllowRef(elements.filter((candidate) => candidate.ref !== 'pane')),
-    'allow',
-  );
+  assert.equal(chromeOwnedConsentAllowRef(elements.filter((candidate) => candidate.ref !== 'pane')), 'allow');
 });
 
 test('ignores a consent-shaped surface inside web content', () => {
@@ -177,10 +174,7 @@ test('ignores a consent-shaped surface inside web content', () => {
       class_name: 'MdTextButton',
       actions: ['invoke'],
       in_document: true,
-      ancestors: [
-        { runtime_id: 'surface', role: 'Pane', name: 'spoof' },
-        document,
-      ],
+      ancestors: [{ runtime_id: 'surface', role: 'Pane', name: 'spoof' }, document],
     }),
   ];
   assert.equal(chromeConsentAllowRef(elements), null);

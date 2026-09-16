@@ -41,7 +41,7 @@ function clamp(value: number, minimum: number, maximum: number): number {
 export function routeSheetWidth(viewport: { width: number }, preferredWidth = ROUTE_PANEL_WIDTH): number {
   return Math.min(
     Math.max(ROUTE_PANEL_WIDTH, Math.ceil(preferredWidth)),
-    Math.max(1, viewport.width - ROUTE_PANEL_EDGE * 2),
+    Math.max(1, viewport.width - ROUTE_PANEL_EDGE * 2)
   );
 }
 
@@ -49,18 +49,14 @@ export function routeSheetBox(
   trigger: RouteAnchorRect,
   preferredHeight: number,
   viewport: RouteViewport,
-  preferredWidth = ROUTE_PANEL_WIDTH,
+  preferredWidth = ROUTE_PANEL_WIDTH
 ): RoutePanelBox {
   const viewportLeft = viewport.left ?? 0;
   const viewportTop = viewport.top ?? 0;
   const viewportRight = viewportLeft + viewport.width;
   const viewportBottom = viewportTop + viewport.height;
   const width = routeSheetWidth(viewport, preferredWidth);
-  const left = clamp(
-    trigger.right - width,
-    viewportLeft + ROUTE_PANEL_EDGE,
-    viewportRight - width - ROUTE_PANEL_EDGE,
-  );
+  const left = clamp(trigger.right - width, viewportLeft + ROUTE_PANEL_EDGE, viewportRight - width - ROUTE_PANEL_EDGE);
   const spaceAbove = Math.max(1, trigger.top - viewportTop - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
   const spaceBelow = Math.max(1, viewportBottom - trigger.bottom - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
   const openAbove = spaceAbove >= preferredHeight || spaceAbove > spaceBelow;
@@ -79,19 +75,13 @@ export function routeSheetBox(
 function flyoutSides(
   sheet: { left: number; width: number },
   viewport: RouteViewport,
-  preferredWidth?: number,
+  preferredWidth?: number
 ): { sideWidth: number; canOpenLeft: boolean; canOpenRight: boolean } {
   const viewportLeft = viewport.left ?? 0;
   const viewportRight = viewportLeft + viewport.width;
-  const sideWidth = Math.min(
-    preferredWidth ?? sheet.width,
-    Math.max(1, viewport.width - ROUTE_PANEL_EDGE * 2),
-  );
+  const sideWidth = Math.min(preferredWidth ?? sheet.width, Math.max(1, viewport.width - ROUTE_PANEL_EDGE * 2));
   const spaceLeft = Math.max(0, sheet.left - viewportLeft - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
-  const spaceRight = Math.max(
-    0,
-    viewportRight - (sheet.left + sheet.width) - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP,
-  );
+  const spaceRight = Math.max(0, viewportRight - (sheet.left + sheet.width) - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
   return { sideWidth, canOpenLeft: spaceLeft >= sideWidth, canOpenRight: spaceRight >= sideWidth };
 }
 
@@ -102,7 +92,7 @@ function flyoutSides(
 export function routeFlyoutFitsBeside(
   sheet: { left: number; width: number },
   viewport: RouteViewport,
-  preferredWidth?: number,
+  preferredWidth?: number
 ): boolean {
   const sides = flyoutSides(sheet, viewport, preferredWidth);
   return sides.canOpenLeft || sides.canOpenRight;
@@ -121,18 +111,12 @@ export function routeDrillHeight(preferredHeight: number, viewport: RouteViewpor
 /** Drill-down box: the pane REPLACES the sheet inside its own footprint and
  *  keeps the edge that faces the trigger pinned, so the menu grows and
  *  shrinks in place like a phone settings screen instead of stacking. */
-export function routeDrillBox(
-  sheet: RoutePanelBox,
-  preferredHeight: number,
-  viewport: RouteViewport,
-): RoutePanelBox {
+export function routeDrillBox(sheet: RoutePanelBox, preferredHeight: number, viewport: RouteViewport): RoutePanelBox {
   const viewportTop = viewport.top ?? 0;
   const viewportBottom = viewportTop + viewport.height;
   const above = sheet.placement !== 'below';
   const pinned = above ? sheet.top + sheet.height : sheet.top;
-  const room = above
-    ? pinned - viewportTop - ROUTE_PANEL_EDGE
-    : viewportBottom - pinned - ROUTE_PANEL_EDGE;
+  const room = above ? pinned - viewportTop - ROUTE_PANEL_EDGE : viewportBottom - pinned - ROUTE_PANEL_EDGE;
   const height = Math.max(ROUTE_SHEET_ROW_HEIGHT, Math.min(preferredHeight, room));
   return {
     left: sheet.left,
@@ -150,7 +134,7 @@ export function routeFlyoutBox(
   viewport: RouteViewport,
   anchorTop?: number,
   preferredWidth?: number,
-  preferredSide: 'left' | 'right' | null = null,
+  preferredSide: 'left' | 'right' | null = null
 ): RoutePanelBox {
   const viewportTop = viewport.top ?? 0;
   const viewportBottom = viewportTop + viewport.height;
@@ -159,19 +143,11 @@ export function routeFlyoutBox(
   // fallback for viewports too narrow to fit a second column.
   const { sideWidth, canOpenLeft, canOpenRight } = flyoutSides(sheet, viewport, preferredWidth);
   if (canOpenLeft || canOpenRight) {
-    const openLeft = preferredSide === 'right'
-      ? !canOpenRight && canOpenLeft
-      : canOpenLeft;
+    const openLeft = preferredSide === 'right' ? !canOpenRight && canOpenLeft : canOpenLeft;
     const height = Math.min(preferredHeight, Math.max(1, viewport.height - ROUTE_PANEL_EDGE * 2));
     return {
-      left: openLeft
-        ? sheet.left - ROUTE_PANEL_GAP - sideWidth
-        : sheet.left + sheet.width + ROUTE_PANEL_GAP,
-      top: clamp(
-        anchorTop ?? sheet.top,
-        viewportTop + ROUTE_PANEL_EDGE,
-        viewportBottom - height - ROUTE_PANEL_EDGE,
-      ),
+      left: openLeft ? sheet.left - ROUTE_PANEL_GAP - sideWidth : sheet.left + sheet.width + ROUTE_PANEL_GAP,
+      top: clamp(anchorTop ?? sheet.top, viewportTop + ROUTE_PANEL_EDGE, viewportBottom - height - ROUTE_PANEL_EDGE),
       width: sideWidth,
       height,
       maxHeight: height,

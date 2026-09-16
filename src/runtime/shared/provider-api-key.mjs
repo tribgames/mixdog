@@ -21,7 +21,9 @@ export const AGENT_PROVIDER_ENV_ALIASES = Object.freeze({
 });
 
 function providerSecretEnv(provider) {
-  return `MIXDOG_AGENT_${String(provider || '').replace(/[.\s]+/g, '_').toUpperCase()}_APIKEY`;
+  return `MIXDOG_AGENT_${String(provider || '')
+    .replace(/[.\s]+/g, '_')
+    .toUpperCase()}_APIKEY`;
 }
 
 function environmentApiKey(provider) {
@@ -42,8 +44,11 @@ export function hasAgentApiKey(provider) {
   const id = String(provider || '').trim();
   if (!id) return false;
   if (environmentApiKey(id)) return true;
-  try { return hasSecret(`agent.${id}.apiKey`); }
-  catch { return false; }
+  try {
+    return hasSecret(`agent.${id}.apiKey`);
+  } catch {
+    return false;
+  }
 }
 
 export function getAgentApiKey(provider) {

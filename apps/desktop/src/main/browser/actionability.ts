@@ -2,7 +2,10 @@
 import { pause } from './settle';
 
 export class BrowserActionabilityError extends Error {
-  constructor(message: string, readonly reason: string) {
+  constructor(
+    message: string,
+    readonly reason: string
+  ) {
     super(message);
     this.name = 'BrowserActionabilityError';
   }
@@ -11,7 +14,7 @@ export class BrowserActionabilityError extends Error {
 export async function waitForBrowserActionable<T>(
   probe: () => Promise<T>,
   signal?: AbortSignal,
-  timeoutMs = 5_000,
+  timeoutMs = 5_000
 ): Promise<T> {
   const deadline = performance.now() + timeoutMs;
   for (;;) {

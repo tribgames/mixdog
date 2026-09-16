@@ -8,11 +8,7 @@ import {
   mapWithConcurrency,
   untrackedStat,
 } from './git-read-utils';
-import {
-  publicGitRemoteUrl,
-  run,
-  streamNulRecords,
-} from './git-runner';
+import { publicGitRemoteUrl, run, streamNulRecords } from './git-runner';
 
 export type GitOperation = '' | 'merge' | 'rebase' | 'cherry-pick' | 'revert';
 
@@ -84,7 +80,7 @@ function normalizeStatusLetter(value: string | undefined): string {
 
 async function readNumstat(
   cwd: string,
-  args: string[],
+  args: string[]
 ): Promise<Map<string, { additions: number; deletions: number }>> {
   const stats = new Map<string, { additions: number; deletions: number }>();
   let renameStat: { additions: number; deletions: number; oldPathSeen: boolean } | null = null;
@@ -95,10 +91,11 @@ async function readNumstat(
           renameStat.oldPathSeen = true;
           return;
         }
-        if (field) stats.set(field, {
-          additions: renameStat.additions,
-          deletions: renameStat.deletions,
-        });
+        if (field)
+          stats.set(field, {
+            additions: renameStat.additions,
+            deletions: renameStat.deletions,
+          });
         renameStat = null;
         return;
       }
@@ -125,8 +122,10 @@ interface CachedRemoteMetadata {
 
 interface CachedLineStats {
   signature: string;
-  files: Map<string, Pick<GitFileEntry,
-    'stagedAdditions' | 'stagedDeletions' | 'unstagedAdditions' | 'unstagedDeletions'>>;
+  files: Map<
+    string,
+    Pick<GitFileEntry, 'stagedAdditions' | 'stagedDeletions' | 'unstagedAdditions' | 'unstagedDeletions'>
+  >;
 }
 
 const remoteMetadataCache = new Map<string, CachedRemoteMetadata>();
@@ -164,16 +163,14 @@ async function cachedGitDir(cwd: string): Promise<string> {
   let gitDir = '';
   try {
     const text = await readFile(dotGit, 'utf8');
-    const match = /^gitdir:\s*(.+)\s*$/mi.exec(text);
+    const match = /^gitdir:\s*(.+)\s*$/im.exec(text);
     if (match) gitDir = resolve(cwd, match[1]);
   } catch {
     try {
       await access(dotGit);
       gitDir = dotGit;
     } catch {
-      gitDir = resolve(cwd, (await run(cwd, [
-        '--no-optional-locks', 'rev-parse', '--absolute-git-dir',
-      ])).trim());
+      gitDir = resolve(cwd, (await run(cwd, ['--no-optional-locks', 'rev-parse', '--absolute-git-dir'])).trim());
     }
   }
   gitDirCache.set(key, gitDir);
@@ -181,8 +178,8 @@ async function cachedGitDir(cwd: string): Promise<string> {
 }
 
 function lineStatsSignature(files: GitFileEntry[]): string {
-  return files.map((file) =>
-    `${file.path}\0${file.oldPath || ''}\0${file.index}\0${file.worktree}\0${file.untracked ? 1 : 0}`)
+  return files
+    .map((file) => `${file.path}\0${file.oldPath || ''}\0${file.index}\0${file.worktree}\0${file.untracked ? 1 : 0}`)
     .join('\x01');
 }
 
@@ -200,21 +197,21 @@ async function applyFreshLineStats(
   cwd: string,
   files: GitFileEntry[],
   stagedStats: Map<string, { additions: number; deletions: number }>,
-  unstagedStats: Map<string, { additions: number; deletions: number }>,
+  unstagedStats: Map<string, { additions: number; deletions: number }>
 ): Promise<void> {
-  const untracked = new Map(await mapWithConcurrency(
-    files.filter((file) => file.untracked),
-    UNTRACKED_STAT_CONCURRENCY,
-    async (file) => [file.path, await untrackedStat(cwd, file.path)] as const,
-  ));
+  const untracked = new Map(
+    await mapWithConcurrency(
+      files.filter((file) => file.untracked),
+      UNTRACKED_STAT_CONCURRENCY,
+      async (file) => [file.path, await untrackedStat(cwd, file.path)] as const
+    )
+  );
   for (const file of files) {
     const staged = stagedStats.get(file.path);
     const unstaged = unstagedStats.get(file.path);
     file.stagedAdditions = staged?.additions ?? 0;
     file.stagedDeletions = staged?.deletions ?? 0;
-    file.unstagedAdditions = file.untracked
-      ? untracked.get(file.path) ?? 0
-      : unstaged?.additions ?? 0;
+    file.unstagedAdditions = file.untracked ? (untracked.get(file.path) ?? 0) : (unstaged?.additions ?? 0);
     file.unstagedDeletions = unstaged?.deletions ?? 0;
     file.additions = file.stagedAdditions + file.unstagedAdditions;
     file.deletions = file.stagedDeletions + file.unstagedDeletions;
@@ -259,10 +256,7 @@ export async function currentGitOperation(cwd: string): Promise<GitOperation> {
   return '';
 }
 
-export async function gitStatus(
-  cwd: string,
-  options: GitStatusOptions = {},
-): Promise<GitStatusResult> {
+export async function gitStatus(cwd: string, options: GitStatusOptions = {}): Promise<GitStatusResult> {
   const files: GitFileEntry[] = [];
   let branch = '';
   let oid = '';
@@ -339,16 +333,14 @@ export async function gitStatus(
       };
       if (kind === '2') pendingRename = file;
       else files.push(file);
-    },
+    }
   );
   const collectLineStats = options.skipLineStats !== true;
   const eagerStats = collectLineStats && options.reuseLineStats !== true;
   const stagedStatsPromise = eagerStats
     ? readNumstat(cwd, ['--no-optional-locks', 'diff', '--cached', '--numstat', '-z'])
     : null;
-  const unstagedStatsPromise = eagerStats
-    ? readNumstat(cwd, ['--no-optional-locks', 'diff', '--numstat', '-z'])
-    : null;
+  const unstagedStatsPromise = eagerStats ? readNumstat(cwd, ['--no-optional-locks', 'diff', '--numstat', '-z']) : null;
   const metadataPromise = remoteMetadata(cwd);
   const operationPromise = currentGitOperation(cwd);
   try {
@@ -366,20 +358,23 @@ export async function gitStatus(
       applyCachedLineStats(files, cachedStats);
     } else {
       const [stagedStats, unstagedStats] = await Promise.all([
-        stagedStatsPromise
-          ?? readNumstat(cwd, ['--no-optional-locks', 'diff', '--cached', '--numstat', '-z']),
-        unstagedStatsPromise
-          ?? readNumstat(cwd, ['--no-optional-locks', 'diff', '--numstat', '-z']),
+        stagedStatsPromise ?? readNumstat(cwd, ['--no-optional-locks', 'diff', '--cached', '--numstat', '-z']),
+        unstagedStatsPromise ?? readNumstat(cwd, ['--no-optional-locks', 'diff', '--numstat', '-z']),
       ]);
       await applyFreshLineStats(cwd, files, stagedStats, unstagedStats);
       lineStatsCache.set(cacheKey, {
         signature,
-        files: new Map(files.map((file) => [file.path, {
-          stagedAdditions: file.stagedAdditions,
-          stagedDeletions: file.stagedDeletions,
-          unstagedAdditions: file.unstagedAdditions,
-          unstagedDeletions: file.unstagedDeletions,
-        }])),
+        files: new Map(
+          files.map((file) => [
+            file.path,
+            {
+              stagedAdditions: file.stagedAdditions,
+              stagedDeletions: file.stagedDeletions,
+              unstagedAdditions: file.unstagedAdditions,
+              unstagedDeletions: file.unstagedDeletions,
+            },
+          ])
+        ),
       });
     }
   }

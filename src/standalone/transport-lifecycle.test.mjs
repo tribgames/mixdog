@@ -22,28 +22,36 @@ function runTransportCase(kind, body) {
 
 for (const kind of ['session', 'channel']) {
   test(`${kind} concurrent starts share one listening socket`, () => {
-    runTransportCase(kind, `
+    runTransportCase(
+      kind,
+      `
       const transport = createTransport({ handleCall: async () => null });
       const [first, second] = await Promise.all([transport.start(), transport.start()]);
       assert.deepEqual(first, second);
       assert.ok(first.port > 0);
       await transport.stop();
-    `);
+    `
+    );
   });
 
   test(`${kind} stop cancels a pending bind without a late server or callback`, () => {
-    runTransportCase(kind, `
+    runTransportCase(
+      kind,
+      `
       const transport = createTransport({ handleCall: async () => null });
       const rejected = assert.rejects(transport.start(), /HTTP listener stopped/);
       await transport.stop();
       await rejected;
       await setImmediate();
       await assert.rejects(transport.start(), /transport is closed/);
-    `);
+    `
+    );
   });
 
   test(`${kind} concurrent stops wait for the same active request to drain`, () => {
-    runTransportCase(kind, `
+    runTransportCase(
+      kind,
+      `
       const entered = Promise.withResolvers();
       const released = Promise.withResolvers();
       const transport = createTransport({
@@ -79,6 +87,7 @@ for (const kind of ['session', 'channel']) {
         released.resolve();
         await Promise.all([first, second, request]);
       }
-    `);
+    `
+    );
   });
 }

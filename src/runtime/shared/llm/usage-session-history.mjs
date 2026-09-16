@@ -144,8 +144,9 @@ export function summarizeSessionUsage(doc) {
   // predates that counter the raw input is unpacked the same way the rollup
   // does it, so a provider that reports the cache inside `input` is not
   // counted twice.
-  const input = num(doc?.totalUncachedInputTokens)
-    || billableInputTokensForProvider(provider, num(doc?.totalInputTokens), cacheRead, cacheWrite);
+  const input =
+    num(doc?.totalUncachedInputTokens) ||
+    billableInputTokensForProvider(provider, num(doc?.totalInputTokens), cacheRead, cacheWrite);
   const output = num(doc?.totalOutputTokens);
   if (input + output + cacheRead + cacheWrite <= 0) return null;
 
@@ -198,14 +199,16 @@ export function summarizeSessionUsage(doc) {
     if (slice.turns + slice.input + slice.output + slice.cacheRead + slice.cacheWrite <= 0) continue;
     let costUsd = 0;
     try {
-      costUsd = num(computeCostUsd({
-        provider,
-        model,
-        uncachedInputTokens: slice.input,
-        outputTokens: slice.output,
-        cacheReadTokens: slice.cacheRead,
-        cacheWriteTokens: slice.cacheWrite,
-      }));
+      costUsd = num(
+        computeCostUsd({
+          provider,
+          model,
+          uncachedInputTokens: slice.input,
+          outputTokens: slice.output,
+          cacheReadTokens: slice.cacheRead,
+          cacheWriteTokens: slice.cacheWrite,
+        })
+      );
     } catch {
       // An unpriced model still reports its tokens.
     }
@@ -465,19 +468,21 @@ export function loadUsageSessionHistory() {
  */
 export async function refreshUsageSessionHistory({ waitMs = 0, force = false, now = Date.now() } = {}) {
   const state = readCache();
-  const stale = force
-    || state.complete !== true
-    || now - Math.max(lastScanAt, state.scannedAt) > RESCAN_IDLE_MS;
+  const stale = force || state.complete !== true || now - Math.max(lastScanAt, state.scannedAt) > RESCAN_IDLE_MS;
   if (stale && !scanPromise) {
     lastScanAt = now;
     scanPromise = scanSessions({ now })
       .catch(() => readCache())
-      .finally(() => { scanPromise = null; });
+      .finally(() => {
+        scanPromise = null;
+      });
   }
   if (scanPromise && waitMs > 0) {
     await Promise.race([
       scanPromise,
-      new Promise((resolve) => { setTimeout(resolve, waitMs).unref?.(); }),
+      new Promise((resolve) => {
+        setTimeout(resolve, waitMs).unref?.();
+      }),
     ]);
   }
   return loadUsageSessionHistory();

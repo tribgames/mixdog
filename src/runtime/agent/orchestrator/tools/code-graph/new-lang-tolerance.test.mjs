@@ -50,7 +50,11 @@ function makeGraph() {
     topLevelTypes: ['Token'],
     symbols: [
       nativeSym('Token', 'class', 1, 10, 15, { endLine: 4, exported: true, sig: 'contract Token' }),
-      nativeSym('transfer', 'function', 2, 12, 20, { exported: true, sig: 'function transfer(address to) public', parent: 'Token' }),
+      nativeSym('transfer', 'function', 2, 12, 20, {
+        exported: true,
+        sig: 'function transfer(address to) public',
+        parent: 'Token',
+      }),
       nativeSym('mint', 'function', 3, 12, 16, { exported: true, sig: 'function mint() public', parent: 'Token' }),
     ],
   });
@@ -77,9 +81,7 @@ function makeGraph() {
       [hs.rel, hs],
       [hcl.rel, hcl],
     ]),
-    reverse: new Map([
-      [iface.rel, new Set([token.rel])],
-    ]),
+    reverse: new Map([[iface.rel, new Set([token.rel])]]),
   });
   graph._sourceTextCache.set(token.rel, {
     fingerprint: token.fingerprint,
@@ -153,7 +155,7 @@ test('unknown langs solidity/haskell/hcl never throw and native symbols drive gr
   // so callers reports the missing capability instead of an empty answer.
   await assert.rejects(
     () => dispatch(graph, { mode: 'callers', symbol: 'transfer', language: 'solidity' }),
-    /no AST call sites are available/,
+    /no AST call sites are available/
   );
 
   const refsHs = await dispatch(graph, { mode: 'references', symbol: 'factorial', language: 'haskell' });
@@ -186,7 +188,11 @@ test('every language is native-only: source text never produces a symbol', async
   const bare = makeNode('src/bare.js', 'javascript', { symbols: [], tokenSymbols: ['orphanFn'] });
   const graph = _attachGraphRuntimeCaches({
     cwd,
-    nodes: new Map([[js.rel, js], [ts.rel, ts], [bare.rel, bare]]),
+    nodes: new Map([
+      [js.rel, js],
+      [ts.rel, ts],
+      [bare.rel, bare],
+    ]),
     reverse: new Map(),
   });
   graph._sourceTextCache.set(js.rel, { fingerprint: js.fingerprint, text: 'function localFn() {}\n' });
@@ -226,7 +232,7 @@ test('a graph of extraction languages with no record at all is a capability fail
     await assert.rejects(
       () => dispatch(graph, { mode, file: 'src/bare.js', symbol: 'orphanFn' }),
       /no native symbols are available/,
-      mode,
+      mode
     );
   }
   // overview still answers — with the same capability hint attached.
@@ -239,12 +245,12 @@ test('references for a lang with no files keeps the existing no-adapter error', 
   const graph = makeGraph();
   await assert.rejects(
     () => dispatch(graph, { mode: 'references', symbol: 'x', language: 'cobol' }),
-    /no adapter topLevelTypes and is not in supportedRegexLangs/,
+    /no adapter topLevelTypes and is not in supportedRegexLangs/
   );
   // callers has no regex-language gate left: its answer depends on call data,
   // which this graph does not have.
   await assert.rejects(
     () => dispatch(graph, { mode: 'callers', symbol: 'x', language: 'cobol' }),
-    /no AST call sites are available/,
+    /no AST call sites are available/
   );
 });

@@ -25,9 +25,13 @@ test('seeded copies identical to a bundled skill are retired; edited copies stay
     writeSkill(join(bundled, 'setup'), 'setup', 'Runbook', { 'references/a.md': 'a\n' });
     writeSkill(join(bundled, 'pptx'), 'pptx', 'Deck guide');
     writeSkill(join(bundled, 'docx'), 'docx', 'Document guide');
+
     // Untouched seed copied from a CRLF checkout: same tree, same text.
     writeSkill(join(seeded, 'setup'), 'setup', 'Runbook', { 'references/a.md': 'a\r\n' });
-    writeFileSync(join(seeded, 'setup', 'SKILL.md'), `---\r\nname: setup\r\ndescription: Runbook\r\n---\r\n\r\n# Runbook\r\n`);
+    writeFileSync(
+      join(seeded, 'setup', 'SKILL.md'),
+      `---\r\nname: setup\r\ndescription: Runbook\r\n---\r\n\r\n# Runbook\r\n`
+    );
     // User edited the body: keep.
     writeSkill(join(seeded, 'pptx'), 'pptx', 'Deck guide with my notes');
     // User added a file next to an identical SKILL.md: keep.

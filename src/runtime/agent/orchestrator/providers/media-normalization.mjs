@@ -1,38 +1,39 @@
 import { createHash } from 'node:crypto';
-import {
-    attachmentTextForPart,
-    isAttachmentReference,
-    readAttachmentBase64,
-} from '../../../attachments/store.mjs';
+import { attachmentTextForPart, isAttachmentReference, readAttachmentBase64 } from '../../../attachments/store.mjs';
 
 const DEFAULT_IMAGE_MIME = 'image/png';
 
 function cleanMimeType(value) {
-    const mime = String(value || '').trim().toLowerCase();
-    return mime.startsWith('image/') ? mime : DEFAULT_IMAGE_MIME;
+  const mime = String(value || '')
+    .trim()
+    .toLowerCase();
+  return mime.startsWith('image/') ? mime : DEFAULT_IMAGE_MIME;
 }
 
 function imageInfo(block) {
-    if (!block || typeof block !== 'object' || block.type !== 'image') return null;
-    if (isAttachmentReference(block)) {
-        return { data: readAttachmentBase64(block), mimeType: cleanMimeType(block.mimeType || block.mediaType) };
-    }
-    if (typeof block.data === 'string' && block.data) {
-        return { data: block.data, mimeType: cleanMimeType(block.mimeType || block.mediaType) };
-    }
-    const source = block.source;
-    if (source?.type === 'base64' && typeof source.data === 'string' && source.data) {
-        return { data: source.data, mimeType: cleanMimeType(source.media_type || source.mediaType) };
-    }
-    return null;
+  if (!block || typeof block !== 'object' || block.type !== 'image') return null;
+  if (isAttachmentReference(block)) {
+    return { data: readAttachmentBase64(block), mimeType: cleanMimeType(block.mimeType || block.mediaType) };
+  }
+  if (typeof block.data === 'string' && block.data) {
+    return { data: block.data, mimeType: cleanMimeType(block.mimeType || block.mediaType) };
+  }
+  const source = block.source;
+  if (source?.type === 'base64' && typeof source.data === 'string' && source.data) {
+    return { data: source.data, mimeType: cleanMimeType(source.media_type || source.mediaType) };
+  }
+  return null;
 }
 
 function geminiInlineInfo(block) {
-    if (!block || typeof block !== 'object') return null;
-    const inline = block.inlineData || block.inline_data;
-    const data = inline?.data;
-    if (typeof data !== 'string' || !data) return null;
-    return { data, mimeType: cleanMimeType(inline.mimeType || inline.mime_type || inline.mediaType || inline.media_type) };
+  if (!block || typeof block !== 'object') return null;
+  const inline = block.inlineData || block.inline_data;
+  const data = inline?.data;
+  if (typeof data !== 'string' || !data) return null;
+  return {
+    data,
+    mimeType: cleanMimeType(inline.mimeType || inline.mime_type || inline.mediaType || inline.media_type),
+  };
 }
 
 // Inline document/file parts arrive in two canonical runtime shapes:
@@ -41,499 +42,566 @@ function geminiInlineInfo(block) {
 // Providers receive both as their native document shape; estimators and stored
 // history must never serialize either base64 payload as text.
 function fileInfo(block) {
-    if (!block || typeof block !== 'object') return null;
-    if (block.type === 'document') {
-        const source = block.source;
-        if (source?.type !== 'base64' || typeof source.data !== 'string' || !source.data) return null;
-        const mimeType = String(
-            source.media_type || source.mediaType || block.mimeType || block.mediaType || 'application/pdf',
-        ).trim().toLowerCase() || 'application/pdf';
-        const filename = typeof block.title === 'string' && block.title
-            ? block.title
-            : (typeof block.filename === 'string' && block.filename ? block.filename : '');
-        return { data: source.data, mimeType, filename };
-    }
-    if (block.type !== 'file') return null;
-    const data = isAttachmentReference(block)
-        ? readAttachmentBase64(block)
-        : (typeof block.data === 'string' ? block.data : '');
-    if (!data) return null;
-    const mimeType = String(block.mimeType || block.mediaType || 'application/pdf').trim().toLowerCase() || 'application/pdf';
-    const filename = typeof block.filename === 'string' && block.filename ? block.filename : '';
-    return { data, mimeType, filename };
+  if (!block || typeof block !== 'object') return null;
+  if (block.type === 'document') {
+    const source = block.source;
+    if (source?.type !== 'base64' || typeof source.data !== 'string' || !source.data) return null;
+    const mimeType =
+      String(source.media_type || source.mediaType || block.mimeType || block.mediaType || 'application/pdf')
+        .trim()
+        .toLowerCase() || 'application/pdf';
+    const filename =
+      typeof block.title === 'string' && block.title
+        ? block.title
+        : typeof block.filename === 'string' && block.filename
+          ? block.filename
+          : '';
+    return { data: source.data, mimeType, filename };
+  }
+  if (block.type !== 'file') return null;
+  const data = isAttachmentReference(block)
+    ? readAttachmentBase64(block)
+    : typeof block.data === 'string'
+      ? block.data
+      : '';
+  if (!data) return null;
+  const mimeType =
+    String(block.mimeType || block.mediaType || 'application/pdf')
+      .trim()
+      .toLowerCase() || 'application/pdf';
+  const filename = typeof block.filename === 'string' && block.filename ? block.filename : '';
+  return { data, mimeType, filename };
 }
 
 function imageUrlFromPart(block) {
-    if (!block || typeof block !== 'object') return null;
-    if (block.type === 'image_url') {
-        const value = block.image_url;
-        if (typeof value === 'string') return value;
-        if (value && typeof value.url === 'string') return value.url;
-    }
-    if (block.type === 'input_image') {
-        const value = block.image_url;
-        if (typeof value === 'string') return value;
-        if (value && typeof value.url === 'string') return value.url;
-    }
-    if (block.type === 'image' && block.source?.type === 'url' && typeof block.source.url === 'string') {
-        return block.source.url;
-    }
-    const info = imageInfo(block);
-    return info ? `data:${info.mimeType};base64,${info.data}` : null;
+  if (!block || typeof block !== 'object') return null;
+  if (block.type === 'image_url') {
+    const value = block.image_url;
+    if (typeof value === 'string') return value;
+    if (value && typeof value.url === 'string') return value.url;
+  }
+  if (block.type === 'input_image') {
+    const value = block.image_url;
+    if (typeof value === 'string') return value;
+    if (value && typeof value.url === 'string') return value.url;
+  }
+  if (block.type === 'image' && block.source?.type === 'url' && typeof block.source.url === 'string') {
+    return block.source.url;
+  }
+  const info = imageInfo(block);
+  return info ? `data:${info.mimeType};base64,${info.data}` : null;
 }
 
 function imageFileUriFromPart(block) {
-    if (!block || typeof block !== 'object') return null;
-    const fileData = block.fileData || block.file_data;
-    const fileUri = fileData?.fileUri || fileData?.file_uri;
-    if (typeof fileUri === 'string' && fileUri) {
-        return { fileUri, mimeType: cleanMimeType(fileData.mimeType || fileData.mime_type || fileData.mediaType || fileData.media_type) };
-    }
-    if (block.type === 'image' && typeof block.uri === 'string' && block.uri) {
-        return { fileUri: block.uri, mimeType: cleanMimeType(block.mime_type || block.mimeType || block.media_type || block.mediaType) };
-    }
-    return null;
+  if (!block || typeof block !== 'object') return null;
+  const fileData = block.fileData || block.file_data;
+  const fileUri = fileData?.fileUri || fileData?.file_uri;
+  if (typeof fileUri === 'string' && fileUri) {
+    return {
+      fileUri,
+      mimeType: cleanMimeType(fileData.mimeType || fileData.mime_type || fileData.mediaType || fileData.media_type),
+    };
+  }
+  if (block.type === 'image' && typeof block.uri === 'string' && block.uri) {
+    return {
+      fileUri: block.uri,
+      mimeType: cleanMimeType(block.mime_type || block.mimeType || block.media_type || block.mediaType),
+    };
+  }
+  return null;
 }
 
 function imageFileIdFromPart(block) {
-    if (!block || typeof block !== 'object') return null;
-    if (block.type === 'input_image' && typeof block.file_id === 'string' && block.file_id) {
-        return block.file_id;
-    }
-    if (block.type === 'image' && block.source?.type === 'file' && typeof block.source.file_id === 'string' && block.source.file_id) {
-        return block.source.file_id;
-    }
-    return null;
+  if (!block || typeof block !== 'object') return null;
+  if (block.type === 'input_image' && typeof block.file_id === 'string' && block.file_id) {
+    return block.file_id;
+  }
+  if (
+    block.type === 'image' &&
+    block.source?.type === 'file' &&
+    typeof block.source.file_id === 'string' &&
+    block.source.file_id
+  ) {
+    return block.source.file_id;
+  }
+  return null;
 }
 
 function imageInfoFromDataUrl(url) {
-    const m = String(url || '').match(/^data:(image\/[a-z0-9.+_-]+);base64,(.+)$/is);
-    if (!m) return null;
-    return { mimeType: cleanMimeType(m[1]), data: m[2] };
+  const m = String(url || '').match(/^data:(image\/[a-z0-9.+_-]+);base64,(.+)$/is);
+  if (!m) return null;
+  return { mimeType: cleanMimeType(m[1]), data: m[2] };
 }
 
 function imageMimeFromDataUrl(url) {
-    const m = String(url || '').match(/^data:(image\/[a-z0-9.+_-]+);base64,/i);
-    return m ? cleanMimeType(m[1]) : null;
+  const m = String(url || '').match(/^data:(image\/[a-z0-9.+_-]+);base64,/i);
+  return m ? cleanMimeType(m[1]) : null;
 }
 
 function textFromPart(block) {
-    if (typeof block === 'string') return block;
-    if (!block || typeof block !== 'object') return '';
-    if (block.type === 'text' && isAttachmentReference(block)) return attachmentTextForPart(block);
-    if (typeof block.text === 'string') return block.text;
-    if (typeof block.content === 'string') return block.content;
-    return '';
+  if (typeof block === 'string') return block;
+  if (!block || typeof block !== 'object') return '';
+  if (block.type === 'text' && isAttachmentReference(block)) return attachmentTextForPart(block);
+  if (typeof block.text === 'string') return block.text;
+  if (typeof block.content === 'string') return block.content;
+  return '';
 }
 
 function stringifyFallback(value) {
-    try { return JSON.stringify(value); } catch { return String(value); }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function contentParts(content) {
-    if (Array.isArray(content)) return content;
-    if (content && typeof content === 'object' && Array.isArray(content.content)) {
-        return content.content;
-    }
-    if (content && typeof content === 'object'
-        && (imageUrlFromPart(content) || imageFileIdFromPart(content)
-            || imageFileUriFromPart(content) || geminiInlineInfo(content)
-            || fileInfo(content) || isAttachmentReference(content))) return [content];
-    return null;
+  if (Array.isArray(content)) return content;
+  if (content && typeof content === 'object' && Array.isArray(content.content)) {
+    return content.content;
+  }
+  if (
+    content &&
+    typeof content === 'object' &&
+    (imageUrlFromPart(content) ||
+      imageFileIdFromPart(content) ||
+      imageFileUriFromPart(content) ||
+      geminiInlineInfo(content) ||
+      fileInfo(content) ||
+      isAttachmentReference(content))
+  )
+    return [content];
+  return null;
 }
 
 function jsonFallbackFromPart(block) {
-    const text = textFromPart(block);
-    if (text) return text;
-    if (!block || typeof block !== 'object') return block == null ? '' : String(block);
-    if (imageUrlFromPart(block) || imageFileIdFromPart(block) || imageFileUriFromPart(block) || geminiInlineInfo(block) || fileInfo(block)) return '';
-    return stringifyFallback(block);
+  const text = textFromPart(block);
+  if (text) return text;
+  if (!block || typeof block !== 'object') return block == null ? '' : String(block);
+  if (
+    imageUrlFromPart(block) ||
+    imageFileIdFromPart(block) ||
+    imageFileUriFromPart(block) ||
+    geminiInlineInfo(block) ||
+    fileInfo(block)
+  )
+    return '';
+  return stringifyFallback(block);
 }
 
 export function contentHasImage(content) {
-    return contentImageCount(content) > 0;
+  return contentImageCount(content) > 0;
 }
 
 function contentImageCount(content) {
-    return contentImageDescriptors(content).length;
+  return contentImageDescriptors(content).length;
 }
 
 function positiveDimension(...values) {
-    for (const value of values) {
-        const number = Number(value);
-        if (Number.isFinite(number) && number > 0) return number;
-    }
-    return null;
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) return number;
+  }
+  return null;
 }
 
 function imageIdentity(kind, value, mimeType = '') {
-    return createHash('sha256')
-        .update(`${kind}\0${mimeType}\0`)
-        .update(String(value || ''))
-        .digest('hex');
+  return createHash('sha256')
+    .update(`${kind}\0${mimeType}\0`)
+    .update(String(value || ''))
+    .digest('hex');
 }
 
 function imageDescriptor(part) {
-    if (!part || typeof part !== 'object') return null;
-    if (part.type === 'image' && isAttachmentReference(part)) {
-        return {
-            identity: imageIdentity('attachment-ref', part.attachmentRef, part.mimeType || part.mediaType),
-            width: positiveDimension(part.width, part.dimensions?.width),
-            height: positiveDimension(part.height, part.dimensions?.height),
-            detail: String(part.detail || 'auto').toLowerCase(),
-        };
-    }
-    const info = imageInfo(part);
-    const inline = geminiInlineInfo(part);
-    const url = imageUrlFromPart(part);
-    const fileId = imageFileIdFromPart(part);
-    const fileUri = imageFileUriFromPart(part);
-    if (!info && !inline && !url && !fileId && !fileUri) return null;
-    const imageUrl = part.image_url && typeof part.image_url === 'object' ? part.image_url : null;
-    const source = part.source && typeof part.source === 'object' ? part.source : null;
-    const inlineData = part.inlineData || part.inline_data;
-    const dimensions = part.dimensions && typeof part.dimensions === 'object' ? part.dimensions : null;
-    const width = positiveDimension(part.width, dimensions?.width, imageUrl?.width, source?.width, inlineData?.width);
-    const height = positiveDimension(part.height, dimensions?.height, imageUrl?.height, source?.height, inlineData?.height);
-    const detail = String(part.detail ?? imageUrl?.detail ?? source?.detail ?? inlineData?.detail ?? 'auto').toLowerCase();
-    if (info || inline) {
-        const raw = info || inline;
-        return {
-            identity: imageIdentity('inline', raw.data, raw.mimeType),
-            width,
-            height,
-            detail,
-        };
-    }
-    if (fileId) return { identity: imageIdentity('file-id', fileId), width, height, detail };
-    if (fileUri) return { identity: imageIdentity('file-uri', fileUri.fileUri, fileUri.mimeType), width, height, detail };
-    return { identity: imageIdentity('url', url), width, height, detail };
+  if (!part || typeof part !== 'object') return null;
+  if (part.type === 'image' && isAttachmentReference(part)) {
+    return {
+      identity: imageIdentity('attachment-ref', part.attachmentRef, part.mimeType || part.mediaType),
+      width: positiveDimension(part.width, part.dimensions?.width),
+      height: positiveDimension(part.height, part.dimensions?.height),
+      detail: String(part.detail || 'auto').toLowerCase(),
+    };
+  }
+  const info = imageInfo(part);
+  const inline = geminiInlineInfo(part);
+  const url = imageUrlFromPart(part);
+  const fileId = imageFileIdFromPart(part);
+  const fileUri = imageFileUriFromPart(part);
+  if (!info && !inline && !url && !fileId && !fileUri) return null;
+  const imageUrl = part.image_url && typeof part.image_url === 'object' ? part.image_url : null;
+  const source = part.source && typeof part.source === 'object' ? part.source : null;
+  const inlineData = part.inlineData || part.inline_data;
+  const dimensions = part.dimensions && typeof part.dimensions === 'object' ? part.dimensions : null;
+  const width = positiveDimension(part.width, dimensions?.width, imageUrl?.width, source?.width, inlineData?.width);
+  const height = positiveDimension(
+    part.height,
+    dimensions?.height,
+    imageUrl?.height,
+    source?.height,
+    inlineData?.height
+  );
+  const detail = String(
+    part.detail ?? imageUrl?.detail ?? source?.detail ?? inlineData?.detail ?? 'auto'
+  ).toLowerCase();
+  if (info || inline) {
+    const raw = info || inline;
+    return {
+      identity: imageIdentity('inline', raw.data, raw.mimeType),
+      width,
+      height,
+      detail,
+    };
+  }
+  if (fileId) return { identity: imageIdentity('file-id', fileId), width, height, detail };
+  if (fileUri) return { identity: imageIdentity('file-uri', fileUri.fileUri, fileUri.mimeType), width, height, detail };
+  return { identity: imageIdentity('url', url), width, height, detail };
 }
 
 export function contentImageDescriptors(content) {
-    const parts = contentParts(content);
-    if (!parts) return [];
-    return parts.map(imageDescriptor).filter(Boolean);
+  const parts = contentParts(content);
+  if (!parts) return [];
+  return parts.map(imageDescriptor).filter(Boolean);
 }
 
 // Byte-free descriptors for inline file/document parts (context estimation).
 export function contentFileDescriptors(content) {
-    const parts = contentParts(content);
-    if (!parts) return [];
-    return parts.flatMap((part) => {
-        if (part?.type === 'file' && isAttachmentReference(part)) {
-            return [{ mimeType: String(part.mimeType || part.mediaType || 'application/pdf'), sizeBytes: Number(part.sizeBytes) || 0 }];
-        }
-        const file = fileInfo(part);
-        if (!file) return [];
-        return [{ mimeType: file.mimeType, sizeBytes: Math.floor((file.data.length * 3) / 4) }];
-    });
+  const parts = contentParts(content);
+  if (!parts) return [];
+  return parts.flatMap((part) => {
+    if (part?.type === 'file' && isAttachmentReference(part)) {
+      return [
+        {
+          mimeType: String(part.mimeType || part.mediaType || 'application/pdf'),
+          sizeBytes: Number(part.sizeBytes) || 0,
+        },
+      ];
+    }
+    const file = fileInfo(part);
+    if (!file) return [];
+    return [{ mimeType: file.mimeType, sizeBytes: Math.floor((file.data.length * 3) / 4) }];
+  });
 }
 
 export function contentToText(content, fallback = '') {
-    if (typeof content === 'string') return content;
-    const parts = contentParts(content);
-    if (!parts) return content == null ? fallback : stringifyFallback(content);
-    const text = parts.map(jsonFallbackFromPart).filter(Boolean).join('\n');
-    return text || fallback;
+  if (typeof content === 'string') return content;
+  const parts = contentParts(content);
+  if (!parts) return content == null ? fallback : stringifyFallback(content);
+  const text = parts.map(jsonFallbackFromPart).filter(Boolean).join('\n');
+  return text || fallback;
 }
 
 function storedHistoryImagePlaceholder(part) {
-    const info = imageInfo(part) || geminiInlineInfo(part);
-    // Inline base64 already gives us its MIME type. Do not call
-    // imageUrlFromPart in that case: it would manufacture a second
-    // `data:...;base64,<entire payload>` string merely to discard it.
-    const url = info ? null : imageUrlFromPart(part);
-    const fileUri = info ? null : imageFileUriFromPart(part);
-    const mimeType = info?.mimeType || imageMimeFromDataUrl(url) || fileUri?.mimeType || (part?.type === 'image' ? DEFAULT_IMAGE_MIME : '');
-    return `[Image omitted from stored history${mimeType ? `: ${mimeType}` : ''}]`;
+  const info = imageInfo(part) || geminiInlineInfo(part);
+  // Inline base64 already gives us its MIME type. Do not call
+  // imageUrlFromPart in that case: it would manufacture a second
+  // `data:...;base64,<entire payload>` string merely to discard it.
+  const url = info ? null : imageUrlFromPart(part);
+  const fileUri = info ? null : imageFileUriFromPart(part);
+  const mimeType =
+    info?.mimeType ||
+    imageMimeFromDataUrl(url) ||
+    fileUri?.mimeType ||
+    (part?.type === 'image' ? DEFAULT_IMAGE_MIME : '');
+  return `[Image omitted from stored history${mimeType ? `: ${mimeType}` : ''}]`;
 }
 
 function sanitizePartForStoredHistory(part) {
-    if (typeof part === 'string') return part;
-    if (!part || typeof part !== 'object') return part;
-    if (isAttachmentReference(part)) return part;
-    if (part.type === 'image' || part.type === 'image_url' || part.type === 'input_image' || imageUrlFromPart(part) || imageFileIdFromPart(part) || imageFileUriFromPart(part) || geminiInlineInfo(part)) {
-        return { type: 'text', text: storedHistoryImagePlaceholder(part) };
-    }
-    const file = fileInfo(part);
-    if (file) {
-        return { type: 'text', text: `[File omitted from stored history: ${file.filename || file.mimeType}]` };
-    }
-    if (Array.isArray(part.content)) {
-        const nextContent = sanitizeContentForStoredHistory(part.content);
-        if (nextContent !== part.content) return { ...part, content: nextContent };
-    }
-    return part;
+  if (typeof part === 'string') return part;
+  if (!part || typeof part !== 'object') return part;
+  if (isAttachmentReference(part)) return part;
+  if (
+    part.type === 'image' ||
+    part.type === 'image_url' ||
+    part.type === 'input_image' ||
+    imageUrlFromPart(part) ||
+    imageFileIdFromPart(part) ||
+    imageFileUriFromPart(part) ||
+    geminiInlineInfo(part)
+  ) {
+    return { type: 'text', text: storedHistoryImagePlaceholder(part) };
+  }
+  const file = fileInfo(part);
+  if (file) {
+    return { type: 'text', text: `[File omitted from stored history: ${file.filename || file.mimeType}]` };
+  }
+  if (Array.isArray(part.content)) {
+    const nextContent = sanitizeContentForStoredHistory(part.content);
+    if (nextContent !== part.content) return { ...part, content: nextContent };
+  }
+  return part;
 }
 
 export function sanitizeContentForStoredHistory(content) {
-    if (typeof content === 'string') return content;
-    const parts = contentParts(content);
-    if (!parts) return content;
-    let changed = false;
-    const out = parts.map((part) => {
-        const next = sanitizePartForStoredHistory(part);
-        if (next !== part) changed = true;
-        return next;
-    });
-    if (!changed) return content;
-    return Array.isArray(content) ? out : { ...content, content: out };
+  if (typeof content === 'string') return content;
+  const parts = contentParts(content);
+  if (!parts) return content;
+  let changed = false;
+  const out = parts.map((part) => {
+    const next = sanitizePartForStoredHistory(part);
+    if (next !== part) changed = true;
+    return next;
+  });
+  if (!changed) return content;
+  return Array.isArray(content) ? out : { ...content, content: out };
 }
 
 export function normalizeContentForAnthropic(content) {
-    const parts = contentParts(content);
-    if (!parts) return content;
-    return parts.map((part) => {
-        const file = fileInfo(part);
-        if (file) {
-            const out = {
-                type: 'document',
-                source: { type: 'base64', media_type: file.mimeType, data: file.data },
-                ...(file.filename ? { title: file.filename } : {}),
-            };
-            if (part.cache_control) out.cache_control = part.cache_control;
-            return out;
-        }
-        const info = imageInfo(part);
-        if (info) {
-            const out = {
-                type: 'image',
-                source: {
-                    type: 'base64',
-                    media_type: info.mimeType,
-                    data: info.data,
-                },
-            };
-            if (part.cache_control) out.cache_control = part.cache_control;
-            return out;
-        }
-        const fileId = imageFileIdFromPart(part);
-        if (fileId) {
-            return { type: 'image', source: { type: 'file', file_id: fileId } };
-        }
-        const url = imageUrlFromPart(part);
-        const dataUrlInfo = imageInfoFromDataUrl(url);
-        if (dataUrlInfo) {
-            return {
-                type: 'image',
-                source: {
-                    type: 'base64',
-                    media_type: dataUrlInfo.mimeType,
-                    data: dataUrlInfo.data,
-                },
-            };
-        }
-        if (url) {
-            return { type: 'image', source: { type: 'url', url } };
-        }
-        if (part?.type === 'image') {
-            if (part.source?.type === 'url' && typeof part.source.url === 'string') return part;
-            if (part.source?.type === 'file' && typeof part.source.file_id === 'string') return part;
-            return { type: 'text', text: `[unsupported image content: ${stringifyFallback(part)}]` };
-        }
-        if (part?.type === 'tool_result') {
-            const nested = Array.isArray(part.content)
-                ? normalizeContentForAnthropic(part.content)
-                : typeof part.content === 'string'
-                    ? part.content
-                    : part.content == null
-                        ? ''
-                        : stringifyFallback(part.content);
-            return { ...part, content: nested };
-        }
-        if (part?.type === 'input_text' || part?.type === 'output_text') {
-            return { type: 'text', text: part.text || '' };
-        }
-        if (part?.type === 'text' && isAttachmentReference(part)) {
-            return { type: 'text', text: attachmentTextForPart(part) };
-        }
-        return part;
-    });
+  const parts = contentParts(content);
+  if (!parts) return content;
+  return parts.map((part) => {
+    const file = fileInfo(part);
+    if (file) {
+      const out = {
+        type: 'document',
+        source: { type: 'base64', media_type: file.mimeType, data: file.data },
+        ...(file.filename ? { title: file.filename } : {}),
+      };
+      if (part.cache_control) out.cache_control = part.cache_control;
+      return out;
+    }
+    const info = imageInfo(part);
+    if (info) {
+      const out = {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: info.mimeType,
+          data: info.data,
+        },
+      };
+      if (part.cache_control) out.cache_control = part.cache_control;
+      return out;
+    }
+    const fileId = imageFileIdFromPart(part);
+    if (fileId) {
+      return { type: 'image', source: { type: 'file', file_id: fileId } };
+    }
+    const url = imageUrlFromPart(part);
+    const dataUrlInfo = imageInfoFromDataUrl(url);
+    if (dataUrlInfo) {
+      return {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: dataUrlInfo.mimeType,
+          data: dataUrlInfo.data,
+        },
+      };
+    }
+    if (url) {
+      return { type: 'image', source: { type: 'url', url } };
+    }
+    if (part?.type === 'image') {
+      if (part.source?.type === 'url' && typeof part.source.url === 'string') return part;
+      if (part.source?.type === 'file' && typeof part.source.file_id === 'string') return part;
+      return { type: 'text', text: `[unsupported image content: ${stringifyFallback(part)}]` };
+    }
+    if (part?.type === 'tool_result') {
+      const nested = Array.isArray(part.content)
+        ? normalizeContentForAnthropic(part.content)
+        : typeof part.content === 'string'
+          ? part.content
+          : part.content == null
+            ? ''
+            : stringifyFallback(part.content);
+      return { ...part, content: nested };
+    }
+    if (part?.type === 'input_text' || part?.type === 'output_text') {
+      return { type: 'text', text: part.text || '' };
+    }
+    if (part?.type === 'text' && isAttachmentReference(part)) {
+      return { type: 'text', text: attachmentTextForPart(part) };
+    }
+    return part;
+  });
 }
 
 export function normalizeContentForOpenAIChat(content, { role = 'user' } = {}) {
-    const parts = contentParts(content);
-    if (!parts) return content;
-    const out = [];
-    for (const part of parts) {
-        const file = fileInfo(part);
-        if (file) {
-            out.push({
-                type: 'file',
-                file: { filename: file.filename || 'document.pdf', file_data: `data:${file.mimeType};base64,${file.data}` },
-            });
-            continue;
-        }
-        const fileId = imageFileIdFromPart(part);
-        if (fileId) {
-            out.push({ type: 'text', text: `[unsupported image file_id for OpenAI Chat-compatible request: ${fileId}]` });
-            continue;
-        }
-        const fileUri = imageFileUriFromPart(part);
-        if (fileUri) {
-            out.push({ type: 'image_url', image_url: { url: fileUri.fileUri } });
-            continue;
-        }
-        const url = imageUrlFromPart(part);
-        if (url) {
-            out.push({ type: 'image_url', image_url: { url } });
-            continue;
-        }
-        const text = jsonFallbackFromPart(part);
-        if (text) out.push({ type: 'text', text });
+  const parts = contentParts(content);
+  if (!parts) return content;
+  const out = [];
+  for (const part of parts) {
+    const file = fileInfo(part);
+    if (file) {
+      out.push({
+        type: 'file',
+        file: { filename: file.filename || 'document.pdf', file_data: `data:${file.mimeType};base64,${file.data}` },
+      });
+      continue;
     }
-    if (role !== 'user') return out.map((part) => part.text || '').filter(Boolean).join('\n');
-    return out.length ? out : contentToText(content, '');
+    const fileId = imageFileIdFromPart(part);
+    if (fileId) {
+      out.push({ type: 'text', text: `[unsupported image file_id for OpenAI Chat-compatible request: ${fileId}]` });
+      continue;
+    }
+    const fileUri = imageFileUriFromPart(part);
+    if (fileUri) {
+      out.push({ type: 'image_url', image_url: { url: fileUri.fileUri } });
+      continue;
+    }
+    const url = imageUrlFromPart(part);
+    if (url) {
+      out.push({ type: 'image_url', image_url: { url } });
+      continue;
+    }
+    const text = jsonFallbackFromPart(part);
+    if (text) out.push({ type: 'text', text });
+  }
+  if (role !== 'user')
+    return out
+      .map((part) => part.text || '')
+      .filter(Boolean)
+      .join('\n');
+  return out.length ? out : contentToText(content, '');
 }
 
 export function normalizeContentForOpenAIResponses(content, { role = 'user' } = {}) {
-    const textType = role === 'assistant' ? 'output_text' : 'input_text';
-    if (typeof content === 'string') return content ? [{ type: textType, text: content }] : [];
-    const parts = contentParts(content);
-    if (!parts) {
-        const text = content == null ? '' : stringifyFallback(content);
-        return text ? [{ type: textType, text }] : [];
+  const textType = role === 'assistant' ? 'output_text' : 'input_text';
+  if (typeof content === 'string') return content ? [{ type: textType, text: content }] : [];
+  const parts = contentParts(content);
+  if (!parts) {
+    const text = content == null ? '' : stringifyFallback(content);
+    return text ? [{ type: textType, text }] : [];
+  }
+  const out = [];
+  for (const part of parts) {
+    const file = fileInfo(part);
+    if (file) {
+      out.push({
+        type: 'input_file',
+        filename: file.filename || 'document.pdf',
+        file_data: `data:${file.mimeType};base64,${file.data}`,
+      });
+      continue;
     }
-    const out = [];
-    for (const part of parts) {
-        const file = fileInfo(part);
-        if (file) {
-            out.push({
-                type: 'input_file',
-                filename: file.filename || 'document.pdf',
-                file_data: `data:${file.mimeType};base64,${file.data}`,
-            });
-            continue;
-        }
-        const fileId = imageFileIdFromPart(part);
-        if (fileId) {
-            out.push({ type: 'input_image', file_id: fileId });
-            continue;
-        }
-        const fileUri = imageFileUriFromPart(part);
-        if (fileUri) {
-            out.push({ type: 'input_image', image_url: fileUri.fileUri });
-            continue;
-        }
-        const url = imageUrlFromPart(part);
-        if (url) {
-            out.push({ type: 'input_image', image_url: url });
-            continue;
-        }
-        const text = jsonFallbackFromPart(part);
-        if (text) out.push({ type: textType, text });
+    const fileId = imageFileIdFromPart(part);
+    if (fileId) {
+      out.push({ type: 'input_image', file_id: fileId });
+      continue;
     }
-    return out;
+    const fileUri = imageFileUriFromPart(part);
+    if (fileUri) {
+      out.push({ type: 'input_image', image_url: fileUri.fileUri });
+      continue;
+    }
+    const url = imageUrlFromPart(part);
+    if (url) {
+      out.push({ type: 'input_image', image_url: url });
+      continue;
+    }
+    const text = jsonFallbackFromPart(part);
+    if (text) out.push({ type: textType, text });
+  }
+  return out;
 }
 
 export function normalizeContentForGeminiParts(content) {
-    if (typeof content === 'string') return content ? [{ text: content }] : [];
-    const parts = contentParts(content);
-    if (!parts) {
-        const text = content == null ? '' : stringifyFallback(content);
-        return text ? [{ text }] : [];
+  if (typeof content === 'string') return content ? [{ text: content }] : [];
+  const parts = contentParts(content);
+  if (!parts) {
+    const text = content == null ? '' : stringifyFallback(content);
+    return text ? [{ text }] : [];
+  }
+  const out = [];
+  for (const part of parts) {
+    const file = fileInfo(part);
+    if (file) {
+      out.push({ inlineData: { mimeType: file.mimeType, data: file.data } });
+      continue;
     }
-    const out = [];
-    for (const part of parts) {
-        const file = fileInfo(part);
-        if (file) {
-            out.push({ inlineData: { mimeType: file.mimeType, data: file.data } });
-            continue;
-        }
-        const inlineInfo = geminiInlineInfo(part);
-        if (inlineInfo) {
-            out.push({ inlineData: { mimeType: inlineInfo.mimeType, data: inlineInfo.data } });
-            continue;
-        }
-        const fileUri = imageFileUriFromPart(part);
-        if (fileUri) {
-            out.push({ fileData: { mimeType: fileUri.mimeType, fileUri: fileUri.fileUri } });
-            continue;
-        }
-        const fileId = imageFileIdFromPart(part);
-        if (fileId) {
-            out.push({ text: `[unsupported image file_id for Gemini request: ${fileId}]` });
-            continue;
-        }
-        const info = imageInfo(part);
-        if (info) {
-            out.push({ inlineData: { mimeType: info.mimeType, data: info.data } });
-            continue;
-        }
-        const url = imageUrlFromPart(part);
-        const dataUrlInfo = imageInfoFromDataUrl(url);
-        if (dataUrlInfo) {
-            out.push({ inlineData: { mimeType: dataUrlInfo.mimeType, data: dataUrlInfo.data } });
-            continue;
-        }
-        if (url && !url.startsWith('data:')) {
-            out.push({ fileData: { mimeType: DEFAULT_IMAGE_MIME, fileUri: url } });
-            continue;
-        }
-        const text = jsonFallbackFromPart(part);
-        if (text) out.push({ text });
+    const inlineInfo = geminiInlineInfo(part);
+    if (inlineInfo) {
+      out.push({ inlineData: { mimeType: inlineInfo.mimeType, data: inlineInfo.data } });
+      continue;
     }
-    return out;
+    const fileUri = imageFileUriFromPart(part);
+    if (fileUri) {
+      out.push({ fileData: { mimeType: fileUri.mimeType, fileUri: fileUri.fileUri } });
+      continue;
+    }
+    const fileId = imageFileIdFromPart(part);
+    if (fileId) {
+      out.push({ text: `[unsupported image file_id for Gemini request: ${fileId}]` });
+      continue;
+    }
+    const info = imageInfo(part);
+    if (info) {
+      out.push({ inlineData: { mimeType: info.mimeType, data: info.data } });
+      continue;
+    }
+    const url = imageUrlFromPart(part);
+    const dataUrlInfo = imageInfoFromDataUrl(url);
+    if (dataUrlInfo) {
+      out.push({ inlineData: { mimeType: dataUrlInfo.mimeType, data: dataUrlInfo.data } });
+      continue;
+    }
+    if (url && !url.startsWith('data:')) {
+      out.push({ fileData: { mimeType: DEFAULT_IMAGE_MIME, fileUri: url } });
+      continue;
+    }
+    const text = jsonFallbackFromPart(part);
+    if (text) out.push({ text });
+  }
+  return out;
 }
 
 const OPENAI_CHAT_MEDIA_TYPES = new Set(['image_url', 'file']);
 const OPENAI_RESPONSES_MEDIA_TYPES = new Set(['input_image', 'input_file']);
 
 function mediaPartsOnly(parts, allowedTypes) {
-    if (!Array.isArray(parts)) return [];
-    return parts.filter((part) => allowedTypes.has(part?.type));
+  if (!Array.isArray(parts)) return [];
+  return parts.filter((part) => allowedTypes.has(part?.type));
 }
 
 export function splitToolContentForOpenAIChat(content) {
-    const mediaContent = mediaPartsOnly(
-        normalizeContentForOpenAIChat(content, { role: 'user' }),
-        OPENAI_CHAT_MEDIA_TYPES,
-    );
-    if (!mediaContent.length) return { output: contentToText(content, ''), mediaContent: null };
-    return {
-        output: contentToText(content, '[tool result included media content in the following user message]'),
-        mediaContent,
-    };
+  const mediaContent = mediaPartsOnly(
+    normalizeContentForOpenAIChat(content, { role: 'user' }),
+    OPENAI_CHAT_MEDIA_TYPES
+  );
+  if (!mediaContent.length) return { output: contentToText(content, ''), mediaContent: null };
+  return {
+    output: contentToText(content, '[tool result included media content in the following user message]'),
+    mediaContent,
+  };
 }
 
 export function splitToolContentForOpenAIResponses(content) {
-    const output = normalizeContentForOpenAIResponses(content, { role: 'user' });
-    const hasMedia = mediaPartsOnly(output, OPENAI_RESPONSES_MEDIA_TYPES).length > 0;
-    if (!hasMedia) return { output: contentToText(content, ''), mediaContent: null };
-    return {
-        // Responses natively accepts ordered input_text/input_image/input_file
-        // items inside function_call_output.output.
-        output,
-        mediaContent: null,
-    };
+  const output = normalizeContentForOpenAIResponses(content, { role: 'user' });
+  const hasMedia = mediaPartsOnly(output, OPENAI_RESPONSES_MEDIA_TYPES).length > 0;
+  if (!hasMedia) return { output: contentToText(content, ''), mediaContent: null };
+  return {
+    // Responses natively accepts ordered input_text/input_image/input_file
+    // items inside function_call_output.output.
+    output,
+    mediaContent: null,
+  };
 }
 
 export function splitToolContentForXaiResponses(content) {
-    const normalized = normalizeContentForOpenAIResponses(content, { role: 'user' });
-    const mediaContent = mediaPartsOnly(normalized, new Set(['input_image']));
-    if (!mediaContent.length) {
-        const hasDocument = normalized.some((part) => part?.type === 'input_file');
-        return {
-            output: contentToText(
-                content,
-                hasDocument ? '[tool result included document content unavailable to xAI Responses]' : '',
-            ),
-            mediaContent: null,
-        };
-    }
+  const normalized = normalizeContentForOpenAIResponses(content, { role: 'user' });
+  const mediaContent = mediaPartsOnly(normalized, new Set(['input_image']));
+  if (!mediaContent.length) {
+    const hasDocument = normalized.some((part) => part?.type === 'input_file');
     return {
-        // xAI documents function_call_output as text/JSON; media remains a
-        // following user input, without replaying the tool-result text there.
-        output: contentToText(content, '[tool result included image content in the following user message]'),
-        mediaContent,
+      output: contentToText(
+        content,
+        hasDocument ? '[tool result included document content unavailable to xAI Responses]' : ''
+      ),
+      mediaContent: null,
     };
+  }
+  return {
+    // xAI documents function_call_output as text/JSON; media remains a
+    // following user input, without replaying the tool-result text there.
+    output: contentToText(content, '[tool result included image content in the following user message]'),
+    mediaContent,
+  };
 }
 
 export function splitToolContentForGemini(content) {
-    if (!contentHasImage(content)) return { response: { result: content }, mediaParts: [] };
-    return {
-        response: { result: contentToText(content, '[tool result included image content]') },
-        mediaParts: normalizeContentForGeminiParts(content),
-    };
+  if (!contentHasImage(content)) return { response: { result: content }, mediaParts: [] };
+  return {
+    response: { result: contentToText(content, '[tool result included image content]') },
+    mediaParts: normalizeContentForGeminiParts(content),
+  };
 }

@@ -11,10 +11,7 @@ export const SESSION_INHERIT_REQUEST_TIMEOUT_MS = 10 * 60_000;
 
 /** Deadline for the few calls that legitimately outlive an interactive
  *  request. Everything else keeps the ordinary request timeout. */
-export function longRunningRequestTimeout(
-  method: string,
-  args: unknown[] = [],
-): number | undefined {
+export function longRunningRequestTimeout(method: string, args: unknown[] = []): number | undefined {
   if (method === 'installLocalProviderModel') {
     return LOCAL_PROVIDER_INSTALL_REQUEST_TIMEOUT_MS;
   }

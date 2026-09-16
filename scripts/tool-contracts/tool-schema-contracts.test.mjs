@@ -5,7 +5,12 @@
 import './_env.mjs';
 import test from 'node:test';
 import { smokeCatalog, fullDefaults } from './_catalog.mjs';
-import { compactToolSearchDescription, defaultDeferredToolNames, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../../src/mixdog-session-runtime.mjs';
+import {
+  compactToolSearchDescription,
+  defaultDeferredToolNames,
+  SKILL_TOOL,
+  TOOL_SEARCH_TOOL,
+} from '../../src/mixdog-session-runtime.mjs';
 import { CWD_TOOL } from '../../src/session-runtime/tool-defs.mjs';
 import { AGENT_TOOL } from '../../src/standalone/agent-tool.mjs';
 import { BUILTIN_TOOLS } from '../../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
@@ -35,55 +40,72 @@ test('shell, edit, and task keep their execution contracts', () => {
   const shellDescription = shellTool?.description || '';
   // The timeout contract is anchored on the timeout_ms argument description
   // below — the tool description no longer duplicates it.
-  if (!/^Run programs, builds, tests and computation/i.test(shellDescription)
-      || !/Never for files, search or Git \(cat\/head\/tail→read/i.test(shellDescription)
-      || !/no `edit\/apply_patch <<EOF`/i.test(shellDescription)
-      || !/10s foreground window.*not a timeout/i.test(shellDescription)
-      || !/use task wait, not read polling/i.test(shellDescription)) {
-    throw new Error(`shell description must keep its execution-routing and async-completion phrases: ${shellDescription}`);
+  if (
+    !/^Run programs, builds, tests and computation/i.test(shellDescription) ||
+    !/Never for files, search or Git \(cat\/head\/tail→read/i.test(shellDescription) ||
+    !/no `edit\/apply_patch <<EOF`/i.test(shellDescription) ||
+    !/10s foreground window.*not a timeout/i.test(shellDescription) ||
+    !/use task wait, not read polling/i.test(shellDescription)
+  ) {
+    throw new Error(
+      `shell description must keep its execution-routing and async-completion phrases: ${shellDescription}`
+    );
   }
   const editTool = BUILTIN_TOOLS.find((tool) => tool.name === 'edit');
   const editProps = editTool?.inputSchema?.properties || {};
-  if (!editTool
-    || JSON.stringify(editTool.inputSchema?.required) !== JSON.stringify(['file_path', 'old_string', 'new_string'])
-    || editProps.file_path?.minLength !== undefined
-    || editProps.replace_all?.default !== false
-    || editTool.inputSchema?.additionalProperties !== false
-    || !/^Replace exact text in one file\./i.test(editTool.description || '')
-    || !/old_string must match once unless replace_all is true/i.test(editTool.description || '')
-    || !/Batch non-overlapping edits in call order/i.test(editTool.description || '')
-    || !/not text another edit creates/i.test(editTool.description || '')
-    || !/intervening lines verbatim/i.test(editTool.description || '')
-    || !/Empty only to create/i.test(editProps.old_string?.description || '')
-    || !/never overwrites non-empty files and is not an absence check/i.test(editProps.old_string?.description || '')
-    || !/may be empty to delete/i.test(editProps.new_string?.description || '')) {
+  if (
+    !editTool ||
+    JSON.stringify(editTool.inputSchema?.required) !== JSON.stringify(['file_path', 'old_string', 'new_string']) ||
+    editProps.file_path?.minLength !== undefined ||
+    editProps.replace_all?.default !== false ||
+    editTool.inputSchema?.additionalProperties !== false ||
+    !/^Replace exact text in one file\./i.test(editTool.description || '') ||
+    !/old_string must match once unless replace_all is true/i.test(editTool.description || '') ||
+    !/Batch non-overlapping edits in call order/i.test(editTool.description || '') ||
+    !/not text another edit creates/i.test(editTool.description || '') ||
+    !/intervening lines verbatim/i.test(editTool.description || '') ||
+    !/Empty only to create/i.test(editProps.old_string?.description || '') ||
+    !/never overwrites non-empty files and is not an absence check/i.test(editProps.old_string?.description || '') ||
+    !/may be empty to delete/i.test(editProps.new_string?.description || '')
+  ) {
     throw new Error(`edit tool must preserve the exact-string contract: ${JSON.stringify(editTool)}`);
   }
   const shellProps = shellTool?.inputSchema?.properties || {};
-  if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms'])
-    || shellProps.command?.minLength !== undefined) {
+  if (
+    JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms']) ||
+    shellProps.command?.minLength !== undefined
+  ) {
     throw new Error(`shell schema must expose only command and optional timeout_ms: ${JSON.stringify(shellProps)}`);
   }
   // timeout_ms is DECLARED in the model-facing schema (the schema states the
   // contract) while the default stays "no deadline" — the description and
   // rules both steer models to omit it.
-  if (shellProps.timeout_ms?.type !== 'number'
-    || shellProps.timeout_ms?.minimum !== 0
-    || !/hard kill deadline/i.test(shellProps.timeout_ms?.description || '')
-    || !/omit or 0 = none/i.test(shellProps.timeout_ms?.description || '')) {
-    throw new Error(`shell timeout_ms must declare the no-deadline-by-default contract: ${JSON.stringify(shellProps.timeout_ms)}`);
+  if (
+    shellProps.timeout_ms?.type !== 'number' ||
+    shellProps.timeout_ms?.minimum !== 0 ||
+    !/hard kill deadline/i.test(shellProps.timeout_ms?.description || '') ||
+    !/omit or 0 = none/i.test(shellProps.timeout_ms?.description || '')
+  ) {
+    throw new Error(
+      `shell timeout_ms must declare the no-deadline-by-default contract: ${JSON.stringify(shellProps.timeout_ms)}`
+    );
   }
   const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
   const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
-  if (!/Completion notifications are automatic/i.test(publicTaskTool?.description || '')
-    || !/Wait for completion instead of repeatedly polling task output/i.test(publicTaskTool?.description || '')) {
+  if (
+    !/Completion notifications are automatic/i.test(publicTaskTool?.description || '') ||
+    !/Wait for completion instead of repeatedly polling task output/i.test(publicTaskTool?.description || '')
+  ) {
     throw new Error(`task description must prohibit unsolicited progress checks: ${publicTaskTool?.description || ''}`);
   }
-  if (JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 'read', 'wait', 'cancel'])
-    || publicTaskProps.task_id?.minLength !== undefined
-    || publicTaskProps.monitor_interval_ms
-    || publicTaskProps.timeout_ms?.minimum !== 0
-    || publicTaskProps.after_ms || publicTaskProps.poll_ms) {
+  if (
+    JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 'read', 'wait', 'cancel']) ||
+    publicTaskProps.task_id?.minLength !== undefined ||
+    publicTaskProps.monitor_interval_ms ||
+    publicTaskProps.timeout_ms?.minimum !== 0 ||
+    publicTaskProps.after_ms ||
+    publicTaskProps.poll_ms
+  ) {
     throw new Error('task schema must expose list/read/wait/cancel with a wait ceiling and no polling parameters');
   }
   if (JSON.stringify(publicTaskTool?.inputSchema?.required) !== JSON.stringify(['action'])) {
@@ -93,7 +115,9 @@ test('shell, edit, and task keep their execution contracts', () => {
 
 test('default deferred tool surfaces per mode stay fixed and bounded', () => {
   if (fullDefaults.size !== 10) {
-    throw new Error(`full default catalog should contain both edit dialects (10 tools), got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
+    throw new Error(
+      `full default catalog should contain both edit dialects (10 tools), got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`
+    );
   }
   for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'Skill', 'load_tool']) {
     assertHas(fullDefaults, name);
@@ -106,16 +130,34 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
   // recall / web_search / goal left the lead defaults with cwd and web_fetch
   // (2 measured calls each in the trace window); they auto-load on demand.
   if (leadDefaults.size !== 14) {
-    throw new Error(`lead default catalog should contain both edit dialects and git (14 tools), got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
+    throw new Error(
+      `lead default catalog should contain both edit dialects and git (14 tools), got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`
+    );
   }
-  for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'git', 'shell', 'task', 'apply_patch', 'agent', 'Skill', 'load_tool']) {
+  for (const name of [
+    'read',
+    'code_graph',
+    'grep',
+    'find',
+    'glob',
+    'list',
+    'git',
+    'shell',
+    'task',
+    'apply_patch',
+    'agent',
+    'Skill',
+    'load_tool',
+  ]) {
     assertHas(leadDefaults, name);
   }
   for (const name of ['recall', 'web_search', 'web_fetch', 'cwd', 'git_stage', 'session_manage']) {
     assertLacks(leadDefaults, name);
   }
   if (TOOL_SEARCH_TOOL.annotations?.agentHidden !== true) {
-    throw new Error('tool_search must stay Lead-only / standalone-only; agent sessions keep fixed schemas without deferred loading');
+    throw new Error(
+      'tool_search must stay Lead-only / standalone-only; agent sessions keep fixed schemas without deferred loading'
+    );
   }
 
   const surfaceSize = [...fullDefaults].reduce((sum, name) => {
@@ -140,7 +182,9 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
 
   const readonlyDefaults = defaultDeferredToolNames(smokeCatalog, 'readonly');
   if (readonlyDefaults.size !== 8) {
-    throw new Error(`readonly default surface should stay 8 tools, got ${readonlyDefaults.size}: ${[...readonlyDefaults].join(', ')}`);
+    throw new Error(
+      `readonly default surface should stay 8 tools, got ${readonlyDefaults.size}: ${[...readonlyDefaults].join(', ')}`
+    );
   }
   for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'Skill', 'load_tool']) {
     assertHas(readonlyDefaults, name);
@@ -155,10 +199,12 @@ test('agent schema hides execution controls and rejects hidden fields', () => {
   if (agentProps.mode || agentProps.wait || agentProps.sessionId) {
     throw new Error('agent schema should not expose execution mode controls or raw session ids');
   }
-  if (AGENT_TOOL.inputSchema?.required?.join(',') !== 'type'
-    || !/New spawn requires agent/i.test(agentProps.type?.description || '')
-    || !/send requires tag/i.test(agentProps.type?.description || '')
-    || !/task_id or tag/i.test(agentProps.type?.description || '')) {
+  if (
+    AGENT_TOOL.inputSchema?.required?.join(',') !== 'type' ||
+    !/New spawn requires agent/i.test(agentProps.type?.description || '') ||
+    !/send requires tag/i.test(agentProps.type?.description || '') ||
+    !/task_id or tag/i.test(agentProps.type?.description || '')
+  ) {
     throw new Error('agent schema must require type and describe each action target');
   }
   for (const name of ['task_id', 'agent', 'tag', 'prompt', 'message', 'file', 'cwd', 'context']) {
@@ -176,27 +222,37 @@ test('apply_patch model contract stays a single-string custom grammar tool', () 
   const patchDescription = patchTool?.inputSchema?.properties?.patch?.description || '';
   // Function-only compatibility keeps only a non-empty patch string; OpenAI
   // custom tools receive the Lark grammar directly.
-  if (!/Complete V4A patch text/i.test(patchDescription)
-      || patchTool?.inputSchema?.properties?.patch?.minLength !== 1) {
+  if (
+    !/Complete V4A patch text/i.test(patchDescription) ||
+    patchTool?.inputSchema?.properties?.patch?.minLength !== 1
+  ) {
     throw new Error('apply_patch JSON fallback must expose one non-empty V4A patch string');
   }
-  if (Object.keys(patchTool?.inputSchema?.properties || {}).join(',') !== 'patch'
-      || JSON.stringify(patchTool?.inputSchema?.required || []) !== '["patch"]') {
+  if (
+    Object.keys(patchTool?.inputSchema?.properties || {}).join(',') !== 'patch' ||
+    JSON.stringify(patchTool?.inputSchema?.required || []) !== '["patch"]'
+  ) {
     throw new Error(`apply_patch JSON fallback must expose only patch: ${JSON.stringify(patchTool?.inputSchema)}`);
   }
   if (/\*\*\* Root:|root_line/.test(JSON.stringify(patchTool))) {
-    throw new Error(`apply_patch model contract must not expose non-Codex Root extensions: ${JSON.stringify(patchTool)}`);
+    throw new Error(
+      `apply_patch model contract must not expose non-Codex Root extensions: ${JSON.stringify(patchTool)}`
+    );
   }
-  if (patchTool?.title !== 'Apply Patch'
-      || patchTool?.annotations?.title !== 'Apply Patch'
-      || !/^Edit files with one complete V4A patch/i.test(patchTool?.description || '')
-      || /Begin Patch|Add File|Delete File|Update File|exact current lines/i.test(patchTool?.description || '')) {
+  if (
+    patchTool?.title !== 'Apply Patch' ||
+    patchTool?.annotations?.title !== 'Apply Patch' ||
+    !/^Edit files with one complete V4A patch/i.test(patchTool?.description || '') ||
+    /Begin Patch|Add File|Delete File|Update File|exact current lines/i.test(patchTool?.description || '')
+  ) {
     throw new Error(`apply_patch JSON fallback must stay minimal and grammar-free: ${JSON.stringify(patchTool)}`);
   }
-  if (!/^Send raw V4A here, not JSON or a shell command\./.test(patchTool?.freeformDescription || '')
-      || !/one Add\/Delete\/Update File block per path/i.test(patchTool?.freeformDescription || '')
-      || patchTool?.freeform?.type !== 'grammar'
-      || patchTool?.freeform?.syntax !== 'lark') {
+  if (
+    !/^Send raw V4A here, not JSON or a shell command\./.test(patchTool?.freeformDescription || '') ||
+    !/one Add\/Delete\/Update File block per path/i.test(patchTool?.freeformDescription || '') ||
+    patchTool?.freeform?.type !== 'grammar' ||
+    patchTool?.freeform?.syntax !== 'lark'
+  ) {
     throw new Error(`apply_patch must expose freeform grammar metadata: ${JSON.stringify(patchTool)}`);
   }
   for (const requiredGrammarLine of [
@@ -224,24 +280,30 @@ test('read schema exposes canonical scalar and batch windows', () => {
   if (/line\+context/i.test(readDescription) || !/Read known file ranges or images/i.test(readDescription)) {
     throw new Error('read description must stay compact and file-oriented');
   }
-  if (readProps.file_path?.anyOf?.[0]?.type !== 'string'
-    || readProps.file_path?.minLength !== undefined
-    || readProps.file_path?.anyOf?.[1]?.type !== 'array'
-    || !/fans out to/i.test(readProps.file_path?.description || '')
-    || readProps.path
-    || JSON.stringify(readSchema.required) !== JSON.stringify(['file_path'])) {
+  if (
+    readProps.file_path?.anyOf?.[0]?.type !== 'string' ||
+    readProps.file_path?.minLength !== undefined ||
+    readProps.file_path?.anyOf?.[1]?.type !== 'array' ||
+    !/fans out to/i.test(readProps.file_path?.description || '') ||
+    readProps.path ||
+    JSON.stringify(readSchema.required) !== JSON.stringify(['file_path'])
+  ) {
     throw new Error('read schema must expose canonical file_path with explicit batch support');
   }
-  if (readProps.offset?.type !== 'integer'
-    || readProps.offset?.minimum !== 1
-    || !/1-based start line/i.test(readProps.offset?.description || '')
-    || readProps.limit?.type !== 'integer'
-    || readProps.limit?.minimum !== 1
-    || !/Maximum line count/i.test(readProps.limit?.description || '')) {
+  if (
+    readProps.offset?.type !== 'integer' ||
+    readProps.offset?.minimum !== 1 ||
+    !/1-based start line/i.test(readProps.offset?.description || '') ||
+    readProps.limit?.type !== 'integer' ||
+    readProps.limit?.minimum !== 1 ||
+    !/Maximum line count/i.test(readProps.limit?.description || '')
+  ) {
     throw new Error('read range args must use the scalar integer contract with Mixdog descriptions');
   }
-  if (Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit'].includes(key))
-    || readSchema.additionalProperties !== false) {
+  if (
+    Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit'].includes(key)) ||
+    readSchema.additionalProperties !== false
+  ) {
     throw new Error('read schema must not expose legacy arguments');
   }
 });
@@ -253,22 +315,34 @@ test('code_graph descriptions route structure lookups away from grep', () => {
   // symbol/definition/caller lookups AWAY from repeated grep (the grep_retry +
   // find_symbol_noscope anti-patterns). It is allowed to be verbose enough to
   // enumerate modes, but must not drift into web-search territory.
-  if (!/Source-file structure/i.test(codeGraphDescription)
-    || !['find_symbol', 'symbol_search', 'references', 'callers', 'callees'].every((mode) => codeGraphDescription.includes(mode))
-    || !/text and regex belong to grep/i.test(codeGraphDescription)) {
+  if (
+    !/Source-file structure/i.test(codeGraphDescription) ||
+    !['find_symbol', 'symbol_search', 'references', 'callers', 'callees'].every((mode) =>
+      codeGraphDescription.includes(mode)
+    ) ||
+    !/text and regex belong to grep/i.test(codeGraphDescription)
+  ) {
     throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
   }
-  if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/project-relative or absolute/i.test(codeGraphProps.files?.description || '')) {
+  if (
+    !/files\[\]/i.test(codeGraphProps.mode?.description || '') ||
+    !/project-relative or absolute/i.test(codeGraphProps.files?.description || '')
+  ) {
     throw new Error('code_graph schema must keep compact relative/absolute path descriptions');
   }
-  if (!/Explicit root outside the project/i.test(codeGraphProps.cwd?.description || '') || !/omit for project root/i.test(codeGraphProps.cwd?.description || '')) {
+  if (
+    !/Explicit root outside the project/i.test(codeGraphProps.cwd?.description || '') ||
+    !/omit for project root/i.test(codeGraphProps.cwd?.description || '')
+  ) {
     throw new Error('code_graph schema must expose its explicit outside-cwd root');
   }
-  if (!/find_symbol returns declaration\/body/i.test(codeGraphDescription)
-      || !/references adds usages \(body opt-in\)/i.test(codeGraphDescription)
-      || !/callers\/callees return locations/i.test(codeGraphDescription)
-      || !/find_symbol defaults true/i.test(codeGraphProps.body?.description || '')
-      || !/references is opt-in/i.test(codeGraphProps.body?.description || '')) {
+  if (
+    !/find_symbol returns declaration\/body/i.test(codeGraphDescription) ||
+    !/references adds usages \(body opt-in\)/i.test(codeGraphDescription) ||
+    !/callers\/callees return locations/i.test(codeGraphDescription) ||
+    !/find_symbol defaults true/i.test(codeGraphProps.body?.description || '') ||
+    !/references is opt-in/i.test(codeGraphProps.body?.description || '')
+  ) {
     throw new Error('code_graph descriptions must distinguish declarations, usages, and relation locations');
   }
   const codeGraphFileShapes = codeGraphProps.files?.anyOf || [];
@@ -277,15 +351,17 @@ test('code_graph descriptions route structure lookups away from grep', () => {
   const codeGraphFileArrayShape = codeGraphFileShapes.find((shape) => shape?.type === 'array');
   const codeGraphSymbolStringShape = codeGraphSymbolShapes.find((shape) => shape?.type === 'string');
   const codeGraphSymbolArrayShape = codeGraphSymbolShapes.find((shape) => shape?.type === 'array');
-  if (codeGraphFileStringShape?.minLength !== undefined
-      || codeGraphFileArrayShape?.minItems !== undefined
-      || codeGraphFileArrayShape?.items?.minLength !== undefined
-      || codeGraphSymbolStringShape?.minLength !== undefined
-      || codeGraphSymbolArrayShape?.minItems !== undefined
-      || codeGraphSymbolArrayShape?.items?.minLength !== undefined
-      || codeGraphProps.cwd?.minLength !== undefined
-      || codeGraphProps.limit?.maximum !== 500
-      || !/overview hierarchy or caller traversal depth/i.test(codeGraphProps.depth?.description || '')) {
+  if (
+    codeGraphFileStringShape?.minLength !== undefined ||
+    codeGraphFileArrayShape?.minItems !== undefined ||
+    codeGraphFileArrayShape?.items?.minLength !== undefined ||
+    codeGraphSymbolStringShape?.minLength !== undefined ||
+    codeGraphSymbolArrayShape?.minItems !== undefined ||
+    codeGraphSymbolArrayShape?.items?.minLength !== undefined ||
+    codeGraphProps.cwd?.minLength !== undefined ||
+    codeGraphProps.limit?.maximum !== 500 ||
+    !/overview hierarchy or caller traversal depth/i.test(codeGraphProps.depth?.description || '')
+  ) {
     throw new Error('code_graph schema must reject blank targets and expose runtime result/depth bounds');
   }
   for (const [label, schema] of [
@@ -311,81 +387,103 @@ test('recall schema keeps fan-out, paging, and expansion contracts', () => {
   const recallIdShapes = recallProps.id?.anyOf || [];
   const recallIdStringShape = recallIdShapes.find((shape) => shape?.type === 'integer');
   const recallIdArrayShape = recallIdShapes.find((shape) => shape?.type === 'array');
-  if (!/prior work/i.test(recallTool?.description || '') || !recallProps.id?.anyOf || !/Do not invent ids/i.test(recallProps.id?.description || '')) {
+  if (
+    !/prior work/i.test(recallTool?.description || '') ||
+    !recallProps.id?.anyOf ||
+    !/Do not invent ids/i.test(recallProps.id?.description || '')
+  ) {
     throw new Error('recall schema must preserve scoped prior-context guidance and id lookup shape');
   }
-  if (recallQueryStringShape?.minLength !== undefined
-    || recallQueryArrayShape?.minItems !== undefined
-    || recallQueryArrayShape?.maxItems !== 5
-    || recallQueryArrayShape?.items?.minLength !== undefined
-    || recallIdStringShape?.minimum !== 1
-    || recallIdArrayShape?.minItems !== undefined
-    || recallIdArrayShape?.items?.type !== 'integer'
-    || recallIdArrayShape?.items?.minimum !== 1
-    || !/independent fan-out/i.test(recallProps.query?.description || '')
-    || !/pool/i.test(recallProps.projectScope?.description || '')) {
+  if (
+    recallQueryStringShape?.minLength !== undefined ||
+    recallQueryArrayShape?.minItems !== undefined ||
+    recallQueryArrayShape?.maxItems !== 5 ||
+    recallQueryArrayShape?.items?.minLength !== undefined ||
+    recallIdStringShape?.minimum !== 1 ||
+    recallIdArrayShape?.minItems !== undefined ||
+    recallIdArrayShape?.items?.type !== 'integer' ||
+    recallIdArrayShape?.items?.minimum !== 1 ||
+    !/independent fan-out/i.test(recallProps.query?.description || '') ||
+    !/pool/i.test(recallProps.projectScope?.description || '')
+  ) {
     throw new Error('recall schema must explain fan-out query and project scope filters');
   }
-  if (recallProps.limit?.type !== 'integer'
-    || recallProps.limit?.minimum !== 1
-    || recallProps.limit?.maximum !== 100
-    || !/default 10/i.test(recallProps.limit?.description || '')
-    || !/5 sessions for period=last/i.test(recallProps.limit?.description || '')
-    || recallProps.offset?.type !== 'integer'
-    || recallProps.offset?.minimum !== 0
-    || recallProps.offset?.maximum !== 500
-    || !/default 0/i.test(recallProps.offset?.description || '')) {
+  if (
+    recallProps.limit?.type !== 'integer' ||
+    recallProps.limit?.minimum !== 1 ||
+    recallProps.limit?.maximum !== 100 ||
+    !/default 10/i.test(recallProps.limit?.description || '') ||
+    !/5 sessions for period=last/i.test(recallProps.limit?.description || '') ||
+    recallProps.offset?.type !== 'integer' ||
+    recallProps.offset?.minimum !== 0 ||
+    recallProps.offset?.maximum !== 500 ||
+    !/default 0/i.test(recallProps.offset?.description || '')
+  ) {
     throw new Error('recall schema must expose runtime paging bounds and defaults');
   }
   // Cross-session / raw recall surface: summary-only is the default; expansion
   // into chunk members or unchunked raw/episode turns is explicit.
-  if (recallProps.includeMembers?.default !== false
-    || !/chunk members.*default false/i.test(recallProps.includeMembers?.description || '')) {
+  if (
+    recallProps.includeMembers?.default !== false ||
+    !/chunk members.*default false/i.test(recallProps.includeMembers?.description || '')
+  ) {
     throw new Error('recall includeMembers must stay scoped to chunk-member output only');
   }
-  if (recallProps.includeRaw?.default !== false
-    || !/raw\/episode rows.*default false/i.test(recallProps.includeRaw?.description || '')) {
+  if (
+    recallProps.includeRaw?.default !== false ||
+    !/raw\/episode rows.*default false/i.test(recallProps.includeRaw?.description || '')
+  ) {
     throw new Error('recall schema must expose includeRaw for unchunked raw/episode turns');
   }
-  if (!/archived entries.*default true/i.test(recallProps.includeArchived?.description || '') || recallProps.sessionOnly) {
+  if (
+    !/archived entries.*default true/i.test(recallProps.includeArchived?.description || '') ||
+    recallProps.sessionOnly
+  ) {
     throw new Error('recall schema must expose archived defaults and keep sessionOnly private');
   }
 });
 
 test('cwd and memory schemas stay minimal and direct', () => {
   const cwdProps = CWD_TOOL.inputSchema?.properties || {};
-  if (CWD_TOOL.title !== 'Project'
-    || CWD_TOOL.annotations?.title !== 'Project'
-    || !/active Project/i.test(CWD_TOOL.description || '')
-    || !/shell-local cd does not change the Project/i.test(CWD_TOOL.description || '')
-    || Object.keys(cwdProps).join(',') !== 'action,path'
-    || cwdProps.action?.enum?.join(',') !== 'get,set,list'
-    || cwdProps.path?.minLength !== undefined
-    || CWD_TOOL.inputSchema?.additionalProperties !== false) {
+  if (
+    CWD_TOOL.title !== 'Project' ||
+    CWD_TOOL.annotations?.title !== 'Project' ||
+    !/active Project/i.test(CWD_TOOL.description || '') ||
+    !/shell-local cd does not change the Project/i.test(CWD_TOOL.description || '') ||
+    Object.keys(cwdProps).join(',') !== 'action,path' ||
+    cwdProps.action?.enum?.join(',') !== 'get,set,list' ||
+    cwdProps.path?.minLength !== undefined ||
+    CWD_TOOL.inputSchema?.additionalProperties !== false
+  ) {
     throw new Error('cwd schema must expose get/set/list and an optional Project path');
   }
   const memoryTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'memory');
   const memoryProps = memoryTool?.inputSchema?.properties || {};
-  if (memoryTool?.title !== 'Memory'
-    || memoryTool?.annotations?.title !== 'Memory'
-    || !/standing user preferences/i.test(memoryTool?.description || '')
+  if (
+    memoryTool?.title !== 'Memory' ||
+    memoryTool?.annotations?.title !== 'Memory' ||
+    !/standing user preferences/i.test(memoryTool?.description || '') ||
     // Direct curated memory and the revisioned per-project edit/delete index.
-    || Object.keys(memoryProps).sort().join(',') !== 'id,include_inactive,index_revision,limit,offset,op,project_id,summary'
-    || memoryProps.op?.enum?.join(',') !== 'add,edit,delete,list'
-    || memoryTool?.inputSchema?.required?.join(',') !== 'op'
-    || memoryProps.id?.type !== 'integer'
-    || memoryProps.id?.minimum !== 1
-    || !/edit\/delete: per-project memory index/i.test(memoryProps.id?.description || '')
-    || !/Required for edit\/delete/i.test(memoryProps.index_revision?.description || '')) {
+    Object.keys(memoryProps).sort().join(',') !==
+      'id,include_inactive,index_revision,limit,offset,op,project_id,summary' ||
+    memoryProps.op?.enum?.join(',') !== 'add,edit,delete,list' ||
+    memoryTool?.inputSchema?.required?.join(',') !== 'op' ||
+    memoryProps.id?.type !== 'integer' ||
+    memoryProps.id?.minimum !== 1 ||
+    !/edit\/delete: per-project memory index/i.test(memoryProps.id?.description || '') ||
+    !/Required for edit\/delete/i.test(memoryProps.index_revision?.description || '')
+  ) {
     throw new Error('memory schema must expose only the direct durable-core contract');
   }
-  if (!/add and edit/i.test(memoryProps.summary?.description || '')
-    || !/current Project/i.test(memoryProps.project_id?.description || '')
-    || memoryProps.action
-    || memoryProps.element
-    || memoryProps.status
-    || memoryProps.confirm
-    || memoryProps.category) {
+  if (
+    !/add and edit/i.test(memoryProps.summary?.description || '') ||
+    !/current Project/i.test(memoryProps.project_id?.description || '') ||
+    memoryProps.action ||
+    memoryProps.element ||
+    memoryProps.status ||
+    memoryProps.confirm ||
+    memoryProps.category
+  ) {
     throw new Error('memory schema must keep internal routing and derived fields private');
   }
 });
@@ -396,25 +494,33 @@ test('web_search and web_fetch schemas keep sync fan-out contracts', () => {
   const webSearchQueryShapes = webSearchProps.query?.anyOf || [];
   const webSearchQueryStringShape = webSearchQueryShapes.find((shape) => shape?.type === 'string');
   const webSearchQueryArrayShape = webSearchQueryShapes.find((shape) => shape?.type === 'array');
-  if (!/Returns final results in this call/i.test(webSearchTool?.description || '')
-    || webSearchProps.mode
-    || webSearchProps.action
-    || webSearchProps.task_id
-    || !webSearchProps.query?.anyOf
-    || webSearchQueryStringShape?.minLength !== 1
-    || webSearchQueryArrayShape?.minItems !== 1
-    || webSearchQueryArrayShape?.items?.minLength !== 1
-    || !/lossless fan-out/i.test(webSearchProps.query?.description || '')
-    || !webSearchTool?.inputSchema?.required?.includes('query')) {
+  if (
+    !/Returns final results in this call/i.test(webSearchTool?.description || '') ||
+    webSearchProps.mode ||
+    webSearchProps.action ||
+    webSearchProps.task_id ||
+    !webSearchProps.query?.anyOf ||
+    webSearchQueryStringShape?.minLength !== 1 ||
+    webSearchQueryArrayShape?.minItems !== 1 ||
+    webSearchQueryArrayShape?.items?.minLength !== 1 ||
+    !/lossless fan-out/i.test(webSearchProps.query?.description || '') ||
+    !webSearchTool?.inputSchema?.required?.includes('query')
+  ) {
     throw new Error('web_search schema must preserve sync execution guidance and string/array query shape');
   }
-  if (webSearchProps.maxResults?.type !== 'integer'
-    || webSearchProps.maxResults?.minimum !== 1
-    || webSearchProps.maxResults?.maximum !== 20
-    || !/default 10/i.test(webSearchProps.maxResults?.description || '')) {
+  if (
+    webSearchProps.maxResults?.type !== 'integer' ||
+    webSearchProps.maxResults?.minimum !== 1 ||
+    webSearchProps.maxResults?.maximum !== 20 ||
+    !/default 10/i.test(webSearchProps.maxResults?.description || '')
+  ) {
     throw new Error('web_search maxResults schema must match the runtime integer range and default');
   }
-  if (!/Default web/i.test(webSearchProps.type?.description || '') || !/locale hint/i.test(webSearchProps.locale?.description || '') || !/Default low/i.test(webSearchProps.contextSize?.description || '')) {
+  if (
+    !/Default web/i.test(webSearchProps.type?.description || '') ||
+    !/locale hint/i.test(webSearchProps.locale?.description || '') ||
+    !/Default low/i.test(webSearchProps.contextSize?.description || '')
+  ) {
     throw new Error('web_search schema must describe type, locale, and contextSize defaults');
   }
   const webFetchTool = WEB_SEARCH_TOOL_DEFS.find((tool) => tool.name === 'web_fetch');
@@ -422,24 +528,28 @@ test('web_search and web_fetch schemas keep sync fan-out contracts', () => {
   const webFetchUrlShapes = webFetchProps.url?.anyOf || [];
   const webFetchUrlStringShape = webFetchUrlShapes.find((shape) => shape?.type === 'string');
   const webFetchUrlArrayShape = webFetchUrlShapes.find((shape) => shape?.type === 'array');
-  if (!/Fetch page\/docs body from URL/i.test(webFetchTool?.description || '')
-    || webFetchUrlStringShape?.minLength !== undefined
-    || webFetchUrlStringShape?.format !== 'uri'
-    || webFetchUrlArrayShape?.minItems !== 1
-    || webFetchUrlArrayShape?.maxItems !== 10
-    || webFetchUrlArrayShape?.items?.minLength !== undefined
-    || webFetchUrlArrayShape?.items?.format !== 'uri'
-    || !/Public HTTP\(S\) URL/i.test(webFetchProps.url?.description || '')
-    || !/array of up to 10 URLs/i.test(webFetchProps.url?.description || '')) {
+  if (
+    !/Fetch page\/docs body from URL/i.test(webFetchTool?.description || '') ||
+    webFetchUrlStringShape?.minLength !== undefined ||
+    webFetchUrlStringShape?.format !== 'uri' ||
+    webFetchUrlArrayShape?.minItems !== 1 ||
+    webFetchUrlArrayShape?.maxItems !== 10 ||
+    webFetchUrlArrayShape?.items?.minLength !== undefined ||
+    webFetchUrlArrayShape?.items?.format !== 'uri' ||
+    !/Public HTTP\(S\) URL/i.test(webFetchProps.url?.description || '') ||
+    !/array of up to 10 URLs/i.test(webFetchProps.url?.description || '')
+  ) {
     throw new Error('web_fetch schema must preserve body-fetch capability and string/array url shape');
   }
-  if (webFetchProps.startIndex?.type !== 'integer'
-    || webFetchProps.startIndex?.minimum !== 0
-    || !/default 0/i.test(webFetchProps.startIndex?.description || '')
-    || webFetchProps.maxLength?.type !== 'integer'
-    || webFetchProps.maxLength?.minimum !== 0
-    || !/default 50000/i.test(webFetchProps.maxLength?.description || '')
-    || !/0 unlimited/i.test(webFetchProps.maxLength?.description || '')) {
+  if (
+    webFetchProps.startIndex?.type !== 'integer' ||
+    webFetchProps.startIndex?.minimum !== 0 ||
+    !/default 0/i.test(webFetchProps.startIndex?.description || '') ||
+    webFetchProps.maxLength?.type !== 'integer' ||
+    webFetchProps.maxLength?.minimum !== 0 ||
+    !/default 50000/i.test(webFetchProps.maxLength?.description || '') ||
+    !/0 unlimited/i.test(webFetchProps.maxLength?.description || '')
+  ) {
     throw new Error('web_fetch schema must describe paging window fields');
   }
 });
@@ -448,31 +558,39 @@ test('load_tool and Skill schemas stay pure loaders', () => {
   const toolSearchNamesSchema = TOOL_SEARCH_TOOL.inputSchema?.properties?.names;
   const toolSearchNamesStringSchema = toolSearchNamesSchema?.anyOf?.find((entry) => entry?.type === 'string');
   const toolSearchNamesArraySchema = toolSearchNamesSchema?.anyOf?.find((entry) => entry?.type === 'array');
-  if (!/full schemas for missing deferred tool names/i.test(TOOL_SEARCH_TOOL.description || '')
-    || !/batch needed names in one call/i.test(TOOL_SEARCH_TOOL.description || '')
-    || !/Exact name\(s\)\/aliases/i.test(toolSearchNamesSchema?.description || '')
-    || !toolSearchNamesSchema
-    || toolSearchNamesStringSchema?.minLength !== undefined
-    || toolSearchNamesArraySchema?.minItems !== undefined
-    || toolSearchNamesArraySchema?.items?.minLength !== undefined
-    || TOOL_SEARCH_TOOL.inputSchema?.required?.join(',') !== 'names'
-    || TOOL_SEARCH_TOOL.inputSchema?.properties?.select
-    || TOOL_SEARCH_TOOL.inputSchema?.additionalProperties !== false) {
-    throw new Error('load_tool schema must require non-empty names[] as the only loader field (legacy select stays retired)');
+  if (
+    !/full schemas for missing deferred tool names/i.test(TOOL_SEARCH_TOOL.description || '') ||
+    !/batch needed names in one call/i.test(TOOL_SEARCH_TOOL.description || '') ||
+    !/Exact name\(s\)\/aliases/i.test(toolSearchNamesSchema?.description || '') ||
+    !toolSearchNamesSchema ||
+    toolSearchNamesStringSchema?.minLength !== undefined ||
+    toolSearchNamesArraySchema?.minItems !== undefined ||
+    toolSearchNamesArraySchema?.items?.minLength !== undefined ||
+    TOOL_SEARCH_TOOL.inputSchema?.required?.join(',') !== 'names' ||
+    TOOL_SEARCH_TOOL.inputSchema?.properties?.select ||
+    TOOL_SEARCH_TOOL.inputSchema?.additionalProperties !== false
+  ) {
+    throw new Error(
+      'load_tool schema must require non-empty names[] as the only loader field (legacy select stays retired)'
+    );
   }
   const skillNameSchema = SKILL_TOOL.inputSchema?.properties?.name;
-  if (!/Load or refresh an available skill’s SKILL\.md before task actions/i.test(SKILL_TOOL.description || '')
-    || skillNameSchema?.type !== 'string'
-    || skillNameSchema?.minLength !== undefined
-    || !/Exact name from available-skills/i.test(skillNameSchema?.description || '')
-    || SKILL_TOOL.inputSchema?.required?.join(',') !== 'name'
-    || SKILL_TOOL.inputSchema?.additionalProperties !== false) {
+  if (
+    !/Load or refresh an available skill’s SKILL\.md before task actions/i.test(SKILL_TOOL.description || '') ||
+    skillNameSchema?.type !== 'string' ||
+    skillNameSchema?.minLength !== undefined ||
+    !/Exact name from available-skills/i.test(skillNameSchema?.description || '') ||
+    SKILL_TOOL.inputSchema?.required?.join(',') !== 'name' ||
+    SKILL_TOOL.inputSchema?.additionalProperties !== false
+  ) {
     throw new Error('Skill schema must require one exact non-empty available-skills name');
   }
   const patchDescription = PATCH_TOOL_DEFS[0]?.inputSchema?.properties?.patch?.description || '';
   const longToolSearchText = compactToolSearchDescription(`${patchDescription}\n${patchDescription}`);
   if (longToolSearchText.length > 220 || /\n/.test(longToolSearchText)) {
-    throw new Error(`tool_search descriptions must be compact single-line snippets, got ${longToolSearchText.length} chars`);
+    throw new Error(
+      `tool_search descriptions must be compact single-line snippets, got ${longToolSearchText.length} chars`
+    );
   }
 });
 
@@ -490,47 +608,57 @@ test('grep, glob, find, and list schemas keep locator contracts', () => {
   const grepPatternShapes = grepTool?.inputSchema?.properties?.pattern?.anyOf;
   const grepStringPatternShape = grepPatternShapes?.find((shape) => shape?.type === 'string');
   const grepArrayPatternShape = grepPatternShapes?.find((shape) => shape?.type === 'array');
-  if (!grepStringPatternShape
-      || grepStringPatternShape?.minLength !== undefined
-      || grepArrayPatternShape?.items?.type !== 'string'
-      || grepArrayPatternShape?.items?.minLength !== undefined
-      || grepArrayPatternShape?.minItems !== undefined
-      || grepArrayPatternShape?.maxItems !== 10
-      || grepTool?.inputSchema?.properties?.pattern?.type
-      || grepTool?.inputSchema?.properties?.path?.anyOf?.[0]?.type !== 'string'
-      || grepTool?.inputSchema?.properties?.path?.minLength !== undefined
-      || grepTool?.inputSchema?.properties?.path?.anyOf?.[1]?.type !== 'array'
-      || grepTool?.inputSchema?.properties?.glob?.type !== 'string'
-      || grepTool?.inputSchema?.properties?.glob?.minLength !== undefined
-      || grepTool?.inputSchema?.properties?.glob?.anyOf
-      || grepTool?.inputSchema?.properties?.limit?.type !== 'integer'
-      || grepTool?.inputSchema?.properties?.offset?.type !== 'integer'
-      || grepTool?.inputSchema?.properties?.context?.type !== 'integer'
-      || !/ripgrep regex/i.test(grepPatternDescription)
-      || !/plain (?:existing )?file(?: or |\/)directory scopes?/i.test(grepPathDescription)) {
+  if (
+    !grepStringPatternShape ||
+    grepStringPatternShape?.minLength !== undefined ||
+    grepArrayPatternShape?.items?.type !== 'string' ||
+    grepArrayPatternShape?.items?.minLength !== undefined ||
+    grepArrayPatternShape?.minItems !== undefined ||
+    grepArrayPatternShape?.maxItems !== 10 ||
+    grepTool?.inputSchema?.properties?.pattern?.type ||
+    grepTool?.inputSchema?.properties?.path?.anyOf?.[0]?.type !== 'string' ||
+    grepTool?.inputSchema?.properties?.path?.minLength !== undefined ||
+    grepTool?.inputSchema?.properties?.path?.anyOf?.[1]?.type !== 'array' ||
+    grepTool?.inputSchema?.properties?.glob?.type !== 'string' ||
+    grepTool?.inputSchema?.properties?.glob?.minLength !== undefined ||
+    grepTool?.inputSchema?.properties?.glob?.anyOf ||
+    grepTool?.inputSchema?.properties?.limit?.type !== 'integer' ||
+    grepTool?.inputSchema?.properties?.offset?.type !== 'integer' ||
+    grepTool?.inputSchema?.properties?.context?.type !== 'integer' ||
+    !/ripgrep regex/i.test(grepPatternDescription) ||
+    !/plain (?:existing )?file(?: or |\/)directory scopes?/i.test(grepPathDescription)
+  ) {
     throw new Error('grep schema must expose pattern and path fan-out with scalar glob guidance');
   }
-  if (!/\bSearch literal\/regex file contents\b/i.test(grepTool?.description || '')
-      || !/path:line blocks with context/i.test(grepTool?.description || '')
-      || !/Broad reconnaissance: mode:files/i.test(grepTool?.description || '')) {
+  if (
+    !/\bSearch literal\/regex file contents\b/i.test(grepTool?.description || '') ||
+    !/path:line blocks with context/i.test(grepTool?.description || '') ||
+    !/Broad reconnaissance: mode:files/i.test(grepTool?.description || '')
+  ) {
     throw new Error('grep description must state its scoped discovery and returned-span reuse contract');
   }
-  if (!/glob filter evaluated inside path/i.test(grepGlobDescription)
-      || !/use path instead/i.test(grepGlobDescription)) {
+  if (
+    !/glob filter evaluated inside path/i.test(grepGlobDescription) ||
+    !/use path instead/i.test(grepGlobDescription)
+  ) {
     throw new Error('grep glob schema must describe scope narrowing');
   }
-  if (!/files lists matching paths/i.test(grepModeDescription)
-      || !/count totals all patterns together per file/i.test(grepModeDescription)
-      || !/content/i.test(grepModeDescription)) {
+  if (
+    !/files lists matching paths/i.test(grepModeDescription) ||
+    !/count totals all patterns together per file/i.test(grepModeDescription) ||
+    !/content/i.test(grepModeDescription)
+  ) {
     throw new Error('grep mode schema must name its compact output shapes and count aggregation');
   }
   if (grepTool?.inputSchema?.properties?.limit?.minimum !== 0 || !/Requested results/i.test(grepLimitDescription)) {
     throw new Error('grep limit schema must keep locator caps explicit');
   }
-  if (grepTool?.inputSchema?.properties?.['-C']
-      || grepTool?.inputSchema?.properties?.context?.maximum !== 200
-      || !/automatic context/i.test(grepContextDescription)
-      || !/0 for matches only/i.test(grepContextDescription)) {
+  if (
+    grepTool?.inputSchema?.properties?.['-C'] ||
+    grepTool?.inputSchema?.properties?.context?.maximum !== 200 ||
+    !/automatic context/i.test(grepContextDescription) ||
+    !/0 for matches only/i.test(grepContextDescription)
+  ) {
     throw new Error('grep schema must expose one context field and keep ripgrep aliases internal');
   }
   if (grepTool?.inputSchema?.properties?.type) {
@@ -554,55 +682,67 @@ test('grep, glob, find, and list schemas keep locator contracts', () => {
   ]) {
     if (schema?.type !== 'integer') throw new Error(`${label} must expose integer schema: ${JSON.stringify(schema)}`);
   }
-  if (!/Wildcard file-path lookup under a known directory/i.test(globTool?.description || '')
-      || !/Directories never match/i.test(globTool?.description || '')
-      || !/Unknown base: find first/i.test(globTool?.description || '')
-      || !/Known existing base directory/i.test(globTool?.inputSchema?.properties?.path?.description || '')) {
+  if (
+    !/Wildcard file-path lookup under a known directory/i.test(globTool?.description || '') ||
+    !/Directories never match/i.test(globTool?.description || '') ||
+    !/Unknown base: find first/i.test(globTool?.description || '') ||
+    !/Known existing base directory/i.test(globTool?.inputSchema?.properties?.path?.description || '')
+  ) {
     throw new Error('glob description must state its known-base wildcard path contract');
   }
-  if (!globStringPatternShape
-      || globStringPatternShape?.minLength !== undefined
-      || globArrayPatternShape?.items?.type !== 'string'
-      || globArrayPatternShape?.items?.minLength !== undefined
-      || globArrayPatternShape?.minItems !== undefined
-      || globArrayPatternShape?.maxItems !== 10
-      || globTool?.inputSchema?.properties?.pattern?.type
-      || globTool?.inputSchema?.properties?.path?.type !== 'string'
-      || globTool?.inputSchema?.properties?.path?.minLength !== undefined
-      || globTool?.inputSchema?.properties?.path?.anyOf) {
+  if (
+    !globStringPatternShape ||
+    globStringPatternShape?.minLength !== undefined ||
+    globArrayPatternShape?.items?.type !== 'string' ||
+    globArrayPatternShape?.items?.minLength !== undefined ||
+    globArrayPatternShape?.minItems !== undefined ||
+    globArrayPatternShape?.maxItems !== 10 ||
+    globTool?.inputSchema?.properties?.pattern?.type ||
+    globTool?.inputSchema?.properties?.path?.type !== 'string' ||
+    globTool?.inputSchema?.properties?.path?.minLength !== undefined ||
+    globTool?.inputSchema?.properties?.path?.anyOf
+  ) {
     throw new Error('glob schema must expose capped pattern fan-out and scalar path');
   }
-  if (!/Fuzzy filename\/directory path lookup/i.test(findTool?.description || '')
-      || !/target path is unknown and cannot be directly resolved/i.test(findTool?.description || '')
-      || !/returns paths only/i.test(findTool?.description || '')) {
+  if (
+    !/Fuzzy filename\/directory path lookup/i.test(findTool?.description || '') ||
+    !/target path is unknown and cannot be directly resolved/i.test(findTool?.description || '') ||
+    !/returns paths only/i.test(findTool?.description || '')
+  ) {
     throw new Error('find description must state its fuzzy path-lookup contract');
   }
   if (!/default 25/i.test(findLimitDescription) || !/0 unlimited/i.test(findLimitDescription)) {
     throw new Error('find limit must state default 25 and the 0-unlimited sentinel');
   }
-  if (!/known directory's immediate entries/i.test(listTool?.description || '')
-      || !/no wildcard/i.test(listTool?.description || '')
-      || listTool?.inputSchema?.properties?.path?.type !== 'string'
-      || listTool?.inputSchema?.properties?.path?.minLength !== undefined
-      || !/current Project/i.test(listTool?.inputSchema?.properties?.path?.description || '')
-      || !/default 100/i.test(listLimitDescription)
-      // list's 0 sentinel drops the PAGE cap only; the absolute cap still
-      // applies, and the description says so.
-      || !/0 = no page cap/i.test(listLimitDescription)
-      || listTool?.inputSchema?.properties?.limit?.maximum !== 100
-      || listTool?.inputSchema?.properties?.path?.anyOf) {
+  if (
+    !/known directory's immediate entries/i.test(listTool?.description || '') ||
+    !/no wildcard/i.test(listTool?.description || '') ||
+    listTool?.inputSchema?.properties?.path?.type !== 'string' ||
+    listTool?.inputSchema?.properties?.path?.minLength !== undefined ||
+    !/current Project/i.test(listTool?.inputSchema?.properties?.path?.description || '') ||
+    !/default 100/i.test(listLimitDescription) ||
+    // list's 0 sentinel drops the PAGE cap only; the absolute cap still
+    // applies, and the description says so.
+    !/0 = no page cap/i.test(listLimitDescription) ||
+    listTool?.inputSchema?.properties?.limit?.maximum !== 100 ||
+    listTool?.inputSchema?.properties?.path?.anyOf
+  ) {
     throw new Error('list description must state its known-directory immediate-entry contract');
   }
-  if (findTool?.inputSchema?.properties?.query?.type !== 'string'
-      || findTool?.inputSchema?.properties?.query?.minLength !== 1
-      || findTool?.inputSchema?.properties?.query?.pattern !== '\\S'
-      || findTool?.inputSchema?.properties?.query?.anyOf) {
+  if (
+    findTool?.inputSchema?.properties?.query?.type !== 'string' ||
+    findTool?.inputSchema?.properties?.query?.minLength !== 1 ||
+    findTool?.inputSchema?.properties?.query?.pattern !== '\\S' ||
+    findTool?.inputSchema?.properties?.query?.anyOf
+  ) {
     throw new Error('find schema must expose a nonblank scalar query matching its runtime guard');
   }
-  if (findTool?.inputSchema?.properties?.path?.type !== 'string'
-      || findTool?.inputSchema?.properties?.path?.minLength !== undefined
-      || !/omit for the current Project/i.test(findTool?.inputSchema?.properties?.path?.description || '')
-      || /No content or symbol search/i.test(findTool?.description || '')) {
+  if (
+    findTool?.inputSchema?.properties?.path?.type !== 'string' ||
+    findTool?.inputSchema?.properties?.path?.minLength !== undefined ||
+    !/omit for the current Project/i.test(findTool?.inputSchema?.properties?.path?.description || '') ||
+    /No content or symbol search/i.test(findTool?.description || '')
+  ) {
     throw new Error('find schema must expose a non-empty optional Project-relative base directory');
   }
 });

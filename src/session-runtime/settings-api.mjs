@@ -92,8 +92,13 @@ export function createSettingsApi({
   ONBOARDING_VERSION,
 }) {
   const localSettings = createLocalProviderSettings({
-    getConfig, saveConfigAndAdopt, getLocalProviderStatus, prepareLocalProviderModel,
-    refreshLocalProviderCatalog, cancelLocalProviderInstallation, configureLocalProviderIdleTtl,
+    getConfig,
+    saveConfigAndAdopt,
+    getLocalProviderStatus,
+    prepareLocalProviderModel,
+    refreshLocalProviderCatalog,
+    cancelLocalProviderInstallation,
+    configureLocalProviderIdleTtl,
   });
   return {
     ...localSettings.methods,
@@ -136,13 +141,12 @@ export function createSettingsApi({
       const enabledProviders = new Set(
         Object.entries(config?.providers || {})
           .filter(([, v]) => v && typeof v === 'object' && v.enabled !== false)
-          .map(([k]) => String(k).toLowerCase()),
+          .map(([k]) => String(k).toLowerCase())
       );
       if (provider) enabledProviders.add(String(provider).toLowerCase());
-      const providerDefaults = autoClearProviderDefaults(normalized.providerIdleMs)
-        .filter((entry) => entry.provider === 'default'
-          || entry.custom === true
-          || enabledProviders.has(entry.provider));
+      const providerDefaults = autoClearProviderDefaults(normalized.providerIdleMs).filter(
+        (entry) => entry.provider === 'default' || entry.custom === true || enabledProviders.has(entry.provider)
+      );
       return {
         enabled: normalized.enabled,
         idleMs,
@@ -179,9 +183,7 @@ export function createSettingsApi({
       return cfgMod.normalizeSkillsConfig(config.skills);
     },
     setDisabledSkills(disabled) {
-      const names = disabled instanceof Set
-        ? [...disabled]
-        : (Array.isArray(disabled) ? disabled : []);
+      const names = disabled instanceof Set ? [...disabled] : Array.isArray(disabled) ? disabled : [];
       // Adopt in-memory synchronously so getDisabledSkills reflects the new
       // value on the same tick (matches normalizeSkillsConfig({ disabled })
       // used by patchSkillsDisabled). Defer the heavy in-lock file RMW through
@@ -225,7 +227,14 @@ export function createSettingsApi({
       if (hasOwn(input, 'enabled')) next.auto = input.enabled !== false;
       // Legacy Compact type fields are intentionally ignored. There is one
       // fresh-context Compact contract for every session.
-      for (const key of ['mainBufferTokens', 'mainBuffer', 'mainBufferPercent', 'mainBufferPct', 'mainBufferRatio', 'mainBufferFraction']) {
+      for (const key of [
+        'mainBufferTokens',
+        'mainBuffer',
+        'mainBufferPercent',
+        'mainBufferPct',
+        'mainBufferRatio',
+        'mainBufferFraction',
+      ]) {
         if (hasOwn(input, key)) next[key] = input[key];
       }
       const nextConfig = { ...config };
@@ -236,10 +245,22 @@ export function createSettingsApi({
       if (session) {
         const currentSessionCompaction = { ...(session.compaction || {}) };
         for (const key of [
-          'type', 'compactType', 'compact_type', 'semantic', 'semanticModel', 'prune', 'tailTurns',
-          'recallMemoryTimeoutMs', 'recallIngestLimit', 'recallChunkLimit', 'recallLimit',
-          'recallCycle1BatchSize', 'recallRowsPerSession', 'recallWindowSize',
-          'recallConcurrency', 'recallCycle1DeadlineMs',
+          'type',
+          'compactType',
+          'compact_type',
+          'semantic',
+          'semanticModel',
+          'prune',
+          'tailTurns',
+          'recallMemoryTimeoutMs',
+          'recallIngestLimit',
+          'recallChunkLimit',
+          'recallLimit',
+          'recallCycle1BatchSize',
+          'recallRowsPerSession',
+          'recallWindowSize',
+          'recallConcurrency',
+          'recallCycle1DeadlineMs',
         ]) {
           delete currentSessionCompaction[key];
         }
@@ -308,7 +329,7 @@ export function createSettingsApi({
       // injection, and background recap cycles move together.
       let nextConfig = setRecapEnabledInConfig(
         setMemoryToolsEnabledInConfig({ ...config }, memoryEnabled),
-        memoryEnabled,
+        memoryEnabled
       );
       // Enabling IS activation: an explicit enable marks the feature installed
       // so the install-first gate never fights a direct toggle (TUI path).
@@ -335,9 +356,7 @@ export function createSettingsApi({
       if (name !== 'git' && name !== 'office' && name !== 'tidy' && name !== 'localProvider') {
         throw new TypeError('Built-in tool must be git, office, tidy, or localProvider.');
       }
-      if (name === 'localProvider'
-          && enabled !== false
-          && getLocalProviderStatus?.()?.runtime?.installed !== true) {
+      if (name === 'localProvider' && enabled !== false && getLocalProviderStatus?.()?.runtime?.installed !== true) {
         await prepareBuiltinFeature?.(name);
       }
       const config = getConfig();
@@ -367,9 +386,10 @@ export function createSettingsApi({
       await prepareBuiltinFeature?.(name);
       const config = getConfig();
       let nextConfig = setBuiltinInstalledInConfig({ ...config }, name, true);
-      nextConfig = name === 'memory'
-        ? setRecapEnabledInConfig(setMemoryToolsEnabledInConfig(nextConfig, true), true)
-        : setModuleEnabledInConfig(nextConfig, name, true);
+      nextConfig =
+        name === 'memory'
+          ? setRecapEnabledInConfig(setMemoryToolsEnabledInConfig(nextConfig, true), true)
+          : setModuleEnabledInConfig(nextConfig, name, true);
       if (name === 'localProvider') {
         nextConfig = setLocalProviderEnabledInConfig(nextConfig, true);
       }
@@ -419,19 +439,23 @@ export function createSettingsApi({
       if (hasOwn(input, 'enabled')) next.enabled = input.enabled !== false;
       if (hasOwn(input, 'minContextPercent')) {
         const rawMinPct = Number(input.minContextPercent);
-        if (!Number.isFinite(rawMinPct)) throw new Error('autoclear minContextPercent must be a number between 0 and 100');
+        if (!Number.isFinite(rawMinPct))
+          throw new Error('autoclear minContextPercent must be a number between 0 and 100');
         next.minContextPercent = Math.min(100, Math.max(0, Math.round(rawMinPct)));
       }
-      const providerKey = String(input.provider || '').trim().toLowerCase();
-      const editsProviderDefault = providerKey
-        && (input.resetProvider === true || hasOwn(input, 'duration') || hasOwn(input, 'idleMs'));
+      const providerKey = String(input.provider || '')
+        .trim()
+        .toLowerCase();
+      const editsProviderDefault =
+        providerKey && (input.resetProvider === true || hasOwn(input, 'duration') || hasOwn(input, 'idleMs'));
       if (editsProviderDefault) {
         const providerIdleMs = { ...(next.providerIdleMs || {}) };
         if (input.resetProvider === true || (hasOwn(input, 'idleMs') && input.idleMs == null)) {
           delete providerIdleMs[providerKey];
         } else {
           const idleMs = hasOwn(input, 'duration') ? parseDurationMs(input.duration) : Number(input.idleMs);
-          if (!idleMs || !Number.isFinite(idleMs) || idleMs <= 0) throw new Error('usage: duration like 10m, 1h, or 24h');
+          if (!idleMs || !Number.isFinite(idleMs) || idleMs <= 0)
+            throw new Error('usage: duration like 10m, 1h, or 24h');
           providerIdleMs[providerKey] = Math.max(60_000, Math.round(idleMs));
         }
         next.providerIdleMs = providerIdleMs;

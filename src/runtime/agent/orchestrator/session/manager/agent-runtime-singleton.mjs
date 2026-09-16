@@ -14,16 +14,16 @@ let _agentRuntimeWarned = false;
  * replace the previous reference.
  */
 export function setAgentRuntime(api) {
-    _agentRuntimeApi = api || null;
+  _agentRuntimeApi = api || null;
 }
 
 export function getAgentRuntimeSync() {
-    return _agentRuntimeApi;
+  return _agentRuntimeApi;
 }
 
 // Log a resolve failure exactly once, then fall back to classic behavior.
 export function warnAgentRuntimeResolveFailureOnce(message) {
-    if (_agentRuntimeWarned) return;
-    _agentRuntimeWarned = true;
-    process.stderr.write(`[session] agent runtime resolve failed: ${message}\n`);
+  if (_agentRuntimeWarned) return;
+  _agentRuntimeWarned = true;
+  process.stderr.write(`[session] agent runtime resolve failed: ${message}\n`);
 }

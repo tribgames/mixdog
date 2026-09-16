@@ -14,29 +14,19 @@ function hintColor(tone) {
 }
 
 function cleanRightMessage(value) {
-  return String(value || '').replace(/\s+/g, ' ').trim();
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-export function ItemRightHintOverprint({
-  children,
-  rightMessage = '',
-  rightTone = 'info',
-  rightMessageWidth = 24,
-}) {
+export function ItemRightHintOverprint({ children, rightMessage = '', rightTone = 'info', rightMessageWidth = 24 }) {
   const rightText = cleanRightMessage(rightMessage);
   if (!rightText) return children;
   const rightWidth = Math.max(1, Number(rightMessageWidth) || 24);
   return (
     <Box flexDirection="column" width="100%" flexShrink={0}>
       {children}
-      <Box
-        height={1}
-        marginTop={-1}
-        flexDirection="row"
-        width="100%"
-        flexShrink={0}
-        overflow="hidden"
-      >
+      <Box height={1} marginTop={-1} flexDirection="row" width="100%" flexShrink={0} overflow="hidden">
         <Box flexGrow={1} flexShrink={1} overflow="hidden" />
         <Box
           flexShrink={0}
@@ -46,7 +36,9 @@ export function ItemRightHintOverprint({
           justifyContent="flex-end"
           overflow="hidden"
         >
-          <Text color={hintColor(rightTone)} wrap="truncate">{rightText}</Text>
+          <Text color={hintColor(rightTone)} wrap="truncate">
+            {rightText}
+          </Text>
         </Box>
       </Box>
     </Box>

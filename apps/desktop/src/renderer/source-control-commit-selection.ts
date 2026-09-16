@@ -1,8 +1,5 @@
 import type { DesktopGitFile } from '../shared/contract';
-import {
-  partiallyStaged,
-  pathsFor,
-} from './source-control-support';
+import { partiallyStaged, pathsFor } from './source-control-support';
 
 interface CommitSelection {
   paths: string[];
@@ -13,12 +10,13 @@ interface CommitSelection {
 export function sourceControlCommitSelection(
   visibleFiles: readonly DesktopGitFile[],
   freshFiles: readonly DesktopGitFile[],
-  isIncluded: (file: DesktopGitFile) => boolean,
+  isIncluded: (file: DesktopGitFile) => boolean
 ): CommitSelection {
   const conflicts = freshFiles.filter((file) => file.conflicted);
   if (conflicts.length) {
-    throw new Error(`Resolve ${conflicts.length} conflicted file${
-      conflicts.length === 1 ? '' : 's'} before committing.`);
+    throw new Error(
+      `Resolve ${conflicts.length} conflicted file${conflicts.length === 1 ? '' : 's'} before committing.`
+    );
   }
 
   const seen = new Set(visibleFiles.flatMap(pathsFor));
@@ -30,8 +28,8 @@ export function sourceControlCommitSelection(
   if (unseen.length) {
     const names = unseen.slice(0, 3).join(', ');
     throw new Error(
-      `The index changed outside this list (${names}${unseen.length > 3 ? ', …' : ''}). `
-      + 'Refresh the changes list and commit again.',
+      `The index changed outside this list (${names}${unseen.length > 3 ? ', …' : ''}). ` +
+        'Refresh the changes list and commit again.'
     );
   }
   return {

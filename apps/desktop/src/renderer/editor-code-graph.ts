@@ -1,6 +1,6 @@
-import type { EditorOutlineItem } from "./editor-language-store";
+import type { EditorOutlineItem } from './editor-language-store';
 
-export type EditorCodeGraphMode = "find_symbol" | "references" | "symbols";
+export type EditorCodeGraphMode = 'find_symbol' | 'references' | 'symbols';
 
 export interface EditorGraphLocation {
   rel: string;
@@ -20,56 +20,73 @@ export interface EditorGraphSymbol {
 }
 
 export const UNIFIED_SYMBOL_KINDS = [
-  "module",
-  "namespace",
-  "package",
-  "class",
-  "struct",
-  "interface",
-  "trait",
-  "enum",
-  "enumMember",
-  "type",
-  "function",
-  "method",
-  "constructor",
-  "field",
-  "property",
-  "variable",
-  "constant",
-  "macro",
-  "event",
-  "protocol",
-  "impl",
+  'module',
+  'namespace',
+  'package',
+  'class',
+  'struct',
+  'interface',
+  'trait',
+  'enum',
+  'enumMember',
+  'type',
+  'function',
+  'method',
+  'constructor',
+  'field',
+  'property',
+  'variable',
+  'constant',
+  'macro',
+  'event',
+  'protocol',
+  'impl',
 ] as const;
 
-export type UnifiedSymbolKind = typeof UNIFIED_SYMBOL_KINDS[number];
+export type UnifiedSymbolKind = (typeof UNIFIED_SYMBOL_KINDS)[number];
 
 /** Map unified symbol kinds to Monaco SymbolKind numeric enum values. */
 export function codeGraphSymbolKindValue(kind: string): number {
   switch (kind.toLowerCase()) {
-    case "module": return 1; // SymbolKind.Module
-    case "namespace": return 2; // SymbolKind.Namespace
-    case "package": return 3; // SymbolKind.Package
-    case "class":
-    case "impl": return 4; // SymbolKind.Class
-    case "method": return 5; // SymbolKind.Method
-    case "property": return 6; // SymbolKind.Property
-    case "field": return 7; // SymbolKind.Field
-    case "constructor": return 8; // SymbolKind.Constructor
-    case "enum": return 9; // SymbolKind.Enum
-    case "interface":
-    case "trait":
-    case "protocol":
-    case "type": return 10; // SymbolKind.Interface
-    case "function":
-    case "macro": return 11; // SymbolKind.Function
-    case "variable": return 12; // SymbolKind.Variable
-    case "constant": return 13; // SymbolKind.Constant
-    case "enummember": return 21; // SymbolKind.EnumMember
-    case "struct": return 22; // SymbolKind.Struct
-    case "event": return 23; // SymbolKind.Event
-    default: return 12; // SymbolKind.Variable
+    case 'module':
+      return 1; // SymbolKind.Module
+    case 'namespace':
+      return 2; // SymbolKind.Namespace
+    case 'package':
+      return 3; // SymbolKind.Package
+    case 'class':
+    case 'impl':
+      return 4; // SymbolKind.Class
+    case 'method':
+      return 5; // SymbolKind.Method
+    case 'property':
+      return 6; // SymbolKind.Property
+    case 'field':
+      return 7; // SymbolKind.Field
+    case 'constructor':
+      return 8; // SymbolKind.Constructor
+    case 'enum':
+      return 9; // SymbolKind.Enum
+    case 'interface':
+    case 'trait':
+    case 'protocol':
+    case 'type':
+      return 10; // SymbolKind.Interface
+    case 'function':
+    case 'macro':
+      return 11; // SymbolKind.Function
+    case 'variable':
+      return 12; // SymbolKind.Variable
+    case 'constant':
+      return 13; // SymbolKind.Constant
+    case 'enummember':
+      return 21; // SymbolKind.EnumMember
+    case 'struct':
+      return 22; // SymbolKind.Struct
+    case 'event':
+      return 23; // SymbolKind.Event
+    default:
+      return 12; // SymbolKind.Variable
   }
 }
 
@@ -77,15 +94,15 @@ export function codeGraphSymbolKindValue(kind: string): number {
 export function parseCodeGraphLocations(text: string): EditorGraphLocation[] {
   const seen = new Set<string>();
   const out: EditorGraphLocation[] = [];
-  for (const match of String(text || "").matchAll(
-    /([A-Za-z0-9_@./\\-]+\.[A-Za-z0-9_]+):(\d+)(?:-(\d+))?(?::(\d+))?/g,
+  for (const match of String(text || '').matchAll(
+    /([A-Za-z0-9_@./\\-]+\.[A-Za-z0-9_]+):(\d+)(?:-(\d+))?(?::(\d+))?/g
   )) {
-    const rel = match[1].replace(/\\/g, "/").replace(/^\.\//, "");
+    const rel = match[1].replace(/\\/g, '/').replace(/^\.\//, '');
     const line = Number(match[2]);
     const endLine = Math.max(line, Number(match[3] || line));
     const column = Math.max(1, Number(match[4] || 1));
     const key = `${rel}:${line}:${endLine}:${column}`;
-    if (!line || rel.includes("node_modules") || seen.has(key)) continue;
+    if (!line || rel.includes('node_modules') || seen.has(key)) continue;
     seen.add(key);
     out.push({ rel, line, endLine, column });
   }
@@ -103,7 +120,7 @@ const SYMBOL_ROW_RE = /^( *)(?:(export)\s+)?([A-Za-z_][\w-]*)\s+(.+?)\s+\(L(\d+)
 export function parseCodeGraphSymbols(text: string): EditorGraphSymbol[] {
   const seen = new Set<string>();
   const out: EditorGraphSymbol[] = [];
-  for (const raw of String(text || "").split(/\r?\n/)) {
+  for (const raw of String(text || '').split(/\r?\n/)) {
     if (!raw.trim()) continue;
     const match = SYMBOL_ROW_RE.exec(raw);
     if (!match) continue;
@@ -137,10 +154,11 @@ export interface EditorGraphOutlineContext {
 export function codeGraphOutlineItems(
   model: EditorGraphOutlineModel,
   context: EditorGraphOutlineContext,
-  sourceRows: readonly EditorGraphSymbol[],
+  sourceRows: readonly EditorGraphSymbol[]
 ): EditorOutlineItem[] {
-  const rows = [...sourceRows].sort((left, right) =>
-    left.line - right.line || right.endLine - left.endLine || left.name.localeCompare(right.name));
+  const rows = [...sourceRows].sort(
+    (left, right) => left.line - right.line || right.endLine - left.endLine || left.name.localeCompare(right.name)
+  );
   const hasExplicitLevels = rows.some((r) => (r.level ?? 0) > 0);
   const parents: Array<{ endLine: number }> = [];
   return rows.slice(0, 200).map((row, index) => {
@@ -182,7 +200,7 @@ export type EditorGraphRangeFactory<TRange> = (
   startLine: number,
   startColumn: number,
   endLine: number,
-  endColumn: number,
+  endColumn: number
 ) => TRange;
 
 export interface EditorGraphDocumentSymbol<TRange = EditorGraphRange> {
@@ -198,14 +216,16 @@ export interface EditorGraphDocumentSymbol<TRange = EditorGraphRange> {
 export function codeGraphDocumentSymbols<TRange = EditorGraphRange>(
   model: EditorGraphSymbolModel,
   sourceRows: readonly EditorGraphSymbol[],
-  rangeFactory?: EditorGraphRangeFactory<TRange>,
+  rangeFactory?: EditorGraphRangeFactory<TRange>
 ): Array<EditorGraphDocumentSymbol<TRange>> {
   const createRange: EditorGraphRangeFactory<TRange> =
     rangeFactory ??
-    ((sl, sc, el, ec) => ({ startLineNumber: sl, startColumn: sc, endLineNumber: el, endColumn: ec } as unknown as TRange));
+    ((sl, sc, el, ec) =>
+      ({ startLineNumber: sl, startColumn: sc, endLineNumber: el, endColumn: ec }) as unknown as TRange);
 
-  const rows = [...sourceRows].sort((left, right) =>
-    left.line - right.line || right.endLine - left.endLine || left.name.localeCompare(right.name));
+  const rows = [...sourceRows].sort(
+    (left, right) => left.line - right.line || right.endLine - left.endLine || left.name.localeCompare(right.name)
+  );
   const hasExplicitLevels = rows.some((r) => (r.level ?? 0) > 0);
   const parents: Array<{ endLine: number }> = [];
   const roots: Array<EditorGraphDocumentSymbol<TRange>> = [];
@@ -219,11 +239,11 @@ export function codeGraphDocumentSymbols<TRange = EditorGraphRange>(
     if (endLine > line) parents.push({ endLine });
     const level = hasExplicitLevels ? (row.level ?? 0) : spanLevel;
 
-    const lineContent = model.getLineContent(line) ?? "";
+    const lineContent = model.getLineContent(line) ?? '';
     const nameIndex = lineContent.indexOf(row.name);
     const selectionColumn = Math.max(1, nameIndex >= 0 ? nameIndex + 1 : 1);
-    const maxLineCol = model.getLineMaxColumn?.(line) ?? (lineContent.length + 1);
-    const maxEndCol = model.getLineMaxColumn?.(endLine) ?? ((model.getLineContent(endLine) ?? "").length + 1);
+    const maxLineCol = model.getLineMaxColumn?.(line) ?? lineContent.length + 1;
+    const maxEndCol = model.getLineMaxColumn?.(endLine) ?? (model.getLineContent(endLine) ?? '').length + 1;
 
     const docSymbol: EditorGraphDocumentSymbol<TRange> = {
       name: row.name,
@@ -231,12 +251,7 @@ export function codeGraphDocumentSymbols<TRange = EditorGraphRange>(
       kind: codeGraphSymbolKindValue(row.kind),
       tags: [],
       range: createRange(line, 1, endLine, maxEndCol),
-      selectionRange: createRange(
-        line,
-        selectionColumn,
-        line,
-        Math.min(maxLineCol, selectionColumn + row.name.length),
-      ),
+      selectionRange: createRange(line, selectionColumn, line, Math.min(maxLineCol, selectionColumn + row.name.length)),
       children: [],
     };
 

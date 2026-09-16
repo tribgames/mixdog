@@ -1,14 +1,36 @@
-const WIDTHS = new Map([[0, 1], [1, 1], [2, 2], [3, 2], [4, 4], [5, 4], [6, 4], [7, 1], [10, 8], [11, 8], [12, 8]]);
-const needMore = () => Object.assign(new Error('GGUF metadata exceeds the inspected prefix'), { code: 'GGUF_NEED_MORE' });
+const WIDTHS = new Map([
+  [0, 1],
+  [1, 1],
+  [2, 2],
+  [3, 2],
+  [4, 4],
+  [5, 4],
+  [6, 4],
+  [7, 1],
+  [10, 8],
+  [11, 8],
+  [12, 8],
+]);
+const needMore = () =>
+  Object.assign(new Error('GGUF metadata exceeds the inspected prefix'), { code: 'GGUF_NEED_MORE' });
 
 // Only metadata is parsed. Tensor data and unneeded token arrays stay outside
 // the retained result; all counts and prefix reads have explicit bounds.
 export function parseGgufHeader(buffer) {
   let offset = 0;
-  const need = (bytes) => { if (offset + bytes > buffer.length) throw needMore(); };
-  const u32 = () => { need(4); const n = buffer.readUInt32LE(offset); offset += 4; return n; };
+  const need = (bytes) => {
+    if (offset + bytes > buffer.length) throw needMore();
+  };
+  const u32 = () => {
+    need(4);
+    const n = buffer.readUInt32LE(offset);
+    offset += 4;
+    return n;
+  };
   const u64 = () => {
-    need(8); const n = Number(buffer.readBigUInt64LE(offset)); offset += 8;
+    need(8);
+    const n = Number(buffer.readBigUInt64LE(offset));
+    offset += 8;
     if (!Number.isSafeInteger(n)) throw new Error('GGUF count exceeds safe integer range');
     return n;
   };
@@ -24,10 +46,14 @@ export function parseGgufHeader(buffer) {
     if (depth > 1) throw new Error('GGUF nested arrays are unsupported');
     if (type === 8) return str(retain);
     if (type === 9) {
-      const element = u32(), count = u64();
+      const element = u32(),
+        count = u64();
       if (count > 1_000_000) throw new Error('GGUF array exceeds metadata limit');
-      if (WIDTHS.has(element)) { const bytes = count * WIDTHS.get(element); need(bytes); offset += bytes; }
-      else for (let i = 0; i < count; i++) value(element, false, depth + 1);
+      if (WIDTHS.has(element)) {
+        const bytes = count * WIDTHS.get(element);
+        need(bytes);
+        offset += bytes;
+      } else for (let i = 0; i < count; i++) value(element, false, depth + 1);
       return null;
     }
     const width = WIDTHS.get(type);
@@ -49,20 +75,30 @@ export function parseGgufHeader(buffer) {
   offset = 4;
   const version = u32();
   if (version !== 2 && version !== 3) throw new Error(`Unsupported GGUF version ${version}`);
-  const tensorCount = u64(), count = u64();
+  const tensorCount = u64(),
+    count = u64();
   if (tensorCount <= 0 || count > 100_000) throw new Error('Invalid GGUF model metadata counts');
   const metadata = {};
   for (let i = 0; i < count; i++) {
     const key = str();
     if (key.length > 1024) throw new Error('GGUF key exceeds metadata limit');
-    const retain = key === 'general.architecture' || /\.(context_length|block_count|embedding_length|head_count|head_count_kv|key_length|value_length)$/.test(key);
+    const retain =
+      key === 'general.architecture' ||
+      /\.(context_length|block_count|embedding_length|head_count|head_count_kv|key_length|value_length)$/.test(key);
     const item = value(u32(), retain);
     if (retain) metadata[key] = item;
   }
   const architecture = metadata['general.architecture'];
-  if (architecture && ['context_length', 'block_count', 'embedding_length', 'attention.head_count', 'attention.head_count_kv']
-    .every((name) => Number.isFinite(metadata[`${architecture}.${name}`]))) return { version, architecture, metadata };
-  throw new Error('This GGUF lacks the attention metadata needed for a supported memory estimate; auxiliary or unsupported architecture files cannot be registered.');
+  if (
+    architecture &&
+    ['context_length', 'block_count', 'embedding_length', 'attention.head_count', 'attention.head_count_kv'].every(
+      (name) => Number.isFinite(metadata[`${architecture}.${name}`])
+    )
+  )
+    return { version, architecture, metadata };
+  throw new Error(
+    'This GGUF lacks the attention metadata needed for a supported memory estimate; auxiliary or unsupported architecture files cannot be registered.'
+  );
 }
 
 export function ggufMemoryPlan(header, fileSize, requestedContext = 8192) {
@@ -78,15 +114,30 @@ export function ggufMemoryPlan(header, fileSize, requestedContext = 8192) {
   };
   const modelContext = positive('context_length');
   const contextWindow = Math.min(requestedContext, modelContext);
-  if (!Number.isSafeInteger(contextWindow) || contextWindow < 512 || contextWindow > 32768) throw new Error('contextWindow must be between 512 and 32768 tokens.');
+  if (!Number.isSafeInteger(contextWindow) || contextWindow < 512 || contextWindow > 32768)
+    throw new Error('contextWindow must be between 512 and 32768 tokens.');
   const dimension = positive('embedding_length') / positive('attention.head_count');
   const key = metadata[`${architecture}.attention.key_length`] || dimension;
   const val = metadata[`${architecture}.attention.value_length`] || dimension;
-  if (![key, val].every((n) => Number.isSafeInteger(n) && n > 0)) throw new Error('Unsupported GGUF attention dimensions');
+  if (![key, val].every((n) => Number.isSafeInteger(n) && n > 0))
+    throw new Error('Unsupported GGUF attention dimensions');
   // q8_0 K/V cache: 34 bytes per 32 values; reserve runtime working memory.
-  const kvBytes = Math.ceil(contextWindow * positive('block_count') * positive('attention.head_count_kv') * (key + val) * 34 / 32);
+  const kvBytes = Math.ceil(
+    (contextWindow * positive('block_count') * positive('attention.head_count_kv') * (key + val) * 34) / 32
+  );
   const estimatedVramBytes = fileSize + kvBytes + 1024 ** 3;
   if (!Number.isSafeInteger(estimatedVramBytes)) throw new Error('GGUF memory estimate exceeds safe range');
-  return { architecture, contextWindow, maxContextWindow: modelContext, estimatedVramBytes, minimumVramBytes: estimatedVramBytes,
-    memoryEstimate: { weightsBytes: fileSize, kvBytes, runtimeReserveBytes: 1024 ** 3, basis: 'weights + q8_0 attention KV + runtime reserve; estimate, not load verification' } };
+  return {
+    architecture,
+    contextWindow,
+    maxContextWindow: modelContext,
+    estimatedVramBytes,
+    minimumVramBytes: estimatedVramBytes,
+    memoryEstimate: {
+      weightsBytes: fileSize,
+      kvBytes,
+      runtimeReserveBytes: 1024 ** 3,
+      basis: 'weights + q8_0 attention KV + runtime reserve; estimate, not load verification',
+    },
+  };
 }

@@ -5,12 +5,7 @@
  * is holding and never returns pixels.
  */
 import { elapsedMs } from '../shared/common';
-import {
-  assertOcrLanguageTag,
-  evaluateVerifyPredicate,
-  screenshotInteger,
-  type VerifyStatus,
-} from './analysis';
+import { assertOcrLanguageTag, evaluateVerifyPredicate, screenshotInteger, type VerifyStatus } from './analysis';
 import type { ComputerWindowRecord } from '../shared/window-transition';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 
@@ -23,30 +18,24 @@ const DIAGNOSE_OCR_TIMEOUT_MS = 3_000;
 const VERIFY_PROVIDER_TIMEOUT_MS = 2_000;
 
 export interface InspectHost {
-  callPowerShell(request: Record<string, unknown>, timeoutMs?: number): Promise<{
+  callPowerShell(
+    request: Record<string, unknown>,
+    timeoutMs?: number
+  ): Promise<{
     ok: boolean;
     result?: Record<string, unknown>;
     error?: string;
   }>;
   sessionIdFor(command: ComputerCommand): string;
   assertExecutionNotAborted(): void;
-  readComputerWindows(
-    command: ComputerCommand,
-    includeApp?: boolean,
-  ): Promise<ComputerWindowRecord[] | null>;
+  readComputerWindows(command: ComputerCommand, includeApp?: boolean): Promise<ComputerWindowRecord[] | null>;
   readDisplays(): Array<Record<string, unknown>>;
   isObserveOnly(): boolean;
 }
 
 export function createInspection(host: InspectHost) {
-  const {
-    callPowerShell,
-    sessionIdFor,
-    assertExecutionNotAborted,
-    readComputerWindows,
-    readDisplays,
-    isObserveOnly,
-  } = host;
+  const { callPowerShell, sessionIdFor, assertExecutionNotAborted, readComputerWindows, readDisplays, isObserveOnly } =
+    host;
 
   async function diagnoseComputer(command: ComputerCommand): Promise<ComputerCommandResult> {
     assertOcrLanguageTag(command.ocr_language);
@@ -62,17 +51,18 @@ export function createInspection(host: InspectHost) {
     };
     if (target) {
       try {
-        const probe = await callPowerShell({
-          action: 'snapshot',
-          window_id: target.id,
-          max_elements: 1,
-          visible_only: true,
-          session_id: sessionIdFor(command),
-          read_only: true,
-        }, DIAGNOSE_ACCESSIBILITY_TIMEOUT_MS);
-        const returnedElements = Array.isArray(probe.result?.elements)
-          ? probe.result.elements.length
-          : 0;
+        const probe = await callPowerShell(
+          {
+            action: 'snapshot',
+            window_id: target.id,
+            max_elements: 1,
+            visible_only: true,
+            session_id: sessionIdFor(command),
+            read_only: true,
+          },
+          DIAGNOSE_ACCESSIBILITY_TIMEOUT_MS
+        );
+        const returnedElements = Array.isArray(probe.result?.elements) ? probe.result.elements.length : 0;
         accessibility = probe.ok
           ? returnedElements > 0
             ? {
@@ -110,12 +100,15 @@ export function createInspection(host: InspectHost) {
     }
     let ocr: Record<string, unknown>;
     try {
-      const probe = await callPowerShell({
-        action: 'ocr_status',
-        ocr_language: command.ocr_language ?? null,
-        session_id: sessionIdFor(command),
-        read_only: true,
-      }, DIAGNOSE_OCR_TIMEOUT_MS);
+      const probe = await callPowerShell(
+        {
+          action: 'ocr_status',
+          ocr_language: command.ocr_language ?? null,
+          session_id: sessionIdFor(command),
+          read_only: true,
+        },
+        DIAGNOSE_OCR_TIMEOUT_MS
+      );
       ocr = probe.ok
         ? {
             available: probe.result?.available === true,
@@ -176,8 +169,9 @@ export function createInspection(host: InspectHost) {
 
   async function verifyWindowState(command: ComputerCommand): Promise<ComputerCommandResult> {
     const startedAt = performance.now();
-    const predicates = (Array.isArray(command.expect) ? command.expect : [])
-      .filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry));
+    const predicates = (Array.isArray(command.expect) ? command.expect : []).filter(
+      (entry) => entry && typeof entry === 'object' && !Array.isArray(entry)
+    );
     if (predicates.length < 1 || predicates.length > 8) {
       throw new Error('verify requires 1..8 predicates');
     }
@@ -186,14 +180,14 @@ export function createInspection(host: InspectHost) {
       DEFAULT_VERIFY_TIMEOUT_MS,
       0,
       MAX_VERIFY_TIMEOUT_MS,
-      'timeout_ms',
+      'timeout_ms'
     );
     const stableSamples = screenshotInteger(
       command.stable_samples,
       DEFAULT_VERIFY_STABLE_SAMPLES,
       1,
       5,
-      'stable_samples',
+      'stable_samples'
     );
     const deadline = startedAt + timeoutMs;
     let samples = 0;
@@ -204,23 +198,27 @@ export function createInspection(host: InspectHost) {
     let textComplete = false;
     let providerError = '';
     const needsElementText = predicates.some(
-      (predicate) => typeof (predicate as Record<string, unknown>).present === 'string'
-        || typeof (predicate as Record<string, unknown>).absent === 'string',
+      (predicate) =>
+        typeof (predicate as Record<string, unknown>).present === 'string' ||
+        typeof (predicate as Record<string, unknown>).absent === 'string'
     );
     for (;;) {
       assertExecutionNotAborted();
       const remainingMs = Math.max(1, deadline - performance.now());
       let response;
       try {
-        response = await callPowerShell({
-          action: 'window_predicates',
-          window: command.window ?? null,
-          window_id: command.window_id ?? null,
-          max_elements: 400,
-          include_elements: needsElementText,
-          session_id: sessionIdFor(command),
-          read_only: true,
-        }, Math.min(VERIFY_PROVIDER_TIMEOUT_MS, remainingMs));
+        response = await callPowerShell(
+          {
+            action: 'window_predicates',
+            window: command.window ?? null,
+            window_id: command.window_id ?? null,
+            max_elements: 400,
+            include_elements: needsElementText,
+            session_id: sessionIdFor(command),
+            read_only: true,
+          },
+          Math.min(VERIFY_PROVIDER_TIMEOUT_MS, remainingMs)
+        );
       } catch (error) {
         providerError = (error as Error).message || String(error);
         statuses = predicates.map(() => 'unknown');
@@ -232,9 +230,9 @@ export function createInspection(host: InspectHost) {
         statuses = predicates.map(() => 'unknown');
         break;
       }
-      const elements = (Array.isArray(response.result?.elements)
-        ? response.result.elements
-        : []) as Array<Record<string, unknown>>;
+      const elements = (Array.isArray(response.result?.elements) ? response.result.elements : []) as Array<
+        Record<string, unknown>
+      >;
       observedElements = elements.length;
       textComplete = response.result?.text_complete === true && observedElements > 0;
       title = String(response.result?.title || '');
@@ -248,20 +246,22 @@ export function createInspection(host: InspectHost) {
           .join('\n')
           .toLowerCase(),
       };
-      statuses = predicates.map(
-        (predicate) => evaluateVerifyPredicate(predicate as Record<string, unknown>, observation),
+      statuses = predicates.map((predicate) =>
+        evaluateVerifyPredicate(predicate as Record<string, unknown>, observation)
       );
       consecutive = statuses.every((status) => status === 'satisfied') ? consecutive + 1 : 0;
       if (consecutive >= stableSamples) break;
       if (performance.now() >= deadline) break;
-      await new Promise((resolve) => setTimeout(
-        resolve,
-        Math.min(VERIFY_POLL_INTERVAL_MS, Math.max(1, deadline - performance.now())),
-      ));
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(VERIFY_POLL_INTERVAL_MS, Math.max(1, deadline - performance.now())))
+      );
     }
-    const decision: VerifyStatus = consecutive >= stableSamples
-      ? 'satisfied'
-      : statuses.some((status) => status === 'unknown') ? 'unknown' : 'unsatisfied';
+    const decision: VerifyStatus =
+      consecutive >= stableSamples
+        ? 'satisfied'
+        : statuses.some((status) => status === 'unknown')
+          ? 'unknown'
+          : 'unsatisfied';
     return {
       text: JSON.stringify({
         ok: decision === 'satisfied',

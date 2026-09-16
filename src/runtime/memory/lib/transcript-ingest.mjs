@@ -7,24 +7,24 @@
 // tail promise) is now closed over inside createTranscriptIngest via injected
 // accessors, so index.mjs keeps ownership of the live db/config lifecycle and
 // this module stays a pure factory with no import-time side effects.
-import fs from 'node:fs'
-import path from 'node:path'
-import { sessionMessageContentForIngest, shouldExcludeIngestMessage } from './session-ingest.mjs'
+import fs from 'node:fs';
+import path from 'node:path';
+import { sessionMessageContentForIngest, shouldExcludeIngestMessage } from './session-ingest.mjs';
 
 // Pure: coerce a transcript timestamp (seconds, ms, or ISO string) to ms and
 // preserve whether it came from the source or was synthesized at collection.
 function parseTsWithSource(value, fallbackMs = Date.now()) {
   if (typeof value === 'number' && Number.isFinite(value)) {
-    return { tsMs: value < 1e12 ? value * 1000 : value, timeSource: 'recorded' }
+    return { tsMs: value < 1e12 ? value * 1000 : value, timeSource: 'recorded' };
   }
-  const parsed = Date.parse(String(value))
+  const parsed = Date.parse(String(value));
   return Number.isFinite(parsed)
     ? { tsMs: parsed, timeSource: 'recorded' }
-    : { tsMs: fallbackMs, timeSource: 'collected' }
+    : { tsMs: fallbackMs, timeSource: 'collected' };
 }
 
 export function parseTsToMs(value) {
-  return parseTsWithSource(value).tsMs
+  return parseTsWithSource(value).tsMs;
 }
 
 // Pure: extract cwd from the transcript file's JSONL rows. Mixdog embeds the
@@ -33,29 +33,36 @@ export function parseTsToMs(value) {
 // Returns undefined when no cwd is found or the extracted path does not exist
 // on disk (falls back to COMMON).
 export function cwdFromTranscriptPath(fp) {
-  let fd
+  let fd;
   try {
-    fd = fs.openSync(fp, 'r')
-    const buf = Buffer.alloc(Math.min(fs.fstatSync(fd).size, 100 * 1024))
-    fs.readSync(fd, buf, 0, buf.length, 0)
-    fs.closeSync(fd)
-    fd = undefined
-    const lines = buf.toString('utf8').split('\n')
+    fd = fs.openSync(fp, 'r');
+    const buf = Buffer.alloc(Math.min(fs.fstatSync(fd).size, 100 * 1024));
+    fs.readSync(fd, buf, 0, buf.length, 0);
+    fs.closeSync(fd);
+    fd = undefined;
+    const lines = buf.toString('utf8').split('\n');
     for (let i = 0; i < Math.min(lines.length, 5); i++) {
-      const line = lines[i].trim()
-      if (!line) continue
+      const line = lines[i].trim();
+      if (!line) continue;
       try {
-        const obj = JSON.parse(line)
+        const obj = JSON.parse(line);
         if (typeof obj.cwd === 'string' && obj.cwd) {
-          const candidate = obj.cwd
-          try { if (fs.statSync(candidate).isDirectory()) return candidate } catch {}
+          const candidate = obj.cwd;
+          try {
+            if (fs.statSync(candidate).isDirectory()) return candidate;
+          } catch {}
         }
       } catch {}
     }
-  } catch {} finally {
-    if (fd != null) { try { fs.closeSync(fd) } catch {} }
+  } catch {
+  } finally {
+    if (fd != null) {
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    }
   }
-  return undefined
+  return undefined;
 }
 
 // Factory. All live-state coupling is injected:
@@ -76,54 +83,67 @@ export function createTranscriptIngest({
   resolveProjectId,
   log = () => {},
 }) {
-  let _transcriptOffsets = new Map()
+  let _transcriptOffsets = new Map();
   /** @type {Map<string, Promise<unknown>>} */
-  const _ingestTranscriptTails = new Map()
-  let _transcriptOffsetsPersistTail = Promise.resolve()
+  const _ingestTranscriptTails = new Map();
+  let _transcriptOffsetsPersistTail = Promise.resolve();
 
   async function loadTranscriptOffsets() {
     try {
-      const raw = await loadMeta()
-      const obj = JSON.parse(raw)
-      _transcriptOffsets = new Map(Object.entries(obj))
+      const raw = await loadMeta();
+      const obj = JSON.parse(raw);
+      _transcriptOffsets = new Map(Object.entries(obj));
     } catch {
-      _transcriptOffsets = new Map()
+      _transcriptOffsets = new Map();
     }
   }
 
   async function persistTranscriptOffsets() {
-    const run = _transcriptOffsetsPersistTail.catch(() => {}).then(async () => {
-      try {
-        const obj = Object.fromEntries(_transcriptOffsets)
-        await persistMeta(JSON.stringify(obj))
-      } catch (e) {
-        log(`[memory] persist transcript offsets failed: ${e.message}\n`)
-      }
-    })
-    _transcriptOffsetsPersistTail = run.catch(() => {})
-    return run
+    const run = _transcriptOffsetsPersistTail
+      .catch(() => {})
+      .then(async () => {
+        try {
+          const obj = Object.fromEntries(_transcriptOffsets);
+          await persistMeta(JSON.stringify(obj));
+        } catch (e) {
+          log(`[memory] persist transcript offsets failed: ${e.message}\n`);
+        }
+      });
+    _transcriptOffsetsPersistTail = run.catch(() => {});
+    return run;
   }
 
   function runTranscriptIngestSerialized(transcriptPath, fn) {
-    const key = path.resolve(transcriptPath)
-    const prev = _ingestTranscriptTails.get(key) ?? Promise.resolve()
-    const run = prev.catch(() => {}).then(fn)
-    _ingestTranscriptTails.set(key, run.catch(() => {}))
-    return run
+    const key = path.resolve(transcriptPath);
+    const prev = _ingestTranscriptTails.get(key) ?? Promise.resolve();
+    const run = prev.catch(() => {}).then(fn);
+    _ingestTranscriptTails.set(
+      key,
+      run.catch(() => {})
+    );
+    return run;
   }
 
   function snapshotTranscriptOffset(transcriptPath) {
-    const stored = _transcriptOffsets.get(transcriptPath)
-    if (!stored) return { bytes: 0, lineIndex: 0, generation: 0 }
-    return { bytes: Number(stored.bytes) || 0, lineIndex: Number(stored.lineIndex) || 0, generation: Number(stored.generation) || 0 }
+    const stored = _transcriptOffsets.get(transcriptPath);
+    if (!stored) return { bytes: 0, lineIndex: 0, generation: 0 };
+    return {
+      bytes: Number(stored.bytes) || 0,
+      lineIndex: Number(stored.lineIndex) || 0,
+      generation: Number(stored.generation) || 0,
+    };
   }
 
   async function ingestTranscriptFileImpl(transcriptPath, { cwd } = {}) {
-    const db = getDb()
-    let stat
-    try { stat = await fs.promises.stat(transcriptPath) } catch { return 0 }
-    const sessionUuid = path.basename(transcriptPath, '.jsonl')
-    const prev = snapshotTranscriptOffset(transcriptPath)
+    const db = getDb();
+    let stat;
+    try {
+      stat = await fs.promises.stat(transcriptPath);
+    } catch {
+      return 0;
+    }
+    const sessionUuid = path.basename(transcriptPath, '.jsonl');
+    const prev = snapshotTranscriptOffset(transcriptPath);
     // Generation counter: a truncate/rewrite of the transcript (size shrank
     // below the persisted byte offset) resets bytes/lineIndex to 0, so the
     // rewritten lines reuse the SAME transcript:${uuid}#${index} refs as the
@@ -131,162 +151,163 @@ export function createTranscriptIngest({
     // silently dropped. Bump a persisted per-file generation on each detected
     // reset and fold it into source_ref so rewritten lines get fresh identities
     // and persist. Existing rows (gen 0, no suffix) are unaffected.
-    let generation = Number(prev.generation) || 0
+    let generation = Number(prev.generation) || 0;
     if (stat.size < prev.bytes) {
-      prev.bytes = 0
-      prev.lineIndex = 0
-      generation += 1
+      prev.bytes = 0;
+      prev.lineIndex = 0;
+      generation += 1;
     }
-    if (stat.size <= prev.bytes) return 0
+    if (stat.size <= prev.bytes) return 0;
 
-    const fh = await fs.promises.open(transcriptPath, 'r')
-    const buf = Buffer.alloc(stat.size - prev.bytes)
+    const fh = await fs.promises.open(transcriptPath, 'r');
+    const buf = Buffer.alloc(stat.size - prev.bytes);
     try {
-      await fh.read(buf, 0, buf.length, prev.bytes)
+      await fh.read(buf, 0, buf.length, prev.bytes);
     } finally {
-      await fh.close()
+      await fh.close();
     }
-    const text = buf.toString('utf8')
+    const text = buf.toString('utf8');
 
-    const resolvedCwd = typeof cwd === 'string' && cwd ? cwd : cwdFromTranscriptPath(transcriptPath)
+    const resolvedCwd = typeof cwd === 'string' && cwd ? cwd : cwdFromTranscriptPath(transcriptPath);
     // No cwd resolved -> classify as COMMON (project_id NULL). Falling back to
     // process.cwd() would misclassify rows under the service/plugin cwd.
-    const projectId = resolvedCwd ? resolveProjectId(resolvedCwd) : null
+    const projectId = resolvedCwd ? resolveProjectId(resolvedCwd) : null;
 
-    let count = 0
-    let index = prev.lineIndex
+    let count = 0;
+    let index = prev.lineIndex;
     // Track the byte boundary of the LAST line we fully consumed (parsed +
     // either inserted or intentionally skipped). On parse failure or
     // transient insert error we stop and leave the boundary untouched so the
     // next sweep retries from the same position. This prevents malformed
     // trailing JSONL (mid-write partial lines) and DB hiccups from being
     // silently consumed forever.
-    let lastGoodBytes = prev.bytes
-    let lastGoodLineIndex = prev.lineIndex
-    let cursor = 0
+    let lastGoodBytes = prev.bytes;
+    let lastGoodLineIndex = prev.lineIndex;
+    let cursor = 0;
     while (cursor < text.length) {
-      const nl = text.indexOf('\n', cursor)
+      const nl = text.indexOf('\n', cursor);
       // No trailing newline -> partial line still being written; stop here
       // without advancing so the rest is re-read once the writer flushes.
-      if (nl === -1) break
-      const rawLine = text.slice(cursor, nl)
-      const consumedBytes = Buffer.byteLength(rawLine, 'utf8') + 1
-      cursor = nl + 1
-      const line = rawLine.replace(/\r$/, '')
+      if (nl === -1) break;
+      const rawLine = text.slice(cursor, nl);
+      const consumedBytes = Buffer.byteLength(rawLine, 'utf8') + 1;
+      cursor = nl + 1;
+      const line = rawLine.replace(/\r$/, '');
       if (!line) {
-        lastGoodBytes += consumedBytes
-        continue
+        lastGoodBytes += consumedBytes;
+        continue;
       }
-      index += 1
-      let parsed
-      try { parsed = JSON.parse(line) } catch {
+      index += 1;
+      let parsed;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
         // Malformed line: do not advance past it; retry on next sweep.
-        index -= 1
-        break
+        index -= 1;
+        break;
       }
       // Transcript lines carry the role either as message.role (legacy) or
       // as the top-level `type` field ({"type":"assistant","message":{...}}
       // — the current session-runtime writer). Reading only message.role
       // silently skipped EVERY line of current-format transcripts, so the
       // background watcher ingested 0 rows forever.
-      const role = parsed.message?.role
-        ?? ((parsed.type === 'user' || parsed.type === 'assistant') ? parsed.type : undefined)
+      const role =
+        parsed.message?.role ?? (parsed.type === 'user' || parsed.type === 'assistant' ? parsed.type : undefined);
       const commitSkip = () => {
-        lastGoodBytes += consumedBytes
-        lastGoodLineIndex = index
-      }
+        lastGoodBytes += consumedBytes;
+        lastGoodLineIndex = index;
+      };
       if (role !== 'user' && role !== 'assistant') {
-        commitSkip()
-        continue
+        commitSkip();
+        continue;
       }
       // Reuse the ingest_session shape/exclude predicates so the transcript
       // watcher stores ONLY pure conversation rows — same purity as
       // ingest_session (strips manager.mjs prefix envelopes, drops synthetic
       // reference-files/compaction/ack/internal-notification rows).
-      const shaped = { role, content: parsed.message?.content }
+      const shaped = { role, content: parsed.message?.content };
       if (shouldExcludeIngestMessage(shaped)) {
-        commitSkip()
-        continue
+        commitSkip();
+        continue;
       }
-      const content = sessionMessageContentForIngest(shaped)
+      const content = sessionMessageContentForIngest(shaped);
       if (!content || !content.trim()) {
-        commitSkip()
-        continue
+        commitSkip();
+        continue;
       }
-      const { tsMs, timeSource } = parseTsWithSource(parsed.timestamp ?? parsed.ts)
-      const sourceRef = generation > 0
-        ? `transcript:${sessionUuid}#${index}@g${generation}`
-        : `transcript:${sessionUuid}#${index}`
+      const { tsMs, timeSource } = parseTsWithSource(parsed.timestamp ?? parsed.ts);
+      const sourceRef =
+        generation > 0 ? `transcript:${sessionUuid}#${index}@g${generation}` : `transcript:${sessionUuid}#${index}`;
       try {
         const result = await db.query(
           `INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT DO NOTHING`,
           [tsMs, role, content, sourceRef, sessionUuid, index, projectId, timeSource]
-        )
-        if (Number(result.rowCount ?? result.affectedRows ?? 0) > 0) count += 1
-        lastGoodBytes += consumedBytes
-        lastGoodLineIndex = index
+        );
+        if (Number(result.rowCount ?? result.affectedRows ?? 0) > 0) count += 1;
+        lastGoodBytes += consumedBytes;
+        lastGoodLineIndex = index;
       } catch (e) {
-        log(`[transcript-watch] insert error (${sourceRef}): ${e.message}\n`)
+        log(`[transcript-watch] insert error (${sourceRef}): ${e.message}\n`);
         // Transient insert failure: leave the boundary before this line so
         // the next sweep retries it. Roll back the line counter too.
-        index -= 1
-        break
+        index -= 1;
+        break;
       }
     }
     _transcriptOffsets.set(transcriptPath, {
       bytes: lastGoodBytes,
       lineIndex: lastGoodLineIndex,
       generation,
-    })
-    await persistTranscriptOffsets()
-    return count
+    });
+    await persistTranscriptOffsets();
+    return count;
   }
 
   async function ingestTranscriptFile(transcriptPath, options = {}) {
-    return runTranscriptIngestSerialized(transcriptPath, () => ingestTranscriptFileImpl(transcriptPath, options))
+    return runTranscriptIngestSerialized(transcriptPath, () => ingestTranscriptFileImpl(transcriptPath, options));
   }
 
   function getOffset(fp) {
-    return _transcriptOffsets.get(fp)
+    return _transcriptOffsets.get(fp);
   }
 
   function resetOffsets() {
-    _transcriptOffsets = new Map()
+    _transcriptOffsets = new Map();
   }
 
   async function initTranscriptWatcher() {
-    const root = projectsRoot()
-    const SAFETY_POLL_MS = 5 * 60_000
-    const DEBOUNCE_MS = 500
-    const watchedFiles = new Map()
-    const pendingByFile = new Map()
-    const watchers = []
-    const intervals = []
-    const polledFiles = new Set()
+    const root = projectsRoot();
+    const SAFETY_POLL_MS = 5 * 60_000;
+    const DEBOUNCE_MS = 500;
+    const watchedFiles = new Map();
+    const pendingByFile = new Map();
+    const watchers = [];
+    const intervals = [];
+    const polledFiles = new Set();
 
     function isSkippedWatchPath(relOrBase) {
-      return relOrBase.includes('tmp') || relOrBase.includes('cache') || relOrBase.includes('plugins')
+      return relOrBase.includes('tmp') || relOrBase.includes('cache') || relOrBase.includes('plugins');
     }
 
     function isTranscriptJsonlName(name) {
-      const base = path.basename(name)
-      return base.endsWith('.jsonl') && !base.startsWith('agent-')
+      const base = path.basename(name);
+      return base.endsWith('.jsonl') && !base.startsWith('agent-');
     }
 
     function isWatchable(relOrBase) {
-      return isTranscriptJsonlName(relOrBase) && !isSkippedWatchPath(relOrBase)
+      return isTranscriptJsonlName(relOrBase) && !isSkippedWatchPath(relOrBase);
     }
 
     async function ingestOne(fp) {
       try {
-        if (!fs.existsSync(fp)) return
-        const stat = fs.statSync(fp)
-        const mtime = stat.mtimeMs
-        const prev = watchedFiles.get(fp)
-        if (prev && prev >= mtime) return
-        const n = await ingestTranscriptFile(fp, { cwd: cwdFromTranscriptPath(fp) })
+        if (!fs.existsSync(fp)) return;
+        const stat = fs.statSync(fp);
+        const mtime = stat.mtimeMs;
+        const prev = watchedFiles.get(fp);
+        if (prev && prev >= mtime) return;
+        const n = await ingestTranscriptFile(fp, { cwd: cwdFromTranscriptPath(fp) });
         // Only mark this mtime as 'consumed' once the persisted offset has
         // fully advanced past the observed file size. On a transient insert
         // error (or a malformed trailing line) ingestTranscriptFile leaves
@@ -294,57 +315,64 @@ export function createTranscriptIngest({
         // the new mtime unconditionally would suppress the next sweep until
         // the file mutated again, losing the retry. Leave the cache
         // untouched on partial advance so the next sweep re-ingests.
-        const off = _transcriptOffsets.get(fp)
+        const off = _transcriptOffsets.get(fp);
         if (off && off.bytes >= stat.size) {
-          watchedFiles.set(fp, mtime)
+          watchedFiles.set(fp, mtime);
         }
         if (n > 0) {
-          log(`[transcript-watch] ingested ${n} entries from ${path.basename(fp)}\n`)
+          log(`[transcript-watch] ingested ${n} entries from ${path.basename(fp)}\n`);
         }
       } catch (e) {
-        log(`[transcript-watch] ingest error: ${e.message}\n`)
+        log(`[transcript-watch] ingest error: ${e.message}\n`);
       }
     }
 
     function scheduleIngest(fp) {
-      const existing = pendingByFile.get(fp)
-      if (existing) clearTimeout(existing)
+      const existing = pendingByFile.get(fp);
+      if (existing) clearTimeout(existing);
       const timer = setTimeout(() => {
-        pendingByFile.delete(fp)
-        ingestOne(fp)
-      }, DEBOUNCE_MS)
-      pendingByFile.set(fp, timer)
+        pendingByFile.delete(fp);
+        ingestOne(fp);
+      }, DEBOUNCE_MS);
+      pendingByFile.set(fp, timer);
     }
 
     async function discoverActiveTranscripts() {
-      let topLevel
-      try { topLevel = await fs.promises.readdir(root) }
-      catch { return [] }
-      const files = []
+      let topLevel;
+      try {
+        topLevel = await fs.promises.readdir(root);
+      } catch {
+        return [];
+      }
+      const files = [];
       for (const d of topLevel) {
-        if (isSkippedWatchPath(d)) continue
-        const full = path.join(root, d)
-        let inner
-        try { inner = await fs.promises.readdir(full) } catch { continue }
+        if (isSkippedWatchPath(d)) continue;
+        const full = path.join(root, d);
+        let inner;
+        try {
+          inner = await fs.promises.readdir(full);
+        } catch {
+          continue;
+        }
         for (const f of inner) {
-          if (!isTranscriptJsonlName(f)) continue
-          const fp = path.join(full, f)
+          if (!isTranscriptJsonlName(f)) continue;
+          const fp = path.join(full, f);
           try {
-            const stat = await fs.promises.stat(fp)
-            files.push({ path: fp, mtime: stat.mtimeMs })
+            const stat = await fs.promises.stat(fp);
+            files.push({ path: fp, mtime: stat.mtimeMs });
           } catch {}
         }
       }
-      const cutoff = Date.now() - 30 * 60_000
-      return files.filter(f => f.mtime > cutoff)
+      const cutoff = Date.now() - 30 * 60_000;
+      return files.filter((f) => f.mtime > cutoff);
     }
 
     async function safetySweep() {
       try {
-        const active = await discoverActiveTranscripts()
-        await Promise.all(active.map(({ path: fp }) => ingestOne(fp)))
+        const active = await discoverActiveTranscripts();
+        await Promise.all(active.map(({ path: fp }) => ingestOne(fp)));
       } catch (e) {
-        log(`[transcript-watch] safety sweep error: ${e.message}\n`)
+        log(`[transcript-watch] safety sweep error: ${e.message}\n`);
       }
     }
 
@@ -355,20 +383,20 @@ export function createTranscriptIngest({
     if (process.platform === 'win32') {
       try {
         const watcher = fs.watch(root, { recursive: true, persistent: true }, (_event, filename) => {
-          if (!filename) return
-          if (!isWatchable(filename)) return
-          const fp = path.join(root, filename)
-          scheduleIngest(fp)
-        })
+          if (!filename) return;
+          if (!isWatchable(filename)) return;
+          const fp = path.join(root, filename);
+          scheduleIngest(fp);
+        });
         watcher.on('error', (err) => {
-          log(`[transcript-watch] fs.watch error: ${err.message}\n`)
-        })
-        watchers.push(watcher)
-        log(`[transcript-watch] fs.watch(recursive) active on ${root}\n`)
+          log(`[transcript-watch] fs.watch error: ${err.message}\n`);
+        });
+        watchers.push(watcher);
+        log(`[transcript-watch] fs.watch(recursive) active on ${root}\n`);
       } catch (e) {
-        log(`[transcript-watch] fs.watch setup failed: ${e.message} — relying on safety sweep only\n`)
+        log(`[transcript-watch] fs.watch setup failed: ${e.message} — relying on safety sweep only\n`);
       }
-      intervals.push(setInterval(safetySweep, SAFETY_POLL_MS))
+      intervals.push(setInterval(safetySweep, SAFETY_POLL_MS));
     } else if (process.platform === 'darwin') {
       // Flat watch: register a non-recursive watcher on each immediate subdirectory.
       // New subdirs are picked up on the next safety sweep cycle.
@@ -376,72 +404,94 @@ export function createTranscriptIngest({
         const registerFlat = (dir) => {
           try {
             const w = fs.watch(dir, { persistent: true }, (_event, filename) => {
-              if (!filename) return
-              const fp = path.join(dir, filename)
-              if (!isWatchable(fp)) return
-              scheduleIngest(fp)
-            })
-            w.on('error', () => { /* ignore individual dir errors */ })
-            watchers.push(w)
-          } catch { /* dir may not exist yet */ }
-        }
-        registerFlat(root)
+              if (!filename) return;
+              const fp = path.join(dir, filename);
+              if (!isWatchable(fp)) return;
+              scheduleIngest(fp);
+            });
+            w.on('error', () => {
+              /* ignore individual dir errors */
+            });
+            watchers.push(w);
+          } catch {
+            /* dir may not exist yet */
+          }
+        };
+        registerFlat(root);
         try {
           for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-            if (entry.isDirectory()) registerFlat(path.join(root, entry.name))
+            if (entry.isDirectory()) registerFlat(path.join(root, entry.name));
           }
-        } catch { /* best effort */ }
-        log(`[transcript-watch] flat fs.watch active on ${root} (darwin)\n`)
+        } catch {
+          /* best effort */
+        }
+        log(`[transcript-watch] flat fs.watch active on ${root} (darwin)\n`);
       } catch (e) {
-        log(`[transcript-watch] flat watch setup failed: ${e.message} — relying on safety sweep only\n`)
+        log(`[transcript-watch] flat watch setup failed: ${e.message} — relying on safety sweep only\n`);
       }
-      intervals.push(setInterval(safetySweep, SAFETY_POLL_MS))
+      intervals.push(setInterval(safetySweep, SAFETY_POLL_MS));
     } else {
       // linux/WSL: fs.watch recursive is unsupported. Use fs.watchFile polling for
       // individual files surfaced by the safety sweep, in addition to the sweep itself.
-      log(`[transcript-watch] linux/WSL — using safety sweep + fs.watchFile polling (no recursive watch)\n`)
+      log(`[transcript-watch] linux/WSL — using safety sweep + fs.watchFile polling (no recursive watch)\n`);
       // Wrap by reassigning the closure-captured reference is not possible here;
       // instead, register watchFile inside the safety sweep callback by intercepting
       // active file list after each sweep.  The interval already calls safetySweep
       // which calls ingestOne; watchFile additions happen as a side-effect of the sweep.
       const _patchedSweep = async () => {
         try {
-          const active = await discoverActiveTranscripts()
+          const active = await discoverActiveTranscripts();
           for (const { path: fp } of active) {
             if (!polledFiles.has(fp)) {
-              polledFiles.add(fp)
+              polledFiles.add(fp);
               fs.watchFile(fp, { persistent: false, interval: 2000 }, () => {
-                if (isWatchable(fp)) scheduleIngest(fp)
-              })
+                if (isWatchable(fp)) scheduleIngest(fp);
+              });
             }
-            ingestOne(fp)
+            ingestOne(fp);
           }
         } catch (e) {
-          log(`[transcript-watch] linux sweep error: ${e.message}\n`)
+          log(`[transcript-watch] linux sweep error: ${e.message}\n`);
         }
-      }
+      };
       // Replace the safety sweep interval with the patched version.
-      intervals.push(setInterval(_patchedSweep, SAFETY_POLL_MS))
+      intervals.push(setInterval(_patchedSweep, SAFETY_POLL_MS));
     }
 
     // Runtime readiness includes the first active-transcript sweep. Without
     // this barrier a lazy-started memory process can answer recall before the
     // current session's persisted rows exist, causing automatic compaction to
     // fail during the former three-second startup window.
-    await safetySweep()
+    await safetySweep();
 
     return {
       stop() {
-        for (const t of pendingByFile.values()) { try { clearTimeout(t) } catch {} }
-        pendingByFile.clear()
-        for (const i of intervals) { try { clearInterval(i) } catch {} }
-        intervals.length = 0
-        for (const w of watchers) { try { w.close() } catch {} }
-        watchers.length = 0
-        for (const fp of polledFiles) { try { fs.unwatchFile(fp) } catch {} }
-        polledFiles.clear()
+        for (const t of pendingByFile.values()) {
+          try {
+            clearTimeout(t);
+          } catch {}
+        }
+        pendingByFile.clear();
+        for (const i of intervals) {
+          try {
+            clearInterval(i);
+          } catch {}
+        }
+        intervals.length = 0;
+        for (const w of watchers) {
+          try {
+            w.close();
+          } catch {}
+        }
+        watchers.length = 0;
+        for (const fp of polledFiles) {
+          try {
+            fs.unwatchFile(fp);
+          } catch {}
+        }
+        polledFiles.clear();
       },
-    }
+    };
   }
 
   return {
@@ -453,5 +503,5 @@ export function createTranscriptIngest({
     initTranscriptWatcher,
     getOffset,
     resetOffsets,
-  }
+  };
 }

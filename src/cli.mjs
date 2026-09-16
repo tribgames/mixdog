@@ -3,10 +3,7 @@
 import './runtime/shared/uv-threadpool-boot.mjs';
 import { fileURLToPath } from 'node:url';
 import { classifyCliInvocation } from './headless-command.mjs';
-import {
-  beginProcessLifecycle,
-  finishProcessLifecycleAsync,
-} from './runtime/shared/process-lifecycle.mjs';
+import { beginProcessLifecycle, finishProcessLifecycleAsync } from './runtime/shared/process-lifecycle.mjs';
 import { stagedChildExitCode } from './runtime/shared/staged-child-result.mjs';
 
 const argv = process.argv.slice(2);
@@ -17,7 +14,9 @@ const argv = process.argv.slice(2);
 try {
   const { enableCompileCache } = await import('node:module');
   enableCompileCache?.();
-} catch { /* launch-speed optimization only */ }
+} catch {
+  /* launch-speed optimization only */
+}
 
 // React/ink resolve their build flavor from NODE_ENV at require time. Unset
 // NODE_ENV loads react-reconciler's DEVELOPMENT build, whose per-commit debug
@@ -36,11 +35,13 @@ if (!skipHostPrelude) {
   // semantics. Headless exec skips both because those helpers touch the
   // host data tree before the pristine boundary exists.
   try {
-    const { performPendingSwap, registerLiveSession } = await import(
-      './runtime/shared/staged-update.mjs'
-    );
+    const { performPendingSwap, registerLiveSession } = await import('./runtime/shared/staged-update.mjs');
     swapped = performPendingSwap();
-    try { registerLiveSession(); } catch { /* advisory refcount only */ }
+    try {
+      registerLiveSession();
+    } catch {
+      /* advisory refcount only */
+    }
   } catch {
     swapped = false;
   }
@@ -63,18 +64,22 @@ async function main() {
       if (!r.error) {
         return stagedChildExitCode(r);
       }
-    } catch { /* fall through to in-place run */ }
+    } catch {
+      /* fall through to in-place run */
+    }
   }
   const { run } = await import('./app.mjs');
   return await run(argv, invocation);
 }
 
-main().then(async (code) => {
-  const exitCode = Number.isInteger(code) ? code : 0;
-  await finishProcessLifecycleAsync('clean-shutdown', exitCode);
-  process.exit(exitCode);
-}).catch(async (error) => {
-  process.stderr.write(`${error?.stack || error?.message || String(error)}\n`);
-  await finishProcessLifecycleAsync('catchable-fatal-error', 1);
-  process.exit(1);
-});
+main()
+  .then(async (code) => {
+    const exitCode = Number.isInteger(code) ? code : 0;
+    await finishProcessLifecycleAsync('clean-shutdown', exitCode);
+    process.exit(exitCode);
+  })
+  .catch(async (error) => {
+    process.stderr.write(`${error?.stack || error?.message || String(error)}\n`);
+    await finishProcessLifecycleAsync('catchable-fatal-error', 1);
+    process.exit(1);
+  });

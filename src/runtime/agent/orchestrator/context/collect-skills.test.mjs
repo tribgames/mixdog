@@ -51,32 +51,44 @@ test('the model selects from triggers, independently of UI descriptions and load
   const manifest = buildSkillManifest(skills);
   assert.ok(manifest.includes(`- deploy-helper: ${trigger}`));
   assert.match(manifest, /^- plain-skill$/m);
-  assert.equal(manifest, buildSkillManifest(skills.map((skill) => ({
-    ...skill,
-    description: 'Different UI-only copy.',
-    content: 'Detailed operating instructions.',
-  }))));
+  assert.equal(
+    manifest,
+    buildSkillManifest(
+      skills.map((skill) => ({
+        ...skill,
+        description: 'Different UI-only copy.',
+        content: 'Detailed operating instructions.',
+      }))
+    )
+  );
   assert.equal(skills[0].description, 'Deploy the app to staging.');
 });
 
 test('skill selection exposes linked tools without tool schemas or duplicate dependencies', () => {
-  const manifest = buildSkillManifest([{
-    name: 'history-recall', whenToUse: 'Find past decisions.',
-    toolDependencies: [
-      { type: 'tool', value: 'recall' }, { type: 'tool', value: 'recall' },
-      { type: 'mcp', value: 'archive' }, { type: 'tool', value: '<invalid>' },
-    ],
-  }]);
+  const manifest = buildSkillManifest([
+    {
+      name: 'history-recall',
+      whenToUse: 'Find past decisions.',
+      toolDependencies: [
+        { type: 'tool', value: 'recall' },
+        { type: 'tool', value: 'recall' },
+        { type: 'mcp', value: 'archive' },
+        { type: 'tool', value: '<invalid>' },
+      ],
+    },
+  ]);
   assert.match(manifest, /^- history-recall: Find past decisions\. \[tools: recall, mcp:archive\]$/m);
   assert.doesNotMatch(manifest, /<invalid>/);
 });
 
 test('long skill triggers are bounded without exposing UI copy', () => {
-  const long = buildSkillManifest([{
-    name: 'verbose',
-    description: 'Short capability sentence.',
-    whenToUse: 'trigger '.repeat(60),
-  }]);
+  const long = buildSkillManifest([
+    {
+      name: 'verbose',
+      description: 'Short capability sentence.',
+      whenToUse: 'trigger '.repeat(60),
+    },
+  ]);
   const line = long.split('\n').find((entry) => entry.startsWith('- verbose:')) || '';
   assert.ok(line.startsWith('- verbose: trigger'));
   assert.ok(line.endsWith('...'));
@@ -94,51 +106,62 @@ test('discovers global standard skill folders and ignores project-local skills a
     mkdirSync(join(skillDir, 'references'), { recursive: true });
     mkdirSync(join(skillDir, 'scripts'), { recursive: true });
     mkdirSync(projectSkillDir, { recursive: true });
-    writeFileSync(join(skillDir, 'SKILL.md'), [
-      '---',
-      'name: copied-skill',
-      'description: >',
-      '  Use when a copied standard skill',
-      '  should be discovered.',
-      'metadata:',
-      '  source: external',
-      '---',
-      '',
-      '# Instructions',
-      '',
-      'Read `references/guide.md` and run `scripts/check.py` when needed.',
-      '',
-    ].join('\n'));
-    writeFileSync(join(skillDir, 'references', 'guide.md'), [
-      '---',
-      'name: not-a-skill',
-      'description: This reference must never become a skill.',
-      '---',
-      '',
-      '# Reference',
-      '',
-    ].join('\n'));
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: copied-skill',
+        'description: >',
+        '  Use when a copied standard skill',
+        '  should be discovered.',
+        'metadata:',
+        '  source: external',
+        '---',
+        '',
+        '# Instructions',
+        '',
+        'Read `references/guide.md` and run `scripts/check.py` when needed.',
+        '',
+      ].join('\n')
+    );
+    writeFileSync(
+      join(skillDir, 'references', 'guide.md'),
+      [
+        '---',
+        'name: not-a-skill',
+        'description: This reference must never become a skill.',
+        '---',
+        '',
+        '# Reference',
+        '',
+      ].join('\n')
+    );
     writeFileSync(join(skillDir, 'scripts', 'check.py'), 'print("ok")\n');
-    writeFileSync(join(projectSkillDir, 'SKILL.md'), [
-      '---',
-      'name: project-only',
-      'description: This project-local skill must be ignored.',
-      '---',
-      '',
-      '# Project instructions',
-      '',
-    ].join('\n'));
+    writeFileSync(
+      join(projectSkillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: project-only',
+        'description: This project-local skill must be ignored.',
+        '---',
+        '',
+        '# Project instructions',
+        '',
+      ].join('\n')
+    );
 
     invalidateSkillsCache(cwd);
-    const copied = collectSkillsCached(cwd)
-      .find((skill) => skill.name === 'copied-skill');
+    const copied = collectSkillsCached(cwd).find((skill) => skill.name === 'copied-skill');
     assert.ok(copied);
-    assert.equal(copied.description,
-      'Use when a copied standard skill should be discovered.');
-    assert.equal(collectSkillsCached(cwd)
-      .some((skill) => skill.name === 'not-a-skill'), false);
-    assert.equal(collectSkillsCached(cwd)
-      .some((skill) => skill.name === 'project-only'), false);
+    assert.equal(copied.description, 'Use when a copied standard skill should be discovered.');
+    assert.equal(
+      collectSkillsCached(cwd).some((skill) => skill.name === 'not-a-skill'),
+      false
+    );
+    assert.equal(
+      collectSkillsCached(cwd).some((skill) => skill.name === 'project-only'),
+      false
+    );
 
     const loaded = loadSkillResource('copied-skill', cwd);
     assert.match(loaded.content, /^# Instructions/);
@@ -163,26 +186,24 @@ test('loads skills only from globally enabled plugins', () => {
     const writeSkill = (pluginRoot, name) => {
       const dir = join(pluginRoot, 'skills', name);
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, 'SKILL.md'), [
-        '---',
-        `name: ${name}`,
-        `description: Use when ${name} is needed.`,
-        '---',
-        '',
-        '# Instructions',
-        '',
-      ].join('\n'));
+      writeFileSync(
+        join(dir, 'SKILL.md'),
+        ['---', `name: ${name}`, `description: Use when ${name} is needed.`, '---', '', '# Instructions', ''].join('\n')
+      );
     };
     writeSkill(enabledRoot, 'enabled-plugin-skill');
     writeSkill(disabledRoot, 'disabled-plugin-skill');
     const registryDir = join(process.env.MIXDOG_DATA_DIR, 'plugins');
     mkdirSync(registryDir, { recursive: true });
-    writeFileSync(join(registryDir, 'registry.json'), JSON.stringify({
-      plugins: [
-        { id: 'enabled', root: enabledRoot, enabled: true },
-        { id: 'disabled', root: disabledRoot, enabled: false },
-      ],
-    }));
+    writeFileSync(
+      join(registryDir, 'registry.json'),
+      JSON.stringify({
+        plugins: [
+          { id: 'enabled', root: enabledRoot, enabled: true },
+          { id: 'disabled', root: disabledRoot, enabled: false },
+        ],
+      })
+    );
 
     invalidateSkillsCache();
     const names = collectSkillsCached(join(root, 'any-project')).map((skill) => skill.name);
@@ -204,38 +225,42 @@ test('loads plugin skills from the manifest skills path as well as the conventio
     const pluginRoot = join(root, 'plugin');
     const writeSkill = (dir, name) => {
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, 'SKILL.md'), [
-        '---',
-        `name: ${name}`,
-        `description: Use when ${name} is needed.`,
-        '---',
-        '',
-        '# Instructions',
-        '',
-      ].join('\n'));
+      writeFileSync(
+        join(dir, 'SKILL.md'),
+        ['---', `name: ${name}`, `description: Use when ${name} is needed.`, '---', '', '# Instructions', ''].join('\n')
+      );
     };
     writeSkill(join(pluginRoot, 'skills', 'conventional-skill'), 'conventional-skill');
     writeSkill(join(pluginRoot, 'assets', 'extra-skills', 'manifest-skill'), 'manifest-skill');
     writeSkill(join(root, 'outside', 'escaped-skill'), 'escaped-skill');
     mkdirSync(pluginRoot, { recursive: true });
-    writeFileSync(join(pluginRoot, 'plugin.json'), JSON.stringify({
-      name: 'path-plugin',
-      skills: './assets/extra-skills',
-    }));
+    writeFileSync(
+      join(pluginRoot, 'plugin.json'),
+      JSON.stringify({
+        name: 'path-plugin',
+        skills: './assets/extra-skills',
+      })
+    );
     const escapedRoot = join(root, 'escaped-plugin');
     mkdirSync(escapedRoot, { recursive: true });
-    writeFileSync(join(escapedRoot, 'plugin.json'), JSON.stringify({
-      name: 'escaped-plugin',
-      skills: '../outside',
-    }));
+    writeFileSync(
+      join(escapedRoot, 'plugin.json'),
+      JSON.stringify({
+        name: 'escaped-plugin',
+        skills: '../outside',
+      })
+    );
     const registryDir = join(process.env.MIXDOG_DATA_DIR, 'plugins');
     mkdirSync(registryDir, { recursive: true });
-    writeFileSync(join(registryDir, 'registry.json'), JSON.stringify({
-      plugins: [
-        { id: 'path-plugin', root: pluginRoot, enabled: true },
-        { id: 'escaped-plugin', root: escapedRoot, enabled: true },
-      ],
-    }));
+    writeFileSync(
+      join(registryDir, 'registry.json'),
+      JSON.stringify({
+        plugins: [
+          { id: 'path-plugin', root: pluginRoot, enabled: true },
+          { id: 'escaped-plugin', root: escapedRoot, enabled: true },
+        ],
+      })
+    );
 
     invalidateSkillsCache();
     const skills = collectSkillsCached(join(root, 'any-project'));
@@ -250,20 +275,17 @@ test('loads plugin skills from the manifest skills path as well as the conventio
     // explicit invalidate: the plugin skill roots sit in the mtime gate.
     const future = new Date(Date.now() + 60_000);
     const edited = join(pluginRoot, 'skills', 'conventional-skill', 'SKILL.md');
-    writeFileSync(edited, [
-      '---',
-      'name: conventional-skill',
-      'description: Edited in place.',
-      '---',
-      '',
-      '# Instructions',
-      '',
-    ].join('\n'));
+    writeFileSync(
+      edited,
+      ['---', 'name: conventional-skill', 'description: Edited in place.', '---', '', '# Instructions', ''].join('\n')
+    );
     utimesSync(edited, future, future);
     utimesSync(join(pluginRoot, 'skills', 'conventional-skill'), future, future);
     invalidateSkillsMtimeGate();
-    assert.equal(collectSkillsCached(join(root, 'any-project'))
-      .find((skill) => skill.name === 'conventional-skill')?.description, 'Edited in place.');
+    assert.equal(
+      collectSkillsCached(join(root, 'any-project')).find((skill) => skill.name === 'conventional-skill')?.description,
+      'Edited in place.'
+    );
   } finally {
     invalidateSkillsCache();
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
@@ -280,19 +302,24 @@ test('requires a standard folder name that matches the manifest name', () => {
     const cwd = join(root, 'project');
     const skillDir = join(process.env.MIXDOG_DATA_DIR, 'skills', 'folder-name');
     mkdirSync(skillDir, { recursive: true });
-    writeFileSync(join(skillDir, 'SKILL.md'), [
-      '---',
-      'name: different-name',
-      'description: Use when testing mismatched folders.',
-      '---',
-      '',
-      '# Instructions',
-      '',
-    ].join('\n'));
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: different-name',
+        'description: Use when testing mismatched folders.',
+        '---',
+        '',
+        '# Instructions',
+        '',
+      ].join('\n')
+    );
 
     invalidateSkillsCache(cwd);
-    assert.equal(collectSkillsCached(cwd)
-      .some((skill) => skill.name === 'different-name'), false);
+    assert.equal(
+      collectSkillsCached(cwd).some((skill) => skill.name === 'different-name'),
+      false
+    );
   } finally {
     invalidateSkillsCache(join(root, 'project'));
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
@@ -313,17 +340,20 @@ test('a skill that requires a built-in feature is offered only while that featur
   try {
     const dir = join(process.env.MIXDOG_ROOT, 'defaults', 'skills', 'pptx');
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'SKILL.md'), [
-      '---',
-      'name: pptx',
-      'description: Use for decks.',
-      'metadata:',
-      '  requires: office',
-      '---',
-      '',
-      '# Decks',
-      '',
-    ].join('\n'));
+    writeFileSync(
+      join(dir, 'SKILL.md'),
+      [
+        '---',
+        'name: pptx',
+        'description: Use for decks.',
+        'metadata:',
+        '  requires: office',
+        '---',
+        '',
+        '# Decks',
+        '',
+      ].join('\n')
+    );
     invalidateSkillsCache(cwd);
     const names = (config) => collectPromptSkillsCached(cwd, config).map((skill) => skill.name);
 
@@ -351,7 +381,10 @@ test('a skill that requires a built-in feature is offered only while that featur
     assert.deepEqual(names(scopedElsewhere), []);
     const scopedHere = { ...active, extensionScopes: { skills: { pptx: [cwd] } } };
     assert.deepEqual(names(scopedHere), ['pptx']);
-    assert.deepEqual(collectPromptSkillsCached(join(cwd, 'src'), scopedHere).map((skill) => skill.name), ['pptx']);
+    assert.deepEqual(
+      collectPromptSkillsCached(join(cwd, 'src'), scopedHere).map((skill) => skill.name),
+      ['pptx']
+    );
   } finally {
     invalidateSkillsCache(cwd);
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
@@ -370,15 +403,8 @@ test('built-in package skills are discovered in place and shadowed by a user-glo
   process.env.MIXDOG_DATA_DIR = join(root, 'data');
   process.env.MIXDOG_ROOT = join(root, 'package');
   const cwd = join(root, 'project');
-  const skillFile = (name, body) => [
-    '---',
-    `name: ${name}`,
-    `description: ${body}`,
-    '---',
-    '',
-    `# ${body}`,
-    '',
-  ].join('\n');
+  const skillFile = (name, body) =>
+    ['---', `name: ${name}`, `description: ${body}`, '---', '', `# ${body}`, ''].join('\n');
   try {
     const builtin = join(process.env.MIXDOG_ROOT, 'defaults', 'skills');
     mkdirSync(join(builtin, 'pptx', 'references'), { recursive: true });

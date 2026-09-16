@@ -15,26 +15,28 @@ export function normalizeSkillToolDependencies(value, { strict = false } = {}) {
     throw new Error(`Skill dependencies.tools must be an array of at most ${MAX_DEPENDENCIES} entries.`);
   }
   const seen = new Set();
-  return value.map((entry) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw new Error('Each skill tool dependency needs type and value.');
-    }
-    const type = typeof entry.type === 'string' ? entry.type.trim().toLowerCase() : '';
-    const name = typeof entry.value === 'string' ? entry.value.trim() : '';
-    if (!type || !name || type.length > 64 || name.length > 256 || /[\s<>\0]/.test(type + name)) {
-      throw new Error('Skill tool dependency type and value must be nonempty identifiers.');
-    }
-    if (strict && !['tool', 'mcp'].includes(type)) {
-      throw new Error(`Unsupported skill tool dependency type: ${type}`);
-    }
-    // Extra import metadata (URL, command, OAuth) is not executable authority.
-    return { ...entry, type, value: name };
-  }).filter((entry) => {
-    const key = dependencyKey(entry);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        throw new Error('Each skill tool dependency needs type and value.');
+      }
+      const type = typeof entry.type === 'string' ? entry.type.trim().toLowerCase() : '';
+      const name = typeof entry.value === 'string' ? entry.value.trim() : '';
+      if (!type || !name || type.length > 64 || name.length > 256 || /[\s<>\0]/.test(type + name)) {
+        throw new Error('Skill tool dependency type and value must be nonempty identifiers.');
+      }
+      if (strict && !['tool', 'mcp'].includes(type)) {
+        throw new Error(`Unsupported skill tool dependency type: ${type}`);
+      }
+      // Extra import metadata (URL, command, OAuth) is not executable authority.
+      return { ...entry, type, value: name };
+    })
+    .filter((entry) => {
+      const key = dependencyKey(entry);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 export function skillToolDependenciesRoot() {
@@ -56,8 +58,11 @@ export function readSkillToolDependencies(filePath, frontmatter = {}) {
   const issues = [];
   const declared = [];
   const add = (value, label) => {
-    try { declared.push(...normalizeSkillToolDependencies(value)); }
-    catch (error) { issues.push(`${label}: ${error.message}`); }
+    try {
+      declared.push(...normalizeSkillToolDependencies(value));
+    } catch (error) {
+      issues.push(`${label}: ${error.message}`);
+    }
   };
   add(frontmatter.dependencies?.tools, 'SKILL.md');
   const metadataPath = join(dirname(filePath), 'agents', 'openai.yaml');
@@ -66,11 +71,16 @@ export function readSkillToolDependencies(filePath, frontmatter = {}) {
       const document = parseDocument(boundedRead(metadataPath), { uniqueKeys: true });
       if (document.errors.length) throw document.errors[0];
       add(document.toJS({ maxAliasCount: 100 })?.dependencies?.tools, 'agents/openai.yaml');
-    } catch (error) { issues.push(`agents/openai.yaml: ${error.message}`); }
+    } catch (error) {
+      issues.push(`agents/openai.yaml: ${error.message}`);
+    }
   }
   let declaredToolDependencies = [];
-  try { declaredToolDependencies = normalizeSkillToolDependencies(declared); }
-  catch (error) { issues.push(error.message); }
+  try {
+    declaredToolDependencies = normalizeSkillToolDependencies(declared);
+  } catch (error) {
+    issues.push(error.message);
+  }
   const localPath = overridePath(filePath);
   if (existsSync(localPath)) {
     try {
@@ -83,13 +93,20 @@ export function readSkillToolDependencies(filePath, frontmatter = {}) {
       };
     } catch (error) {
       // A broken override must not silently restore dependencies the user removed.
-      return { toolDependencies: [], declaredToolDependencies, dependencySource: 'override',
-        dependencyIssues: [`Local skill dependencies: ${error.message}`] };
+      return {
+        toolDependencies: [],
+        declaredToolDependencies,
+        dependencySource: 'override',
+        dependencyIssues: [`Local skill dependencies: ${error.message}`],
+      };
     }
   }
-  return { toolDependencies: declaredToolDependencies, declaredToolDependencies,
+  return {
+    toolDependencies: declaredToolDependencies,
+    declaredToolDependencies,
     dependencySource: declaredToolDependencies.length || issues.length ? 'declaration' : 'none',
-    dependencyIssues: issues };
+    dependencyIssues: issues,
+  };
 }
 
 export function saveSkillToolDependencies(filePath, dependencies) {

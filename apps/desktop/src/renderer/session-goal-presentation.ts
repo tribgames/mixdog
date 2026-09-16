@@ -6,9 +6,7 @@ export type GoalDisplayStatus = NonNullable<GoalSnapshot['status']> | 'respondin
 type GoalExecutionSnapshot = Pick<Snapshot, 'busy' | 'commandBusy' | 'toolApproval' | 'shellJobs'>;
 
 export function goalHasBackgroundWork(snapshot: GoalExecutionSnapshot, agentWorking = false): boolean {
-  return agentWorking
-    || Number(snapshot.shellJobs?.count) > 0
-    || Boolean(snapshot.shellJobs?.jobs?.length);
+  return agentWorking || Number(snapshot.shellJobs?.count) > 0 || Boolean(snapshot.shellJobs?.jobs?.length);
 }
 
 // Execution and durable intent are different facts. A reply can be in flight
@@ -16,7 +14,7 @@ export function goalHasBackgroundWork(snapshot: GoalExecutionSnapshot, agentWork
 export function goalDisplayStatus(
   goal: GoalSnapshot,
   snapshot: GoalExecutionSnapshot,
-  agentWorking = false,
+  agentWorking = false
 ): GoalDisplayStatus {
   const status = goal.status || 'active';
   if (status !== 'active' && status !== 'paused') return status;
@@ -66,7 +64,8 @@ export function goalElapsedLabel(goal: GoalSnapshot, clock: number): string {
 
 export function goalStatusLabel(goal: GoalSnapshot): string {
   if (goal.status === 'paused') return t(goal.pauseReason === 'waiting' ? 'Waiting for your answer' : 'Paused');
-  if (goal.status === 'duration_reached') return t(goal.timeMode === 'max' ? 'Time budget reached' : 'Requested duration reached');
+  if (goal.status === 'duration_reached')
+    return t(goal.timeMode === 'max' ? 'Time budget reached' : 'Requested duration reached');
   if (goal.status === 'blocked') return t('Blocked');
   if (goal.status === 'usage_limited') return t('Provider usage limit reached');
   if (goal.status === 'stopped') return t('Stopped');

@@ -13,7 +13,12 @@ import { finalizeSessionToolList } from '../runtime/agent/orchestrator/session/m
 import { modelToolSchemaAllowlist } from './tool-profile.mjs';
 
 const require = createRequire(import.meta.url);
-const { omitToolRoutes, buildSharedToolContent, buildAgentRoleContent, buildLeadRoleContent } = require('../lib/rules-builder.cjs');
+const {
+  omitToolRoutes,
+  buildSharedToolContent,
+  buildAgentRoleContent,
+  buildLeadRoleContent,
+} = require('../lib/rules-builder.cjs');
 
 // Tool dependency is declared by `<!-- tools: … -->` markers, so this fixture
 // carries the markers rather than prose the builder would have to match.
@@ -90,10 +95,7 @@ test('omitToolRoutes drops web search and memory clauses independently', () => {
 test('shared tool rules omit disabled web search and memory routes', () => {
   const pluginRoot = join(process.cwd(), 'src');
   const full = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot });
-  assert.match(
-    full,
-    /^# General\s+- The user's latest explicit request overrides any internal rule\./,
-  );
+  assert.match(full, /^# General\s+- The user's latest explicit request overrides any internal rule\./);
   assert.match(full, /`web_search`/);
   assert.match(full, /`memory`/);
   const omitted = buildSharedToolContent({
@@ -144,7 +146,7 @@ test('headless rules omit Skill and Goal guidance while interactive rules retain
   assert.match(headless, /`read`/);
   assert.doesNotMatch(
     buildSharedToolContent({ PLUGIN_ROOT, omitTools: ['sKiLl', 'GOAL'] }),
-    /\bSkills?\b|\bGoals?\b|`goal`|goal-management/,
+    /\bSkills?\b|\bGoals?\b|`goal`|goal-management/
   );
 });
 
@@ -159,33 +161,54 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /Wait only for true data dependencies or safety ordering/i);
   assert.match(full, /issue every known independent action in the same turn/i);
   assert.match(full, /Cheapest decisive evidence first: existing state, diff or a failing test\s+before any search/i);
-  assert.match(full, /Trust documented\s+guarantees; no availability checks or defensive branches, in scripts included/i);
+  assert.match(
+    full,
+    /Trust documented\s+guarantees; no availability checks or defensive branches, in scripts included/i
+  );
   assert.match(full, /take the backup\s+inside the first inspection call, never as a separate step/i);
   assert.match(full, /Reuse unchanged content already delivered; changed sources and omitted ranges are new evidence/i);
   assert.match(full, /Use supplied commands unchanged except inputs, else documented defaults/i);
   assert.match(full, /Tools own their work; shell never substitutes\. Route by missing evidence:/i);
   assert.match(full, /Tool names are not shell commands; `shell` only runs programs and computation/i);
   assert.match(full, /Never issue one lookup and wait when several targets are already known; no serial wait-and-see/i);
-  assert.match(full, /batch arguments \(path\/URL arrays\) where the tool supports them and options, query combinations and required outputs are preserved; concurrent calls across tools or targets otherwise/i);
-  assert.match(full, /`shell` only for evidence or artifacts that require execution: computation,\s+data transformation, generated output, unsupported-format decoding/i);
+  assert.match(
+    full,
+    /batch arguments \(path\/URL arrays\) where the tool supports them and options, query combinations and required outputs are preserved; concurrent calls across tools or targets otherwise/i
+  );
+  assert.match(
+    full,
+    /`shell` only for evidence or artifacts that require execution: computation,\s+data transformation, generated output, unsupported-format decoding/i
+  );
   assert.match(full, /An open\s+shell is never a routing reason/i);
   assert.match(full, /Git→`git`/i);
   assert.match(full, /no read\/list\/diff to confirm writes/i);
   assert.doesNotMatch(full, /Verify once after all edits/i);
   assert.match(full, /Generated data is not evidence/i);
-  assert.match(full, /Check required behavior, exact outputs and essential integrity, security,\s+compatibility and buildability/i);
+  assert.match(
+    full,
+    /Check required behavior, exact outputs and essential integrity, security,\s+compatibility and buildability/i
+  );
   assert.match(full, /Supplied\/home\/environment paths need no locator/i);
   assert.match(full, /Use non-mutating readers directly/i);
   assert.match(full, /keep an unchanged\s+backup of every source artifact and work on a separate copy/i);
   assert.match(full, /Keep it after\s+replacing originals unless the user requires purging/i);
-  assert.match(full, /known files\/ranges→`read`, literal text or regex→`grep`, declarations, signatures, exports, members and relations→`code_graph`/i);
-  assert.match(full, /Structure questions \(a file's exports, API or signatures, a class's or object's members, who calls or imports something\) go to `code_graph` first/i);
+  assert.match(
+    full,
+    /known files\/ranges→`read`, literal text or regex→`grep`, declarations, signatures, exports, members and relations→`code_graph`/i
+  );
+  assert.match(
+    full,
+    /Structure questions \(a file's exports, API or signatures, a class's or object's members, who calls or imports something\) go to `code_graph` first/i
+  );
   assert.match(full, /Retry only after a relevant change, at most one bounded transient retry/i);
   assert.match(full, /never bypass denial or cancellation/i);
   assert.match(full, /never hide errors, timeouts or cancellation\s+behind later success/i);
   assert.doesNotMatch(full, /fallback/i);
   assert.match(full, /UI\/edit sites: use `grep` to locate unknown regions/i);
-  assert.match(full, /After all edits, cover each required check once: one runner per runtime,\s+independent checks in parallel/i);
+  assert.match(
+    full,
+    /After all edits, cover each required check once: one runner per runtime,\s+independent checks in parallel/i
+  );
   assert.match(full, /no\s+stricter flags or unrequested suites/i);
   assert.match(full, /rerun only failed or invalidated checks/i);
   assert.doesNotMatch(full, /Collect failures, finish fixes/i);
@@ -204,14 +227,25 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /Past sessions and decisions→`recall`/i);
   assert.match(full, /show exact content and scope and ask/i);
   assert.match(full, /Never store\s+inferred lessons as standing instructions/i);
-  const headings = ['# General', '# Tool Workflow', '# Research', '# Exploration', '# Editing', '# Execution', '# Verification', '# Delivery', '# Memory'];
-  assert.deepEqual(headings.map((heading) => full.indexOf(heading)), headings.map((heading) => full.indexOf(heading)).toSorted((a, b) => a - b));
+  const headings = [
+    '# General',
+    '# Tool Workflow',
+    '# Research',
+    '# Exploration',
+    '# Editing',
+    '# Execution',
+    '# Verification',
+    '# Delivery',
+    '# Memory',
+  ];
+  assert.deepEqual(
+    headings.map((heading) => full.indexOf(heading)),
+    headings.map((heading) => full.indexOf(heading)).toSorted((a, b) => a - b)
+  );
   assert.ok(DEFERRED_DEFAULT_LEAD_TOOLS.includes('git'));
   assert.equal(DEFERRED_DEFAULT_LEAD_TOOLS.includes('goal'), false);
   assert.equal(DEFERRED_DEFAULT_LEAD_TOOLS.includes('git_stage'), false);
-  assert.deepEqual(LEAD_DISALLOWED_TOOLS, [
-    'get_goal', 'create_goal', 'set_goal_tasks', 'update_goal',
-  ]);
+  assert.deepEqual(LEAD_DISALLOWED_TOOLS, ['get_goal', 'create_goal', 'set_goal_tasks', 'update_goal']);
 });
 
 test('agent common policy delegates verification unless AGENT.md explicitly owns it', () => {
@@ -290,7 +324,10 @@ test('modelStandaloneTools hides agent and disabled first-party feature tools', 
     denied: ['git', 'git_stage', 'web_search', 'web_fetch', 'memory', 'recall', 'office', 'tidy'],
     standalone,
   });
-  assert.deepEqual(modelStandaloneTools().map((tool) => tool.name), ['read']);
+  assert.deepEqual(
+    modelStandaloneTools().map((tool) => tool.name),
+    ['read']
+  );
 });
 
 test('Agent standalone and deferred tools match Lead except for agent control', () => {
@@ -304,11 +341,15 @@ test('Agent standalone and deferred tools match Lead except for agent control', 
   const lead = surfaceFor({
     session: { owner: 'cli', workflow: { delegatesAgents: true } },
     standalone,
-  }).modelStandaloneTools().map((tool) => tool.name);
+  })
+    .modelStandaloneTools()
+    .map((tool) => tool.name);
   const agent = surfaceFor({
     session: { owner: 'agent', visibility: 'agent-only', workflow: { delegatesAgents: true } },
     standalone,
-  }).modelStandaloneTools().map((tool) => tool.name);
+  })
+    .modelStandaloneTools()
+    .map((tool) => tool.name);
   assert.deepEqual(lead, ['agent', 'load_tool', 'cwd', 'memory', 'mcp__demo__tool']);
   assert.deepEqual(agent, ['load_tool', 'cwd', 'memory', 'mcp__demo__tool']);
 });
@@ -323,7 +364,7 @@ test('Agent base tools keep every Lead tool except agent regardless of agentHidd
   ];
   assert.deepEqual(
     finalizeSessionToolList(tools, { ownerIsAgent: true }).map((tool) => tool.name),
-    ['read', 'apply_patch', 'load_tool', 'cwd'],
+    ['read', 'apply_patch', 'load_tool', 'cwd']
   );
 });
 
@@ -332,10 +373,19 @@ test('Goal is deferred but remains discoverable on the native Lead tool surface'
     standalone: GOAL_TOOL_DEFS,
     provider: 'openai-oauth',
   }).activeToolSurface();
-  assert.deepEqual(surface.tools.map((tool) => tool.name), []);
+  assert.deepEqual(
+    surface.tools.map((tool) => tool.name),
+    []
+  );
   assert.equal(surface.deferredCallableTools.includes('goal'), false);
-  assert.equal(surface.deferredToolCatalog.some((tool) => tool.name === 'goal'), true);
-  assert.equal((surface.deferredToolCatalog || []).some((tool) => tool.name === 'create_goal'), false);
+  assert.equal(
+    surface.deferredToolCatalog.some((tool) => tool.name === 'goal'),
+    true
+  );
+  assert.equal(
+    (surface.deferredToolCatalog || []).some((tool) => tool.name === 'create_goal'),
+    false
+  );
 });
 
 test('headless tool profile keeps task-scoped tools and removes persistent or interactive tools', () => {
@@ -391,10 +441,7 @@ test('Goal stays active while legacy Goal schemas are removed from restored sess
   const surface = surfaceFor({ session, standalone: [read, goal] });
   const result = surface.activateTools(['goal']);
   assert.deepEqual(result.missing, []);
-  const visible = new Set([
-    ...session.tools.map((tool) => tool.name),
-    ...(session.deferredCallableTools || []),
-  ]);
+  const visible = new Set([...session.tools.map((tool) => tool.name), ...(session.deferredCallableTools || [])]);
   assert.equal(visible.has('goal'), true);
   assert.equal(visible.has('update_goal'), false);
 });
@@ -404,7 +451,11 @@ test('empty session refresh strips denied tools and BP1 routes', async () => {
     id: 'sess_empty',
     schemaAllowedTools: modelToolSchemaAllowlist('headless'),
     messages: [
-      { role: 'system', content: '# Tool Use\nweb/current→`web_search`; returned URL body→`web_fetch`;\nprior work→`recall` (history only, never current local state);\ndurable compact English memory→`memory`;\n' },
+      {
+        role: 'system',
+        content:
+          '# Tool Use\nweb/current→`web_search`; returned URL body→`web_fetch`;\nprior work→`recall` (history only, never current local state);\ndurable compact English memory→`memory`;\n',
+      },
       { role: 'system', content: '# Profile' },
       { role: 'system', content: '# Active Workflow: Cowork\n\n---\n\n# Lead Tools\n', cacheTier: 'tier3' },
     ],
@@ -425,7 +476,13 @@ test('empty session refresh strips denied tools and BP1 routes', async () => {
     memoryToolsEnabled: () => false,
     loadCoreMemoryContext: async () => '# should not inject',
     activeWorkflowContext: () => ({
-      summary: { id: 'solo', name: 'Solo', description: 'Lead works alone.', source: 'built-in', delegatesAgents: false },
+      summary: {
+        id: 'solo',
+        name: 'Solo',
+        description: 'Lead works alone.',
+        source: 'built-in',
+        delegatesAgents: false,
+      },
       context: '# Active Workflow: Solo — Lead works alone.',
     }),
     invalidatePreSessionToolSurface: () => {},
@@ -435,7 +492,10 @@ test('empty session refresh strips denied tools and BP1 routes', async () => {
   const result = await refreshEmptySessionToolPolicy();
   assert.equal(result.appliedToCurrentSession, true);
   assert.equal(session.workflow.delegatesAgents, false);
-  assert.deepEqual(session.tools.map((tool) => tool.name), ['read']);
+  assert.deepEqual(
+    session.tools.map((tool) => tool.name),
+    ['read']
+  );
   const bp1 = session.messages[0].content;
   assert.equal(bp1.includes('`web_search`'), false);
   assert.equal(bp1.includes('`memory`'), false);
@@ -449,7 +509,10 @@ test('empty session refresh strips denied tools and BP1 routes', async () => {
 test('refresh leaves a conversation session frozen', async () => {
   const session = {
     id: 'sess_live',
-    messages: [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'hi' }],
+    messages: [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'hi' },
+    ],
     tools: [{ name: 'agent' }, { name: 'web_search' }],
     workflow: { id: 'default', delegatesAgents: true },
   };
@@ -471,5 +534,8 @@ test('refresh leaves a conversation session frozen', async () => {
   });
   const result = await refreshEmptySessionToolPolicy();
   assert.equal(result.appliedToCurrentSession, false);
-  assert.deepEqual(session.tools.map((tool) => tool.name), ['agent', 'web_search']);
+  assert.deepEqual(
+    session.tools.map((tool) => tool.name),
+    ['agent', 'web_search']
+  );
 });

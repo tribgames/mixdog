@@ -14,7 +14,11 @@ const handlersUrl = new URL('./handlers.mjs', import.meta.url).href;
 
 function controlledChild(t, stdinError = null) {
   const child = new EventEmitter();
-  child.stdin = new Writable({ write(_chunk, _encoding, done) { done(stdinError); } });
+  child.stdin = new Writable({
+    write(_chunk, _encoding, done) {
+      done(stdinError);
+    },
+  });
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
   t.mock.method(childProcess, 'spawn', () => child);
@@ -51,9 +55,17 @@ for (const asynchronous of [false, true]) {
 
 test('command output preserves UTF-8 characters split across stdout and stderr chunks', async (t) => {
   const child = controlledChild(t);
-  const running = runCommandHandler({
-    type: 'command', command: 'fixture', args: [], timeout: 2,
-  }, { cwd: tmpdir() }, 'Stop', null);
+  const running = runCommandHandler(
+    {
+      type: 'command',
+      command: 'fixture',
+      args: [],
+      timeout: 2,
+    },
+    { cwd: tmpdir() },
+    'Stop',
+    null
+  );
   const stdout = '승인할 파일 🙂';
   const stderr = '정확한 오류 🚧';
   for (const byte of Buffer.from(stdout)) child.stdout.write(Buffer.from([byte]));
@@ -67,20 +79,33 @@ test('command output preserves UTF-8 characters split across stdout and stderr c
 });
 
 test('a signal-terminated command is not reported as a successful hook', async () => {
-  const result = await runCommandHandler({
-    type: 'command',
-    command: process.execPath,
-    args: ['-e', 'process.kill(process.pid, "SIGTERM")'],
-    timeout: 2,
-  }, { cwd: tmpdir() }, 'Stop', null);
+  const result = await runCommandHandler(
+    {
+      type: 'command',
+      command: process.execPath,
+      args: ['-e', 'process.kill(process.pid, "SIGTERM")'],
+      timeout: 2,
+    },
+    { cwd: tmpdir() },
+    'Stop',
+    null
+  );
   assert.notEqual(result.exitCode, 0);
 });
 
 test('command capture retains the existing raw-byte cap', async (t) => {
   const child = controlledChild(t);
-  const running = runCommandHandler({
-    type: 'command', command: 'fixture', args: [], timeout: 2,
-  }, { cwd: tmpdir() }, 'Stop', null);
+  const running = runCommandHandler(
+    {
+      type: 'command',
+      command: 'fixture',
+      args: [],
+      timeout: 2,
+    },
+    { cwd: tmpdir() },
+    'Stop',
+    null
+  );
   child.stdout.write(Buffer.alloc(MAX_BUFFER_BYTES - 1, 'x'));
   child.stdout.write(Buffer.from('넘'));
   child.stderr.write(Buffer.alloc(MAX_BUFFER_BYTES + 1, 'y'));
@@ -92,9 +117,17 @@ test('command capture retains the existing raw-byte cap', async (t) => {
 
 test('a close event without an exit code cannot report success', async (t) => {
   const child = controlledChild(t);
-  const running = runCommandHandler({
-    type: 'command', command: 'fixture', args: [], timeout: 2,
-  }, { cwd: tmpdir() }, 'Stop', null);
+  const running = runCommandHandler(
+    {
+      type: 'command',
+      command: 'fixture',
+      args: [],
+      timeout: 2,
+    },
+    { cwd: tmpdir() },
+    'Stop',
+    null
+  );
   child.emit('close', null, 'SIGTERM');
   const result = await running;
   assert.equal(result.exitCode, -1);
@@ -104,9 +137,17 @@ test('a close event without an exit code cannot report success', async (t) => {
 test('an unexpected input I/O error is surfaced instead of being treated as a closed pipe', async (t) => {
   const reason = Object.assign(new Error('fixture input failure'), { code: 'EIO' });
   controlledChild(t, reason);
-  const result = await runCommandHandler({
-    type: 'command', command: 'fixture', args: [], timeout: 2,
-  }, { cwd: tmpdir() }, 'Stop', null);
+  const result = await runCommandHandler(
+    {
+      type: 'command',
+      command: 'fixture',
+      args: [],
+      timeout: 2,
+    },
+    { cwd: tmpdir() },
+    'Stop',
+    null
+  );
   assert.equal(result.exitCode, -1);
   assert.equal(result.spawnError, reason);
   assert.match(result.stderr, /fixture input failure/);
@@ -128,11 +169,18 @@ for (const asynchronous of [false, true]) {
       t.mock.restoreAll();
       syncBuiltinESMExports();
     });
-    const result = await runCommandHandler({
-      type: 'command', command: process.execPath,
-      args: ['-e', 'setInterval(() => {}, 1000)'],
-      async: asynchronous, timeout: 0.05,
-    }, { cwd: tmpdir() }, 'Stop', null);
+    const result = await runCommandHandler(
+      {
+        type: 'command',
+        command: process.execPath,
+        args: ['-e', 'setInterval(() => {}, 1000)'],
+        async: asynchronous,
+        timeout: 0.05,
+      },
+      { cwd: tmpdir() },
+      'Stop',
+      null
+    );
     if (asynchronous) assert.equal(result.async, true);
     else assert.equal(result.timedOut, true);
     let timer;
@@ -162,9 +210,17 @@ test('Windows timeout cleanup does not target an already-closed child again', {
   });
   syncBuiltinESMExports();
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const running = runCommandHandler({
-    type: 'command', command: 'fixture', args: [], timeout: 0.01,
-  }, { cwd: tmpdir() }, 'Stop', null);
+  const running = runCommandHandler(
+    {
+      type: 'command',
+      command: 'fixture',
+      args: [],
+      timeout: 0.01,
+    },
+    { cwd: tmpdir() },
+    'Stop',
+    null
+  );
   t.mock.timers.tick(10);
   assert.equal((await running).timedOut, true);
   t.mock.timers.tick(2_000);
@@ -175,9 +231,19 @@ test('a synchronous command observes caller cancellation and releases its abort 
   controlledChild(t);
   const controller = new AbortController();
   const reason = new Error('fixture command cancellation');
-  const pending = runCommandHandler({
-    type: 'command', command: 'fixture', args: [], timeout: 2,
-  }, { cwd: tmpdir() }, 'PreToolUse', null, null, { signal: controller.signal });
+  const pending = runCommandHandler(
+    {
+      type: 'command',
+      command: 'fixture',
+      args: [],
+      timeout: 2,
+    },
+    { cwd: tmpdir() },
+    'PreToolUse',
+    null,
+    null,
+    { signal: controller.signal }
+  );
   controller.abort(reason);
   const result = await pending;
   assert.equal(result.exitCode, -1);

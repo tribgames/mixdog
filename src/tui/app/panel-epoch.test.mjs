@@ -21,11 +21,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { basename, join, relative } from 'node:path';
 
-import {
-  panelIdentity,
-  shouldSupersedePanelEpoch,
-  supersedePanelEpoch,
-} from './panel-epoch.mjs';
+import { panelIdentity, shouldSupersedePanelEpoch, supersedePanelEpoch } from './panel-epoch.mjs';
 import { createPanelSurface } from './panel-surface.mjs';
 import { createSettingsPicker } from './settings-picker.mjs';
 import { createMaintenancePickers } from './maintenance-pickers.mjs';
@@ -38,7 +34,10 @@ import { createRoutePickers } from './route-pickers.mjs';
 function deferred() {
   let resolve;
   let reject;
-  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
   return { promise, resolve, reject };
 }
 
@@ -92,7 +91,7 @@ function createSettingsHarness({ store: storeOverrides = {}, host = null } = {})
         painted.push(next);
         if (host) host.setPicker(next);
       },
-        setUsagePanel: noop,
+      setUsagePanel: noop,
     }),
     setProviderPrompt: noop,
     setSettingsPrompt: noop,
@@ -134,12 +133,18 @@ test('panel handover: close and replacement supersede, rebuild and first open do
   assert.equal(shouldSupersedePanelEpoch(settings, null), true);
   // Replacement by a DIFFERENT panel: the gap this suite closes.
   assert.equal(shouldSupersedePanelEpoch(settings, { title: 'Core memories' }), true);
-  assert.equal(shouldSupersedePanelEpoch({ _kind: 'mcp-servers', title: 'Extensions' }, { _kind: 'skills', title: 'Extensions' }), true);
+  assert.equal(
+    shouldSupersedePanelEpoch({ _kind: 'mcp-servers', title: 'Extensions' }, { _kind: 'skills', title: 'Extensions' }),
+    true
+  );
   // Rebuild of the same surface (light refresh / toggle re-render): keeps
   // ownership so its own deferred refresh still lands.
   assert.equal(shouldSupersedePanelEpoch(settings, { title: 'Settings', items: [] }), false);
   assert.equal(shouldSupersedePanelEpoch(settings, settings), false);
-  assert.equal(shouldSupersedePanelEpoch({ _kind: 'mcp-servers', title: 'MCP · 1' }, { _kind: 'mcp-servers', title: 'MCP · 2' }), false);
+  assert.equal(
+    shouldSupersedePanelEpoch({ _kind: 'mcp-servers', title: 'MCP · 1' }, { _kind: 'mcp-servers', title: 'MCP · 2' }),
+    false
+  );
   // Nothing owned the surface: null → null and the first open are not handovers
   // (an in-flight text-entry prompt write must stay valid).
   assert.equal(shouldSupersedePanelEpoch(null, null), false);
@@ -337,7 +342,7 @@ test('App.jsx routes every picker handover through shouldSupersedePanelEpoch', a
   assert.match(source, /import \{ shouldSupersedePanelEpoch, supersedePanelEpoch \} from '\.\/app\/panel-epoch\.mjs';/);
   assert.match(
     source,
-    /if \(shouldSupersedePanelEpoch\(previousPicker, livePickerRef\.current\)\) supersedePanelEpoch\(\);/,
+    /if \(shouldSupersedePanelEpoch\(previousPicker, livePickerRef\.current\)\) supersedePanelEpoch\(\);/
   );
 });
 
@@ -489,7 +494,10 @@ test('probe: an Update re-check settling after Esc paints nothing', async () => 
   const { openUpdatePicker } = createMaintenancePickers({
     store: {
       pushNotice: () => {},
-      getUpdateSettings: () => { reads += 1; return readGate ? readGate.promise : Promise.resolve({ currentVersion: '0.9.147' }); },
+      getUpdateSettings: () => {
+        reads += 1;
+        return readGate ? readGate.promise : Promise.resolve({ currentVersion: '0.9.147' });
+      },
       getUpdateStatus: async () => ({ phase: 'idle' }),
       checkForUpdate: () => checkGate.promise,
     },
@@ -530,7 +538,10 @@ test('probe: an Auto-clear read settling after Esc paints nothing', async () => 
   const { openAutoClearPicker } = createMaintenancePickers({
     store: {
       pushNotice: () => {},
-      getAutoClear: () => { reads += 1; return readGate ? readGate.promise : Promise.resolve(autoClear); },
+      getAutoClear: () => {
+        reads += 1;
+        return readGate ? readGate.promise : Promise.resolve(autoClear);
+      },
     },
     theme: { success: '' },
     formatDuration: (ms) => `${ms}ms`,
@@ -577,7 +588,9 @@ test('probe: a model load completing after Esc paints nothing', async () => {
     modelSwitchNotice: () => 'switched',
     // NOT stubbed away: the empty-catalog fallback really opens Providers, and
     // a stub would hide an unguarded delegation.
-    openProviderSetupPicker: () => { host.setPicker({ title: 'Providers' }); },
+    openProviderSetupPicker: () => {
+      host.setPicker({ title: 'Providers' });
+    },
   });
 
   void openModelPicker({ refreshModels: true });
@@ -610,7 +623,9 @@ test('probe: onboarding Step 1 does not paint when Esc lands during its read', a
     onboardingRef: { current: { providerModels: [{ provider: 'openai', id: 'gpt-5' }], agents: [{ id: 'lead' }] } },
     providerModelsCacheRef: { current: { models: [], at: 0 } },
     onboardingPrefetchSeqRef: { current: 0 },
-    openProviderSetupPicker: (options) => { opened.push(options?.title); },
+    openProviderSetupPicker: (options) => {
+      opened.push(options?.title);
+    },
     openThemePicker: noop,
     openOutputStylePicker: noop,
   });
@@ -657,10 +672,11 @@ function createModelHarness(host, loadGate) {
 
 // Proof that the branch under test actually ran: without it a probe passes for
 // the wrong reason (the chain simply had not reached the delegation yet).
-const branchRan = (notices, pattern, label) => assert.ok(
-  notices.some((message) => pattern.test(message)),
-  `${label}: the branch under test did not run`,
-);
+const branchRan = (notices, pattern, label) =>
+  assert.ok(
+    notices.some((message) => pattern.test(message)),
+    `${label}: the branch under test did not run`
+  );
 
 test('probe: the empty-catalog fallback does not delegate to Providers after Esc', async () => {
   supersedePanelEpoch();
@@ -788,9 +804,8 @@ async function sourceFiles(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const full = join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (!GENERATED.has(entry.name)) out.push(...await sourceFiles(full));
-    }
-    else if (/\.(?:mjs|jsx|js)$/.test(entry.name) && !entry.name.endsWith('.test.mjs')) out.push(full);
+      if (!GENERATED.has(entry.name)) out.push(...(await sourceFiles(full)));
+    } else if (/\.(?:mjs|jsx|js)$/.test(entry.name) && !entry.name.endsWith('.test.mjs')) out.push(full);
   }
   return out;
 }
@@ -820,9 +835,15 @@ test('audit: a claim rejects every late-paint shape once the surface changed han
   const alias = own.paint;
   const holder = { paint: own.paint };
   const stored = () => own.paint({ title: 'Stored' });
-  class LatePanel { painted = own.paint({ title: 'Field' }); }
+  class LatePanel {
+    painted = own.paint({ title: 'Field' });
+  }
   let subscriber = null;
-  const foreignModule = { subscribe: (fn) => { subscriber = fn; } };
+  const foreignModule = {
+    subscribe: (fn) => {
+      subscriber = fn;
+    },
+  };
   foreignModule.subscribe(() => own.paint({ title: 'Pushed' }));
 
   // Undisturbed they all paint, so the probe below is not vacuous.
@@ -965,7 +986,7 @@ test('main-provider Enter still opens the provider action panel', async () => {
   assert.equal(host.current()?.title, 'Provider · OpenAI', 'afterEnter');
   assert.deepEqual(
     host.painted.slice(-2).map((panel) => (panel === null ? null : panel.title)),
-    [null, 'Provider · OpenAI'],
+    [null, 'Provider · OpenAI']
   );
 });
 

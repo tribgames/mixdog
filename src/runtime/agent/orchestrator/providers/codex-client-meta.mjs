@@ -23,21 +23,23 @@ let _cache = { value: null, fetchedAt: 0 };
 let _refreshInFlight = null;
 
 async function _refresh() {
-    try {
-        const res = await fetch('https://registry.npmjs.org/@openai/codex/latest', {
-            signal: AbortSignal.timeout(5_000),
-        });
-        if (res.ok) {
-            const j = await res.json();
-            const v = String(j?.version || '').trim();
-            if (/^\d+\.\d+\.\d+/.test(v)) {
-                _cache = { value: v, fetchedAt: Date.now() };
-                return v;
-            }
-        }
-    } catch { /* offline — keep floor */ }
-    _cache = { value: CODEX_CLIENT_VERSION_FLOOR, fetchedAt: Date.now() };
-    return CODEX_CLIENT_VERSION_FLOOR;
+  try {
+    const res = await fetch('https://registry.npmjs.org/@openai/codex/latest', {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (res.ok) {
+      const j = await res.json();
+      const v = String(j?.version || '').trim();
+      if (/^\d+\.\d+\.\d+/.test(v)) {
+        _cache = { value: v, fetchedAt: Date.now() };
+        return v;
+      }
+    }
+  } catch {
+    /* offline — keep floor */
+  }
+  _cache = { value: CODEX_CLIENT_VERSION_FLOOR, fetchedAt: Date.now() };
+  return CODEX_CLIENT_VERSION_FLOOR;
 }
 
 /**
@@ -46,11 +48,13 @@ async function _refresh() {
  * handshake must never await a registry fetch.
  */
 function codexClientVersionSync() {
-    if (_cache.value && Date.now() - _cache.fetchedAt < VERSION_TTL_MS) return _cache.value;
-    if (!_refreshInFlight) {
-        _refreshInFlight = _refresh().finally(() => { _refreshInFlight = null; });
-    }
-    return _cache.value || CODEX_CLIENT_VERSION_FLOOR;
+  if (_cache.value && Date.now() - _cache.fetchedAt < VERSION_TTL_MS) return _cache.value;
+  if (!_refreshInFlight) {
+    _refreshInFlight = _refresh().finally(() => {
+      _refreshInFlight = null;
+    });
+  }
+  return _cache.value || CODEX_CLIENT_VERSION_FLOOR;
 }
 
 /**
@@ -61,30 +65,32 @@ function codexClientVersionSync() {
  * backend's minimal_client_version gate never sees a stale floor.
  */
 export function warmCodexClientVersion() {
-    if (_cache.value && Date.now() - _cache.fetchedAt < VERSION_TTL_MS) {
-        return Promise.resolve(_cache.value);
-    }
-    if (!_refreshInFlight) {
-        _refreshInFlight = _refresh().finally(() => { _refreshInFlight = null; });
-    }
-    return _refreshInFlight;
+  if (_cache.value && Date.now() - _cache.fetchedAt < VERSION_TTL_MS) {
+    return Promise.resolve(_cache.value);
+  }
+  if (!_refreshInFlight) {
+    _refreshInFlight = _refresh().finally(() => {
+      _refreshInFlight = null;
+    });
+  }
+  return _refreshInFlight;
 }
 
 function _osType() {
-    // codex os_info reports "Windows"/"Mac OS"/"Linux"; node os.type() gives
-    // Windows_NT/Darwin/Linux. Map to codex's vocabulary.
-    const t = os.type();
-    if (t === 'Windows_NT') return 'Windows';
-    if (t === 'Darwin') return 'Mac OS';
-    return t;
+  // codex os_info reports "Windows"/"Mac OS"/"Linux"; node os.type() gives
+  // Windows_NT/Darwin/Linux. Map to codex's vocabulary.
+  const t = os.type();
+  if (t === 'Windows_NT') return 'Windows';
+  if (t === 'Darwin') return 'Mac OS';
+  return t;
 }
 
 function _arch() {
-    // codex reports rust-style arch tokens.
-    const a = os.arch();
-    if (a === 'x64') return 'x86_64';
-    if (a === 'arm64') return 'aarch64';
-    return a;
+  // codex reports rust-style arch tokens.
+  const a = os.arch();
+  if (a === 'x64') return 'x86_64';
+  if (a === 'arm64') return 'aarch64';
+  return a;
 }
 
 /**
@@ -96,8 +102,8 @@ function _arch() {
  * the User-Agent is built from.
  */
 export function codexOriginator() {
-    const override = String(process.env.MIXDOG_CODEX_ORIGINATOR || '').trim();
-    return override || 'codex_cli_rs';
+  const override = String(process.env.MIXDOG_CODEX_ORIGINATOR || '').trim();
+  return override || 'codex_cli_rs';
 }
 
 /**
@@ -108,21 +114,21 @@ export function codexOriginator() {
  * interactive CLI agent would produce a pair no real client build sends.
  */
 export function codexUserAgent() {
-    // Opt-in parity override: pin an exact codex User-Agent string
-    // (MIXDOG_CODEX_USER_AGENT) when the auto-derived os/arch/terminal tuple
-    // drifts from the real codex build the backend expects. Unset = default.
-    const override = String(process.env.MIXDOG_CODEX_USER_AGENT || '').trim();
-    if (override) return override;
-    const terminal = String(process.env.TERM_PROGRAM || 'unknown').trim() || 'unknown';
-    return `${codexOriginator()}/${codexClientVersionSync()} (${_osType()} ${os.release()}; ${_arch()}) ${terminal}`;
+  // Opt-in parity override: pin an exact codex User-Agent string
+  // (MIXDOG_CODEX_USER_AGENT) when the auto-derived os/arch/terminal tuple
+  // drifts from the real codex build the backend expects. Unset = default.
+  const override = String(process.env.MIXDOG_CODEX_USER_AGENT || '').trim();
+  if (override) return override;
+  const terminal = String(process.env.TERM_PROGRAM || 'unknown').trim() || 'unknown';
+  return `${codexOriginator()}/${codexClientVersionSync()} (${_osType()} ${os.release()}; ${_arch()}) ${terminal}`;
 }
 
 /** Bare version header value — codex built-in provider http_headers "version". */
 export function codexVersionHeader() {
-    // Opt-in parity override: pin an exact `version` header
-    // (MIXDOG_CODEX_VERSION) instead of the npm-derived value. Unset = default
-    // (live npm version, floor fallback), so behavior is unchanged.
-    const override = String(process.env.MIXDOG_CODEX_VERSION || '').trim();
-    if (override) return override;
-    return codexClientVersionSync();
+  // Opt-in parity override: pin an exact `version` header
+  // (MIXDOG_CODEX_VERSION) instead of the npm-derived value. Unset = default
+  // (live npm version, floor fallback), so behavior is unchanged.
+  const override = String(process.env.MIXDOG_CODEX_VERSION || '').trim();
+  if (override) return override;
+  return codexClientVersionSync();
 }

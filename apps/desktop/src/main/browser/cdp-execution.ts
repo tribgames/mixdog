@@ -5,8 +5,11 @@ import { CDP_REQUEST_TIMEOUT_MS } from './command';
 
 interface BrowserCdpExecutionHost {
   bounded<T>(
-    promise: Promise<T>, timeoutMs: number, label: string,
-    signal?: AbortSignal, onTimeout?: () => void,
+    promise: Promise<T>,
+    timeoutMs: number,
+    label: string,
+    signal?: AbortSignal,
+    onTimeout?: () => void
   ): Promise<T>;
   diagnostic(guest: WebContents, message: string): void;
 }
@@ -14,9 +17,14 @@ interface BrowserCdpExecutionHost {
 const EXECUTION_METHODS = new Set(['Runtime.evaluate', 'Runtime.callFunctionOn']);
 // These release an already-blocked operation rather than start another input.
 const CLEANUP_METHODS = new Set([
-  'Runtime.terminateExecution', 'Runtime.releaseObject', 'Runtime.releaseObjectGroup',
-  'Page.handleJavaScriptDialog', 'Fetch.fulfillRequest', 'Fetch.failRequest',
-  'Fetch.continueRequest', 'Fetch.continueResponse',
+  'Runtime.terminateExecution',
+  'Runtime.releaseObject',
+  'Runtime.releaseObjectGroup',
+  'Page.handleJavaScriptDialog',
+  'Fetch.fulfillRequest',
+  'Fetch.failRequest',
+  'Fetch.continueRequest',
+  'Fetch.continueResponse',
 ]);
 const CLEANUP_TIMEOUT_MS = 2_000;
 
@@ -29,9 +37,10 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
       const barrier = settling.get(guest);
       if (!barrier) return;
       await host.bounded(
-        barrier, CLEANUP_TIMEOUT_MS,
+        barrier,
+        CLEANUP_TIMEOUT_MS,
         'browser execution cleanup is pending; wait or reload the page before retrying',
-        signal,
+        signal
       );
       signal?.throwIfAborted();
     }
@@ -45,7 +54,7 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
     timeoutMs = CDP_REQUEST_TIMEOUT_MS,
     signal?: AbortSignal,
     sessionId?: string,
-    beforeDispatch?: () => void,
+    beforeDispatch?: () => void
   ): Promise<T> {
     signal?.throwIfAborted();
     if (!CLEANUP_METHODS.has(method)) {
@@ -62,12 +71,17 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
       interrupted = true;
       const previous = settling.get(guest);
       const terminate = EXECUTION_METHODS.has(method)
-        ? Promise.resolve().then(() => host.bounded(
-          cdp.sendCommand('Runtime.terminateExecution', {}, sessionId),
-          CLEANUP_TIMEOUT_MS, 'browser execution termination',
-        )).catch((error) => {
-          host.diagnostic(guest, `CDP execution cleanup: ${String(error)}`);
-        })
+        ? Promise.resolve()
+            .then(() =>
+              host.bounded(
+                cdp.sendCommand('Runtime.terminateExecution', {}, sessionId),
+                CLEANUP_TIMEOUT_MS,
+                'browser execution termination'
+              )
+            )
+            .catch((error) => {
+              host.diagnostic(guest, `CDP execution cleanup: ${String(error)}`);
+            })
         : Promise.resolve();
       const barrier = Promise.allSettled([previous, dispatch, terminate]).then(() => undefined);
       settling.set(guest, barrier);

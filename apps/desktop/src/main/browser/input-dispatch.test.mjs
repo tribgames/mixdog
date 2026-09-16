@@ -24,13 +24,21 @@ test('offscreen child-frame input uses child coordinates and rechecks local owne
     },
   });
   const input = { type: 'mousePressed', x: 120.25, y: 230.25 };
-  const guard = () => { if (!current) throw new Error('document changed'); };
+  const guard = () => {
+    if (!current) throw new Error('document changed');
+  };
   await dispatch({ isOffscreen: () => true }, 'Input.dispatchMouseEvent', input, undefined, guard);
-  assert.deepEqual(sent, [{
-    method: 'Input.dispatchMouseEvent', params: { ...input, x: 20.25, y: 30.25 }, session: 'child-session',
-  }]);
+  assert.deepEqual(sent, [
+    {
+      method: 'Input.dispatchMouseEvent',
+      params: { ...input, x: 20.25, y: 30.25 },
+      session: 'child-session',
+    },
+  ]);
   current = false;
-  await assert.rejects(dispatch({ isOffscreen: () => true }, 'Input.dispatchMouseEvent', input, undefined, guard),
-    /document changed/);
+  await assert.rejects(
+    dispatch({ isOffscreen: () => true }, 'Input.dispatchMouseEvent', input, undefined, guard),
+    /document changed/
+  );
   assert.equal(sent.length, 1);
 });

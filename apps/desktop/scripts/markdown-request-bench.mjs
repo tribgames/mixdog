@@ -6,16 +6,27 @@ let terminations = 0;
 globalThis.Worker = class {
   handlers = new Map();
   requests = [];
-  constructor() { workers.push(this); }
-  addEventListener(type, listener) { this.handlers.set(type, listener); }
-  postMessage(request) { posts += 1; this.requests.push(request); }
-  terminate() { terminations += 1; }
+  constructor() {
+    workers.push(this);
+  }
+  addEventListener(type, listener) {
+    this.handlers.set(type, listener);
+  }
+  postMessage(request) {
+    posts += 1;
+    this.requests.push(request);
+  }
+  terminate() {
+    terminations += 1;
+  }
   flush() {
     for (const request of this.requests.splice(0)) {
-      this.handlers.get('message')?.({ data: {
-        id: request.id,
-        root: { type: 'root', children: [{ type: 'text', value: request.text }] },
-      } });
+      this.handlers.get('message')?.({
+        data: {
+          id: request.id,
+          root: { type: 'root', children: [{ type: 'text', value: request.text }] },
+        },
+      });
     }
   }
 };
@@ -26,9 +37,11 @@ await Promise.resolve();
 for (const worker of workers) worker.flush();
 const roots = await Promise.all(requests);
 _runIdleReclaimForTest();
-console.log(JSON.stringify({
-  callers: requests.length,
-  workerParses: posts,
-  uniqueResults: new Set(roots).size,
-  idleWorkersRetained: workers.length - terminations,
-}));
+console.log(
+  JSON.stringify({
+    callers: requests.length,
+    workerParses: posts,
+    uniqueResults: new Set(roots).size,
+    idleWorkersRetained: workers.length - terminations,
+  })
+);

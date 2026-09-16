@@ -7,7 +7,9 @@ const execCalls = [];
 let failFor = null;
 let failError = null;
 const db = {
-  exec: async (sql) => { execCalls.push(sql); },
+  exec: async (sql) => {
+    execCalls.push(sql);
+  },
   query: async () => ({ rows: [], rowCount: 0 }),
 };
 const pool = { name: 'webhooks-pool' };
@@ -50,7 +52,7 @@ test('webhooks keep a separate cache from schedules and retry the same failure',
   await listEndpoints({ dataDir: '/shared' });
   assert.deepEqual(
     ensureCalls.slice(ensureBefore).map((entry) => entry.opts.schema),
-    ['scheduler', 'webhooks'],
+    ['scheduler', 'webhooks']
   );
   const newExec = execCalls.slice(execBefore);
   assert.equal(newExec.filter((sql) => sql.includes('scheduler.schedules')).length, 1);
@@ -60,7 +62,10 @@ test('webhooks keep a separate cache from schedules and retry the same failure',
   failFor = '/hooks-fail';
   failError = boom;
   const lockBefore = lockCalls.length;
-  await assert.rejects(() => listEndpoints({ dataDir: '/hooks-fail' }), (error) => error === boom);
+  await assert.rejects(
+    () => listEndpoints({ dataDir: '/hooks-fail' }),
+    (error) => error === boom
+  );
   assert.equal(lockCalls.length, lockBefore);
   failFor = null;
   await listEndpoints({ dataDir: '/hooks-fail' });

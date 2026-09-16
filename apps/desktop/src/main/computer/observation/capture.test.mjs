@@ -10,25 +10,16 @@ import {
 test('a visual-only cache hit is a deliberate skip rather than an accessibility error', () => {
   assert.equal(captureAccessibilityError(true, false, '', ''), '');
   assert.equal(captureAccessibilityError(false, true, '', ''), '');
-  assert.equal(
-    captureAccessibilityError(false, false, 'provider timed out', ''),
-    'provider timed out',
-  );
-  assert.equal(
-    captureAccessibilityError(false, false, '', 'snapshot refused'),
-    'snapshot refused',
-  );
-  assert.equal(
-    captureAccessibilityError(false, false, '', ''),
-    'capture accessibility snapshot failed',
-  );
+  assert.equal(captureAccessibilityError(false, false, 'provider timed out', ''), 'provider timed out');
+  assert.equal(captureAccessibilityError(false, false, '', 'snapshot refused'), 'snapshot refused');
+  assert.equal(captureAccessibilityError(false, false, '', ''), 'capture accessibility snapshot failed');
 });
 
 test('visual-only capability learns only from a successful empty accessibility result', () => {
   assert.equal(shouldRecordVisualOnlyCapabilityMiss(false, ''), true);
   assert.equal(
     shouldRecordVisualOnlyCapabilityMiss(false, 'computer_command_timeout: snapshot exceeded 2500ms'),
-    false,
+    false
   );
   assert.equal(shouldRecordVisualOnlyCapabilityMiss(true, ''), false);
 });
@@ -56,10 +47,11 @@ test('explicit OCR overrides semantic availability and persists for post-action 
   preferences.remember('session-a', { includeOcr: false });
   assert.deepEqual(preferences.resolve('session-a', {}), { includeOcr: false });
   preferences.remember('session-a', { includeOcr: true, ocrLanguage: 'ko' });
-  assert.deepEqual(
-    preferences.resolve('session-a', { includeOcr: true, ocrLanguage: 'en-US' }),
-    { includeOcr: true, ocrLanguage: 'en-US', maxOcrWords: undefined },
-  );
+  assert.deepEqual(preferences.resolve('session-a', { includeOcr: true, ocrLanguage: 'en-US' }), {
+    includeOcr: true,
+    ocrLanguage: 'en-US',
+    maxOcrWords: undefined,
+  });
   assert.deepEqual(preferences.resolve('session-a', {}), {
     includeOcr: true,
     ocrLanguage: 'ko',

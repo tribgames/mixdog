@@ -12,17 +12,22 @@ test('media defaults remember lane and model per kind on disk and reject bad inp
     const defaults = await import('./defaults.mjs');
     assert.equal(defaults.getMediaDefault('image'), null, 'nothing remembered yet');
 
-    assert.deepEqual(
-      defaults.setMediaDefault({ kind: 'image', lane: ' gemini ', model: 'nano' }),
-      { kind: 'image', lane: 'gemini', model: 'nano' },
-    );
+    assert.deepEqual(defaults.setMediaDefault({ kind: 'image', lane: ' gemini ', model: 'nano' }), {
+      kind: 'image',
+      lane: 'gemini',
+      model: 'nano',
+    });
     assert.deepEqual(defaults.getMediaDefault('image'), { kind: 'image', lane: 'gemini', model: 'nano' });
     assert.equal(existsSync(join(root, 'media', 'defaults.json')), true, 'persisted beside the asset index');
 
     assert.equal(defaults.getMediaDefault('video'), null, 'kinds are independent');
     defaults.setMediaDefault({ kind: 'video', lane: 'grok' });
     assert.deepEqual(defaults.getMediaDefault('video'), { kind: 'video', lane: 'grok', model: '' });
-    assert.deepEqual(defaults.getMediaDefault('image'), { kind: 'image', lane: 'gemini', model: 'nano' }, 'the other kind is untouched');
+    assert.deepEqual(
+      defaults.getMediaDefault('image'),
+      { kind: 'image', lane: 'gemini', model: 'nano' },
+      'the other kind is untouched'
+    );
 
     assert.throws(() => defaults.setMediaDefault({ kind: 'audio', lane: 'x' }), /kind must be one of/);
     assert.throws(() => defaults.setMediaDefault({ kind: 'image', lane: '  ' }), /lane is required/);

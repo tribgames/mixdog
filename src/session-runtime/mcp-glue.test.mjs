@@ -13,7 +13,12 @@ test('mcpStatus marks plugin-owned servers so they list under the plugin, not as
       mcpServers: {
         mine: { command: 'node', args: ['server.mjs'] },
         'plugin-a': { command: 'node', args: ['mcp.mjs'], env: { MIXDOG_PLUGIN_ROOT: 'C:/plugins/a' } },
-        'plugin-b': { command: 'node', args: ['mcp.mjs'], env: { MIXDOG_PLUGIN_ROOT: 'C:/plugins/b' }, _mixdogPluginDisabled: true },
+        'plugin-b': {
+          command: 'node',
+          args: ['mcp.mjs'],
+          env: { MIXDOG_PLUGIN_ROOT: 'C:/plugins/b' },
+          _mixdogPluginDisabled: true,
+        },
       },
     }),
     getCurrentCwd: () => process.cwd(),

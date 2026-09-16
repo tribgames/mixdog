@@ -65,7 +65,11 @@ export {
 export function isTaskWaitToolCall(name, args = {}) {
   if (normalizeToolName(name) !== 'task') return false;
   const parsed = parseToolArgs(args);
-  return String(parsed?.action || '').trim().toLowerCase() === 'wait';
+  return (
+    String(parsed?.action || '')
+      .trim()
+      .toLowerCase() === 'wait'
+  );
 }
 
 function patchOperationProfile(args = {}) {
@@ -83,12 +87,9 @@ function patchOperationProfile(args = {}) {
   }
   if (counts.size > 0) return counts;
 
-  const gitSections = patchText
-    .split(/(?=^diff --git )/m)
-    .filter((section) => /^diff --git /m.test(section));
-  const unifiedSections = gitSections.length > 0
-    ? gitSections
-    : (/^---\s+.+\n\+\+\+\s+.+$/m.test(patchText) ? [patchText] : []);
+  const gitSections = patchText.split(/(?=^diff --git )/m).filter((section) => /^diff --git /m.test(section));
+  const unifiedSections =
+    gitSections.length > 0 ? gitSections : /^---\s+.+\n\+\+\+\s+.+$/m.test(patchText) ? [patchText] : [];
   for (const section of unifiedSections) {
     if (/^new file mode /m.test(section) || /^---\s+\/dev\/null(?:\s|$)/m.test(section)) add('add');
     else if (/^deleted file mode /m.test(section) || /^\+\+\+\s+\/dev\/null(?:\s|$)/m.test(section)) add('delete');
@@ -204,9 +205,7 @@ function bridgeToolCall(args) {
     }
   }
   if (!root || typeof root !== 'object' || Array.isArray(root)) return { action: '', input: {} };
-  const input = root.input && typeof root.input === 'object' && !Array.isArray(root.input)
-    ? root.input
-    : root;
+  const input = root.input && typeof root.input === 'object' && !Array.isArray(root.input) ? root.input : root;
   return { action: String(root.action || input.action || ''), input };
 }
 
@@ -218,7 +217,10 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     const mcp = parseMcpToolName(name);
     return compactParts([
       truncateToolText(mcp.tool, max),
-      truncateToolText(firstText(a.query, a.q, a.text, a.prompt, a.path, a.uri, a.name, a.id, a.action), Math.min(max, 80)),
+      truncateToolText(
+        firstText(a.query, a.q, a.text, a.prompt, a.path, a.uri, a.name, a.id, a.action),
+        Math.min(max, 80)
+      ),
     ]);
   }
   switch (normalized) {
@@ -276,10 +278,7 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       if (Array.isArray(a.query) || Array.isArray(a.fuzzy)) {
         return formatCountedUnit(collectionCount(a.query, a.fuzzy), 'query', 'queries');
       }
-      return compactParts([
-        quoted(a.query ?? a.fuzzy, max),
-        a.path ? `path: ${displayToolPath(a.path)}` : '',
-      ]);
+      return compactParts([quoted(a.query ?? a.fuzzy, max), a.path ? `path: ${displayToolPath(a.path)}` : '']);
     case 'search_query':
     case 'image_query':
     case 'web_search':
@@ -288,12 +287,11 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         return formatCountedUnit(collectionCount(a.query, a.keywords), 'query', 'queries');
       }
       return quoted(a.query || a.keywords || '', max);
-    case 'load_tool':
-      {
-        const selected = [...splitToolSearchSelection(a.names), ...splitToolSearchSelection(a.select)];
-        if (selected.length) return truncateToolText(selected.map(displayToolSearchTarget).join(', '), max);
-        return quoted(firstText(a.query, a.q, a.text), max);
-      }
+    case 'load_tool': {
+      const selected = [...splitToolSearchSelection(a.names), ...splitToolSearchSelection(a.select)];
+      if (selected.length) return truncateToolText(selected.map(displayToolSearchTarget).join(', '), max);
+      return quoted(firstText(a.query, a.q, a.text), max);
+    }
     case 'web_fetch':
     case 'fetch':
       if (Array.isArray(a.url) || Array.isArray(a.uri)) {
@@ -305,9 +303,7 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       const call = bridgeToolCall(args);
       return compactParts([
         call.action,
-        call.input.url
-          ? truncateToolText(call.input.url, max)
-          : call.input.ref ? String(call.input.ref) : '',
+        call.input.url ? truncateToolText(call.input.url, max) : call.input.ref ? String(call.input.ref) : '',
       ]);
     }
     case 'computer': {
@@ -316,13 +312,10 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       // kind, and input actions their semantic ref, exact window, or app.
       return compactParts([
         call.action,
-        truncateToolText(firstText(
-          call.input.operation,
-          call.input.kind,
-          call.input.ref,
-          call.input.window_id,
-          call.input.app,
-        ), max),
+        truncateToolText(
+          firstText(call.input.operation, call.input.kind, call.input.ref, call.input.window_id, call.input.app),
+          max
+        ),
       ]);
     }
     case 'office':
@@ -376,10 +369,7 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       if (agentModel) return agentModel;
       const bridgeAction = a.type || a.action || a.mode || '';
       const showTarget = !/^(status|read)$/i.test(String(bridgeAction || ''));
-      return compactParts([
-        bridgeAction,
-        showTarget ? (a.tag || a.sessionId || a.task_id || '') : '',
-      ]);
+      return compactParts([bridgeAction, showTarget ? a.tag || a.sessionId || a.task_id || '' : '']);
     }
     case 'code_graph':
       return codeGraphSummary(a, max);
@@ -388,7 +378,10 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'skill_view':
     case 'skills_list':
     case 'use_skill':
-      return truncateToolText(firstText(a.name, a.skill, a.skill_name, a.query, a.q, normalized === 'skills_list' ? 'all skills' : ''), max);
+      return truncateToolText(
+        firstText(a.name, a.skill, a.skill_name, a.query, a.q, normalized === 'skills_list' ? 'all skills' : ''),
+        max
+      );
     default: {
       const primary = firstText(a.name, a.skill, a.query, a.title, a.path, a.file, a.target, a.id, a.action);
       if (primary) return truncateToolText(primary, Math.min(max, 80));
@@ -424,10 +417,9 @@ export function toolLoadingTargets(name, args = {}) {
   if (!parsed || typeof parsed !== 'object') return [];
   let selected = [];
   if (normalized === 'load_tool') {
-    selected = [
-      ...splitToolSearchSelection(parsed.names),
-      ...splitToolSearchSelection(parsed.select),
-    ].map(displayToolSearchTarget);
+    selected = [...splitToolSearchSelection(parsed.names), ...splitToolSearchSelection(parsed.select)].map(
+      displayToolSearchTarget
+    );
   } else if (['skill', 'skill_execute', 'skill_view', 'use_skill'].includes(normalized)) {
     selected = [
       ...splitToolSearchSelection(parsed.names),
@@ -443,8 +435,20 @@ export function toolLoadingTargets(name, args = {}) {
 // ── Aggregate tool-card classification & formatting ──────────────
 
 const CATEGORY_ORDER = [
-  'Read', 'Search', 'Load', 'MCP', 'Skill', 'Web Research', 'Memory',
-  'Patch', 'Git', 'Shell', 'Agent', 'Task', 'Setup', 'Other',
+  'Read',
+  'Search',
+  'Load',
+  'MCP',
+  'Skill',
+  'Web Research',
+  'Memory',
+  'Patch',
+  'Git',
+  'Shell',
+  'Agent',
+  'Task',
+  'Setup',
+  'Other',
 ];
 
 const TOOL_CATEGORY = new Map([
@@ -524,7 +528,9 @@ const CATEGORY_COPY = new Map([
 ]);
 
 function categoryCopy(category) {
-  return CATEGORY_COPY.get(category) || CATEGORY_COPY.get('Other') || { active: 'Calling', done: 'Called', noun: 'tool' };
+  return (
+    CATEGORY_COPY.get(category) || CATEGORY_COPY.get('Other') || { active: 'Calling', done: 'Called', noun: 'tool' }
+  );
 }
 
 function unitDescriptor(category, overrides = {}) {
@@ -546,24 +552,28 @@ function queryCount(args, ...keys) {
 function patchMutationUnits(args = {}) {
   const a = parseToolArgs(args);
   if (a.dry_run === true) {
-    return [unitDescriptor('Patch', {
-      count: patchFileCount(a) || 1,
-      active: 'Checking',
-      done: 'Checked',
-      noun: 'file',
-    })];
+    return [
+      unitDescriptor('Patch', {
+        count: patchFileCount(a) || 1,
+        active: 'Checking',
+        done: 'Checked',
+        noun: 'file',
+      }),
+    ];
   }
   const copy = {
     add: { active: 'Creating', done: 'Created' },
     delete: { active: 'Deleting', done: 'Deleted' },
     update: { active: 'Editing', done: 'Edited' },
   };
-  return [...patchOperationProfile(a)].map(([kind, count]) => unitDescriptor('Patch', {
-    count,
-    active: copy[kind]?.active || 'Editing',
-    done: copy[kind]?.done || 'Edited',
-    noun: 'file',
-  }));
+  return [...patchOperationProfile(a)].map(([kind, count]) =>
+    unitDescriptor('Patch', {
+      count,
+      active: copy[kind]?.active || 'Editing',
+      done: copy[kind]?.done || 'Edited',
+      noun: 'file',
+    })
+  );
 }
 
 export function toolWorkUnit(name, args = {}, category = '') {
@@ -579,7 +589,10 @@ export function toolWorkUnit(name, args = {}, category = '') {
   }
   switch (normalized) {
     case 'read':
-      return unitDescriptor('Read', { count: queryCount(a, 'path', 'paths', 'file_path', 'file', 'files') || 1, noun: 'file' });
+      return unitDescriptor('Read', {
+        count: queryCount(a, 'path', 'paths', 'file_path', 'file', 'files') || 1,
+        noun: 'file',
+      });
     case 'view_image':
       return unitDescriptor('Read', { count: queryCount(a, 'path', 'file_path', 'file') || 1, noun: 'image' });
     case 'read_mcp_resource':
@@ -595,26 +608,62 @@ export function toolWorkUnit(name, args = {}, category = '') {
       });
     }
     case 'grep':
-      return unitDescriptor('Search', { count: queryCount(a, 'pattern', 'patterns', 'query') || 1, active: 'Searching', done: 'Searched', noun: 'pattern' });
+      return unitDescriptor('Search', {
+        count: queryCount(a, 'pattern', 'patterns', 'query') || 1,
+        active: 'Searching',
+        done: 'Searched',
+        noun: 'pattern',
+      });
     case 'glob':
-      return unitDescriptor('Search', { count: queryCount(a, 'pattern', 'patterns', 'glob', 'globs') || 1, active: 'Finding', done: 'Found', noun: 'glob' });
+      return unitDescriptor('Search', {
+        count: queryCount(a, 'pattern', 'patterns', 'glob', 'globs') || 1,
+        active: 'Finding',
+        done: 'Found',
+        noun: 'glob',
+      });
     case 'find':
-      return unitDescriptor('Search', { count: queryCount(a, 'query', 'queries', 'fuzzy') || 1, active: 'Finding', done: 'Found', noun: 'query', pluralNoun: 'queries' });
+      return unitDescriptor('Search', {
+        count: queryCount(a, 'query', 'queries', 'fuzzy') || 1,
+        active: 'Finding',
+        done: 'Found',
+        noun: 'query',
+        pluralNoun: 'queries',
+      });
     case 'list':
     case 'ls':
-      return unitDescriptor('Search', { count: queryCount(a, 'path', 'paths', 'dir', 'dirs', 'cwd') || 1, active: 'Listing', done: 'Listed', noun: 'directory', pluralNoun: 'directories' });
+      return unitDescriptor('Search', {
+        count: queryCount(a, 'path', 'paths', 'dir', 'dirs', 'cwd') || 1,
+        active: 'Listing',
+        done: 'Listed',
+        noun: 'directory',
+        pluralNoun: 'directories',
+      });
     case 'load_tool': {
       const selected = [...splitToolSearchSelection(a.names), ...splitToolSearchSelection(a.select)];
       if (selected.length) return unitDescriptor('Load', { count: selected.length, noun: 'tool' });
-      return unitDescriptor('Load', { count: queryCount(a, 'query', 'q', 'text') || 1, noun: 'query', pluralNoun: 'queries' });
+      return unitDescriptor('Load', {
+        count: queryCount(a, 'query', 'q', 'text') || 1,
+        noun: 'query',
+        pluralNoun: 'queries',
+      });
     }
     case 'search_query':
     case 'image_query':
     case 'web_search':
     case 'web_search_call':
-      return unitDescriptor('Web Research', { count: queryCount(a, 'query', 'queries', 'keywords') || 1, noun: 'query', pluralNoun: 'queries' });
+      return unitDescriptor('Web Research', {
+        count: queryCount(a, 'query', 'queries', 'keywords') || 1,
+        noun: 'query',
+        pluralNoun: 'queries',
+      });
     case 'web_fetch':
-      return unitDescriptor('Web Research', { count: queryCount(a, 'url', 'urls', 'uri', 'uris') || 1, active: 'Fetching', done: 'Fetched', noun: 'URL', pluralNoun: 'URLs' });
+      return unitDescriptor('Web Research', {
+        count: queryCount(a, 'url', 'urls', 'uri', 'uris') || 1,
+        active: 'Fetching',
+        done: 'Fetched',
+        noun: 'URL',
+        pluralNoun: 'URLs',
+      });
     case 'browser':
     case 'browser_devtools':
       return unitDescriptor('Browser', { count: 1, active: 'Browsing', done: 'Browsed', noun: 'action' });
@@ -624,7 +673,12 @@ export function toolWorkUnit(name, args = {}, category = '') {
       return unitDescriptor('Office', { count: 1, active: 'Editing', done: 'Edited', noun: 'document action' });
     case 'media':
       return a.action === 'generate'
-        ? unitDescriptor('Media', { count: 1, active: 'Generating', done: 'Generated', noun: a.kind === 'video' ? 'video' : 'image' })
+        ? unitDescriptor('Media', {
+            count: 1,
+            active: 'Generating',
+            done: 'Generated',
+            noun: a.kind === 'video' ? 'video' : 'image',
+          })
         : unitDescriptor('Media', { count: 1, active: 'Checking', done: 'Checked', noun: 'media action' });
     case 'tidy':
       return a.action === 'fix'
@@ -632,25 +686,49 @@ export function toolWorkUnit(name, args = {}, category = '') {
         : unitDescriptor('Tidy', { count: 1, active: 'Checking', done: 'Checked', noun: 'cleanup action' });
     case 'fetch': {
       const fetchLimit = Number(a.limit ?? a.messages);
-      const fetchCount = Number.isFinite(fetchLimit) && fetchLimit > 0
-        ? Math.floor(fetchLimit)
-        : queryCount(a, 'messages') || 1;
-      return unitDescriptor('Web Research', { count: fetchCount, active: 'Fetching', done: 'Fetched', noun: 'message' });
+      const fetchCount =
+        Number.isFinite(fetchLimit) && fetchLimit > 0 ? Math.floor(fetchLimit) : queryCount(a, 'messages') || 1;
+      return unitDescriptor('Web Research', {
+        count: fetchCount,
+        active: 'Fetching',
+        done: 'Fetched',
+        noun: 'message',
+      });
     }
     case 'recall':
     case 'recall_memory':
     case 'search_memories':
-      return unitDescriptor('Memory', { count: queryCount(a, 'query', 'queries', 'text', 'input') || 1, noun: 'memory item', pluralNoun: 'memory items' });
+      return unitDescriptor('Memory', {
+        count: queryCount(a, 'query', 'queries', 'text', 'input') || 1,
+        noun: 'memory item',
+        pluralNoun: 'memory items',
+      });
     case 'remember':
     case 'save_memory':
     case 'update_memory':
-      return unitDescriptor('Memory', { count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1, active: 'Writing', done: 'Wrote', noun: 'memory item' });
+      return unitDescriptor('Memory', {
+        count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1,
+        active: 'Writing',
+        done: 'Wrote',
+        noun: 'memory item',
+      });
     case 'memory': {
       const action = String(a.action || '').toLowerCase();
       const op = String(a.op || '').toLowerCase();
       const isMutation = op === 'add' || op === 'edit' || op === 'delete';
-      if (isMutation) return unitDescriptor('Memory', { count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1, active: 'Writing', done: 'Wrote', noun: 'memory item' });
-      return unitDescriptor('Memory', { count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1, active: 'Checking', done: 'Checked', noun: 'memory item' });
+      if (isMutation)
+        return unitDescriptor('Memory', {
+          count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1,
+          active: 'Writing',
+          done: 'Wrote',
+          noun: 'memory item',
+        });
+      return unitDescriptor('Memory', {
+        count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1,
+        active: 'Checking',
+        done: 'Checked',
+        noun: 'memory item',
+      });
     }
     case 'shell':
     case 'bash':
@@ -665,7 +743,12 @@ export function toolWorkUnit(name, args = {}, category = '') {
     // Staging is not "running a Git command": it selects change_ids out of an
     // existing diff. Its own work unit keeps the two apart on the activity row.
     case 'git_stage':
-      return unitDescriptor('Git', { count: queryCount(a, 'change_ids', 'change_id') || 1, active: 'Staging', done: 'Staged', noun: 'change' });
+      return unitDescriptor('Git', {
+        count: queryCount(a, 'change_ids', 'change_id') || 1,
+        active: 'Staging',
+        done: 'Staged',
+        noun: 'change',
+      });
     case 'agent':
     case 'bridge': {
       const type = String(a.type || a.action || '').toLowerCase();
@@ -680,16 +763,22 @@ export function toolWorkUnit(name, args = {}, category = '') {
         }
         return unitDescriptor('Agent', { count, active: 'Finishing', done: 'Completed', noun: 'agent' });
       }
-      return unitDescriptor('Agent', { count: queryCount(a, 'agents', 'roles', 'role', 'tag', 'task_id', 'sessionId') || 1, noun: 'agent' });
+      return unitDescriptor('Agent', {
+        count: queryCount(a, 'agents', 'roles', 'role', 'tag', 'task_id', 'sessionId') || 1,
+        noun: 'agent',
+      });
     }
     case 'task': {
       const action = String(a.action || '').toLowerCase();
       const taskCount = queryCount(a, 'task_id', 'task_ids', 'id', 'ids') || 1;
       // Waiting on a task, enumerating tasks, and cancelling one are distinct
       // work; only `read`/`status` falls through to the neutral check verb.
-      if (action === 'cancel') return unitDescriptor('Task', { count: taskCount, active: 'Cancelling', done: 'Cancelled', noun: 'task' });
-      if (action === 'wait') return unitDescriptor('Task', { count: taskCount, active: 'Waiting for', done: 'Waited for', noun: 'task' });
-      if (action === 'list') return unitDescriptor('Task', { count: taskCount, active: 'Listing', done: 'Listed', noun: 'task' });
+      if (action === 'cancel')
+        return unitDescriptor('Task', { count: taskCount, active: 'Cancelling', done: 'Cancelled', noun: 'task' });
+      if (action === 'wait')
+        return unitDescriptor('Task', { count: taskCount, active: 'Waiting for', done: 'Waited for', noun: 'task' });
+      if (action === 'list')
+        return unitDescriptor('Task', { count: taskCount, active: 'Listing', done: 'Listed', noun: 'task' });
       return unitDescriptor('Task', { count: taskCount, noun: 'task' });
     }
     case 'skill':
@@ -697,10 +786,18 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'skill_view':
     case 'skills_list':
     case 'use_skill':
-      return unitDescriptor('Skill', { count: queryCount(a, 'name', 'skill', 'skill_name', 'query', 'q') || 1, noun: 'skill' });
+      return unitDescriptor('Skill', {
+        count: queryCount(a, 'name', 'skill', 'skill_name', 'query', 'q') || 1,
+        noun: 'skill',
+      });
     case 'code_graph': {
       const mode = String(a.mode || a.action || '').toLowerCase();
-      const searching = mode === 'search' || mode === 'find_symbol' || mode === 'references' || mode === 'callers' || mode === 'callees';
+      const searching =
+        mode === 'search' ||
+        mode === 'find_symbol' ||
+        mode === 'references' ||
+        mode === 'callers' ||
+        mode === 'callees';
       return unitDescriptor(searching ? 'Search' : 'Read', {
         count: queryCount(a, 'symbols', 'symbol', 'query', 'file', 'path') || 1,
         active: searching ? 'Mapping' : 'Reading',
@@ -721,11 +818,23 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'cwd': {
       const action = String(a.action || a.type || '').toLowerCase();
       return action === 'set'
-        ? unitDescriptor('Setup', { active: 'Setting', done: 'Set', noun: 'working directory', pluralNoun: 'working directories' })
-        : unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'working directory', pluralNoun: 'working directories' });
+        ? unitDescriptor('Setup', {
+            active: 'Setting',
+            done: 'Set',
+            noun: 'working directory',
+            pluralNoun: 'working directories',
+          })
+        : unitDescriptor('Setup', {
+            active: 'Checking',
+            done: 'Checked',
+            noun: 'working directory',
+            pluralNoun: 'working directories',
+          });
     }
     default:
-      return unitDescriptor(cat, { count: queryCount(a, 'items', 'targets', 'query', 'path', 'name', 'id', 'action') || 1 });
+      return unitDescriptor(cat, {
+        count: queryCount(a, 'items', 'targets', 'query', 'path', 'name', 'id', 'action') || 1,
+      });
   }
 }
 
@@ -737,7 +846,11 @@ function lifecycleVerb(unit, pending, { stableVerbWidth = false } = {}) {
   return verb.padEnd(Math.max(active.length, done.length), ' ');
 }
 
-export function formatToolActionHeader(name, args = {}, { pending = false, count = 1, category = '', stableVerbWidth = false } = {}) {
+export function formatToolActionHeader(
+  name,
+  args = {},
+  { pending = false, count = 1, category = '', stableVerbWidth = false } = {}
+) {
   const loadingTargets = toolLoadingTargets(name, args);
   if (loadingTargets.length) {
     return `${pending ? 'Loading' : 'Loaded'} ${loadingTargets.join(', ')}`;
@@ -766,9 +879,7 @@ export function aggregateToolCategoryEntry(name, args = {}, category = '') {
 export function aggregateToolCategoryEntries(name, args = {}, category = '') {
   const cat = category || classifyToolCategory(name, args);
   const normalized = normalizeToolName(name);
-  const units = normalized === 'apply_patch'
-    ? patchMutationUnits(args)
-    : [toolWorkUnit(name, args, cat)];
+  const units = normalized === 'apply_patch' ? patchMutationUnits(args) : [toolWorkUnit(name, args, cat)];
   return units.map((unit) => {
     const key = [cat, unit.active, unit.done, unit.noun, unit.pluralNoun].join('|');
     return {
@@ -911,15 +1022,25 @@ export function formatAggregateDetail(summaries) {
       // SAME noun merge into one metric. Previously "48 matches" keyed as
       // found_matches while "1 match" keyed as found_matchs (naive +s), so the
       // detail row showed "48 matches, 1 match" instead of "49 matches".
-      const singular = nounRaw.endsWith('ies') ? `${nounRaw.slice(0, -3)}y`
-        : /(?:ch|sh|x|z|s)es$/.test(nounRaw) ? nounRaw.slice(0, -2)
-          : nounRaw.endsWith('s') ? nounRaw.slice(0, -1)
+      const singular = nounRaw.endsWith('ies')
+        ? `${nounRaw.slice(0, -3)}y`
+        : /(?:ch|sh|x|z|s)es$/.test(nounRaw)
+          ? nounRaw.slice(0, -2)
+          : nounRaw.endsWith('s')
+            ? nounRaw.slice(0, -1)
             : nounRaw;
-      const plural = singular.endsWith('y') ? `${singular.slice(0, -1)}ies`
-        : /(?:ch|sh|x|z|s)$/.test(singular) ? `${singular}es`
+      const plural = singular.endsWith('y')
+        ? `${singular.slice(0, -1)}ies`
+        : /(?:ch|sh|x|z|s)$/.test(singular)
+          ? `${singular}es`
           : `${singular}s`;
       const key = `found_${singular}`;
-      const metric = addMetric(key, { count: 0, singular, plural, render: (m) => `${m.count} ${pluralize(m.count, m.singular, m.plural)}` });
+      const metric = addMetric(key, {
+        count: 0,
+        singular,
+        plural,
+        render: (m) => `${m.count} ${pluralize(m.count, m.singular, m.plural)}`,
+      });
       metric.count += Number(match[1]);
       continue;
     }
@@ -996,7 +1117,7 @@ export function formatAggregateDetail(summaries) {
   }
 
   return order
-    .map((item) => item.type === 'metric' ? metrics.get(item.key)?.render(metrics.get(item.key)) : item.text)
+    .map((item) => (item.type === 'metric' ? metrics.get(item.key)?.render(metrics.get(item.key)) : item.text))
     .filter(Boolean)
     .join(', ');
 }

@@ -24,13 +24,7 @@
  * static keychain/config dependency.
  */
 
-import {
-  THEME_REGISTRY,
-  THEME_ORDER,
-  THEME_ALIASES,
-  DEFAULT_THEME_ID,
-  basicPalette,
-} from './themes/index.mjs';
+import { THEME_REGISTRY, THEME_ORDER, THEME_ALIASES, DEFAULT_THEME_ID, basicPalette } from './themes/index.mjs';
 
 /**
  * Live singleton consumed across the TUI. Seeded with the default palette and
@@ -94,11 +88,16 @@ export function emitTerminalBackground(rgbString) {
       if (process.stdout && process.stdout.isTTY) process.stdout.write('\x1b]111\x07');
       return;
     }
-    const hex = (n) => Math.max(0, Math.min(255, Number(n))).toString(16).padStart(2, '0');
+    const hex = (n) =>
+      Math.max(0, Math.min(255, Number(n)))
+        .toString(16)
+        .padStart(2, '0');
     // OSC 11 ; rgb:RR/GG/BB  (BEL-terminated). Many terminals also accept #RRGGBB.
     const seq = `\x1b]11;rgb:${hex(m[1])}${hex(m[1])}/${hex(m[2])}${hex(m[2])}/${hex(m[3])}${hex(m[3])}\x07`;
     if (process.stdout && process.stdout.isTTY) process.stdout.write(seq);
-  } catch { /* terminals that ignore OSC 11 are harmless */ }
+  } catch {
+    /* terminals that ignore OSC 11 are harmless */
+  }
 }
 
 function applyPalette(id) {
@@ -164,13 +163,7 @@ export async function loadThemeSettingFromConfig() {
 }
 
 /* --- Glyphs --------------------------------------------------------------- */
-import {
-  BLACK_CIRCLE,
-  RESULT_GUTTER_GLYPH,
-  RESULT_GUTTER_CONT_GLYPH,
-  RIGHT_ARROW,
-  LEFT_ARROW,
-} from './figures.mjs';
+import { BLACK_CIRCLE, RESULT_GUTTER_GLYPH, RESULT_GUTTER_CONT_GLYPH, RIGHT_ARROW, LEFT_ARROW } from './figures.mjs';
 
 /** Turn marker — BLACK_CIRCLE (`⏺` on macOS; `●` elsewhere). */
 export const TURN_MARKER = BLACK_CIRCLE;

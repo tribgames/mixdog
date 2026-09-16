@@ -28,17 +28,24 @@ test('a title queued behind an accepted task write cannot commit after runtime c
   });
   try {
     const created = await runtime.control('session-title', {
-      action: 'create', objective: 'Original objective',
+      action: 'create',
+      objective: 'Original objective',
     });
-    pending = runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: [{ text: 'Accepted task update', status: 'in_progress', kind: 'work' }],
-    }, { sessionId: 'session-title' });
+    pending = runtime.executeTool(
+      'goal',
+      {
+        action: 'set_tasks',
+        tasks: [{ text: 'Accepted task update', status: 'in_progress', kind: 'work' }],
+      },
+      { sessionId: 'session-title' }
+    );
     await writeStarted.promise;
     generated.resolve('Generated title');
     await new Promise(setImmediate);
     let drained = false;
-    const closed = Promise.resolve(runtime.close()).then(() => { drained = true; });
+    const closed = Promise.resolve(runtime.close()).then(() => {
+      drained = true;
+    });
     await new Promise(setImmediate);
     assert.equal(drained, false, 'accepted persistence must finish before close resolves');
     writeGate.resolve();

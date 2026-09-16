@@ -73,7 +73,7 @@
  * legacy reader keeps working unchanged.
  */
 
-export const STREAM_OUTCOME_VERSION = 1
+export const STREAM_OUTCOME_VERSION = 1;
 
 export const STREAM_TRANSPORTS = Object.freeze({
   WS: 'ws',
@@ -81,36 +81,39 @@ export const STREAM_TRANSPORTS = Object.freeze({
   SSE: 'sse',
   NON_STREAMING: 'non-streaming',
   UNKNOWN: 'unknown',
-})
+});
 
-const TRUE = (v) => v === true
+const TRUE = (v) => v === true;
 const COUNT = (v) => {
-  const n = Number(v)
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
-}
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+};
 
 function _isAbortLike(source) {
-  const name = String(source?.name || '')
-  return name === 'AbortError' || name === 'APIUserAbortError' || source?.code === 'ABORT_ERR'
+  const name = String(source?.name || '');
+  return name === 'AbortError' || name === 'APIUserAbortError' || source?.code === 'ABORT_ERR';
 }
 
 /** Raw (pre-derivation) signal read of ONE source object (error or midState). */
 function _signalsOf(source) {
-  if (!source || (typeof source !== 'object' && typeof source !== 'function')) return null
+  if (!source || (typeof source !== 'object' && typeof source !== 'function')) return null;
 
-  const partialContent = typeof source.partialContent === 'string' ? source.partialContent : ''
-  const partialToolCalls = Array.isArray(source.partialToolCalls) ? source.partialToolCalls.length : 0
-  const explicitComplete = COUNT(source.toolCallsComplete)
-  const toolCallsComplete = Math.max(partialToolCalls, explicitComplete)
+  const partialContent = typeof source.partialContent === 'string' ? source.partialContent : '';
+  const partialToolCalls = Array.isArray(source.partialToolCalls) ? source.partialToolCalls.length : 0;
+  const explicitComplete = COUNT(source.toolCallsComplete);
+  const toolCallsComplete = Math.max(partialToolCalls, explicitComplete);
 
-  const textEmitted = TRUE(source.textEmitted) || TRUE(source.liveTextEmitted) || TRUE(source.emittedText)
+  const textEmitted = TRUE(source.textEmitted) || TRUE(source.liveTextEmitted) || TRUE(source.emittedText);
   const textObservedChars = Math.max(
     COUNT(source.textObservedChars),
     COUNT(source.emittedTextChars),
-    partialContent.trim().length > 0 ? partialContent.length : 0,
-  )
-  const reasoningEmitted = TRUE(source.reasoningEmitted) || TRUE(source.emittedThinking)
-    || TRUE(source.emittedReasoning) || TRUE(source.partialReasoningEmitted)
+    partialContent.trim().length > 0 ? partialContent.length : 0
+  );
+  const reasoningEmitted =
+    TRUE(source.reasoningEmitted) ||
+    TRUE(source.emittedThinking) ||
+    TRUE(source.emittedReasoning) ||
+    TRUE(source.partialReasoningEmitted);
   // NOTE: `partialHasThinking` (an extended-thinking block EXISTED, possibly
   // empty / signature-only) is deliberately NOT read here: a thinking block
   // the user never saw is not exposed reasoning.
@@ -119,50 +122,61 @@ function _signalsOf(source) {
   // completed was never dispatched, so re-requesting stays idempotent (the
   // documented truncated-stream retry). Only explicit partial-args markers
   // count as exposure.
-  const toolCallsStarted = TRUE(source.toolCallsStarted) || TRUE(source.partialToolCall)
-    || TRUE(source.startedToolCall) || TRUE(source.partialToolCallStarted)
-    || toolCallsComplete > 0
+  const toolCallsStarted =
+    TRUE(source.toolCallsStarted) ||
+    TRUE(source.partialToolCall) ||
+    TRUE(source.startedToolCall) ||
+    TRUE(source.partialToolCallStarted) ||
+    toolCallsComplete > 0;
 
-  const dispatchReported = Object.prototype.hasOwnProperty.call(source, 'toolCallsDispatched')
-  const dispatchFlag = TRUE(source.emittedToolCall) || TRUE(source.toolCallEmitted)
-  let toolCallsDispatched = dispatchReported ? COUNT(source.toolCallsDispatched) : 0
-  let dispatchAmbiguous = false
+  const dispatchReported = Object.hasOwn(source, 'toolCallsDispatched');
+  const dispatchFlag = TRUE(source.emittedToolCall) || TRUE(source.toolCallEmitted);
+  let toolCallsDispatched = dispatchReported ? COUNT(source.toolCallsDispatched) : 0;
+  let dispatchAmbiguous = false;
   if (!dispatchReported) {
     if (dispatchFlag) {
-      toolCallsDispatched = Math.max(1, toolCallsComplete)
-      dispatchAmbiguous = toolCallsComplete === 0
+      toolCallsDispatched = Math.max(1, toolCallsComplete);
+      dispatchAmbiguous = toolCallsComplete === 0;
     } else if (toolCallsComplete > 0) {
       // Fail closed: every streaming adapter dispatches eagerly at
       // content_block_stop / function_call_arguments.done, so a complete tool
       // call with no dispatch report must be assumed to have side effects.
-      toolCallsDispatched = toolCallsComplete
-      dispatchAmbiguous = true
+      toolCallsDispatched = toolCallsComplete;
+      dispatchAmbiguous = true;
     }
   }
 
-  const truncatedStream = TRUE(source.truncatedStream) || source.code === 'TRUNCATED_STREAM'
-  const stallObserved = TRUE(source.streamStalled) || source.code === 'ESTREAMSTALL'
-    || String(source.name || '') === 'StreamStalledError'
-    || String(source.name || '') === 'StreamStalledAbortError'
-    || String(source.name || '') === 'AgentStallAbortError'
-    || String(source.watchdogAbort || '') !== ''
+  const truncatedStream = TRUE(source.truncatedStream) || source.code === 'TRUNCATED_STREAM';
+  const stallObserved =
+    TRUE(source.streamStalled) ||
+    source.code === 'ESTREAMSTALL' ||
+    String(source.name || '') === 'StreamStalledError' ||
+    String(source.name || '') === 'StreamStalledAbortError' ||
+    String(source.name || '') === 'AgentStallAbortError' ||
+    String(source.watchdogAbort || '') !== '';
 
-  const terminalObserved = TRUE(source.terminalObserved) || TRUE(source.sawCompleted)
-    || TRUE(source.completed)
-    || (TRUE(source.providerIncomplete) && !!source.finishReason)
-  const streamStarted = TRUE(source.sawMessageStart) || TRUE(source.sawResponseCreated)
-    || textEmitted || reasoningEmitted || textObservedChars > 0 || toolCallsStarted
+  const terminalObserved =
+    TRUE(source.terminalObserved) ||
+    TRUE(source.sawCompleted) ||
+    TRUE(source.completed) ||
+    (TRUE(source.providerIncomplete) && !!source.finishReason);
+  const streamStarted =
+    TRUE(source.sawMessageStart) ||
+    TRUE(source.sawResponseCreated) ||
+    textEmitted ||
+    reasoningEmitted ||
+    textObservedChars > 0 ||
+    toolCallsStarted;
   // Protocol distinction: a TERMINAL sample frame can still declare that the
   // same user turn continues (Responses `end_turn=false`). That is a
   // continuation, not a finished turn.
-  const declaredContinuation = source.endTurn === false || TRUE(source.continuationDeclared)
+  const declaredContinuation = source.endTurn === false || TRUE(source.continuationDeclared);
 
   return {
     provider: source.provider ?? source.providerName ?? null,
     transport: typeof source.transport === 'string' ? source.transport : null,
     terminalObserved,
-    continuation: !terminalObserved
-      && (truncatedStream || stallObserved || streamStarted || TRUE(source.continuation)),
+    continuation: !terminalObserved && (truncatedStream || stallObserved || streamStarted || TRUE(source.continuation)),
     declaredContinuation,
     textEmitted,
     textObservedChars,
@@ -178,21 +192,32 @@ function _signalsOf(source) {
     stallObserved,
     truncatedStream,
     unsafeMarker: TRUE(source.unsafeToRetry),
-  }
+  };
 }
 
 const EMPTY_SIGNALS = {
-  provider: null, transport: null,
-  terminalObserved: false, continuation: false, declaredContinuation: false,
-  textEmitted: false, textObservedChars: 0, reasoningEmitted: false,
-  toolCallsStarted: false, toolCallsComplete: 0, toolCallsDispatched: 0,
-  dispatchAmbiguous: false, pendingToolInput: false, userAbort: false,
-  stallObserved: false, truncatedStream: false, unsafeMarker: false,
-}
+  provider: null,
+  transport: null,
+  terminalObserved: false,
+  continuation: false,
+  declaredContinuation: false,
+  textEmitted: false,
+  textObservedChars: 0,
+  reasoningEmitted: false,
+  toolCallsStarted: false,
+  toolCallsComplete: 0,
+  toolCallsDispatched: 0,
+  dispatchAmbiguous: false,
+  pendingToolInput: false,
+  userAbort: false,
+  stallObserved: false,
+  truncatedStream: false,
+  unsafeMarker: false,
+};
 
 function _merge(a, b) {
-  if (!b) return a
-  if (!a) return b
+  if (!b) return a;
+  if (!a) return b;
   return {
     provider: a.provider || b.provider || null,
     transport: a.transport || b.transport || null,
@@ -211,26 +236,22 @@ function _merge(a, b) {
     stallObserved: a.stallObserved || b.stallObserved,
     truncatedStream: a.truncatedStream || b.truncatedStream,
     unsafeMarker: a.unsafeMarker || b.unsafeMarker,
-  }
+  };
 }
 
 function _finalize(signals) {
-  const s = signals || EMPTY_SIGNALS
-  const terminalObserved = s.terminalObserved === true
-  const visibleOutput = s.textEmitted || s.reasoningEmitted
-  const sideEffectDispatched = s.toolCallsDispatched > 0
-  const observedOutput = visibleOutput || s.textObservedChars > 0
-    || s.toolCallsComplete > 0 || sideEffectDispatched
+  const s = signals || EMPTY_SIGNALS;
+  const terminalObserved = s.terminalObserved === true;
+  const visibleOutput = s.textEmitted || s.reasoningEmitted;
+  const sideEffectDispatched = s.toolCallsDispatched > 0;
+  const observedOutput = visibleOutput || s.textObservedChars > 0 || s.toolCallsComplete > 0 || sideEffectDispatched;
   // The architecture-specific deny: a replay would duplicate output the user
   // already saw, or re-run a tool that was already handed off (including the
   // ambiguous case where a complete tool call carries no dispatch report).
-  const replayUnsafe = visibleOutput || sideEffectDispatched
-    || s.dispatchAmbiguous === true || s.unsafeMarker === true
-  const replaySafe = !replayUnsafe && s.userAbort !== true
+  const replayUnsafe = visibleOutput || sideEffectDispatched || s.dispatchAmbiguous === true || s.unsafeMarker === true;
+  const replaySafe = !replayUnsafe && s.userAbort !== true;
   // A terminal frame that declared `end_turn=false` keeps the turn open.
-  const continuation = s.declaredContinuation === true
-    ? true
-    : (terminalObserved ? false : s.continuation === true)
+  const continuation = s.declaredContinuation === true ? true : terminalObserved ? false : s.continuation === true;
   return Object.freeze({
     version: STREAM_OUTCOME_VERSION,
     provider: s.provider || null,
@@ -256,7 +277,7 @@ function _finalize(signals) {
     replayUnsafe,
     replaySafe,
     successEligible: terminalObserved && !continuation && s.pendingToolInput !== true,
-  })
+  });
 }
 
 /**
@@ -265,16 +286,16 @@ function _finalize(signals) {
  * already-canonical `source.streamOutcome` is merged in as well.
  */
 export function readStreamOutcome(...sources) {
-  let signals = null
+  let signals = null;
   for (const source of sources) {
-    if (!source) continue
-    const existing = source.streamOutcome
+    if (!source) continue;
+    const existing = source.streamOutcome;
     if (existing && existing.version === STREAM_OUTCOME_VERSION) {
-      signals = _merge(signals, _signalsOf(existing))
+      signals = _merge(signals, _signalsOf(existing));
     }
-    signals = _merge(signals, _signalsOf(source))
+    signals = _merge(signals, _signalsOf(source));
   }
-  return _finalize(signals || EMPTY_SIGNALS)
+  return _finalize(signals || EMPTY_SIGNALS);
 }
 
 /**
@@ -285,42 +306,50 @@ export function readStreamOutcome(...sources) {
  * only relayed text is a visibility/no-replay boundary.
  */
 export function stampStreamOutcome(target, ...sources) {
-  if (!target || (typeof target !== 'object' && typeof target !== 'function')) return target
-  const outcome = readStreamOutcome(target, ...sources)
+  if (!target || (typeof target !== 'object' && typeof target !== 'function')) return target;
+  const outcome = readStreamOutcome(target, ...sources);
   try {
-    target.streamOutcome = outcome
-    if (outcome.textEmitted) { target.liveTextEmitted = true; target.emittedText = true }
-    if (outcome.reasoningEmitted) target.emittedThinking = true
-    if (outcome.toolCallsStarted) target.partialToolCall = true
-    if (outcome.sideEffectDispatched) { target.emittedToolCall = true; target.toolCallEmitted = true }
-    if (outcome.pendingToolInput) target.pendingToolUse = true
-    if (outcome.truncatedStream) target.truncatedStream = true
-    if (outcome.replayUnsafe) target.unsafeToRetry = true
-  } catch { /* frozen/exotic targets keep the returned record only */ }
-  return outcome
+    target.streamOutcome = outcome;
+    if (outcome.textEmitted) {
+      target.liveTextEmitted = true;
+      target.emittedText = true;
+    }
+    if (outcome.reasoningEmitted) target.emittedThinking = true;
+    if (outcome.toolCallsStarted) target.partialToolCall = true;
+    if (outcome.sideEffectDispatched) {
+      target.emittedToolCall = true;
+      target.toolCallEmitted = true;
+    }
+    if (outcome.pendingToolInput) target.pendingToolUse = true;
+    if (outcome.truncatedStream) target.truncatedStream = true;
+    if (outcome.replayUnsafe) target.unsafeToRetry = true;
+  } catch {
+    /* frozen/exotic targets keep the returned record only */
+  }
+  return outcome;
 }
 
 /** True when re-issuing the turn would not duplicate exposure or side effects. */
 export function isReplaySafe(source) {
-  return readStreamOutcome(source).replaySafe
+  return readStreamOutcome(source).replaySafe;
 }
 
 /** True when there is positive evidence that a replay would duplicate output. */
 export function isReplayUnsafe(source) {
-  return readStreamOutcome(source).replayUnsafe
+  return readStreamOutcome(source).replayUnsafe;
 }
 
 /** True when the outcome may be promoted to a normal successful response. */
 export function canPromoteToSuccess(source) {
-  return readStreamOutcome(source).successEligible
+  return readStreamOutcome(source).successEligible;
 }
 
 /** True when anything the model produced was observed (visible or buffered). */
 export function hasObservedOutput(source) {
-  return readStreamOutcome(source).observedOutput
+  return readStreamOutcome(source).observedOutput;
 }
 
 /** True when a tool call was handed off and may already have run. */
 export function hasDispatchedToolCalls(source) {
-  return readStreamOutcome(source).sideEffectDispatched
+  return readStreamOutcome(source).sideEffectDispatched;
 }

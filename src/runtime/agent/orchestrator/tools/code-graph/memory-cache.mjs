@@ -1,18 +1,10 @@
 // In-memory (TTL + LRU + runtime-byte budget) code-graph cache. Wraps the
 // shared codeGraphCache Map from code-graph-state.mjs with LRU touch/set and
-// eviction. Extracted verbatim from code-graph.mjs.
-import {
-  canonicalGraphCwd as _canonicalGraphCwd,
-  codeGraphCache as _codeGraphCache,
-} from '../code-graph-state.mjs';
-import {
-  CODE_GRAPH_MEMORY_MAX_ENTRIES,
-  CODE_GRAPH_MEMORY_MAX_BYTES,
-} from './constants.mjs';
-import {
-  _estimateGraphRetainedBytes,
-  _clearGraphRuntimeCaches,
-} from './graph-model.mjs';
+// eviction.
+
+import { canonicalGraphCwd as _canonicalGraphCwd, codeGraphCache as _codeGraphCache } from '../code-graph-state.mjs';
+import { CODE_GRAPH_MEMORY_MAX_ENTRIES, CODE_GRAPH_MEMORY_MAX_BYTES } from './constants.mjs';
+import { _estimateGraphRetainedBytes, _clearGraphRuntimeCaches } from './graph-model.mjs';
 
 export function _touchCodeGraphCache(graphCwd) {
   const key = _canonicalGraphCwd(graphCwd);
@@ -44,7 +36,7 @@ export function _pruneCodeGraphMemoryCache(options = {}) {
     lastAccess: Number(entry?.lastAccess || entry?.ts || 0),
     retainedBytes: _estimateGraphRetainedBytes(entry?.graph),
   }));
-  rows.sort((a, b) => (a.lastAccess - b.lastAccess) || String(a.cwd).localeCompare(String(b.cwd)));
+  rows.sort((a, b) => a.lastAccess - b.lastAccess || String(a.cwd).localeCompare(String(b.cwd)));
   const evicted = [];
   let totalRetainedBytes = rows.reduce((sum, row) => sum + row.retainedBytes, 0);
   for (const row of rows) {

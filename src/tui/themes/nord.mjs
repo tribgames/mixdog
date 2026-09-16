@@ -69,4 +69,3 @@ export const nordPalette = {
   syntaxOperator: 'rgb(129,161,193)',
   syntaxPunctuation: 'rgb(216,222,233)',
 };
-

@@ -17,11 +17,15 @@ test('native dispatch rejects old observations, clipped cursors, and stale messa
     const stateMethods = observation.slice(observation.indexOf('  public static void Begin()'));
     const messageMethods = MIXDOG_HOST_CSHARP.slice(
       MIXDOG_HOST_CSHARP.indexOf('  static UIntPtr SendMessageValue('),
-      MIXDOG_HOST_CSHARP.indexOf('  static Action BindBackgroundRelease('));
+      MIXDOG_HOST_CSHARP.indexOf('  static Action BindBackgroundRelease(')
+    );
     const pointerMethods = MIXDOG_HOST_CSHARP.slice(
       MIXDOG_HOST_CSHARP.indexOf('  public static void AssertCursorPosition('),
-      MIXDOG_HOST_CSHARP.indexOf('  static void AssertDragTarget('));
-    await writeFile(join(directory, 'fixture.cs'), `
+      MIXDOG_HOST_CSHARP.indexOf('  static void AssertDragTarget(')
+    );
+    await writeFile(
+      join(directory, 'fixture.cs'),
+      `
 using System;
 public class MixInputSnapshot { public bool Ready; public string Generation; public long Sequence; }
 public static class MixInputObservation {
@@ -54,7 +58,8 @@ ${pointerMethods}
       delegate {}, delegate { Releases++; });
   }
 }
-`);
+`
+    );
     await writeFile(join(directory, 'runtime.ps1'), PS_RUNTIME);
     const script = String.raw`
 $ErrorActionPreference='Stop'
@@ -83,16 +88,29 @@ try { [NativeFixture]::Click(10,20) } catch { $caught += $_.Exception.ToString()
 try { [NativeFixture]::FailedPress() } catch { $caught += $_.Exception.ToString() }
 @{dispatched=$script:dispatched;presses=[NativeFixture]::Presses;releases=[NativeFixture]::Releases;errors=$caught} | ConvertTo-Json -Compress
 `;
-    const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
-      windowsHide: true, timeout: 15_000, env: { ...process.env, AUDIT_FIXTURE: directory },
-    });
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      {
+        windowsHide: true,
+        timeout: 15_000,
+        env: { ...process.env, AUDIT_FIXTURE: directory },
+      }
+    );
     const result = JSON.parse(stdout.trim());
     assert.equal(result.dispatched, 1);
     assert.equal(result.presses, 1);
     assert.equal(result.releases, 1);
     assert.equal(result.errors.length, 4);
-    for (const [index, pattern] of [/user_input_active/, /input_observation_unavailable/, /target_mismatch/, /background_target_hung/].entries()) {
+    for (const [index, pattern] of [
+      /user_input_active/,
+      /input_observation_unavailable/,
+      /target_mismatch/,
+      /background_target_hung/,
+    ].entries()) {
       assert.match(result.errors[index], pattern);
     }
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

@@ -108,17 +108,21 @@ test('worker exit flush commits queued state before settling active work', () =>
   try {
     mkdirSync(join(root, 'sessions'));
     const index = workerIndex(root);
-    index.upsertWorkerSessionDeferred({
-      id: 'exit-worker',
-      ownerSessionId: 'lead-a',
-      agentTag: 'exit-worker',
-      agent: 'worker',
-      createdAt: new Date().toISOString(),
-    }, 'exit-worker', {
-      status: 'running',
-      stage: 'running',
-      turnStartedAt: new Date().toISOString(),
-    });
+    index.upsertWorkerSessionDeferred(
+      {
+        id: 'exit-worker',
+        ownerSessionId: 'lead-a',
+        agentTag: 'exit-worker',
+        agent: 'worker',
+        createdAt: new Date().toISOString(),
+      },
+      'exit-worker',
+      {
+        status: 'running',
+        stage: 'running',
+        turnStartedAt: new Date().toISOString(),
+      }
+    );
 
     index.flushWorkerIndexOnExit();
 

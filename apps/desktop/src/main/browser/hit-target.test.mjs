@@ -8,7 +8,9 @@ function armedGuard() {
   const view = {
     addEventListener: (type, listener) => listeners.set(type, listener),
     removeEventListener: (type) => listeners.delete(type),
-    setTimeout: () => 1, clearTimeout() {}, frameElement: null,
+    setTimeout: () => 1,
+    clearTimeout() {},
+    frameElement: null,
   };
   const element = { isConnected: true, ownerDocument: { defaultView: view } };
   const guard = Function(`return (${BROWSER_HIT_GUARD})`)();
@@ -16,15 +18,19 @@ function armedGuard() {
   const fire = (path) => {
     let prevented = 0;
     listeners.get('pointerdown')({
-      isTrusted: true, composedPath: () => path,
-      preventDefault: () => { prevented++; }, stopImmediatePropagation() {},
+      isTrusted: true,
+      composedPath: () => path,
+      preventDefault: () => {
+        prevented++;
+      },
+      stopImmediatePropagation() {},
     });
     return prevented;
   };
   return { element, guard, fire };
 }
 
-test('the event-time guard accepts the control\'s own label as the landing spot', () => {
+test("the event-time guard accepts the control's own label as the landing spot", () => {
   const viaLabel = armedGuard();
   const label = { nodeType: 1, tagName: 'LABEL', control: viaLabel.element };
   assert.equal(viaLabel.fire([{ nodeType: 1, tagName: 'SPAN' }, label]), 0);

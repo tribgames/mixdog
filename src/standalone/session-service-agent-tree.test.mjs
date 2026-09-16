@@ -4,20 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import {
-  cleanupBackgroundTasks,
-  getBackgroundTask,
-  startBackgroundTask,
-} from '../runtime/shared/background-tasks.mjs';
+import { cleanupBackgroundTasks, getBackgroundTask, startBackgroundTask } from '../runtime/shared/background-tasks.mjs';
 import { _sessionSummary } from '../runtime/agent/orchestrator/session/store-summary-index.mjs';
 import { restoreTranscriptItems } from '../tui/session/session-api-ext.mjs';
 import { createStandaloneAgent } from './agent-tool.mjs';
 import { createSessionService } from './session-service.mjs';
 
 function persistedUserMessage(prompt, options = {}) {
-  const transcriptMeta = options.transcriptMeta && typeof options.transcriptMeta === 'object'
-    ? { ...options.transcriptMeta }
-    : null;
+  const transcriptMeta =
+    options.transcriptMeta && typeof options.transcriptMeta === 'object' ? { ...options.transcriptMeta } : null;
   return {
     role: 'user',
     content: prompt,
@@ -40,8 +35,12 @@ function fakeRuntimeFactory(events) {
       for (const listener of [...listeners]) listener();
     };
     return {
-      get provider() { return options.provider; },
-      get session() { return { provider: options.provider }; },
+      get provider() {
+        return options.provider;
+      },
+      get session() {
+        return { provider: options.provider };
+      },
       getState: () => state,
       subscribe(listener) {
         listeners.add(listener);
@@ -85,7 +84,9 @@ function fakeRuntimeFactory(events) {
 
 function deferred() {
   let resolve;
-  const promise = new Promise((settle) => { resolve = settle; });
+  const promise = new Promise((settle) => {
+    resolve = settle;
+  });
   return { promise, resolve };
 }
 
@@ -153,8 +154,12 @@ function durableRuntimeFactory(events, records) {
       });
     };
     return {
-      get provider() { return options.provider; },
-      get session() { return { provider: options.provider }; },
+      get provider() {
+        return options.provider;
+      },
+      get session() {
+        return { provider: options.provider };
+      },
       getState: () => state,
       subscribe(listener) {
         listeners.add(listener);
@@ -173,9 +178,7 @@ function durableRuntimeFactory(events, records) {
         state.sessionId = sessionId;
         state.provider = stored.provider;
         state.model = stored.model;
-        state.messages = Array.isArray(stored.messages)
-          ? stored.messages.map((message) => ({ ...message }))
-          : [];
+        state.messages = Array.isArray(stored.messages) ? stored.messages.map((message) => ({ ...message })) : [];
         state.items = state.messages.map((message, index) => ({
           id: `${message.role}-${index}`,
           kind: message.role,
@@ -303,7 +306,10 @@ test('canonical Agent children use ordinary session turns, retain Parent–Child
   assert.equal(followUp.content, 'handoff:follow up');
   const firstTurns = events.filter(([kind, id]) => kind === 'turn' && id === firstSession.id);
   assert.equal(firstTurns.length, 2);
-  assert.deepEqual(firstTurns.map(([, , prompt]) => prompt), ['initial brief', 'follow up']);
+  assert.deepEqual(
+    firstTurns.map(([, , prompt]) => prompt),
+    ['initial brief', 'follow up']
+  );
   assert.deepEqual(firstTurns[0][3].transcriptMeta, { sender: 'lead' });
   assert.deepEqual(firstTurns[1][3].transcriptMeta, { sender: 'lead' });
   assert.equal(firstTurns[0][3].mode, 'prompt');
@@ -333,18 +339,17 @@ test('canonical Agent children use ordinary session turns, retain Parent–Child
       preset: { provider: 'test-provider', model: 'test-model' },
     },
   });
-  assert.deepEqual(await Promise.all([
-    service.agentManager.closeSession(concurrent.session.id, 'first close'),
-    service.agentManager.closeSession(concurrent.session.id, 'second close'),
-  ]), [true, true]);
-  assert.equal(events.filter(
-    ([kind, id]) => kind === 'close' && id === concurrent.session.id,
-  ).length, 1);
+  assert.deepEqual(
+    await Promise.all([
+      service.agentManager.closeSession(concurrent.session.id, 'first close'),
+      service.agentManager.closeSession(concurrent.session.id, 'second close'),
+    ]),
+    [true, true]
+  );
+  assert.equal(events.filter(([kind, id]) => kind === 'close' && id === concurrent.session.id).length, 1);
 
   assert.equal(await service.agentManager.closeSession(firstSession.id, 'parent cancelled'), true);
-  const closedIds = events
-    .filter(([kind]) => kind === 'close')
-    .map(([, id]) => id);
+  const closedIds = events.filter(([kind]) => kind === 'close').map(([, id]) => id);
   assert.equal(closedIds.includes(firstSession.id), true);
   assert.equal(closedIds.includes(nested.session.id), true);
   assert.equal(service.agentDescriptor(firstSession.id).status, 'closed');
@@ -377,9 +382,7 @@ test('turn abort does not hydrate the durable Agent catalog', async (t) => {
 
   assert.equal(result.aborted, true);
   assert.equal(listSessionsCalls, 0);
-  assert.equal(events.filter(
-    ([kind, id]) => kind === 'abort' && id === parent.sessionId,
-  ).length, 1);
+  assert.equal(events.filter(([kind, id]) => kind === 'abort' && id === parent.sessionId).length, 1);
 });
 
 test('turn abort preserves background Agent descendants', async (t) => {
@@ -431,9 +434,10 @@ test('turn abort preserves background Agent descendants', async (t) => {
   });
 
   assert.equal(result.aborted, true);
-  assert.equal(events.some(
-    ([kind, id]) => kind === 'close' && id === child.session.id,
-  ), false);
+  assert.equal(
+    events.some(([kind, id]) => kind === 'close' && id === child.session.id),
+    false
+  );
   assert.equal(service.agentDescriptor(child.session.id).closed, false);
   assert.equal(service.agentDescriptor(child.session.id).status, 'idle');
   assert.equal(delegatedCancelCalls, 0);
@@ -498,9 +502,7 @@ test('Agent turn abort propagates to nested Agent background work without a dura
   assert.equal(listSessionsCalls, callsBeforeAbort);
   assert.equal(nestedCancelCalls, 1);
   assert.equal(nestedTask.status, 'cancelled');
-  assert.equal(events.filter(
-    ([kind, id]) => kind === 'abort' && id === child.session.id,
-  ).length, 1);
+  assert.equal(events.filter(([kind, id]) => kind === 'abort' && id === child.session.id).length, 1);
 });
 
 test('external desktop submit stamps User while canonical Agent turns stamp Lead', async (t) => {
@@ -563,27 +565,28 @@ test('external desktop submit stamps User while canonical Agent turns stamp Lead
 test('durable Agent and desktop transcripts restore Lead and User senders', async (t) => {
   const events = [];
   const records = new Map();
-  const createService = () => createSessionService({
-    createSessionRuntime: async (options = {}) => {
-      const runtime = await durableRuntimeFactory(events, records)(options);
-      runtime.externalAction = true;
-      return runtime;
-    },
-    sessionExists: async (sessionId) => records.has(sessionId),
-    readStoredSession: async (sessionId, options = {}) => {
-      const stored = records.get(sessionId);
-      if (!stored) return null;
-      return {
-        sessionId,
-        provider: stored.provider,
-        model: stored.model,
-        cwd: stored.cwd,
-        items: [],
-        ...(options.includeMessages === true ? { messages: stored.messages || [] } : {}),
-      };
-    },
-    listSessions: async () => [...records.values()],
-  });
+  const createService = () =>
+    createSessionService({
+      createSessionRuntime: async (options = {}) => {
+        const runtime = await durableRuntimeFactory(events, records)(options);
+        runtime.externalAction = true;
+        return runtime;
+      },
+      sessionExists: async (sessionId) => records.has(sessionId),
+      readStoredSession: async (sessionId, options = {}) => {
+        const stored = records.get(sessionId);
+        if (!stored) return null;
+        return {
+          sessionId,
+          provider: stored.provider,
+          model: stored.model,
+          cwd: stored.cwd,
+          items: [],
+          ...(options.includeMessages === true ? { messages: stored.messages || [] } : {}),
+        };
+      },
+      listSessions: async () => [...records.values()],
+    });
   let service = createService();
   t.after(async () => {
     await service?.stop('test complete');
@@ -660,13 +663,15 @@ test('live Agent cancel survives canonical close and a late cancelled turn rejec
   const config = {
     default: 'main',
     providers: {},
-    presets: [{
-      id: 'main',
-      name: 'Main',
-      provider: 'test-provider',
-      model: 'test-model',
-      tools: 'full',
-    }],
+    presets: [
+      {
+        id: 'main',
+        name: 'Main',
+        provider: 'test-provider',
+        model: 'test-model',
+        tools: 'full',
+      },
+    ],
   };
   const service = createSessionService({
     createSessionRuntime: cancellationRaceRuntimeFactory(events, controls),
@@ -704,12 +709,15 @@ test('live Agent cancel survives canonical close and a late cancelled turn rejec
     callerCwd: process.cwd(),
     clientHostPid: process.pid,
   };
-  const started = await agent.execute({
-    type: 'spawn',
-    tag: 'cancel-race-worker',
-    agent: 'worker',
-    prompt: 'hold until cancelled',
-  }, context);
+  const started = await agent.execute(
+    {
+      type: 'spawn',
+      tag: 'cancel-race-worker',
+      agent: 'worker',
+      prompt: 'hold until cancelled',
+    },
+    context
+  );
   const taskId = /^agent task:\s*(\S+)/m.exec(started)?.[1];
   assert.ok(taskId, started);
   const sessionId = await controls.turnStarted.promise;
@@ -722,9 +730,7 @@ test('live Agent cancel survives canonical close and a late cancelled turn rejec
   assert.match(cancelled, new RegExp(sessionId));
   assert.equal(controls.closedWhileTurnPending, true);
   assert.equal(controls.turnPending, true);
-  assert.equal(events.filter(
-    ([kind, id]) => kind === 'close' && id === sessionId,
-  ).length, 1);
+  assert.equal(events.filter(([kind, id]) => kind === 'close' && id === sessionId).length, 1);
   assert.equal(task.status, 'cancelled');
 
   controls.lateTurn.resolve({ status: 'cancelled' });
@@ -734,8 +740,7 @@ test('live Agent cancel survives canonical close and a late cancelled turn rejec
   assert.equal(task.status, 'cancelled');
   assert.notEqual(task.status, 'failed');
   const stored = JSON.parse(await readFile(join(dataDir, 'agent-workers.json'), 'utf8'));
-  const worker = Object.values(stored.workers || {})
-    .find((row) => row.sessionId === sessionId);
+  const worker = Object.values(stored.workers || {}).find((row) => row.sessionId === sessionId);
   assert.ok(worker);
   assert.equal(worker.status, 'cancelled');
   assert.equal(worker.stage, 'cancelled');
@@ -752,75 +757,79 @@ test('public Agent APIs rehydrate and reuse durable canonical ancestry after dae
   const config = {
     default: 'main',
     providers: {},
-    presets: [{
-      id: 'main',
-      name: 'Main',
-      provider: 'test-provider',
-      model: 'test-model',
-      tools: 'full',
-    }],
+    presets: [
+      {
+        id: 'main',
+        name: 'Main',
+        provider: 'test-provider',
+        model: 'test-model',
+        tools: 'full',
+      },
+    ],
   };
-  const createService = () => createSessionService({
-    createSessionRuntime: durableRuntimeFactory(events, records),
-    sessionExists: async (sessionId) => records.has(sessionId),
-    readStoredSession: async (sessionId, options = {}) => {
-      const stored = records.get(sessionId);
-      if (!stored) return null;
-      if (options.metadataOnly === true) {
-        metadataReads.push(sessionId);
+  const createService = () =>
+    createSessionService({
+      createSessionRuntime: durableRuntimeFactory(events, records),
+      sessionExists: async (sessionId) => records.has(sessionId),
+      readStoredSession: async (sessionId, options = {}) => {
+        const stored = records.get(sessionId);
+        if (!stored) return null;
+        if (options.metadataOnly === true) {
+          metadataReads.push(sessionId);
+          return {
+            id: sessionId,
+            sessionId,
+            owner: stored.owner,
+            agent: stored.agent,
+            parentSessionId: stored.parentSessionId,
+            ownerSessionId: stored.ownerSessionId,
+            visibility: stored.visibility,
+          };
+        }
         return {
-          id: sessionId,
           sessionId,
-          owner: stored.owner,
-          agent: stored.agent,
-          parentSessionId: stored.parentSessionId,
-          ownerSessionId: stored.ownerSessionId,
-          visibility: stored.visibility,
+          provider: stored.provider,
+          model: stored.model,
+          cwd: stored.cwd,
+          items: [],
+          ...(options.includeMessages === true ? { messages: stored.messages || [] } : {}),
         };
-      }
-      return {
-        sessionId,
-        provider: stored.provider,
-        model: stored.model,
-        cwd: stored.cwd,
-        items: [],
-        ...(options.includeMessages === true ? { messages: stored.messages || [] } : {}),
-      };
-    },
-    listSessions: async (options = {}) => {
-      listCalls.push({ ...options });
-      return options.includeAgentOnly === true
-        ? [...records.values()].map((record) => {
-            const summary = _sessionSummary(record);
-            // Simulate a pre-parentSessionId v2 sidecar. Rehydration may read
-            // these exact Agent ids, but must never enumerate full sessions.
-            delete summary.parentSessionId;
-            return summary;
-          })
-        : [];
-    },
-  });
-  const createAgent = (service) => createStandaloneAgent({
-    cfgMod: {
-      loadConfig: () => config,
-      getPluginData: () => dataDir,
-      resolveRuntimeSpec: (_preset, { lane, agentId }) => ({
-        lane,
-        scopeKey: `${lane}:${agentId}`,
-      }),
-    },
-    reg: {},
-    mgr: service.agentManager,
-    dataDir,
-    cwd: process.cwd(),
-    sessionSurface: service.agentSurface,
-    awaitKeychainPrewarm: async () => {},
-    isKeychainPrewarmReady: () => true,
-    notifySessionCompletion(ownerSessionId, text, meta) {
-      notifications.push({ ownerSessionId, text, meta });
-      return true;
-    },
-  });
+      },
+      listSessions: async (options = {}) => {
+        listCalls.push({ ...options });
+        return options.includeAgentOnly === true
+          ? [...records.values()].map((record) => {
+              const summary = _sessionSummary(record);
+              // Simulate a pre-parentSessionId v2 sidecar. Rehydration may read
+              // these exact Agent ids, but must never enumerate full sessions.
+              delete summary.parentSessionId;
+              return summary;
+            })
+          : [];
+      },
+    });
+  const createAgent = (service) =>
+    createStandaloneAgent({
+      cfgMod: {
+        loadConfig: () => config,
+        getPluginData: () => dataDir,
+        resolveRuntimeSpec: (_preset, { lane, agentId }) => ({
+          lane,
+          scopeKey: `${lane}:${agentId}`,
+        }),
+      },
+      reg: {},
+      mgr: service.agentManager,
+      dataDir,
+      cwd: process.cwd(),
+      sessionSurface: service.agentSurface,
+      awaitKeychainPrewarm: async () => {},
+      isKeychainPrewarmReady: () => true,
+      notifySessionCompletion(ownerSessionId, text, meta) {
+        notifications.push({ ownerSessionId, text, meta });
+        return true;
+      },
+    });
   let service = createService();
   let agent = createAgent(service);
   assert.equal(agent.tools[0].annotations.agentHidden, false);
@@ -836,12 +845,15 @@ test('public Agent APIs rehydrate and reuse durable canonical ancestry after dae
     callerCwd: process.cwd(),
     clientHostPid: process.pid,
   };
-  const started = await agent.execute({
-    type: 'spawn',
-    tag: 'canonical-worker',
-    agent: 'worker',
-    prompt: 'task brief',
-  }, context);
+  const started = await agent.execute(
+    {
+      type: 'spawn',
+      tag: 'canonical-worker',
+      agent: 'worker',
+      prompt: 'task brief',
+    },
+    context
+  );
   assert.match(started, /status: running/);
   const status = await waitForAgentTask(agent, started, context);
   assert.match(status, /status: completed/);
@@ -856,12 +868,15 @@ test('public Agent APIs rehydrate and reuse durable canonical ancestry after dae
     callerSessionId: sessionId,
     ownerSessionId: context.ownerSessionId,
   };
-  const nestedStarted = await agent.execute({
-    type: 'spawn',
-    tag: 'canonical-reviewer',
-    agent: 'reviewer',
-    prompt: 'nested brief',
-  }, nestedContext);
+  const nestedStarted = await agent.execute(
+    {
+      type: 'spawn',
+      tag: 'canonical-reviewer',
+      agent: 'reviewer',
+      prompt: 'nested brief',
+    },
+    nestedContext
+  );
   const nestedStatus = await waitForAgentTask(agent, nestedStarted, nestedContext);
   const nestedSessionId = /^target:\s+\S+\s+(sess_\S+)/m.exec(nestedStatus)?.[1];
   assert.ok(nestedSessionId);
@@ -886,11 +901,14 @@ test('public Agent APIs rehydrate and reuse durable canonical ancestry after dae
   const coldRead = await agent.execute({ type: 'read', sessionId }, context);
   assert.match(coldRead, /handoff:task brief/);
 
-  const sent = await agent.execute({
-    type: 'send',
-    tag: 'canonical-worker',
-    message: 'same child follow up',
-  }, context);
+  const sent = await agent.execute(
+    {
+      type: 'send',
+      tag: 'canonical-worker',
+      message: 'same child follow up',
+    },
+    context
+  );
   assert.match(sent, new RegExp(sessionId));
   const follow = await waitForAgentTask(agent, sent, context);
   assert.match(follow, /handoff:same child follow up/);
@@ -909,11 +927,14 @@ test('public Agent APIs rehydrate and reuse durable canonical ancestry after dae
   assert.equal(rehydratedNested.visibility, 'agent-only');
   assert.equal(service.rootOwnerSessionId(nestedSessionId), context.ownerSessionId);
 
-  const explicitSent = await agent.execute({
-    type: 'send',
-    sessionId,
-    message: 'explicit session follow up',
-  }, context);
+  const explicitSent = await agent.execute(
+    {
+      type: 'send',
+      sessionId,
+      message: 'explicit session follow up',
+    },
+    context
+  );
   assert.match(explicitSent, new RegExp(sessionId));
   const explicitFollow = await waitForAgentTask(agent, explicitSent, context);
   assert.match(explicitFollow, /handoff:explicit session follow up/);
@@ -928,9 +949,7 @@ test('public Agent APIs rehydrate and reuse durable canonical ancestry after dae
   const cancelled = await agent.execute({ type: 'cancel', sessionId }, context);
   assert.match(cancelled, /agent close: ok/);
   assert.match(cancelled, new RegExp(sessionId));
-  const closedIds = events
-    .filter(([kind]) => kind === 'close')
-    .map(([, id]) => id);
+  const closedIds = events.filter(([kind]) => kind === 'close').map(([, id]) => id);
   assert.equal(closedIds.includes(sessionId), true);
   assert.equal(closedIds.includes(nestedSessionId), true);
   assert.equal(service.agentDescriptor(sessionId).status, 'closed');
@@ -943,42 +962,59 @@ test('public Agent APIs rehydrate and reuse durable canonical ancestry after dae
   service = createService();
   agent = createAgent(service);
   const statusAfterClose = await agent.execute({ type: 'status', sessionId }, context);
-  const sendAfterClose = await agent.execute({
-    type: 'send',
-    sessionId,
-    message: 'must not resurrect',
-  }, context);
+  const sendAfterClose = await agent.execute(
+    {
+      type: 'send',
+      sessionId,
+      message: 'must not resurrect',
+    },
+    context
+  );
   assert.match(statusAfterClose, /"status": "closed"/);
   assert.match(sendAfterClose, /Error:.*(?:closed|not found)/i);
   assert.equal(records.size, 2);
   assert.equal(records.get(sessionId)?.closed, true);
   assert.equal(records.get(nestedSessionId)?.closed, true);
 
-  const reservedIds = events
-    .filter(([kind]) => kind === 'reserve')
-    .map(([, id]) => id);
+  const reservedIds = events.filter(([kind]) => kind === 'reserve').map(([, id]) => id);
   assert.deepEqual(new Set(reservedIds), new Set([sessionId, nestedSessionId]));
   assert.equal(reservedIds.length, 2);
   assert.equal(records.size, 2);
-  assert.equal(listCalls.some((options) => options.includeAgentOnly === true), true);
-  assert.equal(listCalls.every((options) => options.summaryOnly === true), true);
-  assert.equal(listCalls.some((options) => options.refreshFromStorage === true), false);
+  assert.equal(
+    listCalls.some((options) => options.includeAgentOnly === true),
+    true
+  );
+  assert.equal(
+    listCalls.every((options) => options.summaryOnly === true),
+    true
+  );
+  assert.equal(
+    listCalls.some((options) => options.refreshFromStorage === true),
+    false
+  );
   assert.equal(metadataReads.includes(sessionId), true);
   assert.equal(metadataReads.includes(nestedSessionId), true);
   const turnIds = events.filter(([kind]) => kind === 'turn').map(([, id]) => id);
   assert.deepEqual(new Set(turnIds), new Set([sessionId, nestedSessionId]));
   assert.ok(notifications.length >= 4);
   assert.equal(
-    notifications.some((row) =>
-      row.ownerSessionId === sessionId && /handoff:nested brief/.test(row.text)),
-    true,
+    notifications.some((row) => row.ownerSessionId === sessionId && /handoff:nested brief/.test(row.text)),
+    true
   );
   assert.equal(
-    notifications.some((row) =>
-      row.ownerSessionId === 'sess_public_root' && /handoff:nested brief/.test(row.text)),
-    false,
+    notifications.some((row) => row.ownerSessionId === 'sess_public_root' && /handoff:nested brief/.test(row.text)),
+    false
   );
-  assert.equal(notifications.some((row) => /handoff:task brief/.test(row.text)), true);
-  assert.equal(notifications.some((row) => /handoff:same child follow up/.test(row.text)), true);
-  assert.equal(notifications.some((row) => /agent result/.test(row.text)), false);
+  assert.equal(
+    notifications.some((row) => /handoff:task brief/.test(row.text)),
+    true
+  );
+  assert.equal(
+    notifications.some((row) => /handoff:same child follow up/.test(row.text)),
+    true
+  );
+  assert.equal(
+    notifications.some((row) => /agent result/.test(row.text)),
+    false
+  );
 });

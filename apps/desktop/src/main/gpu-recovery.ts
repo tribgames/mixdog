@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const GPU_CRASH_WINDOW_MS = 30_000;
@@ -48,13 +42,13 @@ function clearMarker(userDataPath: string): void {
 export function gpuFallbackDecision(
   previousCrashes: readonly number[],
   details: { platform: NodeJS.Platform; type?: string; reason: string },
-  now = Date.now(),
+  now = Date.now()
 ): GpuFallbackDecision {
-  const crashes = previousCrashes.filter((at) =>
-    Number.isFinite(at) && now >= at && now - at <= GPU_CRASH_WINDOW_MS);
-  const candidate = details.platform === 'win32'
-    && String(details.type || '').toLowerCase() === 'gpu'
-    && GPU_CRASH_REASONS.has(details.reason);
+  const crashes = previousCrashes.filter((at) => Number.isFinite(at) && now >= at && now - at <= GPU_CRASH_WINDOW_MS);
+  const candidate =
+    details.platform === 'win32' &&
+    String(details.type || '').toLowerCase() === 'gpu' &&
+    GPU_CRASH_REASONS.has(details.reason);
   if (!candidate) return { crashes, action: 'none' };
   crashes.push(now);
   return {
@@ -65,21 +59,24 @@ export function gpuFallbackDecision(
 
 export function readActiveGpuFallbackMarker(
   userDataPath: string,
-  environment: GpuFallbackEnvironment,
+  environment: GpuFallbackEnvironment
 ): GpuFallbackMarker | null {
   const path = markerPath(userDataPath);
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<GpuFallbackMarker>;
-    const valid = parsed.schemaVersion === GPU_FALLBACK_SCHEMA_VERSION
-      && Number.isFinite(parsed.engagedAt)
-      && Number.isFinite(parsed.crashesInWindow)
-      && parsed.platform === 'win32'
-      && typeof parsed.appVersion === 'string'
-      && typeof parsed.electronVersion === 'string';
-    if (!valid
-      || environment.platform !== 'win32'
-      || parsed.appVersion !== environment.appVersion
-      || parsed.electronVersion !== environment.electronVersion) {
+    const valid =
+      parsed.schemaVersion === GPU_FALLBACK_SCHEMA_VERSION &&
+      Number.isFinite(parsed.engagedAt) &&
+      Number.isFinite(parsed.crashesInWindow) &&
+      parsed.platform === 'win32' &&
+      typeof parsed.appVersion === 'string' &&
+      typeof parsed.electronVersion === 'string';
+    if (
+      !valid ||
+      environment.platform !== 'win32' ||
+      parsed.appVersion !== environment.appVersion ||
+      parsed.electronVersion !== environment.electronVersion
+    ) {
       clearMarker(userDataPath);
       return null;
     }
@@ -93,7 +90,7 @@ export function readActiveGpuFallbackMarker(
 export function writeGpuFallbackMarker(
   userDataPath: string,
   info: { engagedAt: number; crashesInWindow: number },
-  environment: GpuFallbackEnvironment & { platform: 'win32' },
+  environment: GpuFallbackEnvironment & { platform: 'win32' }
 ): void {
   mkdirSync(userDataPath, { recursive: true });
   const marker: GpuFallbackMarker = {

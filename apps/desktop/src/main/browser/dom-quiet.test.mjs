@@ -9,12 +9,20 @@ function fixture(t, options = {}) {
   let active = 0;
   const Observer = dom.window.MutationObserver;
   dom.window.MutationObserver = class extends Observer {
-    observe(...args) { active++; return super.observe(...args); }
-    disconnect() { active--; return super.disconnect(); }
+    observe(...args) {
+      active++;
+      return super.observe(...args);
+    }
+    disconnect() {
+      active--;
+      return super.disconnect();
+    }
   };
   const signals = [];
   const wait = createBrowserDomQuiet({
-    quietMs: 20, timeoutMs: 100, ...options,
+    quietMs: 20,
+    timeoutMs: 100,
+    ...options,
     evaluate: async (_guest, expression, signal) => {
       signals.push(signal);
       signal?.throwIfAborted();
@@ -28,10 +36,12 @@ test('quiet completion and continuous mutation timeout release their observers',
   for (const changing of [false, true]) {
     const f = fixture(t);
     let mutations = 0;
-    const timer = changing ? f.dom.window.setInterval(() => {
-      mutations++;
-      f.dom.window.document.querySelector('main').textContent = String(mutations);
-    }, 2) : undefined;
+    const timer = changing
+      ? f.dom.window.setInterval(() => {
+          mutations++;
+          f.dom.window.document.querySelector('main').textContent = String(mutations);
+        }, 2)
+      : undefined;
     await f.wait({});
     if (timer) f.dom.window.clearInterval(timer);
     assert.equal(f.active(), 0);
@@ -44,7 +54,11 @@ test('postcondition cutoff resolves the renderer wait without aborting execution
     const f = fixture(t, { quietMs: 1000, timeoutMs: 2000 });
     const controller = new AbortController();
     let satisfy;
-    const until = alreadyMet ? Promise.resolve() : new Promise((resolve) => { satisfy = resolve; });
+    const until = alreadyMet
+      ? Promise.resolve()
+      : new Promise((resolve) => {
+          satisfy = resolve;
+        });
     const pending = f.wait({}, controller.signal, until);
     if (satisfy) setTimeout(satisfy, 5);
     await pending;

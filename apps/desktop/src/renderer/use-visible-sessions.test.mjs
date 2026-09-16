@@ -7,19 +7,29 @@ import { useVisibleSessions } from './use-visible-sessions.ts';
 
 test('the next tab registers before a slow old tab settles and retired failures cannot retry', async () => {
   const dom = new JSDOM('<!doctype html><div id="root"></div>');
-  const prior = new Map(['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'].map(key =>
-    [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  const prior = new Map(
+    ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'].map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(globalThis, key),
+    ])
+  );
   for (const [key, value] of Object.entries({
-    window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true,
-  })) Object.defineProperty(globalThis, key, { configurable: true, value });
+    window: dom.window,
+    document: dom.window.document,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  }))
+    Object.defineProperty(globalThis, key, { configurable: true, value });
   const calls = [];
   const old = Promise.withResolvers();
   const timers = new Map();
   let sequence = 0;
-  dom.window.setTimeout = callback => { timers.set(++sequence, callback); return sequence; };
-  dom.window.clearTimeout = id => timers.delete(id);
+  dom.window.setTimeout = (callback) => {
+    timers.set(++sequence, callback);
+    return sequence;
+  };
+  dom.window.clearTimeout = (id) => timers.delete(id);
   dom.window.mixdogDesktop = {
-    setVisibleSessions: ids => {
+    setVisibleSessions: (ids) => {
       calls.push(ids);
       return ids[0] === 'old' ? old.promise : Promise.resolve(true);
     },

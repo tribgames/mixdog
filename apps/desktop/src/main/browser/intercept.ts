@@ -35,9 +35,8 @@ export interface BrowserFetchPattern {
 /** Wildcard pattern to anchored matcher. A pattern without a wildcard is
  *  treated as a substring, which is how a caller reads "*\/api\/*" anyway. */
 function patternMatcher(pattern: string): RegExp {
-  const escaped = pattern.replace(
-    /[.*+?^${}()|[\]\\]/g,
-    (character) => (character === '*' ? '\u0000' : `\\${character}`),
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, (character) =>
+    character === '*' ? '\u0000' : `\\${character}`
   );
   return new RegExp(`^${escaped.split('\u0000').join('.*')}$`, 'i');
 }
@@ -68,10 +67,7 @@ function describeRule(rule: BrowserInterceptRule): string {
  * and then ignored by Chromium — which is why a rule promises a replaced
  * payload and never a synthetic status.
  */
-export function interceptFulfillParams(
-  rule: BrowserInterceptRule,
-  requestId: string,
-): Record<string, unknown> {
+export function interceptFulfillParams(rule: BrowserInterceptRule, requestId: string): Record<string, unknown> {
   return {
     requestId,
     responseCode: 200,
@@ -110,11 +106,7 @@ export function createBrowserIntercept() {
     }));
   }
 
-  function matchInterceptRule(
-    guest: WebContents,
-    url: string,
-    resourceType: string,
-  ): BrowserInterceptRule | undefined {
+  function matchInterceptRule(guest: WebContents, url: string, resourceType: string): BrowserInterceptRule | undefined {
     const type = String(resourceType || '').toLowerCase();
     for (const rule of rulesFor(guest).values()) {
       if (!rule.matcher.test(url)) continue;
@@ -132,7 +124,7 @@ export function createBrowserIntercept() {
   async function applyRuleMutation(
     rules: Map<string, BrowserInterceptRule>,
     mutate: () => void,
-    applyFetchPatterns: () => Promise<void>,
+    applyFetchPatterns: () => Promise<void>
   ): Promise<void> {
     const previous = new Map(rules);
     mutate();
@@ -148,16 +140,18 @@ export function createBrowserIntercept() {
   async function interceptResult(
     guest: WebContents,
     command: BrowserCommand,
-    applyFetchPatterns: () => Promise<void>,
+    applyFetchPatterns: () => Promise<void>
   ): Promise<BrowserCommandResult> {
-    const operation = String(command.operation || 'list').trim().toLowerCase();
+    const operation = String(command.operation || 'list')
+      .trim()
+      .toLowerCase();
     const rules = rulesFor(guest);
     if (operation === 'list') return { text: listText(rules) };
 
     if (operation === 'add') {
       if (rules.size >= MAX_RULES_PER_PAGE) {
         throw new Error(
-          `this page already holds ${MAX_RULES_PER_PAGE} intercept rules; remove one before adding another`,
+          `this page already holds ${MAX_RULES_PER_PAGE} intercept rules; remove one before adding another`
         );
       }
       const pattern = normalizedPattern(String(command.url || ''));
@@ -166,9 +160,7 @@ export function createBrowserIntercept() {
       if (body.length > MAX_BODY_CHARS) {
         throw new Error(`intercept body is limited to ${MAX_BODY_CHARS} characters`);
       }
-      const resourceTypes = (command.resourceTypes || []).map(
-        (type) => String(type).toLowerCase(),
-      );
+      const resourceTypes = (command.resourceTypes || []).map((type) => String(type).toLowerCase());
       sequence += 1;
       const id = `i${sequence}`;
       const rule: BrowserInterceptRule = {
@@ -182,9 +174,10 @@ export function createBrowserIntercept() {
       };
       await applyRuleMutation(rules, () => rules.set(id, rule), applyFetchPatterns);
       return {
-        text: 'Intercepting from now on. Requests already in flight keep their original answer, '
-          + 'and a replaced payload arrives under the response the server actually returned.\n\n'
-          + listText(rules),
+        text:
+          'Intercepting from now on. Requests already in flight keep their original answer, ' +
+          'and a replaced payload arrives under the response the server actually returned.\n\n' +
+          listText(rules),
       };
     }
 
@@ -193,9 +186,13 @@ export function createBrowserIntercept() {
       if (!rules.has(id)) {
         throw new Error(`unknown intercept rule ${id || '(empty)'}; list intercept to see current ids`);
       }
-      await applyRuleMutation(rules, () => {
-        rules.delete(id);
-      }, applyFetchPatterns);
+      await applyRuleMutation(
+        rules,
+        () => {
+          rules.delete(id);
+        },
+        applyFetchPatterns
+      );
       return { text: `Removed intercept rule ${id}.\n\n${listText(rules)}` };
     }
 

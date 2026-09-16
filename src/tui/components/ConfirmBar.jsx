@@ -36,10 +36,7 @@ export function ConfirmBar({ buttons = [], focusedIndex = -1 }) {
             paddingX={1}
             backgroundColor={isFocused ? theme.selectionBackground : undefined}
           >
-            <Text
-              color={isFocused ? theme.selectionText : theme.subtle}
-              bold={isFocused}
-            >
+            <Text color={isFocused ? theme.selectionText : theme.subtle} bold={isFocused}>
               {`[ ${button.label} ]`}
             </Text>
           </Box>

@@ -6,8 +6,8 @@ import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
 // says how). Byte budget is the shared TOOL_OUTPUT_MAX_BYTES; line/head/tail
 // stay read-specific. Env-overridable for bench: MIXDOG_READ_MAX_LINES/_HEAD/_TAIL.
 function _readEnvInt(name, fallback) {
-    const v = parseInt(process.env[name], 10);
-    return Number.isFinite(v) && v > 0 ? v : fallback;
+  const v = parseInt(process.env[name], 10);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
 }
 export const SMART_READ_MAX_BYTES = TOOL_OUTPUT_MAX_BYTES;
 export const SMART_READ_MAX_LINES = _readEnvInt('MIXDOG_READ_MAX_LINES', 2000);
@@ -30,84 +30,83 @@ const READ_MAX_RENDERED_LINE_CHARS = 2_000;
 export const LINE_NO_SEP = '→';
 
 export function buildSmartReadTruncationMarker(totalLines, fileBytes, _filePath = '') {
-    const kb = Math.max(1, Math.round((Number(fileBytes) || 0) / 1024));
-    return `... [TRUNCATED - ${totalLines} lines / ${kb} KB] ...`;
+  const kb = Math.max(1, Math.round((Number(fileBytes) || 0) / 1024));
+  return `... [TRUNCATED - ${totalLines} lines / ${kb} KB] ...`;
 }
 
 function rangeFromRenderedReadRows(rows, fallbackStartLine = 1) {
-    if (!Array.isArray(rows) || rows.length === 0) return null;
-    const nums = [];
-    for (const row of rows) {
-        const m = /^(\d+)[\t│→]/.exec(String(row));
-        if (m) nums.push(Number(m[1]));
-    }
-    if (nums.length > 0) {
-        return { startLine: Math.min(...nums), endLine: Math.max(...nums) };
-    }
-    return {
-        startLine: Math.max(1, Number(fallbackStartLine) || 1),
-        endLine: Math.max(1, (Number(fallbackStartLine) || 1) + rows.length - 1),
-    };
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const nums = [];
+  for (const row of rows) {
+    const m = /^(\d+)[\t│→]/.exec(String(row));
+    if (m) nums.push(Number(m[1]));
+  }
+  if (nums.length > 0) {
+    return { startLine: Math.min(...nums), endLine: Math.max(...nums) };
+  }
+  return {
+    startLine: Math.max(1, Number(fallbackStartLine) || 1),
+    endLine: Math.max(1, (Number(fallbackStartLine) || 1) + rows.length - 1),
+  };
 }
 
 export function smartReadTruncate(renderedWithLineNos, totalLines, fileBytes, filePath = '') {
-    const overByBytes = fileBytes > SMART_READ_MAX_BYTES;
-    const overByLines = totalLines > SMART_READ_MAX_LINES;
-    if (!overByBytes && !overByLines) {
-        return { text: renderedWithLineNos, truncated: false, totalLines, ranges: null };
-    }
-    const rows = renderedWithLineNos.split('\n');
-    const headCount = Math.min(SMART_READ_HEAD_LINES, rows.length);
-    const tailStart = Math.max(headCount, rows.length - SMART_READ_TAIL_LINES);
-    const elidedRows = tailStart - headCount;
-    if (elidedRows <= 0) {
-        return { text: renderedWithLineNos, truncated: false, totalLines, ranges: null };
-    }
-    const headRows = rows.slice(0, headCount);
-    const tailRows = rows.slice(tailStart);
-    const head = headRows.join('\n');
-    const tail = tailRows.join('\n');
-    const marker = buildSmartReadTruncationMarker(totalLines, fileBytes, filePath);
-    return {
-        text: `${head}\n${marker}\n${tail}`,
-        truncated: true,
-        totalLines,
-        ranges: mergeReadRanges([
-            rangeFromRenderedReadRows(headRows, 1),
-            rangeFromRenderedReadRows(tailRows, tailStart + 1),
-        ].filter(Boolean)),
-    };
+  const overByBytes = fileBytes > SMART_READ_MAX_BYTES;
+  const overByLines = totalLines > SMART_READ_MAX_LINES;
+  if (!overByBytes && !overByLines) {
+    return { text: renderedWithLineNos, truncated: false, totalLines, ranges: null };
+  }
+  const rows = renderedWithLineNos.split('\n');
+  const headCount = Math.min(SMART_READ_HEAD_LINES, rows.length);
+  const tailStart = Math.max(headCount, rows.length - SMART_READ_TAIL_LINES);
+  const elidedRows = tailStart - headCount;
+  if (elidedRows <= 0) {
+    return { text: renderedWithLineNos, truncated: false, totalLines, ranges: null };
+  }
+  const headRows = rows.slice(0, headCount);
+  const tailRows = rows.slice(tailStart);
+  const head = headRows.join('\n');
+  const tail = tailRows.join('\n');
+  const marker = buildSmartReadTruncationMarker(totalLines, fileBytes, filePath);
+  return {
+    text: `${head}\n${marker}\n${tail}`,
+    truncated: true,
+    totalLines,
+    ranges: mergeReadRanges(
+      [rangeFromRenderedReadRows(headRows, 1), rangeFromRenderedReadRows(tailRows, tailStart + 1)].filter(Boolean)
+    ),
+  };
 }
 
 export function appendReadContextAdvisory(out, { filePath: _filePath, lineCount: _lineCount, bytes: _bytes }) {
-    return out;
+  return out;
 }
 
 export function parseOffsetArg(value) {
-    const n = Number(value);
-    return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
 }
 
 export function parseLineLimitArg(value, defaultValue) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return defaultValue;
-    if (n === 0) return Infinity;
-    return Math.max(1, Math.trunc(n));
+  const n = Number(value);
+  if (!Number.isFinite(n)) return defaultValue;
+  if (n === 0) return Infinity;
+  return Math.max(1, Math.trunc(n));
 }
 
 export function truncateReadLineText(line, { truncateLongLine = true } = {}) {
-    let text = String(line ?? '');
-    const originalLength = text.length;
-    if (truncateLongLine && text.length > READ_MAX_RENDERED_LINE_CHARS) {
-        const cps = [...text];
-        const head = cps.slice(0, 1_500).join('');
-        const tail = cps.slice(-300).join('');
-        text = `${head} ... [line truncated: ${originalLength} chars total] ... ${tail}`;
-    }
-    return text;
+  let text = String(line ?? '');
+  const originalLength = text.length;
+  if (truncateLongLine && text.length > READ_MAX_RENDERED_LINE_CHARS) {
+    const cps = [...text];
+    const head = cps.slice(0, 1_500).join('');
+    const tail = cps.slice(-300).join('');
+    text = `${head} ... [line truncated: ${originalLength} chars total] ... ${tail}`;
+  }
+  return text;
 }
 
 export function renderReadLine(lineNo, line, { truncateLongLine = true } = {}) {
-    const text = truncateReadLineText(line, { truncateLongLine });
-    return `${lineNo}${LINE_NO_SEP}${text}`;
+  const text = truncateReadLineText(line, { truncateLongLine });
+  return `${lineNo}${LINE_NO_SEP}${text}`;
 }

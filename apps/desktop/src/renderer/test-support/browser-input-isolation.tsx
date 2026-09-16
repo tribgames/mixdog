@@ -11,8 +11,11 @@ const fixture = window as unknown as {
 let visible = true;
 // The harness window is never shown; exercise the visible-document client
 // without activating an actual desktop window.
-Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visible ? 'visible' : 'hidden' });
-fixture.setFixtureVisible = value => { visible = value; document.dispatchEvent(new Event('visibilitychange')); };
+Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (visible ? 'visible' : 'hidden') });
+fixture.setFixtureVisible = (value) => {
+  visible = value;
+  document.dispatchEvent(new Event('visibilitychange'));
+};
 
 function Fixture() {
   const [active, setActive] = useState(true);
@@ -22,14 +25,18 @@ function Fixture() {
   usePaneTypingFocus('editing', 'session');
   fixture.setSurfaceActive = setActive;
   fixture.fixtureReady = true;
-  return <>
-    <section data-pane-id="editing"><form className="composer">
-      <textarea id="composer" ref={textarea} value={draft} onChange={event => setDraft(event.target.value)} />
-      <output id="draft">{draft}</output>
-    </form></section>
-    <div id="browser-dock" style={{ width: 600, height: 400, marginTop: 30 }}>
-      <BrowserPane sessionId="visible-session" active={active} foreground={active} focusAddressOnActivate={false} />
-    </div>
-  </>;
+  return (
+    <>
+      <section data-pane-id="editing">
+        <form className="composer">
+          <textarea id="composer" ref={textarea} value={draft} onChange={(event) => setDraft(event.target.value)} />
+          <output id="draft">{draft}</output>
+        </form>
+      </section>
+      <div id="browser-dock" style={{ width: 600, height: 400, marginTop: 30 }}>
+        <BrowserPane sessionId="visible-session" active={active} foreground={active} focusAddressOnActivate={false} />
+      </div>
+    </>
+  );
 }
 createRoot(document.getElementById('root')!).render(<Fixture />);

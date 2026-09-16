@@ -11,11 +11,7 @@ function milliseconds(value) {
   return Math.max(0, Math.round(Number(value) * 10) / 10);
 }
 
-export function createBootPhaseProfiler({
-  log = () => {},
-  now = () => performance.now(),
-  startedAt = now(),
-} = {}) {
+export function createBootPhaseProfiler({ log = () => {}, now = () => performance.now(), startedAt = now() } = {}) {
   const origin = Number(startedAt);
 
   function emit(phase, status, fields = {}) {

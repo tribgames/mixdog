@@ -2,7 +2,17 @@ import { posix } from 'node:path';
 import { chartWorkbookRows, chartXml } from './portable-chart.mjs';
 import { addPackageRelationship, partRelationshipPath, relationshipTarget, zipText } from './portable-opc.mjs';
 import { OFFICE_RELATIONSHIP_BASE, tagPattern, upsertOrderedChild, xmlEncode } from './portable-xml.mjs';
-import { CHART_AXIS_ORDER, LABEL_POSITION_CODES, chartCategories, chartFrameXml, chartTitleText, detectChartType, readChartPresentation, resolveSlideChart, writePresentationChart } from './portable-pptx-chart.mjs';
+import {
+  CHART_AXIS_ORDER,
+  LABEL_POSITION_CODES,
+  chartCategories,
+  chartFrameXml,
+  chartTitleText,
+  detectChartType,
+  readChartPresentation,
+  resolveSlideChart,
+  writePresentationChart,
+} from './portable-pptx-chart.mjs';
 import { slidePath } from './portable-pptx-package.mjs';
 import { appendSlideShape, nextShapeId } from './portable-pptx-core.mjs';
 
@@ -38,20 +48,25 @@ export async function handleAddChart(context, op) {
     zip,
     partRelationshipPath(path),
     `${OFFICE_RELATIONSHIP_BASE}/chart`,
-    posix.relative('ppt/slides', chartPart),
+    posix.relative('ppt/slides', chartPart)
   );
   const id = nextShapeId(current);
-  zip.file(path, appendSlideShape(current, chartFrameXml({
-    id,
-    relationshipId,
-    left: op.left ?? 72,
-    top: op.top ?? 72,
-    width: op.width ?? 480,
-    height: op.height ?? 280,
-  })));
+  zip.file(
+    path,
+    appendSlideShape(
+      current,
+      chartFrameXml({
+        id,
+        relationshipId,
+        left: op.left ?? 72,
+        top: op.top ?? 72,
+        width: op.width ?? 480,
+        height: op.height ?? 280,
+      })
+    )
+  );
   return { op: op.op, changed: true, shapeId: id, chart: chartPart };
 }
-
 
 export async function handleSetChartData(context, op) {
   const { zip } = context;
@@ -73,15 +88,12 @@ export async function handleSetChartData(context, op) {
     const points = kept.pointColors?.[index] || [];
     // Point colors are kept only where the new data still has that point, so a
     // shorter refresh never leaves the accent on a category that is gone.
-    const carried = entry.pointColors === undefined && points.some(Boolean)
-      ? { pointColors: points.slice(0, Array.isArray(entry.values) ? entry.values.length : 0) }
-      : {};
-    const filled = entry.color === undefined && kept.seriesColors[index]
-      ? { color: kept.seriesColors[index] }
-      : {};
-    return Object.keys(carried).length || Object.keys(filled).length
-      ? { ...entry, ...filled, ...carried }
-      : entry;
+    const carried =
+      entry.pointColors === undefined && points.some(Boolean)
+        ? { pointColors: points.slice(0, Array.isArray(entry.values) ? entry.values.length : 0) }
+        : {};
+    const filled = entry.color === undefined && kept.seriesColors[index] ? { color: kept.seriesColors[index] } : {};
+    return Object.keys(carried).length || Object.keys(filled).length ? { ...entry, ...filled, ...carried } : entry;
   });
   await writePresentationChart(zip, {
     chartPart,
@@ -104,8 +116,12 @@ export async function handleSetChartData(context, op) {
   });
   // A zero baseline is already reported on its own; the axis line is what the
   // caller could not have asked for: a hidden axis, a zoomed range, no grid.
-  const axisKept = kept.axis.hideValueAxis || kept.axis.hideCategoryAxis
-    || kept.axis.max != null || (kept.axis.min != null && kept.axis.min !== 0) || !kept.axis.gridlines;
+  const axisKept =
+    kept.axis.hideValueAxis ||
+    kept.axis.hideCategoryAxis ||
+    kept.axis.max != null ||
+    (kept.axis.min != null && kept.axis.min !== 0) ||
+    !kept.axis.gridlines;
   const preserved = [
     ...(kept.showValues ? ['dataLabels'] : []),
     ...(kept.valueNumberFormat ? ['numberFormat'] : []),
@@ -124,7 +140,6 @@ export async function handleSetChartData(context, op) {
   };
 }
 
-
 export async function handleSetChartAxis(context, op) {
   const { zip } = context;
   const slides = context.slides;
@@ -139,8 +154,9 @@ export async function handleSetChartAxis(context, op) {
   if (op.minimum != null || op.maximum != null) {
     updated = updated.replace(/<c:scaling>[\s\S]*?<\/c:scaling>/, (scaling) => {
       const cleaned = scaling.replace(/<c:min\b[^>]*\/>/, '').replace(/<c:max\b[^>]*\/>/, '');
-      const bounds = `${op.maximum != null ? `<c:max val="${Number(op.maximum)}"/>` : ''}`
-        + `${op.minimum != null ? `<c:min val="${Number(op.minimum)}"/>` : ''}`;
+      const bounds =
+        `${op.maximum != null ? `<c:max val="${Number(op.maximum)}"/>` : ''}` +
+        `${op.minimum != null ? `<c:min val="${Number(op.minimum)}"/>` : ''}`;
       return cleaned.replace('</c:scaling>', `${bounds}</c:scaling>`);
     });
   }
@@ -149,7 +165,7 @@ export async function handleSetChartAxis(context, op) {
       updated,
       CHART_AXIS_ORDER,
       'c:numFmt',
-      op.numberFormat ? `<c:numFmt formatCode="${xmlEncode(op.numberFormat)}" sourceLinked="0"/>` : '',
+      op.numberFormat ? `<c:numFmt formatCode="${xmlEncode(op.numberFormat)}" sourceLinked="0"/>` : ''
     );
   }
   if (op.majorUnit != null) {
@@ -157,7 +173,7 @@ export async function handleSetChartAxis(context, op) {
       updated,
       CHART_AXIS_ORDER,
       'c:majorUnit',
-      Number(op.majorUnit) > 0 ? `<c:majorUnit val="${Number(op.majorUnit)}"/>` : '',
+      Number(op.majorUnit) > 0 ? `<c:majorUnit val="${Number(op.majorUnit)}"/>` : ''
     );
   }
   if (op.title != null) {
@@ -167,22 +183,23 @@ export async function handleSetChartAxis(context, op) {
       CHART_AXIS_ORDER,
       'c:title',
       title
-        ? '<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r>'
-          + `<a:rPr lang="en-US" sz="900"/><a:t>${xmlEncode(title)}</a:t>`
-          + '</a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>'
-        : '',
+        ? '<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r>' +
+            `<a:rPr lang="en-US" sz="900"/><a:t>${xmlEncode(title)}</a:t>` +
+            '</a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>'
+        : ''
     );
   }
   zip.file(chart.part, `${chart.xml.slice(0, block.index)}${updated}${chart.xml.slice(block.index + block[0].length)}`);
   return { op: op.op, changed: updated !== block[0], slide: Number(op.slide), axis };
 }
 
-
 export async function handleSetChartSeries(context, op) {
   const { zip } = context;
   const slides = context.slides;
   if (op.chartType != null || op.secondaryAxis != null) {
-    throw new Error('Portable set_chart_series cannot change the series type or axis; rebuild the chart with add_chart');
+    throw new Error(
+      'Portable set_chart_series cannot change the series type or axis; rebuild the chart with add_chart'
+    );
   }
   const chart = await resolveSlideChart(zip, slides, op);
   const wanted = Math.max(1, Number(op.series) || 1);
@@ -196,16 +213,21 @@ export async function handleSetChartSeries(context, op) {
     if (op.name != null) {
       updated = updated.replace(
         /(<c:tx>[\s\S]*?<c:strCache>[\s\S]*?<c:pt idx="0"><c:v>)[\s\S]*?(<\/c:v>)/,
-        `$1${xmlEncode(String(op.name))}$2`,
+        `$1${xmlEncode(String(op.name))}$2`
       );
     }
     if (Array.isArray(op.categories) && op.categories.length) {
       const points = op.categories
         .map((entry, position) => `<c:pt idx="${position}"><c:v>${xmlEncode(entry ?? '')}</c:v></c:pt>`)
         .join('');
-      updated = updated.replace(/<c:cat>[\s\S]*?<\/c:cat>/, (block) => block
-        .replace(/<c:strCache>[\s\S]*?<\/c:strCache>/, `<c:strCache><c:ptCount val="${op.categories.length}"/>${points}</c:strCache>`)
-        .replace(/(<c:f>[^<]*\$[A-Z]+\$\d+:\$[A-Z]+\$)\d+(<\/c:f>)/, `$1${op.categories.length + 1}$2`));
+      updated = updated.replace(/<c:cat>[\s\S]*?<\/c:cat>/, (block) =>
+        block
+          .replace(
+            /<c:strCache>[\s\S]*?<\/c:strCache>/,
+            `<c:strCache><c:ptCount val="${op.categories.length}"/>${points}</c:strCache>`
+          )
+          .replace(/(<c:f>[^<]*\$[A-Z]+\$\d+:\$[A-Z]+\$)\d+(<\/c:f>)/, `$1${op.categories.length + 1}$2`)
+      );
     }
     if (Array.isArray(op.values) && op.values.length) {
       const points = op.values
@@ -214,13 +236,16 @@ export async function handleSetChartSeries(context, op) {
           return Number.isFinite(numeric) ? `<c:pt idx="${position}"><c:v>${numeric}</c:v></c:pt>` : '';
         })
         .join('');
-      updated = updated.replace(/<c:val>[\s\S]*?<\/c:val>/, (block) => block
-        .replace(
-          /<c:numCache>[\s\S]*?<\/c:numCache>/,
-          (cache) => cache
-            .replace(/<c:ptCount val="\d+"\/>[\s\S]*?(?=<\/c:numCache>)/, `<c:ptCount val="${op.values.length}"/>${points}`),
-        )
-        .replace(/(<c:f>[^<]*\$[A-Z]+\$\d+:\$[A-Z]+\$)\d+(<\/c:f>)/, `$1${op.values.length + 1}$2`));
+      updated = updated.replace(/<c:val>[\s\S]*?<\/c:val>/, (block) =>
+        block
+          .replace(/<c:numCache>[\s\S]*?<\/c:numCache>/, (cache) =>
+            cache.replace(
+              /<c:ptCount val="\d+"\/>[\s\S]*?(?=<\/c:numCache>)/,
+              `<c:ptCount val="${op.values.length}"/>${points}`
+            )
+          )
+          .replace(/(<c:f>[^<]*\$[A-Z]+\$\d+:\$[A-Z]+\$)\d+(<\/c:f>)/, `$1${op.values.length + 1}$2`)
+      );
     }
     return updated;
   });
@@ -229,7 +254,6 @@ export async function handleSetChartSeries(context, op) {
   return { op: op.op, changed: true, slide: Number(op.slide), series: wanted };
 }
 
-
 export async function handleSetChartTrendlineOrSetChartErrorBars(context, op) {
   const { zip } = context;
   const slides = context.slides;
@@ -237,30 +261,35 @@ export async function handleSetChartTrendlineOrSetChartErrorBars(context, op) {
   const wanted = Number(op.series);
   let index = 0;
   let changed = false;
-  const element = op.op === 'set_chart_trendline'
-    ? (() => {
-      const types = ['linear', 'poly', 'exp', 'log', 'movingAvg', 'power'];
-      const type = String(op.type || 'linear').trim();
-      if (!types.includes(type)) {
-        throw new Error(`set_chart_trendline type must be one of: ${types.join(', ')}`);
-      }
-      return `<c:trendline><c:trendlineType val="${type}"/>`
-        + `<c:dispRSqr val="${op.displayRSquared === true ? 1 : 0}"/>`
-        + `<c:dispEq val="${op.displayEquation === true ? 1 : 0}"/></c:trendline>`;
-    })()
-    : (() => {
-      const directions = { y: 'y', x: 'x', vertical: 'y', horizontal: 'x' };
-      const direction = directions[String(op.direction || 'y').toLowerCase()];
-      if (!direction) throw new Error('set_chart_error_bars direction must be x or y');
-      const style = String(op.endStyle || 'both').toLowerCase();
-      const barType = ['both', 'minus', 'plus'].includes(style) ? style : 'both';
-      const amount = Number(op.amount);
-      if (!Number.isFinite(amount) || amount <= 0) {
-        throw new Error('set_chart_error_bars requires a positive amount');
-      }
-      return `<c:errBars><c:errDir val="${direction}"/><c:errBarType val="${barType}"/>`
-        + `<c:errValType val="fixedVal"/><c:noEndCap val="0"/><c:val val="${amount}"/></c:errBars>`;
-    })();
+  const element =
+    op.op === 'set_chart_trendline'
+      ? (() => {
+          const types = ['linear', 'poly', 'exp', 'log', 'movingAvg', 'power'];
+          const type = String(op.type || 'linear').trim();
+          if (!types.includes(type)) {
+            throw new Error(`set_chart_trendline type must be one of: ${types.join(', ')}`);
+          }
+          return (
+            `<c:trendline><c:trendlineType val="${type}"/>` +
+            `<c:dispRSqr val="${op.displayRSquared === true ? 1 : 0}"/>` +
+            `<c:dispEq val="${op.displayEquation === true ? 1 : 0}"/></c:trendline>`
+          );
+        })()
+      : (() => {
+          const directions = { y: 'y', x: 'x', vertical: 'y', horizontal: 'x' };
+          const direction = directions[String(op.direction || 'y').toLowerCase()];
+          if (!direction) throw new Error('set_chart_error_bars direction must be x or y');
+          const style = String(op.endStyle || 'both').toLowerCase();
+          const barType = ['both', 'minus', 'plus'].includes(style) ? style : 'both';
+          const amount = Number(op.amount);
+          if (!Number.isFinite(amount) || amount <= 0) {
+            throw new Error('set_chart_error_bars requires a positive amount');
+          }
+          return (
+            `<c:errBars><c:errDir val="${direction}"/><c:errBarType val="${barType}"/>` +
+            `<c:errValType val="fixedVal"/><c:noEndCap val="0"/><c:val val="${amount}"/></c:errBars>`
+          );
+        })();
   const tag = op.op === 'set_chart_trendline' ? 'c:trendline' : 'c:errBars';
   const next = chart.xml.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (series) => {
     index += 1;
@@ -277,7 +306,6 @@ export async function handleSetChartTrendlineOrSetChartErrorBars(context, op) {
   return { op: op.op, changed: true, slide: Number(op.slide), series: wanted || 'all' };
 }
 
-
 export async function handleSetChartDataLabels(context, op) {
   const { zip } = context;
   const slides = context.slides;
@@ -286,17 +314,18 @@ export async function handleSetChartDataLabels(context, op) {
   const stacked = /<c:grouping val="stacked"\/>/.test(chart.xml);
   const pie = /<c:(?:pie|doughnut)Chart\b/.test(chart.xml);
   const usable = stacked && position === 'outEnd' ? 'ctr' : position;
-  const labels = op.showValue === false && op.showCategoryName !== true
-    ? ''
-    : '<c:dLbls>'
-      + (op.numberFormat ? `<c:numFmt formatCode="${xmlEncode(op.numberFormat)}" sourceLinked="0"/>` : '')
-      + '<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>'
-      + (usable && !pie ? `<c:dLblPos val="${usable}"/>` : '')
-      + '<c:showLegendKey val="0"/>'
-      + `<c:showVal val="${op.showValue === false ? 0 : 1}"/>`
-      + `<c:showCatName val="${op.showCategoryName === true ? 1 : 0}"/>`
-      + '<c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/>'
-      + '</c:dLbls>';
+  const labels =
+    op.showValue === false && op.showCategoryName !== true
+      ? ''
+      : '<c:dLbls>' +
+        (op.numberFormat ? `<c:numFmt formatCode="${xmlEncode(op.numberFormat)}" sourceLinked="0"/>` : '') +
+        '<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>' +
+        (usable && !pie ? `<c:dLblPos val="${usable}"/>` : '') +
+        '<c:showLegendKey val="0"/>' +
+        `<c:showVal val="${op.showValue === false ? 0 : 1}"/>` +
+        `<c:showCatName val="${op.showCategoryName === true ? 1 : 0}"/>` +
+        '<c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/>' +
+        '</c:dLbls>';
   const wanted = Number(op.series);
   let index = 0;
   let changed = false;

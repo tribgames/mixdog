@@ -37,7 +37,16 @@ function webhookRoute(modelRef) {
   throw new Error('webhook run has no model: set one on the endpoint or configure maintenance.webhook');
 }
 
-export async function runWebhookSession({ name, model = null, prompt, cwd = null, workflow = null, attachments = null, delivery = null, signal = null }) {
+export async function runWebhookSession({
+  name,
+  model = null,
+  prompt,
+  cwd = null,
+  workflow = null,
+  attachments = null,
+  delivery = null,
+  signal = null,
+}) {
   const endpoint = String(name || '').trim();
   const body = String(prompt || '').trim();
   if (!endpoint) throw new Error('runWebhookSession: endpoint name required');
@@ -78,7 +87,7 @@ export async function runWebhookSession({ name, model = null, prompt, cwd = null
     null,
     projectCwd || undefined,
     undefined,
-    signal ? { signal } : {},
+    signal ? { signal } : {}
   );
   return { sessionId: session.id, result: String(result?.content || '') };
 }

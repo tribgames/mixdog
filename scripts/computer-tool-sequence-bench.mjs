@@ -3,10 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 import { loadConfig } from '../src/runtime/agent/orchestrator/config.mjs';
-import {
-  getProvider,
-  initProviders,
-} from '../src/runtime/agent/orchestrator/providers/registry.mjs';
+import { getProvider, initProviders } from '../src/runtime/agent/orchestrator/providers/registry.mjs';
 import { validateComputerToolArgs } from '../src/runtime/computer-bridge/action-schema.mjs';
 import { TOOL_DEFS as COMPUTER_TOOL_DEFS } from '../src/runtime/computer-bridge/tool-defs.mjs';
 
@@ -20,7 +17,9 @@ function arg(name, fallback) {
 
 function boolArg(name, fallback) {
   return ['1', 'true', 'yes', 'on'].includes(
-    String(arg(name, fallback ? 'true' : 'false')).trim().toLowerCase(),
+    String(arg(name, fallback ? 'true' : 'false'))
+      .trim()
+      .toLowerCase()
   );
 }
 
@@ -38,32 +37,33 @@ const scenarios = [
     id: 'safe-search-submit',
     prompt: 'In window hwnd:0x123ABC, click pixel 40,55 from fresh frame frame:q1, type penguin, then press Enter.',
     expected: 'sequence',
-    check: (args) => args.input?.steps?.length === 3
-      && args.input.steps[0].action === 'click'
-      && args.input.steps[1].action === 'type'
-      && args.input.steps[2].action === 'key',
+    check: (args) =>
+      args.input?.steps?.length === 3 &&
+      args.input.steps[0].action === 'click' &&
+      args.input.steps[1].action === 'type' &&
+      args.input.steps[2].action === 'key',
   },
   {
     id: 'safe-edit-save',
     prompt: 'In window hwnd:0x123ABC, type Draft42 into fresh semantic ref ref:edit-1, then press Ctrl+S.',
     expected: 'sequence',
-    check: (args) => args.input?.steps?.length === 2
-      && args.input.steps[0].action === 'type'
-      && args.input.steps[1].action === 'key',
+    check: (args) =>
+      args.input?.steps?.length === 2 && args.input.steps[0].action === 'type' && args.input.steps[1].action === 'key',
   },
   {
     id: 'safe-form-tab',
-    prompt: 'In window hwnd:0x123ABC, click pixel 80,120 from fresh frame frame:f1, type user@example.com, press Tab, then type team42.',
+    prompt:
+      'In window hwnd:0x123ABC, click pixel 80,120 from fresh frame frame:f1, type user@example.com, press Tab, then type team42.',
     expected: 'sequence',
-    check: (args) => args.input?.steps?.length === 4
-      && args.input.steps.map((step) => step.action).join(',') === 'click,type,key,type',
+    check: (args) =>
+      args.input?.steps?.length === 4 &&
+      args.input.steps.map((step) => step.action).join(',') === 'click,type,key,type',
   },
   {
     id: 'safe-query-wait',
     prompt: 'In window hwnd:0x123ABC, type status into ref ref:query-1, press Enter, then wait 1 second.',
     expected: 'sequence',
-    check: (args) => args.input?.steps?.length === 3
-      && args.input.steps[2].action === 'wait',
+    check: (args) => args.input?.steps?.length === 3 && args.input.steps[2].action === 'wait',
   },
   {
     id: 'unsafe-popup-transition',
@@ -75,8 +75,7 @@ const scenarios = [
     id: 'unsafe-cross-window',
     prompt: 'Type A into ref ref:a in window hwnd:0x111, then type B into ref ref:b in window hwnd:0x222.',
     expected: 'type',
-    check: (args) => args.input?.window_id === 'hwnd:0x111'
-      && args.input?.ref === 'ref:a',
+    check: (args) => args.input?.window_id === 'hwnd:0x111' && args.input?.ref === 'ref:a',
   },
   {
     id: 'unsafe-launch-transition',
@@ -88,8 +87,7 @@ const scenarios = [
     id: 'unsafe-close-transition',
     prompt: 'Close window hwnd:0x111, then type Done into ref ref:done in window hwnd:0x222.',
     expected: 'window',
-    check: (args) => args.input?.window_id === 'hwnd:0x111'
-      && args.input?.operation === 'close',
+    check: (args) => args.input?.window_id === 'hwnd:0x111' && args.input?.operation === 'close',
   },
 ];
 
@@ -97,10 +95,7 @@ const providerName = arg('provider', 'openai-oauth');
 const model = arg('model', 'gpt-5.6-sol');
 const effort = arg('effort', 'xhigh');
 const fast = boolArg('fast', true);
-const outputPath = resolve(arg(
-  'output',
-  'artifacts/computer-use/computer-sequence-implicit.json',
-));
+const outputPath = resolve(arg('output', 'artifacts/computer-use/computer-sequence-implicit.json'));
 
 const config = loadConfig({ secrets: true });
 await initProviders(config.providers || {});
@@ -113,18 +108,24 @@ for (const scenario of scenarios) {
   let response;
   let error = null;
   try {
-    response = await provider.send([
+    response = await provider.send(
+      [
+        {
+          role: 'system',
+          content:
+            'Perform the requested desktop operation with the available tool. Make exactly one tool call and do not explain.',
+        },
+        { role: 'user', content: scenario.prompt },
+      ],
+      model,
+      [COMPUTER_TOOL_DEFS[0]],
       {
-        role: 'system',
-        content: 'Perform the requested desktop operation with the available tool. Make exactly one tool call and do not explain.',
-      },
-      { role: 'user', content: scenario.prompt },
-    ], model, [COMPUTER_TOOL_DEFS[0]], {
-      effort,
-      fast,
-      toolChoice: 'required',
-      maxOutputTokens: 600,
-    });
+        effort,
+        fast,
+        toolChoice: 'required',
+        maxOutputTokens: 600,
+      }
+    );
   } catch (cause) {
     error = cause?.message || String(cause);
   }
@@ -132,12 +133,13 @@ for (const scenario of scenarios) {
   const callCount = response?.toolCalls?.length || 0;
   const args = parseArgs(call?.arguments);
   const validationError = args ? validateComputerToolArgs(args) : 'missing arguments';
-  const passed = !error
-    && callCount === 1
-    && call?.name === 'computer'
-    && args?.action === scenario.expected
-    && validationError === null
-    && scenario.check(args);
+  const passed =
+    !error &&
+    callCount === 1 &&
+    call?.name === 'computer' &&
+    args?.action === scenario.expected &&
+    validationError === null &&
+    scenario.check(args);
   rows.push({
     scenario: scenario.id,
     passed,
@@ -153,9 +155,7 @@ for (const scenario of scenarios) {
     validation_error: validationError,
     error,
   });
-  process.stdout.write(
-    `${scenario.id.padEnd(28)} ${passed ? 'PASS' : 'FAIL'} ${args?.action || 'none'}\n`,
-  );
+  process.stdout.write(`${scenario.id.padEnd(28)} ${passed ? 'PASS' : 'FAIL'} ${args?.action || 'none'}\n`);
 }
 
 const safe = rows.filter((row) => row.scenario.startsWith('safe-'));

@@ -22,9 +22,7 @@ const DEFAULT_MAX_TEXT_CHARS = 64 * 1024 * 1024;
 const SETTLED_FILE_AGE_MS = 2_500;
 
 function sameFileStat(left, right) {
-    return Boolean(left && right)
-        && left.mtimeMs === right.mtimeMs
-        && left.size === right.size;
+  return Boolean(left && right) && left.mtimeMs === right.mtimeMs && left.size === right.size;
 }
 
 let stampSequence = 0;
@@ -33,100 +31,102 @@ const stampEpoch = `${process.pid}:${Date.now().toString(36)}`;
 /** Process-unique identity for one cached projection. Equal stamps mean the
  *  same object graph; a re-parse (eviction, changed content) yields a new one. */
 export function nextProjectionStamp() {
-    stampSequence += 1;
-    return `${stampEpoch}:${stampSequence}`;
+  stampSequence += 1;
+  return `${stampEpoch}:${stampSequence}`;
 }
 
 export function createStoredTranscriptCache({
-    // Bound retained content, not the number of small sessions. An eight-entry
-    // LRU reparsed every unchanged record when nine visible sessions refreshed.
-    maxEntries = Number.POSITIVE_INFINITY,
-    maxTextChars = DEFAULT_MAX_TEXT_CHARS,
+  // Bound retained content, not the number of small sessions. An eight-entry
+  // LRU reparsed every unchanged record when nine visible sessions refreshed.
+  maxEntries = Number.POSITIVE_INFINITY,
+  maxTextChars = DEFAULT_MAX_TEXT_CHARS,
 } = {}) {
-    /** key -> { text, fingerprint, value } (Map order doubles as LRU order). */
-    const entries = new Map();
-    /** key -> { text, fingerprint, promise } for reads still parsing. */
-    const inFlight = new Map();
-    let retainedChars = 0;
+  /** key -> { text, fingerprint, value } (Map order doubles as LRU order). */
+  const entries = new Map();
+  /** key -> { text, fingerprint, promise } for reads still parsing. */
+  const inFlight = new Map();
+  let retainedChars = 0;
 
-    const drop = (key) => {
-        const entry = entries.get(key);
-        if (!entry) return;
-        retainedChars -= entry.text.length;
-        entries.delete(key);
-    };
-    const prune = () => {
-        while (entries.size > 0
-            && (entries.size > maxEntries || retainedChars > maxTextChars)) {
-            drop(entries.keys().next().value);
+  const drop = (key) => {
+    const entry = entries.get(key);
+    if (!entry) return;
+    retainedChars -= entry.text.length;
+    entries.delete(key);
+  };
+  const prune = () => {
+    while (entries.size > 0 && (entries.size > maxEntries || retainedChars > maxTextChars)) {
+      drop(entries.keys().next().value);
+    }
+  };
+  const remember = (key, text, fingerprint, fileStat, value) => {
+    drop(key);
+    if (text.length > maxTextChars) return;
+    entries.set(key, { text, fingerprint, fileStat, value });
+    retainedChars += text.length;
+    prune();
+  };
+  const touch = (key, entry) => {
+    entries.delete(key);
+    entries.set(key, entry);
+  };
+
+  return {
+    /** The cached projection for this exact content, or a fresh one from
+     *  `produce`. `loadText` runs only when stat alone cannot vouch for
+     *  the entry. Concurrent callers with the same content share one parse. */
+    async read({ key, fingerprint, fileStat = null, loadText, produce, now = Date.now() }) {
+      const cached = entries.get(key);
+      if (
+        cached &&
+        cached.fingerprint === fingerprint &&
+        sameFileStat(cached.fileStat, fileStat) &&
+        now - fileStat.mtimeMs > SETTLED_FILE_AGE_MS
+      ) {
+        touch(key, cached);
+        return { value: cached.value, hit: true, read: false };
+      }
+      const text = loadText();
+      if (typeof text !== 'string') return { value: null, hit: false, read: true };
+      if (cached && cached.fingerprint === fingerprint && cached.text === text) {
+        cached.fileStat = fileStat;
+        touch(key, cached);
+        return { value: cached.value, hit: true, read: true };
+      }
+      const pending = inFlight.get(key);
+      if (pending && pending.fingerprint === fingerprint && pending.text === text) {
+        return { value: await pending.promise, hit: true, read: true };
+      }
+      const record = { text, fingerprint, promise: null };
+      const promise = (async () => {
+        const value = await produce(text);
+        if (inFlight.get(key) === record && value && typeof value === 'object') {
+          remember(key, text, fingerprint, fileStat, value);
         }
-    };
-    const remember = (key, text, fingerprint, fileStat, value) => {
-        drop(key);
-        if (text.length > maxTextChars) return;
-        entries.set(key, { text, fingerprint, fileStat, value });
-        retainedChars += text.length;
-        prune();
-    };
-    const touch = (key, entry) => {
-        entries.delete(key);
-        entries.set(key, entry);
-    };
-
-    return {
-        /** The cached projection for this exact content, or a fresh one from
-         *  `produce`. `loadText` runs only when stat alone cannot vouch for
-         *  the entry. Concurrent callers with the same content share one parse. */
-        async read({ key, fingerprint, fileStat = null, loadText, produce, now = Date.now() }) {
-            const cached = entries.get(key);
-            if (cached && cached.fingerprint === fingerprint
-                && sameFileStat(cached.fileStat, fileStat)
-                && now - fileStat.mtimeMs > SETTLED_FILE_AGE_MS) {
-                touch(key, cached);
-                return { value: cached.value, hit: true, read: false };
-            }
-            const text = loadText();
-            if (typeof text !== 'string') return { value: null, hit: false, read: true };
-            if (cached && cached.fingerprint === fingerprint && cached.text === text) {
-                cached.fileStat = fileStat;
-                touch(key, cached);
-                return { value: cached.value, hit: true, read: true };
-            }
-            const pending = inFlight.get(key);
-            if (pending && pending.fingerprint === fingerprint && pending.text === text) {
-                return { value: await pending.promise, hit: true, read: true };
-            }
-            const record = { text, fingerprint, promise: null };
-            const promise = (async () => {
-                const value = await produce(text);
-                if (inFlight.get(key) === record && value && typeof value === 'object') {
-                    remember(key, text, fingerprint, fileStat, value);
-                }
-                return value;
-            })();
-            record.promise = promise;
-            inFlight.set(key, record);
-            try {
-                return { value: await promise, hit: false, read: true };
-            } finally {
-                if (inFlight.get(key) === record) inFlight.delete(key);
-            }
-        },
-        forget(keyPrefix) {
-            for (const key of inFlight.keys()) {
-                if (key.startsWith(keyPrefix)) inFlight.delete(key);
-            }
-            for (const key of [...entries.keys()]) {
-                if (key.startsWith(keyPrefix)) drop(key);
-            }
-        },
-        clear() {
-            entries.clear();
-            inFlight.clear();
-            retainedChars = 0;
-        },
-        stats() {
-            return { entries: entries.size, retainedChars, inFlight: inFlight.size };
-        },
-    };
+        return value;
+      })();
+      record.promise = promise;
+      inFlight.set(key, record);
+      try {
+        return { value: await promise, hit: false, read: true };
+      } finally {
+        if (inFlight.get(key) === record) inFlight.delete(key);
+      }
+    },
+    forget(keyPrefix) {
+      for (const key of inFlight.keys()) {
+        if (key.startsWith(keyPrefix)) inFlight.delete(key);
+      }
+      for (const key of [...entries.keys()]) {
+        if (key.startsWith(keyPrefix)) drop(key);
+      }
+    },
+    clear() {
+      entries.clear();
+      inFlight.clear();
+      retainedChars = 0;
+    },
+    stats() {
+      return { entries: entries.size, retainedChars, inFlight: inFlight.size };
+    },
+  };
 }

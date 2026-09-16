@@ -16,41 +16,140 @@ const opts = { sessionId: 'search-bench' };
 let broadGrepSequence = 0;
 
 const cases = [
-  ['list', /10-tool-workflow\.md|file/, () => executeBuiltinTool('list', {
-    path: 'src/rules/shared',
-  }, root, opts)],
-  ['find', /tool-defs|no fuzzy match/, () => executeBuiltinTool('find', {
-    query: 'tool-defs', limit: 8,
-  }, root, opts)],
-  ['glob', /tool-defs\.mjs|\.mjs/, () => executeBuiltinTool('glob', {
-    pattern: '**/*.mjs', path: 'src/session-runtime', limit: 40,
-  }, root, opts)],
-  ['glob_broad', /\.mjs|more entries/, () => executeBuiltinTool('glob', {
-    pattern: '**/*.mjs', path: 'src', limit: 40,
-  }, root, opts)],
-  ['grep', /path-string|paths only|grep|\(no matches\)|Fuzzy/i, () => executeBuiltinTool('grep', {
-    pattern: 'Fuzzy filename|paths only',
-    path: 'src/runtime/agent/orchestrator/tools/builtin',
-    glob: '*.mjs',
-    limit: 20,
-    context: 0,
-  }, root, opts)],
-  ['grep_broad_new', /\(no matches\)/i, () => executeBuiltinTool('grep', {
-    pattern: `__mixdog_search_bench_absent_${broadGrepSequence++}_9f31__`,
-    path: 'src',
-    glob: '*.{mjs,js,ts,tsx,rs}',
-    limit: 20,
-    context: 0,
-  }, root, opts)],
-  ['find_multi', /search|client|no fuzzy match/i, () => executeBuiltinTool('find', {
-    query: 'search client', limit: 8,
-  }, root, opts)],
-  ['read', /Tool Workflow|read/, () => executeBuiltinTool('read', {
-    path: [['src/rules/shared/10-tool-workflow.md', 0, 10], ['package.json', 0, 5]],
-  }, root, opts)],
-  ['code_graph', /symbol|binding|files|edges/i, () => executeCodeGraphTool('code_graph', {
-    mode: 'symbols', files: 'scripts/smoke.mjs',
-  }, root)],
+  [
+    'list',
+    /10-tool-workflow\.md|file/,
+    () =>
+      executeBuiltinTool(
+        'list',
+        {
+          path: 'src/rules/shared',
+        },
+        root,
+        opts
+      ),
+  ],
+  [
+    'find',
+    /tool-defs|no fuzzy match/,
+    () =>
+      executeBuiltinTool(
+        'find',
+        {
+          query: 'tool-defs',
+          limit: 8,
+        },
+        root,
+        opts
+      ),
+  ],
+  [
+    'glob',
+    /tool-defs\.mjs|\.mjs/,
+    () =>
+      executeBuiltinTool(
+        'glob',
+        {
+          pattern: '**/*.mjs',
+          path: 'src/session-runtime',
+          limit: 40,
+        },
+        root,
+        opts
+      ),
+  ],
+  [
+    'glob_broad',
+    /\.mjs|more entries/,
+    () =>
+      executeBuiltinTool(
+        'glob',
+        {
+          pattern: '**/*.mjs',
+          path: 'src',
+          limit: 40,
+        },
+        root,
+        opts
+      ),
+  ],
+  [
+    'grep',
+    /path-string|paths only|grep|\(no matches\)|Fuzzy/i,
+    () =>
+      executeBuiltinTool(
+        'grep',
+        {
+          pattern: 'Fuzzy filename|paths only',
+          path: 'src/runtime/agent/orchestrator/tools/builtin',
+          glob: '*.mjs',
+          limit: 20,
+          context: 0,
+        },
+        root,
+        opts
+      ),
+  ],
+  [
+    'grep_broad_new',
+    /\(no matches\)/i,
+    () =>
+      executeBuiltinTool(
+        'grep',
+        {
+          pattern: `__mixdog_search_bench_absent_${broadGrepSequence++}_9f31__`,
+          path: 'src',
+          glob: '*.{mjs,js,ts,tsx,rs}',
+          limit: 20,
+          context: 0,
+        },
+        root,
+        opts
+      ),
+  ],
+  [
+    'find_multi',
+    /search|client|no fuzzy match/i,
+    () =>
+      executeBuiltinTool(
+        'find',
+        {
+          query: 'search client',
+          limit: 8,
+        },
+        root,
+        opts
+      ),
+  ],
+  [
+    'read',
+    /Tool Workflow|read/,
+    () =>
+      executeBuiltinTool(
+        'read',
+        {
+          path: [
+            ['src/rules/shared/10-tool-workflow.md', 0, 10],
+            ['package.json', 0, 5],
+          ],
+        },
+        root,
+        opts
+      ),
+  ],
+  [
+    'code_graph',
+    /symbol|binding|files|edges/i,
+    () =>
+      executeCodeGraphTool(
+        'code_graph',
+        {
+          mode: 'symbols',
+          files: 'scripts/smoke.mjs',
+        },
+        root
+      ),
+  ],
 ];
 
 function percentile(values, p) {
@@ -92,11 +191,21 @@ try {
     const queue = warm.map((sample) => telemetryTotal(sample.telemetry, '_queue_ms')).filter((value) => value > 0);
     const handler = warm.map((sample) => telemetryTotal(sample.telemetry, '_handler_ms')).filter((value) => value > 0);
     console.log(
-      `${name.padEnd(10)} cold=${ms(cold.elapsedMs)}`
-      + ` warm_p50=${ms(percentile(warm.map((sample) => sample.elapsedMs), 50))}`
-      + ` warm_p95=${ms(percentile(warm.map((sample) => sample.elapsedMs), 95))}`
-      + ` backend_queue_p95=${queue.length ? ms(percentile(queue, 95)) : '-'}`
-      + ` backend_handler_p95=${handler.length ? ms(percentile(handler, 95)) : '-'}`,
+      `${name.padEnd(10)} cold=${ms(cold.elapsedMs)}` +
+        ` warm_p50=${ms(
+          percentile(
+            warm.map((sample) => sample.elapsedMs),
+            50
+          )
+        )}` +
+        ` warm_p95=${ms(
+          percentile(
+            warm.map((sample) => sample.elapsedMs),
+            95
+          )
+        )}` +
+        ` backend_queue_p95=${queue.length ? ms(percentile(queue, 95)) : '-'}` +
+        ` backend_handler_p95=${handler.length ? ms(percentile(handler, 95)) : '-'}`
     );
   }
 } finally {

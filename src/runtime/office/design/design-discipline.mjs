@@ -100,14 +100,20 @@ export function normalizeTypographyTokens(requested, fallback) {
 }
 
 function hexToRgb(value) {
-  const normalized = String(value || '').replace(/^#/, '').toUpperCase();
+  const normalized = String(value || '')
+    .replace(/^#/, '')
+    .toUpperCase();
   if (!/^[0-9A-F]{6}$/.test(normalized)) return null;
   return [0, 2, 4].map((offset) => Number.parseInt(normalized.slice(offset, offset + 2), 16));
 }
 
 function rgbToHex([red, green, blue]) {
   return [red, green, blue]
-    .map((channel) => Math.round(clamp(channel, 0, 255)).toString(16).padStart(2, '0'))
+    .map((channel) =>
+      Math.round(clamp(channel, 0, 255))
+        .toString(16)
+        .padStart(2, '0')
+    )
     .join('')
     .toUpperCase();
 }
@@ -121,12 +127,13 @@ function hexToHsl(value) {
   const lightness = (maximum + minimum) / 2;
   const delta = maximum - minimum;
   if (delta === 0) return { hue: 0, saturation: 0, lightness: lightness * 100 };
-  const saturation = delta / (1 - Math.abs((2 * lightness) - 1));
-  let hue = maximum === red
-    ? ((green - blue) / delta) % 6
-    : maximum === green
-      ? ((blue - red) / delta) + 2
-      : ((red - green) / delta) + 4;
+  const saturation = delta / (1 - Math.abs(2 * lightness - 1));
+  let hue =
+    maximum === red
+      ? ((green - blue) / delta) % 6
+      : maximum === green
+        ? (blue - red) / delta + 2
+        : (red - green) / delta + 4;
   hue = (hue * 60 + 360) % 360;
   return { hue, saturation: saturation * 100, lightness: lightness * 100 };
 }
@@ -135,21 +142,22 @@ export function hslToHex(hue, saturation, lightness) {
   const h = ((Number(hue) % 360) + 360) % 360;
   const s = clamp(saturation, 0, 100) / 100;
   const l = clamp(lightness, 0, 100) / 100;
-  const chroma = (1 - Math.abs((2 * l) - 1)) * s;
+  const chroma = (1 - Math.abs(2 * l - 1)) * s;
   const segment = h / 60;
   const secondary = chroma * (1 - Math.abs((segment % 2) - 1));
-  const [red, green, blue] = segment < 1
-    ? [chroma, secondary, 0]
-    : segment < 2
-      ? [secondary, chroma, 0]
-      : segment < 3
-        ? [0, chroma, secondary]
-        : segment < 4
-          ? [0, secondary, chroma]
-          : segment < 5
-            ? [secondary, 0, chroma]
-            : [chroma, 0, secondary];
-  const offset = l - (chroma / 2);
+  const [red, green, blue] =
+    segment < 1
+      ? [chroma, secondary, 0]
+      : segment < 2
+        ? [secondary, chroma, 0]
+        : segment < 3
+          ? [0, chroma, secondary]
+          : segment < 4
+            ? [0, secondary, chroma]
+            : segment < 5
+              ? [secondary, 0, chroma]
+              : [chroma, 0, secondary];
+  const offset = l - chroma / 2;
   return rgbToHex([red, green, blue].map((channel) => (channel + offset) * 255));
 }
 
@@ -160,7 +168,7 @@ export function relativeLuminance(value) {
     const scaled = channel / 255;
     return scaled <= 0.04045 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
   });
-  return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
 export function contrastRatio(foreground, background) {
@@ -180,7 +188,7 @@ function adjustLightnessForContrast(color, against, minimum, direction) {
   for (let step = 0; step < 40; step += 1) {
     const ratio = contrastRatio(candidate, against);
     if (ratio != null && ratio >= minimum) return candidate;
-    lightness = clamp(lightness + (direction * 2.5), 0, 100);
+    lightness = clamp(lightness + direction * 2.5, 0, 100);
     candidate = hslToHex(hsl.hue, hsl.saturation, lightness);
     if (lightness === 0 || lightness === 100) break;
   }
@@ -202,8 +210,9 @@ function ensureContrast(colors, foregroundRole, backgroundRole, minimum, adjustm
     const candidate = adjustLightnessForContrast(foreground, background, minimum, direction);
     return { candidate, ratio: contrastRatio(candidate, background) ?? 0 };
   });
-  const best = candidates.find((entry) => entry.ratio >= minimum)
-    || candidates.reduce((left, right) => (right.ratio > left.ratio ? right : left));
+  const best =
+    candidates.find((entry) => entry.ratio >= minimum) ||
+    candidates.reduce((left, right) => (right.ratio > left.ratio ? right : left));
   const repaired = best.candidate;
   if (repaired !== foreground) {
     colors[foregroundRole] = repaired;
@@ -228,15 +237,25 @@ export function normalizePaletteTokens(source) {
     const repaired = hslToHex(
       inverse.saturation < 8 ? (hexToHsl(colors.accent)?.hue ?? 216) : inverse.hue,
       clamp(Math.max(inverse.saturation, 22), 12, 40),
-      clamp(Math.max(inverse.lightness, 10), 10, 20),
+      clamp(Math.max(inverse.lightness, 10), 10, 20)
     );
-    adjustments.push({ role: 'inverse', from: colors.inverse, to: repaired, reason: 'Dark fields stay tinted between 10% and 20% lightness; pure black reads as unfinished.' });
+    adjustments.push({
+      role: 'inverse',
+      from: colors.inverse,
+      to: repaired,
+      reason: 'Dark fields stay tinted between 10% and 20% lightness; pure black reads as unfinished.',
+    });
     colors.inverse = repaired;
   }
   const canvas = hexToHsl(colors.canvas);
   if (canvas && (canvas.lightness < 90 || canvas.saturation > 22)) {
     const repaired = hslToHex(canvas.hue, Math.min(canvas.saturation, 18), Math.max(canvas.lightness, 95));
-    adjustments.push({ role: 'canvas', from: colors.canvas, to: repaired, reason: 'Light canvases stay near-white with low saturation.' });
+    adjustments.push({
+      role: 'canvas',
+      from: colors.canvas,
+      to: repaired,
+      reason: 'Light canvases stay near-white with low saturation.',
+    });
     colors.canvas = repaired;
   }
   ensureContrast(colors, 'ink', 'canvas', 7, adjustments);
@@ -279,7 +298,9 @@ export function normalizePaletteTokens(source) {
   for (const [role, hue] of Object.entries(STATE_HUES)) {
     if (!hexToRgb(colors[role])) {
       const solid = hslToHex(hue, 65, 48);
-      colors[role] = hexToRgb(colors.canvas) ? adjustLightnessForContrast(solid, colors.canvas, LARGE_TEXT_CONTRAST_MINIMUM, -1) : solid;
+      colors[role] = hexToRgb(colors.canvas)
+        ? adjustLightnessForContrast(solid, colors.canvas, LARGE_TEXT_CONTRAST_MINIMUM, -1)
+        : solid;
     }
     if (!hexToRgb(colors[`${role}Weak`])) colors[`${role}Weak`] = hslToHex(hue, 45, 92);
     if (!hexToRgb(colors[`${role}Text`])) {

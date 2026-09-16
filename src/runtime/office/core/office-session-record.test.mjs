@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  emptyOfficeDesignState,
-  microsoftOfficeOpenFields,
-  officeSessionId,
-} from './office-core.mjs';
+import { emptyOfficeDesignState, microsoftOfficeOpenFields, officeSessionId } from './office-core.mjs';
 import { csvCell } from './office-actions-read.mjs';
 
 test('office session ids are stable in shape and unique', () => {
@@ -27,25 +23,28 @@ test('design-state defaults keep slide plans except for portable create', () => 
 });
 
 test('COM open fields copy identity without inventing a mode', () => {
-  assert.deepEqual(microsoftOfficeOpenFields({
-    mode: 'background',
-    ownership: 'owned',
-    visible: false,
-    appPid: 12,
-    windowHwnd: 34,
-    foregroundActivated: true,
-    backgroundIsolation: { desktop: 'mixdog' },
-    documentId: 'doc-1',
-  }), {
-    mode: 'background',
-    ownership: 'owned',
-    visible: false,
-    appPid: 12,
-    windowHwnd: 34,
-    foregroundActivated: true,
-    backgroundIsolation: { desktop: 'mixdog' },
-    documentId: 'doc-1',
-  });
+  assert.deepEqual(
+    microsoftOfficeOpenFields({
+      mode: 'background',
+      ownership: 'owned',
+      visible: false,
+      appPid: 12,
+      windowHwnd: 34,
+      foregroundActivated: true,
+      backgroundIsolation: { desktop: 'mixdog' },
+      documentId: 'doc-1',
+    }),
+    {
+      mode: 'background',
+      ownership: 'owned',
+      visible: false,
+      appPid: 12,
+      windowHwnd: 34,
+      foregroundActivated: true,
+      backgroundIsolation: { desktop: 'mixdog' },
+      documentId: 'doc-1',
+    }
+  );
   assert.equal(microsoftOfficeOpenFields({}).foregroundActivated, false);
   assert.equal(microsoftOfficeOpenFields({}).backgroundIsolation, null);
 });

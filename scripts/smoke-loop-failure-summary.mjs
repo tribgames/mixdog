@@ -9,7 +9,7 @@ export function actionableFailureCount(stdout) {
   const matched = summary?.actionable_failures?.matched;
   if (!Number.isInteger(matched) || matched < 0) {
     throw new Error(
-      `tool failures returned malformed result schema: expected actionable_failures.matched to be a non-negative integer:\n${stdout}`,
+      `tool failures returned malformed result schema: expected actionable_failures.matched to be a non-negative integer:\n${stdout}`
     );
   }
   return matched;

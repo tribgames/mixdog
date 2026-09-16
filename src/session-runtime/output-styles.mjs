@@ -19,7 +19,11 @@ export { normalizeOutputStyleId };
 
 function computeOutputStyleMetadata(filePath, fileName, source) {
   let raw = '';
-  try { raw = readFileSync(filePath, 'utf8'); } catch { return null; }
+  try {
+    raw = readFileSync(filePath, 'utf8');
+  } catch {
+    return null;
+  }
   const meta = outputStyleMetaFromMarkdown(raw, fileName);
   if (!meta) return null;
   // Picker/IPC shape stays metadata-only: keep-shared-format is a prompt-build
@@ -40,7 +44,11 @@ function computeOutputStyleMetadata(filePath, fileName, source) {
 const styleFileCache = new Map();
 function readOutputStyleMetadata(filePath, fileName, source) {
   let mtimeMs = 0;
-  try { mtimeMs = statSync(filePath).mtimeMs; } catch { mtimeMs = 0; }
+  try {
+    mtimeMs = statSync(filePath).mtimeMs;
+  } catch {
+    mtimeMs = 0;
+  }
   const hit = styleFileCache.get(filePath);
   if (hit && hit.mtimeMs === mtimeMs) return hit.value;
   const value = computeOutputStyleMetadata(filePath, fileName, source);
@@ -51,13 +59,21 @@ function readOutputStyleMetadata(filePath, fileName, source) {
 const styleDirCache = new Map();
 function listStyleDirFiles(dir, fresh = false) {
   let mtimeMs = 0;
-  try { mtimeMs = statSync(dir).mtimeMs; } catch { return null; }
+  try {
+    mtimeMs = statSync(dir).mtimeMs;
+  } catch {
+    return null;
+  }
   if (!fresh) {
     const hit = styleDirCache.get(dir);
     if (hit && hit.mtimeMs === mtimeMs) return hit.files;
   }
   let entries;
-  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return null; }
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
   const files = entries
     .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
     .map((entry) => entry.name);
@@ -99,10 +115,9 @@ function configuredOutputStyleValue(dataDir) {
 export function outputStyleStatus(rootDir, dataDir, { fresh = false } = {}) {
   const styles = listOutputStyleCatalog(rootDir, dataDir, { fresh });
   const configured = configuredOutputStyleValue(dataDir);
-  const current = findOutputStyle(configured, styles)
-    || findOutputStyle(DEFAULT_OUTPUT_STYLE_ID, styles)
-    || styles[0]
-    || {
+  const current = findOutputStyle(configured, styles) ||
+    findOutputStyle(DEFAULT_OUTPUT_STYLE_ID, styles) ||
+    styles[0] || {
       id: DEFAULT_OUTPUT_STYLE_ID,
       label: titleCaseOutputStyle(DEFAULT_OUTPUT_STYLE_ID),
       description: '',

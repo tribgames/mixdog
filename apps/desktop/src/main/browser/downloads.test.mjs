@@ -5,36 +5,48 @@ import test from 'node:test';
 
 registerHooks({
   resolve(specifier, context, next) {
-    return specifier === 'node:fs/promises' ? {
-      url: 'data:text/javascript,' + encodeURIComponent(`
+    return specifier === 'node:fs/promises'
+      ? {
+          url:
+            'data:text/javascript,' +
+            encodeURIComponent(`
         export const open = (...args) => globalThis.downloadFileFixture.open(...args);
-      `), shortCircuit: true,
-    } : next(specifier, context);
+      `),
+          shortCircuit: true,
+        }
+      : next(specifier, context);
   },
 });
 const {
-  createBrowserDownloadLedger, createBrowserDownloads,
-  MAX_BROWSER_DOWNLOAD_BYTES, MAX_BROWSER_SESSION_DOWNLOAD_BYTES,
+  createBrowserDownloadLedger,
+  createBrowserDownloads,
+  MAX_BROWSER_DOWNLOAD_BYTES,
+  MAX_BROWSER_SESSION_DOWNLOAD_BYTES,
 } = await import('./downloads.ts');
 
 function ledgerFixture() {
   const ledger = createBrowserDownloadLedger({
     downloadsDirectory: () => process.env.MIXDOG_DATA_DIR,
-    sessionIdForGuest: guest => guest.session,
+    sessionIdForGuest: (guest) => guest.session,
     defaultSessionId: 'default',
   });
   let next = 0;
   const start = (session = 's') => {
     const filename = `fixture-${++next}.bin`;
     const item = Object.assign(new EventEmitter(), {
-      received: 0, cancels: 0,
+      received: 0,
+      cancels: 0,
       getFilename: () => filename,
       setSavePath() {},
       getURL: () => 'https://fixture.example/download',
       getMimeType: () => 'application/octet-stream',
       getTotalBytes: () => -1,
-      getReceivedBytes() { return this.received; },
-      cancel() { this.cancels++; },
+      getReceivedBytes() {
+        return this.received;
+      },
+      cancel() {
+        this.cancels++;
+      },
     });
     ledger.onWillDownload({}, item, { session });
     return item;
@@ -48,8 +60,11 @@ test('parallel downloads share one session byte budget rather than overwriting e
     const items = Array.from({ length: 5 }, () => start());
     const portion = Math.floor(MAX_BROWSER_SESSION_DOWNLOAD_BYTES / 5);
     assert.ok(portion < MAX_BROWSER_DOWNLOAD_BYTES);
-    for (const item of items) { item.received = portion; item.emit('updated'); }
-    assert.ok(items.every(item => item.cancels === 0));
+    for (const item of items) {
+      item.received = portion;
+      item.emit('updated');
+    }
+    assert.ok(items.every((item) => item.cancels === 0));
     const remainder = MAX_BROWSER_SESSION_DOWNLOAD_BYTES - portion * 5;
     items[4].received += remainder;
     items[4].emit('updated');
@@ -90,7 +105,10 @@ test('retired download events cannot alter a reopened session budget', () => {
   const oldPeer = start();
   ledger.release('s');
   const current = Array.from({ length: 4 }, () => start());
-  for (const item of current) { item.received = MAX_BROWSER_DOWNLOAD_BYTES; item.emit('updated'); }
+  for (const item of current) {
+    item.received = MAX_BROWSER_DOWNLOAD_BYTES;
+    item.emit('updated');
+  }
   oldPeer.received = MAX_BROWSER_DOWNLOAD_BYTES;
   oldPeer.emit('updated');
   oldPeer.emit('done', {}, 'completed');
@@ -105,8 +123,14 @@ test('retired download events cannot alter a reopened session budget', () => {
 });
 
 const completed = {
-  id: 'd1', state: 'completed', file: 'fixture.txt', path: 'fixture.txt',
-  url: 'https://fixture.example/download', mimeType: 'text/plain', received: 4, total: 4,
+  id: 'd1',
+  state: 'completed',
+  file: 'fixture.txt',
+  path: 'fixture.txt',
+  url: 'https://fixture.example/download',
+  mimeType: 'text/plain',
+  received: 4,
+  total: 4,
 };
 
 test('a cancelled download list or completed wait does not inspect or attach a file', async () => {
@@ -115,18 +139,23 @@ test('a cancelled download list or completed wait does not inspect or attach a f
   controller.abort(reason);
   const downloads = createBrowserDownloads({
     downloads: () => assert.fail('a pre-cancelled operation must not inspect the ledger'),
-    pause: async () => assert.fail('cancelled wait'), attachMaxBytes: 8,
+    pause: async () => assert.fail('cancelled wait'),
+    attachMaxBytes: 8,
   });
   for (const command of [{}, { wait: true }, { attach: true }]) {
-    await assert.rejects(downloads.listDownloads('s', command, controller.signal), error => error === reason);
+    await assert.rejects(downloads.listDownloads('s', command, controller.signal), (error) => error === reason);
   }
   const waiting = new AbortController();
   const entry = { ...completed, state: 'in_progress' };
   const finishing = createBrowserDownloads({
-    downloads: () => [entry], attachMaxBytes: 8,
-    pause: async () => { entry.state = 'completed'; waiting.abort(reason); },
+    downloads: () => [entry],
+    attachMaxBytes: 8,
+    pause: async () => {
+      entry.state = 'completed';
+      waiting.abort(reason);
+    },
   });
-  await assert.rejects(finishing.listDownloads('s', { wait: true }, waiting.signal), error => error === reason);
+  await assert.rejects(finishing.listDownloads('s', { wait: true }, waiting.signal), (error) => error === reason);
 });
 
 test('cancellation during download attachment closes the handle and never returns file bytes', async () => {
@@ -135,19 +164,41 @@ test('cancellation during download attachment closes the handle and never return
     const reason = new Error(`cancel during ${phase}`);
     const calls = [];
     let stats = 0;
-    const finish = name => { calls.push(name); if (phase === name) controller.abort(reason); };
-    globalThis.downloadFileFixture = { open: async () => {
-      finish('open');
-      return {
-        stat: async () => { finish(++stats === 1 ? 'stat' : 'final-stat'); return { size: 4, isFile: () => true }; },
-        read: async buffer => { finish('read'); buffer.write('test'); return { bytesRead: 4 }; },
-        close: async () => finish('close'),
-      };
-    } };
-    const downloads = createBrowserDownloads({ downloads: () => [completed], pause: async () => {}, attachMaxBytes: 8 });
-    await assert.rejects(downloads.listDownloads('s', { attach: true }, controller.signal), error => error === reason);
+    const finish = (name) => {
+      calls.push(name);
+      if (phase === name) controller.abort(reason);
+    };
+    globalThis.downloadFileFixture = {
+      open: async () => {
+        finish('open');
+        return {
+          stat: async () => {
+            finish(++stats === 1 ? 'stat' : 'final-stat');
+            return { size: 4, isFile: () => true };
+          },
+          read: async (buffer) => {
+            finish('read');
+            buffer.write('test');
+            return { bytesRead: 4 };
+          },
+          close: async () => finish('close'),
+        };
+      },
+    };
+    const downloads = createBrowserDownloads({
+      downloads: () => [completed],
+      pause: async () => {},
+      attachMaxBytes: 8,
+    });
+    await assert.rejects(
+      downloads.listDownloads('s', { attach: true }, controller.signal),
+      (error) => error === reason
+    );
     const sequence = ['open', 'stat', 'read', 'final-stat'];
-    assert.deepEqual(calls, phase === 'close' ? [...sequence, 'close'] : [...sequence.slice(0, sequence.indexOf(phase) + 1), 'close']);
+    assert.deepEqual(
+      calls,
+      phase === 'close' ? [...sequence, 'close'] : [...sequence.slice(0, sequence.indexOf(phase) + 1), 'close']
+    );
   }
 });
 
@@ -156,17 +207,28 @@ test('download attachment still preserves exact bytes and enforces size and in-f
     let stats = 0;
     let closed = 0;
     let reads = 0;
-    globalThis.downloadFileFixture = { open: async () => ({
-      stat: async () => ({ size: variant === 'too-large' ? 9 : ++stats > 1 && variant === 'changed' ? 5 : 4, isFile: () => true }),
-      read: async buffer => {
-        reads++;
-        if (variant === 'short-read') return { bytesRead: 0 };
-        buffer.write('test');
-        return { bytesRead: 4 };
-      },
-      close: async () => { closed++; },
-    }) };
-    const downloads = createBrowserDownloads({ downloads: () => [completed], pause: async () => {}, attachMaxBytes: 8 });
+    globalThis.downloadFileFixture = {
+      open: async () => ({
+        stat: async () => ({
+          size: variant === 'too-large' ? 9 : ++stats > 1 && variant === 'changed' ? 5 : 4,
+          isFile: () => true,
+        }),
+        read: async (buffer) => {
+          reads++;
+          if (variant === 'short-read') return { bytesRead: 0 };
+          buffer.write('test');
+          return { bytesRead: 4 };
+        },
+        close: async () => {
+          closed++;
+        },
+      }),
+    };
+    const downloads = createBrowserDownloads({
+      downloads: () => [completed],
+      pause: async () => {},
+      attachMaxBytes: 8,
+    });
     if (variant === 'valid') {
       const result = await downloads.listDownloads('s', { attach: true });
       assert.equal(Buffer.from(result.file.data, 'base64').toString(), 'test');

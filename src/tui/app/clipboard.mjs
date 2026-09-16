@@ -1,5 +1,5 @@
 /**
- * clipboard.mjs — OS-clipboard write helpers extracted verbatim from App.jsx.
+ * clipboard.mjs — OS-clipboard write helpers.
  * Pure module functions (spawn/process/Buffer only); no React, no App state.
  */
 import { Buffer } from 'node:buffer';
@@ -90,7 +90,9 @@ export function copyToClipboard(text) {
         else reject(new Error(`${cmd} exited with code ${code}`));
       });
     }
-    child.stdin.on('error', () => { /* ignore EPIPE if the helper closed early */ });
+    child.stdin.on('error', () => {
+      /* ignore EPIPE if the helper closed early */
+    });
     child.stdin.end(input);
     // OSC 52 covered us: resolve now, don't await the child's exit.
     if (wroteOsc52) {

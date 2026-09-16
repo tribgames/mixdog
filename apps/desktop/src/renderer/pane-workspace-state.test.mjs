@@ -1,140 +1,147 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
-import {
-  initialPaneWorkspaceState,
-  mobilePaneWorkspaceState,
-} from "./pane-workspace-state.ts";
-import { paneTabAcrossVisualBoundary, openTabInPaneLeaf, parsePaneLayout } from "./pane-layout.ts";
+import { initialPaneWorkspaceState, mobilePaneWorkspaceState } from './pane-workspace-state.ts';
+import { paneTabAcrossVisualBoundary, openTabInPaneLeaf, parsePaneLayout } from './pane-layout.ts';
 
 const mobileStored = {
   layout: {
-    type: "split",
-    direction: "row",
+    type: 'split',
+    direction: 'row',
     ratio: 0.5,
     first: {
-      type: "leaf",
-      id: "left",
+      type: 'leaf',
+      id: 'left',
       tabs: [
-        { kind: "session", id: "session-a" },
-        { kind: "terminal", id: "term-1" },
+        { kind: 'session', id: 'session-a' },
+        { kind: 'terminal', id: 'term-1' },
       ],
-      activeKey: "session:session-a",
+      activeKey: 'session:session-a',
     },
     second: {
-      type: "leaf",
-      id: "right",
+      type: 'leaf',
+      id: 'right',
       tabs: [
-        { kind: "file", project: "p", rel: "a.ts" },
-        { kind: "session", id: "session-b" },
+        { kind: 'file', project: 'p', rel: 'a.ts' },
+        { kind: 'session', id: 'session-b' },
       ],
-      activeKey: "session:session-b",
+      activeKey: 'session:session-b',
     },
   },
-  focusedLeafId: "right",
+  focusedLeafId: 'right',
 };
 
-test("a phone restart resets every stored pane and tab", () => {
+test('a phone restart resets every stored pane and tab', () => {
   assert.equal(mobilePaneWorkspaceState(mobileStored), null);
   assert.equal(mobilePaneWorkspaceState(null), null);
 });
 
-test("session validation keeps the persisted pane geometry on first paint", () => {
+test('session validation keeps the persisted pane geometry on first paint', () => {
   const stored = {
     layout: {
-      type: "split",
-      direction: "row",
+      type: 'split',
+      direction: 'row',
       ratio: 0.37,
       first: {
-        type: "leaf",
-        id: "left",
-        tabs: [{ kind: "session", id: "session-a" }],
-        activeKey: "session:session-a",
+        type: 'leaf',
+        id: 'left',
+        tabs: [{ kind: 'session', id: 'session-a' }],
+        activeKey: 'session:session-a',
       },
       second: {
-        type: "leaf",
-        id: "right",
-        tabs: [{ kind: "session", id: "session-b" }],
-        activeKey: "session:session-b",
+        type: 'leaf',
+        id: 'right',
+        tabs: [{ kind: 'session', id: 'session-b' }],
+        activeKey: 'session:session-b',
       },
     },
-    focusedLeafId: "right",
+    focusedLeafId: 'right',
   };
   assert.strictEqual(initialPaneWorkspaceState(stored, null), stored);
 });
 
-test("legacy Browser tabs are dropped without discarding the surrounding layout", () => {
-  assert.deepEqual(parsePaneLayout({
-    type: "leaf",
-    id: "main",
-    tabs: [
-      { kind: "browser", id: "browser_tab_legacy" },
-      { kind: "session", id: "session-a" },
-    ],
-    activeKey: "browser:browser_tab_legacy",
-  }), {
-    type: "leaf",
-    id: "main",
-    tabs: [{ kind: "session", id: "session-a" }],
-    activeKey: "session:session-a",
-  });
-});
-
-test("forward pane traversal enters at the first tab instead of the last active tab", () => {
-  const target = paneTabAcrossVisualBoundary(mobileStored.layout, "left", 1);
-  assert.equal(target?.leafId, "right");
-  assert.deepEqual(target?.selection, { kind: "file", project: "p", rel: "a.ts" });
-});
-
-test("backward pane traversal enters at the last tab instead of the last active tab", () => {
-  const target = paneTabAcrossVisualBoundary({
-    ...mobileStored.layout,
-    first: {
-      ...mobileStored.layout.first,
-      activeKey: "session:session-a",
+test('legacy Browser tabs are dropped without discarding the surrounding layout', () => {
+  assert.deepEqual(
+    parsePaneLayout({
+      type: 'leaf',
+      id: 'main',
       tabs: [
-        { kind: "session", id: "session-a" },
-        { kind: "session", id: "session-c" },
+        { kind: 'browser', id: 'browser_tab_legacy' },
+        { kind: 'session', id: 'session-a' },
       ],
+      activeKey: 'browser:browser_tab_legacy',
+    }),
+    {
+      type: 'leaf',
+      id: 'main',
+      tabs: [{ kind: 'session', id: 'session-a' }],
+      activeKey: 'session:session-a',
+    }
+  );
+});
+
+test('forward pane traversal enters at the first tab instead of the last active tab', () => {
+  const target = paneTabAcrossVisualBoundary(mobileStored.layout, 'left', 1);
+  assert.equal(target?.leafId, 'right');
+  assert.deepEqual(target?.selection, { kind: 'file', project: 'p', rel: 'a.ts' });
+});
+
+test('backward pane traversal enters at the last tab instead of the last active tab', () => {
+  const target = paneTabAcrossVisualBoundary(
+    {
+      ...mobileStored.layout,
+      first: {
+        ...mobileStored.layout.first,
+        activeKey: 'session:session-a',
+        tabs: [
+          { kind: 'session', id: 'session-a' },
+          { kind: 'session', id: 'session-c' },
+        ],
+      },
     },
-  }, "right", -1);
-  assert.equal(target?.leafId, "left");
-  assert.deepEqual(target?.selection, { kind: "session", id: "session-c" });
+    'right',
+    -1
+  );
+  assert.equal(target?.leafId, 'left');
+  assert.deepEqual(target?.selection, { kind: 'session', id: 'session-c' });
 });
 
-test("a sole NEW TASK is replaced in place by the first real tab", () => {
+test('a sole NEW TASK is replaced in place by the first real tab', () => {
   const root = {
-    type: "leaf",
-    id: "main",
-    tabs: [{ kind: "new" }],
-    activeKey: "new:default",
+    type: 'leaf',
+    id: 'main',
+    tabs: [{ kind: 'new' }],
+    activeKey: 'new:default',
   };
-  const next = openTabInPaneLeaf(root, "main", { kind: "session", id: "session-a" });
+  const next = openTabInPaneLeaf(root, 'main', { kind: 'session', id: 'session-a' });
   assert.equal(next.tabs.length, 1);
-  assert.deepEqual(next.tabs[0], { kind: "session", id: "session-a" });
-  assert.equal(next.activeKey, "session:session-a");
+  assert.deepEqual(next.tabs[0], { kind: 'session', id: 'session-a' });
+  assert.equal(next.activeKey, 'session:session-a');
 });
 
-test("a sole NEW TASK keeps a second draft instead of replacing it", () => {
+test('a sole NEW TASK keeps a second draft instead of replacing it', () => {
   const root = {
-    type: "leaf",
-    id: "main",
-    tabs: [{ kind: "new", draftId: "draft-a" }],
-    activeKey: "new:draft-a",
+    type: 'leaf',
+    id: 'main',
+    tabs: [{ kind: 'new', draftId: 'draft-a' }],
+    activeKey: 'new:draft-a',
   };
-  const next = openTabInPaneLeaf(root, "main", { kind: "new", draftId: "draft-b" });
+  const next = openTabInPaneLeaf(root, 'main', { kind: 'new', draftId: 'draft-b' });
   assert.equal(next.tabs.length, 2);
-  assert.equal(next.activeKey, "new:draft-b");
+  assert.equal(next.activeKey, 'new:draft-b');
 });
 
-test("a NEW TASK beside other tabs is kept when a real tab opens", () => {
+test('a NEW TASK beside other tabs is kept when a real tab opens', () => {
   const root = {
-    type: "leaf",
-    id: "main",
-    tabs: [{ kind: "new", draftId: "draft-a" }, { kind: "session", id: "session-a" }],
-    activeKey: "session:session-a",
+    type: 'leaf',
+    id: 'main',
+    tabs: [
+      { kind: 'new', draftId: 'draft-a' },
+      { kind: 'session', id: 'session-a' },
+    ],
+    activeKey: 'session:session-a',
   };
-  const next = openTabInPaneLeaf(root, "main", { kind: "session", id: "session-b" });
+  const next = openTabInPaneLeaf(root, 'main', { kind: 'session', id: 'session-b' });
   assert.equal(next.tabs.length, 3);
-  assert.equal(next.activeKey, "session:session-b");
+  assert.equal(next.activeKey, 'session:session-b');
 });

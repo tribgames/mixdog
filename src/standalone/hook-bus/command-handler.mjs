@@ -29,14 +29,18 @@ function killProcessTree(child, signal = 'SIGTERM') {
     try {
       spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
     } catch {
-      try { child.kill(signal); } catch {}
+      try {
+        child.kill(signal);
+      } catch {}
     }
     return;
   }
   try {
     process.kill(-child.pid, signal);
   } catch {
-    try { child.kill(signal); } catch {}
+    try {
+      child.kill(signal);
+    } catch {}
   }
 }
 
@@ -59,13 +63,13 @@ function commandSpawnSpec(handler, projectDir, pluginData) {
   if (Array.isArray(handler.args)) {
     return {
       command,
-      args: handler.args.map((a) => resolvePlaceholders(String(a), projectDir, pluginData, handler._pluginRoot || null)),
+      args: handler.args.map((a) =>
+        resolvePlaceholders(String(a), projectDir, pluginData, handler._pluginRoot || null)
+      ),
       shellKind: 'exec',
     };
   }
-  const shellKind = handler.shell === 'powershell' || handler.shell === 'bash'
-    ? handler.shell
-    : defaultShellKind();
+  const shellKind = handler.shell === 'powershell' || handler.shell === 'bash' ? handler.shell : defaultShellKind();
   if (shellKind === 'powershell') {
     return {
       command: process.platform === 'win32' ? 'powershell.exe' : 'pwsh',
@@ -107,7 +111,11 @@ function writeHookInput(child, input, onError) {
     onError(error);
   };
   child.stdin.on('error', failed);
-  try { child.stdin.end(input); } catch (error) { failed(error); }
+  try {
+    child.stdin.end(input);
+  } catch (error) {
+    failed(error);
+  }
 }
 
 export function runCommandHandler(handler, payload, eventName, pluginData, onSpawnError = null, { signal } = {}) {
@@ -126,10 +134,14 @@ export function runCommandHandler(handler, payload, eventName, pluginData, onSpa
 
   if (handler.async === true) {
     try {
-      const child = spawn(spec.command, spec.args, withProcessGroup({
-        ...baseOpts,
-        stdio: ['pipe', 'ignore', 'ignore'],
-      }));
+      const child = spawn(
+        spec.command,
+        spec.args,
+        withProcessGroup({
+          ...baseOpts,
+          stdio: ['pipe', 'ignore', 'ignore'],
+        })
+      );
       // Explicit async hooks outlive the initiating turn, but retain a bounded lifetime.
       const killTimer = setTimeout(() => terminateTree(child), timeoutMs);
       killTimer.unref?.();
@@ -177,12 +189,13 @@ export function runCommandHandler(handler, payload, eventName, pluginData, onSpa
         stderr: Buffer.concat(stderrChunks).toString('utf8') || result.stderr || '',
       });
     };
-    const fail = (error) => finish({
-      exitCode: -1,
-      stderr: error?.message || String(error),
-      timedOut: false,
-      spawnError: error,
-    });
+    const fail = (error) =>
+      finish({
+        exitCode: -1,
+        stderr: error?.message || String(error),
+        timedOut: false,
+        spawnError: error,
+      });
     const onAbort = () => {
       fail(abortReason(signal));
       terminateTree(child);
@@ -217,7 +230,7 @@ export function runCommandHandler(handler, payload, eventName, pluginData, onSpa
     child.on('error', fail);
     child.on('close', (code, signal) => {
       finish({
-        exitCode: timedOut ? -1 : (typeof code === 'number' ? code : -1),
+        exitCode: timedOut ? -1 : typeof code === 'number' ? code : -1,
         stderr: signal ? `hook command terminated by ${signal}` : '',
         timedOut,
         spawnError: null,

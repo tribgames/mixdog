@@ -12,10 +12,7 @@ import { protocol } from 'electron';
 
 import { mediaResponsePlan } from '../../../relay/lib/media-http.mjs';
 import type { DesktopService } from './desktop-service-contract';
-import {
-  FILE_PREVIEW_SCHEME,
-  resolveFilePreview,
-} from './file-preview';
+import { FILE_PREVIEW_SCHEME, resolveFilePreview } from './file-preview';
 import { forgetMediaFileTarget, resolveMediaFileTarget } from './media-source';
 
 export const MEDIA_SCHEME = FILE_PREVIEW_SCHEME;
@@ -23,16 +20,18 @@ export const MEDIA_SCHEME = FILE_PREVIEW_SCHEME;
 /** Must run before app ready: a non-privileged scheme cannot stream or be
  *  fetched, so ranges (video seeking) would never reach the handler. */
 export function registerMediaScheme(): void {
-  protocol.registerSchemesAsPrivileged([{
-    scheme: MEDIA_SCHEME,
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      corsEnabled: true,
-      stream: true,
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: MEDIA_SCHEME,
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        corsEnabled: true,
+        stream: true,
+      },
     },
-  }]);
+  ]);
 }
 
 function headerStrings(headers: Record<string, string | number>): Record<string, string> {
@@ -51,12 +50,8 @@ export function registerMediaProtocol(host: Pick<DesktopService, 'invokeCapabili
     } catch {
       return textResponse(400, 'Bad request.');
     }
-    const previewToken = url.hostname === 'preview'
-      ? (url.pathname.replace(/^\/+/, '').split('/', 1)[0] || '')
-      : '';
-    const preview = previewToken && /^[0-9a-f-]{36}$/i.test(previewToken)
-      ? resolveFilePreview(previewToken)
-      : null;
+    const previewToken = url.hostname === 'preview' ? url.pathname.replace(/^\/+/, '').split('/', 1)[0] || '' : '';
+    const preview = previewToken && /^[0-9a-f-]{36}$/i.test(previewToken) ? resolveFilePreview(previewToken) : null;
     if (url.hostname === 'preview' && !preview) return textResponse(404, 'Not found.');
     const assetId = preview ? previewToken : url.pathname.replace(/^\/+/, '');
     const variant = url.searchParams.get('variant') || 'original';

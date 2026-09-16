@@ -30,7 +30,7 @@ function installHitchProfiler() {
     if (delayMs < thresholdMs) return;
     try {
       process.stderr.write(
-        `[mixdog-hitch] timestamp=${new Date().toISOString()} delayMs=${delayMs.toFixed(1)} thresholdMs=${thresholdMs}\n`,
+        `[mixdog-hitch] timestamp=${new Date().toISOString()} delayMs=${delayMs.toFixed(1)} thresholdMs=${thresholdMs}\n`
       );
     } catch {}
   }, sampleMs);

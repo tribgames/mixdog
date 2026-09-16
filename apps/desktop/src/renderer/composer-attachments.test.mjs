@@ -1,18 +1,15 @@
-import assert from "node:assert/strict";
-import test from "node:test";
-import { JSDOM } from "jsdom";
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { JSDOM } from 'jsdom';
 
-import { attachmentFromFile } from "./composer-attachments.ts";
+import { attachmentFromFile } from './composer-attachments.ts';
 
 function installBrowserImageHarness({ supportsWebp = true } = {}) {
-  const dom = new JSDOM("<!doctype html><html><body></body></html>", {
-    url: "https://mixdog.example/",
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+    url: 'https://mixdog.example/',
   });
-  const keys = ["window", "document", "navigator", "FileReader", "Image", "URL"];
-  const previous = new Map(keys.map((key) => [
-    key,
-    Object.getOwnPropertyDescriptor(globalThis, key),
-  ]));
+  const keys = ['window', 'document', 'navigator', 'FileReader', 'Image', 'URL'];
+  const previous = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   const drawCalls = [];
   let capabilityCalls = 0;
   const originalCreateElement = dom.window.document.createElement.bind(dom.window.document);
@@ -26,17 +23,17 @@ function installBrowserImageHarness({ supportsWebp = true } = {}) {
     }
   }
 
-  Object.defineProperty(dom.window, "mixdogDesktop", {
+  Object.defineProperty(dom.window, 'mixdogDesktop', {
     configurable: true,
     value: {
       invokeCapability() {
         capabilityCalls += 1;
-        throw new Error("browser attachments must not use resizeImage RPC");
+        throw new Error('browser attachments must not use resizeImage RPC');
       },
     },
   });
   dom.window.document.createElement = (tagName, options) => {
-    if (String(tagName).toLowerCase() !== "canvas") {
+    if (String(tagName).toLowerCase() !== 'canvas') {
       return originalCreateElement(tagName, options);
     }
     return {
@@ -49,14 +46,14 @@ function installBrowserImageHarness({ supportsWebp = true } = {}) {
       }),
       toBlob(callback, mimeType) {
         // A browser without WebP encoding hands back another type instead.
-        const type = mimeType === "image/webp" && !supportsWebp ? "image/png" : mimeType;
-        callback(new dom.window.Blob(["resized"], { type }));
+        const type = mimeType === 'image/webp' && !supportsWebp ? 'image/png' : mimeType;
+        callback(new dom.window.Blob(['resized'], { type }));
       },
     };
   };
 
   const objectUrl = {
-    createObjectURL: () => "blob:test-image",
+    createObjectURL: () => 'blob:test-image',
     revokeObjectURL: () => {},
   };
   Object.defineProperties(globalThis, {
@@ -82,41 +79,39 @@ function installBrowserImageHarness({ supportsWebp = true } = {}) {
   };
 }
 
-test("web image attachments resize locally before appearing in the draft", async () => {
+test('web image attachments resize locally before appearing in the draft', async () => {
   const harness = installBrowserImageHarness();
   try {
-    const file = new harness.dom.window.File(["original"], "mobile.png", {
-      type: "image/png",
+    const file = new harness.dom.window.File(['original'], 'mobile.png', {
+      type: 'image/png',
     });
     const attachment = await attachmentFromFile(file, { id: 7 });
 
-    assert.deepEqual(harness.drawCalls, [
-      { x: 0, y: 0, width: 2_000, height: 500 },
-    ]);
+    assert.deepEqual(harness.drawCalls, [{ x: 0, y: 0, width: 2_000, height: 500 }]);
     assert.equal(harness.capabilityCalls(), 0);
     // Re-encoded as WebP: a lossless PNG screenshot is the largest thing a
     // phone can attach, and WebP keeps alpha at a fraction of the bytes.
-    assert.equal(attachment?.mimeType, "image/webp");
-    assert.equal(attachment?.data, "cmVzaXplZA==");
+    assert.equal(attachment?.mimeType, 'image/webp');
+    assert.equal(attachment?.data, 'cmVzaXplZA==');
     assert.equal(
       attachment?.metadataText,
-      "[Image: source: mobile.png, 4000x1000, displayed at 2000x500. "
-        + "Multiply coordinates by 2.00 to map to the original image.]",
+      '[Image: source: mobile.png, 4000x1000, displayed at 2000x500. ' +
+        'Multiply coordinates by 2.00 to map to the original image.]'
     );
   } finally {
     harness.close();
   }
 });
 
-test("a browser without WebP encoding still attaches a usable image", async () => {
+test('a browser without WebP encoding still attaches a usable image', async () => {
   const harness = installBrowserImageHarness({ supportsWebp: false });
   try {
-    const file = new harness.dom.window.File(["original"], "mobile.png", {
-      type: "image/png",
+    const file = new harness.dom.window.File(['original'], 'mobile.png', {
+      type: 'image/png',
     });
     const attachment = await attachmentFromFile(file, { id: 7 });
-    assert.equal(attachment?.mimeType, "image/png");
-    assert.equal(attachment?.data, "cmVzaXplZA==");
+    assert.equal(attachment?.mimeType, 'image/png');
+    assert.equal(attachment?.data, 'cmVzaXplZA==');
   } finally {
     harness.close();
   }

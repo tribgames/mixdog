@@ -1,27 +1,26 @@
-import { ExternalLink } from "lucide-react";
-import { ErrorNotice } from "./ErrorNotice";
-import { type ReactNode, type RefObject } from "react";
-import { type EditorFileLoad } from "./editor-file-loader";
-import { type EditorRecovery, type FilePreview } from "./editor-pane-model";
-import { ProgressSpinner } from "./ProgressSpinner";
+import { ExternalLink } from 'lucide-react';
+import { ErrorNotice } from './ErrorNotice';
+import type { ReactNode, RefObject } from 'react';
+import type { EditorFileLoad } from './editor-file-loader';
+import type { EditorRecovery, FilePreview } from './editor-pane-model';
+import { ProgressSpinner } from './ProgressSpinner';
 
-export function EditorPaneNoticeSurface({
-  breadcrumbs,
-  children,
-}: {
-  breadcrumbs: ReactNode;
-  children: ReactNode;
-}) {
-  return <div className="editor-pane">{breadcrumbs}<div className="editor-pane-notice">
-    {children}
-  </div></div>;
+export function EditorPaneNoticeSurface({ breadcrumbs, children }: { breadcrumbs: ReactNode; children: ReactNode }) {
+  return (
+    <div className="editor-pane">
+      {breadcrumbs}
+      <div className="editor-pane-notice">{children}</div>
+    </div>
+  );
 }
 
 export function EditorPaneLoadingSurface({ breadcrumbs }: { breadcrumbs: ReactNode }) {
-  return <EditorPaneNoticeSurface breadcrumbs={breadcrumbs}>
-    <ProgressSpinner size={16} className="editor-pane-spinner" aria-hidden="true" />
-    <p>Loading…</p>
-  </EditorPaneNoticeSurface>;
+  return (
+    <EditorPaneNoticeSurface breadcrumbs={breadcrumbs}>
+      <ProgressSpinner size={16} className="editor-pane-spinner" aria-hidden="true" />
+      <p>Loading…</p>
+    </EditorPaneNoticeSurface>
+  );
 }
 
 export function EditorPaneFileFallback({
@@ -37,15 +36,17 @@ export function EditorPaneFileFallback({
   note?: string;
   onOpen(): void;
 }) {
-  return <EditorPaneNoticeSurface breadcrumbs={breadcrumbs}>
-    {note && <ErrorNotice error={note} role="status" />}
-    <p>{load.binary
-      ? "Binary file — in-app editing is unavailable."
-      : "File exceeds the 1 MB in-app editing cap."}</p>
-    <button type="button" onClick={onOpen}>
-      <ExternalLink size={14} aria-hidden="true" /> Open in default app
-    </button>
-  </EditorPaneNoticeSurface>;
+  return (
+    <EditorPaneNoticeSurface breadcrumbs={breadcrumbs}>
+      {note && <ErrorNotice error={note} role="status" />}
+      <p>
+        {load.binary ? 'Binary file — in-app editing is unavailable.' : 'File exceeds the 1 MB in-app editing cap.'}
+      </p>
+      <button type="button" onClick={onOpen}>
+        <ExternalLink size={14} aria-hidden="true" /> Open in default app
+      </button>
+    </EditorPaneNoticeSurface>
+  );
 }
 
 export function EditorPanePreviewSurface({
@@ -71,37 +72,60 @@ export function EditorPanePreviewSurface({
   onFail(): void;
   onOpen(): void;
 }) {
-  const name = relPath.split("/").at(-1) || relPath;
-  return <div className="editor-pane">{breadcrumbs}
-    <div className={`editor-pane-preview is-${preview.kind}`}
-      data-ready={loaded ? "true" : "false"}>
-      {!loaded && !error && <div className="editor-pane-preview-loading" role="status">
-        <ProgressSpinner size={16} className="editor-pane-spinner" aria-hidden="true" />
-        <p>Loading preview…</p>
-      </div>}
-      {preview.kind === "image"
-        ? <img src={preview.url} alt={name} onLoad={onComplete} onError={onFail} />
-        : preview.kind === "pdf"
-          ? <iframe src={preview.url} title={`${name} PDF preview`}
-            onLoad={onComplete} onError={onFail} />
-          : preview.kind === "audio"
-            ? <audio key={mediaForeground ? "foreground" : "suspended"}
-              ref={(node) => { mediaRef.current = node; }}
-              src={mediaForeground ? preview.url : undefined}
-              controls={mediaForeground} preload={mediaForeground ? "metadata" : "none"}
-              onLoadedMetadata={onComplete} onError={onFail} />
-            : <video key={mediaForeground ? "foreground" : "suspended"}
-              ref={(node) => { mediaRef.current = node; }}
-              src={mediaForeground ? preview.url : undefined}
-              controls={mediaForeground} preload={mediaForeground ? "metadata" : "none"}
-              onLoadedMetadata={onComplete} onError={onFail} />}
-      {error && <ErrorNotice error={error} className="editor-pane-preview-error" action={
-        <button type="button" onClick={onOpen}>
-          <ExternalLink size={14} aria-hidden="true" /> Open in default app
-        </button>
-      } />}
+  const name = relPath.split('/').at(-1) || relPath;
+  return (
+    <div className="editor-pane">
+      {breadcrumbs}
+      <div className={`editor-pane-preview is-${preview.kind}`} data-ready={loaded ? 'true' : 'false'}>
+        {!loaded && !error && (
+          <div className="editor-pane-preview-loading" role="status">
+            <ProgressSpinner size={16} className="editor-pane-spinner" aria-hidden="true" />
+            <p>Loading preview…</p>
+          </div>
+        )}
+        {preview.kind === 'image' ? (
+          <img src={preview.url} alt={name} onLoad={onComplete} onError={onFail} />
+        ) : preview.kind === 'pdf' ? (
+          <iframe src={preview.url} title={`${name} PDF preview`} onLoad={onComplete} onError={onFail} />
+        ) : preview.kind === 'audio' ? (
+          <audio
+            key={mediaForeground ? 'foreground' : 'suspended'}
+            ref={(node) => {
+              mediaRef.current = node;
+            }}
+            src={mediaForeground ? preview.url : undefined}
+            controls={mediaForeground}
+            preload={mediaForeground ? 'metadata' : 'none'}
+            onLoadedMetadata={onComplete}
+            onError={onFail}
+          />
+        ) : (
+          <video
+            key={mediaForeground ? 'foreground' : 'suspended'}
+            ref={(node) => {
+              mediaRef.current = node;
+            }}
+            src={mediaForeground ? preview.url : undefined}
+            controls={mediaForeground}
+            preload={mediaForeground ? 'metadata' : 'none'}
+            onLoadedMetadata={onComplete}
+            onError={onFail}
+          />
+        )}
+        {error && (
+          <ErrorNotice
+            error={error}
+            className="editor-pane-preview-error"
+            action={
+              <button type="button" onClick={onOpen}>
+                <ExternalLink size={14} aria-hidden="true" /> Open in default app
+              </button>
+            }
+          />
+        )}
+      </div>
     </div>
-  </div>;
+  );
 }
 
 export function EditorPaneAlerts({
@@ -127,23 +151,46 @@ export function EditorPaneAlerts({
   onKeepEdits(): void;
   onRetrySave(): void;
 }) {
-  return <>
-    {recovery && <div className="editor-pane-recovery" role="status">
-      <span>{recovery.diskChanged && !recovery.restored
-        ? "Unsaved backup conflicts with the current disk version."
-        : "Unsaved changes were restored from the previous session."}</span>
-      {recovery.diskChanged && !recovery.restored
-        ? <>
-            <button type="button" onClick={onRestoreBackup}>Restore Backup</button>
-            <button type="button" onClick={onDiscardBackup}>Discard Backup</button>
-          </>
-        : null}
-    </div>}
-    {diskChanged && <ErrorNotice error={saveError || error || "File changed on disk."} action={<>
-      <button type="button" onClick={onReload}>Reload</button>
-      <button type="button" onClick={onKeepEdits}>Keep my edits</button>
-    </>} />}
-    <ErrorNotice errors={[revertError, !diskChanged ? saveError : ""]}
-      onRetry={saveError && !diskChanged ? onRetrySave : revertError ? onReload : undefined} />
-  </>;
+  return (
+    <>
+      {recovery && (
+        <div className="editor-pane-recovery" role="status">
+          <span>
+            {recovery.diskChanged && !recovery.restored
+              ? 'Unsaved backup conflicts with the current disk version.'
+              : 'Unsaved changes were restored from the previous session.'}
+          </span>
+          {recovery.diskChanged && !recovery.restored ? (
+            <>
+              <button type="button" onClick={onRestoreBackup}>
+                Restore Backup
+              </button>
+              <button type="button" onClick={onDiscardBackup}>
+                Discard Backup
+              </button>
+            </>
+          ) : null}
+        </div>
+      )}
+      {diskChanged && (
+        <ErrorNotice
+          error={saveError || error || 'File changed on disk.'}
+          action={
+            <>
+              <button type="button" onClick={onReload}>
+                Reload
+              </button>
+              <button type="button" onClick={onKeepEdits}>
+                Keep my edits
+              </button>
+            </>
+          }
+        />
+      )}
+      <ErrorNotice
+        errors={[revertError, !diskChanged ? saveError : '']}
+        onRetry={saveError && !diskChanged ? onRetrySave : revertError ? onReload : undefined}
+      />
+    </>
+  );
 }

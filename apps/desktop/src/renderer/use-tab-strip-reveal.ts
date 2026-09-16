@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, type RefObject } from "react";
+import { useCallback, useLayoutEffect, type RefObject } from 'react';
 
 interface TabStripRevealOptions {
   stripRef: RefObject<HTMLElement | null>;
@@ -52,16 +52,14 @@ export function useTabStripReveal({
     // width did not change (and therefore no ResizeObserver would fire).
     if (targetWidth === null || targetWidth <= availableWidth) return undefined;
     const onTransitionEnd = (event: TransitionEvent) => {
-      if (event.target === tabNodes.current.get(activeKey)
-        && event.propertyName === "min-width") reveal();
+      if (event.target === tabNodes.current.get(activeKey) && event.propertyName === 'min-width') reveal();
     };
-    const observer = typeof ResizeObserver === "undefined"
-      ? null : new ResizeObserver(reveal);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(reveal);
     observer?.observe(strip);
-    strip.addEventListener("transitionend", onTransitionEnd);
+    strip.addEventListener('transitionend', onTransitionEnd);
     return () => {
       observer?.disconnect();
-      strip.removeEventListener("transitionend", onTransitionEnd);
+      strip.removeEventListener('transitionend', onTransitionEnd);
     };
   }, [activeKey, availableWidth, reveal, stripRef, tabNodes, targetWidth]);
 }

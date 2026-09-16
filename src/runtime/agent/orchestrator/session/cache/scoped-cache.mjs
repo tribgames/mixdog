@@ -14,7 +14,7 @@ let mutationGeneration = 0;
 
 // A result started before invalidation must not repopulate the session cache.
 export function scopedCacheGeneration() {
-    return mutationGeneration;
+  return mutationGeneration;
 }
 
 // sessionId -> Map<key, { content, ts, firstToolUseId, depRoots }>
@@ -26,212 +26,272 @@ const _scopedReverseIdx = new Map();
 // sessionId -> { sets, hits, misses, clears }
 const _scopedCounters = new Map();
 
-let _snapshotDataDir = null;
+const _snapshotDataDir = null;
 let _snapshotTimer = null;
 
 function _canonicalArgs(args) {
-    if (args === null || args === undefined) return '';
-    if (typeof args !== 'object') return String(args);
-    try {
-        const keys = Object.keys(args).sort();
-        const sorted = {};
-        for (const k of keys) {
-            const v = args[k];
-            if (v === undefined || v === null || v === '') continue;
-            sorted[k] = v;
-        }
-        return JSON.stringify(sorted);
-    } catch { return String(args); }
+  if (args === null || args === undefined) return '';
+  if (typeof args !== 'object') return String(args);
+  try {
+    const keys = Object.keys(args).sort();
+    const sorted = {};
+    for (const k of keys) {
+      const v = args[k];
+      if (v === undefined || v === null || v === '') continue;
+      sorted[k] = v;
+    }
+    return JSON.stringify(sorted);
+  } catch {
+    return String(args);
+  }
 }
 
 function _firstArg(args, names) {
-    for (const name of names) {
-        if (args?.[name] === undefined || args?.[name] === null || args?.[name] === '') continue;
-        return args[name];
-    }
-    return undefined;
+  for (const name of names) {
+    if (args?.[name] === undefined || args?.[name] === null || args?.[name] === '') continue;
+    return args[name];
+  }
+  return undefined;
 }
 
 const _GREP_CONTEXT_GROUPS = [
-    ['-A', ['-A', 'A', 'after', 'after_context', 'afterContext', '--after-context', 'after-context', 'afterLines', 'after_lines']],
-    ['-B', ['-B', 'B', 'before', 'before_context', 'beforeContext', '--before-context', 'before-context', 'beforeLines', 'before_lines']],
-    ['context', ['context', '-C', 'C', 'context_lines', 'contextLines', '--context', 'contextN', 'around', 'surrounding']],
+  [
+    '-A',
+    [
+      '-A',
+      'A',
+      'after',
+      'after_context',
+      'afterContext',
+      '--after-context',
+      'after-context',
+      'afterLines',
+      'after_lines',
+    ],
+  ],
+  [
+    '-B',
+    [
+      '-B',
+      'B',
+      'before',
+      'before_context',
+      'beforeContext',
+      '--before-context',
+      'before-context',
+      'beforeLines',
+      'before_lines',
+    ],
+  ],
+  [
+    'context',
+    ['context', '-C', 'C', 'context_lines', 'contextLines', '--context', 'contextN', 'around', 'surrounding'],
+  ],
 ];
 
 function _canonicalizeGrepContextArgs(args) {
-    for (const [canonical, aliases] of _GREP_CONTEXT_GROUPS) {
-        const value = _firstArg(args, aliases);
-        for (const alias of aliases) delete args[alias];
-        if (value === undefined) continue;
-        const numeric = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
-        args[canonical] = Number.isFinite(numeric) && Number.isInteger(numeric) ? numeric : value;
-    }
+  for (const [canonical, aliases] of _GREP_CONTEXT_GROUPS) {
+    const value = _firstArg(args, aliases);
+    for (const alias of aliases) delete args[alias];
+    if (value === undefined) continue;
+    const numeric = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+    args[canonical] = Number.isFinite(numeric) && Number.isInteger(numeric) ? numeric : value;
+  }
 }
 
 function _canonicalToolArgs(toolName, args) {
-    if (!args || typeof args !== 'object') return args;
-    const next = { ...args };
-    if (toolName === 'grep') {
-        if (next.pattern === undefined || next.pattern === null || next.pattern === '') {
-            const alias = _firstArg(next, ['query', 'regex', 'regexp', 'needle', 'search', 'literal']);
-            if (alias !== undefined) next.pattern = alias;
-        }
-        if (next.glob === undefined || next.glob === null || next.glob === '') {
-            const alias = _firstArg(next, ['file_pattern', 'filePattern', 'include', 'includes', 'files']);
-            if (alias !== undefined) next.glob = alias;
-        }
-        if (next.path === undefined || next.path === null || next.path === '') {
-            const alias = _firstArg(next, ['root', 'directory', 'dir']);
-            if (alias !== undefined) next.path = alias;
-        }
-        _canonicalizeGrepContextArgs(next);
-        if ((next.output_mode === undefined || next.output_mode === null || next.output_mode === '') && typeof next.mode === 'string') {
-            const mode = next.mode.trim();
-            if (['files_with_matches', 'content', 'content_with_context', 'count'].includes(mode)) next.output_mode = mode;
-        }
-        for (const k of ['query', 'regex', 'regexp', 'needle', 'search', 'literal', 'file_pattern', 'filePattern', 'include', 'includes', 'files', 'root', 'directory', 'dir']) delete next[k];
-        delete next.mode;
-
-        // Canonicalize by execution semantics, not caller spelling:
-        // omitted/content_with_context => content + automatic 25-line context;
-        // context:0 => bare content; context flags are ignored in count/files.
-        const requestedMode = typeof next.output_mode === 'string' ? next.output_mode.trim() : '';
-        if (requestedMode === 'files_with_matches' || requestedMode === 'count') {
-            next.output_mode = requestedMode;
-            delete next['-A'];
-            delete next['-B'];
-            delete next.context;
-        } else {
-            const hasExplicitContext = ['-A', '-B', 'context']
-                .some((key) => Object.prototype.hasOwnProperty.call(next, key));
-            next.output_mode = 'content';
-            if ((requestedMode === '' || requestedMode === 'content_with_context') && !hasExplicitContext) {
-                next.context = GREP_AUTO_CONTEXT_LINES;
-            }
-            if (next.context === 0 && !Object.prototype.hasOwnProperty.call(next, '-A')
-                && !Object.prototype.hasOwnProperty.call(next, '-B')) {
-                delete next.context;
-            }
-        }
-    } else if (toolName === 'glob') {
-        if (next.pattern === undefined || next.pattern === null || next.pattern === '') {
-            const alias = _firstArg(next, ['glob', 'file_pattern', 'filePattern', 'name', 'include', 'includes', 'files']);
-            if (alias !== undefined) next.pattern = alias;
-        }
-        if (next.path === undefined || next.path === null || next.path === '') {
-            const alias = _firstArg(next, ['root', 'directory', 'dir']);
-            if (alias !== undefined) next.path = alias;
-        }
-        for (const k of ['glob', 'file_pattern', 'filePattern', 'name', 'include', 'includes', 'files', 'root', 'directory', 'dir']) delete next[k];
+  if (!args || typeof args !== 'object') return args;
+  const next = { ...args };
+  if (toolName === 'grep') {
+    if (next.pattern === undefined || next.pattern === null || next.pattern === '') {
+      const alias = _firstArg(next, ['query', 'regex', 'regexp', 'needle', 'search', 'literal']);
+      if (alias !== undefined) next.pattern = alias;
     }
-    return next;
+    if (next.glob === undefined || next.glob === null || next.glob === '') {
+      const alias = _firstArg(next, ['file_pattern', 'filePattern', 'include', 'includes', 'files']);
+      if (alias !== undefined) next.glob = alias;
+    }
+    if (next.path === undefined || next.path === null || next.path === '') {
+      const alias = _firstArg(next, ['root', 'directory', 'dir']);
+      if (alias !== undefined) next.path = alias;
+    }
+    _canonicalizeGrepContextArgs(next);
+    if (
+      (next.output_mode === undefined || next.output_mode === null || next.output_mode === '') &&
+      typeof next.mode === 'string'
+    ) {
+      const mode = next.mode.trim();
+      if (['files_with_matches', 'content', 'content_with_context', 'count'].includes(mode)) next.output_mode = mode;
+    }
+    for (const k of [
+      'query',
+      'regex',
+      'regexp',
+      'needle',
+      'search',
+      'literal',
+      'file_pattern',
+      'filePattern',
+      'include',
+      'includes',
+      'files',
+      'root',
+      'directory',
+      'dir',
+    ])
+      delete next[k];
+    delete next.mode;
+
+    // Canonicalize by execution semantics, not caller spelling:
+    // omitted/content_with_context => content + automatic 25-line context;
+    // context:0 => bare content; context flags are ignored in count/files.
+    const requestedMode = typeof next.output_mode === 'string' ? next.output_mode.trim() : '';
+    if (requestedMode === 'files_with_matches' || requestedMode === 'count') {
+      next.output_mode = requestedMode;
+      delete next['-A'];
+      delete next['-B'];
+      delete next.context;
+    } else {
+      const hasExplicitContext = ['-A', '-B', 'context'].some((key) => Object.hasOwn(next, key));
+      next.output_mode = 'content';
+      if ((requestedMode === '' || requestedMode === 'content_with_context') && !hasExplicitContext) {
+        next.context = GREP_AUTO_CONTEXT_LINES;
+      }
+      if (next.context === 0 && !Object.hasOwn(next, '-A') && !Object.hasOwn(next, '-B')) {
+        delete next.context;
+      }
+    }
+  } else if (toolName === 'glob') {
+    if (next.pattern === undefined || next.pattern === null || next.pattern === '') {
+      const alias = _firstArg(next, ['glob', 'file_pattern', 'filePattern', 'name', 'include', 'includes', 'files']);
+      if (alias !== undefined) next.pattern = alias;
+    }
+    if (next.path === undefined || next.path === null || next.path === '') {
+      const alias = _firstArg(next, ['root', 'directory', 'dir']);
+      if (alias !== undefined) next.path = alias;
+    }
+    for (const k of [
+      'glob',
+      'file_pattern',
+      'filePattern',
+      'name',
+      'include',
+      'includes',
+      'files',
+      'root',
+      'directory',
+      'dir',
+    ])
+      delete next[k];
+  }
+  return next;
 }
 
 function _scopedKey(toolName, args, cwd) {
-    // Include resolved cwd in the key so identical (toolName, args) pairs from
-    // different working directories do not collide.
-    const cwdPart = (typeof cwd === 'string' && cwd.length > 0)
-        ? _normalizeCacheKey(cwd)
-        : '';
-    return `${toolName}|cwd=${cwdPart}|${_canonicalArgs(_canonicalToolArgs(toolName, args))}`;
+  // Include resolved cwd in the key so identical (toolName, args) pairs from
+  // different working directories do not collide.
+  const cwdPart = typeof cwd === 'string' && cwd.length > 0 ? _normalizeCacheKey(cwd) : '';
+  return `${toolName}|cwd=${cwdPart}|${_canonicalArgs(_canonicalToolArgs(toolName, args))}`;
 }
 
 function _hasGlobMagic(value) {
-    return typeof value === 'string' && /[\*\?\[\{]/.test(value);
+  return typeof value === 'string' && /[*?[{]/.test(value);
 }
 
 function _extractGlobRoot(value) {
-    if (!_hasGlobMagic(value)) return value;
-    const text = String(value);
-    const slash = Math.max(text.lastIndexOf('/'), text.lastIndexOf('\\'));
-    if (slash <= 0) return '.';
-    return text.slice(0, slash);
+  if (!_hasGlobMagic(value)) return value;
+  const text = String(value);
+  const slash = Math.max(text.lastIndexOf('/'), text.lastIndexOf('\\'));
+  if (slash <= 0) return '.';
+  return text.slice(0, slash);
 }
 
 function _normalizeScopedAbs(value, cwd) {
-    if (typeof value !== 'string' || value.length === 0) return null;
-    const base = (cwd && typeof cwd === 'string') ? cwd : process.cwd();
-    try {
-        const root = _extractGlobRoot(value);
-        return _normalizeCacheKey(_pathNorm(_pathIsAbs(root) ? root : _pathResolve(base, root)));
-    } catch {
-        return null;
-    }
+  if (typeof value !== 'string' || value.length === 0) return null;
+  const base = cwd && typeof cwd === 'string' ? cwd : process.cwd();
+  try {
+    const root = _extractGlobRoot(value);
+    return _normalizeCacheKey(_pathNorm(_pathIsAbs(root) ? root : _pathResolve(base, root)));
+  } catch {
+    return null;
+  }
 }
 
 function _collectPathValues(value, out) {
-    if (typeof value === 'string' && value.length > 0) {
-        out.push(value);
-    } else if (Array.isArray(value)) {
-        for (const item of value) _collectPathValues(item, out);
-    }
+  if (typeof value === 'string' && value.length > 0) {
+    out.push(value);
+  } else if (Array.isArray(value)) {
+    for (const item of value) _collectPathValues(item, out);
+  }
 }
 
 function _scopedDependencyRoots(toolName, args, cwd) {
-    const roots = new Set();
-    const add = (value) => {
-        const abs = _normalizeScopedAbs(value, cwd);
-        if (abs) roots.add(abs);
-    };
-    const canonicalArgs = _canonicalToolArgs(toolName, args);
-    const rawPaths = [];
-    if (canonicalArgs && typeof canonicalArgs === 'object') {
-        _collectPathValues(canonicalArgs.file, rawPaths);
-        _collectPathValues(canonicalArgs.path, rawPaths);
-        _collectPathValues(canonicalArgs.root, rawPaths);
-    }
-    if (rawPaths.length > 0) {
-        for (const p of rawPaths) add(p);
-        // `glob` results are gated on the pattern's static (non-magic) prefix,
-        // not just cwd/path root — a pattern like "src/**/*.mjs" must register
-        // "src", not just cwd, or edits under src/ that are not directly under
-        // the given path root will not invalidate the cached glob result.
-        if (toolName === 'glob' && canonicalArgs && typeof canonicalArgs.pattern !== 'undefined') {
-            const patterns = [];
-            _collectPathValues(canonicalArgs.pattern, patterns);
-            for (const pattern of patterns) {
-                if (typeof pattern !== 'string' || !_hasGlobMagic(pattern)) continue;
-                const patternRoot = _extractGlobRoot(pattern);
-                if (_pathIsAbs(patternRoot)) {
-                    add(patternRoot);
-                } else if (rawPaths.length > 0) {
-                    for (const p of rawPaths) add(join(p, patternRoot));
-                } else {
-                    add(patternRoot);
-                }
-            }
+  const roots = new Set();
+  const add = (value) => {
+    const abs = _normalizeScopedAbs(value, cwd);
+    if (abs) roots.add(abs);
+  };
+  const canonicalArgs = _canonicalToolArgs(toolName, args);
+  const rawPaths = [];
+  if (canonicalArgs && typeof canonicalArgs === 'object') {
+    _collectPathValues(canonicalArgs.file, rawPaths);
+    _collectPathValues(canonicalArgs.path, rawPaths);
+    _collectPathValues(canonicalArgs.root, rawPaths);
+  }
+  if (rawPaths.length > 0) {
+    for (const p of rawPaths) add(p);
+    // `glob` results are gated on the pattern's static (non-magic) prefix,
+    // not just cwd/path root — a pattern like "src/**/*.mjs" must register
+    // "src", not just cwd, or edits under src/ that are not directly under
+    // the given path root will not invalidate the cached glob result.
+    if (toolName === 'glob' && canonicalArgs && typeof canonicalArgs.pattern !== 'undefined') {
+      const patterns = [];
+      _collectPathValues(canonicalArgs.pattern, patterns);
+      for (const pattern of patterns) {
+        if (typeof pattern !== 'string' || !_hasGlobMagic(pattern)) continue;
+        const patternRoot = _extractGlobRoot(pattern);
+        if (_pathIsAbs(patternRoot)) {
+          add(patternRoot);
+        } else if (rawPaths.length > 0) {
+          for (const p of rawPaths) add(join(p, patternRoot));
+        } else {
+          add(patternRoot);
         }
-    } else if (cwd && typeof cwd === 'string') {
-        add(cwd);
+      }
     }
-    return [...roots];
+  } else if (cwd && typeof cwd === 'string') {
+    add(cwd);
+  }
+  return [...roots];
 }
 
 function _pathTouchesRoot(absPath, root) {
-    if (!absPath || !root) return false;
-    return absPath === root
-        || absPath.startsWith(root.endsWith('/') ? root : `${root}/`)
-        || root.startsWith(absPath.endsWith('/') ? absPath : `${absPath}/`);
+  if (!absPath || !root) return false;
+  return (
+    absPath === root ||
+    absPath.startsWith(root.endsWith('/') ? root : `${root}/`) ||
+    root.startsWith(absPath.endsWith('/') ? absPath : `${absPath}/`)
+  );
 }
 
 function _dropScopedEntry(sessionId, key) {
-    _scopedBySession.get(sessionId)?.delete(key);
-    const index = _scopedReverseIdx.get(sessionId);
-    if (!index) return;
-    for (const [path, keys] of index) {
-        keys.delete(key);
-        if (keys.size === 0) index.delete(path);
-    }
+  _scopedBySession.get(sessionId)?.delete(key);
+  const index = _scopedReverseIdx.get(sessionId);
+  if (!index) return;
+  for (const [path, keys] of index) {
+    keys.delete(key);
+    if (keys.size === 0) index.delete(path);
+  }
 }
 
 function _bumpCounter(sessionId, field) {
-    let c = _scopedCounters.get(sessionId);
-    if (!c) {
-        c = { sets: 0, hits: 0, misses: 0, clears: 0 };
-        _scopedCounters.set(sessionId, c);
-    }
-    c[field] = (c[field] ?? 0) + 1;
-    _scheduleCacheStatsFlush();
+  let c = _scopedCounters.get(sessionId);
+  if (!c) {
+    c = { sets: 0, hits: 0, misses: 0, clears: 0 };
+    _scopedCounters.set(sessionId, c);
+  }
+  c[field] = (c[field] ?? 0) + 1;
+  _scheduleCacheStatsFlush();
 }
 
 /**
@@ -240,25 +300,25 @@ function _bumpCounter(sessionId, field) {
  * { content, firstToolUseId, ts }.
  */
 export function tryScopedToolCached({ sessionId, toolName, args, cwd, countStats = true, touch = true } = {}) {
-    if (!sessionId || !toolName) return null;
-    const map = _scopedBySession.get(sessionId);
-    if (!map) {
-        if (countStats) _bumpCounter(sessionId, 'misses');
-        return null;
-    }
-    const key = _scopedKey(toolName, args, cwd);
-    const entry = map.get(key);
-    if (!entry || Date.now() - entry.ts >= SCOPED_CACHE_TTL_MS) {
-        if (entry) _dropScopedEntry(sessionId, key);
-        if (countStats) _bumpCounter(sessionId, 'misses');
-        return null;
-    }
-    if (touch) {
-        map.delete(key);
-        map.set(key, entry);
-    }
-    if (countStats) _bumpCounter(sessionId, 'hits');
-    return { content: entry.content, firstToolUseId: entry.firstToolUseId || null, ts: entry.ts };
+  if (!sessionId || !toolName) return null;
+  const map = _scopedBySession.get(sessionId);
+  if (!map) {
+    if (countStats) _bumpCounter(sessionId, 'misses');
+    return null;
+  }
+  const key = _scopedKey(toolName, args, cwd);
+  const entry = map.get(key);
+  if (!entry || Date.now() - entry.ts >= SCOPED_CACHE_TTL_MS) {
+    if (entry) _dropScopedEntry(sessionId, key);
+    if (countStats) _bumpCounter(sessionId, 'misses');
+    return null;
+  }
+  if (touch) {
+    map.delete(key);
+    map.set(key, entry);
+  }
+  if (countStats) _bumpCounter(sessionId, 'hits');
+  return { content: entry.content, firstToolUseId: entry.firstToolUseId || null, ts: entry.ts };
 }
 
 /**
@@ -266,43 +326,61 @@ export function tryScopedToolCached({ sessionId, toolName, args, cwd, countStats
  * `toolUseId` lets cache hits reference back to the first call that
  * populated the entry so the body need not be re-delivered.
  */
-export function setScopedToolCached({ sessionId, toolName, args, cwd, content, toolUseId, complete = true, generation = mutationGeneration }) {
-    if (!sessionId || !toolName) return;
-    if (generation !== mutationGeneration) return;
-    if (complete === false) return;
-    if (typeof content !== 'string' || content.length === 0) return;
-    const key = _scopedKey(toolName, args, cwd);
-    let map = _scopedBySession.get(sessionId);
-    if (!map) { map = new Map(); _scopedBySession.set(sessionId, map); }
-    if (map.size >= MAX_PER_SESSION) {
-        const firstKey = map.keys().next().value;
-        if (firstKey) {
-            map.delete(firstKey);
-            // Prune evicted key from reverse index entries.
-            const ridx = _scopedReverseIdx.get(sessionId);
-            if (ridx) {
-                for (const [absKey, keySet] of ridx) {
-                    keySet.delete(firstKey);
-                    if (keySet.size === 0) ridx.delete(absKey);
-                }
-            }
+export function setScopedToolCached({
+  sessionId,
+  toolName,
+  args,
+  cwd,
+  content,
+  toolUseId,
+  complete = true,
+  generation = mutationGeneration,
+}) {
+  if (!sessionId || !toolName) return;
+  if (generation !== mutationGeneration) return;
+  if (complete === false) return;
+  if (typeof content !== 'string' || content.length === 0) return;
+  const key = _scopedKey(toolName, args, cwd);
+  let map = _scopedBySession.get(sessionId);
+  if (!map) {
+    map = new Map();
+    _scopedBySession.set(sessionId, map);
+  }
+  if (map.size >= MAX_PER_SESSION) {
+    const firstKey = map.keys().next().value;
+    if (firstKey) {
+      map.delete(firstKey);
+      // Prune evicted key from reverse index entries.
+      const ridx = _scopedReverseIdx.get(sessionId);
+      if (ridx) {
+        for (const [absKey, keySet] of ridx) {
+          keySet.delete(firstKey);
+          if (keySet.size === 0) ridx.delete(absKey);
         }
+      }
     }
-    const depRoots = _scopedDependencyRoots(toolName, args, cwd);
-    map.set(key, { content, ts: Date.now(), firstToolUseId: toolUseId || null, depRoots });
-    // Register key in reverse index for dependency roots. Exact root hits use
-    // O(1) lookup; touched files under a root are caught by the small prefix scan
-    // in clearScopedToolsForSessionPaths (MAX_PER_SESSION is 100).
-    let ridx = _scopedReverseIdx.get(sessionId);
-    if (!ridx) { ridx = new Map(); _scopedReverseIdx.set(sessionId, ridx); }
-    const _registerAbs = (abs) => {
-        if (!abs || typeof abs !== 'string') return;
-        let s = ridx.get(abs);
-        if (!s) { s = new Set(); ridx.set(abs, s); }
-        s.add(key);
-    };
-    for (const dep of depRoots) _registerAbs(dep);
-    _bumpCounter(sessionId, 'sets');
+  }
+  const depRoots = _scopedDependencyRoots(toolName, args, cwd);
+  map.set(key, { content, ts: Date.now(), firstToolUseId: toolUseId || null, depRoots });
+  // Register key in reverse index for dependency roots. Exact root hits use
+  // O(1) lookup; touched files under a root are caught by the small prefix scan
+  // in clearScopedToolsForSessionPaths (MAX_PER_SESSION is 100).
+  let ridx = _scopedReverseIdx.get(sessionId);
+  if (!ridx) {
+    ridx = new Map();
+    _scopedReverseIdx.set(sessionId, ridx);
+  }
+  const _registerAbs = (abs) => {
+    if (!abs || typeof abs !== 'string') return;
+    let s = ridx.get(abs);
+    if (!s) {
+      s = new Set();
+      ridx.set(abs, s);
+    }
+    s.add(key);
+  };
+  for (const dep of depRoots) _registerAbs(dep);
+  _bumpCounter(sessionId, 'sets');
 }
 
 /**
@@ -310,11 +388,11 @@ export function setScopedToolCached({ sessionId, toolName, args, cwd, content, t
  * paths are unknown or a broad mutation may have changed many files.
  */
 export function clearScopedToolsForSession(sessionId) {
-    if (!sessionId) return;
-    mutationGeneration += 1;
-    _scopedBySession.delete(sessionId);
-    _scopedReverseIdx.delete(sessionId);
-    _bumpCounter(sessionId, 'clears');
+  if (!sessionId) return;
+  mutationGeneration += 1;
+  _scopedBySession.delete(sessionId);
+  _scopedReverseIdx.delete(sessionId);
+  _bumpCounter(sessionId, 'clears');
 }
 
 /**
@@ -325,76 +403,78 @@ export function clearScopedToolsForSession(sessionId) {
  * when paths cannot be resolved.
  */
 export function clearScopedToolsForSessionPaths(sessionId, touchedPaths, cwd) {
-    if (!sessionId || !Array.isArray(touchedPaths) || touchedPaths.length === 0) return;
-    mutationGeneration += 1;
-    const map = _scopedBySession.get(sessionId);
-    if (!map) return;
-    const base = (cwd && typeof cwd === 'string') ? cwd : process.cwd();
-    const absPaths = touchedPaths
-        .map(p => {
-            if (typeof p !== 'string' || p.length === 0) return null;
-            try {
-                return _normalizeCacheKey(_pathNorm(_pathIsAbs(p) ? p : _pathResolve(base, p)));
-            } catch { return null; }
-        })
-        .filter(Boolean);
-    if (absPaths.length === 0) {
-        // Fallback: can't resolve — full wipe.
-        _scopedBySession.delete(sessionId);
-        _scopedReverseIdx.delete(sessionId);
-        _bumpCounter(sessionId, 'clears');
-        return;
-    }
-    const ridx = _scopedReverseIdx.get(sessionId);
-    const evictedKeys = new Set();
-    for (const abs of absPaths) {
-        const keys = ridx ? ridx.get(abs) : null;
-        if (keys && keys.size > 0) {
-            for (const key of keys) {
-                if (map.has(key)) {
-                    map.delete(key);
-                    evictedKeys.add(key);
-                }
-            }
-            keys.clear();
-            ridx.delete(abs);
+  if (!sessionId || !Array.isArray(touchedPaths) || touchedPaths.length === 0) return;
+  mutationGeneration += 1;
+  const map = _scopedBySession.get(sessionId);
+  if (!map) return;
+  const base = cwd && typeof cwd === 'string' ? cwd : process.cwd();
+  const absPaths = touchedPaths
+    .map((p) => {
+      if (typeof p !== 'string' || p.length === 0) return null;
+      try {
+        return _normalizeCacheKey(_pathNorm(_pathIsAbs(p) ? p : _pathResolve(base, p)));
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+  if (absPaths.length === 0) {
+    // Fallback: can't resolve — full wipe.
+    _scopedBySession.delete(sessionId);
+    _scopedReverseIdx.delete(sessionId);
+    _bumpCounter(sessionId, 'clears');
+    return;
+  }
+  const ridx = _scopedReverseIdx.get(sessionId);
+  const evictedKeys = new Set();
+  for (const abs of absPaths) {
+    const keys = ridx ? ridx.get(abs) : null;
+    if (keys && keys.size > 0) {
+      for (const key of keys) {
+        if (map.has(key)) {
+          map.delete(key);
+          evictedKeys.add(key);
         }
-        // Index miss may still touch a cached directory/root dependency
-        // (e.g. grep path:"src" then edit src/a.mjs). Prefix scan is bounded
-        // by MAX_PER_SESSION and prevents stale scoped cache hits.
-        for (const [key, entry] of map) {
-            const roots = Array.isArray(entry?.depRoots) ? entry.depRoots : [];
-            if (roots.some((root) => _pathTouchesRoot(abs, root))) {
-                map.delete(key);
-                evictedKeys.add(key);
-            }
-        }
+      }
+      keys.clear();
+      ridx.delete(abs);
     }
-    // Remove evicted keys from any other reverse-index sets they appeared in; prune empty Sets.
-    if (ridx && evictedKeys.size > 0) {
-        for (const [absKey, keySet] of ridx) {
-            for (const k of evictedKeys) keySet.delete(k);
-            if (keySet.size === 0) ridx.delete(absKey);
-        }
+    // Index miss may still touch a cached directory/root dependency
+    // (e.g. grep path:"src" then edit src/a.mjs). Prefix scan is bounded
+    // by MAX_PER_SESSION and prevents stale scoped cache hits.
+    for (const [key, entry] of map) {
+      const roots = Array.isArray(entry?.depRoots) ? entry.depRoots : [];
+      if (roots.some((root) => _pathTouchesRoot(abs, root))) {
+        map.delete(key);
+        evictedKeys.add(key);
+      }
     }
-    if (evictedKeys.size > 0) _bumpCounter(sessionId, 'clears');
+  }
+  // Remove evicted keys from any other reverse-index sets they appeared in; prune empty Sets.
+  if (ridx && evictedKeys.size > 0) {
+    for (const [absKey, keySet] of ridx) {
+      for (const k of evictedKeys) keySet.delete(k);
+      if (keySet.size === 0) ridx.delete(absKey);
+    }
+  }
+  if (evictedKeys.size > 0) _bumpCounter(sessionId, 'clears');
 }
 
 // Builtin writes and watcher invalidations must reach every session, not only
 // the one that happened to execute the mutation. TTL covers external changes
 // that no watcher reports.
 registerCacheInvalidationListener((paths) => {
-    mutationGeneration += 1;
-    for (const sessionId of _scopedBySession.keys()) {
-        if (paths?.length) clearScopedToolsForSessionPaths(sessionId, paths);
-        else clearScopedToolsForSession(sessionId);
-    }
+  mutationGeneration += 1;
+  for (const sessionId of _scopedBySession.keys()) {
+    if (paths?.length) clearScopedToolsForSessionPaths(sessionId, paths);
+    else clearScopedToolsForSession(sessionId);
+  }
 });
 
 /** Drop scoped counters for a session on close. */
 export function clearScopedCounters(sessionId) {
-    if (!sessionId) return;
-    _scopedCounters.delete(sessionId);
+  if (!sessionId) return;
+  _scopedCounters.delete(sessionId);
 }
 
 /**
@@ -402,54 +482,58 @@ export function clearScopedCounters(sessionId) {
  * Pure computation — no I/O. Exported for tests.
  */
 function aggregateCacheStats() {
-    const totals = { sets: 0, hits: 0, misses: 0, clears: 0 };
-    const perSession = [];
-    for (const [sessionId, c] of _scopedCounters) {
-        totals.sets += c.sets ?? 0;
-        totals.hits += c.hits ?? 0;
-        totals.misses += c.misses ?? 0;
-        totals.clears += c.clears ?? 0;
-        perSession.push({
-            sessionId,
-            sets: c.sets ?? 0,
-            hits: c.hits ?? 0,
-            misses: c.misses ?? 0,
-            clears: c.clears ?? 0,
-        });
-    }
-    return { totals, perSession };
+  const totals = { sets: 0, hits: 0, misses: 0, clears: 0 };
+  const perSession = [];
+  for (const [sessionId, c] of _scopedCounters) {
+    totals.sets += c.sets ?? 0;
+    totals.hits += c.hits ?? 0;
+    totals.misses += c.misses ?? 0;
+    totals.clears += c.clears ?? 0;
+    perSession.push({
+      sessionId,
+      sets: c.sets ?? 0,
+      hits: c.hits ?? 0,
+      misses: c.misses ?? 0,
+      clears: c.clears ?? 0,
+    });
+  }
+  return { totals, perSession };
 }
 
 function _flushCacheStats() {
-    _snapshotTimer = null;
-    if (!_snapshotDataDir) return;
-    const path = join(_snapshotDataDir, 'cache-stats.json');
-    const { totals, perSession } = aggregateCacheStats();
-    try {
-        writeJsonAtomicSync(path, { writtenAt: Date.now(), totals, perSession }, {
-            compact: true,
-            lock: true,
-            fsync: false,
-            fsyncDir: false,
-        });
-    } catch {
-        // best-effort; never throw into caller
-    }
+  _snapshotTimer = null;
+  if (!_snapshotDataDir) return;
+  const path = join(_snapshotDataDir, 'cache-stats.json');
+  const { totals, perSession } = aggregateCacheStats();
+  try {
+    writeJsonAtomicSync(
+      path,
+      { writtenAt: Date.now(), totals, perSession },
+      {
+        compact: true,
+        lock: true,
+        fsync: false,
+        fsyncDir: false,
+      }
+    );
+  } catch {
+    // best-effort; never throw into caller
+  }
 }
 
 function _scheduleCacheStatsFlush() {
-    if (_snapshotTimer !== null) return;
-    // .unref() so the timer doesn't prevent Node exit in tests
-    const t = setTimeout(_flushCacheStats, 1000);
-    if (typeof t.unref === 'function') t.unref();
-    _snapshotTimer = t;
+  if (_snapshotTimer !== null) return;
+  // .unref() so the timer doesn't prevent Node exit in tests
+  const t = setTimeout(_flushCacheStats, 1000);
+  if (typeof t.unref === 'function') t.unref();
+  _snapshotTimer = t;
 }
 
 /** Sync-flush pending cache-stats snapshot on exit. */
 function drainCacheStats() {
-    if (_snapshotTimer === null) return;
-    clearTimeout(_snapshotTimer);
-    _snapshotTimer = null;
-    _flushCacheStats();
+  if (_snapshotTimer === null) return;
+  clearTimeout(_snapshotTimer);
+  _snapshotTimer = null;
+  _flushCacheStats();
 }
 process.on('exit', drainCacheStats);

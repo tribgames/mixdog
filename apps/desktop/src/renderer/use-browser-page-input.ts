@@ -1,12 +1,20 @@
 import { useRef } from 'react';
-import type { RefObject, PointerEvent, KeyboardEvent, ClipboardEvent, FormEvent, CompositionEvent, WheelEvent } from 'react';
+import type {
+  RefObject,
+  PointerEvent,
+  KeyboardEvent,
+  ClipboardEvent,
+  FormEvent,
+  CompositionEvent,
+  WheelEvent,
+} from 'react';
 import type { createBrowserPageClient } from './browser-page-client';
 import { remoteBrowserImagePoint } from '../shared/remote-browser';
 
 export function useBrowserPageInput(
   client: ReturnType<typeof createBrowserPageClient>,
   image: RefObject<HTMLElement | null>,
-  keyboard: RefObject<HTMLTextAreaElement | null>,
+  keyboard: RefObject<HTMLTextAreaElement | null>
 ) {
   const composing = useRef(false);
   const compositionOwner = useRef<{ client: typeof client; token: string } | null>(null);
@@ -17,10 +25,12 @@ export function useBrowserPageInput(
     const frame = client.frame();
     const bounds = image.current?.getBoundingClientRect();
     const pixel = frame && bounds ? remoteBrowserImagePoint(bounds, frame, { x, y }) : null;
-    return pixel && frame ? {
-      x: pixel.x * frame.viewportWidth / frame.width,
-      y: pixel.y * frame.viewportHeight / frame.height,
-    } : null;
+    return pixel && frame
+      ? {
+          x: (pixel.x * frame.viewportWidth) / frame.width,
+          y: (pixel.y * frame.viewportHeight) / frame.height,
+        }
+      : null;
   };
   const pointer = (event: PointerEvent<HTMLDivElement>, phase: 'mouseMoved' | 'mousePressed' | 'mouseReleased') => {
     // The page transport supports only left, right, and middle buttons.
@@ -30,14 +40,18 @@ export function useBrowserPageInput(
       return;
     }
     const buttons = event.buttons & 7;
-    const position = point(event.clientX, event.clientY)
-      ?? (phase === 'mouseReleased' ? lastPoint.current : null);
+    const position = point(event.clientX, event.clientY) ?? (phase === 'mouseReleased' ? lastPoint.current : null);
     if (!position) return;
     lastPoint.current = position;
     event.preventDefault();
-    const button = phase === 'mouseMoved'
-      ? [...pressed.current.values()].at(-1) ?? 'none'
-      : event.button === 2 ? 'right' : event.button === 1 ? 'middle' : 'left';
+    const button =
+      phase === 'mouseMoved'
+        ? ([...pressed.current.values()].at(-1) ?? 'none')
+        : event.button === 2
+          ? 'right'
+          : event.button === 1
+            ? 'middle'
+            : 'left';
     if (phase === 'mousePressed' && button !== 'none') {
       pressed.current.set(event.button, button);
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -45,7 +59,9 @@ export function useBrowserPageInput(
     }
     if (phase === 'mouseReleased') pressed.current.delete(event.button);
     client.fire({
-      type: 'pointer', phase, ...position,
+      type: 'pointer',
+      phase,
+      ...position,
       button: phase === 'mouseMoved' && !buttons ? 'none' : button,
       buttons,
       modifiers: (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0),
@@ -62,8 +78,15 @@ export function useBrowserPageInput(
     for (const [index, button] of pressed.current) {
       pressed.current.delete(index);
       const buttons = [...pressed.current.keys()].reduce((bits, key) => bits | (key === 0 ? 1 : key === 1 ? 4 : 2), 0);
-      client.fire({ type: 'pointer', phase: 'mouseReleased', ...lastPoint.current,
-        button, buttons, modifiers: 0, clickCount: 1 });
+      client.fire({
+        type: 'pointer',
+        phase: 'mouseReleased',
+        ...lastPoint.current,
+        button,
+        buttons,
+        modifiers: 0,
+        clickCount: 1,
+      });
     }
   };
   return {
@@ -85,14 +108,24 @@ export function useBrowserPageInput(
       const bounds = image.current!.getBoundingClientRect();
       const scale = Math.min(bounds.width / frame.width, bounds.height / frame.height);
       client.fire({
-        type: 'wheel', ...position,
-        deltaX: (event.shiftKey && !event.deltaX ? event.deltaY : event.deltaX) * unit * frame.viewportWidth / (frame.width * scale),
-        deltaY: (event.shiftKey && !event.deltaX ? 0 : event.deltaY) * unit * frame.viewportHeight / (frame.height * scale),
+        type: 'wheel',
+        ...position,
+        deltaX:
+          ((event.shiftKey && !event.deltaX ? event.deltaY : event.deltaX) * unit * frame.viewportWidth) /
+          (frame.width * scale),
+        deltaY:
+          ((event.shiftKey && !event.deltaX ? 0 : event.deltaY) * unit * frame.viewportHeight) / (frame.height * scale),
       });
     },
     onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => {
       event.stopPropagation();
-      if (composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.key === 'Process') return;
+      if (
+        composing.current ||
+        event.nativeEvent.isComposing ||
+        event.nativeEvent.keyCode === 229 ||
+        event.key === 'Process'
+      )
+        return;
       const command = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
       if (key === 'f5' || (command && key === 'r')) {
@@ -114,7 +147,12 @@ export function useBrowserPageInput(
       if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(event.key)) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') return;
       event.preventDefault();
-      const modifiers = [event.ctrlKey && 'Control', event.metaKey && 'Meta', event.altKey && 'Alt', event.shiftKey && 'Shift'].filter(Boolean);
+      const modifiers = [
+        event.ctrlKey && 'Control',
+        event.metaKey && 'Meta',
+        event.altKey && 'Alt',
+        event.shiftKey && 'Shift',
+      ].filter(Boolean);
       client.fire({ type: 'key', key: [...modifiers, event.key === ' ' ? 'Space' : event.key].join('+') });
     },
     onInput: (event: FormEvent<HTMLTextAreaElement>) => {
@@ -126,10 +164,16 @@ export function useBrowserPageInput(
     },
     onCompositionUpdate: (event: CompositionEvent<HTMLTextAreaElement>) => {
       const owner = compositionOwner.current;
-      if (owner) owner.client.fire({
-        type: 'composition', text: event.data,
-        selectionStart: event.data.length, selectionEnd: event.data.length,
-      }, owner.token);
+      if (owner)
+        owner.client.fire(
+          {
+            type: 'composition',
+            text: event.data,
+            selectionStart: event.data.length,
+            selectionEnd: event.data.length,
+          },
+          owner.token
+        );
     },
     onCompositionEnd: (event: CompositionEvent<HTMLTextAreaElement>) => {
       composing.current = false;

@@ -4,7 +4,7 @@ export const STUDIO_THUMBNAIL_TIMEOUT_MS = 15_000;
 export async function runStudioThumbnailTask(
   task: (signal: AbortSignal) => Promise<void>,
   parent: AbortSignal,
-  timeoutMs = STUDIO_THUMBNAIL_TIMEOUT_MS,
+  timeoutMs = STUDIO_THUMBNAIL_TIMEOUT_MS
 ): Promise<void> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -22,10 +22,7 @@ export async function runStudioThumbnailTask(
   });
   try {
     if (parent.aborted) abort();
-    await Promise.race([
-      interrupted,
-      controller.signal.aborted ? Promise.resolve() : task(controller.signal),
-    ]);
+    await Promise.race([interrupted, controller.signal.aborted ? Promise.resolve() : task(controller.signal)]);
   } finally {
     clearTimeout(timer);
     parent.removeEventListener('abort', abort);

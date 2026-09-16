@@ -8,20 +8,32 @@ import { createLifecycleApi, resolveResumeCwd } from './lifecycle-api.mjs';
 import { applyDeferredToolSurface } from './tool-catalog.mjs';
 
 test('project resume prefers canonical session cwd over stale desktop metadata', () => {
-  assert.equal(resolveResumeCwd({
-    cwd: 'C:\\Project\\mixdog',
-    desktopSession: {
-      classification: 'project',
-      projectPath: 'C:\\Project\\GamerScroll',
-    },
-  }, 'C:\\fallback'), 'C:\\Project\\mixdog');
+  assert.equal(
+    resolveResumeCwd(
+      {
+        cwd: 'C:\\Project\\mixdog',
+        desktopSession: {
+          classification: 'project',
+          projectPath: 'C:\\Project\\GamerScroll',
+        },
+      },
+      'C:\\fallback'
+    ),
+    'C:\\Project\\mixdog'
+  );
 });
 
 test('unclassified desktop task resume stays in its host-managed workspace', () => {
-  assert.equal(resolveResumeCwd({
-    cwd: 'C:\\old-transient',
-    desktopSession: { classification: 'task', projectPath: null },
-  }, 'C:\\task-workspace'), 'C:\\task-workspace');
+  assert.equal(
+    resolveResumeCwd(
+      {
+        cwd: 'C:\\old-transient',
+        desktopSession: { classification: 'task', projectPath: null },
+      },
+      'C:\\task-workspace'
+    ),
+    'C:\\task-workspace'
+  );
 });
 
 test('resume restores persisted deferred tools before asynchronous route preparation', async () => {
@@ -52,9 +64,13 @@ test('resume restores persisted deferred tools before asynchronous route prepara
   let pendingRoutePreparation = null;
   const api = createLifecycleApi({
     getSession: () => current,
-    setSession: (session) => { current = session; },
+    setSession: (session) => {
+      current = session;
+    },
     getRoute: () => route,
-    setRoute: (next) => { route = next; },
+    setRoute: (next) => {
+      route = next;
+    },
     getConfig: () => ({}),
     getMode: () => 'full',
     getCurrentCwd: () => resumed.cwd,
@@ -62,7 +78,9 @@ test('resume restores persisted deferred tools before asynchronous route prepara
     getDesktopSession: () => null,
     setSessionNeedsCwdRefresh: () => {},
     clearRoutePreparation: () => {},
-    beginRoutePreparation: (prepare) => { pendingRoutePreparation = prepare; },
+    beginRoutePreparation: (prepare) => {
+      pendingRoutePreparation = prepare;
+    },
     invalidateContextStatusCache: () => {},
     invalidatePreSessionToolSurface: () => {},
     applyResolvedCwd: () => {},
@@ -106,9 +124,13 @@ test('resume binds the session to the runtime MCP registry scope', async () => {
   let receivedOptions = null;
   const api = createLifecycleApi({
     getSession: () => current,
-    setSession: (session) => { current = session; },
+    setSession: (session) => {
+      current = session;
+    },
     getRoute: () => route,
-    setRoute: (next) => { route = next; },
+    setRoute: (next) => {
+      route = next;
+    },
     getConfig: () => ({}),
     getMode: () => 'full',
     getCurrentCwd: () => resumed.cwd,
@@ -203,7 +225,7 @@ test('lifecycle listSessions applies durable child visibility at the public cata
     const listed = api.listSessions({ refreshFromStorage: true });
     assert.deepEqual(
       listed.map((row) => row.id),
-      ['ordinary-user', 'ordinary-schedule', 'root-lead', 'self-parent-lead'],
+      ['ordinary-user', 'ordinary-schedule', 'root-lead', 'self-parent-lead']
     );
     assert.deepEqual(calls, [{ refreshFromStorage: true }]);
   } finally {
@@ -219,8 +241,12 @@ test('canonical child close uses the ordinary durable tombstone barrier', () => 
   let invalidations = 0;
   const api = createLifecycleApi({
     getSession: () => current,
-    setSession: (session) => { current = session; },
-    invalidateContextStatusCache: () => { invalidations += 1; },
+    setSession: (session) => {
+      current = session;
+    },
+    invalidateContextStatusCache: () => {
+      invalidations += 1;
+    },
     mgr: {
       closeSession(...args) {
         calls.push(args);
@@ -230,11 +256,7 @@ test('canonical child close uses the ordinary durable tombstone barrier', () => 
   });
 
   assert.equal(api.closeCanonicalSession('cli-agent-close'), true);
-  assert.deepEqual(calls, [[
-    'sess_agent_child',
-    'cli-agent-close',
-    { tombstone: true },
-  ]]);
+  assert.deepEqual(calls, [['sess_agent_child', 'cli-agent-close', { tombstone: true }]]);
   assert.equal(current, null);
   assert.equal(invalidations, 1);
 });
@@ -257,11 +279,17 @@ for (const detach of [false, true]) {
       invalidateContextStatusCache() {},
       clearRuntimeNotifications() {},
       withTeardownDeadline: async (pending) => await pending,
-      goalRuntime: { close: () => { entered.resolve(); return persisted.promise; } },
+      goalRuntime: {
+        close: () => {
+          entered.resolve();
+          return persisted.promise;
+        },
+      },
     });
     let finished = false;
-    const closing = api.close('test-close', { detach, keepBackgroundWork: true })
-      .then(() => { finished = true; });
+    const closing = api.close('test-close', { detach, keepBackgroundWork: true }).then(() => {
+      finished = true;
+    });
     await entered.promise;
     try {
       await new Promise(setImmediate);

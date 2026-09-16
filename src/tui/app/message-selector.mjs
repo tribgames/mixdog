@@ -27,7 +27,11 @@ export function selectableUserItems(items, limit = MAX_SELECTABLE_MESSAGES) {
 }
 
 export function messageSelectorLabel(text, width = 56) {
-  const firstLine = String(text || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
+  const firstLine =
+    String(text || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean) || '';
   if (firstLine.length <= width) return firstLine;
   return `${firstLine.slice(0, Math.max(1, width - 1))}…`;
 }
@@ -44,23 +48,27 @@ export function useMessageSelector({
   // Cheap enough to recompute only when the transcript array identity changes;
   // the prompt asks for this on every Escape, never per keystroke.
   const hasUserMessages = useMemo(
-    () => (Array.isArray(state.items) ? state.items : []).some(
-      (item) => item?.kind === 'user' && String(item?.text || '').trim(),
-    ),
-    [state.items],
+    () =>
+      (Array.isArray(state.items) ? state.items : []).some(
+        (item) => item?.kind === 'user' && String(item?.text || '').trim()
+      ),
+    [state.items]
   );
 
-  const applyRewind = useCallback((restored) => {
-    const text = String(restored?.text || '');
-    if (!text) {
-      showPromptHint('Could not restore that message.', 'error');
-      return false;
-    }
-    clearPromptHint();
-    syncPromptLayoutRows(text);
-    setPromptDraftOverride({ id: Date.now(), value: text });
-    return true;
-  }, [clearPromptHint, syncPromptLayoutRows, setPromptDraftOverride, showPromptHint]);
+  const applyRewind = useCallback(
+    (restored) => {
+      const text = String(restored?.text || '');
+      if (!text) {
+        showPromptHint('Could not restore that message.', 'error');
+        return false;
+      }
+      clearPromptHint();
+      syncPromptLayoutRows(text);
+      setPromptDraftOverride({ id: Date.now(), value: text });
+      return true;
+    },
+    [clearPromptHint, syncPromptLayoutRows, setPromptDraftOverride, showPromptHint]
+  );
 
   const openMessageSelector = useCallback(() => {
     const items = store.getState?.().items ?? state.items;

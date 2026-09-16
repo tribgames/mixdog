@@ -9,12 +9,7 @@
  * { returnTo }, the standalone /memory command passes { returnTo: null },
  * and Esc either reopens the caller or simply closes the picker.
  */
-export function createCoreMemoryPicker({
-  store,
-  surface,
-  setSettingsPrompt,
-  parseMemoryCoreRows,
-}) {
+export function createCoreMemoryPicker({ store, surface, setSettingsPrompt, parseMemoryCoreRows }) {
   // Sticky Esc-return target. Settings entry passes { returnTo: openSettingsPicker };
   // standalone entry (/memory) passes { returnTo: null } so Esc just closes.
   // Nested reopens (entry actions, post add/edit/delete) pass no `returnTo`
@@ -26,7 +21,7 @@ export function createCoreMemoryPicker({
     else surface.claim().close();
   };
   const openMemoryCorePicker = (options = {}) => {
-    if (options && Object.prototype.hasOwnProperty.call(options, 'returnTo')) {
+    if (options && Object.hasOwn(options, 'returnTo')) {
       escReturnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     }
     // Surface claim (panel-surface.mjs): every paint re-validates and re-arms
@@ -44,18 +39,22 @@ export function createCoreMemoryPicker({
       onSelect: () => {},
       onCancel: closeMemoryCorePicker,
     });
-    void store.memoryControl?.({ action: 'core', op: 'list', project_id: '*' }, { silent: true })
+    void store
+      .memoryControl?.({ action: 'core', op: 'list', project_id: '*' }, { silent: true })
       .then((result) => {
         const coreRows = parseMemoryCoreRows(result);
         const rows = [
-          { value: 'core-add', label: 'Add Memory', description: 'store a new curated memory sentence', _action: 'add-core' },
+          {
+            value: 'core-add',
+            label: 'Add Memory',
+            description: 'store a new curated memory sentence',
+            _action: 'add-core',
+          },
           {
             value: 'core-list',
             label: 'Memory List',
             meta: coreRows.length ? String(coreRows.length) : '',
-            description: coreRows.length
-              ? 'open stored memories for edit/delete'
-              : 'no stored memories',
+            description: coreRows.length ? 'open stored memories for edit/delete' : 'no stored memories',
             _action: 'core-list',
             _rows: coreRows,
           },
@@ -68,7 +67,7 @@ export function createCoreMemoryPicker({
           // `description`, so keep the label column minimal and show the
           // full untruncated sentence for the highlighted row in the footer.
           labelWidth: 12,
-          footer: (item) => (item && item._action === 'core-entry' ? (item._summary || item._element || '') : ''),
+          footer: (item) => (item && item._action === 'core-entry' ? item._summary || item._element || '' : ''),
           onSelect: (_value, item) => {
             if (item?._action === 'add-core') beginAddCoreMemory();
             else if (item?._action === 'core-list') openCoreMemoryListPicker(item._rows);
@@ -90,14 +89,10 @@ export function createCoreMemoryPicker({
     const renderList = (coreRows) => {
       paintPanel({
         title: 'Memory · List',
-        description: coreRows.length
-          ? 'Select a memory to edit or delete.'
-          : 'No stored memories yet.',
-        items: coreRows.length
-          ? coreRows
-          : [{ value: 'empty', label: 'Memory', description: 'empty' }],
+        description: coreRows.length ? 'Select a memory to edit or delete.' : 'No stored memories yet.',
+        items: coreRows.length ? coreRows : [{ value: 'empty', label: 'Memory', description: 'empty' }],
         labelWidth: 12,
-        footer: (item) => (item && item._action === 'core-entry' ? (item._summary || item._element || '') : ''),
+        footer: (item) => (item && item._action === 'core-entry' ? item._summary || item._element || '' : ''),
         onSelect: (_value, item) => {
           if (item?._action === 'core-entry') openCoreEntryActionsPicker(item);
           else if (item?._line) store.pushNotice(item._line, 'info');
@@ -119,7 +114,8 @@ export function createCoreMemoryPicker({
       onSelect: () => {},
       onCancel: () => openMemoryCorePicker(),
     });
-    void store.memoryControl?.({ action: 'core', op: 'list', project_id: '*' }, { silent: true })
+    void store
+      .memoryControl?.({ action: 'core', op: 'list', project_id: '*' }, { silent: true })
       .then((result) => {
         renderList(parseMemoryCoreRows(result));
       })

@@ -25,11 +25,7 @@ import {
   normalizeBrowserSettleMs,
   type BrowserPostcondition,
 } from './postcondition';
-import {
-  isBrowserStaleRefError,
-  recoverBrowserRef,
-  type BrowserRefSet,
-} from './ref-recovery';
+import { isBrowserStaleRefError, recoverBrowserRef, type BrowserRefSet } from './ref-recovery';
 import type { BrowserScreenshotCapture } from './screenshot';
 import { pause } from './settle';
 import { formatSnapshot } from './snapshot-format';
@@ -52,40 +48,28 @@ export interface BrowserReplyHost {
     guest: WebContents,
     signal?: AbortSignal,
     until?: Promise<unknown>,
-    options?: { background?: boolean; requireQuiet?: boolean },
+    options?: { background?: boolean; requireQuiet?: boolean }
   ): Promise<unknown>;
-  postconditionMatchesGuest(
-    guest: WebContents,
-    expected: BrowserPostcondition,
-    signal?: AbortSignal,
-  ): Promise<boolean>;
+  postconditionMatchesGuest(guest: WebContents, expected: BrowserPostcondition, signal?: AbortSignal): Promise<boolean>;
   captureSnapshotPayload(
     guest: WebContents,
     command: BrowserCommand,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<Parameters<typeof formatSnapshot>[0]>;
   captureScreenshot(
     guest: WebContents,
     background: boolean,
     options: { format?: unknown; quality?: unknown; fullPage?: unknown },
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<BrowserScreenshotCapture>;
-  bindVisualGrounding(
-    guest: WebContents,
-    refSet: BrowserRefSet,
-    capture: { width: number; height: number },
-  ): void;
+  bindVisualGrounding(guest: WebContents, refSet: BrowserRefSet, capture: { width: number; height: number }): void;
   /** The owning session's download ledger, newest first. */
   downloadsForGuest(guest: WebContents): TrackedBrowserDownload[];
 }
 
 /** Downloads the caller has not heard about from this page yet. */
-export function unreportedDownloads(
-  downloads: TrackedBrowserDownload[],
-  reportedAt: number,
-): TrackedBrowserDownload[] {
-  return downloads.filter((download) => download.startedAt > reportedAt
-    || (download.completedAt ?? 0) > reportedAt);
+export function unreportedDownloads(downloads: TrackedBrowserDownload[], reportedAt: number): TrackedBrowserDownload[] {
+  return downloads.filter((download) => download.startedAt > reportedAt || (download.completedAt ?? 0) > reportedAt);
 }
 
 export function createBrowserReply(host: BrowserReplyHost) {
@@ -104,7 +88,7 @@ export function createBrowserReply(host: BrowserReplyHost) {
   function reportSnapshot(
     guest: WebContents,
     payload: Parameters<typeof formatSnapshot>[0],
-    briefAgainst?: BrowserRefSet,
+    briefAgainst?: BrowserRefSet
   ): string {
     const record = state.for(guest);
     const downloads = unreportedDownloads(downloadsForGuest(guest), record.downloadsReportedAt);
@@ -129,15 +113,10 @@ export function createBrowserReply(host: BrowserReplyHost) {
     result: BrowserCommandResult,
     command: BrowserCommand,
     capture: { mimeType: string; data: string },
-    frameId: string,
+    frameId: string
   ): BrowserCommandResult {
     if (String(command.image_output || 'inline') === 'file') {
-      const stored = persistFrameImage(
-        'browser',
-        String(command.session_id || 'browser'),
-        frameId,
-        capture,
-      );
+      const stored = persistFrameImage('browser', String(command.session_id || 'browser'), frameId, capture);
       if (stored) {
         result.text += `\n\nFrame written to ${stored.path} (${stored.bytes} bytes).`;
         return result;
@@ -152,8 +131,9 @@ export function createBrowserReply(host: BrowserReplyHost) {
     if (!dialog) return null;
     return {
       outcome: 'blocked',
-      text: `A ${dialog.type} dialog is blocking the page: ${JSON.stringify(state.redactText(guest, dialog.message))}\n`
-        + 'Call handle_dialog with accept:true or accept:false before continuing.',
+      text:
+        `A ${dialog.type} dialog is blocking the page: ${JSON.stringify(state.redactText(guest, dialog.message))}\n` +
+        'Call handle_dialog with accept:true or accept:false before continuing.',
     };
   }
 
@@ -178,14 +158,12 @@ export function createBrowserReply(host: BrowserReplyHost) {
     guest: WebContents,
     command: BrowserCommand = { action: 'snapshot' },
     signal?: AbortSignal,
-    options: BrowserSnapshotResultOptions = {},
+    options: BrowserSnapshotResultOptions = {}
   ): Promise<BrowserCommandResult> {
     const dialog = dialogResult(guest);
     if (dialog) return dialog;
     const settleMs = normalizeBrowserSettleMs(command.settleMs);
-    const expected = options.expected === undefined
-      ? normalizeBrowserPostcondition(command.expect)
-      : options.expected;
+    const expected = options.expected === undefined ? normalizeBrowserPostcondition(command.expect) : options.expected;
     let postconditionElapsed = 0;
     let postconditionMatched = true;
     let announcePostcondition: () => void = () => undefined;
@@ -211,20 +189,25 @@ export function createBrowserReply(host: BrowserReplyHost) {
         await pause(POSTCONDITION_POLL_MS, signal);
       }
     };
-    await measureBrowserPhase('wait', () => Promise.all([
-      options.settleAction
-        ? settleAfterAction(
-          guest,
-          signal,
-          // A condition that was already true before the gesture proves nothing
-          // about this one, so it may never cut the settle short.
-          expected && !options.preexistingPostcondition ? postconditionSatisfied : undefined,
-          { background: options.targetIsBackground, requireQuiet: Boolean(expected && options.preexistingPostcondition) },
-        )
-        : Promise.resolve(),
-      settleMs ? pause(settleMs, signal) : Promise.resolve(),
-      waitForPostcondition(),
-    ]));
+    await measureBrowserPhase('wait', () =>
+      Promise.all([
+        options.settleAction
+          ? settleAfterAction(
+              guest,
+              signal,
+              // A condition that was already true before the gesture proves nothing
+              // about this one, so it may never cut the settle short.
+              expected && !options.preexistingPostcondition ? postconditionSatisfied : undefined,
+              {
+                background: options.targetIsBackground,
+                requireQuiet: Boolean(expected && options.preexistingPostcondition),
+              }
+            )
+          : Promise.resolve(),
+        settleMs ? pause(settleMs, signal) : Promise.resolve(),
+        waitForPostcondition(),
+      ])
+    );
     // Deliberately NOT deduplicated against the previous snapshot. Identical
     // page text is common precisely when a gesture reproduces the same result
     // ("Mouse dragged" twice), and that text is the only evidence the gesture
@@ -236,31 +219,33 @@ export function createBrowserReply(host: BrowserReplyHost) {
     const snapshot = reportSnapshot(
       guest,
       payload,
-      command.brief === true ? options.reportBaseline ?? baseline : undefined,
+      command.brief === true ? (options.reportBaseline ?? baseline) : undefined
     );
     if (expected && !postconditionMatched) {
       throw new Error(
-        `Postcondition failed after ${postconditionElapsed}ms; `
-        + `the ${action || 'browser'} action executed once and was not retried. `
-        + `Expected ${describeBrowserPostcondition(expected)}.\n\n${snapshot}`,
+        `Postcondition failed after ${postconditionElapsed}ms; ` +
+          `the ${action || 'browser'} action executed once and was not retried. ` +
+          `Expected ${describeBrowserPostcondition(expected)}.\n\n${snapshot}`
       );
     }
     // A gesture the page ignored looks exactly like one that worked unless
     // the reply says so; repeating it would not help, a different target
     // might. Scroll is judged by position, everything else by the document.
-    const reacted = options.settleAction && baseline && EFFECT_REPORT_ACTIONS.has(action)
-      ? browserDocumentChanged(baseline.revision, state.peek(guest)?.refSet?.revision, {
-        includeScroll: action === 'scroll',
-      })
-      : undefined;
+    const reacted =
+      options.settleAction && baseline && EFFECT_REPORT_ACTIONS.has(action)
+        ? browserDocumentChanged(baseline.revision, state.peek(guest)?.refSet?.revision, {
+            includeScroll: action === 'scroll',
+          })
+        : undefined;
     const unchanged = reacted === false && baseline?.url === payload.url;
     const notes = [
       settleMs && `Explicit settle completed after ${settleMs}ms.`,
       expected && options.preexistingPostcondition
         ? 'Postcondition was already true before this action, so it proves nothing about it; the action executed once. Verify with a condition only this action makes true.'
         : expected && `Postcondition met after ${postconditionElapsed}ms; action executed once.`,
-      unchanged && `No observable change: the document, URL, and control values are the same as before this ${action}. `
-        + 'Do not repeat the same gesture; check the element\'s states or covering elements, or choose another target.',
+      unchanged &&
+        `No observable change: the document, URL, and control values are the same as before this ${action}. ` +
+          "Do not repeat the same gesture; check the element's states or covering elements, or choose another target.",
     ].filter(Boolean);
     const result: BrowserCommandResult = {
       outcome: expected && options.preexistingPostcondition ? 'inconclusive' : 'completed',
@@ -269,12 +254,7 @@ export function createBrowserReply(host: BrowserReplyHost) {
     if (options.includeScreenshot || command.includeScreenshot === true) {
       const refSet = state.peek(guest)?.refSet;
       if (!refSet) throw new Error('browser screenshot could not bind to the fresh snapshot');
-      const capture = await captureScreenshot(
-        guest,
-        options.targetIsBackground === true,
-        command,
-        signal,
-      );
+      const capture = await captureScreenshot(guest, options.targetIsBackground === true, command, signal);
       if (state.peek(guest)?.refSet !== refSet) {
         throw new Error('page changed during screenshot capture; take a fresh snapshot');
       }
@@ -296,7 +276,7 @@ export function createBrowserReply(host: BrowserReplyHost) {
     context: BrowserRefRecoveryContext,
     sourceRef: string,
     operation: (ref: string) => Promise<T>,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<T> {
     const source = context.source?.refs.get(sourceRef);
     if (!source) {
@@ -313,11 +293,7 @@ export function createBrowserReply(host: BrowserReplyHost) {
       }
       const dialog = dialogResult(guest);
       if (dialog) throw new Error(dialog.text);
-      const freshPayload = await captureSnapshotPayload(
-        guest,
-        { action: 'snapshot', maxElements: 500 },
-        signal,
-      );
+      const freshPayload = await captureSnapshotPayload(guest, { action: 'snapshot', maxElements: 500 }, signal);
       const fresh = state.peek(guest)?.refSet;
       if (!fresh) throw error;
       for (const [originalRef, fingerprint] of context.source?.refs || []) {
@@ -327,8 +303,8 @@ export function createBrowserReply(host: BrowserReplyHost) {
       const recovered = recoverBrowserRef(source, fresh);
       if (!recovered.ref) {
         throw new Error(
-          `ref ${sourceRef} became stale; automatic recovery stopped because ${recovered.reason}.\n\n`
-          + reportSnapshot(guest, freshPayload),
+          `ref ${sourceRef} became stale; automatic recovery stopped because ${recovered.reason}.\n\n` +
+            reportSnapshot(guest, freshPayload)
         );
       }
       context.replacements.set(sourceRef, recovered.ref);
@@ -337,15 +313,11 @@ export function createBrowserReply(host: BrowserReplyHost) {
     }
   }
 
-  function decorateRecovery(
-    result: BrowserCommandResult,
-    context: BrowserRefRecoveryContext,
-  ): BrowserCommandResult {
+  function decorateRecovery(result: BrowserCommandResult, context: BrowserRefRecoveryContext): BrowserCommandResult {
     const prefix = [
-      context.resolvedTargets.length
-        && `Target resolved before input dispatch: ${context.resolvedTargets.join(', ')}`,
-      context.notes.length
-        && `Automatic ref recovery before input dispatch (no action replay): ${context.notes.join(', ')}`,
+      context.resolvedTargets.length && `Target resolved before input dispatch: ${context.resolvedTargets.join(', ')}`,
+      context.notes.length &&
+        `Automatic ref recovery before input dispatch (no action replay): ${context.notes.join(', ')}`,
     ].filter(Boolean);
     if (!prefix.length) return result;
     return {

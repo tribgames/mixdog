@@ -1,22 +1,16 @@
-import { ChevronDown, FileDiff } from "lucide-react";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { t, uiFormatLocale } from "./i18n";
-import { useMobileBack } from "./mobile-back";
-import { DiffBoundary } from "./TranscriptView";
-import { REVIEW_DIFF_STYLE_KEY } from "./desktop-types";
-import { DiffView } from "./lazy-widgets";
-import { ProgressSpinner } from "./ProgressSpinner";
-import { parseUnifiedDiff } from "./renderer-logic.mjs";
-import { copyTextToClipboard } from "./text-format";
-import {
-  createGitRefreshScheduler,
-  type GitRefreshReason,
-} from "./git-refresh-scheduler";
-import { subscribeProjectFileChanges } from "./project-file-changes";
-import {
-  describeSourceControlError,
-  SourceControlErrorNotice,
-} from "./SourceControlErrorNotice";
+import { ChevronDown, FileDiff } from 'lucide-react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { t, uiFormatLocale } from './i18n';
+import { useMobileBack } from './mobile-back';
+import { DiffBoundary } from './TranscriptView';
+import { REVIEW_DIFF_STYLE_KEY } from './desktop-types';
+import { DiffView } from './lazy-widgets';
+import { ProgressSpinner } from './ProgressSpinner';
+import { parseUnifiedDiff } from './renderer-logic.mjs';
+import { copyTextToClipboard } from './text-format';
+import { createGitRefreshScheduler, type GitRefreshReason } from './git-refresh-scheduler';
+import { subscribeProjectFileChanges } from './project-file-changes';
+import { describeSourceControlError, SourceControlErrorNotice } from './SourceControlErrorNotice';
 
 // ── Dock Git panel ───────────────────────
 interface GitPanelStatus {
@@ -25,7 +19,14 @@ interface GitPanelStatus {
   ahead: number;
   behind: number;
   upstream: boolean;
-  files: Array<{ path: string; index: string; worktree: string; untracked: boolean; additions: number; deletions: number }>;
+  files: Array<{
+    path: string;
+    index: string;
+    worktree: string;
+    untracked: boolean;
+    additions: number;
+    deletions: number;
+  }>;
 }
 // Review pane: cumulative diff of the working tree
 // vs merge-base(origin default branch, HEAD) — committed + uncommitted +
@@ -45,9 +46,13 @@ interface GitReviewInfo {
 // Bare diff bodies: CodeDiff brings its own file header + expand chrome,
 // which duplicates the accordion/row that already names the file. Render the
 // bare diff body (Shiki DiffView) only — no second header, no height cap.
-export function GitDiffBody({ file, mode, hideHunkHeader }: {
+export function GitDiffBody({
+  file,
+  mode,
+  hideHunkHeader,
+}: {
   file: ReturnType<typeof parseUnifiedDiff>[number];
-  mode?: "unified" | "split";
+  mode?: 'unified' | 'split';
   hideHunkHeader?: boolean;
 }) {
   const fallback = <pre className="diff-fallback">{file.patch}</pre>;
@@ -58,59 +63,79 @@ export function GitDiffBody({ file, mode, hideHunkHeader }: {
   // main-thread time landing on whatever keystroke came next.
   const data = useMemo(
     () => ({ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.renderPatch || file.patch] }),
-    [file],
+    [file]
   );
   if (!file.renderable) return fallback;
-  return <DiffBoundary fallback={fallback}>
-    <Suspense fallback={<div className="diff-loading" role="status" aria-label={t("Rendering diff…")}>
-      <ProgressSpinner size={24} className="desktop-loading-spinner" aria-hidden="true" />
-    </div>}>
-      <DiffView data={data} mode={mode} hideHunkHeader={hideHunkHeader} />
-    </Suspense>
-  </DiffBoundary>;
+  return (
+    <DiffBoundary fallback={fallback}>
+      <Suspense
+        fallback={
+          <div className="diff-loading" role="status" aria-label={t('Rendering diff…')}>
+            <ProgressSpinner size={24} className="desktop-loading-spinner" aria-hidden="true" />
+          </div>
+        }
+      >
+        <DiffView data={data} mode={mode} hideHunkHeader={hideHunkHeader} />
+      </Suspense>
+    </DiffBoundary>
+  );
 }
 // Working-tree file diff (single file): the row already names the file, so
 // the body renders hunks only.
 // `hideHunkHeader`: the caller already renders the `@@ … @@` header itself
 // (the Stage Hunk row), so the diff body must not repeat it.
-export function GitFileDiff({ patch, mode, hideHunkHeader }: {
+export function GitFileDiff({
+  patch,
+  mode,
+  hideHunkHeader,
+}: {
   patch: string;
-  mode?: "unified" | "split";
+  mode?: 'unified' | 'split';
   hideHunkHeader?: boolean;
 }) {
   const files = useMemo(() => {
-    try { return parseUnifiedDiff(patch); } catch { return []; }
+    try {
+      return parseUnifiedDiff(patch);
+    } catch {
+      return [];
+    }
   }, [patch]);
   if (!files.length) return <pre className="diff-fallback">{patch}</pre>;
-  return <>{files.map((file) =>
-    <GitDiffBody file={file} mode={mode} hideHunkHeader={hideHunkHeader}
-      key={`${file.oldFile}\n${file.newFile}`} />)}</>;
+  return (
+    <>
+      {files.map((file) => (
+        <GitDiffBody file={file} mode={mode} hideHunkHeader={hideHunkHeader} key={`${file.oldFile}\n${file.newFile}`} />
+      ))}
+    </>
+  );
 }
 export function ReviewPane({ cwd }: { cwd: string | null }) {
   const [status, setStatus] = useState<GitPanelStatus | null>(null);
   const [review, setReview] = useState<GitReviewInfo | null>(null);
-  const [readError, setReadError] = useState("");
-  const [actionError, setActionError] = useState("");
+  const [readError, setReadError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => setActionError(""), [cwd]);
+  useEffect(() => setActionError(''), [cwd]);
   // Single-open accordion (user decision): opening a file closes the rest
   // and snaps the opened card flush under the sticky header.
-  const [openFile, setOpenFile] = useState("");
+  const [openFile, setOpenFile] = useState('');
   // Right-click context menu: open / reveal / copy
   // path, plus a confirm-dialog revert for uncommitted files.
   const [menu, setMenu] = useState<{ x: number; y: number; file: GitReviewFile } | null>(null);
   useEffect(() => {
     if (!menu) return undefined;
     const close = (event: Event) => {
-      if (event.target instanceof Element && event.target.closest(".review-context-menu")) return;
+      if (event.target instanceof Element && event.target.closest('.review-context-menu')) return;
       setMenu(null);
     };
-    const onKey = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") setMenu(null); };
-    window.addEventListener("pointerdown", close, true);
-    window.addEventListener("keydown", onKey);
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setMenu(null);
+    };
+    window.addEventListener('pointerdown', close, true);
+    window.addEventListener('keydown', onKey);
     return () => {
-      window.removeEventListener("pointerdown", close, true);
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener('pointerdown', close, true);
+      window.removeEventListener('keydown', onKey);
     };
   }, [menu]);
   // ABB: hardware back closes the menu instead of leaving the PWA.
@@ -120,62 +145,72 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   // No manual refresh control: file-watch evidence plus the safety lane owns
   // freshness, so cached diffs self-invalidate when a file's stats change.
   const reviewRef = useRef<GitReviewInfo | null>(null);
-  const [diffStyle, setDiffStyle] = useState<"unified" | "split">(() => {
-    try { return window.localStorage.getItem(REVIEW_DIFF_STYLE_KEY) === "split" ? "split" : "unified"; }
-    catch { return "unified"; }
+  const [diffStyle, setDiffStyle] = useState<'unified' | 'split'>(() => {
+    try {
+      return window.localStorage.getItem(REVIEW_DIFF_STYLE_KEY) === 'split' ? 'split' : 'unified';
+    } catch {
+      return 'unified';
+    }
   });
   useEffect(() => {
-    try { window.localStorage.setItem(REVIEW_DIFF_STYLE_KEY, diffStyle); } catch { /* persistence only */ }
-  }, [diffStyle]);
-  const refresh = useCallback(async (reason: GitRefreshReason = "activity") => {
-    if (!cwd) { setStatus(null); return; }
-    if (!window.mixdogDesktop.gitStatus || !window.mixdogDesktop.gitReview) {
-      setReadError(t("Review needs an app restart to finish updating."));
-      return;
-    }
     try {
-      const [next, nextReview] = await Promise.all([
-        window.mixdogDesktop.gitStatus(cwd, {
-          reuseLineStats: reason === "safety",
-        }),
-        window.mixdogDesktop.gitReview(cwd),
-      ]);
-      setStatus(next ?? null);
-      setReview(nextReview ?? null);
-      const prev = reviewRef.current;
-      reviewRef.current = nextReview ?? null;
-      if (prev && nextReview) {
-        const signature = (file: GitReviewFile) => `${file.additions}:${file.deletions}:${file.uncommitted}`;
-        const before = new Map(prev.files.map((file) => [file.path, signature(file)]));
-        setDiffs((current) => {
-          let dirty = false;
-          const draft = { ...current };
-          for (const file of nextReview.files) {
-            if (draft[file.path] !== undefined && before.get(file.path) !== signature(file)) {
-              delete draft[file.path];
-              dirty = true;
-            }
-          }
-          return dirty ? draft : current;
-        });
-      }
-      setReadError("");
+      window.localStorage.setItem(REVIEW_DIFF_STYLE_KEY, diffStyle);
     } catch {
-      setStatus(null);
-      setReadError(t("Review is temporarily unavailable."));
+      /* persistence only */
     }
-  }, [cwd]);
+  }, [diffStyle]);
+  const refresh = useCallback(
+    async (reason: GitRefreshReason = 'activity') => {
+      if (!cwd) {
+        setStatus(null);
+        return;
+      }
+      if (!window.mixdogDesktop.gitStatus || !window.mixdogDesktop.gitReview) {
+        setReadError(t('Review needs an app restart to finish updating.'));
+        return;
+      }
+      try {
+        const [next, nextReview] = await Promise.all([
+          window.mixdogDesktop.gitStatus(cwd, {
+            reuseLineStats: reason === 'safety',
+          }),
+          window.mixdogDesktop.gitReview(cwd),
+        ]);
+        setStatus(next ?? null);
+        setReview(nextReview ?? null);
+        const prev = reviewRef.current;
+        reviewRef.current = nextReview ?? null;
+        if (prev && nextReview) {
+          const signature = (file: GitReviewFile) => `${file.additions}:${file.deletions}:${file.uncommitted}`;
+          const before = new Map(prev.files.map((file) => [file.path, signature(file)]));
+          setDiffs((current) => {
+            let dirty = false;
+            const draft = { ...current };
+            for (const file of nextReview.files) {
+              if (draft[file.path] !== undefined && before.get(file.path) !== signature(file)) {
+                delete draft[file.path];
+                dirty = true;
+              }
+            }
+            return dirty ? draft : current;
+          });
+        }
+        setReadError('');
+      } catch {
+        setStatus(null);
+        setReadError(t('Review is temporarily unavailable.'));
+      }
+    },
+    [cwd]
+  );
   useEffect(() => {
     if (!cwd) return undefined;
-    const scheduler = createGitRefreshScheduler(
-      (reason) => refresh(reason),
-      {
-        safetyIntervalMs: 30_000,
-        activityDebounceMs: 125,
-        activityMinGapMs: 3_000,
-        slowTaskMultiplier: 5,
-      },
-    );
+    const scheduler = createGitRefreshScheduler((reason) => refresh(reason), {
+      safetyIntervalMs: 30_000,
+      activityDebounceMs: 125,
+      activityMinGapMs: 3_000,
+      slowTaskMultiplier: 5,
+    });
     const signal = () => scheduler.signal();
     const refreshNow = () => scheduler.refreshNow();
     const visibilityChanged = () => {
@@ -183,16 +218,16 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
       else scheduler.resume();
     };
     const unsubscribeFiles = subscribeProjectFileChanges(cwd, signal);
-    window.addEventListener("focus", refreshNow);
-    window.addEventListener("mixdog:git-changed", signal);
-    document.addEventListener("visibilitychange", visibilityChanged);
+    window.addEventListener('focus', refreshNow);
+    window.addEventListener('mixdog:git-changed', signal);
+    document.addEventListener('visibilitychange', visibilityChanged);
     visibilityChanged();
     return () => {
       scheduler.dispose();
       unsubscribeFiles();
-      window.removeEventListener("focus", refreshNow);
-      window.removeEventListener("mixdog:git-changed", signal);
-      document.removeEventListener("visibilitychange", visibilityChanged);
+      window.removeEventListener('focus', refreshNow);
+      window.removeEventListener('mixdog:git-changed', signal);
+      document.removeEventListener('visibilitychange', visibilityChanged);
     };
   }, [cwd, refresh]);
   // Lazy diff loads for open files that are not cached yet.
@@ -201,166 +236,271 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
     for (const file of review.files) {
       if (file.path !== openFile || diffs[file.path] !== undefined) continue;
       setDiffs((current) => ({ ...current, [file.path]: null }));
-      void window.mixdogDesktop.gitReviewDiff?.(cwd, file.path, file.untracked)
-        .then((patch) => setDiffs((current) => ({ ...current, [file.path]: patch || "" })))
-        .catch((reason) => setDiffs((current) => ({
-          ...current,
-          [file.path]: describeSourceControlError(reason).summary,
-        })));
+      void window.mixdogDesktop
+        .gitReviewDiff?.(cwd, file.path, file.untracked)
+        .then((patch) => setDiffs((current) => ({ ...current, [file.path]: patch || '' })))
+        .catch((reason) =>
+          setDiffs((current) => ({
+            ...current,
+            [file.path]: describeSourceControlError(reason).summary,
+          }))
+        );
     }
   }, [cwd, review, openFile, diffs]);
   const act = async (action: () => Promise<unknown> | undefined) => {
     setBusy(true);
-    setActionError("");
+    setActionError('');
     try {
       await action();
       setDiffs({});
       await refresh();
-    } catch (reason) { setActionError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setBusy(false); }
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
   };
-  if (!cwd) return <div className="review-pane"><p className="review-empty">{t("Select a project to review changes.")}</p></div>;
-  if (readError) return <div className="review-pane">
-    <p className="review-empty">{readError}</p>
-  </div>;
-  if (!status) return <div className="review-pane"><p className="review-empty">{t("Loading review…")}</p></div>;
-  if (!status.repository) return <div className="review-pane"><p className="review-empty">{t("Not a git repository.")}</p></div>;
+  if (!cwd)
+    return (
+      <div className="review-pane">
+        <p className="review-empty">{t('Select a project to review changes.')}</p>
+      </div>
+    );
+  if (readError)
+    return (
+      <div className="review-pane">
+        <p className="review-empty">{readError}</p>
+      </div>
+    );
+  if (!status)
+    return (
+      <div className="review-pane">
+        <p className="review-empty">{t('Loading review…')}</p>
+      </div>
+    );
+  if (!status.repository)
+    return (
+      <div className="review-pane">
+        <p className="review-empty">{t('Not a git repository.')}</p>
+      </div>
+    );
   const changed = review?.files ?? [];
-  const base = review?.base || "HEAD";
+  const base = review?.base || 'HEAD';
   const totalAdditions = changed.reduce((sum, file) => sum + (file.additions || 0), 0);
   const totalDeletions = changed.reduce((sum, file) => sum + (file.deletions || 0), 0);
   const showPush = status.ahead > 0 || (!status.upstream && changed.length === 0);
   const toggleFile = (path: string, trigger: HTMLElement) => {
     const opening = openFile !== path;
-    setOpenFile(opening ? path : "");
+    setOpenFile(opening ? path : '');
     if (!opening) return;
     // Snap the opened card flush under the sticky header.
-    const pane = trigger.closest(".review-scroll");
-    const section = trigger.closest(".review-file");
+    const pane = trigger.closest('.review-scroll');
+    const section = trigger.closest('.review-file');
     if (!(pane instanceof HTMLElement) || !(section instanceof HTMLElement)) return;
     requestAnimationFrame(() => {
       pane.scrollTop += section.getBoundingClientRect().top - pane.getBoundingClientRect().top;
     });
   };
-  return <div className="review-pane">
-    <header className="review-header">
-      <div className="review-title">
-        <h2>{t("Review")}</h2>
-        <span className="review-branch"><b>{status.branch}</b>{base !== "HEAD" ? ` → ${base}` : ""}</span>
-        {(totalAdditions > 0 || totalDeletions > 0) && <span className="diff-stats review-total">
-          {totalAdditions > 0 && <i>+{totalAdditions}</i>}
-          {totalDeletions > 0 && <em>-{totalDeletions}</em>}
-        </span>}
-        {status.ahead > 0 && <button type="button" className="dock-git-sync" disabled={busy}
-          title={`Push ${status.ahead} commit${status.ahead === 1 ? "" : "s"}`}
-          onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
-          ↑{status.ahead}
-        </button>}
-      </div>
-      <div className="review-actions">
-        {changed.length > 0 && <div className="review-style-toggle" role="radiogroup" aria-label={t("Diff style")}>
-          <button type="button" aria-pressed={diffStyle === "unified"}
-            onClick={() => setDiffStyle("unified")}>{t("Unified")}</button>
-          <button type="button" aria-pressed={diffStyle === "split"}
-            onClick={() => setDiffStyle("split")}>{t("Split")}</button>
-        </div>}
-      </div>
-    </header>
-    {actionError && <SourceControlErrorNotice error={actionError} className="review-git-error" />}
-    <div className="review-scroll">
-    {changed.length === 0 && <div className="review-empty-state">
-      <p className="review-empty">{base === "HEAD" ? t("Working tree clean.") : t("No changes vs {{base}}.", { base })}</p>
-      {showPush && <button type="button" className="dock-git-clean-push" disabled={busy}
-        onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
-        {status.upstream ? `${t("Push")} ${status.ahead ? `↑${status.ahead}` : ""}`.trim() : t("Publish Branch")}
-      </button>}
-    </div>}
-    <div className="review-list">
-      {changed.map((file) => {
-        const open = openFile === file.path;
-        const slash = file.path.lastIndexOf("/");
-        const dir = slash >= 0 ? file.path.slice(0, slash + 1) : "";
-        const name = slash >= 0 ? file.path.slice(slash + 1) : file.path;
-        const added = file.untracked || file.status === "A";
-        const deleted = file.status === "D";
-        const tooLarge = file.additions + file.deletions > 500 && !forced.includes(file.path);
-        const patch = diffs[file.path];
-        return <section className="review-file" data-open={open || undefined} key={file.path}>
-          <div className="review-file-header"
-            onContextMenu={(event) => {
-              event.preventDefault();
-              setMenu({
-                x: Math.min(event.clientX, window.innerWidth - 208),
-                y: Math.min(event.clientY, window.innerHeight - 168),
-                file,
-              });
-            }}>
-            <button type="button" className="review-file-trigger" aria-expanded={open}
-              onClick={(event) => toggleFile(file.path, event.currentTarget)}>
-              <FileDiff size={14} aria-hidden="true" />
-              <span className="review-file-name">
-                {dir && <small>{dir}</small>}
-                <b>{name}</b>
-              </span>
-              <span className="review-file-meta">
-                {added && <em className="review-change-label" data-type="added">{t("Added")}</em>}
-                {deleted && <em className="review-change-label" data-type="removed">{t("Removed")}</em>}
-                {(file.additions > 0 || file.deletions > 0) && <span className="diff-stats">
-                  {file.additions > 0 && <i>+{file.additions}</i>}
-                  {file.deletions > 0 && <em>-{file.deletions}</em>}
-                </span>}
-              </span>
-              <ChevronDown size={14} className="review-chevron" aria-hidden="true" />
+  return (
+    <div className="review-pane">
+      <header className="review-header">
+        <div className="review-title">
+          <h2>{t('Review')}</h2>
+          <span className="review-branch">
+            <b>{status.branch}</b>
+            {base !== 'HEAD' ? ` → ${base}` : ''}
+          </span>
+          {(totalAdditions > 0 || totalDeletions > 0) && (
+            <span className="diff-stats review-total">
+              {totalAdditions > 0 && <i>+{totalAdditions}</i>}
+              {totalDeletions > 0 && <em>-{totalDeletions}</em>}
+            </span>
+          )}
+          {status.ahead > 0 && (
+            <button
+              type="button"
+              className="dock-git-sync"
+              disabled={busy}
+              title={`Push ${status.ahead} commit${status.ahead === 1 ? '' : 's'}`}
+              onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}
+            >
+              ↑{status.ahead}
             </button>
+          )}
+        </div>
+        <div className="review-actions">
+          {changed.length > 0 && (
+            <div className="review-style-toggle" role="radiogroup" aria-label={t('Diff style')}>
+              <button type="button" aria-pressed={diffStyle === 'unified'} onClick={() => setDiffStyle('unified')}>
+                {t('Unified')}
+              </button>
+              <button type="button" aria-pressed={diffStyle === 'split'} onClick={() => setDiffStyle('split')}>
+                {t('Split')}
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
+      {actionError && <SourceControlErrorNotice error={actionError} className="review-git-error" />}
+      <div className="review-scroll">
+        {changed.length === 0 && (
+          <div className="review-empty-state">
+            <p className="review-empty">
+              {base === 'HEAD' ? t('Working tree clean.') : t('No changes vs {{base}}.', { base })}
+            </p>
+            {showPush && (
+              <button
+                type="button"
+                className="dock-git-clean-push"
+                disabled={busy}
+                onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}
+              >
+                {status.upstream
+                  ? `${t('Push')} ${status.ahead ? `↑${status.ahead}` : ''}`.trim()
+                  : t('Publish Branch')}
+              </button>
+            )}
           </div>
-          {open && <div className="review-file-body">
-            {tooLarge
-              ? <div className="review-large-diff">
-                <b>{t("Large diff")}</b>
-                <span>{t("{{count}} changed lines exceed the 500-line render limit.", { count: (file.additions + file.deletions).toLocaleString(uiFormatLocale()) })}</span>
-                <button type="button" onClick={() => setForced((current) => [...current, file.path])}>
-                  Render anyway
-                </button>
-              </div>
-              : patch === undefined || patch === null
-                ? <p className="review-empty">{t("Loading diff…")}</p>
-                : patch.startsWith("Error:")
-                  ? <p className="review-empty">{patch}</p>
-                  : patch
-                    ? <GitFileDiff patch={patch} mode={diffStyle} />
-                    : <p className="review-empty">{t("No textual diff for this file.")}</p>}
-          </div>}
-        </section>;
-      })}
+        )}
+        <div className="review-list">
+          {changed.map((file) => {
+            const open = openFile === file.path;
+            const slash = file.path.lastIndexOf('/');
+            const dir = slash >= 0 ? file.path.slice(0, slash + 1) : '';
+            const name = slash >= 0 ? file.path.slice(slash + 1) : file.path;
+            const added = file.untracked || file.status === 'A';
+            const deleted = file.status === 'D';
+            const tooLarge = file.additions + file.deletions > 500 && !forced.includes(file.path);
+            const patch = diffs[file.path];
+            return (
+              <section className="review-file" data-open={open || undefined} key={file.path}>
+                <div
+                  className="review-file-header"
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setMenu({
+                      x: Math.min(event.clientX, window.innerWidth - 208),
+                      y: Math.min(event.clientY, window.innerHeight - 168),
+                      file,
+                    });
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="review-file-trigger"
+                    aria-expanded={open}
+                    onClick={(event) => toggleFile(file.path, event.currentTarget)}
+                  >
+                    <FileDiff size={14} aria-hidden="true" />
+                    <span className="review-file-name">
+                      {dir && <small>{dir}</small>}
+                      <b>{name}</b>
+                    </span>
+                    <span className="review-file-meta">
+                      {added && (
+                        <em className="review-change-label" data-type="added">
+                          {t('Added')}
+                        </em>
+                      )}
+                      {deleted && (
+                        <em className="review-change-label" data-type="removed">
+                          {t('Removed')}
+                        </em>
+                      )}
+                      {(file.additions > 0 || file.deletions > 0) && (
+                        <span className="diff-stats">
+                          {file.additions > 0 && <i>+{file.additions}</i>}
+                          {file.deletions > 0 && <em>-{file.deletions}</em>}
+                        </span>
+                      )}
+                    </span>
+                    <ChevronDown size={14} className="review-chevron" aria-hidden="true" />
+                  </button>
+                </div>
+                {open && (
+                  <div className="review-file-body">
+                    {tooLarge ? (
+                      <div className="review-large-diff">
+                        <b>{t('Large diff')}</b>
+                        <span>
+                          {t('{{count}} changed lines exceed the 500-line render limit.', {
+                            count: (file.additions + file.deletions).toLocaleString(uiFormatLocale()),
+                          })}
+                        </span>
+                        <button type="button" onClick={() => setForced((current) => [...current, file.path])}>
+                          Render anyway
+                        </button>
+                      </div>
+                    ) : patch === undefined || patch === null ? (
+                      <p className="review-empty">{t('Loading diff…')}</p>
+                    ) : patch.startsWith('Error:') ? (
+                      <p className="review-empty">{patch}</p>
+                    ) : patch ? (
+                      <GitFileDiff patch={patch} mode={diffStyle} />
+                    ) : (
+                      <p className="review-empty">{t('No textual diff for this file.')}</p>
+                    )}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+      </div>
+      {menu && (
+        <div className="review-context-menu" role="menu" style={{ left: menu.x, top: menu.y }}>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setMenu(null);
+              void window.mixdogDesktop.openFilePath?.(cwd, menu.file.path).catch(() => {});
+            }}
+          >
+            {t('Open file')}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setMenu(null);
+              void window.mixdogDesktop.revealFile?.(cwd, menu.file.path).catch(() => {});
+            }}
+          >
+            {t('Reveal in Explorer')}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setMenu(null);
+              const sep = cwd.includes('\\') ? '\\' : '/';
+              void copyTextToClipboard(cwd.replace(/[\\/]+$/, '') + sep + menu.file.path.split('/').join(sep));
+            }}
+          >
+            {t('Copy path')}
+          </button>
+          {menu.file.uncommitted && (
+            <button
+              type="button"
+              role="menuitem"
+              data-danger
+              onClick={() => {
+                const target = menu.file;
+                setMenu(null);
+                const warning = target.untracked
+                  ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: target.path })
+                  : t('Discard uncommitted changes to "{{file}}"? This cannot be undone.', { file: target.path });
+                if (!window.confirm(warning)) return;
+                if (openFile === target.path) setOpenFile('');
+                void act(() => window.mixdogDesktop.gitRevert?.(cwd, target.path, target.untracked, 'all'));
+              }}
+            >
+              {menu.file.untracked ? t('Delete file') : t('Revert changes')}
+            </button>
+          )}
+        </div>
+      )}
     </div>
-    </div>
-    {menu && <div className="review-context-menu" role="menu" style={{ left: menu.x, top: menu.y }}>
-      <button type="button" role="menuitem" onClick={() => {
-        setMenu(null);
-        void window.mixdogDesktop.openFilePath?.(cwd, menu.file.path).catch(() => {});
-      }}>{t("Open file")}</button>
-      <button type="button" role="menuitem" onClick={() => {
-        setMenu(null);
-        void window.mixdogDesktop.revealFile?.(cwd, menu.file.path).catch(() => {});
-      }}>{t("Reveal in Explorer")}</button>
-      <button type="button" role="menuitem" onClick={() => {
-        setMenu(null);
-        const sep = cwd.includes("\\") ? "\\" : "/";
-        void copyTextToClipboard(cwd.replace(/[\\/]+$/, "") + sep + menu.file.path.split("/").join(sep));
-      }}>{t("Copy path")}</button>
-      {menu.file.uncommitted && <button type="button" role="menuitem" data-danger
-        onClick={() => {
-          const target = menu.file;
-          setMenu(null);
-          const warning = target.untracked
-            ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: target.path })
-            : t('Discard uncommitted changes to "{{file}}"? This cannot be undone.', { file: target.path });
-          if (!window.confirm(warning)) return;
-          if (openFile === target.path) setOpenFile("");
-          void act(() => window.mixdogDesktop.gitRevert?.(cwd, target.path, target.untracked, "all"));
-        }}>
-        {menu.file.untracked ? t("Delete file") : t("Revert changes")}
-      </button>}
-    </div>}
-  </div>;
+  );
 }

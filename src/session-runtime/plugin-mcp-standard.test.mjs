@@ -6,28 +6,31 @@ import test from 'node:test';
 
 import { createMcpGlue } from './mcp-glue.mjs';
 import { createResourceApi } from './resource-api.mjs';
-import {
-  mergeMcpServerConfig,
-  readProjectMcpServerConfig,
-  saveProjectMcpServer,
-} from './plugin-mcp.mjs';
+import { mergeMcpServerConfig, readProjectMcpServerConfig, saveProjectMcpServer } from './plugin-mcp.mjs';
 
 test('project MCP edits preserve document shape and unknown fields', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'mixdog-mcp-standard-'));
   try {
     const path = join(cwd, '.mcp.json');
-    writeFileSync(path, `${JSON.stringify({
-      projectMetadata: { owner: 'test' },
-      mcpServers: {
-        demo: {
-          type: 'stdio',
-          command: 'old-command',
-          args: ['--old'],
-          vendorExtension: { keep: true },
+    writeFileSync(
+      path,
+      `${JSON.stringify(
+        {
+          projectMetadata: { owner: 'test' },
+          mcpServers: {
+            demo: {
+              type: 'stdio',
+              command: 'old-command',
+              args: ['--old'],
+              vendorExtension: { keep: true },
+            },
+            sibling: { url: 'https://example.com/mcp', custom: 7 },
+          },
         },
-        sibling: { url: 'https://example.com/mcp', custom: 7 },
-      },
-    }, null, 2)}\n`);
+        null,
+        2
+      )}\n`
+    );
 
     saveProjectMcpServer(cwd, {
       originalName: 'demo',
@@ -59,24 +62,30 @@ test('project MCP edits preserve document shape and unknown fields', () => {
 });
 
 test('MCP transport edits drop stale transport fields but retain extensions', () => {
-  assert.deepEqual(mergeMcpServerConfig({
-    type: 'http',
-    url: 'https://example.com/mcp',
-    headers: { Authorization: 'secret' },
-    bearer_token_env_var: 'MCP_TOKEN',
-    env_http_headers: { 'X-API-Key': 'MCP_API_KEY' },
-    env_vars: ['STALE_STDIO_VALUE'],
-    startupTimeoutSec: 20,
-  }, {
-    type: 'stdio',
-    command: 'server',
-    args: [],
-  }), {
-    startupTimeoutSec: 20,
-    type: 'stdio',
-    command: 'server',
-    args: [],
-  });
+  assert.deepEqual(
+    mergeMcpServerConfig(
+      {
+        type: 'http',
+        url: 'https://example.com/mcp',
+        headers: { Authorization: 'secret' },
+        bearer_token_env_var: 'MCP_TOKEN',
+        env_http_headers: { 'X-API-Key': 'MCP_API_KEY' },
+        env_vars: ['STALE_STDIO_VALUE'],
+        startupTimeoutSec: 20,
+      },
+      {
+        type: 'stdio',
+        command: 'server',
+        args: [],
+      }
+    ),
+    {
+      startupTimeoutSec: 20,
+      type: 'stdio',
+      command: 'server',
+      args: [],
+    }
+  );
 });
 
 test('plugin-disabled MCP cannot be re-enabled by a stale project override', () => {
@@ -118,11 +127,18 @@ test('MCP toggle updates the global server and ignores project config and overri
   const cwd = mkdtempSync(join(tmpdir(), 'mixdog-mcp-override-'));
   try {
     const path = join(cwd, '.mcp.json');
-    writeFileSync(path, `${JSON.stringify({
-      mcpServers: {
-        local: { command: 'server', enabled: false, extension: 'kept' },
-      },
-    }, null, 2)}\n`);
+    writeFileSync(
+      path,
+      `${JSON.stringify(
+        {
+          mcpServers: {
+            local: { command: 'server', enabled: false, extension: 'kept' },
+          },
+        },
+        null,
+        2
+      )}\n`
+    );
     const before = readFileSync(path, 'utf8');
     let config = {
       mcpServers: {
@@ -140,7 +156,9 @@ test('MCP toggle updates the global server and ignores project config and overri
       getCurrentCwd: () => cwd,
       cfgMod: {},
       mgr: {},
-      saveConfigAndAdopt: (next) => { config = next; },
+      saveConfigAndAdopt: (next) => {
+        config = next;
+      },
       connectConfiguredMcp: async () => ({ servers: [] }),
       invalidatePreSessionToolSurface: () => {},
       recreateCurrentSessionIfReady: async () => {},

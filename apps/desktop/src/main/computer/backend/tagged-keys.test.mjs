@@ -7,10 +7,15 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import { MIXDOG_HOST_CSHARP } from './native-source.ts';
 
-test('tagged key streams preserve grouping, repeats and literal escapes; invalid streams emit nothing; release survives interruption', { skip: process.platform !== 'win32' }, async () => {
+test('tagged key streams preserve grouping, repeats and literal escapes; invalid streams emit nothing; release survives interruption', {
+  skip: process.platform !== 'win32',
+}, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-tagged-keys-'));
   try {
-    await writeFile(join(directory, 'native.cs'), MIXDOG_HOST_CSHARP + String.raw`
+    await writeFile(
+      join(directory, 'native.cs'),
+      MIXDOG_HOST_CSHARP +
+        String.raw`
 public class FakeKeySink : IMixKeySink {
   public string Events = "";
   public bool FailTap, FailUp;
@@ -19,8 +24,11 @@ public class FakeKeySink : IMixKeySink {
   public void Tap(ushort key) { Events += "K" + key + ";"; if (FailTap) throw new System.Exception("interrupt"); }
   public void Text(string text) { Events += "T" + text + ";"; }
 }
-`);
-    await writeFile(join(directory, 'test.ps1'), String.raw`
+`
+    );
+    await writeFile(
+      join(directory, 'test.ps1'),
+      String.raw`
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing
@@ -40,10 +48,19 @@ $sink.FailTap = $true; $sink.FailUp = $true
 try { [MixTaggedKeys]::Send('^%a', $sink) } catch {}
 if (-not $sink.Events.EndsWith('U18;U17;')) { throw ('not all modifiers released: ' + $sink.Events) }
 [Console]::WriteLine('tagged keys passed')
-`);
-    const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')], {
-      windowsHide: true, timeout: 30_000, env: { ...process.env, AUDIT_DIRECTORY: directory },
-    });
+`
+    );
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
+      {
+        windowsHide: true,
+        timeout: 30_000,
+        env: { ...process.env, AUDIT_DIRECTORY: directory },
+      }
+    );
     assert.equal(stdout.trim(), 'tagged keys passed');
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

@@ -13,12 +13,7 @@ import {
 /** Actions that only observe the page. Naming them on the tool surface lets a
  *  caller repeat or overlap them without wondering whether they change state;
  *  the host enforces the same list when it decides what may run concurrently. */
-export {
-  BROWSER_ACTIONS,
-  BROWSER_DEVTOOLS_ACTIONS,
-  BROWSER_OBSERVATION_ACTIONS,
-  BROWSER_PAGE_ACTIONS,
-};
+export { BROWSER_ACTIONS, BROWSER_DEVTOOLS_ACTIONS, BROWSER_OBSERVATION_ACTIONS, BROWSER_PAGE_ACTIONS };
 
 const PAGE_TARGET = ['tab', 'background'];
 const SNAPSHOT_FILTERS = ['query', 'viewportOnly', 'maxElements', 'maxChars'];
@@ -30,13 +25,15 @@ const TARGET_FIELDS = new Set(['role', 'name', 'selector', 'exact', 'nth']);
  *  (network, console, locate) keep their own substring or visual semantics. */
 const QUERY_SYNTAX_ACTIONS = new Set(['snapshot', 'read', 'wait']);
 const POST_ACTION_SNAPSHOT = [
-  ...PAGE_TARGET, ...SNAPSHOT_FILTERS, 'includeScreenshot', ...SCREENSHOT_OPTIONS, ...POST_ACTION,
+  ...PAGE_TARGET,
+  ...SNAPSHOT_FILTERS,
+  'includeScreenshot',
+  ...SCREENSHOT_OPTIONS,
+  ...POST_ACTION,
 ];
 
 function contract(actions, fields = [], required = []) {
-  const requiredAny = required.length && Array.isArray(required[0])
-    ? required
-    : (required.length ? [required] : []);
+  const requiredAny = required.length && Array.isArray(required[0]) ? required : required.length ? [required] : [];
   return {
     actions: Array.isArray(actions) ? actions : [actions],
     fields,
@@ -51,24 +48,44 @@ const CONTRACT_ROWS = [
   contract('evaluate', [...POST_ACTION_SNAPSHOT, 'script', 'ref', 'timeoutMs', 'maxChars'], ['script']),
   contract('emulate', [
     ...POST_ACTION_SNAPSHOT,
-    'width', 'height', 'deviceScaleFactor', 'mobile', 'touch', 'userAgent',
-    'locale', 'timezone', 'colorScheme', 'reducedMotion', 'networkProfile',
-    'cpuThrottlingRate', 'orientation', 'latitude', 'longitude', 'accuracy',
-    'headers', 'reset',
+    'width',
+    'height',
+    'deviceScaleFactor',
+    'mobile',
+    'touch',
+    'userAgent',
+    'locale',
+    'timezone',
+    'colorScheme',
+    'reducedMotion',
+    'networkProfile',
+    'cpuThrottlingRate',
+    'orientation',
+    'latitude',
+    'longitude',
+    'accuracy',
+    'headers',
+    'reset',
   ]),
   contract('cookies', [
-    ...PAGE_TARGET, 'operation', 'url', 'name', 'value', 'domain', 'path',
-    'secure', 'httpOnly', 'sameSite', 'expirationDate',
+    ...PAGE_TARGET,
+    'operation',
+    'url',
+    'name',
+    'value',
+    'domain',
+    'path',
+    'secure',
+    'httpOnly',
+    'sameSite',
+    'expirationDate',
   ]),
   contract('storage', [...PAGE_TARGET, 'operation', 'storageType', 'name', 'value']),
   contract('performance', [...PAGE_TARGET, 'operation', 'reload', 'saveTrace']),
   contract(
     'click',
-    [
-      ...POST_ACTION_SNAPSHOT, 'ref', 'target', 'snapshotId', 'x', 'y', 'pointer',
-      'button', 'modifiers', 'doubleClick',
-    ],
-    [['ref'], ['target'], ['snapshotId', 'x', 'y']],
+    [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'snapshotId', 'x', 'y', 'pointer', 'button', 'modifiers', 'doubleClick'],
+    [['ref'], ['target'], ['snapshotId', 'x', 'y']]
   ),
   // One control takes text or a checked state; a batch takes fields; a
   // stored login fills the sign-in form without the password ever leaving
@@ -76,27 +93,30 @@ const CONTRACT_ROWS = [
   contract(
     'fill',
     [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'text', 'checked', 'fields', 'submit', 'savedAccount'],
-    [['ref', 'text'], ['target', 'text'], ['ref', 'checked'], ['target', 'checked'], ['fields'], ['savedAccount']],
+    [['ref', 'text'], ['target', 'text'], ['ref', 'checked'], ['target', 'checked'], ['fields'], ['savedAccount']]
   ),
   contract(
     'type',
     [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'text', 'submit'],
-    [['ref', 'text'], ['target', 'text']],
+    [
+      ['ref', 'text'],
+      ['target', 'text'],
+    ]
   ),
   // Without values, select reads the control's options instead of choosing.
   contract('select', [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'values'], [['ref'], ['target']]),
   contract(
     'hover',
     [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'snapshotId', 'x', 'y'],
-    [['ref'], ['target'], ['snapshotId', 'x', 'y']],
+    [['ref'], ['target'], ['snapshotId', 'x', 'y']]
   ),
   contract(
     'drag',
+    [...POST_ACTION_SNAPSHOT, 'ref', 'targetRef', 'snapshotId', 'x', 'y', 'targetX', 'targetY', 'pointer'],
     [
-      ...POST_ACTION_SNAPSHOT, 'ref', 'targetRef', 'snapshotId', 'x', 'y',
-      'targetX', 'targetY', 'pointer',
-    ],
-    [['ref', 'targetRef'], ['snapshotId', 'x', 'y', 'targetX', 'targetY']],
+      ['ref', 'targetRef'],
+      ['snapshotId', 'x', 'y', 'targetX', 'targetY'],
+    ]
   ),
   // ref is optional: without it upload answers the file chooser the page has
   // already opened; with a non-file ref it clicks that element to open one.
@@ -104,9 +124,7 @@ const CONTRACT_ROWS = [
   contract('handle_dialog', [...POST_ACTION_SNAPSHOT, 'accept', 'promptText']),
   contract('press', [...POST_ACTION_SNAPSHOT, 'key'], ['key']),
   // text brings the first match into view when its position is unknown.
-  contract('scroll', [
-    ...POST_ACTION_SNAPSHOT, 'ref', 'target', 'snapshotId', 'x', 'y', 'dx', 'dy', 'text',
-  ]),
+  contract('scroll', [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'snapshotId', 'x', 'y', 'dx', 'dy', 'text']),
   // Forward history is reached by navigating to the URL the caller already
   // saw; only back needs a gesture of its own.
   contract('back', POST_ACTION_SNAPSHOT),
@@ -118,14 +136,10 @@ const CONTRACT_ROWS = [
   contract('wait', [...PAGE_TARGET, ...SNAPSHOT_FILTERS, 'text', 'textGone', 'url', 'timeoutMs']),
   contract('status', PAGE_TARGET),
   contract('console', [...PAGE_TARGET, 'level', 'query', 'limit']),
-  contract('network', [
-    ...PAGE_TARGET, 'requestId', 'resourceTypes', 'limit', 'frameLimit', 'maxChars', 'query',
-  ]),
+  contract('network', [...PAGE_TARGET, 'requestId', 'resourceTypes', 'limit', 'frameLimit', 'maxChars', 'query']),
   // A rule outlives the call and answers every later request on the page, so
   // interception is page state rather than an observation.
-  contract('intercept', [
-    ...PAGE_TARGET, 'operation', 'url', 'resourceTypes', 'abort', 'body', 'ruleId',
-  ]),
+  contract('intercept', [...PAGE_TARGET, 'operation', 'url', 'resourceTypes', 'abort', 'body', 'ruleId']),
   // Runs before the document exists, which is the one moment evaluate can
   // never reach: by the time a page can be evaluated it has already booted.
   contract('init_script', [...PAGE_TARGET, 'operation', 'script', 'scriptId']),
@@ -152,8 +166,14 @@ const SEQUENCE_STEP_FIELDS = Object.freeze({
 const SEQUENCE_STEP_REQUIRED = Object.freeze({
   click: [['ref'], ['target']],
   fill: [['ref', 'text'], ['target', 'text'], ['ref', 'checked'], ['target', 'checked'], ['savedAccount']],
-  type: [['ref', 'text'], ['target', 'text']],
-  select: [['ref', 'values'], ['target', 'values']],
+  type: [
+    ['ref', 'text'],
+    ['target', 'text'],
+  ],
+  select: [
+    ['ref', 'values'],
+    ['target', 'values'],
+  ],
   hover: [['ref'], ['target']],
   press: [['key']],
   scroll: [],
@@ -169,7 +189,11 @@ function validateTargetSpec(spec, at) {
   }
   const unsupported = Object.keys(spec).filter((name) => !TARGET_FIELDS.has(name));
   if (unsupported.length) return `${at} does not accept field(s): ${unsupported.join(', ')}`;
-  for (const [name, limit] of [['role', 60], ['name', 500], ['selector', 4_096]]) {
+  for (const [name, limit] of [
+    ['role', 60],
+    ['name', 500],
+    ['selector', 4_096],
+  ]) {
     if (Object.hasOwn(spec, name) && (typeof spec[name] !== 'string' || schemaStringLength(spec[name]) > limit)) {
       return `${at}.${name} must be a string of at most ${limit} characters`;
     }
@@ -217,13 +241,11 @@ function validateSequenceSteps(steps) {
     if (!allowed) {
       return `${at} action must be one of ${SEQUENCE_STEP_ACTIONS.join(', ')}`;
     }
-    const unsupported = Object.keys(step)
-      .filter((name) => name !== 'action' && !allowed.includes(name));
+    const unsupported = Object.keys(step).filter((name) => name !== 'action' && !allowed.includes(name));
     if (unsupported.length) {
       return `${at} does not accept field(s): ${unsupported.join(', ')}`;
     }
-    const present = (name) => Object.hasOwn(step, name)
-      && step[name] !== undefined && step[name] !== null;
+    const present = (name) => Object.hasOwn(step, name) && step[name] !== undefined && step[name] !== null;
     const requirements = SEQUENCE_STEP_REQUIRED[stepAction];
     if (requirements.length && !requirements.some((names) => names.every(present))) {
       return `${at} requires ${requirements.map((names) => names.join('+')).join(' or ')}`;
@@ -236,10 +258,13 @@ function validateSequenceSteps(steps) {
       const targetError = validateTargetSpec(step.target, `${at}.target`);
       if (targetError) return targetError;
     }
-    if (stepAction === 'select'
-      && (!Array.isArray(step.values) || !step.values.length
-        || step.values.length > 100
-        || !step.values.every((value) => typeof value === 'string'))) {
+    if (
+      stepAction === 'select' &&
+      (!Array.isArray(step.values) ||
+        !step.values.length ||
+        step.values.length > 100 ||
+        !step.values.every((value) => typeof value === 'string'))
+    ) {
       return `${at} values must be a non-empty array of strings`;
     }
     for (const [name, limit] of [
@@ -250,13 +275,11 @@ function validateSequenceSteps(steps) {
       ['key', 100],
       ['savedAccount', 320],
     ]) {
-      if (Object.hasOwn(step, name)
-        && (typeof step[name] !== 'string' || schemaStringLength(step[name]) > limit)) {
+      if (Object.hasOwn(step, name) && (typeof step[name] !== 'string' || schemaStringLength(step[name]) > limit)) {
         return `${at}.${name} must be a string of at most ${limit} characters`;
       }
     }
-    if (Array.isArray(step.values)
-      && step.values.some((value) => schemaStringLength(value) > 4_096)) {
+    if (Array.isArray(step.values) && step.values.some((value) => schemaStringLength(value) > 4_096)) {
       return `${at}.values entries are limited to 4096 characters`;
     }
   }
@@ -265,23 +288,21 @@ function validateSequenceSteps(steps) {
 
 const CONTRACT_ACTIONS = CONTRACT_ROWS.flatMap(({ actions }) => actions);
 if (
-  CONTRACT_ACTIONS.length !== BROWSER_ACTIONS.length
-  || CONTRACT_ACTIONS.some((action, index) => action !== BROWSER_ACTIONS[index])
+  CONTRACT_ACTIONS.length !== BROWSER_ACTIONS.length ||
+  CONTRACT_ACTIONS.some((action, index) => action !== BROWSER_ACTIONS[index])
 ) {
   throw new Error('Browser action field contracts are out of sync with the shared action manifest.');
 }
-const CONTRACT_BY_ACTION = new Map(
-  CONTRACT_ROWS.flatMap((row) => row.actions.map((action) => [action, row])),
-);
+const CONTRACT_BY_ACTION = new Map(CONTRACT_ROWS.flatMap((row) => row.actions.map((action) => [action, row])));
 function requiredSummary(actions) {
   const wanted = new Set(actions);
-  return CONTRACT_ROWS
-    .filter(({ actions: rowActions, requiredAny }) => (
-      requiredAny.length && rowActions.some((name) => wanted.has(name))
-    ))
-    .map(({ actions: rowActions, requiredAny }) => (
-      `${rowActions.filter((name) => wanted.has(name)).join('/')} ${requiredAny.map((names) => names.join('+')).join(' or ')}`
-    ))
+  return CONTRACT_ROWS.filter(
+    ({ actions: rowActions, requiredAny }) => requiredAny.length && rowActions.some((name) => wanted.has(name))
+  )
+    .map(
+      ({ actions: rowActions, requiredAny }) =>
+        `${rowActions.filter((name) => wanted.has(name)).join('/')} ${requiredAny.map((names) => names.join('+')).join(' or ')}`
+    )
     .join('; ');
 }
 
@@ -292,12 +313,8 @@ function requiredSummary(actions) {
 export function buildBrowserInputSchema(flatSchema, actions = BROWSER_ACTIONS) {
   const properties = flatSchema?.properties || {};
   const { action, ...inputProperties } = properties;
-  const fieldNames = new Set(
-    actions.flatMap((name) => CONTRACT_BY_ACTION.get(name)?.fields || []),
-  );
-  const scoped = Object.fromEntries(
-    Object.entries(inputProperties).filter(([name]) => fieldNames.has(name)),
-  );
+  const fieldNames = new Set(actions.flatMap((name) => CONTRACT_BY_ACTION.get(name)?.fields || []));
+  const scoped = Object.fromEntries(Object.entries(inputProperties).filter(([name]) => fieldNames.has(name)));
   if (scoped.script && actions.includes('init_script') && !actions.includes('evaluate')) {
     scoped.script = { ...scoped.script, maxLength: 20_000 };
   }
@@ -364,9 +381,11 @@ export function validateBrowserToolArgs(args, options = {}) {
       error: `browser action "${action}" does not accept input field(s): ${unsupported.join(', ')}`,
     };
   }
-  const stringLimits = Object.fromEntries(Object.entries(BROWSER_INPUT_FIELDS.properties)
-    .filter(([, field]) => field.type === 'string' && field.maxLength !== undefined)
-    .map(([name, field]) => [name, name === 'script' && action === 'init_script' ? 20_000 : field.maxLength]));
+  const stringLimits = Object.fromEntries(
+    Object.entries(BROWSER_INPUT_FIELDS.properties)
+      .filter(([, field]) => field.type === 'string' && field.maxLength !== undefined)
+      .map(([name, field]) => [name, name === 'script' && action === 'init_script' ? 20_000 : field.maxLength])
+  );
   for (const [name, limit] of Object.entries(stringLimits)) {
     if (!Object.hasOwn(input, name)) continue;
     if (typeof input[name] !== 'string' || schemaStringLength(input[name]) > limit) {
@@ -379,8 +398,11 @@ export function validateBrowserToolArgs(args, options = {}) {
   const boundedStringArray = (name, limit, itemLimit) => {
     if (!Object.hasOwn(input, name)) return '';
     const values = input[name];
-    if (!Array.isArray(values) || values.length > limit
-      || !values.every((value) => typeof value === 'string' && schemaStringLength(value) <= itemLimit)) {
+    if (
+      !Array.isArray(values) ||
+      values.length > limit ||
+      !values.every((value) => typeof value === 'string' && schemaStringLength(value) <= itemLimit)
+    ) {
       return `browser action "${action}" input.${name} requires at most ${limit} strings of at most ${itemLimit} characters`;
     }
     return '';
@@ -394,9 +416,7 @@ export function validateBrowserToolArgs(args, options = {}) {
     const error = boundedStringArray(name, limit, itemLimit);
     if (error) return { ok: false, error };
   }
-  const hasValue = (name) => (
-    Object.hasOwn(input, name) && input[name] !== undefined && input[name] !== null
-  );
+  const hasValue = (name) => Object.hasOwn(input, name) && input[name] !== undefined && input[name] !== null;
   if (Object.hasOwn(input, 'target')) {
     const targetError = validateTargetSpec(input.target, `browser action "${action}" input.target`);
     if (targetError) return { ok: false, error: targetError };
@@ -405,24 +425,22 @@ export function validateBrowserToolArgs(args, options = {}) {
     const queryError = validateQuerySyntax(input.query, `browser action "${action}" input.query`);
     if (queryError) return { ok: false, error: queryError };
   }
-  const matchingRequirements = actionContract.requiredAny.filter(
-    (names) => names.every(hasValue),
-  );
+  const matchingRequirements = actionContract.requiredAny.filter((names) => names.every(hasValue));
   if (actionContract.requiredAny.length && !matchingRequirements.length) {
     return {
       ok: false,
-      error: `browser action "${action}" requires input.${
-        actionContract.requiredAny.map((names) => names.join('+')).join(' or input.')
-      }`,
+      error: `browser action "${action}" requires input.${actionContract.requiredAny
+        .map((names) => names.join('+'))
+        .join(' or input.')}`,
     };
   }
   // Exactly one target form: a second complete form, or a field that belongs
   // only to another form (ref beside snapshotId), is a contradiction.
   const matched = new Set(matchingRequirements[0] || []);
-  const strayForm = actionContract.requiredAny.some((names) => (
-    names !== matchingRequirements[0]
-    && names.some((name) => Object.hasOwn(input, name) && !matched.has(name))
-  ));
+  const strayForm = actionContract.requiredAny.some(
+    (names) =>
+      names !== matchingRequirements[0] && names.some((name) => Object.hasOwn(input, name) && !matched.has(name))
+  );
   if (matchingRequirements.length > 1 || strayForm) {
     return { ok: false, error: `browser action "${action}" accepts only one input target form` };
   }
@@ -459,10 +477,11 @@ export function validateBrowserToolArgs(args, options = {}) {
       }
       const hasText = typeof field.text === 'string';
       const hasValue = typeof field.value === 'string';
-      const hasValues = Array.isArray(field.values)
-        && field.values.length > 0
-        && field.values.length <= 100
-        && field.values.every((value) => typeof value === 'string');
+      const hasValues =
+        Array.isArray(field.values) &&
+        field.values.length > 0 &&
+        field.values.length <= 100 &&
+        field.values.every((value) => typeof value === 'string');
       const hasChecked = typeof field.checked === 'boolean';
       const payloadCount = Number(hasText || hasValue) + Number(hasValues) + Number(hasChecked);
       if (payloadCount !== 1 || (hasText && hasValue)) {
@@ -471,24 +490,27 @@ export function validateBrowserToolArgs(args, options = {}) {
           error: `browser action "fill" input.fields[${index}] requires exactly one of text/value, values, or checked`,
         };
       }
-      if ((hasRef && schemaStringLength(field.ref) > 128)
-        || (hasText && schemaStringLength(field.text) > 100_000)
-        || (hasValue && schemaStringLength(field.value) > 100_000)
-        || (hasValues && field.values.some((value) => schemaStringLength(value) > 4_096))) {
+      if (
+        (hasRef && schemaStringLength(field.ref) > 128) ||
+        (hasText && schemaStringLength(field.text) > 100_000) ||
+        (hasValue && schemaStringLength(field.value) > 100_000) ||
+        (hasValues && field.values.some((value) => schemaStringLength(value) > 4_096))
+      ) {
         return { ok: false, error: `browser action "fill" input.fields[${index}] is too large` };
       }
     }
     // Targets resolve against one fresh observation that retires the caller's
     // refs, so a batch is addressed one way or the other.
     if (targetedFields && targetedFields !== input.fields.length) {
-      return { ok: false, error: 'browser action "fill" input.fields must use ref for every item or target for every item' };
+      return {
+        ok: false,
+        error: 'browser action "fill" input.fields must use ref for every item or target for every item',
+      };
     }
   }
   if (action === 'scroll') {
     const targetForms = [['ref'], ['target'], ['snapshotId', 'x', 'y'], ['text']];
-    const touchedTargets = targetForms.filter(
-      (names) => names.some((name) => Object.hasOwn(input, name)),
-    );
+    const touchedTargets = targetForms.filter((names) => names.some((name) => Object.hasOwn(input, name)));
     if (touchedTargets.length > 1) {
       return { ok: false, error: 'browser action "scroll" accepts only one input target form' };
     }
@@ -499,16 +521,20 @@ export function validateBrowserToolArgs(args, options = {}) {
       };
     }
   }
-  const screenshotOptionsTouched = SCREENSHOT_OPTIONS.some(
-    (name) => Object.hasOwn(input, name),
-  );
+  const screenshotOptionsTouched = SCREENSHOT_OPTIONS.some((name) => Object.hasOwn(input, name));
   if (action === 'snapshot' && screenshotOptionsTouched) {
     const mode = String(input.mode || 'semantic');
     if (mode === 'semantic') {
-      return { ok: false, error: 'browser action "snapshot" screenshot options require input.mode=visual or input.mode=both' };
+      return {
+        ok: false,
+        error: 'browser action "snapshot" screenshot options require input.mode=visual or input.mode=both',
+      };
     }
     if (input.fullPage === true && mode === 'both') {
-      return { ok: false, error: 'browser action "snapshot" fullPage is inspection-only and requires input.mode=visual' };
+      return {
+        ok: false,
+        error: 'browser action "snapshot" fullPage is inspection-only and requires input.mode=visual',
+      };
     }
   } else if (screenshotOptionsTouched && input.includeScreenshot !== true) {
     return { ok: false, error: `browser action "${action}" screenshot options require input.includeScreenshot=true` };
@@ -524,8 +550,11 @@ export function validateBrowserToolArgs(args, options = {}) {
       return { ok: false, error: 'browser format=pdf always writes a file; drop input.image_output' };
     }
   }
-  if (action === 'click' && input.pointer === 'touch'
-    && (input.button !== undefined || input.modifiers !== undefined || input.doubleClick === true)) {
+  if (
+    action === 'click' &&
+    input.pointer === 'touch' &&
+    (input.button !== undefined || input.modifiers !== undefined || input.doubleClick === true)
+  ) {
     return {
       ok: false,
       error: 'browser action "click" pointer=touch does not accept button, modifiers, or doubleClick',
@@ -535,8 +564,7 @@ export function validateBrowserToolArgs(args, options = {}) {
     const error = validateSequenceSteps(input.steps);
     if (error) return { ok: false, error };
   }
-  if (Object.hasOwn(input, 'saveTrace')
-    && (typeof input.saveTrace !== 'boolean' || input.operation !== 'start')) {
+  if (Object.hasOwn(input, 'saveTrace') && (typeof input.saveTrace !== 'boolean' || input.operation !== 'start')) {
     return { ok: false, error: 'performance saveTrace requires operation=start and a boolean' };
   }
   if (action === 'extract') {
@@ -545,8 +573,12 @@ export function validateBrowserToolArgs(args, options = {}) {
     }
     if (Object.hasOwn(input, 'attributes')) {
       const names = input.attributes;
-      if (!Array.isArray(names) || !names.length || names.length > 12
-        || !names.every((name) => typeof name === 'string' && name.trim() && schemaStringLength(name) <= 60)) {
+      if (
+        !Array.isArray(names) ||
+        !names.length ||
+        names.length > 12 ||
+        !names.every((name) => typeof name === 'string' && name.trim() && schemaStringLength(name) <= 60)
+      ) {
         return {
           ok: false,
           error: 'browser action "extract" input.attributes requires 1 to 12 attribute names',
@@ -566,11 +598,8 @@ export function validateBrowserToolArgs(args, options = {}) {
     }
     if (Object.hasOwn(input, 'headers')) {
       const headers = input.headers;
-      const names = headers && typeof headers === 'object' && !Array.isArray(headers)
-        ? Object.keys(headers)
-        : null;
-      if (!names || !names.length || names.length > 20
-        || !names.every((name) => typeof headers[name] === 'string')) {
+      const names = headers && typeof headers === 'object' && !Array.isArray(headers) ? Object.keys(headers) : null;
+      if (!names || !names.length || names.length > 20 || !names.every((name) => typeof headers[name] === 'string')) {
         return {
           ok: false,
           error: 'browser action "emulate" input.headers requires 1 to 20 header names with string values',
@@ -581,29 +610,32 @@ export function validateBrowserToolArgs(args, options = {}) {
   if (Object.hasOwn(input, 'expect')) {
     const expected = input.expect;
     const allowedExpected = new Set(['text', 'textGone', 'url', 'timeoutMs']);
-    if (!expected || typeof expected !== 'object' || Array.isArray(expected)
-      || Object.keys(expected).some((name) => !allowedExpected.has(name))
-      || ['text', 'textGone', 'url'].some((name) => (
-        Object.hasOwn(expected, name)
-        && (typeof expected[name] !== 'string' || schemaStringLength(expected[name]) > 10_000)
-      ))) {
+    if (
+      !expected ||
+      typeof expected !== 'object' ||
+      Array.isArray(expected) ||
+      Object.keys(expected).some((name) => !allowedExpected.has(name)) ||
+      ['text', 'textGone', 'url'].some(
+        (name) =>
+          Object.hasOwn(expected, name) &&
+          (typeof expected[name] !== 'string' || schemaStringLength(expected[name]) > 10_000)
+      )
+    ) {
       return { ok: false, error: `browser action "${action}" input.expect is invalid or too large` };
     }
   }
   if (action === 'intercept' || action === 'init_script') {
-    const operation = String(input.operation || 'list').trim().toLowerCase();
+    const operation = String(input.operation || 'list')
+      .trim()
+      .toLowerCase();
     if (!['add', 'remove', 'list', 'clear'].includes(operation)) {
       return {
         ok: false,
         error: `browser action "${action}" operation must be add, remove, list, or clear`,
       };
     }
-    const ruleFields = action === 'intercept'
-      ? ['url', 'abort', 'body', 'resourceTypes']
-      : ['script'];
-    const strayRuleFields = operation === 'add'
-      ? []
-      : ruleFields.filter((name) => Object.hasOwn(input, name));
+    const ruleFields = action === 'intercept' ? ['url', 'abort', 'body', 'resourceTypes'] : ['script'];
+    const strayRuleFields = operation === 'add' ? [] : ruleFields.filter((name) => Object.hasOwn(input, name));
     if (strayRuleFields.length) {
       return {
         ok: false,
@@ -611,8 +643,7 @@ export function validateBrowserToolArgs(args, options = {}) {
       };
     }
     const handle = action === 'intercept' ? 'ruleId' : 'scriptId';
-    if (operation === 'remove'
-      && (typeof input[handle] !== 'string' || !input[handle].trim())) {
+    if (operation === 'remove' && (typeof input[handle] !== 'string' || !input[handle].trim())) {
       return {
         ok: false,
         error: `browser action "${action}" remove requires input.${handle} from an ${action} list`,
@@ -622,8 +653,7 @@ export function validateBrowserToolArgs(args, options = {}) {
       return { ok: false, error: `browser action "${action}" input.${handle} belongs to remove` };
     }
     if (operation === 'add') {
-      if (action === 'init_script'
-        && (typeof input.script !== 'string' || !input.script.trim())) {
+      if (action === 'init_script' && (typeof input.script !== 'string' || !input.script.trim())) {
         return { ok: false, error: 'browser action "init_script" add requires input.script' };
       }
       if (action === 'intercept') {
@@ -650,7 +680,11 @@ export function validateBrowserToolArgs(args, options = {}) {
     }
   }
   for (const [name, value] of Object.entries(input)) {
-    const error = schemaValueError(value, BROWSER_INPUT_FIELDS.properties[name] || {}, `browser action "${action}" input.${name}`);
+    const error = schemaValueError(
+      value,
+      BROWSER_INPUT_FIELDS.properties[name] || {},
+      `browser action "${action}" input.${name}`
+    );
     if (error) return { ok: false, error };
   }
   return { ok: true, action, input };

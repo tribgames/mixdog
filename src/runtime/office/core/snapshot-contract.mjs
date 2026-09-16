@@ -37,7 +37,6 @@ function checkPagination(pagination, violations) {
   }
 }
 
-
 function checkDocx(document, violations) {
   for (const key of ['paragraphCount', 'tableCount']) {
     if (!isCount(document[key])) {
@@ -91,7 +90,6 @@ function checkDocx(document, violations) {
   }
 }
 
-
 function checkXlsx(document, violations) {
   const sheets = Array.isArray(document.sheets) ? document.sheets : [];
   if (!sheets.length) violations.push({ path: '/', message: 'a workbook snapshot must report at least one sheet' });
@@ -143,17 +141,25 @@ function checkXlsx(document, violations) {
         violations.push({ path: `${at}/note`, message: 'every note needs a cell reference and text' });
       }
     }
-    if ('freezePanes' in sheet && sheet.freezePanes !== null
-      && (typeof sheet.freezePanes !== 'object' || typeof sheet.freezePanes.frozen !== 'boolean')) {
+    if (
+      'freezePanes' in sheet &&
+      sheet.freezePanes !== null &&
+      (typeof sheet.freezePanes !== 'object' || typeof sheet.freezePanes.frozen !== 'boolean')
+    ) {
       violations.push({ path: at, message: 'freezePanes must be null or { frozen, splitRow, splitColumn }' });
     }
   }
-  if ('conventions' in document && document.conventions !== null
-    && (typeof document.conventions !== 'object' || !Array.isArray(document.conventions.fonts))) {
-    violations.push({ path: '/conventions', message: 'conventions must summarize fonts, numberFormats, and inputMarkers' });
+  if (
+    'conventions' in document &&
+    document.conventions !== null &&
+    (typeof document.conventions !== 'object' || !Array.isArray(document.conventions.fonts))
+  ) {
+    violations.push({
+      path: '/conventions',
+      message: 'conventions must summarize fonts, numberFormats, and inputMarkers',
+    });
   }
 }
-
 
 function checkPptx(document, violations) {
   if (!isCount(document.slideCount)) {
@@ -202,7 +208,6 @@ function checkPptx(document, violations) {
   }
 }
 
-
 export function officeSnapshotContractViolations(document, { format = '', paged = false } = {}) {
   const violations = [];
   if (!document || typeof document !== 'object') {
@@ -210,7 +215,10 @@ export function officeSnapshotContractViolations(document, { format = '', paged 
   }
   const declared = String(format || '').toLowerCase();
   if (declared && document.format !== declared) {
-    violations.push({ path: '/', message: `document.format ${document.format} does not match the ${declared} session` });
+    violations.push({
+      path: '/',
+      message: `document.format ${document.format} does not match the ${declared} session`,
+    });
   }
   if (paged && (document.pagination === null || document.pagination === undefined)) {
     violations.push({ path: '/pagination', message: 'a paged snapshot must report pagination' });
@@ -221,7 +229,6 @@ export function officeSnapshotContractViolations(document, { format = '', paged 
   if (declared === 'pptx') checkPptx(document, violations);
   return violations;
 }
-
 
 export function describeOfficeSnapshotViolations(violations) {
   return (violations || []).map((entry) => `${entry.path}: ${entry.message}`).join('\n');

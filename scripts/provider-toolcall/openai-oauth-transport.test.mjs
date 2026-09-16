@@ -4,11 +4,7 @@ import { EventEmitter } from 'node:events';
 import { _streamResponse } from '../../src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs';
 import { classifyError } from '../../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
 
-import {
-  directHandshakeError,
-  OpenAIOAuthProvider,
-  sendViaWebSocket,
-} from './_shared.mjs';
+import { directHandshakeError, OpenAIOAuthProvider, sendViaWebSocket } from './_shared.mjs';
 
 function withOpenAiTransportEnv(t) {
   const names = [
@@ -51,7 +47,9 @@ const prebuiltBody = Object.freeze({
 function streamEntry() {
   const socket = new EventEmitter();
   socket.readyState = 1;
-  socket.close = () => { socket.readyState = 3; };
+  socket.close = () => {
+    socket.readyState = 3;
+  };
   socket.terminate = socket.close;
   return { socket, ephemeral: true };
 }
@@ -118,18 +116,21 @@ test('reasoning-only WS closes exhaust the bounded WS budget and switch the sess
   const opts = {
     sessionId: 'oauth-reasoning-close-fallback',
     _prebuiltBody: prebuiltBody,
-    _sendViaWebSocketFn: (args) => sendViaWebSocket({
-      ...args,
-      _acquireWithRetryFn: async () => {
-        acquires += 1;
-        return { entry: streamEntry(), reused: false };
-      },
-      _sendFrameFn: async () => {},
-      _streamFn: (request) => closeAfterReasoning(request, 'response.reasoning_summary_text.delta'),
-      _sleepFn: async (ms) => { delays.push(ms); },
-      _sendSpanTraceFn: () => {},
-      _agentTraceFn: () => {},
-    }),
+    _sendViaWebSocketFn: (args) =>
+      sendViaWebSocket({
+        ...args,
+        _acquireWithRetryFn: async () => {
+          acquires += 1;
+          return { entry: streamEntry(), reused: false };
+        },
+        _sendFrameFn: async () => {},
+        _streamFn: (request) => closeAfterReasoning(request, 'response.reasoning_summary_text.delta'),
+        _sleepFn: async (ms) => {
+          delays.push(ms);
+        },
+        _sendSpanTraceFn: () => {},
+        _agentTraceFn: () => {},
+      }),
     _sendViaHttpSseFn: async () => {
       httpCalls += 1;
       return { content: 'http-recovered', toolCalls: [] };
@@ -209,21 +210,24 @@ test('OpenAI OAuth handshake 404 falls back to HTTP once without catalog or WS r
   let acquires = 0;
   let httpCalls = 0;
   let catalogRefreshes = 0;
-  provider._refreshModelCache = async () => { catalogRefreshes += 1; };
+  provider._refreshModelCache = async () => {
+    catalogRefreshes += 1;
+  };
 
   const result = await provider.send([], 'gpt-5.6-sol', [], {
     sessionId: 'oauth-handshake-404',
     _prebuiltBody: prebuiltBody,
-    _sendViaWebSocketFn: (args) => sendViaWebSocket({
-      ...args,
-      _acquireWithRetryFn: async () => {
-        acquires += 1;
-        throw directHandshakeError(404);
-      },
-      _sleepFn: async () => {},
-      _sendSpanTraceFn: () => {},
-      _agentTraceFn: () => {},
-    }),
+    _sendViaWebSocketFn: (args) =>
+      sendViaWebSocket({
+        ...args,
+        _acquireWithRetryFn: async () => {
+          acquires += 1;
+          throw directHandshakeError(404);
+        },
+        _sleepFn: async () => {},
+        _sendSpanTraceFn: () => {},
+        _agentTraceFn: () => {},
+      }),
     _sendViaHttpSseFn: async () => {
       httpCalls += 1;
       return { content: 'http-ok', toolCalls: [] };
@@ -242,20 +246,25 @@ test('OpenAI OAuth application 404 remains a model error and never enters HTTP f
   let wsCalls = 0;
   let httpCalls = 0;
   let catalogRefreshes = 0;
-  provider._refreshModelCache = async () => { catalogRefreshes += 1; };
+  provider._refreshModelCache = async () => {
+    catalogRefreshes += 1;
+  };
 
-  await assert.rejects(provider.send([], 'gpt-5.6-sol', [], {
-    sessionId: 'oauth-application-404',
-    _prebuiltBody: prebuiltBody,
-    _sendViaWebSocketFn: async () => {
-      wsCalls += 1;
-      throw Object.assign(new Error('model_not_found'), { httpStatus: 404 });
-    },
-    _sendViaHttpSseFn: async () => {
-      httpCalls += 1;
-      return { content: 'must-not-fallback', toolCalls: [] };
-    },
-  }), /model_not_found/u);
+  await assert.rejects(
+    provider.send([], 'gpt-5.6-sol', [], {
+      sessionId: 'oauth-application-404',
+      _prebuiltBody: prebuiltBody,
+      _sendViaWebSocketFn: async () => {
+        wsCalls += 1;
+        throw Object.assign(new Error('model_not_found'), { httpStatus: 404 });
+      },
+      _sendViaHttpSseFn: async () => {
+        httpCalls += 1;
+        return { content: 'must-not-fallback', toolCalls: [] };
+      },
+    }),
+    /model_not_found/u
+  );
 
   assert.equal(wsCalls, 2, 'one catalog refresh retry remains allowed');
   assert.equal(httpCalls, 0);

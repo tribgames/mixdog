@@ -39,13 +39,12 @@ const current = new AsyncLocalStorage<Collector>();
 const failures = new WeakMap<object, BrowserCommandTiming>();
 
 export function browserFailureTiming(error: unknown): BrowserCommandTiming | undefined {
-  return error !== null && (typeof error === 'object' || typeof error === 'function')
-    ? failures.get(error) : undefined;
+  return error !== null && (typeof error === 'object' || typeof error === 'function') ? failures.get(error) : undefined;
 }
 
 export async function measureBrowserMouseEvent<T>(
   type: 'mouseMoved' | 'mousePressed' | 'mouseReleased',
-  operation: () => Promise<T>,
+  operation: () => Promise<T>
 ): Promise<T> {
   const collector = current.getStore();
   if (!collector || collector.closed) return operation();
@@ -54,8 +53,8 @@ export async function measureBrowserMouseEvent<T>(
     return await operation();
   } finally {
     if (!collector.closed) {
-      const events = collector.timing.mouseEvents ??= {};
-      const event = events[type] ??= { count: 0, totalMs: 0 };
+      const events = (collector.timing.mouseEvents ??= {});
+      const event = (events[type] ??= { count: 0, totalMs: 0 });
       event.count++;
       event.totalMs += performance.now() - started;
     }
@@ -80,7 +79,7 @@ export async function measureBrowserPhase<T>(phase: Phase, operation: () => Prom
 
 export function timedBrowserOperation<Args extends unknown[], Result>(
   phase: Phase,
-  operation: (...args: Args) => Promise<Result>,
+  operation: (...args: Args) => Promise<Result>
 ): (...args: Args) => Promise<Result> {
   return (...args) => measureBrowserPhase(phase, () => operation(...args));
 }
@@ -95,27 +94,38 @@ export async function measureBrowserStep<T>(index: number, operation: () => Prom
     return await operation();
   } finally {
     if (!collector.closed && index >= 1 && index <= 6) {
-      const steps = collector.timing.steps ??= [];
-      if (steps.length < 6) steps.push({
-        index,
-        commandMs: performance.now() - started,
-        waitMs: collector.timing.waitMs - before.waitMs,
-        snapshotMs: collector.timing.snapshotMs - before.snapshotMs,
-        targetMs: collector.timing.targetMs - before.targetMs,
-        actionabilityMs: collector.timing.actionabilityMs - before.actionabilityMs,
-        inputMs: collector.timing.inputMs - before.inputMs,
-      });
+      const steps = (collector.timing.steps ??= []);
+      if (steps.length < 6)
+        steps.push({
+          index,
+          commandMs: performance.now() - started,
+          waitMs: collector.timing.waitMs - before.waitMs,
+          snapshotMs: collector.timing.snapshotMs - before.snapshotMs,
+          targetMs: collector.timing.targetMs - before.targetMs,
+          actionabilityMs: collector.timing.actionabilityMs - before.actionabilityMs,
+          inputMs: collector.timing.inputMs - before.inputMs,
+        });
     }
   }
 }
 
 export async function timeBrowserCommand(
   queueMs: number,
-  operation: () => Promise<BrowserCommandResult>,
+  operation: () => Promise<BrowserCommandResult>
 ): Promise<BrowserCommandResult> {
   const collector: Collector = {
-    timing: { queueMs, commandMs: 0, waitMs: 0, snapshotMs: 0, screenshotMs: 0, snapshots: 0, screenshots: 0,
-      targetMs: 0, actionabilityMs: 0, inputMs: 0 },
+    timing: {
+      queueMs,
+      commandMs: 0,
+      waitMs: 0,
+      snapshotMs: 0,
+      screenshotMs: 0,
+      snapshots: 0,
+      screenshots: 0,
+      targetMs: 0,
+      actionabilityMs: 0,
+      inputMs: 0,
+    },
     active: {
       wait: { depth: 0, started: 0 },
       snapshot: { depth: 0, started: 0 },

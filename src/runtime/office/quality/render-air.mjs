@@ -30,25 +30,38 @@ export async function renderedAir(base64, { width = 320, window = 0.05, threshol
   // yb = (R + G) / 2 − B; sqrt(σrg² + σyb²) + 0.3 · sqrt(µrg² + µyb²). Paper with black type reads under 10,
   // a page with one accent chart 15-30, a saturated field or a picture 40-90. Across a deck its spread is the
   // colour pacing (composition.md §7): the frontier decks run 16-36, a one-template IR deck 5-8.
-  let rg = 0, yb = 0, rg2 = 0, yb2 = 0;
+  let rg = 0,
+    yb = 0,
+    rg2 = 0,
+    yb2 = 0;
   for (let i = 0; i < w * h; i += 1) {
     const o = i * 4;
-    const red = pixels[o], green = pixels[o + 1], blue = pixels[o + 2];
+    const red = pixels[o],
+      green = pixels[o + 1],
+      blue = pixels[o + 2];
     gray[i] = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
-    const a = red - green, b = (red + green) / 2 - blue;
-    rg += a; yb += b; rg2 += a * a; yb2 += b * b;
+    const a = red - green,
+      b = (red + green) / 2 - blue;
+    rg += a;
+    yb += b;
+    rg2 += a * a;
+    yb2 += b * b;
   }
   const n = w * h;
-  const colour = Math.sqrt(Math.max(0, rg2 / n - (rg / n) ** 2) + Math.max(0, yb2 / n - (yb / n) ** 2))
-    + 0.3 * Math.sqrt((rg / n) ** 2 + (yb / n) ** 2);
+  const colour =
+    Math.sqrt(Math.max(0, rg2 / n - (rg / n) ** 2) + Math.max(0, yb2 / n - (yb / n) ** 2)) +
+    0.3 * Math.sqrt((rg / n) ** 2 + (yb / n) ** 2);
   // Integral images of x and x² give the local mean and variance in constant time per cell.
   const stride = w + 1;
-  const sum = new Float64Array(stride * (h + 1)), sq = new Float64Array(stride * (h + 1));
+  const sum = new Float64Array(stride * (h + 1)),
+    sq = new Float64Array(stride * (h + 1));
   for (let y = 1; y <= h; y += 1) {
-    let row = 0, rowSq = 0;
+    let row = 0,
+      rowSq = 0;
     for (let x = 1; x <= w; x += 1) {
       const v = gray[(y - 1) * w + (x - 1)];
-      row += v; rowSq += v * v;
+      row += v;
+      rowSq += v * v;
       sum[y * stride + x] = sum[(y - 1) * stride + x] + row;
       sq[y * stride + x] = sq[(y - 1) * stride + x] + rowSq;
     }
@@ -57,9 +70,11 @@ export async function renderedAir(base64, { width = 320, window = 0.05, threshol
   const variance = new Float64Array(w * h);
   let peak = 0;
   for (let y = 0; y < h; y += 1) {
-    const y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
+    const y0 = Math.max(0, y - r),
+      y1 = Math.min(h, y + r + 1);
     for (let x = 0; x < w; x += 1) {
-      const x0 = Math.max(0, x - r), x1 = Math.min(w, x + r + 1);
+      const x0 = Math.max(0, x - r),
+        x1 = Math.min(w, x + r + 1);
       const n = (y1 - y0) * (x1 - x0);
       const s = sum[y1 * stride + x1] - sum[y0 * stride + x1] - sum[y1 * stride + x0] + sum[y0 * stride + x0];
       const s2 = sq[y1 * stride + x1] - sq[y0 * stride + x1] - sq[y1 * stride + x0] + sq[y0 * stride + x0];
@@ -68,8 +83,10 @@ export async function renderedAir(base64, { width = 320, window = 0.05, threshol
       if (v > peak) peak = v;
     }
   }
-  const bx = Math.round(w * border), by = Math.round(h * border);
-  let cells = 0, air = 0;
+  const bx = Math.round(w * border),
+    by = Math.round(h * border);
+  let cells = 0,
+    air = 0;
   for (let y = by; y < h - by; y += 1) {
     for (let x = bx; x < w - bx; x += 1) {
       cells += 1;
@@ -99,15 +116,19 @@ function largestObject(gray, w, h, { tolerance = 0.04 } = {}) {
   let best = 0;
   for (let start = 0; start < w * h; start += 1) {
     if (seen[start] || Math.abs(gray[start] - bg) <= tolerance) continue;
-    let top = 0, size = 0;
-    stack[top++] = start; seen[start] = 1;
+    let top = 0,
+      size = 0;
+    stack[top++] = start;
+    seen[start] = 1;
     while (top) {
       const i = stack[--top];
       size += 1;
-      const x = i % w, y = (i - x) / w;
+      const x = i % w,
+        y = (i - x) / w;
       for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) {
         if (j < 0 || seen[j] || Math.abs(gray[j] - bg) <= tolerance) continue;
-        seen[j] = 1; stack[top++] = j;
+        seen[j] = 1;
+        stack[top++] = j;
       }
     }
     if (size > best) best = size;
@@ -123,27 +144,41 @@ function largestObject(gray, w, h, { tolerance = 0.04 } = {}) {
 function weightBalance(gray, sum, stride, w, h, r, lambda = 0.5) {
   const sorted = Float64Array.from(gray).sort();
   const median = sorted[Math.floor(sorted.length / 2)];
-  let total = 0, sx = 0, sy = 0, left = 0, top = 0;
+  let total = 0,
+    sx = 0,
+    sy = 0,
+    left = 0,
+    top = 0;
   for (let y = 0; y < h; y += 1) {
-    const y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
+    const y0 = Math.max(0, y - r),
+      y1 = Math.min(h, y + r + 1);
     for (let x = 0; x < w; x += 1) {
-      const x0 = Math.max(0, x - r), x1 = Math.min(w, x + r + 1);
+      const x0 = Math.max(0, x - r),
+        x1 = Math.min(w, x + r + 1);
       const n = (y1 - y0) * (x1 - x0);
       const local = (sum[y1 * stride + x1] - sum[y0 * stride + x1] - sum[y1 * stride + x0] + sum[y0 * stride + x0]) / n;
       const v = gray[y * w + x];
       const weight = (1 - lambda) * Math.abs(v - median) + lambda * Math.abs(v - local);
-      total += weight; sx += weight * (x + 0.5); sy += weight * (y + 0.5);
+      total += weight;
+      sx += weight * (x + 0.5);
+      sy += weight * (y + 0.5);
       if (x + 0.5 < w / 2) left += weight;
       if (y + 0.5 < h / 2) top += weight;
     }
   }
   if (!total) return null;
-  const cx = sx / total, cy = sy / total;
+  const cx = sx / total,
+    cy = sy / total;
   const centered = 1 - Math.sqrt(((cx - w / 2) / (w / 2)) ** 2 + ((cy - h / 2) / (h / 2)) ** 2) / Math.SQRT2;
   const leftRight = 1 - Math.abs(2 * left - total) / total;
   const topBottom = 1 - Math.abs(2 * top - total) / total;
   const clamp = (v) => Number(Math.min(1, Math.max(0, v)).toFixed(2));
-  return { centered: clamp(centered), leftRight: clamp(leftRight), topBottom: clamp(topBottom), score: clamp((centered + leftRight + topBottom) / 3) };
+  return {
+    centered: clamp(centered),
+    leftRight: clamp(leftRight),
+    topBottom: clamp(topBottom),
+    score: clamp((centered + leftRight + topBottom) / 3),
+  };
 }
 
 // Every rendered page of a deck (contact sheets unfolded to their pages) → Map page → { air, balance, colour }.

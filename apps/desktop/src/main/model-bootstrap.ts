@@ -7,9 +7,7 @@ import type { SessionSnapshot } from '../shared/contract';
 import { mixdogConfigPath } from './onboarding-status-file';
 
 function record(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 function selectedPreset(agent: Record<string, unknown>): Record<string, unknown> | null {

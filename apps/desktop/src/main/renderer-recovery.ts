@@ -1,42 +1,37 @@
 const RECOVERY_WINDOW_MS = 60_000;
 const AUTO_RELOAD_LIMIT = 2;
-const RECOVERABLE_REASONS = new Set([
-  "abnormal-exit",
-  "crashed",
-  "oom",
-  "launch-failed",
-  "integrity-failure",
-]);
+const RECOVERABLE_REASONS = new Set(['abnormal-exit', 'crashed', 'oom', 'launch-failed', 'integrity-failure']);
 
 export interface RendererRecoveryDecision {
   failures: number[];
-  action: "none" | "reload" | "prompt";
+  action: 'none' | 'reload' | 'prompt';
 }
 
 export function rendererRecoveryDecision(
   previousFailures: readonly number[],
   reason: string,
-  now = Date.now(),
+  now = Date.now()
 ): RendererRecoveryDecision {
-  const failures = previousFailures.filter((at) =>
-    Number.isFinite(at) && now >= at && now - at < RECOVERY_WINDOW_MS);
-  if (!RECOVERABLE_REASONS.has(reason)) return { failures, action: "none" };
+  const failures = previousFailures.filter((at) => Number.isFinite(at) && now >= at && now - at < RECOVERY_WINDOW_MS);
+  if (!RECOVERABLE_REASONS.has(reason)) return { failures, action: 'none' };
   failures.push(now);
   return {
     failures,
-    action: failures.length <= AUTO_RELOAD_LIMIT ? "reload" : "prompt",
+    action: failures.length <= AUTO_RELOAD_LIMIT ? 'reload' : 'prompt',
   };
 }
 
 function token(value: unknown, fallback: string, limit = 80): string {
-  const normalized = String(value || "").replace(/[^A-Za-z0-9_.:-]/g, "").slice(0, limit);
+  const normalized = String(value || '')
+    .replace(/[^A-Za-z0-9_.:-]/g, '')
+    .slice(0, limit);
   return normalized || fallback;
 }
 
 function sourceName(value: unknown): string {
-  const text = String(value || "").split(/[?#]/, 1)[0];
-  const name = text.split(/[\\/]/).at(-1) || "";
-  return token(name, "", 120);
+  const text = String(value || '').split(/[?#]/, 1)[0];
+  const name = text.split(/[\\/]/).at(-1) || '';
+  return token(name, '', 120);
 }
 
 function boundedCoordinate(value: unknown): number | undefined {
@@ -46,38 +41,30 @@ function boundedCoordinate(value: unknown): number | undefined {
 }
 
 function componentToken(value: unknown): string {
-  const text = String(value || "").trim();
-  return /^[A-Za-z][A-Za-z0-9_.$:-]{0,79}$/.test(text) ? text : "";
+  const text = String(value || '').trim();
+  return /^[A-Za-z][A-Za-z0-9_.$:-]{0,79}$/.test(text) ? text : '';
 }
 
 /** Free text a user already read on screen. Control characters and runaway
  *  length are the only real risks, so both are bounded and nothing else is. */
 function noticeMessage(value: unknown): string {
-  return String(value || "")
-    .replace(/[\u0000-\u001f\u007f]+/g, " ")
-    .replace(/\s+/g, " ")
+  return String(value || '')
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 300);
 }
 
 export function normalizeRendererDiagnostic(input: unknown): Record<string, unknown> {
-  const record = input && typeof input === "object"
-    ? input as Record<string, unknown>
-    : {};
-  const allowedPhases = new Set([
-    "boundary",
-    "window-error",
-    "unhandled-rejection",
-    "notice",
-    "console",
-  ]);
-  const phase = allowedPhases.has(String(record.phase)) ? String(record.phase) : "unknown";
+  const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  const allowedPhases = new Set(['boundary', 'window-error', 'unhandled-rejection', 'notice', 'console']);
+  const phase = allowedPhases.has(String(record.phase)) ? String(record.phase) : 'unknown';
   const details: Record<string, unknown> = {
     phase,
-    errorName: token(record.errorName, "Unknown"),
-    fingerprint: /^[a-f0-9]{8}$/i.test(String(record.fingerprint || ""))
+    errorName: token(record.errorName, 'Unknown'),
+    fingerprint: /^[a-f0-9]{8}$/i.test(String(record.fingerprint || ''))
       ? String(record.fingerprint).toLowerCase()
-      : "00000000",
+      : '00000000',
   };
   const source = sourceName(record.source);
   const line = boundedCoordinate(record.line);
@@ -93,7 +80,7 @@ export function normalizeRendererDiagnostic(input: unknown): Record<string, unkn
   if (column !== undefined) details.column = column;
   // A crash report is identified by its fingerprint; a notice is only useful
   // if the sentence the user saw survives with it.
-  if (phase === "notice" || phase === "console") {
+  if (phase === 'notice' || phase === 'console') {
     const message = noticeMessage(record.message);
     if (message) details.message = message;
   }
@@ -101,10 +88,8 @@ export function normalizeRendererDiagnostic(input: unknown): Record<string, unkn
 }
 
 export function normalizeRendererLongTaskDiagnostic(input: unknown): Record<string, unknown> | null {
-  const record = input && typeof input === "object"
-    ? input as Record<string, unknown>
-    : {};
-  if (record.kind !== "long-task") return null;
+  const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  if (record.kind !== 'long-task') return null;
   const durationMs = Number(record.durationMs);
   if (!Number.isFinite(durationMs) || durationMs < 50) return null;
   return {
@@ -113,17 +98,20 @@ export function normalizeRendererLongTaskDiagnostic(input: unknown): Record<stri
 }
 
 export function normalizeRendererComposerActionDiagnostic(input: unknown): Record<string, unknown> | null {
-  const record = input && typeof input === "object"
-    ? input as Record<string, unknown>
-    : {};
-  if (record.kind !== "composer-action") return null;
-  const actions = new Set(["submit", "restore-queue"]);
+  const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  if (record.kind !== 'composer-action') return null;
+  const actions = new Set(['submit', 'restore-queue']);
   const sources = new Set([
-    "keyboard-enter", "form-submit", "slash-keyboard", "slash-click",
-    "escape", "arrow-up", "queue-row",
+    'keyboard-enter',
+    'form-submit',
+    'slash-keyboard',
+    'slash-click',
+    'escape',
+    'arrow-up',
+    'queue-row',
   ]);
-  const action = String(record.action || "");
-  const source = String(record.source || "");
+  const action = String(record.action || '');
+  const source = String(record.source || '');
   if (!actions.has(action) || !sources.has(source)) return null;
   const metric = (value: unknown, max: number) => {
     const numeric = Number(value);

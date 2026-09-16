@@ -21,10 +21,17 @@ function runNode(args, label, options = {}) {
 
 runNode(['src/cli.mjs', '--help'], 'help smoke');
 
-runNode(['--input-type=module', '-e', `
+runNode(
+  [
+    '--input-type=module',
+    '-e',
+    `
   const mod = await import('./src/tui/dist/index.mjs');
   if (typeof mod.runTui !== 'function') throw new Error('runTui export missing');
-`], 'tui bundle import smoke');
+`,
+  ],
+  'tui bundle import smoke'
+);
 
 const boot = runNode(['src/cli.mjs', '--help'], 'boot profile smoke', {
   env: { MIXDOG_BOOT_PROFILE: '1' },

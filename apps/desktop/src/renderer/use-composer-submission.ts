@@ -1,4 +1,4 @@
-import { useCallback, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useCallback, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import type {
   DesktopAbortOptions,
   DesktopPastedText,
@@ -6,27 +6,21 @@ import type {
   DesktopPromptContent,
   DesktopRendererComposerActionDiagnostic,
   DesktopSubmitOptions,
-} from "../shared/contract";
-import { reportComposerAction } from "./composer-diagnostics";
+} from '../shared/contract';
+import { reportComposerAction } from './composer-diagnostics';
 import { skillTitle, withSelectedSkill } from './composer-skill';
-import type { RecordValue } from "./desktop-types";
-import { asRecord } from "./text-format";
-import {
-  hasSendablePromptContent,
-  shouldBlockPromptSubmit,
-} from "./renderer-logic.mjs";
-import { registerImagePreview } from "./transcript-metrics";
-import {
-  MAX_SUBMIT_TEXT_LENGTH,
-  type ComposerAttachment,
-} from "./composer-support";
+import type { RecordValue } from './desktop-types';
+import { asRecord } from './text-format';
+import { hasSendablePromptContent, shouldBlockPromptSubmit } from './renderer-logic.mjs';
+import { registerImagePreview } from './transcript-metrics';
+import { MAX_SUBMIT_TEXT_LENGTH, type ComposerAttachment } from './composer-support';
 import {
   nextComposerSubmissionId,
   rejectComposerSubmissionRecovery,
   resolveComposerSubmissionRecovery,
   retainComposerSubmissionRecovery,
   submissionRetryKey,
-} from "./composer-draft";
+} from './composer-draft';
 
 export function useComposerSubmission({
   turnBusy,
@@ -80,7 +74,10 @@ export function useComposerSubmission({
   setAttachmentError(message: string): void;
   removeAttachments(ids: Set<number>): void;
   mergeRestoredAttachments(restored: ComposerAttachment[], restoredText: string): string;
-  restoredAttachments(value: RecordValue, restoredText: string): {
+  restoredAttachments(
+    value: RecordValue,
+    restoredText: string
+  ): {
     attachments: ComposerAttachment[];
     text: string;
   };
@@ -92,237 +89,237 @@ export function useComposerSubmission({
   selectedSkill?: string;
   onSkillSubmitted?(name: string): void;
 }) {
-  const send = useCallback(async (
-    slashOverride = "",
-    source: DesktopRendererComposerActionDiagnostic["source"] = "form-submit",
-  ) => {
-    const submittedDraft = textarea.current?.value ?? draftRef.current;
-    const submittedAttachments = [...attachmentsRef.current];
-    const text = (slashOverride || submittedDraft).trim();
-    const serializedSubmit = Boolean(draftMode || text.startsWith("/"));
-    if (!hasSendablePromptContent({ text, attachments: submittedAttachments })
-      || transitioningRef.current || shouldBlockPromptSubmit({
-      submitting: submittingRef.current,
-      draftMode,
-      slashCommand: text.startsWith("/"),
-    })) return;
-    reportComposerAction({
-      kind: "composer-action",
-      action: "submit",
-      source,
-      turnBusy,
-      queueCount: Array.isArray(queued) ? queued.length : 0,
-      draftLength: text.length,
-      composing: composingRef.current,
-      uptimeMs: performance.now(),
-    });
-    if (serializedSubmit) {
-      submittingRef.current = true;
-      setSubmitting(true);
-    }
-    try {
-      clearNotice();
-      if (text.startsWith("/")) {
-        if (commandBusy) {
-          setAttachmentError("Wait for the current command to finish. Your command is still in the editor.");
+  const send = useCallback(
+    async (slashOverride = '', source: DesktopRendererComposerActionDiagnostic['source'] = 'form-submit') => {
+      const submittedDraft = textarea.current?.value ?? draftRef.current;
+      const submittedAttachments = [...attachmentsRef.current];
+      const text = (slashOverride || submittedDraft).trim();
+      const serializedSubmit = Boolean(draftMode || text.startsWith('/'));
+      if (
+        !hasSendablePromptContent({ text, attachments: submittedAttachments }) ||
+        transitioningRef.current ||
+        shouldBlockPromptSubmit({
+          submitting: submittingRef.current,
+          draftMode,
+          slashCommand: text.startsWith('/'),
+        })
+      )
+        return;
+      reportComposerAction({
+        kind: 'composer-action',
+        action: 'submit',
+        source,
+        turnBusy,
+        queueCount: Array.isArray(queued) ? queued.length : 0,
+        draftLength: text.length,
+        composing: composingRef.current,
+        uptimeMs: performance.now(),
+      });
+      if (serializedSubmit) {
+        submittingRef.current = true;
+        setSubmitting(true);
+      }
+      try {
+        clearNotice();
+        if (text.startsWith('/')) {
+          if (commandBusy) {
+            setAttachmentError('Wait for the current command to finish. Your command is still in the editor.');
+            return;
+          }
+          setDraft((current) => (current === submittedDraft ? '' : current));
+          removeAttachments(new Set(submittedAttachments.map((attachment) => attachment.id)));
+          historyNavigation.current = { index: -1, seed: '' };
+          const accepted = await executeSlash(text);
+          if (!accepted) {
+            setDraft((current) => (current ? current : submittedDraft));
+            mergeRestoredAttachments(submittedAttachments, submittedDraft);
+          } else {
+            rememberPrompt(text);
+          }
           return;
         }
-        setDraft((current) => current === submittedDraft ? "" : current);
-        removeAttachments(new Set(submittedAttachments.map((attachment) => attachment.id)));
-        historyNavigation.current = { index: -1, seed: "" };
-        const accepted = await executeSlash(text);
-        if (!accepted) {
-          setDraft((current) => current ? current : submittedDraft);
-          mergeRestoredAttachments(submittedAttachments, submittedDraft);
-        } else {
-          rememberPrompt(text);
-        }
-        return;
-      }
-      setAttachmentError("");
-      const base64Bytes = (data: string) => Math.floor((data.length * 3) / 4)
-        - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);
-      const chipOnlyTextTokens = submittedAttachments
-        .filter((attachment) => attachment.chipOnly === true && attachment.token
-          && !submittedDraft.includes(attachment.token))
-        .map((attachment) => attachment.token);
-      const expandedText = chipOnlyTextTokens.length
-        ? [submittedDraft.trim(), ...chipOnlyTextTokens].filter(Boolean).join("\n")
-        : submittedDraft;
-      const used = submittedAttachments.filter(
-        (attachment) => expandedText.includes(attachment.token),
-      );
-      const pastedImages: Record<string, DesktopPromptAttachment> = {};
-      const pastedTexts: Record<string, DesktopPastedText> = {};
-      for (const attachment of used) {
-        if (attachment.kind === "text") {
-          pastedTexts[String(attachment.id)] = {
-            id: attachment.id,
-            text: attachment.data,
-            filename: attachment.name,
-            mimeType: attachment.mimeType,
-            source: attachment.source || "file",
-          };
-        } else if (attachment.kind === "image") {
-          pastedImages[String(attachment.id)] = {
-            id: attachment.id,
-            type: "image",
-            sizeBytes: base64Bytes(attachment.data),
-            mediaType: attachment.mimeType,
-            filename: attachment.name,
-            ...(attachment.metadataText ? { metadataText: attachment.metadataText } : {}),
-          };
-        }
-      }
-      const imageAttachments = used.filter((attachment) => attachment.kind === "image");
-      const pdfAttachments = used.filter((attachment) => attachment.kind === "pdf");
-      for (const attachment of imageAttachments) {
-        registerImagePreview(
-          attachment.id,
-          base64Bytes(attachment.data),
-          `data:${attachment.mimeType};base64,${attachment.data}`,
-        );
-      }
-      if (expandedText.length > MAX_SUBMIT_TEXT_LENGTH) {
-        setAttachmentError(
-          "This prompt is too large to send. Remove or shorten an inline text attachment.",
-        );
-        return;
-      }
-      const content: DesktopPromptContent = imageAttachments.length || pdfAttachments.length
-        ? [
-          ...(expandedText ? [{ type: "text" as const, text: expandedText }] : []),
-          ...imageAttachments.flatMap((attachment) => [
-            ...(attachment.metadataText
-              ? [{ type: "text" as const, text: attachment.metadataText }]
-              : []),
-            {
-              type: "image" as const,
-              data: attachment.data,
+        setAttachmentError('');
+        const base64Bytes = (data: string) =>
+          Math.floor((data.length * 3) / 4) - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
+        const chipOnlyTextTokens = submittedAttachments
+          .filter(
+            (attachment) =>
+              attachment.chipOnly === true && attachment.token && !submittedDraft.includes(attachment.token)
+          )
+          .map((attachment) => attachment.token);
+        const expandedText = chipOnlyTextTokens.length
+          ? [submittedDraft.trim(), ...chipOnlyTextTokens].filter(Boolean).join('\n')
+          : submittedDraft;
+        const used = submittedAttachments.filter((attachment) => expandedText.includes(attachment.token));
+        const pastedImages: Record<string, DesktopPromptAttachment> = {};
+        const pastedTexts: Record<string, DesktopPastedText> = {};
+        for (const attachment of used) {
+          if (attachment.kind === 'text') {
+            pastedTexts[String(attachment.id)] = {
+              id: attachment.id,
+              text: attachment.data,
+              filename: attachment.name,
               mimeType: attachment.mimeType,
-            },
-          ]),
-          ...pdfAttachments.map((attachment) => ({
-            type: "file" as const,
-            data: attachment.data,
-            mimeType: attachment.mimeType,
-            filename: attachment.name,
-          })),
-        ]
-        : expandedText;
-      const committedAttachments = [...used];
-      const retryKey = submissionRetryKey(JSON.stringify([selectedSkill, expandedText]), committedAttachments);
-      const submittedDisplayText = [selectedSkill ? `[${skillTitle(selectedSkill)}]` : '', expandedText.trim()].filter(Boolean).join(' ');
-      const priorRetry = submissionRetryRef.current;
-      const submissionId = priorRetry?.key === retryKey
-        ? priorRetry.id
-        : nextComposerSubmissionId();
-      retainComposerSubmissionRecovery({
-        id: submissionId,
-        scope: recoveryScope,
-        text: submittedDraft,
-        attachments: committedAttachments,
-      });
-      setDraft((current) => current === submittedDraft ? "" : current);
-      removeAttachments(new Set(committedAttachments.map((attachment) => attachment.id)));
-      historyNavigation.current = { index: -1, seed: "" };
-      const restoreSubmitted = () => {
-        rejectComposerSubmissionRecovery(submissionId);
-        if (mountedRef.current) setSubmissionRecoveryVersion((current) => current + 1);
-      };
-      let accepted: unknown;
-      try {
-        accepted = await submit(withSelectedSkill(content, selectedSkill), {
+              source: attachment.source || 'file',
+            };
+          } else if (attachment.kind === 'image') {
+            pastedImages[String(attachment.id)] = {
+              id: attachment.id,
+              type: 'image',
+              sizeBytes: base64Bytes(attachment.data),
+              mediaType: attachment.mimeType,
+              filename: attachment.name,
+              ...(attachment.metadataText ? { metadataText: attachment.metadataText } : {}),
+            };
+          }
+        }
+        const imageAttachments = used.filter((attachment) => attachment.kind === 'image');
+        const pdfAttachments = used.filter((attachment) => attachment.kind === 'pdf');
+        for (const attachment of imageAttachments) {
+          registerImagePreview(
+            attachment.id,
+            base64Bytes(attachment.data),
+            `data:${attachment.mimeType};base64,${attachment.data}`
+          );
+        }
+        if (expandedText.length > MAX_SUBMIT_TEXT_LENGTH) {
+          setAttachmentError('This prompt is too large to send. Remove or shorten an inline text attachment.');
+          return;
+        }
+        const content: DesktopPromptContent =
+          imageAttachments.length || pdfAttachments.length
+            ? [
+                ...(expandedText ? [{ type: 'text' as const, text: expandedText }] : []),
+                ...imageAttachments.flatMap((attachment) => [
+                  ...(attachment.metadataText ? [{ type: 'text' as const, text: attachment.metadataText }] : []),
+                  {
+                    type: 'image' as const,
+                    data: attachment.data,
+                    mimeType: attachment.mimeType,
+                  },
+                ]),
+                ...pdfAttachments.map((attachment) => ({
+                  type: 'file' as const,
+                  data: attachment.data,
+                  mimeType: attachment.mimeType,
+                  filename: attachment.name,
+                })),
+              ]
+            : expandedText;
+        const committedAttachments = [...used];
+        const retryKey = submissionRetryKey(JSON.stringify([selectedSkill, expandedText]), committedAttachments);
+        const submittedDisplayText = [selectedSkill ? `[${skillTitle(selectedSkill)}]` : '', expandedText.trim()]
+          .filter(Boolean)
+          .join(' ');
+        const priorRetry = submissionRetryRef.current;
+        const submissionId = priorRetry?.key === retryKey ? priorRetry.id : nextComposerSubmissionId();
+        retainComposerSubmissionRecovery({
           id: submissionId,
-          ...(submittedDisplayText ? { displayText: submittedDisplayText } : {}),
-          ...(Object.keys(pastedImages).length ? { pastedImages } : {}),
-          ...(Object.keys(pastedTexts).length ? { pastedTexts } : {}),
+          scope: recoveryScope,
+          text: submittedDraft,
+          attachments: committedAttachments,
         });
+        setDraft((current) => (current === submittedDraft ? '' : current));
+        removeAttachments(new Set(committedAttachments.map((attachment) => attachment.id)));
+        historyNavigation.current = { index: -1, seed: '' };
+        const restoreSubmitted = () => {
+          rejectComposerSubmissionRecovery(submissionId);
+          if (mountedRef.current) setSubmissionRecoveryVersion((current) => current + 1);
+        };
+        let accepted: unknown;
+        try {
+          accepted = await submit(withSelectedSkill(content, selectedSkill), {
+            id: submissionId,
+            ...(submittedDisplayText ? { displayText: submittedDisplayText } : {}),
+            ...(Object.keys(pastedImages).length ? { pastedImages } : {}),
+            ...(Object.keys(pastedTexts).length ? { pastedTexts } : {}),
+          });
+        } catch (error) {
+          submissionRetryRef.current = { key: retryKey, id: submissionId };
+          restoreSubmitted();
+          throw error;
+        }
+        if (accepted === true) {
+          if (selectedSkill) onSkillSubmitted?.(selectedSkill);
+          resolveComposerSubmissionRecovery(submissionId);
+          if (submissionRetryRef.current?.id === submissionId) submissionRetryRef.current = null;
+          rememberPrompt(expandedText, committedAttachments);
+        } else {
+          submissionRetryRef.current = { key: retryKey, id: submissionId };
+          restoreSubmitted();
+        }
       } catch (error) {
-        submissionRetryRef.current = { key: retryKey, id: submissionId };
-        restoreSubmitted();
-        throw error;
+        setAttachmentError(
+          error instanceof Error && error.message
+            ? error.message
+            : 'The connection was interrupted. Your message has been kept for retry.'
+        );
+      } finally {
+        if (serializedSubmit) {
+          submittingRef.current = false;
+          setSubmitting(false);
+        }
       }
-      if (accepted === true) {
-        if (selectedSkill) onSkillSubmitted?.(selectedSkill);
-        resolveComposerSubmissionRecovery(submissionId);
-        if (submissionRetryRef.current?.id === submissionId) submissionRetryRef.current = null;
-        rememberPrompt(expandedText, committedAttachments);
-      } else {
-        submissionRetryRef.current = { key: retryKey, id: submissionId };
-        restoreSubmitted();
-      }
-    } catch (error) {
-      setAttachmentError(error instanceof Error && error.message
-        ? error.message
-        : "The connection was interrupted. Your message has been kept for retry.");
-    } finally {
-      if (serializedSubmit) {
-        submittingRef.current = false;
-        setSubmitting(false);
-      }
-    }
-  }, [
-    attachmentsRef,
-    clearNotice,
-    commandBusy,
-    composingRef,
-    draftMode,
-    draftRef,
-    executeSlash,
-    historyNavigation,
-    mergeRestoredAttachments,
-    mountedRef,
-    queued,
-    recoveryScope,
-    rememberPrompt,
-    removeAttachments,
-    setAttachmentError,
-    setDraft,
-    setSubmissionRecoveryVersion,
-    setSubmitting,
-    submissionRetryRef,
-    submit,
-    submittingRef,
-    textarea,
-    transitioningRef,
-    turnBusy,
-    selectedSkill,
-    onSkillSubmitted,
-  ]);
+    },
+    [
+      attachmentsRef,
+      clearNotice,
+      commandBusy,
+      composingRef,
+      draftMode,
+      draftRef,
+      executeSlash,
+      historyNavigation,
+      mergeRestoredAttachments,
+      mountedRef,
+      queued,
+      recoveryScope,
+      rememberPrompt,
+      removeAttachments,
+      setAttachmentError,
+      setDraft,
+      setSubmissionRecoveryVersion,
+      setSubmitting,
+      submissionRetryRef,
+      submit,
+      submittingRef,
+      textarea,
+      transitioningRef,
+      turnBusy,
+      selectedSkill,
+      onSkillSubmitted,
+    ]
+  );
 
-  const stop = useCallback(async (preserveDraft = false, submissionId = "") => {
-    const restorePrompt = submissionId ? !preserveDraft : false;
-    const result = asRecord(await abort({
-      restorePrompt,
-      ...(submissionId ? { submissionId } : {}),
-    }));
-    if (submissionId && (result?.aborted === true || result?.restoreText)) {
-      const restoredIds = Array.isArray(result.restoredSubmissionIds)
-        ? result.restoredSubmissionIds.map(String).filter(Boolean)
-        : [submissionId];
-      onQueuedRestored?.(restoredIds.length ? restoredIds : [submissionId]);
-    }
-    if (result?.restoreText) {
-      const restoredText = String(result.restoreText);
-      const restored = restoredAttachments(result, restoredText);
-      const acceptedText = mergeRestoredAttachments(restored.attachments, restored.text);
-      setDraft((current) => {
-        const next = [acceptedText, current].filter(Boolean).join("\n");
-        draftRef.current = next;
-        return next;
-      });
-      window.setTimeout(() => textarea.current?.focus(), 0);
-    }
-  }, [
-    abort,
-    draftRef,
-    mergeRestoredAttachments,
-    onQueuedRestored,
-    restoredAttachments,
-    setDraft,
-    textarea,
-  ]);
+  const stop = useCallback(
+    async (preserveDraft = false, submissionId = '') => {
+      const restorePrompt = submissionId ? !preserveDraft : false;
+      const result = asRecord(
+        await abort({
+          restorePrompt,
+          ...(submissionId ? { submissionId } : {}),
+        })
+      );
+      if (submissionId && (result?.aborted === true || result?.restoreText)) {
+        const restoredIds = Array.isArray(result.restoredSubmissionIds)
+          ? result.restoredSubmissionIds.map(String).filter(Boolean)
+          : [submissionId];
+        onQueuedRestored?.(restoredIds.length ? restoredIds : [submissionId]);
+      }
+      if (result?.restoreText) {
+        const restoredText = String(result.restoreText);
+        const restored = restoredAttachments(result, restoredText);
+        const acceptedText = mergeRestoredAttachments(restored.attachments, restored.text);
+        setDraft((current) => {
+          const next = [acceptedText, current].filter(Boolean).join('\n');
+          draftRef.current = next;
+          return next;
+        });
+        window.setTimeout(() => textarea.current?.focus(), 0);
+      }
+    },
+    [abort, draftRef, mergeRestoredAttachments, onQueuedRestored, restoredAttachments, setDraft, textarea]
+  );
 
   return { send, stop };
 }

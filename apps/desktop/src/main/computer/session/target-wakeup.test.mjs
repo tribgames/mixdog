@@ -3,7 +3,7 @@ import test from 'node:test';
 import { ComputerUseCoordinator } from './coordinator.ts';
 
 for (const withdrawal of ['cancel', 'timeout']) {
-  test(`target waiters wake when a lease-free predecessor leaves by ${withdrawal}`, async t => {
+  test(`target waiters wake when a lease-free predecessor leaves by ${withdrawal}`, async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const coordinator = new ComputerUseCoordinator({ targetLeaseGraceMs: 10000 });
     t.after(() => coordinator.reset());
@@ -16,6 +16,6 @@ for (const withdrawal of ['cancel', 'timeout']) {
     const result = await successor;
     assert.equal(result.status, 'acquired');
     assert.equal(result.queued, true, 'grant still requires fresh observation, not replay');
-    assert.equal(coordinator.snapshot().targetLeases.find(lease => lease.windowId === 'one').sessionId, 'owner');
+    assert.equal(coordinator.snapshot().targetLeases.find((lease) => lease.windowId === 'one').sessionId, 'owner');
   });
 }

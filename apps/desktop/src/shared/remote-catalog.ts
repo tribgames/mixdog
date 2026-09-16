@@ -8,7 +8,11 @@ export function createRemoteCatalog<T>() {
   let inFlight: Promise<T[] | null> | null = null;
   const listeners = new Set<(items: T[]) => void>();
   const notify = (listener: (items: T[]) => void, items: T[]): void => {
-    try { listener(items); } catch { /* One visual consumer cannot break delivery. */ }
+    try {
+      listener(items);
+    } catch {
+      /* One visual consumer cannot break delivery. */
+    }
   };
   const publish = (items: T[]): void => {
     revision += 1;
@@ -26,18 +30,23 @@ export function createRemoteCatalog<T>() {
     subscribe(listener: (items: T[]) => void): () => void {
       listeners.add(listener);
       if (rows !== null) notify(listener, rows);
-      return () => { listeners.delete(listener); };
+      return () => {
+        listeners.delete(listener);
+      };
     },
     read(load: () => Promise<T[]>): Promise<T[] | null> {
       if (rows !== null) return Promise.resolve(rows);
       if (inFlight) return inFlight;
       const started = revision;
-      const request = Promise.resolve().then(load).then((items) => {
-        if (revision === started) publish(items);
-        return rows;
-      }).finally(() => {
-        if (inFlight === request) inFlight = null;
-      });
+      const request = Promise.resolve()
+        .then(load)
+        .then((items) => {
+          if (revision === started) publish(items);
+          return rows;
+        })
+        .finally(() => {
+          if (inFlight === request) inFlight = null;
+        });
       inFlight = request;
       return request;
     },

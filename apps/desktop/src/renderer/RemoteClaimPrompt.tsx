@@ -1,18 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
-import type { DesktopRemoteClientClaim } from "../shared/contract";
-import { t } from "./i18n";
-import { ErrorNotice } from "./ErrorNotice";
-import {
-  enqueueRemoteClientClaim,
-  normalizeRemoteClientClaim,
-  pruneRemoteClientClaims,
-} from "./remote-claim-queue";
-import {
-  isRemoteClaimPromptActive,
-  subscribeRemoteClaimPromptActive,
-} from "./remote-claim-prompt-state";
+import type { DesktopRemoteClientClaim } from '../shared/contract';
+import { t } from './i18n';
+import { ErrorNotice } from './ErrorNotice';
+import { enqueueRemoteClientClaim, normalizeRemoteClientClaim, pruneRemoteClientClaims } from './remote-claim-queue';
+import { isRemoteClaimPromptActive, subscribeRemoteClaimPromptActive } from './remote-claim-prompt-state';
 
 // An installed web app runs in its own storage container: it reaches this
 // desktop with no credential and asks for one, and the answer here IS the
@@ -27,7 +20,7 @@ export function RemoteClaimPrompt() {
   const api = window.mixdogDesktop;
 
   useEffect(() => {
-    if (typeof api?.subscribeRemoteClientClaim !== "function") return undefined;
+    if (typeof api?.subscribeRemoteClientClaim !== 'function') return undefined;
     return api.subscribeRemoteClientClaim((claim) => {
       const normalized = normalizeRemoteClientClaim(claim);
       if (!normalized) return;
@@ -40,18 +33,25 @@ export function RemoteClaimPrompt() {
   useEffect(() => subscribeRemoteClaimPromptActive(setActive), []);
 
   useEffect(() => {
-    if (!active || typeof api?.listRemoteClientClaims !== "function") return undefined;
+    if (!active || typeof api?.listRemoteClientClaims !== 'function') return undefined;
     let live = true;
-    void api.listRemoteClientClaims()
+    void api
+      .listRemoteClientClaims()
       .then((claims) => {
         if (!live) return;
-        setQueue((current) => claims.reduce((next, value) => {
-          const normalized = normalizeRemoteClientClaim(value);
-          return normalized ? enqueueRemoteClientClaim(next, normalized) : next;
-        }, current));
+        setQueue((current) =>
+          claims.reduce((next, value) => {
+            const normalized = normalizeRemoteClientClaim(value);
+            return normalized ? enqueueRemoteClientClaim(next, normalized) : next;
+          }, current)
+        );
       })
-      .catch(() => { /* the live event path remains available */ });
-    return () => { live = false; };
+      .catch(() => {
+        /* the live event path remains available */
+      });
+    return () => {
+      live = false;
+    };
   }, [active, api]);
 
   const claim = queue[0];
@@ -75,18 +75,18 @@ export function RemoteClaimPrompt() {
   useEffect(() => {
     if (!claim) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || answeringRef.current) return;
+      if (event.key !== 'Escape' || answeringRef.current) return;
       event.preventDefault();
       void answer(false);
     };
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => document.removeEventListener("keydown", onKeyDown, true);
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
   });
 
   if (!claim || !active) return null;
 
   async function answer(approved: boolean): Promise<void> {
-    const claimId = claim?.claimId ?? "";
+    const claimId = claim?.claimId ?? '';
     const resolve = window.mixdogDesktop?.resolveRemoteClientClaim;
     if (!claimId || !resolve || answeringRef.current) return;
     if (claim.expiresAt <= Date.now()) {
@@ -114,26 +114,47 @@ export function RemoteClaimPrompt() {
     }
   }
 
-  const device = claim.name
-    || [claim.platform, claim.browser].filter(Boolean).join(" · ")
-    || t("this device");
+  const device = claim.name || [claim.platform, claim.browser].filter(Boolean).join(' · ') || t('this device');
 
-  return createPortal(<div className="settings-confirm-layer">
-    <section className="settings-confirm-dialog" role="alertdialog" aria-modal="true"
-      aria-labelledby="remote-claim-title" aria-describedby="remote-claim-description">
-      <header>
-        <h3 id="remote-claim-title">{t("Connect {{device}}?", { device })}</h3>
-      </header>
-      <p id="remote-claim-description">
-        {t("It is asking to use this desktop. Approve it only if you just opened Mixdog there.")}
-      </p>
-      {answerError?.claimId === claim.claimId && <ErrorNotice error={answerError.reason} />}
-      <footer>
-        <button type="button" disabled={answering}
-          onClick={() => { void answer(false); }}>{t("Deny")}</button>
-        <button type="button" className="primary" disabled={answering}
-          onClick={() => { void answer(true); }}>{t("Approve")}</button>
-      </footer>
-    </section>
-  </div>, document.body);
+  return createPortal(
+    <div className="settings-confirm-layer">
+      <section
+        className="settings-confirm-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="remote-claim-title"
+        aria-describedby="remote-claim-description"
+      >
+        <header>
+          <h3 id="remote-claim-title">{t('Connect {{device}}?', { device })}</h3>
+        </header>
+        <p id="remote-claim-description">
+          {t('It is asking to use this desktop. Approve it only if you just opened Mixdog there.')}
+        </p>
+        {answerError?.claimId === claim.claimId && <ErrorNotice error={answerError.reason} />}
+        <footer>
+          <button
+            type="button"
+            disabled={answering}
+            onClick={() => {
+              void answer(false);
+            }}
+          >
+            {t('Deny')}
+          </button>
+          <button
+            type="button"
+            className="primary"
+            disabled={answering}
+            onClick={() => {
+              void answer(true);
+            }}
+          >
+            {t('Approve')}
+          </button>
+        </footer>
+      </section>
+    </div>,
+    document.body
+  );
 }

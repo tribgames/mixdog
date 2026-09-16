@@ -15,8 +15,7 @@ test('unchanged list publications send nothing and the next real patch still dec
   const next = [{ ...rows[0], working: true }];
   assert.deepEqual(decoder.decode(transmitted(encoder.encode(next))), { ok: true, items: next });
   encoder.reset();
-  assert.deepEqual(createKeyedListDeltaDecoder().decode(transmitted(encoder.encode(next))),
-    { ok: true, items: next });
+  assert.deepEqual(createKeyedListDeltaDecoder().decode(transmitted(encoder.encode(next))), { ok: true, items: next });
 });
 
 test('a reused row mutated in place is compared with the transmitted value', () => {

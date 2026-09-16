@@ -20,10 +20,7 @@ function pendingRevision(session) {
 
 export function markPendingGoalReminder(session, reason = 'compaction') {
   if (!session || typeof session !== 'object') return null;
-  const revision = Math.max(
-    pendingRevision(session),
-    Math.max(0, Number(session.goalReminderRevision) || 0),
-  ) + 1;
+  const revision = Math.max(pendingRevision(session), Math.max(0, Number(session.goalReminderRevision) || 0)) + 1;
   session.goalReminderRevision = revision;
   session.pendingGoalReminder = {
     version: 1,
@@ -42,18 +39,17 @@ export function clearPendingGoalReminder(session) {
   return true;
 }
 
-export function snapshotPendingGoalReminder(session, {
-  dataDir = null, readGoal = null, includePaused = false,
-} = {}) {
+export function snapshotPendingGoalReminder(session, { dataDir = null, readGoal = null, includePaused = false } = {}) {
   let revision = pendingRevision(session);
   if (!revision && !includePaused) return null;
   const sessionId = clean(session?.id);
   if (!sessionId) return null;
   let goal = null;
   try {
-    goal = typeof readGoal === 'function'
-      ? readGoal(sessionId)
-      : readStoredGoalSnapshot({ dataDir: clean(dataDir) || resolvePluginData(), sessionId });
+    goal =
+      typeof readGoal === 'function'
+        ? readGoal(sessionId)
+        : readStoredGoalSnapshot({ dataDir: clean(dataDir) || resolvePluginData(), sessionId });
   } catch {
     goal = null;
   }

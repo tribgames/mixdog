@@ -37,16 +37,42 @@ test('the brief names its facts mode and the author gate mirrors the fact review
       { index: 2, shapes: [{ text: 'Q3 2024 review' }, { placeholder: true, text: '99 placeholder' }] },
     ],
   };
-  assert.deepEqual(factsGate(document, none), { blocked: true, code: 'facts_missing', slides: [{ slide: 1, figures: ['47%', '12%'] }] });
-  assert.deepEqual(factsGate(document, sourced), { blocked: true, code: 'number_without_fact', slides: [{ slide: 1, figures: ['12%'] }] });
-  assert.deepEqual(factsGate(document, parseAuthoringBrief('// BRIEF\n// facts: F1 47% — user brief · F2 12% — user brief\n')), { blocked: false });
+  assert.deepEqual(factsGate(document, none), {
+    blocked: true,
+    code: 'facts_missing',
+    slides: [{ slide: 1, figures: ['47%', '12%'] }],
+  });
+  assert.deepEqual(factsGate(document, sourced), {
+    blocked: true,
+    code: 'number_without_fact',
+    slides: [{ slide: 1, figures: ['12%'] }],
+  });
+  assert.deepEqual(
+    factsGate(document, parseAuthoringBrief('// BRIEF\n// facts: F1 47% — user brief · F2 12% — user brief\n')),
+    { blocked: false }
+  );
   assert.deepEqual(factsGate(document, sample), { blocked: false });
   assert.deepEqual(factsGate(document, parseAuthoringBrief('const deckWithoutBrief = 1;')), { blocked: false });
-  assert.deepEqual(factsGate({ slides: [{ index: 1, shapes: [{ text: 'No figures here' }] }] }, none), { blocked: false });
+  assert.deepEqual(factsGate({ slides: [{ index: 1, shapes: [{ text: 'No figures here' }] }] }, none), {
+    blocked: false,
+  });
   // A dateline is chrome: the dotted year-month(-day) of Korean and Japanese decks passes like the hyphenated one; a decimal that only looks like one is still a figure.
-  assert.deepEqual(factsGate({ slides: [{ index: 1, shapes: [{ text: '2026.09 · 운영 보고' }, { text: '2026.09.12 기준 · 2026-09' }] }] }, sourced), { blocked: false });
-  assert.deepEqual(factsGate({ slides: [{ index: 1, shapes: [{ text: '2026.5 배' }] }] }, sourced), { blocked: true, code: 'number_without_fact', slides: [{ slide: 1, figures: ['2026.5'] }] });
-  assert.deepEqual(reviewFactCoverage(document, sample).map((issue) => [issue.code, issue.severity]), [['facts_illustrative', 'info']]);
+  assert.deepEqual(
+    factsGate(
+      { slides: [{ index: 1, shapes: [{ text: '2026.09 · 운영 보고' }, { text: '2026.09.12 기준 · 2026-09' }] }] },
+      sourced
+    ),
+    { blocked: false }
+  );
+  assert.deepEqual(factsGate({ slides: [{ index: 1, shapes: [{ text: '2026.5 배' }] }] }, sourced), {
+    blocked: true,
+    code: 'number_without_fact',
+    slides: [{ slide: 1, figures: ['2026.5'] }],
+  });
+  assert.deepEqual(
+    reviewFactCoverage(document, sample).map((issue) => [issue.code, issue.severity]),
+    [['facts_illustrative', 'info']]
+  );
 
   // The gate compared a figure with the fact's whole value as a string, so a
   // slide could show 42 because a fact carried 84,200, and 96 because another
@@ -54,22 +80,28 @@ test('the brief names its facts mode and the author gate mirrors the fact review
   const table = {
     slides: [{ index: 1, shapes: [{ text: '대전 128,400 92.8% 96 · 광주 84,200 96.1% 42' }] }],
   };
-  const listed = parseAuthoringBrief('// BRIEF\n// facts: F1 처리량 128,400 84,200 — 시트 B4 · F2 정시 출고율 92.8% 96.1% — 시트 B5\n');
+  const listed = parseAuthoringBrief(
+    '// BRIEF\n// facts: F1 처리량 128,400 84,200 — 시트 B4 · F2 정시 출고율 92.8% 96.1% — 시트 B5\n'
+  );
   assert.deepEqual(factsGate(table, listed), {
     blocked: true,
     code: 'number_without_fact',
     slides: [{ slide: 1, figures: ['96', '42'] }],
   });
   // Every value of a series fact covers the figure it states, whatever its form.
-  const covered = parseAuthoringBrief('// BRIEF\n// facts: F1 처리량 128,400 84,200 — 시트 B4 · F2 정시 출고율 92.8% 96.1% — 시트 B5'
-    + ' · F3 지연 건수 96 42 — 시트 B6\n');
+  const covered = parseAuthoringBrief(
+    '// BRIEF\n// facts: F1 처리량 128,400 84,200 — 시트 B4 · F2 정시 출고율 92.8% 96.1% — 시트 B5' +
+      ' · F3 지연 건수 96 42 — 시트 B6\n'
+  );
   assert.deepEqual(factsGate(table, covered), { blocked: false });
 });
 
 test('author refuses to land a deck whose figures have no fact and leaves the previous deck untouched', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'gated.pptx');
-  const refused = value(await executeOfficeTool({ action: 'author', path, script: deck(), mode: 'portable', render: false }, { cwd }));
+  const refused = value(
+    await executeOfficeTool({ action: 'author', path, script: deck(), mode: 'portable', render: false }, { cwd })
+  );
   assert.equal(refused.ok, false);
   assert.equal(refused.reason, 'facts_gate');
   assert.equal(refused.gate.code, 'facts_missing');
@@ -79,18 +111,28 @@ test('author refuses to land a deck whose figures have no fact and leaves the pr
   await assert.rejects(access(path));
   assert.equal(documentSessions.has(documentSessionKey(path)), false);
 
-  const landed = value(await executeOfficeTool({ action: 'author', path, script: deck({ facts: 'F1 47% — user brief' }), mode: 'portable', render: false }, { cwd }));
+  const landed = value(
+    await executeOfficeTool(
+      { action: 'author', path, script: deck({ facts: 'F1 47% — user brief' }), mode: 'portable', render: false },
+      { cwd }
+    )
+  );
   assert.equal(landed.ok, true);
   assert.equal(landed.factsMode, undefined);
   assert.equal(landed.audit.status, 'pass', JSON.stringify(landed.audit));
 
-  const again = value(await executeOfficeTool({
-    action: 'author',
-    path,
-    script: deck({ facts: 'F1 47% — user brief', headline: 'Retention reached 47% while churn fell 12%' }),
-    mode: 'portable',
-    render: false,
-  }, { cwd }));
+  const again = value(
+    await executeOfficeTool(
+      {
+        action: 'author',
+        path,
+        script: deck({ facts: 'F1 47% — user brief', headline: 'Retention reached 47% while churn fell 12%' }),
+        mode: 'portable',
+        render: false,
+      },
+      { cwd }
+    )
+  );
   assert.equal(again.ok, false);
   assert.equal(again.gate.code, 'number_without_fact');
   assert.deepEqual(again.gate.slides, [{ slide: 1, figures: ['12%'] }]);
@@ -104,18 +146,26 @@ test('author refuses to land a deck whose figures have no fact and leaves the pr
 test('facts: sample lands the deck and carries its disclosure on author and qa', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'sample.pptx');
-  const landed = value(await executeOfficeTool({
-    action: 'author',
-    path,
-    script: deck({ facts: 'sample — projections not measured yet' }),
-    mode: 'portable',
-    render: false,
-  }, { cwd }));
+  const landed = value(
+    await executeOfficeTool(
+      {
+        action: 'author',
+        path,
+        script: deck({ facts: 'sample — projections not measured yet' }),
+        mode: 'portable',
+        render: false,
+      },
+      { cwd }
+    )
+  );
   assert.equal(landed.ok, true);
   assert.equal(landed.factsMode, 'sample');
   assert.match(landed.disclosure, /illustrative/);
   const reviewed = value(await executeOfficeTool({ action: 'qa', session: landed.session, render: false }, { cwd }));
   assert.equal(reviewed.factsMode, 'sample');
-  assert.ok(reviewed.issuesAfter.some((issue) => issue.code === 'facts_illustrative' && issue.severity === 'info'), JSON.stringify(reviewed.issuesAfter));
+  assert.ok(
+    reviewed.issuesAfter.some((issue) => issue.code === 'facts_illustrative' && issue.severity === 'info'),
+    JSON.stringify(reviewed.issuesAfter)
+  );
   assert.ok(!reviewed.issuesAfter.some((issue) => ['number_without_fact', 'facts_missing'].includes(issue.code)));
 });

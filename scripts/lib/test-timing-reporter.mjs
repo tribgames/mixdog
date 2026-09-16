@@ -28,11 +28,17 @@ export default async function* timingReporter(source) {
   const lines = [
     '',
     `slowest files (${files.length} files, ${(total / 1000).toFixed(1)}s file-time):`,
-    ...files.slice(0, TOP).map((entry) => `  ${String(Math.round(entry.ms)).padStart(7)}ms  ${entry.file}${entry.failed ? '  (failed)' : ''}`),
+    ...files
+      .slice(0, TOP)
+      .map(
+        (entry) => `  ${String(Math.round(entry.ms)).padStart(7)}ms  ${entry.file}${entry.failed ? '  (failed)' : ''}`
+      ),
   ];
   const slow = files.filter((entry) => entry.ms >= SLOW_HINT_MS && !/\.(?:slow|live)\.test\.mjs$/.test(entry.file));
   if (slow.length) {
-    lines.push(`  ${slow.length} file(s) over ${SLOW_HINT_MS / 1000}s in the default lane; rename to *.slow.test.mjs to move them out.`);
+    lines.push(
+      `  ${slow.length} file(s) over ${SLOW_HINT_MS / 1000}s in the default lane; rename to *.slow.test.mjs to move them out.`
+    );
   }
   yield `${lines.join('\n')}\n`;
 }

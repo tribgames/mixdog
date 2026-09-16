@@ -9,7 +9,8 @@ import { runComputerProbe } from '../host/fixtures/probe-runner.mjs';
 import { DEFAULT_CAPTURE_AFTER_DELAY_MS } from '../shared/common.ts';
 
 test('native step batching preserves guard order, post-input settling and failure without replay', {
-  skip: process.platform !== 'win32', timeout: 200_000,
+  skip: process.platform !== 'win32',
+  timeout: 200_000,
 }, async () => {
   const payload = await runComputerProbe(String.raw`
 $script:events = New-Object System.Collections.ArrayList
@@ -74,11 +75,14 @@ exit 0
 });
 
 test('resident backend phase measurements compare legacy and batched passive steps without touching input', {
-  skip: process.platform !== 'win32', timeout: 120_000,
+  skip: process.platform !== 'win32',
+  timeout: 120_000,
 }, async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-sequence-timing-'));
   const pool = createWorkerPool({
-    dataDirectory: () => directory, isBridgeEnabled: () => false, isDisposed: () => false,
+    dataDirectory: () => directory,
+    isBridgeEnabled: () => false,
+    isDisposed: () => false,
   });
   const session_id = 'sequence-timing';
   let requests = 0;
@@ -92,7 +96,10 @@ test('resident backend phase measurements compare legacy and batched passive ste
   try {
     const initial = await call({ action: 'window_snapshot', read_only: true });
     const window_id = initial.windows[0]?.id;
-    if (!window_id) { t.skip('no desktop window available for passive timing'); return; }
+    if (!window_id) {
+      t.skip('no desktop window available for passive timing');
+      return;
+    }
     const measurements = [];
     for (const duration of [0, 0.2]) {
       const legacy = [];
@@ -125,12 +132,15 @@ test('resident backend phase measurements compare legacy and batched passive ste
         }
       }
       measurements.push({
-        wait_ms: duration * 1000, samples: legacy.length,
-        legacy_requests_per_step: 3, batch_requests_per_step: 1,
+        wait_ms: duration * 1000,
+        samples: legacy.length,
+        legacy_requests_per_step: 3,
+        batch_requests_per_step: 1,
         legacy_median_ms: Number(median(legacy).toFixed(2)),
         batch_median_ms: Number(median(batch).toFixed(2)),
-        native_phases_median_ms: Object.fromEntries(Object.keys(phases[0])
-          .map((key) => [key, Number(median(phases.map((phase) => phase[key])).toFixed(2))])),
+        native_phases_median_ms: Object.fromEntries(
+          Object.keys(phases[0]).map((key) => [key, Number(median(phases.map((phase) => phase[key])).toFixed(2))])
+        ),
       });
     }
     // Timing is advisory, not an exact-speed assertion under shared-machine load.

@@ -24,25 +24,27 @@ export function installViewportGuard(window: BrowserWindow): void {
   let repairing = false;
 
   const mismatch = async (): Promise<boolean> => {
-    const [innerWidth, innerHeight] = await window.webContents.executeJavaScript(
+    const [innerWidth, innerHeight] = (await window.webContents.executeJavaScript(
       '[window.innerWidth, window.innerHeight]',
-      true,
-    ) as [number, number];
+      true
+    )) as [number, number];
     const bounds = window.getContentBounds();
     const zoom = window.webContents.getZoomFactor() || 1;
-    return Math.abs(innerWidth - bounds.width / zoom) > TOLERANCE_PX
-      || Math.abs(innerHeight - bounds.height / zoom) > TOLERANCE_PX;
+    return (
+      Math.abs(innerWidth - bounds.width / zoom) > TOLERANCE_PX ||
+      Math.abs(innerHeight - bounds.height / zoom) > TOLERANCE_PX
+    );
   };
 
   const check = async () => {
     timer = null;
     if (repairing || window.isDestroyed()) return;
     try {
-      if (!await mismatch()) return;
+      if (!(await mismatch())) return;
       // Debounce transient states (mid-resize, DPI change): only a mismatch
       // that SURVIVES a settle window is a stuck override.
       await new Promise((resolve) => setTimeout(resolve, RECHECK_DELAY_MS));
-      if (window.isDestroyed() || !await mismatch()) return;
+      if (window.isDestroyed() || !(await mismatch())) return;
       repairing = true;
       const dbg = window.webContents.debugger;
       const attached = dbg.isAttached();
@@ -51,7 +53,11 @@ export function installViewportGuard(window: BrowserWindow): void {
         await dbg.sendCommand('Emulation.clearDeviceMetricsOverride');
       } finally {
         if (!attached) {
-          try { dbg.detach(); } catch { /* already gone with the page */ }
+          try {
+            dbg.detach();
+          } catch {
+            /* already gone with the page */
+          }
         }
       }
       // A 1px native nudge forces a real layout pass even when Chromium

@@ -23,11 +23,7 @@ import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs
 import { OpenAICompatProvider } from './openai-compat.mjs';
 import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
-import {
-    decodeJwtPayload,
-    expiryFromAccessToken,
-    scrubOAuthSecrets,
-} from './lib/oauth-token-utils.mjs';
+import { decodeJwtPayload, expiryFromAccessToken, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
 
 // --- Constants ---
 // xAI's shared OAuth client. The consent screen renders this as "Grok Build".
@@ -63,48 +59,48 @@ const GROK_CLI_VERSION_FALLBACK = '0.2.16';
 // on api.x.ai, so we match grok-build exactly rather than by prefix.
 const PROXY_EXACT_MODELS = new Set(['grok-build']);
 export function isProxyOnlyModel(model) {
-    const m = String(model || '');
-    return /^grok-composer/i.test(m) || PROXY_EXACT_MODELS.has(m);
+  const m = String(model || '');
+  return /^grok-composer/i.test(m) || PROXY_EXACT_MODELS.has(m);
 }
 
 // Use a Mixdog-controlled client version for the proxy version gate.
 let _grokCliVersionCache = null;
 function grokCliVersion() {
-    if (_grokCliVersionCache) return _grokCliVersionCache;
-    _grokCliVersionCache = String(process.env.MIXDOG_GROK_CLIENT_VERSION || '').trim() || GROK_CLI_VERSION_FALLBACK;
-    return _grokCliVersionCache;
+  if (_grokCliVersionCache) return _grokCliVersionCache;
+  _grokCliVersionCache = String(process.env.MIXDOG_GROK_CLIENT_VERSION || '').trim() || GROK_CLI_VERSION_FALLBACK;
+  return _grokCliVersionCache;
 }
 
 // Headers the Grok CLI sends to clear the proxy version gate — extracted from
 // the grok binary: x-grok-client-version (the actual 426 gate),
 // x-grok-client-identifier, and a matching User-Agent.
 export function proxyHeaders({ model, sendOpts, userId } = {}) {
-    const v = grokCliVersion();
-    const headers = {
-        'x-grok-client-version': v,
-        'x-grok-client-identifier': GROK_CLIENT_IDENTIFIER,
-        'User-Agent': `xai-grok-build/${v}`,
-    };
-    const sessionId = String(sendOpts?.sessionId || sendOpts?.session?.id || '').trim();
-    const requestId = String(sendOpts?.requestId || '').trim() || (sendOpts ? randomUUID() : '');
-    const turnIndex = sendOpts?.iteration;
-    // Mixdog has an authoritative session id but no distinct Grok conversation
-    // id. Do not synthesize the latter from the former.
-    if (sessionId) headers['x-grok-session-id'] = sessionId;
-    if (requestId) headers['x-grok-req-id'] = requestId;
-    if (model) headers['x-grok-model-override'] = String(model);
-    if (turnIndex != null && Number.isFinite(Number(turnIndex))) {
-        headers['x-grok-turn-idx'] = String(turnIndex);
-    }
-    if (userId) headers['x-grok-user-id'] = String(userId);
-    return headers;
+  const v = grokCliVersion();
+  const headers = {
+    'x-grok-client-version': v,
+    'x-grok-client-identifier': GROK_CLIENT_IDENTIFIER,
+    'User-Agent': `xai-grok-build/${v}`,
+  };
+  const sessionId = String(sendOpts?.sessionId || sendOpts?.session?.id || '').trim();
+  const requestId = String(sendOpts?.requestId || '').trim() || (sendOpts ? randomUUID() : '');
+  const turnIndex = sendOpts?.iteration;
+  // Mixdog has an authoritative session id but no distinct Grok conversation
+  // id. Do not synthesize the latter from the former.
+  if (sessionId) headers['x-grok-session-id'] = sessionId;
+  if (requestId) headers['x-grok-req-id'] = requestId;
+  if (model) headers['x-grok-model-override'] = String(model);
+  if (turnIndex != null && Number.isFinite(Number(turnIndex))) {
+    headers['x-grok-turn-idx'] = String(turnIndex);
+  }
+  if (userId) headers['x-grok-user-id'] = String(userId);
+  return headers;
 }
 
 export function resolveGrokOAuthResponsesTransport() {
-    // The OAuth bearer is session auth and must never escape to api.x.ai.
-    // Mixdog's xAI WebSocket connector has a fixed api.x.ai endpoint, so OAuth
-    // inference is pinned to the proxy's reference HTTP/SSE transport.
-    return 'http';
+  // The OAuth bearer is session auth and must never escape to api.x.ai.
+  // Mixdog's xAI WebSocket connector has a fixed api.x.ai endpoint, so OAuth
+  // inference is pinned to the proxy's reference HTTP/SSE transport.
+  return 'http';
 }
 
 // Retired model aliases xAI no longer exposes by their old ids. The live
@@ -125,71 +121,71 @@ export const LOGIN_TIMEOUT_MS = 5 * 60_000;
 // anything else outright so a hostile discovery response can't redirect the
 // token / refresh request.
 function assertTrustedXaiEndpoint(endpoint, label) {
-    let url;
-    try {
-        url = new URL(String(endpoint));
-    } catch {
-        throw new Error(`[grok-oauth] invalid ${label}: ${endpoint}`);
-    }
-    const host = url.hostname.toLowerCase();
-    if (url.protocol !== 'https:' || (host !== 'x.ai' && !host.endsWith('.x.ai'))) {
-        throw new Error(`[grok-oauth] untrusted ${label}: ${endpoint}`);
-    }
-    return url.toString();
+  let url;
+  try {
+    url = new URL(String(endpoint));
+  } catch {
+    throw new Error(`[grok-oauth] invalid ${label}: ${endpoint}`);
+  }
+  const host = url.hostname.toLowerCase();
+  if (url.protocol !== 'https:' || (host !== 'x.ai' && !host.endsWith('.x.ai'))) {
+    throw new Error(`[grok-oauth] untrusted ${label}: ${endpoint}`);
+  }
+  return url.toString();
 }
 
 let _discoveryCache = null;
 export async function fetchDiscovery() {
-    if (_discoveryCache) return _discoveryCache;
-    const timeout = createTimeoutSignal(null, DISCOVERY_TIMEOUT_MS, 'grok-oauth discovery');
-    try {
-        const res = await fetch(DISCOVERY_URL, {
-            headers: { Accept: 'application/json' },
-            // No redirect-following: the discovery doc is a fixed well-known URL.
-            // A 3xx could bounce the request to an untrusted host before the
-            // endpoint trust checks below ever run.
-            redirect: 'error',
-            signal: timeout.signal,
-            dispatcher: getLlmDispatcher(),
-        });
-        if (!res.ok) throw new Error(`discovery ${res.status}`);
-        const j = await res.json();
-        const discovery = {
-            authorization_endpoint: assertTrustedXaiEndpoint(j?.authorization_endpoint, 'authorization endpoint'),
-            token_endpoint: assertTrustedXaiEndpoint(j?.token_endpoint, 'token endpoint'),
-        };
-        _discoveryCache = discovery;
-        return discovery;
-    } finally {
-        timeout.cleanup();
-    }
+  if (_discoveryCache) return _discoveryCache;
+  const timeout = createTimeoutSignal(null, DISCOVERY_TIMEOUT_MS, 'grok-oauth discovery');
+  try {
+    const res = await fetch(DISCOVERY_URL, {
+      headers: { Accept: 'application/json' },
+      // No redirect-following: the discovery doc is a fixed well-known URL.
+      // A 3xx could bounce the request to an untrusted host before the
+      // endpoint trust checks below ever run.
+      redirect: 'error',
+      signal: timeout.signal,
+      dispatcher: getLlmDispatcher(),
+    });
+    if (!res.ok) throw new Error(`discovery ${res.status}`);
+    const j = await res.json();
+    const discovery = {
+      authorization_endpoint: assertTrustedXaiEndpoint(j?.authorization_endpoint, 'authorization endpoint'),
+      token_endpoint: assertTrustedXaiEndpoint(j?.token_endpoint, 'token endpoint'),
+    };
+    _discoveryCache = discovery;
+    return discovery;
+  } finally {
+    timeout.cleanup();
+  }
 }
 
 // --- Token store ---
 export function getOwnTokenPath() {
-    const bound = boundProviderAuthPath('grok-oauth');
-    if (bound) return resolve(bound);
-    const explicit = process.env.GROK_OAUTH_CREDENTIALS_PATH;
-    if (explicit) return resolve(explicit);
-    const dir = getPluginData();
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    return join(dir, 'grok-oauth.json');
+  const bound = boundProviderAuthPath('grok-oauth');
+  if (bound) return resolve(bound);
+  const explicit = process.env.GROK_OAUTH_CREDENTIALS_PATH;
+  if (explicit) return resolve(explicit);
+  const dir = getPluginData();
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return join(dir, 'grok-oauth.json');
 }
 
 export function getRefreshLockPath() {
-    return `${getOwnTokenPath()}.refresh.lock`;
+  return `${getOwnTokenPath()}.refresh.lock`;
 }
 
 // expires_at may arrive as a unix number or an ISO-8601 string. Normalize both
 // to epoch milliseconds; 0 means unknown.
 export function _normalizeExpiresAt(value) {
-    if (typeof value === 'string') {
-        const ms = Date.parse(value);
-        return Number.isFinite(ms) ? ms : 0;
-    }
-    const n = Number(value || 0);
-    if (!Number.isFinite(n) || n <= 0) return 0;
-    return n < 1e12 ? n * 1000 : n;
+  if (typeof value === 'string') {
+    const ms = Date.parse(value);
+    return Number.isFinite(ms) ? ms : 0;
+  }
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n < 1e12 ? n * 1000 : n;
 }
 
 // Fallback expiry from the access_token's JWT `exp` claim (epoch ms) when the
@@ -199,243 +195,305 @@ export function _normalizeExpiresAt(value) {
 const _expiryFromAccessToken = expiryFromAccessToken;
 
 export function _identityFromAccessToken(token) {
-    const payload = decodeJwtPayload(token);
-    if (!payload) return {};
-    const principalId = payload.principal_id || payload.principalId || '';
-    const principalType = payload.principal_type || payload.principalType || '';
-    const userId = payload.user_id || payload.userId || principalId || payload.sub || '';
-    return {
-        ...(userId ? { user_id: String(userId) } : {}),
-        ...(principalType ? { principal_type: String(principalType) } : {}),
-        ...(principalId ? { principal_id: String(principalId) } : {}),
-    };
+  const payload = decodeJwtPayload(token);
+  if (!payload) return {};
+  const principalId = payload.principal_id || payload.principalId || '';
+  const principalType = payload.principal_type || payload.principalType || '';
+  const userId = payload.user_id || payload.userId || principalId || payload.sub || '';
+  return {
+    ...(userId ? { user_id: String(userId) } : {}),
+    ...(principalType ? { principal_type: String(principalType) } : {}),
+    ...(principalId ? { principal_id: String(principalId) } : {}),
+  };
 }
 
 export function _mtimeMs(path) {
-    try { return statSync(path).mtimeMs; } catch { return 0; }
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
+  }
 }
 
 // mixdog's own login store (grok-oauth.json). Single writer, accurate
 // numeric expires_at from refresh.
 export function _loadOwnTokens() {
-    const path = getOwnTokenPath();
-    if (!existsSync(path)) return null;
-    try {
-        const raw = JSON.parse(readFileSync(path, 'utf-8'));
-        if (!raw?.access_token || !raw?.refresh_token) return null;
-        const identity = _identityFromAccessToken(raw.access_token);
-        return {
-            access_token: raw.access_token,
-            refresh_token: raw.refresh_token,
-            expires_at: _normalizeExpiresAt(raw.expires_at ?? raw.expiresAt) || _expiryFromAccessToken(raw.access_token),
-            token_endpoint: raw.token_endpoint || null,
-            user_id: raw.user_id || raw.userId || identity.user_id || '',
-            principal_type: raw.principal_type || raw.principalType || identity.principal_type || '',
-            principal_id: raw.principal_id || raw.principalId || identity.principal_id || '',
-            source: 'own',
-            mtimeMs: _mtimeMs(path),
-        };
-    } catch { return null; }
+  const path = getOwnTokenPath();
+  if (!existsSync(path)) return null;
+  try {
+    const raw = JSON.parse(readFileSync(path, 'utf-8'));
+    if (!raw?.access_token || !raw?.refresh_token) return null;
+    const identity = _identityFromAccessToken(raw.access_token);
+    return {
+      access_token: raw.access_token,
+      refresh_token: raw.refresh_token,
+      expires_at: _normalizeExpiresAt(raw.expires_at ?? raw.expiresAt) || _expiryFromAccessToken(raw.access_token),
+      token_endpoint: raw.token_endpoint || null,
+      user_id: raw.user_id || raw.userId || identity.user_id || '',
+      principal_type: raw.principal_type || raw.principalType || identity.principal_type || '',
+      principal_id: raw.principal_id || raw.principalId || identity.principal_id || '',
+      source: 'own',
+      mtimeMs: _mtimeMs(path),
+    };
+  } catch {
+    return null;
+  }
 }
 
 // Mixdog-owned token store only.
 export function loadTokens() {
-    return _loadOwnTokens();
+  return _loadOwnTokens();
 }
 
 export function saveTokens(tokens) {
-    const identity = _identityFromAccessToken(tokens.access_token);
-    writeJsonAtomicSync(getOwnTokenPath(), {
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        expires_at: tokens.expires_at || 0,
-        token_endpoint: tokens.token_endpoint || null,
-        user_id: tokens.user_id || tokens.userId || identity.user_id || undefined,
-        principal_type: tokens.principal_type || tokens.principalType || identity.principal_type || undefined,
-        principal_id: tokens.principal_id || tokens.principalId || identity.principal_id || undefined,
-    }, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
+  const identity = _identityFromAccessToken(tokens.access_token);
+  writeJsonAtomicSync(
+    getOwnTokenPath(),
+    {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_at: tokens.expires_at || 0,
+      token_endpoint: tokens.token_endpoint || null,
+      user_id: tokens.user_id || tokens.userId || identity.user_id || undefined,
+      principal_type: tokens.principal_type || tokens.principalType || identity.principal_type || undefined,
+      principal_id: tokens.principal_id || tokens.principalId || identity.principal_id || undefined,
+    },
+    { lock: true, fsyncDir: true, mode: 0o600, secret: true }
+  );
 }
 
 export function _scrubTokens(text) {
-    return scrubOAuthSecrets(text);
+  return scrubOAuthSecrets(text);
 }
 
 // Public predicate used by config.buildDefaultConfig — enabled when Mixdog's
 // token store carries credentials. Single truth: same loader the runtime uses.
 export function hasGrokOAuthCredentials() {
-    try {
-        const tokens = loadTokens();
-        return !!(tokens?.access_token && tokens?.refresh_token);
-    } catch { return false; }
+  try {
+    const tokens = loadTokens();
+    return !!(tokens?.access_token && tokens?.refresh_token);
+  } catch {
+    return false;
+  }
 }
 
 export function describeGrokOAuthCredentials() {
-    try {
-        const tokens = loadTokens();
-        if (!tokens?.access_token) {
-            return { authenticated: false, usable: false, refreshable: false, reauthRequired: false, status: 'Not Set', detail: 'Mixdog token store' };
-        }
-        const hasRefresh = Boolean(tokens.refresh_token);
-        const expiresAt = _normalizeExpiresAt(tokens.expires_at);
-        const expiring = expiresAt > 0 && expiresAt < Date.now() + TOKEN_REFRESH_SKEW_MS;
-        const expired = expiresAt > 0 && expiresAt <= Date.now();
-        const detail = tokens.source === 'own' ? 'Mixdog token store' : (tokens.source || 'oauth');
-        if (!hasRefresh) {
-            return {
-                authenticated: expiresAt === 0 || !expired,
-                usable: expiresAt === 0 || !expired,
-                refreshable: false,
-                reauthRequired: expired,
-                status: expired ? 'Reauth Required' : 'Access Only',
-                detail: `${detail}; no refresh token`,
-                expiresAt,
-            };
-        }
-        if (expired) return { authenticated: true, usable: false, refreshable: true, reauthRequired: false, status: 'Refresh Required', detail, expiresAt };
-        if (expiring) return { authenticated: true, usable: true, refreshable: true, reauthRequired: false, status: 'Refresh Soon', detail, expiresAt };
-        return { authenticated: true, usable: true, refreshable: true, reauthRequired: false, status: 'Valid', detail, expiresAt };
-    } catch (err) {
-        return { authenticated: false, usable: false, refreshable: false, reauthRequired: false, status: 'Error', detail: String(err?.message || err).slice(0, 200) };
+  try {
+    const tokens = loadTokens();
+    if (!tokens?.access_token) {
+      return {
+        authenticated: false,
+        usable: false,
+        refreshable: false,
+        reauthRequired: false,
+        status: 'Not Set',
+        detail: 'Mixdog token store',
+      };
     }
+    const hasRefresh = Boolean(tokens.refresh_token);
+    const expiresAt = _normalizeExpiresAt(tokens.expires_at);
+    const expiring = expiresAt > 0 && expiresAt < Date.now() + TOKEN_REFRESH_SKEW_MS;
+    const expired = expiresAt > 0 && expiresAt <= Date.now();
+    const detail = tokens.source === 'own' ? 'Mixdog token store' : tokens.source || 'oauth';
+    if (!hasRefresh) {
+      return {
+        authenticated: expiresAt === 0 || !expired,
+        usable: expiresAt === 0 || !expired,
+        refreshable: false,
+        reauthRequired: expired,
+        status: expired ? 'Reauth Required' : 'Access Only',
+        detail: `${detail}; no refresh token`,
+        expiresAt,
+      };
+    }
+    if (expired)
+      return {
+        authenticated: true,
+        usable: false,
+        refreshable: true,
+        reauthRequired: false,
+        status: 'Refresh Required',
+        detail,
+        expiresAt,
+      };
+    if (expiring)
+      return {
+        authenticated: true,
+        usable: true,
+        refreshable: true,
+        reauthRequired: false,
+        status: 'Refresh Soon',
+        detail,
+        expiresAt,
+      };
+    return {
+      authenticated: true,
+      usable: true,
+      refreshable: true,
+      reauthRequired: false,
+      status: 'Valid',
+      detail,
+      expiresAt,
+    };
+  } catch (err) {
+    return {
+      authenticated: false,
+      usable: false,
+      refreshable: false,
+      reauthRequired: false,
+      status: 'Error',
+      detail: String(err?.message || err).slice(0, 200),
+    };
+  }
 }
 
 export function forgetGrokOAuthCredentials() {
-    let removed = false;
-    const ownPath = getOwnTokenPath();
-    if (existsSync(ownPath)) {
-        unlinkSync(ownPath);
-        removed = true;
-    }
-    return { removed };
+  let removed = false;
+  const ownPath = getOwnTokenPath();
+  if (existsSync(ownPath)) {
+    unlinkSync(ownPath);
+    removed = true;
+  }
+  return { removed };
 }
 
 const _refreshesInFlight = new Map();
-export function _getRefreshInFlight() { return _refreshesInFlight.get(getOwnTokenPath()) || null; }
+export function _getRefreshInFlight() {
+  return _refreshesInFlight.get(getOwnTokenPath()) || null;
+}
 export function _setRefreshInFlight(promise) {
-    const path = getOwnTokenPath();
-    if (promise) _refreshesInFlight.set(path, promise);
-    else _refreshesInFlight.delete(path);
-    return promise;
+  const path = getOwnTokenPath();
+  if (promise) _refreshesInFlight.set(path, promise);
+  else _refreshesInFlight.delete(path);
+  return promise;
 }
 async function _postRefresh(tokens) {
-    const tokenEndpoint = tokens.token_endpoint
-        ? assertTrustedXaiEndpoint(tokens.token_endpoint, 'token endpoint')
-        : (await fetchDiscovery()).token_endpoint;
-    const timeout = createTimeoutSignal(null, TOKEN_TIMEOUT_MS, 'grok-oauth refresh');
+  const tokenEndpoint = tokens.token_endpoint
+    ? assertTrustedXaiEndpoint(tokens.token_endpoint, 'token endpoint')
+    : (await fetchDiscovery()).token_endpoint;
+  const timeout = createTimeoutSignal(null, TOKEN_TIMEOUT_MS, 'grok-oauth refresh');
+  try {
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: CLIENT_ID,
+      refresh_token: tokens.refresh_token,
+    });
+    if (tokens.principal_type) body.set('principal_type', tokens.principal_type);
+    if (tokens.principal_id) body.set('principal_id', tokens.principal_id);
+    const res = await fetch(tokenEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+      // Never follow a redirect on a secret-bearing request: a trusted
+      // token endpoint that 307/308-redirects would replay the
+      // refresh_token to the redirect target. Fail loud instead.
+      redirect: 'error',
+      signal: timeout.signal,
+      dispatcher: getLlmDispatcher(),
+    });
+    const text = await res.text();
+    let json = null;
     try {
-        const body = new URLSearchParams({
-            grant_type: 'refresh_token',
-            client_id: CLIENT_ID,
-            refresh_token: tokens.refresh_token,
-        });
-        if (tokens.principal_type) body.set('principal_type', tokens.principal_type);
-        if (tokens.principal_id) body.set('principal_id', tokens.principal_id);
-        const res = await fetch(tokenEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body,
-            // Never follow a redirect on a secret-bearing request: a trusted
-            // token endpoint that 307/308-redirects would replay the
-            // refresh_token to the redirect target. Fail loud instead.
-            redirect: 'error',
-            signal: timeout.signal,
-            dispatcher: getLlmDispatcher(),
-        });
-        const text = await res.text();
-        let json = null;
-        try { json = text ? JSON.parse(text) : null; } catch { /* handled below */ }
-        if (!res.ok) {
-            const oauthError = String(json?.error || '').toLowerCase();
-            const isInvalidGrant = oauthError === 'invalid_grant';
-            const isTerminalRefresh = isInvalidGrant || oauthError === 'invalid_client';
-            throw Object.assign(
-                new Error(`[grok-oauth] token refresh ${res.status}: ${_scrubTokens(text).slice(0, 200)}`),
-                { isInvalidGrant, isTerminalRefresh, oauthError: oauthError || null },
-            );
-        }
-        const accessToken = json?.access_token;
-        if (!accessToken) throw new Error('[grok-oauth] token refresh returned no access token');
-        const refreshed = {
-            access_token: accessToken,
-            // xAI rotates refresh tokens; reuse the prior one only when the
-            // response omits it (RFC 6749 permits reuse).
-            refresh_token: json?.refresh_token || tokens.refresh_token,
-            expires_at: typeof json?.expires_in === 'number'
-                ? Date.now() + json.expires_in * 1000
-                : _normalizeExpiresAt(json?.expires_at),
-            token_endpoint: tokenEndpoint,
-            user_id: tokens.user_id || tokens.userId || _identityFromAccessToken(accessToken).user_id || '',
-            principal_type: json?.principal_type || tokens.principal_type || tokens.principalType || '',
-            principal_id: json?.principal_id || tokens.principal_id || tokens.principalId || '',
-        };
-        saveTokens(refreshed);
-        return { ...refreshed, source: 'own', mtimeMs: _mtimeMs(getOwnTokenPath()) };
-    } finally {
-        timeout.cleanup();
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      /* handled below */
     }
+    if (!res.ok) {
+      const oauthError = String(json?.error || '').toLowerCase();
+      const isInvalidGrant = oauthError === 'invalid_grant';
+      const isTerminalRefresh = isInvalidGrant || oauthError === 'invalid_client';
+      throw Object.assign(new Error(`[grok-oauth] token refresh ${res.status}: ${_scrubTokens(text).slice(0, 200)}`), {
+        isInvalidGrant,
+        isTerminalRefresh,
+        oauthError: oauthError || null,
+      });
+    }
+    const accessToken = json?.access_token;
+    if (!accessToken) throw new Error('[grok-oauth] token refresh returned no access token');
+    const refreshed = {
+      access_token: accessToken,
+      // xAI rotates refresh tokens; reuse the prior one only when the
+      // response omits it (RFC 6749 permits reuse).
+      refresh_token: json?.refresh_token || tokens.refresh_token,
+      expires_at:
+        typeof json?.expires_in === 'number'
+          ? Date.now() + json.expires_in * 1000
+          : _normalizeExpiresAt(json?.expires_at),
+      token_endpoint: tokenEndpoint,
+      user_id: tokens.user_id || tokens.userId || _identityFromAccessToken(accessToken).user_id || '',
+      principal_type: json?.principal_type || tokens.principal_type || tokens.principalType || '',
+      principal_id: json?.principal_id || tokens.principal_id || tokens.principalId || '',
+    };
+    saveTokens(refreshed);
+    return { ...refreshed, source: 'own', mtimeMs: _mtimeMs(getOwnTokenPath()) };
+  } finally {
+    timeout.cleanup();
+  }
 }
 
 async function _postRefreshWithRetry(tokens) {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-        try {
-            return await _postRefresh(tokens);
-        } catch (err) {
-            if (err?.isTerminalRefresh || attempt === 2) throw err;
-            const baseMs = Math.min(2_000, 200 * (2 ** attempt));
-            const delayMs = Math.round(baseMs + Math.random() * baseMs);
-            await new Promise((resolve) => setTimeout(resolve, delayMs));
-        }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await _postRefresh(tokens);
+    } catch (err) {
+      if (err?.isTerminalRefresh || attempt === 2) throw err;
+      const baseMs = Math.min(2_000, 200 * 2 ** attempt);
+      const delayMs = Math.round(baseMs + Math.random() * baseMs);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
-    throw new Error('[grok-oauth] unreachable refresh retry state');
+  }
+  throw new Error('[grok-oauth] unreachable refresh retry state');
 }
 
 // Mixdog processes share one grok-oauth.json and xAI rotates refresh tokens
 // single-use. Hold a cross-process lease across the re-read, exchange, and
 // atomic save so only one process can spend a generation.
 export async function refreshTokens(tokens, { force = false } = {}) {
-    if (!tokens?.refresh_token) {
-        throw new Error('[grok-oauth] refresh token not available — open /providers in mixdog to sign in again');
-    }
+  if (!tokens?.refresh_token) {
+    throw new Error('[grok-oauth] refresh token not available — open /providers in mixdog to sign in again');
+  }
 
-    return withFileLock(getRefreshLockPath(), async () => {
-        const validAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
-        const disk = _loadOwnTokens();
-        // A waiter that entered with the prior generation adopts the winner's
-        // persisted, valid token instead of rotating it again. xAI may rotate
-        // only the refresh token while reissuing the same access token.
-        const diskGenerationChanged = disk?.access_token
-            && (disk.access_token !== tokens.access_token
-                || disk.refresh_token !== tokens.refresh_token);
-        if (diskGenerationChanged
-            && (!disk.expires_at || disk.expires_at >= validAfter)) {
-            return disk;
-        }
+  return withFileLock(
+    getRefreshLockPath(),
+    async () => {
+      const validAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
+      const disk = _loadOwnTokens();
+      // A waiter that entered with the prior generation adopts the winner's
+      // persisted, valid token instead of rotating it again. xAI may rotate
+      // only the refresh token while reissuing the same access token.
+      const diskGenerationChanged =
+        disk?.access_token &&
+        (disk.access_token !== tokens.access_token || disk.refresh_token !== tokens.refresh_token);
+      if (diskGenerationChanged && (!disk.expires_at || disk.expires_at >= validAfter)) {
+        return disk;
+      }
 
-        const current = disk || tokens;
-        try {
-            return await _postRefreshWithRetry(current);
-        } catch (err) {
-            if (err?.isInvalidGrant) {
-                // A writer that does not participate in this lease may still
-                // have won the rotation while the request was in flight.
-                // Adopt its valid generation; only exchange it when it cannot
-                // satisfy this caller.
-                const rotated = _loadOwnTokens();
-                if (rotated?.refresh_token && rotated.refresh_token !== current.refresh_token) {
-                    if (rotated.access_token
-                        && (!rotated.expires_at || rotated.expires_at >= validAfter)) {
-                        return rotated;
-                    }
-                    return await _postRefreshWithRetry(rotated);
-                }
+      const current = disk || tokens;
+      try {
+        return await _postRefreshWithRetry(current);
+      } catch (err) {
+        if (err?.isInvalidGrant) {
+          // A writer that does not participate in this lease may still
+          // have won the rotation while the request was in flight.
+          // Adopt its valid generation; only exchange it when it cannot
+          // satisfy this caller.
+          const rotated = _loadOwnTokens();
+          if (rotated?.refresh_token && rotated.refresh_token !== current.refresh_token) {
+            if (rotated.access_token && (!rotated.expires_at || rotated.expires_at >= validAfter)) {
+              return rotated;
             }
-            throw err;
+            return await _postRefreshWithRetry(rotated);
+          }
         }
-    }, {
-        timeoutMs: 120_000,
-        staleMs: 120_000,
-        secret: true,
-    });
+        throw err;
+      }
+    },
+    {
+      timeoutMs: 120_000,
+      staleMs: 120_000,
+      secret: true,
+    }
+  );
 }
 
 // --- Model catalog cache (24h disk TTL) ---

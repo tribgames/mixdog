@@ -28,9 +28,9 @@ mod platform {
     use std::collections::{HashMap, HashSet};
     use std::ffi::c_void;
     use std::fs::File;
-    use std::os::windows::fs::OpenOptionsExt;
     use std::mem::{size_of, zeroed};
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
     use std::path::{Path, PathBuf};
     use std::ptr::{null, null_mut};

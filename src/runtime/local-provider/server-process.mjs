@@ -10,7 +10,7 @@ async function freeLoopbackPort() {
     probe.once('error', reject);
     probe.listen(0, '127.0.0.1', () => {
       const port = probe.address().port;
-      probe.close((error) => error ? reject(error) : resolve(port));
+      probe.close((error) => (error ? reject(error) : resolve(port)));
     });
   });
 }
@@ -44,7 +44,10 @@ export function createLocalServerProcess({
 
   function serialize(operation) {
     const next = chain.then(operation, operation);
-    chain = next.then(() => {}, () => {});
+    chain = next.then(
+      () => {},
+      () => {}
+    );
     return next;
   }
 
@@ -74,7 +77,7 @@ export function createLocalServerProcess({
     signal?.throwIfAborted();
     let launch;
     try {
-      launch = await spec.prepare?.(signal) || {};
+      launch = (await spec.prepare?.(signal)) || {};
     } catch (error) {
       lastError = signal?.aborted ? null : String(error?.message || error);
       throw error;
@@ -92,11 +95,20 @@ export function createLocalServerProcess({
     });
     let resolveExit;
     const state = {
-      child, key: spec.key, modelId: spec.modelId, apiKey, gpu: launch.gpu || null,
+      child,
+      key: spec.key,
+      modelId: spec.modelId,
+      apiKey,
+      gpu: launch.gpu || null,
       baseURL: `http://127.0.0.1:${port}/v1`,
-      ready: false, exited: false, expectedExit: false, log: '',
+      ready: false,
+      exited: false,
+      expectedExit: false,
+      log: '',
       spawnError: null,
-      exit: new Promise((resolve) => { resolveExit = resolve; }),
+      exit: new Promise((resolve) => {
+        resolveExit = resolve;
+      }),
     };
     current = state;
     const appendLog = (chunk) => {
@@ -109,8 +121,11 @@ export function createLocalServerProcess({
       state.exited = true;
       state.ready = false;
       lastExit = {
-        at: new Date().toISOString(), modelId: state.modelId,
-        exitCode, signal: exitSignal || null, expected: state.expectedExit,
+        at: new Date().toISOString(),
+        modelId: state.modelId,
+        exitCode,
+        signal: exitSignal || null,
+        expected: state.expectedExit,
         log: state.log.replaceAll(apiKey, '[redacted]'),
       };
       if (!state.expectedExit) {
@@ -118,7 +133,11 @@ export function createLocalServerProcess({
       }
       if (current === state) current = null;
       resolveExit();
-      try { onExit({ ...lastExit }); } catch { /* diagnostics cannot break lifecycle */ }
+      try {
+        onExit({ ...lastExit });
+      } catch {
+        /* diagnostics cannot break lifecycle */
+      }
     };
     child.once('error', (error) => {
       state.spawnError = error;
@@ -133,7 +152,9 @@ export function createLocalServerProcess({
         waitSignal.throwIfAborted();
         if (state.spawnError) throw state.spawnError;
         if (state.exited) {
-          throw new Error(`[local-provider] llama-server exited during startup: ${lastExit?.log || lastExit?.exitCode}`);
+          throw new Error(
+            `[local-provider] llama-server exited during startup: ${lastExit?.log || lastExit?.exitCode}`
+          );
         }
         try {
           const response = await fetchFn(`http://127.0.0.1:${port}/health`, {
@@ -160,9 +181,13 @@ export function createLocalServerProcess({
         await delay(pollMs, null, { signal: waitSignal });
       }
     } catch (error) {
-      const failure = signal?.aborted ? signal.reason
+      const failure = signal?.aborted
+        ? signal.reason
         : startup.aborted
-          ? new Error(`[local-provider] llama-server did not become ready: ${state.log.replaceAll(apiKey, '[redacted]').trim()}`, { cause: error })
+          ? new Error(
+              `[local-provider] llama-server did not become ready: ${state.log.replaceAll(apiKey, '[redacted]').trim()}`,
+              { cause: error }
+            )
           : error;
       lastError = signal?.aborted ? null : String(failure?.message || failure);
       await stopState(state);
@@ -176,8 +201,7 @@ export function createLocalServerProcess({
       const controller = new AbortController();
       const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
       pendingStarts.add(controller);
-      const pending = serialize(() => start(spec, combined))
-        .finally(() => pendingStarts.delete(controller));
+      const pending = serialize(() => start(spec, combined)).finally(() => pendingStarts.delete(controller));
       return awaitWithSignal(pending, combined);
     },
     stop() {
@@ -202,7 +226,9 @@ export function createLocalServerProcess({
     killOnOwnerExit() {
       if (current && !current.exited) {
         current.expectedExit = true;
-        try { current.child.kill(); } catch {}
+        try {
+          current.child.kill();
+        } catch {}
       }
     },
   };

@@ -10,10 +10,7 @@ import {
   snapshot as machineSpawnSnapshot,
 } from '../runtime/shared/child-spawn-gate.mjs';
 import { createRuntimeLagTracker } from '../runtime/shared/session-runtime-health.mjs';
-import {
-  SESSION_CONFIGURE_ACTIONS,
-  SESSION_READ_ACTIONS,
-} from './session-protocol.mjs';
+import { SESSION_CONFIGURE_ACTIONS, SESSION_READ_ACTIONS } from './session-protocol.mjs';
 import {
   createShardOwnership,
   mergeProviderCooldown,
@@ -99,10 +96,7 @@ class SessionRuntimeShard {
     child.on('error', (error) => this.handleChildFailure(child, error));
     child.on('exit', (code, signal) => {
       if (this.child === child) this.child = null;
-      this.handleChildFailure(
-        child,
-        new Error(`session runtime worker exited (${signal || code || 'unknown'})`),
-      );
+      this.handleChildFailure(child, new Error(`session runtime worker exited (${signal || code || 'unknown'})`));
     });
     // Account-wide provider cooldown and prewarm state are pool facts, not
     // child facts: a freshly forked shard inherits both immediately.
@@ -154,13 +148,13 @@ class SessionRuntimeShard {
     }
     if (message.type === 'turn-timing') {
       const row = message.row && typeof message.row === 'object' ? message.row : {};
-      const ms = (value) => Number.isFinite(Number(value)) ? Math.round(Number(value)) : -1;
+      const ms = (value) => (Number.isFinite(Number(value)) ? Math.round(Number(value)) : -1);
       this.log(
-        `turn timing status=${row.status || 'unknown'} session=${row.sessionId || '-'}`
-        + ` e2e=${ms(row.endToEndTtftMs)}ms runtime=${ms(row.ttftMs)}ms`
-        + ` queue=${ms(row.queueMs)}ms route=${ms(row.routeMs)}ms`
-        + ` preflight=${ms(row.preflightMs)}ms mcp=${ms(row.mcpMs)}ms`
-        + ` provider=${ms(row.providerMs)}ms`,
+        `turn timing status=${row.status || 'unknown'} session=${row.sessionId || '-'}` +
+          ` e2e=${ms(row.endToEndTtftMs)}ms runtime=${ms(row.ttftMs)}ms` +
+          ` queue=${ms(row.queueMs)}ms route=${ms(row.routeMs)}ms` +
+          ` preflight=${ms(row.preflightMs)}ms mcp=${ms(row.mcpMs)}ms` +
+          ` provider=${ms(row.providerMs)}ms`
       );
       return;
     }
@@ -206,7 +200,9 @@ class SessionRuntimeShard {
       return;
     }
     for (const proxy of this.proxies.values()) proxy.beginRecovery(error);
-    this.recovery ||= this.recover().finally(() => { this.recovery = null; });
+    this.recovery ||= this.recover().finally(() => {
+      this.recovery = null;
+    });
   }
 
   async recover() {
@@ -221,7 +217,9 @@ class SessionRuntimeShard {
         lastError = error;
         const child = this.child;
         this.child = null;
-        try { child?.kill?.(); } catch {}
+        try {
+          child?.kill?.();
+        } catch {}
         if (attempt < 2) {
           await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
         }
@@ -239,10 +237,14 @@ class SessionRuntimeShard {
       .then(() => true)
       .catch((error) => {
         this.log(`recycle failed: ${error?.message || error}`);
-        try { child.kill?.(); } catch {}
+        try {
+          child.kill?.();
+        } catch {}
         return false;
       })
-      .finally(() => { this.recycling = null; });
+      .finally(() => {
+        this.recycling = null;
+      });
     return this.recycling;
   }
 
@@ -264,13 +266,19 @@ class SessionRuntimeShard {
         request.timer.unref?.();
       }
       this.pending.set(requestId, request);
-      if (!safeIpcSend(child, { type, requestId, ...payload }, {
-        onError: (error) => {
-          if (!this.pending.delete(requestId)) return;
-          if (request.timer) clearTimeout(request.timer);
-          reject(error);
-        },
-      })) {
+      if (
+        !safeIpcSend(
+          child,
+          { type, requestId, ...payload },
+          {
+            onError: (error) => {
+              if (!this.pending.delete(requestId)) return;
+              if (request.timer) clearTimeout(request.timer);
+              reject(error);
+            },
+          }
+        )
+      ) {
         this.pending.delete(requestId);
         if (request.timer) clearTimeout(request.timer);
         reject(new Error('session runtime worker IPC is unavailable'));
@@ -317,12 +325,15 @@ class SessionRuntimeShard {
   recordLag(sample) {
     const row = sample && typeof sample === 'object' ? sample : null;
     const result = this.lag.record(row);
-    const detail = `p95=${row?.p95Ms ?? -1}ms p99=${row?.p99Ms ?? -1}ms max=${row?.maxMs ?? -1}ms`
-      + ` runtimes=${this.proxies.size}`;
+    const detail =
+      `p95=${row?.p95Ms ?? -1}ms p99=${row?.p99Ms ?? -1}ms max=${row?.maxMs ?? -1}ms` +
+      ` runtimes=${this.proxies.size}`;
     if (result.changed) {
-      this.log(result.degraded
-        ? `event-loop saturated ${detail} — quarantined from new placement`
-        : `event-loop lag recovered ${detail} — placement resumed`);
+      this.log(
+        result.degraded
+          ? `event-loop saturated ${detail} — quarantined from new placement`
+          : `event-loop lag recovered ${detail} — placement resumed`
+      );
     } else if (Number(row?.p99Ms) >= Number(this.lag.config.warnP99Ms)) {
       this.log(`event-loop lag ${detail}`);
     }
@@ -343,22 +354,30 @@ class SessionRuntimeShard {
   sendProviderCooldown(cooldown, admission = null) {
     const child = this.child;
     if (!child || child.killed || this.closed) return false;
-    return safeIpcSend(child, {
-      type: 'provider-cooldown-sync',
-      cooldown,
-      ...(admission ? { admission } : {}),
-    }, { onError: () => {} });
+    return safeIpcSend(
+      child,
+      {
+        type: 'provider-cooldown-sync',
+        cooldown,
+        ...(admission ? { admission } : {}),
+      },
+      { onError: () => {} }
+    );
   }
 
   sendAgentControlNotification(message) {
     const child = this.child;
     if (!child || child.killed || this.closed) return false;
-    return safeIpcSend(child, {
-      type: 'agent-control-notification',
-      ownerSessionId: String(message?.ownerSessionId || ''),
-      text: String(message?.text || ''),
-      meta: message?.meta && typeof message.meta === 'object' ? message.meta : {},
-    }, { onError: () => {} });
+    return safeIpcSend(
+      child,
+      {
+        type: 'agent-control-notification',
+        ownerSessionId: String(message?.ownerSessionId || ''),
+        text: String(message?.text || ''),
+        meta: message?.meta && typeof message.meta === 'object' ? message.meta : {},
+      },
+      { onError: () => {} }
+    );
   }
 
   async workloadSnapshot() {
@@ -427,7 +446,11 @@ class SessionRuntimeShard {
     if (!record || record.settled) return;
     record.settled = true;
     if (record.release) {
-      try { record.release(); } catch { /* idempotent */ }
+      try {
+        record.release();
+      } catch {
+        /* idempotent */
+      }
       this.spawnLeases.delete(leaseId);
       return;
     }
@@ -458,20 +481,20 @@ class SessionRuntimeShard {
         resolve();
       });
     });
-    try { await this.requestRaw('shutdown', { reason }, 8_000); } catch {}
-    try { child.disconnect?.(); } catch {}
+    try {
+      await this.requestRaw('shutdown', { reason }, 8_000);
+    } catch {}
+    try {
+      child.disconnect?.();
+    } catch {}
     // The child drains its accepted-input writes before exiting; a hard kill
     // inside that window is exactly what loses them.
-    await Promise.race([
-      exitPromise,
-      new Promise((resolve) => setTimeout(resolve, 2_000)),
-    ]);
+    await Promise.race([exitPromise, new Promise((resolve) => setTimeout(resolve, 2_000))]);
     if (!exited) {
-      try { child.kill?.(); } catch {}
-      await Promise.race([
-        exitPromise,
-        new Promise((resolve) => setTimeout(resolve, 2_000)),
-      ]);
+      try {
+        child.kill?.();
+      } catch {}
+      await Promise.race([exitPromise, new Promise((resolve) => setTimeout(resolve, 2_000))]);
     }
     if (this.child === child) this.child = null;
   }
@@ -494,11 +517,32 @@ class SessionRuntimeShard {
 // worst-case signals. Everything else (inflight, queued, counters, bytes) is
 // real per-process load and sums.
 const WORKLOAD_MAX_FIELDS = new Set([
-  'limit', 'maxInflight', 'queueMax', 'activeMax', 'waitTimeoutMs', 'concurrency',
-  'maxAgents', 'maxShells', 'maxHighLoad', 'maxQueue', 'minFreeMemoryMb', 'maxRssMb',
-  'oldestWaitMs', 'oldestQueuedMs', 'maxWaitMs', 'averageWaitMs', 'ageMs',
-  'freeMemoryBytes', 'totalMemoryBytes',
-  'p50Ms', 'p95Ms', 'p99Ms', 'maxMs', 'meanMs', 'intervalMs', 'at',
+  'limit',
+  'maxInflight',
+  'queueMax',
+  'activeMax',
+  'waitTimeoutMs',
+  'concurrency',
+  'maxAgents',
+  'maxShells',
+  'maxHighLoad',
+  'maxQueue',
+  'minFreeMemoryMb',
+  'maxRssMb',
+  'oldestWaitMs',
+  'oldestQueuedMs',
+  'maxWaitMs',
+  'averageWaitMs',
+  'ageMs',
+  'freeMemoryBytes',
+  'totalMemoryBytes',
+  'p50Ms',
+  'p95Ms',
+  'p99Ms',
+  'maxMs',
+  'meanMs',
+  'intervalMs',
+  'at',
 ]);
 const WORKLOAD_LIST_CAP = 64;
 
@@ -517,8 +561,9 @@ export function mergeShardWorkloadValues(left, right, key = '') {
   }
   if (Array.isArray(left) && Array.isArray(right)) {
     const entries = [...left, ...right];
-    const named = entries.length > 0
-      && entries.every((entry) => entry && typeof entry === 'object' && typeof entry.name === 'string');
+    const named =
+      entries.length > 0 &&
+      entries.every((entry) => entry && typeof entry === 'object' && typeof entry.name === 'string');
     if (!named) return entries.slice(0, WORKLOAD_LIST_CAP);
     // Lane/gate rows are per-process views of ONE machine-wide lane: merge by
     // name so `childSpawns.lanes[].inflight` reports the machine total.
@@ -547,9 +592,7 @@ export function aggregateShardWorkload(rows) {
   if (list.length === 0) return null;
   let merged = {};
   for (const row of list) merged = mergeShardWorkloadValues(merged, row);
-  const errors = list
-    .filter((row) => row?.error)
-    .map((row) => `shard ${row.shard ?? '?'}: ${row.error}`);
+  const errors = list.filter((row) => row?.error).map((row) => `shard ${row.shard ?? '?'}: ${row.error}`);
   const worstLag = list.reduce((worst, row) => {
     const sample = row?.eventLoopLag;
     if (!sample) return worst;
@@ -624,7 +667,9 @@ class SessionRuntimeProxy {
     this.failure = null;
     this.recovering = false;
     for (const listener of [...this.listeners]) {
-      try { listener(); } catch {}
+      try {
+        listener();
+      } catch {}
     }
   }
 
@@ -632,7 +677,9 @@ class SessionRuntimeProxy {
     this.failure = error instanceof Error ? error : new Error(String(error));
     this.recovering = false;
     for (const listener of [...this.listeners]) {
-      try { listener(); } catch {}
+      try {
+        listener();
+      } catch {}
     }
   }
 
@@ -644,22 +691,34 @@ class SessionRuntimeProxy {
   async recreate() {
     const previousSessionId = String(this.state?.sessionId || this.options.sessionId || '');
     this.revision = 0;
-    await this.shard.requestRaw('create', {
-      runtimeId: this.id,
-      options: this.options,
-    }, 120_000);
-    if (previousSessionId) {
-      const resumed = await this.shard.requestRaw('call', {
+    await this.shard.requestRaw(
+      'create',
+      {
         runtimeId: this.id,
-        method: 'resume',
-        args: [previousSessionId],
-      }, 120_000);
-      if (resumed !== true) {
-        await this.shard.requestRaw('call', {
+        options: this.options,
+      },
+      120_000
+    );
+    if (previousSessionId) {
+      const resumed = await this.shard.requestRaw(
+        'call',
+        {
           runtimeId: this.id,
-          method: 'reserveSession',
+          method: 'resume',
           args: [previousSessionId],
-        }, 30_000);
+        },
+        120_000
+      );
+      if (resumed !== true) {
+        await this.shard.requestRaw(
+          'call',
+          {
+            runtimeId: this.id,
+            method: 'reserveSession',
+            args: [previousSessionId],
+          },
+          30_000
+        );
       }
     }
     await this.shard.requestRaw('snapshot', { runtimeId: this.id }, 5_000);
@@ -671,11 +730,15 @@ class SessionRuntimeProxy {
     if (this.recovering && this.shard.recovery) await this.shard.recovery;
     if (this.failure) throw this.failure;
     try {
-      const value = await this.shard.request('call', {
-        runtimeId: this.id,
-        method,
-        args: wireCallArgs(args),
-      }, method === 'abort' ? 15_000 : 10 * 60_000);
+      const value = await this.shard.request(
+        'call',
+        {
+          runtimeId: this.id,
+          method,
+          args: wireCallArgs(args),
+        },
+        method === 'abort' ? 15_000 : 10 * 60_000
+      );
       if (method === 'dispose') this.shard.releaseProxy(this.id);
       return value;
     } catch (error) {
@@ -696,15 +759,7 @@ class SessionRuntimeProxy {
  * capacity cooldowns discovered by one shard are replayed into the others.
  */
 class SessionRuntimeShardPool {
-  constructor({
-    workerEntry,
-    cwd,
-    env,
-    log,
-    shardCount,
-    onAgentSessionState,
-    executeAgentControl,
-  }) {
+  constructor({ workerEntry, cwd, env, log, shardCount, onAgentSessionState, executeAgentControl }) {
     this.log = typeof log === 'function' ? log : () => {};
     this.closed = false;
     this.ownership = createShardOwnership();
@@ -716,28 +771,30 @@ class SessionRuntimeShardPool {
     this.agentSessionOwners = new Map(); // agent sessionId -> shard index
     this.agentOwnerOrigins = new Map(); // owner sessionId -> source shard index
     this.providerCooldown = { untilMs: 0, disabledReason: null, updatedAt: 0 };
-    this.executeCanonicalAgentControl = typeof executeAgentControl === 'function'
-      ? executeAgentControl
-      : null;
+    this.executeCanonicalAgentControl = typeof executeAgentControl === 'function' ? executeAgentControl : null;
     this.prewarmRequested = false;
     this.workloadCache = { refreshedAt: 0, shards: [] };
     this.workloadRefresh = null;
     // Hard bound, always: an explicit shardCount is operator/test input and
     // must never fork an unbounded number of runtime children.
     const count = normalizeShardCount(shardCount);
-    this.shards = Array.from({ length: count }, (_, index) => new SessionRuntimeShard({
-      index,
-      pool: this,
-      workerEntry,
-      cwd,
-      env: {
-        ...env,
-        MIXDOG_SESSION_RUNTIME_SHARD: String(index),
-        MIXDOG_SESSION_RUNTIME_SHARD_COUNT: String(count),
-      },
-      log: this.log,
-      onAgentSessionState,
-    }));
+    this.shards = Array.from(
+      { length: count },
+      (_, index) =>
+        new SessionRuntimeShard({
+          index,
+          pool: this,
+          workerEntry,
+          cwd,
+          env: {
+            ...env,
+            MIXDOG_SESSION_RUNTIME_SHARD: String(index),
+            MIXDOG_SESSION_RUNTIME_SHARD_COUNT: String(count),
+          },
+          log: this.log,
+          onAgentSessionState,
+        })
+    );
   }
 
   get shardCount() {
@@ -762,9 +819,8 @@ class SessionRuntimeShardPool {
   }
 
   placeKey(key) {
-    return this.ownership.claim(
-      key,
-      () => selectShardIndex(key, this.shards.length, (index) => this.isPlaceable(index)),
+    return this.ownership.claim(key, () =>
+      selectShardIndex(key, this.shards.length, (index) => this.isPlaceable(index))
     );
   }
 
@@ -792,11 +848,7 @@ class SessionRuntimeShardPool {
     const id = String(dispatchId || '');
     if (this.dispatchOwners.has(id)) return this.shardAt(this.dispatchOwners.get(id));
     if (!create) return null;
-    const index = selectShardIndex(
-      `dispatch:${id}`,
-      this.shards.length,
-      (candidate) => this.isPlaceable(candidate),
-    );
+    const index = selectShardIndex(`dispatch:${id}`, this.shards.length, (candidate) => this.isPlaceable(candidate));
     this.dispatchOwners.set(id, index);
     return this.shardAt(index);
   }
@@ -812,17 +864,11 @@ class SessionRuntimeShardPool {
   rememberAgentControlResult(index, args, context, value) {
     const text = String(value || '');
     const ownerSessionId = String(context?.callerSessionId || '');
-    const taskId = String(
-      args?.task_id
-      || args?.taskId
-      || (/^agent task:\s*(\S+)/m.exec(text)?.[1] || ''),
-    );
+    const taskId = String(args?.task_id || args?.taskId || /^agent task:\s*(\S+)/m.exec(text)?.[1] || '');
     const target = /^target:\s*(\S+)(?:\s+(\S+))?/m.exec(text);
     const tag = String(args?.tag || (target?.[1] && target[1] !== '-' ? target[1] : ''));
     const sessionId = String(
-      args?.sessionId
-      || args?.session_id
-      || (target?.[2] && /^sess_/.test(target[2]) ? target[2] : ''),
+      args?.sessionId || args?.session_id || (target?.[2] && /^sess_/.test(target[2]) ? target[2] : '')
     );
     if (taskId) this.agentTaskOwners.set(taskId, index);
     if (tag) this.agentTagOwners.set(this.agentTagKey(ownerSessionId, tag), index);
@@ -839,11 +885,7 @@ class SessionRuntimeShardPool {
     if (index == null && tag) index = this.agentTagOwners.get(this.agentTagKey(ownerSessionId, tag));
     if (index == null) {
       const key = `agent:${ownerSessionId}:${tag || sessionId || controlId}`;
-      index = selectShardIndex(
-        key,
-        this.shards.length,
-        (candidate) => this.isPlaceable(candidate),
-      );
+      index = selectShardIndex(key, this.shards.length, (candidate) => this.isPlaceable(candidate));
     }
     return this.shardAt(index ?? originShard?.index ?? 0);
   }
@@ -851,8 +893,9 @@ class SessionRuntimeShardPool {
   async aggregateAgentStatus(context, originShard) {
     const targets = this.liveShards();
     if (targets.length === 0 && originShard) targets.push(originShard);
-    const settled = await Promise.allSettled(targets.map((shard) =>
-      shard.request('agent-control-status', { context }, 30_000)));
+    const settled = await Promise.allSettled(
+      targets.map((shard) => shard.request('agent-control-status', { context }, 30_000))
+    );
     const workers = new Map();
     const jobs = new Map();
     for (const result of settled) {
@@ -870,7 +913,9 @@ class SessionRuntimeShardPool {
   }
 
   async executeAgentControl(originShard, args = {}, context = {}, controlId = randomUUID()) {
-    const type = String(args?.type || 'spawn').trim().toLowerCase();
+    const type = String(args?.type || 'spawn')
+      .trim()
+      .toLowerCase();
     const ownerSessionId = String(context?.callerSessionId || '');
     if (ownerSessionId && originShard) {
       this.agentOwnerOrigins.set(ownerSessionId, originShard.index);
@@ -878,12 +923,19 @@ class SessionRuntimeShardPool {
     if (type === 'list') return this.aggregateAgentStatus(context, originShard);
     if (type === 'cleanup' || type === '__close_all') {
       const targets = this.liveShards();
-      const settled = await Promise.allSettled(targets.map((shard) =>
-        shard.request('agent-control-local', {
-          controlId: `${controlId}:${shard.index}`,
-          args,
-          context,
-        }, 180_000)));
+      const settled = await Promise.allSettled(
+        targets.map((shard) =>
+          shard.request(
+            'agent-control-local',
+            {
+              controlId: `${controlId}:${shard.index}`,
+              args,
+              context,
+            },
+            180_000
+          )
+        )
+      );
       return settled
         .filter((result) => result.status === 'fulfilled' && result.value)
         .map((result) => String(result.value))
@@ -892,20 +944,28 @@ class SessionRuntimeShardPool {
     const target = this.agentControlShard(originShard, args, context, controlId);
     this.agentControlOwners.set(controlId, target.index);
     try {
-      let value = await target.request('agent-control-local', {
-        controlId,
-        args,
-        context,
-      }, 180_000);
+      let value = await target.request(
+        'agent-control-local',
+        {
+          controlId,
+          args,
+          context,
+        },
+        180_000
+      );
       const lookup = type === 'status' || type === 'read' || type === 'cancel' || type === 'close';
       if (lookup && /^Error:/i.test(String(value || ''))) {
         for (const alternate of this.liveShards()) {
           if (alternate === target) continue;
-          const candidate = await alternate.request('agent-control-local', {
-            controlId: `${controlId}:${alternate.index}`,
-            args,
-            context,
-          }, 180_000);
+          const candidate = await alternate.request(
+            'agent-control-local',
+            {
+              controlId: `${controlId}:${alternate.index}`,
+              args,
+              context,
+            },
+            180_000
+          );
           if (/^Error:/i.test(String(candidate || ''))) continue;
           value = candidate;
           this.rememberAgentControlResult(alternate.index, args, context, value);
@@ -935,54 +995,72 @@ class SessionRuntimeShardPool {
     const execution = this.executeCanonicalAgentControl
       ? this.executeCanonicalAgentControl(message.args || {}, context)
       : Promise.reject(new Error('canonical Agent control is unavailable'));
-    void Promise.resolve(execution).then((value) => {
-      if (originShard.child !== originChild || originChild?.killed) return;
-      safeIpcSend(originChild, {
-        type: 'agent-control-result',
-        controlId,
-        ok: true,
-        value,
-      }, { onError: () => {} });
-    }).catch((error) => {
-      if (originShard.child !== originChild || originChild?.killed) return;
-      safeIpcSend(originChild, {
-        type: 'agent-control-result',
-        controlId,
-        ok: false,
-        error: {
-          name: String(error?.name || 'Error'),
-          message: String(error?.message || error || 'agent control failed'),
-          stack: typeof error?.stack === 'string' ? error.stack : null,
-          code: error?.code || null,
-        },
-      }, { onError: () => {} });
-    }).finally(() => {
-      this.agentControlRuns.delete(controlId);
-    });
+    void Promise.resolve(execution)
+      .then((value) => {
+        if (originShard.child !== originChild || originChild?.killed) return;
+        safeIpcSend(
+          originChild,
+          {
+            type: 'agent-control-result',
+            controlId,
+            ok: true,
+            value,
+          },
+          { onError: () => {} }
+        );
+      })
+      .catch((error) => {
+        if (originShard.child !== originChild || originChild?.killed) return;
+        safeIpcSend(
+          originChild,
+          {
+            type: 'agent-control-result',
+            controlId,
+            ok: false,
+            error: {
+              name: String(error?.name || 'Error'),
+              message: String(error?.message || error || 'agent control failed'),
+              stack: typeof error?.stack === 'string' ? error.stack : null,
+              code: error?.code || null,
+            },
+          },
+          { onError: () => {} }
+        );
+      })
+      .finally(() => {
+        this.agentControlRuns.delete(controlId);
+      });
   }
 
   cancelAgentControl(message) {
     const controlId = String(message?.controlId || '');
     const canonical = this.agentControlRuns.get(controlId);
     if (canonical) {
-      try { canonical.abort(new Error(String(message?.reason || 'agent control canceled'))); } catch {}
+      try {
+        canonical.abort(new Error(String(message?.reason || 'agent control canceled')));
+      } catch {}
       return true;
     }
     const index = this.agentControlOwners.get(controlId);
     if (index == null) return false;
     const shard = this.shardAt(index);
-    void shard.request('agent-control-local-cancel', {
-      controlId,
-      reason: String(message?.reason || 'agent control canceled'),
-    }, 5_000).catch(() => {});
+    void shard
+      .request(
+        'agent-control-local-cancel',
+        {
+          controlId,
+          reason: String(message?.reason || 'agent control canceled'),
+        },
+        5_000
+      )
+      .catch(() => {});
     return true;
   }
 
   routeAgentControlNotification(message) {
     const ownerSessionId = String(message?.ownerSessionId || '');
     if (!ownerSessionId) return false;
-    const index = this.agentOwnerOrigins.get(ownerSessionId)
-      ?? this.ownership.peek(ownerSessionId);
+    const index = this.agentOwnerOrigins.get(ownerSessionId) ?? this.ownership.peek(ownerSessionId);
     if (index == null) return false;
     return this.shardAt(index).sendAgentControlNotification(message);
   }
@@ -993,9 +1071,7 @@ class SessionRuntimeShardPool {
     // Shards that have not forked yet stay cold (no idle worker per core) and
     // prewarm themselves the moment they spawn — see primeChild.
     const targets = new Set([this.shardAt(0), ...this.liveShards()]);
-    const results = await Promise.allSettled(
-      [...targets].map((shard) => shard.prewarmChild()),
-    );
+    const results = await Promise.allSettled([...targets].map((shard) => shard.prewarmChild()));
     const ready = results.find((result) => result.status === 'fulfilled');
     if (ready) return ready.value;
     const failed = results.find((result) => result.status === 'rejected');
@@ -1019,9 +1095,7 @@ class SessionRuntimeShardPool {
    *  merge monotonically and replay to every sibling shard so a drained fast
    *  pool is never re-probed by the shards that did not see the rejection. */
   recordProviderCooldown(originShard, payload) {
-    const admission = payload?.admission && typeof payload.admission === 'object'
-      ? payload.admission
-      : null;
+    const admission = payload?.admission && typeof payload.admission === 'object' ? payload.admission : null;
     const merged = mergeProviderCooldown(this.providerCooldown, payload?.cooldown);
     if (merged.changed) this.providerCooldown = merged.cooldown;
     // An admission cooldown/reset event is forwarded the moment it happens —
@@ -1030,10 +1104,10 @@ class SessionRuntimeShardPool {
     if (!merged.changed && !admission) return false;
     const remainingS = Math.max(0, Math.round((this.providerCooldown.untilMs - Date.now()) / 1000));
     this.log(
-      `session runtime provider cooldown from shard ${originShard?.index ?? '-'}`
-      + ` → ${this.shards.length - 1} sibling shard(s)`
-      + (admission ? ` [${admission.type}${admission.key ? ` ${admission.key}` : ''}]` : '')
-      + ` (${this.providerCooldown.disabledReason ? `disabled: ${this.providerCooldown.disabledReason}` : `${remainingS}s`})`,
+      `session runtime provider cooldown from shard ${originShard?.index ?? '-'}` +
+        ` → ${this.shards.length - 1} sibling shard(s)` +
+        (admission ? ` [${admission.type}${admission.key ? ` ${admission.key}` : ''}]` : '') +
+        ` (${this.providerCooldown.disabledReason ? `disabled: ${this.providerCooldown.disabledReason}` : `${remainingS}s`})`
     );
     for (const shard of this.shards) {
       if (shard === originShard) continue;
@@ -1050,9 +1124,15 @@ class SessionRuntimeShardPool {
       return Promise.resolve();
     }
     this.workloadRefresh = Promise.all(live.map((shard) => shard.workloadSnapshot()))
-      .then((rows) => { this.workloadCache = { refreshedAt: Date.now(), shards: rows }; })
-      .catch(() => { this.workloadCache = { refreshedAt: Date.now(), shards: [] }; })
-      .finally(() => { this.workloadRefresh = null; });
+      .then((rows) => {
+        this.workloadCache = { refreshedAt: Date.now(), shards: rows };
+      })
+      .catch(() => {
+        this.workloadCache = { refreshedAt: Date.now(), shards: [] };
+      })
+      .finally(() => {
+        this.workloadRefresh = null;
+      });
     return this.workloadRefresh;
   }
 
@@ -1094,15 +1174,17 @@ export function createSessionRuntimeHost({
     cwd,
     env,
     log,
-    shardCount: Number(shardCount) > 0
-      ? normalizeShardCount(shardCount)
-      : resolveShardCount(),
+    shardCount: Number(shardCount) > 0 ? normalizeShardCount(shardCount) : resolveShardCount(),
     executeAgentControl,
   });
   // One machine-global native counter stays warm in the daemon. Session
   // runtimes relay requests over the worker IPC channel and never spawn
   // their own helper process.
-  try { prewarmNativeTokenCounter(); } catch { /* JS/WASM fallback remains */ }
+  try {
+    prewarmNativeTokenCounter();
+  } catch {
+    /* JS/WASM fallback remains */
+  }
   let closed = false;
 
   // Runtime workload telemetry is refreshed lazily with a short TTL, across
@@ -1130,10 +1212,16 @@ export function createSessionRuntimeHost({
       // the shard that is actually running this dispatch.
       const shard = pool.dispatchShard(dispatchId, { create: true });
       const cancel = (reason) => {
-        void shard.request('agent-dispatch-cancel', {
-          dispatchId,
-          reason: String(reason || 'agent dispatch canceled'),
-        }, 10_000).catch(() => {});
+        void shard
+          .request(
+            'agent-dispatch-cancel',
+            {
+              dispatchId,
+              reason: String(reason || 'agent dispatch canceled'),
+            },
+            10_000
+          )
+          .catch(() => {});
       };
       if (signal?.aborted) {
         pool.releaseDispatch(dispatchId);

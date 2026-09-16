@@ -22,18 +22,21 @@ function normalizeProfiles(value) {
   if (!plainObject(value)) return {};
   const entries = Object.entries(value);
   if (entries.length > 32) throw new Error('Office design pack has too many profiles');
-  return Object.fromEntries(entries.map(([id, profile]) => {
-    const normalizedId = safeId(id, 'profile id');
-    if (!plainObject(profile)) throw new Error(`Office design profile ${normalizedId} must be an object`);
-    if (JSON.stringify(profile).length > 64 * 1024) throw new Error(`Office design profile ${normalizedId} is too large`);
-    if (profile.extends) safeId(profile.extends, 'profile extends');
-    for (const format of Object.keys(profile.formats || {})) {
-      if (!FORMATS.has(format)) throw new Error(`Office design profile ${normalizedId} has unsupported format ${format}`);
-    }
-    return [normalizedId, clone(profile)];
-  }));
+  return Object.fromEntries(
+    entries.map(([id, profile]) => {
+      const normalizedId = safeId(id, 'profile id');
+      if (!plainObject(profile)) throw new Error(`Office design profile ${normalizedId} must be an object`);
+      if (JSON.stringify(profile).length > 64 * 1024)
+        throw new Error(`Office design profile ${normalizedId} is too large`);
+      if (profile.extends) safeId(profile.extends, 'profile extends');
+      for (const format of Object.keys(profile.formats || {})) {
+        if (!FORMATS.has(format))
+          throw new Error(`Office design profile ${normalizedId} has unsupported format ${format}`);
+      }
+      return [normalizedId, clone(profile)];
+    })
+  );
 }
-
 
 function normalizeLayoutSlots(value) {
   if (value == null) return [];
@@ -43,10 +46,13 @@ function normalizeLayoutSlots(value) {
   return value.map((slot) => {
     if (!plainObject(slot)) throw new Error('Office design layout slots must be objects');
     const role = safeId(slot.role, 'layout slot role');
-    const type = String(slot.type || 'text').trim().toLowerCase();
+    const type = String(slot.type || 'text')
+      .trim()
+      .toLowerCase();
     if (!LAYOUT_SLOT_TYPES.has(type)) throw new Error(`Office design layout slot ${role} has unsupported type ${type}`);
     const shape = Number(slot.shape);
-    if (!Number.isInteger(shape) || shape < 1) throw new Error(`Office design layout slot ${role} requires a positive shape index`);
+    if (!Number.isInteger(shape) || shape < 1)
+      throw new Error(`Office design layout slot ${role} requires a positive shape index`);
     return {
       role,
       type,
@@ -58,7 +64,6 @@ function normalizeLayoutSlots(value) {
     };
   });
 }
-
 
 function normalizeLayoutCapacity(value) {
   if (!plainObject(value)) return {};
@@ -77,23 +82,32 @@ function normalizeLayoutCapacity(value) {
   };
 }
 
-
 function normalizeDesignTags(value, limit = 16) {
-  return [...new Set((Array.isArray(value) ? value : [])
-    .map((entry) => String(entry || '').trim().toLowerCase())
-    .filter(Boolean))].slice(0, limit);
+  return [
+    ...new Set(
+      (Array.isArray(value) ? value : [])
+        .map((entry) =>
+          String(entry || '')
+            .trim()
+            .toLowerCase()
+        )
+        .filter(Boolean)
+    ),
+  ].slice(0, limit);
 }
-
 
 export function normalizeLayouts(value, { templatePath = '' } = {}) {
   if (value == null) return [];
-  if (!Array.isArray(value) || value.length > 1_000) throw new Error('Office design layouts must be an array of at most 1000 entries');
+  if (!Array.isArray(value) || value.length > 1_000)
+    throw new Error('Office design layouts must be an array of at most 1000 entries');
   return value.map((layout) => {
     if (!plainObject(layout)) throw new Error('Office design layout entries must be objects');
     const id = safeId(layout.id, 'layout id');
     const format = String(layout.format || 'pptx').toLowerCase();
     if (!FORMATS.has(format)) throw new Error(`Office design layout ${id} has unsupported format ${format}`);
-    const kind = String(layout.kind || '').trim().toLowerCase();
+    const kind = String(layout.kind || '')
+      .trim()
+      .toLowerCase();
     if (!kind) throw new Error(`Office design layout ${id} requires kind`);
     const defaults = plainObject(layout.defaults) ? clone(layout.defaults) : {};
     const unknownDefaults = Object.keys(defaults).filter((key) => !ALLOWED_LAYOUT_DEFAULTS.has(key));
@@ -114,7 +128,9 @@ export function normalizeLayouts(value, { templatePath = '' } = {}) {
       kind,
       profile: layout.profile ? safeId(layout.profile, 'layout profile') : '',
       density: String(layout.density || '').toLowerCase(),
-      variant: String(layout.variant || '').trim().toLowerCase(),
+      variant: String(layout.variant || '')
+        .trim()
+        .toLowerCase(),
       purposes: normalizeDesignTags(layout.purposes),
       expressionModes: normalizeDesignTags(layout.expressionModes),
       templateId: layout.templateId ? safeId(layout.templateId, 'layout templateId') : '',
@@ -123,16 +139,23 @@ export function normalizeLayouts(value, { templatePath = '' } = {}) {
       sourceLayout,
       slots: normalizeLayoutSlots(layout.slots),
       capacity: normalizeLayoutCapacity(layout.capacity),
-      capabilities: [...new Set((Array.isArray(layout.capabilities) ? layout.capabilities : [])
-        .map((entry) => String(entry || '').trim().toLowerCase())
-        .filter(Boolean))].slice(0, 32),
+      capabilities: [
+        ...new Set(
+          (Array.isArray(layout.capabilities) ? layout.capabilities : [])
+            .map((entry) =>
+              String(entry || '')
+                .trim()
+                .toLowerCase()
+            )
+            .filter(Boolean)
+        ),
+      ].slice(0, 32),
       priority: Math.max(-100, Math.min(100, Number(layout.priority) || 0)),
       strict: layout.strict === true,
       defaults,
     };
   });
 }
-
 
 export function normalizeLocalSamples(value) {
   if (value == null) return [];
@@ -146,25 +169,35 @@ export function normalizeLocalSamples(value) {
       throw new Error('Office local template sample requires a positive slide number');
     }
     const roles = plainObject(sample.roles)
-      ? Object.fromEntries(Object.entries(sample.roles).map(([shape, role]) => {
-          const shapeIndex = Number(shape);
-          if (!Number.isInteger(shapeIndex) || shapeIndex < 1) {
-            throw new Error(`Office local template sample ${slide} has an invalid shape index`);
-          }
-          return [shapeIndex, safeId(role, `sample ${slide} slot role`)];
-        }))
+      ? Object.fromEntries(
+          Object.entries(sample.roles).map(([shape, role]) => {
+            const shapeIndex = Number(shape);
+            if (!Number.isInteger(shapeIndex) || shapeIndex < 1) {
+              throw new Error(`Office local template sample ${slide} has an invalid shape index`);
+            }
+            return [shapeIndex, safeId(role, `sample ${slide} slot role`)];
+          })
+        )
       : {};
     const defaults = plainObject(sample.defaults) ? clone(sample.defaults) : {};
     const unknownDefaults = Object.keys(defaults).filter((key) => !ALLOWED_LAYOUT_DEFAULTS.has(key));
     if (unknownDefaults.length) {
-      throw new Error(`Office local template sample ${slide} has unsupported default(s): ${unknownDefaults.join(', ')}`);
+      throw new Error(
+        `Office local template sample ${slide} has unsupported default(s): ${unknownDefaults.join(', ')}`
+      );
     }
     return {
       slide,
       id: sample.id ? safeId(sample.id, `sample ${slide} layout id`) : '',
-      kind: String(sample.kind || '').trim().toLowerCase(),
-      density: String(sample.density || '').trim().toLowerCase(),
-      variant: String(sample.variant || '').trim().toLowerCase(),
+      kind: String(sample.kind || '')
+        .trim()
+        .toLowerCase(),
+      density: String(sample.density || '')
+        .trim()
+        .toLowerCase(),
+      variant: String(sample.variant || '')
+        .trim()
+        .toLowerCase(),
       purposes: normalizeDesignTags(sample.purposes),
       expressionModes: normalizeDesignTags(sample.expressionModes),
       priority: Math.max(-100, Math.min(100, Number(sample.priority) || 0)),
@@ -175,7 +208,6 @@ export function normalizeLocalSamples(value) {
     };
   });
 }
-
 
 function normalizeRemoteTemplates(value) {
   if (value == null) return [];
@@ -217,13 +249,14 @@ function normalizeRemoteTemplates(value) {
   });
 }
 
-
 function normalizePack(value) {
   if (!plainObject(value)) throw new Error('Office design pack payload must be an object');
   const id = safeId(value.id, 'pack id');
   const version = String(value.version || '').trim();
   if (!parseVersion(version)) throw new Error(`Office design pack ${id} has invalid semantic version ${version}`);
-  const channel = String(value.channel || 'stable').trim().toLowerCase();
+  const channel = String(value.channel || 'stable')
+    .trim()
+    .toLowerCase();
   const defaultProfiles = plainObject(value.defaultProfiles) ? { ...value.defaultProfiles } : {};
   for (const [format, profile] of Object.entries(defaultProfiles)) {
     if (!FORMATS.has(format)) throw new Error(`Office design pack ${id} has unsupported default format ${format}`);
@@ -242,7 +275,6 @@ function normalizePack(value) {
   };
 }
 
-
 export function verifyOfficeDesignPackEnvelope(envelope, trustedKeys = {}) {
   if (!plainObject(envelope) || Number(envelope.schemaVersion) !== SCHEMA_VERSION) {
     throw new Error(`Office design pack envelope requires schemaVersion ${SCHEMA_VERSION}`);
@@ -256,12 +288,7 @@ export function verifyOfficeDesignPackEnvelope(envelope, trustedKeys = {}) {
   if (publicKey.asymmetricKeyType !== 'ed25519') {
     throw new Error(`Office design pack signing key ${keyId} must be Ed25519`);
   }
-  const valid = verify(
-    null,
-    Buffer.from(canonicalOfficeDesignPack(envelope.pack)),
-    publicKey,
-    signature,
-  );
+  const valid = verify(null, Buffer.from(canonicalOfficeDesignPack(envelope.pack)), publicKey, signature);
   if (!valid) throw new Error('Office design pack signature verification failed');
   return {
     keyId,
@@ -269,7 +296,6 @@ export function verifyOfficeDesignPackEnvelope(envelope, trustedKeys = {}) {
     envelope: clone(envelope),
   };
 }
-
 
 export async function responseBytes(response, maximum, label) {
   if (!response?.ok) throw new Error(`${label} download failed with HTTP ${response?.status || 0}`);
@@ -279,7 +305,6 @@ export async function responseBytes(response, maximum, label) {
   if (bytes.length > maximum) throw new Error(`${label} exceeds the download size limit`);
   return bytes;
 }
-
 
 export async function fetchWithTimeout(fetchImpl, url, options = {}, timeoutMs = 10_000) {
   const controller = new AbortController();
@@ -297,11 +322,9 @@ export async function fetchWithTimeout(fetchImpl, url, options = {}, timeoutMs =
   }
 }
 
-
 function cachedPackRoot(paths, id, version) {
   return join(paths.packs, safeId(id, 'pack id'), String(version));
 }
-
 
 export async function materializePack(envelope, verified, paths, fetchImpl, signal) {
   const target = cachedPackRoot(paths, verified.pack.id, verified.pack.version);
@@ -341,7 +364,6 @@ export async function materializePack(envelope, verified, paths, fetchImpl, sign
   return target;
 }
 
-
 export async function loadCachedPack(paths, config, id, version) {
   if (!id || !version) return null;
   const root = cachedPackRoot(paths, id, version);
@@ -352,7 +374,7 @@ export async function loadCachedPack(paths, config, id, version) {
   for (const template of verified.pack.templates) {
     const path = join(root, 'templates', `${template.id}${template.extension}`);
     const details = await stat(path).catch(() => null);
-    if (!details?.isFile() || details.size !== template.bytes || await sha256File(path) !== template.sha256) {
+    if (!details?.isFile() || details.size !== template.bytes || (await sha256File(path)) !== template.sha256) {
       throw new Error(`Cached Office design template ${template.id} failed integrity validation`);
     }
     templates.push({
@@ -375,15 +397,16 @@ export async function loadCachedPack(paths, config, id, version) {
   };
 }
 
-
 export function packSummary(pack) {
-  return pack ? {
-    id: pack.id,
-    version: pack.version,
-    channel: pack.channel,
-    keyId: pack.keyId,
-    profiles: Object.keys(pack.profiles || {}),
-    layouts: pack.layouts?.length || 0,
-    templates: pack.templates?.length || 0,
-  } : null;
+  return pack
+    ? {
+        id: pack.id,
+        version: pack.version,
+        channel: pack.channel,
+        keyId: pack.keyId,
+        profiles: Object.keys(pack.profiles || {}),
+        layouts: pack.layouts?.length || 0,
+        templates: pack.templates?.length || 0,
+      }
+    : null;
 }

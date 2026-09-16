@@ -4,13 +4,13 @@
 // counterpart of an editor-group model (editor list + active index).
 // All operations are immutable — callers keep the returned root — and the
 // tree is JSON-safe for persistence.
-import type { WorkspaceSelection } from "./nav-types";
-import { navigationKey } from "./text-format";
+import type { WorkspaceSelection } from './nav-types';
+import { navigationKey } from './text-format';
 
-export type PaneDirection = "row" | "column";
+export type PaneDirection = 'row' | 'column';
 
 export interface PaneLeaf {
-  readonly type: "leaf";
+  readonly type: 'leaf';
   readonly id: string;
   /** Tab group in strip order; keys (navigationKey) are unique per group. */
   readonly tabs: readonly WorkspaceSelection[];
@@ -21,7 +21,7 @@ export interface PaneLeaf {
 }
 
 export interface PaneSplit {
-  readonly type: "split";
+  readonly type: 'split';
   readonly direction: PaneDirection;
   /** First child's share of the split axis, clamped to the ratio bounds. */
   readonly ratio: number;
@@ -44,12 +44,14 @@ const PANE_PARSE_DEPTH_LIMIT = 32;
 let paneLeafCounter = 0;
 
 export function createPaneLeaf(selection: WorkspaceSelection, id?: string): PaneLeaf {
-  const leafId = id || (() => {
-    paneLeafCounter += 1;
-    return `pane_${Date.now().toString(36)}_${paneLeafCounter}`;
-  })();
+  const leafId =
+    id ||
+    (() => {
+      paneLeafCounter += 1;
+      return `pane_${Date.now().toString(36)}_${paneLeafCounter}`;
+    })();
   return {
-    type: "leaf",
+    type: 'leaf',
     id: leafId,
     tabs: [selection],
     activeKey: navigationKey(selection),
@@ -74,20 +76,20 @@ export type PaneMinimumSize = {
 /** Recursive pixel floor for a pane subtree. Same-axis children add their
  *  tracks, while orthogonal children share the larger cross-axis floor. */
 export function paneNodeMinimumSize(node: PaneNode): PaneMinimumSize {
-  if (node.type === "leaf") {
+  if (node.type === 'leaf') {
     return { width: PANE_MIN_WIDTH, height: PANE_MIN_HEIGHT };
   }
   const first = paneNodeMinimumSize(node.first);
   const second = paneNodeMinimumSize(node.second);
-  return node.direction === "row"
+  return node.direction === 'row'
     ? {
-      width: first.width + PANE_RESIZE_HANDLE_SIZE + second.width,
-      height: Math.max(first.height, second.height),
-    }
+        width: first.width + PANE_RESIZE_HANDLE_SIZE + second.width,
+        height: Math.max(first.height, second.height),
+      }
     : {
-      width: Math.max(first.width, second.width),
-      height: first.height + PANE_RESIZE_HANDLE_SIZE + second.height,
-    };
+        width: Math.max(first.width, second.width),
+        height: first.height + PANE_RESIZE_HANDLE_SIZE + second.height,
+      };
 }
 
 /** Clamp a sash ratio against the recursive pixel floors of its two cells.
@@ -96,12 +98,11 @@ export function clampPaneRatioForSizes(
   value: number,
   availableSize: number,
   firstMinimum: number,
-  secondMinimum: number,
+  secondMinimum: number
 ): number {
   const ratio = clampPaneRatio(value);
-  if (!Number.isFinite(availableSize)
-    || !Number.isFinite(firstMinimum)
-    || !Number.isFinite(secondMinimum)) return ratio;
+  if (!Number.isFinite(availableSize) || !Number.isFinite(firstMinimum) || !Number.isFinite(secondMinimum))
+    return ratio;
   const first = Math.max(0, firstMinimum);
   const second = Math.max(0, secondMinimum);
   const usableSize = Math.max(0, availableSize - PANE_RESIZE_HANDLE_SIZE);
@@ -114,28 +115,22 @@ export function clampPaneRatioForSizes(
 }
 
 export function paneLeaves(node: PaneNode): PaneLeaf[] {
-  if (node.type === "leaf") return [node];
+  if (node.type === 'leaf') return [node];
   return [...paneLeaves(node.first), ...paneLeaves(node.second)];
 }
 
 /** Session lanes that are actually painted: one active session per pane.
  * Background tabs stay cold until selected instead of retaining a live
  * transcript in the renderer, daemon, and runtime worker. */
-export function paneActiveSessionIds(
-  leaves: readonly PaneLeaf[],
-  focusedLeafId = "",
-): string[] {
+export function paneActiveSessionIds(leaves: readonly PaneLeaf[], focusedLeafId = ''): string[] {
   const orderedLeaves = focusedLeafId
-    ? [
-      ...leaves.filter((leaf) => leaf.id === focusedLeafId),
-      ...leaves.filter((leaf) => leaf.id !== focusedLeafId),
-    ]
+    ? [...leaves.filter((leaf) => leaf.id === focusedLeafId), ...leaves.filter((leaf) => leaf.id !== focusedLeafId)]
     : [...leaves];
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const leaf of orderedLeaves) {
     const selection = paneActiveSelection(leaf);
-    if (selection?.kind !== "session" || seen.has(selection.id)) continue;
+    if (selection?.kind !== 'session' || seen.has(selection.id)) continue;
     seen.add(selection.id);
     ids.push(selection.id);
   }
@@ -145,12 +140,9 @@ export function paneActiveSessionIds(
 /** Authorize persisted session tabs against the durable startup catalog before
  * any pane mounts. Empty orphan-only groups collapse exactly like closed
  * editor groups; non-session tabs retain their original layout. */
-export function filterPaneLayoutSessions(
-  root: PaneNode,
-  knownSessionIds: ReadonlySet<string>,
-): PaneNode | null {
+export function filterPaneLayoutSessions(root: PaneNode, knownSessionIds: ReadonlySet<string>): PaneNode | null {
   const filter = (node: PaneNode): PaneNode | null => {
-    if (node.type === "split") {
+    if (node.type === 'split') {
       const first = filter(node.first);
       const second = filter(node.second);
       if (!first) return second;
@@ -158,17 +150,12 @@ export function filterPaneLayoutSessions(
       if (first === node.first && second === node.second) return node;
       return { ...node, first, second };
     }
-    const tabs = node.tabs.filter((tab) =>
-      tab.kind !== "session" || knownSessionIds.has(tab.id));
+    const tabs = node.tabs.filter((tab) => tab.kind !== 'session' || knownSessionIds.has(tab.id));
     if (tabs.length === node.tabs.length) return node;
     if (tabs.length === 0) return null;
     const keys = new Set(tabs.map((tab) => navigationKey(tab)));
-    const activeKey = keys.has(node.activeKey)
-      ? node.activeKey
-      : navigationKey(tabs[0]);
-    const previewKey = node.previewKey && keys.has(node.previewKey)
-      ? node.previewKey
-      : undefined;
+    const activeKey = keys.has(node.activeKey) ? node.activeKey : navigationKey(tabs[0]);
+    const previewKey = node.previewKey && keys.has(node.previewKey) ? node.previewKey : undefined;
     return {
       ...node,
       tabs,
@@ -179,15 +166,12 @@ export function filterPaneLayoutSessions(
   return filter(root);
 }
 
-type MigratedAgentSelection = Extract<WorkspaceSelection, { kind: "session" }> & {
+type MigratedAgentSelection = Extract<WorkspaceSelection, { kind: 'session' }> & {
   legacyAgentSelection?: true;
 };
 
-function isMigratedAgentSelection(
-  selection: WorkspaceSelection,
-): selection is MigratedAgentSelection {
-  return selection.kind === "session"
-    && (selection as MigratedAgentSelection).legacyAgentSelection === true;
+function isMigratedAgentSelection(selection: WorkspaceSelection): selection is MigratedAgentSelection {
+  return selection.kind === 'session' && (selection as MigratedAgentSelection).legacyAgentSelection === true;
 }
 
 /** Keep only one normal tab per durable session address. Prefer an existing
@@ -195,23 +179,21 @@ function isMigratedAgentSelection(
 export function normalizePaneLayoutSessions(root: PaneNode): PaneNode | null {
   const normalIds = new Set(
     paneLeaves(root).flatMap((leaf) =>
-      leaf.tabs.flatMap((tab) =>
-        tab.kind === "session" && !isMigratedAgentSelection(tab) ? [tab.id] : [])),
+      leaf.tabs.flatMap((tab) => (tab.kind === 'session' && !isMigratedAgentSelection(tab) ? [tab.id] : []))
+    )
   );
   const seen = new Set<string>();
   const normalize = (node: PaneNode): PaneNode | null => {
-    if (node.type === "split") {
+    if (node.type === 'split') {
       const first = normalize(node.first);
       const second = normalize(node.second);
       if (!first) return second;
       if (!second) return first;
-      return first === node.first && second === node.second
-        ? node
-        : { ...node, first, second };
+      return first === node.first && second === node.second ? node : { ...node, first, second };
     }
     const tabs: WorkspaceSelection[] = [];
     for (const tab of node.tabs) {
-      if (tab.kind !== "session") {
+      if (tab.kind !== 'session') {
         tabs.push(tab);
         continue;
       }
@@ -227,16 +209,14 @@ export function normalizePaneLayoutSessions(root: PaneNode): PaneNode | null {
     }
     if (tabs.length === 0) return null;
     const keys = new Set(tabs.map((tab) => navigationKey(tab)));
-    const activeSessionId = node.activeKey.startsWith("agent-session:")
-      ? node.activeKey.slice("agent-session:".length)
-      : "";
+    const activeSessionId = node.activeKey.startsWith('agent-session:')
+      ? node.activeKey.slice('agent-session:'.length)
+      : '';
     const migratedActiveKey = activeSessionId ? `session:${activeSessionId}` : node.activeKey;
-    const activeKey = keys.has(migratedActiveKey)
-      ? migratedActiveKey
-      : navigationKey(tabs[0]);
-    const previewSessionId = node.previewKey?.startsWith("agent-session:")
-      ? node.previewKey.slice("agent-session:".length)
-      : "";
+    const activeKey = keys.has(migratedActiveKey) ? migratedActiveKey : navigationKey(tabs[0]);
+    const previewSessionId = node.previewKey?.startsWith('agent-session:')
+      ? node.previewKey.slice('agent-session:'.length)
+      : '';
     const migratedPreviewKey = previewSessionId ? `session:${previewSessionId}` : node.previewKey;
     return {
       ...node,
@@ -251,24 +231,19 @@ export function normalizePaneLayoutSessions(root: PaneNode): PaneNode | null {
 }
 
 export function findPaneLeaf(node: PaneNode, leafId: string): PaneLeaf | null {
-  if (node.type === "leaf") return node.id === leafId ? node : null;
+  if (node.type === 'leaf') return node.id === leafId ? node : null;
   return findPaneLeaf(node.first, leafId) ?? findPaneLeaf(node.second, leafId);
 }
 
 /** First group (reading order) that holds the key, or null. */
 export function paneLeafContainingKey(root: PaneNode, key: string): PaneLeaf | null {
-  return paneLeaves(root)
-    .find((leaf) => leaf.tabs.some((tab) => navigationKey(tab) === key)) ?? null;
+  return paneLeaves(root).find((leaf) => leaf.tabs.some((tab) => navigationKey(tab) === key)) ?? null;
 }
 
 /** Immutable single-leaf rewrite; an unchanged leaf returns the same root. */
-function mapPaneLeaf(
-  root: PaneNode,
-  leafId: string,
-  update: (leaf: PaneLeaf) => PaneLeaf,
-): PaneNode {
+function mapPaneLeaf(root: PaneNode, leafId: string, update: (leaf: PaneLeaf) => PaneLeaf): PaneNode {
   const walk = (node: PaneNode): PaneNode => {
-    if (node.type === "leaf") return node.id === leafId ? update(node) : node;
+    if (node.type === 'leaf') return node.id === leafId ? update(node) : node;
     const first = walk(node.first);
     const second = first === node.first ? walk(node.second) : node.second;
     if (first === node.first && second === node.second) return node;
@@ -286,12 +261,12 @@ export function openTabInPaneLeaf(
   root: PaneNode,
   leafId: string,
   selection: WorkspaceSelection,
-  replaceKey = "",
-  options: { preview?: boolean; index?: number } = {},
+  replaceKey = '',
+  options: { preview?: boolean; index?: number } = {}
 ): PaneNode {
   return mapPaneLeaf(root, leafId, (leaf) => {
     const key = navigationKey(selection);
-    const preview = options.preview === true && selection.kind === "file";
+    const preview = options.preview === true && selection.kind === 'file';
     const placeAt = (tabs: readonly WorkspaceSelection[], tabKey: string) => {
       const index = options.index;
       if (index === undefined) return tabs;
@@ -315,49 +290,51 @@ export function openTabInPaneLeaf(
           // must not steal the group back from a tab the user selected while
           // the submit acknowledgement was in flight.
           activeKey: leaf.activeKey === replaceKey ? key : leaf.activeKey,
-          previewKey: leaf.previewKey === replaceKey
-            ? (preview ? key : undefined)
-            : leaf.previewKey,
+          previewKey: leaf.previewKey === replaceKey ? (preview ? key : undefined) : leaf.previewKey,
         };
       }
     }
-    const existingIndex = leaf.tabs.findIndex((tab) =>
-      navigationKey(tab) === key
-      || (tab.kind === "file" && selection.kind === "file"
-        && tab.project === selection.project && tab.rel === selection.rel));
+    const existingIndex = leaf.tabs.findIndex(
+      (tab) =>
+        navigationKey(tab) === key ||
+        (tab.kind === 'file' &&
+          selection.kind === 'file' &&
+          tab.project === selection.project &&
+          tab.rel === selection.rel)
+    );
     if (existingIndex >= 0) {
       const existing = leaf.tabs[existingIndex];
       // Reopening an externally selected file may carry a freshly minted
       // permission token. Conversely, pane focus routes omit the token and
       // must not erase the one already attached to the tab.
-      const nextSelection = existing.kind === "file" && selection.kind === "file"
-        ? {
-          ...selection,
-          ...(selection.accessToken || existing.accessToken
-            ? { accessToken: selection.accessToken || existing.accessToken }
-            : {}),
-        }
-        : existing;
-      const selectionChanged = nextSelection !== existing
-        && (nextSelection.kind !== "file" || existing.kind !== "file"
-          || nextSelection.accessToken !== existing.accessToken);
+      const nextSelection =
+        existing.kind === 'file' && selection.kind === 'file'
+          ? {
+              ...selection,
+              ...(selection.accessToken || existing.accessToken
+                ? { accessToken: selection.accessToken || existing.accessToken }
+                : {}),
+            }
+          : existing;
+      const selectionChanged =
+        nextSelection !== existing &&
+        (nextSelection.kind !== 'file' ||
+          existing.kind !== 'file' ||
+          nextSelection.accessToken !== existing.accessToken);
       const resolvedKey = navigationKey(nextSelection);
-      const previewKey = preview
-        ? leaf.previewKey
-        : leaf.previewKey === resolvedKey ? undefined : leaf.previewKey;
-      const tabs = placeAt(selectionChanged
-        ? leaf.tabs.map((tab, index) => (index === existingIndex ? nextSelection : tab))
-        : leaf.tabs, resolvedKey);
-      if (leaf.activeKey === resolvedKey && !selectionChanged
-        && previewKey === leaf.previewKey && tabs === leaf.tabs) return leaf;
+      const previewKey = preview ? leaf.previewKey : leaf.previewKey === resolvedKey ? undefined : leaf.previewKey;
+      const tabs = placeAt(
+        selectionChanged ? leaf.tabs.map((tab, index) => (index === existingIndex ? nextSelection : tab)) : leaf.tabs,
+        resolvedKey
+      );
+      if (leaf.activeKey === resolvedKey && !selectionChanged && previewKey === leaf.previewKey && tabs === leaf.tabs)
+        return leaf;
       return { ...leaf, tabs, activeKey: resolvedKey, previewKey };
     }
     if (preview && leaf.previewKey) {
-      const previewIndex = leaf.tabs.findIndex((tab) =>
-        navigationKey(tab) === leaf.previewKey);
+      const previewIndex = leaf.tabs.findIndex((tab) => navigationKey(tab) === leaf.previewKey);
       if (previewIndex >= 0) {
-        const tabs = leaf.tabs.map((tab, index) =>
-          index === previewIndex ? selection : tab);
+        const tabs = leaf.tabs.map((tab, index) => (index === previewIndex ? selection : tab));
         return { ...leaf, tabs, activeKey: key, previewKey: key };
       }
     }
@@ -365,10 +342,7 @@ export function openTabInPaneLeaf(
     // takes its strip slot instead of stacking beside it. Another draft
     // (Ctrl+N) still appends so unsent input is never discarded, and an
     // explicit replaceKey promotion keeps owning its path.
-    if (!replaceKey
-      && selection.kind !== "new"
-      && leaf.tabs.length === 1
-      && leaf.tabs[0].kind === "new") {
+    if (!replaceKey && selection.kind !== 'new' && leaf.tabs.length === 1 && leaf.tabs[0].kind === 'new') {
       return {
         ...leaf,
         tabs: [selection],
@@ -379,15 +353,12 @@ export function openTabInPaneLeaf(
     const nextPreviewKey = preview ? key : leaf.previewKey;
     const appended = [...leaf.tabs];
     appended.splice(
-      options.index === undefined
-        ? appended.length
-        : Math.max(0, Math.min(options.index, appended.length)),
+      options.index === undefined ? appended.length : Math.max(0, Math.min(options.index, appended.length)),
       0,
-      selection,
+      selection
     );
     return {
-      ...Object.fromEntries(Object.entries(leaf)
-        .filter(([name]) => name !== "previewKey")) as PaneLeaf,
+      ...(Object.fromEntries(Object.entries(leaf).filter(([name]) => name !== 'previewKey')) as PaneLeaf),
       tabs: appended,
       activeKey: key,
       ...(nextPreviewKey ? { previewKey: nextPreviewKey } : {}),
@@ -396,24 +367,20 @@ export function openTabInPaneLeaf(
 }
 
 export function pinTabInPaneLeaf(root: PaneNode, leafId: string, key: string): PaneNode {
-  return mapPaneLeaf(root, leafId, (leaf) => (
-    leaf.previewKey === key ? { ...leaf, previewKey: undefined } : leaf
-  ));
+  return mapPaneLeaf(root, leafId, (leaf) => (leaf.previewKey === key ? { ...leaf, previewKey: undefined } : leaf));
 }
 
 export function activateTabInPaneLeaf(root: PaneNode, leafId: string, key: string): PaneNode {
-  return mapPaneLeaf(root, leafId, (leaf) => (
-    leaf.activeKey !== key && leaf.tabs.some((tab) => navigationKey(tab) === key)
-      ? { ...leaf, activeKey: key }
-      : leaf
-  ));
+  return mapPaneLeaf(root, leafId, (leaf) =>
+    leaf.activeKey !== key && leaf.tabs.some((tab) => navigationKey(tab) === key) ? { ...leaf, activeKey: key } : leaf
+  );
 }
 
 export function reorderTabInPaneLeaf(
   root: PaneNode,
   leafId: string,
   sourceKey: string,
-  target: string | number,
+  target: string | number
 ): PaneNode {
   return mapPaneLeaf(root, leafId, (leaf) => {
     const keys = leaf.tabs.map((tab) => navigationKey(tab));
@@ -422,9 +389,10 @@ export function reorderTabInPaneLeaf(
     // against the CURRENT list with the source still in
     // place — tab half rule, container drop = count — so an index past the
     // source shifts down by one after removal.
-    const to = typeof target === "number"
-      ? Math.max(0, Math.min(target > from ? target - 1 : target, keys.length - 1))
-      : keys.indexOf(target);
+    const to =
+      typeof target === 'number'
+        ? Math.max(0, Math.min(target > from ? target - 1 : target, keys.length - 1))
+        : keys.indexOf(target);
     if (from < 0 || to < 0 || from === to) return leaf;
     const tabs = [...leaf.tabs];
     const [moved] = tabs.splice(from, 1);
@@ -437,20 +405,14 @@ export function reorderTabInPaneLeaf(
  *  sibling absorbs the cell); closing the active tab activates its nearest
  *  neighbor — the same fallback rule the old strip used. Returns null when
  *  the whole tree emptied. */
-export function closeTabInPaneLeaf(
-  root: PaneNode,
-  leafId: string,
-  key: string,
-): PaneNode | null {
+export function closeTabInPaneLeaf(root: PaneNode, leafId: string, key: string): PaneNode | null {
   const leaf = findPaneLeaf(root, leafId);
   if (!leaf) return root;
   const index = leaf.tabs.findIndex((tab) => navigationKey(tab) === key);
   if (index < 0) return root;
   if (leaf.tabs.length === 1) return closePaneLeaf(root, leafId);
   const tabs = leaf.tabs.filter((_, tabIndex) => tabIndex !== index);
-  const activeKey = leaf.activeKey === key
-    ? navigationKey(tabs[Math.min(index, tabs.length - 1)])
-    : leaf.activeKey;
+  const activeKey = leaf.activeKey === key ? navigationKey(tabs[Math.min(index, tabs.length - 1)]) : leaf.activeKey;
   return mapPaneLeaf(root, leafId, () => ({
     ...leaf,
     tabs,
@@ -468,18 +430,18 @@ export function splitPaneLeaf(
   direction: PaneDirection,
   leaf: PaneLeaf,
   ratio = 0.5,
-  position: "before" | "after" = "after",
+  position: 'before' | 'after' = 'after'
 ): PaneNode {
   if (!findPaneLeaf(root, leafId)) return root;
   const replace = (node: PaneNode): PaneNode => {
-    if (node.type === "leaf") {
+    if (node.type === 'leaf') {
       if (node.id !== leafId) return node;
       return {
-        type: "split",
+        type: 'split',
         direction,
         ratio: clampPaneRatio(ratio),
-        first: position === "before" ? leaf : node,
-        second: position === "before" ? node : leaf,
+        first: position === 'before' ? leaf : node,
+        second: position === 'before' ? node : leaf,
       };
     }
     const first = replace(node.first);
@@ -494,7 +456,7 @@ export function splitPaneLeaf(
  *  root leaf yields null — the caller decides what an empty workspace shows. */
 export function closePaneLeaf(root: PaneNode, leafId: string): PaneNode | null {
   const close = (node: PaneNode): PaneNode | null => {
-    if (node.type === "leaf") return node.id === leafId ? null : node;
+    if (node.type === 'leaf') return node.id === leafId ? null : node;
     const first = close(node.first);
     if (first === null) return node.second;
     const second = close(node.second);
@@ -512,7 +474,7 @@ export function mergePaneLeaf(
   root: PaneNode,
   sourceLeafId: string,
   targetLeafId: string,
-  insertIndex?: number,
+  insertIndex?: number
 ): PaneNode {
   if (!sourceLeafId || sourceLeafId === targetLeafId) return root;
   const source = findPaneLeaf(root, sourceLeafId);
@@ -530,18 +492,16 @@ export function mergePaneLeaf(
       incoming.push(tab);
     }
     tabs.splice(
-      insertIndex === undefined
-        ? tabs.length
-        : Math.max(0, Math.min(insertIndex, tabs.length)),
+      insertIndex === undefined ? tabs.length : Math.max(0, Math.min(insertIndex, tabs.length)),
       0,
-      ...incoming,
+      ...incoming
     );
     return {
       ...target,
       tabs,
       activeKey: keys.has(source.activeKey) ? source.activeKey : target.activeKey,
-      previewKey: target.previewKey
-        || (source.previewKey && keys.has(source.previewKey) ? source.previewKey : undefined),
+      previewKey:
+        target.previewKey || (source.previewKey && keys.has(source.previewKey) ? source.previewKey : undefined),
     };
   });
 }
@@ -554,7 +514,7 @@ export function movePaneLeaf(
   sourceLeafId: string,
   targetLeafId: string,
   direction: PaneDirection,
-  position: "before" | "after",
+  position: 'before' | 'after'
 ): PaneNode {
   if (!sourceLeafId || sourceLeafId === targetLeafId) return root;
   const source = findPaneLeaf(root, sourceLeafId);
@@ -565,7 +525,7 @@ export function movePaneLeaf(
 }
 
 function balanceInsertedPaneLayout(root: PaneNode, direction: PaneDirection): PaneNode {
-  if (root.type !== "split" || root.direction !== direction) return root;
+  if (root.type !== 'split' || root.direction !== direction) return root;
   // Orthogonal stacks count as one track on this axis, so adding a full-span
   // pane beside a two-column grid produces three equal columns.
   return distributePaneRatiosAlong(root, direction);
@@ -574,8 +534,8 @@ function balanceInsertedPaneLayout(root: PaneNode, direction: PaneDirection): Pa
 export function paneNodeAtPath(root: PaneNode, path: string): PaneNode | null {
   let node = root;
   if (!path) return node;
-  for (const segment of path.split(".")) {
-    if (node.type !== "split" || (segment !== "first" && segment !== "second")) return null;
+  for (const segment of path.split('.')) {
+    if (node.type !== 'split' || (segment !== 'first' && segment !== 'second')) return null;
     node = node[segment];
   }
   return node;
@@ -584,17 +544,15 @@ export function paneNodeAtPath(root: PaneNode, path: string): PaneNode | null {
 /** Split axis that directly owns a leaf. Structural removals use this before
  *  collapsing the parent so the surviving tracks can be redistributed along
  *  exactly the axis that changed. */
-export function paneLeafParentDirection(
-  root: PaneNode,
-  leafId: string,
-): PaneDirection | null {
-  if (root.type === "leaf") return null;
-  if ((root.first.type === "leaf" && root.first.id === leafId)
-    || (root.second.type === "leaf" && root.second.id === leafId)) {
+export function paneLeafParentDirection(root: PaneNode, leafId: string): PaneDirection | null {
+  if (root.type === 'leaf') return null;
+  if (
+    (root.first.type === 'leaf' && root.first.id === leafId) ||
+    (root.second.type === 'leaf' && root.second.id === leafId)
+  ) {
     return root.direction;
   }
-  return paneLeafParentDirection(root.first, leafId)
-    ?? paneLeafParentDirection(root.second, leafId);
+  return paneLeafParentDirection(root.first, leafId) ?? paneLeafParentDirection(root.second, leafId);
 }
 
 export type PaneRelativeRect = {
@@ -607,43 +565,37 @@ export type PaneRelativeRect = {
 /** Resolve one leaf's final normalized bounds after a structural layout
  *  operation. Drop previews use this so their highlighted slot matches the
  *  pane's actual row/column share instead of always claiming half a node. */
-export function paneLeafRelativeRect(
-  root: PaneNode,
-  leafId: string,
-): PaneRelativeRect | null {
-  const walk = (
-    node: PaneNode,
-    rect: PaneRelativeRect,
-  ): PaneRelativeRect | null => {
-    if (node.type === "leaf") return node.id === leafId ? rect : null;
+export function paneLeafRelativeRect(root: PaneNode, leafId: string): PaneRelativeRect | null {
+  const walk = (node: PaneNode, rect: PaneRelativeRect): PaneRelativeRect | null => {
+    if (node.type === 'leaf') return node.id === leafId ? rect : null;
     const ratio = clampPaneRatio(node.ratio);
-    if (node.direction === "row") {
+    if (node.direction === 'row') {
       const firstWidth = rect.width * ratio;
-      return walk(node.first, { ...rect, width: firstWidth })
-        ?? walk(node.second, {
+      return (
+        walk(node.first, { ...rect, width: firstWidth }) ??
+        walk(node.second, {
           left: rect.left + firstWidth,
           top: rect.top,
           width: rect.width - firstWidth,
           height: rect.height,
-        });
+        })
+      );
     }
     const firstHeight = rect.height * ratio;
-    return walk(node.first, { ...rect, height: firstHeight })
-      ?? walk(node.second, {
+    return (
+      walk(node.first, { ...rect, height: firstHeight }) ??
+      walk(node.second, {
         left: rect.left,
         top: rect.top + firstHeight,
         width: rect.width,
         height: rect.height - firstHeight,
-      });
+      })
+    );
   };
   return walk(root, { left: 0, top: 0, width: 1, height: 1 });
 }
 
-function paneLeavesInCoordinateOrder(
-  root: PaneNode,
-  primary: "left" | "top",
-  secondary: "left" | "top",
-): PaneLeaf[] {
+function paneLeavesInCoordinateOrder(root: PaneNode, primary: 'left' | 'top', secondary: 'left' | 'top'): PaneLeaf[] {
   const leaves = paneLeaves(root);
   const fallbackOrder = new Map(leaves.map((leaf, index) => [leaf.id, index]));
   const rects = new Map(leaves.map((leaf) => [leaf.id, paneLeafRelativeRect(root, leaf.id)]));
@@ -665,7 +617,7 @@ function paneLeavesInCoordinateOrder(
  *  lane before continuing downward. The binary tree's DFS order becomes
  *  column-major when each side of a row split is split vertically. */
 export function paneLeavesInVisualOrder(root: PaneNode): PaneLeaf[] {
-  return paneLeavesInCoordinateOrder(root, "top", "left");
+  return paneLeavesInCoordinateOrder(root, 'top', 'left');
 }
 
 /** The edge tab reached when horizontal traversal crosses into another pane.
@@ -674,7 +626,7 @@ export function paneLeavesInVisualOrder(root: PaneNode): PaneLeaf[] {
 export function paneTabAcrossVisualBoundary(
   root: PaneNode,
   leafId: string,
-  offset: number,
+  offset: number
 ): { leafId: string; selection: WorkspaceSelection } | null {
   if (!offset) return null;
   const ordered = paneLeavesInVisualOrder(root);
@@ -682,9 +634,7 @@ export function paneTabAcrossVisualBoundary(
   if (currentIndex < 0 || ordered.length < 2) return null;
   const direction = offset < 0 ? -1 : 1;
   for (let step = 1; step < ordered.length; step += 1) {
-    const leaf = ordered[
-      (currentIndex + direction * step + ordered.length) % ordered.length
-    ];
+    const leaf = ordered[(currentIndex + direction * step + ordered.length) % ordered.length];
     const selection = direction < 0 ? leaf.tabs.at(-1) : leaf.tabs[0];
     if (selection) return { leafId: leaf.id, selection };
   }
@@ -693,11 +643,7 @@ export function paneTabAcrossVisualBoundary(
 
 /** Find the nearest pane wholly above or below the current pane. Candidates
  *  sharing horizontal space win over diagonal panes; ties follow visual order. */
-export function paneLeafIdInVerticalDirection(
-  root: PaneNode,
-  leafId: string,
-  direction: "up" | "down",
-): string | null {
+export function paneLeafIdInVerticalDirection(root: PaneNode, leafId: string, direction: 'up' | 'down'): string | null {
   const current = paneLeafRelativeRect(root, leafId);
   if (!current) return null;
   const epsilon = Number.EPSILON * 8;
@@ -707,37 +653,37 @@ export function paneLeafIdInVerticalDirection(
     if (leaf.id === leafId) return [];
     const rect = paneLeafRelativeRect(root, leaf.id);
     if (!rect) return [];
-    const edge = direction === "up" ? rect.top + rect.height : rect.top;
-    const eligible = direction === "up"
-      ? edge <= current.top + epsilon
-      : edge >= current.top + current.height - epsilon;
+    const edge = direction === 'up' ? rect.top + rect.height : rect.top;
+    const eligible =
+      direction === 'up' ? edge <= current.top + epsilon : edge >= current.top + current.height - epsilon;
     if (!eligible) return [];
-    const overlap = Math.min(currentRight, rect.left + rect.width)
-      - Math.max(current.left, rect.left);
-    const gap = direction === "up"
-      ? current.top - edge
-      : edge - (current.top + current.height);
-    return [{
-      id: leaf.id,
-      overlaps: overlap > epsilon,
-      gap: Math.max(0, gap),
-      crossDistance: Math.abs(currentCenter - (rect.left + rect.width / 2)),
-      order,
-    }];
+    const overlap = Math.min(currentRight, rect.left + rect.width) - Math.max(current.left, rect.left);
+    const gap = direction === 'up' ? current.top - edge : edge - (current.top + current.height);
+    return [
+      {
+        id: leaf.id,
+        overlaps: overlap > epsilon,
+        gap: Math.max(0, gap),
+        crossDistance: Math.abs(currentCenter - (rect.left + rect.width / 2)),
+        order,
+      },
+    ];
   });
-  candidates.sort((left, right) =>
-    Number(right.overlaps) - Number(left.overlaps)
-    || left.gap - right.gap
-    || left.crossDistance - right.crossDistance
-    || left.order - right.order);
+  candidates.sort(
+    (left, right) =>
+      Number(right.overlaps) - Number(left.overlaps) ||
+      left.gap - right.gap ||
+      left.crossDistance - right.crossDistance ||
+      left.order - right.order
+  );
   return candidates[0]?.id ?? null;
 }
 
 function replacePaneNodeAtPath(root: PaneNode, path: string, replacement: PaneNode): PaneNode {
   if (!path) return replacement;
-  const [head, ...rest] = path.split(".");
-  if (root.type !== "split" || (head !== "first" && head !== "second")) return root;
-  const child = replacePaneNodeAtPath(root[head], rest.join("."), replacement);
+  const [head, ...rest] = path.split('.');
+  if (root.type !== 'split' || (head !== 'first' && head !== 'second')) return root;
+  const child = replacePaneNodeAtPath(root[head], rest.join('.'), replacement);
   return child === root[head] ? root : { ...root, [head]: child };
 }
 
@@ -749,12 +695,12 @@ function smallestPanePathContaining(root: PaneNode, leafIds: ReadonlySet<string>
   };
   if (!containsAll(root)) return null;
   const walk = (node: PaneNode, path: string): string => {
-    if (node.type === "leaf") return path;
-    if (containsAll(node.first)) return walk(node.first, path ? `${path}.first` : "first");
-    if (containsAll(node.second)) return walk(node.second, path ? `${path}.second` : "second");
+    if (node.type === 'leaf') return path;
+    if (containsAll(node.first)) return walk(node.first, path ? `${path}.first` : 'first');
+    if (containsAll(node.second)) return walk(node.second, path ? `${path}.second` : 'second');
     return path;
   };
-  return walk(root, "");
+  return walk(root, '');
 }
 
 function insertPaneBesideNode(
@@ -762,17 +708,20 @@ function insertPaneBesideNode(
   targetPath: string,
   leaf: PaneLeaf,
   direction: PaneDirection,
-  position: "before" | "after",
+  position: 'before' | 'after'
 ): PaneNode {
   const target = paneNodeAtPath(root, targetPath);
   if (!target) return root;
-  const replacement = balanceInsertedPaneLayout({
-    type: "split",
-    direction,
-    ratio: 0.5,
-    first: position === "before" ? leaf : target,
-    second: position === "before" ? target : leaf,
-  }, direction);
+  const replacement = balanceInsertedPaneLayout(
+    {
+      type: 'split',
+      direction,
+      ratio: 0.5,
+      first: position === 'before' ? leaf : target,
+      second: position === 'before' ? target : leaf,
+    },
+    direction
+  );
   return replacePaneNodeAtPath(root, targetPath, replacement);
 }
 
@@ -783,21 +732,24 @@ export function movePaneLeafToNodeEdge(
   sourceLeafId: string,
   targetPath: string,
   direction: PaneDirection,
-  position: "before" | "after",
+  position: 'before' | 'after'
 ): PaneNode {
   if (!sourceLeafId) return root;
   const source = findPaneLeaf(root, sourceLeafId);
   const target = paneNodeAtPath(root, targetPath);
   if (!source || !target) return root;
-  const sourceAlreadyAtEdge = target.type === "split"
-    && target.direction === direction
-    && (position === "before" ? target.first : target.second) === source;
+  const sourceAlreadyAtEdge =
+    target.type === 'split' &&
+    target.direction === direction &&
+    (position === 'before' ? target.first : target.second) === source;
   if (sourceAlreadyAtEdge) {
     const balanced = balanceInsertedPaneLayout(target, direction);
     return balanced === target ? root : replacePaneNodeAtPath(root, targetPath, balanced);
   }
   const targetLeafIds = new Set(
-    paneLeaves(target).map((leaf) => leaf.id).filter((id) => id !== sourceLeafId),
+    paneLeaves(target)
+      .map((leaf) => leaf.id)
+      .filter((id) => id !== sourceLeafId)
   );
   if (targetLeafIds.size === 0) return root;
   const removed = closePaneLeaf(root, sourceLeafId);
@@ -815,8 +767,8 @@ export function movePaneTabToNodeEdge(
   key: string,
   targetPath: string,
   direction: PaneDirection,
-  position: "before" | "after",
-  newLeafId?: string,
+  position: 'before' | 'after',
+  newLeafId?: string
 ): PaneNode {
   const source = findPaneLeaf(root, sourceLeafId);
   const selection = source?.tabs.find((tab) => navigationKey(tab) === key);
@@ -839,9 +791,9 @@ export function movePaneLeafToRootEdge(
   root: PaneNode,
   sourceLeafId: string,
   direction: PaneDirection,
-  position: "before" | "after",
+  position: 'before' | 'after'
 ): PaneNode {
-  return movePaneLeafToNodeEdge(root, sourceLeafId, "", direction, position);
+  return movePaneLeafToNodeEdge(root, sourceLeafId, '', direction, position);
 }
 
 export function movePaneTabToRootEdge(
@@ -849,9 +801,9 @@ export function movePaneTabToRootEdge(
   sourceLeafId: string,
   key: string,
   direction: PaneDirection,
-  position: "before" | "after",
+  position: 'before' | 'after'
 ): PaneNode {
-  return movePaneTabToNodeEdge(root, sourceLeafId, key, "", direction, position);
+  return movePaneTabToNodeEdge(root, sourceLeafId, key, '', direction, position);
 }
 
 /** Update one split's ratio. The split is addressed by its path from the
@@ -859,23 +811,23 @@ export function movePaneTabToRootEdge(
  *  dots, which stays stable while the user drags one handle. */
 export function setPaneSplitRatio(root: PaneNode, path: string, ratio: number): PaneNode {
   const target = paneNodeAtPath(root, path);
-  if (!target || target.type !== "split") return root;
+  if (!target || target.type !== 'split') return root;
   const nextRatio = clampPaneRatio(ratio);
   const walk = (node: PaneNode, segments: string[]): PaneNode => {
-    if (node.type !== "split") return node;
+    if (node.type !== 'split') return node;
     if (segments.length === 0) return { ...node, ratio: nextRatio };
     const [head, ...rest] = segments;
-    if (head === "first") {
+    if (head === 'first') {
       const first = walk(node.first, rest);
       return first === node.first ? node : { ...node, first };
     }
-    if (head === "second") {
+    if (head === 'second') {
       const second = walk(node.second, rest);
       return second === node.second ? node : { ...node, second };
     }
     return node;
   };
-  const segments = path ? path.split(".") : [];
+  const segments = path ? path.split('.') : [];
   let next = walk(root, segments);
   if (segments.length === 0) return next;
 
@@ -883,7 +835,7 @@ export function setPaneSplitRatio(root: PaneNode, path: string, ratio: number): 
   // root row → left column + right column). Sashes that were already aligned
   // must remain one continuous grid line when either side is dragged.
   const alignParallel = (node: PaneNode): PaneNode => {
-    if (node.type === "leaf") return node;
+    if (node.type === 'leaf') return node;
     if (node.direction === target.direction) {
       // A 2×2 is two independent stacks. The shared grid line must move as
       // one, even after a prior local drag left the ratios a few px apart.
@@ -891,15 +843,13 @@ export function setPaneSplitRatio(root: PaneNode, path: string, ratio: number): 
     }
     const first = alignParallel(node.first);
     const second = alignParallel(node.second);
-    return first === node.first && second === node.second
-      ? node
-      : { ...node, first, second };
+    return first === node.first && second === node.second ? node : { ...node, first, second };
   };
   for (let index = segments.length - 1; index >= 0; index -= 1) {
-    const parentPath = segments.slice(0, index).join(".");
+    const parentPath = segments.slice(0, index).join('.');
     const parent = paneNodeAtPath(root, parentPath);
-    if (!parent || parent.type !== "split" || parent.direction === target.direction) break;
-    const siblingSegment = segments[index] === "first" ? "second" : "first";
+    if (!parent || parent.type !== 'split' || parent.direction === target.direction) break;
+    const siblingSegment = segments[index] === 'first' ? 'second' : 'first';
     const sibling = alignParallel(parent[siblingSegment]);
     if (sibling === parent[siblingSegment]) continue;
     const siblingPath = parentPath ? `${parentPath}.${siblingSegment}` : siblingSegment;
@@ -910,23 +860,18 @@ export function setPaneSplitRatio(root: PaneNode, path: string, ratio: number): 
 
 /** Distribute only the axis changed by a root-edge drop. Same-axis nested
  *  tracks become equal rows/columns while orthogonal manual sizing survives. */
-export function distributePaneRatiosAlong(
-  root: PaneNode,
-  direction: PaneDirection,
-): PaneNode {
+export function distributePaneRatiosAlong(root: PaneNode, direction: PaneDirection): PaneNode {
   const weight = (node: PaneNode): number => {
-    if (node.type === "leaf") return 1;
+    if (node.type === 'leaf') return 1;
     if (node.direction === direction) return weight(node.first) + weight(node.second);
     return Math.max(weight(node.first), weight(node.second));
   };
   const walk = (node: PaneNode): PaneNode => {
-    if (node.type === "leaf") return node;
+    if (node.type === 'leaf') return node;
     const first = walk(node.first);
     const second = walk(node.second);
     if (node.direction !== direction) {
-      return first === node.first && second === node.second
-        ? node
-        : { ...node, first, second };
+      return first === node.first && second === node.second ? node : { ...node, first, second };
     }
     const a = weight(first);
     const b = weight(second);
@@ -937,18 +882,10 @@ export function distributePaneRatiosAlong(
   return walk(root);
 }
 
-export function canSplitPaneSize(
-  direction: PaneDirection,
-  width: number,
-  height: number,
-): boolean {
+export function canSplitPaneSize(direction: PaneDirection, width: number, height: number): boolean {
   if (!Number.isFinite(width) || !Number.isFinite(height)) return true;
-  const minimumWidth = direction === "row"
-    ? PANE_MIN_WIDTH * 2 + PANE_RESIZE_HANDLE_SIZE
-    : PANE_MIN_WIDTH;
-  const minimumHeight = direction === "column"
-    ? PANE_MIN_HEIGHT * 2 + PANE_RESIZE_HANDLE_SIZE
-    : PANE_MIN_HEIGHT;
+  const minimumWidth = direction === 'row' ? PANE_MIN_WIDTH * 2 + PANE_RESIZE_HANDLE_SIZE : PANE_MIN_WIDTH;
+  const minimumHeight = direction === 'column' ? PANE_MIN_HEIGHT * 2 + PANE_RESIZE_HANDLE_SIZE : PANE_MIN_HEIGHT;
   return width >= minimumWidth && height >= minimumHeight;
 }
 
@@ -964,89 +901,87 @@ export function neighborPaneLeafId(root: PaneNode, leafId: string): string | nul
 }
 
 export function parseWorkspaceSelection(value: unknown): WorkspaceSelection | null {
-  const record = value && typeof value === "object" ? value as Record<string, unknown> : null;
+  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!record) return null;
   switch (record.kind) {
-    case "new":
-      return typeof record.draftId === "string" && record.draftId
-        ? { kind: "new", draftId: record.draftId }
-        : { kind: "new" };
-    case "project":
-      return typeof record.path === "string" && record.path
-        ? { kind: "project", path: record.path }
-        : null;
-    case "session":
-      return typeof record.id === "string" && record.id
+    case 'new':
+      return typeof record.draftId === 'string' && record.draftId
+        ? { kind: 'new', draftId: record.draftId }
+        : { kind: 'new' };
+    case 'project':
+      return typeof record.path === 'string' && record.path ? { kind: 'project', path: record.path } : null;
+    case 'session':
+      return typeof record.id === 'string' && record.id
         ? {
-          kind: "session",
-          id: record.id,
-          ...(typeof record.title === "string" && record.title ? { title: record.title } : {}),
-        }
+            kind: 'session',
+            id: record.id,
+            ...(typeof record.title === 'string' && record.title ? { title: record.title } : {}),
+          }
         : null;
-    case "agent-session":
-      return typeof record.id === "string" && record.id
-        && typeof record.title === "string" && record.title
+    case 'agent-session':
+      return typeof record.id === 'string' && record.id && typeof record.title === 'string' && record.title
+        ? ({
+            kind: 'session',
+            id: record.id,
+            title: record.title,
+            legacyAgentSelection: true,
+          } as MigratedAgentSelection)
+        : null;
+    case 'file':
+      return typeof record.project === 'string' && record.project && typeof record.rel === 'string' && record.rel
         ? {
-          kind: "session",
-          id: record.id,
-          title: record.title,
-          legacyAgentSelection: true,
-        } as MigratedAgentSelection
+            kind: 'file',
+            project: record.project,
+            rel: record.rel,
+            ...(typeof record.accessToken === 'string' && record.accessToken
+              ? { accessToken: record.accessToken }
+              : {}),
+          }
         : null;
-    case "file":
-      return typeof record.project === "string" && record.project
-        && typeof record.rel === "string" && record.rel
+    case 'studio':
+      return typeof record.id === 'string' && record.id ? { kind: 'studio', id: record.id } : null;
+    case 'terminal':
+      return typeof record.id === 'string' && record.id
         ? {
-          kind: "file",
-          project: record.project,
-          rel: record.rel,
-          ...(typeof record.accessToken === "string" && record.accessToken
-            ? { accessToken: record.accessToken }
-            : {}),
-        }
+            kind: 'terminal',
+            id: record.id,
+            ...(typeof record.cwd === 'string' && record.cwd ? { cwd: record.cwd } : {}),
+          }
         : null;
-    case "studio":
-      return typeof record.id === "string" && record.id
-        ? { kind: "studio", id: record.id }
-        : null;
-    case "terminal":
-      return typeof record.id === "string" && record.id
+    case 'pull-request':
+      return typeof record.project === 'string' &&
+        record.project &&
+        Number.isInteger(record.number) &&
+        Number(record.number) > 0 &&
+        (record.mode === 'overview' || record.mode === 'changes')
         ? {
-          kind: "terminal",
-          id: record.id,
-          ...(typeof record.cwd === "string" && record.cwd ? { cwd: record.cwd } : {}),
-        }
+            kind: 'pull-request',
+            project: record.project,
+            number: Number(record.number),
+            mode: record.mode,
+            ...(typeof record.title === 'string' && record.title ? { title: record.title } : {}),
+            ...(typeof record.instanceId === 'string' && record.instanceId ? { instanceId: record.instanceId } : {}),
+          }
         : null;
-    case "pull-request":
-      return typeof record.project === "string" && record.project
-        && Number.isInteger(record.number) && Number(record.number) > 0
-        && (record.mode === "overview" || record.mode === "changes")
+    case 'diff':
+      return typeof record.project === 'string' &&
+        record.project &&
+        typeof record.rel === 'string' &&
+        record.rel &&
+        (record.source === 'staged' ||
+          record.source === 'unstaged' ||
+          record.source === 'commit' ||
+          record.source === 'session') &&
+        ((record.source !== 'commit' && record.source !== 'session') ||
+          (typeof record.hash === 'string' && record.hash))
         ? {
-          kind: "pull-request",
-          project: record.project,
-          number: Number(record.number),
-          mode: record.mode,
-          ...(typeof record.title === "string" && record.title ? { title: record.title } : {}),
-          ...(typeof record.instanceId === "string" && record.instanceId
-            ? { instanceId: record.instanceId }
-            : {}),
-        }
-        : null;
-    case "diff":
-      return typeof record.project === "string" && record.project
-        && typeof record.rel === "string" && record.rel
-        && (record.source === "staged" || record.source === "unstaged"
-          || record.source === "commit" || record.source === "session")
-        && ((record.source !== "commit" && record.source !== "session")
-          || (typeof record.hash === "string" && record.hash))
-        ? {
-          kind: "diff",
-          project: record.project,
-          rel: record.rel,
-          source: record.source,
-          ...(typeof record.hash === "string" && record.hash ? { hash: record.hash } : {}),
-          ...(record.untracked === true ? { untracked: true } : {}),
-        }
+            kind: 'diff',
+            project: record.project,
+            rel: record.rel,
+            source: record.source,
+            ...(typeof record.hash === 'string' && record.hash ? { hash: record.hash } : {}),
+            ...(record.untracked === true ? { untracked: true } : {}),
+          }
         : null;
     default:
       return null;
@@ -1059,23 +994,24 @@ export function parsePaneLayout(value: unknown): PaneNode | null {
   const seenIds = new Set<string>();
   const parse = (node: unknown, depth: number): PaneNode | null => {
     if (depth > PANE_PARSE_DEPTH_LIMIT) return null;
-    const record = node && typeof node === "object" ? node as Record<string, unknown> : null;
+    const record = node && typeof node === 'object' ? (node as Record<string, unknown>) : null;
     if (!record) return null;
-    if (record.type === "leaf") {
-      const id = typeof record.id === "string" ? record.id : "";
+    if (record.type === 'leaf') {
+      const id = typeof record.id === 'string' ? record.id : '';
       if (!id || seenIds.has(id)) return null;
       // Legacy single-selection leaves (pre-tab-group) migrate to a
       // one-tab group instead of invalidating the stored layout.
       const rawTabs = Array.isArray(record.tabs)
         ? record.tabs
-        : record.selection !== undefined ? [record.selection] : [];
+        : record.selection !== undefined
+          ? [record.selection]
+          : [];
       const tabs: WorkspaceSelection[] = [];
       const keys = new Set<string>();
       for (const value of rawTabs) {
         // Browser Use moved from a workspace tab to a session-owned dock.
         // Drop only that retired selection while preserving the rest of the layout.
-        if (value && typeof value === "object"
-          && (value as Record<string, unknown>).kind === "browser") continue;
+        if (value && typeof value === 'object' && (value as Record<string, unknown>).kind === 'browser') continue;
         const selection = parseWorkspaceSelection(value);
         if (!selection) return null;
         const key = navigationKey(selection);
@@ -1085,24 +1021,24 @@ export function parsePaneLayout(value: unknown): PaneNode | null {
       }
       seenIds.add(id);
       // A zero-tab leaf is the persisted EMPTY workspace.
-      if (tabs.length === 0) return { type: "leaf", id, tabs, activeKey: "" };
-      const activeKey = typeof record.activeKey === "string" && keys.has(record.activeKey)
-        ? record.activeKey
-        : navigationKey(tabs[0]);
-      const previewKey = typeof record.previewKey === "string"
-        && keys.has(record.previewKey)
-        && tabs.find((tab) => navigationKey(tab) === record.previewKey)?.kind === "file"
-        ? record.previewKey
-        : undefined;
-      return { type: "leaf", id, tabs, activeKey, ...(previewKey ? { previewKey } : {}) };
+      if (tabs.length === 0) return { type: 'leaf', id, tabs, activeKey: '' };
+      const activeKey =
+        typeof record.activeKey === 'string' && keys.has(record.activeKey) ? record.activeKey : navigationKey(tabs[0]);
+      const previewKey =
+        typeof record.previewKey === 'string' &&
+        keys.has(record.previewKey) &&
+        tabs.find((tab) => navigationKey(tab) === record.previewKey)?.kind === 'file'
+          ? record.previewKey
+          : undefined;
+      return { type: 'leaf', id, tabs, activeKey, ...(previewKey ? { previewKey } : {}) };
     }
-    if (record.type === "split") {
-      if (record.direction !== "row" && record.direction !== "column") return null;
+    if (record.type === 'split') {
+      if (record.direction !== 'row' && record.direction !== 'column') return null;
       const first = parse(record.first, depth + 1);
       const second = parse(record.second, depth + 1);
       if (!first || !second) return null;
       return {
-        type: "split",
+        type: 'split',
         direction: record.direction,
         ratio: clampPaneRatio(Number(record.ratio)),
         first,

@@ -15,16 +15,21 @@ test('a late compact reply cannot reopen a completed pane without a focus change
     Element: dom.window.Element,
     HTMLElement: dom.window.HTMLElement,
     MutationObserver: dom.window.MutationObserver,
-    ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
     IS_REACT_ACT_ENVIRONMENT: true,
   };
-  const saved = new Map(Object.keys(globals).map((key) =>
-    [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  const saved = new Map(Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(globals)) {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   }
   window.matchMedia = () => ({
-    matches: false, addEventListener() {}, removeEventListener() {},
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
   });
   window.HTMLElement.prototype.scrollIntoView = () => {};
   const { default: React, act } = await import('react');
@@ -56,14 +61,17 @@ test('a late compact reply cannot reopen a completed pane without a focus change
       }
       requests.push(request);
       publish(running);
-      return new Promise((resolve) => { reply = resolve; });
+      return new Promise((resolve) => {
+        reply = resolve;
+      });
     },
   };
   function Harness() {
     const snapshot = useSessionLane(sessionId, store);
-    return React.createElement(React.Fragment, null,
-      React.createElement('output', null, snapshot.commandBusy
-        ? 'Compacting' : snapshot.items.at(-1)?.label || 'Idle'),
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement('output', null, snapshot.commandBusy ? 'Compacting' : snapshot.items.at(-1)?.label || 'Idle'),
       React.createElement(Composer, {
         turnBusy: false,
         commandBusy: snapshot.commandBusy,
@@ -91,7 +99,8 @@ test('a late compact reply cannot reopen a completed pane without a focus change
         onOpenSettings() {},
         onOpenCommandSurface() {},
         dropTargetRef: { current: null },
-      }));
+      })
+    );
   }
   const host = document.querySelector('main');
   const root = createRoot(host);
@@ -100,14 +109,11 @@ test('a late compact reply cannot reopen a completed pane without a focus change
     const input = host.querySelector('textarea');
     assert.ok(input);
     await act(async () => {
-      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')
-        .set.call(input, '/compact');
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(input, '/compact');
       input.dispatchEvent(new window.Event('input', { bubbles: true }));
     });
     await act(async () => {
-      input.closest('form').dispatchEvent(
-        new window.Event('submit', { bubbles: true, cancelable: true }),
-      );
+      input.closest('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
     });
     assert.equal(requests.length, 1);
     assert.equal(requests[0].capability, 'compact');

@@ -1,14 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import {
-  access,
-  chmod,
-  mkdir,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { access, chmod, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 
@@ -54,11 +46,15 @@ function packageUrl(name) {
 }
 
 function archiveEntry(buffer, wanted) {
-  for (let offset = 0; offset + 512 <= buffer.length;) {
+  for (let offset = 0; offset + 512 <= buffer.length; ) {
     const header = buffer.subarray(offset, offset + 512);
     if (header.every((byte) => byte === 0)) break;
-    const text = (start, length) => header.subarray(start, start + length)
-      .toString('utf8').replace(/\0.*$/s, '').trim();
+    const text = (start, length) =>
+      header
+        .subarray(start, start + length)
+        .toString('utf8')
+        .replace(/\0.*$/s, '')
+        .trim();
     const prefix = text(345, 155);
     const name = [prefix, text(0, 100)].filter(Boolean).join('/');
     const size = Number.parseInt(text(124, 12) || '0', 8);
@@ -96,8 +92,10 @@ function isOfficeExtensionCompatibilityError(error) {
   const xPath = String(error?.xPath || '');
   const description = String(error?.description || '');
   if (!/^\/(?:ppt|xl)\/charts\//i.test(path)) return false;
-  return /\/c:extLst\[\d+](?:\/c:ext\[\d+])?/i.test(xPath)
-    || /schemas\.microsoft\.com\/office\/drawing\/20\d{2}\//i.test(description);
+  return (
+    /\/c:extLst\[\d+](?:\/c:ext\[\d+])?/i.test(xPath) ||
+    /schemas\.microsoft\.com\/office\/drawing\/20\d{2}\//i.test(description)
+  );
 }
 
 // Script generators write <p:notesMasterIdLst> after <p:sldIdLst>, which the
@@ -119,9 +117,9 @@ function isChartChildOrderError(error) {
 }
 
 function isCompatibilityError(error) {
-  return isOfficeExtensionCompatibilityError(error)
-    || isPresentationChildOrderError(error)
-    || isChartChildOrderError(error);
+  return (
+    isOfficeExtensionCompatibilityError(error) || isPresentationChildOrderError(error) || isChartChildOrderError(error)
+  );
 }
 
 export function classifyOoxmlValidationErrors(errors = []) {
@@ -149,11 +147,7 @@ async function usableBinary(path) {
   }
 }
 
-export async function ensureOoxmlValidator({
-  dataDir,
-  download = true,
-  signal = null,
-} = {}) {
+export async function ensureOoxmlValidator({ dataDir, download = true, signal = null } = {}) {
   const override = String(process.env.MIXDOG_OOXML_VALIDATOR_CLI || '').trim();
   if (override) {
     await access(override);
@@ -207,12 +201,10 @@ export async function ensureOoxmlValidator({
   }
 }
 
-export async function validateOoxmlSchema(path, {
-  dataDir,
-  download = true,
-  officeVersion = 'Microsoft365',
-  signal = null,
-} = {}) {
+export async function validateOoxmlSchema(
+  path,
+  { dataDir, download = true, officeVersion = 'Microsoft365', signal = null } = {}
+) {
   const runtime = await ensureOoxmlValidator({ dataDir, download, signal });
   if (!runtime.available) return { ...runtime, ok: false, errors: [] };
   return await new Promise((resolve) => {
@@ -235,23 +227,36 @@ export async function validateOoxmlSchema(path, {
       return next.length > MAX_OUTPUT_BYTES ? next.slice(0, MAX_OUTPUT_BYTES) : next;
     };
     const abort = () => {
-      try { child.kill(); } catch {}
+      try {
+        child.kill();
+      } catch {}
       finish({ ...runtime, ok: false, errors: [], reason: 'OOXML schema validation was cancelled.' });
     };
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk) => { stdout = append(stdout, chunk); });
-    child.stderr.on('data', (chunk) => { stderr = append(stderr, chunk); });
-    child.once('error', (error) => finish({
-      ...runtime,
-      ok: false,
-      errors: [],
-      reason: `Failed to start OOXML schema validator: ${error.message}`,
-    }));
+    child.stdout.on('data', (chunk) => {
+      stdout = append(stdout, chunk);
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr = append(stderr, chunk);
+    });
+    child.once('error', (error) =>
+      finish({
+        ...runtime,
+        ok: false,
+        errors: [],
+        reason: `Failed to start OOXML schema validator: ${error.message}`,
+      })
+    );
     child.once('close', (code) => {
       if (settled) return;
       if (code !== 0) {
-        finish({ ...runtime, ok: false, errors: [], reason: stderr.trim() || `OOXML schema validator exited with code ${code}.` });
+        finish({
+          ...runtime,
+          ok: false,
+          errors: [],
+          reason: stderr.trim() || `OOXML schema validator exited with code ${code}.`,
+        });
         return;
       }
       try {
@@ -270,11 +275,18 @@ export async function validateOoxmlSchema(path, {
           validation: 'open-xml-sdk',
         });
       } catch (error) {
-        finish({ ...runtime, ok: false, errors: [], reason: `Invalid OOXML schema validator output: ${error.message}` });
+        finish({
+          ...runtime,
+          ok: false,
+          errors: [],
+          reason: `Invalid OOXML schema validator output: ${error.message}`,
+        });
       }
     });
     const timeout = setTimeout(() => {
-      try { child.kill(); } catch {}
+      try {
+        child.kill();
+      } catch {}
       finish({ ...runtime, ok: false, errors: [], reason: 'OOXML schema validation timed out after 120 seconds.' });
     }, 120_000);
     if (signal?.aborted) abort();
@@ -286,9 +298,14 @@ export function ooxmlValidatorManifest() {
   return {
     version: VERSION,
     platforms: Object.keys(PLATFORM_PACKAGES),
-    packages: Object.fromEntries(Object.entries(PLATFORM_PACKAGES).map(([key, value]) => [key, {
-      name: value.name,
-      integrity: value.integrity,
-    }])),
+    packages: Object.fromEntries(
+      Object.entries(PLATFORM_PACKAGES).map(([key, value]) => [
+        key,
+        {
+          name: value.name,
+          integrity: value.integrity,
+        },
+      ])
+    ),
   };
 }

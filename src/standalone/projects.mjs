@@ -42,9 +42,7 @@ function readStore() {
           name: String(entry.name || basename(entry.path) || entry.path),
           path: String(entry.path),
           addedAt: Number(entry.addedAt) || 0,
-          ...(Number(entry.lastSelectedAt) > 0
-            ? { lastSelectedAt: Number(entry.lastSelectedAt) }
-            : {}),
+          ...(Number(entry.lastSelectedAt) > 0 ? { lastSelectedAt: Number(entry.lastSelectedAt) } : {}),
         })),
     };
   } catch {

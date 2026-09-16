@@ -4,7 +4,7 @@
 // longer the presented surface. Context (not a document-wide heuristic) keeps
 // the signal scoped to the exact React subtree that owns the portal, and it
 // travels through createPortal because portals inherit the React tree.
-import { createContext, useContext, useLayoutEffect, useRef } from "react";
+import { createContext, useContext, useLayoutEffect, useRef } from 'react';
 
 /** True outside a retained-surface owner: standalone mounts stay active. */
 export const SurfaceActiveContext = createContext(true);

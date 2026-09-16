@@ -1,8 +1,4 @@
-import {
-  packPlaintext,
-  relayE2EECompressionSupported,
-  unpackPlaintext,
-} from './remote-e2ee-compression';
+import { packPlaintext, relayE2EECompressionSupported, unpackPlaintext } from './remote-e2ee-compression';
 export { relayE2EECompressionSupported } from './remote-e2ee-compression';
 
 const E2EE_VERSION = 1 as const;
@@ -75,8 +71,7 @@ function base64UrlEncode(bytes: Uint8Array): string {
 
 function base64UrlDecode(value: string): Uint8Array {
   if (!/^[A-Za-z0-9_-]+$/u.test(value)) throw new Error('Invalid base64url value.');
-  const padded = value.replaceAll('-', '+').replaceAll('_', '/')
-    + '='.repeat((4 - (value.length % 4)) % 4);
+  const padded = value.replaceAll('-', '+').replaceAll('_', '/') + '='.repeat((4 - (value.length % 4)) % 4);
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
@@ -116,11 +111,7 @@ function decodeBinaryBox(value: unknown): {
   const bytes = binaryBytes(value);
   if (!bytes || bytes.byteLength < E2EE_BINARY_HEADER_BYTES + 16) return null;
   if (E2EE_BINARY_MAGIC.some((byte, index) => bytes[index] !== byte)) return null;
-  const rawSequence = new DataView(
-    bytes.buffer,
-    bytes.byteOffset,
-    bytes.byteLength,
-  ).getBigUint64(4, false);
+  const rawSequence = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(4, false);
   if (rawSequence < 1n || rawSequence > BigInt(Number.MAX_SAFE_INTEGER)) return null;
   return {
     sequence: Number(rawSequence),
@@ -129,11 +120,7 @@ function decodeBinaryBox(value: unknown): {
   };
 }
 
-function proofPayload(
-  challenge: string,
-  serverPublicKey: string,
-  clientPublicKey: string,
-): Uint8Array {
+function proofPayload(challenge: string, serverPublicKey: string, clientPublicKey: string): Uint8Array {
   return encoder.encode(`${E2EE_CONTEXT}\0hello\0${challenge}\0${serverPublicKey}\0${clientPublicKey}`);
 }
 
@@ -143,7 +130,7 @@ async function importHmacKey(secret: string): Promise<CryptoKey> {
     arrayBuffer(base64UrlDecode(secret)),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
-    ['sign', 'verify'],
+    ['sign', 'verify']
   );
 }
 
@@ -151,38 +138,29 @@ async function helloProof(
   secret: string,
   challenge: string,
   serverPublicKey: string,
-  clientPublicKey: string,
+  clientPublicKey: string
 ): Promise<string> {
   const signature = await cryptoApi().subtle.sign(
     'HMAC',
     await importHmacKey(secret),
-    arrayBuffer(proofPayload(challenge, serverPublicKey, clientPublicKey)),
+    arrayBuffer(proofPayload(challenge, serverPublicKey, clientPublicKey))
   );
   return base64UrlEncode(new Uint8Array(signature));
 }
 
-async function verifyHelloProof(
-  identity: RelayE2EEServerIdentity,
-  hello: RelayE2EEHello,
-): Promise<boolean> {
+async function verifyHelloProof(identity: RelayE2EEServerIdentity, hello: RelayE2EEHello): Promise<boolean> {
   return cryptoApi().subtle.verify(
     'HMAC',
     await importHmacKey(identity.pairingSecret),
     arrayBuffer(base64UrlDecode(hello.proof)),
-    arrayBuffer(proofPayload(hello.challenge, identity.serverPublicKey, hello.clientPublicKey)),
+    arrayBuffer(proofPayload(hello.challenge, identity.serverPublicKey, hello.clientPublicKey))
   );
 }
 
 async function importPublicKey(raw: string): Promise<CryptoKey> {
   const bytes = base64UrlDecode(raw);
   if (bytes.byteLength !== 65 || bytes[0] !== 4) throw new Error('Invalid P-256 public key.');
-  return cryptoApi().subtle.importKey(
-    'raw',
-    arrayBuffer(bytes),
-    { name: 'ECDH', namedCurve: 'P-256' },
-    false,
-    [],
-  );
+  return cryptoApi().subtle.importKey('raw', arrayBuffer(bytes), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
 }
 
 async function deriveChannelKey(input: {
@@ -199,11 +177,11 @@ async function deriveChannelKey(input: {
       public: await importPublicKey(input.peerPublicKey),
     },
     input.privateKey,
-    256,
+    256
   );
   const keyMaterial = await cryptoApi().subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);
   const info = encoder.encode(
-    `${E2EE_CONTEXT}\0key\0${input.challenge}\0${input.serverPublicKey}\0${input.clientPublicKey}`,
+    `${E2EE_CONTEXT}\0key\0${input.challenge}\0${input.serverPublicKey}\0${input.clientPublicKey}`
   );
   return cryptoApi().subtle.deriveKey(
     {
@@ -215,21 +193,23 @@ async function deriveChannelKey(input: {
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,
-    ['encrypt', 'decrypt'],
+    ['encrypt', 'decrypt']
   );
 }
 
 function isBox(value: unknown): value is RelayE2EEBox {
   const row = value as Partial<RelayE2EEBox> | null;
-  return row?.type === 'e2ee-box'
-    && row.version === E2EE_VERSION
-    && Number.isSafeInteger(row.sequence)
-    && Number(row.sequence) > 0
-    && typeof row.nonce === 'string'
-    && /^[A-Za-z0-9_-]{16}$/u.test(row.nonce)
-    && typeof row.ciphertext === 'string'
-    && /^[A-Za-z0-9_-]{22,}$/u.test(row.ciphertext)
-    && row.ciphertext.length % 4 !== 1;
+  return (
+    row?.type === 'e2ee-box' &&
+    row.version === E2EE_VERSION &&
+    Number.isSafeInteger(row.sequence) &&
+    Number(row.sequence) > 0 &&
+    typeof row.nonce === 'string' &&
+    /^[A-Za-z0-9_-]{16}$/u.test(row.nonce) &&
+    typeof row.ciphertext === 'string' &&
+    /^[A-Za-z0-9_-]{22,}$/u.test(row.ciphertext) &&
+    row.ciphertext.length % 4 !== 1
+  );
 }
 
 export class RelayE2EEChannel {
@@ -242,7 +222,7 @@ export class RelayE2EEChannel {
     private readonly key: CryptoKey,
     private readonly role: 'client' | 'server',
     /** Set when the handshake proved BOTH peers can deflate/inflate. */
-    private readonly compression = false,
+    private readonly compression = false
   ) {}
 
   private encrypt(value: unknown, binary: boolean): Promise<string | Uint8Array> {
@@ -252,35 +232,34 @@ export class RelayE2EEChannel {
       resolveResult = resolve;
       rejectResult = reject;
     });
-    this.sendQueue = this.sendQueue.then(async () => {
-      const sequence = ++this.sendSequence;
-      const nonce = randomBytes(12);
-      const direction = this.role === 'client' ? 'client-to-server' : 'server-to-client';
-      const ciphertext = await cryptoApi().subtle.encrypt(
-        {
-          name: 'AES-GCM',
-          iv: arrayBuffer(nonce),
-          additionalData: arrayBuffer(
-            encoder.encode(`${E2EE_CONTEXT}\0${direction}\0${sequence}`),
-          ),
-        },
-        this.key,
-        arrayBuffer(await packPlaintext(
-          encoder.encode(JSON.stringify(value)),
-          this.compression,
-        )),
-      );
-      const encrypted = new Uint8Array(ciphertext);
-      resolveResult(binary
-        ? encodeBinaryBox(sequence, nonce, encrypted)
-        : JSON.stringify({
-          type: 'e2ee-box',
-          version: E2EE_VERSION,
-          sequence,
-          nonce: base64UrlEncode(nonce),
-          ciphertext: base64UrlEncode(encrypted),
-        } satisfies RelayE2EEBox));
-    }).catch(rejectResult);
+    this.sendQueue = this.sendQueue
+      .then(async () => {
+        const sequence = ++this.sendSequence;
+        const nonce = randomBytes(12);
+        const direction = this.role === 'client' ? 'client-to-server' : 'server-to-client';
+        const ciphertext = await cryptoApi().subtle.encrypt(
+          {
+            name: 'AES-GCM',
+            iv: arrayBuffer(nonce),
+            additionalData: arrayBuffer(encoder.encode(`${E2EE_CONTEXT}\0${direction}\0${sequence}`)),
+          },
+          this.key,
+          arrayBuffer(await packPlaintext(encoder.encode(JSON.stringify(value)), this.compression))
+        );
+        const encrypted = new Uint8Array(ciphertext);
+        resolveResult(
+          binary
+            ? encodeBinaryBox(sequence, nonce, encrypted)
+            : JSON.stringify({
+                type: 'e2ee-box',
+                version: E2EE_VERSION,
+                sequence,
+                nonce: base64UrlEncode(nonce),
+                ciphertext: base64UrlEncode(encrypted),
+              } satisfies RelayE2EEBox)
+        );
+      })
+      .catch(rejectResult);
     return result;
   }
 
@@ -299,44 +278,42 @@ export class RelayE2EEChannel {
       resolveResult = resolve;
       rejectResult = reject;
     });
-    this.receiveQueue = this.receiveQueue.then(async () => {
-      const binary = decodeBinaryBox(raw);
-      let sequence: number;
-      let nonce: Uint8Array;
-      let ciphertext: Uint8Array;
-      if (binary) {
-        sequence = binary.sequence;
-        nonce = binary.nonce;
-        ciphertext = binary.ciphertext;
-      } else {
-        const parsed = typeof raw === 'string' ? JSON.parse(raw) as unknown : raw;
-        if (!isBox(parsed)) throw new Error('Expected an encrypted relay frame.');
-        sequence = parsed.sequence;
-        nonce = base64UrlDecode(parsed.nonce);
-        ciphertext = base64UrlDecode(parsed.ciphertext);
-      }
-      if (sequence <= this.receiveSequence) throw new Error('Rejected replayed relay frame.');
-      if (nonce.byteLength !== 12) throw new Error('Invalid relay frame nonce.');
-      const direction = this.role === 'client' ? 'server-to-client' : 'client-to-server';
-      const plaintext = await cryptoApi().subtle.decrypt(
-        {
-          name: 'AES-GCM',
-          iv: arrayBuffer(nonce),
-          additionalData: arrayBuffer(
-            encoder.encode(`${E2EE_CONTEXT}\0${direction}\0${sequence}`),
-          ),
-        },
-        this.key,
-        arrayBuffer(ciphertext),
-      );
-      // Compression is decided per frame by the sender, so the encoding is
-      // read off the plaintext rather than assumed from the handshake.
-      const value = JSON.parse(
-        decoder.decode(await unpackPlaintext(new Uint8Array(plaintext))),
-      ) as unknown;
-      this.receiveSequence = sequence;
-      resolveResult(value);
-    }).catch(rejectResult);
+    this.receiveQueue = this.receiveQueue
+      .then(async () => {
+        const binary = decodeBinaryBox(raw);
+        let sequence: number;
+        let nonce: Uint8Array;
+        let ciphertext: Uint8Array;
+        if (binary) {
+          sequence = binary.sequence;
+          nonce = binary.nonce;
+          ciphertext = binary.ciphertext;
+        } else {
+          const parsed = typeof raw === 'string' ? (JSON.parse(raw) as unknown) : raw;
+          if (!isBox(parsed)) throw new Error('Expected an encrypted relay frame.');
+          sequence = parsed.sequence;
+          nonce = base64UrlDecode(parsed.nonce);
+          ciphertext = base64UrlDecode(parsed.ciphertext);
+        }
+        if (sequence <= this.receiveSequence) throw new Error('Rejected replayed relay frame.');
+        if (nonce.byteLength !== 12) throw new Error('Invalid relay frame nonce.');
+        const direction = this.role === 'client' ? 'server-to-client' : 'client-to-server';
+        const plaintext = await cryptoApi().subtle.decrypt(
+          {
+            name: 'AES-GCM',
+            iv: arrayBuffer(nonce),
+            additionalData: arrayBuffer(encoder.encode(`${E2EE_CONTEXT}\0${direction}\0${sequence}`)),
+          },
+          this.key,
+          arrayBuffer(ciphertext)
+        );
+        // Compression is decided per frame by the sender, so the encoding is
+        // read off the plaintext rather than assumed from the handshake.
+        const value = JSON.parse(decoder.decode(await unpackPlaintext(new Uint8Array(plaintext)))) as unknown;
+        this.receiveSequence = sequence;
+        resolveResult(value);
+      })
+      .catch(rejectResult);
     return result;
   }
 }
@@ -351,30 +328,32 @@ export function createRelayE2EEChallenge(): RelayE2EEChallenge {
 
 export function isRelayE2EEChallenge(value: unknown): value is RelayE2EEChallenge {
   const row = value as Partial<RelayE2EEChallenge> | null;
-  return row?.type === 'e2ee-challenge'
-    && row.version === E2EE_VERSION
-    && typeof row.challenge === 'string'
-    && /^[A-Za-z0-9_-]{43}$/u.test(row.challenge);
+  return (
+    row?.type === 'e2ee-challenge' &&
+    row.version === E2EE_VERSION &&
+    typeof row.challenge === 'string' &&
+    /^[A-Za-z0-9_-]{43}$/u.test(row.challenge)
+  );
 }
 
 export function isRelayE2EEHello(value: unknown): value is RelayE2EEHello {
   const row = value as Partial<RelayE2EEHello> | null;
-  return row?.type === 'e2ee-hello'
-    && row.version === E2EE_VERSION
-    && typeof row.challenge === 'string'
-    && /^[A-Za-z0-9_-]{43}$/u.test(row.challenge)
-    && typeof row.clientPublicKey === 'string'
-    && /^[A-Za-z0-9_-]{87}$/u.test(row.clientPublicKey)
-    && typeof row.proof === 'string'
-    && /^[A-Za-z0-9_-]{43}$/u.test(row.proof);
+  return (
+    row?.type === 'e2ee-hello' &&
+    row.version === E2EE_VERSION &&
+    typeof row.challenge === 'string' &&
+    /^[A-Za-z0-9_-]{43}$/u.test(row.challenge) &&
+    typeof row.clientPublicKey === 'string' &&
+    /^[A-Za-z0-9_-]{87}$/u.test(row.clientPublicKey) &&
+    typeof row.proof === 'string' &&
+    /^[A-Za-z0-9_-]{43}$/u.test(row.proof)
+  );
 }
 
 export async function generateRelayE2EEServerIdentity(): Promise<RelayE2EEServerIdentity> {
-  const pair = await cryptoApi().subtle.generateKey(
-    { name: 'ECDH', namedCurve: 'P-256' },
-    true,
-    ['deriveBits'],
-  ) as CryptoKeyPair;
+  const pair = (await cryptoApi().subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, [
+    'deriveBits',
+  ])) as CryptoKeyPair;
   const [privateKeyJwk, publicKeyJwk, publicKeyRaw] = await Promise.all([
     cryptoApi().subtle.exportKey('jwk', pair.privateKey),
     cryptoApi().subtle.exportKey('jwk', pair.publicKey),
@@ -389,42 +368,37 @@ export async function generateRelayE2EEServerIdentity(): Promise<RelayE2EEServer
   };
 }
 
-export async function validateRelayE2EEServerIdentity(
-  value: RelayE2EEServerIdentity,
-): Promise<boolean> {
+export async function validateRelayE2EEServerIdentity(value: RelayE2EEServerIdentity): Promise<boolean> {
   try {
     if (
-      value.version !== E2EE_VERSION
-      || typeof value.serverPublicKey !== 'string'
-      || typeof value.pairingSecret !== 'string'
-      || !value.privateKeyJwk
-      || !value.publicKeyJwk
-    ) return false;
+      value.version !== E2EE_VERSION ||
+      typeof value.serverPublicKey !== 'string' ||
+      typeof value.pairingSecret !== 'string' ||
+      !value.privateKeyJwk ||
+      !value.publicKeyJwk
+    )
+      return false;
     const publicKey = await cryptoApi().subtle.importKey(
       'jwk',
       value.publicKeyJwk,
       { name: 'ECDH', namedCurve: 'P-256' },
       true,
-      [],
+      []
     );
-    await cryptoApi().subtle.importKey(
-      'jwk',
-      value.privateKeyJwk,
-      { name: 'ECDH', namedCurve: 'P-256' },
-      false,
-      ['deriveBits'],
-    );
+    await cryptoApi().subtle.importKey('jwk', value.privateKeyJwk, { name: 'ECDH', namedCurve: 'P-256' }, false, [
+      'deriveBits',
+    ]);
     const raw = await cryptoApi().subtle.exportKey('raw', publicKey);
-    return base64UrlEncode(new Uint8Array(raw)) === value.serverPublicKey
-      && base64UrlDecode(value.pairingSecret).byteLength === 32;
+    return (
+      base64UrlEncode(new Uint8Array(raw)) === value.serverPublicKey &&
+      base64UrlDecode(value.pairingSecret).byteLength === 32
+    );
   } catch {
     return false;
   }
 }
 
-export function relayE2EEPairingMaterial(
-  identity: RelayE2EEServerIdentity,
-): RelayE2EEPairingMaterial {
+export function relayE2EEPairingMaterial(identity: RelayE2EEServerIdentity): RelayE2EEPairingMaterial {
   return {
     version: E2EE_VERSION,
     serverPublicKey: identity.serverPublicKey,
@@ -464,41 +438,29 @@ async function claimSealKey(input: {
   const sharedBits = await cryptoApi().subtle.deriveBits(
     { name: 'ECDH', public: await importPublicKey(input.peerPublicKey) },
     input.privateKey,
-    256,
+    256
   );
-  const keyMaterial = await cryptoApi().subtle.importKey(
-    'raw',
-    sharedBits,
-    'HKDF',
-    false,
-    ['deriveKey'],
-  );
+  const keyMaterial = await cryptoApi().subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);
   return cryptoApi().subtle.deriveKey(
     {
       name: 'HKDF',
       hash: 'SHA-256',
       salt: arrayBuffer(new Uint8Array(32)),
-      info: arrayBuffer(encoder.encode(
-        `${E2EE_CLAIM_CONTEXT}\0${input.clientPublicKey}\0${input.ephemeralPublicKey}`,
-      )),
+      info: arrayBuffer(encoder.encode(`${E2EE_CLAIM_CONTEXT}\0${input.clientPublicKey}\0${input.ephemeralPublicKey}`)),
     },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,
-    ['encrypt', 'decrypt'],
+    ['encrypt', 'decrypt']
   );
 }
 
 export async function generateRelayClaimKeyPair(): Promise<RelayClaimKeyPair> {
-  const pair = await cryptoApi().subtle.generateKey(
-    { name: 'ECDH', namedCurve: 'P-256' },
-    true,
-    ['deriveBits'],
-  ) as CryptoKeyPair;
+  const pair = (await cryptoApi().subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, [
+    'deriveBits',
+  ])) as CryptoKeyPair;
   return {
-    publicKey: base64UrlEncode(new Uint8Array(
-      await cryptoApi().subtle.exportKey('raw', pair.publicKey),
-    )),
+    publicKey: base64UrlEncode(new Uint8Array(await cryptoApi().subtle.exportKey('raw', pair.publicKey))),
     privateKey: pair.privateKey,
   };
 }
@@ -512,18 +474,14 @@ export interface StoredRelayClaimKeyPair {
   privateKeyJwk: JsonWebKey;
 }
 
-export async function exportRelayClaimKeyPair(
-  keyPair: RelayClaimKeyPair,
-): Promise<StoredRelayClaimKeyPair> {
+export async function exportRelayClaimKeyPair(keyPair: RelayClaimKeyPair): Promise<StoredRelayClaimKeyPair> {
   return {
     publicKey: keyPair.publicKey,
     privateKeyJwk: await cryptoApi().subtle.exportKey('jwk', keyPair.privateKey),
   };
 }
 
-export async function importRelayClaimKeyPair(
-  stored: unknown,
-): Promise<RelayClaimKeyPair | null> {
+export async function importRelayClaimKeyPair(stored: unknown): Promise<RelayClaimKeyPair | null> {
   try {
     const value = stored as Partial<StoredRelayClaimKeyPair> | null;
     if (!value || !isRelayClaimPublicKey(value.publicKey) || !value.privateKeyJwk) return null;
@@ -534,7 +492,7 @@ export async function importRelayClaimKeyPair(
         value.privateKeyJwk,
         { name: 'ECDH', namedCurve: 'P-256' },
         true,
-        ['deriveBits'],
+        ['deriveBits']
       ),
     };
   } catch {
@@ -544,19 +502,15 @@ export async function importRelayClaimKeyPair(
 
 export async function sealRelayE2EEPairingMaterial(
   material: RelayE2EEPairingMaterial,
-  clientPublicKey: string,
+  clientPublicKey: string
 ): Promise<SealedRelayE2EEPairing> {
   if (!isRelayClaimPublicKey(clientPublicKey)) {
     throw new Error('Invalid approval key.');
   }
-  const pair = await cryptoApi().subtle.generateKey(
-    { name: 'ECDH', namedCurve: 'P-256' },
-    true,
-    ['deriveBits'],
-  ) as CryptoKeyPair;
-  const ephemeralPublicKey = base64UrlEncode(new Uint8Array(
-    await cryptoApi().subtle.exportKey('raw', pair.publicKey),
-  ));
+  const pair = (await cryptoApi().subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, [
+    'deriveBits',
+  ])) as CryptoKeyPair;
+  const ephemeralPublicKey = base64UrlEncode(new Uint8Array(await cryptoApi().subtle.exportKey('raw', pair.publicKey)));
   const key = await claimSealKey({
     privateKey: pair.privateKey,
     peerPublicKey: clientPublicKey,
@@ -564,15 +518,21 @@ export async function sealRelayE2EEPairingMaterial(
     ephemeralPublicKey,
   });
   const nonce = randomBytes(12);
-  const ciphertext = new Uint8Array(await cryptoApi().subtle.encrypt(
-    { name: 'AES-GCM', iv: arrayBuffer(nonce) },
-    key,
-    arrayBuffer(encoder.encode(JSON.stringify({
-      version: material.version,
-      serverPublicKey: material.serverPublicKey,
-      pairingSecret: material.pairingSecret,
-    }))),
-  ));
+  const ciphertext = new Uint8Array(
+    await cryptoApi().subtle.encrypt(
+      { name: 'AES-GCM', iv: arrayBuffer(nonce) },
+      key,
+      arrayBuffer(
+        encoder.encode(
+          JSON.stringify({
+            version: material.version,
+            serverPublicKey: material.serverPublicKey,
+            pairingSecret: material.pairingSecret,
+          })
+        )
+      )
+    )
+  );
   return {
     version: E2EE_VERSION,
     ephemeralPublicKey,
@@ -585,7 +545,7 @@ export async function sealRelayE2EEPairingMaterial(
  *  refused approval, never a half-applied pairing. */
 export async function openSealedRelayE2EEPairingMaterial(
   sealed: unknown,
-  keyPair: RelayClaimKeyPair,
+  keyPair: RelayClaimKeyPair
 ): Promise<RelayE2EEPairingMaterial | null> {
   try {
     const box = sealed as Partial<SealedRelayE2EEPairing> | null;
@@ -601,16 +561,15 @@ export async function openSealedRelayE2EEPairingMaterial(
     const plaintext = await cryptoApi().subtle.decrypt(
       { name: 'AES-GCM', iv: arrayBuffer(base64UrlDecode(String(box.nonce || ''))) },
       key,
-      arrayBuffer(base64UrlDecode(String(box.ciphertext || ''))),
+      arrayBuffer(base64UrlDecode(String(box.ciphertext || '')))
     );
-    const parsed = JSON.parse(decoder.decode(new Uint8Array(plaintext))) as Partial<
-      RelayE2EEPairingMaterial
-    >;
+    const parsed = JSON.parse(decoder.decode(new Uint8Array(plaintext))) as Partial<RelayE2EEPairingMaterial>;
     if (
-      parsed.version !== E2EE_VERSION
-      || !/^[A-Za-z0-9_-]{87}$/u.test(String(parsed.serverPublicKey || ''))
-      || !/^[A-Za-z0-9_-]{43}$/u.test(String(parsed.pairingSecret || ''))
-    ) return null;
+      parsed.version !== E2EE_VERSION ||
+      !/^[A-Za-z0-9_-]{87}$/u.test(String(parsed.serverPublicKey || '')) ||
+      !/^[A-Za-z0-9_-]{43}$/u.test(String(parsed.pairingSecret || ''))
+    )
+      return null;
     return {
       version: E2EE_VERSION,
       serverPublicKey: parsed.serverPublicKey as string,
@@ -623,36 +582,25 @@ export async function openSealedRelayE2EEPairingMaterial(
 
 export async function createRelayE2EEClientHandshake(
   pairing: RelayE2EEPairingMaterial,
-  challenge: RelayE2EEChallenge,
+  challenge: RelayE2EEChallenge
 ): Promise<{ hello: RelayE2EEHello; channel: RelayE2EEChannel }> {
   if (pairing.version !== E2EE_VERSION || !isRelayE2EEChallenge(challenge)) {
     throw new Error('Unsupported relay encryption handshake.');
   }
-  const pair = await cryptoApi().subtle.generateKey(
-    { name: 'ECDH', namedCurve: 'P-256' },
-    true,
-    ['deriveBits'],
-  ) as CryptoKeyPair;
-  const clientPublicKey = base64UrlEncode(new Uint8Array(
-    await cryptoApi().subtle.exportKey('raw', pair.publicKey),
-  ));
+  const pair = (await cryptoApi().subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, [
+    'deriveBits',
+  ])) as CryptoKeyPair;
+  const clientPublicKey = base64UrlEncode(new Uint8Array(await cryptoApi().subtle.exportKey('raw', pair.publicKey)));
   const hello: RelayE2EEHello = {
     type: 'e2ee-hello',
     version: E2EE_VERSION,
     challenge: challenge.challenge,
     clientPublicKey,
-    proof: await helloProof(
-      pairing.pairingSecret,
-      challenge.challenge,
-      pairing.serverPublicKey,
-      clientPublicKey,
-    ),
+    proof: await helloProof(pairing.pairingSecret, challenge.challenge, pairing.serverPublicKey, clientPublicKey),
     ...(challenge.binaryFrames === 1 ? { binaryFrames: 1 as const } : {}),
     ...(challenge.listDelta === 1 ? { listDelta: 1 as const } : {}),
     // Echoed only when this browser can also inflate what it asks for.
-    ...(challenge.deflate === 1 && relayE2EECompressionSupported()
-      ? { deflate: 1 as const }
-      : {}),
+    ...(challenge.deflate === 1 && relayE2EECompressionSupported() ? { deflate: 1 as const } : {}),
     ...(challenge.compactWire === 1 ? { compactWire: 1 as const } : {}),
   };
   const key = await deriveChannelKey({
@@ -669,12 +617,12 @@ export async function createRelayE2EEClientHandshake(
 export async function acceptRelayE2EEClientHello(
   identity: RelayE2EEServerIdentity,
   expectedChallenge: RelayE2EEChallenge,
-  hello: RelayE2EEHello,
+  hello: RelayE2EEHello
 ): Promise<RelayE2EEChannel> {
   if (
-    !isRelayE2EEHello(hello)
-    || hello.challenge !== expectedChallenge.challenge
-    || !(await verifyHelloProof(identity, hello))
+    !isRelayE2EEHello(hello) ||
+    hello.challenge !== expectedChallenge.challenge ||
+    !(await verifyHelloProof(identity, hello))
   ) {
     throw new Error('Relay encryption authentication failed.');
   }
@@ -683,7 +631,7 @@ export async function acceptRelayE2EEClientHello(
     identity.privateKeyJwk,
     { name: 'ECDH', namedCurve: 'P-256' },
     false,
-    ['deriveBits'],
+    ['deriveBits']
   );
   const key = await deriveChannelKey({
     privateKey,
@@ -693,9 +641,5 @@ export async function acceptRelayE2EEClientHello(
     serverPublicKey: identity.serverPublicKey,
     clientPublicKey: hello.clientPublicKey,
   });
-  return new RelayE2EEChannel(
-    key,
-    'server',
-    hello.deflate === 1 && relayE2EECompressionSupported(),
-  );
+  return new RelayE2EEChannel(key, 'server', hello.deflate === 1 && relayE2EECompressionSupported());
 }

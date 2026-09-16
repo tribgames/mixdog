@@ -17,10 +17,12 @@ function cellsFromDocument(document) {
 }
 
 function cellIndex(document) {
-  return new Map(cellsFromDocument(document).map((cell) => [
-    `${String(cell.sheet).toLowerCase()}!${String(cell.ref).toUpperCase()}`,
-    cell,
-  ]));
+  return new Map(
+    cellsFromDocument(document).map((cell) => [
+      `${String(cell.sheet).toLowerCase()}!${String(cell.ref).toUpperCase()}`,
+      cell,
+    ])
+  );
 }
 
 function reference(value, fallbackSheet = '') {
@@ -55,7 +57,8 @@ function formulaText(cell) {
   return formula.startsWith('=') ? formula : `=${formula}`;
 }
 
-const UNCALCULATED_ROUTE = 'the workbook is recalculated by finalize (or by opening it in Office), and the assertion belongs after that';
+const UNCALCULATED_ROUTE =
+  'the workbook is recalculated by finalize (or by opening it in Office), and the assertion belongs after that';
 
 function sameValue(actual, expected, tolerance = 0) {
   const left = numeric(actual);
@@ -88,11 +91,13 @@ function cellsForAssertion(document, assertion) {
     if (assertion?.sheet && String(cell.sheet).toLowerCase() !== String(assertion.sheet).toLowerCase()) return false;
     if (!range) return true;
     const parsed = parsedCell(cell.ref);
-    return Boolean(parsed)
-      && parsed.row >= range.startRow
-      && parsed.row <= range.endRow
-      && parsed.column >= range.startColumn
-      && parsed.column <= range.endColumn;
+    return (
+      Boolean(parsed) &&
+      parsed.row >= range.startRow &&
+      parsed.row <= range.endRow &&
+      parsed.column >= range.startColumn &&
+      parsed.column <= range.endColumn
+    );
   });
 }
 
@@ -127,59 +132,97 @@ export function evaluateXlsxAssertions(document, assertions = []) {
       // and against a zero expectation it used to read as a right one.
       if (uncalculated(target)) {
         passed = false;
-        issues.push(issue(
-          assertion,
-          assertionIndex,
-          'assertion_value_uncalculated',
-          `${sheet}!${assertion.cell} holds ${JSON.stringify(formulaText(target))} with no calculated result, so it cannot be compared with ${JSON.stringify(assertion.equals)}: ${UNCALCULATED_ROUTE}.`,
-          target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`,
-        ));
+        issues.push(
+          issue(
+            assertion,
+            assertionIndex,
+            'assertion_value_uncalculated',
+            `${sheet}!${assertion.cell} holds ${JSON.stringify(formulaText(target))} with no calculated result, so it cannot be compared with ${JSON.stringify(assertion.equals)}: ${UNCALCULATED_ROUTE}.`,
+            target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`
+          )
+        );
       } else {
         passed = Boolean(target) && sameValue(target.value, assertion.equals, assertion.tolerance);
         if (!passed) {
-          issues.push(issue(
-            assertion,
-            assertionIndex,
-            'assertion_value_mismatch',
-            `Expected ${sheet}!${assertion.cell} to equal ${JSON.stringify(assertion.equals)}; actual value is ${JSON.stringify(target?.value ?? null)}.`,
-            target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`,
-          ));
+          issues.push(
+            issue(
+              assertion,
+              assertionIndex,
+              'assertion_value_mismatch',
+              `Expected ${sheet}!${assertion.cell} to equal ${JSON.stringify(assertion.equals)}; actual value is ${JSON.stringify(target?.value ?? null)}.`,
+              target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`
+            )
+          );
         }
       }
     } else if (kind === 'cell-formula') {
       const actual = String(target?.formula || '');
       const comparableActual = actual.replace(/^=/, '');
       const comparableExpected = String(assertion.equals ?? '').replace(/^=/, '');
-      passed = Boolean(target) && (assertion.equals !== undefined
-        ? comparableActual === comparableExpected
-        : new RegExp(String(assertion.matches || '')).test(actual));
-      if (!passed) issues.push(issue(assertion, assertionIndex, 'assertion_formula_mismatch', `Formula assertion failed for ${sheet}!${assertion.cell}; actual formula is ${JSON.stringify(actual)}.`, target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`));
+      passed =
+        Boolean(target) &&
+        (assertion.equals !== undefined
+          ? comparableActual === comparableExpected
+          : new RegExp(String(assertion.matches || '')).test(actual));
+      if (!passed)
+        issues.push(
+          issue(
+            assertion,
+            assertionIndex,
+            'assertion_formula_mismatch',
+            `Formula assertion failed for ${sheet}!${assertion.cell}; actual formula is ${JSON.stringify(actual)}.`,
+            target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`
+          )
+        );
     } else if (kind === 'tie-out') {
       const left = get(assertion.left, sheet);
       const right = get(assertion.right, sheet);
       // Two sides that have not been calculated are both empty, and an empty
       // pair used to tie out: the strictest check in the model answered "agreed"
       // without a single number behind it.
-      const pending = [[assertion.left, left], [assertion.right, right]].filter(([, cell]) => uncalculated(cell));
+      const pending = [
+        [assertion.left, left],
+        [assertion.right, right],
+      ].filter(([, cell]) => uncalculated(cell));
       if (pending.length) {
         passed = false;
-        issues.push(issue(
-          assertion,
-          assertionIndex,
-          'assertion_value_uncalculated',
-          `Tie-out cannot be read yet: ${pending.map(([reference, cell]) => `${JSON.stringify(reference)} holds ${JSON.stringify(formulaText(cell))} with no calculated result`).join(' and ')}; ${UNCALCULATED_ROUTE}.`,
-          pending[0][1]?.path || left?.path || right?.path || '/',
-        ));
+        issues.push(
+          issue(
+            assertion,
+            assertionIndex,
+            'assertion_value_uncalculated',
+            `Tie-out cannot be read yet: ${pending.map(([reference, cell]) => `${JSON.stringify(reference)} holds ${JSON.stringify(formulaText(cell))} with no calculated result`).join(' and ')}; ${UNCALCULATED_ROUTE}.`,
+            pending[0][1]?.path || left?.path || right?.path || '/'
+          )
+        );
       } else {
         passed = Boolean(left && right) && sameValue(left.value, right.value, assertion.tolerance);
-        if (!passed) issues.push(issue(assertion, assertionIndex, 'assertion_tie_out_failed', `Tie-out failed: ${JSON.stringify(assertion.left)}=${JSON.stringify(left?.value ?? null)} and ${JSON.stringify(assertion.right)}=${JSON.stringify(right?.value ?? null)}.`, left?.path || right?.path || '/'));
+        if (!passed)
+          issues.push(
+            issue(
+              assertion,
+              assertionIndex,
+              'assertion_tie_out_failed',
+              `Tie-out failed: ${JSON.stringify(assertion.left)}=${JSON.stringify(left?.value ?? null)} and ${JSON.stringify(assertion.right)}=${JSON.stringify(right?.value ?? null)}.`,
+              left?.path || right?.path || '/'
+            )
+          );
       }
     } else if (kind === 'no-errors') {
-      const failures = cellsForAssertion(document, assertion).filter((cell) => (
+      const failures = cellsForAssertion(document, assertion).filter((cell) =>
         ERROR_VALUE.test(String(cell.value || ''))
-      ));
+      );
       passed = failures.length === 0;
-      for (const cell of failures.slice(0, 100)) issues.push(issue(assertion, assertionIndex, 'assertion_formula_error', `Formula error ${cell.value} violates no-errors assertion.`, cell.path));
+      for (const cell of failures.slice(0, 100))
+        issues.push(
+          issue(
+            assertion,
+            assertionIndex,
+            'assertion_formula_error',
+            `Formula error ${cell.value} violates no-errors assertion.`,
+            cell.path
+          )
+        );
     } else if (kind === 'formula-consistency') {
       const formulas = cellsForAssertion(document, assertion).filter((cell) => cell.formula);
       const patterns = new Map();
@@ -190,11 +233,36 @@ export function evaluateXlsxAssertions(document, assertions = []) {
       const expected = [...patterns.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || '';
       const inconsistent = formulas.filter((cell) => relativeFormulaSignature(cell.formula, cell.ref) !== expected);
       passed = formulas.length > 0 && inconsistent.length === 0;
-      if (!formulas.length) issues.push(issue(assertion, assertionIndex, 'assertion_formula_missing', 'Formula-consistency assertion found no formulas.', `/sheet[${assertion.sheet || sheet}]`));
-      for (const cell of inconsistent.slice(0, 100)) issues.push(issue(assertion, assertionIndex, 'assertion_formula_inconsistent', 'Formula differs from the dominant pattern in the asserted region.', cell.path));
+      if (!formulas.length)
+        issues.push(
+          issue(
+            assertion,
+            assertionIndex,
+            'assertion_formula_missing',
+            'Formula-consistency assertion found no formulas.',
+            `/sheet[${assertion.sheet || sheet}]`
+          )
+        );
+      for (const cell of inconsistent.slice(0, 100))
+        issues.push(
+          issue(
+            assertion,
+            assertionIndex,
+            'assertion_formula_inconsistent',
+            'Formula differs from the dominant pattern in the asserted region.',
+            cell.path
+          )
+        );
     } else {
       passed = false;
-      issues.push(issue(assertion, assertionIndex, 'assertion_kind_unknown', `Unknown XLSX assertion kind: ${kind || '(missing)'}`));
+      issues.push(
+        issue(
+          assertion,
+          assertionIndex,
+          'assertion_kind_unknown',
+          `Unknown XLSX assertion kind: ${kind || '(missing)'}`
+        )
+      );
     }
     results.push({ index: assertionIndex + 1, kind, passed });
   });

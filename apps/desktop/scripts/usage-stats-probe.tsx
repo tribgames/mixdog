@@ -16,7 +16,9 @@ await initUiLanguage();
 let release: (() => void) | null = null;
 const api = {
   async invokeCapability({ args = [] }: { args?: unknown[] }) {
-    await new Promise<void>((resolve) => { release = resolve; });
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const query = new URLSearchParams(args[0] as Record<string, string>);
     const response = await fetch(`/usage-stats?${query}`);
     if (!response.ok) throw new Error(await response.text());
@@ -26,17 +28,21 @@ const api = {
 function Probe() {
   const [open, setOpen] = useState(true);
   const [compact, setCompact] = useState(false);
-  return <>
-    <nav style={{ position: 'fixed', top: 0, left: 0, zIndex: 100000 }}>
-      <button onClick={() => release?.()}>Load fixture</button>
-      <button onClick={() => setOpen(true)}>Reopen fixture</button>
-      <button onClick={() => setCompact(true)}>Compact fixture</button>
-      <span> Synthetic usage layout fixture </span>
-    </nav>
-    {compact
-      ? <iframe title="Compact usage fixture" src="/" style={{ width: 600, height: 480, margin: '40px', border: 0 }} />
-      : <CommandSurface surface="stats" open={open} api={api as never} onClose={() => setOpen(false)} />}
-  </>;
+  return (
+    <>
+      <nav style={{ position: 'fixed', top: 0, left: 0, zIndex: 100000 }}>
+        <button onClick={() => release?.()}>Load fixture</button>
+        <button onClick={() => setOpen(true)}>Reopen fixture</button>
+        <button onClick={() => setCompact(true)}>Compact fixture</button>
+        <span> Synthetic usage layout fixture </span>
+      </nav>
+      {compact ? (
+        <iframe title="Compact usage fixture" src="/" style={{ width: 600, height: 480, margin: '40px', border: 0 }} />
+      ) : (
+        <CommandSurface surface="stats" open={open} api={api as never} onClose={() => setOpen(false)} />
+      )}
+    </>
+  );
 }
 createRoot(document.getElementById('root')!).render(<Probe />);
 const frames: unknown[] = [];
@@ -52,10 +58,19 @@ function sample() {
       const rect = document.querySelector(selector)?.getBoundingClientRect();
       return rect ? { y: rect.y, height: rect.height } : null;
     });
-    frames.push({ x: box.x, y: box.y, width: box.width, height: box.height, busy, active, sections,
+    frames.push({
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+      busy,
+      active,
+      sections,
       models: document.querySelectorAll('.stats-model-row').length,
       cardsOpacity: document.querySelector('.stats-cards')
-        ? getComputedStyle(document.querySelector('.stats-cards')!).opacity : null });
+        ? getComputedStyle(document.querySelector('.stats-cards')!).opacity
+        : null,
+    });
     const key = `${innerWidth}x${innerHeight}:${busy}:${active}`;
     const values = [box.x, box.y, box.width, box.height, ...sections.flatMap((s) => [s?.y ?? 0, s?.height ?? 0])];
     const measure = geometry.get(key) || { min: values.slice(), max: values.slice(), frames: 0 };

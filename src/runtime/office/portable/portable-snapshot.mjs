@@ -1,7 +1,26 @@
 import { basename, join, posix } from 'node:path';
-import { booleanXmlAttribute, cellRecords, columnLabel, formulaReferences, sharedStrings, sheetFormulaTotals, workbookCalculation, workbookSheets } from './portable-cells.mjs';
+import {
+  booleanXmlAttribute,
+  cellRecords,
+  columnLabel,
+  formulaReferences,
+  sharedStrings,
+  sheetFormulaTotals,
+  workbookCalculation,
+  workbookSheets,
+} from './portable-cells.mjs';
 import { loadPackage, partRelationshipPath, relationshipTarget, zipText } from './portable-opc.mjs';
-import { TRAILING_SECTION_PATTERN, blockText, containerInner, paragraphTexts, settingsTrackChanges, textNodes, topLevelElements, xmlAttribute, xmlDecode } from './portable-xml.mjs';
+import {
+  TRAILING_SECTION_PATTERN,
+  blockText,
+  containerInner,
+  paragraphTexts,
+  settingsTrackChanges,
+  textNodes,
+  topLevelElements,
+  xmlAttribute,
+  xmlDecode,
+} from './portable-xml.mjs';
 import { worksheetDrawings } from './portable-sheet-page.mjs';
 import { presentationSlides } from './portable-pptx-package.mjs';
 import { resolveCellStyles } from './portable-sheet-styles.mjs';
@@ -17,7 +36,6 @@ const REVISION_TYPES = Object.freeze({
   moveTo: 'moved_to',
 });
 
-
 /** What a paragraph carries beyond its text: list membership (numId 0 means
  *  "no numbering" in Word) and whether tracked changes touch it. */
 function paragraphMarkup(paragraphXml) {
@@ -32,9 +50,11 @@ function paragraphMarkup(paragraphXml) {
   // the document says, so the hidden part is named beside the paragraph.
   const hiddenText = /<w:vanish\b/.test(paragraphXml)
     ? [...paragraphXml.matchAll(/<w:r\b(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)]
-      .filter(([run]) => /<w:vanish\b(?![^>]*\bw:val="(?:false|0)")/.test(/<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>/.exec(run)?.[0] || ''))
-      .map(([run]) => blockText(run, 'w:t'))
-      .join('')
+        .filter(([run]) =>
+          /<w:vanish\b(?![^>]*\bw:val="(?:false|0)")/.test(/<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>/.exec(run)?.[0] || '')
+        )
+        .map(([run]) => blockText(run, 'w:t'))
+        .join('')
     : '';
   return {
     ...(Number.isFinite(numId) && numId > 0
@@ -121,7 +141,6 @@ export function docxBodyModel(documentXml) {
   return { paragraphs, tables, blocks, body };
 }
 
-
 export function appendDocxBlock(documentXml, block) {
   const body = containerInner(documentXml, 'w:body');
   if (!body) throw new Error('DOCX document body is missing');
@@ -131,11 +150,12 @@ export function appendDocxBlock(documentXml, block) {
   // needs the blocks, and there is exactly one of them to inspect.
   const trailing = TRAILING_SECTION_PATTERN.exec(body.inner);
   const content = trailing ? body.inner.slice(0, trailing.index) : body.inner;
-  const onlyEmptyParagraph = content.length < 2000
-    && (content.match(/<w:p\b/g) || []).length === 1
-    && !/<w:tbl\b/.test(content)
-    && !/<w:t[ >]/.test(content)
-    && !/<w:drawing\b/.test(content);
+  const onlyEmptyParagraph =
+    content.length < 2000 &&
+    (content.match(/<w:p\b/g) || []).length === 1 &&
+    !/<w:tbl\b/.test(content) &&
+    !/<w:t[ >]/.test(content) &&
+    !/<w:drawing\b/.test(content);
   if (onlyEmptyParagraph) {
     const inner = `${block}${body.inner.slice(content.length)}`;
     return `${documentXml.slice(0, body.start)}${inner}${documentXml.slice(body.end)}`;
@@ -145,7 +165,6 @@ export function appendDocxBlock(documentXml, block) {
   const inner = `${content}${block}${body.inner.slice(content.length)}`;
   return `${documentXml.slice(0, body.start)}${inner}${documentXml.slice(body.end)}`;
 }
-
 
 // The thread facts a comment carries: whether it is resolved, and the comment
 // it replies to (by the id the snapshot reports, not Word's internal paraId).
@@ -193,10 +212,15 @@ export async function snapshotDocx(zip, options = {}) {
   // number format tells a bullet from a numbered list.
   const numbering = await zipText(zip, 'word/numbering.xml');
   if (numbering && model.paragraphs.some((paragraph) => paragraph.list)) {
-    const abstractOf = new Map([...numbering.matchAll(/<w:num\b[^>]*\bw:numId="(\d+)"[^>]*>[\s\S]*?<w:abstractNumId\b[^>]*\bw:val="(\d+)"/g)]
-      .map((match) => [Number(match[1]), Number(match[2])]));
+    const abstractOf = new Map(
+      [
+        ...numbering.matchAll(/<w:num\b[^>]*\bw:numId="(\d+)"[^>]*>[\s\S]*?<w:abstractNumId\b[^>]*\bw:val="(\d+)"/g),
+      ].map((match) => [Number(match[1]), Number(match[2])])
+    );
     const formats = new Map();
-    for (const abstract of numbering.matchAll(/<w:abstractNum\b[^>]*\bw:abstractNumId="(\d+)"[^>]*>([\s\S]*?)<\/w:abstractNum>/g)) {
+    for (const abstract of numbering.matchAll(
+      /<w:abstractNum\b[^>]*\bw:abstractNumId="(\d+)"[^>]*>([\s\S]*?)<\/w:abstractNum>/g
+    )) {
       for (const level of abstract[2].matchAll(/<w:lvl\b[^>]*\bw:ilvl="(\d+)"[^>]*>([\s\S]*?)<\/w:lvl>/g)) {
         formats.set(`${abstract[1]}:${level[1]}`, /<w:numFmt\b[^>]*\bw:val="([^"]+)"/.exec(level[2])?.[1] || '');
       }
@@ -222,8 +246,12 @@ export async function snapshotDocx(zip, options = {}) {
   } else if (paged) {
     selectedBlocks = model.blocks.slice(offset, offset + limit);
   }
-  const paragraphIndexes = new Set(selectedBlocks.filter((block) => block.name === 'w:p').map((block) => block.logicalIndex));
-  const tableIndexes = new Set(selectedBlocks.filter((block) => block.name === 'w:tbl').map((block) => block.logicalIndex));
+  const paragraphIndexes = new Set(
+    selectedBlocks.filter((block) => block.name === 'w:p').map((block) => block.logicalIndex)
+  );
+  const tableIndexes = new Set(
+    selectedBlocks.filter((block) => block.name === 'w:tbl').map((block) => block.logicalIndex)
+  );
   const storyParts = parts.filter((name) => !/\/comments\.xml$/i.test(name));
   const comments = [];
   const commentsXml = await zipText(zip, 'word/comments.xml');
@@ -328,7 +356,8 @@ export async function snapshotDocx(zip, options = {}) {
     // are not wrappers and are not listed.
     for (const span of flattenDocxRevisions(docxRevisionTree(xml))) {
       const block = inBody ? blockAt(span.start) : null;
-      const location = block?.name === 'w:tbl' ? cellAt(block, span.start - model.body.start - block.start) : { suffix: '' };
+      const location =
+        block?.name === 'w:tbl' ? cellAt(block, span.start - model.body.start - block.start) : { suffix: '' };
       const at = !block
         ? ''
         : block.name === 'w:p'
@@ -416,33 +445,38 @@ export async function snapshotDocx(zip, options = {}) {
     // often arrives with it already on, and the same edit means something
     // different in each state, so the reader reports it instead of leaving the
     // caller to discover it from the revisions its own batch produced.
-    trackChanges: settingsTrackChanges(await zipText(zip, 'word/settings.xml') || ''),
+    trackChanges: settingsTrackChanges((await zipText(zip, 'word/settings.xml')) || ''),
     paragraphCount: model.paragraphs.length,
     tableCount: model.tables.length,
-    paragraphs: paged ? model.paragraphs.filter((paragraph) => paragraphIndexes.has(paragraph.index)) : model.paragraphs,
+    paragraphs: paged
+      ? model.paragraphs.filter((paragraph) => paragraphIndexes.has(paragraph.index))
+      : model.paragraphs,
     tables: paged ? model.tables.filter((table) => tableIndexes.has(table.index)) : model.tables,
     blockOrder: selectedBlocks.map((block) => ({
       type: block.name === 'w:p' ? 'paragraph' : 'table',
       index: block.logicalIndex,
-      path: block.name === 'w:p'
-        ? `/body/p[${block.logicalIndex}]`
-        : `/body/tbl[${block.logicalIndex}]`,
+      path: block.name === 'w:p' ? `/body/p[${block.logicalIndex}]` : `/body/tbl[${block.logicalIndex}]`,
       start: block.start,
     })),
-    parts: paged && model.blocks.length > limit
-      ? content.map((part) => ({ part: part.part, chars: part.text.length }))
-      : content,
+    parts:
+      paged && model.blocks.length > limit
+        ? content.map((part) => ({ part: part.part, chars: part.text.length }))
+        : content,
     commentCount: comments.length,
     revisionCount: revisions.length,
     propertyChangeCount,
     // Who changed what, at a glance: the redline reviewer reads this before
     // the revision list.
-    revisionAuthors: [...revisions.reduce((authors, revision) => {
-      const entry = authors.get(revision.author) || { author: revision.author, insertions: 0, deletions: 0 };
-      if (['insertion', 'moved_to'].includes(revision.type)) entry.insertions += 1;
-      else entry.deletions += 1;
-      return authors.set(revision.author, entry);
-    }, new Map()).values()],
+    revisionAuthors: [
+      ...revisions
+        .reduce((authors, revision) => {
+          const entry = authors.get(revision.author) || { author: revision.author, insertions: 0, deletions: 0 };
+          if (['insertion', 'moved_to'].includes(revision.type)) entry.insertions += 1;
+          else entry.deletions += 1;
+          return authors.set(revision.author, entry);
+        }, new Map())
+        .values(),
+    ],
     comments,
     revisions,
     footnoteCount: notes.filter((entry) => entry.kind === 'footnote').length,
@@ -455,21 +489,20 @@ export async function snapshotDocx(zip, options = {}) {
     images,
     commentThreadCount: commentThreads.length,
     commentThreads,
-    ...(paged ? {
-      pagination: {
-        unit: 'body-block',
-        offset,
-        limit,
-        returned: selectedBlocks.length,
-        total: model.blocks.length,
-        nextOffset: offset + selectedBlocks.length < model.blocks.length
-          ? offset + selectedBlocks.length
-          : null,
-      },
-    } : {}),
+    ...(paged
+      ? {
+          pagination: {
+            unit: 'body-block',
+            offset,
+            limit,
+            returned: selectedBlocks.length,
+            total: model.blocks.length,
+            nextOffset: offset + selectedBlocks.length < model.blocks.length ? offset + selectedBlocks.length : null,
+          },
+        }
+      : {}),
   };
 }
-
 
 // Legacy cell notes (the comments part a worksheet relates to), in the shape
 // Excel reports them: { path, cell, text, author }.
@@ -546,7 +579,8 @@ async function relatedPartById(zip, part, id) {
 function chartPartSnapshot(xml) {
   const series = [...xml.matchAll(/<c:ser>([\s\S]*?)<\/c:ser>/g)].map((match, index) => {
     const body = match[1];
-    const reference = (tag) => xmlDecode(new RegExp(`<c:${tag}>[\\s\\S]*?<c:f>([\\s\\S]*?)<\\/c:f>`).exec(body)?.[1] || '');
+    const reference = (tag) =>
+      xmlDecode(new RegExp(`<c:${tag}>[\\s\\S]*?<c:f>([\\s\\S]*?)<\\/c:f>`).exec(body)?.[1] || '');
     return {
       index: index + 1,
       name: xmlDecode(/<c:tx>[\s\S]*?<c:v>([\s\S]*?)<\/c:v>/.exec(body)?.[1] || ''),
@@ -586,12 +620,14 @@ async function worksheetVisuals(zip, sheet, xml) {
       startRow: drawing.startRow,
       endColumn: drawing.endColumn,
       endRow: drawing.endRow,
-      ...(Number.isFinite(drawing.left) ? {
-        left: Math.round(drawing.left * 100) / 100,
-        top: Math.round(drawing.top * 100) / 100,
-        width: Math.round(drawing.width * 100) / 100,
-        height: Math.round(drawing.height * 100) / 100,
-      } : {}),
+      ...(Number.isFinite(drawing.left)
+        ? {
+            left: Math.round(drawing.left * 100) / 100,
+            top: Math.round(drawing.top * 100) / 100,
+            width: Math.round(drawing.width * 100) / 100,
+            height: Math.round(drawing.height * 100) / 100,
+          }
+        : {}),
     };
     const chartId = /<c:chart\b[^>]*\br:id="([^"]+)"/.exec(drawing.body)?.[1] || '';
     if (chartId) {
@@ -601,7 +637,7 @@ async function worksheetVisuals(zip, sheet, xml) {
         index: charts.length + 1,
         part,
         anchor,
-        ...chartPartSnapshot(part ? await zipText(zip, part) || '' : ''),
+        ...chartPartSnapshot(part ? (await zipText(zip, part)) || '' : ''),
       });
       continue;
     }
@@ -656,7 +692,6 @@ function sheetPrintArea(definedNames, sheetIndex) {
 // single call does; past it the reading says how far it got.
 export const FULL_READ_CELL_LIMIT = 200_000;
 
-
 export async function snapshotXlsx(zip, options = {}) {
   const sheets = await workbookSheets(zip);
   const strings = await sharedStrings(zip);
@@ -685,14 +720,18 @@ export async function snapshotXlsx(zip, options = {}) {
   // the same boundary and still answers as if it had read the sheet.
   const cellLimit = Number.isFinite(Number(options.cellLimit))
     ? Math.max(1, Number(options.cellLimit))
-    : options.full === true ? FULL_READ_CELL_LIMIT : 2_000;
+    : options.full === true
+      ? FULL_READ_CELL_LIMIT
+      : 2_000;
   // A paged read walks the workbook one sheet at a time; without a named sheet
   // it starts where the cursor left off, so every sheet is reachable.
   const sheetOffset = Math.max(0, Math.min(sheets.length - 1, Number(options.sheetOffset) || 0));
   const selectedSheets = paged
-    ? [options.sheet
-        ? sheets.find((sheet) => sheet.name.toLowerCase() === String(options.sheet).toLowerCase())
-        : sheets[sheetOffset]].filter(Boolean)
+    ? [
+        options.sheet
+          ? sheets.find((sheet) => sheet.name.toLowerCase() === String(options.sheet).toLowerCase())
+          : sheets[sheetOffset],
+      ].filter(Boolean)
     : sheets;
   if (paged && options.sheet && !selectedSheets.length) throw new Error(`XLSX sheet not found: ${options.sheet}`);
   let page = null;
@@ -703,7 +742,13 @@ export async function snapshotXlsx(zip, options = {}) {
     const notes = await worksheetNotes(zip, sheet);
     const tables = await worksheetTables(zip, sheet);
     const visuals = await worksheetVisuals(zip, sheet, xml);
-    const pageSetup = worksheetPageSetup(xml, sheetPrintArea(definedNames, sheets.findIndex((entry) => entry.name === sheet.name)));
+    const pageSetup = worksheetPageSetup(
+      xml,
+      sheetPrintArea(
+        definedNames,
+        sheets.findIndex((entry) => entry.name === sheet.name)
+      )
+    );
     // The same shape Excel reports: which rows and columns stay put.
     const pane = /<pane\b([^>]*)\/?>/.exec(xml)?.[1] || '';
     const freezePanes = {
@@ -725,11 +770,11 @@ export async function snapshotXlsx(zip, options = {}) {
       protected: Boolean(/<sheetProtection\b/.test(xml)),
       ...(guard
         ? {
-          password: /\b(?:password|hashValue)="[^"]+"/.test(guard),
-          allowFormattingCells: /\bformatCells="0"/.test(guard),
-          allowSorting: /\bsort="0"/.test(guard),
-          allowFiltering: /\bautoFilter="0"/.test(guard),
-        }
+            password: /\b(?:password|hashValue)="[^"]+"/.test(guard),
+            allowFormattingCells: /\bformatCells="0"/.test(guard),
+            allowSorting: /\bsort="0"/.test(guard),
+            allowFiltering: /\bautoFilter="0"/.test(guard),
+          }
         : {}),
     };
     const validations = [];
@@ -739,7 +784,9 @@ export async function snapshotXlsx(zip, options = {}) {
       validations.push({
         path: `/sheet[${sheet.name}]/validation[${validations.length + 1}]`,
         index: validations.length + 1,
-        ranges: xmlDecode(/\bsqref="([^"]+)"/.exec(attributes)?.[1] || '').split(/\s+/).filter(Boolean),
+        ranges: xmlDecode(/\bsqref="([^"]+)"/.exec(attributes)?.[1] || '')
+          .split(/\s+/)
+          .filter(Boolean),
         type: /\btype="([^"]+)"/.exec(attributes)?.[1] || '',
         operator: /\boperator="([^"]+)"/.exec(attributes)?.[1] || '',
         allowBlank: booleanXmlAttribute(attributes, 'allowBlank'),
@@ -751,7 +798,9 @@ export async function snapshotXlsx(zip, options = {}) {
     }
     const conditionalFormats = [];
     for (const match of xml.matchAll(/<conditionalFormatting\b([^>]*)>([\s\S]*?)<\/conditionalFormatting>/g)) {
-      const ranges = xmlDecode(/\bsqref="([^"]+)"/.exec(match[1])?.[1] || '').split(/\s+/).filter(Boolean);
+      const ranges = xmlDecode(/\bsqref="([^"]+)"/.exec(match[1])?.[1] || '')
+        .split(/\s+/)
+        .filter(Boolean);
       for (const rule of match[2].matchAll(/<cfRule\b([^>]*?)(?:\/>|>([\s\S]*?)<\/cfRule>)/g)) {
         const attributes = rule[1];
         const body = rule[2] || '';
@@ -762,16 +811,20 @@ export async function snapshotXlsx(zip, options = {}) {
           type: xmlDecode(/\btype="([^"]+)"/.exec(attributes)?.[1] || ''),
           operator: xmlDecode(/\boperator="([^"]+)"/.exec(attributes)?.[1] || ''),
           priority: Number(/\bpriority="(\d+)"/.exec(attributes)?.[1] || 0),
-          formulas: [...body.matchAll(/<formula(?:\s[^>]*)?>([\s\S]*?)<\/formula>/g)].map((entry) => xmlDecode(entry[1])),
+          formulas: [...body.matchAll(/<formula(?:\s[^>]*)?>([\s\S]*?)<\/formula>/g)].map((entry) =>
+            xmlDecode(entry[1])
+          ),
         });
       }
     }
-    const lineage = cells.filter((cell) => cell.formula).map((cell) => ({
-      path: `/sheet[${sheet.name}]/cell[${cell.ref}]/lineage`,
-      from: `/sheet[${sheet.name}]/cell[${cell.ref}]`,
-      formula: cell.formula,
-      precedents: formulaReferences(cell.formula, sheet.name),
-    }));
+    const lineage = cells
+      .filter((cell) => cell.formula)
+      .map((cell) => ({
+        path: `/sheet[${sheet.name}]/cell[${cell.ref}]/lineage`,
+        from: `/sheet[${sheet.name}]/cell[${cell.ref}]`,
+        formula: cell.formula,
+        precedents: formulaReferences(cell.formula, sheet.name),
+      }));
     if (!paged) {
       formulaCount += cells.filter((cell) => cell.formula).length;
       formulaCacheMissing += cells.filter((cell) => cell.formula && cell.cacheState === 'missing').length;
@@ -823,9 +876,10 @@ export async function snapshotXlsx(zip, options = {}) {
       formulaCacheMissing += totals.formulaCacheMissing;
     }
   }
-  const nextOffset = page && (Math.max(0, Number(options.offset) || 0) + page.records.length < page.total)
-    ? Math.max(0, Number(options.offset) || 0) + page.records.length
-    : null;
+  const nextOffset =
+    page && Math.max(0, Number(options.offset) || 0) + page.records.length < page.total
+      ? Math.max(0, Number(options.offset) || 0) + page.records.length
+      : null;
   return {
     format: 'xlsx',
     sheetCount: sheets.length,
@@ -841,28 +895,28 @@ export async function snapshotXlsx(zip, options = {}) {
     calculation,
     definedNameCount: definedNames.length,
     definedNames,
-    ...(paged ? {
-      pagination: {
-        unit: 'populated-cell',
-        scope: `${selectedSheets[0]?.name || ''}${options.range ? `!${options.range}` : ''}`,
-        offset: Math.max(0, Number(options.offset) || 0),
-        limit: Math.max(1, Number(options.limit) || 2_000),
-        returned: page?.records.length || 0,
-        total: page?.total || 0,
-        nextOffset,
-        // With this sheet read out and no sheet named by the caller, the next
-        // page is the next sheet rather than the end of the workbook.
-        ...(nextOffset === null && !options.sheet && sheetOffset + 1 < sheets.length
-          ? { nextSheetOffset: sheetOffset + 1 }
-          : {}),
-      },
-    } : {}),
+    ...(paged
+      ? {
+          pagination: {
+            unit: 'populated-cell',
+            scope: `${selectedSheets[0]?.name || ''}${options.range ? `!${options.range}` : ''}`,
+            offset: Math.max(0, Number(options.offset) || 0),
+            limit: Math.max(1, Number(options.limit) || 2_000),
+            returned: page?.records.length || 0,
+            total: page?.total || 0,
+            nextOffset,
+            // With this sheet read out and no sheet named by the caller, the next
+            // page is the next sheet rather than the end of the workbook.
+            ...(nextOffset === null && !options.sheet && sheetOffset + 1 < sheets.length
+              ? { nextSheetOffset: sheetOffset + 1 }
+              : {}),
+          },
+        }
+      : {}),
   };
 }
 
-
 const SLIDE_BACKGROUND = /<p:bg\b[^>]*>[\s\S]*?<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/;
-
 
 async function pptxRelatedPart(zip, part, suffix) {
   const relationshipPath = partRelationshipPath(part);
@@ -876,7 +930,6 @@ async function pptxRelatedPart(zip, part, suffix) {
   }
   return '';
 }
-
 
 // Microsoft Office reports a resolved background per slide, and the theme review
 // abandons the whole deck as soon as one slide has none. Reading only the slide
@@ -899,7 +952,6 @@ async function pptxSlideBackground(zip, slidePath, slideXml) {
   return { color: '', followMaster: true, source: 'master' };
 }
 
-
 async function pptxSlideNotes(zip, slidePath) {
   const notesPath = await pptxRelatedPart(zip, slidePath, '/notesSlide');
   if (!notesPath) return '';
@@ -914,18 +966,18 @@ async function pptxSlideNotes(zip, slidePath) {
   return blockText(xml, 'a:t');
 }
 
-
 export async function snapshotPptx(zip, options = {}) {
   const roster = await presentationSlides(zip);
   const slidePaths = roster.map((slide) => slide.path);
   const paged = options.paged === true;
   const offset = paged ? Math.max(0, Number(options.offset) || 0) : 0;
   const limit = paged ? Math.max(1, Number(options.limit) || 20) : slidePaths.length;
-  const requested = paged && Array.isArray(options.pages) && options.pages.length
-    ? options.pages.map((page) => slidePaths[Number(page) - 1]).filter(Boolean)
-    : paged
-      ? slidePaths.slice(offset, offset + limit)
-      : slidePaths;
+  const requested =
+    paged && Array.isArray(options.pages) && options.pages.length
+      ? options.pages.map((page) => slidePaths[Number(page) - 1]).filter(Boolean)
+      : paged
+        ? slidePaths.slice(offset, offset + limit)
+        : slidePaths;
   const slides = [];
   for (const path of requested) {
     const xml = await zipText(zip, path);
@@ -958,22 +1010,38 @@ export async function snapshotPptx(zip, options = {}) {
         const tableColumns = [...shape.xml.matchAll(/<a:gridCol\b/gi)].length;
         // Typeface and color inventories feed the deck discipline review; a
         // shape that mixes families or invents colors is otherwise invisible.
-        const fonts = [...new Set([...shape.xml.matchAll(/<a:latin\b[^>]*\btypeface="([^"]+)"/gi)]
-          .map((match) => xmlDecode(match[1]))
-          .filter(Boolean))];
-        const colors = [...new Set([...shape.xml.matchAll(/<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/gi)]
-          .map((match) => match[1].toUpperCase()))];
+        const fonts = [
+          ...new Set(
+            [...shape.xml.matchAll(/<a:latin\b[^>]*\btypeface="([^"]+)"/gi)]
+              .map((match) => xmlDecode(match[1]))
+              .filter(Boolean)
+          ),
+        ];
+        const colors = [
+          ...new Set(
+            [...shape.xml.matchAll(/<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/gi)].map((match) =>
+              match[1].toUpperCase()
+            )
+          ),
+        ];
         const shapeName = xmlDecode(/<p:cNvPr\b[^>]*\bname="([^"]*)"/i.exec(shape.xml)?.[1] || '');
         // Preset geometry tells the diversity review which native structure a
         // slide carries (chevron process, block-arc share, trapezoid tiers).
-        const geometry = shape.name === 'p:sp'
-          ? (/<a:custGeom\b/i.test(shape.xml) ? 'custGeom' : /<a:prstGeom\b[^>]*\bprst="([^"]+)"/i.exec(shape.xml)?.[1] || '')
-          : '';
+        const geometry =
+          shape.name === 'p:sp'
+            ? /<a:custGeom\b/i.test(shape.xml)
+              ? 'custGeom'
+              : /<a:prstGeom\b[^>]*\bprst="([^"]+)"/i.exec(shape.xml)?.[1] || ''
+            : '';
         // The shape's own surface color (spPr solidFill, or a gradient's first stop — the side the kit
         // puts type on), distinct from text colors.
         const spPr = /<p:spPr\b[^>]*>([\s\S]*?)<\/p:spPr>/i.exec(shape.xml)?.[1] || '';
-        const fill = /<a:gradFill\b[\s\S]*?<a:gs\b[^>]*>\s*<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/i.exec(spPr)?.[1]?.toUpperCase()
-          || /<a:solidFill>\s*<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/i.exec(spPr)?.[1]?.toUpperCase() || '';
+        const fill =
+          /<a:gradFill\b[\s\S]*?<a:gs\b[^>]*>\s*<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/i
+            .exec(spPr)?.[1]
+            ?.toUpperCase() ||
+          /<a:solidFill>\s*<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/i.exec(spPr)?.[1]?.toUpperCase() ||
+          '';
         return {
           path: shapePath,
           index: shapeIndex + 1,
@@ -986,10 +1054,10 @@ export async function snapshotPptx(zip, options = {}) {
           ...(/<p:cNvPr\b[^>]*\bhidden="(?:1|true)"/i.test(shape.xml) ? { hidden: true } : {}),
           // What a reader who cannot see the picture is told about it; the
           // audit asks for it, so the snapshot shows whether it is there.
-          ...((() => {
+          ...(() => {
             const description = xmlDecode(/<p:cNvPr\b[^>]*\bdescr="([^"]*)"/i.exec(shape.xml)?.[1] || '');
             return description ? { altText: description } : {};
-          })()),
+          })(),
           ...(geometry ? { geometry } : {}),
           ...(fill ? { fill: { color: fill } } : {}),
           // A table's cells are separate strings a reader never runs together
@@ -1002,15 +1070,26 @@ export async function snapshotPptx(zip, options = {}) {
           ...(/<p:ph\b/i.test(shape.xml) ? { placeholder: true } : {}),
           ...(/<c:chart\b/i.test(shape.xml) ? { chart: { path: `${shapePath}/chart` } } : {}),
           ...(tableRows ? { table: { rows: tableRows, columns: tableColumns } } : {}),
-          ...(fontSizes.length ? { font: { size: Math.max(...fontSizes), ...(bold ? { bold: true } : {}), ...(fonts.length ? { name: fonts[0] } : {}) }, sizes: [...new Set(fontSizes)].sort((a, b) => a - b) } : {}),
+          ...(fontSizes.length
+            ? {
+                font: {
+                  size: Math.max(...fontSizes),
+                  ...(bold ? { bold: true } : {}),
+                  ...(fonts.length ? { name: fonts[0] } : {}),
+                },
+                sizes: [...new Set(fontSizes)].sort((a, b) => a - b),
+              }
+            : {}),
           ...(fonts.length ? { fonts } : {}),
           ...(colors.length ? { colors } : {}),
-          ...(offset && extent ? {
-            left: Number(offset[1]) / 12_700,
-            top: Number(offset[2]) / 12_700,
-            width: Number(extent[1]) / 12_700,
-            height: Number(extent[2]) / 12_700,
-          } : {}),
+          ...(offset && extent
+            ? {
+                left: Number(offset[1]) / 12_700,
+                top: Number(offset[2]) / 12_700,
+                width: Number(extent[1]) / 12_700,
+                height: Number(extent[2]) / 12_700,
+              }
+            : {}),
         };
       }),
     });
@@ -1038,21 +1117,21 @@ export async function snapshotPptx(zip, options = {}) {
     slides,
     layoutCount: layouts.length,
     layouts,
-    ...(paged ? {
-      pagination: {
-        unit: 'slide',
-        offset,
-        limit,
-        returned: slides.length,
-        total: Array.isArray(options.pages) && options.pages.length ? requested.length : slidePaths.length,
-        nextOffset: !options.pages?.length && offset + slides.length < slidePaths.length
-          ? offset + slides.length
-          : null,
-      },
-    } : {}),
+    ...(paged
+      ? {
+          pagination: {
+            unit: 'slide',
+            offset,
+            limit,
+            returned: slides.length,
+            total: Array.isArray(options.pages) && options.pages.length ? requested.length : slidePaths.length,
+            nextOffset:
+              !options.pages?.length && offset + slides.length < slidePaths.length ? offset + slides.length : null,
+          },
+        }
+      : {}),
   };
 }
-
 
 export async function snapshotPortableOoxml(path, format, options = {}) {
   const zip = await loadPackage(path);

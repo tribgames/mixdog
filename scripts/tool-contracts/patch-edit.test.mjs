@@ -21,32 +21,40 @@ const smokeBody = `@@
 `;
 
 test('apply_patch dry-run validates current context and rejects stale hunks', async () => {
-  const patchOut = await executePatchTool('apply_patch', {
-    base_path: root,
-    dry_run: true,
-    fuzzy: false,
-    patch: `*** Begin Patch
+  const patchOut = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: root,
+      dry_run: true,
+      fuzzy: false,
+      patch: `*** Begin Patch
 *** Update File: scripts/smoke.mjs
 @@
 -process.stdout.write('smoke passed ✓\\n');
 +process.stdout.write('smoke passed ok\\n');
 *** End Patch
 `,
-  }, root);
+    },
+    root
+  );
   assertOk('apply_patch dry_run', patchOut, /checked|validated|dry|OK/i);
 
-  const stalePatchOut = await executePatchTool('apply_patch', {
-    base_path: root,
-    dry_run: true,
-    fuzzy: false,
-    patch: `*** Begin Patch
+  const stalePatchOut = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: root,
+      dry_run: true,
+      fuzzy: false,
+      patch: `*** Begin Patch
 *** Update File: scripts/smoke.mjs
 @@
 -definitely-not-current-smoke-line
 +definitely-not-current-smoke-line-2
 *** End Patch
 `,
-  }, root);
+    },
+    root
+  );
   if (!/^Error[\s:[]/.test(String(stalePatchOut)) || !/apply_patch/i.test(String(stalePatchOut))) {
     throw new Error(`apply_patch stale context must return an Error result, not throw or pass:\n${stalePatchOut}`);
   }
@@ -57,39 +65,59 @@ test('edit exact-string semantics: replace_all, ambiguity, create, no-op', async
   try {
     const target = join(editTmp, 'target.txt');
     writeFileSync(target, 'alpha beta alpha\n', 'utf8');
-    const replaceAllOut = await executeBuiltinTool('edit', {
-      file_path: 'target.txt',
-      old_string: 'alpha',
-      new_string: 'omega',
-      replace_all: true,
-    }, editTmp, { sessionId: `tool-contracts-edit-${process.pid}` });
+    const replaceAllOut = await executeBuiltinTool(
+      'edit',
+      {
+        file_path: 'target.txt',
+        old_string: 'alpha',
+        new_string: 'omega',
+        replace_all: true,
+      },
+      editTmp,
+      { sessionId: `tool-contracts-edit-${process.pid}` }
+    );
     assertOk('edit replace_all', replaceAllOut, /2 replacements/);
     if (readFileSync(target, 'utf8') !== 'omega beta omega\n') {
       throw new Error('edit replace_all must replace every occurrence');
     }
-    const ambiguousOut = await executeBuiltinTool('edit', {
-      file_path: 'target.txt',
-      old_string: 'omega',
-      new_string: 'alpha',
-    }, editTmp, { sessionId: `tool-contracts-edit-${process.pid}` });
+    const ambiguousOut = await executeBuiltinTool(
+      'edit',
+      {
+        file_path: 'target.txt',
+        old_string: 'omega',
+        new_string: 'alpha',
+      },
+      editTmp,
+      { sessionId: `tool-contracts-edit-${process.pid}` }
+    );
     if (!/^Error[\s:[]/.test(String(ambiguousOut)) || !/found 2 times|ambiguous/i.test(String(ambiguousOut))) {
       throw new Error(`edit must reject ambiguous old_string:\n${ambiguousOut}`);
     }
-    const createOut = await executeBuiltinTool('edit', {
-      file_path: 'created.txt',
-      old_string: '',
-      new_string: 'created\n',
-    }, editTmp, { sessionId: `tool-contracts-edit-${process.pid}` });
+    const createOut = await executeBuiltinTool(
+      'edit',
+      {
+        file_path: 'created.txt',
+        old_string: '',
+        new_string: 'created\n',
+      },
+      editTmp,
+      { sessionId: `tool-contracts-edit-${process.pid}` }
+    );
     assertOk('edit create', createOut, /Created/);
     if (readFileSync(join(editTmp, 'created.txt'), 'utf8') !== 'created\n') {
       throw new Error('edit empty old_string must create a missing file');
     }
-    const noOpOut = await executeBuiltinTool('edit', {
-      file_path: 'target.txt',
-      old_string: 'omega',
-      new_string: 'omega',
-      replace_all: true,
-    }, editTmp, { sessionId: `tool-contracts-edit-${process.pid}` });
+    const noOpOut = await executeBuiltinTool(
+      'edit',
+      {
+        file_path: 'target.txt',
+        old_string: 'omega',
+        new_string: 'omega',
+        replace_all: true,
+      },
+      editTmp,
+      { sessionId: `tool-contracts-edit-${process.pid}` }
+    );
     if (!/^Error[\s:[]/.test(String(noOpOut)) || !/exactly the same/i.test(String(noOpOut))) {
       throw new Error(`edit must reject no-op replacements:\n${noOpOut}`);
     }
@@ -111,24 +139,32 @@ test('apply_patch absorbs unambiguous malformed openings', async () => {
     assertOk(`apply_patch absorbs ${label}`, out, /checked|validated|dry|OK/i);
   }
 
-  const ambiguousPatchOut = await executePatchTool('apply_patch', {
-    base_path: root,
-    dry_run: true,
-    fuzzy: false,
-    patch: `*** Begin Patch\nthis line is not a valid opening\n${smokeBody}`,
-  }, root);
+  const ambiguousPatchOut = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: root,
+      dry_run: true,
+      fuzzy: false,
+      patch: `*** Begin Patch\nthis line is not a valid opening\n${smokeBody}`,
+    },
+    root
+  );
   if (!/^Error[\s:[]/.test(String(ambiguousPatchOut)) || !/before a file header|V4A/i.test(String(ambiguousPatchOut))) {
     throw new Error(`apply_patch must keep erroring on genuinely ambiguous openings:\n${ambiguousPatchOut}`);
   }
 
   // Unified-looking first body line but real V4A file sections appear later: the
   // envelope must NOT be stripped to unified — it stays ambiguous and errors.
-  const mixedPatchOut = await executePatchTool('apply_patch', {
-    base_path: root,
-    dry_run: true,
-    fuzzy: false,
-    patch: `*** Begin Patch\n--- scripts/smoke.mjs\n*** Update File: scripts/smoke.mjs\n${smokeBody}`,
-  }, root);
+  const mixedPatchOut = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: root,
+      dry_run: true,
+      fuzzy: false,
+      patch: `*** Begin Patch\n--- scripts/smoke.mjs\n*** Update File: scripts/smoke.mjs\n${smokeBody}`,
+    },
+    root
+  );
   if (!/^Error[\s:[]/.test(String(mixedPatchOut)) || !/before a file header|V4A/i.test(String(mixedPatchOut))) {
     throw new Error(`apply_patch must keep erroring on mixed unified/V4A openings:\n${mixedPatchOut}`);
   }
@@ -139,28 +175,43 @@ test('apply_patch rejects compacted-history placeholders before dispatch', async
   // be rejected with the corrective message BEFORE format dispatch/salvage, both
   // as the first line and standalone mid-body (after a *** Begin Patch header).
   const compactedGuardCases = [
-    ['legacy key: prefix', '[mixdog compacted patch: 4096 chars, sha256:deadbeefdeadbeef]\n*** Begin Patch\n*** Update File: a.txt\n+x\n*** End Patch\n'],
-    ['variant key form', '[mixdog compacted patch v4a, sha256:deadbeefdeadbeef]\n*** Begin Patch\n*** Update File: a.txt\n+x\n*** End Patch\n'],
+    [
+      'legacy key: prefix',
+      '[mixdog compacted patch: 4096 chars, sha256:deadbeefdeadbeef]\n*** Begin Patch\n*** Update File: a.txt\n+x\n*** End Patch\n',
+    ],
+    [
+      'variant key form',
+      '[mixdog compacted patch v4a, sha256:deadbeefdeadbeef]\n*** Begin Patch\n*** Update File: a.txt\n+x\n*** End Patch\n',
+    ],
     ['no chars/sha detail', '[mixdog compacted old_string]\n'],
-    ['mid-body standalone', '*** Begin Patch\n*** Update File: a.txt\n[mixdog compacted patch v4a, sha256:deadbeefdeadbeef]\n*** End Patch\n'],
+    [
+      'mid-body standalone',
+      '*** Begin Patch\n*** Update File: a.txt\n[mixdog compacted patch v4a, sha256:deadbeefdeadbeef]\n*** End Patch\n',
+    ],
   ];
   for (const [label, patch] of compactedGuardCases) {
     const out = await executePatchTool('apply_patch', { base_path: root, dry_run: true, fuzzy: false, patch }, root);
-    if (!/^Error[\s:[]/.test(String(out))
-        || !/compacted-history placeholder/i.test(String(out))
-        || !/submit real patch text/i.test(String(out))
-        || /re-read|fresh full patch/i.test(String(out))) {
+    if (
+      !/^Error[\s:[]/.test(String(out)) ||
+      !/compacted-history placeholder/i.test(String(out)) ||
+      !/submit real patch text/i.test(String(out)) ||
+      /re-read|fresh full patch/i.test(String(out))
+    ) {
       throw new Error(`apply_patch must reject compacted placeholder (${label}):\n${out}`);
     }
   }
   // A legit unified edit whose body content mentions the literal text on a diff
   // line (+/-/space) must still parse — the guard only trips on non-diff lines.
-  const compactedFalsePositiveOut = await executePatchTool('apply_patch', {
-    base_path: root,
-    dry_run: true,
-    fuzzy: false,
-    patch: `*** Begin Patch\n*** Add File: compacted-note.txt\n+[mixdog compacted patch: 10 chars, sha256:abc]\n*** End Patch\n`,
-  }, root);
+  const compactedFalsePositiveOut = await executePatchTool(
+    'apply_patch',
+    {
+      base_path: root,
+      dry_run: true,
+      fuzzy: false,
+      patch: `*** Begin Patch\n*** Add File: compacted-note.txt\n+[mixdog compacted patch: 10 chars, sha256:abc]\n*** End Patch\n`,
+    },
+    root
+  );
   assertOk('apply_patch keeps diff-line placeholder text', compactedFalsePositiveOut, /checked|validated|dry|OK/i);
 });
 
@@ -174,17 +225,21 @@ test('apply_patch serializes as an OpenAI custom grammar tool on the wire', () =
       {
         role: 'assistant',
         content: '',
-        toolCalls: [{ id: 'call_patch_1', name: 'apply_patch', arguments: { patch: rawPatch }, nativeType: 'custom_tool_call' }],
+        toolCalls: [
+          { id: 'call_patch_1', name: 'apply_patch', arguments: { patch: rawPatch }, nativeType: 'custom_tool_call' },
+        ],
       },
       { role: 'tool', toolCallId: 'call_patch_1', content: 'OK' },
     ],
     'gpt-5.5',
     PATCH_TOOL_DEFS,
-    {},
+    {}
   );
   const wirePatchTool = body.tools?.find((tool) => tool.name === 'apply_patch');
   if (wirePatchTool?.type !== 'custom' || wirePatchTool?.format?.syntax !== 'lark') {
-    throw new Error(`OpenAI Responses apply_patch must serialize as a custom grammar tool: ${JSON.stringify(wirePatchTool)}`);
+    throw new Error(
+      `OpenAI Responses apply_patch must serialize as a custom grammar tool: ${JSON.stringify(wirePatchTool)}`
+    );
   }
   if (wirePatchTool.description !== patchTool.freeformDescription) {
     throw new Error(`OpenAI Responses apply_patch must use freeform description: ${JSON.stringify(wirePatchTool)}`);
@@ -205,8 +260,14 @@ test('apply_patch SSE parser emits internal patch args from custom tool calls', 
   const frames = [
     { type: 'response.created', response: { id: 'resp_custom_patch', model: 'gpt-5.5' } },
     { type: 'response.custom_tool_call_input.delta', delta: rawPatch.slice(0, 16) },
-    { type: 'response.output_item.done', item: { type: 'custom_tool_call', call_id: 'call_patch_sse', name: 'apply_patch', input: rawPatch } },
-    { type: 'response.completed', response: { id: 'resp_custom_patch', model: 'gpt-5.5', usage: { input_tokens: 1, output_tokens: 1 }, output: [] } },
+    {
+      type: 'response.output_item.done',
+      item: { type: 'custom_tool_call', call_id: 'call_patch_sse', name: 'apply_patch', input: rawPatch },
+    },
+    {
+      type: 'response.completed',
+      response: { id: 'resp_custom_patch', model: 'gpt-5.5', usage: { input_tokens: 1, output_tokens: 1 }, output: [] },
+    },
   ];
   const bodyText = frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join('');
   let emitted = null;
@@ -214,22 +275,30 @@ test('apply_patch SSE parser emits internal patch args from custom tool calls', 
     auth: { access_token: 'fake-token', account_id: '' },
     body: { model: 'gpt-5.5', input: [], stream: true },
     opts: {},
-    onToolCall: (call) => { emitted = call; },
+    onToolCall: (call) => {
+      emitted = call;
+    },
     externalSignal: null,
     poolKey: 'tool-contracts-custom-patch',
     cacheKey: 'tool-contracts-custom-patch',
     iteration: 1,
     useModel: 'gpt-5.5',
-    fetchFn: async () => new Response(new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(bodyText));
-        controller.close();
-      },
-    }), { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+    fetchFn: async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(bodyText));
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } }
+      ),
   });
   const call = response.toolCalls?.[0];
   if (call?.nativeType !== 'custom_tool_call' || call?.name !== 'apply_patch' || call?.arguments?.patch !== rawPatch) {
-    throw new Error(`custom apply_patch SSE parser must produce internal patch args: ${JSON.stringify(response.toolCalls)}`);
+    throw new Error(
+      `custom apply_patch SSE parser must produce internal patch args: ${JSON.stringify(response.toolCalls)}`
+    );
   }
   if (emitted?.arguments?.patch !== rawPatch) {
     throw new Error(`custom apply_patch SSE parser must eager-emit patch args: ${JSON.stringify(emitted)}`);

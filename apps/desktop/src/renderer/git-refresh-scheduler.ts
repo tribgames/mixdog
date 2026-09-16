@@ -1,4 +1,4 @@
-export type GitRefreshReason = "activity" | "safety";
+export type GitRefreshReason = 'activity' | 'safety';
 
 export interface GitRefreshScheduler {
   resume(): void;
@@ -16,7 +16,7 @@ export function createGitRefreshScheduler(
     activityMinGapMs: number;
     slowTaskMultiplier?: number;
     maxIntervalMs?: number;
-  },
+  }
 ): GitRefreshScheduler {
   let disposed = false;
   let enabled = false;
@@ -37,23 +37,18 @@ export function createGitRefreshScheduler(
     if (safetyTimer) globalThis.clearTimeout(safetyTimer);
     safetyTimer = 0;
   };
-  const requiredIdleMs = () => Math.min(
-    options.maxIntervalMs ?? 5 * 60_000,
-    Math.max(options.activityMinGapMs, lastRunDurationMs),
-  );
+  const requiredIdleMs = () =>
+    Math.min(options.maxIntervalMs ?? 5 * 60_000, Math.max(options.activityMinGapMs, lastRunDurationMs));
   const scheduleSafety = () => {
     if (!enabled || disposed) return;
     clearSafety();
     const delay = Math.max(
       options.safetyIntervalMs,
-      Math.min(
-        options.maxIntervalMs ?? 5 * 60_000,
-        lastRunDurationMs * (options.slowTaskMultiplier ?? 5),
-      ),
+      Math.min(options.maxIntervalMs ?? 5 * 60_000, lastRunDurationMs * (options.slowTaskMultiplier ?? 5))
     );
     safetyTimer = globalThis.setTimeout(() => {
       safetyTimer = 0;
-      start("safety");
+      start('safety');
     }, delay);
   };
   const scheduleActivity = (minimumDelayMs: number) => {
@@ -66,7 +61,7 @@ export function createGitRefreshScheduler(
     const now = Date.now();
     const delay = Math.max(minimumDelayMs, lastRunEndedAt + requiredIdleMs() - now);
     if (delay <= 0) {
-      start("activity");
+      start('activity');
       return;
     }
     const firesAt = now + delay;
@@ -76,7 +71,7 @@ export function createGitRefreshScheduler(
     activityTimer = globalThis.setTimeout(() => {
       activityTimer = 0;
       activityFiresAt = Infinity;
-      start("activity");
+      start('activity');
     }, delay);
   };
   const start = (reason: GitRefreshReason) => {

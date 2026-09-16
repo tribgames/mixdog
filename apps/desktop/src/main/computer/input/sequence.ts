@@ -11,11 +11,8 @@ interface SequenceWindowTransition {
 export async function executeComputerSequenceSteps(
   stepCommands: ComputerCommand[],
   initialWindowId: string,
-  executeStep: (
-    command: ComputerCommand,
-    index: number,
-  ) => Promise<Record<string, unknown>>,
-  onCompleted?: (completed: number) => void,
+  executeStep: (command: ComputerCommand, index: number) => Promise<Record<string, unknown>>,
+  onCompleted?: (completed: number) => void
 ): Promise<{
   rows: Array<Record<string, unknown>>;
   completedSteps: number;
@@ -71,7 +68,8 @@ export async function executeComputerSequenceSteps(
       verified: payload.verified === true,
       path: payload.path || 'unknown',
       ...(payload.delivery_accepted === null || typeof payload.delivery_accepted === 'boolean'
-        ? { delivery_accepted: payload.delivery_accepted } : {}),
+        ? { delivery_accepted: payload.delivery_accepted }
+        : {}),
       ...(payload.input_may_have_executed === true ? { input_may_have_executed: true } : {}),
       ...(payload.cursor_feedback ? { cursor_feedback: computerCursorFeedback(payload.cursor_feedback) } : {}),
       timings_ms: {
@@ -109,9 +107,10 @@ export async function executeComputerSequenceSteps(
   };
 }
 
-export function classifyComputerSequenceObservation(
-  metadata: Record<string, unknown>,
-): { unavailable: boolean; pixelUnavailable: boolean } {
+export function classifyComputerSequenceObservation(metadata: Record<string, unknown>): {
+  unavailable: boolean;
+  pixelUnavailable: boolean;
+} {
   return {
     unavailable: metadata.ok === false,
     pixelUnavailable: metadata.pixel_status === 'unavailable',

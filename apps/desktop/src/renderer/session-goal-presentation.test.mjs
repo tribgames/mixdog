@@ -20,14 +20,21 @@ test('a paused Goal shows reply activity without inventing approval or elapsed w
   document.body.append(host);
   const root = createRoot(host);
   const goal = Object.freeze({
-    id: 'goal', status: 'paused', title: 'Approved work', timeUsedMs: 12_000, snapshotAt: 100_000,
+    id: 'goal',
+    status: 'paused',
+    title: 'Approved work',
+    timeUsedMs: 12_000,
+    snapshotAt: 100_000,
     tasks: [{ id: 'review', text: 'Review pending approval', status: 'awaiting_approval', kind: 'verification' }],
   });
-  const render = (busy, toolApproval = null, currentGoal = goal) => act(async () => {
-    root.render(React.createElement(SessionGoalIsland, {
-      snapshot: { sessionId: 'one', goal: currentGoal, busy, toolApproval },
-    }));
-  });
+  const render = (busy, toolApproval = null, currentGoal = goal) =>
+    act(async () => {
+      root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: { sessionId: 'one', goal: currentGoal, busy, toolApproval },
+        })
+      );
+    });
   const activity = () => host.querySelector('[role="img"]').getAttribute('aria-label');
   try {
     await render(false);
@@ -57,13 +64,19 @@ test('background shell execution stays visible without resuming a paused Goal', 
   document.body.append(host);
   const root = createRoot(host);
   const goal = Object.freeze({
-    id: 'shell-goal', status: 'paused', title: 'Background work', timeUsedMs: 12_000,
+    id: 'shell-goal',
+    status: 'paused',
+    title: 'Background work',
+    timeUsedMs: 12_000,
   });
-  const render = (shellJobs, toolApproval = null, currentGoal = goal) => act(async () => {
-    root.render(React.createElement(SessionGoalIsland, {
-      snapshot: { sessionId: 'shell-session', busy: false, goal: currentGoal, shellJobs, toolApproval },
-    }));
-  });
+  const render = (shellJobs, toolApproval = null, currentGoal = goal) =>
+    act(async () => {
+      root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: { sessionId: 'shell-session', busy: false, goal: currentGoal, shellJobs, toolApproval },
+        })
+      );
+    });
   const activity = () => host.querySelector('[role="img"]').getAttribute('aria-label');
   try {
     await render({ count: 1 });
@@ -85,8 +98,14 @@ test('background shell execution stays visible without resuming a paused Goal', 
 test('active child work remains visible while a separate approval is waiting', () => {
   assert.equal(goalDisplayStatus({ status: 'paused' }, { busy: false }, true), 'responding');
   assert.equal(goalDisplayStatus({ status: 'active' }, { busy: true, toolApproval: { id: 'approval' } }), 'paused');
-  assert.equal(goalDisplayStatus({ status: 'active' }, { busy: true, toolApproval: { id: 'approval' } }, true), 'active');
-  assert.equal(goalDisplayStatus({ status: 'paused' }, { busy: true, toolApproval: { id: 'approval' } }, true), 'responding');
+  assert.equal(
+    goalDisplayStatus({ status: 'active' }, { busy: true, toolApproval: { id: 'approval' } }, true),
+    'active'
+  );
+  assert.equal(
+    goalDisplayStatus({ status: 'paused' }, { busy: true, toolApproval: { id: 'approval' } }, true),
+    'responding'
+  );
 });
 
 test('Goal icon follows approval release and command execution through the live session lane', async () => {
@@ -96,9 +115,10 @@ test('Goal icon follows approval release and command execution through the live 
   const sessionId = 'goal-icon-sync';
   const goal = Object.freeze({ id: 'sync-goal', status: 'paused', timeUsedMs: 12_000 });
   const base = { sessionId, goal, busy: true, commandBusy: false };
-  const publish = (execution) => act(async () => {
-    defaultSessionLaneStore.apply({ sessionId, snapshot: { ...base, ...execution } });
-  });
+  const publish = (execution) =>
+    act(async () => {
+      defaultSessionLaneStore.apply({ sessionId, snapshot: { ...base, ...execution } });
+    });
   const activity = () => host.querySelector('[role="img"]').getAttribute('aria-label');
   try {
     await publish({ toolApproval: { id: 'approval', name: 'apply_patch' } });

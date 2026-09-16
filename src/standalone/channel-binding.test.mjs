@@ -29,7 +29,10 @@ for (const code of ['EACCES', 'EBUSY', 'EIO']) {
       return originalRead(target, ...args);
     });
     syncBuiltinESMExports();
-    assert.throws(() => readRemoteIntent(path), (error) => error === failure);
+    assert.throws(
+      () => readRemoteIntent(path),
+      (error) => error === failure
+    );
     assert.equal(originalRead(path, 'utf8'), value);
   });
 }

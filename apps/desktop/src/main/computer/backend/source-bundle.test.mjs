@@ -16,14 +16,25 @@ test('desktop and harness bundles carry the complete native program without sour
   try {
     const esbuildOutput = join(directory, 'esbuild.mjs');
     await esbuild({
-      entryPoints: [entry], outfile: esbuildOutput, bundle: true, platform: 'node', format: 'esm',
-      external: ['electron'], plugins: [computerSourceEsbuildPlugin()], logLevel: 'silent',
+      entryPoints: [entry],
+      outfile: esbuildOutput,
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      external: ['electron'],
+      plugins: [computerSourceEsbuildPlugin()],
+      logLevel: 'silent',
     });
     const viteOutput = join(directory, 'vite.mjs');
     await viteBuild({
-      configFile: false, plugins: [computerSourceVitePlugin()], logLevel: 'silent',
+      configFile: false,
+      plugins: [computerSourceVitePlugin()],
+      logLevel: 'silent',
       build: {
-        ssr: entry, outDir: dirname(viteOutput), emptyOutDir: false, minify: false,
+        ssr: entry,
+        outDir: dirname(viteOutput),
+        emptyOutDir: false,
+        minify: false,
         rollupOptions: { external: ['electron'], output: { format: 'es', entryFileNames: 'vite.mjs' } },
       },
     });

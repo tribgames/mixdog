@@ -21,13 +21,18 @@ export async function readProjectPreferences(root: string): Promise<DesktopProje
       throw new Error('Desktop project preferences could not be loaded.');
     }
   }
-  const strings = (value: unknown): string[] => (Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === 'string' && Boolean(entry)).slice(0, MAX_PATH_ENTRIES)
-    : []);
-  const aliases = parsed.aliases && typeof parsed.aliases === 'object'
-    ? Object.fromEntries(Object.entries(parsed.aliases).filter(([path, alias]) =>
-      Boolean(path) && typeof alias === 'string' && alias.length <= MAX_ALIAS_LENGTH).slice(0, MAX_ALIASES))
-    : {};
+  const strings = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((entry): entry is string => typeof entry === 'string' && Boolean(entry)).slice(0, MAX_PATH_ENTRIES)
+      : [];
+  const aliases =
+    parsed.aliases && typeof parsed.aliases === 'object'
+      ? Object.fromEntries(
+          Object.entries(parsed.aliases)
+            .filter(([path, alias]) => Boolean(path) && typeof alias === 'string' && alias.length <= MAX_ALIAS_LENGTH)
+            .slice(0, MAX_ALIASES)
+        )
+      : {};
   return {
     version: 2,
     aliases,
@@ -36,14 +41,10 @@ export async function readProjectPreferences(root: string): Promise<DesktopProje
 }
 
 /** Publish the preferences owner-only. */
-export async function writeProjectPreferences(
-  root: string,
-  preferences: DesktopProjectPreferences,
-): Promise<void> {
+export async function writeProjectPreferences(root: string, preferences: DesktopProjectPreferences): Promise<void> {
   await mkdir(root, { recursive: true });
-  await writeFile(
-    join(root, FILE_NAME),
-    `${JSON.stringify(preferences, null, 2)}\n`,
-    { encoding: 'utf8', mode: 0o600 },
-  );
+  await writeFile(join(root, FILE_NAME), `${JSON.stringify(preferences, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
 }

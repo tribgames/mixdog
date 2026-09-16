@@ -5,8 +5,12 @@ export const BROWSER_INPUT_BUSY = 'Browser input is busy; input was not sent.';
 
 /** Typing is ordered text editing, not expendable pointer motion. */
 export function browserTypingInput(action: { type: string }): boolean {
-  return action.type === 'text' || action.type === 'key'
-    || action.type === 'composition' || action.type === 'composition-end';
+  return (
+    action.type === 'text' ||
+    action.type === 'key' ||
+    action.type === 'composition' ||
+    action.type === 'composition-end'
+  );
 }
 
 /** Session-owned tab controls can escape a blocked page without editing it. */
@@ -21,6 +25,10 @@ export function browserInputRecovery(action: { type: string }): boolean {
 
 /** Pane geometry is native presentation state, not an edit to the document. */
 export function browserInputImmediate(action: { type: string }): boolean {
-  return browserInputRecovery(action) || action.type === 'resize'
-    || action.type === 'answer-dialog' || action.type === 'choose-files';
+  return (
+    browserInputRecovery(action) ||
+    action.type === 'resize' ||
+    action.type === 'answer-dialog' ||
+    action.type === 'choose-files'
+  );
 }

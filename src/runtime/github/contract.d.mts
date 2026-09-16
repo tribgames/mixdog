@@ -1,12 +1,38 @@
 export type GithubAction =
-  | 'repo.list' | 'repo.view' | 'repo.create' | 'repo.clone' | 'repo.fork'
-  | 'issue.list' | 'issue.view' | 'issue.comments' | 'issue.create' | 'issue.edit'
-  | 'issue.close' | 'issue.reopen' | 'issue.comment'
-  | 'pr.list' | 'pr.view' | 'pr.create' | 'pr.checkout' | 'pr.merge'
-  | 'pr.review' | 'pr.comment' | 'pr.comments'
-  | 'workflow.list' | 'workflow.run' | 'run.list' | 'run.view' | 'run.logs' | 'run.rerun' | 'run.cancel'
-  | 'release.list' | 'release.view' | 'release.create' | 'release.edit'
-  | 'notification.list' | 'notification.read';
+  | 'repo.list'
+  | 'repo.view'
+  | 'repo.create'
+  | 'repo.clone'
+  | 'repo.fork'
+  | 'issue.list'
+  | 'issue.view'
+  | 'issue.comments'
+  | 'issue.create'
+  | 'issue.edit'
+  | 'issue.close'
+  | 'issue.reopen'
+  | 'issue.comment'
+  | 'pr.list'
+  | 'pr.view'
+  | 'pr.create'
+  | 'pr.checkout'
+  | 'pr.merge'
+  | 'pr.review'
+  | 'pr.comment'
+  | 'pr.comments'
+  | 'workflow.list'
+  | 'workflow.run'
+  | 'run.list'
+  | 'run.view'
+  | 'run.logs'
+  | 'run.rerun'
+  | 'run.cancel'
+  | 'release.list'
+  | 'release.view'
+  | 'release.create'
+  | 'release.edit'
+  | 'notification.list'
+  | 'notification.read';
 export interface GithubRequest {
   action: GithubAction;
   repo?: string;
@@ -48,9 +74,17 @@ export interface GithubResult {
   page?: number;
   hasMore?: boolean;
 }
-export const GITHUB_ACTIONS: Readonly<Record<GithubAction, {
-  fields: string[]; write?: boolean; list?: boolean; collection?: string;
-}>>;
+export const GITHUB_ACTIONS: Readonly<
+  Record<
+    GithubAction,
+    {
+      fields: string[];
+      write?: boolean;
+      list?: boolean;
+      collection?: string;
+    }
+  >
+>;
 export function validateGithubRequest(input: unknown): GithubRequest;
 export function githubRequestMutates(input: unknown): boolean;
 export function githubRepository(value: unknown): string;

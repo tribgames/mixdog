@@ -72,7 +72,11 @@ export async function loadRuntimeModules() {
   // made summary-index rebuilds and per-save index rewrites stall boot for
   // seconds. Timer is unref'd and first fires after CLEANUP_INITIAL_DELAY_MS
   // (5min), so this adds zero boot-path cost.
-  try { mgr.startIdleCleanup?.(); } catch { /* cleanup is best-effort */ }
+  try {
+    mgr.startIdleCleanup?.();
+  } catch {
+    /* cleanup is best-effort */
+  }
   return {
     cfgMod,
     sharedCfgMod,

@@ -7,8 +7,11 @@ test('overlapping reconnect reads share one request and authoritative empty resu
   let calls = 0;
   const accepted = [];
   const requests = createProjectCatalogRequests(
-    () => { calls += 1; return gate.promise; },
-    (rows, acceptEmpty) => accepted.push({ rows, acceptEmpty }),
+    () => {
+      calls += 1;
+      return gate.promise;
+    },
+    (rows, acceptEmpty) => accepted.push({ rows, acceptEmpty })
   );
   const gap = requests.refresh({ acceptEmpty: false, coalesce: true });
   const reconnect = requests.refresh({ acceptEmpty: true, coalesce: true });
@@ -26,8 +29,8 @@ test('a mutation refresh supersedes an older read instead of reusing stale catal
   let calls = 0;
   const accepted = [];
   const requests = createProjectCatalogRequests(
-    () => ++calls === 1 ? old.promise : fresh.promise,
-    (rows) => accepted.push(rows),
+    () => (++calls === 1 ? old.promise : fresh.promise),
+    (rows) => accepted.push(rows)
   );
   const before = requests.refresh({ coalesce: true });
   await Promise.resolve();
@@ -37,7 +40,10 @@ test('a mutation refresh supersedes an older read instead of reusing stale catal
   old.resolve([{ path: 'old', name: 'Old', alias: null }]);
   await before;
   assert.equal(calls, 2);
-  assert.deepEqual(accepted.map((rows) => rows[0].path), ['new']);
+  assert.deepEqual(
+    accepted.map((rows) => rows[0].path),
+    ['new']
+  );
 });
 
 test('disconnect invalidates in-flight results and a failed read does not poison the next refresh', async () => {
@@ -45,8 +51,8 @@ test('disconnect invalidates in-flight results and a failed read does not poison
   let calls = 0;
   const accepted = [];
   const requests = createProjectCatalogRequests(
-    () => ++calls === 1 ? old.promise : Promise.resolve([]),
-    (rows) => accepted.push(rows),
+    () => (++calls === 1 ? old.promise : Promise.resolve([])),
+    (rows) => accepted.push(rows)
   );
   const pending = requests.refresh({ coalesce: true });
   await Promise.resolve();
@@ -57,8 +63,8 @@ test('disconnect invalidates in-flight results and a failed read does not poison
   await requests.refresh({ coalesce: true });
   assert.deepEqual(accepted, [[]]);
   const recovering = createProjectCatalogRequests(
-    () => calls++ === 2 ? Promise.reject(new Error('offline')) : Promise.resolve([]),
-    () => {},
+    () => (calls++ === 2 ? Promise.reject(new Error('offline')) : Promise.resolve([])),
+    () => {}
   );
   await assert.rejects(recovering.refresh({ coalesce: true }), /offline/);
   assert.deepEqual(await recovering.refresh({ coalesce: true }), []);

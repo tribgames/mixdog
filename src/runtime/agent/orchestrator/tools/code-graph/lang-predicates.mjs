@@ -1,6 +1,6 @@
 // Per-language lexical predicates + JS tokenizer character/keyword sets.
-// Pure functions, no state. Extracted verbatim from code-graph.mjs; shared
-// by the text masker, symbol index, and search/format layers.
+// Pure functions, no state. Shared by the text masker, symbol index, and
+// search/format layers.
 
 export function _langUsesDollarInIdentifiers(lang) {
   // `$` is a valid identifier char only in JS/TS/PHP. The 5 new langs are
@@ -30,8 +30,7 @@ export function _supportsHashComments(lang) {
   // swift/scala are slash-comment C-family (see _supportsSlashComments).
   // Second batch: elixir and r are `#`-only line-comment langs → included.
   // (dart/objc/zig are slash-comment, handled by _supportsSlashComments.)
-  return lang === 'python' || lang === 'ruby' || lang === 'php'
-    || lang === 'bash' || lang === 'elixir' || lang === 'r';
+  return lang === 'python' || lang === 'ruby' || lang === 'php' || lang === 'bash' || lang === 'elixir' || lang === 'r';
 }
 
 export function _supportsSlashComments(lang) {
@@ -40,23 +39,22 @@ export function _supportsSlashComments(lang) {
   // integer division, so it must not be treated as a comment opener).
   // Second batch: dart/objc/zig are C-family slash-comment (kept by the
   // default). Excluded here: elixir/r (hash-only, see _supportsHashComments).
-  return lang !== 'python' && lang !== 'ruby'
-    && lang !== 'bash' && lang !== 'lua'
-    && lang !== 'elixir' && lang !== 'r';
+  return lang !== 'python' && lang !== 'ruby' && lang !== 'bash' && lang !== 'lua' && lang !== 'elixir' && lang !== 'r';
 }
 
 export function _supportsSingleQuoteStrings(lang) {
-  return lang === 'typescript'
-    || lang === 'javascript'
-    || lang === 'python'
-    || lang === 'ruby'
-    || lang === 'php'
+  return (
+    lang === 'typescript' ||
+    lang === 'javascript' ||
+    lang === 'python' ||
+    lang === 'ruby' ||
+    lang === 'php' ||
     // New langs with single-quote string literals: swift uses double quotes
     // only (excluded); kotlin uses double/triple-double (excluded); scala
     // single-quotes are Char literals not strings (excluded); bash and lua
     // both support `'...'` single-quoted strings.
-    || lang === 'bash'
-    || lang === 'lua'
+    lang === 'bash' ||
+    lang === 'lua' ||
     // Second batch. dart: `'...'` is a primary string form → included. r:
     // `'...'` is a string literal equivalent to `"..."` → included. objc:
     // `'x'` is a char literal — INCLUDED here so its contents are masked as a
@@ -71,9 +69,10 @@ export function _supportsSingleQuoteStrings(lang) {
     // comment-less context). zig: EXCLUDED — `'c'` is a char literal only and
     // zig multiline strings are `\\`-prefixed lines (out of scope), so no
     // single-quote string form applies.
-    || lang === 'dart'
-    || lang === 'r'
-    || lang === 'objc';
+    lang === 'dart' ||
+    lang === 'r' ||
+    lang === 'objc'
+  );
 }
 
 export function _supportsBacktickStrings(lang) {
@@ -95,9 +94,14 @@ export function _supportsTripleDoubleQuoteStrings(lang) {
   // Second batch: elixir `"""` heredoc docstrings → included. dart supports
   // BOTH `'''` and `"""` multiline strings → included here (and in the triple-
   // single predicate). objc/zig/r have no `"""` form.
-  return lang === 'python' || lang === 'kotlin'
-    || lang === 'scala' || lang === 'swift' || lang === 'elixir'
-    || lang === 'dart';
+  return (
+    lang === 'python' ||
+    lang === 'kotlin' ||
+    lang === 'scala' ||
+    lang === 'swift' ||
+    lang === 'elixir' ||
+    lang === 'dart'
+  );
 }
 
 export function _isJsLike(lang) {
@@ -105,8 +109,7 @@ export function _isJsLike(lang) {
 }
 
 export function _isWordStartChar(c) {
-  return c === '_' || c === '$'
-    || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+  return c === '_' || c === '$' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
 export function _isWordChar(c) {
@@ -118,11 +121,42 @@ export function _isWordChar(c) {
 // number, `)`, `]`), `/` is the division operator. This list is from the
 // language spec — not a heuristic — and resolves the `/`-ambiguity.
 export const REGEX_PRECEDENT_KEYWORDS = new Set([
-  'return', 'typeof', 'delete', 'void', 'new', 'throw', 'await', 'yield',
-  'in', 'of', 'instanceof', 'case', 'do', 'else', 'if', 'while',
+  'return',
+  'typeof',
+  'delete',
+  'void',
+  'new',
+  'throw',
+  'await',
+  'yield',
+  'in',
+  'of',
+  'instanceof',
+  'case',
+  'do',
+  'else',
+  'if',
+  'while',
 ]);
 
 export const REGEX_PRECEDENT_CHARS = new Set([
-  '=', '(', ',', ';', ':', '?', '!', '~', '&', '|', '^', '+', '-',
-  '*', '%', '<', '>', '{', '[',
+  '=',
+  '(',
+  ',',
+  ';',
+  ':',
+  '?',
+  '!',
+  '~',
+  '&',
+  '|',
+  '^',
+  '+',
+  '-',
+  '*',
+  '%',
+  '<',
+  '>',
+  '{',
+  '[',
 ]);

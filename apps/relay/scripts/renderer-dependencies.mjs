@@ -23,11 +23,8 @@ export async function rendererDependencyFiles(inputs) {
     const text = await readFile(file, 'utf8');
     for (const dependency of ts.preProcessFile(text, true, true).importedFiles) {
       if (!dependency.fileName.startsWith('.')) continue;
-      const resolved = ts.resolveModuleName(
-        dependency.fileName, file, options, ts.sys, cache,
-      ).resolvedModule;
-      if (resolved && !resolved.isExternalLibraryImport
-        && !/[\\/]node_modules[\\/]/.test(resolved.resolvedFileName)) {
+      const resolved = ts.resolveModuleName(dependency.fileName, file, options, ts.sys, cache).resolvedModule;
+      if (resolved && !resolved.isExternalLibraryImport && !/[\\/]node_modules[\\/]/.test(resolved.resolvedFileName)) {
         files.add(resolve(resolved.resolvedFileName));
       }
     }

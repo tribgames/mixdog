@@ -71,10 +71,7 @@ test('a sibling session turn leaves a completed review revertable', async () => 
     assert.equal(review.snapshotKind, 'worktree');
     assert.equal(review.revertMode, 'worktree');
 
-    await assert.rejects(
-      revertTurnReviewFile(root, 'session-a', 'file.txt', 'prompt-b'),
-      /checkpoint changed/,
-    );
+    await assert.rejects(revertTurnReviewFile(root, 'session-a', 'file.txt', 'prompt-b'), /checkpoint changed/);
     assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\ntwo\n');
 
     await revertTurnReviewFile(root, 'session-a', 'file.txt', 'prompt-a');
@@ -92,12 +89,14 @@ test('overlapping live turns still fall back to exact apply_patch tracking', asy
     await beginTurnSnapshot(root, 'live-a');
     await beginTurnSnapshot(root, 'live-b');
     await writeFile(join(root, 'file.txt'), 'one\ntwo\n');
-    recordTurnDiffChanges('live-a', [{
-      path: join(root, 'file.txt'),
-      displayPath: 'file.txt',
-      before: 'one\n',
-      after: 'one\ntwo\n',
-    }]);
+    recordTurnDiffChanges('live-a', [
+      {
+        path: join(root, 'file.txt'),
+        displayPath: 'file.txt',
+        before: 'one\n',
+        after: 'one\ntwo\n',
+      },
+    ]);
 
     const review = await getTurnReviewDiff(root, 'live-a');
     assert.equal(review.snapshotKind, 'tool');
@@ -117,12 +116,14 @@ test('a worktree without a Git baseline keeps the tracked revert', async () => {
   try {
     await beginTurnSnapshot(root, 'session-c');
     await writeFile(join(root, 'note.txt'), 'after\n');
-    recordTurnDiffChanges('session-c', [{
-      path: join(root, 'note.txt'),
-      displayPath: 'note.txt',
-      before: null,
-      after: 'after\n',
-    }]);
+    recordTurnDiffChanges('session-c', [
+      {
+        path: join(root, 'note.txt'),
+        displayPath: 'note.txt',
+        before: null,
+        after: 'after\n',
+      },
+    ]);
     await completeTurnSnapshot('session-c');
 
     const review = await getTurnReviewDiff(root, 'session-c');
@@ -154,10 +155,7 @@ test('only the next outer prompt replaces the checkpoint', async () => {
     await writeFile(join(root, 'file.txt'), 'one\ntwo\nthree\n');
     assert.equal((await getTurnReviewDiff(root, 'follow-up')).checkpointId, 'prompt-2');
 
-    await assert.rejects(
-      revertTurnReview(root, 'follow-up', 'prompt-1'),
-      /checkpoint changed/,
-    );
+    await assert.rejects(revertTurnReview(root, 'follow-up', 'prompt-1'), /checkpoint changed/);
     await revertTurnReview(root, 'follow-up', 'prompt-2');
     assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\ntwo\n');
   } finally {
@@ -177,12 +175,14 @@ test('a completed review survives losing its in-memory tracker', async () => {
   try {
     await beginTurnSnapshot(root, 'restart-a', { checkpointId: 'prompt-restart' });
     await writeFile(join(root, 'file.txt'), 'one\ntwo\n');
-    recordTurnDiffChanges('restart-a', [{
-      path: join(root, 'file.txt'),
-      displayPath: 'file.txt',
-      before: 'one\n',
-      after: 'one\ntwo\n',
-    }]);
+    recordTurnDiffChanges('restart-a', [
+      {
+        path: join(root, 'file.txt'),
+        displayPath: 'file.txt',
+        before: 'one\n',
+        after: 'one\ntwo\n',
+      },
+    ]);
     await completeTurnSnapshot('restart-a');
 
     // Everything the runtime held about this turn is gone.
@@ -192,12 +192,12 @@ test('a completed review survives losing its in-memory tracker', async () => {
     assert.equal(review.snapshotKind, 'scoped');
     assert.equal(review.revertMode, 'scoped');
     assert.equal(review.checkpointId, 'prompt-restart');
-    assert.deepEqual(review.files.map((file) => file.path), ['file.txt']);
-
-    await assert.rejects(
-      revertTurnReview(root, 'restart-a', 'wrong-prompt'),
-      /checkpoint changed/,
+    assert.deepEqual(
+      review.files.map((file) => file.path),
+      ['file.txt']
     );
+
+    await assert.rejects(revertTurnReview(root, 'restart-a', 'wrong-prompt'), /checkpoint changed/);
     assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\ntwo\n');
 
     await revertTurnReview(root, 'restart-a', 'prompt-restart');
@@ -220,12 +220,14 @@ test('a shared worktree reverts only the session-owned paths', async () => {
     await beginTurnSnapshot(root, 'shared-b');
     await writeFile(join(root, 'file.txt'), 'one\ntwo\n');
     await writeFile(join(root, 'sibling.txt'), 'sibling\n');
-    recordTurnDiffChanges('shared-a', [{
-      path: join(root, 'file.txt'),
-      displayPath: 'file.txt',
-      before: 'one\n',
-      after: 'one\ntwo\n',
-    }]);
+    recordTurnDiffChanges('shared-a', [
+      {
+        path: join(root, 'file.txt'),
+        displayPath: 'file.txt',
+        before: 'one\n',
+        after: 'one\ntwo\n',
+      },
+    ]);
     await completeTurnSnapshot('shared-a');
     _resetTurnSnapshotForTest();
 
@@ -233,7 +235,10 @@ test('a shared worktree reverts only the session-owned paths', async () => {
     assert.equal(review.revertMode, 'scoped');
     // sibling.txt lives in the same baseline and is deliberately absent: it is
     // not this session's to review or to revert.
-    assert.deepEqual(review.files.map((file) => file.path), ['file.txt']);
+    assert.deepEqual(
+      review.files.map((file) => file.path),
+      ['file.txt']
+    );
 
     await revertTurnReview(root, 'shared-a');
     assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\n');
@@ -254,12 +259,14 @@ test('a session review accumulates every checkpoint change across turns without 
   try {
     await beginTurnSnapshot(root, 'cumulative');
     await writeFile(join(root, 'file.txt'), 'one\ntwo\n');
-    recordTurnDiffChanges('cumulative', [{
-      path: join(root, 'file.txt'),
-      displayPath: 'file.txt',
-      before: 'one\n',
-      after: 'one\ntwo\n',
-    }]);
+    recordTurnDiffChanges('cumulative', [
+      {
+        path: join(root, 'file.txt'),
+        displayPath: 'file.txt',
+        before: 'one\n',
+        after: 'one\ntwo\n',
+      },
+    ]);
     await completeTurnSnapshot('cumulative');
     // Changed BETWEEN turns by the user: no checkpoint observed it and no tool
     // wrote it, so the cumulative pane must not become Source Control.
@@ -267,31 +274,27 @@ test('a session review accumulates every checkpoint change across turns without 
 
     await beginTurnSnapshot(root, 'cumulative');
     await writeFile(join(root, 'second.txt'), 'session\n');
-    recordTurnDiffChanges('cumulative', [{
-      path: join(root, 'second.txt'),
-      displayPath: 'second.txt',
-      before: null,
-      after: 'session\n',
-    }]);
+    recordTurnDiffChanges('cumulative', [
+      {
+        path: join(root, 'second.txt'),
+        displayPath: 'second.txt',
+        before: null,
+        after: 'session\n',
+      },
+    ]);
     // Written by a shell command during the turn: the checkpoint diff is what
     // attributes it, exactly as the turn review bar counts it.
     await writeFile(join(root, 'shell.txt'), 'shell\n');
 
     const live = await getSessionReviewDiff(root, 'cumulative');
     assert.equal(live.snapshotKind, 'session');
-    assert.deepEqual(
-      live.files.map((file) => file.path).sort(),
-      ['file.txt', 'second.txt', 'shell.txt'],
-    );
+    assert.deepEqual(live.files.map((file) => file.path).sort(), ['file.txt', 'second.txt', 'shell.txt']);
     await completeTurnSnapshot('cumulative');
     _resetTurnSnapshotForTest();
 
     const resumed = await getSessionReviewDiff(root, 'cumulative');
     assert.equal(resumed.snapshotKind, 'session');
-    assert.deepEqual(
-      resumed.files.map((file) => file.path).sort(),
-      ['file.txt', 'second.txt', 'shell.txt'],
-    );
+    assert.deepEqual(resumed.files.map((file) => file.path).sort(), ['file.txt', 'second.txt', 'shell.txt']);
   } finally {
     _resetTurnSnapshotForTest();
     _setTurnSnapshotStoreRootForTest('');
@@ -311,19 +314,27 @@ test('a session whose cwd is a subdirectory still scopes its review to the repos
     await beginTurnSnapshot(cwd, 'nested', { checkpointId: 'prompt-nested' });
     await writeFile(join(cwd, 'page.txt'), 'nested\n');
     // The tool reports the path relative to the session cwd, not to the root.
-    recordTurnDiffChanges('nested', [{
-      path: join(cwd, 'page.txt'),
-      displayPath: 'page.txt',
-      before: null,
-      after: 'nested\n',
-    }]);
+    recordTurnDiffChanges('nested', [
+      {
+        path: join(cwd, 'page.txt'),
+        displayPath: 'page.txt',
+        before: null,
+        after: 'nested\n',
+      },
+    ]);
     const live = await getSessionReviewDiff(cwd, 'nested');
-    assert.deepEqual(live.files.map((file) => file.path), ['apps/web/page.txt']);
+    assert.deepEqual(
+      live.files.map((file) => file.path),
+      ['apps/web/page.txt']
+    );
     await completeTurnSnapshot('nested');
     _resetTurnSnapshotForTest();
 
     const resumed = await getSessionReviewDiff(cwd, 'nested');
-    assert.deepEqual(resumed.files.map((file) => file.path), ['apps/web/page.txt']);
+    assert.deepEqual(
+      resumed.files.map((file) => file.path),
+      ['apps/web/page.txt']
+    );
     // The recorded revert scope resolves the same file.
     const reverted = await revertTurnReviewFile(cwd, 'nested', 'apps/web/page.txt', 'prompt-nested');
     assert.equal(reverted.files.length, 0);

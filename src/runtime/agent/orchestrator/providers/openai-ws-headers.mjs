@@ -18,8 +18,10 @@ const _cfCookieJar = new Map(); // accountKey -> { name -> value }
 const _CF_COOKIE_ALLOWLIST = new Set(['__cf_bm', '_cfuvid']);
 
 export function _envOn(name) {
-    const v = String(process.env[name] || '').trim().toLowerCase();
-    return ['1', 'true', 'yes', 'on'].includes(v);
+  const v = String(process.env[name] || '')
+    .trim()
+    .toLowerCase();
+  return ['1', 'true', 'yes', 'on'].includes(v);
 }
 
 // Dashed handshake ids are derived deterministically from the cache key, so a
@@ -30,7 +32,7 @@ export function _envOn(name) {
 // replaces the list when an operator needs to pin exactly what a known-good
 // client build reports; unset keeps the default.
 export function _codexBetaFeatures() {
-    return process.env.MIXDOG_CODEX_BETA_FEATURES || 'remote_compaction_v2';
+  return process.env.MIXDOG_CODEX_BETA_FEATURES || 'remote_compaction_v2';
 }
 
 // --- Opt-in raw WS capture for wire byte-diff -------------------------------
@@ -41,119 +43,118 @@ export function _codexBetaFeatures() {
 // routing tokens) are
 // hashed, never written in clear. When the env is unset both helpers are
 // no-ops, so there is no default behavior change.
-const _WS_DUMP_SECRET_RE = /^(authorization|proxy-authorization|cookie|set-cookie|chatgpt-account-id|x-codex-turn-state|session_id|session-id|thread-id|x-codex-parent-thread-id|x-client-request-id|x-session-affinity)$/i;
+const _WS_DUMP_SECRET_RE =
+  /^(authorization|proxy-authorization|cookie|set-cookie|chatgpt-account-id|x-codex-turn-state|session_id|session-id|thread-id|x-codex-parent-thread-id|x-client-request-id|x-session-affinity)$/i;
 
 function _wsDumpDir() {
-    const dir = String(process.env.MIXDOG_OAI_WS_DUMP_DIR || '').trim();
-    return dir || null;
+  const dir = String(process.env.MIXDOG_OAI_WS_DUMP_DIR || '').trim();
+  return dir || null;
 }
 
 function _redactHeaderValue(key, value) {
-    const v = String(value ?? '');
-    if (_WS_DUMP_SECRET_RE.test(String(key))) {
-        if (!v) return '';
-        return `<redacted:sha256:${createHash('sha256').update(v).digest('hex').slice(0, 12)}:len${v.length}>`;
-    }
-    return v;
+  const v = String(value ?? '');
+  if (_WS_DUMP_SECRET_RE.test(String(key))) {
+    if (!v) return '';
+    return `<redacted:sha256:${createHash('sha256').update(v).digest('hex').slice(0, 12)}:len${v.length}>`;
+  }
+  return v;
 }
 
 function _redactDumpUrl(url) {
-    try {
-        const parsed = new URL(String(url));
-        for (const [key, value] of parsed.searchParams.entries()) {
-            if (_WS_DUMP_SECRET_RE.test(String(key))) {
-                parsed.searchParams.set(key, _redactHeaderValue(key, value));
-            }
-        }
-        return parsed.toString();
-    } catch {
-        return String(url || '');
+  try {
+    const parsed = new URL(String(url));
+    for (const [key, value] of parsed.searchParams.entries()) {
+      if (_WS_DUMP_SECRET_RE.test(String(key))) {
+        parsed.searchParams.set(key, _redactHeaderValue(key, value));
+      }
     }
+    return parsed.toString();
+  } catch {
+    return String(url || '');
+  }
 }
 
 export function _dumpHandshakeHeaders(url, headers) {
-    const dir = _wsDumpDir();
-    if (!dir) return;
-    try {
-        mkdirSync(dir, { recursive: true, mode: 0o700 });
-        const redacted = {};
-        for (const [k, v] of Object.entries(headers || {})) redacted[k] = _redactHeaderValue(k, v);
-        const rec = {
-            ts: new Date().toISOString(),
-            kind: 'ws_handshake',
-            url: _redactDumpUrl(url),
-            // Header order matters for the codex byte-diff; keep it explicit.
-            headerOrder: Object.keys(headers || {}),
-            headers: redacted,
-        };
-        const stamp = `${Date.now()}-${randomBytes(4).toString('hex')}`;
-        writeFileSync(
-            join(dir, `handshake-${stamp}.json`),
-            JSON.stringify(rec, null, 2),
-            { encoding: 'utf8', mode: 0o600 },
-        );
-    } catch {}
+  const dir = _wsDumpDir();
+  if (!dir) return;
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const redacted = {};
+    for (const [k, v] of Object.entries(headers || {})) redacted[k] = _redactHeaderValue(k, v);
+    const rec = {
+      ts: new Date().toISOString(),
+      kind: 'ws_handshake',
+      url: _redactDumpUrl(url),
+      // Header order matters for the codex byte-diff; keep it explicit.
+      headerOrder: Object.keys(headers || {}),
+      headers: redacted,
+    };
+    const stamp = `${Date.now()}-${randomBytes(4).toString('hex')}`;
+    writeFileSync(join(dir, `handshake-${stamp}.json`), JSON.stringify(rec, null, 2), {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+  } catch {}
 }
 
 export function _formatRedactedHeaders(headers, maxValueLength = 120) {
-    return Object.entries(headers || {})
-        .map(([key, value]) => {
-            const redacted = _redactHeaderValue(key, value);
-            return `${key}: ${redacted.slice(0, maxValueLength)}`;
-        })
-        .join(' | ');
+  return Object.entries(headers || {})
+    .map(([key, value]) => {
+      const redacted = _redactHeaderValue(key, value);
+      return `${key}: ${redacted.slice(0, maxValueLength)}`;
+    })
+    .join(' | ');
 }
 
 export function _dumpFrame(payload) {
-    const dir = _wsDumpDir();
-    if (!dir) return;
+  const dir = _wsDumpDir();
+  if (!dir) return;
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const stamp = `${Date.now()}-${randomBytes(4).toString('hex')}`;
+    // Persist the serialized response.create bytes for codex byte-diff,
+    // but never dump x-codex-turn-state in clear. That token is a
+    // per-turn credential-like routing secret; header dumps already hash
+    // it, so frame dumps must do the same when client_metadata carries it.
+    let out = payload;
     try {
-        mkdirSync(dir, { recursive: true, mode: 0o700 });
-        const stamp = `${Date.now()}-${randomBytes(4).toString('hex')}`;
-        // Persist the serialized response.create bytes for codex byte-diff,
-        // but never dump x-codex-turn-state in clear. That token is a
-        // per-turn credential-like routing secret; header dumps already hash
-        // it, so frame dumps must do the same when client_metadata carries it.
-        let out = payload;
-        try {
-            const frame = JSON.parse(String(payload));
-            const meta = frame?.client_metadata;
-            if (meta && typeof meta === 'object' && typeof meta['x-codex-turn-state'] === 'string') {
-                meta['x-codex-turn-state'] = _redactHeaderValue('x-codex-turn-state', meta['x-codex-turn-state']);
-                out = JSON.stringify(frame);
-            }
-        } catch {}
-        writeFileSync(
-            join(dir, `frame-${stamp}.json`),
-            out,
-            { encoding: 'utf8', mode: 0o600 },
-        );
+      const frame = JSON.parse(String(payload));
+      const meta = frame?.client_metadata;
+      if (meta && typeof meta === 'object' && typeof meta['x-codex-turn-state'] === 'string') {
+        meta['x-codex-turn-state'] = _redactHeaderValue('x-codex-turn-state', meta['x-codex-turn-state']);
+        out = JSON.stringify(frame);
+      }
     } catch {}
+    writeFileSync(join(dir, `frame-${stamp}.json`), out, { encoding: 'utf8', mode: 0o600 });
+  } catch {}
 }
 
 function _cfCookieAccountKey(auth) {
-    return String(auth?.account_id || auth?.apiKey || 'default');
+  return String(auth?.account_id || auth?.apiKey || 'default');
 }
 
 export function _cfCookieHeader(auth) {
-    if (!_envOn('MIXDOG_OAI_CF_COOKIES')) return null;
-    const jar = _cfCookieJar.get(_cfCookieAccountKey(auth));
-    if (!jar || !jar.size) return null;
-    return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+  if (!_envOn('MIXDOG_OAI_CF_COOKIES')) return null;
+  const jar = _cfCookieJar.get(_cfCookieAccountKey(auth));
+  if (!jar || !jar.size) return null;
+  return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
 export function _cfCookieCapture(auth, setCookieHeaders) {
-    if (!_envOn('MIXDOG_OAI_CF_COOKIES')) return;
-    const list = Array.isArray(setCookieHeaders) ? setCookieHeaders : (setCookieHeaders ? [setCookieHeaders] : []);
-    if (!list.length) return;
-    const key = _cfCookieAccountKey(auth);
-    let jar = _cfCookieJar.get(key);
-    if (!jar) { jar = new Map(); _cfCookieJar.set(key, jar); }
-    for (const raw of list) {
-        const pair = String(raw || '').split(';', 1)[0];
-        const eq = pair.indexOf('=');
-        if (eq <= 0) continue;
-        const name = pair.slice(0, eq).trim();
-        if (_CF_COOKIE_ALLOWLIST.has(name)) jar.set(name, pair.slice(eq + 1).trim());
-    }
+  if (!_envOn('MIXDOG_OAI_CF_COOKIES')) return;
+  const list = Array.isArray(setCookieHeaders) ? setCookieHeaders : setCookieHeaders ? [setCookieHeaders] : [];
+  if (!list.length) return;
+  const key = _cfCookieAccountKey(auth);
+  let jar = _cfCookieJar.get(key);
+  if (!jar) {
+    jar = new Map();
+    _cfCookieJar.set(key, jar);
+  }
+  for (const raw of list) {
+    const pair = String(raw || '').split(';', 1)[0];
+    const eq = pair.indexOf('=');
+    if (eq <= 0) continue;
+    const name = pair.slice(0, eq).trim();
+    if (_CF_COOKIE_ALLOWLIST.has(name)) jar.set(name, pair.slice(eq + 1).trim());
+  }
 }

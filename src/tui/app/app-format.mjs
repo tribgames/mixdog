@@ -1,8 +1,8 @@
 /**
  * app-format.mjs — pure formatting/labeling helpers for the App shell.
  *
- * Extracted verbatim from App.jsx. No React, no engine state — string/label
- * formatting, welcome hints, provider row labels, and small pure predicates.
+ * No React, no engine state — string/label formatting, welcome hints,
+ * provider row labels, and small pure predicates.
  */
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
@@ -17,8 +17,7 @@ import { promptHistoryKey } from '../prompt-history-store.mjs';
 // runtime (nativeWebSearchRoutes).
 export const WEB_SEARCH_DEFAULT_ROUTE = Object.freeze({ provider: 'default', model: 'default' });
 export const isWebSearchDefaultRoute = (route) =>
-  String(route?.provider || '').toLowerCase() === 'default'
-  && String(route?.model || '').toLowerCase() === 'default';
+  String(route?.provider || '').toLowerCase() === 'default' && String(route?.model || '').toLowerCase() === 'default';
 
 export function terminalSize(stdout) {
   // Match Ink's getWindowSize() semantics: rows or
@@ -56,21 +55,23 @@ function compactJson(value, max = 180) {
   } catch {
     text = String(value ?? '');
   }
-  text = String(text || '').replace(/\s+/g, ' ').trim();
+  text = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!text) return '';
   return stringWidth(text) > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text;
 }
 
 export function toolApprovalDescription(request = {}) {
   const surface = formatToolSurface(request.name, request.args);
-  const summary = surface?.summary ? `${surface.label || request.name} (${surface.summary})` : (surface?.label || request.name || 'tool');
+  const summary = surface?.summary
+    ? `${surface.label || request.name} (${surface.summary})`
+    : surface?.label || request.name || 'tool';
   const reason = clean(request.reason) || 'Hook requested approval.';
   const args = compactJson(request.args);
-  return [
-    summary ? `Tool: ${summary}` : '',
-    reason ? `Reason: ${reason}` : '',
-    args ? `Args: ${args}` : '',
-  ].filter(Boolean).join('\n');
+  return [summary ? `Tool: ${summary}` : '', reason ? `Reason: ${reason}` : '', args ? `Args: ${args}` : '']
+    .filter(Boolean)
+    .join('\n');
 }
 
 export function providerStatusLabel(provider = {}) {
@@ -106,9 +107,7 @@ export function formatSessionUpdatedAt(value) {
   const pad = (v) => String(v).padStart(2, '0');
   const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
   const day = `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-  return date.getFullYear() === now.getFullYear()
-    ? `${day} ${time}`
-    : `${date.getFullYear()}-${day} ${time}`;
+  return date.getFullYear() === now.getFullYear() ? `${day} ${time}` : `${date.getFullYear()}-${day} ${time}`;
 }
 
 export function formatSessionMessageCount(count) {
@@ -178,16 +177,17 @@ export function providerSetupHasUsableProvider(setup = {}) {
     ...(Array.isArray(setup.oauth) ? setup.oauth : []),
     ...(Array.isArray(setup.local) ? setup.local : []),
   ];
-  return rows.some((row) => row?.reauthRequired !== true && (
-    row?.usable === true
-    || (row?.usable == null && (
-      row?.authenticated === true
-      || row?.enabled === true
-      || row?.stored === true
-      || row?.env === true
-      || row?.detected === true
-    ))
-  ));
+  return rows.some(
+    (row) =>
+      row?.reauthRequired !== true &&
+      (row?.usable === true ||
+        (row?.usable == null &&
+          (row?.authenticated === true ||
+            row?.enabled === true ||
+            row?.stored === true ||
+            row?.env === true ||
+            row?.detected === true)))
+  );
 }
 
 // Async: listWorkflows is a remote call on a daemon-backed store, so the old
@@ -195,9 +195,7 @@ export function providerSetupHasUsableProvider(setup = {}) {
 export async function activeWorkflowSummaryForStore(store, workflow = {}) {
   try {
     const workflows = (await store.listWorkflows?.()) || [];
-    return workflows.find((item) => item.active)
-      || workflows.find((item) => item.id === workflow?.id)
-      || null;
+    return workflows.find((item) => item.active) || workflows.find((item) => item.id === workflow?.id) || null;
   } catch {
     return null;
   }

@@ -35,16 +35,13 @@ export const sessions = new Map();
 
 export const documentSessions = new Map();
 
-
 export function isInteractiveOfficeSession(session) {
   return ['attach', 'visible', 'live'].includes(String(session?.mode || ''));
 }
 
-
 export function isMicrosoftOfficeSession(session) {
   return session?.backend === 'microsoft-office-com';
 }
-
 
 export function documentSessionKey(path) {
   const canonical = resolve(path);
@@ -57,10 +54,7 @@ export function officeSessionId() {
 
 /** Shared design-review counters. PDF/tabular creates omit slidePlans because
  *  those formats never carry a deck plan; every other session keeps the field. */
-export function emptyOfficeDesignState({
-  requiresVisualReview = false,
-  includeSlidePlans = true,
-} = {}) {
+export function emptyOfficeDesignState({ requiresVisualReview = false, includeSlidePlans = true } = {}) {
   return {
     renderedVersion: null,
     semanticCount: 0,
@@ -86,20 +80,24 @@ export function microsoftOfficeOpenFields(opened) {
 /** Bind or refresh the session design exactly once per call. Open/create only
  *  merge a preset; later calls may upgrade the library and keep a native
  *  document native instead of applying a profile it never asked for. */
-export async function ensureOfficeSessionDesign(session, args, dataDir, {
-  created = session.created === true,
-  allowLibraryUpgrade = false,
-  preserveNativeDesign = false,
-} = {}) {
+export async function ensureOfficeSessionDesign(
+  session,
+  args,
+  dataDir,
+  { created = session.created === true, allowLibraryUpgrade = false, preserveNativeDesign = false } = {}
+) {
   if (!session.design) {
-    Object.assign(session, await resolveOfficeDesignContext({
-      args,
-      dataDir,
-      target: session.target,
-      source: session.source,
-      format: session.format,
-      created,
-    }));
+    Object.assign(
+      session,
+      await resolveOfficeDesignContext({
+        args,
+        dataDir,
+        target: session.target,
+        source: session.source,
+        format: session.format,
+        created,
+      })
+    );
     session.designState = emptyOfficeDesignState();
     return session;
   }
@@ -122,14 +120,14 @@ export async function ensureOfficeSessionDesign(session, args, dataDir, {
   // for a preset. Resolving it as one used to hand a Word or Excel file the
   // default profile's palette and art direction it never asked for, and put
   // the preset review's gates in front of finalize.
-  session.design = preserveNativeDesign
-    && session.design?.authoring === 'native'
-    && usesNativeOfficeDesign(session.format, session.designRequest)
-    ? nativeOfficeDesign(session.format, session.designRequest)
-    : resolveOfficeDesign(session.format, session.designRequest, { library: session.designLibrary });
+  session.design =
+    preserveNativeDesign &&
+    session.design?.authoring === 'native' &&
+    usesNativeOfficeDesign(session.format, session.designRequest)
+      ? nativeOfficeDesign(session.format, session.designRequest)
+      : resolveOfficeDesign(session.format, session.designRequest, { library: session.designLibrary });
   return session;
 }
-
 
 export function mergeOfficeDesignRequest(current, next) {
   const left = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
@@ -138,19 +136,13 @@ export function mergeOfficeDesignRequest(current, next) {
     ...left,
     ...right,
     ...(left.palette || right.palette ? { palette: { ...(left.palette || {}), ...(right.palette || {}) } } : {}),
-    ...(left.typography || right.typography ? { typography: { ...(left.typography || {}), ...(right.typography || {}) } } : {}),
+    ...(left.typography || right.typography
+      ? { typography: { ...(left.typography || {}), ...(right.typography || {}) } }
+      : {}),
   };
 }
 
-
-export async function resolveOfficeDesignContext({
-  args,
-  dataDir,
-  target,
-  source = '',
-  format,
-  created,
-}) {
+export async function resolveOfficeDesignContext({ args, dataDir, target, source = '', format, created }) {
   const designRequest = args.design || (created ? {} : { source: 'existing-document', review: format === 'pptx' });
   if (usesNativeOfficeDesign(format, designRequest, args.operations || [])) {
     return {
@@ -175,7 +167,6 @@ export async function resolveOfficeDesignContext({
   };
 }
 
-
 export async function registerOfficeSession(session) {
   try {
     await persistOfficeDesignBinding(session.dataDir, session.target, session.designLibrary?.binding);
@@ -189,7 +180,6 @@ export async function registerOfficeSession(session) {
   return session;
 }
 
-
 export class OfficeConflictError extends Error {
   constructor(details) {
     super('Office transaction conflict: the document changed outside this transaction');
@@ -197,16 +187,12 @@ export class OfficeConflictError extends Error {
   }
 }
 
-
-
-
 // Results are read by a model, not by eye: indentation adds about a third to
 // every audit, snapshot, and review a session returns, and buys the reader
 // nothing that the structure does not already carry.
 export function serializedToolValue(value) {
   return JSON.stringify(value);
 }
-
 
 export function toolResult(value, isError = false, images = []) {
   return {
@@ -225,23 +211,22 @@ export function toolResult(value, isError = false, images = []) {
   };
 }
 
-
 function officeArtifact(format, fileKind, path, operation) {
   return {
-    type: format === 'xlsx' || TABULAR_FORMATS.has(format)
-      ? 'spreadsheet'
-      : format === 'pptx'
-        ? 'presentation'
-        : format === 'pdf'
-          ? 'pdf'
-          : 'document',
+    type:
+      format === 'xlsx' || TABULAR_FORMATS.has(format)
+        ? 'spreadsheet'
+        : format === 'pptx'
+          ? 'presentation'
+          : format === 'pdf'
+            ? 'pdf'
+            : 'document',
     format,
     fileKind,
     operation,
     path,
   };
 }
-
 
 // What a caller needs back is the design in force: its profile, tokens, the
 // selected direction, and any warning. The catalogue it was chosen from — every
@@ -262,11 +247,7 @@ export function officeDesignDigest(design) {
   return digest;
 }
 
-export function finalizeOfficeResult(value, {
-  action,
-  session = null,
-  startedAt = 0,
-} = {}) {
+export function finalizeOfficeResult(value, { action, session = null, startedAt = 0 } = {}) {
   if (!value || typeof value !== 'object') return value;
   if (value.design) value.design = officeDesignDigest(value.design);
   if (value.batch?.design) value.batch = { ...value.batch, design: officeDesignDigest(value.batch.design) };
@@ -280,33 +261,36 @@ export function finalizeOfficeResult(value, {
     value.factsMode = 'sample';
     value.disclosure = FACTS_SAMPLE_DISCLOSURE;
   }
-  const operation = action === 'create' || (action === 'author' && value.output)
-    ? 'create'
-    : action === 'render'
-      ? 'render'
-      : ['batch', 'commit', 'rollback', 'save', 'secure', 'finalize'].includes(action)
-        ? 'edit'
-        : '';
-  const artifactPath = action === 'render'
-    ? value.output
-    : action === 'secure'
+  const operation =
+    action === 'create' || (action === 'author' && value.output)
+      ? 'create'
+      : action === 'render'
+        ? 'render'
+        : ['batch', 'commit', 'rollback', 'save', 'secure', 'finalize'].includes(action)
+          ? 'edit'
+          : '';
+  const artifactPath =
+    action === 'render'
       ? value.output
-      : operation && session
-        ? session.target
-        : '';
+      : action === 'secure'
+        ? value.output
+        : operation && session
+          ? session.target
+          : '';
   if (operation && artifactPath) {
-    value.artifacts = [officeArtifact(
-      session?.format || (action === 'secure' ? 'pdf' : ''),
-      session?.fileKind || (action === 'secure' ? 'pdf' : ''),
-      artifactPath,
-      operation,
-    )];
+    value.artifacts = [
+      officeArtifact(
+        session?.format || (action === 'secure' ? 'pdf' : ''),
+        session?.fileKind || (action === 'secure' ? 'pdf' : ''),
+        artifactPath,
+        operation
+      ),
+    ];
     value.outputCount = value.artifacts.length;
     value.expectedOutputCount = 1;
   }
   return value;
 }
-
 
 export function bounded(value, maxChars) {
   const text = serializedToolValue(value);
@@ -317,12 +301,13 @@ export function bounded(value, maxChars) {
     for (const [key, item] of Object.entries(document)) {
       if (item == null || ['string', 'number', 'boolean'].includes(typeof item)) summary[key] = item;
     }
-    if (document.pagination) summary.pagination = {
-      ...document.pagination,
-      nextCursor: null,
-      retryRequired: true,
-      retryWithLimit: Math.max(1, Math.floor(Number(document.pagination.limit || 2) / 2)),
-    };
+    if (document.pagination)
+      summary.pagination = {
+        ...document.pagination,
+        nextCursor: null,
+        retryRequired: true,
+        retryWithLimit: Math.max(1, Math.floor(Number(document.pagination.limit || 2) / 2)),
+      };
   }
   const metadata = Object.fromEntries(Object.entries(value || {}).filter(([key]) => key !== 'document'));
   return {
@@ -333,20 +318,26 @@ export function bounded(value, maxChars) {
   };
 }
 
-
 // The binary formats of Office 97-2003 are not packages: nothing here can
 // read them, and the fix is a conversion the user can do in one step.
 const LEGACY_BINARY_FORMATS = Object.freeze({
-  doc: 'docx', dot: 'dotx', xls: 'xlsx', xlt: 'xltx', ppt: 'pptx', pot: 'potx', pps: 'pptx',
+  doc: 'docx',
+  dot: 'dotx',
+  xls: 'xlsx',
+  xlt: 'xltx',
+  ppt: 'pptx',
+  pot: 'potx',
+  pps: 'pptx',
 });
 
 function unsupportedFormatError(kind) {
   const modern = LEGACY_BINARY_FORMATS[kind];
-  return new Error(modern
-    ? `Unsupported Office Use format: .${kind} is a legacy binary file, not an Office package. Open it in Microsoft Office (or LibreOffice) and save it as .${modern} first, then work on that file.`
-    : `Unsupported Office Use format: .${kind || '(none)'}`);
+  return new Error(
+    modern
+      ? `Unsupported Office Use format: .${kind} is a legacy binary file, not an Office package. Open it in Microsoft Office (or LibreOffice) and save it as .${modern} first, then work on that file.`
+      : `Unsupported Office Use format: .${kind || '(none)'}`
+  );
 }
-
 
 export function normalizeOfficeFormat(value) {
   const kind = String(value || '').toLowerCase();
@@ -355,18 +346,15 @@ export function normalizeOfficeFormat(value) {
   return format;
 }
 
-
 export function documentFileKind(path) {
   const kind = extname(path).slice(1).toLowerCase();
   if (!FILE_KIND_TO_FORMAT[kind]) throw unsupportedFormatError(kind);
   return kind;
 }
 
-
 export function documentFormat(path) {
   return normalizeOfficeFormat(documentFileKind(path));
 }
-
 
 export async function documentFingerprint(path, format) {
   const buffer = await readFile(path);
@@ -380,19 +368,21 @@ export async function documentFingerprint(path, format) {
     hash.update(name);
     hash.update('\0');
     const content = await zip.files[name].async('nodebuffer');
-    hash.update(name === 'xl/workbook.xml'
-      ? content.toString('utf8').replace(/\bdocumentId="[^"]*"/g, 'documentId=""')
-      : content);
+    hash.update(
+      name === 'xl/workbook.xml' ? content.toString('utf8').replace(/\bdocumentId="[^"]*"/g, 'documentId=""') : content
+    );
     hash.update('\0');
   }
   return hash.digest('hex');
 }
 
-
 export function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map((item) => stableJson(item)).join(',')}]`;
   if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(',')}}`;
   }
   return JSON.stringify(value);
 }

@@ -1,20 +1,16 @@
-import { FoldVertical, GitFork, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import type { DesktopModelSelection } from "../shared/contract";
-import { resolveContextDisplayUsage } from "./context-usage";
-import { type Snapshot, type TranscriptItem } from "./desktop-types";
-import { useHoverPopover } from "./hover-popover";
-import { t, uiFormatLocale } from "./i18n";
-import { uiCurrency } from "./ui-format";
-import { MxIcon } from "./MxIcon";
-import { showDesktopToast } from "./notifications";
-import { ProgressSpinner } from "./ProgressSpinner";
-import {
-  inheritancePreflight,
-  sessionModelSelection,
-  shouldOfferSessionInheritance,
-} from "./session-inheritance";
-import { asRecord, formatElapsed, publicThinkingSummary } from "./text-format";
+import { FoldVertical, GitFork, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import type { DesktopModelSelection } from '../shared/contract';
+import { resolveContextDisplayUsage } from './context-usage';
+import type { Snapshot, TranscriptItem } from './desktop-types';
+import { useHoverPopover } from './hover-popover';
+import { t, uiFormatLocale } from './i18n';
+import { uiCurrency } from './ui-format';
+import { MxIcon } from './MxIcon';
+import { showDesktopToast } from './notifications';
+import { ProgressSpinner } from './ProgressSpinner';
+import { inheritancePreflight, sessionModelSelection, shouldOfferSessionInheritance } from './session-inheritance';
+import { asRecord, formatElapsed, publicThinkingSummary } from './text-format';
 import {
   completionTone,
   formatTokenCount,
@@ -22,11 +18,11 @@ import {
   TERMINAL_AGENT_STATUS,
   TextShimmer,
   timeMs,
-} from "./transcript-primitives";
+} from './transcript-primitives';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
-import { SPINNER_MODE_OVERRIDE_VERBS, SPINNER_VERBS, spinnerVerbFor } from "../../../../src/tui/spinner-verbs.mjs";
+import { SPINNER_MODE_OVERRIDE_VERBS, SPINNER_VERBS, spinnerVerbFor } from '../../../../src/tui/spinner-verbs.mjs';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
-import { buildSpinnerMeta } from "../../../../src/tui/spinner-meta.mjs";
+import { buildSpinnerMeta } from '../../../../src/tui/spinner-meta.mjs';
 
 export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot; now?: number }) {
   const [clock, setClock] = useState(() => fixedNow ?? Date.now());
@@ -36,16 +32,16 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
   let untaggedRunningCount = 0;
   let oldestAgentStart = Infinity;
   workers.forEach((worker) => {
-    const tag = String(worker.tag || worker.agent || worker.name || "").trim();
-    if (TERMINAL_AGENT_STATUS.test(String(worker.stage || worker.status || ""))) return;
+    const tag = String(worker.tag || worker.agent || worker.name || '').trim();
+    if (TERMINAL_AGENT_STATUS.test(String(worker.stage || worker.status || ''))) return;
     if (tag) taggedRunningKeys.add(tag);
     else untaggedRunningCount += 1;
     const startedAt = timeMs(worker.startedAt || worker.startTime || worker.createdAt);
     if (startedAt > 0) oldestAgentStart = Math.min(oldestAgentStart, startedAt);
   });
   jobs.forEach((job) => {
-    if (!/running|pending|queued|starting/i.test(String(job.status || job.stage || ""))) return;
-    const tag = String(job.tag || job.agent || job.type || job.task_id || job.taskId || "").trim();
+    if (!/running|pending|queued|starting/i.test(String(job.status || job.stage || ''))) return;
+    const tag = String(job.tag || job.agent || job.type || job.task_id || job.taskId || '').trim();
     if (tag) taggedRunningKeys.add(tag);
     else untaggedRunningCount += 1;
     const startedAt = timeMs(job.startedAt);
@@ -57,7 +53,7 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
   const agentCount = Math.max(workerCount, Math.max(0, Number(tools.agent?.count) || 0));
   const shellCount = Math.max(
     Math.max(0, Number(snapshot.shellJobs?.count) || 0),
-    Math.max(0, Number(tools.shell?.count) || 0),
+    Math.max(0, Number(tools.shell?.count) || 0)
   );
   const active = agentCount > 0 || webSearchCount > 0 || shellCount > 0;
   useEffect(() => {
@@ -68,26 +64,48 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
   }, [active, fixedNow]);
   if (!active) return null;
   const total = agentCount + webSearchCount + shellCount;
-  const row = (key: string, label: string, elapsed: string) => <div className="live-work-row" key={key}>
-    <span>{label}</span>
-    <small>{elapsed}</small>
-  </div>;
-  return <div className="live-work-status" role="status" tabIndex={0}
-    aria-label={t("Background activity: {{count}} running", { count: total })}>
-    <ProgressSpinner className="live-work-spinner" size={16} aria-hidden="true" />
-    <span className="live-work-count">{total}</span>
-    <div className="live-work-popover" role="tooltip">
-      {agentCount > 0 && row("agents", `${agentCount === 1 ? t("Agent") : t("Agents")} ${agentCount}`,
-        Number.isFinite(oldestAgentStart)
-          ? formatWorkElapsed(clock - oldestAgentStart)
-          : tools.agent?.startedAt ? formatWorkElapsed(clock - Number(tools.agent.startedAt)) : "")}
-      {webSearchCount > 0 && row("web_search", t("Web search"),
-        tools.web_search?.startedAt ? formatWorkElapsed(clock - Number(tools.web_search.startedAt)) : "")}
-      {shellCount > 0 && row("shells", `${t("Shell")} ${shellCount}`,
-        String(snapshot.shellJobs?.elapsedLabel || "")
-          || (tools.shell?.startedAt ? formatWorkElapsed(clock - Number(tools.shell.startedAt)) : ""))}
+  const row = (key: string, label: string, elapsed: string) => (
+    <div className="live-work-row" key={key}>
+      <span>{label}</span>
+      <small>{elapsed}</small>
     </div>
-  </div>;
+  );
+  return (
+    <div
+      className="live-work-status"
+      role="status"
+      tabIndex={0}
+      aria-label={t('Background activity: {{count}} running', { count: total })}
+    >
+      <ProgressSpinner className="live-work-spinner" size={16} aria-hidden="true" />
+      <span className="live-work-count">{total}</span>
+      <div className="live-work-popover" role="tooltip">
+        {agentCount > 0 &&
+          row(
+            'agents',
+            `${agentCount === 1 ? t('Agent') : t('Agents')} ${agentCount}`,
+            Number.isFinite(oldestAgentStart)
+              ? formatWorkElapsed(clock - oldestAgentStart)
+              : tools.agent?.startedAt
+                ? formatWorkElapsed(clock - Number(tools.agent.startedAt))
+                : ''
+          )}
+        {webSearchCount > 0 &&
+          row(
+            'web_search',
+            t('Web search'),
+            tools.web_search?.startedAt ? formatWorkElapsed(clock - Number(tools.web_search.startedAt)) : ''
+          )}
+        {shellCount > 0 &&
+          row(
+            'shells',
+            `${t('Shell')} ${shellCount}`,
+            String(snapshot.shellJobs?.elapsedLabel || '') ||
+              (tools.shell?.startedAt ? formatWorkElapsed(clock - Number(tools.shell.startedAt)) : '')
+          )}
+      </div>
+    </div>
+  );
 }
 
 const CONTEXT_USAGE_MEMORY_LIMIT = 64;
@@ -95,20 +113,21 @@ const rememberedContextUsage = new Map<string, ReturnType<typeof resolveContextD
 
 function contextMetrics(snapshot: Snapshot) {
   const usage = resolveContextDisplayUsage(snapshot);
-  const sessionId = String(snapshot.sessionId || "").trim();
+  const sessionId = String(snapshot.sessionId || '').trim();
   if (!sessionId) return usage;
-  const cacheKey = `${sessionId}:${snapshot.provider || ""}:${snapshot.model || ""}`;
+  const cacheKey = `${sessionId}:${snapshot.provider || ''}:${snapshot.model || ''}`;
   const stats = asRecord(snapshot.stats) ?? {};
-  const hasContextReading = Object.hasOwn(stats, "currentContextTokens")
-    || Object.hasOwn(stats, "currentEstimatedContextTokens")
-    || Object.hasOwn(stats, "currentContextSource");
+  const hasContextReading =
+    Object.hasOwn(stats, 'currentContextTokens') ||
+    Object.hasOwn(stats, 'currentEstimatedContextTokens') ||
+    Object.hasOwn(stats, 'currentContextSource');
   if (!hasContextReading) return rememberedContextUsage.get(cacheKey) ?? usage;
   if (usage.limit > 0) {
     rememberedContextUsage.delete(cacheKey);
     rememberedContextUsage.set(cacheKey, usage);
     while (rememberedContextUsage.size > CONTEXT_USAGE_MEMORY_LIMIT) {
       const oldest = rememberedContextUsage.keys().next().value;
-      if (typeof oldest !== "string") break;
+      if (typeof oldest !== 'string') break;
       rememberedContextUsage.delete(oldest);
     }
   }
@@ -117,7 +136,12 @@ function contextMetrics(snapshot: Snapshot) {
   return usage;
 }
 
-export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenChange, onInherit }: {
+export function ContextUsageIndicator({
+  snapshot,
+  open: controlledOpen,
+  onOpenChange,
+  onInherit,
+}: {
   snapshot: Snapshot;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -133,18 +157,15 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
   const popover = useHoverPopover({ open: controlledOpen, onOpenChange });
   const popoverOpen = popover.open;
   const context = contextMetrics(snapshot);
-  const descriptionId = `context-usage-${String(snapshot.sessionId || "session")}`;
-  const tone = !context ? ""
-    : (context.percent ?? 0) >= 90 ? "danger"
-      : (context.percent ?? 0) >= 70 ? "warning" : "";
+  const descriptionId = `context-usage-${String(snapshot.sessionId || 'session')}`;
+  const tone = !context ? '' : (context.percent ?? 0) >= 90 ? 'danger' : (context.percent ?? 0) >= 70 ? 'warning' : '';
   const [actionPending, setActionPending] = useState(false);
   const actionInFlight = useRef(false);
   const state = asRecord(snapshot);
-  const sessionId = String(state?.sessionId || "").trim();
+  const sessionId = String(state?.sessionId || '').trim();
   const actionBusy = actionPending || Boolean(state?.busy) || Boolean(state?.commandBusy);
   const inheritRoute = sessionModelSelection(snapshot);
-  const offerInheritance = Boolean(onInherit) && Boolean(inheritRoute)
-    && shouldOfferSessionInheritance(snapshot);
+  const offerInheritance = Boolean(onInherit) && Boolean(inheritRoute) && shouldOfferSessionInheritance(snapshot);
   // The one fact the card cannot act through is a transcript that no longer
   // fits — and THIS card's readings cannot answer that question: they belong to
   // the session's own route, while the carry lands on the selected one. The
@@ -158,23 +179,17 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
       const fit = await inheritancePreflight(sessionId, inheritRoute);
       if (fit?.known && !fit.fits) {
         if (!fit.willCompact) {
-          showDesktopToast(
-            t("This conversation no longer fits the model context. Run /compact first."),
-            "warn",
-          );
+          showDesktopToast(t('This conversation no longer fits the model context. Run /compact first.'), 'warn');
           return;
         }
         // The carry takes a summarization pass first. Say so: the handover is
         // about to take a while, and this session keeps its full transcript.
-        showDesktopToast(
-          t("This conversation is compacted for the new model before it carries over."),
-          "info",
-        );
+        showDesktopToast(t('This conversation is compacted for the new model before it carries over.'), 'info');
       }
       await onInherit(sessionId, inheritRoute);
       popover.close();
     } catch (reason) {
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), "error");
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
     } finally {
       actionInFlight.current = false;
       setActionPending(false);
@@ -185,71 +200,125 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
     actionInFlight.current = true;
     setActionPending(true);
     try {
-      await window.mixdogDesktop.invokeCapability({ capability: "compact", sessionId });
+      await window.mixdogDesktop.invokeCapability({ capability: 'compact', sessionId });
     } catch (reason) {
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), "error");
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
     } finally {
       actionInFlight.current = false;
       setActionPending(false);
     }
   };
-  return <div className="session-context-indicator" {...popover.hostProps}
-    data-active={context ? "true" : "false"}
-    {...(tone ? { "data-tone": tone } : {})}
-    data-open={popoverOpen ? "true" : "false"}>
-    <button type="button" {...popover.triggerProps}
-      aria-label={context ? t("Context usage") : t("Context unavailable")}
-      aria-expanded={popoverOpen}
-      aria-describedby={context ? descriptionId : undefined}
-      disabled={!context}>
-      <svg viewBox="0 0 20 20" aria-hidden="true">
-        <circle className="context-usage-track" cx="10" cy="10" r="8" />
-        <circle className="context-usage-value" cx="10" cy="10" r="8"
-          pathLength="100" strokeDasharray={`${context?.percent ?? 0} 100`} />
-      </svg>
-    </button>
-    {context && <div className="session-context-popover" id={descriptionId} role="tooltip">
-      <div className="context-popover-header">
-        <span>{t("Context")}</span>
-        <b>{context.percent == null ? "—" : `${context.percent}%`}</b>
-      </div>
-      <div><span>{t("Usage")}</span><b
-        title={context.used == null ? undefined : context.limit > 0
-          ? `${context.used.toLocaleString(uiFormatLocale())} / ${context.limit.toLocaleString(uiFormatLocale())}`
-          : context.used.toLocaleString(uiFormatLocale())}>{context.used == null ? "—" : context.limit > 0
-          ? `${formatTokenCount(context.used)} / ${formatTokenCount(context.limit)}`
-          : formatTokenCount(context.used)}</b></div>
-      {(() => {
-        const cost = Math.max(0, Number(asRecord(snapshot.stats)?.costUsd || 0));
-        return cost > 0
-          ? <div><span>{t("Cost")}</span><b>{uiCurrency(cost, cost >= 1 ? 2 : 3)}</b></div>
-          : null;
-      })()}
-      {/* One action at a time: a model switch offers inheritance;
+  return (
+    <div
+      className="session-context-indicator"
+      {...popover.hostProps}
+      data-active={context ? 'true' : 'false'}
+      {...(tone ? { 'data-tone': tone } : {})}
+      data-open={popoverOpen ? 'true' : 'false'}
+    >
+      <button
+        type="button"
+        {...popover.triggerProps}
+        aria-label={context ? t('Context usage') : t('Context unavailable')}
+        aria-expanded={popoverOpen}
+        aria-describedby={context ? descriptionId : undefined}
+        disabled={!context}
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <circle className="context-usage-track" cx="10" cy="10" r="8" />
+          <circle
+            className="context-usage-value"
+            cx="10"
+            cy="10"
+            r="8"
+            pathLength="100"
+            strokeDasharray={`${context?.percent ?? 0} 100`}
+          />
+        </svg>
+      </button>
+      {context && (
+        <div className="session-context-popover" id={descriptionId} role="tooltip">
+          <div className="context-popover-header">
+            <span>{t('Context')}</span>
+            <b>{context.percent == null ? '—' : `${context.percent}%`}</b>
+          </div>
+          <div>
+            <span>{t('Usage')}</span>
+            <b
+              title={
+                context.used == null
+                  ? undefined
+                  : context.limit > 0
+                    ? `${context.used.toLocaleString(uiFormatLocale())} / ${context.limit.toLocaleString(uiFormatLocale())}`
+                    : context.used.toLocaleString(uiFormatLocale())
+              }
+            >
+              {context.used == null
+                ? '—'
+                : context.limit > 0
+                  ? `${formatTokenCount(context.used)} / ${formatTokenCount(context.limit)}`
+                  : formatTokenCount(context.used)}
+            </b>
+          </div>
+          {(() => {
+            const cost = Math.max(0, Number(asRecord(snapshot.stats)?.costUsd || 0));
+            return cost > 0 ? (
+              <div>
+                <span>{t('Cost')}</span>
+                <b>{uiCurrency(cost, cost >= 1 ? 2 : 3)}</b>
+              </div>
+            ) : null;
+          })()}
+          {/* One action at a time: a model switch offers inheritance;
           a completed handover or matching model offers plain compaction. */}
-      {offerInheritance
-        ? <button type="button" className="context-action context-inherit"
-          disabled={actionBusy} onClick={() => { void inherit(); }}>
-          <GitFork size={14} aria-hidden="true" />
-          {t("Inherit session")}
-        </button>
-        : <button type="button" className="context-action context-compact" disabled={actionBusy}
-          onClick={() => { void compact(); }}>
-          <FoldVertical size={14} aria-hidden="true" />
-          {t("Compact context")}
-        </button>}
-    </div>}
-  </div>;
+          {offerInheritance ? (
+            <button
+              type="button"
+              className="context-action context-inherit"
+              disabled={actionBusy}
+              onClick={() => {
+                void inherit();
+              }}
+            >
+              <GitFork size={14} aria-hidden="true" />
+              {t('Inherit session')}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="context-action context-compact"
+              disabled={actionBusy}
+              onClick={() => {
+                void compact();
+              }}
+            >
+              <FoldVertical size={14} aria-hidden="true" />
+              {t('Compact context')}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const LOCALIZED_ACTIVITY_VERBS: string[] = [
-  "Thinking", "Pondering", "Musing", "Mulling",
-  "Ruminating", "Contemplating", "Considering", "Deliberating",
-  "Cogitating", "Inferring", "Ideating", "Envisioning",
+  'Thinking',
+  'Pondering',
+  'Musing',
+  'Mulling',
+  'Ruminating',
+  'Contemplating',
+  'Considering',
+  'Deliberating',
+  'Cogitating',
+  'Inferring',
+  'Ideating',
+  'Envisioning',
 ];
 
 function activityVerbPool(): string[] {
-  return t("Thinking") === "Thinking" ? (SPINNER_VERBS as string[]) : LOCALIZED_ACTIVITY_VERBS;
+  return t('Thinking') === 'Thinking' ? (SPINNER_VERBS as string[]) : LOCALIZED_ACTIVITY_VERBS;
 }
 
 export function LiveActivity({
@@ -282,9 +351,10 @@ export function LiveActivity({
     anchorRef.current = 0;
     return null;
   }
-  const mode = String(activity?.mode
-    || (snapshot.thinking ? "thinking" : optimisticActivity ? "requesting" : "responding"));
-  if (mode === "resuming") {
+  const mode = String(
+    activity?.mode || (snapshot.thinking ? 'thinking' : optimisticActivity ? 'requesting' : 'responding')
+  );
+  if (mode === 'resuming') {
     anchorRef.current = 0;
     return null;
   }
@@ -292,10 +362,11 @@ export function LiveActivity({
   if (!anchorRef.current || (startedAt > 0 && Math.abs(startedAt - anchorRef.current) > 5_000)) {
     anchorRef.current = startedAt || nowMs;
   }
-  const overrideVerb = String(SPINNER_MODE_OVERRIDE_VERBS[mode] || "");
-  const rawVerb = overrideVerb
-    || (mode === "reconnecting"
-      ? String(activity?.verb || "Working")
+  const overrideVerb = String(SPINNER_MODE_OVERRIDE_VERBS[mode] || '');
+  const rawVerb =
+    overrideVerb ||
+    (mode === 'reconnecting'
+      ? String(activity?.verb || 'Working')
       : String(spinnerVerbFor(anchorRef.current, nowMs, activityVerbPool())));
   const verb = t(rawVerb);
   if (pauseTurnRef.current !== startedAt) {
@@ -310,8 +381,7 @@ export function LiveActivity({
     pausedTotalRef.current += Math.max(0, nowMs - pauseStartRef.current);
     pauseStartRef.current = 0;
   }
-  const pausedMs = pausedTotalRef.current
-    + (pauseStartRef.current ? Math.max(0, nowMs - pauseStartRef.current) : 0);
+  const pausedMs = pausedTotalRef.current + (pauseStartRef.current ? Math.max(0, nowMs - pauseStartRef.current) : 0);
   const elapsedMs = startedAt ? Math.max(0, nowMs - startedAt - pausedMs) : 0;
   const elapsed = formatElapsed(elapsedMs);
   const outputTokens = Math.max(0, Number(activity?.outputTokens || activity?.tokens || 0));
@@ -322,82 +392,86 @@ export function LiveActivity({
     thinking: Boolean(activityRecord.thinking || snapshot.thinking),
     thinkingSince: Number(activityRecord.thinkingSegmentStartedAt || 0),
     thinkingMs: Number(activityRecord.thinkingAccumulatedMs || 0),
-    effort: String(snapshot.effort || ""),
+    effort: String(snapshot.effort || ''),
   });
-  const activityMeta = [
-    elapsed,
-    meta.showTokens ? meta.tokensText : "",
-    meta.thinkingText,
-  ].filter(Boolean).join(" · ");
+  const activityMeta = [elapsed, meta.showTokens ? meta.tokensText : '', meta.thinkingText].filter(Boolean).join(' · ');
   const reasoning = publicThinkingSummary(snapshot.thinking);
   const animateEnter = startedAt > 0 && startedAt >= mountedAt.current;
-  return <div className="live-activity" data-mode={mode}>
-    <div className="live-activity-status" role="status" aria-live="polite"
-      data-animate={animateEnter ? "true" : undefined}>
-      <span className="live-activity-icon" aria-hidden="true">
-        <svg className="live-activity-glyph" viewBox="0 0 12 12" aria-hidden="true">
-          <g className="live-activity-glyph-spin">
-            <path className="live-activity-glyph-ring" d="M6 .9 11.1 6 6 11.1.9 6Z" />
-            <path className="live-activity-glyph-core" d="M6 .9 11.1 6 6 11.1.9 6Z" />
-          </g>
-        </svg>
-      </span>
-      <TextShimmer text={verb} />
-      {activityMeta ? <span className="live-activity-meta">{activityMeta}</span> : null}
+  return (
+    <div className="live-activity" data-mode={mode}>
+      <div
+        className="live-activity-status"
+        role="status"
+        aria-live="polite"
+        data-animate={animateEnter ? 'true' : undefined}
+      >
+        <span className="live-activity-icon" aria-hidden="true">
+          <svg className="live-activity-glyph" viewBox="0 0 12 12" aria-hidden="true">
+            <g className="live-activity-glyph-spin">
+              <path className="live-activity-glyph-ring" d="M6 .9 11.1 6 6 11.1.9 6Z" />
+              <path className="live-activity-glyph-core" d="M6 .9 11.1 6 6 11.1.9 6Z" />
+            </g>
+          </svg>
+        </span>
+        <TextShimmer text={verb} />
+        {activityMeta ? <span className="live-activity-meta">{activityMeta}</span> : null}
+      </div>
+      {reasoning && (
+        <details className="thinking-disclosure">
+          <summary>{t('View reasoning')}</summary>
+          <pre data-scrollable>{reasoning}</pre>
+        </details>
+      )}
     </div>
-    {reasoning && <details className="thinking-disclosure">
-      <summary>{t("View reasoning")}</summary>
-      <pre data-scrollable>{reasoning}</pre>
-    </details>}
-  </div>;
+  );
 }
 
-export function CompletionStatus({
-  item,
-  animate = false,
-}: {
-  item: TranscriptItem;
-  animate?: boolean;
-}) {
+export function CompletionStatus({ item, animate = false }: { item: TranscriptItem; animate?: boolean }) {
   const tone = completionTone(item);
-  const label = String(item.label || item.status || "");
-  if (item.kind === "statusdone" && item.status === "inherited") {
-    return <div className="compaction-divider" role="status"
-      data-animate={animate ? "true" : undefined}>
-      <GitFork className="compaction-icon" size={16} aria-hidden="true" />
-      <span>{t("Session inherited")}</span>
-      <small>{t("Continuing with the previous context.")}</small>
-    </div>;
+  const label = String(item.label || item.status || '');
+  if (item.kind === 'statusdone' && item.status === 'inherited') {
+    return (
+      <div className="compaction-divider" role="status" data-animate={animate ? 'true' : undefined}>
+        <GitFork className="compaction-icon" size={16} aria-hidden="true" />
+        <span>{t('Session inherited')}</span>
+        <small>{t('Continuing with the previous context.')}</small>
+      </div>
+    );
   }
-  if (tone === "failed" || tone === "interrupted") {
+  if (tone === 'failed' || tone === 'interrupted') {
     const elapsed = formatElapsed(item.elapsedMs);
-    const fallback = tone === "failed"
-      ? t("Failed")
-      : elapsed ? t("Cancelled after {{elapsed}}", { elapsed }) : t("Cancelled");
-    const visible = tone === "failed" && !/^(done|complete|completed)$/i.test(label) ? label || fallback : fallback;
-    return <div className={`turn-status ${tone}`} role="status"
-      data-animate={animate ? "true" : undefined}>
-      <X className="turn-status-icon" size={16} aria-hidden="true" />
-      <span>{visible}</span>
-    </div>;
+    const fallback =
+      tone === 'failed' ? t('Failed') : elapsed ? t('Cancelled after {{elapsed}}', { elapsed }) : t('Cancelled');
+    const visible = tone === 'failed' && !/^(done|complete|completed)$/i.test(label) ? label || fallback : fallback;
+    return (
+      <div className={`turn-status ${tone}`} role="status" data-animate={animate ? 'true' : undefined}>
+        <X className="turn-status-icon" size={16} aria-hidden="true" />
+        <span>{visible}</span>
+      </div>
+    );
   }
-  if (tone === "compaction") {
-    return <div className="compaction-divider" role="status"
-      data-animate={animate ? "true" : undefined}>
-      <FoldVertical className="compaction-icon" size={16} aria-hidden="true" />
-      <span>{label || t("Conversation compacted")}</span>
-      {item.detail && <small>{item.detail}</small>}
-    </div>;
+  if (tone === 'compaction') {
+    return (
+      <div className="compaction-divider" role="status" data-animate={animate ? 'true' : undefined}>
+        <FoldVertical className="compaction-icon" size={16} aria-hidden="true" />
+        <span>{label || t('Conversation compacted')}</span>
+        {item.detail && <small>{item.detail}</small>}
+      </div>
+    );
   }
   const elapsed = formatElapsed(item.elapsedMs);
-  const doneVerb = String(item.verb || item.label || "Thought").trim() || "Thought";
-  const completionLabel = item.kind === "turndone"
-    ? (elapsed ? t("{{verb}} for {{elapsed}}", { verb: t(doneVerb), elapsed }) : t(doneVerb))
-    : label || t("Complete");
-  return <div className="turn-status complete" role="status"
-    data-animate={animate ? "true" : undefined}>
-    <MxIcon name="check" className="turn-status-icon" size={16} />
-    <span>{completionLabel}</span>
-    {item.kind === "statusdone" && item.detail && <small>· {item.detail}</small>}
-  </div>;
+  const doneVerb = String(item.verb || item.label || 'Thought').trim() || 'Thought';
+  const completionLabel =
+    item.kind === 'turndone'
+      ? elapsed
+        ? t('{{verb}} for {{elapsed}}', { verb: t(doneVerb), elapsed })
+        : t(doneVerb)
+      : label || t('Complete');
+  return (
+    <div className="turn-status complete" role="status" data-animate={animate ? 'true' : undefined}>
+      <MxIcon name="check" className="turn-status-icon" size={16} />
+      <span>{completionLabel}</span>
+      {item.kind === 'statusdone' && item.detail && <small>· {item.detail}</small>}
+    </div>
+  );
 }

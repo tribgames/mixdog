@@ -1,20 +1,21 @@
 // Optional maintenance tool, NEVER invoked by sync, check, builds or the app.
 // Sends only missing English UI keys to Google's public translation endpoint.
 // Run explicitly with --write, then review the translations before committing.
-import { readFileSync, writeFileSync, renameSync } from "node:fs";
-import { setTimeout as delay } from "node:timers/promises";
-import { catalogState, localesUrl, rendererUrl, readJson, pluralVariants } from "./catalog-state.mjs";
-import { interpolationTokens, reusableTranslation } from "./source-keys.mjs";
+import { readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { setTimeout as delay } from 'node:timers/promises';
+import { catalogState, localesUrl, rendererUrl, readJson, pluralVariants } from './catalog-state.mjs';
+import { interpolationTokens, reusableTranslation } from './source-keys.mjs';
 
-if (process.argv[2] !== "--write" || process.argv.length !== 3) {
-  throw new Error("Usage: node scripts/i18n/translate-missing.mjs --write (sends missing UI keys to Google Translate)");
+if (process.argv[2] !== '--write' || process.argv.length !== 3) {
+  throw new Error('Usage: node scripts/i18n/translate-missing.mjs --write (sends missing UI keys to Google Translate)');
 }
 const cancellation = new AbortController();
-process.once("SIGINT", () => cancellation.abort(new Error("Translation cancelled")));
+process.once('SIGINT', () => cancellation.abort(new Error('Translation cancelled')));
 const signal = AbortSignal.any([cancellation.signal, AbortSignal.timeout(15 * 60_000)]);
 const { catalogs } = catalogState();
-const neutral = new Set(readJson(new URL("ui-untranslated-allowlist.json", rendererUrl)));
-const protectedLiteral = /\{\{[^}]+\}\}|--[a-z][\w-]*|\b(?:Mixdog|mixdog|GitHub|Git|OAuth|MCP|API|TUI|CLI|HEAD|Whisper|ffmpeg|soft|mixed|hard)\b/g;
+const neutral = new Set(readJson(new URL('ui-untranslated-allowlist.json', rendererUrl)));
+const protectedLiteral =
+  /\{\{[^}]+\}\}|--[a-z][\w-]*|\b(?:Mixdog|mixdog|GitHub|Git|OAuth|MCP|API|TUI|CLI|HEAD|Whisper|ffmpeg|soft|mixed|hard)\b/g;
 
 function protect(key, variant) {
   const literals = [];
@@ -28,13 +29,15 @@ function protect(key, variant) {
       if (variant) {
         let restoredCount = 0;
         text = text.replace(/__MXP\d+__|\d+(?:[.,\u00a0\u202f ]\d+)*/g, (token) => {
-          if (token.startsWith("__")) return token;
-          const number = Number(variant.count % 1
-            ? token.replace(",", ".").replace(/[\s\u00a0\u202f]/g, "")
-            : token.replace(/[.,\s\u00a0\u202f]/g, ""));
+          if (token.startsWith('__')) return token;
+          const number = Number(
+            variant.count % 1
+              ? token.replace(',', '.').replace(/[\s\u00a0\u202f]/g, '')
+              : token.replace(/[.,\s\u00a0\u202f]/g, '')
+          );
           if (number !== variant.count) return token;
           restoredCount += 1;
-          return "{{count}}";
+          return '{{count}}';
         });
         if (restoredCount !== 1) throw new Error(`Translation damaged the plural count: ${key}: ${text}`);
       }
@@ -42,9 +45,12 @@ function protect(key, variant) {
         const marker = `__MXP${index}__`;
         if (text.split(marker).length !== 2) throw new Error(`Translation damaged a protected literal: ${key}`);
       }
-      const restored = text.replace(/__MXP(\d+)__/g, (_, index) => literals[Number(index)] ?? "");
-      if (!restored.trim() || /__MXP/.test(restored)
-        || JSON.stringify(interpolationTokens(key)) !== JSON.stringify(interpolationTokens(restored))) {
+      const restored = text.replace(/__MXP(\d+)__/g, (_, index) => literals[Number(index)] ?? '');
+      if (
+        !restored.trim() ||
+        /__MXP/.test(restored) ||
+        JSON.stringify(interpolationTokens(key)) !== JSON.stringify(interpolationTokens(restored))
+      ) {
         throw new Error(`Invalid translation: ${key}`);
       }
       return restored.trim();
@@ -55,10 +61,12 @@ function protect(key, variant) {
 async function translate(language, entries) {
   const variants = pluralVariants(language);
   const prepared = entries.map(([key]) => protect(key, variants.get(key)));
-  const text = entries.length === 1 ? prepared[0].text
-    : prepared.map((entry, index) => `MXK${String(index).padStart(4, "0")}: ${entry.text}`).join("\n");
-  const url = new URL("https://translate.googleapis.com/translate_a/single");
-  for (const [key, value] of Object.entries({ client: "gtx", sl: "en", tl: language, dt: "t", q: text })) {
+  const text =
+    entries.length === 1
+      ? prepared[0].text
+      : prepared.map((entry, index) => `MXK${String(index).padStart(4, '0')}: ${entry.text}`).join('\n');
+  const url = new URL('https://translate.googleapis.com/translate_a/single');
+  for (const [key, value] of Object.entries({ client: 'gtx', sl: 'en', tl: language, dt: 't', q: text })) {
     url.searchParams.set(key, value);
   }
   let result;
@@ -78,8 +86,8 @@ async function translate(language, entries) {
       await delay(1000 * (attempt + 1), undefined, { signal });
     }
   }
-  const output = result?.[0]?.map((part) => part?.[0] || "").join("");
-  if (typeof output !== "string") throw new Error("Unexpected translation response");
+  const output = result?.[0]?.map((part) => part?.[0] || '').join('');
+  if (typeof output !== 'string') throw new Error('Unexpected translation response');
   if (entries.length === 1) return [[entries[0][0], prepared[0].restore(output)]];
   const matches = [...output.matchAll(/MXK(\d{4})\s*[:：]\s*([\s\S]*?)(?=MXK\d{4}\s*[:：]|$)/g)];
   if (matches.length !== entries.length || matches.some((match, index) => Number(match[1]) !== index)) {
@@ -87,7 +95,7 @@ async function translate(language, entries) {
     // batch once, as single phrases; protected-literal validation still applies.
     console.warn(`${language}: batch boundaries changed; translating ${entries.length} phrases individually.`);
     const translated = [];
-    for (const entry of entries) translated.push(...await translate(language, [entry]));
+    for (const entry of entries) translated.push(...(await translate(language, [entry])));
     return translated;
   }
   return matches.map((match, index) => [entries[index][0], prepared[index].restore(match[2])]);
@@ -95,21 +103,22 @@ async function translate(language, entries) {
 
 async function complete(language, catalog) {
   const file = new URL(`${language}.json`, localesUrl);
-  let previous = readFileSync(file, "utf8");
+  let previous = readFileSync(file, 'utf8');
   const missing = [];
   for (const [key, value] of Object.entries(catalog)) {
-    if (typeof value === "string" && value.trim()) continue;
+    if (typeof value === 'string' && value.trim()) continue;
     const reused = reusableTranslation(key, catalog);
     if (reused) catalog[key] = reused;
-    else if (neutral.has(key) || !/[A-Za-z]/.test(key.replace(/\{\{[^}]+\}\}/g, ""))) catalog[key] = key;
+    else if (neutral.has(key) || !/[A-Za-z]/.test(key.replace(/\{\{[^}]+\}\}/g, ''))) catalog[key] = key;
     else missing.push([key, value]);
   }
   const save = () => {
-    if (readFileSync(file, "utf8") !== previous) throw new Error(`${language}.json changed during translation; refusing to overwrite it.`);
+    if (readFileSync(file, 'utf8') !== previous)
+      throw new Error(`${language}.json changed during translation; refusing to overwrite it.`);
     const next = `${JSON.stringify(catalog, null, 2)}\n`;
     if (next === previous) return;
     const temporary = new URL(`${language}.${process.pid}.i18n-tmp`, localesUrl);
-    writeFileSync(temporary, next, { flag: "wx" });
+    writeFileSync(temporary, next, { flag: 'wx' });
     renameSync(temporary, file);
     previous = next;
   };
@@ -133,16 +142,19 @@ async function complete(language, catalog) {
 
 const pending = [...catalogs];
 let failure;
-await Promise.allSettled(Array.from({ length: 3 }, async () => {
-  while (pending.length && !signal.aborted) {
-    const [language, catalog] = pending.shift();
-    try { await complete(language, catalog); }
-    catch (error) {
-      failure ??= error;
-      cancellation.abort(new Error("Translation stopped; completed batches were retained."));
-      throw error;
+await Promise.allSettled(
+  Array.from({ length: 3 }, async () => {
+    while (pending.length && !signal.aborted) {
+      const [language, catalog] = pending.shift();
+      try {
+        await complete(language, catalog);
+      } catch (error) {
+        failure ??= error;
+        cancellation.abort(new Error('Translation stopped; completed batches were retained.'));
+        throw error;
+      }
     }
-  }
-}));
+  })
+);
 if (failure) throw failure;
-console.log("Translation complete. Review catalog changes, then run i18n:sync and i18n:check.");
+console.log('Translation complete. Review catalog changes, then run i18n:sync and i18n:check.');

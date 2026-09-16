@@ -2,7 +2,7 @@
 // items carry byte-free metadata only (snapshot hygiene); the composer
 // registers the data URL at submit time so the current window can render real
 // thumbnails. After a restart the chip falls back to an icon + filename.
-import { enforceRendererCacheBudget, registerBudgetedCache } from "./renderer-cache-budget";
+import { enforceRendererCacheBudget, registerBudgetedCache } from './renderer-cache-budget';
 
 const MAX_IMAGE_PREVIEW_CACHE = 24;
 export const IMAGE_PREVIEW_CACHE_MAX_CHARS = 32 * 1024 * 1024;
@@ -27,7 +27,7 @@ function trimPreviewsTo(targetChars: number): void {
 // task: these bytes cannot be rebuilt from what is on screen (dropping one
 // falls the chip back to an icon), so only real memory pressure may evict them.
 registerBudgetedCache({
-  name: "image-preview",
+  name: 'image-preview',
   chars: retainedPreviewChars,
   trim: trimPreviewsTo,
 });

@@ -1,10 +1,10 @@
-import { useState, useMemo } from "react";
-import type { DesktopSessionSummary } from "../shared/contract";
-import { sessionSummaryTitle } from "../shared/session-title.mjs";
-import { desktopUtilityDockTabEnabled } from "./desktop-feature-config";
-import { agentActivitySessionIds } from "./desktop-types";
-import { type NavigationSelection, type WorkspaceTab } from "./navigation";
-import { navigationKey } from "./text-format";
+import { useState, useMemo } from 'react';
+import type { DesktopSessionSummary } from '../shared/contract';
+import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { desktopUtilityDockTabEnabled } from './desktop-feature-config';
+import { agentActivitySessionIds } from './desktop-types';
+import type { NavigationSelection, WorkspaceTab } from './navigation';
+import { navigationKey } from './text-format';
 
 export interface AppSessionTitleProps {
   navigationSelection: NavigationSelection;
@@ -13,35 +13,35 @@ export interface AppSessionTitleProps {
   renameSession: (id: string, title: string) => Promise<unknown> | void;
 }
 
-export function useAppSessionTitle({
-  navigationSelection,
-  sessions,
-  tabs,
-  renameSession,
-}: AppSessionTitleProps) {
-  const [headerTitleEditingSessionId, setHeaderTitleEditingSessionId] = useState("");
-  const [headerTitleDraft, setHeaderTitleDraft] = useState("");
+export function useAppSessionTitle({ navigationSelection, sessions, tabs, renameSession }: AppSessionTitleProps) {
+  const [headerTitleEditingSessionId, setHeaderTitleEditingSessionId] = useState('');
+  const [headerTitleDraft, setHeaderTitleDraft] = useState('');
   const [headerTitleInvalid, setHeaderTitleInvalid] = useState(false);
 
-  const selectedSession = navigationSelection.kind === "session"
-    ? sessions.find((session) => session.id === navigationSelection.id)
-    : undefined;
+  const selectedSession =
+    navigationSelection.kind === 'session'
+      ? sessions.find((session) => session.id === navigationSelection.id)
+      : undefined;
 
-  const currentSessionTitle = selectedSession ? sessionSummaryTitle(selectedSession) : "";
+  const currentSessionTitle = selectedSession ? sessionSummaryTitle(selectedSession) : '';
 
-  const workingSessionIds = useMemo(() => new Set(
-    sessions
-      .filter((session) => session.leadWorking === true || session.agentWorking === true)
-      .map((session) => session.id),
-  ), [sessions]);
-
-  const observedAgentSessionIds = useMemo(
-    () => desktopUtilityDockTabEnabled("agents") ? agentActivitySessionIds(sessions) : [],
-    [sessions],
+  const workingSessionIds = useMemo(
+    () =>
+      new Set(
+        sessions
+          .filter((session) => session.leadWorking === true || session.agentWorking === true)
+          .map((session) => session.id)
+      ),
+    [sessions]
   );
 
-  const visibleSessionTitle = currentSessionTitle ||
-    tabs.find((tab) => tab.key === navigationKey(navigationSelection))?.title || "New task";
+  const observedAgentSessionIds = useMemo(
+    () => (desktopUtilityDockTabEnabled('agents') ? agentActivitySessionIds(sessions) : []),
+    [sessions]
+  );
+
+  const visibleSessionTitle =
+    currentSessionTitle || tabs.find((tab) => tab.key === navigationKey(navigationSelection))?.title || 'New task';
 
   const openHeaderTitleEditor = () => {
     if (!selectedSession) return;
@@ -51,8 +51,8 @@ export function useAppSessionTitle({
   };
 
   const closeHeaderTitleEditor = () => {
-    setHeaderTitleEditingSessionId("");
-    setHeaderTitleDraft("");
+    setHeaderTitleEditingSessionId('');
+    setHeaderTitleDraft('');
     setHeaderTitleInvalid(false);
   };
 
@@ -83,5 +83,3 @@ export function useAppSessionTitle({
     commitHeaderTitleEditor,
   };
 }
-
-

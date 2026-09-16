@@ -6,10 +6,7 @@ import {
   isFinalizedProviderRequestTools,
   providerNativeToolPrefixCount,
 } from './provider-request-tools.mjs';
-import {
-  MEASURED_TOOL_USAGE,
-  ROUTE_TOOL_ORDER,
-} from './tool-catalog-data.mjs';
+import { MEASURED_TOOL_USAGE, ROUTE_TOOL_ORDER } from './tool-catalog-data.mjs';
 
 const toolSchemaBreakdownMemo = new WeakMap();
 
@@ -19,19 +16,22 @@ function sameToolSchemaEntries(cached, tools) {
   for (let index = 0; index < tools.length; index += 1) {
     const entry = cached.entries[index];
     const tool = tools[index];
-    if (entry.tool !== tool
-      || entry.name !== tool?.name
-      || entry.description !== tool?.description
-      || entry.inputSchema !== tool?.inputSchema
-      || entry.input_schema !== tool?.input_schema
-      || entry.parameters !== tool?.parameters
-      || entry.schema !== tool?.schema
-      || entry.deferLoading !== tool?.deferLoading
-      || entry.defer_loading !== tool?.defer_loading
-      || entry.annotationsMixdogKind !== tool?.annotations?.mixdogKind
-      || entry.annotationsAgentHidden !== tool?.annotations?.agentHidden
-      || entry.native !== (index < nativePrefixCount)
-      || entry.wireSignature !== toolSchemaSignature(toolMeteringList(tool, index < nativePrefixCount))) return false;
+    if (
+      entry.tool !== tool ||
+      entry.name !== tool?.name ||
+      entry.description !== tool?.description ||
+      entry.inputSchema !== tool?.inputSchema ||
+      entry.input_schema !== tool?.input_schema ||
+      entry.parameters !== tool?.parameters ||
+      entry.schema !== tool?.schema ||
+      entry.deferLoading !== tool?.deferLoading ||
+      entry.defer_loading !== tool?.defer_loading ||
+      entry.annotationsMixdogKind !== tool?.annotations?.mixdogKind ||
+      entry.annotationsAgentHidden !== tool?.annotations?.agentHidden ||
+      entry.native !== index < nativePrefixCount ||
+      entry.wireSignature !== toolSchemaSignature(toolMeteringList(tool, index < nativePrefixCount))
+    )
+      return false;
   }
   return true;
 }
@@ -86,10 +86,7 @@ export function toolSchemaBucket(tool) {
 export function estimateToolSchemaBreakdown(tools) {
   if (Array.isArray(tools)) {
     const cached = toolSchemaBreakdownMemo.get(tools);
-    if (cached && (
-      isFinalizedProviderRequestTools(tools)
-      || sameToolSchemaEntries(cached, tools)
-    )) return cached.value;
+    if (cached && (isFinalizedProviderRequestTools(tools) || sameToolSchemaEntries(cached, tools))) return cached.value;
   }
   const out = {};
   const list = Array.isArray(tools) ? tools : [];
@@ -120,7 +117,8 @@ export function parseToolSelection(value) {
   if (value && typeof value !== 'string' && typeof value[Symbol.iterator] === 'function') {
     return [...value].map(clean).filter(Boolean);
   }
-  return String(value || '').replace(/^select\s*:/i, '')
+  return String(value || '')
+    .replace(/^select\s*:/i, '')
     .split(/[,\s]+/)
     .map(clean)
     .filter(Boolean);
@@ -155,8 +153,7 @@ export function activeToolForSurface(tool) {
 export function deferredProviderMode(provider) {
   const p = clean(provider).toLowerCase();
   if (p === 'gemini') return 'manifest';
-  if (p === 'anthropic' || p === 'anthropic-oauth'
-    || p === 'openai' || p === 'openai-oauth') {
+  if (p === 'anthropic' || p === 'anthropic-oauth' || p === 'openai' || p === 'openai-oauth') {
     return 'native';
   }
   // xAI/Grok and every other OpenAI-compatible backend have no native

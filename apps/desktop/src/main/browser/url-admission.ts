@@ -8,12 +8,7 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
-import {
-  assertResolvedAddressAllowed,
-  normalizeAgentUrl,
-  normalizePageUrl,
-  type BrowserUrlPolicy,
-} from './url-policy';
+import { assertResolvedAddressAllowed, normalizeAgentUrl, normalizePageUrl, type BrowserUrlPolicy } from './url-policy';
 
 export interface BrowserUrlAdmissionHost {
   /** The allow-list and private-network stance this host runs under. */
@@ -25,13 +20,13 @@ export interface BrowserUrlAdmissionHost {
 export function createBrowserUrlAdmission(host: BrowserUrlAdmissionHost) {
   const { policy: browserUrlPolicy } = host;
   const maxPendingResolutions = Math.max(1, host.maxPendingResolutions || 256);
-  const lookupAddresses = host.lookupAddresses
-    || ((hostname: string) => lookup(hostname, { all: true, verbatim: true }));
+  const lookupAddresses =
+    host.lookupAddresses || ((hostname: string) => lookup(hostname, { all: true, verbatim: true }));
   const pendingResolutions = new Map<string, Promise<void>>();
   async function assertResolvedUrlAllowed(url: string, pageGenerated = false): Promise<void> {
-    const parsed = new URL(pageGenerated
-      ? normalizePageUrl(url, browserUrlPolicy)
-      : normalizeAgentUrl(url, browserUrlPolicy));
+    const parsed = new URL(
+      pageGenerated ? normalizePageUrl(url, browserUrlPolicy) : normalizeAgentUrl(url, browserUrlPolicy)
+    );
     if (!parsed.hostname || parsed.hostname === 'localhost' || parsed.hostname.endsWith('.localhost')) return;
     const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
     if (isIP(hostname)) {
@@ -48,14 +43,10 @@ export function createBrowserUrlAdmission(host: BrowserUrlAdmissionHost) {
       try {
         addresses = await lookupAddresses(hostname);
       } catch {
-        throw new Error(
-          `navigation to ${hostname} could not be resolved for private-network validation`,
-        );
+        throw new Error(`navigation to ${hostname} could not be resolved for private-network validation`);
       }
       if (!addresses.length) {
-        throw new Error(
-          `navigation to ${hostname} returned no addresses for private-network validation`,
-        );
+        throw new Error(`navigation to ${hostname} returned no addresses for private-network validation`);
       }
       if (addresses.length > 64) {
         throw new Error(`navigation to ${hostname} returned too many resolved addresses`);

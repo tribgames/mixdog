@@ -8,12 +8,12 @@ import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
 
-const args = new Map(process.argv.slice(2).map((value) => {
-  const index = value.indexOf('=');
-  return index < 0
-    ? [value.replace(/^--/, ''), 'true']
-    : [value.slice(2, index), value.slice(index + 1)];
-}));
+const args = new Map(
+  process.argv.slice(2).map((value) => {
+    const index = value.indexOf('=');
+    return index < 0 ? [value.replace(/^--/, ''), 'true'] : [value.slice(2, index), value.slice(index + 1)];
+  })
+);
 const root = resolve(String(args.get('dir') || process.cwd()));
 const port = Number(args.get('port')) || 9357;
 const TYPES = {
@@ -53,7 +53,10 @@ const server = createServer((req, res) => {
       'Content-Range': `bytes ${start}-${end}/${info.size}`,
       'Accept-Ranges': 'bytes',
     });
-    if (req.method === 'HEAD') { res.end(); return; }
+    if (req.method === 'HEAD') {
+      res.end();
+      return;
+    }
     createReadStream(target, { start, end }).pipe(res);
     return;
   }
@@ -62,7 +65,10 @@ const server = createServer((req, res) => {
     'Content-Length': String(info.size),
     'Accept-Ranges': 'bytes',
   });
-  if (req.method === 'HEAD') { res.end(); return; }
+  if (req.method === 'HEAD') {
+    res.end();
+    return;
+  }
   createReadStream(target).pipe(res);
 });
 

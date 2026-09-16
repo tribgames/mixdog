@@ -9,13 +9,22 @@ export const MAX_COMPUTER_IMAGE_CHARS = 24 * 1024 * 1024;
 export const MAX_COMPUTER_FOREGROUND_TEXT_CHARS = 4_000;
 
 export function validateComputerReply(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)
-    || typeof value.text !== 'string' || value.text.length > MAX_COMPUTER_TEXT_CHARS) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    typeof value.text !== 'string' ||
+    value.text.length > MAX_COMPUTER_TEXT_CHARS
+  ) {
     throw new Error('computer bridge returned invalid or oversized text');
   }
-  if (value.image !== undefined && (!value.image || typeof value.image.data !== 'string'
-    || value.image.data.length > MAX_COMPUTER_IMAGE_CHARS
-    || !['image/jpeg', 'image/png'].includes(value.image.mimeType))) {
+  if (
+    value.image !== undefined &&
+    (!value.image ||
+      typeof value.image.data !== 'string' ||
+      value.image.data.length > MAX_COMPUTER_IMAGE_CHARS ||
+      !['image/jpeg', 'image/png'].includes(value.image.mimeType))
+  ) {
     throw new Error('computer bridge returned an invalid or oversized image');
   }
 }
@@ -41,7 +50,9 @@ export async function readComputerBridgeJson(response, maximum = MAX_COMPUTER_RE
       }
       chunks.push(result.value);
     }
-  } finally { reader.releaseLock(); }
+  } finally {
+    reader.releaseLock();
+  }
   return JSON.parse(Buffer.concat(chunks, bytes).toString('utf8'));
 }
 

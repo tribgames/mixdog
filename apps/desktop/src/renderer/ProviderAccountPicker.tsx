@@ -21,7 +21,8 @@ export function ProviderAccountPicker({ api, provider }: { api?: UsageApi; provi
       });
     };
     const dismiss = (event: PointerEvent) => {
-      if (!trigger.current?.contains(event.target as Node) && !menu.current?.contains(event.target as Node)) setOpen(false);
+      if (!trigger.current?.contains(event.target as Node) && !menu.current?.contains(event.target as Node))
+        setOpen(false);
     };
     place();
     const observer = new ResizeObserver(place);
@@ -36,15 +37,40 @@ export function ProviderAccountPicker({ api, provider }: { api?: UsageApi; provi
       window.removeEventListener('resize', place);
     };
   }, [open]);
-  return <span onKeyDown={(event) => {
-    if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); trigger.current?.focus(); }
-  }}>
-    <button ref={trigger} type="button" className="provider-account-picker-trigger"
-      aria-label={t('Select account for {{provider}}', { provider })} aria-expanded={open}
-      onClick={() => setOpen((value) => !value)}><MoreHorizontal size={16} aria-hidden="true" /></button>
-    {open && createPortal(<div ref={menu} className="provider-account-picker" style={position}
-      data-provider-account-overlay role="dialog" aria-label={t('Accounts and priority')}>
-      <ProviderAccountsList api={api} provider={provider} listOnly />
-    </div>, document.body)}
-  </span>;
+  return (
+    <span
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.stopPropagation();
+          setOpen(false);
+          trigger.current?.focus();
+        }
+      }}
+    >
+      <button
+        ref={trigger}
+        type="button"
+        className="provider-account-picker-trigger"
+        aria-label={t('Select account for {{provider}}', { provider })}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <MoreHorizontal size={16} aria-hidden="true" />
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={menu}
+            className="provider-account-picker"
+            style={position}
+            data-provider-account-overlay
+            role="dialog"
+            aria-label={t('Accounts and priority')}
+          >
+            <ProviderAccountsList api={api} provider={provider} listOnly />
+          </div>,
+          document.body
+        )}
+    </span>
+  );
 }

@@ -1,5 +1,12 @@
 import { Check, GripVertical, Pencil } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import type { DesktopCapability } from '../shared/contract';
 import { t } from './i18n';
 import { record } from './record-utils';
@@ -15,7 +22,10 @@ import './provider-accounts.css';
 
 export const PROVIDER_ACCOUNTS_CHANGED = 'mixdog:provider-accounts-changed';
 export type ProviderAccount = {
-  id: string; label: string; authenticated: boolean; reauthRequired: boolean;
+  id: string;
+  label: string;
+  authenticated: boolean;
+  reauthRequired: boolean;
   /** Provider-side identity (email / account id) when the token exposes one. */
   identity?: string;
   blockedUntil?: number;
@@ -35,22 +45,39 @@ type DragState = {
   id: string;
   from: number;
   to: number;
-  offset: number;      // pointer Y − row top at grab time
+  offset: number; // pointer Y − row top at grab time
   startY: number;
   rowHeight: number;
-  y: number;           // current pointer Y
+  y: number; // current pointer Y
   moved: boolean;
 };
 const DRAG_THRESHOLD_PX = 4;
 
-export function ProviderAccountsList({ api, provider, title, listOnly = false, renderActions, headerAction, onChange }: {
-  api?: UsageApi; provider: string; title?: string;
+export function ProviderAccountsList({
+  api,
+  provider,
+  title,
+  listOnly = false,
+  renderActions,
+  headerAction,
+  onChange,
+}: {
+  api?: UsageApi;
+  provider: string;
+  title?: string;
   listOnly?: boolean;
   renderActions?(account: ProviderAccount): ReactNode;
-  headerAction?: ReactNode; onChange?(): void;
+  headerAction?: ReactNode;
+  onChange?(): void;
 }) {
   const [pool, setPoolState] = useState<Pool | null>(() => lastPools.get(provider) ?? null);
-  const setPool = useCallback((next: Pool) => { lastPools.set(provider, next); setPoolState(next); }, [provider]);
+  const setPool = useCallback(
+    (next: Pool) => {
+      lastPools.set(provider, next);
+      setPoolState(next);
+    },
+    [provider]
+  );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
@@ -59,18 +86,24 @@ export function ProviderAccountsList({ api, provider, title, listOnly = false, r
   const listRef = useRef<HTMLOListElement>(null);
   const generation = useRef(0);
   const mutating = useRef(false);
-  const invoke = useCallback(async (capability: DesktopCapability, args: unknown[]) => {
-    if (!api?.invokeCapability) throw new Error(t('Account controls are unavailable.'));
-    const response = await api.invokeCapability({ capability, args });
-    const result = record(response.value);
-    if (!Array.isArray(result.accounts)) throw new Error(t('Account list could not be loaded.'));
-    return result as unknown as Pool;
-  }, [api]);
+  const invoke = useCallback(
+    async (capability: DesktopCapability, args: unknown[]) => {
+      if (!api?.invokeCapability) throw new Error(t('Account controls are unavailable.'));
+      const response = await api.invokeCapability({ capability, args });
+      const result = record(response.value);
+      if (!Array.isArray(result.accounts)) throw new Error(t('Account list could not be loaded.'));
+      return result as unknown as Pool;
+    },
+    [api]
+  );
   const load = useCallback(async () => {
     const stamp = ++generation.current;
     try {
       const result = await invoke('getProviderAccounts', [provider]);
-      if (generation.current === stamp) { setPool(result); setError(''); }
+      if (generation.current === stamp) {
+        setPool(result);
+        setError('');
+      }
     } catch (cause) {
       if (generation.current === stamp) setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -141,7 +174,8 @@ export function ProviderAccountsList({ api, provider, title, listOnly = false, r
   const paintLift = () => {
     frame.current = 0;
     const state = gesture.current;
-    if (state?.moved && liftedRow.current) liftedRow.current.style.transform = `translateY(${state.y - state.startY}px)`;
+    if (state?.moved && liftedRow.current)
+      liftedRow.current.style.transform = `translateY(${state.y - state.startY}px)`;
   };
   const beginDrag = (event: ReactPointerEvent<HTMLButtonElement>, index: number, id: string) => {
     if (pending || event.button !== 0 || !pool) return;
@@ -150,8 +184,16 @@ export function ProviderAccountsList({ api, provider, title, listOnly = false, r
     const rect = row.getBoundingClientRect();
     event.currentTarget.setPointerCapture(event.pointerId);
     liftedRow.current = row;
-    gesture.current = { id, from: index, to: index, offset: event.clientY - rect.top, startY: event.clientY,
-      rowHeight: rect.height, y: event.clientY, moved: false };
+    gesture.current = {
+      id,
+      from: index,
+      to: index,
+      offset: event.clientY - rect.top,
+      startY: event.clientY,
+      rowHeight: rect.height,
+      y: event.clientY,
+      moved: false,
+    };
   };
   const moveDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const state = gesture.current;
@@ -169,7 +211,10 @@ export function ProviderAccountsList({ api, provider, title, listOnly = false, r
     if (slotChanged) {
       // Paint the lift synchronously with the slot change so the row never
       // shows one frame in place while its neighbours already shifted.
-      if (frame.current) { cancelAnimationFrame(frame.current); frame.current = 0; }
+      if (frame.current) {
+        cancelAnimationFrame(frame.current);
+        frame.current = 0;
+      }
       if (liftedRow.current) liftedRow.current.style.transform = `translateY(${state.y - state.startY}px)`;
       setDrag({ ...state });
     } else if (typeof requestAnimationFrame !== 'function') {
@@ -179,7 +224,10 @@ export function ProviderAccountsList({ api, provider, title, listOnly = false, r
     }
   };
   const clearGesture = () => {
-    if (frame.current) { cancelAnimationFrame(frame.current); frame.current = 0; }
+    if (frame.current) {
+      cancelAnimationFrame(frame.current);
+      frame.current = 0;
+    }
     if (liftedRow.current) liftedRow.current.style.transform = '';
     liftedRow.current = null;
     gesture.current = null;
@@ -188,7 +236,11 @@ export function ProviderAccountsList({ api, provider, title, listOnly = false, r
   const endDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const state = gesture.current;
     if (!state) return;
-    try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* already released */ }
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      /* already released */
+    }
     const { from, to, moved } = state;
     clearGesture();
     if (moved) reorder(from, to);
@@ -197,111 +249,213 @@ export function ProviderAccountsList({ api, provider, title, listOnly = false, r
   const dragging = drag !== null;
   useEffect(() => {
     if (!dragging) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') clearGesture(); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') clearGesture();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [dragging]);
-  useEffect(() => () => { if (frame.current) cancelAnimationFrame(frame.current); }, []);
+  useEffect(
+    () => () => {
+      if (frame.current) cancelAnimationFrame(frame.current);
+    },
+    []
+  );
   // Displaced rows between the origin and target slot shift one row height.
   // The lifted row's own transform is written to the DOM by the gesture, so
   // React must NOT set `style.transform` on it — a value here would overwrite
   // the pointer-tracked one on every slot change.
   const rowStyle = (index: number): React.CSSProperties | undefined => {
     if (!drag?.moved || index === drag.from) return undefined;
-    if (drag.from < drag.to && index > drag.from && index <= drag.to) return { transform: `translateY(-${drag.rowHeight}px)` };
-    if (drag.from > drag.to && index >= drag.to && index < drag.from) return { transform: `translateY(${drag.rowHeight}px)` };
+    if (drag.from < drag.to && index > drag.from && index <= drag.to)
+      return { transform: `translateY(-${drag.rowHeight}px)` };
+    if (drag.from > drag.to && index >= drag.to && index < drag.from)
+      return { transform: `translateY(${drag.rowHeight}px)` };
     return undefined;
   };
 
-  return <section className={`provider-accounts ${listOnly ? 'is-list-only' : ''} ${drag?.moved ? 'is-dragging' : ''}`.trim()}
-    data-account-provider={provider}>
-    {title && <header className="provider-accounts-heading">
-      <span className="provider-accounts-icon"><ProviderIcon provider={provider} /></span>
-      <b>{t(title)}</b>
-      {pool && pool.accounts.length > 0 && <small>{t('{{count}} accounts', { count: pool.accounts.length })}</small>}
-      <span className="provider-accounts-heading-actions">
-        {!listOnly && pool && pool.accounts.length > 1 && <label className="provider-accounts-auto"
-          title={t('Move to the next account in this order when the current one is unavailable.')}>
-          <span>{t('Auto-switch')}</span>
-          <span className="mixdog-settings__switch compact-switch">
-            <input type="checkbox" aria-label={t('Switch accounts automatically')} checked={pool.auto} disabled={pending}
-              onChange={(event) => void change({ auto: event.target.checked })} /><span aria-hidden="true" />
+  return (
+    <section
+      className={`provider-accounts ${listOnly ? 'is-list-only' : ''} ${drag?.moved ? 'is-dragging' : ''}`.trim()}
+      data-account-provider={provider}
+    >
+      {title && (
+        <header className="provider-accounts-heading">
+          <span className="provider-accounts-icon">
+            <ProviderIcon provider={provider} />
           </span>
-        </label>}
-        {headerAction}
-      </span>
-    </header>}
-    {!pool && !error && <div className="provider-accounts-notice" role="status">{t('Loading…')}</div>}
-    {pool && !pool.accounts.length && <div className="provider-accounts-notice">{t('No connected accounts.')}</div>}
-    <ol className="provider-accounts-list" ref={listRef}>
-      {pool?.accounts.map((account, index) => {
-        const selected = pool.selectedId === account.id;
-        const lifted = drag?.moved && drag.from === index;
-        return <li key={account.id} data-account-id={account.id}
-          className={`${selected ? 'is-selected' : ''} ${lifted ? 'is-lifted' : ''}`.trim()}
-          style={rowStyle(index)}>
-          <div className="provider-account-row">
-            <button type="button" className="provider-account-grip" disabled={pending}
-              aria-label={t('Reorder account {{name}}', { name: t(account.label) })}
-              title={t('Drag or use Alt + arrow keys to reorder')}
-              onPointerDown={(event) => beginDrag(event, index, account.id)}
-              onPointerMove={moveDrag}
-              onPointerUp={endDrag}
-              onPointerCancel={cancelDrag}
-              onKeyDown={(event) => {
-                if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
-                event.preventDefault();
-                const to = index + (event.key === 'ArrowUp' ? -1 : 1);
-                if (to >= 0 && to < pool.accounts.length) reorder(index, to);
-              }}>
-              <GripVertical size={14} aria-hidden="true" />
-            </button>
-            {listOnly
-              ? <button type="button" className="provider-account-choice" disabled={pending || !account.authenticated}
-                aria-pressed={selected} onClick={() => void change({ selectedId: account.id })}>
-                <span>{t(account.label)}</span>
-                {account.reauthRequired && <small>{t('Reauth required')}</small>}
-                {selected && <Check size={14} aria-label={t('Active')} />}
-              </button>
-              : <>
-                <div className="provider-account-identity">
-                  {!selected && account.authenticated && !account.reauthRequired && editing !== account.id &&
-                    <button type="button" className="provider-account-select" disabled={pending}
-                      aria-label={t('Use account {{name}}', { name: t(account.label) })}
-                      onClick={() => void change({ selectedId: account.id })} />}
-                  <div className="provider-account-copy">
-                    <div className="provider-account-title">
-                      {editing === account.id
-                        ? <form onSubmit={(event) => { event.preventDefault(); commitName(account); }}>
-                          <input autoFocus value={name} maxLength={80} aria-label={t('Account name')}
-                            onChange={(event) => setName(event.target.value)}
-                            onInput={(event) => setName(event.currentTarget.value)}
-                            onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); setEditing(null); } }}
-                            onBlur={() => commitName(account)} />
-                        </form>
-                        : <button type="button" className="provider-account-name" disabled={pending}
-                          aria-label={t('Rename account {{name}}', { name: t(account.label) })}
-                          title={t('Rename account')} onClick={() => { setEditing(account.id); setName(account.label); }}>
-                          <b>{t(account.label)}</b><Pencil size={12} aria-hidden="true" />
-                        </button>}
-                      {selected && <span className="settings-status settings-status--positive"><i aria-hidden="true" />{t('In use')}</span>}
-                      {account.reauthRequired && <span className="settings-status settings-status--danger"><i aria-hidden="true" />{t('Reauth required')}</span>}
+          <b>{t(title)}</b>
+          {pool && pool.accounts.length > 0 && (
+            <small>{t('{{count}} accounts', { count: pool.accounts.length })}</small>
+          )}
+          <span className="provider-accounts-heading-actions">
+            {!listOnly && pool && pool.accounts.length > 1 && (
+              <label
+                className="provider-accounts-auto"
+                title={t('Move to the next account in this order when the current one is unavailable.')}
+              >
+                <span>{t('Auto-switch')}</span>
+                <span className="mixdog-settings__switch compact-switch">
+                  <input
+                    type="checkbox"
+                    aria-label={t('Switch accounts automatically')}
+                    checked={pool.auto}
+                    disabled={pending}
+                    onChange={(event) => void change({ auto: event.target.checked })}
+                  />
+                  <span aria-hidden="true" />
+                </span>
+              </label>
+            )}
+            {headerAction}
+          </span>
+        </header>
+      )}
+      {!pool && !error && (
+        <div className="provider-accounts-notice" role="status">
+          {t('Loading…')}
+        </div>
+      )}
+      {pool && !pool.accounts.length && <div className="provider-accounts-notice">{t('No connected accounts.')}</div>}
+      <ol className="provider-accounts-list" ref={listRef}>
+        {pool?.accounts.map((account, index) => {
+          const selected = pool.selectedId === account.id;
+          const lifted = drag?.moved && drag.from === index;
+          return (
+            <li
+              key={account.id}
+              data-account-id={account.id}
+              className={`${selected ? 'is-selected' : ''} ${lifted ? 'is-lifted' : ''}`.trim()}
+              style={rowStyle(index)}
+            >
+              <div className="provider-account-row">
+                <button
+                  type="button"
+                  className="provider-account-grip"
+                  disabled={pending}
+                  aria-label={t('Reorder account {{name}}', { name: t(account.label) })}
+                  title={t('Drag or use Alt + arrow keys to reorder')}
+                  onPointerDown={(event) => beginDrag(event, index, account.id)}
+                  onPointerMove={moveDrag}
+                  onPointerUp={endDrag}
+                  onPointerCancel={cancelDrag}
+                  onKeyDown={(event) => {
+                    if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+                    event.preventDefault();
+                    const to = index + (event.key === 'ArrowUp' ? -1 : 1);
+                    if (to >= 0 && to < pool.accounts.length) reorder(index, to);
+                  }}
+                >
+                  <GripVertical size={14} aria-hidden="true" />
+                </button>
+                {listOnly ? (
+                  <button
+                    type="button"
+                    className="provider-account-choice"
+                    disabled={pending || !account.authenticated}
+                    aria-pressed={selected}
+                    onClick={() => void change({ selectedId: account.id })}
+                  >
+                    <span>{t(account.label)}</span>
+                    {account.reauthRequired && <small>{t('Reauth required')}</small>}
+                    {selected && <Check size={14} aria-label={t('Active')} />}
+                  </button>
+                ) : (
+                  <>
+                    <div className="provider-account-identity">
+                      {!selected && account.authenticated && !account.reauthRequired && editing !== account.id && (
+                        <button
+                          type="button"
+                          className="provider-account-select"
+                          disabled={pending}
+                          aria-label={t('Use account {{name}}', { name: t(account.label) })}
+                          onClick={() => void change({ selectedId: account.id })}
+                        />
+                      )}
+                      <div className="provider-account-copy">
+                        <div className="provider-account-title">
+                          {editing === account.id ? (
+                            <form
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                commitName(account);
+                              }}
+                            >
+                              <input
+                                autoFocus
+                                value={name}
+                                maxLength={80}
+                                aria-label={t('Account name')}
+                                onChange={(event) => setName(event.target.value)}
+                                onInput={(event) => setName(event.currentTarget.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Escape') {
+                                    event.stopPropagation();
+                                    setEditing(null);
+                                  }
+                                }}
+                                onBlur={() => commitName(account)}
+                              />
+                            </form>
+                          ) : (
+                            <button
+                              type="button"
+                              className="provider-account-name"
+                              disabled={pending}
+                              aria-label={t('Rename account {{name}}', { name: t(account.label) })}
+                              title={t('Rename account')}
+                              onClick={() => {
+                                setEditing(account.id);
+                                setName(account.label);
+                              }}
+                            >
+                              <b>{t(account.label)}</b>
+                              <Pencil size={12} aria-hidden="true" />
+                            </button>
+                          )}
+                          {selected && (
+                            <span className="settings-status settings-status--positive">
+                              <i aria-hidden="true" />
+                              {t('In use')}
+                            </span>
+                          )}
+                          {account.reauthRequired && (
+                            <span className="settings-status settings-status--danger">
+                              <i aria-hidden="true" />
+                              {t('Reauth required')}
+                            </span>
+                          )}
+                        </div>
+                        {account.identity && account.identity !== account.label && (
+                          <small className="provider-account-meta">{account.identity}</small>
+                        )}
+                      </div>
                     </div>
-                    {account.identity && account.identity !== account.label &&
-                      <small className="provider-account-meta">{account.identity}</small>}
-                  </div>
-                </div>
-                <div className="settings-resource-actions">
-                  {!selected && account.authenticated && !account.reauthRequired &&
-                    <button type="button" className="settings-action" disabled={pending}
-                      onClick={() => void change({ selectedId: account.id })}>{t('Use')}</button>}
-                  {renderActions?.(account)}
-                </div>
-              </>}
-          </div>
-        </li>;
-      })}
-    </ol>
-    {error && <div className="provider-accounts-error" role="alert">{t(error)}</div>}
-  </section>;
+                    <div className="settings-resource-actions">
+                      {!selected && account.authenticated && !account.reauthRequired && (
+                        <button
+                          type="button"
+                          className="settings-action"
+                          disabled={pending}
+                          onClick={() => void change({ selectedId: account.id })}
+                        >
+                          {t('Use')}
+                        </button>
+                      )}
+                      {renderActions?.(account)}
+                    </div>
+                  </>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      {error && (
+        <div className="provider-accounts-error" role="alert">
+          {t(error)}
+        </div>
+      )}
+    </section>
+  );
 }

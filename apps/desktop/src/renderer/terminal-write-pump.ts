@@ -27,12 +27,12 @@ export class TerminalWritePump {
     private readonly write: (data: string, complete: () => void) => void,
     private readonly acknowledge: (id: string, charCount: number) => void,
     private readonly now: () => number = () => performance.now(),
-    private readonly maxInFlightChars = 64 * 1024,
+    private readonly maxInFlightChars = 64 * 1024
   ) {}
 
   push(id: string, data: string): void {
-    const terminalId = String(id || "");
-    const value = String(data || "");
+    const terminalId = String(id || '');
+    const value = String(data || '');
     if (this.disposed || !terminalId || !value) return;
     const tail = this.pending.at(-1);
     if (tail?.acknowledge && tail.id === terminalId && !tail.resolve) {
@@ -51,8 +51,7 @@ export class TerminalWritePump {
   /** True while server output (acknowledged writes) is queued or in flight.
    *  Local prediction/replay writes do not count. */
   get hasQueuedOutput(): boolean {
-    return [...this.active].some((item) => item.acknowledge)
-      || this.pending.some((item) => item.acknowledge);
+    return [...this.active].some((item) => item.acknowledge) || this.pending.some((item) => item.acknowledge);
   }
 
   /** Aggregate timings only; never retain terminal text or keystrokes. */
@@ -69,11 +68,11 @@ export class TerminalWritePump {
 
   /** Replays reconnect scrollback before newly arriving acknowledged output. */
   writeReplay(data: string): Promise<void> {
-    const value = String(data || "");
+    const value = String(data || '');
     if (this.disposed || !value) return Promise.resolve();
     return new Promise((resolve) => {
       this.pending.push({
-        id: "",
+        id: '',
         data: value,
         acknowledge: false,
         queuedAt: this.now(),
@@ -103,8 +102,8 @@ export class TerminalWritePump {
     try {
       while (!this.disposed && !this.barrier && this.pending.length) {
         const item = this.pending[0];
-        if (this.active.size && (!item.acknowledge
-            || this.inFlightChars + item.data.length > this.maxInFlightChars)) return;
+        if (this.active.size && (!item.acknowledge || this.inFlightChars + item.data.length > this.maxInFlightChars))
+          return;
         this.pending.shift();
         this.active.add(item);
         this.inFlightChars += item.data.length;

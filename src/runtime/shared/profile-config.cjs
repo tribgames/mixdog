@@ -34,10 +34,14 @@ const PROFILE_EXPERIENCE_LEVELS = Object.freeze([
 ]);
 
 const PROFILE_EXPERIENCE_PROMPTS = Object.freeze({
-  beginner: 'Assume no development background; briefly explain only the terms and prerequisites needed to understand the answer.',
-  'vibe-coder': 'Lead with what the result does and how to use it; briefly unpack implementation jargon when it is needed for understanding.',
-  junior: 'Assume basic development knowledge; make otherwise implicit connections clear when they are needed for easy understanding.',
-  expert: 'Do not unnecessarily unpack familiar basics, but preserve the explanations needed for accurate understanding and judgment. Use familiar technical terminology naturally.',
+  beginner:
+    'Assume no development background; briefly explain only the terms and prerequisites needed to understand the answer.',
+  'vibe-coder':
+    'Lead with what the result does and how to use it; briefly unpack implementation jargon when it is needed for understanding.',
+  junior:
+    'Assume basic development knowledge; make otherwise implicit connections clear when they are needed for easy understanding.',
+  expert:
+    'Do not unnecessarily unpack familiar basics, but preserve the explanations needed for accurate understanding and judgment. Use familiar technical terminology naturally.',
 });
 
 const PROFILE_LANGUAGE_IDS = new Set(PROFILE_LANGUAGES.map((lang) => lang.id));
@@ -46,14 +50,16 @@ const PROFILE_TITLE_MAX = 64;
 
 function normalizeProfileConfig(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
-  const title = String(raw.title ?? raw.name ?? '').trim().slice(0, PROFILE_TITLE_MAX);
+  const title = String(raw.title ?? raw.name ?? '')
+    .trim()
+    .slice(0, PROFILE_TITLE_MAX);
   const requested = String(raw.language ?? raw.lang ?? 'system').trim();
   const language = PROFILE_LANGUAGE_IDS.has(requested) ? requested : 'system';
   const requestedExperienceLevel = String(raw.experienceLevel ?? '')
-    .trim().toLowerCase().replace(/[\s_]+/g, '-');
-  const experienceLevel = PROFILE_EXPERIENCE_LEVEL_IDS.has(requestedExperienceLevel)
-    ? requestedExperienceLevel
-    : '';
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-');
+  const experienceLevel = PROFILE_EXPERIENCE_LEVEL_IDS.has(requestedExperienceLevel) ? requestedExperienceLevel : '';
   return { title, language, experienceLevel };
 }
 

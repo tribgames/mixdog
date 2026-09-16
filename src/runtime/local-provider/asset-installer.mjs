@@ -1,12 +1,5 @@
 import { spawn } from 'node:child_process';
-import {
-  createWriteStream,
-  existsSync,
-  mkdirSync,
-  renameSync,
-  rmSync,
-  statSync,
-} from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -46,20 +39,28 @@ function assertHttpsAsset(asset) {
   }
 }
 
-export async function downloadVerifiedLocalAsset(asset, destination, {
-  fetchFn = fetch,
-  onProgress = null,
-  timeoutMs = DOWNLOAD_TIMEOUT_MS,
-  checkDiskSpace = ensureDiskSpace,
-  signal,
-  force = false,
-} = {}) {
+export async function downloadVerifiedLocalAsset(
+  asset,
+  destination,
+  {
+    fetchFn = fetch,
+    onProgress = null,
+    timeoutMs = DOWNLOAD_TIMEOUT_MS,
+    checkDiskSpace = ensureDiskSpace,
+    signal,
+    force = false,
+  } = {}
+) {
   assertHttpsAsset(asset);
   const deadline = AbortSignal.timeout(timeoutMs);
   const operationSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
   operationSignal.throwIfAborted();
   mkdirSync(dirname(destination), { recursive: true });
-  if (!force && exactLocalProviderFile(destination, asset.size) && await sha256File(destination, operationSignal) === asset.sha256) {
+  if (
+    !force &&
+    exactLocalProviderFile(destination, asset.size) &&
+    (await sha256File(destination, operationSignal)) === asset.sha256
+  ) {
     onProgress?.({ receivedBytes: asset.size, totalBytes: asset.size, percent: 100 });
     return destination;
   }
@@ -124,12 +125,9 @@ export async function downloadVerifiedLocalAsset(asset, destination, {
       callback(null, chunk);
     },
   });
-  await pipeline(
-    Readable.fromWeb(response.body),
-    meter,
-    createWriteStream(partial, { flags: resumed ? 'a' : 'w' }),
-    { signal: operationSignal },
-  );
+  await pipeline(Readable.fromWeb(response.body), meter, createWriteStream(partial, { flags: resumed ? 'a' : 'w' }), {
+    signal: operationSignal,
+  });
   if (total !== asset.size) {
     throw new Error(`[local-provider] incomplete download for ${asset.name || destination}: ${total}/${asset.size}`);
   }
@@ -162,14 +160,23 @@ async function extractZip(zipPath, destination, signal) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
-  const append = (chunk) => { log = `${log}${String(chunk)}`.slice(-16_384); };
+  const append = (chunk) => {
+    log = `${log}${String(chunk)}`.slice(-16_384);
+  };
   child.stdout.on('data', append);
   child.stderr.on('data', append);
   await new Promise((resolve, reject) => {
     let failure = null;
-    child.once('error', (error) => { failure = error; });
-    child.once('close', (code) => failure ? reject(failure) : code === 0 ? resolve()
-      : reject(new Error(`[local-provider] runtime extraction failed: ${log || `status ${code}`}`)));
+    child.once('error', (error) => {
+      failure = error;
+    });
+    child.once('close', (code) =>
+      failure
+        ? reject(failure)
+        : code === 0
+          ? resolve()
+          : reject(new Error(`[local-provider] runtime extraction failed: ${log || `status ${code}`}`))
+    );
   });
 }
 
@@ -196,17 +203,20 @@ async function installRuntimeInternal({ dataDir, onProgress, fetchFn, signal }) 
       await downloadVerifiedLocalAsset(asset, archive, {
         fetchFn,
         signal,
-        onProgress: (progress) => onProgress?.({
-          phase: 'runtime',
-          stage: progress.stage || 'downloading',
-          receivedBytes: completedBytes + progress.receivedBytes,
-          totalBytes: entry.downloadBytes,
-          percent: Math.round(((completedBytes + progress.receivedBytes) / entry.downloadBytes) * 100),
-        }),
+        onProgress: (progress) =>
+          onProgress?.({
+            phase: 'runtime',
+            stage: progress.stage || 'downloading',
+            receivedBytes: completedBytes + progress.receivedBytes,
+            totalBytes: entry.downloadBytes,
+            percent: Math.round(((completedBytes + progress.receivedBytes) / entry.downloadBytes) * 100),
+          }),
       });
       onProgress?.({
-        phase: 'runtime', stage: 'extracting',
-        receivedBytes: completedBytes + asset.size, totalBytes: entry.downloadBytes,
+        phase: 'runtime',
+        stage: 'extracting',
+        receivedBytes: completedBytes + asset.size,
+        totalBytes: entry.downloadBytes,
         percent: Math.min(99, Math.round(((completedBytes + asset.size) / entry.downloadBytes) * 100)),
       });
       await extractZip(archive, staging, signal);
@@ -231,25 +241,33 @@ export async function installLocalProviderRuntime({
   onProgress = null,
   fetchFn = fetch,
 } = {}) {
-  return trackLocalInstallation(dataDir, { phase: 'runtime' },
-    (publish, signal) => installRuntimeInternal({ dataDir, onProgress: publish, fetchFn, signal }), onProgress);
+  return trackLocalInstallation(
+    dataDir,
+    { phase: 'runtime' },
+    (publish, signal) => installRuntimeInternal({ dataDir, onProgress: publish, fetchFn, signal }),
+    onProgress
+  );
 }
 
-export async function installLocalProviderModel(modelId, {
-  dataDir = resolvePluginData(),
-  onProgress = null,
-  fetchFn = fetch,
-} = {}) {
+export async function installLocalProviderModel(
+  modelId,
+  { dataDir = resolvePluginData(), onProgress = null, fetchFn = fetch } = {}
+) {
   const entry = localProviderModelEntry(modelId, dataDir);
   if (!entry) throw new Error(`[local-provider] unknown model: ${modelId}`);
-  return trackLocalInstallation(dataDir, { phase: 'model', modelId: entry.id }, async (publish, signal) => {
+  return trackLocalInstallation(
+    dataDir,
+    { phase: 'model', modelId: entry.id },
+    async (publish, signal) => {
       signal.throwIfAborted();
       const hardware = await detectLocalProviderHardware({ refresh: true });
       signal.throwIfAborted();
       const status = localProviderCatalogStatus({ dataDir, hardware });
       if (!status.runtime.installed) throw new Error('[local-provider] install the Local Provider runtime first');
       if (!hardware.supported || Number(hardware.gpu?.memoryBytes || 0) < entry.minimumVramBytes) {
-        throw new Error(`[local-provider] ${entry.name} requires at least ${entry.minimumVramBytes} bytes of GPU memory`);
+        throw new Error(
+          `[local-provider] ${entry.name} requires at least ${entry.minimumVramBytes} bytes of GPU memory`
+        );
       }
       await downloadVerifiedLocalAsset(entry, localProviderModelPath(entry, dataDir), {
         fetchFn,
@@ -257,5 +275,7 @@ export async function installLocalProviderModel(modelId, {
         onProgress: (progress) => publish({ phase: 'model', modelId: entry.id, ...progress }),
       });
       return localProviderCatalogStatus({ dataDir });
-  }, onProgress);
+    },
+    onProgress
+  );
 }

@@ -85,9 +85,9 @@ export async function startMediaJob({ lane: laneId, kind, model, prompt, options
   // Reference images: the MODEL publishes its own cap (Veo takes one start
   // frame, Grok ref2v takes seven), so the bound follows the resolved model.
   const modelEntry = resolved.spec.models.find((entry) => entry.id === resolved.model);
-  const maxRefs = Number(
-    modelEntry?.controls?.maxReferences ?? resolved.spec.controls?.maxReferences ?? 0,
-  ) || (resolved.kind === 'video' ? 7 : 5);
+  const maxRefs =
+    Number(modelEntry?.controls?.maxReferences ?? resolved.spec.controls?.maxReferences ?? 0) ||
+    (resolved.kind === 'video' ? 7 : 5);
   const refs = (Array.isArray(references) ? references : [])
     .filter((ref) => typeof ref?.base64 === 'string' && ref.base64.length > 0)
     .slice(0, maxRefs)
@@ -99,7 +99,7 @@ export async function startMediaJob({ lane: laneId, kind, model, prompt, options
     throw mediaError(
       `too many media generations are already running (${active}/${MAX_ACTIVE_JOBS})`,
       'MEDIA_TOO_MANY_JOBS',
-      429,
+      429
     );
   }
 
@@ -150,14 +150,8 @@ export async function startMediaJob({ lane: laneId, kind, model, prompt, options
           if (next > job.progress) job.progress = next;
         },
       });
-      if (!Buffer.isBuffer(result?.bytes)
-        || !result.bytes.length
-        || result.bytes.length > MAX_GENERATED_MEDIA_BYTES) {
-        throw mediaError(
-          'generated media exceeds the media size limit',
-          'MEDIA_RESULT_TOO_LARGE',
-          502,
-        );
+      if (!Buffer.isBuffer(result?.bytes) || !result.bytes.length || result.bytes.length > MAX_GENERATED_MEDIA_BYTES) {
+        throw mediaError('generated media exceeds the media size limit', 'MEDIA_RESULT_TOO_LARGE', 502);
       }
       const asset = saveMediaAsset({
         kind: resolved.kind,
@@ -185,9 +179,13 @@ export async function startMediaJob({ lane: laneId, kind, model, prompt, options
       // stays diagnosable after its tile is gone.
       if (!canceled) {
         try {
-          console.error(`[media] job failed lane=${job.lane} model=${job.model} `
-            + `kind=${job.kind} code=${job.errorCode || 'none'}: ${job.error}`);
-        } catch { /* logging must never mask the job failure */ }
+          console.error(
+            `[media] job failed lane=${job.lane} model=${job.model} ` +
+              `kind=${job.kind} code=${job.errorCode || 'none'}: ${job.error}`
+          );
+        } catch {
+          /* logging must never mask the job failure */
+        }
       }
     } finally {
       job.endedAt = Date.now();
@@ -204,16 +202,16 @@ export function getMediaJob(id) {
 
 export function listMediaJobs() {
   sweep();
-  return [...JOBS.values()]
-    .sort((a, b) => b.startedAt - a.startedAt)
-    .map(snapshot);
+  return [...JOBS.values()].sort((a, b) => b.startedAt - a.startedAt).map(snapshot);
 }
 
 export function cancelMediaJob(id) {
   const job = JOBS.get(String(id || ''));
   if (!job) return { id, canceled: false };
   if (job.status === 'running') {
-    try { job.controller.abort(); } catch {}
+    try {
+      job.controller.abort();
+    } catch {}
   }
   return { id: job.id, canceled: job.status === 'running' };
 }

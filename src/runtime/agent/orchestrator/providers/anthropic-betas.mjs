@@ -10,40 +10,42 @@ export const SERVER_SIDE_FALLBACK_BETA_HEADER = 'server-side-fallback-2026-07-01
 export { EFFORT_BETA_HEADER };
 
 export function supportsAnthropicFastMode(model) {
-    const id = String(model || '').toLowerCase().replace(/\./g, '-');
-    return /^claude-opus-4-(6|7|8)(?:$|[-@])/.test(id);
+  const id = String(model || '')
+    .toLowerCase()
+    .replace(/\./g, '-');
+  return /^claude-opus-4-(6|7|8)(?:$|[-@])/.test(id);
 }
 
 export function buildAnthropicBetaHeaders({
-    base = `${INTERLEAVED_THINKING_BETA_HEADER},${EXTENDED_CACHE_TTL_BETA_HEADER}`,
-    fastMode = false,
-    toolSearch = false,
-    midConversationSystem = false,
-    turnScopedSystem = false,
-    effort = false,
-    serverFallback = false,
+  base = `${INTERLEAVED_THINKING_BETA_HEADER},${EXTENDED_CACHE_TTL_BETA_HEADER}`,
+  fastMode = false,
+  toolSearch = false,
+  midConversationSystem = false,
+  turnScopedSystem = false,
+  effort = false,
+  serverFallback = false,
 } = {}) {
-    const headers = String(base || '')
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean);
-    if (fastMode && !headers.includes(FAST_MODE_BETA_HEADER)) {
-        headers.push(FAST_MODE_BETA_HEADER);
-    }
-    if (toolSearch && !headers.includes(TOOL_SEARCH_BETA_HEADER)) {
-        headers.push(TOOL_SEARCH_BETA_HEADER);
-    }
-    if ((midConversationSystem || turnScopedSystem) && !headers.includes(MID_CONVERSATION_SYSTEM_BETA_HEADER)) {
-        headers.push(MID_CONVERSATION_SYSTEM_BETA_HEADER);
-    }
-    if (turnScopedSystem && !headers.includes(TURN_SCOPED_SYSTEM_BETA_HEADER)) {
-        headers.push(TURN_SCOPED_SYSTEM_BETA_HEADER);
-    }
-    if (effort && !headers.includes(EFFORT_BETA_HEADER)) {
-        headers.push(EFFORT_BETA_HEADER);
-    }
-    if (serverFallback && !headers.includes(SERVER_SIDE_FALLBACK_BETA_HEADER)) {
-        headers.push(SERVER_SIDE_FALLBACK_BETA_HEADER);
-    }
-    return headers.join(',');
+  const headers = String(base || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (fastMode && !headers.includes(FAST_MODE_BETA_HEADER)) {
+    headers.push(FAST_MODE_BETA_HEADER);
+  }
+  if (toolSearch && !headers.includes(TOOL_SEARCH_BETA_HEADER)) {
+    headers.push(TOOL_SEARCH_BETA_HEADER);
+  }
+  if ((midConversationSystem || turnScopedSystem) && !headers.includes(MID_CONVERSATION_SYSTEM_BETA_HEADER)) {
+    headers.push(MID_CONVERSATION_SYSTEM_BETA_HEADER);
+  }
+  if (turnScopedSystem && !headers.includes(TURN_SCOPED_SYSTEM_BETA_HEADER)) {
+    headers.push(TURN_SCOPED_SYSTEM_BETA_HEADER);
+  }
+  if (effort && !headers.includes(EFFORT_BETA_HEADER)) {
+    headers.push(EFFORT_BETA_HEADER);
+  }
+  if (serverFallback && !headers.includes(SERVER_SIDE_FALLBACK_BETA_HEADER)) {
+    headers.push(SERVER_SIDE_FALLBACK_BETA_HEADER);
+  }
+  return headers.join(',');
 }

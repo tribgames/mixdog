@@ -59,23 +59,23 @@ export function ignoreRules(source: string, base: string): IgnoreRule[] {
     if (anchored) pattern = pattern.slice(1);
     if (!pattern) return [];
     const expression = globExpression(pattern);
-    return [{
-      base,
-      ignored,
-      directoryOnly,
-      matcher: new RegExp(anchored || pattern.includes('/')
-        ? `^${expression}(?:/.*)?$`
-        : `(?:^|/)${expression}(?:/.*)?$`),
-    }];
+    return [
+      {
+        base,
+        ignored,
+        directoryOnly,
+        matcher: new RegExp(
+          anchored || pattern.includes('/') ? `^${expression}(?:/.*)?$` : `(?:^|/)${expression}(?:/.*)?$`
+        ),
+      },
+    ];
   });
 }
 
 export function ignoredPath(path: string, directory: boolean, rules: readonly IgnoreRule[]): boolean {
   let ignored = false;
   for (const rule of rules) {
-    const candidate = rule.base
-      ? (path.startsWith(`${rule.base}/`) ? path.slice(rule.base.length + 1) : null)
-      : path;
+    const candidate = rule.base ? (path.startsWith(`${rule.base}/`) ? path.slice(rule.base.length + 1) : null) : path;
     if (candidate !== null && (!rule.directoryOnly || directory) && rule.matcher.test(candidate)) {
       ignored = rule.ignored;
     }
@@ -110,13 +110,13 @@ function matchScore(path: string, query: string): number | null {
 
 async function collectProjectFiles(
   root: string,
-  options: { maxScannedEntries?: number; yieldEvery?: number } = {},
+  options: { maxScannedEntries?: number; yieldEvery?: number } = {}
 ): Promise<string[]> {
   const directories: Array<{ relative: string; rules: IgnoreRule[] }> = [{ relative: '', rules: [] }];
   const files: string[] = [];
   const maxScannedEntries = Math.max(
     1,
-    Math.min(MAX_SCANNED_ENTRIES, options.maxScannedEntries ?? MAX_SCANNED_ENTRIES),
+    Math.min(MAX_SCANNED_ENTRIES, options.maxScannedEntries ?? MAX_SCANNED_ENTRIES)
   );
   const yieldEvery = Math.max(1, options.yieldEvery ?? 256);
   let scanned = 0;
@@ -187,16 +187,14 @@ export async function searchProjectDirectory(
   root: string,
   query: string,
   limit: number,
-  options: { maxScannedEntries?: number; yieldEvery?: number } = {},
+  options: { maxScannedEntries?: number; yieldEvery?: number } = {}
 ): Promise<string[]> {
   const normalizedQuery = query.trim().replace(/\\/g, '/').toLowerCase();
   // Explicit traversal options (tests, capped callers) bypass the cache so
   // scan-cap semantics stay exact; the interactive keystroke path shares the
   // watcher-invalidated index.
   const usesCache = options.maxScannedEntries === undefined && options.yieldEvery === undefined;
-  const files = usesCache
-    ? await projectFilesFor(root)
-    : await collectProjectFiles(root, options);
+  const files = usesCache ? await projectFilesFor(root) : await collectProjectFiles(root, options);
   const matches: Array<{ path: string; score: number }> = [];
   for (const path of files) {
     const score = matchScore(path, normalizedQuery);

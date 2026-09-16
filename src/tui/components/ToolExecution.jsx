@@ -50,7 +50,30 @@ const TOOL_PENDING_SHOW_DELAY_MS = 1000;
 // One shared-tick cadence covers both the 500ms blink and per-second elapsed;
 // finer than either boundary so both stay crisp off a single timer.
 const TOOL_ANIM_TICK_MS = TOOL_BLINK_MS;
-export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, errorCount, callErrorCount, exitErrorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, doneCategories = null, headerFinalized = true, deferredDisplayReady = false, agentResponseAggregate = false }) {
+export function ToolExecution({
+  name,
+  args,
+  result,
+  rawResult,
+  uiDiff,
+  isError,
+  errorCount,
+  callErrorCount,
+  exitErrorCount,
+  expanded,
+  columns = 80,
+  attached = false,
+  count = 1,
+  completedCount = 0,
+  startedAt = 0,
+  completedAt = 0,
+  aggregate = false,
+  categories = {},
+  doneCategories = null,
+  headerFinalized = true,
+  deferredDisplayReady = false,
+  agentResponseAggregate = false,
+}) {
   const rowWidth = Math.max(1, Number(columns || 80));
   const groupCount = Math.max(1, Number(count || 1));
   const doneCount = Math.max(0, Math.min(groupCount, Number(completedCount || (result == null ? 0 : groupCount))));
@@ -65,9 +88,7 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
   useSharedTick(TOOL_ANIM_TICK_MS, pending);
   const pendingAgeMs = pending && startedAtMs ? Math.max(0, nowMs - startedAtMs) : 0;
   // Derived (was a per-card setTimeout): the pending-show delay has elapsed.
-  const pendingDelayElapsed = pending
-    ? (!startedAtMs || pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS)
-    : false;
+  const pendingDelayElapsed = pending ? !startedAtMs || pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS : false;
   // A card that is still pending but already has something to paint (a result
   // landed, or at least one of an aggregate's parallel calls completed) must
   // SKIP the blank placeholder: it was pushed early (engine ensureVisible on a
@@ -78,14 +99,18 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
   // the card appear already populated and simply grow taller as more results
   // land — no empty band.
   const hasVisibleProgress = doneCount > 0 || Boolean(String(rt || '').trim());
-  const pendingDisplayReady = !pending || !startedAtMs || pendingDelayElapsed || pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS || hasVisibleProgress || deferredDisplayReady;
+  const pendingDisplayReady =
+    !pending ||
+    !startedAtMs ||
+    pendingDelayElapsed ||
+    pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS ||
+    hasVisibleProgress ||
+    deferredDisplayReady;
   // Derived blink (was two per-card setIntervals + a setTimeout): while pending,
   // the dot keeps blinking until the tool resolves. Phase comes from Date.now()
   // so the cadence is identical to the old interval without owning a timer.
   const blinkActive = pending && pendingDisplayReady;
-  const blinkOn = !blinkActive
-    ? true
-    : Math.floor(nowMs / TOOL_BLINK_MS) % 2 === 0;
+  const blinkOn = !blinkActive ? true : Math.floor(nowMs / TOOL_BLINK_MS) % 2 === 0;
   // Keep the action verb in its active form until the engine explicitly seals
   // the tool block. Fast tool batches often complete before the next provider
   // iteration decides whether to call more tools or emit assistant text; flipping
@@ -93,7 +118,7 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
   const headerPending = pending || headerFinalized === false;
   const hasResult = result != null && Boolean(String(rt || '').trim());
   const hasRawResult = rawResult != null && Boolean(String(rawRt || '').trim());
-  const elapsedMs = startedAtMs ? Math.max(0, (pending ? nowMs : (completedAtMs || nowMs)) - startedAtMs) : 0;
+  const elapsedMs = startedAtMs ? Math.max(0, (pending ? nowMs : completedAtMs || nowMs) - startedAtMs) : 0;
   const elapsed = elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
   const failedCount = clampFailureCount(errorCount, groupCount, isError);
   // Real tool-call failures only (provider isError / error toolKind). Drives the
@@ -108,9 +133,7 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
   // apply_patch can commit an ordered prefix before a later section fails.
   // The runtime-provided uiDiff is authoritative evidence of that partial
   // mutation; an empty/missing diff means the invocation failed completely.
-  const partialMutation = callFailedCount > 0
-    && typeof uiDiff === 'string'
-    && Boolean(uiDiff.trim());
+  const partialMutation = callFailedCount > 0 && typeof uiDiff === 'string' && Boolean(uiDiff.trim());
   const displayGroupCount = groupCount;
   const displayCategories = normalizeCountMap(categories || {});
   // In the DONE state the engine-supplied doneCategories map counts ATTEMPTS
@@ -121,7 +144,7 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
   // render a blank header. Fall back to the raw call-time counts so the done
   // header is never empty; the 'N Failed' detail still marks the failure.
   const hasDoneCounts = Object.values(normalizedDoneCategories || {}).some(
-    (v) => (v && typeof v === 'object' ? Number(v.count || 0) : Number(v || 0)) > 0,
+    (v) => (v && typeof v === 'object' ? Number(v.count || 0) : Number(v || 0)) > 0
   );
   const displayDoneCategories = hasDoneCounts ? normalizedDoneCategories : displayCategories;
 
@@ -141,8 +164,8 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
     const placeholderNormalizedName = String(formatToolSurface(name, args)?.normalizedName || '').toLowerCase();
     // Skill AND agent surfaces collapse to a single header row when collapsed
     // (see estimateTranscriptItemRows); reserve one row for both.
-    const placeholderSingleRow = !aggregate
-      && (SKILL_SURFACE_NAMES.has(placeholderNormalizedName) || isAgentTool(placeholderNormalizedName));
+    const placeholderSingleRow =
+      !aggregate && (SKILL_SURFACE_NAMES.has(placeholderNormalizedName) || isAgentTool(placeholderNormalizedName));
     return (
       <Box flexDirection="column" marginTop={attached ? 0 : 1} width={rowWidth} overflow="hidden">
         <Text> </Text>
@@ -160,7 +183,12 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
     // No stableVerbWidth: see statusCopy — the padding only left a mid-header
     // gap ("Searched  1 pattern, Read    1 file") since Ink trims trailing
     // spaces and never stabilized the flip.
-    const headerText = safeInlineText(formatAggregateHeader((headerPending ? displayCategories : displayDoneCategories) || {}, { pending: headerPending, order: headerOrder }));
+    const headerText = safeInlineText(
+      formatAggregateHeader((headerPending ? displayCategories : displayDoneCategories) || {}, {
+        pending: headerPending,
+        order: headerOrder,
+      })
+    );
     let detailText;
     if (hasResult) {
       // The aggregate card reserves EXACTLY ONE detail row when it is not
@@ -183,8 +211,15 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
     // single source of dot color for both aggregate and normal cards.
     const aggregateTerminalStatus = pending
       ? 'running'
-      : (resultTerminalStatus(rt) || (isError || failedCount > 0 ? 'failed' : 'completed'));
-    const dotColor = toolStatusColor({ pending, groupCount, callFailedCount, exitFailedCount, terminalStatus: aggregateTerminalStatus, partialMutation });
+      : resultTerminalStatus(rt) || (isError || failedCount > 0 ? 'failed' : 'completed');
+    const dotColor = toolStatusColor({
+      pending,
+      groupCount,
+      callFailedCount,
+      exitFailedCount,
+      terminalStatus: aggregateTerminalStatus,
+      partialMutation,
+    });
     const dotText = pending && !blinkOn ? ' ' : TURN_MARKER;
     const gutter = 2;
     const showHeaderExpandHint = hasRawResult;
@@ -199,9 +234,7 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
     const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - rightReserve);
     const trailingText = showHeaderExpandHint ? hintText : '';
     const trailingColor = theme.subtle;
-    const clippedHeader = stringWidth(headerText) > avail
-      ? truncateToWidth(headerText, avail)
-      : headerText;
+    const clippedHeader = stringWidth(headerText) > avail ? truncateToWidth(headerText, avail) : headerText;
     // Trailing content (ctrl+o hint only; pending elapsed lives on the detail
     // row) sits immediately after the header body — no fixed right-edge pin — so
     // it never jumps to the right edge and snaps back on the pending→done flip.
@@ -224,12 +257,8 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
     // The placeholder tracks `pending` (real completion), NOT headerPending:
     // the header verb stays active until the block seals, but the detail row
     // must not keep saying "Running" after every call already resolved.
-    const pendingPlaceholder = pending
-      ? 'Running'
-      : 'Finished';
-    const detailLines = showRawAggregate
-      ? rawRt.split('\n')
-      : (detailText ? [detailText] : [pendingPlaceholder]);
+    const pendingPlaceholder = pending ? 'Running' : 'Finished';
+    const detailLines = showRawAggregate ? rawRt.split('\n') : detailText ? [detailText] : [pendingPlaceholder];
     const aggregateDetailColor = isPlaceholderDetail ? theme.subtle : theme.text;
     return (
       <Box flexDirection="column" marginTop={attached ? 0 : 1} width={rowWidth} overflow="hidden">
@@ -238,7 +267,9 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
             <Text color={dotColor}>{dotText}</Text>
           </Box>
           <Text wrap="truncate">
-            <Text bold color={theme.text}>{clippedHeader}</Text>
+            <Text bold color={theme.text}>
+              {clippedHeader}
+            </Text>
             {trailingText ? <Text color={trailingColor}>{trailingText}</Text> : null}
           </Text>
         </Box>
@@ -259,22 +290,25 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
   // renderer (apps/desktop TranscriptView ToolCard). Width fitting, theme
   // colors, blink, and expansion handling stay TUI-side below.
   const maxResultChars = Math.min(RESULT_LINE_HARD_MAX, Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7));
-  const model = deriveToolCardModel({
-    name,
-    args,
-    result,
-    rawResult,
-    isError,
-    errorCount,
-    callErrorCount,
-    exitErrorCount,
-    count: displayGroupCount,
-    completedCount: doneCount,
-    startedAt,
-    completedAt,
-    headerFinalized,
-    nowMs,
-  }, { truncate: truncateToWidth, maxResultChars });
+  const model = deriveToolCardModel(
+    {
+      name,
+      args,
+      result,
+      rawResult,
+      isError,
+      errorCount,
+      callErrorCount,
+      exitErrorCount,
+      count: displayGroupCount,
+      completedCount: doneCount,
+      startedAt,
+      completedAt,
+      headerFinalized,
+      nowMs,
+    },
+    { truncate: truncateToWidth, maxResultChars }
+  );
   const {
     labelText,
     summaryText,
@@ -299,28 +333,39 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
   const lines = displayedResultBodyText ? displayedResultBodyText.split('\n') : [];
   const resultColor = theme.text;
   const firstResultLineClipped = hasDisplayBody && stringWidth(firstResultLine) > maxResultChars;
-  const hasHiddenDetail = !pending && hasDisplayBody && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
+  const hasHiddenDetail =
+    !pending && hasDisplayBody && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
   const backgroundMetadataExpandable = isBackgroundMetadataResult && hasRawResult && !pending;
-  const showRawResult = expanded && (hasDisplayBody || hasRawResult)
-    && (!isBackgroundMetadataResult || hasRawResult);
+  const showRawResult = expanded && (hasDisplayBody || hasRawResult) && (!isBackgroundMetadataResult || hasRawResult);
   const detailLines = showRawResult
-    ? (agentResponseAggregate && hasRawResult
+    ? agentResponseAggregate && hasRawResult
       ? stripLeadingStatusMarkerLines(rawRt.split('\n'))
-      : (hasDisplayBody ? lines : (rawRt ? stripLeadingStatusMarkerLines(rawRt.split('\n')) : [])))
-    : (collapsedDetailLine ? [collapsedDetailLine] : []);
+      : hasDisplayBody
+        ? lines
+        : rawRt
+          ? stripLeadingStatusMarkerLines(rawRt.split('\n'))
+          : []
+    : collapsedDetailLine
+      ? [collapsedDetailLine]
+      : [];
   const isPendingPlaceholderDetail = !showRawResult && detailIsPlaceholder;
   const detailColor = isPendingPlaceholderDetail ? theme.subtle : theme.text;
   // Skill/agent collapsed gating lives in the shared model (detailLine).
   const visibleDetailLines = detailLines;
-  const finalStatusColor = toolStatusColor({ pending, groupCount, callFailedCount, exitFailedCount, terminalStatus, partialMutation });
+  const finalStatusColor = toolStatusColor({
+    pending,
+    groupCount,
+    callFailedCount,
+    exitFailedCount,
+    terminalStatus,
+    partialMutation,
+  });
   const dotColor = finalStatusColor;
   // Agent surface cards use directional markers: `←` for requests going OUT
   // (spawn/send/etc.) and `→` for the response coming back IN. Background
   // task cards (shell async / explore / search / task) and every other tool
   // keep the BLACK_CIRCLE turn marker. Blink behavior is shared.
-  const markerGlyph = isAgentResponse
-    ? AGENT_RESPONSE_MARKER
-    : (isAgentSurfaceCard ? AGENT_CALL_MARKER : TURN_MARKER);
+  const markerGlyph = isAgentResponse ? AGENT_RESPONSE_MARKER : isAgentSurfaceCard ? AGENT_CALL_MARKER : TURN_MARKER;
   // Directional arrow markers (`←` spawn/send out, `→` response back) render 2
   // cells wide in some terminals (Windows Terminal / Cascadia) while our width
   // math counts them as 1, so the `Box minWidth={2}` gutter padding gets
@@ -336,16 +381,25 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
   // multiline / clipped raw result (e.g. the "agents: N …" worker list). A
   // status-only single-line metadata result has nothing extra to show, so it
   // gets no hint.
-  const agentHasExpandableBody = isAgentSurfaceCard && !pending && hasResult
-    && (isAgentResponse || totalLines > 1 || firstResultLineClipped);
+  const agentHasExpandableBody =
+    isAgentSurfaceCard && !pending && hasResult && (isAgentResponse || totalLines > 1 || firstResultLineClipped);
   // Agent cards gate the hint solely on agentHasExpandableBody — never on
   // hasHiddenDetail, which goes true for any single-line resultSummary and would
   // wrongly show ctrl+o on a status-only one-liner that has nothing to expand.
-  const shellHasExpandableBody = isShellSurface && !pending && hasDisplayResult
-    && hasDisplayBody
-    && (totalLines > 1 || firstResultLineClipped || Boolean(shellCollapsedSummary && shellCollapsedSummary !== firstResultLine));
-  const showHeaderExpandHint = (isShellSurface ? shellHasExpandableBody : (isAgentSurfaceCard ? agentHasExpandableBody : (hasHiddenDetail || backgroundMetadataExpandable)))
-    && normalizedName !== 'load_tool';
+  const shellHasExpandableBody =
+    isShellSurface &&
+    !pending &&
+    hasDisplayResult &&
+    hasDisplayBody &&
+    (totalLines > 1 ||
+      firstResultLineClipped ||
+      Boolean(shellCollapsedSummary && shellCollapsedSummary !== firstResultLine));
+  const showHeaderExpandHint =
+    (isShellSurface
+      ? shellHasExpandableBody
+      : isAgentSurfaceCard
+        ? agentHasExpandableBody
+        : hasHiddenDetail || backgroundMetadataExpandable) && normalizedName !== 'load_tool';
   const expandHintColor = theme.subtle;
 
   // Build a single-line header that never wraps: reserve width for the fixed
@@ -364,9 +418,7 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
   // completion does not push the body clip point.
   const hintReserveLabel = `ctrl+o ${expanded ? 'collapse' : 'expand'}`;
   const hintReserveText = ` ${BULLET_OPERATOR} ${hintReserveLabel}`;
-  const headerFailureText = headerFailureStatus
-    ? truncateToWidth(headerFailureStatus, HEADER_FAILURE_STATUS_MAX)
-    : '';
+  const headerFailureText = headerFailureStatus ? truncateToWidth(headerFailureStatus, HEADER_FAILURE_STATUS_MAX) : '';
   const inlineFailureText = headerFailureText ? ` ${BULLET_OPERATOR} ${headerFailureText}` : '';
   const rightReserve = stringWidth(hintReserveText) + stringWidth(inlineFailureText);
   const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - rightReserve);
@@ -387,9 +439,8 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
     // Cap by both the remaining header width and a fixed max so long
     // paths/queries get an ellipsis instead of dominating the line.
     const summaryWidth = Math.max(0, Math.min(summaryBudget, SUMMARY_MAX_CHARS));
-    const truncatedSummary = headerSummaryText && summaryWidth > 0
-      ? truncateToWidth(headerSummaryText, summaryWidth)
-      : '';
+    const truncatedSummary =
+      headerSummaryText && summaryWidth > 0 ? truncateToWidth(headerSummaryText, summaryWidth) : '';
     summaryOut = truncatedSummary ? ` (${truncatedSummary})` : '';
   }
   // Keep trailing content (ctrl+o hint only; pending elapsed lives on the detail
@@ -406,7 +457,9 @@ export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, 
               <Text color={dotColor}>{dotText}</Text>
             </Box>
             <Text wrap="truncate">
-              <Text bold color={theme.text}>{labelOut}</Text>
+              <Text bold color={theme.text}>
+                {labelOut}
+              </Text>
               {summaryOut ? <Text color={theme.text}>{summaryOut}</Text> : null}
               {inlineFailureText ? <Text color={theme.error}>{inlineFailureText}</Text> : null}
               {trailingText ? <Text color={trailingColor}>{trailingText}</Text> : null}

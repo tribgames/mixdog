@@ -1,39 +1,39 @@
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
-import { createRequire } from "module";
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { createRequire } from 'module';
 const _require = createRequire(import.meta.url);
-import { loadConfig, createProvider, DATA_DIR } from "./config.mjs";
-import { resolveVoiceRuntime } from "./voice-runtime-fetcher.mjs";
-import { ensureReady, stopVoiceWhisperServer } from "./whisper-server.mjs";
-import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from "../../shared/runtime-root.mjs";
-import { Scheduler } from "./scheduler.mjs";
-import { hasPending as dispatchHasPending } from "../../agent/orchestrator/dispatch-persist.mjs";
-import { setListener as setActivityBusListener } from "../../agent/orchestrator/activity-bus.mjs";
-import { stripSoftWarns } from "../../agent/orchestrator/tool-loop-guard.mjs";
-import { JsonStateFile } from "./state-file.mjs";
+import { loadConfig, createProvider, DATA_DIR } from './config.mjs';
+import { resolveVoiceRuntime } from './voice-runtime-fetcher.mjs';
+import { ensureReady, stopVoiceWhisperServer } from './whisper-server.mjs';
+import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../../shared/runtime-root.mjs';
+import { Scheduler } from './scheduler.mjs';
+import { hasPending as dispatchHasPending } from '../../agent/orchestrator/dispatch-persist.mjs';
+import { setListener as setActivityBusListener } from '../../agent/orchestrator/activity-bus.mjs';
+import { stripSoftWarns } from '../../agent/orchestrator/tool-loop-guard.mjs';
+import { JsonStateFile } from './state-file.mjs';
 import {
   makeInstanceId,
   getStatusPath,
   getTerminalLeadPid,
   cleanupInstanceRuntimeFiles,
   clearServerPid,
-} from "./runtime-paths.mjs";
-import { invalidateConfigReadCache } from "../../shared/config.mjs";
-import { bootProfile, utcTimestamp } from "./boot-profile.mjs";
+} from './runtime-paths.mjs';
+import { invalidateConfigReadCache } from '../../shared/config.mjs';
+import { bootProfile, utcTimestamp } from './boot-profile.mjs';
 import {
   isChannelsDegraded,
   logCrash,
   _isBenignCrash,
   BENIGN_CRASH_FATAL_THRESHOLD,
   BENIGN_CRASH_STREAK_WINDOW_MS,
-} from "./crash-log.mjs";
-import { createParentBridge } from "./parent-bridge.mjs";
-import { createToolDispatch } from "./tool-dispatch.mjs";
-import { createOwnerHeartbeat } from "./owner-heartbeat.mjs";
-import { runWorkerIpc } from "./worker-ipc.mjs";
-import { createOwnedRuntime } from "./owned-runtime.mjs";
-import { runWorkerBootstrap } from "./worker-bootstrap.mjs";
+} from './crash-log.mjs';
+import { createParentBridge } from './parent-bridge.mjs';
+import { createToolDispatch } from './tool-dispatch.mjs';
+import { createOwnerHeartbeat } from './owner-heartbeat.mjs';
+import { runWorkerIpc } from './worker-ipc.mjs';
+import { createOwnedRuntime } from './owned-runtime.mjs';
+import { runWorkerBootstrap } from './worker-bootstrap.mjs';
 // Zombie-Lead repro (2026-07-02): logCrash-then-survive left a worker alive
 // after an unhandled rejection whose async state was already corrupted
 // (observed: EPERM on active-instance.json rename retry), so it spun
@@ -45,46 +45,52 @@ function _fatalCrash(label, err) {
   const benign = _isBenignCrash(err);
   if (benign) {
     const now = Date.now();
-    _benignCrashStreak = (now - _lastBenignCrashAt) <= BENIGN_CRASH_STREAK_WINDOW_MS
-      ? _benignCrashStreak + 1
-      : 1;
+    _benignCrashStreak = now - _lastBenignCrashAt <= BENIGN_CRASH_STREAK_WINDOW_MS ? _benignCrashStreak + 1 : 1;
     _lastBenignCrashAt = now;
     if (_benignCrashStreak < BENIGN_CRASH_FATAL_THRESHOLD) return;
   } else {
     _benignCrashStreak = 0;
   }
   Promise.resolve()
-    .then(() => (typeof stop === "function" ? stop(`fatal:${label}`) : null))
+    .then(() => (typeof stop === 'function' ? stop(`fatal:${label}`) : null))
     .catch(() => {})
     .finally(() => {
-      try { process.exitCode = 1; } catch {}
+      try {
+        process.exitCode = 1;
+      } catch {}
       process.exit(1);
     });
   // Best-effort stop() may itself hang (e.g. IPC to a dead child) — a bare
   // .finally() would then never fire and we're back to a zombie. Force the
   // exit unconditionally after a short grace window regardless of outcome.
-  setTimeout(() => { try { process.exit(1); } catch {} }, 3000).unref?.();
+  setTimeout(() => {
+    try {
+      process.exit(1);
+    } catch {}
+  }, 3000).unref?.();
 }
-process.on("unhandledRejection", (err) => _fatalCrash("unhandled rejection", err));
-process.on("uncaughtException", (err) => _fatalCrash("uncaught exception", err));
+process.on('unhandledRejection', (err) => _fatalCrash('unhandled rejection', err));
+process.on('uncaughtException', (err) => _fatalCrash('uncaught exception', err));
 if (process.env.MIXDOG_CHANNELS_NO_CONNECT) {
   process.exit(0);
 }
-const _isWorkerMode = process.env.MIXDOG_WORKER_MODE === '1'
-const _bootLogEarly = path.join(
-  DATA_DIR || ensurePrivateRuntimeRoot(resolveRuntimeRoot()),
-  "boot.log"
-);
+const _isWorkerMode = process.env.MIXDOG_WORKER_MODE === '1';
+const _bootLogEarly = path.join(DATA_DIR || ensurePrivateRuntimeRoot(resolveRuntimeRoot()), 'boot.log');
 const {
   isMixdogDebugEnabled: isMixdogDebug,
   pruneStalePluginDataLogSiblings,
   DEFAULT_STALE_LOG_SIBLING_MAX,
-} = _require("../../../lib/mixdog-debug.cjs");
+} = _require('../../../lib/mixdog-debug.cjs');
 // One-shot log rotation at worker boot (10 MB threshold, .1 suffix overwrite).
 if (isMixdogDebug()) {
-  try { if (fs.statSync(_bootLogEarly).size > 10 * 1024 * 1024) fs.renameSync(_bootLogEarly, _bootLogEarly + '.1') } catch {}
-  fs.appendFileSync(_bootLogEarly, `[${utcTimestamp()}] bootstrap start pid=${process.pid}
-`);
+  try {
+    if (fs.statSync(_bootLogEarly).size > 10 * 1024 * 1024) fs.renameSync(_bootLogEarly, _bootLogEarly + '.1');
+  } catch {}
+  fs.appendFileSync(
+    _bootLogEarly,
+    `[${utcTimestamp()}] bootstrap start pid=${process.pid}
+`
+  );
 }
 let config = await loadConfig();
 let provider = createProvider(config);
@@ -96,7 +102,7 @@ runWorkerBootstrap({
   pruneStalePluginDataLogSiblings,
   DEFAULT_STALE_LOG_SIBLING_MAX,
 });
-const INSTRUCTIONS = "";
+const INSTRUCTIONS = '';
 
 // ── Parent notification helper ───────────────────────────────────────
 // This worker has no MCP transport of its own. All notifications flow
@@ -108,19 +114,16 @@ const INSTRUCTIONS = "";
 // never `connect()`ed to any transport, so `.notification()` silently
 // threw 'Not connected' inside the SDK and every call was dropped by an
 // outer `.catch(() => {})`. That regression is what this path replaces.
-const {
-  sendNotifyToParent,
-  callMemoryAction,
-  handleMemoryCallResponse,
-} = createParentBridge({ getInstanceId: () => INSTANCE_ID });
+const { sendNotifyToParent, callMemoryAction, handleMemoryCallResponse } = createParentBridge({
+  getInstanceId: () => INSTANCE_ID,
+});
 let channelBridgeActive = false;
 function writeBridgeState(active) {
   try {
-    const stateFile = path.join(ensurePrivateRuntimeRoot(resolveRuntimeRoot()), "bridge-state.json");
+    const stateFile = path.join(ensurePrivateRuntimeRoot(resolveRuntimeRoot()), 'bridge-state.json');
     fs.mkdirSync(path.dirname(stateFile), { recursive: true });
     fs.writeFileSync(stateFile, JSON.stringify({ active, ts: Date.now() }));
-  } catch {
-  }
+  } catch {}
 }
 function isChannelBridgeActive() {
   return channelBridgeActive;
@@ -156,11 +159,7 @@ let bridgeRuntimeConnected = false;
 // ── Bridge ownership snapshot + owner heartbeat ─────────────────────────────
 // Extracted → lib/owner-heartbeat.mjs. Owns its own heartbeat timer + last-note
 // dedup; bound to live identity + active-instance primitives.
-const {
-  logOwnership,
-  currentOwnerState,
-  getBridgeOwnershipSnapshot,
-} = createOwnerHeartbeat();
+const { logOwnership, currentOwnerState, getBridgeOwnershipSnapshot } = createOwnerHeartbeat();
 // ── Owned-runtime lifecycle ─────────────────────────────────────────────────
 // Extracted -> lib/owned-runtime.mjs. Owns its own start/stop/refresh in-flight
 // flags + ownership timer + memory-drain timer; shares config/provider/
@@ -177,15 +176,25 @@ const {
   notifyRemoteAcquired,
 } = createOwnedRuntime({
   getConfig: () => config,
-  setConfig: (v) => { config = v; },
+  setConfig: (v) => {
+    config = v;
+  },
   getProvider: () => provider,
-  setProvider: (v) => { provider = v; },
+  setProvider: (v) => {
+    provider = v;
+  },
   getBridgeRuntimeConnected: () => bridgeRuntimeConnected,
-  setBridgeRuntimeConnected: (v) => { bridgeRuntimeConnected = v; },
+  setBridgeRuntimeConnected: (v) => {
+    bridgeRuntimeConnected = v;
+  },
   getWebhookServer: () => webhookServer,
-  setWebhookServer: (v) => { webhookServer = v; },
+  setWebhookServer: (v) => {
+    webhookServer = v;
+  },
   getEventPipeline: () => eventPipeline,
-  setEventPipeline: (v) => { eventPipeline = v; },
+  setEventPipeline: (v) => {
+    eventPipeline = v;
+  },
   getChannelBridgeActive: () => channelBridgeActive,
   instanceId: INSTANCE_ID,
   TERMINAL_LEAD_PID,
@@ -209,16 +218,16 @@ function injectAndRecord(channelId, name, content, options) {
   if (typeof content === 'string') content = stripSoftWarns(content);
   const ts = new Date().toISOString();
   const now = new Date();
-  const timeLabel = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")} `;
+  const timeLabel = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} `;
   const sourceLabel = options?.type ? `${timeLabel}: ${options.type}` : timeLabel;
-  const meta = { chat_id: channelId, user: sourceLabel, user_id: "system", ts };
+  const meta = { chat_id: channelId, user: sourceLabel, user_id: 'system', ts };
   if (options?.instruction) meta.instruction = options.instruction;
   if (options?.type) meta.type = options.type;
   // `silent_to_agent` — lifecycle status pings (worker/iter/started echoes)
   // must NOT land in Lead's context window. The channel relay that used to
   // surface them is retired, so silent pings are dropped entirely.
   if (options?.silent_to_agent === true) return;
-  sendNotifyToParent("notifications/claude/channel", { content, meta });
+  sendNotifyToParent('notifications/claude/channel', { content, meta });
 }
 scheduler.setInjectHandler((channelId, name, content, options) => {
   injectAndRecord(channelId, name, content, options);
@@ -237,9 +246,9 @@ function wireWebhookHandlers() {
   // Webhook fires run as sessions (schedules parity); the Automations
   // session row is the only surface (channel relay retired).
   webhookServer.setBridgeDispatch(async ({ prompt, model, cwd, workflow, attachments, delivery, context, signal }) => {
-    const { runWebhookSession } = await import("../../shared/webhook-session-run.mjs");
+    const { runWebhookSession } = await import('../../shared/webhook-session-run.mjs');
     const run = await runWebhookSession({
-      name: context?.endpoint || "webhook",
+      name: context?.endpoint || 'webhook',
       model: model || null,
       cwd: cwd || null,
       workflow: workflow || null,
@@ -277,15 +286,14 @@ import { TOOL_DEFS } from '../tool-defs.mjs';
 // threaded as a lifecycle bag of lazy getters so the module reads live
 // file-level references at call time. Used by the HTTP MCP CallTool path and
 // the worker IPC `call` handler at the bottom of this file.
-const {
-  handleToolCall,
-  handleToolCallWithBridgeRetry,
-} = createToolDispatch({
+const { handleToolCall, handleToolCallWithBridgeRetry } = createToolDispatch({
   isChannelsDegraded,
   lifecycle: {
     getChannelBridgeActive: () => channelBridgeActive,
     getOwned: () => getBridgeOwnershipSnapshot().owned,
-    setChannelBridgeActive: (v) => { channelBridgeActive = v; },
+    setChannelBridgeActive: (v) => {
+      channelBridgeActive = v;
+    },
     writeBridgeState,
     notifyRemoteAcquired,
     refreshBridgeOwnership,
@@ -305,10 +313,12 @@ async function init(_sharedMcp) {
 function ensureConfigWatcher() {
   if (_configWatcher) return;
   try {
-    _configWatcher = fs.watch(path.join(DATA_DIR, "mixdog-config.json"), () => {
+    _configWatcher = fs.watch(path.join(DATA_DIR, 'mixdog-config.json'), () => {
       invalidateConfigReadCache();
       if (_reloadDebounce) clearTimeout(_reloadDebounce);
-      _reloadDebounce = setTimeout(() => { reloadRuntimeConfig().catch(() => {}); }, 500);
+      _reloadDebounce = setTimeout(() => {
+        reloadRuntimeConfig().catch(() => {});
+      }, 500);
     });
   } catch {}
 }
@@ -346,21 +356,39 @@ async function start(options = {}) {
       if (config.voice?.enabled === false) return;
       const runtime = resolveVoiceRuntime(DATA_DIR);
       if (!runtime?.installed) return;
-      const _cpuCount = (() => { try { return os.cpus().length; } catch { return 2; } })();
+      const _cpuCount = (() => {
+        try {
+          return os.cpus().length;
+        } catch {
+          return 2;
+        }
+      })();
       const threadCount = config.voice?.transcription?.threadCount ?? Math.max(1, Math.ceil(_cpuCount / 4));
       await ensureReady({ serverCmd: runtime.serverCmd, modelPath: runtime.modelPath, threadCount, host: '127.0.0.1' });
     } catch (err) {
-      try { process.stderr.write(`mixdog: voice.transcription pre-warm skipped: ${err}\n`); } catch {}
+      try {
+        process.stderr.write(`mixdog: voice.transcription pre-warm skipped: ${err}\n`);
+      } catch {}
     }
   })();
 }
 async function stop() {
-  try { await stopVoiceWhisperServer(); } catch {}
-  await stopOwnedRuntime("unified server stop");
+  try {
+    await stopVoiceWhisperServer();
+  } catch {}
+  await stopOwnedRuntime('unified server stop');
   cleanupInstanceRuntimeFiles(INSTANCE_ID);
   clearBridgeOwnershipTimer();
-  if (_reloadDebounce) { clearTimeout(_reloadDebounce); _reloadDebounce = null; }
-  if (_configWatcher) { try { _configWatcher.close(); } catch {} _configWatcher = null; }
+  if (_reloadDebounce) {
+    clearTimeout(_reloadDebounce);
+    _reloadDebounce = null;
+  }
+  if (_configWatcher) {
+    try {
+      _configWatcher.close();
+    } catch {}
+    _configWatcher = null;
+  }
 }
 // ── IPC worker mode ──────────────────────────────────────────────
 // Skipped under the machine-global host (MIXDOG_DAEMON_HOST=1): the daemon
@@ -392,5 +420,5 @@ export {
   isChannelBridgeActive,
   isChannelsDegraded,
   start,
-  stop
+  stop,
 };

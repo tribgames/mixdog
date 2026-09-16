@@ -71,11 +71,16 @@ export function isBrowserInternalCookiePartition(value: unknown): boolean {
   const parsed = parseCookiePartition(value);
   if (!parsed) return false;
   const { key, site } = parsed;
-  return ['chrome:', 'chrome-untrusted:'].includes(site.protocol)
-    && Boolean(site.hostname)
-    && !site.username && !site.password && site.pathname === ''
-    && !site.search && !site.hash
-    && key.topLevelSite === `${site.protocol}//${site.host}`;
+  return (
+    ['chrome:', 'chrome-untrusted:'].includes(site.protocol) &&
+    Boolean(site.hostname) &&
+    !site.username &&
+    !site.password &&
+    site.pathname === '' &&
+    !site.search &&
+    !site.hash &&
+    key.topLevelSite === `${site.protocol}//${site.host}`
+  );
 }
 
 /** Reject an unrepresentable key instead of widening it to an ordinary cookie. */
@@ -90,8 +95,7 @@ export function cookiePartitionKey(value: unknown): BrowserCookiePartitionKey | 
 }
 
 function samePartition(left?: BrowserCookiePartitionKey, right?: BrowserCookiePartitionKey | null): boolean {
-  return left?.topLevelSite === right?.topLevelSite
-    && left?.hasCrossSiteAncestor === right?.hasCrossSiteAncestor;
+  return left?.topLevelSite === right?.topLevelSite && left?.hasCrossSiteAncestor === right?.hasCrossSiteAncestor;
 }
 
 function matches(cookie: BrowserCookie, filter: BrowserCookieFilter): boolean {
@@ -103,8 +107,10 @@ function matches(cookie: BrowserCookie, filter: BrowserCookieFilter): boolean {
   if (url.hostname !== domain && (cookie.hostOnly || !url.hostname.endsWith(`.${domain}`))) return false;
   if (cookie.secure && url.protocol !== 'https:') return false;
   const path = cookie.path || '/';
-  return url.pathname === path
-    || (url.pathname.startsWith(path) && (path.endsWith('/') || url.pathname[path.length] === '/'));
+  return (
+    url.pathname === path ||
+    (url.pathname.startsWith(path) && (path.endsWith('/') || url.pathname[path.length] === '/'))
+  );
 }
 
 interface ProtocolCookie {
@@ -129,11 +135,22 @@ function fromProtocol(cookie: ProtocolCookie): BrowserCookie {
   }
   const partitionKey = cookiePartitionKey(cookie.partitionKey);
   return {
-    name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path,
-    hostOnly: !cookie.domain.startsWith('.'), secure: cookie.secure, httpOnly: cookie.httpOnly,
+    name: cookie.name,
+    value: cookie.value,
+    domain: cookie.domain,
+    path: cookie.path,
+    hostOnly: !cookie.domain.startsWith('.'),
+    secure: cookie.secure,
+    httpOnly: cookie.httpOnly,
     session: cookie.session,
-    sameSite: cookie.sameSite === 'None' ? 'no_restriction'
-      : cookie.sameSite === 'Lax' ? 'lax' : cookie.sameSite === 'Strict' ? 'strict' : 'unspecified',
+    sameSite:
+      cookie.sameSite === 'None'
+        ? 'no_restriction'
+        : cookie.sameSite === 'Lax'
+          ? 'lax'
+          : cookie.sameSite === 'Strict'
+            ? 'strict'
+            : 'unspecified',
     ...(!cookie.session ? { expirationDate: cookie.expires } : {}),
     ...(partitionKey ? { partitionKey } : {}),
   };
@@ -223,13 +240,19 @@ export function createBrowserCookieJar(partition: Session): BrowserCookieJar & {
       }
       if (details.secure !== true) throw new Error('Partitioned cookies require Secure.');
       const result = await send<{ success: boolean }>('Network.setCookie', {
-        url: details.url, name: details.name || '', value: details.value || '',
+        url: details.url,
+        name: details.name || '',
+        value: details.value || '',
         ...(details.domain ? { domain: details.domain } : {}),
-        path: details.path || '/', secure: true, httpOnly: details.httpOnly === true,
+        path: details.path || '/',
+        secure: true,
+        httpOnly: details.httpOnly === true,
         ...(details.expirationDate !== undefined ? { expires: details.expirationDate } : {}),
-        ...(details.sameSite && details.sameSite !== 'unspecified' ? {
-          sameSite: details.sameSite === 'no_restriction' ? 'None' : details.sameSite === 'lax' ? 'Lax' : 'Strict',
-        } : {}),
+        ...(details.sameSite && details.sameSite !== 'unspecified'
+          ? {
+              sameSite: details.sameSite === 'no_restriction' ? 'None' : details.sameSite === 'lax' ? 'Lax' : 'Strict',
+            }
+          : {}),
         partitionKey,
       });
       if (!result.success) throw new Error('Partitioned cookie was not accepted.');
@@ -237,7 +260,9 @@ export function createBrowserCookieJar(partition: Session): BrowserCookieJar & {
     async remove(url, name, partitionKey) {
       for (const cookie of await get({ url, name, partitionKey: partitionKey ?? null })) {
         await send('Network.deleteCookies', {
-          domain: cookie.domain, path: cookie.path, name: cookie.name,
+          domain: cookie.domain,
+          path: cookie.path,
+          name: cookie.name,
           ...(cookie.partitionKey ? { partitionKey: cookie.partitionKey } : {}),
         });
       }

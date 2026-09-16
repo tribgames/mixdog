@@ -47,12 +47,14 @@ function selectorFromArgs(args = {}) {
 }
 
 function sameSelector(left, right) {
-  return left.sheet === right.sheet
-    && left.range === right.range
-    && left.target === right.target
-    && left.includeStyles === right.includeStyles
-    && left.includeSelection === right.includeSelection
-    && JSON.stringify(left.pages) === JSON.stringify(right.pages);
+  return (
+    left.sheet === right.sheet &&
+    left.range === right.range &&
+    left.target === right.target &&
+    left.includeStyles === right.includeStyles &&
+    left.includeSelection === right.includeSelection &&
+    JSON.stringify(left.pages) === JSON.stringify(right.pages)
+  );
 }
 
 export function createOfficeSnapshotRequest(session, args = {}, { full = false } = {}) {
@@ -74,12 +76,13 @@ export function createOfficeSnapshotRequest(session, args = {}, { full = false }
     }
     const suppliedSelector = selectorFromArgs(args);
     const cursorSelector = cursor.selector || selectorFromArgs();
-    const hasSuppliedSelector = suppliedSelector.sheet
-      || suppliedSelector.range
-      || suppliedSelector.target
-      || suppliedSelector.pages.length
-      || suppliedSelector.includeStyles
-      || suppliedSelector.includeSelection;
+    const hasSuppliedSelector =
+      suppliedSelector.sheet ||
+      suppliedSelector.range ||
+      suppliedSelector.target ||
+      suppliedSelector.pages.length ||
+      suppliedSelector.includeStyles ||
+      suppliedSelector.includeSelection;
     if (hasSuppliedSelector && !sameSelector(suppliedSelector, cursorSelector)) {
       throw new Error('Office snapshot cursor selector does not match this request');
     }
@@ -108,28 +111,29 @@ export function finalizeOfficeSnapshotPage(document, session, request) {
   // done, but the caller has not seen the workbook yet.
   const nextSheetOffset = Number.isInteger(pagination.nextSheetOffset) ? pagination.nextSheetOffset : null;
   const nextOffset = Number(pagination.nextOffset);
-  const hasMore = (pagination.nextOffset !== null
-    && pagination.nextOffset !== undefined
-    && Number.isInteger(nextOffset)
-    && nextOffset >= 0)
-    || nextSheetOffset !== null;
-  const cursorFor = (offset, sheetOffset) => encodeCursor({
-    version: 1,
-    session: session.id,
-    format: session.format,
-    revision: Number(session.snapshotVersion || 0),
-    offset,
-    ...(sheetOffset ? { sheetOffset } : {}),
-    limit: request.limit,
-    selector: selectorFromArgs(request),
-  });
-  pagination.cursor = request.offset > 0 || request.sheetOffset > 0
-    ? cursorFor(request.offset, request.sheetOffset || 0)
-    : null;
+  const hasMore =
+    (pagination.nextOffset !== null &&
+      pagination.nextOffset !== undefined &&
+      Number.isInteger(nextOffset) &&
+      nextOffset >= 0) ||
+    nextSheetOffset !== null;
+  const cursorFor = (offset, sheetOffset) =>
+    encodeCursor({
+      version: 1,
+      session: session.id,
+      format: session.format,
+      revision: Number(session.snapshotVersion || 0),
+      offset,
+      ...(sheetOffset ? { sheetOffset } : {}),
+      limit: request.limit,
+      selector: selectorFromArgs(request),
+    });
+  pagination.cursor =
+    request.offset > 0 || request.sheetOffset > 0 ? cursorFor(request.offset, request.sheetOffset || 0) : null;
   pagination.nextCursor = hasMore
-    ? (nextSheetOffset !== null
+    ? nextSheetOffset !== null
       ? cursorFor(0, nextSheetOffset)
-      : cursorFor(nextOffset, request.sheetOffset || 0))
+      : cursorFor(nextOffset, request.sheetOffset || 0)
     : null;
   pagination.hasMore = hasMore;
   delete pagination.nextOffset;

@@ -29,8 +29,18 @@
  */
 
 import {
-  existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync,
-  readdirSync, unlinkSync, openSync, writeSync, closeSync, statSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  renameSync,
+  rmSync,
+  readdirSync,
+  unlinkSync,
+  openSync,
+  writeSync,
+  closeSync,
+  statSync,
 } from 'node:fs';
 import { dirname, basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,8 +52,12 @@ import { sleepSync } from './sleep.mjs';
 import { detachedSpawnOpts, hiddenSpawnOpts } from './spawn-flags.mjs';
 import { renameWithRetrySync } from './atomic-file.mjs';
 import {
-  isDevInstall, localPackageVersion, compareSemver, isNewerVersion,
-  npmCliJsPath, UPDATE_PACKAGE_NAME as PACKAGE_NAME,
+  isDevInstall,
+  localPackageVersion,
+  compareSemver,
+  isNewerVersion,
+  npmCliJsPath,
+  UPDATE_PACKAGE_NAME as PACKAGE_NAME,
 } from './update-checker.mjs';
 
 const _MODULE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -67,7 +81,11 @@ function liveSessionsDir() {
 }
 
 function rmDir(dir) {
-  try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ }
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
 }
 
 // ── Live-session refcount (pid files) ─────────────────────────────────────
@@ -88,18 +106,32 @@ export function registerLiveSession() {
     writeFileSync(selfPidFile(), `${process.pid} ${Date.now()}\n`, 'utf8');
     if (!_exitHooked) {
       _exitHooked = true;
-      try { process.on('exit', unregisterLiveSession); } catch { /* ignore */ }
+      try {
+        process.on('exit', unregisterLiveSession);
+      } catch {
+        /* ignore */
+      }
     }
-  } catch { /* best-effort: liveness tracking is advisory */ }
+  } catch {
+    /* best-effort: liveness tracking is advisory */
+  }
 }
 
 export function unregisterLiveSession() {
-  try { unlinkSync(selfPidFile()); } catch { /* already gone */ }
+  try {
+    unlinkSync(selfPidFile());
+  } catch {
+    /* already gone */
+  }
 }
 
 function otherLiveSessionExists() {
   let entries;
-  try { entries = readdirSync(liveSessionsDir()); } catch { return false; }
+  try {
+    entries = readdirSync(liveSessionsDir());
+  } catch {
+    return false;
+  }
   let alive = false;
   for (const name of entries) {
     if (!name.endsWith('.pid')) continue;
@@ -109,7 +141,11 @@ function otherLiveSessionExists() {
     if (pidAlive(pid)) {
       alive = true;
     } else {
-      try { unlinkSync(join(liveSessionsDir(), name)); } catch { /* stale reap best-effort */ }
+      try {
+        unlinkSync(join(liveSessionsDir(), name));
+      } catch {
+        /* stale reap best-effort */
+      }
     }
   }
   return alive;
@@ -145,22 +181,45 @@ function claimStagingLock(verDir) {
   mkdirSync(verDir, { recursive: true });
   const write = () => {
     const fd = openSync(lock, 'wx');
-    try { writeSync(fd, `${process.pid} ${Date.now()}`); } finally { closeSync(fd); }
+    try {
+      writeSync(fd, `${process.pid} ${Date.now()}`);
+    } finally {
+      closeSync(fd);
+    }
   };
-  try { write(); return true; } catch (err) {
+  try {
+    write();
+    return true;
+  } catch (err) {
     if (err?.code !== 'EEXIST') return false;
     // Existing lock: steal only if stale (dead owner or old mtime).
-    let owner = 0; let ageMs = Infinity;
-    try { owner = Number.parseInt(String(readFileSync(lock, 'utf8')).trim().split(/\s+/)[0], 10); } catch {}
-    try { ageMs = Date.now() - statSync(lock).mtimeMs; } catch {}
+    let owner = 0;
+    let ageMs = Infinity;
+    try {
+      owner = Number.parseInt(String(readFileSync(lock, 'utf8')).trim().split(/\s+/)[0], 10);
+    } catch {}
+    try {
+      ageMs = Date.now() - statSync(lock).mtimeMs;
+    } catch {}
     if (pidAlive(owner) && ageMs < STALE_INPROGRESS_MS) return false;
-    try { unlinkSync(lock); } catch {}
-    try { write(); return true; } catch { return false; }
+    try {
+      unlinkSync(lock);
+    } catch {}
+    try {
+      write();
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
 function releaseStagingLock(verDir) {
-  try { unlinkSync(inProgressLock(verDir)); } catch { /* best-effort */ }
+  try {
+    unlinkSync(inProgressLock(verDir));
+  } catch {
+    /* best-effort */
+  }
 }
 
 /**
@@ -185,8 +244,14 @@ export async function runStagedInstall(version) {
     mkdirSync(installPrefix, { recursive: true });
 
     const installArgs = [
-      'install', `${PACKAGE_NAME}@${v}`, '--prefix', installPrefix,
-      '--no-save', '--no-audit', '--no-fund', '--loglevel=error',
+      'install',
+      `${PACKAGE_NAME}@${v}`,
+      '--prefix',
+      installPrefix,
+      '--no-save',
+      '--no-audit',
+      '--no-fund',
+      '--loglevel=error',
     ];
     // Shell-less only: node runs npm-cli.js directly so Windows never opens a
     // console window (no cmd/PowerShell, no -WindowStyle flags). If npm-cli.js
@@ -198,7 +263,10 @@ export async function runStagedInstall(version) {
       let child;
       try {
         child = spawn(process.execPath, [cliJs, ...installArgs], { stdio: 'ignore', shell: false, ...hiddenSpawnOpts });
-      } catch { res(-1); return; }
+      } catch {
+        res(-1);
+        return;
+      }
       child.once('error', () => res(-1));
       child.once('exit', (c) => res(typeof c === 'number' ? c : -1));
     });
@@ -209,7 +277,11 @@ export async function runStagedInstall(version) {
     const pkgJson = join(installedPkg, 'package.json');
     if (!existsSync(pkgJson)) return { ok: false, error: 'staged package.json missing' };
     let stagedVer;
-    try { stagedVer = String(JSON.parse(readFileSync(pkgJson, 'utf8')).version || ''); } catch { stagedVer = ''; }
+    try {
+      stagedVer = String(JSON.parse(readFileSync(pkgJson, 'utf8')).version || '');
+    } catch {
+      stagedVer = '';
+    }
     if (stagedVer !== v) return { ok: false, error: `staged version ${stagedVer || '?'} != ${v}` };
 
     // Relocate into a self-contained package dir: move mixdog OUT of the
@@ -263,11 +335,19 @@ function bestStagedVersion(currentVersion) {
   const cur = String(currentVersion || localPackageVersion());
   let best = null;
   let entries;
-  try { entries = readdirSync(stagingRootDir()); } catch { return null; }
+  try {
+    entries = readdirSync(stagingRootDir());
+  } catch {
+    return null;
+  }
   for (const name of entries) {
     const verDir = join(stagingRootDir(), name);
     let m;
-    try { m = JSON.parse(readFileSync(markerPath(verDir), 'utf8')); } catch { continue; }
+    try {
+      m = JSON.parse(readFileSync(markerPath(verDir), 'utf8'));
+    } catch {
+      continue;
+    }
     if (!m || !m.version) continue;
     const pkgDir = m.pkgDir || join(verDir, PKG_SUBDIR);
     if (!existsSync(join(pkgDir, 'package.json')) || !existsSync(join(pkgDir, 'src', 'cli.mjs'))) continue;
@@ -297,7 +377,9 @@ function swapStagedIntoGlobal({ globalPkgRoot, pkgDir, expectedVersion, _rename 
     try {
       const sv = String(JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')).version || '');
       if (sv !== String(expectedVersion)) return false;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }
   const backup = `${globalPkgRoot}.old-${Date.now()}`;
   try {
@@ -316,8 +398,15 @@ function swapStagedIntoGlobal({ globalPkgRoot, pkgDir, expectedVersion, _rename 
     // original (backup); if that keeps failing, drive the swap forward
     // (staged→global) instead.
     for (let attempt = 0; attempt < 5 && !globalPopulated(globalPkgRoot); attempt++) {
-      try { rename(backup, globalPkgRoot); break; } catch {}
-      try { rename(pkgDir, globalPkgRoot); swappedForward = true; break; } catch {}
+      try {
+        rename(backup, globalPkgRoot);
+        break;
+      } catch {}
+      try {
+        rename(pkgDir, globalPkgRoot);
+        swappedForward = true;
+        break;
+      } catch {}
     }
   }
   // Hard invariant: NEVER return with the global path unpopulated. If both
@@ -353,17 +442,25 @@ function cleanupStaging(currentVersion) {
     for (const name of readdirSync(stagingRootDir())) {
       const dir = join(stagingRootDir(), name);
       let st;
-      try { st = statSync(dir); } catch { continue; }
+      try {
+        st = statSync(dir);
+      } catch {
+        continue;
+      }
       if (!st.isDirectory()) continue;
       let ver = null;
-      try { ver = JSON.parse(readFileSync(markerPath(dir), 'utf8')).version; } catch {}
+      try {
+        ver = JSON.parse(readFileSync(markerPath(dir), 'utf8')).version;
+      } catch {}
       if (ver) {
         if (compareSemver(ver, cur) <= 0) rmDir(dir);
       } else if (Date.now() - st.mtimeMs > 60 * 60 * 1000) {
         rmDir(dir);
       }
     }
-  } catch { /* staging dir absent */ }
+  } catch {
+    /* staging dir absent */
+  }
   // Backup sweep is gated on a FRESH check that the global package is
   // populated — a `.old-*` dir is only ever stale/deletable once a real
   // package sits at the global path (never reachable while a swap left it bare).
@@ -376,7 +473,9 @@ function cleanupStaging(currentVersion) {
         if (name.startsWith(prefix)) rmDir(join(parent, name));
       }
     }
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
 }
 
 /**
@@ -398,7 +497,10 @@ export function performPendingSwap() {
     for (let round = 0; round < 2; round++) {
       const current = currentGlobalVersion();
       const best = bestStagedVersion(current);
-      if (!best) { cleanupStaging(current); return false; }
+      if (!best) {
+        cleanupStaging(current);
+        return false;
+      }
       // Other live session → defer; the swap re-applies on the next clean launch.
       if (otherLiveSessionExists()) return false;
       if (claimSwapLock(lock)) {
@@ -412,7 +514,9 @@ export function performPendingSwap() {
             });
           }
         } finally {
-          try { unlinkSync(lock); } catch {}
+          try {
+            unlinkSync(lock);
+          } catch {}
         }
         cleanupStaging(done ? best.version : current);
         return done;
@@ -451,7 +555,9 @@ function ensureGlobalStableOrExit(root, timeoutMs = 3000) {
 // baseline to avoid a redundant re-swap.
 function currentGlobalVersion() {
   try {
-    return String(JSON.parse(readFileSync(join(packageRoot(), 'package.json'), 'utf8')).version || localPackageVersion());
+    return String(
+      JSON.parse(readFileSync(join(packageRoot(), 'package.json'), 'utf8')).version || localPackageVersion()
+    );
   } catch {
     return localPackageVersion();
   }
@@ -465,8 +571,15 @@ function waitForSwapLockClear(lock, timeoutMs) {
   while (Date.now() < deadline) {
     if (!existsSync(lock)) return true;
     let owner = 0;
-    try { owner = Number.parseInt(String(readFileSync(lock, 'utf8')).trim().split(/\s+/)[0], 10); } catch {}
-    if (!pidAlive(owner)) { try { unlinkSync(lock); } catch {} return true; }
+    try {
+      owner = Number.parseInt(String(readFileSync(lock, 'utf8')).trim().split(/\s+/)[0], 10);
+    } catch {}
+    if (!pidAlive(owner)) {
+      try {
+        unlinkSync(lock);
+      } catch {}
+      return true;
+    }
     sleepSync(50);
   }
   return !existsSync(lock);
@@ -481,8 +594,16 @@ function ensureGlobalStable(root, timeoutMs) {
   let stable = 0;
   while (Date.now() < deadline) {
     let size = -1;
-    try { size = statSync(pj).size; } catch { size = -1; }
-    if (size >= 0 && size === lastSize) { if (++stable >= 2) return true; } else { stable = 0; }
+    try {
+      size = statSync(pj).size;
+    } catch {
+      size = -1;
+    }
+    if (size >= 0 && size === lastSize) {
+      if (++stable >= 2) return true;
+    } else {
+      stable = 0;
+    }
     lastSize = size;
     sleepSync(60);
   }
@@ -490,22 +611,41 @@ function ensureGlobalStable(root, timeoutMs) {
 }
 
 function claimSwapLock(lock) {
-  try { mkdirSync(dirname(lock), { recursive: true }); } catch {}
+  try {
+    mkdirSync(dirname(lock), { recursive: true });
+  } catch {}
   try {
     const fd = openSync(lock, 'wx');
-    try { writeSync(fd, `${process.pid} ${Date.now()}`); } finally { closeSync(fd); }
+    try {
+      writeSync(fd, `${process.pid} ${Date.now()}`);
+    } finally {
+      closeSync(fd);
+    }
     return true;
   } catch (err) {
     if (err?.code !== 'EEXIST') return false;
-    let owner = 0; let ageMs = Infinity;
-    try { owner = Number.parseInt(String(readFileSync(lock, 'utf8')).trim().split(/\s+/)[0], 10); } catch {}
-    try { ageMs = Date.now() - statSync(lock).mtimeMs; } catch {}
+    let owner = 0;
+    let ageMs = Infinity;
+    try {
+      owner = Number.parseInt(String(readFileSync(lock, 'utf8')).trim().split(/\s+/)[0], 10);
+    } catch {}
+    try {
+      ageMs = Date.now() - statSync(lock).mtimeMs;
+    } catch {}
     if (pidAlive(owner) && ageMs < STALE_INPROGRESS_MS) return false;
-    try { unlinkSync(lock); } catch {}
+    try {
+      unlinkSync(lock);
+    } catch {}
     try {
       const fd = openSync(lock, 'wx');
-      try { writeSync(fd, `${process.pid} ${Date.now()}`); } finally { closeSync(fd); }
+      try {
+        writeSync(fd, `${process.pid} ${Date.now()}`);
+      } finally {
+        closeSync(fd);
+      }
       return true;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }
 }

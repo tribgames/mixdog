@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 
 function payloadJobs(payload) {
   const pages = Array.isArray(payload) ? payload : [payload];
-  return pages.flatMap((page) => Array.isArray(page?.jobs) ? page.jobs : []);
+  return pages.flatMap((page) => (Array.isArray(page?.jobs) ? page.jobs : []));
 }
 
 function elapsedSeconds(startedAt, completedAt) {
@@ -17,16 +17,20 @@ function elapsedSeconds(startedAt, completedAt) {
 }
 
 function timingRows(payload) {
-  return payloadJobs(payload).flatMap((job) => (job.steps || []).flatMap((step) => {
-    const seconds = elapsedSeconds(step.started_at, step.completed_at);
-    if (seconds === null) return [];
-    return [{
-      key: `${job.name} / ${step.name}`,
-      job: job.name,
-      step: step.name,
-      seconds,
-    }];
-  }));
+  return payloadJobs(payload).flatMap((job) =>
+    (job.steps || []).flatMap((step) => {
+      const seconds = elapsedSeconds(step.started_at, step.completed_at);
+      if (seconds === null) return [];
+      return [
+        {
+          key: `${job.name} / ${step.name}`,
+          job: job.name,
+          step: step.name,
+          seconds,
+        },
+      ];
+    })
+  );
 }
 
 function workflowSeconds(payload) {
@@ -46,19 +50,22 @@ export function buildReleaseTimingReport(currentPayload, baselinePayload = []) {
   const currentRows = timingRows(currentPayload);
   const baselineRows = timingRows(baselinePayload);
   const baselineByKey = new Map(baselineRows.map((row) => [row.key, row]));
-  const regressions = currentRows.flatMap((row) => {
-    const baseline = baselineByKey.get(row.key);
-    if (!baseline) return [];
-    const percent = percentChange(row.seconds, baseline.seconds);
-    if (percent === null || percent <= 10 || row.seconds - baseline.seconds < 15) return [];
-    return [{ ...row, baselineSeconds: baseline.seconds, percent }];
-  }).sort((a, b) => b.percent - a.percent || b.seconds - a.seconds);
+  const regressions = currentRows
+    .flatMap((row) => {
+      const baseline = baselineByKey.get(row.key);
+      if (!baseline) return [];
+      const percent = percentChange(row.seconds, baseline.seconds);
+      if (percent === null || percent <= 10 || row.seconds - baseline.seconds < 15) return [];
+      return [{ ...row, baselineSeconds: baseline.seconds, percent }];
+    })
+    .sort((a, b) => b.percent - a.percent || b.seconds - a.seconds);
 
   const currentWorkflowSeconds = workflowSeconds(currentPayload);
   const baselineWorkflowSeconds = workflowSeconds(baselinePayload);
-  const workflowPercent = currentWorkflowSeconds !== null && baselineWorkflowSeconds !== null
-    ? percentChange(currentWorkflowSeconds, baselineWorkflowSeconds)
-    : null;
+  const workflowPercent =
+    currentWorkflowSeconds !== null && baselineWorkflowSeconds !== null
+      ? percentChange(currentWorkflowSeconds, baselineWorkflowSeconds)
+      : null;
   const slowest = [...currentRows].sort((a, b) => b.seconds - a.seconds).slice(0, 15);
   const markdown = [
     '## Release timing',
@@ -101,12 +108,17 @@ if (invokedPath === import.meta.url) {
   if (process.env.GITHUB_STEP_SUMMARY) {
     await appendFile(process.env.GITHUB_STEP_SUMMARY, `${report.markdown}\n`);
   }
-  if (report.workflowPercent > 10
-      && report.currentWorkflowSeconds - report.baselineWorkflowSeconds >= 30) {
-    console.log(`::warning title=Release duration regression::Workflow span increased ${report.workflowPercent}% to ${report.currentWorkflowSeconds}s`);
+  if (report.workflowPercent > 10 && report.currentWorkflowSeconds - report.baselineWorkflowSeconds >= 30) {
+    console.log(
+      `::warning title=Release duration regression::Workflow span increased ${report.workflowPercent}% to ${report.currentWorkflowSeconds}s`
+    );
   }
   for (const row of report.regressions) {
-    console.log(`::warning title=Release step regression::${commandValue(row.key)} increased ${row.percent}% (${row.baselineSeconds}s to ${row.seconds}s)`);
+    console.log(
+      `::warning title=Release step regression::${commandValue(row.key)} increased ${row.percent}% (${row.baselineSeconds}s to ${row.seconds}s)`
+    );
   }
-  console.log(`Release timing recorded: ${report.currentWorkflowSeconds ?? 'n/a'}s, ${report.regressions.length} material step regressions.`);
+  console.log(
+    `Release timing recorded: ${report.currentWorkflowSeconds ?? 'n/a'}s, ${report.regressions.length} material step regressions.`
+  );
 }

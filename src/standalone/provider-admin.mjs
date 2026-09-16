@@ -44,30 +44,95 @@ import {
 import { localProviderStatus } from '../runtime/local-provider/managed-runtime.mjs';
 import { isOAuthProviderAvailable } from '../runtime/agent/orchestrator/providers/oauth-credential-probes.mjs';
 import {
-  readProviderAccountPool, registerProviderAccount, newProviderAccountId,
-  changeProviderAccounts, removeProviderAccount,
+  readProviderAccountPool,
+  registerProviderAccount,
+  newProviderAccountId,
+  changeProviderAccounts,
+  removeProviderAccount,
 } from '../runtime/shared/provider-accounts.mjs';
 import { currentProviderAccountId, withProviderAccount } from '../runtime/shared/provider-auth-binding.mjs';
 
 const API_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'opencode-go', name: 'OpenCode Go API', env: 'OPENCODE_API_KEY', url: 'https://opencode.ai' }),
   Object.freeze({ id: 'openrouter', name: 'OpenRouter', env: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys' }),
-  Object.freeze({ id: 'openai', name: 'OpenAI API', env: 'OPENAI_API_KEY', url: 'https://platform.openai.com/api-keys' }),
-  Object.freeze({ id: 'anthropic', name: 'Anthropic API', env: 'ANTHROPIC_API_KEY', url: 'https://console.anthropic.com/settings/keys' }),
+  Object.freeze({
+    id: 'openai',
+    name: 'OpenAI API',
+    env: 'OPENAI_API_KEY',
+    url: 'https://platform.openai.com/api-keys',
+  }),
+  Object.freeze({
+    id: 'anthropic',
+    name: 'Anthropic API',
+    env: 'ANTHROPIC_API_KEY',
+    url: 'https://console.anthropic.com/settings/keys',
+  }),
   Object.freeze({ id: 'gemini', name: 'Gemini API', env: 'GEMINI_API_KEY', url: 'https://aistudio.google.com/apikey' }),
-  Object.freeze({ id: 'deepseek', name: 'DeepSeek API', env: 'DEEPSEEK_API_KEY', url: 'https://platform.deepseek.com/api_keys' }),
+  Object.freeze({
+    id: 'deepseek',
+    name: 'DeepSeek API',
+    env: 'DEEPSEEK_API_KEY',
+    url: 'https://platform.deepseek.com/api_keys',
+  }),
   Object.freeze({ id: 'xai', name: 'xAI API', env: 'XAI_API_KEY', url: 'https://console.x.ai' }),
 ]);
 
-const OAUTH_PROVIDERS = Object.freeze([
-  Object.freeze({ id: 'openai-oauth', name: 'OpenAI OAuth', desc: 'Mixdog OAuth credentials', has: hasOpenAIOAuthCredentials, describe: describeOpenAIOAuthCredentials, forget: forgetOpenAIOAuthCredentials, begin: beginOpenAIOAuthLogin, login: loginOpenAIOAuth }),
-  Object.freeze({ id: 'anthropic-oauth', name: 'Anthropic OAuth', desc: 'Mixdog OAuth credentials', has: hasAnthropicOAuthCredentials, describe: describeAnthropicOAuthCredentials, forget: forgetAnthropicOAuthCredentials, begin: beginAnthropicOAuthLogin, login: loginAnthropicOAuth }),
-  Object.freeze({ id: 'grok-oauth', name: 'Grok OAuth', desc: 'Mixdog OAuth credentials (Grok Build)', has: hasGrokOAuthCredentials, describe: describeGrokOAuthCredentials, forget: forgetGrokOAuthCredentials, begin: beginGrokOAuthLogin, login: loginGrokOAuth }),
-  Object.freeze({ id: 'cursor-oauth', name: 'Cursor OAuth', desc: 'Sign in with your Cursor account', has: hasCursorOAuthCredentials, describe: describeCursorOAuthCredentials, forget: forgetCursorOAuthCredentials, begin: beginCursorOAuthLogin, login: loginCursorOAuth }),
-  Object.freeze({ id: 'antigravity-oauth', name: 'Antigravity OAuth', desc: 'Sign in with Google (Gemini + Claude)', has: hasAntigravityOAuthCredentials, describe: describeAntigravityOAuthCredentials, forget: forgetAntigravityOAuthCredentials, begin: beginAntigravityOAuthLogin, login: loginAntigravityOAuth }),
-// Dev-only entries (cursor-oauth, antigravity-oauth) are dropped unless
-// MIXDOG_DEV_PROVIDERS is set, so they are unknown to settings/login by default.
-].filter((p) => isOAuthProviderAvailable(p.id)));
+const OAUTH_PROVIDERS = Object.freeze(
+  [
+    Object.freeze({
+      id: 'openai-oauth',
+      name: 'OpenAI OAuth',
+      desc: 'Mixdog OAuth credentials',
+      has: hasOpenAIOAuthCredentials,
+      describe: describeOpenAIOAuthCredentials,
+      forget: forgetOpenAIOAuthCredentials,
+      begin: beginOpenAIOAuthLogin,
+      login: loginOpenAIOAuth,
+    }),
+    Object.freeze({
+      id: 'anthropic-oauth',
+      name: 'Anthropic OAuth',
+      desc: 'Mixdog OAuth credentials',
+      has: hasAnthropicOAuthCredentials,
+      describe: describeAnthropicOAuthCredentials,
+      forget: forgetAnthropicOAuthCredentials,
+      begin: beginAnthropicOAuthLogin,
+      login: loginAnthropicOAuth,
+    }),
+    Object.freeze({
+      id: 'grok-oauth',
+      name: 'Grok OAuth',
+      desc: 'Mixdog OAuth credentials (Grok Build)',
+      has: hasGrokOAuthCredentials,
+      describe: describeGrokOAuthCredentials,
+      forget: forgetGrokOAuthCredentials,
+      begin: beginGrokOAuthLogin,
+      login: loginGrokOAuth,
+    }),
+    Object.freeze({
+      id: 'cursor-oauth',
+      name: 'Cursor OAuth',
+      desc: 'Sign in with your Cursor account',
+      has: hasCursorOAuthCredentials,
+      describe: describeCursorOAuthCredentials,
+      forget: forgetCursorOAuthCredentials,
+      begin: beginCursorOAuthLogin,
+      login: loginCursorOAuth,
+    }),
+    Object.freeze({
+      id: 'antigravity-oauth',
+      name: 'Antigravity OAuth',
+      desc: 'Sign in with Google (Gemini + Claude)',
+      has: hasAntigravityOAuthCredentials,
+      describe: describeAntigravityOAuthCredentials,
+      forget: forgetAntigravityOAuthCredentials,
+      begin: beginAntigravityOAuthLogin,
+      login: loginAntigravityOAuth,
+    }),
+    // Dev-only entries (cursor-oauth, antigravity-oauth) are dropped unless
+    // MIXDOG_DEV_PROVIDERS is set, so they are unknown to settings/login by default.
+  ].filter((p) => isOAuthProviderAvailable(p.id))
+);
 
 export const LOCAL_PROVIDERS = Object.freeze([]);
 const BUILTIN_PROVIDER_IDS = new Set(['mixdog-local']);
@@ -98,9 +163,7 @@ function updateConfigProvider(cfgMod, providerId, patch) {
 function builtInLocalProviderSetup(config, options) {
   const provider = config.providers?.['mixdog-local'] || {};
   const installed = config.builtins?.localProvider?.installed === true;
-  const enabled = provider.enabled === true
-    && installed
-    && config.modules?.localProvider?.enabled !== false;
+  const enabled = provider.enabled === true && installed && config.modules?.localProvider?.enabled !== false;
   let runtime = null;
   if (options?.detectLocal !== false) {
     try {
@@ -157,14 +220,14 @@ export async function providerSetup(config = {}, options = {}) {
   const oauth = OAUTH_PROVIDERS.map((p) => {
     const configured = providers[p.id] || {};
     const auth = checkSecrets
-      ? (typeof p.describe === 'function'
+      ? typeof p.describe === 'function'
         ? p.describe()
-        : { authenticated: Boolean(p.has()), status: Boolean(p.has()) ? 'Set' : 'Not Set', detail: p.desc })
+        : { authenticated: Boolean(p.has()), status: p.has() ? 'Set' : 'Not Set', detail: p.desc }
       : {
-        authenticated: configured.enabled === true,
-        status: configured.enabled === true ? 'Enabled' : 'Not Set',
-        detail: p.desc,
-      };
+          authenticated: configured.enabled === true,
+          status: configured.enabled === true ? 'Enabled' : 'Not Set',
+          detail: p.desc,
+        };
     const authenticated = Boolean(auth.authenticated);
     return {
       id: p.id,
@@ -206,9 +269,10 @@ export function providerStatus(config = {}) {
     });
   }
   for (const p of OAUTH_PROVIDERS) {
-    const auth = typeof p.describe === 'function'
-      ? p.describe()
-      : { authenticated: Boolean(p.has()), status: Boolean(p.has()) ? 'Set' : 'Not Set', detail: p.desc };
+    const auth =
+      typeof p.describe === 'function'
+        ? p.describe()
+        : { authenticated: Boolean(p.has()), status: p.has() ? 'Set' : 'Not Set', detail: p.desc };
     const authenticated = Boolean(auth.authenticated);
     const configured = config.providers?.[p.id] || {};
     rows.push({
@@ -247,16 +311,26 @@ export function providerStatus(config = {}) {
 export function renderProviderStatus(config = {}) {
   const rows = providerStatus(config);
   const width = rows.reduce((n, row) => Math.max(n, row.id.length), 0);
-  return rows.map((row) => {
-    const auth = row.type === 'oauth'
-      ? String(row.status || (row.authenticated ? 'auth ok' : 'not auth')).toLowerCase()
-      : row.authenticated ? 'auth ok' : 'not auth';
-    const source = row.type === 'oauth'
-      ? (row.detail || 'oauth')
-      : row.env ? `env:${row.envName}` : row.stored ? 'keychain' : 'no key';
-    const enabled = row.enabled ? 'enabled' : 'disabled';
-    return `${row.id.padEnd(width)}  ${row.type.padEnd(7)}  ${auth.padEnd(8)}  ${enabled.padEnd(8)}  ${source}`;
-  }).join('\n');
+  return rows
+    .map((row) => {
+      const auth =
+        row.type === 'oauth'
+          ? String(row.status || (row.authenticated ? 'auth ok' : 'not auth')).toLowerCase()
+          : row.authenticated
+            ? 'auth ok'
+            : 'not auth';
+      const source =
+        row.type === 'oauth'
+          ? row.detail || 'oauth'
+          : row.env
+            ? `env:${row.envName}`
+            : row.stored
+              ? 'keychain'
+              : 'no key';
+      const enabled = row.enabled ? 'enabled' : 'disabled';
+      return `${row.id.padEnd(width)}  ${row.type.padEnd(7)}  ${auth.padEnd(8)}  ${enabled.padEnd(8)}  ${source}`;
+    })
+    .join('\n');
 }
 
 export async function authenticateProvider(provider, secret) {
@@ -285,9 +359,10 @@ export async function loginOAuthProvider(cfgMod, provider) {
   if (!oauth) throw new Error(`unknown OAuth provider "${id}"`);
   const result = await oauth.login();
   if (!result) throw new Error(`${id} login did not complete`);
-  const auth = typeof oauth.describe === 'function'
-    ? oauth.describe()
-    : { authenticated: Boolean(oauth.has()), status: Boolean(oauth.has()) ? 'Set' : 'Not Set' };
+  const auth =
+    typeof oauth.describe === 'function'
+      ? oauth.describe()
+      : { authenticated: Boolean(oauth.has()), status: oauth.has() ? 'Set' : 'Not Set' };
   // Only a SUCCESSFUL login states `enabled`. A login that ends unauthenticated
   // (wrong or expired code, a token returned without the inference scope) is not
   // a decision to turn the provider off: writing enabled:false here stored a
@@ -304,15 +379,21 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
   const oauth = OAUTH_BY_ID.get(id);
   if (!oauth) throw new Error(`unknown OAuth provider "${id}"`);
   if (typeof oauth.begin !== 'function') throw new Error(`${id} does not support interactive code login`);
-  if (!options || typeof options !== 'object' || Array.isArray(options)
-    || Object.keys(options).some((key) => !['addAccount', 'label', 'accountId'].includes(key))
-    || (options.addAccount !== undefined && typeof options.addAccount !== 'boolean')
-    || (options.label !== undefined && (typeof options.label !== 'string' || options.label.length > 80))) {
+  if (
+    !options ||
+    typeof options !== 'object' ||
+    Array.isArray(options) ||
+    Object.keys(options).some((key) => !['addAccount', 'label', 'accountId'].includes(key)) ||
+    (options.addAccount !== undefined && typeof options.addAccount !== 'boolean') ||
+    (options.label !== undefined && (typeof options.label !== 'string' || options.label.length > 80))
+  ) {
     throw new TypeError('Invalid OAuth account login options.');
   }
   const idBefore = currentProviderAccountId(id);
-  if (options.accountId !== undefined && (options.addAccount
-    || !listProviderAccounts(id).accounts.some((account) => account.id === options.accountId))) {
+  if (
+    options.accountId !== undefined &&
+    (options.addAccount || !listProviderAccounts(id).accounts.some((account) => account.id === options.accountId))
+  ) {
     throw new TypeError('Account is no longer connected.');
   }
   const accountId = options.addAccount === true ? newProviderAccountId() : options.accountId || idBefore;
@@ -325,9 +406,11 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
   let cancelled = false;
   const finish = async (result) => {
     if (!result || cancelled) return null;
-    const auth = inAccount(() => typeof oauth.describe === 'function'
-      ? oauth.describe()
-      : { authenticated: Boolean(oauth.has()), status: Boolean(oauth.has()) ? 'Set' : 'Not Set' });
+    const auth = inAccount(() =>
+      typeof oauth.describe === 'function'
+        ? oauth.describe()
+        : { authenticated: Boolean(oauth.has()), status: oauth.has() ? 'Set' : 'Not Set' }
+    );
     // Same rule as loginOAuthProvider, and it matters most here: the add-account
     // flow runs against a brand-new account id, so an exchange that does not
     // land leaves THIS account unauthenticated while every already-connected one
@@ -337,7 +420,13 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
       registerProviderAccount(id, accountId, { includeDefault, label: options.label });
       updateConfigProvider(cfgMod, id, { enabled: true });
     }
-    return { provider: id, type: 'oauth', authenticated: Boolean(auth.authenticated), status: auth.status || null, result };
+    return {
+      provider: id,
+      type: 'oauth',
+      authenticated: Boolean(auth.authenticated),
+      status: auth.status || null,
+      result,
+    };
   };
   return {
     provider: id,
@@ -345,12 +434,17 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
     url: started.url,
     manualUrl: started.manualUrl || null,
     waitForCallback: started.waitForCallback?.then(finish),
-    cancel: () => { cancelled = true; return inAccount(() => started.cancel?.()); },
-    ...(typeof started.completeCode === 'function' ? {
-      completeCode: async (code) => {
-        return await finish(await inAccount(() => started.completeCode(code)));
-      },
-    } : {}),
+    cancel: () => {
+      cancelled = true;
+      return inAccount(() => started.cancel?.());
+    },
+    ...(typeof started.completeCode === 'function'
+      ? {
+          completeCode: async (code) => {
+            return await finish(await inAccount(() => started.completeCode(code)));
+          },
+        }
+      : {}),
   };
 }
 
@@ -358,23 +452,31 @@ export function listProviderAccounts(provider) {
   const oauth = OAUTH_BY_ID.get(provider);
   if (!oauth) throw new TypeError('Unknown OAuth provider.');
   const pool = readProviderAccountPool(provider);
-  const accounts = pool.accounts.length ? pool.accounts
+  const accounts = pool.accounts.length
+    ? pool.accounts
     : withProviderAccount(provider, 'default', () => oauth.describe?.().authenticated)
-      ? [{ id: 'default', label: 'Account 1' }] : [];
+      ? [{ id: 'default', label: 'Account 1' }]
+      : [];
   return {
-    provider, auto: pool.auto !== false, selectedId: pool.selectedId || accounts[0]?.id || null,
+    provider,
+    auto: pool.auto !== false,
+    selectedId: pool.selectedId || accounts[0]?.id || null,
     accounts: accounts.map((row) => {
       const auth = withProviderAccount(provider, row.id, () => oauth.describe?.() || {});
       // A provider-side identity (email, account id) helps tell two accounts
       // apart when the user has not named them; shown as a secondary line.
-      const identity = typeof auth.email === 'string' && auth.email.trim()
-        ? auth.email.trim()
-        : typeof auth.accountId === 'string' && auth.accountId.trim()
-          ? auth.accountId.trim()
-          : null;
+      const identity =
+        typeof auth.email === 'string' && auth.email.trim()
+          ? auth.email.trim()
+          : typeof auth.accountId === 'string' && auth.accountId.trim()
+            ? auth.accountId.trim()
+            : null;
       return {
-        id: row.id, label: row.label, authenticated: auth.authenticated === true,
-        reauthRequired: auth.reauthRequired === true, usage: row.usage || null,
+        id: row.id,
+        label: row.label,
+        authenticated: auth.authenticated === true,
+        reauthRequired: auth.reauthRequired === true,
+        usage: row.usage || null,
         blockedUntil: row.blockedUntil || null,
         ...(identity ? { identity } : {}),
       };
@@ -411,7 +513,8 @@ export function saveOpenAIUsageSessionKey(cfgMod, secret) {
 
 export function saveOpenCodeGoUsageAuth(cfgMod, { workspaceId, authCookie } = {}) {
   const workspace = String(workspaceId || '').trim();
-  if (workspace && !/^wrk_[a-zA-Z0-9]+$/.test(workspace)) throw new Error('OpenCode Go workspaceId must look like wrk_...');
+  if (workspace && !/^wrk_[a-zA-Z0-9]+$/.test(workspace))
+    throw new Error('OpenCode Go workspaceId must look like wrk_...');
   const cookie = String(authCookie || '').trim();
   if (!cookie) throw new Error('OpenCode auth cookie is required for usage lookup');
   const authMatch = /(?:^|;\s*)auth=([^;]+)/.exec(cookie);
@@ -440,7 +543,10 @@ export function forgetProviderAuth(cfgModOrProvider, maybeProvider, requestedAcc
   if (oauth) {
     if (typeof oauth.forget !== 'function') throw new Error(`forget is not supported for OAuth provider ${id}`);
     const accountId = requestedAccountId ?? currentProviderAccountId(id);
-    if (requestedAccountId !== undefined && !listProviderAccounts(id).accounts.some((account) => account.id === accountId)) {
+    if (
+      requestedAccountId !== undefined &&
+      !listProviderAccounts(id).accounts.some((account) => account.id === accountId)
+    ) {
       throw new TypeError('Account is no longer connected.');
     }
     const result = withProviderAccount(id, accountId, () => oauth.forget());

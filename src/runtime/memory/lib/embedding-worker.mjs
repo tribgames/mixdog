@@ -1,14 +1,14 @@
 import { __mixdogMemoryLog } from './memory-log.mjs';
 
-import { parentPort, workerData } from 'worker_threads'
-import { createRequire } from 'module'
-import { join } from 'path'
-import { mkdirSync } from 'fs'
-import os from 'os'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
-import { resolvePluginData } from '../../shared/plugin-paths.mjs'
-import { compressEmbeddingModelCache } from './embedding-model-cache-compression.mjs'
+import { parentPort, workerData } from 'worker_threads';
+import { createRequire } from 'module';
+import { join } from 'path';
+import { mkdirSync } from 'fs';
+import os from 'os';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { resolvePluginData } from '../../shared/plugin-paths.mjs';
+import { compressEmbeddingModelCache } from './embedding-model-cache-compression.mjs';
 import {
   getConfiguredEmbeddingModelId,
   getDefaultEmbeddingDevice,
@@ -19,9 +19,9 @@ import {
   normalizeEmbeddingDtype,
   normalizeEmbeddingInputType,
   prepareEmbeddingInput,
-} from './embedding-model-config.mjs'
+} from './embedding-model-config.mjs';
 
-const MODEL_ID = getConfiguredEmbeddingModelId()
+const MODEL_ID = getConfiguredEmbeddingModelId();
 
 // Reroute ALL worker-thread stdio through parentPort. Without stdout:true/
 // stderr:true the worker's stream writes are copied straight into the
@@ -33,37 +33,45 @@ const MODEL_ID = getConfiguredEmbeddingModelId()
 // same pattern). __mixdogMemoryLog above intentionally keeps the raw bound
 // writer: it is already gated by MIXDOG_QUIET_MEMORY_LOG in TUI runs.
 const __forwardWorkerWrite = (chunk, encoding, callback) => {
-  const done = typeof encoding === 'function' ? encoding : callback
+  const done = typeof encoding === 'function' ? encoding : callback;
   try {
-    parentPort?.postMessage({ type: 'log', chunk: typeof chunk === 'string' ? chunk : String(chunk ?? '') })
-  } catch { /* drop — logging must never break embedding */ }
-  if (typeof done === 'function') { try { done() } catch { /* ignore */ } }
-  return true
-}
-process.stdout.write = __forwardWorkerWrite
-process.stderr.write = __forwardWorkerWrite
-const DEFAULT_DEVICE = getDefaultEmbeddingDevice(MODEL_ID)
-const DEFAULT_DTYPE = getDefaultEmbeddingDtype(MODEL_ID)
-const MODEL_LOAD_OPTIONS = getEmbeddingModelLoadOptions(MODEL_ID)
-const MODEL_OUTPUT_NAME = getEmbeddingOutputName(MODEL_ID)
-const INTRA_OP_THREADS = 1
-const INTER_OP_THREADS = 1
+    parentPort?.postMessage({ type: 'log', chunk: typeof chunk === 'string' ? chunk : String(chunk ?? '') });
+  } catch {
+    /* drop — logging must never break embedding */
+  }
+  if (typeof done === 'function') {
+    try {
+      done();
+    } catch {
+      /* ignore */
+    }
+  }
+  return true;
+};
+process.stdout.write = __forwardWorkerWrite;
+process.stderr.write = __forwardWorkerWrite;
+const DEFAULT_DEVICE = getDefaultEmbeddingDevice(MODEL_ID);
+const DEFAULT_DTYPE = getDefaultEmbeddingDtype(MODEL_ID);
+const MODEL_LOAD_OPTIONS = getEmbeddingModelLoadOptions(MODEL_ID);
+const MODEL_OUTPUT_NAME = getEmbeddingOutputName(MODEL_ID);
+const INTRA_OP_THREADS = 1;
+const INTER_OP_THREADS = 1;
 // Session-create graph optimization. ORT defaults to 'all' (full node fusion),
 // which is the bulk of the cold-load CPU spike. 'basic' trims that fusion work
 // — the load gets noticeably cheaper on CPU at a negligible inference cost for
 // short-text embeddings.
-const GRAPH_OPT_LEVEL = 'basic'
-const execFileAsync = promisify(execFile)
+const GRAPH_OPT_LEVEL = 'basic';
+const execFileAsync = promisify(execFile);
 // Cores the worker is pinned to *during* the cold model load, to cap the
 // CPU/heat (fan) of DirectML graph compilation + weight dequant — work the ORT
 // thread settings cannot bound (the GPU driver compiles on its own threads).
 // Full affinity is restored the instant the load resolves, so steady-state
 // inference is unaffected. Lower = quieter fan, slower load.
 // MIXDOG_EMBED_LOAD_CORES overrides (default 1 = single core).
-const _envLoadCores = Number(process.env.MIXDOG_EMBED_LOAD_CORES)
-const LOAD_AFFINITY_CORES = Number.isInteger(_envLoadCores) && _envLoadCores >= 1 ? _envLoadCores : 1
-const MODEL_CACHE_DIR = join(resolvePluginData(), 'memory-models')
-let modelCacheCompressionStarted = false
+const _envLoadCores = Number(process.env.MIXDOG_EMBED_LOAD_CORES);
+const LOAD_AFFINITY_CORES = Number.isInteger(_envLoadCores) && _envLoadCores >= 1 ? _envLoadCores : 1;
+const MODEL_CACHE_DIR = join(resolvePluginData(), 'memory-models');
+let modelCacheCompressionStarted = false;
 // Reclaim the model after an idle window. The parent retires this worker thread
 // so the next recall reloads on demand without keeping hundreds of MB resident
 // throughout an otherwise idle desktop session. The window is 5 minutes rather
@@ -71,46 +79,45 @@ let modelCacheCompressionStarted = false
 // bounded cold-start window, then falls back to lexical-only if the reload is
 // not done. A 60s window expired between ordinary conversational turns.
 // MIXDOG_EMBED_IDLE_TIMEOUT_MS overrides; 0 disables the release entirely.
-const _envIdleMs = Number(process.env.MIXDOG_EMBED_IDLE_TIMEOUT_MS)
-const IDLE_TIMEOUT_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0 ? _envIdleMs : 300_000
+const _envIdleMs = Number(process.env.MIXDOG_EMBED_IDLE_TIMEOUT_MS);
+const IDLE_TIMEOUT_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0 ? _envIdleMs : 300_000;
 
 // Defensive belt against giant model inputs. Callers should already bound text
 // (see memory-embed truncateForEmbed), but the worker is the last line before
 // ORT: an unbounded string builds a [batch, seq] tensor large enough to trigger
 // multi-GB allocations and an input-tensor dump in the ORT error path. Cap each
 // text to a char budget and ask the tokenizer to truncate to the model window.
-const _envWorkerMaxChars = Number(process.env.MIXDOG_EMBED_MAX_CHARS)
-const WORKER_MAX_CHARS = (Number.isFinite(_envWorkerMaxChars) && _envWorkerMaxChars > 0)
-  ? Math.floor(_envWorkerMaxChars)
-  : 8000
-const EXTRACT_OPTS = { pooling: getEmbeddingPooling(MODEL_ID), normalize: true, truncation: true }
+const _envWorkerMaxChars = Number(process.env.MIXDOG_EMBED_MAX_CHARS);
+const WORKER_MAX_CHARS =
+  Number.isFinite(_envWorkerMaxChars) && _envWorkerMaxChars > 0 ? Math.floor(_envWorkerMaxChars) : 8000;
+const EXTRACT_OPTS = { pooling: getEmbeddingPooling(MODEL_ID), normalize: true, truncation: true };
 function capEmbedText(text) {
-  if (typeof text !== 'string') return ''
-  return text.length > WORKER_MAX_CHARS ? text.slice(0, WORKER_MAX_CHARS) : text
+  if (typeof text !== 'string') return '';
+  return text.length > WORKER_MAX_CHARS ? text.slice(0, WORKER_MAX_CHARS) : text;
 }
 
 function prepareWorkerText(text, inputType) {
-  return capEmbedText(prepareEmbeddingInput(text, inputType, MODEL_ID))
+  return capEmbedText(prepareEmbeddingInput(text, inputType, MODEL_ID));
 }
 
-let extractorPromise = null
-let configuredDtype = normalizeEmbeddingDtype(MODEL_ID, workerData?.dtype ?? DEFAULT_DTYPE)
-let _device = 'cpu'
-let _idleTimer = null
-let _embedInFlight = false
-let _reclaiming = false
-const _msgQueue = []
-let ortPatched = false
+let extractorPromise = null;
+let configuredDtype = normalizeEmbeddingDtype(MODEL_ID, workerData?.dtype ?? DEFAULT_DTYPE);
+let _device = 'cpu';
+let _idleTimer = null;
+let _embedInFlight = false;
+let _reclaiming = false;
+const _msgQueue = [];
+let ortPatched = false;
 // Control ops must never be overtaken by a priority embed: crossing a queued
 // configure/dispose/warmup would run inference against pre-configure or
 // post-dispose model state.
-const CONTROL_ACTIONS = new Set(['configure', 'dispose', 'warmup'])
+const CONTROL_ACTIONS = new Set(['configure', 'dispose', 'warmup']);
 // Anti-starvation cap: max times a single queued flush embed-batch may be
 // overtaken by priority embeds before it is allowed to run. Bounds how long a
 // flush (which may hold DB row locks in flushEmbeddingDirty) can be delayed
 // under sustained interactive traffic. MIXDOG_EMBED_PRIORITY_SKIP_CAP overrides.
-const _envSkipCap = Number(process.env.MIXDOG_EMBED_PRIORITY_SKIP_CAP)
-const PRIORITY_SKIP_CAP = Number.isFinite(_envSkipCap) && _envSkipCap >= 1 ? Math.floor(_envSkipCap) : 8
+const _envSkipCap = Number(process.env.MIXDOG_EMBED_PRIORITY_SKIP_CAP);
+const PRIORITY_SKIP_CAP = Number.isFinite(_envSkipCap) && _envSkipCap >= 1 ? Math.floor(_envSkipCap) : 8;
 // Bounded backlog: the queue previously grew without limit while a slow embed
 // held the in-flight guard — a flush storm could park thousands of messages
 // (each carrying full text payloads) in worker memory until the caller's 60s
@@ -118,8 +125,8 @@ const PRIORITY_SKIP_CAP = Number.isFinite(_envSkipCap) && _envSkipCap >= 1 ? Mat
 // with an immediate error reply instead; control ops (configure/dispose/
 // warmup) always queue so lifecycle invariants can never be dropped.
 // MIXDOG_EMBED_QUEUE_MAX overrides (default 128).
-const _envQueueMax = Number(process.env.MIXDOG_EMBED_QUEUE_MAX)
-const QUEUE_MAX = Number.isFinite(_envQueueMax) && _envQueueMax >= 1 ? Math.floor(_envQueueMax) : 128
+const _envQueueMax = Number(process.env.MIXDOG_EMBED_QUEUE_MAX);
+const QUEUE_MAX = Number.isFinite(_envQueueMax) && _envQueueMax >= 1 ? Math.floor(_envQueueMax) : 128;
 // Queue with a single priority lane. Interactive query embeds (msg.priority)
 // jump ahead of background flush embed-batch work so an in-progress large
 // flush cannot starve a live recall's query vector. Constraints:
@@ -134,72 +141,79 @@ function enqueue(msg) {
         id: msg?.id,
         type: 'error',
         message: `embed worker queue full (max ${QUEUE_MAX}); retry after the embedding backlog drains`,
-      })
-    } catch { /* reply must never break the worker */ }
-    return
+      });
+    } catch {
+      /* reply must never break the worker */
+    }
+    return;
   }
-  if (!msg?.priority) { _msgQueue.push(msg); return }
+  if (!msg?.priority) {
+    _msgQueue.push(msg);
+    return;
+  }
   // Barrier: insertion must land after the last queued control op.
-  let lastControl = -1
+  let lastControl = -1;
   for (let i = 0; i < _msgQueue.length; i++) {
-    if (CONTROL_ACTIONS.has(_msgQueue[i].action)) lastControl = i
+    if (CONTROL_ACTIONS.has(_msgQueue[i].action)) lastControl = i;
   }
   // In the tail after that barrier, priority embeds cluster first, then the
   // background embed-batch entries — advance to the first embed-batch so this
   // embed sits behind existing priority embeds but ahead of flush work.
-  let pos = lastControl + 1
-  while (pos < _msgQueue.length && _msgQueue[pos].action !== 'embed-batch') pos++
+  let pos = lastControl + 1;
+  while (pos < _msgQueue.length && _msgQueue[pos].action !== 'embed-batch') pos++;
   if (pos < _msgQueue.length) {
-    const batch = _msgQueue[pos]
+    const batch = _msgQueue[pos];
     if ((batch._priorityJumps || 0) >= PRIORITY_SKIP_CAP) {
       // This flush batch has been overtaken enough — yield so it makes
       // progress (and can release any row locks) before more query embeds run.
-      _msgQueue.splice(pos + 1, 0, msg)
-      return
+      _msgQueue.splice(pos + 1, 0, msg);
+      return;
     }
-    batch._priorityJumps = (batch._priorityJumps || 0) + 1
+    batch._priorityJumps = (batch._priorityJumps || 0) + 1;
   }
-  _msgQueue.splice(pos, 0, msg)
+  _msgQueue.splice(pos, 0, msg);
 }
 // Actions that must hold the in-flight guard for their entire async duration.
 // Inference actions hold it so concurrent embeds serialize; configure/dispose
 // hold it so a new embed arriving mid-await cannot race extractorPromise
 // reset / ext.dispose() while the prior extractor is still being torn down.
-const GUARDED_ACTIONS = new Set(['embed', 'embed-batch', 'warmup', 'configure', 'dispose'])
+const GUARDED_ACTIONS = new Set(['embed', 'embed-batch', 'warmup', 'configure', 'dispose']);
 
 async function disposeLoadedExtractor(reason) {
-  if (!extractorPromise || _reclaiming) return false
-  _reclaiming = true
-  const loaded = extractorPromise
-  extractorPromise = null
-  const prevDevice = _device
-  _device = 'cpu'
+  if (!extractorPromise || _reclaiming) return false;
+  _reclaiming = true;
+  const loaded = extractorPromise;
+  extractorPromise = null;
+  const prevDevice = _device;
+  _device = 'cpu';
   try {
     try {
-      const ext = await loaded
-      try { await Promise.resolve(ext.dispose()) } catch {}
+      const ext = await loaded;
+      try {
+        await Promise.resolve(ext.dispose());
+      } catch {}
     } catch {}
-    __mixdogMemoryLog(`[embed-worker] ${reason} — model disposed\n`)
+    __mixdogMemoryLog(`[embed-worker] ${reason} — model disposed\n`);
     parentPort.postMessage({
       type: 'idle-dispose',
       reason,
       device: prevDevice,
       dtype: configuredDtype,
-    })
-    return true
+    });
+    return true;
   } finally {
-    _reclaiming = false
+    _reclaiming = false;
   }
 }
 
 function resetIdleTimer() {
-  if (_idleTimer) clearTimeout(_idleTimer)
-  if (IDLE_TIMEOUT_MS <= 0) return
+  if (_idleTimer) clearTimeout(_idleTimer);
+  if (IDLE_TIMEOUT_MS <= 0) return;
   _idleTimer = setTimeout(() => {
-    if (!_embedInFlight) void disposeLoadedExtractor('idle timeout')
-    _idleTimer = null
-  }, IDLE_TIMEOUT_MS)
-  _idleTimer.unref?.()
+    if (!_embedInFlight) void disposeLoadedExtractor('idle timeout');
+    _idleTimer = null;
+  }, IDLE_TIMEOUT_MS);
+  _idleTimer.unref?.();
 }
 
 // Set this process's CPU affinity to `mask` (bitmask of allowed logical
@@ -208,112 +222,132 @@ function resetIdleTimer() {
 // Returns true on success; non-win32 or failure returns false (caller then
 // skips the matching restore).
 async function setSelfAffinity(mask) {
-  if (process.platform !== 'win32') return false
+  if (process.platform !== 'win32') return false;
   try {
-    await execFileAsync('powershell', ['-NoProfile', '-Command',
-      `(Get-Process -Id ${process.pid}).ProcessorAffinity = ${mask}`], { timeout: 8000, windowsHide: true })
-    return true
+    await execFileAsync(
+      'powershell',
+      ['-NoProfile', '-Command', `(Get-Process -Id ${process.pid}).ProcessorAffinity = ${mask}`],
+      { timeout: 8000, windowsHide: true }
+    );
+    return true;
   } catch {
-    return false
+    return false;
   }
 }
 
 function patchOrtThreads() {
-  if (ortPatched) return
+  if (ortPatched) return;
   try {
-    const require = createRequire(import.meta.url)
-    let ort = null
+    const require = createRequire(import.meta.url);
+    let ort = null;
     try {
-      const transformersEntry = require.resolve('@huggingface/transformers')
-      const transformersRequire = createRequire(transformersEntry)
-      ort = transformersRequire('onnxruntime-node')
+      const transformersEntry = require.resolve('@huggingface/transformers');
+      const transformersRequire = createRequire(transformersEntry);
+      ort = transformersRequire('onnxruntime-node');
     } catch {
-      ort = require('onnxruntime-node')
+      ort = require('onnxruntime-node');
     }
     if (!ort?.InferenceSession?.create) {
-      __mixdogMemoryLog('[embed-worker] ORT patch skipped: InferenceSession.create not found\n')
-      return
+      __mixdogMemoryLog('[embed-worker] ORT patch skipped: InferenceSession.create not found\n');
+      return;
     }
-    const origCreate = ort.InferenceSession.create.bind(ort.InferenceSession)
-    ort.InferenceSession.create = async function (pathOrBuffer, options = {}) {
-      if (!options.intraOpNumThreads) options.intraOpNumThreads = INTRA_OP_THREADS
-      if (!options.interOpNumThreads) options.interOpNumThreads = INTER_OP_THREADS
-      if (!options.graphOptimizationLevel) options.graphOptimizationLevel = GRAPH_OPT_LEVEL
-      if (options.logSeverityLevel === undefined) options.logSeverityLevel = 4
-      return origCreate(pathOrBuffer, options)
-    }
-    ortPatched = true
-    __mixdogMemoryLog(`[embed-worker] ORT patched OK: intra=${INTRA_OP_THREADS} inter=${INTER_OP_THREADS} graphOpt=${GRAPH_OPT_LEVEL}\n`)
+    const origCreate = ort.InferenceSession.create.bind(ort.InferenceSession);
+    ort.InferenceSession.create = async (pathOrBuffer, options = {}) => {
+      if (!options.intraOpNumThreads) options.intraOpNumThreads = INTRA_OP_THREADS;
+      if (!options.interOpNumThreads) options.interOpNumThreads = INTER_OP_THREADS;
+      if (!options.graphOptimizationLevel) options.graphOptimizationLevel = GRAPH_OPT_LEVEL;
+      if (options.logSeverityLevel === undefined) options.logSeverityLevel = 4;
+      return origCreate(pathOrBuffer, options);
+    };
+    ortPatched = true;
+    __mixdogMemoryLog(
+      `[embed-worker] ORT patched OK: intra=${INTRA_OP_THREADS} inter=${INTER_OP_THREADS} graphOpt=${GRAPH_OPT_LEVEL}\n`
+    );
   } catch (err) {
-    __mixdogMemoryLog(`[embed-worker] ORT patch failed: ${err?.message || err}\n`)
+    __mixdogMemoryLog(`[embed-worker] ORT patch failed: ${err?.message || err}\n`);
   }
 }
 
 async function loadExtractor() {
   if (!extractorPromise) {
     extractorPromise = (async () => {
-      parentPort.postMessage({ type: 'profile', record: { phase: 'baseline', model: MODEL_ID, device: _device, dtype: configuredDtype, note: 'pre-load' } })
-      patchOrtThreads()
-      const { AutoModel, AutoTokenizer, pipeline, env } = await import('@huggingface/transformers')
-      try { env.backends.onnx.logLevel = 'fatal' } catch {}
-      env.allowLocalModels = false
-      try { mkdirSync(MODEL_CACHE_DIR, { recursive: true }) } catch {}
-      env.cacheDir = MODEL_CACHE_DIR
-      try { env.backends.onnx.wasm.numThreads = INTRA_OP_THREADS } catch {}
-      const opts = {}
-      Object.assign(opts, MODEL_LOAD_OPTIONS)
+      parentPort.postMessage({
+        type: 'profile',
+        record: { phase: 'baseline', model: MODEL_ID, device: _device, dtype: configuredDtype, note: 'pre-load' },
+      });
+      patchOrtThreads();
+      const { AutoModel, AutoTokenizer, pipeline, env } = await import('@huggingface/transformers');
+      try {
+        env.backends.onnx.logLevel = 'fatal';
+      } catch {}
+      env.allowLocalModels = false;
+      try {
+        mkdirSync(MODEL_CACHE_DIR, { recursive: true });
+      } catch {}
+      env.cacheDir = MODEL_CACHE_DIR;
+      try {
+        env.backends.onnx.wasm.numThreads = INTRA_OP_THREADS;
+      } catch {}
+      const opts = {};
+      Object.assign(opts, MODEL_LOAD_OPTIONS);
       if (configuredDtype) {
-        opts.dtype = configuredDtype
+        opts.dtype = configuredDtype;
       }
-      const startMs = Date.now()
-      let extractor
-      const requestedDevice = String(process.env.MIXDOG_MEMORY_EMBED_DEVICE || DEFAULT_DEVICE).trim().toLowerCase()
-      const preferGpu = requestedDevice === 'dml'
-        || requestedDevice === 'gpu'
-        || (requestedDevice === 'auto' && process.platform === 'win32')
+      const startMs = Date.now();
+      let extractor;
+      const requestedDevice = String(process.env.MIXDOG_MEMORY_EMBED_DEVICE || DEFAULT_DEVICE)
+        .trim()
+        .toLowerCase();
+      const preferGpu =
+        requestedDevice === 'dml' ||
+        requestedDevice === 'gpu' ||
+        (requestedDevice === 'auto' && process.platform === 'win32');
       // Cap CPU affinity for the heavy session-create so DirectML graph
       // compilation cannot saturate every core (the fan lever). The process
       // starts at full affinity, so the full mask is the correct restore
       // baseline; restored in the finally below.
-      const _totalCores = os.cpus().length
-      const _fullAffinity = (2 ** _totalCores) - 1
-      const _loadAffinity = (2 ** Math.min(LOAD_AFFINITY_CORES, _totalCores)) - 1
-      const affinityCapped = await setSelfAffinity(_loadAffinity)
+      const _totalCores = os.cpus().length;
+      const _fullAffinity = 2 ** _totalCores - 1;
+      const _loadAffinity = 2 ** Math.min(LOAD_AFFINITY_CORES, _totalCores) - 1;
+      const affinityCapped = await setSelfAffinity(_loadAffinity);
       // Yield the cold-load CPU spike to foreground work: drop process priority
       // for the heavy session-create, then restore it the instant the load
       // resolves. setPriority is advisory (may EPERM on locked-down hosts), so
       // guard it; the finally restore is the invariant — priority never stays
       // depressed past the load.
-      let priorityLowered = false
-      try { os.setPriority(0, os.constants.priority.PRIORITY_BELOW_NORMAL); priorityLowered = true } catch {}
+      let priorityLowered = false;
+      try {
+        os.setPriority(0, os.constants.priority.PRIORITY_BELOW_NORMAL);
+        priorityLowered = true;
+      } catch {}
       try {
         if (MODEL_OUTPUT_NAME) {
-          const device = preferGpu ? 'dml' : 'cpu'
+          const device = preferGpu ? 'dml' : 'cpu';
           const [tokenizer, model] = await Promise.all([
             AutoTokenizer.from_pretrained(MODEL_ID),
             AutoModel.from_pretrained(MODEL_ID, { ...opts, device }),
-          ])
+          ]);
           extractor = async (input, extractOptions = {}) => {
             const modelInputs = await tokenizer(input, {
               padding: true,
               truncation: extractOptions.truncation !== false,
-            })
-            const outputs = await model(modelInputs)
-            let result = outputs?.[MODEL_OUTPUT_NAME]
+            });
+            const outputs = await model(modelInputs);
+            let result = outputs?.[MODEL_OUTPUT_NAME];
             if (!result?.data?.length) {
-              throw new Error(`embedding output '${MODEL_OUTPUT_NAME}' missing (model=${MODEL_ID})`)
+              throw new Error(`embedding output '${MODEL_OUTPUT_NAME}' missing (model=${MODEL_ID})`);
             }
-            if (extractOptions.normalize) result = result.normalize(2, -1)
-            return result
-          }
-          extractor.dispose = () => model.dispose()
-          _device = device
+            if (extractOptions.normalize) result = result.normalize(2, -1);
+            return result;
+          };
+          extractor.dispose = () => model.dispose();
+          _device = device;
         } else if (preferGpu) {
-          extractor = await pipeline('feature-extraction', MODEL_ID, { ...opts, device: 'dml' })
-          _device = 'dml'
+          extractor = await pipeline('feature-extraction', MODEL_ID, { ...opts, device: 'dml' });
+          _device = 'dml';
         } else {
-          extractor = await pipeline('feature-extraction', MODEL_ID, { ...opts, device: 'cpu' })
-          _device = 'cpu'
+          extractor = await pipeline('feature-extraction', MODEL_ID, { ...opts, device: 'cpu' });
+          _device = 'cpu';
         }
       } finally {
         if (priorityLowered) {
@@ -321,172 +355,214 @@ async function loadExtractor() {
           // BELOW_NORMAL. Retry once, then surface loudly if it still fails
           // rather than silently swallowing a stuck-low state.
           try {
-            os.setPriority(0, os.constants.priority.PRIORITY_NORMAL)
+            os.setPriority(0, os.constants.priority.PRIORITY_NORMAL);
           } catch {
             try {
-              os.setPriority(0, os.constants.priority.PRIORITY_NORMAL)
+              os.setPriority(0, os.constants.priority.PRIORITY_NORMAL);
             } catch (e) {
-              __mixdogMemoryLog(`[embed-worker] WARN: process priority stuck below normal (restore failed: ${e?.message || e})\n`)
+              __mixdogMemoryLog(
+                `[embed-worker] WARN: process priority stuck below normal (restore failed: ${e?.message || e})\n`
+              );
             }
           }
         }
         if (affinityCapped) {
           // Restore is the invariant: never leave the worker pinned to a core
           // subset. setSelfAffinity never throws; retry once, then warn loudly.
-          let restored = await setSelfAffinity(_fullAffinity)
-          if (!restored) restored = await setSelfAffinity(_fullAffinity)
-          if (!restored) __mixdogMemoryLog(`[embed-worker] WARN: CPU affinity stuck on ${LOAD_AFFINITY_CORES} core(s); restore to all cores failed\n`)
+          let restored = await setSelfAffinity(_fullAffinity);
+          if (!restored) restored = await setSelfAffinity(_fullAffinity);
+          if (!restored)
+            __mixdogMemoryLog(
+              `[embed-worker] WARN: CPU affinity stuck on ${LOAD_AFFINITY_CORES} core(s); restore to all cores failed\n`
+            );
         }
       }
-      const loadMs = Date.now() - startMs
-      __mixdogMemoryLog(`[embed-worker] loaded ${MODEL_ID} dtype=${configuredDtype} device=${_device} threads=${INTRA_OP_THREADS} in ${loadMs}ms\n`)
-      parentPort.postMessage({ type: 'profile', record: { phase: 'load', model: MODEL_ID, device: _device, dtype: configuredDtype, wallMs: loadMs } })
+      const loadMs = Date.now() - startMs;
+      __mixdogMemoryLog(
+        `[embed-worker] loaded ${MODEL_ID} dtype=${configuredDtype} device=${_device} threads=${INTRA_OP_THREADS} in ${loadMs}ms\n`
+      );
+      parentPort.postMessage({
+        type: 'profile',
+        record: { phase: 'load', model: MODEL_ID, device: _device, dtype: configuredDtype, wallMs: loadMs },
+      });
       if (!modelCacheCompressionStarted) {
-        modelCacheCompressionStarted = true
+        modelCacheCompressionStarted = true;
         void compressEmbeddingModelCache(MODEL_CACHE_DIR, MODEL_ID)
           .then((result) => {
             if (result.compressed) {
-              __mixdogMemoryLog(`[embed-worker] model cache LZX compressed: ${result.modelDir}\n`)
+              __mixdogMemoryLog(`[embed-worker] model cache LZX compressed: ${result.modelDir}\n`);
             }
           })
           .catch((error) => {
-            __mixdogMemoryLog(`[embed-worker] model cache LZX compression skipped: ${error?.message || error}\n`)
-          })
+            __mixdogMemoryLog(`[embed-worker] model cache LZX compression skipped: ${error?.message || error}\n`);
+          });
       }
-      return extractor
-    })()
+      return extractor;
+    })();
   }
-  return extractorPromise
+  return extractorPromise;
 }
 
 async function processMessage(msg) {
-  const { id, action } = msg
+  const { id, action } = msg;
   try {
     switch (action) {
       case 'embed-batch': {
         if (_embedInFlight) {
-          enqueue(msg)
-          return
+          enqueue(msg);
+          return;
         }
-        _embedInFlight = true
-        resetIdleTimer()
-        const extractor = await loadExtractor()
-        const texts = Array.isArray(msg.texts) ? msg.texts : []
+        _embedInFlight = true;
+        resetIdleTimer();
+        const extractor = await loadExtractor();
+        const texts = Array.isArray(msg.texts) ? msg.texts : [];
         if (texts.length === 0) {
-          parentPort.postMessage({ id, type: 'result', vectors: [], dims: 0, wallMs: 0, device: _device, dtype: configuredDtype })
-          break
+          parentPort.postMessage({
+            id,
+            type: 'result',
+            vectors: [],
+            dims: 0,
+            wallMs: 0,
+            device: _device,
+            dtype: configuredDtype,
+          });
+          break;
         }
-        const t0 = Date.now()
-        const inputType = normalizeEmbeddingInputType(msg.inputType)
-        const output = await extractor(texts.map((text) => prepareWorkerText(text, inputType)), EXTRACT_OPTS)
-        const wallMs = Date.now() - t0
-        if (!output.data?.length) throw new Error(`embed-batch output missing data (model=${MODEL_ID})`)
-        const total = output.data.length
-        if (total % texts.length !== 0) throw new Error(`embed-batch data length ${total} not divisible by texts ${texts.length}`)
-        const dims = total / texts.length
-        const vectors = new Array(texts.length)
-        for (let i = 0; i < texts.length; i++) vectors[i] = Array.from(output.data.subarray(i * dims, (i + 1) * dims))
-        parentPort.postMessage({ id, type: 'result', vectors, dims, wallMs, device: _device, dtype: configuredDtype })
-        break
+        const t0 = Date.now();
+        const inputType = normalizeEmbeddingInputType(msg.inputType);
+        const output = await extractor(
+          texts.map((text) => prepareWorkerText(text, inputType)),
+          EXTRACT_OPTS
+        );
+        const wallMs = Date.now() - t0;
+        if (!output.data?.length) throw new Error(`embed-batch output missing data (model=${MODEL_ID})`);
+        const total = output.data.length;
+        if (total % texts.length !== 0)
+          throw new Error(`embed-batch data length ${total} not divisible by texts ${texts.length}`);
+        const dims = total / texts.length;
+        const vectors = new Array(texts.length);
+        for (let i = 0; i < texts.length; i++) vectors[i] = Array.from(output.data.subarray(i * dims, (i + 1) * dims));
+        parentPort.postMessage({ id, type: 'result', vectors, dims, wallMs, device: _device, dtype: configuredDtype });
+        break;
         // _embedInFlight cleared in drainQueue / catch
       }
       case 'embed': {
         if (_embedInFlight) {
           // Re-queue behind current — serialize all embed calls
-          enqueue(msg)
-          return
+          enqueue(msg);
+          return;
         }
-        _embedInFlight = true
-        resetIdleTimer()
-        const extractor = await loadExtractor()
-        const t0 = Date.now()
-        const inputType = normalizeEmbeddingInputType(msg.inputType)
-        const output = await extractor(prepareWorkerText(msg.text, inputType), EXTRACT_OPTS)
-        const wallMs = Date.now() - t0
-        if (!output.data?.length) throw new Error(`embed output missing data (model=${MODEL_ID})`)
-        const dims = output.data.length
-        const vector = Array.from(output.data)
-        parentPort.postMessage({ id, type: 'result', vector, dims, wallMs, device: _device, dtype: configuredDtype })
-        break
+        _embedInFlight = true;
+        resetIdleTimer();
+        const extractor = await loadExtractor();
+        const t0 = Date.now();
+        const inputType = normalizeEmbeddingInputType(msg.inputType);
+        const output = await extractor(prepareWorkerText(msg.text, inputType), EXTRACT_OPTS);
+        const wallMs = Date.now() - t0;
+        if (!output.data?.length) throw new Error(`embed output missing data (model=${MODEL_ID})`);
+        const dims = output.data.length;
+        const vector = Array.from(output.data);
+        parentPort.postMessage({ id, type: 'result', vector, dims, wallMs, device: _device, dtype: configuredDtype });
+        break;
         // _embedInFlight cleared in finally below
       }
       case 'warmup': {
         if (_embedInFlight) {
-          enqueue(msg)
-          return
+          enqueue(msg);
+          return;
         }
-        _embedInFlight = true
-        resetIdleTimer()
-        const extractor = await loadExtractor()
-        const t0 = Date.now()
-        const warmupOutput = await extractor('warmup', EXTRACT_OPTS)
-        const wallMs = Date.now() - t0
-        if (!warmupOutput.data?.length) throw new Error(`warmup output missing data (model=${MODEL_ID})`)
-        const measuredDims = warmupOutput.data.length
-        parentPort.postMessage({ id, type: 'result', dims: measuredDims, wallMs, device: _device, dtype: configuredDtype })
-        parentPort.postMessage({ type: 'profile', record: { phase: 'warmup', model: MODEL_ID, device: _device, dtype: configuredDtype, wallMs } })
-        resetIdleTimer()
-        break
+        _embedInFlight = true;
+        resetIdleTimer();
+        const extractor = await loadExtractor();
+        const t0 = Date.now();
+        const warmupOutput = await extractor('warmup', EXTRACT_OPTS);
+        const wallMs = Date.now() - t0;
+        if (!warmupOutput.data?.length) throw new Error(`warmup output missing data (model=${MODEL_ID})`);
+        const measuredDims = warmupOutput.data.length;
+        parentPort.postMessage({
+          id,
+          type: 'result',
+          dims: measuredDims,
+          wallMs,
+          device: _device,
+          dtype: configuredDtype,
+        });
+        parentPort.postMessage({
+          type: 'profile',
+          record: { phase: 'warmup', model: MODEL_ID, device: _device, dtype: configuredDtype, wallMs },
+        });
+        resetIdleTimer();
+        break;
       }
       case 'configure': {
         if (_embedInFlight) {
-          enqueue(msg)
-          return
+          enqueue(msg);
+          return;
         }
-        _embedInFlight = true
-        if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null }
+        _embedInFlight = true;
+        if (_idleTimer) {
+          clearTimeout(_idleTimer);
+          _idleTimer = null;
+        }
         if (msg.dtype != null) {
-          configuredDtype = normalizeEmbeddingDtype(MODEL_ID, msg.dtype)
+          configuredDtype = normalizeEmbeddingDtype(MODEL_ID, msg.dtype);
         }
         if (extractorPromise) {
           try {
-            const ext = await extractorPromise
-            try { ext.dispose() } catch {}
+            const ext = await extractorPromise;
+            try {
+              ext.dispose();
+            } catch {}
           } catch {}
-          extractorPromise = null
-          _device = 'cpu'
+          extractorPromise = null;
+          _device = 'cpu';
         }
-        parentPort.postMessage({ id, type: 'result' })
-        break
+        parentPort.postMessage({ id, type: 'result' });
+        break;
       }
       case 'dispose': {
         if (_embedInFlight) {
-          enqueue(msg)
-          return
+          enqueue(msg);
+          return;
         }
-        _embedInFlight = true
-        if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null }
-        const prevDevice = _device
+        _embedInFlight = true;
+        if (_idleTimer) {
+          clearTimeout(_idleTimer);
+          _idleTimer = null;
+        }
+        const prevDevice = _device;
         if (extractorPromise) {
           try {
-            const ext = await extractorPromise
-            try { ext.dispose() } catch {}
+            const ext = await extractorPromise;
+            try {
+              ext.dispose();
+            } catch {}
           } catch {}
-          extractorPromise = null
-          _device = 'cpu'
+          extractorPromise = null;
+          _device = 'cpu';
         }
-        parentPort.postMessage({ id, type: 'result', prevDevice, dtype: configuredDtype })
-        break
+        parentPort.postMessage({ id, type: 'result', prevDevice, dtype: configuredDtype });
+        break;
       }
     }
   } catch (err) {
-    parentPort.postMessage({ id, type: 'error', message: err?.message || String(err) })
-    if (GUARDED_ACTIONS.has(action)) _embedInFlight = false
+    parentPort.postMessage({ id, type: 'error', message: err?.message || String(err) });
+    if (GUARDED_ACTIONS.has(action)) _embedInFlight = false;
   }
 }
 
 async function drainQueue() {
   while (_msgQueue.length > 0) {
-    const next = _msgQueue.shift()
-    _embedInFlight = false
-    await processMessage(next)
+    const next = _msgQueue.shift();
+    _embedInFlight = false;
+    await processMessage(next);
   }
-  _embedInFlight = false
+  _embedInFlight = false;
   // Idle means time since the LAST completed inference, not time since it
   // started. A cold model load can outlive a short idle window; without this
   // re-arm that timer fires while busy, is discarded, and the loaded ORT
   // session then remains resident indefinitely.
-  if (extractorPromise && !_reclaiming) resetIdleTimer()
+  if (extractorPromise && !_reclaiming) resetIdleTimer();
 }
 
 parentPort.on('message', async (msg) => {
@@ -495,9 +571,9 @@ parentPort.on('message', async (msg) => {
   // here, a new embed arriving mid-dispose would bypass the queue and race
   // extractorPromise reset / ext.dispose() against the prior tear-down.
   if (_embedInFlight) {
-    enqueue(msg)
-    return
+    enqueue(msg);
+    return;
   }
-  await processMessage(msg)
-  if (GUARDED_ACTIONS.has(msg.action)) await drainQueue()
-})
+  await processMessage(msg);
+  if (GUARDED_ACTIONS.has(msg.action)) await drainQueue();
+});

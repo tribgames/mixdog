@@ -11,7 +11,11 @@ const measure = baseline
 const astWeight = baseline ? null : await import('../src/renderer/markdown-ast-weight.ts');
 const fixtures = [
   { name: 'long-prose', value: parseMarkdownToHast('long response '.repeat(7_000)), limit: 1024 * 1024 },
-  { name: 'highlighted-code', value: parseMarkdownToHast(`\`\`\`js\n${'const answer = 42;\n'.repeat(1_200)}\`\`\``), limit: 1024 * 1024 },
+  {
+    name: 'highlighted-code',
+    value: parseMarkdownToHast(`\`\`\`js\n${'const answer = 42;\n'.repeat(1_200)}\`\`\``),
+    limit: 1024 * 1024,
+  },
   { name: 'large-diff', value: { files: [], patch: 'context\n'.repeat(128 * 1024) }, limit: 8 * 1024 * 1024 },
   { name: 'oversized-diff', value: { files: [], patch: 'context\n'.repeat(2 * 1024 * 1024) }, limit: 8 * 1024 * 1024 },
 ];
@@ -36,11 +40,14 @@ for (const { name, value, limit } of fixtures) {
     if (sample > 0) samples.push(performance.now() - start);
   }
   samples.sort((a, b) => a - b);
-  console.log(JSON.stringify({
-    mode: baseline ? 'baseline' : 'bounded-weight',
-    name, measurements: 50,
-    medianMs: +samples[1].toFixed(3),
-    cacheable: chars <= limit,
-    ...(workerAccountingMs !== null ? { workerAccountingMsPerResult: workerAccountingMs } : {}),
-  }));
+  console.log(
+    JSON.stringify({
+      mode: baseline ? 'baseline' : 'bounded-weight',
+      name,
+      measurements: 50,
+      medianMs: +samples[1].toFixed(3),
+      cacheable: chars <= limit,
+      ...(workerAccountingMs !== null ? { workerAccountingMsPerResult: workerAccountingMs } : {}),
+    })
+  );
 }

@@ -54,16 +54,20 @@ do {
     assert.equal(result.boxes.length, expected.length);
     for (const box of result.boxes) {
       for (const key of ['x', 'y', 'width', 'height']) {
-        assert.ok(Math.abs(box[key] - expected[box.page - 1][key]) < 0.08,
-          JSON.stringify({ round: rounds, state, key, box, expected: expected[box.page - 1], path }));
+        assert.ok(
+          Math.abs(box[key] - expected[box.page - 1][key]) < 0.08,
+          JSON.stringify({ round: rounds, state, key, box, expected: expected[box.page - 1], path })
+        );
       }
     }
   }
   const layout = await extractPdfTextLayout(path, { shapes: false });
   assert.equal(findPdfText(layout, 'pha beta').matchCount, expected.length);
   const saved = await PDFDocument.load(await readFile(path));
-  assert.deepEqual(saved.getPages().map((page) => page.getRotation().angle),
-    expected.map((_, index) => [0, 90, 180, 270][index % 4]));
+  assert.deepEqual(
+    saved.getPages().map((page) => page.getRotation().angle),
+    expected.map((_, index) => [0, 90, 180, 270][index % 4])
+  );
   rounds += 1;
   pagesChecked += expected.length;
   if (Date.now() >= nextReport) {

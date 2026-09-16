@@ -8,7 +8,9 @@ export async function disposeSessionRuntimeRecord(records, record, args = []) {
   try {
     return await record.runtime?.dispose?.(...args);
   } finally {
-    try { record.unsubscribe?.(); } catch {}
+    try {
+      record.unsubscribe?.();
+    } catch {}
     record.unsubscribe = null;
     record.publishedSource = null;
     records?.delete?.(record.id);

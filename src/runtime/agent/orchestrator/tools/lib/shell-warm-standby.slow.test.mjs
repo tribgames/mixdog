@@ -4,7 +4,8 @@ import test from 'node:test';
 import { STANDBY_ARGS } from './shell-warm-standby.mjs';
 
 test('warm PowerShell preserves cold command status and output', {
-  skip: process.platform !== 'win32', timeout: 60000,
+  skip: process.platform !== 'win32',
+  timeout: 60000,
 }, () => {
   const cases = [
     ['Write-Output "success"', 0],

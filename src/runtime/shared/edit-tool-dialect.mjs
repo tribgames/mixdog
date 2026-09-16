@@ -1,11 +1,12 @@
 const MODEL_EDIT_TOOL_NAMES = new Set(['apply_patch', 'edit']);
 
 function isGptFamilyModel(modelName) {
-  const leaf = String(modelName || '')
-    .trim()
-    .toLowerCase()
-    .split('/')
-    .pop() || '';
+  const leaf =
+    String(modelName || '')
+      .trim()
+      .toLowerCase()
+      .split('/')
+      .pop() || '';
   return /^(?:chat)?gpt(?:[-_.\d]|$)/.test(leaf);
 }
 

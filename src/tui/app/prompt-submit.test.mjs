@@ -17,7 +17,10 @@ import { canSubmitTextEntry, textEntryClearsByEmpty } from './text-entry-policy.
 function deferred() {
   let resolve;
   let reject;
-  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
   return { promise, resolve, reject };
 }
 
@@ -44,11 +47,21 @@ function createHarness({ settingsPrompt = null, store: storeOverrides = {} } = {
     },
     oauthSubmitRef: { current: false },
     clearModelCaches: () => {},
-    openProviderSetupPicker: () => { opened.push('providers'); },
-    openSettingsPicker: () => { opened.push('settings'); },
-    openProjectPicker: () => { opened.push('projects'); },
-    openAutoClearPicker: () => { opened.push('autoclear'); },
-    openProfilePicker: () => { opened.push('profile'); },
+    openProviderSetupPicker: () => {
+      opened.push('providers');
+    },
+    openSettingsPicker: () => {
+      opened.push('settings');
+    },
+    openProjectPicker: () => {
+      opened.push('projects');
+    },
+    openAutoClearPicker: () => {
+      opened.push('autoclear');
+    },
+    openProfilePicker: () => {
+      opened.push('profile');
+    },
     openPluginsPicker: () => {},
     openMcpServersPicker: () => {},
     openProjectSkillsPicker: () => {},
@@ -73,7 +86,10 @@ test('a second settings submit is refused while the first daemon write is in fli
   const harness = createHarness({
     settingsPrompt: { kind: 'system-shell', label: 'System shell' },
     store: {
-      setSystemShell: (command) => { shellCalls.push(command); return gate.promise; },
+      setSystemShell: (command) => {
+        shellCalls.push(command);
+        return gate.promise;
+      },
     },
   });
 
@@ -149,7 +165,12 @@ test('empty submits reach the daemon as the documented reset/clear actions', asy
   const shellCalls = [];
   const shell = createHarness({
     settingsPrompt: { kind: 'system-shell', label: 'System shell' },
-    store: { setSystemShell: (command) => { shellCalls.push(command); return Promise.resolve(true); } },
+    store: {
+      setSystemShell: (command) => {
+        shellCalls.push(command);
+        return Promise.resolve(true);
+      },
+    },
   });
   assert.equal(shell.onSubmit(''), true);
   await flush();
@@ -160,7 +181,12 @@ test('empty submits reach the daemon as the documented reset/clear actions', asy
   const autoClearCalls = [];
   const autoClear = createHarness({
     settingsPrompt: { kind: 'autoclear-provider', label: 'Auto-clear · openai', provider: 'openai' },
-    store: { setAutoClear: (patch) => { autoClearCalls.push(patch); return Promise.resolve({ enabled: true }); } },
+    store: {
+      setAutoClear: (patch) => {
+        autoClearCalls.push(patch);
+        return Promise.resolve({ enabled: true });
+      },
+    },
   });
   assert.equal(autoClear.onSubmit(''), true);
   await flush();
@@ -171,7 +197,12 @@ test('empty submits reach the daemon as the documented reset/clear actions', asy
   const profileCalls = [];
   const profile = createHarness({
     settingsPrompt: { kind: 'profile-title', label: 'Profile · Title' },
-    store: { setProfile: (patch) => { profileCalls.push(patch); return Promise.resolve({ title: '' }); } },
+    store: {
+      setProfile: (patch) => {
+        profileCalls.push(patch);
+        return Promise.resolve({ title: '' });
+      },
+    },
   });
   assert.equal(profile.onSubmit(''), true);
   await flush();

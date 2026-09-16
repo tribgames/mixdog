@@ -1,10 +1,16 @@
 // Owner/worker completion-notification helpers, extracted from the agent-tool
 // facade as a factory so the mgr-bound closures stay per agent instance.
 // Behavior-preserving: bodies identical to the originals; deps injected.
-import { modelVisibleToolCompletionMessage, toolCompletionInstruction } from '../../runtime/shared/tool-execution-contract.mjs';
+import {
+  modelVisibleToolCompletionMessage,
+  toolCompletionInstruction,
+} from '../../runtime/shared/tool-execution-contract.mjs';
 import { renderBackgroundTask, sanitizeTaskMeta } from '../../runtime/shared/background-tasks.mjs';
 import { markCompletionEntry } from '../../runtime/agent/orchestrator/session/manager/pending-messages.mjs';
-import { isDeliveredCompletion, logDuplicateSkip } from '../../runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
+import {
+  isDeliveredCompletion,
+  logDuplicateSkip,
+} from '../../runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
 import { clean } from './helpers.mjs';
 
 export function createNotify(mgr, { notifySessionCompletion } = {}) {
@@ -28,10 +34,15 @@ export function createNotify(mgr, { notifySessionCompletion } = {}) {
       }
       // Mark this as a deferred completion/task notification so a later session
       // resume drops it rather than replaying it out-of-order (owner decision).
-      return Boolean(mgr.enqueuePendingMessage(target, markCompletionEntry(visible, {
-        executionId: meta?.execution_id,
-        meta,
-      })) > 0);
+      return Boolean(
+        mgr.enqueuePendingMessage(
+          target,
+          markCompletionEntry(visible, {
+            executionId: meta?.execution_id,
+            meta,
+          })
+        ) > 0
+      );
     } catch {
       return false;
     }
@@ -45,8 +56,11 @@ export function createNotify(mgr, { notifySessionCompletion } = {}) {
       caller_session_id: owner,
     };
     delete ownerMeta.routing_session_id;
-    try { return notifySessionCompletion(owner, text, ownerMeta) !== false; }
-    catch { return false; }
+    try {
+      return notifySessionCompletion(owner, text, ownerMeta) !== false;
+    } catch {
+      return false;
+    }
   }
 
   function workerNotifyFn(workerSessionId, notifyContext = {}) {
@@ -64,9 +78,7 @@ export function createNotify(mgr, { notifySessionCompletion } = {}) {
   function notifyOwnerAgentCompletionEarly(job, resultValue, notifyContext = {}) {
     if (!job || job._earlyCompletionNotified === true) return false;
     const ownerSessionId = clean(
-      notifyContext?.callerSessionId
-      || notifyContext?.sessionId
-      || notifyContext?.ownerSessionId
+      notifyContext?.callerSessionId || notifyContext?.sessionId || notifyContext?.ownerSessionId
     );
     const finishedAt = new Date().toISOString();
     // An abnormal-empty finish carries an `error` — the early preview must NOT

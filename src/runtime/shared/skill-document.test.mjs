@@ -1,35 +1,31 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  createSkillDocument,
-  parseSkillDocument,
-  updateSkillDocument,
-  validateSkillName,
-} from './skill-document.mjs';
+import { createSkillDocument, parseSkillDocument, updateSkillDocument, validateSkillName } from './skill-document.mjs';
 
 test('parses standard multiline YAML and the Markdown instructions body', () => {
-  const parsed = parseSkillDocument([
-    '---',
-    'name: imported-skill',
-    'description: >',
-    '  Use when an imported skill',
-    '  needs multiline matching.',
-    'metadata:',
-    '  author: example',
-    'allowed-tools:',
-    '  - shell',
-    '---',
-    '',
-    '# Instructions',
-    '',
-    'Read `references/guide.md`.',
-    '',
-  ].join('\n'));
+  const parsed = parseSkillDocument(
+    [
+      '---',
+      'name: imported-skill',
+      'description: >',
+      '  Use when an imported skill',
+      '  needs multiline matching.',
+      'metadata:',
+      '  author: example',
+      'allowed-tools:',
+      '  - shell',
+      '---',
+      '',
+      '# Instructions',
+      '',
+      'Read `references/guide.md`.',
+      '',
+    ].join('\n')
+  );
 
   assert.equal(parsed.name, 'imported-skill');
-  assert.equal(parsed.description,
-    'Use when an imported skill needs multiline matching.');
+  assert.equal(parsed.description, 'Use when an imported skill needs multiline matching.');
   assert.deepEqual(parsed.frontmatter.metadata, { author: 'example' });
   assert.deepEqual(parsed.frontmatter['allowed-tools'], ['shell']);
   assert.match(parsed.body, /^# Instructions/);
@@ -103,13 +99,11 @@ test('when_to_use is an optional trigger line that saves round-trip and clear', 
   assert.equal(parseSkillDocument(cleared).whenToUse, '');
   assert.doesNotMatch(cleared, /when_to_use/);
 
-  assert.throws(() => parseSkillDocument([
-    '---',
-    'name: bad-trigger',
-    'description: Fine.',
-    'when_to_use:',
-    '  - list',
-    '---',
-    'Body.',
-  ].join('\n')), /when_to_use must be a string/);
+  assert.throws(
+    () =>
+      parseSkillDocument(
+        ['---', 'name: bad-trigger', 'description: Fine.', 'when_to_use:', '  - list', '---', 'Body.'].join('\n')
+      ),
+    /when_to_use must be a string/
+  );
 });

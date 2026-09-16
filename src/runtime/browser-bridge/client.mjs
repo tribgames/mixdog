@@ -7,10 +7,7 @@
  * runtime half: a sync availability probe that gates the `browser` tool
  * surface, and the async executor behind actual tool calls.
  */
-import {
-  BROWSER_OBSERVATION_ACTIONS,
-  validateBrowserToolArgs,
-} from './action-schema.mjs';
+import { BROWSER_OBSERVATION_ACTIONS, validateBrowserToolArgs } from './action-schema.mjs';
 import { bridgeDiscoveryChanged, readBridgeDiscovery, readBridgeDiscoveryDetail } from '../bridge-discovery.mjs';
 import { traceBrowserTiming } from './timing.mjs';
 
@@ -21,11 +18,9 @@ const REQUEST_TIMEOUT_MS = 45_000;
 const MAX_REQUEST_BYTES = 256 * 1024;
 const MAX_RESPONSE_BYTES = 150 * 1024 * 1024;
 const MAX_TEXT_CHARS = 250_000;
-const MAX_IMAGE_BASE64_CHARS = Math.ceil(100 * 1024 * 1024 * 4 / 3) + 4;
-const MAX_FILE_BASE64_CHARS = Math.ceil(8 * 1024 * 1024 * 4 / 3) + 4;
-const SAFE_RASTER_IMAGE_TYPES = new Set([
-  'image/gif', 'image/jpeg', 'image/png', 'image/webp',
-]);
+const MAX_IMAGE_BASE64_CHARS = Math.ceil((100 * 1024 * 1024 * 4) / 3) + 4;
+const MAX_FILE_BASE64_CHARS = Math.ceil((8 * 1024 * 1024 * 4) / 3) + 4;
+const SAFE_RASTER_IMAGE_TYPES = new Set(['image/gif', 'image/jpeg', 'image/png', 'image/webp']);
 const RETRYABLE_ACTIONS = new Set(BROWSER_OBSERVATION_ACTIONS);
 const browserTurns = new Map();
 
@@ -37,16 +32,24 @@ export async function finishBrowserTurn(sessionId, turnId) {
   if (!discovery) return;
   turns.delete(turnId);
   if (!turns.size) browserTurns.delete(sessionId);
-  const result = await requestBridge(discovery, JSON.stringify({
-    action: 'finish_turn', session_id: sessionId, turn_id: turnId,
-  }), AbortSignal.timeout(REQUEST_TIMEOUT_MS), { sessionId, turnId, action: 'finish_turn' });
+  const result = await requestBridge(
+    discovery,
+    JSON.stringify({
+      action: 'finish_turn',
+      session_id: sessionId,
+      turn_id: turnId,
+    }),
+    AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    { sessionId, turnId, action: 'finish_turn' }
+  );
   if (result.status !== 200 || result.body?.ok === false || result.body?.error) {
-    throw new Error(`Browser task cleanup failed (HTTP ${result.status}): ${result.body?.error || 'bridge rejected cleanup'}`);
+    throw new Error(
+      `Browser task cleanup failed (HTTP ${result.status}): ${result.body?.error || 'bridge rejected cleanup'}`
+    );
   }
 }
 
-const BRIDGE_UNAVAILABLE_MESSAGE =
-  'browser use is unavailable; open the Mixdog desktop app and enable Browser Use';
+const BRIDGE_UNAVAILABLE_MESSAGE = 'browser use is unavailable; open the Mixdog desktop app and enable Browser Use';
 
 /** Sync gate for the session tool surface (featureDisallowedTools). */
 export function browserBridgeAvailableSync() {
@@ -75,8 +78,7 @@ function attachBrowserMedia(content, value) {
   if (value.image?.data && value.image?.mimeType) {
     const mimeType = String(value.image.mimeType);
     const data = String(value.image.data);
-    if (!['image/jpeg', 'image/png'].includes(mimeType)
-      || data.length > MAX_IMAGE_BASE64_CHARS) {
+    if (!['image/jpeg', 'image/png'].includes(mimeType) || data.length > MAX_IMAGE_BASE64_CHARS) {
       return browserToolError('browser bridge returned an invalid image');
     }
     content.push({
@@ -88,10 +90,12 @@ function attachBrowserMedia(content, value) {
     const mimeType = String(value.file.mimeType);
     const data = String(value.file.data);
     const filename = String(value.file.name || 'download');
-    if (!/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(mimeType)
-      || filename.length > 255
-      || /[\u0000-\u001f/\\]/.test(filename)
-      || data.length > MAX_FILE_BASE64_CHARS) {
+    if (
+      !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(mimeType) ||
+      filename.length > 255 ||
+      /[\u0000-\u001f/\\]/.test(filename) ||
+      data.length > MAX_FILE_BASE64_CHARS
+    ) {
       return browserToolError('browser bridge returned an invalid file');
     }
     if (SAFE_RASTER_IMAGE_TYPES.has(mimeType.toLowerCase())) {
@@ -135,17 +139,13 @@ async function requestBridge(discovery, encodedPayload, signal, timingContext) {
     const contentLength = Number(response.headers.get('content-length'));
     if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
       await response.body?.cancel().catch(() => {});
-      throw new BrowserBridgeResponseError(
-        `browser bridge response exceeds ${MAX_RESPONSE_BYTES} bytes`,
-      );
+      throw new BrowserBridgeResponseError(`browser bridge response exceeds ${MAX_RESPONSE_BYTES} bytes`);
     }
     try {
       body = await response.json();
       return { body, status: response.status };
     } catch {
-      throw new BrowserBridgeResponseError(
-        `browser bridge returned an invalid response (HTTP ${response.status})`,
-      );
+      throw new BrowserBridgeResponseError(`browser bridge returned an invalid response (HTTP ${response.status})`);
     }
   } finally {
     traceBrowserTiming(timingContext, performance.now() - started, body, status);
@@ -154,10 +154,12 @@ async function requestBridge(discovery, encodedPayload, signal, timingContext) {
 
 function uncertainMutation(message) {
   return {
-    content: [{
-      type: 'text',
-      text: `Error: ${message}; the action may have executed and was not replayed`,
-    }],
+    content: [
+      {
+        type: 'text',
+        text: `Error: ${message}; the action may have executed and was not replayed`,
+      },
+    ],
     isError: true,
   };
 }
@@ -193,7 +195,7 @@ export async function executeBrowserTool(args, options = {}) {
         options.signal
           ? AbortSignal.any([AbortSignal.timeout(REQUEST_TIMEOUT_MS), options.signal])
           : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        { sessionId, turnId: payload.turn_id, action: validated.action },
+        { sessionId, turnId: payload.turn_id, action: validated.action }
       );
       break;
     } catch (error) {
@@ -217,9 +219,10 @@ export async function executeBrowserTool(args, options = {}) {
         return uncertainMutation('browser bridge was replaced after command dispatch');
       }
       if (!RETRYABLE_ACTIONS.has(validated.action)) {
-        const message = error instanceof BrowserBridgeResponseError
-          ? error.message
-          : 'browser bridge connection failed after command dispatch';
+        const message =
+          error instanceof BrowserBridgeResponseError
+            ? error.message
+            : 'browser bridge connection failed after command dispatch';
         return uncertainMutation(message);
       }
       if (error instanceof BrowserBridgeResponseError) return browserToolError(error.message);
@@ -235,9 +238,7 @@ export async function executeBrowserTool(args, options = {}) {
       isError: true,
     };
   }
-  const value = body.value && typeof body.value === 'object' && !Array.isArray(body.value)
-    ? body.value
-    : {};
+  const value = body.value && typeof body.value === 'object' && !Array.isArray(body.value) ? body.value : {};
   const text = String(value.text || 'OK');
   if (text.length > MAX_TEXT_CHARS) return browserToolError('browser bridge returned oversized text');
   const content = [{ type: 'text', text }];

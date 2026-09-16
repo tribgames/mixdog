@@ -30,9 +30,7 @@ const LIVE_CONNECT_RETRY_MIN_MS = 10;
 const LIVE_CONNECT_RETRY_MAX_MS = 160;
 
 export function liveSharePipePath(sessionId, sessionFilePath) {
-  return process.platform === 'win32'
-    ? `\\\\.\\pipe\\mixdog-live-${sessionId}`
-    : `${sessionFilePath}.live.sock`;
+  return process.platform === 'win32' ? `\\\\.\\pipe\\mixdog-live-${sessionId}` : `${sessionFilePath}.live.sock`;
 }
 
 function frameLine(frame) {
@@ -54,7 +52,11 @@ function attachLineReader(socket, onFrame, onOverflow) {
       buffer = buffer.slice(index + 1);
       if (!line.trim()) continue;
       let frame = null;
-      try { frame = JSON.parse(line); } catch { continue; }
+      try {
+        frame = JSON.parse(line);
+      } catch {
+        continue;
+      }
       if (frame && typeof frame === 'object') onFrame(frame);
     }
   });
@@ -76,12 +78,9 @@ export function createLiveShare({
   let disposed = false;
   const clientRetryMinimumMs = Math.max(
     LIVE_CONNECT_RETRY_MIN_MS,
-    Number(viewerRetryMinMs) || LIVE_CONNECT_RETRY_MIN_MS,
+    Number(viewerRetryMinMs) || LIVE_CONNECT_RETRY_MIN_MS
   );
-  const clientRetryMaximumMs = Math.max(
-    clientRetryMinimumMs,
-    Number(viewerRetryMaxMs) || LIVE_CONNECT_RETRY_MAX_MS,
-  );
+  const clientRetryMaximumMs = Math.max(clientRetryMinimumMs, Number(viewerRetryMaxMs) || LIVE_CONNECT_RETRY_MAX_MS);
   // ---- owner: pipe server + delta publisher ----
   let server = null;
   let serverId = '';
@@ -99,7 +98,11 @@ export function createLiveShare({
     if (sockets.size === 0) return;
     const line = frameLine(frame);
     for (const socket of sockets) {
-      try { socket.write(line); } catch { /* per-socket close handles it */ }
+      try {
+        socket.write(line);
+      } catch {
+        /* per-socket close handles it */
+      }
     }
   };
 
@@ -112,8 +115,7 @@ export function createLiveShare({
   // DROPPED without re-baselining, so a pipe that keeps its id (/clear) still
   // ships the post-reset delta once the reset settles; a pipe whose id changed
   // is torn down by the next ensureShare().
-  const ownerFrameStale = () => Boolean(serverId)
-    && String(ownerSessionId() || '') !== serverId;
+  const ownerFrameStale = () => Boolean(serverId) && String(ownerSessionId() || '') !== serverId;
 
   // Live-state mirror (attach parity): the transcript alone left an attached
   // viewer blind to the owner's activity — busy/stop state, the queued
@@ -122,9 +124,17 @@ export function createLiveShare({
   // subset so viewer surfaces render them natively. queued entries are
   // projected to display fields only (content parts may carry images).
   const LIVE_STATS_KEYS = [
-    'currentContextSource', 'currentContextTokens', 'currentEstimatedContextTokens',
-    'currentContextUpdatedAt', 'costUsd', 'turns', 'inputTokens', 'outputTokens',
-    'latestInputTokens', 'latestPromptTokens', 'contextTokens',
+    'currentContextSource',
+    'currentContextTokens',
+    'currentEstimatedContextTokens',
+    'currentContextUpdatedAt',
+    'costUsd',
+    'turns',
+    'inputTokens',
+    'outputTokens',
+    'latestInputTokens',
+    'latestPromptTokens',
+    'contextTokens',
   ];
   const liveStateOf = (st) => {
     const stats = st.stats && typeof st.stats === 'object' ? st.stats : {};
@@ -183,9 +193,15 @@ export function createLiveShare({
       if (!structural) {
         for (let i = 0; i < prev.length; i++) {
           if (next[i] === prev[i]) continue;
-          if (!next[i]?.id || next[i].id !== prev[i]?.id) { structural = true; break; }
+          if (!next[i]?.id || next[i].id !== prev[i]?.id) {
+            structural = true;
+            break;
+          }
           changed.push(next[i]);
-          if (changed.length > MAX_FRAME_PATCHES) { structural = true; break; }
+          if (changed.length > MAX_FRAME_PATCHES) {
+            structural = true;
+            break;
+          }
         }
       }
       if (structural) {
@@ -202,10 +218,15 @@ export function createLiveShare({
       const prevTail = lastTail || null;
       // Streaming text grows append-only frame to frame: ship just the new
       // suffix so long responses stay a few bytes per frame, not O(text).
-      if (nextTail && prevTail && nextTail.id === prevTail.id
-        && typeof nextTail.text === 'string' && typeof prevTail.text === 'string'
-        && nextTail.text.length >= prevTail.text.length
-        && nextTail.text.startsWith(prevTail.text)) {
+      if (
+        nextTail &&
+        prevTail &&
+        nextTail.id === prevTail.id &&
+        typeof nextTail.text === 'string' &&
+        typeof prevTail.text === 'string' &&
+        nextTail.text.length >= prevTail.text.length &&
+        nextTail.text.startsWith(prevTail.text)
+      ) {
         const meta = {};
         for (const [key, value] of Object.entries(nextTail)) {
           if (key === 'text') continue;
@@ -249,10 +270,10 @@ export function createLiveShare({
     const target = String(id || '');
     if (disposed || !target || server || serverRetryTimer || String(ownerSessionId() || '') !== target) return;
     const delay = serverRetryDelayMs;
-    serverRetryDelayMs = Math.min(LIVE_CONNECT_RETRY_MAX_MS, Math.max(
-      LIVE_CONNECT_RETRY_MIN_MS,
-      serverRetryDelayMs * 2,
-    ));
+    serverRetryDelayMs = Math.min(
+      LIVE_CONNECT_RETRY_MAX_MS,
+      Math.max(LIVE_CONNECT_RETRY_MIN_MS, serverRetryDelayMs * 2)
+    );
     serverRetryId = target;
     serverRetryTimer = setTimeout(() => {
       serverRetryTimer = null;
@@ -271,16 +292,32 @@ export function createLiveShare({
       serverPath = '';
       return;
     }
-    try { broadcast({ t: 'close' }); } catch { /* sockets closing anyway */ }
+    try {
+      broadcast({ t: 'close' });
+    } catch {
+      /* sockets closing anyway */
+    }
     for (const socket of sockets) {
-      try { socket.destroy(); } catch { /* already gone */ }
+      try {
+        socket.destroy();
+      } catch {
+        /* already gone */
+      }
     }
     sockets.clear();
     const closing = server;
     server = null;
-    try { closing.close(); } catch { /* already closed */ }
+    try {
+      closing.close();
+    } catch {
+      /* already closed */
+    }
     if (process.platform !== 'win32' && serverPath) {
-      try { unlinkSync(serverPath); } catch { /* never created / already gone */ }
+      try {
+        unlinkSync(serverPath);
+      } catch {
+        /* never created / already gone */
+      }
     }
     serverId = '';
     serverPath = '';
@@ -297,51 +334,76 @@ export function createLiveShare({
       socket.on('close', cleanup);
       socket.on('error', () => {
         cleanup();
-        try { socket.destroy(); } catch { /* already gone */ }
-      });
-      attachLineReader(socket, (frame) => {
-        if (frame.t === 'submit' && (
-          (typeof frame.text === 'string' && frame.text.trim())
-          || typeof frame.prompt === 'string'
-          || Array.isArray(frame.prompt)
-        )) {
-          // Optional submission metadata (additive, old viewers omit it): the
-          // originating surface's submission id must survive the pipe so its
-          // optimistic user row releases when the SAME id settles in the
-          // owner's transcript (user: 방금 친 메세지가 2개 남는다).
-          const id = typeof frame.id === 'string' && frame.id.trim() ? frame.id : undefined;
-          const submittedAt = Number(frame.submittedAt);
-          const prompt = frame.prompt ?? frame.text;
-          const delivered = onRemoteSubmit(prompt, {
-            ...(frame.options && typeof frame.options === 'object' ? frame.options : {}),
-            ...(id ? { id } : {}),
-            ...(Number.isFinite(submittedAt) && submittedAt > 0
-              ? { submittedAt: Math.round(submittedAt) }
-              : {}),
-          }) !== false;
-          // Acknowledge the verdict (additive: viewers without ack tokens are
-          // unaffected). A refusal travels back as ok:false so the sender
-          // re-delivers instead of assuming the prompt landed.
-          const ackId = typeof frame.ack === 'string' && frame.ack.trim() ? frame.ack : '';
-          if (ackId) {
-            try { socket.write(frameLine({ t: 'submit-ack', ack: ackId, ok: delivered })); }
-            catch { /* close handles it; the sender's ack timeout re-delivers */ }
-          }
-        } else if (frame.t === 'abort') {
-          // Viewer stop button: interrupt the owner's active turn here — the
-          // viewer process has no turn of its own to cancel.
-          onRemoteAbort?.();
-        } else if (frame.t === 'sync') {
-          if (ownerFrameStale()) return;
-          try { socket.write(frameLine(fullFrame(getPublishedState()))); } catch { /* close handles */ }
+        try {
+          socket.destroy();
+        } catch {
+          /* already gone */
         }
-      }, () => { try { socket.destroy(); } catch { /* already gone */ } });
+      });
+      attachLineReader(
+        socket,
+        (frame) => {
+          if (
+            frame.t === 'submit' &&
+            ((typeof frame.text === 'string' && frame.text.trim()) ||
+              typeof frame.prompt === 'string' ||
+              Array.isArray(frame.prompt))
+          ) {
+            // Optional submission metadata (additive, old viewers omit it): the
+            // originating surface's submission id must survive the pipe so its
+            // optimistic user row releases when the SAME id settles in the
+            // owner's transcript (user: 방금 친 메세지가 2개 남는다).
+            const id = typeof frame.id === 'string' && frame.id.trim() ? frame.id : undefined;
+            const submittedAt = Number(frame.submittedAt);
+            const prompt = frame.prompt ?? frame.text;
+            const delivered =
+              onRemoteSubmit(prompt, {
+                ...(frame.options && typeof frame.options === 'object' ? frame.options : {}),
+                ...(id ? { id } : {}),
+                ...(Number.isFinite(submittedAt) && submittedAt > 0 ? { submittedAt: Math.round(submittedAt) } : {}),
+              }) !== false;
+            // Acknowledge the verdict (additive: viewers without ack tokens are
+            // unaffected). A refusal travels back as ok:false so the sender
+            // re-delivers instead of assuming the prompt landed.
+            const ackId = typeof frame.ack === 'string' && frame.ack.trim() ? frame.ack : '';
+            if (ackId) {
+              try {
+                socket.write(frameLine({ t: 'submit-ack', ack: ackId, ok: delivered }));
+              } catch {
+                /* close handles it; the sender's ack timeout re-delivers */
+              }
+            }
+          } else if (frame.t === 'abort') {
+            // Viewer stop button: interrupt the owner's active turn here — the
+            // viewer process has no turn of its own to cancel.
+            onRemoteAbort?.();
+          } else if (frame.t === 'sync') {
+            if (ownerFrameStale()) return;
+            try {
+              socket.write(frameLine(fullFrame(getPublishedState())));
+            } catch {
+              /* close handles */
+            }
+          }
+        },
+        () => {
+          try {
+            socket.destroy();
+          } catch {
+            /* already gone */
+          }
+        }
+      );
       try {
         // Connected mid-reset: this state belongs to another session, and a
         // baseline taken from it would desync every later delta. Drop the
         // socket — the viewer's own retry finds the rebound pipe (or promotes).
         if (ownerFrameStale()) {
-          try { socket.destroy(); } catch { /* already gone */ }
+          try {
+            socket.destroy();
+          } catch {
+            /* already gone */
+          }
           return;
         }
         const st = getPublishedState();
@@ -351,7 +413,11 @@ export function createLiveShare({
         lastLiveSig = JSON.stringify(liveStateOf(st));
         socket.write(frameLine(fullFrame(st)));
       } catch {
-        try { socket.destroy(); } catch { /* already gone */ }
+        try {
+          socket.destroy();
+        } catch {
+          /* already gone */
+        }
       }
     });
     next.on('error', () => {
@@ -363,7 +429,11 @@ export function createLiveShare({
         serverPath = '';
         scheduleServerRetry(id);
       }
-      try { next.close(); } catch { /* already closed */ }
+      try {
+        next.close();
+      } catch {
+        /* already closed */
+      }
     });
     next.on('listening', () => {
       if (server !== next) return;
@@ -371,12 +441,18 @@ export function createLiveShare({
       serverRetryDelayMs = LIVE_CONNECT_RETRY_MIN_MS;
     });
     if (process.platform !== 'win32') {
-      try { unlinkSync(path); } catch { /* no stale socket */ }
+      try {
+        unlinkSync(path);
+      } catch {
+        /* no stale socket */
+      }
     }
     server = next;
     serverId = id;
     serverPath = path;
-    try { next.listen(path); } catch {
+    try {
+      next.listen(path);
+    } catch {
       server = null;
       serverId = '';
       serverPath = '';
@@ -409,7 +485,11 @@ export function createLiveShare({
     pendingSubmitAcks.delete(ackId);
     clearTimeout(entry.timer);
     if (delivered) return;
-    try { entry.onUndelivered?.(); } catch { /* fallback is best-effort */ }
+    try {
+      entry.onUndelivered?.();
+    } catch {
+      /* fallback is best-effort */
+    }
   };
 
   const failPendingSubmitAcks = () => {
@@ -450,7 +530,11 @@ export function createLiveShare({
     const now = Date.now();
     if (now - lastSyncRequestAt < SYNC_REQUEST_MIN_INTERVAL_MS) return;
     lastSyncRequestAt = now;
-    try { socket.write(frameLine({ t: 'sync' })); } catch { /* close handles */ }
+    try {
+      socket.write(frameLine({ t: 'sync' }));
+    } catch {
+      /* close handles */
+    }
   };
 
   const upsertItem = (item) => {
@@ -492,11 +576,19 @@ export function createLiveShare({
   const clearMirroredLiveState = () => {
     try {
       viewerApply?.set?.({
-        busy: false, commandBusy: false, spinner: null, queued: [],
-        activeToolSummary: null, activeTools: null,
-        agentWorkers: [], agentJobs: [], ownerClientHostPid: 0,
+        busy: false,
+        commandBusy: false,
+        spinner: null,
+        queued: [],
+        activeToolSummary: null,
+        activeTools: null,
+        agentWorkers: [],
+        agentJobs: [],
+        ownerClientHostPid: 0,
       });
-    } catch { /* viewer store already disposed */ }
+    } catch {
+      /* viewer store already disposed */
+    }
   };
 
   const clearClientRetry = () => {
@@ -509,10 +601,7 @@ export function createLiveShare({
     const target = String(id || '');
     if (disposed || !target || client || clientRetryTimer || String(viewerSessionId() || '') !== target) return;
     const delay = clientRetryDelayMs;
-    clientRetryDelayMs = Math.min(clientRetryMaximumMs, Math.max(
-      clientRetryMinimumMs,
-      clientRetryDelayMs * 2,
-    ));
+    clientRetryDelayMs = Math.min(clientRetryMaximumMs, Math.max(clientRetryMinimumMs, clientRetryDelayMs * 2));
     clientRetryId = target;
     clientRetryTimer = setTimeout(() => {
       clientRetryTimer = null;
@@ -541,8 +630,12 @@ export function createLiveShare({
     if (frame.tailAppend) {
       const current = viewerApply.getState().streamingTail;
       const base = Number(frame.tailAppend.base) || 0;
-      if (current && current.id === frame.tailAppend.id
-        && typeof current.text === 'string' && current.text.length === base) {
+      if (
+        current &&
+        current.id === frame.tailAppend.id &&
+        typeof current.text === 'string' &&
+        current.text.length === base
+      ) {
         viewerApply.updateStreamingTail(frame.tailAppend.id, {
           ...(frame.tailAppend.meta || {}),
           text: current.text + String(frame.tailAppend.text || ''),
@@ -571,7 +664,11 @@ export function createLiveShare({
     clientSyncedId = '';
     if (closingId) settleViewerSync(closingId, false);
     if (closing) {
-      try { closing.destroy(); } catch { /* already gone */ }
+      try {
+        closing.destroy();
+      } catch {
+        /* already gone */
+      }
     }
     // Deliberate teardown (session switch / role change / dispose) destroys
     // the socket AFTER clientUp is already false, so the socket's close
@@ -587,7 +684,9 @@ export function createLiveShare({
     if (disposed || client || !id) return;
     clearClientRetry();
     let socket;
-    try { socket = connect(socketPathFor(id)); } catch {
+    try {
+      socket = connect(socketPathFor(id));
+    } catch {
       scheduleClientRetry(id);
       return;
     }
@@ -614,7 +713,11 @@ export function createLiveShare({
       // Anything still awaiting an ack died with this socket: report it as
       // undelivered so the caller re-delivers durably.
       if (wasCurrent) failPendingSubmitAcks();
-      try { socket.destroy(); } catch { /* already gone */ }
+      try {
+        socket.destroy();
+      } catch {
+        /* already gone */
+      }
       if (wasUp) clearMirroredLiveState();
       // A live link that dropped means the owner ended or crashed: nudge the
       // promotion path instead of waiting for the next store-mtime change.
@@ -623,29 +726,38 @@ export function createLiveShare({
     };
     socket.on('error', () => down(false));
     socket.on('close', () => down(false));
-    attachLineReader(socket, (frame) => {
-      if (client !== socket) return;
-      if (frame.t === 'close') { down(true); return; }
-      // Delivery verdicts are session-independent: settle them before the
-      // session-scope guard, so a submit acknowledged during a session switch
-      // is not counted as lost (and re-sent as a duplicate).
-      if (frame.t === 'submit-ack') {
-        settleSubmitAck(String(frame.ack || ''), frame.ok !== false);
-        return;
-      }
-      if (viewerSessionId() !== id) return;
-      try {
-        applyViewerFrame(frame, socket);
-        // A connected socket is not an entry boundary: the viewer must wait
-        // until the owner's atomic full frame has replaced the stale disk
-        // restore. Desktop resume holds its renderer publication on this
-        // barrier, preventing "last user message first, whole turn later".
-        if (frame.t === 'full') {
-          clientSyncedId = id;
-          settleViewerSync(id, true);
+    attachLineReader(
+      socket,
+      (frame) => {
+        if (client !== socket) return;
+        if (frame.t === 'close') {
+          down(true);
+          return;
         }
-      } catch { requestSync(socket); }
-    }, () => down(false));
+        // Delivery verdicts are session-independent: settle them before the
+        // session-scope guard, so a submit acknowledged during a session switch
+        // is not counted as lost (and re-sent as a duplicate).
+        if (frame.t === 'submit-ack') {
+          settleSubmitAck(String(frame.ack || ''), frame.ok !== false);
+          return;
+        }
+        if (viewerSessionId() !== id) return;
+        try {
+          applyViewerFrame(frame, socket);
+          // A connected socket is not an entry boundary: the viewer must wait
+          // until the owner's atomic full frame has replaced the stale disk
+          // restore. Desktop resume holds its renderer publication on this
+          // barrier, preventing "last user message first, whole turn later".
+          if (frame.t === 'full') {
+            clientSyncedId = id;
+            settleViewerSync(id, true);
+          }
+        } catch {
+          requestSync(socket);
+        }
+      },
+      () => down(false)
+    );
   };
 
   // Reconciles both legs against the current session role. Failed pipe opens
@@ -676,20 +788,20 @@ export function createLiveShare({
       try {
         const id = meta && meta.id != null && String(meta.id).trim() ? String(meta.id) : undefined;
         const submittedAt = Number(meta?.submittedAt);
-        const displayText = String(meta?.displayText
-          ?? meta?.options?.displayText
-          ?? (typeof prompt === 'string' ? prompt : ''));
-        client.write(frameLine({
-          t: 'submit',
-          text: displayText,
-          prompt,
-          ...(meta?.options && typeof meta.options === 'object' ? { options: meta.options } : {}),
-          ack: ackId,
-          ...(id ? { id } : {}),
-          ...(Number.isFinite(submittedAt) && submittedAt > 0
-            ? { submittedAt: Math.round(submittedAt) }
-            : {}),
-        }));
+        const displayText = String(
+          meta?.displayText ?? meta?.options?.displayText ?? (typeof prompt === 'string' ? prompt : '')
+        );
+        client.write(
+          frameLine({
+            t: 'submit',
+            text: displayText,
+            prompt,
+            ...(meta?.options && typeof meta.options === 'object' ? { options: meta.options } : {}),
+            ack: ackId,
+            ...(id ? { id } : {}),
+            ...(Number.isFinite(submittedAt) && submittedAt > 0 ? { submittedAt: Math.round(submittedAt) } : {}),
+          })
+        );
       } catch {
         return false;
       }
@@ -743,20 +855,26 @@ export function forwardViewerSubmit({ prompt = null, text, options = {}, share, 
   if (!value && !(Array.isArray(content) && content.length > 0)) return false;
   // Reconcile first so a session that became attachable this event-loop turn
   // takes the instant pipe path instead of the durable detour.
-  try { share.ensure?.(); } catch { /* durable fallback below */ }
-  const submissionId = options.id != null && String(options.id).trim()
-    ? String(options.id).trim()
-    : `view-submit-${pid}-${Date.now()}`;
+  try {
+    share.ensure?.();
+  } catch {
+    /* durable fallback below */
+  }
+  const submissionId =
+    options.id != null && String(options.id).trim() ? String(options.id).trim() : `view-submit-${pid}-${Date.now()}`;
   const deliverDurably = () => spool?.(submissionId) === true;
   // A pipe WRITE is not a delivery: the owner may refuse the prompt and the
   // socket may die between write and read, so an unacknowledged submit is
   // re-delivered through the spool — late, never lost.
-  if (share.sendSubmit(content, {
-    id: submissionId,
-    submittedAt: options.submittedAt,
-    displayText: value,
-    options,
-    onUndelivered: deliverDurably,
-  })) return true;
+  if (
+    share.sendSubmit(content, {
+      id: submissionId,
+      submittedAt: options.submittedAt,
+      displayText: value,
+      options,
+      onUndelivered: deliverDurably,
+    })
+  )
+    return true;
   return deliverDurably();
 }

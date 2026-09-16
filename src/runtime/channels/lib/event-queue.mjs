@@ -1,12 +1,12 @@
-import { readdirSync, readFileSync, existsSync as fsExistsSync, statSync, unlinkSync } from "fs";
-import { join } from "path";
-import { DATA_DIR } from "./config.mjs";
-import { ensureDir } from "./state-file.mjs";
-import { logEvent } from "./executor.mjs";
-import { renameWithRetrySync, writeJsonAtomicSync } from "../../shared/atomic-file.mjs";
-const QUEUE_DIR = join(DATA_DIR, "events", "queue");
-const IN_PROGRESS_DIR = join(DATA_DIR, "events", "in-progress");
-const PROCESSED_DIR = join(DATA_DIR, "events", "processed");
+import { readdirSync, readFileSync, existsSync as fsExistsSync, statSync, unlinkSync } from 'fs';
+import { join } from 'path';
+import { DATA_DIR } from './config.mjs';
+import { ensureDir } from './state-file.mjs';
+import { logEvent } from './executor.mjs';
+import { renameWithRetrySync, writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
+const QUEUE_DIR = join(DATA_DIR, 'events', 'queue');
+const IN_PROGRESS_DIR = join(DATA_DIR, 'events', 'in-progress');
+const PROCESSED_DIR = join(DATA_DIR, 'events', 'processed');
 const PROCESSED_DIR_MAX_ENTRIES = 200;
 function pruneProcessedDir() {
   try {
@@ -48,7 +48,11 @@ function finiteInt(value, { min, max, def }) {
 function ownerTickAllowed(queue, what) {
   if (!queue.ownerGetter) return true;
   let isOwner = false;
-  try { isOwner = !!queue.ownerGetter(); } catch { isOwner = false; }
+  try {
+    isOwner = !!queue.ownerGetter();
+  } catch {
+    isOwner = false;
+  }
   if (!isOwner) {
     if (!queue.ownerSkipLogged) {
       logEvent(`queue: skipping ${what} — not owner`);
@@ -79,7 +83,7 @@ class EventQueue {
   // track files already notified during active state
   constructor(config, channelId) {
     this.config = config ?? {};
-    this.channelId = channelId ?? "";
+    this.channelId = channelId ?? '';
   }
   setInjectHandler(fn) {
     this.injectFn = fn;
@@ -108,7 +112,7 @@ class EventQueue {
     const batchMin = finiteInt(this.config.batchInterval, { min: 1, max: 1440, def: 30 });
     const batchMs = batchMin * 6e4;
     this.batchTimer = setInterval(() => this.processBatch(), batchMs);
-    logEvent("queue started");
+    logEvent('queue started');
   }
   stop() {
     if (this.tickTimer) {
@@ -127,13 +131,13 @@ class EventQueue {
   reloadConfig(config, channelId) {
     this.stop();
     this.config = config ?? {};
-    this.channelId = channelId ?? "";
+    this.channelId = channelId ?? '';
     this.start();
   }
   // ── Enqueue ───────────────────────────────────────────────────────
   enqueue(item) {
     ensureDir(QUEUE_DIR);
-    const seq = String(this.enqueueSeq++).padStart(8, "0");
+    const seq = String(this.enqueueSeq++).padStart(8, '0');
     const id = `${Date.now()}-${seq}-${Math.random().toString(36).slice(2, 6)}`;
     // Filename is plain <id>.json — ordering is by enqueue sequence (monotonic).
     // Priority is stored inside the item JSON; callers sort/filter by item.priority.
@@ -141,7 +145,7 @@ class EventQueue {
     const finalPath = join(QUEUE_DIR, filename);
     writeJsonAtomicSync(finalPath, item, { fsyncDir: true });
     logEvent(`${item.name}: enqueued (${item.priority})`);
-    if (item.priority === "high") {
+    if (item.priority === 'high') {
       setImmediate(() => this.processQueue());
     }
   }
@@ -150,7 +154,7 @@ class EventQueue {
     if (this._processQueueRunning) return;
     this._processQueueRunning = true;
     try {
-      if (!ownerTickAllowed(this, "tick")) return;
+      if (!ownerTickAllowed(this, 'tick')) return;
       const files = this.readQueueFiles();
       if (files.length === 0) return;
       for (const file of files) {
@@ -159,7 +163,7 @@ class EventQueue {
         // Low-priority items are coalesced by processBatch() on its own
         // interval; the per-tick loop must skip them or it would dispatch
         // each low item individually and starve the batching feature.
-        if (item.priority === "low") continue;
+        if (item.priority === 'low') continue;
         // Atomic claim: rename into in-progress/ before executing. If the
         // rename fails (another tick / cleanup raced, or file vanished),
         // skip this handle.
@@ -172,11 +176,11 @@ class EventQueue {
     }
   }
   processBatch() {
-    if (!ownerTickAllowed(this, "batch tick")) return;
+    if (!ownerTickAllowed(this, 'batch tick')) return;
     const files = this.readQueueFiles();
     const lowFiles = files.filter((f) => {
       const item = this.readItem(f);
-      return item?.priority === "low";
+      return item?.priority === 'low';
     });
     if (lowFiles.length === 0) return;
     const groups = /* @__PURE__ */ new Map();
@@ -199,18 +203,25 @@ class EventQueue {
         if (claimed) claimedPairs.push({ file: claimed, item: group.items[i] });
       }
       if (claimedPairs.length === 0) continue;
-      const combined = claimedPairs.length === 1 ? claimedPairs[0].item.prompt : `Batch of ${claimedPairs.length} events:
+      const combined =
+        claimedPairs.length === 1
+          ? claimedPairs[0].item.prompt
+          : `Batch of ${claimedPairs.length} events:
 
-${claimedPairs.map((p, i) => `--- Event ${i + 1} ---
-${p.item.prompt}`).join("\n\n")}`;
+${claimedPairs
+  .map(
+    (p, i) => `--- Event ${i + 1} ---
+${p.item.prompt}`
+  )
+  .join('\n\n')}`;
       const batchItem = {
         ...claimedPairs[0].item,
-        prompt: combined
+        prompt: combined,
       };
       logEvent(`${name}: processing batch of ${claimedPairs.length}`);
       const injected = this.executeItem(batchItem, null);
       for (const { file: claimedPath, item: originalItem } of claimedPairs) {
-        if (injected) this.moveInProgressToProcessed(claimedPath, "batched");
+        if (injected) this.moveInProgressToProcessed(claimedPath, 'batched');
         // Requeue each claimant with its own original item, not the combined
         // batchItem — otherwise every retry re-inflates that file's prompt
         // with the whole prior batch's text, and re-batching next tick
@@ -225,8 +236,8 @@ ${p.item.prompt}`).join("\n\n")}`;
   // non-interactive / script exec branches were removed.
   executeItem(item, file) {
     if (this.injectFn) {
-      const opts = { type: "webhook" };
-      const chatId = this.resolveChannel(item.channel) || "";
+      const opts = { type: 'webhook' };
+      const chatId = this.resolveChannel(item.channel) || '';
       if (item.instruction) {
         opts.instruction = `${item.instruction}\n\n${item.prompt}`;
       } else {
@@ -238,7 +249,7 @@ ${p.item.prompt}`).join("\n\n")}`;
       // at-least-once semantics are preserved (a crash between inject and
       // moveToProcessed still requeues via requeueStrandedInProgress()).
       try {
-        this.injectFn(chatId, `event:${item.name}`, " ", opts);
+        this.injectFn(chatId, `event:${item.name}`, ' ', opts);
       } catch (err) {
         logEvent(`${item.name}: inject failed — requeueing: ${err?.message ?? err}`);
         if (file) this.requeueClaimed(file, item);
@@ -247,7 +258,7 @@ ${p.item.prompt}`).join("\n\n")}`;
     }
     if (file) {
       this._injectFailCounts.delete(this.originalQueueName(file));
-      this.moveToProcessed(file, "injected");
+      this.moveToProcessed(file, 'injected');
     }
     return true;
   }
@@ -272,7 +283,7 @@ ${p.item.prompt}`).join("\n\n")}`;
     if (fails >= EventQueue.INJECT_MAX_ATTEMPTS) {
       this._injectFailCounts.delete(original);
       logEvent(`queue: ${original} failed ${fails} inject attempts — dead-lettering`);
-      this.moveInProgressToProcessed(claimed, "failed");
+      this.moveInProgressToProcessed(claimed, 'failed');
       return;
     }
     this._injectFailCounts.set(original, fails);
@@ -286,7 +297,7 @@ ${p.item.prompt}`).join("\n\n")}`;
     try {
       renameWithRetrySync(join(IN_PROGRESS_DIR, claimed), join(QUEUE_DIR, original));
     } catch (err) {
-      if (err && err.code && err.code !== "ENOENT") {
+      if (err && err.code && err.code !== 'ENOENT') {
         logEvent(`queue: requeue failed for ${claimed}: ${err.message ?? err}`);
       }
     }
@@ -294,7 +305,9 @@ ${p.item.prompt}`).join("\n\n")}`;
   // ── Helpers ───────────────────────────────────────────────────────
   readQueueFiles() {
     try {
-      return readdirSync(QUEUE_DIR).filter((f) => f.endsWith(".json")).sort();
+      return readdirSync(QUEUE_DIR)
+        .filter((f) => f.endsWith('.json'))
+        .sort();
     } catch {
       return [];
     }
@@ -302,9 +315,9 @@ ${p.item.prompt}`).join("\n\n")}`;
   readItem(file) {
     let raw;
     try {
-      raw = readFileSync(join(QUEUE_DIR, file), "utf8");
+      raw = readFileSync(join(QUEUE_DIR, file), 'utf8');
     } catch (err) {
-      if (err?.code === "ENOENT") return null;
+      if (err?.code === 'ENOENT') return null;
       // An IO fault (EACCES/EBUSY/EMFILE/EIO…) says nothing about the record
       // itself — the bytes may be perfectly valid. Leave it queued for the next
       // tick instead of dead-lettering a live event.
@@ -319,14 +332,14 @@ ${p.item.prompt}`).join("\n\n")}`;
       // tick re-read the same poison file forever. Quarantine under processed/
       // so the payload stays inspectable and the queue moves on.
       logEvent(`queue: corrupt file ${file} — quarantined: ${err?.message ?? err}`);
-      this.moveToProcessed(file, "corrupt");
+      this.moveToProcessed(file, 'corrupt');
       return null;
     }
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
       // Parses, but is not an event record (null / scalar / array): the same
       // dead end as corrupt bytes, so it is quarantined rather than retried.
       logEvent(`queue: invalid record ${file} — quarantined`);
-      this.moveToProcessed(file, "corrupt");
+      this.moveToProcessed(file, 'corrupt');
       return null;
     }
     return item;
@@ -343,7 +356,7 @@ ${p.item.prompt}`).join("\n\n")}`;
       return claimed;
     } catch (err) {
       // ENOENT: another tick grabbed it; EEXIST: target collision (very rare).
-      if (err && err.code && err.code !== "ENOENT" && err.code !== "EEXIST") {
+      if (err && err.code && err.code !== 'ENOENT' && err.code !== 'EEXIST') {
         logEvent(`queue: claim failed for ${file}: ${err.message ?? err}`);
       }
       return null;
@@ -356,7 +369,7 @@ ${p.item.prompt}`).join("\n\n")}`;
   requeueStrandedInProgress() {
     let entries;
     try {
-      entries = readdirSync(IN_PROGRESS_DIR).filter((f) => f.endsWith(".json"));
+      entries = readdirSync(IN_PROGRESS_DIR).filter((f) => f.endsWith('.json'));
     } catch {
       return;
     }
@@ -368,7 +381,7 @@ ${p.item.prompt}`).join("\n\n")}`;
         renameWithRetrySync(join(IN_PROGRESS_DIR, claimed), join(QUEUE_DIR, original));
         count++;
       } catch (err) {
-        if (err && err.code && err.code !== "ENOENT") {
+        if (err && err.code && err.code !== 'ENOENT') {
           logEvent(`queue: requeue failed for ${claimed}: ${err.message ?? err}`);
         }
       }
@@ -385,16 +398,14 @@ ${p.item.prompt}`).join("\n\n")}`;
       const src = this.existsSync(fromInProgress) ? fromInProgress : fromQueue;
       renameWithRetrySync(src, join(PROCESSED_DIR, `${status}-${file}`));
       pruneProcessedDir();
-    } catch {
-    }
+    } catch {}
   }
   moveInProgressToProcessed(file, status) {
     try {
       ensureDir(PROCESSED_DIR);
       renameWithRetrySync(join(IN_PROGRESS_DIR, file), join(PROCESSED_DIR, `${status}-${file}`));
       pruneProcessedDir();
-    } catch {
-    }
+    } catch {}
   }
   existsSync(p) {
     try {
@@ -411,20 +422,20 @@ ${p.item.prompt}`).join("\n\n")}`;
   // A pure-digit / snowflake value is honored verbatim as an explicit id
   // override (matches resolveWebhookChannelId in index.mjs).
   resolveChannel(flag) {
-    if (flag == null) return "";
+    if (flag == null) return '';
     const v = String(flag).trim();
-    if (v === "" || v.toLowerCase() === "false") return "";
+    if (v === '' || v.toLowerCase() === 'false') return '';
     if (/^-?\d+$/.test(v)) return v;
-    return this.channelId ?? "";
+    return this.channelId ?? '';
   }
   /** Remove items from queue — after processing, dismissal, or any resolution */
-  resolveItems(name, status = "done") {
+  resolveItems(name, status = 'done') {
     const files = this.readQueueFiles();
     let count = 0;
     for (const file of files) {
       const item = this.readItem(file);
       if (!item) continue;
-      if (item.name === name || name === "*") {
+      if (item.name === name || name === '*') {
         this.moveToProcessed(file, status);
         count++;
       }
@@ -439,9 +450,9 @@ ${p.item.prompt}`).join("\n\n")}`;
   }
   /** List pending interactive items */
   getPendingInteractive() {
-    return this.readQueueFiles().map((f) => this.readItem(f)).filter((item) => item !== null && item.exec === "interactive");
+    return this.readQueueFiles()
+      .map((f) => this.readItem(f))
+      .filter((item) => item !== null && item.exec === 'interactive');
   }
 }
-export {
-  EventQueue
-};
+export { EventQueue };

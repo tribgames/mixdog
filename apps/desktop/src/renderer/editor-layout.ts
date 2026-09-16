@@ -5,7 +5,7 @@ export type EditorLayoutDimension = {
 
 export function nextEditorLayoutDimension(
   previous: EditorLayoutDimension | null,
-  host: Pick<HTMLElement, "clientWidth" | "clientHeight">,
+  host: Pick<HTMLElement, 'clientWidth' | 'clientHeight'>
 ): EditorLayoutDimension | null {
   const width = host.clientWidth;
   const height = host.clientHeight;

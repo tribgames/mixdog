@@ -24,19 +24,27 @@ test('Goal runtime keeps completion visible across restart, then archives it on 
     assert.equal(created.goal.timeLimitMs, 2 * 60 * 60 * 1000);
     assert.equal(created.goal.title, 'Ship Goal mode');
     assert.deepEqual(created.goal.tasks, []);
-    await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: [
-        { text: 'Persist Goal state', status: 'completed', kind: 'work' },
-        { text: 'Verify Goal continuation', status: 'completed', kind: 'verification' },
-      ],
-    }, { callerSessionId: 'sess_goal_main' });
+    await runtime.executeTool(
+      'goal',
+      {
+        action: 'set_tasks',
+        tasks: [
+          { text: 'Persist Goal state', status: 'completed', kind: 'work' },
+          { text: 'Verify Goal continuation', status: 'completed', kind: 'verification' },
+        ],
+      },
+      { callerSessionId: 'sess_goal_main' }
+    );
     await runtime.startTurn('sess_goal_main');
 
     clock += 2 * 60 * 60 * 1000;
-    const completedText = await runtime.executeTool('goal', {
-      action: 'complete',
-    }, { callerSessionId: 'sess_goal_main' });
+    const completedText = await runtime.executeTool(
+      'goal',
+      {
+        action: 'complete',
+      },
+      { callerSessionId: 'sess_goal_main' }
+    );
     const completed = JSON.parse(completedText).goal;
     assert.equal(completed.status, 'complete');
     assert.equal(completed.tasksCompleted, 2);
@@ -82,7 +90,9 @@ test('Goal runtime keeps completion visible across restart, then archives it on 
 test('Goal titles use the compact fallback and promote an async generated title', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-title-'));
   let releaseTitle;
-  const generated = new Promise((resolve) => { releaseTitle = resolve; });
+  const generated = new Promise((resolve) => {
+    releaseTitle = resolve;
+  });
   const runtime = createGoalRuntime({
     dataDir,
     generateTitle: async () => generated,
@@ -114,10 +124,12 @@ test('Goals default to no deadline and active elapsed time stays synchronized ac
   let clock = 1_850_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock });
   try {
-    let goal = (await runtime.control('sess_goal_unlimited', {
-      action: 'create',
-      objective: 'Track elapsed work without a deadline',
-    })).goal;
+    let goal = (
+      await runtime.control('sess_goal_unlimited', {
+        action: 'create',
+        objective: 'Track elapsed work without a deadline',
+      })
+    ).goal;
     assert.equal(goal.timeLimitMs, 0);
     assert.equal(goal.remainingMs, null);
     assert.equal(goal.deadlineAt, null);
@@ -148,26 +160,32 @@ test('legacy Goal criteria migrate into durable task statuses', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-migrate-'));
   const goalsDir = join(dataDir, 'goals');
   mkdirSync(goalsDir, { recursive: true });
-  writeFileSync(join(goalsDir, 'sess_goal_legacy.json'), JSON.stringify({
-    version: 1,
-    goal: {
-      id: 'legacy-goal',
-      sessionId: 'sess_goal_legacy',
-      objective: 'Migrate the Goal',
-      status: 'active',
-      criteria: [
-        { id: 'criterion_1', text: 'Keep completed work', satisfied: true },
-        { id: 'criterion_2', text: 'Keep pending work', satisfied: false },
-      ],
-      timeLimitMs: DEFAULT_GOAL_TIME_LIMIT_MS,
-      createdAt: 1,
-      updatedAt: 1,
-    },
-  }));
+  writeFileSync(
+    join(goalsDir, 'sess_goal_legacy.json'),
+    JSON.stringify({
+      version: 1,
+      goal: {
+        id: 'legacy-goal',
+        sessionId: 'sess_goal_legacy',
+        objective: 'Migrate the Goal',
+        status: 'active',
+        criteria: [
+          { id: 'criterion_1', text: 'Keep completed work', satisfied: true },
+          { id: 'criterion_2', text: 'Keep pending work', satisfied: false },
+        ],
+        timeLimitMs: DEFAULT_GOAL_TIME_LIMIT_MS,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    })
+  );
   const runtime = createGoalRuntime({ dataDir });
   try {
     const goal = runtime.snapshot('sess_goal_legacy');
-    assert.deepEqual(goal.tasks.map((task) => task.status), ['completed', 'pending']);
+    assert.deepEqual(
+      goal.tasks.map((task) => task.status),
+      ['completed', 'pending']
+    );
     assert.equal(goal.tasksTotal, 2);
     assert.equal(goal.tasks[0].id, 'criterion_1');
   } finally {
@@ -216,36 +234,58 @@ test('Goal completion cannot discard or skip unfinished durable work', async () 
     await runtime.control('sess_goal_status', { action: 'create', objective: 'Ship a verified result' });
     await assert.rejects(
       runtime.executeTool('goal', {}, { callerSessionId: 'sess_goal_status' }),
-      /action is required/,
+      /action is required/
     );
-    let goal = JSON.parse(await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: [
-        { text: 'Implement result', status: 'completed', kind: 'work' },
-        { text: 'Verify result', status: 'pending', kind: 'verification' },
-      ],
-    }, { callerSessionId: 'sess_goal_status' })).goal;
+    let goal = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'set_tasks',
+          tasks: [
+            { text: 'Implement result', status: 'completed', kind: 'work' },
+            { text: 'Verify result', status: 'pending', kind: 'verification' },
+          ],
+        },
+        { callerSessionId: 'sess_goal_status' }
+      )
+    ).goal;
     goal = runtime.snapshot('sess_goal_status');
     assert.equal(goal.tasksCompleted, 1);
     await assert.rejects(
-      runtime.executeTool('goal', {
-        action: 'set_tasks',
-        tasks: [goal.tasks[0]],
-      }, { callerSessionId: 'sess_goal_status' }),
-      /cannot remove unfinished Goal tasks: task_2 \(Verify result\)/,
+      runtime.executeTool(
+        'goal',
+        {
+          action: 'set_tasks',
+          tasks: [goal.tasks[0]],
+        },
+        { callerSessionId: 'sess_goal_status' }
+      ),
+      /cannot remove unfinished Goal tasks: task_2 \(Verify result\)/
     );
     assert.equal(runtime.snapshot('sess_goal_status').tasksTotal, 2);
     await assert.rejects(
       runtime.executeTool('goal', { action: 'complete' }, { callerSessionId: 'sess_goal_status' }),
-      /durable tasks remain incomplete/,
+      /durable tasks remain incomplete/
     );
-    goal = JSON.parse(await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: goal.tasks.map((task) => ({ ...task, status: 'completed' })),
-    }, { callerSessionId: 'sess_goal_status' })).goal;
-    const completed = JSON.parse(await runtime.executeTool('goal', {
-      action: 'complete',
-    }, { callerSessionId: 'sess_goal_status' })).goal;
+    goal = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'set_tasks',
+          tasks: goal.tasks.map((task) => ({ ...task, status: 'completed' })),
+        },
+        { callerSessionId: 'sess_goal_status' }
+      )
+    ).goal;
+    const completed = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'complete',
+        },
+        { callerSessionId: 'sess_goal_status' }
+      )
+    ).goal;
     assert.equal(completed.status, 'complete');
     assert.equal(completed.tasksCompleted, 2);
   } finally {
@@ -260,10 +300,25 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
   assert.equal(goalTool.name, 'goal');
   assert.deepEqual(goalTool.inputSchema.required, ['action']);
   assert.deepEqual(Object.keys(goalTool.inputSchema.properties), [
-    'action', 'objective', 'time_limit_minutes', 'time_mode', 'tasks', 'updates', 'revision', 'blocker',
+    'action',
+    'objective',
+    'time_limit_minutes',
+    'time_mode',
+    'tasks',
+    'updates',
+    'revision',
+    'blocker',
   ]);
   assert.deepEqual(goalTool.inputSchema.properties.action.enum, [
-    'status', 'create', 'pause', 'resume', 'set_tasks', 'update_tasks', 'complete', 'block', 'abandon',
+    'status',
+    'create',
+    'pause',
+    'resume',
+    'set_tasks',
+    'update_tasks',
+    'complete',
+    'block',
+    'abandon',
   ]);
   assert.deepEqual(goalTool.inputSchema.properties.tasks.items.required, ['text', 'status', 'kind']);
   assert.equal(goalTool.inputSchema.properties.blocker.minLength, 1);
@@ -272,7 +327,11 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
   assert.match(goalTool.inputSchema.properties.blocker.description, /external impasse.*3 consecutive turns/i);
   // Retiring scoped-out work must not require falsely marking it completed.
   assert.deepEqual(goalTool.inputSchema.properties.tasks.items.properties.status.enum, [
-    'pending', 'in_progress', 'completed', 'dropped', 'awaiting_approval',
+    'pending',
+    'in_progress',
+    'completed',
+    'dropped',
+    'awaiting_approval',
   ]);
   // Schema bytes ride on every request, so this ceiling tracks the intended
   // surface rather than drifting: it covers abandon, the dropped and
@@ -289,25 +348,35 @@ test('a user completes their own Goal without the model evidence gate', async ()
       action: 'create',
       objective: 'Half-finished work',
     });
-    await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: [
-        { text: 'Unfinished work', status: 'in_progress', kind: 'work' },
-        { text: 'Unrun verification', status: 'pending', kind: 'verification' },
-      ],
-    }, { callerSessionId: 'sess_goal_user_complete' });
+    await runtime.executeTool(
+      'goal',
+      {
+        action: 'set_tasks',
+        tasks: [
+          { text: 'Unfinished work', status: 'in_progress', kind: 'work' },
+          { text: 'Unrun verification', status: 'pending', kind: 'verification' },
+        ],
+      },
+      { callerSessionId: 'sess_goal_user_complete' }
+    );
     // The model's completion claim stays gated on evidence.
     await assert.rejects(
-      runtime.executeTool('goal', { action: 'complete' }, {
-        callerSessionId: 'sess_goal_user_complete',
-      }),
-      /durable tasks remain incomplete/,
+      runtime.executeTool(
+        'goal',
+        { action: 'complete' },
+        {
+          callerSessionId: 'sess_goal_user_complete',
+        }
+      ),
+      /durable tasks remain incomplete/
     );
     // The user's is not. Before this, the only user-side exit was deleting the
     // Goal, which threw the whole record away.
-    const completed = (await runtime.control('sess_goal_user_complete', {
-      action: 'complete',
-    })).goal;
+    const completed = (
+      await runtime.control('sess_goal_user_complete', {
+        action: 'complete',
+      })
+    ).goal;
     assert.equal(completed.status, 'complete');
     assert.equal(completed.tasksCompleted, 0);
     assert.equal(completed.tasksTotal, 2);
@@ -322,19 +391,25 @@ test('editing the objective keeps durable task progress', async () => {
   const runtime = createGoalRuntime({ dataDir });
   try {
     await runtime.control('sess_goal_edit', { action: 'create', objective: 'Original wording' });
-    await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: [
-        { text: 'Finished step', status: 'completed', kind: 'work' },
-        { text: 'Remaining step', status: 'pending', kind: 'verification' },
-      ],
-    }, { callerSessionId: 'sess_goal_edit' });
+    await runtime.executeTool(
+      'goal',
+      {
+        action: 'set_tasks',
+        tasks: [
+          { text: 'Finished step', status: 'completed', kind: 'work' },
+          { text: 'Remaining step', status: 'pending', kind: 'verification' },
+        ],
+      },
+      { callerSessionId: 'sess_goal_edit' }
+    );
     // The desktop edit button drafts the CURRENT objective, so refining one
     // word must not discard finished rows.
-    const edited = (await runtime.control('sess_goal_edit', {
-      action: 'edit',
-      objective: 'Original wording, clarified',
-    })).goal;
+    const edited = (
+      await runtime.control('sess_goal_edit', {
+        action: 'edit',
+        objective: 'Original wording, clarified',
+      })
+    ).goal;
     assert.equal(edited.objective, 'Original wording, clarified');
     assert.equal(edited.tasksTotal, 2);
     assert.equal(edited.tasksCompleted, 1);
@@ -349,26 +424,37 @@ test('dropped tasks retire scoped-out work without a false completion', async ()
   const runtime = createGoalRuntime({ dataDir });
   try {
     await runtime.control('sess_goal_dropped', { action: 'create', objective: 'Ship the feature' });
-    let goal = JSON.parse(await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: [
-        { text: 'Build the feature', status: 'completed', kind: 'work' },
-        { text: 'Port the legacy path', status: 'pending', kind: 'work' },
-        { text: 'Verify the feature', status: 'completed', kind: 'verification' },
-      ],
-    }, { callerSessionId: 'sess_goal_dropped' })).goal;
+    let goal = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'set_tasks',
+          tasks: [
+            { text: 'Build the feature', status: 'completed', kind: 'work' },
+            { text: 'Port the legacy path', status: 'pending', kind: 'work' },
+            { text: 'Verify the feature', status: 'completed', kind: 'verification' },
+          ],
+        },
+        { callerSessionId: 'sess_goal_dropped' }
+      )
+    ).goal;
     goal = runtime.snapshot('sess_goal_dropped');
     await assert.rejects(
       runtime.executeTool('goal', { action: 'complete' }, { callerSessionId: 'sess_goal_dropped' }),
-      /durable tasks remain incomplete/,
+      /durable tasks remain incomplete/
     );
 
     // Scope changed: the row is retired, not falsely completed.
-    goal = JSON.parse(await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: goal.tasks.map((task) =>
-        (task.id === 'task_2' ? { ...task, status: 'dropped' } : task)),
-    }, { callerSessionId: 'sess_goal_dropped' })).goal;
+    goal = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'set_tasks',
+          tasks: goal.tasks.map((task) => (task.id === 'task_2' ? { ...task, status: 'dropped' } : task)),
+        },
+        { callerSessionId: 'sess_goal_dropped' }
+      )
+    ).goal;
     goal = runtime.snapshot('sess_goal_dropped');
     assert.equal(goal.tasks.length, 3);
     assert.equal(goal.tasks[1].status, 'dropped');
@@ -377,16 +463,28 @@ test('dropped tasks retire scoped-out work without a false completion', async ()
     assert.equal(goal.tasksCompleted, 2);
 
     // Settled rows may be omitted from a later snapshot; unfinished ones may not.
-    const trimmed = JSON.parse(await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: goal.tasks.filter((task) => task.status !== 'dropped'),
-    }, { callerSessionId: 'sess_goal_dropped' })).goal;
+    const trimmed = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'set_tasks',
+          tasks: goal.tasks.filter((task) => task.status !== 'dropped'),
+        },
+        { callerSessionId: 'sess_goal_dropped' }
+      )
+    ).goal;
     assert.equal(trimmed.tasksTotal, 2);
 
     await runtime.startTurn('sess_goal_dropped');
-    const completed = JSON.parse(await runtime.executeTool('goal', {
-      action: 'complete',
-    }, { callerSessionId: 'sess_goal_dropped' })).goal;
+    const completed = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'complete',
+        },
+        { callerSessionId: 'sess_goal_dropped' }
+      )
+    ).goal;
     assert.equal(completed.status, 'complete');
   } finally {
     runtime.close();
@@ -400,45 +498,74 @@ test('work dropped this turn cannot also close the Goal in the same turn', async
   try {
     await runtime.control('sess_goal_drop_turn', { action: 'create', objective: 'Ship both paths' });
     await runtime.startTurn('sess_goal_drop_turn');
-    let goal = JSON.parse(await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: [
-        { text: 'Ship the main path', status: 'completed', kind: 'work' },
-        { text: 'Ship the legacy path', status: 'pending', kind: 'work' },
-        { text: 'Verify both paths', status: 'completed', kind: 'verification' },
-      ],
-    }, { callerSessionId: 'sess_goal_drop_turn' })).goal;
+    let goal = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'set_tasks',
+          tasks: [
+            { text: 'Ship the main path', status: 'completed', kind: 'work' },
+            { text: 'Ship the legacy path', status: 'pending', kind: 'work' },
+            { text: 'Verify both paths', status: 'completed', kind: 'verification' },
+          ],
+        },
+        { callerSessionId: 'sess_goal_drop_turn' }
+      )
+    ).goal;
     goal = runtime.snapshot('sess_goal_drop_turn');
-    goal = JSON.parse(await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: goal.tasks.map((task) =>
-        (task.id === 'task_2' ? { ...task, status: 'dropped' } : task)),
-    }, { callerSessionId: 'sess_goal_drop_turn' })).goal;
+    goal = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'set_tasks',
+          tasks: goal.tasks.map((task) => (task.id === 'task_2' ? { ...task, status: 'dropped' } : task)),
+        },
+        { callerSessionId: 'sess_goal_drop_turn' }
+      )
+    ).goal;
     goal = runtime.snapshot('sess_goal_drop_turn');
     // Writing requested work off and closing the Goal in one breath is how a
     // user condition disappears unnoticed, so the drop has to outlive the turn.
     await assert.rejects(
-      runtime.executeTool('goal', { action: 'complete' }, {
-        callerSessionId: 'sess_goal_drop_turn',
-      }),
-      /dropped this turn/,
+      runtime.executeTool(
+        'goal',
+        { action: 'complete' },
+        {
+          callerSessionId: 'sess_goal_drop_turn',
+        }
+      ),
+      /dropped this turn/
     );
     // Omitting the retired row does not launder the same turn either.
-    await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: goal.tasks.filter((task) => task.status !== 'dropped'),
-    }, { callerSessionId: 'sess_goal_drop_turn' });
+    await runtime.executeTool(
+      'goal',
+      {
+        action: 'set_tasks',
+        tasks: goal.tasks.filter((task) => task.status !== 'dropped'),
+      },
+      { callerSessionId: 'sess_goal_drop_turn' }
+    );
     await assert.rejects(
-      runtime.executeTool('goal', { action: 'complete' }, {
-        callerSessionId: 'sess_goal_drop_turn',
-      }),
-      /dropped this turn/,
+      runtime.executeTool(
+        'goal',
+        { action: 'complete' },
+        {
+          callerSessionId: 'sess_goal_drop_turn',
+        }
+      ),
+      /dropped this turn/
     );
     // A later turn, where the user has seen the retired row, completes normally.
     await runtime.startTurn('sess_goal_drop_turn');
-    const completed = JSON.parse(await runtime.executeTool('goal', {
-      action: 'complete',
-    }, { callerSessionId: 'sess_goal_drop_turn' })).goal;
+    const completed = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'complete',
+        },
+        { callerSessionId: 'sess_goal_drop_turn' }
+      )
+    ).goal;
     assert.equal(completed.status, 'complete');
   } finally {
     runtime.close();
@@ -454,16 +581,26 @@ test('abandoning a superseded Goal releases the create guard', async () => {
     await runtime.control('sess_goal_abandon', { action: 'pause' });
     // A stopped Goal used to block every later Goal in the session for good.
     await assert.rejects(
-      runtime.executeTool('goal', {
-        action: 'create',
-        objective: 'Replacement work',
-      }, { callerSessionId: 'sess_goal_abandon' }),
-      /abandon it if the user redirected away/,
+      runtime.executeTool(
+        'goal',
+        {
+          action: 'create',
+          objective: 'Replacement work',
+        },
+        { callerSessionId: 'sess_goal_abandon' }
+      ),
+      /abandon it if the user redirected away/
     );
 
-    const abandoned = JSON.parse(await runtime.executeTool('goal', {
-      action: 'abandon',
-    }, { callerSessionId: 'sess_goal_abandon' }));
+    const abandoned = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'abandon',
+        },
+        { callerSessionId: 'sess_goal_abandon' }
+      )
+    );
     assert.equal(abandoned.goal.status, 'stopped');
     assert.equal(runtime.snapshot('sess_goal_abandon').status, 'stopped');
     // The user's next prompt retires a model-abandoned Goal like a completed one.
@@ -471,16 +608,22 @@ test('abandoning a superseded Goal releases the create guard', async () => {
     assert.equal(runtime.snapshot('sess_goal_abandon'), null);
     assert.equal(runtime.storedSnapshot('sess_goal_abandon').status, 'stopped');
 
-    const created = JSON.parse(await runtime.executeTool('goal', {
-      action: 'create',
-      objective: 'Replacement work',
-    }, { callerSessionId: 'sess_goal_abandon' })).goal;
+    const created = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'create',
+          objective: 'Replacement work',
+        },
+        { callerSessionId: 'sess_goal_abandon' }
+      )
+    ).goal;
     assert.equal(created.objective, 'Replacement work');
     assert.equal(created.status, 'active');
 
     await assert.rejects(
       runtime.executeTool('goal', { action: 'abandon' }, { callerSessionId: 'sess_goal_no_goal' }),
-      /no Goal exists/,
+      /no Goal exists/
     );
   } finally {
     runtime.close();
@@ -492,20 +635,23 @@ test('a legacy time-capped Goal loads as a finished duration, never as active wo
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-legacy-'));
   try {
     mkdirSync(join(dataDir, 'goals'), { recursive: true });
-    writeFileSync(join(dataDir, 'goals', 'sess_goal_legacy.json'), JSON.stringify({
-      version: 1,
-      goal: {
-        id: 'goal_legacy',
-        sessionId: 'sess_goal_legacy',
-        objective: 'Legacy capped Goal',
-        status: 'budget_limited',
-        tasks: [{ id: 'task_1', text: 'Legacy work', status: 'pending', kind: 'work' }],
-        timeLimitMs: 60_000,
-        timeUsedMs: 60_000,
-        createdAt: 1_800_000_000_000,
-        updatedAt: 1_800_000_000_000,
-      },
-    }));
+    writeFileSync(
+      join(dataDir, 'goals', 'sess_goal_legacy.json'),
+      JSON.stringify({
+        version: 1,
+        goal: {
+          id: 'goal_legacy',
+          sessionId: 'sess_goal_legacy',
+          objective: 'Legacy capped Goal',
+          status: 'budget_limited',
+          tasks: [{ id: 'task_1', text: 'Legacy work', status: 'pending', kind: 'work' }],
+          timeLimitMs: 60_000,
+          timeUsedMs: 60_000,
+          createdAt: 1_800_000_000_000,
+          updatedAt: 1_800_000_000_000,
+        },
+      })
+    );
     const runtime = createGoalRuntime({ dataDir });
     try {
       // Falling through to the default would silently restart a Goal whose
@@ -533,22 +679,34 @@ test('Goal observations report turns and real task movement without judging them
     assert.equal(runtime.snapshot('sess_goal_observe').turnCount, 2);
 
     clock += 60_000;
-    const moved = JSON.parse(await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: [
-        { text: 'Observed step', status: 'in_progress', kind: 'work' },
-        { text: 'Observed check', status: 'pending', kind: 'verification' },
-      ],
-    }, { callerSessionId: 'sess_goal_observe' })).goal;
+    const moved = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'set_tasks',
+          tasks: [
+            { text: 'Observed step', status: 'in_progress', kind: 'work' },
+            { text: 'Observed check', status: 'pending', kind: 'verification' },
+          ],
+        },
+        { callerSessionId: 'sess_goal_observe' }
+      )
+    ).goal;
     assert.equal(moved.tasksUpdatedAt, clock);
 
     // Re-sending an identical snapshot is not movement, so a stalled Goal
     // cannot look busy on the observation line.
     clock += 60_000;
-    const unchanged = JSON.parse(await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: runtime.snapshot('sess_goal_observe').tasks,
-    }, { callerSessionId: 'sess_goal_observe' })).goal;
+    const unchanged = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'set_tasks',
+          tasks: runtime.snapshot('sess_goal_observe').tasks,
+        },
+        { callerSessionId: 'sess_goal_observe' }
+      )
+    ).goal;
     assert.equal(unchanged.tasksUpdatedAt, moved.tasksUpdatedAt);
   } finally {
     runtime.close();
@@ -561,21 +719,35 @@ test('Goal status shows the model exactly what the user still sees', async () =>
   const runtime = createGoalRuntime({ dataDir });
   try {
     await runtime.control('sess_goal_visible', { action: 'create', objective: 'Archived work' });
-    await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: [
-        { text: 'Archived step', status: 'completed', kind: 'work' },
-        { text: 'Archived check', status: 'completed', kind: 'verification' },
-      ],
-    }, { callerSessionId: 'sess_goal_visible' });
-    await runtime.executeTool('goal', { action: 'complete' }, {
-      callerSessionId: 'sess_goal_visible',
-    });
+    await runtime.executeTool(
+      'goal',
+      {
+        action: 'set_tasks',
+        tasks: [
+          { text: 'Archived step', status: 'completed', kind: 'work' },
+          { text: 'Archived check', status: 'completed', kind: 'verification' },
+        ],
+      },
+      { callerSessionId: 'sess_goal_visible' }
+    );
+    await runtime.executeTool(
+      'goal',
+      { action: 'complete' },
+      {
+        callerSessionId: 'sess_goal_visible',
+      }
+    );
     await runtime.archiveCompletedOnUserInput('sess_goal_visible');
 
-    const status = JSON.parse(await runtime.executeTool('goal', {
-      action: 'status',
-    }, { callerSessionId: 'sess_goal_visible' }));
+    const status = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'status',
+        },
+        { callerSessionId: 'sess_goal_visible' }
+      )
+    );
     assert.equal(status.goal, null);
     assert.equal(runtime.snapshot('sess_goal_visible'), null);
   } finally {
@@ -594,101 +766,170 @@ test('unified Goal tool accepts model-shaped fields and rejects retired tool nam
       tasks: [{ id: '', text: '', status: 'pending', kind: 'work' }],
       blocker: '/',
     };
-    const empty = JSON.parse(await runtime.executeTool('goal', {
-      action: 'status',
-      ...filler,
-    }, { callerSessionId: 'sess_goal_unified' }));
+    const empty = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'status',
+          ...filler,
+        },
+        { callerSessionId: 'sess_goal_unified' }
+      )
+    );
     assert.equal(empty.goal, null);
     await assert.rejects(
-      runtime.executeTool('goal', {
-        action: 'status',
-        ...filler,
-        unexpected: true,
-      }, { callerSessionId: 'sess_goal_unified' }),
-      /unknown fields: unexpected/,
+      runtime.executeTool(
+        'goal',
+        {
+          action: 'status',
+          ...filler,
+          unexpected: true,
+        },
+        { callerSessionId: 'sess_goal_unified' }
+      ),
+      /unknown fields: unexpected/
     );
-    const created = JSON.parse(await runtime.executeTool('goal', {
-      action: 'create',
-      objective: 'Use one Goal tool',
-      tasks: [
-        { id: '', text: 'Use the unified Goal tool', status: 'awaiting_approval', kind: 'work' },
-        { id: '', text: 'Verify the unified Goal tool', status: 'awaiting_approval', kind: 'verification' },
-      ],
-      blocker: 'ignored for create',
-    }, { callerSessionId: 'sess_goal_unified' })).goal;
+    const created = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'create',
+          objective: 'Use one Goal tool',
+          tasks: [
+            { id: '', text: 'Use the unified Goal tool', status: 'awaiting_approval', kind: 'work' },
+            { id: '', text: 'Verify the unified Goal tool', status: 'awaiting_approval', kind: 'verification' },
+          ],
+          blocker: 'ignored for create',
+        },
+        { callerSessionId: 'sess_goal_unified' }
+      )
+    ).goal;
     assert.equal(created.objective, 'Use one Goal tool');
     assert.equal(created.tasksTotal, 2);
     assert.equal(created.tasks[0].id, 'task_1');
 
-    const paused = JSON.parse(await runtime.executeTool('goal', {
-      action: 'pause',
-      ...filler,
-    }, { callerSessionId: 'sess_goal_unified' })).goal;
+    const paused = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'pause',
+          ...filler,
+        },
+        { callerSessionId: 'sess_goal_unified' }
+      )
+    ).goal;
     assert.equal(paused.status, 'paused');
     const pausedContinuation = runtime.continuation('sess_goal_unified');
     assert.equal(pausedContinuation.run, false);
     assert.equal(pausedContinuation.reason, 'paused');
     assert.equal(pausedContinuation.goal.id, paused.id);
     assert.equal(pausedContinuation.goal.status, paused.status);
-    const resumed = JSON.parse(await runtime.executeTool('goal', {
-      action: 'resume',
-      ...filler,
-    }, { callerSessionId: 'sess_goal_unified' })).goal;
+    const resumed = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'resume',
+          ...filler,
+        },
+        { callerSessionId: 'sess_goal_unified' }
+      )
+    ).goal;
     assert.equal(resumed.status, 'active');
     assert.equal(runtime.continuation('sess_goal_unified').run, true);
 
     const completedTasks = created.tasks.map((task) => ({ ...task, status: 'completed' }));
-    const updated = JSON.parse(await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      objective: 'ignored for set_tasks',
-      time_limit_minutes: 60,
-      tasks: completedTasks,
-      blocker: 'ignored for set_tasks',
-    }, { callerSessionId: 'sess_goal_unified' })).goal;
+    const updated = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'set_tasks',
+          objective: 'ignored for set_tasks',
+          time_limit_minutes: 60,
+          tasks: completedTasks,
+          blocker: 'ignored for set_tasks',
+        },
+        { callerSessionId: 'sess_goal_unified' }
+      )
+    ).goal;
     assert.equal(updated.tasksCompleted, 2);
 
-    const completed = JSON.parse(await runtime.executeTool('goal', {
-      action: 'complete',
-      ...filler,
-    }, { callerSessionId: 'sess_goal_unified' })).goal;
+    const completed = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'complete',
+          ...filler,
+        },
+        { callerSessionId: 'sess_goal_unified' }
+      )
+    ).goal;
     assert.equal(completed.status, 'complete');
 
-    const status = JSON.parse(await runtime.executeTool('goal', {
-      action: 'status',
-      ...filler,
-    }, { callerSessionId: 'sess_goal_unified' })).goal;
+    const status = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'status',
+          ...filler,
+        },
+        { callerSessionId: 'sess_goal_unified' }
+      )
+    ).goal;
     assert.equal(status.status, 'complete');
 
     for (const name of ['get_goal', 'create_goal', 'update_goal', 'set_goal_tasks']) {
-      await assert.rejects(runtime.executeTool(name, {}, {
-        callerSessionId: 'sess_goal_unified',
-      }), /unknown Goal tool/);
+      await assert.rejects(
+        runtime.executeTool(
+          name,
+          {},
+          {
+            callerSessionId: 'sess_goal_unified',
+          }
+        ),
+        /unknown Goal tool/
+      );
     }
     assert.equal(runtime.snapshot('sess_goal_unified').revision, status.revision);
 
-    await runtime.executeTool('goal', {
-      action: 'create',
-      objective: 'Block another Goal',
-      time_limit_minutes: 60,
-      tasks: [{ id: '', text: 'Wait for external state', status: 'in_progress', kind: 'work' }],
-      blocker: 'ignored for create',
-    }, { callerSessionId: 'sess_goal_block_shape' });
+    await runtime.executeTool(
+      'goal',
+      {
+        action: 'create',
+        objective: 'Block another Goal',
+        time_limit_minutes: 60,
+        tasks: [{ id: '', text: 'Wait for external state', status: 'in_progress', kind: 'work' }],
+        blocker: 'ignored for create',
+      },
+      { callerSessionId: 'sess_goal_block_shape' }
+    );
     let blocked;
     for (let turn = 0; turn < 3; turn++) {
       await runtime.startTurn('sess_goal_block_shape');
-      blocked = JSON.parse(await runtime.executeTool('goal', {
-        action: 'block',
-        ...filler,
-        blocker: 'External state unavailable',
-      }, { callerSessionId: 'sess_goal_block_shape' })).goal;
+      blocked = JSON.parse(
+        await runtime.executeTool(
+          'goal',
+          {
+            action: 'block',
+            ...filler,
+            blocker: 'External state unavailable',
+          },
+          { callerSessionId: 'sess_goal_block_shape' }
+        )
+      ).goal;
       await runtime.settleTurn('sess_goal_block_shape', { status: 'done' });
     }
     assert.equal(blocked.status, 'blocked');
     assert.equal(blocked.blocker, 'External state unavailable');
-    const resumedFromBlock = JSON.parse(await runtime.executeTool('goal', {
-      action: 'resume',
-      ...filler,
-    }, { callerSessionId: 'sess_goal_block_shape' })).goal;
+    const resumedFromBlock = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'resume',
+          ...filler,
+        },
+        { callerSessionId: 'sess_goal_block_shape' }
+      )
+    ).goal;
     assert.equal(resumedFromBlock.status, 'active');
     assert.equal(resumedFromBlock.blocker, '');
   } finally {
@@ -734,17 +975,27 @@ test('Goal turn lifecycle stops terminal failures, preserves blockers, and suppo
 
     await runtime.executeTool('goal', { action: 'status' }, { callerSessionId: 'sess_goal_lifecycle' });
     await assert.rejects(
-      runtime.executeTool('goal', {
-        action: 'block',
-      }, { callerSessionId: 'sess_goal_lifecycle' }),
-      /blocker is required/,
+      runtime.executeTool(
+        'goal',
+        {
+          action: 'block',
+        },
+        { callerSessionId: 'sess_goal_lifecycle' }
+      ),
+      /blocker is required/
     );
     await runtime.control('sess_goal_lifecycle', { action: 'resume' });
     await runtime.executeTool('goal', { action: 'status' }, { callerSessionId: 'sess_goal_lifecycle' });
-    goal = JSON.parse(await runtime.executeTool('goal', {
-      action: 'block',
-      blocker: 'Waiting for deployment credentials',
-    }, { callerSessionId: 'sess_goal_lifecycle' })).goal;
+    goal = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'block',
+          blocker: 'Waiting for deployment credentials',
+        },
+        { callerSessionId: 'sess_goal_lifecycle' }
+      )
+    ).goal;
     assert.equal(goal.status, 'active');
     assert.equal(goal.blockAudit.reason, 'Waiting for deployment credentials');
 
@@ -767,35 +1018,51 @@ test('Goal tool rejects a stale turn update after the Goal is replaced', async (
   const runtime = createGoalRuntime({ dataDir });
   try {
     await runtime.control('sess_goal_stale', { action: 'create', objective: 'Original Goal' });
-    await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: [
-        { text: 'Finish original Goal', status: 'completed', kind: 'work' },
-        { text: 'Verify original Goal', status: 'completed', kind: 'verification' },
-      ],
-    }, { callerSessionId: 'sess_goal_stale' });
+    await runtime.executeTool(
+      'goal',
+      {
+        action: 'set_tasks',
+        tasks: [
+          { text: 'Finish original Goal', status: 'completed', kind: 'work' },
+          { text: 'Verify original Goal', status: 'completed', kind: 'verification' },
+        ],
+      },
+      { callerSessionId: 'sess_goal_stale' }
+    );
     await runtime.startTurn('sess_goal_stale');
     await runtime.control('sess_goal_stale', { action: 'complete' });
     await runtime.control('sess_goal_stale', { action: 'clear' });
     await runtime.control('sess_goal_stale', { action: 'create', objective: 'Replacement Goal' });
     await assert.rejects(
-      runtime.executeTool('goal', {
-        action: 'pause',
-      }, { callerSessionId: 'sess_goal_stale' }),
-      /stale Goal update rejected/,
+      runtime.executeTool(
+        'goal',
+        {
+          action: 'pause',
+        },
+        { callerSessionId: 'sess_goal_stale' }
+      ),
+      /stale Goal update rejected/
     );
     await assert.rejects(
-      runtime.executeTool('goal', {
-        action: 'resume',
-      }, { callerSessionId: 'sess_goal_stale' }),
-      /stale Goal update rejected/,
+      runtime.executeTool(
+        'goal',
+        {
+          action: 'resume',
+        },
+        { callerSessionId: 'sess_goal_stale' }
+      ),
+      /stale Goal update rejected/
     );
     await assert.rejects(
-      runtime.executeTool('goal', {
-        action: 'block',
-        blocker: 'stale turn result',
-      }, { callerSessionId: 'sess_goal_stale' }),
-      /stale Goal update rejected/,
+      runtime.executeTool(
+        'goal',
+        {
+          action: 'block',
+          blocker: 'stale turn result',
+        },
+        { callerSessionId: 'sess_goal_stale' }
+      ),
+      /stale Goal update rejected/
     );
     assert.equal(runtime.snapshot('sess_goal_stale').objective, 'Replacement Goal');
   } finally {
@@ -809,28 +1076,44 @@ test('model Goal creation rebinds the current turn and accepts immediate work up
   const runtime = createGoalRuntime({ dataDir });
   try {
     await runtime.control('sess_goal_create_turn', { action: 'create', objective: 'Previous Goal' });
-    await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: [
-        { text: 'Finish previous Goal', status: 'completed', kind: 'work' },
-        { text: 'Verify previous Goal', status: 'completed', kind: 'verification' },
-      ],
-    }, { callerSessionId: 'sess_goal_create_turn' });
+    await runtime.executeTool(
+      'goal',
+      {
+        action: 'set_tasks',
+        tasks: [
+          { text: 'Finish previous Goal', status: 'completed', kind: 'work' },
+          { text: 'Verify previous Goal', status: 'completed', kind: 'verification' },
+        ],
+      },
+      { callerSessionId: 'sess_goal_create_turn' }
+    );
     await runtime.control('sess_goal_create_turn', { action: 'complete' });
     await runtime.startTurn('sess_goal_create_turn');
 
-    const created = JSON.parse(await runtime.executeTool('goal', {
-      action: 'create',
-      objective: 'Approved replacement Goal',
-      tasks: [
-        { text: 'Start approved work', status: 'in_progress', kind: 'work' },
-        { text: 'Verify approved work', status: 'pending', kind: 'verification' },
-      ],
-    }, { callerSessionId: 'sess_goal_create_turn' })).goal;
-    const updated = JSON.parse(await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: created.tasks.map((task) => ({ ...task, status: 'completed' })),
-    }, { callerSessionId: 'sess_goal_create_turn' })).goal;
+    const created = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'create',
+          objective: 'Approved replacement Goal',
+          tasks: [
+            { text: 'Start approved work', status: 'in_progress', kind: 'work' },
+            { text: 'Verify approved work', status: 'pending', kind: 'verification' },
+          ],
+        },
+        { callerSessionId: 'sess_goal_create_turn' }
+      )
+    ).goal;
+    const updated = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'set_tasks',
+          tasks: created.tasks.map((task) => ({ ...task, status: 'completed' })),
+        },
+        { callerSessionId: 'sess_goal_create_turn' }
+      )
+    ).goal;
 
     assert.equal(updated.id, created.id);
     assert.equal(updated.tasksCompleted, 2);
@@ -846,17 +1129,23 @@ test('daemon restart preserves active, paused, blocked, and complete Goal snapsh
   let clock = 2_100_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock });
   try {
-    const active = (await runtime.control('sess_goal_restart_active', {
-      action: 'create',
-      objective: 'Resume active work',
-    })).goal;
-    await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: [
-        { text: 'Keep active progress', status: 'in_progress', kind: 'work' },
-        { text: 'Verify active recovery', status: 'pending', kind: 'verification' },
-      ],
-    }, { callerSessionId: 'sess_goal_restart_active' });
+    const active = (
+      await runtime.control('sess_goal_restart_active', {
+        action: 'create',
+        objective: 'Resume active work',
+      })
+    ).goal;
+    await runtime.executeTool(
+      'goal',
+      {
+        action: 'set_tasks',
+        tasks: [
+          { text: 'Keep active progress', status: 'in_progress', kind: 'work' },
+          { text: 'Verify active recovery', status: 'pending', kind: 'verification' },
+        ],
+      },
+      { callerSessionId: 'sess_goal_restart_active' }
+    );
     await runtime.startTurn('sess_goal_restart_active');
     clock += 2_000;
     const preservedActive = await runtime.settleTurn('sess_goal_restart_active', {
@@ -865,39 +1154,57 @@ test('daemon restart preserves active, paused, blocked, and complete Goal snapsh
     });
     assert.equal(preservedActive.status, 'active');
 
-    const paused = (await runtime.control('sess_goal_restart_paused', {
-      action: 'create',
-      objective: 'Keep paused work',
-    })).goal;
+    const paused = (
+      await runtime.control('sess_goal_restart_paused', {
+        action: 'create',
+        objective: 'Keep paused work',
+      })
+    ).goal;
     await runtime.control('sess_goal_restart_paused', { action: 'pause' });
 
-    const blocked = (await runtime.control('sess_goal_restart_blocked', {
-      action: 'create',
-      objective: 'Keep blocked work',
-    })).goal;
+    const blocked = (
+      await runtime.control('sess_goal_restart_blocked', {
+        action: 'create',
+        objective: 'Keep blocked work',
+      })
+    ).goal;
     for (let turn = 0; turn < 3; turn++) {
       await runtime.startTurn('sess_goal_restart_blocked');
-      await runtime.executeTool('goal', {
-        action: 'block',
-        blocker: 'External service unavailable',
-      }, { callerSessionId: 'sess_goal_restart_blocked' });
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'block',
+          blocker: 'External service unavailable',
+        },
+        { callerSessionId: 'sess_goal_restart_blocked' }
+      );
       await runtime.settleTurn('sess_goal_restart_blocked', { status: 'done' });
     }
 
-    const complete = (await runtime.control('sess_goal_restart_complete', {
-      action: 'create',
-      objective: 'Keep completed work visible',
-    })).goal;
-    await runtime.executeTool('goal', {
-      action: 'set_tasks',
-      tasks: [
-        { text: 'Finish recovery work', status: 'completed', kind: 'work' },
-        { text: 'Verify recovery work', status: 'completed', kind: 'verification' },
-      ],
-    }, { callerSessionId: 'sess_goal_restart_complete' });
-    await runtime.executeTool('goal', {
-      action: 'complete',
-    }, { callerSessionId: 'sess_goal_restart_complete' });
+    const complete = (
+      await runtime.control('sess_goal_restart_complete', {
+        action: 'create',
+        objective: 'Keep completed work visible',
+      })
+    ).goal;
+    await runtime.executeTool(
+      'goal',
+      {
+        action: 'set_tasks',
+        tasks: [
+          { text: 'Finish recovery work', status: 'completed', kind: 'work' },
+          { text: 'Verify recovery work', status: 'completed', kind: 'verification' },
+        ],
+      },
+      { callerSessionId: 'sess_goal_restart_complete' }
+    );
+    await runtime.executeTool(
+      'goal',
+      {
+        action: 'complete',
+      },
+      { callerSessionId: 'sess_goal_restart_complete' }
+    );
     const completed = runtime.snapshot('sess_goal_restart_complete');
     runtime.close();
 
@@ -912,7 +1219,10 @@ test('daemon restart preserves active, paused, blocked, and complete Goal snapsh
       assert.equal(restoredActive.status, 'active');
       assert.equal(restoredActive.lastStartedAt, preservedActive.lastStartedAt);
       assert.equal(restoredActive.timeUsedMs, preservedActive.timeUsedMs + 5_000);
-      assert.deepEqual(restoredActive.tasks.map((task) => task.status), ['in_progress', 'pending']);
+      assert.deepEqual(
+        restoredActive.tasks.map((task) => task.status),
+        ['in_progress', 'pending']
+      );
       assert.equal(reloaded.continuation('sess_goal_restart_active').run, true);
       assert.equal(events.at(-1)?.goal?.id, active.id);
 

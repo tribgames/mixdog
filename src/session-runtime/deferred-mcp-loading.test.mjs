@@ -3,7 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
-  _registerMcpServerForTest, disconnectAll, getMcpTools, isRegisteredMcpTool,
+  _registerMcpServerForTest,
+  disconnectAll,
+  getMcpTools,
+  isRegisteredMcpTool,
 } from '../runtime/agent/orchestrator/mcp/client.mjs';
 import { setInternalToolsProvider } from '../runtime/agent/orchestrator/internal-tools.mjs';
 import { agentLoop } from '../runtime/agent/orchestrator/session/agent-loop.mjs';
@@ -17,8 +20,12 @@ import { createInternalToolExecutor } from './internal-tool-executor.mjs';
 import { TOOL_SEARCH_TOOL } from './tool-defs.mjs';
 import { providerNativeToolPrefixCount } from './provider-request-tools.mjs';
 import {
-  applyDeferredToolSurface, deferredCatalogUnion, reconcileDeferredMcpToolCatalog,
-  refreshDeferredMcpToolCatalog, renderToolSearch, snapshotProviderRequestTools,
+  applyDeferredToolSurface,
+  deferredCatalogUnion,
+  reconcileDeferredMcpToolCatalog,
+  refreshDeferredMcpToolCatalog,
+  renderToolSearch,
+  snapshotProviderRequestTools,
 } from './tool-catalog.mjs';
 
 function fixture(t, provider = 'openai-oauth', { boot = false, mode = 'full' } = {}) {
@@ -27,35 +34,49 @@ function fixture(t, provider = 'openai-oauth', { boot = false, mode = 'full' } =
   const name = `mcp__${server}__menu`;
   const peerName = `mcp__${server}__unused`;
   const original = {
-    name, description: 'Run an exact menu command.',
+    name,
+    description: 'Run an exact menu command.',
     inputSchema: {
-      type: 'object', properties: { path: { type: 'string' } }, required: ['path'],
+      type: 'object',
+      properties: { path: { type: 'string' } },
+      required: ['path'],
     },
   };
   const revised = {
-    ...original, description: 'Run the revised menu command.',
+    ...original,
+    description: 'Run the revised menu command.',
     inputSchema: {
-      type: 'object', properties: { menu_path: { type: 'string' } }, required: ['menu_path'],
+      type: 'object',
+      properties: { menu_path: { type: 'string' } },
+      required: ['menu_path'],
     },
   };
   const peer = { name: peerName, inputSchema: { type: 'object', properties: {} } };
   const session = {
-    id: scopeId, mcpScopeId: scopeId, provider, model: 'gpt-6-astra',
-    cwd: process.cwd(), owner: 'cli', toolSpec: mode,
+    id: scopeId,
+    mcpScopeId: scopeId,
+    provider,
+    model: 'gpt-6-astra',
+    cwd: process.cwd(),
+    owner: 'cli',
+    toolSpec: mode,
     tools: [TOOL_SEARCH_TOOL, ...(boot ? [original, peer] : [])],
-    messages: [], compaction: { auto: false },
+    messages: [],
+    compaction: { auto: false },
   };
   applyDeferredToolSurface(session, mode);
   const calls = [];
-  const register = (tools) => _registerMcpServerForTest(scopeId, server, tools, {
-    callTool: async (params) => {
-      calls.push(params);
-      return { content: [{ type: 'text', text: `executed:${JSON.stringify(params.arguments)}` }] };
-    },
-  });
+  const register = (tools) =>
+    _registerMcpServerForTest(scopeId, server, tools, {
+      callTool: async (params) => {
+        calls.push(params);
+        return { content: [{ type: 'text', text: `executed:${JSON.stringify(params.arguments)}` }] };
+      },
+    });
   const rt = { session, mode, currentCwd: session.cwd, config: {} };
   const executor = createInternalToolExecutor({
-    rt, activeToolSurface: () => session,
+    rt,
+    activeToolSurface: () => session,
     mcpStatus: () => ({ servers: [] }),
   });
   t.after(() => disconnectAll({ scopeId }));
@@ -66,18 +87,22 @@ for (const changeMcp of [false, true]) {
   test(`deferred refresh preserves the frozen eager and provider-native prefix: changed=${changeMcp}`, async (t) => {
     const f = fixture(t, 'anthropic-oauth', { boot: true });
     const eager = {
-      name: 'cached_eager', description: 'original eager definition',
+      name: 'cached_eager',
+      description: 'original eager definition',
       inputSchema: { type: 'object', properties: {} },
     };
     const native = {
-      name: 'provider_native', description: 'original native definition',
+      name: 'provider_native',
+      description: 'original native definition',
       input_schema: { type: 'object', properties: {} },
     };
     f.session.tools.push(eager);
     f.register([f.original, f.peer]);
     await f.executor('load_tool', { names: [f.name] });
     const dispose = setInternalToolsProvider({
-      scopeId: f.scopeId, tools: [TOOL_SEARCH_TOOL], executor: f.executor,
+      scopeId: f.scopeId,
+      tools: [TOOL_SEARCH_TOOL],
+      executor: f.executor,
     });
     t.after(dispose);
     const requests = [];
@@ -90,27 +115,40 @@ for (const changeMcp of [false, true]) {
         prefixCounts.push(providerNativeToolPrefixCount(tools));
         assert.ok(Object.isFrozen(tools));
         if (requests.length === 1) {
-          const index = f.session.tools.findIndex(tool => tool.name === eager.name);
+          const index = f.session.tools.findIndex((tool) => tool.name === eager.name);
           f.session.tools[index] = { ...eager, description: 'unrelated eager change' };
           nativeTools[0] = { ...native, description: 'unrelated native change' };
           if (changeMcp) f.register([f.revised, f.peer]);
           return {
-            content: '', stopReason: 'tool_calls',
+            content: '',
+            stopReason: 'tool_calls',
             toolCalls: [{ id: 'reload', name: 'load_tool', arguments: { names: [f.name] } }],
           };
         }
         return { content: 'done', toolCalls: [], stopReason: 'end_turn' };
       },
     };
-    await agentLoop(provider, [{ role: 'user', content: 'Inspect.' }], f.session.model,
-      f.session.tools, null, f.session.cwd, { session: f.session, sessionId: f.scopeId, nativeTools });
+    await agentLoop(
+      provider,
+      [{ role: 'user', content: 'Inspect.' }],
+      f.session.model,
+      f.session.tools,
+      null,
+      f.session.cwd,
+      { session: f.session, sessionId: f.scopeId, nativeTools }
+    );
     assert.equal(requests.length, 2);
     assert.deepEqual(prefixCounts, [1, 1]);
-    assert.deepEqual(requests[1].filter(tool => !tool.deferLoading), requests[0].filter(tool => !tool.deferLoading));
-    assert.equal(requests[1].find(tool => tool.name === eager.name).description, eager.description);
+    assert.deepEqual(
+      requests[1].filter((tool) => !tool.deferLoading),
+      requests[0].filter((tool) => !tool.deferLoading)
+    );
+    assert.equal(requests[1].find((tool) => tool.name === eager.name).description, eager.description);
     assert.equal(requests[1][0].description, native.description);
-    assert.deepEqual(requests[1].find(tool => tool.name === f.name).inputSchema,
-      changeMcp ? f.revised.inputSchema : f.original.inputSchema);
+    assert.deepEqual(
+      requests[1].find((tool) => tool.name === f.name).inputSchema,
+      changeMcp ? f.revised.inputSchema : f.original.inputSchema
+    );
   });
 }
 
@@ -125,7 +163,10 @@ test('load_tool refreshes a recovered registry in the same user turn', async (t)
   assert.deepEqual(result.missing, []);
   assert.deepEqual(result.loaded, [f.name]);
   assert.deepEqual(result.nativeToolSearch.openaiTools[0].parameters, f.revised.inputSchema);
-  assert.equal(f.session.tools.some(tool => tool.name === f.name), false);
+  assert.equal(
+    f.session.tools.some((tool) => tool.name === f.name),
+    false
+  );
 });
 
 test('native discovery history survives disconnect without granting availability', async (t) => {
@@ -135,7 +176,7 @@ test('native discovery history survives disconnect without granting availability
   await disconnectAll({ scopeId: f.scopeId });
   refreshDeferredMcpToolCatalog(f.session, {});
   assert.ok(f.session.deferredCallableTools.includes(f.name));
-  assert.ok(deferredCatalogUnion(f.session).some(tool => tool.name === f.name));
+  assert.ok(deferredCatalogUnion(f.session).some((tool) => tool.name === f.name));
   assert.equal(isOnDeferredToolSurface(f.session, f.name), false);
   assert.deepEqual(JSON.parse(renderToolSearch({ names: [f.name] }, f.session)).missing, [f.name]);
   f.register([f.revised]);
@@ -159,10 +200,18 @@ test('a current removal overrides boot and loaded definitions for both loading a
   assert.equal(isRegisteredMcpTool(f.name, f.scopeId), false);
   assert.equal(JSON.stringify(f.session.deferredToolCatalog), boot);
   const definitions = snapshotProviderRequestTools({
-    provider: f.session.provider, tools: f.session.tools, session: f.session, messages: [],
+    provider: f.session.provider,
+    tools: f.session.tools,
+    session: f.session,
+    messages: [],
   });
-  assert.equal(definitions.some(tool => tool.name === f.name), false);
-  const denied = normalizeToolEnvelope(await executeTool(f.name, { path: 'Tools/Run' }, process.cwd(), null, f.session));
+  assert.equal(
+    definitions.some((tool) => tool.name === f.name),
+    false
+  );
+  const denied = normalizeToolEnvelope(
+    await executeTool(f.name, { path: 'Tools/Run' }, process.cwd(), null, f.session)
+  );
   assert.match(denied.result, /unavailable.*no call was sent/);
   assert.equal(f.calls.length, 0);
 });
@@ -200,14 +249,17 @@ for (const provider of ['openai-oauth', 'anthropic-oauth', 'gemini', 'openrouter
     const f = fixture(t, provider);
     const boot = JSON.stringify(f.session.deferredToolCatalog);
     const dispose = setInternalToolsProvider({
-      scopeId: f.scopeId, tools: [TOOL_SEARCH_TOOL], executor: f.executor,
+      scopeId: f.scopeId,
+      tools: [TOOL_SEARCH_TOOL],
+      executor: f.executor,
     });
     t.after(dispose);
     const requests = [];
     const bodies = [];
-    const searchCall = (id) => provider === 'openai-oauth'
-      ? nativeToolSearchCallFromArguments(id, { names: [f.name] })
-      : { id, name: 'load_tool', arguments: { names: [f.name] } };
+    const searchCall = (id) =>
+      provider === 'openai-oauth'
+        ? nativeToolSearchCallFromArguments(id, { names: [f.name] })
+        : { id, name: 'load_tool', arguments: { names: [f.name] } };
     const toolResponse = (call) => ({ content: '', toolCalls: [call], stopReason: 'tool_calls' });
     const fakeProvider = {
       name: provider,
@@ -220,13 +272,16 @@ for (const provider of ['openai-oauth', 'anthropic-oauth', 'gemini', 'openrouter
         }
         switch (requests.length) {
           case 1:
-            assert.equal(tools.some(tool => tool.name === f.name), false);
+            assert.equal(
+              tools.some((tool) => tool.name === f.name),
+              false
+            );
             f.register([f.original, f.peer]);
             return toolResponse(searchCall('load-1'));
           case 2:
             return toolResponse({ id: 'call-1', name: f.name, arguments: { path: 'Tools/Run' } });
           case 3:
-            assert.match(String(messages.find(message => message.toolCallId === 'call-1')?.content), /executed/);
+            assert.match(String(messages.find((message) => message.toolCallId === 'call-1')?.content), /executed/);
             f.register([f.revised, f.peer]);
             return toolResponse(searchCall('load-2'));
           case 4:
@@ -235,49 +290,71 @@ for (const provider of ['openai-oauth', 'anthropic-oauth', 'gemini', 'openrouter
             f.register([]);
             return toolResponse(searchCall('load-3'));
           case 6:
-            assert.match(String(messages.find(message => message.toolCallId === 'load-3')?.content), /missing/);
+            assert.match(String(messages.find((message) => message.toolCallId === 'load-3')?.content), /missing/);
             return toolResponse({ id: 'stale-call', name: f.name, arguments: { menu_path: 'Tools/Run' } });
           default:
             assert.equal(requests.length, 7);
-            assert.match(String(messages.find(message => message.toolCallId === 'stale-call')?.content), /unavailable/);
+            assert.match(
+              String(messages.find((message) => message.toolCallId === 'stale-call')?.content),
+              /unavailable/
+            );
             return { content: 'done', toolCalls: [], stopReason: 'end_turn' };
         }
       },
     };
     const messages = [{ role: 'user', content: 'Run the requested menu twice.' }];
-    const result = await agentLoop(fakeProvider, messages, f.session.model, f.session.tools, null,
-      f.session.cwd, { session: f.session, sessionId: f.scopeId });
+    const result = await agentLoop(fakeProvider, messages, f.session.model, f.session.tools, null, f.session.cwd, {
+      session: f.session,
+      sessionId: f.scopeId,
+    });
     assert.equal(result.content, 'done');
-    assert.equal(messages.filter(message => message.role === 'user').length, 1);
-    assert.deepEqual(f.calls.map(call => call.arguments), [
-      { path: 'Tools/Run' }, { menu_path: 'Tools/Run' },
-    ]);
+    assert.equal(messages.filter((message) => message.role === 'user').length, 1);
+    assert.deepEqual(
+      f.calls.map((call) => call.arguments),
+      [{ path: 'Tools/Run' }, { menu_path: 'Tools/Run' }]
+    );
     if (f.session.deferredNativeTools) {
       assert.equal(JSON.stringify(f.session.deferredToolCatalog), boot);
       assert.ok(f.session.deferredCallableTools.includes(f.name));
       assert.equal(f.session.deferredCallableTools.includes(f.peerName), false);
-      assert.equal(requests.flat().some(tool => tool.name === f.peerName), false);
+      assert.equal(
+        requests.flat().some((tool) => tool.name === f.peerName),
+        false
+      );
     }
     if (provider === 'openai-oauth') {
       for (const body of bodies) assert.deepEqual(body.tools, bodies[0].tools);
       for (const [index, callId, schema] of [
-        [1, 'load-1', f.original.inputSchema], [3, 'load-2', f.revised.inputSchema],
+        [1, 'load-1', f.original.inputSchema],
+        [3, 'load-2', f.revised.inputSchema],
       ]) {
-        const output = bodies[index].input.find(item => item.type === 'tool_search_output' && item.call_id === callId);
-        assert.deepEqual(output.tools.map(tool => tool.name), [f.name]);
+        const output = bodies[index].input.find(
+          (item) => item.type === 'tool_search_output' && item.call_id === callId
+        );
+        assert.deepEqual(
+          output.tools.map((tool) => tool.name),
+          [f.name]
+        );
         assert.deepEqual(output.tools[0].parameters, schema);
         assert.equal(output.tools[0].strict, false);
       }
-      const removed = bodies[5].input.find(item => item.type === 'tool_search_output' && item.call_id === 'load-3');
+      const removed = bodies[5].input.find((item) => item.type === 'tool_search_output' && item.call_id === 'load-3');
       assert.deepEqual(removed.tools, []);
     } else {
-      assert.deepEqual(requests[1].find(tool => tool.name === f.name).inputSchema, f.original.inputSchema);
-      assert.deepEqual(requests[3].find(tool => tool.name === f.name).inputSchema, f.revised.inputSchema);
-      assert.equal(requests[5].some(tool => tool.name === f.name), false);
+      assert.deepEqual(requests[1].find((tool) => tool.name === f.name).inputSchema, f.original.inputSchema);
+      assert.deepEqual(requests[3].find((tool) => tool.name === f.name).inputSchema, f.revised.inputSchema);
+      assert.equal(
+        requests[5].some((tool) => tool.name === f.name),
+        false
+      );
       if (provider === 'anthropic-oauth') {
-        assert.equal(requests[1].find(tool => tool.name === f.name).deferLoading, true);
+        assert.equal(requests[1].find((tool) => tool.name === f.name).deferLoading, true);
         assert.ok(JSON.stringify(bodies[1]).includes(`"tool_reference","tool_name":"${f.name}"`));
-        for (const tools of requests) assert.deepEqual(tools.filter(tool => !tool.deferLoading), requests[0]);
+        for (const tools of requests)
+          assert.deepEqual(
+            tools.filter((tool) => !tool.deferLoading),
+            requests[0]
+          );
       }
     }
   });

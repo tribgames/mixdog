@@ -1,7 +1,7 @@
 /**
  * Search path diagnostics: ENOENT recovery + path-shape helpers shared by
- * grep/glob in search-tool.mjs. Extracted verbatim so search-tool.mjs stays a
- * thin executor; search-tool.mjs re-exports these for unchanged importers.
+ * grep/glob in search-tool.mjs. search-tool.mjs re-exports these for unchanged
+ * importers so it can stay a thin executor.
  */
 import { statSync } from 'fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path';
@@ -17,31 +17,32 @@ import { normalizeOutputPath, resolveAgainstCwd } from './path-utils.mjs';
 // no "guessed a lot" branch. Returns '' (appends nothing) when no same-named
 // indexed file exists or the glob child is unavailable.
 export async function _suggestIndexedPaths(missingPath, executeChildBuiltinTool, workDir) {
-    if (typeof executeChildBuiltinTool !== 'function') return '';
-    // An outside path has no indexed twin worth proposing; the project-wide
-    // glob would only spend the turn.
-    if (missingPathIsOutsideProject(workDir, missingPath)) return '';
-    const base = String(missingPath).replace(/\\/g, '/').split('/').pop();
-    // Skip when there is no usable basename or it carries glob magic (the
-    // pattern, not a literal filename, would not map to a real file).
-    if (!base || /[*?[\]{}]/.test(base)) return '';
-    try {
-        const out = await executeChildBuiltinTool('glob', { pattern: `**/${base}`, head_limit: 6 }, workDir);
-        if (typeof out !== 'string') return '';
-        // Drop ONLY the exact diagnostic forms glob emits: the empty-result line
-        // ("(no files found ...", "(no entries after offset ...") and the
-        // suffix/warning lines ("... [N more entries]", "... [warning] ...").
-        // A broad startsWith('(' / '...' / 'Error') would wrongly drop real
-        // paths like ErrorBoundary.mjs or a "(draft)/x.mjs" leading segment.
-        const hits = out.split('\n')
-            .filter((s) => s && !/^\(no (?:files found|entries\b)/.test(s) && !/^\.\.\. \[/.test(s))
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .slice(0, 5);
-        return hits.length ? `\n[path not found here; same-named indexed file(s): ${hits.join(', ')}]` : '';
-    } catch {
-        return '';
-    }
+  if (typeof executeChildBuiltinTool !== 'function') return '';
+  // An outside path has no indexed twin worth proposing; the project-wide
+  // glob would only spend the turn.
+  if (missingPathIsOutsideProject(workDir, missingPath)) return '';
+  const base = String(missingPath).replace(/\\/g, '/').split('/').pop();
+  // Skip when there is no usable basename or it carries glob magic (the
+  // pattern, not a literal filename, would not map to a real file).
+  if (!base || /[*?[\]{}]/.test(base)) return '';
+  try {
+    const out = await executeChildBuiltinTool('glob', { pattern: `**/${base}`, head_limit: 6 }, workDir);
+    if (typeof out !== 'string') return '';
+    // Drop ONLY the exact diagnostic forms glob emits: the empty-result line
+    // ("(no files found ...", "(no entries after offset ...") and the
+    // suffix/warning lines ("... [N more entries]", "... [warning] ...").
+    // A broad startsWith('(' / '...' / 'Error') would wrongly drop real
+    // paths like ErrorBoundary.mjs or a "(draft)/x.mjs" leading segment.
+    const hits = out
+      .split('\n')
+      .filter((s) => s && !/^\(no (?:files found|entries\b)/.test(s) && !/^\.\.\. \[/.test(s))
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    return hits.length ? `\n[path not found here; same-named indexed file(s): ${hits.join(', ')}]` : '';
+  } catch {
+    return '';
+  }
 }
 
 // Reuse read's own ENOENT recovery (path-diagnostics findBySuffixStrip /
@@ -59,14 +60,15 @@ const ENOENT_FIND_NUDGE = 'Locate with find on the basename before retrying.';
 // Exhaustive-scan miss: the basename BFS drained its queue (whole non-vendor,
 // non-hidden tree walked) with zero hits, so a follow-up find/list re-probe
 // cannot succeed. Declare the miss conclusive instead of nudging one.
-const ENOENT_ABSENT = ' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires).';
+const ENOENT_ABSENT =
+  ' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires).';
 
 // Share diagnostic lookup results within one invocation without changing
 // the requested operand or executing a replacement operation.
 function cachedFileByBasename(workDir, missingPath, cache) {
-    if (!cache) return findFileByBasename(workDir, missingPath);
-    if (!('fileHits' in cache)) cache.fileHits = findFileByBasename(workDir, missingPath);
-    return cache.fileHits;
+  if (!cache) return findFileByBasename(workDir, missingPath);
+  if (!('fileHits' in cache)) cache.fileHits = findFileByBasename(workDir, missingPath);
+  return cache.fileHits;
 }
 
 // A missing ABSOLUTE path that resolves outside the project cannot be
@@ -77,184 +79,213 @@ function cachedFileByBasename(workDir, missingPath, cache) {
 // an outside path is its own filesystem: name the nearest directory that does
 // exist and what it holds.
 function missingPathIsOutsideProject(workDir, missingPath) {
-    const raw = String(missingPath || '');
-    if (!raw || !isAbsolute(raw)) return false;
-    if (typeof workDir !== 'string' || !workDir) return false;
-    const rel = relative(resolve(workDir), resolve(raw));
-    return !rel || rel === '..' || rel.startsWith(`..${sep}`) || rel.startsWith('../') || isAbsolute(rel);
+  const raw = String(missingPath || '');
+  if (!raw || !isAbsolute(raw)) return false;
+  if (typeof workDir !== 'string' || !workDir) return false;
+  const rel = relative(resolve(workDir), resolve(raw));
+  return !rel || rel === '..' || rel.startsWith(`..${sep}`) || rel.startsWith('../') || isAbsolute(rel);
 }
 
 function nearestExistingRealParent(missingPath) {
-    try {
-        let dir = dirname(resolve(String(missingPath)));
-        for (let depth = 0; depth < 24; depth += 1) {
-            try {
-                if (statSync(dir).isDirectory()) return dir;
-            } catch { /* keep climbing */ }
-            const parent = dirname(dir);
-            if (!parent || parent === dir) break;
-            dir = parent;
-        }
-    } catch { /* fall through */ }
-    return null;
+  try {
+    let dir = dirname(resolve(String(missingPath)));
+    for (let depth = 0; depth < 24; depth += 1) {
+      try {
+        if (statSync(dir).isDirectory()) return dir;
+      } catch {
+        /* keep climbing */
+      }
+      const parent = dirname(dir);
+      if (!parent || parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
 }
 
 function outsideProjectNotFoundHint(missingPath, actionVerb) {
-    const parent = nearestExistingRealParent(missingPath);
-    if (!parent) return ' Not found, and no parent directory of it exists either.';
-    const entries = listSiblings(parent, 12).slice(0, 5);
-    const where = `"${normalizeOutputPath(parent)}"`;
-    if (entries.length === 0) {
-        return ` Not found; ${where} exists but is empty — nothing under it to ${actionVerb.toLowerCase()}.`;
-    }
-    const magic = /[*?[\]{}]/.test(String(missingPath))
-        ? ' The path carries a glob pattern; name one of those entries directly.'
-        : '';
-    return ` Not found; the nearest existing directory ${where} holds: ${entries.map((n) => `"${n}"`).join(', ')}.${magic}`;
+  const parent = nearestExistingRealParent(missingPath);
+  if (!parent) return ' Not found, and no parent directory of it exists either.';
+  const entries = listSiblings(parent, 12).slice(0, 5);
+  const where = `"${normalizeOutputPath(parent)}"`;
+  if (entries.length === 0) {
+    return ` Not found; ${where} exists but is empty — nothing under it to ${actionVerb.toLowerCase()}.`;
+  }
+  const magic = /[*?[\]{}]/.test(String(missingPath))
+    ? ' The path carries a glob pattern; name one of those entries directly.'
+    : '';
+  return ` Not found; the nearest existing directory ${where} holds: ${entries.map((n) => `"${n}"`).join(', ')}.${magic}`;
 }
 
 function isDirectoryPathGuess(missingPath) {
-    const base = basename(String(missingPath || '').replace(/\\/g, '/'));
-    if (!base || /[*?[\]{}]/.test(base)) return false;
-    if (/\.[a-zA-Z0-9]{1,12}$/.test(base)) return false;
-    return true;
+  const base = basename(String(missingPath || '').replace(/\\/g, '/'));
+  if (!base || /[*?[\]{}]/.test(base)) return false;
+  if (/\.[a-zA-Z0-9]{1,12}$/.test(base)) return false;
+  return true;
 }
 
 function nearestExistingParentRel(workDir, missingPath) {
-    try {
-        const segments = String(missingPath).replace(/\\/g, '/').split('/')
-            .filter((s) => s && s !== '.' && s !== '..' && !/^[A-Za-z]:$/.test(s));
-        for (let i = segments.length - 1; i > 0; i--) {
-            const candidate = join(workDir, ...segments.slice(0, i));
-            try {
-                if (statSync(candidate).isDirectory()) {
-                    return segments.slice(0, i).join('/');
-                }
-            } catch { /* keep walking up */ }
+  try {
+    const segments = String(missingPath)
+      .replace(/\\/g, '/')
+      .split('/')
+      .filter((s) => s && s !== '.' && s !== '..' && !/^[A-Za-z]:$/.test(s));
+    for (let i = segments.length - 1; i > 0; i--) {
+      const candidate = join(workDir, ...segments.slice(0, i));
+      try {
+        if (statSync(candidate).isDirectory()) {
+          return segments.slice(0, i).join('/');
         }
-        if (statSync(workDir).isDirectory()) return '.';
-    } catch { /* fall through */ }
-    return null;
+      } catch {
+        /* keep walking up */
+      }
+    }
+    if (statSync(workDir).isDirectory()) return '.';
+  } catch {
+    /* fall through */
+  }
+  return null;
 }
 
 function spaceJoinedPathHint(requestedPath) {
-    if (typeof requestedPath !== 'string') return '';
-    const trimmed = requestedPath.trim();
-    if (!/\s/.test(trimmed)) return '';
-    const segments = trimmed.split(/\s+/).filter(Boolean);
-    if (segments.length < 2) return '';
-    return ' Pass multiple scopes as path[] array (not a space-joined string).';
+  if (typeof requestedPath !== 'string') return '';
+  const trimmed = requestedPath.trim();
+  if (!/\s/.test(trimmed)) return '';
+  const segments = trimmed.split(/\s+/).filter(Boolean);
+  if (segments.length < 2) return '';
+  return ' Pass multiple scopes as path[] array (not a space-joined string).';
 }
 
 function appendEnoentFindNudge(text = '') {
-    const base = String(text || '');
-    if (base.includes(ENOENT_FIND_NUDGE) || base.includes(ENOENT_ABSENT)) return base;
-    const sep = base.length && !/\s$/.test(base) ? ' ' : '';
-    return `${base}${sep}${ENOENT_FIND_NUDGE}`;
+  const base = String(text || '');
+  if (base.includes(ENOENT_FIND_NUDGE) || base.includes(ENOENT_ABSENT)) return base;
+  const sep = base.length && !/\s$/.test(base) ? ' ' : '';
+  return `${base}${sep}${ENOENT_FIND_NUDGE}`;
 }
 
 export function finalizeReadFamilyEnoentTail(hint, requestedPath, errCode = 'ENOENT') {
-    if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return String(hint || '');
-    return appendEnoentFindNudge(String(hint || '') + spaceJoinedPathHint(requestedPath));
+  if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return String(hint || '');
+  return appendEnoentFindNudge(String(hint || '') + spaceJoinedPathHint(requestedPath));
 }
 
 export function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'ENOENT', cache = null) {
-    if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return '';
-    // `C:tmpsmp` shape: a Windows path whose separators were eaten by JSON
-    // escaping (`"C:\\tmp\\smp"` written as `"C:\tmp\smp"`). Name the cause —
-    // the sibling/basename hints below can never resolve such a path.
-    const rawMissing = String(missingPath || '');
-    if (/^[A-Za-z]:(?![\\/])[^\\/]/.test(rawMissing.replace(/\\/g, '\\'))) {
-        return ` The path has a drive letter but no separator after it — the backslashes were probably lost in escaping. Re-issue with forward slashes (e.g. "C:/tmp/smp").`;
+  if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return '';
+  // `C:tmpsmp` shape: a Windows path whose separators were eaten by JSON
+  // escaping (`"C:\\tmp\\smp"` written as `"C:\tmp\smp"`). Name the cause —
+  // the sibling/basename hints below can never resolve such a path.
+  const rawMissing = String(missingPath || '');
+  if (/^[A-Za-z]:(?![\\/])[^\\/]/.test(rawMissing.replace(/\\/g, '\\'))) {
+    return ` The path has a drive letter but no separator after it — the backslashes were probably lost in escaping. Re-issue with forward slashes (e.g. "C:/tmp/smp").`;
+  }
+  if (missingPathIsOutsideProject(workDir, missingPath)) {
+    return outsideProjectNotFoundHint(missingPath, actionVerb);
+  }
+  const elsewhere = cachedFileByBasename(workDir, missingPath, cache);
+  if (elsewhere.length) {
+    return ` Not found at this path; the same filename exists at: ${elsewhere.map((p) => `"${normalizeOutputPath(p)}"`).join(', ')}. ${actionVerb} that path directly.`;
+  }
+  if (isDirectoryPathGuess(missingPath)) {
+    const dirHits = findDirectoryByBasename(workDir, missingPath, { limit: 5 });
+    if (dirHits.length > 1) {
+      return ` Not found at this path; same-named directories exist at: ${dirHits
+        .slice(0, 5)
+        .map((p) => `"${normalizeOutputPath(p)}"`)
+        .join(', ')}. ${actionVerb} one of those paths directly.`;
     }
-    if (missingPathIsOutsideProject(workDir, missingPath)) {
-        return outsideProjectNotFoundHint(missingPath, actionVerb);
+    if (dirHits.length === 1) {
+      return ` Not found at this path; the same directory name exists at: "${normalizeOutputPath(dirHits[0])}". ${actionVerb} that path directly.`;
     }
-    const elsewhere = cachedFileByBasename(workDir, missingPath, cache);
-    if (elsewhere.length) {
-        return ` Not found at this path; the same filename exists at: ${elsewhere.map((p) => `"${normalizeOutputPath(p)}"`).join(', ')}. ${actionVerb} that path directly.`;
+    const absent = elsewhere.exhaustive === true && dirHits.exhaustive === true ? ENOENT_ABSENT : '';
+    const parentRel = nearestExistingParentRel(workDir, missingPath);
+    if (parentRel) {
+      const resolvedParent = parentRel === '.' ? workDir : resolveAgainstCwd(parentRel, workDir);
+      // Compact hint: drop log/artifact noise, keep at most 3 candidates.
+      const siblings = listSiblings(resolvedParent, 12)
+        .filter((n) => !/\.(log|log\.\d+|tmp|bak)$/i.test(n))
+        .slice(0, 3);
+      if (siblings.length) {
+        const shown = parentRel === '.' ? '.' : normalizeOutputPath(parentRel);
+        return ` Not found; under "${shown}" try: ${siblings.map((n) => `"${n}"`).join(', ')}.${absent}`;
+      }
     }
-    if (isDirectoryPathGuess(missingPath)) {
-        const dirHits = findDirectoryByBasename(workDir, missingPath, { limit: 5 });
-        if (dirHits.length > 1) {
-            return ` Not found at this path; same-named directories exist at: ${dirHits.slice(0, 5).map((p) => `"${normalizeOutputPath(p)}"`).join(', ')}. ${actionVerb} one of those paths directly.`;
-        }
-        if (dirHits.length === 1) {
-            return ` Not found at this path; the same directory name exists at: "${normalizeOutputPath(dirHits[0])}". ${actionVerb} that path directly.`;
-        }
-        const absent = elsewhere.exhaustive === true && dirHits.exhaustive === true ? ENOENT_ABSENT : '';
-        const parentRel = nearestExistingParentRel(workDir, missingPath);
-        if (parentRel) {
-            const resolvedParent = parentRel === '.' ? workDir : resolveAgainstCwd(parentRel, workDir);
-            // Compact hint: drop log/artifact noise, keep at most 3 candidates.
-            const siblings = listSiblings(resolvedParent, 12)
-                .filter((n) => !/\.(log|log\.\d+|tmp|bak)$/i.test(n))
-                .slice(0, 3);
-            if (siblings.length) {
-                const shown = parentRel === '.' ? '.' : normalizeOutputPath(parentRel);
-                return ` Not found; under "${shown}" try: ${siblings.map((n) => `"${n}"`).join(', ')}.${absent}`;
-            }
-        }
-        return absent;
-    }
-    return elsewhere.exhaustive === true ? ENOENT_ABSENT : '';
+    return absent;
+  }
+  return elsewhere.exhaustive === true ? ENOENT_ABSENT : '';
 }
 
 export function relativePathPrefix(pathPrefix, workDir) {
-    if (!workDir) return pathPrefix;
-    const cwdFwd = workDir.replace(/\\/g, '/').replace(/\/+$/, '');
-    const absFwd = String(pathPrefix || '').replace(/\\/g, '/');
-    const haystack = process.platform === 'win32' ? absFwd.toLocaleLowerCase() : absFwd;
-    const needle = process.platform === 'win32' ? cwdFwd.toLocaleLowerCase() : cwdFwd;
-    if (haystack.startsWith(needle + '/') || haystack === needle) {
-        return absFwd.slice(cwdFwd.length + 1) || '.';
-    }
-    return pathPrefix;
+  if (!workDir) return pathPrefix;
+  const cwdFwd = workDir.replace(/\\/g, '/').replace(/\/+$/, '');
+  const absFwd = String(pathPrefix || '').replace(/\\/g, '/');
+  const haystack = process.platform === 'win32' ? absFwd.toLocaleLowerCase() : absFwd;
+  const needle = process.platform === 'win32' ? cwdFwd.toLocaleLowerCase() : cwdFwd;
+  if (haystack.startsWith(needle + '/') || haystack === needle) {
+    return absFwd.slice(cwdFwd.length + 1) || '.';
+  }
+  return pathPrefix;
 }
 
 export function relativeSearchResultPath(path, workDir) {
-    const normalizedWorkDir = normalizeOutputPath(workDir);
-    const normalizedAbs = normalizeOutputPath(path);
-    if (normalizedAbs.startsWith(normalizedWorkDir + '/') || normalizedAbs.startsWith(normalizedWorkDir + '\\')) {
-        return normalizedAbs.slice(normalizedWorkDir.length + 1);
-    }
-    return normalizedAbs;
+  const normalizedWorkDir = normalizeOutputPath(workDir);
+  const normalizedAbs = normalizeOutputPath(path);
+  if (normalizedAbs.startsWith(normalizedWorkDir + '/') || normalizedAbs.startsWith(normalizedWorkDir + '\\')) {
+    return normalizedAbs.slice(normalizedWorkDir.length + 1);
+  }
+  return normalizedAbs;
 }
 
 export function resolveSearchScope(root, workDir) {
-    return isAbsolute(root) ? resolve(root) : resolveAgainstCwd(root, workDir);
+  return isAbsolute(root) ? resolve(root) : resolveAgainstCwd(root, workDir);
 }
 
 export function isUncOrSmbPath(path) {
-    if (typeof path !== 'string' || !path) return false;
-    return path.startsWith('\\\\') || path.startsWith('//');
+  if (typeof path !== 'string' || !path) return false;
+  return path.startsWith('\\\\') || path.startsWith('//');
 }
 
 export function uncRefusalMessage(toolName, original, resolved) {
-    const shown = normalizeOutputPath(resolved || original || '');
-    return `Error: ${toolName} refuses UNC/SMB path ${JSON.stringify(shown)}; remote share access is blocked to prevent NTLM credential leaks`;
+  const shown = normalizeOutputPath(resolved || original || '');
+  return `Error: ${toolName} refuses UNC/SMB path ${JSON.stringify(shown)}; remote share access is blocked to prevent NTLM credential leaks`;
 }
 
 export function basePathDiagnostic(basePaths, workDir, statCache = null) {
-    return basePaths.map((basePath) => {
-        const resolved = resolveSearchScope(basePath, workDir);
-        // Reuse the caller's call-scoped stat cache (glob preflight + per-group
-        // rg runs already stat'd this same resolved root) instead of re-stating.
-        let st = null;
-        let err = null;
-        const cached = statCache && statCache.get(resolved);
-        if (cached) { st = cached.st; err = cached.err; }
-        else { try { st = statSync(resolved); } catch (e) { err = e; } }
-        // Older/in-flight cache entries may be Promises rather than settled
-        // {st,err} records. Fall back to a direct stat instead of dereferencing
-        // an undefined `st` in an empty-result diagnostic.
-        if (!err && !st) {
-            try { st = statSync(resolved); } catch (e) { err = e; }
+  return basePaths
+    .map((basePath) => {
+      const resolved = resolveSearchScope(basePath, workDir);
+      // Reuse the caller's call-scoped stat cache (glob preflight + per-group
+      // rg runs already stat'd this same resolved root) instead of re-stating.
+      let st = null;
+      let err = null;
+      const cached = statCache && statCache.get(resolved);
+      if (cached) {
+        st = cached.st;
+        err = cached.err;
+      } else {
+        try {
+          st = statSync(resolved);
+        } catch (e) {
+          err = e;
         }
-        if (!err && st) {
-            return `${normalizeOutputPath(basePath)}: ${st.isDirectory() ? 'path exists (dir)' : 'path exists (file)'}`;
+      }
+      // Older/in-flight cache entries may be Promises rather than settled
+      // {st,err} records. Fall back to a direct stat instead of dereferencing
+      // an undefined `st` in an empty-result diagnostic.
+      if (!err && !st) {
+        try {
+          st = statSync(resolved);
+        } catch (e) {
+          err = e;
         }
-        return `${normalizeOutputPath(basePath)}: path does not exist (${err?.code || 'ENOENT'})`
-            + finalizeReadFamilyEnoentTail(buildNotFoundHint(workDir, resolved, 'Search', err?.code), basePath, err?.code);
-    }).join('; ');
+      }
+      if (!err && st) {
+        return `${normalizeOutputPath(basePath)}: ${st.isDirectory() ? 'path exists (dir)' : 'path exists (file)'}`;
+      }
+      return (
+        `${normalizeOutputPath(basePath)}: path does not exist (${err?.code || 'ENOENT'})` +
+        finalizeReadFamilyEnoentTail(buildNotFoundHint(workDir, resolved, 'Search', err?.code), basePath, err?.code)
+      );
+    })
+    .join('; ');
 }

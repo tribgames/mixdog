@@ -3,10 +3,16 @@ import test from 'node:test';
 import { describeError, safeErrorDetails } from './error-presentation.mjs';
 import { presentErrorText } from './err-text.mjs';
 
-const providerFailure = (index) => new Error(`Anthropic OAuth API 400: ${JSON.stringify({
-  type: 'error',
-  error: { type: 'invalid_request_error', message: `messages.11.content.${index}.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests` },
-})}`);
+const providerFailure = (index) =>
+  new Error(
+    `Anthropic OAuth API 400: ${JSON.stringify({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: `messages.11.content.${index}.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests`,
+      },
+    })}`
+  );
 
 test('prefixed provider JSON becomes a short actionable summary without discarding diagnostics', () => {
   const failure = providerFailure(54);
@@ -20,12 +26,22 @@ test('prefixed provider JSON becomes a short actionable summary without discardi
 });
 
 test('typed failures distinguish sign-in, rate, request and connection recovery', () => {
-  for (const [status, kind] of [[401, 'authentication'], [429, 'rate-limit'], [400, 'request'], [413, 'payload-size'], [503, 'connection']]) {
+  for (const [status, kind] of [
+    [401, 'authentication'],
+    [429, 'rate-limit'],
+    [400, 'request'],
+    [413, 'payload-size'],
+    [503, 'connection'],
+  ]) {
     const result = describeError(Object.assign(new Error('upstream rejected the request'), { status }));
     assert.equal(result.kind, kind);
     assert.ok(result.recovery);
   }
-  assert.equal(describeError(new Error('ordinary failure A')).fingerprint === describeError(new Error('ordinary failure B')).fingerprint, false);
+  assert.equal(
+    describeError(new Error('ordinary failure A')).fingerprint ===
+      describeError(new Error('ordinary failure B')).fingerprint,
+    false
+  );
 });
 
 test('both summaries and details redact credentials while retaining useful context', () => {

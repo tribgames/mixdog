@@ -43,13 +43,13 @@ function unique(values) {
 
 function defaultTraceFiles() {
   if (pathArg) return [resolve(pathArg)];
-  const dirs = dataDir
-    ? [resolve(dataDir)]
-    : [resolve(process.cwd(), '.mixdog', 'data'), mixdogDataDir];
-  return unique(dirs.flatMap((dir) => [
-    resolve(dir, 'history', 'agent-trace.jsonl.1'),
-    resolve(dir, 'history', 'agent-trace.jsonl'),
-  ]));
+  const dirs = dataDir ? [resolve(dataDir)] : [resolve(process.cwd(), '.mixdog', 'data'), mixdogDataDir];
+  return unique(
+    dirs.flatMap((dir) => [
+      resolve(dir, 'history', 'agent-trace.jsonl.1'),
+      resolve(dir, 'history', 'agent-trace.jsonl'),
+    ])
+  );
 }
 
 function parseSince(value) {
@@ -64,7 +64,8 @@ function parseSince(value) {
   if (rel) {
     const n = Number(rel[1]);
     const unit = rel[2].toLowerCase();
-    const mult = unit === 'ms' ? 1 : unit === 's' ? 1000 : unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : 86_400_000;
+    const mult =
+      unit === 'ms' ? 1 : unit === 's' ? 1000 : unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : 86_400_000;
     return Date.now() - n * mult;
   }
   const parsed = Date.parse(raw);
@@ -237,7 +238,8 @@ function padColumns(tableRows) {
   if (tableRows.length === 0) return [];
   const colCount = tableRows[0].length;
   const widths = Array.from({ length: colCount }, (_, i) =>
-    Math.max(...tableRows.map((r) => String(r[i] ?? '').length)));
+    Math.max(...tableRows.map((r) => String(r[i] ?? '').length))
+  );
   return tableRows.map((r) => r.map((cell, i) => String(cell ?? '').padEnd(widths[i])).join('  '));
 }
 
@@ -404,10 +406,11 @@ function autoDiagnosis(meta, timeline) {
     return 'No iterations with usage or tool rows; cannot infer per-turn behavior.';
   }
   const ranked = [...issues].sort((a, b) => {
-    const score = (x) => (x.flags.includes('prompt') ? 3 : 0)
-      + (x.flags.includes('cache') ? 2 : 0)
-      + (x.flags.includes('ttft') ? 1 : 0)
-      + ((x.ttft || 0) / 1000);
+    const score = (x) =>
+      (x.flags.includes('prompt') ? 3 : 0) +
+      (x.flags.includes('cache') ? 2 : 0) +
+      (x.flags.includes('ttft') ? 1 : 0) +
+      (x.ttft || 0) / 1000;
     return score(b) - score(a) || (b.prompt || 0) - (a.prompt || 0);
   });
   const worst = ranked.slice(0, 2);
@@ -443,7 +446,8 @@ function findSessionsByQuery(summaries, query) {
 
 const files = defaultTraceFiles();
 const sinceTs = parseSince(sinceArg);
-const allRows = files.flatMap(readRows)
+const allRows = files
+  .flatMap(readRows)
   .filter((row) => sinceTs == null || Number(row.ts || 0) >= sinceTs)
   .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
 
@@ -571,17 +575,25 @@ function renderDetailView(query) {
   }
   const meta = full.meta;
   const ttftStats = stats(meta.sseRows.map((r) => numberField(r, 'ttft_ms')));
-  console.log(`session ${detail.short_id}  agent=${meta.agent || '-'}  model=${meta.model || '-'}  provider=${meta.provider || '-'}`);
-  console.log(`turns=${meta.turns}  span=${meta.spanSec}s  prompt=${meta.totalPrompt}tok  output=${meta.totalOutput}tok  cacheHit=${formatPct(meta.cacheHit)}  ttft p50/p90=${ttftStats?.p50 ?? '-'} / ${ttftStats?.p90 ?? '-'}ms`);
+  console.log(
+    `session ${detail.short_id}  agent=${meta.agent || '-'}  model=${meta.model || '-'}  provider=${meta.provider || '-'}`
+  );
+  console.log(
+    `turns=${meta.turns}  span=${meta.spanSec}s  prompt=${meta.totalPrompt}tok  output=${meta.totalOutput}tok  cacheHit=${formatPct(meta.cacheHit)}  ttft p50/p90=${ttftStats?.p50 ?? '-'} / ${ttftStats?.p90 ?? '-'}ms`
+  );
   console.log('');
   for (const l of detail.timeline) {
-    console.log(`it=${l.it}  tools: ${l.tools}   ctx: ${l.ctx}   prompt: ${l.prompt}  cached: ${l.cached}  ttft: ${l.ttft}${l.warn}`);
+    console.log(
+      `it=${l.it}  tools: ${l.tools}   ctx: ${l.ctx}   prompt: ${l.prompt}  cached: ${l.cached}  ttft: ${l.ttft}${l.warn}`
+    );
   }
   if (treeMode && detail.children.length > 0) {
     console.log('');
     console.log('child sessions:');
     for (const c of detail.children) {
-      console.log(`  ↳ ${c.agent || '-'}  ${c.short_id}  turns=${c.turns}  prompt=${c.total_prompt_tokens}tok  cacheHit=${formatPct(c.cache_hit_pct)}`);
+      console.log(
+        `  ↳ ${c.agent || '-'}  ${c.short_id}  turns=${c.turns}  prompt=${c.total_prompt_tokens}tok  cacheHit=${formatPct(c.cache_hit_pct)}`
+      );
     }
   }
   console.log('');

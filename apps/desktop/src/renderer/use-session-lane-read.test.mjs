@@ -8,11 +8,18 @@ import { useSessionLaneRead } from './use-session-lane-read.ts';
 for (const outcome of ['accepted-without-frame', 'pending', 'rejected', 'resume-owned']) {
   test(`cold pane exposes retry instead of waiting forever: ${outcome}`, async () => {
     const dom = new JSDOM('<!doctype html><div id="root"></div>');
-    const prior = new Map(['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'].map((key) =>
-      [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+    const prior = new Map(
+      ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'].map((key) => [
+        key,
+        Object.getOwnPropertyDescriptor(globalThis, key),
+      ])
+    );
     for (const [key, value] of Object.entries({
-      window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true,
-    })) Object.defineProperty(globalThis, key, { configurable: true, value });
+      window: dom.window,
+      document: dom.window.document,
+      IS_REACT_ACT_ENVIRONMENT: true,
+    }))
+      Object.defineProperty(globalThis, key, { configurable: true, value });
     const timers = new Map();
     let timerId = 0;
     dom.window.setTimeout = (callback) => {
@@ -29,7 +36,11 @@ for (const outcome of ['accepted-without-frame', 'pending', 'rejected', 'resume-
     };
     function Pane({ hasLane = false, hidden = false, sessionId = 'restored' }) {
       const state = useSessionLaneRead({
-        sessionId, hasLane, hidden, read, reconcileOnMount: outcome !== 'resume-owned',
+        sessionId,
+        hasLane,
+        hidden,
+        read,
+        reconcileOnMount: outcome !== 'resume-owned',
       });
       return state.readUnavailable
         ? React.createElement('button', { onClick: state.retryRead }, 'Retry')
@@ -40,7 +51,9 @@ for (const outcome of ['accepted-without-frame', 'pending', 'rejected', 'resume-
     try {
       await render();
       assert.equal(reads, outcome === 'resume-owned' ? 0 : 1);
-      await act(async () => { for (const callback of [...timers.values()]) callback(); });
+      await act(async () => {
+        for (const callback of [...timers.values()]) callback();
+      });
       assert.equal(document.querySelector('button')?.textContent, 'Retry');
       await act(async () => document.querySelector('button').click());
       assert.equal(reads, outcome === 'resume-owned' ? 1 : 2);

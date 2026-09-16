@@ -1,5 +1,3 @@
-'use strict';
-
 import {
   closeSync,
   existsSync,
@@ -74,7 +72,9 @@ function memoryCounters() {
 
 function rotateLedger(active) {
   const size = Number(statSync(active.ledger).size) || 0;
-  try { unlinkSync(active.previousLedger); } catch {}
+  try {
+    unlinkSync(active.previousLedger);
+  } catch {}
   if (size <= LIFECYCLE_LEDGER_MAX_BYTES) {
     renameSync(active.ledger, active.previousLedger);
     return;
@@ -87,8 +87,7 @@ function rotateLedger(active) {
 }
 
 function boundPreviousLedger(active) {
-  if (existsSync(active.previousLedger)
-    && statSync(active.previousLedger).size > LIFECYCLE_LEDGER_MAX_BYTES) {
+  if (existsSync(active.previousLedger) && statSync(active.previousLedger).size > LIFECYCLE_LEDGER_MAX_BYTES) {
     writeFileSync(active.previousLedger, '', { mode: 0o600 });
   }
 }
@@ -97,23 +96,29 @@ function appendEntry(active, entry) {
   const line = `${JSON.stringify(entry)}\n`;
   if (Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES) return false;
   try {
-    return withFileLockSync(active.lock, () => {
-      boundPreviousLedger(active);
-      if (existsSync(active.ledger)
-        && statSync(active.ledger).size + Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES) {
-        rotateLedger(active);
+    return withFileLockSync(
+      active.lock,
+      () => {
+        boundPreviousLedger(active);
+        if (
+          existsSync(active.ledger) &&
+          statSync(active.ledger).size + Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES
+        ) {
+          rotateLedger(active);
+        }
+        const fd = openSync(active.ledger, 'a', 0o600);
+        try {
+          writeSync(fd, line, null, 'utf8');
+        } finally {
+          closeSync(fd);
+        }
+        return statSync(active.ledger).size <= LIFECYCLE_LEDGER_MAX_BYTES;
+      },
+      {
+        timeoutMs: 0,
+        staleMs: LEDGER_LOCK_STALE_MS,
       }
-      const fd = openSync(active.ledger, 'a', 0o600);
-      try {
-        writeSync(fd, line, null, 'utf8');
-      } finally {
-        closeSync(fd);
-      }
-      return statSync(active.ledger).size <= LIFECYCLE_LEDGER_MAX_BYTES;
-    }, {
-      timeoutMs: 0,
-      staleMs: LEDGER_LOCK_STALE_MS,
-    });
+    );
   } catch {
     return false;
   }
@@ -123,26 +128,32 @@ async function appendEntryAsync(active, entry, shouldAppend) {
   const staticLine = typeof entry === 'function' ? null : `${JSON.stringify(entry)}\n`;
   if (staticLine && Buffer.byteLength(staticLine) > LIFECYCLE_LEDGER_MAX_BYTES) return false;
   try {
-    return await withFileLock(active.lock, () => {
-      if (!shouldAppend()) return false;
-      const line = staticLine || `${JSON.stringify(entry())}\n`;
-      if (Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES) return false;
-      boundPreviousLedger(active);
-      if (existsSync(active.ledger)
-        && statSync(active.ledger).size + Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES) {
-        rotateLedger(active);
+    return await withFileLock(
+      active.lock,
+      () => {
+        if (!shouldAppend()) return false;
+        const line = staticLine || `${JSON.stringify(entry())}\n`;
+        if (Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES) return false;
+        boundPreviousLedger(active);
+        if (
+          existsSync(active.ledger) &&
+          statSync(active.ledger).size + Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES
+        ) {
+          rotateLedger(active);
+        }
+        const fd = openSync(active.ledger, 'a', 0o600);
+        try {
+          writeSync(fd, line, null, 'utf8');
+        } finally {
+          closeSync(fd);
+        }
+        return statSync(active.ledger).size <= LIFECYCLE_LEDGER_MAX_BYTES;
+      },
+      {
+        timeoutMs: LEDGER_LOCK_TIMEOUT_MS,
+        staleMs: LEDGER_LOCK_STALE_MS,
       }
-      const fd = openSync(active.ledger, 'a', 0o600);
-      try {
-        writeSync(fd, line, null, 'utf8');
-      } finally {
-        closeSync(fd);
-      }
-      return statSync(active.ledger).size <= LIFECYCLE_LEDGER_MAX_BYTES;
-    }, {
-      timeoutMs: LEDGER_LOCK_TIMEOUT_MS,
-      staleMs: LEDGER_LOCK_STALE_MS,
-    });
+    );
   } catch {
     return false;
   }
@@ -150,10 +161,8 @@ async function appendEntryAsync(active, entry, shouldAppend) {
 
 function currentProcessIdentity() {
   if (process.platform !== 'linux') {
-    const value = Math.floor((Date.now() - (process.uptime() * 1000)) / 1000);
-    return Number.isSafeInteger(value) && value > 0
-      ? { kind: 'start-seconds', value, method: 'uptime' }
-      : null;
+    const value = Math.floor((Date.now() - process.uptime() * 1000) / 1000);
+    return Number.isSafeInteger(value) && value > 0 ? { kind: 'start-seconds', value, method: 'uptime' } : null;
   }
   return linuxProcessIdentity(process.pid);
 }
@@ -161,10 +170,11 @@ function currentProcessIdentity() {
 function linuxProcessIdentity(pid) {
   try {
     const raw = readFileSync(`/proc/${pid}/stat`, 'utf8');
-    const fields = raw.slice(raw.lastIndexOf(') ') + 2).trim().split(/\s+/);
-    return fields[19] && /^\d+$/.test(fields[19])
-      ? { kind: 'linux-start-ticks', value: fields[19] }
-      : null;
+    const fields = raw
+      .slice(raw.lastIndexOf(') ') + 2)
+      .trim()
+      .split(/\s+/);
+    return fields[19] && /^\d+$/.test(fields[19]) ? { kind: 'linux-start-ticks', value: fields[19] } : null;
   } catch {
     return null;
   }
@@ -174,10 +184,16 @@ async function windowsProcessIdentities(pids) {
   const identities = new Map();
   if (pids.length === 0) return identities;
   try {
-    const { stdout } = await execFileAsync('powershell.exe', [
-      '-NoProfile', '-NonInteractive', '-Command',
-      `$ErrorActionPreference='SilentlyContinue'; Get-Process -Id @(${pids.join(',')}) | ForEach-Object { try { "$($_.Id):$(([DateTimeOffset]$_.StartTime).ToUnixTimeSeconds())" } catch {} }`,
-    ], { encoding: 'utf8', timeout: 2000, windowsHide: true });
+    const { stdout } = await execFileAsync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `$ErrorActionPreference='SilentlyContinue'; Get-Process -Id @(${pids.join(',')}) | ForEach-Object { try { "$($_.Id):$(([DateTimeOffset]$_.StartTime).ToUnixTimeSeconds())" } catch {} }`,
+      ],
+      { encoding: 'utf8', timeout: 2000, windowsHide: true }
+    );
     for (const line of String(stdout).split(/\r?\n/)) {
       const match = /^(\d+):(\d+)$/.exec(line.trim());
       if (!match) continue;
@@ -214,10 +230,7 @@ async function processIdentityForPid(pid) {
 async function processIdentitiesForPids(pids) {
   const unique = [...new Set(pids)];
   if (process.platform !== 'win32') {
-    return new Map(await Promise.all(unique.map(async (pid) => [
-      pid,
-      await processIdentityForPid(pid),
-    ])));
+    return new Map(await Promise.all(unique.map(async (pid) => [pid, await processIdentityForPid(pid)])));
   }
 
   const identities = new Map();
@@ -240,12 +253,15 @@ function sameProcessIdentity(expected, observed) {
     return String(expected.value) === String(observed.value);
   }
   if (expected.kind === 'start-seconds') {
-    if (!Number.isSafeInteger(expected.value) || expected.value < 1
-      || !Number.isSafeInteger(observed.value) || observed.value < 1) return null;
+    if (
+      !Number.isSafeInteger(expected.value) ||
+      expected.value < 1 ||
+      !Number.isSafeInteger(observed.value) ||
+      observed.value < 1
+    )
+      return null;
     const crossMethod = expected.method === 'uptime' || observed.method === 'uptime';
-    return crossMethod
-      ? Math.abs(expected.value - observed.value) <= 2
-      : expected.value === observed.value;
+    return crossMethod ? Math.abs(expected.value - observed.value) <= 2 : expected.value === observed.value;
   }
   return null;
 }
@@ -283,23 +299,29 @@ function recordPriorVanished(active, previous) {
 function markerMatchesSnapshot(markerPath, previous) {
   try {
     const current = JSON.parse(readFileSync(markerPath, 'utf8'));
-    return current?.pid === previous.pid
-      && current?.token === previous.token
-      && isDeepStrictEqual(current?.processIdentity, previous.processIdentity);
+    return (
+      current?.pid === previous.pid &&
+      current?.token === previous.token &&
+      isDeepStrictEqual(current?.processIdentity, previous.processIdentity)
+    );
   } catch {
     return false;
   }
 }
 
 async function recordPriorVanishedAsync(active, markerPath, previous) {
-  const written = await appendEntryAsync(active, {
-    version: 1,
-    timestamp: new Date().toISOString(),
-    pid: previous.pid,
-    ppid: Number.isInteger(previous.ppid) ? previous.ppid : null,
-    reason: 'prior-process-vanished',
-    exitCode: null,
-  }, () => sharedState().active === active && markerMatchesSnapshot(markerPath, previous));
+  const written = await appendEntryAsync(
+    active,
+    {
+      version: 1,
+      timestamp: new Date().toISOString(),
+      pid: previous.pid,
+      ppid: Number.isInteger(previous.ppid) ? previous.ppid : null,
+      reason: 'prior-process-vanished',
+      exitCode: null,
+    },
+    () => sharedState().active === active && markerMatchesSnapshot(markerPath, previous)
+  );
   if (!written || sharedState().active !== active) return false;
   if (!markerMatchesSnapshot(markerPath, previous)) return false;
   try {
@@ -334,16 +356,24 @@ function markerOwned(active) {
 function writeMarker(active) {
   try {
     mkdirSync(active.markerDir, { recursive: true, mode: 0o700 });
-    writeFileSync(active.markerPath, `${JSON.stringify({
-      version: 1,
-      timestamp: new Date().toISOString(),
-      pid: process.pid,
-      ppid: process.ppid,
-      token: active.token,
-      processIdentity: active.processIdentity,
-    })}\n`, { encoding: 'utf8', mode: 0o600 });
+    writeFileSync(
+      active.markerPath,
+      `${JSON.stringify({
+        version: 1,
+        timestamp: new Date().toISOString(),
+        pid: process.pid,
+        ppid: process.ppid,
+        token: active.token,
+        processIdentity: active.processIdentity,
+      })}\n`,
+      { encoding: 'utf8', mode: 0o600 }
+    );
     const fd = openSync(active.markerPath, 'r');
-    try { fsyncSync(fd); } finally { closeSync(fd); }
+    try {
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
     return true;
   } catch {
     return false;
@@ -408,10 +438,7 @@ async function reapOccupiedMarkers(active, occupied) {
     try {
       if (sharedState().active !== active) return;
       if (!markerMatchesSnapshot(markerPath, previous)) continue;
-      const identityMatch = sameProcessIdentity(
-        previous.processIdentity,
-        identities.get(previous.pid) || null,
-      );
+      const identityMatch = sameProcessIdentity(previous.processIdentity, identities.get(previous.pid) || null);
       if (identityMatch === false) {
         await recordPriorVanishedAsync(active, markerPath, previous);
       }
@@ -454,7 +481,13 @@ export function beginProcessLifecycle({
     token,
     processIdentity: currentProcessIdentity(),
     markerPath: join(resolved.markerDir, `${process.pid}-${token}.json`),
-    cwd: (() => { try { return process.cwd(); } catch { return null; } })(),
+    cwd: (() => {
+      try {
+        return process.cwd();
+      } catch {
+        return null;
+      }
+    })(),
   };
   state.active = active;
 
@@ -463,8 +496,12 @@ export function beginProcessLifecycle({
   recordCurrent('process-start');
   scheduleProcessIdentityUpgrade(active);
   if (configureReports && safeCommandLine) {
-    try { unlinkSync(`${active.report}.1`); } catch {}
-    try { renameSync(active.report, `${active.report}.1`); } catch {}
+    try {
+      unlinkSync(`${active.report}.1`);
+    } catch {}
+    try {
+      renameSync(active.report, `${active.report}.1`);
+    } catch {}
   }
   const reportsEnabled = configureReports && configureNodeReports(active.report, safeCommandLine);
   active.api = {
@@ -519,7 +556,9 @@ function completeProcessLifecycleFinish(state, active, written) {
     return false;
   }
   if (markerOwned(active)) {
-    try { unlinkSync(active.markerPath); } catch {
+    try {
+      unlinkSync(active.markerPath);
+    } catch {
       active.finishing = false;
       return false;
     }
@@ -535,7 +574,7 @@ export function finishProcessLifecycle(reason = 'clean-shutdown', exitCode = 0) 
   return completeProcessLifecycleFinish(
     state,
     active,
-    appendEntry(active, lifecycleEntry(active, active.finalReason, active.finalExitCode)),
+    appendEntry(active, lifecycleEntry(active, active.finalReason, active.finalExitCode))
   );
 }
 
@@ -546,7 +585,7 @@ export async function finishProcessLifecycleAsync(reason = 'clean-shutdown', exi
   const written = await appendEntryAsync(
     active,
     () => lifecycleEntry(active, active.finalReason, active.finalExitCode),
-    () => state.active === active && active.finishing,
+    () => state.active === active && active.finishing
   );
   return completeProcessLifecycleFinish(state, active, written);
 }

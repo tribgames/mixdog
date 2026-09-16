@@ -30,7 +30,11 @@ test('goal time mode matches the dialog fields and opens above the modal layer',
       loader: 'tsx',
     },
     outfile: 'goal-dialog.js',
-    bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
+    bundle: true,
+    write: false,
+    platform: 'browser',
+    format: 'iife',
+    jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"production"' },
     loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
   });
@@ -41,28 +45,38 @@ test('goal time mode matches the dialog fields and opens above the modal layer',
   t.after(() => browser.close());
   const page = await browser.newPage();
   const errors = [];
-  page.on('pageerror', error => errors.push(error.message));
-  for (const { width, inset } of [{ width: 1200, inset: 240 }, { width: 360, inset: 0 }]) {
+  page.on('pageerror', (error) => errors.push(error.message));
+  for (const { width, inset } of [
+    { width: 1200, inset: 240 },
+    { width: 360, inset: 0 },
+  ]) {
     await page.setViewport({ width, height: 800 });
     await page.setContent(`<!doctype html><html><head></head><body>
       <main class="pane-cell" style="position:fixed;inset:0 0 0 ${inset}px">
         <div id="root"></div>
       </main>
     </body></html>`);
-    await page.addStyleTag({ content: bundle.outputFiles.find(file => file.path.endsWith('.css')).text });
-    await page.addScriptTag({ content: bundle.outputFiles.find(file => file.path.endsWith('.js')).text });
+    await page.addStyleTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.css')).text });
+    await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
     await page.waitForSelector('[role="combobox"]', { visible: true });
-    await page.$eval('[role="dialog"]', async dialog => {
-      await Promise.all(dialog.getAnimations({ subtree: true }).map(animation => animation.finished));
+    await page.$eval('[role="dialog"]', async (dialog) => {
+      await Promise.all(dialog.getAnimations({ subtree: true }).map((animation) => animation.finished));
       await document.fonts.ready;
     });
-    const fields = await page.$eval('[role="dialog"]', dialog => {
-      const measure = element => {
+    const fields = await page.$eval('[role="dialog"]', (dialog) => {
+      const measure = (element) => {
         const { left, right, width, height } = element.getBoundingClientRect();
         const style = getComputedStyle(element);
         return {
-          left, right, width, height, color: style.color, background: style.backgroundColor,
-          radius: style.borderRadius, fontSize: style.fontSize, shadow: style.boxShadow,
+          left,
+          right,
+          width,
+          height,
+          color: style.color,
+          background: style.backgroundColor,
+          radius: style.borderRadius,
+          fontSize: style.fontSize,
+          shadow: style.boxShadow,
         };
       };
       return {
@@ -75,10 +89,12 @@ test('goal time mode matches the dialog fields and opens above the modal layer',
           dialog.querySelector('input[type="number"]'),
           dialog.querySelector('[role="combobox"]'),
           dialog.querySelector('small'),
-        ].map(element => {
+        ].map((element) => {
           const style = getComputedStyle(element);
           return {
-            family: style.fontFamily, size: style.fontSize, weight: style.fontWeight,
+            family: style.fontFamily,
+            size: style.fontSize,
+            weight: style.fontWeight,
             line: style.lineHeight,
           };
         }),
@@ -86,12 +102,20 @@ test('goal time mode matches the dialog fields and opens above the modal layer',
       };
     });
     assert.equal(fields.fontLoaded, true, `${width}px: the existing UI font is loaded`);
-    assert.deepEqual(fields.typography.map(({ size, weight }) => [size, weight]), [
-      ['16px', '600'],
-      ['15px', '600'], ['15px', '600'], ['15px', '600'],
-      ['14px', '400'], ['14px', '400'], ['14px', '400'],
-      ['13px', '400'],
-    ], `${width}px: editor title, labels, values, and supporting text follow the shared hierarchy`);
+    assert.deepEqual(
+      fields.typography.map(({ size, weight }) => [size, weight]),
+      [
+        ['16px', '600'],
+        ['15px', '600'],
+        ['15px', '600'],
+        ['15px', '600'],
+        ['14px', '400'],
+        ['14px', '400'],
+        ['14px', '400'],
+        ['13px', '400'],
+      ],
+      `${width}px: editor title, labels, values, and supporting text follow the shared hierarchy`
+    );
     for (const typography of fields.typography) {
       assert.ok(typography.family.startsWith('"Pretendard Variable"'), `${width}px: one UI font family`);
     }
@@ -103,22 +127,27 @@ test('goal time mode matches the dialog fields and opens above the modal layer',
     assert.ok(fields.select.left >= inset && fields.select.right <= width, `${width}px: field stays in its pane`);
     await page.click('[role="combobox"]');
     await page.waitForSelector('[role="listbox"]', { visible: true });
-    await page.$eval('[role="listbox"]', async listbox => {
-      await Promise.all(listbox.getAnimations({ subtree: true }).map(animation => animation.finished));
+    await page.$eval('[role="listbox"]', async (listbox) => {
+      await Promise.all(listbox.getAnimations({ subtree: true }).map((animation) => animation.finished));
     });
-    const menu = await page.$eval('[role="listbox"]', listbox => {
+    const menu = await page.$eval('[role="listbox"]', (listbox) => {
       const { left, right, top, bottom } = listbox.getBoundingClientRect();
       return {
-        left, right, top, bottom,
-        items: [...listbox.querySelectorAll('[role="option"]')].map(option => {
+        left,
+        right,
+        top,
+        bottom,
+        items: [...listbox.querySelectorAll('[role="option"]')].map((option) => {
           const rect = option.getBoundingClientRect();
           const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
           return option === hit || option.contains(hit);
         }),
       };
     });
-    assert.ok(menu.left >= inset && menu.right <= width && menu.top >= 0 && menu.bottom <= 800,
-      `${width}px: menu stays within the visible pane`);
+    assert.ok(
+      menu.left >= inset && menu.right <= width && menu.top >= 0 && menu.bottom <= 800,
+      `${width}px: menu stays within the visible pane`
+    );
     assert.deepEqual(menu.items, [true, true], `${width}px: both choices are above the modal and hittable`);
   }
   assert.deepEqual(errors, []);

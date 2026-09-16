@@ -35,58 +35,58 @@ const MODELSDEV_MODALITY_FIELDS = ['input', 'output'];
 /** Copy the listed keys when present. Returns undefined when none survive, so
  *  callers can drop the container entirely rather than store an empty object. */
 function pickPresent(source, fields) {
-    if (!source || typeof source !== 'object') return undefined;
-    let out;
-    for (const field of fields) {
-        const value = source[field];
-        if (value == null) continue;
-        (out ||= {})[field] = value;
-    }
-    return out;
+  if (!source || typeof source !== 'object') return undefined;
+  let out;
+  for (const field of fields) {
+    const value = source[field];
+    if (value == null) continue;
+    (out ||= {})[field] = value;
+  }
+  return out;
 }
 
 function pickArrays(source, fields) {
-    if (!source || typeof source !== 'object') return undefined;
-    let out;
-    for (const field of fields) {
-        const value = source[field];
-        if (!Array.isArray(value)) continue;
-        (out ||= {})[field] = value;
-    }
-    return out;
+  if (!source || typeof source !== 'object') return undefined;
+  let out;
+  for (const field of fields) {
+    const value = source[field];
+    if (!Array.isArray(value)) continue;
+    (out ||= {})[field] = value;
+  }
+  return out;
 }
 
 function projectModelsDevRow(row) {
-    if (!row || typeof row !== 'object') return null;
-    const out = {};
-    // `cost` gates _modelsDevMetadataSync entirely — a row without it yields no
-    // metadata, so an absent cost must stay absent rather than become {}.
-    const cost = pickPresent(row.cost, MODELSDEV_COST_FIELDS);
-    if (cost) out.cost = cost;
-    const limit = pickPresent(row.limit, MODELSDEV_LIMIT_FIELDS);
-    if (limit) out.limit = limit;
-    const modalities = pickArrays(row.modalities, MODELSDEV_MODALITY_FIELDS);
-    if (modalities) out.modalities = modalities;
-    if (row.reasoning === true) out.reasoning = true;
-    if (Array.isArray(row.reasoning_options) && row.reasoning_options.length > 0) {
-        out.reasoning_options = row.reasoning_options;
-    }
-    const interleavedField = row.interleaved?.field;
-    if (interleavedField) out.interleaved = { field: interleavedField };
-    // tool_call is read as an explicit `=== false` drop signal, so the
-    // distinction between false and absent must survive.
-    if (typeof row.tool_call === 'boolean') out.tool_call = row.tool_call;
-    if (typeof row.family === 'string' && row.family) out.family = row.family;
-    if (typeof row.release_date === 'string' && row.release_date) out.release_date = row.release_date;
-    // Reader: opencode-go.mjs openCodeGoWireApi — models.dev names the SDK
-    // package a gateway model speaks (@ai-sdk/openai = Responses API,
-    // @ai-sdk/anthropic = Messages API, absent = chat/completions).
-    const npm = row.provider?.npm;
-    if (typeof npm === 'string' && npm) out.npm = npm;
-    // Reader: enrichModels (display label for gateway ids the id-based
-    // formatter cannot title, e.g. kimi-k2.7-code → "Kimi K2.7 Code").
-    if (typeof row.name === 'string' && row.name) out.name = row.name;
-    return out;
+  if (!row || typeof row !== 'object') return null;
+  const out = {};
+  // `cost` gates _modelsDevMetadataSync entirely — a row without it yields no
+  // metadata, so an absent cost must stay absent rather than become {}.
+  const cost = pickPresent(row.cost, MODELSDEV_COST_FIELDS);
+  if (cost) out.cost = cost;
+  const limit = pickPresent(row.limit, MODELSDEV_LIMIT_FIELDS);
+  if (limit) out.limit = limit;
+  const modalities = pickArrays(row.modalities, MODELSDEV_MODALITY_FIELDS);
+  if (modalities) out.modalities = modalities;
+  if (row.reasoning === true) out.reasoning = true;
+  if (Array.isArray(row.reasoning_options) && row.reasoning_options.length > 0) {
+    out.reasoning_options = row.reasoning_options;
+  }
+  const interleavedField = row.interleaved?.field;
+  if (interleavedField) out.interleaved = { field: interleavedField };
+  // tool_call is read as an explicit `=== false` drop signal, so the
+  // distinction between false and absent must survive.
+  if (typeof row.tool_call === 'boolean') out.tool_call = row.tool_call;
+  if (typeof row.family === 'string' && row.family) out.family = row.family;
+  if (typeof row.release_date === 'string' && row.release_date) out.release_date = row.release_date;
+  // Reader: opencode-go.mjs openCodeGoWireApi — models.dev names the SDK
+  // package a gateway model speaks (@ai-sdk/openai = Responses API,
+  // @ai-sdk/anthropic = Messages API, absent = chat/completions).
+  const npm = row.provider?.npm;
+  if (typeof npm === 'string' && npm) out.npm = npm;
+  // Reader: enrichModels (display label for gateway ids the id-based
+  // formatter cannot title, e.g. kimi-k2.7-code → "Kimi K2.7 Code").
+  if (typeof row.name === 'string' && row.name) out.name = row.name;
+  return out;
 }
 
 /**
@@ -95,19 +95,19 @@ function projectModelsDevRow(row) {
  * through `.models`, so such an entry can never answer one.
  */
 export function projectModelsDevCatalog(data) {
-    if (!data || typeof data !== 'object') return data;
-    const out = {};
-    for (const [providerId, provider] of Object.entries(data)) {
-        const models = provider?.models;
-        if (!models || typeof models !== 'object') continue;
-        const projected = {};
-        for (const [modelId, row] of Object.entries(models)) {
-            const projectedRow = projectModelsDevRow(row);
-            if (projectedRow) projected[modelId] = projectedRow;
-        }
-        out[providerId] = { models: projected };
+  if (!data || typeof data !== 'object') return data;
+  const out = {};
+  for (const [providerId, provider] of Object.entries(data)) {
+    const models = provider?.models;
+    if (!models || typeof models !== 'object') continue;
+    const projected = {};
+    for (const [modelId, row] of Object.entries(models)) {
+      const projectedRow = projectModelsDevRow(row);
+      if (projectedRow) projected[modelId] = projectedRow;
     }
-    return out;
+    out[providerId] = { models: projected };
+  }
+  return out;
 }
 
 // ── LiteLLM ─────────────────────────────────────────────────────────────────
@@ -115,59 +115,65 @@ export function projectModelsDevCatalog(data) {
 // mode) and the provider guard in getModelMetadataSync / enrichModels
 // (litellm_provider).
 const LITELLM_NUMBER_FIELDS = [
-    'max_input_tokens',
-    'max_tokens',
-    'max_output_tokens',
-    'input_cost_per_token',
-    'output_cost_per_token',
-    'cache_read_input_token_cost',
-    'cache_creation_input_token_cost',
+  'max_input_tokens',
+  'max_tokens',
+  'max_output_tokens',
+  'input_cost_per_token',
+  'output_cost_per_token',
+  'cache_read_input_token_cost',
+  'cache_creation_input_token_cost',
 ];
 // _normalize tests each of these with `=== true`, so only a true value carries
 // information; anything else is indistinguishable from absent.
 const LITELLM_FLAG_FIELDS = [
-    'supports_vision',
-    'supports_function_calling',
-    'supports_web_search',
-    'supports_websearch',
-    'supports_prompt_caching',
-    'supports_reasoning',
+  'supports_vision',
+  'supports_function_calling',
+  'supports_web_search',
+  'supports_websearch',
+  'supports_prompt_caching',
+  'supports_reasoning',
 ];
 const LITELLM_STRING_FIELDS = ['mode', 'litellm_provider', 'reasoning_content_field'];
 
 function projectLitellmRow(row) {
-    if (!row || typeof row !== 'object') return null;
-    const out = {};
-    for (const field of LITELLM_NUMBER_FIELDS) {
-        const value = row[field];
-        if (typeof value === 'number' && Number.isFinite(value)) out[field] = value;
-    }
-    // Preserve the published context-rate columns, not just the base price.
-    for (const [field, value] of Object.entries(row)) {
-        if (/^(?:input_cost_per_token|output_cost_per_token|cache_read_input_token_cost|cache_creation_input_token_cost)_above_\d+k_tokens$/.test(field)
-            && typeof value === 'number' && Number.isFinite(value)) out[field] = value;
-    }
-    for (const field of LITELLM_FLAG_FIELDS) {
-        if (row[field] === true) out[field] = true;
-    }
-    for (const field of LITELLM_STRING_FIELDS) {
-        const value = row[field];
-        if (typeof value === 'string' && value) out[field] = value;
-    }
-    if (Array.isArray(row.reasoning_options) && row.reasoning_options.length > 0) {
-        out.reasoning_options = row.reasoning_options;
-    }
-    return out;
+  if (!row || typeof row !== 'object') return null;
+  const out = {};
+  for (const field of LITELLM_NUMBER_FIELDS) {
+    const value = row[field];
+    if (typeof value === 'number' && Number.isFinite(value)) out[field] = value;
+  }
+  // Preserve the published context-rate columns, not just the base price.
+  for (const [field, value] of Object.entries(row)) {
+    if (
+      /^(?:input_cost_per_token|output_cost_per_token|cache_read_input_token_cost|cache_creation_input_token_cost)_above_\d+k_tokens$/.test(
+        field
+      ) &&
+      typeof value === 'number' &&
+      Number.isFinite(value)
+    )
+      out[field] = value;
+  }
+  for (const field of LITELLM_FLAG_FIELDS) {
+    if (row[field] === true) out[field] = true;
+  }
+  for (const field of LITELLM_STRING_FIELDS) {
+    const value = row[field];
+    if (typeof value === 'string' && value) out[field] = value;
+  }
+  if (Array.isArray(row.reasoning_options) && row.reasoning_options.length > 0) {
+    out.reasoning_options = row.reasoning_options;
+  }
+  return out;
 }
 
 /** Narrow a LiteLLM catalog in place of its parsed original. Keys are the
  *  lookup surface and are preserved exactly; only row shape narrows. */
 export function projectLitellmCatalog(data) {
-    if (!data || typeof data !== 'object') return data;
-    const out = {};
-    for (const [key, row] of Object.entries(data)) {
-        const projectedRow = projectLitellmRow(row);
-        if (projectedRow) out[key] = projectedRow;
-    }
-    return out;
+  if (!data || typeof data !== 'object') return data;
+  const out = {};
+  for (const [key, row] of Object.entries(data)) {
+    const projectedRow = projectLitellmRow(row);
+    if (projectedRow) out[key] = projectedRow;
+  }
+  return out;
 }

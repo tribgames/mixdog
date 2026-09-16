@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  configureEmbedding, getEmbeddingInfo, getEmbeddingModelId, isEmbeddingModelReady,
-  getEmbeddingDims, primeEmbeddingDims,
+  configureEmbedding,
+  getEmbeddingInfo,
+  getEmbeddingModelId,
+  isEmbeddingModelReady,
+  getEmbeddingDims,
+  primeEmbeddingDims,
 } from './embedding-provider.mjs';
 import { getKnownEmbeddingDims, normalizeEmbeddingDtype } from './embedding-model-config.mjs';
 

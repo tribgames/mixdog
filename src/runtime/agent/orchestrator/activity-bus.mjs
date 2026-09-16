@@ -22,6 +22,10 @@ export function setListener(fn) {
   if (_listener && _pendingPingAt != null) {
     const ts = _pendingPingAt;
     _pendingPingAt = null;
-    try { _listener(ts); } catch { /* best-effort */ }
+    try {
+      _listener(ts);
+    } catch {
+      /* best-effort */
+    }
   }
 }

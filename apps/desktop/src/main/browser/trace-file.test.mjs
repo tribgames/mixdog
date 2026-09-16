@@ -19,7 +19,9 @@ test('Chrome trace export preserves timing, masks secrets, counts omissions, and
     assert.equal(parsed.traceEvents[0].args.cookie, '[REDACTED]');
     assert.equal(parsed.traceEvents[0].args.text, '[REDACTED]');
     assert.equal(parsed.metadata.droppedEvents, 1);
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('event-time target guard blocks an overlay and cleans up listeners', () => {
@@ -27,15 +29,21 @@ test('event-time target guard blocks an overlay and cleans up listeners', () => 
   const view = {
     addEventListener: (type, listener) => listeners.set(type, listener),
     removeEventListener: (type) => listeners.delete(type),
-    setTimeout: () => 1, clearTimeout() {}, frameElement: null,
+    setTimeout: () => 1,
+    clearTimeout() {},
+    frameElement: null,
   };
   const element = { isConnected: true, ownerDocument: { defaultView: view } };
   const guard = Function(`return (${BROWSER_HIT_GUARD})`)();
   guard.call(element, 'test', false);
   let blocked = 0;
   listeners.get('pointerdown')({
-    isTrusted: true, composedPath: () => [{}],
-    preventDefault: () => { blocked++; }, stopImmediatePropagation() {},
+    isTrusted: true,
+    composedPath: () => [{}],
+    preventDefault: () => {
+      blocked++;
+    },
+    stopImmediatePropagation() {},
   });
   assert.equal(blocked, 1);
   assert.deepEqual(guard.call(element, 'test', true), { blocked: true });

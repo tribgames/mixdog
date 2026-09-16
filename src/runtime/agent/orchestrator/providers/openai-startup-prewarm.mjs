@@ -30,7 +30,7 @@ import { releaseWebSocket, WS_IDLE_MS } from './openai-ws-pool.mjs';
  * below is unaffected and keeps running.
  */
 export function startupPromptWarmupEnabled() {
-    return envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', false);
+  return envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', false);
 }
 
 /**
@@ -42,13 +42,18 @@ export function startupPromptWarmupEnabled() {
  * real request back to a full frame.
  */
 export function codexStartupPrefixHash(body) {
-    const prewarm = buildCodexStartupPrewarmBody(body);
-    return createHash('sha256').update(JSON.stringify({
+  const prewarm = buildCodexStartupPrewarmBody(body);
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
         model: prewarm?.model ?? null,
         instructions: prewarm?.instructions ?? null,
         tools: prewarm?.tools ?? null,
         input: prewarm?.input ?? [],
-    })).digest('hex').slice(0, 24);
+      })
+    )
+    .digest('hex')
+    .slice(0, 24);
 }
 
 /**
@@ -59,22 +64,22 @@ export function codexStartupPrefixHash(body) {
  * 371ms connection-only vs 1869ms with the prompt).
  */
 export function resolveStartupPrewarmTarget(opts) {
-    const session = opts.session && typeof opts.session === 'object' ? opts.session : null;
-    const messages = Array.isArray(opts.messages)
-        ? opts.messages
-        : (Array.isArray(session?.messages) ? session.messages : null);
-    const tools = Array.isArray(opts.tools)
-        ? opts.tools
-        : (Array.isArray(session?.tools) ? session.tools : []);
-    const model = opts.model || session?.model || null;
-    return {
-        poolKey: opts.sessionId || null,
-        session,
-        messages,
-        tools,
-        model,
-        promptWarmup: !!(messages && model && startupPromptWarmupEnabled()),
-    };
+  const session = opts.session && typeof opts.session === 'object' ? opts.session : null;
+  const messages = Array.isArray(opts.messages)
+    ? opts.messages
+    : Array.isArray(session?.messages)
+      ? session.messages
+      : null;
+  const tools = Array.isArray(opts.tools) ? opts.tools : Array.isArray(session?.tools) ? session.tools : [];
+  const model = opts.model || session?.model || null;
+  return {
+    poolKey: opts.sessionId || null,
+    session,
+    messages,
+    tools,
+    model,
+    promptWarmup: !!(messages && model && startupPromptWarmupEnabled()),
+  };
 }
 
 /**
@@ -84,52 +89,47 @@ export function resolveStartupPrewarmTarget(opts) {
  * stripped because send() takes them positionally.
  */
 export function buildStartupPrewarmSendOpts(target, opts) {
-    const {
-        messages: _messages,
-        tools: _tools,
-        model: _model,
-        ...baseSendOpts
-    } = opts;
-    const { poolKey, session } = target;
-    const codexSessionId = baseSendOpts.codexSessionId
-        || session?.codexWireSessionId
-        || null;
-    return {
-        ...baseSendOpts,
-        sessionId: poolKey,
-        session,
-        effort: baseSendOpts.effort ?? session?.effort ?? null,
-        fast: baseSendOpts.fast === true || session?.fast === true,
-        modelParameters: baseSendOpts.modelParameters || session?.modelParameters || {},
-        promptCacheKey: baseSendOpts.promptCacheKey || session?.promptCacheKey || null,
-        ...(codexSessionId ? {
-            codexSessionId,
-            codexThreadId: baseSendOpts.codexThreadId || codexSessionId,
-            threadId: baseSendOpts.threadId || codexSessionId,
-        } : {}),
-        requestKind: 'prewarm',
-        codexRequestKind: 'prewarm',
-        _startupPrewarmOnly: true,
-    };
+  const { messages: _messages, tools: _tools, model: _model, ...baseSendOpts } = opts;
+  const { poolKey, session } = target;
+  const codexSessionId = baseSendOpts.codexSessionId || session?.codexWireSessionId || null;
+  return {
+    ...baseSendOpts,
+    sessionId: poolKey,
+    session,
+    effort: baseSendOpts.effort ?? session?.effort ?? null,
+    fast: baseSendOpts.fast === true || session?.fast === true,
+    modelParameters: baseSendOpts.modelParameters || session?.modelParameters || {},
+    promptCacheKey: baseSendOpts.promptCacheKey || session?.promptCacheKey || null,
+    ...(codexSessionId
+      ? {
+          codexSessionId,
+          codexThreadId: baseSendOpts.codexThreadId || codexSessionId,
+          threadId: baseSendOpts.threadId || codexSessionId,
+        }
+      : {}),
+    requestKind: 'prewarm',
+    codexRequestKind: 'prewarm',
+    _startupPrewarmOnly: true,
+  };
 }
 
 /** Prewarm telemetry is best-effort: tracing must never fail a prewarm. */
 export function traceStartupPrewarm(poolKey, payload) {
-    try {
-        appendAgentTrace({
-            sessionId: poolKey,
-            kind: 'spawn_ws_prewarm',
-            provider: 'openai-oauth',
-            transport: 'websocket',
-            payload,
-        });
-    } catch {}
+  try {
+    appendAgentTrace({
+      sessionId: poolKey,
+      kind: 'spawn_ws_prewarm',
+      provider: 'openai-oauth',
+      transport: 'websocket',
+      payload,
+    });
+  } catch {}
 }
 
 function disarmReservationExpiry(handle) {
-    if (!handle?._reservationTimer) return;
-    clearTimeout(handle._reservationTimer);
-    handle._reservationTimer = null;
+  if (!handle?._reservationTimer) return;
+  clearTimeout(handle._reservationTimer);
+  handle._reservationTimer = null;
 }
 
 /**
@@ -138,17 +138,17 @@ function disarmReservationExpiry(handle) {
  * reservation once it is stamped.
  */
 export function stampStartupPrewarmReservation(handle, prefixHash) {
-    if (!handle) return handle;
-    handle.prefixHash = prefixHash;
-    handle.promptWarmup = true;
-    return handle;
+  if (!handle) return handle;
+  handle.prefixHash = prefixHash;
+  handle.promptWarmup = true;
+  return handle;
 }
 
 /** Give up a reservation: disarm its expiry and close the socket it holds. */
 export function discardStartupPrewarmReservation(handle, poolKey) {
-    if (!handle) return;
-    disarmReservationExpiry(handle);
-    if (handle.entry) releaseWebSocket({ entry: handle.entry, poolKey, keep: false });
+  if (!handle) return;
+  disarmReservationExpiry(handle);
+  if (handle.entry) releaseWebSocket({ entry: handle.entry, poolKey, keep: false });
 }
 
 /**
@@ -157,9 +157,9 @@ export function discardStartupPrewarmReservation(handle, poolKey) {
  * materialized) does not satisfy a prompt prewarm.
  */
 export function hasStartupPrewarmReservation(registry, poolKey, { promptWarmup = false } = {}) {
-    const reserved = registry.get(poolKey) || null;
-    if (!reserved) return false;
-    return !promptWarmup || reserved.promptWarmup === true;
+  const reserved = registry.get(poolKey) || null;
+  if (!reserved) return false;
+  return !promptWarmup || reserved.promptWarmup === true;
 }
 
 /**
@@ -168,23 +168,25 @@ export function hasStartupPrewarmReservation(registry, poolKey, { promptWarmup =
  * as its socket closes; a superseded reservation is released, never leaked.
  */
 export function armStartupPrewarmReservation(registry, poolKey, handle, { idleMs = WS_IDLE_MS } = {}) {
-    const previous = registry.get(poolKey);
-    if (previous && previous !== handle) discardStartupPrewarmReservation(previous, poolKey);
-    registry.set(poolKey, handle);
-    handle._reservationTimer = setTimeout(() => {
-        if (registry.get(poolKey) !== handle) return;
-        registry.delete(poolKey);
-        handle._reservationTimer = null;
-        releaseWebSocket({ entry: handle.entry, poolKey, keep: false });
-    }, idleMs);
-    try { handle._reservationTimer.unref?.(); } catch {}
-    try {
-        handle.entry.socket?.once?.('close', () => {
-            disarmReservationExpiry(handle);
-            if (registry.get(poolKey) === handle) registry.delete(poolKey);
-        });
-    } catch {}
-    return handle;
+  const previous = registry.get(poolKey);
+  if (previous && previous !== handle) discardStartupPrewarmReservation(previous, poolKey);
+  registry.set(poolKey, handle);
+  handle._reservationTimer = setTimeout(() => {
+    if (registry.get(poolKey) !== handle) return;
+    registry.delete(poolKey);
+    handle._reservationTimer = null;
+    releaseWebSocket({ entry: handle.entry, poolKey, keep: false });
+  }, idleMs);
+  try {
+    handle._reservationTimer.unref?.();
+  } catch {}
+  try {
+    handle.entry.socket?.once?.('close', () => {
+      disarmReservationExpiry(handle);
+      if (registry.get(poolKey) === handle) registry.delete(poolKey);
+    });
+  } catch {}
+  return handle;
 }
 
 /**
@@ -196,19 +198,21 @@ export function armStartupPrewarmReservation(registry, poolKey, handle, { idleMs
  * whole prewarm and still force the request back to a full frame.
  */
 export function claimStartupPrewarmReservation(registry, { poolKey, cacheKey, prefixHash }) {
-    if (!poolKey) return null;
-    const candidate = registry.get(poolKey) || null;
-    if (!candidate) return null;
-    registry.delete(poolKey);
-    disarmReservationExpiry(candidate);
-    if (candidate.poolKey === poolKey
-        && candidate.cacheKey === cacheKey
-        && candidate.prefixHash === prefixHash
-        && candidate.entry) {
-        return candidate;
-    }
-    discardStartupPrewarmReservation(candidate, poolKey);
-    return null;
+  if (!poolKey) return null;
+  const candidate = registry.get(poolKey) || null;
+  if (!candidate) return null;
+  registry.delete(poolKey);
+  disarmReservationExpiry(candidate);
+  if (
+    candidate.poolKey === poolKey &&
+    candidate.cacheKey === cacheKey &&
+    candidate.prefixHash === prefixHash &&
+    candidate.entry
+  ) {
+    return candidate;
+  }
+  discardStartupPrewarmReservation(candidate, poolKey);
+  return null;
 }
 
 /**
@@ -217,5 +221,5 @@ export function claimStartupPrewarmReservation(registry, { poolKey, cacheKey, pr
  * moment it registers.
  */
 export function retireStartupPrewarmRecord(inFlight, poolKey, record) {
-    if (inFlight.get(poolKey) === record) inFlight.delete(poolKey);
+  if (inFlight.get(poolKey) === record) inFlight.delete(poolKey);
 }

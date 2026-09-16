@@ -3,60 +3,66 @@ import { getProvider, initProviders } from '../providers/registry.mjs';
 import { resolveMaintenanceRoute } from './maintenance-route.mjs';
 import { resultText } from './completion-text.mjs';
 
-const TITLE_SYSTEM_PROMPT = "Create a concise, natural session title of 3-7 words that captures the main topic or goal of the provided message or conversation. Output only one title on one line, at most 32 characters; no quotes, markdown, or trailing period.";
+const TITLE_SYSTEM_PROMPT =
+  'Create a concise, natural session title of 3-7 words that captures the main topic or goal of the provided message or conversation. Output only one title on one line, at most 32 characters; no quotes, markdown, or trailing period.';
 
 function titleSystemPrompt(locale = '') {
-    const systemLocale = String(locale || '').trim();
-    return systemLocale
-        ? `${TITLE_SYSTEM_PROMPT} System language/locale: ${systemLocale}. Prefer that language when the source is ambiguous; preserve a clearly different source language.`
-        : TITLE_SYSTEM_PROMPT;
+  const systemLocale = String(locale || '').trim();
+  return systemLocale
+    ? `${TITLE_SYSTEM_PROMPT} System language/locale: ${systemLocale}. Prefer that language when the source is ambiguous; preserve a clearly different source language.`
+    : TITLE_SYSTEM_PROMPT;
 }
 
 function createTitleCompletion(deps = {}) {
-    const load = deps.loadConfig || loadConfig;
-    const resolveRoute = deps.resolveMaintenanceRoute || resolveMaintenanceRoute;
-    const initialize = deps.initProviders || initProviders;
-    const providerFor = deps.getProvider || getProvider;
+  const load = deps.loadConfig || loadConfig;
+  const resolveRoute = deps.resolveMaintenanceRoute || resolveMaintenanceRoute;
+  const initialize = deps.initProviders || initProviders;
+  const providerFor = deps.getProvider || getProvider;
 
-    return async function generateSessionTitle(source, options = {}) {
-        const text = String(source || '').trim();
-        if (!text) return '';
-        const signal = options.signal || null;
-        const config = load();
-        const route = resolveRoute({
-            agent: 'title-agent',
-            config,
-        });
-        if (!route || typeof route !== 'object') {
-            const error = new Error('Session title maintenance route is unresolved.');
-            // Machine-readable marker: callers (session-title controller)
-            // downgrade this to a one-shot "titling disabled" skip instead of
-            // logging a stack per session (e.g. bench profiles without a
-            // maintainer/default route).
-            error.code = 'MAINTENANCE_ROUTE_UNRESOLVED';
-            throw error;
-        }
-        const providerName = String(route.provider || '').trim();
-        const model = String(route.model || '').trim();
-        if (!providerName || !model) {
-            throw new Error('Session title maintenance route requires provider and model.');
-        }
-        await initialize(config.providers || {}, { signal });
-        const provider = providerFor(providerName);
-        if (!provider || typeof provider.send !== 'function') {
-            throw new Error(`Session title provider is unavailable: ${providerName}`);
-        }
-        const response = await provider.send([
-            { role: 'system', content: titleSystemPrompt(options.locale) },
-            { role: 'user', content: text },
-        ], model, undefined, {
-            signal,
-            effort: String(route.effort || '').trim() || 'low',
-            fast: route.fast === true,
-            maxOutputTokens: 128,
-        });
-        return resultText(response).trim();
-    };
+  return async function generateSessionTitle(source, options = {}) {
+    const text = String(source || '').trim();
+    if (!text) return '';
+    const signal = options.signal || null;
+    const config = load();
+    const route = resolveRoute({
+      agent: 'title-agent',
+      config,
+    });
+    if (!route || typeof route !== 'object') {
+      const error = new Error('Session title maintenance route is unresolved.');
+      // Machine-readable marker: callers (session-title controller)
+      // downgrade this to a one-shot "titling disabled" skip instead of
+      // logging a stack per session (e.g. bench profiles without a
+      // maintainer/default route).
+      error.code = 'MAINTENANCE_ROUTE_UNRESOLVED';
+      throw error;
+    }
+    const providerName = String(route.provider || '').trim();
+    const model = String(route.model || '').trim();
+    if (!providerName || !model) {
+      throw new Error('Session title maintenance route requires provider and model.');
+    }
+    await initialize(config.providers || {}, { signal });
+    const provider = providerFor(providerName);
+    if (!provider || typeof provider.send !== 'function') {
+      throw new Error(`Session title provider is unavailable: ${providerName}`);
+    }
+    const response = await provider.send(
+      [
+        { role: 'system', content: titleSystemPrompt(options.locale) },
+        { role: 'user', content: text },
+      ],
+      model,
+      undefined,
+      {
+        signal,
+        effort: String(route.effort || '').trim() || 'low',
+        fast: route.fast === true,
+        maxOutputTokens: 128,
+      }
+    );
+    return resultText(response).trim();
+  };
 }
 
 export const generateSessionTitle = createTitleCompletion();

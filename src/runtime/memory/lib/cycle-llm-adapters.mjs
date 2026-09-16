@@ -12,12 +12,15 @@
 export function createCycleLlmAdapters({ callAgentDispatch }) {
   function buildAdapter(agent) {
     return async (opts = {}, userMessage) => {
-      return callAgentDispatch({
-        ...opts,
-        agent,
-        taskType: 'maintenance',
-      }, String(userMessage ?? ''))
-    }
+      return callAgentDispatch(
+        {
+          ...opts,
+          agent,
+          taskType: 'maintenance',
+        },
+        String(userMessage ?? '')
+      );
+    };
   }
 
   // Callers (cycle-scheduler `callLlm: getCycle1CallLlm()`, index.mjs bench)
@@ -26,10 +29,10 @@ export function createCycleLlmAdapters({ callAgentDispatch }) {
   // LLM dispatch with no arguments — empty prompt → agent-dispatch throw →
   // unhandled rejection that killed the memory runtime. Keep the factory
   // contract: each getter returns the (memoized) adapter function.
-  const cycle1 = buildAdapter('cycle1-agent')
-  const cycle2 = buildAdapter('cycle2-agent')
+  const cycle1 = buildAdapter('cycle1-agent');
+  const cycle2 = buildAdapter('cycle2-agent');
   return {
     getCycle1CallLlm: () => cycle1,
     getCycle2CallLlm: () => cycle2,
-  }
+  };
 }

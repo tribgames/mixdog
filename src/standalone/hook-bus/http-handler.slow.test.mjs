@@ -28,17 +28,24 @@ for (const phase of ['headers', 'body']) {
     });
     const controller = new AbortController();
     const reason = new Error('explicit policy cancellation');
-    const pending = runHttpHandler({
-      type: 'http', allowPrivateHosts: true, timeout: 2,
-      url: `http://127.0.0.1:${server.address().port}/hook`,
-    }, {}, 'PreToolUse', {
-      signal: controller.signal,
-      privateFetch: async (...args) => {
-        const response = await fetch(...args);
-        bodyReady.resolve();
-        return response;
+    const pending = runHttpHandler(
+      {
+        type: 'http',
+        allowPrivateHosts: true,
+        timeout: 2,
+        url: `http://127.0.0.1:${server.address().port}/hook`,
       },
-    });
+      {},
+      'PreToolUse',
+      {
+        signal: controller.signal,
+        privateFetch: async (...args) => {
+          const response = await fetch(...args);
+          bodyReady.resolve();
+          return response;
+        },
+      }
+    );
     await received.promise;
     if (phase === 'body') {
       await bodyReady.promise;

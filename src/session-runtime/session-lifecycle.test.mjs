@@ -6,89 +6,125 @@ import { createLifecycleApi } from './lifecycle-api.mjs';
 import { inheritanceFit, inheritanceRouteTarget } from './inheritance-fit.mjs';
 
 test('cold route metadata preserves persisted effort and enabled Fast mode', () => {
-  assert.deepEqual(resolveRouteEffortState({
-    provider: 'cursor-oauth',
-    model: 'kimi-k3',
-    effort: 'high',
-    fast: true,
-  }, {
-    id: 'kimi-k3',
-    provider: 'cursor-oauth',
-  }), {
-    effectiveEffort: 'high',
-    fastCapable: true,
-    metadataResolved: false,
-  });
+  assert.deepEqual(
+    resolveRouteEffortState(
+      {
+        provider: 'cursor-oauth',
+        model: 'kimi-k3',
+        effort: 'high',
+        fast: true,
+      },
+      {
+        id: 'kimi-k3',
+        provider: 'cursor-oauth',
+      }
+    ),
+    {
+      effectiveEffort: 'high',
+      fastCapable: true,
+      metadataResolved: false,
+    }
+  );
 });
 
 test('resolved route metadata remains authoritative for effort and Fast support', () => {
-  assert.deepEqual(resolveRouteEffortState({
-    provider: 'cursor-oauth',
-    model: 'kimi-k3',
-    effort: 'max',
-    fast: true,
-  }, {
-    id: 'kimi-k3',
-    provider: 'cursor-oauth',
-    reasoningLevels: ['high'],
-    fastCapable: false,
-    fastEfforts: [],
-  }), {
-    effectiveEffort: 'high',
-    fastCapable: false,
-    metadataResolved: true,
-  });
+  assert.deepEqual(
+    resolveRouteEffortState(
+      {
+        provider: 'cursor-oauth',
+        model: 'kimi-k3',
+        effort: 'max',
+        fast: true,
+      },
+      {
+        id: 'kimi-k3',
+        provider: 'cursor-oauth',
+        reasoningLevels: ['high'],
+        fastCapable: false,
+        fastEfforts: [],
+      }
+    ),
+    {
+      effectiveEffort: 'high',
+      fastCapable: false,
+      metadataResolved: true,
+    }
+  );
 });
 
 test('resolved Cursor parameter variants validate Fast for the selected effort', () => {
-  assert.deepEqual(resolveRouteEffortState({
-    provider: 'cursor-oauth',
-    model: 'gpt-5.6-sol',
-    effort: 'high',
-    fast: true,
-    modelParameters: { context: '272k' },
-  }, {
-    id: 'gpt-5.6-sol',
-    provider: 'cursor-oauth',
-    reasoningLevels: ['high', 'max'],
-    fastCapable: true,
-    fastEfforts: ['high'],
-    parameterVariants: [
-      { effort: 'high', fast: 'true', context: '272k' },
-      { effort: 'max', fast: 'false', context: '272k' },
-    ],
-  }), {
-    effectiveEffort: 'high',
-    fastCapable: true,
-    metadataResolved: true,
-  });
+  assert.deepEqual(
+    resolveRouteEffortState(
+      {
+        provider: 'cursor-oauth',
+        model: 'gpt-5.6-sol',
+        effort: 'high',
+        fast: true,
+        modelParameters: { context: '272k' },
+      },
+      {
+        id: 'gpt-5.6-sol',
+        provider: 'cursor-oauth',
+        reasoningLevels: ['high', 'max'],
+        fastCapable: true,
+        fastEfforts: ['high'],
+        parameterVariants: [
+          { effort: 'high', fast: 'true', context: '272k' },
+          { effort: 'max', fast: 'false', context: '272k' },
+        ],
+      }
+    ),
+    {
+      effectiveEffort: 'high',
+      fastCapable: true,
+      metadataResolved: true,
+    }
+  );
 });
 
 test('context percentage uses a model default and ten-point steps', () => {
-  assert.deepEqual(resolveRouteContextState({}, {
-    contextWindow: 200_000,
-    maxContextWindow: 1_000_000,
-  }), {
-    contextPercent: 20,
-    contextDefaultPercent: 20,
-    selectedContextWindow: 200_000,
-  });
-  assert.deepEqual(resolveRouteContextState({ contextPercent: 34 }, {
-    contextWindow: 200_000,
-    maxContextWindow: 1_000_000,
-  }), {
-    contextPercent: 30,
-    contextDefaultPercent: 20,
-    selectedContextWindow: 300_000,
-  });
-  assert.deepEqual(resolveRouteContextState({ contextPercent: null }, {
-    contextWindow: 200_000,
-    maxContextWindow: 1_000_000,
-  }), {
-    contextPercent: 20,
-    contextDefaultPercent: 20,
-    selectedContextWindow: 200_000,
-  });
+  assert.deepEqual(
+    resolveRouteContextState(
+      {},
+      {
+        contextWindow: 200_000,
+        maxContextWindow: 1_000_000,
+      }
+    ),
+    {
+      contextPercent: 20,
+      contextDefaultPercent: 20,
+      selectedContextWindow: 200_000,
+    }
+  );
+  assert.deepEqual(
+    resolveRouteContextState(
+      { contextPercent: 34 },
+      {
+        contextWindow: 200_000,
+        maxContextWindow: 1_000_000,
+      }
+    ),
+    {
+      contextPercent: 30,
+      contextDefaultPercent: 20,
+      selectedContextWindow: 300_000,
+    }
+  );
+  assert.deepEqual(
+    resolveRouteContextState(
+      { contextPercent: null },
+      {
+        contextWindow: 200_000,
+        maxContextWindow: 1_000_000,
+      }
+    ),
+    {
+      contextPercent: 20,
+      contextDefaultPercent: 20,
+      selectedContextWindow: 200_000,
+    }
+  );
 });
 
 test('a placeholder model meta still resolves the selected window from the catalog', () => {
@@ -104,48 +140,75 @@ test('a placeholder model meta still resolves the selected window from the catal
     }
     return null;
   };
-  assert.deepEqual(resolveRouteContextState({
-    provider: 'anthropic-oauth',
-    model: 'claude-opus-5',
-    contextPercent: 50,
-  }, { id: 'claude-opus-5', provider: 'anthropic-oauth' }, windowLookup), {
-    contextPercent: 50,
-    contextDefaultPercent: 100,
-    selectedContextWindow: 500_000,
-  });
+  assert.deepEqual(
+    resolveRouteContextState(
+      {
+        provider: 'anthropic-oauth',
+        model: 'claude-opus-5',
+        contextPercent: 50,
+      },
+      { id: 'claude-opus-5', provider: 'anthropic-oauth' },
+      windowLookup
+    ),
+    {
+      contextPercent: 50,
+      contextDefaultPercent: 100,
+      selectedContextWindow: 500_000,
+    }
+  );
   // A cached row that knows both windows keeps the picker's own scale, so a
   // cold placeholder can never rescale a saved percentage downward.
-  assert.deepEqual(resolveRouteContextState({
-    provider: 'openai-oauth',
-    model: 'gpt-5.6-sol',
-    contextPercent: 30,
-  }, { id: 'gpt-5.6-sol', provider: 'openai-oauth' }, windowLookup), {
-    contextPercent: 30,
-    contextDefaultPercent: 30,
-    selectedContextWindow: 272_000,
-  });
+  assert.deepEqual(
+    resolveRouteContextState(
+      {
+        provider: 'openai-oauth',
+        model: 'gpt-5.6-sol',
+        contextPercent: 30,
+      },
+      { id: 'gpt-5.6-sol', provider: 'openai-oauth' },
+      windowLookup
+    ),
+    {
+      contextPercent: 30,
+      contextDefaultPercent: 30,
+      selectedContextWindow: 272_000,
+    }
+  );
   // An uncached model keeps the model-default intent.
-  assert.deepEqual(resolveRouteContextState({
-    provider: 'anthropic-oauth',
-    model: 'unknown-model',
-    contextPercent: 50,
-  }, { id: 'unknown-model', provider: 'anthropic-oauth' }, windowLookup), {
-    contextPercent: undefined,
-    contextDefaultPercent: undefined,
-    selectedContextWindow: undefined,
-  });
+  assert.deepEqual(
+    resolveRouteContextState(
+      {
+        provider: 'anthropic-oauth',
+        model: 'unknown-model',
+        contextPercent: 50,
+      },
+      { id: 'unknown-model', provider: 'anthropic-oauth' },
+      windowLookup
+    ),
+    {
+      contextPercent: undefined,
+      contextDefaultPercent: undefined,
+      selectedContextWindow: undefined,
+    }
+  );
 });
 
 test('route config treats a cleared context percentage as model-default intent', () => {
   const resolveRoute = makeResolveRoute(() => 'cursor-oauth');
-  assert.equal(resolveRoute({
-    modelSettings: {
-      'cursor-oauth/gpt-5.4': { contextPercent: null },
-    },
-  }, {
-    provider: 'cursor-oauth',
-    model: 'gpt-5.4',
-  }).contextPercent, undefined);
+  assert.equal(
+    resolveRoute(
+      {
+        modelSettings: {
+          'cursor-oauth/gpt-5.4': { contextPercent: null },
+        },
+      },
+      {
+        provider: 'cursor-oauth',
+        model: 'gpt-5.4',
+      }
+    ).contextPercent,
+    undefined
+  );
 });
 
 const CONVERSATION = [
@@ -175,22 +238,34 @@ test('session inheritance is judged on the heir route, never on the source readi
   // The identical conversation prices differently per route: an Anthropic heir
   // is billed above the raw estimate, which is exactly why the source session's
   // own gauge cannot answer this question.
-  const anthropic = inheritanceFit(CONVERSATION, heir({
-    provider: 'anthropic-oauth', model: 'claude-opus-5',
-  }));
+  const anthropic = inheritanceFit(
+    CONVERSATION,
+    heir({
+      provider: 'anthropic-oauth',
+      model: 'claude-opus-5',
+    })
+  );
   assert.ok(anthropic.used > roomy.used);
 
   // A heir that cannot hold the conversation refuses it before any carry.
-  const tight = inheritanceFit(CONVERSATION, heir({
-    contextWindow: 10_000, compactBoundaryTokens: 10_000,
-  }));
+  const tight = inheritanceFit(
+    CONVERSATION,
+    heir({
+      contextWindow: 10_000,
+      compactBoundaryTokens: 10_000,
+    })
+  );
   assert.equal(tight.fits, false);
   assert.equal(tight.limit, 10_000);
 
   // An unmeasurable route is not a refusal.
-  assert.equal(inheritanceFit(CONVERSATION, {
-    provider: 'openai-oauth', model: 'gpt-6-astra',
-  }).known, false);
+  assert.equal(
+    inheritanceFit(CONVERSATION, {
+      provider: 'openai-oauth',
+      model: 'gpt-6-astra',
+    }).known,
+    false
+  );
 });
 
 test('the inheritance preflight is the same verdict the carry itself reaches', async () => {
@@ -236,9 +311,10 @@ test('the inheritance preflight is the same verdict the carry itself reaches', a
   await compacted.api.inheritFrom(source.id);
   assert.equal(budgets.length, 1);
   assert.ok(budgets[0] > 0 && budgets[0] < compacted.fit.used);
-  assert.deepEqual(compacted.target.messages.map(({ content }) => content), [
-    'Compacted for the heir.',
-  ]);
+  assert.deepEqual(
+    compacted.target.messages.map(({ content }) => content),
+    ['Compacted for the heir.']
+  );
 
   // A compaction that yields no conversation is a refusal, not a half-carry:
   // the measured sentence names the heir's route and nothing is carried.
@@ -246,12 +322,9 @@ test('the inheritance preflight is the same verdict the carry itself reaches', a
   assert.equal(refused.fit.fits, false);
   await assert.rejects(
     refused.api.inheritFrom(source.id),
-    new RegExp(`${refused.fit.used} tokens.*${refused.fit.limit}`),
+    new RegExp(`${refused.fit.used} tokens.*${refused.fit.limit}`)
   );
-  await assert.rejects(
-    refused.api.inheritFrom(source.id),
-    /anthropic-oauth\/claude-opus-5/,
-  );
+  await assert.rejects(refused.api.inheritFrom(source.id), /anthropic-oauth\/claude-opus-5/);
   assert.deepEqual(refused.target.messages, []);
 
   const accepted = await run(500_000);

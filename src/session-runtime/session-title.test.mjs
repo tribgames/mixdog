@@ -5,7 +5,9 @@ import { createSessionTitleController } from './session-title.mjs';
 
 test('first-turn LLM title waits until visible assistant progress', async () => {
   let release;
-  const after = new Promise((resolve) => { release = resolve; });
+  const after = new Promise((resolve) => {
+    release = resolve;
+  });
   const generated = [];
   const promoted = [];
   const controller = createSessionTitleController({
@@ -20,11 +22,12 @@ test('first-turn LLM title waits until visible assistant progress', async () => 
     },
   });
 
-  assert.equal(controller.scheduleFirst(
-    { id: 'session-title-deferred', messages: [] },
-    'Investigate cold-start latency',
-    { after },
-  ), true);
+  assert.equal(
+    controller.scheduleFirst({ id: 'session-title-deferred', messages: [] }, 'Investigate cold-start latency', {
+      after,
+    }),
+    true
+  );
   await Promise.resolve();
   assert.deepEqual(generated, []);
 

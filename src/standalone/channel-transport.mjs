@@ -22,8 +22,12 @@ import { createFairCallScheduler } from './fair-call-scheduler.mjs';
 import { createLoopbackListener } from '../runtime/shared/loopback-listener.mjs';
 import { callSignature, callIdConflict, clientCallOwner } from './rpc-call-identity.mjs';
 import {
-  ACTIVATE_TOOL, REBIND_TOOL, BINDING_TOOLS,
-  remoteSessionIdFromBinding, normalizeRemoteIntent, readRemoteIntent,
+  ACTIVATE_TOOL,
+  REBIND_TOOL,
+  BINDING_TOOLS,
+  remoteSessionIdFromBinding,
+  normalizeRemoteIntent,
+  readRemoteIntent,
 } from './channel-binding.mjs';
 
 export const CHANNEL_HTTP_BODY_MAX_BYTES = 64 * 1024 * 1024;
@@ -31,7 +35,6 @@ export const CHANNEL_HTTP_BODY_MAX_BYTES = 64 * 1024 * 1024;
 function readChannelBody(req) {
   return readBody(req, { maxBytes: CHANNEL_HTTP_BODY_MAX_BYTES });
 }
-
 
 export function createChannelTransport({
   handleCall,
@@ -101,7 +104,10 @@ export function createChannelTransport({
   let bindingChain = Promise.resolve();
   function runExclusiveBinding(run) {
     const result = bindingChain.then(run, run);
-    bindingChain = result.then(() => {}, () => {});
+    bindingChain = result.then(
+      () => {},
+      () => {}
+    );
     return result;
   }
   // Reconnect register replay: a server may commit replacement just before its
@@ -118,7 +124,9 @@ export function createChannelTransport({
   let drainingReason = '';
   let drainCommitted = false;
 
-  function nowMs() { return Date.now(); }
+  function nowMs() {
+    return Date.now();
+  }
 
   function writeRemoteIntent(args, sessionId, cwd = null) {
     pinnedSessionId = sessionId;
@@ -147,8 +155,11 @@ export function createChannelTransport({
     pinnedSessionId = null;
     remoteIntent = null;
     if (resolvedRemoteIntentPath) {
-      try { rmSync(resolvedRemoteIntentPath, { force: true }); }
-      catch (err) { log(`remote intent clear failed (${reason}): ${err?.message || err}`); }
+      try {
+        rmSync(resolvedRemoteIntentPath, { force: true });
+      } catch (err) {
+        log(`remote intent clear failed (${reason}): ${err?.message || err}`);
+      }
     }
     log(`remote intent cleared (${reason})`);
     return true;
@@ -162,16 +173,20 @@ export function createChannelTransport({
     const restore = runExclusiveBinding(async () => {
       if (closed || remoteIntent !== intent || pinnedSessionId !== intent.sessionId) return false;
       try {
-        const result = await handleCall(ACTIVATE_TOOL, {
-          active: true,
-          sessionId: intent.sessionId,
-          transcriptPath: intent.transcriptPath,
-          restore: true,
-        }, {
-          clientToken: null,
-          leadPid: null,
-          cwd: intent.cwd,
-        });
+        const result = await handleCall(
+          ACTIVATE_TOOL,
+          {
+            active: true,
+            sessionId: intent.sessionId,
+            transcriptPath: intent.transcriptPath,
+            restore: true,
+          },
+          {
+            clientToken: null,
+            leadPid: null,
+            cwd: intent.cwd,
+          }
+        );
         if (result?.isError === true) {
           throw new Error(result?.content?.[0]?.text || 'restored activation failed');
         }
@@ -208,17 +223,15 @@ export function createChannelTransport({
       daemonPid: process.pid,
       updatedAt: nowMs(),
     };
-    const signature = JSON.stringify([
-      state.enabled,
-      state.sessionId,
-      state.cwd,
-      state.daemonPid,
-    ]);
+    const signature = JSON.stringify([state.enabled, state.sessionId, state.cwd, state.daemonPid]);
     if (signature === remoteStateSignature) return;
     remoteStateSignature = signature;
     if (typeof onRemoteStateChange === 'function') {
-      try { onRemoteStateChange(state); }
-      catch (err) { log(`remote session state listener failed: ${err?.message || err}`); }
+      try {
+        onRemoteStateChange(state);
+      } catch (err) {
+        log(`remote session state listener failed: ${err?.message || err}`);
+      }
     }
     if (!resolvedRemoteStatePath) return;
     try {
@@ -277,7 +290,9 @@ export function createChannelTransport({
   function removeRegistrationReplay(registrationId, replay = registrationReplays.get(registrationId)) {
     if (!replay || registrationReplays.get(registrationId) !== replay) return;
     registrationReplays.delete(registrationId);
-    try { clearTimeout(replay.timer); } catch {}
+    try {
+      clearTimeout(replay.timer);
+    } catch {}
   }
 
   // Every removal path uses this primitive, including replacement's deliberate
@@ -289,7 +304,9 @@ export function createChannelTransport({
     for (const [registrationId, replay] of registrationReplays) {
       if (replay.token === token) removeRegistrationReplay(registrationId, replay);
     }
-    try { c.sse?.end?.(); } catch {}
+    try {
+      c.sse?.end?.();
+    } catch {}
     return c;
   }
 
@@ -298,7 +315,9 @@ export function createChannelTransport({
   }
 
   function armRegistrationReplay(replayId, replay) {
-    try { clearTimeout(replay.timer); } catch {}
+    try {
+      clearTimeout(replay.timer);
+    } catch {}
     replay.timer = setTimeout(() => {
       if (registrationReplays.get(replayId) !== replay) return;
       // A successfully flushed register response creates a valid client even
@@ -324,9 +343,14 @@ export function createChannelTransport({
     const replay = replayId ? registrationReplays.get(replayId) : null;
     if (!replay) return 'missing';
     const retiredToken = token ? String(token) : null;
-    if (retiredToken !== replay.replaceToken || String(replaceToken || '') !== replay.replaceToken ||
-        parsePid(leadPid) !== replay.leadPid || (cwd || null) !== replay.cwd
-        || String(restoreSessionId || '') !== String(replay.restoreSessionId || '')) return 'forbidden';
+    if (
+      retiredToken !== replay.replaceToken ||
+      String(replaceToken || '') !== replay.replaceToken ||
+      parsePid(leadPid) !== replay.leadPid ||
+      (cwd || null) !== replay.cwd ||
+      String(restoreSessionId || '') !== String(replay.restoreSessionId || '')
+    )
+      return 'forbidden';
     dropClient(replay.token, 'replacement deregister');
     return 'cancelled';
   }
@@ -335,7 +359,12 @@ export function createChannelTransport({
   let nextEmptyFireAt = 0;
 
   function cancelGrace() {
-    if (graceTimer) { try { clearTimeout(graceTimer); } catch {} graceTimer = null; }
+    if (graceTimer) {
+      try {
+        clearTimeout(graceTimer);
+      } catch {}
+      graceTimer = null;
+    }
   }
 
   function maybeArmGrace(reason) {
@@ -355,17 +384,22 @@ export function createChannelTransport({
       emptyFireBackoffMs = Math.min(Math.max(clientGraceMs, emptyFireBackoffMs * 2), 600_000);
       nextEmptyFireAt = Date.now() + emptyFireBackoffMs;
       log(`client grace elapsed (${reason}); no live clients — self-shutdown`);
-      try { onClientsEmpty(); } catch {}
+      try {
+        onClientsEmpty();
+      } catch {}
     }, clientGraceMs);
     graceTimer.unref?.();
   }
 
   function startSweep() {
     if (sweepTimer || typeof onClientsEmpty !== 'function') return;
-    sweepTimer = setInterval(() => {
-      pruneDeadClients();
-      if (everHadClient && clients.size === 0) maybeArmGrace('all clients gone (sweep)');
-    }, Math.max(1000, Math.min(sweepMs, clientGraceMs || sweepMs)));
+    sweepTimer = setInterval(
+      () => {
+        pruneDeadClients();
+        if (everHadClient && clients.size === 0) maybeArmGrace('all clients gone (sweep)');
+      },
+      Math.max(1000, Math.min(sweepMs, clientGraceMs || sweepMs))
+    );
     sweepTimer.unref?.();
   }
 
@@ -395,8 +429,13 @@ export function createChannelTransport({
       client.pendingRemoteStateFrame = frame;
       return true;
     }
-    try { client.sse.write(`data: ${frame}\n\n`); return true; }
-    catch (err) { log(`remote-state '${state}' write failed for lead=${client.leadPid}: ${err?.message || err}`); return false; }
+    try {
+      client.sse.write(`data: ${frame}\n\n`);
+      return true;
+    } catch (err) {
+      log(`remote-state '${state}' write failed for lead=${client.leadPid}: ${err?.message || err}`);
+      return false;
+    }
   }
 
   // Manual ON may temporarily select its control client before provider
@@ -442,9 +481,17 @@ export function createChannelTransport({
         remoteAcquired = true;
         stickyRemoteFrame = frame;
         publishRemoteState();
-        if (!target.sse) { log('remote-state acquired not delivered (control client has no SSE); sticky set'); return false; }
-        try { target.sse.write(`data: ${frame}\n\n`); return true; }
-        catch (err) { log(`remote-state acquired write failed for lead=${target.leadPid}: ${err?.message || err}`); return false; }
+        if (!target.sse) {
+          log('remote-state acquired not delivered (control client has no SSE); sticky set');
+          return false;
+        }
+        try {
+          target.sse.write(`data: ${frame}\n\n`);
+          return true;
+        } catch (err) {
+          log(`remote-state acquired write failed for lead=${target.leadPid}: ${err?.message || err}`);
+          return false;
+        }
       }
       // 'superseded' (seat lost to ANOTHER daemon, owned-runtime.mjs) and any
       // other transition CLEAR the sticky and broadcast to every live client —
@@ -457,8 +504,12 @@ export function createChannelTransport({
       let delivered = false;
       for (const [, c] of liveClients()) {
         if (!c.sse) continue;
-        try { c.sse.write(`data: ${frame}\n\n`); delivered = true; }
-        catch (err) { log(`remote-state write failed for lead=${c.leadPid}: ${err?.message || err}`); }
+        try {
+          c.sse.write(`data: ${frame}\n\n`);
+          delivered = true;
+        } catch (err) {
+          log(`remote-state write failed for lead=${c.leadPid}: ${err?.message || err}`);
+        }
       }
       if (!delivered) log('remote-state superseded not delivered live (no live SSE); sticky cleared');
       return delivered;
@@ -491,17 +542,18 @@ export function createChannelTransport({
     restoreSessionId = null,
   }) {
     const pid = parsePid(leadPid) ?? 0;
-    const restoreId = /^[A-Za-z0-9_-]+$/.test(String(restoreSessionId || ''))
-      ? String(restoreSessionId)
-      : null;
+    const restoreId = /^[A-Za-z0-9_-]+$/.test(String(restoreSessionId || '')) ? String(restoreSessionId) : null;
     const replacementToken = replaceToken ? String(replaceToken) : null;
     const replayId = passive && registrationId ? String(registrationId).slice(0, 200) : null;
     const existingReplay = replayId ? registrationReplays.get(replayId) : null;
     if (existingReplay) {
-      if (existingReplay.leadPid === pid && existingReplay.cwd === (cwd || null) &&
-          existingReplay.replaceToken === replacementToken
-          && existingReplay.restoreSessionId === restoreId
-          && clients.has(existingReplay.token)) {
+      if (
+        existingReplay.leadPid === pid &&
+        existingReplay.cwd === (cwd || null) &&
+        existingReplay.replaceToken === replacementToken &&
+        existingReplay.restoreSessionId === restoreId &&
+        clients.has(existingReplay.token)
+      ) {
         armRegistrationReplay(replayId, existingReplay);
         log(`client reconnect replay token=${existingReplay.token} lead=${pid}`);
         return existingReplay.token;
@@ -538,14 +590,20 @@ export function createChannelTransport({
     // messaging provider) only once a CHANNELS client is actually present — an
     // session runtime-only daemon must not run tunnels nobody asked for.
     if (typeof onClientRegistered === 'function') {
-      try { onClientRegistered({ token, leadPid: pid, cwd: cwd || null }); } catch {}
+      try {
+        onClientRegistered({ token, leadPid: pid, cwd: cwd || null });
+      } catch {}
     }
     const rememberReplacement = (freshToken) => {
       if (!replayId) return freshToken;
       const replay = {
-        token: freshToken, leadPid: pid, cwd: cwd || null, replaceToken: replacementToken,
+        token: freshToken,
+        leadPid: pid,
+        cwd: cwd || null,
+        replaceToken: replacementToken,
         restoreSessionId: restoreId,
-        responseFinished: false, timer: null,
+        responseFinished: false,
+        timer: null,
       };
       registrationReplays.set(replayId, replay);
       armRegistrationReplay(replayId, replay);
@@ -598,14 +656,20 @@ export function createChannelTransport({
     if (c.pendingRemoteStateFrame) {
       const frame = c.pendingRemoteStateFrame;
       c.pendingRemoteStateFrame = null;
-      try { res.write(`data: ${frame}\n\n`); } catch {}
+      try {
+        res.write(`data: ${frame}\n\n`);
+      } catch {}
     }
     // Replay the sticky 'acquired' badge only to the current control client.
     if (stickyRemoteFrame && token === pointerToken) {
-      try { res.write(`data: ${stickyRemoteFrame}\n\n`); } catch {}
+      try {
+        res.write(`data: ${stickyRemoteFrame}\n\n`);
+      } catch {}
     }
     const ka = setInterval(() => {
-      try { res.write(': ka\n\n'); } catch {}
+      try {
+        res.write(': ka\n\n');
+      } catch {}
     }, 15_000);
     ka.unref?.();
     const cleanup = () => {
@@ -642,7 +706,10 @@ export function createChannelTransport({
         return;
       }
       const token = req.headers['x-mixdog-daemon-token'];
-      if (token !== serverToken) { sendError(res, 'forbidden', 403); return; }
+      if (token !== serverToken) {
+        sendError(res, 'forbidden', 403);
+        return;
+      }
 
       if (req.method === 'POST' && pathName === '/client/register') {
         if (drainCommitted) {
@@ -651,11 +718,15 @@ export function createChannelTransport({
         }
         const body = await readChannelBody(req);
         const clientToken = registerClient({
-          leadPid: body.leadPid, cwd: body.cwd, passive: body.passive === true,
-          replaceToken: body.replaceToken, registrationId: body.registrationId,
+          leadPid: body.leadPid,
+          cwd: body.cwd,
+          passive: body.passive === true,
+          replaceToken: body.replaceToken,
+          registrationId: body.registrationId,
           restoreSessionId: body.restoreSessionId,
         });
-        const replayId = body.passive === true && body.registrationId ? String(body.registrationId).slice(0, 200) : null;
+        const replayId =
+          body.passive === true && body.registrationId ? String(body.registrationId).slice(0, 200) : null;
         res.once('finish', () => markRegistrationResponseFinished(replayId, clientToken));
         sendJson(res, { token: clientToken, pid: process.pid });
         return;
@@ -664,7 +735,10 @@ export function createChannelTransport({
         const body = await readChannelBody(req);
         if (body.registrationId) {
           const cancelled = cancelReplacementRegistration(body);
-          if (cancelled === 'forbidden') { sendError(res, 'forbidden replacement deregister', 403); return; }
+          if (cancelled === 'forbidden') {
+            sendError(res, 'forbidden replacement deregister', 403);
+            return;
+          }
           sendJson(res, { ok: true, cancelled: cancelled === 'cancelled' });
           return;
         }
@@ -676,7 +750,10 @@ export function createChannelTransport({
       }
       if (req.method === 'GET' && pathName === '/events') {
         const clientToken = url.searchParams.get('token');
-        if (!attachSse(clientToken, res)) { sendError(res, 'unknown client token', 404); return; }
+        if (!attachSse(clientToken, res)) {
+          sendError(res, 'unknown client token', 404);
+          return;
+        }
         return; // stream stays open
       }
       // Internal memory -> session LLM bridge. It is authenticated with the
@@ -689,13 +766,21 @@ export function createChannelTransport({
           sendError(res, `daemon is draining: ${drainingReason}`, 503);
           return;
         }
-        if (!agentBroker?.dispatch) { sendError(res, 'agent broker unavailable', 503); return; }
+        if (!agentBroker?.dispatch) {
+          sendError(res, 'agent broker unavailable', 503);
+          return;
+        }
         const body = await readChannelBody(req);
         const callId = String(body.callId || '').trim();
-        if (!callId) { sendError(res, 'callId required', 400); return; }
+        if (!callId) {
+          sendError(res, 'callId required', 400);
+          return;
+        }
         res.on('close', () => {
           if (res.writableFinished) return;
-          try { agentBroker.cancel(callId, 'agent broker client disconnected'); } catch {}
+          try {
+            agentBroker.cancel(callId, 'agent broker client disconnected');
+          } catch {}
         });
         try {
           const result = await agentBroker.dispatch(body.params || {}, { callId });
@@ -706,15 +791,18 @@ export function createChannelTransport({
         return;
       }
       if (req.method === 'POST' && pathName === '/agent/cancel') {
-        if (!agentBroker?.cancel) { sendError(res, 'agent broker unavailable', 503); return; }
+        if (!agentBroker?.cancel) {
+          sendError(res, 'agent broker unavailable', 503);
+          return;
+        }
         const body = await readChannelBody(req);
         const callId = String(body.callId || '').trim();
-        if (!callId) { sendError(res, 'callId required', 400); return; }
+        if (!callId) {
+          sendError(res, 'callId required', 400);
+          return;
+        }
         const cancelled = agentBroker.cancelAndWait
-          ? await agentBroker.cancelAndWait(
-              callId,
-              String(body.reason || 'memory agent dispatch canceled'),
-            )
+          ? await agentBroker.cancelAndWait(callId, String(body.reason || 'memory agent dispatch canceled'))
           : agentBroker.cancel(callId, String(body.reason || 'memory agent dispatch canceled'));
         sendJson(res, {
           ok: true,
@@ -730,15 +818,18 @@ export function createChannelTransport({
         const body = await readChannelBody(req);
         const clientToken = body.token || null;
         const c = clientToken ? clients.get(clientToken) : null;
-        if (!c) { sendError(res, 'unknown client token', 404); return; }
+        if (!c) {
+          sendError(res, 'unknown client token', 404);
+          return;
+        }
         for (const [registrationId, replay] of registrationReplays) {
           if (replay.token === clientToken) removeRegistrationReplay(registrationId, replay);
         }
         c.lastSeen = nowMs();
         const name = String(body.name || '');
         const callId = body.callId ? String(body.callId) : null;
-        const addressedSessionId = String(body.args?.sessionId || '').trim()
-          || remoteSessionIdFromBinding(name, body.args || {});
+        const addressedSessionId =
+          String(body.args?.sessionId || '').trim() || remoteSessionIdFromBinding(name, body.args || {});
         const ownerKey = addressedSessionId
           ? `session:${addressedSessionId}`
           : c.leadPid
@@ -751,9 +842,8 @@ export function createChannelTransport({
         if (cached) {
           // Replay of a retried call — dedup to the original run (exactly one
           // side-effect) instead of dispatching handleCall a second time.
-          dispatch = signature && cached.signature === signature
-            ? cached.promise
-            : Promise.reject(callIdConflict(callId));
+          dispatch =
+            signature && cached.signature === signature ? cached.promise : Promise.reject(callIdConflict(callId));
         } else {
           const run = async () => {
             const args = body.args || {};
@@ -771,9 +861,7 @@ export function createChannelTransport({
               };
             }
             const pinnedSessionMatch = Boolean(
-              bindingSessionId
-              && remoteAcquired
-              && pinnedSessionId === bindingSessionId,
+              bindingSessionId && remoteAcquired && pinnedSessionId === bindingSessionId
             );
             if (deactivating && !pinnedSessionMatch) {
               return {
@@ -794,11 +882,8 @@ export function createChannelTransport({
             const previousStickyRemoteFrame = stickyRemoteFrame;
             // A failed manual ON must leave ownership exactly as it was.
             const rollbackActivation = () => {
-              if (!activating || pointerToken !== clientToken
-                  || c.remoteSessionId !== bindingSessionId) return;
-              pointerToken = previousPointerToken && clients.has(previousPointerToken)
-                ? previousPointerToken
-                : null;
+              if (!activating || pointerToken !== clientToken || c.remoteSessionId !== bindingSessionId) return;
+              pointerToken = previousPointerToken && clients.has(previousPointerToken) ? previousPointerToken : null;
               c.remoteSessionId = previousRemoteSessionId;
               remoteAcquired = previousRemoteAcquired;
               stickyRemoteFrame = previousStickyRemoteFrame;
@@ -825,8 +910,7 @@ export function createChannelTransport({
               }
               if (activating && previousPointerToken && previousPointerToken !== clientToken) {
                 const displaced = clients.get(previousPointerToken);
-                if (displaced && isPidAlive(displaced.leadPid)
-                    && writeRemoteStateTo(displaced, 'superseded')) {
+                if (displaced && isPidAlive(displaced.leadPid) && writeRemoteStateTo(displaced, 'superseded')) {
                   log(`superseded -> displaced control client token=${previousPointerToken} lead=${displaced.leadPid}`);
                 }
               }
@@ -837,9 +921,7 @@ export function createChannelTransport({
                 remoteAcquired = false;
                 stickyRemoteFrame = null;
               }
-              if (activating
-                  && pointerToken === clientToken
-                  && c.remoteSessionId === bindingSessionId) {
+              if (activating && pointerToken === clientToken && c.remoteSessionId === bindingSessionId) {
                 remoteAcquired = true;
                 writeRemoteIntent(args, bindingSessionId, c.cwd ?? null);
               }
@@ -861,13 +943,18 @@ export function createChannelTransport({
             // outlive a fixed-from-dispatch TTL (e.g. a slow reply upload past
             // 60s), and expiring its entry mid-flight would let a transport
             // retry replay-miss and dispatch a second real side-effect.
-            dispatch.then(() => {}, () => {}).then(() => {
-              if (closed || callCache.get(cacheKey) !== record) return;
-              record.timer = setTimeout(() => {
-                if (callCache.get(cacheKey) === record) callCache.delete(cacheKey);
-              }, CALL_CACHE_TTL_MS);
-              record.timer.unref?.();
-            });
+            dispatch
+              .then(
+                () => {},
+                () => {}
+              )
+              .then(() => {
+                if (closed || callCache.get(cacheKey) !== record) return;
+                record.timer = setTimeout(() => {
+                  if (callCache.get(cacheKey) === record) callCache.delete(cacheKey);
+                }, CALL_CACHE_TTL_MS);
+                record.timer.unref?.();
+              });
           }
         }
         try {
@@ -876,21 +963,31 @@ export function createChannelTransport({
         } catch (err) {
           // Keep the machine-readable code beside the message: callers branch
           // on it instead of pattern-matching free text.
-          sendJson(res, {
-            error: err?.message || String(err),
-            ...(err?.code ? { code: String(err.code) } : {}),
-          }, 200);
+          sendJson(
+            res,
+            {
+              error: err?.message || String(err),
+              ...(err?.code ? { code: String(err.code) } : {}),
+            },
+            200
+          );
         }
         return;
       }
       if (req.method === 'POST' && pathName === '/shutdown') {
         sendJson(res, { ok: true });
-        if (typeof onClientsEmpty === 'function') { try { onClientsEmpty(); } catch {} }
+        if (typeof onClientsEmpty === 'function') {
+          try {
+            onClientsEmpty();
+          } catch {}
+        }
         return;
       }
       sendError(res, 'not found', 404);
     } catch (err) {
-      try { sendError(res, err?.message || String(err), err?.statusCode || 500); } catch {}
+      try {
+        sendError(res, err?.message || String(err), err?.statusCode || 500);
+      } catch {}
     }
   }
 
@@ -923,7 +1020,10 @@ export function createChannelTransport({
       }
       callCache.clear();
       cancelGrace();
-      if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
+      if (sweepTimer) {
+        clearInterval(sweepTimer);
+        sweepTimer = null;
+      }
       for (const [token] of clients) dropClient(token, 'transport stop');
       remoteAcquired = false;
       pointerToken = null;
@@ -944,15 +1044,29 @@ export function createChannelTransport({
     restoreRemoteIntent,
     beginDrain,
     commitDrain,
-    get port() { return boundPort; },
-    get token() { return serverToken; },
+    get port() {
+      return boundPort;
+    },
+    get token() {
+      return serverToken;
+    },
     // The unified daemon hosts channels AND session runtimes: it may only self-shutdown
     // when BOTH sides are empty, so each transport has to expose its liveness.
-    get clientCount() { return clients.size; },
-    get activeCount() { return channelCalls.active + channelControlCalls.active; },
-    get queuedCount() { return channelCalls.queued + channelControlCalls.queued; },
-    get draining() { return Boolean(drainingReason); },
-    get drainCommitted() { return drainCommitted; },
+    get clientCount() {
+      return clients.size;
+    },
+    get activeCount() {
+      return channelCalls.active + channelControlCalls.active;
+    },
+    get queuedCount() {
+      return channelCalls.queued + channelControlCalls.queued;
+    },
+    get draining() {
+      return Boolean(drainingReason);
+    },
+    get drainCommitted() {
+      return drainCommitted;
+    },
     get remoteIntentSessionId() {
       return String(pinnedSessionId || '').trim() || null;
     },
@@ -963,7 +1077,11 @@ export function createChannelTransport({
     _registrationReplaysForTest: registrationReplays,
     _resolveTargetForTest: resolveTarget,
     _writeRemoteStateToForTest: writeRemoteStateTo,
-    get _pointerTokenForTest() { return pointerToken; },
-    get _remoteIntentForTest() { return remoteIntent; },
+    get _pointerTokenForTest() {
+      return pointerToken;
+    },
+    get _remoteIntentForTest() {
+      return remoteIntent;
+    },
   };
 }

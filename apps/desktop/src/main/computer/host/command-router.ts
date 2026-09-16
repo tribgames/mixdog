@@ -7,18 +7,10 @@
  */
 import { elapsedMs } from '../shared/common';
 import type { CaptureAttempt } from '../shared/capture-attempts';
-import type {
-  ComputerCommand,
-  ComputerCommandResult,
-  PowerShellResponse,
-} from '../shared/types';
+import type { ComputerCommand, ComputerCommandResult, PowerShellResponse } from '../shared/types';
 import type { ComputerWindowTransition } from '../shared/window-transition';
 import { persistFrameImage } from '../../frame-files';
-import {
-  assertSafeComputerInput,
-  assertSafeComputerSessionId,
-  assertSafeComputerTargetTokens,
-} from '../input/guards';
+import { assertSafeComputerInput, assertSafeComputerSessionId, assertSafeComputerTargetTokens } from '../input/guards';
 import { assertExactWindowCommandTarget } from '../input/targeting';
 import type { createWindowTargeting } from '../input/targeting';
 import {
@@ -26,23 +18,15 @@ import {
   isFreshRecaptureObservation,
   recaptureRequirementCode,
 } from '../observation/recapture';
-import {
-  assertCaptureAfterOptions,
-} from '../observation/analysis';
+import { assertCaptureAfterOptions } from '../observation/analysis';
 import type { createCaptureEngine } from '../observation/capture';
 import type { createInspection } from '../observation/inspect';
 import type { createWorkerPool } from '../backend/worker-pool';
 import type { createSessionState } from '../session/state';
 import { CHROME_SETUP_SESSION_ID } from '../session/chrome-setup';
 import { computerUseCoordinator } from '../session/coordinator';
-import {
-  filterComputerUseInternalWindows,
-  filterComputerUseWindowListText,
-} from '../overlay/internal-windows';
-import {
-  AUTO_CAPTURE_ACTIONS,
-  READ_ACTIONS,
-} from './action-sets';
+import { filterComputerUseInternalWindows, filterComputerUseWindowListText } from '../overlay/internal-windows';
+import { AUTO_CAPTURE_ACTIONS, READ_ACTIONS } from './action-sets';
 import type { ExecutionState, InputRecoveryState } from './execution-state';
 import type { InputResolution } from './input-resolution';
 import type { SessionLifecycle } from './session-lifecycle';
@@ -56,8 +40,17 @@ import { prepareCursorFeedback } from '../overlay/cursor-readiness';
 import { assertObservationInputAllowed } from './observation-policy';
 
 const POINTER_ACTIONS = [
-  'invoke', 'click', 'double_click', 'right_click', 'middle_click', 'triple_click',
-  'mouse_move', 'drag', 'scroll', 'type', 'key',
+  'invoke',
+  'click',
+  'double_click',
+  'right_click',
+  'middle_click',
+  'triple_click',
+  'mouse_move',
+  'drag',
+  'scroll',
+  'type',
+  'key',
 ];
 
 type WorkerPool = ReturnType<typeof createWorkerPool>;
@@ -66,28 +59,33 @@ type CaptureEngine = ReturnType<typeof createCaptureEngine>;
 type Inspection = ReturnType<typeof createInspection>;
 type WindowTargeting = ReturnType<typeof createWindowTargeting>;
 
-export interface CommandRouterHost extends
-  Pick<WorkerPool, 'callPowerShell' | 'callPowerShellElevated'>,
-  Pick<SessionState,
-    | 'sessionIdFor'
-    | 'framesBySession'
-    | 'elementTargetsBySession'
-    | 'observedWindowBySession'
-    | 'lastCaptureBySession'
-    | 'rememberObservedWindowScope'
-    | 'freshObservedWindowScope'
-    | 'invalidateActionTargets'
-    | 'invalidateWindowTargets'
-    | 'normalizeElementRecords'
-    | 'rememberElementTargets'
-    | 'resolveElementAliases'>,
-  Pick<ExecutionState, 'executionContext' | 'sessionRecoveryBySession' | 'assertExecutionNotAborted' | 'invalidateObservationsForWindows'>,
-  Pick<SessionLifecycle, 'claimComputerTargets' | 'releaseComputerSession' | 'takeOverComputer'>,
-  Pick<Inspection, 'diagnoseComputer' | 'verifyWindowState'>,
-  Pick<WindowTargeting, 'resolveAppWindowId' | 'resolveRecaptureWindowTarget' | 'listComputerApps'>,
-  Pick<CaptureEngine, 'captureScreenshot' | 'captureZoom' | 'captureComputer' | 'captureAfterAction'>,
-  WindowReads,
-  InputResolution {
+export interface CommandRouterHost
+  extends Pick<WorkerPool, 'callPowerShell' | 'callPowerShellElevated'>,
+    Pick<
+      SessionState,
+      | 'sessionIdFor'
+      | 'framesBySession'
+      | 'elementTargetsBySession'
+      | 'observedWindowBySession'
+      | 'lastCaptureBySession'
+      | 'rememberObservedWindowScope'
+      | 'freshObservedWindowScope'
+      | 'invalidateActionTargets'
+      | 'invalidateWindowTargets'
+      | 'normalizeElementRecords'
+      | 'rememberElementTargets'
+      | 'resolveElementAliases'
+    >,
+    Pick<
+      ExecutionState,
+      'executionContext' | 'sessionRecoveryBySession' | 'assertExecutionNotAborted' | 'invalidateObservationsForWindows'
+    >,
+    Pick<SessionLifecycle, 'claimComputerTargets' | 'releaseComputerSession' | 'takeOverComputer'>,
+    Pick<Inspection, 'diagnoseComputer' | 'verifyWindowState'>,
+    Pick<WindowTargeting, 'resolveAppWindowId' | 'resolveRecaptureWindowTarget' | 'listComputerApps'>,
+    Pick<CaptureEngine, 'captureScreenshot' | 'captureZoom' | 'captureComputer' | 'captureAfterAction'>,
+    WindowReads,
+    InputResolution {
   isObserveOnly(): boolean;
   recordDiagnostic?: (sessionId: string, record: Record<string, unknown>) => void;
   policy?: ComputerExecutionPolicy;
@@ -139,7 +137,7 @@ export function createCommandRouter(host: CommandRouterHost) {
     description: string,
     image: { mimeType: string; data: string },
     frameId: string,
-    captureAttempts?: CaptureAttempt[],
+    captureAttempts?: CaptureAttempt[]
   ): ComputerCommandResult {
     if (String(command.image_output || 'inline') !== 'file') return { text: description, image, captureAttempts };
     const stored = persistFrameImage('computer', sessionIdFor(command), frameId, image);
@@ -152,13 +150,13 @@ export function createCommandRouter(host: CommandRouterHost) {
 
   async function recaptureRequiredReply(
     command: ComputerCommand,
-    error: unknown,
+    error: unknown
   ): Promise<ComputerCommandResult | null> {
     if (!recaptureRequirementCode(error)) return null;
     invalidateActionTargets(command);
     const recaptureTarget = await resolveRecaptureWindowTarget(
       command,
-      freshObservedWindowScope(command)?.primaryWindowId || '',
+      freshObservedWindowScope(command)?.primaryWindowId || ''
     );
     const windowId = recaptureTarget.windowId;
     const capture = windowId
@@ -176,21 +174,19 @@ export function createCommandRouter(host: CommandRouterHost) {
       String(command.action || 'computer'),
       error,
       capture.metadata,
-      windowId,
+      windowId
     );
     if (!payload) return null;
     return {
       text: JSON.stringify(payload),
-      ...(recaptureSucceeded && 'image' in capture && capture.image
-        ? { image: capture.image }
-        : {}),
+      ...(recaptureSucceeded && 'image' in capture && capture.image ? { image: capture.image } : {}),
     };
   }
 
   function pixelUnavailableReply(
     action: string,
     pixelUnavailable: unknown,
-    captureAttempts?: CaptureAttempt[],
+    captureAttempts?: CaptureAttempt[]
   ): ComputerCommandResult {
     return {
       text: JSON.stringify({
@@ -229,9 +225,13 @@ export function createCommandRouter(host: CommandRouterHost) {
     if (action === 'session_release') return await releaseComputerSession(command);
     assertSafeComputerInput(command);
     if (sessionIdFor(command) !== CHROME_SETUP_SESSION_ID) {
-      const policyCommand = action === 'zoom'
-        ? { ...command, window_id: framesBySession.get(sessionIdFor(command))?.get(String(command.frame_id || ''))?.windowId }
-        : command;
+      const policyCommand =
+        action === 'zoom'
+          ? {
+              ...command,
+              window_id: framesBySession.get(sessionIdFor(command))?.get(String(command.frame_id || ''))?.windowId,
+            }
+          : command;
       policy.assertAction(policyCommand);
       if (policy.restricted && policyCommand.window_id) {
         policy.assertWindow(policyCommand, await readComputerWindows(policyCommand));
@@ -253,9 +253,10 @@ export function createCommandRouter(host: CommandRouterHost) {
       return await runBoundedSequence(command);
     }
     const isMutation = !READ_ACTIONS.has(action);
-    const shouldCaptureAfter = isMutation
-      && !captureAfterSuppressed(command)
-      && (AUTO_CAPTURE_ACTIONS.has(action) || command.capture_after === true);
+    const shouldCaptureAfter =
+      isMutation &&
+      !captureAfterSuppressed(command) &&
+      (AUTO_CAPTURE_ACTIONS.has(action) || command.capture_after === true);
     if (isMutation && command.read_only) {
       throw new Error(`read_only run: '${action}' is a mutation`);
     }
@@ -293,10 +294,16 @@ export function createCommandRouter(host: CommandRouterHost) {
         rememberObservedWindowScope(
           command,
           screenshot.frame.windowId,
-          screenshot.frame.relatedWindowIds || [screenshot.frame.windowId],
+          screenshot.frame.relatedWindowIds || [screenshot.frame.windowId]
         );
       }
-      return frameReply(command, screenshot.description, screenshot.image, screenshot.frameId, screenshot.captureAttempts);
+      return frameReply(
+        command,
+        screenshot.description,
+        screenshot.image,
+        screenshot.frameId,
+        screenshot.captureAttempts
+      );
     }
     if (action === 'zoom') {
       const zoom = await captureZoom(command);
@@ -308,9 +315,7 @@ export function createCommandRouter(host: CommandRouterHost) {
       return frameReply(command, zoom.description, zoom.image, zoom.frameId, zoom.captureAttempts);
     }
     const inputTarget = await resolveInputTarget(command, action, trustedSequenceContinuation);
-    const {
-      targetWindowId,
-    } = inputTarget;
+    const { targetWindowId } = inputTarget;
     const activeState = executionContext.getStore();
     if (targetWindowId && inputTarget.observedScope && activeState) {
       (activeState.inputScopes ||= new Map()).set(targetWindowId, inputTarget.observedScope);
@@ -328,7 +333,10 @@ export function createCommandRouter(host: CommandRouterHost) {
     if (command.delivery === 'foreground' && POINTER_ACTIONS.includes(action)) {
       const feedback = await prepareCursorFeedback(sessionIdFor(command));
       host.recordDiagnostic?.(sessionIdFor(command), {
-        action, stage: 'cursor_preparation', code: feedback, ok: feedback === 'ready',
+        action,
+        stage: 'cursor_preparation',
+        code: feedback,
+        ok: feedback === 'ready',
       });
       assertExecutionNotAborted();
     }
@@ -384,29 +392,43 @@ export function createCommandRouter(host: CommandRouterHost) {
       ? await verifyInputRecovery(command, targetWindowId, inputRecovery, actionTimings, result)
       : undefined;
     if (inputRecoveryVerification?.ok === false) {
-      const reason = inputRecoveryVerification.user_control === true ? 'user_input_active'
-        : String(inputRecoveryVerification.code || 'input_recovery_unconfirmed');
+      const reason =
+        inputRecoveryVerification.user_control === true
+          ? 'user_input_active'
+          : String(inputRecoveryVerification.code || 'input_recovery_unconfirmed');
       const active = host.executionContext.getStore();
       if (active) active.failureCode = reason;
       host.recordDiagnostic?.(sessionIdFor(command), {
-        action, stage: 'input_recovery', ok: false, code: reason,
+        action,
+        stage: 'input_recovery',
+        ok: false,
+        code: reason,
         native_result: result,
-        window_id: targetWindowId, input_recovery: inputRecoveryVerification,
+        window_id: targetWindowId,
+        input_recovery: inputRecoveryVerification,
         timings_ms: actionTimings,
       });
       host.takeOverComputer(reason);
-      return { text: JSON.stringify({
-        ok: false, action, window_id: targetWindowId, code: reason,
-        effect: 'unverifiable', verified: false,
-        input_recovery: inputRecoveryVerification,
-        native_result: {
-          code: result.code, path: result.path, effect: result.effect,
-          delivery_accepted: result.delivery_accepted,
-          cursor_feedback: result.cursor_feedback,
-        },
-        verdict: { decision: 'escalate', recommended: 'user_resume' },
-        capture_skipped: 'user_control_active',
-      }) };
+      return {
+        text: JSON.stringify({
+          ok: false,
+          action,
+          window_id: targetWindowId,
+          code: reason,
+          effect: 'unverifiable',
+          verified: false,
+          input_recovery: inputRecoveryVerification,
+          native_result: {
+            code: result.code,
+            path: result.path,
+            effect: result.effect,
+            delivery_accepted: result.delivery_accepted,
+            cursor_feedback: result.cursor_feedback,
+          },
+          verdict: { decision: 'escalate', recommended: 'user_resume' },
+          capture_skipped: 'user_control_active',
+        }),
+      };
     }
     if (action === 'snapshot' || action === 'find') {
       rememberElementTargets(command, normalizeElementRecords(result.elements));
@@ -437,7 +459,7 @@ export function createCommandRouter(host: CommandRouterHost) {
       if (policy.restricted && sessionIdFor(command) !== CHROME_SETUP_SESSION_ID) {
         policy.assertWindow(
           { ...command, window_id: windowTransition.next_target.id },
-          await readComputerWindows(command),
+          await readComputerWindows(command)
         );
       }
       await claimComputerTargets(command, [windowTransition.next_target.id]);
@@ -446,9 +468,18 @@ export function createCommandRouter(host: CommandRouterHost) {
       sessionRecoveryBySession.set(sessionIdFor(command), inputRecovery);
     }
     return await buildActionReply(captureAfterAction, {
-      command, action, result, isMutation, targetWindowId, logicalTargetWindowId,
-      windowTransition, inputRecoveryVerification, semanticTargetIdentity,
-      settleDelayMs, commandStartedAt, actionTimings,
+      command,
+      action,
+      result,
+      isMutation,
+      targetWindowId,
+      logicalTargetWindowId,
+      windowTransition,
+      inputRecoveryVerification,
+      semanticTargetIdentity,
+      settleDelayMs,
+      commandStartedAt,
+      actionTimings,
     });
   }
 

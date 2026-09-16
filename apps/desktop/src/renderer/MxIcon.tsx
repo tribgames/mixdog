@@ -86,7 +86,12 @@ const GLYPHS: Record<string, ComponentType<SVGProps<SVGSVGElement> & { size?: nu
   zap: Zap,
 };
 
-export function MxIcon({ name, size = 16, className = '', ...rest }: {
+export function MxIcon({
+  name,
+  size = 16,
+  className = '',
+  ...rest
+}: {
   name: string;
   size?: number;
 } & SVGProps<SVGSVGElement>) {

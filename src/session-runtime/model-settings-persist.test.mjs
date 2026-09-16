@@ -13,14 +13,18 @@ test('saveModelSettings updates modelSettings without a sync config write', () =
       saveCalls += 1;
     },
   };
-  const next = saveModelSettings(cfgMod, {
-    provider: 'openai',
-    model: 'gpt-5.4',
-    effort: 'high',
-    fast: true,
-    modelParameters: { context: '1m' },
-    contextPercent: 70,
-  }, { fastCapable: true, baseConfig: cfgMod.loadConfig() });
+  const next = saveModelSettings(
+    cfgMod,
+    {
+      provider: 'openai',
+      model: 'gpt-5.4',
+      effort: 'high',
+      fast: true,
+      modelParameters: { context: '1m' },
+      contextPercent: 70,
+    },
+    { fastCapable: true, baseConfig: cfgMod.loadConfig() }
+  );
   assert.equal(saveCalls, 0);
   assert.deepEqual(next.modelSettings['openai/gpt-5.4'], {
     effort: 'high',
@@ -37,7 +41,9 @@ function stubRouteApi({ persistLeadRoute, saveConfigAndAdopt, cfgMod }) {
   return createModelRouteApi({
     getConfig: () => config,
     getRoute: () => route,
-    setRouteState: (next) => { route = next; },
+    setRouteState: (next) => {
+      route = next;
+    },
     getSession: () => null,
     setSession: () => {},
     getConfigHasSecrets: () => false,
@@ -50,7 +56,10 @@ function stubRouteApi({ persistLeadRoute, saveConfigAndAdopt, cfgMod }) {
     resolveRoute: (_cfg, requested) => ({ ...route, ...requested }),
     webSearchCapableFor: () => false,
     lookupModelMeta: async () => ({ id: 'gpt-5.4' }),
-    adoptConfig: (next) => { config = next; return next; },
+    adoptConfig: (next) => {
+      config = next;
+      return next;
+    },
     saveConfigAndAdopt,
     ensureFullConfig: () => config,
     awaitKeychainPrewarm: async () => {},
@@ -73,14 +82,20 @@ test('setFast persists through the debounce path, never cfgMod.saveConfig', asyn
   let debounceCalls = 0;
   const api = stubRouteApi({
     cfgMod: {
-      loadConfig() { return { modelSettings: {} }; },
-      saveConfig() { saveCalls += 1; },
+      loadConfig() {
+        return { modelSettings: {} };
+      },
+      saveConfig() {
+        saveCalls += 1;
+      },
     },
     persistLeadRoute: (route) => {
       persistLeadCalls += 1;
       return { provider: route.provider, model: route.model };
     },
-    saveConfigAndAdopt: () => { debounceCalls += 1; },
+    saveConfigAndAdopt: () => {
+      debounceCalls += 1;
+    },
   });
   await api.setFast(true);
   assert.equal(saveCalls, 0);
@@ -93,11 +108,17 @@ test('setFast debounce-persists modelSettings when the lead preset cannot be wri
   let debounceCalls = 0;
   const api = stubRouteApi({
     cfgMod: {
-      loadConfig() { return { modelSettings: {} }; },
-      saveConfig() { saveCalls += 1; },
+      loadConfig() {
+        return { modelSettings: {} };
+      },
+      saveConfig() {
+        saveCalls += 1;
+      },
     },
     persistLeadRoute: () => null,
-    saveConfigAndAdopt: () => { debounceCalls += 1; },
+    saveConfigAndAdopt: () => {
+      debounceCalls += 1;
+    },
   });
   await api.setFast(true);
   assert.equal(saveCalls, 0);

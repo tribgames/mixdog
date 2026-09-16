@@ -49,23 +49,93 @@ const everforestPalette = softenTypographyColors(rawEverforestPalette);
 
 /** Theme registry: id -> { id, label, description, palette }. */
 export const THEME_REGISTRY = {
-  basic:      { id: 'basic',      label: 'Basic',        description: 'Amber-gold default dark with a hot orange live state.', palette: basicPalette },
-  indigo:     { id: 'indigo',     label: 'Indigo',       description: 'Cool blue-indigo brand dark with orange live state.', palette: indigoPalette },
-  warm:       { id: 'warm',       label: 'Warm',         description: 'Soft sunset coral on neutral charcoal.', palette: warmPalette },
-  teal:       { id: 'teal',       label: 'Teal',          description: 'pi-style teal accent with soft body text.', palette: tealPalette },
-  onedark:    { id: 'onedark',    label: 'One Dark',      description: 'Atom One Dark — blue accent on slate, balanced syntax.', palette: onedarkPalette },
-  tokyonight: { id: 'tokyonight', label: 'Tokyo Night',   description: 'Storm variant — soft blue/purple dark with neon markdown.', palette: tokyonightPalette },
-  kanagawa:   { id: 'kanagawa',   label: 'Kanagawa',      description: 'Wave variant — muted ink dark with crystal-blue accent.', palette: kanagawaPalette },
-  catppuccin: { id: 'catppuccin', label: 'Catppuccin',    description: 'Mocha — gentle pastel violet/blue dark.', palette: catppuccinPalette },
-  dracula:    { id: 'dracula',    label: 'Dracula',       description: 'Classic purple/pink accents with cyan links.', palette: draculaPalette },
-  rosepine:   { id: 'rosepine',   label: 'Rosé Pine',     description: 'Muted rose/pine dark with soho elegance.', palette: rosepinePalette },
-  nord:       { id: 'nord',       label: 'Nord',          description: 'Cool arctic blue/teal frost dark.', palette: nordPalette },
-  gruvbox:    { id: 'gruvbox',    label: 'Gruvbox',       description: 'Retro warm earthy dark with green/orange accents.', palette: gruvboxPalette },
-  everforest: { id: 'everforest', label: 'Everforest',    description: 'Soft natural green dark, easy on the eyes.', palette: everforestPalette },
-  light:      { id: 'light',      label: 'Light',        description: 'GitHub Light high-contrast — solid blue selection, terminal-ready chrome.', palette: lightPalette },
+  basic: {
+    id: 'basic',
+    label: 'Basic',
+    description: 'Amber-gold default dark with a hot orange live state.',
+    palette: basicPalette,
+  },
+  indigo: {
+    id: 'indigo',
+    label: 'Indigo',
+    description: 'Cool blue-indigo brand dark with orange live state.',
+    palette: indigoPalette,
+  },
+  warm: { id: 'warm', label: 'Warm', description: 'Soft sunset coral on neutral charcoal.', palette: warmPalette },
+  teal: { id: 'teal', label: 'Teal', description: 'pi-style teal accent with soft body text.', palette: tealPalette },
+  onedark: {
+    id: 'onedark',
+    label: 'One Dark',
+    description: 'Atom One Dark — blue accent on slate, balanced syntax.',
+    palette: onedarkPalette,
+  },
+  tokyonight: {
+    id: 'tokyonight',
+    label: 'Tokyo Night',
+    description: 'Storm variant — soft blue/purple dark with neon markdown.',
+    palette: tokyonightPalette,
+  },
+  kanagawa: {
+    id: 'kanagawa',
+    label: 'Kanagawa',
+    description: 'Wave variant — muted ink dark with crystal-blue accent.',
+    palette: kanagawaPalette,
+  },
+  catppuccin: {
+    id: 'catppuccin',
+    label: 'Catppuccin',
+    description: 'Mocha — gentle pastel violet/blue dark.',
+    palette: catppuccinPalette,
+  },
+  dracula: {
+    id: 'dracula',
+    label: 'Dracula',
+    description: 'Classic purple/pink accents with cyan links.',
+    palette: draculaPalette,
+  },
+  rosepine: {
+    id: 'rosepine',
+    label: 'Rosé Pine',
+    description: 'Muted rose/pine dark with soho elegance.',
+    palette: rosepinePalette,
+  },
+  nord: { id: 'nord', label: 'Nord', description: 'Cool arctic blue/teal frost dark.', palette: nordPalette },
+  gruvbox: {
+    id: 'gruvbox',
+    label: 'Gruvbox',
+    description: 'Retro warm earthy dark with green/orange accents.',
+    palette: gruvboxPalette,
+  },
+  everforest: {
+    id: 'everforest',
+    label: 'Everforest',
+    description: 'Soft natural green dark, easy on the eyes.',
+    palette: everforestPalette,
+  },
+  light: {
+    id: 'light',
+    label: 'Light',
+    description: 'GitHub Light high-contrast — solid blue selection, terminal-ready chrome.',
+    palette: lightPalette,
+  },
 };
 
 /** Display order for the theme picker. */
-export const THEME_ORDER = ['basic', 'indigo', 'warm', 'teal', 'onedark', 'tokyonight', 'kanagawa', 'catppuccin', 'dracula', 'rosepine', 'nord', 'gruvbox', 'everforest', 'light'];
+export const THEME_ORDER = [
+  'basic',
+  'indigo',
+  'warm',
+  'teal',
+  'onedark',
+  'tokyonight',
+  'kanagawa',
+  'catppuccin',
+  'dracula',
+  'rosepine',
+  'nord',
+  'gruvbox',
+  'everforest',
+  'light',
+];
 
 export { basePalette };

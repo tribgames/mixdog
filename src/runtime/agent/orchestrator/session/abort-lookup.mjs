@@ -4,10 +4,10 @@
 let _resolver = null;
 
 export async function getAbortSignalForSession(sessionId) {
-    if (!sessionId) return null;
-    if (!_resolver) {
-        const mod = await import('./manager.mjs');
-        _resolver = typeof mod.getSessionAbortSignal === 'function' ? mod.getSessionAbortSignal : null;
-    }
-    return _resolver ? _resolver(sessionId) : null;
+  if (!sessionId) return null;
+  if (!_resolver) {
+    const mod = await import('./manager.mjs');
+    _resolver = typeof mod.getSessionAbortSignal === 'function' ? mod.getSessionAbortSignal : null;
+  }
+  return _resolver ? _resolver(sessionId) : null;
 }

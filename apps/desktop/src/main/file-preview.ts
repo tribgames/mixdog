@@ -1,10 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { basename, isAbsolute, resolve } from 'node:path';
 
-import {
-  filePreviewTypeForPath,
-  type DesktopFilePreviewKind,
-} from '../shared/file-preview';
+import { filePreviewTypeForPath, type DesktopFilePreviewKind } from '../shared/file-preview';
 
 export const FILE_PREVIEW_SCHEME = 'mixdog-media';
 const MAX_REGISTERED_FILE_PREVIEWS = 256;
@@ -19,7 +16,10 @@ interface FilePreviewRecord {
 const filePreviews = new Map<string, FilePreviewRecord>();
 const filePreviewTokensByKey = new Map<string, string>();
 
-export function registerFilePreview(path: string, cacheVersion: string | number = ''): {
+export function registerFilePreview(
+  path: string,
+  cacheVersion: string | number = ''
+): {
   url: string;
   kind: DesktopFilePreviewKind;
   mime: string;

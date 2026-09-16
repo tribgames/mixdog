@@ -19,13 +19,30 @@ import {
 /** Actions that may address an element by alias, and the subset that can fall
  *  back to pixels when the alias resolves to a point. */
 const ELEMENT_ALIAS_ACTIONS = new Set([
-  'invoke', 'set_value', 'toggle',
-  'click', 'double_click', 'right_click', 'middle_click', 'triple_click',
-  'mouse_move', 'drag', 'type', 'key', 'scroll',
+  'invoke',
+  'set_value',
+  'toggle',
+  'click',
+  'double_click',
+  'right_click',
+  'middle_click',
+  'triple_click',
+  'mouse_move',
+  'drag',
+  'type',
+  'key',
+  'scroll',
 ]);
 const PIXEL_ALIAS_ACTIONS = new Set([
-  'click', 'double_click', 'right_click', 'middle_click', 'triple_click',
-  'mouse_move', 'drag', 'scroll', 'type',
+  'click',
+  'double_click',
+  'right_click',
+  'middle_click',
+  'triple_click',
+  'mouse_move',
+  'drag',
+  'scroll',
+  'type',
 ]);
 
 import type {
@@ -54,12 +71,15 @@ export function createSessionState(host: SessionStateHost) {
   // Last semantic capture per session. It outlives the ref/frame invalidation a
   // mutation triggers, so the fresh capture that follows can report what
   // changed instead of making the model re-read the whole tree.
-  const lastCaptureBySession = new Map<string, {
-    windowId: string;
-    baselineKey: string;
-    elements: Map<string, string>;
-    refIdentities: Map<string, string>;
-  }>();
+  const lastCaptureBySession = new Map<
+    string,
+    {
+      windowId: string;
+      baselineKey: string;
+      elements: Map<string, string>;
+      refIdentities: Map<string, string>;
+    }
+  >();
 
   /** Frame ids are per host, so a stale id from another session is refused
    *  by lookup rather than by chance. */
@@ -73,27 +93,19 @@ export function createSessionState(host: SessionStateHost) {
   }
 
   function rememberFrame(frame: CaptureFrame): void {
-    rememberLatestComputerFrame(
-      frame.sessionId,
-      frame.id,
-      frame,
-      framesBySession,
-    );
+    rememberLatestComputerFrame(frame.sessionId, frame.id, frame, framesBySession);
   }
 
   function rememberObservedWindowScope(
     command: ComputerCommand,
     primaryWindowId: string,
     relatedWindowIds: string[] = [],
-    inputObservation?: ComputerInputObservation,
+    inputObservation?: ComputerInputObservation
   ): void {
     if (!primaryWindowId) return;
     observedWindowBySession.set(sessionIdFor(command), {
       primaryWindowId,
-      relatedWindowIds: [...new Set([
-        primaryWindowId,
-        ...relatedWindowIds.map(String).filter(Boolean),
-      ])],
+      relatedWindowIds: [...new Set([primaryWindowId, ...relatedWindowIds.map(String).filter(Boolean)])],
       observedAt: performance.now(),
       ...(inputObservation ? { inputObservation } : {}),
     });
@@ -104,7 +116,7 @@ export function createSessionState(host: SessionStateHost) {
     const { scope, expired } = resolveFreshComputerObservationScope(
       sessionId,
       observedWindowBySession,
-      performance.now(),
+      performance.now()
     );
     if (expired) {
       invalidateActionTargets(command);
@@ -117,7 +129,7 @@ export function createSessionState(host: SessionStateHost) {
   }
 
   function invalidateWindowTargets(windowIds: Array<string | undefined>, exceptSessionId: string): void {
-    const ids = new Set(windowIds.filter(Boolean).map(id => String(id).toLowerCase()));
+    const ids = new Set(windowIds.filter(Boolean).map((id) => String(id).toLowerCase()));
     const sessions = new Set([...observedWindowBySession.keys(), ...framesBySession.keys()]);
     for (const sessionId of sessions) {
       if (sessionId === exceptSessionId) continue;
@@ -125,10 +137,9 @@ export function createSessionState(host: SessionStateHost) {
       const frames = framesBySession.get(sessionId);
       const related = [
         ...(scope?.relatedWindowIds || []),
-        ...[...(frames?.values() || [])].flatMap(frame =>
-          [...(frame.relatedWindowIds || []), frame.windowId || '']),
+        ...[...(frames?.values() || [])].flatMap((frame) => [...(frame.relatedWindowIds || []), frame.windowId || '']),
       ];
-      if (!related.some(id => ids.has(id.toLowerCase()))) continue;
+      if (!related.some((id) => ids.has(id.toLowerCase()))) continue;
       invalidateComputerActionTargets(sessionId, { framesBySession, elementTargetsBySession });
       observedWindowBySession.delete(sessionId);
     }
@@ -141,16 +152,17 @@ export function createSessionState(host: SessionStateHost) {
     });
   }
 
-  function releaseSessionState(
-    sessionId: string,
-    releaseCaptureSession?: (releasedSessionId: string) => void,
-  ): void {
-    releaseComputerSessionResources(sessionId, {
-      framesBySession,
-      elementTargetsBySession,
-      observedWindowBySession,
-      lastCaptureBySession,
-    }, releaseCaptureSession);
+  function releaseSessionState(sessionId: string, releaseCaptureSession?: (releasedSessionId: string) => void): void {
+    releaseComputerSessionResources(
+      sessionId,
+      {
+        framesBySession,
+        elementTargetsBySession,
+        observedWindowBySession,
+        lastCaptureBySession,
+      },
+      releaseCaptureSession
+    );
   }
 
   function invalidateWorkerGeneration(sessionId: string): void {
@@ -175,11 +187,13 @@ export function createSessionState(host: SessionStateHost) {
         ? row.ancestors.flatMap((rawAncestor) => {
             if (!rawAncestor || typeof rawAncestor !== 'object') return [];
             const ancestor = rawAncestor as Record<string, unknown>;
-            return [{
-              runtime_id: String(ancestor.runtime_id || ''),
-              role: String(ancestor.role || ''),
-              name: String(ancestor.name || ''),
-            }];
+            return [
+              {
+                runtime_id: String(ancestor.runtime_id || ''),
+                role: String(ancestor.role || ''),
+                name: String(ancestor.name || ''),
+              },
+            ];
           })
         : [];
       elements.push({
@@ -197,9 +211,7 @@ export function createSessionState(host: SessionStateHost) {
         height: Number(row.height) || 0,
         center_x: Number(row.center_x) || 0,
         center_y: Number(row.center_y) || 0,
-        actions: Array.isArray(row.actions)
-          ? row.actions.map((action) => String(action)).filter(Boolean)
-          : [],
+        actions: Array.isArray(row.actions) ? row.actions.map((action) => String(action)).filter(Boolean) : [],
         runtime_id: String(row.runtime_id || '') || undefined,
         parent_runtime_id: String(row.parent_runtime_id || '') || undefined,
         class_name: String(row.class_name || '') || undefined,
@@ -238,10 +250,11 @@ export function createSessionState(host: SessionStateHost) {
   function elementTarget(
     command: ComputerCommand,
     mark: number | undefined,
-    label: string,
+    label: string
   ): ElementAliasTarget | undefined {
     if (mark === undefined) return undefined;
-    if (!Number.isInteger(mark) || mark < 1) throw new Error(`${label} must be a positive integer from the latest capture`);
+    if (!Number.isInteger(mark) || mark < 1)
+      throw new Error(`${label} must be a positive integer from the latest capture`);
     const target = elementTargetsBySession.get(sessionIdFor(command))?.get(mark);
     if (!target) throw new Error(`stale_element: ${label}=${mark} is not in the latest capture for this session`);
     return target;
@@ -251,68 +264,72 @@ export function createSessionState(host: SessionStateHost) {
     const markedTarget = ELEMENT_ALIAS_ACTIONS.has(command.action)
       ? elementTarget(command, command.element, 'element')
       : undefined;
-    const markedDestination = command.action === 'drag'
-      ? elementTarget(command, command.to_element, 'to_element')
-      : undefined;
+    const markedDestination =
+      command.action === 'drag' ? elementTarget(command, command.to_element, 'to_element') : undefined;
     for (const [target, label] of [
       [markedTarget, 'element'],
       [markedDestination, 'to_element'],
     ] as const) {
-      if (target?.kind === 'point' && target.windowId && command.window_id
-        && target.windowId !== command.window_id) {
+      if (target?.kind === 'point' && target.windowId && command.window_id && target.windowId !== command.window_id) {
         throw new Error(`${label} and window_id identify different windows`);
       }
     }
     if (markedTarget?.kind === 'point' && !PIXEL_ALIAS_ACTIONS.has(command.action)) {
-      throw new Error(`OCR element marks do not support '${command.action}'; use a semantic ref or click the OCR mark first`);
+      throw new Error(
+        `OCR element marks do not support '${command.action}'; use a semantic ref or click the OCR mark first`
+      );
     }
-    if (markedTarget?.kind === 'ref' && markedTarget.ref && command.ref
-      && markedTarget.ref !== command.ref) {
+    if (markedTarget?.kind === 'ref' && markedTarget.ref && command.ref && markedTarget.ref !== command.ref) {
       throw new Error('element and ref identify different controls');
     }
-    if (markedDestination?.kind === 'ref' && markedDestination.ref && command.to
-      && markedDestination.ref !== command.to) {
+    if (
+      markedDestination?.kind === 'ref' &&
+      markedDestination.ref &&
+      command.to &&
+      markedDestination.ref !== command.to
+    ) {
       throw new Error('to_element and to identify different controls');
     }
     if (markedTarget && markedDestination && markedTarget.kind !== markedDestination.kind) {
       throw new Error('drag source and destination must both be semantic elements or both be OCR/frame points');
     }
-    if (markedTarget?.kind === 'point' && markedDestination?.kind === 'point'
-      && (markedTarget.frameId !== markedDestination.frameId
-        || markedTarget.windowId !== markedDestination.windowId)) {
+    if (
+      markedTarget?.kind === 'point' &&
+      markedDestination?.kind === 'point' &&
+      (markedTarget.frameId !== markedDestination.frameId || markedTarget.windowId !== markedDestination.windowId)
+    ) {
       throw new Error('drag source and destination must come from the same fresh frame and window');
     }
     return {
       ...command,
       ...(markedTarget?.kind === 'ref' && markedTarget.ref ? { ref: markedTarget.ref } : {}),
-      ...(markedTarget?.kind === 'point' ? {
-        ref: undefined,
-        frame_id: markedTarget.frameId,
-        window_id: markedTarget.windowId || command.window_id,
-        x: markedTarget.x,
-        y: markedTarget.y,
-      } : {}),
-      ...(markedDestination?.kind === 'ref' && markedDestination.ref
-        ? { to: markedDestination.ref }
+      ...(markedTarget?.kind === 'point'
+        ? {
+            ref: undefined,
+            frame_id: markedTarget.frameId,
+            window_id: markedTarget.windowId || command.window_id,
+            x: markedTarget.x,
+            y: markedTarget.y,
+          }
         : {}),
-      ...(markedDestination?.kind === 'point' ? {
-        to: undefined,
-        frame_id: markedDestination.frameId,
-        window_id: markedDestination.windowId || command.window_id,
-        to_x: markedDestination.x,
-        to_y: markedDestination.y,
-      } : {}),
+      ...(markedDestination?.kind === 'ref' && markedDestination.ref ? { to: markedDestination.ref } : {}),
+      ...(markedDestination?.kind === 'point'
+        ? {
+            to: undefined,
+            frame_id: markedDestination.frameId,
+            window_id: markedDestination.windowId || command.window_id,
+            to_x: markedDestination.x,
+            to_y: markedDestination.y,
+          }
+        : {}),
     };
   }
 
-  function visualPointForRef(
-    command: ComputerCommand,
-    ref: string | undefined,
-  ): { x: number; y: number } | undefined {
+  function visualPointForRef(command: ComputerCommand, ref: string | undefined): { x: number; y: number } | undefined {
     if (!ref) return undefined;
     for (const target of elementTargetsBySession.get(sessionIdFor(command))?.values() || []) {
-      if (target.kind !== 'ref' || target.ref !== ref
-        || !Number.isFinite(target.x) || !Number.isFinite(target.y)) continue;
+      if (target.kind !== 'ref' || target.ref !== ref || !Number.isFinite(target.x) || !Number.isFinite(target.y))
+        continue;
       return { x: target.x as number, y: target.y as number };
     }
     return undefined;
@@ -335,19 +352,22 @@ export function createSessionState(host: SessionStateHost) {
         read_only: true,
       });
       if (!bounds.ok) throw new Error(`stale_frame: target window is gone (${frame.windowId})`);
-      const same = Number(bounds.result?.x) === (frame.targetWindowX ?? frame.windowX)
-        && Number(bounds.result?.y) === (frame.targetWindowY ?? frame.windowY)
-        && Number(bounds.result?.width) === (frame.targetWindowWidth ?? frame.windowWidth)
-        && Number(bounds.result?.height) === (frame.targetWindowHeight ?? frame.windowHeight);
+      const same =
+        Number(bounds.result?.x) === (frame.targetWindowX ?? frame.windowX) &&
+        Number(bounds.result?.y) === (frame.targetWindowY ?? frame.windowY) &&
+        Number(bounds.result?.width) === (frame.targetWindowWidth ?? frame.windowWidth) &&
+        Number(bounds.result?.height) === (frame.targetWindowHeight ?? frame.windowHeight);
       if (!same) throw new Error(`stale_frame: target window moved or resized (${frame.id})`);
     } else {
       const display = screen.getAllDisplays().find((candidate) => String(candidate.id) === frame.displayId);
       const origin = display?.nativeOrigin ?? (display ? { x: display.bounds.x, y: display.bounds.y } : null);
-      const same = !!display && !!origin
-        && origin.x === frame.displayX
-        && origin.y === frame.displayY
-        && Math.round(display.size.width * display.scaleFactor) === frame.displayWidth
-        && Math.round(display.size.height * display.scaleFactor) === frame.displayHeight;
+      const same =
+        !!display &&
+        !!origin &&
+        origin.x === frame.displayX &&
+        origin.y === frame.displayY &&
+        Math.round(display.size.width * display.scaleFactor) === frame.displayWidth &&
+        Math.round(display.size.height * display.scaleFactor) === frame.displayHeight;
       if (!same) throw new Error(`stale_frame: display layout changed (${frame.id})`);
     }
     return frame;

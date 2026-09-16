@@ -1,4 +1,4 @@
-import { enforceRendererCacheBudget, registerBudgetedCache } from "./renderer-cache-budget";
+import { enforceRendererCacheBudget, registerBudgetedCache } from './renderer-cache-budget';
 
 /** Weighted LRU for recomputable renderer data. Measurements use the shared
  * budget's character-equivalent units (estimated JS bytes / 2). */
@@ -7,13 +7,15 @@ export class RendererLruCache<K, V> {
   private retained = 0;
   private unregister: (() => void) | null = null;
 
-  constructor(private readonly options: {
-    name: string;
-    maxEntries: number;
-    maxChars: number;
-    measure(value: V, key: K): number;
-    register?: boolean;
-  }) {
+  constructor(
+    private readonly options: {
+      name: string;
+      maxEntries: number;
+      maxChars: number;
+      measure(value: V, key: K): number;
+      register?: boolean;
+    }
+  ) {
     if (options.register !== false) this.register();
   }
 
@@ -27,8 +29,12 @@ export class RendererLruCache<K, V> {
     enforceRendererCacheBudget();
   }
 
-  get size(): number { return this.entries.size; }
-  chars(): number { return this.retained; }
+  get size(): number {
+    return this.entries.size;
+  }
+  chars(): number {
+    return this.retained;
+  }
 
   get(key: K): V | undefined {
     const entry = this.entries.get(key);

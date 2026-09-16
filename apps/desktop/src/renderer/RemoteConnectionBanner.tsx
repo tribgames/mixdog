@@ -1,12 +1,12 @@
-import { WifiOff } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { WifiOff } from 'lucide-react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
-import { t } from "./i18n";
+import { t } from './i18n';
 import {
   currentRemoteConnectionState,
   REMOTE_WAKE_EVENT,
   subscribeRemoteConnectionState,
-} from "./remote-connection-state";
+} from './remote-connection-state';
 
 // Every foreground return costs a short reconnect gap (socket recycle, relay
 // dial, E2EE handshake). That blip is NOT an outage and gets NO surface at all
@@ -16,13 +16,8 @@ import {
 const DISCONNECTED_AFTER_MS = 10_000;
 
 export function RemoteConnectionBanner({ boot = false }: { boot?: boolean } = {}) {
-  const state = useSyncExternalStore(
-    subscribeRemoteConnectionState,
-    currentRemoteConnectionState,
-    () => null,
-  );
-  const waiting = state === "reconnecting" || state === "syncing"
-    || (boot && state === "connecting");
+  const state = useSyncExternalStore(subscribeRemoteConnectionState, currentRemoteConnectionState, () => null);
+  const waiting = state === 'reconnecting' || state === 'syncing' || (boot && state === 'connecting');
   const [disconnected, setDisconnected] = useState(false);
   useEffect(() => {
     setDisconnected(false);
@@ -35,9 +30,14 @@ export function RemoteConnectionBanner({ boot = false }: { boot?: boolean } = {}
   // No wording on purpose: the dim layer and the glyph ARE the message, and the
   // layer exists to block input against a desktop that cannot answer it. A tap
   // retries at once instead of waiting out the remaining reconnect backoff.
-  return <button type="button" className="remote-connection-overlay"
-    aria-label={t("Retry")}
-    onClick={() => window.dispatchEvent(new Event(REMOTE_WAKE_EVENT))}>
-    <WifiOff aria-hidden="true" />
-  </button>;
+  return (
+    <button
+      type="button"
+      className="remote-connection-overlay"
+      aria-label={t('Retry')}
+      onClick={() => window.dispatchEvent(new Event(REMOTE_WAKE_EVENT))}
+    >
+      <WifiOff aria-hidden="true" />
+    </button>
+  );
 }

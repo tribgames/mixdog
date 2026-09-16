@@ -1,9 +1,13 @@
-import { useEffect } from "react";
-import { claimSharedIntake, subscribeSharedIntake } from "./share-target-intake";
+import { useEffect } from 'react';
+import { claimSharedIntake, subscribeSharedIntake } from './share-target-intake';
 
 /** Take a shared payload into THIS composer. Only the focused, visible pane
  *  subscribes, so a share never lands in a conversation the user cannot see. */
-export function useComposerShareIntake({ active, attachFiles, appendText }: {
+export function useComposerShareIntake({
+  active,
+  attachFiles,
+  appendText,
+}: {
   active: boolean;
   attachFiles: (files: File[]) => void | Promise<void>;
   appendText: (text: string) => void;

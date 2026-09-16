@@ -43,9 +43,10 @@ function factsGateResult(target, brief, gate, run) {
     gate: { code: gate.code, slides: gate.slides, facts: brief.facts.length },
     logs: run.logs,
     elapsedMs: run.elapsedMs,
-    nextAction: gate.code === 'facts_missing'
-      ? `The deck shows figures (${listed}) but the brief has no facts line, so nothing landed. Add \`// facts: F1 <value> — <source> · …\` for every figure the slides show, or declare \`// facts: sample — <why no source>\` to mark every figure illustrative; then call author again.`
-      : `Figures with no fact behind them (${listed}), so nothing landed. Add each to the brief facts line with its source, remove it from the slide, or declare \`// facts: sample — <why>\`; then call author again.`,
+    nextAction:
+      gate.code === 'facts_missing'
+        ? `The deck shows figures (${listed}) but the brief has no facts line, so nothing landed. Add \`// facts: F1 <value> — <source> · …\` for every figure the slides show, or declare \`// facts: sample — <why no source>\` to mark every figure illustrative; then call author again.`
+        : `Figures with no fact behind them (${listed}), so nothing landed. Add each to the brief facts line with its source, remove it from the slide, or declare \`// facts: sample — <why>\`; then call author again.`,
   };
 }
 
@@ -62,7 +63,7 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
   // A re-author replaces the session, but the audit fix rounds belong to the
   // deck: the loop keeps counting across passes on the same path.
   const priorAudit = reusable ? null : existing?.inlineAudit || null;
-  if (!reusable && !existing && await exists(target) && args.overwrite !== true) {
+  if (!reusable && !existing && (await exists(target)) && args.overwrite !== true) {
     throw new Error(`author target already exists: ${target}; pass overwrite:true to replace it`);
   }
   // The script always writes beside the target: a failed script or a refused
@@ -108,7 +109,13 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
       await landStagedDeck(staging, target, signal);
     }
     throwIfAuthoringCancelled(signal);
-    if (!session) session = await createAuthoredSession(signal ? { ...args, mode, __signal: signal } : { ...args, mode }, cwd, dataDir, target);
+    if (!session)
+      session = await createAuthoredSession(
+        signal ? { ...args, mode, __signal: signal } : { ...args, mode },
+        cwd,
+        dataDir,
+        target
+      );
     discardStaging = true;
   } catch (error) {
     if (signal?.aborted || error?.name === 'AbortError') discardStaging = true;
@@ -139,9 +146,10 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
   if (args.render === false) {
     const receipt = await readCompositionReceipt(session);
     if (receipt) result.receipt = receipt;
-    result.nextAction = audit?.status === 'fail'
-      ? audit.nextAction
-      : 'Written and measured clean, not visually reviewed: call action:render on this session for the page images, contact sheet, receipt, and reviewToken, then inspect every slide before finalizing. action:qa render:false adds the design read (theme, plan promises, facts) without pixels. Re-author only if the script changes.';
+    result.nextAction =
+      audit?.status === 'fail'
+        ? audit.nextAction
+        : 'Written and measured clean, not visually reviewed: call action:render on this session for the page images, contact sheet, receipt, and reviewToken, then inspect every slide before finalizing. action:qa render:false adds the design read (theme, plan promises, facts) without pixels. Re-author only if the script changes.';
     return result;
   }
   session.activeSignal = signal;
@@ -157,9 +165,10 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
     };
     result._images = Array.isArray(rendered._images) ? rendered._images : [];
     if (rendered.receipt) result.receipt = rendered.receipt;
-    result.nextAction = audit?.status === 'fail'
-      ? `${audit.nextAction} The rendered pages are attached; the visual read starts once the audit passes.`
-      : 'Inspect every rendered slide for message visibility, relevant evidence, legibility, and grouping; then read the contact sheet for coherent sequence. Use the receipt to investigate possible defects, not to require an inventory of charts, pictures, or shapes. Change the script only for an observed problem, or finalize with design: { reviewed: true, reviewToken, critique: [one entry per slide] }.';
+    result.nextAction =
+      audit?.status === 'fail'
+        ? `${audit.nextAction} The rendered pages are attached; the visual read starts once the audit passes.`
+        : 'Inspect every rendered slide for message visibility, relevant evidence, legibility, and grouping; then read the contact sheet for coherent sequence. Use the receipt to investigate possible defects, not to require an inventory of charts, pictures, or shapes. Change the script only for an observed problem, or finalize with design: { reviewed: true, reviewToken, critique: [one entry per slide] }.';
   } finally {
     delete session.activeSignal;
   }

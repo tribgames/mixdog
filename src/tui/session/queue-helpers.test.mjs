@@ -19,18 +19,12 @@ test('merging keeps an externalized single text part as a parts array', () => {
 
 test('merging still collapses a single inline text part to a string', () => {
   assert.equal(mergePromptContents([{ content: 'plain prompt' }]), 'plain prompt');
-  assert.equal(
-    mergePromptContents([{ content: [{ type: 'text', text: 'inline part' }] }]),
-    'inline part',
-  );
+  assert.equal(mergePromptContents([{ content: [{ type: 'text', text: 'inline part' }] }]), 'inline part');
 });
 
 test('merging joins mixed inline and externalized parts without dropping refs', () => {
   const ref = { type: 'text', attachmentRef: 'b'.repeat(64), sizeBytes: 900 };
-  const merged = mergePromptContents([
-    { content: 'first' },
-    { content: [ref] },
-  ]);
+  const merged = mergePromptContents([{ content: 'first' }, { content: [ref] }]);
   assert.ok(Array.isArray(merged));
   assert.ok(merged.some((part) => part?.attachmentRef === ref.attachmentRef));
   assert.ok(merged.some((part) => part?.text === 'first'));
@@ -41,6 +35,6 @@ test('empty display text falls back to structured attachment content', () => {
     promptDisplayText([{ type: 'image', data: 'AA==', mimeType: 'image/png' }], {
       displayText: '',
     }),
-    '[Image]',
+    '[Image]'
   );
 });

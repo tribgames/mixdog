@@ -8,7 +8,12 @@ import { spawnSync } from 'node:child_process';
 test('runtime traces join array batches to settled eager, failed serial and cached calls', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-batch-trace-'));
   try {
-    const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    const child = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
       import assert from 'node:assert/strict';
       import { readFileSync } from 'node:fs';
       import { recordToolBatch } from './src/runtime/agent/orchestrator/tools/tool-batch-trace.mjs';
@@ -70,45 +75,51 @@ test('runtime traces join array batches to settled eager, failed serial and cach
         .split(/\\r?\\n/).filter(Boolean).map(JSON.parse);
       process.stdout.write(JSON.stringify(rows.filter(row => row.kind === 'batch' || row.kind === 'tool')
         .map(row => ({ kind: row.kind, tool_name: row.tool_name, result_kind: row.result_kind, payload: row.payload }))));
-    `], {
-      cwd: process.cwd(),
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        MIXDOG_AGENT_TRACE_PATH: join(dir, 'agent-trace.jsonl'),
-        MIXDOG_AGENT_TRACE_DISABLE: '',
-        MIXDOG_AGENT_TRACE_LOCAL_DISABLE: '',
-        MIXDOG_RUNTIME_ROOT: join(dir, 'no-service'),
-      },
-    });
+    `,
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          MIXDOG_AGENT_TRACE_PATH: join(dir, 'agent-trace.jsonl'),
+          MIXDOG_AGENT_TRACE_DISABLE: '',
+          MIXDOG_AGENT_TRACE_LOCAL_DISABLE: '',
+          MIXDOG_RUNTIME_ROOT: join(dir, 'no-service'),
+        },
+      }
+    );
     assert.equal(child.status, 0, child.stderr);
     const rows = JSON.parse(child.stdout);
-    const batches = rows.filter(row => row.kind === 'batch');
+    const batches = rows.filter((row) => row.kind === 'batch');
     const first = batches[0].payload;
     assert.equal(first.batch_schema_version, 1);
     assert.equal(first.iteration, 4);
     assert.equal(first.tool_call_count, 3);
-    assert.deepEqual(first.calls.map(call => call.array_lengths), [
-      { file_path: 8 }, { command: 4 }, { pattern: 2, path: 3 },
-    ]);
+    assert.deepEqual(
+      first.calls.map((call) => call.array_lengths),
+      [{ file_path: 8 }, { command: 4 }, { pattern: 2, path: 3 }]
+    );
     assert.equal(JSON.stringify(batches).includes('PRIVATE_PAYLOAD'), false);
     assert.notEqual(first.batch_id, batches[1].payload.batch_id);
     assert.equal(batches[1].payload.calls[0].array_lengths, null);
     assert.deepEqual(batches[2].payload.calls[0].array_lengths, {});
     assert.deepEqual(batches[3].payload, { tool_call_count: 2 });
-    const tools = rows.filter(row => row.kind === 'tool');
-    const read = tools.find(row => row.payload.batch.tool_call_id === 'read');
+    const tools = rows.filter((row) => row.kind === 'tool');
+    const read = tools.find((row) => row.payload.batch.tool_call_id === 'read');
     assert.equal(read.payload.batch.batch_id, first.batch_id);
     assert.deepEqual(read.payload.execution_intervals, [{ started_at_ms: 120, completed_at_ms: 170 }]);
-    const git = tools.find(row => row.payload.batch.tool_call_id === 'git');
+    const git = tools.find((row) => row.payload.batch.tool_call_id === 'git');
     assert.equal(git.result_kind, 'error');
     assert.deepEqual(git.payload.execution_intervals, [{ started_at_ms: 150, completed_at_ms: 190 }]);
-    const serial = tools.find(row => row.payload.batch.tool_call_id === 'serial');
+    const serial = tools.find((row) => row.payload.batch.tool_call_id === 'serial');
     assert.equal(serial.result_kind, 'error');
     assert.equal(serial.payload.execution_intervals.length, 1);
     assert.ok(serial.payload.execution_intervals[0].started_at_ms > 0);
-    assert.ok(serial.payload.execution_intervals[0].completed_at_ms >= serial.payload.execution_intervals[0].started_at_ms);
-    const cached = tools.find(row => row.payload.batch.tool_call_id === 'cached');
+    assert.ok(
+      serial.payload.execution_intervals[0].completed_at_ms >= serial.payload.execution_intervals[0].started_at_ms
+    );
+    const cached = tools.find((row) => row.payload.batch.tool_call_id === 'cached');
     assert.deepEqual(cached.payload.execution_intervals, []);
   } finally {
     rmSync(dir, { recursive: true, force: true });

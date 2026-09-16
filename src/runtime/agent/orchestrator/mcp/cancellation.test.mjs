@@ -4,17 +4,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  _registerMcpServerForTest,
-  executeMcpTool,
-  getMcpAdmissionSnapshot,
-} from './client.mjs';
+import { _registerMcpServerForTest, executeMcpTool, getMcpAdmissionSnapshot } from './client.mjs';
 
 const never = () => new Promise(() => {});
 
 function deferred() {
   let resolve;
-  const promise = new Promise((res) => { resolve = res; });
+  const promise = new Promise((res) => {
+    resolve = res;
+  });
   return { promise, resolve };
 }
 
@@ -22,7 +20,9 @@ async function waitFor(predicate, label, timeoutMs = 2_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
-    await new Promise((resolve) => { setTimeout(resolve, 10); });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
   }
   throw new Error(`timed out waiting for ${label}`);
 }
@@ -37,8 +37,13 @@ function slotsFor(scopeId, serverName) {
 function track(promise) {
   const state = { settled: false, error: null };
   promise.then(
-    () => { state.settled = true; },
-    (error) => { state.settled = true; state.error = error; },
+    () => {
+      state.settled = true;
+    },
+    (error) => {
+      state.settled = true;
+      state.error = error;
+    }
   );
   return state;
 }
@@ -101,9 +106,14 @@ test('an aborted caller settles a call stalled inside a shared reconnect', async
     cfg: { maxConcurrency: 1, timeoutMs: 'off' },
     // A plain failure (not a timeout, not an abort) is what sends the call into
     // the shared reconnect path.
-    callTool: async () => { throw new Error('transport went away'); },
+    callTool: async () => {
+      throw new Error('transport went away');
+    },
     // Teardown never completes, so the reconnect stays in flight forever.
-    close: () => { closeEntered.resolve(); return never(); },
+    close: () => {
+      closeEntered.resolve();
+      return never();
+    },
   });
   const controller = new AbortController();
   const call = executeMcpTool('mcp__flaky__boom', {}, { scopeId, signal: controller.signal });
@@ -116,7 +126,7 @@ test('an aborted caller settles a call stalled inside a shared reconnect', async
   await assert.rejects(call, /hook aborted during reconnect/);
   await waitFor(
     () => slotsFor(scopeId, 'flaky').active === 0,
-    'the admission slot to be released while the reconnect is still stalled',
+    'the admission slot to be released while the reconnect is still stalled'
   );
 });
 
@@ -126,14 +136,22 @@ test('cancellation never turns into a reconnect-and-retry (no duplicate side eff
   const closeEntered = deferred();
   _registerMcpServerForTest(scopeId, 'once', [{ name: 'effect' }], {
     cfg: { maxConcurrency: 1, timeoutMs: 'off' },
-    callTool: async () => { calls += 1; throw new Error('transport went away'); },
-    close: () => { closeEntered.resolve(); return never(); },
+    callTool: async () => {
+      calls += 1;
+      throw new Error('transport went away');
+    },
+    close: () => {
+      closeEntered.resolve();
+      return never();
+    },
   });
   const controller = new AbortController();
   const call = executeMcpTool('mcp__once__effect', {}, { scopeId, signal: controller.signal });
   await closeEntered.promise;
   controller.abort(new Error('aborted before retry'));
   await assert.rejects(call, /aborted before retry/);
-  await new Promise((resolve) => { setTimeout(resolve, 50); });
+  await new Promise((resolve) => {
+    setTimeout(resolve, 50);
+  });
   assert.equal(calls, 1, 'the aborted call is never replayed against a reconnected server');
 });

@@ -9,7 +9,9 @@ import { columnLabel } from '../../portable/portable-cells.mjs';
 // number a formula can use while the sheet shows "12명".
 function metricNumberFormat(metric) {
   const resolved = officeNumberFormat(metric);
-  const unit = String(metric?.unit || '').trim().replace(/"/g, '');
+  const unit = String(metric?.unit || '')
+    .trim()
+    .replace(/"/g, '');
   if (!unit) return resolved || 'General';
   const suffix = `${/^[A-Za-z(]/.test(unit) ? ' ' : ''}${unit}`;
   return `${resolved || '#,##0'}"${suffix}"`;
@@ -21,14 +23,14 @@ function safeTableName(value) {
   return (leading || 'MixdogTable').slice(0, 240);
 }
 
-
 // Bars share one value axis, so a series whose values are two orders of
 // magnitude away from the first one is drawn as a flat line on the baseline. The
 // chart keeps the run of columns that can be read together, starting at the
 // first series column.
 function comparableSeriesColumn(rows, dataColumns, chartRows) {
   const magnitude = (column) => {
-    const values = rows.slice(0, chartRows)
+    const values = rows
+      .slice(0, chartRows)
       .map((row) => Number(Array.isArray(row) ? row[column - 1] : Number.NaN))
       .filter((entry) => Number.isFinite(entry) && entry !== 0)
       .map(Math.abs);
@@ -46,11 +48,9 @@ function comparableSeriesColumn(rows, dataColumns, chartRows) {
   return last;
 }
 
-
 function isExcelTotalRow(row) {
   return /^(?:(?:grand\s+total|sub\s*total|total)\b|(?:합계|총계|소계)(?:\s|$))/i.test(String(row?.[0] || '').trim());
 }
-
 
 export function expandXlsxSheet(operation, design, composition) {
   const output = [];
@@ -67,15 +67,8 @@ export function expandXlsxSheet(operation, design, composition) {
   const rows = Array.isArray(operation.rows) ? operation.rows : [];
   const metrics = Array.isArray(operation.metrics) ? operation.metrics.slice(0, 4) : [];
   const dashboard = String(operation.kind || '').toLowerCase() === 'dashboard' || metrics.length > 0;
-  const dataColumns = Math.max(
-    1,
-    headers.length,
-    ...rows.map((entry) => Array.isArray(entry) ? entry.length : 1),
-  );
-  const columns = Math.max(
-    dataColumns,
-    dashboard ? metrics.length * 2 : 1,
-  );
+  const dataColumns = Math.max(1, headers.length, ...rows.map((entry) => (Array.isArray(entry) ? entry.length : 1)));
+  const columns = Math.max(dataColumns, dashboard ? metrics.length * 2 : 1);
   const panelColumns = dashboard ? Math.max(6, 18 - dataColumns - 1) : dataColumns;
   // The canvas is as wide as the table under it, because the table's columns are
   // the canvas's columns: a strip two columns per metric made every band twice
@@ -92,13 +85,12 @@ export function expandXlsxSheet(operation, design, composition) {
   // A two-column dashboard stretched across a landscape page turns each column
   // into four inches of empty cell; the page it belongs on is the narrow one.
   const portraitCanvas = dashboard && canvasColumns <= 3;
-  const fillWidth = dashboard && !hasDecisionPanel
-    ? Math.min(40, Math.floor((portraitCanvas ? 78 : 120) / canvasColumns))
-    : 0;
+  const fillWidth =
+    dashboard && !hasDecisionPanel ? Math.min(40, Math.floor((portraitCanvas ? 78 : 120) / canvasColumns)) : 0;
   const fills = fillWidth >= 12;
   // Excel stores a column width in characters; a printed point is what the chart
   // beside it is placed in.
-  const columnPoints = fills ? ((fillWidth * 7) + 5) * 0.75 : 48;
+  const columnPoints = fills ? (fillWidth * 7 + 5) * 0.75 : 48;
   const canvasPoints = columnPoints * canvasColumns;
   const lastColumn = columnLabel(canvasColumns);
   const dataLastColumn = columnLabel(dataColumns);
@@ -181,61 +173,63 @@ export function expandXlsxSheet(operation, design, composition) {
       const baseSpan = Math.floor(canvasColumns / strip.length);
       const spare = canvasColumns % strip.length;
       const cardSpans = strip.map((_, index) => Math.max(1, baseSpan + (index < spare ? 1 : 0)));
-      const stripRow = row + (stripIndex * 3);
+      const stripRow = row + stripIndex * 3;
       strip.forEach((metric, cardIndex) => {
-      const index = (stripIndex * perRow) + cardIndex;
-      const startColumn = cardSpans.slice(0, cardIndex).reduce((total, width) => total + width, 1);
-      const endColumn = cardIndex === strip.length - 1
-        ? canvasColumns
-        : Math.min(canvasColumns, startColumn + cardSpans[cardIndex] - 1);
-      const start = columnLabel(startColumn);
-      const end = columnLabel(endColumn);
-      const valueRow = stripRow;
-      const labelRow = stripRow + 1;
-      const detailRow = stripRow + 2;
-      const valueCell = `${start}${valueRow}`;
-      if (metric?.formula) output.push({ op: 'set_formula', sheet, cell: valueCell, formula: String(metric.formula) });
-      else output.push({ op: 'set_cell', sheet, cell: valueCell, value: metric?.value ?? '' });
-      // A card one column wide needs no merge; writing one left A4:A4 in the sheet.
-      const spans = endColumn > startColumn;
-      if (spans) output.push({ op: 'merge_cells', sheet, range: `${start}${valueRow}:${end}${valueRow}` });
-      output.push({ op: 'set_cell', sheet, cell: `${start}${labelRow}`, value: String(metric?.label || '') });
-      if (spans) output.push({ op: 'merge_cells', sheet, range: `${start}${labelRow}:${end}${labelRow}` });
-      output.push({ op: 'set_cell', sheet, cell: `${start}${detailRow}`, value: String(metric?.detail || '') });
-      if (spans) output.push({ op: 'merge_cells', sheet, range: `${start}${detailRow}:${end}${detailRow}` });
-      output.push({
-        op: 'set_style',
-        sheet,
-        range: `${start}${valueRow}:${end}${valueRow}`,
-        properties: {
-          fontName: type.data,
-          fontSize: narrativeScorecard ? 25 : dashboard ? 27 : comparisonBoard ? 20 : 22,
-          bold: true,
-          color: index === 0 && !analysisSheet ? colors.onAccent : colors.ink,
-          fillColor: index === 0 && !analysisSheet ? colors.accent : trendDashboard ? colors.canvas : colors.surface,
-          numberFormat: metricNumberFormat(metric),
-          horizontalAlignment: 'center',
-          verticalAlignment: 'center',
-        },
-      });
-      output.push({
-        op: 'set_style',
-        sheet,
-        range: `${start}${labelRow}:${end}${detailRow}`,
-        properties: {
-          fontName: type.body,
-          fontSize: dashboard ? 10 : 9,
-          bold: true,
-          color: colors.muted,
-          fillColor: colors.surface,
-          horizontalAlignment: 'center',
-          verticalAlignment: 'center',
-          wrapText: true,
-        },
-      });
+        const index = stripIndex * perRow + cardIndex;
+        const startColumn = cardSpans.slice(0, cardIndex).reduce((total, width) => total + width, 1);
+        const endColumn =
+          cardIndex === strip.length - 1
+            ? canvasColumns
+            : Math.min(canvasColumns, startColumn + cardSpans[cardIndex] - 1);
+        const start = columnLabel(startColumn);
+        const end = columnLabel(endColumn);
+        const valueRow = stripRow;
+        const labelRow = stripRow + 1;
+        const detailRow = stripRow + 2;
+        const valueCell = `${start}${valueRow}`;
+        if (metric?.formula)
+          output.push({ op: 'set_formula', sheet, cell: valueCell, formula: String(metric.formula) });
+        else output.push({ op: 'set_cell', sheet, cell: valueCell, value: metric?.value ?? '' });
+        // A card one column wide needs no merge; writing one left A4:A4 in the sheet.
+        const spans = endColumn > startColumn;
+        if (spans) output.push({ op: 'merge_cells', sheet, range: `${start}${valueRow}:${end}${valueRow}` });
+        output.push({ op: 'set_cell', sheet, cell: `${start}${labelRow}`, value: String(metric?.label || '') });
+        if (spans) output.push({ op: 'merge_cells', sheet, range: `${start}${labelRow}:${end}${labelRow}` });
+        output.push({ op: 'set_cell', sheet, cell: `${start}${detailRow}`, value: String(metric?.detail || '') });
+        if (spans) output.push({ op: 'merge_cells', sheet, range: `${start}${detailRow}:${end}${detailRow}` });
+        output.push({
+          op: 'set_style',
+          sheet,
+          range: `${start}${valueRow}:${end}${valueRow}`,
+          properties: {
+            fontName: type.data,
+            fontSize: narrativeScorecard ? 25 : dashboard ? 27 : comparisonBoard ? 20 : 22,
+            bold: true,
+            color: index === 0 && !analysisSheet ? colors.onAccent : colors.ink,
+            fillColor: index === 0 && !analysisSheet ? colors.accent : trendDashboard ? colors.canvas : colors.surface,
+            numberFormat: metricNumberFormat(metric),
+            horizontalAlignment: 'center',
+            verticalAlignment: 'center',
+          },
+        });
+        output.push({
+          op: 'set_style',
+          sheet,
+          range: `${start}${labelRow}:${end}${detailRow}`,
+          properties: {
+            fontName: type.body,
+            fontSize: dashboard ? 10 : 9,
+            bold: true,
+            color: colors.muted,
+            fillColor: colors.surface,
+            horizontalAlignment: 'center',
+            verticalAlignment: 'center',
+            wrapText: true,
+          },
+        });
       });
     });
-    row += (strips.length * 3) + 1;
+    row += strips.length * 3 + 1;
   }
   const insights = strings(operation.insights);
   if (insights.length) {
@@ -318,9 +312,10 @@ export function expandXlsxSheet(operation, design, composition) {
       ? operation.columnFormats.some(Boolean)
       : plainObject(operation.columnFormats) && Object.values(operation.columnFormats).some(Boolean);
     if (formatsGiven && rows.length) {
-      const columnFormat = (index) => (Array.isArray(operation.columnFormats)
-        ? operation.columnFormats[index]
-        : operation.columnFormats[headers[index]] || operation.columnFormats[columnLabel(index + 1)]);
+      const columnFormat = (index) =>
+        Array.isArray(operation.columnFormats)
+          ? operation.columnFormats[index]
+          : operation.columnFormats[headers[index]] || operation.columnFormats[columnLabel(index + 1)];
       let applied = 0;
       for (let index = 0; index < Math.max(headers.length, dataColumns); index += 1) {
         const numberFormat = columnFormat(index);
@@ -334,7 +329,9 @@ export function expandXlsxSheet(operation, design, composition) {
         });
       }
       if (!applied) {
-        throw new Error(`compose_sheet columnFormats matched no column; give one entry per column in order, or key them by ${headers.length ? `header (${headers.join(', ')})` : 'column letter'}`);
+        throw new Error(
+          `compose_sheet columnFormats matched no column; give one entry per column in order, or key them by ${headers.length ? `header (${headers.join(', ')})` : 'column letter'}`
+        );
       }
     }
     if (plainObject(operation.chart)) {
@@ -346,12 +343,13 @@ export function expandXlsxSheet(operation, design, composition) {
       // flattened onto the axis - the legend named three, the chart showed one.
       // Series that cannot share an axis are left out of the picture.
       const seriesLastColumn = comparableSeriesColumn(rows, dataColumns, chartRows);
-      const chartRange = operation.chart.range
-        || `A${startRow}:${columnLabel(seriesLastColumn)}${Math.max(startRow, chartEndRow)}`;
+      const chartRange =
+        operation.chart.range || `A${startRow}:${columnLabel(seriesLastColumn)}${Math.max(startRow, chartEndRow)}`;
       const chartType = operation.chart.type || 'column';
       const showValues = operation.chart.showValues ?? (dashboard && chartRows <= 6);
-      const dataLabelPosition = operation.chart.dataLabelPosition
-        || (showValues && ['column', 'bar'].includes(String(chartType).toLowerCase()) ? 'inside_end' : '');
+      const dataLabelPosition =
+        operation.chart.dataLabelPosition ||
+        (showValues && ['column', 'bar'].includes(String(chartType).toLowerCase()) ? 'inside_end' : '');
       const chartDefaults = dashboard
         ? { left: 0, top: 0, width: canvasPoints, height: 360 }
         : trendDashboard
@@ -366,7 +364,7 @@ export function expandXlsxSheet(operation, design, composition) {
       const requestedChartLeft = Number(operation.chart.left) || chartDefaults.left;
       const requestedChartTop = Number(operation.chart.top) || chartDefaults.top;
       const requestedChartWidth = Number(operation.chart.width) || chartDefaults.width;
-      const minimumChartLeft = dashboard ? 0 : (dataColumns * 60) + 40;
+      const minimumChartLeft = dashboard ? 0 : dataColumns * 60 + 40;
       const chartLeft = Math.max(requestedChartLeft, minimumChartLeft);
       const chartWidth = Math.max(360, requestedChartWidth - (chartLeft - requestedChartLeft));
       const tableRightPoints = dataColumns * (dashboard ? columnPoints : 60);
@@ -376,9 +374,7 @@ export function expandXlsxSheet(operation, design, composition) {
       // fixed 300 point floor and left an empty band between the table and the
       // chart. The band heights are what the chart clears.
       const tableBottomPoints = (dataEndRow + 1) * (dashboard ? 20 : 15);
-      const minimumChartTop = dashboard && overlapsTableHorizontally
-        ? tableBottomPoints + 24
-        : 0;
+      const minimumChartTop = dashboard && overlapsTableHorizontally ? tableBottomPoints + 24 : 0;
       const chartTop = Math.max(requestedChartTop, minimumChartTop);
       const chartHeight = Number(operation.chart.height) || chartDefaults.height;
       chartBottomPoints = chartTop + chartHeight;
@@ -396,9 +392,11 @@ export function expandXlsxSheet(operation, design, composition) {
         seriesColors: operation.chart.seriesColors || [colors.accent, colors.accent2, colors.muted],
         showValues,
         ...(dataLabelPosition ? { dataLabelPosition } : {}),
-        ...(dataLabelPosition === 'inside_end' ? {
-          dataLabelColor: operation.chart.dataLabelColor || colors.onAccent,
-        } : {}),
+        ...(dataLabelPosition === 'inside_end'
+          ? {
+              dataLabelColor: operation.chart.dataLabelColor || colors.onAccent,
+            }
+          : {}),
         zeroBaseline: operation.chart.zeroBaseline ?? ['column', 'bar'].includes(String(chartType).toLowerCase()),
         ...(operation.chart.showLegend == null ? {} : { showLegend: operation.chart.showLegend }),
         ...(operation.chart.valueNumberFormat ? { valueNumberFormat: operation.chart.valueNumberFormat } : {}),
@@ -456,12 +454,8 @@ export function expandXlsxSheet(operation, design, composition) {
   // chart edges back into cells with a small margin instead of guessing.
   const defaultRowPoints = 15;
   const defaultColumnPoints = columnPoints;
-  const chartLastRow = chartBottomPoints > 0
-    ? Math.ceil(chartBottomPoints / defaultRowPoints) + 1
-    : 0;
-  const chartLastColumn = chartRightPoints > 0
-    ? Math.ceil(chartRightPoints / defaultColumnPoints) + 2
-    : 0;
+  const chartLastRow = chartBottomPoints > 0 ? Math.ceil(chartBottomPoints / defaultRowPoints) + 1 : 0;
+  const chartLastColumn = chartRightPoints > 0 ? Math.ceil(chartRightPoints / defaultColumnPoints) + 2 : 0;
   const printColumns = Math.max(canvasColumns, chartLastColumn, decisionLastColumn);
   output.push({
     op: 'set_page_setup',

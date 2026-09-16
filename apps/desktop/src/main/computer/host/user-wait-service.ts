@@ -20,19 +20,32 @@ export function createUserWaitService(options: {
   const manager = createComputerUserWait({
     coordinator: computerUseCoordinator,
     enabled: options.enabled,
-    diagnostic: (code, elapsedMs) => options.recordDiagnostic?.(USER_WAIT_SESSION_ID, {
-      action: 'input_idle_state', stage: 'observation', ok: false, code, ms: elapsedMs,
-    }),
+    diagnostic: (code, elapsedMs) =>
+      options.recordDiagnostic?.(USER_WAIT_SESSION_ID, {
+        action: 'input_idle_state',
+        stage: 'observation',
+        ok: false,
+        code,
+        ms: elapsedMs,
+      }),
     resume: (generation, signal, recheck) => options.lifecycle.resumeAfterTakeover(generation, signal, recheck),
     observe: async () => {
-      const response = await options.callPowerShell({
-        action: 'input_idle_state', session_id: USER_WAIT_SESSION_ID, read_only: true,
-      }, 5_000);
+      const response = await options.callPowerShell(
+        {
+          action: 'input_idle_state',
+          session_id: USER_WAIT_SESSION_ID,
+          read_only: true,
+        },
+        5_000
+      );
       const value = response.result;
       if (!response.ok || !value) throw new Error('input_observation_unavailable');
       return {
-        ready: value.ready === true, monitor: String(value.monitor || ''),
-        sequence: Number(value.sequence), idleMs: Number(value.idleMs), held: value.held !== false,
+        ready: value.ready === true,
+        monitor: String(value.monitor || ''),
+        sequence: Number(value.sequence),
+        idleMs: Number(value.idleMs),
+        held: value.held !== false,
       };
     },
   });
@@ -55,7 +68,11 @@ export function createUserWaitService(options: {
         writeFileSync(temporary, JSON.stringify({ seconds }), { encoding: 'utf8', flag: 'wx', mode: 0o600 });
         renameSync(temporary, path);
       } finally {
-        try { unlinkSync(temporary); } catch { /* rename consumed it */ }
+        try {
+          unlinkSync(temporary);
+        } catch {
+          /* rename consumed it */
+        }
       }
       manager.configure(seconds);
     },
@@ -65,12 +82,17 @@ export function createUserWaitService(options: {
         throw new Error('invalid_request: wait_for_user accepts only timeout_ms');
       }
       const status = await manager.wait(String(command.session_id || 'default'), command.timeout_ms, signal);
-      return { text: JSON.stringify({
-        ok: true, action: 'wait_for_user', status,
-        resumed: status === 'resumed', fresh_capture_required: status === 'resumed',
-        input_replayed: false,
-        reason: computerUseCoordinator.snapshot().takeoverReason || '',
-      }) };
+      return {
+        text: JSON.stringify({
+          ok: true,
+          action: 'wait_for_user',
+          status,
+          resumed: status === 'resumed',
+          fresh_capture_required: status === 'resumed',
+          input_replayed: false,
+          reason: computerUseCoordinator.snapshot().takeoverReason || '',
+        }),
+      };
     },
   };
 }

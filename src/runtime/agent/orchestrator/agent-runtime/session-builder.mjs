@@ -23,22 +23,34 @@ import { resolveAgentSessionPermission } from '../internal-agents.mjs';
 import { loadConfig } from '../config.mjs';
 
 function normalizeAgentCompactionConfig(value = {}) {
-    const raw = value && typeof value === 'object' ? value : {};
-    const next = { ...raw };
-    if (!next.summaryModel && raw.semanticModel) next.summaryModel = raw.semanticModel;
-    if (!next.memoryTimeoutMs && raw.recallMemoryTimeoutMs) next.memoryTimeoutMs = raw.recallMemoryTimeoutMs;
-    for (const key of [
-        'type', 'compactType', 'compact_type', 'semantic', 'semanticModel', 'prune', 'tailTurns',
-        'recallMemoryTimeoutMs', 'recallIngestLimit', 'recallChunkLimit', 'recallLimit',
-        'recallCycle1BatchSize', 'recallRowsPerSession', 'recallWindowSize',
-        'recallConcurrency', 'recallCycle1DeadlineMs',
-    ]) {
-        delete next[key];
-    }
-    return {
-        ...next,
-        auto: raw.auto !== false && raw.enabled !== false,
-    };
+  const raw = value && typeof value === 'object' ? value : {};
+  const next = { ...raw };
+  if (!next.summaryModel && raw.semanticModel) next.summaryModel = raw.semanticModel;
+  if (!next.memoryTimeoutMs && raw.recallMemoryTimeoutMs) next.memoryTimeoutMs = raw.recallMemoryTimeoutMs;
+  for (const key of [
+    'type',
+    'compactType',
+    'compact_type',
+    'semantic',
+    'semanticModel',
+    'prune',
+    'tailTurns',
+    'recallMemoryTimeoutMs',
+    'recallIngestLimit',
+    'recallChunkLimit',
+    'recallLimit',
+    'recallCycle1BatchSize',
+    'recallRowsPerSession',
+    'recallWindowSize',
+    'recallConcurrency',
+    'recallCycle1DeadlineMs',
+  ]) {
+    delete next[key];
+  }
+  return {
+    ...next,
+    auto: raw.auto !== false && raw.enabled !== false,
+  };
 }
 
 /**
@@ -62,83 +74,86 @@ function normalizeAgentCompactionConfig(value = {}) {
  * @returns {{ session: object, effectiveCwd: string|null }}
  */
 export function prepareAgentSession({
-    agent,
-    presetName,
-    preset,
-    runtimeSpec,
-    permission,
-    cwd,
-    owner = 'agent',
-    permissionMode,
-    sourceType,
-    sourceName,
-    taskType,
-    parentSessionId,
-    ownerSessionId,
-    visibility,
-    clientHostPid,
-    agentTag,
-    cacheKeyOverride,
-    schemaAllowedTools,
-    sessionId,
-    mcpScopeId,
+  agent,
+  presetName,
+  preset,
+  runtimeSpec,
+  permission,
+  cwd,
+  owner = 'agent',
+  permissionMode,
+  sourceType,
+  sourceName,
+  taskType,
+  parentSessionId,
+  ownerSessionId,
+  visibility,
+  clientHostPid,
+  agentTag,
+  cacheKeyOverride,
+  schemaAllowedTools,
+  sessionId,
+  mcpScopeId,
 }) {
-    const effectivePermission = resolveAgentSessionPermission(agent, permission);
-    // Pass cwd through verbatim — null is the fixed agent sentinel meaning
-    // "no caller workspace context" (cycle1 agents, etc). Upgrading
-    // null → process.cwd() here would defeat cache-key fork suppression.
-    // Downstream collectors (collect.mjs) handle null as "no project cwd".
-    const effectiveCwd = cwd == null ? null : cwd;
-    const effectiveOwnerSessionId = ownerSessionId === undefined
-        ? (process.env.MIXDOG_OWNER_SESSION_ID || null)
-        : ownerSessionId;
-    let compaction = null;
-    try {
-        const cfg = loadConfig({ secrets: false });
-        if (cfg?.compaction && typeof cfg.compaction === 'object') {
-            compaction = normalizeAgentCompactionConfig(cfg.compaction);
-        }
-    } catch { /* config is best-effort for agent compaction policy */ }
-    const sessionOpts = {
-        ...(sessionId ? { id: sessionId } : {}),
-        preset,
-        owner,
-        scopeKey: runtimeSpec.scopeKey,
-        lane: runtimeSpec.lane,
-        cwd: effectiveCwd,
-        agent: agent || undefined,
-        taskType: taskType || undefined,
-        sourceType: sourceType || undefined,
-        sourceName: sourceName || undefined,
-        parentSessionId: parentSessionId || null,
-        ownerSessionId: effectiveOwnerSessionId || null,
-        visibility: visibility || null,
-        clientHostPid: clientHostPid || null,
-        compaction: compaction || undefined,
-        mcpScopeId: mcpScopeId || null,
-    };
-    if (agentTag) sessionOpts.agentTag = agentTag;
-    if (effectivePermission) sessionOpts.permission = effectivePermission;
-    if (permissionMode) sessionOpts.permissionMode = permissionMode;
-    if (cacheKeyOverride) sessionOpts.cacheKeyOverride = cacheKeyOverride;
-    if (Array.isArray(schemaAllowedTools)) {
-        sessionOpts.schemaAllowedTools = schemaAllowedTools;
+  const effectivePermission = resolveAgentSessionPermission(agent, permission);
+  // Pass cwd through verbatim — null is the fixed agent sentinel meaning
+  // "no caller workspace context" (cycle1 agents, etc). Upgrading
+  // null → process.cwd() here would defeat cache-key fork suppression.
+  // Downstream collectors (collect.mjs) handle null as "no project cwd".
+  const effectiveCwd = cwd == null ? null : cwd;
+  const effectiveOwnerSessionId =
+    ownerSessionId === undefined ? process.env.MIXDOG_OWNER_SESSION_ID || null : ownerSessionId;
+  let compaction = null;
+  try {
+    const cfg = loadConfig({ secrets: false });
+    if (cfg?.compaction && typeof cfg.compaction === 'object') {
+      compaction = normalizeAgentCompactionConfig(cfg.compaction);
     }
-    const session = createSession(sessionOpts);
-    try {
-        traceAgentPreset({
-            sessionId: session.id,
-            agent: agent || null,
-            presetName: presetName || null,
-            // runtimeSpec carries scopeKey/lane but resolveRuntimeSpec does not
-            // populate model/provider — fall back to preset fields.
-            model: runtimeSpec?.model || preset?.model || null,
-            provider: runtimeSpec?.provider || preset?.provider || null,
-            parentSessionId: parentSessionId || null,
-            permission: effectivePermission || null,
-            sourceName: sourceName || null,
-            cacheKeyOverride: cacheKeyOverride || null,
-        });
-    } catch { /* telemetry best-effort */ }
-    return { session, effectiveCwd };
+  } catch {
+    /* config is best-effort for agent compaction policy */
+  }
+  const sessionOpts = {
+    ...(sessionId ? { id: sessionId } : {}),
+    preset,
+    owner,
+    scopeKey: runtimeSpec.scopeKey,
+    lane: runtimeSpec.lane,
+    cwd: effectiveCwd,
+    agent: agent || undefined,
+    taskType: taskType || undefined,
+    sourceType: sourceType || undefined,
+    sourceName: sourceName || undefined,
+    parentSessionId: parentSessionId || null,
+    ownerSessionId: effectiveOwnerSessionId || null,
+    visibility: visibility || null,
+    clientHostPid: clientHostPid || null,
+    compaction: compaction || undefined,
+    mcpScopeId: mcpScopeId || null,
+  };
+  if (agentTag) sessionOpts.agentTag = agentTag;
+  if (effectivePermission) sessionOpts.permission = effectivePermission;
+  if (permissionMode) sessionOpts.permissionMode = permissionMode;
+  if (cacheKeyOverride) sessionOpts.cacheKeyOverride = cacheKeyOverride;
+  if (Array.isArray(schemaAllowedTools)) {
+    sessionOpts.schemaAllowedTools = schemaAllowedTools;
+  }
+  const session = createSession(sessionOpts);
+  try {
+    traceAgentPreset({
+      sessionId: session.id,
+      agent: agent || null,
+      presetName: presetName || null,
+      // runtimeSpec carries scopeKey/lane but resolveRuntimeSpec does not
+      // populate model/provider — fall back to preset fields.
+      model: runtimeSpec?.model || preset?.model || null,
+      provider: runtimeSpec?.provider || preset?.provider || null,
+      parentSessionId: parentSessionId || null,
+      permission: effectivePermission || null,
+      sourceName: sourceName || null,
+      cacheKeyOverride: cacheKeyOverride || null,
+    });
+  } catch {
+    /* telemetry best-effort */
+  }
+  return { session, effectiveCwd };
 }

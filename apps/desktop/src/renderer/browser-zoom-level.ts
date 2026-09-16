@@ -7,9 +7,9 @@ export const BROWSER_ZOOM_MIN = 0.5;
 export const BROWSER_ZOOM_MAX = 2;
 export const BROWSER_ZOOM_STEP = 0.1;
 
-const BROWSER_ZOOM_STORAGE_PREFIX = "mixdog.browser-zoom.v1:";
+const BROWSER_ZOOM_STORAGE_PREFIX = 'mixdog.browser-zoom.v1:';
 
-type ZoomStorage = Pick<Storage, "getItem" | "setItem">;
+type ZoomStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 export function clampBrowserZoom(value: unknown): number {
   const level = Number(value);
@@ -27,10 +27,7 @@ function zoomStorageKey(sessionId: string): string | null {
   return normalized ? `${BROWSER_ZOOM_STORAGE_PREFIX}${normalized}` : null;
 }
 
-export function readBrowserZoom(
-  storage: ZoomStorage | null | undefined,
-  sessionId: string,
-): number {
+export function readBrowserZoom(storage: ZoomStorage | null | undefined, sessionId: string): number {
   const key = zoomStorageKey(sessionId);
   if (!storage || !key) return 1;
   try {
@@ -41,11 +38,7 @@ export function readBrowserZoom(
   }
 }
 
-export function writeBrowserZoom(
-  storage: ZoomStorage | null | undefined,
-  sessionId: string,
-  level: number,
-): number {
+export function writeBrowserZoom(storage: ZoomStorage | null | undefined, sessionId: string, level: number): number {
   const clamped = clampBrowserZoom(level);
   const key = zoomStorageKey(sessionId);
   if (!storage || !key) return clamped;

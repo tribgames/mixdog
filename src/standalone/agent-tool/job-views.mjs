@@ -7,7 +7,12 @@ import { createProviderInit } from './provider-init.mjs';
 import { resolveAgentWatchdogPolicy } from '../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { buildAgentTaskProgressFields } from '../agent-task-status.mjs';
 import { clean, normalizeAgentName, positiveInt, presetKey, terminalPidForContext } from './helpers.mjs';
-import { getBackgroundTask, listBackgroundTasks, sanitizeTaskMeta, taskIdFromArgs } from '../../runtime/shared/background-tasks.mjs';
+import {
+  getBackgroundTask,
+  listBackgroundTasks,
+  sanitizeTaskMeta,
+  taskIdFromArgs,
+} from '../../runtime/shared/background-tasks.mjs';
 import { resolveAgentSpawnPreset } from './spawn-preset.mjs';
 import { isTerminalWorkerStatus } from './worker-rows.mjs';
 
@@ -16,7 +21,11 @@ import { isTerminalWorkerStatus } from './worker-rows.mjs';
 const TERMINAL_JOB_STATUSES = new Set(['completed', 'failed', 'cancelled', 'canceled']);
 
 export function isTerminalJobStatus(status) {
-  return TERMINAL_JOB_STATUSES.has(String(status ?? '').trim().toLowerCase());
+  return TERMINAL_JOB_STATUSES.has(
+    String(status ?? '')
+      .trim()
+      .toLowerCase()
+  );
 }
 
 // A finished job is frozen history. Tags are reused, so its meta.sessionId can
@@ -26,7 +35,10 @@ export function isTerminalJobStatus(status) {
 // rows therefore report only their own recorded status: no live worker
 // snapshot, no silent_for/watchdog/queued_followups.
 export function terminalJobFrozenFields(status, now = Date.now()) {
-  const stage = String(status ?? '').trim().toLowerCase() || 'unknown';
+  const stage =
+    String(status ?? '')
+      .trim()
+      .toLowerCase() || 'unknown';
   return {
     workerStatus: stage,
     stage,
@@ -40,8 +52,12 @@ export function terminalJobFrozenFields(status, now = Date.now()) {
 // closed, errored and reaped/unknown rows are history and stay reachable
 // through the task section (status/read keep their terminal result).
 export function isActiveWorkerRow(row = {}) {
-  const stage = String(row.stage ?? '').trim().toLowerCase();
-  const status = String(row.status ?? '').trim().toLowerCase();
+  const stage = String(row.stage ?? '')
+    .trim()
+    .toLowerCase();
+  const status = String(row.status ?? '')
+    .trim()
+    .toLowerCase();
   if (ACTIVE_STAGES.has(stage) || ACTIVE_STAGES.has(status)) return true;
   const effective = stage || status;
   if (!effective || effective === 'unknown') return false;
@@ -78,10 +94,10 @@ export function createJobViews({
     for (const { tag, session } of agentSessionEntries({ scanSessions, context })) {
       const sessionId = session.id;
       const runtime = mgr.getSessionRuntime?.(sessionId);
-      const status = session.closed === true ? 'closed' : (session.status || 'idle');
-      const stage = session.stage || (status === 'idle' || status === 'error' || status === 'closed'
-        ? status
-        : (runtime?.stage || status));
+      const status = session.closed === true ? 'closed' : session.status || 'idle';
+      const stage =
+        session.stage ||
+        (status === 'idle' || status === 'error' || status === 'closed' ? status : runtime?.stage || status);
       const progress = sessionProgressExtras(sessionId, session.agent || null, now);
       rows.push({
         tag,
@@ -105,7 +121,9 @@ export function createJobViews({
         windowCap: Number(session.contextWindow) || null,
         permission: session.permission || null,
         toolPermission: session.toolPermission || null,
-        messages: Array.isArray(session.messages) ? session.messages.length : Math.max(0, Number(session.messageCount || 0)),
+        messages: Array.isArray(session.messages)
+          ? session.messages.length
+          : Math.max(0, Number(session.messageCount || 0)),
         tools: Array.isArray(session.tools) ? session.tools.length : Math.max(0, Number(session.toolCount || 0)),
       });
     }
@@ -116,13 +134,11 @@ export function createJobViews({
     if (!sessionId) return {};
     const session = mgr.getSession(sessionId);
     const runtime = mgr.getSessionRuntime?.(sessionId) || null;
-    const snapshot = typeof mgr.getSessionProgressSnapshot === 'function'
-      ? mgr.getSessionProgressSnapshot(sessionId)
-      : null;
+    const snapshot =
+      typeof mgr.getSessionProgressSnapshot === 'function' ? mgr.getSessionProgressSnapshot(sessionId) : null;
     const policy = role ? resolveAgentWatchdogPolicy(role) : null;
-    const queuedFollowups = typeof mgr.getSessionPendingMessageDepth === 'function'
-      ? mgr.getSessionPendingMessageDepth(sessionId)
-      : null;
+    const queuedFollowups =
+      typeof mgr.getSessionPendingMessageDepth === 'function' ? mgr.getSessionPendingMessageDepth(sessionId) : null;
     return buildAgentTaskProgressFields({
       now,
       sessionStatus: session?.status || null,
@@ -141,7 +157,7 @@ export function createJobViews({
     const session = mgr.getSession(sessionId);
     if (!session) return null;
     const runtime = mgr.getSessionRuntime?.(sessionId);
-    const status = session.closed === true ? 'closed' : (session.status || 'idle');
+    const status = session.closed === true ? 'closed' : session.status || 'idle';
     const progress = sessionProgressExtras(sessionId, session.agent || null);
     return {
       workerStatus: status,
@@ -181,13 +197,13 @@ export function createJobViews({
     });
     return wantedPid
       ? rows.filter((row) => {
-        const pid = positiveInt(row.clientHostPid);
-        // Spawn-prep rows have no worker session (and therefore no pid) yet;
-        // they already passed taskMatchesScope, so the queued spawn stays
-        // visible instead of vanishing until a pool slot frees up (user bug:
-        // "spawned 5, only 4 listed").
-        return pid ? pid === wantedPid : true;
-      })
+          const pid = positiveInt(row.clientHostPid);
+          // Spawn-prep rows have no worker session (and therefore no pid) yet;
+          // they already passed taskMatchesScope, so the queued spawn stays
+          // visible instead of vanishing until a pool slot frees up (user bug:
+          // "spawned 5, only 4 listed").
+          return pid ? pid === wantedPid : true;
+        })
       : rows;
   }
 
@@ -224,15 +240,18 @@ export function createJobViews({
     if (!sessionId) return null;
     const session = mgr.getSession(sessionId);
     if (!session) return null;
-    const status = session.closed === true ? 'closed' : (session.status || 'idle');
+    const status = session.closed === true ? 'closed' : session.status || 'idle';
     const msgs = Array.isArray(session.messages) ? session.messages : [];
-    const lastAssistant = [...msgs].reverse().find((m) => m?.role === 'assistant'
-      && (typeof m.content === 'string' ? m.content.trim() : m.content));
+    const lastAssistant = [...msgs]
+      .reverse()
+      .find((m) => m?.role === 'assistant' && (typeof m.content === 'string' ? m.content.trim() : m.content));
     const resultText = lastAssistant
-      ? (typeof lastAssistant.content === 'string' ? lastAssistant.content : JSON.stringify(lastAssistant.content))
-      : (typeof session.lastHandoff === 'string' && session.lastHandoff.trim()
-          ? session.lastHandoff
-          : '(worker session has no assistant output yet)');
+      ? typeof lastAssistant.content === 'string'
+        ? lastAssistant.content
+        : JSON.stringify(lastAssistant.content)
+      : typeof session.lastHandoff === 'string' && session.lastHandoff.trim()
+        ? session.lastHandoff
+        : '(worker session has no assistant output yet)';
     return {
       taskId: null,
       operation: 'worker',
@@ -242,7 +261,7 @@ export function createJobViews({
       error: null,
       result: resultText,
       meta: {
-        tag: tags.has(target) ? target : (session.tag || null),
+        tag: tags.has(target) ? target : session.tag || null,
         sessionId,
         agent: session.agent || null,
         preset: session.presetName || null,
@@ -274,7 +293,12 @@ export function createJobViews({
       tag: meta.tag || null,
       sessionId: meta.sessionId || null,
       agent: meta.agent || null,
-      ...(meta.respawned === true ? { respawned: true, note: 'previous session reaped — fresh session, no prior context; re-supply anchors if needed' } : {}),
+      ...(meta.respawned === true
+        ? {
+            respawned: true,
+            note: 'previous session reaped — fresh session, no prior context; re-supply anchors if needed',
+          }
+        : {}),
       preset: meta.preset || null,
       provider: meta.provider || null,
       model: meta.model || null,
@@ -297,9 +321,9 @@ export function createJobViews({
     if (!meta.sessionId && (!progress || Object.keys(progress).length === 0)) {
       const spawning = job.status === 'running';
       progress = {
-        worker_stage: spawning ? 'spawning' : (job.status || 'unknown'),
-        last_progress: spawning ? 'spawning worker session' : (job.status || 'unknown'),
-        diagnostic: spawning ? 'worker session not started yet' : (job.status || 'unknown'),
+        worker_stage: spawning ? 'spawning' : job.status || 'unknown',
+        last_progress: spawning ? 'spawning worker session' : job.status || 'unknown',
+        diagnostic: spawning ? 'worker session not started yet' : job.status || 'unknown',
       };
     }
     return {
@@ -332,8 +356,11 @@ export function createJobViews({
     // to whatever raw args carry.
     let resolved = null;
     if (!clean(args.model) || !clean(args.provider)) {
-      try { resolved = resolveAgentSpawnPreset(cfgMod.loadConfig(), args)?.preset || null; }
-      catch { resolved = null; }
+      try {
+        resolved = resolveAgentSpawnPreset(cfgMod.loadConfig(), args)?.preset || null;
+      } catch {
+        resolved = null;
+      }
     }
     return sanitizeTaskMeta({
       ...(extras || {}),
@@ -344,7 +371,7 @@ export function createJobViews({
       provider: clean(args.provider) || clean(resolved?.provider) || null,
       model: clean(args.model) || clean(resolved?.model) || null,
       effort: clean(args.effort) || clean(resolved?.effort) || null,
-      fast: args.fast === true ? true : (resolved?.fast === true ? true : null),
+      fast: args.fast === true ? true : resolved?.fast === true ? true : null,
     });
   }
 

@@ -10,7 +10,6 @@ import { plainObject } from '../../shared/values.mjs';
 import { composeTableRows } from '../design-table-input.mjs';
 import { documentTypography } from './document-typography.mjs';
 
-
 export function expandDocxDocument(operation, design, state, backend, composition) {
   const output = [];
   const colors = design.tokens.colors;
@@ -96,16 +95,10 @@ export function expandDocxDocument(operation, design, state, backend, compositio
   }
   if (operation.summary) {
     if (operation.summaryLabel && (decisionBrief || evidenceBrief)) {
-      addDocxDecisionCallout(
-        output,
-        state,
-        strings(operation.summary).join(' '),
-        design,
-        {
-          label: String(operation.summaryLabel),
-          emphasis: decisionBrief ? 'inverse' : 'accent',
-        },
-      );
+      addDocxDecisionCallout(output, state, strings(operation.summary).join(' '), design, {
+        label: String(operation.summaryLabel),
+        emphasis: decisionBrief ? 'inverse' : 'accent',
+      });
     } else {
       append(strings(operation.summary).join(' '), 'Normal', {
         name: type.display,
@@ -124,7 +117,9 @@ export function expandDocxDocument(operation, design, state, backend, compositio
   }
   const sections = Array.isArray(operation.sections) ? operation.sections : [];
   for (const [sectionIndex, section] of sections.entries()) {
-    const sectionKind = String(section.kind || '').trim().toLowerCase();
+    const sectionKind = String(section.kind || '')
+      .trim()
+      .toLowerCase();
     const spreadBreak = section.pageBreak === true;
     if (section.eyebrow) {
       append(String(section.eyebrow), 'Normal', {
@@ -146,8 +141,12 @@ export function expandDocxDocument(operation, design, state, backend, compositio
       spacingBefore: section.eyebrow
         ? 0
         : compactMemo
-          ? (Number(section.level) === 2 ? 6 : 10)
-          : Number(section.level) === 2 ? 9 : 14,
+          ? Number(section.level) === 2
+            ? 6
+            : 10
+          : Number(section.level) === 2
+            ? 9
+            : 14,
       spacingAfter: editorialReport ? 7 : 5,
       keepWithNext: true,
       pageBreakBefore: spreadBreak && !section.eyebrow,
@@ -169,11 +168,13 @@ export function expandDocxDocument(operation, design, state, backend, compositio
     // the composer had just written.
     const sectionSteps = Array.isArray(section.steps) ? section.steps : [];
     const stepSource = sectionSteps.length ? sectionSteps : sectionBullets;
-    const drewSteps = (sectionKind === 'roadmap' || sectionSteps.length)
-      && addDocxRoadmap(output, state, stepSource, design);
+    const drewSteps =
+      (sectionKind === 'roadmap' || sectionSteps.length) && addDocxRoadmap(output, state, stepSource, design);
     if (sectionSteps.length && !drewSteps) {
-      throw new Error(`compose_document section "${String(section.heading || '')}" has steps this writer cannot read;`
-        + " a step is { title, detail } or a 'Label: text' string.");
+      throw new Error(
+        `compose_document section "${String(section.heading || '')}" has steps this writer cannot read;` +
+          " a step is { title, detail } or a 'Label: text' string."
+      );
     }
     if (drewSteps) {
       // The roadmap carries the section's list.
@@ -210,7 +211,9 @@ export function expandDocxDocument(operation, design, state, backend, compositio
     }
     if (section.callout) {
       addDocxDecisionCallout(output, state, String(section.callout), design, {
-        label: String(section.calloutLabel || presetLabels([section.callout, section.heading, operation.title]).checkpoint),
+        label: String(
+          section.calloutLabel || presetLabels([section.callout, section.heading, operation.title]).checkpoint
+        ),
         emphasis: STATE_ROLES.includes(String(section.calloutTone || '')) ? String(section.calloutTone) : 'accent',
       });
     }
@@ -220,7 +223,9 @@ export function expandDocxDocument(operation, design, state, backend, compositio
       op: 'add_page_numbers',
       includeTotal: true,
       alignment: 'center',
-      ...(operation.footer ? { prefix: `${String(operation.footer)} · `, separator: ' / ' } : { prefix: '', separator: ' / ' }),
+      ...(operation.footer
+        ? { prefix: `${String(operation.footer)} · `, separator: ' / ' }
+        : { prefix: '', separator: ' / ' }),
     });
   } else if (operation.footer) {
     output.push({ op: 'set_header_footer', header: false, text: String(operation.footer) });

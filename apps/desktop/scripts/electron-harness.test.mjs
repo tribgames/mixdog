@@ -3,11 +3,7 @@ import { EventEmitter } from 'node:events';
 import { access } from 'node:fs/promises';
 import test from 'node:test';
 
-import {
-  electronProcessEnv,
-  waitForChildExit,
-  withTempWorkspace,
-} from './electron-harness.mjs';
+import { electronProcessEnv, waitForChildExit, withTempWorkspace } from './electron-harness.mjs';
 
 function fakeChild() {
   const child = new EventEmitter();
@@ -71,7 +67,7 @@ test('waitForChildExit timeout kills once and settles once', async () => {
         timeoutMs: 15,
         timeoutMessage: 'harness fixture exceeded 15ms',
       }),
-      /harness fixture exceeded 15ms/,
+      /harness fixture exceeded 15ms/
     );
     assert.equal(kills, 1);
     child.emit('error', new Error('late error'));
@@ -115,7 +111,7 @@ test('withTempWorkspace removes the staging directory after success and failure'
       failed = staging;
       throw new Error('fixture failed');
     }),
-    /fixture failed/,
+    /fixture failed/
   );
   await assert.rejects(access(failed), { code: 'ENOENT' });
 });

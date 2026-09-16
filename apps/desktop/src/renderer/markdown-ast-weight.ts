@@ -1,5 +1,5 @@
-import type { MarkdownAstRoot } from "./markdown-ast";
-import { estimateRetainedChars } from "./renderer-value-weight";
+import type { MarkdownAstRoot } from './markdown-ast';
+import { estimateRetainedChars } from './renderer-value-weight';
 
 export const MARKDOWN_AST_CACHE_MAX_CHARACTERS = 1024 * 1024;
 const weights = new WeakMap<MarkdownAstRoot, number>();
@@ -7,7 +7,7 @@ const weights = new WeakMap<MarkdownAstRoot, number>();
 /** The parser worker already walks the result off the UI thread. Carry its
  * bounded measurement with the result; weak metadata never pins an AST. */
 export function rememberMarkdownAstWeight(root: MarkdownAstRoot, chars: unknown): void {
-  if (typeof chars !== "number" || !Number.isFinite(chars) || chars < 0) return;
+  if (typeof chars !== 'number' || !Number.isFinite(chars) || chars < 0) return;
   weights.set(root, Math.min(MARKDOWN_AST_CACHE_MAX_CHARACTERS + 1, chars));
 }
 

@@ -1,12 +1,15 @@
-import type { DesktopProjectSummary } from "../shared/contract";
-import { catalogStorageKey } from "./catalog-storage-scope";
+import type { DesktopProjectSummary } from '../shared/contract';
+import { catalogStorageKey } from './catalog-storage-scope';
 
-export const PROJECT_CATALOG_CACHE_KEY = "mixdog.desktop-project-catalog.v1";
+export const PROJECT_CATALOG_CACHE_KEY = 'mixdog.desktop-project-catalog.v1';
 
-type ProjectCatalogStorage = Pick<Storage, "getItem" | "setItem">;
+type ProjectCatalogStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 function normalizedPath(path: string): string {
-  return path.replace(/[\\/]+/g, "/").replace(/\/$/, "").toLocaleLowerCase();
+  return path
+    .replace(/[\\/]+/g, '/')
+    .replace(/\/$/, '')
+    .toLocaleLowerCase();
 }
 
 export function normalizeProjectCatalog(value: unknown): DesktopProjectSummary[] {
@@ -14,16 +17,16 @@ export function normalizeProjectCatalog(value: unknown): DesktopProjectSummary[]
   const projects: DesktopProjectSummary[] = [];
   const seen = new Set<string>();
   for (const item of value) {
-    if (!item || typeof item !== "object") continue;
+    if (!item || typeof item !== 'object') continue;
     const row = item as Partial<DesktopProjectSummary>;
-    const path = typeof row.path === "string" ? row.path.trim() : "";
+    const path = typeof row.path === 'string' ? row.path.trim() : '';
     const identity = normalizedPath(path);
     if (!path || !identity || seen.has(identity)) continue;
     seen.add(identity);
     projects.push({
       path,
-      name: typeof row.name === "string" ? row.name : "",
-      alias: typeof row.alias === "string" ? row.alias : null,
+      name: typeof row.name === 'string' ? row.name : '',
+      alias: typeof row.alias === 'string' ? row.alias : null,
     });
     if (projects.length >= 128) break;
   }
@@ -31,7 +34,7 @@ export function normalizeProjectCatalog(value: unknown): DesktopProjectSummary[]
 }
 
 export function readCachedProjectCatalog(
-  storage: ProjectCatalogStorage = window.localStorage,
+  storage: ProjectCatalogStorage = window.localStorage
 ): DesktopProjectSummary[] {
   try {
     const raw = storage.getItem(catalogStorageKey(PROJECT_CATALOG_CACHE_KEY));
@@ -43,22 +46,16 @@ export function readCachedProjectCatalog(
 
 export function writeCachedProjectCatalog(
   projects: readonly DesktopProjectSummary[],
-  storage: ProjectCatalogStorage = window.localStorage,
+  storage: ProjectCatalogStorage = window.localStorage
 ): void {
   try {
-    storage.setItem(
-      catalogStorageKey(PROJECT_CATALOG_CACHE_KEY),
-      JSON.stringify(normalizeProjectCatalog(projects)),
-    );
+    storage.setItem(catalogStorageKey(PROJECT_CATALOG_CACHE_KEY), JSON.stringify(normalizeProjectCatalog(projects)));
   } catch {
     // Catalog persistence only accelerates the next mobile boot.
   }
 }
 
-export function acceptedProjectCatalog(
-  value: unknown,
-  acceptEmpty: boolean,
-): DesktopProjectSummary[] | null {
+export function acceptedProjectCatalog(value: unknown, acceptEmpty: boolean): DesktopProjectSummary[] | null {
   const projects = normalizeProjectCatalog(value);
   return projects.length || acceptEmpty ? projects : null;
 }
@@ -67,7 +64,7 @@ export function resolveProjectPathAgainstCatalog(
   requestedPath: string,
   catalogValidated: boolean,
   registeredPath: string,
-  fallbackPath: string,
+  fallbackPath: string
 ): string {
   if (!requestedPath || !catalogValidated) return requestedPath;
   return registeredPath || fallbackPath;

@@ -18,9 +18,8 @@ import { sleep, sleepSync } from './sleep.mjs';
 const LOCK_WAIT_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
 export const DEFAULT_BACKOFFS_MS = Object.freeze([25, 50, 100, 200, 400, 800, 1200, 1600]);
 const configuredLockTimeoutMs = Number(process.env.MIXDOG_LOCK_TIMEOUT_MS);
-const DEFAULT_LOCK_TIMEOUT_MS = Number.isFinite(configuredLockTimeoutMs) && configuredLockTimeoutMs >= 0
-  ? configuredLockTimeoutMs
-  : 2000;
+const DEFAULT_LOCK_TIMEOUT_MS =
+  Number.isFinite(configuredLockTimeoutMs) && configuredLockTimeoutMs >= 0 ? configuredLockTimeoutMs : 2000;
 const OWNER_TOKEN = randomBytes(12).toString('hex');
 const osHeldPaths = new Set();
 const lockQueues = new Map();
@@ -64,7 +63,7 @@ function describeLockHolder(lockPath) {
     const stat = statSync(lockPath);
     const owner = readLockOwner(lockPath);
     const ageMs = Math.max(0, Math.round(Date.now() - stat.mtimeMs));
-    const live = owner.pid === null ? 'unknown' : (ownerIsLive(owner) ? 'live' : 'dead');
+    const live = owner.pid === null ? 'unknown' : ownerIsLive(owner) ? 'live' : 'dead';
     const token = owner.token === null ? '?' : String(owner.token).slice(0, 8);
     return `holder pid=${owner.pid ?? '?'} token=${token} age=${ageMs}ms ${live}`;
   } catch {
@@ -84,7 +83,9 @@ function reportLockWait(lockPath, waitedMs, mode) {
   }
   try {
     process.stderr.write(`[atomic-file] ${mode} lock wait ${waitedMs}ms: ${lockPath}\n`);
-  } catch { /* diagnostics only */ }
+  } catch {
+    /* diagnostics only */
+  }
 }
 
 function tryAcquireReclaimGuard(lockPath) {
@@ -97,7 +98,9 @@ function tryAcquireReclaimGuard(lockPath) {
     unlinkSync(stagedPath);
     return { guardPath };
   } catch (error) {
-    try { unlinkSync(stagedPath); } catch {}
+    try {
+      unlinkSync(stagedPath);
+    } catch {}
     // Published guards are not revocable: a pathname re-read cannot authorize
     // deleting a guard that another process may have acquired in the meantime.
     if (LOCK_WAIT_CODES.has(error?.code)) return null;
@@ -107,33 +110,49 @@ function tryAcquireReclaimGuard(lockPath) {
 
 function tryReclaimStaleLock(lockPath, staleMs) {
   let initial;
-  try { initial = statSync(lockPath); } catch { return false; }
+  try {
+    initial = statSync(lockPath);
+  } catch {
+    return false;
+  }
   const owner = readLockOwner(lockPath);
   const dead = owner.pid !== null && !ownerIsLive(owner);
-  const pidlessStale = owner.pid === null
-    && Date.now() - (Number(initial.mtimeMs) || 0) >= Math.max(0, staleMs);
+  const pidlessStale = owner.pid === null && Date.now() - (Number(initial.mtimeMs) || 0) >= Math.max(0, staleMs);
   if (!dead && !pidlessStale) return false;
   const reclaim = tryAcquireReclaimGuard(lockPath);
   if (reclaim === null) return false;
   try {
     let current;
-    try { current = statSync(lockPath); } catch { return false; }
+    try {
+      current = statSync(lockPath);
+    } catch {
+      return false;
+    }
     const currentOwner = readLockOwner(lockPath);
     if (currentOwner.pid !== owner.pid || currentOwner.token !== owner.token) return false;
     const currentDead = currentOwner.pid !== null && !ownerIsLive(currentOwner);
-    const currentPidlessStale = currentOwner.pid === null
-      && Date.now() - (Number(current.mtimeMs) || 0) >= Math.max(0, staleMs);
+    const currentPidlessStale =
+      currentOwner.pid === null && Date.now() - (Number(current.mtimeMs) || 0) >= Math.max(0, staleMs);
     if (currentDead || currentPidlessStale) {
-      try { unlinkSync(lockPath); return true; } catch { return false; }
+      try {
+        unlinkSync(lockPath);
+        return true;
+      } catch {
+        return false;
+      }
     }
     return false;
   } finally {
-    try { unlinkSync(reclaim.guardPath); } catch {}
+    try {
+      unlinkSync(reclaim.guardPath);
+    } catch {}
   }
 }
 
 function releaseLock(lockPath, fd) {
-  try { closeSync(fd); } catch {}
+  try {
+    closeSync(fd);
+  } catch {}
   try {
     if (lockOwnedBySelf(lockPath)) unlinkSync(lockPath);
   } catch {}
@@ -153,7 +172,9 @@ function writeLockOwner(lockPath, fd) {
         unlinkSync(lockPath);
       }
     } catch {}
-    try { closeSync(fd); } catch {}
+    try {
+      closeSync(fd);
+    } catch {}
     throw error;
   }
 }
@@ -177,7 +198,9 @@ export function withFileLockSync(lockPath, fn, opts = {}) {
   const staleMs = Number.isFinite(opts.staleMs) ? opts.staleMs : 30000;
   // A synchronous wait prevents this process's async holder from releasing.
   if (timeoutMs > 0 && osHeldPaths.has(lockPath)) {
-    const error = new Error(`atomic lock contended (async holder in this process): ${lockPath} [${describeLockHolder(lockPath)}]`);
+    const error = new Error(
+      `atomic lock contended (async holder in this process): ${lockPath} [${describeLockHolder(lockPath)}]`
+    );
     error.code = 'ELOCKCONTENDED';
     throw error;
   }
@@ -222,7 +245,10 @@ export async function withFileLock(lockPath, fn, opts = {}) {
   if (timeoutMs <= 0) return withOsFileLock(lockPath, fn, opts);
   const previous = lockQueues.get(lockPath) ?? Promise.resolve();
   const task = previous.catch(() => {}).then(() => withOsFileLock(lockPath, fn, opts));
-  const settled = task.then(() => {}, () => {});
+  const settled = task.then(
+    () => {},
+    () => {}
+  );
   lockQueues.set(lockPath, settled);
   void settled.then(() => {
     if (lockQueues.get(lockPath) === settled) lockQueues.delete(lockPath);

@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto';
 import {
-  ACCOUNT_PROVIDERS, readProviderAccountPool, chooseProviderAccount,
-  changeProviderAccounts, blockProviderAccount,
+  ACCOUNT_PROVIDERS,
+  readProviderAccountPool,
+  chooseProviderAccount,
+  changeProviderAccounts,
+  blockProviderAccount,
   providerAccountExhausted,
 } from '../../../shared/provider-accounts.mjs';
 import { withProviderAccount, hasExplicitProviderAuthBinding } from '../../../shared/provider-auth-binding.mjs';
@@ -13,8 +16,9 @@ import { fetchOAuthUsageSnapshot } from './oauth-usage.mjs';
 export function isAccountQuotaError(error) {
   const status = Number(error?.status || error?.httpStatus || error?.response?.status || 0);
   if (status === 401 || status === 403 || isExplicitUserAbortError(error)) return false;
-  return ['insufficient_quota', 'quota_exceeded', 'usage_limit_reached', 'usage_not_included']
-    .includes(String(typedErrorCode(error) || error?.error?.type || '').toLowerCase());
+  return ['insufficient_quota', 'quota_exceeded', 'usage_limit_reached', 'usage_not_included'].includes(
+    String(typedErrorCode(error) || error?.error?.type || '').toLowerCase()
+  );
 }
 
 // Burst throttles reopen within seconds. A 429 whose Retry-After points
@@ -53,7 +57,9 @@ export function createAccountPoolProvider(providerName, create) {
       const row = chooseProviderAccount(pool, attempted);
       if (!row) {
         if (lastError) throw lastError;
-        const error = new Error('All connected accounts have exhausted their quota. Check account usage and reset times.');
+        const error = new Error(
+          'All connected accounts have exhausted their quota. Check account usage and reset times.'
+        );
         error.code = 'provider_accounts_exhausted';
         throw error;
       }
@@ -69,7 +75,9 @@ export function createAccountPoolProvider(providerName, create) {
       }
       // Keep account-bound connection/delta state apart without changing the
       // visible Mixdog session. No stale server state crosses an account switch.
-      const scope = createHash('sha256').update(`${providerName}:${row.id}:${options.sessionId || ''}`).digest('hex');
+      const scope = createHash('sha256')
+        .update(`${providerName}:${row.id}:${options.sessionId || ''}`)
+        .digest('hex');
       if (options.sessionId) opts.sessionId = `account-${scope}`;
       opts.providerState = options.providerState?.providerAccountId === row.id ? options.providerState : undefined;
       const history = messages.map((message) => {
@@ -98,12 +106,17 @@ export function createAccountPoolProvider(providerName, create) {
         // burst throttling and exhausted subscription windows. Ask the native
         // usage endpoint rather than interpreting a human-readable message.
         if (!exhausted && status === 429) {
-          await fetchOAuthUsageSnapshot({ provider: providerName, accountId: row.id }, account(row.id), () => {}, { force: true });
-          exhausted = providerAccountExhausted(readProviderAccountPool(providerName).accounts.find((entry) => entry.id === row.id));
+          await fetchOAuthUsageSnapshot({ provider: providerName, accountId: row.id }, account(row.id), () => {}, {
+            force: true,
+          });
+          exhausted = providerAccountExhausted(
+            readProviderAccountPool(providerName).accounts.find((entry) => entry.id === row.id)
+          );
         }
         if (options.signal?.aborted || !exhausted) throw error;
         blockProviderAccount(providerName, row.id, Date.now() + (delay > 0 ? delay : 5 * 60_000));
-        if (pool.auto === false || emitted || error.unsafeToRetry || error.liveTextEmitted || error.emittedToolCall) throw error;
+        if (pool.auto === false || emitted || error.unsafeToRetry || error.liveTextEmitted || error.emittedToolCall)
+          throw error;
         lastError = error;
         options.onStageChange?.('reconnecting', { message: 'Quota exhausted — switching to the next account' });
       }
@@ -111,12 +124,15 @@ export function createAccountPoolProvider(providerName, create) {
     throw lastError || new Error('Provider account attempts exhausted.');
   }
 
-  return new Proxy({}, {
-    get(_target, key) {
-      if (key === 'send') return send;
-      if (key === 'forAccount') return account;
-      if (key === 'providerAccountId') return readProviderAccountPool(providerName).selectedId || 'default';
-      return active()[key];
-    },
-  });
+  return new Proxy(
+    {},
+    {
+      get(_target, key) {
+        if (key === 'send') return send;
+        if (key === 'forAccount') return account;
+        if (key === 'providerAccountId') return readProviderAccountPool(providerName).selectedId || 'default';
+        return active()[key];
+      },
+    }
+  );
 }

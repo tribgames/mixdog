@@ -43,7 +43,11 @@ export async function collectGarbageNow() {
   } catch {
     return false;
   } finally {
-    try { session?.disconnect(); } catch { /* already gone */ }
+    try {
+      session?.disconnect();
+    } catch {
+      /* already gone */
+    }
   }
 }
 
@@ -85,7 +89,11 @@ export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {})
   async function tick() {
     if (sweeping) return 'sweeping';
     let busy = true;
-    try { busy = isBusy() === true; } catch { busy = true; }
+    try {
+      busy = isBusy() === true;
+    } catch {
+      busy = true;
+    }
     if (busy) {
       lastBusyAt = Date.now();
       return 'busy';
@@ -112,9 +120,9 @@ export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {})
       // Committed total is reported beside the live heap because that is the
       // number the OS actually charges this process for.
       log(
-        `${label}: heapUsed ${mb(before)} -> ${mb(after)} MB`
-        + ` (reclaimed ${mb(before - after)} MB) in ${Date.now() - startedAt}ms`
-        + `, committed ${mb(usageBefore.heapTotal)} -> ${mb(usageAfter.heapTotal)} MB`,
+        `${label}: heapUsed ${mb(before)} -> ${mb(after)} MB` +
+          ` (reclaimed ${mb(before - after)} MB) in ${Date.now() - startedAt}ms` +
+          `, committed ${mb(usageBefore.heapTotal)} -> ${mb(usageAfter.heapTotal)} MB`
       );
       return 'swept';
     } catch (e) {
@@ -128,7 +136,9 @@ export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {})
   function arm() {
     if (!enabled || timer) return false;
     // Unref'd: reclaiming memory must never be the reason a process stays up.
-    timer = setInterval(() => { void tick(); }, checkMs);
+    timer = setInterval(() => {
+      void tick();
+    }, checkMs);
     timer.unref?.();
     return true;
   }
@@ -142,7 +152,9 @@ export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {})
   return {
     arm,
     disarm,
-    get armed() { return timer !== null; },
+    get armed() {
+      return timer !== null;
+    },
     /** Drives one cycle synchronously for tests; returns the decision taken. */
     _tickForTest: tick,
     _configForTest: { enabled, idleMs, checkMs, minHeapBytes, minSlackBytes, growthBytes },

@@ -47,12 +47,13 @@ export function reusableAuthoredSession(target, mode = 'auto') {
   const existingId = documentSessions.get(documentSessionKey(target));
   const existing = existingId ? sessions.get(existingId) : null;
   if (!existing || existing.transaction) return null;
-  const reusable = existing.authored === true
-    && existing.backend === 'microsoft-office-com'
-    && existing.format === 'pptx'
-    && existing.mode === 'background'
-    && existing.ownership === 'owned'
-    && existing.visible !== true;
+  const reusable =
+    existing.authored === true &&
+    existing.backend === 'microsoft-office-com' &&
+    existing.format === 'pptx' &&
+    existing.mode === 'background' &&
+    existing.ownership === 'owned' &&
+    existing.visible !== true;
   return reusable ? existing : null;
 }
 
@@ -62,18 +63,19 @@ export function stagingTarget(target) {
   return join(dirname(target), `.${basename(target, extname(target))}.authoring${extname(target)}`);
 }
 
-export async function swapAuthoredDocument(session, source, signal, {
-  callOffice = callMicrosoftOffice,
-} = {}) {
+export async function swapAuthoredDocument(session, source, signal, { callOffice = callMicrosoftOffice } = {}) {
   throwIfAuthoringCancelled(signal);
-  const result = await callOffice({
-    action: 'reload_document',
-    session: session.id,
-    format: session.format,
-    mode: session.mode,
-    path: session.target,
-    source,
-  }, { signal });
+  const result = await callOffice(
+    {
+      action: 'reload_document',
+      session: session.id,
+      format: session.format,
+      mode: session.mode,
+      path: session.target,
+      source,
+    },
+    { signal }
+  );
   // Cancellation is not a recoverable swap failure: falling through would copy the staged deck
   // over the target after the user asked us to stop.
   if (!result.ok || result.cancelled === true) {
@@ -101,7 +103,7 @@ export async function swapAuthoredDocument(session, source, signal, {
 // When the swap fails the deck still has to land on the target; the host may already have moved it.
 export async function landStagedDeck(staging, target, signal = null) {
   throwIfAuthoringCancelled(signal);
-  if (staging === target || !await exists(staging)) return;
+  if (staging === target || !(await exists(staging))) return;
   throwIfAuthoringCancelled(signal);
   await copyFile(staging, target);
   await rm(staging, { force: true }).catch(() => {});

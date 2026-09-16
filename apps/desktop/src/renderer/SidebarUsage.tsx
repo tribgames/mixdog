@@ -1,16 +1,11 @@
-import { Info, Pin, Plus } from "lucide-react";
-import {
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { Info, Pin, Plus } from 'lucide-react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import { PaneSurfaceGate } from "./PaneSurfaceGate";
-import { InitialSurface } from "./InitialSurface";
-import { t } from "./i18n";
-import { ProviderIcon } from "./provider-display";
-import { record } from "./record-utils";
+import { PaneSurfaceGate } from './PaneSurfaceGate';
+import { InitialSurface } from './InitialSurface';
+import { t } from './i18n';
+import { ProviderIcon } from './provider-display';
+import { record } from './record-utils';
 import {
   getUsageDashboardSnapshot,
   holdUsageDashboardCadence,
@@ -20,28 +15,25 @@ import {
   withUsageTimeout,
   type UsageApi,
   type UsageRecord,
-} from "./usage-dashboard-store";
-import { displayUsagePercent } from "./usage-percent";
-import {
-  formatUsageResetRemaining,
-  usageResetPresentation,
-} from "./usage-reset-time";
-import { useUsageResetVerification } from "./use-usage-reset-verification";
-import { ProviderAccountPicker } from "./ProviderAccountPicker";
+} from './usage-dashboard-store';
+import { displayUsagePercent } from './usage-percent';
+import { formatUsageResetRemaining, usageResetPresentation } from './usage-reset-time';
+import { useUsageResetVerification } from './use-usage-reset-verification';
+import { ProviderAccountPicker } from './ProviderAccountPicker';
 
-const SIDEBAR_CODEX_RESET_ATTEMPT_KEY = "mixdog.desktop.codex-reset-attempt.v1";
+const SIDEBAR_CODEX_RESET_ATTEMPT_KEY = 'mixdog.desktop.codex-reset-attempt.v1';
 const SIDEBAR_CODEX_RESET_TIMEOUT_MS = 90_000;
 
 const SUBSCRIPTIONS = [
-  { key: "codex", label: "Codex", provider: "openai-oauth" },
-  { key: "claude", label: "Claude", provider: "anthropic-oauth" },
-  { key: "grok", label: "Grok", provider: "grok-oauth" },
-  { key: "cursor", label: "Cursor", provider: "cursor-oauth" },
-  { key: "antigravity", label: "Antigravity", provider: "antigravity-oauth" },
-  { key: "opencode-go", label: "OpenCode Go", provider: "opencode-go" },
+  { key: 'codex', label: 'Codex', provider: 'openai-oauth' },
+  { key: 'claude', label: 'Claude', provider: 'anthropic-oauth' },
+  { key: 'grok', label: 'Grok', provider: 'grok-oauth' },
+  { key: 'cursor', label: 'Cursor', provider: 'cursor-oauth' },
+  { key: 'antigravity', label: 'Antigravity', provider: 'antigravity-oauth' },
+  { key: 'opencode-go', label: 'OpenCode Go', provider: 'opencode-go' },
 ] as const;
 
-type Subscription = typeof SUBSCRIPTIONS[number];
+type Subscription = (typeof SUBSCRIPTIONS)[number];
 
 function rows(value: unknown): UsageRecord[] {
   const dashboard = record(value);
@@ -50,9 +42,7 @@ function rows(value: unknown): UsageRecord[] {
 
 function number(value: unknown): number | null {
   const parsed = Number(value);
-  return value === null || value === undefined || value === "" || !Number.isFinite(parsed)
-    ? null
-    : parsed;
+  return value === null || value === undefined || value === '' || !Number.isFinite(parsed) ? null : parsed;
 }
 
 function timestamp(value: unknown): number | null {
@@ -62,24 +52,26 @@ function timestamp(value: unknown): number | null {
 }
 
 function subscriptionRow(dashboard: unknown, subscription: Subscription): UsageRecord {
-  return rows(dashboard).find((row) => {
-    const id = String(row.id || "").toLowerCase();
-    const label = String(row.label || "").toLowerCase();
-    const group = String(row.group || "").toLowerCase();
-    if (subscription.key === "opencode-go") {
-      return id === "opencode-go" || label.includes("opencode go");
-    }
-    if (subscription.key === "cursor") {
-      return id === "cursor-oauth" || label.includes("cursor oauth");
-    }
-    if (subscription.key === "antigravity") {
-      return id === "antigravity-oauth" || label.includes("antigravity");
-    }
-    if (group !== "oauth") return false;
-    if (subscription.key === "codex") return /openai|codex/.test(`${id} ${label}`);
-    if (subscription.key === "claude") return /anthropic|claude/.test(`${id} ${label}`);
-    return /grok|xai/.test(`${id} ${label}`);
-  }) || {};
+  return (
+    rows(dashboard).find((row) => {
+      const id = String(row.id || '').toLowerCase();
+      const label = String(row.label || '').toLowerCase();
+      const group = String(row.group || '').toLowerCase();
+      if (subscription.key === 'opencode-go') {
+        return id === 'opencode-go' || label.includes('opencode go');
+      }
+      if (subscription.key === 'cursor') {
+        return id === 'cursor-oauth' || label.includes('cursor oauth');
+      }
+      if (subscription.key === 'antigravity') {
+        return id === 'antigravity-oauth' || label.includes('antigravity');
+      }
+      if (group !== 'oauth') return false;
+      if (subscription.key === 'codex') return /openai|codex/.test(`${id} ${label}`);
+      if (subscription.key === 'claude') return /anthropic|claude/.test(`${id} ${label}`);
+      return /grok|xai/.test(`${id} ${label}`);
+    }) || {}
+  );
 }
 
 function quotaWindows(row: UsageRecord): UsageRecord[] {
@@ -91,8 +83,11 @@ function quotaWindowKey(window: UsageRecord, index: number): string {
 }
 
 function resetCreditKey(credit: UsageRecord, index: number): string {
-  return String(credit.id || credit.creditId
-    || (timestamp(credit.expiresAt) ? `expires:${timestamp(credit.expiresAt)}` : `credit:${index}`));
+  return String(
+    credit.id ||
+      credit.creditId ||
+      (timestamp(credit.expiresAt) ? `expires:${timestamp(credit.expiresAt)}` : `credit:${index}`)
+  );
 }
 
 function subscriptionConnected(row: UsageRecord): boolean {
@@ -100,10 +95,10 @@ function subscriptionConnected(row: UsageRecord): boolean {
 }
 
 function windowLabel(window: UsageRecord): string {
-  const label = String(window.label || "Quota").trim();
-  if (/^(?:w|wk|week|weekly)$/i.test(label)) return "W";
-  if (/^(?:mo|mon|month|monthly)$/i.test(label)) return "M";
-  if (/^flsh$/i.test(label)) return "FLASH";
+  const label = String(window.label || 'Quota').trim();
+  if (/^(?:w|wk|week|weekly)$/i.test(label)) return 'W';
+  if (/^(?:mo|mon|month|monthly)$/i.test(label)) return 'M';
+  if (/^flsh$/i.test(label)) return 'FLASH';
   return label.toUpperCase();
 }
 
@@ -132,10 +127,10 @@ const PIN_WINDOW_PRIORITY = [
 function pinPercent(windows: UsageRecord[], provider: string): number | null {
   const candidates = windows.flatMap((window) => {
     const percent = usedPercent(window);
-    return percent === null ? [] : [{ label: String(window.label || "").trim(), percent }];
+    return percent === null ? [] : [{ label: String(window.label || '').trim(), percent }];
   });
   if (!candidates.length) return null;
-  const preferredLabel = provider === "cursor-oauth" ? "Basic" : "";
+  const preferredLabel = provider === 'cursor-oauth' ? 'Basic' : '';
   if (preferredLabel) {
     const preferred = candidates.find((candidate) => candidate.label.toLowerCase() === preferredLabel.toLowerCase());
     if (preferred) return preferred.percent;
@@ -149,43 +144,42 @@ function pinPercent(windows: UsageRecord[], provider: string): number | null {
 
 export function usagePinEntries(dashboard: unknown): UsagePinEntry[] {
   return SUBSCRIPTIONS.flatMap((subscription) => {
-    const percent = pinPercent(
-      quotaWindows(subscriptionRow(dashboard, subscription)),
-      subscription.provider,
-    );
+    const percent = pinPercent(quotaWindows(subscriptionRow(dashboard, subscription)), subscription.provider);
     if (percent === null) return [];
-    return [{
-      key: subscription.key,
-      label: subscription.label,
-      provider: subscription.provider,
-      percent,
-    }];
+    return [
+      {
+        key: subscription.key,
+        label: subscription.label,
+        provider: subscription.provider,
+        percent,
+      },
+    ];
   });
 }
 
 // Tidied schedule copy (user: 리셋시간 문구 정리): lowercase duration units
 // read as time, not as quota-window labels (5H/W/M stay uppercase).
-function resetSchedule(value: unknown): { state: "due" | "soon" | "in" | ""; time: string } {
+function resetSchedule(value: unknown): { state: 'due' | 'soon' | 'in' | ''; time: string } {
   const resetAt = timestamp(value);
-  if (resetAt === null) return { state: "", time: "" };
+  if (resetAt === null) return { state: '', time: '' };
   const remaining = resetAt - Date.now();
-  if (remaining <= 0) return { state: "due", time: "" };
+  if (remaining <= 0) return { state: 'due', time: '' };
   const time = formatUsageResetRemaining(remaining);
-  return time ? { state: "in", time } : { state: "soon", time: "" };
+  return time ? { state: 'in', time } : { state: 'soon', time: '' };
 }
 
 function resetText(value: unknown): string {
   const schedule = resetSchedule(value);
-  if (schedule.state === "due") return t("Reset due");
-  if (schedule.state === "in") return t("Resets in {{time}}", { time: schedule.time });
-  return schedule.state === "soon" ? t("Resets soon") : "";
+  if (schedule.state === 'due') return t('Reset due');
+  if (schedule.state === 'in') return t('Resets in {{time}}', { time: schedule.time });
+  return schedule.state === 'soon' ? t('Resets soon') : '';
 }
 
 function resetExpiryText(value: unknown): string {
   const schedule = resetSchedule(value);
-  if (schedule.state === "due") return t("Expiry due");
-  if (schedule.state === "in") return t("Expires in {{time}}", { time: schedule.time });
-  return schedule.state === "soon" ? t("Expires soon") : "";
+  if (schedule.state === 'due') return t('Expiry due');
+  if (schedule.state === 'in') return t('Expires in {{time}}', { time: schedule.time });
+  return schedule.state === 'soon' ? t('Expires soon') : '';
 }
 
 /** Every quota window carries its OWN schedule (user: 각각 항목마다 초기화시간
@@ -195,9 +189,9 @@ function resetExpiryText(value: unknown): string {
  *  the 5d/13h reading itself. */
 function resetShortText(value: unknown): string {
   const schedule = resetSchedule(value);
-  if (schedule.state === "due") return "—";
-  if (schedule.state === "in") return schedule.time;
-  return schedule.state === "soon" ? "<1h" : "—";
+  if (schedule.state === 'due') return '—';
+  if (schedule.state === 'in') return schedule.time;
+  return schedule.state === 'soon' ? '<1h' : '—';
 }
 
 function resetCredits(row: UsageRecord): UsageRecord {
@@ -208,16 +202,18 @@ function availableResetCredits(value: UsageRecord): UsageRecord[] {
   const availableCount = Math.max(0, Math.floor(number(value.availableCount) || 0));
   const credits = (Array.isArray(value.availableCredits) ? value.availableCredits : [])
     .map(record)
-    .sort((left, right) =>
-      (timestamp(left.expiresAt) ?? Number.POSITIVE_INFINITY)
-      - (timestamp(right.expiresAt) ?? Number.POSITIVE_INFINITY));
+    .sort(
+      (left, right) =>
+        (timestamp(left.expiresAt) ?? Number.POSITIVE_INFINITY) -
+        (timestamp(right.expiresAt) ?? Number.POSITIVE_INFINITY)
+    );
   while (credits.length < availableCount) credits.push({});
   return credits.slice(0, availableCount);
 }
 
 function createResetAttemptId(): string {
   const bytes = new Uint8Array(16);
-  if (typeof window.crypto?.getRandomValues === "function") {
+  if (typeof window.crypto?.getRandomValues === 'function') {
     window.crypto.getRandomValues(bytes);
   } else {
     for (let index = 0; index < bytes.length; index += 1) {
@@ -226,14 +222,14 @@ function createResetAttemptId(): string {
   }
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function codexResetAttempt(offerRevision: string): string {
   try {
-    const stored = record(JSON.parse(window.localStorage.getItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY) || "null"));
-    if (stored.offerRevision === offerRevision && typeof stored.idempotencyKey === "string") {
+    const stored = record(JSON.parse(window.localStorage.getItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY) || 'null'));
+    if (stored.offerRevision === offerRevision && typeof stored.idempotencyKey === 'string') {
       return stored.idempotencyKey;
     }
   } catch {
@@ -241,10 +237,13 @@ function codexResetAttempt(offerRevision: string): string {
   }
   const idempotencyKey = createResetAttemptId();
   try {
-    window.localStorage.setItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY, JSON.stringify({
-      offerRevision,
-      idempotencyKey,
-    }));
+    window.localStorage.setItem(
+      SIDEBAR_CODEX_RESET_ATTEMPT_KEY,
+      JSON.stringify({
+        offerRevision,
+        idempotencyKey,
+      })
+    );
   } catch {
     // In-memory completion remains safe for this window when storage is unavailable.
   }
@@ -253,7 +252,7 @@ function codexResetAttempt(offerRevision: string): string {
 
 function clearCodexResetAttempt(offerRevision: string): void {
   try {
-    const stored = record(JSON.parse(window.localStorage.getItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY) || "null"));
+    const stored = record(JSON.parse(window.localStorage.getItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY) || 'null'));
     if (stored.offerRevision === offerRevision) {
       window.localStorage.removeItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY);
     }
@@ -300,11 +299,10 @@ export function SidebarUsage({
   // result or a final unavailable state. Painting "Not connected" while the
   // very first request is still outstanding claimed an answer nobody has yet.
   // Cached rows always win: revalidation never downgrades them to Loading.
-  const awaitingFirstUsage = !rowsPresent
-    && (snapshot.status === "idle" || snapshot.status === "loading");
+  const awaitingFirstUsage = !rowsPresent && (snapshot.status === 'idle' || snapshot.status === 'loading');
   const [resetConfirming, setResetConfirming] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
-  const [resetNotice, setResetNotice] = useState("");
+  const [resetNotice, setResetNotice] = useState('');
   const section = useRef<HTMLElement>(null);
 
   // One cadence for the renderer: the rail holds it too, so a popup remount
@@ -318,7 +316,7 @@ export function SidebarUsage({
       void refreshUsageDashboard(api);
     } else {
       setResetConfirming(null);
-      setResetNotice("");
+      setResetNotice('');
     }
   }, [api, sidebarOpen]);
 
@@ -331,39 +329,47 @@ export function SidebarUsage({
   const codexResetCount = Math.max(0, Math.floor(number(codexResetCredits.availableCount) || 0));
   const codexResetRows = availableResetCredits(codexResetCredits);
   const codexResetKeys = codexResetRows.map(resetCreditKey);
-  const codexResetKeySignature = codexResetKeys.join("\u0000");
-  const codexResetOffer = String(codexResetCredits.offerRevision || "");
+  const codexResetKeySignature = codexResetKeys.join('\u0000');
+  const codexResetOffer = String(codexResetCredits.offerRevision || '');
   useEffect(() => {
     if (resetConfirming && !codexResetKeys.includes(resetConfirming)) {
       setResetConfirming(null);
     }
   }, [codexResetKeySignature, resetConfirming]);
   const consumeCodexReset = async () => {
-    if (!codexResetOffer || codexResetCount < 1 || resetting ||
-      typeof api?.invokeCapability !== "function") return;
+    if (!codexResetOffer || codexResetCount < 1 || resetting || typeof api?.invokeCapability !== 'function') return;
     const idempotencyKey = codexResetAttempt(codexResetOffer);
     setResetting(true);
-    setResetNotice("");
+    setResetNotice('');
     try {
-      const response = await withUsageTimeout(api.invokeCapability({
-        capability: "consumeCodexRateLimitResetCredit",
-        args: [{
-          expectedOfferRevision: codexResetOffer,
-          idempotencyKey,
-        }],
-      }), SIDEBAR_CODEX_RESET_TIMEOUT_MS, window);
+      const response = await withUsageTimeout(
+        api.invokeCapability({
+          capability: 'consumeCodexRateLimitResetCredit',
+          args: [
+            {
+              expectedOfferRevision: codexResetOffer,
+              idempotencyKey,
+            },
+          ],
+        }),
+        SIDEBAR_CODEX_RESET_TIMEOUT_MS,
+        window
+      );
       const result = record(response?.value);
       // Authoritative provider vocabulary (oauth-usage.mjs): every consume that
       // the runtime recognises carries one of these, plus a rebuilt dashboard.
-      const outcome = String(result.outcome || "");
-      const authoritative = result.status === "offerChanged"
-        || outcome === "reset" || outcome === "alreadyRedeemed"
-        || outcome === "nothingToReset" || outcome === "noCredit";
+      const outcome = String(result.outcome || '');
+      const authoritative =
+        result.status === 'offerChanged' ||
+        outcome === 'reset' ||
+        outcome === 'alreadyRedeemed' ||
+        outcome === 'nothingToReset' ||
+        outcome === 'noCredit';
       if (!authoritative) {
         // Unrecognised outcome: the durable idempotency key SURVIVES so a retry
         // reuses this operation instead of spending a second credit, and the
         // surface says so.
-        setResetNotice(t("Reset could not be confirmed. Retrying is safe."));
+        setResetNotice(t('Reset could not be confirmed. Retrying is safe.'));
         return;
       }
       // The OUTCOME settles the redeem; the rebuilt dashboard is a courtesy
@@ -375,150 +381,224 @@ export function SidebarUsage({
       }
       clearCodexResetAttempt(codexResetOffer);
       setResetConfirming(null);
-      setResetNotice(result.status === "offerChanged"
-        ? t("Reset availability changed. Review the latest Codex usage.")
-        : outcome === "reset"
-        ? ""
-        : outcome === "alreadyRedeemed"
-        ? t("Reset already applied.")
-        : outcome === "nothingToReset"
-        ? t("No eligible rate-limit window is exhausted.")
-        : t("No reset credit is available."));
+      setResetNotice(
+        result.status === 'offerChanged'
+          ? t('Reset availability changed. Review the latest Codex usage.')
+          : outcome === 'reset'
+            ? ''
+            : outcome === 'alreadyRedeemed'
+              ? t('Reset already applied.')
+              : outcome === 'nothingToReset'
+                ? t('No eligible rate-limit window is exhausted.')
+                : t('No reset credit is available.')
+      );
     } catch (cause) {
       // Keep the durable idempotency key: retrying an unknown provider outcome
       // must reuse the same operation rather than spend a second credit.
-      console.error("Codex reset-credit consume failed:", cause);
-      const reason = cause instanceof Error && cause.message ? cause.message.trim() : "";
-      setResetNotice(reason
-        ? t("Reset could not be confirmed ({{reason}}). Retrying is safe.", { reason })
-        : t("Reset could not be confirmed. Retrying is safe."));
+      console.error('Codex reset-credit consume failed:', cause);
+      const reason = cause instanceof Error && cause.message ? cause.message.trim() : '';
+      setResetNotice(
+        reason
+          ? t('Reset could not be confirmed ({{reason}}). Retrying is safe.', { reason })
+          : t('Reset could not be confirmed. Retrying is safe.')
+      );
     } finally {
       setResetting(false);
     }
   };
 
   return (
-    <section ref={section} className="sidebar-usage" aria-label={t("Providers")}>
+    <section ref={section} className="sidebar-usage" aria-label={t('Providers')}>
       {/* Same title-row grammar as the rail panels (Sessions/Projects…):
           36px header, 28px action boxes, 16px glyphs. */}
       <header className="sidebar-usage-heading session-panel-header">
-        <span className="session-panel-title">{t("Providers")}</span>
+        <span className="session-panel-title">{t('Providers')}</span>
         <div className="session-panel-header-actions">
-          {onTogglePin && <button type="button"
-            className={`session-panel-action sidebar-usage-pin ${pinned ? "is-active" : ""}`}
-            aria-pressed={pinned}
-            aria-label={pinned ? t("Unpin usage from the rail") : t("Pin usage to the rail")}
-            data-tooltip={pinned ? t("Unpin usage from the rail") : t("Pin usage to the rail")}
-            onClick={onTogglePin}>
-            {/* Diagonal pushpin; the tilt comes from the CSS rotate. */}
-            <Pin size={16} aria-hidden="true" />
-          </button>}
-          {onOpenStats && <button type="button"
-            className="session-panel-action sidebar-usage-stats"
-            aria-label={t("Show token usage")} data-tooltip={t("Show token usage")}
-            onClick={onOpenStats}>
-            <Info size={16} aria-hidden="true" />
-          </button>}
-          <button type="button" className="session-panel-action sidebar-provider-add"
-            aria-label={t("Connect provider")} data-tooltip={t("Connect provider")} disabled={!onAddProviders}
-            onClick={onAddProviders}><Plus size={16} aria-hidden="true" /></button>
+          {onTogglePin && (
+            <button
+              type="button"
+              className={`session-panel-action sidebar-usage-pin ${pinned ? 'is-active' : ''}`}
+              aria-pressed={pinned}
+              aria-label={pinned ? t('Unpin usage from the rail') : t('Pin usage to the rail')}
+              data-tooltip={pinned ? t('Unpin usage from the rail') : t('Pin usage to the rail')}
+              onClick={onTogglePin}
+            >
+              {/* Diagonal pushpin; the tilt comes from the CSS rotate. */}
+              <Pin size={16} aria-hidden="true" />
+            </button>
+          )}
+          {onOpenStats && (
+            <button
+              type="button"
+              className="session-panel-action sidebar-usage-stats"
+              aria-label={t('Show token usage')}
+              data-tooltip={t('Show token usage')}
+              onClick={onOpenStats}
+            >
+              <Info size={16} aria-hidden="true" />
+            </button>
+          )}
+          <button
+            type="button"
+            className="session-panel-action sidebar-provider-add"
+            aria-label={t('Connect provider')}
+            data-tooltip={t('Connect provider')}
+            disabled={!onAddProviders}
+            onClick={onAddProviders}
+          >
+            <Plus size={16} aria-hidden="true" />
+          </button>
         </div>
       </header>
-      <PaneSurfaceGate ready={!awaitingFirstUsage} label={t("Loading usage…")}
-        fallback={<InitialSurface />}>
-      <div className="sidebar-usage-content">
-      <div id="sidebar-usage-list" className="sidebar-usage-list">
-        {/* Flat roster: header (icon · name · soonest reset) with
+      <PaneSurfaceGate ready={!awaitingFirstUsage} label={t('Loading usage…')} fallback={<InitialSurface />}>
+        <div className="sidebar-usage-content">
+          <div id="sidebar-usage-list" className="sidebar-usage-list">
+            {/* Flat roster: header (icon · name · soonest reset) with
             EVERY quota window inline beneath — nothing left to drill into. */}
-        {SUBSCRIPTIONS.map((subscription) => {
-          const row = subscriptionRow(dashboard, subscription);
-          const windows = quotaWindows(row);
-          const checking = row.status === "checking";
-          const available = Object.keys(row).length > 0;
-          const connected = subscriptionConnected(row);
-          if (!connected) return null;
-          return <div className="sidebar-usage-row" key={subscription.key}
-            data-usage-provider={subscription.key} aria-busy={checking}>
-            <span className="sidebar-usage-line">
-              <span className="sidebar-usage-provider-icon">
-                <ProviderIcon provider={subscription.provider} />
-              </span>
-              <b>{subscription.label}</b>
-              {subscription.provider.endsWith('-oauth') && <ProviderAccountPicker api={api} provider={subscription.provider} />}
-              {windows.length === 0 && !checking && <small>{!available && awaitingFirstUsage ? t("Loading…")
-                : connected ? t("Connected") : t("Not connected")}</small>}
-            </span>
-            <span className="sidebar-usage-meters">
-              {windows.map((window, index) => {
-                const percent = usedPercent(window);
-                const resetAt = timestamp(window.resetAt);
-                const resetPresentation = usageResetPresentation({
-                  percent,
-                  resetAt,
-                  refreshedAt: snapshot.refreshedAt,
-                  verificationFailed: resetAt !== null && failedResetAts.has(resetAt),
-                });
-                const effectivePercent = resetPresentation.percent;
-                const displayedPercent = displayUsagePercent(effectivePercent);
-                const tone = effectivePercent !== null && effectivePercent >= 90 ? " tone-danger"
-                  : effectivePercent !== null && effectivePercent >= 70 ? " tone-warning" : "";
-                const resetSentence = resetPresentation.resetTextOverride === null
-                  ? resetText(window.resetAt) : "";
-                return <span className={`sidebar-usage-meter${tone}`}
-                  key={quotaWindowKey(window, index)}>
-                  <small title={windowLabel(window)}>{windowLabel(window)}</small>
-                  <i><i style={{ width: `${effectivePercent ?? 0}%` }} /></i>
-                  <b>{displayedPercent === null ? "—" : `${displayedPercent}%`}</b>
-                  <em title={resetSentence || undefined}>
-                    {resetPresentation.resetTextOverride ?? resetShortText(window.resetAt)}
-                  </em>
-                </span>;
-              })}
-              {windows.length === 0 && <span className="sidebar-usage-meter sidebar-usage-meter-empty">
-                <small>{checking ? t("Loading usage…") : !available && awaitingFirstUsage ? t("Loading…")
-                  : connected ? t("No current quota window") : t("Connect to load usage")}</small>
-              </span>}
-            </span>
-          </div>;
-        })}
-      </div>
-      {/* Hide the reset-ticket surface when the account has none available. */}
-      {codexResetOffer && codexResetCount > 0 && <section className="sidebar-usage-reset-credit">
-        <header className="sidebar-usage-reset-heading">
-          <b>{t("Codex reset credits")}</b>
-          <small>{t("{{count}} available", { count: codexResetCount })}</small>
-        </header>
-        {codexResetRows.length > 0 && <div className="sidebar-usage-reset-list">
-          {codexResetRows.map((credit, index) => {
-            const creditKey = codexResetKeys[index];
-            return <div className="sidebar-usage-reset-row"
-              key={creditKey}>
-              <div className="sidebar-usage-reset-summary">
-                <b>{t("Reset credit {{index}}", { index: index + 1 })}</b>
-                <small>{resetExpiryText(credit.expiresAt) || t("Expiry unavailable")}</small>
-              </div>
-              {resetConfirming !== creditKey
-                ? <button type="button" disabled={resetting}
-                  aria-label={t("Use Codex reset credit {{index}}", { index: index + 1 })}
-                  onClick={() => setResetConfirming(creditKey)}>{t("Use")}</button>
-                : <div className="sidebar-usage-reset-confirmation">
-                  <p>{t("This uses one available credit and immediately resets eligible Codex rate-limit windows.")}</p>
-                  <div className="sidebar-usage-reset-actions">
-                    <button type="button" disabled={resetting}
-                      onClick={() => setResetConfirming(null)}>{t("Cancel")}</button>
-                    <button type="button"
-                      aria-label={t("Confirm using Codex reset credit {{index}}", { index: index + 1 })}
-                      disabled={resetting} onClick={() => void consumeCodexReset()}>
-                      {resetting ? t("Using…") : t("Confirm")}
-                    </button>
-                  </div>
-                </div>}
-            </div>;
-          })}
-        </div>}
-      </section>}
-      {resetNotice && <p className="sidebar-usage-reset-notice" role="status">{resetNotice}</p>}
-      </div>
+            {SUBSCRIPTIONS.map((subscription) => {
+              const row = subscriptionRow(dashboard, subscription);
+              const windows = quotaWindows(row);
+              const checking = row.status === 'checking';
+              const available = Object.keys(row).length > 0;
+              const connected = subscriptionConnected(row);
+              if (!connected) return null;
+              return (
+                <div
+                  className="sidebar-usage-row"
+                  key={subscription.key}
+                  data-usage-provider={subscription.key}
+                  aria-busy={checking}
+                >
+                  <span className="sidebar-usage-line">
+                    <span className="sidebar-usage-provider-icon">
+                      <ProviderIcon provider={subscription.provider} />
+                    </span>
+                    <b>{subscription.label}</b>
+                    {subscription.provider.endsWith('-oauth') && (
+                      <ProviderAccountPicker api={api} provider={subscription.provider} />
+                    )}
+                    {windows.length === 0 && !checking && (
+                      <small>
+                        {!available && awaitingFirstUsage
+                          ? t('Loading…')
+                          : connected
+                            ? t('Connected')
+                            : t('Not connected')}
+                      </small>
+                    )}
+                  </span>
+                  <span className="sidebar-usage-meters">
+                    {windows.map((window, index) => {
+                      const percent = usedPercent(window);
+                      const resetAt = timestamp(window.resetAt);
+                      const resetPresentation = usageResetPresentation({
+                        percent,
+                        resetAt,
+                        refreshedAt: snapshot.refreshedAt,
+                        verificationFailed: resetAt !== null && failedResetAts.has(resetAt),
+                      });
+                      const effectivePercent = resetPresentation.percent;
+                      const displayedPercent = displayUsagePercent(effectivePercent);
+                      const tone =
+                        effectivePercent !== null && effectivePercent >= 90
+                          ? ' tone-danger'
+                          : effectivePercent !== null && effectivePercent >= 70
+                            ? ' tone-warning'
+                            : '';
+                      const resetSentence =
+                        resetPresentation.resetTextOverride === null ? resetText(window.resetAt) : '';
+                      return (
+                        <span className={`sidebar-usage-meter${tone}`} key={quotaWindowKey(window, index)}>
+                          <small title={windowLabel(window)}>{windowLabel(window)}</small>
+                          <i>
+                            <i style={{ width: `${effectivePercent ?? 0}%` }} />
+                          </i>
+                          <b>{displayedPercent === null ? '—' : `${displayedPercent}%`}</b>
+                          <em title={resetSentence || undefined}>
+                            {resetPresentation.resetTextOverride ?? resetShortText(window.resetAt)}
+                          </em>
+                        </span>
+                      );
+                    })}
+                    {windows.length === 0 && (
+                      <span className="sidebar-usage-meter sidebar-usage-meter-empty">
+                        <small>
+                          {checking
+                            ? t('Loading usage…')
+                            : !available && awaitingFirstUsage
+                              ? t('Loading…')
+                              : connected
+                                ? t('No current quota window')
+                                : t('Connect to load usage')}
+                        </small>
+                      </span>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {/* Hide the reset-ticket surface when the account has none available. */}
+          {codexResetOffer && codexResetCount > 0 && (
+            <section className="sidebar-usage-reset-credit">
+              <header className="sidebar-usage-reset-heading">
+                <b>{t('Codex reset credits')}</b>
+                <small>{t('{{count}} available', { count: codexResetCount })}</small>
+              </header>
+              {codexResetRows.length > 0 && (
+                <div className="sidebar-usage-reset-list">
+                  {codexResetRows.map((credit, index) => {
+                    const creditKey = codexResetKeys[index];
+                    return (
+                      <div className="sidebar-usage-reset-row" key={creditKey}>
+                        <div className="sidebar-usage-reset-summary">
+                          <b>{t('Reset credit {{index}}', { index: index + 1 })}</b>
+                          <small>{resetExpiryText(credit.expiresAt) || t('Expiry unavailable')}</small>
+                        </div>
+                        {resetConfirming !== creditKey ? (
+                          <button
+                            type="button"
+                            disabled={resetting}
+                            aria-label={t('Use Codex reset credit {{index}}', { index: index + 1 })}
+                            onClick={() => setResetConfirming(creditKey)}
+                          >
+                            {t('Use')}
+                          </button>
+                        ) : (
+                          <div className="sidebar-usage-reset-confirmation">
+                            <p>
+                              {t(
+                                'This uses one available credit and immediately resets eligible Codex rate-limit windows.'
+                              )}
+                            </p>
+                            <div className="sidebar-usage-reset-actions">
+                              <button type="button" disabled={resetting} onClick={() => setResetConfirming(null)}>
+                                {t('Cancel')}
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={t('Confirm using Codex reset credit {{index}}', { index: index + 1 })}
+                                disabled={resetting}
+                                onClick={() => void consumeCodexReset()}
+                              >
+                                {resetting ? t('Using…') : t('Confirm')}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
+          {resetNotice && (
+            <p className="sidebar-usage-reset-notice" role="status">
+              {resetNotice}
+            </p>
+          )}
+        </div>
       </PaneSurfaceGate>
     </section>
   );

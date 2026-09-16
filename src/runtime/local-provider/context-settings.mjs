@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { writeJsonAtomicSync } from '../shared/atomic-file.mjs';
 
-const settingsPath = (id, dataDir) => join(dataDir, 'local-provider', 'context',
-  `${createHash('sha256').update(id).digest('hex')}.json`);
+const settingsPath = (id, dataDir) =>
+  join(dataDir, 'local-provider', 'context', `${createHash('sha256').update(id).digest('hex')}.json`);
 
 export function validateLocalContext(entry, value) {
   const maximum = entry.maxContextWindow || entry.contextWindow;

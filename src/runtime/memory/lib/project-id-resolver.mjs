@@ -81,6 +81,6 @@ export function resolveProjectId(cwd) {
  * @returns {string|null}
  */
 export function resolveProjectScope(explicitCwd) {
-  const cwd = (typeof explicitCwd === 'string' && explicitCwd) ? explicitCwd : explicitSessionCwd();
+  const cwd = typeof explicitCwd === 'string' && explicitCwd ? explicitCwd : explicitSessionCwd();
   return cwd ? resolveProjectId(cwd) : null;
 }

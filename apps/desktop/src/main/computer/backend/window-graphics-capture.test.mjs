@@ -12,7 +12,8 @@ import { NATIVE_CAPTURE_WORK_MS } from '../shared/capture-attempts.ts';
 import { probeWindowsGraphicsCapture } from './fixtures/wgc-capability.mjs';
 
 test('WGC captures a covered fixture without foreign pixels, preserves foreground and rejects changed geometry', {
-  skip: process.platform !== 'win32', timeout: 120_000,
+  skip: process.platform !== 'win32',
+  timeout: 120_000,
 }, async (t) => {
   // Everything below needs an OS that can actually hand out a capture item and
   // a compositor frame. Where it can, the whole assertion set stays enforced;
@@ -51,10 +52,15 @@ public sealed class WgcFixture : System.Windows.Forms.Form {
   }
 }
 `;
-  const program = '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)\n' + PS_SESSION
-    .replace(MIXDOG_HOST_CSHARP, MIXDOG_HOST_CSHARP + '\n' + fixture)
-    .replace("'System.Drawing.dll',$AccessibilityAssemblyPath", "'System.Drawing.dll','System.Windows.Forms.dll',$AccessibilityAssemblyPath")
-    + '\n' + PS_WINDOW_CAPTURE + String.raw`
+  const program =
+    '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)\n' +
+    PS_SESSION.replace(MIXDOG_HOST_CSHARP, MIXDOG_HOST_CSHARP + '\n' + fixture).replace(
+      "'System.Drawing.dll',$AccessibilityAssemblyPath",
+      "'System.Drawing.dll','System.Windows.Forms.dll',$AccessibilityAssemblyPath"
+    ) +
+    '\n' +
+    PS_WINDOW_CAPTURE +
+    String.raw`
 $window = [WgcFixture]::new()
 $cover = [WgcFixture]::new()
 $cover.BackColor = [Drawing.Color]::Lime
@@ -105,12 +111,17 @@ try {
 `;
   try {
     await writeFile(join(directory, 'check.ps1'), program);
-    const { stdout } = await promisify(execFile)('powershell.exe',
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-File', join(directory, 'check.ps1')],
       // Cold `Add-Type` of the host C# on a loaded hosted runner takes ~10s, so
       // this budget bounds a hung capture only, never a slow-but-healthy host.
-      { windowsHide: true, timeout: 60_000, env: { ...process.env,
-        MIXDOG_COMPUTER_HOST_CACHE: '', MIXDOG_COMPUTER_HOST_BUILD: '' } });
+      {
+        windowsHide: true,
+        timeout: 60_000,
+        env: { ...process.env, MIXDOG_COMPUTER_HOST_CACHE: '', MIXDOG_COMPUTER_HOST_BUILD: '' },
+      }
+    );
     const value = JSON.parse(stdout.trim());
     assert.equal(value.covered, true);
     assert.deepEqual(value.size, [160, 120]);
@@ -124,5 +135,7 @@ try {
     assert.equal(value.closed_after_failure, true);
     assert.equal(value.work_budget, NATIVE_CAPTURE_WORK_MS);
     assert.match(value.deadline, /^capture_timeout\|/);
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

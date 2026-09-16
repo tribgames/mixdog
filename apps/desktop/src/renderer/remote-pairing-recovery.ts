@@ -83,21 +83,18 @@ export function normalizeRemoteExternalUrl(value: string): string {
   }
 }
 
-export function isInvalidRemotePairingClose(
-  event: Pick<CloseEvent, 'code' | 'reason'>,
-): boolean {
+export function isInvalidRemotePairingClose(event: Pick<CloseEvent, 'code' | 'reason'>): boolean {
   // 4003: pairing/device revoked. 4005: relay v2 refused a stale or legacy
   // shared token — only a fresh QR scan recovers either.
   if (event.code === 4003 || event.code === 4005) return true;
   if (event.code !== 4004) return false;
   // 4004 is a generic desktop rejection; only permanent E2EE failures drop the
   // pairing. A handshake TIMEOUT is transient (busy desktop) and reconnects.
-  return /relay encryption (?:handshake required|authentication failed)|invalid encrypted relay frame/iu
-    .test(event.reason);
+  return /relay encryption (?:handshake required|authentication failed)|invalid encrypted relay frame/iu.test(
+    event.reason
+  );
 }
 
-export function clearStoredRemotePairing(
-  storage: Pick<Storage, 'removeItem'>,
-): void {
+export function clearStoredRemotePairing(storage: Pick<Storage, 'removeItem'>): void {
   for (const key of Object.values(REMOTE_PAIRING_STORAGE_KEYS)) storage.removeItem(key);
 }

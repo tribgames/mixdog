@@ -4,11 +4,7 @@ import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { record } from './record-utils';
-import {
-  inheritancePreflight,
-  sessionModelSelection,
-  type InheritanceFit,
-} from './session-inheritance';
+import { inheritancePreflight, sessionModelSelection, type InheritanceFit } from './session-inheritance';
 
 export function resolveInheritBlockedReason({
   sessionId,
@@ -41,7 +37,13 @@ export function resolveInheritBlockedReason({
  * whether it can happen at all. The heir is a NEW session on the currently
  * selected model holding this conversation; the source is left untouched.
  */
-export function InheritBody({ snapshot, sessionId, loading, onInherit, onClose }: {
+export function InheritBody({
+  snapshot,
+  sessionId,
+  loading,
+  onInherit,
+  onClose,
+}: {
   snapshot?: unknown;
   sessionId: string;
   /** The surface payload is still in flight; the decision stays locked. */
@@ -79,7 +81,9 @@ export function InheritBody({ snapshot, sessionId, loading, onInherit, onClose }
       setFit(value);
       setChecking(false);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId, provider, model]);
 
   // ONE reason at a time, in the order the user would hit them.
@@ -97,40 +101,58 @@ export function InheritBody({ snapshot, sessionId, loading, onInherit, onClose }
   // hairline (user: 세션승계창 이상하다 — the old boxed group repeated the
   // title and pushed its button straight through the card's bottom edge).
   const waiting = checking || Boolean(loading);
-  return <div className="inherit-surface">
-    <div className="inherit-surface-body">
-      <p className="inherit-surface-lede">
-        {t('The conversation is copied into a new session that runs on the current model. This session stays exactly as it is.')}
-      </p>
-      {fit?.willCompact && <p className="inherit-surface-lede">
-        {t('This conversation is compacted for the new model before it carries over.')}
-      </p>}
-      <dl className="command-surface-facts">
-        <div><dt>{t('Messages')}</dt><dd>{spoken}</dd></div>
-        <div><dt>{t('Model')}</dt>
-          <dd title={model ? `${provider}/${model}` : undefined}>
-            {model ? `${provider}/${model}` : t('Unknown')}
-          </dd></div>
-        <div><dt>{t('Context')}</dt><dd>{fit?.percent == null ? '—' : `${fit.percent}%`}</dd></div>
-      </dl>
-      {(blocked || failure) && <ErrorNotice error={failure || blocked} role="status" />}
+  return (
+    <div className="inherit-surface">
+      <div className="inherit-surface-body">
+        <p className="inherit-surface-lede">
+          {t(
+            'The conversation is copied into a new session that runs on the current model. This session stays exactly as it is.'
+          )}
+        </p>
+        {fit?.willCompact && (
+          <p className="inherit-surface-lede">
+            {t('This conversation is compacted for the new model before it carries over.')}
+          </p>
+        )}
+        <dl className="command-surface-facts">
+          <div>
+            <dt>{t('Messages')}</dt>
+            <dd>{spoken}</dd>
+          </div>
+          <div>
+            <dt>{t('Model')}</dt>
+            <dd title={model ? `${provider}/${model}` : undefined}>{model ? `${provider}/${model}` : t('Unknown')}</dd>
+          </div>
+          <div>
+            <dt>{t('Context')}</dt>
+            <dd>{fit?.percent == null ? '—' : `${fit.percent}%`}</dd>
+          </div>
+        </dl>
+        {(blocked || failure) && <ErrorNotice error={failure || blocked} role="status" />}
+      </div>
+      <footer className="inherit-surface-actions">
+        {onClose && (
+          <button type="button" className="inherit-surface-cancel" disabled={running} onClick={onClose}>
+            {t('Cancel')}
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={Boolean(blocked) || waiting || running}
+          onClick={() => {
+            if (blocked || !onInherit || !route || running) return;
+            setFailure('');
+            setRunning(true);
+            void onInherit(sessionId, route)
+              .catch((reason) => {
+                setFailure(reason instanceof Error ? reason.message : String(reason));
+              })
+              .finally(() => setRunning(false));
+          }}
+        >
+          {running ? t('Inheriting…') : t('Inherit')}
+        </button>
+      </footer>
     </div>
-    <footer className="inherit-surface-actions">
-      {onClose && <button type="button" className="inherit-surface-cancel"
-        disabled={running} onClick={onClose}>{t('Cancel')}</button>}
-      <button type="button" disabled={Boolean(blocked) || waiting || running}
-        onClick={() => {
-          if (blocked || !onInherit || !route || running) return;
-          setFailure('');
-          setRunning(true);
-          void onInherit(sessionId, route)
-            .catch((reason) => {
-              setFailure(reason instanceof Error ? reason.message : String(reason));
-            })
-            .finally(() => setRunning(false));
-        }}>
-        {running ? t('Inheriting…') : t('Inherit')}
-      </button>
-    </footer>
-  </div>;
+  );
 }

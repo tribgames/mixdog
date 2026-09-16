@@ -41,8 +41,12 @@ export async function readSessionMetadata(root: string): Promise<SessionMetadata
   let parsed: Record<string, unknown> = {};
   try {
     const value: unknown = JSON.parse(await readFile(join(root, FILE_NAME), 'utf8'));
-    if (value !== null && typeof value === 'object' && !Array.isArray(value)
-      && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)) {
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
+    ) {
       parsed = value as Record<string, unknown>;
     }
   } catch (error) {
@@ -108,7 +112,7 @@ export async function writeSessionMetadata(
     names: Record<string, string>;
     archived: Record<string, number>;
     reads: Record<string, SessionReadCursor>;
-  },
+  }
 ): Promise<void> {
   const target = join(root, FILE_NAME);
   const payload = {

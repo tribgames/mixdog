@@ -20,48 +20,89 @@ import {
   waitFor,
 } from './_shared.mjs';
 
-
 test('protocol stays at 1 while revision then app build chooses the daemon', () => {
   assert.equal(SESSION_PROTOCOL, 1);
   assert.equal(SESSION_REVISION, 5);
   assert.match(SESSION_CAPABILITY_FINGERPRINT, /^[0-9a-f]{16}$/);
-  assert.equal(sessionDaemonCompatibility({
-    protocol: 1,
-    revision: 1,
-    version: '1.2.3',
-    capabilityFingerprint: '0000000000000000',
-  }, { revision: 1, version: '1.2.3' }).status, 'compatible');
-  assert.equal(sessionDaemonCompatibility({
-    protocol: 1,
-    revision: 1,
-    version: '1.2.2',
-  }, { revision: 1, version: '1.2.3' }).status, 'client-newer');
-  assert.equal(sessionDaemonCompatibility({
-    protocol: 1,
-    revision: 1,
-    version: '1.2.4',
-  }, { revision: 1, version: '1.2.3' }).status, 'daemon-newer');
-  assert.equal(sessionDaemonCompatibility({
-    protocol: 1,
-    revision: 2,
-    version: '1.0.0',
-  }, { revision: 1, version: '9.0.0' }).status, 'daemon-newer');
-  assert.equal(sessionDaemonCompatibility({
-    protocol: 1,
-    revision: 0,
-    version: '9.0.0',
-  }, { revision: 1, version: '1.0.0' }).status, 'client-newer');
-  assert.equal(sessionDaemonCompatibility({
-    protocol: 2,
-    revision: 99,
-    version: '1.0.0',
-  }, { revision: 1, version: '9.0.0' }).status, 'protocol-mismatch');
-  assert.equal(sessionDaemonCompatibility({
-    protocol: 1,
-    revision: 1,
-    version: '1.2.3',
-    capabilityFingerprint: '0000000000000000',
-  }, { revision: 1, version: '1.2.3' }).capabilityMismatch, true);
+  assert.equal(
+    sessionDaemonCompatibility(
+      {
+        protocol: 1,
+        revision: 1,
+        version: '1.2.3',
+        capabilityFingerprint: '0000000000000000',
+      },
+      { revision: 1, version: '1.2.3' }
+    ).status,
+    'compatible'
+  );
+  assert.equal(
+    sessionDaemonCompatibility(
+      {
+        protocol: 1,
+        revision: 1,
+        version: '1.2.2',
+      },
+      { revision: 1, version: '1.2.3' }
+    ).status,
+    'client-newer'
+  );
+  assert.equal(
+    sessionDaemonCompatibility(
+      {
+        protocol: 1,
+        revision: 1,
+        version: '1.2.4',
+      },
+      { revision: 1, version: '1.2.3' }
+    ).status,
+    'daemon-newer'
+  );
+  assert.equal(
+    sessionDaemonCompatibility(
+      {
+        protocol: 1,
+        revision: 2,
+        version: '1.0.0',
+      },
+      { revision: 1, version: '9.0.0' }
+    ).status,
+    'daemon-newer'
+  );
+  assert.equal(
+    sessionDaemonCompatibility(
+      {
+        protocol: 1,
+        revision: 0,
+        version: '9.0.0',
+      },
+      { revision: 1, version: '1.0.0' }
+    ).status,
+    'client-newer'
+  );
+  assert.equal(
+    sessionDaemonCompatibility(
+      {
+        protocol: 2,
+        revision: 99,
+        version: '1.0.0',
+      },
+      { revision: 1, version: '9.0.0' }
+    ).status,
+    'protocol-mismatch'
+  );
+  assert.equal(
+    sessionDaemonCompatibility(
+      {
+        protocol: 1,
+        revision: 1,
+        version: '1.2.3',
+        capabilityFingerprint: '0000000000000000',
+      },
+      { revision: 1, version: '1.2.3' }
+    ).capabilityMismatch,
+    true
+  );
 });
 
 test('Windows Desktop daemon stays in one Mixdog process tree while CLI daemons detach', () => {
@@ -82,7 +123,7 @@ test('health and registration expose the current protocol', async () => {
         cwd: process.cwd(),
         lifecycle: false,
       }),
-      /session protocol 1 required/,
+      /session protocol 1 required/
     );
     const client = await attachSession({ discovery, cwd: process.cwd() });
     try {
@@ -98,7 +139,9 @@ test('desktop registration identity reaches the daemon lifecycle callback', asyn
   let registered = null;
   const transport = createSessionTransport({
     handleCall: async () => ({ ok: true }),
-    onClientRegistered: (client) => { registered = client; },
+    onClientRegistered: (client) => {
+      registered = client;
+    },
   });
   const discovery = await transport.start();
   let client = null;
@@ -120,31 +163,44 @@ test('desktop registration identity reaches the daemon lifecycle callback', asyn
 test('revision 0 clients keep read compatibility without retired channel mutations', async () => {
   const calls = [];
   const service = createSessionService({
-    createSessionRuntime: async () => Object.assign(createStubSessionRuntime(), {
-      listProviderModels() {
-        calls.push(['listProviderModels']);
-        return ['model-a'];
-      },
-    }),
+    createSessionRuntime: async () =>
+      Object.assign(createStubSessionRuntime(), {
+        listProviderModels() {
+          calls.push(['listProviderModels']);
+          return ['model-a'];
+        },
+      }),
   });
   try {
     const ctx = { clientToken: 'revision_zero', revision: 0 };
-    const created = await service.handleCall('session.create', {
-      sessionId: 'revision_zero_session',
-    }, ctx);
-    const models = await service.handleCall('session.configure', {
-      sessionId: created.sessionId,
-      action: 'listProviderModels',
-    }, ctx);
+    const created = await service.handleCall(
+      'session.create',
+      {
+        sessionId: 'revision_zero_session',
+      },
+      ctx
+    );
+    const models = await service.handleCall(
+      'session.configure',
+      {
+        sessionId: created.sessionId,
+        action: 'listProviderModels',
+      },
+      ctx
+    );
     assert.deepEqual(models.value, ['model-a']);
     assert.deepEqual(calls, [['listProviderModels']]);
     await assert.rejects(
-      service.handleCall('session.configure', {
-        sessionId: created.sessionId,
-        action: 'setBackend',
-        args: ['discord'],
-      }, ctx),
-      /session action setBackend is unavailable/,
+      service.handleCall(
+        'session.configure',
+        {
+          sessionId: created.sessionId,
+          action: 'setBackend',
+          args: ['discord'],
+        },
+        ctx
+      ),
+      /session action setBackend is unavailable/
     );
   } finally {
     await service.stop('test end');
@@ -215,7 +271,7 @@ test('a higher app build keeps compatible clients live until handoff commits', a
         revision: SESSION_REVISION,
         leadPid: process.pid,
       }),
-      /daemon is draining/,
+      /daemon is draining/
     );
     await assert.rejects(
       daemonPost(discovery, '/call', {
@@ -224,7 +280,7 @@ test('a higher app build keeps compatible clients live until handoff commits', a
         args: {},
         callId: 'rejected-after-drain-commit',
       }),
-      /daemon is draining/,
+      /daemon is draining/
     );
     assert.equal(calls.length, 1);
   } finally {
@@ -261,19 +317,22 @@ test('a higher API revision drains the lower-revision daemon at the same app ver
 
 test('the first runtime client can start runtime prewarm before creating a session', async () => {
   const registrations = [];
-  await withDaemon(async ({ discovery, service }) => {
-    const client = await attachSession({ discovery, cwd: process.cwd() });
-    try {
-      assert.equal(service.size, 0);
-      assert.equal(registrations.length, 1);
-      assert.equal(registrations[0].lifecycle, true);
-      assert.equal(registrations[0].cwd, process.cwd());
-    } finally {
-      await client.close('registration prewarm test');
+  await withDaemon(
+    async ({ discovery, service }) => {
+      const client = await attachSession({ discovery, cwd: process.cwd() });
+      try {
+        assert.equal(service.size, 0);
+        assert.equal(registrations.length, 1);
+        assert.equal(registrations[0].lifecycle, true);
+        assert.equal(registrations[0].cwd, process.cwd());
+      } finally {
+        await client.close('registration prewarm test');
+      }
+    },
+    {
+      onClientRegistered: (row) => registrations.push(row),
     }
-  }, {
-    onClientRegistered: (row) => registrations.push(row),
-  });
+  );
 });
 
 test('a lost registration response replays one client token instead of leaking lifecycle refs', async () => {
@@ -294,38 +353,50 @@ test('a lost registration response replays one client token instead of leaking l
 });
 
 test('health and registration bypass a burst of synchronous session call starts', async () => {
-  await withDaemon(async ({ discovery }) => {
-    const client = await attachSession({ discovery, cwd: process.cwd() });
-    const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
-    const work = Promise.all(Array.from({ length: 64 }, (_, index) =>
-      client.call('session.read', {
-        sessionId,
-        action: 'getTheme',
-        args: [index],
-      }, { callId: `control-plane-work:${index}` })));
-    await new Promise((resolve) => setImmediate(resolve));
+  await withDaemon(
+    async ({ discovery }) => {
+      const client = await attachSession({ discovery, cwd: process.cwd() });
+      const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
+      const work = Promise.all(
+        Array.from({ length: 64 }, (_, index) =>
+          client.call(
+            'session.read',
+            {
+              sessionId,
+              action: 'getTheme',
+              args: [index],
+            },
+            { callId: `control-plane-work:${index}` }
+          )
+        )
+      );
+      await new Promise((resolve) => setImmediate(resolve));
 
-    let newcomer = null;
-    try {
-      const started = performance.now();
-      newcomer = await attachSession({ discovery, cwd: process.cwd() });
-      const elapsed = performance.now() - started;
-      assert.ok(elapsed < 100, `registration waited ${elapsed.toFixed(1)}ms behind session calls`);
-    } finally {
-      await newcomer?.close('control-plane test');
-      await work;
-      await client.close('control-plane test');
+      let newcomer = null;
+      try {
+        const started = performance.now();
+        newcomer = await attachSession({ discovery, cwd: process.cwd() });
+        const elapsed = performance.now() - started;
+        assert.ok(elapsed < 100, `registration waited ${elapsed.toFixed(1)}ms behind session calls`);
+      } finally {
+        await newcomer?.close('control-plane test');
+        await work;
+        await client.close('control-plane test');
+      }
+    },
+    {
+      sessionFactory: async () => ({
+        ...createStubSessionRuntime(),
+        getTheme(index) {
+          const deadline = performance.now() + 5;
+          while (performance.now() < deadline) {
+            /* deliberate synchronous slice */
+          }
+          return index;
+        },
+      }),
     }
-  }, {
-    sessionFactory: async () => ({
-      ...createStubSessionRuntime(),
-      getTheme(index) {
-        const deadline = performance.now() + 5;
-        while (performance.now() < deadline) { /* deliberate synchronous slice */ }
-        return index;
-      },
-    }),
-  });
+  );
 });
 
 test('independent clients and sessions start without waiting for another backlog', async () => {
@@ -338,50 +409,63 @@ test('independent clients and sessions start without waiting for another backlog
     gates.set(label, gate);
     return gate.promise;
   };
-  await withDaemon(async ({ discovery }) => {
-    const noisy = await attachSession({
-      discovery, cwd: process.cwd(), leadPid: process.pid,
-    });
-    const victim = await attachSession({
-      discovery, cwd: process.cwd(), leadPid: process.ppid,
-    });
-    const { sessionId } = await noisy.call('session.create', { cwd: process.cwd() });
-    const noisyWork = Array.from({ length: 60 }, (_, index) =>
-      noisy.call('session.read', {
-        sessionId,
-        action: 'getProfile',
-        args: [`noisy-${index}`],
-      }, { callId: `fair-noisy-${index}` }));
-    let victimWork = null;
-    try {
-      await waitFor(
-        () => started.length === noisyWork.length,
-        'noisy session starts its full parallel wave',
+  await withDaemon(
+    async ({ discovery }) => {
+      const noisy = await attachSession({
+        discovery,
+        cwd: process.cwd(),
+        leadPid: process.pid,
+      });
+      const victim = await attachSession({
+        discovery,
+        cwd: process.cwd(),
+        leadPid: process.ppid,
+      });
+      const { sessionId } = await noisy.call('session.create', { cwd: process.cwd() });
+      const noisyWork = Array.from({ length: 60 }, (_, index) =>
+        noisy.call(
+          'session.read',
+          {
+            sessionId,
+            action: 'getProfile',
+            args: [`noisy-${index}`],
+          },
+          { callId: `fair-noisy-${index}` }
+        )
       );
-      victimWork = victim.call('session.read', {
-        sessionId,
-        action: 'getProfile',
-        args: ['victim'],
-      }, { callId: 'fair-victim' });
-      await waitFor(() => started.includes('victim'), 'victim starts without a permit release');
-      const victimIndex = started.indexOf('victim');
-      assert.equal(victimIndex, noisyWork.length);
-    } finally {
-      releaseAll = true;
-      for (const gate of gates.values()) gate.resolve();
-      await Promise.allSettled([...noisyWork, ...(victimWork ? [victimWork] : [])]);
-      await victim.close('fairness test');
-      await noisy.close('fairness test');
+      let victimWork = null;
+      try {
+        await waitFor(() => started.length === noisyWork.length, 'noisy session starts its full parallel wave');
+        victimWork = victim.call(
+          'session.read',
+          {
+            sessionId,
+            action: 'getProfile',
+            args: ['victim'],
+          },
+          { callId: 'fair-victim' }
+        );
+        await waitFor(() => started.includes('victim'), 'victim starts without a permit release');
+        const victimIndex = started.indexOf('victim');
+        assert.equal(victimIndex, noisyWork.length);
+      } finally {
+        releaseAll = true;
+        for (const gate of gates.values()) gate.resolve();
+        await Promise.allSettled([...noisyWork, ...(victimWork ? [victimWork] : [])]);
+        await victim.close('fairness test');
+        await noisy.close('fairness test');
+      }
+    },
+    {
+      sessionFactory: async () => ({
+        ...createStubSessionRuntime(),
+        getProfile(label) {
+          started.push(label);
+          return gateFor(label);
+        },
+      }),
     }
-  }, {
-    sessionFactory: async () => ({
-      ...createStubSessionRuntime(),
-      getProfile(label) {
-        started.push(label);
-        return gateFor(label);
-      },
-    }),
-  });
+  );
 });
 
 test('channel calls start a second client without a synthetic global permit', async () => {
@@ -407,10 +491,14 @@ test('channel calls start a second client without a synthetic global permit', as
   let victimWork = null;
   try {
     const noisy = await daemonPost(discovery, '/client/register', {
-      leadPid: process.pid, cwd: process.cwd(), passive: true,
+      leadPid: process.pid,
+      cwd: process.cwd(),
+      passive: true,
     });
     const victim = await daemonPost(discovery, '/client/register', {
-      leadPid: process.ppid, cwd: process.cwd(), passive: true,
+      leadPid: process.ppid,
+      cwd: process.cwd(),
+      passive: true,
     });
     noisyWork = Array.from({ length: 6 }, (_, index) =>
       daemonPost(discovery, '/call', {
@@ -418,11 +506,9 @@ test('channel calls start a second client without a synthetic global permit', as
         name: 'work',
         args: { label: `channel-noisy-${index}` },
         callId: `channel-noisy-${index}`,
-      }));
-    await waitFor(
-      () => started.length === noisyWork.length,
-      'channel borrower starts its full parallel wave',
+      })
     );
+    await waitFor(() => started.length === noisyWork.length, 'channel borrower starts its full parallel wave');
     victimWork = daemonPost(discovery, '/call', {
       token: victim.token,
       name: 'work',

@@ -47,7 +47,7 @@ async function withTimeout(promise, ms) {
 
 function textOfResult(result) {
   if (result && typeof result === 'object' && Array.isArray(result.content)) {
-    return result.content.map((part) => part?.type === 'text' ? part.text || '' : JSON.stringify(part)).join('\n');
+    return result.content.map((part) => (part?.type === 'text' ? part.text || '' : JSON.stringify(part))).join('\n');
   }
   if (result && typeof result === 'object' && typeof result.content === 'string') return result.content;
   if (typeof result === 'string') return result;
@@ -56,14 +56,22 @@ function textOfResult(result) {
 
 function directCycle1Llm(provider, model) {
   return async (_opts, prompt) => {
-    const response = await provider.send([
-      { role: 'system', content: 'You chunk memory entries. Output only the requested line format; no prose, no markdown.' },
-      { role: 'user', content: String(prompt || '') },
-    ], model, undefined, {
-      effort: 'low',
-      fast: true,
-      maxOutputTokens: Number(arg('cycle1-max-output-tokens', 1200)) || 1200,
-    });
+    const response = await provider.send(
+      [
+        {
+          role: 'system',
+          content: 'You chunk memory entries. Output only the requested line format; no prose, no markdown.',
+        },
+        { role: 'user', content: String(prompt || '') },
+      ],
+      model,
+      undefined,
+      {
+        effort: 'low',
+        fast: true,
+        maxOutputTokens: Number(arg('cycle1-max-output-tokens', 1200)) || 1200,
+      }
+    );
     return textOfResult(response).trim();
   };
 }
@@ -71,14 +79,21 @@ function directCycle1Llm(provider, model) {
 function messageText(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
-    return content.map((part) => {
-      if (typeof part === 'string') return part;
-      if (part?.type === 'text') return part.text || '';
-      if (part?.type === 'image') return '[image]';
-      return part?.text || '';
-    }).filter(Boolean).join('\n');
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part?.type === 'text') return part.text || '';
+        if (part?.type === 'image') return '[image]';
+        return part?.text || '';
+      })
+      .filter(Boolean)
+      .join('\n');
   }
-  try { return JSON.stringify(content ?? ''); } catch { return String(content ?? ''); }
+  try {
+    return JSON.stringify(content ?? '');
+  } catch {
+    return String(content ?? '');
+  }
 }
 
 function renderMessages(messages) {
@@ -88,7 +103,13 @@ function renderMessages(messages) {
 }
 
 function coverageScore(sourceText, candidateText) {
-  const terms = [...new Set(String(sourceText || '').toLowerCase().match(/[\p{L}\p{N}_./:-]{4,}/gu) || [])]
+  const terms = [
+    ...new Set(
+      String(sourceText || '')
+        .toLowerCase()
+        .match(/[\p{L}\p{N}_./:-]{4,}/gu) || []
+    ),
+  ]
     .filter((term) => !/^(https?|that|this|with|from|have|there|would|could|should)$/i.test(term))
     .slice(0, 5000);
   if (!terms.length) return 0;
@@ -111,7 +132,10 @@ function recallQueryForSession(messages) {
   return [
     latestUserText(messages),
     'current task decisions constraints file paths changed files verification failures next steps',
-  ].filter(Boolean).join('\n').slice(0, 2400);
+  ]
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, 2400);
 }
 
 function parseCycle1Text(text) {
@@ -151,7 +175,7 @@ async function drainCycle1ForSession(memoryModule, sessionId, options = {}) {
   const maxPasses = Math.max(1, Number(options.maxPasses) || 4);
   const windowSize = Math.max(1, Number(options.windowSize) || 50);
   const concurrency = Math.max(1, Math.min(8, Number(options.concurrency) || 4));
-  const rowsPerSession = Math.max(windowSize, Number(options.rowsPerSession) || (windowSize * concurrency));
+  const rowsPerSession = Math.max(windowSize, Number(options.rowsPerSession) || windowSize * concurrency);
   const callerDeadlineMs = Math.max(0, Number(options.callerDeadlineMs) || 0);
   const callLlm = typeof options.callLlm === 'function' ? options.callLlm : null;
   const limit = Math.max(1, Number(options.limit) || 1000);
@@ -216,31 +240,53 @@ async function providerFromConfig(config, { providerName, modelName }) {
     provider ||= preset?.provider;
     model ||= preset?.model;
   }
-  if (!provider || !model) throw new Error('provider/model required; pass --provider and --model or configure a default preset');
+  if (!provider || !model)
+    throw new Error('provider/model required; pass --provider and --model or configure a default preset');
   const impl = getProvider(provider);
   if (!impl) throw new Error(`provider not available: ${provider}`);
   return { provider, model, impl };
 }
 
 async function judgePair(provider, model, sourceText, sessionLocalText, candidateBText, candidateBLabel) {
-  const safeLabel = String(candidateBLabel || 'candidate_b').replace(/[^a-z0-9_]+/gi, '_').toLowerCase() || 'candidate_b';
+  const safeLabel =
+    String(candidateBLabel || 'candidate_b')
+      .replace(/[^a-z0-9_]+/gi, '_')
+      .toLowerCase() || 'candidate_b';
   const prompt = `You are judging two handoff sources for continuing a coding session.\n\nEvaluate which preserves actionable state better for the next assistant turn. Prefer factual coverage, exact constraints, file paths, decisions, and current task continuity.\n\nReturn strict JSON: {"winner":"session_local"|"${safeLabel}"|"tie","session_local_score":1-10,"${safeLabel}_score":1-10,"reason":"short"}.\n\n# Original session excerpt\n${sourceText.slice(0, 30000)}\n\n# Candidate A: session-local handoff\n${sessionLocalText.slice(0, 30000)}\n\n# Candidate B: ${safeLabel}\n${candidateBText.slice(0, 30000)}`;
-  const response = await provider.send([
-    { role: 'system', content: 'Judge compression quality. Output JSON only.' },
-    { role: 'user', content: prompt },
-  ], model, undefined, { effort: 'low', fast: true, maxOutputTokens: 800 });
+  const response = await provider.send(
+    [
+      { role: 'system', content: 'Judge compression quality. Output JSON only.' },
+      { role: 'user', content: prompt },
+    ],
+    model,
+    undefined,
+    { effort: 'low', fast: true, maxOutputTokens: 800 }
+  );
   const text = String(response?.content || '').trim();
-  try { return JSON.parse(text.replace(/^```json\s*/i, '').replace(/```$/i, '').trim()); }
-  catch { return { raw: text }; }
+  try {
+    return JSON.parse(
+      text
+        .replace(/^```json\s*/i, '')
+        .replace(/```$/i, '')
+        .trim()
+    );
+  } catch {
+    return { raw: text };
+  }
 }
 
 async function main() {
   if (flag('help') || flag('h')) {
-    process.stdout.write('usage: node scripts/session-context-bench.mjs --session <sessionId> [--provider p --model m] [--preset name] [--budget n] [--judge] [--recall-query q]\n');
+    process.stdout.write(
+      'usage: node scripts/session-context-bench.mjs --session <sessionId> [--provider p --model m] [--preset name] [--budget n] [--judge] [--recall-query q]\n'
+    );
     return;
   }
   const sessionId = arg('session');
-  if (!sessionId) throw new Error('usage: node scripts/session-context-bench.mjs --session <sessionId> [--provider p --model m] [--judge]');
+  if (!sessionId)
+    throw new Error(
+      'usage: node scripts/session-context-bench.mjs --session <sessionId> [--provider p --model m] [--judge]'
+    );
   const session = loadSession(sessionId);
   if (!session) throw new Error(`session not found: ${sessionId}`);
   const messages = Array.isArray(session.messages) ? session.messages : [];
@@ -254,14 +300,16 @@ async function main() {
 
   const timings = {};
   const budget = Number(arg('budget', 16000)) || 16000;
-  const sessionLocal = await timed('session_local_handoff_ms', timings, () => generateFreshHandoffSummary(impl, messages, model, budget, {
-    force: true,
-    fullHandoff: true,
-    filterOldHistoryForIngest: true,
-    sessionId,
-    providerName: provider,
-    timeoutMs: Number(arg('timeout-ms', 60000)) || 60000,
-  }));
+  const sessionLocal = await timed('session_local_handoff_ms', timings, () =>
+    generateFreshHandoffSummary(impl, messages, model, budget, {
+      force: true,
+      fullHandoff: true,
+      filterOldHistoryForIngest: true,
+      sessionId,
+      providerName: provider,
+      timeoutMs: Number(arg('timeout-ms', 60000)) || 60000,
+    })
+  );
   const sessionLocalText = String(sessionLocal.summary || '');
   const sourceText = renderMessages(messages);
   const candidateB = 'recall';
@@ -269,31 +317,37 @@ async function main() {
   let candidateBMeta = null;
   memoryModule = await import('../src/runtime/memory/index.mjs');
   await timed('memory_init_ms', timings, () => memoryModule.init());
-  const ingest = await timed('recall_ingest_ms', timings, () => memoryModule.handleToolCall('memory', {
-    action: 'ingest_session',
-    sessionId,
-    cwd: session.cwd || ROOT,
-    messages,
-    limit: Number(arg('ingest-limit', 500)) || 500,
-  }));
-  const cycle1 = await timed('recall_cycle1_drain_ms', timings, () => drainCycle1ForSession(memoryModule, sessionId, {
-    maxPasses: Number(arg('cycle1-passes', 4)) || 4,
-    windowSize: Number(arg('window-size', arg('batch-size', 50))) || 50,
-    rowsPerSession: Number(arg('rows-per-session', 0)) || 0,
-    concurrency: Number(arg('concurrency', 4)) || 4,
-    callerDeadlineMs: Number(arg('cycle1-deadline-ms', 120000)) || 120000,
-    callLlm: directCycle1Llm(impl, model),
-    limit: Number(arg('limit', 1000)) || 1000,
-  }));
+  const ingest = await timed('recall_ingest_ms', timings, () =>
+    memoryModule.handleToolCall('memory', {
+      action: 'ingest_session',
+      sessionId,
+      cwd: session.cwd || ROOT,
+      messages,
+      limit: Number(arg('ingest-limit', 500)) || 500,
+    })
+  );
+  const cycle1 = await timed('recall_cycle1_drain_ms', timings, () =>
+    drainCycle1ForSession(memoryModule, sessionId, {
+      maxPasses: Number(arg('cycle1-passes', 4)) || 4,
+      windowSize: Number(arg('window-size', arg('batch-size', 50))) || 50,
+      rowsPerSession: Number(arg('rows-per-session', 0)) || 0,
+      concurrency: Number(arg('concurrency', 4)) || 4,
+      callerDeadlineMs: Number(arg('cycle1-deadline-ms', 120000)) || 120000,
+      callLlm: directCycle1Llm(impl, model),
+      limit: Number(arg('limit', 1000)) || 1000,
+    })
+  );
   const recallQuery = String(arg('recall-query', recallQueryForSession(messages)) || '').trim();
-  const recallResult = await timed('recall_search_ms', timings, () => memoryModule.handleToolCall('memory', {
-    action: 'search',
-    sessionId,
-    query: recallQuery,
-    limit: Number(arg('recall-limit', 100)) || 100,
-    includeArchived: true,
-    includeMembers: true,
-  }));
+  const recallResult = await timed('recall_search_ms', timings, () =>
+    memoryModule.handleToolCall('memory', {
+      action: 'search',
+      sessionId,
+      query: recallQuery,
+      limit: Number(arg('recall-limit', 100)) || 100,
+      includeArchived: true,
+      includeMembers: true,
+    })
+  );
   candidateBText = textOfResult(recallResult);
   candidateBMeta = {
     chars: candidateBText.length,
@@ -309,12 +363,18 @@ async function main() {
     model,
     timings,
     source: { messages: messages.length, tokens: estimateMessagesTokens(messages), chars: sourceText.length },
-    sessionLocal: { chars: sessionLocalText.length, lexicalCoverage: coverageScore(sourceText, sessionLocalText), usage: sessionLocal.usage || null },
+    sessionLocal: {
+      chars: sessionLocalText.length,
+      lexicalCoverage: coverageScore(sourceText, sessionLocalText),
+      usage: sessionLocal.usage || null,
+    },
     candidateB: { label: candidateB, ...candidateBMeta },
     judge: null,
   };
   if (flag('judge')) {
-    report.judge = await timed('judge_ms', timings, () => judgePair(impl, model, sourceText, sessionLocalText, candidateBText, candidateB));
+    report.judge = await timed('judge_ms', timings, () =>
+      judgePair(impl, model, sourceText, sessionLocalText, candidateBText, candidateB)
+    );
   }
 
   const outDir = resolve(arg('out', join(ROOT, '.mixdog-bench', `session-context-${sessionId}`)));

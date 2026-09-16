@@ -2,16 +2,19 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { physicalAsarPath } from '../shared/asar-path.mjs';
-import { acceptSessionIdentity, drainSessionClient, officeCleanupError, sessionClients, stopSessionClient, stopMicrosoftOfficeSessionClients } from './office-session-client.mjs';
+import {
+  acceptSessionIdentity,
+  drainSessionClient,
+  officeCleanupError,
+  sessionClients,
+  stopSessionClient,
+  stopMicrosoftOfficeSessionClients,
+} from './office-session-client.mjs';
 
 export { stopMicrosoftOfficeSessionClients as _stopMicrosoftOfficeSessionClients } from './office-session-client.mjs';
 
-const HOST_SCRIPT = physicalAsarPath(
-  fileURLToPath(new URL('./office-com-host.ps1', import.meta.url)),
-);
-const SESSION_HOST_SCRIPT = physicalAsarPath(
-  fileURLToPath(new URL('./office-com-session-host.ps1', import.meta.url)),
-);
+const HOST_SCRIPT = physicalAsarPath(fileURLToPath(new URL('./office-com-host.ps1', import.meta.url)));
+const SESSION_HOST_SCRIPT = physicalAsarPath(fileURLToPath(new URL('./office-com-session-host.ps1', import.meta.url)));
 const DEFAULT_TIMEOUT_MS = 90_000;
 let nextRequestId = 1;
 
@@ -26,25 +29,17 @@ export function microsoftOfficeComSupported() {
 }
 
 function spawnPowerShell(script) {
-  return spawn(powershellProgram(), [
-    '-NoLogo',
-    '-NoProfile',
-    '-NonInteractive',
-    '-Sta',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-File',
-    script,
-  ], {
-    windowsHide: true,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+  return spawn(
+    powershellProgram(),
+    ['-NoLogo', '-NoProfile', '-NonInteractive', '-Sta', '-ExecutionPolicy', 'Bypass', '-File', script],
+    {
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }
+  );
 }
 
-async function callMicrosoftOfficeOnce(payload, {
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-  signal = null,
-} = {}) {
+async function callMicrosoftOfficeOnce(payload, { timeoutMs = DEFAULT_TIMEOUT_MS, signal = null } = {}) {
   return await new Promise((resolve) => {
     const child = spawnPowerShell(HOST_SCRIPT);
     let stdout = '';
@@ -62,9 +57,21 @@ async function callMicrosoftOfficeOnce(payload, {
       if (draining) return;
       draining = true;
       clearTimeout(timer);
-      const client = { child, pending: new Map(), get stderr() { return stderr; } };
+      const client = {
+        child,
+        pending: new Map(),
+        get stderr() {
+          return stderr;
+        },
+      };
       void drainSessionClient(client, error).then((cleanup) => {
-        finish({ ok: false, cancelled, error: officeCleanupError(error, cleanup), operationMayHaveCompleted: true, cleanup });
+        finish({
+          ok: false,
+          cancelled,
+          error: officeCleanupError(error, cleanup),
+          operationMayHaveCompleted: true,
+          cleanup,
+        });
       });
     };
     const onAbort = () => beginCleanup('Microsoft Office operation was cancelled', true);
@@ -73,22 +80,35 @@ async function callMicrosoftOfficeOnce(payload, {
     }, timeoutMs);
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk) => { stdout += chunk; });
-    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
     child.on('error', (error) => finish({ ok: false, error: error?.message || String(error) }));
     child.on('close', (code) => {
       if (settled) return;
       if (draining) return;
-      const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      const lines = stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
       const last = lines.at(-1) || '';
       try {
         const parsed = JSON.parse(last);
         const cleanupErrors = stderr.split(/\r?\n/).filter((line) => line.includes('MIXDOG_OFFICE_CLEANUP'));
-        finish(cleanupErrors.length ? {
-          ...parsed, ok: false, operationCompleted: parsed.ok === true,
-          error: 'Office operation finished but cleanup failed; do not replay the operation.',
-          cleanup: { ok: false, errors: cleanupErrors },
-        } : parsed);
+        finish(
+          cleanupErrors.length
+            ? {
+                ...parsed,
+                ok: false,
+                operationCompleted: parsed.ok === true,
+                error: 'Office operation finished but cleanup failed; do not replay the operation.',
+                cleanup: { ok: false, errors: cleanupErrors },
+              }
+            : parsed
+        );
       } catch {
         finish({
           ok: false,
@@ -159,10 +179,7 @@ function createSessionClient(sessionId) {
   child.on('error', (error) => stopSessionClient(client, error?.message || String(error)));
   child.on('close', (code) => {
     if (client.closed) return;
-    stopSessionClient(
-      client,
-      client.stderr.trim() || `Microsoft Office session host exited with code ${code}`,
-    );
+    stopSessionClient(client, client.stderr.trim() || `Microsoft Office session host exited with code ${code}`);
   });
   sessionClients.set(sessionId, client);
   return client;
@@ -182,7 +199,13 @@ async function requestSessionClient(client, payload, timeoutMs = DEFAULT_TIMEOUT
       client.pending.delete(requestId);
       clearTimeout(timer);
       const cleanup = await drainSessionClient(client, 'Microsoft Office operation was cancelled');
-      settle({ ok: false, backend: 'microsoft-office-com', cancelled: true, error: officeCleanupError('Microsoft Office operation was cancelled', cleanup), cleanup });
+      settle({
+        ok: false,
+        backend: 'microsoft-office-com',
+        cancelled: true,
+        error: officeCleanupError('Microsoft Office operation was cancelled', cleanup),
+        cleanup,
+      });
     };
     const timer = setTimeout(async () => {
       client.pending.delete(requestId);
@@ -204,22 +227,25 @@ async function requestSessionClient(client, payload, timeoutMs = DEFAULT_TIMEOUT
       clearTimeout(timer);
       client.pending.delete(requestId);
       void drainSessionClient(client, error?.message || String(error)).then((cleanup) => {
-        settle({ ok: false, backend: 'microsoft-office-com', error: officeCleanupError(error?.message || String(error), cleanup), cleanup });
+        settle({
+          ok: false,
+          backend: 'microsoft-office-com',
+          error: officeCleanupError(error?.message || String(error), cleanup),
+          cleanup,
+        });
       });
     }
   });
 }
 
-export async function openMicrosoftOfficeSession(payload, {
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-  signal = null,
-} = {}) {
+export async function openMicrosoftOfficeSession(payload, { timeoutMs = DEFAULT_TIMEOUT_MS, signal = null } = {}) {
   if (!microsoftOfficeComSupported()) {
     return { ok: false, available: false, error: 'Microsoft Office COM is available on Windows only' };
   }
   const sessionId = String(payload?.session || '');
   if (!sessionId) return { ok: false, error: 'Microsoft Office session id is required' };
-  if (sessionClients.has(sessionId)) return { ok: false, error: `Microsoft Office session already exists: ${sessionId}` };
+  if (sessionClients.has(sessionId))
+    return { ok: false, error: `Microsoft Office session already exists: ${sessionId}` };
   const client = createSessionClient(sessionId);
   const result = await requestSessionClient(client, { ...payload, action: 'open_session' }, timeoutMs, signal);
   if (!result.ok && !client.closing) {
@@ -229,42 +255,54 @@ export async function openMicrosoftOfficeSession(payload, {
   return result;
 }
 
-export async function closeMicrosoftOfficeSession(sessionId, {
-  save = false,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-  closeTimeoutMs = 15_000,
-  signal = null,
-} = {}) {
+export async function closeMicrosoftOfficeSession(
+  sessionId,
+  { save = false, timeoutMs = DEFAULT_TIMEOUT_MS, closeTimeoutMs = 15_000, signal = null } = {}
+) {
   const client = sessionClients.get(String(sessionId));
-  if (!client) return { ok: false, closed: false, error: 'Office session host is unavailable; application cleanup cannot be confirmed.' };
-  const result = await requestSessionClient(client, {
-    action: 'close_session',
-    session: String(sessionId),
-    save,
-  }, timeoutMs, signal);
+  if (!client)
+    return {
+      ok: false,
+      closed: false,
+      error: 'Office session host is unavailable; application cleanup cannot be confirmed.',
+    };
+  const result = await requestSessionClient(
+    client,
+    {
+      action: 'close_session',
+      session: String(sessionId),
+      save,
+    },
+    timeoutMs,
+    signal
+  );
   if (result.ok) {
     sessionClients.delete(String(sessionId));
-    try { client.child.stdin.end(); } catch {}
-    const graceful = client.closed || client.child.exitCode !== null
-      ? true
-      : await Promise.race([
-        new Promise((resolve) => client.child.once('close', () => resolve(true))),
-        new Promise((resolve) => setTimeout(() => resolve(false), closeTimeoutMs)),
-      ]);
+    try {
+      client.child.stdin.end();
+    } catch {}
+    const graceful =
+      client.closed || client.child.exitCode !== null
+        ? true
+        : await Promise.race([
+            new Promise((resolve) => client.child.once('close', () => resolve(true))),
+            new Promise((resolve) => setTimeout(() => resolve(false), closeTimeoutMs)),
+          ]);
     client.closed = true;
-    try { client.readline.close(); } catch {}
+    try {
+      client.readline.close();
+    } catch {}
     if (!graceful) {
-      try { client.child.kill(); } catch {}
+      try {
+        client.child.kill();
+      } catch {}
       result.forcedHostCleanup = true;
     }
   }
   return result;
 }
 
-export async function callMicrosoftOffice(payload, {
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-  signal = null,
-} = {}) {
+export async function callMicrosoftOffice(payload, { timeoutMs = DEFAULT_TIMEOUT_MS, signal = null } = {}) {
   if (!microsoftOfficeComSupported()) {
     return { ok: false, available: false, error: 'Microsoft Office COM is available on Windows only' };
   }

@@ -32,9 +32,10 @@ test('headless basic tools omit the loader and its guidance without removing opt
         disallowedTools: denied,
         tools: filterModelToolsForProfile(
           [...HEADLESS_MODEL_TOOL_NAMES, 'Skill'].map((name) => ({
-            name, inputSchema: { type: 'object', properties: {} },
+            name,
+            inputSchema: { type: 'object', properties: {} },
           })),
-          profile,
+          profile
         ),
       };
       applyDeferredToolSurface(session, 'lead');
@@ -48,8 +49,14 @@ test('headless basic tools omit the loader and its guidance without removing opt
       };
     };
     const headless = surface(basic, 'headless');
-    assert.equal(headless.session.tools.some((tool) => tool.name === 'load_tool'), false);
-    assert.equal(headless.session.deferredToolCatalog.some((tool) => tool.name === 'load_tool'), false);
+    assert.equal(
+      headless.session.tools.some((tool) => tool.name === 'load_tool'),
+      false
+    );
+    assert.equal(
+      headless.session.deferredToolCatalog.some((tool) => tool.name === 'load_tool'),
+      false
+    );
     assert.ok(headless.session.tools.some((tool) => tool.name === 'shell'));
     assert.ok(headless.session.tools.some((tool) => tool.name === 'git'));
     assert.doesNotMatch(headless.rules, /load_tool|# Skills|# Goals/);
@@ -66,8 +73,14 @@ test('headless basic tools omit the loader and its guidance without removing opt
       ['github', { ...basic, builtins: { git: { installed: true } } }],
     ]) {
       const optional = surface(config, 'headless');
-      assert.ok(optional.session.tools.some((tool) => tool.name === 'load_tool'), name);
-      assert.ok(optional.session.deferredToolCatalog.some((tool) => tool.name === name), name);
+      assert.ok(
+        optional.session.tools.some((tool) => tool.name === 'load_tool'),
+        name
+      );
+      assert.ok(
+        optional.session.deferredToolCatalog.some((tool) => tool.name === name),
+        name
+      );
       assert.match(optional.rules, /`load_tool`/);
     }
   } finally {
@@ -116,7 +129,16 @@ test('structural keys alone never grandfather a profile', () => {
 test('a fresh profile keeps every gated tool family off the session surface', () => {
   const config = withGrandfatheredBuiltins({});
   assert.deepEqual(featureDisallowedToolsFor(config), [
-    'memory', 'recall', 'git', 'git_stage', 'github', 'browser', 'browser_devtools', 'computer', 'office', 'tidy',
+    'memory',
+    'recall',
+    'git',
+    'git_stage',
+    'github',
+    'browser',
+    'browser_devtools',
+    'computer',
+    'office',
+    'tidy',
   ]);
 });
 
@@ -124,10 +146,7 @@ test('installed features with live bridges expose the full tool surface', () => 
   // tidy ships after the grandfathering cut, so an upgraded profile still has
   // to install it; everything grandfathered stays available.
   const config = setBuiltinInstalledInConfig(withGrandfatheredBuiltins({ presets: [] }), 'tidy', true);
-  assert.deepEqual(
-    featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true }),
-    [],
-  );
+  assert.deepEqual(featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true }), []);
   // A missing bridge keeps browser/computer out even on an installed profile.
   assert.deepEqual(featureDisallowedToolsFor(config), ['browser', 'browser_devtools', 'computer']);
 });
@@ -139,9 +158,13 @@ test('headless Git needs no install marker but respects OFF and does not enable 
   assert.equal(blocked.includes('git_stage'), true);
   assert.equal(blocked.includes('github'), true);
   assert.deepEqual(config, { builtins: {} });
-  const off = featureDisallowedToolsFor({
-    ...config, modules: { git: { enabled: false } },
-  }, { toolProfile: 'headless' });
+  const off = featureDisallowedToolsFor(
+    {
+      ...config,
+      modules: { git: { enabled: false } },
+    },
+    { toolProfile: 'headless' }
+  );
   for (const name of ['git', 'git_stage', 'github']) assert.ok(off.includes(name));
   const previous = process.env.MIXDOG_FEATURE_GIT;
   process.env.MIXDOG_FEATURE_GIT = '0';
@@ -161,10 +184,12 @@ test('a disabled toggle removes tools even while the feature stays installed', (
     modules: { office: { enabled: false } },
     memoryTools: { enabled: false },
   };
-  assert.deepEqual(
-    featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true }),
-    ['memory', 'recall', 'office', 'tidy'],
-  );
+  assert.deepEqual(featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true }), [
+    'memory',
+    'recall',
+    'office',
+    'tidy',
+  ]);
 });
 
 test('MIXDOG_FEATURE_* env overrides win over stored markers in both directions', () => {
@@ -180,7 +205,7 @@ test('MIXDOG_FEATURE_* env overrides win over stored markers in both directions'
         browserAvailable: true,
         computerAvailable: true,
       }),
-      ['git', 'git_stage', 'github'],
+      ['git', 'git_stage', 'github']
     );
   } finally {
     delete process.env.MIXDOG_FEATURE_OFFICE;
@@ -235,16 +260,27 @@ test('the tidy schema defers like office instead of loading eagerly', () => {
       messages: [],
       disallowedTools: featureDisallowedToolsFor({ builtins: {} }),
       tools: [...HEADLESS_MODEL_TOOL_NAMES, 'media'].map((name) => ({
-        name, inputSchema: { type: 'object', properties: {} },
+        name,
+        inputSchema: { type: 'object', properties: {} },
       })),
     };
     applyDeferredToolSurface(session, 'lead');
     const deferred = session.deferredToolCatalog.map((tool) => tool.name);
     assert.ok(deferred.includes('tidy'), 'tidy must stay loadable on demand');
-    assert.equal(session.tools.some((tool) => tool.name === 'tidy'), false, 'and must not load eagerly');
+    assert.equal(
+      session.tools.some((tool) => tool.name === 'tidy'),
+      false,
+      'and must not load eagerly'
+    );
     // Same treatment as the other feature tools it ships beside.
-    assert.equal(session.tools.some((tool) => tool.name === 'office'), false);
-    assert.equal(session.tools.some((tool) => tool.name === 'media'), false);
+    assert.equal(
+      session.tools.some((tool) => tool.name === 'office'),
+      false
+    );
+    assert.equal(
+      session.tools.some((tool) => tool.name === 'media'),
+      false
+    );
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_FEATURE_TIDY;
     else process.env.MIXDOG_FEATURE_TIDY = previous;

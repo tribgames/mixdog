@@ -28,9 +28,9 @@ const COLON_CODE = 58; // ':'
  * without materializing the line array.
  */
 export function splitSseRegion(buffer) {
-    const cut = buffer.lastIndexOf('\n');
-    if (cut < 0) return { region: '', rest: buffer };
-    return { region: buffer.slice(0, cut + 1), rest: buffer.slice(cut + 1) };
+  const cut = buffer.lastIndexOf('\n');
+  if (cut < 0) return { region: '', rest: buffer };
+  return { region: buffer.slice(0, cut + 1), rest: buffer.slice(cut + 1) };
 }
 
 /**
@@ -39,27 +39,27 @@ export function splitSseRegion(buffer) {
  * a record split across network chunks keeps its event name.
  */
 export function frameSseRegion(text, currentEvent = '') {
-    const frames = [];
-    let name = String(currentEvent || '');
-    const length = text.length;
-    let index = 0;
-    while (index < length) {
-        let end = text.indexOf('\n', index);
-        if (end < 0) end = length;
-        const start = index;
-        index = end + 1;
-        if (end === start) continue; // record separator
-        if (text.charCodeAt(start) === COLON_CODE) continue; // comment / ping keepalive
-        if (text.startsWith('event: ', start)) {
-            name = text.slice(start + 7, end).trim();
-            continue;
-        }
-        if (!text.startsWith('data: ', start)) continue;
-        const data = text.slice(start + 6, end).trim();
-        if (!data) continue;
-        frames.push({ name, data });
+  const frames = [];
+  let name = String(currentEvent || '');
+  const length = text.length;
+  let index = 0;
+  while (index < length) {
+    let end = text.indexOf('\n', index);
+    if (end < 0) end = length;
+    const start = index;
+    index = end + 1;
+    if (end === start) continue; // record separator
+    if (text.charCodeAt(start) === COLON_CODE) continue; // comment / ping keepalive
+    if (text.startsWith('event: ', start)) {
+      name = text.slice(start + 7, end).trim();
+      continue;
     }
-    return { frames, currentEvent: name };
+    if (!text.startsWith('data: ', start)) continue;
+    const data = text.slice(start + 6, end).trim();
+    if (!data) continue;
+    frames.push({ name, data });
+  }
+  return { frames, currentEvent: name };
 }
 
 /**
@@ -69,25 +69,25 @@ export function frameSseRegion(text, currentEvent = '') {
  * try/catch did.
  */
 export function parseSseFrames(frames) {
-    const events = [];
-    for (const frame of frames) {
-        try {
-            events.push({ name: frame.name, value: JSON.parse(frame.data) });
-        } catch (error) {
-            events.push({
-                name: frame.name,
-                error: {
-                    name: String(error?.name || 'SyntaxError'),
-                    message: String(error?.message || error || 'invalid JSON'),
-                },
-            });
-        }
+  const events = [];
+  for (const frame of frames) {
+    try {
+      events.push({ name: frame.name, value: JSON.parse(frame.data) });
+    } catch (error) {
+      events.push({
+        name: frame.name,
+        error: {
+          name: String(error?.name || 'SyntaxError'),
+          message: String(error?.message || error || 'invalid JSON'),
+        },
+      });
     }
-    return events;
+  }
+  return events;
 }
 
 /** Frame + parse in one pass (the unit of work posted to the stream worker). */
 export function frameAndParseSse(text, currentEvent = '') {
-    const framed = frameSseRegion(text, currentEvent);
-    return { events: parseSseFrames(framed.frames), currentEvent: framed.currentEvent };
+  const framed = frameSseRegion(text, currentEvent);
+  return { events: parseSseFrames(framed.frames), currentEvent: framed.currentEvent };
 }

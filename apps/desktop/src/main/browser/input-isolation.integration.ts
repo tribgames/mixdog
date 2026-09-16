@@ -14,7 +14,10 @@ app.setPath('userData', join(directory, 'profile'));
 if (!process.argv.includes('--gpu')) app.disableHardwareAcceleration();
 const log = (text: string) => appendFileSync(logPath, `${text}\n`);
 const { readDiscovery } = createPolling({ timeoutMs: 5_000, intervalMs: 25 });
-const deadline = setTimeout(() => { log('input isolation timed out'); app.exit(1); }, 110_000);
+const deadline = setTimeout(() => {
+  log('input isolation timed out');
+  app.exit(1);
+}, 110_000);
 
 async function run(): Promise<void> {
   const chosenFile = join(directory, 'chosen.txt');
@@ -54,9 +57,14 @@ async function run(): Promise<void> {
     assert.ok(address && typeof address === 'object');
     const origin = `http://127.0.0.1:${address.port}`;
     parent = new BrowserWindow({
-      show: false, width: 1000, height: 720,
+      show: false,
+      width: 1000,
+      height: 720,
       webPreferences: {
-        webviewTag: true, sandbox: true, contextIsolation: true, nodeIntegration: false,
+        webviewTag: true,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
         preload: join(directory, 'fixture-preload.cjs'),
       },
     });
@@ -64,7 +72,8 @@ async function run(): Promise<void> {
       requestApproval: async () => true,
       chooseBrowserFiles: async () => ({ canceled: false, filePaths: [chosenFile] }),
     });
-    await parent.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+    await parent.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent(`
       <!doctype html><style>webview{display:flex;width:400px;height:300px}#parked{position:fixed;left:-10000px}</style>
       <section data-pane-id="editing"><form class="composer"><textarea id="composer">user draft untouched</textarea></form></section>
       <script>
@@ -72,9 +81,13 @@ async function run(): Promise<void> {
         for (const type of ['focusin','focusout','keydown','beforeinput','input','compositionstart','compositionupdate','compositionend']) {
           document.addEventListener(type, e => events.push({type, target:e.target.id, key:e.key, data:e.data}), true);
         }
-      </script>` )}`);
+      </script>`)}`
+    );
     const guests: WebContents[] = [];
-    for (const [sessionId, path] of [['visible-session', 'visible'], ['parked-session', 'parked']]) {
+    for (const [sessionId, path] of [
+      ['visible-session', 'visible'],
+      ['parked-session', 'parked'],
+    ]) {
       log(`preparing display ${sessionId}`);
       const frame = await readyBrowserFrame(host, sessionId);
       const guest = webContents.fromId(frame.webContentsId);
@@ -96,12 +109,13 @@ async function run(): Promise<void> {
         method: 'POST',
         headers: { authorization: `Bearer ${discovery.token}`, 'content-type': 'application/json' },
         body: JSON.stringify({
-          session_id: sessionId, turn_id: ++turn,
+          session_id: sessionId,
+          turn_id: ++turn,
           ...input,
         }),
         signal: AbortSignal.timeout(12_000),
       });
-      const result = await response.json() as { ok: boolean; error?: string; value?: { text: string } };
+      const result = (await response.json()) as { ok: boolean; error?: string; value?: { text: string } };
       assert.ok(result.ok, result.error);
       return result.value!.text;
     };
@@ -115,80 +129,100 @@ async function run(): Promise<void> {
         window.events = [];
       })()`);
     };
-    const state = () => shell.executeJavaScript(`(() => {
+    const state = () =>
+      shell.executeJavaScript(`(() => {
       const field = document.getElementById('composer');
       return {active:document.activeElement.id, value:field.value,
         start:field.selectionStart, end:field.selectionEnd, direction:field.selectionDirection, events:window.events};
     })()`);
     const failures: string[] = [];
     if (!process.argv.includes('--surface-only')) {
-    for (const guest of guests) {
-      const sessionId = guest.getURL().endsWith('/visible') ? 'visible-session' : 'parked-session';
-      let snapshot = await command(sessionId, { action: 'snapshot' });
-      const ref = (name = 'Agent input') => {
-        const line = snapshot.split('\n').find(line => line.includes(JSON.stringify(name)));
-        const match = line?.match(/\[(p\d+-s\d+-e\d+)\]/);
-        assert.ok(match, snapshot);
-        return match[1];
-      };
-      const probes: Array<[string, () => Promise<unknown>]> = [
-        ['page focus', () => guest.executeJavaScript(`document.getElementById('agent').focus()`)],
-        ['fill', () => command(sessionId, { action: 'fill', ref: ref(), text: 'agent-fill' })],
-        ['type', () => command(sessionId, { action: 'type', ref: ref(), text: 'agent-type' })],
-        ['press', () => command(sessionId, { action: 'press', key: 'z' })],
-        ['click', () => command(sessionId, { action: 'click', ref: ref('Focus field') })],
-        ['tab boundary', () => command(sessionId, { action: 'press', key: 'Tab' })],
-        ['IME type', () => command(sessionId, { action: 'type', ref: ref(), text: 'agent-ime' })],
-        ['frame type', () => command(sessionId, { action: 'type', ref: ref('Frame input'), text: 'frame-text' })],
-        ['frame press', () => command(sessionId, { action: 'press', key: 'z' })],
-        ['navigate autofocus', async () => { snapshot = await command(sessionId, { action: 'navigate', url: `${origin}/reload` }); }],
-      ];
-      for (const [label, probe] of probes) {
-        log(`probe ${sessionId} ${label}`);
-        await reset();
-        if (label === 'IME type') {
-          await shell.debugger.sendCommand('Input.imeSetComposition', {
-            text: 'ㅎ', selectionStart: 1, selectionEnd: 1,
-          });
-          await shell.executeJavaScript('window.events = []');
-        }
-        const before = await state();
-        try {
-          const result = await probe();
-          if (typeof result === 'string' && result.includes('[p')) snapshot = result;
-          const after = await state();
-          log(JSON.stringify({ sessionId, label, shellFocused: shell.isFocused(), guestFocused: guest.isFocused(), after }));
-          assert.deepEqual(after, before, `${sessionId}: ${label} must preserve composer including focus and events`);
-          if (label === 'type') {
-            assert.equal(await guest.executeJavaScript(`document.getElementById('agent').value`), 'agent-type');
-          }
-          if (label === 'press') {
-            assert.equal(await guest.executeJavaScript(`document.getElementById('agent').value`), 'agent-typez');
-          }
-          if (label.startsWith('frame ')) {
-            const frame = guest.mainFrame.frames.find(frame => frame.url.endsWith('/frame'));
-            assert.ok(frame, 'cross-origin frame must exist');
-            assert.equal(await frame.executeJavaScript(`document.getElementById('frame').value`),
-              label === 'frame type' ? 'frame-text' : 'frame-textz');
-          }
+      for (const guest of guests) {
+        const sessionId = guest.getURL().endsWith('/visible') ? 'visible-session' : 'parked-session';
+        let snapshot = await command(sessionId, { action: 'snapshot' });
+        const ref = (name = 'Agent input') => {
+          const line = snapshot.split('\n').find((line) => line.includes(JSON.stringify(name)));
+          const match = line?.match(/\[(p\d+-s\d+-e\d+)\]/);
+          assert.ok(match, snapshot);
+          return match[1];
+        };
+        const probes: Array<[string, () => Promise<unknown>]> = [
+          ['page focus', () => guest.executeJavaScript(`document.getElementById('agent').focus()`)],
+          ['fill', () => command(sessionId, { action: 'fill', ref: ref(), text: 'agent-fill' })],
+          ['type', () => command(sessionId, { action: 'type', ref: ref(), text: 'agent-type' })],
+          ['press', () => command(sessionId, { action: 'press', key: 'z' })],
+          ['click', () => command(sessionId, { action: 'click', ref: ref('Focus field') })],
+          ['tab boundary', () => command(sessionId, { action: 'press', key: 'Tab' })],
+          ['IME type', () => command(sessionId, { action: 'type', ref: ref(), text: 'agent-ime' })],
+          ['frame type', () => command(sessionId, { action: 'type', ref: ref('Frame input'), text: 'frame-text' })],
+          ['frame press', () => command(sessionId, { action: 'press', key: 'z' })],
+          [
+            'navigate autofocus',
+            async () => {
+              snapshot = await command(sessionId, { action: 'navigate', url: `${origin}/reload` });
+            },
+          ],
+        ];
+        for (const [label, probe] of probes) {
+          log(`probe ${sessionId} ${label}`);
+          await reset();
           if (label === 'IME type') {
-            for (const text of ['하', '한']) {
-              await shell.debugger.sendCommand('Input.imeSetComposition', {
-                text, selectionStart: 1, selectionEnd: 1,
-              });
-            }
-            await shell.debugger.sendCommand('Input.insertText', { text: '한' });
-            assert.equal((await state()).value, 'user 한 untouched');
-            assert.equal(await guest.executeJavaScript(`document.getElementById('agent').value`), 'agent-ime');
+            await shell.debugger.sendCommand('Input.imeSetComposition', {
+              text: 'ㅎ',
+              selectionStart: 1,
+              selectionEnd: 1,
+            });
+            await shell.executeJavaScript('window.events = []');
           }
-        } catch (error) {
-          const failure = `${sessionId}: ${label}: ${(error as Error).message.split('\n')[0]}`;
-          failures.push(failure);
-          log(failure);
+          const before = await state();
+          try {
+            const result = await probe();
+            if (typeof result === 'string' && result.includes('[p')) snapshot = result;
+            const after = await state();
+            log(
+              JSON.stringify({
+                sessionId,
+                label,
+                shellFocused: shell.isFocused(),
+                guestFocused: guest.isFocused(),
+                after,
+              })
+            );
+            assert.deepEqual(after, before, `${sessionId}: ${label} must preserve composer including focus and events`);
+            if (label === 'type') {
+              assert.equal(await guest.executeJavaScript(`document.getElementById('agent').value`), 'agent-type');
+            }
+            if (label === 'press') {
+              assert.equal(await guest.executeJavaScript(`document.getElementById('agent').value`), 'agent-typez');
+            }
+            if (label.startsWith('frame ')) {
+              const frame = guest.mainFrame.frames.find((frame) => frame.url.endsWith('/frame'));
+              assert.ok(frame, 'cross-origin frame must exist');
+              assert.equal(
+                await frame.executeJavaScript(`document.getElementById('frame').value`),
+                label === 'frame type' ? 'frame-text' : 'frame-textz'
+              );
+            }
+            if (label === 'IME type') {
+              for (const text of ['하', '한']) {
+                await shell.debugger.sendCommand('Input.imeSetComposition', {
+                  text,
+                  selectionStart: 1,
+                  selectionEnd: 1,
+                });
+              }
+              await shell.debugger.sendCommand('Input.insertText', { text: '한' });
+              assert.equal((await state()).value, 'user 한 untouched');
+              assert.equal(await guest.executeJavaScript(`document.getElementById('agent').value`), 'agent-ime');
+            }
+          } catch (error) {
+            const failure = `${sessionId}: ${label}: ${(error as Error).message.split('\n')[0]}`;
+            failures.push(failure);
+            log(failure);
+          }
         }
       }
-    }
-    assert.deepEqual(failures, []);
+      assert.deepEqual(failures, []);
     }
     await exerciseBrowserInputSurface({ parent, host, guest: guests[0], origin, command, log });
     log('input isolation passed');
@@ -200,11 +234,16 @@ async function run(): Promise<void> {
   } finally {
     await host?.dispose();
     if (parent && !parent.isDestroyed()) parent.destroy();
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
 
-void app.whenReady().then(run).then(() => app.exit(0)).catch(error => {
-  log(error.stack || String(error));
-  app.exit(1);
-}).finally(() => clearTimeout(deadline));
+void app
+  .whenReady()
+  .then(run)
+  .then(() => app.exit(0))
+  .catch((error) => {
+    log(error.stack || String(error));
+    app.exit(1);
+  })
+  .finally(() => clearTimeout(deadline));

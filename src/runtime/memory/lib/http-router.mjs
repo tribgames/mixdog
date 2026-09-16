@@ -9,42 +9,47 @@
 // handlers are injected so the facade keeps ownership of `db`, `_traceDb`,
 // `_bootTimestamp`, and the init/stop lifecycle.
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js'
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { TOOL_DEFS } from '../tool-defs.mjs';
 import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js'
-import fs from 'node:fs'
-import path from 'node:path'
+  readBody,
+  sendJson,
+  sendError,
+  isLocalOrigin,
+  normalizeCoreProjectId,
+  TOOL_HTTP_BODY_MAX_BYTES,
+} from './http-wire.mjs';
+import { listCore, addCore, deleteCore } from './core-memory-store.mjs';
+import { formatCuratedCoreMemoryLine } from './core-memory-file.mjs';
+import { isBootstrapComplete, cleanMemoryText } from './memory.mjs';
+import { resolveProjectScope } from './project-id-resolver.mjs';
+import { openTraceDatabase, insertAgentCalls, enqueueTraceEvents, registerTraceExitDrain } from './trace-store.mjs';
+import { warmupEmbeddingProvider, isEmbeddingModelReady } from './embedding-provider.mjs';
+import { embeddingWarmupCanStart, memorySecondaryMode } from './memory-config-flags.mjs';
 
-import { TOOL_DEFS } from '../tool-defs.mjs'
-import { readBody, sendJson, sendError, isLocalOrigin, normalizeCoreProjectId, TOOL_HTTP_BODY_MAX_BYTES } from './http-wire.mjs'
-import { listCore, addCore, deleteCore } from './core-memory-store.mjs'
-import { formatCuratedCoreMemoryLine } from './core-memory-file.mjs'
-import { isBootstrapComplete, cleanMemoryText } from './memory.mjs'
-import { resolveProjectScope } from './project-id-resolver.mjs'
-import { openTraceDatabase, insertAgentCalls, enqueueTraceEvents, registerTraceExitDrain } from './trace-store.mjs'
-import { warmupEmbeddingProvider, isEmbeddingModelReady } from './embedding-provider.mjs'
-import { embeddingWarmupCanStart, memorySecondaryMode } from './memory-config-flags.mjs'
-
-const MEMORY_INSTRUCTIONS_TEXT = ''
+const MEMORY_INSTRUCTIONS_TEXT = '';
 
 // The embedding ONNX session loads lazily and self-disposes after an idle
 // window. Session start is the earliest reliable signal that interactive recall
 // is coming, so warm it fire-and-forget after responding.
 // The cooldown keeps a burst of session starts (e.g. background cycle agents)
 // from queueing redundant warmups.
-const RECALL_PREWARM_COOLDOWN_MS = 30_000
-let _lastRecallPrewarmAt = 0
+const RECALL_PREWARM_COOLDOWN_MS = 30_000;
+let _lastRecallPrewarmAt = 0;
 function prewarmRecallEmbedding(log, reason = 'session-start') {
-  if (memorySecondaryMode()) return
-  const now = Date.now()
-  if (now - _lastRecallPrewarmAt < RECALL_PREWARM_COOLDOWN_MS) return
-  _lastRecallPrewarmAt = now
+  if (memorySecondaryMode()) return;
+  const now = Date.now();
+  if (now - _lastRecallPrewarmAt < RECALL_PREWARM_COOLDOWN_MS) return;
+  _lastRecallPrewarmAt = now;
   if (!isEmbeddingModelReady() && embeddingWarmupCanStart()) {
     void warmupEmbeddingProvider().catch((e) =>
-      log(`[memory-service] ${reason} embedding prewarm failed: ${e?.message || e}\n`))
+      log(`[memory-service] ${reason} embedding prewarm failed: ${e?.message || e}\n`)
+    );
   }
 }
 
@@ -73,53 +78,60 @@ export function createHttpRouter({
   parseTsToMs,
   refreshCoreMemoryFile,
 }) {
-  const DATA_DIR = dataDir
-  const PLUGIN_VERSION = pluginVersion
+  const DATA_DIR = dataDir;
+  const PLUGIN_VERSION = pluginVersion;
   // Explicit curated mutations republish the session-injection snapshot.
   async function republishCoreSnapshot(reason) {
-    if (typeof refreshCoreMemoryFile !== 'function') return
-    try { await refreshCoreMemoryFile(reason) } catch {}
+    if (typeof refreshCoreMemoryFile !== 'function') return;
+    try {
+      await refreshCoreMemoryFile(reason);
+    } catch {}
   }
-  const BOOT_MEMORY_CODE_FINGERPRINT = bootMemoryCodeFingerprint
+  const BOOT_MEMORY_CODE_FINGERPRINT = bootMemoryCodeFingerprint;
 
   function createHttpMcpServer() {
     const s = new Server(
       { name: 'mixdog-memory', version: PLUGIN_VERSION },
-      { capabilities: { tools: {} }, instructions: MEMORY_INSTRUCTIONS_TEXT },
-    )
-    s.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_DEFS }))
-    s.setRequestHandler(CallToolRequestSchema, (req) => handleToolCall(req.params.name, req.params.arguments ?? {}))
-    return s
+      { capabilities: { tools: {} }, instructions: MEMORY_INSTRUCTIONS_TEXT }
+    );
+    s.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_DEFS }));
+    s.setRequestHandler(CallToolRequestSchema, (req) => handleToolCall(req.params.name, req.params.arguments ?? {}));
+    return s;
   }
 
   async function awaitRuntimeReadyForHttp(res) {
-    if (getInitialized()) return true
-    const initPromise = getInitPromise()
+    if (getInitialized()) return true;
+    const initPromise = getInitPromise();
     if (!initPromise) {
-      sendJson(res, { error: 'memory runtime is starting' }, 503)
-      return false
+      sendJson(res, { error: 'memory runtime is starting' }, 503);
+      return false;
     }
     try {
-      await initPromise
-      return true
+      await initPromise;
+      return true;
     } catch (e) {
-      sendJson(res, { error: `memory runtime failed: ${e?.message || e}` }, 503)
-      return false
+      sendJson(res, { error: `memory runtime failed: ${e?.message || e}` }, 503);
+      return false;
     }
   }
 
   async function buildSessionCoreMemoryPayload(cwd) {
-    const db = getDb()
-    const projectId = resolveProjectScope(typeof cwd === 'string' && cwd ? cwd : null)
-    const commonRows = (await db.query(
-      `SELECT id, summary FROM core_entries WHERE project_id IS NULL AND (status IS NULL OR status = 'active') ORDER BY id ASC`
-    )).rows
-    const scopedRows = projectId !== null
-      ? (await db.query(
-          `SELECT id, summary FROM core_entries WHERE project_id = $1 AND (status IS NULL OR status = 'active') ORDER BY id ASC`,
-          [projectId]
-        )).rows
-      : []
+    const db = getDb();
+    const projectId = resolveProjectScope(typeof cwd === 'string' && cwd ? cwd : null);
+    const commonRows = (
+      await db.query(
+        `SELECT id, summary FROM core_entries WHERE project_id IS NULL AND (status IS NULL OR status = 'active') ORDER BY id ASC`
+      )
+    ).rows;
+    const scopedRows =
+      projectId !== null
+        ? (
+            await db.query(
+              `SELECT id, summary FROM core_entries WHERE project_id = $1 AND (status IS NULL OR status = 'active') ORDER BY id ASC`,
+              [projectId]
+            )
+          ).rows
+        : [];
     return {
       projectId,
       dbLines: [],
@@ -127,73 +139,75 @@ export function createHttpRouter({
         ...commonRows.map(formatCuratedCoreMemoryLine).filter(Boolean),
         ...scopedRows.map(formatCuratedCoreMemoryLine).filter(Boolean),
       ],
-    }
+    };
   }
 
   // Owner-side /api/tool in-flight controllers keyed by caller-supplied
   // X-Mixdog-Call-Id. /api/cancel aborts the matching AbortSignal so the
   // upstream handleToolCall actually stops when the fork-proxy parent cancels.
-  const _ownerInFlightHttpCalls = new Map()
+  const _ownerInFlightHttpCalls = new Map();
 
   function rejectDrainingToolCall(res) {
-    if (!getDraining?.()) return false
-    sendJson(res, { content: [{ type: 'text', text: 'memory worker draining' }], isError: true }, 503)
-    return true
+    if (!getDraining?.()) return false;
+    sendJson(res, { content: [{ type: 'text', text: 'memory worker draining' }], isError: true }, 503);
+    return true;
   }
 
   const requestHandler = async (req, res) => {
     // Apply the loopback Host/Origin policy before every route, including
     // read-only admin/core-memory responses that DNS rebinding could exfiltrate.
     if (!isLocalOrigin(req)) {
-      sendJson(res, { ok: false, error: 'forbidden: non-local request' }, 403)
-      return
+      sendJson(res, { ok: false, error: 'forbidden: non-local request' }, 403);
+      return;
     }
-    touchDaemonIdleTimer?.(`${req.method || 'HTTP'} ${req.url || '/'}`)
+    touchDaemonIdleTimer?.(`${req.method || 'HTTP'} ${req.url || '/'}`);
     if (req.method === 'POST' && (req.url === '/client/register' || req.url === '/client/deregister')) {
       if (!isLocalOrigin(req)) {
-        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403)
-        return
+        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403);
+        return;
       }
-      let body = {}
-      try { body = await readBody(req) } catch {}
-      const clientPid = Number(body?.clientPid)
+      let body = {};
+      try {
+        body = await readBody(req);
+      } catch {}
+      const clientPid = Number(body?.clientPid);
       if (req.url === '/client/register') {
-        const accepted = registerClient?.(clientPid)
+        const accepted = registerClient?.(clientPid);
         if (accepted === false) {
-          sendJson(res, { ok: false, draining: true, error: 'memory worker draining' }, 503)
-          return
+          sendJson(res, { ok: false, draining: true, error: 'memory worker draining' }, 503);
+          return;
         }
       } else {
-        deregisterClient?.(clientPid)
+        deregisterClient?.(clientPid);
       }
-      sendJson(res, { ok: true })
-      return
+      sendJson(res, { ok: true });
+      return;
     }
     if (req.method === 'POST' && req.url === '/session-reset') {
-      const ts = Date.now()
-      setBootTimestamp(ts)
-      sendJson(res, { ok: true, bootTimestamp: ts })
-      return
+      const ts = Date.now();
+      setBootTimestamp(ts);
+      sendJson(res, { ok: true, bootTimestamp: ts });
+      return;
     }
     if (req.method === 'POST' && req.url === '/rebind') {
-      setBootTimestamp(Date.now())
-      sendJson(res, { ok: true })
-      return
+      setBootTimestamp(Date.now());
+      sendJson(res, { ok: true });
+      return;
     }
 
     if (req.method === 'GET' && req.url === '/health') {
       if (getDraining?.()) {
-        sendJson(res, { status: 'draining' }, 503)
-        return
+        sendJson(res, { status: 'draining' }, 503);
+        return;
       }
       if (!getInitialized()) {
-        sendJson(res, { status: 'starting' }, 503)
-        return
+        sendJson(res, { status: 'starting' }, 503);
+        return;
       }
       try {
-        const db = getDb()
-        const stats = await entryStats()
-        const memory = process.memoryUsage()
+        const db = getDb();
+        const stats = await entryStats();
+        const memory = process.memoryUsage();
         sendJson(res, {
           status: 'ok',
           worker_pid: process.pid,
@@ -219,71 +233,81 @@ export function createHttpRouter({
             externalBytes: memory.external,
             arrayBufferBytes: memory.arrayBuffers,
           },
-        })
-      } catch (e) { sendError(res, e.message) }
-      return
+        });
+      } catch (e) {
+        sendError(res, e.message);
+      }
+      return;
     }
 
-    if (!await awaitRuntimeReadyForHttp(res)) return
+    if (!(await awaitRuntimeReadyForHttp(res))) return;
 
     if (req.method === 'GET' && req.url === '/admin/entries/active') {
       try {
-        const db = getDb()
+        const db = getDb();
         const { rows } = await db.query(`
           SELECT id, element, category, summary, score, last_seen_at
           FROM entries
           WHERE is_root = 1 AND status = 'active'
           ORDER BY score DESC
-        `)
-        sendJson(res, { ok: true, items: rows })
-      } catch (e) { sendJson(res, { ok: false, error: e.message }, 500) }
-      return
+        `);
+        sendJson(res, { ok: true, items: rows });
+      } catch (e) {
+        sendJson(res, { ok: false, error: e.message }, 500);
+      }
+      return;
     }
 
     if (req.method === 'GET' && req.url === '/admin/core/entries') {
       try {
-        const rows = await listCore(DATA_DIR, '*')
-        sendJson(res, { ok: true, items: rows })
-      } catch (e) { sendJson(res, { ok: false, error: e.message }, 500) }
-      return
+        const rows = await listCore(DATA_DIR, '*');
+        sendJson(res, { ok: true, items: rows });
+      } catch (e) {
+        sendJson(res, { ok: false, error: e.message }, 500);
+      }
+      return;
     }
 
     if (req.method === 'POST' && req.url === '/admin/core/entries') {
       if (!isLocalOrigin(req)) {
-        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403)
-        return
+        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403);
+        return;
       }
       try {
-        const body = await readBody(req)
-        const projectId = normalizeCoreProjectId(body.project_id)
-        const entry = await addCore(DATA_DIR, body, projectId)
-        await republishCoreSnapshot('admin-core-add')
-        sendJson(res, { ok: true, item: entry })
-      } catch (e) { sendJson(res, { ok: false, error: e.message }, 500) }
-      return
+        const body = await readBody(req);
+        const projectId = normalizeCoreProjectId(body.project_id);
+        const entry = await addCore(DATA_DIR, body, projectId);
+        await republishCoreSnapshot('admin-core-add');
+        sendJson(res, { ok: true, item: entry });
+      } catch (e) {
+        sendJson(res, { ok: false, error: e.message }, 500);
+      }
+      return;
     }
 
     if (req.method === 'POST' && req.url === '/admin/core/entries/delete') {
       if (!isLocalOrigin(req)) {
-        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403)
-        return
+        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403);
+        return;
       }
       try {
-        const body = await readBody(req)
-        const removed = await deleteCore(DATA_DIR, body.id)
-        await republishCoreSnapshot('admin-core-delete')
-        sendJson(res, { ok: true, item: removed })
-      } catch (e) { sendJson(res, { ok: false, error: e.message }, 500) }
-      return
+        const body = await readBody(req);
+        const removed = await deleteCore(DATA_DIR, body.id);
+        await republishCoreSnapshot('admin-core-delete');
+        sendJson(res, { ok: true, item: removed });
+      } catch (e) {
+        sendJson(res, { ok: false, error: e.message }, 500);
+      }
+      return;
     }
 
     if (req.method === 'POST' && req.url === '/admin/entries/add') {
       if (!isLocalOrigin(req)) {
-        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403)
-        return
+        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403);
+        return;
       }
       try {
-        const body = await readBody(req)
+        const body = await readBody(req);
         const result = await handleMemoryAction({
           action: 'manage',
           op: 'add',
@@ -291,169 +315,183 @@ export function createHttpRouter({
           summary: body.summary,
           category: body.category,
           cwd: body.cwd,
-        })
+        });
         if (result.isError) {
-          sendJson(res, { ok: false, error: result.text }, 400)
-          return
+          sendJson(res, { ok: false, error: result.text }, 400);
+          return;
         }
-        const idMatch = String(result.text || '').match(/id=(\d+)/)
-        const newId = idMatch ? Number(idMatch[1]) : null
-        sendJson(res, { ok: true, id: newId, text: result.text })
-      } catch (e) { sendJson(res, { ok: false, error: e.message }, 500) }
-      return
+        const idMatch = String(result.text || '').match(/id=(\d+)/);
+        const newId = idMatch ? Number(idMatch[1]) : null;
+        sendJson(res, { ok: true, id: newId, text: result.text });
+      } catch (e) {
+        sendJson(res, { ok: false, error: e.message }, 500);
+      }
+      return;
     }
 
     if (req.method === 'POST' && req.url === '/admin/backfill') {
       if (!isLocalOrigin(req)) {
-        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403)
-        return
+        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403);
+        return;
       }
-      let body
-      try { body = await readBody(req) }
-      catch (e) { sendJson(res, { ok: false, error: e.message }, Number(e?.statusCode) || 500); return }
+      let body;
+      try {
+        body = await readBody(req);
+      } catch (e) {
+        sendJson(res, { ok: false, error: e.message }, Number(e?.statusCode) || 500);
+        return;
+      }
       try {
         const result = await handleMemoryAction({
           action: 'backfill',
           window: body.window,
           scope: body.scope,
           limit: body.limit,
-        })
+        });
         if (result.isError) {
           // 'backfill already in progress' → 409, other failures → 500
-          const status = result.text === 'backfill already in progress' ? 409 : 500
-          sendJson(res, { ok: false, error: result.text }, status)
-          return
+          const status = result.text === 'backfill already in progress' ? 409 : 500;
+          sendJson(res, { ok: false, error: result.text }, status);
+          return;
         }
-        sendJson(res, { ok: true, text: result.text })
+        sendJson(res, { ok: true, text: result.text });
       } catch (e) {
-        sendJson(res, { ok: false, error: e.message }, 500)
+        sendJson(res, { ok: false, error: e.message }, 500);
       }
-      return
+      return;
     }
 
     if (req.method === 'POST' && req.url === '/admin/purge') {
       if (!isLocalOrigin(req)) {
-        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403)
-        return
+        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403);
+        return;
       }
       try {
-        const db = getDb()
-        const body = await readBody(req)
+        const db = getDb();
+        const body = await readBody(req);
         if (body?.confirm !== 'DELETE ALL MEMORY') {
-          sendJson(res, { ok: false, error: 'confirm must be exactly "DELETE ALL MEMORY"' }, 400)
-          return
+          sendJson(res, { ok: false, error: 'confirm must be exactly "DELETE ALL MEMORY"' }, 400);
+          return;
         }
-        const { rows: countRows } = await db.query(`SELECT COUNT(*) AS c FROM entries`)
-        const preCount = Number(countRows[0].c)
-        const { rows: coreCountRows } = await db.query(`SELECT COUNT(*) AS c FROM core_entries`)
-        const coreCount = Number(coreCountRows[0].c)
+        const { rows: countRows } = await db.query(`SELECT COUNT(*) AS c FROM entries`);
+        const preCount = Number(countRows[0].c);
+        const { rows: coreCountRows } = await db.query(`SELECT COUNT(*) AS c FROM core_entries`);
+        const coreCount = Number(coreCountRows[0].c);
         await db.transaction(async (tx) => {
-          await tx.query(`DELETE FROM entries`)
-        })
-        sendJson(res, { ok: true, deleted: preCount, core_preserved: coreCount })
-      } catch (e) { sendJson(res, { ok: false, error: e.message }, 500) }
-      return
+          await tx.query(`DELETE FROM entries`);
+        });
+        sendJson(res, { ok: true, deleted: preCount, core_preserved: coreCount });
+      } catch (e) {
+        sendJson(res, { ok: false, error: e.message }, 500);
+      }
+      return;
     }
 
     if (req.method === 'POST' && req.url === '/admin/trace-record') {
       if (!isLocalOrigin(req)) {
-        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403)
-        return
+        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403);
+        return;
       }
-      let body
-      try { body = await readBody(req) }
-      catch (e) { sendJson(res, { ok: false, error: e.message }, 400); return }
+      let body;
+      try {
+        body = await readBody(req);
+      } catch (e) {
+        sendJson(res, { ok: false, error: e.message }, 400);
+        return;
+      }
       if (!Array.isArray(body?.events)) {
-        sendJson(res, { ok: false, error: 'body.events must be an array' }, 400)
-        return
+        sendJson(res, { ok: false, error: 'body.events must be an array' }, 400);
+        return;
       }
       if (body.events.length > 500) {
-        sendJson(res, { ok: false, error: 'too many events (max 500)' }, 413)
-        return
+        sendJson(res, { ok: false, error: 'too many events (max 500)' }, 413);
+        return;
       }
-      let traceDb = getTraceDb()
+      let traceDb = getTraceDb();
       if (!traceDb) {
         try {
-          traceDb = await openTraceDatabase(DATA_DIR)
+          traceDb = await openTraceDatabase(DATA_DIR);
           if (!traceDb) {
-            sendJson(res, { ok: true, queued: 0, disabled: true })
-            return
+            sendJson(res, { ok: true, queued: 0, disabled: true });
+            return;
           }
-          setTraceDb(traceDb)
-          registerTraceExitDrain(traceDb)
+          setTraceDb(traceDb);
+          registerTraceExitDrain(traceDb);
         } catch (e) {
-          sendJson(res, { ok: false, error: `trace DB unavailable: ${e.message}` }, 503)
-          return
+          sendJson(res, { ok: false, error: `trace DB unavailable: ${e.message}` }, 503);
+          return;
         }
       }
       try {
         // Enqueue for async batched flush (100ms / 500-row window).
-        enqueueTraceEvents(traceDb, body.events)
+        enqueueTraceEvents(traceDb, body.events);
         // Use `queued` — events are async; `inserted` would imply durability.
-        sendJson(res, { ok: true, queued: body.events.length })
+        sendJson(res, { ok: true, queued: body.events.length });
         // Fire-and-forget into focused agent analytic tables.
-        insertAgentCalls(traceDb, body.events).catch(e =>
-          log(`[trace] insertAgentCalls error: ${e?.message}\n`)
-        )
+        insertAgentCalls(traceDb, body.events).catch((e) => log(`[trace] insertAgentCalls error: ${e?.message}\n`));
       } catch (e) {
-        sendJson(res, { ok: false, error: e.message }, 500)
+        sendJson(res, { ok: false, error: e.message }, 500);
       }
-      return
+      return;
     }
 
     if (req.method === 'POST' && req.url === '/session-start/core-memory') {
       try {
-        const body = await readBody(req)
-        const { projectId, dbLines, userLines } = await buildSessionCoreMemoryPayload(body.cwd)
-        sendJson(res, { ok: true, projectId, dbLines, userLines })
+        const body = await readBody(req);
+        const { projectId, dbLines, userLines } = await buildSessionCoreMemoryPayload(body.cwd);
+        sendJson(res, { ok: true, projectId, dbLines, userLines });
         // Response is already flushed; warm recall embedding for the session
         // that just started so its first recall is not a cold one.
-        prewarmRecallEmbedding(log)
-      } catch (e) { sendError(res, e.message) }
-      return
+        prewarmRecallEmbedding(log);
+      } catch (e) {
+        sendError(res, e.message);
+      }
+      return;
     }
 
     if (req.method === 'POST' && req.url === '/admin/shutdown') {
       if (!isLocalOrigin(req)) {
-        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403)
-        return
+        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403);
+        return;
       }
-      sendJson(res, { shutting_down: true }, 202)
+      sendJson(res, { shutting_down: true }, 202);
       setImmediate(() => {
         const watchdog = setTimeout(() => {
-          log('[shutdown] watchdog fired — forcing exit after 8s\n')
-          process.exit(1)
-        }, 8000)
-        watchdog.unref?.()
+          log('[shutdown] watchdog fired — forcing exit after 8s\n');
+          process.exit(1);
+        }, 8000);
+        watchdog.unref?.();
         stop()
-          .then(() => { clearTimeout(watchdog); process.exit(0) })
-          .catch(e => {
-            log(`[shutdown] error ${e.message}\n`)
-            clearTimeout(watchdog)
-            process.exit(1)
+          .then(() => {
+            clearTimeout(watchdog);
+            process.exit(0);
           })
-      })
-      return
+          .catch((e) => {
+            log(`[shutdown] error ${e.message}\n`);
+            clearTimeout(watchdog);
+            process.exit(1);
+          });
+      });
+      return;
     }
-
 
     if (req.method === 'POST' && req.url === '/api/tool') {
       if (!isLocalOrigin(req)) {
-        sendJson(res, { content: [{ type: 'text', text: 'forbidden: cross-origin' }], isError: true }, 403)
-        return
+        sendJson(res, { content: [{ type: 'text', text: 'forbidden: cross-origin' }], isError: true }, 403);
+        return;
       }
       // Reject tool calls that arrive after shutdown has begun. The error text
       // carries the "draining" token so the proxy treats it as transient,
       // respawns a fresh daemon, and retries the RPC (including write RPCs).
-      if (rejectDrainingToolCall(res)) return
+      if (rejectDrainingToolCall(res)) return;
       // Owner-side cancel plumbing: the fork-proxy worker forwards parent
       // 'cancel' IPC by issuing POST /api/cancel with the same callId. Track
       // each in-flight /api/tool by its caller-supplied X-Mixdog-Call-Id so
       // the cancel endpoint can abort the AbortSignal threaded into
       // handleToolCall. Without this the proxy-side fetch aborts but the
       // owner keeps running the upstream tool to completion.
-      const callId = String(req.headers['x-mixdog-call-id'] || '').trim() || null
-      const ac = new AbortController()
+      const callId = String(req.headers['x-mixdog-call-id'] || '').trim() || null;
+      const ac = new AbortController();
       // Abort only on a genuine mid-flight client disconnect. The req 'close'
       // event fires on every normal request once the request body is consumed
       // (before handleToolCall resolves), so gating on it would mark normal
@@ -462,172 +500,198 @@ export function createHttpRouter({
       // fully written — a real client disconnect closes the socket before
       // the response finishes, leaving writableFinished===false.
       res.on('close', () => {
-        if (res.writableFinished) return
-        ac.abort()
-      })
-      if (callId) _ownerInFlightHttpCalls.set(callId, ac)
+        if (res.writableFinished) return;
+        ac.abort();
+      });
+      if (callId) _ownerInFlightHttpCalls.set(callId, ac);
       try {
         // Raised cap: ingest_session ships whole-session transcripts (see
         // TOOL_HTTP_BODY_MAX_BYTES in http-wire.mjs).
-        const body = await readBody(req, { maxBytes: TOOL_HTTP_BODY_MAX_BYTES })
+        const body = await readBody(req, { maxBytes: TOOL_HTTP_BODY_MAX_BYTES });
         // Body parsing can outlive cancellation or shutdown. Do not acquire
         // new runtime resources after either boundary has been crossed.
-        ac.signal.throwIfAborted()
-        if (rejectDrainingToolCall(res)) return
-        const result = await handleToolCall(body.name, body.arguments ?? {}, ac.signal)
-        sendJson(res, result)
+        ac.signal.throwIfAborted();
+        if (rejectDrainingToolCall(res)) return;
+        const result = await handleToolCall(body.name, body.arguments ?? {}, ac.signal);
+        sendJson(res, result);
       } catch (e) {
-        sendJson(res, { content: [{ type: 'text', text: `api/tool error: ${e.message}` }], isError: true }, Number(e?.statusCode) || 500)
+        sendJson(
+          res,
+          { content: [{ type: 'text', text: `api/tool error: ${e.message}` }], isError: true },
+          Number(e?.statusCode) || 500
+        );
       } finally {
-        if (callId && _ownerInFlightHttpCalls.get(callId) === ac) _ownerInFlightHttpCalls.delete(callId)
+        if (callId && _ownerInFlightHttpCalls.get(callId) === ac) _ownerInFlightHttpCalls.delete(callId);
       }
-      return
+      return;
     }
 
     if (req.method === 'POST' && req.url === '/api/cancel') {
       if (!isLocalOrigin(req)) {
-        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403)
-        return
+        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403);
+        return;
       }
       try {
-        const body = await readBody(req)
-        const id = String(body.callId || '').trim()
-        if (!id) { sendJson(res, { ok: false, error: 'callId required' }, 400); return }
-        const ac = _ownerInFlightHttpCalls.get(id)
+        const body = await readBody(req);
+        const id = String(body.callId || '').trim();
+        if (!id) {
+          sendJson(res, { ok: false, error: 'callId required' }, 400);
+          return;
+        }
+        const ac = _ownerInFlightHttpCalls.get(id);
         if (ac) {
-          ac.abort()
-          _ownerInFlightHttpCalls.delete(id)
-          sendJson(res, { ok: true, cancelled: true })
+          ac.abort();
+          _ownerInFlightHttpCalls.delete(id);
+          sendJson(res, { ok: true, cancelled: true });
         } else {
-          sendJson(res, { ok: true, cancelled: false })
+          sendJson(res, { ok: true, cancelled: false });
         }
       } catch (e) {
-        sendJson(res, { ok: false, error: e.message }, Number(e?.statusCode) || 500)
+        sendJson(res, { ok: false, error: e.message }, Number(e?.statusCode) || 500);
       }
-      return
+      return;
     }
 
     if (req.url === '/mcp') {
       if (!isLocalOrigin(req)) {
-        sendJson(res, { error: 'forbidden: cross-origin' }, 403)
-        return
+        sendJson(res, { error: 'forbidden: cross-origin' }, 403);
+        return;
       }
       try {
         if (req.method === 'POST') {
-          const httpMcp = createHttpMcpServer()
+          const httpMcp = createHttpMcpServer();
           const httpTransport = new StreamableHTTPServerTransport({
             sessionIdGenerator: undefined,
             enableJsonResponse: true,
-          })
+          });
           res.on('close', () => {
-            httpTransport.close()
-            void httpMcp.close()
-          })
-          await httpMcp.connect(httpTransport)
-          const body = await readBody(req)
-          await httpTransport.handleRequest(req, res, body)
+            httpTransport.close();
+            void httpMcp.close();
+          });
+          await httpMcp.connect(httpTransport);
+          const body = await readBody(req);
+          await httpTransport.handleRequest(req, res, body);
         } else {
-          sendJson(res, { error: 'Method not allowed' }, 405)
+          sendJson(res, { error: 'Method not allowed' }, 405);
         }
       } catch (e) {
-        log(`[memory-service] /mcp error: ${e.stack || e.message}\n`)
-        if (!res.headersSent) sendError(res, e.message, Number(e?.statusCode) || 500)
+        log(`[memory-service] /mcp error: ${e.stack || e.message}\n`);
+        if (!res.headersSent) sendError(res, e.message, Number(e?.statusCode) || 500);
       }
-      return
+      return;
     }
 
     if (req.method !== 'POST') {
-      sendJson(res, { error: 'Method not allowed' }, 405)
-      return
+      sendJson(res, { error: 'Method not allowed' }, 405);
+      return;
     }
 
     // Tail block handles /entry and /ingest-transcript — both mutate the DB,
     // so apply the same cross-origin guard as /admin/* routes.
     if (!isLocalOrigin(req)) {
-      sendError(res, 'forbidden: cross-origin', 403)
-      return
+      sendError(res, 'forbidden: cross-origin', 403);
+      return;
     }
 
-    let body
-    try { body = await readBody(req) }
-    catch (e) { sendError(res, e.message, Number(e?.statusCode) || 500); return }
+    let body;
+    try {
+      body = await readBody(req);
+    } catch (e) {
+      sendError(res, e.message, Number(e?.statusCode) || 500);
+      return;
+    }
 
     try {
       if (req.url === '/entry') {
-        const db = getDb()
-        const role = String(body.role ?? 'user')
-        const content = String(body.content ?? '')
-        const sourceRef = String(body.sourceRef ?? `manual:${Date.now()}-${process.pid}`)
-        const sessionId = body.sessionId ?? null
-        const tsMs = parseTsToMs(body.ts ?? Date.now())
-        if (!content) { sendJson(res, { error: 'content required' }, 400); return }
+        const db = getDb();
+        const role = String(body.role ?? 'user');
+        const content = String(body.content ?? '');
+        const sourceRef = String(body.sourceRef ?? `manual:${Date.now()}-${process.pid}`);
+        const sessionId = body.sessionId ?? null;
+        const tsMs = parseTsToMs(body.ts ?? Date.now());
+        if (!content) {
+          sendJson(res, { error: 'content required' }, 400);
+          return;
+        }
         // Run the same scrubber used by ingestTranscriptFile so noise markers
         // like "[Request interrupted by user]" and whitespace-only payloads
         // are rejected before they reach the entries table. Match the
         // existing 400 / { error } convention for invalid payloads.
-        const cleaned = cleanMemoryText(content)
+        const cleaned = cleanMemoryText(content);
         if (!cleaned || !cleaned.trim()) {
-          sendJson(res, { error: 'empty after clean' }, 400)
-          return
+          sendJson(res, { error: 'empty after clean' }, 400);
+          return;
         }
-        const entryProjectId = resolveProjectScope(typeof body.cwd === 'string' && body.cwd ? body.cwd : null)
+        const entryProjectId = resolveProjectScope(typeof body.cwd === 'string' && body.cwd ? body.cwd : null);
         try {
-          const result = await db.query(`
+          const result = await db.query(
+            `
             INSERT INTO entries(ts, role, content, source_ref, session_id, project_id)
             VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT DO NOTHING
             RETURNING id
-          `, [tsMs, role, cleaned, sourceRef, sessionId, entryProjectId])
-          const insertedId = result.rows[0]?.id ?? null
-          sendJson(res, { ok: true, id: insertedId !== null ? Number(insertedId) : null, changes: Number(result.rowCount ?? result.affectedRows ?? 0) })
+          `,
+            [tsMs, role, cleaned, sourceRef, sessionId, entryProjectId]
+          );
+          const insertedId = result.rows[0]?.id ?? null;
+          sendJson(res, {
+            ok: true,
+            id: insertedId !== null ? Number(insertedId) : null,
+            changes: Number(result.rowCount ?? result.affectedRows ?? 0),
+          });
         } catch (e) {
-          sendJson(res, { error: e.message }, 500)
+          sendJson(res, { error: e.message }, 500);
         }
-        return
+        return;
       }
 
       if (req.url === '/ingest-transcript') {
-        const filePath = body.filePath
-        if (!filePath) { sendJson(res, { error: 'filePath required' }, 400); return }
-        try {
-          const n = await ingestTranscriptFile(filePath, { cwd: body.cwd })
-          sendJson(res, { ok: true, ingested: n })
-        } catch (e) {
-          sendJson(res, { error: e.message }, 500)
+        const filePath = body.filePath;
+        if (!filePath) {
+          sendJson(res, { error: 'filePath required' }, 400);
+          return;
         }
-        return
+        try {
+          const n = await ingestTranscriptFile(filePath, { cwd: body.cwd });
+          sendJson(res, { ok: true, ingested: n });
+        } catch (e) {
+          sendJson(res, { error: e.message }, 500);
+        }
+        return;
       }
 
       if (req.url === '/transcript/ingest-sync') {
-        const filePath = body.path
+        const filePath = body.path;
         if (!filePath || typeof filePath !== 'string') {
-          sendJson(res, { error: 'path required' }, 400)
-          return
+          sendJson(res, { error: 'path required' }, 400);
+          return;
         }
         try {
-          let stat
-          try { stat = await fs.promises.stat(filePath) } catch {
-            sendJson(res, { ok: true, complete: true, fileSize: 0, offsetBytes: 0 })
-            return
+          let stat;
+          try {
+            stat = await fs.promises.stat(filePath);
+          } catch {
+            sendJson(res, { ok: true, complete: true, fileSize: 0, offsetBytes: 0 });
+            return;
           }
-          const fileSize = stat.size
-          await ingestTranscriptFile(filePath, { cwd: body.cwd })
-          const off = getTranscriptOffset(filePath)
-          const offsetBytes = off && Number.isFinite(off.bytes) ? off.bytes : 0
-          const complete = offsetBytes >= fileSize
-          sendJson(res, { ok: true, offsetBytes, fileSize, complete })
+          const fileSize = stat.size;
+          await ingestTranscriptFile(filePath, { cwd: body.cwd });
+          const off = getTranscriptOffset(filePath);
+          const offsetBytes = off && Number.isFinite(off.bytes) ? off.bytes : 0;
+          const complete = offsetBytes >= fileSize;
+          sendJson(res, { ok: true, offsetBytes, fileSize, complete });
         } catch (e) {
-          sendJson(res, { error: e.message }, 500)
+          sendJson(res, { error: e.message }, 500);
         }
-        return
+        return;
       }
 
-      sendJson(res, { error: 'Not found' }, 404)
+      sendJson(res, { error: 'Not found' }, 404);
     } catch (e) {
-      log(`[memory-service] ${req.url} error: ${e.stack || e.message}\n`)
-      sendError(res, e.message)
+      log(`[memory-service] ${req.url} error: ${e.stack || e.message}\n`);
+      sendError(res, e.message);
     }
-  }
+  };
 
-  return { requestHandler, buildSessionCoreMemoryPayload, createHttpMcpServer }
+  return { requestHandler, buildSessionCoreMemoryPayload, createHttpMcpServer };
 }

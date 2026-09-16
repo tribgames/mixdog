@@ -28,7 +28,8 @@ function parseDuration(value) {
   if (rel) {
     const n = Number(rel[1]);
     const unit = rel[2].toLowerCase();
-    const mult = unit === 'ms' ? 1 : unit === 's' ? 1000 : unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : 86_400_000;
+    const mult =
+      unit === 'ms' ? 1 : unit === 's' ? 1000 : unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : 86_400_000;
     return Date.now() - n * mult;
   }
   const parsed = Date.parse(raw);
@@ -61,7 +62,9 @@ function defaultTracePath() {
 
 function defaultToolFailurePath(tracePath = null) {
   if (process.env.MIXDOG_TOOL_FAILURE_LOG_PATH) return process.env.MIXDOG_TOOL_FAILURE_LOG_PATH;
-  const base = tracePath ? dirname(resolve(tracePath)) : resolve(process.env.MIXDOG_DATA_DIR || resolvePluginData() || resolve(homedir(), '.mixdog', 'data'), 'history');
+  const base = tracePath
+    ? dirname(resolve(tracePath))
+    : resolve(process.env.MIXDOG_DATA_DIR || resolvePluginData() || resolve(homedir(), '.mixdog', 'data'), 'history');
   return resolve(base, 'tool-failures.jsonl');
 }
 
@@ -118,8 +121,11 @@ function stableStringify(value) {
 }
 
 function hashValue(value) {
-  try { return createHash('sha256').update(stableStringify(value)).digest('hex').slice(0, 16); }
-  catch { return null; }
+  try {
+    return createHash('sha256').update(stableStringify(value)).digest('hex').slice(0, 16);
+  } catch {
+    return null;
+  }
 }
 
 function toolArgs(row) {
@@ -132,7 +138,17 @@ function toolArgsHash(row) {
   return field(row, 'tool_args_hash') || hashValue(args);
 }
 
-const READONLY_TOOL_NAMES = new Set(['read', 'grep', 'glob', 'list', 'find', 'code_graph', 'recall', 'web_search', 'web_fetch']);
+const READONLY_TOOL_NAMES = new Set([
+  'read',
+  'grep',
+  'glob',
+  'list',
+  'find',
+  'code_graph',
+  'recall',
+  'web_search',
+  'web_fetch',
+]);
 const READONLY_STALL_MIN_RUN = 8;
 const READONLY_ROLE_AGENTS = new Set(['reviewer']);
 const IDENTICAL_CALL_MIN_COUNT = 3;
@@ -166,11 +182,16 @@ function fmtPct(n) {
 function fmtTime(ts) {
   const n = Number(ts);
   if (!Number.isFinite(n) || n <= 0) return '-';
-  return new Date(n).toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z');
+  return new Date(n)
+    .toISOString()
+    .replace('T', ' ')
+    .replace(/\.\d+Z$/, 'Z');
 }
 
 function compactText(value, max = 140) {
-  const s = String(value || '').replace(/\s+/g, ' ').trim();
+  const s = String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return s.length > max ? `${s.slice(0, Math.max(0, max - 1))}…` : s;
 }
 
@@ -205,7 +226,8 @@ function cacheBreakExplanation(reason) {
   const r = String(reason || '');
   if (r === 'no_anchor') return 'delta \uAE30\uC900\uC810/previous response \uC5C6\uC74C';
   if (r === 'input_prefix_mismatch') return '\uC694\uCCAD prefix\uAC00 \uC774\uC804 turn\uACFC \uB2EC\uB77C\uC9D0';
-  if (r.startsWith('response_output_mismatch')) return '\uC774\uC804 \uC751\uB2F5 output \uCCB4\uC778\uC774 \uAE30\uB300\uAC12\uACFC \uB2E4\uB984';
+  if (r.startsWith('response_output_mismatch'))
+    return '\uC774\uC804 \uC751\uB2F5 output \uCCB4\uC778\uC774 \uAE30\uB300\uAC12\uACFC \uB2E4\uB984';
   if (r === 'cache_key_changed') return 'cache key \uBCC0\uACBD';
   return r ? '\uC6D0\uC778 \uBBF8\uBD84\uB958' : '\uC6D0\uC778 \uAE30\uB85D \uC5C6\uC74C';
 }
@@ -220,9 +242,12 @@ function cacheBreakIntentionalTransition(row) {
   const reason = field(row, 'reason') || field(row, 'chain_delta_reason') || null;
   if (transition === 'automatic_compaction' && reason === 'input_prefix_mismatch') return transition;
   if (transition === 'transcript_rebuild' && reason === 'input_prefix_mismatch') return transition;
-  if (transition === 'explorer_hard_cap_final_tool_choice_none'
-    && reason === 'request_properties_changed'
-    && field(row, 'request_tool_choice') === 'none') return transition;
+  if (
+    transition === 'explorer_hard_cap_final_tool_choice_none' &&
+    reason === 'request_properties_changed' &&
+    field(row, 'request_tool_choice') === 'none'
+  )
+    return transition;
   return null;
 }
 
@@ -232,9 +257,11 @@ function classifyCacheBreakPhase(row, usageRows, transportRows) {
   const intentionalTransition = cacheBreakIntentionalTransition(row);
   if (intentionalTransition) return `intentional_${intentionalTransition}`;
   const ts = Number(row.ts || 0);
-  const priorUsage = usageRows.filter((r) => sessionId(r) === sid && Number(r.ts || 0) < ts)
+  const priorUsage = usageRows
+    .filter((r) => sessionId(r) === sid && Number(r.ts || 0) < ts)
     .sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
-  const priorTransport = transportRows.filter((r) => sessionId(r) === sid && Number(r.ts || 0) < ts)
+  const priorTransport = transportRows
+    .filter((r) => sessionId(r) === sid && Number(r.ts || 0) < ts)
     .sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
   const priorCalls = priorUsage.length + priorTransport.length;
   if (String(reason || '') === 'no_anchor') {
@@ -265,7 +292,9 @@ function padTable(rows) {
   if (!rows.length) return [];
   const widths = [];
   for (const row of rows) {
-    row.forEach((cell, i) => { widths[i] = Math.max(widths[i] || 0, String(cell ?? '').length); });
+    row.forEach((cell, i) => {
+      widths[i] = Math.max(widths[i] || 0, String(cell ?? '').length);
+    });
   }
   return rows.map((row) => row.map((cell, i) => String(cell ?? '').padEnd(widths[i])).join('  '));
 }
@@ -281,7 +310,8 @@ function inferSessionMeta(rows) {
   return {
     session_id: sessionId(last),
     parent_session_id: field(preset, 'parent_session_id') || field(preset, 'parentSessionId') || null,
-    agent: field(preset, 'agent') || field(tool, 'agent') || field(usage, 'sourceName') || field(last, 'sourceName') || null,
+    agent:
+      field(preset, 'agent') || field(tool, 'agent') || field(usage, 'sourceName') || field(last, 'sourceName') || null,
     preset: field(preset, 'preset_name') || field(last, 'preset') || null,
     provider: field(preset, 'provider') || field(usage, 'provider') || field(context, 'provider') || null,
     model: field(preset, 'model') || field(usage, 'model') || field(context, 'model') || null,
@@ -311,7 +341,11 @@ function sessionMatches(id, query) {
 }
 
 function selectSessionIds(sessionMetas, query) {
-  if (String(query || '').trim().toLowerCase() === 'all') {
+  if (
+    String(query || '')
+      .trim()
+      .toLowerCase() === 'all'
+  ) {
     return sessionMetas.map((m) => m.session_id);
   }
   let selected;
@@ -333,12 +367,9 @@ function filterAgent(rows, agent) {
   if (!agent) return rows;
   const q = String(agent).toLowerCase();
   const rowMatches = (r) => {
-    const values = [
-      field(r, 'agent'),
-      field(r, 'sourceName'),
-      field(r, 'preset'),
-      field(r, 'preset_name'),
-    ].filter(Boolean).map((v) => String(v).toLowerCase());
+    const values = [field(r, 'agent'), field(r, 'sourceName'), field(r, 'preset'), field(r, 'preset_name')]
+      .filter(Boolean)
+      .map((v) => String(v).toLowerCase());
     return values.some((v) => v.includes(q));
   };
   // Row-level agent fields only exist on some kinds (tool/steer); usage_raw and
@@ -365,7 +396,8 @@ function buildRouteGroups(rows) {
     const sseRows = srows.filter((r) => r.kind === 'sse');
     const fetchRows = srows.filter((r) => r.kind === 'fetch');
     const transportRows = srows.filter((r) => r.kind === 'transport');
-    const turns = usageRows.length || new Set(transportRows.map((r) => num(r, 'iteration')).filter((n) => n != null)).size;
+    const turns =
+      usageRows.length || new Set(transportRows.map((r) => num(r, 'iteration')).filter((n) => n != null)).size;
     const promptTokens = sum(usageRows.map((r) => num(r, 'prompt_tokens')));
     const outputTokens = sum(usageRows.map((r) => num(r, 'output_tokens')));
     const cachedTokens = sum(usageRows.map((r) => num(r, 'cached_tokens')));
@@ -378,7 +410,10 @@ function buildRouteGroups(rows) {
       tool_ms: sum(toolRows.map((r) => num(r, 'tool_ms'))),
       llm_stream_ms: sum(sseRows.map((r) => num(r, 'stream_total_ms') ?? num(r, 'sse_parse_ms'))),
       headers_ms: sum(fetchRows.map((r) => num(r, 'headers_ms'))),
-      ttft_p50_ms: percentile(sseRows.map((r) => num(r, 'ttft_ms')).filter((n) => n != null), 50),
+      ttft_p50_ms: percentile(
+        sseRows.map((r) => num(r, 'ttft_ms')).filter((n) => n != null),
+        50
+      ),
       prompt_tokens: promptTokens,
       output_tokens: outputTokens,
       cached_tokens: cachedTokens,
@@ -402,32 +437,36 @@ function buildCacheDiagnostics(rows) {
     const key = field(r, 'cache_key_hash');
     if (key) keyCounts.set(key, (keyCounts.get(key) || 0) + 1);
   }
-  const downgrades = transport.filter((r) => {
-    const requested = field(r, 'requested_service_tier');
-    const response = field(r, 'response_service_tier');
-    return requested && response && requested !== response;
-  }).map((r) => ({
-    session_id: sessionId(r),
-    iteration: num(r, 'iteration'),
-    requested: field(r, 'requested_service_tier'),
-    response: field(r, 'response_service_tier'),
-    model: field(r, 'model'),
-    ts: r.ts,
-  }));
+  const downgrades = transport
+    .filter((r) => {
+      const requested = field(r, 'requested_service_tier');
+      const response = field(r, 'response_service_tier');
+      return requested && response && requested !== response;
+    })
+    .map((r) => ({
+      session_id: sessionId(r),
+      iteration: num(r, 'iteration'),
+      requested: field(r, 'requested_service_tier'),
+      response: field(r, 'response_service_tier'),
+      model: field(r, 'model'),
+      ts: r.ts,
+    }));
   const cacheBreaks = breaks.map((r) => {
     const reason = field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || null;
-    const relatedUsage = nearestRowAround(
-      usage,
-      r.ts,
-      5_000,
-      (u) => sessionId(u) === sessionId(r) && num(u, 'iteration') === num(r, 'iteration'),
-    ) || nearestRowBefore(
-      usage.filter((u) => sessionId(u) === sessionId(r)),
-      r.ts,
-      30_000,
-    );
+    const relatedUsage =
+      nearestRowAround(
+        usage,
+        r.ts,
+        5_000,
+        (u) => sessionId(u) === sessionId(r) && num(u, 'iteration') === num(r, 'iteration')
+      ) ||
+      nearestRowBefore(
+        usage.filter((u) => sessionId(u) === sessionId(r)),
+        r.ts,
+        30_000
+      );
     const promptTokens = relatedUsage ? cacheDenom(relatedUsage) : 0;
-    const cachedTokens = relatedUsage ? (num(relatedUsage, 'cached_tokens') || 0) : 0;
+    const cachedTokens = relatedUsage ? num(relatedUsage, 'cached_tokens') || 0 : 0;
     const transitionTag = cacheBreakTransitionTag(r);
     const transition = cacheBreakIntentionalTransition(r);
     return {
@@ -447,7 +486,7 @@ function buildCacheDiagnostics(rows) {
       prompt_tokens: promptTokens,
       cached_tokens: cachedTokens,
       cache_ratio: promptTokens > 0 ? cachedTokens / promptTokens : null,
-      output_tokens: relatedUsage ? (num(relatedUsage, 'output_tokens') || 0) : 0,
+      output_tokens: relatedUsage ? num(relatedUsage, 'output_tokens') || 0 : 0,
       ts: r.ts,
     };
   });
@@ -461,7 +500,9 @@ function buildCacheDiagnostics(rows) {
     ws_delta: transport.filter((r) => field(r, 'ws_mode') === 'delta').length,
     reused_connection: transport.filter((r) => field(r, 'reused_connection') === true).length,
     previous_response_id: transport.filter((r) => field(r, 'request_has_previous_response_id') === true).length,
-    cache_key_hashes: [...keyCounts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count),
+    cache_key_hashes: [...keyCounts.entries()]
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => b.count - a.count),
     cache_breaks: cacheBreaks,
     actionable_cache_breaks: actionableCacheBreaks,
     intentional_cache_breaks: cacheBreaks.filter((b) => !b.actionable),
@@ -475,22 +516,34 @@ function buildCacheDiagnostics(rows) {
       prompt_tokens: num(r, 'prompt_tokens') || num(field(r, 'payload'), 'prompt_tokens') || 0,
       cached_tokens: num(r, 'cached_tokens') || num(field(r, 'payload'), 'cached_tokens') || 0,
       uncached_tokens: num(r, 'uncached_tokens') || num(field(r, 'payload'), 'uncached_tokens') || 0,
-      previous_max_cached_tokens: num(r, 'previous_max_cached_tokens') || num(field(r, 'payload'), 'previous_max_cached_tokens') || 0,
+      previous_max_cached_tokens:
+        num(r, 'previous_max_cached_tokens') || num(field(r, 'payload'), 'previous_max_cached_tokens') || 0,
       cache_ratio: num(r, 'cache_ratio') ?? num(field(r, 'payload'), 'cache_ratio'),
       ts: r.ts,
     })),
     service_tier_downgrades: downgrades,
-    low_cache_turns: usage.map((r) => {
-      const denom = cacheDenom(r);
-      const ratio = denom > 0 ? (num(r, 'cached_tokens') || 0) / denom : null;
-      return { session_id: sessionId(r), iteration: num(r, 'iteration'), ratio, cached_tokens: num(r, 'cached_tokens') || 0, prompt_tokens: denom, ts: r.ts };
-    }).filter((x) => x.prompt_tokens >= 1000 && (x.ratio == null || x.ratio < 0.25)),
+    low_cache_turns: usage
+      .map((r) => {
+        const denom = cacheDenom(r);
+        const ratio = denom > 0 ? (num(r, 'cached_tokens') || 0) / denom : null;
+        return {
+          session_id: sessionId(r),
+          iteration: num(r, 'iteration'),
+          ratio,
+          cached_tokens: num(r, 'cached_tokens') || 0,
+          prompt_tokens: denom,
+          ts: r.ts,
+        };
+      })
+      .filter((x) => x.prompt_tokens >= 1000 && (x.ratio == null || x.ratio < 0.25)),
   };
 }
 
 function summarizePathArg(pathValue) {
   if (Array.isArray(pathValue)) {
-    const parts = pathValue.map((p) => (typeof p === 'string' ? p : `${p?.path || '?'}${p?.offset != null ? `:${p.offset}` : ''}`));
+    const parts = pathValue.map((p) =>
+      typeof p === 'string' ? p : `${p?.path || '?'}${p?.offset != null ? `:${p.offset}` : ''}`
+    );
     return `batch[${parts.length}] ${parts.slice(0, 3).join(', ')}${parts.length > 3 ? ', …' : ''}`;
   }
   return String(pathValue || '');
@@ -509,7 +562,11 @@ function summarizeToolTarget(row) {
   if (name === 'glob') return `${args.path || '?'} :: ${args.pattern || ''}`;
   if (name === 'list') return String(args.path || '?');
   if (name === 'shell') return compactText(args.command || args.cmd || hashValue(args) || '-', 140);
-  if (name === 'agent') return compactText(`${args.agent || args.type || 'agent'} ${args.tag || args.task_id || ''} ${args.prompt || args.message || ''}`, 140);
+  if (name === 'agent')
+    return compactText(
+      `${args.agent || args.type || 'agent'} ${args.tag || args.task_id || ''} ${args.prompt || args.message || ''}`,
+      140
+    );
   if (name === 'apply_patch') return 'patch';
   return hashValue(args) || '-';
 }
@@ -589,8 +646,14 @@ function buildToolDiagnostics(rows, failureRows = []) {
       errors,
       result_kinds: kindCounts,
       total_ms: sum(trows.map((r) => num(r, 'tool_ms'))),
-      p50_ms: percentile(trows.map((r) => num(r, 'tool_ms')).filter((n) => n != null), 50),
-      p95_ms: percentile(trows.map((r) => num(r, 'tool_ms')).filter((n) => n != null), 95),
+      p50_ms: percentile(
+        trows.map((r) => num(r, 'tool_ms')).filter((n) => n != null),
+        50
+      ),
+      p95_ms: percentile(
+        trows.map((r) => num(r, 'tool_ms')).filter((n) => n != null),
+        95
+      ),
       bytes: sum(trows.map((r) => num(r, 'result_bytes_est'))),
       lines: sum(trows.map((r) => num(r, 'result_lines_est'))),
     });
@@ -598,7 +661,10 @@ function buildToolDiagnostics(rows, failureRows = []) {
   byName.sort((a, b) => b.total_ms - a.total_ms || b.count - a.count);
 
   const duplicates = [];
-  for (const [key, trows] of groupBy(tools, (r) => `${field(r, 'tool_name') || ''}:${toolArgsHash(r) || ''}`).entries()) {
+  for (const [key, trows] of groupBy(
+    tools,
+    (r) => `${field(r, 'tool_name') || ''}:${toolArgsHash(r) || ''}`
+  ).entries()) {
     if (!key.endsWith(':') && trows.length >= 2) {
       const sorted = [...trows].sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
       for (let i = 1; i < sorted.length; i += 1) {
@@ -663,25 +729,33 @@ function buildToolDiagnostics(rows, failureRows = []) {
     }))
     .sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
 
-  const broadResults = tools.filter((r) => {
-    const bytes = num(r, 'result_bytes_est') || 0;
-    const lines = num(r, 'result_lines_est') || 0;
-    return bytes >= 64 * 1024 || lines >= 1000 || String(field(r, 'result_kind') || '').includes('offload');
-  }).map((r) => ({
-    tool: field(r, 'tool_name'),
-    session_id: sessionId(r),
-    iteration: num(r, 'iteration'),
-    bytes: num(r, 'result_bytes_est') || 0,
-    lines: num(r, 'result_lines_est') || 0,
-    target: summarizeToolTarget(r),
-    ts: r.ts,
-  })).sort((a, b) => b.bytes - a.bytes);
+  const broadResults = tools
+    .filter((r) => {
+      const bytes = num(r, 'result_bytes_est') || 0;
+      const lines = num(r, 'result_lines_est') || 0;
+      return bytes >= 64 * 1024 || lines >= 1000 || String(field(r, 'result_kind') || '').includes('offload');
+    })
+    .map((r) => ({
+      tool: field(r, 'tool_name'),
+      session_id: sessionId(r),
+      iteration: num(r, 'iteration'),
+      bytes: num(r, 'result_bytes_est') || 0,
+      lines: num(r, 'result_lines_est') || 0,
+      target: summarizeToolTarget(r),
+      ts: r.ts,
+    }))
+    .sort((a, b) => b.bytes - a.bytes);
 
   const readRows = tools.filter((r) => field(r, 'tool_name') === 'read');
   const readFragmentation = [];
   for (const [path, rrows] of groupBy(readRows, (r) => String((toolArgs(r) || {}).path || '')).entries()) {
     if (!path || path.includes(',')) continue;
-    const lineReads = rrows.map((r) => ({ row: r, line: Number((toolArgs(r) || {}).line || (toolArgs(r) || {}).offset || 0), ts: Number(r.ts || 0) }))
+    const lineReads = rrows
+      .map((r) => ({
+        row: r,
+        line: Number((toolArgs(r) || {}).line || (toolArgs(r) || {}).offset || 0),
+        ts: Number(r.ts || 0),
+      }))
       .filter((x) => Number.isFinite(x.line) && x.line > 0)
       .sort((a, b) => a.line - b.line);
     if (lineReads.length >= 3) {
@@ -694,14 +768,16 @@ function buildToolDiagnostics(rows, failureRows = []) {
   }
   readFragmentation.sort((a, b) => b.count - a.count);
 
-  const singleToolBatches = rows.filter((r) => r.kind === 'batch' && Number(field(r, 'tool_call_count')) === 1)
+  const singleToolBatches = rows
+    .filter((r) => r.kind === 'batch' && Number(field(r, 'tool_call_count')) === 1)
     .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
   const singleToolBatchDetails = singleToolBatches.map((batch) => {
     const bts = Number(batch.ts || 0);
     const sid = sessionId(batch);
-    const tool = tools
-      .filter((r) => sessionId(r) === sid && Number(r.ts || 0) >= bts - 100 && Number(r.ts || 0) <= bts + 15_000)
-      .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))[0] || null;
+    const tool =
+      tools
+        .filter((r) => sessionId(r) === sid && Number(r.ts || 0) >= bts - 100 && Number(r.ts || 0) <= bts + 15_000)
+        .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))[0] || null;
     return {
       batch,
       ts: bts,
@@ -724,10 +800,10 @@ function buildToolDiagnostics(rows, failureRows = []) {
       if (next.ts - prev.ts > 15_000) continue;
       if (prev.iteration == null || next.iteration !== prev.iteration + 1) continue;
       if (
-        READONLY_TOOL_NAMES.has(prev.tool)
-        && READONLY_TOOL_NAMES.has(next.tool)
-        && prev.result_kind !== 'error'
-        && next.result_kind !== 'error'
+        READONLY_TOOL_NAMES.has(prev.tool) &&
+        READONLY_TOOL_NAMES.has(next.tool) &&
+        prev.result_kind !== 'error' &&
+        next.result_kind !== 'error'
       ) {
         missedParallelismCandidates.push({ session_id: prev.session_id, first: prev, second: next });
       }
@@ -750,22 +826,27 @@ function buildToolDiagnostics(rows, failureRows = []) {
     }
     if (cluster.length >= 3) sequentialClusters.push(cluster);
   }
-  const sequentialToolClusters = sequentialClusters.map((items) => {
-    const toolCounts = countBy(items, (x) => x.tool).slice(0, 5).map(([tool, count]) => ({ tool, count }));
-    const errorCount = items.filter((x) => x.result_kind === 'error').length;
-    return {
-      session_id: items[0].session_id,
-      agent: items[0].agent || null,
-      count: items.length,
-      span_ms: items[items.length - 1].ts - items[0].ts,
-      tool_ms: sum(items.map((x) => x.tool_ms)),
-      errors: errorCount,
-      tools: toolCounts,
-      start_it: items[0].iteration,
-      end_it: items[items.length - 1].iteration,
-      examples: items.slice(0, 3).map((x) => `${x.tool}:${compactText(x.target, 80)}`),
-    };
-  }).sort((a, b) => b.count - a.count || b.tool_ms - a.tool_ms).slice(0, 20);
+  const sequentialToolClusters = sequentialClusters
+    .map((items) => {
+      const toolCounts = countBy(items, (x) => x.tool)
+        .slice(0, 5)
+        .map(([tool, count]) => ({ tool, count }));
+      const errorCount = items.filter((x) => x.result_kind === 'error').length;
+      return {
+        session_id: items[0].session_id,
+        agent: items[0].agent || null,
+        count: items.length,
+        span_ms: items[items.length - 1].ts - items[0].ts,
+        tool_ms: sum(items.map((x) => x.tool_ms)),
+        errors: errorCount,
+        tools: toolCounts,
+        start_it: items[0].iteration,
+        end_it: items[items.length - 1].iteration,
+        examples: items.slice(0, 3).map((x) => `${x.tool}:${compactText(x.target, 80)}`),
+      };
+    })
+    .sort((a, b) => b.count - a.count || b.tool_ms - a.tool_ms)
+    .slice(0, 20);
 
   const readonlyStalls = [];
   for (const [sid, srows] of groupBy(tools, sessionId).entries()) {
@@ -775,7 +856,9 @@ function buildToolDiagnostics(rows, failureRows = []) {
       const flushRun = () => {
         const turns = new Set(run.map((r) => num(r, 'iteration')).filter((n) => n != null)).size;
         if (turns >= READONLY_STALL_MIN_RUN) {
-          const pathCounts = countBy(run, (r) => summarizePathArg((toolArgs(r) || {}).path)).filter(([p]) => p).slice(0, 3);
+          const pathCounts = countBy(run, (r) => summarizePathArg((toolArgs(r) || {}).path))
+            .filter(([p]) => p)
+            .slice(0, 3);
           readonlyStalls.push({
             session_id: sid,
             agent: agent || null,
@@ -790,7 +873,10 @@ function buildToolDiagnostics(rows, failureRows = []) {
       };
       for (const row of sorted) {
         const name = String(field(row, 'tool_name') || '');
-        if (!READONLY_TOOL_NAMES.has(name)) { flushRun(); continue; }
+        if (!READONLY_TOOL_NAMES.has(name)) {
+          flushRun();
+          continue;
+        }
         // A backwards iteration jump means a new prompt/steer restarted the
         // loop; that is a fresh run, not a continuation of the same stall.
         const it = num(row, 'iteration');
@@ -806,7 +892,7 @@ function buildToolDiagnostics(rows, failureRows = []) {
   const identicalCallRepeats = [];
   for (const [key, trows] of groupBy(
     tools.filter((r) => toolResultKind(r) !== 'error'),
-    (r) => `${sessionId(r)}::${field(r, 'tool_name') || ''}::${toolArgsHash(r) || ''}`,
+    (r) => `${sessionId(r)}::${field(r, 'tool_name') || ''}::${toolArgsHash(r) || ''}`
   ).entries()) {
     if (!toolArgsHash(trows[0])) continue;
     const iterations = [...new Set(trows.map((r) => num(r, 'iteration')).filter((n) => n != null))];
@@ -824,7 +910,10 @@ function buildToolDiagnostics(rows, failureRows = []) {
   identicalCallRepeats.sort((a, b) => b.count - a.count);
 
   const editFragmentation = [];
-  for (const [sid, srows] of groupBy(tools.filter((r) => sessionId(r)), sessionId).entries()) {
+  for (const [sid, srows] of groupBy(
+    tools.filter((r) => sessionId(r)),
+    sessionId
+  ).entries()) {
     const patches = srows
       .filter((r) => String(field(r, 'tool_name') || '') === 'apply_patch')
       .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
@@ -951,20 +1040,26 @@ function buildTurnDiagnostics(rows, routeGroups) {
       const sse = usage ? nearestRowBefore(sseRows, usage.ts, 10_000) : nearestRowBefore(sseRows, tRef, 10_000);
       const streamMs = sse ? (num(sse, 'stream_total_ms') ?? num(sse, 'sse_parse_ms') ?? 0) : 0;
       const fetchWindowMs = Math.max(30_000, streamMs + 10_000);
-      const fetch = transport ? nearestRowBefore(fetchRows, transport.ts, fetchWindowMs) : nearestRowBefore(fetchRows, tRef, fetchWindowMs);
+      const fetch = transport
+        ? nearestRowBefore(fetchRows, transport.ts, fetchWindowMs)
+        : nearestRowBefore(fetchRows, tRef, fetchWindowMs);
       const promptTokens = usage ? cacheDenom(usage) : 0;
-      const cachedTokens = usage ? (num(usage, 'cached_tokens') || 0) : 0;
+      const cachedTokens = usage ? num(usage, 'cached_tokens') || 0 : 0;
       const cacheRatio = promptTokens > 0 ? cachedTokens / promptTokens : null;
-      const headersMs = fetch ? (num(fetch, 'headers_ms') || 0) : 0;
+      const headersMs = fetch ? num(fetch, 'headers_ms') || 0 : 0;
       const toolMs = sum(tools.map((r) => num(r, 'tool_ms')));
-      const outputTokens = usage ? (num(usage, 'output_tokens') || 0) : 0;
-      const thinkingTokens = usage ? (num(usage, 'thinking_tokens') || 0) : 0;
+      const outputTokens = usage ? num(usage, 'output_tokens') || 0 : 0;
+      const thinkingTokens = usage ? num(usage, 'thinking_tokens') || 0 : 0;
       const serviceRequested = transport ? field(transport, 'requested_service_tier') : null;
       const serviceResponse = transport ? field(transport, 'response_service_tier') : field(usage, 'service_tier');
       const flags = [];
       if (field(transport, 'ws_mode') === 'full') flags.push('full_ws');
-      if (cacheBreaks.length) flags.push(`cache_break:${cacheBreaks.map((r) => field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || 'unknown').join('|')}`);
-      if (serviceRequested && serviceResponse && serviceRequested !== serviceResponse) flags.push(`tier:${serviceRequested}->${serviceResponse}`);
+      if (cacheBreaks.length)
+        flags.push(
+          `cache_break:${cacheBreaks.map((r) => field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || 'unknown').join('|')}`
+        );
+      if (serviceRequested && serviceResponse && serviceRequested !== serviceResponse)
+        flags.push(`tier:${serviceRequested}->${serviceResponse}`);
       if (streamMs >= 15_000) flags.push('slow_stream');
       if (headersMs >= 5_000) flags.push('slow_headers');
       if (toolMs >= 5_000) flags.push('slow_tools');
@@ -993,14 +1088,20 @@ function buildTurnDiagnostics(rows, routeGroups) {
         has_previous_response_id: transport ? field(transport, 'request_has_previous_response_id') : null,
         service_requested: serviceRequested,
         service_response: serviceResponse,
-        cache_breaks: cacheBreaks.map((r) => field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || 'unknown'),
-        top_tools: Object.values(tools.reduce((acc, r) => {
-          const name = String(field(r, 'tool_name') || '(unknown)');
-          if (!acc[name]) acc[name] = { tool: name, count: 0, ms: 0 };
-          acc[name].count += 1;
-          acc[name].ms += num(r, 'tool_ms') || 0;
-          return acc;
-        }, {})).sort((a, b) => b.ms - a.ms || b.count - a.count).slice(0, 3),
+        cache_breaks: cacheBreaks.map(
+          (r) => field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || 'unknown'
+        ),
+        top_tools: Object.values(
+          tools.reduce((acc, r) => {
+            const name = String(field(r, 'tool_name') || '(unknown)');
+            if (!acc[name]) acc[name] = { tool: name, count: 0, ms: 0 };
+            acc[name].count += 1;
+            acc[name].ms += num(r, 'tool_ms') || 0;
+            return acc;
+          }, {})
+        )
+          .sort((a, b) => b.ms - a.ms || b.count - a.count)
+          .slice(0, 3),
         flags,
       });
     };
@@ -1021,16 +1122,26 @@ function buildTurnDiagnostics(rows, routeGroups) {
       pushTurn({ usage, transport, tools, cacheBreaks, nextTs });
     }
 
-    const usageMatchedTransports = new Set(usageSorted
-      .map((usage) => nearestRowAround(transportRows, usage.ts, 1_000, (r) => num(r, 'iteration') === num(usage, 'iteration')))
-      .filter(Boolean));
-    for (const transport of transportRows.filter((r) => !usageMatchedTransports.has(r)).sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))) {
+    const usageMatchedTransports = new Set(
+      usageSorted
+        .map((usage) =>
+          nearestRowAround(transportRows, usage.ts, 1_000, (r) => num(r, 'iteration') === num(usage, 'iteration'))
+        )
+        .filter(Boolean)
+    );
+    for (const transport of transportRows
+      .filter((r) => !usageMatchedTransports.has(r))
+      .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))) {
       const iteration = num(transport, 'iteration');
       const ts = Number(transport.ts || 0);
       const nextUsage = usageSorted.find((r) => Number(r.ts || 0) > ts);
       const nextTs = Number(nextUsage?.ts || Infinity);
-      const tools = toolRows.filter((r) => num(r, 'iteration') === iteration && Number(r.ts || 0) >= ts - 100 && Number(r.ts || 0) < nextTs);
-      const cacheBreaks = cacheBreakRows.filter((r) => num(r, 'iteration') === iteration && Number(r.ts || 0) >= ts - 100 && Number(r.ts || 0) < nextTs);
+      const tools = toolRows.filter(
+        (r) => num(r, 'iteration') === iteration && Number(r.ts || 0) >= ts - 100 && Number(r.ts || 0) < nextTs
+      );
+      const cacheBreaks = cacheBreakRows.filter(
+        (r) => num(r, 'iteration') === iteration && Number(r.ts || 0) >= ts - 100 && Number(r.ts || 0) < nextTs
+      );
       pushTurn({ transport, tools, cacheBreaks, nextTs });
     }
   }
@@ -1038,11 +1149,20 @@ function buildTurnDiagnostics(rows, routeGroups) {
   const slowestStream = [...turns].sort((a, b) => b.stream_ms - a.stream_ms).slice(0, 20);
   const slowestTools = [...turns].sort((a, b) => b.tool_ms - a.tool_ms).slice(0, 20);
   const cacheBreakTurns = turns.filter((t) => t.cache_breaks.length > 0);
-  return { turns, slowest_active: slowestActive, slowest_stream: slowestStream, slowest_tools: slowestTools, cache_break_turns: cacheBreakTurns };
+  return {
+    turns,
+    slowest_active: slowestActive,
+    slowest_stream: slowestStream,
+    slowest_tools: slowestTools,
+    cache_break_turns: cacheBreakTurns,
+  };
 }
 
 function buildTokenDiagnostics(turns) {
-  const bySession = groupBy([...turns].sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0)), (t) => t.session_id);
+  const bySession = groupBy(
+    [...turns].sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0)),
+    (t) => t.session_id
+  );
   const sessions = [];
   const growthTurns = [];
   const outputHeavy = [];
@@ -1053,7 +1173,10 @@ function buildTokenDiagnostics(turns) {
     if (!useful.length) continue;
     const first = useful[0];
     const last = useful[useful.length - 1];
-    const maxPromptTurn = useful.reduce((best, t) => (Number(t.prompt_tokens || 0) > Number(best.prompt_tokens || 0) ? t : best), useful[0]);
+    const maxPromptTurn = useful.reduce(
+      (best, t) => (Number(t.prompt_tokens || 0) > Number(best.prompt_tokens || 0) ? t : best),
+      useful[0]
+    );
     const totalOutput = sum(useful.map((t) => t.output_tokens));
     const totalThinking = sum(useful.map((t) => t.thinking_tokens));
     const uncachedTokens = sum(useful.map((t) => Math.max(0, (t.prompt_tokens || 0) - (t.cached_tokens || 0))));
@@ -1069,10 +1192,12 @@ function buildTokenDiagnostics(turns) {
       total_output: totalOutput,
       total_thinking: totalThinking,
       uncached_tokens: uncachedTokens,
-      cache_ratio: cacheRatioFromUsage(useful.map((t) => ({
-        prompt_tokens: t.prompt_tokens,
-        cached_tokens: t.cached_tokens,
-      }))),
+      cache_ratio: cacheRatioFromUsage(
+        useful.map((t) => ({
+          prompt_tokens: t.prompt_tokens,
+          cached_tokens: t.cached_tokens,
+        }))
+      ),
     });
 
     for (let i = 0; i < useful.length; i += 1) {
@@ -1099,13 +1224,14 @@ function buildTokenDiagnostics(turns) {
       };
       if (promptDelta >= 5_000 || (growthPerOutput != null && growthPerOutput >= 10)) growthTurns.push(tokenRow);
       if (out >= 1_000 || (t.thinking_tokens || 0) >= 1_000) outputHeavy.push(tokenRow);
-      if (uncached >= 10_000 || ((t.cache_ratio ?? 1) < 0.8 && (t.prompt_tokens || 0) >= 20_000)) cacheMissCost.push(tokenRow);
+      if (uncached >= 10_000 || ((t.cache_ratio ?? 1) < 0.8 && (t.prompt_tokens || 0) >= 20_000))
+        cacheMissCost.push(tokenRow);
     }
   }
 
   sessions.sort((a, b) => b.prompt_growth - a.prompt_growth || b.total_output - a.total_output);
   growthTurns.sort((a, b) => b.prompt_delta - a.prompt_delta);
-  outputHeavy.sort((a, b) => (b.output_tokens + b.thinking_tokens) - (a.output_tokens + a.thinking_tokens));
+  outputHeavy.sort((a, b) => b.output_tokens + b.thinking_tokens - (a.output_tokens + a.thinking_tokens));
   cacheMissCost.sort((a, b) => b.uncached_tokens - a.uncached_tokens);
   return {
     sessions,
@@ -1121,10 +1247,12 @@ function buildCompactDiagnostics(rows, selectedIds) {
     const sid = sessionId(r);
     return isCompactSessionId(sid) && selectedBase.has(baseSessionId(sid));
   });
-  const metaRows = rows.filter((r) => {
-    if (r.kind !== 'compact_meta') return false;
-    return selectedBase.has(baseSessionId(sessionId(r)));
-  }).sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
+  const metaRows = rows
+    .filter((r) => {
+      if (r.kind !== 'compact_meta') return false;
+      return selectedBase.has(baseSessionId(sessionId(r)));
+    })
+    .sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
   const cache = buildCacheDiagnostics(compactRows);
   const usageRows = compactRows.filter((r) => r.kind === 'usage_raw');
   const transportRows = compactRows.filter((r) => r.kind === 'transport');
@@ -1145,7 +1273,9 @@ function buildCompactDiagnostics(rows, selectedIds) {
       stream_ms: sum(sseRows.map((r) => num(r, 'stream_total_ms') ?? num(r, 'sse_parse_ms'))),
       cache_ratio: cacheRatioFromUsage(usage),
       breaks: breaks.length,
-      no_anchor: breaks.filter((r) => String(field(r, 'reason') || field(r, 'chain_delta_reason') || '').includes('no_anchor')).length,
+      no_anchor: breaks.filter((r) =>
+        String(field(r, 'reason') || field(r, 'chain_delta_reason') || '').includes('no_anchor')
+      ).length,
       full_ws: transports.filter((r) => field(r, 'ws_mode') === 'full').length,
       delta_ws: transports.filter((r) => field(r, 'ws_mode') === 'delta').length,
     });
@@ -1176,25 +1306,29 @@ function buildCompactDiagnostics(rows, selectedIds) {
         after_messages: num(r, 'after_count'),
         duration_ms: num(r, 'duration_ms'),
         error: field(r, 'error'),
-        handoff_pipeline: pipe ? {
-          ingest_ms: pipe.ingestMs ?? null,
-          initial_dump_ms: pipe.initialDumpMs ?? null,
-          initial_raw_pending: pipe.initialRawPending ?? null,
-          cycle1_ms: pipe.cycle1Ms ?? null,
-          cycle1_passes: pipe.cycle1Passes ?? null,
-          cycle1_raw_remaining: pipe.cycle1RawRemaining ?? null,
-          final_handoff_kb: pipe.finalHandoffBytes != null ? Math.round(pipe.finalHandoffBytes / 1024) : null,
-        } : null,
-        fit: fresh ? {
-          head_messages: fresh.headMessages ?? null,
-          tail_messages: fresh.tailMessages ?? null,
-          mandatory_cost: fresh.mandatoryCost ?? null,
-          remaining_tokens: fresh.remainingTokens ?? null,
-          budget_raised: fresh.budgetRaised === true,
-          final_tokens: fresh.finalTokens ?? null,
-          handoff_chars: fresh.handoffChars ?? null,
-          tail_truncated: fresh.tailTruncated ?? null,
-        } : null,
+        handoff_pipeline: pipe
+          ? {
+              ingest_ms: pipe.ingestMs ?? null,
+              initial_dump_ms: pipe.initialDumpMs ?? null,
+              initial_raw_pending: pipe.initialRawPending ?? null,
+              cycle1_ms: pipe.cycle1Ms ?? null,
+              cycle1_passes: pipe.cycle1Passes ?? null,
+              cycle1_raw_remaining: pipe.cycle1RawRemaining ?? null,
+              final_handoff_kb: pipe.finalHandoffBytes != null ? Math.round(pipe.finalHandoffBytes / 1024) : null,
+            }
+          : null,
+        fit: fresh
+          ? {
+              head_messages: fresh.headMessages ?? null,
+              tail_messages: fresh.tailMessages ?? null,
+              mandatory_cost: fresh.mandatoryCost ?? null,
+              remaining_tokens: fresh.remainingTokens ?? null,
+              budget_raised: fresh.budgetRaised === true,
+              final_tokens: fresh.finalTokens ?? null,
+              handoff_chars: fresh.handoffChars ?? null,
+              tail_truncated: fresh.tailTruncated ?? null,
+            }
+          : null,
       };
     }),
     cache_breaks: cache.cache_breaks,
@@ -1204,11 +1338,12 @@ function buildCompactDiagnostics(rows, selectedIds) {
 }
 
 function selectCacheBreakIssues(rows, limit = 10) {
-  const ordered = [...rows].sort((a, b) => (
-    Number(a.ts || 0) - Number(b.ts || 0)
-    || String(a.session_id || '').localeCompare(String(b.session_id || ''))
-    || Number(a.iteration || 0) - Number(b.iteration || 0)
-  ));
+  const ordered = [...rows].sort(
+    (a, b) =>
+      Number(a.ts || 0) - Number(b.ts || 0) ||
+      String(a.session_id || '').localeCompare(String(b.session_id || '')) ||
+      Number(a.iteration || 0) - Number(b.iteration || 0)
+  );
   const root = ordered.filter((row) => !isCompactSessionId(row.session_id));
   const compact = ordered.filter((row) => isCompactSessionId(row.session_id));
   if (!root.length || !compact.length || limit < 2) return ordered.slice(0, limit);
@@ -1221,7 +1356,7 @@ function buildIssues(routeGroups, cache, tools) {
     const readonlyRole = READONLY_ROLE_AGENTS.has(String(stall.agent || '').toLowerCase());
     const turns = stall.run_turns ?? stall.run_length;
     issues.push({
-      severity: readonlyRole ? 'low' : (turns >= 15 ? 'high' : 'medium'),
+      severity: readonlyRole ? 'low' : turns >= 15 ? 'high' : 'medium',
       type: 'readonly_stall',
       message: `${stall.agent || shortId(stall.session_id)} readonly stall ${turns} turns/${stall.run_length} calls (it=${stall.start_it ?? '-'}..${stall.end_it ?? '-'})${readonlyRole ? ' [readonly role]' : ''} top paths: ${stall.top_paths.map((p) => `${p.path}×${p.count}`).join(', ') || '-'}`,
       session_id: stall.session_id,
@@ -1240,21 +1375,46 @@ function buildIssues(routeGroups, cache, tools) {
     // per send) have no loop, so full-WS/low-cache is their normal shape, not an issue.
     if (/:native-web-search:/.test(String(g.session_id || ''))) continue;
     if (g.ws_full > 0 && g.ws_delta === 0 && g.transport_rows > 0) {
-      issues.push({ severity: 'high', type: 'cache', message: `${g.agent || shortId(g.session_id)} stayed full WS (${g.ws_full} full, 0 delta)`, session_id: g.session_id });
+      issues.push({
+        severity: 'high',
+        type: 'cache',
+        message: `${g.agent || shortId(g.session_id)} stayed full WS (${g.ws_full} full, 0 delta)`,
+        session_id: g.session_id,
+      });
     } else if (g.ws_full > 0) {
-      issues.push({ severity: 'medium', type: 'cache', message: `${g.agent || shortId(g.session_id)} had ${g.ws_full} full WS turn(s) before delta`, session_id: g.session_id });
+      issues.push({
+        severity: 'medium',
+        type: 'cache',
+        message: `${g.agent || shortId(g.session_id)} had ${g.ws_full} full WS turn(s) before delta`,
+        session_id: g.session_id,
+      });
     }
     // Sessions with <=2 turns (ephemeral one-shots) have no
     // prior turn to cache against; low ratio is structural, not actionable.
     if (g.cache_ratio != null && g.prompt_tokens > 5000 && g.cache_ratio < 0.25 && (g.turns ?? 0) > 2) {
-      issues.push({ severity: 'high', type: 'cache', message: `${g.agent || shortId(g.session_id)} low cache ratio ${fmtPct(g.cache_ratio * 100)}`, session_id: g.session_id });
+      issues.push({
+        severity: 'high',
+        type: 'cache',
+        message: `${g.agent || shortId(g.session_id)} low cache ratio ${fmtPct(g.cache_ratio * 100)}`,
+        session_id: g.session_id,
+      });
     }
   }
   for (const b of selectCacheBreakIssues(cache.actionable_cache_breaks, 10)) {
-    issues.push({ severity: b.reason === 'no_anchor' ? 'medium' : 'high', type: 'cache_break', message: `cache_break ${b.reason || 'unknown'} at it=${b.iteration ?? '-'}`, session_id: b.session_id });
+    issues.push({
+      severity: b.reason === 'no_anchor' ? 'medium' : 'high',
+      type: 'cache_break',
+      message: `cache_break ${b.reason || 'unknown'} at it=${b.iteration ?? '-'}`,
+      session_id: b.session_id,
+    });
   }
   for (const m of (cache.actual_cache_misses || []).slice(0, 10)) {
-    issues.push({ severity: 'high', type: 'cache_miss', message: `cache_miss ${m.reason || 'unknown'} at it=${m.iteration ?? '-'} uncached=${fmtTok(m.uncached_tokens)}`, session_id: m.session_id });
+    issues.push({
+      severity: 'high',
+      type: 'cache_miss',
+      message: `cache_miss ${m.reason || 'unknown'} at it=${m.iteration ?? '-'} uncached=${fmtTok(m.uncached_tokens)}`,
+      session_id: m.session_id,
+    });
   }
   if (cache.service_tier_downgrades.length) {
     const first = cache.service_tier_downgrades[0];
@@ -1262,40 +1422,89 @@ function buildIssues(routeGroups, cache, tools) {
     // has no priority lane — expected, not actionable per session. Keep it
     // visible as info-level; only other downgrade shapes stay medium.
     const expected = cache.service_tier_downgrades.every((d) => d.requested === 'priority' && d.response === 'default');
-    issues.push({ severity: expected ? 'low' : 'medium', type: 'service_tier', message: `${cache.service_tier_downgrades.length} service tier downgrade(s), e.g. ${first.requested}->${first.response}${expected ? ' (expected: no priority lane on this account)' : ''}`, session_id: first.session_id });
+    issues.push({
+      severity: expected ? 'low' : 'medium',
+      type: 'service_tier',
+      message: `${cache.service_tier_downgrades.length} service tier downgrade(s), e.g. ${first.requested}->${first.response}${expected ? ' (expected: no priority lane on this account)' : ''}`,
+      session_id: first.session_id,
+    });
   }
   if (tools.failures.length) {
     const byTool = new Map();
     for (const f of tools.failures) byTool.set(f.tool || '(unknown)', (byTool.get(f.tool || '(unknown)') || 0) + 1);
-    const summary = [...byTool.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([tool, count]) => `${tool}×${count}`).join(', ');
-    issues.push({ severity: 'medium', type: 'tool_error', message: `${tools.failures.length} failed tool call(s): ${summary}` });
+    const summary = [...byTool.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([tool, count]) => `${tool}×${count}`)
+      .join(', ');
+    issues.push({
+      severity: 'medium',
+      type: 'tool_error',
+      message: `${tools.failures.length} failed tool call(s): ${summary}`,
+    });
   }
   for (const dup of tools.duplicates.slice(0, 5)) {
-    issues.push({ severity: 'low', type: 'duplicate_tool', message: `duplicate ${dup.tool} x${dup.count}: ${dup.target}`, args_hash: dup.args_hash });
+    issues.push({
+      severity: 'low',
+      type: 'duplicate_tool',
+      message: `duplicate ${dup.tool} x${dup.count}: ${dup.target}`,
+      args_hash: dup.args_hash,
+    });
   }
   for (const fail of tools.failed_repeats.slice(0, 5)) {
-    issues.push({ severity: 'medium', type: 'failed_tool_repeat', message: `repeated failing ${fail.tool} x${fail.error_count}: ${fail.target}`, args_hash: fail.args_hash });
+    issues.push({
+      severity: 'medium',
+      type: 'failed_tool_repeat',
+      message: `repeated failing ${fail.tool} x${fail.error_count}: ${fail.target}`,
+      args_hash: fail.args_hash,
+    });
   }
   for (const broad of tools.broad_results.slice(0, 5)) {
-    issues.push({ severity: 'medium', type: 'broad_tool_result', message: `${broad.tool} returned ${Math.round(broad.bytes / 1024)}KB/${broad.lines} lines: ${broad.target}`, session_id: broad.session_id });
+    issues.push({
+      severity: 'medium',
+      type: 'broad_tool_result',
+      message: `${broad.tool} returned ${Math.round(broad.bytes / 1024)}KB/${broad.lines} lines: ${broad.target}`,
+      session_id: broad.session_id,
+    });
   }
   for (const frag of tools.read_fragmentation.slice(0, 5)) {
-    issues.push({ severity: 'low', type: 'read_fragmentation', message: `read fragmentation x${frag.count} within ${frag.line_span} lines: ${frag.path}` });
+    issues.push({
+      severity: 'low',
+      type: 'read_fragmentation',
+      message: `read fragmentation x${frag.count} within ${frag.line_span} lines: ${frag.path}`,
+    });
   }
   if (tools.missed_parallelism_heuristic.consecutive_single_tool_batches >= 3) {
-    issues.push({ severity: 'low', type: 'missed_parallelism', message: `${tools.missed_parallelism_heuristic.consecutive_single_tool_batches} same-session consecutive read-only single-tool pairs` });
+    issues.push({
+      severity: 'low',
+      type: 'missed_parallelism',
+      message: `${tools.missed_parallelism_heuristic.consecutive_single_tool_batches} same-session consecutive read-only single-tool pairs`,
+    });
   }
   if (tools.ordered_followup_candidates?.patch_then_shell > 0) {
-    issues.push({ severity: 'low', type: 'ordered_followup', message: `${tools.ordered_followup_candidates.patch_then_shell} patch→shell pair(s) used separate model turns but can share one ordered batch` });
+    issues.push({
+      severity: 'low',
+      type: 'ordered_followup',
+      message: `${tools.ordered_followup_candidates.patch_then_shell} patch→shell pair(s) used separate model turns but can share one ordered batch`,
+    });
   }
   if (tools.sequential_tool_clusters?.length) {
     const c = tools.sequential_tool_clusters[0];
     const toolSummary = c.tools.map((x) => `${x.tool}×${x.count}`).join(', ');
-    issues.push({ severity: 'low', type: 'tool_churn_cluster', message: `sequential single-tool cluster x${c.count} over ${fmtMs(c.span_ms)}: ${toolSummary}` });
+    issues.push({
+      severity: 'low',
+      type: 'tool_churn_cluster',
+      message: `sequential single-tool cluster x${c.count} over ${fmtMs(c.span_ms)}: ${toolSummary}`,
+    });
   }
   for (const e of (tools.edit_fragmentation || []).slice(0, 5)) {
     if (e.frag_score < 2) continue;
-    issues.push({ severity: 'low', type: 'edit_fragmentation', message: `edit fragmentation x${e.frag_score} (multi-patch turns ${e.multi_patch_turns}, cross-turn ${e.cross_turn_patch}): ${e.agent || '-'}`, session_id: e.session_id });
+    issues.push({
+      severity: 'low',
+      type: 'edit_fragmentation',
+      message: `edit fragmentation x${e.frag_score} (multi-patch turns ${e.multi_patch_turns}, cross-turn ${e.cross_turn_patch}): ${e.agent || '-'}`,
+      session_id: e.session_id,
+    });
   }
   const rank = { high: 0, medium: 1, low: 2 };
   return issues.sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
@@ -1314,36 +1523,79 @@ function buildWhySlowRankings(report) {
   const ranks = [];
   const topStream = report.stages.slowest_stream[0];
   if (topStream && topStream.stream_ms > 0) {
-    ranks.push({ score: topStream.stream_ms / 1000, type: 'slow_stream', message: `${topStream.agent || '-'} it=${topStream.turn_label || topStream.iteration} stream=${fmtMs(topStream.stream_ms)} prompt=${fmtTok(topStream.prompt_tokens)} out=${fmtTok(topStream.output_tokens + topStream.thinking_tokens)}` });
+    ranks.push({
+      score: topStream.stream_ms / 1000,
+      type: 'slow_stream',
+      message: `${topStream.agent || '-'} it=${topStream.turn_label || topStream.iteration} stream=${fmtMs(topStream.stream_ms)} prompt=${fmtTok(topStream.prompt_tokens)} out=${fmtTok(topStream.output_tokens + topStream.thinking_tokens)}`,
+    });
   }
   const topTool = report.stages.slowest_tools[0];
   if (topTool && topTool.tool_ms > 0) {
     const label = topTool.top_tools.map((x) => `${x.tool}×${x.count}/${fmtMs(x.ms)}`).join(', ');
-    ranks.push({ score: topTool.tool_ms / 1000, type: 'slow_tools', message: `${topTool.agent || '-'} it=${topTool.turn_label || topTool.iteration} tools=${fmtMs(topTool.tool_ms)} ${label}` });
+    ranks.push({
+      score: topTool.tool_ms / 1000,
+      type: 'slow_tools',
+      message: `${topTool.agent || '-'} it=${topTool.turn_label || topTool.iteration} tools=${fmtMs(topTool.tool_ms)} ${label}`,
+    });
   }
   if (report.tools.failures.length) {
-    const summary = countBy(report.tools.failures, (f) => f.category || f.tool || 'unknown').slice(0, 3).map(([k, v]) => `${k}×${v}`).join(', ');
-    ranks.push({ score: 50 + report.tools.failures.length, type: 'tool_failures', message: `${report.tools.failures.length} failed tool call(s): ${summary}` });
+    const summary = countBy(report.tools.failures, (f) => f.category || f.tool || 'unknown')
+      .slice(0, 3)
+      .map(([k, v]) => `${k}×${v}`)
+      .join(', ');
+    ranks.push({
+      score: 50 + report.tools.failures.length,
+      type: 'tool_failures',
+      message: `${report.tools.failures.length} failed tool call(s): ${summary}`,
+    });
   }
   if (report.cache.actionable_cache_breaks.length) {
-    const summary = countBy(report.cache.actionable_cache_breaks, (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`).slice(0, 3).map(([k, v]) => `${k}×${v}`).join(', ');
-    ranks.push({ score: 40 + report.cache.actionable_cache_breaks.length, type: 'cache_breaks', message: `${report.cache.actionable_cache_breaks.length} actionable cache break(s): ${summary}` });
+    const summary = countBy(
+      report.cache.actionable_cache_breaks,
+      (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`
+    )
+      .slice(0, 3)
+      .map(([k, v]) => `${k}×${v}`)
+      .join(', ');
+    ranks.push({
+      score: 40 + report.cache.actionable_cache_breaks.length,
+      type: 'cache_breaks',
+      message: `${report.cache.actionable_cache_breaks.length} actionable cache break(s): ${summary}`,
+    });
   }
   if (report.cache.actual_cache_misses?.length) {
-    const top = [...report.cache.actual_cache_misses].sort((a, b) => (b.uncached_tokens || 0) - (a.uncached_tokens || 0))[0];
-    ranks.push({ score: 60 + (top?.uncached_tokens || 0) / 1000, type: 'cache_miss', message: `${report.cache.actual_cache_misses.length} actual cache miss(es), top uncached=${fmtTok(top?.uncached_tokens || 0)} it=${top?.iteration ?? '-'}` });
+    const top = [...report.cache.actual_cache_misses].sort(
+      (a, b) => (b.uncached_tokens || 0) - (a.uncached_tokens || 0)
+    )[0];
+    ranks.push({
+      score: 60 + (top?.uncached_tokens || 0) / 1000,
+      type: 'cache_miss',
+      message: `${report.cache.actual_cache_misses.length} actual cache miss(es), top uncached=${fmtTok(top?.uncached_tokens || 0)} it=${top?.iteration ?? '-'}`,
+    });
   }
   const topGrowth = report.tokens.growth_turns[0];
   if (topGrowth) {
-    ranks.push({ score: Math.max(0, topGrowth.prompt_delta) / 1000, type: 'prompt_growth', message: `${topGrowth.agent || '-'} it=${topGrowth.turn_label} prompt Δ=${fmtTok(topGrowth.prompt_delta)} out=${fmtTok(topGrowth.output_tokens + topGrowth.thinking_tokens)} cache=${fmtPct((topGrowth.cache_ratio ?? 0) * 100)}` });
+    ranks.push({
+      score: Math.max(0, topGrowth.prompt_delta) / 1000,
+      type: 'prompt_growth',
+      message: `${topGrowth.agent || '-'} it=${topGrowth.turn_label} prompt Δ=${fmtTok(topGrowth.prompt_delta)} out=${fmtTok(topGrowth.output_tokens + topGrowth.thinking_tokens)} cache=${fmtPct((topGrowth.cache_ratio ?? 0) * 100)}`,
+    });
   }
   const topUncached = report.tokens.cache_miss_cost_turns[0];
   if (topUncached) {
-    ranks.push({ score: topUncached.uncached_tokens / 1000, type: 'uncached_prompt', message: `${topUncached.agent || '-'} it=${topUncached.turn_label} uncached=${fmtTok(topUncached.uncached_tokens)} prompt=${fmtTok(topUncached.prompt_tokens)} cache=${fmtPct((topUncached.cache_ratio ?? 0) * 100)}` });
+    ranks.push({
+      score: topUncached.uncached_tokens / 1000,
+      type: 'uncached_prompt',
+      message: `${topUncached.agent || '-'} it=${topUncached.turn_label} uncached=${fmtTok(topUncached.uncached_tokens)} prompt=${fmtTok(topUncached.prompt_tokens)} cache=${fmtPct((topUncached.cache_ratio ?? 0) * 100)}`,
+    });
   }
   if (report.tools.duplicates.length) {
     const d = report.tools.duplicates[0];
-    ranks.push({ score: 10 + d.count, type: 'tool_churn', message: `${d.tool} repeated x${d.count} kinds=${fmtKindCounts(d.result_kinds)}: ${d.target}` });
+    ranks.push({
+      score: 10 + d.count,
+      type: 'tool_churn',
+      message: `${d.tool} repeated x${d.count} kinds=${fmtKindCounts(d.result_kinds)}: ${d.target}`,
+    });
   }
   return ranks.sort((a, b) => b.score - a.score).slice(0, 10);
 }
@@ -1354,28 +1606,53 @@ function buildExecutiveSummary(report) {
   const stream = report.summary.llm_stream_ms || 0;
   const tools = report.summary.total_tool_ms || 0;
   const total = headers + stream + tools;
-  const dominant = [['stream', stream], ['tools', tools], ['headers', headers]].sort((a, b) => b[1] - a[1])[0];
-  lines.push(`\uC8FC \uBCD1\uBAA9=${dominant[0]} ${fmtMs(dominant[1])}/${fmtMs(total)}; cache=${fmtPct((report.summary.cache_ratio ?? 0) * 100)}; turns=${report.summary.turns}; tools=${report.summary.tool_calls}`);
+  const dominant = [
+    ['stream', stream],
+    ['tools', tools],
+    ['headers', headers],
+  ].sort((a, b) => b[1] - a[1])[0];
+  lines.push(
+    `\uC8FC \uBCD1\uBAA9=${dominant[0]} ${fmtMs(dominant[1])}/${fmtMs(total)}; cache=${fmtPct((report.summary.cache_ratio ?? 0) * 100)}; turns=${report.summary.turns}; tools=${report.summary.tool_calls}`
+  );
   if (report.cache.cache_breaks.length) {
-    const summary = countBy(report.cache.cache_breaks, (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`).slice(0, 3).map(([k, v]) => `${k}×${v}`).join(', ');
+    const summary = countBy(report.cache.cache_breaks, (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`)
+      .slice(0, 3)
+      .map(([k, v]) => `${k}×${v}`)
+      .join(', ');
     lines.push(`\uCE90\uC2DC \uAE68\uC9D0=${report.cache.cache_breaks.length} (${summary})`);
   }
   if (report.cache.actual_cache_misses?.length) {
-    const top = [...report.cache.actual_cache_misses].sort((a, b) => (b.uncached_tokens || 0) - (a.uncached_tokens || 0))[0];
-    lines.push(`\uC2E4\uC81C \uCE90\uC2DC \uBBF8\uC2A4=${report.cache.actual_cache_misses.length} (top uncached=${fmtTok(top?.uncached_tokens || 0)})`);
+    const top = [...report.cache.actual_cache_misses].sort(
+      (a, b) => (b.uncached_tokens || 0) - (a.uncached_tokens || 0)
+    )[0];
+    lines.push(
+      `\uC2E4\uC81C \uCE90\uC2DC \uBBF8\uC2A4=${report.cache.actual_cache_misses.length} (top uncached=${fmtTok(top?.uncached_tokens || 0)})`
+    );
   }
   if (report.compact?.cache_breaks?.length) {
-    const summary = countBy(report.compact.cache_breaks, (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`).slice(0, 3).map(([k, v]) => `${k}×${v}`).join(', ');
-    lines.push(`\uCEF4\uD329\uD2B8 \uD638\uCD9C=${report.compact.sessions.length} session, cache reset=${report.compact.cache_breaks.length} (${summary})`);
+    const summary = countBy(report.compact.cache_breaks, (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`)
+      .slice(0, 3)
+      .map(([k, v]) => `${k}×${v}`)
+      .join(', ');
+    lines.push(
+      `\uCEF4\uD329\uD2B8 \uD638\uCD9C=${report.compact.sessions.length} session, cache reset=${report.compact.cache_breaks.length} (${summary})`
+    );
   }
   if (report.tools.failures.length) {
-    const summary = countBy(report.tools.failures, (f) => f.category || f.tool || 'unknown').slice(0, 3).map(([k, v]) => `${k}×${v}`).join(', ');
+    const summary = countBy(report.tools.failures, (f) => f.category || f.tool || 'unknown')
+      .slice(0, 3)
+      .map(([k, v]) => `${k}×${v}`)
+      .join(', ');
     lines.push(`\uD234 \uC2E4\uD328=${report.tools.failures.length} (${summary})`);
   }
   const topGrowth = report.tokens.growth_turns[0];
-  if (topGrowth) lines.push(`\uD1A0\uD070 \uC99D\uD3ED=${topGrowth.agent || '-'} it=${topGrowth.turn_label} promptΔ=${fmtTok(topGrowth.prompt_delta)} out=${fmtTok(topGrowth.output_tokens + topGrowth.thinking_tokens)}`);
+  if (topGrowth)
+    lines.push(
+      `\uD1A0\uD070 \uC99D\uD3ED=${topGrowth.agent || '-'} it=${topGrowth.turn_label} promptΔ=${fmtTok(topGrowth.prompt_delta)} out=${fmtTok(topGrowth.output_tokens + topGrowth.thinking_tokens)}`
+    );
   const topChurn = report.tools.duplicates[0];
-  if (topChurn) lines.push(`\uD234 \uD5DB\uB3CE=${topChurn.tool}×${topChurn.count} ${compactText(topChurn.target, 90)}`);
+  if (topChurn)
+    lines.push(`\uD234 \uD5DB\uB3CE=${topChurn.tool}×${topChurn.count} ${compactText(topChurn.target, 90)}`);
   return lines;
 }
 
@@ -1387,7 +1664,10 @@ function buildPreflightDiagnostics(rows) {
   const list = (rows || []).filter((r) => r.kind === 'turn_timing');
   const pctl = (arr, q) => (arr.length ? arr[Math.min(arr.length - 1, Math.floor(arr.length * q))] : null);
   const stat = (key) => {
-    const values = list.map((r) => num(r, key)).filter((n) => n != null && n >= 0).sort((a, b) => a - b);
+    const values = list
+      .map((r) => num(r, key))
+      .filter((n) => n != null && n >= 0)
+      .sort((a, b) => a - b);
     return {
       n: values.length,
       p50: pctl(values, 0.5),
@@ -1424,7 +1704,7 @@ function buildReport(rows, selectedIds, failureRows = []) {
   // isolated in compact diagnostics and selected compact children never duplicate.
   const selectedSessionIds = new Set(selectedIds);
   const compactActionableBreaks = compact.cache_breaks.filter(
-    (row) => row.actionable && !selectedSessionIds.has(row.session_id),
+    (row) => row.actionable && !selectedSessionIds.has(row.session_id)
   );
   const cache = {
     ...selectedCache,
@@ -1473,11 +1753,22 @@ function renderText(report) {
   const lines = [];
   const focused = opts.failuresOnly || opts.compactOnly || opts.tokensOnly || opts.slowOnly;
   lines.push(`Session bench (${report.selected_sessions.map(shortId).join(', ')})`);
-  lines.push(`range: ${report.time_range.start || '-'} → ${report.time_range.end || '-'} (${fmtSec(report.time_range.span_ms)})`);
-  lines.push(`turns=${report.summary.turns} tools=${report.summary.tool_calls} llm_stream=${fmtMs(report.summary.llm_stream_ms)} tool_time=${fmtMs(report.summary.total_tool_ms)} cache=${fmtPct((report.summary.cache_ratio ?? 0) * 100)}`);
+  lines.push(
+    `range: ${report.time_range.start || '-'} → ${report.time_range.end || '-'} (${fmtSec(report.time_range.span_ms)})`
+  );
+  lines.push(
+    `turns=${report.summary.turns} tools=${report.summary.tool_calls} llm_stream=${fmtMs(report.summary.llm_stream_ms)} tool_time=${fmtMs(report.summary.total_tool_ms)} cache=${fmtPct((report.summary.cache_ratio ?? 0) * 100)}`
+  );
   lines.push('');
 
-  if (!opts.issuesOnly && !opts.cacheOnly && !opts.toolsOnly && !opts.compactOnly && !opts.tokensOnly && !opts.failuresOnly) {
+  if (
+    !opts.issuesOnly &&
+    !opts.cacheOnly &&
+    !opts.toolsOnly &&
+    !opts.compactOnly &&
+    !opts.tokensOnly &&
+    !opts.failuresOnly
+  ) {
     lines.push('Executive summary');
     for (const line of report.executive_summary || []) lines.push(`- ${line}`);
     if (report.rankings?.length) {
@@ -1488,7 +1779,9 @@ function renderText(report) {
   }
 
   const pushCompactDiagnostics = () => {
-    if (!(report.compact?.sessions?.length || report.compact?.recent_meta?.length || report.compact?.cache_breaks?.length)) {
+    if (
+      !(report.compact?.sessions?.length || report.compact?.recent_meta?.length || report.compact?.cache_breaks?.length)
+    ) {
       lines.push('compact diagnostics: none');
       return;
     }
@@ -1522,13 +1815,16 @@ function renderText(report) {
         if (m.error) parts.push(`error=${compactText(m.error, 120)}`);
         lines.push(parts.join(' '));
         if (pipe) {
-          lines.push(`  handoff pipeline: ingest=${fmtMs(pipe.ingest_ms)} dump=${fmtMs(pipe.initial_dump_ms)} raw=${pipe.initial_raw_pending ?? '-'} cycle1=${fmtMs(pipe.cycle1_ms)} passes=${pipe.cycle1_passes ?? '-'} rawLeft=${pipe.cycle1_raw_remaining ?? '-'} handoff=${pipe.final_handoff_kb ?? '-'}KB`);
+          lines.push(
+            `  handoff pipeline: ingest=${fmtMs(pipe.ingest_ms)} dump=${fmtMs(pipe.initial_dump_ms)} raw=${pipe.initial_raw_pending ?? '-'} cycle1=${fmtMs(pipe.cycle1_ms)} passes=${pipe.cycle1_passes ?? '-'} rawLeft=${pipe.cycle1_raw_remaining ?? '-'} handoff=${pipe.final_handoff_kb ?? '-'}KB`
+          );
         }
         if (fit) {
-          const handoffPart = fit.handoff_chars != null
-            ? ` handoffChars=${fit.handoff_chars} tailTrunc=${fit.tail_truncated}`
-            : '';
-          lines.push(`  fit: head=${fit.head_messages ?? '-'} tail=${fit.tail_messages ?? '-'} mandatory=${fmtTok(fit.mandatory_cost)} remain=${fmtTok(fit.remaining_tokens)} final=${fmtTok(fit.final_tokens)} raised=${fit.budget_raised}${handoffPart}`);
+          const handoffPart =
+            fit.handoff_chars != null ? ` handoffChars=${fit.handoff_chars} tailTrunc=${fit.tail_truncated}` : '';
+          lines.push(
+            `  fit: head=${fit.head_messages ?? '-'} tail=${fit.tail_messages ?? '-'} mandatory=${fmtTok(fit.mandatory_cost)} remain=${fmtTok(fit.remaining_tokens)} final=${fmtTok(fit.final_tokens)} raised=${fit.budget_raised}${handoffPart}`
+          );
         }
       }
     }
@@ -1537,13 +1833,17 @@ function renderText(report) {
     if (intentionalCompactBreaks.length) {
       lines.push('compact cache resets (intentional):');
       for (const b of intentionalCompactBreaks.slice(0, 5)) {
-        lines.push(`- ${shortId(b.session_id)} it=${b.iteration ?? '-'} phase=${b.phase || '-'} reason=${b.reason || '-'} prompt=${fmtTok(b.prompt_tokens)} out=${fmtTok(b.output_tokens)}`);
+        lines.push(
+          `- ${shortId(b.session_id)} it=${b.iteration ?? '-'} phase=${b.phase || '-'} reason=${b.reason || '-'} prompt=${fmtTok(b.prompt_tokens)} out=${fmtTok(b.output_tokens)}`
+        );
       }
     }
     if (actionableCompactBreaks.length) {
       lines.push('compact cache breaks (actionable):');
       for (const b of actionableCompactBreaks.slice(0, 5)) {
-        lines.push(`- ${shortId(b.session_id)} it=${b.iteration ?? '-'} phase=${b.phase || '-'} reason=${b.reason || '-'} prompt=${fmtTok(b.prompt_tokens)} out=${fmtTok(b.output_tokens)}`);
+        lines.push(
+          `- ${shortId(b.session_id)} it=${b.iteration ?? '-'} phase=${b.phase || '-'} reason=${b.reason || '-'} prompt=${fmtTok(b.prompt_tokens)} out=${fmtTok(b.output_tokens)}`
+        );
       }
     }
   };
@@ -1577,24 +1877,41 @@ function renderText(report) {
 
   if (!focused && !opts.toolsOnly && !opts.issuesOnly) {
     lines.push('Cache / transport');
-    lines.push(`cache: ${fmtTok(report.cache.cached_tokens)} / ${fmtTok(report.cache.prompt_tokens)} (${fmtPct((report.cache.usage_cache_ratio ?? 0) * 100)})`);
-    lines.push(`ws: delta=${report.cache.ws_delta}, full=${report.cache.ws_full}, previous_response_id=${report.cache.previous_response_id}, reused=${report.cache.reused_connection}/${report.cache.transport_count}`);
-    if (report.cache.cache_key_hashes.length) lines.push(`cache keys: ${report.cache.cache_key_hashes.slice(0, 5).map((k) => `${k.key}×${k.count}`).join(', ')}`);
+    lines.push(
+      `cache: ${fmtTok(report.cache.cached_tokens)} / ${fmtTok(report.cache.prompt_tokens)} (${fmtPct((report.cache.usage_cache_ratio ?? 0) * 100)})`
+    );
+    lines.push(
+      `ws: delta=${report.cache.ws_delta}, full=${report.cache.ws_full}, previous_response_id=${report.cache.previous_response_id}, reused=${report.cache.reused_connection}/${report.cache.transport_count}`
+    );
+    if (report.cache.cache_key_hashes.length)
+      lines.push(
+        `cache keys: ${report.cache.cache_key_hashes
+          .slice(0, 5)
+          .map((k) => `${k.key}×${k.count}`)
+          .join(', ')}`
+      );
     if (report.cache.cache_breaks.length) {
-      lines.push(`cache breaks (raw=${report.cache.cache_breaks.length}, actionable=${report.cache.actionable_cache_breaks.length}):`);
+      lines.push(
+        `cache breaks (raw=${report.cache.cache_breaks.length}, actionable=${report.cache.actionable_cache_breaks.length}):`
+      );
       for (const b of report.cache.cache_breaks.slice(0, 10)) {
-        lines.push(`- ${shortId(b.session_id)} it=${b.iteration ?? '-'} ${b.actionable ? 'actionable' : `intentional:${b.intentional_transition}`} phase=${b.phase || '-'} reason=${b.reason || '-'} (${b.explanation || '-'}) ws=${b.ws_mode || '-'} tool_choice=${b.request_tool_choice ?? '-'} prev=${b.request_has_previous_response_id} cache=${fmtPct((b.cache_ratio ?? 0) * 100)} prompt=${fmtTok(b.prompt_tokens)} out=${fmtTok(b.output_tokens)} body/frame=${b.body_input_items ?? '-'}/${b.frame_input_items ?? '-'}`);
+        lines.push(
+          `- ${shortId(b.session_id)} it=${b.iteration ?? '-'} ${b.actionable ? 'actionable' : `intentional:${b.intentional_transition}`} phase=${b.phase || '-'} reason=${b.reason || '-'} (${b.explanation || '-'}) ws=${b.ws_mode || '-'} tool_choice=${b.request_tool_choice ?? '-'} prev=${b.request_has_previous_response_id} cache=${fmtPct((b.cache_ratio ?? 0) * 100)} prompt=${fmtTok(b.prompt_tokens)} out=${fmtTok(b.output_tokens)} body/frame=${b.body_input_items ?? '-'}/${b.frame_input_items ?? '-'}`
+        );
       }
     }
     if (report.cache.actual_cache_misses?.length) {
       lines.push('actual cache misses:');
       for (const m of report.cache.actual_cache_misses.slice(0, 10)) {
-        lines.push(`- ${shortId(m.session_id)} it=${m.iteration ?? '-'} reason=${m.reason || '-'} ws=${m.ws_mode || '-'} prev=${m.request_has_previous_response_id} cache=${fmtPct((m.cache_ratio ?? 0) * 100)} prompt=${fmtTok(m.prompt_tokens)} uncached=${fmtTok(m.uncached_tokens)} prevMax=${fmtTok(m.previous_max_cached_tokens)}`);
+        lines.push(
+          `- ${shortId(m.session_id)} it=${m.iteration ?? '-'} reason=${m.reason || '-'} ws=${m.ws_mode || '-'} prev=${m.request_has_previous_response_id} cache=${fmtPct((m.cache_ratio ?? 0) * 100)} prompt=${fmtTok(m.prompt_tokens)} uncached=${fmtTok(m.uncached_tokens)} prevMax=${fmtTok(m.previous_max_cached_tokens)}`
+        );
       }
     }
     if (report.cache.service_tier_downgrades.length) {
       lines.push('service tier downgrades:');
-      for (const d of report.cache.service_tier_downgrades.slice(0, 10)) lines.push(`- ${shortId(d.session_id)} it=${d.iteration ?? '-'} ${d.requested}->${d.response}`);
+      for (const d of report.cache.service_tier_downgrades.slice(0, 10))
+        lines.push(`- ${shortId(d.session_id)} it=${d.iteration ?? '-'} ${d.requested}->${d.response}`);
     }
     if (report.compact?.sessions?.length || report.compact?.recent_meta?.length) {
       pushCompactDiagnostics();
@@ -1616,7 +1933,14 @@ function renderText(report) {
     lines.push('');
   }
 
-  if ((opts.slowOnly || !focused) && !opts.cacheOnly && !opts.toolsOnly && !opts.issuesOnly && !opts.failuresOnly && !opts.tokensOnly) {
+  if (
+    (opts.slowOnly || !focused) &&
+    !opts.cacheOnly &&
+    !opts.toolsOnly &&
+    !opts.issuesOnly &&
+    !opts.failuresOnly &&
+    !opts.tokensOnly
+  ) {
     lines.push('Slow turns / stage breakdown');
     const table = [['agent', 'it', 'active', 'headers', 'stream', 'tools', 'cache', 'ws', 'prompt', 'out', 'flags']];
     for (const t of report.stages.slowest_active.slice(0, Math.min(opts.limit, 12))) {
@@ -1639,15 +1963,26 @@ function renderText(report) {
       lines.push('slow tool turns:');
       for (const t of report.stages.slowest_tools.slice(0, 5)) {
         const toolLabel = t.top_tools.map((x) => `${x.tool}×${x.count}/${fmtMs(x.ms)}`).join(', ') || '-';
-        lines.push(`- ${t.agent || '-'} it=${t.turn_label || (t.iteration ?? '-')} tools=${fmtMs(t.tool_ms)} calls=${t.tool_calls}: ${toolLabel}`);
+        lines.push(
+          `- ${t.agent || '-'} it=${t.turn_label || (t.iteration ?? '-')} tools=${fmtMs(t.tool_ms)} calls=${t.tool_calls}: ${toolLabel}`
+        );
       }
     }
     lines.push('');
   }
 
-  if ((opts.tokensOnly || !focused) && !opts.cacheOnly && !opts.toolsOnly && !opts.issuesOnly && !opts.failuresOnly && !opts.slowOnly) {
+  if (
+    (opts.tokensOnly || !focused) &&
+    !opts.cacheOnly &&
+    !opts.toolsOnly &&
+    !opts.issuesOnly &&
+    !opts.failuresOnly &&
+    !opts.slowOnly
+  ) {
     lines.push('Token amplification');
-    const sessionTable = [['agent', 'turns', 'prompt first→last', 'max', 'Δprompt', 'out', 'uncached', 'cache', 'session']];
+    const sessionTable = [
+      ['agent', 'turns', 'prompt first→last', 'max', 'Δprompt', 'out', 'uncached', 'cache', 'session'],
+    ];
     for (const s of report.tokens.sessions.slice(0, Math.min(opts.limit, 8))) {
       sessionTable.push([
         s.agent || '-',
@@ -1665,26 +2000,39 @@ function renderText(report) {
     if (report.tokens.growth_turns.length) {
       lines.push('prompt growth spikes:');
       for (const t of report.tokens.growth_turns.slice(0, 8)) {
-        const ratio = t.growth_per_output == null ? '-' : `${t.growth_per_output.toFixed(t.growth_per_output >= 10 ? 0 : 1)}x/out`;
-        lines.push(`- ${t.agent || '-'} it=${t.turn_label} prompt=${fmtTok(t.prompt_tokens)} Δ=${fmtTok(t.prompt_delta)} out=${fmtTok(t.output_tokens + t.thinking_tokens)} ${ratio} cache=${fmtPct((t.cache_ratio ?? 0) * 100)}`);
+        const ratio =
+          t.growth_per_output == null ? '-' : `${t.growth_per_output.toFixed(t.growth_per_output >= 10 ? 0 : 1)}x/out`;
+        lines.push(
+          `- ${t.agent || '-'} it=${t.turn_label} prompt=${fmtTok(t.prompt_tokens)} Δ=${fmtTok(t.prompt_delta)} out=${fmtTok(t.output_tokens + t.thinking_tokens)} ${ratio} cache=${fmtPct((t.cache_ratio ?? 0) * 100)}`
+        );
       }
     }
     if (report.tokens.output_heavy_turns.length) {
       lines.push('large output turns:');
       for (const t of report.tokens.output_heavy_turns.slice(0, 5)) {
-        lines.push(`- ${t.agent || '-'} it=${t.turn_label} out=${fmtTok(t.output_tokens)} think=${fmtTok(t.thinking_tokens)} prompt=${fmtTok(t.prompt_tokens)} cache=${fmtPct((t.cache_ratio ?? 0) * 100)}`);
+        lines.push(
+          `- ${t.agent || '-'} it=${t.turn_label} out=${fmtTok(t.output_tokens)} think=${fmtTok(t.thinking_tokens)} prompt=${fmtTok(t.prompt_tokens)} cache=${fmtPct((t.cache_ratio ?? 0) * 100)}`
+        );
       }
     }
     if (report.tokens.cache_miss_cost_turns.length) {
       lines.push('uncached prompt cost:');
       for (const t of report.tokens.cache_miss_cost_turns.slice(0, 5)) {
-        lines.push(`- ${t.agent || '-'} it=${t.turn_label} uncached=${fmtTok(t.uncached_tokens)} prompt=${fmtTok(t.prompt_tokens)} cache=${fmtPct((t.cache_ratio ?? 0) * 100)}`);
+        lines.push(
+          `- ${t.agent || '-'} it=${t.turn_label} uncached=${fmtTok(t.uncached_tokens)} prompt=${fmtTok(t.prompt_tokens)} cache=${fmtPct((t.cache_ratio ?? 0) * 100)}`
+        );
       }
     }
     lines.push('');
   }
 
-  if ((opts.toolsOnly || opts.failuresOnly || !focused) && !opts.cacheOnly && !opts.issuesOnly && !opts.tokensOnly && !opts.slowOnly) {
+  if (
+    (opts.toolsOnly || opts.failuresOnly || !focused) &&
+    !opts.cacheOnly &&
+    !opts.issuesOnly &&
+    !opts.tokensOnly &&
+    !opts.slowOnly
+  ) {
     lines.push('Tool diagnostics');
     lines.push(`tool result kinds: ${fmtKindCounts(report.tools.result_kinds, 6)}`);
     const table = [['tool', 'count', 'ok/err', 'total', 'p50', 'p95', 'kinds', 'result']];
@@ -1704,7 +2052,9 @@ function renderText(report) {
     if (report.tools.failures.length) {
       lines.push('tool failures:');
       for (const f of report.tools.failures.slice(0, 10)) {
-        lines.push(`- ${f.agent || '-'} it=${f.iteration ?? '-'} ${f.tool || '-'} ${fmtMs(f.tool_ms)} category=${f.category || '-'} reason=${f.reason || 'trace\uC5D0 \uC0C1\uC138 stderr/\uC608\uC678 \uBBF8\uC800\uC7A5'} result=${Math.round(f.bytes / 1024)}KB/${f.lines}l: ${f.target}`);
+        lines.push(
+          `- ${f.agent || '-'} it=${f.iteration ?? '-'} ${f.tool || '-'} ${fmtMs(f.tool_ms)} category=${f.category || '-'} reason=${f.reason || 'trace\uC5D0 \uC0C1\uC138 stderr/\uC608\uC678 \uBBF8\uC800\uC7A5'} result=${Math.round(f.bytes / 1024)}KB/${f.lines}l: ${f.target}`
+        );
         if (opts.failuresOnly && f.preview) {
           const preview = compactText(f.preview, 700);
           lines.push(`  preview: ${preview}`);
@@ -1714,44 +2064,58 @@ function renderText(report) {
     if (report.tools.recent_successes.length) {
       lines.push('recent successful tools:');
       for (const s of report.tools.recent_successes.slice(0, 5)) {
-        lines.push(`- ${s.agent || '-'} it=${s.iteration ?? '-'} ${s.tool || '-'} ${fmtMs(s.tool_ms)} kind=${s.result_kind}: ${s.target}`);
+        lines.push(
+          `- ${s.agent || '-'} it=${s.iteration ?? '-'} ${s.tool || '-'} ${fmtMs(s.tool_ms)} kind=${s.result_kind}: ${s.target}`
+        );
       }
     }
     if (report.tools.duplicates.length) {
       lines.push('tool churn / duplicates:');
-      for (const d of report.tools.duplicates.slice(0, 10)) lines.push(`- ${d.tool} x${d.count} kinds=${fmtKindCounts(d.result_kinds)}: ${d.target}`);
+      for (const d of report.tools.duplicates.slice(0, 10))
+        lines.push(`- ${d.tool} x${d.count} kinds=${fmtKindCounts(d.result_kinds)}: ${d.target}`);
     }
     if (report.tools.broad_results.length) {
       lines.push('broad/offloaded results:');
-      for (const b of report.tools.broad_results.slice(0, 10)) lines.push(`- ${b.tool} ${Math.round(b.bytes / 1024)}KB/${b.lines}l: ${b.target}`);
+      for (const b of report.tools.broad_results.slice(0, 10))
+        lines.push(`- ${b.tool} ${Math.round(b.bytes / 1024)}KB/${b.lines}l: ${b.target}`);
     }
     if (report.tools.read_fragmentation.length) {
       lines.push('read fragmentation:');
-      for (const f of report.tools.read_fragmentation.slice(0, 10)) lines.push(`- x${f.count} span=${f.line_span} lines: ${f.path}`);
+      for (const f of report.tools.read_fragmentation.slice(0, 10))
+        lines.push(`- x${f.count} span=${f.line_span} lines: ${f.path}`);
     }
     if (report.tools.sequential_tool_clusters?.length) {
       lines.push('sequential single-tool clusters:');
       for (const c of report.tools.sequential_tool_clusters.slice(0, 8)) {
         const toolSummary = c.tools.map((x) => `${x.tool}×${x.count}`).join(', ');
-        lines.push(`- ${c.agent || '-'} it=${c.start_it ?? '-'}→${c.end_it ?? '-'} x${c.count} span=${fmtMs(c.span_ms)} tool_ms=${fmtMs(c.tool_ms)} errors=${c.errors}: ${toolSummary}`);
+        lines.push(
+          `- ${c.agent || '-'} it=${c.start_it ?? '-'}→${c.end_it ?? '-'} x${c.count} span=${fmtMs(c.span_ms)} tool_ms=${fmtMs(c.tool_ms)} errors=${c.errors}: ${toolSummary}`
+        );
         if (c.examples?.length) lines.push(`  e.g. ${c.examples.join(' | ')}`);
       }
     }
     if (report.tools.edit_fragmentation?.length) {
       lines.push('edit fragmentation:');
       for (const e of report.tools.edit_fragmentation.slice(0, 8)) {
-        lines.push(`- ${e.agent || '-'} it=${e.start_it}→${e.end_it} score=${e.frag_score} multi=${e.multi_patch_turns} cross=${e.cross_turn_patch}`);
+        lines.push(
+          `- ${e.agent || '-'} it=${e.start_it}→${e.end_it} score=${e.frag_score} multi=${e.multi_patch_turns} cross=${e.cross_turn_patch}`
+        );
       }
     }
-    lines.push(`missed parallelism heuristic: ${report.tools.missed_parallelism_heuristic.consecutive_single_tool_batches} close single-tool batches`);
-    lines.push(`ordered patch→shell follow-ups: ${report.tools.ordered_followup_candidates?.patch_then_shell || 0} separate-turn pair(s)`);
+    lines.push(
+      `missed parallelism heuristic: ${report.tools.missed_parallelism_heuristic.consecutive_single_tool_batches} close single-tool batches`
+    );
+    lines.push(
+      `ordered patch→shell follow-ups: ${report.tools.ordered_followup_candidates?.patch_then_shell || 0} separate-turn pair(s)`
+    );
     lines.push('');
   }
 
   if (!opts.cacheOnly && !opts.toolsOnly) {
     lines.push('Issues');
     if (!report.issues.length) lines.push('- none detected by current heuristics');
-    for (const issue of report.issues.slice(0, opts.limit)) lines.push(`- [${issue.severity}] ${issue.type}: ${issue.message}`);
+    for (const issue of report.issues.slice(0, opts.limit))
+      lines.push(`- [${issue.severity}] ${issue.type}: ${issue.message}`);
   }
   return lines.join('\n');
 }
@@ -1766,18 +2130,29 @@ let failureRows = readRows(failurePath);
 if (opts.since != null) failureRows = failureRows.filter((r) => Number(r.ts || 0) >= opts.since);
 failureRows = filterAgent(failureRows, opts.agent);
 
-const bySession = groupBy(rows.filter((r) => sessionId(r)), sessionId);
-const metas = [...bySession.entries()].map(([sid, srows]) => ({ ...inferSessionMeta(srows), session_id: sid }))
+const bySession = groupBy(
+  rows.filter((r) => sessionId(r)),
+  sessionId
+);
+const metas = [...bySession.entries()]
+  .map(([sid, srows]) => ({ ...inferSessionMeta(srows), session_id: sid }))
   .filter((m) => m.max_ts != null)
   .sort((a, b) => Number(b.max_ts || 0) - Number(a.max_ts || 0));
 
 const selectedIds = selectSessionIds(metas, opts.session);
 if (!selectedIds.length) {
-  const fallback = { error: `No session matched ${opts.session}`, trace: tracePath, sessions_seen: metas.slice(0, 10).map((m) => ({ session_id: m.session_id, agent: m.agent, model: m.model, last: fmtTime(m.max_ts) })) };
+  const fallback = {
+    error: `No session matched ${opts.session}`,
+    trace: tracePath,
+    sessions_seen: metas
+      .slice(0, 10)
+      .map((m) => ({ session_id: m.session_id, agent: m.agent, model: m.model, last: fmtTime(m.max_ts) })),
+  };
   if (opts.json) console.log(JSON.stringify(fallback, null, 2));
   else {
     console.error(fallback.error);
-    for (const s of fallback.sessions_seen) console.error(`- ${shortId(s.session_id)} ${s.agent || '-'} ${s.model || '-'} ${s.last}`);
+    for (const s of fallback.sessions_seen)
+      console.error(`- ${shortId(s.session_id)} ${s.agent || '-'} ${s.model || '-'} ${s.last}`);
   }
   process.exitCode = 1;
 } else {

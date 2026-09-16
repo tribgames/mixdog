@@ -1,13 +1,13 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import {
   isRemoteClaimPromptActive,
   setRemoteClaimPromptActive,
   subscribeRemoteClaimPromptActive,
-} from "./remote-claim-prompt-state.ts";
+} from './remote-claim-prompt-state.ts';
 
-test("remote approval prompts are armed only by the Connection panel", () => {
+test('remote approval prompts are armed only by the Connection panel', () => {
   setRemoteClaimPromptActive(false);
   const seen = [];
   const unsubscribe = subscribeRemoteClaimPromptActive((active) => seen.push(active));

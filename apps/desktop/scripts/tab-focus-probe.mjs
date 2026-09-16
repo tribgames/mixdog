@@ -15,7 +15,11 @@ const electron = join(desktopDir, 'node_modules', 'electron', 'dist', 'electron.
 const port = 9333;
 
 class Cdp {
-  constructor(url) { this.socket = new WebSocket(url); this.next = 1; this.pending = new Map(); }
+  constructor(url) {
+    this.socket = new WebSocket(url);
+    this.next = 1;
+    this.pending = new Map();
+  }
   connect() {
     this.socket.addEventListener('message', (event) => {
       const message = JSON.parse(String(event.data));
@@ -54,7 +58,9 @@ async function waitForTarget(child) {
       const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json());
       const target = targets.find((t) => t.type === 'page' && t.url?.includes('/out/renderer/index.html'));
       if (target?.webSocketDebuggerUrl) return target.webSocketDebuggerUrl;
-    } catch { /* not yet */ }
+    } catch {
+      /* not yet */
+    }
     await sleep(50);
   }
   throw new Error('no cdp target');
@@ -64,7 +70,9 @@ async function evaluateStable(client, expression, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   let last = null;
   while (Date.now() < deadline) {
-    try { return await client.evaluate(expression); } catch (error) {
+    try {
+      return await client.evaluate(expression);
+    } catch (error) {
       last = error;
       if (!/Execution context was destroyed|Cannot find context|localStorage/i.test(String(error.message))) throw error;
       await sleep(100);
@@ -132,7 +140,10 @@ async function main() {
     MIXDOG_BOOT_SCENARIO: 'tab-focus-probe',
   });
   const child = spawn(electron, [desktopDir, `--remote-debugging-port=${port}`, '--window-size=1600,1000'], {
-    cwd: desktopDir, env, stdio: 'ignore', windowsHide: false,
+    cwd: desktopDir,
+    env,
+    stdio: 'ignore',
+    windowsHide: false,
   });
   const client = new Cdp(await waitForTarget(child));
   await client.connect();
@@ -206,20 +217,29 @@ async function main() {
       return { sessionId, timeOrigin: performance.timeOrigin };
     })()`);
     report.seeded = seeded;
-    try { await client.evaluate('window.location.reload(); true'); } catch { /* context swap */ }
-    await evaluateStable(client, `(async () => {
+    try {
+      await client.evaluate('window.location.reload(); true');
+    } catch {
+      /* context swap */
+    }
+    await evaluateStable(
+      client,
+      `(async () => {
       const previous = ${JSON.stringify(seeded.timeOrigin)};
       const deadline = performance.now() + 20000;
       while ((performance.timeOrigin === previous || !window.__mixdogStartupSettled) && performance.now() < deadline) await new Promise((r) => setTimeout(r, 25));
       if (performance.timeOrigin === previous || !window.__mixdogStartupSettled) throw new Error('no restore');
       return true;
-    })()`);
-    await client.evaluate(`(async () => {
+    })()`
+    );
+    await client
+      .evaluate(`(async () => {
       const bridge = window.mixdogDesktop;
       try { await bridge?.windowControl?.('maximize'); } catch {}
       try { await bridge?.maximizeWindow?.(); } catch {}
       return true;
-    })()`).catch(() => undefined);
+    })()`)
+      .catch(() => undefined);
     await sleep(3_000);
     report.before = await client.evaluate(DUMP);
     report.beforeShot = await screenshot(client, 'before');
@@ -232,13 +252,21 @@ async function main() {
     })()`);
     report.clickAt = target;
     for (const type of ['mousePressed', 'mouseReleased']) {
-      await client.request('Input.dispatchMouseEvent', { type, x: target.x, y: target.y, button: 'left', clickCount: 1 });
+      await client.request('Input.dispatchMouseEvent', {
+        type,
+        x: target.x,
+        y: target.y,
+        button: 'left',
+        clickCount: 1,
+      });
     }
     await sleep(700);
     report.after = await client.evaluate(DUMP);
     report.afterShot = await screenshot(client, 'after');
     // A second click back on the top pane, then the bottom again.
-    const top = await client.evaluate(`(() => { const r = document.querySelector('[data-pane-id="top"] form.composer textarea').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+    const top = await client.evaluate(
+      `(() => { const r = document.querySelector('[data-pane-id="top"] form.composer textarea').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`
+    );
     for (const p of [top, target]) {
       for (const type of ['mousePressed', 'mouseReleased']) {
         await client.request('Input.dispatchMouseEvent', { type, x: p.x, y: p.y, button: 'left', clickCount: 1 });
@@ -275,15 +303,38 @@ async function main() {
     report.afterSecondShot = await screenshot(client, 'after-second');
   } finally {
     await writeFile(join(artifactDir, 'report.json'), JSON.stringify(report, null, 2));
-    try { await client.evaluate('window.mixdogDesktop?.quit?.()'); } catch { /* fallback below */ }
+    try {
+      await client.evaluate('window.mixdogDesktop?.quit?.()');
+    } catch {
+      /* fallback below */
+    }
     await Promise.race([new Promise((ok) => child.once('exit', ok)), sleep(4_000)]);
     if (child.exitCode === null) child.kill();
   }
-  console.log(JSON.stringify({
-    before: report.before?.map((s) => ({ pane: s.pane, focused: s.focused, trailing: s.trailing?.rect, tabs: s.tabs.map((t) => [t.label, t.labelDisplay, t.labelRect, t.iconRect]) })),
-    after: report.after?.map((s) => ({ pane: s.pane, focused: s.focused, trailing: s.trailing?.rect, tabs: s.tabs.map((t) => [t.label, t.labelDisplay, t.labelRect, t.iconRect]) })),
-    shots: [report.beforeShot, report.afterShot, report.afterSecondShot],
-  }, null, 1));
+  console.log(
+    JSON.stringify(
+      {
+        before: report.before?.map((s) => ({
+          pane: s.pane,
+          focused: s.focused,
+          trailing: s.trailing?.rect,
+          tabs: s.tabs.map((t) => [t.label, t.labelDisplay, t.labelRect, t.iconRect]),
+        })),
+        after: report.after?.map((s) => ({
+          pane: s.pane,
+          focused: s.focused,
+          trailing: s.trailing?.rect,
+          tabs: s.tabs.map((t) => [t.label, t.labelDisplay, t.labelRect, t.iconRect]),
+        })),
+        shots: [report.beforeShot, report.afterShot, report.afterSecondShot],
+      },
+      null,
+      1
+    )
+  );
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

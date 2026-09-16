@@ -1,11 +1,11 @@
-import { readFileSync, writeFileSync, appendFileSync, unlinkSync } from "fs";
-import { appendFile as _appendFile } from "fs";
-import { join, isAbsolute } from "path";
-import { randomUUID } from "crypto";
-import { DATA_DIR } from "./config.mjs";
-import { ensureNopluginDir } from "./executor.mjs";
-import { withFileLockSync } from "../../shared/atomic-file.mjs";
-import { resolveRuntimeRoot } from "../../shared/runtime-root.mjs";
+import { readFileSync, writeFileSync, appendFileSync, unlinkSync } from 'fs';
+import { appendFile as _appendFile } from 'fs';
+import { join, isAbsolute } from 'path';
+import { randomUUID } from 'crypto';
+import { DATA_DIR } from './config.mjs';
+import { ensureNopluginDir } from './executor.mjs';
+import { withFileLockSync } from '../../shared/atomic-file.mjs';
+import { resolveRuntimeRoot } from '../../shared/runtime-root.mjs';
 import {
   advanceScheduleCursor,
   claimScheduleRun,
@@ -16,25 +16,27 @@ import {
   setDeferred,
   setNextFire,
   setSkippedUntil,
-} from "../../shared/schedules-db.mjs";
-import { runScheduleSession } from "../../shared/schedule-session-run.mjs";
+} from '../../shared/schedules-db.mjs';
+import { runScheduleSession } from '../../shared/schedule-session-run.mjs';
 
-const SCHEDULE_LOG = join(DATA_DIR, "schedule.log");
+const SCHEDULE_LOG = join(DATA_DIR, 'schedule.log');
 // Buffered async logger — coalesces per-line appends into batched writes.
 let _schedLogBuf = [];
 let _schedLogTimer = null;
 function _flushScheduleLog() {
   _schedLogTimer = null;
   if (_schedLogBuf.length === 0) return;
-  const lines = _schedLogBuf.join("");
+  const lines = _schedLogBuf.join('');
   _schedLogBuf = [];
   _appendFile(SCHEDULE_LOG, lines, () => {});
 }
 function _flushSchedLogSync() {
   if (_schedLogBuf.length === 0) return;
-  const lines = _schedLogBuf.join("");
+  const lines = _schedLogBuf.join('');
   _schedLogBuf = [];
-  try { appendFileSync(SCHEDULE_LOG, lines); } catch {}
+  try {
+    appendFileSync(SCHEDULE_LOG, lines);
+  } catch {}
 }
 process.on('exit', _flushSchedLogSync);
 // Note: do not install a module-level SIGTERM handler that calls
@@ -49,28 +51,34 @@ function logSchedule(msg) {
   if (!_schedLogTimer) _schedLogTimer = setTimeout(_flushScheduleLog, 2000);
 }
 
-import { tryRead } from "./settings.mjs";
+import { tryRead } from './settings.mjs';
 // node-cron is an optional runtime dep. If the module isn't installed
 // (e.g. a fresh v0.6.190 where node_modules predates the package.json
 // bump), cron expressions are disabled (cron stays null below) instead
 // of crashing the whole channels worker.
 let cron = null;
 try {
-  const mod = await import("node-cron");
+  const mod = await import('node-cron');
   cron = mod.default || mod;
 } catch (err) {
-  process.stderr.write(`mixdog scheduler: node-cron unavailable, cron expressions disabled (${err?.code || err?.message || err})\n`);
+  process.stderr.write(
+    `mixdog scheduler: node-cron unavailable, cron expressions disabled (${err?.code || err?.message || err})\n`
+  );
 }
 const TICK_INTERVAL = 6e4;
 // All schedule `time` values must be valid 5- or 6-field cron expressions
 // (node-cron format). Legacy formats (HH:MM, everyNm, hourly, daily) are
 // no longer accepted — migrate to cron: "MM HH * * *", "*/N * * * *", etc.
 function isCronExpression(time) {
-  if (typeof time !== "string" || !time) return false;
+  if (typeof time !== 'string' || !time) return false;
   if (!cron) return false;
   const tokens = time.trim().split(/\s+/);
   if (tokens.length !== 5 && tokens.length !== 6) return false;
-  try { return cron.validate(time); } catch { return false; }
+  try {
+    return cron.validate(time);
+  } catch {
+    return false;
+  }
 }
 // Scheduler teardown: stop ticking, destroy the cron jobs and release the
 // scheduler lock so a subsequent start() in the same process can re-acquire it.
@@ -88,8 +96,8 @@ function releaseSchedulerRuntime(scheduler) {
   }
   scheduler.destroyCronJobs();
   try {
-    const content = readFileSync(Scheduler.SCHEDULER_LOCK, "utf8");
-    const lockedPid = parseInt(content.split("\n")[0]);
+    const content = readFileSync(Scheduler.SCHEDULER_LOCK, 'utf8');
+    const lockedPid = parseInt(content.split('\n')[0]);
     if (lockedPid === process.pid) unlinkSync(Scheduler.SCHEDULER_LOCK);
   } catch {}
 }
@@ -121,8 +129,8 @@ class Scheduler {
   constructor(nonInteractive, interactive, channelId) {
     this.nonInteractive = nonInteractive.filter((s) => s.enabled !== false);
     this.interactive = interactive.filter((s) => s.enabled !== false);
-    this.channelId = channelId ?? "";
-    this.promptsDir = join(DATA_DIR, "prompts");
+    this.channelId = channelId ?? '';
+    this.promptsDir = join(DATA_DIR, 'prompts');
     for (const s of [...this.nonInteractive, ...this.interactive]) {
       if (s.lastFiredAt) this.lastFired.set(s.name, new Date(s.lastFiredAt).toISOString());
     }
@@ -142,7 +150,11 @@ class Scheduler {
   }
   injectReady() {
     if (!this.injectReadyFn) return true;
-    try { return !!this.injectReadyFn(); } catch { return false; }
+    try {
+      return !!this.injectReadyFn();
+    } catch {
+      return false;
+    }
   }
   setPendingCheck(fn) {
     this.pendingCheck = typeof fn === 'function' ? fn : null;
@@ -222,7 +234,9 @@ class Scheduler {
     let pendingWork = false;
     try {
       if (this.pendingCheck) pendingWork = !!this.pendingCheck();
-    } catch { /* probe failure is not fatal */ }
+    } catch {
+      /* probe failure is not fatal */
+    }
     return { lastActivityMs: this.lastActivity, pendingWork };
   }
   /** Returns true when the session is considered idle (no pending work and
@@ -237,36 +251,36 @@ class Scheduler {
   /** Get time context for prompt enrichment */
   getTimeContext() {
     const now = /* @__PURE__ */ new Date();
-    const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const dow = now.getDay();
     return {
       hour: now.getHours(),
       dayOfWeek: days[dow],
-      isWeekend: dow === 0 || dow === 6
+      isWeekend: dow === 0 || dow === 6,
     };
   }
   /** Wrap prompt with session context metadata */
   wrapPrompt(name, prompt, type) {
     const { lastActivityMs, pendingWork } = this.getSessionState();
-    const state = pendingWork ? "active" : lastActivityMs === 0 ? "idle" : "recent";
+    const state = pendingWork ? 'active' : lastActivityMs === 0 ? 'idle' : 'recent';
     const time = this.getTimeContext();
     const header = [
       `[schedule: ${name} | type: ${type} | session: ${state}]`,
-      `[time: ${time.dayOfWeek} ${String(time.hour).padStart(2, "0")}:${String((/* @__PURE__ */ new Date()).getMinutes()).padStart(2, "0")} | weekend: ${time.isWeekend}]`,
-      `Before starting any work, briefly tell the user what you're about to do in one short sentence.`
-    ].join("\n");
+      `[time: ${time.dayOfWeek} ${String(time.hour).padStart(2, '0')}:${String(/* @__PURE__ */ new Date().getMinutes()).padStart(2, '0')} | weekend: ${time.isWeekend}]`,
+      `Before starting any work, briefly tell the user what you're about to do in one short sentence.`,
+    ].join('\n');
     return `${header}
 
 ${prompt}`;
   }
-  static SCHEDULER_LOCK = join(resolveRuntimeRoot(), "scheduler.lock");
+  static SCHEDULER_LOCK = join(resolveRuntimeRoot(), 'scheduler.lock');
   static INSTANCE_UUID = randomUUID();
   static _exitHookInstalled = false;
   start() {
     if (this.tickTimer) return;
     const total = this.nonInteractive.length + this.interactive.length;
     if (total === 0) {
-      process.stderr.write("mixdog scheduler: no schedules configured\n");
+      process.stderr.write('mixdog scheduler: no schedules configured\n');
       return;
     }
     ensureNopluginDir();
@@ -274,70 +288,73 @@ ${prompt}`;
 ${Date.now()}
 ${Scheduler.INSTANCE_UUID}`;
     let acquiredSchedulerLock = false;
-    withFileLockSync(`${Scheduler.SCHEDULER_LOCK}.acquire`, () => {
-      try {
-        writeFileSync(Scheduler.SCHEDULER_LOCK, lockContent, { flag: "wx" });
-        acquiredSchedulerLock = true;
-      } catch (err) {
-        if (err.code === "EEXIST") {
-          try {
-            const content = readFileSync(Scheduler.SCHEDULER_LOCK, "utf8");
-            const lines = content.split("\n");
-            const pid = parseInt(lines[0]);
-            let isAlive = false;
+    withFileLockSync(
+      `${Scheduler.SCHEDULER_LOCK}.acquire`,
+      () => {
+        try {
+          writeFileSync(Scheduler.SCHEDULER_LOCK, lockContent, { flag: 'wx' });
+          acquiredSchedulerLock = true;
+        } catch (err) {
+          if (err.code === 'EEXIST') {
             try {
-              process.kill(pid, 0);
-              isAlive = true;
-            } catch {
-            }
-            if (isAlive) {
-              // No heartbeat: lock age cannot distinguish a long-running
-              // healthy owner from PID-reuse, so an age-only reclaim
-              // would double-schedule cron jobs while the original
-              // owner is still firing. Only proceed to reclaim when
-              // process.kill(pid, 0) actually proves the PID is dead —
-              // not by guessing from `lockAge > 1h`.
-              process.stderr.write(`mixdog scheduler: another session (PID ${pid}) owns the scheduler, skipping
+              const content = readFileSync(Scheduler.SCHEDULER_LOCK, 'utf8');
+              const lines = content.split('\n');
+              const pid = parseInt(lines[0]);
+              let isAlive = false;
+              try {
+                process.kill(pid, 0);
+                isAlive = true;
+              } catch {}
+              if (isAlive) {
+                // No heartbeat: lock age cannot distinguish a long-running
+                // healthy owner from PID-reuse, so an age-only reclaim
+                // would double-schedule cron jobs while the original
+                // owner is still firing. Only proceed to reclaim when
+                // process.kill(pid, 0) actually proves the PID is dead —
+                // not by guessing from `lockAge > 1h`.
+                process.stderr.write(`mixdog scheduler: another session (PID ${pid}) owns the scheduler, skipping
 `);
-              return;
-            }
-          } catch {
-          }
-          // Reclaim runs under the shared atomic-file acquisition guard.
-          // That guard serializes this scheduler acquisition path's
-          // check/unlink/wx sequence, so a second reclaimer cannot delete
-          // a fresh lock in the path gap between stale unlink and create.
-          try { unlinkSync(Scheduler.SCHEDULER_LOCK); } catch {}
-          try {
-            writeFileSync(Scheduler.SCHEDULER_LOCK, lockContent, { flag: "wx" });
-            acquiredSchedulerLock = true;
-          } catch (e2) {
-            if (e2.code === "EEXIST") {
-              process.stderr.write(`mixdog scheduler: lock reclaimed by another session during reclaim, skipping
+                return;
+              }
+            } catch {}
+            // Reclaim runs under the shared atomic-file acquisition guard.
+            // That guard serializes this scheduler acquisition path's
+            // check/unlink/wx sequence, so a second reclaimer cannot delete
+            // a fresh lock in the path gap between stale unlink and create.
+            try {
+              unlinkSync(Scheduler.SCHEDULER_LOCK);
+            } catch {}
+            try {
+              writeFileSync(Scheduler.SCHEDULER_LOCK, lockContent, { flag: 'wx' });
+              acquiredSchedulerLock = true;
+            } catch (e2) {
+              if (e2.code === 'EEXIST') {
+                process.stderr.write(`mixdog scheduler: lock reclaimed by another session during reclaim, skipping
 `);
-              return;
+                return;
+              }
+              throw e2;
             }
-            throw e2;
+          } else {
+            throw err;
           }
-        } else {
-          throw err;
         }
-      }
-    }, { timeoutMs: 60000, staleMs: 30000 });
+      },
+      { timeoutMs: 60000, staleMs: 30000 }
+    );
     if (!acquiredSchedulerLock) return;
     if (!Scheduler._exitHookInstalled) {
       Scheduler._exitHookInstalled = true;
-      process.on("exit", () => {
+      process.on('exit', () => {
         // Verify ownership before unlink: an exiting process whose lock
         // was already reclaimed by a newer owner (PID-reuse / restart race)
         // must NOT delete the new owner's lock file. Read-verify-then-unlink
         // mirrors memory/index.mjs releaseLock().
         try {
-          const content = readFileSync(Scheduler.SCHEDULER_LOCK, "utf8");
-          const lockedPid = parseInt(content.split("\n")[0]);
+          const content = readFileSync(Scheduler.SCHEDULER_LOCK, 'utf8');
+          const lockedPid = parseInt(content.split('\n')[0]);
           if (lockedPid === process.pid) unlinkSync(Scheduler.SCHEDULER_LOCK);
-        } catch {
-        }
+        } catch {}
       });
     }
     logSchedule(`${this.nonInteractive.length} non-interactive, ${this.interactive.length} interactive
@@ -350,8 +367,8 @@ ${Scheduler.INSTANCE_UUID}`;
    *  field covers the day guard); `when_at` entries arm a one-shot timer. */
   registerCronJobs() {
     const all = [
-      ...this.nonInteractive.map((s) => ({ schedule: s, type: "non-interactive" })),
-      ...this.interactive.map((s) => ({ schedule: s, type: "interactive" })),
+      ...this.nonInteractive.map((s) => ({ schedule: s, type: 'non-interactive' })),
+      ...this.interactive.map((s) => ({ schedule: s, type: 'interactive' })),
     ];
     for (const { schedule: s, type } of all) {
       if (s.whenCron) {
@@ -365,14 +382,14 @@ ${Scheduler.INSTANCE_UUID}`;
             name: s.name,
           });
           this.cronJobs.set(s.name, task);
-          const next = typeof task.getNextRun === "function" ? task.getNextRun() : null;
+          const next = typeof task.getNextRun === 'function' ? task.getNextRun() : null;
           if (next) {
             s.nextFireAt = next.toISOString();
             void setNextFire(s.name, next).catch((err) => {
               process.stderr.write(`mixdog scheduler: ${s.name} setNextFire failed: ${err}\n`);
             });
           }
-          logSchedule(`registered cron "${s.name}" = "${s.whenCron}"${s.timezone ? ` tz=${s.timezone}` : ""}\n`);
+          logSchedule(`registered cron "${s.name}" = "${s.whenCron}"${s.timezone ? ` tz=${s.timezone}` : ''}\n`);
         } catch (err) {
           process.stderr.write(`mixdog scheduler: failed to register cron "${s.name}" (${s.whenCron}): ${err}\n`);
         }
@@ -385,15 +402,17 @@ ${Scheduler.INSTANCE_UUID}`;
    *  day guard, so there is no separate days filter. Persists last_fired_at. */
   async onCronFire(schedule, type, scheduledDate = null) {
     const startedAt = /* @__PURE__ */ new Date();
-    const scheduledAt = scheduledDate instanceof Date && Number.isFinite(scheduledDate.getTime())
-      ? scheduledDate
-      : startedAt;
+    const scheduledAt =
+      scheduledDate instanceof Date && Number.isFinite(scheduledDate.getTime()) ? scheduledDate : startedAt;
     const task = this.cronJobs.get(schedule.name);
-    const nextFireAt = typeof task?.getNextRun === "function" ? task.getNextRun() : null;
+    const nextFireAt = typeof task?.getNextRun === 'function' ? task.getNextRun() : null;
     schedule.nextFireAt = nextFireAt?.toISOString?.() ?? null;
     if (this.shouldSkip(schedule.name)) {
-      try { await advanceScheduleCursor(schedule.name, scheduledAt, nextFireAt); }
-      catch (err) { process.stderr.write(`mixdog scheduler: ${schedule.name} cursor advance failed: ${err}\n`); }
+      try {
+        await advanceScheduleCursor(schedule.name, scheduledAt, nextFireAt);
+      } catch (err) {
+        process.stderr.write(`mixdog scheduler: ${schedule.name} cursor advance failed: ${err}\n`);
+      }
       return;
     }
     try {
@@ -417,7 +436,9 @@ ${Scheduler.INSTANCE_UUID}`;
       await markScheduleSuccess(schedule.name, completedAt);
     } catch (err) {
       schedule.lastFailedAt = new Date().toISOString();
-      try { await markScheduleFailure(schedule.name, new Date()); } catch {}
+      try {
+        await markScheduleFailure(schedule.name, new Date());
+      } catch {}
       process.stderr.write(`mixdog scheduler: ${schedule.name} failed: ${err}\n`);
       this.notifyFailure(schedule, `run failed: ${err?.message || err}`);
     }
@@ -427,11 +448,15 @@ ${Scheduler.INSTANCE_UUID}`;
   }
   destroyCronJobs() {
     for (const [, task] of this.cronJobs) {
-      try { task.destroy(); } catch {}
+      try {
+        task.destroy();
+      } catch {}
     }
     this.cronJobs.clear();
     for (const [, timer] of this.oneShotTimers) {
-      try { clearTimeout(timer); } catch {}
+      try {
+        clearTimeout(timer);
+      } catch {}
     }
     this.oneShotTimers.clear();
   }
@@ -456,7 +481,9 @@ ${Scheduler.INSTANCE_UUID}`;
     this.oneShotTimers.set(schedule.name, timer);
     schedule.nextFireAt = new Date(fireAt).toISOString();
     void setNextFire(schedule.name, new Date(fireAt)).catch(() => {});
-    logSchedule(`armed one-shot "${schedule.name}" at ${new Date(fireAt).toISOString()}${delay <= 0 ? " (misfire → immediate)" : ""}\n`);
+    logSchedule(
+      `armed one-shot "${schedule.name}" at ${new Date(fireAt).toISOString()}${delay <= 0 ? ' (misfire → immediate)' : ''}\n`
+    );
   }
   /** markDone with bounded retry. A one-shot that fired but failed to persist
    *  status='done' would otherwise stay 'active' with a past when_at and
@@ -464,8 +491,10 @@ ${Scheduler.INSTANCE_UUID}`;
    *  done-marker matters — retry a few times with a logged failure. */
   async markDoneWithRetry(name, attempts = 3) {
     for (let i = 0; i < attempts; i++) {
-      try { await markDone(name); return true; }
-      catch (err) {
+      try {
+        await markDone(name);
+        return true;
+      } catch (err) {
         process.stderr.write(`mixdog scheduler: ${name} markDone failed (attempt ${i + 1}/${attempts}): ${err}\n`);
         if (i < attempts - 1) await new Promise((r) => setTimeout(r, 250));
       }
@@ -514,20 +543,29 @@ ${Scheduler.INSTANCE_UUID}`;
       const fired = await this.fireTimed(schedule, type, { awaitDispatch: true });
       if (!fired) {
         schedule.lastFailedAt = new Date().toISOString();
-        try { await markScheduleFailure(schedule.name, new Date()); } catch {}
+        try {
+          await markScheduleFailure(schedule.name, new Date());
+        } catch {}
         logSchedule(`one-shot "${schedule.name}" did not fire (skipped/guarded) — leaving pending for retry\n`);
         return;
       }
       this.lastFired.set(schedule.name, now.toISOString());
       schedule.lastFiredAt = now.toISOString();
-      try { await markFired(schedule.name, now); }
-      catch (err) { process.stderr.write(`mixdog scheduler: ${schedule.name} markFired failed: ${err}\n`); }
+      try {
+        await markFired(schedule.name, now);
+      } catch (err) {
+        process.stderr.write(`mixdog scheduler: ${schedule.name} markFired failed: ${err}\n`);
+      }
       schedule.lastSuccessAt = new Date().toISOString();
-      try { await markScheduleSuccess(schedule.name, new Date()); } catch {}
+      try {
+        await markScheduleSuccess(schedule.name, new Date());
+      } catch {}
       await this.markDoneWithRetry(schedule.name);
     } catch (err) {
       schedule.lastFailedAt = new Date().toISOString();
-      try { await markScheduleFailure(schedule.name, new Date()); } catch {}
+      try {
+        await markScheduleFailure(schedule.name, new Date());
+      } catch {}
       process.stderr.write(`mixdog scheduler: ${schedule.name} one-shot failed: ${err} — leaving pending for retry\n`);
       this.notifyFailure(schedule, `one-shot failed: ${err?.message || err} — left pending for retry`);
     }
@@ -539,8 +577,8 @@ ${Scheduler.INSTANCE_UUID}`;
   reloadConfig(nonInteractive, interactive, channelId, options = {}) {
     this.nonInteractive = nonInteractive.filter((s) => s.enabled !== false);
     this.interactive = interactive.filter((s) => s.enabled !== false);
-    this.channelId = channelId ?? "";
-    this.promptsDir = join(DATA_DIR, "prompts");
+    this.channelId = channelId ?? '';
+    this.promptsDir = join(DATA_DIR, 'prompts');
     // Defer/skip state is persisted (deferred_until / skipped_until) and
     // re-read from the reloaded rows, so a reload no longer drops it.
     this.refreshSkipCache();
@@ -553,8 +591,8 @@ ${Scheduler.INSTANCE_UUID}`;
   }
   getStatus() {
     const rows = [
-      ...this.nonInteractive.map((s) => ({ s, type: "non-interactive" })),
-      ...this.interactive.map((s) => ({ s, type: "interactive" })),
+      ...this.nonInteractive.map((s) => ({ s, type: 'non-interactive' })),
+      ...this.interactive.map((s) => ({ s, type: 'interactive' })),
     ];
     return rows.map(({ s, type }) => ({
       name: s.name,
@@ -573,12 +611,12 @@ ${Scheduler.INSTANCE_UUID}`;
       if (this.running.has(name)) return `"${name}" is already running`;
       const isNonInteractive = this.nonInteractive.includes(timed);
       const now = /* @__PURE__ */ new Date();
-      const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       // Match onCronFire: record lastFired only when fireTimed actually
       // proceeds past its running/precondition guards (resolves truthy),
       // and reflect a non-fire in the returned status.
-      const fired = await this.fireTimed(timed, isNonInteractive ? "non-interactive" : "interactive");
+      const fired = await this.fireTimed(timed, isNonInteractive ? 'non-interactive' : 'interactive');
       if (fired) {
         this.lastFired.set(name, `${dateStr}T${hhmm}`);
         return `triggered "${name}"`;
@@ -589,8 +627,8 @@ ${Scheduler.INSTANCE_UUID}`;
   }
   // ── Tick ─────────────────────────────────────────────────────────────
   tick() {
-    this.tickAsync().catch(
-      (err) => process.stderr.write(`mixdog scheduler: tick error: ${err}
+    this.tickAsync().catch((err) =>
+      process.stderr.write(`mixdog scheduler: tick error: ${err}
 `)
     );
   }
@@ -605,15 +643,13 @@ ${Scheduler.INSTANCE_UUID}`;
     if (!prompt) {
       process.stderr.write(`mixdog scheduler: prompt not found for "${schedule.name}"
 `);
-      this.notifyFailure(schedule, "prompt not found — fire skipped");
+      this.notifyFailure(schedule, 'prompt not found — fire skipped');
       return false;
     }
     // target 'channel' → relay the run result to the schedule's channel_id
     // (falling back to the resolved main channel). target 'session' → no
     // channel relay; the visible session run IS the surface.
-    const channelId = schedule.target === "channel"
-      ? this.resolveChannel(schedule.channelId)
-      : "";
+    const channelId = schedule.target === 'channel' ? this.resolveChannel(schedule.channelId) : '';
     return await this.fireTimedPrompt(schedule, type, prompt, channelId, opts);
   }
   /** Fire a timed schedule with the given prompt content */
@@ -632,14 +668,16 @@ ${Scheduler.INSTANCE_UUID}`;
     // messages — enqueue counts as the fire. The visible-session run below
     // remains the non-interactive path AND the fallback when no live Lead
     // seat is attached, so a fire is never lost.
-    if (type === "interactive" && this.injectFn && this.injectReady()) {
+    if (type === 'interactive' && this.injectFn && this.injectReady()) {
       try {
         const wrapped = this.wrapPrompt(schedule.name, prompt, type);
-        this.injectFn(channelId, `schedule:${schedule.name}`, " ", { type: "schedule", instruction: wrapped });
+        this.injectFn(channelId, `schedule:${schedule.name}`, ' ', { type: 'schedule', instruction: wrapped });
         logSchedule(`${schedule.name}: injected into Lead session queue (interactive fire)\n`);
         return true;
       } catch (err) {
-        logSchedule(`${schedule.name}: Lead inject failed (${err?.message || err}) — falling back to visible session run\n`);
+        logSchedule(
+          `${schedule.name}: Lead inject failed (${err?.message || err}) — falling back to visible session run\n`
+        );
       }
     }
     this.running.add(schedule.name);
@@ -661,8 +699,8 @@ ${Scheduler.INSTANCE_UUID}`;
       .then(({ result }) => {
         this.running.delete(schedule.name);
         if (result && channelId && this.sendFn) {
-          this.sendFn(channelId, result).catch(
-            (err) => process.stderr.write(`mixdog scheduler: ${schedule.name} relay failed: ${err}\n`)
+          this.sendFn(channelId, result).catch((err) =>
+            process.stderr.write(`mixdog scheduler: ${schedule.name} relay failed: ${err}\n`)
           );
         }
         logSchedule(`${schedule.name} done\n`);
@@ -691,7 +729,9 @@ ${Scheduler.INSTANCE_UUID}`;
       const target = this.resolveChannel(schedule?.channelId);
       if (!target) return;
       Promise.resolve(this.sendFn(target, `schedule "${schedule?.name}": ${reason}`)).catch(() => {});
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
   /** Resolve prompt: inline text from the row, with a prompts-dir file
    *  fallback for legacy `<name>.md` references. */
@@ -712,14 +752,12 @@ ${Scheduler.INSTANCE_UUID}`;
    *  override; any other value — including legacy labels like "main" —
    *  resolves to the configured main channel. */
   resolveChannel(flag) {
-    if (flag == null) return this.channelId ?? "";
+    if (flag == null) return this.channelId ?? '';
     const v = String(flag).trim();
-    if (v.toLowerCase() === "false") return "";
+    if (v.toLowerCase() === 'false') return '';
     if (/^-?\d+$/.test(v)) return v;
     // empty or a legacy label ("main") → configured main channel
-    return this.channelId ?? "";
+    return this.channelId ?? '';
   }
 }
-export {
-  Scheduler
-};
+export { Scheduler };

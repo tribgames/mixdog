@@ -1,18 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import {
-  basename,
-  dirname,
-  extname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-} from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 
-import type {
-  DesktopWorkspace,
-  DesktopWorkspaceFolder,
-} from '../shared/contract';
+import type { DesktopWorkspace, DesktopWorkspaceFolder } from '../shared/contract';
 import type { DesktopEditorSettings } from '../shared/contract';
 import { editorLanguageIdForPath } from '../shared/editor-languages';
 import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../shared/editor-settings';
@@ -26,19 +15,14 @@ function workspaceName(path: string): string {
   return basename(path).replace(/\.code-workspace$/i, '') || 'Workspace';
 }
 
-function normalizedFolder(
-  value: unknown,
-  workspaceFile: string,
-): DesktopWorkspaceFolder | null {
+function normalizedFolder(value: unknown, workspaceFile: string): DesktopWorkspaceFolder | null {
   const record = objectRecord(value);
   const rawPath = typeof record?.path === 'string' ? record.path.trim() : '';
   if (!rawPath || rawPath.length > 16_384) return null;
   const path = resolve(dirname(workspaceFile), rawPath);
   return {
     path,
-    ...(typeof record?.name === 'string' && record.name.trim()
-      ? { name: record.name.trim().slice(0, 200) }
-      : {}),
+    ...(typeof record?.name === 'string' && record.name.trim() ? { name: record.name.trim().slice(0, 200) } : {}),
   };
 }
 
@@ -46,9 +30,7 @@ function uniqueFolders(folders: readonly DesktopWorkspaceFolder[]): DesktopWorks
   const seen = new Set<string>();
   const result: DesktopWorkspaceFolder[] = [];
   for (const folder of folders) {
-    const key = process.platform === 'win32'
-      ? resolve(folder.path).toLocaleLowerCase()
-      : resolve(folder.path);
+    const key = process.platform === 'win32' ? resolve(folder.path).toLocaleLowerCase() : resolve(folder.path);
     if (seen.has(key)) continue;
     seen.add(key);
     result.push({ ...folder, path: resolve(folder.path) });
@@ -61,9 +43,11 @@ export function parseWorkspaceFile(source: string, workspaceFile: string): Deskt
   const file = resolve(workspaceFile);
   const config = objectRecord(parseJsonc(source));
   if (!config) throw new TypeError('Workspace configuration must be an object.');
-  const folders = uniqueFolders((Array.isArray(config.folders) ? config.folders : [])
-    .map((folder) => normalizedFolder(folder, file))
-    .filter((folder): folder is DesktopWorkspaceFolder => folder !== null));
+  const folders = uniqueFolders(
+    (Array.isArray(config.folders) ? config.folders : [])
+      .map((folder) => normalizedFolder(folder, file))
+      .filter((folder): folder is DesktopWorkspaceFolder => folder !== null)
+  );
   return {
     kind: 'workspace',
     name: workspaceName(file),
@@ -82,7 +66,7 @@ export async function readWorkspaceFile(workspaceFile: string): Promise<DesktopW
 
 export async function writeWorkspaceFile(
   workspaceFile: string,
-  folders: readonly DesktopWorkspaceFolder[],
+  folders: readonly DesktopWorkspaceFolder[]
 ): Promise<DesktopWorkspace> {
   let file = resolve(workspaceFile);
   if (!file.toLocaleLowerCase().endsWith('.code-workspace')) file += '.code-workspace';
@@ -103,10 +87,18 @@ export async function writeWorkspaceFile(
     };
   });
   await mkdir(base, { recursive: true });
-  await writeFile(file, `${JSON.stringify({
-    ...existing,
-    folders: serializedFolders,
-  }, null, 2)}\n`, 'utf8');
+  await writeFile(
+    file,
+    `${JSON.stringify(
+      {
+        ...existing,
+        folders: serializedFolders,
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
   return {
     kind: 'workspace',
     name: workspaceName(file),
@@ -115,10 +107,7 @@ export async function writeWorkspaceFile(
   };
 }
 
-function languageSettings(
-  source: Record<string, unknown>,
-  languageId: string,
-): Record<string, unknown> {
+function languageSettings(source: Record<string, unknown>, languageId: string): Record<string, unknown> {
   let result = { ...source };
   for (const [key, value] of Object.entries(source)) {
     if (!key.startsWith('[') || !key.endsWith(']')) continue;
@@ -130,32 +119,22 @@ function languageSettings(
 }
 
 function setting(source: Record<string, unknown>, key: string): unknown {
-  if (Object.prototype.hasOwnProperty.call(source, key)) return source[key];
+  if (Object.hasOwn(source, key)) return source[key];
   const [group, ...rest] = key.split('.');
   const nested = objectRecord(source[group]);
   return nested && rest.length ? setting(nested, rest.join('.')) : undefined;
 }
 
-function finiteNumber(
-  value: unknown,
-  fallback: number,
-  minimum: number,
-  maximum: number,
-): number {
+function finiteNumber(value: unknown, fallback: number, minimum: number, maximum: number): number {
   const number = Number(value);
-  return Number.isFinite(number) && number >= minimum && number <= maximum
-    ? number
-    : fallback;
+  return Number.isFinite(number) && number >= minimum && number <= maximum ? number : fallback;
 }
 
 function booleanSetting(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
-export function editorSettingsFromScopes(
-  scopes: readonly unknown[],
-  languageId = 'plaintext',
-): DesktopEditorSettings {
+export function editorSettingsFromScopes(scopes: readonly unknown[], languageId = 'plaintext'): DesktopEditorSettings {
   const merged = scopes.reduce<Record<string, unknown>>((current, scope) => {
     const record = objectRecord(scope);
     return record ? { ...current, ...languageSettings(record, languageId) } : current;
@@ -167,65 +146,40 @@ export function editorSettingsFromScopes(
   const bracketGuides = setting(merged, 'editor.guides.bracketPairs');
   const fontFamily = setting(merged, 'editor.fontFamily');
   return {
-    fontFamily: typeof fontFamily === 'string' && fontFamily.trim()
-      ? fontFamily.trim().slice(0, 500)
-      : defaults.fontFamily,
+    fontFamily:
+      typeof fontFamily === 'string' && fontFamily.trim() ? fontFamily.trim().slice(0, 500) : defaults.fontFamily,
     fontSize: finiteNumber(setting(merged, 'editor.fontSize'), defaults.fontSize, 6, 100),
     lineHeight: finiteNumber(setting(merged, 'editor.lineHeight'), defaults.lineHeight, 8, 200),
-    wordWrap: wordWrap === 'on' || wordWrap === 'wordWrapColumn' || wordWrap === 'bounded'
-      ? wordWrap
-      : 'off',
-    wordWrapColumn: Math.round(finiteNumber(
-      setting(merged, 'editor.wordWrapColumn'),
-      defaults.wordWrapColumn,
-      1,
-      1_000,
-    )),
-    renderWhitespace: whitespace === 'none' || whitespace === 'boundary'
-      || whitespace === 'trailing' || whitespace === 'all'
-      ? whitespace
-      : 'selection',
-    minimapEnabled: booleanSetting(
-      setting(merged, 'editor.minimap.enabled'),
-      defaults.minimapEnabled,
+    wordWrap: wordWrap === 'on' || wordWrap === 'wordWrapColumn' || wordWrap === 'bounded' ? wordWrap : 'off',
+    wordWrapColumn: Math.round(
+      finiteNumber(setting(merged, 'editor.wordWrapColumn'), defaults.wordWrapColumn, 1, 1_000)
     ),
-    stickyScrollEnabled: booleanSetting(
-      setting(merged, 'editor.stickyScroll.enabled'),
-      defaults.stickyScrollEnabled,
-    ),
+    renderWhitespace:
+      whitespace === 'none' || whitespace === 'boundary' || whitespace === 'trailing' || whitespace === 'all'
+        ? whitespace
+        : 'selection',
+    minimapEnabled: booleanSetting(setting(merged, 'editor.minimap.enabled'), defaults.minimapEnabled),
+    stickyScrollEnabled: booleanSetting(setting(merged, 'editor.stickyScroll.enabled'), defaults.stickyScrollEnabled),
     bracketPairColorization: booleanSetting(
       setting(merged, 'editor.bracketPairColorization.enabled'),
-      defaults.bracketPairColorization,
+      defaults.bracketPairColorization
     ),
-    bracketPairGuides: bracketGuides === true || bracketGuides === false
-      || bracketGuides === 'active'
-      ? bracketGuides
-      : defaults.bracketPairGuides,
-    inlayHintsEnabled: inlayHints === false || inlayHints === 'off' ? 'off'
-      : inlayHints === 'offUnlessPressed' || inlayHints === 'onUnlessPressed'
-        ? inlayHints
-        : 'on',
-    formatOnSave: booleanSetting(
-      setting(merged, 'editor.formatOnSave'),
-      defaults.formatOnSave,
-    ),
-    formatOnPaste: booleanSetting(
-      setting(merged, 'editor.formatOnPaste'),
-      defaults.formatOnPaste,
-    ),
-    formatOnType: booleanSetting(
-      setting(merged, 'editor.formatOnType'),
-      defaults.formatOnType,
-    ),
+    bracketPairGuides:
+      bracketGuides === true || bracketGuides === false || bracketGuides === 'active'
+        ? bracketGuides
+        : defaults.bracketPairGuides,
+    inlayHintsEnabled:
+      inlayHints === false || inlayHints === 'off'
+        ? 'off'
+        : inlayHints === 'offUnlessPressed' || inlayHints === 'onUnlessPressed'
+          ? inlayHints
+          : 'on',
+    formatOnSave: booleanSetting(setting(merged, 'editor.formatOnSave'), defaults.formatOnSave),
+    formatOnPaste: booleanSetting(setting(merged, 'editor.formatOnPaste'), defaults.formatOnPaste),
+    formatOnType: booleanSetting(setting(merged, 'editor.formatOnType'), defaults.formatOnType),
     tabSize: Math.round(finiteNumber(setting(merged, 'editor.tabSize'), defaults.tabSize, 1, 16)),
-    insertSpaces: booleanSetting(
-      setting(merged, 'editor.insertSpaces'),
-      defaults.insertSpaces,
-    ),
-    detectIndentation: booleanSetting(
-      setting(merged, 'editor.detectIndentation'),
-      defaults.detectIndentation,
-    ),
+    insertSpaces: booleanSetting(setting(merged, 'editor.insertSpaces'), defaults.insertSpaces),
+    detectIndentation: booleanSetting(setting(merged, 'editor.detectIndentation'), defaults.detectIndentation),
   };
 }
 
@@ -242,17 +196,10 @@ export async function readScopedEditorSettings(
   userDataPath: string,
   folderPath: string,
   relPath: string,
-  workspaceFile?: string,
+  workspaceFile?: string
 ): Promise<DesktopEditorSettings> {
-  const user = userDataPath
-    ? await optionalJsonc(join(userDataPath, 'User', 'settings.json'))
-    : {};
-  const workspace = workspaceFile
-    ? objectRecord((await optionalJsonc(resolve(workspaceFile))).settings) ?? {}
-    : {};
+  const user = userDataPath ? await optionalJsonc(join(userDataPath, 'User', 'settings.json')) : {};
+  const workspace = workspaceFile ? (objectRecord((await optionalJsonc(resolve(workspaceFile))).settings) ?? {}) : {};
   const folder = await optionalJsonc(join(resolve(folderPath), '.vscode', 'settings.json'));
-  return editorSettingsFromScopes(
-    [user, workspace, folder],
-    editorLanguageIdForPath(relPath),
-  );
+  return editorSettingsFromScopes([user, workspace, folder], editorLanguageIdForPath(relPath));
 }

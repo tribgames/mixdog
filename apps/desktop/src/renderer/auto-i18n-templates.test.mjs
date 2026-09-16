@@ -12,5 +12,8 @@ test('count placeholders match numbers only; other placeholders still take free 
   assert.equal(tasks.expression.exec('Save authorization and stop active tasks'), null);
   const rename = templates.find((template) => template.key === 'Rename {{value0}}');
   assert.deepEqual(rename.expression.exec('Rename my notes.md')?.slice(1), ['my notes.md']);
-  assert.equal(templates.some((template) => template.key === 'Plain label'), false);
+  assert.equal(
+    templates.some((template) => template.key === 'Plain label'),
+    false
+  );
 });

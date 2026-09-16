@@ -21,7 +21,9 @@ export function requestBrowserApproval(window: BrowserWindow, request: BrowserAp
         ...request.paths,
       ].join('\n'),
       buttons: [nativeT('Cancel'), nativeT('Allow once')],
-      defaultId: 0, cancelId: 0, noLink: true,
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
     return result.response === 1 && !timeout.aborted;

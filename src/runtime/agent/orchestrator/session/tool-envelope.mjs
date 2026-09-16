@@ -19,18 +19,11 @@
 const TOOL_ENVELOPE_MARKER = '__toolEnvelope';
 
 export function isToolEnvelope(value) {
-    return !!value
-        && typeof value === 'object'
-        && !Array.isArray(value)
-        && value[TOOL_ENVELOPE_MARKER] === true;
+  return !!value && typeof value === 'object' && !Array.isArray(value) && value[TOOL_ENVELOPE_MARKER] === true;
 }
 
 function isValidNewMessage(m) {
-    return !!m
-        && typeof m === 'object'
-        && m.role === 'user'
-        && typeof m.content === 'string'
-        && m.content.length > 0;
+  return !!m && typeof m === 'object' && m.role === 'user' && typeof m.content === 'string' && m.content.length > 0;
 }
 
 /**
@@ -39,14 +32,16 @@ function isValidNewMessage(m) {
  * messages, e.g. role:'user') AFTER the batch's tool results.
  */
 export function makeToolEnvelope(result, newMessages = [], options = {}) {
-    return {
-        [TOOL_ENVELOPE_MARKER]: true,
-        result,
-        newMessages: Array.isArray(newMessages) ? newMessages.filter(isValidNewMessage) : [],
-        ...(options.explicitFailure === true
-            ? { explicitFailure: true }
-            : options.explicitSuccess === true ? { explicitSuccess: true } : {}),
-    };
+  return {
+    [TOOL_ENVELOPE_MARKER]: true,
+    result,
+    newMessages: Array.isArray(newMessages) ? newMessages.filter(isValidNewMessage) : [],
+    ...(options.explicitFailure === true
+      ? { explicitFailure: true }
+      : options.explicitSuccess === true
+        ? { explicitSuccess: true }
+        : {}),
+  };
 }
 
 /**
@@ -55,21 +50,19 @@ export function makeToolEnvelope(result, newMessages = [], options = {}) {
  *   - envelope             → { result, newMessages } (newMessages validated)
  */
 export function normalizeToolEnvelope(value) {
-    if (isToolEnvelope(value)) {
-        const newMessages = Array.isArray(value.newMessages)
-            ? value.newMessages.filter(isValidNewMessage)
-            : [];
-        return {
-            result: value.result,
-            newMessages,
-            explicitSuccess: value.explicitSuccess === true && value.explicitFailure !== true,
-            explicitFailure: value.explicitFailure === true,
-        };
-    }
+  if (isToolEnvelope(value)) {
+    const newMessages = Array.isArray(value.newMessages) ? value.newMessages.filter(isValidNewMessage) : [];
     return {
-        result: value,
-        newMessages: [],
-        explicitSuccess: false,
-        explicitFailure: false,
+      result: value.result,
+      newMessages,
+      explicitSuccess: value.explicitSuccess === true && value.explicitFailure !== true,
+      explicitFailure: value.explicitFailure === true,
     };
+  }
+  return {
+    result: value,
+    newMessages: [],
+    explicitSuccess: false,
+    explicitFailure: false,
+  };
 }

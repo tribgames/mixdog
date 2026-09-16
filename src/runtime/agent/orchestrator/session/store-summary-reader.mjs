@@ -15,15 +15,8 @@ import { sessionContextMeasurement, contextMeasurementStats } from '../../../../
 // authoritative store uses, so the cold catalog cannot disagree with it.
 import { probePath, readTextFile, PROBE_PRESENT, PROBE_ABSENT } from './store/fs-probe.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
-import {
-    isAgentOnlySession,
-    isRootLeadSession,
-    sessionVisibility,
-} from './store-summary-visibility.mjs';
-import {
-    createStoredTranscriptCache,
-    nextProjectionStamp,
-} from './store-transcript-cache.mjs';
+import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './store-summary-visibility.mjs';
+import { createStoredTranscriptCache, nextProjectionStamp } from './store-transcript-cache.mjs';
 
 // One cache per process: the daemon serves every cold pane read from it, and
 // the desktop service worker keeps its own for the deep-history prefetch.
@@ -31,28 +24,32 @@ const storedTranscriptCache = createStoredTranscriptCache();
 
 /** Test seam: forget every cached projection. */
 export function clearStoredTranscriptCache() {
-    storedTranscriptCache.clear();
+  storedTranscriptCache.clear();
 }
 
 const SESSION_SUMMARY_INDEX_VERSION = 2;
 const DEAD_AGENT_STATUS =
-    /^(?:done|complete|completed|success|closed|error|fail|failed|cancelled|canceled|killed|timeout)$/i;
+  /^(?:done|complete|completed|success|closed|error|fail|failed|cancelled|canceled|killed|timeout)$/i;
 const LIVING_AGENT_STATUS =
-    /^(?:idle|connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
+  /^(?:idle|connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
 const WORKING_AGENT_STATUS =
-    /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
+  /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
 // Confirmed cancel vs a cancel whose stop is not proven. The heartbeat lease
 // must never rewrite either as `running`, and the two must stay distinct:
 // `cancel-unconfirmed` is the honest Windows git-bash-survivor answer, not a
 // successful cancel.
-const CANCELLED_AGENT_STATUS =
-    /^(?:cancelled|canceled|killed)$/i;
+const CANCELLED_AGENT_STATUS = /^(?:cancelled|canceled|killed)$/i;
 // Bare `cancelling` is still working (ACTIVE_STAGES). Only an explicit
 // unconfirmed/pending cancel is a distinct terminal-unconfirmed outcome.
-const CANCEL_UNCONFIRMED_AGENT_STATUS =
-    /^(?:cancel[-_\s]?(?:unconfirmed|pending))$/i;
+const CANCEL_UNCONFIRMED_AGENT_STATUS = /^(?:cancel[-_\s]?(?:unconfirmed|pending))$/i;
 const SESSION_CANCEL_FIELDS = [
-    'cancelStatus', 'status', 'state', 'lastStatus', 'stage', 'outcome', 'terminationReason',
+  'cancelStatus',
+  'status',
+  'state',
+  'lastStatus',
+  'stage',
+  'outcome',
+  'terminationReason',
 ];
 const AGENT_POOL_HEARTBEAT_FRESH_MS = 2 * 60 * 1000;
 
@@ -63,162 +60,182 @@ const AGENT_POOL_HEARTBEAT_FRESH_MS = 2 * 60 * 1000;
 const LEAD_OWNERS = new Set(['cli', 'user', 'mixdog']);
 
 function isLeadVisibleRow(row) {
-    const owner = String(row.owner || 'user').trim().toLowerCase();
-    if (isAgentOnlySession(row)) return false;
-    if (!isRootLeadSession(row) && owner && !LEAD_OWNERS.has(owner)) return false;
-    // Mirror listLeadSessions: a previewless zero-message row is an unusable
-    // scratch (desktop boot leftovers, crashed first turns) — resuming it
-    // shows an empty conversation, so the catalog hides it.
-    if (!row.preview && row.messageCount === 0) return false;
-    const sourceType = String(row.sourceType || '').trim().toLowerCase();
-    const sourceName = String(row.sourceName || '').trim().toLowerCase();
-    const agent = String(row.agent || '').trim().toLowerCase();
-    return agent === 'lead'
-        || sourceType === 'lead'
-        || sourceType === 'cli'
-        || sourceType === 'schedule'
-        || sourceType === 'webhook'
-        || (!sourceType && !sourceName && owner !== 'agent');
+  const owner = String(row.owner || 'user')
+    .trim()
+    .toLowerCase();
+  if (isAgentOnlySession(row)) return false;
+  if (!isRootLeadSession(row) && owner && !LEAD_OWNERS.has(owner)) return false;
+  // Mirror listLeadSessions: a previewless zero-message row is an unusable
+  // scratch (desktop boot leftovers, crashed first turns) — resuming it
+  // shows an empty conversation, so the catalog hides it.
+  if (!row.preview && row.messageCount === 0) return false;
+  const sourceType = String(row.sourceType || '')
+    .trim()
+    .toLowerCase();
+  const sourceName = String(row.sourceName || '')
+    .trim()
+    .toLowerCase();
+  const agent = String(row.agent || '')
+    .trim()
+    .toLowerCase();
+  return (
+    agent === 'lead' ||
+    sourceType === 'lead' ||
+    sourceType === 'cli' ||
+    sourceType === 'schedule' ||
+    sourceType === 'webhook' ||
+    (!sourceType && !sourceName && owner !== 'agent')
+  );
 }
 
 function dataDir() {
-    if (process.env.MIXDOG_DATA_DIR) return process.env.MIXDOG_DATA_DIR;
-    const home = process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
-    return join(home, 'data');
+  if (process.env.MIXDOG_DATA_DIR) return process.env.MIXDOG_DATA_DIR;
+  const home = process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
+  return join(home, 'data');
 }
 
 function positiveNumber(value, fallback = 0) {
-    const number = Number(value);
-    return Number.isFinite(number) && number > 0 ? number : fallback;
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
 function runtimeAlive(pid) {
-    const id = positiveNumber(pid, 0);
-    if (id <= 0 || id === process.pid) return true;
-    try {
-        process.kill(id, 0);
-        return true;
-    } catch (error) {
-        return error?.code === 'EPERM';
-    }
+  const id = positiveNumber(pid, 0);
+  if (id <= 0 || id === process.pid) return true;
+  try {
+    process.kill(id, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
 }
 
 function cleanValue(value) {
-    return String(value || '').trim();
+  return String(value || '').trim();
 }
 
 function workerOwnerSessionId(row, session) {
-    return cleanValue(
-        row?.ownerSessionId || session?.ownerSessionId
-        || row?.parentSessionId || session?.parentSessionId,
-    ) || null;
+  return (
+    cleanValue(row?.ownerSessionId || session?.ownerSessionId || row?.parentSessionId || session?.parentSessionId) ||
+    null
+  );
 }
 
 function workerParentSessionId(row, session) {
-    return cleanValue(
-        row?.parentSessionId || session?.parentSessionId
-        || row?.ownerSessionId || session?.ownerSessionId,
-    ) || null;
+  return (
+    cleanValue(row?.parentSessionId || session?.parentSessionId || row?.ownerSessionId || session?.ownerSessionId) ||
+    null
+  );
 }
 
 function archivedAgentNotification(content, sessionId) {
-    const text = typeof content === 'string' ? content : '';
-    const marker = '\n\nResult:\n';
-    const markerAt = text.indexOf(marker);
-    if (markerAt < 0 || !/Async agent task .* finished\./.test(text.slice(0, markerAt))) return null;
-    const lines = text.slice(markerAt + marker.length)
-        .split(/\r?\n/)
-        .map((line) => line.replace(/^>\s?/, ''));
-    const divider = lines.findIndex((line) => line.trim() === '');
-    if (divider < 0) return null;
-    const headers = new Map();
-    for (const line of lines.slice(0, divider)) {
-        const match = /^([A-Za-z][A-Za-z0-9_]*):\s*(.*?)\s*$/.exec(line);
-        if (match) headers.set(match[1], match[2]);
-    }
-    if (headers.get('surface') !== 'agent' || headers.get('sessionId') !== sessionId) return null;
-    const status = cleanValue(headers.get('status')).toLowerCase();
-    if (!/^(?:completed|failed|cancelled)$/.test(status)) return null;
-    const body = lines.slice(divider + 1).join('\n').trim();
-    if (!body) return null;
-    return {
-        body,
-        status,
-        tag: cleanValue(headers.get('tag') || headers.get('label')),
-        agent: cleanValue(headers.get('agent')),
-        provider: cleanValue(headers.get('provider')),
-        model: cleanValue(headers.get('model')),
-        effort: cleanValue(headers.get('effort')),
-        fast: cleanValue(headers.get('fast')).toLowerCase() === 'true',
-        finishedAt: Date.parse(cleanValue(headers.get('finished'))) || 0,
-    };
+  const text = typeof content === 'string' ? content : '';
+  const marker = '\n\nResult:\n';
+  const markerAt = text.indexOf(marker);
+  if (markerAt < 0 || !/Async agent task .* finished\./.test(text.slice(0, markerAt))) return null;
+  const lines = text
+    .slice(markerAt + marker.length)
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^>\s?/, ''));
+  const divider = lines.findIndex((line) => line.trim() === '');
+  if (divider < 0) return null;
+  const headers = new Map();
+  for (const line of lines.slice(0, divider)) {
+    const match = /^([A-Za-z][A-Za-z0-9_]*):\s*(.*?)\s*$/.exec(line);
+    if (match) headers.set(match[1], match[2]);
+  }
+  if (headers.get('surface') !== 'agent' || headers.get('sessionId') !== sessionId) return null;
+  const status = cleanValue(headers.get('status')).toLowerCase();
+  if (!/^(?:completed|failed|cancelled)$/.test(status)) return null;
+  const body = lines
+    .slice(divider + 1)
+    .join('\n')
+    .trim();
+  if (!body) return null;
+  return {
+    body,
+    status,
+    tag: cleanValue(headers.get('tag') || headers.get('label')),
+    agent: cleanValue(headers.get('agent')),
+    provider: cleanValue(headers.get('provider')),
+    model: cleanValue(headers.get('model')),
+    effort: cleanValue(headers.get('effort')),
+    fast: cleanValue(headers.get('fast')).toLowerCase() === 'true',
+    finishedAt: Date.parse(cleanValue(headers.get('finished'))) || 0,
+  };
 }
 
 /** Legacy recovery for child transcripts already unlinked by terminal reaping.
  * The parent owns one canonical body-carrying completion notification, so scan
  * only files containing the exact child id and project the newest valid body. */
 function readArchivedAgentResult(sessionId) {
-    const dir = join(dataDir(), 'sessions');
-    if (probePath(dir).state !== PROBE_PRESENT) return null;
-    let files;
-    try { files = readdirSync(dir).filter((file) => file.endsWith('.json')); }
-    catch { return null; }
-    let best = null;
-    for (const file of files) {
-        let raw;
-        try { raw = readFileSync(join(dir, file), 'utf8'); } catch { continue; }
-        if (!raw.includes(sessionId)) continue;
-        const record = readTopLevelLifecycleRecord(raw);
-        if (isLifecycleUnreadable(record) || record.id === sessionId) continue;
-        const parent = record.doc;
-        const messages = Array.isArray(parent.messages) ? parent.messages : [];
-        for (let index = messages.length - 1; index >= 0; index--) {
-            const message = messages[index];
-            if (message?.role !== 'user') continue;
-            const archived = archivedAgentNotification(message.content, sessionId);
-            if (!archived) continue;
-            const at = positiveNumber(
-                message?.meta?.transcript?.at,
-                archived.finishedAt || positiveNumber(parent.updatedAt),
-            );
-            if (best && best.at > at) continue;
-            best = { ...archived, at, parent };
-            break;
-        }
+  const dir = join(dataDir(), 'sessions');
+  if (probePath(dir).state !== PROBE_PRESENT) return null;
+  let files;
+  try {
+    files = readdirSync(dir).filter((file) => file.endsWith('.json'));
+  } catch {
+    return null;
+  }
+  let best = null;
+  for (const file of files) {
+    let raw;
+    try {
+      raw = readFileSync(join(dir, file), 'utf8');
+    } catch {
+      continue;
     }
-    if (!best) return null;
-    const text = `# Archived agent result\n\n${best.body}`;
-    return {
-        sessionId,
-        items: [{
-            id: `archived-agent-result:${sessionId}`,
-            kind: 'assistant',
-            text,
-            status: best.status,
-            ...(best.at ? { at: best.at } : {}),
-            ...(best.model ? { model: best.model } : {}),
-            ...(best.provider ? { provider: best.provider } : {}),
-            ...(best.agent ? { agent: best.agent } : {}),
-        }],
-        provider: best.provider,
-        model: best.model,
-        effort: best.effort,
-        fast: best.fast,
-        cwd: cleanValue(best.parent.cwd),
-        desktopSession: desktopSession(best.parent.desktopSession, best.parent.cwd),
-        workflow: null,
-        stats: {
-            currentContextTokens: 0,
-            currentEstimatedContextTokens: 0,
-            currentContextSource: null,
-        },
-        contextWindow: null,
-        rawContextWindow: null,
-        displayContextWindow: null,
-        autoCompactTokenLimit: null,
-        archivedAgentResult: true,
-        readOnlyDetachedAgent: false,
-    };
+    if (!raw.includes(sessionId)) continue;
+    const record = readTopLevelLifecycleRecord(raw);
+    if (isLifecycleUnreadable(record) || record.id === sessionId) continue;
+    const parent = record.doc;
+    const messages = Array.isArray(parent.messages) ? parent.messages : [];
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const message = messages[index];
+      if (message?.role !== 'user') continue;
+      const archived = archivedAgentNotification(message.content, sessionId);
+      if (!archived) continue;
+      const at = positiveNumber(message?.meta?.transcript?.at, archived.finishedAt || positiveNumber(parent.updatedAt));
+      if (best && best.at > at) continue;
+      best = { ...archived, at, parent };
+      break;
+    }
+  }
+  if (!best) return null;
+  const text = `# Archived agent result\n\n${best.body}`;
+  return {
+    sessionId,
+    items: [
+      {
+        id: `archived-agent-result:${sessionId}`,
+        kind: 'assistant',
+        text,
+        status: best.status,
+        ...(best.at ? { at: best.at } : {}),
+        ...(best.model ? { model: best.model } : {}),
+        ...(best.provider ? { provider: best.provider } : {}),
+        ...(best.agent ? { agent: best.agent } : {}),
+      },
+    ],
+    provider: best.provider,
+    model: best.model,
+    effort: best.effort,
+    fast: best.fast,
+    cwd: cleanValue(best.parent.cwd),
+    desktopSession: desktopSession(best.parent.desktopSession, best.parent.cwd),
+    workflow: null,
+    stats: {
+      currentContextTokens: 0,
+      currentEstimatedContextTokens: 0,
+      currentContextSource: null,
+    },
+    contextWindow: null,
+    rawContextWindow: null,
+    displayContextWindow: null,
+    autoCompactTokenLimit: null,
+    archivedAgentResult: true,
+    readOnlyDetachedAgent: false,
+  };
 }
 
 // Frozen idle stamps: without finishedAt the idle moment fell back to the
@@ -229,120 +246,123 @@ function readArchivedAgentResult(sessionId) {
 const stickyIdleSince = new Map(); // sessionId -> stamp
 const STICKY_IDLE_CAP = 512;
 function frozenIdleSince(sessionId, working, fallback) {
-    if (working) {
-        stickyIdleSince.delete(sessionId);
-        return null;
-    }
-    if (stickyIdleSince.has(sessionId)) return stickyIdleSince.get(sessionId);
-    const value = fallback || null;
-    stickyIdleSince.set(sessionId, value);
-    if (stickyIdleSince.size > STICKY_IDLE_CAP) {
-        stickyIdleSince.delete(stickyIdleSince.keys().next().value);
-    }
-    return value;
+  if (working) {
+    stickyIdleSince.delete(sessionId);
+    return null;
+  }
+  if (stickyIdleSince.has(sessionId)) return stickyIdleSince.get(sessionId);
+  const value = fallback || null;
+  stickyIdleSince.set(sessionId, value);
+  if (stickyIdleSince.size > STICKY_IDLE_CAP) {
+    stickyIdleSince.delete(stickyIdleSince.keys().next().value);
+  }
+  return value;
 }
 
 function agentStatusValues(row) {
-    return [row?.stage, row?.status]
-        .map(cleanValue)
-        .filter((status, index, values) => Boolean(status) && values.indexOf(status) === index);
+  return [row?.stage, row?.status]
+    .map(cleanValue)
+    .filter((status, index, values) => Boolean(status) && values.indexOf(status) === index);
 }
 
 function activeAgentWorker(row) {
-    const statuses = agentStatusValues(row);
-    return statuses.length > 0
-        && !statuses.some((status) => DEAD_AGENT_STATUS.test(status))
-        && statuses.some((status) => LIVING_AGENT_STATUS.test(status));
+  const statuses = agentStatusValues(row);
+  return (
+    statuses.length > 0 &&
+    !statuses.some((status) => DEAD_AGENT_STATUS.test(status)) &&
+    statuses.some((status) => LIVING_AGENT_STATUS.test(status))
+  );
 }
 
 function stampMs(value) {
-    if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : 0;
-    const text = cleanValue(value);
-    if (!text) return 0;
-    const numeric = Number(text);
-    if (Number.isFinite(numeric) && numeric > 0 && !/^\d{4}-/.test(text)) return numeric;
-    const parsed = Date.parse(text);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : 0;
+  const text = cleanValue(value);
+  if (!text) return 0;
+  const numeric = Number(text);
+  if (Number.isFinite(numeric) && numeric > 0 && !/^\d{4}-/.test(text)) return numeric;
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
 function workStampMs(row) {
-    if (!row || typeof row !== 'object') return 0;
-    return Math.max(stampMs(row.turnStartedAt), stampMs(row.startedAt));
+  if (!row || typeof row !== 'object') return 0;
+  return Math.max(stampMs(row.turnStartedAt), stampMs(row.startedAt));
 }
 
 function cancelStampMs(row) {
-    if (!row || typeof row !== 'object') return 0;
-    return Math.max(stampMs(row.cancelledAt), stampMs(row.finishedAt));
+  if (!row || typeof row !== 'object') return 0;
+  return Math.max(stampMs(row.cancelledAt), stampMs(row.finishedAt));
 }
 
 /** Confirmed cancel yields to unconfirmed when both are present so a
  *  still-tearing-down or unobservable stop is never reported as success.
  *  `cancelling` alone is working and is not a cancel. */
 function sessionCancelState(row) {
-    if (!row || typeof row !== 'object') return null;
-    const statuses = SESSION_CANCEL_FIELDS
-        .map((key) => cleanValue(row[key]))
-        .filter((status, index, values) => Boolean(status) && values.indexOf(status) === index);
-    const status = statuses.find((value) => CANCEL_UNCONFIRMED_AGENT_STATUS.test(value))
-        || statuses.find((value) => CANCELLED_AGENT_STATUS.test(value))
-        || '';
-    if (!status) return null;
-    return { status, at: cancelStampMs(row) };
+  if (!row || typeof row !== 'object') return null;
+  const statuses = SESSION_CANCEL_FIELDS.map((key) => cleanValue(row[key])).filter(
+    (status, index, values) => Boolean(status) && values.indexOf(status) === index
+  );
+  const status =
+    statuses.find((value) => CANCEL_UNCONFIRMED_AGENT_STATUS.test(value)) ||
+    statuses.find((value) => CANCELLED_AGENT_STATUS.test(value)) ||
+    '';
+  if (!status) return null;
+  return { status, at: cancelStampMs(row) };
 }
 
 /** Rank two cancel states: an unconfirmed stop always outranks a confirmed
  *  one, so no source can report success for a kill another source could not
  *  prove. Same-class states keep the index row (`a`) as the richer source. */
 function preferUnconfirmedCancel(a, b) {
-    if (!a) return b || null;
-    if (!b) return a;
-    const aUnconfirmed = CANCEL_UNCONFIRMED_AGENT_STATUS.test(a.status);
-    const bUnconfirmed = CANCEL_UNCONFIRMED_AGENT_STATUS.test(b.status);
-    if (aUnconfirmed === bUnconfirmed) return a;
-    return aUnconfirmed ? a : b;
+  if (!a) return b || null;
+  if (!b) return a;
+  const aUnconfirmed = CANCEL_UNCONFIRMED_AGENT_STATUS.test(a.status);
+  const bUnconfirmed = CANCEL_UNCONFIRMED_AGENT_STATUS.test(b.status);
+  if (aUnconfirmed === bUnconfirmed) return a;
+  return aUnconfirmed ? a : b;
 }
 
 export function storedAgentWorkerIndexPath() {
-    return join(dataDir(), 'agent-workers.json');
+  return join(dataDir(), 'agent-workers.json');
 }
 
 function storedLeadWorkerIndexPath() {
-    return join(dataDir(), 'lead-workers.json');
+  return join(dataDir(), 'lead-workers.json');
 }
 
 function storedAgentWorkerIndexRows() {
-    let parsed = null;
-    try {
-        parsed = JSON.parse(readFileSync(storedAgentWorkerIndexPath(), 'utf8'));
-    } catch {
-        return [];
-    }
-    return Array.isArray(parsed?.workers)
-        ? parsed.workers
-        : parsed?.workers && typeof parsed.workers === 'object'
-            ? Object.values(parsed.workers)
-            : [];
+  let parsed = null;
+  try {
+    parsed = JSON.parse(readFileSync(storedAgentWorkerIndexPath(), 'utf8'));
+  } catch {
+    return [];
+  }
+  return Array.isArray(parsed?.workers)
+    ? parsed.workers
+    : parsed?.workers && typeof parsed.workers === 'object'
+      ? Object.values(parsed.workers)
+      : [];
 }
 
 /** Lightweight ancestry seam used to migrate pre-parentSessionId summary
  * rows. It reads only agent-workers.json and never opens session transcripts. */
 export function listStoredAgentWorkerLinks() {
-    return storedAgentWorkerIndexRows()
-        .map((row) => {
-            if (!row || typeof row !== 'object') return null;
-            const sessionId = cleanValue(row.sessionId);
-            const parentSessionId = cleanValue(row.parentSessionId);
-            const ownerSessionId = cleanValue(row.ownerSessionId || row.parentSessionId);
-            if (!/^[A-Za-z0-9_-]+$/.test(sessionId) || (!parentSessionId && !ownerSessionId)) {
-                return null;
-            }
-            return {
-                sessionId,
-                parentSessionId: parentSessionId || ownerSessionId,
-                ownerSessionId: ownerSessionId || parentSessionId,
-            };
-        })
-        .filter(Boolean);
+  return storedAgentWorkerIndexRows()
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null;
+      const sessionId = cleanValue(row.sessionId);
+      const parentSessionId = cleanValue(row.parentSessionId);
+      const ownerSessionId = cleanValue(row.ownerSessionId || row.parentSessionId);
+      if (!/^[A-Za-z0-9_-]+$/.test(sessionId) || (!parentSessionId && !ownerSessionId)) {
+        return null;
+      }
+      return {
+        sessionId,
+        parentSessionId: parentSessionId || ownerSessionId,
+        ownerSessionId: ownerSessionId || parentSessionId,
+      };
+    })
+    .filter(Boolean);
 }
 
 // The agent pool only reads top-level session fields, yet each refresh used to
@@ -352,52 +372,51 @@ const WORKER_HEADER_CACHE_MAX = 256;
 const workerSessionHeaderCache = new Map();
 
 function readWorkerSessionHeader(sessionId) {
-    const path = join(dataDir(), 'sessions', `${sessionId}.json`);
-    const probe = probePath(path);
-    if (probe.state !== PROBE_PRESENT) return null;
-    const cached = workerSessionHeaderCache.get(path);
-    if (cached && cached.mtimeMs === probe.mtimeMs && cached.size === probe.size) {
-        // Refresh insertion order so the eviction below stays LRU-ish.
-        workerSessionHeaderCache.delete(path);
-        workerSessionHeaderCache.set(path, cached);
-        return cached.header;
-    }
-    let session = null;
-    try {
-        session = JSON.parse(readFileSync(path, 'utf8'));
-    } catch {
-        return null;
-    }
-    if (!session || typeof session !== 'object') return null;
-    const header = { ...session };
-    delete header.messages;
-    delete header.liveTurnMessages;
-    workerSessionHeaderCache.set(path, { mtimeMs: probe.mtimeMs, size: probe.size, header });
-    if (workerSessionHeaderCache.size > WORKER_HEADER_CACHE_MAX) {
-        workerSessionHeaderCache.delete(workerSessionHeaderCache.keys().next().value);
-    }
-    return header;
+  const path = join(dataDir(), 'sessions', `${sessionId}.json`);
+  const probe = probePath(path);
+  if (probe.state !== PROBE_PRESENT) return null;
+  const cached = workerSessionHeaderCache.get(path);
+  if (cached && cached.mtimeMs === probe.mtimeMs && cached.size === probe.size) {
+    // Refresh insertion order so the eviction below stays LRU-ish.
+    workerSessionHeaderCache.delete(path);
+    workerSessionHeaderCache.set(path, cached);
+    return cached.header;
+  }
+  let session = null;
+  try {
+    session = JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return null;
+  }
+  if (!session || typeof session !== 'object') return null;
+  const header = { ...session };
+  delete header.messages;
+  delete header.liveTurnMessages;
+  workerSessionHeaderCache.set(path, { mtimeMs: probe.mtimeMs, size: probe.size, header });
+  if (workerSessionHeaderCache.size > WORKER_HEADER_CACHE_MAX) {
+    workerSessionHeaderCache.delete(workerSessionHeaderCache.keys().next().value);
+  }
+  return header;
 }
 
 /** Owner record of a child row that is a Lead CONVERSATION. Only such an owner
  *  lets a missing pool row mean "the Lead's lease expired"; an Agent-owned or
  *  unreadable owner keeps its child rows visible exactly as before. */
 function leadConversationHeader(header) {
-    if (!header || typeof header !== 'object') return false;
-    const owner = cleanValue(header.owner).toLowerCase();
-    const agent = cleanValue(header.agent).toLowerCase();
-    return owner !== 'agent'
-        && (agent === 'lead' || cleanValue(header.sourceType).toLowerCase() === 'lead');
+  if (!header || typeof header !== 'object') return false;
+  const owner = cleanValue(header.owner).toLowerCase();
+  const agent = cleanValue(header.agent).toLowerCase();
+  return owner !== 'agent' && (agent === 'lead' || cleanValue(header.sourceType).toLowerCase() === 'lead');
 }
 
 /** Live-work proof for an already projected row: a fresh heartbeat sidecar, or
  *  a working status whose own stamp is still inside the pool window. */
 function poolRowWorking(row, heartbeatMtimes, now) {
-    const heartbeatAt = heartbeatMtimes.get(cleanValue(row?.sessionId)) || 0;
-    if (heartbeatAt > 0 && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS) return true;
-    if (!WORKING_AGENT_STATUS.test(cleanValue(row?.stage || row?.status))) return false;
-    const updatedAt = Date.parse(cleanValue(row?.updatedAt)) || 0;
-    return updatedAt > 0 && now - updatedAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
+  const heartbeatAt = heartbeatMtimes.get(cleanValue(row?.sessionId)) || 0;
+  if (heartbeatAt > 0 && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS) return true;
+  if (!WORKING_AGENT_STATUS.test(cleanValue(row?.stage || row?.status))) return false;
+  const updatedAt = Date.parse(cleanValue(row?.updatedAt)) || 0;
+  return updatedAt > 0 && now - updatedAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
 }
 
 /** Process-global active agent pool. Fresh child heartbeat sidecars are the
@@ -407,376 +426,372 @@ function poolRowWorking(row, heartbeatMtimes, now) {
  * published before the heartbeat or by runtimes without a sidecar. No runtime
  * starts and durable session history is never projected into either pool. */
 export function listStoredAgentWorkers() {
-    const source = storedAgentWorkerIndexRows();
-    const bySessionId = new Map();
-    const now = Date.now();
-    const heartbeatMtimes = sessionHeartbeatMtimes();
-    // Lead sessions whose pool row is projected below. A child row hangs under
-    // its Lead, so an owner that has no projected row can no longer display one.
-    const liveLeadSessionIds = new Set();
-    for (const row of source) {
-        if (!row || typeof row !== 'object') continue;
-        // Cancelled rows stay visible so the 2-minute heartbeat lease cannot
-        // resurrect them as `running` once DEAD_AGENT_STATUS would have
-        // dropped them from the map. Unconfirmed cancels are not dead, but
-        // also must not be overwritten by the sidecar.
-        if (!activeAgentWorker(row) && !sessionCancelState(row)) continue;
-        if (cleanValue(row.agent).toLowerCase() === 'lead') continue;
-        const sessionId = cleanValue(row.sessionId);
-        const tag = cleanValue(row.tag);
-        if (!sessionId || !tag || !/^[A-Za-z0-9_-]+$/.test(sessionId)) continue;
-        // A new row may precede its first session save (null header).
-        const session = readWorkerSessionHeader(sessionId);
-        const declaredStatus = cleanValue(row.status) || 'running';
-        const declaredStage = cleanValue(row.stage || row.status) || 'running';
-        const declaredWorking = WORKING_AGENT_STATUS.test(declaredStatus)
-            || WORKING_AGENT_STATUS.test(declaredStage);
-        const heartbeatAt = heartbeatMtimes.get(sessionId) || 0;
-        const heartbeatFresh = heartbeatAt > 0
-            && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
-        const updatedAt = Date.parse(cleanValue(row.updatedAt)) || 0;
-        const recentlyUpdated = updatedAt > 0
-            && now - updatedAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
-        const runtimePid = positiveNumber(row.runtimePid, 0);
-        const working = declaredWorking
-            && (!runtimePid || runtimeAlive(runtimePid))
-            && (heartbeatFresh || recentlyUpdated);
-        const projectedStatus = declaredWorking && !working ? 'idle' : declaredStatus;
-        const projectedStage = declaredWorking && !working ? 'idle' : declaredStage;
-        bySessionId.set(sessionId, {
-            tag,
-            sessionId,
-            // Root ownership and immediate ancestry are independent. Nested
-            // descendants keep the Lead/root owner while pointing at the Agent
-            // session that directly spawned them.
-            ownerSessionId: workerOwnerSessionId(row, session),
-            parentSessionId: workerParentSessionId(row, session),
-            title: cleanValue(row.title || session?.title) || null,
-            agent: cleanValue(row.agent || session?.agent) || null,
-            provider: cleanValue(row.provider || session?.provider) || null,
-            model: cleanValue(row.model || session?.model) || null,
-            effort: cleanValue(row.effort || session?.effort) || null,
-            fast: row.fast === true || session?.fast === true,
-            status: projectedStatus,
-            stage: projectedStage,
-            startedAt: row.startedAt || row.createdAt || session?.createdAt || null,
-            turnStartedAt: working ? (row.turnStartedAt || null) : null,
-            createdAt: row.createdAt || session?.createdAt || null,
-            updatedAt: row.updatedAt || session?.updatedAt || null,
-            idleSince: frozenIdleSince(
-                sessionId,
-                working,
-                row.finishedAt || row.updatedAt || session?.updatedAt || null,
-            ),
-            reapAt: row.reapAt || null,
-            cwd: cleanValue(row.cwd || session?.cwd) || null,
-            clientHostPid: positiveNumber(row.clientHostPid || session?.clientHostPid, 0) || null,
-            taskId: cleanValue(row.task_id || row.taskId) || null,
-        });
-    }
-    for (const [sessionId, heartbeatAt] of heartbeatMtimes) {
-        if (now - heartbeatAt > AGENT_POOL_HEARTBEAT_FRESH_MS) continue;
-        const session = readWorkerSessionHeader(sessionId);
-        if (!session) continue;
-        const current = bySessionId.get(sessionId) || {};
-        const ownerSessionId = workerOwnerSessionId(current, session);
-        const parentSessionId = workerParentSessionId(current, session);
-        const owner = cleanValue(session?.owner).toLowerCase();
-        const agent = cleanValue(session?.agent);
-        if (!ownerSessionId || (owner !== 'agent' && (!agent || agent === 'lead'))) continue;
-        // The durable index row is authoritative for FINISHED work: a worker's
-        // runtime unloads at turn end but its heartbeat sidecar stays fresh for
-        // up to the 2-minute window, and overwriting an idle row to `running`
-        // here made every completed agent show as working and then flip back —
-        // the dock read as blinking (user: 유휴인데 계속 살아있고 깜빡인다).
-        // The sidecar promotes only rows the index does not already mark idle.
-        // A cancel is the same class of authority: the lease must not rewrite
-        // cancelled / cancel-unconfirmed as running at any point. Bare
-        // `cancelling` stays working. Genuinely new work is a strictly later
-        // turn/start stamp, not a heartbeat-rewritten updatedAt.
-        const currentCancel = sessionCancelState(current);
-        const sessionCancel = sessionCancelState(session);
-        // An UNCONFIRMED cancel outranks a confirmed one whichever side holds
-        // it. Taking the index row first let a row still stamped `cancelled`
-        // MASK the durable `cancel-unconfirmed` on the session, reporting a
-        // stop that was never proven as a success. Never the reverse: a
-        // confirmed row only wins when the session is not unconfirmed.
-        const cancel = preferUnconfirmedCancel(currentCancel, sessionCancel);
-        const newerWork = Boolean(cancel?.at)
-            && (workStampMs(current) > cancel.at || workStampMs(session) > cancel.at);
-        if (cancel && !newerWork) {
-            // A cancel outranks a leftover heartbeat. Newer work is only a
-            // strictly later turn/start stamp — never updatedAt, which the
-            // sidecar rewrites every tick.
-            if (currentCancel) continue;
-            bySessionId.set(sessionId, {
-                ...current,
-                tag: cleanValue(session?.agentTag) || cleanValue(current.tag)
-                    || `${agent || 'agent'}:${sessionId}`,
-                sessionId,
-                ownerSessionId,
-                parentSessionId,
-                title: cleanValue(session?.title) || current.title || null,
-                agent: agent || current.agent || null,
-                provider: cleanValue(session?.provider) || current.provider || null,
-                model: cleanValue(session?.model) || current.model || null,
-                effort: cleanValue(session?.effort) || current.effort || null,
-                fast: session?.fast === true || current.fast === true,
-                status: cancel.status,
-                stage: cancel.status,
-                startedAt: session?.createdAt || current.startedAt || heartbeatAt,
-                turnStartedAt: current.turnStartedAt || null,
-                createdAt: session?.createdAt || current.createdAt || null,
-                updatedAt: heartbeatAt,
-                cwd: cleanValue(session?.cwd) || current.cwd || null,
-                clientHostPid: positiveNumber(session?.clientHostPid, 0)
-                    || current.clientHostPid || null,
-                taskId: cleanValue(session?.task_id || session?.taskId)
-                    || current.taskId || null,
-            });
-            continue;
-        }
-        const currentStatus = cleanValue(current.stage || current.status);
-        if (currentStatus && !WORKING_AGENT_STATUS.test(currentStatus)) continue;
-        bySessionId.set(sessionId, {
-            ...current,
-            tag: cleanValue(session?.agentTag) || cleanValue(current.tag)
-                || `${agent || 'agent'}:${sessionId}`,
-            sessionId,
-            ownerSessionId,
-            parentSessionId,
-            title: cleanValue(session?.title) || current.title || null,
-            agent: agent || current.agent || null,
-            provider: cleanValue(session?.provider) || current.provider || null,
-            model: cleanValue(session?.model) || current.model || null,
-            effort: cleanValue(session?.effort) || current.effort || null,
-            fast: session?.fast === true || current.fast === true,
-            // The sidecar is the live lease. Durable child sessions are
-            // intentionally detached/closed while their external owner runs.
-            status: 'running',
-            stage: 'running',
-            startedAt: session?.createdAt || current.startedAt || heartbeatAt,
-            turnStartedAt: current.turnStartedAt || null,
-            createdAt: session?.createdAt || current.createdAt || null,
-            updatedAt: heartbeatAt,
-            cwd: cleanValue(session?.cwd) || current.cwd || null,
-            clientHostPid: positiveNumber(session?.clientHostPid, 0)
-                || current.clientHostPid || null,
-            taskId: cleanValue(session?.task_id || session?.taskId)
-                || current.taskId || null,
-        });
-    }
-    let leadParsed = null;
-    try {
-        leadParsed = JSON.parse(readFileSync(storedLeadWorkerIndexPath(), 'utf8'));
-    } catch { /* no resident Lead pool */ }
-    const leadSource = Array.isArray(leadParsed?.workers)
-        ? leadParsed.workers
-        : leadParsed?.workers && typeof leadParsed.workers === 'object'
-            ? Object.values(leadParsed.workers)
-            : [];
-    for (const row of leadSource) {
-        if (!row || typeof row !== 'object') continue;
-        const sessionId = cleanValue(row.sessionId);
-        if (!sessionId || !/^[A-Za-z0-9_-]+$/.test(sessionId)) continue;
-        try {
-            const session = JSON.parse(readFileSync(
-                join(dataDir(), 'sessions', `${sessionId}.json`),
-                'utf8',
-            ));
-            const owner = cleanValue(session?.owner).toLowerCase();
-            const agent = cleanValue(session?.agent).toLowerCase();
-            if (owner === 'agent' || (agent && agent !== 'lead')) continue;
-        } catch { /* legacy Lead rows may predate a durable session record */ }
-        const heartbeatAt = heartbeatMtimes.get(sessionId) || 0;
-        const heartbeatFresh = heartbeatAt > 0
-            && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
-        const updatedAt = Date.parse(cleanValue(row.updatedAt)) || 0;
-        const recentlyUpdated = updatedAt > 0
-            && now - updatedAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
-        const declaredStatus = cleanValue(row.stage || row.status) || 'idle';
-        const working = WORKING_AGENT_STATUS.test(declaredStatus)
-            && (heartbeatFresh || recentlyUpdated);
-        const reapAt = Date.parse(cleanValue(row.reapAt)) || 0;
-        if (!heartbeatFresh && reapAt > 0 && now >= reapAt) continue;
-        liveLeadSessionIds.add(sessionId);
-        bySessionId.set(sessionId, {
-            tag: `lead:${sessionId}`,
-            sessionId,
-            ownerSessionId: sessionId,
-            parentSessionId: null,
-            agent: 'lead',
-            provider: cleanValue(row.provider) || null,
-            model: cleanValue(row.model) || null,
-            effort: cleanValue(row.effort) || null,
-            fast: row.fast === true,
-            status: working ? declaredStatus : 'idle',
-            stage: working ? declaredStatus : 'idle',
-            startedAt: row.startedAt || row.createdAt || null,
-            turnStartedAt: working ? (row.turnStartedAt || null) : null,
-            createdAt: row.createdAt || null,
-            updatedAt: working ? (heartbeatAt || row.updatedAt || null) : (row.updatedAt || null),
-            idleSince: frozenIdleSince(sessionId, working, row.finishedAt || row.updatedAt || null),
-            cwd: cleanValue(row.cwd) || null,
-            clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
-            taskId: cleanValue(row.task_id || row.taskId) || null,
-        });
-    }
-    // A child row is a projection of its Lead. Once the Lead's row is gone
-    // (its lease was reaped, or the Lead runtime that owned it exited), leaving
-    // the child in the pool paints it as a top-level Agent-window row with no
-    // Lead above it (user report). Only a Lead CONVERSATION owner is judged —
-    // and a child that is still working always stays, so live work never
-    // disappears from the window.
-    for (const [sessionId, row] of [...bySessionId]) {
-        if (cleanValue(row.agent).toLowerCase() === 'lead') continue;
-        const ownerSessionId = cleanValue(row.ownerSessionId);
-        if (!ownerSessionId || liveLeadSessionIds.has(ownerSessionId)) continue;
-        if (!leadConversationHeader(readWorkerSessionHeader(ownerSessionId))) continue;
-        if (poolRowWorking(row, heartbeatMtimes, now)) continue;
-        bySessionId.delete(sessionId);
-    }
-    const rows = [...bySessionId.values()];
-    return rows.sort((left, right) => {
-        const leftTime = Date.parse(String(left.startedAt || '')) || 0;
-        const rightTime = Date.parse(String(right.startedAt || '')) || 0;
-        return leftTime - rightTime || left.tag.localeCompare(right.tag);
+  const source = storedAgentWorkerIndexRows();
+  const bySessionId = new Map();
+  const now = Date.now();
+  const heartbeatMtimes = sessionHeartbeatMtimes();
+  // Lead sessions whose pool row is projected below. A child row hangs under
+  // its Lead, so an owner that has no projected row can no longer display one.
+  const liveLeadSessionIds = new Set();
+  for (const row of source) {
+    if (!row || typeof row !== 'object') continue;
+    // Cancelled rows stay visible so the 2-minute heartbeat lease cannot
+    // resurrect them as `running` once DEAD_AGENT_STATUS would have
+    // dropped them from the map. Unconfirmed cancels are not dead, but
+    // also must not be overwritten by the sidecar.
+    if (!activeAgentWorker(row) && !sessionCancelState(row)) continue;
+    if (cleanValue(row.agent).toLowerCase() === 'lead') continue;
+    const sessionId = cleanValue(row.sessionId);
+    const tag = cleanValue(row.tag);
+    if (!sessionId || !tag || !/^[A-Za-z0-9_-]+$/.test(sessionId)) continue;
+    // A new row may precede its first session save (null header).
+    const session = readWorkerSessionHeader(sessionId);
+    const declaredStatus = cleanValue(row.status) || 'running';
+    const declaredStage = cleanValue(row.stage || row.status) || 'running';
+    const declaredWorking = WORKING_AGENT_STATUS.test(declaredStatus) || WORKING_AGENT_STATUS.test(declaredStage);
+    const heartbeatAt = heartbeatMtimes.get(sessionId) || 0;
+    const heartbeatFresh = heartbeatAt > 0 && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
+    const updatedAt = Date.parse(cleanValue(row.updatedAt)) || 0;
+    const recentlyUpdated = updatedAt > 0 && now - updatedAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
+    const runtimePid = positiveNumber(row.runtimePid, 0);
+    const working = declaredWorking && (!runtimePid || runtimeAlive(runtimePid)) && (heartbeatFresh || recentlyUpdated);
+    const projectedStatus = declaredWorking && !working ? 'idle' : declaredStatus;
+    const projectedStage = declaredWorking && !working ? 'idle' : declaredStage;
+    bySessionId.set(sessionId, {
+      tag,
+      sessionId,
+      // Root ownership and immediate ancestry are independent. Nested
+      // descendants keep the Lead/root owner while pointing at the Agent
+      // session that directly spawned them.
+      ownerSessionId: workerOwnerSessionId(row, session),
+      parentSessionId: workerParentSessionId(row, session),
+      title: cleanValue(row.title || session?.title) || null,
+      agent: cleanValue(row.agent || session?.agent) || null,
+      provider: cleanValue(row.provider || session?.provider) || null,
+      model: cleanValue(row.model || session?.model) || null,
+      effort: cleanValue(row.effort || session?.effort) || null,
+      fast: row.fast === true || session?.fast === true,
+      status: projectedStatus,
+      stage: projectedStage,
+      startedAt: row.startedAt || row.createdAt || session?.createdAt || null,
+      turnStartedAt: working ? row.turnStartedAt || null : null,
+      createdAt: row.createdAt || session?.createdAt || null,
+      updatedAt: row.updatedAt || session?.updatedAt || null,
+      idleSince: frozenIdleSince(sessionId, working, row.finishedAt || row.updatedAt || session?.updatedAt || null),
+      reapAt: row.reapAt || null,
+      cwd: cleanValue(row.cwd || session?.cwd) || null,
+      clientHostPid: positiveNumber(row.clientHostPid || session?.clientHostPid, 0) || null,
+      taskId: cleanValue(row.task_id || row.taskId) || null,
     });
+  }
+  for (const [sessionId, heartbeatAt] of heartbeatMtimes) {
+    if (now - heartbeatAt > AGENT_POOL_HEARTBEAT_FRESH_MS) continue;
+    const session = readWorkerSessionHeader(sessionId);
+    if (!session) continue;
+    const current = bySessionId.get(sessionId) || {};
+    const ownerSessionId = workerOwnerSessionId(current, session);
+    const parentSessionId = workerParentSessionId(current, session);
+    const owner = cleanValue(session?.owner).toLowerCase();
+    const agent = cleanValue(session?.agent);
+    if (!ownerSessionId || (owner !== 'agent' && (!agent || agent === 'lead'))) continue;
+    // The durable index row is authoritative for FINISHED work: a worker's
+    // runtime unloads at turn end but its heartbeat sidecar stays fresh for
+    // up to the 2-minute window, and overwriting an idle row to `running`
+    // here made every completed agent show as working and then flip back —
+    // the dock read as blinking (user: 유휴인데 계속 살아있고 깜빡인다).
+    // The sidecar promotes only rows the index does not already mark idle.
+    // A cancel is the same class of authority: the lease must not rewrite
+    // cancelled / cancel-unconfirmed as running at any point. Bare
+    // `cancelling` stays working. Genuinely new work is a strictly later
+    // turn/start stamp, not a heartbeat-rewritten updatedAt.
+    const currentCancel = sessionCancelState(current);
+    const sessionCancel = sessionCancelState(session);
+    // An UNCONFIRMED cancel outranks a confirmed one whichever side holds
+    // it. Taking the index row first let a row still stamped `cancelled`
+    // MASK the durable `cancel-unconfirmed` on the session, reporting a
+    // stop that was never proven as a success. Never the reverse: a
+    // confirmed row only wins when the session is not unconfirmed.
+    const cancel = preferUnconfirmedCancel(currentCancel, sessionCancel);
+    const newerWork = Boolean(cancel?.at) && (workStampMs(current) > cancel.at || workStampMs(session) > cancel.at);
+    if (cancel && !newerWork) {
+      // A cancel outranks a leftover heartbeat. Newer work is only a
+      // strictly later turn/start stamp — never updatedAt, which the
+      // sidecar rewrites every tick.
+      if (currentCancel) continue;
+      bySessionId.set(sessionId, {
+        ...current,
+        tag: cleanValue(session?.agentTag) || cleanValue(current.tag) || `${agent || 'agent'}:${sessionId}`,
+        sessionId,
+        ownerSessionId,
+        parentSessionId,
+        title: cleanValue(session?.title) || current.title || null,
+        agent: agent || current.agent || null,
+        provider: cleanValue(session?.provider) || current.provider || null,
+        model: cleanValue(session?.model) || current.model || null,
+        effort: cleanValue(session?.effort) || current.effort || null,
+        fast: session?.fast === true || current.fast === true,
+        status: cancel.status,
+        stage: cancel.status,
+        startedAt: session?.createdAt || current.startedAt || heartbeatAt,
+        turnStartedAt: current.turnStartedAt || null,
+        createdAt: session?.createdAt || current.createdAt || null,
+        updatedAt: heartbeatAt,
+        cwd: cleanValue(session?.cwd) || current.cwd || null,
+        clientHostPid: positiveNumber(session?.clientHostPid, 0) || current.clientHostPid || null,
+        taskId: cleanValue(session?.task_id || session?.taskId) || current.taskId || null,
+      });
+      continue;
+    }
+    const currentStatus = cleanValue(current.stage || current.status);
+    if (currentStatus && !WORKING_AGENT_STATUS.test(currentStatus)) continue;
+    bySessionId.set(sessionId, {
+      ...current,
+      tag: cleanValue(session?.agentTag) || cleanValue(current.tag) || `${agent || 'agent'}:${sessionId}`,
+      sessionId,
+      ownerSessionId,
+      parentSessionId,
+      title: cleanValue(session?.title) || current.title || null,
+      agent: agent || current.agent || null,
+      provider: cleanValue(session?.provider) || current.provider || null,
+      model: cleanValue(session?.model) || current.model || null,
+      effort: cleanValue(session?.effort) || current.effort || null,
+      fast: session?.fast === true || current.fast === true,
+      // The sidecar is the live lease. Durable child sessions are
+      // intentionally detached/closed while their external owner runs.
+      status: 'running',
+      stage: 'running',
+      startedAt: session?.createdAt || current.startedAt || heartbeatAt,
+      turnStartedAt: current.turnStartedAt || null,
+      createdAt: session?.createdAt || current.createdAt || null,
+      updatedAt: heartbeatAt,
+      cwd: cleanValue(session?.cwd) || current.cwd || null,
+      clientHostPid: positiveNumber(session?.clientHostPid, 0) || current.clientHostPid || null,
+      taskId: cleanValue(session?.task_id || session?.taskId) || current.taskId || null,
+    });
+  }
+  let leadParsed = null;
+  try {
+    leadParsed = JSON.parse(readFileSync(storedLeadWorkerIndexPath(), 'utf8'));
+  } catch {
+    /* no resident Lead pool */
+  }
+  const leadSource = Array.isArray(leadParsed?.workers)
+    ? leadParsed.workers
+    : leadParsed?.workers && typeof leadParsed.workers === 'object'
+      ? Object.values(leadParsed.workers)
+      : [];
+  for (const row of leadSource) {
+    if (!row || typeof row !== 'object') continue;
+    const sessionId = cleanValue(row.sessionId);
+    if (!sessionId || !/^[A-Za-z0-9_-]+$/.test(sessionId)) continue;
+    try {
+      const session = JSON.parse(readFileSync(join(dataDir(), 'sessions', `${sessionId}.json`), 'utf8'));
+      const owner = cleanValue(session?.owner).toLowerCase();
+      const agent = cleanValue(session?.agent).toLowerCase();
+      if (owner === 'agent' || (agent && agent !== 'lead')) continue;
+    } catch {
+      /* legacy Lead rows may predate a durable session record */
+    }
+    const heartbeatAt = heartbeatMtimes.get(sessionId) || 0;
+    const heartbeatFresh = heartbeatAt > 0 && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
+    const updatedAt = Date.parse(cleanValue(row.updatedAt)) || 0;
+    const recentlyUpdated = updatedAt > 0 && now - updatedAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
+    const declaredStatus = cleanValue(row.stage || row.status) || 'idle';
+    const working = WORKING_AGENT_STATUS.test(declaredStatus) && (heartbeatFresh || recentlyUpdated);
+    const reapAt = Date.parse(cleanValue(row.reapAt)) || 0;
+    if (!heartbeatFresh && reapAt > 0 && now >= reapAt) continue;
+    liveLeadSessionIds.add(sessionId);
+    bySessionId.set(sessionId, {
+      tag: `lead:${sessionId}`,
+      sessionId,
+      ownerSessionId: sessionId,
+      parentSessionId: null,
+      agent: 'lead',
+      provider: cleanValue(row.provider) || null,
+      model: cleanValue(row.model) || null,
+      effort: cleanValue(row.effort) || null,
+      fast: row.fast === true,
+      status: working ? declaredStatus : 'idle',
+      stage: working ? declaredStatus : 'idle',
+      startedAt: row.startedAt || row.createdAt || null,
+      turnStartedAt: working ? row.turnStartedAt || null : null,
+      createdAt: row.createdAt || null,
+      updatedAt: working ? heartbeatAt || row.updatedAt || null : row.updatedAt || null,
+      idleSince: frozenIdleSince(sessionId, working, row.finishedAt || row.updatedAt || null),
+      cwd: cleanValue(row.cwd) || null,
+      clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
+      taskId: cleanValue(row.task_id || row.taskId) || null,
+    });
+  }
+  // A child row is a projection of its Lead. Once the Lead's row is gone
+  // (its lease was reaped, or the Lead runtime that owned it exited), leaving
+  // the child in the pool paints it as a top-level Agent-window row with no
+  // Lead above it (user report). Only a Lead CONVERSATION owner is judged —
+  // and a child that is still working always stays, so live work never
+  // disappears from the window.
+  for (const [sessionId, row] of [...bySessionId]) {
+    if (cleanValue(row.agent).toLowerCase() === 'lead') continue;
+    const ownerSessionId = cleanValue(row.ownerSessionId);
+    if (!ownerSessionId || liveLeadSessionIds.has(ownerSessionId)) continue;
+    if (!leadConversationHeader(readWorkerSessionHeader(ownerSessionId))) continue;
+    if (poolRowWorking(row, heartbeatMtimes, now)) continue;
+    bySessionId.delete(sessionId);
+  }
+  const rows = [...bySessionId.values()];
+  return rows.sort((left, right) => {
+    const leftTime = Date.parse(String(left.startedAt || '')) || 0;
+    const rightTime = Date.parse(String(right.startedAt || '')) || 0;
+    return leftTime - rightTime || left.tag.localeCompare(right.tag);
+  });
 }
 
 function cleanText(value, maximum = 240) {
-    return String(value || '')
-        .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, ' ')
-        .replace(/<mcp-instructions>[\s\S]*?<\/mcp-instructions>/gi, ' ')
-        // Session-context envelope (mirror of session-text.mjs
-        // stripSessionDisplayEnvelope): the "# Session / Cwd / Model /
-        // Workflow" header must never become a Recent title.
-        .replace(/^\s*# Session\r?\n(?:(?:Cwd|Model|Workflow):[^\r\n]*(?:\r?\n|$))+(?:\r?\n)?/i, ' ')
-        .replace(/^\s*#\s*Session\s+Cwd:\s+\S+(?:\s+Model:[^\r\n]*?)?(?:\s+Workflow:\s+\S+)?\s*/i, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, maximum);
+  return (
+    String(value || '')
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, ' ')
+      .replace(/<mcp-instructions>[\s\S]*?<\/mcp-instructions>/gi, ' ')
+      // Session-context envelope (mirror of session-text.mjs
+      // stripSessionDisplayEnvelope): the "# Session / Cwd / Model /
+      // Workflow" header must never become a Recent title.
+      .replace(/^\s*# Session\r?\n(?:(?:Cwd|Model|Workflow):[^\r\n]*(?:\r?\n|$))+(?:\r?\n)?/i, ' ')
+      .replace(/^\s*#\s*Session\s+Cwd:\s+\S+(?:\s+Model:[^\r\n]*?)?(?:\s+Workflow:\s+\S+)?\s*/i, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, maximum)
+  );
 }
 
 function messageText(content) {
-    if (typeof content === 'string') return content;
-    if (!Array.isArray(content)) return '';
-    return content
-        .map((part) => typeof part === 'string' ? part : String(part?.text || part?.content || ''))
-        .filter(Boolean)
-        .join(' ');
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => (typeof part === 'string' ? part : String(part?.text || part?.content || '')))
+    .filter(Boolean)
+    .join(' ');
 }
 
 function desktopSession(value, cwd = '') {
-    if (!value || typeof value !== 'object') return null;
-    if (value.classification === 'task') return { classification: 'task', projectPath: null };
-    if (value.classification !== 'project') return null;
-    const projectPath = typeof value.projectPath === 'string' && value.projectPath.trim()
-        ? value.projectPath.trim()
-        : String(cwd || '').trim();
-    return projectPath ? { classification: 'project', projectPath } : null;
+  if (!value || typeof value !== 'object') return null;
+  if (value.classification === 'task') return { classification: 'task', projectPath: null };
+  if (value.classification !== 'project') return null;
+  const projectPath =
+    typeof value.projectPath === 'string' && value.projectPath.trim()
+      ? value.projectPath.trim()
+      : String(cwd || '').trim();
+  return projectPath ? { classification: 'project', projectPath } : null;
 }
 
 function normalizedRow(row, heartbeatAt = 0) {
-    if (!row || typeof row.id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(row.id)) return null;
-    return {
-        id: row.id,
-        updatedAt: positiveNumber(row.updatedAt, 0),
-        // Conversation-activity timestamp (mirror of listLeadSessions):
-        // detach/resume bookkeeping bumps updatedAt in bulk on restarts, so
-        // Recent must order by lastUsedAt or every restart reshuffles rows.
-        lastUsedAt: positiveNumber(row.lastUsedAt, 0),
-        createdAt: positiveNumber(row.createdAt, 0),
-        lastHeartbeatAt: positiveNumber(row.lastHeartbeatAt, 0),
-        // Liveness comes from the .hb sidecar mtime alone: stored row fields
-        // (summary index / final session save) survive completion and must not
-        // keep the desktop working indicator on after the sidecar is deleted.
-        heartbeatAt: positiveNumber(heartbeatAt, 0),
-        closed: row.closed === true,
-        status: String(row.status || (row.closed === true ? 'closed' : 'idle')),
-        owner: row.owner || 'user',
-        agent: row.agent || null,
-        sourceType: row.sourceType || null,
-        sourceName: row.sourceName || null,
-        sourceDelivery: row.sourceDelivery || null,
-        scopeKey: row.scopeKey || null,
-        ownerSessionId: row.ownerSessionId || row.parentSessionId || null,
-        visibility: sessionVisibility(row),
-        clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
-        cwd: row.cwd || '',
-        desktopSession: desktopSession(row.desktopSession, row.cwd),
-        provider: row.provider || null,
-        model: row.model || null,
-        agentTag: row.agentTag || null,
-        task_id: row.task_id || row.taskId || null,
-        permission: row.permission || null,
-        toolPermission: row.toolPermission || null,
-        messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
-        title: cleanText(row.title, 100),
-        preview: cleanText(row.preview),
-        generation: typeof row.generation === 'number' ? row.generation : 0,
-        storageMtimeMs: positiveNumber(row.storageMtimeMs, 0),
-        storageSize: positiveNumber(row.storageSize, 0),
-        detachedReason: row.detachedReason || null,
-    };
+  if (!row || typeof row.id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(row.id)) return null;
+  return {
+    id: row.id,
+    updatedAt: positiveNumber(row.updatedAt, 0),
+    // Conversation-activity timestamp (mirror of listLeadSessions):
+    // detach/resume bookkeeping bumps updatedAt in bulk on restarts, so
+    // Recent must order by lastUsedAt or every restart reshuffles rows.
+    lastUsedAt: positiveNumber(row.lastUsedAt, 0),
+    createdAt: positiveNumber(row.createdAt, 0),
+    lastHeartbeatAt: positiveNumber(row.lastHeartbeatAt, 0),
+    // Liveness comes from the .hb sidecar mtime alone: stored row fields
+    // (summary index / final session save) survive completion and must not
+    // keep the desktop working indicator on after the sidecar is deleted.
+    heartbeatAt: positiveNumber(heartbeatAt, 0),
+    closed: row.closed === true,
+    status: String(row.status || (row.closed === true ? 'closed' : 'idle')),
+    owner: row.owner || 'user',
+    agent: row.agent || null,
+    sourceType: row.sourceType || null,
+    sourceName: row.sourceName || null,
+    sourceDelivery: row.sourceDelivery || null,
+    scopeKey: row.scopeKey || null,
+    ownerSessionId: row.ownerSessionId || row.parentSessionId || null,
+    visibility: sessionVisibility(row),
+    clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
+    cwd: row.cwd || '',
+    desktopSession: desktopSession(row.desktopSession, row.cwd),
+    provider: row.provider || null,
+    model: row.model || null,
+    agentTag: row.agentTag || null,
+    task_id: row.task_id || row.taskId || null,
+    permission: row.permission || null,
+    toolPermission: row.toolPermission || null,
+    messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
+    title: cleanText(row.title, 100),
+    preview: cleanText(row.preview),
+    generation: typeof row.generation === 'number' ? row.generation : 0,
+    storageMtimeMs: positiveNumber(row.storageMtimeMs, 0),
+    storageSize: positiveNumber(row.storageSize, 0),
+    detachedReason: row.detachedReason || null,
+  };
 }
 
 function leadRowsWithAgentHeartbeat(rows) {
-    const agentHeartbeatByOwner = new Map();
-    for (const row of rows) {
-        const heartbeatAt = positiveNumber(row?.heartbeatAt, 0);
-        const ownerSessionId = String(row?.ownerSessionId || '').trim();
-        const owner = String(row?.owner || '').trim().toLowerCase();
-        const agent = String(row?.agent || '').trim().toLowerCase();
-        if (!heartbeatAt || !ownerSessionId
-            || (owner !== 'agent' && (!agent || agent === 'lead'))) continue;
-        agentHeartbeatByOwner.set(
-            ownerSessionId,
-            Math.max(agentHeartbeatByOwner.get(ownerSessionId) || 0, heartbeatAt),
-        );
-    }
-    return rows
-        .filter((row) => row && isLeadVisibleRow(row))
-        .map((row) => {
-            const agentHeartbeatAt = agentHeartbeatByOwner.get(row.id) || 0;
-            return agentHeartbeatAt > 0 ? { ...row, agentHeartbeatAt } : row;
-        });
+  const agentHeartbeatByOwner = new Map();
+  for (const row of rows) {
+    const heartbeatAt = positiveNumber(row?.heartbeatAt, 0);
+    const ownerSessionId = String(row?.ownerSessionId || '').trim();
+    const owner = String(row?.owner || '')
+      .trim()
+      .toLowerCase();
+    const agent = String(row?.agent || '')
+      .trim()
+      .toLowerCase();
+    if (!heartbeatAt || !ownerSessionId || (owner !== 'agent' && (!agent || agent === 'lead'))) continue;
+    agentHeartbeatByOwner.set(ownerSessionId, Math.max(agentHeartbeatByOwner.get(ownerSessionId) || 0, heartbeatAt));
+  }
+  return rows
+    .filter((row) => row && isLeadVisibleRow(row))
+    .map((row) => {
+      const agentHeartbeatAt = agentHeartbeatByOwner.get(row.id) || 0;
+      return agentHeartbeatAt > 0 ? { ...row, agentHeartbeatAt } : row;
+    });
 }
 
 function rowFromSession(session, heartbeatAt = 0) {
-    const messages = Array.isArray(session?.messages) ? session.messages : [];
-    const preview = messages
-        .filter((message) => message?.role === 'user')
-        // Cold-path mirror of isSessionPreviewNoise's synthetic skips: compact
-        // handoffs and runtime notices must not become session titles.
-        .filter((message) => !/^\s*(?:a previous model worked on this task|re-attached after compaction\b|reference files:\s|\[mixdog-runtime\]|the async (?:agent|shell) task\b)/i
-            .test(messageText(message.content)))
-        .map((message) => cleanText(messageText(message.content)))
-        .find(Boolean) || '';
-    return normalizedRow({
-        ...session,
-        messageCount: messages.filter((message) =>
-            message?.role === 'user' || message?.role === 'assistant').length,
-        preview,
-    }, heartbeatAt);
+  const messages = Array.isArray(session?.messages) ? session.messages : [];
+  const preview =
+    messages
+      .filter((message) => message?.role === 'user')
+      // Cold-path mirror of isSessionPreviewNoise's synthetic skips: compact
+      // handoffs and runtime notices must not become session titles.
+      .filter(
+        (message) =>
+          !/^\s*(?:a previous model worked on this task|re-attached after compaction\b|reference files:\s|\[mixdog-runtime\]|the async (?:agent|shell) task\b)/i.test(
+            messageText(message.content)
+          )
+      )
+      .map((message) => cleanText(messageText(message.content)))
+      .find(Boolean) || '';
+  return normalizedRow(
+    {
+      ...session,
+      messageCount: messages.filter((message) => message?.role === 'user' || message?.role === 'assistant').length,
+      preview,
+    },
+    heartbeatAt
+  );
 }
 
 function sessionHeartbeatMtimes() {
-    const directory = join(dataDir(), 'sessions');
-    const result = new Map();
-    if (probePath(directory).state !== PROBE_PRESENT) return result;
-    let entries = [];
-    try { entries = readdirSync(directory); } catch { return result; }
-    for (const filename of entries) {
-        if (!filename.endsWith('.hb')) continue;
-        const id = filename.slice(0, -3);
-        if (!/^[A-Za-z0-9_-]+$/.test(id)) continue;
-        // Liveness is additive: a sidecar that is absent OR unreadable simply
-        // contributes nothing, and can never remove a row.
-        const probe = probePath(join(directory, filename));
-        if (probe.state === PROBE_PRESENT && probe.mtimeMs > 0) result.set(id, probe.mtimeMs);
-    }
+  const directory = join(dataDir(), 'sessions');
+  const result = new Map();
+  if (probePath(directory).state !== PROBE_PRESENT) return result;
+  let entries = [];
+  try {
+    entries = readdirSync(directory);
+  } catch {
     return result;
+  }
+  for (const filename of entries) {
+    if (!filename.endsWith('.hb')) continue;
+    const id = filename.slice(0, -3);
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) continue;
+    // Liveness is additive: a sidecar that is absent OR unreadable simply
+    // contributes nothing, and can never remove a row.
+    const probe = probePath(join(directory, filename));
+    if (probe.state === PROBE_PRESENT && probe.mtimeMs > 0) result.set(id, probe.mtimeMs);
+  }
+  return result;
 }
 
 /**
@@ -789,119 +804,121 @@ function sessionHeartbeatMtimes() {
  * instead of vanishing.
  */
 function scanSessionFiles(
-    heartbeatMtimes = sessionHeartbeatMtimes(),
-    indexRowsById = new Map(),
-    { indexMtimeMs = 0, forceRead = false } = {},
+  heartbeatMtimes = sessionHeartbeatMtimes(),
+  indexRowsById = new Map(),
+  { indexMtimeMs = 0, forceRead = false } = {}
 ) {
-    const directory = join(dataDir(), 'sessions');
-    const dirProbe = probePath(directory);
-    if (dirProbe.state === PROBE_ABSENT) return [];
-    if (dirProbe.state !== PROBE_PRESENT) return null;
-    let entries;
-    try { entries = readdirSync(directory); } catch { return null; }
-    const rows = [];
-    for (const filename of entries) {
-        if (!filename.endsWith('.json')) continue;
-        const storageId = filename.slice(0, -5);
-        const path = join(directory, filename);
-        const retained = indexRowsById.get(storageId);
-        const probe = probePath(path);
-        // Provably gone: the row legitimately disappears with the file.
-        if (probe.state === PROBE_ABSENT) continue;
-        if (probe.state !== PROBE_PRESENT) {
-            if (retained) rows.push(retained);
-            continue;
-        }
-        if (!forceRead && retained) {
-            const exactFingerprint = retained.storageMtimeMs > 0
-                && retained.storageSize > 0
-                && retained.storageMtimeMs === probe.mtimeMs
-                && retained.storageSize === probe.size;
-            if (exactFingerprint) {
-                rows.push(retained);
-                continue;
-            }
-        }
-        const read = readTextFile(path);
-        // Provably gone: the row legitimately disappears with the file.
-        if (read.state === PROBE_ABSENT) continue;
-        if (read.state !== PROBE_PRESENT) {
-            // Exists and could not be read (EACCES/EIO): retain the last known
-            // row rather than let a transient IO error delete it from view.
-            if (retained) rows.push(retained);
-            continue;
-        }
-        // Same strict authority as the store: a duplicate/ambiguous top-level
-        // record or a foreign identity is not this file's session.
-        const record = readTopLevelLifecycleRecord(read.text);
-        if (isLifecycleUnreadable(record) || record.id !== storageId) continue;
-        const summary = rowFromSession(record.doc, heartbeatMtimes.get(record.id) || 0);
-        const row = summary
-            ? { ...summary, storageMtimeMs: probe.mtimeMs, storageSize: probe.size }
-            : null;
-        if (row) rows.push(row);
+  const directory = join(dataDir(), 'sessions');
+  const dirProbe = probePath(directory);
+  if (dirProbe.state === PROBE_ABSENT) return [];
+  if (dirProbe.state !== PROBE_PRESENT) return null;
+  let entries;
+  try {
+    entries = readdirSync(directory);
+  } catch {
+    return null;
+  }
+  const rows = [];
+  for (const filename of entries) {
+    if (!filename.endsWith('.json')) continue;
+    const storageId = filename.slice(0, -5);
+    const path = join(directory, filename);
+    const retained = indexRowsById.get(storageId);
+    const probe = probePath(path);
+    // Provably gone: the row legitimately disappears with the file.
+    if (probe.state === PROBE_ABSENT) continue;
+    if (probe.state !== PROBE_PRESENT) {
+      if (retained) rows.push(retained);
+      continue;
     }
-    return leadRowsWithAgentHeartbeat(rows).sort((left, right) =>
-        (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0));
+    if (!forceRead && retained) {
+      const exactFingerprint =
+        retained.storageMtimeMs > 0 &&
+        retained.storageSize > 0 &&
+        retained.storageMtimeMs === probe.mtimeMs &&
+        retained.storageSize === probe.size;
+      if (exactFingerprint) {
+        rows.push(retained);
+        continue;
+      }
+    }
+    const read = readTextFile(path);
+    // Provably gone: the row legitimately disappears with the file.
+    if (read.state === PROBE_ABSENT) continue;
+    if (read.state !== PROBE_PRESENT) {
+      // Exists and could not be read (EACCES/EIO): retain the last known
+      // row rather than let a transient IO error delete it from view.
+      if (retained) rows.push(retained);
+      continue;
+    }
+    // Same strict authority as the store: a duplicate/ambiguous top-level
+    // record or a foreign identity is not this file's session.
+    const record = readTopLevelLifecycleRecord(read.text);
+    if (isLifecycleUnreadable(record) || record.id !== storageId) continue;
+    const summary = rowFromSession(record.doc, heartbeatMtimes.get(record.id) || 0);
+    const row = summary ? { ...summary, storageMtimeMs: probe.mtimeMs, storageSize: probe.size } : null;
+    if (row) rows.push(row);
+  }
+  return leadRowsWithAgentHeartbeat(rows).sort(
+    (left, right) => (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0)
+  );
 }
 
 export function listStoredSessionSummaries(options = {}) {
-    const heartbeatMtimes = sessionHeartbeatMtimes();
-    const indexPath = join(dataDir(), 'session-summaries.json');
-    // The index is read on EVERY path (it is one small file): its rows are the
-    // authority that must be retained whenever storage cannot be enumerated or
-    // an individual session file cannot be read.
-    const indexRowsById = new Map();
-    let indexRows = null;
-    let indexMtimeMs = 0;
-    const indexRead = readTextFile(indexPath);
-    if (indexRead.state === PROBE_PRESENT) {
-        try {
-            const index = JSON.parse(indexRead.text);
-            if (Number(index?.version) === SESSION_SUMMARY_INDEX_VERSION) {
-                const normalizedRows = (Array.isArray(index.rows) ? index.rows : [])
-                    .map((row) => normalizedRow(row, heartbeatMtimes.get(row?.id) || 0))
-                    .filter(Boolean);
-                for (const row of normalizedRows) indexRowsById.set(row.id, row);
-                indexRows = leadRowsWithAgentHeartbeat(normalizedRows)
-                    .sort((left, right) =>
-                        (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0));
-                const indexProbe = probePath(indexPath);
-                if (indexProbe.state === PROBE_PRESENT) indexMtimeMs = indexProbe.mtimeMs || 0;
-            }
-        } catch { /* malformed sidecar: the files below are the authority */ }
+  const heartbeatMtimes = sessionHeartbeatMtimes();
+  const indexPath = join(dataDir(), 'session-summaries.json');
+  // The index is read on EVERY path (it is one small file): its rows are the
+  // authority that must be retained whenever storage cannot be enumerated or
+  // an individual session file cannot be read.
+  const indexRowsById = new Map();
+  let indexRows = null;
+  let indexMtimeMs = 0;
+  const indexRead = readTextFile(indexPath);
+  if (indexRead.state === PROBE_PRESENT) {
+    try {
+      const index = JSON.parse(indexRead.text);
+      if (Number(index?.version) === SESSION_SUMMARY_INDEX_VERSION) {
+        const normalizedRows = (Array.isArray(index.rows) ? index.rows : [])
+          .map((row) => normalizedRow(row, heartbeatMtimes.get(row?.id) || 0))
+          .filter(Boolean);
+        for (const row of normalizedRows) indexRowsById.set(row.id, row);
+        indexRows = leadRowsWithAgentHeartbeat(normalizedRows).sort(
+          (left, right) => (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0)
+        );
+        const indexProbe = probePath(indexPath);
+        if (indexProbe.state === PROBE_PRESENT) indexMtimeMs = indexProbe.mtimeMs || 0;
+      }
+    } catch {
+      /* malformed sidecar: the files below are the authority */
     }
-    // An index that EXISTS but is unreadable (EACCES/EIO) is neither missing
-    // nor empty: the scan below still runs, and when IT cannot enumerate
-    // either, the catalog reports nothing rather than inventing an empty truth.
-    const scan = (forceRead = false) => scanSessionFiles(
-        heartbeatMtimes,
-        indexRowsById,
-        { indexMtimeMs, forceRead },
-    );
-    if (options.refreshFromStorage === true) return scan(true) ?? indexRows ?? [];
-    if (indexRows) {
-        if (options.rebuildIfMissing === false) return indexRows;
-        // Enumerate identities to detect deletions, stat known files, and parse
-        // only rows newer than the index. Cold-start cost therefore scales with
-        // changed transcripts rather than total transcript bytes.
-        return scan(false) ?? indexRows;
-    }
-    // Missing/malformed index is the sole cold path that must rebuild every
-    // summary from canonical session bytes.
-    return options.rebuildIfMissing === false ? [] : (scan(true) ?? indexRows ?? []);
+  }
+  // An index that EXISTS but is unreadable (EACCES/EIO) is neither missing
+  // nor empty: the scan below still runs, and when IT cannot enumerate
+  // either, the catalog reports nothing rather than inventing an empty truth.
+  const scan = (forceRead = false) => scanSessionFiles(heartbeatMtimes, indexRowsById, { indexMtimeMs, forceRead });
+  if (options.refreshFromStorage === true) return scan(true) ?? indexRows ?? [];
+  if (indexRows) {
+    if (options.rebuildIfMissing === false) return indexRows;
+    // Enumerate identities to detect deletions, stat known files, and parse
+    // only rows newer than the index. Cold-start cost therefore scales with
+    // changed transcripts rather than total transcript bytes.
+    return scan(false) ?? indexRows;
+  }
+  // Missing/malformed index is the sole cold path that must rebuild every
+  // summary from canonical session bytes.
+  return options.rebuildIfMissing === false ? [] : (scan(true) ?? indexRows ?? []);
 }
 
 /** Exact, fail-closed existence check for a durable session address.
  * Summary indexes and desktop metadata are presentation caches; neither may
  * make a missing sessions/<id>.json record addressable again. */
 export function storedSessionExists(id) {
-    const sessionId = String(id || '').trim();
-    if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return false;
-    const read = readTextFile(join(dataDir(), 'sessions', `${sessionId}.json`));
-    if (read.state !== PROBE_PRESENT) return false;
-    const record = readTopLevelLifecycleRecord(read.text);
-    return !isLifecycleUnreadable(record) && record.id === sessionId;
+  const sessionId = String(id || '').trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return false;
+  const read = readTextFile(join(dataDir(), 'sessions', `${sessionId}.json`));
+  if (read.state !== PROBE_PRESENT) return false;
+  const record = readTopLevelLifecycleRecord(read.text);
+  return !isLifecycleUnreadable(record) && record.id === sessionId;
 }
 
 /** Read exactly one persisted session for a visible desktop pane. This never
@@ -909,213 +926,203 @@ export function storedSessionExists(id) {
  * interrupted turns conditionally use the same durable reconnect recovery as
  * resumeSession before projecting the transcript. */
 export async function readStoredSessionTranscript(id, options = {}) {
-    const sessionId = String(id || '').trim();
-    if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
-    // Same strict authority as the store, and the same fail-closed rule: an
-    // absent, unreadable, ambiguous or foreign record yields no transcript.
-    const recordPath = join(dataDir(), 'sessions', `${sessionId}.json`);
-    if (options.metadataOnly === true) {
-        const read = readTextFile(recordPath);
-        if (read.state !== PROBE_PRESENT) return null;
-        const record = readTopLevelLifecycleRecord(read.text);
-        if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
-        const session = record.doc;
-        return {
-            id: sessionId,
-            sessionId,
-            owner: session.owner || null,
-            agent: session.agent || null,
-            parentSessionId: session.parentSessionId || null,
-            ownerSessionId: session.ownerSessionId || session.parentSessionId || null,
-            visibility: sessionVisibility(session),
-            agentTag: session.agentTag || null,
-            cwd: session.cwd || '',
-            provider: session.provider || null,
-            model: session.model || null,
-            presetName: session.presetName || session.profileId || null,
-            effort: session.effort || null,
-            fast: session.fast === true,
-            modelParameters: session.modelParameters || null,
-            taskType: session.taskType || null,
-            permission: session.permission || null,
-            permissionMode: session.permissionMode || null,
-            toolPermission: session.toolPermission || null,
-            schemaAllowedTools: Array.isArray(session.schemaAllowedTools)
-                ? session.schemaAllowedTools
-                : null,
-            sourceType: session.sourceType || null,
-            sourceName: session.sourceName || null,
-            clientHostPid: session.clientHostPid || null,
-            createdAt: session.createdAt || null,
-            updatedAt: session.updatedAt || session.lastUsedAt || null,
-            status: session.status || (session.closed === true ? 'closed' : 'idle'),
-            closed: session.closed === true,
-        };
-    }
-    // The checkpoint sidecar shapes the projection as much as the record does,
-    // so its identity joins the cache fingerprint. Only a PROVABLY absent
-    // checkpoint skips recovery: an unreadable probe must not silently
-    // downgrade an interrupted turn to a plain cold read.
-    const startedAt = performance.now();
-    const recordStat = probePath(recordPath);
-    if (recordStat.state === PROBE_ABSENT) return readArchivedAgentResult(sessionId);
-    if (recordStat.state !== PROBE_PRESENT) return null;
-    const checkpoint = probePath(join(dataDir(), 'turn-checkpoints', `${sessionId}.json`));
-    const requestedLimit = Number(options.transcriptItemLimit);
-    const itemLimit = Number.isFinite(requestedLimit) && requestedLimit > 0
-        ? requestedLimit
-        : Number.POSITIVE_INFINITY;
-    let readState = PROBE_PRESENT;
-    // The strict record parse (full JSON + duplicate-key scan) is itself a
-    // large share of a cold read, so it only runs when the content is new.
-    const { value, hit, read } = await storedTranscriptCache.read({
-        key: `${sessionId}|${itemLimit}|${options.includeMessages === true ? 'messages' : 'items'}`,
-        fingerprint: `${checkpoint.state}:${checkpoint.mtimeMs}:${checkpoint.size}`,
-        fileStat: { mtimeMs: recordStat.mtimeMs, size: recordStat.size },
-        loadText: () => {
-            const body = readTextFile(recordPath);
-            readState = body.state;
-            return body.state === PROBE_PRESENT ? body.text : null;
-        },
-        produce: (text) => {
-            const record = readTopLevelLifecycleRecord(text);
-            if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
-            return projectStoredTranscript(sessionId, record.doc, {
-                itemLimit,
-                includeMessages: options.includeMessages === true,
-                checkpointAbsent: checkpoint.state === PROBE_ABSENT,
-            });
-        },
+  const sessionId = String(id || '').trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
+  // Same strict authority as the store, and the same fail-closed rule: an
+  // absent, unreadable, ambiguous or foreign record yields no transcript.
+  const recordPath = join(dataDir(), 'sessions', `${sessionId}.json`);
+  if (options.metadataOnly === true) {
+    const read = readTextFile(recordPath);
+    if (read.state !== PROBE_PRESENT) return null;
+    const record = readTopLevelLifecycleRecord(read.text);
+    if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
+    const session = record.doc;
+    return {
+      id: sessionId,
+      sessionId,
+      owner: session.owner || null,
+      agent: session.agent || null,
+      parentSessionId: session.parentSessionId || null,
+      ownerSessionId: session.ownerSessionId || session.parentSessionId || null,
+      visibility: sessionVisibility(session),
+      agentTag: session.agentTag || null,
+      cwd: session.cwd || '',
+      provider: session.provider || null,
+      model: session.model || null,
+      presetName: session.presetName || session.profileId || null,
+      effort: session.effort || null,
+      fast: session.fast === true,
+      modelParameters: session.modelParameters || null,
+      taskType: session.taskType || null,
+      permission: session.permission || null,
+      permissionMode: session.permissionMode || null,
+      toolPermission: session.toolPermission || null,
+      schemaAllowedTools: Array.isArray(session.schemaAllowedTools) ? session.schemaAllowedTools : null,
+      sourceType: session.sourceType || null,
+      sourceName: session.sourceName || null,
+      clientHostPid: session.clientHostPid || null,
+      createdAt: session.createdAt || null,
+      updatedAt: session.updatedAt || session.lastUsedAt || null,
+      status: session.status || (session.closed === true ? 'closed' : 'idle'),
+      closed: session.closed === true,
+    };
+  }
+  // The checkpoint sidecar shapes the projection as much as the record does,
+  // so its identity joins the cache fingerprint. Only a PROVABLY absent
+  // checkpoint skips recovery: an unreadable probe must not silently
+  // downgrade an interrupted turn to a plain cold read.
+  const startedAt = performance.now();
+  const recordStat = probePath(recordPath);
+  if (recordStat.state === PROBE_ABSENT) return readArchivedAgentResult(sessionId);
+  if (recordStat.state !== PROBE_PRESENT) return null;
+  const checkpoint = probePath(join(dataDir(), 'turn-checkpoints', `${sessionId}.json`));
+  const requestedLimit = Number(options.transcriptItemLimit);
+  const itemLimit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : Number.POSITIVE_INFINITY;
+  let readState = PROBE_PRESENT;
+  // The strict record parse (full JSON + duplicate-key scan) is itself a
+  // large share of a cold read, so it only runs when the content is new.
+  const { value, hit, read } = await storedTranscriptCache.read({
+    key: `${sessionId}|${itemLimit}|${options.includeMessages === true ? 'messages' : 'items'}`,
+    fingerprint: `${checkpoint.state}:${checkpoint.mtimeMs}:${checkpoint.size}`,
+    fileStat: { mtimeMs: recordStat.mtimeMs, size: recordStat.size },
+    loadText: () => {
+      const body = readTextFile(recordPath);
+      readState = body.state;
+      return body.state === PROBE_PRESENT ? body.text : null;
+    },
+    produce: (text) => {
+      const record = readTopLevelLifecycleRecord(text);
+      if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
+      return projectStoredTranscript(sessionId, record.doc, {
+        itemLimit,
+        includeMessages: options.includeMessages === true,
+        checkpointAbsent: checkpoint.state === PROBE_ABSENT,
+      });
+    },
+  });
+  // The record vanished between stat and read: same answer as an absent probe.
+  if (readState === PROBE_ABSENT) return readArchivedAgentResult(sessionId);
+  if (typeof options.trace === 'function') {
+    options.trace({
+      sessionId,
+      hit,
+      read,
+      ms: performance.now() - startedAt,
+      chars: recordStat.size,
+      items: Array.isArray(value?.items) ? value.items.length : 0,
     });
-    // The record vanished between stat and read: same answer as an absent probe.
-    if (readState === PROBE_ABSENT) return readArchivedAgentResult(sessionId);
-    if (typeof options.trace === 'function') {
-        options.trace({
-            sessionId,
-            hit,
-            read,
-            ms: performance.now() - startedAt,
-            chars: recordStat.size,
-            items: Array.isArray(value?.items) ? value.items.length : 0,
-        });
-    }
-    return value;
+  }
+  return value;
 }
 
 /** The parse/recovery/projection body of a stored transcript read. Runs once
  *  per distinct content; its result is shared read-only through the cache. */
 async function projectStoredTranscript(sessionId, doc, options) {
-    let session = doc;
-    const owner = cleanValue(session.owner).toLowerCase();
-    const agent = cleanValue(session.agent).toLowerCase();
-    const liveDetachedAgent = session.closed === true
-        && (owner === 'agent' || (agent && agent !== 'lead'))
-        && Boolean(cleanValue(session.ownerSessionId || session.parentSessionId));
-    if (!options.checkpointAbsent) {
-        const {
-            projectTurnCheckpointMessages,
-            readTurnCheckpoint,
-        } = await import('./manager/turn-checkpoint.mjs');
-        if (liveDetachedAgent) {
-            const checkpoint = readTurnCheckpoint(sessionId);
-            if (checkpoint) {
-                session = {
-                    ...session,
-                    messages: projectTurnCheckpointMessages(session, checkpoint),
-                };
-            }
-        } else {
-            const { recoverSessionAfterProcessRestart } = await import('./manager.mjs');
-            session = recoverSessionAfterProcessRestart(sessionId) || session;
-            // A live foreign owner is intentionally not recovered/mutated.
-            // Project its durable working checkpoint read-only so the cold pane
-            // never repaints the stale pre-compaction session.messages while it
-            // waits for the owner's live-share frame.
-            if (session?.activeTurnCheckpoint) {
-                const checkpoint = readTurnCheckpoint(sessionId);
-                if (checkpoint) {
-                    session = {
-                        ...session,
-                        messages: projectTurnCheckpointMessages(session, checkpoint),
-                    };
-                }
-            }
+  let session = doc;
+  const owner = cleanValue(session.owner).toLowerCase();
+  const agent = cleanValue(session.agent).toLowerCase();
+  const liveDetachedAgent =
+    session.closed === true &&
+    (owner === 'agent' || (agent && agent !== 'lead')) &&
+    Boolean(cleanValue(session.ownerSessionId || session.parentSessionId));
+  if (!options.checkpointAbsent) {
+    const { projectTurnCheckpointMessages, readTurnCheckpoint } = await import('./manager/turn-checkpoint.mjs');
+    if (liveDetachedAgent) {
+      const checkpoint = readTurnCheckpoint(sessionId);
+      if (checkpoint) {
+        session = {
+          ...session,
+          messages: projectTurnCheckpointMessages(session, checkpoint),
+        };
+      }
+    } else {
+      const { recoverSessionAfterProcessRestart } = await import('./manager.mjs');
+      session = recoverSessionAfterProcessRestart(sessionId) || session;
+      // A live foreign owner is intentionally not recovered/mutated.
+      // Project its durable working checkpoint read-only so the cold pane
+      // never repaints the stale pre-compaction session.messages while it
+      // waits for the owner's live-share frame.
+      if (session?.activeTurnCheckpoint) {
+        const checkpoint = readTurnCheckpoint(sessionId);
+        if (checkpoint) {
+          session = {
+            ...session,
+            messages: projectTurnCheckpointMessages(session, checkpoint),
+          };
         }
+      }
     }
-    const {
-        restoreTranscriptItems,
-        sessionContextSnapshotProjection,
-    } = await import(
-        '../../../../tui/session/session-api-ext.mjs'
-    );
-    let preparedContextProjection = null;
-    try {
-        const [
-            { prepareSessionProjection },
-            { createContextStatus },
-        ] = await Promise.all([
-            import('./manager.mjs'),
-            import('../../../../session-runtime/context-status.mjs'),
-        ]);
-        const prepared = prepareSessionProjection(session, 'full');
-        if (prepared) session = prepared;
-        const { contextStatus } = createContextStatus({
-            getSession: () => session,
-            getRoute: () => ({
-                provider: session.provider || '',
-                model: session.model || '',
-                contextWindow: session.contextWindow || null,
-            }),
-            getCurrentCwd: () => session.cwd || '',
-            getMode: () => 'full',
-        });
-        preparedContextProjection = sessionContextSnapshotProjection(session, contextStatus());
-    } catch {
-        // Cold context projection is presentation-only. The transcript and
-        // legacy estimator below remain available if provider/tool prep fails.
-    }
-    const messages = Array.isArray(session.messages) ? session.messages : [];
-    const hasConversationActivity = messages.some((message) => message?.role === 'user');
-    const measuredStats = contextMeasurementStats({
-        measurement: sessionContextMeasurement(session, hasConversationActivity),
-    });
-    const contextWindow = positiveNumber(session.contextWindow);
-    const rawContextWindow = positiveNumber(session.rawContextWindow, contextWindow);
-    const displayContextWindow = positiveNumber(session.compactBoundaryTokens, contextWindow);
-    const rawAutoCompactTokenLimit = positiveNumber(session.autoCompactTokenLimit);
-    const autoCompactTokenLimit = rawAutoCompactTokenLimit
-        && (!displayContextWindow || rawAutoCompactTokenLimit < displayContextWindow)
-        ? rawAutoCompactTokenLimit
-        : 0;
-    return {
-        sessionId,
-        projectionStamp: nextProjectionStamp(),
-        ...(options.includeMessages ? { messages } : {}),
-        items: restoreTranscriptItems(messages, {
-            sessionId,
-            itemLimit: options.itemLimit,
-        }),
+  }
+  const { restoreTranscriptItems, sessionContextSnapshotProjection } = await import(
+    '../../../../tui/session/session-api-ext.mjs'
+  );
+  let preparedContextProjection = null;
+  try {
+    const [{ prepareSessionProjection }, { createContextStatus }] = await Promise.all([
+      import('./manager.mjs'),
+      import('../../../../session-runtime/context-status.mjs'),
+    ]);
+    const prepared = prepareSessionProjection(session, 'full');
+    if (prepared) session = prepared;
+    const { contextStatus } = createContextStatus({
+      getSession: () => session,
+      getRoute: () => ({
         provider: session.provider || '',
         model: session.model || '',
-        effort: session.effort || '',
-        fast: session.fast === true,
-        modelParameters: session.modelParameters || {},
-        cwd: session.cwd || '',
-        desktopSession: desktopSession(session.desktopSession, session.cwd),
-        workflow: session.workflow || null,
-        ...(preparedContextProjection ? {
-            ...preparedContextProjection,
-            preparedContextProjection: true,
-        } : {
-            stats: measuredStats,
-            contextWindow: contextWindow || null,
-            rawContextWindow: rawContextWindow || null,
-            displayContextWindow: displayContextWindow || null,
-            autoCompactTokenLimit: autoCompactTokenLimit || null,
+        contextWindow: session.contextWindow || null,
+      }),
+      getCurrentCwd: () => session.cwd || '',
+      getMode: () => 'full',
+    });
+    preparedContextProjection = sessionContextSnapshotProjection(session, contextStatus());
+  } catch {
+    // Cold context projection is presentation-only. The transcript and
+    // legacy estimator below remain available if provider/tool prep fails.
+  }
+  const messages = Array.isArray(session.messages) ? session.messages : [];
+  const hasConversationActivity = messages.some((message) => message?.role === 'user');
+  const measuredStats = contextMeasurementStats({
+    measurement: sessionContextMeasurement(session, hasConversationActivity),
+  });
+  const contextWindow = positiveNumber(session.contextWindow);
+  const rawContextWindow = positiveNumber(session.rawContextWindow, contextWindow);
+  const displayContextWindow = positiveNumber(session.compactBoundaryTokens, contextWindow);
+  const rawAutoCompactTokenLimit = positiveNumber(session.autoCompactTokenLimit);
+  const autoCompactTokenLimit =
+    rawAutoCompactTokenLimit && (!displayContextWindow || rawAutoCompactTokenLimit < displayContextWindow)
+      ? rawAutoCompactTokenLimit
+      : 0;
+  return {
+    sessionId,
+    projectionStamp: nextProjectionStamp(),
+    ...(options.includeMessages ? { messages } : {}),
+    items: restoreTranscriptItems(messages, {
+      sessionId,
+      itemLimit: options.itemLimit,
+    }),
+    provider: session.provider || '',
+    model: session.model || '',
+    effort: session.effort || '',
+    fast: session.fast === true,
+    modelParameters: session.modelParameters || {},
+    cwd: session.cwd || '',
+    desktopSession: desktopSession(session.desktopSession, session.cwd),
+    workflow: session.workflow || null,
+    ...(preparedContextProjection
+      ? {
+          ...preparedContextProjection,
+          preparedContextProjection: true,
+        }
+      : {
+          stats: measuredStats,
+          contextWindow: contextWindow || null,
+          rawContextWindow: rawContextWindow || null,
+          displayContextWindow: displayContextWindow || null,
+          autoCompactTokenLimit: autoCompactTokenLimit || null,
         }),
-        // Desktop must not ask its unrelated active engine to recover/peek an
-        // externally owned child: that runtime can only return the detached
-        // Task row and masks this checkpoint projection.
-        readOnlyDetachedAgent: liveDetachedAgent,
-    };
+    // Desktop must not ask its unrelated active engine to recover/peek an
+    // externally owned child: that runtime can only return the detached
+    // Task row and masks this checkpoint projection.
+    readOnlyDetachedAgent: liveDetachedAgent,
+  };
 }

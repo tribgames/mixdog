@@ -6,18 +6,19 @@ import { fileURLToPath } from 'node:url';
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const projectArgument = process.argv.find((argument) => argument.startsWith('--project='));
 const projectPath = resolve(projectArgument?.slice('--project='.length) || join(desktopDir, '..', '..'));
-const relPath = process.argv.find((argument) => argument.startsWith('--file='))
-  ?.slice('--file='.length) || 'apps/desktop/package.json';
-const iterations = Math.max(1, Number(
-  process.argv.find((argument) => argument.startsWith('--iterations='))
-    ?.slice('--iterations='.length) || 2,
-));
+const relPath =
+  process.argv.find((argument) => argument.startsWith('--file='))?.slice('--file='.length) ||
+  'apps/desktop/package.json';
+const iterations = Math.max(
+  1,
+  Number(process.argv.find((argument) => argument.startsWith('--iterations='))?.slice('--iterations='.length) || 2)
+);
 const electron = join(
   desktopDir,
   'node_modules',
   'electron',
   'dist',
-  process.platform === 'win32' ? 'electron.exe' : 'electron',
+  process.platform === 'win32' ? 'electron.exe' : 'electron'
 );
 const artifactDir = join(desktopDir, 'artifacts');
 const profileRoot = join(artifactDir, 'boot-scenario-profiles');
@@ -36,7 +37,9 @@ class CdpClient {
     const set = this.listeners.get(method) || new Set();
     set.add(listener);
     this.listeners.set(method, set);
-    return () => { set.delete(listener); };
+    return () => {
+      set.delete(listener);
+    };
   }
   async connect() {
     this.socket.addEventListener('message', (event) => {
@@ -56,14 +59,22 @@ class CdpClient {
     });
     await new Promise((resolvePromise, reject) => {
       const timer = setTimeout(() => reject(new Error('CDP connection timed out.')), 15_000);
-      this.socket.addEventListener('open', () => {
-        clearTimeout(timer);
-        resolvePromise();
-      }, { once: true });
-      this.socket.addEventListener('error', () => {
-        clearTimeout(timer);
-        reject(new Error('CDP websocket failed.'));
-      }, { once: true });
+      this.socket.addEventListener(
+        'open',
+        () => {
+          clearTimeout(timer);
+          resolvePromise();
+        },
+        { once: true }
+      );
+      this.socket.addEventListener(
+        'error',
+        () => {
+          clearTimeout(timer);
+          reject(new Error('CDP websocket failed.'));
+        },
+        { once: true }
+      );
     });
   }
   request(method, params = {}, timeoutMs = 20_000) {
@@ -78,11 +89,15 @@ class CdpClient {
     });
   }
   async evaluate(expression, timeoutMs = 20_000) {
-    const response = await this.request('Runtime.evaluate', {
-      expression,
-      awaitPromise: true,
-      returnByValue: true,
-    }, timeoutMs);
+    const response = await this.request(
+      'Runtime.evaluate',
+      {
+        expression,
+        awaitPromise: true,
+        returnByValue: true,
+      },
+      timeoutMs
+    );
     if (response.exceptionDetails) {
       throw new Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text);
     }
@@ -195,11 +210,8 @@ const allScenarios = [
     expectedSurface: 'bottom-panel',
   })),
 ];
-const scenarioFilter = process.argv.find((argument) => argument.startsWith('--scenario='))
-  ?.slice('--scenario='.length);
-const scenarios = scenarioFilter
-  ? allScenarios.filter((scenario) => scenario.name === scenarioFilter)
-  : allScenarios;
+const scenarioFilter = process.argv.find((argument) => argument.startsWith('--scenario='))?.slice('--scenario='.length);
+const scenarios = scenarioFilter ? allScenarios.filter((scenario) => scenario.name === scenarioFilter) : allScenarios;
 if (scenarios.length === 0) throw new Error(`Unknown boot scenario: ${scenarioFilter}`);
 const DEFAULT_PERFORMANCE_BUDGET = Object.freeze({
   shellMs: 1_200,
@@ -234,8 +246,7 @@ function performanceFailures(result) {
       failures.push(`${name}=${value.toFixed(1)}ms>${maximum}ms`);
     }
   }
-  if (['editor', 'studio', 'terminal'].includes(result.scenario)
-    && result.interaction?.activeControlCount === 0) {
+  if (['editor', 'studio', 'terminal'].includes(result.scenario) && result.interaction?.activeControlCount === 0) {
     failures.push('surface-control=missing');
   }
   for (const entry of result.menus || []) {
@@ -253,9 +264,9 @@ async function waitForTarget(port, child) {
     if (child.exitCode !== null) throw new Error(`Electron exited with ${child.exitCode}.`);
     try {
       const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
-      const target = targets.find((candidate) =>
-        candidate.type === 'page'
-        && candidate.url?.includes('/out/renderer/index.html'));
+      const target = targets.find(
+        (candidate) => candidate.type === 'page' && candidate.url?.includes('/out/renderer/index.html')
+      );
       if (target?.webSocketDebuggerUrl) return target.webSocketDebuggerUrl;
     } catch {
       // CDP is not listening yet.
@@ -273,8 +284,11 @@ async function evaluateStable(client, expression, timeoutMs = 20_000) {
       return await client.evaluate(expression, Math.max(1_000, deadline - Date.now()));
     } catch (error) {
       lastError = error;
-      if (!/Execution context was destroyed|Cannot find context|Failed to read the 'localStorage' property/i
-        .test(String(error?.message || error))) {
+      if (
+        !/Execution context was destroyed|Cannot find context|Failed to read the 'localStorage' property/i.test(
+          String(error?.message || error)
+        )
+      ) {
         throw error;
       }
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
@@ -289,14 +303,17 @@ async function stopIsolatedDaemon(profilePath) {
     const session = raw?.endpoints?.session;
     if (!raw?.pid || !session?.port || !session?.token) return;
     const { shutdownDaemon } = await import('../../../src/standalone/session-client.mjs');
-    await shutdownDaemon({
-      pid: raw.pid,
-      port: session.port,
-      token: session.token,
-    }, {
-      waitForExit: true,
-      timeoutMs: 5_000,
-    });
+    await shutdownDaemon(
+      {
+        pid: raw.pid,
+        port: session.port,
+        token: session.token,
+      },
+      {
+        waitForExit: true,
+        timeoutMs: 5_000,
+      }
+    );
   } catch {
     // The Desktop process tree may already have taken its daemon down.
   }
@@ -308,19 +325,30 @@ async function stopIsolatedDaemon(profilePath) {
 // names this profile are touched, never the installed app's PostgreSQL.
 async function killLingeringPgProcesses(profilePath) {
   const { execFile } = await import('node:child_process');
-  const run = (file, args) => new Promise((resolvePromise) => {
-    execFile(file, args, { windowsHide: true }, (error, stdout) => resolvePromise(error ? '' : String(stdout)));
-  });
-  const output = process.platform === 'win32'
-    ? await run('powershell', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-      `Get-CimInstance Win32_Process -Filter "Name='initdb.exe' or Name='postgres.exe'"`
-      + ` | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${profilePath.replaceAll("'", "''")}') }`
-      + ' | ForEach-Object { $_.ProcessId }'])
-    : await run('pgrep', ['-f', `(initdb|postgres).*${profilePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`]);
+  const run = (file, args) =>
+    new Promise((resolvePromise) => {
+      execFile(file, args, { windowsHide: true }, (error, stdout) => resolvePromise(error ? '' : String(stdout)));
+    });
+  const output =
+    process.platform === 'win32'
+      ? await run('powershell', [
+          '-NoLogo',
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `Get-CimInstance Win32_Process -Filter "Name='initdb.exe' or Name='postgres.exe'"` +
+            ` | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${profilePath.replaceAll("'", "''")}') }` +
+            ' | ForEach-Object { $_.ProcessId }',
+        ])
+      : await run('pgrep', ['-f', `(initdb|postgres).*${profilePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`]);
   for (const line of output.split(/\r?\n/)) {
     const pid = Number.parseInt(line.trim(), 10);
     if (!Number.isInteger(pid) || pid <= 0) continue;
-    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      /* already gone */
+    }
   }
 }
 
@@ -367,11 +395,19 @@ foreach ($p in $points) {
    coveredPoints = $covered; rect = @($r.L, $r.T, $r.R, $r.B) } | ConvertTo-Json -Compress
 `;
   return new Promise((resolvePromise) => {
-    execFile('powershell', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
-      { windowsHide: true, timeout: 15_000 }, (error, stdout) => {
+    execFile(
+      'powershell',
+      ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
+      { windowsHide: true, timeout: 15_000 },
+      (error, stdout) => {
         if (error) return resolvePromise({ error: String(error.message || error).split('\n')[0] });
-        try { resolvePromise(JSON.parse(String(stdout).trim())); } catch { resolvePromise({ error: String(stdout).trim() }); }
-      });
+        try {
+          resolvePromise(JSON.parse(String(stdout).trim()));
+        } catch {
+          resolvePromise({ error: String(stdout).trim() });
+        }
+      }
+    );
   });
 }
 
@@ -385,7 +421,7 @@ async function stopProfilePostmaster(profilePath) {
     const dataPath = join(profilePath, 'data');
     const postmasterPid = Number.parseInt(
       (await readFile(join(dataPath, 'pgdata', 'postmaster.pid'), 'utf8')).split(/\r?\n/, 1)[0],
-      10,
+      10
     );
     if (!Number.isInteger(postmasterPid) || postmasterPid <= 0) return;
     try {
@@ -395,8 +431,7 @@ async function stopProfilePostmaster(profilePath) {
     }
     const runtimeRoot = join(dataPath, 'runtime');
     const entries = await readdir(runtimeRoot, { withFileTypes: true });
-    const runtime = entries.find((entry) =>
-      entry.isDirectory() && entry.name.startsWith('runtime-pg'));
+    const runtime = entries.find((entry) => entry.isDirectory() && entry.name.startsWith('runtime-pg'));
     if (!runtime) return;
     const { stopPg } = await import('../../../src/runtime/memory/lib/pg/process.mjs');
     await stopPg({
@@ -457,7 +492,9 @@ async function seedScenario(profilePath, scenario, port) {
   const { child, client } = await launch(profilePath, `seed-${scenario.name}`, port);
   try {
     const seed = JSON.stringify(scenario);
-    const seeded = await evaluateStable(client, `(async () => {
+    const seeded = await evaluateStable(
+      client,
+      `(async () => {
       const scenario = ${seed};
       const startupDeadline = performance.now() + 10_000;
       while (!window.__mixdogStartupSettled && performance.now() < startupDeadline) {
@@ -558,9 +595,16 @@ async function seedScenario(profilePath, scenario, port) {
         throw new Error("Seed pane layout did not persist.");
       }
       return { selection, layout, timeOrigin: performance.timeOrigin };
-    })()`);
-    try { await client.evaluate('window.location.reload(); true'); } catch { /* context swaps below */ }
-    await evaluateStable(client, `(async () => {
+    })()`
+    );
+    try {
+      await client.evaluate('window.location.reload(); true');
+    } catch {
+      /* context swaps below */
+    }
+    await evaluateStable(
+      client,
+      `(async () => {
       const previousTimeOrigin = ${JSON.stringify(seeded?.timeOrigin || 0)};
       const startupDeadline = performance.now() + 20_000;
       while ((performance.timeOrigin === previousTimeOrigin || !window.__mixdogStartupSettled)
@@ -571,7 +615,9 @@ async function seedScenario(profilePath, scenario, port) {
         throw new Error("Seeded boot scenario did not restore after reload.");
       }
       return true;
-    })()`, 30_000);
+    })()`,
+      30_000
+    );
   } finally {
     await stopApp(client, child, profilePath);
   }
@@ -599,8 +645,8 @@ const profileRequested = process.argv.includes('--profile');
 const traceRequested = process.argv.includes('--trace');
 // --trace-dump=<dir>: also write each measurement's raw trace as
 // <dir>/<scenario>-<temperature>.json, loadable in chrome://tracing or Perfetto.
-const traceDumpDir = process.argv.find((argument) => argument.startsWith('--trace-dump='))
-  ?.slice('--trace-dump='.length) || '';
+const traceDumpDir =
+  process.argv.find((argument) => argument.startsWith('--trace-dump='))?.slice('--trace-dump='.length) || '';
 // Frame, compositor and GPU categories name the wait when the main thread is
 // idle inside the window: a keystroke whose paint committed at +3ms but whose
 // next frame arrived at +36ms lost the difference in raster or the GPU.
@@ -630,19 +676,24 @@ const TYPING_BURST_TEXT = 'The quick brown fox jumps over the lazy dog 012345678
 // --inject-css=<rules>: A/B a style hypothesis without rebuilding, e.g.
 // `.onboarding-layer{backdrop-filter:none!important}` to price a blur.
 // Rules need !important: the sheet lands before the app's own stylesheets.
-const injectCss = process.argv.find((argument) => argument.startsWith('--inject-css='))
-  ?.slice('--inject-css='.length) || '';
+const injectCss =
+  process.argv.find((argument) => argument.startsWith('--inject-css='))?.slice('--inject-css='.length) || '';
 
 // --electron-args=<a,b>: extra Chromium switches for the probe's Electron
 // (e.g. disable-gpu-rasterization, disable-gpu) to bisect a GPU-side stall.
-const extraElectronArgs = (process.argv.find((argument) => argument.startsWith('--electron-args='))
-  ?.slice('--electron-args='.length) || '')
-  .split(',').map((flag) => flag.trim()).filter(Boolean)
+const extraElectronArgs = (
+  process.argv.find((argument) => argument.startsWith('--electron-args='))?.slice('--electron-args='.length) || ''
+)
+  .split(',')
+  .map((flag) => flag.trim())
+  .filter(Boolean)
   .map((flag) => (flag.startsWith('--') ? flag : `--${flag}`));
 
 async function injectStyle(client) {
   if (!injectCss) return;
-  await evaluateStable(client, `(() => {
+  await evaluateStable(
+    client,
+    `(() => {
     // Before the app document exists the sheet would land in about:blank and
     // vanish with the navigation; retry until the shell is in place.
     if (!document.head || !document.body) throw new Error("Execution context was destroyed: no document yet");
@@ -651,7 +702,9 @@ async function injectStyle(client) {
     style.textContent = ${JSON.stringify(injectCss)};
     (document.head || document.documentElement).appendChild(style);
     return true;
-  })()`, 10_000);
+  })()`,
+    10_000
+  );
 }
 
 async function startTrace(client) {
@@ -666,7 +719,10 @@ async function startTrace(client) {
   });
   return async () => {
     const complete = new Promise((resolvePromise) => {
-      const off = client.on('Tracing.tracingComplete', () => { off(); resolvePromise(); });
+      const off = client.on('Tracing.tracingComplete', () => {
+        off();
+        resolvePromise();
+      });
     });
     await client.request('Tracing.end');
     await Promise.race([complete, new Promise((resolvePromise) => setTimeout(resolvePromise, 15_000))]);
@@ -681,8 +737,13 @@ function traceEventDetail(event) {
     case 'FunctionCall':
     case 'FireAnimationFrame':
     case 'TimerFire':
-      return [data.functionName, data.url ? `${String(data.url).split('/').at(-1)}:${(data.lineNumber ?? 0) + 1}` : '',
-        data.timerId !== undefined ? `timer#${data.timerId}` : ''].filter(Boolean).join(' ');
+      return [
+        data.functionName,
+        data.url ? `${String(data.url).split('/').at(-1)}:${(data.lineNumber ?? 0) + 1}` : '',
+        data.timerId !== undefined ? `timer#${data.timerId}` : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
     case 'EventDispatch':
       return data.type || '';
     case 'Paint': {
@@ -692,15 +753,21 @@ function traceEventDetail(event) {
       if (!clip || clip.length < 8) return '';
       const xs = [clip[0], clip[2], clip[4], clip[6]];
       const ys = [clip[1], clip[3], clip[5], clip[7]];
-      return `${Math.round(Math.max(...xs) - Math.min(...xs))}x${Math.round(Math.max(...ys) - Math.min(...ys))}`
-        + (data.layerId !== undefined ? ` layer#${data.layerId}` : '');
+      return (
+        `${Math.round(Math.max(...xs) - Math.min(...xs))}x${Math.round(Math.max(...ys) - Math.min(...ys))}` +
+        (data.layerId !== undefined ? ` layer#${data.layerId}` : '')
+      );
     }
     case 'RasterTask':
       return data.tileData ? `layer#${data.tileData.layerId} ${data.tileData.tileResolution || ''}`.trim() : '';
     case 'Layout': {
       const begin = event.args?.beginData || {};
-      return [begin.dirtyObjects !== undefined ? `dirty=${begin.dirtyObjects}` : '',
-        begin.totalObjects !== undefined ? `total=${begin.totalObjects}` : ''].filter(Boolean).join(' ');
+      return [
+        begin.dirtyObjects !== undefined ? `dirty=${begin.dirtyObjects}` : '',
+        begin.totalObjects !== undefined ? `total=${begin.totalObjects}` : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
     }
     case 'UpdateLayoutTree':
       return data.elementCount !== undefined ? `elements=${data.elementCount}` : '';
@@ -744,9 +811,10 @@ function summarizeKeystrokeTrace(events, limit = 10, window = 'boot') {
   }
   const overlaps = (event) => event.ts + (event.dur || 0) > startUs && event.ts < endUs;
   const clip = (event) => Math.min(event.ts + (event.dur || 0), endUs) - Math.max(event.ts, startUs);
-  const inWindow = events.filter((event) =>
-    event.ph === 'X' && `${event.pid}:${event.tid}` === threadKey
-    && overlaps(event) && event.name !== 'RunTask');
+  const inWindow = events.filter(
+    (event) =>
+      event.ph === 'X' && `${event.pid}:${event.tid}` === threadKey && overlaps(event) && event.name !== 'RunTask'
+  );
   const byName = new Map();
   for (const event of inWindow) {
     byName.set(event.name, (byName.get(event.name) || 0) + clip(event));
@@ -754,8 +822,14 @@ function summarizeKeystrokeTrace(events, limit = 10, window = 'boot') {
   // Frame lifecycle inside the window, in order: shows how many frames the
   // keystroke waited for and where the pipeline paused between them.
   const frameEvents = events
-    .filter((event) => FRAME_EVENTS.has(event.name) && event.pid === keystroke.pid
-      && event.ts >= startUs - 2_000 && event.ts <= endUs + 2_000 && ['I', 'X', 'i'].includes(event.ph))
+    .filter(
+      (event) =>
+        FRAME_EVENTS.has(event.name) &&
+        event.pid === keystroke.pid &&
+        event.ts >= startUs - 2_000 &&
+        event.ts <= endUs + 2_000 &&
+        ['I', 'X', 'i'].includes(event.ph)
+    )
     .sort((left, right) => left.ts - right.ts);
   const frames = frameEvents.map((event) => `${event.name} +${((event.ts - startUs) / 1_000).toFixed(1)}`);
   // The honest keystroke latency: when the renderer committed the typed
@@ -779,8 +853,9 @@ function summarizeKeystrokeTrace(events, limit = 10, window = 'boot') {
   const paints = inWindow
     .filter((event) => event.name === 'Paint')
     .map((event) => `+${((event.ts - startUs) / 1_000).toFixed(1)} ${traceEventDetail(event)}`);
-  const rasterTasks = events.filter((event) =>
-    event.ph === 'X' && event.name === 'RasterTask' && event.pid === keystroke.pid && overlaps(event));
+  const rasterTasks = events.filter(
+    (event) => event.ph === 'X' && event.name === 'RasterTask' && event.pid === keystroke.pid && overlaps(event)
+  );
   const rasterMs = rasterTasks.reduce((total, event) => total + clip(event), 0) / 1_000;
   // Paint invalidations recorded between the keystroke and its paint, by
   // node and reason: the entries with the largest rects are what forced the
@@ -795,19 +870,28 @@ function summarizeKeystrokeTrace(events, limit = 10, window = 'boot') {
     const key = `${data.nodeName || '?'}${data.selectorPart ? ` ${data.selectorPart}` : ''} :: ${data.reason || '?'}`;
     const entry = invalidations.get(key) || { count: 0, maxArea: 0, rect: null };
     entry.count += 1;
-    if (area > entry.maxArea) { entry.maxArea = area; entry.rect = rect?.map((value) => Math.round(value)); }
+    if (area > entry.maxArea) {
+      entry.maxArea = area;
+      entry.rect = rect?.map((value) => Math.round(value));
+    }
     invalidations.set(key, entry);
   }
   // Style invalidations in the same window: which selector/attribute change
   // made the recalc walk far beyond the composer.
   const styleInvalidations = new Map();
   for (const event of events) {
-    if (!/^(StyleRecalcInvalidationTracking|StyleInvalidatorInvalidationTracking|ScheduleStyleInvalidationTracking)$/.test(event.name)) continue;
+    if (
+      !/^(StyleRecalcInvalidationTracking|StyleInvalidatorInvalidationTracking|ScheduleStyleInvalidationTracking)$/.test(
+        event.name
+      )
+    )
+      continue;
     if (`${event.pid}:${event.tid}` !== threadKey || event.ts < startUs - 500 || event.ts > endUs) continue;
     const data = event.args?.data || {};
-    const key = `${event.name.replace('InvalidationTracking', '')} ${data.nodeName || '?'} :: ${data.reason || '?'}`
-      + `${data.selectorPart ? ` ${data.selectorPart}` : ''}${data.extraData ? ` ${data.extraData}` : ''}`
-      + `${data.changedAttribute ? ` [${data.changedAttribute}]` : ''}${data.changedClass ? ` .${data.changedClass}` : ''}`;
+    const key =
+      `${event.name.replace('InvalidationTracking', '')} ${data.nodeName || '?'} :: ${data.reason || '?'}` +
+      `${data.selectorPart ? ` ${data.selectorPart}` : ''}${data.extraData ? ` ${data.extraData}` : ''}` +
+      `${data.changedAttribute ? ` [${data.changedAttribute}]` : ''}${data.changedClass ? ` .${data.changedClass}` : ''}`;
     styleInvalidations.set(key, (styleInvalidations.get(key) || 0) + 1);
   }
   const topStyleInvalidations = [...styleInvalidations.entries()]
@@ -859,7 +943,9 @@ function summarizeProfile(profile, limit = 18) {
     const node = byNode.get(id);
     const frame = node?.callFrame;
     if (!frame) continue;
-    const url = String(frame.url || '').split('/').slice(-1)[0];
+    const url = String(frame.url || '')
+      .split('/')
+      .slice(-1)[0];
     const key = `${frame.functionName || '(anonymous)'} ${url}:${frame.lineNumber + 1}`;
     byFrame.set(key, (byFrame.get(key) || 0) + count);
   }
@@ -875,7 +961,9 @@ function summarizeProfile(profile, limit = 18) {
 function profileFrameKey(node) {
   const frame = node?.callFrame;
   if (!frame) return '(unknown)';
-  const url = String(frame.url || '').split('/').slice(-1)[0];
+  const url = String(frame.url || '')
+    .split('/')
+    .slice(-1)[0];
   return `${frame.functionName || '(anonymous)'} ${url}:${frame.lineNumber + 1}`;
 }
 
@@ -893,21 +981,29 @@ function busyStretches(profile, keystrokeAtMs, minMs = 30, limit = 6) {
     const name = node?.callFrame?.functionName || '';
     const idle = name === '(idle)' || name === '(root)';
     if (idle) {
-      if (current) { current.endUs = atUs; stretches.push(current); current = null; }
+      if (current) {
+        current.endUs = atUs;
+        stretches.push(current);
+        current = null;
+      }
       continue;
     }
     if (!current) current = { startUs: atUs, endUs: atUs, frames: new Map() };
     const key = profileFrameKey(node);
     current.frames.set(key, (current.frames.get(key) || 0) + (profile.timeDeltas[index + 1] || 0));
   }
-  if (current) { current.endUs = atUs; stretches.push(current); }
+  if (current) {
+    current.endUs = atUs;
+    stretches.push(current);
+  }
   return stretches
     .map((stretch) => ({
       atMs: Math.round((stretch.startUs - profile.startTime) / 1_000),
       durationMs: Math.round((stretch.endUs - stretch.startUs) / 1_000),
-      keystroke: keystrokeAtMs !== null
-        && keystrokeAtMs >= (stretch.startUs - profile.startTime) / 1_000 - 5
-        && keystrokeAtMs <= (stretch.endUs - profile.startTime) / 1_000 + 5,
+      keystroke:
+        keystrokeAtMs !== null &&
+        keystrokeAtMs >= (stretch.startUs - profile.startTime) / 1_000 - 5 &&
+        keystrokeAtMs <= (stretch.endUs - profile.startTime) / 1_000 + 5,
       frames: [...stretch.frames.entries()]
         .sort((left, right) => right[1] - left[1])
         .slice(0, 5)
@@ -943,7 +1039,9 @@ async function measureScenario(profilePath, scenario, port, temperature) {
     const measureSubmit = scenario.measureSubmit === true;
     const measureMenus = scenario.measureMenus === true;
     const typingBurst = scenario.typingBurst === true;
-    renderer = await evaluateStable(client, `(async () => {
+    renderer = await evaluateStable(
+      client,
+      `(async () => {
       const expectedSurface = ${expectedSurface};
       const measureSubmit = ${measureSubmit};
       const measureMenus = ${measureMenus};
@@ -1429,7 +1527,9 @@ async function measureScenario(profilePath, scenario, port, temperature) {
         firstSubmit,
         settled,
       };
-    })()`, measureMenus ? 120_000 : 20_000);
+    })()`,
+      measureMenus ? 120_000 : 20_000
+    );
     if (profileRequested) {
       const { profile } = await client.request('Profiler.stop');
       profileSummary = summarizeProfile(profile);
@@ -1438,7 +1538,7 @@ async function measureScenario(profilePath, scenario, port, temperature) {
         profile,
         typeof keystrokeAt === 'number' && typeof profileClockNowMs === 'number'
           ? keystrokeAt - profileClockNowMs
-          : null,
+          : null
       );
     }
     if (stopTrace) {
@@ -1447,8 +1547,7 @@ async function measureScenario(profilePath, scenario, port, temperature) {
       burstTrace = summarizeKeystrokeTrace(traceEvents, 10, 'burst');
       if (traceDumpDir) {
         await mkdir(traceDumpDir, { recursive: true });
-        await writeFile(join(traceDumpDir, `${scenario.name}-${temperature}.json`),
-          JSON.stringify({ traceEvents }));
+        await writeFile(join(traceDumpDir, `${scenario.name}-${temperature}.json`), JSON.stringify({ traceEvents }));
       }
     }
     placement = await windowPlacement(child.pid);
@@ -1509,24 +1608,25 @@ for (const scenario of scenarios) {
     results.push(result);
     const shown = result.main.find((entry) => entry.event === 'window-shown')?.durationMs;
     const ready = result.main.find((entry) => entry.event === 'renderer-ready')?.durationMs;
-    const surface = result.renderer.find((entry) =>
-      entry.category === 'surface'
-      && entry.surface === scenario.expectedSurface
-      && entry.stage === 'ready')?.totalMs;
+    const surface = result.renderer.find(
+      (entry) => entry.category === 'surface' && entry.surface === scenario.expectedSurface && entry.stage === 'ready'
+    )?.totalMs;
     const interaction = result.interaction?.measuredAtMs;
     const shell = result.interaction?.shellReadyAtMs;
     const data = result.interaction?.dataReadyAtMs;
     const paint = result.interaction?.keystrokePaintMs;
     const submit = result.firstSubmit?.acceptanceMs;
     console.log(
-      `${scenario.name} ${temperature}: renderer=${ready ?? 'n/a'}ms`
-      + ` shown=${shown ?? 'n/a'}ms surface=${surface ?? 'n/a'}ms`
-      + ` shell=${shell ?? 'n/a'}ms data=${data ?? 'n/a'}ms`
-      + ` interactive=${interaction ?? 'n/a'}ms keypaint=${paint?.toFixed?.(1) ?? 'n/a'}ms`
-      + ` submit=${submit?.toFixed?.(1) ?? 'n/a'}ms settled=${result.settled?.ok !== false}`
-      + (result.window?.window
-        ? ` window=${result.window.foreground ? 'front' : 'behind'}/${result.window.coveredPoints}of5covered`
-        : result.window?.error ? ` window=error(${result.window.error})` : ''),
+      `${scenario.name} ${temperature}: renderer=${ready ?? 'n/a'}ms` +
+        ` shown=${shown ?? 'n/a'}ms surface=${surface ?? 'n/a'}ms` +
+        ` shell=${shell ?? 'n/a'}ms data=${data ?? 'n/a'}ms` +
+        ` interactive=${interaction ?? 'n/a'}ms keypaint=${paint?.toFixed?.(1) ?? 'n/a'}ms` +
+        ` submit=${submit?.toFixed?.(1) ?? 'n/a'}ms settled=${result.settled?.ok !== false}` +
+        (result.window?.window
+          ? ` window=${result.window.foreground ? 'front' : 'behind'}/${result.window.coveredPoints}of5covered`
+          : result.window?.error
+            ? ` window=error(${result.window.error})`
+            : '')
     );
     if (result.interaction?.runningAnimations?.length) {
       console.log(`  animating: ${result.interaction.runningAnimations.join(' | ')}`);
@@ -1534,14 +1634,16 @@ for (const scenario of scenarios) {
     if (result.interaction?.burst) {
       const burst = result.interaction.burst;
       console.log(
-        `  burst ${burst.count} keys: avg=${burst.avgMs}ms p95=${burst.p95Ms}ms max=${burst.maxMs}ms`
-        + ` phaseMax=${Object.entries(burst.phaseMax).map(([phase, ms]) => `${phase}:${ms}`).join('/')}`
-        + ` slow(>=16ms)=${burst.slow.map((entry) => `#${entry.index}${entry.phase ? `@${entry.phase}` : ''}:${entry.ms}`).join(',') || 'none'}`
-        + ` closed=${burst.transitions?.closedAt} reopened=${burst.transitions?.reopenedAt}`
-        + ` scmRows=${JSON.stringify(burst.transitions?.scmRows || [])}`
-        + ` longtasks=${burst.longTasks.join(',') || 'none'}`
-        + ` diffSettled=${burst.diffSettled} goalVisible=${burst.goalVisible}/${burst.goalAnywhere}`
-        + ` churn=diff:${burst.churn.diff}/goal:${burst.churn.goal}/dock:${burst.churn.dock}`,
+        `  burst ${burst.count} keys: avg=${burst.avgMs}ms p95=${burst.p95Ms}ms max=${burst.maxMs}ms` +
+          ` phaseMax=${Object.entries(burst.phaseMax)
+            .map(([phase, ms]) => `${phase}:${ms}`)
+            .join('/')}` +
+          ` slow(>=16ms)=${burst.slow.map((entry) => `#${entry.index}${entry.phase ? `@${entry.phase}` : ''}:${entry.ms}`).join(',') || 'none'}` +
+          ` closed=${burst.transitions?.closedAt} reopened=${burst.transitions?.reopenedAt}` +
+          ` scmRows=${JSON.stringify(burst.transitions?.scmRows || [])}` +
+          ` longtasks=${burst.longTasks.join(',') || 'none'}` +
+          ` diffSettled=${burst.diffSettled} goalVisible=${burst.goalVisible}/${burst.goalAnywhere}` +
+          ` churn=diff:${burst.churn.diff}/goal:${burst.churn.goal}/dock:${burst.churn.dock}`
       );
     }
     if (injectCss) console.log(`  inject-css applied=${result.interaction?.injectedStyle ?? 'n/a'}`);
@@ -1550,34 +1652,52 @@ for (const scenario of scenarios) {
     }
     for (const stretch of result.busy || []) {
       console.log(
-        `  busy +${stretch.atMs}ms ${stretch.durationMs}ms${stretch.keystroke ? ' [keystroke]' : ''}`
-        + ` :: ${stretch.frames.join(' | ')}`,
+        `  busy +${stretch.atMs}ms ${stretch.durationMs}ms${stretch.keystroke ? ' [keystroke]' : ''}` +
+          ` :: ${stretch.frames.join(' | ')}`
       );
     }
-    for (const [label, trace] of [['keystroke', result.keystrokeTrace], ['burst-slowest', result.burstTrace]]) {
+    for (const [label, trace] of [
+      ['keystroke', result.keystrokeTrace],
+      ['burst-slowest', result.burstTrace],
+    ]) {
       if (!trace) continue;
-      console.log(`  trace ${label} window ${trace.windowMs}ms :: ${
-        trace.byName.map((entry) => `${entry.name} ${entry.totalMs}ms`).join(' | ')}`);
+      console.log(
+        `  trace ${label} window ${trace.windowMs}ms :: ${trace.byName
+          .map((entry) => `${entry.name} ${entry.totalMs}ms`)
+          .join(' | ')}`
+      );
       for (const event of trace.longest) {
-        console.log(`    +${event.atMs}ms ${event.durationMs}ms ${event.name}${event.detail ? ` (${event.detail})` : ''}`);
+        console.log(
+          `    +${event.atMs}ms ${event.durationMs}ms ${event.name}${event.detail ? ` (${event.detail})` : ''}`
+        );
       }
       console.log(`  trace ${label} commit=${trace.commitMs ?? 'n/a'}ms firstDraw=${trace.drawMs ?? 'n/a'}ms`);
       if (trace.frames.length > 0) console.log(`  trace frames: ${trace.frames.join(' | ')}`);
       if (trace.paints.length > 0) {
-        console.log(`  trace paints: ${trace.paints.join(' | ')} :: raster ${trace.raster.tasks} tasks ${trace.raster.totalMs}ms`);
+        console.log(
+          `  trace paints: ${trace.paints.join(' | ')} :: raster ${trace.raster.tasks} tasks ${trace.raster.totalMs}ms`
+        );
       }
       for (const entry of trace.invalidations || []) console.log(`    invalidated ${entry}`);
       for (const entry of trace.styleInvalidations || []) console.log(`    style ${entry}`);
       if (trace.offMain.length > 0) {
-        console.log(`  trace off-main: ${trace.offMain.map((entry) => `${entry.name} ${entry.totalMs}ms`).join(' | ')}`);
+        console.log(
+          `  trace off-main: ${trace.offMain.map((entry) => `${entry.name} ${entry.totalMs}ms`).join(' | ')}`
+        );
       }
     }
     for (const entry of result.menus || []) {
       console.log(
-        `  menu ${entry.label}: ${entry.skipped ? 'skipped' : `visible=${entry.visibleMs?.toFixed?.(1) ?? 'n/a'}ms`
-          + ` interactive=${entry.interactiveMs?.toFixed?.(1) ?? 'n/a'}ms`}`
-          + (entry.longTasks ? ` longtask=${entry.longTaskMaxMs.toFixed(0)}ms(max)/${entry.longTaskTotalMs.toFixed(0)}ms(${entry.longTasks})` : '')
-          + `${entry.debug ? ` [${entry.debug}]` : ''}`,
+        `  menu ${entry.label}: ${
+          entry.skipped
+            ? 'skipped'
+            : `visible=${entry.visibleMs?.toFixed?.(1) ?? 'n/a'}ms` +
+              ` interactive=${entry.interactiveMs?.toFixed?.(1) ?? 'n/a'}ms`
+        }` +
+          (entry.longTasks
+            ? ` longtask=${entry.longTaskMaxMs.toFixed(0)}ms(max)/${entry.longTaskTotalMs.toFixed(0)}ms(${entry.longTasks})`
+            : '') +
+          `${entry.debug ? ` [${entry.debug}]` : ''}`
       );
     }
   }
@@ -1592,8 +1712,8 @@ const report = {
   results,
 };
 const performance = results.flatMap((result) =>
-  performanceFailures(result).map((failure) =>
-    `${result.scenario}/${result.temperature}: ${failure}`));
+  performanceFailures(result).map((failure) => `${result.scenario}/${result.temperature}: ${failure}`)
+);
 report.performance = {
   ok: performance.length === 0,
   failures: performance,

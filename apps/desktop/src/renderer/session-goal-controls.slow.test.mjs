@@ -19,22 +19,31 @@ test('Goal controls stay in one visible row to the right of the summary', async 
   t.after(() => browser.close());
   const page = await browser.newPage();
   const css = await readFile(new URL('./desktop/22-markdown.css', import.meta.url), 'utf8');
-  const markup = renderToStaticMarkup(React.createElement(SessionGoalHost, { placement: 'composer' },
-    React.createElement(SessionGoalIsland, {
-      snapshot: {
-        sessionId: 'layout-test',
-        goal: {
-          id: 'goal', status: 'duration_reached',
-          title: 'Continue workflow stabilization with a long goal title',
-          objective: 'Finish the approved verification work',
-          timeLimitMs: 3_600_000, timeUsedMs: 3_600_000, remainingMs: 0,
-          tasks: Array.from({ length: 24 }, (_, index) => ({
-            id: String(index), status: 'pending',
-            text: `Task ${index + 1}: retain the original evidence and verify every result before reporting completion.`,
-          })),
+  const markup = renderToStaticMarkup(
+    React.createElement(
+      SessionGoalHost,
+      { placement: 'composer' },
+      React.createElement(SessionGoalIsland, {
+        snapshot: {
+          sessionId: 'layout-test',
+          goal: {
+            id: 'goal',
+            status: 'duration_reached',
+            title: 'Continue workflow stabilization with a long goal title',
+            objective: 'Finish the approved verification work',
+            timeLimitMs: 3_600_000,
+            timeUsedMs: 3_600_000,
+            remainingMs: 0,
+            tasks: Array.from({ length: 24 }, (_, index) => ({
+              id: String(index),
+              status: 'pending',
+              text: `Task ${index + 1}: retain the original evidence and verify every result before reporting completion.`,
+            })),
+          },
         },
-      },
-    })));
+      })
+    )
+  );
   for (const { width, mobile, scale } of [
     { width: 900, mobile: false, scale: 1 },
     { width: 320, mobile: false, scale: 1 },
@@ -55,29 +64,37 @@ test('Goal controls stay in one visible row to the right of the summary', async 
       ${css}
     </style></head><body><main>${markup}</main></body></html>`);
     for (const open of [false, true]) {
-      await page.$eval('.session-goal-island', (island, expanded) => {
-        island.dataset.open = String(expanded);
-        const drawer = island.querySelector('.session-goal-drawer');
-        drawer.inert = !expanded;
-        drawer.setAttribute('aria-hidden', String(!expanded));
-      }, open);
+      await page.$eval(
+        '.session-goal-island',
+        (island, expanded) => {
+          island.dataset.open = String(expanded);
+          const drawer = island.querySelector('.session-goal-drawer');
+          drawer.inert = !expanded;
+          drawer.setAttribute('aria-hidden', String(!expanded));
+        },
+        open
+      );
       for (const scrollToEnd of open ? [false, true] : [false]) {
-        const layout = await page.$eval('.session-goal-island', (island, scroll) => {
-          const list = island.querySelector('.session-goal-task-list');
-          list.scrollTop = scroll ? list.scrollHeight : 0;
-          const rect = (element) => {
-            const { x, y, width, height, right, bottom } = element.getBoundingClientRect();
-            return { x, y, width, height, right, bottom };
-          };
-          return {
-            trigger: rect(island.querySelector('.session-goal-trigger')),
-            controls: [...island.querySelectorAll('.session-goal-control')].map((control) => {
-              const bounds = rect(control);
-              const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-              return { ...bounds, hittable: control === hit || control.contains(hit) };
-            }),
-          };
-        }, scrollToEnd);
+        const layout = await page.$eval(
+          '.session-goal-island',
+          (island, scroll) => {
+            const list = island.querySelector('.session-goal-task-list');
+            list.scrollTop = scroll ? list.scrollHeight : 0;
+            const rect = (element) => {
+              const { x, y, width, height, right, bottom } = element.getBoundingClientRect();
+              return { x, y, width, height, right, bottom };
+            };
+            return {
+              trigger: rect(island.querySelector('.session-goal-trigger')),
+              controls: [...island.querySelectorAll('.session-goal-control')].map((control) => {
+                const bounds = rect(control);
+                const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+                return { ...bounds, hittable: control === hit || control.contains(hit) };
+              }),
+            };
+          },
+          scrollToEnd
+        );
         const context = `${width}px mobile=${mobile} open=${open} scrolled=${scrollToEnd}`;
         assert.equal(layout.controls.length, 3, context);
         let right = layout.trigger.right;
@@ -85,8 +102,10 @@ test('Goal controls stay in one visible row to the right of the summary', async 
           assert.ok(control.width > 0 && control.height > 0 && control.hittable, `${context}: visible and clickable`);
           assert.ok(control.x >= right - 1, `${context}: ordered to the right without overlap`);
           assert.ok(control.right <= width && control.y >= 0 && control.bottom <= 760, `${context}: inside viewport`);
-          assert.ok(Math.abs((control.y + control.height / 2)
-            - (layout.trigger.y + layout.trigger.height / 2)) < 1, `${context}: same row`);
+          assert.ok(
+            Math.abs(control.y + control.height / 2 - (layout.trigger.y + layout.trigger.height / 2)) < 1,
+            `${context}: same row`
+          );
           right = control.right;
         }
       }
@@ -106,7 +125,8 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
       loader: 'css',
     },
     outfile: 'goal-typography.css',
-    bundle: true, write: false,
+    bundle: true,
+    write: false,
     loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
   });
   const browser = await puppeteer.launch({
@@ -116,47 +136,71 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
   t.after(() => browser.close());
   const page = await browser.newPage();
   const tasks = [
-    { id: 'en', status: 'in_progress', text: 'Preserve prior measurements and inspect costly traces to identify a bounded change, then verify the result without weakening the approved requirements.' },
-    { id: 'ko', status: 'pending', text: '기존 측정 결과와 작업 기록을 보존하고 Goal UI의 긴 한글·영문 문장이 좁은 화면에서도 편하게 읽히는지 확인합니다.' },
+    {
+      id: 'en',
+      status: 'in_progress',
+      text: 'Preserve prior measurements and inspect costly traces to identify a bounded change, then verify the result without weakening the approved requirements.',
+    },
+    {
+      id: 'ko',
+      status: 'pending',
+      text: '기존 측정 결과와 작업 기록을 보존하고 Goal UI의 긴 한글·영문 문장이 좁은 화면에서도 편하게 읽히는지 확인합니다.',
+    },
   ];
   for (const width of [900, 320]) {
     for (const empty of [false, true]) {
-      const markup = renderToStaticMarkup(React.createElement(SessionGoalHost, { placement: 'composer' },
-        React.createElement(SessionGoalIsland, {
-          snapshot: {
-            sessionId: 'typography-test',
-            goal: {
-              id: 'typography', status: 'paused', title: 'Goal UI 글자 위계 정리',
-              objective: 'Verify the agreed typography',
-              timeMode: 'max', timeLimitMs: 3_600_000, timeUsedMs: 60_000, remainingMs: 3_540_000,
-              tasks: empty ? [] : tasks,
-              blocker: '승인 대기 — waiting for approval',
+      const markup = renderToStaticMarkup(
+        React.createElement(
+          SessionGoalHost,
+          { placement: 'composer' },
+          React.createElement(SessionGoalIsland, {
+            snapshot: {
+              sessionId: 'typography-test',
+              goal: {
+                id: 'typography',
+                status: 'paused',
+                title: 'Goal UI 글자 위계 정리',
+                objective: 'Verify the agreed typography',
+                timeMode: 'max',
+                timeLimitMs: 3_600_000,
+                timeUsedMs: 60_000,
+                remainingMs: 3_540_000,
+                tasks: empty ? [] : tasks,
+                blocker: '승인 대기 — waiting for approval',
+              },
             },
-          },
-        })));
+          })
+        )
+      );
       await page.setViewport({ width, height: 800 });
       await page.setContent(`<!doctype html><html><head></head><body>
         <main style="position:fixed;bottom:32px;left:0;right:0">${markup}</main>
       </body></html>`);
       await page.addStyleTag({ content: bundle.outputFiles[0].text });
-      const view = await page.$eval('.session-goal-island', async island => {
+      const view = await page.$eval('.session-goal-island', async (island) => {
         island.dataset.open = 'true';
         const drawer = island.querySelector('.session-goal-drawer');
         drawer.inert = false;
         drawer.setAttribute('aria-hidden', 'false');
         await document.fonts.ready;
-        const typography = element => {
+        const typography = (element) => {
           const style = getComputedStyle(element);
           return {
-            family: style.fontFamily, size: style.fontSize, weight: style.fontWeight,
-            line: style.lineHeight, color: style.color,
+            family: style.fontFamily,
+            size: style.fontSize,
+            weight: style.fontWeight,
+            line: style.lineHeight,
+            color: style.color,
           };
         };
         return {
           title: typography(island.querySelector('.session-goal-objective')),
-          supporting: [...island.querySelectorAll('.session-goal-meta, .session-goal-details, .session-goal-empty, .session-goal-blocker')]
-            .map(typography),
-          tasks: [...island.querySelectorAll('.session-goal-tasks li')].map(row => {
+          supporting: [
+            ...island.querySelectorAll(
+              '.session-goal-meta, .session-goal-details, .session-goal-empty, .session-goal-blocker'
+            ),
+          ].map(typography),
+          tasks: [...island.querySelectorAll('.session-goal-tasks li')].map((row) => {
             const copy = row.querySelector('div > span');
             const icon = row.querySelector(':scope > span');
             return {
@@ -198,15 +242,18 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
   const bundle = await build({
     // Vite-only `?worker` imports carry no esbuild meaning, and the capsule
     // never reaches a Monaco worker at runtime.
-    plugins: [{
-      name: 'worker-stub',
-      setup(builder) {
-        builder.onResolve({ filter: /\?worker$/ }, (args) => ({ path: args.path, namespace: 'worker-stub' }));
-        builder.onLoad({ filter: /.*/, namespace: 'worker-stub' }, () => ({
-          contents: 'export default class {};', loader: 'js',
-        }));
+    plugins: [
+      {
+        name: 'worker-stub',
+        setup(builder) {
+          builder.onResolve({ filter: /\?worker$/ }, (args) => ({ path: args.path, namespace: 'worker-stub' }));
+          builder.onLoad({ filter: /.*/, namespace: 'worker-stub' }, () => ({
+            contents: 'export default class {};',
+            loader: 'js',
+          }));
+        },
       },
-    }],
+    ],
     stdin: {
       contents: `
         import React from 'react';
@@ -237,7 +284,10 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
       loader: 'tsx',
     },
     outfile: 'goal-stop-confirmation.js',
-    bundle: true, write: false, format: 'iife', jsx: 'automatic',
+    bundle: true,
+    write: false,
+    format: 'iife',
+    jsx: 'automatic',
     loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
   });
   const script = bundle.outputFiles.find((file) => file.path.endsWith('.js')).text;
@@ -278,17 +328,23 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
     const { x, y, width, height } = button.getBoundingClientRect();
     const hit = document.elementFromPoint(x + width / 2, y + height / 2);
     return {
-      covering: hit === button || button.contains(hit) ? '' : (hit?.className || hit?.tagName || 'nothing'),
-      inside: button.getBoundingClientRect().bottom
-        <= document.querySelector('.session-goal-panel').getBoundingClientRect().bottom + 1,
+      covering: hit === button || button.contains(hit) ? '' : hit?.className || hit?.tagName || 'nothing',
+      inside:
+        button.getBoundingClientRect().bottom <=
+        document.querySelector('.session-goal-panel').getBoundingClientRect().bottom + 1,
     };
   });
   assert.equal(reachable.covering, '', 'the stop confirmation must receive the press itself');
   assert.equal(reachable.inside, true, 'the stop confirmation must stay inside the drawer it opened in');
   await page.click(confirm);
   const calls = await page.evaluate(() => window.__calls);
-  assert.deepEqual(calls.at(-1), {
-    sessionId: 'stop-confirm', capability: 'goalControl',
-    args: [{ action: 'stop', expectedGoalId: 'long-goal' }],
-  }, 'confirming stop sends the stop action for this session');
+  assert.deepEqual(
+    calls.at(-1),
+    {
+      sessionId: 'stop-confirm',
+      capability: 'goalControl',
+      args: [{ action: 'stop', expectedGoalId: 'long-goal' }],
+    },
+    'confirming stop sends the stop action for this session'
+  );
 });

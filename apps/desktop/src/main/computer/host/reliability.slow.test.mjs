@@ -13,20 +13,36 @@ import { createWorkerPool } from '../backend/worker-pool.ts';
 import { waitForComputerWorkerExit } from '../backend/worker-capacity.ts';
 
 test('desktop loss and geometry changes cancel queued work, release simulated held keys, and require explicit resume', async () => {
-  const power = new EventEmitter(), displays = new EventEmitter();
+  const power = new EventEmitter(),
+    displays = new EventEmitter();
   const coordinator = new ComputerUseCoordinator();
   const execution = createExecutionState();
-  let sent = 0, held = false, unblock;
-  const run = new Promise((resolve) => { unblock = resolve; });
+  let sent = 0,
+    held = false,
+    unblock;
+  const run = new Promise((resolve) => {
+    unblock = resolve;
+  });
   const lifecycle = createSessionLifecycle({
-    coordinator, execution, powerShellBySession: new Map(), workerLastUsedAt: new Map(),
-    retirePowerShell() {}, callPowerShell: async () => ({ ok: true }),
-    cancelElevatedSession: async () => true, elevatedSessionIds: () => [],
+    coordinator,
+    execution,
+    powerShellBySession: new Map(),
+    workerLastUsedAt: new Map(),
+    retirePowerShell() {},
+    callPowerShell: async () => ({ ok: true }),
+    cancelElevatedSession: async () => true,
+    elevatedSessionIds: () => [],
     sessionIdFor: (command) => command.session_id,
-    releaseSessionState() {}, invalidateWorkerGeneration() {}, releaseCaptureSession() {},
-    cleanupInput: async () => { held = false; return true; },
+    releaseSessionState() {},
+    invalidateWorkerGeneration() {},
+    releaseCaptureSession() {},
+    cleanupInput: async () => {
+      held = false;
+      return true;
+    },
     runCommand: async () => {
-      sent++; held = true;
+      sent++;
+      held = true;
       await run;
       execution.assertExecutionNotAborted();
       return { text: '{"ok":true}' };
@@ -63,15 +79,23 @@ test('desktop loss and geometry changes cancel queued work, release simulated he
   coordinator.reset();
 });
 
-test('real child transport soak rejects interrupted mutations without replay or resident accumulation', { timeout: 180_000 }, async () => {
+test('real child transport soak rejects interrupted mutations without replay or resident accumulation', {
+  timeout: 180_000,
+}, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'computer-transport-soak-'));
   const children = [];
   const sent = [];
   const pool = createWorkerPool({
-    dataDirectory: () => directory, isBridgeEnabled: () => false, isDisposed: () => false,
+    dataDirectory: () => directory,
+    isBridgeEnabled: () => false,
+    isDisposed: () => false,
     maxWorkers: 2,
     spawnProcess: () => {
-      const child = spawn(process.execPath, ['-e', `
+      const child = spawn(
+        process.execPath,
+        [
+          '-e',
+          `
         let pending = '';
         process.stdin.setEncoding('utf8');
         process.stdin.on('data', chunk => {
@@ -83,9 +107,15 @@ test('real child transport soak rejects interrupted mutations without replay or 
             process.stdout.write('@@MIXCU@@' + JSON.stringify({id: request.id, ok: true, result: {ordinal: request.ordinal}}) + '\\n');
           }
         });
-      `], { stdio: 'pipe', windowsHide: true });
+      `,
+        ],
+        { stdio: 'pipe', windowsHide: true }
+      );
       const write = child.stdin.write.bind(child.stdin);
-      child.stdin.write = (chunk, ...rest) => { sent.push(JSON.parse(String(chunk))); return write(chunk, ...rest); };
+      child.stdin.write = (chunk, ...rest) => {
+        sent.push(JSON.parse(String(chunk)));
+        return write(chunk, ...rest);
+      };
       children.push(child);
       return child;
     },
@@ -104,7 +134,10 @@ test('real child transport soak rejects interrupted mutations without replay or 
       assert.equal(pool.workerLastUsedAt.size, 0);
     }
     assert.equal(sent.length, 1025);
-    assert.equal(new Set(sent.filter((request) => request.action === 'type').map((request) => request.ordinal)).size, 1000);
+    assert.equal(
+      new Set(sent.filter((request) => request.action === 'type').map((request) => request.ordinal)).size,
+      1000
+    );
     assert.equal(children.length, 25);
   } finally {
     for (const child of children) if (child.exitCode === null) child.kill();

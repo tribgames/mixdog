@@ -39,7 +39,9 @@ const MAX_LISTED_CANDIDATES = 8;
 const REGEX_SHAPED = /^\/.+\/[a-z]*$/s;
 
 function compact(value: unknown): string {
-  return String(value ?? '').replace(/\s+/g, ' ').trim();
+  return String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export function normalizeBrowserTarget(raw: unknown): BrowserTargetSpec {
@@ -115,7 +117,7 @@ function listCandidates(elements: BrowserSnapshotElement[]): string {
 export function selectBrowserTarget(
   target: BrowserTargetSpec,
   elements: BrowserSnapshotElement[],
-  scope: { unfiltered?: number } = {},
+  scope: { unfiltered?: number } = {}
 ): BrowserSnapshotElement {
   const wantedName = target.name ? target.name.toLowerCase() : '';
   const byRole = target.role
@@ -128,34 +130,34 @@ export function selectBrowserTarget(
   });
   const described = describeBrowserTarget(target);
   if (!matches.length) {
-    const sameRole = target.role && byRole.length
-      ? ` Elements with role ${target.role}: ${byRole.slice(0, MAX_LISTED_CANDIDATES)
-        .map((element) => JSON.stringify(redactBrowserText(element.name || ''))).join(', ')}${
-        byRole.length > MAX_LISTED_CANDIDATES ? ', …' : ''}.`
-      : '';
+    const sameRole =
+      target.role && byRole.length
+        ? ` Elements with role ${target.role}: ${byRole
+            .slice(0, MAX_LISTED_CANDIDATES)
+            .map((element) => JSON.stringify(redactBrowserText(element.name || '')))
+            .join(', ')}${byRole.length > MAX_LISTED_CANDIDATES ? ', …' : ''}.`
+        : '';
     throw new BrowserActionabilityError(
-      `no element matched target ${described} among ${scope.unfiltered ?? elements.length} candidate element(s).`
-      + `${sameRole} Loosen the target or take a snapshot to read the page.`,
-      'missing',
+      `no element matched target ${described} among ${scope.unfiltered ?? elements.length} candidate element(s).` +
+        `${sameRole} Loosen the target or take a snapshot to read the page.`,
+      'missing'
     );
   }
   if (target.nth) {
     if (target.nth > matches.length) {
       throw new BrowserActionabilityError(
         `target ${described} asked for match #${target.nth} but only ${matches.length} matched:\n${listCandidates(matches)}`,
-        'missing',
+        'missing'
       );
     }
     return matches[target.nth - 1];
   }
   if (matches.length === 1) return matches[0];
-  const verbatim = wantedName
-    ? matches.filter((element) => compact(element.name).toLowerCase() === wantedName)
-    : [];
+  const verbatim = wantedName ? matches.filter((element) => compact(element.name).toLowerCase() === wantedName) : [];
   if (verbatim.length === 1) return verbatim[0];
   throw new Error(
-    `target ${described} matched ${matches.length} elements; add nth, exact:true, or a role, `
-    + `or act on one of these refs from the fresh snapshot:\n${listCandidates(matches)}`,
+    `target ${described} matched ${matches.length} elements; add nth, exact:true, or a role, ` +
+      `or act on one of these refs from the fresh snapshot:\n${listCandidates(matches)}`
   );
 }
 
@@ -163,7 +165,7 @@ export interface BrowserTargetResolverHost {
   captureSnapshotPayload(
     guest: WebContents,
     command: BrowserCommand,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<BrowserSnapshotPayload>;
   state: BrowserGuestStateStore;
   cdp: BrowserCdpPort;
@@ -174,8 +176,8 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
   function checkSelectorMatchCount(count: number): void {
     if (count > MAX_SELECTOR_MATCHES) {
       throw new Error(
-        `target.selector matched ${count} elements, exceeding the limit of ${MAX_SELECTOR_MATCHES}; `
-        + 'narrow target.selector before acting',
+        `target.selector matched ${count} elements, exceeding the limit of ${MAX_SELECTOR_MATCHES}; ` +
+          'narrow target.selector before acting'
       );
     }
   }
@@ -187,37 +189,47 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
     guest: WebContents,
     selector: string,
     payload: BrowserSnapshotPayload,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<BrowserSnapshotElement[]> {
     const record = host.state.for(guest);
     const byRef = new Map(payload.elements.map((element) => [element.ref, element]));
-    const invalid = (reason: string) => new Error(
-      `target.selector is not a valid CSS selector: ${redactBrowserText(reason)}`,
-    );
+    const invalid = (reason: string) =>
+      new Error(`target.selector is not a valid CSS selector: ${redactBrowserText(reason)}`);
     const mint = (
       role: string,
       name: string,
       register: (ref: string) => void,
-      backendNodeId: number,
+      backendNodeId: number
     ): BrowserSnapshotElement => {
       // Top-document backend ids stay unique across every target in this
       // observation; a selector-local counter can alias two batch fields.
       const ref = `${payload.snapshotId}-t${backendNodeId}`;
       register(ref);
       record.refSet?.refs.set(ref, {
-        ref, snapshotId: payload.snapshotId, url: payload.url, role, name, href: '',
+        ref,
+        snapshotId: payload.snapshotId,
+        url: payload.url,
+        role,
+        name,
+        href: '',
       });
       return { ref, role, name, tag: 'css' };
     };
     const accessibility = record.accessibilityRefs;
     if (accessibility && accessibility.snapshotId === payload.snapshotId) {
       const document = await host.cdp.call<{ root: { nodeId: number } }>(
-        guest, 'DOM.getDocument', { depth: 0 }, signal,
+        guest,
+        'DOM.getDocument',
+        { depth: 0 },
+        signal
       );
       let nodeIds: number[];
       try {
         ({ nodeIds } = await host.cdp.call<{ nodeIds: number[] }>(
-          guest, 'DOM.querySelectorAll', { nodeId: document.root.nodeId, selector }, signal,
+          guest,
+          'DOM.querySelectorAll',
+          { nodeId: document.root.nodeId, selector },
+          signal
         ));
       } catch (error) {
         if (signal?.aborted) throw signal.reason || error;
@@ -245,12 +257,14 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
           const index = attributes.findIndex((value, position) => position % 2 === 0 && value === wanted);
           return index >= 0 ? compact(attributes[index + 1]).slice(0, 120) : '';
         };
-        out.push(mint(
-          attribute('role') || String(described.node.nodeName || 'element').toLowerCase(),
-          attribute('aria-label') || attribute('title') || attribute('id'),
-          (ref) => accessibility.refs.set(ref, { backendNodeId }),
-          backendNodeId,
-        ));
+        out.push(
+          mint(
+            attribute('role') || String(described.node.nodeName || 'element').toLowerCase(),
+            attribute('aria-label') || attribute('title') || attribute('id'),
+            (ref) => accessibility.refs.set(ref, { backendNodeId }),
+            backendNodeId
+          )
+        );
       }
       return out;
     }
@@ -258,7 +272,9 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
       error?: string;
       count: number;
       matches?: Array<{ ref: string; role: string; name: string }>;
-    }>(guest, `(() => {
+    }>(
+      guest,
+      `(() => {
       const snapshot = window.__mixdogAgentSnapshot;
       if (!snapshot || snapshot.id !== ${JSON.stringify(payload.snapshotId)}) return { error: 'stale' };
       let nodes;
@@ -283,7 +299,9 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
         });
       }
       return { count: nodes.length, matches };
-    })()`, signal);
+    })()`,
+      signal
+    );
     if (found?.error === 'stale') throw new Error('the page changed while resolving the target; try again');
     if (found?.error) throw invalid(found.error.replace(/^invalid:/, ''));
     checkSelectorMatchCount(found.count);
@@ -291,7 +309,12 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
       const element = byRef.get(match.ref);
       if (element) return element;
       record.refSet?.refs.set(match.ref, {
-        ref: match.ref, snapshotId: payload.snapshotId, url: payload.url, role: match.role, name: match.name, href: '',
+        ref: match.ref,
+        snapshotId: payload.snapshotId,
+        url: payload.url,
+        role: match.role,
+        name: match.name,
+        href: '',
       });
       return { ref: match.ref, role: match.role, name: match.name, tag: 'css' };
     });
@@ -302,18 +325,16 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
   async function resolveTargetRefs(
     guest: WebContents,
     rawTargets: unknown[],
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<ResolvedBrowserTarget[]> {
     const targets = rawTargets.map(normalizeBrowserTarget);
     const single = targets.length === 1 ? targets[0] : null;
-    const query = single?.name && !single.selector && !REGEX_SHAPED.test(single.name)
-      ? single.name
-      : undefined;
+    const query = single?.name && !single.selector && !REGEX_SHAPED.test(single.name) ? single.name : undefined;
     return waitForBrowserActionable(async () => {
       const payload = await host.captureSnapshotPayload(
         guest,
         { action: 'snapshot', maxElements: 500, ...(query ? { query } : {}) },
-        signal,
+        signal
       );
       const resolved: ResolvedBrowserTarget[] = [];
       for (const target of targets) {

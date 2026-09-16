@@ -33,13 +33,8 @@ export function applySessionStatePatch(previous, patch) {
   const next = { ...base, ...(patch.set || {}) };
   if (patch.itemsAppend) {
     const items = Array.isArray(base.items) ? base.items : [];
-    const from = Math.max(0, Math.min(
-      items.length,
-      Math.floor(Number(patch.itemsAppend.from) || 0),
-    ));
-    next.items = items.slice(0, from).concat(
-      Array.isArray(patch.itemsAppend.values) ? patch.itemsAppend.values : [],
-    );
+    const from = Math.max(0, Math.min(items.length, Math.floor(Number(patch.itemsAppend.from) || 0)));
+    next.items = items.slice(0, from).concat(Array.isArray(patch.itemsAppend.values) ? patch.itemsAppend.values : []);
   }
   for (const key of patch.remove || []) delete next[key];
   return next;

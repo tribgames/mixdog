@@ -30,18 +30,13 @@ try {
     const buildOptions = {
       manifest: Array.isArray(workerData.manifest) ? workerData.manifest : null,
       signature: typeof workerData.signature === 'string' ? workerData.signature : null,
-      ...(workerData.buildOptions && typeof workerData.buildOptions === 'object'
-        ? workerData.buildOptions
-        : {}),
+      ...(workerData.buildOptions && typeof workerData.buildOptions === 'object' ? workerData.buildOptions : {}),
     };
     const graph = await _buildCodeGraph(cwd, buildOptions);
     if (graph && typeof graph.signature === 'string') {
-      _postCodeGraphWorkerSuccess(
-        graph,
-        (message) => parentPort.postMessage(message),
-        undefined,
-        { cache: buildOptions.cache },
-      );
+      _postCodeGraphWorkerSuccess(graph, (message) => parentPort.postMessage(message), undefined, {
+        cache: buildOptions.cache,
+      });
     } else {
       parentPort.postMessage({ ok: false });
     }

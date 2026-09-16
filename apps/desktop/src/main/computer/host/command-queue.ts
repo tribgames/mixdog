@@ -85,14 +85,19 @@ export function createComputerCommandQueue(options: {
           }
           coordinator.assertAutomationAllowed();
           finish();
-        } catch (error) { finish(error); }
+        } catch (error) {
+          finish(error);
+        }
       };
       callbacks.add(check);
       wakeups.set(sessionId, callbacks);
-      const timer = setTimeout(() => {
-        check();
-        if (!settled) finish(new PauseWaitExpired());
-      }, Math.max(0, deadline - performance.now()));
+      const timer = setTimeout(
+        () => {
+          check();
+          if (!settled) finish(new PauseWaitExpired());
+        },
+        Math.max(0, deadline - performance.now())
+      );
       unsubscribe = coordinator.subscribe(check);
       if (settled) unsubscribe();
       check();
@@ -107,7 +112,7 @@ export function createComputerCommandQueue(options: {
   function runForegroundExclusive<T>(
     sessionId: string,
     operation: () => Promise<T>,
-    settings: { requireFreshAfterWait?: boolean; assertRunnable?: () => void; allowWhileUserControl?: boolean } = {},
+    settings: { requireFreshAfterWait?: boolean; assertRunnable?: () => void; allowWhileUserControl?: boolean } = {}
   ): Promise<T> {
     const queuePosition = foregroundQueueDepth++;
     if (queuePosition > 0) coordinator.queueForeground(sessionId, queuePosition);
@@ -120,16 +125,25 @@ export function createComputerCommandQueue(options: {
         }
         coordinator.activateForeground(sessionId);
         if (settings.requireFreshAfterWait !== false && queuedForegroundRequiresRecapture(queuePosition)) {
-          throw new Error('computer_foreground_available_recapture_required: desktop lane changed; capture fresh state');
+          throw new Error(
+            'computer_foreground_available_recapture_required: desktop lane changed; capture fresh state'
+          );
         }
         return await operation();
-      } finally { foregroundQueueDepth = Math.max(0, foregroundQueueDepth - 1); }
+      } finally {
+        foregroundQueueDepth = Math.max(0, foregroundQueueDepth - 1);
+      }
     });
     foregroundChain = run.catch(() => undefined);
     return run;
   }
 
-  async function executeAttempt(command: ComputerCommand, epoch: number, generation: number, pending?: PausedComputerWork): Promise<ComputerCommandResult> {
+  async function executeAttempt(
+    command: ComputerCommand,
+    epoch: number,
+    generation: number,
+    pending?: PausedComputerWork
+  ): Promise<ComputerCommandResult> {
     const sessionId = sessionIdFor(command);
     const foreground = requiresForegroundLane(command);
     const releaseApproval = beginComputerOperation();
@@ -146,14 +160,18 @@ export function createComputerCommandQueue(options: {
       const operation = async () => {
         assertRunnable();
         coordinator.beginCommand({
-          sessionId, action: String(command.action || 'computer'),
+          sessionId,
+          action: String(command.action || 'computer'),
           target: String(command.window || command.window_id || command.app || ''),
           mode: computerDeliveryMode(command),
         });
         activeExecutionsBySession.set(sessionId, state);
         return executionContext.run(state, async () => {
-          if (generation !== coordinator.snapshot().takeoverGeneration
-            && !READ_ACTIONS.has(String(command.action)) && !isComputerRecoveryRead(String(command.action))) {
+          if (
+            generation !== coordinator.snapshot().takeoverGeneration &&
+            !READ_ACTIONS.has(String(command.action)) &&
+            !isComputerRecoveryRead(String(command.action))
+          ) {
             pending ||= new PausedComputerWork({ completed: 0 });
           }
           if (pending) {
@@ -162,14 +180,18 @@ export function createComputerCommandQueue(options: {
             return pendingWorkReply(command, fresh, pending.progress);
           }
           state.progress = { completed: 0, inFlight: 0 };
-          const result = await runCommand(foreground && lastInjectionTick !== null
-            ? { ...command, known_injection_tick: lastInjectionTick } : command);
+          const result = await runCommand(
+            foreground && lastInjectionTick !== null ? { ...command, known_injection_tick: lastInjectionTick } : command
+          );
           if (!Array.isArray(command.steps)) state.progress = { completed: 1 };
           return result;
         });
       };
       const outcome = foreground
-        ? await runForegroundExclusive(sessionId, operation, { assertRunnable, requireFreshAfterWait: pending ? false : undefined })
+        ? await runForegroundExclusive(sessionId, operation, {
+            assertRunnable,
+            requireFreshAfterWait: pending ? false : undefined,
+          })
         : await operation();
       assertRunnable();
       coordinator.assertAutomationAllowed();
@@ -192,16 +214,22 @@ export function createComputerCommandQueue(options: {
         options.takeOver(code);
       }
       const paused = coordinator.snapshot();
-      if (paused.userControlActive
-        && ['user_input_active', 'user_pause'].includes(paused.takeoverReason || '')
-        && !READ_ACTIONS.has(String(command.action))
-        && !isComputerRecoveryRead(String(command.action))) {
+      if (
+        paused.userControlActive &&
+        ['user_input_active', 'user_pause'].includes(paused.takeoverReason || '') &&
+        !READ_ACTIONS.has(String(command.action)) &&
+        !isComputerRecoveryRead(String(command.action))
+      ) {
         // Throw out of the active lane before waiting: cleanup and resume
         // must be able to drain it. Only progress survives, never stale refs.
         throw pending || new PausedComputerWork(state.progress || { completed: 0 });
       }
-      const record = { ...computerRunRecord(command, startedAt), ok: false, error: code,
-        ...(captureAttempts.length ? { capture_attempts: captureAttempts } : {}) };
+      const record = {
+        ...computerRunRecord(command, startedAt),
+        ok: false,
+        error: code,
+        ...(captureAttempts.length ? { capture_attempts: captureAttempts } : {}),
+      };
       appendComputerRunRecord(sessionId, record);
       let recapture: ComputerCommandResult | null = null;
       try {
@@ -219,12 +247,16 @@ export function createComputerCommandQueue(options: {
         // mutation as "cancelled before execution", or publish a stale result.
         recapture = null;
         options.recordDiagnostic?.(sessionId, {
-          action: command.action, stage: 'recovery', ok: false,
+          action: command.action,
+          stage: 'recovery',
+          ok: false,
           error: computerLogError(recoveryError),
         });
       } finally {
         options.recordDiagnostic?.(sessionId, {
-          ...record, stage: 'execution', input_recovery: { recapture_available: recapture !== null },
+          ...record,
+          stage: 'execution',
+          input_recovery: { recapture_available: recapture !== null },
         });
       }
       if (recapture) return recapture;
@@ -243,14 +275,17 @@ export function createComputerCommandQueue(options: {
     if (isComputerLifecycleControl(command)) return runCommand(command);
     const releaseBudget = budget.acquire(sessionId);
     if (coordinator.snapshot().userControlActive && isComputerRecoveryRead(String(command.action))) {
-      return Promise.resolve().then(() => runCommand(command)).finally(releaseBudget);
+      return Promise.resolve()
+        .then(() => runCommand(command))
+        .finally(releaseBudget);
     }
     const epoch = sessionAbortEpochs.get(sessionId) || 0;
     const snapshot = coordinator.snapshot();
-    const generation = snapshot.userControlActive ? -1 : snapshot.takeoverGeneration ?? 0;
+    const generation = snapshot.userControlActive ? -1 : (snapshot.takeoverGeneration ?? 0);
     const pauseDeadline = performance.now() + pauseWaitMs;
     coordinator.queueCommand({
-      sessionId, action: String(command.action || 'computer'),
+      sessionId,
+      action: String(command.action || 'computer'),
       target: String(command.window || command.window_id || command.app || ''),
       mode: requiresForegroundLane(command) ? 'foreground' : 'background',
     });
@@ -264,16 +299,24 @@ export function createComputerCommandQueue(options: {
         } catch (error) {
           if (!(error instanceof PauseWaitExpired)) throw error;
           options.recordDiagnostic?.(sessionId, {
-            action: command.action, stage: 'paused', ok: true, input_replayed: false,
+            action: command.action,
+            stage: 'paused',
+            ok: true,
+            input_replayed: false,
           });
-          return pausedWorkReply(command, pending?.progress || { completed: 0 },
-            coordinator.snapshot().takeoverReason || 'user_pause');
+          return pausedWorkReply(
+            command,
+            pending?.progress || { completed: 0 },
+            coordinator.snapshot().takeoverReason || 'user_pause'
+          );
         }
         assertEpoch(sessionId, epoch);
         // A pause can arrive between the waiter resolving and this continuation.
         if (coordinator.snapshot().userControlActive) continue;
         let finish!: () => void;
-        const settled = new Promise<void>((resolve) => { finish = resolve; });
+        const settled = new Promise<void>((resolve) => {
+          finish = resolve;
+        });
         active.add(settled);
         try {
           return await executeAttempt(command, epoch, generation, pending);
@@ -286,7 +329,10 @@ export function createComputerCommandQueue(options: {
         }
       }
     });
-    const tail = run.then(() => {}, () => {});
+    const tail = run.then(
+      () => {},
+      () => {}
+    );
     commandChainsBySession.set(sessionId, tail);
     void tail.then(() => {
       releaseBudget();
@@ -302,7 +348,9 @@ export function createComputerCommandQueue(options: {
   }
 
   return {
-    executeSerialized, runForegroundExclusive, cancelSession,
+    executeSerialized,
+    runForegroundExclusive,
+    cancelSession,
     drainActive: () => Promise.all([...active]),
   };
 }

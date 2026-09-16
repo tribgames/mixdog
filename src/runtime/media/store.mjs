@@ -12,12 +12,7 @@ import { randomUUID } from 'crypto';
 import { spawn } from 'child_process';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { writeJsonAtomicSync, withFileLockSync } from '../shared/atomic-file.mjs';
-import {
-  cacheRendition,
-  ensureRendition,
-  removeRenditions,
-  renditionSpec,
-} from './renditions.mjs';
+import { cacheRendition, ensureRendition, removeRenditions, renditionSpec } from './renditions.mjs';
 
 // Renderer transport is base64 over IPC: refuse to inline anything larger.
 const MAX_INLINE_BYTES = 48 * 1024 * 1024;
@@ -300,10 +295,7 @@ function inlineBase64(path) {
  * no ffmpeg); the caller reduces the feature instead of substituting the
  * original behind the client's back.
  */
-export async function resolveMediaFile(id, {
-  variant = 'original',
-  generate = true,
-} = {}) {
+export async function resolveMediaFile(id, { variant = 'original', generate = true } = {}) {
   const entry = getMediaAsset(id);
   if (!entry) return null;
   const path = storedAssetPath(entry.file);
@@ -339,11 +331,7 @@ export async function resolveMediaFile(id, {
  * so (`available: false`) instead of quietly shipping full-size bytes — the
  * caller that can afford them (local IPC) opts in with `allowOriginal`.
  */
-export async function readMediaAsset(id, {
-  variant = 'original',
-  allowOriginal = false,
-  generate = true,
-} = {}) {
+export async function readMediaAsset(id, { variant = 'original', allowOriginal = false, generate = true } = {}) {
   const file = await resolveMediaFile(id, { variant, generate });
   if (!file) return null;
   if (file.available) return { ...file, base64: inlineBase64(file.path) };
@@ -358,7 +346,7 @@ export function cacheMediaThumbnail(id, input = {}) {
   const entry = getMediaAsset(id);
   if (!entry) return null;
   const base64 = typeof input.base64 === 'string' ? input.base64 : '';
-  if (!base64 || base64.length > Math.ceil(MAX_CACHED_THUMBNAIL_BYTES * 4 / 3) + 8) {
+  if (!base64 || base64.length > Math.ceil((MAX_CACHED_THUMBNAIL_BYTES * 4) / 3) + 8) {
     return { id, available: false };
   }
   const buffer = Buffer.from(base64, 'base64');
@@ -413,10 +401,7 @@ export function openMediaFolder(id = '') {
   return { path: assetsDir(), opened: openWithOs(assetsDir()) };
 }
 
-export function mediaOpenCommand(path, {
-  reveal = false,
-  platform = process.platform,
-} = {}) {
+export function mediaOpenCommand(path, { reveal = false, platform = process.platform } = {}) {
   if (reveal && platform === 'win32') return ['explorer.exe', ['/select,', path]];
   if (reveal && platform === 'darwin') return ['open', ['-R', path]];
   const target = reveal ? dirname(path) : path;
@@ -441,7 +426,9 @@ export function deleteMediaAsset(id) {
     const entry = assets.find((row) => row.id === id);
     if (!entry) return null;
     const path = storedAssetPath(entry.file);
-    try { if (path) unlinkSync(path); } catch {}
+    try {
+      if (path) unlinkSync(path);
+    } catch {}
     removeRenditions(renditionsDir(), id);
     removed = true;
     return assets.filter((row) => row.id !== id);

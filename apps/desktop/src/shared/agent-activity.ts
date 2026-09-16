@@ -1,7 +1,6 @@
 type AgentRecord = Record<string, unknown>;
 
-export const DESKTOP_TERMINAL_AGENT_STATUS =
-  /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
+export const DESKTOP_TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
 
 const DESKTOP_ACTIVE_AGENT_STATUS =
   /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting)$/i;
@@ -23,37 +22,35 @@ export const DESKTOP_CANCELLED_AGENT_STATUS = /cancel|killed|aborted|interrupted
 /** A cancel whose stop is NOT proven: still winding down, or delivered to a
  *  process that could not be confirmed gone. It must not read as "Cancelled"
  *  either — the honest answer is that the outcome is unconfirmed. */
-export const DESKTOP_CANCEL_UNCONFIRMED_STATUS =
-  /cancel[-_\s]?(?:unconfirmed|pending)|cancell?ing/i;
+export const DESKTOP_CANCEL_UNCONFIRMED_STATUS = /cancel[-_\s]?(?:unconfirmed|pending)|cancell?ing/i;
 
 function record(value: unknown): AgentRecord {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as AgentRecord
-    : {};
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as AgentRecord) : {};
 }
 
 function statusValues(value: unknown): string[] {
   const entry = record(value);
   return [entry.stage, entry.status]
-    .map((status) => String(status || "").trim())
+    .map((status) => String(status || '').trim())
     .filter((status, index, values) => Boolean(status) && values.indexOf(status) === index);
 }
 
 export function desktopAgentStatus(value: unknown): string {
-  return statusValues(value)[0] || "";
+  return statusValues(value)[0] || '';
 }
 
 export function isActiveDesktopAgentEntry(value: unknown): boolean {
   const statuses = statusValues(value);
-  return statuses.length > 0
-    && !statuses.some((status) => DESKTOP_TERMINAL_AGENT_STATUS.test(status))
-    && statuses.some((status) => DESKTOP_ACTIVE_AGENT_STATUS.test(status));
+  return (
+    statuses.length > 0 &&
+    !statuses.some((status) => DESKTOP_TERMINAL_AGENT_STATUS.test(status)) &&
+    statuses.some((status) => DESKTOP_ACTIVE_AGENT_STATUS.test(status))
+  );
 }
 
 export function isQueuedDesktopAgentEntry(value: unknown): boolean {
   const statuses = statusValues(value);
-  return isActiveDesktopAgentEntry(value)
-    && statuses.every((status) => DESKTOP_QUEUED_AGENT_STATUS.test(status));
+  return isActiveDesktopAgentEntry(value) && statuses.every((status) => DESKTOP_QUEUED_AGENT_STATUS.test(status));
 }
 
 export function isCancelledDesktopAgentEntry(value: unknown): boolean {
@@ -68,17 +65,17 @@ export function isCancelUnconfirmedDesktopAgentEntry(value: unknown): boolean {
  *  first: a row cancelled mid-turn still carries stage `running`, so
  *  desktopAgentStatus() would answer "running" for an entry that was stopped. */
 export function desktopAgentCancelStatus(value: unknown): string {
-  return statusValues(value).find((status) => DESKTOP_CANCELLED_AGENT_STATUS.test(status)) || "";
+  return statusValues(value).find((status) => DESKTOP_CANCELLED_AGENT_STATUS.test(status)) || '';
 }
 
 export type DesktopAgentActivityState =
-  | "queued"
-  | "running"
-  | "waiting"
-  | "cancel-unconfirmed"
-  | "cancelled"
-  | "done"
-  | "idle";
+  | 'queued'
+  | 'running'
+  | 'waiting'
+  | 'cancel-unconfirmed'
+  | 'cancelled'
+  | 'done'
+  | 'idle';
 
 /** Single lifecycle mapping for every agent surface. Cancellation outranks the
  *  queued/running/done/idle buckets: an entry cancelled WHILE QUEUED still
@@ -88,25 +85,25 @@ export type DesktopAgentActivityState =
  *  unsettled descendants is waiting, even if its last response is unread. */
 export function desktopAgentActivityState(
   value: unknown,
-  options: { unread?: boolean; waitingForAgents?: boolean } = {},
+  options: { unread?: boolean; waitingForAgents?: boolean } = {}
 ): DesktopAgentActivityState {
   if (isCancelledDesktopAgentEntry(value)) {
-    return isCancelUnconfirmedDesktopAgentEntry(value) ? "cancel-unconfirmed" : "cancelled";
+    return isCancelUnconfirmedDesktopAgentEntry(value) ? 'cancel-unconfirmed' : 'cancelled';
   }
-  if (isQueuedDesktopAgentEntry(value)) return "queued";
-  if (isActiveDesktopAgentEntry(value)) return "running";
-  if (options.waitingForAgents === true) return "waiting";
-  return options.unread === true ? "done" : "idle";
+  if (isQueuedDesktopAgentEntry(value)) return 'queued';
+  if (isActiveDesktopAgentEntry(value)) return 'running';
+  if (options.waitingForAgents === true) return 'waiting';
+  return options.unread === true ? 'done' : 'idle';
 }
 
 export function desktopAgentIdentity(value: unknown): string {
   const entry = record(value);
-  return String(entry.tag || entry.task_id || entry.taskId || "").trim();
+  return String(entry.tag || entry.task_id || entry.taskId || '').trim();
 }
 
 function stampMs(value: unknown): number {
-  if (typeof value === "number") return Number.isFinite(value) && value > 0 ? value : 0;
-  const text = String(value || "").trim();
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : 0;
+  const text = String(value || '').trim();
   if (!text) return 0;
   const numeric = Number(text);
   if (Number.isFinite(numeric) && numeric > 0) return numeric;
@@ -117,11 +114,7 @@ function stampMs(value: unknown): number {
  *  every tick, so it can never prove that new work started. */
 export function desktopAgentWorkStamp(value: unknown): number {
   const entry = record(value);
-  return Math.max(
-    stampMs(entry.turnStartedAt),
-    stampMs(entry.startedAt),
-    stampMs(entry.createdAt),
-  );
+  return Math.max(stampMs(entry.turnStartedAt), stampMs(entry.startedAt), stampMs(entry.createdAt));
 }
 
 /** The frozen TURN start alone. The pool's heartbeat promotion re-declares a
@@ -134,7 +127,7 @@ function turnStampMs(value: unknown): number {
 
 function cancellationKey(value: unknown): string {
   const entry = record(value);
-  return String(entry.sessionId || "").trim() || desktopAgentIdentity(entry);
+  return String(entry.sessionId || '').trim() || desktopAgentIdentity(entry);
 }
 
 export interface DesktopAgentCancellationLedger {
@@ -153,9 +146,7 @@ const DESKTOP_CANCELLATION_LEDGER_CAP = 256;
  *  ledger keeps such a row cancelled instead of letting a later snapshot
  *  resurrect it as working; only a genuinely NEWER frozen turn/start stamp
  *  (real new work under the same identity) releases it. */
-export function createDesktopCancellationLedger(
-  cap = DESKTOP_CANCELLATION_LEDGER_CAP,
-): DesktopAgentCancellationLedger {
+export function createDesktopCancellationLedger(cap = DESKTOP_CANCELLATION_LEDGER_CAP): DesktopAgentCancellationLedger {
   const ledger = new Map<string, { status: string; at: number; stamped: boolean }>();
   return {
     apply<T extends AgentRecord>(rows: readonly T[]): T[] {
@@ -167,7 +158,7 @@ export function createDesktopCancellationLedger(
         if (isCancelledDesktopAgentEntry(row)) {
           ledger.delete(key);
           ledger.set(key, {
-            status: desktopAgentCancelStatus(row) || "cancelled",
+            status: desktopAgentCancelStatus(row) || 'cancelled',
             at: Math.max(stamp, remembered?.at || 0),
             // An agent cancelled while QUEUED carries no frozen stamp at all.
             // Such a cancellation has a baseline of 0, which ANY later stamp
@@ -201,22 +192,23 @@ export function createDesktopCancellationLedger(
 /** What a cancel request actually achieved, read from the capability result.
  *  `cancel-unconfirmed` (and the Windows survivor warning behind it) must never
  *  be reported as a completed or successful cancel. */
-export function desktopCancelOutcome(value: unknown): "unconfirmed" | "cancelled" | "" {
-  const text = typeof value === "string"
-    ? value
-    : value && typeof value === "object"
-      ? ["status", "stage", "text", "message", "result", "detail", "error"]
-        .map((key) => {
-          const part = (value as AgentRecord)[key];
-          return typeof part === "string" ? part : "";
-        })
-        .filter(Boolean)
-        .join("\n")
-      : "";
-  if (!text.trim()) return "";
+export function desktopCancelOutcome(value: unknown): 'unconfirmed' | 'cancelled' | '' {
+  const text =
+    typeof value === 'string'
+      ? value
+      : value && typeof value === 'object'
+        ? ['status', 'stage', 'text', 'message', 'result', 'detail', 'error']
+            .map((key) => {
+              const part = (value as AgentRecord)[key];
+              return typeof part === 'string' ? part : '';
+            })
+            .filter(Boolean)
+            .join('\n')
+        : '';
+  if (!text.trim()) return '';
   if (/cancel[-_\s]?(?:unconfirmed|pending)|SURVIVING_DESCENDANTS_UNREACHABLE/i.test(text)) {
-    return "unconfirmed";
+    return 'unconfirmed';
   }
-  if (DESKTOP_CANCELLED_AGENT_STATUS.test(text)) return "cancelled";
-  return "";
+  if (DESKTOP_CANCELLED_AGENT_STATUS.test(text)) return 'cancelled';
+  return '';
 }

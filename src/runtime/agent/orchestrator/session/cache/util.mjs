@@ -2,14 +2,17 @@
 import { statSync } from 'node:fs';
 import { resolve as resolvePath, isAbsolute, normalize } from 'node:path';
 import {
-    isBlockedDevicePath, isUncPath, isWindowsDevicePath, hasUnsafeWin32Component,
+  isBlockedDevicePath,
+  isUncPath,
+  isWindowsDevicePath,
+  hasUnsafeWin32Component,
 } from '../../tools/builtin/device-paths.mjs';
 
 export function _normalizeAbs(path, cwd) {
-    if (typeof path !== 'string' || path.length === 0) return null;
-    const base = cwd && typeof cwd === 'string' ? cwd : process.cwd();
-    const abs = isAbsolute(path) ? path : resolvePath(base, path);
-    return _normalizeCacheKey(normalize(abs));
+  if (typeof path !== 'string' || path.length === 0) return null;
+  const base = cwd && typeof cwd === 'string' ? cwd : process.cwd();
+  const abs = isAbsolute(path) ? path : resolvePath(base, path);
+  return _normalizeCacheKey(normalize(abs));
 }
 
 /**
@@ -20,39 +23,47 @@ export function _normalizeAbs(path, cwd) {
  * No realpath — symlinks are intentionally treated as distinct keys.
  */
 export function _normalizeCacheKey(p) {
-    if (typeof p !== 'string' || p.length === 0) return p;
-    let s = p.replace(/\\/g, '/');
-    if (process.platform === 'win32') s = s.toLowerCase();
-    else if (/^[A-Z]:\//.test(s)) s = s[0].toLowerCase() + s.slice(1);
-    // Strip trailing slash unless it is the root itself
-    if (s.length > 1 && s.endsWith('/')) s = s.slice(0, -1);
-    return s;
+  if (typeof p !== 'string' || p.length === 0) return p;
+  let s = p.replace(/\\/g, '/');
+  if (process.platform === 'win32') s = s.toLowerCase();
+  else if (/^[A-Z]:\//.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  // Strip trailing slash unless it is the root itself
+  if (s.length > 1 && s.endsWith('/')) s = s.slice(0, -1);
+  return s;
 }
 
 export function _statTuple(absPath) {
-    // Cache probes run before tool execution; they must not touch paths that
-    // the read tool would reject before IO (notably credential-leaking UNC).
-    if (isUncPath(absPath) || isWindowsDevicePath(absPath)
-        || hasUnsafeWin32Component(absPath) || isBlockedDevicePath(absPath)) return null;
-    try {
-        const st = statSync(absPath);
-        return {
-            mtimeMs: st.mtimeMs,
-            ctimeMs: st.ctimeMs,
-            size: st.size,
-            ino: typeof st.ino === 'number' ? st.ino : Number(st.ino) || 0,
-            dev: typeof st.dev === 'number' ? st.dev : Number(st.dev) || 0,
-        };
-    } catch {
-        return null;
-    }
+  // Cache probes run before tool execution; they must not touch paths that
+  // the read tool would reject before IO (notably credential-leaking UNC).
+  if (
+    isUncPath(absPath) ||
+    isWindowsDevicePath(absPath) ||
+    hasUnsafeWin32Component(absPath) ||
+    isBlockedDevicePath(absPath)
+  )
+    return null;
+  try {
+    const st = statSync(absPath);
+    return {
+      mtimeMs: st.mtimeMs,
+      ctimeMs: st.ctimeMs,
+      size: st.size,
+      ino: typeof st.ino === 'number' ? st.ino : Number(st.ino) || 0,
+      dev: typeof st.dev === 'number' ? st.dev : Number(st.dev) || 0,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function _statEqual(a, b) {
-    return !!a && !!b
-        && a.mtimeMs === b.mtimeMs
-        && a.ctimeMs === b.ctimeMs
-        && a.size === b.size
-        && a.ino === b.ino
-        && a.dev === b.dev;
+  return (
+    !!a &&
+    !!b &&
+    a.mtimeMs === b.mtimeMs &&
+    a.ctimeMs === b.ctimeMs &&
+    a.size === b.size &&
+    a.ino === b.ino &&
+    a.dev === b.dev
+  );
 }

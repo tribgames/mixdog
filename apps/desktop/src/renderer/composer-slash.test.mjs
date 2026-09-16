@@ -15,16 +15,21 @@ test('the composer offers only frequent commands and preserves direct command ex
     Element: dom.window.Element,
     HTMLElement: dom.window.HTMLElement,
     MutationObserver: dom.window.MutationObserver,
-    ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
     IS_REACT_ACT_ENVIRONMENT: true,
   };
-  const saved = new Map(Object.keys(globals).map((key) =>
-    [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  const saved = new Map(Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(globals)) {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   }
   window.matchMedia = () => ({
-    matches: false, addEventListener() {}, removeEventListener() {},
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
   });
   window.HTMLElement.prototype.scrollIntoView = () => {};
   const { default: React, act } = await import('react');
@@ -61,8 +66,12 @@ test('the composer offers only frequent commands and preserves direct command ex
     fast: false,
     fastCapable: true,
     paneActive: true,
-    submit: async (...args) => { calls.push(['submit', ...args]); },
-    abort: async () => { calls.push(['abort']); },
+    submit: async (...args) => {
+      calls.push(['submit', ...args]);
+    },
+    abort: async () => {
+      calls.push(['abort']);
+    },
     invokeResult: (action) => action(),
     applySnapshot() {},
     onNewTask: () => calls.push(['new']),
@@ -81,26 +90,48 @@ test('the composer offers only frequent commands and preserves direct command ex
   const type = async (value) => {
     await act(async () => {
       input.focus();
-      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')
-        .set.call(input, value);
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(input, value);
       input.setSelectionRange(value.length, value.length);
       input.dispatchEvent(new window.Event('input', { bubbles: true }));
     });
   };
   const key = async (name, options = {}) => {
     await act(async () => {
-      input.dispatchEvent(new window.KeyboardEvent('keydown', {
-        key: name, bubbles: true, cancelable: true, ...options,
-      }));
-      input.dispatchEvent(new window.KeyboardEvent('keyup', {
-        key: name, bubbles: true, ...options,
-      }));
+      input.dispatchEvent(
+        new window.KeyboardEvent('keydown', {
+          key: name,
+          bubbles: true,
+          cancelable: true,
+          ...options,
+        })
+      );
+      input.dispatchEvent(
+        new window.KeyboardEvent('keyup', {
+          key: name,
+          bubbles: true,
+          ...options,
+        })
+      );
       await new Promise((resolve) => window.setTimeout(resolve, 0));
     });
   };
   try {
-    assert.deepEqual(desktopComposerSlashCommands('/').map((command) => command.usage), expected);
-    for (const value of ['', 'hello /model', ' /model', '/model x', '/model\n', '//', '/resume', '/style', '/clear', '/unknown']) {
+    assert.deepEqual(
+      desktopComposerSlashCommands('/').map((command) => command.usage),
+      expected
+    );
+    for (const value of [
+      '',
+      'hello /model',
+      ' /model',
+      '/model x',
+      '/model\n',
+      '//',
+      '/resume',
+      '/style',
+      '/clear',
+      '/unknown',
+    ]) {
       assert.deepEqual(desktopComposerSlashCommands(value), [], value);
     }
     assert.equal(resolveDesktopSlashCommand('new')?.action, 'clear');

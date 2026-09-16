@@ -107,7 +107,9 @@ test('a frame that zeroes the context window keeps the last known limit', () => 
 test('a daemon eviction or transport loss keeps the cached lane', () => {
   const store = createSessionLaneStore({ decorator });
   const seen = [];
-  store.subscribe('session', () => { seen.push(store.get('session')); });
+  store.subscribe('session', () => {
+    seen.push(store.get('session'));
+  });
   const snapshot = { sessionId: 'session', items: [{ id: 'a' }] };
   store.apply({ sessionId: 'session', snapshot, frameSource: 'live' });
   assert.equal(store.get('session'), snapshot);

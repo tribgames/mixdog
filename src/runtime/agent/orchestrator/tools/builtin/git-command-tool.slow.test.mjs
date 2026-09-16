@@ -5,475 +5,503 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import {
-    executeGitStageTool,
-    executeGitTool,
-    GIT_STAGE_TOOL_DEF,
-    GIT_TOOL_DEF,
-    _gitCommandInternals,
+  executeGitStageTool,
+  executeGitTool,
+  GIT_STAGE_TOOL_DEF,
+  GIT_TOOL_DEF,
+  _gitCommandInternals,
 } from './git-command-tool.mjs';
 import { commandHasShellSyntax, gitCommandMutates } from './git-command-policy.mjs';
 
 function parseOk(result) {
-    assert.doesNotMatch(String(result), /^Error:/, String(result));
-    const parsed = JSON.parse(String(result));
-    assert.equal(parsed.ok, true);
-    return parsed;
+  assert.doesNotMatch(String(result), /^Error:/, String(result));
+  const parsed = JSON.parse(String(result));
+  assert.equal(parsed.ok, true);
+  return parsed;
 }
 
 function quote(value) {
-    return `"${String(value).replaceAll('"', '\\"')}"`;
+  return `"${String(value).replaceAll('"', '\\"')}"`;
 }
 
 async function git(repo, command, options = {}) {
-    return executeGitTool({ command: `git -C ${quote(repo)} ${command}`, ...options }, repo);
+  return executeGitTool({ command: `git -C ${quote(repo)} ${command}`, ...options }, repo);
 }
 
 test('git command tool preserves shell syntax, compacts output, and gates destructive commands', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-command-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const repo = join(root, 'repo');
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-command-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo');
 
-    assert.equal(parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root)).summary, 'initialized');
-    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-    assert.match(String(await git(repo, 'config --global user.name')), /outside the local repository scope/);
-    assert.match(String(await git(repo, 'config --system user.name')), /outside the local repository scope/);
-    assert.match(String(await git(repo, 'config --file ..\/outside user.name')), /outside the local repository scope/);
-    assert.match(String(await git(repo, 'config -f..\/outside user.name')), /outside the local repository scope/);
-    assert.equal(
-        _gitCommandInternals.creationTarget(_gitCommandInternals.parseCommand(`git clone origin ${quote(join(root, 'target'))}`, root)),
-        join(root, 'target'),
-    );
+  assert.equal(parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root)).summary, 'initialized');
+  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+  assert.match(String(await git(repo, 'config --global user.name')), /outside the local repository scope/);
+  assert.match(String(await git(repo, 'config --system user.name')), /outside the local repository scope/);
+  assert.match(String(await git(repo, 'config --file ../outside user.name')), /outside the local repository scope/);
+  assert.match(String(await git(repo, 'config -f../outside user.name')), /outside the local repository scope/);
+  assert.equal(
+    _gitCommandInternals.creationTarget(
+      _gitCommandInternals.parseCommand(`git clone origin ${quote(join(root, 'target'))}`, root)
+    ),
+    join(root, 'target')
+  );
 
-    writeFileSync(join(repo, 'base.txt'), 'base\n');
-    const staged = parseOk(await git(repo, 'add --all'));
-    assert.equal(staged.summary, 'staged');
-    assert.equal(staged.status.after.staged, 1);
-    const committed = parseOk(await git(repo, 'commit -m base'));
-    assert.match(committed.summary, /^committed(?: [0-9a-f]+)?$/);
-    assert.equal(committed.output, undefined);
-    const base = parseOk(await git(repo, 'log', { output_limit: 1 })).commits[0].oid;
-    assert.match(JSON.stringify(parseOk(await git(repo, 'show-ref'))), /refs\/heads\//);
-    assert.match(JSON.stringify(parseOk(await git(repo, 'count-objects -v'))), /count:/);
-    parseOk(await git(repo, 'check-ref-format refs/heads/test'));
-    assert.match(String(await git(repo, 'archive HEAD')), /^Error: git archive requires -o\/--output/);
-    parseOk(await git(repo, 'prune --expire=now'));
-    const shown = parseOk(await git(repo, `show ${base}`, { output_limit: 50 }));
-    assert.match(JSON.stringify(shown), new RegExp(base));
-    assert.match(JSON.stringify(shown), /base\.txt/);
+  writeFileSync(join(repo, 'base.txt'), 'base\n');
+  const staged = parseOk(await git(repo, 'add --all'));
+  assert.equal(staged.summary, 'staged');
+  assert.equal(staged.status.after.staged, 1);
+  const committed = parseOk(await git(repo, 'commit -m base'));
+  assert.match(committed.summary, /^committed(?: [0-9a-f]+)?$/);
+  assert.equal(committed.output, undefined);
+  const base = parseOk(await git(repo, 'log', { output_limit: 1 })).commits[0].oid;
+  assert.match(JSON.stringify(parseOk(await git(repo, 'show-ref'))), /refs\/heads\//);
+  assert.match(JSON.stringify(parseOk(await git(repo, 'count-objects -v'))), /count:/);
+  parseOk(await git(repo, 'check-ref-format refs/heads/test'));
+  assert.match(String(await git(repo, 'archive HEAD')), /^Error: git archive requires -o\/--output/);
+  parseOk(await git(repo, 'prune --expire=now'));
+  const shown = parseOk(await git(repo, `show ${base}`, { output_limit: 50 }));
+  assert.match(JSON.stringify(shown), new RegExp(base));
+  assert.match(JSON.stringify(shown), /base\.txt/);
 
-    writeFileSync(join(repo, 'secret.txt'), 'secret[lost-object]\n');
-    parseOk(await git(repo, 'add -- secret.txt'));
-    parseOk(await git(repo, 'commit -m secret -m "Recovery context" -m "Signed-off-by: Test <test@example.invalid>"'));
-    const secretLog = parseOk(await git(repo, 'log', { output_limit: 1 })).commits[0];
-    const secretCommit = secretLog.oid;
-    assert.deepEqual(secretLog.body, ['Recovery context']);
-    const batchShow = JSON.stringify(parseOk(await git(repo, `show ${base} ${secretCommit}`, { output_limit: 100 })));
-    assert.match(batchShow, new RegExp(base));
-    assert.match(batchShow, new RegExp(secretCommit));
+  writeFileSync(join(repo, 'secret.txt'), 'secret[lost-object]\n');
+  parseOk(await git(repo, 'add -- secret.txt'));
+  parseOk(await git(repo, 'commit -m secret -m "Recovery context" -m "Signed-off-by: Test <test@example.invalid>"'));
+  const secretLog = parseOk(await git(repo, 'log', { output_limit: 1 })).commits[0];
+  const secretCommit = secretLog.oid;
+  assert.deepEqual(secretLog.body, ['Recovery context']);
+  const batchShow = JSON.stringify(parseOk(await git(repo, `show ${base} ${secretCommit}`, { output_limit: 100 })));
+  assert.match(batchShow, new RegExp(base));
+  assert.match(batchShow, new RegExp(secretCommit));
 
-    parseOk(await git(repo, `reset --hard ${base}`));
-    const fsck = parseOk(await git(repo, 'fsck --full --unreachable --no-reflogs', { output_limit: 20 }));
-    assert.match(JSON.stringify(fsck), new RegExp(secretCommit));
+  parseOk(await git(repo, `reset --hard ${base}`));
+  const fsck = parseOk(await git(repo, 'fsck --full --unreachable --no-reflogs', { output_limit: 20 }));
+  assert.match(JSON.stringify(fsck), new RegExp(secretCommit));
 
-    const reflog = parseOk(await git(repo, 'reflog --all', { output_limit: 20 }));
-    assert.ok(reflog.entries.some((row) => row.oid === secretCommit));
-    const selectors = reflog.entries.map((row) => row.selector).filter((value, index, all) => all.indexOf(value) === index).slice(0, 2);
-    const deleteCommand = `reflog delete --rewrite ${selectors.map(quote).join(' ')}`;
-    parseOk(await git(repo, deleteCommand));
-    // Dry-run previews mutate nothing and still return a normal result.
-    parseOk(await git(repo, 'reflog expire --dry-run --verbose --expire-unreachable=now --all'));
-    parseOk(await git(repo, 'prune --dry-run'));
-    parseOk(await git(repo, 'clean -nd'));
-    parseOk(await git(repo, 'reflog expire --expire-unreachable=now --all --rewrite'));
-    parseOk(await git(repo, 'gc --prune=now'));
+  const reflog = parseOk(await git(repo, 'reflog --all', { output_limit: 20 }));
+  assert.ok(reflog.entries.some((row) => row.oid === secretCommit));
+  const selectors = reflog.entries
+    .map((row) => row.selector)
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .slice(0, 2);
+  const deleteCommand = `reflog delete --rewrite ${selectors.map(quote).join(' ')}`;
+  parseOk(await git(repo, deleteCommand));
+  // Dry-run previews mutate nothing and still return a normal result.
+  parseOk(await git(repo, 'reflog expire --dry-run --verbose --expire-unreachable=now --all'));
+  parseOk(await git(repo, 'prune --dry-run'));
+  parseOk(await git(repo, 'clean -nd'));
+  parseOk(await git(repo, 'reflog expire --expire-unreachable=now --all --rewrite'));
+  parseOk(await git(repo, 'gc --prune=now'));
 
-    renameSync(join(repo, 'base.txt'), join(repo, 'renamed.txt'));
-    parseOk(await git(repo, 'add --all'));
-    const renameDiff = parseOk(await git(repo, 'diff --cached', { output_limit: 20 }));
-    const renameText = renameDiff.patch || renameDiff.output;
-    assert.match(renameText, /rename from base\.txt/);
-    assert.match(renameText, /rename to renamed\.txt/);
-    parseOk(await git(repo, 'reset --hard HEAD'));
+  renameSync(join(repo, 'base.txt'), join(repo, 'renamed.txt'));
+  parseOk(await git(repo, 'add --all'));
+  const renameDiff = parseOk(await git(repo, 'diff --cached', { output_limit: 20 }));
+  const renameText = renameDiff.patch || renameDiff.output;
+  assert.match(renameText, /rename from base\.txt/);
+  assert.match(renameText, /rename to renamed\.txt/);
+  parseOk(await git(repo, 'reset --hard HEAD'));
 
-    writeFileSync(join(repo, 'base.txt'), `${Array.from({ length: 120 }, (_, i) => `changed-${i}`).join('\n')}\n`);
-    const rawDiff = spawnSync('git', ['-C', repo, 'diff', '--', 'base.txt'], { encoding: 'utf8' }).stdout;
-    const diff = parseOk(await git(repo, 'diff -- base.txt', { output_limit: 5 }));
-    assert.match(diff.patch, /-base/);
-    assert.match(diff.patch, /\+changed-0/);
-    assert.equal(diff.truncated, true);
-    assert.ok(JSON.stringify(diff).length < rawDiff.length / 2);
-    parseOk(await git(repo, 'restore -- base.txt'));
-    assert.equal(parseOk(await git(repo, 'status')).clean, true);
+  writeFileSync(join(repo, 'base.txt'), `${Array.from({ length: 120 }, (_, i) => `changed-${i}`).join('\n')}\n`);
+  const rawDiff = spawnSync('git', ['-C', repo, 'diff', '--', 'base.txt'], { encoding: 'utf8' }).stdout;
+  const diff = parseOk(await git(repo, 'diff -- base.txt', { output_limit: 5 }));
+  assert.match(diff.patch, /-base/);
+  assert.match(diff.patch, /\+changed-0/);
+  assert.equal(diff.truncated, true);
+  assert.ok(JSON.stringify(diff).length < rawDiff.length / 2);
+  parseOk(await git(repo, 'restore -- base.txt'));
+  assert.equal(parseOk(await git(repo, 'status')).clean, true);
 
-    const bare = join(root, 'remote.git');
-    parseOk(await executeGitTool({ command: `git init --bare ${quote(bare)}` }, root));
-    parseOk(await git(repo, `remote add origin ${quote(bare)}`));
-    assert.equal(parseOk(await git(repo, 'remote get-url origin')).output, bare);
-    const pushed = parseOk(await git(repo, 'push --set-upstream origin HEAD'));
-    assert.match(pushed.summary, /^pushed/);
-    assert.ok(!JSON.stringify(pushed.output || []).includes('Enumerating objects:'));
+  const bare = join(root, 'remote.git');
+  parseOk(await executeGitTool({ command: `git init --bare ${quote(bare)}` }, root));
+  parseOk(await git(repo, `remote add origin ${quote(bare)}`));
+  assert.equal(parseOk(await git(repo, 'remote get-url origin')).output, bare);
+  const pushed = parseOk(await git(repo, 'push --set-upstream origin HEAD'));
+  assert.match(pushed.summary, /^pushed/);
+  assert.ok(!JSON.stringify(pushed.output || []).includes('Enumerating objects:'));
 
-    const cloned = join(root, 'clone');
-    assert.equal(parseOk(await executeGitTool({ command: `git clone ${quote(bare)} ${quote(cloned)}` }, root)).summary, 'cloned');
-    assert.equal(parseOk(await git(cloned, 'pull --rebase')).summary, 'up-to-date');
-    assert.equal(parseOk(await git(cloned, 'log', { output_limit: 5 })).commits.length, 1);
+  const cloned = join(root, 'clone');
+  assert.equal(
+    parseOk(await executeGitTool({ command: `git clone ${quote(bare)} ${quote(cloned)}` }, root)).summary,
+    'cloned'
+  );
+  assert.equal(parseOk(await git(cloned, 'pull --rebase')).summary, 'up-to-date');
+  assert.equal(parseOk(await git(cloned, 'log', { output_limit: 5 })).commits.length, 1);
 
-    for (let i = 0; i < 11; i++) {
-        const extra = spawnSync('git', ['-C', repo, 'commit', '--allow-empty', '-m', `extra-${i}`], { encoding: 'utf8' });
-        assert.equal(extra.status, 0, extra.stderr);
-    }
-    assert.equal(parseOk(await git(repo, 'log')).commits.length, 10);
-    assert.ok(parseOk(await git(repo, 'log --all', { output_limit: 20 })).commits.length >= 12);
+  for (let i = 0; i < 11; i++) {
+    const extra = spawnSync('git', ['-C', repo, 'commit', '--allow-empty', '-m', `extra-${i}`], { encoding: 'utf8' });
+    assert.equal(extra.status, 0, extra.stderr);
+  }
+  assert.equal(parseOk(await git(repo, 'log')).commits.length, 10);
+  assert.ok(parseOk(await git(repo, 'log --all', { output_limit: 20 })).commits.length >= 12);
 
-    for (const name of ['one.tmp', 'two.tmp', 'three.tmp']) writeFileSync(join(repo, name), name);
-    const cappedStatus = parseOk(await git(repo, 'status', { output_limit: 2 }));
-    assert.equal(cappedStatus.changes.length, 2);
-    assert.equal(cappedStatus.omitted, 1);
-    for (const name of ['one.tmp', 'two.tmp', 'three.tmp']) rmSync(join(repo, name));
+  for (const name of ['one.tmp', 'two.tmp', 'three.tmp']) writeFileSync(join(repo, name), name);
+  const cappedStatus = parseOk(await git(repo, 'status', { output_limit: 2 }));
+  assert.equal(cappedStatus.changes.length, 2);
+  assert.equal(cappedStatus.omitted, 1);
+  for (const name of ['one.tmp', 'two.tmp', 'three.tmp']) rmSync(join(repo, name));
 
-    const worktree = join(root, 'worktree');
-    parseOk(await git(repo, `worktree add -b topic ${quote(worktree)} HEAD`));
-    assert.match(JSON.stringify(parseOk(await git(repo, 'worktree list --porcelain'))), /topic/);
-    assert.match(JSON.stringify(parseOk(await git(repo, 'branch --list'))), /topic/);
+  const worktree = join(root, 'worktree');
+  parseOk(await git(repo, `worktree add -b topic ${quote(worktree)} HEAD`));
+  assert.match(JSON.stringify(parseOk(await git(repo, 'worktree list --porcelain'))), /topic/);
+  assert.match(JSON.stringify(parseOk(await git(repo, 'branch --list'))), /topic/);
 
-    // A `&&` chain is the command array written as one string: same order,
-    // same stop-on-failure, answered in one shot.
-    const chain = parseOk(await executeGitTool({ command: `git -C ${quote(repo)} status --short && git -C ${quote(repo)} log --oneline -1` }, root));
-    assert.equal(chain.batched, true);
-    assert.equal(chain.results.length, 2);
-    assert.equal(chain.results[1].ok, true);
-    const semi = parseOk(await executeGitTool({ command: `git -C ${quote(repo)} status --short; git -C ${quote(repo)} branch --list` }, root));
-    assert.equal(semi.results.length, 2);
-    // Non-git segments, pipes and substitution stay refused before anything runs.
-    assert.match(String(await executeGitTool({ command: 'git status && echo x' }, root)), /^Error: git command 2: command must begin with git/);
-    assert.match(String(await executeGitTool({ command: 'git status && git log | head' }, root)), /^Error: git command 2: git command must not contain shell operators/);
-    assert.match(String(await executeGitTool({ command: 'git log --format="a && b" -1' }, root)), /^Error: git command must not contain shell operators|"ok":true/);
-    assert.match(String(await executeGitTool({ command: Array.from({ length: 11 }, () => 'git status') }, root)), /^Error: git command array requires 1 to 10 commands/);
+  // A `&&` chain is the command array written as one string: same order,
+  // same stop-on-failure, answered in one shot.
+  const chain = parseOk(
+    await executeGitTool(
+      { command: `git -C ${quote(repo)} status --short && git -C ${quote(repo)} log --oneline -1` },
+      root
+    )
+  );
+  assert.equal(chain.batched, true);
+  assert.equal(chain.results.length, 2);
+  assert.equal(chain.results[1].ok, true);
+  const semi = parseOk(
+    await executeGitTool({ command: `git -C ${quote(repo)} status --short; git -C ${quote(repo)} branch --list` }, root)
+  );
+  assert.equal(semi.results.length, 2);
+  // Non-git segments, pipes and substitution stay refused before anything runs.
+  assert.match(
+    String(await executeGitTool({ command: 'git status && echo x' }, root)),
+    /^Error: git command 2: command must begin with git/
+  );
+  assert.match(
+    String(await executeGitTool({ command: 'git status && git log | head' }, root)),
+    /^Error: git command 2: git command must not contain shell operators/
+  );
+  assert.match(
+    String(await executeGitTool({ command: 'git log --format="a && b" -1' }, root)),
+    /^Error: git command must not contain shell operators|"ok":true/
+  );
+  assert.match(
+    String(await executeGitTool({ command: Array.from({ length: 11 }, () => 'git status') }, root)),
+    /^Error: git command array requires 1 to 10 commands/
+  );
 });
 
 test('git tool answers semantic exits and keeps literal operator characters', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-semantic-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const repo = join(root, 'repo');
-    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-    writeFileSync(join(repo, 'base.txt'), 'base\n');
-    parseOk(await git(repo, 'add --all'));
-    parseOk(await git(repo, 'commit -m base'));
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-semantic-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo');
+  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+  writeFileSync(join(repo, 'base.txt'), 'base\n');
+  parseOk(await git(repo, 'add --all'));
+  parseOk(await git(repo, 'commit -m base'));
 
-    // A separator inside one token is argument text, not a pipeline.
-    assert.match(JSON.stringify(parseOk(await git(repo, 'log --format=%h|%s -n 1'))), /\|base/);
-    assert.equal(commandHasShellSyntax('git log -- ":(exclude)node_modules"'), false);
-    assert.equal(commandHasShellSyntax('git log --format=$(whoami)'), true);
-    assert.match(String(await git(repo, 'log | head')), /^Error: git command must not contain shell operators/);
+  // A separator inside one token is argument text, not a pipeline.
+  assert.match(JSON.stringify(parseOk(await git(repo, 'log --format=%h|%s -n 1'))), /\|base/);
+  assert.equal(commandHasShellSyntax('git log -- ":(exclude)node_modules"'), false);
+  assert.equal(commandHasShellSyntax('git log --format=$(whoami)'), true);
+  assert.match(String(await git(repo, 'log | head')), /^Error: git command must not contain shell operators/);
 
-    // grep exit 1 is "no match", not a failure.
-    assert.equal(parseOk(await git(repo, 'grep -n base -- base.txt')).matched, true);
-    assert.equal(parseOk(await git(repo, 'grep -n mixdog-absent-token')).matched, false);
+  // grep exit 1 is "no match", not a failure.
+  assert.equal(parseOk(await git(repo, 'grep -n base -- base.txt')).matched, true);
+  assert.equal(parseOk(await git(repo, 'grep -n mixdog-absent-token')).matched, false);
 
-    // diff reports through the exit code for --quiet and --check.
-    assert.equal(parseOk(await git(repo, 'diff --quiet')).changed, false);
-    assert.equal(parseOk(await git(repo, 'diff --check')).problems, false);
-    assert.equal(parseOk(await git(repo, 'reflog exists HEAD')).exists, true);
-    assert.equal(parseOk(await git(repo, 'reflog exists refs/heads/missing')).exists, false);
-    assert.equal(parseOk(await git(repo, 'show-ref --verify --quiet refs/heads/missing')).exists, false);
-    assert.equal(parseOk(await git(repo, 'rev-parse --verify --quiet refs/heads/missing')).exists, false);
-    assert.equal(parseOk(await git(repo, 'merge-base --is-ancestor HEAD HEAD')).ancestor, true);
-    writeFileSync(join(repo, 'base.txt'), 'base\ntrailing   \n');
-    assert.equal(parseOk(await git(repo, 'diff --quiet')).changed, true);
-    const check = parseOk(await git(repo, 'diff --check'));
-    assert.equal(check.problems, true);
-    assert.match(JSON.stringify(check), /trailing whitespace/);
+  // diff reports through the exit code for --quiet and --check.
+  assert.equal(parseOk(await git(repo, 'diff --quiet')).changed, false);
+  assert.equal(parseOk(await git(repo, 'diff --check')).problems, false);
+  assert.equal(parseOk(await git(repo, 'reflog exists HEAD')).exists, true);
+  assert.equal(parseOk(await git(repo, 'reflog exists refs/heads/missing')).exists, false);
+  assert.equal(parseOk(await git(repo, 'show-ref --verify --quiet refs/heads/missing')).exists, false);
+  assert.equal(parseOk(await git(repo, 'rev-parse --verify --quiet refs/heads/missing')).exists, false);
+  assert.equal(parseOk(await git(repo, 'merge-base --is-ancestor HEAD HEAD')).ancestor, true);
+  writeFileSync(join(repo, 'base.txt'), 'base\ntrailing   \n');
+  assert.equal(parseOk(await git(repo, 'diff --quiet')).changed, true);
+  const check = parseOk(await git(repo, 'diff --check'));
+  assert.equal(check.problems, true);
+  assert.match(JSON.stringify(check), /trailing whitespace/);
 });
 
 test('git preserves non-patch diff and history presentations', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-presentations-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const repo = join(root, 'repo');
-    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-    writeFileSync(join(repo, 'base.txt'), 'base\n');
-    parseOk(await git(repo, 'add -- base.txt'));
-    parseOk(await git(repo, 'commit -m base'));
-    writeFileSync(join(repo, 'base.txt'), 'changed\n');
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-presentations-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo');
+  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+  writeFileSync(join(repo, 'base.txt'), 'base\n');
+  parseOk(await git(repo, 'add -- base.txt'));
+  parseOk(await git(repo, 'commit -m base'));
+  writeFileSync(join(repo, 'base.txt'), 'changed\n');
 
-    for (const command of [
-        'diff --stat -- base.txt',
-        'diff --raw -- base.txt',
-        'diff --numstat -- base.txt',
-        'diff --name-only -- base.txt',
-        'diff --name-status -- base.txt',
-        'diff-files -- base.txt',
-        'diff-index HEAD -- base.txt',
-    ]) {
-        const result = parseOk(await git(repo, command));
-        assert.match(JSON.stringify(result), /base\.txt/, command);
-    }
+  for (const command of [
+    'diff --stat -- base.txt',
+    'diff --raw -- base.txt',
+    'diff --numstat -- base.txt',
+    'diff --name-only -- base.txt',
+    'diff --name-status -- base.txt',
+    'diff-files -- base.txt',
+    'diff-index HEAD -- base.txt',
+  ]) {
+    const result = parseOk(await git(repo, command));
+    assert.match(JSON.stringify(result), /base\.txt/, command);
+  }
 
-    parseOk(await git(repo, 'add -- base.txt'));
-    parseOk(await git(repo, 'commit -m changed'));
-    assert.match(JSON.stringify(parseOk(await git(repo, 'diff-tree --no-commit-id HEAD^ HEAD -- base.txt'))), /base\.txt/);
-    for (const command of ['log --stat -1', 'log --raw -1', 'log -p -1', 'show --raw HEAD']) {
-        const result = parseOk(await git(repo, command));
-        assert.equal(result.commits, undefined, command);
-        assert.match(JSON.stringify(result), /base\.txt/, command);
-    }
-    assert.match(JSON.stringify(parseOk(await git(repo, 'reflog list'))), /refs\/heads\//);
+  parseOk(await git(repo, 'add -- base.txt'));
+  parseOk(await git(repo, 'commit -m changed'));
+  assert.match(
+    JSON.stringify(parseOk(await git(repo, 'diff-tree --no-commit-id HEAD^ HEAD -- base.txt'))),
+    /base\.txt/
+  );
+  for (const command of ['log --stat -1', 'log --raw -1', 'log -p -1', 'show --raw HEAD']) {
+    const result = parseOk(await git(repo, command));
+    assert.equal(result.commits, undefined, command);
+    assert.match(JSON.stringify(result), /base\.txt/, command);
+  }
+  assert.match(JSON.stringify(parseOk(await git(repo, 'reflog list'))), /refs\/heads\//);
 });
 
 test('git show preserves native text for blobs, trees, tags and mixed objects', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-show-objects-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const repo = join(root, 'repo');
-    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-    const native = (args, input) => {
-        const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', input });
-        assert.equal(result.status, 0, result.stderr);
-        return result.stdout.trim();
-    };
-    const render = (data) => data.output ?? data.lines.join('\n');
-    for (const content of [
-        'payload[keep-the-last-character]\n',
-        'payload without a final newline',
-        '\x1eabc\x1fshort\x1fauthor\x1fdate\x1fsubject\nnot a commit or patch\n',
-        '',
-    ]) {
-        const oid = native(['hash-object', '-w', '--stdin'], content);
-        assert.equal(render(parseOk(await git(repo, `show ${oid}`))), content.trim());
-    }
-    writeFileSync(join(repo, 'payload.txt'), 'document contents\n');
-    parseOk(await git(repo, 'add -- payload.txt'));
-    parseOk(await git(repo, 'commit -m document'));
-    parseOk(await git(repo, 'tag -a annotated -m annotation'));
-    const blob = native(['rev-parse', 'HEAD:payload.txt']);
-    for (const objects of [
-        ['HEAD:payload.txt'], ['HEAD^{tree}'], ['annotated'], ['HEAD'], [blob, 'HEAD'],
-    ]) {
-        const actual = parseOk(await git(repo, `show ${objects.join(' ')}`, { output_limit: 200 }));
-        assert.equal(render(actual), native(['show', ...objects]), objects.join(' '));
-    }
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-show-objects-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo');
+  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+  const native = (args, input) => {
+    const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', input });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  const render = (data) => data.output ?? data.lines.join('\n');
+  for (const content of [
+    'payload[keep-the-last-character]\n',
+    'payload without a final newline',
+    '\x1eabc\x1fshort\x1fauthor\x1fdate\x1fsubject\nnot a commit or patch\n',
+    '',
+  ]) {
+    const oid = native(['hash-object', '-w', '--stdin'], content);
+    assert.equal(render(parseOk(await git(repo, `show ${oid}`))), content.trim());
+  }
+  writeFileSync(join(repo, 'payload.txt'), 'document contents\n');
+  parseOk(await git(repo, 'add -- payload.txt'));
+  parseOk(await git(repo, 'commit -m document'));
+  parseOk(await git(repo, 'tag -a annotated -m annotation'));
+  const blob = native(['rev-parse', 'HEAD:payload.txt']);
+  for (const objects of [['HEAD:payload.txt'], ['HEAD^{tree}'], ['annotated'], ['HEAD'], [blob, 'HEAD']]) {
+    const actual = parseOk(await git(repo, `show ${objects.join(' ')}`, { output_limit: 200 }));
+    assert.equal(render(actual), native(['show', ...objects]), objects.join(' '));
+  }
 });
 
 test('git policy distinguishes probes from output and ref mutations', () => {
-    for (const command of [
-        'git --version',
-        'git remote -v',
-        'git reflog exists HEAD',
-        'git symbolic-ref HEAD',
-    ]) {
-        assert.equal(gitCommandMutates({ command }), false, command);
-    }
-    for (const command of [
-        'git remote -v update',
-        'git reflog delete HEAD@{0}',
-        'git symbolic-ref --delete HEAD',
-        'git diff --output=outside.patch',
-    ]) {
-        assert.equal(gitCommandMutates({ command }), true, command);
-    }
+  for (const command of ['git --version', 'git remote -v', 'git reflog exists HEAD', 'git symbolic-ref HEAD']) {
+    assert.equal(gitCommandMutates({ command }), false, command);
+  }
+  for (const command of [
+    'git remote -v update',
+    'git reflog delete HEAD@{0}',
+    'git symbolic-ref --delete HEAD',
+    'git diff --output=outside.patch',
+  ]) {
+    assert.equal(gitCommandMutates({ command }), true, command);
+  }
 });
 
 test('git plans patch, plumbing, and custom history output without over-reading', () => {
-    const plan = (operation, args, limit = 7) => _gitCommandInternals.prepare({ operation, args }, limit);
-    assert.equal(plan('diff', []).format, 'diff');
-    assert.equal(plan('diff', ['--stat']).format, 'text');
-    assert.equal(plan('diff-files', []).format, 'text');
-    assert.equal(plan('diff-files', ['-p']).format, 'diff');
-    assert.deepEqual(plan('log', ['--oneline']).argv.slice(0, 3), ['log', '-n7', '--no-color']);
-    assert.deepEqual(plan('log', ['--stat']).argv.slice(0, 3), ['log', '-n7', '--no-color']);
-    assert.equal(plan('reflog', ['list']).argv[0], 'reflog');
-    assert.notEqual(plan('reflog', ['list']).argv[1], 'show');
+  const plan = (operation, args, limit = 7) => _gitCommandInternals.prepare({ operation, args }, limit);
+  assert.equal(plan('diff', []).format, 'diff');
+  assert.equal(plan('diff', ['--stat']).format, 'text');
+  assert.equal(plan('diff-files', []).format, 'text');
+  assert.equal(plan('diff-files', ['-p']).format, 'diff');
+  assert.deepEqual(plan('log', ['--oneline']).argv.slice(0, 3), ['log', '-n7', '--no-color']);
+  assert.deepEqual(plan('log', ['--stat']).argv.slice(0, 3), ['log', '-n7', '--no-color']);
+  assert.equal(plan('reflog', ['list']).argv[0], 'reflog');
+  assert.notEqual(plan('reflog', ['list']).argv[1], 'show');
 });
 
 test('git failure detail folds progress frames and keeps the fatal tail', () => {
-    const { failureText, foldProgressFrames } = _gitCommandInternals;
-    assert.equal(
-        foldProgressFrames('Updating files:   1% (5/49152)\rUpdating files:  99% (48000/49152)\nfatal: boom'),
-        'Updating files:  99% (48000/49152)\nfatal: boom',
-    );
-    const noisy = [...Array.from({ length: 60 }, (_, i) => `line-${i}`), 'fatal: boom'].join('\n');
-    const text = failureText(noisy, 5);
-    assert.match(text, /^…\[56 earlier lines omitted\]\n/);
-    assert.match(text, /fatal: boom$/);
+  const { failureText, foldProgressFrames } = _gitCommandInternals;
+  assert.equal(
+    foldProgressFrames('Updating files:   1% (5/49152)\rUpdating files:  99% (48000/49152)\nfatal: boom'),
+    'Updating files:  99% (48000/49152)\nfatal: boom'
+  );
+  const noisy = [...Array.from({ length: 60 }, (_, i) => `line-${i}`), 'fatal: boom'].join('\n');
+  const text = failureText(noisy, 5);
+  assert.match(text, /^…\[56 earlier lines omitted\]\n/);
+  assert.match(text, /fatal: boom$/);
 });
 
 test('git and deferred git_stage expose separate compact contracts', () => {
-    const properties = GIT_TOOL_DEF.inputSchema.properties;
-    assert.deepEqual(Object.keys(properties), ['command', 'output_limit']);
-    assert.deepEqual(GIT_TOOL_DEF.inputSchema.required, ['command']);
-    assert.deepEqual(properties.command.anyOf.map((entry) => entry.type), ['string', 'array']);
-    assert.equal(properties.command.anyOf[1].minItems, 1);
-    assert.equal(properties.command.anyOf[1].maxItems, 10);
-    assert.equal(properties.output_limit.maximum, 200);
-    const stageProperties = GIT_STAGE_TOOL_DEF.inputSchema.properties;
-    assert.deepEqual(Object.keys(stageProperties), ['diff_id', 'change_ids', 'output_limit']);
-    assert.deepEqual(GIT_STAGE_TOOL_DEF.inputSchema.required, ['diff_id', 'change_ids']);
-    assert.equal(stageProperties.change_ids.anyOf[1].maxItems, 50);
-    assert.equal(stageProperties.output_limit.maximum, 200);
-    assert.equal(GIT_STAGE_TOOL_DEF.annotations.destructiveHint, true);
-    // Advisory wording anchors; update when the public description changes.
-    assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
-    assert.match(GIT_TOOL_DEF.description, /Run Git here, never through shell/i);
-    assert.match(GIT_TOOL_DEF.description, /commands run in order and arrays stop on failure/i);
-    assert.match(GIT_TOOL_DEF.description, /Mutations are serialized/i);
-    assert.match(properties.command.description, /no pipes\/redirects\/substitution/i);
-    assert.match(properties.command.description, /&& chain runs as the array/i);
+  const properties = GIT_TOOL_DEF.inputSchema.properties;
+  assert.deepEqual(Object.keys(properties), ['command', 'output_limit']);
+  assert.deepEqual(GIT_TOOL_DEF.inputSchema.required, ['command']);
+  assert.deepEqual(
+    properties.command.anyOf.map((entry) => entry.type),
+    ['string', 'array']
+  );
+  assert.equal(properties.command.anyOf[1].minItems, 1);
+  assert.equal(properties.command.anyOf[1].maxItems, 10);
+  assert.equal(properties.output_limit.maximum, 200);
+  const stageProperties = GIT_STAGE_TOOL_DEF.inputSchema.properties;
+  assert.deepEqual(Object.keys(stageProperties), ['diff_id', 'change_ids', 'output_limit']);
+  assert.deepEqual(GIT_STAGE_TOOL_DEF.inputSchema.required, ['diff_id', 'change_ids']);
+  assert.equal(stageProperties.change_ids.anyOf[1].maxItems, 50);
+  assert.equal(stageProperties.output_limit.maximum, 200);
+  assert.equal(GIT_STAGE_TOOL_DEF.annotations.destructiveHint, true);
+  // Advisory wording anchors; update when the public description changes.
+  assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
+  assert.match(GIT_TOOL_DEF.description, /Run Git here, never through shell/i);
+  assert.match(GIT_TOOL_DEF.description, /commands run in order and arrays stop on failure/i);
+  assert.match(GIT_TOOL_DEF.description, /Mutations are serialized/i);
+  assert.match(properties.command.description, /no pipes\/redirects\/substitution/i);
+  assert.match(properties.command.description, /&& chain runs as the array/i);
 });
 
 test('git answers read and mutation commands inside a bare repository', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-bare-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const repo = join(root, 'repo');
-    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-    writeFileSync(join(repo, 'base.txt'), 'base\n');
-    parseOk(await git(repo, 'add --all'));
-    parseOk(await git(repo, 'commit -m base'));
-    const bare = join(root, 'mirror.git');
-    parseOk(await executeGitTool({ command: `git clone --mirror --no-hardlinks ${quote(repo)} ${quote(bare)}` }, root));
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-bare-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo');
+  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+  writeFileSync(join(repo, 'base.txt'), 'base\n');
+  parseOk(await git(repo, 'add --all'));
+  parseOk(await git(repo, 'commit -m base'));
+  const bare = join(root, 'mirror.git');
+  parseOk(await executeGitTool({ command: `git clone --mirror --no-hardlinks ${quote(repo)} ${quote(bare)}` }, root));
 
-    // A mirror has no work tree; it is still a repository, not "repo:false".
-    const log = parseOk(await git(bare, 'log --oneline -1'));
-    assert.equal(log.repo, undefined);
-    assert.match(JSON.stringify(log), /base/);
-    const fsck = parseOk(await git(bare, 'fsck --full --no-reflogs --unreachable'));
-    assert.equal(fsck.repo, undefined);
-    const expire = parseOk(await git(bare, 'reflog expire --expire=now --all'));
-    assert.equal(expire.ok, true);
-    // A plain directory still reports the honest absence.
-    assert.equal(parseOk(await executeGitTool({ command: `git -C ${quote(root)} status` }, root)).repo, false);
+  // A mirror has no work tree; it is still a repository, not "repo:false".
+  const log = parseOk(await git(bare, 'log --oneline -1'));
+  assert.equal(log.repo, undefined);
+  assert.match(JSON.stringify(log), /base/);
+  const fsck = parseOk(await git(bare, 'fsck --full --no-reflogs --unreachable'));
+  assert.equal(fsck.repo, undefined);
+  const expire = parseOk(await git(bare, 'reflog expire --expire=now --all'));
+  assert.equal(expire.ok, true);
+  // A plain directory still reports the honest absence.
+  assert.equal(parseOk(await executeGitTool({ command: `git -C ${quote(root)} status` }, root)).repo, false);
 });
 
 test('git command arrays run in order, allow mutations, and stop at the first failure', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-command-array-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const repo = join(root, 'repo');
-    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-    writeFileSync(join(repo, 'base.txt'), 'base\n');
-    parseOk(await git(repo, 'add --all'));
-    parseOk(await git(repo, 'commit -m base'));
-    writeFileSync(join(repo, 'base.txt'), 'changed\n');
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-command-array-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo');
+  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+  writeFileSync(join(repo, 'base.txt'), 'base\n');
+  parseOk(await git(repo, 'add --all'));
+  parseOk(await git(repo, 'commit -m base'));
+  writeFileSync(join(repo, 'base.txt'), 'changed\n');
 
-    const batch = parseOk(await executeGitTool({
-        command: [
-            `git -C ${quote(repo)} status --short`,
-            `git -C ${quote(repo)} diff -- base.txt`,
-        ],
+  const batch = parseOk(
+    await executeGitTool(
+      {
+        command: [`git -C ${quote(repo)} status --short`, `git -C ${quote(repo)} diff -- base.txt`],
         output_limit: 20,
-    }, repo));
-    assert.equal(batch.batched, true);
-    assert.equal(batch.results.length, 2);
-    assert.equal(batch.results[0].ok, true);
-    assert.equal(batch.results[1].ok, true);
-    assert.match(JSON.stringify(batch.results[1].data), /changed/);
+      },
+      repo
+    )
+  );
+  assert.equal(batch.batched, true);
+  assert.equal(batch.results.length, 2);
+  assert.equal(batch.results[0].ok, true);
+  assert.equal(batch.results[1].ok, true);
+  assert.match(JSON.stringify(batch.results[1].data), /changed/);
 
-    // Ordered mutations run in one call; the later step sees the earlier one.
-    const mutations = parseOk(await executeGitTool({
-        command: [
-            `git -C ${quote(repo)} add -- base.txt`,
-            `git -C ${quote(repo)} diff --cached --quiet`,
-        ],
-    }, repo));
-    assert.equal(mutations.results.length, 2);
-    assert.equal(mutations.results[0].ok, true);
-    assert.equal(mutations.results[1].data.changed, true);
-    assert.equal(mutations.stopped_at, undefined);
-    parseOk(await git(repo, 'reset -q -- base.txt'));
+  // Ordered mutations run in one call; the later step sees the earlier one.
+  const mutations = parseOk(
+    await executeGitTool(
+      {
+        command: [`git -C ${quote(repo)} add -- base.txt`, `git -C ${quote(repo)} diff --cached --quiet`],
+      },
+      repo
+    )
+  );
+  assert.equal(mutations.results.length, 2);
+  assert.equal(mutations.results[0].ok, true);
+  assert.equal(mutations.results[1].data.changed, true);
+  assert.equal(mutations.stopped_at, undefined);
+  parseOk(await git(repo, 'reset -q -- base.txt'));
 
-    // Fail-fast: a failed step stops the array and reports what was skipped.
-    const partial = parseOk(await executeGitTool({
-        command: [
-            `git -C ${quote(repo)} show missing-ref`,
-            `git -C ${quote(repo)} add -- base.txt`,
-        ],
-    }, repo));
-    assert.equal(partial.results.length, 1);
-    assert.equal(partial.results[0].ok, false);
-    assert.equal(partial.stopped_at, 1);
-    assert.deepEqual(partial.skipped, [`git -C ${quote(repo)} add -- base.txt`]);
-    assert.equal(parseOk(await git(repo, 'diff --cached --quiet')).changed, false);
+  // Fail-fast: a failed step stops the array and reports what was skipped.
+  const partial = parseOk(
+    await executeGitTool(
+      {
+        command: [`git -C ${quote(repo)} show missing-ref`, `git -C ${quote(repo)} add -- base.txt`],
+      },
+      repo
+    )
+  );
+  assert.equal(partial.results.length, 1);
+  assert.equal(partial.results[0].ok, false);
+  assert.equal(partial.stopped_at, 1);
+  assert.deepEqual(partial.skipped, [`git -C ${quote(repo)} add -- base.txt`]);
+  assert.equal(parseOk(await git(repo, 'diff --cached --quiet')).changed, false);
 
-    // A malformed later command rejects the whole array before anything runs.
-    const rejected = String(await executeGitTool({
-        command: [
-            `git -C ${quote(repo)} add -- base.txt`,
-            `git -C ${quote(repo)} status && echo x`,
-        ],
-    }, repo));
-    assert.match(rejected, /^Error: git command 2:/);
-    assert.equal(parseOk(await git(repo, 'diff --cached --quiet')).changed, false);
+  // A malformed later command rejects the whole array before anything runs.
+  const rejected = String(
+    await executeGitTool(
+      {
+        command: [`git -C ${quote(repo)} add -- base.txt`, `git -C ${quote(repo)} status && echo x`],
+      },
+      repo
+    )
+  );
+  assert.match(rejected, /^Error: git command 2:/);
+  assert.equal(parseOk(await git(repo, 'diff --cached --quiet')).changed, false);
 });
 
 test('git clamps oversized output requests to 200 lines', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-output-cap-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const repo = join(root, 'repo');
-    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-    writeFileSync(
-        join(repo, 'large.txt'),
-        `${Array.from({ length: 250 }, (_, index) => `line-${index}`).join('\n')}\n`,
-    );
-    parseOk(await git(repo, 'add -- large.txt'));
-    parseOk(await git(repo, 'commit -m large'));
-    const shown = parseOk(await git(repo, 'show HEAD:large.txt', { output_limit: 500 }));
-    assert.equal(shown.lines.length, 200);
-    assert.equal(shown.omitted, 50);
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-output-cap-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo');
+  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+  writeFileSync(join(repo, 'large.txt'), `${Array.from({ length: 250 }, (_, index) => `line-${index}`).join('\n')}\n`);
+  parseOk(await git(repo, 'add -- large.txt'));
+  parseOk(await git(repo, 'commit -m large'));
+  const shown = parseOk(await git(repo, 'show HEAD:large.txt', { output_limit: 500 }));
+  assert.equal(shown.lines.length, 200);
+  assert.equal(shown.omitted, 50);
 });
 
 // `git --version` is how a caller checks whether git exists at all; rejecting
 // it as an "unsupported subcommand" turned the probe into a dead turn.
 test('git availability probes answer instead of erroring', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-probe-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const probe = String(await executeGitTool({ command: 'git --version' }, root));
-    assert.doesNotMatch(probe, /unsupported git subcommand/);
-    assert.match(probe, /git version/i);
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-probe-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const probe = String(await executeGitTool({ command: 'git --version' }, root));
+  assert.doesNotMatch(probe, /unsupported git subcommand/);
+  assert.match(probe, /git version/i);
 });
 
 // Some providers hand the whole command over as one quoted scalar. The command
 // itself is well formed, so it must run; only the quoting differs. Everything
 // the tool refuses unquoted stays refused inside the quotes.
 test('git runs a fully quoted command and keeps refusing quoted shell syntax', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-quoted-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const repo = join(root, 'repo');
-    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-    writeFileSync(join(repo, 'base.txt'), 'base\n');
-    parseOk(await git(repo, 'add --all'));
-    parseOk(await git(repo, 'commit -m base'));
-    writeFileSync(join(repo, 'base.txt'), 'changed\n');
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-quoted-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo');
+  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+  writeFileSync(join(repo, 'base.txt'), 'base\n');
+  parseOk(await git(repo, 'add --all'));
+  parseOk(await git(repo, 'commit -m base'));
+  writeFileSync(join(repo, 'base.txt'), 'changed\n');
 
-    const plain = parseOk(await executeGitTool({ command: 'git status --short' }, repo));
-    const quoted = parseOk(await executeGitTool({ command: '"git status --short"' }, repo));
-    assert.deepEqual(quoted.changes, plain.changes);
-    assert.deepEqual(quoted.changes, [{ index: ' ', worktree: 'M', path: 'base.txt' }]);
-    assert.deepEqual(
-        parseOk(await executeGitTool({ command: "'git diff -- base.txt'" }, repo)).files,
-        ['base.txt'],
-    );
+  const plain = parseOk(await executeGitTool({ command: 'git status --short' }, repo));
+  const quoted = parseOk(await executeGitTool({ command: '"git status --short"' }, repo));
+  assert.deepEqual(quoted.changes, plain.changes);
+  assert.deepEqual(quoted.changes, [{ index: ' ', worktree: 'M', path: 'base.txt' }]);
+  assert.deepEqual(parseOk(await executeGitTool({ command: "'git diff -- base.txt'" }, repo)).files, ['base.txt']);
 
-    // A quoted chain is one quoted command, not a chain: the unwrapped text
-    // still carries the operator and is refused.
-    assert.match(
-        String(await executeGitTool({ command: '"git status && git log"' }, repo)),
-        /^Error: git command must not contain shell operators/,
-    );
-    assert.match(
-        String(await executeGitTool({ command: '"status --short"' }, repo)),
-        /^Error: command must begin with git/,
-    );
+  // A quoted chain is one quoted command, not a chain: the unwrapped text
+  // still carries the operator and is refused.
+  assert.match(
+    String(await executeGitTool({ command: '"git status && git log"' }, repo)),
+    /^Error: git command must not contain shell operators/
+  );
+  assert.match(
+    String(await executeGitTool({ command: '"status --short"' }, repo)),
+    /^Error: command must begin with git/
+  );
 });
 
 // git dispatches any `git-*` executable on PATH as a subcommand, so a finite
@@ -481,13 +509,13 @@ test('git runs a fully quoted command and keeps refusing quoted shell syntax', a
 // whatever git answers is actionable, an "unsupported subcommand" refusal was
 // not, and the shell tool ran the same command anyway.
 test('git forwards unknown subcommands to git instead of pre-rejecting them', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-open-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const repo = join(root, 'repo');
-    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-    for (const command of ['git filter-repo --version', 'git fast-export --no-data HEAD']) {
-        assert.doesNotMatch(String(await executeGitTool({ command }, repo)), /unsupported git subcommand/);
-    }
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-open-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo');
+  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+  for (const command of ['git filter-repo --version', 'git fast-export --no-data HEAD']) {
+    assert.doesNotMatch(String(await executeGitTool({ command }, repo)), /unsupported git subcommand/);
+  }
 });
 
 // The only commands this tool cannot host are the ones that never return: a
@@ -495,71 +523,89 @@ test('git forwards unknown subcommands to git instead of pre-rejecting them', as
 // full timeout by working correctly. The server case is a routing hint, not a
 // verdict — shell can hold it as a background task.
 test('git refuses only non-returning subcommands and routes servers to shell', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-deny-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const repo = join(root, 'repo');
-    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-    assert.match(String(await executeGitTool({ command: 'git mergetool' }, repo)), /interactive GUI/i);
-    assert.match(String(await executeGitTool({ command: 'git daemon --export-all' }, repo)), /shell tool/i);
-    assert.match(String(await executeGitTool({ command: 'git fast-export --help' }, repo)), /external viewer/i);
-    assert.match(String(await executeGitTool({ command: 'git help fast-export' }, repo)), /external viewer/i);
-    assert.match(String(await executeGitTool({ command: 'git' }, repo)), /requires a subcommand/i);
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-deny-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo');
+  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+  assert.match(String(await executeGitTool({ command: 'git mergetool' }, repo)), /interactive GUI/i);
+  assert.match(String(await executeGitTool({ command: 'git daemon --export-all' }, repo)), /shell tool/i);
+  assert.match(String(await executeGitTool({ command: 'git fast-export --help' }, repo)), /external viewer/i);
+  assert.match(String(await executeGitTool({ command: 'git help fast-export' }, repo)), /external viewer/i);
+  assert.match(String(await executeGitTool({ command: 'git' }, repo)), /requires a subcommand/i);
 });
 
 test('git stages selected change IDs and rejects stale diff snapshots without touching the index', async (t) => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-stage-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
-    const repo = join(root, 'repo');
-    parseOk(await git(root, `init ${quote(repo)}`));
-    parseOk(await git(repo, 'config user.email test@example.com'));
-    parseOk(await git(repo, 'config user.name Test'));
-    writeFileSync(join(repo, 'sample.txt'), `${Array.from({ length: 12 }, (_, index) => `line-${index + 1}`).join('\n')}\n`);
-    parseOk(await git(repo, 'add sample.txt'));
-    parseOk(await git(repo, 'commit -m base'));
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-stage-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo');
+  parseOk(await git(root, `init ${quote(repo)}`));
+  parseOk(await git(repo, 'config user.email test@example.com'));
+  parseOk(await git(repo, 'config user.name Test'));
+  writeFileSync(
+    join(repo, 'sample.txt'),
+    `${Array.from({ length: 12 }, (_, index) => `line-${index + 1}`).join('\n')}\n`
+  );
+  parseOk(await git(repo, 'add sample.txt'));
+  parseOk(await git(repo, 'commit -m base'));
 
-    const changed = Array.from({ length: 12 }, (_, index) => `line-${index + 1}`);
-    changed[2] = 'selected-change';
-    changed[8] = 'remaining-change';
-    writeFileSync(join(repo, 'sample.txt'), `${changed.join('\n')}\n`);
+  const changed = Array.from({ length: 12 }, (_, index) => `line-${index + 1}`);
+  changed[2] = 'selected-change';
+  changed[8] = 'remaining-change';
+  writeFileSync(join(repo, 'sample.txt'), `${changed.join('\n')}\n`);
 
-    const scopedDiff = parseOk(await git(repo, 'diff -- sample.txt', { output_limit: 100 }));
-    assert.equal(scopedDiff.diff_id, undefined);
-    assert.equal(scopedDiff.changes, undefined);
-    const diff = parseOk(await git(repo, 'diff', { output_limit: 100 }));
-    assert.match(diff.diff_id, /^diff_[0-9a-f]{20}$/);
-    assert.equal(diff.changes.length, 2);
-    const selected = diff.changes.find((change) => change.preview.some((line) => line.includes('selected-change')));
-    assert.ok(selected);
-    const wrongScope = parseOk(await executeGitStageTool({
+  const scopedDiff = parseOk(await git(repo, 'diff -- sample.txt', { output_limit: 100 }));
+  assert.equal(scopedDiff.diff_id, undefined);
+  assert.equal(scopedDiff.changes, undefined);
+  const diff = parseOk(await git(repo, 'diff', { output_limit: 100 }));
+  assert.match(diff.diff_id, /^diff_[0-9a-f]{20}$/);
+  assert.equal(diff.changes.length, 2);
+  const selected = diff.changes.find((change) => change.preview.some((line) => line.includes('selected-change')));
+  assert.ok(selected);
+  const wrongScope = parseOk(
+    await executeGitStageTool(
+      {
         diff_id: diff.diff_id,
         change_ids: [selected.id],
-    }, root));
-    assert.equal(wrongScope.staged, false);
-    assert.equal(wrongScope.reason, 'scope_mismatch');
-    assert.equal(spawnSync('git', ['-C', repo, 'diff', '--cached'], { encoding: 'utf8' }).stdout, '');
-    const staged = parseOk(await executeGitStageTool({
+      },
+      root
+    )
+  );
+  assert.equal(wrongScope.staged, false);
+  assert.equal(wrongScope.reason, 'scope_mismatch');
+  assert.equal(spawnSync('git', ['-C', repo, 'diff', '--cached'], { encoding: 'utf8' }).stdout, '');
+  const staged = parseOk(
+    await executeGitStageTool(
+      {
         diff_id: diff.diff_id,
         change_ids: [selected.id],
-    }, repo));
-    assert.equal(staged.staged, true);
-    assert.deepEqual(staged.change_ids, [selected.id]);
+      },
+      repo
+    )
+  );
+  assert.equal(staged.staged, true);
+  assert.deepEqual(staged.change_ids, [selected.id]);
 
-    const cached = spawnSync('git', ['-C', repo, 'diff', '--cached'], { encoding: 'utf8' }).stdout;
-    const unstaged = spawnSync('git', ['-C', repo, 'diff'], { encoding: 'utf8' }).stdout;
-    assert.match(cached, /selected-change/);
-    assert.doesNotMatch(cached, /remaining-change/);
-    assert.match(unstaged, /remaining-change/);
-    assert.doesNotMatch(unstaged, /selected-change/);
+  const cached = spawnSync('git', ['-C', repo, 'diff', '--cached'], { encoding: 'utf8' }).stdout;
+  const unstaged = spawnSync('git', ['-C', repo, 'diff'], { encoding: 'utf8' }).stdout;
+  assert.match(cached, /selected-change/);
+  assert.doesNotMatch(cached, /remaining-change/);
+  assert.match(unstaged, /remaining-change/);
+  assert.doesNotMatch(unstaged, /selected-change/);
 
-    const next = parseOk(await git(repo, 'diff', { output_limit: 100 }));
-    changed[8] = 'changed-after-diff';
-    writeFileSync(join(repo, 'sample.txt'), `${changed.join('\n')}\n`);
-    const stale = parseOk(await executeGitStageTool({
+  const next = parseOk(await git(repo, 'diff', { output_limit: 100 }));
+  changed[8] = 'changed-after-diff';
+  writeFileSync(join(repo, 'sample.txt'), `${changed.join('\n')}\n`);
+  const stale = parseOk(
+    await executeGitStageTool(
+      {
         diff_id: next.diff_id,
         change_ids: next.changes[0].id,
-    }, repo));
-    assert.equal(stale.staged, false);
-    assert.equal(stale.reason, 'stale_diff');
-    const cachedAfterStale = spawnSync('git', ['-C', repo, 'diff', '--cached'], { encoding: 'utf8' }).stdout;
-    assert.equal(cachedAfterStale, cached);
+      },
+      repo
+    )
+  );
+  assert.equal(stale.staged, false);
+  assert.equal(stale.reason, 'stale_diff');
+  const cachedAfterStale = spawnSync('git', ['-C', repo, 'diff', '--cached'], { encoding: 'utf8' }).stdout;
+  assert.equal(cachedAfterStale, cached);
 });

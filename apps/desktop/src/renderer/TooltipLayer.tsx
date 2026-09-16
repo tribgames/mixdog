@@ -16,7 +16,11 @@ interface TooltipState {
 
 function tooltipParts(text: string) {
   const [label, hint, ...rest] = text.split(/\s+·\s+/);
-  if (!hint || rest.length || !/^(?:(?:Cmd|Ctrl|Alt|Option|Shift|Meta)\+)*(?:[A-Z0-9+=-]|Enter|Escape|Space|Tab|↑|↓|←|→)$/i.test(hint)) {
+  if (
+    !hint ||
+    rest.length ||
+    !/^(?:(?:Cmd|Ctrl|Alt|Option|Shift|Meta)\+)*(?:[A-Z0-9+=-]|Enter|Escape|Space|Tab|↑|↓|←|→)$/i.test(hint)
+  ) {
     return { label: text, keys: [] };
   }
   return { label, keys: hint.split('+').filter(Boolean) };
@@ -69,27 +73,29 @@ export function TooltipLayer() {
       left: tooltip.anchorLeft - bounds.left - TARGET_GAP - VIEWPORT_PADDING,
       right: bounds.right - tooltip.anchorRight - TARGET_GAP - VIEWPORT_PADDING,
     };
-    let side: TooltipSide = tooltip.preferredSide
-      || (room.bottom >= height || room.bottom >= room.top ? 'bottom' : 'top');
-    const opposite: TooltipSide = side === 'bottom' ? 'top' : side === 'top' ? 'bottom'
-      : side === 'left' ? 'right' : 'left';
+    let side: TooltipSide =
+      tooltip.preferredSide || (room.bottom >= height || room.bottom >= room.top ? 'bottom' : 'top');
+    const opposite: TooltipSide =
+      side === 'bottom' ? 'top' : side === 'top' ? 'bottom' : side === 'left' ? 'right' : 'left';
     const needed = side === 'left' || side === 'right' ? width : height;
     if (room[side] < needed && room[opposite] > room[side]) side = opposite;
 
     const horizontal = side === 'left' || side === 'right';
-    const left = clamp(horizontal
-      ? (side === 'right' ? tooltip.anchorRight + TARGET_GAP : tooltip.anchorLeft - TARGET_GAP - width)
-      : tooltip.anchorCenter - width / 2,
+    const left = clamp(
+      horizontal
+        ? side === 'right'
+          ? tooltip.anchorRight + TARGET_GAP
+          : tooltip.anchorLeft - TARGET_GAP - width
+        : tooltip.anchorCenter - width / 2,
       bounds.left + VIEWPORT_PADDING,
-      bounds.right - VIEWPORT_PADDING - width,
+      bounds.right - VIEWPORT_PADDING - width
     );
-    const idealTop = horizontal ? (tooltip.anchorTop + tooltip.anchorBottom - height) / 2
-      : side === 'bottom' ? tooltip.anchorBottom + TARGET_GAP : tooltip.anchorTop - TARGET_GAP - height;
-    const top = clamp(
-      idealTop,
-      bounds.top + VIEWPORT_PADDING,
-      bounds.bottom - VIEWPORT_PADDING - height,
-    );
+    const idealTop = horizontal
+      ? (tooltip.anchorTop + tooltip.anchorBottom - height) / 2
+      : side === 'bottom'
+        ? tooltip.anchorBottom + TARGET_GAP
+        : tooltip.anchorTop - TARGET_GAP - height;
+    const top = clamp(idealTop, bounds.top + VIEWPORT_PADDING, bounds.bottom - VIEWPORT_PADDING - height);
     setPosition({ left, top, side });
   }, [tooltip]);
 
@@ -106,8 +112,7 @@ export function TooltipLayer() {
       // slide a still-connected anchor out from under a stationary pointer —
       // no pointerout ever fires. Reap when the anchor lost BOTH hover and
       // keyboard focus, not just when it unmounted.
-      if (!anchor.isConnected
-        || !(anchor.matches(':hover') || anchor.matches(':focus-visible'))) {
+      if (!anchor.isConnected || !(anchor.matches(':hover') || anchor.matches(':focus-visible'))) {
         cancel();
       }
     };
@@ -144,16 +149,19 @@ export function TooltipLayer() {
           anchorRight: rect.right,
           anchorTop: rect.top,
           anchorBottom: rect.bottom,
-          sheetBounds: sheetRect && sheetRect.width > 0 && sheetRect.height > 0
-            ? {
-              left: sheetRect.left,
-              top: sheetRect.top,
-              right: sheetRect.right,
-              bottom: sheetRect.bottom,
-            }
-            : undefined,
-          preferredSide: requested === 'top' || requested === 'bottom'
-            || requested === 'left' || requested === 'right' ? requested : undefined,
+          sheetBounds:
+            sheetRect && sheetRect.width > 0 && sheetRect.height > 0
+              ? {
+                  left: sheetRect.left,
+                  top: sheetRect.top,
+                  right: sheetRect.right,
+                  bottom: sheetRect.bottom,
+                }
+              : undefined,
+          preferredSide:
+            requested === 'top' || requested === 'bottom' || requested === 'left' || requested === 'right'
+              ? requested
+              : undefined,
         });
         startWatchdog();
       }, delay);
@@ -180,10 +188,12 @@ export function TooltipLayer() {
     };
     const onKeyDown = (event: KeyboardEvent) => {
       const activationTarget = event.target instanceof Node ? event.target : null;
-      if (event.key === 'Escape'
-        || ((event.key === 'Enter' || event.key === ' ')
-          && activationTarget !== null
-          && active.current?.contains(activationTarget))) {
+      if (
+        event.key === 'Escape' ||
+        ((event.key === 'Enter' || event.key === ' ') &&
+          activationTarget !== null &&
+          active.current?.contains(activationTarget))
+      ) {
         cancel();
       }
     };
@@ -218,18 +228,28 @@ export function TooltipLayer() {
   const maxWidth = tooltip.sheetBounds
     ? Math.min(280, Math.max(0, tooltip.sheetBounds.right - tooltip.sheetBounds.left - VIEWPORT_PADDING * 2))
     : undefined;
-  return createPortal(<div
-    ref={content}
-    className="mx-tooltip"
-    role="tooltip"
-    data-side={position?.side || tooltip.preferredSide || 'bottom'}
-    style={position
-      ? { left: position.left, top: position.top, maxWidth }
-      : { left: 0, top: 0, maxWidth, visibility: 'hidden' }}
-    aria-label={tooltip.text}
-  ><span className="mx-tooltip-label">{tooltip.label}</span>
-    {tooltip.keys.length > 0 && <span className="mx-keybind" data-component="keybind">
-      {tooltip.keys.map((key) => <kbd key={key}>{key}</kbd>)}
-    </span>}
-  </div>, document.body);
+  return createPortal(
+    <div
+      ref={content}
+      className="mx-tooltip"
+      role="tooltip"
+      data-side={position?.side || tooltip.preferredSide || 'bottom'}
+      style={
+        position
+          ? { left: position.left, top: position.top, maxWidth }
+          : { left: 0, top: 0, maxWidth, visibility: 'hidden' }
+      }
+      aria-label={tooltip.text}
+    >
+      <span className="mx-tooltip-label">{tooltip.label}</span>
+      {tooltip.keys.length > 0 && (
+        <span className="mx-keybind" data-component="keybind">
+          {tooltip.keys.map((key) => (
+            <kbd key={key}>{key}</kbd>
+          ))}
+        </span>
+      )}
+    </div>,
+    document.body
+  );
 }

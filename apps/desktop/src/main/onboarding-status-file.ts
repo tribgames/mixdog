@@ -16,8 +16,7 @@ export interface DesktopOnboardingStatus {
 
 /** Same resolution the runtime uses for its shared config file. */
 export function mixdogConfigPath(): string {
-  const dataDir = process.env.MIXDOG_DATA_DIR
-    || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
+  const dataDir = process.env.MIXDOG_DATA_DIR || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
   return join(dataDir, 'mixdog-config.json');
 }
 
@@ -26,13 +25,10 @@ export function mixdogConfigPath(): string {
 export async function readOnboardingStatusFromDisk(): Promise<DesktopOnboardingStatus | null> {
   try {
     const parsed = JSON.parse(await readFile(mixdogConfigPath(), 'utf8')) as Record<string, unknown>;
-    const agent = parsed?.agent && typeof parsed.agent === 'object'
-      ? parsed.agent as Record<string, unknown>
-      : null;
+    const agent = parsed?.agent && typeof parsed.agent === 'object' ? (parsed.agent as Record<string, unknown>) : null;
     if (!agent) return null;
-    const onboarding = agent.onboarding && typeof agent.onboarding === 'object'
-      ? agent.onboarding as Record<string, unknown>
-      : null;
+    const onboarding =
+      agent.onboarding && typeof agent.onboarding === 'object' ? (agent.onboarding as Record<string, unknown>) : null;
     return {
       completed: onboarding?.completed === true,
       version: Number(onboarding?.version) || 0,

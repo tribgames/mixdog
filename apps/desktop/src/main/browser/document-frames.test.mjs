@@ -6,17 +6,22 @@ import { createBrowserFrameCollector } from './document-frames.ts';
 function deferred() {
   let resolve;
   let reject;
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
   return { promise, resolve, reject };
 }
-const tick = () => new Promise(resolve => setImmediate(resolve));
+const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 test('ready frames start without a slow sibling and collected output keeps frame order under bounded concurrency', async () => {
   const readiness = deferred();
   const frameIds = ['root', 'a', 'b', 'c', 'd', 'e'];
-  const sessions = new Map(frameIds.slice(1).map(id => [
-    id, { type: 'iframe', frameId: id, ready: id === 'a' ? readiness.promise : Promise.resolve() },
-  ]));
+  const sessions = new Map(
+    frameIds
+      .slice(1)
+      .map((id) => [id, { type: 'iframe', frameId: id, ready: id === 'a' ? readiness.promise : Promise.resolve() }])
+  );
   const trees = [];
   const gates = new Map();
   let active = 0;
@@ -32,13 +37,16 @@ test('ready frames start without a slow sibling and collected output keeps frame
           return { frameTree: { frame: { id } } };
         }
         if (method === 'Page.createIsolatedWorld') return { executionContextId: args.frameId };
-        active++; peak = Math.max(peak, active);
+        active++;
+        peak = Math.max(peak, active);
         const gate = deferred();
         gates.set(args.contextId, gate);
         try {
           await gate.promise;
           return { result: { value: args.contextId } };
-        } finally { active--; }
+        } finally {
+          active--;
+        }
       },
     },
   });
@@ -48,7 +56,8 @@ test('ready frames start without a slow sibling and collected output keeps frame
   readiness.resolve();
   await tick();
   assert.equal(active, 4);
-  gates.get('c').resolve(); gates.get('b').resolve();
+  gates.get('c').resolve();
+  gates.get('b').resolve();
   await tick();
   for (const gate of gates.values()) gate.resolve();
   assert.deepEqual(await pending, frameIds);
@@ -64,9 +73,13 @@ test('a failed frame drains in-flight sibling reads and never becomes empty page
     cdp: {
       guestDebugger: async () => new EventEmitter(),
       call: async (_guest, method, args) => {
-        if (method === 'Page.getFrameTree') return { frameTree: {
-          frame: { id: 'root' }, childFrames: [{ frame: { id: 'child' } }],
-        } };
+        if (method === 'Page.getFrameTree')
+          return {
+            frameTree: {
+              frame: { id: 'root' },
+              childFrames: [{ frame: { id: 'child' } }],
+            },
+          };
         if (method === 'Page.createIsolatedWorld') return { executionContextId: args.frameId };
         if (args.contextId === 'root') throw failure;
         await sibling.promise;
@@ -75,11 +88,18 @@ test('a failed frame drains in-flight sibling reads and never becomes empty page
     },
   });
   const pending = collect(new EventEmitter(), 'test-expression');
-  void pending.then(() => { finished = true; }, () => { finished = true; });
+  void pending.then(
+    () => {
+      finished = true;
+    },
+    () => {
+      finished = true;
+    }
+  );
   await tick();
   assert.equal(finished, false);
   sibling.resolve();
-  await assert.rejects(pending, error => error === failure);
+  await assert.rejects(pending, (error) => error === failure);
 });
 
 test('cancelled frame collection dispatches no frame reads', async () => {
@@ -88,7 +108,12 @@ test('cancelled frame collection dispatches no frame reads', async () => {
   let calls = 0;
   const collect = createBrowserFrameCollector({
     sessions: () => new Map(),
-    cdp: { guestDebugger: async () => {}, call: async () => { calls++; } },
+    cdp: {
+      guestDebugger: async () => {},
+      call: async () => {
+        calls++;
+      },
+    },
   });
   await assert.rejects(collect({}, 'text', controller.signal), /cancelled/);
   assert.equal(calls, 0);
@@ -125,9 +150,14 @@ test('routing reuse keeps text fresh and discards contexts on navigation, detach
   assert.deepEqual(await collect(guest, 'text'), ['updated']);
   assert.equal(metadataReads, initialReads, 'warm reads need no routing roundtrips');
   for (const event of [
-    'Page.frameNavigated', 'Page.frameAttached', 'Page.frameDetached',
-    'Runtime.executionContextDestroyed', 'Runtime.executionContextsCleared',
-    'Target.attachedToTarget', 'Target.detachedFromTarget', 'detach',
+    'Page.frameNavigated',
+    'Page.frameAttached',
+    'Page.frameDetached',
+    'Runtime.executionContextDestroyed',
+    'Runtime.executionContextsCleared',
+    'Target.attachedToTarget',
+    'Target.detachedFromTarget',
+    'detach',
   ]) {
     generation++;
     if (event === 'detach') port.emit('detach');

@@ -13,13 +13,18 @@ for (const boundary of ['service', 'ipc']) {
     const frames = [];
     const faults = [];
     let decoder = createSnapshotDeltaDecoder();
-    let snapshot, dropNext = false, service, bridge;
+    let snapshot,
+      dropNext = false,
+      service,
+      bridge;
     const receive = (message) => {
       try {
-        const transferred = boundary === 'ipc'
-          ? structuredClone(message) : JSON.parse(JSON.stringify(message));
+        const transferred = boundary === 'ipc' ? structuredClone(message) : JSON.parse(JSON.stringify(message));
         if (transferred.kind !== 'session-state' || transferred.sessionId !== 'lead') return;
-        if (dropNext) { dropNext = false; return; }
+        if (dropNext) {
+          dropNext = false;
+          return;
+        }
         const decoded = decoder.decode(transferred.wire);
         assert.equal(decoded.ok, true);
         assert.ok(Array.isArray(decoded.snapshot?.items), 'every publication has a real transcript');
@@ -46,7 +51,8 @@ for (const boundary of ['service', 'ipc']) {
         const handlers = new Map();
         const ipcMain = new EventEmitter();
         const webContents = {
-          mainFrame: {}, isDestroyed: () => false,
+          mainFrame: {},
+          isDestroyed: () => false,
           send(channel, value) {
             if (channel === DESKTOP_IPC.sessionState) receive({ kind: 'session-state', ...value });
           },
@@ -57,12 +63,19 @@ for (const boundary of ['service', 'ipc']) {
           ipcMain,
           handle: (channel, handler) => handlers.set(channel, handler),
         });
-        invoke = (method, args) => method === 'setVisibleSessions'
-          ? handlers.get(DESKTOP_IPC.setVisibleSessions)({}, ...args)
-          : f.host[method](...args);
-        recover = () => ipcMain.emit(DESKTOP_IPC.sessionStateResync, {
-          sender: webContents, senderFrame: webContents.mainFrame,
-        }, 'lead');
+        invoke = (method, args) =>
+          method === 'setVisibleSessions'
+            ? handlers.get(DESKTOP_IPC.setVisibleSessions)({}, ...args)
+            : f.host[method](...args);
+        recover = () =>
+          ipcMain.emit(
+            DESKTOP_IPC.sessionStateResync,
+            {
+              sender: webContents,
+              senderFrame: webContents.mainFrame,
+            },
+            'lead'
+          );
       }
       await invoke('setVisibleSessions', [['lead']]);
       assert.equal(snapshot.items[0].text, 'previous answer');
@@ -83,7 +96,8 @@ for (const boundary of ['service', 'ipc']) {
         assert.equal(snapshot.items.at(-1).id, nextId);
         const current = f.records.get('lead').snapshot;
         const finished = {
-          ...current, busy: false,
+          ...current,
+          busy: false,
           items: [...current.items, { id: `answer-${cycle}`, kind: 'assistant', text: `finished ${cycle}` }],
         };
         dropNext = true;

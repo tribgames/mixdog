@@ -3,7 +3,14 @@ import { createPortal } from 'react-dom';
 
 /** Editable tool names with a viewport-bounded suggestion list. Unknown
  * names remain valid input; the catalog is assistance, not validation. */
-export function ToolNameInput({ value, options, disabled, ariaLabel, placeholder, onChange }: {
+export function ToolNameInput({
+  value,
+  options,
+  disabled,
+  ariaLabel,
+  placeholder,
+  onChange,
+}: {
   value: string;
   options: ReadonlyArray<{ value: string; description?: string }>;
   disabled?: boolean;
@@ -18,8 +25,9 @@ export function ToolNameInput({ value, options, disabled, ariaLabel, placeholder
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const [position, setPosition] = useState<CSSProperties | null>(null);
-  const matches = options.filter(option =>
-    `${option.value} ${option.description || ''}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const matches = options.filter((option) =>
+    `${option.value} ${option.description || ''}`.toLowerCase().includes(query.trim().toLowerCase())
+  );
   const selectedIndex = Math.min(active, matches.length - 1);
   const visible = open && !disabled && matches.length > 0 && position !== null;
 
@@ -42,10 +50,19 @@ export function ToolNameInput({ value, options, disabled, ariaLabel, placeholder
       const above = Math.max(0, rect.top - topEdge - 4);
       const upward = below < Math.min(240, matches.length * 32 + 8) && above > below;
       const height = Math.min(240, upward ? above : below);
-      if (height < 24 || width < 24) { setPosition(null); return; }
+      if (height < 24 || width < 24) {
+        setPosition(null);
+        return;
+      }
       setPosition({
-        position: 'fixed', boxSizing: 'border-box', minWidth: 0, width, maxWidth: width,
-        maxHeight: height, overflowY: 'auto', overscrollBehavior: 'contain',
+        position: 'fixed',
+        boxSizing: 'border-box',
+        minWidth: 0,
+        width,
+        maxWidth: width,
+        maxHeight: height,
+        overflowY: 'auto',
+        overscrollBehavior: 'contain',
         left: Math.max(leftEdge, Math.min(rect.left, rightEdge - width)),
         ...(upward
           ? { bottom: window.innerHeight - rect.top + 4, transformOrigin: 'bottom center' }
@@ -86,50 +103,98 @@ export function ToolNameInput({ value, options, disabled, ariaLabel, placeholder
 
   const show = () => {
     setQuery('');
-    setActive(Math.max(0, options.findIndex(option => option.value === value)));
+    setActive(
+      Math.max(
+        0,
+        options.findIndex((option) => option.value === value)
+      )
+    );
     setOpen(true);
   };
-  const select = (next: string) => { onChange(next); setOpen(false); };
+  const select = (next: string) => {
+    onChange(next);
+    setOpen(false);
+  };
 
-  return <>
-    <input ref={input} role="combobox" aria-label={ariaLabel} aria-autocomplete="list"
-      aria-expanded={visible} aria-controls={visible ? id : undefined}
-      aria-activedescendant={visible && selectedIndex >= 0 ? `${id}-${selectedIndex}` : undefined}
-      value={value} disabled={disabled} placeholder={placeholder} spellCheck={false} autoComplete="off"
-      onFocus={show} onClick={() => { if (!open) show(); }} onBlur={() => setOpen(false)}
-      onChange={event => {
-        onChange(event.target.value);
-        setQuery(event.target.value);
-        setActive(0);
-        setOpen(true);
-      }}
-      onKeyDown={event => {
-        if (event.nativeEvent.isComposing) return;
-        if (event.key === 'Escape' && open) {
-          event.preventDefault();
-          event.stopPropagation();
-          setOpen(false);
-        } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          event.preventDefault();
-          event.stopPropagation();
+  return (
+    <>
+      <input
+        ref={input}
+        role="combobox"
+        aria-label={ariaLabel}
+        aria-autocomplete="list"
+        aria-expanded={visible}
+        aria-controls={visible ? id : undefined}
+        aria-activedescendant={visible && selectedIndex >= 0 ? `${id}-${selectedIndex}` : undefined}
+        value={value}
+        disabled={disabled}
+        placeholder={placeholder}
+        spellCheck={false}
+        autoComplete="off"
+        onFocus={show}
+        onClick={() => {
           if (!open) show();
-          else setActive(index => Math.max(0, Math.min(matches.length - 1,
-            index + (event.key === 'ArrowDown' ? 1 : -1))));
-        } else if (event.key === 'Enter' && visible && matches[selectedIndex]) {
-          event.preventDefault();
-          event.stopPropagation();
-          select(matches[selectedIndex].value);
-        } else if (event.key === 'Tab') setOpen(false);
-      }} />
-    {visible && createPortal(<div ref={menu} id={id} role="listbox" aria-label={ariaLabel}
-      className="mx-menu" data-i18n-skip="" style={position!}>
-      {matches.map((option, index) => <button key={option.value} type="button" role="option"
-        id={`${id}-${index}`} className="mx-menu-item" title={option.description}
-        tabIndex={-1} aria-selected={option.value === value} data-active={index === selectedIndex}
-        onMouseDown={event => event.preventDefault()}
-        onMouseEnter={() => setActive(index)} onClick={() => select(option.value)}>
-        <span>{option.value}</span>
-      </button>)}
-    </div>, document.body)}
-  </>;
+        }}
+        onBlur={() => setOpen(false)}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setQuery(event.target.value);
+          setActive(0);
+          setOpen(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === 'Escape' && open) {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(false);
+          } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!open) show();
+            else
+              setActive((index) =>
+                Math.max(0, Math.min(matches.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))
+              );
+          } else if (event.key === 'Enter' && visible && matches[selectedIndex]) {
+            event.preventDefault();
+            event.stopPropagation();
+            select(matches[selectedIndex].value);
+          } else if (event.key === 'Tab') setOpen(false);
+        }}
+      />
+      {visible &&
+        createPortal(
+          <div
+            ref={menu}
+            id={id}
+            role="listbox"
+            aria-label={ariaLabel}
+            className="mx-menu"
+            data-i18n-skip=""
+            style={position!}
+          >
+            {matches.map((option, index) => (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                id={`${id}-${index}`}
+                className="mx-menu-item"
+                title={option.description}
+                tabIndex={-1}
+                aria-selected={option.value === value}
+                data-active={index === selectedIndex}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => select(option.value)}
+              >
+                <span>{option.value}</span>
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+    </>
+  );
 }

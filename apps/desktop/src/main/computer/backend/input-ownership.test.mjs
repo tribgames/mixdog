@@ -7,11 +7,14 @@ import test from 'node:test';
 import { MIXDOG_INPUT_TRANSPORT_CSHARP } from './native-source.ts';
 
 test('ownership survives an input worker exit and refuses an unacknowledged native prefix', {
-  skip: process.platform !== 'win32', timeout: 30000,
+  skip: process.platform !== 'win32',
+  timeout: 30000,
 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), 'mixdog-owned-input-'));
   const assembly = join(directory, 'ownership.dll');
-  const source = MIXDOG_INPUT_TRANSPORT_CSHARP + `
+  const source =
+    MIXDOG_INPUT_TRANSPORT_CSHARP +
+    `
 public static class OwnershipFixture {
   public static void Press(int marker) {
     var tag = new System.IntPtr(marker);
@@ -70,17 +73,31 @@ try {
   $child.Dispose()
 }`;
   try {
-    const child = execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-      '$source=[Console]::In.ReadToEnd(); & ([scriptblock]::Create($source))'],
-    { windowsHide: true, timeout: 25000 });
+    const child = execFile(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        '$source=[Console]::In.ReadToEnd(); & ([scriptblock]::Create($source))',
+      ],
+      { windowsHide: true, timeout: 25000 }
+    );
     const completed = new Promise((resolve, reject) => {
-      let stdout = '', stderr = '';
-      child.stdout.on('data', (chunk) => { stdout += chunk; });
-      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      let stdout = '',
+        stderr = '';
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+      });
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk;
+      });
       child.once('error', reject);
-      child.once('close', (code) => code === 0 ? resolve(stdout) : reject(new Error(stderr || stdout)));
+      child.once('close', (code) => (code === 0 ? resolve(stdout) : reject(new Error(stderr || stdout))));
     });
     child.stdin.end(script);
     assert.match(await completed, /OWNERSHIP_OK/);
-  } finally { rmSync(directory, { recursive: true, force: true }); }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

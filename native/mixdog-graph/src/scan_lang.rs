@@ -676,8 +676,8 @@ mod tests {
     fn every_registry_extension_resolves_to_its_language() {
         for info in LANG_INFOS {
             for ext in info.extensions {
-                let lang = scan_lang_for_ext(ext)
-                    .unwrap_or_else(|| panic!("{ext} has no scan language"));
+                let lang =
+                    scan_lang_for_ext(ext).unwrap_or_else(|| panic!("{ext} has no scan language"));
                 // `.tsx` is the one documented divergence: extraction calls it
                 // typescript, scan parses it with the tsx grammar.
                 let expected = if *ext == "tsx" { "tsx" } else { info.id };

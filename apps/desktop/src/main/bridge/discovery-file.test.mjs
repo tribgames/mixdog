@@ -5,10 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { createBridgeDiscovery } from './discovery-file.ts';
-import {
-  bridgeDiscoveryPublicIdentity,
-  createBridgeDiscoveryRecord,
-} from './discovery-ownership.ts';
+import { bridgeDiscoveryPublicIdentity, createBridgeDiscoveryRecord } from './discovery-ownership.ts';
 
 async function temporaryDirectory() {
   return await mkdtemp(join(tmpdir(), 'mixdog-computer-discovery-'));
@@ -37,9 +34,7 @@ test('bridge discovery preserves a live foreign owner', async () => {
   const token = 'foreign-live-token';
   let foreign;
   const server = createServer((request, response) => {
-    if (request.url !== '/health'
-      || request.headers.authorization !== `Bearer ${token}`
-      || !foreign) {
+    if (request.url !== '/health' || request.headers.authorization !== `Bearer ${token}` || !foreign) {
       response.writeHead(401);
       response.end();
       return;

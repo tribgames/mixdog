@@ -42,9 +42,7 @@ export function createBrowserInitScripts(host: BrowserInitScriptHost) {
 
   function listText(registry: Map<string, RegisteredInitScript>): string {
     if (!registry.size) return 'No init scripts are registered on this page.';
-    const rows = [...registry.values()].map(
-      (script) => `[${script.id}] ${script.chars} chars — ${script.preview}`,
-    );
+    const rows = [...registry.values()].map((script) => `[${script.id}] ${script.chars} chars — ${script.preview}`);
     return `Init scripts (${registry.size}), each run at the start of every navigation:\n${rows.join('\n')}`;
   }
 
@@ -64,10 +62,12 @@ export function createBrowserInitScripts(host: BrowserInitScriptHost) {
   async function initScriptResult(
     guest: WebContents,
     command: BrowserCommand,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<BrowserCommandResult> {
     signal?.throwIfAborted();
-    const operation = String(command.operation || 'list').trim().toLowerCase();
+    const operation = String(command.operation || 'list')
+      .trim()
+      .toLowerCase();
     const registry = registryFor(guest);
     if (operation === 'list') return { text: listText(registry) };
 
@@ -79,14 +79,14 @@ export function createBrowserInitScripts(host: BrowserInitScriptHost) {
       }
       if (registry.size >= MAX_SCRIPTS_PER_PAGE) {
         throw new Error(
-          `this page already holds ${MAX_SCRIPTS_PER_PAGE} init scripts; remove one before adding another`,
+          `this page already holds ${MAX_SCRIPTS_PER_PAGE} init scripts; remove one before adding another`
         );
       }
       const { identifier } = await cdp.call<{ identifier: string }>(
         guest,
         'Page.addScriptToEvaluateOnNewDocument',
         { source, runImmediately: false },
-        signal,
+        signal
       );
       sequence += 1;
       const id = `is${sequence}`;
@@ -122,13 +122,16 @@ export function createBrowserInitScripts(host: BrowserInitScriptHost) {
           if (signal?.aborted) {
             throw signal.reason || error;
           }
-          failures.push(new Error(`${id}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }));
+          failures.push(
+            new Error(`${id}: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+          );
         }
       }
       if (failures.length) {
-        throw new AggregateError(failures,
-          `removed ${removed - failures.length} init script(s), but ${failures.length} could not be removed; retry clear\n`
-          + failures.map(error => error.message).join('\n'),
+        throw new AggregateError(
+          failures,
+          `removed ${removed - failures.length} init script(s), but ${failures.length} could not be removed; retry clear\n` +
+            failures.map((error) => error.message).join('\n')
         );
       }
       return { text: `Removed ${removed} init script(s).` };

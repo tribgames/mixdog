@@ -1,8 +1,8 @@
-import type { DesktopModelSelection } from "../shared/contract";
-import type { Snapshot } from "./desktop-types";
-import { record } from "./record-utils";
+import type { DesktopModelSelection } from '../shared/contract';
+import type { Snapshot } from './desktop-types';
+import { record } from './record-utils';
 // @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
-import { displayModelName } from "../../../../src/ui/model-display.mjs";
+import { displayModelName } from '../../../../src/ui/model-display.mjs';
 
 export type InheritanceFit = {
   known: boolean;
@@ -24,7 +24,7 @@ function fitNumber(value: unknown): number {
 
 function inheritanceFitValue(value: unknown): InheritanceFit | null {
   const row = record(value);
-  if (typeof row.known !== "boolean") return null;
+  if (typeof row.known !== 'boolean') return null;
   const percent = Number(row.percent);
   return {
     known: row.known,
@@ -33,22 +33,22 @@ function inheritanceFitValue(value: unknown): InheritanceFit | null {
     used: fitNumber(row.used),
     limit: fitNumber(row.limit),
     percent: Number.isFinite(percent) ? percent : null,
-    provider: String(row.provider || ""),
-    model: String(row.model || ""),
-    reason: String(row.reason || ""),
+    provider: String(row.provider || ''),
+    model: String(row.model || ''),
+    reason: String(row.reason || ''),
   };
 }
 
 export function sessionModelSelection(snapshot: Snapshot): DesktopModelSelection | null {
-  const provider = String(snapshot.provider || "").trim();
-  const model = String(snapshot.model || "").trim();
+  const provider = String(snapshot.provider || '').trim();
+  const model = String(snapshot.model || '').trim();
   if (!provider || !model) return null;
-  const effort = String(snapshot.effort || "").trim();
+  const effort = String(snapshot.effort || '').trim();
   return {
     provider,
     model,
     ...(effort ? { effort } : {}),
-    ...(typeof snapshot.fast === "boolean" ? { fast: snapshot.fast } : {}),
+    ...(typeof snapshot.fast === 'boolean' ? { fast: snapshot.fast } : {}),
     ...(snapshot.modelParameters ? { modelParameters: { ...snapshot.modelParameters } } : {}),
     ...(Number(snapshot.contextPercent) >= 10 ? { contextPercent: Number(snapshot.contextPercent) } : {}),
   };
@@ -58,13 +58,13 @@ export function lastAssistantRoute(snapshot: Snapshot): { provider: string; mode
   const items = Array.isArray(snapshot.items) ? snapshot.items : [];
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = record(items[index]);
-    if (String(item.kind || "") !== "assistant"
-      && !(item.kind === "statusdone" && item.status === "inherited")) continue;
-    const model = String(item.model || "").trim();
-    const modelId = String(item.modelId || "").trim();
+    if (String(item.kind || '') !== 'assistant' && !(item.kind === 'statusdone' && item.status === 'inherited'))
+      continue;
+    const model = String(item.model || '').trim();
+    const modelId = String(item.modelId || '').trim();
     if (!model && !modelId) continue;
     return {
-      provider: String(item.provider || "").trim(),
+      provider: String(item.provider || '').trim(),
       model,
       ...(modelId ? { modelId } : {}),
     };
@@ -82,8 +82,10 @@ export function shouldOfferSessionInheritance(snapshot: Snapshot): boolean {
   // Legacy rows stored either a raw ID or its display label. Reuse the
   // original formatter, not punctuation-stripping or guessed model aliases.
   const recordedModel = previous.model.toLowerCase();
-  return current.model.toLowerCase() !== recordedModel
-    && displayModelName(current.model, current.provider).toLowerCase() !== recordedModel;
+  return (
+    current.model.toLowerCase() !== recordedModel &&
+    displayModelName(current.model, current.provider).toLowerCase() !== recordedModel
+  );
 }
 
 /**
@@ -101,13 +103,13 @@ export function shouldOfferSessionInheritance(snapshot: Snapshot): boolean {
  */
 export async function inheritancePreflight(
   sessionId: string,
-  route: DesktopModelSelection,
+  route: DesktopModelSelection
 ): Promise<InheritanceFit | null> {
   const api = window.mixdogDesktop;
-  if (!sessionId || typeof api?.invokeCapability !== "function") return null;
+  if (!sessionId || typeof api?.invokeCapability !== 'function') return null;
   try {
     const result = await api.invokeCapability({
-      capability: "inheritancePreflight",
+      capability: 'inheritancePreflight',
       args: [sessionId, route],
       sessionId,
     });

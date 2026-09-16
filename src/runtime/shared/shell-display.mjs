@@ -7,11 +7,11 @@
  * command the user actually ran behind two encoding statements.
  */
 const POWERSHELL_UTF8_PREFIX =
-    '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8;';
+  '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8;';
 
 export function displayShellCommand(value) {
-    const text = String(value ?? '');
-    const trimmed = text.trimStart();
-    if (!trimmed.startsWith(POWERSHELL_UTF8_PREFIX)) return text;
-    return trimmed.slice(POWERSHELL_UTF8_PREFIX.length).replace(/^[ \t]*\r?\n/, '');
+  const text = String(value ?? '');
+  const trimmed = text.trimStart();
+  if (!trimmed.startsWith(POWERSHELL_UTF8_PREFIX)) return text;
+  return trimmed.slice(POWERSHELL_UTF8_PREFIX.length).replace(/^[ \t]*\r?\n/, '');
 }

@@ -27,10 +27,7 @@ export function usePromptHint() {
   }, []);
 
   // Same band and timer; only the resting tone differs for copy feedback.
-  const showSelectionCopyHint = useCallback(
-    (text, tone = 'plain') => showPromptHint(text, tone),
-    [showPromptHint],
-  );
+  const showSelectionCopyHint = useCallback((text, tone = 'plain') => showPromptHint(text, tone), [showPromptHint]);
 
   const clearPromptHint = useCallback(() => {
     if (!promptHintActiveRef.current && !promptHintTimerRef.current) return;
@@ -43,9 +40,12 @@ export function usePromptHint() {
     setPromptHintTone('info');
   }, []);
 
-  useEffect(() => () => {
-    if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
+    },
+    []
+  );
 
   return {
     promptHint,

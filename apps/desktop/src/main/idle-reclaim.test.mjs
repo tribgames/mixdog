@@ -1,7 +1,7 @@
-import assert from "node:assert/strict";
-import { test } from "node:test";
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
 
-import { createIdleReclaim, purgeRendererMemory } from "./idle-reclaim.ts";
+import { createIdleReclaim, purgeRendererMemory } from './idle-reclaim.ts';
 
 const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -11,20 +11,22 @@ function harness(overrides = {}) {
   const reclaim = createIdleReclaim({
     delayMs: 0,
     isFocused: () => state.focused,
-    reclaim: () => { calls.push(Date.now()); },
+    reclaim: () => {
+      calls.push(Date.now());
+    },
     ...overrides,
   });
   return { calls, state, reclaim };
 }
 
-test("releases once the unfocused window has stayed quiet", async () => {
+test('releases once the unfocused window has stayed quiet', async () => {
   const { calls, reclaim } = harness();
   reclaim.onBlur();
   await tick();
   assert.equal(calls.length, 1);
 });
 
-test("keeps the heap while the window is focused", async () => {
+test('keeps the heap while the window is focused', async () => {
   const { calls, state, reclaim } = harness();
   state.focused = true;
   reclaim.onBlur();
@@ -32,16 +34,18 @@ test("keeps the heap while the window is focused", async () => {
   assert.equal(calls.length, 0);
 });
 
-test("an unreadable window counts as focused", async () => {
+test('an unreadable window counts as focused', async () => {
   const { calls, reclaim } = harness({
-    isFocused: () => { throw new Error("window is gone"); },
+    isFocused: () => {
+      throw new Error('window is gone');
+    },
   });
   reclaim.onBlur();
   await tick();
   assert.equal(calls.length, 0);
 });
 
-test("never releases in the middle of a turn", async () => {
+test('never releases in the middle of a turn', async () => {
   const { calls, reclaim } = harness();
   reclaim.onSnapshot({ busy: true });
   reclaim.onBlur();
@@ -53,7 +57,7 @@ test("never releases in the middle of a turn", async () => {
   assert.equal(calls.length, 1);
 });
 
-test("releases once per quiet stretch", async () => {
+test('releases once per quiet stretch', async () => {
   const { calls, reclaim } = harness();
   reclaim.onBlur();
   await tick();
@@ -67,7 +71,7 @@ test("releases once per quiet stretch", async () => {
   assert.equal(calls.length, 2);
 });
 
-test("a fresh turn earns another release after it settles", async () => {
+test('a fresh turn earns another release after it settles', async () => {
   const { calls, reclaim } = harness();
   reclaim.onBlur();
   await tick();
@@ -78,7 +82,7 @@ test("a fresh turn earns another release after it settles", async () => {
   assert.equal(calls.length, 2);
 });
 
-test("dispose cancels a pending release", async () => {
+test('dispose cancels a pending release', async () => {
   const { calls, reclaim } = harness({ delayMs: 20 });
   reclaim.onBlur();
   reclaim.dispose();
@@ -86,14 +90,17 @@ test("dispose cancels a pending release", async () => {
   assert.equal(calls.length, 0);
 });
 
-test("purge drops renderer caches", async () => {
+test('purge drops renderer caches', async () => {
   const scripts = [];
   await purgeRendererMemory({
     isDestroyed: () => false,
-    executeJavaScript: async (code) => { scripts.push(code); return true; },
+    executeJavaScript: async (code) => {
+      scripts.push(code);
+      return true;
+    },
   });
   assert.equal(scripts.length, 1);
-  assert.ok(scripts[0].includes("mixdog:idle-reclaim"));
+  assert.ok(scripts[0].includes('mixdog:idle-reclaim'));
 });
 
 // Regression guard. Forcing a V8 purge through the debugger (CDP
@@ -101,8 +108,10 @@ test("purge drops renderer caches", async () => {
 // ACCESS_VIOLATION every single time it fired, reloading the window under the
 // user. The reclaim must never reach for the debugger again, so a target whose
 // debugger traps on contact has to come through untouched.
-test("purge never touches the debugger", async () => {
-  const trap = () => { throw new Error("the reclaim must not use the debugger"); };
+test('purge never touches the debugger', async () => {
+  const trap = () => {
+    throw new Error('the reclaim must not use the debugger');
+  };
   await purgeRendererMemory({
     isDestroyed: () => false,
     executeJavaScript: async () => true,
@@ -110,16 +119,20 @@ test("purge never touches the debugger", async () => {
   });
 });
 
-test("purge survives a document that went away mid-navigation", async () => {
+test('purge survives a document that went away mid-navigation', async () => {
   await purgeRendererMemory({
     isDestroyed: () => false,
-    executeJavaScript: async () => { throw new Error("document is gone"); },
+    executeJavaScript: async () => {
+      throw new Error('document is gone');
+    },
   });
 });
 
-test("purge skips a destroyed window", async () => {
+test('purge skips a destroyed window', async () => {
   await purgeRendererMemory({
     isDestroyed: () => true,
-    executeJavaScript: async () => { throw new Error("unreachable"); },
+    executeJavaScript: async () => {
+      throw new Error('unreachable');
+    },
   });
 });

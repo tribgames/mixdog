@@ -63,7 +63,9 @@ const STATUSLINE_REFRESH_MS = 2000;
 const STATUSLINE_ACTIVE_REFRESH_MS = 500;
 
 function isTerminalStatus(statusText) {
-  return /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/.test(String(statusText || '').toLowerCase());
+  return /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/.test(
+    String(statusText || '').toLowerCase()
+  );
 }
 
 function hasRunningStatuslineWorkers(agentWorkers = [], agentJobs = []) {
@@ -89,10 +91,12 @@ function hasActiveStatuslineTools(activeTools = null) {
 }
 
 function hasActiveStatuslineWork(line, agentWorkers = [], agentJobs = [], activeTools = null) {
-  return hasRunningStatuslineWorkers(agentWorkers, agentJobs)
-    || hasActiveStatuslineTools(activeTools)
-    || /\bRunning \d+ (?:Agents?|Shells?)\b/.test(stripAnsi(line))
-    || /\b(?:Exploring|Searching|Memory)\b/.test(stripAnsi(line));
+  return (
+    hasRunningStatuslineWorkers(agentWorkers, agentJobs) ||
+    hasActiveStatuslineTools(activeTools) ||
+    /\bRunning \d+ (?:Agents?|Shells?)\b/.test(stripAnsi(line)) ||
+    /\b(?:Exploring|Searching|Memory)\b/.test(stripAnsi(line))
+  );
 }
 
 function bootFullRenderEligible(mountAtMs, line, agentWorkers = [], agentJobs = [], activeTools = null) {
@@ -114,7 +118,7 @@ function scheduleBootFullRetry(backoffMsRef, nextAttemptAtRef) {
   resetStatuslineModuleLoad();
   const nextBackoff = Math.min(
     STATUSLINE_BOOT_FULL_RETRY_MAX_MS,
-    Math.max(STATUSLINE_BOOT_FULL_RETRY_MS, backoffMsRef.current * 2),
+    Math.max(STATUSLINE_BOOT_FULL_RETRY_MS, backoffMsRef.current * 2)
   );
   backoffMsRef.current = nextBackoff;
   nextAttemptAtRef.current = Date.now() + nextBackoff;
@@ -138,7 +142,6 @@ function statusColors() {
     ERROR: ansiRgb(theme.error, rgbSgr(220, 70, 88)),
   };
 }
-
 
 function localContextPct({
   provider = '',
@@ -169,7 +172,7 @@ function localContextSegmentFromPct(ctxPct, source = 'pending') {
   const fill = pct >= 90 ? ERROR : pct >= 70 ? WARNING : SUCCESS;
   const label = localContextPctDisplayLabel(pct);
   if (!cells) return `${fill}${label}%${RESET}`;
-  let filled = Math.floor(barPct * cells / 100);
+  let filled = Math.floor((barPct * cells) / 100);
   if (barPct >= 1 && filled === 0) filled = 1;
   filled = Math.max(0, Math.min(cells, filled));
   const bar = '▓'.repeat(filled) + '░'.repeat(cells - filled);
@@ -236,13 +239,10 @@ function localOldestWorkerStartMs(agentWorkers = [], agentJobs = []) {
 // synchronous read (its refresh runs in the background, never on the render
 // path), so the shell count is computed here directly instead of being grafted
 // out of the previously cached full line.
-function localStatusLineL2({
-  agentWorkers = [],
-  agentJobs = [],
-  activeTools = null,
-  sessionId = '',
-  clientHostPid = 0,
-} = {}, now = Date.now()) {
+function localStatusLineL2(
+  { agentWorkers = [], agentJobs = [], activeTools = null, sessionId = '', clientHostPid = 0 } = {},
+  now = Date.now()
+) {
   const { STATUS, SUBTLE, SUCCESS } = statusColors();
   const spin = `${SUCCESS}${localL2SpinnerFrame(now)}${RESET}`;
   const segSep = ` ${SUBTLE}│${RESET} `;
@@ -280,7 +280,6 @@ function localStatusLineL2({
   return l2Parts.length ? l2Parts.join(segSep) : '';
 }
 
-
 function localBootStatusLine(args = {}) {
   const {
     provider = '',
@@ -296,10 +295,7 @@ function localBootStatusLine(args = {}) {
   } = args;
   const raw = String(model || '').trim();
   const { STATUS, SUBTLE } = statusColors();
-  const display = shortenModelName(
-    displayModelName(raw, provider, ''),
-    terminalColumns(),
-  );
+  const display = shortenModelName(displayModelName(raw, provider, ''), terminalColumns());
   const flags = [effort ? String(effort).toUpperCase() : '', fast === true ? 'FAST' : ''].filter(Boolean);
   const modelBits = [display, ...flags].join(` ${SUBTLE}·${RESET} `);
   const ctxPct = localContextPct({
@@ -326,22 +322,49 @@ function workflowModeLabel(workflow = {}) {
   return base;
 }
 
-function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow = 0, compactBoundaryTokens = 0, autoCompactTokenLimit = 0, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], activeTools = null, initialLine = '', workflow = null, themeEpoch = 0 }) {
-  const [line, setLine] = useState(() => normalizeStatusLine(initialLine || localBootStatusLine({
-    provider,
-    model,
-    effort,
-    fast,
-    stats,
-    contextWindow,
-    displayContextWindow,
-    rawContextWindow,
-    compactBoundaryTokens,
-    autoCompactTokenLimit,
-    agentWorkers,
-    agentJobs,
-    activeTools,
-  })));
+function StatusLineView({
+  sessionId,
+  clientHostPid,
+  provider,
+  model,
+  effort,
+  fast,
+  cwd,
+  stats,
+  contextWindow,
+  displayContextWindow = 0,
+  compactBoundaryTokens = 0,
+  autoCompactTokenLimit = 0,
+  rawContextWindow,
+  resizeEpoch,
+  agentRevision = '',
+  agentWorkers = [],
+  agentJobs = [],
+  activeTools = null,
+  initialLine = '',
+  workflow = null,
+  themeEpoch = 0,
+}) {
+  const [line, setLine] = useState(() =>
+    normalizeStatusLine(
+      initialLine ||
+        localBootStatusLine({
+          provider,
+          model,
+          effort,
+          fast,
+          stats,
+          contextWindow,
+          displayContextWindow,
+          rawContextWindow,
+          compactBoundaryTokens,
+          autoCompactTokenLimit,
+          agentWorkers,
+          agentJobs,
+          activeTools,
+        })
+    )
+  );
   const [refreshTick, setRefreshTick] = useState(0);
   const statuslineArgsRef = useRef(null);
   const bootFullDoneRef = useRef(false);
@@ -356,9 +379,22 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   const lastRawFullLineCacheKeyRef = useRef('');
 
   const statuslineArgs = {
-    sessionId, clientHostPid, provider, model, effort, fast, cwd, stats,
-    contextWindow, displayContextWindow, compactBoundaryTokens, autoCompactTokenLimit, rawContextWindow,
-    agentWorkers, agentJobs, activeTools,
+    sessionId,
+    clientHostPid,
+    provider,
+    model,
+    effort,
+    fast,
+    cwd,
+    stats,
+    contextWindow,
+    displayContextWindow,
+    compactBoundaryTokens,
+    autoCompactTokenLimit,
+    rawContextWindow,
+    agentWorkers,
+    agentJobs,
+    activeTools,
   };
   statuslineArgsRef.current = statuslineArgs;
   lineRef.current = line;
@@ -380,10 +416,20 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   // fire, starving the boot full-render. Only tag|stage per worker/job and
   // the numeric stats fields actually consumed here are covered.
   const agentWorkersSignature = Array.isArray(agentWorkers)
-    ? agentWorkers.map((w) => `${w?.tag || w?.agent || w?.name || ''}|${w?.stage || w?.status || ''}|${localTimeMs(w?.startedAt || w?.startTime || w?.createdAt)}`).join(',')
+    ? agentWorkers
+        .map(
+          (w) =>
+            `${w?.tag || w?.agent || w?.name || ''}|${w?.stage || w?.status || ''}|${localTimeMs(w?.startedAt || w?.startTime || w?.createdAt)}`
+        )
+        .join(',')
     : '';
   const agentJobsSignature = Array.isArray(agentJobs)
-    ? agentJobs.map((j) => `${j?.tag || j?.agent || j?.name || ''}|${j?.status || j?.stage || ''}|${localTimeMs(j?.startedAt || j?.startTime || j?.createdAt)}`).join(',')
+    ? agentJobs
+        .map(
+          (j) =>
+            `${j?.tag || j?.agent || j?.name || ''}|${j?.status || j?.stage || ''}|${localTimeMs(j?.startedAt || j?.startTime || j?.createdAt)}`
+        )
+        .join(',')
     : '';
   const statsForSignature = stats && typeof stats === 'object' ? stats : {};
   const statsSignature = [
@@ -396,7 +442,9 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     num(statsForSignature.contextTokens),
     String(statsForSignature.currentContextSource || ''),
   ].join('|');
-  const refreshMs = hasActiveStatuslineWork(line, agentWorkers, agentJobs, activeTools) ? STATUSLINE_ACTIVE_REFRESH_MS : STATUSLINE_REFRESH_MS;
+  const refreshMs = hasActiveStatuslineWork(line, agentWorkers, agentJobs, activeTools)
+    ? STATUSLINE_ACTIVE_REFRESH_MS
+    : STATUSLINE_REFRESH_MS;
 
   useEffect(() => {
     scheduleStatuslineModulePrewarm();
@@ -417,10 +465,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     const isCurrentEffect = () => alive && renderEffectIdRef.current === effectId;
     const args = statuslineArgsRef.current || statuslineArgs;
     const footerCacheKey = statuslineFooterCacheKey({ ...args, agentRevision });
-    const identityChanged = shouldSnapLocalStatusline(
-      { ...args, agentRevision },
-      lastImmediateArgsRef.current,
-    );
+    const identityChanged = shouldSnapLocalStatusline({ ...args, agentRevision }, lastImmediateArgsRef.current);
     // ROUTE identity = the subset that actually changes the async full line's L1
     // usage/quota segment (provider/model/session/effort/fast). agentRevision,
     // compactBoundaryTokens, autoCompactTokenLimit, stats-reset AND the context
@@ -437,12 +482,13 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     // within ~150ms). (lastImmediateArgsRef holds these fields, captured at the
     // end of the previous effect run.)
     const prevImmediate = lastImmediateArgsRef.current;
-    const routeChanged = !prevImmediate
-      || prevImmediate.sessionId !== args.sessionId
-      || prevImmediate.provider !== args.provider
-      || prevImmediate.model !== args.model
-      || prevImmediate.effort !== args.effort
-      || prevImmediate.fast !== args.fast;
+    const routeChanged =
+      !prevImmediate ||
+      prevImmediate.sessionId !== args.sessionId ||
+      prevImmediate.provider !== args.provider ||
+      prevImmediate.model !== args.model ||
+      prevImmediate.effort !== args.effort ||
+      prevImmediate.fast !== args.fast;
     // A theme switch must re-tone the footer immediately: the stored `line`
     // holds already-normalized ANSI with the OLD palette, so re-running
     // normalizeStatusLine on it is a no-op. Force a fresh local rebuild (new
@@ -461,9 +507,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
       lastRawFullLineCacheKeyRef.current = '';
       bootFullDoneRef.current = false;
     }
-    const snapLocalNow = themeChanged
-      || bootFullDoneRef.current !== true
-      || identityChanged;
+    const snapLocalNow = themeChanged || bootFullDoneRef.current !== true || identityChanged;
     if (snapLocalNow) {
       // Reuse the last good FULL line (with its L1 usage segment) whenever this is
       // NOT a route switch and a cached full line exists — covers theme re-tone,
@@ -517,7 +561,15 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     };
     const timer = setTimeout(() => {
       if (bootFullDoneRef.current !== true) {
-        if (!bootFullRenderEligible(mountAtRef.current, lineRef.current, args.agentWorkers, args.agentJobs, args.activeTools)) {
+        if (
+          !bootFullRenderEligible(
+            mountAtRef.current,
+            lineRef.current,
+            args.agentWorkers,
+            args.agentJobs,
+            args.activeTools
+          )
+        ) {
           // Not eligible yet (boot delay not elapsed). Don't just bail and wait
           // for the next refreshTick interval (250ms/2000ms) — arm a follow-up
           // timeout for the REMAINING boot delay so the first full render still
@@ -578,7 +630,28 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
       clearTimeout(timer);
       clearTimeout(bootRetryTimer);
     };
-  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, statsSignature, contextWindow, displayContextWindow, compactBoundaryTokens, autoCompactTokenLimit, rawContextWindow, resizeEpoch, agentRevision, agentWorkersSignature, agentJobsSignature, activeToolsSignature, refreshTick, themeEpoch]);
+  }, [
+    sessionId,
+    clientHostPid,
+    provider,
+    model,
+    effort,
+    fast,
+    cwd,
+    statsSignature,
+    contextWindow,
+    displayContextWindow,
+    compactBoundaryTokens,
+    autoCompactTokenLimit,
+    rawContextWindow,
+    resizeEpoch,
+    agentRevision,
+    agentWorkersSignature,
+    agentJobsSignature,
+    activeToolsSignature,
+    refreshTick,
+    themeEpoch,
+  ]);
 
   const lines = line ? line.split('\n').slice(0, 2) : [' ', ' '];
   const workflowLabel = workflowModeLabel(workflow);
@@ -587,13 +660,24 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   // the terminal bottom. Left/right insets match the prompt box's text column
   // (1 border + 1 padding) so both edges line up vertically with the input.
   return (
-    <Box flexDirection="column" width="100%" height={2} overflow="hidden" justifyContent="flex-start" paddingLeft={2} paddingRight={2} backgroundColor={surfaceBackground()}>
+    <Box
+      flexDirection="column"
+      width="100%"
+      height={2}
+      overflow="hidden"
+      justifyContent="flex-start"
+      paddingLeft={2}
+      paddingRight={2}
+      backgroundColor={surfaceBackground()}
+    >
       <Box flexDirection="row" width="100%" overflow="hidden">
         <Box flexGrow={1} flexShrink={1} flexBasis={0} overflow="hidden">
           <Text wrap="truncate">{lines[0] || ' '}</Text>
         </Box>
         <Box flexShrink={0} marginLeft={1}>
-          <Text color={theme.statusText} wrap="truncate">{workflowLabel}</Text>
+          <Text color={theme.statusText} wrap="truncate">
+            {workflowLabel}
+          </Text>
         </Box>
       </Box>
       <Box flexDirection="row" width="100%" overflow="hidden">

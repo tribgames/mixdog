@@ -25,7 +25,7 @@ test('OAuth flow records null completion and rejection as terminal failures', as
   await settle();
   assert.deepEqual(
     { state: registry.status(first.flowId).state, error: registry.status(first.flowId).error },
-    { state: 'failed', error: 'OAuth login did not complete.' },
+    { state: 'failed', error: 'OAuth login did not complete.' }
   );
 
   const rejected = deferred();
@@ -34,7 +34,7 @@ test('OAuth flow records null completion and rejection as terminal failures', as
   await settle();
   assert.deepEqual(
     { state: registry.status(second.flowId).state, error: registry.status(second.flowId).error },
-    { state: 'failed', error: 'token exchange rejected' },
+    { state: 'failed', error: 'token exchange rejected' }
   );
   registry.cancelAll();
 });
@@ -46,13 +46,19 @@ test('OAuth flow cancellation remains queryable and duplicate provider login sup
   const first = registry.register({
     provider: 'anthropic-oauth',
     waitForCallback: firstWait.promise,
-    cancel: () => { cancelled += 1; firstWait.resolve(null); },
+    cancel: () => {
+      cancelled += 1;
+      firstWait.resolve(null);
+    },
   });
   const secondWait = deferred();
   const second = registry.register({
     provider: 'anthropic-oauth',
     waitForCallback: secondWait.promise,
-    cancel: () => { cancelled += 1; secondWait.resolve(null); },
+    cancel: () => {
+      cancelled += 1;
+      secondWait.resolve(null);
+    },
   });
   await settle();
   assert.equal(registry.status(first.flowId).state, 'cancelled');
@@ -73,7 +79,10 @@ test('OAuth flow expiry remains queryable and cancels provider work', async () =
   const flow = registry.register({
     provider: 'cursor-oauth',
     waitForCallback: waiting.promise,
-    cancel: () => { cancelled = true; waiting.resolve(null); },
+    cancel: () => {
+      cancelled = true;
+      waiting.resolve(null);
+    },
   });
   await new Promise((resolve) => setTimeout(resolve, 20));
   const status = registry.status(flow.flowId);
@@ -97,10 +106,7 @@ test('manual OAuth completion is single-use and preserves its terminal result', 
   });
   const completed = await registry.complete(flow.flowId, 'authorization-code');
   assert.equal(completed.state, 'complete');
-  await assert.rejects(
-    registry.complete(flow.flowId, 'authorization-code'),
-    /no longer pending/,
-  );
+  await assert.rejects(registry.complete(flow.flowId, 'authorization-code'), /no longer pending/);
   assert.equal(registry.status(flow.flowId).state, 'complete');
   registry.cancelAll();
 });
@@ -120,10 +126,7 @@ test('manual OAuth completion cannot run twice or lose to its callback settling 
   });
 
   const first = registry.complete(flow.flowId, 'authorization-code');
-  await assert.rejects(
-    registry.complete(flow.flowId, 'authorization-code'),
-    /already being completed/,
-  );
+  await assert.rejects(registry.complete(flow.flowId, 'authorization-code'), /already being completed/);
   callback.resolve(null);
   await settle();
   assert.equal(registry.status(flow.flowId).state, 'pending');

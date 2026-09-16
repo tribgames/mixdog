@@ -45,7 +45,9 @@ export function expandOfficeDesignOperations({
     // written as a pptxgenjs script (action:author, pptx skill) and an existing
     // deck is edited with the slide and shape operations.
     if (normalizedFormat === 'pptx' && name === 'compose_slide') {
-      throw new Error('compose_slide is no longer supported: author a new deck with action:author (pptx skill) and edit an existing deck with add_slide, add_textbox, add_chart, set_text, and the other slide operations.');
+      throw new Error(
+        'compose_slide is no longer supported: author a new deck with action:author (pptx skill) and edit an existing deck with add_slide, add_textbox, add_chart, set_text, and the other slide operations.'
+      );
     }
     if (normalizedFormat === 'docx' && name === 'compose_document') {
       const composition = planOfficeComposition(normalizedFormat, contentOperation, design, {
@@ -93,8 +95,6 @@ export function expandOfficeDesignOperations({
   };
 }
 
-
-
 export function applyPdfDesign(blocks = [], designRequest = {}, { library = null } = {}) {
   if (usesNativeOfficeDesign('pdf', designRequest)) {
     return {
@@ -116,7 +116,13 @@ export function applyPdfDesign(blocks = [], designRequest = {}, { library = null
       return {
         ...block,
         font: block.font || type.display,
-        size: block.size || (title ? design.format.title : level >= 3 ? Math.round(design.format.heading * 0.85 * 2) / 2 : design.format.heading),
+        size:
+          block.size ||
+          (title
+            ? design.format.title
+            : level >= 3
+              ? Math.round(design.format.heading * 0.85 * 2) / 2
+              : design.format.heading),
         color: block.color || (headingIndex === 1 ? colors.ink : colors.accent),
         after: block.after ?? (headingIndex === 1 ? 18 : 10),
       };

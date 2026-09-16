@@ -1,8 +1,8 @@
-import { DiffFile, DiffModeEnum, DiffView } from "@git-diff-view/react";
-import "@git-diff-view/react/styles/diff-view.css";
-import { type ComponentProps, useEffect, useMemo, useState } from "react";
+import { DiffFile, DiffModeEnum, DiffView } from '@git-diff-view/react';
+import '@git-diff-view/react/styles/diff-view.css';
+import { type ComponentProps, useEffect, useMemo, useState } from 'react';
 
-type DiffData = ComponentProps<typeof DiffView>["data"];
+type DiffData = ComponentProps<typeof DiffView>['data'];
 
 // Surfaces that print the `@@ … @@` header themselves — the Git diff pane's
 // sticky hunk row that carries Stage Hunk — used to get a SECOND copy of it
@@ -27,39 +27,36 @@ function hunkHeaderFreeFile(data: DiffData): DiffFile | null {
   }
 }
 
-export default function LazyDiffView({ data, mode, hideHunkHeader }: {
+export default function LazyDiffView({
+  data,
+  mode,
+  hideHunkHeader,
+}: {
   data: DiffData;
-  mode?: "unified" | "split";
+  mode?: 'unified' | 'split';
   hideHunkHeader?: boolean;
 }) {
-  const [theme, setTheme] = useState<"light" | "dark">(
-    () => window.getComputedStyle(document.documentElement).colorScheme === "light" ? "light" : "dark",
+  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
+    window.getComputedStyle(document.documentElement).colorScheme === 'light' ? 'light' : 'dark'
   );
   useEffect(() => {
     const root = document.documentElement;
-    const update = () => setTheme(window.getComputedStyle(root).colorScheme === "light" ? "light" : "dark");
+    const update = () => setTheme(window.getComputedStyle(root).colorScheme === 'light' ? 'light' : 'dark');
     const observer = new MutationObserver(update);
-    observer.observe(root, { attributes: true, attributeFilter: ["style", "data-mixdog-theme"] });
+    observer.observe(root, { attributes: true, attributeFilter: ['style', 'data-mixdog-theme'] });
     return () => observer.disconnect();
   }, []);
-  const headerFree = useMemo(
-    () => hideHunkHeader ? hunkHeaderFreeFile(data) : null,
-    [data, hideHunkHeader],
-  );
-  const diffViewMode = mode === "split" ? DiffModeEnum.Split : DiffModeEnum.Unified;
-  return headerFree
-    ? <DiffView
+  const headerFree = useMemo(() => (hideHunkHeader ? hunkHeaderFreeFile(data) : null), [data, hideHunkHeader]);
+  const diffViewMode = mode === 'split' ? DiffModeEnum.Split : DiffModeEnum.Unified;
+  return headerFree ? (
+    <DiffView
       diffFile={headerFree}
       diffViewMode={diffViewMode}
       diffViewTheme={theme}
       diffViewWrap
       diffViewFontSize={12}
     />
-    : <DiffView
-      data={data}
-      diffViewMode={diffViewMode}
-      diffViewTheme={theme}
-      diffViewWrap
-      diffViewFontSize={12}
-    />;
+  ) : (
+    <DiffView data={data} diffViewMode={diffViewMode} diffViewTheme={theme} diffViewWrap diffViewFontSize={12} />
+  );
 }

@@ -371,7 +371,10 @@ mod tests {
             "raw_string_literal",
             "atomic_declaration",
         ] {
-            assert!(!is_identifier_kind(kind), "{kind} must not carry identifiers");
+            assert!(
+                !is_identifier_kind(kind),
+                "{kind} must not carry identifiers"
+            );
         }
     }
 

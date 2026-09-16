@@ -17,29 +17,58 @@ export const SETTINGS_ITEMS = [
   { value: 'output-style', label: 'Output style', description: 'Response tone and format.', kind: 'open' },
   { value: 'profile', label: 'Profile', description: 'Your title and response language.', kind: 'open' },
   { value: 'theme', label: 'Theme', description: 'App color theme.', kind: 'open' },
-  { value: 'web-search-enabled', label: 'Web search', description: 'Expose web search and fetch tools to new sessions.', kind: 'toggle' },
-  { value: 'memory-enabled', label: 'Memory', description: 'Memory tools, core-memory injection, and background upkeep.', kind: 'toggle' },
+  {
+    value: 'web-search-enabled',
+    label: 'Web search',
+    description: 'Expose web search and fetch tools to new sessions.',
+    kind: 'toggle',
+  },
+  {
+    value: 'memory-enabled',
+    label: 'Memory',
+    description: 'Memory tools, core-memory injection, and background upkeep.',
+    kind: 'toggle',
+  },
   { value: 'autocompact', label: 'Auto-compact', description: 'Compact when context is high.', kind: 'toggle' },
-  { value: 'autoclear', label: 'Auto-clear', description: 'Idle auto-clear disabled. Enter for options.', kind: 'toggle' },
+  {
+    value: 'autoclear',
+    label: 'Auto-clear',
+    description: 'Idle auto-clear disabled. Enter for options.',
+    kind: 'toggle',
+  },
   { value: 'providers', label: 'Providers', description: 'Auth, API keys, OAuth, local.', kind: 'open' },
   { value: 'mcp', label: 'MCP servers', description: '0/0 connected', kind: 'open' },
   { value: 'plugins', label: 'Plugins', description: '0 detected', kind: 'open' },
   { value: 'skills', label: 'Skills', description: '0 available', kind: 'open' },
   // Voice transcription graduated from the retired Channels page into General
   // (user: 음성전사만 일반으로): the managed Whisper runtime powers voice input.
-  { value: 'voice', label: 'Voice transcription', description: 'Managed Whisper runtime for voice input.', kind: 'open' },
+  {
+    value: 'voice',
+    label: 'Voice transcription',
+    description: 'Managed Whisper runtime for voice input.',
+    kind: 'open',
+  },
   // 'system-shell' stays TUI-only: the desktop hides the override (user
   // decision — automatic platform selection is the only sensible desktop
   // default; the shared config key remains editable from the TUI).
   { value: 'update', label: 'Update', description: 'Check version and update mixdog.', kind: 'open' },
 ] as const satisfies ReadonlyArray<SettingsItem>;
 
-export type SettingsItemValue = typeof SETTINGS_ITEMS[number]['value'];
+export type SettingsItemValue = (typeof SETTINGS_ITEMS)[number]['value'];
 
 export type SettingsCategory =
-  | 'general' | 'context' | 'output-style'
-  | 'providers' | 'git' | 'connection' | 'mcp' | 'plugins' | 'skills'
-  | 'system' | 'shortcuts' | 'about';
+  | 'general'
+  | 'context'
+  | 'output-style'
+  | 'providers'
+  | 'git'
+  | 'connection'
+  | 'mcp'
+  | 'plugins'
+  | 'skills'
+  | 'system'
+  | 'shortcuts'
+  | 'about';
 
 export interface SettingsCategoryItem {
   value: SettingsCategory;
@@ -123,31 +152,23 @@ export const SETTINGS_CATEGORIES = [
   },
 ] as const satisfies ReadonlyArray<SettingsCategoryItem>;
 
-const REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>([
-  'providers',
-]);
-const MOVED_EXTENSION_CATEGORIES = new Set<SettingsCategory>([
-  'git',
-  'skills',
-  'mcp',
-  'plugins',
-]);
+const REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>(['providers']);
+const MOVED_EXTENSION_CATEGORIES = new Set<SettingsCategory>(['git', 'skills', 'mcp', 'plugins']);
 const LOCAL_SETTINGS_CATEGORIES = SETTINGS_CATEGORIES.filter(
-  (category) => !MOVED_EXTENSION_CATEGORIES.has(category.value),
+  (category) => !MOVED_EXTENSION_CATEGORIES.has(category.value)
 );
 const REMOTE_SETTINGS_CATEGORIES = LOCAL_SETTINGS_CATEGORIES.filter(
-  (category) => !REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category.value),
+  (category) => !REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category.value)
 );
 
 export function categoryForSettingsItem(value: SettingsItemValue): SettingsCategory {
-  return SETTINGS_CATEGORIES.find((category) =>
-    (category.items as readonly SettingsItemValue[]).includes(value))?.value || 'general';
+  return (
+    SETTINGS_CATEGORIES.find((category) => (category.items as readonly SettingsItemValue[]).includes(value))?.value ||
+    'general'
+  );
 }
 
-export function settingsCategoryForSurface(
-  category: SettingsCategory,
-  remote: boolean,
-): SettingsCategory {
+export function settingsCategoryForSurface(category: SettingsCategory, remote: boolean): SettingsCategory {
   if (MOVED_EXTENSION_CATEGORIES.has(category)) return 'general';
   return remote && REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category) ? 'general' : category;
 }

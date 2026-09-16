@@ -9,7 +9,6 @@ import {
   withDaemon,
 } from './_shared.mjs';
 
-
 test('project registry and filesystem operations have one explicit daemon API', async () => {
   const rows = [];
   const touched = [];
@@ -47,13 +46,16 @@ test('project registry and filesystem operations have one explicit daemon API', 
   });
   try {
     assert.deepEqual(await service.handleCall('project.list'), { projects: [] });
-    assert.deepEqual(await service.handleCall('project.inspect', {
-      path: 'existing-directory',
-    }), {
-      path: 'resolved:existing-directory',
-      exists: true,
-      directory: true,
-    });
+    assert.deepEqual(
+      await service.handleCall('project.inspect', {
+        path: 'existing-directory',
+      }),
+      {
+        path: 'resolved:existing-directory',
+        exists: true,
+        directory: true,
+      }
+    );
     const added = await service.handleCall('project.add', { path: 'C:\\project' });
     assert.equal(added.project.path, 'C:\\project');
     await service.handleCall('project.touch', { path: 'C:\\project' });
@@ -63,12 +65,18 @@ test('project registry and filesystem operations have one explicit daemon API', 
       name: 'Renamed',
     });
     assert.equal(renamed.project.name, 'Renamed');
-    assert.deepEqual(await service.handleCall('project.ensureDirectory', {
-      path: 'C:\\new',
-    }), { path: 'created:C:\\new' });
-    assert.deepEqual(await service.handleCall('project.remove', {
-      path: 'C:\\project',
-    }), { removed: true });
+    assert.deepEqual(
+      await service.handleCall('project.ensureDirectory', {
+        path: 'C:\\new',
+      }),
+      { path: 'created:C:\\new' }
+    );
+    assert.deepEqual(
+      await service.handleCall('project.remove', {
+        path: 'C:\\project',
+      }),
+      { removed: true }
+    );
   } finally {
     await service.stop('test end');
   }
@@ -115,7 +123,9 @@ test('the TUI project picker awaits service switches and contains service failur
   const failed = createProjectPicker({
     state: { cwd: 'C:\\current' },
     store: {
-      setCwd: async () => { throw new Error('service rejected cwd'); },
+      setCwd: async () => {
+        throw new Error('service rejected cwd');
+      },
       pushNotice: (message, tone) => notices.push([message, tone]),
     },
     surface: createPanelSurface({ setPicker: () => {}, setContextPanel: () => {}, setUsagePanel: () => {} }),
@@ -128,8 +138,7 @@ test('the TUI project picker awaits service switches and contains service failur
     pickFolder: async () => ({ available: true, path: null }),
   });
   assert.equal(await failed.enterProject('C:\\broken'), false);
-  assert.ok(notices.some(([message, tone]) =>
-    tone === 'error' && /service rejected cwd/.test(message)));
+  assert.ok(notices.some(([message, tone]) => tone === 'error' && /service rejected cwd/.test(message)));
 });
 
 test('the remote TUI project surface uses only daemon project and cwd routes', async () => {
@@ -147,19 +156,22 @@ test('the remote TUI project surface uses only daemon project and cwd routes', a
       return rows.find((row) => row.path === path) || null;
     },
   };
-  await withDaemon(async () => {
-    const runtime = await createSession({ cwd: 'C:\\initial' });
-    assert.deepEqual(await runtime.listProjects(), rows);
-    assert.deepEqual(await runtime.addProject('C:\\added'), {
-      name: 'Added',
-      path: 'C:\\added',
-    });
-    assert.equal(await runtime.setCwd('C:\\shared'), 'C:\\shared');
-    assert.equal(runtime.getState().cwd, 'C:\\shared');
-    assert.equal(typeof runtime.getState().cwd, 'string');
-    assert.deepEqual(touched, ['C:\\shared']);
-    await runtime.dispose('test');
-  }, {
-    desktopRuntime: { loadProjects: async () => projectStore },
-  });
+  await withDaemon(
+    async () => {
+      const runtime = await createSession({ cwd: 'C:\\initial' });
+      assert.deepEqual(await runtime.listProjects(), rows);
+      assert.deepEqual(await runtime.addProject('C:\\added'), {
+        name: 'Added',
+        path: 'C:\\added',
+      });
+      assert.equal(await runtime.setCwd('C:\\shared'), 'C:\\shared');
+      assert.equal(runtime.getState().cwd, 'C:\\shared');
+      assert.equal(typeof runtime.getState().cwd, 'string');
+      assert.deepEqual(touched, ['C:\\shared']);
+      await runtime.dispose('test');
+    },
+    {
+      desktopRuntime: { loadProjects: async () => projectStore },
+    }
+  );
 });

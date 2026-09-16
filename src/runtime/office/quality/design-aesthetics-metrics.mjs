@@ -46,7 +46,11 @@ function dominantColor(pixels) {
   // No color owns half the border (a checkerboard, a full-bleed gradient): there
   // is no page background to speak of, and the mean is the honest estimate.
   if (top.count / pixels.length < 0.5) {
-    return [mean(pixels.map((entry) => entry[0])), mean(pixels.map((entry) => entry[1])), mean(pixels.map((entry) => entry[2]))];
+    return [
+      mean(pixels.map((entry) => entry[0])),
+      mean(pixels.map((entry) => entry[1])),
+      mean(pixels.map((entry) => entry[2])),
+    ];
   }
   return [top.red / top.count, top.green / top.count, top.blue / top.count];
 }
@@ -62,16 +66,18 @@ function normalizedEntropy(histogram) {
   const raw = histogram.reduce((sum, count) => {
     if (!count) return sum;
     const probability = count / total;
-    return sum - (probability * Math.log2(probability));
+    return sum - probability * Math.log2(probability);
   }, 0);
   return raw / Math.log2(histogram.length);
 }
 
 function colorfulness(redValues, greenValues, blueValues) {
   const redGreen = redValues.map((red, index) => red - greenValues[index]);
-  const yellowBlue = redValues.map((red, index) => ((red + greenValues[index]) / 2) - blueValues[index]);
-  return Math.sqrt((deviation(redGreen) ** 2) + (deviation(yellowBlue) ** 2))
-    + (0.3 * Math.sqrt((mean(redGreen) ** 2) + (mean(yellowBlue) ** 2)));
+  const yellowBlue = redValues.map((red, index) => (red + greenValues[index]) / 2 - blueValues[index]);
+  return (
+    Math.sqrt(deviation(redGreen) ** 2 + deviation(yellowBlue) ** 2) +
+    0.3 * Math.sqrt(mean(redGreen) ** 2 + mean(yellowBlue) ** 2)
+  );
 }
 
 // Similarity of two pages' 16×9 occupancy grids (1 = identical structure).
@@ -83,7 +89,7 @@ export function structureSimilarity(left, right) {
 
 function structureStats(structure) {
   if (!structure.length) return { spatialCoverage: 0, spatialBalance: 0, occupiedQuadrants: 0 };
-  const active = structure.map((value) => value >= 0.08 ? 1 : 0);
+  const active = structure.map((value) => (value >= 0.08 ? 1 : 0));
   const spatialCoverage = mean(active);
   let total = 0;
   let weightedX = 0;
@@ -99,7 +105,7 @@ function structureStats(structure) {
   });
   const centerX = total ? weightedX / total : 0.5;
   const centerY = total ? weightedY / total : 0.5;
-  const spatialBalance = clamp(1 - ((Math.abs(centerX - 0.5) + Math.abs(centerY - 0.5)) * 1.25));
+  const spatialBalance = clamp(1 - (Math.abs(centerX - 0.5) + Math.abs(centerY - 0.5)) * 1.25);
   const occupiedQuadrants = quadrants.filter((value) => value >= total * 0.08).length;
   return { spatialCoverage, spatialBalance, occupiedQuadrants };
 }
@@ -111,8 +117,8 @@ function hueBin(red, green, blue) {
   if (!range) return 0;
   let hue;
   if (maximum === red) hue = ((green - blue) / range) % 6;
-  else if (maximum === green) hue = ((blue - red) / range) + 2;
-  else hue = ((red - green) / range) + 4;
+  else if (maximum === green) hue = (blue - red) / range + 2;
+  else hue = (red - green) / range + 4;
   const degrees = (hue * 60 + 360) % 360;
   return Math.min(11, Math.floor(degrees / 30));
 }
@@ -144,7 +150,7 @@ async function measureInkContrast(image, backgroundLuminance) {
     .toBuffer();
   const deltas = [];
   for (let index = 0; index < grey.length; index += 1) {
-    const delta = Math.abs((grey[index] / 255) - backgroundLuminance);
+    const delta = Math.abs(grey[index] / 255 - backgroundLuminance);
     if (delta >= INK_FOREGROUND) deltas.push(delta);
   }
   deltas.sort((left, right) => left - right);
@@ -169,11 +175,11 @@ export async function renderedAestheticMetric(image, index) {
   const border = [];
   for (let y = 0; y < SAMPLE_HEIGHT; y += 1) {
     for (let x = 0; x < SAMPLE_WIDTH; x += 1) {
-      const offset = ((y * SAMPLE_WIDTH) + x) * channels;
+      const offset = (y * SAMPLE_WIDTH + x) * channels;
       const red = pixels[offset];
       const green = pixels[offset + 1];
       const blue = pixels[offset + 2];
-      const light = ((0.2126 * red) + (0.7152 * green) + (0.0722 * blue)) / 255;
+      const light = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255;
       reds.push(red);
       greens.push(green);
       blues.push(blue);
@@ -189,7 +195,7 @@ export async function renderedAestheticMetric(image, index) {
   // would otherwise blend into the estimate and read every mark as low
   // contrast against a color that exists nowhere on the page.
   const background = dominantColor(border);
-  const backgroundLuminance = ((0.2126 * background[0]) + (0.7152 * background[1]) + (0.0722 * background[2])) / 255;
+  const backgroundLuminance = (0.2126 * background[0] + 0.7152 * background[1] + 0.0722 * background[2]) / 255;
   const occupancy = Array.from({ length: STRUCTURE_COLUMNS * STRUCTURE_ROWS }, () => 0);
   const occupancySamples = Array.from({ length: occupancy.length }, () => 0);
   let foreground = 0;
@@ -201,14 +207,14 @@ export async function renderedAestheticMetric(image, index) {
   let edgeSamples = 0;
   for (let y = 0; y < SAMPLE_HEIGHT; y += 1) {
     for (let x = 0; x < SAMPLE_WIDTH; x += 1) {
-      const pixelIndex = (y * SAMPLE_WIDTH) + x;
+      const pixelIndex = y * SAMPLE_WIDTH + x;
       const red = reds[pixelIndex];
       const green = greens[pixelIndex];
       const blue = blues[pixelIndex];
       const distance = Math.max(
         Math.abs(red - background[0]),
         Math.abs(green - background[1]),
-        Math.abs(blue - background[2]),
+        Math.abs(blue - background[2])
       );
       const occupied = distance >= 28 ? 1 : 0;
       foreground += occupied;
@@ -224,7 +230,7 @@ export async function renderedAestheticMetric(image, index) {
       }
       const cellX = Math.min(STRUCTURE_COLUMNS - 1, Math.floor((x / SAMPLE_WIDTH) * STRUCTURE_COLUMNS));
       const cellY = Math.min(STRUCTURE_ROWS - 1, Math.floor((y / SAMPLE_HEIGHT) * STRUCTURE_ROWS));
-      const cell = (cellY * STRUCTURE_COLUMNS) + cellX;
+      const cell = cellY * STRUCTURE_COLUMNS + cellX;
       occupancy[cell] += occupied;
       occupancySamples[cell] += 1;
       if (x > 0) {
@@ -239,7 +245,7 @@ export async function renderedAestheticMetric(image, index) {
   }
   const sortedLuminance = [...luminance].sort((left, right) => left - right);
   const rawColorfulness = colorfulness(reds, greens, blues);
-  const structure = occupancy.map((value, cell) => occupancySamples[cell] ? value / occupancySamples[cell] : 0);
+  const structure = occupancy.map((value, cell) => (occupancySamples[cell] ? value / occupancySamples[cell] : 0));
   const spatial = structureStats(structure);
   const paletteThreshold = Math.max(3, colorfulForeground * 0.05);
   const paletteHueCount = hueHistogram.filter((count) => count >= paletteThreshold).length;

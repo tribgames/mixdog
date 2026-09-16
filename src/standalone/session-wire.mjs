@@ -3,10 +3,7 @@
 // other side's module graph.
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import {
-  SESSION_CONFIGURE_ACTIONS,
-  SESSION_READ_ACTIONS,
-} from './session-protocol.mjs';
+import { SESSION_CONFIGURE_ACTIONS, SESSION_READ_ACTIONS } from './session-protocol.mjs';
 
 /** Compatibility generation, not an application or capability version.
  * Increment only for a rare, fundamentally incompatible wire rewrite. */
@@ -19,10 +16,12 @@ export const SESSION_REVISION = 5;
 
 /** Diagnostic-only action-surface identity. It never advances the protocol. */
 export const SESSION_CAPABILITY_FINGERPRINT = createHash('sha256')
-  .update(JSON.stringify({
-    read: SESSION_READ_ACTIONS,
-    configure: SESSION_CONFIGURE_ACTIONS,
-  }))
+  .update(
+    JSON.stringify({
+      read: SESSION_READ_ACTIONS,
+      configure: SESSION_CONFIGURE_ACTIONS,
+    })
+  )
   .digest('hex')
   .slice(0, 16);
 

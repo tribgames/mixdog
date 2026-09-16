@@ -5,11 +5,11 @@
 export function prewarmMemoryRuntime({ getMemoryModule, bootProfile }) {
   void (async () => {
     try {
-      await new Promise((resolve) => setImmediate(resolve))
-      await getMemoryModule()
-      bootProfile('channels:memory-prewarm-ready')
+      await new Promise((resolve) => setImmediate(resolve));
+      await getMemoryModule();
+      bootProfile('channels:memory-prewarm-ready');
     } catch (error) {
-      bootProfile('channels:memory-prewarm-failed', { error: error?.message || String(error) })
+      bootProfile('channels:memory-prewarm-failed', { error: error?.message || String(error) });
     }
-  })()
+  })();
 }

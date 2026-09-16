@@ -9,9 +9,8 @@
 // The output tells whether a visible up/down shift comes from measurement
 // growth (scrollHeight), from a scroll writer, or from late row geometry.
 const argumentsList = process.argv.slice(2);
-const valueFor = (prefix) => argumentsList
-  .find((argument) => argument.startsWith(`${prefix}=`))
-  ?.slice(prefix.length + 1);
+const valueFor = (prefix) =>
+  argumentsList.find((argument) => argument.startsWith(`${prefix}=`))?.slice(prefix.length + 1);
 const port = Number(valueFor('--port') || 9342);
 const rowIndex = Number(valueFor('--index') || 0);
 const settleMs = Number(valueFor('--settle') || 2500);
@@ -39,11 +38,12 @@ socket.addEventListener('message', (event) => {
   if (message.error) entry.reject(new Error(message.error.message));
   else entry.resolve(message.result);
 });
-const request = (method, params = {}) => new Promise((resolve, reject) => {
-  const id = nextId++;
-  pending.set(id, { resolve, reject });
-  socket.send(JSON.stringify({ id, method, params }));
-});
+const request = (method, params = {}) =>
+  new Promise((resolve, reject) => {
+    const id = nextId++;
+    pending.set(id, { resolve, reject });
+    socket.send(JSON.stringify({ id, method, params }));
+  });
 const evaluate = async (expression) => {
   const result = await request('Runtime.evaluate', {
     expression,
@@ -230,10 +230,18 @@ if (!rows?.length) {
 const pick = rows.filter((row) => !row.active)[rowIndex] || rows[rowIndex];
 console.log('clicking', JSON.stringify(pick));
 await request('Input.dispatchMouseEvent', {
-  type: 'mousePressed', x: pick.x, y: pick.y, button: 'left', clickCount: 1,
+  type: 'mousePressed',
+  x: pick.x,
+  y: pick.y,
+  button: 'left',
+  clickCount: 1,
 });
 await request('Input.dispatchMouseEvent', {
-  type: 'mouseReleased', x: pick.x, y: pick.y, button: 'left', clickCount: 1,
+  type: 'mouseReleased',
+  x: pick.x,
+  y: pick.y,
+  button: 'left',
+  clickCount: 1,
 });
 await sleep(settleMs);
 
@@ -251,28 +259,37 @@ const changed = frames.filter((frame, index) => {
   if (index === 0) return true;
   if (traceMs > 0 && frame.t - base <= traceMs) return true;
   const previous = frames[index - 1];
-  return frame.top !== previous.top
-    || frame.height !== previous.height
-    || frame.rows !== previous.rows
-    || frame.key !== previous.key
-    || frame.welcome !== previous.welcome
-    || frame.listTop !== previous.listTop
-    || frame.listCount !== previous.listCount
-    || frame.listHead !== previous.listHead
-    || frame.sections !== previous.sections
-    || frame.composerH !== previous.composerH
-    || frame.composerKids !== previous.composerKids
-    || Math.abs(frame.lastBottom - previous.lastBottom) > 1
-    || Math.abs(frame.firstTop - previous.firstTop) > 1;
+  return (
+    frame.top !== previous.top ||
+    frame.height !== previous.height ||
+    frame.rows !== previous.rows ||
+    frame.key !== previous.key ||
+    frame.welcome !== previous.welcome ||
+    frame.listTop !== previous.listTop ||
+    frame.listCount !== previous.listCount ||
+    frame.listHead !== previous.listHead ||
+    frame.sections !== previous.sections ||
+    frame.composerH !== previous.composerH ||
+    frame.composerKids !== previous.composerKids ||
+    Math.abs(frame.lastBottom - previous.lastBottom) > 1 ||
+    Math.abs(frame.firstTop - previous.firstTop) > 1
+  );
 });
 console.log(`frames=${frames.length} changed=${changed.length} writes=${result.writes.length}`);
 console.log('ms\ttop\theight\tspace\trows\tlast@\tcompH\tcomposer children');
 for (const frame of changed) {
-  console.log([
-    frame.t - base, frame.top, frame.height, frame.space,
-    `${frame.firstIndex}/${frame.rows}`, frame.lastBottom,
-    frame.composerH, frame.composerKids,
-  ].join('\t'));
+  console.log(
+    [
+      frame.t - base,
+      frame.top,
+      frame.height,
+      frame.space,
+      `${frame.firstIndex}/${frame.rows}`,
+      frame.lastBottom,
+      frame.composerH,
+      frame.composerKids,
+    ].join('\t')
+  );
 }
 console.log('--- programmatic scroll writes ---');
 for (const write of result.writes) {

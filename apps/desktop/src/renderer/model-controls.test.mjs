@@ -1,12 +1,12 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
-import React, { act, useState } from "react";
-import { createRoot } from "react-dom/client";
-import { JSDOM } from "jsdom";
+import React, { act, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM("<!doctype html><html><body></body></html>", {
-  url: "https://mixdog.test/",
+const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+  url: 'https://mixdog.test/',
 });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
@@ -15,7 +15,7 @@ globalThis.Node = dom.window.Node;
 globalThis.HTMLElement.prototype.scrollIntoView = () => {};
 globalThis.HTMLElement.prototype.attachEvent = () => {};
 globalThis.HTMLElement.prototype.detachEvent = () => {};
-Object.defineProperty(globalThis, "navigator", {
+Object.defineProperty(globalThis, 'navigator', {
   configurable: true,
   value: dom.window.navigator,
 });
@@ -29,12 +29,15 @@ window.requestAnimationFrame = (callback) => window.setTimeout(callback, 0);
 window.cancelAnimationFrame = (handle) => window.clearTimeout(handle);
 
 const model = {
-  provider: "openai",
-  model: "gpt-fast-handoff-test",
-  display: "Fast handoff test",
-  effortOptions: [{ value: "high", label: "High" }, { value: "low", label: "Low" }],
+  provider: 'openai',
+  model: 'gpt-fast-handoff-test',
+  display: 'Fast handoff test',
+  effortOptions: [
+    { value: 'high', label: 'High' },
+    { value: 'low', label: 'Low' },
+  ],
   fastCapable: true,
-  fastEfforts: ["high"],
+  fastEfforts: ['high'],
   fastPreferred: false,
   modelParameterOptions: [],
   parameterVariants: [],
@@ -53,18 +56,17 @@ function deferred() {
 }
 
 function option(label) {
-  return [...document.querySelectorAll('[role="menuitemradio"]')]
-    .find((button) => button.textContent.includes(label));
+  return [...document.querySelectorAll('[role="menuitemradio"]')].find((button) => button.textContent.includes(label));
 }
 
 const requests = [];
 let availableModels = [model];
-let providerSetup = { api: [{ id: "openai", authenticated: true }] };
+let providerSetup = { api: [{ id: 'openai', authenticated: true }] };
 window.mixdogDesktop = {
   rendererDiagnostic() {},
   listProviderModels: async () => availableModels,
   invokeCapability: async ({ capability }) => {
-    assert.equal(capability, "getProviderSetup");
+    assert.equal(capability, 'getProviderSetup');
     return {
       value: providerSetup,
       snapshot: null,
@@ -77,34 +79,45 @@ window.mixdogDesktop = {
   },
 };
 
-const { ModelSelector } = await import("./model-controls.tsx");
-const { invalidateSharedModelCatalogRequest } = await import("./model-catalog-cache.ts");
+const { ModelSelector } = await import('./model-controls.tsx');
+const { invalidateSharedModelCatalogRequest } = await import('./model-catalog-cache.ts');
 
 test.beforeEach(() => {
   requests.length = 0;
   availableModels = [model];
-  providerSetup = { api: [{ id: "openai", authenticated: true }] };
+  providerSetup = { api: [{ id: 'openai', authenticated: true }] };
   window.localStorage.clear();
   invalidateSharedModelCatalogRequest();
 });
 
-test("a cold selected route never flashes its raw id or Select model while the full catalog is outstanding", async () => {
-  const host = document.createElement("main");
+test('a cold selected route never flashes its raw id or Select model while the full catalog is outstanding', async () => {
+  const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
   const oldList = window.mixdogDesktop.listProviderModels;
   const full = deferred();
   window.mixdogDesktop.listProviderModels = () => full.promise;
   try {
-    await act(async () => root.render(React.createElement(ModelSelector, {
-      provider: model.provider, model: model.model, effort: "high", fast: false,
-      fastCapable: true, modelDisabled: false, tuningDisabled: false,
-      invokeResult: (work) => work(), applySnapshot() {}, onOpenSettings() {},
-    })));
+    await act(async () =>
+      root.render(
+        React.createElement(ModelSelector, {
+          provider: model.provider,
+          model: model.model,
+          effort: 'high',
+          fast: false,
+          fastCapable: true,
+          modelDisabled: false,
+          tuningDisabled: false,
+          invokeResult: (work) => work(),
+          applySnapshot() {},
+          onOpenSettings() {},
+        })
+      )
+    );
     assert.ok(host.querySelector('[role="status"][aria-busy="true"]'));
     assert.doesNotMatch(host.textContent, /gpt-fast-handoff-test|Select model/);
     await act(async () => full.resolve([model]));
-    assert.match(host.querySelector(".model-trigger").textContent, /Fast handoff test/);
+    assert.match(host.querySelector('.model-trigger').textContent, /Fast handoff test/);
     assert.equal(host.querySelector('[aria-busy="true"]'), null);
   } finally {
     await act(async () => root.unmount());
@@ -113,8 +126,8 @@ test("a cold selected route never flashes its raw id or Select model while the f
   }
 });
 
-test("fast mode stays optimistic until the authoritative snapshot paints", async () => {
-  const host = document.createElement("main");
+test('fast mode stays optimistic until the authoritative snapshot paints', async () => {
+  const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
   let applyAuthoritativeFast;
@@ -126,14 +139,14 @@ test("fast mode stays optimistic until the authoritative snapshot paints", async
     return React.createElement(ModelSelector, {
       provider: model.provider,
       model: model.model,
-      effort: "high",
+      effort: 'high',
       fast,
       fastCapable: true,
       modelParameters: {},
       contextPercent: 100,
       modelDisabled: false,
       tuningDisabled: false,
-      sessionId: "session-fast-handoff",
+      sessionId: 'session-fast-handoff',
       invokeResult: async (action) => {
         try {
           return await action();
@@ -156,49 +169,58 @@ test("fast mode stays optimistic until the authoritative snapshot paints", async
       await Promise.resolve();
     });
 
-    await act(async () => document.querySelector(".model-trigger").click());
-    const speedRow = [...document.querySelectorAll(".route-sheet-row")]
-      .find((button) => button.textContent.includes("Speed"));
+    await act(async () => document.querySelector('.model-trigger').click());
+    const speedRow = [...document.querySelectorAll('.route-sheet-row')].find((button) =>
+      button.textContent.includes('Speed')
+    );
     assert.ok(speedRow);
     await act(async () => speedRow.click());
 
-    await act(async () => option("Fast").click());
+    await act(async () => option('Fast').click());
     assert.equal(requests[0].enabled, true);
-    assert.equal(option("Fast").getAttribute("aria-checked"), "true");
+    assert.equal(option('Fast').getAttribute('aria-checked'), 'true');
 
-    await act(async () => requests[0].request.resolve({
-      provider: model.provider,
-      model: model.model,
-      effort: "high",
-      fast: true,
-    }));
-    assert.equal(option("Fast").getAttribute("aria-checked"), "true",
-      "IPC completion must not expose the stale false prop before snapshot paint");
+    await act(async () =>
+      requests[0].request.resolve({
+        provider: model.provider,
+        model: model.model,
+        effort: 'high',
+        fast: true,
+      })
+    );
+    assert.equal(
+      option('Fast').getAttribute('aria-checked'),
+      'true',
+      'IPC completion must not expose the stale false prop before snapshot paint'
+    );
 
     await act(async () => applyAuthoritativeFast());
-    assert.equal(option("Fast").getAttribute("aria-checked"), "true");
+    assert.equal(option('Fast').getAttribute('aria-checked'), 'true');
 
-    await act(async () => option("Standard").click());
+    await act(async () => option('Standard').click());
     assert.equal(requests[1].enabled, false);
-    assert.equal(option("Standard").getAttribute("aria-checked"), "true");
+    assert.equal(option('Standard').getAttribute('aria-checked'), 'true');
 
-    await act(async () => requests[1].request.reject(new Error("setFast failed")));
-    assert.equal(option("Fast").getAttribute("aria-checked"), "true",
-      "a failed request must roll back to the authoritative value");
+    await act(async () => requests[1].request.reject(new Error('setFast failed')));
+    assert.equal(
+      option('Fast').getAttribute('aria-checked'),
+      'true',
+      'a failed request must roll back to the authoritative value'
+    );
   } finally {
     await act(async () => root.unmount());
     host.remove();
   }
 });
 
-test("an installed Local Provider model appears without remounting the picker", async () => {
-  const host = document.createElement("main");
+test('an installed Local Provider model appears without remounting the picker', async () => {
+  const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
   const localModel = {
-    provider: "mixdog-local",
-    model: "qwen3.8-27b-q4-k-m",
-    display: "Qwen3.8 27B Q4_K_M",
+    provider: 'mixdog-local',
+    model: 'qwen3.8-27b-q4-k-m',
+    display: 'Qwen3.8 27B Q4_K_M',
     effortOptions: [],
     fastCapable: false,
     modelParameterOptions: [],
@@ -208,22 +230,26 @@ test("an installed Local Provider model appears without remounting the picker", 
   };
 
   try {
-    await act(async () => root.render(React.createElement(ModelSelector, {
-      provider: model.provider,
-      model: model.model,
-      effort: "high",
-      fast: false,
-      fastCapable: true,
-      modelParameters: {},
-      contextPercent: 100,
-      modelDisabled: false,
-      tuningDisabled: false,
-      sessionId: "session-local-provider-refresh",
-      invokeResult: async (action) => await action(),
-      applySnapshot() {},
-      onOpenSettings() {},
-      onRoutePreferenceApplied() {},
-    })));
+    await act(async () =>
+      root.render(
+        React.createElement(ModelSelector, {
+          provider: model.provider,
+          model: model.model,
+          effort: 'high',
+          fast: false,
+          fastCapable: true,
+          modelParameters: {},
+          contextPercent: 100,
+          modelDisabled: false,
+          tuningDisabled: false,
+          sessionId: 'session-local-provider-refresh',
+          invokeResult: async (action) => await action(),
+          applySnapshot() {},
+          onOpenSettings() {},
+          onRoutePreferenceApplied() {},
+        })
+      )
+    );
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -231,21 +257,23 @@ test("an installed Local Provider model appears without remounting the picker", 
 
     availableModels = [model, localModel];
     providerSetup = {
-      api: [{ id: "openai", authenticated: true }],
-      local: [{ id: "mixdog-local", detected: true, enabled: true }],
+      api: [{ id: 'openai', authenticated: true }],
+      local: [{ id: 'mixdog-local', detected: true, enabled: true }],
     };
     await act(async () => {
       invalidateSharedModelCatalogRequest();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    await act(async () => document.querySelector(".model-trigger").click());
-    const modelRow = [...document.querySelectorAll(".route-sheet-row")]
-      .find((button) => button.textContent.includes("Model"));
+    await act(async () => document.querySelector('.model-trigger').click());
+    const modelRow = [...document.querySelectorAll('.route-sheet-row')].find((button) =>
+      button.textContent.includes('Model')
+    );
     assert.ok(modelRow);
     await act(async () => modelRow.click());
-    const localOption = [...document.querySelectorAll('[role="option"]')]
-      .find((button) => button.textContent.includes("Qwen3.8 27B"));
+    const localOption = [...document.querySelectorAll('[role="option"]')].find((button) =>
+      button.textContent.includes('Qwen3.8 27B')
+    );
     assert.ok(localOption);
   } finally {
     await act(async () => root.unmount());
@@ -253,10 +281,10 @@ test("an installed Local Provider model appears without remounting the picker", 
   }
 });
 
-for (const outcome of ["success", "failure"]) {
+for (const outcome of ['success', 'failure']) {
   test(`model selection closes immediately and a late ${outcome} cannot disturb a newer menu or preference`, async () => {
-    const second = { ...model, model: "gpt-second-menu-test", display: "Second menu test" };
-    const third = { ...model, model: "gpt-third-menu-test", display: "Third menu test" };
+    const second = { ...model, model: 'gpt-second-menu-test', display: 'Second menu test' };
+    const third = { ...model, model: 'gpt-third-menu-test', display: 'Third menu test' };
     availableModels = [model, second, third];
     const oldSetRoute = window.mixdogDesktop.setModelRoute;
     const writes = [];
@@ -267,7 +295,10 @@ for (const outcome of ["success", "failure"]) {
       return request.promise;
     };
     const initial = {
-      provider: model.provider, model: model.model, effort: "high", fast: false,
+      provider: model.provider,
+      model: model.model,
+      effort: 'high',
+      fast: false,
       modelParameters: {},
     };
     let paint;
@@ -275,55 +306,68 @@ for (const outcome of ["success", "failure"]) {
       const [snapshot, setSnapshot] = useState(initial);
       paint = setSnapshot;
       return React.createElement(ModelSelector, {
-        ...snapshot, sessionId: "session-model-menu", fastCapable: true,
-        modelDisabled: false, tuningDisabled: false,
+        ...snapshot,
+        sessionId: 'session-model-menu',
+        fastCapable: true,
+        modelDisabled: false,
+        tuningDisabled: false,
         invokeResult: async (action) => {
-          try { return await action(); } catch { return undefined; }
+          try {
+            return await action();
+          } catch {
+            return undefined;
+          }
         },
-        applySnapshot: setSnapshot, onOpenSettings() {},
+        applySnapshot: setSnapshot,
+        onOpenSettings() {},
         onRoutePreferenceApplied: (selection) => remembered.push(selection.model),
       });
     }
-    const host = document.createElement("main");
+    const host = document.createElement('main');
     document.body.append(host);
     const root = createRoot(host);
-    const row = (label) => [...document.querySelectorAll(".route-sheet-row")]
-      .find((button) => button.textContent.includes(label));
+    const row = (label) =>
+      [...document.querySelectorAll('.route-sheet-row')].find((button) => button.textContent.includes(label));
     const choose = async (entry) => {
-      await act(async () => row("Model").click());
-      const button = [...document.querySelectorAll('.model-group--provider [role="option"]')]
-        .find((candidate) => candidate.textContent.includes(entry.display));
+      await act(async () => row('Model').click());
+      const button = [...document.querySelectorAll('.model-group--provider [role="option"]')].find((candidate) =>
+        candidate.textContent.includes(entry.display)
+      );
       assert.ok(button);
       await act(async () => button.click());
-      assert.equal(document.querySelector(".route-sheet-flyout--model").hidden, true,
-        "catalog closes on selection, not on acknowledgement");
-      assert.ok(document.querySelector(".model-trigger").textContent.includes(entry.display));
+      assert.equal(
+        document.querySelector('.route-sheet-flyout--model').hidden,
+        true,
+        'catalog closes on selection, not on acknowledgement'
+      );
+      assert.ok(document.querySelector('.model-trigger').textContent.includes(entry.display));
     };
     try {
       await act(async () => root.render(React.createElement(Harness)));
-      await act(async () => document.querySelector(".model-trigger").click());
-      const sheet = document.querySelector(".route-sheet");
+      await act(async () => document.querySelector('.model-trigger').click());
+      const sheet = document.querySelector('.route-sheet');
       await choose(second);
       await choose(third);
       await act(async () => paint({ ...initial, busy: true, commandBusy: true }));
-      assert.ok(document.querySelector(".model-trigger").textContent.includes(third.display));
+      assert.ok(document.querySelector('.model-trigger').textContent.includes(third.display));
       await act(async () => writes[1].request.resolve({ ...initial, ...writes[1].selection }));
-      await act(async () => row("Reasoning effort").click());
-      const effort = option("High");
+      await act(async () => row('Reasoning effort').click());
+      const effort = option('High');
       assert.ok(effort);
       await act(async () => {
-        if (outcome === "success") {
+        if (outcome === 'success') {
           writes[0].request.resolve({ ...initial, ...writes[0].selection });
         } else {
-          writes[0].request.reject(new Error("old selection failed"));
+          writes[0].request.reject(new Error('old selection failed'));
         }
       });
-      assert.equal(document.querySelector(".route-sheet"), sheet);
-      assert.equal(option("High"), effort, "late replies must leave the newly opened menu intact");
-      assert.ok(document.querySelector(".model-trigger").textContent.includes(third.display));
+      assert.equal(document.querySelector('.route-sheet'), sheet);
+      assert.equal(option('High'), effort, 'late replies must leave the newly opened menu intact');
+      assert.ok(document.querySelector('.model-trigger').textContent.includes(third.display));
       assert.deepEqual(remembered, [third.model]);
-      assert.deepEqual(JSON.parse(window.localStorage.getItem("mixdog.desktop-recent-models")),
-        [`model:${third.provider}:${third.model}`]);
+      assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog.desktop-recent-models')), [
+        `model:${third.provider}:${third.model}`,
+      ]);
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -332,8 +376,8 @@ for (const outcome of ["success", "failure"]) {
   });
 }
 
-test("a typed catalog filter does not survive the picker closing", async () => {
-  const second = { ...model, model: "gpt-typed-filter-test", display: "Typed filter test" };
+test('a typed catalog filter does not survive the picker closing', async () => {
+  const second = { ...model, model: 'gpt-typed-filter-test', display: 'Typed filter test' };
   availableModels = [model, second];
   const oldSetRoute = window.mixdogDesktop.setModelRoute;
   window.mixdogDesktop.setModelRoute = async (selection) => ({
@@ -343,66 +387,77 @@ test("a typed catalog filter does not survive the picker closing", async () => {
     fast: selection.fast === true,
     modelParameters: {},
   });
-  const host = document.createElement("main");
+  const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
-  const searchInput = () => document.querySelector(".route-sheet-flyout--model .model-search input");
-  const catalogRows = () => [...document.querySelectorAll('.route-sheet-flyout--model [role="option"]')]
-    .map((button) => button.textContent);
+  const searchInput = () => document.querySelector('.route-sheet-flyout--model .model-search input');
+  const catalogRows = () =>
+    [...document.querySelectorAll('.route-sheet-flyout--model [role="option"]')].map((button) => button.textContent);
   const openModelPane = async () => {
-    if (document.querySelector(".model-trigger").getAttribute("aria-expanded") !== "true") {
-      await act(async () => document.querySelector(".model-trigger").click());
+    if (document.querySelector('.model-trigger').getAttribute('aria-expanded') !== 'true') {
+      await act(async () => document.querySelector('.model-trigger').click());
     }
-    const modelRow = [...document.querySelectorAll(".route-sheet-row")]
-      .find((button) => button.textContent.includes("Model"));
+    const modelRow = [...document.querySelectorAll('.route-sheet-row')].find((button) =>
+      button.textContent.includes('Model')
+    );
     assert.ok(modelRow);
     await act(async () => modelRow.click());
   };
   try {
-    await act(async () => root.render(React.createElement(ModelSelector, {
-      provider: model.provider,
-      model: model.model,
-      effort: "high",
-      fast: false,
-      fastCapable: true,
-      modelParameters: {},
-      contextPercent: 100,
-      modelDisabled: false,
-      tuningDisabled: false,
-      sessionId: "session-typed-filter",
-      invokeResult: async (action) => {
-        try {
-          return await action();
-        } catch {
-          return undefined;
-        }
-      },
-      applySnapshot() {},
-      onOpenSettings() {},
-      onRoutePreferenceApplied() {},
-    })));
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await act(async () =>
+      root.render(
+        React.createElement(ModelSelector, {
+          provider: model.provider,
+          model: model.model,
+          effort: 'high',
+          fast: false,
+          fastCapable: true,
+          modelParameters: {},
+          contextPercent: 100,
+          modelDisabled: false,
+          tuningDisabled: false,
+          sessionId: 'session-typed-filter',
+          invokeResult: async (action) => {
+            try {
+              return await action();
+            } catch {
+              return undefined;
+            }
+          },
+          applySnapshot() {},
+          onOpenSettings() {},
+          onRoutePreferenceApplied() {},
+        })
+      )
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
 
     await openModelPane();
     // The native setter keeps React's value tracker honest, so the dispatched
     // input event reaches the picker's onInput instead of being deduped.
     await act(async () => {
       const input = searchInput();
-      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")
-        .set.call(input, "Typed filter");
-      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'Typed filter');
+      input.dispatchEvent(new window.Event('input', { bubbles: true }));
     });
-    assert.deepEqual(catalogRows().map((text) => text.includes("Typed filter test")), [true],
-      "the typed filter trims the catalog to its match");
+    assert.deepEqual(
+      catalogRows().map((text) => text.includes('Typed filter test')),
+      [true],
+      'the typed filter trims the catalog to its match'
+    );
 
     await act(async () => document.querySelector('.route-sheet-flyout--model [role="option"]').click());
-    assert.equal(document.querySelector(".route-sheet-flyout--model").hidden, true,
-      "selection closes the catalog");
+    assert.equal(document.querySelector('.route-sheet-flyout--model').hidden, true, 'selection closes the catalog');
 
     await openModelPane();
-    assert.equal(searchInput().value, "", "a closed picker must not keep its typed filter");
-    assert.ok(catalogRows().some((text) => text.includes("Fast handoff test")),
-      "the reopened catalog lists every model again");
+    assert.equal(searchInput().value, '', 'a closed picker must not keep its typed filter');
+    assert.ok(
+      catalogRows().some((text) => text.includes('Fast handoff test')),
+      'the reopened catalog lists every model again'
+    );
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -410,11 +465,11 @@ test("a typed catalog filter does not survive the picker closing", async () => {
   }
 });
 
-for (const field of ["model", "effort"]) {
+for (const field of ['model', 'effort']) {
   test(`${field} selection survives busy snapshots and delayed acknowledgement, but rolls back on failure`, async () => {
-    const secondModel = { ...model, model: "gpt-second-handoff-test", display: "Second handoff test" };
+    const secondModel = { ...model, model: 'gpt-second-handoff-test', display: 'Second handoff test' };
     availableModels = [model, secondModel];
-    const host = document.createElement("main");
+    const host = document.createElement('main');
     document.body.append(host);
     const root = createRoot(host);
     const oldInvoke = window.mixdogDesktop.invokeCapability;
@@ -424,8 +479,12 @@ for (const field of ["model", "effort"]) {
     let pendingSnapshot;
     let paint;
     const initial = {
-      provider: model.provider, model: model.model, effort: "high", fast: false,
-      modelParameters: {}, contextPercent: 100,
+      provider: model.provider,
+      model: model.model,
+      effort: 'high',
+      fast: false,
+      modelParameters: {},
+      contextPercent: 100,
     };
     window.mixdogDesktop.setModelRoute = (selection) => {
       requestedSelection = selection;
@@ -433,7 +492,7 @@ for (const field of ["model", "effort"]) {
       return request.promise;
     };
     window.mixdogDesktop.invokeCapability = (input) => {
-      if (input.capability !== "setEffort") return oldInvoke(input);
+      if (input.capability !== 'setEffort') return oldInvoke(input);
       requestedSelection = { effort: input.args[0] };
       request = deferred();
       return request.promise;
@@ -442,49 +501,65 @@ for (const field of ["model", "effort"]) {
       const [snapshot, setSnapshot] = useState(initial);
       paint = setSnapshot;
       return React.createElement(ModelSelector, {
-        ...snapshot, fastCapable: true,
-        sessionId: "session-busy-selection", modelDisabled: false, tuningDisabled: false,
+        ...snapshot,
+        fastCapable: true,
+        sessionId: 'session-busy-selection',
+        modelDisabled: false,
+        tuningDisabled: false,
         invokeResult: async (action) => {
-          try { return await action(); } catch { return undefined; }
+          try {
+            return await action();
+          } catch {
+            return undefined;
+          }
         },
-        applySnapshot: (next) => { pendingSnapshot = next; },
-        onOpenSettings() {}, onRoutePreferenceApplied() {},
+        applySnapshot: (next) => {
+          pendingSnapshot = next;
+        },
+        onOpenSettings() {},
+        onRoutePreferenceApplied() {},
       });
     }
     const openModelPane = async () => {
-      if (document.querySelector(".model-trigger").getAttribute("aria-expanded") !== "true") {
-        await act(async () => document.querySelector(".model-trigger").click());
+      if (document.querySelector('.model-trigger').getAttribute('aria-expanded') !== 'true') {
+        await act(async () => document.querySelector('.model-trigger').click());
       }
-      const row = [...document.querySelectorAll(".route-sheet-row")]
-        .find((button) => button.textContent.includes("Model"));
+      const row = [...document.querySelectorAll('.route-sheet-row')].find((button) =>
+        button.textContent.includes('Model')
+      );
       await act(async () => row.click());
     };
     const choose = async (next) => {
-      if (field === "model") {
+      if (field === 'model') {
         await openModelPane();
         const label = next ? secondModel.display : model.display;
-        const entry = [...document.querySelectorAll('[role="option"]')]
-          .find((button) => button.textContent.includes(label));
+        const entry = [...document.querySelectorAll('[role="option"]')].find((button) =>
+          button.textContent.includes(label)
+        );
         assert.ok(entry);
         await act(async () => entry.click());
       } else {
-        await act(async () => option(next ? "Low" : "High").click());
+        await act(async () => option(next ? 'Low' : 'High').click());
       }
     };
     const assertChosen = () => {
-      if (field === "model") {
-        assert.ok(document.querySelector(".model-trigger").textContent.includes(secondModel.display));
+      if (field === 'model') {
+        assert.ok(document.querySelector('.model-trigger').textContent.includes(secondModel.display));
       } else {
-        assert.equal(option("Low").getAttribute("aria-checked"), "true");
+        assert.equal(option('Low').getAttribute('aria-checked'), 'true');
       }
     };
     try {
       await act(async () => root.render(React.createElement(Harness)));
-      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-      if (field === "effort") {
-        await act(async () => document.querySelector(".model-trigger").click());
-        const row = [...document.querySelectorAll(".route-sheet-row")]
-          .find((button) => button.textContent.includes("Reasoning effort"));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      if (field === 'effort') {
+        await act(async () => document.querySelector('.model-trigger').click());
+        const row = [...document.querySelectorAll('.route-sheet-row')].find((button) =>
+          button.textContent.includes('Reasoning effort')
+        );
         await act(async () => row.click());
       }
       await choose(true);
@@ -492,18 +567,19 @@ for (const field of ["model", "effort"]) {
       await act(async () => paint({ ...initial, busy: true }));
       assertChosen();
       const resolved = { ...initial, ...requestedSelection };
-      await act(async () => request.resolve(field === "effort"
-        ? { value: "low", snapshot: resolved }
-        : resolved));
+      await act(async () => request.resolve(field === 'effort' ? { value: 'low', snapshot: resolved } : resolved));
       assertChosen();
-      await act(async () => paint({ ...initial, busy: true, spinner: { text: "working" } }));
+      await act(async () => paint({ ...initial, busy: true, spinner: { text: 'working' } }));
       assertChosen();
       const completedRequest = request;
       await choose(false);
-      assert.notEqual(request, completedRequest,
-        "a completed mutation must allow another selection even before its snapshot paints");
+      assert.notEqual(
+        request,
+        completedRequest,
+        'a completed mutation must allow another selection even before its snapshot paints'
+      );
       await act(async () => paint(pendingSnapshot));
-      await act(async () => request.reject(new Error("route update failed")));
+      await act(async () => request.reject(new Error('route update failed')));
       assertChosen();
     } finally {
       await act(async () => root.unmount());

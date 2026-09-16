@@ -17,14 +17,18 @@ test('provider-style waits yield and reacquire the current agent lease', async (
   const finishWait = Promise.withResolvers();
   let yieldedFinished = false;
 
-  const yielding = admission.runWithLease(first, () => admission.runYielded(async () => {
-    waitStarted.resolve();
-    await finishWait.promise;
-    return 'provider-result';
-  })).then((value) => {
-    yieldedFinished = true;
-    return value;
-  });
+  const yielding = admission
+    .runWithLease(first, () =>
+      admission.runYielded(async () => {
+        waitStarted.resolve();
+        await finishWait.promise;
+        return 'provider-result';
+      })
+    )
+    .then((value) => {
+      yieldedFinished = true;
+      return value;
+    });
 
   await waitStarted.promise;
   assert.equal(admission.snapshot().active.agent, 0);
@@ -46,10 +50,9 @@ test('an already-aborted acquire uses the shared abort reason', async () => {
   const admission = new ResourceAdmissionController({
     limits: { maxAgents: 1, maxShells: 1, maxHighLoad: 1, maxQueue: 8 },
   });
-  await assert.rejects(
-    () => admission.acquire('agent', { signal: { aborted: true } }),
-    { message: 'resource admission canceled' },
-  );
+  await assert.rejects(() => admission.acquire('agent', { signal: { aborted: true } }), {
+    message: 'resource admission canceled',
+  });
 });
 
 test('admission abort keeps original identity and falsy-reason fallback', async () => {
@@ -61,16 +64,13 @@ test('admission abort keeps original identity and falsy-reason fallback', async 
     await assert.rejects(
       () => admission.acquire('agent', { signal: aborted(reason) }),
       { message: 'resource admission canceled' },
-      `falsy reason ${String(reason)} must not stringify into the abort message`,
+      `falsy reason ${String(reason)} must not stringify into the abort message`
     );
   }
   const cause = new Error('typed abort');
   await assert.rejects(
     () => admission.acquire('agent', { signal: aborted(cause) }),
-    (error) => error === cause,
+    (error) => error === cause
   );
-  await assert.rejects(
-    () => admission.acquire('agent', { signal: aborted('stop-now') }),
-    { message: 'stop-now' },
-  );
+  await assert.rejects(() => admission.acquire('agent', { signal: aborted('stop-now') }), { message: 'stop-now' });
 });

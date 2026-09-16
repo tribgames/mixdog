@@ -1,12 +1,12 @@
 // One in-process transfer for pane tabs, groups, and sessions. Native browser
 // drag events own pointer tracking and edge auto-scroll; this module carries
 // application-only metadata and forwards target-local drag lifecycle frames.
-import type { WorkspaceSelection } from "./nav-types";
+import type { WorkspaceSelection } from './nav-types';
 
-export const PANE_DRAG_MIME = "application/x-mixdog-pane-drag";
+export const PANE_DRAG_MIME = 'application/x-mixdog-pane-drag';
 
 export type PaneDragSession = {
-  kind: "tab" | "group" | "session";
+  kind: 'tab' | 'group' | 'session';
   key: string;
   title: string;
   selection: WorkspaceSelection;
@@ -15,7 +15,7 @@ export type PaneDragSession = {
 };
 
 export type PaneDragFrame = PaneDragSession & {
-  phase: "move" | "drop" | "cancel";
+  phase: 'move' | 'drop' | 'cancel';
   x: number;
   y: number;
   target: Element | null;
@@ -70,7 +70,7 @@ export function beginPaneDrag(
   event: DragEvent,
   session: PaneDragSession,
   dragImageContainer: HTMLElement,
-  onFinish?: () => void,
+  onFinish?: () => void
 ): void {
   if (activeSession) finishPaneDrag();
   activeSession = session;
@@ -79,14 +79,14 @@ export function beginPaneDrag(
   sourceCleanup = onFinish ?? null;
   lastPoint = null;
   if (!event.dataTransfer) return;
-  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData(PANE_DRAG_MIME, session.key);
-  event.dataTransfer.setData("text/plain", session.title);
+  event.dataTransfer.setData('text/plain', session.title);
 
-  const dragImage = document.createElement("div");
-  dragImage.className = "workspace-tab-ghost pane-native-drag-image";
+  const dragImage = document.createElement('div');
+  dragImage.className = 'workspace-tab-ghost pane-native-drag-image';
   dragImage.textContent = session.title;
-  (dragImageContainer.closest(".app-shell") ?? document.body).appendChild(dragImage);
+  (dragImageContainer.closest('.app-shell') ?? document.body).appendChild(dragImage);
   event.dataTransfer.setDragImage(dragImage, -10, -10);
   window.setTimeout(() => dragImage.remove(), 0);
 }
@@ -99,14 +99,14 @@ export function movePaneDrag(event: DragEvent): boolean {
   const session = activeSession;
   if (!session || settled) return false;
   event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
   const point = paneDragPoint(event);
   if (!point) return true;
   lastPoint = point;
   previewActive = true;
   publishPaneDrag({
     ...session,
-    phase: "move",
+    phase: 'move',
     x: point.x,
     y: point.y,
     target: point.target,
@@ -124,7 +124,7 @@ export function dropPaneDrag(event: DragEvent): boolean {
   previewActive = false;
   publishPaneDrag({
     ...session,
-    phase: "drop",
+    phase: 'drop',
     x: point.x,
     y: point.y,
     target: point.target,
@@ -147,7 +147,7 @@ export function cancelPaneDragPreview(): void {
   previewActive = false;
   publishPaneDrag({
     ...session,
-    phase: "cancel",
+    phase: 'cancel',
     x: 0,
     y: 0,
     target: null,

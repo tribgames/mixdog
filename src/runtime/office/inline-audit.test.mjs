@@ -38,7 +38,8 @@ slide.addText('Retention rose after onboarding and kept rising through the secon
 await pres.writeFile({ fileName: OUTPUT });
 `;
 
-const LONG_TITLE = 'Retention rose after onboarding and kept rising through the second quarter of the year while support tickets fell by a third and the activation funnel shortened from nine days to four for every cohort that started after the guided setup shipped in March';
+const LONG_TITLE =
+  'Retention rose after onboarding and kept rising through the second quarter of the year while support tickets fell by a third and the activation funnel shortened from nine days to four for every cohort that started after the guided setup shipped in March';
 
 test('summarizeOfficeAudit ranks touched locations first, drops advisories from the targets, and caps the list', () => {
   const issueList = [
@@ -47,7 +48,10 @@ test('summarizeOfficeAudit ranks touched locations first, drops advisories from 
     { severity: 'info', code: 'shapes_too_close', path: '/slide[1]/shape[1]', message: 'close' },
     { severity: 'warning', code: 'low_contrast', path: '/slide[1]/shape[4]', message: 'dim' },
     ...Array.from({ length: INLINE_AUDIT_TOP + 3 }, (_, index) => ({
-      severity: 'warning', code: 'text_overflow', path: `/slide[${index + 4}]/shape[1]`, message: `over ${index}`,
+      severity: 'warning',
+      code: 'text_overflow',
+      path: `/slide[${index + 4}]/shape[1]`,
+      message: `over ${index}`,
     })),
   ];
   const audit = summarizeOfficeAudit(issueList, { touched: ['/slide[3]'] });
@@ -62,14 +66,22 @@ test('summarizeOfficeAudit ranks touched locations first, drops advisories from 
   assert.equal(audit.locations.find((entry) => entry.label === 'document').error, 1);
   assert.ok(!audit.locations.some((entry) => entry.slide === 1 && !entry.warning));
 
-  const clean = summarizeOfficeAudit([{ severity: 'info', code: 'shapes_too_close', path: '/slide[1]/shape[1]', message: 'close' }]);
+  const clean = summarizeOfficeAudit([
+    { severity: 'info', code: 'shapes_too_close', path: '/slide[1]/shape[1]', message: 'close' },
+  ]);
   assert.equal(clean.status, 'pass');
   assert.deepEqual(clean.top, []);
   assert.deepEqual(clean.locations, []);
 });
 
 test('touchedLocations reads the edited slide, sheet, or body from the batch operations', () => {
-  assert.deepEqual(touchedLocations('pptx', [{ op: 'set_text', slide: 2, shape: 1 }, { op: 'keep_slides', slides: [1, 4] }]), ['/slide[2]', '/slide[1]', '/slide[4]']);
+  assert.deepEqual(
+    touchedLocations('pptx', [
+      { op: 'set_text', slide: 2, shape: 1 },
+      { op: 'keep_slides', slides: [1, 4] },
+    ]),
+    ['/slide[2]', '/slide[1]', '/slide[4]']
+  );
   assert.deepEqual(touchedLocations('xlsx', [{ op: 'set_range', sheet: 'Data', range: 'A1' }]), ['/sheet[Data]']);
   assert.deepEqual(touchedLocations('docx', [{ op: 'replace_text', find: 'a', replace: 'b' }]), ['/body']);
   assert.deepEqual(touchedLocations('pptx', []), []);
@@ -77,9 +89,13 @@ test('touchedLocations reads the edited slide, sheet, or body from the batch ope
 
 test('audit rounds count consecutive failures on the session and reset on a pass', () => {
   const session = {};
-  const failing = () => summarizeOfficeAudit([{ severity: 'warning', code: 'text_overflow', path: '/slide[1]/shape[1]', message: 'over' }]);
+  const failing = () =>
+    summarizeOfficeAudit([{ severity: 'warning', code: 'text_overflow', path: '/slide[1]/shape[1]', message: 'over' }]);
   assert.equal(recordInlineAuditRound(session, failing()).round, 1);
-  assert.match(recordInlineAuditRound(session, failing()).nextAction, new RegExp(`round 2 of ${INLINE_AUDIT_MAX_ROUNDS}`));
+  assert.match(
+    recordInlineAuditRound(session, failing()).nextAction,
+    new RegExp(`round 2 of ${INLINE_AUDIT_MAX_ROUNDS}`)
+  );
   const exhausted = recordInlineAuditRound(session, failing());
   assert.equal(exhausted.round, INLINE_AUDIT_MAX_ROUNDS + 1);
   assert.match(exhausted.nextAction, /report what remains/);
@@ -91,12 +107,23 @@ test('audit rounds count consecutive failures on the session and reset on a pass
 test('author returns the measured audit and keeps counting fix rounds across re-authors of the same deck', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'audited.pptx');
-  const author = async () => value(await executeOfficeTool({ action: 'author', path, script: OVERFLOW_DECK, mode: 'portable', render: false }, { cwd }));
+  const author = async () =>
+    value(
+      await executeOfficeTool(
+        { action: 'author', path, script: OVERFLOW_DECK, mode: 'portable', render: false },
+        { cwd }
+      )
+    );
   const first = await author();
   assert.equal(first.ok, true);
   assert.equal(first.audit.status, 'fail', JSON.stringify(first.audit));
   assert.equal(first.audit.round, 1);
-  assert.ok(first.audit.top.some((issue) => ['text_overflow', 'text_box_too_narrow'].includes(issue.code) && /^\/slide\[1\]/.test(issue.path)), JSON.stringify(first.audit.top));
+  assert.ok(
+    first.audit.top.some(
+      (issue) => ['text_overflow', 'text_box_too_narrow'].includes(issue.code) && /^\/slide\[1\]/.test(issue.path)
+    ),
+    JSON.stringify(first.audit.top)
+  );
   assert.equal(first.audit.locations[0].slide, 1);
   assert.match(first.nextAction, /same turn/);
   const second = await author();
@@ -105,42 +132,66 @@ test('author returns the measured audit and keeps counting fix rounds across re-
   assert.equal(third.audit.round, 3);
   assert.match(third.nextAction, /report what remains/);
 
-  const clean = value(await executeOfficeTool({ action: 'author', path, script: CLEAN_DECK, mode: 'portable', render: false }, { cwd }));
+  const clean = value(
+    await executeOfficeTool({ action: 'author', path, script: CLEAN_DECK, mode: 'portable', render: false }, { cwd })
+  );
   assert.equal(clean.audit.status, 'pass', JSON.stringify(clean.audit));
   assert.equal(clean.audit.round, 0);
   assert.match(clean.nextAction, /action:render/);
 
-  const silent = value(await executeOfficeTool({ action: 'author', path, script: CLEAN_DECK, mode: 'portable', render: false, audit: false }, { cwd }));
+  const silent = value(
+    await executeOfficeTool(
+      { action: 'author', path, script: CLEAN_DECK, mode: 'portable', render: false, audit: false },
+      { cwd }
+    )
+  );
   assert.equal(silent.audit, undefined);
 });
 
 test('batch returns the audit of the edited deck with the touched slide first', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'batched.pptx');
-  const authored = value(await executeOfficeTool({ action: 'author', path, script: CLEAN_DECK, mode: 'portable', render: false }, { cwd }));
+  const authored = value(
+    await executeOfficeTool({ action: 'author', path, script: CLEAN_DECK, mode: 'portable', render: false }, { cwd })
+  );
   assert.equal(authored.audit.status, 'pass', JSON.stringify(authored.audit));
-  const broken = value(await executeOfficeTool({
-    action: 'batch',
-    session: authored.session,
-    operations: [{ op: 'set_text', slide: 1, shape: 1, text: LONG_TITLE }],
-  }, { cwd }));
+  const broken = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: authored.session,
+        operations: [{ op: 'set_text', slide: 1, shape: 1, text: LONG_TITLE }],
+      },
+      { cwd }
+    )
+  );
   assert.equal(broken.ok, true);
   assert.equal(broken.audit.status, 'fail', JSON.stringify(broken.audit));
   assert.equal(broken.audit.round, 1);
   assert.match(broken.audit.top[0].path, /^\/slide\[1\]/);
   assert.equal(broken.audit.locations[0].slide, 1);
-  const repaired = value(await executeOfficeTool({
-    action: 'batch',
-    session: authored.session,
-    operations: [{ op: 'set_text', slide: 1, shape: 1, text: 'Retention rose after onboarding' }],
-  }, { cwd }));
+  const repaired = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: authored.session,
+        operations: [{ op: 'set_text', slide: 1, shape: 1, text: 'Retention rose after onboarding' }],
+      },
+      { cwd }
+    )
+  );
   assert.equal(repaired.audit.status, 'pass', JSON.stringify(repaired.audit));
   assert.equal(repaired.audit.round, 0);
-  const silent = value(await executeOfficeTool({
-    action: 'batch',
-    session: authored.session,
-    operations: [{ op: 'set_text', slide: 1, shape: 1, text: 'Retention rose after onboarding again' }],
-    audit: false,
-  }, { cwd }));
+  const silent = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: authored.session,
+        operations: [{ op: 'set_text', slide: 1, shape: 1, text: 'Retention rose after onboarding again' }],
+        audit: false,
+      },
+      { cwd }
+    )
+  );
   assert.equal(silent.audit, undefined);
 });

@@ -39,8 +39,9 @@ function resolveCssColor(value: string): Rgba | null {
   if (!colorProbe || !colorProbe.isConnected) {
     colorProbe = document.createElement('div');
     colorProbe.setAttribute('aria-hidden', 'true');
-    colorProbe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;'
-      + 'pointer-events:none;visibility:hidden;contain:strict;';
+    colorProbe.style.cssText =
+      'position:fixed;left:-9999px;top:0;width:1px;height:1px;' +
+      'pointer-events:none;visibility:hidden;contain:strict;';
     document.body.appendChild(colorProbe);
   }
   colorProbe.style.backgroundColor = value;
@@ -50,12 +51,13 @@ function resolveCssColor(value: string): Rgba | null {
 /** Every fullscreen scrim currently painting over the window band. Counting
  *  claims guessed one layer per modal; reading the LIVE layers makes the
  *  caption match whatever the DOM actually shows, nesting included. */
-const SCRIM_LAYERS = '.onboarding-layer, .schedules-dialog-layer, .mixdog-settings-layer,'
-  + ' .settings-confirm-layer, .mx-dialog-layer, .settings-oauth-layer,'
+const SCRIM_LAYERS =
+  '.onboarding-layer, .schedules-dialog-layer, .mixdog-settings-layer,' +
+  ' .settings-confirm-layer, .mx-dialog-layer, .settings-oauth-layer,' +
   // Cold-settings backplate: the dialog holds back until its snapshot exists
   // and only this fixed dim + spinner paints, so the native band must ride
   // the same scrim instead of staying at full theme brightness.
-  + ' .desktop-loading-surface--overlay';
+  ' .desktop-loading-surface--overlay';
 
 /** Compact settings replaces the whole window instead of floating above it.
  *  Its layer still owns the normal modal scrim token, but that paint is fully
@@ -67,12 +69,12 @@ function fullBleedSettingsSurface(): HTMLElement | null {
   if (!layer || !dialog || layer.getClientRects().length === 0) return null;
   const rect = dialog.getBoundingClientRect();
   const tolerance = 1;
-  const coversViewport = rect.left <= tolerance && rect.top <= tolerance
-    && rect.right >= window.innerWidth - tolerance
-    && rect.bottom >= window.innerHeight - tolerance;
-  return coversViewport
-    ? dialog.querySelector<HTMLElement>('.mixdog-settings__panel') || dialog
-    : null;
+  const coversViewport =
+    rect.left <= tolerance &&
+    rect.top <= tolerance &&
+    rect.right >= window.innerWidth - tolerance &&
+    rect.bottom >= window.innerHeight - tolerance;
+  return coversViewport ? dialog.querySelector<HTMLElement>('.mixdog-settings__panel') || dialog : null;
 }
 
 function visibleScrims(): Rgba[] {
@@ -101,8 +103,10 @@ function over(top: Rgba, base: Rgba): Rgba {
 }
 
 function hex(color: Rgba): string {
-  const channel = (value: number) => Math.max(0, Math.min(255, Math.round(value)))
-    .toString(16).padStart(2, '0');
+  const channel = (value: number) =>
+    Math.max(0, Math.min(255, Math.round(value)))
+      .toString(16)
+      .padStart(2, '0');
   return `#${channel(color.r)}${channel(color.g)}${channel(color.b)}`;
 }
 
@@ -149,20 +153,17 @@ function sendCaption(): boolean {
   // 동화됐으면), even if a surface tweak moves the token. Full-bleed settings
   // replaces that strip, so its panel becomes the native caption surface.
   const fullBleedSettings = fullBleedSettingsSurface();
-  const topbar = typeof document === 'undefined'
-    ? null : document.querySelector<HTMLElement>('header.topbar');
+  const topbar = typeof document === 'undefined' ? null : document.querySelector<HTMLElement>('header.topbar');
   const captionSurface = fullBleedSettings || topbar;
-  const painted = captionSurface
-    ? parseColor(window.getComputedStyle(captionSurface).backgroundColor)
-    : null;
+  const painted = captionSurface ? parseColor(window.getComputedStyle(captionSurface).backgroundColor) : null;
   const band = painted && painted.a === 1 ? painted : resolveCssColor('var(--mx-window-band)');
   if (!band) return false;
   const light = window.getComputedStyle(document.documentElement).colorScheme === 'light';
   // Caption symbols share the EXACT ink of the DOM cluster beside them
   // (user: 그쪽만 혼자 다르게 튀어 보임): the native strokes are hairline,
   // so full cluster ink does not read heavier.
-  const ink = resolveCssColor('var(--mx-icon)')
-    ?? (light ? { r: 0, g: 0, b: 0, a: 1 } : { r: 255, g: 255, b: 255, a: 1 });
+  const ink =
+    resolveCssColor('var(--mx-icon)') ?? (light ? { r: 0, g: 0, b: 0, a: 1 } : { r: 255, g: 255, b: 255, a: 1 });
   let plate = over(band, band);
   let symbol = over(ink, plate);
   // Stacked scrims darken the caption exactly as they darken the DOM: a
@@ -178,7 +179,9 @@ function sendCaption(): boolean {
   // the main process would otherwise repaint the native band for nothing.
   if (signature === lastSent) return false;
   lastSent = signature;
-  bridge()?.setTitleBarDim?.(next)?.catch?.(() => undefined);
+  bridge()
+    ?.setTitleBarDim?.(next)
+    ?.catch?.(() => undefined);
   return true;
 }
 

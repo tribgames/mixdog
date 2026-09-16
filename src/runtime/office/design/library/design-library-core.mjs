@@ -56,36 +56,30 @@ export const ALLOWED_LAYOUT_DEFAULTS = new Set([
 
 export const LAYOUT_SLOT_TYPES = new Set(['text', 'image', 'chart', 'table', 'diagram']);
 
-
-const BUNDLED_TEMPLATE_DIRECTORY = physicalAsarPath(
-  fileURLToPath(new URL('./templates', import.meta.url)),
-);
-
+const BUNDLED_TEMPLATE_DIRECTORY = physicalAsarPath(fileURLToPath(new URL('./templates', import.meta.url)));
 
 export function safeId(value, label = 'id') {
-  const normalized = String(value || '').trim().toLowerCase();
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
   if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(normalized)) {
     throw new Error(`Office design ${label} must use 1-64 lowercase letters, digits, dots, underscores, or hyphens`);
   }
   return normalized;
 }
 
-
 export function canonicalPath(path) {
   const normalized = resolve(path);
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
-
 export async function sha256File(path) {
   return sha256(await readFile(path));
 }
 
-
 export function canonicalOfficeDesignPack(pack) {
   return JSON.stringify(stableValue(pack));
 }
-
 
 export function parseVersion(value) {
   const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(String(value || '').trim());
@@ -95,7 +89,6 @@ export function parseVersion(value) {
     prerelease: match[4] || '',
   };
 }
-
 
 export function compareOfficeDesignVersions(left, right) {
   const a = parseVersion(left);
@@ -109,7 +102,6 @@ export function compareOfficeDesignVersions(left, right) {
   if (a.prerelease === b.prerelease) return 0;
   return a.prerelease > b.prerelease ? 1 : -1;
 }
-
 
 export function libraryPaths(dataDir) {
   const root = join(resolve(dataDir), 'office', 'design-library');
@@ -125,7 +117,6 @@ export function libraryPaths(dataDir) {
   };
 }
 
-
 export async function readJson(path, fallback = null) {
   try {
     const parsed = JSON.parse(await readFile(path, 'utf8'));
@@ -134,7 +125,6 @@ export async function readJson(path, fallback = null) {
     return fallback;
   }
 }
-
 
 export async function writeJsonAtomic(path, value) {
   await mkdir(dirname(path), { recursive: true });
@@ -153,24 +143,21 @@ export async function writeJsonAtomic(path, value) {
   }
 }
 
-
 function resolveConfigPath(path, base) {
   const value = String(path || '').trim();
   if (!value) return '';
   return isAbsolute(value) ? resolve(value) : resolve(base, value);
 }
 
-
 export async function loadConfig(dataDir, override = null) {
   const paths = libraryPaths(dataDir);
-  const configPath = resolveConfigPath(
-    process.env.MIXDOG_OFFICE_DESIGN_LIBRARY_CONFIG || paths.config,
-    process.cwd(),
-  );
+  const configPath = resolveConfigPath(process.env.MIXDOG_OFFICE_DESIGN_LIBRARY_CONFIG || paths.config, process.cwd());
   const source = plainObject(override) ? override : await readJson(configPath, {});
   const base = dirname(configPath);
   const trustedKeys = plainObject(source.trustedKeys) ? { ...source.trustedKeys } : {};
-  const environmentKey = String(process.env.MIXDOG_OFFICE_DESIGN_PACK_PUBLIC_KEY || '').replaceAll('\\n', '\n').trim();
+  const environmentKey = String(process.env.MIXDOG_OFFICE_DESIGN_PACK_PUBLIC_KEY || '')
+    .replaceAll('\\n', '\n')
+    .trim();
   if (environmentKey) {
     trustedKeys[String(process.env.MIXDOG_OFFICE_DESIGN_PACK_KEY_ID || 'environment')] = environmentKey;
   }
@@ -179,9 +166,8 @@ export async function loadConfig(dataDir, override = null) {
   const configuredDirectories = Array.isArray(source.templateDirectories)
     ? source.templateDirectories
     : environmentDirectories.split(delimiter);
-  const discoverInstalledTemplates = source.discoverInstalledTemplates == null
-    ? !hasExplicitDirectories
-    : source.discoverInstalledTemplates !== false;
+  const discoverInstalledTemplates =
+    source.discoverInstalledTemplates == null ? !hasExplicitDirectories : source.discoverInstalledTemplates !== false;
   const templateDirectories = [
     paths.templates,
     ...(discoverInstalledTemplates ? defaultOfficeTemplateDirectories() : []),
@@ -193,17 +179,18 @@ export async function loadConfig(dataDir, override = null) {
     manifestUrl: String(process.env.MIXDOG_OFFICE_DESIGN_PACK_URL || source.manifestUrl || '').trim(),
     trustedKeys,
     packId: source.packId ? safeId(source.packId, 'config packId') : '',
-    channel: String(source.channel || 'stable').trim().toLowerCase(),
+    channel: String(source.channel || 'stable')
+      .trim()
+      .toLowerCase(),
     checkIntervalMs: Math.max(
       10_000,
-      Math.min(24 * 60 * 60 * 1000, Number(source.checkIntervalMs) || DEFAULT_CHECK_INTERVAL_MS),
+      Math.min(24 * 60 * 60 * 1000, Number(source.checkIntervalMs) || DEFAULT_CHECK_INTERVAL_MS)
     ),
     templateDirectories,
     discoverInstalledTemplates,
     defaultTemplates,
   };
 }
-
 
 export function defaultOfficeTemplateDirectories({
   platform = process.platform,
@@ -221,6 +208,5 @@ export function defaultOfficeTemplateDirectories({
     if (appData) directories.push(win32.resolve(win32.join(appData, 'Microsoft', 'Templates')));
     if (home) directories.push(win32.resolve(win32.join(home, 'Documents', 'Custom Office Templates')));
   }
-  return directories
-    .filter((entry, index, values) => values.indexOf(entry) === index);
+  return directories.filter((entry, index, values) => values.indexOf(entry) === index);
 }

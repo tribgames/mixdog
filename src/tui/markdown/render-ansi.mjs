@@ -28,8 +28,7 @@ let renderedSegmentCacheChars = 0;
 // the block forms whose markers are NOT in that class, or the text renders as a
 // literal paragraph: `+ ` bullets, `1)` ordered items, a setext `===` underline,
 // and 4-space indented code.
-const MD_SYNTAX_RE =
-  /[#*`|[>\-_~]|\n\n|(?:^|\n)\d+[.)] |(?:^|\n)\+ |(?:^|\n)={2,}[ \t]*(?:\n|$)|(?:^|\n) {4}\S/;
+const MD_SYNTAX_RE = /[#*`|[>\-_~]|\n\n|(?:^|\n)\d+[.)] |(?:^|\n)\+ |(?:^|\n)={2,}[ \t]*(?:\n|$)|(?:^|\n) {4}\S/;
 
 // GFM strikethrough, pair-only. marked's default `del` also accepts a SINGLE
 // tilde, which turns approximation prose ("~100", "1~2개") into struck text —
@@ -67,12 +66,14 @@ function lexMarkdown(content, { trimPartialFences = false } = {}) {
   configureMarked();
   const text = String(content ?? '');
   if (!hasMarkdownSyntax(text)) {
-    return [{
-      type: 'paragraph',
-      raw: text,
-      text,
-      tokens: [{ type: 'text', raw: text, text }],
-    }];
+    return [
+      {
+        type: 'paragraph',
+        raw: text,
+        text,
+        tokens: [{ type: 'text', raw: text, text }],
+      },
+    ];
   }
   // Streaming suffix: lex fresh and trim a partial closing fence so an open code
   // block does not include a lone trailing backtick as a body line. These tokens
@@ -135,10 +136,10 @@ export function renderTokenAnsiSegments(content, opts = {}) {
   for (let index = renderedSegmentCache.length - 1; index >= 0; index -= 1) {
     const entry = renderedSegmentCache[index];
     if (
-      entry.text === text
-      && entry.width === width
-      && entry.trimPartialFences === trimPartialFences
-      && entry.themeVersion === themeVersion
+      entry.text === text &&
+      entry.width === width &&
+      entry.trimPartialFences === trimPartialFences &&
+      entry.themeVersion === themeVersion
     ) {
       renderedSegmentCache.splice(index, 1);
       renderedSegmentCache.push(entry);
@@ -151,7 +152,6 @@ export function renderTokenAnsiSegments(content, opts = {}) {
     if (token.type === 'table') {
       segments.push({ type: 'table', token });
     } else if (token.type === 'space') {
-      continue;
     } else {
       const ansi = String(formatToken(token, 0, null, null, width) ?? '').replace(/^\n+|\n+$/g, '');
       if (!ansi) continue;
@@ -163,8 +163,8 @@ export function renderTokenAnsiSegments(content, opts = {}) {
     renderedSegmentCache.push(entry);
     renderedSegmentCacheChars += text.length;
     while (
-      renderedSegmentCache.length > RENDERED_SEGMENT_CACHE_MAX
-      || renderedSegmentCacheChars > RENDERED_SEGMENT_CACHE_MAX_CHARS
+      renderedSegmentCache.length > RENDERED_SEGMENT_CACHE_MAX ||
+      renderedSegmentCacheChars > RENDERED_SEGMENT_CACHE_MAX_CHARS
     ) {
       const removed = renderedSegmentCache.shift();
       renderedSegmentCacheChars -= removed?.text.length || 0;

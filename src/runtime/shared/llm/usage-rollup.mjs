@@ -91,12 +91,7 @@ export function usageRollupDayKey(ts) {
 // background runners. An unknown source counts as conversation on purpose: a
 // new runner showing up in the user's totals is visible and correctable, while
 // silently dropping the user's own turns is neither.
-const BACKGROUND_SOURCES = new Set([
-  'memory-cycle',
-  'schedule',
-  'webhook',
-  'native-web-search',
-]);
+const BACKGROUND_SOURCES = new Set(['memory-cycle', 'schedule', 'webhook', 'native-web-search']);
 
 export function isConversationUsageSource(sourceType) {
   const id = typeof sourceType === 'string' ? sourceType.trim().toLowerCase() : '';
@@ -104,8 +99,17 @@ export function isConversationUsageSource(sourceType) {
 }
 
 function emptyRouteTotals() {
-  return { turns: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0,
-    costBilled: 0, costEstimated: 0, costKnownTurns: 0 };
+  return {
+    turns: 0,
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    costUsd: 0,
+    costBilled: 0,
+    costEstimated: 0,
+    costKnownTurns: 0,
+  };
 }
 
 function emptyTurnTotals() {
@@ -178,10 +182,11 @@ function readRouteTotals(raw, target) {
   target.cacheWrite = num(raw?.cacheWrite);
   target.costUsd = round6(num(raw?.costUsd));
   target.costBilled = round6(num(raw?.costBilled));
-  target.costEstimated = round6(raw?.costEstimated == null
-    ? Math.max(0, target.costUsd - target.costBilled) : num(raw.costEstimated));
-  target.costKnownTurns = raw?.costKnownTurns == null
-    ? (target.costUsd > 0 ? target.turns : 0) : num(raw.costKnownTurns);
+  target.costEstimated = round6(
+    raw?.costEstimated == null ? Math.max(0, target.costUsd - target.costBilled) : num(raw.costEstimated)
+  );
+  target.costKnownTurns =
+    raw?.costKnownTurns == null ? (target.costUsd > 0 ? target.turns : 0) : num(raw.costKnownTurns);
   return target;
 }
 
@@ -199,15 +204,16 @@ function normalizeModel(raw, key) {
   const slash = typeof key === 'string' ? key.indexOf('/') : -1;
   const bucket = emptyModel(
     cleanId(raw?.provider) || (slash > 0 ? key.slice(0, slash) : ''),
-    cleanId(raw?.model) || (slash > 0 ? key.slice(slash + 1) : ''),
+    cleanId(raw?.model) || (slash > 0 ? key.slice(slash + 1) : '')
   );
   bucket.kind = cleanId(raw?.kind);
   readRouteTotals(raw, bucket);
   // A bucket written before turns carried a source has no split to read.
   // `null` means unknown, which a reader must not quietly treat as zero.
-  bucket.conversation = raw?.conversation && typeof raw.conversation === 'object'
-    ? readRouteTotals(raw.conversation, emptyRouteTotals())
-    : null;
+  bucket.conversation =
+    raw?.conversation && typeof raw.conversation === 'object'
+      ? readRouteTotals(raw.conversation, emptyRouteTotals())
+      : null;
   return bucket;
 }
 
@@ -216,9 +222,10 @@ function normalizeDay(raw) {
   readTurnTotals(raw, day);
   day.firstTs = num(raw?.firstTs);
   day.lastTs = num(raw?.lastTs);
-  day.conversation = raw?.conversation && typeof raw.conversation === 'object'
-    ? readTurnTotals(raw.conversation, emptyTurnTotals())
-    : null;
+  day.conversation =
+    raw?.conversation && typeof raw.conversation === 'object'
+      ? readTurnTotals(raw.conversation, emptyTurnTotals())
+      : null;
   day.conversationPartial = raw?.conversationPartial === true;
   day.restored = raw?.restored === true;
   // A day that never held unclassified turns needs no purge; one that did is
@@ -312,8 +319,10 @@ export function foldUsageRollup(current, summary, now = Date.now()) {
   // costSource 'none' means neither the provider nor the catalog priced this
   // turn; counting it keeps the surface honest about partial cost coverage.
   const pricing = {
-    priced: summary?.costUsd != null && Number.isFinite(Number(summary.costUsd))
-      && !['', 'none', 'unpriced'].includes(costSource),
+    priced:
+      summary?.costUsd != null &&
+      Number.isFinite(Number(summary.costUsd)) &&
+      !['', 'none', 'unpriced'].includes(costSource),
     billed: costSource === 'provider',
     durationMs: num(summary?.durationMs),
   };
@@ -428,11 +437,11 @@ export function recordUsageRollup(summary) {
   const path = resolveRollupPath();
   if (!path) return;
   try {
-    updateJsonAtomicSync(
-      path,
-      (current) => foldUsageRollup(current, summary),
-      { compact: true, fsync: false, fsyncDir: false },
-    );
+    updateJsonAtomicSync(path, (current) => foldUsageRollup(current, summary), {
+      compact: true,
+      fsync: false,
+      fsyncDir: false,
+    });
   } catch {
     // Local telemetry only.
   }
@@ -456,7 +465,7 @@ export function persistRestoredDays(historyDays, now = Date.now()) {
         // undefined leaves the file untouched.
         return frozen > 0 ? result.rollup : undefined;
       },
-      { compact: true, fsync: false, fsyncDir: false },
+      { compact: true, fsync: false, fsyncDir: false }
     );
   } catch {
     return 0;

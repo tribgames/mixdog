@@ -70,11 +70,11 @@ test('MCP tools filter by server scope, cascading from the installing plugin', (
   ];
   assert.deepEqual(
     filterMcpToolsForCwd(tools, scopes, A, { plugins }).map((tool) => tool.name),
-    ['read', 'mcp__plugin-unity-tools--editor__run', 'mcp__demo__tool'],
+    ['read', 'mcp__plugin-unity-tools--editor__run', 'mcp__demo__tool']
   );
   assert.deepEqual(
     filterMcpToolsForCwd(tools, scopes, B, { plugins }).map((tool) => tool.name),
-    ['read', 'mcp__UnityMCP__manage_scene', 'mcp__demo__tool'],
+    ['read', 'mcp__UnityMCP__manage_scene', 'mcp__demo__tool']
   );
 });
 
@@ -85,9 +85,12 @@ test('a live MCP registry is filtered per session cwd, cascading the plugin scop
   const scopeId = 'scope-test';
   try {
     mkdirSync(join(dataDir, 'plugins'), { recursive: true });
-    writeFileSync(join(dataDir, 'plugins', 'registry.json'), JSON.stringify({
-      plugins: [{ id: 'unity', name: 'Unity Tools', root: dataDir, enabled: true }],
-    }));
+    writeFileSync(
+      join(dataDir, 'plugins', 'registry.json'),
+      JSON.stringify({
+        plugins: [{ id: 'unity', name: 'Unity Tools', root: dataDir, enabled: true }],
+      })
+    );
     assert.deepEqual(registeredPluginIdentities(dataDir), [{ id: 'unity', name: 'Unity Tools' }]);
 
     _registerMcpServerForTest(scopeId, 'UnityMCP', [{ name: 'manage_scene' }]);
@@ -97,9 +100,11 @@ test('a live MCP registry is filtered per session cwd, cascading the plugin scop
     assert.ok(live.some((tool) => tool.name === 'mcp__UnityMCP__manage_scene'));
 
     const config = { extensionScopes: { mcp: { UnityMCP: [B] }, plugins: { unity: [B] } } };
-    const names = (cwd) => filterMcpToolsForSession(live, cwd, config)
-      .filter((tool) => !tool.name.includes('__mixdog_'))
-      .map((tool) => tool.name).sort();
+    const names = (cwd) =>
+      filterMcpToolsForSession(live, cwd, config)
+        .filter((tool) => !tool.name.includes('__mixdog_'))
+        .map((tool) => tool.name)
+        .sort();
     assert.deepEqual(names(A), ['mcp__demo__tool']);
     assert.deepEqual(names(join(B, 'Assets')), [
       'mcp__UnityMCP__manage_scene',
@@ -119,7 +124,10 @@ test('a live MCP registry is filtered per session cwd, cascading the plugin scop
 test('withExtensionScope replaces one entry and clears it with an empty list', () => {
   const config = { other: 1, extensionScopes: { mcp: { UnityMCP: [A] } } };
   const scoped = withExtensionScope(config, 'skills', 'bench', [B, A]);
-  assert.deepEqual(scoped.extensionScopes.skills.bench, [A, B].sort((x, y) => x.localeCompare(y)));
+  assert.deepEqual(
+    scoped.extensionScopes.skills.bench,
+    [A, B].sort((x, y) => x.localeCompare(y))
+  );
   assert.deepEqual(scoped.extensionScopes.mcp, { UnityMCP: [A] });
   assert.equal(scoped.other, 1);
   const cleared = withExtensionScope(scoped, 'mcp', 'UnityMCP', []);

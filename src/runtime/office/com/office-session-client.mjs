@@ -20,10 +20,7 @@ export function acceptSessionIdentity(client, message) {
   if (message.cleanup?.applicationRetained === true) client.ownsApplication = false;
 }
 
-export function stopSessionClient(client, error = '', {
-  clients = sessionClients,
-  forceHost = false,
-} = {}) {
+export function stopSessionClient(client, error = '', { clients = sessionClients, forceHost = false } = {}) {
   if (!client || client.closed) return;
   client.closed = true;
   clients.delete(client.sessionId);
@@ -37,11 +34,21 @@ export function stopSessionClient(client, error = '', {
     pending.resolve(failure);
   }
   client.pending.clear();
-  try { client.child.stdin.end(); } catch {}
+  try {
+    client.child.stdin.end();
+  } catch {}
   // EOF runs the host's verified document cleanup, including an open that has
   // not answered yet. Killing its process here bypasses finally and orphans COM.
-  if (forceHost) { try { client.child.kill(); } catch {} }
-  if (forceHost || client.child?.exitCode != null) { try { client.readline.close(); } catch {} }
+  if (forceHost) {
+    try {
+      client.child.kill();
+    } catch {}
+  }
+  if (forceHost || client.child?.exitCode != null) {
+    try {
+      client.readline.close();
+    } catch {}
+  }
 }
 
 export async function drainSessionClient(client, error = '', { graceMs = 15_000 } = {}) {
@@ -52,22 +59,35 @@ export async function drainSessionClient(client, error = '', { graceMs = 15_000 
     let timer;
     let onClose;
     client.child.ref?.();
-    const exited = client.child.exitCode != null || await new Promise((resolve) => {
-      onClose = () => resolve(true);
-      client.child.once('close', onClose);
-      timer = setTimeout(() => resolve(false), graceMs);
-      try { client.child.stdin.end(); } catch { resolve(false); }
-    });
+    const exited =
+      client.child.exitCode != null ||
+      (await new Promise((resolve) => {
+        onClose = () => resolve(true);
+        client.child.once('close', onClose);
+        timer = setTimeout(() => resolve(false), graceMs);
+        try {
+          client.child.stdin.end();
+        } catch {
+          resolve(false);
+        }
+      }));
     clearTimeout(timer);
     if (onClose) client.child.removeListener('close', onClose);
     client.child.unref?.();
-    const failures = String(client.stderr || '').split(/\r?\n/).filter((line) => line.includes('MIXDOG_OFFICE_CLEANUP'));
+    const failures = String(client.stderr || '')
+      .split(/\r?\n/)
+      .filter((line) => line.includes('MIXDOG_OFFICE_CLEANUP'));
     if (!exited) {
       // No evidence that a shared/user document is safe to kill. The host keeps
       // its EOF request and will clean up when the in-flight COM call returns.
       client.child.stdout?.unref?.();
       client.child.stderr?.unref?.();
-      return { ok: false, hostExited: false, pending: true, error: 'Office cleanup is still pending; the host was not force-killed.' };
+      return {
+        ok: false,
+        hostExited: false,
+        pending: true,
+        error: 'Office cleanup is still pending; the host was not force-killed.',
+      };
     }
     stopSessionClient(client, error);
     return {
@@ -82,7 +102,7 @@ export async function drainSessionClient(client, error = '', { graceMs = 15_000 
 export function stopMicrosoftOfficeSessionClients(
   clients = sessionClients,
   error = 'Microsoft Office session host stopped',
-  options = {},
+  options = {}
 ) {
   for (const client of [...clients.values()]) {
     stopSessionClient(client, error, { ...options, clients });

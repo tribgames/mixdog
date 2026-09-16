@@ -1,7 +1,7 @@
-import { ArrowUp, RefreshCw } from "lucide-react";
-import type { ReactNode } from "react";
+import { ArrowUp, RefreshCw } from 'lucide-react';
+import type { ReactNode } from 'react';
 
-import type { DesktopGitStatus } from "../shared/contract";
+import type { DesktopGitStatus } from '../shared/contract';
 
 export interface SourceControlRemoteAction {
   key: string;
@@ -32,22 +32,22 @@ export function sourceControlRemoteActions({
   onFetch(): void;
   onPush(): void;
 }) {
-  const remoteName = (status?.upstreamName || "").split("/")[0] || "origin";
+  const remoteName = (status?.upstreamName || '').split('/')[0] || 'origin';
   const aheadCount = status?.ahead ?? 0;
   const behindCount = status?.behind ?? 0;
   const fetchReason = busy
-    ? "Another Git action is running"
+    ? 'Another Git action is running'
     : status?.operation
-      ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
+      ? `Finish the in-progress ${status.operation.replace('-', ' ')} first`
       : !canFetch
-        ? missingChannel("Fetching")
+        ? missingChannel('Fetching')
         : !status?.remote
-          ? "Add a remote before fetching"
-          : "";
+          ? 'Add a remote before fetching'
+          : '';
   const fetchEntry: SourceControlRemoteAction = {
-    key: "fetch",
-    runKey: "fetch",
-    verb: "Fetch",
+    key: 'fetch',
+    runKey: 'fetch',
+    verb: 'Fetch',
     target: remoteName,
     label: `Fetch ${remoteName}`,
     reason: fetchReason,
@@ -56,20 +56,20 @@ export function sourceControlRemoteActions({
     perform: onFetch,
   };
   const pushReason = busy
-    ? "Another Git action is running"
+    ? 'Another Git action is running'
     : status?.operation
-      ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
+      ? `Finish the in-progress ${status.operation.replace('-', ' ')} first`
       : !canPush
-        ? missingChannel("Pushing")
+        ? missingChannel('Pushing')
         : !status?.remote
-          ? "Add a remote before pushing"
+          ? 'Add a remote before pushing'
           : status.detached
-            ? "Cannot push a detached HEAD"
-            : "";
+            ? 'Cannot push a detached HEAD'
+            : '';
   const pushEntry: SourceControlRemoteAction = {
-    key: "push",
-    runKey: "push",
-    verb: "Push",
+    key: 'push',
+    runKey: 'push',
+    verb: 'Push',
     target: remoteName,
     label: `Push ${remoteName}`,
     reason: pushReason,
@@ -78,18 +78,18 @@ export function sourceControlRemoteActions({
     perform: onPush,
   };
   const rowPushReason = busy
-    ? "Another Git action is running"
+    ? 'Another Git action is running'
     : status?.operation
-      ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
+      ? `Finish the in-progress ${status.operation.replace('-', ' ')} first`
       : !canPush
-        ? missingChannel("Pushing")
+        ? missingChannel('Pushing')
         : !status?.remote
-          ? "Add a remote before pushing"
+          ? 'Add a remote before pushing'
           : status.detached
-            ? "Cannot push a detached HEAD"
+            ? 'Cannot push a detached HEAD'
             : !status.upstream
-              ? "Publish the branch before pushing"
-              : "";
+              ? 'Publish the branch before pushing'
+              : '';
 
   return {
     remoteName,

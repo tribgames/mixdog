@@ -8,13 +8,17 @@ import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy.ts'
 function fixture(t, prefetchSession) {
   const prior = Object.getOwnPropertyDescriptor(globalThis, 'window');
   const records = [];
-  Object.defineProperty(globalThis, 'window', { configurable: true, value: {
-    setTimeout, clearTimeout,
-    mixdogDesktop: {
-      prefetchSession,
-      rendererDiagnostic: (entry) => records.push(entry),
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      setTimeout,
+      clearTimeout,
+      mixdogDesktop: {
+        prefetchSession,
+        rendererDiagnostic: (entry) => records.push(entry),
+      },
     },
-  } });
+  });
   defaultSessionLaneStore.clear();
   t.after(() => {
     defaultSessionLaneStore.clear();
@@ -25,7 +29,9 @@ function fixture(t, prefetchSession) {
 }
 
 test('a held IPC read records its wait, joins and later frame without changing retry behavior', async (t) => {
-  let now = 0, calls = 0, traceId;
+  let now = 0,
+    calls = 0,
+    traceId;
   t.mock.method(performance, 'now', () => now);
   const pending = Promise.withResolvers();
   const records = fixture(t, (_id, _limit, trace) => {
@@ -38,30 +44,36 @@ test('a held IPC read records its wait, joins and later frame without changing r
   reportSessionRead('trace_pending', 'wait-expired', { hasLane: false });
   assert.equal(requestSessionRead('trace_pending'), first);
   assert.equal(calls, 1);
-  assert.equal(records.find(r => r.stage === 'wait-expired').elapsedMs, 15_000);
+  assert.equal(records.find((r) => r.stage === 'wait-expired').elapsedMs, 15_000);
   now = 60_000;
   pending.resolve(true);
   assert.equal(await first, true);
-  assert.equal(records.find(r => r.stage === 'request-result').hasLane, false);
+  assert.equal(records.find((r) => r.stage === 'request-result').hasLane, false);
   const beforeStaleFrame = records.length;
   defaultSessionLaneStore.apply({
-    sessionId: 'trace_pending', readTraceId: 'older-read', frameSource: 'replay',
+    sessionId: 'trace_pending',
+    readTraceId: 'older-read',
+    frameSource: 'replay',
     snapshot: { sessionId: 'trace_pending', items: [] },
   });
   assert.equal(records.length, beforeStaleFrame, 'a different read id must not claim this request arrival');
   defaultSessionLaneStore.apply({
-    sessionId: 'trace_pending', readTraceId: traceId, frameSource: 'replay',
+    sessionId: 'trace_pending',
+    readTraceId: traceId,
+    frameSource: 'replay',
     snapshot: { sessionId: 'trace_pending', items: [{ id: 'answer', kind: 'assistant', text: 'private answer' }] },
   });
-  assert.deepEqual(records.map(r => r.stage), [
-    'request-start', 'wait-expired', 'request-joined', 'request-result', 'frame-received', 'frame-applied',
-  ]);
-  assert.ok(records.every(r => r.traceId === traceId));
+  assert.deepEqual(
+    records.map((r) => r.stage),
+    ['request-start', 'wait-expired', 'request-joined', 'request-result', 'frame-received', 'frame-applied']
+  );
+  assert.ok(records.every((r) => r.traceId === traceId));
   assert.equal(records.at(-1).elapsedMs, 60_000);
   assert.equal(JSON.stringify(records).includes('private answer'), false);
   const count = records.length;
   defaultSessionLaneStore.apply({
-    sessionId: 'trace_pending', frameSource: 'live',
+    sessionId: 'trace_pending',
+    frameSource: 'live',
     snapshot: { sessionId: 'trace_pending', items: [{ id: 'next', kind: 'assistant', text: 'next token' }] },
   });
   assert.equal(records.length, count, 'settled streaming traffic is not traced');
@@ -69,21 +81,35 @@ test('a held IPC read records its wait, joins and later frame without changing r
 
 test('read failures are recorded as failures and keep the existing bounded attempt count', async (t) => {
   let calls = 0;
-  const records = fixture(t, async () => { calls++; throw new Error('private provider error'); });
+  const records = fixture(t, async () => {
+    calls++;
+    throw new Error('private provider error');
+  });
   window.setTimeout = (callback, ms) => {
-    if (ms === 120) { queueMicrotask(callback); return 0; }
+    if (ms === 120) {
+      queueMicrotask(callback);
+      return 0;
+    }
     return setTimeout(callback, ms);
   };
   assert.equal(await requestSessionRead('trace_failed'), false);
   assert.equal(calls, 3);
-  assert.deepEqual(records.filter(r => r.stage === 'request-failed').map(r => r.attempt), [1, 2, 3]);
-  assert.equal(records.some(r => r.stage === 'request-result'), false);
+  assert.deepEqual(
+    records.filter((r) => r.stage === 'request-failed').map((r) => r.attempt),
+    [1, 2, 3]
+  );
+  assert.equal(
+    records.some((r) => r.stage === 'request-result'),
+    false
+  );
   assert.equal(JSON.stringify(records).includes('private provider error'), false);
 });
 
 test('a throwing renderer diagnostic sink does not change a successful read', async (t) => {
   fixture(t, async () => true);
-  window.mixdogDesktop.rendererDiagnostic = () => { throw new Error('bridge unavailable'); };
+  window.mixdogDesktop.rendererDiagnostic = () => {
+    throw new Error('bridge unavailable');
+  };
   assert.equal(await requestSessionRead('trace_sink_failure'), true);
 });
 
@@ -107,17 +133,21 @@ test('an expired read releases Retry and its late completion cannot retire the r
   assert.equal(calls, 2, 'an expired operation must not start another attempt');
   replacement.resolve(true);
   assert.equal(await next, true);
-  assert.equal(records.filter(r => r.stage === 'wait-expired').length, 1);
+  assert.equal(records.filter((r) => r.stage === 'wait-expired').length, 1);
 });
 
 test('an accepted read with no baseline requests a targeted replay, not another storage read', async (t) => {
   let calls = 0;
-  fixture(t, async () => { calls++; return true; });
+  fixture(t, async () => {
+    calls++;
+    return true;
+  });
   const replays = [];
   window.mixdogDesktop.resyncSessionState = (sessionId) => {
     replays.push(sessionId);
     defaultSessionLaneStore.apply({
-      sessionId, frameSource: 'replay',
+      sessionId,
+      frameSource: 'replay',
       snapshot: { sessionId, items: [{ id: 'answer', kind: 'assistant', text: 'restored' }] },
     });
   };

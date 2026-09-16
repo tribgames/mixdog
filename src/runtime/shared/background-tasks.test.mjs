@@ -55,10 +55,7 @@ test('terminal task read ACKs queued and racing completion notifications', async
     assert.ok(enqueuePendingMessage(sessionId, entry) > 0);
     await settlePendingMessageWrites({ throwOnTimeout: true });
 
-    assert.match(
-      await executeTaskTool({ action: 'read', task_id: taskId }, { sessionId }),
-      /status: completed/,
-    );
+    assert.match(await executeTaskTool({ action: 'read', task_id: taskId }, { sessionId }), /status: completed/);
     assert.equal(getBackgroundTask(taskId).completionAcknowledged, true);
 
     // Covers both orderings: already queued before the read, and a fallback

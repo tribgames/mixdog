@@ -29,7 +29,9 @@ const MAX_TITLE_CHARS = 80;
 const MAX_PREVIEW_CHARS = 160;
 
 function clip(value: unknown, limit: number): string {
-  const text = String(value ?? '').replace(/\s+/gu, ' ').trim();
+  const text = String(value ?? '')
+    .replace(/\s+/gu, ' ')
+    .trim();
   if (text.length <= limit) return text;
   return `${text.slice(0, limit - 1)}…`;
 }

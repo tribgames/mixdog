@@ -10,14 +10,14 @@
 // actually dropped. The available width is measured on the rendered box and
 // the text against the row's own font (canvas measureText) in a
 // measure-then-fit loop, re-run whenever the row resizes.
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from 'react';
 
 /** Middle ellipsis — the fallback when not even
  *  `…/name` fits the available width. */
 export function truncateMid(value: string, length: number): string {
   if (value.length <= length) return value;
-  if (length <= 0) return "";
-  if (length === 1) return "…";
+  if (length <= 0) return '';
+  if (length === 1) return '…';
   const mid = (length - 1) / 2;
   const pre = value.substring(0, Math.floor(mid));
   const post = value.substring(value.length - Math.ceil(mid));
@@ -28,9 +28,9 @@ export function truncateMid(value: string, length: number): string {
  *  spending them on the file name first and the directory prefix last. */
 export function truncateScmPath(path: string, length: number): string {
   if (path.length <= length) return path;
-  if (length <= 0) return "";
-  if (length === 1) return "…";
-  const lastSeparator = path.lastIndexOf("/");
+  if (length <= 0) return '';
+  if (length === 1) return '…';
+  const lastSeparator = path.lastIndexOf('/');
   // No directory prefix, fall back to middle ellipsis.
   if (lastSeparator === -1) return truncateMid(path, length);
   const fileNameLength = path.length - lastSeparator - 1;
@@ -45,7 +45,10 @@ export function truncateScmPath(path: string, length: number): string {
  *  directory prefix and its bright file name by matching the untruncated
  *  directory character by character; a `…` (and the `/` right after it) counts
  *  towards the directory, purely for looks. */
-export function splitScmPath(truncated: string, directory: string): {
+export function splitScmPath(
+  truncated: string,
+  directory: string
+): {
   directoryText: string;
   fileText: string;
 } {
@@ -55,9 +58,9 @@ export function splitScmPath(truncated: string, directory: string): {
       directoryLength += 1;
       continue;
     }
-    if (truncated[i] === "…") {
+    if (truncated[i] === '…') {
       directoryLength += 1;
-      if (truncated[i + 1] === "/") directoryLength += 1;
+      if (truncated[i + 1] === '/') directoryLength += 1;
     }
     break;
   }
@@ -69,11 +72,7 @@ export function splitScmPath(truncated: string, directory: string): {
 
 /** Binary search over character counts — the general fallback for a path
  *  without a directory (middle ellipsis), where no cheaper arithmetic holds. */
-function fittingLengthBySearch(
-  text: string,
-  available: number,
-  width: (value: string) => number,
-): number {
+function fittingLengthBySearch(text: string, available: number, width: (value: string) => number): number {
   let low = 0;
   let high = text.length;
   let best = 0;
@@ -98,16 +97,12 @@ function fittingLengthBySearch(
  *  optimistic). The binary search this replaces measured ~8 fresh strings per
  *  row — a Source Control list of a few hundred changes spent 100ms+ in
  *  measureText on its first paint (user: 소스 제어 누르면 히칭). */
-function fittingLength(
-  text: string,
-  available: number,
-  width: (value: string) => number,
-): number {
+function fittingLength(text: string, available: number, width: (value: string) => number): number {
   if (width(text) <= available) return text.length;
-  const lastSeparator = text.lastIndexOf("/");
+  const lastSeparator = text.lastIndexOf('/');
   if (lastSeparator === -1) return fittingLengthBySearch(text, available, width);
   const tail = text.slice(lastSeparator);
-  const tailWidth = width("…") + width(tail);
+  const tailWidth = width('…') + width(tail);
   if (tailWidth > available) return fittingLengthBySearch(text, available, width);
   const room = available - tailWidth;
   let used = 0;
@@ -137,7 +132,7 @@ const WIDTH_MEMO_LIMIT = 4_000;
 
 function measureContext(document: Document): CanvasRenderingContext2D | null {
   if (measureContexts.has(document)) return measureContexts.get(document) ?? null;
-  const context = document.createElement("canvas").getContext("2d");
+  const context = document.createElement('canvas').getContext('2d');
   measureContexts.set(document, context);
   return context;
 }
@@ -149,10 +144,11 @@ function measurerFor(element: HTMLElement): ((value: string) => number) | null {
   const context = measureContext(element.ownerDocument);
   if (!context) return null;
   const style = view.getComputedStyle(element);
-  const font = style.font && style.font.trim()
-    ? style.font
-    : `${style.fontStyle || "normal"} ${style.fontWeight || "400"}`
-      + ` ${style.fontSize || "12.5px"} ${style.fontFamily || "sans-serif"}`;
+  const font =
+    style.font && style.font.trim()
+      ? style.font
+      : `${style.fontStyle || 'normal'} ${style.fontWeight || '400'}` +
+        ` ${style.fontSize || '12.5px'} ${style.fontFamily || 'sans-serif'}`;
   return (value: string) => {
     const key = `${font}\u0000${value}`;
     const memo = widthMemo.get(key);
@@ -165,7 +161,11 @@ function measurerFor(element: HTMLElement): ((value: string) => number) | null {
   };
 }
 
-export function ScmPathText({ path, name, title }: {
+export function ScmPathText({
+  path,
+  name,
+  title,
+}: {
   /** The full path as it should read out loud (renames included). */
   path: string;
   /** Overrides the bright trailing segment (a rename reads `old → new`). */
@@ -173,15 +173,17 @@ export function ScmPathText({ path, name, title }: {
   /** Hover text; the full path is used on its own once the text truncates. */
   title?: string;
 }) {
-  const slash = path.lastIndexOf("/");
-  const directory = slash >= 0 ? path.slice(0, slash + 1) : "";
+  const slash = path.lastIndexOf('/');
+  const directory = slash >= 0 ? path.slice(0, slash + 1) : '';
   const fileName = name ?? (slash >= 0 ? path.slice(slash + 1) : path);
   const fullText = `${directory}${fileName}`;
   const hostRef = useRef<HTMLSpanElement | null>(null);
   // `text` pins the measurement to the path it was taken for, so a row that
   // switches file renders its new path in full until it is measured again.
-  const [measured, setMeasured] = useState<{ text: string; length: number }>(
-    { text: fullText, length: fullText.length });
+  const [measured, setMeasured] = useState<{ text: string; length: number }>({
+    text: fullText,
+    length: fullText.length,
+  });
 
   useLayoutEffect(() => {
     const host = hostRef.current;
@@ -196,33 +198,30 @@ export function ScmPathText({ path, name, title }: {
       lastAvailable = available;
       const width = available > 0 ? measurerFor(host) : null;
       // Unmeasurable (no layout engine, detached row): render the full path.
-      const length = width
-        ? fittingLength(fullText, available - 1, width)
-        : fullText.length;
-      setMeasured((previous) => previous.text === fullText && previous.length === length
-        ? previous
-        : { text: fullText, length });
+      const length = width ? fittingLength(fullText, available - 1, width) : fullText.length;
+      setMeasured((previous) =>
+        previous.text === fullText && previous.length === length ? previous : { text: fullText, length }
+      );
     };
     remeasure();
-    if (typeof view.ResizeObserver === "function") {
+    if (typeof view.ResizeObserver === 'function') {
       const observer = new view.ResizeObserver(() => remeasure());
       observer.observe(host);
       return () => observer.disconnect();
     }
-    view.addEventListener("resize", remeasure);
-    return () => view.removeEventListener("resize", remeasure);
+    view.addEventListener('resize', remeasure);
+    return () => view.removeEventListener('resize', remeasure);
   }, [fullText]);
 
   const length = measured.text === fullText ? measured.length : fullText.length;
-  const shownText = length >= fullText.length
-    ? fullText
-    : truncateScmPath(fullText, length);
+  const shownText = length >= fullText.length ? fullText : truncateScmPath(fullText, length);
   const { directoryText, fileText } = splitScmPath(shownText, directory);
   // The tooltip appears once anything was dropped.
-  const tooltip = title ?? (shownText === fullText ? "" : fullText);
-  return <span ref={hostRef} className="dock-scm-file-copy" data-i18n-skip
-    {...(tooltip ? { title: tooltip } : {})}>
-    {directoryText ? <small className="dock-scm-file-path">{directoryText}</small> : null}
-    <b className="dock-scm-file-name">{fileText}</b>
-  </span>;
+  const tooltip = title ?? (shownText === fullText ? '' : fullText);
+  return (
+    <span ref={hostRef} className="dock-scm-file-copy" data-i18n-skip {...(tooltip ? { title: tooltip } : {})}>
+      {directoryText ? <small className="dock-scm-file-path">{directoryText}</small> : null}
+      <b className="dock-scm-file-name">{fileText}</b>
+    </span>
+  );
 }

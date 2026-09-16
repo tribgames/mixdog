@@ -2,11 +2,11 @@
  * use-transcript-window.mjs — transcript row-index/window memo chain + the
  * measured-height harvest and reading-anchor lock effects.
  *
- * Extracted verbatim from App.jsx: structure-signature/row-index/render-window
- * memos, the same-frame anchor lock + capture, the per-commit Yoga height
- * harvest, bottom-follow/anchor post-commit sync, selection layout shift and
- * the scroll clamp. Scroll/anchor/drag refs stay App-owned (injected); this
- * hook owns the measurement maps, measuredRowsVersion and totalRows bookkeeping.
+ * Structure-signature/row-index/render-window memos, the same-frame anchor
+ * lock + capture, the per-commit Yoga height harvest, bottom-follow/anchor
+ * post-commit sync, selection layout shift and the scroll clamp.
+ * Scroll/anchor/drag refs stay App-owned (injected); this hook owns the
+ * measurement maps, measuredRowsVersion and totalRows bookkeeping.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import {
@@ -47,7 +47,9 @@ function traceHarvestBreaker(changedKeys) {
   if (harvestBreakerLogged && !TUI_DEBUG) return;
   harvestBreakerLogged = true;
   try {
-    process.stderr.write(`[tui] measured-rows harvest breaker tripped (oscillating heights): ${changedKeys.slice(0, 8).join(' ')}\n`);
+    process.stderr.write(
+      `[tui] measured-rows harvest breaker tripped (oscillating heights): ${changedKeys.slice(0, 8).join(' ')}\n`
+    );
   } catch {}
 }
 
@@ -204,25 +206,19 @@ export function useTranscriptWindow({
   // The settled array no longer changes during streaming. Geometry is keyed by
   // the engine revision plus the live tail's resolved height, so same-height
   // text flushes do not copy/walk the settled prefix or rerun heavy memos.
-  const streamingTailItem = streamingTail?.kind === 'assistant' && streamingTail.streaming
-    ? streamingTail
-    : null;
+  const streamingTailItem = streamingTail?.kind === 'assistant' && streamingTail.streaming ? streamingTail : null;
   const tailRows = streamingTailItem
     ? estimateTranscriptItemRowsCached(streamingTailItem, frameColumns, toolOutputExpanded)
     : 0;
   const tailSig = streamingTailItem ? `${streamingTailItem.id}:${tailRows}` : '_';
   const revision = Math.max(0, Number(structureRevision) || 0);
-  const transcriptItems = transcriptItemsWithStableTail(
-    settledItems,
-    streamingTailItem,
-    transcriptItemsCacheRef,
-  );
+  const transcriptItems = transcriptItemsWithStableTail(settledItems, streamingTailItem, transcriptItemsCacheRef);
   const transcriptStructureSig = transcriptStructureSignature(
     transcriptItems,
     frameColumns,
     toolOutputExpanded,
     revision,
-    streamingTailItem,
+    streamingTailItem
   );
   // The live assistant already has one deterministic geometry authority in
   // estimateTranscriptItemRowsCached. Settled rows always keep their measured
@@ -239,16 +235,20 @@ export function useTranscriptWindow({
   // rebuild for the settled prefix. All those invalidators are folded into the
   // memo deps below (sig captures item/column/expanded structure; the rest are
   // listed explicitly), so the memo only recomputes when one of them changes.
-  const transcriptRowIndex = useMemo(() => buildTranscriptRowIndexIncremental(transcriptItems, {
-    columns: frameColumns,
-    toolOutputExpanded,
-    suppressMeasuredRowHeights,
-    measuredRowsVersion,
-    cacheRef: incrementalRowIndexCacheRef,
-    prefixRevision: revision,
-    streamingTailItem,
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- revision/tail height capture structural geometry; measuredRowsVersion folds in measured corrections
-  }), [revision, tailSig, frameColumns, toolOutputExpanded, measuredRowsVersion, suppressMeasuredRowHeights]);
+  const transcriptRowIndex = useMemo(
+    () =>
+      buildTranscriptRowIndexIncremental(transcriptItems, {
+        columns: frameColumns,
+        toolOutputExpanded,
+        suppressMeasuredRowHeights,
+        measuredRowsVersion,
+        cacheRef: incrementalRowIndexCacheRef,
+        prefixRevision: revision,
+        streamingTailItem,
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- revision/tail height capture structural geometry; measuredRowsVersion folds in measured corrections
+      }),
+    [revision, tailSig, frameColumns, toolOutputExpanded, measuredRowsVersion, suppressMeasuredRowHeights]
+  );
   // ── Same-frame anchor lock ───────────────────────────────────────────────
   // While the user reads older transcript (anchor captured, not dirty), resolve
   // the scroll offset that keeps the anchored viewport-top row fixed for THIS
@@ -273,9 +273,7 @@ export function useTranscriptWindow({
   // plain !following gate for the anchor-less follow case.
   const anchorLockActive = hasReadingAnchor && !followingRef.current && scrolledUp;
   const targetNearBottom = followingRef.current || !scrolledUp;
-  const nearBottomWithoutAnchor = !transcriptAnchorRef.current
-    && !transcriptAnchorDirtyRef.current
-    && targetNearBottom;
+  const nearBottomWithoutAnchor = !transcriptAnchorRef.current && !transcriptAnchorDirtyRef.current && targetNearBottom;
   let renderScrollOffset = targetNearBottom ? 0 : scrollOffset;
   const lockViewRows = Math.max(1, Number(transcriptContentHeight) || 1);
   const lockTotalRows = Math.max(0, Number(transcriptRowIndex?.totalRows) || 0);
@@ -359,13 +357,10 @@ export function useTranscriptWindow({
   // (flex-end owns them), so restrict the freeze to the scrolled-up, no-active-
   // lock case that the branches above did not already resolve.
   const prevViewport = prevViewportGeomRef.current || {};
-  const viewportOnlyChanged = (Number(prevViewport.contentHeight) || 0) !== lockViewRows
-    || (Number(prevViewport.floatingPanelRows) || 0) !== (Number(floatingPanelRows) || 0);
-  if (viewportOnlyChanged
-    && !anchorLockActive
-    && !followingRef.current
-    && !nearBottomWithoutAnchor
-    && scrolledUp) {
+  const viewportOnlyChanged =
+    (Number(prevViewport.contentHeight) || 0) !== lockViewRows ||
+    (Number(prevViewport.floatingPanelRows) || 0) !== (Number(floatingPanelRows) || 0);
+  if (viewportOnlyChanged && !anchorLockActive && !followingRef.current && !nearBottomWithoutAnchor && scrolledUp) {
     const geom = transcriptGeomRef.current || {};
     const prevPrefix = geom.prefixRows;
     if (prevPrefix && prevPrefix.length > 1) {
@@ -404,14 +399,18 @@ export function useTranscriptWindow({
     contentHeight: lockViewRows,
     floatingPanelRows: Number(floatingPanelRows) || 0,
   };
-  const transcriptWindow = useMemo(() => transcriptRenderWindow(transcriptItems, {
-    scrollOffset: renderScrollOffset,
-    viewportHeight: transcriptContentHeight,
-    columns: frameColumns,
-    toolOutputExpanded,
-    rowIndex: transcriptRowIndex,
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: sig+scroll/viewport capture the relevant changes
-  }), [transcriptStructureSig, renderScrollOffset, transcriptContentHeight, transcriptRowIndex]);
+  const transcriptWindow = useMemo(
+    () =>
+      transcriptRenderWindow(transcriptItems, {
+        scrollOffset: renderScrollOffset,
+        viewportHeight: transcriptContentHeight,
+        columns: frameColumns,
+        toolOutputExpanded,
+        rowIndex: transcriptRowIndex,
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: sig+scroll/viewport capture the relevant changes
+      }),
+    [transcriptStructureSig, renderScrollOffset, transcriptContentHeight, transcriptRowIndex]
+  );
   // Publish the max for the immediate wheel/keyboard clamp (see the
   // committedMaxScrollRowsRef note above). Adopt the estimate-based max unless a
   // row in THIS frame's mounted slice is still unmeasured — that is the only
@@ -441,10 +440,12 @@ export function useTranscriptWindow({
         continue;
       } else {
         const prev = transcriptMeasuredRowsCache.get(it);
-        if (!prev
-          || prev.columns !== frameColumns
-          || prev.toolExpanded !== toolExpandedFlag
-          || prev.variantKey !== transcriptItemVariantKey(it)) {
+        if (
+          !prev ||
+          prev.columns !== frameColumns ||
+          prev.toolExpanded !== toolExpandedFlag ||
+          prev.variantKey !== transcriptItemVariantKey(it)
+        ) {
           holdCommittedMax = true;
           break;
         }
@@ -477,10 +478,7 @@ export function useTranscriptWindow({
   // height changes. Re-slice the live `items` over the memo's stable
   // [startIndex, endIndex) bounds so the on-screen text is always current
   // while the expensive indexing/windowing stays warm.
-  const transcriptVisibleItems = (transcriptItems || []).slice(
-    transcriptWindow.startIndex,
-    transcriptWindow.endIndex,
-  );
+  const transcriptVisibleItems = (transcriptItems || []).slice(transcriptWindow.startIndex, transcriptWindow.endIndex);
   if (streamingTailItem && transcriptVisibleItems.length > 0) {
     const last = transcriptVisibleItems.length - 1;
     if (transcriptVisibleItems[last]?.id === streamingTailItem.id) {
@@ -499,15 +497,14 @@ export function useTranscriptWindow({
     break;
   }
   const transcriptTailPinned = Math.max(0, Number(transcriptWindow.effectiveScrollOffset) || 0) === 0;
-  const overlayHintOnLastItem = overlayHintRequested
-    && floatingPanelRows <= 0
-    && transcriptWindow.bottomSpacerRows === 0
-    && transcriptTailPinned
-    && overlayHintAttachItemIndex >= 0;
-  const overlayHintFallbackRow = overlayHintRequested
-    && floatingPanelRows <= 0
-    && transcriptGuardRows > 0
-    && !overlayHintOnLastItem;
+  const overlayHintOnLastItem =
+    overlayHintRequested &&
+    floatingPanelRows <= 0 &&
+    transcriptWindow.bottomSpacerRows === 0 &&
+    transcriptTailPinned &&
+    overlayHintAttachItemIndex >= 0;
+  const overlayHintFallbackRow =
+    overlayHintRequested && floatingPanelRows <= 0 && transcriptGuardRows > 0 && !overlayHintOnLastItem;
   const harvestInputs = {
     revision,
     settledItems,
@@ -546,9 +543,7 @@ export function useTranscriptWindow({
       gate.skippedForDrag = true;
       return;
     }
-    if (!gate.skippedForDrag
-      && !gate.forceNext
-      && transcriptHarvestInputsEqual(gate.inputs, harvestInputs)) return;
+    if (!gate.skippedForDrag && !gate.forceNext && transcriptHarvestInputsEqual(gate.inputs, harvestInputs)) return;
     const els = transcriptItemElsRef.current;
     if (!els || els.size === 0) return;
     gate.inputs = harvestInputs;
@@ -563,7 +558,10 @@ export function useTranscriptWindow({
       const yoga = el?.yogaNode;
       if (!item || !yoga) continue;
       if (shouldSuppressFullyFailedToolItem(item)) {
-        if (transcriptMeasuredRowsCache.delete(item)) { changed = true; changedKeys.push(`${key}=del`); }
+        if (transcriptMeasuredRowsCache.delete(item)) {
+          changed = true;
+          changedKeys.push(`${key}=del`);
+        }
         continue;
       }
       // Active stream geometry is owned exclusively by the deterministic row
@@ -574,7 +572,10 @@ export function useTranscriptWindow({
       if (typeof yoga.getComputedWidth === 'function' && yoga.getComputedWidth() <= 0) continue;
       const rawMeasured = Math.round(Number(yoga.getComputedHeight?.()) || 0);
       if (rawMeasured <= 0) {
-        if (transcriptMeasuredRowsCache.delete(item)) { changed = true; changedKeys.push(`${key}=del`); }
+        if (transcriptMeasuredRowsCache.delete(item)) {
+          changed = true;
+          changedKeys.push(`${key}=del`);
+        }
         continue;
       }
       if (item.kind === 'assistant') {
@@ -584,11 +585,13 @@ export function useTranscriptWindow({
       const measured = Math.max(1, rawMeasured);
       const variantKey = transcriptItemVariantKey(item);
       const prev = transcriptMeasuredRowsCache.get(item);
-      if (prev
-        && prev.rows === measured
-        && prev.columns === frameColumns
-        && prev.toolExpanded === toolExpandedFlag
-        && prev.variantKey === variantKey) {
+      if (
+        prev &&
+        prev.rows === measured &&
+        prev.columns === frameColumns &&
+        prev.toolExpanded === toolExpandedFlag &&
+        prev.variantKey === variantKey
+      ) {
         continue;
       }
       transcriptMeasuredRowsCache.set(item, {
@@ -599,10 +602,11 @@ export function useTranscriptWindow({
       });
       // First mount (no prior entry): this frame's row index already used the
       // estimate. Only bump when Yoga actually corrects it.
-      const estimateRows = prev
-        ? -1
-        : estimateTranscriptItemRowsCached(item, frameColumns, toolOutputExpanded);
-      if (prev || measured !== estimateRows) { changed = true; changedKeys.push(`${key}=${measured}`); }
+      const estimateRows = prev ? -1 : estimateTranscriptItemRowsCached(item, frameColumns, toolOutputExpanded);
+      if (prev || measured !== estimateRows) {
+        changed = true;
+        changedKeys.push(`${key}=${measured}`);
+      }
     }
     if (changed) {
       // `changed` only flips true when a height actually differs from the
@@ -693,10 +697,8 @@ export function useTranscriptWindow({
     // anchor state. Manual scroll cancels followingRef before anchor capture, so
     // deliberate reading still stays anchored while automatic bottom-follow
     // stays armed across spinner/tool/stream height corrections.
-    const activeReadingAnchor = !!transcriptAnchorRef.current
-      && !transcriptAnchorDirtyRef.current
-      && !followingRef.current
-      && !nearBottom;
+    const activeReadingAnchor =
+      !!transcriptAnchorRef.current && !transcriptAnchorDirtyRef.current && !followingRef.current && !nearBottom;
     const followOnGrowth = followingRef.current && rowDelta > 0 && !activeReadingAnchor;
     const shouldFollowBottom = rowDelta > 0 && (followOnGrowth || pinnedToBottom);
     if (shouldFollowBottom) {
@@ -813,7 +815,14 @@ export function useTranscriptWindow({
     // and viewport geometry change together (React #185). The next manual
     // scroll writes state from these refs, while anchored renders continue to
     // resolve directly from the current prefix table.
-  }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, transcriptRowIndex, transcriptContentHeight, scrollOffset, stopSmoothScroll]);
+  }, [
+    transcriptWindow.totalRows,
+    transcriptWindow.maxScrollRows,
+    transcriptRowIndex,
+    transcriptContentHeight,
+    scrollOffset,
+    stopSmoothScroll,
+  ]);
   useLayoutEffect(() => {
     if (transcriptAnchorRef.current || transcriptAnchorDirtyRef.current || followingRef.current) return;
     const currentTarget = Math.max(0, Number(scrollTargetRef.current) || 0);
@@ -837,10 +846,12 @@ export function useTranscriptWindow({
     const previous = selectionLayoutRef.current;
     selectionLayoutRef.current = next;
     if (!previous || !dragRef.current.rect || dragRef.current.active) return;
-    const deltaY = (next.top - previous.top)
-      + (next.height - previous.height)
-      - (next.totalRows - previous.totalRows)
-      + (next.scrollOffset - previous.scrollOffset);
+    const deltaY =
+      next.top -
+      previous.top +
+      (next.height - previous.height) -
+      (next.totalRows - previous.totalRows) +
+      (next.scrollOffset - previous.scrollOffset);
     if (deltaY === 0) return;
     const clippedRect = withSelectionClip(shiftSelectionRectY(dragRef.current.rect, deltaY));
     dragRef.current = { ...dragRef.current, rect: clippedRect };
@@ -848,7 +859,13 @@ export function useTranscriptWindow({
     // here would replace the full selection text remembered at drag-release
     // with only the still-visible fragment (partial Ctrl+C after scrolling).
     paintSelectionRect(clippedRect, { rememberText: false, immediate: true });
-  }, [transcriptContentHeight, transcriptWindow.totalRows, transcriptWindow.effectiveScrollOffset, withSelectionClip, paintSelectionRect]);
+  }, [
+    transcriptContentHeight,
+    transcriptWindow.totalRows,
+    transcriptWindow.effectiveScrollOffset,
+    withSelectionClip,
+    paintSelectionRect,
+  ]);
   useEffect(() => {
     if (!dragRef.current.rect) return;
     const clippedRect = withSelectionClip(dragRef.current.rect);

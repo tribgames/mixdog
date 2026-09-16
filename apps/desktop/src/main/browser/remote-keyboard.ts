@@ -13,11 +13,14 @@ export async function sendRemoteBrowserKeyboard(
     cdp: Pick<BrowserGuestCdp, 'guestDebugger' | 'sendCdpInput'>;
   },
   guest: WebContents,
-  control: Extract<DesktopRemoteBrowserControl, { type: 'text' | 'key' }>,
+  control: Extract<DesktopRemoteBrowserControl, { type: 'text' | 'key' }>
 ): Promise<void> {
   const assertCurrent = () => {
-    if (guest.isDestroyed() || host.state.for(guest).crashed
-      || control.documentId !== browserDocumentId(host.state, guest)) {
+    if (
+      guest.isDestroyed() ||
+      host.state.for(guest).crashed ||
+      control.documentId !== browserDocumentId(host.state, guest)
+    ) {
       throw new Error('Remote Browser Use page changed; input was not sent.');
     }
     if (host.state.for(guest).pendingDialog) {

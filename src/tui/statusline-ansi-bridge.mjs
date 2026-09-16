@@ -41,12 +41,14 @@ function footerLocalNum(value) {
 /** Mirrors StatusLine `isResetStatsState` — stats-only identity for footer cache. */
 function isResetStatsState(stats) {
   const s = stats && typeof stats === 'object' ? stats : {};
-  return footerLocalNum(s.currentContextTokens) === 0
-    && footerLocalNum(s.currentEstimatedContextTokens) === 0
-    && footerLocalNum(s.inputTokens) === 0
-    && footerLocalNum(s.latestInputTokens) === 0
-    && footerLocalNum(s.promptTokens) === 0
-    && footerLocalNum(s.turns) === 0;
+  return (
+    footerLocalNum(s.currentContextTokens) === 0 &&
+    footerLocalNum(s.currentEstimatedContextTokens) === 0 &&
+    footerLocalNum(s.inputTokens) === 0 &&
+    footerLocalNum(s.latestInputTokens) === 0 &&
+    footerLocalNum(s.promptTokens) === 0 &&
+    footerLocalNum(s.turns) === 0
+  );
 }
 
 /**

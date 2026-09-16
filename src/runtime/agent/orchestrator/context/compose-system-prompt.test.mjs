@@ -54,6 +54,6 @@ test('maintenance cycle1 prompt uses role rules without the public catalog', () 
   assert.doesNotMatch(sessionMarkerCore, /# Agent Role Catalog/);
   assert.equal(
     loadScopedRoleInstructions('cycle1-agent'),
-    sessionMarkerCore.slice('# Active Workflow: Solo\n\n---\n\n'.length),
+    sessionMarkerCore.slice('# Active Workflow: Solo\n\n---\n\n'.length)
   );
 });

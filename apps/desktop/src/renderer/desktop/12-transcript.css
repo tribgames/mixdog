@@ -33,11 +33,15 @@
 }
 @container chat-pane (max-width: 419px) {
   .workspace > .session-header,
-  .conversation { --pane-inset: 12px; }
+  .conversation {
+    --pane-inset: 12px;
+  }
 }
 @container chat-pane (min-width: 640px) {
   .workspace > .session-header,
-  .conversation { --pane-inset: 24px; }
+  .conversation {
+    --pane-inset: 24px;
+  }
 }
 @container chat-pane (min-width: 768px) {
   .workspace > .session-header,
@@ -55,10 +59,14 @@
   }
 }
 @container studio-pane (max-width: 419px) {
-  .studio-shell { --pane-inset: 12px; }
+  .studio-shell {
+    --pane-inset: 12px;
+  }
 }
 @container studio-pane (min-width: 640px) {
-  .studio-shell { --pane-inset: 24px; }
+  .studio-shell {
+    --pane-inset: 24px;
+  }
 }
 @container studio-pane (min-width: 768px) {
   .studio-shell {
@@ -71,12 +79,16 @@
 @container mixdog-pane (max-width: 419px) {
   .workspace > .session-header,
   .conversation,
-  .studio-shell { --pane-inset: 12px; }
+  .studio-shell {
+    --pane-inset: 12px;
+  }
 }
 @container mixdog-pane (min-width: 640px) {
   .workspace > .session-header,
   .conversation,
-  .studio-shell { --pane-inset: 24px; }
+  .studio-shell {
+    --pane-inset: 24px;
+  }
 }
 @container mixdog-pane (min-width: 768px) {
   .workspace > .session-header,
@@ -88,7 +100,12 @@
     --pane-card: calc(var(--pane-column) - 2 * var(--pane-inset));
   }
 }
-.session-header { flex-basis: 48px; min-height: 48px; border-bottom: 0; background: var(--mx-workspace-sheet); }
+.session-header {
+  flex-basis: 48px;
+  min-height: 48px;
+  border-bottom: 0;
+  background: var(--mx-workspace-sheet);
+}
 .session-header-content {
   width: 100%;
   max-width: var(--pane-column);
@@ -115,14 +132,22 @@ html[data-mixdog-mobile-tabs] .conversation {
   --transcript-text-inset: 12px;
 }
 /* Conversation title is important info: one step up from tab chrome. */
-.session-header h1 { color: var(--mx-text); font-size: var(--mx-font-panel-title); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-emphasis); letter-spacing: 0; }
+.session-header h1 {
+  color: var(--mx-text);
+  font-size: var(--mx-font-panel-title);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-emphasis);
+  letter-spacing: 0;
+}
 .session-title-mode {
   min-width: 0;
   max-width: 100%;
   display: grid;
 }
 .session-title-mode > .session-title-trigger,
-.session-title-mode > .session-header-title-input { grid-area: 1 / 1; }
+.session-title-mode > .session-header-title-input {
+  grid-area: 1 / 1;
+}
 .session-title-mode[data-editing="false"] > .session-header-title-input,
 .session-title-mode[data-editing="true"] > .session-title-trigger {
   visibility: hidden;
@@ -145,7 +170,9 @@ html[data-mixdog-mobile-tabs] .conversation {
   font: inherit;
 }
 .session-title-trigger:hover,
-.session-title-trigger:focus-visible { background: var(--mx-hover); }
+.session-title-trigger:focus-visible {
+  background: var(--mx-hover);
+}
 .session-header-title-input {
   field-sizing: content;
   min-width: 6ch;
@@ -161,7 +188,9 @@ html[data-mixdog-mobile-tabs] .conversation {
   background: var(--mx-bg-layer-1);
   font: inherit;
 }
-.session-header-title-input[aria-invalid="true"] { outline-color: var(--mx-danger); }
+.session-header-title-input[aria-invalid="true"] {
+  outline-color: var(--mx-danger);
+}
 .session-project-badge {
   flex: 0 1 auto;
   max-width: 220px;
@@ -197,8 +226,12 @@ html[data-mixdog-mobile-tabs] .conversation {
 }
 /* cursor inherits: anchors and any embedded fields resolved their shapes from
    `auto` before, so pin them back under the transcript's arrow. */
-.transcript a { cursor: pointer; }
-.transcript :is(input, textarea) { cursor: text; }
+.transcript a {
+  cursor: pointer;
+}
+.transcript :is(input, textarea) {
+  cursor: text;
+}
 .transcript:focus-visible {
   outline: 2px solid var(--mx-focus);
   outline-offset: -2px;
@@ -226,7 +259,9 @@ html[data-mixdog-mobile-tabs] .conversation {
   contain: layout style;
   overflow: hidden;
 }
-.transcript-live-part { min-width: 0; }
+.transcript-live-part {
+  min-width: 0;
+}
 .transcript-virtual-row {
   position: absolute;
   top: 0;
@@ -257,13 +292,21 @@ html[data-mixdog-mobile-tabs] .conversation {
 .transcript-virtual-row-content[data-tag="AssistantPart"],
 .transcript-virtual-row-content[data-tag="ToolActivity"],
 .transcript-virtual-row-content[data-tag="Thinking"],
-.transcript-virtual-row-content[data-tag="Error"] { padding-bottom: 12px; }
+.transcript-virtual-row-content[data-tag="Error"] {
+  padding-bottom: 12px;
+}
 /* The hover meta line (top:100% overlay, 24px) must fit INSIDE the clipped
    row box — user rows reserve its height as padding instead of lifting the
    clip (user: 차라리 유저 행 아래 패딩을 조금 더 주는 게 낫다). */
-.transcript-virtual-row-content[data-tag="UserMessage"] { padding-bottom: 24px; }
-.transcript-virtual-row-content[data-turn-end="true"] { padding-bottom: 0; }
-.transcript-turn-gap { height: 20px; }
+.transcript-virtual-row-content[data-tag="UserMessage"] {
+  padding-bottom: 24px;
+}
+.transcript-virtual-row-content[data-turn-end="true"] {
+  padding-bottom: 0;
+}
+.transcript-turn-gap {
+  height: 20px;
+}
 .thread-welcome {
   width: min(100%, 440px);
   display: grid;
@@ -280,15 +323,20 @@ html[data-mixdog-mobile-tabs] .conversation {
   display: grid;
   place-items: center;
   color: var(--mx-text);
-  opacity: .08;
+  opacity: 0.08;
 }
 .thread-welcome-task .welcome-logo,
-.studio-blank .welcome-logo { width: 200px; height: 200px; }
+.studio-blank .welcome-logo {
+  width: 200px;
+  height: 200px;
+}
 .welcome-logo svg {
   width: 100%;
   height: 100%;
 }
-.starter-grid { display: none; }
+.starter-grid {
+  display: none;
+}
 /* The empty workspace surface (no pane yet): flat on the window band,
    content centered in the whole main area. */
 .workspace-empty {
@@ -335,7 +383,10 @@ html[data-mixdog-mobile-tabs] .conversation {
   justify-content: flex-start;
   gap: 4px;
 }
-.welcome-keys i { font-style: normal; font-size: var(--mx-font-minor); }
+.welcome-keys i {
+  font-style: normal;
+  font-size: var(--mx-font-minor);
+}
 .welcome-keys kbd {
   display: inline-flex;
   align-items: center;
@@ -383,16 +434,28 @@ html[data-mixdog-mobile-tabs] .conversation {
 }
 /* Half a prose line, so the paragraph break stays proportional to the looser
    26px rhythm instead of shrinking against it. */
-.message-body p { margin: 0 0 14px; }
+.message-body p {
+  margin: 0 0 14px;
+}
 /* Turn rhythm: the LAST paragraph's bottom margin stacked on the thread's
    16px row gap and read as a two-line hole between turns (user) — collapse
    it so turn-to-turn spacing is the single 16px gap. */
-.message-body p:last-child { margin-bottom: 0; }
-.message { position: relative; }
+.message-body p:last-child {
+  margin-bottom: 0;
+}
+.message {
+  position: relative;
+}
 /* Hover meta overlays float over the 16px gap; lift the hovered message (and
    its virtual row) above the next sibling so the actions stay clickable. */
-.message:hover, .message:focus-within { z-index: 1; }
-.transcript-virtual-row:hover, .transcript-virtual-row:focus-within { z-index: 1; }
+.message:hover,
+.message:focus-within {
+  z-index: 1;
+}
+.transcript-virtual-row:hover,
+.transcript-virtual-row:focus-within {
+  z-index: 1;
+}
 .message:focus-visible {
   border-radius: var(--mx-radius-md);
   outline: 2px solid var(--mx-focus);
@@ -419,7 +482,10 @@ html[data-mixdog-mobile-tabs] .conversation {
   opacity: 0;
   pointer-events: none;
   cursor: pointer;
-  transition: opacity var(--mx-motion-ink), color var(--mx-motion-ink), background var(--mx-motion-ink);
+  transition:
+    opacity var(--mx-motion-ink),
+    color var(--mx-motion-ink),
+    background var(--mx-motion-ink);
 }
 .message:hover .message-actions,
 .message:focus-within .message-actions,
@@ -438,7 +504,10 @@ html[data-mixdog-mobile-tabs] .conversation {
   outline: 2px solid var(--mx-focus);
   outline-offset: 2px;
 }
-.message-actions[data-copied="true"], .message-actions.copied { color: var(--mx-text); }
+.message-actions[data-copied="true"],
+.message-actions.copied {
+  color: var(--mx-text);
+}
 /* A user prompt carries NO footer (see TranscriptView): the clock + copy row
    below the bubble is gone, so no .message-meta-line grammar lives here. */
 .response-footer {
@@ -478,7 +547,10 @@ html[data-mixdog-mobile-tabs] .conversation {
    lead-in. Both states occupy exactly 40px below the response body, so
    settlement cannot nudge the row. Verified against .live-activity below —
    its three disagreeing heights are what made settlement jump. */
-.message.assistant .response-footer:has(.turn-status) { min-height: 24px; margin-top: 16px; }
+.message.assistant .response-footer:has(.turn-status) {
+  min-height: 24px;
+  margin-top: 16px;
+}
 .message.assistant .response-footer .message-actions {
   position: static;
   width: 24px;
@@ -520,7 +592,7 @@ html[data-mixdog-mobile-tabs] .conversation {
   color: var(--mx-text-muted);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: .08em;
+  letter-spacing: 0.08em;
 }
 .message.user .message-body {
   width: fit-content;
@@ -535,8 +607,11 @@ html[data-mixdog-mobile-tabs] .conversation {
      use the deeper pressed tint so the pill is clearly a block. */
   background: var(--mx-pressed);
 }
-.message.user .message-body p { margin: 0; }
-.markdown pre, .detail-block pre {
+.message.user .message-body p {
+  margin: 0;
+}
+.markdown pre,
+.detail-block pre {
   padding: 12px;
   border: 0;
   /* Content containers share one rounded-8 language (Grok-web cleanliness):
@@ -548,11 +623,12 @@ html[data-mixdog-mobile-tabs] .conversation {
      (tool output lives in 13px chrome), .markdown steps up to the prose mono
      right below. */
   background: var(--mx-bg-base);
-  box-shadow: 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: 0 0 0 0.5px var(--mx-border-muted);
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
 }
 /* Code is an operational tier inside prose: the mono face has a larger optical
    body, so 13px sits cleanly beside 14px reading text without protruding. */
-.markdown pre { font-size: var(--mx-font-code); }
-
+.markdown pre {
+  font-size: var(--mx-font-code);
+}

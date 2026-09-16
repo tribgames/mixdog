@@ -1,18 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
-import {
-  isMainThread,
-  parentPort,
-  Worker,
-  workerData,
-} from 'node:worker_threads';
-import {
-  DOMMatrix,
-  ImageData,
-  Path2D,
-  createCanvas,
-  loadImage,
-} from '@napi-rs/canvas';
+import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads';
+import { DOMMatrix, ImageData, Path2D, createCanvas, loadImage } from '@napi-rs/canvas';
 import { pdfjsStandardFontDataUrl, resolvedPdfJs } from '../../attachments/pdfjs-runtime.mjs';
 
 function installPdfJsCanvasGlobals() {
@@ -30,10 +19,9 @@ const PAGE_NUMBER_PATTERN = /^\s*(?:(?:page\s*)?\d+\s*(?:of|\/)\s*\d+|페이지\
 async function repairBottomPageNumberText(page, viewport, canvas, context, Util) {
   const content = await page.getTextContent();
   const base = page.getViewport({ scale: 1 });
-  const numbers = content.items.filter((item) => (
-    PAGE_NUMBER_PATTERN.test(String(item.str || ''))
-    && Number(item.transform?.[5]) < base.height * 0.12
-  ));
+  const numbers = content.items.filter(
+    (item) => PAGE_NUMBER_PATTERN.test(String(item.str || '')) && Number(item.transform?.[5]) < base.height * 0.12
+  );
   if (!numbers.length) return;
   context.save();
   context.textBaseline = 'alphabetic';
@@ -63,9 +51,8 @@ async function repairBottomPageNumberText(page, viewport, canvas, context, Util)
 }
 
 function requestedPages(pageCount, pages) {
-  const selected = Array.isArray(pages) && pages.length
-    ? pages
-    : Array.from({ length: pageCount }, (_, index) => index + 1);
+  const selected =
+    Array.isArray(pages) && pages.length ? pages : Array.from({ length: pageCount }, (_, index) => index + 1);
   const unique = [...new Set(selected.map(Number))];
   if (Array.isArray(pages) && pages.length && unique.length > 12) {
     throw new Error('render accepts at most 12 explicit pages per call');
@@ -113,16 +100,20 @@ async function renderPdfPageDirect(path, pageNumber, targetWidth, minimumScale =
       data: canvas.toBuffer('image/png').toString('base64'),
     };
   } finally {
-    try { await loadingTask.destroy?.(); } catch {}
+    try {
+      await loadingTask.destroy?.();
+    } catch {}
   }
 }
 
 async function runPdfRenderWorker(data, signal = null) {
   const worker = new Worker(new URL(import.meta.url), {
-    execArgv: process.execArgv.filter((argument) => !(
-      /^--(?:input-type|max-old-space-size|max-semi-space-size|stack-size|heapsnapshot-near-heap-limit)(?:=|$)/
-        .test(argument)
-    )),
+    execArgv: process.execArgv.filter(
+      (argument) =>
+        !/^--(?:input-type|max-old-space-size|max-semi-space-size|stack-size|heapsnapshot-near-heap-limit)(?:=|$)/.test(
+          argument
+        )
+    ),
     workerData: data,
   });
   return await new Promise((resolve, reject) => {
@@ -154,11 +145,7 @@ async function runPdfRenderWorker(data, signal = null) {
   });
 }
 
-async function renderPdfPagesDirect(path, {
-  pages = null,
-  maxWidth = 1400,
-  signal = null,
-} = {}) {
+async function renderPdfPagesDirect(path, { pages = null, maxWidth = 1400, signal = null } = {}) {
   if (signal?.aborted) throw new Error('PDF rendering was cancelled');
   installPdfJsCanvasGlobals();
   const { getDocument, VerbosityLevel } = await resolvedPdfJs();
@@ -175,7 +162,9 @@ async function renderPdfPagesDirect(path, {
     try {
       return { loadingTask, document: await loadingTask.promise };
     } catch (error) {
-      try { await loadingTask.destroy?.(); } catch {}
+      try {
+        await loadingTask.destroy?.();
+      } catch {}
       throw error;
     }
   };
@@ -186,13 +175,16 @@ async function renderPdfPagesDirect(path, {
     const output = [];
     const renderPage = async (pageNumber, targetWidth, minimumScale = 0.25) => {
       if (signal?.aborted) throw new Error('PDF rendering was cancelled');
-      const rendered = await runPdfRenderWorker({
-        kind: PDF_RENDER_PAGE_WORKER_KIND,
-        path,
-        pageNumber,
-        targetWidth,
-        minimumScale,
-      }, signal);
+      const rendered = await runPdfRenderWorker(
+        {
+          kind: PDF_RENDER_PAGE_WORKER_KIND,
+          path,
+          pageNumber,
+          targetWidth,
+          minimumScale,
+        },
+        signal
+      );
       if (signal?.aborted) throw new Error('PDF rendering was cancelled');
       return {
         canvas: { width: rendered.width, height: rendered.height },
@@ -218,9 +210,7 @@ async function renderPdfPagesDirect(path, {
       const pagesPerSheet = Math.ceil(selected.length / 12);
       for (let offset = 0; offset < selected.length; offset += pagesPerSheet) {
         const group = selected.slice(offset, offset + pagesPerSheet);
-        const columns = group.length <= 2
-          ? 1
-          : Math.max(2, Math.ceil(Math.sqrt(group.length * 0.75)));
+        const columns = group.length <= 2 ? 1 : Math.max(2, Math.ceil(Math.sqrt(group.length * 0.75)));
         const rows = Math.ceil(group.length / columns);
         const gap = 12;
         const labelHeight = 24;
@@ -235,10 +225,7 @@ async function renderPdfPagesDirect(path, {
           });
         }
         const cellHeight = Math.max(...thumbnails.map(({ image }) => image.height));
-        const sheet = createCanvas(
-          width,
-          gap + rows * (labelHeight + cellHeight + gap),
-        );
+        const sheet = createCanvas(width, gap + rows * (labelHeight + cellHeight + gap));
         const context = sheet.getContext('2d');
         context.fillStyle = 'rgb(238,240,244)';
         context.fillRect(0, 0, sheet.width, sheet.height);
@@ -294,14 +281,15 @@ async function renderPdfPagesDirect(path, {
         reviewed: reviewedPages.length,
         total: document.numPages,
         complete: reviewedPages.length === document.numPages,
-        remainingPages: Array.from(
-          { length: document.numPages },
-          (_, index) => index + 1,
-        ).filter((page) => !reviewedPageSet.has(page)),
+        remainingPages: Array.from({ length: document.numPages }, (_, index) => index + 1).filter(
+          (page) => !reviewedPageSet.has(page)
+        ),
       },
     };
   } finally {
-    try { await loadingTask.destroy?.(); } catch {}
+    try {
+      await loadingTask.destroy?.();
+    } catch {}
   }
 }
 
@@ -309,26 +297,30 @@ export async function renderPdfPages(path, options = {}) {
   const signal = options.signal || null;
   if (signal?.aborted) throw new Error('PDF rendering was cancelled');
   if (!isMainThread) return await renderPdfPagesDirect(path, options);
-  return await runPdfRenderWorker({
-    kind: PDF_RENDER_WORKER_KIND,
-    path,
-    options: {
-      pages: options.pages ?? null,
-      maxWidth: options.maxWidth ?? 1400,
+  return await runPdfRenderWorker(
+    {
+      kind: PDF_RENDER_WORKER_KIND,
+      path,
+      options: {
+        pages: options.pages ?? null,
+        maxWidth: options.maxWidth ?? 1400,
+      },
     },
-  }, signal);
+    signal
+  );
 }
 
 if (!isMainThread && [PDF_RENDER_WORKER_KIND, PDF_RENDER_PAGE_WORKER_KIND].includes(workerData?.kind)) {
   try {
-    const value = workerData.kind === PDF_RENDER_PAGE_WORKER_KIND
-      ? await renderPdfPageDirect(
-        workerData.path,
-        workerData.pageNumber,
-        workerData.targetWidth,
-        workerData.minimumScale,
-      )
-      : await renderPdfPagesDirect(workerData.path, workerData.options);
+    const value =
+      workerData.kind === PDF_RENDER_PAGE_WORKER_KIND
+        ? await renderPdfPageDirect(
+            workerData.path,
+            workerData.pageNumber,
+            workerData.targetWidth,
+            workerData.minimumScale
+          )
+        : await renderPdfPagesDirect(workerData.path, workerData.options);
     parentPort?.postMessage({ ok: true, value });
   } catch (error) {
     parentPort?.postMessage({

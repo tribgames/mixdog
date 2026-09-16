@@ -8,16 +8,7 @@ export function pickVerb(turn) {
   return SPINNER_VERBS[(turn * 7 + 3) % SPINNER_VERBS.length];
 }
 
-const TURN_DONE_VERBS = [
-  'Thought',
-  'Reasoned',
-  'Mapped',
-  'Checked',
-  'Solved',
-  'Composed',
-  'Synthesized',
-  'Wrapped',
-];
+const TURN_DONE_VERBS = ['Thought', 'Reasoned', 'Mapped', 'Checked', 'Solved', 'Composed', 'Synthesized', 'Wrapped'];
 
 export function pickDoneVerb(turn) {
   return TURN_DONE_VERBS[(turn * 5 + 2) % TURN_DONE_VERBS.length];

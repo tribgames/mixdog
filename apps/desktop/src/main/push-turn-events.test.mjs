@@ -23,9 +23,10 @@ test('the first roster only establishes a baseline', () => {
 test('a turn that stops produces one completion carrying the session preview', () => {
   const tracker = createTurnCompletionTracker();
   tracker.observe([session('a', { working: true })], 1_000);
-  const completions = tracker.observe([
-    session('a', { working: false, title: 'Refactor relay', preview: 'Done: 3 files changed' }),
-  ], 2_000);
+  const completions = tracker.observe(
+    [session('a', { working: false, title: 'Refactor relay', preview: 'Done: 3 files changed' })],
+    2_000
+  );
   assert.equal(completions.length, 1);
   assert.equal(completions[0].sessionId, 'a');
   assert.equal(completions[0].title, 'Refactor relay');

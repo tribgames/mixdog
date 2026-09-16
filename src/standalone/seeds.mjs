@@ -29,11 +29,25 @@ function cleanupRetiredChannelSecrets(dataDir) {
   if (existsSync(marker)) return;
   void import('../runtime/shared/config.mjs')
     .then(({ deleteSecret }) => {
-      try { deleteSecret('discord.token'); } catch { /* best-effort */ }
-      try { deleteSecret('telegram.token'); } catch { /* best-effort */ }
-      try { writeFileSync(marker, `${new Date().toISOString()}\n`); } catch { /* marker only */ }
+      try {
+        deleteSecret('discord.token');
+      } catch {
+        /* best-effort */
+      }
+      try {
+        deleteSecret('telegram.token');
+      } catch {
+        /* best-effort */
+      }
+      try {
+        writeFileSync(marker, `${new Date().toISOString()}\n`);
+      } catch {
+        /* marker only */
+      }
     })
-    .catch(() => { /* cleanup is best-effort */ });
+    .catch(() => {
+      /* cleanup is best-effort */
+    });
 }
 
 // Built-in skills (src/defaults/skills/<name>/) used to be copied into the

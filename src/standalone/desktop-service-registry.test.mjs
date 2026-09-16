@@ -6,7 +6,9 @@ const moduleUrl = new URL('./test-fixtures/lifecycle-desktop-service.mjs', impor
 
 function deferred() {
   let resolve;
-  const promise = new Promise((yes) => { resolve = yes; });
+  const promise = new Promise((yes) => {
+    resolve = yes;
+  });
   return { promise, resolve };
 }
 
@@ -20,7 +22,9 @@ function fixture(t, makeAdapter) {
   const registry = new DesktopServiceRegistry({
     runtime: { makeAdapter },
     onFrame: (frame) => frames.push(frame),
-    onExternalClientsChanged: () => { clientsChanged += 1; },
+    onExternalClientsChanged: () => {
+      clientsChanged += 1;
+    },
   });
   t.after(() => registry.dispose());
   return { registry, frames, clientsChanged: () => clientsChanged };
@@ -28,10 +32,13 @@ function fixture(t, makeAdapter) {
 
 test('closing during module loading prevents desktop adapter construction', async (t) => {
   let created = 0;
-  const { registry } = fixture(t, () => { created += 1; return adapter('late'); });
+  const { registry } = fixture(t, () => {
+    created += 1;
+    return adapter('late');
+  });
   const rejected = assert.rejects(
     registry.init({ desktopId: 'desktop_late_import', moduleUrl }),
-    /session service is closed/,
+    /session service is closed/
   );
   await registry.dispose();
   await rejected;
@@ -45,11 +52,13 @@ test('an adapter acquired after shutdown is disposed without becoming addressabl
   const { registry } = fixture(t, async () => {
     entered.resolve();
     await gate.promise;
-    return adapter('late', async () => { disposed += 1; });
+    return adapter('late', async () => {
+      disposed += 1;
+    });
   });
   const rejected = assert.rejects(
     registry.init({ desktopId: 'desktop_late_factory', moduleUrl }),
-    /session service is closed/,
+    /session service is closed/
   );
   await entered.promise;
   await registry.dispose();
@@ -65,7 +74,10 @@ test('pending initialization reserves its desktop id against a different module'
   const created = [];
   const { registry } = fixture(t, async ({ options }) => {
     created.push(options.label);
-    if (options.label === 'first') { entered.resolve(); await gate.promise; }
+    if (options.label === 'first') {
+      entered.resolve();
+      await gate.promise;
+    }
     return adapter(options.label);
   });
   const first = registry.init({
@@ -74,11 +86,14 @@ test('pending initialization reserves its desktop id against a different module'
     options: { label: 'first' },
   });
   await entered.promise;
-  const rejected = assert.rejects(registry.init({
-    desktopId: 'desktop_shared',
-    moduleUrl: `${moduleUrl}?build=second`,
-    options: { label: 'second' },
-  }), /already bound to another service module/);
+  const rejected = assert.rejects(
+    registry.init({
+      desktopId: 'desktop_shared',
+      moduleUrl: `${moduleUrl}?build=second`,
+      options: { label: 'second' },
+    }),
+    /already bound to another service module/
+  );
   gate.resolve();
   await Promise.all([first, rejected]);
   assert.deepEqual(created, ['first']);
@@ -91,7 +106,7 @@ test('module reuse cannot bypass an existing desktop-id binding conflict', async
   await registry.init({ desktopId: 'desktop_two', moduleUrl: `${moduleUrl}?loaded=two`, options: { label: 'two' } });
   await assert.rejects(
     registry.init({ desktopId: 'desktop_one', moduleUrl: `${moduleUrl}?loaded=two` }),
-    /already bound to another service module/,
+    /already bound to another service module/
   );
 });
 
@@ -99,11 +114,13 @@ test('invalid desktop adapters are disposed before their initialization error re
   let disposed = 0;
   const { registry } = fixture(t, () => ({
     invoke() {},
-    async dispose() { disposed += 1; },
+    async dispose() {
+      disposed += 1;
+    },
   }));
   await assert.rejects(
     registry.init({ desktopId: 'desktop_invalid', moduleUrl }),
-    /desktop service adapter is invalid/,
+    /desktop service adapter is invalid/
   );
   assert.equal(disposed, 1);
 });
@@ -122,7 +139,7 @@ test('callbacks from a rejected adapter cannot be attributed to a later owner of
   });
   await assert.rejects(
     f.registry.init({ desktopId: 'desktop_reused', moduleUrl }),
-    /desktop service adapter is invalid/,
+    /desktop service adapter is invalid/
   );
   await f.registry.init({ desktopId: 'desktop_reused', moduleUrl });
   emitOld({ kind: 'desktop-event', name: 'late', value: {} });
@@ -134,15 +151,19 @@ test('callbacks from a rejected adapter cannot be attributed to a later owner of
 test('concurrent registry disposal calls wait for the same adapter cleanup', async (t) => {
   const entered = deferred();
   const finished = deferred();
-  const { registry } = fixture(t, () => adapter('owned', async () => {
-    entered.resolve();
-    await finished.promise;
-  }));
+  const { registry } = fixture(t, () =>
+    adapter('owned', async () => {
+      entered.resolve();
+      await finished.promise;
+    })
+  );
   await registry.init({ desktopId: 'desktop_closing', moduleUrl });
   const first = registry.dispose();
   await entered.promise;
   let secondReturned = false;
-  const second = registry.dispose().then(() => { secondReturned = true; });
+  const second = registry.dispose().then(() => {
+    secondReturned = true;
+  });
   await new Promise((resolve) => setImmediate(resolve));
   try {
     assert.equal(secondReturned, false);

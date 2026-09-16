@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import test from 'node:test';
-import { createConfigLifecycle, flushPendingSessionConfigWrites, resolveInitialConfigState } from './config-lifecycle.mjs';
+import {
+  createConfigLifecycle,
+  flushPendingSessionConfigWrites,
+  resolveInitialConfigState,
+} from './config-lifecycle.mjs';
 import { createNewSessionConfig } from './new-session-config.mjs';
 import { createSessionLifecycle } from './session-lifecycle.mjs';
 import { makeResolveRoute } from './config-helpers.mjs';
@@ -28,43 +32,83 @@ function fixture() {
   const calls = [];
   const sharedCfgMod = {
     pendingConfigWrites: async () => {},
-    invalidateConfigReadCache() { calls.push('invalidate-disk'); },
+    invalidateConfigReadCache() {
+      calls.push('invalidate-disk');
+    },
     readSection: (name) => root[name],
     updateConfigAsync: async (update) => Object.assign(root, update(root)),
   };
   const cfgMod = {
     loadConfig: () => structuredClone(root.agent),
-    saveConfig: (next) => { root.agent = structuredClone(next); },
-    saveConfigAsync: async (next) => { root.agent = structuredClone(next); },
-    patchSkillsDisabled: (names) => { root.agent.skills = { disabled: [...names] }; },
-    patchSkillsDisabledAsync: async (names) => { root.agent.skills = { disabled: [...names] }; },
+    saveConfig: (next) => {
+      root.agent = structuredClone(next);
+    },
+    saveConfigAsync: async (next) => {
+      root.agent = structuredClone(next);
+    },
+    patchSkillsDisabled: (names) => {
+      root.agent.skills = { disabled: [...names] };
+    },
+    patchSkillsDisabledAsync: async (names) => {
+      root.agent.skills = { disabled: [...names] };
+    },
     getPluginData: () => process.cwd(),
   };
   function runtime(options = {}) {
     const rt = {
       ...resolveInitialConfigState({ loadConfig: cfgMod.loadConfig, resolveRoute, ...options }),
-      mode: 'full', currentCwd: process.cwd(), mcpScopeId: 'test-scope', session: null,
+      mode: 'full',
+      currentCwd: process.cwd(),
+      mcpScopeId: 'test-scope',
+      session: null,
     };
     let hasSecrets = true;
     const lifecycle = createConfigLifecycle({
-      getConfig: () => rt.config, setConfig: (next) => { rt.config = next; },
-      getConfigHasSecrets: () => hasSecrets, setConfigHasSecrets: (next) => { hasSecrets = next; },
-      getWebSearchRoute: () => rt.webSearchRoute, setWebSearchRoute: (next) => { rt.webSearchRoute = next; },
-      getRoute: () => rt.route, cfgMod, sharedCfgMod,
-      setConfiguredShell() {}, normalizeSystemShellConfig: (value) => ({ command: value?.command || '' }),
+      getConfig: () => rt.config,
+      setConfig: (next) => {
+        rt.config = next;
+      },
+      getConfigHasSecrets: () => hasSecrets,
+      setConfigHasSecrets: (next) => {
+        hasSecrets = next;
+      },
+      getWebSearchRoute: () => rt.webSearchRoute,
+      setWebSearchRoute: (next) => {
+        rt.webSearchRoute = next;
+      },
+      getRoute: () => rt.route,
+      cfgMod,
+      sharedCfgMod,
+      setConfiguredShell() {},
+      normalizeSystemShellConfig: (value) => ({ command: value?.command || '' }),
       normalizeWebSearchRouteConfig: (value) => value || null,
-      LAZY_SECRET_PROVIDERS: new Set(), clean: (value) => String(value || '').trim(), resolve,
+      LAZY_SECRET_PROVIDERS: new Set(),
+      clean: (value) => String(value || '').trim(),
+      resolve,
       STANDALONE_DATA_DIR: process.cwd(),
     });
     const prepare = createNewSessionConfig({
-      rt, sharedCfgMod, reloadFullConfig: lifecycle.reloadFullConfig, resolveRoute,
+      rt,
+      sharedCfgMod,
+      reloadFullConfig: lifecycle.reloadFullConfig,
+      resolveRoute,
       initialConfig: options.initialConfig,
       initialRouteExplicit: options.provider !== undefined || options.model !== undefined,
-      invalidatePreSessionToolSurface() { calls.push('invalidate-tools'); },
-      invalidateOutputStyleStatusCache() { calls.push('invalidate-style'); },
-      invalidateSkills() { calls.push('invalidate-skills'); },
-      connectConfiguredMcp: async () => { calls.push(['mcp', structuredClone(rt.config.mcpServers)]); },
-      configureEmbedding: async (config) => { calls.push(['embedding', structuredClone(config)]); },
+      invalidatePreSessionToolSurface() {
+        calls.push('invalidate-tools');
+      },
+      invalidateOutputStyleStatusCache() {
+        calls.push('invalidate-style');
+      },
+      invalidateSkills() {
+        calls.push('invalidate-skills');
+      },
+      connectConfiguredMcp: async () => {
+        calls.push(['mcp', structuredClone(rt.config.mcpServers)]);
+      },
+      configureEmbedding: async (config) => {
+        calls.push(['embedding', structuredClone(config)]);
+      },
     });
     return { rt, lifecycle, prepare };
   }
@@ -111,18 +155,20 @@ test('a reused runtime reloads all settings and its default route without modify
   const originalPeer = structuredClone(peer.rt);
   const writer = f.runtime();
   writer.lifecycle.saveConfigAndAdopt({
-    ...configFor('replacement'), profile: { language: 'ja' },
-    compaction: { auto: false }, modules: { memory: { enabled: false } },
+    ...configFor('replacement'),
+    profile: { language: 'ja' },
+    compaction: { auto: false },
+    modules: { memory: { enabled: false } },
     mcpServers: { demo: { command: 'replacement-server' } },
   });
   f.root.memory.embedding.dtype = 'fp16';
   await reused.prepare();
   assert.deepEqual(reused.rt.config, f.root.agent);
   assert.equal(reused.rt.route.model, 'replacement');
-  assert.ok(f.calls.some((call) => Array.isArray(call) && call[0] === 'mcp'
-    && call[1].demo.command === 'replacement-server'));
-  assert.ok(f.calls.some((call) => Array.isArray(call) && call[0] === 'embedding'
-    && call[1].dtype === 'fp16'));
+  assert.ok(
+    f.calls.some((call) => Array.isArray(call) && call[0] === 'mcp' && call[1].demo.command === 'replacement-server')
+  );
+  assert.ok(f.calls.some((call) => Array.isArray(call) && call[0] === 'embedding' && call[1].dtype === 'fp16'));
   assert.deepEqual(peer.rt, originalPeer);
 });
 
@@ -153,12 +199,19 @@ test('new-session preparation waits for a write in flight and the latest coalesc
   const writer = f.runtime();
   const next = f.runtime();
   let finish;
-  const gate = new Promise((resolve) => { finish = resolve; });
+  const gate = new Promise((resolve) => {
+    finish = resolve;
+  });
   const save = f.cfgMod.saveConfigAsync;
-  f.cfgMod.saveConfigAsync = async (snapshot) => { await gate; await save(snapshot); };
+  f.cfgMod.saveConfigAsync = async (snapshot) => {
+    await gate;
+    await save(snapshot);
+  };
   writer.lifecycle.saveConfigAndAdopt(configFor('first-change'));
   let prepared = false;
-  const pending = next.prepare().then(() => { prepared = true; });
+  const pending = next.prepare().then(() => {
+    prepared = true;
+  });
   await setImmediate();
   assert.equal(prepared, false);
   writer.lifecycle.saveConfigAndAdopt(configFor('last-change'));
@@ -173,9 +226,13 @@ for (const channel of ['config', 'skills', 'outputStyle']) {
     const writer = f.runtime();
     const next = f.runtime();
     const module = channel === 'outputStyle' ? f.sharedCfgMod : f.cfgMod;
-    const method = { config: 'saveConfigAsync', skills: 'patchSkillsDisabledAsync', outputStyle: 'updateConfigAsync' }[channel];
+    const method = { config: 'saveConfigAsync', skills: 'patchSkillsDisabledAsync', outputStyle: 'updateConfigAsync' }[
+      channel
+    ];
     const save = module[method];
-    module[method] = async () => { throw new Error('fixture persistence failure'); };
+    module[method] = async () => {
+      throw new Error('fixture persistence failure');
+    };
     if (channel === 'config') writer.lifecycle.saveConfigAndAdopt(configFor('saved-later'));
     if (channel === 'skills') writer.lifecycle.scheduleSkillsSave(['saved-later']);
     if (channel === 'outputStyle') writer.lifecycle.scheduleOutputStyleSave('saved-later');
@@ -206,31 +263,44 @@ test('the creation boundary refreshes before memory/tools/workflow, but skips an
     ensureConfigForRouteProvider() {},
     ensureProvidersReady: async () => {},
     lookupModelMeta: async (provider, model) => ({ provider, id: model }),
-    loadCoreMemoryContext: async () => current.rt.config.modules.memory.enabled ? 'old memory' : '',
+    loadCoreMemoryContext: async () => (current.rt.config.modules.memory.enabled ? 'old memory' : ''),
     mgr: {
       getSession: () => current.rt.session,
       createSession: (options) => ({ ...options, id: `test-${++creations}`, messages: [], tools: [] }),
     },
-    adoptSession: (session) => { current.rt.session = session; },
-    reg: { getProvider: () => ({}) }, cfgMod: f.cfgMod,
+    adoptSession: (session) => {
+      current.rt.session = session;
+    },
+    reg: { getProvider: () => ({}) },
+    cfgMod: f.cfgMod,
     activeWorkflowContext: (config) => ({ summary: config.workflow, context: config.workflow.active }),
-    hooks: { emit() {}, dispatch: async () => ({}) }, hookCommonPayload: (value) => value,
+    hooks: { emit() {}, dispatch: async () => ({}) },
+    hookCommonPayload: (value) => value,
     mcpClient: { getMcpTools: () => [] },
     modelStandaloneTools: () => [],
-    featureDisallowedTools: () => current.rt.config.modules.memory.enabled ? [] : ['memory', 'recall'],
-    applyPreSessionToolSelection() {}, statusRoutes: {},
-    warmupTimers: {}, providerModelCaches: {}, prewarmTimers: {}, prewarmState: {},
+    featureDisallowedTools: () => (current.rt.config.modules.memory.enabled ? [] : ['memory', 'recall']),
+    applyPreSessionToolSelection() {},
+    statusRoutes: {},
+    warmupTimers: {},
+    providerModelCaches: {},
+    prewarmTimers: {},
+    prewarmState: {},
   });
   writer.lifecycle.saveConfigAndAdopt({
-    ...configFor('after'), modules: { memory: { enabled: false } },
-    workflow: { active: 'new-workflow' }, compaction: { auto: false },
+    ...configFor('after'),
+    modules: { memory: { enabled: false } },
+    workflow: { active: 'new-workflow' },
+    compaction: { auto: false },
   });
   const created = await api.createCurrentSession();
   assert.equal(created.model, 'after');
   assert.equal(created.coreMemoryContext, '');
   assert.equal(created.workflowContext, 'new-workflow');
   assert.equal(created.compaction.auto, false);
-  assert.deepEqual(created.disallowedTools.filter((name) => ['memory', 'recall'].includes(name)), ['memory', 'recall']);
+  assert.deepEqual(
+    created.disallowedTools.filter((name) => ['memory', 'recall'].includes(name)),
+    ['memory', 'recall']
+  );
   created.messages.push({ role: 'user', content: 'keep this conversation' });
   const frozen = structuredClone(created);
   writer.lifecycle.saveConfigAndAdopt(configFor('next-only'));

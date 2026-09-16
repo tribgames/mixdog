@@ -154,10 +154,17 @@ function normalizeToolOutputControls(text) {
         continue;
       }
     }
-    if (ch === '\n') { out += '\n'; col = 0; i += 1; continue; }
+    if (ch === '\n') {
+      out += '\n';
+      col = 0;
+      i += 1;
+      continue;
+    }
     if (ch === '\r') {
       // CR or CRLF → a single LF.
-      out += '\n'; col = 0; i += 1;
+      out += '\n';
+      col = 0;
+      i += 1;
       if (input[i] === '\n') i += 1;
       continue;
     }
@@ -186,10 +193,11 @@ function normalizeToolOutputControls(text) {
   return out;
 }
 
-
 /** Infer a highlighter family from a read/grep path arg's extension. */
 function inferLangFamily(pathArg) {
-  const p = String(pathArg || '').trim().toLowerCase();
+  const p = String(pathArg || '')
+    .trim()
+    .toLowerCase();
   if (!p) return null;
   const m = /\.([a-z0-9]+)$/.exec(p);
   if (!m) return null;
@@ -206,7 +214,7 @@ function stripUnderlineAnsi(text) {
       const kept = params.split(';').filter((p) => p !== '' && p !== '4' && p !== '24');
       if (kept.length === 0) return '';
       return `\x1b[${kept.join(';')}m`;
-    },
+    }
   );
 }
 
@@ -223,9 +231,9 @@ function linkifyUrls(text) {
   }
   if (last < src.length) chunks.push(src.slice(last));
   return chunks
-    .map((part) => (part.startsWith('\x1b')
-      ? part
-      : part.replace(URL_RE, (url) => `\x1b]8;;${url}\x07${url}\x1b]8;;\x07`)))
+    .map((part) =>
+      part.startsWith('\x1b') ? part : part.replace(URL_RE, (url) => `\x1b]8;;${url}\x07${url}\x1b]8;;\x07`)
+    )
     .join('');
 }
 
@@ -413,15 +421,11 @@ function splitGutter(line) {
 /** Block syntax highlight for non-diff code bodies (multi-line tokens color correctly). */
 function formatSyntaxBlock(lines, { c, family }) {
   const parts = lines.map(splitGutter);
-  const bodies = parts.map((p) =>
-    p.body.length > MAX_HIGHLIGHT_LINE_CHARS ? '' : p.body,
-  );
+  const bodies = parts.map((p) => (p.body.length > MAX_HIGHLIGHT_LINE_CHARS ? '' : p.body));
   const highlighted = highlightCodeBlockToLines(bodies.join('\n'), family, c);
   return parts.map((p, i) => {
     const rawBody = p.body;
-    const bodyOut = rawBody.length > MAX_HIGHLIGHT_LINE_CHARS
-      ? c.body(rawBody)
-      : (highlighted[i] ?? '');
+    const bodyOut = rawBody.length > MAX_HIGHLIGHT_LINE_CHARS ? c.body(rawBody) : (highlighted[i] ?? '');
     const linked = linkifyUrls(bodyOut);
     return p.gutter ? `${p.indent}${c.synComment(p.gutter)}${linked}` : linked;
   });
@@ -558,9 +562,7 @@ function wrapOneExpandedLogicalLine(line, maxWidth) {
   if (displayWidth(src) <= maxWidth) return [src];
 
   const prefixPlainW = leadingPrefixPlainWidth(stripAnsi(src));
-  const [prefix, body] = prefixPlainW > 0
-    ? splitAnsiByPlainWidth(src, prefixPlainW)
-    : ['', src];
+  const [prefix, body] = prefixPlainW > 0 ? splitAnsiByPlainWidth(src, prefixPlainW) : ['', src];
   const prefixW = displayWidth(prefix);
   const bodyBudget = Math.max(1, maxWidth - prefixW);
   const bodyPieces = wrapText(body, bodyBudget, { hard: true });
@@ -570,9 +572,7 @@ function wrapOneExpandedLogicalLine(line, maxWidth) {
 
   const out = [];
   for (let i = 0; i < bodyPieces.length; i++) {
-    const row = i === 0
-      ? `${prefix}${bodyPieces[i]}`
-      : `${padDisplaySpaces(prefixW)}${bodyPieces[i]}`;
+    const row = i === 0 ? `${prefix}${bodyPieces[i]}` : `${padDisplaySpaces(prefixW)}${bodyPieces[i]}`;
     out.push(clampRowToDisplayWidth(row, maxWidth));
   }
   return out;

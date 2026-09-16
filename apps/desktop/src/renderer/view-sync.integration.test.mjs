@@ -29,12 +29,18 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
     f.put('lead', 'initial answer');
     relay = await startRelay({ port: 0, dataDir: `${f.directory}/relay` });
     const origin = `http://127.0.0.1:${relay.port}`;
-    handle = await startRemoteRelay({ relayUrl: `ws://127.0.0.1:${relay.port}`, userDataPath: f.directory, host: f.host });
+    handle = await startRemoteRelay({
+      relayUrl: `ws://127.0.0.1:${relay.port}`,
+      userDataPath: f.directory,
+      host: f.host,
+    });
     const deviceId = new URL(handle.clientUrl).pathname.split('/')[2];
     await until(() => relay.store.isKnown(deviceId));
     const registered = relay.store.registerClient(deviceId, '11111111-2222-3333-4444-555555555555', {});
     dom = new JSDOM('<!doctype html><body><p id="transcript"></p></body>', {
-      url: `${origin}/d/${deviceId}/`, runScripts: 'outside-only', pretendToBeVisual: true,
+      url: `${origin}/d/${deviceId}/`,
+      runScripts: 'outside-only',
+      pretendToBeVisual: true,
     });
     const w = dom.window;
     globalThis.window = w;
@@ -42,12 +48,20 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
     w.matchMedia = () => ({ matches: true });
     Object.defineProperty(w, 'crypto', { value: webcrypto });
     Object.assign(w, {
-      TextEncoder, TextDecoder, ArrayBuffer, Uint8Array,
-      ReadableStream, CompressionStream, DecompressionStream,
+      TextEncoder,
+      TextDecoder,
+      ArrayBuffer,
+      Uint8Array,
+      ReadableStream,
+      CompressionStream,
+      DecompressionStream,
       fetch: (url, options) => fetch(new URL(url, origin), options),
     });
     class BrowserSocket extends WebSocket {
-      constructor(url) { super(url, { headers: { Origin: origin } }); sockets.push(this); }
+      constructor(url) {
+        super(url, { headers: { Origin: origin } });
+        sockets.push(this);
+      }
       emit(event, ...args) {
         if (event === 'message') this.receivedBytes = (this.receivedBytes || 0) + args[0].byteLength;
         if (event === 'message' && this.dropNext && args[1] === true) {
@@ -65,10 +79,15 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
       'mixdog.remote-browser-id': registered.clientId,
       'mixdog.remote-e2ee-public-key': handle.pairing.serverPublicKey,
       'mixdog.remote-e2ee-secret': handle.pairing.pairingSecret,
-    })) w.localStorage.setItem(key, value);
+    }))
+      w.localStorage.setItem(key, value);
     const bundle = await build({
       entryPoints: [fileURLToPath(new URL('./remote-shim.ts', import.meta.url))],
-      bundle: true, write: false, platform: 'browser', format: 'iife', target: 'es2022',
+      bundle: true,
+      write: false,
+      platform: 'browser',
+      format: 'iife',
+      target: 'es2022',
     });
     w.eval(bundle.outputFiles[0].text);
     const api = w.mixdogDesktop;
@@ -98,7 +117,8 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
       socket.dropped = false;
       const current = f.records.get('lead').snapshot;
       const finished = {
-        ...current, busy: false,
+        ...current,
+        busy: false,
         items: [...current.items, { id: `answer-${cycle}`, kind: 'assistant', text: `finished ${cycle}` }],
       };
       f.putSnapshot('lead', finished);
@@ -106,12 +126,16 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
       assert.notEqual(text.textContent, `finished ${cycle}`);
       f.state.agents = [{ sessionId: `agent-${cycle}`, ownerSessionId: 'lead', status: 'completed' }];
       w.dispatchEvent(new w.Event('online'));
-      await until(() => text.textContent === `finished ${cycle}`
-        && agentRows.at(-1)?.[0]?.sessionId === `agent-${cycle}`
-        && w.document.documentElement.dataset.mixdogRemoteConnection === 'connected');
+      await until(
+        () =>
+          text.textContent === `finished ${cycle}` &&
+          agentRows.at(-1)?.[0]?.sessionId === `agent-${cycle}` &&
+          w.document.documentElement.dataset.mixdogRemoteConnection === 'connected'
+      );
       socket.terminate();
-      await until(() => sockets.length === cycle + 2
-        && w.document.documentElement.dataset.mixdogRemoteConnection === 'connected');
+      await until(
+        () => sockets.length === cycle + 2 && w.document.documentElement.dataset.mixdogRemoteConnection === 'connected'
+      );
       assert.deepEqual(JSON.parse(JSON.stringify(store.get('lead').items)), finished.items);
       assert.equal(store.get('lead').busy, false);
     }
@@ -122,16 +146,21 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
     const beforeFull = sockets.at(-1).receivedBytes;
     f.put('lead', largeAnswer);
     w.dispatchEvent(new w.Event('online'));
-    await until(() => text.textContent === largeAnswer
-      && w.document.documentElement.dataset.mixdogRemoteConnection === 'connected');
+    await until(
+      () =>
+        text.textContent === largeAnswer && w.document.documentElement.dataset.mixdogRemoteConnection === 'connected'
+    );
     const fullBytes = sockets.at(-1).receivedBytes - beforeFull;
     const count = sockets.length;
     sockets.at(-1).terminate();
-    await until(() => sockets.length === count + 1
-      && w.document.documentElement.dataset.mixdogRemoteConnection === 'connected');
+    await until(
+      () => sockets.length === count + 1 && w.document.documentElement.dataset.mixdogRemoteConnection === 'connected'
+    );
     assert.equal(text.textContent, largeAnswer);
-    assert.ok(sockets.at(-1).receivedBytes < fullBytes / 2,
-      `reconnect used ${sockets.at(-1).receivedBytes} bytes after a ${fullBytes}-byte full recovery`);
+    assert.ok(
+      sockets.at(-1).receivedBytes < fullBytes / 2,
+      `reconnect used ${sockets.at(-1).receivedBytes} bytes after a ${fullBytes}-byte full recovery`
+    );
     const submitsBeforeCreation = f.state.submits;
     const [first, retry] = await Promise.all([
       api.submitNewTask('created once', { id: 'web-creation-receipt' }),
@@ -154,7 +183,9 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
     try {
       assert.equal(await api.abortSession('lead'), true);
       assert.equal(w.document.documentElement.dataset.mixdogRemoteConnection, 'syncing');
-    } finally { gate.resolve(); }
+    } finally {
+      gate.resolve();
+    }
     await recovery;
   } finally {
     stopPane?.();

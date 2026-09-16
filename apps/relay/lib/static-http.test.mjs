@@ -24,15 +24,16 @@ test('conditional assets retain security/cookies and distinguish changed represe
     }
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const get = (headers = {}, method = 'GET', path = '/') => new Promise((resolve, reject) => {
-    const req = request({ host: '127.0.0.1', port: server.address().port, path, method, headers }, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+  const get = (headers = {}, method = 'GET', path = '/') =>
+    new Promise((resolve, reject) => {
+      const req = request({ host: '127.0.0.1', port: server.address().port, path, method, headers }, (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+      });
+      req.on('error', reject);
+      req.end();
     });
-    req.on('error', reject);
-    req.end();
-  });
   try {
     const raw = await get();
     assert.equal(raw.status, 200);
@@ -40,12 +41,19 @@ test('conditional assets retain security/cookies and distinguish changed represe
     const br = await get({ 'accept-encoding': 'br' });
     const gz = await get({ 'accept-encoding': 'gzip' });
     assert.equal(new Set([raw.headers.etag, br.headers.etag, gz.headers.etag]).size, 3);
-    for (const [encoding, initial] of [['identity', raw], ['br', br], ['gzip', gz]]) {
+    for (const [encoding, initial] of [
+      ['identity', raw],
+      ['br', br],
+      ['gzip', gz],
+    ]) {
       for (const method of ['GET', 'HEAD']) {
-        const cached = await get({
-          'accept-encoding': encoding,
-          'if-none-match': `"unrelated", ${initial.headers.etag.replace('W/', '')}`,
-        }, method);
+        const cached = await get(
+          {
+            'accept-encoding': encoding,
+            'if-none-match': `"unrelated", ${initial.headers.etag.replace('W/', '')}`,
+          },
+          method
+        );
         assert.equal(cached.status, 304);
         assert.equal(cached.body.length, 0);
         assert.equal(cached.headers['content-length'], undefined);

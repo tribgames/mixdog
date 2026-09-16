@@ -11,13 +11,13 @@ export function windowsProgramRoots() {
     process.env.ProgramFiles,
     process.env['ProgramFiles(x86)'],
     process.env.LOCALAPPDATA,
-  ].filter(Boolean)
-  return [...new Set(roots)]
+  ].filter(Boolean);
+  return [...new Set(roots)];
 }
 
 // Windows system root (e.g. the dir holding System32). Returns undefined when
 // SystemRoot is absent — callers must treat that as "not detected", never as
 // 'C:\\Windows'.
 export function windowsSystemRoot() {
-  return process.env.SystemRoot
+  return process.env.SystemRoot;
 }

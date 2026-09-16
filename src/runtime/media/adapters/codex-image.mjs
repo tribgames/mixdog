@@ -12,7 +12,11 @@ import { decodeBase64Media } from '../download.mjs';
 import { mediaError } from '../lanes.mjs';
 import { upstreamError } from '../upstream-error.mjs';
 import { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL } from '../../agent/orchestrator/providers/openai-oauth.mjs';
-import { codexUserAgent, codexVersionHeader, warmCodexClientVersion } from '../../agent/orchestrator/providers/codex-client-meta.mjs';
+import {
+  codexUserAgent,
+  codexVersionHeader,
+  warmCodexClientVersion,
+} from '../../agent/orchestrator/providers/codex-client-meta.mjs';
 
 const REQUEST_TIMEOUT_MS = 400_000;
 
@@ -53,7 +57,8 @@ export function codexImageRequestBody({ model, prompt, options = {}, references 
     model,
     stream: true,
     store: false,
-    instructions: 'You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.',
+    instructions:
+      'You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.',
     input: [{ type: 'message', role: 'user', content }],
     tools: [imageTool(options)],
     // Smaller mainline models may answer with text when left on auto even
@@ -76,11 +81,15 @@ export function codexImageRequestHeaders(auth) {
   };
 }
 
-export async function generateImage({ model, prompt, options = {}, references = [], signal }, {
-  fetchFn = fetch, resolveAuth = resolveCodexAuth, warmVersion = warmCodexClientVersion,
-} = {}) {
-  if (['size', 'quality', 'resolution', 'aspectRatio'].some(key => options[key] && options[key] !== 'auto')) {
-    throw mediaError('ChatGPT selects image output settings; explicit size and quality are not supported on this connection.', 'MEDIA_OPTION_UNSUPPORTED');
+export async function generateImage(
+  { model, prompt, options = {}, references = [], signal },
+  { fetchFn = fetch, resolveAuth = resolveCodexAuth, warmVersion = warmCodexClientVersion } = {}
+) {
+  if (['size', 'quality', 'resolution', 'aspectRatio'].some((key) => options[key] && options[key] !== 'auto')) {
+    throw mediaError(
+      'ChatGPT selects image output settings; explicit size and quality are not supported on this connection.',
+      'MEDIA_OPTION_UNSUPPORTED'
+    );
   }
   const auth = await resolveAuth();
   // Discovery and generation must report the same client version; otherwise
@@ -114,7 +123,11 @@ export async function generateImage({ model, prompt, options = {}, references = 
         const raw = line.slice(5).trim();
         if (!raw || raw === '[DONE]') continue;
         let event;
-        try { event = JSON.parse(raw); } catch { continue; }
+        try {
+          event = JSON.parse(raw);
+        } catch {
+          continue;
+        }
         if (event?.type === 'response.failed' || event?.type === 'error') {
           failure = event?.response?.error?.message || event?.message || 'stream failed';
         }
@@ -122,7 +135,9 @@ export async function generateImage({ model, prompt, options = {}, references = 
       }
     }
   } finally {
-    try { reader.releaseLock(); } catch {}
+    try {
+      reader.releaseLock();
+    } catch {}
   }
 
   const b64 = state.final || state.partial;

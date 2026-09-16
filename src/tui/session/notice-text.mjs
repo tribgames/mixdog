@@ -85,15 +85,15 @@ function sentenceStart(text) {
 }
 
 export function polishNoticeText(text) {
-  let value = String(text ?? '').trim().replace(/^✓\s*/, '');
+  let value = String(text ?? '')
+    .trim()
+    .replace(/^✓\s*/, '');
   if (!value) return '';
   const error = /^error\s*:\s*(.+)$/i.exec(value);
   if (error?.[1]) value = error[1].trim();
   const couldNot = /^could not\s+(.+?)(?::\s*(.+))?$/i.exec(value);
   if (couldNot) {
-    return couldNot[2]
-      ? `Couldn’t ${couldNot[1]}: ${couldNot[2]}`
-      : `Couldn’t ${couldNot[1]}.`;
+    return couldNot[2] ? `Couldn’t ${couldNot[1]}: ${couldNot[2]}` : `Couldn’t ${couldNot[1]}.`;
   }
   const failed = /^(.+?)\s+failed(?::\s*(.+))?$/i.exec(value);
   if (failed) {

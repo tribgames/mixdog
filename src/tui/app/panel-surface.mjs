@@ -68,9 +68,7 @@ export function createPanelSurface({ setPicker, setContextPanel, setUsagePanel }
       },
       defer: (run) => {
         const deferredToken = token;
-        return (...args) => (
-          !released && isPanelEpochCurrent(deferredToken) ? run(...args) : undefined
-        );
+        return (...args) => (!released && isPanelEpochCurrent(deferredToken) ? run(...args) : undefined);
       },
     };
   };

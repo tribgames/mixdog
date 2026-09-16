@@ -3,12 +3,18 @@ import { modelMaintenance } from '../runtime/local-provider/model-maintenance.mj
 
 export function createLocalModelApi({ refreshLocalProviderCatalog } = {}) {
   return {
-    searchLocalProviderModels(query) { return huggingFaceCatalog().search(query); },
-    inspectHuggingFaceModel(options) { return huggingFaceCatalog().inspect(options); },
+    searchLocalProviderModels(query) {
+      return huggingFaceCatalog().search(query);
+    },
+    inspectHuggingFaceModel(options) {
+      return huggingFaceCatalog().inspect(options);
+    },
     registerHuggingFaceModel(previewId, licenseAccepted) {
       return huggingFaceCatalog().register(previewId, licenseAccepted);
     },
-    getLocalProviderModelDetails(modelId) { return modelMaintenance().details(modelId); },
+    getLocalProviderModelDetails(modelId) {
+      return modelMaintenance().details(modelId);
+    },
     startLocalProviderModelMaintenance(modelId, operation) {
       const job = modelMaintenance().start(modelId, operation, { onComplete: refreshLocalProviderCatalog });
       return { job, localProvider: this.getToolModuleSettings().localProvider };

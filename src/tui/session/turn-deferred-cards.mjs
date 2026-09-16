@@ -27,7 +27,10 @@ export function createDeferredCardRegistry({
   // 'user' kind, so no promptHistory rebuild is needed.
   const appendItemsBatch = (newItems, extra = {}) => {
     if (!isCurrentTurn()) return;
-    if (!newItems || !newItems.length) { set(extra); return; }
+    if (!newItems || !newItems.length) {
+      set(extra);
+      return;
+    }
     if (appendItems) {
       appendItems(newItems, extra);
       return;
@@ -52,7 +55,10 @@ export function createDeferredCardRegistry({
       if (e.seq > entry.seq) break;
       if (e.pushed) continue;
       e.pushed = true;
-      if (e.timer) { clearTimeout(e.timer); e.timer = null; }
+      if (e.timer) {
+        clearTimeout(e.timer);
+        e.timer = null;
+      }
       const spec = e.materialize?.();
       if (spec) specs.push(spec);
     }
@@ -70,7 +76,11 @@ export function createDeferredCardRegistry({
     const specs = collectUpTo(entry);
     if (!specs.length) return;
     flags.pushingFromDeferredEntry = true;
-    try { appendItemsBatch(specs); } finally { flags.pushingFromDeferredEntry = false; }
+    try {
+      appendItemsBatch(specs);
+    } finally {
+      flags.pushingFromDeferredEntry = false;
+    }
   };
 
   // `specKey` names the field holding the pending item spec: standalone cards
@@ -93,7 +103,11 @@ export function createDeferredCardRegistry({
         const spec = entry.materialize();
         if (!spec) return;
         flags.pushingFromDeferredEntry = true;
-        try { pushItem(spec); } finally { flags.pushingFromDeferredEntry = false; }
+        try {
+          pushItem(spec);
+        } finally {
+          flags.pushingFromDeferredEntry = false;
+        }
       },
     };
     target.deferred = entry;
@@ -120,7 +134,10 @@ export function createDeferredCardRegistry({
     collectAll: () => collectUpTo(last()),
     clearTimers: () => {
       for (const e of entries) {
-        if (e.timer) { clearTimeout(e.timer); e.timer = null; }
+        if (e.timer) {
+          clearTimeout(e.timer);
+          e.timer = null;
+        }
       }
     },
   };

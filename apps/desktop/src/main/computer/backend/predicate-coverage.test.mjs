@@ -66,18 +66,23 @@ $rows | ConvertTo-Json -Compress -Depth 6
   const path = join(directory, 'probe.ps1');
   try {
     await writeFile(path, script);
-    const { stdout } = await promisify(execFile)('powershell.exe', [
-      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path,
-    ], { windowsHide: true, timeout: 10_000 });
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path],
+      { windowsHide: true, timeout: 10_000 }
+    );
     const results = JSON.parse(stdout.trim());
-    assert.deepEqual(results.map((row) => [row.case, row.complete, row.returned]), [
-      ['empty', false, 0],
-      ['complete', true, 1],
-      ['truncated', false, 2],
-      ['long-text', false, 1],
-      ['partial-provider', false, 1],
-      ['custom-error', true, 1],
-    ]);
+    assert.deepEqual(
+      results.map((row) => [row.case, row.complete, row.returned]),
+      [
+        ['empty', false, 0],
+        ['complete', true, 1],
+        ['truncated', false, 2],
+        ['long-text', false, 1],
+        ['partial-provider', false, 1],
+        ['custom-error', true, 1],
+      ]
+    );
     assert.equal(results.at(-1).elements[0].name, 'error');
   } finally {
     await rm(directory, { recursive: true, force: true });

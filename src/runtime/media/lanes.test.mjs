@@ -39,10 +39,14 @@ function openAIAuthFixture(t) {
     resolve: () => catalog.resolveMediaRequest({ lane: 'openai-oauth', kind: 'image' }),
     writeTokens(path) {
       mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, JSON.stringify({
-        access_token: 'test-access-token',
-        refresh_token: 'test-refresh-token',
-      }), { mode: 0o600 });
+      writeFileSync(
+        path,
+        JSON.stringify({
+          access_token: 'test-access-token',
+          refresh_token: 'test-refresh-token',
+        }),
+        { mode: 0o600 }
+      );
     },
   };
 }
@@ -65,30 +69,45 @@ test('Studio listing and generation validation use the same refreshed provider c
 
   models = [{ id: 'gpt-7-mainline' }];
   const fresh = await catalog.resolveMediaRequest({ lane: lane.id, kind: 'image', model: 'chatgpt-image-auto' });
-  assert.equal(fresh.spec.models[0].requestModel, 'gpt-7-mainline', 'automatic image routing follows the refreshed account catalog');
-  await assert.rejects(catalog.resolveMediaRequest({
-    lane: lane.id, kind: 'image', model: 'gpt-6-astra',
-  }), { code: 'MEDIA_MODEL_UNSUPPORTED' });
+  assert.equal(
+    fresh.spec.models[0].requestModel,
+    'gpt-7-mainline',
+    'automatic image routing follows the refreshed account catalog'
+  );
+  await assert.rejects(
+    catalog.resolveMediaRequest({
+      lane: lane.id,
+      kind: 'image',
+      model: 'gpt-6-astra',
+    }),
+    { code: 'MEDIA_MODEL_UNSUPPORTED' }
+  );
 });
 
 test('billing-blocked connections are quietly excluded and return after recovery', async (t) => {
   const { catalogHttpError } = await import('./catalog-errors.mjs');
   const diagnostics = [];
-  t.mock.method(console, 'warn', message => diagnostics.push(message));
+  t.mock.method(console, 'warn', (message) => diagnostics.push(message));
   let blocked = true;
   const catalog = createMediaLaneCatalog({
     authenticated: () => true,
-    loadModels: async lane => {
+    loadModels: async (lane) => {
       if (lane === 'xai' && blocked) throw catalogHttpError(403, '{"error":"team private-id has no credits"}');
       return [{ id: 'grok-imagine-image' }];
     },
   });
   const lanes = await catalog.listMediaLanes();
-  assert.equal(lanes.some(row => row.id === 'xai'), false);
-  assert.equal(lanes.find(row => row.id === 'grok-oauth').image.models.length, 1);
+  assert.equal(
+    lanes.some((row) => row.id === 'xai'),
+    false
+  );
+  assert.equal(lanes.find((row) => row.id === 'grok-oauth').image.models.length, 1);
   for (const kind of ['', 'image', 'video']) {
     const listed = listMediaCatalog(lanes, { kind });
-    assert.equal(listed.lanes.some(row => row.id === 'xai'), false);
+    assert.equal(
+      listed.lanes.some((row) => row.id === 'xai'),
+      false
+    );
     assert.equal(listed.catalogErrors, undefined);
     assert.equal(listed.catalogWarnings, undefined);
     assert.doesNotMatch(JSON.stringify(listed), /credits|billing|private-id/i);
@@ -99,10 +118,10 @@ test('billing-blocked connections are quietly excluded and return after recovery
       message: 'The selected media model is not available.',
     });
   }
-  assert.ok(diagnostics.some(message => /lane=xai code=MEDIA_BILLING_BLOCKED/.test(message)));
+  assert.ok(diagnostics.some((message) => /lane=xai code=MEDIA_BILLING_BLOCKED/.test(message)));
   assert.doesNotMatch(diagnostics.join('\n'), /private-id/);
   blocked = false;
-  const recovered = (await catalog.listMediaLanes()).find(row => row.id === 'xai');
+  const recovered = (await catalog.listMediaLanes()).find((row) => row.id === 'xai');
   assert.equal(recovered.image.models[0].id, 'grok-imagine-image');
 });
 
@@ -133,8 +152,12 @@ test('signed-out lanes never discover models; one provider outage does not hide 
   assert.match(xai.catalogError, /catalog unavailable/);
   assert.doesNotMatch(xai.catalogError, /sensitive/);
   assert.equal(listMediaCatalog(rows).catalogErrors[0].lane, 'xai');
-  await assert.rejects(catalog.resolveMediaRequest({ lane: 'xai', kind: 'image' }), { code: 'MEDIA_CATALOG_UNAVAILABLE' });
-  await assert.rejects(catalog.resolveMediaRequest({ lane: 'openai-oauth', kind: 'image' }), { code: 'MEDIA_LANE_UNAUTHENTICATED' });
+  await assert.rejects(catalog.resolveMediaRequest({ lane: 'xai', kind: 'image' }), {
+    code: 'MEDIA_CATALOG_UNAVAILABLE',
+  });
+  await assert.rejects(catalog.resolveMediaRequest({ lane: 'openai-oauth', kind: 'image' }), {
+    code: 'MEDIA_LANE_UNAUTHENTICATED',
+  });
 });
 
 test('Studio recognizes selected-account login and logout immediately without recreating the catalog', async (t) => {

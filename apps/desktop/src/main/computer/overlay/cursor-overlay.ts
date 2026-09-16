@@ -1,13 +1,7 @@
 import { BrowserWindow, screen } from 'electron';
 
-import {
-  computerUseCoordinator,
-  type ComputerUseSnapshot,
-} from '../session/coordinator';
-import {
-  computerUseCursorPresentations,
-  type ComputerUseCursorPresentation,
-} from './model';
+import { computerUseCoordinator, type ComputerUseSnapshot } from '../session/coordinator';
+import { computerUseCursorPresentations, type ComputerUseCursorPresentation } from './model';
 import { registerComputerUseInternalWindow } from './internal-windows';
 import { createCursorTail } from './cursor-tail';
 import { cursorHtml, cursorScript, CURSOR_SIZE, CURSOR_HOTSPOT } from './cursor-art';
@@ -72,10 +66,7 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
     return surface;
   };
 
-  const ensureWindow = async (
-    sessionId: string,
-    surface: CursorSurface,
-  ): Promise<BrowserWindow> => {
+  const ensureWindow = async (sessionId: string, surface: CursorSurface): Promise<BrowserWindow> => {
     if (surface.window && !surface.window.isDestroyed()) return surface.window;
     if (surface.creating) return await surface.creating;
     surface.creating = (async () => {
@@ -126,9 +117,7 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
         if (surface.window === next) surface.window = null;
       });
       try {
-        await next.loadURL(
-          `data:text/html;base64,${Buffer.from(cursorHtml()).toString('base64')}`,
-        );
+        await next.loadURL(`data:text/html;base64,${Buffer.from(cursorHtml()).toString('base64')}`);
         await next.webContents.executeJavaScript(cursorScript());
         if (disposed || next.isDestroyed() || surfaces.get(sessionId) !== surface) {
           throw new Error('Computer Use cursor disposed during creation');
@@ -156,9 +145,14 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
     const source = { x: cursor.x, y: cursor.y };
     surface.position = source;
     const window = await ensureWindow(cursor.sessionId, surface);
-    if (disposed || window.isDestroyed() || surface.lastEventId !== cursor.eventId
-      || visibleCursorEvents.get(cursor.sessionId) !== cursor.eventId) {
-      recordCursorDiagnostic('render_superseded'); return;
+    if (
+      disposed ||
+      window.isDestroyed() ||
+      surface.lastEventId !== cursor.eventId ||
+      visibleCursorEvents.get(cursor.sessionId) !== cursor.eventId
+    ) {
+      recordCursorDiagnostic('render_superseded');
+      return;
     }
     const serialized = JSON.stringify({
       ...cursor,
@@ -170,31 +164,47 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
         window.mixdogAgentCursor(${serialized});
         const ring = document.getElementById('ring');
         return { handler: true, ring: Boolean(ring), opacity: ring ? Number(getComputedStyle(ring).opacity) : 0 };
-      })()`,
+      })()`
     );
     recordCursorDiagnostic(evidence?.handler ? 'handler_called' : 'handler_missing');
     recordCursorDiagnostic(evidence?.ring ? 'ring_present' : 'ring_missing');
     recordCursorDiagnostic(evidence?.opacity > 0 ? 'ring_visible_style' : 'ring_transparent_style');
-    if (disposed || window.isDestroyed() || surfaces.get(cursor.sessionId) !== surface
-      || latestSnapshot.userControlActive || surface.lastEventId !== cursor.eventId
-      || visibleCursorEvents.get(cursor.sessionId) !== cursor.eventId) return;
+    if (
+      disposed ||
+      window.isDestroyed() ||
+      surfaces.get(cursor.sessionId) !== surface ||
+      latestSnapshot.userControlActive ||
+      surface.lastEventId !== cursor.eventId ||
+      visibleCursorEvents.get(cursor.sessionId) !== cursor.eventId
+    )
+      return;
     if (!window.isVisible()) window.showInactive();
     recordCursorDiagnostic(window.isVisible() ? 'window_visible' : 'window_not_visible');
     const bounds = window.getBounds();
-    const onDisplay = screen.getAllDisplays().some(display => {
+    const onDisplay = screen.getAllDisplays().some((display) => {
       const area = display.bounds;
-      return bounds.x < area.x + area.width && bounds.x + bounds.width > area.x
-        && bounds.y < area.y + area.height && bounds.y + bounds.height > area.y;
+      return (
+        bounds.x < area.x + area.width &&
+        bounds.x + bounds.width > area.x &&
+        bounds.y < area.y + area.height &&
+        bounds.y + bounds.height > area.y
+      );
     });
     recordCursorDiagnostic(onDisplay ? 'window_on_display' : 'window_off_display');
   };
 
   const render = (): void => {
-    const backgroundSessions = new Set(latestSnapshot.activities
-      .filter(activity => activity.mode === 'background').map(activity => activity.sessionId));
-    const cursors = tail.update(computerUseCursorPresentations(latestSnapshot),
-      latestSnapshot.userControlActive || latestSnapshot.cleanupState === 'failed', backgroundSessions);
-    visibleCursorEvents = new Map(cursors.map(cursor => [cursor.sessionId, cursor.eventId]));
+    const backgroundSessions = new Set(
+      latestSnapshot.activities
+        .filter((activity) => activity.mode === 'background')
+        .map((activity) => activity.sessionId)
+    );
+    const cursors = tail.update(
+      computerUseCursorPresentations(latestSnapshot),
+      latestSnapshot.userControlActive || latestSnapshot.cleanupState === 'failed',
+      backgroundSessions
+    );
+    visibleCursorEvents = new Map(cursors.map((cursor) => [cursor.sessionId, cursor.eventId]));
     const desired = new Set(cursors.map((cursor) => cursor.sessionId));
     if (!latestSnapshot.userControlActive && latestSnapshot.cleanupState !== 'failed') {
       for (const activity of latestSnapshot.activities) {
@@ -218,11 +228,11 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
       const promise = renderCursor(cursor);
       arrivals.set(cursor.sessionId, { eventId: cursor.eventId, promise });
       void promise.catch(() => {
-      // No user content or raw Electron error enters the diagnostic.
-      if (!disposed && surfaces.has(cursor.sessionId)) {
-        console.warn('[computer-cursor] render_failed');
-        recordCursorDiagnostic('render_failed');
-      }
+        // No user content or raw Electron error enters the diagnostic.
+        if (!disposed && surfaces.has(cursor.sessionId)) {
+          console.warn('[computer-cursor] render_failed');
+          recordCursorDiagnostic('render_failed');
+        }
       });
     }
   };
@@ -231,11 +241,13 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
     latestSnapshot = snapshot;
     render();
   });
-  const unbindPreparation = bindCursorPreparation(async sessionId => {
+  const unbindPreparation = bindCursorPreparation(async (sessionId) => {
     if (disposed || latestSnapshot.userControlActive || latestSnapshot.cleanupState === 'failed') {
       throw new Error('cursor presentation unavailable');
     }
-    if (!latestSnapshot.activities.some(activity => activity.sessionId === sessionId && activity.mode === 'foreground')) {
+    if (
+      !latestSnapshot.activities.some((activity) => activity.sessionId === sessionId && activity.mode === 'foreground')
+    ) {
       throw new Error('cursor presentation is foreground-only');
     }
     await ensureWindow(sessionId, surfaceFor(sessionId));

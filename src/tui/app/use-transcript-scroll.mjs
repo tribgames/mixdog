@@ -1,12 +1,12 @@
 /**
  * use-transcript-scroll.mjs — transcript scroll + ink-grid selection engine.
  *
- * Extracted verbatim from App.jsx: smooth scroll animation, reading-anchor
- * capture, selection painting/throttling/clipping, word-line span extension,
- * keyboard selection focus movement and the wheel/edge-drag coalescer.
- * Scroll/drag state refs stay App-owned and are injected; this hook owns only
- * its internal timers (animation interval, selection paint throttle, text
- * capture defer, scroll coalescer).
+ * Smooth scroll animation, reading-anchor capture, selection
+ * painting/throttling/clipping, word-line span extension, keyboard selection
+ * focus movement and the wheel/edge-drag coalescer. Scroll/drag state refs
+ * stay App-owned and are injected; this hook owns only its internal timers
+ * (animation interval, selection paint throttle, text capture defer, scroll
+ * coalescer).
  */
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { theme } from '../theme.mjs';
@@ -106,19 +106,22 @@ export function useTranscriptScroll({
   // rows that a fast drag/wheel scrolled past between paint and its setTimeout.
   // selectionRows is harvested by the renderer UNCONDITIONALLY (even on the
   // captureText:false motion paints, output.js), so this works mid-drag.
-  const harvestStitchRowsNow = useCallback((scroll) => {
-    if (dragRef.current.region !== 'transcript') return;
-    const rows = store.getRenderSelectionRows?.();
-    if (!Array.isArray(rows)) return;
-    const s = Number(scroll) || 0;
-    for (const row of rows) {
-      if (!row || typeof row.y !== 'number') continue;
-      stitchBufferRef.current.set(row.y - s, {
-        text: typeof row.text === 'string' ? row.text : '',
-        sw: row.sw === true,
-      });
-    }
-  }, [store]);
+  const harvestStitchRowsNow = useCallback(
+    (scroll) => {
+      if (dragRef.current.region !== 'transcript') return;
+      const rows = store.getRenderSelectionRows?.();
+      if (!Array.isArray(rows)) return;
+      const s = Number(scroll) || 0;
+      for (const row of rows) {
+        if (!row || typeof row.y !== 'number') continue;
+        stitchBufferRef.current.set(row.y - s, {
+          text: typeof row.text === 'string' ? row.text : '',
+          sw: row.sw === true,
+        });
+      }
+    },
+    [store]
+  );
 
   // Map the CURRENT rect + current scrollTarget onto the content-key range and
   // join buffered rows sorted by key with '\n'. Returns { text, complete }:
@@ -261,40 +264,46 @@ export function useTranscriptScroll({
     };
   }, []);
 
-  const withSelectionClip = useCallback((rect, options = {}) => {
-    if (!rect) return null;
-    const clip = selectionClip();
-    const clipped = {
-      ...rect,
-      clipY1: clip.y1,
-      clipY2: Math.max(clip.y1, clip.y2),
-      selectionForeground: theme.selectionHighlightText || theme.selectionText,
-      selectionBackground: theme.selectionHighlightBackground || theme.selectionBackground,
-    };
-    if (options.captureText === false) clipped.captureText = false;
-    return clipped;
-  }, [selectionClip]);
+  const withSelectionClip = useCallback(
+    (rect, options = {}) => {
+      if (!rect) return null;
+      const clip = selectionClip();
+      const clipped = {
+        ...rect,
+        clipY1: clip.y1,
+        clipY2: Math.max(clip.y1, clip.y2),
+        selectionForeground: theme.selectionHighlightText || theme.selectionText,
+        selectionBackground: theme.selectionHighlightBackground || theme.selectionBackground,
+      };
+      if (options.captureText === false) clipped.captureText = false;
+      return clipped;
+    },
+    [selectionClip]
+  );
 
-  const paintSelectionRect = useCallback((clippedRect, { rememberText = true } = {}) => {
-    const nextRect = clippedRect || null;
-    const state = selectionPaintRef.current;
-    if (selectionRectsEqual(state.rect, nextRect)) {
-      const needsCapture = nextRect && rememberText && nextRect.captureText !== false;
-      if (!needsCapture) return false;
-      // Keep selection refreshes on Ink's normal maxFps render path. The
-      // selection rect itself is published synchronously by setSelection.
+  const paintSelectionRect = useCallback(
+    (clippedRect, { rememberText = true } = {}) => {
+      const nextRect = clippedRect || null;
+      const state = selectionPaintRef.current;
+      if (selectionRectsEqual(state.rect, nextRect)) {
+        const needsCapture = nextRect && rememberText && nextRect.captureText !== false;
+        if (!needsCapture) return false;
+        // Keep selection refreshes on Ink's normal maxFps render path. The
+        // selection rect itself is published synchronously by setSelection.
+        store.setRenderSelection?.(nextRect);
+        if (needsCapture) rememberSelectionTextSoon();
+        if (nextRect) harvestStitchRowsSoon();
+        return true;
+      }
+      state.rect = nextRect;
+      state.t = Date.now();
       store.setRenderSelection?.(nextRect);
-      if (needsCapture) rememberSelectionTextSoon();
+      if (nextRect && rememberText && nextRect.captureText !== false) rememberSelectionTextSoon();
       if (nextRect) harvestStitchRowsSoon();
       return true;
-    }
-    state.rect = nextRect;
-    state.t = Date.now();
-    store.setRenderSelection?.(nextRect);
-    if (nextRect && rememberText && nextRect.captureText !== false) rememberSelectionTextSoon();
-    if (nextRect) harvestStitchRowsSoon();
-    return true;
-  }, [store, rememberSelectionTextSoon, harvestStitchRowsSoon]);
+    },
+    [store, rememberSelectionTextSoon, harvestStitchRowsSoon]
+  );
 
   // Shared guard for EVERY direct (non-coalesced) paint path: a pending
   // throttled repaint (state.timer/state.pending, armed by
@@ -327,43 +336,52 @@ export function useTranscriptScroll({
     if (pending) paintSelectionRect(pending, { rememberText: false });
   }, [paintSelectionRect]);
 
-  const applySelectionRect = useCallback((rect) => {
-    const clippedRect = withSelectionClip(rect);
-    dragRef.current.rect = clippedRect || null;
-    if (!clippedRect) {
-      selectionTextCaptureRef.current += 1;
-      selectionTextRef.current = '';
-      clearStitchBuffer();
-    }
-    cancelPendingSelectionPaint();
-    paintSelectionRect(clippedRect, { rememberText: true });
-  }, [paintSelectionRect, withSelectionClip, clearStitchBuffer, cancelPendingSelectionPaint]);
-
-  const applySelectionRectThrottled = useCallback((rect) => {
-    const clippedRect = withSelectionClip(rect, { captureText: false });
-    if (selectionRectsEqual(dragRef.current.rect, clippedRect)) return;
-    dragRef.current.rect = clippedRect || null;
-    const state = selectionPaintRef.current;
-    if (selectionRectsEqual(state.rect, clippedRect)) return;
-    const now = Date.now();
-    const elapsed = now - state.t;
-    if (elapsed >= SELECTION_PAINT_INTERVAL_MS) {
+  const applySelectionRect = useCallback(
+    (rect) => {
+      const clippedRect = withSelectionClip(rect);
+      dragRef.current.rect = clippedRect || null;
+      if (!clippedRect) {
+        selectionTextCaptureRef.current += 1;
+        selectionTextRef.current = '';
+        clearStitchBuffer();
+      }
       cancelPendingSelectionPaint();
-      paintSelectionRect(clippedRect, { rememberText: false });
-      return;
-    }
-    state.pending = clippedRect || null;
-    if (!state.timer) {
-      state.timer = setTimeout(() => {
-        const current = selectionPaintRef.current;
-        const pending = current.pending;
-        current.timer = null;
-        current.pending = null;
-        paintSelectionRect(pending, { rememberText: false });
-      }, Math.max(1, SELECTION_PAINT_INTERVAL_MS - elapsed));
-      state.timer.unref?.();
-    }
-  }, [paintSelectionRect, withSelectionClip, cancelPendingSelectionPaint]);
+      paintSelectionRect(clippedRect, { rememberText: true });
+    },
+    [paintSelectionRect, withSelectionClip, clearStitchBuffer, cancelPendingSelectionPaint]
+  );
+
+  const applySelectionRectThrottled = useCallback(
+    (rect) => {
+      const clippedRect = withSelectionClip(rect, { captureText: false });
+      if (selectionRectsEqual(dragRef.current.rect, clippedRect)) return;
+      dragRef.current.rect = clippedRect || null;
+      const state = selectionPaintRef.current;
+      if (selectionRectsEqual(state.rect, clippedRect)) return;
+      const now = Date.now();
+      const elapsed = now - state.t;
+      if (elapsed >= SELECTION_PAINT_INTERVAL_MS) {
+        cancelPendingSelectionPaint();
+        paintSelectionRect(clippedRect, { rememberText: false });
+        return;
+      }
+      state.pending = clippedRect || null;
+      if (!state.timer) {
+        state.timer = setTimeout(
+          () => {
+            const current = selectionPaintRef.current;
+            const pending = current.pending;
+            current.timer = null;
+            current.pending = null;
+            paintSelectionRect(pending, { rememberText: false });
+          },
+          Math.max(1, SELECTION_PAINT_INTERVAL_MS - elapsed)
+        );
+        state.timer.unref?.();
+      }
+    },
+    [paintSelectionRect, withSelectionClip, cancelPendingSelectionPaint]
+  );
 
   const selectionPointAtCurrentScroll = useCallback((point, pointScroll = 0) => {
     if (!point) return null;
@@ -380,37 +398,37 @@ export function useTranscriptScroll({
   // back to the raw cell on a miss; spanScroll re-anchors the stored span to
   // the current transcript scroll (the status band never scrolls) so the
   // original word keeps tracking its content while dragging or auto-scrolling.
-  const buildSpanRect = useCallback((span, x, y, region, spanScroll = 0) => {
-    const atCurrentScroll = (point) => (
-      region === 'status' ? point : selectionPointAtCurrentScroll(point, spanScroll)
-    );
-    const anchorStart = atCurrentScroll(span.lo);
-    const anchorEnd = atCurrentScroll(span.hi);
+  const buildSpanRect = useCallback(
+    (span, x, y, region, spanScroll = 0) => {
+      const atCurrentScroll = (point) =>
+        region === 'status' ? point : selectionPointAtCurrentScroll(point, spanScroll);
+      const anchorStart = atCurrentScroll(span.lo);
+      const anchorEnd = atCurrentScroll(span.hi);
 
-    const snapped = span.kind === 'word'
-      ? store.getWordRectAt?.(x, y)
-      : store.getLineRectAt?.(y);
-    let targetStart;
-    let targetEnd;
-    if (snapped) {
-      targetStart = { x: snapped.x1, y: snapped.y1 };
-      targetEnd = { x: snapped.x2, y: snapped.y2 };
-    } else if (span.kind === 'word') {
-      targetStart = { x, y };
-      targetEnd = { x, y };
-    } else {
-      targetStart = { x: 0, y };
-      targetEnd = { x: Math.max(0, frameColumns - 1), y };
-    }
+      const snapped = span.kind === 'word' ? store.getWordRectAt?.(x, y) : store.getLineRectAt?.(y);
+      let targetStart;
+      let targetEnd;
+      if (snapped) {
+        targetStart = { x: snapped.x1, y: snapped.y1 };
+        targetEnd = { x: snapped.x2, y: snapped.y2 };
+      } else if (span.kind === 'word') {
+        targetStart = { x, y };
+        targetEnd = { x, y };
+      } else {
+        targetStart = { x: 0, y };
+        targetEnd = { x: Math.max(0, frameColumns - 1), y };
+      }
 
-    // The anchor span always stays whole; the rect reaches from it toward the
-    // target when the target sits clear of it on either side, and collapses
-    // back to the anchor when the two overlap.
-    const linear = (from, to) => ({ mode: 'linear', x1: from.x, y1: from.y, x2: to.x, y2: to.y });
-    if (compareCellOrder(targetEnd, anchorStart) < 0) return linear(anchorEnd, targetStart);
-    if (compareCellOrder(targetStart, anchorEnd) > 0) return linear(anchorStart, targetEnd);
-    return linear(anchorStart, anchorEnd);
-  }, [store, frameColumns, selectionPointAtCurrentScroll]);
+      // The anchor span always stays whole; the rect reaches from it toward the
+      // target when the target sits clear of it on either side, and collapses
+      // back to the anchor when the two overlap.
+      const linear = (from, to) => ({ mode: 'linear', x1: from.x, y1: from.y, x2: to.x, y2: to.y });
+      if (compareCellOrder(targetEnd, anchorStart) < 0) return linear(anchorEnd, targetStart);
+      if (compareCellOrder(targetStart, anchorEnd) > 0) return linear(anchorStart, targetEnd);
+      return linear(anchorStart, anchorEnd);
+    },
+    [store, frameColumns, selectionPointAtCurrentScroll]
+  );
 
   const transcriptViewportRows = useCallback(() => {
     const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
@@ -424,11 +442,14 @@ export function useTranscriptScroll({
     return { top, bottom: Math.max(top, rows - 1) };
   }, []);
 
-  const selectionMaxColAtRow = useCallback((row) => {
-    const lr = store.getLineRectAt?.(row);
-    if (lr != null && Number.isFinite(lr.x2)) return Math.max(0, lr.x2);
-    return Math.max(0, frameColumns - 1);
-  }, [store, frameColumns]);
+  const selectionMaxColAtRow = useCallback(
+    (row) => {
+      const lr = store.getLineRectAt?.(row);
+      if (lr != null && Number.isFinite(lr.x2)) return Math.max(0, lr.x2);
+      return Math.max(0, frameColumns - 1);
+    },
+    [store, frameColumns]
+  );
 
   // Synchronous predicate: is a transcript/status ink-grid selection live? Used
   // both by App (to consume Shift+Arrow even when focus clamps at an edge) and
@@ -443,210 +464,225 @@ export function useTranscriptScroll({
     return Boolean(rect) && !(rect.x1 === rect.x2 && rect.y1 === rect.y2);
   });
 
-  useEffect(() => () => {
-    const paintState = selectionPaintRef.current;
-    if (paintState.timer) clearTimeout(paintState.timer);
-    paintState.timer = null;
-    paintState.pending = null;
-    selectionTextCaptureRef.current += 1;
-    if (stitchHarvestTimerRef.current) clearTimeout(stitchHarvestTimerRef.current);
-    stitchHarvestTimerRef.current = null;
-    const coalesceState = scrollCoalesceRef.current;
-    if (coalesceState.timer) clearTimeout(coalesceState.timer);
-    coalesceState.timer = null;
-    coalesceState.pendingRows = 0;
-    coalesceState.direction = 0;
-  }, []);
+  useEffect(
+    () => () => {
+      const paintState = selectionPaintRef.current;
+      if (paintState.timer) clearTimeout(paintState.timer);
+      paintState.timer = null;
+      paintState.pending = null;
+      selectionTextCaptureRef.current += 1;
+      if (stitchHarvestTimerRef.current) clearTimeout(stitchHarvestTimerRef.current);
+      stitchHarvestTimerRef.current = null;
+      const coalesceState = scrollCoalesceRef.current;
+      if (coalesceState.timer) clearTimeout(coalesceState.timer);
+      coalesceState.timer = null;
+      coalesceState.pendingRows = 0;
+      coalesceState.direction = 0;
+    },
+    []
+  );
 
-  const scrollTranscriptRows = useCallback((deltaRows, options = {}) => {
-    const maxTarget = Math.max(0, Number(maxScrollRowsRef.current) || 0);
-    const publishedGeometry = transcriptGeomRef.current || {};
-    const geometryMax = Math.max(
-      0,
-      (Number(publishedGeometry.totalRows) || 0)
-        - Math.max(1, Number(publishedGeometry.viewRows) || 1),
-    );
-    const historyState = store.getState?.() || {};
-    const captureRestoreAnchor = () => {
-      const geom = transcriptGeomRef.current || {};
-      const prefixRows = geom.prefixRows;
-      if (!prefixRows || prefixRows.length <= 1) return;
-      const total = Math.max(0, Number(geom.totalRows) || 0);
-      const view = Math.max(1, Number(geom.viewRows) || 1);
-      const target = Math.max(0, Number(scrollTargetRef.current) || 0);
-      const row = Math.max(0, Math.min(total, total - target - view));
-      let index = upperBound(prefixRows, row) - 1;
-      index = Math.max(0, Math.min(prefixRows.length - 2, index));
-      const item = geom.items?.[index];
-      if (item?.id != null) {
-        transcriptAnchorRef.current = {
-          id: item.id,
-          offset: Math.max(0, row - transcriptRowAt(prefixRows, index)),
-        };
-        transcriptAnchorDirtyRef.current = false;
-      }
-    };
-    if (deltaRows > 0
-      && scrollTargetRef.current >= maxTarget
-      && historyState.transcriptHistoryBefore) {
-      captureRestoreAnchor();
-      if (!store.restoreOlderTranscript?.()) return;
-      stopSmoothScroll();
-      cancelTranscriptFollow();
-      return;
-    }
-    if (deltaRows < 0
-      && scrollTargetRef.current <= 0
-      && historyState.transcriptHistoryAfter) {
-      captureRestoreAnchor();
-      if (!store.restoreNewerTranscript?.()) return;
-      stopSmoothScroll();
-      cancelTranscriptFollow();
-      // The shared overlap now sits at the OLDEST edge of the newer page.
-      // Keep a positive target so the render-time absolute anchor lock remains
-      // active and resolves that row instead of treating target=0 as tail-pin.
-      const anchoredTarget = Math.max(1, maxTarget);
-      scrollTargetRef.current = anchoredTarget;
-      scrollPositionRef.current = anchoredTarget;
-      setScrollOffset(anchoredTarget);
-      return;
-    }
-    let target = Math.max(0, Math.min(maxTarget, scrollTargetRef.current + deltaRows));
-    // Bottom snap: while a stream is appending rows, the reading-anchor effect
-    // keeps RAISING the bottom-relative target between wheel events, so a
-    // 3-row wheel notch could chase the bottom forever and never reach the
-    // exact 0 that re-engages auto-follow. A downward scroll that lands within
-    // one notch of the bottom is an unambiguous "go back to the tail" intent —
-    // snap it to 0 so re-pinning is deterministic.
-    // One notch (3 rows) was too tight: fast output adds more rows than that
-    // between two wheel events, so the last notch kept landing one or two rows
-    // short and follow never re-armed (user: 스크롤이 너무 자주 풀린다). The
-    // band now scales with the viewport, mirroring the desktop hook's
-    // REATTACH_THRESHOLD_PX re-attach band.
-    // Widened again (0.15→0.20 of the viewport, cap 8→12): while the anchor
-    // lock keeps raising the bottom-relative target between wheel events, a
-    // narrow band is overtaken by growth and the user can never land in it.
-    const snapViewRows = Math.max(1, Number(publishedGeometry.viewRows) || 1);
-    const bottomSnapRows = Math.max(3, Math.min(12, Math.ceil(snapViewRows * 0.2)));
-    if (deltaRows < 0 && target > 0 && target <= bottomSnapRows) target = 0;
-    const appliedDelta = target - scrollTargetRef.current;
-    const blockedReadbackIntent = deltaRows > 0
-      && appliedDelta === 0
-      && maxTarget === 0
-      && geometryMax > 0;
-    if (blockedReadbackIntent) {
-      // A newly mounted row can hold the committed max at zero for one frame.
-      // Preserve the first upward wheel/keyboard intent instead of letting the
-      // next item/measurement commit infer bottom-follow from target=0 and yank
-      // the viewport back. The layout effect below applies it before paint as
-      // soon as the committed range becomes available.
-      pendingReadbackRowsRef.current += deltaRows;
-    } else if (deltaRows < 0 || appliedDelta !== 0) {
-      pendingReadbackRowsRef.current = 0;
-    }
-    // Before the scroll moves selected rows out of view, snapshot the rows
-    // currently under the selection into the stitch buffer keyed by the
-    // PRE-scroll offset. Runs for BOTH
-    // an active drag and a wheel-shift of a released selection, so Ctrl+C
-    // reconstructs the full text no matter how far it scrolled off-screen.
-    if (appliedDelta !== 0 && dragRef.current.region === 'transcript' && dragRef.current.rect) {
-      // Commit any pending throttled rect first so the harvest reads the newest
-      // rendered selection (not the previous rect) before those rows scroll off.
-      flushPendingSelectionPaint();
-      harvestStitchRowsNow(Number(scrollTargetRef.current) || 0);
-    }
-    // Any manual wheel/keyboard scroll takes precedence over an in-flight
-    // transcript follow: drop the glide so the user's intent wins.
-    if (appliedDelta !== 0 || blockedReadbackIntent) cancelTranscriptFollow();
-    scrollTargetRef.current = target;
-    // A manual scroll moves the reading position. Capture the new reading anchor
-    // SYNCHRONOUSLY from the latest published geometry so the very next render
-    // already locks to it — no one-frame "dirty" window where concurrent
-    // streaming growth could lurch the view. Only at the true bottom drop the
-    // anchor so the bottom-follow path owns the viewport again: a positive
-    // wheel offset is an explicit reading position, even inside the old slack.
-    // A downward gesture that ENDS at the tail re-arms follow even when it
-    // moved nothing (appliedDelta === 0). "Wheel/PageDown while already at the
-    // bottom" is the most common way a user asks to resume following, and the
-    // old appliedDelta gate made it a no-op: follow stayed off, the next growth
-    // commit captured a reading anchor, and new output piled up below the fold
-    // with no way back except submitting a prompt.
-    if (deltaRows < 0 && target === 0) {
-      transcriptAnchorRef.current = null;
-      transcriptAnchorDirtyRef.current = false;
-      followingRef.current = true;
-    }
-    if (appliedDelta !== 0) {
-      if (target === 0) {
-        transcriptAnchorRef.current = null;
-        transcriptAnchorDirtyRef.current = false;
-      } else {
+  const scrollTranscriptRows = useCallback(
+    (deltaRows, options = {}) => {
+      const maxTarget = Math.max(0, Number(maxScrollRowsRef.current) || 0);
+      const publishedGeometry = transcriptGeomRef.current || {};
+      const geometryMax = Math.max(
+        0,
+        (Number(publishedGeometry.totalRows) || 0) - Math.max(1, Number(publishedGeometry.viewRows) || 1)
+      );
+      const historyState = store.getState?.() || {};
+      const captureRestoreAnchor = () => {
         const geom = transcriptGeomRef.current || {};
         const prefixRows = geom.prefixRows;
-        if (prefixRows && prefixRows.length > 1) {
-          const gTotal = Math.max(0, Number(geom.totalRows) || 0);
-          const gView = Math.max(1, Number(geom.viewRows) || 1);
-          const anchorRow = Math.max(0, Math.min(gTotal, gTotal - target - gView));
-          let idx = upperBound(prefixRows, anchorRow) - 1;
-          if (idx < 0) idx = 0;
-          if (idx > prefixRows.length - 2) idx = prefixRows.length - 2;
-          const items = geom.items || [];
-          const anchorItem = items[idx];
-          if (anchorItem && anchorItem.id != null) {
-            transcriptAnchorRef.current = { id: anchorItem.id, offset: Math.max(0, anchorRow - transcriptRowAt(prefixRows, idx)) };
-            transcriptAnchorDirtyRef.current = false;
+        if (!prefixRows || prefixRows.length <= 1) return;
+        const total = Math.max(0, Number(geom.totalRows) || 0);
+        const view = Math.max(1, Number(geom.viewRows) || 1);
+        const target = Math.max(0, Number(scrollTargetRef.current) || 0);
+        const row = Math.max(0, Math.min(total, total - target - view));
+        let index = upperBound(prefixRows, row) - 1;
+        index = Math.max(0, Math.min(prefixRows.length - 2, index));
+        const item = geom.items?.[index];
+        if (item?.id != null) {
+          transcriptAnchorRef.current = {
+            id: item.id,
+            offset: Math.max(0, row - transcriptRowAt(prefixRows, index)),
+          };
+          transcriptAnchorDirtyRef.current = false;
+        }
+      };
+      if (deltaRows > 0 && scrollTargetRef.current >= maxTarget && historyState.transcriptHistoryBefore) {
+        captureRestoreAnchor();
+        if (!store.restoreOlderTranscript?.()) return;
+        stopSmoothScroll();
+        cancelTranscriptFollow();
+        return;
+      }
+      if (deltaRows < 0 && scrollTargetRef.current <= 0 && historyState.transcriptHistoryAfter) {
+        captureRestoreAnchor();
+        if (!store.restoreNewerTranscript?.()) return;
+        stopSmoothScroll();
+        cancelTranscriptFollow();
+        // The shared overlap now sits at the OLDEST edge of the newer page.
+        // Keep a positive target so the render-time absolute anchor lock remains
+        // active and resolves that row instead of treating target=0 as tail-pin.
+        const anchoredTarget = Math.max(1, maxTarget);
+        scrollTargetRef.current = anchoredTarget;
+        scrollPositionRef.current = anchoredTarget;
+        setScrollOffset(anchoredTarget);
+        return;
+      }
+      let target = Math.max(0, Math.min(maxTarget, scrollTargetRef.current + deltaRows));
+      // Bottom snap: while a stream is appending rows, the reading-anchor effect
+      // keeps RAISING the bottom-relative target between wheel events, so a
+      // 3-row wheel notch could chase the bottom forever and never reach the
+      // exact 0 that re-engages auto-follow. A downward scroll that lands within
+      // one notch of the bottom is an unambiguous "go back to the tail" intent —
+      // snap it to 0 so re-pinning is deterministic.
+      // One notch (3 rows) was too tight: fast output adds more rows than that
+      // between two wheel events, so the last notch kept landing one or two rows
+      // short and follow never re-armed (user: 스크롤이 너무 자주 풀린다). The
+      // band now scales with the viewport, mirroring the desktop hook's
+      // REATTACH_THRESHOLD_PX re-attach band.
+      // Widened again (0.15→0.20 of the viewport, cap 8→12): while the anchor
+      // lock keeps raising the bottom-relative target between wheel events, a
+      // narrow band is overtaken by growth and the user can never land in it.
+      const snapViewRows = Math.max(1, Number(publishedGeometry.viewRows) || 1);
+      const bottomSnapRows = Math.max(3, Math.min(12, Math.ceil(snapViewRows * 0.2)));
+      if (deltaRows < 0 && target > 0 && target <= bottomSnapRows) target = 0;
+      const appliedDelta = target - scrollTargetRef.current;
+      const blockedReadbackIntent = deltaRows > 0 && appliedDelta === 0 && maxTarget === 0 && geometryMax > 0;
+      if (blockedReadbackIntent) {
+        // A newly mounted row can hold the committed max at zero for one frame.
+        // Preserve the first upward wheel/keyboard intent instead of letting the
+        // next item/measurement commit infer bottom-follow from target=0 and yank
+        // the viewport back. The layout effect below applies it before paint as
+        // soon as the committed range becomes available.
+        pendingReadbackRowsRef.current += deltaRows;
+      } else if (deltaRows < 0 || appliedDelta !== 0) {
+        pendingReadbackRowsRef.current = 0;
+      }
+      // Before the scroll moves selected rows out of view, snapshot the rows
+      // currently under the selection into the stitch buffer keyed by the
+      // PRE-scroll offset. Runs for BOTH
+      // an active drag and a wheel-shift of a released selection, so Ctrl+C
+      // reconstructs the full text no matter how far it scrolled off-screen.
+      if (appliedDelta !== 0 && dragRef.current.region === 'transcript' && dragRef.current.rect) {
+        // Commit any pending throttled rect first so the harvest reads the newest
+        // rendered selection (not the previous rect) before those rows scroll off.
+        flushPendingSelectionPaint();
+        harvestStitchRowsNow(Number(scrollTargetRef.current) || 0);
+      }
+      // Any manual wheel/keyboard scroll takes precedence over an in-flight
+      // transcript follow: drop the glide so the user's intent wins.
+      if (appliedDelta !== 0 || blockedReadbackIntent) cancelTranscriptFollow();
+      scrollTargetRef.current = target;
+      // A manual scroll moves the reading position. Capture the new reading anchor
+      // SYNCHRONOUSLY from the latest published geometry so the very next render
+      // already locks to it — no one-frame "dirty" window where concurrent
+      // streaming growth could lurch the view. Only at the true bottom drop the
+      // anchor so the bottom-follow path owns the viewport again: a positive
+      // wheel offset is an explicit reading position, even inside the old slack.
+      // A downward gesture that ENDS at the tail re-arms follow even when it
+      // moved nothing (appliedDelta === 0). "Wheel/PageDown while already at the
+      // bottom" is the most common way a user asks to resume following, and the
+      // old appliedDelta gate made it a no-op: follow stayed off, the next growth
+      // commit captured a reading anchor, and new output piled up below the fold
+      // with no way back except submitting a prompt.
+      if (deltaRows < 0 && target === 0) {
+        transcriptAnchorRef.current = null;
+        transcriptAnchorDirtyRef.current = false;
+        followingRef.current = true;
+      }
+      if (appliedDelta !== 0) {
+        if (target === 0) {
+          transcriptAnchorRef.current = null;
+          transcriptAnchorDirtyRef.current = false;
+        } else {
+          const geom = transcriptGeomRef.current || {};
+          const prefixRows = geom.prefixRows;
+          if (prefixRows && prefixRows.length > 1) {
+            const gTotal = Math.max(0, Number(geom.totalRows) || 0);
+            const gView = Math.max(1, Number(geom.viewRows) || 1);
+            const anchorRow = Math.max(0, Math.min(gTotal, gTotal - target - gView));
+            let idx = upperBound(prefixRows, anchorRow) - 1;
+            if (idx < 0) idx = 0;
+            if (idx > prefixRows.length - 2) idx = prefixRows.length - 2;
+            const items = geom.items || [];
+            const anchorItem = items[idx];
+            if (anchorItem && anchorItem.id != null) {
+              transcriptAnchorRef.current = {
+                id: anchorItem.id,
+                offset: Math.max(0, anchorRow - transcriptRowAt(prefixRows, idx)),
+              };
+              transcriptAnchorDirtyRef.current = false;
+            } else {
+              transcriptAnchorDirtyRef.current = true;
+            }
           } else {
             transcriptAnchorDirtyRef.current = true;
           }
-        } else {
-          transcriptAnchorDirtyRef.current = true;
         }
       }
-    }
-    if (appliedDelta !== 0 && selectionLayoutRef.current) {
-      selectionLayoutRef.current = { ...selectionLayoutRef.current, scrollOffset: target };
-    }
-    if (appliedDelta !== 0 && dragRef.current.rect) {
-      let rect;
-      if (dragRef.current.active) {
-        const { anchor, anchorScroll, last, anchorSpan, region } = dragRef.current;
-        if (anchorSpan && last) {
-          // Word/line multi-click drag that reached the edge: keep extending by
-          // whole words/lines from the span to the word/line at the current cell,
-          // NOT collapsing to a char {anchor->last} rect. Mirrors the motion path.
-          rect = buildSpanRect(anchorSpan, last.x, last.y, region, anchorScroll);
-        } else {
-          const currentAnchor = selectionPointAtCurrentScroll(anchor, anchorScroll);
-          rect = currentAnchor && last ? { mode: 'linear', x1: currentAnchor.x, y1: currentAnchor.y, x2: last.x, y2: last.y } : null;
-        }
-      } else {
-        rect = shiftSelectionRectY(dragRef.current.rect, appliedDelta);
+      if (appliedDelta !== 0 && selectionLayoutRef.current) {
+        selectionLayoutRef.current = { ...selectionLayoutRef.current, scrollOffset: target };
       }
-      // Active-drag rebuild paints directly, so route through the themed clip
-      // (captureText:false, matching rememberText:false below) — a bare rect
-      // without selectionBackground falls back to a near-white full-width block
-      // with vanishing text in Ink's output renderer. Also cancel any armed
-      // throttled repaint first: it would fire the pre-scroll rect AFTER this
-      // one, leaving two coexisting highlights.
-      const clippedRect = dragRef.current.active
-        ? withSelectionClip(rect, { captureText: false })
-        : withSelectionClip(rect);
-      dragRef.current = { ...dragRef.current, rect: clippedRect };
-      cancelPendingSelectionPaint();
-      // Never re-harvest selection text from a scroll-shifted rect: the shift
-      // clips the rect to the viewport, so a harvest here would OVERWRITE the
-      // full text remembered at drag-release with only the still-visible rows
-      // (Ctrl+C after scrolling then copied just that fragment).
-      paintSelectionRect(clippedRect, { rememberText: false });
-    }
-    if (options.smooth) {
-      startSmoothScroll();
-      return;
-    }
-    stopSmoothScroll();
-    scrollPositionRef.current = target;
-    setScrollOffset(Math.round(target));
-  }, [startSmoothScroll, stopSmoothScroll, paintSelectionRect, selectionPointAtCurrentScroll, withSelectionClip, cancelTranscriptFollow, buildSpanRect, harvestStitchRowsNow, cancelPendingSelectionPaint, flushPendingSelectionPaint]);
+      if (appliedDelta !== 0 && dragRef.current.rect) {
+        let rect;
+        if (dragRef.current.active) {
+          const { anchor, anchorScroll, last, anchorSpan, region } = dragRef.current;
+          if (anchorSpan && last) {
+            // Word/line multi-click drag that reached the edge: keep extending by
+            // whole words/lines from the span to the word/line at the current cell,
+            // NOT collapsing to a char {anchor->last} rect. Mirrors the motion path.
+            rect = buildSpanRect(anchorSpan, last.x, last.y, region, anchorScroll);
+          } else {
+            const currentAnchor = selectionPointAtCurrentScroll(anchor, anchorScroll);
+            rect =
+              currentAnchor && last
+                ? { mode: 'linear', x1: currentAnchor.x, y1: currentAnchor.y, x2: last.x, y2: last.y }
+                : null;
+          }
+        } else {
+          rect = shiftSelectionRectY(dragRef.current.rect, appliedDelta);
+        }
+        // Active-drag rebuild paints directly, so route through the themed clip
+        // (captureText:false, matching rememberText:false below) — a bare rect
+        // without selectionBackground falls back to a near-white full-width block
+        // with vanishing text in Ink's output renderer. Also cancel any armed
+        // throttled repaint first: it would fire the pre-scroll rect AFTER this
+        // one, leaving two coexisting highlights.
+        const clippedRect = dragRef.current.active
+          ? withSelectionClip(rect, { captureText: false })
+          : withSelectionClip(rect);
+        dragRef.current = { ...dragRef.current, rect: clippedRect };
+        cancelPendingSelectionPaint();
+        // Never re-harvest selection text from a scroll-shifted rect: the shift
+        // clips the rect to the viewport, so a harvest here would OVERWRITE the
+        // full text remembered at drag-release with only the still-visible rows
+        // (Ctrl+C after scrolling then copied just that fragment).
+        paintSelectionRect(clippedRect, { rememberText: false });
+      }
+      if (options.smooth) {
+        startSmoothScroll();
+        return;
+      }
+      stopSmoothScroll();
+      scrollPositionRef.current = target;
+      setScrollOffset(Math.round(target));
+    },
+    [
+      startSmoothScroll,
+      stopSmoothScroll,
+      paintSelectionRect,
+      selectionPointAtCurrentScroll,
+      withSelectionClip,
+      cancelTranscriptFollow,
+      buildSpanRect,
+      harvestStitchRowsNow,
+      cancelPendingSelectionPaint,
+      flushPendingSelectionPaint,
+    ]
+  );
 
   useLayoutEffect(() => {
     const pendingRows = Math.max(0, Number(pendingReadbackRowsRef.current) || 0);
@@ -661,146 +697,152 @@ export function useTranscriptScroll({
   // accumulates into one scrollTranscriptRows call per tick instead of one per
   // mousemove/wheel event. Both call sites below route through this instead of
   // calling scrollTranscriptRows directly.
-  const queueScrollCoalesced = useCallback((deltaRows) => {
-    const state = scrollCoalesceRef.current;
-    const reversed = accumulateDirectionalScrollDelta(state, deltaRows);
-    if (reversed && state.timer) {
-      clearTimeout(state.timer);
-      state.timer = null;
-    }
-    if (state.timer) return;
-    const rows = state.pendingRows;
-    state.pendingRows = 0;
-    scrollTranscriptRows(rows);
-    state.timer = setTimeout(() => {
-      state.timer = null;
-      state.direction = 0;
-      if (state.pendingRows !== 0) {
-        const remaining = state.pendingRows;
-        state.pendingRows = 0;
-        scrollTranscriptRows(remaining);
+  const queueScrollCoalesced = useCallback(
+    (deltaRows) => {
+      const state = scrollCoalesceRef.current;
+      const reversed = accumulateDirectionalScrollDelta(state, deltaRows);
+      if (reversed && state.timer) {
+        clearTimeout(state.timer);
+        state.timer = null;
       }
-    }, SCROLL_COALESCE_MS);
-    state.timer.unref?.();
-  }, [scrollTranscriptRows]);
+      if (state.timer) return;
+      const rows = state.pendingRows;
+      state.pendingRows = 0;
+      scrollTranscriptRows(rows);
+      state.timer = setTimeout(() => {
+        state.timer = null;
+        state.direction = 0;
+        if (state.pendingRows !== 0) {
+          const remaining = state.pendingRows;
+          state.pendingRows = 0;
+          scrollTranscriptRows(remaining);
+        }
+      }, SCROLL_COALESCE_MS);
+      state.timer.unref?.();
+    },
+    [scrollTranscriptRows]
+  );
 
   // NOTE: declared AFTER scrollTranscriptRows — it appears in the deps array
   // below, and useCallback deps are evaluated at render time, so referencing
   // it before its const initializer would throw a TDZ ReferenceError.
-  const moveSelectionFocus = useCallback((move) => {
-    const drag = dragRef.current;
-    if (drag.active) return false;
-    const region = drag.region;
-    if (region !== 'transcript' && region !== 'status') return false;
-    const rect = drag.rect;
-    if (!rect) return false;
-    if (rect.x1 === rect.x2 && rect.y1 === rect.y2) return false;
+  const moveSelectionFocus = useCallback(
+    (move) => {
+      const drag = dragRef.current;
+      if (drag.active) return false;
+      const region = drag.region;
+      if (region !== 'transcript' && region !== 'status') return false;
+      const rect = drag.rect;
+      if (!rect) return false;
+      if (rect.x1 === rect.x2 && rect.y1 === rect.y2) return false;
 
-    let anchor = { x: rect.x1, y: rect.y1 };
-    let col = rect.x2;
-    let row = rect.y2;
-    const beforeCol = col;
-    const beforeRow = row;
-    // Set when Shift+Up/Down hits the viewport edge and we scroll the
-    // transcript to reveal a new row rather than moving within the current
-    // viewport (mirrors the mouse edge-drag auto-scroll at the drag-motion
-    // handler). In that case row/col numerically equal their "before" values
-    // (both clamp to the same viewport edge index) even though the
-    // underlying content changed, so the generic before/after guard below
-    // must not treat it as a no-op.
-    let scrolledEdge = false;
+      let anchor = { x: rect.x1, y: rect.y1 };
+      let col = rect.x2;
+      let row = rect.y2;
+      const beforeCol = col;
+      const beforeRow = row;
+      // Set when Shift+Up/Down hits the viewport edge and we scroll the
+      // transcript to reveal a new row rather than moving within the current
+      // viewport (mirrors the mouse edge-drag auto-scroll at the drag-motion
+      // handler). In that case row/col numerically equal their "before" values
+      // (both clamp to the same viewport edge index) even though the
+      // underlying content changed, so the generic before/after guard below
+      // must not treat it as a no-op.
+      let scrolledEdge = false;
 
-    const { top, bottom } = region === 'status' ? statusBandRows() : transcriptViewportRows();
+      const { top, bottom } = region === 'status' ? statusBandRows() : transcriptViewportRows();
 
-    switch (move) {
-      case 'left':
-        if (col > 0) col -= 1;
-        else if (row > top) {
-          row -= 1;
-          col = selectionMaxColAtRow(row);
+      switch (move) {
+        case 'left':
+          if (col > 0) col -= 1;
+          else if (row > top) {
+            row -= 1;
+            col = selectionMaxColAtRow(row);
+          }
+          break;
+        case 'right': {
+          const maxCol = selectionMaxColAtRow(row);
+          if (col < maxCol) col += 1;
+          else if (row < bottom) {
+            row += 1;
+            col = 0;
+          }
+          break;
         }
-        break;
-      case 'right': {
-        const maxCol = selectionMaxColAtRow(row);
-        if (col < maxCol) col += 1;
-        else if (row < bottom) {
-          row += 1;
+        case 'up':
+          if (row > top) {
+            row -= 1;
+          } else if (region === 'transcript') {
+            // Already at the top visible row: scroll the transcript up by one
+            // row (same direction as the mouse edge-drag auto-scroll at the
+            // top edge, App.jsx ~3060) instead of clamping the selection in
+            // place, then extend the focus onto the newly revealed top row.
+            const beforeTarget = scrollTargetRef.current;
+            const slack = Math.max(0, Number(transcriptBottomSlackRowsRef.current) || 0);
+            const deltaRows = beforeTarget <= slack ? slack + 1 - beforeTarget : 1;
+            scrollTranscriptRows(deltaRows);
+            if (scrollTargetRef.current !== beforeTarget) {
+              scrolledEdge = true;
+              // scrollTranscriptRows REPLACES dragRef.current with a shifted
+              // copy — re-read it; the local `drag` binding is stale here.
+              const shiftedRect = dragRef.current.rect;
+              if (shiftedRect) anchor = { x: shiftedRect.x1, y: shiftedRect.y1 };
+              row = top;
+            }
+          }
+          break;
+        case 'down':
+          if (row < bottom) {
+            row += 1;
+          } else if (region === 'transcript') {
+            // Already at the bottom visible row: scroll down by one row (mirrors
+            // the mouse edge-drag auto-scroll at the bottom edge, App.jsx
+            // ~3062) instead of clamping, then extend the focus onto the newly
+            // revealed bottom row.
+            const beforeTarget = scrollTargetRef.current;
+            scrollTranscriptRows(-1);
+            if (scrollTargetRef.current !== beforeTarget) {
+              scrolledEdge = true;
+              // Re-read post-scroll dragRef.current (see 'up' case).
+              const shiftedRect = dragRef.current.rect;
+              if (shiftedRect) anchor = { x: shiftedRect.x1, y: shiftedRect.y1 };
+              row = bottom;
+            }
+          }
+          break;
+        case 'lineStart':
           col = 0;
-        }
-        break;
+          break;
+        case 'lineEnd':
+          col = selectionMaxColAtRow(row);
+          break;
+        default:
+          return false;
       }
-      case 'up':
-        if (row > top) {
-          row -= 1;
-        } else if (region === 'transcript') {
-          // Already at the top visible row: scroll the transcript up by one
-          // row (same direction as the mouse edge-drag auto-scroll at the
-          // top edge, App.jsx ~3060) instead of clamping the selection in
-          // place, then extend the focus onto the newly revealed top row.
-          const beforeTarget = scrollTargetRef.current;
-          const slack = Math.max(0, Number(transcriptBottomSlackRowsRef.current) || 0);
-          const deltaRows = beforeTarget <= slack ? (slack + 1 - beforeTarget) : 1;
-          scrollTranscriptRows(deltaRows);
-          if (scrollTargetRef.current !== beforeTarget) {
-            scrolledEdge = true;
-            // scrollTranscriptRows REPLACES dragRef.current with a shifted
-            // copy — re-read it; the local `drag` binding is stale here.
-            const shiftedRect = dragRef.current.rect;
-            if (shiftedRect) anchor = { x: shiftedRect.x1, y: shiftedRect.y1 };
-            row = top;
-          }
-        }
-        break;
-      case 'down':
-        if (row < bottom) {
-          row += 1;
-        } else if (region === 'transcript') {
-          // Already at the bottom visible row: scroll down by one row (mirrors
-          // the mouse edge-drag auto-scroll at the bottom edge, App.jsx
-          // ~3062) instead of clamping, then extend the focus onto the newly
-          // revealed bottom row.
-          const beforeTarget = scrollTargetRef.current;
-          scrollTranscriptRows(-1);
-          if (scrollTargetRef.current !== beforeTarget) {
-            scrolledEdge = true;
-            // Re-read post-scroll dragRef.current (see 'up' case).
-            const shiftedRect = dragRef.current.rect;
-            if (shiftedRect) anchor = { x: shiftedRect.x1, y: shiftedRect.y1 };
-            row = bottom;
-          }
-        }
-        break;
-      case 'lineStart':
-        col = 0;
-        break;
-      case 'lineEnd':
-        col = selectionMaxColAtRow(row);
-        break;
-      default:
-        return false;
-    }
 
-    row = Math.max(top, Math.min(bottom, row));
-    col = Math.max(0, Math.min(selectionMaxColAtRow(row), col));
+      row = Math.max(top, Math.min(bottom, row));
+      col = Math.max(0, Math.min(selectionMaxColAtRow(row), col));
 
-    if (!scrolledEdge && col === beforeCol && row === beforeRow) return false;
+      if (!scrolledEdge && col === beforeCol && row === beforeRow) return false;
 
-    // After an edge scroll dragRef.current is a NEW object; mutate the live
-    // one, not the stale entry binding.
-    const dragNow = dragRef.current;
-    if (dragNow.anchorSpan) dragNow.anchorSpan = null;
+      // After an edge scroll dragRef.current is a NEW object; mutate the live
+      // one, not the stale entry binding.
+      const dragNow = dragRef.current;
+      if (dragNow.anchorSpan) dragNow.anchorSpan = null;
 
-    const focus = { x: col, y: row };
-    applySelectionRect({
-      mode: 'linear',
-      x1: anchor.x,
-      y1: anchor.y,
-      x2: focus.x,
-      y2: focus.y,
-    });
-    dragNow.last = { x: focus.x, y: focus.y };
-    return true;
-  }, [applySelectionRect, statusBandRows, transcriptViewportRows, selectionMaxColAtRow, scrollTranscriptRows]);
+      const focus = { x: col, y: row };
+      applySelectionRect({
+        mode: 'linear',
+        x1: anchor.x,
+        y1: anchor.y,
+        x2: focus.x,
+        y2: focus.y,
+      });
+      dragNow.last = { x: focus.x, y: focus.y };
+      return true;
+    },
+    [applySelectionRect, statusBandRows, transcriptViewportRows, selectionMaxColAtRow, scrollTranscriptRows]
+  );
 
   return {
     stopSmoothScroll,

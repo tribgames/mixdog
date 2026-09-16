@@ -4,11 +4,7 @@
 //
 // Key names mirror the dependency names of settings-api.mjs / the session-build
 // deps, so the runtime can hand them straight through.
-import {
-  builtinFeatureActive,
-  featureDisallowedToolsFor,
-  localGitToolsActive,
-} from './builtin-features.mjs';
+import { builtinFeatureActive, featureDisallowedToolsFor, localGitToolsActive } from './builtin-features.mjs';
 import { moduleEnabled, recapEnabled } from './config-helpers.mjs';
 import { browserBridgeAvailableSync } from '../runtime/browser-bridge/client.mjs';
 import { computerBridgeAvailableSync } from '../runtime/computer-bridge/client.mjs';
@@ -29,10 +25,11 @@ export function createRuntimeFeatureGates({ getConfig, getToolProfile }) {
     channelsEnabled: () => moduleEnabled(getConfig(), 'channels', true),
     // Browser/Computer activate on live desktop-bridge presence, so the probe
     // runs per call instead of being captured at boot.
-    featureDisallowedTools: () => featureDisallowedToolsFor(getConfig(), {
-      browserAvailable: browserBridgeAvailableSync(),
-      computerAvailable: computerBridgeAvailableSync(),
-      toolProfile: getToolProfile(),
-    }),
+    featureDisallowedTools: () =>
+      featureDisallowedToolsFor(getConfig(), {
+        browserAvailable: browserBridgeAvailableSync(),
+        computerAvailable: computerBridgeAvailableSync(),
+        toolProfile: getToolProfile(),
+      }),
   };
 }

@@ -1,14 +1,11 @@
-export function bottomPanelOpenForPane(
-  openPaneIds: ReadonlySet<string>,
-  paneId: string,
-): boolean {
+export function bottomPanelOpenForPane(openPaneIds: ReadonlySet<string>, paneId: string): boolean {
   return Boolean(paneId) && openPaneIds.has(paneId);
 }
 
 export function setBottomPanelPaneOpen(
   openPaneIds: ReadonlySet<string>,
   paneId: string,
-  open: boolean,
+  open: boolean
 ): ReadonlySet<string> {
   if (!paneId || openPaneIds.has(paneId) === open) return openPaneIds;
   const next = new Set(openPaneIds);
@@ -19,14 +16,12 @@ export function setBottomPanelPaneOpen(
 
 export function restoreBottomPanelOpenPaneIds(
   record: Record<string, unknown>,
-  activePaneId: string,
+  activePaneId: string
 ): ReadonlySet<string> {
   if (Array.isArray(record.openPaneIds)) {
-    return new Set(record.openPaneIds
-      .filter((value): value is string => typeof value === "string" && Boolean(value))
-      .slice(0, 100));
+    return new Set(
+      record.openPaneIds.filter((value): value is string => typeof value === 'string' && Boolean(value)).slice(0, 100)
+    );
   }
-  return record.open === true && activePaneId
-    ? new Set([activePaneId])
-    : new Set();
+  return record.open === true && activePaneId ? new Set([activePaneId]) : new Set();
 }

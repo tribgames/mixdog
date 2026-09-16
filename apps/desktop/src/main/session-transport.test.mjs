@@ -31,23 +31,23 @@ test('failed desktop initialization closes its daemon attachment and preserves t
   let closeCalls = 0;
   const calls = [];
   const failure = new Error('plain Node could not import the desktop service');
-  const transport = new SessionTransport(
-    'file:///C:/tmp/daemon.cjs',
-    process.cwd(),
-    async () => ({
-      ensureDaemon: async () => ({ pid: process.pid, port: 1, token: 'test' }),
-      attachSession: async () => ({
-        async call(name) {
-          calls.push(name);
-          if (name === 'desktop.init') throw failure;
-          return { ok: true };
-        },
-        async close() { closeCalls += 1; },
-      }),
+  const transport = new SessionTransport('file:///C:/tmp/daemon.cjs', process.cwd(), async () => ({
+    ensureDaemon: async () => ({ pid: process.pid, port: 1, token: 'test' }),
+    attachSession: async () => ({
+      async call(name) {
+        calls.push(name);
+        if (name === 'desktop.init') throw failure;
+        return { ok: true };
+      },
+      async close() {
+        closeCalls += 1;
+      },
     }),
-  );
+  }));
   let exit = null;
-  transport.on('exit', (code, cause) => { exit = { code, cause }; });
+  transport.on('exit', (code, cause) => {
+    exit = { code, cause };
+  });
   transport.postMessage({ kind: 'init', options });
 
   await waitFor(() => exit);
@@ -58,20 +58,19 @@ test('failed desktop initialization closes its daemon attachment and preserves t
 });
 
 test('a mismatched session contract tells desktop users how to recover', async () => {
-  const conflict = Object.assign(
-    new Error('session protocol mismatch'),
-    { sessionProtocolMismatch: true },
-  );
-  const transport = new SessionTransport(
-    'file:///C:/tmp/daemon.cjs',
-    process.cwd(),
-    async () => ({
-      ensureDaemon: async () => { throw conflict; },
-      attachSession: async () => { throw new Error('must not attach'); },
-    }),
-  );
+  const conflict = Object.assign(new Error('session protocol mismatch'), { sessionProtocolMismatch: true });
+  const transport = new SessionTransport('file:///C:/tmp/daemon.cjs', process.cwd(), async () => ({
+    ensureDaemon: async () => {
+      throw conflict;
+    },
+    attachSession: async () => {
+      throw new Error('must not attach');
+    },
+  }));
   let exit = null;
-  transport.on('exit', (code, cause) => { exit = { code, cause }; });
+  transport.on('exit', (code, cause) => {
+    exit = { code, cause };
+  });
   transport.postMessage({ kind: 'init', options });
 
   await waitFor(() => exit);
@@ -83,28 +82,24 @@ test('a mismatched session contract tells desktop users how to recover', async (
 
 test('a transient pooled-socket reset retries one desktop request with the same call id', async () => {
   const invocations = [];
-  const transport = new SessionTransport(
-    'file:///C:/tmp/daemon.cjs',
-    process.cwd(),
-    async () => ({
-      ensureDaemon: async () => ({ pid: process.pid, port: 1, token: 'test' }),
-      attachSession: async () => ({
-        async call(name, args, callOptions) {
-          if (name === 'desktop.init') return { desktopId: 'desktop_test' };
-          if (name === 'desktop.control') return { ok: true };
-          if (name === 'desktop.invoke') {
-            invocations.push({ args, callId: callOptions?.callId });
-            if (invocations.length === 1) {
-              throw Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
-            }
-            return 'recovered';
+  const transport = new SessionTransport('file:///C:/tmp/daemon.cjs', process.cwd(), async () => ({
+    ensureDaemon: async () => ({ pid: process.pid, port: 1, token: 'test' }),
+    attachSession: async () => ({
+      async call(name, args, callOptions) {
+        if (name === 'desktop.init') return { desktopId: 'desktop_test' };
+        if (name === 'desktop.control') return { ok: true };
+        if (name === 'desktop.invoke') {
+          invocations.push({ args, callId: callOptions?.callId });
+          if (invocations.length === 1) {
+            throw Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
           }
-          return { ok: true };
-        },
-        async close() {},
-      }),
+          return 'recovered';
+        }
+        return { ok: true };
+      },
+      async close() {},
     }),
-  );
+  }));
   const messages = [];
   transport.on('message', (message) => messages.push(message));
   transport.postMessage({ kind: 'init', options });
@@ -115,8 +110,7 @@ test('a transient pooled-socket reset retries one desktop request with the same 
     method: 'getProviderSetup',
     args: [],
   });
-  const response = await waitFor(() => messages.find((message) =>
-    message.kind === 'response' && message.id === 42));
+  const response = await waitFor(() => messages.find((message) => message.kind === 'response' && message.id === 42));
   assert.equal(response.ok, true);
   assert.equal(response.value, 'recovered');
   assert.equal(invocations.length, 2);
@@ -130,48 +124,46 @@ test('a dead daemon is reattached internally and replays an in-flight request on
   const diagnostics = [];
   const attachments = [];
   let ensureCount = 0;
-  const transport = new SessionTransport(
-    'file:///C:/tmp/daemon.cjs',
-    process.cwd(),
-    async () => ({
-      ensureDaemon: async () => ({
-        pid: process.pid + ensureCount++,
-        port: ensureCount,
-        token: `test-${ensureCount}`,
-      }),
-      attachSession: async (attachOptions) => {
-        const index = attachments.length;
-        const client = {
-          pid: process.pid + index,
-          port: index + 1,
-          async call(name, args, callOptions) {
-            if (name === 'desktop.init') return { desktopId: 'desktop_recovered' };
-            if (name === 'desktop.control') return { ok: true };
-            if (name === 'desktop.invoke') {
-              invocations.push({ index, args, callId: callOptions?.callId });
-              if (index === 0) {
-                attachOptions.onFatal?.('daemon exited pid=1 port=1');
-                throw Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:1'), {
-                  code: 'ECONNREFUSED',
-                  daemonTransportError: true,
-                });
-              }
-              return 'reattached';
-            }
-            return { ok: true };
-          },
-          async close() {},
-        };
-        attachments.push(client);
-        return client;
-      },
+  const transport = new SessionTransport('file:///C:/tmp/daemon.cjs', process.cwd(), async () => ({
+    ensureDaemon: async () => ({
+      pid: process.pid + ensureCount++,
+      port: ensureCount,
+      token: `test-${ensureCount}`,
     }),
-  );
+    attachSession: async (attachOptions) => {
+      const index = attachments.length;
+      const client = {
+        pid: process.pid + index,
+        port: index + 1,
+        async call(name, args, callOptions) {
+          if (name === 'desktop.init') return { desktopId: 'desktop_recovered' };
+          if (name === 'desktop.control') return { ok: true };
+          if (name === 'desktop.invoke') {
+            invocations.push({ index, args, callId: callOptions?.callId });
+            if (index === 0) {
+              attachOptions.onFatal?.('daemon exited pid=1 port=1');
+              throw Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:1'), {
+                code: 'ECONNREFUSED',
+                daemonTransportError: true,
+              });
+            }
+            return 'reattached';
+          }
+          return { ok: true };
+        },
+        async close() {},
+      };
+      attachments.push(client);
+      return client;
+    },
+  }));
   const messages = [];
   let exit = null;
   transport.on('message', (message) => messages.push(message));
   transport.on('diagnostic', (event, details) => diagnostics.push({ event, details }));
-  transport.on('exit', (code, cause) => { exit = { code, cause }; });
+  transport.on('exit', (code, cause) => {
+    exit = { code, cause };
+  });
   transport.postMessage({ kind: 'init', options });
   await waitFor(() => messages.some((message) => message.kind === 'ready'));
   transport.postMessage({
@@ -181,8 +173,7 @@ test('a dead daemon is reattached internally and replays an in-flight request on
     args: ['preserve me'],
   });
 
-  const response = await waitFor(() => messages.find((message) =>
-    message.kind === 'response' && message.id === 43));
+  const response = await waitFor(() => messages.find((message) => message.kind === 'response' && message.id === 43));
   assert.equal(response.ok, true);
   assert.equal(response.value, 'reattached');
   assert.equal(exit, null);
@@ -190,16 +181,11 @@ test('a dead daemon is reattached internally and replays an in-flight request on
   assert.equal(invocations.length, 2);
   assert.equal(invocations[0].callId, invocations[1].callId);
   assert.deepEqual(
-    diagnostics
-      .filter((entry) => entry.event !== 'desktop-boot-phase')
-      .map((entry) => entry.event),
-    ['session-daemon-reconnecting', 'session-daemon-reconnected'],
+    diagnostics.filter((entry) => entry.event !== 'desktop-boot-phase').map((entry) => entry.event),
+    ['session-daemon-reconnecting', 'session-daemon-reconnected']
   );
   // The swap is announced on the lane the host actually acts on, once.
-  assert.equal(
-    messages.filter((message) => message.kind === 'daemon-replaced').length,
-    1,
-  );
+  assert.equal(messages.filter((message) => message.kind === 'daemon-replaced').length, 1);
   await transport.close();
 });
 
@@ -210,7 +196,9 @@ test('global reads recreate a stale service control session without exposing the
   let createCount = 0;
   const reads = [];
   const dead = new Set();
-  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const unsupported = async () => {
+    throw new Error('unexpected session client call');
+  };
   const client = {
     list: unsupported,
     async create() {
@@ -241,21 +229,24 @@ test('global reads recreate a stale service control session without exposing the
     async close() {},
   };
   try {
-    host = await SessionHost.create({
-      userDataPath,
-      packaged: false,
-      resourcesPath: userDataPath,
-      appPath: userDataPath,
-    }, {
-      async attachSessionClient(nextHooks) {
-        hooks = nextHooks;
-        return client;
+    host = await SessionHost.create(
+      {
+        userDataPath,
+        packaged: false,
+        resourcesPath: userDataPath,
+        appPath: userDataPath,
       },
-      loadProjects: unsupported,
-      loadSessionStore: unsupported,
-      loadStatuslineSegments: unsupported,
-      executeCodeGraphTool: unsupported,
-    });
+      {
+        async attachSessionClient(nextHooks) {
+          hooks = nextHooks;
+          return client;
+        },
+        loadProjects: unsupported,
+        loadSessionStore: unsupported,
+        loadStatuslineSegments: unsupported,
+        executeCodeGraphTool: unsupported,
+      }
+    );
 
     await Promise.all([
       host.invokeCapability('getProviderSetup'),
@@ -273,8 +264,13 @@ test('global reads recreate a stale service control session without exposing the
 
     assert.equal(createCount, 4);
     assert.deepEqual(reads, [
-      'control_1', 'control_1', 'control_1',
-      'control_2', 'control_3', 'control_3', 'control_4',
+      'control_1',
+      'control_1',
+      'control_1',
+      'control_2',
+      'control_3',
+      'control_3',
+      'control_4',
     ]);
   } finally {
     await host?.dispose();
@@ -287,7 +283,9 @@ test('global mutations are not replayed after an ambiguous control-session failu
   let host = null;
   let createCount = 0;
   let configureCount = 0;
-  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const unsupported = async () => {
+    throw new Error('unexpected session client call');
+  };
   const client = {
     list: unsupported,
     async create() {
@@ -312,30 +310,29 @@ test('global mutations are not replayed after an ambiguous control-session failu
     async close() {},
   };
   try {
-    host = await SessionHost.create({
-      userDataPath,
-      packaged: false,
-      resourcesPath: userDataPath,
-      appPath: userDataPath,
-    }, {
-      async attachSessionClient() { return client; },
-      loadProjects: unsupported,
-      loadSessionStore: unsupported,
-      loadStatuslineSegments: unsupported,
-      executeCodeGraphTool: unsupported,
-    });
-
-    await assert.rejects(
-      host.invokeCapability('setAutoUpdate', [true]),
-      /changed its durable address/,
+    host = await SessionHost.create(
+      {
+        userDataPath,
+        packaged: false,
+        resourcesPath: userDataPath,
+        appPath: userDataPath,
+      },
+      {
+        async attachSessionClient() {
+          return client;
+        },
+        loadProjects: unsupported,
+        loadSessionStore: unsupported,
+        loadStatuslineSegments: unsupported,
+        executeCodeGraphTool: unsupported,
+      }
     );
+
+    await assert.rejects(host.invokeCapability('setAutoUpdate', [true]), /changed its durable address/);
     assert.equal(createCount, 1);
     assert.equal(configureCount, 1);
 
-    await assert.rejects(
-      host.invokeCapability('setAutoUpdate', [false]),
-      /changed its durable address/,
-    );
+    await assert.rejects(host.invokeCapability('setAutoUpdate', [false]), /changed its durable address/);
     assert.equal(createCount, 2);
     assert.equal(configureCount, 2);
   } finally {
@@ -349,7 +346,9 @@ test('a reply whose baseline vanished re-reads instead of publishing an empty pa
   let host = null;
   const reads = [];
   const items = [{ id: 'a', role: 'assistant', text: 'kept' }];
-  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const unsupported = async () => {
+    throw new Error('unexpected session client call');
+  };
   const client = {
     list: unsupported,
     async create() {
@@ -376,20 +375,25 @@ test('a reply whose baseline vanished re-reads instead of publishing an empty pa
     async close() {},
   };
   try {
-    host = await SessionHost.create({
-      userDataPath,
-      packaged: false,
-      resourcesPath: userDataPath,
-      appPath: userDataPath,
-    }, {
-      async attachSessionClient() { return client; },
-      loadProjects: unsupported,
-      async loadSessionStore() {
-        return { listStoredAgentWorkers: () => [] };
+    host = await SessionHost.create(
+      {
+        userDataPath,
+        packaged: false,
+        resourcesPath: userDataPath,
+        appPath: userDataPath,
       },
-      loadStatuslineSegments: unsupported,
-      executeCodeGraphTool: unsupported,
-    });
+      {
+        async attachSessionClient() {
+          return client;
+        },
+        loadProjects: unsupported,
+        async loadSessionStore() {
+          return { listStoredAgentWorkers: () => [] };
+        },
+        loadStatuslineSegments: unsupported,
+        executeCodeGraphTool: unsupported,
+      }
+    );
     const updates = [];
     host.subscribeSessionStates((update) => updates.push(update));
 
@@ -401,7 +405,10 @@ test('a reply whose baseline vanished re-reads instead of publishing an empty pa
     // daemon must answer FULL.
     assert.equal(updates.length, 1);
     assert.deepEqual(updates[0].snapshot.items, items);
-    assert.deepEqual(reads.map((entry) => entry.baseRevision), [null, null]);
+    assert.deepEqual(
+      reads.map((entry) => entry.baseRevision),
+      [null, null]
+    );
   } finally {
     await host?.dispose();
     await rm(userDataPath, { recursive: true, force: true });
@@ -413,7 +420,9 @@ test('explicit cold view recovery replays the retained body on an unchanged daem
   let host = null;
   const reads = [];
   const items = [{ id: 'a', kind: 'assistant', text: 'cold' }];
-  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const unsupported = async () => {
+    throw new Error('unexpected session client call');
+  };
   const client = {
     list: unsupported,
     async create() {
@@ -445,20 +454,25 @@ test('explicit cold view recovery replays the retained body on an unchanged daem
     async close() {},
   };
   try {
-    host = await SessionHost.create({
-      userDataPath,
-      packaged: false,
-      resourcesPath: userDataPath,
-      appPath: userDataPath,
-    }, {
-      async attachSessionClient() { return client; },
-      loadProjects: unsupported,
-      async loadSessionStore() {
-        return { listStoredAgentWorkers: () => [] };
+    host = await SessionHost.create(
+      {
+        userDataPath,
+        packaged: false,
+        resourcesPath: userDataPath,
+        appPath: userDataPath,
       },
-      loadStatuslineSegments: unsupported,
-      executeCodeGraphTool: unsupported,
-    });
+      {
+        async attachSessionClient() {
+          return client;
+        },
+        loadProjects: unsupported,
+        async loadSessionStore() {
+          return { listStoredAgentWorkers: () => [] };
+        },
+        loadStatuslineSegments: unsupported,
+        executeCodeGraphTool: unsupported,
+      }
+    );
     const updates = [];
     host.subscribeSessionStates((update) => updates.push(update));
 
@@ -485,7 +499,9 @@ test('visible registration replays a retained projection after an early prefetch
   let host = null;
   let subscribedBaseRevision = null;
   const items = [{ id: 'a', kind: 'assistant', text: 'retained transcript' }];
-  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const unsupported = async () => {
+    throw new Error('unexpected session client call');
+  };
   const client = {
     list: unsupported,
     async create() {
@@ -514,7 +530,9 @@ test('visible registration replays a retained projection after an early prefetch
         unchanged: true,
       };
     },
-    async unsubscribe() { return {}; },
+    async unsubscribe() {
+      return {};
+    },
     submit: unsupported,
     abort: unsupported,
     approve: unsupported,
@@ -522,20 +540,25 @@ test('visible registration replays a retained projection after an early prefetch
     async close() {},
   };
   try {
-    host = await SessionHost.create({
-      userDataPath,
-      packaged: false,
-      resourcesPath: userDataPath,
-      appPath: userDataPath,
-    }, {
-      async attachSessionClient() { return client; },
-      loadProjects: unsupported,
-      async loadSessionStore() {
-        return { listStoredAgentWorkers: () => [] };
+    host = await SessionHost.create(
+      {
+        userDataPath,
+        packaged: false,
+        resourcesPath: userDataPath,
+        appPath: userDataPath,
       },
-      loadStatuslineSegments: unsupported,
-      executeCodeGraphTool: unsupported,
-    });
+      {
+        async attachSessionClient() {
+          return client;
+        },
+        loadProjects: unsupported,
+        async loadSessionStore() {
+          return { listStoredAgentWorkers: () => [] };
+        },
+        loadStatuslineSegments: unsupported,
+        executeCodeGraphTool: unsupported,
+      }
+    );
     const updates = [];
     host.subscribeSessionStates((update) => updates.push(update));
 
@@ -560,34 +583,34 @@ test('an SSE reconnect resyncs in place without rejecting an in-flight desktop r
   let streamDisconnect = null;
   let streamReconnect = null;
   let resolveInvoke;
-  const transport = new SessionTransport(
-    'file:///C:/tmp/daemon.cjs',
-    process.cwd(),
-    async () => ({
-      ensureDaemon: async () => ({ pid: process.pid, port: 1, token: 'test' }),
-      attachSession: async (attachOptions) => {
-        streamDisconnect = attachOptions.onStreamDisconnect;
-        streamReconnect = attachOptions.onStreamReconnect;
-        return {
-          async call(name, args) {
-            calls.push({ name, args });
-            if (name === 'desktop.init') return { desktopId: 'desktop_reconnect' };
-            if (name === 'desktop.invoke') {
-              return await new Promise((resolve) => { resolveInvoke = resolve; });
-            }
-            return { ok: true };
-          },
-          async close() {},
-        };
-      },
-    }),
-  );
+  const transport = new SessionTransport('file:///C:/tmp/daemon.cjs', process.cwd(), async () => ({
+    ensureDaemon: async () => ({ pid: process.pid, port: 1, token: 'test' }),
+    attachSession: async (attachOptions) => {
+      streamDisconnect = attachOptions.onStreamDisconnect;
+      streamReconnect = attachOptions.onStreamReconnect;
+      return {
+        async call(name, args) {
+          calls.push({ name, args });
+          if (name === 'desktop.init') return { desktopId: 'desktop_reconnect' };
+          if (name === 'desktop.invoke') {
+            return await new Promise((resolve) => {
+              resolveInvoke = resolve;
+            });
+          }
+          return { ok: true };
+        },
+        async close() {},
+      };
+    },
+  }));
   const messages = [];
   const diagnostics = [];
   let exit = null;
   transport.on('message', (message) => messages.push(message));
   transport.on('diagnostic', (event, details) => diagnostics.push({ event, details }));
-  transport.on('exit', (code, cause) => { exit = { code, cause }; });
+  transport.on('exit', (code, cause) => {
+    exit = { code, cause };
+  });
   transport.postMessage({ kind: 'init', options });
   await waitFor(() => messages.some((message) => message.kind === 'ready'));
 
@@ -602,40 +625,29 @@ test('an SSE reconnect resyncs in place without rejecting an in-flight desktop r
   streamReconnect({ reason: 'sse ended', attempt: 1, downtimeMs: 25 });
   await waitFor(() => calls.filter((entry) => entry.name === 'desktop.control').length === 2);
   resolveInvoke(true);
-  const response = await waitFor(() => messages.find((message) =>
-    message.kind === 'response' && message.id === 77));
+  const response = await waitFor(() => messages.find((message) => message.kind === 'response' && message.id === 77));
 
   assert.equal(response.ok, true);
   assert.equal(response.value, true);
   assert.equal(exit, null, 'event-stream recovery does not restart the service transport');
   assert.deepEqual(
-    diagnostics
-      .filter((entry) => entry.event !== 'desktop-boot-phase')
-      .map((entry) => entry.event),
-    [
-      'session-stream-reconnecting',
-      'session-stream-reconnected',
-      'session-stream-resync-complete',
-    ],
+    diagnostics.filter((entry) => entry.event !== 'desktop-boot-phase').map((entry) => entry.event),
+    ['session-stream-reconnecting', 'session-stream-reconnected', 'session-stream-resync-complete']
   );
   await transport.close();
 });
 
 test('desktop initialization reports every boot transport phase', async () => {
-  const transport = new SessionTransport(
-    'file:///C:/tmp/daemon.cjs',
-    process.cwd(),
-    async () => ({
-      ensureDaemon: async () => ({ pid: process.pid, port: 1, token: 'test' }),
-      attachSession: async () => ({
-        async call(name) {
-          if (name === 'desktop.init') return { desktopId: 'desktop_profiled' };
-          return { ok: true };
-        },
-        async close() {},
-      }),
+  const transport = new SessionTransport('file:///C:/tmp/daemon.cjs', process.cwd(), async () => ({
+    ensureDaemon: async () => ({ pid: process.pid, port: 1, token: 'test' }),
+    attachSession: async () => ({
+      async call(name) {
+        if (name === 'desktop.init') return { desktopId: 'desktop_profiled' };
+        return { ok: true };
+      },
+      async close() {},
     }),
-  );
+  }));
   const diagnostics = [];
   const messages = [];
   transport.on('diagnostic', (event, details) => diagnostics.push({ event, details }));
@@ -660,7 +672,7 @@ test('desktop initialization reports every boot transport phase', async () => {
     diagnostics
       .filter(({ event }) => event === 'desktop-boot-phase')
       .every(({ details }) => Number.isFinite(details.totalMs) && details.totalMs >= 0),
-    true,
+    true
   );
   await transport.close();
 });
@@ -670,7 +682,9 @@ test('the pinned remote session stays global when another session publishes focu
   let host = null;
   let hooks = null;
   const updates = [];
-  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const unsupported = async () => {
+    throw new Error('unexpected session client call');
+  };
   const client = {
     list: unsupported,
     create: unsupported,
@@ -688,31 +702,35 @@ test('the pinned remote session stays global when another session publishes focu
         },
       };
     },
-    async unsubscribe() { return {}; },
+    async unsubscribe() {
+      return {};
+    },
     submit: unsupported,
     abort: unsupported,
     approve: unsupported,
     configure: unsupported,
     async close() {},
   };
-  const latest = (sessionId) =>
-    updates.filter((update) => update.sessionId === sessionId).at(-1)?.snapshot;
+  const latest = (sessionId) => updates.filter((update) => update.sessionId === sessionId).at(-1)?.snapshot;
   try {
-    host = await SessionHost.create({
-      userDataPath,
-      packaged: false,
-      resourcesPath: userDataPath,
-      appPath: userDataPath,
-    }, {
-      async attachSessionClient(nextHooks) {
-        hooks = nextHooks;
-        return client;
+    host = await SessionHost.create(
+      {
+        userDataPath,
+        packaged: false,
+        resourcesPath: userDataPath,
+        appPath: userDataPath,
       },
-      loadProjects: unsupported,
-      loadSessionStore: unsupported,
-      loadStatuslineSegments: unsupported,
-      executeCodeGraphTool: unsupported,
-    });
+      {
+        async attachSessionClient(nextHooks) {
+          hooks = nextHooks;
+          return client;
+        },
+        loadProjects: unsupported,
+        loadSessionStore: unsupported,
+        loadStatuslineSegments: unsupported,
+        executeCodeGraphTool: unsupported,
+      }
+    );
     host.subscribeSessionStates((update) => updates.push(update));
     await host.setVisibleSessions(['session_remote', 'session_focused']);
     updates.length = 0;
@@ -760,7 +778,9 @@ test('an agent tab loads its transcript through the normal session read path', a
   const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-agent-tab-read-'));
   const updates = [];
   let host = null;
-  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const unsupported = async () => {
+    throw new Error('unexpected session client call');
+  };
   const client = {
     list: unsupported,
     create: unsupported,
@@ -788,23 +808,30 @@ test('an agent tab loads its transcript through the normal session read path', a
     async close() {},
   };
   try {
-    host = await SessionHost.create({
-      userDataPath,
-      packaged: false,
-      resourcesPath: userDataPath,
-      appPath: userDataPath,
-    }, {
-      async attachSessionClient() { return client; },
-      loadProjects: unsupported,
-      async loadSessionStore() { return { listStoredAgentWorkers: () => [] }; },
-      loadStatuslineSegments: unsupported,
-      executeCodeGraphTool: unsupported,
-    });
+    host = await SessionHost.create(
+      {
+        userDataPath,
+        packaged: false,
+        resourcesPath: userDataPath,
+        appPath: userDataPath,
+      },
+      {
+        async attachSessionClient() {
+          return client;
+        },
+        loadProjects: unsupported,
+        async loadSessionStore() {
+          return { listStoredAgentWorkers: () => [] };
+        },
+        loadStatuslineSegments: unsupported,
+        executeCodeGraphTool: unsupported,
+      }
+    );
     host.subscribeSessionStates((update) => updates.push(update));
     assert.equal(await host.prefetchSession('agent_child'), true);
     assert.deepEqual(
       updates.at(-1).snapshot.items.map((item) => item.text),
-      ['worker brief', 'worker handoff'],
+      ['worker brief', 'worker handoff']
     );
   } finally {
     await host?.dispose();
@@ -817,20 +844,24 @@ test('history replay prepends stored rows while retaining the live tail and work
     { id: 'user-1', kind: 'user', text: 'worker brief' },
     { id: 'assistant-1', kind: 'assistant', text: 'worker handoff' },
   ];
-  const merged = mergeSessionHistorySnapshot('agent_child', {
-    sessionId: 'agent_child',
-    items: liveTail,
-    queued: [{ id: 'queued' }],
-    busy: true,
-  }, {
-    sessionId: 'agent_child',
-    items: [
-      { id: 'older', kind: 'assistant', text: 'older context' },
-      ...liveTail.map((item) => ({ ...item })),
-    ],
-    queued: [],
-  });
-  assert.deepEqual(merged.items.map((item) => item.id), ['older', 'user-1', 'assistant-1']);
+  const merged = mergeSessionHistorySnapshot(
+    'agent_child',
+    {
+      sessionId: 'agent_child',
+      items: liveTail,
+      queued: [{ id: 'queued' }],
+      busy: true,
+    },
+    {
+      sessionId: 'agent_child',
+      items: [{ id: 'older', kind: 'assistant', text: 'older context' }, ...liveTail.map((item) => ({ ...item }))],
+      queued: [],
+    }
+  );
+  assert.deepEqual(
+    merged.items.map((item) => item.id),
+    ['older', 'user-1', 'assistant-1']
+  );
   assert.equal(merged.items[1], liveTail[0]);
   assert.equal(merged.items[2], liveTail[1]);
   assert.equal(merged.busy, true);
@@ -845,7 +876,9 @@ test('new-task route trusts its authoritative result over a stale projected snap
     let host = null;
     let submitCalls = 0;
     let unsubscribeCalls = 0;
-    const unsupported = async () => { throw new Error('unexpected session client call'); };
+    const unsupported = async () => {
+      throw new Error('unexpected session client call');
+    };
     const snapshot = (fast) => ({
       sessionId,
       items: [],
@@ -856,7 +889,9 @@ test('new-task route trusts its authoritative result over a stale projected snap
       fast,
     });
     const client = {
-      async list() { return { sessions: [] }; },
+      async list() {
+        return { sessions: [] };
+      },
       async create(params) {
         sessionId = params.sessionId;
         return { sessionId, revision: 0, full: snapshot(false) };
@@ -892,36 +927,42 @@ test('new-task route trusts its authoritative result over a stale projected snap
       async close() {},
     };
     try {
-      host = await SessionHost.create({
-        userDataPath,
-        packaged: false,
-        resourcesPath: userDataPath,
-        appPath: userDataPath,
-      }, {
-        async attachSessionClient() { return client; },
-        loadProjects: unsupported,
-        async loadSessionStore() {
-          return { listStoredAgentWorkers: () => [] };
+      host = await SessionHost.create(
+        {
+          userDataPath,
+          packaged: false,
+          resourcesPath: userDataPath,
+          appPath: userDataPath,
         },
-        loadStatuslineSegments: unsupported,
-        executeCodeGraphTool: unsupported,
-      });
-      const promise = host.submitNewTask('route test', {}, {
-        route: {
-          provider: 'openai-oauth',
-          model: 'gpt-test',
-          effort: 'high',
-          fast: true,
-        },
-      });
+        {
+          async attachSessionClient() {
+            return client;
+          },
+          loadProjects: unsupported,
+          async loadSessionStore() {
+            return { listStoredAgentWorkers: () => [] };
+          },
+          loadStatuslineSegments: unsupported,
+          executeCodeGraphTool: unsupported,
+        }
+      );
+      const promise = host.submitNewTask(
+        'route test',
+        {},
+        {
+          route: {
+            provider: 'openai-oauth',
+            model: 'gpt-test',
+            effort: 'high',
+            fast: true,
+          },
+        }
+      );
       if (fastCapable) {
         const result = await promise;
         assert.equal(result.accepted, true);
       } else {
-        await assert.rejects(
-          promise,
-          /fast mode is not available for openai-oauth\/gpt-test/,
-        );
+        await assert.rejects(promise, /fast mode is not available for openai-oauth\/gpt-test/);
       }
       await new Promise((resolve) => setImmediate(resolve));
       return { actions, submitCalls, unsubscribeCalls };
@@ -932,13 +973,19 @@ test('new-task route trusts its authoritative result over a stale projected snap
   };
 
   const supported = await run(true);
-  assert.deepEqual(supported.actions.map(({ action }) => action), ['setRoute']);
+  assert.deepEqual(
+    supported.actions.map(({ action }) => action),
+    ['setRoute']
+  );
   assert.equal(supported.actions[0].args[0].fast, true);
   assert.equal(supported.submitCalls, 1);
   assert.equal(supported.unsubscribeCalls, 0);
 
   const unsupported = await run(false);
-  assert.deepEqual(unsupported.actions.map(({ action }) => action), ['setRoute']);
+  assert.deepEqual(
+    unsupported.actions.map(({ action }) => action),
+    ['setRoute']
+  );
   assert.equal(unsupported.submitCalls, 0);
   assert.equal(unsupported.unsubscribeCalls, 1);
 });
@@ -959,10 +1006,16 @@ test('a new task stays out of the session catalog until its first prompt is acce
   let host;
   let submitStarted = false;
   let resolveSubmit;
-  const submitResult = new Promise((resolve) => { resolveSubmit = resolve; });
-  const unsupported = async () => { throw new Error('unsupported'); };
+  const submitResult = new Promise((resolve) => {
+    resolveSubmit = resolve;
+  });
+  const unsupported = async () => {
+    throw new Error('unsupported');
+  };
   const client = {
-    async list() { return { sessions: [row] }; },
+    async list() {
+      return { sessions: [row] };
+    },
     async create(params) {
       sessionId = params.sessionId;
       row.id = sessionId;
@@ -974,7 +1027,9 @@ test('a new task stays out of the session catalog until its first prompt is acce
     },
     read: unsupported,
     subscribe: unsupported,
-    async unsubscribe() { return {}; },
+    async unsubscribe() {
+      return {};
+    },
     async submit() {
       submitStarted = true;
       return submitResult;
@@ -985,20 +1040,25 @@ test('a new task stays out of the session catalog until its first prompt is acce
     async close() {},
   };
   try {
-    host = await SessionHost.create({
-      userDataPath,
-      packaged: false,
-      resourcesPath: userDataPath,
-      appPath: userDataPath,
-    }, {
-      async attachSessionClient() { return client; },
-      loadProjects: unsupported,
-      async loadSessionStore() {
-        return { listStoredAgentWorkers: () => [] };
+    host = await SessionHost.create(
+      {
+        userDataPath,
+        packaged: false,
+        resourcesPath: userDataPath,
+        appPath: userDataPath,
       },
-      loadStatuslineSegments: unsupported,
-      executeCodeGraphTool: unsupported,
-    });
+      {
+        async attachSessionClient() {
+          return client;
+        },
+        loadProjects: unsupported,
+        async loadSessionStore() {
+          return { listStoredAgentWorkers: () => [] };
+        },
+        loadStatuslineSegments: unsupported,
+        executeCodeGraphTool: unsupported,
+      }
+    );
 
     const submission = host.submitNewTask('catalog handoff');
     await waitFor(() => submitStarted);
@@ -1011,7 +1071,10 @@ test('a new task stays out of the session catalog until its first prompt is acce
       full: { sessionId, items: [{ kind: 'user', text: 'catalog handoff' }], queued: [] },
     });
     assert.equal((await submission).accepted, true);
-    assert.deepEqual((await host.listSessions()).map((session) => session.id), [sessionId]);
+    assert.deepEqual(
+      (await host.listSessions()).map((session) => session.id),
+      [sessionId]
+    );
   } finally {
     await host?.dispose();
     await rm(userDataPath, { recursive: true, force: true });
@@ -1022,7 +1085,9 @@ test('Local Provider asset installs carry a daemon deadline beyond the download 
   const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-local-provider-timeout-'));
   const calls = [];
   let host = null;
-  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const unsupported = async () => {
+    throw new Error('unexpected session client call');
+  };
   const client = {
     list: unsupported,
     async create() {
@@ -1050,18 +1115,23 @@ test('Local Provider asset installs carry a daemon deadline beyond the download 
     async close() {},
   };
   try {
-    host = await SessionHost.create({
-      userDataPath,
-      packaged: false,
-      resourcesPath: userDataPath,
-      appPath: userDataPath,
-    }, {
-      async attachSessionClient() { return client; },
-      loadProjects: unsupported,
-      loadSessionStore: unsupported,
-      loadStatuslineSegments: unsupported,
-      executeCodeGraphTool: unsupported,
-    });
+    host = await SessionHost.create(
+      {
+        userDataPath,
+        packaged: false,
+        resourcesPath: userDataPath,
+        appPath: userDataPath,
+      },
+      {
+        async attachSessionClient() {
+          return client;
+        },
+        loadProjects: unsupported,
+        loadSessionStore: unsupported,
+        loadStatuslineSegments: unsupported,
+        executeCodeGraphTool: unsupported,
+      }
+    );
 
     await host.invokeCapability('setAutoUpdate', [true]);
     await host.invokeCapability('installBuiltinFeature', ['localProvider']);
@@ -1071,7 +1141,7 @@ test('Local Provider asset installs carry a daemon deadline beyond the download 
     for (const call of calls.slice(1)) {
       assert.ok(
         call.callOptions.timeoutMs > 6 * 60 * 60_000,
-        `${call.action} must outlive the six-hour asset download budget`,
+        `${call.action} must outlive the six-hour asset download budget`
       );
     }
   } finally {

@@ -18,7 +18,9 @@
 /* The narrow desktop shell promotes this otherwise layout-transparent group
    into one physical drawer, so the Activity Rail and session panel can never
    expose separate first-frame geometry. */
-.sidebar-drawer-frame { display: contents; }
+.sidebar-drawer-frame {
+  display: contents;
+}
 /* UI chrome is not selectable text (user: double-clicks left selection
    marks on menus). Content surfaces — transcript, composer — stay
    selectable. */
@@ -82,4 +84,3 @@
     overflow: auto;
   }
 }
-

@@ -36,7 +36,10 @@ export function notificationQueueKey(event, text, parsed) {
   if (!id) return '';
   const type = String(meta.type || '').trim();
   const status = String(meta.status || parsed?.status || '').trim();
-  const fallbackKind = String(text || '').split('\n', 1)[0]?.trim() || 'notification';
+  const fallbackKind =
+    String(text || '')
+      .split('\n', 1)[0]
+      ?.trim() || 'notification';
   // Distinguish a body-carrying completion from a header-only preview that
   // shares the same id/type/status. An early agent preview can arrive before
   // the session is persisted (no result body); the canonical notification that
@@ -68,7 +71,7 @@ function isExecutionNotification(event, text, parsed) {
   if (meta.execution_id || meta.execution_surface) return true;
   if (parseAgentResultEnvelope(text)) return true;
   if (parseBackgroundTaskEnvelope(text)) return true;
-  return Boolean(parsed?.taskId && /^(?:agent task:|task_id:)/mi.test(String(text || '')));
+  return Boolean(parsed?.taskId && /^(?:agent task:|task_id:)/im.test(String(text || '')));
 }
 
 /** Pure delivery plan for runtime.onNotification execution envelopes (tests + handler). */
@@ -83,7 +86,10 @@ export function resolveTuiRuntimeNotificationDelivery(event, text) {
   // command is the shared slash-command name (TUI runSlashCommand / Desktop
   // resolveDesktopSlashCommand), so both surfaces route with their own tables.
   if (meta.kind === 'ui-open') {
-    const command = String(meta.command || '').trim().replace(/^\//, '').toLowerCase();
+    const command = String(meta.command || '')
+      .trim()
+      .replace(/^\//, '')
+      .toLowerCase();
     if (!command) return { action: 'ignore' };
     return { action: 'ui-open', command, displayText: trimmed };
   }

@@ -4,18 +4,19 @@ import test from 'node:test';
 import { createBrowserCommandQueue } from './command-queue.ts';
 import { createBrowserTabs } from './tabs.ts';
 import { createRemoteMethods } from '../remote-methods.ts';
-import {
-  BrowserSessionRegistry,
-  browserSessionId,
-} from './session-registry.ts';
+import { BrowserSessionRegistry, browserSessionId } from './session-registry.ts';
 
 function guest(id) {
   return {
     id,
     destroyed: false,
     repaints: 0,
-    isDestroyed() { return this.destroyed; },
-    invalidate() { this.repaints += 1; },
+    isDestroyed() {
+      return this.destroyed;
+    },
+    invalidate() {
+      this.repaints += 1;
+    },
   };
 }
 
@@ -34,8 +35,12 @@ test('visible guests, active targets, and waiters are isolated by session', asyn
 
   let alphaWaiter = null;
   let betaWaiter = null;
-  registry.waitForGuest('alpha', (value) => { alphaWaiter = value; });
-  registry.waitForGuest('beta', (value) => { betaWaiter = value; });
+  registry.waitForGuest('alpha', (value) => {
+    alphaWaiter = value;
+  });
+  registry.waitForGuest('beta', (value) => {
+    betaWaiter = value;
+  });
 
   registry.bindVisibleGuest('alpha', alpha.id, true);
   assert.equal(alphaWaiter, alpha);
@@ -70,12 +75,18 @@ test('background tab names may repeat across browser sessions', () => {
   assert.equal(registry.backgroundCount(), 2);
   assert.deepEqual(
     registry.allBackgroundEntries().map(([sessionId, name]) => [sessionId, name]),
-    [['alpha', 'research'], ['beta', 'research']],
+    [
+      ['alpha', 'research'],
+      ['beta', 'research'],
+    ]
   );
 
   assert.equal(registry.backgroundPageForGuest('alpha', alphaGuest), alpha);
-  assert.equal(registry.backgroundPageForGuest('alpha', betaGuest), undefined,
-    'a support page belongs to its own session only');
+  assert.equal(
+    registry.backgroundPageForGuest('alpha', betaGuest),
+    undefined,
+    'a support page belongs to its own session only'
+  );
   assert.equal(registry.backgroundPageForGuest('alpha', {}), undefined);
   registry.deleteBackgroundPage('alpha', 'research', alpha);
   assert.equal(registry.backgroundPageForGuest('alpha', alphaGuest), undefined);
@@ -93,10 +104,7 @@ test('Browser Use command queues serialize per session instead of globally', () 
     commandTimeoutMs: 45_000,
   });
 
-  assert.equal(
-    queue.commandQueueKey({ action: 'navigate', session_id: 'alpha' }),
-    'session:alpha:foreground',
-  );
+  assert.equal(queue.commandQueueKey({ action: 'navigate', session_id: 'alpha' }), 'session:alpha:foreground');
   assert.equal(
     queue.commandQueueKey({
       action: 'navigate',
@@ -104,24 +112,34 @@ test('Browser Use command queues serialize per session instead of globally', () 
       background: true,
       tab: 'research',
     }),
-    'session:beta:background:research',
+    'session:beta:background:research'
   );
 });
 
 test('tab listing and named background targeting cannot cross session owners', () => {
   const visible = new Map([
-    ['alpha', [{
-      id: 1,
-      isDestroyed: () => false,
-      getTitle: () => 'Alpha page',
-      getURL: () => 'https://alpha.test/',
-    }]],
-    ['beta', [{
-      id: 2,
-      isDestroyed: () => false,
-      getTitle: () => 'Beta page',
-      getURL: () => 'https://beta.test/',
-    }]],
+    [
+      'alpha',
+      [
+        {
+          id: 1,
+          isDestroyed: () => false,
+          getTitle: () => 'Alpha page',
+          getURL: () => 'https://alpha.test/',
+        },
+      ],
+    ],
+    [
+      'beta',
+      [
+        {
+          id: 2,
+          isDestroyed: () => false,
+          getTitle: () => 'Beta page',
+          getURL: () => 'https://beta.test/',
+        },
+      ],
+    ],
   ]);
   const background = (id, title) => {
     const guest = {
@@ -156,10 +174,7 @@ test('tab listing and named background targeting cannot cross session owners', (
   assert.match(alphaList, /Alpha page/);
   assert.match(alphaList, /Alpha background/);
   assert.doesNotMatch(alphaList, /Beta/);
-  assert.equal(
-    tabs.resolveTargetGuest('beta', false, 'research').guest.id,
-    4,
-  );
+  assert.equal(tabs.resolveTargetGuest('beta', false, 'research').guest.id, 4);
 });
 
 test('remote session deletion releases Browser Use resources for the same owner', async () => {
@@ -179,8 +194,10 @@ test('remote session deletion releases Browser Use resources for the same owner'
   assert.deepEqual(await methods.deleteSession(['session-alpha']), {
     deleted: 'session-alpha',
   });
-  assert.deepEqual(releases, [{
-    method: 'release',
-    args: ['session-alpha'],
-  }]);
+  assert.deepEqual(releases, [
+    {
+      method: 'release',
+      args: ['session-alpha'],
+    },
+  ]);
 });

@@ -1,24 +1,19 @@
-import type { DesktopSessionStateUpdate } from "../shared/contract";
+import type { DesktopSessionStateUpdate } from '../shared/contract';
 
 /** The socket can deliver restored sessions before React installs its store.
  * Keep only the latest unread frame per session; once a store subscribes it
  * owns retention. Losing an overflowed frame must request a fresh baseline,
  * since an unchanged host snapshot otherwise produces no further delta. */
-export function createRemoteSessionInbox({
-  maxEntries = 32,
-  onGap,
-}: {
-  maxEntries?: number;
-  onGap(): void;
-}) {
+export function createRemoteSessionInbox({ maxEntries = 32, onGap }: { maxEntries?: number; onGap(): void }) {
   const pending = new Map<string, DesktopSessionStateUpdate>();
   const listeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   let gap = false;
-  const notify = (
-    listener: (update: DesktopSessionStateUpdate) => void,
-    update: DesktopSessionStateUpdate,
-  ): void => {
-    try { listener(update); } catch { /* Renderer faults cannot break delivery. */ }
+  const notify = (listener: (update: DesktopSessionStateUpdate) => void, update: DesktopSessionStateUpdate): void => {
+    try {
+      listener(update);
+    } catch {
+      /* Renderer faults cannot break delivery. */
+    }
   };
   return {
     reset(): void {
@@ -46,7 +41,9 @@ export function createRemoteSessionInbox({
         gap = false;
         onGap();
       }
-      return () => { listeners.delete(listener); };
+      return () => {
+        listeners.delete(listener);
+      };
     },
   };
 }

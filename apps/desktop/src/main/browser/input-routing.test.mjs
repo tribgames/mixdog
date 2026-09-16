@@ -14,7 +14,11 @@ function fixture() {
     frames: () => frames,
     frameOffset: async () => ({ x: 100, y: 200 }),
     cdp: {
-      call: async () => { lookups++; if (hit instanceof Error) throw hit; return hit; },
+      call: async () => {
+        lookups++;
+        if (hit instanceof Error) throw hit;
+        return hit;
+      },
       guestDebugger: async () => ({}),
       sendCdpInput: async (_guest, _cdp, _method, input, _signal, session, guard) => {
         guard();
@@ -25,8 +29,18 @@ function fixture() {
   });
   const send = (type, x = 120, y = 230, buttons = type === 'mouseReleased' ? 0 : 1, signal) =>
     dispatch(guest, 'Input.dispatchMouseEvent', { type, x, y, buttons, button: 'left' }, signal);
-  return { send, sent, frames, lookups: () => lookups,
-    hit: value => { hit = value; }, navigate: () => { documentId = 'second'; } };
+  return {
+    send,
+    sent,
+    frames,
+    lookups: () => lookups,
+    hit: (value) => {
+      hit = value;
+    },
+    navigate: () => {
+      documentId = 'second';
+    },
+  };
 }
 
 test('a pressed child-frame gesture retains its renderer through movement and release outside it', async () => {
@@ -35,11 +49,14 @@ test('a pressed child-frame gesture retains its renderer through movement and re
   f.hit({ frameId: 'parent' });
   await f.send('mouseMoved', 80, 190);
   await f.send('mouseReleased', 500, 500);
-  assert.deepEqual(f.sent.map(({ session, x, y }) => ({ session, x, y })), [
-    { session: 'session', x: 20, y: 30 },
-    { session: 'session', x: -20, y: -10 },
-    { session: 'session', x: 400, y: 300 },
-  ]);
+  assert.deepEqual(
+    f.sent.map(({ session, x, y }) => ({ session, x, y })),
+    [
+      { session: 'session', x: 20, y: 30 },
+      { session: 'session', x: -20, y: -10 },
+      { session: 'session', x: 400, y: 300 },
+    ]
+  );
   assert.equal(f.lookups(), 1);
   await f.send('mouseMoved', 500, 500, 0);
   assert.equal(f.sent.at(-1).session, undefined);
@@ -48,14 +65,19 @@ test('a pressed child-frame gesture retains its renderer through movement and re
 
 test('node-less compositor input reaches the root once, without retrying a dispatched edit', async () => {
   const f = fixture();
-  f.hit(new Error("Protocol error (DOM.getNodeForLocation): No node found at given location"));
+  f.hit(new Error('Protocol error (DOM.getNodeForLocation): No node found at given location'));
   await f.send('mousePressed', 799, 300);
   await f.send('mouseMoved', 799, 350);
   await f.send('mouseReleased', 799, 350);
   assert.equal(f.lookups(), 1);
-  assert.deepEqual(f.sent.map(({ session, x }) => ({ session, x })), [
-    { session: undefined, x: 799 }, { session: undefined, x: 799 }, { session: undefined, x: 799 },
-  ]);
+  assert.deepEqual(
+    f.sent.map(({ session, x }) => ({ session, x })),
+    [
+      { session: undefined, x: 799 },
+      { session: undefined, x: 799 },
+      { session: undefined, x: 799 },
+    ]
+  );
 });
 
 test('lookup errors and cancellation remain failures and never dispatch input', async () => {
@@ -72,7 +94,7 @@ test('lookup errors and cancellation remain failures and never dispatch input', 
 });
 
 test('a changed document or detached iframe never redirects the rest of a gesture to another page', async () => {
-  for (const change of [f => f.navigate(), f => f.frames.clear()]) {
+  for (const change of [(f) => f.navigate(), (f) => f.frames.clear()]) {
     const f = fixture();
     await f.send('mousePressed');
     change(f);

@@ -42,15 +42,18 @@ export function normalizeParagraphProperties(xml) {
 // schema allows it only on bar and bubble series; line, area, pie, radar,
 // and scatter series fail validation with it present.
 const CHART_PARTS = /^ppt\/charts\/chart[^/]+\.xml$/;
-const NON_BAR_CHART = /<c:(lineChart|line3DChart|areaChart|area3DChart|pieChart|pie3DChart|doughnutChart|radarChart|scatterChart|ofPieChart)\b[\s\S]*?<\/c:\1>/g;
+const NON_BAR_CHART =
+  /<c:(lineChart|line3DChart|areaChart|area3DChart|pieChart|pie3DChart|doughnutChart|radarChart|scatterChart|ofPieChart)\b[\s\S]*?<\/c:\1>/g;
 const INVERT_IF_NEGATIVE = /<c:invertIfNegative\b[^>]*\/>|<c:invertIfNegative\b[^>]*>[\s\S]*?<\/c:invertIfNegative>/g;
 
 function normalizeChartSeries(xml) {
   let removed = 0;
-  const output = String(xml || '').replace(NON_BAR_CHART, (chart) => chart.replace(INVERT_IF_NEGATIVE, () => {
-    removed += 1;
-    return '';
-  }));
+  const output = String(xml || '').replace(NON_BAR_CHART, (chart) =>
+    chart.replace(INVERT_IF_NEGATIVE, () => {
+      removed += 1;
+      return '';
+    })
+  );
   return { xml: output, removed };
 }
 
@@ -66,7 +69,8 @@ const OVERLAY_NAME = /<c:tx>[\s\S]*?<c:v>([^<]*) ·<\/c:v>[\s\S]*?<\/c:tx>/;
 function seriesValues(ser) {
   const val = /<c:val>[\s\S]*?<\/c:val>/.exec(ser)?.[0] || '';
   const values = new Map();
-  for (const point of val.matchAll(/<c:pt idx="(\d+)"><c:v>([^<]*)<\/c:v><\/c:pt>/g)) values.set(Number(point[1]), point[2]);
+  for (const point of val.matchAll(/<c:pt idx="(\d+)"><c:v>([^<]*)<\/c:v><\/c:pt>/g))
+    values.set(Number(point[1]), point[2]);
   return values;
 }
 
@@ -81,13 +85,27 @@ export function mergeAccentSeries(xml) {
   const accent = [...overlayValues].filter(([, value]) => value !== '' && Number(value) !== 0).map(([idx]) => idx);
   const color = /<c:spPr>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(overlay)?.[1];
   if (!accent.length || !color) return { xml, changed: false, accent: [] };
-  const merged = new Map([...baseValues].map(([idx, value]) => [idx, accent.includes(idx) ? overlayValues.get(idx) : value]));
-  let ser = base.replace(/<c:val>[\s\S]*?<\/c:val>/, (val) => val.replace(/<c:pt idx="(\d+)"><c:v>[^<]*<\/c:v><\/c:pt>/g, (_, idx) => `<c:pt idx="${idx}"><c:v>${merged.get(Number(idx)) ?? ''}</c:v></c:pt>`));
-  const points = accent.map((idx) => `<c:dPt><c:idx val="${idx}"/><c:invertIfNegative val="0"/><c:bubble3D val="0"/><c:spPr><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></c:spPr></c:dPt>`).join('');
+  const merged = new Map(
+    [...baseValues].map(([idx, value]) => [idx, accent.includes(idx) ? overlayValues.get(idx) : value])
+  );
+  let ser = base.replace(/<c:val>[\s\S]*?<\/c:val>/, (val) =>
+    val.replace(
+      /<c:pt idx="(\d+)"><c:v>[^<]*<\/c:v><\/c:pt>/g,
+      (_, idx) => `<c:pt idx="${idx}"><c:v>${merged.get(Number(idx)) ?? ''}</c:v></c:pt>`
+    )
+  );
+  const points = accent
+    .map(
+      (idx) =>
+        `<c:dPt><c:idx val="${idx}"/><c:invertIfNegative val="0"/><c:bubble3D val="0"/><c:spPr><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></c:spPr></c:dPt>`
+    )
+    .join('');
   ser = /<c:invertIfNegative\b[^>]*\/>/.test(ser)
     ? ser.replace(/<c:invertIfNegative\b[^>]*\/>/, (tag) => `${tag}${points}`)
     : ser.replace(/<\/c:spPr>/, (tag) => `${tag}${points}`);
-  const bar = chart[0].replace(overlay, '').replace(base, ser)
+  const bar = chart[0]
+    .replace(overlay, '')
+    .replace(base, ser)
     .replace('<c:grouping val="stacked"/>', '<c:grouping val="clustered"/>')
     .replace(/<c:overlap val="[^"]*"\/>/, '');
   return { xml: String(xml).replace(chart[0], bar), changed: true, accent, values: merged };
@@ -101,13 +119,19 @@ function mergeWorkbookColumns(sheetXml, values) {
     const idx = Number(row) - 2;
     return idx >= 0 && values.has(idx) ? `<c r="B${row}"${attrs}><v>${values.get(idx)}</v></c>` : cell;
   });
-  xml = xml.replace(/spans="1:3"/g, 'spans="1:2"').replace(/<dimension ref="A1:C(\d+)"\/>/, '<dimension ref="A1:B$1"/>');
+  xml = xml
+    .replace(/spans="1:3"/g, 'spans="1:2"')
+    .replace(/<dimension ref="A1:C(\d+)"\/>/, '<dimension ref="A1:B$1"/>');
   return xml;
 }
 
 function mergeWorkbookTable(tableXml) {
-  return String(tableXml || '').replace(/ref="A1:C(\d+)"/g, 'ref="A1:B$1"')
-    .replace(/<tableColumns count="3">([\s\S]*?)<\/tableColumns>/, (_, columns) => `<tableColumns count="2">${columns.replace(/<tableColumn id="3"[^>]*\/>/, '')}</tableColumns>`);
+  return String(tableXml || '')
+    .replace(/ref="A1:C(\d+)"/g, 'ref="A1:B$1"')
+    .replace(
+      /<tableColumns count="3">([\s\S]*?)<\/tableColumns>/,
+      (_, columns) => `<tableColumns count="2">${columns.replace(/<tableColumn id="3"[^>]*\/>/, '')}</tableColumns>`
+    );
 }
 
 async function mergeEmbeddedWorkbook(zip, chartPart, values) {
@@ -145,16 +169,24 @@ export function normalizeChartFonts(xml) {
     if (eastAsian.length === 1 && complex.length === 1) return tag;
     changed += 1;
     const latin = following ? tag.slice(0, -following.length) : tag;
-    return latin
-      + (eastAsian[0] || `<a:ea typeface="${typeface}"${attrs}/>`)
-      + (complex[0] || `<a:cs typeface="${typeface}"${attrs}/>`);
+    return (
+      latin +
+      (eastAsian[0] || `<a:ea typeface="${typeface}"${attrs}/>`) +
+      (complex[0] || `<a:cs typeface="${typeface}"${attrs}/>`)
+    );
   });
   // The chart default prefers the face that carries CJK glyphs (the kit's sans over its Latin data face).
-  const face = faces.find((name) => /\b(kr|sc|tc|jp|cjk)\b|malgun|yahei|jhenghei|yu gothic|meiryo/i.test(name)) || faces[0] || '';
-  if (face && !/<c:txPr>[\s\S]*<\/c:txPr>\s*(<c:externalData|<c:printSettings|<c:userShapes|<\/c:chartSpace>)/.test(output) && !/<\/c:chart>\s*<c:txPr>/.test(output)) {
+  const face =
+    faces.find((name) => /\b(kr|sc|tc|jp|cjk)\b|malgun|yahei|jhenghei|yu gothic|meiryo/i.test(name)) || faces[0] || '';
+  if (
+    face &&
+    !/<c:txPr>[\s\S]*<\/c:txPr>\s*(<c:externalData|<c:printSettings|<c:userShapes|<\/c:chartSpace>)/.test(output) &&
+    !/<\/c:chart>\s*<c:txPr>/.test(output)
+  ) {
     const txPr = `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr><a:latin typeface="${face}"/><a:ea typeface="${face}"/><a:cs typeface="${face}"/></a:defRPr></a:pPr><a:endParaRPr lang="en-US"/></a:p></c:txPr>`;
     // Schema order after </c:chart>: c:spPr?, c:txPr?, c:externalData?, …
-    if (/<\/c:chart>\s*<c:spPr>[\s\S]*?<\/c:spPr>/.test(output)) output = output.replace(/(<\/c:chart>\s*<c:spPr>[\s\S]*?<\/c:spPr>)/, `$1${txPr}`);
+    if (/<\/c:chart>\s*<c:spPr>[\s\S]*?<\/c:spPr>/.test(output))
+      output = output.replace(/(<\/c:chart>\s*<c:spPr>[\s\S]*?<\/c:spPr>)/, `$1${txPr}`);
     else output = output.replace('</c:chart>', `</c:chart>${txPr}`);
     changed += 1;
   }
@@ -172,12 +204,16 @@ const SHAPE_LINE = /<a:ln\b[^>]*\/>|<a:ln\b[^>]*>[\s\S]*?<\/a:ln>/;
 const unit = (value) => Math.round(Math.max(0, Math.min(1, Number(value) || 0)) * 100000);
 
 export function gradientFillXml({ stops = [], angle = 0, radial = null } = {}) {
-  const list = stops.map(([offset, color, alpha = 1]) => {
-    const hex = String(color || '').replace('#', '').toUpperCase();
-    const a = Number(alpha);
-    const pos = Math.round(Math.max(0, Math.min(100, Number(offset) || 0)) * 1000);
-    return `<a:gs pos="${pos}">${a < 1 ? `<a:srgbClr val="${hex}"><a:alpha val="${unit(a)}"/></a:srgbClr>` : `<a:srgbClr val="${hex}"/>`}</a:gs>`;
-  }).join('');
+  const list = stops
+    .map(([offset, color, alpha = 1]) => {
+      const hex = String(color || '')
+        .replace('#', '')
+        .toUpperCase();
+      const a = Number(alpha);
+      const pos = Math.round(Math.max(0, Math.min(100, Number(offset) || 0)) * 1000);
+      return `<a:gs pos="${pos}">${a < 1 ? `<a:srgbClr val="${hex}"><a:alpha val="${unit(a)}"/></a:srgbClr>` : `<a:srgbClr val="${hex}"/>`}</a:gs>`;
+    })
+    .join('');
   const path = radial
     ? `<a:path path="circle"><a:fillToRect l="${unit(radial.fx ?? 0.5)}" t="${unit(radial.fy ?? 0.5)}" r="${unit(1 - (radial.fx ?? 0.5))}" b="${unit(1 - (radial.fy ?? 0.5))}"/></a:path>`
     : `<a:lin ang="${Math.round(((((Number(angle) || 0) % 360) + 360) % 360) * 60000)}" scaled="0"/>`;
@@ -190,7 +226,11 @@ export function nativeGradients(xml) {
     const name = /<p:cNvPr\b[^>]*\bname="([^"]*)"/.exec(shape)?.[1] || '';
     if (!name.startsWith(GRADIENT_PREFIX)) return shape;
     let spec;
-    try { spec = JSON.parse(decodeURIComponent(name.slice(GRADIENT_PREFIX.length))); } catch { return shape; }
+    try {
+      spec = JSON.parse(decodeURIComponent(name.slice(GRADIENT_PREFIX.length)));
+    } catch {
+      return shape;
+    }
     if (!Array.isArray(spec?.stops) || spec.stops.length < 2) return shape;
     const fill = gradientFillXml(spec);
     changed += 1;
@@ -199,8 +239,12 @@ export function nativeGradients(xml) {
       .replace(/<p:spPr\b[^>]*>[\s\S]*?<\/p:spPr>/, (properties) => {
         // Schema order inside spPr: xfrm, geometry, fill, ln, effects — the fill is swapped in place and the
         // outline becomes none, so a gradient never shows a solid rim of its first stop.
-        let inner = SHAPE_FILL.test(properties) ? properties.replace(SHAPE_FILL, fill) : properties.replace(/(<\/a:prstGeom>|<a:prstGeom\b[^>]*\/>|<\/a:custGeom>)/, `$1${fill}`);
-        inner = SHAPE_LINE.test(inner) ? inner.replace(SHAPE_LINE, '<a:ln><a:noFill/></a:ln>') : inner.replace(fill, `${fill}<a:ln><a:noFill/></a:ln>`);
+        let inner = SHAPE_FILL.test(properties)
+          ? properties.replace(SHAPE_FILL, fill)
+          : properties.replace(/(<\/a:prstGeom>|<a:prstGeom\b[^>]*\/>|<\/a:custGeom>)/, `$1${fill}`);
+        inner = SHAPE_LINE.test(inner)
+          ? inner.replace(SHAPE_LINE, '<a:ln><a:noFill/></a:ln>')
+          : inner.replace(fill, `${fill}<a:ln><a:noFill/></a:ln>`);
         return inner;
       });
   });
@@ -251,21 +295,28 @@ export async function attachSvgIcons(zip, slidePart, xml) {
     const mediaName = `ppt/media/mixdog-icon-${Object.keys(zip.files).filter((entry) => /^ppt\/media\/mixdog-icon-/.test(entry)).length + 1}.svg`;
     zip.file(mediaName, svg);
     const id = nextRelationshipId(relationships);
-    relationships = relationships.replace('</Relationships>', `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${mediaName.split('/').pop()}"/></Relationships>`);
+    relationships = relationships.replace(
+      '</Relationships>',
+      `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${mediaName.split('/').pop()}"/></Relationships>`
+    );
     const extension = `<a:extLst><a:ext uri="${SVG_EXTENSION_URI}"><asvg:svgBlip xmlns:asvg="${SVG_NAMESPACE}" r:embed="${id}"/></a:ext></a:extLst>`;
     const withSvg = blip.endsWith('/>')
       ? `${blip.slice(0, -2)}>${extension}</a:blip>`
       : blip.replace('</a:blip>', `${extension}</a:blip>`);
-    output = output.replace(picture, picture
-      .replace(blip, withSvg)
-      .replace(/(<p:cNvPr\b[^>]*\bname=)"[^"]*"/, '$1"Icon"'));
+    output = output.replace(
+      picture,
+      picture.replace(blip, withSvg).replace(/(<p:cNvPr\b[^>]*\bname=)"[^"]*"/, '$1"Icon"')
+    );
   }
   if (!attached) return { xml: output, attached: 0 };
   zip.file(relationshipPath, relationships);
   const contentTypesPath = '[Content_Types].xml';
   const contentTypes = await zipText(zip, contentTypesPath);
   if (contentTypes && !/Extension="svg"/i.test(contentTypes)) {
-    zip.file(contentTypesPath, contentTypes.replace('<Default', '<Default Extension="svg" ContentType="image/svg+xml"/><Default'));
+    zip.file(
+      contentTypesPath,
+      contentTypes.replace('<Default', '<Default Extension="svg" ContentType="image/svg+xml"/><Default')
+    );
   }
   return { xml: output, attached };
 }

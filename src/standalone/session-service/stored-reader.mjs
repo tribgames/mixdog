@@ -6,8 +6,7 @@ export function createStoredSessionReader({ readStoredSession, readStoredGoal, s
   function traceStoredProjectionRead({ sessionId, hit, ms, chars, items }) {
     // Shared parse waiters are cache hits; report only the parse itself.
     if (hit || ms < SLOW_STORED_PROJECTION_MS) return;
-    log(`slow stored projection session=${sessionId} ${Math.round(ms)}ms`
-      + ` chars=${chars} items=${items}`);
+    log(`slow stored projection session=${sessionId} ${Math.round(ms)}ms` + ` chars=${chars} items=${items}`);
   }
 
   async function storedSessionProjection(sessionId, hints) {
@@ -27,7 +26,7 @@ export function createStoredSessionReader({ readStoredSession, readStoredGoal, s
     let goal;
     if (typeof readStoredGoal === 'function') {
       try {
-        goal = await readStoredGoal(sessionId) ?? null;
+        goal = (await readStoredGoal(sessionId)) ?? null;
       } catch (err) {
         log(`stored Goal projection failed session=${sessionId}: ${err?.message || err}`);
         goal = null;

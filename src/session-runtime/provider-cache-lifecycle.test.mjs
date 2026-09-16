@@ -6,7 +6,9 @@ import { createProviderReadiness } from './provider-readiness.mjs';
 
 function deferred() {
   let resolve;
-  const promise = new Promise((yes) => { resolve = yes; });
+  const promise = new Promise((yes) => {
+    resolve = yes;
+  });
   return { promise, resolve };
 }
 
@@ -45,13 +47,23 @@ function catalogFixture() {
       providerModelCacheRowRaw: (name, model) => ({ ...model, provider: name }),
       ensureFullConfig: () => ({}),
       awaitKeychainPrewarm: async () => {},
-      ensureProvidersReady: async () => { preparations += 1; },
+      ensureProvidersReady: async () => {
+        preparations += 1;
+      },
       bootProfile() {},
       scheduleProviderModelWarmup() {},
       quickHelpers: {},
     });
   }
-  return { consumer, requests, registry, advance: () => { revision += 1; }, preparations: () => preparations };
+  return {
+    consumer,
+    requests,
+    registry,
+    advance: () => {
+      revision += 1;
+    },
+    preparations: () => preparations,
+  };
 }
 
 function model(label) {
@@ -62,9 +74,10 @@ for (const mode of ['catalog', 'metadata']) {
   test(`late ${mode} completion cannot overwrite newer shared rows or route metadata`, async () => {
     const f = catalogFixture();
     const api = f.consumer();
-    const first = mode === 'catalog'
-      ? api.collectProviderModels()
-      : api.lookupModelMeta('fixture', 'chat-model', { allowFetch: true });
+    const first =
+      mode === 'catalog'
+        ? api.collectProviderModels()
+        : api.lookupModelMeta('fixture', 'chat-model', { allowFetch: true });
     await setImmediate();
     f.advance();
     const second = api.collectProviderModels();
@@ -82,9 +95,8 @@ for (const mode of ['foreground', 'warmup']) {
   test(`an old ${mode} completion cannot retire the newer in-flight catalog request`, async () => {
     const f = catalogFixture();
     const api = f.consumer();
-    const start = () => mode === 'warmup'
-      ? api.warmProviderModelCache({ loadSecrets: true })
-      : api.collectProviderModels();
+    const start = () =>
+      mode === 'warmup' ? api.warmProviderModelCache({ loadSecrets: true }) : api.collectProviderModels();
     const first = start();
     await setImmediate();
     f.advance();
@@ -120,12 +132,17 @@ test('a catalog fetched across a revision change is not relabeled as current', a
 for (const mode of ['foreground', 'forced', 'warmup']) {
   test(`a ${mode} load retains fresh rows when its own preparation advances the catalog revision`, async () => {
     const f = catalogFixture();
-    f.registry.refreshCatalogs = async () => { f.advance(); };
-    f.registry.refreshProviderCatalogsOnStartup = async () => { f.advance(); };
+    f.registry.refreshCatalogs = async () => {
+      f.advance();
+    };
+    f.registry.refreshProviderCatalogsOnStartup = async () => {
+      f.advance();
+    };
     const api = f.consumer();
-    const first = mode === 'warmup'
-      ? api.warmProviderModelCache({ loadSecrets: true })
-      : api.collectProviderModels({ force: mode === 'forced' });
+    const first =
+      mode === 'warmup'
+        ? api.warmProviderModelCache({ loadSecrets: true })
+        : api.collectProviderModels({ force: mode === 'forced' });
     await setImmediate();
     f.requests[0].resolve(model('fresh'));
     await first;
@@ -145,7 +162,11 @@ test('provider readiness cannot initialize providers after its runtime closes du
   const readiness = createProviderReadiness({
     rt,
     keychain: { prewarmSecrets: () => keychain.promise },
-    getReg: () => ({ initProviders: async () => { initialized += 1; } }),
+    getReg: () => ({
+      initProviders: async () => {
+        initialized += 1;
+      },
+    }),
     getWarmProviderModelCache: () => () => {},
   });
   const started = readiness.ensureProvidersReady();
@@ -166,7 +187,9 @@ test('startup catalog refresh cannot launch another warmup after runtime closure
       initProviders: async () => {},
       refreshProviderCatalogsOnStartup: () => refresh.promise,
     }),
-    getWarmProviderModelCache: () => () => { warmed += 1; },
+    getWarmProviderModelCache: () => () => {
+      warmed += 1;
+    },
   });
   await readiness.ensureProvidersReady();
   rt.closeRequested = true;

@@ -29,18 +29,22 @@ export function findPreset(config, key) {
   const wanted = clean(key).toLowerCase();
   if (!wanted) return null;
   const presets = Array.isArray(config?.presets) ? config.presets : [];
-  return presets.find((p) => {
-    const id = clean(p?.id).toLowerCase();
-    const name = clean(p?.name).toLowerCase();
-    return id === wanted || name === wanted;
-  }) || null;
+  return (
+    presets.find((p) => {
+      const id = clean(p?.id).toLowerCase();
+      const name = clean(p?.name).toLowerCase();
+      return id === wanted || name === wanted;
+    }) || null
+  );
 }
 
 function cleanModelParameters(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  return Object.fromEntries(Object.entries(value)
-    .map(([key, entry]) => [clean(key), clean(entry)])
-    .filter(([key, entry]) => key && entry));
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, entry]) => [clean(key), clean(entry)])
+      .filter(([key, entry]) => key && entry)
+  );
 }
 
 function cleanContextPercent(value) {
@@ -72,7 +76,11 @@ export function makeResolveRoute(resolveDefaultProvider) {
             model: m,
             preset,
             effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort ?? preset.effort),
-            fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : (preset.fast === true || fastPreferenceFor(config, p, m))),
+            fast: hasExplicitFast
+              ? explicitFast
+              : hasOwn(saved, 'fast')
+                ? saved.fast === true
+                : preset.fast === true || fastPreferenceFor(config, p, m),
             modelParameters: hasExplicitModelParameters
               ? cleanModelParameters(modelParameters)
               : cleanModelParameters(saved.modelParameters ?? preset.modelParameters),
@@ -97,7 +105,11 @@ export function makeResolveRoute(resolveDefaultProvider) {
             model: m,
             preset,
             effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort ?? preset.effort),
-            fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : (preset.fast === true || fastPreferenceFor(config, p, m))),
+            fast: hasExplicitFast
+              ? explicitFast
+              : hasOwn(saved, 'fast')
+                ? saved.fast === true
+                : preset.fast === true || fastPreferenceFor(config, p, m),
             modelParameters: hasExplicitModelParameters
               ? cleanModelParameters(modelParameters)
               : cleanModelParameters(saved.modelParameters ?? preset.modelParameters),
@@ -117,7 +129,11 @@ export function makeResolveRoute(resolveDefaultProvider) {
       model: m,
       preset: null,
       effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort),
-      fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : fastPreferenceFor(config, p, m)),
+      fast: hasExplicitFast
+        ? explicitFast
+        : hasOwn(saved, 'fast')
+          ? saved.fast === true
+          : fastPreferenceFor(config, p, m),
       modelParameters: hasExplicitModelParameters
         ? cleanModelParameters(modelParameters)
         : cleanModelParameters(saved.modelParameters),
@@ -140,7 +156,9 @@ export function validateRequestedModelSelector(config, requested = {}) {
   if (!model) return;
   if (findPreset(config, model)) return;
   if (isLikelyRawModelId(model)) return;
-  throw new Error(`Invalid model selector "${model}". Use a preset or a model id; free-form text cannot be used as a model.`);
+  throw new Error(
+    `Invalid model selector "${model}". Use a preset or a model id; free-form text cannot be used as a model.`
+  );
 }
 
 export function ensureProviderEnabled(config, provider) {
@@ -167,16 +185,16 @@ const AUTO_CLEAR_DEFAULT_IDLE_MS = 60 * 60 * 1000;
 // sweep matches that window to avoid clearing a still-warm cache.
 // Unknown/unrecognized providers fall back to the 'default' 1h entry.
 const AUTO_CLEAR_PROVIDER_IDLE_MS = Object.freeze({
-  'anthropic': 60 * 60 * 1000,
+  anthropic: 60 * 60 * 1000,
   'anthropic-oauth': 60 * 60 * 1000,
-  'gemini': 60 * 60 * 1000,
-  'groq': 2 * 60 * 60 * 1000,
-  'openai': 24 * 60 * 60 * 1000,
-  'deepseek': 24 * 60 * 60 * 1000,
-  'xai': 60 * 60 * 1000,
+  gemini: 60 * 60 * 1000,
+  groq: 2 * 60 * 60 * 1000,
+  openai: 24 * 60 * 60 * 1000,
+  deepseek: 24 * 60 * 60 * 1000,
+  xai: 60 * 60 * 1000,
   'openai-oauth': 30 * 60 * 1000,
-  'mistral': 60 * 60 * 1000,
-  'default': AUTO_CLEAR_DEFAULT_IDLE_MS,
+  mistral: 60 * 60 * 1000,
+  default: AUTO_CLEAR_DEFAULT_IDLE_MS,
 });
 const AUTO_CLEAR_PROVIDER_IDS = Object.freeze(Object.keys(AUTO_CLEAR_PROVIDER_IDLE_MS));
 
@@ -248,15 +266,22 @@ export function normalizeSystemShellConfig(value = {}) {
   return {
     command,
     effective: command || envCommand || '',
-    source: command ? 'config' : (envCommand ? 'env' : 'auto'),
+    source: command ? 'config' : envCommand ? 'env' : 'auto',
   };
 }
 
 export function normalizeSystemShellCommand(value) {
-  const command = clean(value).replace(/^auto$/i, '').replace(/^['"](.+)['"]$/, '$1').trim();
+  const command = clean(value)
+    .replace(/^auto$/i, '')
+    .replace(/^['"](.+)['"]$/, '$1')
+    .trim();
   if (!command) return '';
   if (process.platform === 'win32') {
-    const stem = command.split(/[\\/]/).pop().toLowerCase().replace(/\.exe$/, '');
+    const stem = command
+      .split(/[\\/]/)
+      .pop()
+      .toLowerCase()
+      .replace(/\.exe$/, '');
     if (stem !== 'powershell' && stem !== 'pwsh') {
       throw new Error('system shell command must be powershell.exe or pwsh on Windows');
     }
@@ -269,9 +294,7 @@ export function normalizeAutoClearConfig(value = {}) {
   const idleMs = Number(raw.idleMs);
   const hasExplicitIdle = Number.isFinite(idleMs) && idleMs > 0;
   const rawMinPct = Number(raw.minContextPercent);
-  const minContextPercent = Number.isFinite(rawMinPct)
-    ? Math.min(100, Math.max(0, Math.round(rawMinPct)))
-    : 10;
+  const minContextPercent = Number.isFinite(rawMinPct) ? Math.min(100, Math.max(0, Math.round(rawMinPct))) : 10;
   // idleMs: null means "no explicit override" — callers resolve the
   // effective window via resolveAutoClearIdleMs/provider default. `custom`
   // tells UI whether the stored idleMs is a user override (true) or the
@@ -369,7 +392,9 @@ export function setMemoryToolsEnabledInConfig(configLike, enabled) {
 // over the stored config toggle for THIS process only (never persisted).
 // Unset/empty → null (config decides).
 export function featureEnvOverride(name) {
-  const raw = String(process.env[name] ?? '').trim().toLowerCase();
+  const raw = String(process.env[name] ?? '')
+    .trim()
+    .toLowerCase();
   if (!raw) return null;
   return !(raw === '0' || raw === 'false' || raw === 'no' || raw === 'off');
 }

@@ -46,10 +46,19 @@ for (const update of [updateJsonAtomicSync, updateJsonAtomic]) {
       });
       syncBuiltinESMExports();
       let mutated = false;
-      await assert.rejects(Promise.resolve().then(() => update(path, () => {
-        mutated = true;
-        return { lost: true };
-      }, { fsync: false })), (error) => error === failure);
+      await assert.rejects(
+        Promise.resolve().then(() =>
+          update(
+            path,
+            () => {
+              mutated = true;
+              return { lost: true };
+            },
+            { fsync: false }
+          )
+        ),
+        (error) => error === failure
+      );
       assert.equal(mutated, false);
       assert.equal(read(path, 'utf8'), source);
       assert.equal(existsSync(lock), false);
@@ -63,10 +72,14 @@ test('JSON mutation retains its missing and malformed document recovery contract
     for (const malformed of [false, true]) {
       rmSync(path, { force: true });
       if (malformed) writeFileSync(path, '{malformed');
-      await update(path, (value) => {
-        assert.equal(value, null);
-        return { recovered: true };
-      }, { fsync: false });
+      await update(
+        path,
+        (value) => {
+          assert.equal(value, null);
+          return { recovered: true };
+        },
+        { fsync: false }
+      );
       assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { recovered: true });
     }
   }
@@ -74,9 +87,14 @@ test('JSON mutation retains its missing and malformed document recovery contract
 
 test('try-once async file locks retain the normal reentrant contract', async (t) => {
   const { lock } = fixture(t);
-  const result = await withFileLock(lock, () => withFileLock(lock, () => 42, {
-    timeoutMs: 0,
-  }), { timeoutMs: 0 });
+  const result = await withFileLock(
+    lock,
+    () =>
+      withFileLock(lock, () => 42, {
+        timeoutMs: 0,
+      }),
+    { timeoutMs: 0 }
+  );
   assert.equal(result, 42);
   assert.equal(existsSync(lock), false);
 });
@@ -89,9 +107,15 @@ test('detached async work cannot inherit ownership after its file lock was relea
   let detached;
   let overlapped = false;
   await withFileLock(lock, () => {
-    detached = startDetached.promise.then(() => withFileLock(lock, () => {
-      overlapped = true;
-    }, { timeoutMs: 0 }));
+    detached = startDetached.promise.then(() =>
+      withFileLock(
+        lock,
+        () => {
+          overlapped = true;
+        },
+        { timeoutMs: 0 }
+      )
+    );
   });
   const second = withFileLock(lock, async () => {
     secondEntered.resolve();
@@ -99,7 +123,10 @@ test('detached async work cannot inherit ownership after its file lock was relea
   });
   try {
     await secondEntered.promise;
-    const outcome = detached.then(() => null, (error) => error);
+    const outcome = detached.then(
+      () => null,
+      (error) => error
+    );
     startDetached.resolve();
     const error = await outcome;
     assert.equal(overlapped, false);
@@ -114,10 +141,14 @@ for (const acquire of [withFileLockSync, withFileLock]) {
   test(`${acquire.name} never deletes a replacement without its owner token`, async (t) => {
     const { lock } = fixture(t);
     const replacement = `${process.pid} ${Date.now()}\n`;
-    await acquire(lock, () => {
-      unlinkSync(lock);
-      writeFileSync(lock, replacement);
-    }, { timeoutMs: 0 });
+    await acquire(
+      lock,
+      () => {
+        unlinkSync(lock);
+        writeFileSync(lock, replacement);
+      },
+      { timeoutMs: 0 }
+    );
     assert.equal(existsSync(lock), true);
     assert.equal(readFileSync(lock, 'utf8'), replacement);
   });
@@ -175,7 +206,9 @@ test('sync and async atomic creation preserve existing bytes and remove staging 
 test('a failed holder releases its file lock for the next queued owner', async (t) => {
   const { lock } = fixture(t);
   const failure = new Error('mutation failed');
-  const first = withFileLock(lock, () => { throw failure; });
+  const first = withFileLock(lock, () => {
+    throw failure;
+  });
   const next = withFileLock(lock, () => 'next owner');
   await assert.rejects(first, (error) => error === failure);
   assert.equal(await next, 'next owner');
@@ -185,10 +218,13 @@ test('a failed holder releases its file lock for the next queued owner', async (
 test('sync waiters fail immediately against their own process async holder', async (t) => {
   const { lock } = fixture(t);
   await withFileLock(lock, () => {
-    assert.throws(() => withFileLockSync(lock, () => assert.fail('must not enter'), {
-      timeoutMs: 10_000,
-    }), (error) => error.code === 'ELOCKCONTENDED'
-      && error.message.includes('async holder in this process'));
+    assert.throws(
+      () =>
+        withFileLockSync(lock, () => assert.fail('must not enter'), {
+          timeoutMs: 10_000,
+        }),
+      (error) => error.code === 'ELOCKCONTENDED' && error.message.includes('async holder in this process')
+    );
   });
 });
 
@@ -196,9 +232,18 @@ test('live foreign tokens remain protected while a proven-dead owner can be recl
   const { lock } = fixture(t);
   writeFileSync(lock, `${process.pid} 0 foreign-token\n`);
   for (const acquire of [withFileLockSync, withFileLock]) {
-    await assert.rejects(Promise.resolve().then(() => acquire(lock, () => {
-      assert.fail('a live holder must not be replaced');
-    }, { timeoutMs: 0, staleMs: 0 })), { code: 'ELOCKCONTENDED' });
+    await assert.rejects(
+      Promise.resolve().then(() =>
+        acquire(
+          lock,
+          () => {
+            assert.fail('a live holder must not be replaced');
+          },
+          { timeoutMs: 0, staleMs: 0 }
+        )
+      ),
+      { code: 'ELOCKCONTENDED' }
+    );
   }
   const deadPid = 999_999_999;
   const kill = process.kill.bind(process);
@@ -222,13 +267,15 @@ test('separate processes keep atomic read-modify-write updates mutually exclusiv
     }
   `;
   const run = promisify(execFile);
-  await Promise.all(Array.from({ length: 3 }, () => run(process.execPath, [
-    '--input-type=module', '-e', source,
-  ], {
-    cwd: dir,
-    env: { ...process.env, ATOMIC_TEST_PATH: path },
-    timeout: 10_000,
-  })));
+  await Promise.all(
+    Array.from({ length: 3 }, () =>
+      run(process.execPath, ['--input-type=module', '-e', source], {
+        cwd: dir,
+        env: { ...process.env, ATOMIC_TEST_PATH: path },
+        timeout: 10_000,
+      })
+    )
+  );
   assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { count: 24 });
   assert.deepEqual(readdirSync(dir), ['state.json']);
 });
@@ -259,7 +306,9 @@ test('secret writes fail closed without publishing when Windows ACL tooling is u
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
     cwd: dir,
     env: {
-      ...process.env, ATOMIC_TEST_PATH: path, ATOMIC_MISSING_WINDOWS: missingWindows,
+      ...process.env,
+      ATOMIC_TEST_PATH: path,
+      ATOMIC_MISSING_WINDOWS: missingWindows,
     },
     encoding: 'utf8',
     timeout: 10_000,

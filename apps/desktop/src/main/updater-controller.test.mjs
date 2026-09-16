@@ -4,12 +4,7 @@ import { test } from 'node:test';
 import { createUpdaterController } from './updater-controller.ts';
 import { normalizeUpdaterDevFeed } from './updater-feed.ts';
 
-function setup({
-  currentVersion = '1.0.0',
-  enabled = true,
-  ready: initialReady,
-  latestVersion = '2.0.0',
-} = {}) {
+function setup({ currentVersion = '1.0.0', enabled = true, ready: initialReady, latestVersion = '2.0.0' } = {}) {
   const calls = [];
   const scheduledInstalls = [];
   let ready = initialReady;
@@ -34,17 +29,25 @@ function setup({
       service,
       persistence: {
         get: () => ready,
-        set: (value) => { ready = value; },
-        clear: () => { ready = undefined; },
+        set: (value) => {
+          ready = value;
+        },
+        clear: () => {
+          ready = undefined;
+        },
       },
-      stop: async () => { calls.push('stop'); },
+      stop: async () => {
+        calls.push('stop');
+      },
       scheduleInstall: (install) => {
         calls.push('schedule-install');
         scheduledInstalls.push(install);
       },
     }),
     getReady: () => ready,
-    setLatestVersion: (version) => { offeredVersion = version; },
+    setLatestVersion: (version) => {
+      offeredVersion = version;
+    },
     launchScheduledInstall: () => {
       assert.equal(scheduledInstalls.length, 1);
       scheduledInstalls.shift()();
@@ -128,10 +131,14 @@ test('updater returns to ready when application shutdown cannot complete', async
     service: {
       checkForUpdates: async () => ({ isUpdateAvailable: true, updateInfo: { version: '2.0.0' } }),
       downloadUpdate: async () => {},
-      quitAndInstall: () => { calls.push('install'); },
+      quitAndInstall: () => {
+        calls.push('install');
+      },
     },
     persistence: { get: () => undefined, set() {}, clear() {} },
-    stop: async () => { throw new Error('shutdown failed'); },
+    stop: async () => {
+      throw new Error('shutdown failed');
+    },
   });
 
   await controller.start();
@@ -162,10 +169,7 @@ test('disabled and unreachable update feeds are safe no-ops', async () => {
 });
 
 test('packaged updater dev feeds are limited to credential-free loopback HTTP', () => {
-  assert.equal(
-    normalizeUpdaterDevFeed('http://127.0.0.1:9123/feed'),
-    'http://127.0.0.1:9123/feed',
-  );
+  assert.equal(normalizeUpdaterDevFeed('http://127.0.0.1:9123/feed'), 'http://127.0.0.1:9123/feed');
   assert.equal(normalizeUpdaterDevFeed('https://updates.example.test/feed'), null);
   assert.equal(normalizeUpdaterDevFeed('http://127.0.0.1.example.test/feed'), null);
   assert.equal(normalizeUpdaterDevFeed('http://token@127.0.0.1:9123/feed'), null);

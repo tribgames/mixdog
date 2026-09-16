@@ -19,7 +19,9 @@ for (const outcome of ['success', 'no-change', 'error-result', 'throw']) {
     // another frame or a later user interaction publishing its final state.
     const publisher = createFrameBatchedStorePublisher({
       getState: () => draft,
-      publishState: (snapshot) => { published = snapshot; },
+      publishState: (snapshot) => {
+        published = snapshot;
+      },
       listeners,
       scheduleFrame: () => 1,
       cancelFrame: () => {},
@@ -28,15 +30,18 @@ for (const outcome of ['success', 'no-change', 'error-result', 'throw']) {
       draft = { ...draft, ...patch };
       publisher.emit();
     };
-    const result = outcome === 'success'
-      ? { changed: true, beforeTokens: 1_000, afterTokens: 100 }
-      : outcome === 'no-change'
-        ? { changed: false, reason: 'nothing to compact' }
-        : { changed: false, error: 'memory unavailable' };
+    const result =
+      outcome === 'success'
+        ? { changed: true, beforeTokens: 1_000, afterTokens: 100 }
+        : outcome === 'no-change'
+          ? { changed: false, reason: 'nothing to compact' }
+          : { changed: false, error: 'memory unavailable' };
     let resolveCompact;
     let rejectCompact;
     let signalStarted;
-    const started = new Promise((resolve) => { signalStarted = resolve; });
+    const started = new Promise((resolve) => {
+      signalStarted = resolve;
+    });
     let sequence = 0;
     const api = createSessionApiA({
       runtime: {
@@ -77,9 +82,10 @@ for (const outcome of ['success', 'no-change', 'error-result', 'throw']) {
       assert.equal(api.getState().commandBusy, false);
       assert.equal(api.getState().commandStatus, null);
       if (outcome !== 'throw') {
-        assert.equal(api.getState().items.at(-1).label,
-          outcome === 'success' ? 'Compact complete'
-            : outcome === 'no-change' ? 'Compact checked' : 'Compact failed');
+        assert.equal(
+          api.getState().items.at(-1).label,
+          outcome === 'success' ? 'Compact complete' : outcome === 'no-change' ? 'Compact checked' : 'Compact failed'
+        );
       }
     } finally {
       publisher.dispose();

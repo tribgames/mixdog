@@ -43,13 +43,13 @@ export function acquireModalLayer(elements: Iterable<HTMLElement>): ModalLayerHa
       state = {
         owners: new Set(),
         inert: element.inert,
-        ariaHidden: element.getAttribute("aria-hidden"),
+        ariaHidden: element.getAttribute('aria-hidden'),
       };
       isolation.set(element, state);
     }
     state.owners.add(id);
     element.inert = true;
-    element.setAttribute("aria-hidden", "true");
+    element.setAttribute('aria-hidden', 'true');
   }
 
   return {
@@ -74,9 +74,9 @@ export function acquireModalLayer(elements: Iterable<HTMLElement>): ModalLayerHa
         if (state.owners.size > 0) continue;
         isolation.delete(element);
         if (element.inert === true) element.inert = state.inert;
-        if (element.getAttribute("aria-hidden") === "true") {
-          if (state.ariaHidden == null) element.removeAttribute("aria-hidden");
-          else element.setAttribute("aria-hidden", state.ariaHidden);
+        if (element.getAttribute('aria-hidden') === 'true') {
+          if (state.ariaHidden == null) element.removeAttribute('aria-hidden');
+          else element.setAttribute('aria-hidden', state.ariaHidden);
         }
       }
     },

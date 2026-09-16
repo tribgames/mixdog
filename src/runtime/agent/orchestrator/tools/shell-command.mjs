@@ -1,4 +1,3 @@
-'use strict';
 // Async one-shot shell runner.
 //
 // Replaces the legacy spawnSync path in builtin.mjs shell execution. The
@@ -27,16 +26,10 @@ import {
   trackForegroundShellJob,
 } from './builtin/shell-jobs.mjs';
 import { nativeSpawnFileCaptureReady, setNativeTaskStartedAt } from './lib/native-spawn-client.mjs';
-import {
-  _maybeEncodePowerShellCommand,
-  extractPowerShellCommandInner,
-} from './shell-powershell.mjs';
+import { _maybeEncodePowerShellCommand, extractPowerShellCommandInner } from './shell-powershell.mjs';
 import { spawnShellWithRetry as _spawnShellWithRetry } from './lib/shell-spawn-retry.mjs';
 import { takeWarmShellStandby } from './lib/shell-warm-standby.mjs';
-import {
-  probeShellDescendants,
-  STDIO_HELD_AFTER_EXIT_MS,
-} from './lib/shell-descendants.mjs';
+import { probeShellDescendants, STDIO_HELD_AFTER_EXIT_MS } from './lib/shell-descendants.mjs';
 
 export {
   _maybeEncodePowerShellCommand,
@@ -47,7 +40,15 @@ export {
 // renders a path marker instead of pasting the tail. Matches the
 // SHELL_OUTPUT_MAX_CHARS used by the smart-truncate renderer in
 // builtin.mjs so spilled output and inline output share the same boundary.
-import { SHELL_OUTPUT_INLINE_CAP, SHELL_OUTPUT_DISK_CAP, stripAnsi, treeKill, TaskOutput, ExecResult, ShellTextDecoder } from './shell-exec-output.mjs';
+import {
+  SHELL_OUTPUT_INLINE_CAP,
+  SHELL_OUTPUT_DISK_CAP,
+  stripAnsi,
+  treeKill,
+  TaskOutput,
+  ExecResult,
+  ShellTextDecoder,
+} from './shell-exec-output.mjs';
 export { stripAnsi, ExecResult } from './shell-exec-output.mjs';
 
 async function _execPolicyBlockMessage(command) {
@@ -67,14 +68,12 @@ async function _execPolicyBlockMessage(command) {
 // their record would only cost two file writes per command.
 // MIXDOG_SHELL_FOREGROUND_RECORD_MS overrides; 0 publishes every command.
 const _envForegroundRecord = Math.floor(Number(process.env.MIXDOG_SHELL_FOREGROUND_RECORD_MS));
-const FOREGROUND_RECORD_DELAY_MS = Number.isFinite(_envForegroundRecord) && _envForegroundRecord >= 0
-  ? _envForegroundRecord
-  : 300;
+const FOREGROUND_RECORD_DELAY_MS =
+  Number.isFinite(_envForegroundRecord) && _envForegroundRecord >= 0 ? _envForegroundRecord : 300;
 
 const _envAdmissionWait = Math.floor(Number(process.env.MIXDOG_SHELL_ADMISSION_WAIT_MS));
-const SHELL_ADMISSION_WAIT_MS = Number.isFinite(_envAdmissionWait) && _envAdmissionWait >= 0
-  ? _envAdmissionWait
-  : 30_000;
+const SHELL_ADMISSION_WAIT_MS =
+  Number.isFinite(_envAdmissionWait) && _envAdmissionWait >= 0 ? _envAdmissionWait : 30_000;
 
 // Default: capture child output via file fds (direct mode) instead of
 // parent-side pipes. Opt back into pipe capture with
@@ -98,14 +97,17 @@ function _admissionSaturationError(admission, waitMs) {
       .filter((lease) => lease.kind === 'shell')
       .map((lease) => `[${Math.round(lease.ageMs / 1000)}s] ${String(lease.label || '(unlabeled)')}`)
       .join(' | ');
-    detail = ` ${snap.active.shell}/${snap.limits.maxShells} shell leases active`
-      + (held ? ` (${held})` : '')
-      + `, ${snap.queued} queued.`;
-  } catch { /* diagnostics must not mask the timeout */ }
+    detail =
+      ` ${snap.active.shell}/${snap.limits.maxShells} shell leases active` +
+      (held ? ` (${held})` : '') +
+      `, ${snap.queued} queued.`;
+  } catch {
+    /* diagnostics must not mask the timeout */
+  }
   const error = new Error(
-    `shell admission wait exceeded ${waitMs}ms —${detail} `
-    + 'Long-held leases usually mean stuck background shell process trees: '
-    + 'check task list, cancel stale tasks, kill lingering child processes, or restart the CLI.',
+    `shell admission wait exceeded ${waitMs}ms —${detail} ` +
+      'Long-held leases usually mean stuck background shell process trees: ' +
+      'check task list, cancel stale tasks, kill lingering child processes, or restart the CLI.'
   );
   error.code = 'ERESOURCEPRESSURE';
   return error;
@@ -130,11 +132,18 @@ function _abortableDelay(ms, signal) {
     // NOT unref'd: this delay is awaited foreground work — an unref'd timer
     // lets the event loop drain and strands the retry loop forever.
     const timer = setTimeout(() => {
-      if (onAbort && signal) { try { signal.removeEventListener('abort', onAbort); } catch {} }
+      if (onAbort && signal) {
+        try {
+          signal.removeEventListener('abort', onAbort);
+        } catch {}
+      }
       resolveDelay();
     }, ms);
     if (signal) {
-      onAbort = () => { clearTimeout(timer); resolveDelay(); };
+      onAbort = () => {
+        clearTimeout(timer);
+        resolveDelay();
+      };
       if (signal.aborted) onAbort();
       else signal.addEventListener('abort', onAbort, { once: true });
     }
@@ -168,7 +177,11 @@ function _abortReasonIsInterrupt(abortSignal) {
  *  rewrote a valid CMD `echo literal ^&` into `echo literal ^`.) */
 // Arguments are accepted for call-site convenience but never classify.
 export function _shellFamilyForSpawn({ shell = '', shellArg: _shellArg = '', shellArgs: _shellArgs = null } = {}) {
-  const name = String(shell || '').toLowerCase().replace(/\.exe$/, '').split(/[\\/]/).pop();
+  const name = String(shell || '')
+    .toLowerCase()
+    .replace(/\.exe$/, '')
+    .split(/[\\/]/)
+    .pop();
   if (name === 'pwsh' || name === 'powershell') return 'powershell';
   if (name === 'cmd') return 'cmd';
   // bash-family shells add `$'…'` / `$"…"`; sh/dash/ash/busybox do not, and
@@ -181,17 +194,27 @@ export function _shellFamilyForSpawn({ shell = '', shellArg: _shellArg = '', she
   return null;
 }
 
-async function acquireShellLeaseBounded(admission, {
-  abortSignal, label, dependency = 'scoped', ownerKey = null,
-} = {}) {
+async function acquireShellLeaseBounded(
+  admission,
+  { abortSignal, label, dependency = 'scoped', ownerKey = null } = {}
+) {
   if (!(SHELL_ADMISSION_WAIT_MS > 0)) {
     return admission.acquire('shell', {
-      signal: abortSignal || null, label, dependency, ownerKey,
+      signal: abortSignal || null,
+      label,
+      dependency,
+      ownerKey,
     });
   }
   const ctl = new AbortController();
   const onAbort = () => {
-    try { ctl.abort(abortSignal.reason); } catch { try { ctl.abort(); } catch {} }
+    try {
+      ctl.abort(abortSignal.reason);
+    } catch {
+      try {
+        ctl.abort();
+      } catch {}
+    }
   };
   if (abortSignal) {
     if (abortSignal.aborted) onAbort();
@@ -199,14 +222,19 @@ async function acquireShellLeaseBounded(admission, {
   }
   const deadlineAt = Date.now() + SHELL_ADMISSION_WAIT_MS;
   const deadline = setTimeout(() => {
-    try { ctl.abort(_admissionSaturationError(admission, SHELL_ADMISSION_WAIT_MS)); } catch {}
+    try {
+      ctl.abort(_admissionSaturationError(admission, SHELL_ADMISSION_WAIT_MS));
+    } catch {}
   }, SHELL_ADMISSION_WAIT_MS);
   if (deadline.unref) deadline.unref();
   try {
     for (;;) {
       try {
         const lease = await admission.acquire('shell', {
-          signal: ctl.signal, label, dependency, ownerKey,
+          signal: ctl.signal,
+          label,
+          dependency,
+          ownerKey,
         });
         // Hand governance back to the caller's signal: the internal deadline
         // controller may still fire in a lost race after grant, and a stale
@@ -221,7 +249,11 @@ async function acquireShellLeaseBounded(admission, {
     }
   } finally {
     clearTimeout(deadline);
-    if (abortSignal) { try { abortSignal.removeEventListener('abort', onAbort); } catch {} }
+    if (abortSignal) {
+      try {
+        abortSignal.removeEventListener('abort', onAbort);
+      } catch {}
+    }
   }
 }
 
@@ -309,7 +341,9 @@ export function execShellCommand({
     };
     const detachAbortHandler = () => {
       if (abortSignal && abortHandler) {
-        try { abortSignal.removeEventListener('abort', abortHandler); } catch {}
+        try {
+          abortSignal.removeEventListener('abort', abortHandler);
+        } catch {}
         abortHandler = null;
       }
     };
@@ -325,8 +359,14 @@ export function execShellCommand({
     let outputTailTimer = null;
     let _lastOutputTail = '';
     const _clearProgressTimer = () => {
-      if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
-      if (outputTailTimer) { clearInterval(outputTailTimer); outputTailTimer = null; }
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+      if (outputTailTimer) {
+        clearInterval(outputTailTimer);
+        outputTailTimer = null;
+      }
     };
     // Auto-background transition flag. Set the moment the autoBackgroundMs
     // timer fires and promotes the still-running child. Once
@@ -395,7 +435,9 @@ export function execShellCommand({
       }
       if (!_foregroundRecordPublished) return;
       _foregroundRecordPublished = false;
-      try { retireForegroundShellRecord(_foregroundRecordId); } catch {}
+      try {
+        retireForegroundShellRecord(_foregroundRecordId);
+      } catch {}
     };
     // Runtime of the COMMAND. _startMs covers admission lease + policy
     // preflight too, so it overstates how long the command itself has run;
@@ -421,22 +463,20 @@ export function execShellCommand({
             taskId,
             failurePhase: 'tool',
             failureReason: 'preflight failed',
-          }),
+          })
         );
         return;
       }
       const _useDirectArgv = Array.isArray(directArgv);
       // Direct-exe spawns already bypass the shell, so they keep using the
       // command verbatim; only the shell-parsed form honours execScript.
-      const _shellScript = (!_useDirectArgv && typeof execScript === 'string' && execScript)
-        ? execScript
-        : command;
+      const _shellScript = !_useDirectArgv && typeof execScript === 'string' && execScript ? execScript : command;
       const _spawnCommand = _useDirectArgv ? String(command ?? '') : _maybeEncodePowerShellCommand(_shellScript);
       const argv = _useDirectArgv
         ? [...directArgv]
-        : (Array.isArray(shellArgs) && shellArgs.length > 0
+        : Array.isArray(shellArgs) && shellArgs.length > 0
           ? [...shellArgs, _spawnCommand]
-          : [shellArg, _spawnCommand]);
+          : [shellArg, _spawnCommand];
       const _onChildError = (err) => {
         spawnError = spawnError || err;
         failurePhase = 'tool';
@@ -451,7 +491,11 @@ export function execShellCommand({
       // MIXDOG_SHELL_WARM_STANDBY=0) falls through to the gated spawn below.
       let _standby = null;
       if (!_useDirectArgv && shellArg === '-Command') {
-        try { _standby = takeWarmShellStandby({ shell, env, cwd }); } catch { _standby = null; }
+        try {
+          _standby = takeWarmShellStandby({ shell, env, cwd });
+        } catch {
+          _standby = null;
+        }
       }
       // Spawn-burst gate: hold a 'process-spawn' slot only across process
       // creation (CreateProcess + AV scan + EPERM retries), released the
@@ -476,7 +520,9 @@ export function execShellCommand({
         } else {
           // The parked process settled or lost its native request identity.
           // Do not feed it; replace it with a normally tracked spawn.
-          try { _standby.spawned.child.kill(); } catch {}
+          try {
+            _standby.spawned.child.kill();
+          } catch {}
           _standby = null;
         }
       }
@@ -488,7 +534,11 @@ export function execShellCommand({
         // + AV does not freeze graph/patch/search callbacks in that same turn.
         await new Promise((resolve) => setImmediate(resolve));
         if (abortSignal?.aborted) {
-          try { _releaseSpawnSlot(); } catch { /* idempotent */ }
+          try {
+            _releaseSpawnSlot();
+          } catch {
+            /* idempotent */
+          }
           throw abortSignal.reason || new Error('aborted');
         }
         // CC parity (ShellCommand.ts): give the child its OWN fds on the
@@ -512,10 +562,12 @@ export function execShellCommand({
               command,
               ownerSessionId,
               clientHostPid,
-              ...(_capture ? {
-                stdoutPath: taskOutput.stdoutPath,
-                stderrPath: taskOutput.stderrPath,
-              } : {}),
+              ...(_capture
+                ? {
+                    stdoutPath: taskOutput.stdoutPath,
+                    stderrPath: taskOutput.stderrPath,
+                  }
+                : {}),
               // NOTE (child-spawn-gate): the full command lifetime is intentionally
               // NOT gated — bash/pwsh commands can run for minutes and would starve
               // rg/code_graph. Only the spawn window above holds a slot.
@@ -525,7 +577,11 @@ export function execShellCommand({
             },
           });
         } finally {
-          try { _releaseSpawnSlot(); } catch { /* idempotent */ }
+          try {
+            _releaseSpawnSlot();
+          } catch {
+            /* idempotent */
+          }
         }
       }
       child = spawned.child;
@@ -569,10 +625,11 @@ export function execShellCommand({
           killed: false,
           taskId,
           failurePhase: 'tool',
-          failureReason: err?.code === 'ERESOURCEPRESSURE' || err?.code === 'ERESOURCEQUEUEFULL'
-            ? 'resource pressure'
-            : 'spawn failed',
-        }),
+          failureReason:
+            err?.code === 'ERESOURCEPRESSURE' || err?.code === 'ERESOURCEQUEUEFULL'
+              ? 'resource pressure'
+              : 'spawn failed',
+        })
       );
       return;
     }
@@ -621,7 +678,9 @@ export function execShellCommand({
         // bytes stay, because the promoted task record points at these files.
         if (taskOutput.spilled && taskOutput.totalDiskBytes() === 0) taskOutput.deleteFiles();
         else taskOutput.closeFds();
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
     };
     // Unconfirmed-kill cleanup. The result is already reported, but the tree
     // may still be alive: defer closing the capture and returning the
@@ -633,13 +692,19 @@ export function execShellCommand({
       const run = () => {
         if (_deferredCleanupDone) return;
         _deferredCleanupDone = true;
-        try { taskOutput.closeFds(); } catch { /* best-effort */ }
+        try {
+          taskOutput.closeFds();
+        } catch {
+          /* best-effort */
+        }
         void releaseResourceLease();
       };
       try {
         child.once('close', run);
         child.once('exit', run);
-      } catch { /* child may already be gone */ }
+      } catch {
+        /* child may already be gone */
+      }
       const ceiling = setTimeout(run, UNCONFIRMED_KILL_CLEANUP_CEILING_MS);
       if (ceiling.unref) ceiling.unref();
     };
@@ -675,10 +740,16 @@ export function execShellCommand({
       // partial inline buffer (if any) is still surfaced via partialOutput.
       let stdout = '';
       let stderr = '';
-      try { stdout = await taskOutput.getStdout(); }
-      catch (err) { taskOutput.writeError = taskOutput.writeError || err; }
-      try { stderr = await taskOutput.getStderr(); }
-      catch (err) { taskOutput.writeError = taskOutput.writeError || err; }
+      try {
+        stdout = await taskOutput.getStdout();
+      } catch (err) {
+        taskOutput.writeError = taskOutput.writeError || err;
+      }
+      try {
+        stderr = await taskOutput.getStderr();
+      } catch (err) {
+        taskOutput.writeError = taskOutput.writeError || err;
+      }
       if (spawnError && !stderr) stderr = String(spawnError.message || spawnError);
       // Inline-only path: nothing spilled. Nothing to clean up.
       // Spilled but within the inline cap: getStdout/getStderr already
@@ -693,10 +764,7 @@ export function execShellCommand({
         // lease now would release resources a live process still owns. The
         // spilled paths therefore survive and travel with the result below.
         _deferCleanupToChildExit();
-      } else if (
-        taskOutput.spilled &&
-        taskOutput.totalDiskBytes() <= SHELL_OUTPUT_INLINE_CAP
-      ) {
+      } else if (taskOutput.spilled && taskOutput.totalDiskBytes() <= SHELL_OUTPUT_INLINE_CAP) {
         taskOutput.deleteFiles();
         void releaseResourceLease();
       } else {
@@ -712,10 +780,12 @@ export function execShellCommand({
         try {
           descendants = await probeShellDescendants({
             pid: child.pid,
-            stdioHeld: rootExitAtMs > 0 && (Date.now() - rootExitAtMs) >= STDIO_HELD_AFTER_EXIT_MS,
+            stdioHeld: rootExitAtMs > 0 && Date.now() - rootExitAtMs >= STDIO_HELD_AFTER_EXIT_MS,
           });
           if (descendants) descendants.taskId = _foregroundRecordId;
-        } catch { descendants = null; }
+        } catch {
+          descendants = null;
+        }
       }
       resolveResult(
         new ExecResult({
@@ -736,7 +806,7 @@ export function execShellCommand({
           failurePhase,
           failureReason,
           descendants,
-        }),
+        })
       );
     };
 
@@ -792,9 +862,15 @@ export function execShellCommand({
       autoBackgrounded = true;
       // The foreground capture is over; stop the local watchdogs/timers so
       // they cannot treeKill the now-promoted child.
-      if (timer) { clearTimeout(timer); timer = null; }
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
       _clearProgressTimer();
-      if (autoBgTimer) { clearTimeout(autoBgTimer); autoBgTimer = null; }
+      if (autoBgTimer) {
+        clearTimeout(autoBgTimer);
+        autoBgTimer = null;
+      }
       // Keep the abort handler ATTACHED through the promotion window. A user
       // cancel racing in after promotion starts must still bring the promoted
       // child down — the handler's treeKill(child) does exactly that (settle()
@@ -803,7 +879,9 @@ export function execShellCommand({
       // settle() or on the promotion-failure fallback below.
       // Every subsequent stdout/stderr chunk must hit disk — the call is
       // about to resolve and nobody will drain the in-memory buffers again.
-      try { taskOutput.forceSpill(); } catch {}
+      try {
+        taskOutput.forceSpill();
+      } catch {}
       // The foreground sizeWatchdog was cleared above; the output cap now
       // travels with the promoted job — the shell-job watcher arms a periodic
       // refreshShellJob tick that enforces SHELL_JOB_OUTPUT_DISK_CAP against the
@@ -816,11 +894,12 @@ export function execShellCommand({
       // the foreground marker first so the command is never counted twice.
       _clearForegroundRecord();
       const elapsedMs = _elapsedSinceStart();
-      const remainingBackgroundTimeoutMs = reason === 'timeout'
-        ? promotedTimeoutMs
-        : (backgroundDeadlineMs > 0
-          ? Math.max(1, backgroundDeadlineMs - elapsedMs)
-          : 0);
+      const remainingBackgroundTimeoutMs =
+        reason === 'timeout'
+          ? promotedTimeoutMs
+          : backgroundDeadlineMs > 0
+            ? Math.max(1, backgroundDeadlineMs - elapsedMs)
+            : 0;
       let promotionFailure = '';
       const _tryPromote = async () => {
         try {
@@ -873,9 +952,11 @@ export function execShellCommand({
           // Keep the stable cause tag first (trace classifiers match on it)
           // and attach the captured reason so the next occurrence is
           // diagnosable from the transcript alone.
-          _treeKillForceSettle(promotionFailure
-            ? `background-promotion-failed (${promotionFailure.slice(0, 120)})`
-            : 'background-promotion-failed');
+          _treeKillForceSettle(
+            promotionFailure
+              ? `background-promotion-failed (${promotionFailure.slice(0, 120)})`
+              : 'background-promotion-failed'
+          );
         }
         return;
       }
@@ -888,17 +969,25 @@ export function execShellCommand({
           await promotedLease.detachDependency?.();
           attachShellJobResourceLease(jobId, promotedLease);
         } catch (error) {
-          try { await promotedLease.release(); } catch {}
+          try {
+            await promotedLease.release();
+          } catch {}
           throw error;
         }
       }
       // Snapshot the partial output captured so far for the immediate result.
       let stdout = '';
       let stderr = '';
-      try { stdout = await taskOutput.getStdout(); }
-      catch (err) { taskOutput.writeError = taskOutput.writeError || err; }
-      try { stderr = await taskOutput.getStderr(); }
-      catch (err) { taskOutput.writeError = taskOutput.writeError || err; }
+      try {
+        stdout = await taskOutput.getStdout();
+      } catch (err) {
+        taskOutput.writeError = taskOutput.writeError || err;
+      }
+      try {
+        stderr = await taskOutput.getStderr();
+      } catch (err) {
+        taskOutput.writeError = taskOutput.writeError || err;
+      }
       // Re-check after the awaited capture reads: cancellation can race after
       // promotion commits. Never report that cancelled process as a successful
       // still-running background task.
@@ -906,29 +995,34 @@ export function execShellCommand({
       // by design (the user typed a new message), so this guard must not undo
       // the very transition it was asked to perform. A plain cancellation still
       // reverts promotion and kills.
-      if (abortSignal && abortSignal.aborted
-        && !(reason === 'interrupt' && _abortReasonIsInterrupt(abortSignal))) {
+      if (abortSignal && abortSignal.aborted && !(reason === 'interrupt' && _abortReasonIsInterrupt(abortSignal))) {
         killed = true;
         killCause = 'cancellation';
-        try { killShellJob(jobId); } catch {}
-        try { treeKill(child); } catch {}
-        resolveResult(new ExecResult({
-          stdout,
-          stderr,
-          exitCode: null,
-          signal: child.signalCode || null,
-          timedOut: false,
-          killed: true,
-          killCause,
-          stdoutPath,
-          stdoutFileSize: taskOutput.stdoutFileSize,
-          stderrPath: taskOutput.spilled ? taskOutput.stderrPath : null,
-          stderrFileSize: taskOutput.stderrFileSize,
-          taskId,
-          partialOutput: true,
-          outputCaptureError: taskOutput.writeError,
-          backgrounded: false,
-        }));
+        try {
+          killShellJob(jobId);
+        } catch {}
+        try {
+          treeKill(child);
+        } catch {}
+        resolveResult(
+          new ExecResult({
+            stdout,
+            stderr,
+            exitCode: null,
+            signal: child.signalCode || null,
+            timedOut: false,
+            killed: true,
+            killCause,
+            stdoutPath,
+            stdoutFileSize: taskOutput.stdoutFileSize,
+            stderrPath: taskOutput.spilled ? taskOutput.stderrPath : null,
+            stderrFileSize: taskOutput.stderrFileSize,
+            taskId,
+            partialOutput: true,
+            outputCaptureError: taskOutput.writeError,
+            backgrounded: false,
+          })
+        );
         return;
       }
       // Completed-during-promotion race: the child
@@ -940,22 +1034,24 @@ export function execShellCommand({
       // job detail off 'running'.
       if (child.exitCode != null || child.signalCode != null) {
         detachAbortHandler();
-        resolveResult(new ExecResult({
-          stdout,
-          stderr,
-          exitCode: child.exitCode,
-          signal: child.signalCode || null,
-          timedOut: false,
-          killed: false,
-          stdoutPath,
-          stdoutFileSize: taskOutput.stdoutFileSize,
-          stderrPath: taskOutput.spilled ? taskOutput.stderrPath : null,
-          stderrFileSize: taskOutput.stderrFileSize,
-          taskId,
-          partialOutput: false,
-          outputCaptureError: taskOutput.writeError,
-          backgrounded: false,
-        }));
+        resolveResult(
+          new ExecResult({
+            stdout,
+            stderr,
+            exitCode: child.exitCode,
+            signal: child.signalCode || null,
+            timedOut: false,
+            killed: false,
+            stdoutPath,
+            stdoutFileSize: taskOutput.stdoutFileSize,
+            stderrPath: taskOutput.spilled ? taskOutput.stderrPath : null,
+            stderrFileSize: taskOutput.stderrFileSize,
+            taskId,
+            partialOutput: false,
+            outputCaptureError: taskOutput.writeError,
+            backgrounded: false,
+          })
+        );
         return;
       }
       // The promoted job now owns cancellation through task control. Retaining
@@ -963,9 +1059,8 @@ export function execShellCommand({
       // frame alive and could later kill an unrelated, already-returned job.
       detachAbortHandler();
       const secs = Math.max(0, Math.round(_elapsedSinceStart() / 1000));
-      const _verb = reason === 'timeout'
-        ? `moved to background at timeout after ${secs}s`
-        : `auto-backgrounded after ${secs}s`;
+      const _verb =
+        reason === 'timeout' ? `moved to background at timeout after ${secs}s` : `auto-backgrounded after ${secs}s`;
       resolveResult(
         new ExecResult({
           stdout,
@@ -987,7 +1082,7 @@ export function execShellCommand({
           backgroundMessage: jobId
             ? `${_verb}; still running. Completion is automatic; unless periodic task reports were requested, continue independent work or end the turn. When the next step needs the result or the next report interval, call task wait instead of polling task read: it returns the moment the task settles, or hands back the current output at its ceiling so you can re-decide.`
             : `${_verb}; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.`,
-        }),
+        })
       );
     };
     const fireAutoBackground = (options) => {
@@ -1001,29 +1096,39 @@ export function execShellCommand({
         killed = true;
         killCause = 'resource-cleanup-error';
         detachAbortHandler();
-        try { if (autoBackgroundJobId) killShellJob(autoBackgroundJobId); } catch {}
-        try { treeKill(child); } catch {}
+        try {
+          if (autoBackgroundJobId) killShellJob(autoBackgroundJobId);
+        } catch {}
+        try {
+          treeKill(child);
+        } catch {}
         // settle() is inert from here (settled), so the cleanup it owns has to
         // run in this branch: the reported result carries no spill paths, so
         // the capture files are unreferenced garbage — drop them, close their
         // descriptors and hand back any lease the failed handoff still holds.
-        try { taskOutput.deleteFiles(); } catch { /* best-effort */ }
+        try {
+          taskOutput.deleteFiles();
+        } catch {
+          /* best-effort */
+        }
         void releaseResourceLease();
-        resolveResult(new ExecResult({
-          stdout: '',
-          stderr: `resource cleanup failed during background promotion: ${error?.message || error}`,
-          exitCode: 1,
-          signal: child?.signalCode || null,
-          timedOut: false,
-          killed: true,
-          killCause,
-          taskId,
-          partialOutput: true,
-          outputCaptureError: taskOutput.writeError,
-          failurePhase: 'tool',
-          failureReason: 'resource cleanup failed',
-          backgrounded: false,
-        }));
+        resolveResult(
+          new ExecResult({
+            stdout: '',
+            stderr: `resource cleanup failed during background promotion: ${error?.message || error}`,
+            exitCode: 1,
+            signal: child?.signalCode || null,
+            timedOut: false,
+            killed: true,
+            killCause,
+            taskId,
+            partialOutput: true,
+            outputCaptureError: taskOutput.writeError,
+            failurePhase: 'tool',
+            failureReason: 'resource cleanup failed',
+            backgrounded: false,
+          })
+        );
       });
     };
 
@@ -1059,7 +1164,9 @@ export function execShellCommand({
       progressTimer = setInterval(() => {
         if (settled || autoBackgrounded) return;
         const secs = Math.round(_elapsedSinceStart() / 1000);
-        try { onProgress(`running ${secs}s`); } catch {}
+        try {
+          onProgress(`running ${secs}s`);
+        } catch {}
       }, 2000);
       if (progressTimer.unref) progressTimer.unref();
     }
@@ -1075,7 +1182,9 @@ export function execShellCommand({
             _lastOutputTail = tail;
             onOutputTail(tail);
           }
-        } catch { /* best effort */ }
+        } catch {
+          /* best effort */
+        }
       }, 1000);
       if (outputTailTimer.unref) outputTailTimer.unref();
     }
@@ -1087,7 +1196,9 @@ export function execShellCommand({
       autoBackgroundMs > 0 &&
       (timeoutMs <= 0 || autoBackgroundMs < timeoutMs)
     ) {
-      autoBgTimer = setTimeout(() => { fireAutoBackground(); }, autoBackgroundMs);
+      autoBgTimer = setTimeout(() => {
+        fireAutoBackground();
+      }, autoBackgroundMs);
       if (autoBgTimer.unref) autoBgTimer.unref();
     }
 

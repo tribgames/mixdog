@@ -5,6 +5,6 @@
 type ProcessLike = { env: Record<string, string | undefined>; stdout?: undefined; platform?: string };
 const globalRef = globalThis as { process?: ProcessLike };
 if (!globalRef.process) {
-  globalRef.process = { env: {}, stdout: undefined, platform: "win32" };
+  globalRef.process = { env: {}, stdout: undefined, platform: 'win32' };
 }
 export {};

@@ -28,8 +28,8 @@ export function resolveAgentSpawnPreset(config, args = {}) {
   const agentName = normalizeAgentName(args.agent);
   const agentRoute = !clean(args.preset)
     ? configuredAgentRouteCandidates(config, agentName)
-      .map((candidate) => normalizeAgentRoute(candidate))
-      .find(Boolean) || null
+        .map((candidate) => normalizeAgentRoute(candidate))
+        .find(Boolean) || null
     : null;
   if (agentRoute) {
     return {
@@ -47,9 +47,7 @@ export function resolveAgentSpawnPreset(config, args = {}) {
     };
   }
 
-  const mainPreset = !clean(args.preset)
-    ? findPreset(config, config?.default)
-    : null;
+  const mainPreset = !clean(args.preset) ? findPreset(config, config?.default) : null;
   if (normalizeAgentRoute(mainPreset)) {
     return { presetName: mainPreset.id || mainPreset.name, preset: mainPreset };
   }

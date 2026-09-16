@@ -6,23 +6,35 @@ export function sessionMessageText(content) {
   if (typeof content === 'string') return content;
   const parts = Array.isArray(content)
     ? content
-    : (content && typeof content === 'object' && Array.isArray(content.content) ? content.content : null);
+    : content && typeof content === 'object' && Array.isArray(content.content)
+      ? content.content
+      : null;
   if (parts) {
-    return parts.map((part) => {
-      if (typeof part === 'string') return part;
-      return part?.text ?? '';
-    }).filter(Boolean).join('\n');
+    return parts
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        return part?.text ?? '';
+      })
+      .filter(Boolean)
+      .join('\n');
   }
   if (typeof content === 'object' && typeof content.text === 'string') return content.text;
-  try { return JSON.stringify(content); } catch { return String(content); }
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content);
+  }
 }
 
 export function messageContextText(message) {
   if (!message || typeof message !== 'object') return '';
   let text = sessionMessageText(message.content);
   if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
-    try { text += `\n${JSON.stringify(message.toolCalls)}`; }
-    catch { text += `\n[${message.toolCalls.length} tool calls]`; }
+    try {
+      text += `\n${JSON.stringify(message.toolCalls)}`;
+    } catch {
+      text += `\n[${message.toolCalls.length} tool calls]`;
+    }
   }
   if (message.role === 'tool' && message.toolCallId) text += `\n${message.toolCallId}`;
   return text;
@@ -73,13 +85,15 @@ function isSyntheticSessionText(text) {
 
 export function isSessionPreviewNoise(text) {
   const value = String(text || '').trim();
-  return !value
-    || isSyntheticSessionText(value)
-    || !cleanSessionPreview(value)
-    || isLateToolAnnouncement(value)
-    || /^#\s*permission\b/i.test(value)
-    || /^permission:\s*/i.test(value)
-    || /^cwd:\s*/i.test(value);
+  return (
+    !value ||
+    isSyntheticSessionText(value) ||
+    !cleanSessionPreview(value) ||
+    isLateToolAnnouncement(value) ||
+    /^#\s*permission\b/i.test(value) ||
+    /^permission:\s*/i.test(value) ||
+    /^cwd:\s*/i.test(value)
+  );
 }
 
 export function cleanSessionPreview(text, max = 160) {
@@ -101,20 +115,16 @@ export const LATE_TOOL_ANNOUNCEMENT_SENTINEL = 'connected after this session sta
 
 export function isLateToolAnnouncement(text) {
   const value = String(text || '');
-  return value.includes(LATE_TOOL_ANNOUNCEMENT_SENTINEL)
-    && /<available-deferred-tools>/i.test(value);
+  return value.includes(LATE_TOOL_ANNOUNCEMENT_SENTINEL) && /<available-deferred-tools>/i.test(value);
 }
 
 export { hasOwn } from '../runtime/shared/object.mjs';
 
 export { clean };
 
-
 export function toolResponseText(result) {
   if (result && typeof result === 'object' && Array.isArray(result.content)) {
-    return result.content
-      .map((part) => (part?.type === 'text' ? part.text || '' : JSON.stringify(part)))
-      .join('\n');
+    return result.content.map((part) => (part?.type === 'text' ? part.text || '' : JSON.stringify(part))).join('\n');
   }
   if (typeof result === 'string') return result;
   return JSON.stringify(result, null, 2);
@@ -128,7 +138,13 @@ export function isEmptyRecallText(value) {
 export function currentSessionRecallRows(session, query, { limit = 10 } = {}) {
   const messages = Array.isArray(session?.messages) ? session.messages : [];
   if (!messages.length) return '(no results)';
-  const terms = [...new Set(String(query || '').toLowerCase().match(/[\p{L}\p{N}_./:-]{2,}/gu) || [])]
+  const terms = [
+    ...new Set(
+      String(query || '')
+        .toLowerCase()
+        .match(/[\p{L}\p{N}_./:-]{2,}/gu) || []
+    ),
+  ]
     .filter(Boolean)
     .slice(0, 16);
   const max = Math.max(1, Math.min(100, Number(limit) || 10));
@@ -163,6 +179,8 @@ export function sessionHasConversationMessages(activeSession) {
 // permanent unless the user explicitly deletes it. liveTurnMessages covers an
 // in-flight first-turn prompt not yet committed to session.messages.
 export function tombstoneOnClose(activeSession) {
-  return !sessionHasConversationMessages(activeSession)
-    && !sessionHasConversationMessages({ messages: activeSession?.liveTurnMessages });
+  return (
+    !sessionHasConversationMessages(activeSession) &&
+    !sessionHasConversationMessages({ messages: activeSession?.liveTurnMessages })
+  );
 }

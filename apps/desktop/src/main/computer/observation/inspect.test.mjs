@@ -21,12 +21,21 @@ test('verification propagates provider coverage instead of treating missing text
     [[{ name: 'ready' }], true, 'satisfied'],
     [[{ name: 'error' }], false, 'unsatisfied'],
   ]) {
-    const result = JSON.parse((await inspection({
-      exists: true, elements, text_complete,
-    }).verifyWindowState({
-      action: 'verify', window_id: 'hwnd:0x1', expect: [{ absent: 'error' }],
-      timeout_ms: 0, stable_samples: 1,
-    })).text);
+    const result = JSON.parse(
+      (
+        await inspection({
+          exists: true,
+          elements,
+          text_complete,
+        }).verifyWindowState({
+          action: 'verify',
+          window_id: 'hwnd:0x1',
+          expect: [{ absent: 'error' }],
+          timeout_ms: 0,
+          stable_samples: 1,
+        })
+      ).text
+    );
     assert.equal(result.decision, expected);
     assert.equal(result.ok, expected === 'satisfied');
   }

@@ -142,13 +142,13 @@ export function findOpenFenceStart(text, streamKey = null) {
   const key = streamKey == null || streamKey === '' ? null : String(streamKey);
   const cached = key ? openFenceScanByStreamKey.get(key) : null;
   if (cached?.text === value) return cached.result;
-  const scanned = cached && value.startsWith(cached.text)
-    ? scanOpenFence(value, cached.checkpointIndex, cached.openBeforeCheckpoint)
-    : scanOpenFence(value);
+  const scanned =
+    cached && value.startsWith(cached.text)
+      ? scanOpenFence(value, cached.checkpointIndex, cached.openBeforeCheckpoint)
+      : scanOpenFence(value);
   // Only fast-path unambiguously top-level (column-0) fences.
-  const result = !scanned.open || scanned.open.indent !== 0
-    ? null
-    : { index: scanned.open.index, lang: scanned.open.lang };
+  const result =
+    !scanned.open || scanned.open.indent !== 0 ? null : { index: scanned.open.index, lang: scanned.open.lang };
   if (key) touchOpenFenceScan(key, { text: value, ...scanned, result });
   return result;
 }

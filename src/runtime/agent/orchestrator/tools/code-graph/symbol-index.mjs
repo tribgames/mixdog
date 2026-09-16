@@ -9,10 +9,7 @@
 // matchers and the JS identifier re-tokenizer that used to stand in for them
 // are gone — they disagreed with the extractor, so an answer's content depended
 // on which of the two produced it.
-import {
-  _langUsesDollarInIdentifiers,
-  _langAllowsBangQuestionSuffix,
-} from './lang-predicates.mjs';
+import { _langUsesDollarInIdentifiers, _langAllowsBangQuestionSuffix } from './lang-predicates.mjs';
 import { EXTRACTION_SYMBOL_LANGS } from './constants.mjs';
 import { _getSourceTextForNode } from './source-access.mjs';
 import { _graphRel } from './source-access.mjs';
@@ -64,7 +61,10 @@ export function _lookupCandidateNodes(graph, symbol, language = null) {
     const tokens = _getTokenSymbolsForNode(node);
     if (tokens?.includes(symbol)) candidates.push(node);
   }
-  graph._symbolTokenIndex?.set(cacheKey, candidates.map((n) => n.rel));
+  graph._symbolTokenIndex?.set(
+    cacheKey,
+    candidates.map((n) => n.rel)
+  );
   return candidates;
 }
 
@@ -112,7 +112,9 @@ function _symbolKindOf(symbol) {
 }
 
 function _rowField(value) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim();
+  return String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export function _symbolRowLabel(symbol) {
@@ -138,16 +140,20 @@ export function _symbolRowLabel(symbol) {
 // and read like the file's complete structure. The marker sits at column 0,
 // so it can never be mistaken for a nested row.
 export function _symbolOutlineRows(node, { depth = null, cap = 0 } = {}) {
-  const symbols = (Array.isArray(node?.symbols) ? node.symbols : [])
-    .filter((symbol) => symbol?.name && _symbolLine(symbol));
+  const symbols = (Array.isArray(node?.symbols) ? node.symbols : []).filter(
+    (symbol) => symbol?.name && _symbolLine(symbol)
+  );
   if (!symbols.length) return [];
   const parentOf = _symbolParentIndex(node);
   const maxDepth = depth == null ? null : Math.max(0, Math.min(5, Math.floor(Number(depth) || 0)));
   const rows = symbols
     .map((symbol) => ({ symbol, level: _symbolLevel(node, symbol, parentOf) }))
     .filter(({ level }) => maxDepth == null || level <= maxDepth)
-    .sort((a, b) => (_symbolLine(a.symbol) - _symbolLine(b.symbol))
-      || ((Number(a.symbol.startCol) || 0) - (Number(b.symbol.startCol) || 0)))
+    .sort(
+      (a, b) =>
+        _symbolLine(a.symbol) - _symbolLine(b.symbol) ||
+        (Number(a.symbol.startCol) || 0) - (Number(b.symbol.startCol) || 0)
+    )
     .map(({ symbol, level }) => `${'  '.repeat(level)}${_symbolRowLabel(symbol)}`);
   if (cap > 0 && rows.length > cap) {
     return [...rows.slice(0, cap), `… +${rows.length - cap} more (mode:symbols for the full outline)`];
@@ -180,9 +186,7 @@ export function _graphExpectsNativeSymbols(graph) {
 // cannot inject an unbounded result — mirrors the find_imports/find_dependents
 // cap.
 export function _capGraphList(arr, cap = 200) {
-  return arr.length > cap
-    ? [...arr.slice(0, cap), `[truncated — showing first ${cap} of ${arr.length}]`]
-    : arr;
+  return arr.length > cap ? [...arr.slice(0, cap), `[truncated — showing first ${cap} of ${arr.length}]`] : arr;
 }
 
 // Per-file overview. The outline is the native record and nothing else: a file
@@ -194,16 +198,8 @@ export function _buildExplainerFileSummary(node, graph, cwd, { depth = 1 } = {})
   const importsAll = Array.isArray(node?.resolvedImports) ? node.resolvedImports.map((p) => _graphRel(p, cwd)) : [];
   const imports = importsAll.slice(0, 8);
   const outline = _symbolOutlineRows(node, { depth, cap: 120 });
-  const sourceHead = _getSourceTextForNode(graph, node)
-    .split(/\r?\n/)
-    .slice(0, 6)
-    .join('\n')
-    .trim()
-    .slice(0, 420);
-  const parts = [
-    `file: ${node.rel}`,
-    `language: ${node.lang}`,
-  ];
+  const sourceHead = _getSourceTextForNode(graph, node).split(/\r?\n/).slice(0, 6).join('\n').trim().slice(0, 420);
+  const parts = [`file: ${node.rel}`, `language: ${node.lang}`];
   if (topTypes.length) parts.push(`top-level: ${topTypes.join(', ')}`);
   if (outline.length) parts.push(`outline:\n${outline.join('\n')}`);
   if (imports.length) {
